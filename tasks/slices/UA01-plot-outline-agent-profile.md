@@ -11,9 +11,9 @@
 作者从真实工作台用自然语言请求规划章节大纲时，系统应快速 ack 一个 bounded AgentRun，并在 run 内完成：
 
 1. 组装当前作品上下文，并记录为 AgentObservation；
-2. 由 `next_step_planner` 基于 observations 选择 `plot_outline` 工具 step；
+2. 由 `AgenticPlanDraftPlanner` 起草包含 `context_assemble` 与 `plot_outline` 的 per-run AgentPlan，runtime 按 plan cursor 机械推进到 `plot_outline` 工具 step；
 3. 在工具 step 内制定单动作 MicroPlan，重新经过 `ExecutionOrchestrator`，再执行 `plot_outline` 生成 tentative `outline_draft`；
-4. 由 `next_step_planner` 基于 artifact observation 给出 completion decision，并汇总结果给作者。
+4. 由机械完成态汇总结果给作者。
 
 未采纳前不得写章节主档案或 reading projection。
 
@@ -24,14 +24,14 @@
 - Boundary: 切过 `novel_application` / `novel_agent` profile registry / `frontend` acceptance driver / `quality`；不改 adoption materialization，不改 plot_outline provider contract。
 - Consumer: `WorkspaceChat` 的普通作者输入；后续消费者是既有 outline adoption/read-model。
 - Proof: application tests + real Tauri `agent-plot-outline-with-context`。
-- Acceptance Driver: 外部自动化从真实 Tauri 工作台输入“规划 12 章大纲”，验证 fast ack、观察驱动 next-step planner loop、`plot_outline` re-gate、tentative `outline_draft`、未采纳不写阅读投影。
+- Acceptance Driver: 外部自动化从真实 Tauri 工作台输入“规划 12 章大纲”，验证 fast ack、model-drafted AgentPlan、mechanical cursor 推进、`plot_outline` re-gate、tentative `outline_draft`、未采纳不写阅读投影。
 
 ## 3. 任务
 
 | # | 任务 | 状态 | 说明 |
 |---|---|---|---|
 | T1 | Profile 任务设计和 scenario 登记 | done | 本文件 + quality manifest 已登记。 |
-| T2 | `plot_outline_with_context_v1` runtime | done | 已从固定 steps workflow 纯化为 context observation → next-step planner 选择工具 step → MicroPlan/Orchestrator gate → artifact observation → completion decision。 |
+| T2 | `plot_outline_with_context_v1` runtime | done | 已从固定 steps / observation-led next-step workflow 迁到 model-drafted AgentPlan：context observation → mechanical cursor 推进到 `plot_outline` → MicroPlan/Orchestrator gate → tentative outline draft → completion。 |
 | T3 | 测试与真实 Tauri driver/verifier | done | application test + `agent-plot-outline-with-context` 已通过。 |
 | T4 | 验证与台账 | done | 全量回归、task_done 与 static scan 已收口；gitleaks 保留既有 accepted_risk。 |
 
@@ -49,5 +49,5 @@
   - `pending_artifact_type=outline_draft`
   - `consumed_steps=2`
   - `consumed_tool_calls=1`
-  - `consumed_provider_calls=4`
-  - `outline_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate`
+  - `consumed_provider_calls=3`
+  - `outline_tool_step_followed_model_drafted_plan_and_reentered_orchestrator_gate`

@@ -8,6 +8,9 @@ defmodule NovelDomain.AgentPlan do
 
   @type step_kind :: :explore | :act
   @type step_status :: :pending | :active | :done | :skipped
+  @type write_intent :: :none | :tentative
+  @type risk_hint :: :low | :medium | :high
+  @type authoring_intent :: :none | :continuation | :rewrite
 
   @type plan_step :: %{
           step_id: String.t(),
@@ -15,7 +18,13 @@ defmodule NovelDomain.AgentPlan do
           status: step_status(),
           description: String.t(),
           success_criteria: [String.t()],
-          depends_on: [String.t()]
+          depends_on: [String.t()],
+          target_tool_ref: String.t() | nil,
+          write_intent: write_intent(),
+          risk_hint: risk_hint(),
+          authoring_intent: authoring_intent() | nil,
+          target_chapter: String.t() | nil,
+          requested_chapter_raw: String.t() | nil
         }
 
   @type stop_condition ::
@@ -112,7 +121,13 @@ defmodule NovelDomain.AgentPlan do
       status: normalize_step_status(value(item, :status)),
       description: value(item, :description) |> to_string(),
       success_criteria: normalize_strings(value(item, :success_criteria)),
-      depends_on: normalize_strings(value(item, :depends_on))
+      depends_on: normalize_strings(value(item, :depends_on)),
+      target_tool_ref: normalize_optional_string(value(item, :target_tool_ref)),
+      write_intent: normalize_write_intent(value(item, :write_intent)),
+      risk_hint: normalize_risk_hint(value(item, :risk_hint)),
+      authoring_intent: normalize_authoring_intent(value(item, :authoring_intent)),
+      target_chapter: normalize_optional_string(value(item, :target_chapter)),
+      requested_chapter_raw: normalize_optional_string(value(item, :requested_chapter_raw))
     }
   end
 
@@ -123,7 +138,13 @@ defmodule NovelDomain.AgentPlan do
       status: :pending,
       description: "",
       success_criteria: [],
-      depends_on: []
+      depends_on: [],
+      target_tool_ref: nil,
+      write_intent: :none,
+      risk_hint: :low,
+      authoring_intent: nil,
+      target_chapter: nil,
+      requested_chapter_raw: nil
     }
 
   defp normalize_step_kind(value) when value in [:explore, :act], do: value
@@ -135,6 +156,21 @@ defmodule NovelDomain.AgentPlan do
   defp normalize_step_status("done"), do: :done
   defp normalize_step_status("skipped"), do: :skipped
   defp normalize_step_status(_), do: :pending
+
+  defp normalize_write_intent(value) when value in [:none, :tentative], do: value
+  defp normalize_write_intent("tentative"), do: :tentative
+  defp normalize_write_intent(_), do: :none
+
+  defp normalize_risk_hint(value) when value in [:low, :medium, :high], do: value
+  defp normalize_risk_hint("medium"), do: :medium
+  defp normalize_risk_hint("high"), do: :high
+  defp normalize_risk_hint(_), do: :low
+
+  defp normalize_authoring_intent(value) when value in [:none, :continuation, :rewrite], do: value
+  defp normalize_authoring_intent("none"), do: :none
+  defp normalize_authoring_intent("continuation"), do: :continuation
+  defp normalize_authoring_intent("rewrite"), do: :rewrite
+  defp normalize_authoring_intent(_), do: nil
 
   defp normalize_stop_conditions(items) when is_list(items),
     do: Enum.map(items, &normalize_stop_condition/1)
@@ -153,6 +189,18 @@ defmodule NovelDomain.AgentPlan do
   end
 
   defp normalize_strings(_), do: []
+
+  defp normalize_optional_string(nil), do: nil
+
+  defp normalize_optional_string(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> nil
+      text -> text
+    end
+  end
 
   defp validate_steps(errors, [_ | _] = steps) do
     if Enum.all?(steps, &(present?(&1.step_id) and present?(&1.description))) do

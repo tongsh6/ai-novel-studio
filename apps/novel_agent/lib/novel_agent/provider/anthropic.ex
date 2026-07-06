@@ -48,12 +48,17 @@ defmodule NovelAgent.Provider.Anthropic do
 
   @impl true
   def complete(%__MODULE__{} = state, _model, prompt, params)
-      when is_binary(prompt) or is_list(prompt) do
+      when is_binary(prompt) or is_list(prompt) or is_map(prompt) do
     start_time = System.monotonic_time(:millisecond)
     {system_prompt, messages} = anthropic_messages(prompt)
     body = %{model: state.model, max_tokens: 4096, messages: messages}
     body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
-    body = HTTP.apply_params(body, params)
+
+    body =
+      body
+      |> HTTP.apply_params(params)
+      |> NovelAgent.Provider.put_anthropic_tools(prompt)
+
     url = Path.join(@api_base, "messages")
     headers = [{"x-api-key", state.api_key}, {"anthropic-version", @api_version}]
 
@@ -77,19 +82,24 @@ defmodule NovelAgent.Provider.Anthropic do
 
   @impl true
   def execute(%__MODULE__{api_key: key} = state, _model, prompt, params, ctx)
-      when is_binary(key) and key != "" and (is_binary(prompt) or is_list(prompt)) do
-    {system_prompt, messages} = anthropic_messages(prompt)
-    body = %{model: state.model, max_tokens: 4096, messages: messages, stream: true}
-    body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
-    body = HTTP.apply_params(body, params)
-    url = Path.join(@api_base, "messages")
+      when is_binary(key) and key != "" and
+             (is_binary(prompt) or is_list(prompt) or is_map(prompt)) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      execute_tool_call(state, prompt, params, ctx)
+    else
+      {system_prompt, messages} = anthropic_messages(prompt)
+      body = %{model: state.model, max_tokens: 4096, messages: messages, stream: true}
+      body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+      body = HTTP.apply_params(body, params)
+      url = Path.join(@api_base, "messages")
 
-    request_opts = [
-      headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
-      receive_timeout: state.timeout
-    ]
+      request_opts = [
+        headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
+        receive_timeout: state.timeout
+      ]
 
-    AnthropicStream.execute(state, url, body, request_opts, ctx)
+      AnthropicStream.execute(state, url, body, request_opts, ctx)
+    end
   end
 
   def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
@@ -125,10 +135,20 @@ defmodule NovelAgent.Provider.Anthropic do
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
+  defp execute_tool_call(state, prompt, params, ctx) do
+    initial_events = AdapterExecution.initial_events(ctx)
+    AdapterExecution.emit_events(ctx, initial_events, :running)
+
+    state
+    |> complete(nil, prompt, params)
+    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
+  end
+
   # ── response handlers ────────────────────────
 
   defp handle_success(state, resp_body, start_time) do
-    content = get_in(resp_body, ["content", Access.at(0), "text"]) || ""
+    content = anthropic_text_content(resp_body)
+    tool_calls = NovelAgent.Provider.extract_anthropic_tool_calls(resp_body)
     latency = System.monotonic_time(:millisecond) - start_time
 
     usage = Usage.from_anthropic_response(resp_body, state.model, latency)
@@ -137,9 +157,18 @@ defmodule NovelAgent.Provider.Anthropic do
       "[Anthropic] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens"
     )
 
-    {:ok, Result.new(content, usage),
+    {:ok, Result.new(content, usage, tool_calls: tool_calls),
      %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
   end
+
+  defp anthropic_text_content(%{"content" => blocks}) when is_list(blocks) do
+    Enum.map_join(blocks, "", fn
+      %{"type" => "text", "text" => text} when is_binary(text) -> text
+      _block -> ""
+    end)
+  end
+
+  defp anthropic_text_content(_resp_body), do: ""
 
   defp handle_http_error(status, message, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time

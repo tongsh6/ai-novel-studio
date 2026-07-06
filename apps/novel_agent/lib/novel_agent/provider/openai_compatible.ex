@@ -134,17 +134,12 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   @spec complete(meta(), struct(), String.t() | nil, term(), term()) ::
           {:ok, Result.t()} | {:error, map()}
   def complete(meta, %{api_key: key} = state, _model, prompt, params)
-      when (is_binary(prompt) or is_list(prompt)) and is_binary(key) and key != "" do
+      when is_binary(key) and key != "" do
     start_time = System.monotonic_time(:millisecond)
 
     body =
-      %{
-        model: state.model,
-        messages: NovelAgent.Provider.normalize_messages(prompt),
-        stream: false
-      }
-      |> HTTP.apply_params(params)
-      |> maybe_json_mode(state.json_mode)
+      state
+      |> request_body(prompt, params, false)
       |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
 
     url = endpoint_url(state.endpoint)
@@ -176,22 +171,22 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   @spec execute(meta(), struct(), String.t() | nil, term(), term(), AdapterExecution.context()) ::
           AdapterExecution.execution_result()
   def execute(meta, %{api_key: key} = state, _model, prompt, params, ctx)
-      when (is_binary(prompt) or is_list(prompt)) and is_binary(key) and key != "" do
-    body =
-      %{
-        model: state.model,
-        messages: NovelAgent.Provider.normalize_messages(prompt),
-        stream: true
-      }
-      |> HTTP.apply_params(params)
-      |> maybe_json_mode(state.json_mode)
-      |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
+      when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and is_binary(key) and
+             key != "" do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      execute_tool_call(meta, state, key, prompt, params, ctx)
+    else
+      body =
+        state
+        |> request_body(prompt, params, true)
+        |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
 
-    url = endpoint_url(state.endpoint)
-    headers = [{"authorization", "Bearer #{key}"}]
-    request_opts = [headers: headers, receive_timeout: state.timeout]
+      url = endpoint_url(state.endpoint)
+      headers = [{"authorization", "Bearer #{key}"}]
+      request_opts = [headers: headers, receive_timeout: state.timeout]
 
-    OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
+      OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
+    end
   end
 
   def execute(meta, _state, _model, _prompt, _params, ctx) do
@@ -255,14 +250,32 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     |> Kernel.<>("/chat/completions")
   end
 
+  defp request_body(state, prompt, params, stream?) do
+    %{
+      model: state.model,
+      messages: NovelAgent.Provider.normalize_messages(prompt),
+      stream: stream?
+    }
+    |> HTTP.apply_params(params)
+    |> maybe_json_mode(state.json_mode, prompt)
+    |> NovelAgent.Provider.put_openai_tools(prompt)
+  end
+
   defp models_url(endpoint) do
     endpoint
     |> String.trim_trailing("/")
     |> Kernel.<>("/models")
   end
 
-  defp maybe_json_mode(body, true), do: Map.put(body, :response_format, %{type: "json_object"})
-  defp maybe_json_mode(body, _), do: body
+  defp maybe_json_mode(body, true, prompt) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      body
+    else
+      Map.put(body, :response_format, %{type: "json_object"})
+    end
+  end
+
+  defp maybe_json_mode(body, _enabled, _prompt), do: body
 
   # 仅 supports_thinking 的供应商透传；其余供应商不发送 thinking 字段，避免被拒绝。
   defp maybe_thinking(body, false, _thinking, _effort), do: body
@@ -282,13 +295,48 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
+  defp execute_tool_call(meta, state, key, prompt, params, ctx) do
+    start_time = System.monotonic_time(:millisecond)
+
+    body =
+      state
+      |> request_body(prompt, params, false)
+      |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
+
+    url = endpoint_url(state.endpoint)
+    headers = [{"authorization", "Bearer #{key}"}]
+    post = state.http_fn || (&HTTP.post/3)
+    initial_events = AdapterExecution.initial_events(ctx)
+    AdapterExecution.emit_events(ctx, initial_events, :running)
+
+    result =
+      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
+        {:ok, status, resp_body} when status in 200..299 ->
+          handle_success(meta, state, resp_body, start_time)
+
+        {:error, :http_error, status, message} ->
+          handle_http_error(meta, status, message, start_time)
+
+        {:error, reason, _status, message} ->
+          handle_connection_error(meta, reason, message, start_time)
+      end
+
+    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
+
+    result
+    |> strip_attrs()
+    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
+  end
+
   defp handle_success(meta, state, resp_body, start_time) do
-    content = get_in(resp_body, ["choices", Access.at(0), "message", "content"]) || ""
+    message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}
+    content = Map.get(message, "content") || ""
+    tool_calls = NovelAgent.Provider.extract_openai_tool_calls(message)
     latency = System.monotonic_time(:millisecond) - start_time
     usage = Usage.from_openai_response(resp_body, state.model, latency)
 
-    if is_binary(content) and content != "" do
-      {:ok, Result.new(content, usage),
+    if (is_binary(content) and content != "") or tool_calls != [] do
+      {:ok, Result.new(content, usage, tool_calls: tool_calls),
        %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
     else
       err = UpstreamError.new(:invalid_response, "#{meta.label} 响应内容为空", meta.vendor)

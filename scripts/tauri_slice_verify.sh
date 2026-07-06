@@ -113,6 +113,14 @@ Implemented external UI driver slice ids:
   p1-prose-quality-adoption-boundary
   agent-prose-drafting-with-quality
   agent-conversation-turn
+  agentic-loop-plan-replan-reasoning
+  agentic-loop-no-deviation-direct
+  agent-plan-native-tool-calling-protocol
+  agentic-loop-budget-deviation-replan
+  agentic-loop-tool-failure-replan
+  agentic-loop-quality-deviation-replan
+  agentic-loop-gate-deviation-replan
+  agentic-loop-deterministic-gap-replan
   agent-plot-outline-with-context
   agent-world-building-with-context
   agent-world-building-style-rule-with-context
@@ -269,6 +277,14 @@ is_ua01_acceptance_alias() {
       agent-provider-cancel-honest-boundary | \
       agent-readonly-batch-profile | \
       agent-conversation-turn | \
+      agentic-loop-plan-replan-reasoning | \
+      agentic-loop-no-deviation-direct | \
+      agent-plan-native-tool-calling-protocol | \
+      agentic-loop-budget-deviation-replan | \
+      agentic-loop-tool-failure-replan | \
+      agentic-loop-quality-deviation-replan | \
+      agentic-loop-gate-deviation-replan | \
+      agentic-loop-deterministic-gap-replan | \
       agent-plot-outline-with-context | \
       agent-world-building-with-context | \
       agent-world-building-style-rule-with-context | \
@@ -291,8 +307,8 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au05-discard-author-action" && "$SLICE_ID" != "au06-single-active-confirmation" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "au07-gate-reason-why" && "$SLICE_ID" != "au07-persisted-trace-query" && "$SLICE_ID" != "au07-partial-replay-ui" && "$SLICE_ID" != "au07-trace-query-scope-negative-matrix" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "au07-state-trace-adoption-replay" && "$SLICE_ID" != "au07-behavior-trace-terminal-replay" ]]; then
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-provider-vendor-matrix" && "$SLICE_ID" != "su01-local-secret-file-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "au08-reading-readonly-no-write" && "$SLICE_ID" != "au08-reading-return-context" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-archive-stats-current" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-management-filter-matrix" && "$SLICE_ID" != "au09-memory-list-ux-redesign" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-memory-taxonomy-write-policy" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-character-role-taxonomy-protagonist-policy" && "$SLICE_ID" != "au09-character-candidate-per-item-adoption" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "e2e-01-channel-action-security" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-archive-concurrent-model-run-read-snapshot" && "$SLICE_ID" != "au12-profile-read-failure-degrade" && "$SLICE_ID" != "au12-correction-intent-roundtrip" && "$SLICE_ID" != "au12-work-profile-status-isolation" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "p1-prose-execution-brief" && "$SLICE_ID" != "p1-prose-revision-candidate" && "$SLICE_ID" != "p1-prose-quality-finding-roundtrip" && "$SLICE_ID" != "p1-prose-quality-evaluator-degrade" && "$SLICE_ID" != "p1-prose-quality-adoption-boundary" && "$SLICE_ID" != "agent-prose-drafting-with-quality" && "$SLICE_ID" != "agent-conversation-turn" && "$SLICE_ID" != "ua01-agent-bounded-roster-to-character-design" ]] && ! is_ua01_acceptance_alias "$SLICE_ID"; then
+if [[ "$SLICE_ID" != "au05-discard-author-action" && "$SLICE_ID" != "au06-single-active-confirmation" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "au07-gate-reason-why" && "$SLICE_ID" != "au07-persisted-trace-query" && "$SLICE_ID" != "au07-partial-replay-ui" && "$SLICE_ID" != "au07-trace-query-scope-negative-matrix" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "au07-state-trace-adoption-replay" && "$SLICE_ID" != "au07-behavior-trace-terminal-replay" && "$SLICE_ID" != "agentic-loop-no-deviation-direct" ]]; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-provider-vendor-matrix" && "$SLICE_ID" != "su01-local-secret-file-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "au08-reading-readonly-no-write" && "$SLICE_ID" != "au08-reading-return-context" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-archive-stats-current" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-management-filter-matrix" && "$SLICE_ID" != "au09-memory-list-ux-redesign" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-memory-taxonomy-write-policy" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-character-role-taxonomy-protagonist-policy" && "$SLICE_ID" != "au09-character-candidate-per-item-adoption" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "e2e-01-channel-action-security" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-archive-concurrent-model-run-read-snapshot" && "$SLICE_ID" != "au12-profile-read-failure-degrade" && "$SLICE_ID" != "au12-correction-intent-roundtrip" && "$SLICE_ID" != "au12-work-profile-status-isolation" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "p1-prose-execution-brief" && "$SLICE_ID" != "p1-prose-revision-candidate" && "$SLICE_ID" != "p1-prose-quality-finding-roundtrip" && "$SLICE_ID" != "p1-prose-quality-evaluator-degrade" && "$SLICE_ID" != "p1-prose-quality-adoption-boundary" && "$SLICE_ID" != "agent-prose-drafting-with-quality" && "$SLICE_ID" != "agent-conversation-turn" && "$SLICE_ID" != "agentic-loop-plan-replan-reasoning" && "$SLICE_ID" != "ua01-agent-bounded-roster-to-character-design" ]] && ! is_ua01_acceptance_alias "$SLICE_ID"; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -800,6 +816,30 @@ native_action_description() {
     agent-conversation-turn)
       echo "send plain conversation input from the real workbench -> verify bounded AgentRun fast ack, conversation_turn_v1 profile, final TurnResult, and no tool/write/adoption"
       ;;
+    agentic-loop-plan-replan-reasoning)
+      echo "send a D6 conversation AgentRun from the real workbench -> verify initial short AgentPlan, provider-sourced plan_revised, one replan budget consumed, and completed no-tool TurnResult"
+      ;;
+    agentic-loop-no-deviation-direct)
+      echo "send a normal conversation AgentRun from the real workbench -> verify one complete AgentPlan, zero plan_revised events, zero replans, and completed no-tool TurnResult"
+      ;;
+    agent-plan-native-tool-calling-protocol)
+      echo "send a D6 conversation AgentRun from the real workbench -> verify AgentPlan draft and revision structures are carried by provider-native tool calls"
+      ;;
+    agentic-loop-budget-deviation-replan)
+      echo "send a budget-limited conversation AgentRun from the real workbench -> verify D5 budget shortfall triggers provider-sourced plan_revised before awaiting author"
+      ;;
+    agentic-loop-tool-failure-replan)
+      echo "send a prose AgentRun whose writer provider fails -> verify D1 tool failure triggers provider-sourced plan_revised before awaiting author"
+      ;;
+    agentic-loop-quality-deviation-replan)
+      echo "send a prose AgentRun with an actionable quality finding -> verify D2 quality deviation triggers provider-sourced plan_revised before awaiting author"
+      ;;
+    agentic-loop-gate-deviation-replan)
+      echo "send a high-risk prose AgentRun -> verify D4 Orchestrator gate deny triggers provider-sourced plan_revised without dispatching the writer"
+      ;;
+    agentic-loop-deterministic-gap-replan)
+      echo "send a prose continuation for a missing chapter -> verify D7 deterministic gap triggers provider-sourced plan_revised without provider writer dispatch"
+      ;;
     agent-plot-outline-with-context)
       echo "send a chapter outline request from the real workbench -> verify bounded AgentRun fast ack, plot_outline_with_context_v1 profile, re-gated plot_outline execution, and tentative outline_draft without production write"
       ;;
@@ -1104,9 +1144,9 @@ import {
 const [sliceId, appLogDir, artifactDir, provider, llmLogDir] = process.argv.slice(2);
 const localDate = new Date();
 const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
-const jsonlPath = path.join(appLogDir, `${today}.jsonl`);
+const jsonlPath = latestJsonlPath(appLogDir, today);
 
-if (!fs.existsSync(jsonlPath)) {
+if (!jsonlPath) {
   process.exit(1);
 }
 
@@ -1135,8 +1175,8 @@ if (evidence) {
   let lmstudioEvidence = null;
   let llmRecords = [];
   if (["lmstudio", "deepseek"].includes(provider)) {
-    const llmPath = path.join(llmLogDir, `${today}.jsonl`);
-    if (!fs.existsSync(llmPath)) {
+    const llmPath = latestJsonlPath(llmLogDir, today);
+    if (!llmPath) {
       process.exit(1);
     }
 
@@ -1191,6 +1231,24 @@ if (evidence) {
 }
 
 process.exit(1);
+
+function latestJsonlPath(dir, preferredDate) {
+  const preferred = path.join(dir, `${preferredDate}.jsonl`);
+  if (fs.existsSync(preferred)) return preferred;
+  if (!fs.existsSync(dir)) return null;
+
+  const files = fs
+    .readdirSync(dir)
+    .filter((file) => file.endsWith(".jsonl"))
+    .map((file) => {
+      const fullPath = path.join(dir, file);
+      const stat = fs.statSync(fullPath);
+      return { file, fullPath, mtimeMs: stat.mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.file.localeCompare(a.file));
+
+  return files[0]?.fullPath ?? null;
+}
 NODE
 }
 
@@ -1203,17 +1261,22 @@ import { keyEventsForSlice } from "./slice-verify/native-tauri-verifier.mjs";
 const [sliceId, appLogDir, provider, llmLogDir] = process.argv.slice(2);
 const localDate = new Date();
 const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
-const jsonlPath = path.join(appLogDir, `${today}.jsonl`);
+const expectedJsonlPath = path.join(appLogDir, `${today}.jsonl`);
+const jsonlPath = latestJsonlPath(appLogDir, today);
 const keyEvents = keyEventsForSlice(sliceId);
 
 console.error("[tauri-slice-verify] app JSONL diagnostics:");
-console.error(`  path: ${jsonlPath}`);
+console.error(`  path: ${expectedJsonlPath}`);
 
-if (!fs.existsSync(jsonlPath)) {
+if (!jsonlPath) {
   console.error("  status: missing app JSONL file");
   const files = fs.existsSync(appLogDir) ? fs.readdirSync(appLogDir) : [];
   console.error(`  app-log files: ${files.length > 0 ? files.join(", ") : "(none)"}`);
   process.exit(0);
+}
+
+if (jsonlPath !== expectedJsonlPath) {
+  console.error(`  selected_fallback_path: ${jsonlPath}`);
 }
 
 const lines = fs.readFileSync(jsonlPath, "utf8").split("\n").filter(Boolean);
@@ -1283,12 +1346,30 @@ for (const record of records.slice(-20)) {
 }
 
 if (["lmstudio", "deepseek"].includes(provider)) {
-  const llmPath = path.join(llmLogDir, `${today}.jsonl`);
-  const llmLines = fs.existsSync(llmPath)
+  const llmPath = latestJsonlPath(llmLogDir, today);
+  const llmLines = llmPath
     ? fs.readFileSync(llmPath, "utf8").split("\n").filter(Boolean)
     : [];
-  console.error(`  ${provider}_jsonl: ${fs.existsSync(llmPath) ? llmPath : "(missing)"}`);
+  console.error(`  ${provider}_jsonl: ${llmPath ?? "(missing)"}`);
   console.error(`  ${provider}_records: ${llmLines.length}`);
+}
+
+function latestJsonlPath(dir, preferredDate) {
+  const preferred = path.join(dir, `${preferredDate}.jsonl`);
+  if (fs.existsSync(preferred)) return preferred;
+  if (!fs.existsSync(dir)) return null;
+
+  const files = fs
+    .readdirSync(dir)
+    .filter((file) => file.endsWith(".jsonl"))
+    .map((file) => {
+      const fullPath = path.join(dir, file);
+      const stat = fs.statSync(fullPath);
+      return { file, fullPath, mtimeMs: stat.mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.file.localeCompare(a.file));
+
+  return files[0]?.fullPath ?? null;
 }
 NODE
 }
@@ -1351,6 +1432,30 @@ case "$SLICE_ID" in
     SEED_SCRIPT="scripts/seed_p1_prose_revision_candidate.exs"
     ;;
   agent-conversation-turn)
+    SEED_SCRIPT=""
+    ;;
+  agentic-loop-plan-replan-reasoning)
+    SEED_SCRIPT=""
+    ;;
+  agentic-loop-no-deviation-direct)
+    SEED_SCRIPT=""
+    ;;
+  agent-plan-native-tool-calling-protocol)
+    SEED_SCRIPT=""
+    ;;
+  agentic-loop-budget-deviation-replan)
+    SEED_SCRIPT=""
+    ;;
+  agentic-loop-tool-failure-replan)
+    SEED_SCRIPT=""
+    ;;
+  agentic-loop-quality-deviation-replan)
+    SEED_SCRIPT=""
+    ;;
+  agentic-loop-gate-deviation-replan)
+    SEED_SCRIPT=""
+    ;;
+  agentic-loop-deterministic-gap-replan)
     SEED_SCRIPT=""
     ;;
   au01-ordinary-chat-two-turn-roundtrip)

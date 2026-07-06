@@ -567,12 +567,17 @@ defmodule NovelAgent.Provider.AdapterExecution do
         provider_call_ref: ctx.provider_call_ref,
         status: :ok,
         output_type: :text,
-        content: %{text: result.content},
+        content: output_content(result),
         usage: Usage.to_map(result.usage),
         refs: [ctx.provider_call_ref]
       })
 
     output
+  end
+
+  defp output_content(%Result{tool_calls: tool_calls} = result) do
+    %{text: result.content}
+    |> maybe_put(:tool_calls, tool_calls)
   end
 
   defp provider_error_output!(ctx, error) do

@@ -56,7 +56,18 @@ VITE_PORT="${VITE_DEV_PORT:-5768}"
 if lsof -ti ":${VITE_PORT}" > /dev/null 2>&1; then
   echo "[tauri] Cleaning up stale process on port ${VITE_PORT}..."
   lsof -ti ":${VITE_PORT}" | xargs kill 2>/dev/null || true
+fi
+
+for _ in $(seq 1 30); do
+  if ! lsof -ti ":${VITE_PORT}" > /dev/null 2>&1; then
+    break
+  fi
   sleep 1
+done
+
+if lsof -ti ":${VITE_PORT}" > /dev/null 2>&1; then
+  echo "[tauri] Port ${VITE_PORT} is still busy after cleanup." >&2
+  exit 1
 fi
 
 # ---- 启动 Vite ----

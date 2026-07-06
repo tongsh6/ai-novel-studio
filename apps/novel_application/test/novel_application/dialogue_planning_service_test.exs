@@ -50,10 +50,13 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   test "规划结果把 provider execution dependency 交给 conversation profile" do
     provider_execution = %Execution{
       result_fn: fn prompt ->
-        content =
+        result =
           cond do
             profile_route_prompt?(prompt) ->
               Jason.encode!(profile_route_decision(ConversationTurn.profile_ref()))
+
+            plan_draft_prompt?(prompt) ->
+              conversation_plan_draft()
 
             agent_next_step_prompt?(prompt) ->
               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(
@@ -64,7 +67,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
               @conversation_frame_json
           end
 
-        {:ok, %{content: content}}
+        provider_result(result)
       end
     }
 
@@ -101,13 +104,16 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
              route_result
              |> Map.fetch!(:stage_state)
              |> then(fn stage_state ->
-               assert {:execute, context_step, _decision} =
+               assert {:execute, context_step, _decision, context_meta} =
                         spec.next_step_planner.(routed_run, 2, %{
                           stage_state: stage_state,
                           observations: route_result.observations,
                           events: [],
                           stage_sink: stage_sink
                         })
+
+               # 计划起草为两段式调用（流式 reasoning + 结构化 tool call）
+               assert context_meta.provider_call_count == 2
 
                context_step.(routed_run, 2, %{
                  stage_state: stage_state,
@@ -118,14 +124,17 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
              end)
 
     merged_stage_state = Map.merge(route_result.stage_state, context_result.stage_state)
+    routed_run = apply_run_patch(routed_run, context_result.run_patch)
 
-    assert {:execute, frame_step, _decision} =
+    assert {:execute, frame_step, _decision, frame_meta} =
              spec.next_step_planner.(routed_run, 3, %{
                stage_state: merged_stage_state,
                observations: route_result.observations ++ context_result.observations,
                events: [],
                stage_sink: stage_sink
              })
+
+    assert frame_meta.provider_call_count == 0
 
     assert {:ok, frame_result} =
              frame_step.(
@@ -185,13 +194,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.budget.max_steps == 5
-    assert routed_run.budget.max_provider_calls == 6
-
-    assert [
-             %{step_id: "assemble_prose_context", kind: :explore},
-             %{step_id: "plan_gate_and_draft_prose_with_quality", kind: :act},
-             %{step_id: "confirm_prose_goal", kind: :explore}
-           ] = routed_run.plan.steps
+    assert routed_run.budget.max_provider_calls == 8
+    assert routed_run.plan.steps == []
   end
 
   test "正文草稿意图优先于章节计划上下文词" do
@@ -226,7 +230,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert routed_run.authority_scope.allowed_tools == ["plot_outline"]
     assert routed_run.budget.max_steps == 5
     assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 5
+    assert routed_run.budget.max_provider_calls == 8
 
     assert [
              %{step_id: "assemble_outline_context", kind: :explore},
@@ -251,7 +255,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert routed_run.authority_scope.allowed_tools == ["character_evolution"]
     assert routed_run.budget.max_steps == 5
     assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 5
+    assert routed_run.budget.max_provider_calls == 8
 
     assert [
              %{step_id: "assemble_character_evolution_context", kind: :explore},
@@ -276,7 +280,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert routed_run.authority_scope.allowed_tools == ["world_building"]
     assert routed_run.budget.max_steps == 5
     assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 5
+    assert routed_run.budget.max_provider_calls == 8
 
     assert [
              %{step_id: "assemble_world_building_context", kind: :explore},
@@ -369,7 +373,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert spec.run_attrs.profile_ref == "prose_revision_from_findings_v1"
     assert spec.run_attrs.parent_turn_ref == "turn-source"
     assert spec.run_attrs.budget.max_steps == 5
-    assert spec.run_attrs.budget.max_provider_calls == 6
+    assert spec.run_attrs.budget.max_provider_calls == 5
     assert spec.run_attrs.authority_scope.allowed_tools == ["prose_writing"]
     assert is_function(spec.next_step_planner, 3)
     refute Map.has_key?(spec, :steps)
@@ -412,12 +416,12 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   defp apply_run_patch(run, patch) do
     %{
       run
-      | profile_ref: patch.profile_ref,
-        authority_scope: patch.authority_scope,
-        plan: patch.plan,
-        plan_ref: patch.plan_ref,
-        plan_version: patch.plan_version,
-        budget: patch.budget
+      | profile_ref: Map.get(patch, :profile_ref) || run.profile_ref,
+        authority_scope: Map.get(patch, :authority_scope) || run.authority_scope,
+        plan: Map.get(patch, :plan) || run.plan,
+        plan_ref: Map.get(patch, :plan_ref) || run.plan_ref,
+        plan_version: Map.get(patch, :plan_version) || run.plan_version,
+        budget: Map.get(patch, :budget) || run.budget
     }
   end
 
@@ -436,10 +440,42 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     }
   end
 
-  defp agent_next_step_prompt?(prompt) when is_binary(prompt),
-    do: String.contains?(prompt, "AgentRun 下一步规划器")
+  defp agent_next_step_prompt?(prompt),
+    do: prompt_contains?(prompt, "AgentRun 下一步规划器")
 
-  defp agent_next_step_prompt?(_prompt), do: false
+  defp plan_draft_prompt?(prompt),
+    do: prompt_contains?(prompt, "AgentRun 计划起草器")
+
+  defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
+
+  defp conversation_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result("先组装上下文，再形成对话帧并完成本轮回应。", [
+      NovelApplication.TestAgenticLoopFixtures.plan_step(
+        "assemble_conversation_context",
+        "context_assemble",
+        "组装当前作品上下文",
+        success_criteria: ["conversation_context_attached"]
+      ),
+      NovelApplication.TestAgenticLoopFixtures.plan_step(
+        "frame_conversation",
+        "dialogue_frame",
+        "形成对话认知帧",
+        success_criteria: ["dialogue_frame_created"]
+      ),
+      NovelApplication.TestAgenticLoopFixtures.plan_step(
+        "gate_conversation_strategy",
+        "strategy_gate",
+        "制定执行策略并完成系统裁决",
+        success_criteria: ["strategy_gate_completed"]
+      ),
+      NovelApplication.TestAgenticLoopFixtures.plan_step(
+        "finalize_conversation_response",
+        "response_finalize",
+        "生成本轮回应",
+        success_criteria: ["turn_result_ready"]
+      )
+    ])
+  end
 
   defp conversation_next_step_decision(prompt) do
     observations = existing_observation_section(prompt)
@@ -461,7 +497,13 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
   defp existing_observation_section(prompt) do
     prompt
+    |> prompt_text()
     |> String.split("## 决策规则", parts: 2)
     |> hd()
   end
+
+  defp provider_result(%{content: _content, tool_calls: _tool_calls} = result), do: {:ok, result}
+  defp provider_result(content), do: {:ok, %{content: content}}
+
+  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 end

@@ -247,7 +247,7 @@ defmodule NovelPersistence.ProviderRunLog do
       status: atom_string(output.status),
       output_type: atom_string(output.output_type),
       content_length: content_length,
-      content_summary: %{"content_length" => content_length},
+      content_summary: output_content_summary(output, content_length),
       usage: safe_map(output.usage),
       error_summary: error_summary(output.error),
       refs: safe_refs(output.refs),
@@ -336,6 +336,41 @@ defmodule NovelPersistence.ProviderRunLog do
 
   defp output_usage(%ProviderOutputRecord{usage: usage}) when is_map(usage), do: usage
   defp output_usage(_), do: %{}
+
+  defp output_content_summary(%ProviderOutput{} = output, content_length) do
+    summary = %{"content_length" => content_length}
+
+    case output_tool_call_names(output) do
+      [] ->
+        summary
+
+      names ->
+        summary
+        |> Map.put("native_tool_call_count", length(output_tool_calls(output)))
+        |> Map.put("native_tool_call_names", names)
+    end
+  end
+
+  defp output_tool_call_names(%ProviderOutput{} = output) do
+    output
+    |> output_tool_calls()
+    |> Enum.flat_map(fn call ->
+      case map_get(call, :name) do
+        name when is_binary(name) and name != "" -> [name]
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp output_tool_calls(%ProviderOutput{content: content}) when is_map(content) do
+    case map_get(content, :tool_calls) do
+      calls when is_list(calls) -> Enum.filter(calls, &is_map/1)
+      _ -> []
+    end
+  end
+
+  defp output_tool_calls(_), do: []
 
   defp error_summary(error) when is_map(error) and map_size(error) > 0 do
     %{

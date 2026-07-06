@@ -370,12 +370,13 @@ defmodule NovelApplication.Planner do
     - 作者询问作品当前状态或进度（例如“写了多少章 / 已经写到第几章 / 现在进展如何 / 还差多少 / 下一章从哪里开始 / 接下来该写哪一章 / 现在到哪了”），这是对**已有状态的提问**，不是创作产出请求：frame_type="question_answer"，needs_tool=false，no_tool_reason="no_tool_needed"，execution_readiness="not_applicable"，candidate_directions 为空数组；请依据“当前作品上下文 / 已写章节”里的章节顺序和数量直接回答
     - 作者要求**实际产出**新文本或新设定（祈使语气，例如“写第3章正文 / 续写这一段 / 生成开篇场景 / 设计一个反派 / 列一个大纲”）时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组；注意：句中出现“写”字并不等于创作请求——若作者是在询问进度或状态（见上一条），按 question_answer 处理
     - 作者要求“大纲/卷数/章节数/角色成长路线/势力结构/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
-    - 如果作者显式说“先聊/只聊/讨论/不要写/不要改/别生成/不保存”，必须按普通对话处理：needs_tool=false，frame_type 不得为 execution_candidate，不能调用工具或写入作品事实
+    - 如果作者显式说“先聊/只聊/讨论/不要写/不要改/别生成/不保存”，必须按普通对话处理：needs_tool=false，frame_type 不得为 execution_candidate，不能调用工具或写入作品事实；但这不禁止 creative_exploration——如果你的回应要给作者多个可选方向（含把已选方向细分为几种变体），仍应使用 creative_exploration + candidate_directions
     - 创作产出请求的 frame_type 使用 "execution_candidate"，不要使用 "creative_exploration"
     - 只有作者还在比较方向、头脑风暴、问“怎么切入/几个方案”，且没有要求立刻产出具体文本或设定时，才使用 creative_exploration + needs_tool=false
     - frame_type == "creative_exploration" 且 needs_tool == false 时，candidate_directions 必须包含 2-3 个方向对象
     - frame_type == "creative_exploration" 且 needs_tool == true 时，candidate_directions 必须为空数组
     - frame_type != "creative_exploration" 时，candidate_directions 为空数组
+    - 一致性硬约束：assistant_message 里若提出“几种/几个方向、变体、方案供作者选择”，必须二选一——要么把每个选项完整写在 assistant_message 文本里，要么使用 creative_exploration 并把选项放进 candidate_directions；禁止在文本里承诺选项却两处都不给出（例如以“你看看更倾向哪一类：”收尾却没有任何选项）
     - 不要输出纯字符串数组，每个方向必须是带 title/pitch/tone_tags 的对象
     - candidate_directions[].risk_hint 可选，只能是 "low" | "medium" | "high"，不确定时用 "low"
     - assistant_message 必须用中文，不要输出 JSON 代码块

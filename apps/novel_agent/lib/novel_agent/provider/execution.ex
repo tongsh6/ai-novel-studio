@@ -233,7 +233,9 @@ defmodule NovelAgent.Provider.Execution do
   defp synthesize_execution_result(other, _dependency), do: other
 
   defp ensure_result(%Result{} = result), do: result
-  defp ensure_result(%{content: content}), do: Result.new(content)
+
+  defp ensure_result(%{content: content} = result),
+    do: Result.new(content, nil, tool_calls: map_get(result, :tool_calls))
 
   defp provider_output!(%{content: content} = result, dependency) do
     call_ref = existing_ref(result, :provider_call_ref) || existing_ref(result, :provider_call_id)
@@ -246,12 +248,25 @@ defmodule NovelAgent.Provider.Execution do
         provider_call_ref: call_ref,
         status: :ok,
         output_type: :text,
-        content: %{text: content},
+        content: provider_output_content(content, result),
         refs: [call_ref | metadata_refs(dependency.metadata)]
       })
 
     output
   end
+
+  defp provider_output_content(content, result) do
+    %{text: content}
+    |> maybe_put_content(:tool_calls, map_get(result, :tool_calls))
+  end
+
+  defp maybe_put_content(map, _key, value) when value in [nil, []], do: map
+  defp maybe_put_content(map, key, value), do: Map.put(map, key, value)
+
+  defp map_get(map, key) when is_map(map) and is_atom(key),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp map_get(_map, _key), do: nil
 
   defp provider_error_output!(error, dependency) do
     ref = provider_ref("prun")

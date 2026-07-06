@@ -170,46 +170,11 @@ defmodule NovelApplication.DialoguePlanningService do
     })
   end
 
-  defp agent_run_agent_plan(run_id, :character_design_with_context) do
-    AgentPlan.new(%{
-      plan_id: "ap_#{run_id}",
-      run_ref: run_id,
-      version: 1,
-      goal_version: 1,
-      steps: [
-        plan_step("inspect_roster", :explore, "读取当前角色阵容", [
-          "character_roster_observation_exists"
-        ]),
-        plan_step("design_character", :act, "基于角色阵容设计新的主要反派", [
-          "tentative_character_seed_exists"
-        ]),
-        plan_step("finalize", :explore, "汇总结果给作者", ["turn_result_emitted"])
-      ]
-    })
-  end
+  defp agent_run_agent_plan(run_id, :character_design_with_context),
+    do: {:ok, pending_model_plan(run_id)}
 
-  defp agent_run_agent_plan(run_id, :prose_drafting_with_quality) do
-    AgentPlan.new(%{
-      plan_id: "ap_#{run_id}",
-      run_ref: run_id,
-      version: 1,
-      goal_version: 1,
-      steps: [
-        plan_step("assemble_prose_context", :explore, "planner 可按观察读取正文写作上下文", [
-          "dialogue_context_attached"
-        ]),
-        plan_step(
-          "plan_gate_and_draft_prose_with_quality",
-          :act,
-          "planner 可选择 prose_writing，并重新经过 Orchestrator 后生成正文草稿和质量复核",
-          ["tentative_prose_fragment_exists", "quality_review_exists"]
-        ),
-        plan_step("confirm_prose_goal", :explore, "由 goal_satisfied 或 awaiting_author 裁决收束", [
-          "turn_result_emitted"
-        ])
-      ]
-    })
-  end
+  defp agent_run_agent_plan(run_id, :prose_drafting_with_quality),
+    do: {:ok, pending_model_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :plot_outline_with_context) do
     AgentPlan.new(%{
@@ -294,86 +259,37 @@ defmodule NovelApplication.DialoguePlanningService do
     })
   end
 
-  defp agent_run_agent_plan(run_id, :prose_revision_from_findings) do
-    AgentPlan.new(%{
-      plan_id: "ap_#{run_id}",
-      run_ref: run_id,
-      version: 1,
-      goal_version: 1,
-      steps: [
-        plan_step("load_revision_source", :explore, "planner 可按观察读取待修订草稿和质量发现", [
-          "revision_source_loaded"
-        ]),
-        plan_step(
-          "plan_and_gate_revision",
-          :explore,
-          "planner 可选择 revision_plan，并重新经过 Orchestrator 完成授权判断",
-          ["revision_micro_plan_exists", "allow_tool_decision_exists"]
-        ),
-        plan_step("generate_revision", :act, "planner 可选择 prose_writing 生成修订候选草稿", [
-          "tentative_revision_fragment_exists"
-        ]),
-        plan_step("finalize_revision", :explore, "planner 可选择 revision_finalize 或以停止裁决收束", [
-          "turn_result_emitted"
-        ])
-      ]
-    })
-  end
+  defp agent_run_agent_plan(run_id, :prose_revision_from_findings),
+    do: {:ok, pending_model_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :provider_progress) do
-    AgentPlan.new(%{
-      plan_id: "ap_#{run_id}",
-      run_ref: run_id,
-      version: 1,
-      goal_version: 1,
-      steps: [
-        plan_step("provider_progress", :explore, "调用 provider 并展示安全进度", [
-          "provider_progress_events_visible"
-        ]),
-        plan_step("finalize", :explore, "汇总 provider 进度结果", ["turn_result_emitted"])
-      ]
-    })
+    {:ok, pending_model_plan(run_id)}
   end
 
   defp agent_run_agent_plan(run_id, :readonly_batch_context) do
-    AgentPlan.new(%{
-      plan_id: "ap_#{run_id}",
-      run_ref: run_id,
-      version: 1,
-      goal_version: 1,
-      steps: [
-        plan_step("readonly_batch_read", :explore, "并行读取只读上下文", [
-          "readonly_batch_observations_exist"
-        ]),
-        plan_step("readonly_batch_finalize", :explore, "汇总只读上下文", [
-          "readonly_batch_turn_result_emitted"
-        ])
-      ]
-    })
+    {:ok, pending_model_plan(run_id)}
   end
 
-  defp agent_run_agent_plan(run_id, :conversation_turn) do
-    AgentPlan.new(%{
+  defp agent_run_agent_plan(run_id, :conversation_turn),
+    do: {:ok, pending_model_plan(run_id)}
+
+  defp pending_model_plan(run_id) do
+    %{
       plan_id: "ap_#{run_id}",
       run_ref: run_id,
       version: 1,
       goal_version: 1,
-      steps: [
-        plan_step("assemble_context", :explore, "planner 可按观察读取创作上下文", [
-          "dialogue_context_attached"
-        ]),
-        plan_step("form_frame", :explore, "planner 可选择 dialogue_frame 形成对话认知帧", [
-          "dialogue_frame_validated"
-        ]),
-        plan_step("plan_and_gate", :explore, "planner 可选择 strategy_gate 完成执行策略与系统裁决", [
-          "planner_or_reply_route_decided"
-        ]),
-        plan_step("finalize_turn", :explore, "planner 可选择 response_finalize，或以停止裁决收束", [
-          "turn_result_emitted"
-        ])
-      ]
-    })
+      steps: []
+    }
   end
+
+  defp plan_id(plan) when is_map(plan), do: Map.get(plan, :plan_id) || Map.get(plan, "plan_id")
+  defp plan_id(_plan), do: nil
+
+  defp plan_version(plan) when is_map(plan),
+    do: Map.get(plan, :version) || Map.get(plan, "version") || 1
+
+  defp plan_version(_plan), do: 1
 
   defp plan_step(step_id, kind, description, success_criteria) do
     %{
@@ -409,8 +325,8 @@ defmodule NovelApplication.DialoguePlanningService do
       origin_frame_ref: origin_frame_ref,
       profile_ref: profile_ref(profile),
       plan: agent_plan,
-      plan_ref: agent_plan.plan_id,
-      plan_version: agent_plan.version,
+      plan_ref: plan_id(agent_plan),
+      plan_version: plan_version(agent_plan),
       goal: %{text: text, version: 1},
       authority_scope: authority_scope(profile, input),
       budget: run_budget(text, profile, input)
@@ -528,8 +444,8 @@ defmodule NovelApplication.DialoguePlanningService do
              authority_scope:
                authority_scope(profile, Map.put(input, :profile_selection, selection)),
              plan: target_plan,
-             plan_ref: target_plan.plan_id,
-             plan_version: target_plan.version,
+             plan_ref: plan_id(target_plan),
+             plan_version: plan_version(target_plan),
              budget: routed_profile_budget(run.goal.text, profile, input)
            },
            progress_signature: "#{run.run_id}:profile_route:#{selection.profile_ref}"
@@ -727,6 +643,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp routed_profile_budget(text, profile, input) do
     base = run_budget(text, profile, input)
 
+    # +1 = 路由本身的 step 与 provider 调用；两段式规划开销已在 run_budget/3 补足
     %{
       base
       | max_steps: base.max_steps + 1,
@@ -990,6 +907,7 @@ defmodule NovelApplication.DialoguePlanningService do
     ProviderProgress.next_step_planner(%{
       text: text,
       provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
       provider_capabilities_fn: map_get(input, :provider_capabilities_fn)
     })
   end
@@ -999,11 +917,13 @@ defmodule NovelApplication.DialoguePlanningService do
          _text,
          _context,
          _context_fetcher,
-         _provider_execution,
+         provider_execution,
          input
        ) do
     ReadonlyBatchContext.next_step_planner(%{
-      readers: map_get(input, :readonly_readers)
+      readers: map_get(input, :readonly_readers),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution)
     })
   end
 
@@ -1061,13 +981,23 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp run_budget(text, profile, input) do
-    case profile do
-      :conversation_turn ->
-        conversation_turn_budget(input)
+    base =
+      case profile do
+        :conversation_turn ->
+          conversation_turn_budget(input)
 
-      _ ->
-        run_budget(text, profile)
-    end
+        _ ->
+          run_budget(text, profile)
+      end
+
+    plan_overhead_budget(base)
+  end
+
+  # 计划起草/修订为两段式调用（流式 reasoning + 结构化 tool call）：
+  # 每次规划交互多一次 reasoning 调用；按 1 次起草 + 至多 max_replans 次修订补足
+  # backstop 余量（ADR-0023 修订注记 2026-07-05，体验优先）。
+  defp plan_overhead_budget(base) do
+    %{base | max_provider_calls: base.max_provider_calls + 1 + base.max_replans}
   end
 
   defp run_budget(text, :profile_routing) do
@@ -1083,79 +1013,189 @@ defmodule NovelApplication.DialoguePlanningService do
         run_budget(text, :readonly_batch_context)
       ]
 
+    # +1 = 路由本身的 provider 调用；两段式规划开销由 run_budget/3 的
+    # plan_overhead_budget 统一补足
     %{
       max_steps: max_budget(routed, :max_steps) + 1,
       max_tool_calls: max_budget(routed, :max_tool_calls),
       max_provider_calls: max_budget(routed, :max_provider_calls) + 1,
-      max_replans: max_budget(routed, :max_replans)
+      max_replans: max_budget(routed, :max_replans),
+      max_pending_artifacts: max_budget(routed, :max_pending_artifacts)
     }
   end
 
   defp run_budget(text, :character_design_with_context) do
     if one_step_budget?(text) do
-      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+      %{
+        max_steps: 1,
+        max_tool_calls: 1,
+        max_provider_calls: 1,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     else
-      %{max_steps: 4, max_tool_calls: 4, max_provider_calls: 4, max_replans: 1}
+      %{
+        max_steps: 4,
+        max_tool_calls: 4,
+        max_provider_calls: 3,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     end
   end
 
   defp run_budget(text, :prose_drafting_with_quality) do
     if one_step_budget?(text) do
-      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 2, max_replans: 1}
+      %{
+        max_steps: 1,
+        max_tool_calls: 1,
+        max_provider_calls: 2,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     else
-      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 5, max_replans: 1}
+      %{
+        max_steps: 4,
+        max_tool_calls: 2,
+        max_provider_calls: 5,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     end
   end
 
   defp run_budget(text, :plot_outline_with_context) do
     if one_step_budget?(text) do
-      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+      %{
+        max_steps: 1,
+        max_tool_calls: 1,
+        max_provider_calls: 1,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     else
-      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 4, max_replans: 1}
+      %{
+        max_steps: 4,
+        max_tool_calls: 2,
+        max_provider_calls: 5,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     end
   end
 
   defp run_budget(text, :character_evolution_with_context) do
     if one_step_budget?(text) do
-      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+      %{
+        max_steps: 1,
+        max_tool_calls: 1,
+        max_provider_calls: 1,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     else
-      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 4, max_replans: 1}
+      %{
+        max_steps: 4,
+        max_tool_calls: 2,
+        max_provider_calls: 5,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     end
   end
 
   defp run_budget(text, :world_building_with_context) do
     if one_step_budget?(text) do
-      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+      %{
+        max_steps: 1,
+        max_tool_calls: 1,
+        max_provider_calls: 1,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     else
-      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 4, max_replans: 1}
+      %{
+        max_steps: 4,
+        max_tool_calls: 2,
+        max_provider_calls: 5,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
     end
   end
 
   defp run_budget(text, :prose_revision_from_findings) do
     if one_step_budget?(text) do
-      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+      %{
+        max_steps: 1,
+        max_tool_calls: 1,
+        max_provider_calls: 1,
+        max_replans: 1,
+        max_pending_artifacts: 3
+      }
     else
-      %{max_steps: 5, max_tool_calls: 2, max_provider_calls: 6, max_replans: 1}
+      %{
+        max_steps: 5,
+        max_tool_calls: 2,
+        max_provider_calls: 3,
+        max_replans: 1,
+        max_pending_artifacts: 3
+      }
     end
   end
 
   defp run_budget(_text, :provider_progress) do
-    %{max_steps: 2, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+    %{
+      max_steps: 2,
+      max_tool_calls: 1,
+      max_provider_calls: 2,
+      max_replans: 1,
+      max_pending_artifacts: 3
+    }
   end
 
   defp run_budget(_text, :readonly_batch_context) do
-    %{max_steps: 3, max_tool_calls: 5, max_provider_calls: 1, max_replans: 1}
+    %{
+      max_steps: 3,
+      max_tool_calls: 5,
+      max_provider_calls: 2,
+      max_replans: 1,
+      max_pending_artifacts: 3
+    }
   end
 
-  defp run_budget(_text, :conversation_turn) do
-    conversation_turn_budget(%{})
+  defp run_budget(text, :conversation_turn) do
+    conversation_turn_budget(%{text: text})
   end
 
   defp conversation_turn_budget(input) do
-    if map_get(input, :generate_micro_plan) in [true, "true"] do
-      %{max_steps: 5, max_tool_calls: 4, max_provider_calls: 8, max_replans: 1}
-    else
-      %{max_steps: 5, max_tool_calls: 4, max_provider_calls: 6, max_replans: 1}
+    cond do
+      one_step_budget?(map_get(input, :text)) ->
+        %{
+          max_steps: 2,
+          max_tool_calls: 4,
+          max_provider_calls: 5,
+          max_replans: 1,
+          max_pending_artifacts: 3
+        }
+
+      map_get(input, :generate_micro_plan) in [true, "true"] ->
+        %{
+          max_steps: 5,
+          max_tool_calls: 4,
+          max_provider_calls: 6,
+          max_replans: 1,
+          max_pending_artifacts: 3
+        }
+
+      true ->
+        %{
+          max_steps: 5,
+          max_tool_calls: 4,
+          max_provider_calls: 4,
+          max_replans: 1,
+          max_pending_artifacts: 3
+        }
     end
   end
 

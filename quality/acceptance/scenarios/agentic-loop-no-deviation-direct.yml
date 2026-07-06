@@ -1,0 +1,52 @@
+id: agentic-loop-no-deviation-direct
+title: ADR-0023 no-deviation direct path
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agentic-loop-no-deviation-direct --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - normal-path-uses-one-model-drafted-agent-plan
+  - no-deviation-direct-path-does-not-replan
+  - planner-does-not-approve-tool-execution
+  - no-acceptance-hook-in-production
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: plain conversation input without any deviation fixture marker
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: model-drafted AgentPlan containing context_assemble, dialogue_frame, strategy_gate, response_finalize
+  - wait_for: context/frame/strategy/finalize execution evidence
+  - wait_for: completed no-tool TurnResult and completed AgentRun state
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agentic-loop-no-deviation-direct-tauri
+
+assertions:
+  network:
+    - initial model-drafted AgentPlan has four planned steps
+    - no plan_revised event is emitted
+    - consumed_replans is 0
+    - consumed_provider_calls is 3
+  data:
+    - completed run has 4 steps, 0 tool calls, and no production write
+    - channel does not fall back to sync_turn
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

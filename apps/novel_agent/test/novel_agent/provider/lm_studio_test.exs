@@ -86,6 +86,55 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert body.messages == messages
     end
 
+    test "named tool_choice downgrades to required string (LM Studio capability constraint)" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+
+        {:ok, 200,
+         %{
+           "choices" => [
+             %{
+               "message" => %{
+                 "content" => "计划推理",
+                 "tool_calls" => [
+                   %{
+                     "id" => "t1",
+                     "function" => %{"name" => "agent_plan_draft", "arguments" => "{}"}
+                   }
+                 ]
+               }
+             }
+           ],
+           "usage" => %{}
+         }}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      prompt = %{
+        messages: [%{role: "user", content: "起草计划"}],
+        tools: [
+          %{name: "agent_plan_draft", description: "draft", input_schema: %{type: "object"}}
+        ],
+        tool_choice: "agent_plan_draft"
+      }
+
+      assert {:ok, _result} = LMStudio.complete(state, nil, prompt, %InferenceParams{})
+      assert_receive {:request_body, body}
+
+      # LM Studio 只接受字符串 none/auto/required；具名对象形式会 HTTP 400
+      assert body.tool_choice == "required"
+      assert [%{function: %{name: "agent_plan_draft"}} | _] = body.tools
+    end
+
     test "returns connection_refused" do
       mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
 

@@ -37,9 +37,9 @@
 
 | CP6 checkpoint | 状态 | 说明 |
 |---|---|---|
-| CP6.1 provider progress | done | 新增 `provider_progress_v1` profile 与 `provider_progress` author-safe event；该 checkpoint 只证明 progress 事件，不证明 token streaming。 |
+| CP6.1 provider progress | done / ADR-0023 CP3 upgraded | 新增 `provider_progress_v1` profile 与 `provider_progress` author-safe event；该 checkpoint 只证明 progress 事件，不证明 token streaming。2026-07-04 已迁为 model-drafted `provider_complete` AgentPlan。 |
 | CP6.2 provider cancel boundary | done | 运行中 cancel 进入 `cancelling`，reason code 记录 `provider_execution_cancel_requested`，`cancel_strategy=provider_execution_cancel`，最终落 `cancelled`。 |
-| CP6.3 read-only batch profile | done | 新增 `readonly_batch_context_v1`，并行读取 profile / characters / rules / stats，只产生 observation 和只读 TurnResult，不产生 provider call、artifact 或 adoption。 |
+| CP6.3 read-only batch profile | done / ADR-0023 CP3 upgraded | 新增 `readonly_batch_context_v1`，并行读取 profile / characters / rules / stats，只产生 observation 和只读 TurnResult，不调用内容 provider、不产生 artifact 或 adoption。2026-07-04 已迁为 model-drafted two-step `readonly_batch` AgentPlan。 |
 | CP6.4 real Tauri acceptance | done | 三条 driver/verifier 均已 active/nightly 并产出 fresh summary。 |
 
 ## 5. 验收入口
@@ -51,9 +51,9 @@
 
 ## 6. 验证证据
 
-- `bash scripts/quality_accept.sh agent-provider-streaming-progress --surface tauri` 通过；summary: `artifacts/slice-verify/agent-provider-streaming-progress-tauri/summary.json`，记录 `profile_ref=provider_progress_v1`、`progress_event_count=3`、历史字段 `provider_streaming_unavailable`、`consumed_provider_calls=1`。该 artifact 只作为 CP6 progress 证据，不再作为 provider token streaming 架构证据。
+- `bash scripts/tauri_slice_verify.sh agent-provider-streaming-progress` 通过；summary: `artifacts/slice-verify/agent-provider-streaming-progress-tauri/summary.json`，记录 `profile_ref=provider_progress_v1`、`plan_drafted_target_tool_ref=provider_complete`、`plan_drafted_step_count=1`、`progress_event_count=3`、`consumed_provider_calls=3`。该 artifact 只作为 CP6 progress / ADR-0023 CP3 plan-driven 证据，不再作为 provider token streaming 架构证据。
 - `bash scripts/quality_accept.sh agent-provider-cancel-honest-boundary --surface tauri` 通过；summary: `artifacts/slice-verify/agent-provider-cancel-honest-boundary-tauri/summary.json`，记录 `interrupt_reason_codes=[cancel_requested, provider_execution_cancel_requested]`、`cancel_strategy=provider_execution_cancel`、`terminal_status=cancelled`。
-- `bash scripts/quality_accept.sh agent-readonly-batch-profile --surface tauri` 通过；summary: `artifacts/slice-verify/agent-readonly-batch-profile-tauri/summary.json`，记录 `profile_ref=readonly_batch_context_v1`、`readonly_item_refs=[work_profile, characters, rules, stats]`、`consumed_provider_calls=0`、`consumed_tool_calls=4`。
+- `bash scripts/tauri_slice_verify.sh agent-readonly-batch-profile` 通过；summary: `artifacts/slice-verify/agent-readonly-batch-profile-tauri/summary.json`，记录 `profile_ref=readonly_batch_context_v1`、`plan_drafted_target_tool_ref=readonly_batch`、`plan_drafted_step_count=2`、`readonly_item_refs=[work_profile, characters, rules, stats]`、`consumed_provider_calls=2`、`consumed_tool_calls=4`，且 readonly profile 自身仍不调用内容 provider、不生成 artifact/adoption/write。
 
 ## 7. 设计原则
 

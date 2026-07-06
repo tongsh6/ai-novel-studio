@@ -48,9 +48,45 @@ defmodule NovelApplication.AgentNarrativeSource do
 
   def from_provider_result(_provider_result, _narrative), do: {:error, :invalid_provider_result}
 
+  @doc """
+  Binds an author narrative that arrived inside a native tool call's
+  `author_reasoning` argument (providers that emit empty assistant content
+  under forced tool_choice, e.g. LM Studio). The runtime ProviderOutput
+  content already carries the tool calls; the narrative bytes must equal the
+  `author_reasoning` field of the matching call.
+  """
+  @spec from_tool_call_narrative(map(), String.t(), String.t()) ::
+          {:ok, source()} | {:error, term()}
+  def from_tool_call_narrative(provider_result, tool_name, narrative)
+      when is_map(provider_result) and is_binary(tool_name) and is_binary(narrative) do
+    narrative = String.trim(narrative)
+
+    with :ok <- require_narrative(narrative),
+         {:ok, output} <- provider_output(provider_result),
+         {:ok, source_text} <- tool_narrative_text(output, tool_name),
+         :ok <- narrative_matches_tool_source(source_text, narrative) do
+      {:ok,
+       %{
+         source_type: "provider_output_tool_narrative",
+         provider_run_ref: output.provider_run_ref,
+         provider_call_ref: output.provider_call_ref,
+         provider_output_ref: output.provider_run_ref,
+         tool_call_name: tool_name,
+         source_hash: sha256(source_text),
+         source_byte_range: %{start: 0, length: byte_size(narrative)},
+         narrative_hash: sha256(narrative)
+       }}
+    end
+  end
+
+  def from_tool_call_narrative(_provider_result, _tool_name, _narrative),
+    do: {:error, :invalid_provider_result}
+
+  @source_types ["provider_output", "provider_output_tool_narrative"]
+
   @spec provider_output_source?(map()) :: boolean()
   def provider_output_source?(source) when is_map(source) do
-    with "provider_output" <- map_get(source, :source_type),
+    with type when type in @source_types <- map_get(source, :source_type),
          {:ok, _provider_run_ref} <- required_string(source, :provider_run_ref),
          {:ok, _provider_call_ref} <- required_string(source, :provider_call_ref),
          {:ok, _provider_output_ref} <- required_string(source, :provider_output_ref),
@@ -71,7 +107,7 @@ defmodule NovelApplication.AgentNarrativeSource do
       when is_binary(narrative) and is_map(source) and is_map(provider_outputs) do
     with :ok <- require_source_type(source),
          {:ok, output_ref} <- required_string(source, :provider_output_ref),
-         {:ok, source_text} <- lookup_source_text(provider_outputs, output_ref),
+         {:ok, source_text} <- lookup_source_text(provider_outputs, output_ref, source),
          :ok <- verify_hash(:source_hash, source, source_text),
          :ok <- verify_hash(:narrative_hash, source, narrative),
          {:ok, range} <- byte_range(source) do
@@ -118,20 +154,62 @@ defmodule NovelApplication.AgentNarrativeSource do
 
   defp require_source_type(source) do
     case map_get(source, :source_type) do
-      "provider_output" -> :ok
+      type when type in @source_types -> :ok
       _ -> {:error, :source_type_must_be_provider_output}
     end
   end
 
-  defp lookup_source_text(provider_outputs, output_ref) do
+  defp lookup_source_text(provider_outputs, output_ref, source) do
     provider_outputs
     |> Map.get(output_ref)
     |> case do
-      %ProviderOutput{} = output -> provider_output_text(output)
+      %ProviderOutput{} = output -> output_source_text(output, source)
       text when is_binary(text) -> {:ok, text}
       %{text: text} when is_binary(text) -> {:ok, text}
       %{"text" => text} when is_binary(text) -> {:ok, text}
       _ -> {:error, {:provider_output_not_found, output_ref}}
+    end
+  end
+
+  defp output_source_text(%ProviderOutput{} = output, source) do
+    case map_get(source, :source_type) do
+      "provider_output_tool_narrative" ->
+        with {:ok, tool_name} <- required_string(source, :tool_call_name) do
+          tool_narrative_text(output, tool_name)
+        end
+
+      _ ->
+        provider_output_text(output)
+    end
+  end
+
+  defp tool_narrative_text(%ProviderOutput{content: content}, tool_name) when is_map(content) do
+    content
+    |> map_get(:tool_calls)
+    |> List.wrap()
+    |> Enum.find(fn call -> is_map(call) and map_get(call, :name) == tool_name end)
+    |> case do
+      nil -> {:error, :tool_call_not_in_provider_output}
+      call -> tool_call_author_reasoning(map_get(call, :arguments))
+    end
+  end
+
+  defp tool_narrative_text(_output, _tool_name), do: {:error, :tool_narrative_text_required}
+
+  defp tool_call_author_reasoning(args) when is_map(args) do
+    case map_get(args, :author_reasoning) do
+      text when is_binary(text) and text != "" -> {:ok, String.trim(text)}
+      _ -> {:error, :tool_narrative_text_required}
+    end
+  end
+
+  defp tool_call_author_reasoning(_args), do: {:error, :tool_narrative_text_required}
+
+  defp narrative_matches_tool_source(source_text, narrative) do
+    if source_text == narrative do
+      :ok
+    else
+      {:error, :narrative_not_bound_to_tool_call}
     end
   end
 

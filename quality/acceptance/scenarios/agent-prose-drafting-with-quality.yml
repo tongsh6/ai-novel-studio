@@ -25,7 +25,7 @@ user_flow:
   - open: real Tauri workbench
   - send: direct prose writing request "写下一章"
   - wait_for: bounded AgentRun fast ack
-  - wait_for: author-safe context observation, next-step planner decision, prose/quality tool step, and completion decision events
+  - wait_for: author-safe AgentPlan draft, context assembly event, prose/quality tool step, and run_completed goal_satisfied event
   - wait_for: completed agent_run_state
   - verify: final TurnResult is prose_writing with prose_fragment and completed quality_review
 
@@ -41,22 +41,25 @@ assertions:
   ui:
     - AgentRun panel reaches completed state
     - AgentRun panel shows the prose context assembly step summary
-    - AgentRun panel shows next-step planning, Orchestrator gate, prose drafting, quality review, and completion decision summaries
-    - execution brief shows planner, writer, evaluator, quality review, provider refs, and model call usage
+    - AgentRun panel shows model-drafted AgentPlan, Orchestrator gate, prose drafting, quality review, and completed run summary
+    - AgentRun details show model execution flow/provider refs; model call usage is verified from agent_run_state and app JSONL
     - prose draft card remains visible as a tentative artifact
   network:
     - parent user_message receives bounded run_id before final TurnResult
-    - agent_event includes next-step-selected plan_drafted for context and prose drafting, plus evaluation_made goal_satisfied completion decision
-    - agent_event includes goal_understood and context observation for prose context assembly
-    - agent_event includes evaluation_made, gate_decided, tool_started, writer/evaluator provider_progress, quality observation, and tentative draft observation
+    - agent_event includes one model plan_drafted payload containing context and prose drafting plan_steps, plus run_completed goal_satisfied completion
+    - agent_event includes goal_understood author event for prose context assembly; compressed observation fact remains developer/runtime evidence
+    - agent_event includes gate_decided, tool_started, tool_completed, writer/evaluator provider_progress, artifact_created, and run_completed; compressed quality/artifact observations remain developer/runtime evidence
     - final TurnResult carries agent_run.run_id and tool_result.tool_name=prose_writing
     - pending artifact is prose_fragment and remains tentative
   data:
     - parent user_message starts bounded AgentRun without sync_turn fallback
     - internal prose step is allow_tool before toolbox execution
+    - agent_run_state reaches completed instead of awaiting_author after draft creation
+    - adoption_state.pending contains exactly one prose_fragment
+    - prose_writing toolbox dispatch happens exactly once
     - prose_quality.evaluated emits review_status=completed
     - quality_policy.decided emits review_status=completed
-    - consumed_budget reports steps=2, tool_calls=1, provider_calls=6, including the profile routing model call
+    - consumed_budget reports steps=2, tool_calls=1, provider_calls=4, including profile routing, AgentPlan draft, writer, and evaluator model calls
 
 anti_hooks:
   product_acceptance_logic_added: false

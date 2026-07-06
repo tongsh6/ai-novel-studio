@@ -15,6 +15,7 @@ defmodule NovelAgent.Provider.Result do
   defstruct [
     :content,
     :usage,
+    tool_calls: [],
     provider_call_ref: nil,
     provider_run_ref: nil,
     provider_output: nil,
@@ -24,6 +25,7 @@ defmodule NovelAgent.Provider.Result do
   @type t :: %__MODULE__{
           content: String.t(),
           usage: Usage.t() | nil,
+          tool_calls: [map()],
           provider_call_ref: String.t() | nil,
           provider_run_ref: String.t() | nil,
           provider_output: ProviderOutput.t() | nil,
@@ -31,9 +33,13 @@ defmodule NovelAgent.Provider.Result do
         }
 
   @doc "创建一个 Result。"
-  @spec new(String.t(), Usage.t() | nil) :: t()
-  def new(content, usage \\ nil) do
-    %__MODULE__{content: content, usage: usage}
+  @spec new(String.t(), Usage.t() | nil, keyword()) :: t()
+  def new(content, usage \\ nil, opts \\ []) do
+    %__MODULE__{
+      content: content,
+      usage: usage,
+      tool_calls: normalize_tool_calls(Keyword.get(opts, :tool_calls, []))
+    }
   end
 
   @doc """
@@ -57,4 +63,10 @@ defmodule NovelAgent.Provider.Result do
   end
 
   def with_execution(%__MODULE__{} = result, _execution), do: result
+
+  defp normalize_tool_calls(calls) when is_list(calls) do
+    Enum.filter(calls, &is_map/1)
+  end
+
+  defp normalize_tool_calls(_calls), do: []
 end

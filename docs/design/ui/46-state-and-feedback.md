@@ -152,13 +152,13 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | --- | --- |
 | `46§6-checkpoint-feedback` | checkpoint 原因、pending artifacts、恢复/取消/调整动作 |
 | `46§7-inline-interaction-states` | 按钮触发后的即时反馈、主对话不重复追加内部状态 |
-| `46§9-agentic-loop-reasoning-flow`（探索态 · 未冻结，见 ADR-0022 Proposed 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`） | 同一 assistant 工作态回复内展示 agentic loop 推理流五态（探索中 / 执行中 / 受阻等待作者 / 重规划 v1→v2 / 完成态）：叙事措辞归模型（浅色左橙边条=模型逐字输出）、结构骨架归 app（状态 chip / 版本 / 进度 / 可选 action）；provider 遥测降级为开发者视图；不展示 raw prompt、provider 术语或私有 chain-of-thought。替代已于 2026-07-01 删除的 `46§8-agent-run-dialogue-flow-v4` |
+| `46§9-agentic-loop-reasoning-flow`（当前冻结 screen，见 ADR-0022 / ADR-0023 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`） | 同一 assistant 工作态回复内展示 agentic loop 推理流五态（探索中 / 执行中 / 受阻等待作者 / 重规划 v1→v2 / 完成态）：叙事措辞归模型（浅色左橙边条=模型逐字输出）、结构骨架归 app（状态 chip / 版本 / 进度 / 可选 action）；provider 遥测降级为开发者视图；不展示 raw prompt、provider 术语或私有 chain-of-thought。替代已于 2026-07-01 删除的 `46§8-agent-run-dialogue-flow-v4` |
 
 ---
 
 ## 9. Agentic Loop 推理流（46§9）
 
-> 状态：按 ADR-0022 Proposed 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md` 落地中的 UI 契约。ADR 未 Accepted 前，本文只冻结当前实现边界，不扩大到新语义授权。
+> 状态：按 ADR-0022 / ADR-0023 Accepted 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md` 冻结当前 UI 契约。ADR-0023 CP2/CP3/CP4 evidence 已闭合：计划面板消费 `plan_drafted` / `plan_revised` / 结构事件，AgentPlan draft/revision 结构来自 native tool-call arguments；UI 只展示模型作者叙事与 author-safe 结构/telemetry，不展示 tool arguments。
 
 ### 9.1 根原则
 
@@ -169,12 +169,15 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | 状态行 | app enum / run status / phase | 只显示状态 chip、阶段和短结构状态；不得承载模型长叙事 |
 | 计划 step 描述 | AgentPlan / PlanStep 中的模型输出描述 | 展示文本；只追加 chip、版本号、状态 |
 | 探索发现、评估结论、重规划原因、完成回顾 | 运行中来自 `purpose=author_reasoning` 的 `author_narrative_delta`；完成后来自 `AgentEvent.payload.author_narrative`，且必须绑定 provider output 字节 | 在推理流区域逐条展示，不改写、不补齐；最终 source-bound 事件到达后用结构化事件替换临时流 |
+| 授权、工具执行、产物、最终结果 | `gate_decided` / `tool_started` / `tool_completed` / `artifact_created` / `turn_result_ready` / `run_completed` 等结构事件与 final `TurnResult.truthfulness` | 只更新阶段、状态、计数、边界说明和折叠详情；不得伪造模型叙事，也不得要求每个结构步骤都有旧 `exploration_observed` / `evaluation_made` 作者事件 |
 | 标签、chip、版本、进度、按钮、折叠入口 | app copy / event_type / status enum | 只表达结构，不写“模型发现/模型认为”的叙述句 |
-| 普通 provider run/call ref、chunk、token、phase | provider telemetry | 仅折叠在开发者详情，不进入作者主叙事；`author_reasoning` 的 JSON 前 delta 是唯一例外 |
+| 普通 provider run/call ref、chunk、token、phase | provider telemetry | 仅折叠在开发者详情，不进入作者主叙事；`author_reasoning` 的作者可见 planning prose delta 是唯一例外，legacy JSON tail 与 native tool-call arguments 都不得作为作者叙事 |
 
-判定标准：任何一句读起来像在描述模型正在想什么、发现了什么、为什么改计划、为什么完成的中文，必须来自 `author_narrative_delta` 或 `author_narrative`，并通过 N-NARR source binding / streamed-prefix 校验。`AgentEvent.summary`、`ProviderEvent.summary`、前端 copy 常量和结构 JSON tail 都不能作为作者叙述来源。
+判定标准：任何一句读起来像在描述模型正在想什么、发现了什么、为什么改计划、为什么完成的中文，必须来自 `author_narrative_delta` 或 `author_narrative`，并通过 N-NARR source binding / streamed-prefix 校验。`AgentEvent.summary`、`ProviderEvent.summary`、前端 copy 常量、legacy JSON tail 和 native tool-call arguments 都不能作为作者叙述来源。
 
-发送后、模型叙事首个 delta 到达前，UI 必须立即显示同一 assistant turn 的结构性工作态骨架（例如状态 chip、阶段轨道、工作详情入口）。这类即时反馈只能表达“请求已进入工作态/准备中/进行中”等枚举状态，不能补写模型发现或推理内容。
+ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费同一 `plan_revised` 事件、`plan_version`、`reason_codes=agentic_deviation:*`、`evaluation_of_last` 和结构事件。D2 质量行动场景可在同一工作态中出现 pending candidate，但 AgentRun 状态必须仍显示等待作者；D4 gate deny/require_confirmation 只显示授权等待/受阻结构事实，不暗示 writer 已执行；D7 确定性缺口可短暂显示工具进度骨架，但没有 `tool_completed`、artifact 或写入事实时不得显示执行完成或候选产出。上述断言由外部 Tauri verifier 从真实页面和事件日志观察，不要求生产 UI 暴露验收专用 hook。
+
+发送后、模型叙事首个 delta 到达前，UI 必须立即显示同一 assistant turn 的结构性工作态骨架（例如状态 chip 与「正在启动」状态行）。这类即时反馈只能表达“请求已进入工作态/准备中/进行中”等枚举状态，不能补写模型发现或推理内容。
 
 如果一个 active AgentRun 已锚在更早的 assistant turn，而作者又在主输入区补充方向，最新作者输入必须先作为本地作者消息留在 transcript 中；其后仍必须显示当前 run 的结构工作态，作为“系统正在处理这次请求”的位置锚点；即使 run 随后进入 completed / failed / cancelled 终态，该位置锚点也必须保留到下一条作者输入或等价的最终回复接管位置。这可以重复结构骨架，但不能重复或伪造模型叙事。该本地作者消息不等价于第二个后端 `user_message` / turn / run，外部验收必须同时证明页面有本地锚点且网络层没有第二个 `user_message`。
 
@@ -182,16 +185,25 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 
 ### 9.2 层级结构
 
-同一 assistant 工作态 turn 内展示四层：
+> 修订（2026-07-05，用户拍板，见 `tasks/slices/UA01-agentic-loop-streaming-reasoning-card-simplification.md`）：
+> 卡片按「页面元素简化、交互不简化」收敛为**三层**——状态行、计划 checklist、流式推理区。
+> 原四层中的独立终态区并入状态行状态 chip；7 节点阶段带、三处 hint 说明文案、
+> 步骤 kind/status 双文字标签（保留状态符号）、以及「工作详情」折叠区（模型执行流 /
+> 模型调用明细 / 事件序列 / 输出摘要 / 回放边界）整体移除；provider 执行取证走
+> trace/replay 与持久化 ProviderRun 事实，不再占据对话卡片。计划 `plan_version`
+> pill 仅在 version ≥ 2（发生修订）时显示。
 
-1. 状态行：只展示同一 run 的结构状态、阶段、状态 chip 和短枚举文案；不得重复推理区里的 `author_narrative_delta` / `author_narrative`。
-2. 计划：显示 `plan_version` 与 `plan_steps`；step 的 `kind/status` 渲染为 chip，step 描述来自模型。
-3. 推理：运行中先聚合 `author_reasoning` delta 为一条持续增长的模型原文；最终按事件顺序展示 `plan_drafted / plan_revised / exploration_observed / evaluation_made` 的 `author_narrative`，并去重同一 provider run 的临时 delta；同一段叙事不得再出现在状态行。
-4. 终态与产物：终态只显示结构标签；最终正文、候选、修订稿仍走既有 `TurnResult` / tentative artifact 出口。
+同一 assistant 工作态 turn 内展示三层：
+
+1. 状态行：只展示同一 run 的结构状态、状态 chip（含终态）和短枚举文案；不得重复推理区里的 `author_narrative_delta` / `author_narrative`。
+2. 计划：显示 `plan_steps`（状态符号 + 模型 step 描述）；发生修订时显示 `plan_version` pill。
+3. 推理：运行中先聚合 `author_reasoning` delta 为一条持续增长的模型原文；最终按事件顺序展示 `plan_drafted / plan_revised / exploration_observed / evaluation_made` 等带 source-bound `author_narrative` 的事件，并去重同一 provider run 的临时 delta；`gate_decided` / `tool_started` / `tool_completed` / `artifact_created` / final `turn_result` 等只作为结构事实更新计划状态与状态行。同一段叙事不得再出现在状态行。
+
+最终正文、候选、修订稿仍走既有 `TurnResult` / tentative artifact 出口。
 
 ### 9.3 禁止
 
 - 禁止用 `ProviderActivityProjector`、前端 copy 或 `AgentObservation.summary` 拼作者可见过程叙事。
-- 禁止把普通 provider telemetry、raw prompt、provider 私有 reasoning / thinking、完整 ToolRequest 放入作者主视图；`author_reasoning` 只能透出 JSON tail 之前的作者可见模型文本。
-- 禁止把结构 JSON tail 里的字段当作作者叙述渲染；JSON tail 只能驱动 chip、状态、版本、下一步 action。
+- 禁止把普通 provider telemetry、raw prompt、provider 私有 reasoning / thinking、完整 ToolRequest 或 native tool-call arguments 放入作者主视图；`author_reasoning` 只能透出作者可见 planning prose，legacy 两段式协议只允许 JSON tail 之前的文本。
+- 禁止把 legacy 结构 JSON tail 或 native tool-call arguments 里的字段当作作者叙述渲染；这些结构只能驱动 chip、状态、版本、下一步 action 或 developer-only count/name telemetry。
 - 禁止为了验收给生产 UI 增加专用 hook；场景验证必须从真实页面与真实事件投影观察。

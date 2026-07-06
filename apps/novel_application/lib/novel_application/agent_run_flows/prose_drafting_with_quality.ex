@@ -7,7 +7,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelAgent.AgentTaskProfileRegistry
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
+  alias NovelApplication.AgenticDeviationSignal
   alias NovelApplication.AgenticNextStepPlanner
+  alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
@@ -23,6 +25,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
   @profile_ref "prose_drafting_with_quality_v1"
   @context_step_target "context_assemble"
+  @plan_exhausted_replan_reason "计划步骤已走完，但正文候选尚未生成。"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
@@ -35,20 +38,382 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
   def next_step_planner(spec) when is_map(spec) do
     fn run, sequence, snapshot ->
-      observations = Map.get(snapshot, :observations, [])
-
-      with {:ok, decision} <-
-             AgenticNextStepPlanner.next_decision(
-               run,
-               sequence,
-               observations,
-               planner_provider_execution(spec),
-               snapshot
-             ) do
-        next_step_from_decision(decision, spec)
+      with {:ok, plan, plan_meta} <- plan_for_run(run, snapshot, spec),
+           {:ok, decision, result_meta} <-
+             mechanical_decision(%{run | plan: plan}, sequence, snapshot, plan_meta, spec) do
+        decision
+        |> next_step_from_decision(spec)
+        |> with_plan_cursor(Map.get(result_meta, :agent_plan_cursor, 0), result_meta)
+        |> AgenticNextStepPlanner.with_provider_call_meta(result_meta)
       end
     end
   end
+
+  defp plan_for_run(run, snapshot, spec) do
+    if model_plan_ready?(run.plan) do
+      {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
+    else
+      with {:ok, plan, meta} <-
+             AgenticPlanDraftPlanner.draft_plan_with_meta(
+               run,
+               planner_provider_execution(spec),
+               snapshot
+             ) do
+        {:ok, plan, Map.put(meta, :agent_plan, plan)}
+      end
+    end
+  end
+
+  defp model_plan_ready?(plan) when is_map(plan) do
+    case Map.get(plan, :steps) || Map.get(plan, "steps") do
+      [_ | _] = steps ->
+        Enum.all?(steps, &(not blank?(map_get(&1, :target_tool_ref))))
+
+      _ ->
+        false
+    end
+  end
+
+  defp model_plan_ready?(_plan), do: false
+
+  defp mechanical_decision(run, sequence, snapshot, meta, spec) do
+    steps = plan_steps(run.plan)
+    index = plan_cursor(snapshot)
+    meta = Map.put(meta, :agent_plan_cursor, index)
+
+    case AgenticDeviationSignal.next(run, snapshot, steps, index) do
+      nil ->
+        cond do
+          index < length(steps) ->
+            steps
+            |> Enum.at(index)
+            |> mechanical_execute_decision(run, sequence, snapshot, meta)
+
+          completion_ready?(snapshot) ->
+            mechanical_complete_decision(run, sequence)
+
+          true ->
+            maybe_replan_exhausted_plan(run, sequence, snapshot, spec)
+        end
+
+      deviation ->
+        maybe_replan_deviation(run, sequence, snapshot, spec, deviation)
+    end
+  end
+
+  defp maybe_replan_deviation(run, sequence, snapshot, spec, deviation) do
+    if replan_available?(run) do
+      with {:ok, revised_plan, revision_meta} <-
+             AgenticPlanDraftPlanner.revise_plan_with_meta(
+               run,
+               planner_provider_execution(spec),
+               snapshot,
+               revision_reason: AgenticDeviationSignal.revision_reason(deviation)
+             ) do
+        execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta, deviation)
+      end
+    else
+      mechanical_await_author_decision(run, sequence)
+    end
+  end
+
+  defp maybe_replan_exhausted_plan(run, sequence, snapshot, spec) do
+    if replan_available?(run) do
+      with {:ok, revised_plan, revision_meta} <-
+             AgenticPlanDraftPlanner.revise_plan_with_meta(
+               run,
+               planner_provider_execution(spec),
+               snapshot,
+               revision_reason: @plan_exhausted_replan_reason
+             ) do
+        execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta, nil)
+      end
+    else
+      mechanical_await_author_decision(run, sequence)
+    end
+  end
+
+  defp execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta, deviation) do
+    revised_run = %{
+      run
+      | plan: revised_plan,
+        plan_ref: revised_plan.plan_id,
+        plan_version: revised_plan.version
+    }
+
+    steps = plan_steps(revised_plan)
+    index = plan_cursor(snapshot)
+
+    meta =
+      revision_meta
+      |> Map.put(:agent_plan, revised_plan)
+      |> Map.put(:agent_plan_cursor, index)
+      |> attach_deviation_meta(deviation, snapshot)
+
+    if index < length(steps) do
+      steps
+      |> Enum.at(index)
+      |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
+    else
+      revised_await_author_decision(revised_run, sequence, meta)
+    end
+  end
+
+  defp revised_await_author_decision(run, sequence, meta) do
+    with {:ok, decision, await_meta} <- mechanical_await_author_decision(run, sequence) do
+      decision = %{
+        decision
+        | reason_codes:
+            (meta_reason_codes(meta) ++ decision.reason_codes)
+            |> Enum.uniq(),
+          evaluation_of_last: meta_evaluation(meta, sequence),
+          plan_revision: map_get(meta, :plan_revision)
+      }
+
+      {:ok, decision, Map.merge(await_meta, meta)}
+    end
+  end
+
+  defp attach_deviation_meta(meta, nil, _snapshot), do: meta
+
+  defp attach_deviation_meta(meta, deviation, snapshot) do
+    reason_codes = AgenticDeviationSignal.reason_codes(deviation)
+
+    meta
+    |> Map.update(:reason_codes, reason_codes, fn codes ->
+      (string_list(codes) ++ reason_codes) |> Enum.uniq()
+    end)
+    |> Map.put(
+      :stage_state_patch,
+      AgenticDeviationSignal.stage_state_patch(deviation, stage_state(snapshot))
+    )
+  end
+
+  defp plan_cursor(snapshot) when is_map(snapshot) do
+    snapshot
+    |> Map.get(:stage_state, %{})
+    |> map_get(:agent_plan_cursor)
+    |> case do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> 0
+    end
+  end
+
+  defp plan_cursor(_snapshot), do: 0
+
+  defp plan_steps(plan) when is_map(plan) do
+    case Map.get(plan, :steps) || Map.get(plan, "steps") do
+      steps when is_list(steps) -> steps
+      _ -> []
+    end
+  end
+
+  defp plan_steps(_plan), do: []
+
+  defp mechanical_execute_decision(step, run, sequence, snapshot, meta) do
+    target = map_get(step, :target_tool_ref)
+
+    with true <- target in [@context_step_target, "prose_writing"],
+         {:ok, decision} <-
+           AgentNextStepDecision.new(%{
+             decision_id:
+               "and_#{run.run_id}_#{sequence}_plan_#{map_get(step, :step_id) || sequence}",
+             run_ref: run.run_id,
+             sequence: sequence,
+             decision_type: :execute_step,
+             summary: map_get(step, :description) || "执行计划步骤。",
+             target_tool_ref: target,
+             write_intent: write_intent_for(step, target),
+             risk_hint: risk_hint_for(step),
+             authoring_intent: map_get(step, :authoring_intent),
+             target_chapter: map_get(step, :target_chapter),
+             requested_chapter_raw: map_get(step, :requested_chapter_raw),
+             reason_codes: plan_step_reason_codes(step, target, meta),
+             observation_refs: observation_refs(Map.get(snapshot, :observations, [])),
+             evaluation_of_last: meta_evaluation(meta, sequence),
+             plan_revision: map_get(meta, :plan_revision),
+             confidence: meta_confidence(meta)
+           }) do
+      {:ok, decision, meta}
+    else
+      _ -> {:error, {:invalid_plan_step_target, target}}
+    end
+  end
+
+  defp mechanical_complete_decision(run, sequence) do
+    AgentNextStepDecision.new(%{
+      decision_id: "and_#{run.run_id}_#{sequence}_plan_goal_satisfied",
+      run_ref: run.run_id,
+      sequence: sequence,
+      decision_type: :goal_satisfied,
+      summary: "计划步骤已完成，正文候选已生成并完成质量复核。",
+      target_tool_ref: nil,
+      write_intent: :none,
+      risk_hint: :low,
+      reason_codes: ["goal_satisfied", "agent_plan_mechanical_completion"],
+      observation_refs: [],
+      evaluation_of_last: %{advanced: true, plan_holds: true, new_constraint: nil},
+      confidence: 1.0
+    })
+    |> case do
+      {:ok, decision} -> {:ok, decision, %{provider_call_count: 0}}
+      error -> error
+    end
+  end
+
+  defp mechanical_await_author_decision(run, sequence) do
+    AgentNextStepDecision.new(%{
+      decision_id: "and_#{run.run_id}_#{sequence}_plan_exhausted",
+      run_ref: run.run_id,
+      sequence: sequence,
+      decision_type: :await_author,
+      summary: "计划步骤已走完，但正文候选尚未生成，等待作者确认下一步。",
+      target_tool_ref: nil,
+      write_intent: :none,
+      risk_hint: :medium,
+      reason_codes: ["plan_exhausted_without_completion"],
+      observation_refs: [],
+      evaluation_of_last: %{
+        advanced: false,
+        plan_holds: false,
+        new_constraint: "completion_condition_missing"
+      },
+      confidence: 1.0
+    })
+    |> case do
+      {:ok, decision} -> {:ok, decision, %{provider_call_count: 0}}
+      error -> error
+    end
+  end
+
+  defp write_intent_for(_step, "prose_writing"), do: :tentative
+  defp write_intent_for(step, _target), do: map_get(step, :write_intent) || :none
+
+  defp risk_hint_for(step) do
+    case map_get(step, :risk_hint) do
+      value when value in [:low, :medium, :high] -> value
+      "medium" -> :medium
+      "high" -> :high
+      _ -> :low
+    end
+  end
+
+  defp completion_ready?(snapshot) do
+    snapshot
+    |> Map.get(:observations, [])
+    |> Enum.any?(fn
+      %AgentObservation{observation_type: :artifact_created} -> true
+      _ -> false
+    end)
+  end
+
+  defp observation_refs(observations) when is_list(observations),
+    do: Enum.map(observations, & &1.observation_id)
+
+  defp observation_refs(_observations), do: []
+
+  defp replan_available?(run) do
+    consumed = budget_value(run.consumed_budget, :replans, 0)
+    max = budget_value(run.budget, :max_replans, 0)
+
+    consumed < max
+  end
+
+  defp budget_value(map, key, default) when is_map(map) do
+    case map_get(map, key) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> default
+    end
+  end
+
+  defp budget_value(_map, _key, default), do: default
+
+  defp meta_reason_codes(meta), do: meta |> map_get(:reason_codes) |> string_list()
+
+  defp plan_step_reason_codes(step, target, meta) do
+    (meta_reason_codes(meta) ++
+       [
+         "agent_plan_mechanical_step",
+         "plan_step:#{map_get(step, :step_id) || target}"
+       ])
+    |> Enum.uniq()
+  end
+
+  defp meta_evaluation(meta, sequence) do
+    case map_get(meta, :evaluation_of_last) do
+      evaluation when is_map(evaluation) ->
+        evaluation
+
+      _ ->
+        %{advanced: sequence > 1, plan_holds: true, new_constraint: nil}
+    end
+  end
+
+  defp meta_confidence(meta) do
+    case map_get(meta, :confidence) do
+      value when is_float(value) and value >= 0.0 and value <= 1.0 -> value
+      value when is_integer(value) and value >= 0 and value <= 1 -> value * 1.0
+      _ -> 1.0
+    end
+  end
+
+  defp string_list(values) when is_list(values) do
+    values
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp string_list(_values), do: []
+
+  defp with_plan_cursor({:execute, step_fun, decision}, cursor, meta)
+       when is_function(step_fun) do
+    {:execute, wrap_plan_step(step_fun, cursor, meta), decision}
+  end
+
+  defp with_plan_cursor(result, _cursor, _meta), do: result
+
+  defp wrap_plan_step(step_fun, cursor, meta) do
+    fn run, sequence, snapshot ->
+      run
+      |> maybe_put_agent_plan(meta)
+      |> then(&step_fun.(&1, sequence, snapshot))
+      |> advance_plan_cursor(cursor, meta)
+    end
+  end
+
+  defp maybe_put_agent_plan(run, %{agent_plan: plan}) when is_map(plan) do
+    %{run | plan: plan, plan_ref: plan.plan_id, plan_version: plan.version}
+  end
+
+  defp maybe_put_agent_plan(run, _meta), do: run
+
+  defp advance_plan_cursor({:ok, result}, cursor, meta) when is_map(result) do
+    stage_patch = map_get(meta, :stage_state_patch) || %{}
+
+    {:ok,
+     result
+     |> Map.update(:stage_state, Map.merge(stage_patch, %{agent_plan_cursor: cursor + 1}), fn
+       stage_state ->
+         stage_state
+         |> Kernel.||(%{})
+         |> Map.merge(stage_patch)
+         |> Map.merge(%{agent_plan_cursor: cursor + 1})
+     end)
+     |> maybe_put_plan_run_patch(meta)}
+  end
+
+  defp advance_plan_cursor(result, _cursor, _meta), do: result
+
+  defp maybe_put_plan_run_patch(result, %{agent_plan: plan}) when is_map(plan) do
+    patch = %{plan: plan, plan_ref: plan.plan_id, plan_version: plan.version}
+
+    Map.update(result, :run_patch, patch, fn existing ->
+      Map.merge(existing || %{}, patch)
+    end)
+  end
+
+  defp maybe_put_plan_run_patch(result, _meta), do: result
 
   defp execute_context_decision_step(run, sequence, spec, snapshot) do
     turn_id = "#{run.parent_turn_ref}:agent:#{sequence}"
@@ -95,7 +460,20 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           snapshot
         )
       else
-        {:error, {:agent_step_blocked, tool_name(plan), decision_result.first_blocking_gate}}
+        {:ok,
+         deviation_result(
+           run,
+           sequence,
+           "D4",
+           "Orchestrator 未允许执行 #{tool_name(plan)}：#{decision_result.decision_type}。",
+           "gate:#{decision_result.decision_id}",
+           %{
+             decision_type: decision_result.decision_type,
+             first_blocking_gate: decision_result.first_blocking_gate,
+             tool_name: tool_name(plan)
+           },
+           step: blocked_step(run, sequence, plan, decision_result)
+         )}
       end
     end
   end
@@ -140,44 +518,172 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
 
-    if Map.get(tool_result, :status) == :failed do
-      {:error, {:tool_failed, tool_name(plan), Map.get(tool_result, :errors, [])}}
-    else
-      emit_stage(
-        snapshot,
-        :tool_completed,
-        "正文草稿已生成，质量复核已完成。",
-        ["prose_writing_completed", "quality_review_completed"],
-        tool_and_quality_refs(turn_result),
-        %{
-          stage: :prose_quality_completed,
-          tool_name: Map.get(tool_result, :tool_name),
-          tool_result_ref: Map.get(tool_result, :tool_result_id),
-          review_status: quality_review_status(turn_result),
-          finding_count: quality_finding_count(turn_result)
-        }
-      )
+    case tool_step_outcome(turn_result, tool_result) do
+      :tool_failed ->
+        {:ok, tool_failure_deviation(run, sequence, plan, turn_result, tool_result)}
 
-      turn_result = finalize(turn_result, run)
-      step_id = current_step_ref(run, sequence)
-      refs = artifact_refs(turn_result)
+      :deterministic_gap ->
+        {:ok, deterministic_gap_deviation(run, sequence, plan, turn_result)}
 
-      {:ok,
-       %{
-         step: execution_step(run, sequence, plan, turn_result),
-         observations:
-           [quality_observation(run, sequence, frame, turn_result)] ++
-             AgentObservationAssembler.from_turn_result(turn_result, %{
-               run_id: run.run_id,
-               step_id: step_id
-             }),
-         artifact_refs: refs,
-         turn_result: turn_result,
-         tool_call_count: 1,
-         provider_call_count: provider_call_count(turn_result),
-         progress_signature: progress_signature(turn_result)
-       }}
+      :completed ->
+        {:ok, completed_tool_step(run, sequence, frame, plan, turn_result, tool_result, snapshot)}
     end
+  end
+
+  defp tool_step_outcome(turn_result, tool_result) do
+    cond do
+      Map.get(tool_result, :status) == :failed -> :tool_failed
+      deterministic_gap_turn_result?(turn_result) -> :deterministic_gap
+      true -> :completed
+    end
+  end
+
+  defp tool_failure_deviation(run, sequence, plan, turn_result, tool_result) do
+    deviation_result(
+      run,
+      sequence,
+      "D1",
+      "工具 #{tool_name(plan)} 执行失败，先修订计划再决定后续动作。",
+      "tool_result:#{Map.get(tool_result, :tool_result_id) || current_step_ref(run, sequence)}",
+      %{
+        tool_name: tool_name(plan),
+        tool_result_ref: Map.get(tool_result, :tool_result_id),
+        errors: Map.get(tool_result, :errors, [])
+      },
+      step: failed_execution_step(run, sequence, plan, turn_result),
+      tool_call_count: 1,
+      provider_call_count: provider_call_count(turn_result)
+    )
+  end
+
+  defp deterministic_gap_deviation(run, sequence, plan, turn_result) do
+    deviation_result(
+      run,
+      sequence,
+      "D7",
+      "写作坐标存在确定性缺口，当前步骤无法继续生成正文。",
+      "turn_result:#{Map.get(turn_result, :turn_id) || current_step_ref(run, sequence)}",
+      %{deterministic_gap: true, missing_policy: true, tool_name: tool_name(plan)},
+      step: skipped_execution_step(run, sequence, plan, turn_result),
+      provider_call_count: 0
+    )
+  end
+
+  defp completed_tool_step(run, sequence, frame, plan, turn_result, tool_result, snapshot) do
+    emit_stage(
+      snapshot,
+      :tool_completed,
+      "正文草稿已生成，质量复核已完成。",
+      ["prose_writing_completed", "quality_review_completed"],
+      tool_and_quality_refs(turn_result),
+      %{
+        stage: :prose_quality_completed,
+        tool_name: Map.get(tool_result, :tool_name),
+        tool_result_ref: Map.get(tool_result, :tool_result_id),
+        review_status: quality_review_status(turn_result),
+        finding_count: quality_finding_count(turn_result)
+      }
+    )
+
+    turn_result = finalize(turn_result, run, turn_result_run_status(turn_result))
+    step_id = current_step_ref(run, sequence)
+
+    %{
+      step: execution_step(run, sequence, plan, turn_result),
+      observations:
+        [quality_observation(run, sequence, frame, turn_result)] ++
+          AgentObservationAssembler.from_turn_result(turn_result, %{
+            run_id: run.run_id,
+            step_id: step_id
+          }),
+      artifact_refs: artifact_refs(turn_result),
+      turn_result: turn_result,
+      tool_call_count: 1,
+      provider_call_count: provider_call_count(turn_result),
+      progress_signature: progress_signature(turn_result)
+    }
+  end
+
+  defp deterministic_gap_turn_result?(turn_result) when is_map(turn_result) do
+    text = get_in(turn_result, [:assistant_message, :text])
+    tool_called = get_in(turn_result, [:truthfulness, :tool_called])
+
+    is_binary(text) and String.contains?(text, "没有找到") and tool_called != true
+  end
+
+  defp deterministic_gap_turn_result?(_turn_result), do: false
+
+  defp deviation_result(run, sequence, signal, summary, source_ref, payload, opts) do
+    step = Keyword.fetch!(opts, :step)
+    tool_call_count = Keyword.get(opts, :tool_call_count, 0)
+    provider_call_count = Keyword.get(opts, :provider_call_count, 0)
+
+    %{
+      step: step,
+      observations: [
+        deviation_observation(run, sequence, signal, summary, source_ref, payload)
+      ],
+      stage_state: %{
+        agentic_deviation: %{
+          signal: signal,
+          ref: source_ref,
+          summary: summary,
+          source: source_ref,
+          payload: payload
+        }
+      },
+      tool_call_count: tool_call_count,
+      provider_call_count: provider_call_count,
+      progress_signature: "#{run.run_id}:deviation:#{signal}:#{source_ref}"
+    }
+  end
+
+  defp deviation_observation(run, sequence, signal, summary, source_ref, payload) do
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: "obs_#{run.run_id}_#{sequence}_deviation_#{String.downcase(signal)}",
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: source_ref,
+        summary: summary,
+        structured_payload:
+          Map.merge(payload || %{}, %{
+            agentic_deviation_signal: signal,
+            deterministic_gap: signal == "D7"
+          }),
+        evidence_refs: [source_ref]
+      })
+
+    observation
+  end
+
+  defp blocked_step(run, sequence, plan, decision_result) do
+    {:ok, step} =
+      AgentStep.new(%{
+        step_id: current_step_ref(run, sequence),
+        run_ref: run.run_id,
+        sequence: sequence,
+        status: :skipped,
+        goal: "系统裁决未允许执行 #{tool_name(plan)}",
+        micro_plan_ref: plan.plan_id,
+        decision_ref: Map.get(decision_result, :decision_id),
+        observation_refs: [],
+        state_snapshot_ref: state_snapshot_ref(run, sequence, "gate_blocked"),
+        idempotency_key: "#{run.run_id}:#{sequence}:gate_blocked:goal_v#{run.goal.version}"
+      })
+
+    step
+  end
+
+  defp failed_execution_step(run, sequence, plan, turn_result) do
+    step = execution_step(run, sequence, plan, turn_result)
+    %{step | status: :failed, failure_ref: "tool_failed"}
+  end
+
+  defp skipped_execution_step(run, sequence, plan, turn_result) do
+    step = execution_step(run, sequence, plan, turn_result)
+    %{step | status: :skipped, failure_ref: "deterministic_gap"}
   end
 
   defp provider_execution(spec, snapshot, purpose) do
@@ -353,14 +859,21 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     |> Enum.map_join(":", &to_string/1)
   end
 
-  defp finalize(turn_result, run) do
+  defp finalize(turn_result, run, status) do
     AgentFinalizer.attach_run_summary(turn_result, %{
       run_id: run.run_id,
       run_mode: run.run_mode,
       parent_turn_ref: run.parent_turn_ref,
       profile_ref: run.profile_ref,
-      status: :completed
+      status: status
     })
+  end
+
+  defp turn_result_run_status(turn_result) do
+    case quality_policy_action(turn_result) do
+      action when action in [:confirm, :block, "confirm", "block"] -> :awaiting_author
+      _action -> :completed
+    end
   end
 
   defp provider_call_count(turn_result) do

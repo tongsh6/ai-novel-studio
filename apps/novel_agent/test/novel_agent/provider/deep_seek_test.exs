@@ -100,6 +100,59 @@ defmodule NovelAgent.Provider.DeepSeekTest do
       assert body.reasoning_effort == "high"
     end
 
+    test "forced tool_choice request downgrades thinking to disabled (DeepSeek capability constraint)" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+
+        {:ok, 200,
+         %{
+           "choices" => [
+             %{
+               "message" => %{
+                 "content" => "计划推理",
+                 "tool_calls" => [
+                   %{
+                     "id" => "t1",
+                     "function" => %{"name" => "agent_plan_draft", "arguments" => "{}"}
+                   }
+                 ]
+               }
+             }
+           ],
+           "usage" => %{}
+         }}
+      end
+
+      state = %DeepSeek{
+        api_key: "secret",
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil,
+        thinking: :enabled,
+        reasoning_effort: "high"
+      }
+
+      prompt = %{
+        messages: [%{role: "user", content: "起草计划"}],
+        tools: [
+          %{name: "agent_plan_draft", description: "draft", input_schema: %{type: "object"}}
+        ],
+        tool_choice: "agent_plan_draft"
+      }
+
+      assert {:ok, _result} = DeepSeek.complete(state, nil, prompt, %InferenceParams{})
+      assert_receive {:request_body, body}
+
+      # thinking 模式不支持强制具名 tool_choice（HTTP 400），该请求必须整形为 disabled
+      assert body.thinking == %{type: "disabled"}
+      refute Map.has_key?(body, :reasoning_effort)
+      assert body.tool_choice == %{type: "function", function: %{name: "agent_plan_draft"}}
+    end
+
     test "returns auth error before HTTP when API key is missing" do
       mock = fn _url, _body, _opts ->
         send(self(), :unexpected_http)

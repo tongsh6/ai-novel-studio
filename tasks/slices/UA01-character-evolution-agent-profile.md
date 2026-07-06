@@ -11,9 +11,9 @@
 作者从真实工作台更新已有角色的当前状态、成长变化或关系变化时，系统应快速 ack 一个 bounded AgentRun，并在 run 内完成：
 
 1. 组装当前作品与角色上下文，并记录为 AgentObservation；
-2. 由 `next_step_planner` 基于 observations 选择 `character_evolution` 工具 step；
+2. 由 provider-backed `AgenticPlanDraftPlanner` 起草包含 `context_assemble` 与 `character_evolution` 的 per-run AgentPlan；
 3. 在工具 step 内制定单动作 MicroPlan，重新经过 `ExecutionOrchestrator`，再执行 `character_evolution` 生成 tentative `character_evolution_seed`；
-4. 由 `next_step_planner` 基于 artifact observation 给出 completion decision，并汇总结果给作者。
+4. runtime 按 AgentPlan cursor 机械推进，并在 artifact 完成条件成立后收束为 `goal_satisfied`。
 
 未采纳前不得写角色主档案、角色记忆或 reading projection。采纳后的写入治理仍归既有 AU-09 adoption boundary。
 
@@ -24,14 +24,14 @@
 - Boundary: 切过 `novel_application` / `novel_agent` profile registry / `frontend` acceptance driver / `quality`；不改 provider 协议，不改 adoption materialization，不改 Character 主档案或 Memory 写入语义。
 - Consumer: `WorkspaceChat` 的普通作者输入；后续消费者是既有 `character_evolution_seed` adoption/write-memory 边界。
 - Proof: application tests + real Tauri `agent-character-evolution-with-context`。
-- Acceptance Driver: 外部自动化从真实 Tauri 工作台创建并采纳已有角色，再输入“更新林烬当前状态”，验证 fast ack、观察驱动 next-step planner loop、`character_evolution` re-gate、tentative `character_evolution_seed`、未采纳不写作品事实。
+- Acceptance Driver: 外部自动化从真实 Tauri 工作台创建并采纳已有角色，再输入“更新林烬当前状态”，验证 fast ack、model-drafted AgentPlan、`character_evolution` re-gate、tentative `character_evolution_seed`、未采纳不写作品事实。
 
 ## 3. 任务
 
 | # | 任务 | 状态 | 说明 |
 |---|---|---|---|
 | T1 | Profile 任务设计和 scenario 登记 | done | 本文件 + quality manifest 已登记。 |
-| T2 | `character_evolution_with_context_v1` runtime | done | 已从固定 steps workflow 纯化为 context observation → next-step planner 选择工具 step → MicroPlan/Orchestrator gate → artifact observation → completion decision。 |
+| T2 | `character_evolution_with_context_v1` runtime | done | 已从 observation-led next-step planner 继续升级为 model-drafted AgentPlan + mechanical cursor：context/`character_evolution` 两步来自一次计划起草，工具 step 仍经 MicroPlan/Orchestrator gate。 |
 | T3 | 测试与真实 Tauri driver/verifier | done | application test + `agent-character-evolution-with-context` 已通过。 |
 | T4 | 验证与台账 | done | 台账已同步；完整回归和 static scan 由本轮最终收口执行。 |
 
@@ -50,5 +50,5 @@
   - `pending_memory_subtype=CURRENT_STATE`
   - `consumed_steps=2`
   - `consumed_tool_calls=1`
-  - `consumed_provider_calls=4`
-  - `character_evolution_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate`
+  - `consumed_provider_calls=3`
+  - `character_evolution_tool_step_followed_model_drafted_plan_and_reentered_orchestrator_gate`

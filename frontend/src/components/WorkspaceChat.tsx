@@ -3,7 +3,6 @@
 // Design: docs/design/ui/46-state-and-feedback.md §9 (Agentic loop reasoning flow)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 46§9-agentic-loop-reasoning-flow (DM8gx)
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
-import type { SyntheticEvent } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -81,13 +80,7 @@ import {
   shouldShowWelcomeMessage,
 } from "../lib/workspaceRuntimeState";
 import {
-  agentRunEventDetailItems,
-  agentRunProviderFlowSummary,
-  agentRunProviderRunDetailItems,
-  agentRunProviderRunReplayDetails,
   agentRunReasoningFlow,
-  selectAgentRunVisibleEvents,
-  type AgenticLoopReasoningFlow,
   type AgentRunProviderUsageData,
 } from "../lib/agentRunTimeline";
 import {
@@ -256,19 +249,6 @@ function removePendingAgentRunAnchor(
   const next = { ...anchors };
   delete next[clientMessageId];
   return next;
-}
-
-type AgentRunEventStage =
-  | "understanding"
-  | "context"
-  | "planning"
-  | "authorAdjustment"
-  | "execution"
-  | "result";
-
-interface AgentRunStageView {
-  stage: AgentRunEventStage;
-  events: AgentEventData[];
 }
 
 // 推理强度只接受供应商认可的枚举值（DeepSeek: high/low/medium），空串表示不指定。
@@ -516,16 +496,7 @@ function startupConnectingMessage(): ChatMessage {
 // 先于后端就绪而失败。这类「连接尚未就绪」的失败在启动期应静默重试，而不是直接报错。
 const STARTUP_MAX_ATTEMPTS = 30;
 const STARTUP_RETRY_MS = 1000;
-const AGENT_RUN_EVENT_VISIBLE_LIMIT = 96;
 const TERMINAL_AGENT_RUN_STATUSES = new Set(["completed", "cancelled", "failed"]);
-const AGENT_RUN_STAGE_ORDER: AgentRunEventStage[] = [
-  "understanding",
-  "context",
-  "planning",
-  "authorAdjustment",
-  "execution",
-  "result",
-];
 
 function turnResultAgentRunId(turnResult: TurnResult | undefined): string | null {
   const runId = turnResult?.agent_run?.run_id;
@@ -580,66 +551,6 @@ function mergeAgentRunEvents(restored: AgentEventData[], live: AgentEventData[])
   });
 }
 
-function agentRunEventStage(eventType: string): AgentRunEventStage {
-  switch (eventType) {
-    case "run_started":
-    case "goal_understood":
-      return "understanding";
-    case "exploration_observed":
-      return "context";
-    case "plan_drafted":
-    case "plan_revised":
-    case "evaluation_made":
-    case "gate_decided":
-      return "planning";
-    case "plan_adjusted":
-    case "interrupt_requested":
-    case "run_pausing":
-    case "run_paused":
-    case "run_resumed":
-    case "awaiting_author":
-    case "checkpoint_created":
-      return "authorAdjustment";
-    case "tool_started":
-    case "tool_completed":
-    case "provider_progress":
-    case "quality_review_started":
-    case "quality_finding_created":
-    case "turn_result_ready":
-      return "execution";
-    case "artifact_created":
-    case "run_completed":
-    case "run_cancelled":
-    case "run_failed":
-    default:
-      return "result";
-  }
-}
-
-function groupAgentRunEvents(events: AgentEventData[]): AgentRunStageView[] {
-  const groups = new Map<AgentRunEventStage, AgentEventData[]>(
-    AGENT_RUN_STAGE_ORDER.map((stage) => [stage, []]),
-  );
-
-  for (const event of events) {
-    const summary = event.summary?.trim();
-    if (event.visibility !== "author" || !summary || !isAgenticLoopEventType(event.event_type)) {
-      continue;
-    }
-    groups.get(agentRunEventStage(event.event_type))?.push(event);
-  }
-
-  return AGENT_RUN_STAGE_ORDER.map((stage) => ({ stage, events: groups.get(stage) ?? [] })).filter(
-    (group) => group.events.length > 0,
-  );
-}
-
-function isAgenticLoopEventType(eventType: string): boolean {
-  return ["plan_drafted", "plan_revised", "exploration_observed", "evaluation_made"].includes(
-    eventType,
-  );
-}
-
 function presentAgentEventSummary(summary: string): string {
   const trimmed = summary.trim();
 
@@ -673,75 +584,7 @@ function latestAgentRunSummary(
   return WORKBENCH.agentRunFallbackStatus(WORKBENCH.agentRunStatusLabels[run.status] ?? run.status);
 }
 
-type AgenticLoopPhaseKey =
-  | "plan"
-  | "explore"
-  | "evaluate"
-  | "replan"
-  | "execute"
-  | "review"
-  | "complete";
 type AgenticLoopPhaseStatus = "pending" | "active" | "done";
-
-interface AgenticLoopPhaseChip {
-  key: AgenticLoopPhaseKey;
-  status: AgenticLoopPhaseStatus;
-}
-
-function agenticLoopPhaseStrip(
-  run: AgentRunStateData | null,
-  events: AgentEventData[],
-  reasoningFlow: AgenticLoopReasoningFlow,
-  preparing: boolean,
-): AgenticLoopPhaseChip[] {
-  const hasPlan =
-    reasoningFlow.planSteps.length > 0 ||
-    events.some((event) => event.event_type === "plan_drafted");
-  const explored = events.some((event) => event.event_type === "exploration_observed");
-  const evaluated = events.some((event) => event.event_type === "evaluation_made");
-  const hasNarrative = reasoningFlow.narrativeEvents.length > 0;
-  const replanned = events.some((event) => event.event_type === "plan_revised");
-  const completed =
-    (run !== null && TERMINAL_AGENT_RUN_STATUSES.has(run.status)) ||
-    events.some((event) =>
-      ["run_completed", "run_cancelled", "run_failed", "turn_result_ready"].includes(
-        event.event_type,
-      ),
-    );
-  const executionObserved =
-    completed ||
-    events.some((event) => ["gate_decided", "turn_result_ready"].includes(event.event_type)) ||
-    reasoningFlow.planSteps.some((step) => step.kind === "act" && step.status === "done");
-  const activeKey: AgenticLoopPhaseKey | null = completed
-    ? null
-    : replanned
-      ? "replan"
-      : executionObserved
-        ? "execute"
-        : evaluated
-          ? "evaluate"
-          : explored
-            ? "explore"
-            : hasPlan || hasNarrative || preparing || run !== null
-              ? "plan"
-              : null;
-
-  const phaseStatus = (key: AgenticLoopPhaseKey, done: boolean): AgenticLoopPhaseStatus => {
-    if (done) return "done";
-    if (activeKey === key) return "active";
-    return "pending";
-  };
-
-  return [
-    { key: "plan", status: phaseStatus("plan", hasPlan || completed) },
-    { key: "explore", status: phaseStatus("explore", explored || completed) },
-    { key: "evaluate", status: phaseStatus("evaluate", evaluated || completed) },
-    { key: "replan", status: phaseStatus("replan", replanned) },
-    { key: "execute", status: phaseStatus("execute", executionObserved) },
-    { key: "review", status: phaseStatus("review", completed) },
-    { key: "complete", status: phaseStatus("complete", completed) },
-  ];
-}
 
 function agenticLoopStatusTone(run: AgentRunStateData | null): AgenticLoopPhaseStatus {
   if (run !== null && TERMINAL_AGENT_RUN_STATUSES.has(run.status)) return "done";
@@ -775,10 +618,6 @@ interface AgentRunDialogueFlowProps {
   canPause?: boolean;
   canResume?: boolean;
   canCancel?: boolean;
-  providerRuns?: AgentRunProviderUsageData[];
-  detailsDefaultOpen?: boolean;
-  detailsLoading?: boolean;
-  onDetailsOpen?: () => void;
   onCommand?: (command: AgentCommand) => void;
 }
 
@@ -789,34 +628,19 @@ function AgentRunDialogueFlow({
   canPause = false,
   canResume = false,
   canCancel = false,
-  providerRuns = [],
-  detailsDefaultOpen = false,
-  detailsLoading = false,
-  onDetailsOpen,
   onCommand,
 }: AgentRunDialogueFlowProps) {
-  const [detailsOpen, setDetailsOpen] = useState(detailsDefaultOpen);
-  const visibleEvents = selectAgentRunVisibleEvents(events, AGENT_RUN_EVENT_VISIBLE_LIMIT);
-  const stages = groupAgentRunEvents(visibleEvents);
   const reasoningFlow = agentRunReasoningFlow(events);
-  const phaseStrip = agenticLoopPhaseStrip(run, events, reasoningFlow, preparing);
   const statusTone = agenticLoopStatusTone(run);
   const statusLabel =
     run &&
     (WORKBENCH.agentRunStatusLabels[run.status] ??
       (run.status || WORKBENCH.agentRunPreparingStatus));
-  const statusSummary =
-    (preparing ? WORKBENCH.agentRunPreparingEvent : reasoningFlow.statusLine) ??
-    latestAgentRunSummary(run, [], false);
-  const providerFlowSummary = agentRunProviderFlowSummary(events, providerRuns);
+  const statusSummary = preparing
+    ? WORKBENCH.agentRunPreparingEvent
+    : latestAgentRunSummary(run, [], false);
   const showControls =
     run !== null && onCommand !== undefined && !TERMINAL_AGENT_RUN_STATUSES.has(run.status);
-
-  function handleDetailsToggle(event: SyntheticEvent<HTMLDetailsElement>) {
-    const open = event.currentTarget.open;
-    setDetailsOpen(open);
-    if (open) onDetailsOpen?.();
-  }
 
   return (
     <div className={styles.agentRunFlow} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
@@ -846,38 +670,17 @@ function AgentRunDialogueFlow({
           </div>
         </div>
 
-        <ol
-          className={styles.agenticLoopPhaseStrip}
-          aria-label={WORKBENCH.agenticLoopStateTrackLabel}
-        >
-          {phaseStrip.map((phase, index) => (
-            <Fragment key={phase.key}>
-              <li className={styles.agenticLoopPhase} data-status={phase.status}>
-                <span>{WORKBENCH.agenticLoopPhaseLabels[phase.key]}</span>
-              </li>
-              {index < phaseStrip.length - 1 && (
-                <li className={styles.agenticLoopPhaseArrow} aria-hidden="true">
-                  →
-                </li>
-              )}
-            </Fragment>
-          ))}
-        </ol>
-
         {reasoningFlow.planSteps.length > 0 && (
           <>
             <div className={styles.agenticLoopDivider} aria-hidden="true" />
             <section className={styles.agenticLoopPlan} aria-label={WORKBENCH.agenticLoopPlanLabel}>
               <div className={styles.agenticLoopSectionHeader}>
                 <span>{WORKBENCH.agenticLoopPlanLabel}</span>
-                {reasoningFlow.planVersion !== null && (
+                {reasoningFlow.planVersion !== null && reasoningFlow.planVersion > 1 && (
                   <span className={styles.agenticLoopVersionPill}>
                     {planRevisionLabel(events, reasoningFlow.planVersion)}
                   </span>
                 )}
-                <span className={styles.agenticLoopSectionHint}>
-                  {WORKBENCH.agenticLoopPlanHint}
-                </span>
               </div>
               <ol className={styles.agenticLoopPlanSteps}>
                 {reasoningFlow.planSteps.map((step) => (
@@ -890,12 +693,6 @@ function AgentRunDialogueFlow({
                       {planStepSymbol(step.status)}
                     </span>
                     <span className={styles.agenticLoopPlanStepBody}>
-                      <span className={styles.agenticLoopPlanStepMeta}>
-                        <span className={styles.agenticLoopPlanStepKind}>
-                          {WORKBENCH.agenticLoopPlanStepKindLabels[step.kind]}
-                        </span>
-                        <span>{WORKBENCH.agenticLoopPlanStepStatusLabels[step.status]}</span>
-                      </span>
                       <span className={styles.agenticLoopPlanStepText}>{step.description}</span>
                     </span>
                   </li>
@@ -912,12 +709,6 @@ function AgentRunDialogueFlow({
               className={styles.agenticLoopReasoning}
               aria-label={WORKBENCH.agenticLoopReasoningLabel}
             >
-              <div className={styles.agenticLoopSectionHeader}>
-                <span>{WORKBENCH.agenticLoopReasoningLabel}</span>
-                <span className={styles.agenticLoopSectionHint}>
-                  {WORKBENCH.agenticLoopReasoningHint}
-                </span>
-              </div>
               <ol className={styles.agenticLoopNarratives}>
                 {reasoningFlow.narrativeEvents.map((event) => (
                   <li key={event.key} className={styles.agenticLoopNarrative}>
@@ -933,16 +724,6 @@ function AgentRunDialogueFlow({
               </ol>
             </section>
           </>
-        )}
-
-        {reasoningFlow.resultLine && (
-          <section
-            className={styles.agenticLoopResult}
-            aria-label={WORKBENCH.agenticLoopResultLabel}
-          >
-            <span className={styles.agenticLoopResultPill}>{WORKBENCH.agenticLoopResultLabel}</span>
-            <span>{reasoningFlow.resultLine}</span>
-          </section>
         )}
 
         {showControls && (
@@ -983,176 +764,6 @@ function AgentRunDialogueFlow({
           </div>
         )}
 
-        <details
-          className={styles.agentRunDetails}
-          open={detailsOpen}
-          onToggle={handleDetailsToggle}
-        >
-          <summary className={styles.agentRunDetailsSummary}>
-            <ChevronDown size={14} aria-hidden="true" />
-            <span>{WORKBENCH.agentRunDetailsSummary}</span>
-            <span className={styles.agentRunDetailsHint}>
-              {detailsLoading ? WORKBENCH.agentRunDetailsLoading : WORKBENCH.agentRunDetailsHint}
-            </span>
-          </summary>
-
-          {detailsOpen && (
-            <>
-              {providerFlowSummary && (
-                <section
-                  className={styles.agentRunProviderFlow}
-                  aria-label={WORKBENCH.agentRunProviderFlowLabel}
-                >
-                  <div className={styles.agentRunProviderFlowHeader}>
-                    <span className={styles.agentRunProviderFlowLabel}>
-                      {WORKBENCH.agentRunProviderFlowLabel}
-                    </span>
-                    <span>{providerFlowSummary.headline}</span>
-                  </div>
-                  {providerFlowSummary.details.length > 0 && (
-                    <div className={styles.agentRunProviderFlowDetails}>
-                      {providerFlowSummary.details.map((detail) => (
-                        <span key={detail}>{detail}</span>
-                      ))}
-                    </div>
-                  )}
-                  <ol className={styles.agentRunProviderFlowPhases}>
-                    {providerFlowSummary.phases.map((phase) => (
-                      <li
-                        key={phase.key}
-                        className={`${styles.agentRunProviderFlowPhase} ${
-                          styles[
-                            `agentRunProviderFlowPhase${phase.status[0].toUpperCase()}${phase.status.slice(
-                              1,
-                            )}` as keyof typeof styles
-                          ]
-                        }`}
-                      >
-                        <span>{phase.label}</span>
-                        <span>{WORKBENCH.agentRunProviderFlowPhaseStatusLabels[phase.status]}</span>
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              )}
-
-              {providerRuns.length > 0 && (
-                <section
-                  className={styles.agentRunProviderRuns}
-                  aria-label={WORKBENCH.agentRunProviderRunsLabel}
-                >
-                  <div className={styles.agentRunTimelineLabel}>
-                    {WORKBENCH.agentRunProviderRunsLabel}
-                  </div>
-                  <div className={styles.agentRunTimelineEvents}>
-                    {providerRuns.map((providerRun, index) => {
-                      const detailItems = agentRunProviderRunDetailItems(providerRun);
-                      const replayDetails = agentRunProviderRunReplayDetails(providerRun);
-                      const key =
-                        providerRun.provider_run_ref ?? providerRun.provider_call_ref ?? `${index}`;
-
-                      return (
-                        <details
-                          key={key}
-                          className={styles.agentRunProviderRunDetail}
-                          open={index === 0}
-                        >
-                          <summary className={styles.agentRunProviderRunSummary}>
-                            <ChevronDown size={13} aria-hidden="true" />
-                            <span>
-                              {providerRun.provider_call_ref
-                                ? WORKBENCH.agentRunDetailProviderCallRef(
-                                    providerRun.provider_call_ref,
-                                  )
-                                : WORKBENCH.agentRunProviderRunsLabel}
-                            </span>
-                          </summary>
-                          {detailItems.length > 0 && (
-                            <div className={styles.agentRunTimelineEventDetails}>
-                              {detailItems.map((item) => (
-                                <span key={item}>{item}</span>
-                              ))}
-                            </div>
-                          )}
-                          <div className={styles.agentRunProviderReplay}>
-                            <section className={styles.agentRunProviderReplaySection}>
-                              <div className={styles.agentRunProviderReplayLabel}>
-                                {WORKBENCH.agentRunProviderReplayEventsLabel}
-                              </div>
-                              <ul className={styles.agentRunProviderReplayList}>
-                                {replayDetails.events.map((event, eventIndex) => (
-                                  <li
-                                    key={`${eventIndex}-${event.title}-${event.details.join("-")}`}
-                                  >
-                                    <div className={styles.agentRunProviderReplayItemTitle}>
-                                      {event.title}
-                                    </div>
-                                    {event.details.length > 0 && (
-                                      <div className={styles.agentRunTimelineEventDetails}>
-                                        {event.details.map((item) => (
-                                          <span key={item}>{item}</span>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            </section>
-                            <section className={styles.agentRunProviderReplaySection}>
-                              <div className={styles.agentRunProviderReplayLabel}>
-                                {WORKBENCH.agentRunProviderReplayOutputLabel}
-                              </div>
-                              <div className={styles.agentRunTimelineEventDetails}>
-                                {replayDetails.output.map((item) => (
-                                  <span key={item}>{item}</span>
-                                ))}
-                              </div>
-                            </section>
-                            <div className={styles.agentRunProviderReplayBoundary}>
-                              {replayDetails.boundary}
-                            </div>
-                          </div>
-                        </details>
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
-
-              {stages.length > 0 ? (
-                <div className={styles.agentRunTimeline}>
-                  {stages.map((group) => (
-                    <section key={group.stage} className={styles.agentRunTimelineSection}>
-                      <div className={styles.agentRunTimelineLabel}>
-                        {WORKBENCH.agentRunStageLabels[group.stage]}
-                      </div>
-                      <div className={styles.agentRunTimelineEvents}>
-                        {group.events.map((event) => {
-                          const detailItems = agentRunEventDetailItems(event);
-
-                          return (
-                            <div key={event.event_id} className={styles.agentRunTimelineEvent}>
-                              <div>{presentAgentEventSummary(event.summary)}</div>
-                              {detailItems.length > 0 && (
-                                <div className={styles.agentRunTimelineEventDetails}>
-                                  {detailItems.map((item) => (
-                                    <span key={item}>{item}</span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.agentRunEmptyEvent}>{WORKBENCH.agentRunEmptyEvent}</div>
-              )}
-            </>
-          )}
-        </details>
       </div>
     </div>
   );
@@ -3726,12 +3337,6 @@ export function WorkspaceChat() {
                   )
                 : [];
               const messageRunIsLatest = latestAgentRun?.run_id === messageAgentRunId;
-              const messageAgentRunActivityKey = msg.turnResult
-                ? agentRunActivityKey(msg.turnResult)
-                : null;
-              const messageAgentRunDetailsLoading = messageAgentRunActivityKey
-                ? agentRunActivityLoading[messageAgentRunActivityKey] === true
-                : false;
               const messageIdentity =
                 msg.turnResult?.turn_id ?? msg.turnId ?? msg.clientMessageId ?? String(i);
               const messageKey = `${msg.role}:${messageIdentity}:${messageAgentRunId ?? msg.agentRunId ?? "none"}`;
@@ -3766,15 +3371,6 @@ export function WorkspaceChat() {
                       <AgentRunDialogueFlow
                         run={messageAgentRun}
                         events={messageAgentRunEvents}
-                        providerRuns={msg.turnResult?.agent_run?.provider_runs ?? []}
-                        detailsLoading={messageAgentRunDetailsLoading}
-                        onDetailsOpen={
-                          msg.turnResult
-                            ? () => {
-                                void hydrateAgentRunActivityForTurn(msg.turnResult!);
-                              }
-                            : undefined
-                        }
                         canPause={messageRunIsLatest && canPauseAgentRun}
                         canResume={messageRunIsLatest && canResumeAgentRun}
                         canCancel={messageRunIsLatest && canCancelAgentRun}

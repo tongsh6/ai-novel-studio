@@ -27,7 +27,7 @@ user_flow:
   - wait_for: quality review card with a finding + 按这些问题重写 action
   - click: 按这些问题重写
   - verify: revision author_action fast-acks with bounded AgentRun
-  - verify: revision AgentRun exposes source, plan, gate, tool, and finalization events
+  - verify: revision AgentRun emits one model-drafted AgentPlan with revision_prepare, revision_plan, prose_writing, revision_finalize, then advances by mechanical cursor
   - wait_for: sibling tentative revision draft visible (修订草稿)
 
 evidence:
@@ -48,8 +48,9 @@ assertions:
     - prose_writing prose_fragment turn_result carrying quality_review.findings received
     - revise_from_findings author_action sent (target_ref = original artifact)
     - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
-    - revision agent_event stream contains source, plan, gate, tool, and finalization events
-    - revision agent_run_state completes with 4 steps, 1 tool call, 6 provider calls
+    - revision agent_event stream contains one plan_drafted payload whose target_tool_ref is revision_prepare and whose plan_steps are revision_prepare, revision_plan, prose_writing, revision_finalize
+    - revision agent_event stream contains source observation, Orchestrator gate, tool, artifact, and completion events
+    - revision agent_run_state completes with 4 steps, 1 tool call, 2 provider calls
     - revision turn_result received (trace_summary.decision_type = revise_from_findings)
   data:
     - prose_quality.evaluated emitted with finding_count>=1 (finding is not a story fact)

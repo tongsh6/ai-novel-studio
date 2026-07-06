@@ -11,32 +11,37 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
 
   @work "work-agent-world-flow"
 
-  test "bounded world building run reads context, regates, executes tool, and leaves tentative artifact" do
+  test "bounded world building run uses a model-drafted plan before context and world building execution" do
     parent = self()
 
     result_fn = fn prompt ->
-      if String.contains?(prompt, "AgentRun 下一步规划器") do
-        {:ok,
-         %{
-           content:
-             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
-         }}
-      else
-        send(parent, {:provider_prompt, prompt})
+      cond do
+        plan_draft_prompt?(prompt) ->
+          {:ok, Map.put(world_building_plan_draft(), :provider_call_id, "pc-agent-world-planner")}
 
-        {:ok,
-         %{
-           provider_call_id: "pc-agent-world-writer",
-           content:
-             Jason.encode!([
-               %{
-                 "item_id" => "foreshadowing-star-bridge",
-                 "title" => "星桥旧账",
-                 "body" => "一条跨三卷回收的伏笔线索，先以商队账册出现，后续牵出星桥封锁真相。",
-                 "rationale" => "让世界设定、角色债务和后续悬念共享同一条因果线。"
-               }
-             ])
-         }}
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
+
+        true ->
+          send(parent, {:provider_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-agent-world-writer",
+             content:
+               Jason.encode!([
+                 %{
+                   "item_id" => "foreshadowing-star-bridge",
+                   "title" => "星桥旧账",
+                   "body" => "一条跨三卷回收的伏笔线索，先以商队账册出现，后续牵出星桥封锁真相。",
+                   "rationale" => "让世界设定、角色债务和后续悬念共享同一条因果线。"
+                 }
+               ])
+           }}
       end
     end
 
@@ -66,9 +71,13 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
 
     assert_receive {:agent_event, :run_started, _}
     assert_receive {:agent_event, :plan_drafted, context_step}
-    assert context_step.summary =~ "读取作品设定上下文"
+    assert context_step.summary =~ "读取世界设定上下文"
     assert context_step.payload.target_tool_ref == "context_assemble"
-    assert is_list(context_step.payload.plan_steps)
+
+    assert [
+             %{target_tool_ref: "context_assemble"},
+             %{target_tool_ref: "world_building"}
+           ] = context_step.payload.plan_steps
 
     NovelApplication.TestAssertions.assert_provider_output_narrative_source(
       context_step.payload.author_narrative_source
@@ -81,17 +90,9 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert_receive {:agent_event, :evaluation_made, context_decision}, 500
     assert "agent_step_evaluated" in context_decision.reason_codes
 
-    assert_receive {:agent_event, :plan_drafted, world_step}, 500
-    assert world_step.summary =~ "生成世界设定草稿"
-    assert world_step.payload.target_tool_ref == "world_building"
-    assert is_list(world_step.payload.plan_steps)
-
-    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      world_step.payload.author_narrative_source
-    )
-
     assert_receive {:agent_event, :evaluation_made, plan_event}, 500
     assert "agent_step_evaluated" in plan_event.reason_codes
+    assert plan_event.payload.target_tool_ref == "world_building"
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "系统已完成下一步执行裁决"
     assert_receive {:agent_event, :tool_started, tool_started}, 500
@@ -116,7 +117,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 4
+    assert state.run.consumed_budget.provider_calls == 3
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
 
     turn_result = artifact_event.payload.turn_result
@@ -138,28 +139,38 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     parent = self()
 
     result_fn = fn prompt ->
-      if String.contains?(prompt, "AgentRun 下一步规划器") do
-        {:ok,
-         %{
-           content:
-             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
-         }}
-      else
-        send(parent, {:provider_prompt, prompt})
+      cond do
+        plan_draft_prompt?(prompt) ->
+          {:ok,
+           Map.put(
+             world_building_plan_draft(),
+             :provider_call_id,
+             "pc-agent-world-style-rule-planner"
+           )}
 
-        {:ok,
-         %{
-           provider_call_id: "pc-agent-world-style-rule-writer",
-           content:
-             Jason.encode!([
-               %{
-                 "item_id" => "style-rule-cold-clue",
-                 "title" => "风格规则：冷线索优先",
-                 "body" => "风格规则：后续创作先呈现可验证线索，再解释情绪判断。\n适用文本范围：悬疑推进段落。\n禁止事项：不得直接替角色下结论。",
-                 "rationale" => "让后续写作保持冷峻、可追踪的叙事质感。"
-               }
-             ])
-         }}
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
+
+        true ->
+          send(parent, {:provider_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-agent-world-style-rule-writer",
+             content:
+               Jason.encode!([
+                 %{
+                   "item_id" => "style-rule-cold-clue",
+                   "title" => "风格规则：冷线索优先",
+                   "body" => "风格规则：后续创作先呈现可验证线索，再解释情绪判断。\n适用文本范围：悬疑推进段落。\n禁止事项：不得直接替角色下结论。",
+                   "rationale" => "让后续写作保持冷峻、可追踪的叙事质感。"
+                 }
+               ])
+           }}
       end
     end
 
@@ -197,7 +208,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert state.run.status == :completed
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 4
+    assert state.run.consumed_budget.provider_calls == 3
 
     turn_result = artifact_event.payload.turn_result
     assert turn_result.agent_run.run_id == run_id
@@ -214,7 +225,34 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
              "pc-agent-world-style-rule-writer"
   end
 
+  defp plan_draft_prompt?(prompt), do: prompt_contains?(prompt, "AgentRun 计划起草器")
+
+  defp world_building_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先读取世界设定上下文，再生成世界设定、伏笔或规则草稿。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "context_assemble",
+          "context_assemble",
+          "先读取世界设定上下文。",
+          success_criteria: ["world_building_context_observation_created"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "world_building",
+          "world_building",
+          "基于已读取的世界设定上下文生成世界设定、伏笔或规则草稿。",
+          kind: "act",
+          write_intent: "tentative",
+          success_criteria: ["tentative_world_building_seed_created"]
+        )
+      ],
+      reason_codes: ["agent_plan_drafted", "world_building_plan_drafted"]
+    )
+  end
+
   defp next_step_decision(prompt) do
+    prompt = prompt_text(prompt)
+
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
         NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳世界设定候选，本轮目标已经满足。")
@@ -236,6 +274,9 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
         )
     end
   end
+
+  defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
+  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp context do
     %DialogueContext{

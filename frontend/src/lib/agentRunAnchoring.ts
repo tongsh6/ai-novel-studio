@@ -116,18 +116,31 @@ export function upsertAssistantTurnResultMessage<
 
   const parentTurnId = turnResultParentTurnId(turnResult, messages);
   const agentRunId = turnResultAgentRunId(turnResult);
-  const parentIndex = messages.findIndex(
-    (message) =>
-      message.role === "user" &&
-      ((parentTurnId !== null && message.turnId === parentTurnId) ||
-        (agentRunId !== null && message.agentRunId === agentRunId)),
-  );
-  if (parentIndex < 0) return [...messages, assistantMessage];
+
+  // 插入点 = 父 turn 消息链的最后一条：包括父 turn 的用户消息、同 turn 的
+  // 既有 assistant 消息（如带候选卡/确认卡的 turn_result），以及先到的兄弟
+  // 子结果（同 parent 的 action 子 turn）。只锚定用户消息会把 action 子结果
+  // 插进「用户消息与 assistant 卡片之间」，落在长卡片上方的视野外（stage
+  // 2026-07-05 choose_candidate「没有反应」事故的根因）。
+  let anchorIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    const messageParentTurnId = normalizedString(message.turnResult?.parent_turn_id);
+    const belongsToParentTurn =
+      parentTurnId !== null &&
+      (message.turnId === parentTurnId ||
+        message.turnResult?.turn_id === parentTurnId ||
+        messageParentTurnId === parentTurnId);
+    const anchorsSameAgentRun =
+      agentRunId !== null && message.role === "user" && message.agentRunId === agentRunId;
+    if (belongsToParentTurn || anchorsSameAgentRun) anchorIndex = index;
+  }
+  if (anchorIndex < 0) return [...messages, assistantMessage];
 
   return [
-    ...messages.slice(0, parentIndex + 1),
+    ...messages.slice(0, anchorIndex + 1),
     assistantMessage,
-    ...messages.slice(parentIndex + 1),
+    ...messages.slice(anchorIndex + 1),
   ];
 }
 

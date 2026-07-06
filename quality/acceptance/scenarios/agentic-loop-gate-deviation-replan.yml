@@ -1,0 +1,52 @@
+id: agentic-loop-gate-deviation-replan
+title: ADR-0023 D4 Orchestrator gate deny 时先修订计划
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agentic-loop-gate-deviation-replan --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - d4-gate-deny-triggers-provider-sourced-replan
+  - orchestrator-gate-is-not-bypassed
+  - planner-does-not-approve-tool-execution
+  - no-acceptance-hook-in-production
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: high-risk prose request
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: gate_decided require_confirmation from Orchestrator
+  - wait_for: provider-sourced plan_revised with reason code agentic_deviation:D4
+  - wait_for: run stops at awaiting_author after consuming one replan budget
+  - verify: writer provider was not dispatched after gate deny
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agentic-loop-gate-deviation-replan-tauri
+
+assertions:
+  network:
+    - gate_decided records decision_type=require_confirmation and first_blocking_gate=authority
+    - plan_revised reason_codes include agentic_deviation:D4
+    - final agent_run_state records status=awaiting_author, steps=2, tool_calls=0, provider_calls=3, replans=1
+  data:
+    - no writer tool execution occurs after gate deny
+    - channel logs bounded run ack and never logs sync_turn fallback
+    - no final TurnResult is emitted
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

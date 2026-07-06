@@ -103,6 +103,79 @@ defmodule NovelPersistence.ProviderRunLogTest do
     refute Map.has_key?(summary, :content)
   end
 
+  test "persists native tool call count and names without arguments" do
+    agent_run_id = "run-provider-tool-call-#{System.unique_integer([:positive, :monotonic])}"
+    provider_run_id = "prun-provider-tool-call"
+    provider_call_ref = "pcall-provider-tool-call"
+
+    {:ok, run} =
+      ProviderRun.new(%{
+        provider_run_id: provider_run_id,
+        provider_call_ref: provider_call_ref,
+        purpose: :author_reasoning,
+        execution_mode: :event_stream,
+        status: :completed,
+        provider_id: "slice_verify",
+        model: "stub-model"
+      })
+
+    {:ok, final} =
+      ProviderEvent.new(%{
+        event_id: "pevt-provider-tool-call-final",
+        provider_run_ref: provider_run_id,
+        sequence: 1,
+        event_type: :final_output,
+        visibility: :developer,
+        summary: "Provider final output materialized.",
+        payload: %{content_length: 12},
+        refs: [provider_call_ref]
+      })
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: provider_run_id,
+        provider_call_ref: provider_call_ref,
+        status: :ok,
+        output_type: :text,
+        content: %{
+          text: "计划说明",
+          tool_calls: [
+            %{
+              name: "agent_plan_draft",
+              arguments: %{
+                plan: %{steps: [%{target_tool_ref: "context_assemble"}]},
+                reason_codes: ["agent_plan_drafted"]
+              }
+            }
+          ]
+        },
+        refs: [provider_call_ref]
+      })
+
+    assert :ok =
+             ProviderRunLog.record_execution(
+               {:ok, %{provider_run: run, events: [final], output: output}},
+               %{agent_run_id: agent_run_id}
+             )
+
+    assert %{
+             content_summary: %{
+               "native_tool_call_count" => 1,
+               "native_tool_call_names" => ["agent_plan_draft"]
+             }
+           } = ProviderRunLog.get_output(provider_run_id)
+
+    summary_json =
+      provider_run_id
+      |> ProviderRunLog.get_output()
+      |> Map.fetch!(:content_summary)
+      |> Jason.encode!()
+
+    refute summary_json =~ "target_tool_ref"
+    refute summary_json =~ "context_assemble"
+    refute summary_json =~ "reason_codes"
+  end
+
   test "sanitizes provider error details before persistence" do
     agent_run_id = "run-provider-error-#{System.unique_integer([:positive, :monotonic])}"
     provider_run_id = "prun-provider-error"

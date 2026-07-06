@@ -35,18 +35,10 @@ defmodule NovelAgent.Provider.LMStudio do
 
   @impl true
   def complete(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params)
-      when (is_binary(prompt) or is_list(prompt)) and not is_nil(endpoint) do
+      when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and not is_nil(endpoint) do
     start_time = System.monotonic_time(:millisecond)
 
-    body =
-      HTTP.apply_params(
-        %{
-          model: state.model,
-          messages: NovelAgent.Provider.normalize_messages(prompt)
-        },
-        params
-      )
-      |> maybe_json_mode(state.json_mode)
+    body = request_body(state, prompt, params, false)
 
     url = Path.join(endpoint, "chat/completions")
     post = state.http_fn || (&HTTP.post/3)
@@ -72,22 +64,16 @@ defmodule NovelAgent.Provider.LMStudio do
 
   @impl true
   def execute(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params, ctx)
-      when (is_binary(prompt) or is_list(prompt)) and not is_nil(endpoint) do
-    body =
-      HTTP.apply_params(
-        %{
-          model: state.model,
-          messages: NovelAgent.Provider.normalize_messages(prompt),
-          stream: true
-        },
-        params
-      )
-      |> maybe_json_mode(state.json_mode)
+      when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and not is_nil(endpoint) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      execute_tool_call(state, endpoint, prompt, params, ctx)
+    else
+      body = request_body(state, prompt, params, true)
+      url = Path.join(endpoint, "chat/completions")
+      request_opts = [receive_timeout: state.timeout]
 
-    url = Path.join(endpoint, "chat/completions")
-    request_opts = [receive_timeout: state.timeout]
-
-    OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
+      OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
+    end
   end
 
   def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
@@ -101,14 +87,16 @@ defmodule NovelAgent.Provider.LMStudio do
   # ── response handlers ────────────────────────
 
   defp handle_success(state, resp_body, start_time) do
-    content = get_in(resp_body, ["choices", Access.at(0), "message", "content"])
+    message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}
+    content = Map.get(message, "content") || ""
+    tool_calls = NovelAgent.Provider.extract_openai_tool_calls(message)
     duration = System.monotonic_time(:millisecond) - start_time
     usage = Usage.from_openai_response(resp_body, state.model, duration)
 
-    if content && content != "" do
+    if (is_binary(content) and content != "") or tool_calls != [] do
       Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
 
-      {:ok, Result.new(content, usage),
+      {:ok, Result.new(content, usage, tool_calls: tool_calls),
        %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}}
     else
       err = UpstreamError.new(:invalid_response, "响应内容为空", name())
@@ -160,8 +148,61 @@ defmodule NovelAgent.Provider.LMStudio do
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
-  defp maybe_json_mode(body, true), do: Map.put(body, :response_format, %{type: "json_object"})
-  defp maybe_json_mode(body, _), do: body
+  defp request_body(state, prompt, params, stream?) do
+    HTTP.apply_params(
+      %{
+        model: state.model,
+        messages: NovelAgent.Provider.normalize_messages(prompt),
+        stream: stream?
+      },
+      params
+    )
+    |> maybe_json_mode(state.json_mode, prompt)
+    |> NovelAgent.Provider.put_openai_tools(prompt)
+    |> downgrade_named_tool_choice()
+  end
+
+  # LM Studio API 约束：tool_choice 只接受字符串 none/auto/required，不支持
+  # OpenAI 具名对象形式（HTTP 400 "Invalid tool_choice type: 'object'"）。
+  # 请求只携带单个 tool 时 "required" 等效强制；解析层仍校验「恰一个匹配名」。
+  defp downgrade_named_tool_choice(%{tool_choice: %{}} = body),
+    do: Map.put(body, :tool_choice, "required")
+
+  defp downgrade_named_tool_choice(body), do: body
+
+  defp execute_tool_call(state, endpoint, prompt, params, ctx) do
+    start_time = System.monotonic_time(:millisecond)
+    body = request_body(state, prompt, params, false)
+    url = Path.join(endpoint, "chat/completions")
+    post = state.http_fn || (&HTTP.post/3)
+    initial_events = AdapterExecution.initial_events(ctx)
+    AdapterExecution.emit_events(ctx, initial_events, :running)
+
+    result =
+      case post.(url, body, receive_timeout: state.timeout) do
+        {:ok, status, resp_body} when status in 200..299 ->
+          handle_success(state, resp_body, start_time)
+
+        {:error, reason, _status, message} ->
+          handle_error(reason, message, start_time)
+      end
+
+    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
+
+    result
+    |> strip_attrs()
+    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
+  end
+
+  defp maybe_json_mode(body, true, prompt) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      body
+    else
+      Map.put(body, :response_format, %{type: "json_object"})
+    end
+  end
+
+  defp maybe_json_mode(body, _enabled, _prompt), do: body
 
   @impl true
   def name, do: "lmstudio"

@@ -39,6 +39,14 @@
 | `agent-readonly-batch-profile.yml` | AgentRun 只读 batch profile 可并行读取且不写作品事实（CP6，nightly active） |
 | `agent-prose-drafting-with-quality.yml` | AgentRun 正文草稿 Profile 复用正文质量复核链路 |
 | `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun，并在 46§9 推理区实时显示多段 `author_narrative_delta` |
+| `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 计划耗尽后触发 provider-sourced `plan_revised` 并继续完成对话 |
+| `agentic-loop-no-deviation-direct.yml` | ADR-0023 无偏离直通路径只消费起草计划且不触发重规划 |
+| `agent-plan-native-tool-calling-protocol.yml` | ADR-0023 CP4 证明 AgentPlan draft/revision 结构来自 provider-native tool calls，activity telemetry 只暴露 count/name |
+| `agentic-loop-budget-deviation-replan.yml` | ADR-0023 D5 预算余量不足触发 provider-sourced `plan_revised` 并消耗 replan budget |
+| `agentic-loop-tool-failure-replan.yml` | ADR-0023 D1 工具失败触发 provider-sourced `plan_revised` 并消耗 replan budget |
+| `agentic-loop-quality-deviation-replan.yml` | ADR-0023 D2 质量行动项触发 provider-sourced `plan_revised` 并消耗 replan budget |
+| `agentic-loop-gate-deviation-replan.yml` | ADR-0023 D4 Orchestrator gate deny 触发 provider-sourced `plan_revised` 且不绕过 gate |
+| `agentic-loop-deterministic-gap-replan.yml` | ADR-0023 D7 确定性缺口触发 provider-sourced `plan_revised` 且不派发 writer provider |
 | `agent-plot-outline-with-context.yml` | AgentRun 章节大纲 Profile 生成待采纳大纲草稿 |
 | `agent-world-building-with-context.yml` | AgentRun 世界设定 Profile 生成待采纳伏笔草稿 |
 | `agent-world-building-style-rule-with-context.yml` | AgentRun 世界设定 Profile 生成待采纳写作规则草稿 |
@@ -121,6 +129,11 @@
 | `p1-chapter-word-count-target.yml` | 作者目标字数进入正文生成链路 |
 | `p1-export-minimum.yml` | 阅读投影导出全书 Markdown |
 | `p1-plan-incremental.yml` | 增量章节规划追加新章且不改旧章 |
+| `p1-prose-execution-brief.yml` | 正文生成携带场级执行简述 |
+| `p1-prose-quality-adoption-boundary.yml` | 质量修订候选采纳边界 |
+| `p1-prose-quality-evaluator-degrade.yml` | 质量评估降级诚实提示 |
+| `p1-prose-quality-finding-roundtrip.yml` | 正文质量发现真实页面往返 |
+| `p1-prose-revision-candidate.yml` | 质量发现后按问题重写为修订候选 |
 | `p1-word-count-audit.yml` | 阅读投影短章审计与 P1 进度 |
 | `su01-api-key-secret-redaction.yml` | API Key 配置流与 secret redaction |
 | `su01-local-secret-file-roundtrip.yml` | 真实 Tauri WebView 本地密钥文件写读与脱敏 |

@@ -58,17 +58,12 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   @impl true
   def complete(%__MODULE__{api_key: key} = state, _model, prompt, params)
-      when (is_binary(prompt) or is_list(prompt)) and is_binary(key) and key != "" do
+      when is_binary(key) and key != "" do
     start_time = System.monotonic_time(:millisecond)
 
     body =
-      %{
-        model: state.model,
-        messages: NovelAgent.Provider.normalize_messages(prompt),
-        stream: false
-      }
-      |> HTTP.apply_params(params)
-      |> maybe_json_mode(state.json_mode)
+      state
+      |> request_body(prompt, params, false)
       |> maybe_thinking(state.thinking, state.reasoning_effort)
 
     url = endpoint_url(state.endpoint)
@@ -98,22 +93,22 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   @impl true
   def execute(%__MODULE__{api_key: key} = state, _model, prompt, params, ctx)
-      when (is_binary(prompt) or is_list(prompt)) and is_binary(key) and key != "" do
-    body =
-      %{
-        model: state.model,
-        messages: NovelAgent.Provider.normalize_messages(prompt),
-        stream: true
-      }
-      |> HTTP.apply_params(params)
-      |> maybe_json_mode(state.json_mode)
-      |> maybe_thinking(state.thinking, state.reasoning_effort)
+      when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and is_binary(key) and
+             key != "" do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      execute_tool_call(state, key, prompt, params, ctx)
+    else
+      body =
+        state
+        |> request_body(prompt, params, true)
+        |> maybe_thinking(state.thinking, state.reasoning_effort)
 
-    url = endpoint_url(state.endpoint)
-    headers = [{"authorization", "Bearer #{key}"}]
-    request_opts = [headers: headers, receive_timeout: state.timeout]
+      url = endpoint_url(state.endpoint)
+      headers = [{"authorization", "Bearer #{key}"}]
+      request_opts = [headers: headers, receive_timeout: state.timeout]
 
-    OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
+      OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
+    end
   end
 
   def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
@@ -130,8 +125,37 @@ defmodule NovelAgent.Provider.DeepSeek do
     |> Kernel.<>("/chat/completions")
   end
 
-  defp maybe_json_mode(body, true), do: Map.put(body, :response_format, %{type: "json_object"})
-  defp maybe_json_mode(body, _), do: body
+  defp request_body(state, prompt, params, stream?) do
+    %{
+      model: state.model,
+      messages: NovelAgent.Provider.normalize_messages(prompt),
+      stream: stream?
+    }
+    |> HTTP.apply_params(params)
+    |> maybe_json_mode(state.json_mode, prompt)
+    |> NovelAgent.Provider.put_openai_tools(prompt)
+  end
+
+  defp maybe_json_mode(body, true, prompt) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      body
+    else
+      Map.put(body, :response_format, %{type: "json_object"})
+    end
+  end
+
+  defp maybe_json_mode(body, _enabled, _prompt), do: body
+
+  # DeepSeek API 约束：thinking 模式不支持强制具名 tool_choice（HTTP 400
+  # "Thinking mode does not support this tool_choice"）。规划类调用依赖强制
+  # tool call 的结构确定性，thinking 对其非必需——该请求整形为 disabled 并留痕。
+  defp maybe_thinking(%{tool_choice: %{}} = body, :enabled, _effort) do
+    Logger.info(
+      "[DeepSeek] 请求带强制 tool_choice，thinking 按能力约束降级为 disabled（thinking 模式不支持强制具名 tool_choice）"
+    )
+
+    Map.put(body, :thinking, %{type: "disabled"})
+  end
 
   defp maybe_thinking(body, :enabled, effort) when is_binary(effort) and effort != "" do
     body
@@ -145,19 +169,54 @@ defmodule NovelAgent.Provider.DeepSeek do
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
+  defp execute_tool_call(state, key, prompt, params, ctx) do
+    start_time = System.monotonic_time(:millisecond)
+
+    body =
+      state
+      |> request_body(prompt, params, false)
+      |> maybe_thinking(state.thinking, state.reasoning_effort)
+
+    url = endpoint_url(state.endpoint)
+    headers = [{"authorization", "Bearer #{key}"}]
+    post = state.http_fn || (&HTTP.post/3)
+    initial_events = AdapterExecution.initial_events(ctx)
+    AdapterExecution.emit_events(ctx, initial_events, :running)
+
+    result =
+      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
+        {:ok, status, resp_body} when status in 200..299 ->
+          handle_success(state, resp_body, start_time)
+
+        {:error, :http_error, status, message} ->
+          handle_http_error(status, message, start_time)
+
+        {:error, reason, _status, message} ->
+          handle_connection_error(reason, message, start_time)
+      end
+
+    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
+
+    result
+    |> strip_attrs()
+    |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
+  end
+
   # ── response handlers ────────────────────────
 
   defp handle_success(state, resp_body, start_time) do
-    content = get_in(resp_body, ["choices", Access.at(0), "message", "content"]) || ""
+    message = get_in(resp_body, ["choices", Access.at(0), "message"]) || %{}
+    content = Map.get(message, "content") || ""
+    tool_calls = NovelAgent.Provider.extract_openai_tool_calls(message)
     latency = System.monotonic_time(:millisecond) - start_time
     usage = Usage.from_openai_response(resp_body, state.model, latency)
 
-    if is_binary(content) and content != "" do
+    if (is_binary(content) and content != "") or tool_calls != [] do
       Logger.debug(
         "[DeepSeek] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens"
       )
 
-      {:ok, Result.new(content, usage),
+      {:ok, Result.new(content, usage, tool_calls: tool_calls),
        %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
     else
       err = UpstreamError.new(:invalid_response, "DeepSeek API 响应内容为空", name())

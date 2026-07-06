@@ -30,6 +30,28 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert Jason.decode!(result.content)["assistant_message"] == "可以，我们先围绕小说创作方向聊下去。"
   end
 
+  test "profile routing treats prose draft intent as stronger than chapter-plan context words" do
+    prompt = """
+    你是小说创作系统的 AgentRun profile router。你只决定本轮应该进入哪个 AgentRun profile。
+
+    ## 作者输入
+    请根据已采纳章节计划生成第02章：矿区追击战：主角在废弃矿区遭遇巡检傀儡。正文草稿，保持为待采纳草稿。
+
+    ## 可选 profile
+    - prose_drafting_with_quality_v1: 写正文、续写章节、生成正文草稿，并需要质量复核。
+    - plot_outline_with_context_v1: 规划章节大纲、卷纲、分章结构。
+
+    ## 输出格式
+    {"profile_ref": "conversation_turn_v1"}
+    """
+
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+
+    body = Jason.decode!(result.content)
+    assert body["profile_ref"] == "prose_drafting_with_quality_v1"
+    assert body["reason_codes"] == ["model_profile_selected", "prose_drafting_text_match"]
+  end
+
   test "AU11 missing work state quality diagnosis asks for target chapter material" do
     prompt = [
       %{

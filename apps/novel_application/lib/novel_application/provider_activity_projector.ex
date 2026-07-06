@@ -177,6 +177,8 @@ defmodule NovelApplication.ProviderActivityProjector do
       status: output_status(output) || run_status(run),
       output_type: projected_output_type(event, output),
       content_length: projected_content_length(event, output),
+      native_tool_call_count: projected_tool_call_count(event, output),
+      native_tool_call_names: projected_tool_call_names(event, output),
       chunk_index: payload_number(event.payload, :chunk_index),
       chunk_content_length: payload_number(event.payload, :content_length),
       accumulated_content_length: payload_number(event.payload, :accumulated_content_length),
@@ -249,6 +251,33 @@ defmodule NovelApplication.ProviderActivityProjector do
 
   defp projected_content_length(_event, _output), do: nil
 
+  defp projected_tool_call_count(%ProviderEvent{event_type: :final_output}, output) do
+    case output_tool_calls(output) do
+      [] -> nil
+      calls -> length(calls)
+    end
+  end
+
+  defp projected_tool_call_count(_event, _output), do: nil
+
+  defp projected_tool_call_names(%ProviderEvent{event_type: :final_output}, output) do
+    output
+    |> output_tool_calls()
+    |> Enum.flat_map(fn call ->
+      case map_get(call, :name) do
+        name when is_binary(name) and name != "" -> [name]
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
+    |> case do
+      [] -> nil
+      names -> names
+    end
+  end
+
+  defp projected_tool_call_names(_event, _output), do: nil
+
   defp projected_usage(%ProviderEvent{event_type: type, payload: payload}, output)
        when type in [:final_output, :usage_recorded] do
     usage(output) || payload_usage(payload)
@@ -274,6 +303,15 @@ defmodule NovelApplication.ProviderActivityProjector do
   end
 
   defp content_length(_), do: nil
+
+  defp output_tool_calls(%ProviderOutput{content: content}) when is_map(content) do
+    case map_get(content, :tool_calls) do
+      calls when is_list(calls) -> Enum.filter(calls, &is_map/1)
+      _ -> []
+    end
+  end
+
+  defp output_tool_calls(_output), do: []
 
   defp usage(%ProviderOutput{usage: usage}) when is_map(usage) and map_size(usage) > 0,
     do: usage

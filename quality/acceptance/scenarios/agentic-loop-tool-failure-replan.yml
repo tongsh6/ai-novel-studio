@@ -1,0 +1,50 @@
+id: agentic-loop-tool-failure-replan
+title: ADR-0023 D1 工具失败时先修订计划
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agentic-loop-tool-failure-replan --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - d1-tool-failure-triggers-provider-sourced-replan
+  - replan-budget-is-counted
+  - planner-does-not-approve-tool-execution
+  - no-acceptance-hook-in-production
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: prose request whose writer provider fails
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: provider-sourced plan_revised with reason code agentic_deviation:D1
+  - wait_for: run stops at awaiting_author after consuming one replan budget
+  - verify: no run_failed before replan and no final TurnResult
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agentic-loop-tool-failure-replan-tauri
+
+assertions:
+  network:
+    - plan_revised carries plan_version=2, evaluation_of_last.plan_holds=false, and provider_output narrative source
+    - plan_revised reason_codes include agentic_deviation:D1
+    - final agent_run_state records status=awaiting_author, steps=2, tool_calls=1, provider_calls=5, replans=1
+  data:
+    - channel logs bounded run ack and never logs sync_turn fallback
+    - no final TurnResult is emitted for the failed tool run
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

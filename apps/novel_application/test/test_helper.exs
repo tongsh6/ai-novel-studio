@@ -36,6 +36,62 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     Map.fetch!(packet, :reasoning) <> "\n" <> Jason.encode!(tail)
   end
 
+  def plan_reasoning_tail(reasoning, steps, opts \\ []) when is_list(steps) do
+    tail = %{
+      "plan" => %{
+        "steps" => steps
+      },
+      "reason_codes" => Keyword.get(opts, :reason_codes, ["agent_plan_drafted"]),
+      "confidence" => Keyword.get(opts, :confidence, 1.0)
+    }
+
+    reasoning <> "\n" <> Jason.encode!(tail)
+  end
+
+  def plan_tool_call_result(reasoning, steps, opts \\ []) when is_list(steps) do
+    tool_name = Keyword.get(opts, :tool_name, "agent_plan_draft")
+
+    %{
+      content: reasoning,
+      tool_calls: [
+        %{
+          "name" => tool_name,
+          "arguments" => %{
+            "plan" => %{
+              "steps" => steps
+            },
+            "reason_codes" => Keyword.get(opts, :reason_codes, ["agent_plan_drafted"]),
+            "confidence" => Keyword.get(opts, :confidence, 1.0)
+          }
+        }
+      ]
+    }
+  end
+
+  def prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  def prompt_text(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+  end
+
+  def plan_step(step_id, target_tool_ref, description, opts \\ []) do
+    %{
+      "step_id" => step_id,
+      "kind" => Keyword.get(opts, :kind, "explore"),
+      "description" => description,
+      "success_criteria" => Keyword.get(opts, :success_criteria, ["step_completed"]),
+      "depends_on" => Keyword.get(opts, :depends_on, []),
+      "target_tool_ref" => target_tool_ref,
+      "write_intent" => Keyword.get(opts, :write_intent, "none"),
+      "risk_hint" => Keyword.get(opts, :risk_hint, "low"),
+      "authoring_intent" => Keyword.get(opts, :authoring_intent),
+      "target_chapter" => Keyword.get(opts, :target_chapter),
+      "requested_chapter_raw" => Keyword.get(opts, :requested_chapter_raw)
+    }
+  end
+
   def continue_next(reasoning, target_tool_ref, opts \\ []) do
     %{
       reasoning: reasoning,

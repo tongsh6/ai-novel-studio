@@ -1,6 +1,7 @@
 # ADR-0023：Agentic Loop 计划驱动执行与调用经济学 v3
 
-- 状态：Proposed
+- 
+- 状态：Accepted（CP0/CP1/CP2/CP3/CP4 均已由定向测试、真实 Tauri 与任务台账闭合）
 - 日期：2026-07-04
 - 来源文档：
   - `../notes/2026-07-04-agentic-loop-plan-driven-execution.md`
@@ -11,7 +12,7 @@
   - ADR-0021（AgentRun 与 Turn 边界）、ADR-0022（计划可视化/评估重规划/叙事作者权）、ADR-0003（Planner Authority）、ADR-0004（OrchestratorDecision）
 - 影响范围：Execution / Behavior / Trace / UI / Umbrella / Slice
 - 相关不变量：UA-01 A 系列；N-NARR（ADR-0022）；本 ADR 新增不变量 N-PLAN（见「最终决策」）
-- 首个证明 slice：`agentic-loop-plan-replan-reasoning`（与 ADR-0022 共享伞形证明）＋ 新增「无偏离直通」scenario
+- 首个证明 slice：`agentic-loop-plan-replan-reasoning`（与 ADR-0022 共享伞形证明）＋ 无偏离直通、steer budget、D1/D2/D4/D5/D7 偏离信号 scenarios ＋ `agent-plan-native-tool-calling-protocol`
 - 取代：无
 - 取代者：无
 
@@ -45,7 +46,7 @@ ADR-0022 冻结了「计划可维护可修订、评估→重规划、叙事归�
 - **不改变 Planner「只提议、不批准」边界**（ADR-0003）：计划与修订不自我批准执行；每个 act 步仍构造单动作 `MicroPlan` 重新经过 `ExecutionOrchestrator` gate（ADR-0021/0004）。
 - **不动 N-NARR**（ADR-0022 决策 3）：作者可见叙事的字节溯源与 provenance 要求原样适用于计划起草/修订/完成节点的叙事。
 - **不引入 runtime 强制的 step 依赖 DAG**（沿 ADR-0022）：顺序由模型经计划与修订决定。
-- **不在本 ADR 内实现原生 tool calling 迁移**：决策 4 只冻结路线与先后，迁移本体归 provider execution stream 域的独立 CP。
+- **不把 legacy 单步 next-step planner 当作 AgentPlan fallback**：`AgenticNextStepPlanner` 的旧 JSON-tail 单步测试/兼容入口不授权生产 AgentPlan draft/revision 双协议回退；AgentPlan 起草/修订只走 `AgenticPlanDraftPlanner` 的 native tool-call 协议。
 - **不承诺地板模型下的计划质量**：地板档是 forcing function，不是计划质量基准。
 - **不改 artifact / adoption / confirmation / projection 写入边界**。
 
@@ -68,14 +69,14 @@ ADR-0022 冻结了「计划可维护可修订、评估→重规划、叙事归�
 
 ### 协议子决策：直接迁原生 tool calling / 只加固 JSON-tail / 两级路线
 
-直接迁移改造面大且迁移期脆弱性无缓解；只加固则手工切 JSON 的脆弱性长期存在。采两级：先加固（一次重试），后独立 CP 迁移。
+直接迁移改造面大且迁移期脆弱性无缓解；只加固则手工切 JSON 的脆弱性长期存在。采两级：先加固（一次重试），后迁移 AgentPlan 起草/修订协议；截至 2026-07-05，第二级已由 CP4 闭合。
 
 ## 最终决策
 
 采用方案 C ＋ 协议两级路线。
 
 **决策 1 — 计划驱动机械推进（不变量 N-PLAN）。**
-profile routing 之后、第一个 step 之前，目标 profile 的 planner 做**一次**计划起草调用：作者可见 reasoning（N-NARR 溯源）＋结构尾巴（完整 `PlanStep` 列表：kind/description/success_criteria/目标能力 ref，prose 步含写作坐标 `authoring_intent`/`target_chapter`/`requested_chapter_raw`）。PlanStep 目标能力必须落在 allowed_tools ∪ internal_observation_steps。此后每步完成且无偏离信号时，运行时按计划**机械推进**下一个 pending step（零 planner 调用）；act 步照旧单动作 MicroPlan → Orchestrator re-gate（门是确定性裁决，非模型调用；gate deny 构成偏离信号）。
+profile routing 之后、第一个 step 之前，目标 profile 的 planner 做**一次**计划起草调用：作者可见 reasoning（N-NARR 溯源）＋结构化 `PlanStep` 列表（kind/description/success_criteria/目标能力 ref，prose 步含写作坐标 `authoring_intent`/`target_chapter`/`requested_chapter_raw`）。CP0 阶段该结构来自加固 JSON tail；CP4 之后，生产 AgentPlan draft/revision 结构只来自 provider-native tool call arguments。PlanStep 目标能力必须落在 allowed_tools ∪ internal_observation_steps。此后每步完成且无偏离信号时，运行时按计划**机械推进**下一个 pending step（零 planner 调用）；act 步照旧单动作 MicroPlan → Orchestrator re-gate（门是确定性裁决，非模型调用；gate deny 构成偏离信号）。
 
 > **不变量 N-PLAN（本 ADR 冻结）**：AgentRun 运行时的推进轨道必须整体来自模型产出并维护的 `AgentPlan`（含其修订版本）；`novel_application` 生产路径不得存在 app 预制的 per-profile 固定步骤序列作为推进轨道（已删除的 `AgentRunSequentialPlanner` 形态不得复活）。机械推进 ≠ 固定 workflow：判据是**轨道由谁产出**（模型 per-run 起草），不是推进由谁执行（app 机械沿计划推进合法）。固定/动态三层边界：能力空间固定（权限）、计划动态（模型）、执行门固定（机器）。
 
@@ -101,8 +102,8 @@ profile routing 之后、第一个 step 之前，目标 profile 的 planner 做*
 - `awaiting_author`（预算尽/需作者输入）与 `no_progress`（progress_signature 复现）语义保留不变。
 
 **决策 4 — 规划协议鲁棒性两级路线。**
-- **第一级（随本 ADR CP0 落地）**：计划起草/修订调用补「携带失败片段重试一次」（与 writer、frame planner 既有同款模式），消除「一次坏 JSON 灭 run」。
-- **第二级（独立后续 CP，方向冻结）**：迁移 OpenAI-compatible 原生 tool calling（reasoning 为正文、结构为 tool call，与两段式同构），归 `UA01-provider-execution-stream-unification` 域实施；迁移完成前 JSON-tail（加固版）是唯一规划协议，不得出现两协议并行的可选支路。
+- **第一级（ADR-0023 CP0 已落地）**：计划起草/修订调用补「携带失败片段重试一次」（与 writer、frame planner 既有同款模式），消除「一次坏 JSON 灭 run」。
+- **第二级（ADR-0023 CP4 已落地）**：AgentPlan 起草/修订迁移到 provider-native tool calling（reasoning 为作者可见正文，结构为 forced tool call arguments）。`AgenticPlanDraftPlanner` 只接受匹配 `agent_plan_draft` / `agent_plan_revision` 的 tool call arguments；缺失、错名、多 tool call 或 arguments 非对象均进入 native tool-call retry / 失败，不再解析 JSON tail。ProviderExecution / activity / persistence 只暴露 author-safe `native_tool_call_count` 与 `native_tool_call_names`，不得保存或展示 tool arguments / plan steps。生产 AgentPlan draft/revision 不允许出现 JSON-tail 与 native tool calling 双协议可选支路。
 
 ## 决策理由
 
@@ -150,7 +151,173 @@ profile routing 之后、第一个 step 之前，目标 profile 的 planner 做*
 | CP1 | 计划起草调用＋AgentPlan 运行时落地＋机械推进（conversation＋prose 先行） |
 | CP2 | 偏离信号族 D1-D7＋evaluate/replan 合并调用＋steer 融合＋预算语义（含候选预算 backstop 实现、max_replans 档位） |
 | CP3 | 全 profile 迁移＋机械完成态＋46§9 计划面板消费＋验收口径全量迁移（各 scenario provider_calls 断言、stub 计划应答改造、锚点同步） |
-| CP4（独立后续） | 原生 tool calling 协议迁移（provider execution 域） |
+| CP4 | AgentPlan 原生 tool calling 协议迁移（`agent-plan-native-tool-calling-protocol` 真实 Tauri 已通过；生产 AgentPlan draft/revision 不保留 JSON-tail fallback） |
+
+实现检查点（2026-07-04）：CP0 已先行落到现有 observation-led next-step planner 上，内容仅限协议鲁棒性与观察保真：
+`AgenticNextStepPlanner` 对坏 JSON tail / 协议字段错误 / profile 工具边界错误携带失败片段重试一次，
+retry 后的 provider call count 进入 AgentRun consumed budget；prompt 只携带最近观察的 author-safe summary
+与紧凑 `structured_payload`。这不代表 N-PLAN、计划起草、机械推进或 D1-D7 replan 已完成。
+
+实现检查点（2026-07-04，CP1 首批 runtime）：`AgenticPlanDraftPlanner` 已新增为
+provider-backed 计划起草器，`AgentPlan.PlanStep` 已补 `target_tool_ref` /
+`write_intent` / `risk_hint` / 写作坐标字段；`conversation_turn_v1` 与
+`prose_drafting_with_quality_v1` 已改为先起草 per-run AgentPlan，再由 runtime
+沿计划机械推进。conversation 计划包含 context/frame/strategy/finalize，direct
+focused path 记录 4 steps / 0 tool / 2 provider calls，routed 验收口径为 3 provider
+calls；prose 计划包含 context/prose_writing，direct focused path 记录 2 steps /
+1 tool / 3 provider calls，routed 验收口径为 4 provider calls。act 步仍重建
+单动作 MicroPlan 并经过 Orchestrator gate。该检查点尚未完成 D1-D7 偏离
+evaluate/replan、全 profile 迁移、46§9 计划面板全量口径和 dogfood 长跑复验。
+
+实现检查点（2026-07-04，CP2 D6 backend）：`AgenticPlanDraftPlanner` 已补
+provider-backed 计划修订器。`conversation_turn_v1` 与
+`prose_drafting_with_quality_v1` 在计划 cursor 走完且 profile 完成条件未成立时，
+不再立即 `await_author`；runtime 先检查 `max_replans`，有预算则发起一次
+evaluate+replan 合并调用，产出 `plan_revised` author-safe 事件、`AgentPlan.version+1`
+和 `replan_count=1`，随后沿修订计划继续机械推进。该 checkpoint 仅覆盖 D6 的后端
+runtime 语义；真实 Tauri 证据见下一检查点。
+
+实现检查点（2026-07-04，CP2 D6 真实 Tauri）：`agentic-loop-plan-replan-reasoning`
+已接入外部 Tauri driver 并通过真实页面验收。场景从工作台发送带 D6 fixture 的普通
+conversation 输入，证明初始 model-drafted AgentPlan 只有 `context_assemble` 1 步；
+计划耗尽且本轮回应未生成时，runtime 发布 provider-sourced `plan_revised`（version 2，
+`evaluation_of_last.plan_holds=false`，reason 为「计划步骤已走完，但本轮回应尚未生成。」），
+修订计划恢复 `dialogue_frame` / `strategy_gate` / `response_finalize` 后继续完成同一 run。
+summary 位于 `artifacts/slice-verify/agentic-loop-plan-replan-reasoning-tauri/summary.json`，
+记录 `consumed_steps=4` / `consumed_tool_calls=0` / `consumed_provider_calls=4` /
+`consumed_replans=1`。
+
+实现检查点（2026-07-04，CP2 无偏离直通真实 Tauri）：`agentic-loop-no-deviation-direct`
+已接入外部 Tauri driver 并通过真实页面验收。场景从工作台发送普通 conversation 输入，
+证明初始 model-drafted AgentPlan 已完整包含 `context_assemble` / `dialogue_frame` /
+`strategy_gate` / `response_finalize` 四步；runtime 沿计划机械推进到 completed no-tool
+TurnResult，未发布 `plan_revised`，`consumed_replans=0`。summary 位于
+`artifacts/slice-verify/agentic-loop-no-deviation-direct-tauri/summary.json`，记录
+`consumed_steps=4` / `consumed_tool_calls=0` / `consumed_provider_calls=3` /
+`initial_plan_step_count=4` / `plan_revised_event_count=0`。
+
+实现检查点（2026-07-04，CP2 steer budget 真实 Tauri）：`agent-natural-language-steer`
+已加严外部 Tauri verifier 并复跑通过。场景在 active AgentRun 期间通过主聊天输入框提交
+作者 steering 文本，证明该文本绑定同一 active `run_id` 并作为 `agent_command steer`
+处理；后端广播 `plan_adjusted` 后，下一步规划叙事提升为 provider-sourced `plan_revised`，
+同一 run 消耗 `consumed_replans=1`，且不创建第二个后端 `user_message`、作者 turn 或新 run。
+summary 位于 `artifacts/slice-verify/agent-natural-language-steer-tauri/summary.json`，
+记录 `command=steer` / `command_source=main_input` / `adjusted_goal_version=2` /
+`consumed_replans=1` / `no_second_user_message_for_steer=true`。D1/D2/D4/D5/D7
+在 2026-07-05 的 CP2 checkpoint 补齐；全 profile 迁移见 CP3。
+
+实现检查点（2026-07-04，CP3 章节大纲单 profile 真实 Tauri）：`plot_outline_with_context_v1`
+已从 observation-led next-step planner 迁到 model-drafted AgentPlan + mechanical cursor。
+计划起草器先产出 `context_assemble` / `plot_outline` 两步 AgentPlan；runtime 执行 context
+后机械推进到 `plot_outline`，该工具 step 仍重新构造单动作 MicroPlan 并经过
+`ExecutionOrchestrator` gate。真实 Tauri `agent-plot-outline-with-context` 已通过，summary
+位于 `artifacts/slice-verify/agent-plot-outline-with-context-tauri/summary.json`，记录
+`profile_ref=plot_outline_with_context_v1` / `pending_artifact_type=outline_draft` /
+`consumed_steps=2` / `consumed_tool_calls=1` / `consumed_provider_calls=3`。
+
+实现检查点（2026-07-04，CP3 角色演化单 profile 真实 Tauri）：`character_evolution_with_context_v1`
+已从 observation-led next-step planner 迁到 model-drafted AgentPlan + mechanical cursor。
+计划起草器先产出 `context_assemble` / `character_evolution` 两步 AgentPlan；runtime 执行
+context 后机械推进到 `character_evolution`，该工具 step 仍重新构造单动作 MicroPlan 并经过
+`ExecutionOrchestrator` gate。真实 Tauri `agent-character-evolution-with-context` 已通过，summary
+位于 `artifacts/slice-verify/agent-character-evolution-with-context-tauri/summary.json`，记录
+`profile_ref=character_evolution_with_context_v1` / `pending_artifact_type=character_evolution_seed` /
+`pending_memory_subtype=CURRENT_STATE` / `consumed_steps=2` / `consumed_tool_calls=1` /
+`consumed_provider_calls=3`。
+
+实现检查点（2026-07-04，CP3 世界设定单 profile 真实 Tauri）：
+`world_building_with_context_v1` 已从 observation-led next-step planner 迁到 model-drafted
+AgentPlan + mechanical cursor。计划起草器先产出 `context_assemble` / `world_building`
+两步 AgentPlan；runtime 执行 context 后机械推进到 `world_building`，该工具 step 仍
+重新构造单动作 MicroPlan 并经过 `ExecutionOrchestrator` gate。`author_goal_text`
+继续由原始作者目标提供，避免上下文 observation 反向污染 artifact type 判定。真实 Tauri
+`agent-world-building-with-context` 与 `agent-world-building-style-rule-with-context`
+已通过，summary 分别位于
+`artifacts/slice-verify/agent-world-building-with-context-tauri/summary.json` 与
+`artifacts/slice-verify/agent-world-building-style-rule-with-context-tauri/summary.json`，
+均记录 `profile_ref=world_building_with_context_v1` / `consumed_steps=2` /
+`consumed_tool_calls=1` / `consumed_provider_calls=3`，并分别保持
+`pending_artifact_type=foreshadowing_seed` / `style_rule_seed`。
+
+实现检查点（2026-07-04，CP3 provider progress + readonly batch 真实 Tauri）：
+`provider_progress_v1` 与 `readonly_batch_context_v1` 已从 observation-led next-step planner
+迁到 model-drafted AgentPlan + mechanical cursor。provider progress 计划起草器产出
+`provider_complete` 单步，runtime 机械推进后仍只发布 author-safe provider progress 事件，
+不暴露 raw prompt；真实 Tauri `agent-provider-streaming-progress` 已通过，summary 位于
+`artifacts/slice-verify/agent-provider-streaming-progress-tauri/summary.json`，记录
+`profile_ref=provider_progress_v1` / `plan_drafted_target_tool_ref=provider_complete` /
+`plan_drafted_step_count=1` / `progress_event_count=3` / `consumed_provider_calls=3`。
+同一 profile 的取消边界也已用 `agent-provider-cancel-honest-boundary` 回归通过，终态仍为
+`cancelled`。readonly batch 计划起草器产出两步 `readonly_batch`，runtime 机械读取 4 项只读
+上下文再汇总，保持 no content provider / no artifact / no adoption / no production write；
+真实 Tauri `agent-readonly-batch-profile` 已通过，summary 位于
+`artifacts/slice-verify/agent-readonly-batch-profile-tauri/summary.json`，记录
+`profile_ref=readonly_batch_context_v1` / `plan_drafted_target_tool_ref=readonly_batch` /
+`plan_drafted_step_count=2` / `readonly_item_refs=[work_profile, characters, rules, stats]` /
+`consumed_tool_calls=4` / `consumed_provider_calls=2`。
+
+实现检查点（2026-07-04，CP3 character_design + prose_revision + 46§9/acceptance 迁移）：
+`character_design_with_context_v1` 与 `prose_revision_from_findings_v1` 已从 observation-led
+next-step planner 迁到 model-drafted AgentPlan + mechanical cursor。角色设计计划起草器产出
+`character_roster` / `character_design` 两步；runtime 先机械读取只读角色阵容，再推进到
+`character_design`，该 act step 仍重新构造单动作 MicroPlan 并经过 `ExecutionOrchestrator`
+gate。真实 Tauri `agent-bounded-roster-to-character-design`、`ua01-agent-bounded-roster-to-character-design`
+与 `agent-provider-call-budget` 已通过，summary 分别位于
+`artifacts/slice-verify/agent-bounded-roster-to-character-design-tauri/summary.json`、
+`artifacts/slice-verify/ua01-agent-bounded-roster-to-character-design-tauri/summary.json` 与
+`artifacts/slice-verify/agent-provider-call-budget-tauri/summary.json`，记录
+`plan_drafted_target_tool_ref=character_roster` / `plan_drafted_step_count=2` /
+`plan_drafted_targets=[character_roster, character_design]` / `consumed_steps=2` /
+`consumed_tool_calls=2` / `consumed_provider_calls=3`。
+
+修订计划起草器产出 `revision_prepare` / `revision_plan` / `prose_writing` /
+`revision_finalize` 四步；`revision_plan` step 仍调用 `ProseRevisionService.plan_revision/2`
+重建 revision MicroPlan 并经过 `ExecutionOrchestrator` gate，`prose_writing` step 才调用
+writer 生成 sibling tentative revision draft。真实 Tauri `p1-prose-revision-candidate`、
+`agent-revision-orchestrator-boundary` 与 `agent-replay-no-provider` 已通过，summary 分别位于
+`artifacts/slice-verify/p1-prose-revision-candidate-tauri/summary.json`、
+`artifacts/slice-verify/agent-revision-orchestrator-boundary-tauri/summary.json` 与
+`artifacts/slice-verify/agent-replay-no-provider-tauri/summary.json`，记录
+`revision_plan_drafted_target_tool_ref=revision_prepare` /
+`revision_plan_drafted_step_count=4` /
+`revision_plan_drafted_targets=[revision_prepare, revision_plan, prose_writing, revision_finalize]` /
+`revision_consumed_steps=4` / `revision_consumed_tool_calls=1` /
+`revision_consumed_provider_calls=2`，并证明 replay policy `recall_provider=false`。46§9
+计划面板消费与 acceptance provider call / plan assertions 已同步到 `plan_drafted` 计划步骤、
+`gate_decided` 授权事实与 final `turn_result.truthfulness`，不再要求旧逐步 planner 的
+`evaluation_made` 或 author `exploration_observed` 事件。CP3 当前 profile 迁移已闭合。
+
+实现检查点（2026-07-05，CP2 D1-D5/D7 偏离信号真实 Tauri）：
+`prose_drafting_with_quality_v1` 与 conversation runtime 已补 D1/D2/D4/D5/D7 偏离信号语义，
+并复核 D3 steer budget。每个命中信号均先发布 provider-sourced `plan_revised`（version 2，
+`evaluation_of_last.plan_holds=false`，`consumed_replans=1`），再进入修订后的机械 cursor 或
+`awaiting_author`，不绕过 Orchestrator gate，不恢复固定 per-profile 步骤序列。
+
+| 信号 | 真实 Tauri evidence | 当前口径 |
+|---|---|---|
+| D1 工具失败 | `artifacts/slice-verify/agentic-loop-tool-failure-replan-tauri/summary.json` | 2 steps / 1 tool / 5 provider calls / 1 replan；工具失败先修订计划，未直接 `run_failed`。 |
+| D2 质量行动 | `artifacts/slice-verify/agentic-loop-quality-deviation-replan-tauri/summary.json` | 2 steps / 1 tool / 5 provider calls / 1 replan；质量 `confirm` 可产出 pending candidate TurnResult，但 `AgentRun` summary 必须仍是 `awaiting_author`。 |
+| D3 作者 steer | `artifacts/slice-verify/agent-natural-language-steer-tauri/summary.json` | 主输入 steer 命中同一 active run，消耗 1 次 replan budget，且不创建第二个作者 turn/run。 |
+| D4 gate deny / require_confirmation | `artifacts/slice-verify/agentic-loop-gate-deviation-replan-tauri/summary.json` | 2 steps / 0 tool / 3 provider calls / 1 replan；`gate_decision_type=require_confirmation`、`gate_first_blocking_gate=authority`，writer provider 未 dispatch。 |
+| D5 预算不足 | `artifacts/slice-verify/agentic-loop-budget-deviation-replan-tauri/summary.json` | 1 step / 0 tool / 2 provider calls / 1 replan；剩余 step 预算不足触发 replan，无 final TurnResult 或 tool execution。 |
+| D7 确定性缺口 | `artifacts/slice-verify/agentic-loop-deterministic-gap-replan-tauri/summary.json` | 2 steps / 0 tool / 3 provider calls / 1 replan；允许 UI transient `tool_started` progress，但 `tool_completed_event_count=0` 且 `log_toolbox_execute_count=0`，writer/toolbox 未执行。 |
+
+实现检查点（2026-07-05，CP4 AgentPlan 原生 tool calling 协议闭环）：`AgenticPlanDraftPlanner`
+的 draft/revision prompt 已改为 structured prompt（`messages` + `tools` + forced
+`tool_choice`），并只从 `agent_plan_draft` / `agent_plan_revision` native tool call
+arguments 读取 AgentPlan 结构；binary content、缺 tool call、多 tool call、tool name
+不匹配或 arguments 非对象均进入 native tool-call retry / 失败，不再解析 JSON tail。
+OpenAI-compatible、LM Studio、DeepSeek、Anthropic、stub 与 slice_verify 均已接入同一
+provider-native tools/tool_choice 口径。`ProviderExecution` / `ProviderOutput` /
+`ProviderRunLog` / activity API 只暴露 `native_tool_call_count` 与
+`native_tool_call_names`，不持久化或展示 tool arguments、plan steps 或 raw content。
+真实 Tauri `agent-plan-native-tool-calling-protocol` 已通过，summary 位于
+`artifacts/slice-verify/agent-plan-native-tool-calling-protocol-tauri/summary.json`，记录
+`native_tool_call_names=[agent_plan_draft, agent_plan_revision]`、
+`native_tool_call_final_output_count=2`、4 steps / 0 tool / 4 provider calls / 1 replan，
+并证明 runtime 继续沿修订后 AgentPlan 机械推进，无 `sync_turn` fallback。`AgenticNextStepPlanner`
+保留的 JSON-tail 入口仅是旧单步 next decision 测试/兼容边界，不得作为生产 AgentPlan
+draft/revision fallback。
 
 - reply-only / direct_tool / author_action 兼容路径保留。
 - stub/slice_verify 的 next-step 应答改造为「产出计划/按信号修订」，锚点词变更须与 stub 同步（同 [[creative-prompt-stub-anchor-coupling]] 类耦合纪律）。
@@ -158,8 +325,10 @@ profile routing 之后、第一个 step 之前，目标 profile 的 planner 做*
 
 ## 后续工作
 
-- `00c` §6/§7/§8 已登记本 ADR 与 N-PLAN；Accepted 前复核索引同步。
-- `contracts/UA-01` 需冻结：计划起草/修订结构尾巴 schema、偏离信号族、预算矩阵新档位。
-- `46-state-and-feedback.md` §9 补计划面板主叙事载体的消费口径。
+- `00c` §6/§7/§8 已登记本 ADR 与 N-PLAN；当前 CP0-CP4 证据已闭合，本 ADR 升 Accepted。
+- `contracts/UA-01` 已冻结 AgentPlan native tool-call draft/revision schema、偏离信号族与预算矩阵新档位；旧 JSON-tail next-step planner 仅保留为 legacy 单步兼容边界。
+- `46-state-and-feedback.md` §9 已补当前计划面板主叙事载体与结构事件消费口径；CP2 D1-D7 继续消费同一 `plan_revised`/reason_codes/UI 结构，CP4 只新增 developer telemetry 的 native tool-call count/name 口径，不新增偏离信号专用 UI 或 copy。
 - 已定（2026-07-04，作者拍板）：协议两级路线（先加固后迁移）；机械完成不加收束调用（opt-in 备选）；`max_replans` 创作档 2；CP1 过渡期两形态并存按 profile 标注。
-- Deferred：地板模型下计划质量兜底策略（沿 ADR-0022 Deferred 项）；opt-in 步级 narration。
+- Deferred disposition（2026-07-05）：地板模型下计划质量不在本 ADR 内追加生产兜底或固定步骤 fallback；当前以 schema 校验、一次重试、D1-D7 偏离信号、预算/no-progress 终止兜底，不把地板档质量冒充为产品质量基准。若后续要做模型质量分层或强模型路由，需另立 eval/backlog。
+- Deferred disposition（2026-07-05）：opt-in 步级/收束 narration 默认关闭且本 ADR 不实现；未来若需要，必须是显式产品设置或独立 ADR/slice，并继续满足 N-NARR source binding，不得由 app copy 或验收 hook 伪造。
+- 修订注记（2026-07-05，用户拍板，见 `tasks/slices/UA01-agentic-loop-streaming-reasoning-card-simplification.md`）：CP4 强制 native tool call 使规划调用期间 assistant content 无字节可流，作者面对长时间零反馈后计划卡片突然出现，构成体验回归。用户拍板计划起草/修订改为**两段式调用**：第一段自由输出（无 tools）流式产出作者可见 reasoning（`author_narrative_delta` 可流），第二段强制 native tool call 产计划结构（prompt 内嵌第一段 reasoning）。规划调用成本 ×2 是**明知与本 ADR 调用经济学冲突后的体验优先决策**；叙事优先绑定第一段 content，arguments.author_reasoning 降级为空 content 回退通道。N-PLAN、D1-D7、机械推进语义不变。

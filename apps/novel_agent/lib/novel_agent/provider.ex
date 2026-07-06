@@ -13,7 +13,22 @@ defmodule NovelAgent.Provider do
   alias NovelAgent.Provider.Result
 
   @type message :: %{required(:role) => String.t(), required(:content) => String.t()}
-  @type prompt :: String.t() | [message()]
+  @type tool_spec :: %{
+          required(:name) => String.t(),
+          required(:input_schema) => map(),
+          optional(:description) => String.t()
+        }
+  @type tool_call :: %{
+          required(:name) => String.t(),
+          required(:arguments) => map(),
+          optional(:id) => String.t()
+        }
+  @type structured_prompt :: %{
+          required(:messages) => [message()],
+          optional(:tools) => [tool_spec()],
+          optional(:tool_choice) => String.t()
+        }
+  @type prompt :: String.t() | [message()] | structured_prompt()
   @type model :: String.t()
   @type model_option :: %{
           required(:id) => String.t(),
@@ -82,6 +97,9 @@ defmodule NovelAgent.Provider do
   @spec normalize_messages(prompt()) :: [message()]
   def normalize_messages(prompt) when is_binary(prompt), do: [%{role: "user", content: prompt}]
 
+  def normalize_messages(%{messages: messages}), do: normalize_messages(messages)
+  def normalize_messages(%{"messages" => messages}), do: normalize_messages(messages)
+
   def normalize_messages(messages) when is_list(messages) do
     Enum.map(messages, fn message ->
       role = Map.get(message, :role) || Map.get(message, "role")
@@ -90,4 +108,150 @@ defmodule NovelAgent.Provider do
       %{role: to_string(role || "user"), content: to_string(content || "")}
     end)
   end
+
+  @spec supported_prompt?(term()) :: boolean()
+  def supported_prompt?(prompt) when is_binary(prompt) or is_list(prompt), do: true
+  def supported_prompt?(%{messages: messages}) when is_list(messages), do: true
+  def supported_prompt?(%{"messages" => messages}) when is_list(messages), do: true
+  def supported_prompt?(_prompt), do: false
+
+  @spec tool_call_prompt?(prompt()) :: boolean()
+  def tool_call_prompt?(prompt), do: tool_specs(prompt) != []
+
+  @spec tool_specs(prompt()) :: [tool_spec()]
+  def tool_specs(prompt) do
+    prompt
+    |> map_get(:tools)
+    |> normalize_tool_specs()
+  end
+
+  @spec tool_choice(prompt()) :: String.t() | nil
+  def tool_choice(prompt) do
+    case map_get(prompt, :tool_choice) do
+      value when is_binary(value) and value != "" -> value
+      %{name: value} when is_binary(value) and value != "" -> value
+      %{"name" => value} when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  @spec put_openai_tools(map(), prompt()) :: map()
+  def put_openai_tools(body, prompt) when is_map(body) do
+    tools = Enum.map(tool_specs(prompt), &openai_tool_spec/1)
+
+    body
+    |> maybe_put(:tools, tools)
+    |> maybe_put(:tool_choice, openai_tool_choice(tool_choice(prompt)))
+  end
+
+  @spec put_anthropic_tools(map(), prompt()) :: map()
+  def put_anthropic_tools(body, prompt) when is_map(body) do
+    tools = Enum.map(tool_specs(prompt), &anthropic_tool_spec/1)
+
+    body
+    |> maybe_put(:tools, tools)
+    |> maybe_put(:tool_choice, anthropic_tool_choice(tool_choice(prompt)))
+  end
+
+  @spec extract_openai_tool_calls(map()) :: [tool_call()]
+  def extract_openai_tool_calls(%{"tool_calls" => calls}) when is_list(calls) do
+    Enum.flat_map(calls, &openai_tool_call/1)
+  end
+
+  def extract_openai_tool_calls(_message), do: []
+
+  @spec extract_anthropic_tool_calls(map()) :: [tool_call()]
+  def extract_anthropic_tool_calls(%{"content" => blocks}) when is_list(blocks) do
+    Enum.flat_map(blocks, &anthropic_tool_call/1)
+  end
+
+  def extract_anthropic_tool_calls(_response), do: []
+
+  defp normalize_tool_specs(specs) when is_list(specs) do
+    Enum.flat_map(specs, fn spec ->
+      name = map_get(spec, :name)
+      schema = map_get(spec, :input_schema) || map_get(spec, :parameters)
+
+      if is_binary(name) and name != "" and is_map(schema) do
+        [
+          %{
+            name: name,
+            description: to_string(map_get(spec, :description) || ""),
+            input_schema: schema
+          }
+        ]
+      else
+        []
+      end
+    end)
+  end
+
+  defp normalize_tool_specs(_specs), do: []
+
+  defp openai_tool_spec(%{name: name, description: description, input_schema: schema}) do
+    %{
+      type: "function",
+      function: %{
+        name: name,
+        description: description,
+        parameters: schema
+      }
+    }
+  end
+
+  defp anthropic_tool_spec(%{name: name, description: description, input_schema: schema}) do
+    %{
+      name: name,
+      description: description,
+      input_schema: schema
+    }
+  end
+
+  defp openai_tool_choice(nil), do: nil
+
+  defp openai_tool_choice(name),
+    do: %{type: "function", function: %{name: name}}
+
+  defp anthropic_tool_choice(nil), do: nil
+  defp anthropic_tool_choice(name), do: %{type: "tool", name: name}
+
+  defp openai_tool_call(%{"id" => id, "function" => %{"name" => name, "arguments" => args}})
+       when is_binary(name) do
+    [%{"id" => id, "name" => name, "arguments" => decode_arguments(args)}]
+  end
+
+  defp openai_tool_call(%{"function" => %{"name" => name, "arguments" => args}})
+       when is_binary(name) do
+    [%{"name" => name, "arguments" => decode_arguments(args)}]
+  end
+
+  defp openai_tool_call(_call), do: []
+
+  defp anthropic_tool_call(%{"type" => "tool_use", "id" => id, "name" => name, "input" => input})
+       when is_binary(name) and is_map(input) do
+    [%{"id" => id, "name" => name, "arguments" => input}]
+  end
+
+  defp anthropic_tool_call(_block), do: []
+
+  defp decode_arguments(args) when is_map(args), do: args
+
+  defp decode_arguments(args) when is_binary(args) do
+    case Jason.decode(args) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp decode_arguments(_args), do: %{}
+
+  defp map_get(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp map_get(_map, _key), do: nil
+
+  defp maybe_put(map, _key, []), do: map
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

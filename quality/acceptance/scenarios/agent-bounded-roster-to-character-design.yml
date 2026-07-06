@@ -22,7 +22,8 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: compound author request asking to inspect roster and design a mirrored antagonist
-  - observe: roster observation event before final character_design result
+  - observe: one model-drafted AgentPlan with character_roster and character_design
+  - observe: read-only character_roster turn_result before final character_design result
   - wait_for: tentative character_seed artifact
 
 evidence:
@@ -36,6 +37,7 @@ evidence:
 assertions:
   data:
     - character_design_with_context_v1 profile selected
+    - plan_drafted target_tool_ref is character_roster and plan_steps contain character_roster then character_design
     - readonly roster observation is visible before character_design completes
     - final character_design TurnResult carries a tentative character_seed
 

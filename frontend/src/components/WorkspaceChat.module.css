@@ -637,79 +637,7 @@
   color: var(--foreground-secondary);
   font-family: var(--sans);
   font-size: 12px;
-}
-
-.agentRunBrief {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 10px;
-  color: var(--foreground-secondary);
-  font-family: var(--sans);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.agentRunBriefPath,
-.agentRunBriefFacts {
-  overflow-wrap: anywhere;
-}
-
-.agentRunBriefPath {
-  color: var(--foreground-primary);
-}
-
-.agenticLoopPhaseStrip {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 9px;
-  margin: 0;
-  padding: 13px 16px;
-  border: 1px solid #e6ded3;
-  border-radius: 8px;
-  background: var(--surface-secondary);
-  list-style: none;
-}
-
-.agenticLoopPhase {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 12px;
-  border-radius: 6px;
-  background: #f5f2ed;
-  color: #9b948a;
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 17px;
-}
-
-.agenticLoopPhase[data-status="done"] {
-  background: #e8f3e7;
-  color: #2f7d32;
-  font-weight: 700;
-}
-
-.agenticLoopPhase[data-status="active"] {
-  background: #fff3db;
-  color: #b46900;
-  font-weight: 700;
-}
-
-.agenticLoopPhaseArrow {
-  flex: 0 0 auto;
-  color: #c9c2b8;
-  font-family: var(--sans);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 18px;
-  list-style: none;
-}
-
-.agenticLoopDivider {
+}.agenticLoopDivider {
   width: 100%;
   height: 1px;
   background: #e6ded3;
@@ -734,13 +662,6 @@
   font-size: 14px;
   font-weight: 700;
   line-height: 18px;
-}
-
-.agenticLoopSectionHint {
-  color: #9b948a;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 16px;
 }
 
 .agenticLoopVersionPill {
@@ -807,28 +728,6 @@
   gap: 4px;
 }
 
-.agenticLoopPlanStepMeta {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  color: #9b948a;
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 16px;
-}
-
-.agenticLoopPlanStepKind {
-  max-width: 100%;
-  padding: 4px 9px;
-  border-radius: 6px;
-  background: #f5f2ed;
-  color: #9b948a;
-  overflow-wrap: anywhere;
-}
-
 .agenticLoopPlanStepText {
   color: #151515;
   font-family: var(--sans);
@@ -891,31 +790,6 @@
   overflow-wrap: anywhere;
 }
 
-.agenticLoopResult {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 12px 14px;
-  border: 1px solid #e6ded3;
-  border-radius: 3px;
-  background: #fbf9f5;
-  color: #9b948a;
-  font-family: var(--sans);
-  font-size: 13px;
-  line-height: 19px;
-}
-
-.agenticLoopResultPill {
-  padding: 4px 9px;
-  border-radius: 6px;
-  background: #f5f2ed;
-  color: #9b948a;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 16px;
-}
-
 .agentRunInlineActions {
   display: flex;
   flex-wrap: wrap;
@@ -923,267 +797,7 @@
   justify-content: flex-end;
   gap: 10px;
   padding-top: 6px;
-}
-
-.agentRunProviderFlow {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-  padding-left: 14px;
-  border-left: 1px solid var(--border-subtle);
-}
-
-.agentRunProviderFlowHeader {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
-  color: var(--foreground-primary);
-  font-family: var(--sans);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.agentRunProviderFlowLabel {
-  color: var(--foreground-secondary);
-}
-
-.agentRunProviderFlowDetails {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  color: var(--foreground-secondary);
-  font-family: var(--sans);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.agentRunProviderFlowDetails span {
-  overflow-wrap: anywhere;
-}
-
-.agentRunProviderFlowPhases {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.agentRunProviderFlowPhase {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-  padding-top: 6px;
-  border-top: 2px solid var(--border-subtle);
-  color: var(--foreground-secondary);
-  font-family: var(--sans);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.agentRunProviderFlowPhase span {
-  overflow-wrap: anywhere;
-}
-
-.agentRunProviderFlowPhaseActive {
-  border-top-color: var(--accent);
-  color: var(--foreground-primary);
-}
-
-.agentRunProviderFlowPhaseDone {
-  border-top-color: var(--accent-border);
-  color: var(--foreground-primary);
-}
-
-.agentRunProviderFlowPhaseFailed {
-  border-top-color: var(--accent);
-  color: var(--foreground-primary);
-}
-
-.agentRunProviderFlowPhasePending {
-  color: var(--foreground-secondary);
-}
-
-.agentRunDetails {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.agentRunDetailsSummary {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid #e6ded3;
-  border-radius: var(--rounded-sm);
-  background: var(--surface-secondary);
-  color: #68625a;
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 17px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.agentRunDetailsSummary::-webkit-details-marker {
-  display: none;
-}
-
-.agentRunDetails[open] .agentRunDetailsSummary svg {
-  transform: rotate(180deg);
-}
-
-.agentRunDetailsHint {
-  color: #b9b2a8;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 16px;
-}
-
-.agentRunTimeline {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 2px 0 2px 14px;
-  border-left: 1px solid var(--border-subtle);
-}
-
-.agentRunProviderRuns {
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 10px;
-  padding: 2px 0 2px 14px;
-  border-left: 1px solid var(--border-subtle);
-}
-
-.agentRunTimelineSection {
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 10px;
-}
-
-.agentRunTimelineLabel {
-  color: var(--foreground-secondary);
-  font-family: var(--sans);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.agentRunTimelineEvents {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.agentRunTimelineEvent,
-.agentRunEmptyEvent {
-  color: var(--foreground-primary);
-  font-family: var(--sans);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.agentRunTimelineEventDetails {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 3px;
-  color: var(--foreground-secondary);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.agentRunTimelineEventDetails span {
-  overflow-wrap: anywhere;
-}
-
-.agentRunProviderRunDetail {
-  min-width: 0;
-}
-
-.agentRunProviderRunDetail + .agentRunProviderRunDetail {
-  margin-top: 3px;
-}
-
-.agentRunProviderRunSummary {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 4px;
-  color: var(--foreground-primary);
-  cursor: pointer;
-  list-style: none;
-}
-
-.agentRunProviderRunSummary::-webkit-details-marker {
-  display: none;
-}
-
-.agentRunProviderRunDetail[open] .agentRunProviderRunSummary svg {
-  transform: rotate(180deg);
-}
-
-.agentRunProviderRunSummary span {
-  overflow-wrap: anywhere;
-}
-
-.agentRunProviderReplay {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  margin-top: 6px;
-  padding-left: 12px;
-  border-left: 1px solid var(--border-subtle);
-}
-
-.agentRunProviderReplaySection {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.agentRunProviderReplayLabel {
-  color: var(--foreground-secondary);
-  font-family: var(--sans);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.agentRunProviderReplayList {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.agentRunProviderReplayItemTitle {
-  color: var(--foreground-primary);
-  overflow-wrap: anywhere;
-}
-
-.agentRunProviderReplayBoundary {
-  color: var(--foreground-secondary);
-  font-family: var(--sans);
-  font-size: 11px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
-.iconBtn {
+}.iconBtn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1724,6 +1338,7 @@
   justify-content: center;
   z-index: 100;
 }
+
 .modalContent {
   background: var(--bg);
   border-radius: 8px;
@@ -1732,10 +1347,12 @@
   max-width: 90vw;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
+
 .modalContent h3 {
   margin: 0 0 12px 0;
   font-size: 16px;
 }
+
 .modalTextarea {
   width: 100%;
   min-height: 100px;
@@ -1747,12 +1364,14 @@
   resize: vertical;
   box-sizing: border-box;
 }
+
 .modalActions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
 }
+
 .btnSecondary {
   padding: 8px 16px;
   border: 1px solid var(--border);
@@ -1761,6 +1380,7 @@
   cursor: pointer;
   font-size: 14px;
 }
+
 .btnPrimary {
   padding: 8px 16px;
   border: none;

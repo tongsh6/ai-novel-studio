@@ -10,33 +10,43 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
 
   @work "work-agent-character-evolution-flow"
 
-  test "bounded character evolution run exposes context, strategy, tool execution, and finalization steps" do
+  test "bounded character evolution run uses a model-drafted plan before context and character evolution execution" do
     parent = self()
 
     result_fn = fn prompt ->
-      if String.contains?(prompt, "AgentRun 下一步规划器") do
-        {:ok,
-         %{
-           content:
-             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
-         }}
-      else
-        send(parent, {:provider_prompt, prompt})
+      cond do
+        plan_draft_prompt?(prompt) ->
+          {:ok,
+           Map.put(
+             character_evolution_plan_draft(),
+             :provider_call_id,
+             "pc-agent-character-evolution-planner"
+           )}
 
-        {:ok,
-         %{
-           provider_call_id: "pc-agent-character-evolution-writer",
-           content:
-             Jason.encode!([
-               %{
-                 "item_id" => "evo-lin-current-state",
-                 "title" => "林烬：右臂重伤",
-                 "body" => "林烬在矿区冲突后右臂重伤，短期内无法继续正面突袭。",
-                 "memory_subtype" => "CURRENT_STATE",
-                 "rationale" => "该状态限制后续行动方式，并推动他转向策略布局。"
-               }
-             ])
-         }}
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
+
+        true ->
+          send(parent, {:provider_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-agent-character-evolution-writer",
+             content:
+               Jason.encode!([
+                 %{
+                   "item_id" => "evo-lin-current-state",
+                   "title" => "林烬：右臂重伤",
+                   "body" => "林烬在矿区冲突后右臂重伤，短期内无法继续正面突袭。",
+                   "memory_subtype" => "CURRENT_STATE",
+                   "rationale" => "该状态限制后续行动方式，并推动他转向策略布局。"
+                 }
+               ])
+           }}
       end
     end
 
@@ -68,7 +78,11 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert_receive {:agent_event, :plan_drafted, context_step}
     assert context_step.summary =~ "读取角色演化上下文"
     assert context_step.payload.target_tool_ref == "context_assemble"
-    assert is_list(context_step.payload.plan_steps)
+
+    assert [
+             %{target_tool_ref: "context_assemble"},
+             %{target_tool_ref: "character_evolution"}
+           ] = context_step.payload.plan_steps
 
     NovelApplication.TestAssertions.assert_provider_output_narrative_source(
       context_step.payload.author_narrative_source
@@ -81,17 +95,9 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert_receive {:agent_event, :evaluation_made, context_decision}, 500
     assert "agent_step_evaluated" in context_decision.reason_codes
 
-    assert_receive {:agent_event, :plan_drafted, evolution_step}, 500
-    assert evolution_step.summary =~ "生成角色演化草稿"
-    assert evolution_step.payload.target_tool_ref == "character_evolution"
-    assert is_list(evolution_step.payload.plan_steps)
-
-    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      evolution_step.payload.author_narrative_source
-    )
-
     assert_receive {:agent_event, :evaluation_made, plan_event}, 500
     assert "agent_step_evaluated" in plan_event.reason_codes
+    assert plan_event.payload.target_tool_ref == "character_evolution"
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "系统已完成下一步执行裁决"
     assert_receive {:agent_event, :tool_started, tool_started}, 500
@@ -117,7 +123,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 4
+    assert state.run.consumed_budget.provider_calls == 3
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
 
     turn_result = artifact_event.payload.turn_result
@@ -142,7 +148,34 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert turn_result.trace_summary.provider_call_budget.evaluator == 0
   end
 
+  defp plan_draft_prompt?(prompt), do: prompt_contains?(prompt, "AgentRun 计划起草器")
+
+  defp character_evolution_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先读取角色演化上下文，再生成角色演化记忆草稿。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "context_assemble",
+          "context_assemble",
+          "先读取角色演化上下文。",
+          success_criteria: ["character_evolution_context_observation_created"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "character_evolution",
+          "character_evolution",
+          "基于已读取的角色上下文生成角色演化记忆草稿。",
+          kind: "act",
+          write_intent: "tentative",
+          success_criteria: ["tentative_character_evolution_seed_created"]
+        )
+      ],
+      reason_codes: ["agent_plan_drafted", "character_evolution_plan_drafted"]
+    )
+  end
+
   defp next_step_decision(prompt) do
+    prompt = prompt_text(prompt)
+
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
         NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳角色演化候选，本轮目标已经满足。")
@@ -163,6 +196,9 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
         )
     end
   end
+
+  defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
+  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp context do
     %DialogueContext{

@@ -181,7 +181,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert started.payload.profile_selection.source == "application_profile"
     assert_receive {:agent_event, :plan_drafted, context_step}
-    assert context_step.summary =~ "组装当前作品"
+    assert context_step.summary =~ "组装"
     assert_planner_step(context_step, "context_assemble")
 
     assert_receive {:agent_event, :goal_understood, context_stage}, 500
@@ -193,20 +193,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert_receive {:agent_event, :evaluation_made, context_decision}, 500
     assert "agent_step_evaluated" in context_decision.reason_codes
-    assert "agentic_next_step" in context_decision.reason_codes
-
-    assert_receive {:agent_event, :plan_drafted, frame_step}, 500
-    assert frame_step.summary =~ "形成对话认知帧"
-    assert_planner_step(frame_step, "dialogue_frame")
+    assert "agent_plan_mechanical_step" in context_decision.reason_codes
 
     assert_receive {:agent_event, :exploration_observed, frame_event}, 500
     assert frame_event.summary =~ "casual_reply"
     assert_receive {:agent_event, :evaluation_made, frame_decision}, 500
     assert "agent_step_evaluated" in frame_decision.reason_codes
-
-    assert_receive {:agent_event, :plan_drafted, strategy_step}, 500
-    assert strategy_step.summary =~ "执行策略"
-    assert_planner_step(strategy_step, "strategy_gate")
 
     assert_receive {:agent_event, :gate_decided, gate_stage}, 500
     assert "reply_only_no_tool" in gate_stage.reason_codes
@@ -214,10 +206,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert_receive {:agent_event, :exploration_observed, strategy_event}, 500
     assert strategy_event.summary =~ "无需工具"
-
-    assert_receive {:agent_event, :plan_drafted, finalize_step}, 500
-    assert finalize_step.summary =~ "生成本轮回应"
-    assert_planner_step(finalize_step, "response_finalize")
 
     assert_receive {:agent_event, :turn_result_ready, turn_event}, 500
     assert turn_event.payload.turn_result.agent_run.run_id == run_id
@@ -227,7 +215,158 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.status == :completed
     assert run.consumed_budget.steps == 4
     assert run.consumed_budget.tool_calls == 0
-    assert run.consumed_budget.provider_calls == 6
+    assert run.consumed_budget.provider_calls == 3
+  end
+
+  test "conversation turn revises exhausted model plan before awaiting author" do
+    parent = self()
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :conversation_turn,
+        %{
+          text: "测试计划耗尽后修订",
+          workspace_id: "ws-conversation-replan",
+          work_id: "work-conversation-replan",
+          session_id: "session-conversation-replan",
+          turn_id: "turn-conversation-replan"
+        },
+        nil,
+        conversation_replan_provider()
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:run_completed, 1_000)
+
+    drafted = Enum.find(events, &(&1.event_type == :plan_drafted))
+    revised = Enum.find(events, &(&1.event_type == :plan_revised))
+    turn_ready = Enum.find(events, &(&1.event_type == :turn_result_ready))
+
+    assert drafted
+    assert_planner_step(drafted, "context_assemble")
+    assert length(drafted.payload.plan_steps) == 1
+
+    assert revised
+    assert "agent_plan_revised" in revised.reason_codes
+    assert revised.summary =~ "补足"
+    assert revised.payload.stage == :plan_revised
+    assert revised.payload.plan_version == 2
+    assert revised.payload.target_tool_ref == "dialogue_frame"
+    assert revised.payload.evaluation_of_last.plan_holds == false
+    assert revised.payload.evaluation_of_last.new_constraint == "计划步骤已走完，但本轮回应尚未生成。"
+    assert revised.payload.plan_revision.revision_reason == "计划步骤已走完，但本轮回应尚未生成。"
+    assert revised.payload.author_narrative == revised.summary
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      revised.payload.author_narrative_source
+    )
+
+    assert turn_ready
+    assert turn_ready.payload.turn_result.agent_run.run_id == run_id
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :completed
+    assert run.phase == :stopped
+    assert run.plan_version == 2
+    assert run.consumed_budget.steps == 4
+    assert run.consumed_budget.replans == 1
+    assert run.consumed_budget.provider_calls == 5
+  end
+
+  test "conversation turn revises plan when model skips dialogue_frame precondition step" do
+    parent = self()
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :conversation_turn,
+        %{
+          text: "测试前置缺失后修订",
+          workspace_id: "ws-conversation-precondition",
+          work_id: "work-conversation-precondition",
+          session_id: "session-conversation-precondition",
+          turn_id: "turn-conversation-precondition"
+        },
+        nil,
+        conversation_precondition_replan_provider()
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:run_completed, 1_000)
+
+    revised = Enum.find(events, &(&1.event_type == :plan_revised))
+
+    assert revised
+    assert "agentic_deviation:D1" in revised.reason_codes
+    assert revised.payload.evaluation_of_last.plan_holds == false
+    assert revised.payload.plan_revision.revision_reason =~ "前置输入"
+    assert revised.payload.plan_revision.revision_reason =~ "strategy_gate"
+
+    # 修订后补上 dialogue_frame，run 沿修订计划走完，而不是 run_failed
+    refute Enum.any?(events, &(&1.event_type == :run_failed))
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :completed
+    assert run.plan_version == 2
+    assert run.consumed_budget.replans == 1
+  end
+
+  test "conversation turn revises when remaining budget cannot finish drafted plan" do
+    parent = self()
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :conversation_turn,
+        %{
+          text: "测试预算偏离后修订",
+          workspace_id: "ws-conversation-budget-replan",
+          work_id: "work-conversation-budget-replan",
+          session_id: "session-conversation-budget-replan",
+          turn_id: "turn-conversation-budget-replan"
+        },
+        nil,
+        conversation_budget_deviation_provider()
+      )
+
+    run_attrs =
+      Map.put(spec.run_attrs, :budget, %{
+        max_steps: 2,
+        max_tool_calls: 4,
+        max_provider_calls: 5,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      })
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:awaiting_author, 1_000)
+    revised = Enum.find(events, &(&1.event_type == :plan_revised))
+
+    assert revised
+    assert "agentic_deviation:D5" in revised.reason_codes
+    assert revised.payload.evaluation_of_last.plan_holds == false
+    assert revised.payload.evaluation_of_last.new_constraint =~ "D5 偏离信号"
+    assert revised.payload.plan_revision.revision_reason =~ "剩余 step 预算不足"
+
+    refute Enum.any?(events, &(&1.event_type == :run_failed))
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+    assert run.consumed_budget.replans == 1
+    assert run.consumed_budget.steps == 1
   end
 
   test "conversation turn projects provider execution facts into author-safe provider progress" do
@@ -537,6 +676,74 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :awaiting_author
     assert run.completed_step_refs == ["step_1"]
+  end
+
+  test "pending artifact budget completes run before executing an extra candidate step" do
+    parent = self()
+    run_id = unique_run_id()
+
+    first_step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [],
+         artifact_refs: ["as_first_candidate"]
+       }}
+    end
+
+    second_step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+      {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
+    end
+
+    planner = fn run, sequence, _snapshot ->
+      step_fun = if sequence == 1, do: first_step, else: second_step
+
+      {:execute, step_fun, test_execute_decision(run, sequence), %{provider_call_count: 0}}
+    end
+
+    attrs =
+      Map.put(base_run(run_id), :budget, %{
+        max_steps: 5,
+        max_tool_calls: 4,
+        max_provider_calls: 3,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      })
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(attrs,
+               next_step_planner: planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:step_started, 1}
+    assert_receive {:agent_event_full, :plan_drafted, first_plan}, 500
+    assert first_plan.summary == "执行测试步骤 1。"
+
+    assert_receive {:agent_event_full, :evaluation_made, first_evaluation}, 500
+    assert "test_sequential_step" in first_evaluation.reason_codes
+
+    assert_receive {:agent_event_full, :plan_drafted, second_plan}, 500
+    assert second_plan.summary == "执行测试步骤 2。"
+
+    assert_receive {:agent_event_full, :evaluation_made, backstop_event}, 500
+    assert "candidate_budget_exhausted" in backstop_event.reason_codes
+    assert "model_requested_extra_candidate" in backstop_event.reason_codes
+    assert backstop_event.payload.loop_decision_type == :goal_satisfied
+
+    assert_receive {:agent_event_full, :run_completed, completed_event}, 500
+    assert "goal_satisfied" in completed_event.reason_codes
+    refute_receive {:step_started, 2}, 80
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :completed
+    assert run.phase == :stopped
+    assert run.completed_step_refs == ["step_1"]
+    assert run.pending_artifact_refs == ["as_first_candidate"]
+    assert run.consumed_budget.steps == 1
   end
 
   test "durable runtime links LongRunTask and checkpoints active state" do
@@ -1249,14 +1456,19 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
     assert run.pending_artifact_refs == [artifact_id]
+    assert run.consumed_budget.provider_calls == 3
   end
 
   test "provider progress flow emits author-safe provider progress and provider budget" do
     parent = self()
 
     result_fn = fn prompt ->
-      send(parent, {:provider_called, prompt})
-      {:ok, %{content: "provider-progress-output"}}
+      if agent_plan_draft_prompt?(prompt) do
+        {:ok, provider_progress_plan_draft()}
+      else
+        send(parent, {:provider_called, prompt})
+        {:ok, %{content: "provider-progress-output"}}
+      end
     end
 
     spec =
@@ -1282,7 +1494,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert spec.run_attrs.profile_ref == "provider_progress_v1"
-    assert spec.run_attrs.budget.max_provider_calls == 1
+    assert spec.run_attrs.budget.max_provider_calls == 4
     assert is_function(spec.next_step_planner, 3)
 
     assert_raise ArgumentError, "provider_progress_v1 requires next_step_planner/1", fn ->
@@ -1294,6 +1506,16 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: spec.next_step_planner,
                event_sink: event_sink_full(parent)
              )
+
+    assert_receive {:agent_event_full, :run_started, _}, 500
+
+    plan_event =
+      :plan_drafted
+      |> collect_full_events_until(500)
+      |> List.last()
+
+    assert plan_event.payload.target_tool_ref == "provider_complete"
+    assert [%{target_tool_ref: "provider_complete"}] = plan_event.payload.plan_steps
 
     assert_receive {:agent_event_full, :provider_progress, start_event}, 500
     assert "provider_call_started" in start_event.reason_codes
@@ -1317,7 +1539,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
-    assert run.consumed_budget.provider_calls == 1
+    assert run.consumed_budget.provider_calls == 3
     assert run.pending_artifact_refs == []
   end
 
@@ -1341,12 +1563,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           }
         },
         nil,
-        reply_only_provider()
+        readonly_batch_provider()
       )
 
     assert spec.run_attrs.profile_ref == "readonly_batch_context_v1"
     assert spec.run_attrs.authority_scope.production_write == false
-    assert spec.run_attrs.budget.max_provider_calls == 1
+    assert spec.run_attrs.budget.max_provider_calls == 4
     assert is_function(spec.next_step_planner, 3)
 
     assert_raise ArgumentError, "readonly_batch_context_v1 requires next_step_planner/1", fn ->
@@ -1358,6 +1580,18 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                next_step_planner: spec.next_step_planner,
                event_sink: event_sink_full(parent)
              )
+
+    assert_receive {:agent_event_full, :run_started, _}, 500
+
+    plan_event =
+      :plan_drafted
+      |> collect_full_events_until(500)
+      |> List.last()
+
+    assert [
+             %{target_tool_ref: "readonly_batch"},
+             %{target_tool_ref: "readonly_batch"}
+           ] = plan_event.payload.plan_steps
 
     batch_item_events =
       for _ <- 1..4 do
@@ -1383,7 +1617,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
-    assert run.consumed_budget.provider_calls == 0
+    assert run.consumed_budget.provider_calls == 2
     assert run.consumed_budget.tool_calls == 4
     assert run.pending_artifact_refs == []
   end
@@ -1421,15 +1655,21 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute_receive {:agent_event, :artifact_created, _}, 80
   end
 
-  test "repeated roster request stops at no-progress without character design provider call" do
+  test "character design follows model-drafted plan instead of repeating old roster planner branch" do
     parent = self()
 
     result_fn = fn prompt ->
-      if agent_next_step_prompt?(prompt) do
-        {:ok, %{content: next_step_decision(prompt)}}
-      else
-        send(parent, :provider_called)
-        {:ok, %{content: Jason.encode!([single_item("repeat-antagonist")])}}
+      cond do
+        agent_plan_draft_prompt?(prompt) ->
+          {:ok, character_design_plan_draft()}
+
+        agent_next_step_prompt?(prompt) ->
+          send(parent, :old_next_step_planner_called)
+          {:ok, %{content: next_step_decision(prompt)}}
+
+        true ->
+          send(parent, :provider_called)
+          {:ok, %{content: Jason.encode!([single_item("repeat-antagonist")])}}
       end
     end
 
@@ -1453,14 +1693,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                event_sink: event_sink(parent)
              )
 
-    assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者确认。"},
-                   500
+    assert_receive :provider_called, 500
+    assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500
 
-    refute_receive :provider_called, 80
+    refute_receive :old_next_step_planner_called, 80
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
-    assert run.status == :awaiting_author
+    assert run.status == :completed
     assert run.completed_step_refs == ["step_#{run_id}_1", "step_#{run_id}_2"]
+    assert run.consumed_budget.provider_calls == 3
   end
 
   defp base_run(run_id) do
@@ -1542,14 +1783,21 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     %Execution{
       purpose: :conversation,
       execute_fn: fn prompt ->
-        if agent_next_step_prompt?(prompt) do
-          provider_activity_success_result(
-            prompt,
-            :author_reasoning,
-            next_step_decision(prompt)
-          )
-        else
-          provider_activity_success_result(prompt, :conversation, frame_json)
+        cond do
+          # 两段式第二段：强制 tool call 的结构化调用（:planner purpose 独立 refs）
+          agent_plan_draft_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+            provider_activity_success_result(prompt, :planner, conversation_plan_draft())
+
+          # 两段式第一段：无 tools 的流式 reasoning 调用
+          agent_plan_draft_prompt?(prompt) ->
+            provider_activity_success_result(
+              prompt,
+              :author_reasoning,
+              conversation_plan_draft()
+            )
+
+          true ->
+            provider_activity_success_result(prompt, :conversation, frame_json)
         end
       end
     }
@@ -1559,20 +1807,26 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     %Execution{
       purpose: :conversation,
       execute_fn: fn prompt ->
-        if agent_next_step_prompt?(prompt) do
-          provider_activity_success_result(
-            prompt,
-            :author_reasoning,
-            next_step_decision(prompt)
-          )
-        else
-          provider_activity_error_result()
+        cond do
+          agent_plan_draft_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+            provider_activity_success_result(prompt, :planner, conversation_plan_draft())
+
+          agent_plan_draft_prompt?(prompt) ->
+            provider_activity_success_result(
+              prompt,
+              :author_reasoning,
+              conversation_plan_draft()
+            )
+
+          true ->
+            provider_activity_error_result()
         end
       end
     }
   end
 
-  defp provider_activity_success_result(_prompt, purpose, content) do
+  defp provider_activity_success_result(_prompt, purpose, result) do
+    {content, tool_calls} = provider_result_parts(result)
     {run_ref, call_ref} = provider_refs_for_purpose(purpose)
 
     {:ok, provider_run} =
@@ -1632,7 +1886,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         provider_call_ref: call_ref,
         status: :ok,
         output_type: :text,
-        content: %{text: content},
+        content: provider_output_content(content, tool_calls),
         usage: %{total_tokens: 12},
         refs: [call_ref]
       })
@@ -1642,7 +1896,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
        provider_run: provider_run,
        events: [started_event, chunk_event, final_event],
        output: output,
-       result: Result.new(content)
+       result: Result.new(content, nil, tool_calls: tool_calls)
      }}
   end
 
@@ -1705,6 +1959,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp provider_refs_for_purpose(:author_reasoning),
     do: {"prun-author-reasoning", "pcall-author-reasoning"}
 
+  defp provider_refs_for_purpose(:planner), do: {"prun-planner", "pcall-planner"}
+
   defp provider_refs_for_purpose(:conversation), do: {"prun-conversation", "pcall-conversation"}
 
   defp author_reasoning_delta(:author_reasoning, content) when is_binary(content) do
@@ -1724,21 +1980,32 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     %Execution{
       result_fn: fn prompt ->
-        if agent_next_step_prompt?(prompt) do
-          {:ok, %{content: next_step_decision(prompt)}}
-        else
-          {:ok, %{content: json}}
-        end
+        result =
+          cond do
+            agent_plan_draft_prompt?(prompt) -> character_design_plan_draft()
+            agent_next_step_prompt?(prompt) -> next_step_decision(prompt)
+            true -> json
+          end
+
+        provider_result(result)
       end
     }
   end
 
-  defp agent_next_step_prompt?(prompt) when is_binary(prompt),
-    do: String.contains?(prompt, "AgentRun 下一步规划器")
+  defp agent_next_step_prompt?(prompt),
+    do: prompt_contains?(prompt, "AgentRun 下一步规划器")
 
-  defp agent_next_step_prompt?(_prompt), do: false
+  defp agent_plan_draft_prompt?(prompt),
+    do: prompt_contains?(prompt, "AgentRun 计划起草器")
+
+  defp agent_plan_revision_prompt?(prompt),
+    do: prompt_contains?(prompt, "AgentRun 计划修订器")
+
+  defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
 
   defp next_step_decision(prompt) do
+    prompt = prompt_text(prompt)
+
     decision =
       cond do
         String.contains?(prompt, "profile_ref: conversation_turn_v1") ->
@@ -1768,6 +2035,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   end
 
   defp structured_next_step_decision(packet, prompt) do
+    prompt = prompt_text(prompt)
     plan_holds = not String.contains?(prompt, "NNARR_REPLAN_PLAN_HOLDS_FALSE")
     new_constraint = if plan_holds, do: nil, else: "测试前提不成立。"
 
@@ -1865,6 +2133,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   defp existing_observation_section(prompt) do
     prompt
+    |> prompt_text()
     |> String.split("## 决策规则", parts: 2)
     |> hd()
   end
@@ -1881,14 +2150,101 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp reply_only_provider do
     %Execution{
       result_fn: fn prompt ->
-        content =
-          if agent_next_step_prompt?(prompt) do
-            next_step_decision(prompt)
-          else
-            reply_only_frame_json()
+        result =
+          cond do
+            agent_plan_draft_prompt?(prompt) -> conversation_plan_draft()
+            agent_next_step_prompt?(prompt) -> next_step_decision(prompt)
+            true -> reply_only_frame_json()
           end
 
-        {:ok, %{content: content}}
+        provider_result(result)
+      end
+    }
+  end
+
+  defp readonly_batch_provider do
+    %Execution{
+      result_fn: fn prompt ->
+        result =
+          cond do
+            agent_plan_draft_prompt?(prompt) -> readonly_batch_plan_draft()
+            agent_next_step_prompt?(prompt) -> next_step_decision(prompt)
+            true -> reply_only_frame_json()
+          end
+
+        provider_result(result)
+      end
+    }
+  end
+
+  defp conversation_replan_provider do
+    %Execution{
+      result_fn: fn prompt ->
+        result =
+          cond do
+            agent_plan_revision_prompt?(prompt) -> conversation_plan_revision()
+            agent_plan_draft_prompt?(prompt) -> conversation_context_only_plan()
+            true -> reply_only_frame_json()
+          end
+
+        provider_result(result)
+      end
+    }
+  end
+
+  defp conversation_precondition_replan_provider do
+    %Execution{
+      result_fn: fn prompt ->
+        result =
+          cond do
+            agent_plan_revision_prompt?(prompt) -> conversation_plan_revision()
+            agent_plan_draft_prompt?(prompt) -> conversation_skip_frame_plan()
+            true -> reply_only_frame_json()
+          end
+
+        provider_result(result)
+      end
+    }
+  end
+
+  # 模拟强模型「精简计划」跳过 dialogue_frame：strategy_gate 缺 frame 前置输入。
+  defp conversation_skip_frame_plan do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先读取上下文，然后直接裁决并生成回应。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "assemble_conversation_context",
+          "context_assemble",
+          "组装当前作品上下文",
+          success_criteria: ["conversation_context_attached"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "gate_conversation_strategy",
+          "strategy_gate",
+          "制定执行策略并完成系统裁决",
+          success_criteria: ["strategy_gate_completed"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "finalize_conversation_response",
+          "response_finalize",
+          "生成本轮回应",
+          success_criteria: ["turn_result_ready"]
+        )
+      ]
+    )
+  end
+
+  defp conversation_budget_deviation_provider do
+    %Execution{
+      result_fn: fn prompt ->
+        result =
+          cond do
+            agent_plan_revision_prompt?(prompt) -> conversation_plan_revision()
+            agent_plan_draft_prompt?(prompt) -> conversation_plan_draft()
+            true -> reply_only_frame_json()
+          end
+
+        provider_result(result)
       end
     }
   end
@@ -1906,6 +2262,160 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       uncertainty: []
     })
   end
+
+  defp conversation_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先组装当前作品上下文，再形成对话帧、完成策略裁决并生成本轮回应。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "assemble_conversation_context",
+          "context_assemble",
+          "组装当前作品上下文",
+          success_criteria: ["conversation_context_attached"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "frame_conversation",
+          "dialogue_frame",
+          "形成对话认知帧",
+          success_criteria: ["dialogue_frame_created"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "gate_conversation_strategy",
+          "strategy_gate",
+          "制定执行策略并完成系统裁决",
+          success_criteria: ["strategy_gate_completed"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "finalize_conversation_response",
+          "response_finalize",
+          "生成本轮回应",
+          success_criteria: ["turn_result_ready"]
+        )
+      ]
+    )
+  end
+
+  defp character_design_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先读取角色阵容，再基于阵容设计新的角色候选。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "character_roster",
+          "character_roster",
+          "读取当前作品已确认角色阵容。",
+          success_criteria: ["character_roster_observation_exists"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "character_design",
+          "character_design",
+          "基于已读取的角色阵容设计新的角色候选。",
+          kind: "act",
+          write_intent: "tentative",
+          success_criteria: ["tentative_character_seed_created"]
+        )
+      ],
+      reason_codes: ["agent_plan_drafted", "character_design_plan_drafted"]
+    )
+  end
+
+  defp conversation_context_only_plan do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先只读取当前作品上下文，再观察是否需要继续。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "assemble_conversation_context",
+          "context_assemble",
+          "组装当前作品上下文",
+          success_criteria: ["conversation_context_attached"]
+        )
+      ]
+    )
+  end
+
+  defp provider_progress_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "直接调用 provider，并只记录 author-safe 进度边界。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "call_provider_progress",
+          "provider_complete",
+          "调用 provider 并记录安全进度事件",
+          kind: "act",
+          success_criteria: ["provider_progress_events_visible", "provider_result_completed"]
+        )
+      ],
+      reason_codes: ["agent_plan_drafted", "provider_progress_plan_drafted"]
+    )
+  end
+
+  defp readonly_batch_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先并行读取只读上下文，再汇总给作者，不写入作品也不生成候选。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "readonly_batch_read",
+          "readonly_batch",
+          "并行读取作品、角色、规则和统计上下文",
+          success_criteria: ["readonly_batch_observations_exist"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "readonly_batch_finalize",
+          "readonly_batch",
+          "汇总只读上下文并声明未写入作品事实",
+          success_criteria: ["readonly_batch_turn_result_emitted", "production_write_false"]
+        )
+      ],
+      reason_codes: ["agent_plan_drafted", "readonly_batch_plan_drafted"]
+    )
+  end
+
+  defp conversation_plan_revision do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "上下文已读取但本轮回应尚未生成，需要补足对话帧、策略裁决和回应生成步骤。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "assemble_conversation_context",
+          "context_assemble",
+          "组装当前作品上下文",
+          success_criteria: ["conversation_context_attached"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "frame_conversation",
+          "dialogue_frame",
+          "形成对话认知帧",
+          success_criteria: ["dialogue_frame_created"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "gate_conversation_strategy",
+          "strategy_gate",
+          "制定执行策略并完成系统裁决",
+          success_criteria: ["strategy_gate_completed"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "finalize_conversation_response",
+          "response_finalize",
+          "生成本轮回应",
+          success_criteria: ["turn_result_ready"]
+        )
+      ],
+      reason_codes: ["agent_plan_revised", "plan_exhausted_without_completion"],
+      tool_name: "agent_plan_revision"
+    )
+  end
+
+  defp provider_result(%{content: _content, tool_calls: _tool_calls} = result), do: {:ok, result}
+  defp provider_result(content), do: {:ok, %{content: content}}
+
+  defp provider_result_parts(%{content: content, tool_calls: tool_calls})
+       when is_binary(content) and is_list(tool_calls),
+       do: {content, tool_calls}
+
+  defp provider_result_parts(content) when is_binary(content), do: {content, []}
+
+  defp provider_output_content(content, []), do: %{text: content}
+  defp provider_output_content(content, tool_calls), do: %{text: content, tool_calls: tool_calls}
+
+  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp sequential_steps(steps) when is_list(steps) do
     fn run, sequence, _snapshot ->

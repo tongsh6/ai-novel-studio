@@ -80,11 +80,26 @@ defmodule NNarrDriver do
           next_step_planner: spec.next_step_planner,
           event_sink: fn event ->
             Agent.update(events_agent, &[event | &1])
-            send(parent, {:agent_event, event.event_type})
+            send(parent, {:agent_event, event})
           end
         )
 
-      :ok = wait_until_terminal()
+      case wait_until_terminal() do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          events = Agent.get(events_agent, &Enum.reverse/1)
+
+          %{
+            run_id: run_id,
+            outcome: :error,
+            detail: "AgentRun did not complete: #{inspect(reason)}",
+            events: summarize_events(events),
+            provider_output_count: map_size(Agent.get(outputs, & &1))
+          }
+          |> then(&throw({:n_narr_terminal_error, &1}))
+      end
 
       events = Agent.get(events_agent, &Enum.reverse/1)
       provider_outputs = Agent.get(outputs, & &1)
@@ -100,19 +115,31 @@ defmodule NNarrDriver do
     %Execution{
       purpose: :conversation,
       execute_fn: fn prompt ->
-        content =
-          if agent_next_step_prompt?(prompt) do
-            reasoning_tail(next_step_decision(prompt))
-          else
-            conversation_frame_json()
+        {content, tool_calls} =
+          cond do
+            # 两段式第二段：强制 tool call 的结构化调用
+            agent_plan_structure_prompt?(prompt) ->
+              packet = plan_draft_packet(prompt)
+              {Map.fetch!(packet, :reasoning), [agent_plan_tool_call("agent_plan_draft", packet)]}
+
+            # 两段式第一段：无 tools 的流式 reasoning 调用（author_narrative_delta 来源）
+            agent_plan_draft_prompt?(prompt) ->
+              packet = plan_draft_packet(prompt)
+              {Map.fetch!(packet, :reasoning), []}
+
+            agent_next_step_prompt?(prompt) ->
+              {reasoning_tail(next_step_decision(prompt)), []}
+
+            true ->
+              {conversation_frame_json(), []}
           end
 
-        execution_result(prompt, content, provider_purpose(prompt), outputs)
+        execution_result(prompt, content, tool_calls, provider_purpose(prompt), outputs)
       end
     }
   end
 
-  defp execution_result(_prompt, content, purpose, outputs) do
+  defp execution_result(_prompt, content, tool_calls, purpose, outputs) do
     run_ref = "prun-nnarr-#{purpose}-#{System.unique_integer([:positive, :monotonic])}"
     call_ref = "pcall-nnarr-#{purpose}-#{System.unique_integer([:positive, :monotonic])}"
 
@@ -180,7 +207,7 @@ defmodule NNarrDriver do
         provider_call_ref: call_ref,
         status: :ok,
         output_type: :text,
-        content: %{text: content},
+        content: provider_output_content(content, tool_calls),
         usage: %{total_tokens: 1},
         refs: [call_ref]
       })
@@ -192,7 +219,7 @@ defmodule NNarrDriver do
        provider_run: run,
        events: [started, chunk, final],
        output: output,
-       result: Result.new(content)
+       result: Result.new(content, nil, tool_calls: tool_calls)
      }}
   end
 
@@ -370,27 +397,131 @@ defmodule NNarrDriver do
 
   defp wait_until_terminal do
     receive do
-      {:agent_event, :run_completed} -> :ok
-      {:agent_event, :run_failed} -> {:error, :run_failed}
-      {:agent_event, :run_cancelled} -> {:error, :run_cancelled}
-      {:agent_event, _event_type} -> wait_until_terminal()
+      {:agent_event, %{event_type: :run_completed}} -> :ok
+      {:agent_event, %{event_type: :run_failed} = event} -> {:error, summarize_event(event)}
+      {:agent_event, %{event_type: :run_cancelled} = event} -> {:error, summarize_event(event)}
+      {:agent_event, _event} -> wait_until_terminal()
     after
       3_000 -> {:error, :timeout}
-    end
-    |> case do
-      :ok -> :ok
-      {:error, reason} -> raise "AgentRun did not complete: #{inspect(reason)}"
     end
   end
 
   defp provider_purpose(prompt) do
-    if agent_next_step_prompt?(prompt), do: :author_reasoning, else: :conversation
+    cond do
+      # 结构化调用是 :planner，叙事 delta 只来自第一段流式 reasoning
+      agent_plan_structure_prompt?(prompt) -> :planner
+      author_reasoning_prompt?(prompt) -> :author_reasoning
+      true -> :conversation
+    end
   end
+
+  defp author_reasoning_prompt?(prompt),
+    do: agent_plan_draft_prompt?(prompt) or agent_next_step_prompt?(prompt)
+
+  defp agent_plan_structure_prompt?(prompt) when is_map(prompt) do
+    NovelAgent.Provider.tool_call_prompt?(prompt) and
+      NovelAgent.Provider.tool_choice(prompt) in ["agent_plan_draft", "agent_plan_revision"]
+  end
+
+  defp agent_plan_structure_prompt?(_prompt), do: false
+
+  defp agent_plan_draft_prompt?(prompt) when is_binary(prompt),
+    do: String.contains?(prompt, "AgentRun 计划起草器") or String.contains?(prompt, "AgentRun 计划修订器")
+
+  defp agent_plan_draft_prompt?(prompt) when is_map(prompt) do
+    prompt |> prompt_text() |> agent_plan_draft_prompt?()
+  end
+
+  defp agent_plan_draft_prompt?(_prompt), do: false
 
   defp agent_next_step_prompt?(prompt) when is_binary(prompt),
     do: String.contains?(prompt, "AgentRun 下一步规划器")
 
   defp agent_next_step_prompt?(_prompt), do: false
+
+  defp plan_draft_packet(prompt) do
+    prompt_text = prompt_text(prompt)
+
+    packet =
+      if String.contains?(prompt_text, "profile_ref: conversation_turn_v1") do
+        %{
+          reasoning: "模型先读取当前作品上下文，再形成对话认知帧，完成系统裁决后生成本轮回应。",
+          steps: [
+            plan_step("context_assemble", "explore", "组装当前作品上下文。", [
+              "context_observation_created"
+            ]),
+            plan_step("dialogue_frame", "explore", "形成对话认知帧。", [
+              "dialogue_frame_created"
+            ]),
+            plan_step("strategy_gate", "explore", "制定执行策略并完成系统裁决。", [
+              "strategy_decision_created"
+            ]),
+            plan_step("response_finalize", "explore", "生成本轮回应并写入可回放留痕。", [
+              "turn_result_emitted"
+            ])
+          ],
+          reason_codes: ["agent_plan_drafted", "conversation_plan_drafted"]
+        }
+      else
+        %{
+          reasoning: "模型为当前目标起草一条最小执行计划。",
+          steps: [
+            plan_step("context_assemble", "explore", "读取当前上下文。", [
+              "context_observation_created"
+            ])
+          ],
+          reason_codes: ["agent_plan_drafted"]
+        }
+      end
+
+    packet
+  end
+
+  defp plan_step(target_tool_ref, kind, description, success_criteria) do
+    %{
+      step_id: target_tool_ref,
+      kind: kind,
+      description: description,
+      success_criteria: success_criteria,
+      depends_on: [],
+      target_tool_ref: target_tool_ref,
+      write_intent: "none",
+      risk_hint: "low",
+      authoring_intent: nil,
+      target_chapter: nil,
+      requested_chapter_raw: nil
+    }
+  end
+
+  defp agent_plan_tool_call(tool_name, packet) do
+    %{
+      "name" => tool_name,
+      "arguments" => %{
+        "plan" => %{"steps" => Map.fetch!(packet, :steps)},
+        "reason_codes" => Map.get(packet, :reason_codes, ["agent_plan_drafted"]),
+        "confidence" => Map.get(packet, :confidence, 1.0)
+      }
+    }
+  end
+
+  defp provider_output_content(content, []), do: %{text: content}
+  defp provider_output_content(content, tool_calls), do: %{text: content, tool_calls: tool_calls}
+
+  defp prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_text(%{messages: messages}) when is_list(messages), do: messages_text(messages)
+  defp prompt_text(%{"messages" => messages}) when is_list(messages), do: messages_text(messages)
+  defp prompt_text(_prompt), do: ""
+
+  defp messages_text(messages) do
+    messages
+    |> Enum.map(fn
+      %{content: content} when is_binary(content) -> content
+      %{"content" => content} when is_binary(content) -> content
+      _message -> ""
+    end)
+    |> Enum.join("\n")
+  end
 
   defp next_step_decision(prompt) do
     cond do
@@ -532,6 +663,52 @@ defmodule NNarrDriver do
       Enum.join(lines ++ checked ++ ["", "## Stream Checks", ""] ++ stream_checks, "\n") <> "\n"
     )
   end
+
+  defp summarize_events(events) do
+    Enum.map(events, &summarize_event/1)
+  end
+
+  defp summarize_event(event) do
+    %{
+      event_type: event.event_type,
+      sequence: event.sequence,
+      visibility: event.visibility,
+      summary: event.summary,
+      reason_codes: event.reason_codes,
+      payload: json_safe(event.payload)
+    }
+  end
+
+  defp json_safe(%_{} = struct), do: struct |> Map.from_struct() |> json_safe()
+
+  defp json_safe(map) when is_map(map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), json_safe(value)} end)
+    |> Map.new()
+  end
+
+  defp json_safe(list) when is_list(list), do: Enum.map(list, &json_safe/1)
+  defp json_safe(atom) when is_atom(atom), do: to_string(atom)
+  defp json_safe(value), do: value
 end
 
-NNarrDriver.run()
+try do
+  NNarrDriver.run()
+catch
+  {:n_narr_terminal_error, result} ->
+    File.write!("artifacts/scenario-invariants/n_narr.md", """
+    # N-NARR AgentRun Narrative Binding
+
+    - outcome: #{result.outcome}
+    - detail: #{result.detail}
+    - provider_output_count: #{Map.get(result, :provider_output_count, 0)}
+
+    ## Events
+
+    #{Enum.map_join(Map.get(result, :events, []), "\n", fn event -> "- #{event.event_type}##{event.sequence}: #{event.summary}" end)}
+    """)
+
+    File.write!("artifacts/scenario-invariants/n_narr.json", Jason.encode!(result, pretty: true))
+    IO.puts("\nN-NARR #{String.upcase(to_string(result.outcome))}: #{result.detail}")
+    System.halt(1)
+end

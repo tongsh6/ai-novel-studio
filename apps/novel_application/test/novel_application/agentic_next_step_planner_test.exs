@@ -3,7 +3,7 @@ defmodule NovelApplication.AgenticNextStepPlannerTest do
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgenticNextStepPlanner
-  alias NovelDomain.AgentRun
+  alias NovelDomain.{AgentObservation, AgentRun}
 
   test "planner prompt exposes capability options without restoring fixed profile rails" do
     parent = self()
@@ -101,6 +101,120 @@ defmodule NovelApplication.AgenticNextStepPlannerTest do
              AgenticNextStepPlanner.next_decision(run, 1, [], provider_execution, %{
                stage_sink: fn _event -> :ok end
              })
+  end
+
+  test "planner retries once with failed output when JSON tail is malformed" do
+    parent = self()
+
+    provider_execution = %Execution{
+      result_fn: fn prompt ->
+        call_count = Process.get(:planner_call_count, 0) + 1
+        Process.put(:planner_call_count, call_count)
+        send(parent, {:planner_prompt, call_count, prompt})
+
+        content =
+          if call_count == 1 do
+            "先读取当前作品上下文。\n{\"evaluation_of_last\": }"
+          else
+            "先读取当前作品上下文。\n" <>
+              Jason.encode!(%{
+                evaluation_of_last: %{
+                  advanced: false,
+                  plan_holds: true,
+                  new_constraint: nil
+                },
+                decision: %{type: "continue"},
+                next_action: %{
+                  target_tool_ref: "context_assemble",
+                  write_intent: "none",
+                  risk_hint: "low"
+                },
+                plan_revision: nil,
+                reason_codes: ["agentic_next_step", "json_tail_retry_recovered"],
+                confidence: 0.8
+              })
+          end
+
+        {:ok, %{content: content}}
+      end
+    }
+
+    {:ok, run} = agent_run("run-agentic-json-retry")
+
+    assert {:ok, decision, %{provider_call_count: 2}} =
+             AgenticNextStepPlanner.next_decision_with_meta(run, 1, [], provider_execution, %{
+               stage_sink: fn _event -> :ok end
+             })
+
+    assert decision.target_tool_ref == "context_assemble"
+    assert "json_tail_retry_recovered" in decision.reason_codes
+
+    assert_receive {:planner_prompt, 1, first_prompt}
+    assert_receive {:planner_prompt, 2, retry_prompt}
+    assert first_prompt =~ "AgentRun 下一步规划器"
+    assert retry_prompt =~ "上一次的 AgentRun 下一步规划输出无法被系统解析"
+    assert retry_prompt =~ "{\"evaluation_of_last\": }"
+    assert retry_prompt =~ "## 原始任务"
+  end
+
+  test "planner prompt includes compact structured payload for recent observations" do
+    parent = self()
+
+    provider_execution = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:planner_prompt, prompt})
+
+        {:ok,
+         %{
+           content:
+             "已有正文候选，停止本轮。\n" <>
+               Jason.encode!(%{
+                 evaluation_of_last: %{advanced: true, plan_holds: true, new_constraint: nil},
+                 decision: %{type: "done"},
+                 next_action: %{
+                   target_tool_ref: nil,
+                   write_intent: "none",
+                   risk_hint: "low"
+                 },
+                 plan_revision: nil,
+                 reason_codes: ["agentic_next_step", "artifact_created"],
+                 confidence: 0.9
+               })
+         }}
+      end
+    }
+
+    {:ok, run} = agent_run("run-agentic-observation-payload")
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: "obs-payload-1",
+        run_ref: run.run_id,
+        step_ref: "step-payload-1",
+        observation_type: :artifact_created,
+        source_ref: "tool_result:tr-payload-1",
+        summary: "已生成 1 个待采纳正文草稿。",
+        structured_payload: %{
+          artifact_refs: ["as-payload-1"],
+          quality_review: %{review_status: "completed", finding_count: 0}
+        },
+        evidence_refs: ["tool_result:tr-payload-1", "artifact:as-payload-1"]
+      })
+
+    assert {:ok, decision} =
+             AgenticNextStepPlanner.next_decision(run, 2, [observation], provider_execution, %{
+               stage_sink: fn _event -> :ok end
+             })
+
+    assert decision.decision_type == :goal_satisfied
+
+    assert_receive {:planner_prompt, prompt}
+    assert prompt =~ "obs-payload-1 / artifact_created"
+    assert prompt =~ "payload:"
+    assert prompt =~ "artifact_refs"
+    assert prompt =~ "as-payload-1"
+    assert prompt =~ "quality_review"
+    assert prompt =~ "finding_count"
   end
 
   test "planner streams author reasoning with author_reasoning provider purpose" do

@@ -27,7 +27,8 @@ defmodule NovelDomain.AgentRun do
           max_steps: pos_integer(),
           max_tool_calls: non_neg_integer(),
           max_provider_calls: non_neg_integer(),
-          max_replans: non_neg_integer()
+          max_replans: non_neg_integer(),
+          max_pending_artifacts: non_neg_integer()
         }
   @type consumed_budget :: %{
           steps: non_neg_integer(),
@@ -88,7 +89,13 @@ defmodule NovelDomain.AgentRun do
     completed_step_refs: [],
     authority_scope: %{production_write: false, allowed_tools: []},
     policy: nil,
-    budget: %{max_steps: 5, max_tool_calls: 4, max_provider_calls: 3, max_replans: 1},
+    budget: %{
+      max_steps: 5,
+      max_tool_calls: 4,
+      max_provider_calls: 3,
+      max_replans: 1,
+      max_pending_artifacts: 3
+    },
     consumed_budget: %{steps: 0, tool_calls: 0, provider_calls: 0, replans: 0},
     interrupt_state: %{status: :none, requested_at: nil},
     pending_artifact_refs: []
@@ -127,6 +134,13 @@ defmodule NovelDomain.AgentRun do
       run.consumed_budget.replans > run.budget.max_replans
   end
 
+  @spec pending_artifact_budget_reached?(t()) :: boolean()
+  def pending_artifact_budget_reached?(%__MODULE__{budget: budget} = run) do
+    limit = value(budget, :max_pending_artifacts)
+
+    is_integer(limit) and limit >= 0 and length(run.pending_artifact_refs) >= limit
+  end
+
   @spec interrupt_requested?(t()) :: boolean()
   def interrupt_requested?(%__MODULE__{interrupt_state: %{status: :none}}), do: false
   def interrupt_requested?(%__MODULE__{}), do: true
@@ -149,7 +163,13 @@ defmodule NovelDomain.AgentRun do
     )
     |> Map.update(
       :budget,
-      %{max_steps: 5, max_tool_calls: 4, max_provider_calls: 3, max_replans: 1},
+      %{
+        max_steps: 5,
+        max_tool_calls: 4,
+        max_provider_calls: 3,
+        max_replans: 1,
+        max_pending_artifacts: 3
+      },
       &normalize_budget/1
     )
     |> Map.update(
@@ -163,10 +183,19 @@ defmodule NovelDomain.AgentRun do
   defp policy(%{policy: %AgentRunPolicy{} = policy}), do: {:ok, policy}
   defp policy(%{policy: policy}), do: AgentRunPolicy.new(policy)
 
-  defp policy(%{authority_scope: %{allowed_tools: tools}}),
-    do: AgentRunPolicy.new(allowed_tool_refs: tools)
+  defp policy(%{authority_scope: %{allowed_tools: tools}} = attrs),
+    do: AgentRunPolicy.new(policy_attrs(tools, attrs))
 
-  defp policy(_attrs), do: AgentRunPolicy.new(allowed_tool_refs: [])
+  defp policy(attrs), do: AgentRunPolicy.new(policy_attrs([], attrs))
+
+  defp policy_attrs(tools, attrs) do
+    budget = value(attrs, :budget) || %{}
+
+    [
+      allowed_tool_refs: tools,
+      max_pending_artifacts: non_negative_int(value(budget, :max_pending_artifacts), 3)
+    ]
+  end
 
   defp atomize_known(attrs) do
     for {key, value} <- attrs, into: %{} do
@@ -304,12 +333,19 @@ defmodule NovelDomain.AgentRun do
       max_steps: positive_int(value(budget, :max_steps), 5),
       max_tool_calls: non_negative_int(value(budget, :max_tool_calls), 4),
       max_provider_calls: non_negative_int(value(budget, :max_provider_calls), 3),
-      max_replans: non_negative_int(value(budget, :max_replans), 1)
+      max_replans: non_negative_int(value(budget, :max_replans), 1),
+      max_pending_artifacts: non_negative_int(value(budget, :max_pending_artifacts), 3)
     }
   end
 
   defp normalize_budget(_),
-    do: %{max_steps: 5, max_tool_calls: 4, max_provider_calls: 3, max_replans: 1}
+    do: %{
+      max_steps: 5,
+      max_tool_calls: 4,
+      max_provider_calls: 3,
+      max_replans: 1,
+      max_pending_artifacts: 3
+    }
 
   defp normalize_consumed(consumed) when is_map(consumed) do
     %{

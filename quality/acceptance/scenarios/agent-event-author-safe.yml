@@ -35,7 +35,8 @@ evidence:
 
 assertions:
   network:
-    - agent_event frames include run_started, exploration_observed, artifact_created and run_completed
+    - agent_event frames include run_started, plan_drafted, turn_result_ready, artifact_created and run_completed
+    - readonly roster observation is exposed through a read-only character_roster turn_result, not raw prompts or hidden metadata
     - event payloads are author visible and redacted
   ui:
     - activity panel renders summaries, not internal prompts

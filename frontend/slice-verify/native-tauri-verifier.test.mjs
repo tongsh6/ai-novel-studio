@@ -85,6 +85,14 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
+    expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
+    expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
+    expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
+    expect(nativeSliceIds).toContain("agentic-loop-budget-deviation-replan");
+    expect(nativeSliceIds).toContain("agentic-loop-tool-failure-replan");
+    expect(nativeSliceIds).toContain("agentic-loop-quality-deviation-replan");
+    expect(nativeSliceIds).toContain("agentic-loop-gate-deviation-replan");
+    expect(nativeSliceIds).toContain("agentic-loop-deterministic-gap-replan");
     expect(nativeSliceIds).toContain("agent-world-building-with-context");
     expect(nativeSliceIds).toContain("agent-world-building-style-rule-with-context");
     expect(nativeSliceIds).toContain("au08-reading-readonly-no-write");
@@ -153,7 +161,7 @@ describe("native Tauri slice verifier", () => {
         completed_step_count: 4,
         consumed_steps: 4,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 7,
+        consumed_provider_calls: 3,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         log_sync_turn_count: 0,
@@ -196,6 +204,526 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("agent-conversation-turn", missingStreamRecords)).toBeNull();
   });
 
+  it("requires no-replan evidence for the ADR-0023 direct path scenario", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        run_id: "run-direct",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agentic-loop-no-deviation-direct",
+        turn_id: "turn-direct",
+        parent_turn_id: "turn-direct",
+        final_turn_id: "turn-direct",
+        run_id: "run-direct",
+        plain_input_sent_from_real_workbench: true,
+        parent_fast_ack_before_final_turn_result: true,
+        run_mode: "bounded",
+        profile_ref: "conversation_turn_v1",
+        final_turn_broadcast: true,
+        no_tool_called: true,
+        no_auto_adoption: true,
+        no_production_write: true,
+        ui_agent_immediate_feedback_visible: true,
+        agent_stage_events_visible: true,
+        context_step_visible: true,
+        frame_step_visible: true,
+        strategy_step_visible: true,
+        finalize_step_visible: true,
+        context_result_visible: true,
+        frame_evaluation_visible: true,
+        strategy_decision_visible: true,
+        ui_context_step_visible: true,
+        ui_frame_step_visible: true,
+        ui_strategy_step_visible: true,
+        ui_finalize_step_visible: true,
+        ui_agentic_loop_plan_visible: true,
+        ui_agentic_loop_reasoning_visible: true,
+        ui_agentic_loop_result_visible: true,
+        initial_plan_step_count: 4,
+        initial_plan_only_context: false,
+        plan_revised_visible: false,
+        plan_revised_event_count: 0,
+        author_reasoning_delta_event_count: 3,
+        author_reasoning_delta_payload_key: "author_narrative_delta",
+        author_reasoning_delta_before_first_plan: true,
+        author_reasoning_second_delta_before_first_plan: true,
+        ui_author_reasoning_delta_visible: true,
+        ui_author_reasoning_cumulative_delta_visible: true,
+        ui_author_reasoning_stream_sample_count: 3,
+        ui_author_reasoning_stream_grew: true,
+        completed_step_count: 4,
+        consumed_steps: 4,
+        consumed_tool_calls: 0,
+        consumed_provider_calls: 3,
+        consumed_replans: 0,
+        ui_agent_panel_visible: true,
+        ui_agent_completed_visible: true,
+        log_sync_turn_count: 0,
+        log_toolbox_execute_count: 0,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agentic-loop-no-deviation-direct", records);
+    expect(evidence).toMatchObject({
+      slice_id: "agentic-loop-no-deviation-direct",
+      run_id: "run-direct",
+      consumed_replans: 0,
+      initial_plan_step_count: 4,
+      plan_revised_event_count: 0,
+    });
+    expect(
+      findSliceBehaviorEvidence("agentic-loop-no-deviation-direct", records, evidence),
+    ).toMatchObject({
+      slice_id: "agentic-loop-no-deviation-direct",
+      assertions: expect.arrayContaining([
+        "real_tauri_input_created_a_complete_model_drafted_plan",
+        "runtime_advanced_deterministic_steps_without_plan_revised",
+        "runtime_consumed_zero_replan_budget",
+      ]),
+    });
+
+    const replanRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            plan_revised_visible: true,
+            plan_revised_event_count: 1,
+            consumed_replans: 1,
+          }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("agentic-loop-no-deviation-direct", replanRecords)).toBeNull();
+  });
+
+  it("requires D6 plan revision evidence before completing an exhausted conversation plan", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        run_id: "run-d6",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agentic-loop-plan-replan-reasoning",
+        turn_id: "turn-d6",
+        parent_turn_id: "turn-d6",
+        final_turn_id: "turn-d6",
+        run_id: "run-d6",
+        plain_input_sent_from_real_workbench: true,
+        parent_fast_ack_before_final_turn_result: true,
+        run_mode: "bounded",
+        profile_ref: "conversation_turn_v1",
+        final_turn_broadcast: true,
+        no_tool_called: true,
+        no_auto_adoption: true,
+        no_production_write: true,
+        ui_agent_immediate_feedback_visible: true,
+        agent_stage_events_visible: true,
+        context_step_visible: true,
+        frame_step_visible: true,
+        strategy_step_visible: true,
+        finalize_step_visible: true,
+        context_result_visible: true,
+        strategy_decision_visible: true,
+        ui_agentic_loop_plan_visible: true,
+        ui_agentic_loop_reasoning_visible: true,
+        ui_agentic_loop_result_visible: true,
+        initial_plan_step_count: 1,
+        initial_plan_only_context: true,
+        plan_revised_visible: true,
+        plan_revised_event_count: 1,
+        plan_revised_target_tool_ref: "dialogue_frame",
+        plan_revised_plan_version: 2,
+        plan_revised_revision_reason: "计划步骤已走完，但本轮回应尚未生成。",
+        plan_revised_evaluation_plan_holds: false,
+        plan_revised_author_narrative_source_type: "provider_output",
+        revised_plan_has_frame_step: true,
+        revised_plan_has_strategy_step: true,
+        revised_plan_has_finalize_step: true,
+        completed_step_count: 4,
+        consumed_steps: 4,
+        consumed_tool_calls: 0,
+        consumed_provider_calls: 4,
+        consumed_replans: 1,
+        log_sync_turn_count: 0,
+        log_toolbox_execute_count: 0,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agentic-loop-plan-replan-reasoning", records);
+    expect(evidence).toMatchObject({
+      slice_id: "agentic-loop-plan-replan-reasoning",
+      run_id: "run-d6",
+      consumed_replans: 1,
+      plan_revised_plan_version: 2,
+    });
+    expect(
+      findSliceBehaviorEvidence("agentic-loop-plan-replan-reasoning", records, evidence),
+    ).toMatchObject({
+      slice_id: "agentic-loop-plan-replan-reasoning",
+      assertions: expect.arrayContaining([
+        "d6_plan_exhausted_signal_promoted_to_provider_sourced_plan_revised",
+        "runtime_consumed_one_replan_budget",
+      ]),
+    });
+
+    const missingReplanRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, plan_revised_visible: false }
+        : record,
+    );
+
+    expect(
+      findNativeSliceEvidence("agentic-loop-plan-replan-reasoning", missingReplanRecords),
+    ).toBeNull();
+  });
+
+  it("requires native tool-call telemetry for AgentPlan draft and revision", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-native-plan",
+        run_id: "run-native-plan",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-plan-native-tool-calling-protocol",
+        turn_id: "turn-native-plan",
+        parent_turn_id: "turn-native-plan",
+        final_turn_id: "turn-native-plan",
+        run_id: "run-native-plan",
+        plain_input_sent_from_real_workbench: true,
+        parent_fast_ack_before_final_turn_result: true,
+        run_mode: "bounded",
+        profile_ref: "conversation_turn_v1",
+        final_turn_broadcast: true,
+        no_tool_called: true,
+        no_auto_adoption: true,
+        no_production_write: true,
+        ui_agent_immediate_feedback_visible: true,
+        agent_stage_events_visible: true,
+        context_step_visible: true,
+        frame_step_visible: true,
+        strategy_step_visible: true,
+        finalize_step_visible: true,
+        ui_agentic_loop_plan_visible: true,
+        ui_agentic_loop_reasoning_visible: true,
+        ui_agentic_loop_result_visible: true,
+        initial_plan_step_count: 1,
+        initial_plan_only_context: true,
+        plan_revised_visible: true,
+        plan_revised_event_count: 1,
+        plan_revised_target_tool_ref: "dialogue_frame",
+        plan_revised_plan_version: 2,
+        plan_revised_evaluation_plan_holds: false,
+        plan_revised_author_narrative_source_type: "provider_output",
+        revised_plan_has_frame_step: true,
+        revised_plan_has_strategy_step: true,
+        revised_plan_has_finalize_step: true,
+        consumed_steps: 4,
+        consumed_tool_calls: 0,
+        consumed_provider_calls: 4,
+        consumed_replans: 1,
+        provider_activity_api_status: 200,
+        native_tool_call_final_output_count: 2,
+        native_tool_call_names: ["agent_plan_draft", "agent_plan_revision"],
+        native_tool_call_draft_projected: true,
+        native_tool_call_revision_projected: true,
+        native_tool_call_arguments_leaked: false,
+        log_sync_turn_count: 0,
+        log_toolbox_execute_count: 0,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-plan-native-tool-calling-protocol", records);
+    expect(evidence).toEqual({
+      slice_id: "agent-plan-native-tool-calling-protocol",
+      turn_id: "turn-native-plan",
+      turn_ids: ["turn-native-plan"],
+      parent_turn_id: "turn-native-plan",
+      final_turn_id: "turn-native-plan",
+      run_id: "run-native-plan",
+      profile_ref: "conversation_turn_v1",
+      consumed_steps: 4,
+      consumed_tool_calls: 0,
+      consumed_provider_calls: 4,
+      consumed_replans: 1,
+      native_tool_call_names: ["agent_plan_draft", "agent_plan_revision"],
+      native_tool_call_final_output_count: 2,
+      key_events: keyEventsForSlice("agent-plan-native-tool-calling-protocol"),
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-plan-native-tool-calling-protocol", records, evidence),
+    ).toMatchObject({
+      slice_id: "agent-plan-native-tool-calling-protocol",
+      behavior: "agent_plan_draft_and_revision_use_provider_native_tool_calls",
+      assertions: expect.arrayContaining([
+        "agent_plan_draft_structure_came_from_native_tool_call",
+        "agent_plan_revision_structure_came_from_native_tool_call",
+        "native_tool_call_arguments_not_exposed_in_developer_telemetry",
+      ]),
+    });
+
+    const missingRevisionRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            native_tool_call_names: ["agent_plan_draft"],
+            native_tool_call_revision_projected: false,
+          }
+        : record,
+    );
+
+    expect(
+      findNativeSliceEvidence("agent-plan-native-tool-calling-protocol", missingRevisionRecords),
+    ).toBeNull();
+
+    const leakedArgumentsRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, native_tool_call_arguments_leaked: true }
+        : record,
+    );
+
+    expect(
+      findNativeSliceEvidence("agent-plan-native-tool-calling-protocol", leakedArgumentsRecords),
+    ).toBeNull();
+  });
+
+  it("requires D5 budget deviation plan revision evidence before awaiting author", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-d5",
+        run_id: "run-d5",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agentic-loop-budget-deviation-replan",
+        turn_id: "turn-d5",
+        parent_turn_id: "turn-d5",
+        run_id: "run-d5",
+        plain_input_sent_from_real_workbench: true,
+        parent_fast_ack_before_terminal: true,
+        run_mode: "bounded",
+        profile_ref: "conversation_turn_v1",
+        plan_revised_visible: true,
+        plan_revised_event_count: 1,
+        plan_revised_reason_codes: [
+          "agent_plan_revised",
+          "conversation_plan_drafted",
+          "agentic_deviation",
+          "agentic_deviation:D5",
+        ],
+        plan_revised_target_tool_ref: "context_assemble",
+        plan_revised_plan_version: 2,
+        plan_revised_revision_reason: "D5 偏离信号：剩余 step 预算不足以走完当前计划。",
+        plan_revised_evaluation_plan_holds: false,
+        plan_revised_author_narrative_source_type: "provider_output",
+        context_result_visible: true,
+        awaiting_event_type: "awaiting_author",
+        terminal_status: "awaiting_author",
+        consumed_steps: 1,
+        consumed_tool_calls: 0,
+        consumed_provider_calls: 2,
+        consumed_replans: 1,
+        final_turn_result_arrived: false,
+        log_sync_turn_count: 0,
+        log_toolbox_execute_count: 0,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agentic-loop-budget-deviation-replan", records);
+    expect(evidence).toEqual({
+      slice_id: "agentic-loop-budget-deviation-replan",
+      turn_id: "turn-d5",
+      turn_ids: ["turn-d5"],
+      parent_turn_id: "turn-d5",
+      run_id: "run-d5",
+      profile_ref: "conversation_turn_v1",
+      consumed_steps: 1,
+      consumed_tool_calls: 0,
+      consumed_provider_calls: 2,
+      consumed_replans: 1,
+      plan_revised_plan_version: 2,
+      plan_revised_revision_reason: "D5 偏离信号：剩余 step 预算不足以走完当前计划。",
+      key_events: keyEventsForSlice("agentic-loop-budget-deviation-replan"),
+    });
+    expect(
+      findSliceBehaviorEvidence("agentic-loop-budget-deviation-replan", records, evidence),
+    ).toMatchObject({
+      slice_id: "agentic-loop-budget-deviation-replan",
+      behavior: "budget_shortfall_triggers_provider_sourced_replan_before_awaiting_author",
+      assertions: expect.arrayContaining([
+        "d5_budget_shortfall_promoted_to_provider_sourced_plan_revised",
+        "runtime_consumed_one_replan_budget",
+        "run_waited_for_author_without_final_turn_or_tool_execution",
+      ]),
+    });
+
+    const wrongProviderBudgetRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, consumed_provider_calls: 3 }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agentic-loop-budget-deviation-replan", wrongProviderBudgetRecords),
+    ).toBeNull();
+
+    const missingD5Records = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, plan_revised_reason_codes: ["agent_plan_revised"] }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agentic-loop-budget-deviation-replan", missingD5Records),
+    ).toBeNull();
+  });
+
+  it.each([
+    [
+      "agentic-loop-tool-failure-replan",
+      {
+        signal: "D1",
+        reason: "D1 偏离信号：工具 prose_writing 执行失败，先修订计划再决定后续动作。",
+        steps: 2,
+        toolCalls: 1,
+        providerCalls: 5,
+        behavior: "tool_failure_triggers_provider_sourced_replan_before_awaiting_author",
+      },
+    ],
+    [
+      "agentic-loop-quality-deviation-replan",
+      {
+        signal: "D2",
+        reason: "D2 偏离信号：质量复核要求行动：confirm",
+        steps: 2,
+        toolCalls: 1,
+        providerCalls: 5,
+        artifactEvents: 1,
+        allowCandidateTurnResult: true,
+        behavior: "quality_action_triggers_provider_sourced_replan_before_awaiting_author",
+      },
+    ],
+    [
+      "agentic-loop-gate-deviation-replan",
+      {
+        signal: "D4",
+        reason: "D4 偏离信号：Orchestrator 未允许执行 prose_writing：require_confirmation。",
+        steps: 2,
+        toolCalls: 0,
+        providerCalls: 3,
+        gateDecisionType: "require_confirmation",
+        gateFirstBlockingGate: "authority",
+        behavior: "gate_deny_triggers_provider_sourced_replan_without_writer_dispatch",
+      },
+    ],
+    [
+      "agentic-loop-deterministic-gap-replan",
+      {
+        signal: "D7",
+        reason: "D7 偏离信号：写作坐标存在确定性缺口，当前步骤无法继续生成正文。",
+        steps: 2,
+        toolCalls: 0,
+        providerCalls: 3,
+        behavior: "deterministic_gap_triggers_provider_sourced_replan_without_writer_dispatch",
+      },
+    ],
+  ])("requires %s prose deviation replan evidence", (sliceId, expected) => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: `turn-${expected.signal}`,
+        run_id: `run-${expected.signal}`,
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: sliceId,
+        turn_id: `turn-${expected.signal}`,
+        parent_turn_id: `turn-${expected.signal}`,
+        run_id: `run-${expected.signal}`,
+        plain_input_sent_from_real_workbench: true,
+        parent_fast_ack_before_terminal: true,
+        run_mode: "bounded",
+        profile_ref: "prose_drafting_with_quality_v1",
+        plan_revised_visible: true,
+        plan_revised_event_count: 1,
+        plan_revised_reason_codes: [
+          "agent_plan_revised",
+          "agentic_deviation",
+          `agentic_deviation:${expected.signal}`,
+        ],
+        plan_revised_plan_version: 2,
+        plan_revised_revision_reason: expected.reason,
+        plan_revised_evaluation_plan_holds: false,
+        plan_revised_author_narrative_source_type: "provider_output",
+        awaiting_event_type: "awaiting_author",
+        terminal_status: "awaiting_author",
+        consumed_steps: expected.steps,
+        consumed_tool_calls: expected.toolCalls,
+        consumed_provider_calls: expected.providerCalls,
+        consumed_replans: 1,
+        final_turn_result_arrived: expected.allowCandidateTurnResult === true,
+        final_turn_result_agent_run_status:
+          expected.allowCandidateTurnResult === true ? "awaiting_author" : null,
+        final_turn_result_pending_artifact_count:
+          expected.allowCandidateTurnResult === true ? 1 : 0,
+        final_turn_result_quality_policy_action:
+          expected.allowCandidateTurnResult === true ? "confirm" : null,
+        gate_decision_type: expected.gateDecisionType ?? null,
+        gate_first_blocking_gate: expected.gateFirstBlockingGate ?? null,
+        artifact_event_count: expected.artifactEvents ?? 0,
+        tool_started_event_count: 0,
+        log_sync_turn_count: 0,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence(sliceId, records);
+    expect(evidence).toMatchObject({
+      slice_id: sliceId,
+      turn_id: `turn-${expected.signal}`,
+      turn_ids: [`turn-${expected.signal}`],
+      parent_turn_id: `turn-${expected.signal}`,
+      run_id: `run-${expected.signal}`,
+      profile_ref: "prose_drafting_with_quality_v1",
+      signal: expected.signal,
+      consumed_steps: expected.steps,
+      consumed_tool_calls: expected.toolCalls,
+      consumed_provider_calls: expected.providerCalls,
+      consumed_replans: 1,
+      plan_revised_plan_version: 2,
+      plan_revised_revision_reason: expected.reason,
+      key_events: keyEventsForSlice(sliceId),
+    });
+    const turnResultAssertion =
+      expected.allowCandidateTurnResult === true
+        ? "candidate_turn_result_exposed_pending_artifact_and_waited_for_author"
+        : "run_waited_for_author_without_final_turn_result";
+
+    expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toMatchObject({
+      slice_id: sliceId,
+      behavior: expected.behavior,
+      assertions: expect.arrayContaining([
+        "provider_sourced_plan_revised_was_visible",
+        "runtime_consumed_one_replan_budget",
+        turnResultAssertion,
+      ]),
+    });
+
+    const missingSignalRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, plan_revised_reason_codes: ["agent_plan_revised"] }
+        : record,
+    );
+    expect(findNativeSliceEvidence(sliceId, missingSignalRecords)).toBeNull();
+  });
+
   it("accepts agent steer replan evidence from the active-run main input", () => {
     const records = [
       {
@@ -225,6 +753,7 @@ describe("native Tauri slice verifier", () => {
         plan_revised_event_type: "plan_revised",
         plan_revised_author_narrative_source_type: "provider_output",
         plan_revised_evaluation_plan_holds: false,
+        consumed_replans: 1,
         adjusted_goal_version: 2,
       },
     ];
@@ -236,6 +765,7 @@ describe("native Tauri slice verifier", () => {
       run_id: "run-steer",
       command_source: "main_input",
       adjusted_goal_version: 2,
+      consumed_replans: 1,
     });
     expect(findSliceBehaviorEvidence("agent-steer-replan", records, evidence)).toMatchObject({
       behavior:
@@ -247,6 +777,7 @@ describe("native Tauri slice verifier", () => {
         "active_agent_run_work_state_remained_visible_after_main_input_steer",
         "active_agent_run_terminal_work_state_stayed_visible_after_main_input_steer",
         "main_chat_input_text_was_sent_as_agent_command_steer",
+        "steer_replan_consumed_one_replan_budget",
       ]),
     });
   });
@@ -280,11 +811,49 @@ describe("native Tauri slice verifier", () => {
         plan_revised_event_type: "plan_revised",
         plan_revised_author_narrative_source_type: "provider_output",
         plan_revised_evaluation_plan_holds: false,
+        consumed_replans: 1,
         adjusted_goal_version: 2,
       },
     ];
 
     expect(findNativeSliceEvidence("agent-natural-language-steer", records)).toBeNull();
+  });
+
+  it("rejects agent steer replan evidence without replan budget consumption", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-steer-replan",
+        parent_turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+        command: "steer",
+        command_sent_from_main_input: true,
+        no_second_user_message_for_steer: true,
+        main_input_steer_placeholder_visible: true,
+        active_run_work_state_visible_after_steer: true,
+        active_run_terminal_work_state_visible_after_steer: true,
+        terminal_status: "completed",
+        main_input_steer_text_visible_after_submit: true,
+        command_ack_received: true,
+        command_target_bound_to_active_run: true,
+        no_cross_run_command: true,
+        plan_adjusted_event_type: "plan_adjusted",
+        plan_revised_event_type: "plan_revised",
+        plan_revised_author_narrative_source_type: "provider_output",
+        plan_revised_evaluation_plan_holds: false,
+        consumed_replans: 0,
+        adjusted_goal_version: 2,
+      },
+    ];
+
+    expect(findNativeSliceEvidence("agent-steer-replan", records)).toBeNull();
   });
 
   it("rejects agent steer replan evidence without the active-run main input placeholder", () => {
@@ -311,6 +880,7 @@ describe("native Tauri slice verifier", () => {
         plan_revised_event_type: "plan_revised",
         plan_revised_author_narrative_source_type: "provider_output",
         plan_revised_evaluation_plan_holds: false,
+        consumed_replans: 1,
         adjusted_goal_version: 2,
       },
     ];
@@ -377,7 +947,7 @@ describe("native Tauri slice verifier", () => {
         completed_step_count: 2,
         consumed_steps: 2,
         consumed_tool_calls: 1,
-        consumed_provider_calls: 5,
+        consumed_provider_calls: 3,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         ui_world_building_draft_visible: true,
@@ -408,7 +978,7 @@ describe("native Tauri slice verifier", () => {
       world_building_nonce: "WORLD123",
       consumed_steps: 2,
       consumed_tool_calls: 1,
-      consumed_provider_calls: 5,
+      consumed_provider_calls: 3,
       ui_profile_selection_visible: true,
       ui_profile_selection_terms_visible: true,
       ui_profile_selection_path_visible: true,
@@ -421,8 +991,8 @@ describe("native Tauri slice verifier", () => {
       slice_id: "agent-world-building-with-context",
       behavior: "bounded_agent_run_world_building_profile_generates_tentative_foreshadowing_seed",
       assertions: expect.arrayContaining([
-        "world_building_profile_selection_causality_was_visible_to_author",
-        "world_building_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+        "world_building_profile_selection_causality_was_proven_by_state_transition",
+        "world_building_tool_step_followed_model_drafted_plan_and_reentered_orchestrator_gate",
         "world_building_tool_produced_tentative_foreshadowing_seed",
         "world_building_artifact_remained_unadopted_without_production_write",
       ]),
@@ -530,7 +1100,7 @@ describe("native Tauri slice verifier", () => {
         provider_run_refs: ["prun-planner", "prun-conversation"],
         provider_call_refs: ["pcall-planner", "pcall-conversation"],
         provider_purposes: ["author_reasoning", "conversation"],
-        consumed_provider_calls: 7,
+        consumed_provider_calls: 3,
       },
     ];
 
@@ -633,7 +1203,7 @@ describe("native Tauri slice verifier", () => {
         restored_ui_provider_run_replay_boundary_visible: true,
         restored_ui_provider_run_replay_raw_content_leaked: false,
         provider_run_activity_api_status: 200,
-        provider_run_activity_api_count: 6,
+        provider_run_activity_api_count: 3,
         provider_run_activity_api_refs: ["prun-planner", "prun-conversation"],
         provider_run_activity_api_call_refs: ["pcall-planner", "pcall-conversation"],
         provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
@@ -649,7 +1219,7 @@ describe("native Tauri slice verifier", () => {
       turn_id: "turn-provider-activity",
       run_id: "run-provider-activity",
       profile_ref: "conversation_turn_v1",
-      provider_run_activity_api_count: 6,
+      provider_run_activity_api_count: 3,
       provider_run_activity_api_refs: ["prun-planner", "prun-conversation"],
       provider_run_activity_api_call_refs: ["pcall-planner", "pcall-conversation"],
       provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
@@ -663,7 +1233,7 @@ describe("native Tauri slice verifier", () => {
     ).toMatchObject({
       slice_id: "agent-provider-execution-activity-restored",
       behavior: "provider_execution_activity_lazy_loaded_from_persisted_agent_run_events",
-      provider_run_activity_api_count: 6,
+      provider_run_activity_api_count: 3,
       restored_ui_provider_run_replay_visible: true,
       assertions: expect.arrayContaining([
         "session_restore_kept_agent_run_activity_summary_only",
@@ -706,7 +1276,7 @@ describe("native Tauri slice verifier", () => {
         older_agent_run_activity_api_status: 200,
         older_agent_run_activity_api_run_count: 1,
         older_agent_run_activity_api_provider_progress_event_count: 4,
-        older_provider_run_activity_api_count: 6,
+        older_provider_run_activity_api_count: 3,
         older_provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
         older_agent_run_activity_api_raw_content_leaked: false,
         reload_resume_transcript_count: 30,
@@ -734,7 +1304,7 @@ describe("native Tauri slice verifier", () => {
       older_transcript_api_count: 2,
       older_assistant_turn_id: "turn-oldest",
       older_agent_run_activity_api_provider_progress_event_count: 4,
-      older_provider_run_activity_api_count: 6,
+      older_provider_run_activity_api_count: 3,
       provider_recalled_during_load_older: false,
       older_ui_activity_loaded_after_expand: true,
       provider_recalled_during_older_activity_expand: false,

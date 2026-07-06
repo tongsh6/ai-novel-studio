@@ -29,8 +29,8 @@ user_flow:
   - verify: author-facing UI shows the 46§9 phase strip, plan, reasoning stream, and result before developer details are expanded
   - expand: 工作详情
   - verify: provider execution telemetry is visible only after the user opens the developer detail row
-  - wait_for: author-safe AgentRun context/frame/strategy/finalize step events
-  - wait_for: model-sourced context result, frame evaluation, and no-tool strategy decision
+  - wait_for: one author-safe AgentPlan draft containing context/frame/strategy/finalize plan_steps
+  - wait_for: context result, no-tool strategy decision, and turn_result_ready completion event
   - wait_for: final TurnResult for the same run_id
   - verify: profile_ref is conversation_turn_v1 and no tool/write/adoption happened
 
@@ -53,9 +53,9 @@ assertions:
     - parent user_message receives bounded run_id before final TurnResult
     - provider_progress author events carry at least two author_narrative_delta payloads before the first plan_drafted card for the same run_id
     - real UI reasoning text grows from the first delta to the cumulative provider delta prefix, observed from the external driver
-    - agent_event includes next-step-selected plan_drafted for context, frame, strategy, and finalize targets for the same run_id
-    - agent_event includes goal_understood, evaluation_made, and gate_decided for context, frame, and no-tool strategy without app-authored observation narrative
-    - agent_run_state completed budget reports steps=4, tool_calls=0, provider_calls=7, including the profile routing model call
+    - agent_event includes one model plan_drafted payload containing context, frame, strategy, and finalize plan_steps for the same run_id
+    - agent_event includes goal_understood, gate_decided, and turn_result_ready for context, no-tool strategy, and final response without app-authored observation narrative
+    - agent_run_state completed budget reports steps=4, tool_calls=0, provider_calls=3, including profile routing, AgentPlan draft, and conversation frame model calls
     - final TurnResult carries agent_run.run_id and profile_ref=conversation_turn_v1
   data:
     - channel logs bounded run ack and never logs sync_turn fallback

@@ -1,0 +1,61 @@
+id: agent-plan-native-tool-calling-protocol
+title: ADR-0023 CP4 AgentPlan 原生 tool calling 协议
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-plan-native-tool-calling-protocol --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - agent-plan-draft-structure-comes-from-native-tool-call
+  - agent-plan-revision-structure-comes-from-native-tool-call
+  - native-tool-call-arguments-are-not-exposed-to-ui-or-activity-telemetry
+  - revised-plan-remains-execution-plan-not-tool-approval
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: plain conversation input containing D6 fixture marker "UA01D6REPLAN"
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: model-sourced initial AgentPlan containing only context_assemble
+  - wait_for: provider-sourced plan_revised event with plan_version=2 and evaluation_of_last.plan_holds=false
+  - query: scoped AgentRun activity API for the same work/session/turn
+  - verify: provider final_output summaries expose native tool call names agent_plan_draft and agent_plan_revision
+  - verify: final completed run records steps=4, tool_calls=0, provider_calls=4, replans=1
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-plan-native-tool-calling-protocol-tauri
+
+assertions:
+  ui:
+    - Assistant work-state skeleton appears immediately after the author sends the message
+    - AgentRun panel reaches completed state
+    - AgentRun panel renders the initial plan, revised plan, reasoning, and final result
+  network:
+    - parent user_message receives bounded run_id before final TurnResult
+    - initial plan_drafted payload contains context_assemble only
+    - plan_revised payload is source-bound to provider_output and targets dialogue_frame
+    - scoped AgentRun activity API returns provider final_output telemetry for the same run
+    - provider final_output telemetry includes native_tool_call_count and native_tool_call_names
+    - final agent_run_state records steps=4, tool_calls=0, provider_calls=4, replans=1
+  data:
+    - native_tool_call_names include agent_plan_draft and agent_plan_revision
+    - native tool call arguments, plan steps, and target_tool_ref are not exposed in developer telemetry
+    - channel logs bounded run ack and never logs sync_turn fallback
+    - truthfulness reports tool_called=false, artifact_adopted=false, production_write_performed=false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

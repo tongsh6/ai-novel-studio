@@ -22,7 +22,7 @@ user_flow:
   - open: real Tauri workbench
   - send: chapter outline planning request "请基于当前作品规划十二章章节大纲。"
   - wait_for: bounded AgentRun fast ack
-  - wait_for: author-safe context observation, next-step planner decision, plot_outline tool step, and completion decision events
+  - wait_for: one model-drafted AgentPlan, author-safe context observation, mechanical plot_outline step, and completion decision events
   - wait_for: completed agent_run_state
   - verify: final TurnResult is plot_outline with tentative outline_draft
 
@@ -36,20 +36,18 @@ evidence:
 
 assertions:
   ui:
-    - AgentRun panel reaches completed state
-    - AgentRun panel shows context observation, next-step planning/gate, outline generation, and completion decision summaries
-    - execution brief path shows outline-specific cause labels: planning chapter outline and generating outline candidate
     - outline draft card remains visible as a tentative artifact
+    - outline draft exposes author actions to save, discard, or modify before saving
   network:
     - parent user_message receives bounded run_id before final TurnResult
-    - agent_event includes next-step-selected plan_drafted for context and plot_outline execution, plus evaluation_made goal_satisfied completion decision
-    - agent_event includes evaluation_made, gate_decided, tool_started, tool_completed, and artifact observation
+    - agent_event includes one author-visible plan_drafted plan containing context and plot_outline steps
+    - agent_event includes goal_understood, gate_decided, tool_started, tool_completed, artifact_created, and run_completed
     - final TurnResult carries agent_run.run_id and tool_result.tool_name=plot_outline
     - pending artifact is outline_draft and remains tentative
   data:
     - parent user_message starts bounded AgentRun without sync_turn fallback
     - plot_outline step is allow_tool before toolbox execution
-    - consumed_budget reports steps=2, tool_calls=1, provider_calls=5, including the profile routing model call
+    - consumed_budget reports steps=2, tool_calls=1, provider_calls=3, including profile routing, plan draft, and writer model calls
     - no adoption or production write occurs before author action
 
 anti_hooks:

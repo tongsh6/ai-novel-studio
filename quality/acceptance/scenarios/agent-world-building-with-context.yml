@@ -25,7 +25,7 @@ user_flow:
   - open: real Tauri workbench
   - send: world-building foreshadowing request "请设计一个跨三卷回收的伏笔线索。"
   - wait_for: bounded AgentRun fast ack
-  - wait_for: author-safe context observation, next-step planner decision, world_building tool step, and completion decision events
+  - wait_for: model-drafted AgentPlan containing context_assemble and world_building, context assembly, gated world_building tool step, and completion event
   - wait_for: completed agent_run_state
   - verify: final TurnResult is world_building with tentative foreshadowing_seed
 
@@ -40,21 +40,20 @@ evidence:
 assertions:
   ui:
     - AgentRun panel reaches completed state
-    - AgentRun execution brief shows author intent understanding and world-building profile selection causality
-    - AgentRun panel shows context observation, next-step planning/gate, world building, and completion decision summaries
-    - execution brief path shows world-building-specific cause labels: entering the world-building workflow, building world settings, and generating setting candidate
+    - AgentRun work details show model execution flow and model-drafted plan text
+    - AgentRun panel shows model plan drafting, context assembly, gate, world building, and completion summaries through author-safe stages
     - world building draft card remains visible as a tentative artifact
   network:
     - parent user_message receives bounded run_id before final TurnResult
-    - profile routing emits plan_drafted decision and exploration_observed route observation for world_building_with_context_v1
-    - agent_event includes next-step-selected plan_drafted for context and world_building execution, plus evaluation_made goal_satisfied completion decision
-    - agent_event includes evaluation_made, gate_decided, tool_started, tool_completed, and artifact observation
+    - profile routing transitions the same run from profile_routing_v1 to world_building_with_context_v1 before target plan execution
+    - agent_event includes one model-drafted plan_drafted event whose plan_steps include context_assemble and world_building
+    - agent_event includes evaluation_made, gate_decided, tool_started, tool_completed, artifact_created, and run_completed
     - final TurnResult carries agent_run.run_id and tool_result.tool_name=world_building
     - pending artifact is foreshadowing_seed and remains tentative
   data:
     - parent user_message starts bounded AgentRun without sync_turn fallback
     - world_building step is allow_tool before toolbox execution
-    - consumed_budget reports steps=2, tool_calls=1, provider_calls=5, including the profile routing model call
+    - consumed_budget reports steps=2, tool_calls=1, provider_calls=3, including profile routing, AgentPlan draft, and writer calls
     - no adoption or production write occurs before author action
 
 anti_hooks:

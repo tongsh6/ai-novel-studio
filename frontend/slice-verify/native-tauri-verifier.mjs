@@ -150,6 +150,14 @@ export const nativeSliceIds = [
   "p1-prose-quality-adoption-boundary",
   "agent-prose-drafting-with-quality",
   "agent-conversation-turn",
+  "agentic-loop-plan-replan-reasoning",
+  "agentic-loop-no-deviation-direct",
+  "agent-plan-native-tool-calling-protocol",
+  "agentic-loop-budget-deviation-replan",
+  "agentic-loop-tool-failure-replan",
+  "agentic-loop-quality-deviation-replan",
+  "agentic-loop-gate-deviation-replan",
+  "agentic-loop-deterministic-gap-replan",
   "agent-plot-outline-with-context",
   "agent-world-building-with-context",
   "agent-world-building-style-rule-with-context",
@@ -436,6 +444,67 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "agent-conversation-turn": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agentic-loop-plan-replan-reasoning": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agentic-loop-no-deviation-direct": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-plan-native-tool-calling-protocol": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agentic-loop-budget-deviation-replan": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agentic-loop-tool-failure-replan": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agentic-loop-quality-deviation-replan": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agentic-loop-gate-deviation-replan": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agentic-loop-deterministic-gap-replan": [
     "channel.user_message.start",
     "provider_gateway.complete.start",
     "provider_gateway.complete.done",
@@ -1813,6 +1882,26 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAgentConversationTurnEvidence(records);
   }
 
+  if (sliceId === "agentic-loop-plan-replan-reasoning") {
+    return findAgenticLoopPlanReplanReasoningEvidence(records);
+  }
+
+  if (sliceId === "agentic-loop-no-deviation-direct") {
+    return findAgenticLoopNoDeviationDirectEvidence(records);
+  }
+
+  if (sliceId === "agent-plan-native-tool-calling-protocol") {
+    return findAgentPlanNativeToolCallingProtocolEvidence(records);
+  }
+
+  if (sliceId === "agentic-loop-budget-deviation-replan") {
+    return findAgenticLoopBudgetDeviationReplanEvidence(records);
+  }
+
+  if (isAgenticLoopProseDeviationSlice(sliceId)) {
+    return findAgenticLoopProseDeviationEvidence(records, sliceId);
+  }
+
   if (sliceId === "agent-plot-outline-with-context") {
     return findAgentPlotOutlineWithContextEvidence(records);
   }
@@ -2481,6 +2570,32 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return agentConversationTurnBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "agentic-loop-plan-replan-reasoning") {
+    return agenticLoopPlanReplanReasoningBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "agentic-loop-no-deviation-direct") {
+    return agenticLoopNoDeviationDirectBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "agent-plan-native-tool-calling-protocol") {
+    return agentPlanNativeToolCallingProtocolBehavior(turnIds, turnRecords, records, evidence);
+  }
+
+  if (sliceId === "agentic-loop-budget-deviation-replan") {
+    return agenticLoopBudgetDeviationReplanBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
+  }
+
+  if (isAgenticLoopProseDeviationSlice(sliceId)) {
+    return agenticLoopProseDeviationBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
   if (sliceId === "agent-plot-outline-with-context") {
     return agentPlotOutlineWithContextBehavior(turnIds, turnRecords, records, evidence, options);
   }
@@ -3108,10 +3223,16 @@ function findP1ProseRevisionCandidateEvidence(
       record.revision_run_mode === "bounded" &&
       record.revision_profile_ref === "prose_revision_from_findings_v1" &&
       record.revision_parent_fast_ack_before_final_turn_result === true &&
+      record.revision_plan_drafted_visible === true &&
+      record.revision_plan_drafted_target_tool_ref === "revision_prepare" &&
+      Number(record.revision_plan_drafted_step_count ?? 0) === 4 &&
+      Array.isArray(record.revision_plan_drafted_targets) &&
+      record.revision_plan_drafted_targets.join(",") ===
+        "revision_prepare,revision_plan,prose_writing,revision_finalize" &&
       record.revision_agent_stage_events_visible === true &&
       Number(record.revision_consumed_steps ?? 0) === 4 &&
       Number(record.revision_consumed_tool_calls ?? 0) === 1 &&
-      Number(record.revision_consumed_provider_calls ?? 0) === 6 &&
+      Number(record.revision_consumed_provider_calls ?? 0) === 2 &&
       record.adopt_event_sent === false &&
       record.chapter_title === targetChapterTitle,
   );
@@ -3182,6 +3303,9 @@ function findP1ProseRevisionCandidateEvidence(
     revision_run_id: uiState.revision_run_id ?? null,
     revision_run_mode: uiState.revision_run_mode,
     revision_profile_ref: uiState.revision_profile_ref,
+    revision_plan_drafted_target_tool_ref: uiState.revision_plan_drafted_target_tool_ref,
+    revision_plan_drafted_step_count: Number(uiState.revision_plan_drafted_step_count ?? 0),
+    revision_plan_drafted_targets: uiState.revision_plan_drafted_targets ?? [],
     revision_consumed_steps: Number(uiState.revision_consumed_steps ?? 0),
     revision_consumed_tool_calls: Number(uiState.revision_consumed_tool_calls ?? 0),
     revision_consumed_provider_calls: Number(uiState.revision_consumed_provider_calls ?? 0),
@@ -3252,10 +3376,20 @@ function p1ProseRevisionCandidateBehavior(
   if (uiState.revision_run_mode !== "bounded") return null;
   if (uiState.revision_profile_ref !== "prose_revision_from_findings_v1") return null;
   if (uiState.revision_parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.revision_plan_drafted_visible !== true) return null;
+  if (uiState.revision_plan_drafted_target_tool_ref !== "revision_prepare") return null;
+  if (Number(uiState.revision_plan_drafted_step_count ?? 0) !== 4) return null;
+  if (
+    !Array.isArray(uiState.revision_plan_drafted_targets) ||
+    uiState.revision_plan_drafted_targets.join(",") !==
+      "revision_prepare,revision_plan,prose_writing,revision_finalize"
+  ) {
+    return null;
+  }
   if (uiState.revision_agent_stage_events_visible !== true) return null;
   if (Number(uiState.revision_consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.revision_consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 6) return null;
+  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 2) return null;
   if (
     requestedSliceId === "agent-replay-no-provider" &&
     (evidence.replay_policy?.recall_provider !== false ||
@@ -3275,7 +3409,7 @@ function p1ProseRevisionCandidateBehavior(
       ? [
           "revise_from_findings_author_action_was_sent_from_real_page",
           "revision_author_action_fast_acked_with_bounded_agent_run",
-          "revision_agent_run_exposed_source_plan_tool_and_finalization_steps",
+          "revision_agent_run_followed_model_drafted_plan_with_mechanical_cursor",
           "revision_path_used_real_orchestrator_decision_ref",
           "revision_path_created_tool_request_ref_before_toolbox_execution",
           "sibling_tentative_revision_draft_generated_with_provenance_to_original",
@@ -3296,7 +3430,7 @@ function p1ProseRevisionCandidateBehavior(
             "quality_review_card_and_revise_action_visible_on_real_page",
             "author_clicked_revise_from_findings_on_real_page",
             "revision_author_action_fast_acked_with_bounded_agent_run",
-            "revision_agent_run_exposed_source_plan_tool_and_finalization_steps",
+            "revision_agent_run_followed_model_drafted_plan_with_mechanical_cursor",
             "sibling_tentative_revision_draft_generated_with_provenance_to_original",
             "revision_draft_body_differs_from_original",
             "revision_draft_not_auto_adopted",
@@ -3318,6 +3452,9 @@ function p1ProseRevisionCandidateBehavior(
     revision_run_id: evidence.revision_run_id,
     revision_run_mode: evidence.revision_run_mode,
     revision_profile_ref: evidence.revision_profile_ref,
+    revision_plan_drafted_target_tool_ref: evidence.revision_plan_drafted_target_tool_ref,
+    revision_plan_drafted_step_count: evidence.revision_plan_drafted_step_count,
+    revision_plan_drafted_targets: evidence.revision_plan_drafted_targets,
     revision_consumed_steps: evidence.revision_consumed_steps,
     revision_consumed_tool_calls: evidence.revision_consumed_tool_calls,
     revision_consumed_provider_calls: evidence.revision_consumed_provider_calls,
@@ -3685,6 +3822,7 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       record.slice_id === sliceId &&
       record.direct_prose_request_sent_from_real_workbench === true &&
       record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_status === "completed" &&
       record.run_mode === "bounded" &&
       record.profile_ref === "prose_drafting_with_quality_v1" &&
       record.artifact_event_visible === true &&
@@ -3711,9 +3849,10 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       record.ui_completion_decision_visible === true &&
       record.ui_provider_execution_details_visible === true &&
       Number(record.completed_step_count ?? 0) === 2 &&
+      Number(record.pending_prose_fragment_count ?? 0) === 1 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 7 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.quality_review_status === "completed" &&
       Number(record.quality_findings_count ?? -1) >= 0 &&
       record.finding_summary_displayed === true &&
@@ -3723,6 +3862,7 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       record.ui_prose_draft_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
+      Number(record.prose_tool_dispatch_count ?? 0) === 1 &&
       record.log_prose_tool_done === true,
   );
   if (!uiState) return null;
@@ -3783,6 +3923,8 @@ function findAgentProseDraftingWithQualityEvidence(records) {
     profile_ref: uiState.profile_ref,
     pending_artifact_id: artifactId,
     pending_artifact_type: uiState.pending_artifact_type,
+    pending_prose_fragment_count: Number(uiState.pending_prose_fragment_count ?? 0),
+    prose_tool_dispatch_count: Number(uiState.prose_tool_dispatch_count ?? 0),
     quality_findings_count: Number(uiState.quality_findings_count ?? 0),
     consumed_steps: Number(uiState.consumed_steps ?? 0),
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
@@ -3825,6 +3967,7 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
   );
   if (!uiState) return null;
   if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
+  if (uiState.run_status !== "completed") return null;
   if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
   if (uiState.final_tool_name !== "prose_writing") return null;
   if (uiState.pending_artifact_type !== "prose_fragment") return null;
@@ -3844,13 +3987,15 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
   if (uiState.ui_prose_step_visible !== true) return null;
   if (uiState.ui_completion_decision_visible !== true) return null;
   if (uiState.ui_provider_execution_details_visible !== true) return null;
+  if (Number(uiState.pending_prose_fragment_count ?? 0) !== 1) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (uiState.quality_review_status !== "completed") return null;
   if (Number(uiState.quality_findings_count ?? -1) < 0) return null;
   if (uiState.finding_in_draft_body !== false) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
+  if (Number(uiState.prose_tool_dispatch_count ?? 0) !== 1) return null;
 
   return {
     slice_id: "agent-prose-drafting-with-quality",
@@ -3863,6 +4008,8 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
     profile_ref: evidence.profile_ref,
     pending_artifact_id: evidence.pending_artifact_id,
     pending_artifact_type: evidence.pending_artifact_type,
+    pending_prose_fragment_count: evidence.pending_prose_fragment_count,
+    prose_tool_dispatch_count: evidence.prose_tool_dispatch_count,
     consumed_steps: evidence.consumed_steps,
     consumed_tool_calls: evidence.consumed_tool_calls,
     consumed_provider_calls: evidence.consumed_provider_calls,
@@ -3872,12 +4019,14 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
       "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
       "prose_drafting_with_quality_profile_was_selected",
       "prose_context_assembly_was_visible_inside_agent_run",
-      "prose_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      "prose_tool_step_came_from_model_drafted_agent_plan_and_reentered_orchestrator_gate",
       "prose_generation_quality_and_completion_decision_were_visible",
       "prose_writing_tool_produced_tentative_prose_fragment",
+      "bounded_run_completed_with_exactly_one_pending_prose_fragment",
+      "prose_writing_dispatched_exactly_once",
       "existing_quality_review_completed_without_forcing_findings",
       "quality_finding_did_not_become_story_fact_or_auto_adopt_the_draft",
-      "planner_writer_and_evaluator_provider_calls_were_visible_in_usage_ui",
+      "plan_draft_writer_and_evaluator_provider_calls_were_visible_in_usage_ui",
     ],
   };
 }
@@ -3925,7 +4074,7 @@ function findAgentConversationTurnEvidence(records) {
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 7 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -3937,6 +4086,7 @@ function findAgentConversationTurnEvidence(records) {
   const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
   const parentTurnId = String(uiState.parent_turn_id ?? "");
   if (!runId || !finalTurnId) return null;
+  const turnIds = [...new Set([parentTurnId, finalTurnId].filter(Boolean))];
 
   const boundedAck = records.some(
     (record) =>
@@ -4008,7 +4158,7 @@ function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence,
   if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 7) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
 
@@ -4045,6 +4195,792 @@ function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence,
   };
 }
 
+function findAgenticLoopPlanReplanReasoningEvidence(records) {
+  const sliceId = "agentic-loop-plan-replan-reasoning";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "conversation_turn_v1" &&
+      record.final_turn_broadcast === true &&
+      record.no_tool_called === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.frame_step_visible === true &&
+      record.strategy_step_visible === true &&
+      record.finalize_step_visible === true &&
+      record.context_result_visible === true &&
+      record.strategy_decision_visible === true &&
+      record.ui_agentic_loop_plan_visible === true &&
+      record.ui_agentic_loop_reasoning_visible === true &&
+      record.ui_agentic_loop_result_visible === true &&
+      Number(record.initial_plan_step_count ?? 0) === 1 &&
+      boolValue(record.initial_plan_only_context) === true &&
+      boolValue(record.plan_revised_visible) === true &&
+      Number(record.plan_revised_event_count ?? 0) >= 1 &&
+      record.plan_revised_target_tool_ref === "dialogue_frame" &&
+      Number(record.plan_revised_plan_version ?? 0) === 2 &&
+      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
+      record.plan_revised_author_narrative_source_type === "provider_output" &&
+      String(record.plan_revised_revision_reason ?? "").includes("本轮回应尚未生成") &&
+      boolValue(record.revised_plan_has_frame_step) === true &&
+      boolValue(record.revised_plan_has_strategy_step) === true &&
+      boolValue(record.revised_plan_has_finalize_step) === true &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
+      Number(record.consumed_tool_calls ?? -1) === 0 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_replans ?? 0) === 1 &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_toolbox_execute_count ?? 0) === 0,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  if (!runId || !finalTurnId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    consumed_replans: Number(uiState.consumed_replans ?? 0),
+    initial_plan_step_count: Number(uiState.initial_plan_step_count ?? 0),
+    plan_revised_plan_version: Number(uiState.plan_revised_plan_version ?? 0),
+    plan_revised_revision_reason: String(uiState.plan_revised_revision_reason ?? ""),
+    key_events: keyEvents,
+  };
+}
+
+function agenticLoopPlanReplanReasoningBehavior(turnIds, _turnRecords, records, evidence) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agentic-loop-plan-replan-reasoning" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.no_tool_called !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
+  if (Number(uiState.initial_plan_step_count ?? 0) !== 1) return null;
+  if (boolValue(uiState.initial_plan_only_context) !== true) return null;
+  if (boolValue(uiState.plan_revised_visible) !== true) return null;
+  if (Number(uiState.plan_revised_event_count ?? 0) < 1) return null;
+  if (uiState.plan_revised_target_tool_ref !== "dialogue_frame") return null;
+  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
+  if (boolValue(uiState.plan_revised_evaluation_plan_holds) !== false) return null;
+  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
+  if (!String(uiState.plan_revised_revision_reason ?? "").includes("本轮回应尚未生成")) {
+    return null;
+  }
+  if (boolValue(uiState.revised_plan_has_frame_step) !== true) return null;
+  if (boolValue(uiState.revised_plan_has_strategy_step) !== true) return null;
+  if (boolValue(uiState.revised_plan_has_finalize_step) !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "agentic-loop-plan-replan-reasoning",
+    behavior: "plan_exhausted_without_completion_replans_before_awaiting_author",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    consumed_replans: evidence.consumed_replans,
+    initial_plan_step_count: evidence.initial_plan_step_count,
+    plan_revised_plan_version: evidence.plan_revised_plan_version,
+    plan_revised_revision_reason: evidence.plan_revised_revision_reason,
+    assertions: [
+      "real_tauri_input_created_a_short_model_drafted_plan",
+      "d6_plan_exhausted_signal_promoted_to_provider_sourced_plan_revised",
+      "revised_plan_restored_frame_strategy_and_finalize_steps",
+      "runtime_consumed_one_replan_budget",
+      "revised_plan_continued_to_completed_turn_without_tool_or_write",
+      "channel_did_not_use_dialogue_fallback_main_chain",
+    ],
+  };
+}
+
+function findAgenticLoopNoDeviationDirectEvidence(records) {
+  const sliceId = "agentic-loop-no-deviation-direct";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "conversation_turn_v1" &&
+      record.final_turn_broadcast === true &&
+      record.no_tool_called === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.frame_step_visible === true &&
+      record.strategy_step_visible === true &&
+      record.finalize_step_visible === true &&
+      record.context_result_visible === true &&
+      record.frame_evaluation_visible === true &&
+      record.strategy_decision_visible === true &&
+      record.ui_context_step_visible === true &&
+      record.ui_frame_step_visible === true &&
+      record.ui_strategy_step_visible === true &&
+      record.ui_finalize_step_visible === true &&
+      record.ui_agentic_loop_plan_visible === true &&
+      record.ui_agentic_loop_reasoning_visible === true &&
+      record.ui_agentic_loop_result_visible === true &&
+      Number(record.initial_plan_step_count ?? 0) === 4 &&
+      boolValue(record.initial_plan_only_context) === false &&
+      boolValue(record.plan_revised_visible) === false &&
+      Number(record.plan_revised_event_count ?? 0) === 0 &&
+      Number(record.author_reasoning_delta_event_count ?? 0) >= 2 &&
+      record.author_reasoning_delta_payload_key === "author_narrative_delta" &&
+      boolValue(record.author_reasoning_delta_before_first_plan) === true &&
+      boolValue(record.author_reasoning_second_delta_before_first_plan) === true &&
+      boolValue(record.ui_author_reasoning_delta_visible) === true &&
+      boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
+      Number(record.ui_author_reasoning_stream_sample_count ?? 0) >= 2 &&
+      boolValue(record.ui_author_reasoning_stream_grew) === true &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
+      Number(record.consumed_tool_calls ?? -1) === 0 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      Number(record.consumed_replans ?? -1) === 0 &&
+      record.ui_agent_panel_visible === true &&
+      record.ui_agent_completed_visible === true &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_toolbox_execute_count ?? 0) === 0,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  if (!runId || !finalTurnId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    consumed_replans: Number(uiState.consumed_replans ?? 0),
+    initial_plan_step_count: Number(uiState.initial_plan_step_count ?? 0),
+    plan_revised_event_count: Number(uiState.plan_revised_event_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function agenticLoopNoDeviationDirectBehavior(turnIds, _turnRecords, records, evidence) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agentic-loop-no-deviation-direct" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.no_tool_called !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
+  if (Number(uiState.initial_plan_step_count ?? 0) !== 4) return null;
+  if (boolValue(uiState.initial_plan_only_context) !== false) return null;
+  if (boolValue(uiState.plan_revised_visible) !== false) return null;
+  if (Number(uiState.plan_revised_event_count ?? 0) !== 0) return null;
+  if (uiState.context_step_visible !== true) return null;
+  if (uiState.frame_step_visible !== true) return null;
+  if (uiState.strategy_step_visible !== true) return null;
+  if (uiState.finalize_step_visible !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "agentic-loop-no-deviation-direct",
+    behavior: "no_deviation_direct_path_uses_drafted_plan_without_replan",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    consumed_replans: evidence.consumed_replans,
+    initial_plan_step_count: evidence.initial_plan_step_count,
+    plan_revised_event_count: evidence.plan_revised_event_count,
+    assertions: [
+      "real_tauri_input_created_a_complete_model_drafted_plan",
+      "runtime_advanced_deterministic_steps_without_plan_revised",
+      "runtime_consumed_zero_replan_budget",
+      "direct_path_completed_with_single_plan_draft_and_no_tool_or_write",
+      "channel_did_not_use_dialogue_fallback_main_chain",
+    ],
+  };
+}
+
+function findAgentPlanNativeToolCallingProtocolEvidence(records) {
+  const sliceId = "agent-plan-native-tool-calling-protocol";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "conversation_turn_v1" &&
+      record.final_turn_broadcast === true &&
+      record.no_tool_called === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.frame_step_visible === true &&
+      record.strategy_step_visible === true &&
+      record.finalize_step_visible === true &&
+      record.ui_agentic_loop_plan_visible === true &&
+      record.ui_agentic_loop_reasoning_visible === true &&
+      record.ui_agentic_loop_result_visible === true &&
+      Number(record.initial_plan_step_count ?? 0) === 1 &&
+      boolValue(record.initial_plan_only_context) === true &&
+      boolValue(record.plan_revised_visible) === true &&
+      Number(record.plan_revised_event_count ?? 0) >= 1 &&
+      record.plan_revised_target_tool_ref === "dialogue_frame" &&
+      Number(record.plan_revised_plan_version ?? 0) === 2 &&
+      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
+      record.plan_revised_author_narrative_source_type === "provider_output" &&
+      boolValue(record.revised_plan_has_frame_step) === true &&
+      boolValue(record.revised_plan_has_strategy_step) === true &&
+      boolValue(record.revised_plan_has_finalize_step) === true &&
+      Number(record.consumed_steps ?? 0) === 4 &&
+      Number(record.consumed_tool_calls ?? -1) === 0 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_replans ?? 0) === 1 &&
+      Number(record.provider_activity_api_status ?? 0) === 200 &&
+      Number(record.native_tool_call_final_output_count ?? 0) >= 2 &&
+      boolValue(record.native_tool_call_draft_projected) === true &&
+      boolValue(record.native_tool_call_revision_projected) === true &&
+      boolValue(record.native_tool_call_arguments_leaked) === false &&
+      Array.isArray(record.native_tool_call_names) &&
+      record.native_tool_call_names.includes("agent_plan_draft") &&
+      record.native_tool_call_names.includes("agent_plan_revision") &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_toolbox_execute_count ?? 0) === 0,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  if (!runId || !finalTurnId) return null;
+  const turnIds = [...new Set([parentTurnId, finalTurnId].filter(Boolean))];
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: turnIds,
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    consumed_replans: Number(uiState.consumed_replans ?? 0),
+    native_tool_call_names: uiState.native_tool_call_names,
+    native_tool_call_final_output_count: Number(uiState.native_tool_call_final_output_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function agentPlanNativeToolCallingProtocolBehavior(turnIds, _turnRecords, records, evidence) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-plan-native-tool-calling-protocol" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.plan_revised_visible !== true) return null;
+  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
+  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
+  if (Number(uiState.provider_activity_api_status ?? 0) !== 200) return null;
+  if (Number(uiState.native_tool_call_final_output_count ?? 0) < 2) return null;
+  if (uiState.native_tool_call_draft_projected !== true) return null;
+  if (uiState.native_tool_call_revision_projected !== true) return null;
+  if (uiState.native_tool_call_arguments_leaked !== false) return null;
+
+  return {
+    slice_id: "agent-plan-native-tool-calling-protocol",
+    behavior: "agent_plan_draft_and_revision_use_provider_native_tool_calls",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    consumed_replans: evidence.consumed_replans,
+    native_tool_call_names: evidence.native_tool_call_names,
+    assertions: [
+      "agent_plan_draft_structure_came_from_native_tool_call",
+      "agent_plan_revision_structure_came_from_native_tool_call",
+      "author_reasoning_remained_provider_output_text",
+      "native_tool_call_arguments_not_exposed_in_developer_telemetry",
+      "runtime_continued_revised_agent_plan_without_dialogue_fallback",
+    ],
+  };
+}
+
+function findAgenticLoopBudgetDeviationReplanEvidence(records) {
+  const sliceId = "agentic-loop-budget-deviation-replan";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_terminal === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "conversation_turn_v1" &&
+      boolValue(record.plan_revised_visible) === true &&
+      Number(record.plan_revised_event_count ?? 0) >= 1 &&
+      (record.plan_revised_reason_codes ?? []).includes("agentic_deviation:D5") &&
+      Number(record.plan_revised_plan_version ?? 0) === 2 &&
+      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
+      record.plan_revised_author_narrative_source_type === "provider_output" &&
+      String(record.plan_revised_revision_reason ?? "").includes("剩余 step 预算不足") &&
+      record.context_result_visible === true &&
+      record.awaiting_event_type === "awaiting_author" &&
+      record.terminal_status === "awaiting_author" &&
+      Number(record.consumed_steps ?? 0) === 1 &&
+      Number(record.consumed_tool_calls ?? -1) === 0 &&
+      Number(record.consumed_provider_calls ?? 0) === 2 &&
+      Number(record.consumed_replans ?? 0) === 1 &&
+      boolValue(record.final_turn_result_arrived) === false &&
+      Number(record.log_sync_turn_count ?? -1) === 0 &&
+      Number(record.log_toolbox_execute_count ?? -1) === 0,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  if (!runId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    consumed_replans: Number(uiState.consumed_replans ?? 0),
+    plan_revised_plan_version: Number(uiState.plan_revised_plan_version ?? 0),
+    plan_revised_revision_reason: String(uiState.plan_revised_revision_reason ?? ""),
+    key_events: keyEvents,
+  };
+}
+
+function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records, evidence) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agentic-loop-budget-deviation-replan" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.parent_fast_ack_before_terminal !== true) return null;
+  if (boolValue(uiState.plan_revised_visible) !== true) return null;
+  if (Number(uiState.plan_revised_event_count ?? 0) < 1) return null;
+  if (!(uiState.plan_revised_reason_codes ?? []).includes("agentic_deviation:D5")) return null;
+  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
+  if (boolValue(uiState.plan_revised_evaluation_plan_holds) !== false) return null;
+  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
+  if (!String(uiState.plan_revised_revision_reason ?? "").includes("剩余 step 预算不足")) {
+    return null;
+  }
+  if (uiState.context_result_visible !== true) return null;
+  if (uiState.terminal_status !== "awaiting_author") return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
+  if (boolValue(uiState.final_turn_result_arrived) !== false) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (Number(uiState.log_toolbox_execute_count ?? -1) !== 0) return null;
+
+  return {
+    slice_id: "agentic-loop-budget-deviation-replan",
+    behavior: "budget_shortfall_triggers_provider_sourced_replan_before_awaiting_author",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    consumed_replans: evidence.consumed_replans,
+    plan_revised_plan_version: evidence.plan_revised_plan_version,
+    plan_revised_revision_reason: evidence.plan_revised_revision_reason,
+    assertions: [
+      "real_tauri_input_expressed_budget_limit_in_user_visible_language",
+      "d5_budget_shortfall_promoted_to_provider_sourced_plan_revised",
+      "runtime_consumed_one_replan_budget",
+      "run_waited_for_author_without_final_turn_or_tool_execution",
+      "channel_did_not_use_dialogue_fallback_main_chain",
+    ],
+  };
+}
+
+const AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS = {
+  "agentic-loop-tool-failure-replan": {
+    signal: "D1",
+    reasonNeedle: "工具 prose_writing 执行失败",
+    steps: 2,
+    toolCalls: 1,
+    providerCalls: 5,
+    behavior: "tool_failure_triggers_provider_sourced_replan_before_awaiting_author",
+    assertions: [
+      "d1_tool_failure_promoted_to_provider_sourced_plan_revised",
+      "writer_failure_did_not_become_run_failed_before_replan",
+    ],
+  },
+  "agentic-loop-quality-deviation-replan": {
+    signal: "D2",
+    reasonNeedle: "质量复核要求行动",
+    steps: 2,
+    toolCalls: 1,
+    providerCalls: 5,
+    minArtifactEvents: 1,
+    allowCandidateTurnResult: true,
+    behavior: "quality_action_triggers_provider_sourced_replan_before_awaiting_author",
+    assertions: [
+      "d2_quality_action_promoted_to_provider_sourced_plan_revised",
+      "quality_confirm_did_not_silently_complete_without_replan",
+    ],
+  },
+  "agentic-loop-gate-deviation-replan": {
+    signal: "D4",
+    reasonNeedle: "Orchestrator 未允许执行",
+    steps: 2,
+    toolCalls: 0,
+    providerCalls: 3,
+    gateDecisionType: "require_confirmation",
+    gateFirstBlockingGate: "authority",
+    maxToolStartedEvents: 0,
+    behavior: "gate_deny_triggers_provider_sourced_replan_without_writer_dispatch",
+    assertions: [
+      "d4_gate_deny_promoted_to_provider_sourced_plan_revised",
+      "orchestrator_gate_was_not_bypassed",
+      "writer_provider_was_not_dispatched_after_gate_deny",
+    ],
+  },
+  "agentic-loop-deterministic-gap-replan": {
+    signal: "D7",
+    reasonNeedle: "写作坐标存在确定性缺口",
+    steps: 2,
+    toolCalls: 0,
+    providerCalls: 3,
+    maxToolCompletedEvents: 0,
+    maxToolboxExecuteCount: 0,
+    behavior: "deterministic_gap_triggers_provider_sourced_replan_without_writer_dispatch",
+    assertions: [
+      "d7_deterministic_gap_promoted_to_provider_sourced_plan_revised",
+      "missing_policy_blocked_writer_dispatch",
+    ],
+  },
+};
+
+function isAgenticLoopProseDeviationSlice(sliceId) {
+  return Object.prototype.hasOwnProperty.call(AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS, sliceId);
+}
+
+function findAgenticLoopProseDeviationEvidence(records, sliceId) {
+  const expected = AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS[sliceId];
+  if (!expected) return null;
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_terminal === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "prose_drafting_with_quality_v1" &&
+      boolValue(record.plan_revised_visible) === true &&
+      Number(record.plan_revised_event_count ?? 0) >= 1 &&
+      (record.plan_revised_reason_codes ?? []).includes(`agentic_deviation:${expected.signal}`) &&
+      Number(record.plan_revised_plan_version ?? 0) === 2 &&
+      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
+      record.plan_revised_author_narrative_source_type === "provider_output" &&
+      String(record.plan_revised_revision_reason ?? "").includes(expected.reasonNeedle) &&
+      record.awaiting_event_type === "awaiting_author" &&
+      record.terminal_status === "awaiting_author" &&
+      Number(record.consumed_steps ?? -1) === expected.steps &&
+      Number(record.consumed_tool_calls ?? -1) === expected.toolCalls &&
+      Number(record.consumed_provider_calls ?? -1) === expected.providerCalls &&
+      Number(record.consumed_replans ?? -1) === 1 &&
+      proseDeviationTurnResultMatches(record, expected) &&
+      Number(record.log_sync_turn_count ?? -1) === 0,
+  );
+  if (!uiState) return null;
+
+  if (
+    expected.gateDecisionType &&
+    String(uiState.gate_decision_type ?? "") !== expected.gateDecisionType
+  ) {
+    return null;
+  }
+  if (
+    expected.gateFirstBlockingGate &&
+    String(uiState.gate_first_blocking_gate ?? "") !== expected.gateFirstBlockingGate
+  ) {
+    return null;
+  }
+  if (
+    Number.isInteger(expected.maxToolStartedEvents) &&
+    Number(uiState.tool_started_event_count ?? 0) > expected.maxToolStartedEvents
+  ) {
+    return null;
+  }
+  if (
+    Number.isInteger(expected.maxToolCompletedEvents) &&
+    Number(uiState.tool_completed_event_count ?? 0) > expected.maxToolCompletedEvents
+  ) {
+    return null;
+  }
+  if (
+    Number.isInteger(expected.maxToolboxExecuteCount) &&
+    Number(uiState.log_toolbox_execute_count ?? 0) > expected.maxToolboxExecuteCount
+  ) {
+    return null;
+  }
+  if (
+    Number.isInteger(expected.minArtifactEvents) &&
+    Number(uiState.artifact_event_count ?? 0) < expected.minArtifactEvents
+  ) {
+    return null;
+  }
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  if (!runId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    signal: expected.signal,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    consumed_replans: Number(uiState.consumed_replans ?? 0),
+    plan_revised_plan_version: Number(uiState.plan_revised_plan_version ?? 0),
+    plan_revised_revision_reason: String(uiState.plan_revised_revision_reason ?? ""),
+    gate_decision_type: uiState.gate_decision_type ?? null,
+    gate_first_blocking_gate: uiState.gate_first_blocking_gate ?? null,
+    artifact_event_count: Number(uiState.artifact_event_count ?? 0),
+    tool_started_event_count: Number(uiState.tool_started_event_count ?? 0),
+    tool_completed_event_count: Number(uiState.tool_completed_event_count ?? 0),
+    log_toolbox_execute_count: Number(uiState.log_toolbox_execute_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function agenticLoopProseDeviationBehavior(turnIds, _turnRecords, records, evidence) {
+  if (turnIds.length < 1) return null;
+
+  const expected = AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS[evidence.slice_id];
+  if (!expected) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === evidence.slice_id &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
+  if (uiState.parent_fast_ack_before_terminal !== true) return null;
+  if (boolValue(uiState.plan_revised_visible) !== true) return null;
+  if (Number(uiState.plan_revised_event_count ?? 0) < 1) return null;
+  if (!(uiState.plan_revised_reason_codes ?? []).includes(`agentic_deviation:${expected.signal}`)) {
+    return null;
+  }
+  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
+  if (boolValue(uiState.plan_revised_evaluation_plan_holds) !== false) return null;
+  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
+  if (!String(uiState.plan_revised_revision_reason ?? "").includes(expected.reasonNeedle)) {
+    return null;
+  }
+  if (uiState.terminal_status !== "awaiting_author") return null;
+  if (Number(uiState.consumed_steps ?? -1) !== expected.steps) return null;
+  if (Number(uiState.consumed_tool_calls ?? -1) !== expected.toolCalls) return null;
+  if (Number(uiState.consumed_provider_calls ?? -1) !== expected.providerCalls) return null;
+  if (Number(uiState.consumed_replans ?? -1) !== 1) return null;
+  if (!proseDeviationTurnResultMatches(uiState, expected)) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (
+    Number.isInteger(expected.maxToolCompletedEvents) &&
+    Number(uiState.tool_completed_event_count ?? 0) > expected.maxToolCompletedEvents
+  ) {
+    return null;
+  }
+  if (
+    Number.isInteger(expected.maxToolboxExecuteCount) &&
+    Number(uiState.log_toolbox_execute_count ?? 0) > expected.maxToolboxExecuteCount
+  ) {
+    return null;
+  }
+
+  const turnResultAssertion = expected.allowCandidateTurnResult
+    ? "candidate_turn_result_exposed_pending_artifact_and_waited_for_author"
+    : "run_waited_for_author_without_final_turn_result";
+
+  return {
+    slice_id: evidence.slice_id,
+    behavior: expected.behavior,
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    signal: evidence.signal,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    consumed_replans: evidence.consumed_replans,
+    plan_revised_plan_version: evidence.plan_revised_plan_version,
+    plan_revised_revision_reason: evidence.plan_revised_revision_reason,
+    assertions: [
+      "real_tauri_input_triggered_prose_deviation_signal",
+      "provider_sourced_plan_revised_was_visible",
+      "runtime_consumed_one_replan_budget",
+      turnResultAssertion,
+      "channel_did_not_use_dialogue_fallback_main_chain",
+      ...expected.assertions,
+    ],
+  };
+}
+
+function proseDeviationTurnResultMatches(record, expected) {
+  if (expected.allowCandidateTurnResult) {
+    return (
+      boolValue(record.final_turn_result_arrived) === true &&
+      record.final_turn_result_agent_run_status === "awaiting_author" &&
+      Number(record.final_turn_result_pending_artifact_count ?? 0) >= 1 &&
+      record.final_turn_result_quality_policy_action === "confirm"
+    );
+  }
+
+  return boolValue(record.final_turn_result_arrived) === false;
+}
+
 function findAgentPlotOutlineWithContextEvidence(records) {
   const sliceId = "agent-plot-outline-with-context";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -4079,18 +5015,12 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       record.finalization_step_visible === true &&
       record.artifact_observation_visible === true &&
       record.artifact_event_visible === true &&
-      record.ui_context_step_visible === true &&
-      record.ui_strategy_step_visible === true &&
-      record.ui_outline_step_visible === true &&
-      record.ui_finalization_step_visible === true &&
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
-      record.ui_agent_panel_visible === true &&
-      record.ui_agent_completed_visible === true &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_outline_draft_visible === true &&
-      record.ui_execution_brief_path_visible === true &&
+      record.ui_outline_adoption_actions_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
       record.log_plot_outline_tool_done === true,
@@ -4173,14 +5103,11 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
   if (uiState.finalization_step_visible !== true) return null;
   if (uiState.artifact_observation_visible !== true) return null;
   if (uiState.artifact_event_visible !== true) return null;
-  if (uiState.ui_context_step_visible !== true) return null;
-  if (uiState.ui_strategy_step_visible !== true) return null;
-  if (uiState.ui_outline_step_visible !== true) return null;
-  if (uiState.ui_finalization_step_visible !== true) return null;
-  if (uiState.ui_execution_brief_path_visible !== true) return null;
+  if (uiState.ui_outline_draft_visible !== true) return null;
+  if (uiState.ui_outline_adoption_actions_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_plot_outline_tool_done !== true) return null;
@@ -4203,11 +5130,11 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
       "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
       "plot_outline_with_context_profile_was_selected",
       "outline_context_assembly_was_visible_inside_agent_run",
-      "outline_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      "outline_tool_step_followed_model_drafted_plan_and_reentered_orchestrator_gate",
       "plot_outline_tool_produced_tentative_outline_draft",
       "outline_artifact_remained_unadopted_without_production_write",
       "agent_activity_timeline_exposed_author_safe_stage_events",
-      "run_consumed_two_executed_steps_one_tool_call_and_five_provider_calls",
+      "run_consumed_two_executed_steps_one_tool_call_and_three_provider_calls",
     ],
   };
 }
@@ -4281,16 +5208,10 @@ function findAgentWorldBuildingWithContextEvidence(
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_world_building_draft_visible === true &&
-      record.ui_profile_selection_visible === true &&
-      record.ui_profile_selection_source_visible === true &&
-      record.ui_profile_selection_reason_visible === true &&
-      record.ui_profile_selection_terms_visible === true &&
-      record.ui_profile_selection_path_visible === true &&
-      record.ui_execution_brief_path_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
       record.log_world_building_tool_done === true,
@@ -4386,15 +5307,9 @@ function agentWorldBuildingWithContextBehavior(turnIds, _turnRecords, records, e
   if (uiState.ui_strategy_step_visible !== true) return null;
   if (uiState.ui_world_step_visible !== true) return null;
   if (uiState.ui_finalization_step_visible !== true) return null;
-  if (uiState.ui_profile_selection_visible !== true) return null;
-  if (uiState.ui_profile_selection_source_visible !== true) return null;
-  if (uiState.ui_profile_selection_reason_visible !== true) return null;
-  if (uiState.ui_profile_selection_terms_visible !== true) return null;
-  if (uiState.ui_profile_selection_path_visible !== true) return null;
-  if (uiState.ui_execution_brief_path_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_world_building_tool_done !== true) return null;
@@ -4421,14 +5336,14 @@ function agentWorldBuildingWithContextBehavior(turnIds, _turnRecords, records, e
       "world_building_request_was_sent_from_real_tauri_workbench",
       "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
       "world_building_with_context_profile_was_selected",
-      "world_building_profile_selection_causality_was_visible_to_author",
+      "world_building_profile_selection_causality_was_proven_by_state_transition",
       "world_building_context_assembly_was_visible_inside_agent_run",
-      "world_building_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      "world_building_tool_step_followed_model_drafted_plan_and_reentered_orchestrator_gate",
       `world_building_tool_produced_tentative_${expectedArtifactType}`,
       "world_building_artifact_remained_unadopted_without_production_write",
       "world_building_draft_preserved_nonce",
       "agent_activity_timeline_exposed_author_safe_stage_events",
-      "run_consumed_two_executed_steps_one_tool_call_and_five_provider_calls",
+      "run_consumed_two_executed_steps_one_tool_call_and_three_provider_calls",
     ],
   };
 }
@@ -4471,18 +5386,11 @@ function findAgentCharacterEvolutionWithContextEvidence(records) {
       record.finalization_step_visible === true &&
       record.artifact_observation_visible === true &&
       record.artifact_event_visible === true &&
-      record.ui_context_step_visible === true &&
-      record.ui_strategy_step_visible === true &&
-      record.ui_evolution_step_visible === true &&
-      record.ui_finalization_step_visible === true &&
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
-      record.ui_agent_panel_visible === true &&
-      record.ui_agent_completed_visible === true &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_character_evolution_draft_visible === true &&
-      record.ui_execution_brief_path_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
       record.log_character_evolution_tool_done === true,
@@ -4575,14 +5483,9 @@ function agentCharacterEvolutionWithContextBehavior(
   if (uiState.finalization_step_visible !== true) return null;
   if (uiState.artifact_observation_visible !== true) return null;
   if (uiState.artifact_event_visible !== true) return null;
-  if (uiState.ui_context_step_visible !== true) return null;
-  if (uiState.ui_strategy_step_visible !== true) return null;
-  if (uiState.ui_evolution_step_visible !== true) return null;
-  if (uiState.ui_finalization_step_visible !== true) return null;
-  if (uiState.ui_execution_brief_path_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_character_evolution_tool_done !== true) return null;
@@ -4609,12 +5512,12 @@ function agentCharacterEvolutionWithContextBehavior(
       "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
       "character_evolution_with_context_profile_was_selected",
       "character_evolution_context_assembly_was_visible_inside_agent_run",
-      "character_evolution_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      "character_evolution_tool_step_followed_model_drafted_plan_and_reentered_orchestrator_gate",
       "character_evolution_tool_produced_tentative_character_evolution_seed",
       "character_evolution_artifact_remained_unadopted_without_production_write",
       "character_evolution_draft_preserved_target_character_and_nonce",
       "agent_activity_timeline_exposed_author_safe_stage_events",
-      "run_consumed_two_executed_steps_one_tool_call_and_five_provider_calls",
+      "run_consumed_two_executed_steps_one_tool_call_and_three_provider_calls",
     ],
   };
 }
@@ -4775,7 +5678,7 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       Array.isArray(record.provider_purposes) &&
       record.provider_purposes.includes("author_reasoning") &&
       record.provider_purposes.includes("conversation") &&
-      Number(record.consumed_provider_calls ?? 0) === 7 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.final_turn_result_run_id === record.run_id,
   );
   if (!uiState) return null;
@@ -4924,7 +5827,7 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
       boolValue(record.restored_ui_provider_run_replay_boundary_visible) === true &&
       boolValue(record.restored_ui_provider_run_replay_raw_content_leaked) === false &&
       Number(record.provider_run_activity_api_status ?? 0) === 200 &&
-      Number(record.provider_run_activity_api_count ?? 0) >= 6 &&
+      Number(record.provider_run_activity_api_count ?? 0) >= 3 &&
       Array.isArray(record.provider_run_activity_api_refs) &&
       record.provider_run_activity_api_refs.length >= 1 &&
       Array.isArray(record.provider_run_activity_api_call_refs) &&
@@ -5009,7 +5912,7 @@ function findAgentSessionTranscriptLazyPageEvidence(records) {
       Number(record.older_agent_run_activity_api_status ?? 0) === 200 &&
       Number(record.older_agent_run_activity_api_run_count ?? 0) >= 1 &&
       Number(record.older_agent_run_activity_api_provider_progress_event_count ?? 0) >= 2 &&
-      Number(record.older_provider_run_activity_api_count ?? 0) >= 6 &&
+      Number(record.older_provider_run_activity_api_count ?? 0) >= 3 &&
       Array.isArray(record.older_provider_run_activity_api_purposes) &&
       record.older_provider_run_activity_api_purposes.includes("author_reasoning") &&
       record.older_provider_run_activity_api_purposes.includes("conversation") &&
@@ -5104,7 +6007,7 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
     return null;
   }
   if (Number(uiState.provider_run_activity_api_status ?? 0) !== 200) return null;
-  if (Number(uiState.provider_run_activity_api_count ?? 0) < 6) return null;
+  if (Number(uiState.provider_run_activity_api_count ?? 0) < 3) return null;
   if (
     !Array.isArray(uiState.provider_run_activity_api_refs) ||
     uiState.provider_run_activity_api_refs.length < 1
@@ -5193,7 +6096,7 @@ function agentSessionTranscriptLazyPageBehavior(turnIds, records, evidence) {
   if (Number(uiState.older_agent_run_activity_api_provider_progress_event_count ?? 0) < 2) {
     return null;
   }
-  if (Number(uiState.older_provider_run_activity_api_count ?? 0) < 6) return null;
+  if (Number(uiState.older_provider_run_activity_api_count ?? 0) < 3) return null;
   if (
     !Array.isArray(uiState.older_provider_run_activity_api_purposes) ||
     !uiState.older_provider_run_activity_api_purposes.includes("author_reasoning") ||
@@ -5272,7 +6175,7 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
       record.provider_statuses.includes("error") &&
       Array.isArray(record.provider_output_types) &&
       record.provider_output_types.includes("empty") &&
-      Number(record.consumed_provider_calls ?? 0) === 7 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.final_turn_result_run_id === record.run_id &&
       boolValue(record.no_tool_called) === true &&
       boolValue(record.no_auto_adoption) === true &&
@@ -5375,9 +6278,12 @@ function findAgentProviderStreamingProgressEvidence(records) {
       Number(record.progress_event_count ?? 0) >= 3 &&
       boolValue(record.progress_visibility_author) === true &&
       boolValue(record.progress_has_step_ref) === true &&
+      boolValue(record.plan_drafted_visible) === true &&
+      record.plan_drafted_target_tool_ref === "provider_complete" &&
+      Number(record.plan_drafted_step_count ?? 0) >= 1 &&
       boolValue(record.raw_prompt_leaked_in_progress_events) === false &&
       boolValue(record.provider_execution_stream_active) === true &&
-      Number(record.consumed_provider_calls ?? 0) === 2 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.final_turn_result_run_id === record.run_id &&
       record.ui_progress_visible === true,
   );
@@ -5391,6 +6297,8 @@ function findAgentProviderStreamingProgressEvidence(records) {
     profile_ref: uiState.profile_ref,
     progress_event_count: Number(uiState.progress_event_count ?? 0),
     progress_reason_codes: uiState.progress_reason_codes ?? [],
+    plan_drafted_target_tool_ref: uiState.plan_drafted_target_tool_ref,
+    plan_drafted_step_count: Number(uiState.plan_drafted_step_count ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
     key_events: keyEventsForSlice(sliceId),
   };
@@ -5406,9 +6314,11 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
+  if (boolValue(uiState.plan_drafted_visible) !== true) return null;
+  if (uiState.plan_drafted_target_tool_ref !== "provider_complete") return null;
   if (boolValue(uiState.raw_prompt_leaked_in_progress_events) !== false) return null;
   if (boolValue(uiState.provider_execution_stream_active) !== true) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
 
   return {
     slice_id: "agent-provider-streaming-progress",
@@ -5418,13 +6328,16 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
     profile_ref: evidence.profile_ref,
     progress_event_count: evidence.progress_event_count,
     progress_reason_codes: evidence.progress_reason_codes,
+    plan_drafted_target_tool_ref: evidence.plan_drafted_target_tool_ref,
+    plan_drafted_step_count: evidence.plan_drafted_step_count,
     consumed_provider_calls: evidence.consumed_provider_calls,
     assertions: [
       "visible_author_request_started_provider_progress_profile",
+      "provider_progress_followed_model_drafted_provider_complete_plan",
       "provider_progress_events_carried_run_id_step_ref_and_author_visibility",
       "progress_events_did_not_expose_raw_prompt",
       "provider_execution_stream_reported_active_progress",
-      "final_run_state_recorded_profile_route_and_provider_progress_calls",
+      "final_run_state_recorded_profile_route_plan_draft_and_provider_progress_calls",
     ],
   };
 }
@@ -5511,9 +6424,12 @@ function findAgentReadonlyBatchProfileEvidence(records) {
       Number(record.readonly_batch_item_event_count ?? 0) >= 4 &&
       boolValue(record.readonly_events_author_visible) === true &&
       boolValue(record.readonly_events_production_write_false) === true &&
+      boolValue(record.plan_drafted_visible) === true &&
+      record.plan_drafted_target_tool_ref === "readonly_batch" &&
+      Number(record.plan_drafted_step_count ?? 0) >= 2 &&
       record.final_turn_result_run_id === record.run_id &&
       boolValue(record.replay_recall_provider) === false &&
-      Number(record.consumed_provider_calls ?? -1) === 1 &&
+      Number(record.consumed_provider_calls ?? -1) === 2 &&
       Number(record.consumed_tool_calls ?? 0) >= 4 &&
       Number(record.pending_artifact_count ?? -1) === 0 &&
       Number(record.artifact_event_count ?? -1) === 0 &&
@@ -5528,6 +6444,8 @@ function findAgentReadonlyBatchProfileEvidence(records) {
     run_id: String(uiState.run_id ?? ""),
     profile_ref: uiState.profile_ref,
     readonly_item_refs: uiState.readonly_item_refs ?? [],
+    plan_drafted_target_tool_ref: uiState.plan_drafted_target_tool_ref,
+    plan_drafted_step_count: Number(uiState.plan_drafted_step_count ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
     key_events: keyEventsForSlice(sliceId),
@@ -5544,8 +6462,10 @@ function agentReadonlyBatchProfileBehavior(turnIds, records, evidence) {
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
+  if (boolValue(uiState.plan_drafted_visible) !== true) return null;
+  if (uiState.plan_drafted_target_tool_ref !== "readonly_batch") return null;
   if (boolValue(uiState.replay_recall_provider) !== false) return null;
-  if (Number(uiState.consumed_provider_calls ?? -1) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? -1) !== 2) return null;
   if (Number(uiState.pending_artifact_count ?? -1) !== 0) return null;
   if (Number(uiState.artifact_event_count ?? -1) !== 0) return null;
 
@@ -5556,14 +6476,17 @@ function agentReadonlyBatchProfileBehavior(turnIds, records, evidence) {
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
     readonly_item_refs: evidence.readonly_item_refs,
+    plan_drafted_target_tool_ref: evidence.plan_drafted_target_tool_ref,
+    plan_drafted_step_count: evidence.plan_drafted_step_count,
     consumed_provider_calls: evidence.consumed_provider_calls,
     consumed_tool_calls: evidence.consumed_tool_calls,
     assertions: [
       "visible_author_request_started_readonly_batch_profile",
+      "readonly_batch_followed_model_drafted_readonly_batch_plan",
       "batch_item_events_were_author_visible_and_scoped_to_run",
       "readonly_batch_events_declared_production_write_false",
       "final_turn_result_declared_replay_recall_provider_false",
-      "run_finished_with_only_profile_route_provider_call_and_without_artifacts_or_adoption",
+      "run_finished_with_profile_route_and_plan_draft_provider_calls_without_artifacts_or_adoption",
     ],
   };
 }
@@ -5583,9 +6506,16 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       record.parent_fast_ack_before_final_turn_result === true &&
       record.run_mode === "bounded" &&
       record.profile_ref === "character_design_with_context_v1" &&
+      record.plan_drafted_visible === true &&
+      record.plan_drafted_target_tool_ref === "character_roster" &&
+      Number(record.plan_drafted_step_count ?? 0) === 2 &&
+      Array.isArray(record.plan_drafted_targets) &&
+      record.plan_drafted_targets.join(",") === "character_roster,character_design" &&
       record.roster_observation_visible === true &&
       typeof record.roster_observation_summary === "string" &&
       record.roster_observation_summary.length > 0 &&
+      record.roster_observation_event_type === "turn_result" &&
+      record.roster_observation_production_write === false &&
       record.artifact_event_visible === true &&
       record.final_turn_broadcast === true &&
       record.final_tool_name === "character_design" &&
@@ -5598,7 +6528,7 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 2 &&
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_artifact_event_visible === true &&
@@ -5647,6 +6577,9 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
     final_turn_id: finalTurnId,
     run_id: runId,
     profile_ref: uiState.profile_ref,
+    plan_drafted_target_tool_ref: uiState.plan_drafted_target_tool_ref,
+    plan_drafted_step_count: Number(uiState.plan_drafted_step_count ?? 0),
+    plan_drafted_targets: uiState.plan_drafted_targets ?? [],
     pending_artifact_id: artifactId,
     pending_artifact_type: uiState.pending_artifact_type,
     consumed_steps: Number(uiState.consumed_steps ?? 0),
@@ -5706,7 +6639,7 @@ function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
         behavior: "agent_activity_events_used_author_safe_summaries_and_refs",
         assertions: [
           "run_started_event_was_author_visible",
-          "exploration_observed_event_used_author_safe_summary",
+          "roster_turn_result_used_author_safe_summary",
           "artifact_created_event_used_refs_not_raw_generation_payload",
           "run_completed_event_was_author_visible",
           "agent_event_payloads_did_not_expose_prompt_or_chain_of_thought",
@@ -5741,7 +6674,7 @@ function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
         assertions: [
           "bounded_run_consumed_two_steps",
           "bounded_run_consumed_two_tool_calls",
-          "bounded_run_consumed_profile_routing_three_planner_calls_and_one_writer_call",
+          "bounded_run_consumed_profile_route_plan_draft_and_writer_calls",
           "provider_call_budget_was_reported_in_agent_run_state",
         ],
       };
@@ -5781,16 +6714,27 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   );
   if (!uiState) return null;
   if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.plan_drafted_visible !== true) return null;
+  if (uiState.plan_drafted_target_tool_ref !== "character_roster") return null;
+  if (Number(uiState.plan_drafted_step_count ?? 0) !== 2) return null;
+  if (
+    !Array.isArray(uiState.plan_drafted_targets) ||
+    uiState.plan_drafted_targets.join(",") !== "character_roster,character_design"
+  ) {
+    return null;
+  }
   if (uiState.roster_observation_visible !== true) return null;
   if (typeof uiState.roster_observation_summary !== "string") return null;
   if (uiState.roster_observation_summary.length === 0) return null;
+  if (uiState.roster_observation_event_type !== "turn_result") return null;
+  if (uiState.roster_observation_production_write !== false) return null;
   if (uiState.artifact_event_visible !== true) return null;
   if (uiState.pending_artifact_tentative !== true) return null;
   if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
   }
@@ -5798,7 +6742,8 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   const eventTypes = Array.isArray(uiState.agent_event_types) ? uiState.agent_event_types : [];
   for (const eventType of [
     "run_started",
-    "exploration_observed",
+    "plan_drafted",
+    "turn_result_ready",
     "artifact_created",
     "run_completed",
   ]) {
@@ -5815,6 +6760,9 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
     turn_ids: evidence.turn_ids,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
+    plan_drafted_target_tool_ref: evidence.plan_drafted_target_tool_ref,
+    plan_drafted_step_count: evidence.plan_drafted_step_count,
+    plan_drafted_targets: evidence.plan_drafted_targets,
     pending_artifact_id: evidence.pending_artifact_id,
     consumed_steps: evidence.consumed_steps,
     consumed_tool_calls: evidence.consumed_tool_calls,
@@ -5983,6 +6931,7 @@ function findUa01AgentSteerEvidence(records, sliceId) {
       record.plan_revised_event_type === "plan_revised" &&
       record.plan_revised_author_narrative_source_type === "provider_output" &&
       record.plan_revised_evaluation_plan_holds === false &&
+      Number(record.consumed_replans ?? -1) === 1 &&
       Number(record.adjusted_goal_version ?? 0) >= 2,
   );
   if (!uiState) return null;
@@ -6008,6 +6957,7 @@ function findUa01AgentSteerEvidence(records, sliceId) {
     command: "steer",
     command_source: mainInputSteer ? "main_input" : "agent_run_control",
     adjusted_goal_version: Number(uiState.adjusted_goal_version ?? 0),
+    consumed_replans: Number(uiState.consumed_replans ?? 0),
     no_second_user_message_for_steer: uiState.no_second_user_message_for_steer === true,
     key_events: keyEvents,
   };
@@ -6035,6 +6985,7 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
   if (uiState.plan_revised_event_type !== "plan_revised") return null;
   if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
   if (uiState.plan_revised_evaluation_plan_holds !== false) return null;
+  if (Number(uiState.consumed_replans ?? -1) !== 1) return null;
   if (Number(uiState.adjusted_goal_version ?? 0) < 2) return null;
   if (mainInputSteer && uiState.no_second_user_message_for_steer !== true) return null;
   if (mainInputSteer && uiState.main_input_steer_placeholder_visible !== true) return null;
@@ -6056,6 +7007,7 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
     command: "steer",
     command_source: evidence.command_source,
     adjusted_goal_version: evidence.adjusted_goal_version,
+    consumed_replans: evidence.consumed_replans,
     no_second_user_message_for_steer: evidence.no_second_user_message_for_steer,
     assertions: mainInputSteer
       ? [
@@ -6070,6 +7022,7 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
           "steer_command_targeted_active_run_id_and_received_ack",
           "plan_adjusted_agent_event_was_broadcast",
           "next_planner_narrative_was_promoted_to_model_sourced_plan_revised",
+          "steer_replan_consumed_one_replan_budget",
           "agent_run_state_broadcast_adjusted_goal_version",
           "frontend_did_not_mutate_run_state_without_backend_ack",
         ]
@@ -6077,6 +7030,7 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
           "steer_command_was_sent_from_visible_agent_run_control",
           "steer_command_targeted_active_run_id_and_received_ack",
           "plan_adjusted_agent_event_was_broadcast",
+          "steer_replan_consumed_one_replan_budget",
           "agent_run_state_broadcast_adjusted_goal_version",
           "frontend_did_not_mutate_run_state_without_backend_ack",
         ],

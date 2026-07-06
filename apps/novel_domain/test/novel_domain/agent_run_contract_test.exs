@@ -33,6 +33,14 @@ defmodule NovelDomain.AgentRunContractTest do
             matched_terms: ["角色阵容", "设计", "反派"]
           }
         },
+        budget: %{
+          max_steps: 5,
+          max_tool_calls: 4,
+          max_provider_calls: 3,
+          max_replans: 1,
+          max_pending_artifacts: 1
+        },
+        pending_artifact_refs: ["as_character_1"],
         consumed_budget: %{steps: 5, tool_calls: 1, provider_calls: 1, replans: 0}
       })
 
@@ -40,6 +48,8 @@ defmodule NovelDomain.AgentRunContractTest do
     assert AgentRun.budget_exhausted?(run)
     refute AgentRun.interrupt_requested?(run)
     assert AgentRunPolicy.tool_allowed?(run.policy, "character_design")
+    assert run.policy.max_pending_artifacts == 1
+    assert AgentRun.pending_artifact_budget_reached?(run)
     assert run.authority_scope.profile_selection.profile_ref == "character_design_with_context_v1"
     assert run.authority_scope.profile_selection.source == "author_text"
     assert run.authority_scope.profile_selection.matched_terms == ["角色阵容", "设计", "反派"]

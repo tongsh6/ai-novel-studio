@@ -23,7 +23,7 @@ user_flow:
   - open: real Tauri workbench
   - send: compound roster then character design request
   - wait_for: completed agent_run_state
-  - verify: consumed_budget reports steps=2, tool_calls=2 and provider_calls=1
+  - verify: consumed_budget reports steps=2, tool_calls=2 and provider_calls=3
 
 evidence:
   required:
@@ -38,7 +38,7 @@ assertions:
     - completed run state includes consumed_budget
     - consumed steps equals 2
     - consumed tool calls equals 2
-    - consumed provider calls equals 1
+    - consumed provider calls equals 3: profile routing, AgentPlan draft, and character writer
 
 anti_hooks:
   product_acceptance_logic_added: false

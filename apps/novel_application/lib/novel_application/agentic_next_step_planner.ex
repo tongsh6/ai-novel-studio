@@ -13,6 +13,10 @@ defmodule NovelApplication.AgenticNextStepPlanner do
   alias NovelApplication.ProviderActivityProjector
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentRun}
 
+  @max_observations_in_prompt 8
+  @max_observation_payload_chars 900
+  @max_failed_planner_output_chars 600
+
   @type provider_execution :: Execution.dependency()
 
   @spec next_decision(
@@ -30,25 +34,220 @@ defmodule NovelApplication.AgenticNextStepPlanner do
         provider_execution,
         snapshot \\ %{}
       ) do
+    case next_decision_with_meta(run, sequence, observations, provider_execution, snapshot) do
+      {:ok, decision, _meta} -> {:ok, decision}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @spec next_decision_with_meta(
+          AgentRun.t(),
+          pos_integer(),
+          [AgentObservation.t()],
+          provider_execution(),
+          map()
+        ) ::
+          {:ok, AgentNextStepDecision.t(), map()} | {:error, term()}
+  def next_decision_with_meta(
+        %AgentRun{} = run,
+        sequence,
+        observations,
+        provider_execution,
+        snapshot \\ %{}
+      ) do
     result_fn =
       provider_execution
       |> Execution.with_purpose(:author_reasoning)
       |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :author_reasoning)
       |> Execution.result_fn()
 
-    with result_fn when is_function(result_fn, 1) <- result_fn,
-         {:ok, %{content: content} = provider_result} <-
-           result_fn.(prompt(run, sequence, observations, snapshot)),
-         {:ok, reasoning, parsed} <- parse_reasoning_tail(content),
-         {:ok, decision} <-
-           build_decision(run, sequence, observations, reasoning, parsed, provider_result),
-         :ok <- validate_profile_tool(run, decision) do
-      {:ok, decision}
-    else
-      nil -> {:error, :provider_execution_required}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_next_step_decision, other}}
+    case result_fn do
+      result_fn when is_function(result_fn, 1) ->
+        run
+        |> prompt(sequence, observations, snapshot)
+        |> request_decision(result_fn, run, sequence, observations, 1, true)
+
+      nil ->
+        {:error, :provider_execution_required}
+
+      other ->
+        {:error, {:invalid_next_step_decision, other}}
     end
+  end
+
+  def with_provider_call_meta({:execute, step_fun, decision}, meta),
+    do: {:execute, step_fun, decision, planner_meta(meta)}
+
+  def with_provider_call_meta({:execute, step_fun, decision, existing_meta}, meta),
+    do: {:execute, step_fun, decision, merge_meta(existing_meta, meta)}
+
+  def with_provider_call_meta({:complete, decision}, meta),
+    do: {:complete, decision, planner_meta(meta)}
+
+  def with_provider_call_meta({:complete, decision, existing_meta}, meta),
+    do: {:complete, decision, merge_meta(existing_meta, meta)}
+
+  def with_provider_call_meta({:await_author, decision}, meta),
+    do: {:await_author, decision, planner_meta(meta)}
+
+  def with_provider_call_meta({:await_author, decision, existing_meta}, meta),
+    do: {:await_author, decision, merge_meta(existing_meta, meta)}
+
+  def with_provider_call_meta(result, _meta), do: result
+
+  defp request_decision(prompt_text, result_fn, run, sequence, observations, attempt, retry?) do
+    case result_fn.(prompt_text) do
+      {:ok, %{content: content} = provider_result} ->
+        content
+        |> parse_reasoning_tail()
+        |> build_or_retry_decision(%{
+          prompt: prompt_text,
+          content: content,
+          provider_result: provider_result,
+          result_fn: result_fn,
+          run: run,
+          sequence: sequence,
+          observations: observations,
+          attempt: attempt,
+          retry?: retry?
+        })
+
+      {:ok, %{"content" => content} = provider_result} ->
+        content
+        |> parse_reasoning_tail()
+        |> build_or_retry_decision(%{
+          prompt: prompt_text,
+          content: content,
+          provider_result: provider_result,
+          result_fn: result_fn,
+          run: run,
+          sequence: sequence,
+          observations: observations,
+          attempt: attempt,
+          retry?: retry?
+        })
+
+      {:ok, content} when is_binary(content) ->
+        content
+        |> parse_reasoning_tail()
+        |> build_or_retry_decision(%{
+          prompt: prompt_text,
+          content: content,
+          provider_result: %{content: content},
+          result_fn: result_fn,
+          run: run,
+          sequence: sequence,
+          observations: observations,
+          attempt: attempt,
+          retry?: retry?
+        })
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:invalid_next_step_decision, other}}
+    end
+  end
+
+  defp build_or_retry_decision({:ok, reasoning, parsed}, ctx) do
+    with {:ok, decision} <-
+           build_decision(
+             ctx.run,
+             ctx.sequence,
+             ctx.observations,
+             reasoning,
+             parsed,
+             ctx.provider_result
+           ),
+         :ok <- validate_profile_tool(ctx.run, decision) do
+      {:ok, decision, %{provider_call_count: ctx.attempt}}
+    else
+      {:error, reason} -> retry_or_error(reason, ctx)
+    end
+  end
+
+  defp build_or_retry_decision({:error, reason}, ctx), do: retry_or_error(reason, ctx)
+
+  defp retry_or_error(reason, %{retry?: true} = ctx) do
+    if retryable_protocol_error?(reason) do
+      ctx.prompt
+      |> json_correction_prompt(ctx.content, reason)
+      |> request_decision(
+        ctx.result_fn,
+        ctx.run,
+        ctx.sequence,
+        ctx.observations,
+        ctx.attempt + 1,
+        false
+      )
+    else
+      {:error, reason}
+    end
+  end
+
+  defp retry_or_error(reason, _ctx), do: {:error, reason}
+
+  defp retryable_protocol_error?(reason)
+       when reason in [
+              :json_tail_required,
+              :json_parse_failed,
+              :json_object_required,
+              :reasoning_text_required,
+              :evaluation_of_last_required,
+              :evaluation_of_last_requires_advanced_and_plan_holds,
+              :decision_type_required,
+              :plan_holds_false_requires_replan_decision,
+              :replan_requires_plan_holds_false,
+              :next_action_required,
+              :plan_revision_reason_required,
+              :json_tail_must_not_contain_author_narrative
+            ],
+       do: true
+
+  defp retryable_protocol_error?({:tool_not_allowed_by_profile, _tool}), do: true
+  defp retryable_protocol_error?(errors) when is_list(errors), do: true
+  defp retryable_protocol_error?(_reason), do: false
+
+  defp planner_meta(meta) when is_map(meta) do
+    Map.put(meta, :provider_call_count, provider_call_count(meta, 1))
+  end
+
+  defp planner_meta(_meta), do: %{provider_call_count: 1}
+
+  defp merge_meta(existing_meta, planner_meta) when is_map(existing_meta) do
+    Map.merge(existing_meta, planner_meta(planner_meta), fn
+      :provider_call_count, existing, planner -> provider_call_count(existing, 0) + planner
+      _key, _existing, planner -> planner
+    end)
+  end
+
+  defp merge_meta(_existing_meta, planner_meta), do: planner_meta(planner_meta)
+
+  defp provider_call_count(meta, default) when is_map(meta) do
+    case Map.get(meta, :provider_call_count) || Map.get(meta, "provider_call_count") do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> default
+    end
+  end
+
+  defp provider_call_count(value, _default) when is_integer(value) and value >= 0, do: value
+  defp provider_call_count(_meta, default), do: default
+
+  defp json_correction_prompt(original_prompt, failed_content, reason) do
+    """
+    你上一次的 AgentRun 下一步规划输出无法被系统解析（#{inspect(reason)}）。请严格重新输出同一任务：
+    - 第一段必须是作者可见 reasoning 原文，不能为空
+    - 第二段必须是一个合法 JSON 对象，字段顺序仍为 evaluation_of_last / decision / next_action / plan_revision / reason_codes / confidence
+    - 不要输出 JSON 以外的机器字段，不要把 summary、narrative、description、reasoning 放进 JSON tail
+    - 字符串值内的换行必须写成 \\n 转义，不能出现裸换行
+
+    ## 你的上一次输出（截取前 #{@max_failed_planner_output_chars} 字符）
+    #{String.slice(to_string(failed_content), 0, @max_failed_planner_output_chars)}
+
+    ## 原始任务
+    #{original_prompt}
+    """
   end
 
   defp prompt(%AgentRun{} = run, sequence, observations, snapshot) do
@@ -301,9 +500,24 @@ defmodule NovelApplication.AgenticNextStepPlanner do
   defp observation_lines(observations) do
     observations
     |> Enum.filter(&match?(%AgentObservation{}, &1))
+    |> Enum.take(-@max_observations_in_prompt)
     |> Enum.map_join("\n", fn observation ->
-      "- #{observation.observation_id} / #{observation.observation_type}: #{observation.summary}"
+      "- #{observation.observation_id} / #{observation.observation_type}: #{observation.summary}#{observation_payload_line(observation)}"
     end)
+  end
+
+  defp observation_payload_line(%AgentObservation{structured_payload: payload})
+       when map_size(payload) == 0,
+       do: ""
+
+  defp observation_payload_line(%AgentObservation{structured_payload: payload}) do
+    case Jason.encode(payload) do
+      {:ok, encoded} ->
+        " | payload: #{String.slice(encoded, 0, @max_observation_payload_chars)}"
+
+      {:error, _reason} ->
+        ""
+    end
   end
 
   defp stage_state_keys(snapshot) when is_map(snapshot) do

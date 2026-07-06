@@ -26,6 +26,7 @@ user_flow:
   - create: isolated work through public work API
   - select: created work in the real workbench
   - send: compound author request asking to inspect current roster and then design a mirrored antagonist
+  - verify: one model-drafted AgentPlan contains character_roster and character_design, then advances by mechanical cursor
   - observe: bounded AgentRun panel and author-visible run events
   - wait_for: final character_design TurnResult with pending character_seed artifact
 
@@ -49,9 +50,10 @@ assertions:
     - final turn_result carries agent_run summary and character_design result
   data:
     - parent user_message starts bounded AgentRun without sync_turn fallback
+    - plan_drafted target_tool_ref is character_roster and plan_steps are character_roster, character_design
     - roster and character_design internal steps each cross allow_tool gate
     - character_roster and character_design tools both execute
-    - consumed budget is exactly two steps, two tool calls, and five provider calls, including the profile routing model call
+    - consumed budget is exactly two steps, two tool calls, and three provider calls: profile routing, AgentPlan draft, and character writer
     - generated character_seed remains tentative and requires author adoption
     - no production write or auto-adoption occurs
 

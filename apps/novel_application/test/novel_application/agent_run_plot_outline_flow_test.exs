@@ -10,32 +10,37 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
   @work "work-agent-outline-flow"
 
-  test "bounded plot outline run exposes context, strategy, tool execution, and finalization steps" do
+  test "bounded plot outline run uses a model-drafted plan before context and outline execution" do
     parent = self()
 
     result_fn = fn prompt ->
-      if String.contains?(prompt, "AgentRun 下一步规划器") do
-        {:ok,
-         %{
-           content:
-             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
-         }}
-      else
-        send(parent, {:provider_prompt, prompt})
+      cond do
+        plan_draft_prompt?(prompt) ->
+          {:ok, Map.put(plot_outline_plan_draft(), :provider_call_id, "pc-agent-outline-planner")}
 
-        {:ok,
-         %{
-           provider_call_id: "pc-agent-outline-writer",
-           content:
-             Jason.encode!([
-               %{
-                 "item_id" => "outline-chapter-01",
-                 "title" => "第01章：债务入场",
-                 "body" => "林烬在矿区债务纠纷中第一次看见旧秩序的裂缝。",
-                 "rationale" => "建立主角压力与世界矛盾。"
-               }
-             ])
-         }}
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
+
+        true ->
+          send(parent, {:provider_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-agent-outline-writer",
+             content:
+               Jason.encode!([
+                 %{
+                   "item_id" => "outline-chapter-01",
+                   "title" => "第01章：债务入场",
+                   "body" => "林烬在矿区债务纠纷中第一次看见旧秩序的裂缝。",
+                   "rationale" => "建立主角压力与世界矛盾。"
+                 }
+               ])
+           }}
       end
     end
 
@@ -67,7 +72,11 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:agent_event, :plan_drafted, context_step}
     assert context_step.summary =~ "读取章节大纲规划上下文"
     assert context_step.payload.target_tool_ref == "context_assemble"
-    assert is_list(context_step.payload.plan_steps)
+
+    assert [
+             %{target_tool_ref: "context_assemble"},
+             %{target_tool_ref: "plot_outline"}
+           ] = context_step.payload.plan_steps
 
     NovelApplication.TestAssertions.assert_provider_output_narrative_source(
       context_step.payload.author_narrative_source
@@ -80,17 +89,9 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:agent_event, :evaluation_made, context_decision}, 500
     assert "agent_step_evaluated" in context_decision.reason_codes
 
-    assert_receive {:agent_event, :plan_drafted, outline_step}, 500
-    assert outline_step.summary =~ "生成章节大纲草稿"
-    assert outline_step.payload.target_tool_ref == "plot_outline"
-    assert is_list(outline_step.payload.plan_steps)
-
-    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      outline_step.payload.author_narrative_source
-    )
-
     assert_receive {:agent_event, :evaluation_made, plan_event}, 500
     assert "agent_step_evaluated" in plan_event.reason_codes
+    assert plan_event.payload.target_tool_ref == "plot_outline"
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "系统已完成下一步执行裁决"
     assert_receive {:agent_event, :tool_started, tool_started}, 500
@@ -115,7 +116,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 4
+    assert state.run.consumed_budget.provider_calls == 3
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
 
     turn_result = artifact_event.payload.turn_result
@@ -135,7 +136,34 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert turn_result.trace_summary.provider_call_budget.evaluator == 0
   end
 
+  defp plan_draft_prompt?(prompt), do: prompt_contains?(prompt, "AgentRun 计划起草器")
+
+  defp plot_outline_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先读取章节大纲规划上下文，再生成章节大纲草稿。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "context_assemble",
+          "context_assemble",
+          "先读取章节大纲规划上下文。",
+          success_criteria: ["outline_context_observation_created"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "plot_outline",
+          "plot_outline",
+          "基于已读取的章节上下文生成章节大纲草稿。",
+          kind: "act",
+          write_intent: "tentative",
+          success_criteria: ["tentative_outline_draft_created"]
+        )
+      ],
+      reason_codes: ["agent_plan_drafted", "plot_outline_plan_drafted"]
+    )
+  end
+
   defp next_step_decision(prompt) do
+    prompt = prompt_text(prompt)
+
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
         NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳大纲候选，本轮目标已经满足。")
@@ -156,6 +184,9 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
         )
     end
   end
+
+  defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
+  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
   defp context do
     %DialogueContext{

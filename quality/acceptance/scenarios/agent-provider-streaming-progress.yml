@@ -24,6 +24,7 @@ user_flow:
   - open: real Tauri workbench
   - send: request that triggers a provider execution progress step
   - wait_for: fast ack with run_id
+  - verify: target profile first emits a model-drafted AgentPlan for provider_complete
   - verify: agent_event stream shows provider progress without raw prompt or secret
   - verify: final TurnResult is consistent with completed provider output
 
@@ -37,9 +38,10 @@ evidence:
 
 assertions:
   data:
+    - provider_progress_v1 uses model-drafted AgentPlan before provider_complete execution
     - provider execution progress events carry run_id and step_ref
     - provider execution progress events are visibility=author
-    - final agent_run_state records two provider calls: one profile routing call and one provider progress call
+    - final agent_run_state records three provider calls: profile routing, AgentPlan draft, and provider progress call
 
 anti_hooks:
   product_acceptance_logic_added: false

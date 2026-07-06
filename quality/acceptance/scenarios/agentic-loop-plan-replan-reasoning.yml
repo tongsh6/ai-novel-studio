@@ -1,0 +1,61 @@
+id: agentic-loop-plan-replan-reasoning
+title: ADR-0023 D6 计划耗尽后修订计划再继续执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agentic-loop-plan-replan-reasoning --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - d6-plan-exhausted-without-completion-triggers-provider-sourced-replan
+  - revised-plan-remains-execution-plan-not-tool-approval
+  - replan-budget-is-counted
+  - reply-only-turn-does-not-call-tool-or-write
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: plain conversation input containing D6 fixture marker "UA01D6REPLAN"
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: model-sourced initial AgentPlan containing only context_assemble
+  - wait_for: context assembly result
+  - wait_for: provider-sourced plan_revised event with plan_version=2 and evaluation_of_last.plan_holds=false
+  - wait_for: revised plan continues through dialogue_frame, strategy_gate, and response_finalize
+  - wait_for: completed agent_run_state with replans=1, steps=4, tool_calls=0, provider_calls=4
+  - verify: final TurnResult is the same conversation_turn_v1 run and performs no tool, adoption, or production write
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agentic-loop-plan-replan-reasoning-tauri
+
+assertions:
+  ui:
+    - Assistant work-state skeleton appears immediately after the author sends the message
+    - AgentRun panel reaches completed state
+    - AgentRun panel renders the initial plan, revised plan, reasoning, and final result
+  network:
+    - parent user_message receives bounded run_id before final TurnResult
+    - initial plan_drafted payload contains context_assemble only
+    - plan_revised payload is source-bound to provider_output and targets dialogue_frame
+    - plan_revised payload carries plan_version=2, evaluation_of_last.plan_holds=false, and revision_reason
+    - final agent_run_state records steps=4, tool_calls=0, provider_calls=4, replans=1
+    - final TurnResult carries agent_run.run_id and profile_ref=conversation_turn_v1
+  data:
+    - channel logs bounded run ack and never logs sync_turn fallback
+    - no toolbox.execute event is emitted
+    - truthfulness reports tool_called=false, artifact_adopted=false, production_write_performed=false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

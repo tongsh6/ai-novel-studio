@@ -25,6 +25,7 @@ user_flow:
   - open: real Tauri workbench
   - send: request that reads multiple independent context sources
   - wait_for: bounded AgentRun fast ack
+  - verify: target profile first emits a model-drafted AgentPlan for readonly_batch steps
   - verify: readonly batch item events are visible and scoped to the run
   - verify: no adoption, no production write, no artifact mutation
 
@@ -38,10 +39,11 @@ evidence:
 
 assertions:
   data:
+    - readonly_batch_context_v1 uses model-drafted AgentPlan before readonly_batch execution
     - batch profile authority_scope.production_write=false
     - batch item observations have evidence refs
     - final TurnResult is read-only explanation or context summary
-    - completed agent_run_state records exactly one provider call for profile routing, while the readonly batch profile itself does not call a content provider
+    - completed agent_run_state records exactly two provider calls: profile routing and AgentPlan draft; the readonly batch profile itself does not call a content provider
     - replay uses recorded refs without provider recall
 
 anti_hooks:

@@ -132,7 +132,10 @@ defmodule I3NonceDriver do
       created_at: DateTime.utc_now()
     }
 
-    {:ok, Toolbox.execute(req, result_fn)}
+    # 2026-07-01 Provider.Execution 收口后，Toolbox 只接受 %Execution{} 依赖；
+    # 裸一参函数会被拒（provider_execution_required），导致 Layer-B 静默退化为
+    # indeterminate。此处修复注入形态，判定语义（nonce 必须出现在 items）不变。
+    {:ok, Toolbox.execute(req, provider_execution(result_fn))}
   end
 
   defp tool_name_for("character-seed"), do: "character_design"

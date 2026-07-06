@@ -43,12 +43,16 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :plan_drafted, step1}
-    assert step1.refs != []
+    assert_receive {:agent_event, :plan_drafted, plan_event}, 500
+    assert plan_event.refs != []
+
+    assert [
+             %{target_tool_ref: "character_roster"},
+             %{target_tool_ref: "character_design"}
+           ] = plan_event.payload.plan_steps
+
     assert_receive {:agent_event, :exploration_observed, roster_event}
     assert roster_event.summary =~ "林烬"
-    assert_receive {:agent_event, :plan_drafted, step2}
-    assert step2.sequence > step1.sequence
     assert_receive {:provider_prompt, provider_prompt}, 500
     assert provider_prompt =~ "已完成观察"
     assert provider_prompt =~ "林烬"
@@ -60,7 +64,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 2
-    assert state.run.consumed_budget.provider_calls == 4
+    assert state.run.consumed_budget.provider_calls == 3
 
     assert Enum.any?(state.observations, &(&1.observation_type == :character_roster))
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
@@ -140,15 +144,20 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
 
   defp agentic_result_fn(parent, prompts) do
     fn prompt ->
+      prompt_text = prompt_text(prompt)
+
       cond do
-        String.contains?(prompt, "AgentRun 下一步规划器") ->
+        String.contains?(prompt_text, "AgentRun 计划起草器") ->
+          {:ok, character_design_plan_draft()}
+
+        String.contains?(prompt_text, "AgentRun 下一步规划器") ->
           {:ok,
            %{
              content:
                NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
            }}
 
-        String.contains?(prompt, "JSON 数组") ->
+        String.contains?(prompt_text, "JSON 数组") ->
           complete_character_design_prompt(parent, prompts, prompt)
 
         true ->
@@ -161,6 +170,29 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     end
   end
 
+  defp character_design_plan_draft do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "先读取角色阵容，再基于阵容设计新的角色候选。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "character_roster",
+          "character_roster",
+          "读取当前作品已确认角色阵容。",
+          success_criteria: ["character_roster_observation_exists"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "character_design",
+          "character_design",
+          "基于已读取的角色阵容设计新的主要反派。",
+          kind: "act",
+          write_intent: "tentative",
+          success_criteria: ["tentative_character_seed_created"]
+        )
+      ],
+      reason_codes: ["agent_plan_drafted", "character_design_plan_drafted"]
+    )
+  end
+
   defp complete_character_design_prompt(parent, prompts, prompt) do
     if prompts, do: Agent.update(prompts, &[prompt | &1])
     send(parent, {:provider_prompt, prompt})
@@ -168,6 +200,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   end
 
   defp next_step_decision(prompt) do
+    prompt = prompt_text(prompt)
+
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
         NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳角色候选，本轮目标已经满足。")
@@ -188,4 +222,6 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
         )
     end
   end
+
+  defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 end

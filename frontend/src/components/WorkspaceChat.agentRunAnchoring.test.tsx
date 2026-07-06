@@ -60,6 +60,73 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
     ]);
   });
 
+  it("inserts an author-action child turn after the parent turn's assistant message, not between user and assistant", () => {
+    // stage 2026-07-05 事故回归：choose_candidate 成功子 turn 曾被插到
+    // 「用户消息与候选卡之间」，落在长卡片上方视野外，作者以为没有反应。
+    const cardsTurn = turnResult({
+      turn_id: "turn_parent_1",
+      assistant_message: { text: "这里是可讨论方向卡片" },
+    });
+    const messages: AgentRunAnchorMessage<TurnResult>[] = [
+      { role: "user", text: "聊聊开篇", turnId: "turn_parent_1" },
+      {
+        role: "assistant",
+        text: "这里是可讨论方向卡片",
+        turnId: "turn_parent_1",
+        turnResult: cardsTurn,
+      },
+    ];
+
+    const child = turnResult({
+      turn_id: "turn_child_1",
+      parent_turn_id: "turn_parent_1",
+      assistant_message: { text: "已将「从高冲突场景切入」设为后续创作方向" },
+    });
+
+    const next = upsertAssistantTurnResultMessage(messages, child);
+    expect(next.map((message) => message.text)).toEqual([
+      "聊聊开篇",
+      "这里是可讨论方向卡片",
+      "已将「从高冲突场景切入」设为后续创作方向",
+    ]);
+  });
+
+  it("keeps sibling author-action children in arrival order after the parent turn", () => {
+    const cardsTurn = turnResult({
+      turn_id: "turn_parent_1",
+      assistant_message: { text: "候选卡" },
+    });
+    const firstChild = turnResult({
+      turn_id: "turn_child_1",
+      parent_turn_id: "turn_parent_1",
+      assistant_message: { text: "已设方向一" },
+    });
+    const messages: AgentRunAnchorMessage<TurnResult>[] = [
+      { role: "user", text: "聊聊开篇", turnId: "turn_parent_1" },
+      { role: "assistant", text: "候选卡", turnId: "turn_parent_1", turnResult: cardsTurn },
+      {
+        role: "assistant",
+        text: "已设方向一",
+        turnId: "turn_child_1",
+        turnResult: firstChild,
+      },
+    ];
+
+    const secondChild = turnResult({
+      turn_id: "turn_child_2",
+      parent_turn_id: "turn_parent_1",
+      assistant_message: { text: "已设方向二" },
+    });
+
+    const next = upsertAssistantTurnResultMessage(messages, secondChild);
+    expect(next.map((message) => message.text)).toEqual([
+      "聊聊开篇",
+      "候选卡",
+      "已设方向一",
+      "已设方向二",
+    ]);
+  });
+
   it("anchors a running AgentRun to the user message that received its fast ack", () => {
     const message: AgentRunAnchorMessage<TurnResult> = {
       role: "user",

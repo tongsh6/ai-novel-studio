@@ -209,6 +209,62 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-conversation-turn.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-conversation-turn --surface tauri
+  - id: agentic-loop-plan-replan-reasoning
+    title: "ADR-0023 D6 计划耗尽后修订计划再继续执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agentic-loop-plan-replan-reasoning.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agentic-loop-plan-replan-reasoning --surface tauri
+  - id: agentic-loop-no-deviation-direct
+    title: "ADR-0023 无偏离直通路径不触发重规划"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agentic-loop-no-deviation-direct.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agentic-loop-no-deviation-direct --surface tauri
+  - id: agent-plan-native-tool-calling-protocol
+    title: "ADR-0023 CP4 AgentPlan 原生 tool calling 协议"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-plan-native-tool-calling-protocol.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-plan-native-tool-calling-protocol --surface tauri
+  - id: agentic-loop-budget-deviation-replan
+    title: "ADR-0023 D5 预算余量不足时先修订计划"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agentic-loop-budget-deviation-replan.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agentic-loop-budget-deviation-replan --surface tauri
+  - id: agentic-loop-tool-failure-replan
+    title: "ADR-0023 D1 工具失败时先修订计划"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agentic-loop-tool-failure-replan.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agentic-loop-tool-failure-replan --surface tauri
+  - id: agentic-loop-quality-deviation-replan
+    title: "ADR-0023 D2 质量行动项触发计划修订"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agentic-loop-quality-deviation-replan.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agentic-loop-quality-deviation-replan --surface tauri
+  - id: agentic-loop-gate-deviation-replan
+    title: "ADR-0023 D4 Orchestrator gate deny 时先修订计划"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agentic-loop-gate-deviation-replan.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agentic-loop-gate-deviation-replan --surface tauri
+  - id: agentic-loop-deterministic-gap-replan
+    title: "ADR-0023 D7 确定性缺口触发计划修订"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agentic-loop-deterministic-gap-replan.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agentic-loop-deterministic-gap-replan --surface tauri
   - id: agent-plot-outline-with-context
     title: "AgentRun 章节大纲 Profile 生成待采纳大纲草稿"
     tier: nightly

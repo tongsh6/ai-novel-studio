@@ -2,8 +2,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @moduledoc """
   Deterministic provider for local slice verification.
 
-  It returns planner-compatible JSON so Tauri slice journeys can verify the
-  product chain without depending on an external LLM or the echo-only stub.
+  It returns planner-compatible deterministic outputs so Tauri slice journeys
+  can verify the product chain without depending on an external LLM or the
+  echo-only stub.
   """
 
   @behaviour NovelAgent.Provider
@@ -46,8 +47,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
     |> case do
       :ok ->
-        content = response_content(prompt, prompt_text)
-        {:ok, Result.new(content, usage_for(prompt_text, content))}
+        {:ok, response_result(prompt, prompt_text)}
 
       {:error, reason} ->
         {:error, reason}
@@ -110,6 +110,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     String.contains?(prompt, "AgentRun 下一步规划器")
   end
 
+  defp agent_plan_draft_prompt?(prompt) do
+    String.contains?(prompt, "AgentRun 计划起草器")
+  end
+
+  defp agent_plan_revision_prompt?(prompt) do
+    String.contains?(prompt, "AgentRun 计划修订器")
+  end
+
   defp profile_routing_prompt?(prompt) do
     String.contains?(prompt, "AgentRun profile router") and
       String.contains?(prompt, "\"profile_ref\"")
@@ -138,7 +146,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp maybe_fail_provider_execution_prompt(prompt_text) do
     if String.contains?(prompt_text, @provider_failure_marker) and
-         not agent_next_step_decision_prompt?(prompt_text) do
+         not agent_next_step_decision_prompt?(prompt_text) and
+         not agent_plan_draft_prompt?(prompt_text) and
+         not agent_plan_revision_prompt?(prompt_text) do
       {:error,
        %{
          type: :provider_error,
@@ -168,12 +178,66 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 默认空 findings（评审完成、无语义问题）；prompt 含 fail-marker（英文或中文）时返回非法 JSON →
   # evaluator 两次解析失败 → review_status unavailable（复现诚实降级）。
   defp quality_evaluator_response(prompt) do
-    if String.contains?(prompt, @quality_eval_fail_marker) or
-         String.contains?(prompt, @quality_eval_fail_marker_cn) do
-      "evaluator 故意返回的非 JSON 文本 #{@quality_eval_fail_marker}"
-    else
-      Jason.encode!(%{"findings" => []})
+    cond do
+      String.contains?(prompt, @quality_eval_fail_marker) or
+          String.contains?(prompt, @quality_eval_fail_marker_cn) ->
+        "evaluator 故意返回的非 JSON 文本 #{@quality_eval_fail_marker}"
+
+      quality_confirm_prompt?(prompt) ->
+        Jason.encode!(%{
+          "findings" => [
+            %{
+              "quality_gate_ref" => "quality_gate.rule_consistency",
+              "validator_ref" => "slice_verify.rule_conflict_confirm",
+              "severity" => "high",
+              "action" => "confirm",
+              "summary" => "正文包含违反既有规则且需要作者确认的设定变化。",
+              "evidence_spans" => [%{"text" => "无需代价，违反既有规则"}],
+              "brief_field_refs" => [],
+              "confidence" => 0.91
+            }
+          ]
+        })
+
+      true ->
+        Jason.encode!(%{"findings" => []})
     end
+  end
+
+  defp quality_confirm_prompt?(prompt) do
+    String.contains?(prompt, "无需代价") and String.contains?(prompt, "违反既有规则")
+  end
+
+  defp response_result(prompt, prompt_text) do
+    cond do
+      agent_plan_revision_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+        agent_plan_revision_result(prompt_text)
+
+      agent_plan_draft_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+        agent_plan_draft_result(prompt_text)
+
+      # 两段式规划第一段：无 tools 的自由流式 reasoning 调用，只返回叙事 content。
+      agent_plan_revision_prompt?(prompt_text) ->
+        agent_plan_reasoning_result(prompt_text, :revision)
+
+      agent_plan_draft_prompt?(prompt_text) ->
+        agent_plan_reasoning_result(prompt_text, :draft)
+
+      true ->
+        content = response_content(prompt, prompt_text)
+        Result.new(content, usage_for(prompt_text, content))
+    end
+  end
+
+  defp agent_plan_reasoning_result(prompt, mode) do
+    packet =
+      case mode do
+        :revision -> agent_plan_revision_packet(prompt)
+        :draft -> agent_plan_draft_packet(prompt)
+      end
+
+    reasoning = Map.fetch!(packet, :reasoning)
+    Result.new(reasoning, usage_for(prompt, reasoning))
   end
 
   defp response_content(prompt, prompt_text) do
@@ -218,6 +282,304 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       true ->
         frame_response(prompt) |> Jason.encode!()
     end
+  end
+
+  defp agent_plan_draft_result(prompt) do
+    packet = agent_plan_draft_packet(prompt)
+    reasoning = Map.fetch!(packet, :reasoning)
+
+    Result.new(reasoning, usage_for(prompt, reasoning),
+      tool_calls: [agent_plan_tool_call("agent_plan_draft", packet)]
+    )
+  end
+
+  defp agent_plan_revision_result(prompt) do
+    packet = agent_plan_revision_packet(prompt)
+    reasoning = Map.fetch!(packet, :reasoning)
+
+    Result.new(reasoning, usage_for(prompt, reasoning),
+      tool_calls: [agent_plan_tool_call("agent_plan_revision", packet)]
+    )
+  end
+
+  defp agent_plan_revision_packet(prompt) do
+    prompt
+    |> String.replace("UA01D6REPLAN", "")
+    |> agent_plan_draft_packet()
+    |> Map.update!(:reasoning, &String.replace(&1, "起草", "修订"))
+    |> Map.update!(:reason_codes, fn codes ->
+      ["agent_plan_revised" | Enum.reject(codes, &(&1 == "agent_plan_drafted"))]
+      |> Enum.uniq()
+    end)
+  end
+
+  defp agent_plan_draft_packet(prompt) do
+    profile_ref = agent_plan_profile_ref(prompt)
+
+    if profile_ref == "conversation_turn_v1" and String.contains?(prompt, "UA01D6REPLAN") do
+      conversation_d6_agent_plan_packet()
+    else
+      agent_plan_draft_packet_for_profile(profile_ref, prompt)
+    end
+  end
+
+  defp agent_plan_profile_ref(prompt) do
+    case Regex.run(~r/profile_ref:\s*([a-z0-9_]+)/, prompt, capture: :all_but_first) do
+      [profile_ref] -> profile_ref
+      _ -> nil
+    end
+  end
+
+  defp conversation_d6_agent_plan_packet do
+    %{
+      reasoning: "先只读取当前作品上下文，再观察是否需要继续。",
+      steps: [
+        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
+          "context_observation_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "conversation_d6_short_plan"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("prose_drafting_with_quality_v1", prompt) do
+    %{
+      reasoning: "先读取正文写作上下文，再基于该上下文生成正文草稿并完成质量复核。",
+      steps: [
+        plan_step("context_assemble", "explore", "先读取正文写作上下文。", [
+          "prose_context_observation_created"
+        ]),
+        prose_writing_plan_step(prompt)
+      ],
+      reason_codes: ["agent_plan_drafted", "prose_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile(profile_ref, _prompt),
+    do: agent_plan_draft_packet_for_profile(profile_ref)
+
+  defp agent_plan_draft_packet_for_profile("character_design_with_context_v1") do
+    %{
+      reasoning: "先读取当前角色阵容，再基于阵容设计待采纳角色候选。",
+      steps: [
+        plan_step("character_roster", "explore", "读取当前作品已确认角色阵容。", [
+          "character_roster_observation_exists"
+        ]),
+        plan_step("character_design", "act", "基于已读取的角色阵容设计新的角色候选。", [
+          "tentative_character_seed_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "character_design_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("plot_outline_with_context_v1") do
+    %{
+      reasoning: "先读取章节大纲规划上下文，再基于该上下文生成章节大纲草稿。",
+      steps: [
+        plan_step("context_assemble", "explore", "先读取章节大纲规划上下文。", [
+          "outline_context_observation_created"
+        ]),
+        plan_step("plot_outline", "act", "基于已读取的章节上下文生成章节大纲草稿。", [
+          "tentative_outline_draft_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "plot_outline_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("character_evolution_with_context_v1") do
+    %{
+      reasoning: "先读取角色演化上下文，再基于该上下文生成角色演化记忆草稿。",
+      steps: [
+        plan_step("context_assemble", "explore", "先读取角色演化上下文。", [
+          "character_evolution_context_observation_created"
+        ]),
+        plan_step("character_evolution", "act", "基于已读取的角色上下文生成角色演化记忆草稿。", [
+          "tentative_character_evolution_seed_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "character_evolution_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("world_building_with_context_v1") do
+    %{
+      reasoning: "先读取世界设定上下文，再基于该上下文生成世界设定、伏笔或规则草稿。",
+      steps: [
+        plan_step("context_assemble", "explore", "先读取世界设定上下文。", [
+          "world_building_context_observation_created"
+        ]),
+        plan_step("world_building", "act", "基于已读取的世界设定上下文生成世界设定、伏笔或规则草稿。", [
+          "tentative_world_building_seed_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "world_building_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("provider_progress_v1") do
+    %{
+      reasoning: "直接调用 provider，并只记录 author-safe 进度边界。",
+      steps: [
+        plan_step("provider_complete", "act", "调用 provider 并记录安全进度事件。", [
+          "provider_progress_events_visible",
+          "provider_result_completed"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "provider_progress_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("readonly_batch_context_v1") do
+    %{
+      reasoning: "先并行读取只读上下文，再汇总给作者，不写入作品也不生成候选。",
+      steps: [
+        plan_step("readonly_batch", "explore", "并行读取作品、角色、规则和统计上下文。", [
+          "readonly_batch_observations_exist"
+        ]),
+        plan_step("readonly_batch", "explore", "汇总只读上下文并声明未写入作品事实。", [
+          "readonly_batch_turn_result_emitted",
+          "production_write_false"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "readonly_batch_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("prose_revision_from_findings_v1") do
+    %{
+      reasoning: "先读取待修订草稿和质量发现，再完成授权、生成并汇总修订候选。",
+      steps: [
+        plan_step("revision_prepare", "explore", "读取待修订草稿和质量发现。", [
+          "revision_source_loaded"
+        ]),
+        plan_step("revision_plan", "explore", "制定修订执行策略并重新经过系统裁决。", [
+          "revision_micro_plan_exists",
+          "allow_tool_decision_exists"
+        ]),
+        plan_step("prose_writing", "act", "基于修订计划生成正文修订候选。", [
+          "tentative_revision_fragment_created"
+        ]),
+        plan_step("revision_finalize", "explore", "汇总修订候选给作者确认。", [
+          "turn_result_emitted"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "prose_revision_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile("conversation_turn_v1") do
+    %{
+      reasoning: "先读取上下文，形成认知帧，完成系统裁决，再生成本轮回应。",
+      steps: [
+        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
+          "context_observation_created"
+        ]),
+        plan_step("dialogue_frame", "explore", "形成对话认知帧。", [
+          "dialogue_frame_created"
+        ]),
+        plan_step("strategy_gate", "explore", "制定执行策略并完成系统裁决。", [
+          "strategy_decision_created"
+        ]),
+        plan_step("response_finalize", "explore", "生成本轮回应并写入可回放留痕。", [
+          "turn_result_emitted"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "conversation_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_draft_packet_for_profile(_profile_ref) do
+    %{
+      reasoning: "为当前目标起草一条最小执行计划。",
+      steps: [
+        plan_step("allowed_tool", "act", "执行一个允许能力。", ["goal_progress"])
+      ],
+      reason_codes: ["agent_plan_drafted"]
+    }
+  end
+
+  defp agent_plan_tool_call(tool_name, packet) do
+    %{
+      "id" => "call_#{tool_name}",
+      "name" => tool_name,
+      "arguments" => agent_plan_tool_arguments(packet)
+    }
+  end
+
+  defp agent_plan_tool_arguments(packet) do
+    %{
+      plan: %{steps: Map.fetch!(packet, :steps)},
+      reason_codes: Map.get(packet, :reason_codes, ["agent_plan_drafted"]),
+      confidence: Map.get(packet, :confidence, 1.0)
+    }
+  end
+
+  defp plan_step(target_tool_ref, kind, description, success_criteria) do
+    %{
+      step_id: target_tool_ref,
+      kind: kind,
+      description: description,
+      success_criteria: success_criteria,
+      depends_on: [],
+      target_tool_ref: target_tool_ref,
+      write_intent: if(kind == "act", do: "tentative", else: "none"),
+      risk_hint: "low",
+      authoring_intent: nil,
+      target_chapter: nil,
+      requested_chapter_raw: nil
+    }
+  end
+
+  defp prose_writing_plan_step(prompt) do
+    author_goal = agent_plan_author_goal(prompt)
+    {authoring_intent, requested_chapter_raw} = prose_plan_authoring_coordinate(author_goal)
+    risk_hint = if prose_plan_high_risk_goal?(author_goal), do: "high", else: "low"
+
+    "prose_writing"
+    |> plan_step("act", "基于已读取的正文上下文生成正文草稿并完成质量复核。", [
+      "tentative_prose_fragment_created",
+      "quality_review_completed"
+    ])
+    |> Map.merge(%{
+      write_intent: "tentative",
+      risk_hint: risk_hint,
+      authoring_intent: authoring_intent,
+      target_chapter: nil,
+      requested_chapter_raw: requested_chapter_raw
+    })
+  end
+
+  defp agent_plan_author_goal(prompt) do
+    case Regex.run(~r/- author_goal:\s*(.*?)\n\s*-/su, prompt, capture: :all_but_first) do
+      [text] -> String.trim(text)
+      _ -> author_input_text(prompt)
+    end
+  end
+
+  defp prose_plan_authoring_coordinate(author_goal) do
+    intent =
+      cond do
+        contains_any?(author_goal, ["推翻", "重写", "改写", "重新写"]) -> "rewrite"
+        contains_any?(author_goal, ["接着", "继续", "续写", "往下写", "再写", "补一段", "补写"]) -> "continuation"
+        true -> nil
+      end
+
+    {intent, named_chapter_token(author_goal)}
+  end
+
+  defp prose_plan_high_risk_goal?(author_goal) do
+    contains_any?(author_goal, [
+      "高风险",
+      "需要确认",
+      "确认后",
+      "覆盖主线",
+      "推翻",
+      "重写",
+      "改写",
+      "生产写入"
+    ])
   end
 
   defp frame_response(prompt) do
@@ -799,6 +1161,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
        ],
        {"provider_progress_v1", "模型选择模型执行进度工作流。",
         ["model_profile_selected", "provider_progress_text_match"]}},
+      {:contains, ["正文草稿", "写下一章", "续写", "正文"],
+       {"prose_drafting_with_quality_v1", "模型选择正文写作工作流。",
+        ["model_profile_selected", "prose_drafting_text_match"]}},
       {:contains, ["章节大纲", "章节计划", "分章大纲", "卷纲", "outline"],
        {"plot_outline_with_context_v1", "模型选择章节大纲工作流。",
         ["model_profile_selected", "plot_outline_text_match"]}},
@@ -809,9 +1174,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
        {"world_building_with_context_v1", "模型选择世界设定工作流。",
         ["model_profile_selected", "world_building_text_match"]}},
       {:conversation_only, default_profile_route()},
-      {:contains, ["正文草稿", "写下一章", "续写", "正文"],
-       {"prose_drafting_with_quality_v1", "模型选择正文写作工作流。",
-        ["model_profile_selected", "prose_drafting_text_match"]}},
       {:contains, ["角色阵容", "现有角色", "已有角色", "反派"],
        {"character_design_with_context_v1", "模型选择角色设计工作流。",
         ["model_profile_selected", "character_design_context_text_match"]}}
@@ -1820,6 +2182,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_text(prompt) when is_map(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+  end
 
   defp prompt_text(prompt) when is_list(prompt) do
     prompt

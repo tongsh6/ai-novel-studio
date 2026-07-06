@@ -40,7 +40,8 @@ evidence:
 assertions:
   data:
     - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
-    - revision agent_run_state completes with 4 steps, 1 tool call, 6 provider calls
+    - revision agent_event stream exposes one model-drafted AgentPlan with revision_prepare, revision_plan, prose_writing, revision_finalize
+    - revision agent_run_state completes with 4 steps, 1 tool call, 2 provider calls
     - revision replay_policy.use_recorded_frame is true
     - revision replay_policy.recall_provider is false
     - revision draft remains tentative and is not auto-adopted

@@ -8,6 +8,7 @@
 |---|---|
 | `lib/` | 被多个脚本复用的 shell helper。 |
 | `scenario_invariants/` | I1/I2/I3 场景化不变量 driver。 |
+| `model_contracts/` | MBC 模型行为契约探针（`tool_call_compliance.exs`：计划起草强制 tool_choice 双通道在指定 provider 上的合规率，穿生产 planner+Gateway 路径；`mix run scripts/model_contracts/tool_call_compliance.exs [stub\|lmstudio\|deepseek]`，exit 65=凭据/环境阻塞）。 |
 
 ## 顶层脚本
 

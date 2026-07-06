@@ -515,11 +515,23 @@ defmodule NovelApplication.AgentRunServer do
       Map.get(run.authority_scope, :allowed_tools) ||
         Map.get(run.authority_scope, "allowed_tools") || []
 
-    case AgentRunPolicy.new(allowed_tool_refs: tools) do
+    case AgentRunPolicy.new(
+           allowed_tool_refs: tools,
+           max_pending_artifacts: budget_value(run.budget, :max_pending_artifacts, 3)
+         ) do
       {:ok, policy} -> %{run | policy: policy}
       {:error, _errors} -> run
     end
   end
+
+  defp budget_value(budget, key, default) when is_map(budget) do
+    case Map.get(budget, key) || Map.get(budget, Atom.to_string(key)) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> default
+    end
+  end
+
+  defp budget_value(_budget, _key, default), do: default
 
   defp positive_int(value) when is_integer(value) and value > 0, do: value
   defp positive_int(_value), do: nil
@@ -1177,61 +1189,179 @@ defmodule NovelApplication.AgentRunServer do
     do: step_fun.(run, sequence)
 
   defp execute_dynamic_next_step(planner, run, sequence, snapshot) when is_function(planner, 3) do
-    case planner.(run, sequence, snapshot) do
-      {:execute, step_fun, %AgentNextStepDecision{} = decision} when is_function(step_fun) ->
-        emit_agent_plan_drafted(snapshot, decision)
+    planner.(run, sequence, snapshot)
+    |> handle_next_step_result(run, sequence, snapshot)
+  end
 
-        step_fun
-        |> execute_step_fun(run, sequence, snapshot)
-        |> attach_loop_decision(decision, %{provider_call_count: 1})
+  defp handle_next_step_result(
+         {:execute, step_fun, %AgentNextStepDecision{} = decision},
+         run,
+         sequence,
+         snapshot
+       )
+       when is_function(step_fun) do
+    execute_or_complete_for_candidate_budget(
+      step_fun,
+      decision,
+      %{provider_call_count: 1},
+      run,
+      sequence,
+      snapshot
+    )
+  end
 
-      {:execute, step_fun, %AgentNextStepDecision{} = decision, meta}
-      when is_function(step_fun) ->
-        emit_agent_plan_drafted(snapshot, decision)
+  defp handle_next_step_result(
+         {:execute, step_fun, %AgentNextStepDecision{} = decision, meta},
+         run,
+         sequence,
+         snapshot
+       )
+       when is_function(step_fun) do
+    execute_or_complete_for_candidate_budget(step_fun, decision, meta, run, sequence, snapshot)
+  end
 
-        step_fun
-        |> execute_step_fun(run, sequence, snapshot)
-        |> attach_loop_decision(decision, meta)
+  defp handle_next_step_result(
+         {:complete, %AgentNextStepDecision{} = decision},
+         _run,
+         _sequence,
+         _snapshot
+       ) do
+    terminal_next_step_result(decision, :completed, 1)
+  end
 
-      {:complete, %AgentNextStepDecision{} = decision} ->
-        {:ok,
-         %{
-           loop_decision: decision,
-           loop_status: :completed,
-           provider_call_count: 1
-         }}
+  defp handle_next_step_result(
+         {:complete, %AgentNextStepDecision{} = decision, meta},
+         _run,
+         _sequence,
+         snapshot
+       ) do
+    maybe_emit_terminal_plan_revision(snapshot, decision, meta)
 
-      {:complete, %AgentNextStepDecision{} = decision, meta} ->
-        {:ok,
-         %{
-           loop_decision: decision,
-           loop_status: :completed,
-           provider_call_count: provider_call_count(meta, 0)
-         }}
+    decision
+    |> terminal_next_step_result(:completed, provider_call_count(meta, 0))
+    |> attach_terminal_plan_meta(decision, meta)
+  end
 
-      {:await_author, %AgentNextStepDecision{} = decision} ->
-        {:ok,
-         %{
-           loop_decision: decision,
-           loop_status: :awaiting_author,
-           provider_call_count: 1
-         }}
+  defp handle_next_step_result(
+         {:await_author, %AgentNextStepDecision{} = decision},
+         _run,
+         _sequence,
+         _snapshot
+       ) do
+    terminal_next_step_result(decision, :awaiting_author, 1)
+  end
 
-      {:await_author, %AgentNextStepDecision{} = decision, meta} ->
-        {:ok,
-         %{
-           loop_decision: decision,
-           loop_status: :awaiting_author,
-           provider_call_count: provider_call_count(meta, 0)
-         }}
+  defp handle_next_step_result(
+         {:await_author, %AgentNextStepDecision{} = decision, meta},
+         _run,
+         _sequence,
+         snapshot
+       ) do
+    maybe_emit_terminal_plan_revision(snapshot, decision, meta)
 
-      {:error, reason} ->
-        {:error, reason}
+    decision
+    |> terminal_next_step_result(:awaiting_author, provider_call_count(meta, 0))
+    |> attach_terminal_plan_meta(decision, meta)
+  end
 
-      other ->
-        {:error, {:invalid_next_step_result, other}}
+  defp handle_next_step_result({:error, reason}, _run, _sequence, _snapshot), do: {:error, reason}
+
+  defp handle_next_step_result(other, _run, _sequence, _snapshot),
+    do: {:error, {:invalid_next_step_result, other}}
+
+  defp execute_or_complete_for_candidate_budget(
+         step_fun,
+         %AgentNextStepDecision{} = decision,
+         meta,
+         %AgentRun{} = run,
+         sequence,
+         snapshot
+       ) do
+    maybe_emit_agent_plan_drafted(snapshot, decision, meta)
+
+    if AgentRun.pending_artifact_budget_reached?(run) do
+      complete_for_pending_artifact_budget(run, sequence, decision, meta)
+    else
+      step_fun
+      |> execute_step_fun(run, sequence, snapshot)
+      |> attach_loop_decision(decision, meta)
     end
   end
+
+  defp terminal_next_step_result(%AgentNextStepDecision{} = decision, status, provider_call_count) do
+    {:ok,
+     %{
+       loop_decision: decision,
+       loop_status: status,
+       provider_call_count: provider_call_count
+     }}
+  end
+
+  defp maybe_emit_terminal_plan_revision(snapshot, %AgentNextStepDecision{} = decision, meta) do
+    if plan_revised?(decision) do
+      maybe_emit_agent_plan_drafted(snapshot, decision, meta)
+    else
+      :ok
+    end
+  end
+
+  defp attach_terminal_plan_meta({:ok, result}, %AgentNextStepDecision{} = decision, meta)
+       when is_map(meta) do
+    {:ok,
+     result
+     |> maybe_attach_plan_run_patch(meta)
+     |> maybe_attach_replan(decision)}
+  end
+
+  defp attach_terminal_plan_meta(result, _decision, _meta), do: result
+
+  defp maybe_emit_agent_plan_drafted(snapshot, decision, meta) do
+    if meta_value(meta, :suppress_plan_event) == true do
+      :ok
+    else
+      emit_agent_plan_drafted(snapshot, decision, meta)
+    end
+  end
+
+  defp emit_agent_plan_drafted(snapshot, decision, meta) do
+    run = plan_event_run(snapshot, meta)
+    summary = meta_value(meta, :summary) || decision.summary
+    reason_codes = meta_value(meta, :reason_codes) || decision.reason_codes
+
+    decision =
+      %{
+        decision
+        | summary: summary,
+          reason_codes: reason_codes,
+          confidence: meta_value(meta, :confidence) || decision.confidence
+      }
+      |> maybe_put_decision_narrative_source(meta_value(meta, :author_narrative_source))
+
+    emit_agent_plan_drafted(%{snapshot | run: run}, decision)
+  end
+
+  defp plan_event_run(%{run: %AgentRun{} = run}, meta) do
+    case meta_value(meta, :agent_plan) do
+      plan when is_map(plan) ->
+        %{
+          run
+          | plan: plan,
+            plan_ref: plan_ref(plan) || run.plan_ref,
+            plan_version: plan_version(plan) || run.plan_version
+        }
+
+      _ ->
+        run
+    end
+  end
+
+  defp maybe_put_decision_narrative_source(%AgentNextStepDecision{} = decision, source)
+       when is_map(source) do
+    %{decision | narrative_source: source}
+  end
+
+  defp maybe_put_decision_narrative_source(%AgentNextStepDecision{} = decision, _source),
+    do: decision
 
   defp emit_agent_plan_drafted(
          %{stage_sink: stage_sink, run: %AgentRun{} = run},
@@ -1332,10 +1462,18 @@ defmodule NovelApplication.AgentRunServer do
         step_ref: plan_step_ref(step),
         kind: step |> map_value(:kind) |> atom_string(),
         status: step_status(index, active_index, stage) |> atom_string(),
+        target_tool_ref: map_value(step, :target_tool_ref),
         description: map_value(step, :description),
         success_criteria: string_list(map_value(step, :success_criteria)),
-        depends_on: string_list(map_value(step, :depends_on))
+        depends_on: string_list(map_value(step, :depends_on)),
+        write_intent: step |> map_value(:write_intent) |> atom_string(),
+        risk_hint: step |> map_value(:risk_hint) |> atom_string(),
+        authoring_intent: optional_atom_string(map_value(step, :authoring_intent)),
+        target_chapter: map_value(step, :target_chapter),
+        requested_chapter_raw: map_value(step, :requested_chapter_raw)
       }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
     end)
   end
 
@@ -1407,6 +1545,14 @@ defmodule NovelApplication.AgentRunServer do
 
   defp map_value(_map, _key), do: nil
 
+  defp optional_atom_string(nil), do: nil
+  defp optional_atom_string(value), do: atom_string(value)
+
+  defp meta_value(meta, key) when is_map(meta),
+    do: Map.get(meta, key) || Map.get(meta, Atom.to_string(key))
+
+  defp meta_value(_meta, _key), do: nil
+
   defp attach_loop_decision({:ok, result}, %AgentNextStepDecision{} = decision, meta)
        when is_map(result) do
     {:ok,
@@ -1415,6 +1561,7 @@ defmodule NovelApplication.AgentRunServer do
      |> Map.update(:provider_call_count, provider_call_count(meta, 1), fn count ->
        count + provider_call_count(meta, 1)
      end)
+     |> maybe_attach_plan_run_patch(meta)
      |> maybe_attach_replan(decision)}
   end
 
@@ -1429,6 +1576,64 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp provider_call_count(_meta, default), do: default
+
+  defp maybe_attach_plan_run_patch(result, meta) when is_map(result) and is_map(meta) do
+    case meta_value(meta, :agent_plan) do
+      plan when is_map(plan) ->
+        Map.update(result, :run_patch, plan_run_patch(plan), fn patch ->
+          Map.merge(patch || %{}, plan_run_patch(plan))
+        end)
+
+      _ ->
+        result
+    end
+  end
+
+  defp maybe_attach_plan_run_patch(result, _meta), do: result
+
+  defp plan_run_patch(plan) when is_map(plan) do
+    %{
+      plan: plan,
+      plan_ref: plan_ref(plan),
+      plan_version: plan_version(plan)
+    }
+  end
+
+  defp complete_for_pending_artifact_budget(
+         %AgentRun{} = run,
+         sequence,
+         %AgentNextStepDecision{} = proposed_decision,
+         meta
+       ) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_candidate_budget_goal_satisfied",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :goal_satisfied,
+        summary: "已生成待采纳候选，候选预算已达上限，停止追加候选。",
+        target_tool_ref: proposed_decision.target_tool_ref,
+        write_intent: :none,
+        risk_hint: proposed_decision.risk_hint,
+        reason_codes:
+          ["candidate_budget_exhausted", "model_requested_extra_candidate"] ++
+            proposed_decision.reason_codes,
+        observation_refs: proposed_decision.observation_refs,
+        evaluation_of_last: %{
+          advanced: false,
+          plan_holds: false,
+          new_constraint: "pending_artifact_budget_reached"
+        },
+        confidence: 1.0
+      })
+
+    {:ok,
+     %{
+       loop_decision: decision,
+       loop_status: :completed,
+       provider_call_count: provider_call_count(meta, 0)
+     }}
+  end
 
   defp maybe_attach_replan(result, %AgentNextStepDecision{} = decision) do
     if plan_revised?(decision) do

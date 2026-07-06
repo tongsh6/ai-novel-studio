@@ -26,7 +26,7 @@ user_flow:
   - generate: prose draft with quality finding
   - click: 按这些问题重写
   - verify: revision author_action fast-acks with bounded AgentRun
-  - verify: revision AgentRun exposes source, plan, gate, tool, and finalization events
+  - verify: revision AgentRun emits one model-drafted AgentPlan and advances through source, plan, tool, and finalization by mechanical cursor
   - verify: revision uses real OrchestratorDecision and ToolRequest before Toolbox execution
 
 evidence:
@@ -41,8 +41,8 @@ assertions:
   data:
     - revise_from_findings author_action is sent from the real page
     - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
-    - revision agent_event stream exposes source, plan, gate, tool, and finalization events
-    - revision agent_run_state completes with 4 steps, 1 tool call, 6 provider calls
+    - revision agent_event stream exposes one plan_drafted payload with revision_prepare, revision_plan, prose_writing, revision_finalize
+    - revision agent_run_state completes with 4 steps, 1 tool call, 2 provider calls
     - revision path uses non-fabricated decision_ref
     - revision path creates tool_request_ref before Toolbox execution
     - sibling revision draft remains tentative and points to revision_base

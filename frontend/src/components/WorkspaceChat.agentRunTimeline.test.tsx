@@ -3,14 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentEventData } from "../lib/socket";
-import {
-  agentRunEventDetailItems,
-  agentRunProviderFlowSummary,
-  agentRunProviderRunDetailItems,
-  agentRunProviderRunReplayDetails,
-  agentRunReasoningFlow,
-  selectAgentRunVisibleEvents,
-} from "../lib/agentRunTimeline";
+import { agentRunReasoningFlow } from "../lib/agentRunTimeline";
 
 describe("AgentRun reasoning flow", () => {
   it("builds the author-visible flow only from 46§9 narrative events", () => {
@@ -136,7 +129,6 @@ describe("AgentRun reasoning flow", () => {
 
     const flow = agentRunReasoningFlow(events);
 
-    expect(flow.statusLine).toBeNull();
     expect(flow.planRef).toBe("ap_run_reasoning");
     expect(flow.planVersion).toBe(2);
     expect(flow.planSteps).toEqual([
@@ -157,54 +149,6 @@ describe("AgentRun reasoning flow", () => {
     expect(flow.narrativeEvents.map((event) => event.narrative).join(" ")).not.toContain(
       "不应进入作者主链",
     );
-    expect(flow.resultLine).toBe("已完成");
-  });
-
-  it("keeps reasoning events visible while compacting noisy provider chunks", () => {
-    const events: AgentEventData[] = [
-      {
-        event_id: "evt_plan",
-        run_ref: "run_chunks",
-        sequence: 1,
-        event_type: "plan_drafted",
-        visibility: "author",
-        summary: "先读取上下文。",
-        payload: { author_narrative: "先读取上下文。" },
-      },
-      ...Array.from({ length: 140 }, (_, index) => ({
-        event_id: `evt_chunk_${index + 1}`,
-        run_ref: "run_chunks",
-        sequence: index + 2,
-        event_type: "provider_progress",
-        visibility: "developer",
-        summary: "provider_event:chunk",
-        reason_codes: ["provider_execution_stream", "provider_chunk"],
-        payload: {
-          provider_event_type: "chunk",
-          provider_run_ref: "prun_chunks",
-          provider_call_ref: "pcall_chunks",
-          purpose: "author_reasoning",
-          chunk_index: index + 1,
-        },
-      })),
-      {
-        event_id: "evt_eval",
-        run_ref: "run_chunks",
-        sequence: 142,
-        event_type: "evaluation_made",
-        visibility: "author",
-        summary: "上下文足够继续。",
-        payload: { author_narrative: "上下文足够继续。" },
-      },
-    ];
-
-    const visible = selectAgentRunVisibleEvents(events, 96);
-    const chunkEvents = visible.filter((event) => event.payload?.provider_event_type === "chunk");
-
-    expect(visible.map((event) => event.event_type)).toContain("plan_drafted");
-    expect(visible.map((event) => event.event_type)).toContain("evaluation_made");
-    expect(chunkEvents).toHaveLength(1);
-    expect(chunkEvents[0]?.payload?.chunk_index).toBe(140);
   });
 
   it("streams author reasoning deltas before the final source-bound event replaces them", () => {
@@ -245,7 +189,6 @@ describe("AgentRun reasoning flow", () => {
 
     const activeFlow = agentRunReasoningFlow(streamed);
 
-    expect(activeFlow.statusLine).toBeNull();
     expect(activeFlow.narrativeEvents).toEqual([
       {
         key: "stream:prun_streaming_reasoning",
@@ -313,131 +256,5 @@ describe("AgentRun reasoning flow", () => {
 
     expect(flow.narrativeEvents).toHaveLength(1);
     expect(flow.narrativeEvents[0]?.narrative).toBe(narrative);
-  });
-});
-
-describe("AgentRun provider developer details", () => {
-  it("presents provider execution refs without exposing raw provider content", () => {
-    const event: AgentEventData = {
-      event_id: "evt_provider",
-      run_ref: "run_provider",
-      sequence: 1,
-      event_type: "provider_progress",
-      visibility: "developer",
-      summary: "provider_event:final_output",
-      reason_codes: ["provider_execution_stream", "provider_final_output"],
-      refs: ["provider_run:prun_1", "provider_call:pcall_1"],
-      payload: {
-        provider_event_type: "final_output",
-        provider_run_ref: "prun_1",
-        provider_call_ref: "pcall_1",
-        purpose: "author_reasoning",
-        status: "ok",
-        output_type: "text",
-        content_length: 42,
-        raw_prompt: "作者原始输入不应展示",
-        assistant_message: "模型原文不应展示",
-      },
-      emitted_at: "2026-06-30T03:00:00Z",
-    };
-
-    const rendered = agentRunEventDetailItems(event).join(" ");
-
-    expect(rendered).toContain("模型事件：收到结果");
-    expect(rendered).toContain("运行编号：prun_1");
-    expect(rendered).toContain("调用编号：pcall_1");
-    expect(rendered).toContain("结果长度：42 字");
-    expect(rendered).not.toContain("作者原始输入不应展示");
-    expect(rendered).not.toContain("模型原文不应展示");
-  });
-
-  it("summarizes live provider execution flow as developer telemetry", () => {
-    const events: AgentEventData[] = [
-      {
-        event_id: "evt_provider_start",
-        run_ref: "run_provider_flow",
-        sequence: 1,
-        event_type: "provider_progress",
-        visibility: "developer",
-        summary: "provider_event:progress phase=request_prepared",
-        reason_codes: ["provider_execution_stream", "provider_request_prepared"],
-        payload: {
-          provider_event_type: "progress",
-          provider_run_ref: "prun_flow",
-          provider_call_ref: "pcall_flow",
-          purpose: "author_reasoning",
-          status: "running",
-          provider_progress_phase: "request_prepared",
-        },
-      },
-      {
-        event_id: "evt_provider_final",
-        run_ref: "run_provider_flow",
-        sequence: 2,
-        event_type: "provider_progress",
-        visibility: "developer",
-        summary: "provider_event:final_output",
-        reason_codes: ["provider_execution_stream", "provider_final_output"],
-        payload: {
-          provider_event_type: "final_output",
-          provider_run_ref: "prun_flow",
-          provider_call_ref: "pcall_flow",
-          purpose: "author_reasoning",
-          status: "ok",
-          output_type: "text",
-          content_length: 64,
-          usage: { total_tokens: 18 },
-        },
-      },
-    ];
-
-    const summary = agentRunProviderFlowSummary(events);
-
-    expect(summary?.headline).toBe("模型输出已进入本轮执行轨迹。");
-    expect(summary?.details.join(" ")).toContain("结果：64 字");
-    expect(summary?.details.join(" ")).toContain("用量：18 tokens");
-  });
-
-  it("presents persisted provider run replay boundaries", () => {
-    const run = {
-      run_id: "run_provider_detail",
-      provider_run_ref: "prun_detail",
-      provider_call_ref: "pcall_detail",
-      purpose: "author_reasoning",
-      status: "ok",
-      output_type: "text",
-      content_length: 32,
-      usage: { total_tokens: 9 },
-      model: "stub-model",
-      events: [
-        {
-          event_type: "final_output",
-          summary: "provider final",
-          sequence: 3,
-          payload: {
-            provider_event_type: "final_output",
-            provider_run_ref: "prun_detail",
-            provider_call_ref: "pcall_detail",
-            content_length: 32,
-          },
-        },
-      ],
-      output: {
-        status: "ok",
-        output_type: "text",
-        content_length: 32,
-        usage: { total_tokens: 9 },
-        refs: ["pcall_detail"],
-      },
-    };
-
-    const details = agentRunProviderRunDetailItems(run);
-    const replay = agentRunProviderRunReplayDetails(run);
-
-    expect(details.join(" ")).toContain("调用编号：pcall_detail");
-    expect(details.join(" ")).toContain("模型：stub-model");
-    expect(replay.events[0]?.details.join(" ")).toContain("运行编号：prun_detail");
-    expect(replay.output.join(" ")).toContain("引用：pcall_detail");
-    expect(replay.boundary).toContain("不会重新调用模型");
   });
 });
