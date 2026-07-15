@@ -207,3 +207,56 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 - 禁止把普通 provider telemetry、raw prompt、provider 私有 reasoning / thinking、完整 ToolRequest 或 native tool-call arguments 放入作者主视图；`author_reasoning` 只能透出作者可见 planning prose，legacy 两段式协议只允许 JSON tail 之前的文本。
 - 禁止把 legacy 结构 JSON tail 或 native tool-call arguments 里的字段当作作者叙述渲染；这些结构只能驱动 chip、状态、版本、下一步 action 或 developer-only count/name telemetry。
 - 禁止为了验收给生产 UI 增加专用 hook；场景验证必须从真实页面与真实事件投影观察。
+
+### 9.4 叙事体裁对齐：Codex 式工作流呈现（2026-07-15 用户拍板）
+
+> 修订注记：用户以 Codex Desktop 工作流截图为参照拍板对齐方向——AI 响应以
+> 「意图开场段 → 折叠活动行 → 阶段结论段 → 轻量进度 → 产物卡」的文档流呈现，
+> 文案按写作场景重写。本节不推翻 §9.1 根原则与 §9.2 三层收敛：叙事措辞仍归模型
+> （体裁靠提示词引导），新增的活动行与进度行是纯结构件（app copy），归 app。
+
+#### 9.4.1 五要素映射
+
+| Codex 要素 | 写作场景等价物 | 数据来源 | 措辞归属 |
+|---|---|---|---|
+| 意图开场段（目标+顺序+边界承诺，一段连贯第一人称） | 「先看看你现在的角色阵容，再围绕镜像冲突设计反派；生成的候选只作为草稿等你确认，不会直接写进作品档案。」 | `author_reasoning` 流式 delta（计划起草 call1，已落地） | **模型**（提示词体裁约束） |
+| 折叠活动行（「运行了多个命令」「正在编辑文件」） | 「查阅作品档案 · 角色 3 · 设定 2」「正在起草角色候选…」「检索前文 · 第 12-14 章」 | `gate_decided` / `tool_started` / `tool_completed` / `artifact_created` 结构事件 + refs 计数 | **app copy**（中性结构动词模板，禁止"模型发现/认为"句式） |
+| 阶段结论段（「范围已核清：只改 X…不新增 Y…」） | 「阵容已核清：确认角色 2 名，无既定反派；候选将围绕稽查线设计，本轮只产出待采纳草稿，不触碰已确认设定。」 | `exploration_observed` / `evaluation_made` 的 `author_narrative`（source-bound） | **模型**（提示词体裁：核清了什么/判断是什么/只动哪里） |
+| 轻量进度行（「第 1/6 步 · 2 个文件已更 +25-13」） | 「第 2/4 步 · 1 份草稿待采纳 · 约 1,200 字」 | plan cursor / `pending_artifact_refs` / artifact 字数统计 | **app copy** |
+| 产物摘要（文件 diff 列表） | 候选卡 / 采纳卡（已有；2026-07-15 已改逐候选内嵌按钮 + 网格铺开） | `TurnResult.ui_cards` / `adoption_state` | 既有契约 |
+
+#### 9.4.2 布局演进（相对 §9.2 三层）
+
+三层语义不变，呈现体裁调整：
+
+1. 状态行：保留（chip + 短枚举），并入进度行（步数 · 待采纳产物 · 字数）。
+2. 计划 checklist：保留。
+3. 推理区：从「标签 + 短句列表」改为**文档流段落体**——意图开场段与阶段结论段
+   按到达顺序成段渲染（模型原文，不改写）；结构事件不再逐条显示，聚合为段落间的
+   折叠活动行（同类连续事件合并计数，点击展开仅显示结构事实：动作 + 对象 ref + 计数，
+   无叙事）。
+
+#### 9.4.3 提示词体裁约束（实施时进 prompt 资产，非 UI 责任）
+
+- 计划起草 call1 的 author_reasoning 开场须包含：本轮目标复述、动作顺序、边界承诺
+  （不写入/待确认语义）。
+- `exploration_observed` / `evaluation_made` 叙事须为成段结论：已核清事实 + 判断 +
+  影响范围（内联关键对象名），不再是单短句。
+- 体裁约束只影响措辞组织方式；N-NARR 字节绑定、两段式协议、native tool calling 均不变。
+
+#### 9.4.4 活动行 copy 草案（实施时进 copy.ts）
+
+| 结构事件 | 文案模板 |
+|---|---|
+| tool_completed（context/roster/readonly 类） | 「查阅{对象} · {计数}」 |
+| tool_started（creative 类） | 「正在起草{产物类型}…」 |
+| tool_completed + artifact_created | 「已产出{产物类型}草稿 · {n} 份待采纳」 |
+| gate_decided（allow_tool） | 折叠计入活动行，不单独成行 |
+| gate_decided（require_confirmation） | 独立结构行「等待你的确认」（S3 决策面接管） |
+
+#### 9.4.5 红线
+
+- 活动行与进度行是结构件：不得出现任何"模型发现/模型认为/模型打算"句式（§9.1 判定标准不放宽）。
+- 意图段/结论段若模型未产出（空叙事），UI 显示结构骨架即可，不得由 copy 补写。
+- 本节实施须切独立 slice（提示词资产 + AgentRunDialogueFlow 布局 + copy），
+  验收沿用 46§9 场景族并按新体裁校准断言；不新增第二套叙事来源或旁路事件。

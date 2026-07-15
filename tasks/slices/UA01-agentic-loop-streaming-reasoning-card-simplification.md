@@ -39,7 +39,7 @@ ADR-0023 CP4 后流式退化的根因链（已核实）：
 |---|---|---|
 | CP1 | 后端两段式规划调用：call1 无 tools 流式 reasoning（purpose `:author_reasoning`）→ call2 强制 tool call 结构化（purpose `:planner`，prompt 内嵌 call1 reasoning）；叙事优先绑定 call1 content，空 content 回退 call2 arguments.author_reasoning；`provider_call_count` 计两次调用；预算集中在 `run_budget/3` 补 `+1+max_replans` 余量（routed +1 保持路由调用语义）；stub/slice_verify 替身按「有无 tools」分辨两段 | **done**（focused test 断言两段顺序/叙事绑定 call1/计数=2；全 umbrella 1206 tests 绿） |
 | CP2 | 前端卡片简化：删阶段带（7 节点）/终态区/三处 hint/步骤双标签（留状态符号+描述），v1 pill 仅 version≥2 显示，工作详情整体移除（含 props/取数/`agentRunTimeline` 详情类函数 1039→~290 行/copy.ts 死文案/死 CSS 30 块）；46§9 层级结构改三层并登记修订注记 | **done**（typecheck/lint/vitest 382/build 全绿；frontend_audit + design_trace 通过） |
-| CP3 | 外部验收资产语义迁移 + 真实 Tauri 复跑 | **未闭环**（见 §5） |
+| CP3 | 外部验收资产语义迁移 + 真实 Tauri 复跑 | **doing（2026-07-15 用户批准启动）**：§5.1 名单主体已迁移并复跑绿 17 场景 id（roster 家族 7 / conversation / plot / world / evolution / no-deviation / plan-replan / prose-quality / stream-unified / activity-restored / transcript-lazy-page）；迁移中发现并修复恢复端补水真实回归（详见 §5d）；收尾批（error-author-safe / durable-resume / streaming-progress / style-rule / no-progress-stop / prose-revision）进行中 |
 
 ## 5. 诚实未闭环缺口（CP3）
 
@@ -47,6 +47,12 @@ ADR-0023 CP4 后流式退化的根因链（已核实）：
 2. **受影响 Tauri 场景未复跑**：上述场景现有 `artifacts/slice-verify/*/summary.json` 对新 UI 均视为 stale；`task_done` manifest 检查（static-scan blocking 项）同样等待该批 Tauri 重验证。属重型验证，需用户批准后启动。
 3. **方案 C 范围**：两段式目前只覆盖计划起草/修订（run 开场静默是用户主诉）；执行步（creative tool call）与质量复核阶段的叙事仍按事件粒度到达。若需步级流式需另行拍板（每步成本 ×2）。
 4. **本 slice 顺带修复的既有缺口**：I3 Layer-B 自 2026-07-01 Provider.Execution 收口后因裸一参函数注入被拒而静默退化为 indeterminate（exit 0 掩盖），已修 driver 注入形态恢复 3/3 决定性 pass；N-NARR driver 替身已对齐两段式协议（PASS：1 narrative byte-bound + 1 streamed prefix verified）。
+
+## 5d. CP3 执行记录（2026-07-15，用户批准后启动）
+
+- **迁移口径**：工作详情/终态区/模型执行流/模型调用明细/事件序列/输出摘要/回放边界断言 → 三层 UI 结构判定（`section[aria-label="计划"|"推理"]` + 状态标签）+ 持久化 ProviderRun 事实（`provider_runs[].events`，因 2026-07-02 d0643cd3 起 activity API 的 agent_runs[].events 只含 author 事件——考古确认为 ADR-0022 有意收紧）。计数按两段式实测：conversation 4、replan 6（修订亦两段式）、prose 5、创作 profile 4、roster 4。指向已删 UI 的死字段删除而非留 false。verifier 单测 fixtures/负例/标签同步。
+- **发现真实产品回归并修复（非验收补丁）**：CP2 移除工作详情折叠区时，恢复端 activity 加载入口（展开触发 hydrate）一并消失且未补，reload 后历史消息执行过程永久空白。修复=WorkspaceChat 对带 agent_run 摘要且未补水的恢复消息惰性补水（幂等守卫复用，activity API 只读、不重调 provider，兼容 lazy-page no-recall 不变量）。真实 Tauri activity-restored 场景验证通过。
+- **harness 系统修正**：默认轮询窗 180s→360s（两段式后单场景链路普遍 >180s，修默认值而非每次 env 覆盖）。
 
 ## 5a. Stage 首验暴露缺陷与修复（2026-07-06，用户拍板双修）
 
