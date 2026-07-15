@@ -6528,7 +6528,8 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 2 &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_artifact_event_visible === true &&
@@ -6734,7 +6735,8 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
   }

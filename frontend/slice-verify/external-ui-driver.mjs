@@ -16796,7 +16796,8 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 2 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草（reasoning 流 + 结构 tool call）2 + writer 1。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
     "UA-01 AgentRun state did not finish with the expected bounded budget counters",
     60_000,
   );
@@ -16953,9 +16954,11 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       consumed_steps: completedStateFrame.body.consumed_budget?.steps,
       consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
+      // Order 62 CP3 语义迁移：工作详情/终态区已移除，运行组可见性以新三层 UI 判定
+      //（状态 chip + 计划 checklist），完成态以状态标签/顶栏无任务判定。
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
       ui_agent_completed_visible:
-        visibleText.includes("当前：已完成") || visibleText.includes("当前创作请求已完成"),
+        visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_artifact_event_visible:
         visibleText.includes("已生成待采纳候选") ||
         (visibleText.includes("角色设定草稿") && visibleText.includes("待保存设定草稿")),
@@ -17235,55 +17238,19 @@ async function driveAgentProseDraftingWithQuality(page) {
   );
   assert(!findingInDraftBody, "Agent prose quality finding leaked into the prose draft body");
 
-  const detailsSummary = page.locator("summary").filter({ hasText: "工作详情" }).last();
-  await detailsSummary.waitFor({ state: "visible", timeout: 30_000 });
-  await detailsSummary.scrollIntoViewIfNeeded();
-  const detailsSummaryText = await detailsSummary.innerText();
-  const agentDetailsHeaderVisible =
-    detailsSummaryText.includes("工作详情") &&
-    detailsSummaryText.includes("理解、计划、执行与候选边界");
-  const latestWorkDetailsHas = (requiredText, timeout) =>
-    page.waitForFunction(
-      (required) => {
-        const summaries = Array.from(document.querySelectorAll("summary")).filter((summary) =>
-          summary.textContent?.includes("工作详情"),
-        );
-        const summary = summaries[summaries.length - 1];
-        const details = summary?.closest("details");
-
-        return (
-          details instanceof HTMLDetailsElement &&
-          details.open &&
-          required.every((value) => details.innerText.includes(value))
-        );
-      },
-      requiredText,
-      { timeout },
-    );
-  await detailsSummary.click();
-  const detailsOpened = await latestWorkDetailsHas(["模型执行流"], 1_500)
-    .then(() => true)
-    .catch(() => false);
-  if (!detailsOpened) {
-    await detailsSummary.click();
-  }
-  await latestWorkDetailsHas(["模型执行流"], 30_000);
+  // Order 62 CP3 语义迁移：工作详情/模型执行流/终态区已移除。完成态与计划步骤
+  // 改由新三层 UI 判定（状态标签 + 计划 checklist + 质量复核卡），provider 取证
+  // 改由持久化 ProviderRun 事实（scoped activity API）承担，断言口径不弱化。
   await page.waitForFunction(
     (summary) => {
       const text = document.body.innerText;
-      const completedVisible =
-        text.includes("当前：已完成") ||
-        (text.includes("终态") && text.includes("已完成")) ||
-        text.includes("本轮目标已经满足");
-      const providerDetailsVisible =
-        text.includes("模型执行流") && (text.includes("调用：") || text.includes("模型调用明细"));
+      const completedVisible = text.includes("已完成") || text.includes("无任务");
       return (
         completedVisible &&
         text.includes("先读取正文写作上下文") &&
         text.includes("基于已读取的正文上下文生成正文草稿") &&
         text.includes("质量复核") &&
         text.includes("章节正文草稿") &&
-        providerDetailsVisible &&
         (summary === "" || text.includes(summary))
       );
     },
@@ -17382,24 +17349,23 @@ async function driveAgentProseDraftingWithQuality(page) {
       ),
       finding_summary_displayed: findingSummary === "" || visibleText.includes(findingSummary),
       finding_in_draft_body: findingInDraftBody,
-      ui_agent_panel_visible: agentDetailsHeaderVisible,
+      // Order 62 CP3 语义迁移：工作详情/模型执行流/终态区已移除，改以新三层 UI
+      //（状态标签 + 计划 checklist）与持久化 ProviderRun 事实判定。
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
       ui_agent_completed_visible:
-        visibleText.includes("当前：已完成") ||
-        (visibleText.includes("终态") && visibleText.includes("已完成")) ||
-        visibleText.includes("本轮目标已经满足"),
+        visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_prose_draft_visible: visibleText.includes("章节正文草稿"),
       ui_quality_review_visible: visibleText.includes("质量复核"),
       ui_revision_action_visible: visibleText.includes("按这些问题重写"),
-      ui_provider_execution_details_visible:
-        visibleText.includes("模型执行流") &&
-        (visibleText.includes("调用：") || visibleText.includes("模型调用明细")),
+      persisted_provider_run_count: persistedProviderRunCount,
+      persisted_provider_purposes: activityPurposes,
+      persisted_provider_facts_matched_budget:
+        persistedProviderRunCount ===
+        Number(completedStateFrame.body.consumed_budget?.provider_calls ?? -1),
       ui_execution_brief_path_visible:
         visibleText.includes("先读取正文写作上下文") &&
         visibleText.includes("基于已读取的正文上下文生成正文草稿") &&
-        visibleText.includes("质量复核") &&
-        (visibleText.includes("本轮目标已经满足") ||
-          (visibleText.includes("终态") && visibleText.includes("已完成"))) &&
-        visibleText.includes("模型执行流"),
+        visibleText.includes("质量复核"),
       log_sync_turn_count: logsAfter.filter(
         (record) =>
           record.event === "channel.user_message.done" &&
@@ -17426,7 +17392,8 @@ async function driveAgentConversationTurn(page, options = {}) {
   const outputSliceId = options.sliceId ?? "agent-conversation-turn";
   const expectPlanReplan = options.expectPlanReplan === true;
   const expectAuthorReasoningDelta = options.expectAuthorReasoningDelta !== false;
-  const expectedProviderCalls = expectPlanReplan ? 4 : 3;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草（reasoning 流 + 结构 tool call）2 + 回应 1。
+  const expectedProviderCalls = expectPlanReplan ? 5 : 4;
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await installReasoningStreamObserver(page);
@@ -17737,44 +17704,6 @@ async function driveAgentConversationTurn(page, options = {}) {
   );
 
   const authorVisibleText = await page.locator("body").innerText();
-  const providerDetailsCollapsedBeforeExpand = !authorVisibleText.includes("模型执行流");
-  const detailsSummary = page.locator("summary").filter({ hasText: "工作详情" }).last();
-  const latestWorkDetailsHas = (requiredText, timeout) =>
-    page.waitForFunction(
-      (required) => {
-        const summaries = Array.from(document.querySelectorAll("summary")).filter((summary) =>
-          summary.textContent?.includes("工作详情"),
-        );
-        const summary = summaries[summaries.length - 1];
-        const details = summary?.closest("details");
-
-        return (
-          details instanceof HTMLDetailsElement &&
-          details.open &&
-          required.every((value) => details.innerText.includes(value))
-        );
-      },
-      requiredText,
-      { timeout },
-    );
-  if (providerDetailsCollapsedBeforeExpand) {
-    await detailsSummary.waitFor({ state: "visible", timeout: 30_000 });
-    await detailsSummary.click();
-    await latestWorkDetailsHas(
-      ["模型执行流", "用途：", "作者推理", "对话判断", `调用：${expectedProviderCalls} 次`],
-      30_000,
-    );
-  }
-
-  const visibleText = await page.locator("body").innerText();
-  if (providerDetailsCollapsedBeforeExpand) {
-    await detailsSummary.click();
-    await page.waitForFunction(
-      () => !document.body.innerText.includes("模型执行流"),
-      {},
-      { timeout: 30_000 },
-    );
-  }
 
   const uiState = await commonUiState(page, turnResult, sentFrame);
   const reasoningStreamSamples = await readReasoningStreamSamples(page);
@@ -17805,6 +17734,32 @@ async function driveAgentConversationTurn(page, options = {}) {
   const parentUserMessageLog = logsAfter.find(
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
+
+  // Order 62 CP3 语义迁移：原「工作详情 → 模型执行流」UI 取证改为持久化 ProviderRun
+  // 事实（scoped activity API），断言口径不弱化：调用次数仍须精确等于预算计数，
+  // 且必须同时包含作者推理与对话回应两类用途。
+  const activityTurnId = parentUserMessageLog?.turn_id ?? turnResult.parent_turn_id;
+  const activityResponse = await fetchAgentRunActivityApi(
+    sentFrame.body?.work_id,
+    sentFrame.body?.session_id,
+    activityTurnId,
+  );
+  const activityProviderRuns = Array.isArray(activityResponse.body?.provider_runs)
+    ? activityResponse.body.provider_runs
+    : [];
+  const activityPurposes = activityProviderRuns.map((run) => String(run?.purpose ?? ""));
+  const persistedProviderRunCount = Number(
+    activityResponse.body?.totals?.provider_run_count ?? 0,
+  );
+  assert(
+    activityResponse.status === 200 && persistedProviderRunCount === expectedProviderCalls,
+    `Conversation persisted ProviderRun facts (${persistedProviderRunCount}) did not match the expected provider call count (${expectedProviderCalls})`,
+  );
+  assert(
+    activityPurposes.includes("author_reasoning") && activityPurposes.includes("conversation"),
+    "Conversation persisted ProviderRun facts did not include author_reasoning and conversation purposes",
+  );
+
   const agentEventFrames = frames
     .slice(frameStart)
     .filter(
@@ -17946,12 +17901,10 @@ async function driveAgentConversationTurn(page, options = {}) {
       conversation_provider_activity_visible: providerPurposes.includes("conversation"),
       provider_started_projected: providerReasonCodes.includes("provider_started"),
       provider_final_output_projected: providerReasonCodes.includes("provider_final_output"),
-      ui_provider_developer_detail_collapsed_before_expand: providerDetailsCollapsedBeforeExpand,
-      ui_provider_developer_detail_visible:
-        visibleText.includes("模型执行流") &&
-        visibleText.includes("作者推理") &&
-        visibleText.includes("对话判断") &&
-        visibleText.includes(`调用：${expectedProviderCalls} 次`),
+      persisted_provider_run_count: persistedProviderRunCount,
+      persisted_provider_purposes: activityPurposes,
+      persisted_provider_facts_matched_budget:
+        persistedProviderRunCount === expectedProviderCalls,
       ui_agentic_loop_plan_visible:
         authorVisibleText.includes("规划") &&
         authorVisibleText.includes("探索") &&

@@ -1,6 +1,6 @@
 # DS01 决策面 Schema 闸门与卡片死代码收口
 
-- 状态：todo
+- 状态：done / verified（2026-07-15）
 - 类型：UI Contract Slice / Schema Governance Slice
 - 父 ADR：`docs/design/adr/ADR-0024-decision-surface-registry-v3.md`（Accepted，CP1）
 - 启动条件：ADR-0024 已 Accepted；`07` §4 已重写为决策面注册表；本 slice 是 CP1，CP2（S4 clarification）/ CP3（S7 awaiting_author）依赖本 slice 的 schema 闸门先行。
@@ -46,7 +46,7 @@
 | 死分支与死组件删除 | done | | 删 6 个 switch 分支 + 6 个组件（Clarification/Warning/Progress/Checkpoint/Failure/Escalation）；DefaultCard 兜底保留 |
 | 后端 result_card actions 字段移除 + 契约单测 | done | | `dialogue_gateway.ex` 删 `actions: []`；新增 `decision_surface_card_contract_test.exs`（运行时 3 条 + 源码级 2 条：全 umbrella card_type 字面量注册扫描、裸 actions 字段扫描——首跑即抓到误报并收紧为词边界正则） |
 | 漂移注入测试 | done | | 前端：`schemas.test.ts` 重写为 v3 语义（拒绝未入册 card_type、拒绝携带 actions 的卡片、拒绝缺 payload 的 adoption 条目）+ `turnResultWire.test.ts`；后端：契约单测的源码扫描即注入网 |
-| Tauri 回归场景跑通 | **未闭环 / blocked** | | `agent-bounded-roster-to-character-design` 在 DS01 改动与 baseline（commit 7291de51 干净树）上以同一断言失败：driver 期望 `consumed_budget.provider_calls=3`（external-ui-driver.mjs waitForNewFrame），与 Order 62 CP1（2026-07-05 两段式规划落地）后的真实调用数不符。这是 Order 62 CP3「13 个外部 driver 复跑校准批（需用户批准）」的既有债务，非本 slice 引入。DS01 场景化验收搭 Order 62 CP3 复跑批闭环 |
+| Tauri 回归场景跑通 | **done / verified** | | 用户批准 driver 校准批后闭环：`agent-bounded-roster-to-character-design` 真实 Tauri 全绿（exit=0，summary + behavior evidence 7 断言）。校准内容=driver/finder/behavior 三处 provider_calls 3→4（两段式规划 +1，语义有据）、`ui_agent_panel_visible`/`ui_agent_completed_visible` 从已移除的工作详情/终态区迁至新三层 UI 判定、harness 轮询窗 `TAURI_SLICE_VERIFY_TIMEOUT_SECONDS=360`（链路变长，180s 不够 driver 收尾）。证据：`artifacts/slice-verify/agent-bounded-roster-to-character-design-tauri/summary.json` |
 
 ## 5. 验收入口与 Proof
 
