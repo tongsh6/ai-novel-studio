@@ -560,23 +560,11 @@ function pendingDraftCharCount(turnResult: TurnResult | undefined): number | nul
   return total > 0 ? total : null;
 }
 
-function planStepSymbol(status: string): string {
-  if (status === "done") return "✓";
-  if (status === "active") return "●";
-  return "○";
-}
-
 function narrativeTone(eventType: string): string {
   if (eventType === "exploration_observed") return "explore";
   if (eventType === "evaluation_made") return "evaluate";
   if (eventType === "plan_revised") return "replan";
   return "neutral";
-}
-
-function planRevisionLabel(events: AgentEventData[], version: number): string {
-  const revised = events.some((event) => event.event_type === "plan_revised");
-  if (revised && version > 1) return `v${version} · 由 v${version - 1} 调整`;
-  return WORKBENCH.agenticLoopPlanVersion(version);
 }
 
 interface AgentRunDialogueFlowProps {
@@ -640,97 +628,56 @@ function AgentRunDialogueFlow({
           ? WORKBENCH.agenticLoopActivityWorking
           : null;
 
+  // 46§9.5 文档流化（2026-07-15 用户拍板）：移除卡片容器（轨道线/面板）与常驻
+  // 计划 checklist——计划顺序由模型意图开场段唯一表达，修订由 plan_revised 叙事
+  // 表达；plan_drafted/plan_revised 事件与 AgentPlan 契约不变，仅移除 UI 常驻面板。
+  // AI 的一次回应就是一段文档流：叙事段落 → 进行中活动行 → 结构状态词。
   return (
-    <div className={styles.agentRunFlow} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
-      <div className={styles.agentRunFlowRail} aria-hidden="true">
-        <span className={styles.agentRunFlowRailDot} />
-        <span className={styles.agentRunFlowRailLine} />
-      </div>
-      <div className={styles.agentRunFlowContent}>
-        <div className={styles.agenticLoopStatusPanel}>
-          <div className={styles.agenticLoopStatusMeta}>
-            <span className={styles.agentRunStatusPulse} aria-hidden="true" />
-            {statusLabel && (
-              <span className={styles.agenticLoopStatusChip} data-status={statusTone}>
-                {statusLabel}
-              </span>
-            )}
-            <span>{WORKBENCH.agentRunInlineTitle}</span>
-            {run?.run_mode === "durable" && (
-              <span className={styles.agenticLoopStatusChip}>
-                {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
-                {run.long_run_task_ref
-                  ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}`
-                  : ""}
-              </span>
-            )}
-            <span>{statusSummary}</span>
-            {progressParts.length > 0 && (
-              <span className={styles.agenticLoopProgressLine}>{progressParts.join(" · ")}</span>
-            )}
-          </div>
-        </div>
-
-        {reasoningFlow.planSteps.length > 0 && (
-          <>
-            <div className={styles.agenticLoopDivider} aria-hidden="true" />
-            <section className={styles.agenticLoopPlan} aria-label={WORKBENCH.agenticLoopPlanLabel}>
-              <div className={styles.agenticLoopSectionHeader}>
-                <span>{WORKBENCH.agenticLoopPlanLabel}</span>
-                {reasoningFlow.planVersion !== null && reasoningFlow.planVersion > 1 && (
-                  <span className={styles.agenticLoopVersionPill}>
-                    {planRevisionLabel(events, reasoningFlow.planVersion)}
-                  </span>
-                )}
-              </div>
-              <ol className={styles.agenticLoopPlanSteps}>
-                {reasoningFlow.planSteps.map((step) => (
-                  <li
-                    key={step.stepRef}
-                    className={styles.agenticLoopPlanStep}
-                    data-status={step.status}
-                  >
-                    <span className={styles.agenticLoopPlanStepBadge}>
-                      {planStepSymbol(step.status)}
-                    </span>
-                    <span className={styles.agenticLoopPlanStepBody}>
-                      <span className={styles.agenticLoopPlanStepText}>{step.description}</span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          </>
-        )}
-
-        {reasoningFlow.narrativeEvents.length > 0 && (
-          <>
-            <div className={styles.agenticLoopDivider} aria-hidden="true" />
-            {/* 46§9.4.2：文档流段落体——模型叙事（意图开场段/阶段结论段）按到达
-                顺序成段渲染，原文不改写；不再逐条加结构标签抢戏。 */}
-            <section
-              className={styles.agenticLoopReasoning}
-              aria-label={WORKBENCH.agenticLoopReasoningLabel}
+    <div className={styles.agentRunFlowInline} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
+      {reasoningFlow.narrativeEvents.length > 0 && (
+        <section
+          className={styles.agenticLoopReasoning}
+          aria-label={WORKBENCH.agenticLoopReasoningLabel}
+        >
+          {reasoningFlow.narrativeEvents.map((event) => (
+            <p
+              key={event.key}
+              className={styles.agenticLoopNarrativeParagraph}
+              data-tone={narrativeTone(event.eventType)}
             >
-              {reasoningFlow.narrativeEvents.map((event) => (
-                <p
-                  key={event.key}
-                  className={styles.agenticLoopNarrativeParagraph}
-                  data-tone={narrativeTone(event.eventType)}
-                >
-                  {event.narrative}
-                </p>
-              ))}
-            </section>
-          </>
-        )}
+              {event.narrative}
+            </p>
+          ))}
+        </section>
+      )}
 
-        {activityText && (
-          <div className={styles.agenticLoopActivityLine} aria-live="polite">
-            <Loader2 className={styles.spinnerIcon} size={13} aria-hidden="true" />
-            <span>{activityText}</span>
-          </div>
+      {activityText && (
+        <div className={styles.agenticLoopActivityLine} aria-live="polite">
+          <Loader2 className={styles.spinnerIcon} size={13} aria-hidden="true" />
+          <span>{activityText}</span>
+        </div>
+      )}
+
+      <div className={styles.agenticLoopStatusMeta}>
+        {statusLabel && (
+          <span className={styles.agenticLoopStatusChip} data-status={statusTone}>
+            {statusLabel}
+          </span>
         )}
+        <span>{WORKBENCH.agentRunInlineTitle}</span>
+        {run?.run_mode === "durable" && (
+          <span className={styles.agenticLoopStatusChip}>
+            {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
+            {run.long_run_task_ref
+              ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}`
+              : ""}
+          </span>
+        )}
+        {!runIsTerminal && <span>{statusSummary}</span>}
+        {progressParts.length > 0 && (
+          <span className={styles.agenticLoopProgressLine}>{progressParts.join(" · ")}</span>
+        )}
+      </div>
 
         {showControls && (
           <div
@@ -769,8 +716,6 @@ function AgentRunDialogueFlow({
             </button>
           </div>
         )}
-
-      </div>
     </div>
   );
 }

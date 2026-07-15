@@ -1454,3 +1454,12 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* 46§9.5 文档流化：运行组内联容器（无卡片轨道/面板边界）。 */
+.agentRunFlowInline {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}

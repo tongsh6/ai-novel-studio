@@ -1192,7 +1192,6 @@ describe("native Tauri slice verifier", () => {
         agent_run_activity_api_provider_run_refs: ["prun-planner", "prun-conversation"],
         agent_run_activity_api_provider_call_refs: ["pcall-planner", "pcall-conversation"],
         agent_run_activity_api_raw_content_leaked: false,
-        restored_ui_plan_restored: true,
         restored_ui_reasoning_restored: true,
         restored_ui_agent_flow_visible: true,
         restored_ui_provider_run_replay_raw_content_leaked: false,

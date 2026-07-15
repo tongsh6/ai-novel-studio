@@ -2281,7 +2281,7 @@ async function driveAgentSessionTranscriptLazyPage(page) {
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("创作执行") &&
-      document.querySelectorAll('section[aria-label="计划"]').length >= 1,
+      document.querySelectorAll('section[aria-label="推理"]').length >= 1,
     undefined,
     { timeout: 30_000 },
   );
@@ -16936,7 +16936,11 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，运行组可见性以新三层 UI 判定
       //（状态 chip + 计划 checklist），完成态以状态标签/顶栏无任务判定。
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      ui_agent_panel_visible:
+        visibleText.includes("创作执行") &&
+        (await page.evaluate(() =>
+          Boolean(document.querySelector('section[aria-label="推理"]')),
+        )),
       ui_agent_completed_visible:
         visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_artifact_event_visible:
@@ -17221,14 +17225,14 @@ async function driveAgentProseDraftingWithQuality(page) {
   // Order 62 CP3 语义迁移：工作详情/模型执行流/终态区已移除。完成态与计划步骤
   // 改由新三层 UI 判定（状态标签 + 计划 checklist + 质量复核卡），provider 取证
   // 改由持久化 ProviderRun 事实（scoped activity API）承担，断言口径不弱化。
+  // 46§9.5：计划步骤文本不再显示，计划事实由 plan_drafted 事件断言（下方 summary
+  // 字段）；页面只等完成态 + 质量复核卡 + 草稿卡 + 质量发现摘要。
   await page.waitForFunction(
     (summary) => {
       const text = document.body.innerText;
       const completedVisible = text.includes("已完成") || text.includes("无任务");
       return (
         completedVisible &&
-        text.includes("先读取正文写作上下文") &&
-        text.includes("基于已读取的正文上下文生成正文草稿") &&
         text.includes("质量复核") &&
         text.includes("章节正文草稿") &&
         (summary === "" || text.includes(summary))
@@ -17331,7 +17335,10 @@ async function driveAgentProseDraftingWithQuality(page) {
         (runCompletedFrame.body?.reason_codes ?? []).includes("goal_satisfied"),
       prose_step_visible: draftedPlanHasProseStep,
       artifact_observation_visible: artifactEventFrame.body?.event_type === "artifact_created",
-      ui_context_step_visible: visibleText.includes("先读取正文写作上下文"),
+      // 46§9.5：步骤描述不再进页面，事实来自 plan_drafted 事件。
+      ui_context_step_visible:
+        contextStepFrame.body?.payload?.target_tool_ref === "context_assemble" ||
+        draftedPlanHasContextStep,
       ui_strategy_step_visible: false,
       ui_prose_step_visible: visibleText.includes("基于已读取的正文上下文生成正文草稿"),
       ui_finalization_step_visible: false,
@@ -17350,7 +17357,11 @@ async function driveAgentProseDraftingWithQuality(page) {
       finding_in_draft_body: findingInDraftBody,
       // Order 62 CP3 语义迁移：工作详情/模型执行流/终态区已移除，改以新三层 UI
       //（状态标签 + 计划 checklist）与持久化 ProviderRun 事实判定。
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      ui_agent_panel_visible:
+        visibleText.includes("创作执行") &&
+        (await page.evaluate(() =>
+          Boolean(document.querySelector('section[aria-label="推理"]')),
+        )),
       ui_agent_completed_visible:
         visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_prose_draft_visible: visibleText.includes("章节正文草稿"),
@@ -17362,9 +17373,7 @@ async function driveAgentProseDraftingWithQuality(page) {
         persistedProviderRunCount ===
         Number(completedStateFrame.body.consumed_budget?.provider_calls ?? -1),
       ui_execution_brief_path_visible:
-        visibleText.includes("先读取正文写作上下文") &&
-        visibleText.includes("基于已读取的正文上下文生成正文草稿") &&
-        visibleText.includes("质量复核"),
+        draftedPlanHasContextStep && draftedPlanHasProseStep && visibleText.includes("质量复核"),
       log_sync_turn_count: logsAfter.filter(
         (record) =>
           record.event === "channel.user_message.done" &&
@@ -17729,10 +17738,9 @@ async function driveAgentConversationTurn(page, options = {}) {
     );
   }
   const agenticLoopEvidenceLayout = await focusLatestAgenticLoopEvidence(page);
-  // Order 62 CP3 语义迁移：三层 UI 可见性按结构判定（46§9：状态 chip +
-  // section[aria-label="计划"] checklist + section[aria-label="推理"] 叙事）。
+  // 46§9.5 文档流化：常驻计划面板已移除，计划事实由 plan_drafted 事件断言；
+  // 作者可见结构 = 推理叙事段落（section[aria-label="推理"]）+ 状态词。
   const agenticLoopSections = await page.evaluate(() => ({
-    plan: Boolean(document.querySelector('section[aria-label="计划"]')),
     reasoning: Boolean(document.querySelector('section[aria-label="推理"]')),
   }));
   const logsAfter = readAppLogRecords().slice(logStart);
@@ -17775,6 +17783,9 @@ async function driveAgentConversationTurn(page, options = {}) {
     );
   const stepProposedFrames = agentEventFrames.filter(
     (frame) => frame.body?.event_type === "plan_drafted",
+  );
+  const planStepTargets = (stepProposedFrames[0]?.body?.payload?.plan_steps ?? []).map((step) =>
+    String(step?.target_tool_ref ?? ""),
   );
   const planRevisedFrames = agentEventFrames.filter(
     (frame) => frame.body?.event_type === "plan_revised",
@@ -17912,21 +17923,23 @@ async function driveAgentConversationTurn(page, options = {}) {
         persistedProviderRunCount === expectedProviderCalls,
       // Order 62 CP3 语义迁移：阶段带/终态区已移除，三层 UI 按结构 + 计划步骤
       // 描述判定（步骤描述为模型起草的 PlanStep description，仍在计划 checklist）。
+      // 46§9.5：计划面板已移除——计划完整性从 plan_drafted 事件 payload 断言，
+      // 作者可见结构 = 推理叙事段落 + 状态词（不复述步骤文本）。
       ui_agentic_loop_plan_visible:
-        agenticLoopSections.plan &&
-        authorVisibleText.includes("组装当前作品") &&
-        authorVisibleText.includes("形成对话认知帧") &&
-        authorVisibleText.includes("系统裁决") &&
-        authorVisibleText.includes("生成本轮回应"),
+        stepProposedFrames.length >= 1 &&
+        (stepProposedFrames[0].body?.payload?.plan_steps ?? []).length === 4 &&
+        (stepProposedFrames[0].body?.payload?.plan_steps ?? []).every(
+          (step) => String(step?.description ?? "").trim() !== "",
+        ),
       ui_agentic_loop_reasoning_visible: agenticLoopSections.reasoning,
       ui_agentic_loop_result_visible:
         authorVisibleText.includes("已完成") || authorVisibleText.includes("无任务"),
-      ui_context_step_visible: authorVisibleText.includes("组装当前作品"),
-      ui_frame_step_visible: authorVisibleText.includes("形成对话认知帧"),
-      ui_strategy_step_visible: authorVisibleText.includes("系统裁决"),
-      ui_finalize_step_visible: authorVisibleText.includes("生成本轮回应"),
+      ui_context_step_visible: planStepTargets.includes("context_assemble"),
+      ui_frame_step_visible: planStepTargets.includes("dialogue_frame"),
+      ui_strategy_step_visible: planStepTargets.includes("strategy_gate"),
+      ui_finalize_step_visible: planStepTargets.includes("response_finalize"),
       ui_agent_panel_visible:
-        authorVisibleText.includes("创作执行") && agenticLoopSections.plan,
+        authorVisibleText.includes("创作执行") && agenticLoopSections.reasoning,
       ui_agentic_loop_920_width:
         agenticLoopEvidenceLayout !== null &&
         Math.abs(Number(agenticLoopEvidenceLayout.flow_width ?? 0) - 960) <= 24 &&
@@ -18792,15 +18805,15 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   // API 断言承担（不弱化：API 断言覆盖原 UI 展开所验证的全部事实）。
   // 恢复补水是惰性异步的：等待条件必须包含三层 UI 结构本身，而不是先等文本再
   // 一次性取值（否则与补水完成产生竞态）。
+  // 46§9.5：计划面板已移除；恢复语义 = 模型叙事段落从持久化事件重建可见。
   await page.waitForFunction(
     (expected) =>
       expected.every((value) => document.body.innerText.includes(value)) &&
-      Boolean(document.querySelector('section[aria-label="计划"]')),
+      Boolean(document.querySelector('section[aria-label="推理"]')),
     ["创作执行", "已完成"],
     { timeout: 30_000 },
   );
   const restoredSections = await page.evaluate(() => ({
-    plan: Boolean(document.querySelector('section[aria-label="计划"]')),
     reasoning: Boolean(document.querySelector('section[aria-label="推理"]')),
   }));
 
@@ -18842,8 +18855,7 @@ async function driveAgentProviderExecutionActivityRestored(page) {
       provider_run_activity_api_raw_content_leaked: queriedProviderRunRawContentLeaked,
       // Order 62 CP3 语义迁移：折叠区/明细 UI 已移除；恢复可见性 = 三层 UI 结构重建。
       restored_ui_agent_flow_visible:
-        restoredVisibleText.includes("创作执行") && restoredSections.plan,
-      restored_ui_plan_restored: restoredSections.plan,
+        restoredVisibleText.includes("创作执行") && restoredSections.reasoning,
       restored_ui_reasoning_restored: restoredSections.reasoning,
       restored_ui_provider_run_replay_raw_content_leaked: providerRunReplayUiRawContentLeaked,
     },
@@ -19361,7 +19373,11 @@ async function driveAgentPlotOutlineWithContext(page) {
       ui_finalization_step_visible:
         visibleText.includes("完成回应") || visibleText.includes("当前：已完成"),
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      ui_agent_panel_visible:
+        visibleText.includes("创作执行") &&
+        (await page.evaluate(() =>
+          Boolean(document.querySelector('section[aria-label="推理"]')),
+        )),
       ui_agent_completed_visible:
         visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_outline_draft_visible:
@@ -19744,7 +19760,11 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       ui_finalization_step_visible:
         visibleText.includes("完成回应") || visibleText.includes("已完成"),
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      ui_agent_panel_visible:
+        visibleText.includes("创作执行") &&
+        (await page.evaluate(() =>
+          Boolean(document.querySelector('section[aria-label="推理"]')),
+        )),
       ui_agent_completed_visible:
         visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_world_building_draft_visible:
@@ -20157,7 +20177,11 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       ui_evolution_step_visible: visibleText.includes("生成角色演化草稿"),
       ui_finalization_step_visible: visibleText.includes("本轮目标已经满足"),
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      ui_agent_panel_visible:
+        visibleText.includes("创作执行") &&
+        (await page.evaluate(() =>
+          Boolean(document.querySelector('section[aria-label="推理"]')),
+        )),
       ui_agent_completed_visible:
         visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_character_evolution_draft_visible: visibleText.includes("角色演化记忆草稿"),
@@ -21108,7 +21132,11 @@ async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
       artifact_adopted: finalTurnResult.truthfulness?.artifact_adopted === true,
       production_write_performed: finalTurnResult.truthfulness?.production_write_performed === true,
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
-      agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      agent_panel_visible:
+        visibleText.includes("创作执行") &&
+        (await page.evaluate(() =>
+          Boolean(document.querySelector('section[aria-label="推理"]')),
+        )),
       agent_completed_status_visible:
         visibleText.includes("已完成") || visibleText.includes("无任务"),
       roster_activity_visible: visibleText.includes("已读取当前角色阵容"),

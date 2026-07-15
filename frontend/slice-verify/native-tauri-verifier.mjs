@@ -5838,7 +5838,7 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
       // Order 62 CP3 语义迁移：折叠区/模型调用明细 UI 已移除；恢复可见性 =
       // 三层 UI 结构从持久化 events 重建，provider 事实由 activity API 键承担。
       boolValue(record.restored_ui_agent_flow_visible) === true &&
-      boolValue(record.restored_ui_plan_restored) === true &&
+      boolValue(record.restored_ui_reasoning_restored) === true &&
       boolValue(record.restored_ui_provider_run_replay_raw_content_leaked) === false &&
       Number(record.provider_run_activity_api_status ?? 0) === 200 &&
       Number(record.provider_run_activity_api_count ?? 0) >= 3 &&
@@ -6011,7 +6011,8 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
   // Order 62 CP3 语义迁移：折叠区/模型调用明细 UI 已移除。恢复可见性 = 三层 UI
   // 结构从持久化 events 重建；provider 事实由上方 activity API / transcript 键承担。
   if (boolValue(uiState.restored_ui_agent_flow_visible) !== true) return null;
-  if (boolValue(uiState.restored_ui_plan_restored) !== true) return null;
+  // 46§9.5：计划面板已移除，恢复语义 = 模型叙事段落重建。
+  if (boolValue(uiState.restored_ui_reasoning_restored) !== true) return null;
   if (boolValue(uiState.restored_ui_provider_run_replay_raw_content_leaked) !== false) {
     return null;
   }
@@ -6056,7 +6057,6 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
     provider_run_activity_api_call_refs: evidence.provider_run_activity_api_call_refs,
     provider_run_activity_api_purposes: evidence.provider_run_activity_api_purposes,
     provider_run_activity_api_total_tokens: evidence.provider_run_activity_api_total_tokens,
-    restored_ui_plan_restored: evidence.restored_ui_plan_restored,
     restored_ui_reasoning_restored: evidence.restored_ui_reasoning_restored,
     reload_resume_transcript_count: evidence.reload_resume_transcript_count,
     assertions: [
