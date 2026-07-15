@@ -1,5 +1,7 @@
 // Design: docs/design/ui/42-card-system.md §3 (card component rendering)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
+import type { ReactNode } from "react";
+
 import { CARD } from "../lib/copy";
 import type { UiCard } from "../lib/schemas";
 import styles from "./UICards.module.css";
@@ -253,7 +255,15 @@ export function ResultCard({ card }: Props) {
   );
 }
 
-export function CandidateSetCard({ card }: Props) {
+export function CandidateSetCard({
+  card,
+  renderItemActions,
+}: Props & {
+  // 逐候选采纳动作渲染器：动作数据仍全部来自 available_actions（卡片数据不携带
+  // 动作，N-SURF），这里只是把对应候选的按钮渲染进该候选卡片内部，消除底部
+  // 平铺重复按钮的归属歧义。多候选左右铺开由 candidateItems 网格承担。
+  renderItemActions?: (item: Record<string, unknown>, index: number) => ReactNode;
+}) {
   const items = Array.isArray(card.items) ? card.items : [];
   const fallbackCopy = artifactDraftCopy(card);
   const title = card.title || fallbackCopy.title;
@@ -272,6 +282,7 @@ export function CandidateSetCard({ card }: Props) {
             const body = displayText(item.body);
             const rationale = displayText(item.rationale);
             const key = typeof item.item_id === "string" ? item.item_id : `${title}-${index}`;
+            const actions = renderItemActions?.(item, index);
 
             return (
               <article key={key} className={styles.candidateItem}>
@@ -283,6 +294,7 @@ export function CandidateSetCard({ card }: Props) {
                     {rationale}
                   </div>
                 )}
+                {actions ? <div className={styles.candidateItemActions}>{actions}</div> : null}
               </article>
             );
           })}

@@ -1788,6 +1788,37 @@ export function WorkspaceChat() {
     void handleAvailableAction(turnResult, action);
   };
 
+  // 逐候选独立采纳（AU-09）：候选单元 artifact_id 约定为 `${set_id}::${item_id}`。
+  // 命中该约定的采纳动作渲染进对应候选卡片内部（归属清晰），并从底部动作行排除，
+  // 避免多候选时底部平铺出成组的重复按钮。整组单元（无 `::`）保持底部行为不变。
+  const ADOPTION_ACTION_TYPES = ["accept", "discard", "edit_then_accept"];
+
+  const perItemAdoptionActions = (
+    turnResult: TurnResult,
+    card: { candidate_set_ref?: string },
+    item: Record<string, unknown>,
+  ): AvailableAction[] => {
+    const itemId = typeof item.item_id === "string" ? item.item_id : null;
+    if (!itemId || !card.candidate_set_ref) return [];
+    const unitArtifactId = `${card.candidate_set_ref}::${itemId}`;
+    const messagePending = new Set(
+      (turnResult.adoption_state?.pending ?? []).map((entry) => entry.artifact_id),
+    );
+    // 消息内单元存在 + 运行时仍 pending（采纳/弃用后按钮随之消失）。
+    const livePending = new Set(runtimeState.adoption.pendingArtifactIds);
+    if (!messagePending.has(unitArtifactId) || !livePending.has(unitArtifactId)) return [];
+    return (turnResult.available_actions ?? []).filter(
+      (action) =>
+        ADOPTION_ACTION_TYPES.includes(action.action_type) &&
+        action.target_ref === unitArtifactId,
+    );
+  };
+
+  const isPerItemAdoptionAction = (action: AvailableActionLike): boolean =>
+    ADOPTION_ACTION_TYPES.includes(action.action_type) &&
+    typeof action.target_ref === "string" &&
+    action.target_ref.includes("::");
+
   // 当前活跃行为 id：取最近一个携带 behavior_state 的 turn_result 的 active 行为。
   // 确认后采纳/取消会把 active 置空，确认按钮随之隐藏。
   const activeBehaviorId: string | null = (() => {
@@ -1807,7 +1838,8 @@ export function WorkspaceChat() {
       turnResult.available_actions ?? [],
       runtimeState.adoption.pendingArtifactIds,
       activeBehaviorId,
-    );
+      // 逐候选采纳动作已渲染进候选卡片内部，不再进底部动作行。
+    ).filter((action) => !isPerItemAdoptionAction(action));
 
   const actionTitle = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.disabled_reason) return action.disabled_reason;
@@ -3359,7 +3391,39 @@ export function WorkspaceChat() {
                           case "confirmation_card":
                             return <ConfirmationCard key={cardKey} card={card} />;
                           case "candidate_set":
-                            return <CandidateSetCard key={cardKey} card={card} />;
+                            return (
+                              <CandidateSetCard
+                                key={cardKey}
+                                card={card}
+                                renderItemActions={
+                                  isReadOnlySessionView || !msg.turnResult
+                                    ? undefined
+                                    : (item) => {
+                                        const itemActions = perItemAdoptionActions(
+                                          msg.turnResult!,
+                                          card,
+                                          item,
+                                        );
+                                        if (itemActions.length === 0) return null;
+                                        return itemActions.map((action) => (
+                                          <button
+                                            key={action.action_id}
+                                            className={styles.btnSecondary}
+                                            disabled={action.enabled === false || loading}
+                                            title={actionTitle(msg.turnResult!, action)}
+                                            onClick={() => {
+                                              if (msg.turnResult) {
+                                                handleVisibleAvailableAction(msg.turnResult, action);
+                                              }
+                                            }}
+                                          >
+                                            {actionLabel(msg.turnResult!, action)}
+                                          </button>
+                                        ));
+                                      }
+                                }
+                              />
+                            );
                           case "result_card":
                             return <ResultCard key={cardKey} card={card} />;
                           default:
