@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `DS02-adoption-status-canonicalization.md` | **todo / 数据口径系统修正**：adoption_status 大小写全链路统一到 30 §3.2 canonical 大写 7 态，撤销 DS01 期间前端 barrel 的临时放宽（用户原则：不允许补丁式绕过成为终态）。 |
 | `DS01-decision-surface-schema-gate.md` | **todo / ADR-0024 CP1**：决策面 schema 闸门与卡片死代码收口——ui_card 三卡集合进 codegen、前端删手写 TurnResult 类型与 6 个死分支、channel payload safeParse、result_card 移除 actions 字段（N-SURF）。CP2（S4 clarification）/ CP3（S7 awaiting_author）依赖本 slice 先行。队列优先级相对 UA-01 待 `tasks/NEXT.md` 定档。 |
 | `UA01-unified-agent-run-mainchain-closure.md` | **doing / UA-01 主链收口**：按 2026-06-29 收紧后的验收口径审计并推进 CP4/CP5/CP6 及后续 CP。CP2 普通对话已从 `conversation_turn_v1` 单 step 黑盒拆为 context / frame / strategy / finalize 四阶段 AgentRun，并在 ADR-0023 CP1 中继续迁为模型起草 per-run AgentPlan 后机械推进；CP4 revision profile 已有 fresh Tauri summary，正文草稿已在 ADR-0023 CP1 中从 observation-led next-step 迁为 model-drafted AgentPlan + mechanical cursor，并完成 fresh Tauri summary；章节大纲、角色演化与世界设定已在 ADR-0023 CP3 单 profile checkpoint 迁为 model-drafted AgentPlan + mechanical cursor 并完成 fresh Tauri summary；CP5 durable AgentRun + LongRunTask 已通过 backend restart 恢复验收；CP6 provider progress / ProviderExecution cancel / readonly batch 已通过真实 Tauri。新的队首转向 provider execution stream 统一架构；更多创作 profile 继续作为后续扩展。 |
 | `UA01-CP5-durable-agent-run-resume.md` | **done / verified**：CP5 durable AgentRun + LongRunTask 恢复闭环子 slice。已实现 durable profile 分账、LongRunTask 关联、checkpoint/recovery/stale policy、Channel join recovery 与 UI 恢复面板；`agent-durable-resume-long-run-task` 已转 active/nightly 并通过真实 Tauri 验收。 |

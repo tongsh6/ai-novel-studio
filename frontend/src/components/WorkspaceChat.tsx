@@ -1066,6 +1066,26 @@ export function WorkspaceChat() {
     }
   }
 
+  // 恢复的历史消息（transcript 回灌）没有 turn_result 广播路径，其运行组三层 UI
+  // （计划 checklist / 推理叙事）需要从持久化 activity 重建。原「工作详情」展开是
+  // 恢复端唯一加载入口，随 Order 62 卡片简化移除后未补，导致 reload 后历史执行
+  // 过程空白——这里改为对带 agent_run 摘要且未补水的消息惰性补水；
+  // hydrateAgentRunActivityForTurn 内的 loaded/loading 幂等守卫防止重复请求，
+  // activity API 只读持久层、不重新调用 provider（lazy-page 场景不变量约束）。
+  useEffect(() => {
+    // 异步调度避免在 effect 内同步 setState；hydrate 自身通过 loaded/loading map 幂等。
+    const timer = window.setTimeout(() => {
+      for (const message of messages) {
+        const turnResult = message.turnResult;
+        if (message.role !== "assistant" || !turnResult?.agent_run?.run_id) continue;
+        if (turnResult.agent_run.activity_loaded) continue;
+        void hydrateAgentRunActivityForTurn(turnResult);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
   function putAgentRunActivityIntoTurnResult(
     turnResult: TurnResult,
     agentRunSummary: Record<string, unknown> | null,

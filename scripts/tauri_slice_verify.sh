@@ -38,7 +38,9 @@ VITE_PORT="${VITE_DEV_PORT:-5769}"
 API_URL="http://127.0.0.1:${PHOENIX_PORT}"
 WS_URL="ws://127.0.0.1:${PHOENIX_PORT}/socket"
 VITE_WS_URL="ws://localhost:${VITE_PORT}/socket"
-TAURI_WAIT_SECONDS="${TAURI_SLICE_VERIFY_TIMEOUT_SECONDS:-180}"
+# Order 62 CP1 两段式规划后单场景真实链路（run + driver 收尾 + 证据落盘）普遍超过
+# 180s（实测 roster 家族 ~200s），默认轮询窗按当前链路口径上调；env 仍可覆盖。
+TAURI_WAIT_SECONDS="${TAURI_SLICE_VERIFY_TIMEOUT_SECONDS:-360}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

@@ -29,9 +29,9 @@ export { UiCardSchema, type UiCard } from "../generated/foundation/ui_card";
 // 历史冻结的 v2 schema 保留导出（ADR-0015 时代），现行线格式用 v3。
 export { TurnResultV2Schema, type TurnResultV2 } from "../generated/foundation/turn_result_v2";
 
-// 线上 adoption_status 序列化为小写（:tentative），而 artifact_adoption_entry.json
-// 的大写 7 态枚举（30 §3.2）与线格式存在大小写漂移——已登记 DS01 决策日志，
-// 枚举收敛前此处放宽为 string，避免已知漂移刷屏掩盖新漂移。
+// 临时放宽（收口 slice：tasks/slices/DS02-adoption-status-canonicalization.md）：
+// 线上 adoption_status 序列化为小写（:tentative），与 artifact_adoption_entry.json
+// 的大写 7 态枚举（30 §3.2 canonical）分裂。DS02 将从领域层统一口径后撤销本行。
 const TurnAdoptionEntrySchema = ArtifactAdoptionEntrySchema.extend({
   adoption_status: z.string(),
   // TurnResult adoption_state 条目必含 payload（unit_pending_entry 注入）。

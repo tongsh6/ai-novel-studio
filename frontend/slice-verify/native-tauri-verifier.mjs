@@ -3847,12 +3847,14 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       record.artifact_observation_visible === true &&
       record.ui_prose_step_visible === true &&
       record.ui_completion_decision_visible === true &&
-      record.ui_provider_execution_details_visible === true &&
+      // Order 62 CP3 语义迁移：模型执行流 UI 已移除，provider 取证改为持久化
+      // ProviderRun 事实；两段式规划后 provider_calls = 路由 1 + 起草 2 + writer 1 + 复核 1。
+      record.persisted_provider_facts_matched_budget === true &&
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.pending_prose_fragment_count ?? 0) === 1 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.quality_review_status === "completed" &&
       Number(record.quality_findings_count ?? -1) >= 0 &&
       record.finding_summary_displayed === true &&
@@ -3986,11 +3988,12 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
   if (uiState.artifact_observation_visible !== true) return null;
   if (uiState.ui_prose_step_visible !== true) return null;
   if (uiState.ui_completion_decision_visible !== true) return null;
-  if (uiState.ui_provider_execution_details_visible !== true) return null;
+  if (uiState.persisted_provider_facts_matched_budget !== true) return null;
   if (Number(uiState.pending_prose_fragment_count ?? 0) !== 1) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 起草 2 + writer 1 + 复核 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (uiState.quality_review_status !== "completed") return null;
   if (Number(uiState.quality_findings_count ?? -1) < 0) return null;
   if (uiState.finding_in_draft_body !== false) return null;
@@ -4074,7 +4077,10 @@ function findAgentConversationTurnEvidence(records) {
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1；
+      // provider 取证由持久化 ProviderRun 事实承担（工作详情 UI 已移除）。
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      record.persisted_provider_facts_matched_budget === true &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -4158,7 +4164,8 @@ function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence,
   if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
 
@@ -4237,7 +4244,8 @@ function findAgenticLoopPlanReplanReasoningEvidence(records) {
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 起草 2 + 修订 2（两段式）+ 回应 1。
+      Number(record.consumed_provider_calls ?? 0) === 6 &&
       Number(record.consumed_replans ?? 0) === 1 &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_toolbox_execute_count ?? 0) === 0,
@@ -4307,7 +4315,8 @@ function agenticLoopPlanReplanReasoningBehavior(turnIds, _turnRecords, records, 
   if (boolValue(uiState.revised_plan_has_finalize_step) !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 起草 2 + 修订 2（两段式）+ 回应 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
   if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
@@ -4385,7 +4394,8 @@ function findAgenticLoopNoDeviationDirectEvidence(records) {
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1（无偏离零 replan）。
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       Number(record.consumed_replans ?? -1) === 0 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
@@ -4450,7 +4460,8 @@ function agenticLoopNoDeviationDirectBehavior(turnIds, _turnRecords, records, ev
   if (uiState.finalize_step_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
@@ -5018,7 +5029,8 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.ui_outline_draft_visible === true &&
       record.ui_outline_adoption_actions_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -5107,7 +5119,8 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
   if (uiState.ui_outline_adoption_actions_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_plot_outline_tool_done !== true) return null;
@@ -5208,7 +5221,8 @@ function findAgentWorldBuildingWithContextEvidence(
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_world_building_draft_visible === true &&
@@ -5309,7 +5323,8 @@ function agentWorldBuildingWithContextBehavior(turnIds, _turnRecords, records, e
   if (uiState.ui_finalization_step_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_world_building_tool_done !== true) return null;
@@ -5389,7 +5404,8 @@ function findAgentCharacterEvolutionWithContextEvidence(records) {
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.ui_character_evolution_draft_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
@@ -5485,7 +5501,8 @@ function agentCharacterEvolutionWithContextBehavior(
   if (uiState.artifact_event_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_character_evolution_tool_done !== true) return null;
@@ -5667,10 +5684,9 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
       Number(record.ui_author_reasoning_stream_sample_count ?? 0) >= 2 &&
       boolValue(record.ui_author_reasoning_stream_grew) === true &&
-      boolValue(record.ui_provider_execution_visible) === true &&
-      boolValue(record.ui_provider_execution_details_visible) === true &&
-      boolValue(record.ui_provider_execution_flow_visible) === true &&
-      boolValue(record.ui_agent_execution_brief_visible) === true &&
+      // Order 62 CP3 语义迁移：模型执行流/明细 UI 已移除，provider 执行取证由
+      // provider_progress 帧家族（上列）与 scoped activity API 键承担。
+      boolValue(record.persisted_provider_facts_matched_budget) === true &&
       Array.isArray(record.provider_run_refs) &&
       record.provider_run_refs.length >= 1 &&
       Array.isArray(record.provider_call_refs) &&
@@ -5678,7 +5694,8 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       Array.isArray(record.provider_purposes) &&
       record.provider_purposes.includes("author_reasoning") &&
       record.provider_purposes.includes("conversation") &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1。
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.final_turn_result_run_id === record.run_id,
   );
   if (!uiState) return null;
@@ -5738,9 +5755,9 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
   if (boolValue(uiState.ui_author_reasoning_cumulative_delta_visible) !== true) return null;
   if (Number(uiState.ui_author_reasoning_stream_sample_count ?? 0) < 2) return null;
   if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
-  if (boolValue(uiState.ui_provider_execution_details_visible) !== true) return null;
-  if (boolValue(uiState.ui_provider_execution_flow_visible) !== true) return null;
-  if (boolValue(uiState.ui_agent_execution_brief_visible) !== true) return null;
+  // Order 62 CP3 语义迁移：模型执行流/明细 UI 已移除；provider 取证由帧家族与
+  // 持久化 ProviderRun 事实（persisted_provider_facts_matched_budget）承担。
+  if (boolValue(uiState.persisted_provider_facts_matched_budget) !== true) return null;
   if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1)
     return null;
   if (!Array.isArray(uiState.provider_call_refs) || uiState.provider_call_refs.length < 1) {
@@ -5808,7 +5825,9 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
       Number(record.transcript_provider_run_summary_count ?? -1) === 0 &&
       Number(record.agent_run_activity_api_status ?? 0) === 200 &&
       Number(record.agent_run_activity_api_run_count ?? 0) >= 1 &&
-      Number(record.agent_run_activity_api_provider_progress_event_count ?? 0) >= 2 &&
+      // 2026-07-02 d0643cd3 起 developer 事件不入 activity API 的 agent_runs[].events；
+      // provider 事实由 ProviderRun 事件序列承担。
+      Number(record.agent_run_activity_api_provider_event_count ?? 0) >= 2 &&
       boolValue(record.agent_run_activity_api_started_restored) === true &&
       boolValue(record.agent_run_activity_api_final_output_restored) === true &&
       boolValue(record.agent_run_activity_api_raw_content_leaked) === false &&
@@ -5816,15 +5835,10 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
       record.agent_run_activity_api_provider_run_refs.length >= 1 &&
       Array.isArray(record.agent_run_activity_api_provider_call_refs) &&
       record.agent_run_activity_api_provider_call_refs.length >= 1 &&
-      boolValue(record.restored_ui_details_initially_collapsed) === true &&
-      boolValue(record.restored_ui_activity_loaded_after_expand) === true &&
-      boolValue(record.restored_ui_provider_execution_visible) === true &&
-      boolValue(record.restored_ui_provider_execution_details_visible) === true &&
-      boolValue(record.restored_ui_agent_execution_brief_visible) === true &&
-      boolValue(record.restored_ui_provider_usage_breakdown_visible) === true &&
+      // Order 62 CP3 语义迁移：折叠区/模型调用明细 UI 已移除；恢复可见性 =
+      // 三层 UI 结构从持久化 events 重建，provider 事实由 activity API 键承担。
       boolValue(record.restored_ui_agent_flow_visible) === true &&
-      boolValue(record.restored_ui_provider_run_replay_visible) === true &&
-      boolValue(record.restored_ui_provider_run_replay_boundary_visible) === true &&
+      boolValue(record.restored_ui_plan_restored) === true &&
       boolValue(record.restored_ui_provider_run_replay_raw_content_leaked) === false &&
       Number(record.provider_run_activity_api_status ?? 0) === 200 &&
       Number(record.provider_run_activity_api_count ?? 0) >= 3 &&
@@ -5854,8 +5868,8 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
     transcript_provider_run_summary_count: Number(
       uiState.transcript_provider_run_summary_count ?? 0,
     ),
-    agent_run_activity_api_provider_progress_event_count: Number(
-      uiState.agent_run_activity_api_provider_progress_event_count ?? 0,
+    agent_run_activity_api_provider_event_count: Number(
+      uiState.agent_run_activity_api_provider_event_count ?? 0,
     ),
     agent_run_activity_api_provider_run_refs:
       uiState.agent_run_activity_api_provider_run_refs ?? [],
@@ -5911,15 +5925,15 @@ function findAgentSessionTranscriptLazyPageEvidence(records) {
       boolValue(record.older_transcript_agent_run_summary_only) === true &&
       Number(record.older_agent_run_activity_api_status ?? 0) === 200 &&
       Number(record.older_agent_run_activity_api_run_count ?? 0) >= 1 &&
-      Number(record.older_agent_run_activity_api_provider_progress_event_count ?? 0) >= 2 &&
+      Number(record.older_provider_run_activity_api_event_count ?? 0) >= 2 &&
       Number(record.older_provider_run_activity_api_count ?? 0) >= 3 &&
       Array.isArray(record.older_provider_run_activity_api_purposes) &&
       record.older_provider_run_activity_api_purposes.includes("author_reasoning") &&
       record.older_provider_run_activity_api_purposes.includes("conversation") &&
       boolValue(record.older_agent_run_activity_api_raw_content_leaked) === false &&
-      boolValue(record.older_ui_details_initially_collapsed) === true &&
-      boolValue(record.older_ui_activity_loaded_after_expand) === true &&
-      boolValue(record.older_ui_provider_run_replay_boundary_visible) === true &&
+      // Order 62 CP3 语义迁移：折叠区/明细 UI 已移除；历史消息运行组随消息直接渲染，
+      // provider 事实由持久化 ProviderRun 事件序列承担。
+      boolValue(record.older_ui_agent_flow_visible) === true &&
       boolValue(record.older_ui_provider_run_replay_raw_content_leaked) === false &&
       boolValue(record.provider_recalled_during_older_activity_expand) === false,
   );
@@ -5935,8 +5949,8 @@ function findAgentSessionTranscriptLazyPageEvidence(records) {
     persisted_first_page_count: Number(uiState.persisted_first_page_count ?? 0),
     older_transcript_api_count: Number(uiState.older_transcript_api_count ?? 0),
     older_assistant_turn_id: String(uiState.older_assistant_turn_id ?? ""),
-    older_agent_run_activity_api_provider_progress_event_count: Number(
-      uiState.older_agent_run_activity_api_provider_progress_event_count ?? 0,
+    older_provider_run_activity_api_event_count: Number(
+      uiState.older_provider_run_activity_api_event_count ?? 0,
     ),
     older_provider_run_activity_api_count: Number(
       uiState.older_provider_run_activity_api_count ?? 0,
@@ -5978,7 +5992,7 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
   if (Number(uiState.transcript_provider_run_summary_count ?? -1) !== 0) return null;
   if (Number(uiState.agent_run_activity_api_status ?? 0) !== 200) return null;
   if (Number(uiState.agent_run_activity_api_run_count ?? 0) < 1) return null;
-  if (Number(uiState.agent_run_activity_api_provider_progress_event_count ?? 0) < 2) return null;
+  if (Number(uiState.agent_run_activity_api_provider_event_count ?? 0) < 2) return null;
   if (boolValue(uiState.agent_run_activity_api_started_restored) !== true) return null;
   if (boolValue(uiState.agent_run_activity_api_final_output_restored) !== true) return null;
   if (boolValue(uiState.agent_run_activity_api_raw_content_leaked) !== false) return null;
@@ -5994,15 +6008,10 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
   ) {
     return null;
   }
-  if (boolValue(uiState.restored_ui_details_initially_collapsed) !== true) return null;
-  if (boolValue(uiState.restored_ui_activity_loaded_after_expand) !== true) return null;
-  if (boolValue(uiState.restored_ui_provider_execution_visible) !== true) return null;
-  if (boolValue(uiState.restored_ui_provider_execution_details_visible) !== true) return null;
-  if (boolValue(uiState.restored_ui_agent_execution_brief_visible) !== true) return null;
-  if (boolValue(uiState.restored_ui_provider_usage_breakdown_visible) !== true) return null;
+  // Order 62 CP3 语义迁移：折叠区/模型调用明细 UI 已移除。恢复可见性 = 三层 UI
+  // 结构从持久化 events 重建；provider 事实由上方 activity API / transcript 键承担。
   if (boolValue(uiState.restored_ui_agent_flow_visible) !== true) return null;
-  if (boolValue(uiState.restored_ui_provider_run_replay_visible) !== true) return null;
-  if (boolValue(uiState.restored_ui_provider_run_replay_boundary_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_plan_restored) !== true) return null;
   if (boolValue(uiState.restored_ui_provider_run_replay_raw_content_leaked) !== false) {
     return null;
   }
@@ -6038,8 +6047,8 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
     profile_ref: evidence.profile_ref,
     transcript_agent_run_event_count: evidence.transcript_agent_run_event_count,
     transcript_provider_run_summary_count: evidence.transcript_provider_run_summary_count,
-    agent_run_activity_api_provider_progress_event_count:
-      evidence.agent_run_activity_api_provider_progress_event_count,
+    agent_run_activity_api_provider_event_count:
+      evidence.agent_run_activity_api_provider_event_count,
     agent_run_activity_api_provider_run_refs: evidence.agent_run_activity_api_provider_run_refs,
     agent_run_activity_api_provider_call_refs: evidence.agent_run_activity_api_provider_call_refs,
     provider_run_activity_api_count: evidence.provider_run_activity_api_count,
@@ -6047,29 +6056,20 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
     provider_run_activity_api_call_refs: evidence.provider_run_activity_api_call_refs,
     provider_run_activity_api_purposes: evidence.provider_run_activity_api_purposes,
     provider_run_activity_api_total_tokens: evidence.provider_run_activity_api_total_tokens,
-    restored_ui_provider_run_replay_visible: evidence.restored_ui_provider_run_replay_visible,
-    restored_ui_provider_usage_breakdown_visible:
-      evidence.restored_ui_provider_usage_breakdown_visible,
-    restored_ui_provider_run_replay_boundary_visible:
-      evidence.restored_ui_provider_run_replay_boundary_visible,
-    restored_ui_details_initially_collapsed: evidence.restored_ui_details_initially_collapsed,
-    restored_ui_activity_loaded_after_expand: evidence.restored_ui_activity_loaded_after_expand,
+    restored_ui_plan_restored: evidence.restored_ui_plan_restored,
+    restored_ui_reasoning_restored: evidence.restored_ui_reasoning_restored,
     reload_resume_transcript_count: evidence.reload_resume_transcript_count,
     assertions: [
       "session_restore_kept_agent_run_activity_summary_only",
       "agent_run_activity_api_returned_author_safe_events_without_provider_recall",
       "provider_usage_was_restored_from_provider_run_log_without_provider_recall",
       "provider_run_activity_api_returned_author_safe_usage_without_provider_recall",
-      "author_expanded_work_details_loaded_activity_inside_same_assistant_dialogue_flow",
-      "restored_provider_usage_breakdown_was_visible_to_author",
+      "restored_message_rehydrated_dialogue_flow_from_persisted_events_without_author_action",
       "lazy_loaded_activity_carried_provider_run_and_call_refs",
       "restored_provider_run_usage_preserved_planner_and_conversation_purposes",
-      "restored_activity_rendered_provider_event_and_ref_details",
-      "restored_agent_execution_brief_summarized_path_and_provider_call_count",
+      "persisted_provider_run_event_sequences_were_restored_via_activity_api",
       "restored_activity_did_not_expose_raw_prompt_or_provider_output_content",
-      "restored_provider_run_replay_rendered_event_sequence_and_output_summary",
-      "restored_provider_run_replay_declared_no_provider_recall_boundary",
-      "reloaded_workbench_showed_provider_activity_inside_the_same_assistant_dialogue_flow",
+      "reloaded_workbench_showed_plan_and_reasoning_inside_the_same_assistant_dialogue_flow",
     ],
   };
 }
@@ -6093,7 +6093,7 @@ function agentSessionTranscriptLazyPageBehavior(turnIds, records, evidence) {
   if (boolValue(uiState.older_transcript_agent_run_summary_only) !== true) return null;
   if (Number(uiState.older_agent_run_activity_api_status ?? 0) !== 200) return null;
   if (Number(uiState.older_agent_run_activity_api_run_count ?? 0) < 1) return null;
-  if (Number(uiState.older_agent_run_activity_api_provider_progress_event_count ?? 0) < 2) {
+  if (Number(uiState.older_provider_run_activity_api_event_count ?? 0) < 2) {
     return null;
   }
   if (Number(uiState.older_provider_run_activity_api_count ?? 0) < 3) return null;
@@ -6105,9 +6105,8 @@ function agentSessionTranscriptLazyPageBehavior(turnIds, records, evidence) {
     return null;
   }
   if (boolValue(uiState.older_agent_run_activity_api_raw_content_leaked) !== false) return null;
-  if (boolValue(uiState.older_ui_details_initially_collapsed) !== true) return null;
-  if (boolValue(uiState.older_ui_activity_loaded_after_expand) !== true) return null;
-  if (boolValue(uiState.older_ui_provider_run_replay_boundary_visible) !== true) return null;
+  // Order 62 CP3 语义迁移：折叠区/明细 UI 已移除；历史消息运行组随消息直接渲染。
+  if (boolValue(uiState.older_ui_agent_flow_visible) !== true) return null;
   if (boolValue(uiState.older_ui_provider_run_replay_raw_content_leaked) !== false) return null;
   if (boolValue(uiState.provider_recalled_during_older_activity_expand) !== false) return null;
 
@@ -6121,8 +6120,8 @@ function agentSessionTranscriptLazyPageBehavior(turnIds, records, evidence) {
     persisted_first_page_count: evidence.persisted_first_page_count,
     older_transcript_api_count: evidence.older_transcript_api_count,
     older_assistant_turn_id: evidence.older_assistant_turn_id,
-    older_agent_run_activity_api_provider_progress_event_count:
-      evidence.older_agent_run_activity_api_provider_progress_event_count,
+    older_provider_run_activity_api_event_count:
+      evidence.older_provider_run_activity_api_event_count,
     older_provider_run_activity_api_count: evidence.older_provider_run_activity_api_count,
     older_provider_run_activity_api_purposes: evidence.older_provider_run_activity_api_purposes,
     reload_resume_transcript_count: evidence.reload_resume_transcript_count,

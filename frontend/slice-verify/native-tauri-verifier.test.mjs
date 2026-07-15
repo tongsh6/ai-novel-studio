@@ -161,7 +161,8 @@ describe("native Tauri slice verifier", () => {
         completed_step_count: 4,
         consumed_steps: 4,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 3,
+        consumed_provider_calls: 4,
+        persisted_provider_facts_matched_budget: true,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         log_sync_turn_count: 0,
@@ -257,7 +258,7 @@ describe("native Tauri slice verifier", () => {
         completed_step_count: 4,
         consumed_steps: 4,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 3,
+        consumed_provider_calls: 4,
         consumed_replans: 0,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
@@ -347,7 +348,7 @@ describe("native Tauri slice verifier", () => {
         completed_step_count: 4,
         consumed_steps: 4,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 4,
+        consumed_provider_calls: 6,
         consumed_replans: 1,
         log_sync_turn_count: 0,
         log_toolbox_execute_count: 0,
@@ -947,7 +948,7 @@ describe("native Tauri slice verifier", () => {
         completed_step_count: 2,
         consumed_steps: 2,
         consumed_tool_calls: 1,
-        consumed_provider_calls: 3,
+        consumed_provider_calls: 4,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         ui_world_building_draft_visible: true,
@@ -978,7 +979,7 @@ describe("native Tauri slice verifier", () => {
       world_building_nonce: "WORLD123",
       consumed_steps: 2,
       consumed_tool_calls: 1,
-      consumed_provider_calls: 3,
+      consumed_provider_calls: 4,
       ui_profile_selection_visible: true,
       ui_profile_selection_terms_visible: true,
       ui_profile_selection_path_visible: true,
@@ -1093,14 +1094,11 @@ describe("native Tauri slice verifier", () => {
         ui_author_reasoning_cumulative_delta_visible: true,
         ui_author_reasoning_stream_sample_count: 3,
         ui_author_reasoning_stream_grew: true,
-        ui_provider_execution_visible: true,
-        ui_provider_execution_details_visible: true,
-        ui_provider_execution_flow_visible: true,
-        ui_agent_execution_brief_visible: true,
+        persisted_provider_facts_matched_budget: true,
         provider_run_refs: ["prun-planner", "prun-conversation"],
         provider_call_refs: ["pcall-planner", "pcall-conversation"],
         provider_purposes: ["author_reasoning", "conversation"],
-        consumed_provider_calls: 3,
+        consumed_provider_calls: 4,
       },
     ];
 
@@ -1146,13 +1144,15 @@ describe("native Tauri slice verifier", () => {
       findNativeSliceEvidence("agent-provider-execution-stream-unified", missingChunkProgress),
     ).toBeNull();
 
-    const missingFlowSummary = records.map((record) => ({
+    // Order 62 CP3 语义迁移：flow 摘要 UI 已移除，对应负例改为持久化 ProviderRun
+    // 事实与预算不一致时不得放行。
+    const mismatchedPersistedFacts = records.map((record) => ({
       ...record,
-      ui_provider_execution_flow_visible: false,
+      persisted_provider_facts_matched_budget: false,
     }));
 
     expect(
-      findNativeSliceEvidence("agent-provider-execution-stream-unified", missingFlowSummary),
+      findNativeSliceEvidence("agent-provider-execution-stream-unified", mismatchedPersistedFacts),
     ).toBeNull();
 
     const missingReasoningStream = records.map((record) => ({
@@ -1186,21 +1186,15 @@ describe("native Tauri slice verifier", () => {
         agent_run_activity_api_status: 200,
         agent_run_activity_api_run_count: 1,
         agent_run_activity_api_event_count: 6,
-        agent_run_activity_api_provider_progress_event_count: 4,
+        agent_run_activity_api_provider_event_count: 4,
         agent_run_activity_api_started_restored: true,
         agent_run_activity_api_final_output_restored: true,
         agent_run_activity_api_provider_run_refs: ["prun-planner", "prun-conversation"],
         agent_run_activity_api_provider_call_refs: ["pcall-planner", "pcall-conversation"],
         agent_run_activity_api_raw_content_leaked: false,
-        restored_ui_details_initially_collapsed: true,
-        restored_ui_activity_loaded_after_expand: true,
-        restored_ui_provider_execution_visible: true,
-        restored_ui_provider_execution_details_visible: true,
-        restored_ui_agent_execution_brief_visible: true,
-        restored_ui_provider_usage_breakdown_visible: true,
+        restored_ui_plan_restored: true,
+        restored_ui_reasoning_restored: true,
         restored_ui_agent_flow_visible: true,
-        restored_ui_provider_run_replay_visible: true,
-        restored_ui_provider_run_replay_boundary_visible: true,
         restored_ui_provider_run_replay_raw_content_leaked: false,
         provider_run_activity_api_status: 200,
         provider_run_activity_api_count: 3,
@@ -1224,9 +1218,6 @@ describe("native Tauri slice verifier", () => {
       provider_run_activity_api_call_refs: ["pcall-planner", "pcall-conversation"],
       provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
       provider_run_activity_api_total_tokens: 42,
-      restored_ui_provider_usage_breakdown_visible: true,
-      restored_ui_provider_run_replay_visible: true,
-      restored_ui_provider_run_replay_boundary_visible: true,
     });
     expect(
       findSliceBehaviorEvidence("agent-provider-execution-activity-restored", records, evidence),
@@ -1234,15 +1225,13 @@ describe("native Tauri slice verifier", () => {
       slice_id: "agent-provider-execution-activity-restored",
       behavior: "provider_execution_activity_lazy_loaded_from_persisted_agent_run_events",
       provider_run_activity_api_count: 3,
-      restored_ui_provider_run_replay_visible: true,
       assertions: expect.arrayContaining([
         "session_restore_kept_agent_run_activity_summary_only",
         "agent_run_activity_api_returned_author_safe_events_without_provider_recall",
-        "author_expanded_work_details_loaded_activity_inside_same_assistant_dialogue_flow",
+        "restored_message_rehydrated_dialogue_flow_from_persisted_events_without_author_action",
         "provider_run_activity_api_returned_author_safe_usage_without_provider_recall",
-        "restored_provider_usage_breakdown_was_visible_to_author",
-        "restored_provider_run_replay_rendered_event_sequence_and_output_summary",
-        "restored_provider_run_replay_declared_no_provider_recall_boundary",
+        "persisted_provider_run_event_sequences_were_restored_via_activity_api",
+        "reloaded_workbench_showed_plan_and_reasoning_inside_the_same_assistant_dialogue_flow",
       ]),
     });
 
@@ -1275,7 +1264,7 @@ describe("native Tauri slice verifier", () => {
         older_transcript_agent_run_summary_only: true,
         older_agent_run_activity_api_status: 200,
         older_agent_run_activity_api_run_count: 1,
-        older_agent_run_activity_api_provider_progress_event_count: 4,
+        older_provider_run_activity_api_event_count: 4,
         older_provider_run_activity_api_count: 3,
         older_provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
         older_agent_run_activity_api_raw_content_leaked: false,
@@ -1286,9 +1275,7 @@ describe("native Tauri slice verifier", () => {
         older_message_visible_after_load: true,
         load_older_button_hidden_after_exhausted: true,
         provider_recalled_during_load_older: false,
-        older_ui_details_initially_collapsed: true,
-        older_ui_activity_loaded_after_expand: true,
-        older_ui_provider_run_replay_boundary_visible: true,
+        older_ui_agent_flow_visible: true,
         older_ui_provider_run_replay_raw_content_leaked: false,
         provider_recalled_during_older_activity_expand: false,
       },
@@ -1303,10 +1290,9 @@ describe("native Tauri slice verifier", () => {
       persisted_first_page_count: 30,
       older_transcript_api_count: 2,
       older_assistant_turn_id: "turn-oldest",
-      older_agent_run_activity_api_provider_progress_event_count: 4,
+      older_provider_run_activity_api_event_count: 4,
       older_provider_run_activity_api_count: 3,
       provider_recalled_during_load_older: false,
-      older_ui_activity_loaded_after_expand: true,
       provider_recalled_during_older_activity_expand: false,
     });
     expect(

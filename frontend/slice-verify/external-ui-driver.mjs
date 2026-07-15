@@ -2183,9 +2183,11 @@ async function driveAgentSessionTranscriptLazyPage(page) {
   const olderActivityEvents = olderActivityAgentRuns.flatMap((run) =>
     Array.isArray(run.events) ? run.events : [],
   );
-  const olderActivityProviderProgressEvents = olderActivityEvents.filter(
-    (event) => event.event_type === "provider_progress",
-  );
+  // 2026-07-02 d0643cd3 起 developer 事件不入 activity API 的 agent_runs[].events；
+  // provider 事实由 ProviderRun 事件序列（provider_runs[].events）承担。
+  const olderActivityProviderRunEvents = (
+    Array.isArray(olderActivityBody.provider_runs) ? olderActivityBody.provider_runs : []
+  ).flatMap((run) => (Array.isArray(run.events) ? run.events : []));
   const olderActivityProviderRuns = Array.isArray(olderActivityBody.provider_runs)
     ? olderActivityBody.provider_runs
     : [];
@@ -2207,8 +2209,8 @@ async function driveAgentSessionTranscriptLazyPage(page) {
     "Older assistant AgentRun activity API did not return AgentRun summary",
   );
   assert(
-    olderActivityProviderProgressEvents.length >= 2,
-    "Older assistant AgentRun activity API did not return provider progress events",
+    olderActivityProviderRunEvents.length >= 2,
+    "Older assistant persisted ProviderRun facts did not return provider event sequences",
   );
   assert(
     olderActivityProviderRuns.length >= 3,
@@ -2273,30 +2275,14 @@ async function driveAgentSessionTranscriptLazyPage(page) {
   const providerCallCountAfterLoadOlder = readAppLogRecords().filter(
     (record) => record.event === "provider_gateway.complete.start",
   ).length;
-  const olderDetailsCollapsedBeforeExpand =
-    !visibleAfterLoadOlder.includes("模型调用明细") &&
-    !visibleAfterLoadOlder.includes("事件序列") &&
-    !visibleAfterLoadOlder.includes("输出摘要");
-  assert(
-    olderDetailsCollapsedBeforeExpand,
-    "Older assistant work details should stay collapsed before author expands them",
-  );
-
-  const providerCallCountBeforeOlderActivityExpand = providerCallCountAfterLoadOlder;
-  const olderDetailsSummary = page.locator("summary").filter({ hasText: "工作详情" }).first();
-  await olderDetailsSummary.waitFor({ state: "visible", timeout: 30_000 });
-  await olderDetailsSummary.click();
+  // Order 62 CP3 语义迁移：工作详情折叠区与模型调用明细 UI 已移除。更早消息的
+  // 运行组三层 UI 直接随消息渲染；provider 事实由上方 scoped activity API 键承担。
+  // 核心不变量保留：加载更早对话与查看历史活动均不得重新调用 provider。
   await page.waitForFunction(
-    (expected) => expected.every((value) => document.body.innerText.includes(value)),
-    [
-      "创作执行",
-      "工作详情",
-      "模型调用明细",
-      "事件序列",
-      "输出摘要",
-      "回放边界",
-      "不会重新调用模型",
-    ],
+    () =>
+      document.body.innerText.includes("创作执行") &&
+      document.querySelectorAll('section[aria-label="计划"]').length >= 1,
+    undefined,
     { timeout: 30_000 },
   );
   await sleep(500);
@@ -2335,8 +2321,7 @@ async function driveAgentSessionTranscriptLazyPage(page) {
       older_transcript_agent_run_summary_only: olderTranscriptAgentRunSummaryOnly,
       older_agent_run_activity_api_status: olderActivityApi.status,
       older_agent_run_activity_api_run_count: olderActivityAgentRuns.length,
-      older_agent_run_activity_api_provider_progress_event_count:
-        olderActivityProviderProgressEvents.length,
+      older_provider_run_activity_api_event_count: olderActivityProviderRunEvents.length,
       older_provider_run_activity_api_count: olderActivityProviderRuns.length,
       older_provider_run_activity_api_purposes: olderActivityProviderPurposes,
       older_agent_run_activity_api_raw_content_leaked: olderActivityRawContentLeaked,
@@ -2348,17 +2333,12 @@ async function driveAgentSessionTranscriptLazyPage(page) {
       load_older_button_hidden_after_exhausted: !visibleAfterLoadOlder.includes("加载更早对话"),
       provider_recalled_during_load_older:
         providerCallCountAfterLoadOlder > providerCallCountBeforeLoadOlder,
-      older_ui_details_initially_collapsed: olderDetailsCollapsedBeforeExpand,
-      older_ui_activity_loaded_after_expand:
-        visibleAfterOlderActivityExpand.includes("模型调用明细") &&
-        visibleAfterOlderActivityExpand.includes("事件序列") &&
-        visibleAfterOlderActivityExpand.includes("输出摘要"),
-      older_ui_provider_run_replay_boundary_visible:
-        visibleAfterOlderActivityExpand.includes("回放边界") &&
-        visibleAfterOlderActivityExpand.includes("不会重新调用模型"),
+      // Order 62 CP3 语义迁移：折叠区/明细 UI 已移除；历史消息运行组随消息直接渲染。
+      older_ui_agent_flow_visible:
+        visibleAfterOlderActivityExpand.includes("创作执行"),
       older_ui_provider_run_replay_raw_content_leaked: olderUiRawContentLeaked,
       provider_recalled_during_older_activity_expand:
-        providerCallCountAfterOlderActivityExpand > providerCallCountBeforeOlderActivityExpand,
+        providerCallCountAfterOlderActivityExpand > providerCallCountAfterLoadOlder,
     },
   ];
 }
@@ -17175,7 +17155,7 @@ async function driveAgentProseDraftingWithQuality(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "Agent prose run state did not finish with expected step/tool/provider counters",
     60_000,
   );
@@ -17277,6 +17257,25 @@ async function driveAgentProseDraftingWithQuality(page) {
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
 
+  // Order 62 CP3 语义迁移：provider 取证由持久化 ProviderRun 事实承担。
+  const activityResponse = await fetchAgentRunActivityApi(
+    sentFrame.body?.work_id,
+    sentFrame.body?.session_id,
+    parentUserMessageLog?.turn_id ?? turnResult.parent_turn_id,
+  );
+  const activityPurposes = (
+    Array.isArray(activityResponse.body?.provider_runs) ? activityResponse.body.provider_runs : []
+  ).map((run) => String(run?.purpose ?? ""));
+  const persistedProviderRunCount = Number(
+    activityResponse.body?.totals?.provider_run_count ?? 0,
+  );
+  assert(
+    activityResponse.status === 200 &&
+      persistedProviderRunCount ===
+        Number(completedStateFrame.body.consumed_budget?.provider_calls ?? -1),
+    `Agent prose persisted ProviderRun facts (${persistedProviderRunCount}) did not match consumed provider calls`,
+  );
+
   return [
     {
       ...uiState,
@@ -17336,9 +17335,9 @@ async function driveAgentProseDraftingWithQuality(page) {
       ui_strategy_step_visible: false,
       ui_prose_step_visible: visibleText.includes("基于已读取的正文上下文生成正文草稿"),
       ui_finalization_step_visible: false,
+      // Order 62 CP3 语义迁移：终态区已移除，完成裁决可见性以状态标签判定。
       ui_completion_decision_visible:
-        visibleText.includes("本轮目标已经满足") ||
-        (visibleText.includes("终态") && visibleText.includes("已完成")),
+        visibleText.includes("已完成") || visibleText.includes("无任务"),
       quality_review_status: review.review_status,
       quality_policy_action: review.policy_action,
       quality_findings_count: review.findings?.length ?? 0,
@@ -17392,8 +17391,8 @@ async function driveAgentConversationTurn(page, options = {}) {
   const outputSliceId = options.sliceId ?? "agent-conversation-turn";
   const expectPlanReplan = options.expectPlanReplan === true;
   const expectAuthorReasoningDelta = options.expectAuthorReasoningDelta !== false;
-  // Order 62 CP1 两段式规划后：路由 1 + 计划起草（reasoning 流 + 结构 tool call）2 + 回应 1。
-  const expectedProviderCalls = expectPlanReplan ? 5 : 4;
+  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1；修订同为两段式（+2）。
+  const expectedProviderCalls = expectPlanReplan ? 6 : 4;
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await installReasoningStreamObserver(page);
@@ -17730,6 +17729,12 @@ async function driveAgentConversationTurn(page, options = {}) {
     );
   }
   const agenticLoopEvidenceLayout = await focusLatestAgenticLoopEvidence(page);
+  // Order 62 CP3 语义迁移：三层 UI 可见性按结构判定（46§9：状态 chip +
+  // section[aria-label="计划"] checklist + section[aria-label="推理"] 叙事）。
+  const agenticLoopSections = await page.evaluate(() => ({
+    plan: Boolean(document.querySelector('section[aria-label="计划"]')),
+    reasoning: Boolean(document.querySelector('section[aria-label="推理"]')),
+  }));
   const logsAfter = readAppLogRecords().slice(logStart);
   const parentUserMessageLog = logsAfter.find(
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
@@ -17905,30 +17910,23 @@ async function driveAgentConversationTurn(page, options = {}) {
       persisted_provider_purposes: activityPurposes,
       persisted_provider_facts_matched_budget:
         persistedProviderRunCount === expectedProviderCalls,
+      // Order 62 CP3 语义迁移：阶段带/终态区已移除，三层 UI 按结构 + 计划步骤
+      // 描述判定（步骤描述为模型起草的 PlanStep description，仍在计划 checklist）。
       ui_agentic_loop_plan_visible:
-        authorVisibleText.includes("规划") &&
-        authorVisibleText.includes("探索") &&
-        authorVisibleText.includes("评估") &&
-        authorVisibleText.includes("重规划") &&
-        authorVisibleText.includes("执行") &&
-        authorVisibleText.includes("复核") &&
-        authorVisibleText.includes("完成") &&
-        authorVisibleText.includes("计划"),
-      ui_agentic_loop_reasoning_visible:
-        authorVisibleText.includes("推理") &&
+        agenticLoopSections.plan &&
         authorVisibleText.includes("组装当前作品") &&
         authorVisibleText.includes("形成对话认知帧") &&
         authorVisibleText.includes("系统裁决") &&
         authorVisibleText.includes("生成本轮回应"),
+      ui_agentic_loop_reasoning_visible: agenticLoopSections.reasoning,
       ui_agentic_loop_result_visible:
-        authorVisibleText.includes("已生成本轮回应，本轮目标已经满足") ||
-        (authorVisibleText.includes("终态") && authorVisibleText.includes("已完成")),
+        authorVisibleText.includes("已完成") || authorVisibleText.includes("无任务"),
       ui_context_step_visible: authorVisibleText.includes("组装当前作品"),
       ui_frame_step_visible: authorVisibleText.includes("形成对话认知帧"),
       ui_strategy_step_visible: authorVisibleText.includes("系统裁决"),
       ui_finalize_step_visible: authorVisibleText.includes("生成本轮回应"),
       ui_agent_panel_visible:
-        authorVisibleText.includes("规划") && authorVisibleText.includes("计划"),
+        authorVisibleText.includes("创作执行") && agenticLoopSections.plan,
       ui_agentic_loop_920_width:
         agenticLoopEvidenceLayout !== null &&
         Math.abs(Number(agenticLoopEvidenceLayout.flow_width ?? 0) - 960) <= 24 &&
@@ -18586,19 +18584,9 @@ async function driveAgentProviderExecutionStreamUnified(page) {
     progressJson.includes("text_delta") ||
     progressJson.includes(String(conversationState.user_message_text ?? ""));
 
-  if (!(await page.locator("body").innerText()).includes("模型执行流")) {
-    const detailsSummary = page.locator("summary").filter({ hasText: "工作详情" }).last();
-    await detailsSummary.waitFor({ state: "visible", timeout: 30_000 });
-    await detailsSummary.click();
-    await page.waitForFunction(
-      (expected) => expected.every((value) => document.body.innerText.includes(value)),
-      ["模型执行流", "模型事件：收到结果", "运行编号：", "调用编号："],
-      { timeout: 30_000 },
-    );
-  }
-
-  const visibleText = await page.locator("body").innerText();
-
+  // Order 62 CP3 语义迁移：工作详情/模型执行流/模型调用明细 UI 已整体移除。
+  // provider execution 取证由 provider_progress 帧家族（上方断言）、scoped
+  // activity API 与持久化 transcript（activity-restored 场景）承担，不再驱动 UI 展开。
   return [
     {
       ...conversationState,
@@ -18643,27 +18631,6 @@ async function driveAgentProviderExecutionStreamUnified(page) {
       ),
       provider_progress_raw_content_leaked: rawProviderContentLeaked,
       final_turn_result_run_id: runId,
-      ui_provider_execution_visible:
-        visibleText.includes("模型执行流") &&
-        visibleText.includes("用途：") &&
-        visibleText.includes("调用：3 次"),
-      ui_provider_execution_details_visible:
-        visibleText.includes("模型调用明细") &&
-        visibleText.includes("事件序列") &&
-        visibleText.includes("输出摘要") &&
-        visibleText.includes("回放边界") &&
-        visibleText.includes("运行编号：") &&
-        visibleText.includes("调用编号："),
-      ui_provider_execution_flow_visible:
-        visibleText.includes("模型执行流") &&
-        visibleText.includes("模型输出已进入本轮执行轨迹") &&
-        visibleText.includes("整理请求") &&
-        visibleText.includes("发送请求") &&
-        visibleText.includes("接收输出") &&
-        visibleText.includes("形成结果") &&
-        visibleText.includes("已完成"),
-      ui_agent_execution_brief_visible:
-        visibleText.includes("调用：3 次") || visibleText.includes("模型调用 3 次"),
     },
   ];
 }
@@ -18720,24 +18687,27 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   const queriedAgentRun =
     queriedAgentRuns.find((agentRun) => agentRun.run_id === runId) ?? queriedAgentRuns[0] ?? {};
   const queriedEvents = Array.isArray(queriedAgentRun.events) ? queriedAgentRun.events : [];
-  const queriedProviderEvents = queriedEvents.filter(
-    (event) => event.event_type === "provider_progress" && event.visibility === "developer",
-  );
-  const queriedStartedEvent = queriedProviderEvents.find((event) =>
-    (event.reason_codes ?? []).includes("provider_started"),
-  );
-  const queriedFinalEvent = queriedProviderEvents.find((event) =>
-    (event.reason_codes ?? []).includes("provider_final_output"),
-  );
-  const queriedActivityRunRefs = [
-    ...new Set(queriedProviderEvents.map((event) => event.payload?.provider_run_ref)),
-  ].filter(Boolean);
-  const queriedActivityCallRefs = [
-    ...new Set(queriedProviderEvents.map((event) => event.payload?.provider_call_ref)),
-  ].filter(Boolean);
+  // 2026-07-02 d0643cd3（ADR-0022 叙事作者权）起 activity API 的 agent_runs[].events
+  // 只含 author 可见事件；developer 级 provider 事实以 ProviderRun 事件序列持久化，
+  // 从 provider_runs[].events 取证（started / completed 终态齐全才算恢复成功）。
+  const queriedProviderRunEventTypes = (runsList) =>
+    runsList.flatMap((run) => (Array.isArray(run.events) ? run.events : [])).map((event) =>
+      String(event?.event_type ?? ""),
+    );
   const queriedProviderRuns = Array.isArray(activityApiBody.provider_runs)
     ? activityApiBody.provider_runs
     : [];
+  const queriedProviderEventTypes = queriedProviderRunEventTypes(queriedProviderRuns);
+  const queriedStartedEvent = queriedProviderEventTypes.includes("started");
+  const queriedFinalEvent =
+    queriedProviderEventTypes.includes("completed") ||
+    queriedProviderEventTypes.includes("final_output");
+  const queriedActivityRunRefs = [
+    ...new Set(queriedProviderRuns.map((run) => run.provider_run_ref)),
+  ].filter(Boolean);
+  const queriedActivityCallRefs = [
+    ...new Set(queriedProviderRuns.map((run) => run.provider_call_ref)),
+  ].filter(Boolean);
   const queriedProviderRunRefs = [
     ...new Set(queriedProviderRuns.map((run) => run.provider_run_ref)),
   ].filter(Boolean);
@@ -18747,7 +18717,9 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   const queriedProviderPurposes = [
     ...new Set(queriedProviderRuns.map((run) => run.purpose)),
   ].filter(Boolean);
-  const queriedEventsJson = JSON.stringify(queriedProviderEvents);
+  const queriedEventsJson = JSON.stringify(
+    queriedProviderRuns.flatMap((run) => (Array.isArray(run.events) ? run.events : [])),
+  );
   const queriedProviderRunsJson = JSON.stringify(queriedProviderRuns);
   const queriedActivityRawContentLeaked =
     queriedEventsJson.includes("assistant_message") ||
@@ -18767,11 +18739,11 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   assert(activityApi.status === 200, "AgentRun activity API did not return HTTP 200");
   assert(queriedAgentRuns.length >= 1, "AgentRun activity API did not return AgentRun summaries");
   assert(
-    queriedProviderEvents.length >= 2,
-    "AgentRun activity API did not restore provider_progress events",
+    queriedProviderEventTypes.length >= 2,
+    "Persisted ProviderRun facts did not restore provider event sequences",
   );
-  assert(queriedStartedEvent, "AgentRun activity API did not restore provider_started");
-  assert(queriedFinalEvent, "AgentRun activity API did not restore provider_final_output");
+  assert(queriedStartedEvent, "Persisted ProviderRun facts did not restore started events");
+  assert(queriedFinalEvent, "Persisted ProviderRun facts did not restore terminal events");
   assert(
     queriedActivityRunRefs.length >= 1 && queriedActivityCallRefs.length >= 1,
     "AgentRun activity API did not carry provider refs",
@@ -18814,51 +18786,23 @@ async function driveAgentProviderExecutionActivityRestored(page) {
     30_000,
   );
 
+  // Order 62 CP3 语义迁移：工作详情折叠区与模型调用明细/事件序列/输出摘要/回放
+  // 边界 UI 已整体移除。恢复后的作者可见语义 = 同一 assistant 消息的运行组三层
+  // UI 从持久化 events 重建；provider 事实取证由上方 transcript / scoped activity
+  // API 断言承担（不弱化：API 断言覆盖原 UI 展开所验证的全部事实）。
+  // 恢复补水是惰性异步的：等待条件必须包含三层 UI 结构本身，而不是先等文本再
+  // 一次性取值（否则与补水完成产生竞态）。
   await page.waitForFunction(
-    (expected) => expected.every((value) => document.body.innerText.includes(value)),
-    ["创作执行", "工作详情"],
+    (expected) =>
+      expected.every((value) => document.body.innerText.includes(value)) &&
+      Boolean(document.querySelector('section[aria-label="计划"]')),
+    ["创作执行", "已完成"],
     { timeout: 30_000 },
   );
-
-  const collapsedVisibleText = await page.locator("body").innerText();
-  const restoredDetailsInitiallyCollapsed =
-    !collapsedVisibleText.includes("模型调用明细") &&
-    !collapsedVisibleText.includes("事件序列") &&
-    !collapsedVisibleText.includes("模型事件：开始调用") &&
-    !collapsedVisibleText.includes("模型事件：收到结果");
-  assert(
-    restoredDetailsInitiallyCollapsed,
-    "Reloaded assistant dialogue flow should keep AgentRun details collapsed before author expands it",
-  );
-
-  const detailsSummary = page.locator("summary").filter({ hasText: "工作详情" }).last();
-  await detailsSummary.waitFor({ state: "visible", timeout: 30_000 });
-  await detailsSummary.click();
-
-  await page.waitForFunction(
-    (expected) => expected.every((value) => document.body.innerText.includes(value)),
-    [
-      "创作执行",
-      "工作详情",
-      "模型事件：开始调用",
-      "模型事件：收到结果",
-      "运行编号：",
-      "调用编号：",
-      "调用步骤规划模型",
-      "模型判断",
-      "系统裁决",
-      "完成回应",
-      "模型调用 3 次",
-      "模型调用明细",
-      "事件序列",
-      "输出摘要",
-      "输入用量：",
-      "输出用量：",
-      "回放边界",
-      "不会重新调用模型",
-    ],
-    { timeout: 30_000 },
-  );
+  const restoredSections = await page.evaluate(() => ({
+    plan: Boolean(document.querySelector('section[aria-label="计划"]')),
+    reasoning: Boolean(document.querySelector('section[aria-label="推理"]')),
+  }));
 
   const restoredVisibleText = await page.locator("body").innerText();
   const providerRunReplayUiRawContentLeaked = [
@@ -18883,7 +18827,7 @@ async function driveAgentProviderExecutionActivityRestored(page) {
       agent_run_activity_api_status: activityApi.status,
       agent_run_activity_api_run_count: queriedAgentRuns.length,
       agent_run_activity_api_event_count: queriedEvents.length,
-      agent_run_activity_api_provider_progress_event_count: queriedProviderEvents.length,
+      agent_run_activity_api_provider_event_count: queriedProviderEventTypes.length,
       agent_run_activity_api_started_restored: Boolean(queriedStartedEvent),
       agent_run_activity_api_final_output_restored: Boolean(queriedFinalEvent),
       agent_run_activity_api_provider_run_refs: queriedActivityRunRefs,
@@ -18896,35 +18840,11 @@ async function driveAgentProviderExecutionActivityRestored(page) {
       provider_run_activity_api_purposes: queriedProviderPurposes,
       provider_run_activity_api_total_tokens: activityApiBody.totals?.total_tokens ?? null,
       provider_run_activity_api_raw_content_leaked: queriedProviderRunRawContentLeaked,
-      restored_ui_details_initially_collapsed: restoredDetailsInitiallyCollapsed,
-      restored_ui_activity_loaded_after_expand: true,
-      restored_ui_provider_execution_visible:
-        restoredVisibleText.includes("模型事件：开始调用") &&
-        restoredVisibleText.includes("模型事件：收到结果") &&
-        restoredVisibleText.includes("运行编号：") &&
-        restoredVisibleText.includes("调用编号："),
-      restored_ui_provider_execution_details_visible:
-        restoredVisibleText.includes("模型事件：开始调用") &&
-        restoredVisibleText.includes("模型事件：收到结果") &&
-        restoredVisibleText.includes("运行编号：") &&
-        restoredVisibleText.includes("调用编号："),
-      restored_ui_agent_execution_brief_visible:
-        restoredVisibleText.includes("调用步骤规划模型") &&
-        restoredVisibleText.includes("模型判断") &&
-        restoredVisibleText.includes("系统裁决") &&
-        restoredVisibleText.includes("完成回应") &&
-        restoredVisibleText.includes("模型调用 3 次"),
-      restored_ui_provider_usage_breakdown_visible:
-        restoredVisibleText.includes("输入用量：") && restoredVisibleText.includes("输出用量："),
+      // Order 62 CP3 语义迁移：折叠区/明细 UI 已移除；恢复可见性 = 三层 UI 结构重建。
       restored_ui_agent_flow_visible:
-        restoredVisibleText.includes("创作执行") && restoredVisibleText.includes("工作详情"),
-      restored_ui_provider_run_replay_visible:
-        restoredVisibleText.includes("模型调用明细") &&
-        restoredVisibleText.includes("事件序列") &&
-        restoredVisibleText.includes("输出摘要"),
-      restored_ui_provider_run_replay_boundary_visible:
-        restoredVisibleText.includes("回放边界") &&
-        restoredVisibleText.includes("不会重新调用模型"),
+        restoredVisibleText.includes("创作执行") && restoredSections.plan,
+      restored_ui_plan_restored: restoredSections.plan,
+      restored_ui_reasoning_restored: restoredSections.reasoning,
       restored_ui_provider_run_replay_raw_content_leaked: providerRunReplayUiRawContentLeaked,
     },
   ];
@@ -19061,16 +18981,11 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
   const turnIndex = frames.findIndex((frame) => frame === turnFrame);
   assert(ackIndex >= 0 && turnIndex > ackIndex, "Provider error TurnResult arrived before ack");
 
+  // Order 62 CP3 语义迁移：工作详情/执行记录已移除。作者可见错误语义由状态区 +
+  // 错误文案判定；模型事件与调用计数细节由下方 provider_progress 帧断言承担。
   await page.waitForFunction(
     (expected) => expected.every((value) => document.body.innerText.includes(value)),
-    [
-      "创作执行",
-      "工作详情",
-      "调用步骤规划模型",
-      "模型事件：调用失败",
-      "无法连接到创作引擎",
-      "模型调用 3 次",
-    ],
+    ["创作执行", "无法连接到创作引擎"],
     { timeout: 30_000 },
   );
 
@@ -19313,7 +19228,7 @@ async function driveAgentPlotOutlineWithContext(page) {
       frame.body?.profile_ref === "plot_outline_with_context_v1" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
     "Plot outline AgentRun state did not complete with expected counters",
     60_000,
   );
@@ -19445,8 +19360,10 @@ async function driveAgentPlotOutlineWithContext(page) {
       ui_outline_step_visible: visibleText.includes("生成章节大纲草稿"),
       ui_finalization_step_visible:
         visibleText.includes("完成回应") || visibleText.includes("当前：已完成"),
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
-      ui_agent_completed_visible: visibleText.includes("当前：已完成"),
+      // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      ui_agent_completed_visible:
+        visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_outline_draft_visible:
         visibleText.includes("章节大纲草稿") || visibleText.includes("大纲草稿"),
       ui_outline_adoption_actions_visible:
@@ -19668,7 +19585,7 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       frame.body?.profile_ref === "world_building_with_context_v1" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
     "World building AgentRun state did not complete with expected counters",
     60_000,
   );
@@ -19723,22 +19640,12 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
     "World building draft did not preserve the input nonce",
   );
 
-  const workDetailsAlreadyExpanded = await page
-    .locator("body")
-    .evaluate((body) => body.innerText.includes("本轮路径："))
-    .catch(() => false);
-  if (!workDetailsAlreadyExpanded) {
-    const workDetailsTrigger = page.getByText("工作详情", { exact: false }).first();
-    if (await workDetailsTrigger.isVisible().catch(() => false)) {
-      await workDetailsTrigger.click();
-    }
-  }
-
+  // Order 62 CP3 语义迁移：工作详情/模型执行流已移除，完成态与草稿可见性
+  // 改以新三层 UI（状态标签 + 采纳卡 + 采纳动作）判定，口径不弱化。
   await page.waitForFunction(
     (draftLabel) =>
-      document.body.innerText.includes("工作详情") &&
-      document.body.innerText.includes("已完成") &&
-      document.body.innerText.includes("模型执行流") &&
+      (document.body.innerText.includes("已完成") ||
+        document.body.innerText.includes("无任务")) &&
       (document.body.innerText.includes("世界设定草稿") ||
         document.body.innerText.includes(draftLabel)) &&
       document.body.innerText.includes("保存到作品档案"),
@@ -19835,13 +19742,11 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
         visibleText.includes("生成世界设定、伏笔或规则草稿") ||
         visibleText.includes("生成世界设定草稿"),
       ui_finalization_step_visible:
-        visibleText.includes("完成回应") ||
-        visibleText.includes("当前：已完成") ||
-        (visibleText.includes("终态") && visibleText.includes("已完成")),
-      ui_agent_panel_visible: visibleText.includes("工作详情"),
+        visibleText.includes("完成回应") || visibleText.includes("已完成"),
+      // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
       ui_agent_completed_visible:
-        visibleText.includes("当前：已完成") ||
-        (visibleText.includes("终态") && visibleText.includes("已完成")),
+        visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_world_building_draft_visible:
         visibleText.includes("世界设定草稿") || visibleText.includes(expectedDraftLabel),
       ui_profile_selection_visible:
@@ -20096,7 +20001,7 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       frame.body?.profile_ref === "character_evolution_with_context_v1" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
     "Character evolution AgentRun state did not complete with expected counters",
     60_000,
   );
@@ -20251,8 +20156,10 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       ui_strategy_step_visible: visibleText.includes("基于已读取的角色上下文生成角色演化草稿"),
       ui_evolution_step_visible: visibleText.includes("生成角色演化草稿"),
       ui_finalization_step_visible: visibleText.includes("本轮目标已经满足"),
-      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
-      ui_agent_completed_visible: visibleText.includes("当前：已完成"),
+      // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      ui_agent_completed_visible:
+        visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_character_evolution_draft_visible: visibleText.includes("角色演化记忆草稿"),
       ui_execution_brief_path_visible:
         visibleText.includes("本轮路径：") &&
@@ -20440,9 +20347,11 @@ async function driveAgentDurableResumeLongRunTask(page) {
       60_000,
     );
 
+    // Order 62 CP3 语义迁移：工作详情已移除；恢复语义由运行组 chip（已恢复检查点 +
+    // 任务引用）与状态标签（等待你确认）判定。
     await page.waitForFunction(
       (expected) => expected.every((value) => document.body.innerText.includes(value)),
-      ["创作执行", "工作详情", "已恢复检查点", "等待你确认", longRunTaskRef],
+      ["创作执行", "已恢复检查点", "等待你确认", longRunTaskRef],
       { timeout: 30_000 },
     );
 
@@ -21105,11 +21014,11 @@ async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
     20_000,
   );
 
+  // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("创作执行") &&
-      document.body.innerText.includes("工作详情") &&
-      document.body.innerText.includes("当前：已完成") &&
+      document.body.innerText.includes("已完成") &&
       document.body.innerText.includes("已读取当前角色阵容") &&
       document.body.innerText.includes("已生成待采纳候选") &&
       document.body.innerText.includes("保存到作品档案") &&
@@ -21198,8 +21107,10 @@ async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
       pending_artifact_body_chars: String(item.body ?? "").length,
       artifact_adopted: finalTurnResult.truthfulness?.artifact_adopted === true,
       production_write_performed: finalTurnResult.truthfulness?.production_write_performed === true,
-      agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
-      agent_completed_status_visible: visibleText.includes("当前：已完成"),
+      // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
+      agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("计划"),
+      agent_completed_status_visible:
+        visibleText.includes("已完成") || visibleText.includes("无任务"),
       roster_activity_visible: visibleText.includes("已读取当前角色阵容"),
       artifact_activity_visible: visibleText.includes("已生成待采纳候选"),
       save_archive_action_visible: visibleText.includes("保存到作品档案"),
