@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `UA01-judgment-driven-loop.md` | **CP0 done / CP1 todo（ADR-0025 实施）**：判断驱动交互循环——判断①②/计划按需/探索两翼；CP1 前置 MBC 探针。 |
 | `UA01-codex-style-narrative-alignment.md` | **doing / 46§9.4 实施**：Codex 式叙事体裁对齐——提示词体裁（意图开场段/阶段结论段归模型）+ 段落体布局 + 活动行/进度行结构词。 |
 | `DS02-adoption-status-canonicalization.md` | **todo / 数据口径系统修正**：adoption_status 大小写全链路统一到 30 §3.2 canonical 大写 7 态，撤销 DS01 期间前端 barrel 的临时放宽（用户原则：不允许补丁式绕过成为终态）。 |
 | `DS01-decision-surface-schema-gate.md` | **todo / ADR-0024 CP1**：决策面 schema 闸门与卡片死代码收口——ui_card 三卡集合进 codegen、前端删手写 TurnResult 类型与 6 个死分支、channel payload safeParse、result_card 移除 actions 字段（N-SURF）。CP2（S4 clarification）/ CP3（S7 awaiting_author）依赖本 slice 先行。队列优先级相对 UA-01 待 `tasks/NEXT.md` 定档。 |

@@ -332,6 +332,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | `AgentEvent.author_narrative` | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | Workbench activity UI | 作者可见过程叙述来自模型输出，不来自 `ProviderEvent.summary` / `AgentEvent.summary` / copy 常量 |
 | `AgentEvent.author_narrative_source` | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | Trace / replay / N-NARR driver | `author_narrative` 字节能反查同一 run 内 ProviderOutput 的 refs、hash 与 byte range |
 | `:author_reasoning` provider purpose | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | novel_agent provider execution / application projector | 承载作者安全叙事输出，不暴露 provider private reasoning / thinking / chain-of-thought |
+| 判断驱动交互循环（判断①/② + 计划按需 + 探索两翼） | `adr/ADR-0025-judgment-driven-interactive-loop-v3.md`, `notes/2026-07-15-judgment-driven-interactive-loop.md` | AgentRun runtime / Workbench 文档流 UI | 判断分布全程、S1-S7 为一等暂停出口；是否制定计划由模型判断；探索只读低门禁且外部搜索产物必须是带来源的 tentative 设定候选；judgment 事件命名与探索 contract 由 CP1/CP5/CP6 冻结 |
 
 ---
 
@@ -355,7 +356,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | 14 | replay 默认不重新调用 LLM | `06` | replay no-provider-call test |
 | 15 | projection hints 只触发刷新，不授权写入 | `07` | projection refresh no-write test |
 | 16 | AgentRun 作者可见过程叙述必须有模型输出字节来源（N-NARR） | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md`, `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md` | `author_narrative_source` 与 ProviderOutput 字节绑定 driver |
-| 17 | AgentRun 推进轨道必须来自模型产出并维护的 AgentPlan，生产路径不得存在 app 预制固定步骤轨道（N-PLAN） | `adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md`, `notes/2026-07-04-agentic-loop-plan-driven-execution.md` | 「无偏离直通」scenario（起草恰 1 次 planner 调用＋零 replan）＋ plan 版本序列 trace 断言 |
+| 17 | （ADR-0025 改写）当存在计划时，计划必须由模型制定并维护，app 不得预制计划轨道；是否制定计划由模型判断，app 不得强制起草也不得按场景预分类；无计划循环的轨道 = judgment 事件链，同样禁止 app 预制创作决策（机械准备步除外）（N-PLAN） | `adr/ADR-0025-judgment-driven-interactive-loop-v3.md`, `adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md`, `notes/2026-07-15-judgment-driven-interactive-loop.md` | 有计划 run：plan 事件链 + native tool call 结构；无计划 run：judgment 链 + 无 app 预制轨道（driver 随 CP1 迁移） |
 | 18 | 作者决策只能通过决策面注册表登记的决策面进入主链；ui_cards 不携带可提交动作（N-SURF） | `adr/ADR-0024-decision-surface-registry-v3.md`, `07` §4, `notes/2026-07-15-dialogue-flow-decision-surface-review.md` | TurnResult 产出扫描 driver（动作语义只来自 available_actions / 入册决策面）＋契约漂移注入测试（CP1） |
 
 这些不变量是后续 ADR 和垂直切面的主轴。任何实现计划如果不能指向其中至少一个不变量，就很可能不是承重垂直切面。

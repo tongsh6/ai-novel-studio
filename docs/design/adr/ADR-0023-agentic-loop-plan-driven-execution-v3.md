@@ -1,7 +1,11 @@
 # ADR-0023：Agentic Loop 计划驱动执行与调用经济学 v3
 
-- 
-- 状态：Accepted（CP0/CP1/CP2/CP3/CP4 均已由定向测试、真实 Tauri 与任务台账闭合）
+> **修订注记（2026-07-15，ADR-0025）**：本 ADR 适用域由"一切 AgentRun"收窄为
+> "模型判断需要计划的 run"。交互式场景改走判断驱动循环（判断①/② + 计划按需 +
+> 探索），N-PLAN 表述由 ADR-0025 改写；本 ADR 的机制（模型起草/修订计划、机械
+> 游标推进、D 系偏离信号、协议重试、预算 backstop）全部保留并被 ADR-0025 复用。
+
+- 状态：Accepted（CP0/CP1/CP2/CP3/CP4 均已闭合；适用域被 ADR-0025 收窄，机制沿用）
 - 日期：2026-07-04
 - 来源文档：
   - `../notes/2026-07-04-agentic-loop-plan-driven-execution.md`
