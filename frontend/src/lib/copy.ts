@@ -306,6 +306,15 @@ export const WORKBENCH = {
     evaluation_made: "评估",
     provider_progress: "推理",
   } as Record<string, string>,
+  // 46§9.4.4：活动行仅承担进行中指示（spinner 文字形态）；完成后的动作描述
+  // 让位给模型阶段结论段，系统不复述。结构词，不是叙述。
+  agenticLoopActivityDrafting: "正在起草…",
+  agenticLoopActivityReading: "正在查阅…",
+  agenticLoopActivityWorking: "正在执行…",
+  // 46§9.4：轻量进度行（纯计数骨架词）。
+  agenticLoopProgressStep: (done: number, total: number) => `第 ${done}/${total} 步`,
+  agenticLoopProgressPending: (count: number) => `${count} 份草稿待采纳`,
+  agenticLoopProgressChars: (chars: number) => `约 ${chars.toLocaleString("zh-CN")} 字`,
   agentRunMainInputSteerPlaceholder: "补充调整当前请求...",
   agentRunPause: "暂停",
   agentRunResume: "继续",

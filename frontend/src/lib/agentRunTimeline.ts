@@ -93,6 +93,36 @@ export function agentRunReasoningFlow(events: AgentEventData[]): AgenticLoopReas
   };
 }
 
+// 46§9.4.4：活动行仅承担进行中指示。最后一个 tool_started 之后若没有对应的
+// tool_completed / tool_failed，视为有进行中的工具动作；文案按工具类别取结构词
+//（不叙述、不复述完成动作）。
+const READING_TOOL_NAMES = new Set([
+  "character_roster",
+  "context_assemble",
+  "readonly_batch",
+  "work_profile",
+]);
+
+export type AgenticLoopActivityKind = "drafting" | "reading" | "working";
+
+export function activeToolActivity(events: AgentEventData[]): AgenticLoopActivityKind | null {
+  const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
+  let active: AgentEventData | null = null;
+
+  for (const event of ordered) {
+    if (event.event_type === "tool_started") active = event;
+    if (["tool_completed", "tool_failed", "run_completed", "run_failed", "run_cancelled"].includes(
+      event.event_type,
+    )) {
+      active = null;
+    }
+  }
+
+  if (!active) return null;
+  const toolName = stringPayloadValue(active.payload, "tool_name") ?? "";
+  return READING_TOOL_NAMES.has(toolName) ? "reading" : toolName ? "drafting" : "working";
+}
+
 function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {
   return (
     ["plan_drafted", "plan_revised", "exploration_observed", "evaluation_made"].includes(

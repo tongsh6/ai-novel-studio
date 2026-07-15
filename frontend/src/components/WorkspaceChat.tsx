@@ -12,6 +12,7 @@ import {
   Bot,
   ChevronDown,
   CircleHelp,
+  Loader2,
   MessageCircle,
   Pause,
   Pencil,
@@ -80,6 +81,7 @@ import {
   shouldShowWelcomeMessage,
 } from "../lib/workspaceRuntimeState";
 import {
+  activeToolActivity,
   agentRunReasoningFlow,
   type AgentRunProviderUsageData,
 } from "../lib/agentRunTimeline";
@@ -537,6 +539,27 @@ function agenticLoopStatusTone(run: AgentRunStateData | null): AgenticLoopPhaseS
   return "active";
 }
 
+// 46§9.4 进度行：待采纳草稿正文总字数（纯计数骨架词；无产物返回 null 不显示）。
+function pendingDraftCharCount(turnResult: TurnResult | undefined): number | null {
+  const pending = turnResult?.adoption_state?.pending ?? [];
+  if (pending.length === 0) return null;
+
+  const total = pending.reduce((sum, entry) => {
+    const items = entry.payload?.items;
+    if (!Array.isArray(items)) return sum;
+    return (
+      sum +
+      items.reduce((inner: number, item: unknown) => {
+        if (typeof item !== "object" || item === null || !("body" in item)) return inner;
+        const body: unknown = item.body;
+        return typeof body === "string" ? inner + body.length : inner;
+      }, 0)
+    );
+  }, 0);
+
+  return total > 0 ? total : null;
+}
+
 function planStepSymbol(status: string): string {
   if (status === "done") return "✓";
   if (status === "active") return "●";
@@ -564,6 +587,8 @@ interface AgentRunDialogueFlowProps {
   canResume?: boolean;
   canCancel?: boolean;
   onCommand?: (command: AgentCommand) => void;
+  // 46§9.4 进度行：待采纳草稿总字数（由调用方从 adoption_state 计算；无产物为 null）。
+  draftCharCount?: number | null;
 }
 
 function AgentRunDialogueFlow({
@@ -574,6 +599,7 @@ function AgentRunDialogueFlow({
   canResume = false,
   canCancel = false,
   onCommand,
+  draftCharCount = null,
 }: AgentRunDialogueFlowProps) {
   const reasoningFlow = agentRunReasoningFlow(events);
   const statusTone = agenticLoopStatusTone(run);
@@ -586,6 +612,33 @@ function AgentRunDialogueFlow({
     : latestAgentRunSummary(run, [], false);
   const showControls =
     run !== null && onCommand !== undefined && !TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+
+  // 46§9.4：轻量进度行（纯计数骨架词）与进行中活动指示。
+  // 步数以运行时事实（completed_step_refs）为准——计划面板的步骤状态是事件快照，
+  // 完成态下可能落后于真实进度，不能作为计数来源（避免假计数）。
+  const doneStepCount = Math.max(
+    reasoningFlow.planSteps.filter((step) => step.status === "done").length,
+    run?.completed_step_refs?.length ?? 0,
+  );
+  const totalStepCount = reasoningFlow.planSteps.length;
+  const pendingArtifactCount = run?.pending_artifact_refs?.length ?? 0;
+  const progressParts = [
+    totalStepCount > 0 ? WORKBENCH.agenticLoopProgressStep(doneStepCount, totalStepCount) : null,
+    pendingArtifactCount > 0 ? WORKBENCH.agenticLoopProgressPending(pendingArtifactCount) : null,
+    draftCharCount && draftCharCount > 0
+      ? WORKBENCH.agenticLoopProgressChars(draftCharCount)
+      : null,
+  ].filter((part): part is string => part !== null);
+  const runIsTerminal = run !== null && TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+  const activityKind = runIsTerminal ? null : activeToolActivity(events);
+  const activityText =
+    activityKind === "reading"
+      ? WORKBENCH.agenticLoopActivityReading
+      : activityKind === "drafting"
+        ? WORKBENCH.agenticLoopActivityDrafting
+        : activityKind === "working"
+          ? WORKBENCH.agenticLoopActivityWorking
+          : null;
 
   return (
     <div className={styles.agentRunFlow} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
@@ -612,6 +665,9 @@ function AgentRunDialogueFlow({
               </span>
             )}
             <span>{statusSummary}</span>
+            {progressParts.length > 0 && (
+              <span className={styles.agenticLoopProgressLine}>{progressParts.join(" · ")}</span>
+            )}
           </div>
         </div>
 
@@ -650,25 +706,30 @@ function AgentRunDialogueFlow({
         {reasoningFlow.narrativeEvents.length > 0 && (
           <>
             <div className={styles.agenticLoopDivider} aria-hidden="true" />
+            {/* 46§9.4.2：文档流段落体——模型叙事（意图开场段/阶段结论段）按到达
+                顺序成段渲染，原文不改写；不再逐条加结构标签抢戏。 */}
             <section
               className={styles.agenticLoopReasoning}
               aria-label={WORKBENCH.agenticLoopReasoningLabel}
             >
-              <ol className={styles.agenticLoopNarratives}>
-                {reasoningFlow.narrativeEvents.map((event) => (
-                  <li key={event.key} className={styles.agenticLoopNarrative}>
-                    <span
-                      className={styles.agenticLoopNarrativeLabel}
-                      data-tone={narrativeTone(event.eventType)}
-                    >
-                      {event.label}
-                    </span>
-                    <span className={styles.agenticLoopNarrativeText}>{event.narrative}</span>
-                  </li>
-                ))}
-              </ol>
+              {reasoningFlow.narrativeEvents.map((event) => (
+                <p
+                  key={event.key}
+                  className={styles.agenticLoopNarrativeParagraph}
+                  data-tone={narrativeTone(event.eventType)}
+                >
+                  {event.narrative}
+                </p>
+              ))}
             </section>
           </>
+        )}
+
+        {activityText && (
+          <div className={styles.agenticLoopActivityLine} aria-live="polite">
+            <Loader2 className={styles.spinnerIcon} size={13} aria-hidden="true" />
+            <span>{activityText}</span>
+          </div>
         )}
 
         {showControls && (
@@ -3375,6 +3436,7 @@ export function WorkspaceChat() {
                         canPause={messageRunIsLatest && canPauseAgentRun}
                         canResume={messageRunIsLatest && canResumeAgentRun}
                         canCancel={messageRunIsLatest && canCancelAgentRun}
+                        draftCharCount={pendingDraftCharCount(msg.turnResult)}
                         onCommand={
                           messageRunIsLatest
                             ? (command) => {

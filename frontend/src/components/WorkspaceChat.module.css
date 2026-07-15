@@ -676,14 +676,41 @@
 }
 
 .agenticLoopPlanSteps,
-.agenticLoopNarratives {
-  display: flex;
+/* 46§9.4.2 文档流段落体：模型叙事成段渲染（意图开场段/阶段结论段）。 */
+.agenticLoopNarrativeParagraph {
+  margin: 0 0 12px;
   min-width: 0;
-  flex-direction: column;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.7;
+  color: #262626;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agenticLoopNarrativeParagraph:last-child {
+  margin-bottom: 0;
+}
+
+/* 46§9.4.4 活动行：仅进行中指示（spinner 文字形态），完成即收起。 */
+.agenticLoopActivityLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: #8a8a8a;
+}
+
+.spinnerIcon {
+  animation: spin 1s linear infinite;
+}
+
+/* 46§9.4 轻量进度行（纯计数骨架词）。 */
+.agenticLoopProgressLine {
+  color: #8a8a8a;
+  font-size: 12.5px;
 }
 
 .agenticLoopPlanStep {
@@ -734,59 +761,6 @@
   font-size: 14px;
   font-weight: 600;
   line-height: 19px;
-  overflow-wrap: anywhere;
-}
-
-.agenticLoopNarrative {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-  color: #151515;
-  font-family: var(--sans);
-}
-
-.agenticLoopNarrativeLabel {
-  display: inline-flex;
-  width: fit-content;
-  max-width: 100%;
-  height: fit-content;
-  padding: 4px 9px;
-  border-radius: 6px;
-  background: #f5f2ed;
-  color: #9b948a;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 16px;
-  overflow-wrap: anywhere;
-}
-
-.agenticLoopNarrativeLabel[data-tone="explore"] {
-  background: #eaf1f6;
-  color: #3b6e8f;
-}
-
-.agenticLoopNarrativeLabel[data-tone="evaluate"] {
-  background: #f3eef6;
-  color: #6d5a8f;
-}
-
-.agenticLoopNarrativeLabel[data-tone="replan"] {
-  background: #fff3db;
-  color: #b46900;
-}
-
-.agenticLoopNarrativeText {
-  min-width: 0;
-  padding: 10px 14px;
-  border-left: 2px solid var(--accent);
-  border-radius: 3px;
-  background: #f7f4ef;
-  color: #151515;
-  font-size: 15px;
-  font-weight: 500;
-  line-height: 23px;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
@@ -1474,4 +1448,9 @@
   color: var(--foreground-secondary);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
