@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/ui_card.json",
+  "title": "UICard",
+  "description": "ui_cards 信息通告卡片（ADR-0024 决策 2/3）。仅承载信息通告，不携带可提交动作（N-SURF：禁止 actions 字段，additionalProperties=false 使漂移在校验层变红）。card_type 现行集合为 candidate_set / confirmation_card / result_card；新增卡片必须先修订 ADR-0024 与 07 §4.2。",
+  "type": "object",
+  "required": ["card_type"],
+  "additionalProperties": false,
+  "properties": {
+    "card_type": {
+      "type": "string",
+      "enum": ["candidate_set", "confirmation_card", "result_card"],
+      "description": "信息卡片类型，集合由 ADR-0024 决策 3 冻结。"
+    },
+    "priority": {
+      "type": "string",
+      "description": "展示优先级提示（high / normal）。"
+    },
+    "visibility": {
+      "type": "string",
+      "description": "可见性提示（always 等）。"
+    },
+    "title": {
+      "type": "string",
+      "description": "作者可见卡片标题。"
+    },
+    "body": {
+      "type": "string",
+      "description": "作者可见卡片正文。"
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "candidate_set：关联 tentative artifact set 引用。"
+    },
+    "candidate_set_ref": {
+      "type": "string",
+      "description": "candidate_set：候选集引用。"
+    },
+    "artifact_type": {
+      "type": "string",
+      "description": "candidate_set：artifact 类型（prose_fragment / character_seed / ...）。"
+    },
+    "items": {
+      "type": "array",
+      "description": "candidate_set：候选条目。item 字段与 Provider 响应字节一致（I1 因果绑定），此处不收紧内部形状。",
+      "items": { "type": "object" }
+    },
+    "tentative": {
+      "type": "boolean",
+      "description": "candidate_set：是否待采纳（tentative-first）。"
+    },
+    "revision_of": {
+      "type": ["string", "null"],
+      "description": "candidate_set（修订草稿）：原草稿引用。"
+    },
+    "revision_reason": {
+      "type": ["string", "null"],
+      "description": "candidate_set（修订草稿）：修订原因。"
+    },
+    "quality_finding_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "candidate_set（修订草稿）：针对的质量发现引用。"
+    },
+    "behavior_ref": {
+      "type": "string",
+      "description": "confirmation_card：关联 BehaviorState 引用。"
+    },
+    "target_ref": {
+      "type": "string",
+      "description": "confirmation_card：确认对象引用。"
+    }
+  }
+}

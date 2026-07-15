@@ -927,14 +927,15 @@ defmodule NovelApplication.DialogueGateway do
 
   defp candidate_decision_message(_decision, title), do: "已处理「#{title}」的后续方向请求。"
 
+  # N-SURF（ADR-0024 决策 2）：卡片是信息通告，结构上不携带动作字段；
+  # 可提交动作唯一来源是 available_actions。
   defp candidate_decision_card(%AdoptionDecision{} = decision, title) do
     %{
       card_type: "result_card",
       priority: "normal",
       visibility: "always",
       title: candidate_decision_title(decision),
-      body: candidate_decision_message(decision, title),
-      actions: []
+      body: candidate_decision_message(decision, title)
     }
   end
 

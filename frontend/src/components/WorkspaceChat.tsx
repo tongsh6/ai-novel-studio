@@ -84,18 +84,11 @@ import {
   type AgentRunProviderUsageData,
 } from "../lib/agentRunTimeline";
 import {
-  ClarificationCard,
   ConfirmationCard,
-  WarningCard,
   QualityReviewCard,
-  ProgressCard,
-  CheckpointCard,
   ResultCard,
-  FailureCard,
-  EscalationCard,
   CandidateSetCard,
   DefaultCard,
-  type UICardData,
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import type { StructurePanelActionState, StructurePanelArtifactAction } from "./StructurePanel";
@@ -134,6 +127,7 @@ import {
   upsertAssistantTurnResultMessage,
 } from "../lib/agentRunAnchoring";
 import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
+import { parseIncomingTurnResult, type WireTurnResult } from "../lib/turnResultWire";
 import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
 import {
@@ -146,72 +140,23 @@ import {
 
 import styles from "./WorkspaceChat.module.css";
 
-export interface TurnResult {
-  schema_version: string;
-  turn_id: string;
-  parent_turn_id?: string | null;
-  phase: string;
-  status: string;
-  next_action: string;
-  assistant_message: { text: string };
-  frame_summary?: {
-    frame_type?: string;
-    dialogue_goal?: string;
-    uncertainty?: string[];
-  };
-  available_actions?: AvailableAction[];
-  ui_cards?: UICardData[];
-  candidate_directions?: CandidateDirection[];
-  trace_summary?: Record<string, unknown>;
-  adoption_state?: {
-    pending: ArtifactEntry[];
-    resolved: ArtifactEntry[];
-  };
-  behavior_state?: { active: Record<string, unknown> | null };
-  projection_refs?: {
-    projection_type: string;
-    projection_id: string;
-    source_revision_refs: string[];
-    refresh_status?: string | null;
-  }[];
-  quality_review?: QualityReview;
-  produced_at: string;
-  agent_run?: {
-    run_id?: string;
-    run_mode?: string;
-    status?: string;
-    phase?: string;
-    parent_turn_ref?: string | null;
-    profile_ref?: string;
-    long_run_task_ref?: string | null;
+// TurnResult 线格式来自 codegen（docs/design/schemas/foundation/turn_result_v3.json，
+// ADR-0024 决策 5，禁止手写线契约类型）。这里只叠加 agent_run 的客户端运行时
+// 增强字段（hydrateAgentRunActivityForTurn 注入，不属于线契约）。
+// 注意不能用 Omit：线类型带 catchall 索引签名，Omit 会塌掉具名键。
+export type TurnResult = WireTurnResult & {
+  agent_run?: NonNullable<WireTurnResult["agent_run"]> & {
     events?: AgentEventData[];
     provider_runs?: AgentRunProviderUsageData[];
     activity_loaded?: boolean;
   };
-}
+};
 
-export interface QualityFindingView {
-  quality_gate: string;
-  validator: string;
-  severity: string;
-  action: string;
-  summary: string;
-  evidence_spans?: { text?: string }[];
-  brief_field_refs?: string[];
-  can_override?: boolean;
-}
+export type QualityReview = NonNullable<WireTurnResult["quality_review"]>;
+export type QualityFindingView = QualityReview["findings"][number];
 
-export interface QualityReview {
-  status: string;
-  policy_action: string;
-  review_status: string;
-  findings: QualityFindingView[];
-}
-
-export interface AvailableAction extends AvailableActionLike {
-  target_ref?: string;
-  quality_finding_refs?: string[];
-}
+export type AvailableAction = NonNullable<WireTurnResult["available_actions"]>[number] &
+  AvailableActionLike;
 
 export type CandidateDirection = CandidateDirectionContract;
 
@@ -1360,9 +1305,9 @@ export function WorkspaceChat() {
         setWorkSwitchingId(null);
       });
 
-    channel.on("turn_result", (result: TurnResult) => {
+    channel.on("turn_result", (result: unknown) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
-      handleTurnResult(result);
+      handleTurnResult(parseIncomingTurnResult(result));
     });
     onTaskState(channel, (state) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
@@ -1760,13 +1705,17 @@ export function WorkspaceChat() {
     const artifact = (turnResult.adoption_state?.pending ?? []).find(
       (entry) => entry.artifact_id === action.target_ref,
     );
-    const payload = artifact?.payload as
-      | { content?: unknown; items?: { body?: unknown }[] }
-      | undefined;
-    if (typeof payload?.content === "string") return payload.content;
-    if (Array.isArray(payload?.items)) {
-      return payload.items
-        .map((item) => (typeof item?.body === "string" ? item.body : ""))
+    const payload = artifact?.payload;
+    const content = payload?.content;
+    if (typeof content === "string") return content;
+    const items = payload?.items;
+    if (Array.isArray(items)) {
+      return items
+        .map((item: unknown) => {
+          if (typeof item !== "object" || item === null || !("body" in item)) return "";
+          const body: unknown = item.body;
+          return typeof body === "string" ? body : "";
+        })
         .filter(Boolean)
         .join("\n\n");
     }
@@ -1845,7 +1794,7 @@ export function WorkspaceChat() {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const behaviorState = messages[i].turnResult?.behavior_state;
       if (behaviorState !== undefined) {
-        const behaviorId = behaviorState.active?.behavior_id;
+        const behaviorId: unknown = behaviorState.active?.behavior_id;
         return typeof behaviorId === "string" ? behaviorId : null;
       }
     }
@@ -3403,27 +3352,18 @@ export function WorkspaceChat() {
 
                     {!isReadOnlySessionView &&
                       msg.turnResult?.ui_cards?.map((card, ci) => {
+                        // 卡片集合由 ADR-0024 决策 3 冻结（07 §4.2）；
+                        // 未知类型走 DefaultCard 容错兜底，漂移告警在 turnResultWire 校验层。
+                        const cardKey = `${card.card_type}:${ci}`;
                         switch (card.card_type) {
-                          case "clarification_card":
-                            return <ClarificationCard key={ci} card={card} />;
                           case "confirmation_card":
-                            return <ConfirmationCard key={ci} card={card} />;
-                          case "warning_card":
-                            return <WarningCard key={ci} card={card} />;
+                            return <ConfirmationCard key={cardKey} card={card} />;
                           case "candidate_set":
-                            return <CandidateSetCard key={ci} card={card} />;
-                          case "progress_card":
-                            return <ProgressCard key={ci} card={card} />;
-                          case "checkpoint_card":
-                            return <CheckpointCard key={ci} card={card} />;
+                            return <CandidateSetCard key={cardKey} card={card} />;
                           case "result_card":
-                            return <ResultCard key={ci} card={card} />;
-                          case "failure_card":
-                            return <FailureCard key={ci} card={card} />;
-                          case "escalation_card":
-                            return <EscalationCard key={ci} card={card} />;
+                            return <ResultCard key={cardKey} card={card} />;
                           default:
-                            return <DefaultCard key={ci} card={card} />;
+                            return <DefaultCard key={cardKey} card={card} />;
                         }
                       })}
 

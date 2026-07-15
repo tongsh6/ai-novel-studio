@@ -1,32 +1,16 @@
 // Design: docs/design/ui/42-card-system.md §3 (card component rendering)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
 import { CARD } from "../lib/copy";
+import type { UiCard } from "../lib/schemas";
 import styles from "./UICards.module.css";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
-// Basic interface for UI cards, shared across v2 and v3 implementations
-export interface UICardData {
-  card_type: string;
-  priority?: string;
-  visibility?: string;
-  title?: string;
-  body?: string;
-  artifact_refs?: string[];
-  candidate_set_ref?: string;
-  artifact_type?: string;
-  items?: UICardItem[];
-  tentative?: boolean;
-}
+// 卡片形状来自 codegen（docs/design/schemas/foundation/ui_card.json，ADR-0024 决策 2/3）。
+// 未知 card_type 的漂移告警在校验层（lib/turnResultWire.ts）完成，这里只负责容错渲染。
+export type UICardData = UiCard;
 
 interface Props {
   card: UICardData;
-}
-
-export interface UICardItem {
-  item_id?: string;
-  title?: unknown;
-  body?: unknown;
-  rationale?: unknown;
 }
 
 function displayText(value: unknown): string | null {
@@ -85,17 +69,9 @@ function artifactDraftCopy(card: UICardData): { title: string; body: string } {
   }
 }
 
-export function ClarificationCard({ card }: Props) {
-  return (
-    <div className={`${styles.card} ${styles.clarificationCard}`}>
-      <div className={styles.header}>
-        <div className={styles.icon}>❓</div>
-        <div className={styles.title}>{card.title || CARD.clarification.title}</div>
-      </div>
-      {card.body && <div className={styles.body}>{card.body}</div>}
-    </div>
-  );
-}
+// ADR-0024 决策 3：clarification_prompt / warning / progress / checkpoint /
+// failure / escalation 卡片分支为契约外死代码，已随 DS01 CP1 删除；
+// 现行卡片集合仅 candidate_set / confirmation_card / result_card + DefaultCard 兜底。
 
 export function ConfirmationCard({ card }: Props) {
   return (
@@ -103,18 +79,6 @@ export function ConfirmationCard({ card }: Props) {
       <div className={styles.header}>
         <div className={styles.icon}>⚠️</div>
         <div className={styles.title}>{card.title || CARD.confirmation.title}</div>
-      </div>
-      {card.body && <div className={styles.body}>{card.body}</div>}
-    </div>
-  );
-}
-
-export function WarningCard({ card }: Props) {
-  return (
-    <div className={`${styles.card} ${styles.warningCard}`}>
-      <div className={styles.header}>
-        <AlertTriangle className={styles.warningIconLucide} size={16} />
-        <div className={styles.title}>{card.title || "警告"}</div>
       </div>
       {card.body && <div className={styles.body}>{card.body}</div>}
     </div>
@@ -277,39 +241,6 @@ export function QualityReviewCard({
   );
 }
 
-export function ProgressCard({ card }: Props) {
-  return (
-    <div className={`${styles.card} ${styles.progressCard}`}>
-      <div className={styles.header}>
-        <div className={styles.icon}>⏳</div>
-        <div className={styles.title}>{card.title || "系统运行中"}</div>
-      </div>
-      {card.body && <div className={styles.body}>{card.body}</div>}
-    </div>
-  );
-}
-
-export function CheckpointCard({ card }: Props) {
-  return (
-    <div className={`${styles.card} ${styles.checkpointCard}`}>
-      <div className={styles.header}>
-        <div className={styles.icon}>⏸️</div>
-        <div className={styles.title}>{card.title || "检查点"}</div>
-      </div>
-      {card.body && <div className={styles.body}>{card.body}</div>}
-      {card.artifact_refs && card.artifact_refs.length > 0 && (
-        <div className={styles.artifactList}>
-          {card.artifact_refs.map((ref) => (
-            <span key={ref} className={styles.artifactTag}>
-              {ref}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ResultCard({ card }: Props) {
   return (
     <div className={`${styles.card} ${styles.resultCard}`}>
@@ -336,11 +267,11 @@ export function CandidateSetCard({ card }: Props) {
       {description && <div className={styles.body}>{description}</div>}
       {items.length > 0 && (
         <div className={styles.candidateItems}>
-          {items.map((item, index) => {
+          {items.map((item: Record<string, unknown>, index) => {
             const title = displayText(item.title) || `候选 ${index + 1}`;
             const body = displayText(item.body);
             const rationale = displayText(item.rationale);
-            const key = item.item_id || `${title}-${index}`;
+            const key = typeof item.item_id === "string" ? item.item_id : `${title}-${index}`;
 
             return (
               <article key={key} className={styles.candidateItem}>
@@ -361,31 +292,9 @@ export function CandidateSetCard({ card }: Props) {
   );
 }
 
-export function FailureCard({ card }: Props) {
-  return (
-    <div className={`${styles.card} ${styles.failureCard}`}>
-      <div className={styles.header}>
-        <div className={styles.icon}>❌</div>
-        <div className={styles.title}>{card.title || "执行失败"}</div>
-      </div>
-      {card.body && <div className={styles.body}>{card.body}</div>}
-    </div>
-  );
-}
-
-export function EscalationCard({ card }: Props) {
-  return (
-    <div className={`${styles.card} ${styles.escalationCard}`}>
-      <div className={styles.header}>
-        <div className={styles.icon}>🛑</div>
-        <div className={styles.title}>{card.title || "需要关注"}</div>
-      </div>
-      {card.body && <div className={styles.body}>{card.body}</div>}
-    </div>
-  );
-}
-
-export function DefaultCard({ card }: Props) {
+// 未知 card_type 的容错兜底：只渲染 title/body，不做任何决策语义。
+// props 放宽为展示字段子集，使校验失败（漂移）的卡片也能安全渲染。
+export function DefaultCard({ card }: { card: { title?: string; body?: string } }) {
   return (
     <div className={`${styles.card} ${styles.defaultCard}`}>
       {card.title && <div className={styles.title}>{card.title}</div>}

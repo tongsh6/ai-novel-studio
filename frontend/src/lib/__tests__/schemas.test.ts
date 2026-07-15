@@ -2,60 +2,91 @@ import { describe, expect, it } from "vitest";
 
 import { CandidateDirectionSchema, TurnResultSchema } from "../schemas";
 
+// v3 线格式（docs/design/schemas/foundation/turn_result_v3.json，ADR-0024）。
 const minimalValid = {
-  schema_version: "2.0.0",
+  schema_version: "3.0-draft",
   turn_id: "turn_001",
-  phase: "EXECUTING",
-  status: "RUNNING",
-  next_action: "ASK_USER",
+  phase: "completed",
+  status: "conversational",
   assistant_message: { text: "hello" },
   ui_cards: [],
   behavior_state: { active: null, history: [] },
   adoption_state: { pending: [], resolved: [] },
   projection_refs: [],
-  validation: {},
-  usage: {},
-  trace_ref: {},
-  produced_at: "2026-04-27T00:00:00Z",
+  produced_at: "2026-07-15T00:00:00Z",
 };
 
 describe("TurnResultSchema", () => {
-  it("接受最小合法 payload", () => {
+  it("接受最小合法 payload（v3 draft）", () => {
     const parsed = TurnResultSchema.parse(minimalValid);
     expect(parsed.turn_id).toBe("turn_001");
-    expect(parsed.schema_version).toBe("2.0.0");
+    expect(parsed.schema_version).toBe("3.0-draft");
   });
 
-  it("拒绝缺失 schema_version", () => {
-    const { schema_version: _omit, ...invalid } = minimalValid;
+  it("拒绝缺失 turn_id", () => {
+    const { turn_id: _omit, ...invalid } = minimalValid;
     void _omit;
     const result = TurnResultSchema.safeParse(invalid);
     expect(result.success).toBe(false);
   });
 
-  it("拒绝非 semver 的 schema_version", () => {
+  it("容忍后端新增顶层字段（v3 draft 期 additionalProperties=true）", () => {
     const result = TurnResultSchema.safeParse({
       ...minimalValid,
-      schema_version: "v2",
+      truthfulness: { tool_called: false },
+      frame_ref: "frame_turn_001",
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  it("接受非空 ui_cards", () => {
+  it("接受入册的三种 ui_cards（ADR-0024 决策 3）", () => {
     const payload = {
       ...minimalValid,
       ui_cards: [
         {
-          card_type: "clarification",
-          card_id: "card_001",
-          title: "需要补充信息",
-          body_markdown: "请提供更多细节",
-          actions: [],
+          card_type: "candidate_set",
+          priority: "high",
+          visibility: "always",
+          title: "待保存草稿",
+          body: "确认保存后进入作品档案。",
+          artifact_refs: ["as_001"],
+          candidate_set_ref: "as_001",
+          artifact_type: "character_seed",
+          items: [{ item_id: "item_1", title: "林九", body: "散修" }],
+          tentative: true,
+        },
+        {
+          card_type: "confirmation_card",
+          title: "需要确认",
+          body: "此操作需要作者确认。",
+          behavior_ref: "bhv_001",
+          target_ref: "art_001",
+        },
+        {
+          card_type: "result_card",
+          title: "已设为后续方向",
+          body: "不会写入作品事实。",
         },
       ],
     };
     const result = TurnResultSchema.safeParse(payload);
     expect(result.success).toBe(true);
+  });
+
+  it("漂移注入：拒绝未入册 card_type", () => {
+    const result = TurnResultSchema.safeParse({
+      ...minimalValid,
+      ui_cards: [{ card_type: "clarification_card", title: "?" }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("漂移注入：拒绝携带 actions 字段的卡片（N-SURF：卡片不承载决策）", () => {
+    const result = TurnResultSchema.safeParse({
+      ...minimalValid,
+      ui_cards: [{ card_type: "result_card", title: "done", actions: [] }],
+    });
+    expect(result.success).toBe(false);
   });
 
   it("接受非空 projection_refs", () => {
@@ -73,16 +104,17 @@ describe("TurnResultSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("接受非空 adoption_state.pending", () => {
+  it("接受非空 adoption_state.pending（线上小写 adoption_status + payload）", () => {
     const payload = {
       ...minimalValid,
       adoption_state: {
         pending: [
           {
             artifact_id: "art_001",
-            artifact_type: "work_seed",
-            adoption_status: "TENTATIVE",
+            artifact_type: "character_seed",
+            adoption_status: "tentative",
             requires_adoption: true,
+            payload: { items: [{ title: "林九" }] },
           },
         ],
         resolved: [],
@@ -90,6 +122,24 @@ describe("TurnResultSchema", () => {
     };
     const result = TurnResultSchema.safeParse(payload);
     expect(result.success).toBe(true);
+  });
+
+  it("漂移注入：拒绝缺 payload 的 adoption_state 条目", () => {
+    const result = TurnResultSchema.safeParse({
+      ...minimalValid,
+      adoption_state: {
+        pending: [
+          {
+            artifact_id: "art_001",
+            artifact_type: "character_seed",
+            adoption_status: "tentative",
+            requires_adoption: true,
+          },
+        ],
+        resolved: [],
+      },
+    });
+    expect(result.success).toBe(false);
   });
 });
 

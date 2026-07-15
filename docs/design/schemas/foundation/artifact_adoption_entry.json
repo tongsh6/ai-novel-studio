@@ -35,6 +35,18 @@
     "supersedes_artifact_id": {
       "type": ["string", "null"],
       "description": "若 adoption_status = SUPERSEDED，指向取代它的 artifact id。"
+    },
+    "payload": {
+      "type": "object",
+      "description": "作者可见采纳单元内容（items / artifact_content 等；I1 因果绑定字段，不在此收紧内部形状）。TurnResult adoption_state 条目必含（DS01 CP1 起类型化）。"
+    },
+    "source_turn_ref": {
+      "type": ["string", "null"],
+      "description": "产出该单元的 turn 引用。"
+    },
+    "source_tool_result_ref": {
+      "type": ["string", "null"],
+      "description": "产出该单元的 tool result 引用。"
     }
   }
 }

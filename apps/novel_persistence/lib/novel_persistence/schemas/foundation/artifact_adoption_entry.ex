@@ -9,7 +9,13 @@ defmodule NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry do
 
   @schema_source "foundation/artifact_adoption_entry.json"
   @required_fields [:artifact_id, :artifact_type, :adoption_status, :requires_adoption]
-  @optional_fields [:revision_base, :supersedes_artifact_id]
+  @optional_fields [
+    :revision_base,
+    :supersedes_artifact_id,
+    :payload,
+    :source_turn_ref,
+    :source_tool_result_ref
+  ]
   @adoption_statuses [
     :TENTATIVE,
     :ACCEPTED,
@@ -28,6 +34,11 @@ defmodule NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry do
     field(:requires_adoption, :boolean)
     field(:revision_base, :string)
     field(:supersedes_artifact_id, :string)
+    # DS01 CP1：TurnResult adoption_state 条目携带的作者可见内容与产出溯源
+    #（docs/design/schemas/foundation/artifact_adoption_entry.json 同步扩展）。
+    field(:payload, :map)
+    field(:source_turn_ref, :string)
+    field(:source_tool_result_ref, :string)
   end
 
   @spec schema_source() :: String.t()

@@ -9,7 +9,9 @@
 | 文件 | 内容 |
 |---|---|
 | `foundation/candidate_direction.json` | 探索候选方向 schema；`adoption_status` 固定为 `not_adopted`，不同于 artifact adoption 7 态 |
-| `foundation/turn_result_v2.json` | TurnResult v2 顶层 schema |
+| `foundation/turn_result_v2.json` | TurnResult v2 顶层 schema（ADR-0015 时代历史冻结；现行线格式见 v3） |
+| `foundation/turn_result_v3.json` | TurnResult v3 线格式（draft）；决策面驱动字段类型化（ADR-0024 决策 5），`ui_cards` / `candidate_directions` 条目收紧由前端 barrel 组合完成 |
+| `foundation/ui_card.json` | ui_cards 信息通告卡片 schema；card_type 三卡集合 + 禁 actions 字段（ADR-0024 决策 2/3，N-SURF） |
 | `foundation/artifact_adoption_entry.json` | 采纳条目 schema |
 | `foundation/phase_next_action_compat.json` | phase / next_action 兼容 schema |
 

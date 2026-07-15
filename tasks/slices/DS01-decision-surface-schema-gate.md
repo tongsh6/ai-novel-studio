@@ -40,13 +40,13 @@
 
 | 任务 | status | 关联 commit | 备注 |
 |---|---|---|---|
-| ui_card.json schema 源 + turn_result 引用收紧 | todo | | |
-| codegen 重生成 + 前端类型切换 | todo | | typecheck 必须零错误 |
-| safeParse + 未知卡片告警 | todo | | |
-| 死分支与死组件删除 | todo | | |
-| 后端 result_card actions 字段移除 + 契约单测 | todo | | |
-| 漂移注入测试 | todo | | 前后端各一 |
-| Tauri 回归场景跑通 | todo | | 复用既有 scenario |
+| ui_card.json schema 源 + turn_result 引用收紧 | done | | 新增 `ui_card.json` + `turn_result_v3.json`；codegen 不解析跨文件 $ref，条目收紧在 `lib/schemas.ts` barrel 用生成物组合（TurnResultSchema = v3 + ui_cards/candidate_directions/adoption_state） |
+| codegen 重生成 + 前端类型切换 | done | | `WorkspaceChat.tsx` 手写 TurnResult/UICardData 已删，类型来自 codegen；typecheck 零错误。注意：不能用 Omit（catchall 索引签名会塌掉具名键），用交叉类型叠加客户端增强字段 |
+| safeParse + 未知卡片告警 | done | | `lib/turnResultWire.ts`：Channel 广播与 transcript 恢复共用同一校验入口；校验告警、容错透传（生成物嵌套对象是 strip 模式，用 parsed.data 会静默丢字段）；同 turn 只告警一次 |
+| 死分支与死组件删除 | done | | 删 6 个 switch 分支 + 6 个组件（Clarification/Warning/Progress/Checkpoint/Failure/Escalation）；DefaultCard 兜底保留 |
+| 后端 result_card actions 字段移除 + 契约单测 | done | | `dialogue_gateway.ex` 删 `actions: []`；新增 `decision_surface_card_contract_test.exs`（运行时 3 条 + 源码级 2 条：全 umbrella card_type 字面量注册扫描、裸 actions 字段扫描——首跑即抓到误报并收紧为词边界正则） |
+| 漂移注入测试 | done | | 前端：`schemas.test.ts` 重写为 v3 语义（拒绝未入册 card_type、拒绝携带 actions 的卡片、拒绝缺 payload 的 adoption 条目）+ `turnResultWire.test.ts`；后端：契约单测的源码扫描即注入网 |
+| Tauri 回归场景跑通 | **未闭环 / blocked** | | `agent-bounded-roster-to-character-design` 在 DS01 改动与 baseline（commit 7291de51 干净树）上以同一断言失败：driver 期望 `consumed_budget.provider_calls=3`（external-ui-driver.mjs waitForNewFrame），与 Order 62 CP1（2026-07-05 两段式规划落地）后的真实调用数不符。这是 Order 62 CP3「13 个外部 driver 复跑校准批（需用户批准）」的既有债务，非本 slice 引入。DS01 场景化验收搭 Order 62 CP3 复跑批闭环 |
 
 ## 5. 验收入口与 Proof
 
@@ -59,6 +59,10 @@
 ## 6. 决策日志
 
 - 2026-07-15：slice 创建。范围锚定 ADR-0024 CP1；S4/S7 显式排除，避免 checkpoint 缩小 slice 范围的反模式（本文件即完整 CP1 范围，无隐藏后续）。
+- 2026-07-15：**发现真实契约漂移——adoption_status 大小写**。`artifact_adoption_entry.json` 的枚举是 30 §3.2 的大写 7 态（TENTATIVE...），线上 TurnResult 序列化的是小写 `:tentative`。为避免已知漂移刷屏掩盖新漂移，barrel 组合处放宽为 string 并登记于此；收敛（后端统一大小写或 schema 双轨）留待后续 checkpoint / ADR-0019 系修订。
+- 2026-07-15：`artifact_adoption_entry.json` 扩展 payload / source_turn_ref / source_tool_result_ref（线上真实字段进 SSOT），`NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry` Ecto 镜像同步——被 persistence 层 SchemaDriftTest 闸门抓出后补齐，双向闸门（JSON↔Ecto、JSON↔前端）自此对 adoption 条目同时生效。
+- 2026-07-15：静态扫描触碰文件项已修（turnResultWire console.warn 改常量格式串）；`mix-audit` mint 依赖漏洞为 pre-existing 且属依赖升级（用户策略要求先征得同意），不在本 slice 处置，保持 pending。
+- 2026-07-15：**Tauri 验收归因**——用 `git stash` 隔离 DS01 全部改动后在干净 baseline 复跑同一场景，同一断言失败（`UA-01 AgentRun state did not finish with the expected bounded budget counters`，exit=1），证明失败为既有 driver 口径债务而非 DS01 回归。本 slice 状态定为「实现完成、场景化验收未闭环」，不写 done；闭环入口 = Order 62 CP3 复跑批（含本场景），或用户单独批准校准 `agent-bounded-roster-to-character-design` driver 的 provider_calls 期望。
 
 ## 7. 卡点 / TBD
 

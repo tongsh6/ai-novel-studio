@@ -1,4 +1,5 @@
 import { apiBaseUrl } from "./env";
+import { parseIncomingTurnResult, type WireTurnResult } from "./turnResultWire";
 
 export interface WorkSessionDto {
   id: string;
@@ -72,7 +73,7 @@ export interface ChatMessageFromTranscript {
   role: "user" | "assistant";
   text: string;
   turnId?: string | null;
-  turnResult?: Record<string, unknown>;
+  turnResult?: WireTurnResult;
 }
 
 export interface TurnReplaySnapshot {
@@ -259,7 +260,8 @@ export function transcriptToMessages(
       role: entry.role,
       text: entry.text,
       turnId: entry.turn_id,
-      ...(entry.turn_result ? { turnResult: entry.turn_result } : {}),
+      // 恢复的历史 turn_result 与 Channel 广播走同一契约校验入口（漂移告警、容错透传）。
+      ...(entry.turn_result ? { turnResult: parseIncomingTurnResult(entry.turn_result) } : {}),
     }));
 }
 
