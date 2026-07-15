@@ -246,13 +246,17 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 
 #### 9.4.4 活动行 copy 草案（实施时进 copy.ts）
 
-| 结构事件 | 文案模板 |
-|---|---|
-| tool_completed（context/roster/readonly 类） | 「查阅{对象} · {计数}」 |
-| tool_started（creative 类） | 「正在起草{产物类型}…」 |
-| tool_completed + artifact_created | 「已产出{产物类型}草稿 · {n} 份待采纳」 |
-| gate_decided（allow_tool） | 折叠计入活动行，不单独成行 |
-| gate_decided（require_confirmation） | 独立结构行「等待你的确认」（S3 决策面接管） |
+> 收紧（2026-07-15 用户确认「文案几乎全部归 AI」后）：活动行只承担**进行中指示**
+> （spinner 的文字形态）；动作**完成后的描述让位给模型的阶段结论段**，系统模板
+> 不复述已完成动作，只保留计数/单位等骨架词。
+
+| 结构事件 | 文案模板 | 时机边界 |
+|---|---|---|
+| tool_started（context/roster/readonly 类） | 「正在查阅{对象}…」 | 仅进行中显示；tool_completed 后该行收起，动作结果由模型结论段叙述 |
+| tool_started（creative 类） | 「正在起草…」 | 同上；产物事实由候选卡 + 进度行计数表达 |
+| artifact_created | 不产生文案行；进度行计数 +1（「{n} 份待采纳」） | 纯计数 |
+| gate_decided（allow_tool） | 无文案（结构静默） | — |
+| gate_decided（require_confirmation） | 状态枚举「等待你的确认」（S3 决策面接管） | 状态词，非叙述 |
 
 #### 9.4.5 红线
 
