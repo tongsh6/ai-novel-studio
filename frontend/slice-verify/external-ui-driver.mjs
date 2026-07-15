@@ -20531,7 +20531,8 @@ async function driveAgentProviderStreamingProgress(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "provider_progress_v1" &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + provider_complete 1。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
     "Provider progress run state did not record provider call budget",
     30_000,
   );

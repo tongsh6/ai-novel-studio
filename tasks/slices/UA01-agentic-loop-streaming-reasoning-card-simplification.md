@@ -53,6 +53,24 @@ ADR-0023 CP4 后流式退化的根因链（已核实）：
 - **迁移口径**：工作详情/终态区/模型执行流/模型调用明细/事件序列/输出摘要/回放边界断言 → 三层 UI 结构判定（`section[aria-label="计划"|"推理"]` + 状态标签）+ 持久化 ProviderRun 事实（`provider_runs[].events`，因 2026-07-02 d0643cd3 起 activity API 的 agent_runs[].events 只含 author 事件——考古确认为 ADR-0022 有意收紧）。计数按两段式实测：conversation 4、replan 6（修订亦两段式）、prose 5、创作 profile 4、roster 4。指向已删 UI 的死字段删除而非留 false。verifier 单测 fixtures/负例/标签同步。
 - **发现真实产品回归并修复（非验收补丁）**：CP2 移除工作详情折叠区时，恢复端 activity 加载入口（展开触发 hydrate）一并消失且未补，reload 后历史消息执行过程永久空白。修复=WorkspaceChat 对带 agent_run 摘要且未补水的恢复消息惰性补水（幂等守卫复用，activity API 只读、不重调 provider，兼容 lazy-page no-recall 不变量）。真实 Tauri activity-restored 场景验证通过。
 - **harness 系统修正**：默认轮询窗 180s→360s（两段式后单场景链路普遍 >180s，修默认值而非每次 env 覆盖）。
+- **CP3 批次二收口（2026-07-15 晚）**：streaming-progress 已按两段式口径校准复跑绿
+  （provider_progress_v1 = 路由 1 + 起草 2 + complete 1 = 4）。**累计 20 个场景 id 绿**。
+- **三个长尾的深度归因（真问题，非资产校准，逐个独立处置）**：
+  1. `p1-prose-revision-candidate`：**真实产品回归**——点名章节的正文草稿请求中
+     `target_chapter="第02章"`（stub 截断名）未命中全称章节列表，作者原文兜底匹配
+     也失败（`matched_chapter=""`，missing_policy block → writer 被阻 → D7 replan
+     再失败 → awaiting_author）。作者原文含全称、匹配逻辑健全，疑为 AgentRun 链路
+     `DialogueContext.current_chapters` 供给回归（引入点在 7-05 native tool call/
+     上下文链变更后；场景 6 月末曾绿）。证据：`artifacts/slice-verify/
+     p1-prose-revision-candidate-tauri/app-log`（writing_coordinate.done matched=""）。
+  2. `agent-provider-execution-error-author-safe`：**疑似真实回归**——provider 失败
+     场景 run_started 后直接 run_failed，provider_progress 帧 0 条（原验收语义：
+     失败被投影为 author-safe 事件 + 安全 fallback TurnResult）。两段式起草失败
+     路径疑似丢投影与安全回应；与 ADR-0024 S7（run 终态必须有 TurnResult）同题。
+  3. `agent-no-progress-stop`：场景机制过时——原设计靠"两次 roster 重复读"诱导
+     no-progress，ADR-0023 计划驱动后机械推进不会重复读；no-progress 现由预算/
+     D 系触发，场景需按新机制重定义诱导方式与断言。
+
 
 ## 5a. Stage 首验暴露缺陷与修复（2026-07-06，用户拍板双修）
 

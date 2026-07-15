@@ -6282,7 +6282,7 @@ function findAgentProviderStreamingProgressEvidence(records) {
       Number(record.plan_drafted_step_count ?? 0) >= 1 &&
       boolValue(record.raw_prompt_leaked_in_progress_events) === false &&
       boolValue(record.provider_execution_stream_active) === true &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.final_turn_result_run_id === record.run_id &&
       record.ui_progress_visible === true,
   );
@@ -6317,7 +6317,7 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
   if (uiState.plan_drafted_target_tool_ref !== "provider_complete") return null;
   if (boolValue(uiState.raw_prompt_leaked_in_progress_events) !== false) return null;
   if (boolValue(uiState.provider_execution_stream_active) !== true) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
 
   return {
     slice_id: "agent-provider-streaming-progress",
