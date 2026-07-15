@@ -120,6 +120,10 @@ TentativeArtifactSet
 
 `choose_candidate` means author selection intent only. It is not an adoption decision and does not imply production write.
 
+### 4.2 2026-07-15 决策面修订指向
+
+本节冻结时的 card type 最小集合已被 `adr/ADR-0024-decision-surface-registry-v3.md`（Proposed）修订：UI 决策契约中心改为决策面注册表（见 `07` §4.1），ui_cards 收缩为信息通告 lane，现行集合为 `candidate_set` / `confirmation_card` / `result_card`（`confirmation_request` 文档侧更名，其余原集合成员处置见 ADR-0024 决策 3）。本节 Rules 1-5 与 §4.1 的 creative card correction 全部保留并被 ADR-0024 强化。历史冻结内容不改写，仅由本小节指向当前有效契约。
+
 ---
 
 ## 5. TraceSummaryView Redaction Policy

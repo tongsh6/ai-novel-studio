@@ -315,7 +315,8 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | Contract | 定义位置 | 首个消费者 | 必须证明 |
 |---|---|---|---|
 | `TurnResultViewModel` | `07` | Workbench UI | UI 主渲染不读取内部对象 |
-| `ui_card` | `07` | Workbench UI | card 只表达系统已裁决状态 |
+| 决策面注册表（S1-S7） | `07` §4.1, `adr/ADR-0024-decision-surface-registry-v3.md` | Workbench UI / TurnResult builder | 作者决策只经入册决策面进入主链（N-SURF）；S4/S7 缺口由 CP2/CP3 补齐 |
+| `ui_card` | `07` §4.2, `adr/ADR-0024-decision-surface-registry-v3.md` | Workbench UI | card 只表达系统已裁决状态；信息通告 lane，不携带可提交动作 |
 | `AvailableAction` | `07` | Workbench UI | UI 不能发明 action |
 | `AuthorActionInput` | `07` | Dialogue Gateway | action 回传必须重新进入主链 |
 | `TraceSummaryView` | `07` | Workbench UI | trace summary 不泄露 raw prompt |
@@ -355,6 +356,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | 15 | projection hints 只触发刷新，不授权写入 | `07` | projection refresh no-write test |
 | 16 | AgentRun 作者可见过程叙述必须有模型输出字节来源（N-NARR） | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md`, `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md` | `author_narrative_source` 与 ProviderOutput 字节绑定 driver |
 | 17 | AgentRun 推进轨道必须来自模型产出并维护的 AgentPlan，生产路径不得存在 app 预制固定步骤轨道（N-PLAN） | `adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md`, `notes/2026-07-04-agentic-loop-plan-driven-execution.md` | 「无偏离直通」scenario（起草恰 1 次 planner 调用＋零 replan）＋ plan 版本序列 trace 断言 |
+| 18 | 作者决策只能通过决策面注册表登记的决策面进入主链；ui_cards 不携带可提交动作（N-SURF） | `adr/ADR-0024-decision-surface-registry-v3.md`, `07` §4, `notes/2026-07-15-dialogue-flow-decision-surface-review.md` | TurnResult 产出扫描 driver（动作语义只来自 available_actions / 入册决策面）＋契约漂移注入测试（CP1） |
 
 这些不变量是后续 ADR 和垂直切面的主轴。任何实现计划如果不能指向其中至少一个不变量，就很可能不是承重垂直切面。
 

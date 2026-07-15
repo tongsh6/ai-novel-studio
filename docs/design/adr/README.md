@@ -275,6 +275,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0021 | `ADR-0021-agent-run-and-turn-boundary-v3.md` | Accepted | AgentRun 与 Turn 边界、单步 re-gate、活动流、打断和 LongRunTask 关系 | `contracts/UA-01`, ADR-0001/0002/0004/0012/0017/0020 | UA-01 CP0–CP3 bounded AgentRun；CP4 正文 profile 迁移进行中 |
 | ADR-0022 | `ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | Proposed | Agentic Loop 计划可视化/版本化、评估→重规划回路、作者叙事作者权归模型（细化 ADR-0021） | `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`, `contracts/UA-01`, `engineering/scenario-invariants.md`, ADR-0021/0003/0004/0013/0014/0015 | `agentic-loop-plan-replan-reasoning` slice（46§9 UI 落地）；不变量 N-NARR |
 | ADR-0023 | `ADR-0023-agentic-loop-plan-driven-execution-v3.md` | Proposed | Agentic Loop 计划驱动执行与调用经济学：计划驱动机械推进（N-PLAN）、偏离信号族 D1-D7 触发 evaluate+replan 合并调用（修订 ADR-0022 决策 2 执行语义）、机械完成+候选预算 backstop、协议鲁棒性两级路线 | `notes/2026-07-04-agentic-loop-plan-driven-execution.md`, `contracts/UA-01`, `tasks/slices/UA01-bounded-run-single-candidate-termination.md`, ADR-0021/0022/0003/0004 | `agentic-loop-plan-replan-reasoning`（共享伞形）＋「无偏离直通」scenario；不变量 N-PLAN |
+| ADR-0024 | `ADR-0024-decision-surface-registry-v3.md` | Accepted | 决策面注册表（S1-S7）与 ui_cards 信息通告边界：UI 决策契约中心从 card_type 集合改为决策面注册表、卡片命名与处置定案（10 卡→3 卡 + 废弃/Deferred）、S4 clarification / S7 awaiting_author 缺口填补方向、决策面 schema 进 codegen 闸门（N-SURF） | `notes/2026-07-15-dialogue-flow-decision-surface-review.md`, `07` §4, `contracts/VS-05` §4, ADR-0007/0008/0015 | `decision-surface` CP1（schema 闸门）→ CP2（clarification surface）→ CP3（awaiting_author TurnResult）；不变量 N-SURF |
 
 ---
 

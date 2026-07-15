@@ -217,29 +217,45 @@ UI 展示 trace summary，而不是内部 trace。
 
 ---
 
-## 4. UI 卡片类型候选
+## 4. 决策面注册表与信息卡片
 
-`ui_cards` 是语义卡片，不是视觉组件名称。
+> 2026-07-15 修订：本节从「card_type 集合」重写为「决策面注册表 + 信息卡片 lane」，决策与理由见 `adr/ADR-0024-decision-surface-registry-v3.md`（Proposed）。原 10 卡集合的处置定案见该 ADR 决策 3。
+
+### 4.1 决策面注册表
+
+作者决策时刻只能通过注册表登记的决策面进入主链。每行冻结：canonical 驱动字段、动作通道、渲染责任。
+
+| # | 决策时刻 | canonical 驱动字段 | 动作通道（action_type） | 状态 |
+|---|---|---|---|---|
+| S1 | 选择候选方向 | `candidate_directions` | `choose_candidate` | 已落地 |
+| S2 | 草稿采纳 | `adoption_state`（展示载体 `candidate_set` 卡） | `accept` / `discard` / `edit_then_accept` | 已落地 |
+| S3 | 执行确认 | `behavior_state`（confirmation；展示载体 `confirmation_card` 卡） | `confirm_before_execute` / `reject_or_cancel_confirmation` / `cancel_pending_behavior` | 已落地 |
+| S4 | 回答澄清 | `behavior_state`（clarification） | `answer_clarification` | 缺口（ADR-0024 CP2） |
+| S5 | 质量发现重写 | `quality_review` | `revise_from_findings` | 已落地 |
+| S6 | 运行中控制 | `agent_run_state` + AgentEvent 流 | pause / resume / cancel / steer | 已落地（ADR-0021/0022） |
+| S7 | 运行恢复（awaiting_author） | TurnResult（待补） | steer / resume / cancel 语义动作 | 缺口（ADR-0024 CP3） |
+
+新增决策时刻必须先入册（新 ADR 或 ADR-0024 修订），才能出现对应字段、动作或 UI。
+
+### 4.2 ui_cards：信息通告 lane
+
+`ui_cards` 仅承载信息通告——系统已裁决状态的作者可读说明，不承载决策。
 
 | card_type | 用途 | 常见来源 |
 |---|---|---|
-| `candidate_set` | 展示候选方向、候选设定、候选片段 | tentative artifact / candidate memory |
-| `clarification_prompt` | 展示需要作者补充的问题 | clarification behavior |
-| `confirmation_request` | 展示确认对象、影响范围和风险 | confirmation behavior |
-| `selection_prompt` | 等待作者从候选中选择 | selection behavior |
-| `revision_target_prompt` | 要求作者定位修正目标 | correction behavior |
-| `cancellation_summary` | 展示已取消或正在取消的对象 | cancellation behavior |
-| `recovery_prompt` | 展示失败原因和恢复动作 | recovery behavior |
-| `trace_summary` | 展示可解释摘要 | DecisionTrace redacted summary |
-| `projection_notice` | 展示已采纳状态刷新提示 | projection hints |
-| `capability_notice` | 展示系统能力或限制说明 | registry / policy summary |
+| `candidate_set` | 草稿集 / 候选材料的展示载体（S2） | tentative artifact set |
+| `confirmation_card` | 确认请求的展示部分（S3），动作在 `available_actions` | confirmation behavior |
+| `result_card` | 已裁决结果通告（含取消结果） | adoption decision / 系统裁决 |
+
+原集合中 `clarification_prompt`、`recovery_prompt`、`selection_prompt`、`revision_target_prompt`、`trace_summary`、`projection_notice`、`cancellation_summary` 已废弃（由对应决策面或既有字段覆盖）；`capability_notice` Deferred。处置理由见 ADR-0024 决策 3。
 
 约束：
 
-1. UI 不自行发明 `card_type`。
+1. UI 不自行发明 `card_type`；对未知类型可兜底渲染，但必须产生开发侧告警，不允许纯静默。
 2. card 不等于 behavior；candidate card 可以只是创作展示，不一定是 durable selection。
-3. card 不等于 action；action 必须来自 `available_actions`。
+3. card 不等于 action；卡片结构禁止携带可提交动作字段，action 必须来自 `available_actions`。
 4. card 展示事实必须和 TurnResult / trace 一致。
+5. 决策面驱动字段与卡片形状必须进入 `schemas/` codegen 源，前端禁止手写对应类型（ADR-0024 决策 5）。
 
 ---
 
