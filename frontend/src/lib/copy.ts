@@ -311,6 +311,7 @@ export const WORKBENCH = {
   agenticLoopActivityDrafting: "正在起草…",
   agenticLoopActivityReading: "正在查阅…",
   agenticLoopActivityWorking: "正在执行…",
+  agenticLoopActivityReasoning: "正在推理…",
   // 46§9.4：轻量进度行（纯计数骨架词）。
   agenticLoopProgressStep: (done: number, total: number) => `第 ${done}/${total} 步`,
   agenticLoopProgressPending: (count: number) => `${count} 份草稿待采纳`,

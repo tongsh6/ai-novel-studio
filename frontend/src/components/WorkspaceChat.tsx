@@ -624,9 +624,11 @@ function AgentRunDialogueFlow({
       ? WORKBENCH.agenticLoopActivityReading
       : activityKind === "drafting"
         ? WORKBENCH.agenticLoopActivityDrafting
-        : activityKind === "working"
-          ? WORKBENCH.agenticLoopActivityWorking
-          : null;
+        : activityKind === "reasoning"
+          ? WORKBENCH.agenticLoopActivityReasoning
+          : activityKind === "working"
+            ? WORKBENCH.agenticLoopActivityWorking
+            : null;
 
   // 46§9.5 文档流化（2026-07-15 用户拍板）：移除卡片容器（轨道线/面板）与常驻
   // 计划 checklist——计划顺序由模型意图开场段唯一表达，修订由 plan_revised 叙事
@@ -659,6 +661,8 @@ function AgentRunDialogueFlow({
       )}
 
       <div className={styles.agenticLoopStatusMeta}>
+        {/* 非终态常驻脉冲：作者一眼可辨"仍在执行"；终态消失。 */}
+        {!runIsTerminal && <span className={styles.agentRunStatusPulse} aria-hidden="true" />}
         {statusLabel && (
           <span className={styles.agenticLoopStatusChip} data-status={statusTone}>
             {statusLabel}

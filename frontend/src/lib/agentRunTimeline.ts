@@ -103,24 +103,56 @@ const READING_TOOL_NAMES = new Set([
   "work_profile",
 ]);
 
-export type AgenticLoopActivityKind = "drafting" | "reading" | "working";
+export type AgenticLoopActivityKind = "drafting" | "reading" | "working" | "reasoning";
+
+// 模型调用窗口：provider_started 之后同 call_ref 未见终态（final_output/error/
+// cancelled）即视为 AI 接口执行中。事实驱动，不是假占位。
+function hasActiveProviderCall(ordered: AgentEventData[]): boolean {
+  const open = new Set<string>();
+
+  for (const event of ordered) {
+    if (event.event_type !== "provider_progress") continue;
+    const callRef =
+      stringPayloadValue(event.payload, "provider_call_ref") ??
+      stringPayloadValue(event.payload, "provider_run_ref") ??
+      event.event_id;
+    const reasons = Array.isArray(event.reason_codes) ? event.reason_codes : [];
+    if (reasons.includes("provider_started")) open.add(callRef);
+    if (
+      reasons.some((code) =>
+        ["provider_final_output", "provider_error", "provider_cancelled"].includes(String(code)),
+      )
+    ) {
+      open.delete(callRef);
+    }
+  }
+
+  return open.size > 0;
+}
 
 export function activeToolActivity(events: AgentEventData[]): AgenticLoopActivityKind | null {
   const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
   let active: AgentEventData | null = null;
+  let terminal = false;
 
   for (const event of ordered) {
     if (event.event_type === "tool_started") active = event;
-    if (["tool_completed", "tool_failed", "run_completed", "run_failed", "run_cancelled"].includes(
-      event.event_type,
-    )) {
+    if (["tool_completed", "tool_failed"].includes(event.event_type)) active = null;
+    if (["run_completed", "run_failed", "run_cancelled"].includes(event.event_type)) {
       active = null;
+      terminal = true;
     }
   }
 
-  if (!active) return null;
-  const toolName = stringPayloadValue(active.payload, "tool_name") ?? "";
-  return READING_TOOL_NAMES.has(toolName) ? "reading" : toolName ? "drafting" : "working";
+  if (terminal) return null;
+
+  if (active) {
+    const toolName = stringPayloadValue(active.payload, "tool_name") ?? "";
+    return READING_TOOL_NAMES.has(toolName) ? "reading" : toolName ? "drafting" : "working";
+  }
+
+  // 工具窗口之外：AI 接口调用进行中（计划结构化、回应生成、模型思考期）。
+  return hasActiveProviderCall(ordered) ? "reasoning" : null;
 }
 
 function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {

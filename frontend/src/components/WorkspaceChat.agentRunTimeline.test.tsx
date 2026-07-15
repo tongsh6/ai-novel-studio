@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentEventData } from "../lib/socket";
-import { agentRunReasoningFlow } from "../lib/agentRunTimeline";
+import { activeToolActivity, agentRunReasoningFlow } from "../lib/agentRunTimeline";
 
 describe("AgentRun reasoning flow", () => {
   it("builds the author-visible flow only from 46§9 narrative events", () => {
@@ -256,5 +256,97 @@ describe("AgentRun reasoning flow", () => {
 
     expect(flow.narrativeEvents).toHaveLength(1);
     expect(flow.narrativeEvents[0]?.narrative).toBe(narrative);
+  });
+});
+
+// 46§9.5：AI 接口执行中标识——活动行必须覆盖模型调用窗口，不能只覆盖工具窗口。
+describe("activeToolActivity", () => {
+  const base = {
+    run_ref: "run_activity",
+    visibility: "developer" as const,
+    summary: "provider_event",
+    payload: {},
+  };
+
+  it("provider 调用开始后未收到终态 → reasoning（AI 接口执行中）", () => {
+    const events: AgentEventData[] = [
+      {
+        ...base,
+        event_id: "e1",
+        sequence: 1,
+        event_type: "provider_progress",
+        reason_codes: ["provider_execution_stream", "provider_started"],
+        payload: { provider_call_ref: "call_1" },
+      },
+    ];
+    expect(activeToolActivity(events)).toBe("reasoning");
+  });
+
+  it("provider 调用收到 final_output → 无活动", () => {
+    const events: AgentEventData[] = [
+      {
+        ...base,
+        event_id: "e1",
+        sequence: 1,
+        event_type: "provider_progress",
+        reason_codes: ["provider_started"],
+        payload: { provider_call_ref: "call_1" },
+      },
+      {
+        ...base,
+        event_id: "e2",
+        sequence: 2,
+        event_type: "provider_progress",
+        reason_codes: ["provider_final_output"],
+        payload: { provider_call_ref: "call_1" },
+      },
+    ];
+    expect(activeToolActivity(events)).toBeNull();
+  });
+
+  it("工具窗口优先于模型调用窗口", () => {
+    const events: AgentEventData[] = [
+      {
+        ...base,
+        event_id: "e1",
+        sequence: 1,
+        event_type: "provider_progress",
+        reason_codes: ["provider_started"],
+        payload: { provider_call_ref: "call_1" },
+      },
+      {
+        ...base,
+        event_id: "e2",
+        sequence: 2,
+        event_type: "tool_started",
+        visibility: "author",
+        reason_codes: ["prose_writing_started"],
+        payload: { tool_name: "prose_writing" },
+      },
+    ];
+    expect(activeToolActivity(events)).toBe("drafting");
+  });
+
+  it("run 终态后无任何活动标识", () => {
+    const events: AgentEventData[] = [
+      {
+        ...base,
+        event_id: "e1",
+        sequence: 1,
+        event_type: "provider_progress",
+        reason_codes: ["provider_started"],
+        payload: { provider_call_ref: "call_1" },
+      },
+      {
+        ...base,
+        event_id: "e2",
+        sequence: 2,
+        event_type: "run_completed",
+        visibility: "author",
+        reason_codes: ["goal_satisfied"],
+        payload: {},
+      },
+    ];
+    expect(activeToolActivity(events)).toBeNull();
   });
 });
