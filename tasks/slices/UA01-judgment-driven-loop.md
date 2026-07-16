@@ -99,6 +99,16 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   Accepted（用户四次方向拍板）；N-PLAN 改写进 00c §7 #17；形态陈述落 00 §2.3。
 - 2026-07-16：CP1 前置 MBC 探针落地并通过（stub 1.0 + live gpt-oss-120b 1.0）；
   CP1 六问登记，开工（用户"开工"）。
+- 2026-07-16 **CP1a（协议资产落地，不翻入口）**：`NovelApplication.JudgmentProtocol`
+  生产模块——判断①两段式请求机（call1 叙事流式 + call2 强制 judgment_decision，
+  坏结构携带片段重试一次）、叙事绑定（content 优先 / arguments.author_narrative
+  降级，与计划协议同构）、candidate_directions 携带 schema、explore 形态由能力
+  目录选项开关（CP5 打开）；`judgment_decided` 事件类型入 novel_common 契约 +
+  runtime stage 事件族。探针改为消费生产构造器（首个真实消费者），stub 自检 1.0
+  + live 复验生产路径。**CP1b（未闭环）**：入口翻转（profile_routing → 判断循环）、
+  frame 机械转换 + reply 终结链、SliceVerify 判断 handler（继承路由规则表）、
+  focused runtime tests、场景迁移账（agent-conversation-turn 2 调用口径 + au02
+  候选家族 + 全部 user_message 场景计数位移 + no-progress 场景诱导再迁移）。
 
 ## 4. 下次会话恢复指引
 

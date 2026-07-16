@@ -7,19 +7,20 @@
 #   ② 判断质量：固定六用例阵列（闲聊/上下文事实/单动作创作/多步复杂/需检索/意图不明），
 #      弱模型不得对简单请求乱开计划、不得对复杂任务漏计划。
 #
-# 判断①提示词为 CP1 协议草案：探针先行验证协议可行性，CP1 落地时迁入生产模块，
-# 本探针改为消费生产构造器（与 tool_call_compliance 消费 AgenticPlanDraftPlanner 同理）。
+# 判断①提示词/请求机已迁入生产模块 `NovelApplication.JudgmentProtocol`（CP1a），
+# 本探针消费生产构造器（与 tool_call_compliance 消费 AgenticPlanDraftPlanner 同理）。
 # 调用穿真实 Gateway/ProviderExecution 运行时（Execution.dependency(provider:)），秒级、不写库。
 #
 # 用法：
 #   mix run scripts/model_contracts/judgment_protocol.exs [stub|lmstudio|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
-#   MODEL_CONTRACT_MIN_PASS_RATE  通过率阈值（默认 1.0；live 弱模型测量可调低）
+#   MODEL_CONTRACT_MIN_PASS_RATE  判断准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）
 #   NOVEL_DEEPSEEK_API_KEY / DEEPSEEK_API_KEY  deepseek 凭据（缺失 → exit 65）
 # 退出码：0 通过；1 低于阈值；65 凭据/环境阻塞（全部试验均为连接/凭据类失败）。
 
 alias NovelAgent.Provider.{DeepSeek, Execution}
+alias NovelApplication.JudgmentProtocol
 
 defmodule ModelContracts.JudgmentProtocol do
   @blocked_error_markers [
@@ -80,7 +81,7 @@ defmodule ModelContracts.JudgmentProtocol do
   def main(argv) do
     provider = List.first(argv) || "stub"
     runs = env_int("MODEL_CONTRACT_RUNS", 2)
-    threshold = env_float("MODEL_CONTRACT_MIN_PASS_RATE", 1.0)
+    threshold = env_float("MODEL_CONTRACT_MIN_PASS_RATE", 0.85)
 
     case variants(provider) do
       {:error, message} ->
@@ -145,49 +146,57 @@ defmodule ModelContracts.JudgmentProtocol do
       id: battery_case.id,
       expected: battery_case.expected,
       runs: runs,
-      pass: Enum.count(trials, &(&1.outcome == :pass)),
-      fail: Enum.count(trials, &(&1.outcome == :fail)),
-      blocked: Enum.count(trials, &(&1.outcome == :blocked)),
+      blocked: Enum.count(trials, &(&1.protocol == :blocked)),
+      protocol_pass: Enum.count(trials, &(&1.protocol == :pass)),
+      form_pass: Enum.count(trials, &(&1.form == :pass)),
+      form_applicable: Enum.count(trials, &(&1.form in [:pass, :fail])),
+      judgment_pass: Enum.count(trials, &(&1.judgment == :pass)),
+      judgment_applicable: Enum.count(trials, &(&1.judgment in [:pass, :fail])),
       failures:
         trials
-        |> Enum.reject(&(&1.outcome == :pass))
         |> Enum.map(& &1.detail)
+        |> Enum.reject(&is_nil/1)
     }
   end
 
+  # 三类结果分账：protocol（调用可解析+叙事存在，CP1 硬闸门）/ form（内联两段形）/
+  # judgment（判断准确率）。判断方差是模型属性（ADR-0025 以预算 backstop 兜底），
+  # 与协议可行性分开度量。
   defp trial(variant, battery_case) do
     apply_variant_config(variant)
 
-    with {:ok, narrative} <- judgment_narrative_call(variant, battery_case),
-         :ok <- check_inline_reply(narrative, battery_case),
-         {:ok, decision} <- judgment_decision_call(variant, battery_case, narrative),
-         :ok <- check_decision(decision, battery_case) do
-      %{outcome: :pass, detail: nil}
-    else
-      {:fail, detail} -> %{outcome: :fail, detail: detail}
-      {:blocked, detail} -> %{outcome: :blocked, detail: detail}
-    end
-  end
+    execution = Execution.dependency(provider: variant.provider)
 
-  # call1：自由输出（流式语义；purpose 与生产判断叙事一致）
-  defp judgment_narrative_call(variant, battery_case) do
-    result_fn =
-      Execution.dependency(provider: variant.provider, purpose: :author_reasoning)
-      |> Execution.result_fn()
+    input = %{
+      author_text: battery_case.text,
+      context_block: probe_context_block(),
+      options: [explore: true]
+    }
 
-    case result_fn.(%{messages: [%{role: "user", content: narrative_prompt(battery_case)}]}) do
-      {:ok, %{content: content}} when is_binary(content) ->
-        if String.trim(content) == "" do
-          {:fail, "call1_content_empty"}
-        else
-          {:ok, content}
-        end
+    case JudgmentProtocol.request_judgment(execution, %{}, input) do
+      {:ok, judgment} ->
+        form =
+          case check_inline_reply(judgment.narrative, battery_case) do
+            :ok -> :pass
+            {:fail, _} -> :fail
+          end
 
-      {:ok, other} ->
-        {:fail, "call1_unexpected_result:#{inspect(other) |> String.slice(0, 120)}"}
+        {judgment_outcome, detail} =
+          case check_decision(judgment, battery_case) do
+            :ok -> {:pass, nil}
+            {:fail, d} -> {:fail, d}
+          end
+
+        %{protocol: :pass, form: form, judgment: judgment_outcome, detail: detail}
 
       {:error, reason} ->
-        classify_error(reason, "call1")
+        case classify_error(reason, "judgment") do
+          {:blocked, detail} ->
+            %{protocol: :blocked, form: :skip, judgment: :skip, detail: detail}
+
+          {:fail, detail} ->
+            %{protocol: :fail, form: :skip, judgment: :skip, detail: detail}
+        end
     end
   end
 
@@ -202,50 +211,6 @@ defmodule ModelContracts.JudgmentProtocol do
   end
 
   defp check_inline_reply(_narrative, _battery_case), do: :ok
-
-  # call2：强制 native tool call 产出轻量判断结构
-  defp judgment_decision_call(variant, battery_case, narrative) do
-    result_fn =
-      Execution.dependency(provider: variant.provider, purpose: :planner)
-      |> Execution.result_fn()
-
-    case result_fn.(decision_prompt(battery_case, narrative)) do
-      {:ok, result} ->
-        parse_decision(result)
-
-      {:error, reason} ->
-        classify_error(reason, "call2")
-    end
-  end
-
-  defp parse_decision(result) do
-    tool_calls = Map.get(result, :tool_calls) || []
-
-    decision =
-      Enum.find_value(tool_calls, fn call ->
-        name = map_get(call, :name)
-        if name == "judgment_decision", do: normalize_arguments(map_get(call, :arguments))
-      end)
-
-    case decision do
-      %{} = arguments ->
-        {:ok, arguments}
-
-      _ ->
-        {:fail, "call2_tool_call_missing"}
-    end
-  end
-
-  defp normalize_arguments(arguments) when is_map(arguments), do: arguments
-
-  defp normalize_arguments(arguments) when is_binary(arguments) do
-    case Jason.decode(arguments) do
-      {:ok, decoded} when is_map(decoded) -> decoded
-      _ -> nil
-    end
-  end
-
-  defp normalize_arguments(_arguments), do: nil
 
   defp check_decision(decision, battery_case) do
     action = map_get(decision, :action)
@@ -276,9 +241,9 @@ defmodule ModelContracts.JudgmentProtocol do
     end
   end
 
-  # ── 判断①协议草案 prompt（CP1 输入；落地时迁入生产模块并由探针改为消费生产构造器） ──
+  # ── 探针固定上下文（含检索能力目录，explore: true 开放五选一） ──
 
-  defp work_context_block do
+  defp probe_context_block do
     """
     ## 当前作品
     - 标题：星潮之下（赛博修仙）
@@ -299,79 +264,6 @@ defmodule ModelContracts.JudgmentProtocol do
     |> String.trim()
   end
 
-  defp narrative_prompt(battery_case) do
-    """
-    你是小说创作系统的创作判断器。作者刚发来一条输入，你要判断本轮的形态并向作者说明。
-
-    #{work_context_block()}
-
-    ## 作者输入
-    #{battery_case.text}
-
-    ## 本轮形态（五选一）
-    - 直接回复：闲聊、观点、上面作品摘要里已含答案的问题——不需要动用创作能力
-    - 单动作执行：一个明确的创作动作就能满足（如设计一个角色、续写一章）
-    - 制定计划：需要多个相互依赖的步骤才能完成
-    - 先探索：回答或动手之前缺少作品事实，需要先检索
-    - 等作者说清：意图不明确或缺少关键决定，先停下来问作者
-
-    ## 判别规则（容易混的边界）
-    - 作者要你"做出一个创作产物"（设计一个角色、写一章、给一份大纲）→ 这是单动作执行，
-      不是直接回复：不要用文字描述替代产出候选。
-    - 单动作执行 vs 制定计划：作者点名的是**一个**产物，即使做它需要参考现有内容，也算
-      单动作执行；只有作者的请求本身包含**多个相互依赖的产物或阶段**时才制定计划。
-
-    ## 输出要求（会逐字实时显示给作者）
-    - 用自然中文输出一段连贯的判断说明：先复述你理解的作者意图，再说明你选择的形态与理由。
-    - 如果你的判断是"直接回复"：判断说明之后空一行，接着输出给作者的回复正文（在这同一次输出里完成）。
-    - 其它形态：只输出判断说明，不要开始执行。
-    - 不要标题、JSON、代码块或内部机器名。
-    """
-    |> String.trim()
-  end
-
-  defp decision_prompt(battery_case, narrative) do
-    %{
-      messages: [
-        %{
-          role: "user",
-          content: """
-          你是小说创作系统的创作判断器。你刚才已向作者输出了判断说明（如下）。现在把这个判断结构化。
-
-          ## 作者输入
-          #{battery_case.text}
-
-          ## 你已输出的判断说明
-          #{narrative}
-
-          ## 输出格式
-          - native tool call：必须调用 judgment_decision，把判断放入 tool arguments。
-          - action 五选一：reply（直接回复，说明里已含回复正文）｜ execute（单动作执行）｜ plan（制定计划）｜ explore（先检索作品事实）｜ await_author（等作者说清）。
-          - execute 时 capability 填能力名（character_design / prose_writing / plot_outline / world_building）；先检索属于 explore，不算 execute。
-          - reply_included：action=reply 且判断说明已包含给作者的回复正文时为 true。
-          """
-        }
-      ],
-      tools: [
-        %{
-          name: "judgment_decision",
-          description: "Structure this turn's judgment for the creative loop.",
-          input_schema: %{
-            type: "object",
-            properties: %{
-              action: %{type: "string", enum: @actions},
-              capability: %{anyOf: [%{type: "string"}, %{type: "null"}]},
-              reply_included: %{type: "boolean"},
-              reason: %{type: "string"}
-            },
-            required: ["action", "reason"]
-          }
-        }
-      ],
-      tool_choice: "judgment_decision"
-    }
-  end
-
   # ── 汇总 ──
 
   defp write_summary(provider, results, runs, threshold) do
@@ -380,36 +272,26 @@ defmodule ModelContracts.JudgmentProtocol do
       provider: provider,
       generated_at: DateTime.utc_now() |> DateTime.to_iso8601(),
       runs_per_case: runs,
-      min_pass_rate: threshold,
+      min_judgment_accuracy: threshold,
       variants:
         Enum.map(results, fn result ->
-          cases =
-            Enum.map(result.cases, fn c ->
-              effective = c.runs - c.blocked
-
-              Map.put(
-                c,
-                :pass_rate,
-                if(effective > 0, do: Float.round(c.pass / effective, 3), else: 0.0)
-              )
-            end)
-
-          total_pass = cases |> Enum.map(& &1.pass) |> Enum.sum()
-          total_blocked = cases |> Enum.map(& &1.blocked) |> Enum.sum()
+          cases = result.cases
           total = length(cases) * runs
-          effective_total = total - total_blocked
+          blocked = cases |> Enum.map(& &1.blocked) |> Enum.sum()
+          protocol_pass = cases |> Enum.map(& &1.protocol_pass) |> Enum.sum()
+          form_pass = cases |> Enum.map(& &1.form_pass) |> Enum.sum()
+          form_applicable = cases |> Enum.map(& &1.form_applicable) |> Enum.sum()
+          judgment_pass = cases |> Enum.map(& &1.judgment_pass) |> Enum.sum()
+          judgment_applicable = cases |> Enum.map(& &1.judgment_applicable) |> Enum.sum()
 
           %{
             variant: result.variant,
             cases: cases,
-            total_pass: total_pass,
-            total_blocked: total_blocked,
             total_runs: total,
-            overall_pass_rate:
-              if(effective_total > 0,
-                do: Float.round(total_pass / effective_total, 3),
-                else: 0.0
-              )
+            blocked: blocked,
+            protocol_compliance_rate: rate(protocol_pass, total - blocked),
+            form_adherence_rate: rate(form_pass, form_applicable),
+            judgment_accuracy: rate(judgment_pass, judgment_applicable)
           }
         end)
     }
@@ -420,27 +302,37 @@ defmodule ModelContracts.JudgmentProtocol do
     summary
   end
 
+  defp rate(_pass, effective) when effective <= 0, do: 0.0
+  defp rate(pass, effective), do: Float.round(pass / effective, 3)
+
   defp report(summary, threshold) do
     Enum.each(summary.variants, fn variant ->
       Enum.each(variant.cases, fn c ->
         IO.puts(
           "[mbc/judgment-protocol] #{summary.provider}/#{variant.variant} case=#{c.id} " <>
-            "pass=#{c.pass} fail=#{c.fail} blocked=#{c.blocked} pass_rate=#{c.pass_rate}" <>
+            "judgment=#{c.judgment_pass}/#{c.judgment_applicable} form=#{c.form_pass}/#{c.form_applicable}" <>
             if(c.failures == [], do: "", else: " failures=#{inspect(Enum.take(c.failures, 2))}")
         )
       end)
 
       IO.puts(
         "[mbc/judgment-protocol] #{summary.provider}/#{variant.variant} " <>
-          "overall_pass_rate=#{variant.overall_pass_rate} blocked=#{variant.total_blocked}/#{variant.total_runs}"
+          "protocol=#{variant.protocol_compliance_rate} form=#{variant.form_adherence_rate} " <>
+          "judgment=#{variant.judgment_accuracy} blocked=#{variant.blocked}/#{variant.total_runs}"
       )
     end)
 
-    all_blocked? = Enum.all?(summary.variants, fn v -> v.total_blocked == v.total_runs end)
+    all_blocked? = Enum.all?(summary.variants, fn v -> v.blocked == v.total_runs end)
 
-    below? =
+    # 硬闸门：协议合规必须 1.0；判断准确率按阈值（默认见 main/1，live 弱模型可调）。
+    protocol_below? =
       Enum.any?(summary.variants, fn v ->
-        v.total_blocked < v.total_runs and v.overall_pass_rate < threshold
+        v.blocked < v.total_runs and v.protocol_compliance_rate < 1.0
+      end)
+
+    judgment_below? =
+      Enum.any?(summary.variants, fn v ->
+        v.blocked < v.total_runs and v.judgment_accuracy < threshold
       end)
 
     cond do
@@ -448,8 +340,12 @@ defmodule ModelContracts.JudgmentProtocol do
         IO.puts(:stderr, "[mbc/judgment-protocol] 全部试验为连接/凭据类失败，登记为阻塞")
         System.halt(65)
 
-      below? ->
-        IO.puts(:stderr, "[mbc/judgment-protocol] 通过率低于阈值 #{threshold}")
+      protocol_below? ->
+        IO.puts(:stderr, "[mbc/judgment-protocol] 协议合规低于 1.0（硬闸门）")
+        System.halt(1)
+
+      judgment_below? ->
+        IO.puts(:stderr, "[mbc/judgment-protocol] 判断准确率低于阈值 #{threshold}")
         System.halt(1)
 
       true ->

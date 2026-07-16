@@ -9,6 +9,7 @@ defmodule NovelCommon.Contracts.AgentEvent do
   @type event_type ::
           :run_started
           | :goal_understood
+          | :judgment_decided
           | :plan_drafted
           | :plan_revised
           | :plan_adjusted
@@ -51,6 +52,7 @@ defmodule NovelCommon.Contracts.AgentEvent do
   @event_types [
     :run_started,
     :goal_understood,
+    :judgment_decided,
     :plan_drafted,
     :plan_revised,
     :plan_adjusted,

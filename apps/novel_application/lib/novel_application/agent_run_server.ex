@@ -1742,6 +1742,7 @@ defmodule NovelApplication.AgentRunServer do
 
   @stage_event_types [
     :goal_understood,
+    :judgment_decided,
     :plan_drafted,
     :plan_revised,
     :exploration_observed,

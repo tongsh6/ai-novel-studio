@@ -115,6 +115,14 @@ defmodule NovelAgent.Provider.Execution do
 
   def with_purpose(dependency, _purpose), do: dependency
 
+  @spec with_params(dependency(), InferenceParams.t()) :: dependency()
+  def with_params(%__MODULE__{gateway_opts: opts} = dependency, %InferenceParams{} = params)
+      when is_list(opts) do
+    rebuild_gateway_execution(dependency, Keyword.put(opts, :params, params))
+  end
+
+  def with_params(dependency, _params), do: dependency
+
   @spec with_event_sink(dependency(), (execution_result() -> term())) :: dependency()
   def with_event_sink(%__MODULE__{gateway_opts: opts} = dependency, event_sink)
       when is_list(opts) and is_function(event_sink, 1) do
