@@ -591,6 +591,24 @@
   height: 9px;
   border-radius: 999px;
   background-color: var(--accent);
+  animation: agentRunStatusPulseBlink 1.2s ease-in-out infinite;
+}
+
+/* 执行中呼吸闪烁：作者一眼可辨"AI 正在干活"；该节点仅在非终态渲染，终态自然静止。 */
+@keyframes agentRunStatusPulseBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentRunStatusPulse {
+    animation: none;
+  }
 }
 
 .agenticLoopStatusMeta {

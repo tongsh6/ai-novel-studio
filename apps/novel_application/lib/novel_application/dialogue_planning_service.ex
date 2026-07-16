@@ -28,8 +28,8 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentPlan, AgentStep}
   alias NovelDomain.{CandidateDirection, DialogueContext, DialogueFrame}
 
-  @profile_routing_allowed_tools ["profile_route"]
-  @profile_routing_profile_ref "profile_routing_v1"
+  @profile_routing_allowed_tools ["judgment"]
+  @profile_routing_profile_ref "judgment_loop_v1"
   @character_allowed_tools ["character_roster", "character_design"]
   @character_profile_ref CharacterDesignWithContext.profile_ref()
   @prose_allowed_tools ["prose_writing"]

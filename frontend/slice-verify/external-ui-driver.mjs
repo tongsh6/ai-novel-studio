@@ -17399,10 +17399,10 @@ async function driveAgentConversationTurn(page, options = {}) {
 
   const message = options.message ?? "测试";
   const outputSliceId = options.sliceId ?? "agent-conversation-turn";
-  const expectPlanReplan = options.expectPlanReplan === true;
   const expectAuthorReasoningDelta = options.expectAuthorReasoningDelta !== false;
-  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1；修订同为两段式（+2）。
-  const expectedProviderCalls = expectPlanReplan ? 6 : 4;
+  // ADR-0025 CP1 判断循环：机械准备 0 调用 + 判断①两段式（叙事流式 + judgment_decision
+  // 结构）= 简单对话恰 2 次调用（旧计划驱动为 4 次）。
+  const expectedProviderCalls = 2;
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await installReasoningStreamObserver(page);
@@ -17464,6 +17464,19 @@ async function driveAgentConversationTurn(page, options = {}) {
     30_000,
   );
 
+  // 机械准备先行（0 调用、永不问模型）：上下文组装结果在任何模型叙事之前。
+  const contextResultFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "goal_understood" &&
+      String(frame.body?.summary ?? "").includes("已组装当前作品上下文"),
+    "Conversation judgment loop did not publish the mechanical context result",
+    30_000,
+  );
+
   const isAuthorReasoningDeltaFrame = (frame) =>
     frame.direction === "received" &&
     frame.event === "agent_event" &&
@@ -17485,7 +17498,7 @@ async function driveAgentConversationTurn(page, options = {}) {
     authorReasoningDeltaFrame = await waitForNewFrame(
       frameStart,
       isAuthorReasoningDeltaFrame,
-      "Conversation AgentRun did not stream author reasoning delta before the first plan card",
+      "Conversation judgment did not stream author narrative delta",
       30_000,
     );
     firstAuthorReasoningDelta = String(
@@ -17503,7 +17516,7 @@ async function driveAgentConversationTurn(page, options = {}) {
     secondAuthorReasoningDeltaFrame = await waitForNewFrame(
       frames.indexOf(authorReasoningDeltaFrame) + 1,
       isAuthorReasoningDeltaFrame,
-      "Conversation AgentRun did not stream a second author reasoning delta",
+      "Conversation judgment did not stream a second author narrative delta",
       30_000,
     );
     secondAuthorReasoningDelta = String(
@@ -17520,137 +17533,49 @@ async function driveAgentConversationTurn(page, options = {}) {
     );
   }
 
-  const contextStepFrame = await waitForNewFrame(
+  // 判断①结构落地：judgment_decided（叙事源绑定 provider 输出，作者可见）。
+  const judgmentDecidedFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted" &&
-      frame.body?.payload?.target_tool_ref === "context_assemble",
-    "Conversation AgentRun did not propose the context assembly step",
+      frame.body?.event_type === "judgment_decided" &&
+      frame.body?.visibility === "author" &&
+      (frame.body?.reason_codes ?? []).includes("judgment_reply") &&
+      frame.body?.payload?.action === "reply" &&
+      frame.body?.payload?.author_narrative_source?.source_type === "provider_output",
+    "Conversation judgment loop did not publish judgment_decided(reply)",
     30_000,
   );
-  const conversationPlanSteps = contextStepFrame.body?.payload?.plan_steps ?? [];
-  const conversationPlanHasContextStep = conversationPlanSteps.some(
-    (step) => step?.target_tool_ref === "context_assemble",
-  );
-  const conversationPlanHasFrameStep = conversationPlanSteps.some(
-    (step) => step?.target_tool_ref === "dialogue_frame",
-  );
-  const conversationPlanHasStrategyStep = conversationPlanSteps.some(
-    (step) => step?.target_tool_ref === "strategy_gate",
-  );
-  const conversationPlanHasFinalizeStep = conversationPlanSteps.some(
-    (step) => step?.target_tool_ref === "response_finalize",
-  );
-  if (expectPlanReplan) {
-    assert(
-      conversationPlanHasContextStep &&
-        !conversationPlanHasFrameStep &&
-        !conversationPlanHasStrategyStep &&
-        !conversationPlanHasFinalizeStep,
-      "D6 initial AgentPlan did not stop after context assembly",
-    );
-  } else {
-    assert(
-      conversationPlanHasContextStep &&
-        conversationPlanHasFrameStep &&
-        conversationPlanHasStrategyStep &&
-        conversationPlanHasFinalizeStep,
-      "Conversation AgentPlan did not include context, frame, strategy, and finalize plan steps",
-    );
-  }
+
   const authorReasoningDeltaIndex = frames.findIndex(
     (frame) => frame === authorReasoningDeltaFrame,
   );
   const secondAuthorReasoningDeltaIndex = frames.findIndex(
     (frame) => frame === secondAuthorReasoningDeltaFrame,
   );
-  const contextStepIndex = frames.findIndex((frame) => frame === contextStepFrame);
+  const judgmentDecidedIndex = frames.findIndex((frame) => frame === judgmentDecidedFrame);
+  const contextResultIndex = frames.findIndex((frame) => frame === contextResultFrame);
   if (expectAuthorReasoningDelta) {
     assert(
-      authorReasoningDeltaIndex >= 0 && contextStepIndex > authorReasoningDeltaIndex,
-      "Conversation first plan card arrived before the provider author reasoning delta",
+      authorReasoningDeltaIndex >= 0 && judgmentDecidedIndex > authorReasoningDeltaIndex,
+      "judgment_decided arrived before the streamed narrative delta",
     );
     assert(
-      secondAuthorReasoningDeltaIndex >= 0 && contextStepIndex > secondAuthorReasoningDeltaIndex,
-      "Conversation first plan card arrived before the second provider author reasoning delta",
+      contextResultIndex >= 0 && authorReasoningDeltaIndex > contextResultIndex,
+      "Narrative delta arrived before the mechanical context result",
     );
   }
-
-  const contextResultFrame = await waitForNewFrame(
-    frames.indexOf(contextStepFrame) + 1,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "goal_understood" &&
-      String(frame.body?.summary ?? "").includes("已组装当前作品上下文"),
-    "Conversation AgentRun did not publish the context result",
-    30_000,
-  );
-
-  let planRevisedFrame = null;
-  let revisedPlanSteps = [];
-  let revisedPlanHasFrameStep = false;
-  let revisedPlanHasStrategyStep = false;
-  let revisedPlanHasFinalizeStep = false;
-
-  if (expectPlanReplan) {
-    planRevisedFrame = await waitForNewFrame(
-      frames.indexOf(contextResultFrame) + 1,
-      (frame) =>
-        frame.direction === "received" &&
-        frame.event === "agent_event" &&
-        frame.body?.run_ref === runId &&
-        frame.body?.event_type === "plan_revised" &&
-        frame.body?.payload?.target_tool_ref === "dialogue_frame" &&
-        Number(frame.body?.payload?.plan_version ?? 0) === 2 &&
-        frame.body?.payload?.evaluation_of_last?.plan_holds === false &&
-        typeof frame.body?.payload?.plan_revision?.revision_reason === "string" &&
-        frame.body.payload.plan_revision.revision_reason.includes("本轮回应尚未生成") &&
-        frame.body?.payload?.author_narrative_source?.source_type === "provider_output",
-      "D6 conversation AgentRun did not publish provider-sourced plan_revised before continuing",
-      30_000,
-    );
-
-    revisedPlanSteps = planRevisedFrame.body?.payload?.plan_steps ?? [];
-    revisedPlanHasFrameStep = revisedPlanSteps.some(
-      (step) => step?.target_tool_ref === "dialogue_frame",
-    );
-    revisedPlanHasStrategyStep = revisedPlanSteps.some(
-      (step) => step?.target_tool_ref === "strategy_gate",
-    );
-    revisedPlanHasFinalizeStep = revisedPlanSteps.some(
-      (step) => step?.target_tool_ref === "response_finalize",
-    );
-    assert(
-      revisedPlanHasFrameStep && revisedPlanHasStrategyStep && revisedPlanHasFinalizeStep,
-      "D6 revised AgentPlan did not restore frame, strategy, and finalize steps",
-    );
-  }
-
-  const strategyDecisionFrame = await waitForNewFrame(
-    frames.indexOf(planRevisedFrame ?? contextResultFrame) + 1,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "gate_decided" &&
-      String(frame.body?.summary ?? "").includes("不调用工具"),
-    "Conversation AgentRun did not publish the no-tool strategy decision",
-    30_000,
-  );
 
   const turnResultReadyFrame = await waitForNewFrame(
-    frames.indexOf(strategyDecisionFrame) + 1,
+    frames.indexOf(judgmentDecidedFrame) + 1,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "turn_result_ready",
-    "Conversation AgentRun did not publish turn_result_ready",
+    "Conversation judgment loop did not publish turn_result_ready",
     30_000,
   );
 
@@ -17660,14 +17585,24 @@ async function driveAgentConversationTurn(page, options = {}) {
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.agent_run?.run_id === runId &&
-      frame.body?.agent_run?.profile_ref === "conversation_turn_v1" &&
+      frame.body?.agent_run?.profile_ref === "judgment_loop_v1" &&
       frame.body?.truthfulness?.tool_called === false &&
       frame.body?.truthfulness?.artifact_adopted === false &&
       frame.body?.truthfulness?.production_write_performed === false,
-    "Conversation AgentRun did not broadcast no-tool TurnResult",
+    "Conversation judgment loop did not broadcast the inline-reply TurnResult",
     60_000,
   );
   const turnResult = turnFrame.body;
+
+  // 方案 B 回复内联 + N-NARR：TurnResult 正文即 call1 输出，必须包含已流式的叙事前缀。
+  if (expectAuthorReasoningDelta) {
+    assert(
+      normalizeVisibleText(turnResult.assistant_message?.text ?? "").includes(
+        normalizeVisibleText(authorReasoningCumulativePrefix),
+      ),
+      "Inline-reply TurnResult text did not byte-carry the streamed narrative prefix",
+    );
+  }
 
   await waitForNewFrame(
     frameStart,
@@ -17687,12 +17622,13 @@ async function driveAgentConversationTurn(page, options = {}) {
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
-      frame.body?.profile_ref === "conversation_turn_v1" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
+      frame.body?.profile_ref === "judgment_loop_v1" &&
+      // 机械准备 1 步 + 判断① 1 步；判断两段式恰 2 次 provider 调用；零工具零修订
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 0 &&
       Number(frame.body?.consumed_budget?.provider_calls ?? 0) === expectedProviderCalls &&
-      Number(frame.body?.consumed_budget?.replans ?? 0) === (expectPlanReplan ? 1 : 0),
-    "Conversation AgentRun state did not complete with the expected bounded counters",
+      Number(frame.body?.consumed_budget?.replans ?? 0) === 0,
+    "Conversation judgment loop state did not complete with 2-step / 2-call counters",
     30_000,
   );
 
@@ -17739,8 +17675,6 @@ async function driveAgentConversationTurn(page, options = {}) {
     );
   }
   const agenticLoopEvidenceLayout = await focusLatestAgenticLoopEvidence(page);
-  // 46§9.5 文档流化：常驻计划面板已移除，计划事实由 plan_drafted 事件断言；
-  // 作者可见结构 = 推理叙事段落（section[aria-label="推理"]）+ 状态词。
   const agenticLoopSections = await page.evaluate(() => ({
     reasoning: Boolean(document.querySelector('section[aria-label="推理"]')),
   }));
@@ -17749,9 +17683,8 @@ async function driveAgentConversationTurn(page, options = {}) {
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
 
-  // Order 62 CP3 语义迁移：原「工作详情 → 模型执行流」UI 取证改为持久化 ProviderRun
-  // 事实（scoped activity API），断言口径不弱化：调用次数仍须精确等于预算计数，
-  // 且必须同时包含作者推理与对话回应两类用途。
+  // provider 取证走持久化 ProviderRun 事实：判断两段 = author_reasoning（叙事）+
+  // planner（judgment_decision 结构），恰 2 条。
   const activityTurnId = parentUserMessageLog?.turn_id ?? turnResult.parent_turn_id;
   const activityResponse = await fetchAgentRunActivityApi(
     sentFrame.body?.work_id,
@@ -17767,11 +17700,11 @@ async function driveAgentConversationTurn(page, options = {}) {
   );
   assert(
     activityResponse.status === 200 && persistedProviderRunCount === expectedProviderCalls,
-    `Conversation persisted ProviderRun facts (${persistedProviderRunCount}) did not match the expected provider call count (${expectedProviderCalls})`,
+    `Conversation persisted ProviderRun facts (${persistedProviderRunCount}) did not match the judgment call count (${expectedProviderCalls})`,
   );
   assert(
-    activityPurposes.includes("author_reasoning") && activityPurposes.includes("conversation"),
-    "Conversation persisted ProviderRun facts did not include author_reasoning and conversation purposes",
+    activityPurposes.includes("author_reasoning") && activityPurposes.includes("planner"),
+    "Conversation persisted ProviderRun facts did not include author_reasoning and planner purposes",
   );
 
   const agentEventFrames = frames
@@ -17782,20 +17715,6 @@ async function driveAgentConversationTurn(page, options = {}) {
         frame.event === "agent_event" &&
         frame.body?.run_ref === runId,
     );
-  const stepProposedFrames = agentEventFrames.filter(
-    (frame) => frame.body?.event_type === "plan_drafted",
-  );
-  const planStepTargets = (stepProposedFrames[0]?.body?.payload?.plan_steps ?? []).map((step) =>
-    String(step?.target_tool_ref ?? ""),
-  );
-  const planRevisedFrames = agentEventFrames.filter(
-    (frame) => frame.body?.event_type === "plan_revised",
-  );
-  const reasoningResultFrames = agentEventFrames.filter((frame) =>
-    ["goal_understood", "evaluation_made", "gate_decided", "turn_result_ready"].includes(
-      frame.body?.event_type,
-    ),
-  );
   const providerProgressEvents = agentEventFrames.filter(
     (frame) => frame.body?.event_type === "provider_progress",
   );
@@ -17808,8 +17727,6 @@ async function driveAgentConversationTurn(page, options = {}) {
       frame.body?.payload?.purpose === "author_reasoning" &&
       typeof frame.body?.payload?.author_narrative_delta === "string",
   );
-  const stepSummaries = stepProposedFrames.map((frame) => frame.body?.summary ?? "");
-  const reasoningResultSummaries = reasoningResultFrames.map((frame) => frame.body?.summary ?? "");
   const providerPurposes = [
     ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.purpose)),
   ].filter(Boolean);
@@ -17831,74 +17748,34 @@ async function driveAgentConversationTurn(page, options = {}) {
       plain_input_sent_from_real_workbench: true,
       ui_agent_immediate_feedback_visible: immediateAgentRunFeedbackVisible,
       final_turn_broadcast: true,
-      final_tool_called: turnResult.truthfulness?.tool_called === true,
       no_tool_called: turnResult.truthfulness?.tool_called === false,
       no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
       no_production_write: turnResult.truthfulness?.production_write_performed === false,
-      completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
       consumed_steps: completedStateFrame.body.consumed_budget?.steps,
       consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
       consumed_replans: completedStateFrame.body.consumed_budget?.replans,
-      initial_plan_step_count: conversationPlanSteps.length,
-      initial_plan_only_context:
-        conversationPlanHasContextStep &&
-        !conversationPlanHasFrameStep &&
-        !conversationPlanHasStrategyStep &&
-        !conversationPlanHasFinalizeStep,
-      plan_revised_visible: Boolean(planRevisedFrame),
-      plan_revised_event_count: planRevisedFrames.length,
-      plan_revised_target_tool_ref: planRevisedFrame?.body?.payload?.target_tool_ref ?? null,
-      plan_revised_plan_version: planRevisedFrame?.body?.payload?.plan_version ?? null,
-      plan_revised_revision_reason:
-        planRevisedFrame?.body?.payload?.plan_revision?.revision_reason ?? null,
-      plan_revised_evaluation_plan_holds:
-        planRevisedFrame?.body?.payload?.evaluation_of_last?.plan_holds ?? null,
-      plan_revised_author_narrative_source_type:
-        planRevisedFrame?.body?.payload?.author_narrative_source?.source_type ?? null,
-      revised_plan_has_frame_step: revisedPlanHasFrameStep,
-      revised_plan_has_strategy_step: revisedPlanHasStrategyStep,
-      revised_plan_has_finalize_step: revisedPlanHasFinalizeStep,
-      agent_stage_events_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
-        conversationPlanHasContextStep &&
-        (expectPlanReplan
-          ? revisedPlanHasFrameStep && revisedPlanHasStrategyStep && revisedPlanHasFinalizeStep
-          : conversationPlanHasFrameStep &&
-            conversationPlanHasStrategyStep &&
-            conversationPlanHasFinalizeStep) &&
-        contextResultFrame.body?.event_type === "goal_understood" &&
-        strategyDecisionFrame.body?.event_type === "gate_decided" &&
-        turnResultReadyFrame.body?.event_type === "turn_result_ready",
-      context_step_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
-        contextStepFrame.body?.payload?.target_tool_ref === "context_assemble" &&
-        conversationPlanHasContextStep,
-      frame_step_visible: expectPlanReplan ? revisedPlanHasFrameStep : conversationPlanHasFrameStep,
-      strategy_step_visible: expectPlanReplan
-        ? revisedPlanHasStrategyStep
-        : conversationPlanHasStrategyStep,
-      finalize_step_visible: expectPlanReplan
-        ? revisedPlanHasFinalizeStep
-        : conversationPlanHasFinalizeStep,
-      context_result_visible: contextResultFrame.body?.event_type === "goal_understood",
-      frame_evaluation_visible: conversationPlanHasFrameStep,
-      strategy_decision_visible: strategyDecisionFrame.body?.event_type === "gate_decided",
-      agent_step_summaries: stepSummaries,
-      agent_reasoning_result_summaries: reasoningResultSummaries,
-      agent_stage_event_types: agentEventFrames.map((frame) => frame.body?.event_type),
-      provider_progress_event_count: providerProgressEvents.length,
-      developer_provider_progress_event_count: developerProviderProgressEvents.length,
-      provider_progress_reason_codes: providerReasonCodes,
-      provider_progress_purposes: providerPurposes,
+      // 判断链事实（ADR-0025 CP1）
+      mechanical_context_first:
+        contextResultIndex >= 0 &&
+        (!expectAuthorReasoningDelta || authorReasoningDeltaIndex > contextResultIndex),
+      judgment_decided_visible: judgmentDecidedFrame.body?.event_type === "judgment_decided",
+      judgment_action: judgmentDecidedFrame.body?.payload?.action ?? null,
+      judgment_narrative_source_type:
+        judgmentDecidedFrame.body?.payload?.author_narrative_source?.source_type ?? null,
+      judgment_after_narrative:
+        !expectAuthorReasoningDelta ||
+        (secondAuthorReasoningDeltaIndex >= 0 &&
+          judgmentDecidedIndex > secondAuthorReasoningDeltaIndex),
+      turn_result_ready_visible: turnResultReadyFrame.body?.event_type === "turn_result_ready",
+      inline_reply_carries_narrative_prefix:
+        !expectAuthorReasoningDelta ||
+        normalizeVisibleText(turnResult.assistant_message?.text ?? "").includes(
+          normalizeVisibleText(authorReasoningCumulativePrefix),
+        ),
       author_reasoning_delta_event_count: authorReasoningDeltaFrames.length,
-      author_reasoning_delta_before_first_plan:
-        authorReasoningDeltaIndex >= 0 && contextStepIndex > authorReasoningDeltaIndex,
-      author_reasoning_second_delta_before_first_plan:
-        secondAuthorReasoningDeltaIndex >= 0 && contextStepIndex > secondAuthorReasoningDeltaIndex,
       author_reasoning_delta_payload_key: "author_narrative_delta",
       author_reasoning_first_delta: firstAuthorReasoningDelta.trim(),
-      author_reasoning_second_delta: secondAuthorReasoningDelta.trim(),
       author_reasoning_cumulative_prefix: authorReasoningCumulativePrefix.trim(),
       ui_author_reasoning_delta_visible: normalizeVisibleText(authorVisibleText).includes(
         normalizeVisibleText(firstAuthorReasoningDelta),
@@ -17906,49 +17783,21 @@ async function driveAgentConversationTurn(page, options = {}) {
       ui_author_reasoning_cumulative_delta_visible: normalizeVisibleText(
         authorVisibleText,
       ).includes(normalizeVisibleText(authorReasoningCumulativePrefix)),
-      ui_author_reasoning_stream_sample_count: reasoningStreamSamples.length,
-      ui_author_reasoning_stream_first_sample_length:
-        firstDeltaSampleIndex >= 0 ? reasoningStreamSamples[firstDeltaSampleIndex]?.length : null,
-      ui_author_reasoning_stream_second_sample_length:
-        cumulativeDeltaSampleIndex >= 0
-          ? reasoningStreamSamples[cumulativeDeltaSampleIndex]?.length
-          : null,
       ui_author_reasoning_stream_grew: authorReasoningStreamDomGrew,
-      planner_provider_activity_visible: providerPurposes.includes("author_reasoning"),
-      conversation_provider_activity_visible: providerPurposes.includes("conversation"),
+      provider_progress_event_count: providerProgressEvents.length,
+      developer_provider_progress_event_count: developerProviderProgressEvents.length,
+      provider_progress_purposes: providerPurposes,
       provider_started_projected: providerReasonCodes.includes("provider_started"),
       provider_final_output_projected: providerReasonCodes.includes("provider_final_output"),
       persisted_provider_run_count: persistedProviderRunCount,
       persisted_provider_purposes: activityPurposes,
       persisted_provider_facts_matched_budget:
         persistedProviderRunCount === expectedProviderCalls,
-      // Order 62 CP3 语义迁移：阶段带/终态区已移除，三层 UI 按结构 + 计划步骤
-      // 描述判定（步骤描述为模型起草的 PlanStep description，仍在计划 checklist）。
-      // 46§9.5：计划面板已移除——计划完整性从 plan_drafted 事件 payload 断言，
-      // 作者可见结构 = 推理叙事段落 + 状态词（不复述步骤文本）。
-      ui_agentic_loop_plan_visible:
-        stepProposedFrames.length >= 1 &&
-        (stepProposedFrames[0].body?.payload?.plan_steps ?? []).length === 4 &&
-        (stepProposedFrames[0].body?.payload?.plan_steps ?? []).every(
-          (step) => String(step?.description ?? "").trim() !== "",
-        ),
       ui_agentic_loop_reasoning_visible: agenticLoopSections.reasoning,
       ui_agentic_loop_result_visible:
         authorVisibleText.includes("已完成") || authorVisibleText.includes("无任务"),
-      ui_context_step_visible: planStepTargets.includes("context_assemble"),
-      ui_frame_step_visible: planStepTargets.includes("dialogue_frame"),
-      ui_strategy_step_visible: planStepTargets.includes("strategy_gate"),
-      ui_finalize_step_visible: planStepTargets.includes("response_finalize"),
       ui_agent_panel_visible:
         authorVisibleText.includes("创作执行") && agenticLoopSections.reasoning,
-      ui_agentic_loop_920_width:
-        agenticLoopEvidenceLayout !== null &&
-        Math.abs(Number(agenticLoopEvidenceLayout.flow_width ?? 0) - 960) <= 24 &&
-        Math.abs(Number(agenticLoopEvidenceLayout.phase_width ?? 0) - 920) <= 24,
-      ui_agentic_loop_phase_visible_in_evidence:
-        agenticLoopEvidenceLayout !== null &&
-        Number(agenticLoopEvidenceLayout.phase_top ?? 9999) >= 64 &&
-        Number(agenticLoopEvidenceLayout.phase_top ?? 9999) <= 260,
       ui_agent_completed_visible: authorVisibleText.includes("无任务"),
       ui_reply_visible: authorVisibleText.includes(message),
       log_sync_turn_count: logsAfter.filter(

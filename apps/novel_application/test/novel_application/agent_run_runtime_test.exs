@@ -599,7 +599,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
            }
 
     assert turn_result.agent_run.status == :failed
-    assert turn_result.agent_run.profile_ref == "profile_routing_v1"
+    assert turn_result.agent_run.profile_ref == "judgment_loop_v1"
   end
 
   test "conversation turn projects provider execution error facts into author-safe provider progress" do

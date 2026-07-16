@@ -25,8 +25,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     assert spec.route == :agent_run_start
     assert spec.decision.decision_type == :allow_agent_run
-    assert spec.run_attrs.profile_ref == "profile_routing_v1"
-    assert spec.run_attrs.authority_scope.allowed_tools == ["profile_route"]
+    assert spec.run_attrs.profile_ref == "judgment_loop_v1"
+    assert spec.run_attrs.authority_scope.allowed_tools == ["judgment"]
     assert spec.run_attrs.parent_turn_ref == "turn-agent"
     assert spec.run_attrs.goal.text == "聊聊这个故事的创作方向"
     assert is_function(spec.next_step_planner, 3)
@@ -156,7 +156,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
                provider_execution
              )
 
-    assert spec.run_attrs.profile_ref == "profile_routing_v1"
+    assert spec.run_attrs.profile_ref == "judgment_loop_v1"
 
     {:ok, run} = AgentRun.new(spec.run_attrs)
     sink = fn _event -> :ok end
@@ -290,8 +290,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
                fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
              )
 
-    assert spec.run_attrs.profile_ref == "profile_routing_v1"
-    assert spec.run_attrs.authority_scope.allowed_tools == ["profile_route"]
+    assert spec.run_attrs.profile_ref == "judgment_loop_v1"
+    assert spec.run_attrs.authority_scope.allowed_tools == ["judgment"]
     assert spec.run_attrs.parent_turn_ref == "turn-q"
   end
 
@@ -373,7 +373,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       judgment_execution("execute", capability_for_profile_ref(expected_profile_ref))
 
     assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, nil, provider_execution)
-    assert spec.run_attrs.profile_ref == "profile_routing_v1"
+    assert spec.run_attrs.profile_ref == "judgment_loop_v1"
     assert is_function(spec.next_step_planner, 3)
     refute Map.has_key?(spec, :steps)
 

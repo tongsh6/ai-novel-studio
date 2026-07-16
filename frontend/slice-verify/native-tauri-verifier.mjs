@@ -443,11 +443,11 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
   "agent-conversation-turn": [
     "channel.user_message.start",
     "provider_gateway.complete.start",
     "provider_gateway.complete.done",
-    "orchestrator.decide.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -459,11 +459,11 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // 判断循环 reply 直通：无 Orchestrator 工具裁决。
   "agentic-loop-no-deviation-direct": [
     "channel.user_message.start",
     "provider_gateway.complete.start",
     "provider_gateway.complete.done",
-    "orchestrator.decide.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -4036,8 +4036,10 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
   };
 }
 
-function findAgentConversationTurnEvidence(records) {
-  const sliceId = "agent-conversation-turn";
+// ADR-0025 CP1 判断循环口径：机械准备（0 调用）→ 判断①两段式（2 调用）→ 回复内联
+// 终结；judgment_decided 取代 plan_drafted 计划步断言；provider 取证走持久化事实。
+function findAgentConversationTurnEvidence(records, requestedSliceId = "agent-conversation-turn") {
+  const sliceId = requestedSliceId;
   const keyEvents = keyEventsForSlice(sliceId);
 
   const uiState = records.find(
@@ -4047,42 +4049,35 @@ function findAgentConversationTurnEvidence(records) {
       record.plain_input_sent_from_real_workbench === true &&
       record.parent_fast_ack_before_final_turn_result === true &&
       record.run_mode === "bounded" &&
-      record.profile_ref === "conversation_turn_v1" &&
+      record.profile_ref === "judgment_loop_v1" &&
       record.final_turn_broadcast === true &&
       record.no_tool_called === true &&
       record.no_auto_adoption === true &&
       record.no_production_write === true &&
       boolValue(record.ui_agent_immediate_feedback_visible) === true &&
-      record.agent_stage_events_visible === true &&
-      record.context_step_visible === true &&
-      record.frame_step_visible === true &&
-      record.strategy_step_visible === true &&
-      record.finalize_step_visible === true &&
-      record.context_result_visible === true &&
-      record.frame_evaluation_visible === true &&
-      record.strategy_decision_visible === true &&
-      record.ui_context_step_visible === true &&
-      record.ui_frame_step_visible === true &&
-      record.ui_strategy_step_visible === true &&
-      record.ui_finalize_step_visible === true &&
-      record.ui_agentic_loop_plan_visible === true &&
-      record.ui_agentic_loop_reasoning_visible === true &&
-      record.ui_agentic_loop_result_visible === true &&
+      boolValue(record.mechanical_context_first) === true &&
+      boolValue(record.judgment_decided_visible) === true &&
+      record.judgment_action === "reply" &&
+      record.judgment_narrative_source_type === "provider_output" &&
+      boolValue(record.judgment_after_narrative) === true &&
+      boolValue(record.turn_result_ready_visible) === true &&
+      boolValue(record.inline_reply_carries_narrative_prefix) === true &&
       Number(record.author_reasoning_delta_event_count ?? 0) >= 2 &&
       record.author_reasoning_delta_payload_key === "author_narrative_delta" &&
-      boolValue(record.author_reasoning_delta_before_first_plan) === true &&
-      boolValue(record.author_reasoning_second_delta_before_first_plan) === true &&
       boolValue(record.ui_author_reasoning_delta_visible) === true &&
       boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
-      Number(record.ui_author_reasoning_stream_sample_count ?? 0) >= 2 &&
       boolValue(record.ui_author_reasoning_stream_grew) === true &&
-      Number(record.completed_step_count ?? 0) === 4 &&
-      Number(record.consumed_steps ?? 0) === 4 &&
+      // 机械准备 1 步 + 判断① 1 步；判断两段式恰 2 次调用；零工具零修订
+      Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1；
-      // provider 取证由持久化 ProviderRun 事实承担（工作详情 UI 已移除）。
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 2 &&
+      Number(record.consumed_replans ?? -1) === 0 &&
       record.persisted_provider_facts_matched_budget === true &&
+      Array.isArray(record.persisted_provider_purposes) &&
+      record.persisted_provider_purposes.includes("author_reasoning") &&
+      record.persisted_provider_purposes.includes("planner") &&
+      record.ui_agentic_loop_reasoning_visible === true &&
+      record.ui_agentic_loop_result_visible === true &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -4094,7 +4089,6 @@ function findAgentConversationTurnEvidence(records) {
   const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
   const parentTurnId = String(uiState.parent_turn_id ?? "");
   if (!runId || !finalTurnId) return null;
-  const turnIds = [...new Set([parentTurnId, finalTurnId].filter(Boolean))];
 
   const boundedAck = records.some(
     (record) =>
@@ -4112,94 +4106,77 @@ function findAgentConversationTurnEvidence(records) {
     final_turn_id: finalTurnId,
     run_id: runId,
     profile_ref: uiState.profile_ref,
+    judgment_action: uiState.judgment_action,
     consumed_steps: Number(uiState.consumed_steps ?? 0),
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
-    ui_agentic_loop_plan_visible: boolValue(uiState.ui_agentic_loop_plan_visible),
-    ui_agentic_loop_reasoning_visible: boolValue(uiState.ui_agentic_loop_reasoning_visible),
-    ui_agentic_loop_result_visible: boolValue(uiState.ui_agentic_loop_result_visible),
     author_reasoning_delta_event_count: Number(uiState.author_reasoning_delta_event_count ?? 0),
-    ui_author_reasoning_stream_sample_count: Number(
-      uiState.ui_author_reasoning_stream_sample_count ?? 0,
-    ),
     key_events: keyEvents,
   };
 }
 
-function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence, _options) {
+function agentConversationTurnBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+  requestedSliceId = "agent-conversation-turn",
+) {
   if (turnIds.length < 1) return null;
 
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "agent-conversation-turn" &&
+      record.slice_id === requestedSliceId &&
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
-  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.profile_ref !== "judgment_loop_v1") return null;
   if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
   if (uiState.no_tool_called !== true) return null;
   if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
   if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
-  if (uiState.agent_stage_events_visible !== true) return null;
-  if (uiState.context_step_visible !== true) return null;
-  if (uiState.frame_step_visible !== true) return null;
-  if (uiState.strategy_step_visible !== true) return null;
-  if (uiState.finalize_step_visible !== true) return null;
-  if (uiState.context_result_visible !== true) return null;
-  if (uiState.frame_evaluation_visible !== true) return null;
-  if (uiState.strategy_decision_visible !== true) return null;
-  if (uiState.ui_context_step_visible !== true) return null;
-  if (uiState.ui_frame_step_visible !== true) return null;
-  if (uiState.ui_strategy_step_visible !== true) return null;
-  if (uiState.ui_finalize_step_visible !== true) return null;
-  if (uiState.ui_agentic_loop_plan_visible !== true) return null;
-  if (uiState.ui_agentic_loop_reasoning_visible !== true) return null;
-  if (uiState.ui_agentic_loop_result_visible !== true) return null;
+  if (boolValue(uiState.mechanical_context_first) !== true) return null;
+  if (boolValue(uiState.judgment_decided_visible) !== true) return null;
+  if (uiState.judgment_action !== "reply") return null;
+  if (uiState.judgment_narrative_source_type !== "provider_output") return null;
+  if (boolValue(uiState.judgment_after_narrative) !== true) return null;
+  if (boolValue(uiState.inline_reply_carries_narrative_prefix) !== true) return null;
   if (Number(uiState.author_reasoning_delta_event_count ?? 0) < 2) return null;
-  if (uiState.author_reasoning_delta_payload_key !== "author_narrative_delta") return null;
-  if (boolValue(uiState.author_reasoning_delta_before_first_plan) !== true) return null;
-  if (boolValue(uiState.author_reasoning_second_delta_before_first_plan) !== true) return null;
   if (boolValue(uiState.ui_author_reasoning_delta_visible) !== true) return null;
-  if (boolValue(uiState.ui_author_reasoning_cumulative_delta_visible) !== true) return null;
-  if (Number(uiState.ui_author_reasoning_stream_sample_count ?? 0) < 2) return null;
   if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  // ADR-0025 CP1：判断①两段式恰 2 次调用（简单对话）。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
 
   return {
-    slice_id: "agent-conversation-turn",
-    behavior: "plain_conversation_input_runs_through_conversation_agent_run_without_fallback",
+    slice_id: requestedSliceId,
+    behavior: "plain_conversation_judged_reply_inline_with_two_provider_calls",
     turn_ids: turnIds,
     parent_turn_id: evidence.parent_turn_id,
     final_turn_id: evidence.final_turn_id,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
+    judgment_action: evidence.judgment_action,
     consumed_steps: evidence.consumed_steps,
     consumed_tool_calls: evidence.consumed_tool_calls,
     consumed_provider_calls: evidence.consumed_provider_calls,
-    ui_agentic_loop_plan_visible: evidence.ui_agentic_loop_plan_visible,
-    ui_agentic_loop_reasoning_visible: evidence.ui_agentic_loop_reasoning_visible,
-    ui_agentic_loop_result_visible: evidence.ui_agentic_loop_result_visible,
     author_reasoning_delta_event_count: evidence.author_reasoning_delta_event_count,
-    ui_author_reasoning_stream_sample_count: evidence.ui_author_reasoning_stream_sample_count,
     assertions: [
       "plain_test_input_was_sent_from_real_tauri_workbench",
       "assistant_work_state_was_visible_immediately_after_send",
       "parent_user_message_returned_bounded_run_id_before_final_turn_result",
-      "conversation_turn_profile_was_selected",
-      "final_turn_result_carried_the_same_agent_run_id",
-      "planner_selected_context_frame_strategy_and_finalize_steps_were_author_visible",
-      "context_frame_and_strategy_results_were_model_sourced_or_system_decisions",
-      "agentic_plan_reasoning_and_result_were_visible_to_author",
-      "author_reasoning_provider_deltas_streamed_before_first_plan",
-      "ui_reasoning_area_grew_from_multiple_provider_deltas",
-      "reply_only_turn_called_no_tool_and_performed_no_write",
-      "channel_did_not_use_dialogue_fallback_main_chain",
+      "mechanical_context_assembled_before_any_model_narrative",
+      "judgment_narrative_streamed_author_visible_before_structure",
+      "judgment_decided_reply_with_provider_bound_narrative_source",
+      "inline_reply_turn_result_byte_carried_streamed_narrative_prefix",
+      "simple_conversation_consumed_exactly_two_provider_calls",
+      "no_tool_no_adoption_no_production_write",
     ],
   };
 }
@@ -4349,146 +4326,26 @@ function agenticLoopPlanReplanReasoningBehavior(turnIds, _turnRecords, records, 
   };
 }
 
+// 判断循环下"无偏离直通" = 简单对话零修订直达回复，与 conversation-turn 同证据形状。
 function findAgenticLoopNoDeviationDirectEvidence(records) {
-  const sliceId = "agentic-loop-no-deviation-direct";
-  const keyEvents = keyEventsForSlice(sliceId);
-
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.plain_input_sent_from_real_workbench === true &&
-      record.parent_fast_ack_before_final_turn_result === true &&
-      record.run_mode === "bounded" &&
-      record.profile_ref === "conversation_turn_v1" &&
-      record.final_turn_broadcast === true &&
-      record.no_tool_called === true &&
-      record.no_auto_adoption === true &&
-      record.no_production_write === true &&
-      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
-      record.agent_stage_events_visible === true &&
-      record.context_step_visible === true &&
-      record.frame_step_visible === true &&
-      record.strategy_step_visible === true &&
-      record.finalize_step_visible === true &&
-      record.context_result_visible === true &&
-      record.frame_evaluation_visible === true &&
-      record.strategy_decision_visible === true &&
-      record.ui_context_step_visible === true &&
-      record.ui_frame_step_visible === true &&
-      record.ui_strategy_step_visible === true &&
-      record.ui_finalize_step_visible === true &&
-      record.ui_agentic_loop_plan_visible === true &&
-      record.ui_agentic_loop_reasoning_visible === true &&
-      record.ui_agentic_loop_result_visible === true &&
-      Number(record.initial_plan_step_count ?? 0) === 4 &&
-      boolValue(record.initial_plan_only_context) === false &&
-      boolValue(record.plan_revised_visible) === false &&
-      Number(record.plan_revised_event_count ?? 0) === 0 &&
-      Number(record.author_reasoning_delta_event_count ?? 0) >= 2 &&
-      record.author_reasoning_delta_payload_key === "author_narrative_delta" &&
-      boolValue(record.author_reasoning_delta_before_first_plan) === true &&
-      boolValue(record.author_reasoning_second_delta_before_first_plan) === true &&
-      boolValue(record.ui_author_reasoning_delta_visible) === true &&
-      boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
-      Number(record.ui_author_reasoning_stream_sample_count ?? 0) >= 2 &&
-      boolValue(record.ui_author_reasoning_stream_grew) === true &&
-      Number(record.completed_step_count ?? 0) === 4 &&
-      Number(record.consumed_steps ?? 0) === 4 &&
-      Number(record.consumed_tool_calls ?? -1) === 0 &&
-      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1（无偏离零 replan）。
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
-      Number(record.consumed_replans ?? -1) === 0 &&
-      record.ui_agent_panel_visible === true &&
-      record.ui_agent_completed_visible === true &&
-      Number(record.log_sync_turn_count ?? 0) === 0 &&
-      Number(record.log_toolbox_execute_count ?? 0) === 0,
-  );
-  if (!uiState) return null;
-
-  const runId = String(uiState.run_id ?? "");
-  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
-  const parentTurnId = String(uiState.parent_turn_id ?? "");
-  if (!runId || !finalTurnId) return null;
-
-  const boundedAck = records.some(
-    (record) =>
-      record.event === "channel.user_message.done" &&
-      record.run_id === runId &&
-      String(record.run_mode ?? "") === "bounded",
-  );
-  if (!boundedAck) return null;
-
-  return {
-    slice_id: sliceId,
-    turn_id: finalTurnId,
-    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
-    parent_turn_id: parentTurnId,
-    final_turn_id: finalTurnId,
-    run_id: runId,
-    profile_ref: uiState.profile_ref,
-    consumed_steps: Number(uiState.consumed_steps ?? 0),
-    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
-    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
-    consumed_replans: Number(uiState.consumed_replans ?? 0),
-    initial_plan_step_count: Number(uiState.initial_plan_step_count ?? 0),
-    plan_revised_event_count: Number(uiState.plan_revised_event_count ?? 0),
-    key_events: keyEvents,
-  };
+  return findAgentConversationTurnEvidence(records, "agentic-loop-no-deviation-direct");
 }
 
-function agenticLoopNoDeviationDirectBehavior(turnIds, _turnRecords, records, evidence) {
-  if (turnIds.length < 1) return null;
-
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "agentic-loop-no-deviation-direct" &&
-      record.run_id === evidence.run_id,
+function agenticLoopNoDeviationDirectBehavior(turnIds, turnRecords, records, evidence, options) {
+  const behavior = agentConversationTurnBehavior(
+    turnIds,
+    turnRecords,
+    records,
+    evidence,
+    options,
+    "agentic-loop-no-deviation-direct",
   );
-  if (!uiState) return null;
-  if (uiState.profile_ref !== "conversation_turn_v1") return null;
-  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
-  if (uiState.no_tool_called !== true) return null;
-  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
-  if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
-  if (Number(uiState.initial_plan_step_count ?? 0) !== 4) return null;
-  if (boolValue(uiState.initial_plan_only_context) !== false) return null;
-  if (boolValue(uiState.plan_revised_visible) !== false) return null;
-  if (Number(uiState.plan_revised_event_count ?? 0) !== 0) return null;
-  if (uiState.context_step_visible !== true) return null;
-  if (uiState.frame_step_visible !== true) return null;
-  if (uiState.strategy_step_visible !== true) return null;
-  if (uiState.finalize_step_visible !== true) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
-  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
-  if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
-  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
-  if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
+  if (!behavior) return null;
 
   return {
-    slice_id: "agentic-loop-no-deviation-direct",
-    behavior: "no_deviation_direct_path_uses_drafted_plan_without_replan",
-    turn_ids: turnIds,
-    parent_turn_id: evidence.parent_turn_id,
-    final_turn_id: evidence.final_turn_id,
-    run_id: evidence.run_id,
-    profile_ref: evidence.profile_ref,
-    consumed_steps: evidence.consumed_steps,
-    consumed_tool_calls: evidence.consumed_tool_calls,
-    consumed_provider_calls: evidence.consumed_provider_calls,
-    consumed_replans: evidence.consumed_replans,
-    initial_plan_step_count: evidence.initial_plan_step_count,
-    plan_revised_event_count: evidence.plan_revised_event_count,
-    assertions: [
-      "real_tauri_input_created_a_complete_model_drafted_plan",
-      "runtime_advanced_deterministic_steps_without_plan_revised",
-      "runtime_consumed_zero_replan_budget",
-      "direct_path_completed_with_single_plan_draft_and_no_tool_or_write",
-      "channel_did_not_use_dialogue_fallback_main_chain",
-    ],
+    ...behavior,
+    behavior: "judgment_loop_direct_reply_without_replan",
+    assertions: [...behavior.assertions, "no_replan_was_consumed_on_the_direct_path"],
   };
 }
 
@@ -5661,7 +5518,7 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       record.plain_input_sent_from_real_workbench === true &&
       boolValue(record.ui_agent_immediate_feedback_visible) === true &&
       record.parent_fast_ack_before_final_turn_result === true &&
-      record.profile_ref === "conversation_turn_v1" &&
+      record.profile_ref === "judgment_loop_v1" &&
       record.final_turn_broadcast === true &&
       Number(record.provider_activity_api_status ?? 0) === 200 &&
       Number(record.provider_activity_api_agent_run_count ?? 0) >= 1 &&
@@ -5680,13 +5537,13 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       boolValue(record.provider_chunk_raw_content_leaked) === false &&
       Number(record.author_reasoning_delta_event_count ?? 0) >= 2 &&
       record.author_reasoning_delta_payload_key === "author_narrative_delta" &&
-      boolValue(record.author_reasoning_delta_before_first_plan) === true &&
-      boolValue(record.author_reasoning_second_delta_before_first_plan) === true &&
+      boolValue(record.mechanical_context_first) === true &&
+      boolValue(record.judgment_decided_visible) === true &&
+      boolValue(record.judgment_after_narrative) === true &&
       boolValue(record.ui_author_reasoning_delta_visible) === true &&
       boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
-      Number(record.ui_author_reasoning_stream_sample_count ?? 0) >= 2 &&
       boolValue(record.ui_author_reasoning_stream_grew) === true &&
-      // Order 62 CP3 语义迁移：模型执行流/明细 UI 已移除，provider 执行取证由
+      // ADR-0025 CP1：provider 执行取证由持久化 ProviderRun 事实合成的
       // provider_progress 帧家族（上列）与 scoped activity API 键承担。
       boolValue(record.persisted_provider_facts_matched_budget) === true &&
       Array.isArray(record.provider_run_refs) &&
@@ -5695,9 +5552,9 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       record.provider_call_refs.length >= 1 &&
       Array.isArray(record.provider_purposes) &&
       record.provider_purposes.includes("author_reasoning") &&
-      record.provider_purposes.includes("conversation") &&
-      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 回应 1。
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      record.provider_purposes.includes("planner") &&
+      // ADR-0025 CP1 判断循环：判断两段式恰 2 次调用（简单对话）。
+      Number(record.consumed_provider_calls ?? 0) === 2 &&
       record.final_turn_result_run_id === record.run_id,
   );
   if (!uiState) return null;
@@ -5735,7 +5592,7 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
-  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.profile_ref !== "judgment_loop_v1") return null;
   if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
   if (Number(uiState.provider_activity_api_status ?? 0) !== 200) return null;
   if (Number(uiState.provider_activity_api_agent_run_count ?? 0) < 1) return null;
@@ -5751,12 +5608,9 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
   if (boolValue(uiState.provider_chunk_raw_content_leaked) !== false) return null;
   if (Number(uiState.author_reasoning_delta_event_count ?? 0) < 2) return null;
   if (uiState.author_reasoning_delta_payload_key !== "author_narrative_delta") return null;
-  if (boolValue(uiState.author_reasoning_delta_before_first_plan) !== true) return null;
-  if (boolValue(uiState.author_reasoning_second_delta_before_first_plan) !== true) return null;
-  if (boolValue(uiState.ui_author_reasoning_delta_visible) !== true) return null;
+      if (boolValue(uiState.ui_author_reasoning_delta_visible) !== true) return null;
   if (boolValue(uiState.ui_author_reasoning_cumulative_delta_visible) !== true) return null;
-  if (Number(uiState.ui_author_reasoning_stream_sample_count ?? 0) < 2) return null;
-  if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
+    if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
   // Order 62 CP3 语义迁移：模型执行流/明细 UI 已移除；provider 取证由帧家族与
   // 持久化 ProviderRun 事实（persisted_provider_facts_matched_budget）承担。
   if (boolValue(uiState.persisted_provider_facts_matched_budget) !== true) return null;
@@ -5768,7 +5622,7 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
   if (
     !Array.isArray(uiState.provider_purposes) ||
     !uiState.provider_purposes.includes("author_reasoning") ||
-    !uiState.provider_purposes.includes("conversation")
+    !uiState.provider_purposes.includes("planner")
   ) {
     return null;
   }
@@ -6157,7 +6011,7 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
       record.slice_id === sliceId &&
       record.plain_input_sent_from_real_workbench === true &&
       record.parent_fast_ack_before_final_turn_result === true &&
-      record.profile_ref === "conversation_turn_v1" &&
+      record.profile_ref === "judgment_loop_v1" &&
       record.final_turn_broadcast === true &&
       Number(record.provider_activity_api_status ?? 0) === 200 &&
       Number(record.provider_run_count ?? 0) >= 4 &&
@@ -6215,7 +6069,7 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
   if (
     !Array.isArray(uiState.provider_purposes) ||
     !uiState.provider_purposes.includes("author_reasoning") ||
-    !uiState.provider_purposes.includes("conversation")
+    !uiState.provider_purposes.includes("planner")
   ) {
     return null;
   }

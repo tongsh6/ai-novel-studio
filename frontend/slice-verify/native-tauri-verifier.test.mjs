@@ -112,7 +112,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
-  it("requires author-visible AgentRun stages for ordinary conversation turns", () => {
+  it("requires the judgment chain for ordinary conversation turns (ADR-0025 CP1)", () => {
     const records = [
       {
         event: "channel.user_message.done",
@@ -129,40 +129,32 @@ describe("native Tauri slice verifier", () => {
         plain_input_sent_from_real_workbench: true,
         parent_fast_ack_before_final_turn_result: true,
         run_mode: "bounded",
-        profile_ref: "conversation_turn_v1",
+        profile_ref: "judgment_loop_v1",
         final_turn_broadcast: true,
         no_tool_called: true,
         no_auto_adoption: true,
         no_production_write: true,
         ui_agent_immediate_feedback_visible: true,
-        agent_stage_events_visible: true,
-        context_step_visible: true,
-        frame_step_visible: true,
-        strategy_step_visible: true,
-        finalize_step_visible: true,
-        context_result_visible: true,
-        frame_evaluation_visible: true,
-        strategy_decision_visible: true,
-        ui_context_step_visible: true,
-        ui_frame_step_visible: true,
-        ui_strategy_step_visible: true,
-        ui_finalize_step_visible: true,
-        ui_agentic_loop_plan_visible: true,
-        ui_agentic_loop_reasoning_visible: true,
-        ui_agentic_loop_result_visible: true,
+        mechanical_context_first: true,
+        judgment_decided_visible: true,
+        judgment_action: "reply",
+        judgment_narrative_source_type: "provider_output",
+        judgment_after_narrative: true,
+        turn_result_ready_visible: true,
+        inline_reply_carries_narrative_prefix: true,
         author_reasoning_delta_event_count: 3,
         author_reasoning_delta_payload_key: "author_narrative_delta",
-        author_reasoning_delta_before_first_plan: true,
-        author_reasoning_second_delta_before_first_plan: true,
         ui_author_reasoning_delta_visible: true,
         ui_author_reasoning_cumulative_delta_visible: true,
-        ui_author_reasoning_stream_sample_count: 3,
         ui_author_reasoning_stream_grew: true,
-        completed_step_count: 4,
-        consumed_steps: 4,
+        consumed_steps: 2,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 4,
+        consumed_provider_calls: 2,
+        consumed_replans: 0,
         persisted_provider_facts_matched_budget: true,
+        persisted_provider_purposes: ["author_reasoning", "planner"],
+        ui_agentic_loop_reasoning_visible: true,
+        ui_agentic_loop_result_visible: true,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         log_sync_turn_count: 0,
@@ -174,38 +166,48 @@ describe("native Tauri slice verifier", () => {
     expect(evidence).toMatchObject({
       slice_id: "agent-conversation-turn",
       run_id: "run-conversation",
-      profile_ref: "conversation_turn_v1",
+      profile_ref: "judgment_loop_v1",
+      judgment_action: "reply",
+      consumed_provider_calls: 2,
     });
     expect(findSliceBehaviorEvidence("agent-conversation-turn", records, evidence)).toMatchObject({
       slice_id: "agent-conversation-turn",
+      behavior: "plain_conversation_judged_reply_inline_with_two_provider_calls",
       assertions: expect.arrayContaining([
-        "planner_selected_context_frame_strategy_and_finalize_steps_were_author_visible",
-        "assistant_work_state_was_visible_immediately_after_send",
-        "context_frame_and_strategy_results_were_model_sourced_or_system_decisions",
-        "agentic_plan_reasoning_and_result_were_visible_to_author",
-        "author_reasoning_provider_deltas_streamed_before_first_plan",
-        "ui_reasoning_area_grew_from_multiple_provider_deltas",
+        "mechanical_context_assembled_before_any_model_narrative",
+        "judgment_narrative_streamed_author_visible_before_structure",
+        "judgment_decided_reply_with_provider_bound_narrative_source",
+        "inline_reply_turn_result_byte_carried_streamed_narrative_prefix",
+        "simple_conversation_consumed_exactly_two_provider_calls",
       ]),
     });
 
-    const missingStageRecords = records.map((record) =>
+    // 判断结构缺失 → 不算证据
+    const missingJudgmentRecords = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, finalize_step_visible: false }
+        ? { ...record, judgment_decided_visible: false }
         : record,
     );
+    expect(findNativeSliceEvidence("agent-conversation-turn", missingJudgmentRecords)).toBeNull();
 
-    expect(findNativeSliceEvidence("agent-conversation-turn", missingStageRecords)).toBeNull();
-
-    const missingStreamRecords = records.map((record) =>
+    // 内联回复未字节携带叙事前缀 → 不算证据（N-NARR）
+    const missingInlineRecords = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, ui_author_reasoning_stream_grew: false }
+        ? { ...record, inline_reply_carries_narrative_prefix: false }
         : record,
     );
+    expect(findNativeSliceEvidence("agent-conversation-turn", missingInlineRecords)).toBeNull();
 
-    expect(findNativeSliceEvidence("agent-conversation-turn", missingStreamRecords)).toBeNull();
+    // 调用数不是恰 2 → 不算证据（简单对话经济学）
+    const extraCallRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, consumed_provider_calls: 3 }
+        : record,
+    );
+    expect(findNativeSliceEvidence("agent-conversation-turn", extraCallRecords)).toBeNull();
   });
 
-  it("requires no-replan evidence for the ADR-0023 direct path scenario", () => {
+  it("requires judgment-loop direct reply evidence for the no-deviation scenario (ADR-0025 CP1)", () => {
     const records = [
       {
         event: "channel.user_message.done",
@@ -222,44 +224,32 @@ describe("native Tauri slice verifier", () => {
         plain_input_sent_from_real_workbench: true,
         parent_fast_ack_before_final_turn_result: true,
         run_mode: "bounded",
-        profile_ref: "conversation_turn_v1",
+        profile_ref: "judgment_loop_v1",
         final_turn_broadcast: true,
         no_tool_called: true,
         no_auto_adoption: true,
         no_production_write: true,
         ui_agent_immediate_feedback_visible: true,
-        agent_stage_events_visible: true,
-        context_step_visible: true,
-        frame_step_visible: true,
-        strategy_step_visible: true,
-        finalize_step_visible: true,
-        context_result_visible: true,
-        frame_evaluation_visible: true,
-        strategy_decision_visible: true,
-        ui_context_step_visible: true,
-        ui_frame_step_visible: true,
-        ui_strategy_step_visible: true,
-        ui_finalize_step_visible: true,
-        ui_agentic_loop_plan_visible: true,
-        ui_agentic_loop_reasoning_visible: true,
-        ui_agentic_loop_result_visible: true,
-        initial_plan_step_count: 4,
-        initial_plan_only_context: false,
-        plan_revised_visible: false,
-        plan_revised_event_count: 0,
-        author_reasoning_delta_event_count: 3,
+        mechanical_context_first: true,
+        judgment_decided_visible: true,
+        judgment_action: "reply",
+        judgment_narrative_source_type: "provider_output",
+        judgment_after_narrative: true,
+        turn_result_ready_visible: true,
+        inline_reply_carries_narrative_prefix: true,
+        author_reasoning_delta_event_count: 2,
         author_reasoning_delta_payload_key: "author_narrative_delta",
-        author_reasoning_delta_before_first_plan: true,
-        author_reasoning_second_delta_before_first_plan: true,
         ui_author_reasoning_delta_visible: true,
         ui_author_reasoning_cumulative_delta_visible: true,
-        ui_author_reasoning_stream_sample_count: 3,
         ui_author_reasoning_stream_grew: true,
-        completed_step_count: 4,
-        consumed_steps: 4,
+        consumed_steps: 2,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 4,
+        consumed_provider_calls: 2,
         consumed_replans: 0,
+        persisted_provider_facts_matched_budget: true,
+        persisted_provider_purposes: ["author_reasoning", "planner"],
+        ui_agentic_loop_reasoning_visible: true,
+        ui_agentic_loop_result_visible: true,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         log_sync_turn_count: 0,
@@ -271,32 +261,22 @@ describe("native Tauri slice verifier", () => {
     expect(evidence).toMatchObject({
       slice_id: "agentic-loop-no-deviation-direct",
       run_id: "run-direct",
-      consumed_replans: 0,
-      initial_plan_step_count: 4,
-      plan_revised_event_count: 0,
+      profile_ref: "judgment_loop_v1",
+      consumed_provider_calls: 2,
     });
+
     expect(
       findSliceBehaviorEvidence("agentic-loop-no-deviation-direct", records, evidence),
     ).toMatchObject({
       slice_id: "agentic-loop-no-deviation-direct",
-      assertions: expect.arrayContaining([
-        "real_tauri_input_created_a_complete_model_drafted_plan",
-        "runtime_advanced_deterministic_steps_without_plan_revised",
-        "runtime_consumed_zero_replan_budget",
-      ]),
+      behavior: "judgment_loop_direct_reply_without_replan",
+      assertions: expect.arrayContaining(["no_replan_was_consumed_on_the_direct_path"]),
     });
 
+    // 消耗了修订 → 不算直通证据
     const replanRecords = records.map((record) =>
-      record.event === "slice_verify.ui_state.done"
-        ? {
-            ...record,
-            plan_revised_visible: true,
-            plan_revised_event_count: 1,
-            consumed_replans: 1,
-          }
-        : record,
+      record.event === "slice_verify.ui_state.done" ? { ...record, consumed_replans: 1 } : record,
     );
-
     expect(findNativeSliceEvidence("agentic-loop-no-deviation-direct", replanRecords)).toBeNull();
   });
 
@@ -1059,7 +1039,7 @@ describe("native Tauri slice verifier", () => {
         plain_input_sent_from_real_workbench: true,
         ui_agent_immediate_feedback_visible: true,
         parent_fast_ack_before_final_turn_result: true,
-        profile_ref: "conversation_turn_v1",
+        profile_ref: "judgment_loop_v1",
         final_turn_broadcast: true,
         final_turn_result_run_id: "run-provider-stream",
         provider_activity_api_status: 200,
@@ -1088,8 +1068,9 @@ describe("native Tauri slice verifier", () => {
         provider_chunk_raw_content_leaked: false,
         author_reasoning_delta_event_count: 3,
         author_reasoning_delta_payload_key: "author_narrative_delta",
-        author_reasoning_delta_before_first_plan: true,
-        author_reasoning_second_delta_before_first_plan: true,
+        mechanical_context_first: true,
+        judgment_decided_visible: true,
+        judgment_after_narrative: true,
         ui_author_reasoning_delta_visible: true,
         ui_author_reasoning_cumulative_delta_visible: true,
         ui_author_reasoning_stream_sample_count: 3,
@@ -1097,8 +1078,8 @@ describe("native Tauri slice verifier", () => {
         persisted_provider_facts_matched_budget: true,
         provider_run_refs: ["prun-planner", "prun-conversation"],
         provider_call_refs: ["pcall-planner", "pcall-conversation"],
-        provider_purposes: ["author_reasoning", "conversation"],
-        consumed_provider_calls: 4,
+        provider_purposes: ["author_reasoning", "planner"],
+        consumed_provider_calls: 2,
       },
     ];
 

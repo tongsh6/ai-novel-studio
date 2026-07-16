@@ -103,18 +103,19 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
-  @profile_routing_profile %{
-    profile_id: "profile_routing_v1",
-    allowed_tools: ["profile_route"],
+  # 判断循环入口 profile（ADR-0025 CP1）：路由语义已并入判断①，能力=判断本身。
+  @judgment_loop_profile %{
+    profile_id: "judgment_loop_v1",
+    allowed_tools: ["judgment"],
     required_observations: [],
-    completion_conditions: ["profile_routed"],
+    completion_conditions: ["judgment_settled"],
     pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
     run_policy_ref: "bounded_small_v1",
     durable_eligible: false
   }
 
   @spec get(String.t()) :: map() | nil
-  def get("profile_routing_v1"), do: @profile_routing_profile
+  def get("judgment_loop_v1"), do: @judgment_loop_profile
   def get("character_design_with_context_v1"), do: @character_design_profile
   def get("prose_drafting_with_quality_v1"), do: @prose_drafting_profile
   def get("plot_outline_with_context_v1"), do: @plot_outline_profile

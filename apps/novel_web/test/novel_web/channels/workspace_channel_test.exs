@@ -116,7 +116,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     )
 
     assert is_binary(run_id)
-    assert profile_ref == "profile_routing_v1"
+    assert profile_ref == "judgment_loop_v1"
 
     assert_broadcast(
       "agent_run_state",
@@ -143,7 +143,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     )
 
     assert is_binary(run_id)
-    assert profile_ref == "profile_routing_v1"
+    assert profile_ref == "judgment_loop_v1"
 
     assert_broadcast(
       "agent_run_state",
