@@ -132,6 +132,18 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   共用驱动 `driveAgentConversationTurn` 服务 5 个场景 id（mainline 3 + D6 基 2），
   校准批次：mainline 判断链重写（conversation-turn / no-deviation-direct /
   stream-unified）先行，D6 基两个按 ⑤ 再诱导。
+- 2026-07-17 **CP1 场景校准批一收口（commit e14c1a25）**：mainline 三场景真实
+  Tauri 绿——`agent-conversation-turn`（判断链：机械 context 先行 → 叙事流式 →
+  judgment_decided(reply) → 内联回复字节携带叙事前缀 → 2 步/2 调用/0 工具；
+  持久化 ProviderRun 事实恰 2 条 author_reasoning+planner）、
+  `agentic-loop-no-deviation-direct`（finder/behavior 参数化委托，直通=零修订）、
+  `agent-provider-execution-stream-unified`（持久化事实合成帧家族断言迁判断口径）。
+  迁移账⑧完成：`judgment_loop_v1` 更名全链落地。verifier 单测 174/0（三个 fixture
+  迁判断形状 + N-NARR/经济学负例）。**批二待办**（迁移账①③④⑤⑥⑦剩余）：
+  au01/au02 家族、创作 profile 计数位移批、D6 基两场景与 no-progress 再诱导、
+  error-author-safe 语义再迁、conversation flow 退役评估。另记：连跑 harness
+  偶发早期 SIGTERM（exit 144，Phoenix ready 后被杀，重跑即过）——疑为前后 run
+  清理竞态，未阻塞但值得观察。
 - 2026-07-16 **CP1a（协议资产落地，不翻入口）**：`NovelApplication.JudgmentProtocol`
   生产模块——判断①两段式请求机（call1 叙事流式 + call2 强制 judgment_decision，
   坏结构携带片段重试一次）、叙事绑定（content 优先 / arguments.author_narrative
