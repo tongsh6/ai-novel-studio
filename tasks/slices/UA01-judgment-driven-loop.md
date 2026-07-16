@@ -99,6 +99,39 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   Accepted（用户四次方向拍板）；N-PLAN 改写进 00c §7 #17；形态陈述落 00 §2.3。
 - 2026-07-16：CP1 前置 MBC 探针落地并通过（stub 1.0 + live gpt-oss-120b 1.0）；
   CP1 六问登记，开工（用户"开工"）。
+- 2026-07-16 **CP1b（入口翻转，runtime 核心落地；场景迁移账开立）**：user_message
+  进判断循环（机械准备 0 调用 → 判断①两段 2 调用 → reply 内联终结 / execute·plan
+  切能力 profile / await 停等附 TurnResult）；frame 机械转换（下游零改动）；候选随
+  call2 arguments 携带；judgment_decided 事件发射；预算 +1→+2；旧路由函数族删除；
+  双桩判断规则表（Stub 文本规则 / SliceVerify 复用 profile_route_match + 帧候选
+  构建 nonce 保留）。全 umbrella 1221/0 + I1/I2/I3 + 前端 394/0（commit 0c2c0e42）。
+  **场景迁移账（未闭环，逐批重校准）**：
+  ① `agent-conversation-turn`：4 步 3 调用 → 2 步 2 调用；plan_drafted 断言 →
+     judgment_decided；叙事流式断言沿用（call1 chunks）。
+  ② au01 家族：普通对话计数迁移；`au01-garbage-json-recovery` 语义重定义——帧 JSON
+     恢复路径已不存在，坏结构现走 call2 native-tool 重试 → 仍坏则 S7 安全失败终局。
+  ③ au02 候选家族：候选来源迁 judgment call2（nonce 回显已在桩保留）；计数 4→2。
+  ④ 创作 profile 场景（约 15 个）：入场开销 +2 步 +1 调用（判断 2 取代路由 1），
+     各场景 consumed 计数逐个按实测校准。
+  ⑤ `agentic-loop-plan-replan-reasoning`（UA01D6REPLAN）与 `agent-no-progress-stop`
+     （UA01NOPROGRESS）：对话计划路径经判断循环不再可达（chat 判 reply 终结），
+     诱导需迁至创作 profile 或按判断循环语义重定义。
+  ⑥ `agent-provider-execution-error-author-safe`：语义再迁——对话回应调用 = 判断
+     call1；其失败现走 S7 安全失败终局（run failed + 安全 TurnResult），不再是
+     frame 吸收为 completed；断言按新诚实语义重写。
+  ⑦ conversation flow（context/frame/strategy/response 四步管线）在 user_message
+     链路不再可达，仅 runtime 直连测试消费——退役评估登记为 CP2 前置清理项。
+  ⑧ 入口 profile 更名 `profile_routing_v1` → `judgment_loop_v1`（wire 诚实身份：
+     路由已并入判断）：与场景断言批一起做（planning-service 常量与测试、驱动/
+     verifier 断言、authority_scope allowed_tools "profile_route"→"judgment" 同批）。
+  **首验实锤（agent-conversation-turn 判断链真实页面已跑通，驱动待校准）**：
+  run_started → goal_understood(机械 context) → 判断叙事 author chunks 逐字流式 →
+  judgment_decided(author, judgment_reply) → turn_result（叙事+内联回复字节绑定）→
+  run_completed；**consumed steps=2 / provider_calls=2 / tool_calls=0**（简单对话
+  恰 2 次调用达成）。驱动失败点=旧 plan_drafted 计划步断言（校准对象）。
+  共用驱动 `driveAgentConversationTurn` 服务 5 个场景 id（mainline 3 + D6 基 2），
+  校准批次：mainline 判断链重写（conversation-turn / no-deviation-direct /
+  stream-unified）先行，D6 基两个按 ⑤ 再诱导。
 - 2026-07-16 **CP1a（协议资产落地，不翻入口）**：`NovelApplication.JudgmentProtocol`
   生产模块——判断①两段式请求机（call1 叙事流式 + call2 强制 judgment_decision，
   坏结构携带片段重试一次）、叙事绑定（content 优先 / arguments.author_narrative
