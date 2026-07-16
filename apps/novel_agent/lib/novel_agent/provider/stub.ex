@@ -139,27 +139,24 @@ defmodule NovelAgent.Provider.Stub do
     )
   end
 
+  @judgment_rules [
+    {["设计"], ["角色", "反派"], {"execute", "character_design"}},
+    {["梳理"], ["重写", "更新"], {"plan", nil}},
+    {["交代过", "查一下"], [], {"explore", nil}}
+  ]
+
   defp judgment_action(text) do
-    author_text = judgment_author_input(text)
+    author_text = text |> judgment_author_input() |> String.trim()
 
-    cond do
-      String.contains?(author_text, "设计") and
-          (String.contains?(author_text, "角色") or String.contains?(author_text, "反派")) ->
-        {"execute", "character_design"}
+    Enum.find_value(@judgment_rules, judgment_default(author_text), fn {first, second, route} ->
+      if contains_any?(author_text, first) and
+           (second == [] or contains_any?(author_text, second)),
+         do: route
+    end)
+  end
 
-      String.contains?(author_text, "梳理") and
-          (String.contains?(author_text, "重写") or String.contains?(author_text, "更新")) ->
-        {"plan", nil}
-
-      String.contains?(author_text, "交代过") or String.contains?(author_text, "查一下") ->
-        {"explore", nil}
-
-      String.length(String.trim(author_text)) <= 6 ->
-        {"await_author", nil}
-
-      true ->
-        {"reply", nil}
-    end
+  defp judgment_default(author_text) do
+    if String.length(author_text) <= 6, do: {"await_author", nil}, else: {"reply", nil}
   end
 
   defp judgment_author_input(text) do

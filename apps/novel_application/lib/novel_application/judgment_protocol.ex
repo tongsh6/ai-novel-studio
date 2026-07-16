@@ -19,6 +19,7 @@ defmodule NovelApplication.JudgmentProtocol do
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.InferenceParams
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.ProviderActivityProjector
 
@@ -82,8 +83,8 @@ defmodule NovelApplication.JudgmentProtocol do
 
   # 判断调用温度为协议属性：叙事段 0.4（自然但守结构），结构段 0.2（裁决确定性）。
   # MBC 实测默认 0.7 下内联结构与 execute 边界随机摇摆（0.889~1.0），低温收敛。
-  defp judgment_params(:author_reasoning), do: NovelAgent.Provider.InferenceParams.new(temperature: 0.4)
-  defp judgment_params(:planner), do: NovelAgent.Provider.InferenceParams.new(temperature: 0.2)
+  defp judgment_params(:author_reasoning), do: InferenceParams.new(temperature: 0.4)
+  defp judgment_params(:planner), do: InferenceParams.new(temperature: 0.2)
 
   defp result_fn(provider_execution, snapshot, purpose) do
     fun =
