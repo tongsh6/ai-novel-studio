@@ -3852,11 +3852,11 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       // Order 62 CP3 语义迁移：模型执行流 UI 已移除，provider 取证改为持久化
       // ProviderRun 事实；两段式规划后 provider_calls = 路由 1 + 起草 2 + writer 1 + 复核 1。
       record.persisted_provider_facts_matched_budget === true &&
-      Number(record.completed_step_count ?? 0) === 2 &&
+      Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.pending_prose_fragment_count ?? 0) === 1 &&
-      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      Number(record.consumed_provider_calls ?? 0) === 6 &&
       record.quality_review_status === "completed" &&
       Number(record.quality_findings_count ?? -1) >= 0 &&
       record.finding_summary_displayed === true &&
@@ -3992,10 +3992,10 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
   if (uiState.ui_completion_decision_visible !== true) return null;
   if (uiState.persisted_provider_facts_matched_budget !== true) return null;
   if (Number(uiState.pending_prose_fragment_count ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 起草 2 + writer 1 + 复核 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
   if (uiState.quality_review_status !== "completed") return null;
   if (Number(uiState.quality_findings_count ?? -1) < 0) return null;
   if (uiState.finding_in_draft_body !== false) return null;
@@ -4885,11 +4885,11 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       record.finalization_step_visible === true &&
       record.artifact_observation_visible === true &&
       record.artifact_event_visible === true &&
-      Number(record.completed_step_count ?? 0) === 2 &&
-      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.ui_outline_draft_visible === true &&
       record.ui_outline_adoption_actions_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -4976,10 +4976,10 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
   if (uiState.artifact_event_visible !== true) return null;
   if (uiState.ui_outline_draft_visible !== true) return null;
   if (uiState.ui_outline_adoption_actions_visible !== true) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_plot_outline_tool_done !== true) return null;
@@ -5077,11 +5077,11 @@ function findAgentWorldBuildingWithContextEvidence(
       record.ui_strategy_step_visible === true &&
       record.ui_world_step_visible === true &&
       record.ui_finalization_step_visible === true &&
-      Number(record.completed_step_count ?? 0) === 2 &&
-      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_world_building_draft_visible === true &&
@@ -5180,10 +5180,10 @@ function agentWorldBuildingWithContextBehavior(turnIds, _turnRecords, records, e
   if (uiState.ui_strategy_step_visible !== true) return null;
   if (uiState.ui_world_step_visible !== true) return null;
   if (uiState.ui_finalization_step_visible !== true) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_world_building_tool_done !== true) return null;
@@ -5260,11 +5260,11 @@ function findAgentCharacterEvolutionWithContextEvidence(records) {
       record.finalization_step_visible === true &&
       record.artifact_observation_visible === true &&
       record.artifact_event_visible === true &&
-      Number(record.completed_step_count ?? 0) === 2 &&
-      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.ui_character_evolution_draft_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
@@ -5358,10 +5358,10 @@ function agentCharacterEvolutionWithContextBehavior(
   if (uiState.finalization_step_visible !== true) return null;
   if (uiState.artifact_observation_visible !== true) return null;
   if (uiState.artifact_event_visible !== true) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_character_evolution_tool_done !== true) return null;
@@ -6118,7 +6118,7 @@ function findAgentProviderStreamingProgressEvidence(records) {
       Number(record.plan_drafted_step_count ?? 0) >= 1 &&
       boolValue(record.raw_prompt_leaked_in_progress_events) === false &&
       boolValue(record.provider_execution_stream_active) === true &&
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.final_turn_result_run_id === record.run_id &&
       record.ui_progress_visible === true,
   );
@@ -6153,7 +6153,7 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
   if (uiState.plan_drafted_target_tool_ref !== "provider_complete") return null;
   if (boolValue(uiState.raw_prompt_leaked_in_progress_events) !== false) return null;
   if (boolValue(uiState.provider_execution_stream_active) !== true) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
 
   return {
     slice_id: "agent-provider-streaming-progress",
@@ -6360,11 +6360,11 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       record.pending_artifact_tentative === true &&
       record.no_auto_adoption === true &&
       record.no_production_write === true &&
-      Number(record.completed_step_count ?? 0) === 2 &&
-      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 2 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_artifact_event_visible === true &&
@@ -6568,10 +6568,10 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   if (uiState.pending_artifact_tentative !== true) return null;
   if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
   }

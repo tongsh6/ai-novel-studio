@@ -16775,10 +16775,10 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 2 &&
-      // Order 62 CP1 两段式规划后：路由 1 + 计划起草（reasoning 流 + 结构 tool call）2 + writer 1。
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+      // ADR-0025 CP1 判断入场：机械 context+判断① 2 步 2 调用 + 计划起草 2 + writer 1。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "UA-01 AgentRun state did not finish with the expected bounded budget counters",
     60_000,
   );
@@ -17158,9 +17158,10 @@ async function driveAgentProseDraftingWithQuality(page) {
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      // ADR-0025 CP1 判断入场（+2 步 +1 调用）：判断 2 + 起草 2 + writer 1 + 复核 1。
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 6,
     "Agent prose run state did not finish with expected step/tool/provider counters",
     60_000,
   );
@@ -17341,7 +17342,8 @@ async function driveAgentProseDraftingWithQuality(page) {
         contextStepFrame.body?.payload?.target_tool_ref === "context_assemble" ||
         draftedPlanHasContextStep,
       ui_strategy_step_visible: false,
-      ui_prose_step_visible: visibleText.includes("基于已读取的正文上下文生成正文草稿"),
+      // 46§9.5：步骤描述不进页面，事实来自 plan_drafted 事件 payload。
+      ui_prose_step_visible: draftedPlanHasProseStep,
       ui_finalization_step_visible: false,
       // Order 62 CP3 语义迁移：终态区已移除，完成裁决可见性以状态标签判定。
       ui_completion_decision_visible:
@@ -18333,7 +18335,7 @@ async function driveAgenticLoopToolFailureReplan(page) {
     signal: "D1",
     reasonNeedle: "工具 prose_writing 执行失败",
     message: "写下一章正文草稿 AU04FAILTOOL",
-    expected: { steps: 2, toolCalls: 1, providerCalls: 5 },
+    expected: { steps: 4, toolCalls: 1, providerCalls: 6 },
   });
 }
 
@@ -18343,7 +18345,7 @@ async function driveAgenticLoopQualityDeviationReplan(page) {
     signal: "D2",
     reasonNeedle: "质量复核要求行动",
     message: "写下一章正文草稿，主角无需代价复活，违反既有规则",
-    expected: { steps: 2, toolCalls: 1, providerCalls: 5 },
+    expected: { steps: 4, toolCalls: 1, providerCalls: 6 },
     allowCandidateTurnResult: true,
   });
 }
@@ -18354,7 +18356,7 @@ async function driveAgenticLoopGateDeviationReplan(page) {
     signal: "D4",
     reasonNeedle: "Orchestrator 未允许执行",
     message: "写下一章正文草稿，高风险，确认后再执行",
-    expected: { steps: 2, toolCalls: 0, providerCalls: 3 },
+    expected: { steps: 4, toolCalls: 0, providerCalls: 4 },
   });
 }
 
@@ -18364,7 +18366,7 @@ async function driveAgenticLoopDeterministicGapReplan(page) {
     signal: "D7",
     reasonNeedle: "写作坐标存在确定性缺口",
     message: "续写第99章正文",
-    expected: { steps: 2, toolCalls: 0, providerCalls: 3 },
+    expected: { steps: 4, toolCalls: 0, providerCalls: 4 },
   });
 }
 
@@ -19064,9 +19066,9 @@ async function driveAgentPlotOutlineWithContext(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "plot_outline_with_context_v1" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "Plot outline AgentRun state did not complete with expected counters",
     60_000,
   );
@@ -19425,9 +19427,9 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "world_building_with_context_v1" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "World building AgentRun state did not complete with expected counters",
     60_000,
   );
@@ -19577,9 +19579,8 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       ui_context_step_visible:
         visibleText.includes("先读取世界设定上下文") ||
         visibleText.includes("先读取作品设定上下文"),
-      ui_strategy_step_visible:
-        visibleText.includes("基于已读取的世界设定上下文生成世界设定、伏笔或规则草稿") ||
-        visibleText.includes("基于已读取的作品设定上下文生成世界设定草稿"),
+      // 46§9.5：步骤描述不进页面，事实来自 plan_drafted 事件 payload。
+      ui_strategy_step_visible: planDraftIncludesWorldStep,
       ui_world_step_visible:
         visibleText.includes("生成世界设定、伏笔或规则草稿") ||
         visibleText.includes("生成世界设定草稿"),
@@ -19845,9 +19846,9 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "character_evolution_with_context_v1" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "Character evolution AgentRun state did not complete with expected counters",
     60_000,
   );
@@ -20284,7 +20285,7 @@ async function driveAgentProviderStreamingProgress(page) {
       frame.event === "phx_reply" &&
       frame.body?.status === "ok" &&
       frame.body?.response?.received === true &&
-      frame.body?.response?.profile_ref === "profile_routing_v1" &&
+      frame.body?.response?.profile_ref === "judgment_loop_v1" &&
       typeof frame.body?.response?.run_id === "string",
     "Provider progress AgentRun did not fast-ack with profile_routing_v1",
     10_000,
@@ -20357,8 +20358,8 @@ async function driveAgentProviderStreamingProgress(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "provider_progress_v1" &&
-      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + provider_complete 1。
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+      // ADR-0025 CP1 判断入场：判断 2 + 计划起草 2 + provider_complete 1。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "Provider progress run state did not record provider call budget",
     30_000,
   );
@@ -20438,7 +20439,7 @@ async function driveAgentProviderCancelHonestBoundary(page) {
       frame.event === "phx_reply" &&
       frame.body?.status === "ok" &&
       frame.body?.response?.received === true &&
-      frame.body?.response?.profile_ref === "profile_routing_v1" &&
+      frame.body?.response?.profile_ref === "judgment_loop_v1" &&
       typeof frame.body?.response?.run_id === "string",
     "Provider cancel AgentRun did not fast-ack with profile_routing_v1",
     10_000,
@@ -20591,7 +20592,7 @@ async function driveAgentReadonlyBatchProfile(page) {
       frame.event === "phx_reply" &&
       frame.body?.status === "ok" &&
       frame.body?.response?.received === true &&
-      frame.body?.response?.profile_ref === "profile_routing_v1" &&
+      frame.body?.response?.profile_ref === "judgment_loop_v1" &&
       typeof frame.body?.response?.run_id === "string",
     "Readonly batch AgentRun did not fast-ack with profile_routing_v1",
     10_000,

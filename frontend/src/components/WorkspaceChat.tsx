@@ -604,11 +604,16 @@ function AgentRunDialogueFlow({
   // 46§9.4：轻量进度行（纯计数骨架词）与进行中活动指示。
   // 步数以运行时事实（completed_step_refs）为准——计划面板的步骤状态是事件快照，
   // 完成态下可能落后于真实进度，不能作为计数来源（避免假计数）。
-  const doneStepCount = Math.max(
-    reasoningFlow.planSteps.filter((step) => step.status === "done").length,
-    run?.completed_step_refs?.length ?? 0,
-  );
   const totalStepCount = reasoningFlow.planSteps.length;
+  // 进度行语义是"计划轨道内"进度；completed_step_refs 含判断循环入场步（机械准备/
+  // 判断①），会超过计划步总数——钳位到 total，避免"第 4/2 步"式假计数。
+  const doneStepCount = Math.min(
+    Math.max(
+      reasoningFlow.planSteps.filter((step) => step.status === "done").length,
+      run?.completed_step_refs?.length ?? 0,
+    ),
+    totalStepCount,
+  );
   const pendingArtifactCount = run?.pending_artifact_refs?.length ?? 0;
   const progressParts = [
     totalStepCount > 0 ? WORKBENCH.agenticLoopProgressStep(doneStepCount, totalStepCount) : null,
