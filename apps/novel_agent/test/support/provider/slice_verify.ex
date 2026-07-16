@@ -213,6 +213,24 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp response_result(prompt, prompt_text) do
+    if judgment_prompt?(prompt_text) do
+      judgment_result(prompt, prompt_text)
+    else
+      non_judgment_response_result(prompt, prompt_text)
+    end
+  end
+
+  # 判断①（ADR-0025 方案 B）：结构段（forced tool）产 judgment_decision；
+  # 叙事段自由输出，判"直接回复"时同一次输出空行后内联回复正文（复用帧机器语义）。
+  defp judgment_result(prompt, prompt_text) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      judgment_decision_result(prompt_text)
+    else
+      judgment_narrative_result(prompt_text)
+    end
+  end
+
+  defp non_judgment_response_result(prompt, prompt_text) do
     cond do
       agent_plan_revision_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
         agent_plan_revision_result(prompt_text)
@@ -1194,6 +1212,110 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     {profile_ref, summary, reason_codes} = profile_route_match(normalized)
 
     profile_route_response(profile_ref, summary, reason_codes, author_text)
+  end
+
+  # ── 判断①（ADR-0025 CP1 方案 B）：复用路由规则表判形态，复用帧机器产内联回复/候选 ──
+
+  defp judgment_prompt?(prompt), do: String.contains?(prompt, "创作判断器")
+
+  @judgment_capability_for_profile %{
+    "character_design_with_context_v1" => "character_design",
+    "prose_drafting_with_quality_v1" => "prose_writing",
+    "plot_outline_with_context_v1" => "plot_outline",
+    "character_evolution_with_context_v1" => "character_evolution",
+    "world_building_with_context_v1" => "world_building",
+    "provider_progress_v1" => "provider_progress",
+    "readonly_batch_context_v1" => "work_archive_read"
+  }
+
+  defp judgment_verdict(prompt) do
+    author_text = judgment_author_input(prompt)
+    normalized = String.downcase(author_text)
+    {profile_ref, _summary, _reason_codes} = profile_route_match(normalized)
+
+    case Map.get(@judgment_capability_for_profile, profile_ref) do
+      nil ->
+        exploratory =
+          exploratory_prompt_text?(author_text) and
+            not candidate_context_followup_prompt?(prompt)
+
+        {"reply", nil, exploratory}
+
+      capability ->
+        {"execute", capability, false}
+    end
+  end
+
+  defp judgment_author_input(prompt) do
+    case Regex.run(~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su, prompt) do
+      [_, author_text] -> String.trim(author_text)
+      _ -> prompt
+    end
+  end
+
+  defp judgment_narrative_result(prompt) do
+    {action, _capability, exploratory} = judgment_verdict(prompt)
+    narrative = judgment_narrative_text(action, exploratory, prompt)
+    Result.new(narrative, usage_for(prompt, narrative))
+  end
+
+  defp judgment_decision_result(prompt) do
+    {action, capability, exploratory} = judgment_verdict(prompt)
+
+    directions =
+      if exploratory, do: candidate_directions(true, prompt), else: []
+
+    arguments =
+      %{
+        "action" => action,
+        "reason" => judgment_reason_code(action),
+        "reply_included" => action == "reply"
+      }
+      |> then(fn args ->
+        if capability, do: Map.put(args, "capability", capability), else: args
+      end)
+      |> then(fn args ->
+        if directions == [], do: args, else: Map.put(args, "candidate_directions", directions)
+      end)
+
+    reasoning = judgment_reason_code(action)
+
+    Result.new(reasoning, usage_for(prompt, reasoning),
+      tool_calls: [
+        %{
+          "id" => "call_judgment_decision",
+          "name" => "judgment_decision",
+          "arguments" => arguments
+        }
+      ]
+    )
+  end
+
+  defp judgment_narrative_text("reply", exploratory, prompt) do
+    reply_body =
+      if exploratory do
+        "围绕你的方向我给出两个可选切入，见下方候选；你可以直接采纳或继续聊。"
+      else
+        frame_message(false, false, false, prompt)
+      end
+
+    "你想直接和我讨论这个话题；当前信息足够，我直接回应你。\n\n" <> reply_body
+  end
+
+  defp judgment_narrative_text("execute", _exploratory, _prompt) do
+    "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
+  end
+
+  defp judgment_narrative_text(_action, _exploratory, _prompt) do
+    "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
+  end
+
+  defp judgment_reason_code("reply"), do: "context_sufficient_for_direct_reply"
+  defp judgment_reason_code("execute"), do: "single_capability_satisfies_request"
+  defp judgment_reason_code(_action), do: "multi_step_dependencies_require_plan"
+
+  defp exploratory_prompt_text?(author_text) do
+    contains_any?(author_text, ["候选", "几个方向", "方向候选", "切入", "头脑风暴", "怎么切入"])
   end
 
   defp profile_route_match(normalized) do

@@ -139,10 +139,23 @@ defmodule NovelAgent.Provider.Stub do
     )
   end
 
+  # 顺序即优先级：探索/计划判别在能力词之前（与真实模型的语义判断对齐——
+  # "梳理伏笔并重写"是多阶段任务而非世界观请求；"交代过吗"是检索而非演化）。
   @judgment_rules [
-    {["设计"], ["角色", "反派"], {"execute", "character_design"}},
-    {["梳理"], ["重写", "更新"], {"plan", nil}},
-    {["交代过", "查一下"], [], {"explore", nil}}
+    {["交代过", "查一下"], [], {"explore", nil}},
+    {["梳理"], ["重写", "更新"], {"plan", "prose_writing"}},
+    {["只读批量", "批量读取", "readonly batch"], [], {"execute", "work_archive_read"}},
+    {["provider 进度", "模型进度", "流式进度", "流式事件", "provider progress"], [],
+     {"execute", "provider_progress"}},
+    {["聊聊", "只聊", "先聊", "随便聊"], [], {"reply", nil}},
+    {["正文草稿", "写下一章", "续写", "正文"], [], {"execute", "prose_writing"}},
+    {["章节大纲", "章节计划", "分章大纲", "卷纲"], [], {"execute", "plot_outline"}},
+    {["角色演化", "角色成长", "当前状态", "关系变化", "受伤", "黑化"], [],
+     {"execute", "character_evolution"}},
+    {["世界观", "世界设定", "世界规则", "伏笔", "写作规则", "风格规则"], [],
+     {"execute", "world_building"}},
+    {["设计", "新增"], ["角色", "反派", "主角"], {"execute", "character_design"}},
+    {["角色阵容", "现有角色", "已有角色"], [], {"execute", "character_design"}}
   ]
 
   defp judgment_action(text) do

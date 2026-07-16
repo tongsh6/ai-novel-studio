@@ -3,25 +3,11 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
-  alias NovelApplication.AgentRunFlows.ConversationTurn
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.DialoguePlanningService
+  alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
-
-  @conversation_frame_json """
-  {
-    "frame_type": "casual_reply",
-    "dialogue_goal_summary": "用户发来普通聊天消息",
-    "needs_tool": false,
-    "no_tool_reason": "no_tool_needed",
-    "execution_readiness": "not_applicable",
-    "assistant_message": "收到，我们先聊创作方向。",
-    "candidate_directions": [],
-    "context_used": false,
-    "uncertainty": []
-  }
-  """
 
   test "普通用户输入先规划为 bounded profile routing AgentRun，不在 run 外调用 provider" do
     assert {:ok, spec} =
@@ -47,29 +33,11 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     refute Map.has_key?(spec, :steps)
   end
 
-  test "规划结果把 provider execution dependency 交给 conversation profile" do
-    provider_execution = %Execution{
-      result_fn: fn prompt ->
-        result =
-          cond do
-            profile_route_prompt?(prompt) ->
-              Jason.encode!(profile_route_decision(ConversationTurn.profile_ref()))
+  test "判断 reply 内联终结：简单对话恰 2 次调用产出 casual_reply TurnResult" do
+    narrative = "你想聊聊创作方向；当前信息足够，我直接回应你。\n\n可以从主角的日常细节切入，先立住人物再展开冲突。"
 
-            plan_draft_prompt?(prompt) ->
-              conversation_plan_draft()
-
-            agent_next_step_prompt?(prompt) ->
-              NovelApplication.TestAgenticLoopFixtures.reasoning_tail(
-                conversation_next_step_decision(prompt)
-              )
-
-            true ->
-              @conversation_frame_json
-          end
-
-        provider_result(result)
-      end
-    }
+    provider_execution =
+      judgment_execution("reply", nil, narrative: narrative, reply_included: true)
 
     assert {:ok, spec} =
              DialoguePlanningService.plan_agent_run(
@@ -84,66 +52,71 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
                provider_execution
              )
 
-    assert is_function(spec.next_step_planner, 3)
     {:ok, run} = AgentRun.new(spec.run_attrs)
+    sink = fn _event -> :ok end
 
-    assert {:execute, route_step, _route_decision, route_meta} =
-             spec.next_step_planner.(run, 1, %{stage_state: %{}, observations: [], events: []})
+    {context_result, judgment_result} = drive_judgment(spec, run, sink)
 
-    assert route_meta.provider_call_count == 1
+    # 简单对话 = 判断①两段式恰 2 次调用；无 profile 切换
+    assert judgment_result.provider_call_count == 2
+    refute Map.get(judgment_result, :run_patch)
 
-    assert {:ok, route_result} =
-             route_step.(run, 1, %{stage_state: %{}, observations: [], events: []})
+    turn_result = judgment_result.turn_result
+    assert turn_result.assistant_message.text == narrative
+    assert turn_result.frame_summary.frame_type == :casual_reply
+    assert turn_result.agent_run.run_id == run.run_id
+    assert turn_result.truthfulness.tool_called == false
 
-    routed_run = apply_run_patch(run, route_result.run_patch)
+    # 收束：判断已终结 → 下一迭代 complete（0 调用）
+    merged = Map.merge(context_result.stage_state, judgment_result.stage_state)
 
-    assert routed_run.profile_ref == ConversationTurn.profile_ref()
-    stage_sink = fn _event -> :ok end
-
-    assert {:ok, context_result} =
-             route_result
-             |> Map.fetch!(:stage_state)
-             |> then(fn stage_state ->
-               assert {:execute, context_step, _decision, context_meta} =
-                        spec.next_step_planner.(routed_run, 2, %{
-                          stage_state: stage_state,
-                          observations: route_result.observations,
-                          events: [],
-                          stage_sink: stage_sink
-                        })
-
-               # 计划起草为两段式调用（流式 reasoning + 结构化 tool call）
-               assert context_meta.provider_call_count == 2
-
-               context_step.(routed_run, 2, %{
-                 stage_state: stage_state,
-                 observations: route_result.observations,
-                 events: [],
-                 stage_sink: stage_sink
-               })
-             end)
-
-    merged_stage_state = Map.merge(route_result.stage_state, context_result.stage_state)
-    routed_run = apply_run_patch(routed_run, context_result.run_patch)
-
-    assert {:execute, frame_step, _decision, frame_meta} =
-             spec.next_step_planner.(routed_run, 3, %{
-               stage_state: merged_stage_state,
-               observations: route_result.observations ++ context_result.observations,
+    assert {:complete, _decision, complete_meta} =
+             spec.next_step_planner.(run, 3, %{
+               stage_state: merged,
+               observations: [],
                events: [],
-               stage_sink: stage_sink
+               stage_sink: sink
              })
 
-    assert frame_meta.provider_call_count == 0
+    assert complete_meta.provider_call_count == 0
+  end
 
-    assert {:ok, frame_result} =
-             frame_step.(
-               routed_run,
-               3,
-               %{stage_state: merged_stage_state, stage_sink: stage_sink}
+  test "判断 reply 可携带候选方向（S2 候选随判断结构携带）" do
+    narrative = "你在比较方向；我给你两个可选切入。\n\n方向一从底层账单切入，方向二从矿区追击切入。"
+
+    provider_execution =
+      judgment_execution("reply", nil,
+        narrative: narrative,
+        reply_included: true,
+        candidate_directions: [
+          %{"title" => "底层账单切入", "pitch" => "从灵气欠费的日常压迫感开场", "tone_tags" => ["压抑"]},
+          %{"title" => "矿区追击切入", "pitch" => "从一场短促追击直接进入冲突", "tone_tags" => ["紧张"]}
+        ]
+      )
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "我想写赛博修仙方向，给我几个切入候选",
+                 workspace_id: "ws-cand",
+                 work_id: "work-cand",
+                 session_id: "session-cand",
+                 turn_id: "turn-cand"
+               },
+               nil,
+               provider_execution
              )
 
-    assert frame_result.stage_state.frame.frame_type == :casual_reply
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    sink = fn _event -> :ok end
+    {_context_result, judgment_result} = drive_judgment(spec, run, sink)
+
+    turn_result = judgment_result.turn_result
+    assert turn_result.frame_summary.frame_type == :creative_exploration
+    assert [first, second] = turn_result.candidate_directions
+    assert first.title == "底层账单切入"
+    assert second.title == "矿区追击切入"
+    assert first.adoption_status == :not_adopted
   end
 
   test "复合角色任务在 AgentRun 内路由到角色 profile" do
@@ -162,22 +135,36 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert routed_run.authority_scope.allowed_tools == ["character_roster", "character_design"]
   end
 
-  test "user_message profile 选择不接受客户端 profile_ref 覆盖" do
-    {_spec, routed_run, _route_result} =
-      assert_user_message_routes_to(
-        %{
-          text: "随便聊聊今天的创作节奏",
-          profile_ref: "prose_drafting_with_quality_v1",
-          agent_profile: "character_design_with_context_v1",
-          workspace_id: "ws-profile-causal",
-          work_id: "work-profile-causal",
-          session_id: "session-profile-causal",
-          turn_id: "turn-profile-causal"
-        },
-        ConversationTurn.profile_ref()
-      )
+  test "user_message 判断不接受客户端 profile_ref 覆盖" do
+    narrative = "你想随便聊聊；不需要动用创作能力。\n\n今天可以放松节奏，先聊聊你想推进的段落。"
 
-    assert routed_run.profile_ref == ConversationTurn.profile_ref()
+    provider_execution =
+      judgment_execution("reply", nil, narrative: narrative, reply_included: true)
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "随便聊聊今天的创作节奏",
+                 profile_ref: "prose_drafting_with_quality_v1",
+                 agent_profile: "character_design_with_context_v1",
+                 workspace_id: "ws-profile-causal",
+                 work_id: "work-profile-causal",
+                 session_id: "session-profile-causal",
+                 turn_id: "turn-profile-causal"
+               },
+               nil,
+               provider_execution
+             )
+
+    assert spec.run_attrs.profile_ref == "profile_routing_v1"
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    sink = fn _event -> :ok end
+    {_context_result, judgment_result} = drive_judgment(spec, run, sink)
+
+    # 客户端 profile_ref 覆盖被忽略：判断 reply 终结，无 profile 切换
+    refute Map.get(judgment_result, :run_patch)
+    assert judgment_result.turn_result.assistant_message.text == narrative
   end
 
   test "正文草稿任务在 AgentRun 内路由到正文质量 profile" do
@@ -193,8 +180,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         "prose_drafting_with_quality_v1"
       )
 
-    assert routed_run.budget.max_steps == 5
-    assert routed_run.budget.max_provider_calls == 8
+    assert routed_run.budget.max_steps == 6
+    assert routed_run.budget.max_provider_calls == 9
     assert routed_run.plan.steps == []
   end
 
@@ -228,9 +215,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["plot_outline"]
-    assert routed_run.budget.max_steps == 5
+    assert routed_run.budget.max_steps == 6
     assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 8
+    assert routed_run.budget.max_provider_calls == 9
 
     assert [
              %{step_id: "assemble_outline_context", kind: :explore},
@@ -253,9 +240,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["character_evolution"]
-    assert routed_run.budget.max_steps == 5
+    assert routed_run.budget.max_steps == 6
     assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 8
+    assert routed_run.budget.max_provider_calls == 9
 
     assert [
              %{step_id: "assemble_character_evolution_context", kind: :explore},
@@ -278,9 +265,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["world_building"]
-    assert routed_run.budget.max_steps == 5
+    assert routed_run.budget.max_steps == 6
     assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 8
+    assert routed_run.budget.max_provider_calls == 9
 
     assert [
              %{step_id: "assemble_world_building_context", kind: :explore},
@@ -379,38 +366,133 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     refute Map.has_key?(spec, :steps)
   end
 
+  # 判断循环（ADR-0025 CP1）：机械准备（0 调用）→ 判断①两段式（2 调用）→
+  # execute/plan 切换到能力 profile（等价旧路由语义）。
   defp assert_user_message_routes_to(input, expected_profile_ref) do
-    provider_execution = %Execution{
-      result_fn: fn prompt ->
-        assert profile_route_prompt?(prompt)
-        {:ok, %{content: Jason.encode!(profile_route_decision(expected_profile_ref))}}
-      end
-    }
+    provider_execution =
+      judgment_execution("execute", capability_for_profile_ref(expected_profile_ref))
 
     assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, nil, provider_execution)
     assert spec.run_attrs.profile_ref == "profile_routing_v1"
-    assert spec.run_attrs.authority_scope.allowed_tools == ["profile_route"]
     assert is_function(spec.next_step_planner, 3)
     refute Map.has_key?(spec, :steps)
 
     {:ok, run} = AgentRun.new(spec.run_attrs)
+    sink = fn _event -> :ok end
+    {_context_result, judgment_result} = drive_judgment(spec, run, sink)
 
-    assert {:execute, route_step, decision, route_meta} =
-             spec.next_step_planner.(run, 1, %{stage_state: %{}, observations: [], events: []})
+    assert judgment_result.provider_call_count == 2
 
-    assert decision.target_tool_ref == "profile_route"
-    assert route_meta.provider_call_count == 1
-
-    assert {:ok, route_result} =
-             route_step.(run, 1, %{stage_state: %{}, observations: [], events: []})
-
-    routed_run = apply_run_patch(run, route_result.run_patch)
+    routed_run = apply_run_patch(run, judgment_result.run_patch)
     assert routed_run.profile_ref == expected_profile_ref
     assert routed_run.authority_scope.profile_selection.profile_ref == expected_profile_ref
-    assert routed_run.authority_scope.profile_selection.source == "model_profile_router"
+    assert routed_run.authority_scope.profile_selection.source == "judgment_loop"
     assert "model_profile_selected" in routed_run.authority_scope.profile_selection.reason_codes
 
-    {spec, routed_run, route_result}
+    {spec, routed_run, judgment_result}
+  end
+
+  # 驱动判断循环前两步：机械准备 context（0 调用）→ 判断①。
+  defp drive_judgment(spec, run, sink) do
+    empty = %{stage_state: %{}, observations: [], events: [], stage_sink: sink}
+
+    assert {:execute, context_step, context_decision, context_meta} =
+             spec.next_step_planner.(run, 1, empty)
+
+    assert context_decision.target_tool_ref == "context_assemble"
+    assert context_meta.provider_call_count == 0
+    assert {:ok, context_result} = context_step.(run, 1, empty)
+    assert context_result.provider_call_count == 0
+
+    snapshot = %{
+      stage_state: context_result.stage_state,
+      observations: context_result.observations,
+      events: [],
+      stage_sink: sink
+    }
+
+    assert {:execute, judgment_step, judgment_decision, judgment_meta} =
+             spec.next_step_planner.(run, 2, snapshot)
+
+    assert judgment_decision.target_tool_ref == "judgment"
+    assert judgment_meta.provider_call_count == 0
+    assert {:ok, judgment_result} = judgment_step.(run, 2, snapshot)
+
+    {context_result, judgment_result}
+  end
+
+  defp capability_for_profile_ref("character_design_with_context_v1"), do: "character_design"
+  defp capability_for_profile_ref("prose_drafting_with_quality_v1"), do: "prose_writing"
+  defp capability_for_profile_ref("plot_outline_with_context_v1"), do: "plot_outline"
+
+  defp capability_for_profile_ref("character_evolution_with_context_v1"),
+    do: "character_evolution"
+
+  defp capability_for_profile_ref("world_building_with_context_v1"), do: "world_building"
+
+  # 判断①两段式替身：叙事调用（无 tools）返回 content + provider_output（叙事字节绑定），
+  # 结构调用（forced tool）返回 judgment_decision tool call。
+  defp judgment_execution(action, capability, opts \\ []) do
+    narrative =
+      Keyword.get(opts, :narrative, "我理解你的意图，这是一个明确的创作动作，我直接执行。")
+
+    arguments =
+      %{
+        "action" => action,
+        "reason" => "test_judgment",
+        "reply_included" => Keyword.get(opts, :reply_included, false)
+      }
+      |> then(fn args -> if capability, do: Map.put(args, "capability", capability), else: args end)
+      |> then(fn args ->
+        case Keyword.get(opts, :candidate_directions) do
+          directions when is_list(directions) ->
+            Map.put(args, "candidate_directions", directions)
+
+          _ ->
+            args
+        end
+      end)
+
+    %Execution{
+      result_fn: fn prompt ->
+        cond do
+          judgment_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+            {:ok,
+             %{
+               content: "",
+               tool_calls: [%{"name" => "judgment_decision", "arguments" => arguments}],
+               provider_output: judgment_provider_output("pcall-judgment-decision", "")
+             }}
+
+          judgment_prompt?(prompt) ->
+            {:ok,
+             %{
+               content: narrative,
+               tool_calls: [],
+               provider_output: judgment_provider_output("pcall-judgment-narrative", narrative)
+             }}
+
+          true ->
+            flunk("unexpected provider call in judgment loop test")
+        end
+      end
+    }
+  end
+
+  defp judgment_prompt?(prompt), do: prompt_contains?(prompt, "创作判断器")
+
+  defp judgment_provider_output(call_ref, text) do
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun-judgment",
+        provider_call_ref: call_ref,
+        status: :ok,
+        output_type: :text,
+        content: %{text: text},
+        refs: [call_ref]
+      })
+
+    output
   end
 
   defp apply_run_patch(run, patch) do
@@ -425,85 +507,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     }
   end
 
-  defp profile_route_prompt?(prompt) when is_binary(prompt),
-    do: String.contains?(prompt, "AgentRun profile router")
-
-  defp profile_route_prompt?(_prompt), do: false
-
-  defp profile_route_decision(profile_ref) do
-    %{
-      "profile_ref" => profile_ref,
-      "summary" => "模型选择 #{profile_ref} 工作流。",
-      "reason_codes" => ["model_profile_selected"],
-      "matched_terms" => ["测试"],
-      "confidence" => 1.0
-    }
-  end
-
-  defp agent_next_step_prompt?(prompt),
-    do: prompt_contains?(prompt, "AgentRun 下一步规划器")
-
-  defp plan_draft_prompt?(prompt),
-    do: prompt_contains?(prompt, "AgentRun 计划起草器")
-
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
-
-  defp conversation_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result("先组装上下文，再形成对话帧并完成本轮回应。", [
-      NovelApplication.TestAgenticLoopFixtures.plan_step(
-        "assemble_conversation_context",
-        "context_assemble",
-        "组装当前作品上下文",
-        success_criteria: ["conversation_context_attached"]
-      ),
-      NovelApplication.TestAgenticLoopFixtures.plan_step(
-        "frame_conversation",
-        "dialogue_frame",
-        "形成对话认知帧",
-        success_criteria: ["dialogue_frame_created"]
-      ),
-      NovelApplication.TestAgenticLoopFixtures.plan_step(
-        "gate_conversation_strategy",
-        "strategy_gate",
-        "制定执行策略并完成系统裁决",
-        success_criteria: ["strategy_gate_completed"]
-      ),
-      NovelApplication.TestAgenticLoopFixtures.plan_step(
-        "finalize_conversation_response",
-        "response_finalize",
-        "生成本轮回应",
-        success_criteria: ["turn_result_ready"]
-      )
-    ])
-  end
-
-  defp conversation_next_step_decision(prompt) do
-    observations = existing_observation_section(prompt)
-
-    if String.contains?(observations, "创作上下文") do
-      NovelApplication.TestAgenticLoopFixtures.continue_next(
-        "基于已组装上下文形成对话认知帧。",
-        "dialogue_frame",
-        reason_codes: ["agentic_next_step", "conversation_context_consumed"]
-      )
-    else
-      NovelApplication.TestAgenticLoopFixtures.continue_next(
-        "先组装当前作品的创作上下文。",
-        "context_assemble",
-        reason_codes: ["agentic_next_step", "missing_conversation_context"]
-      )
-    end
-  end
-
-  defp existing_observation_section(prompt) do
-    prompt
-    |> prompt_text()
-    |> String.split("## 决策规则", parts: 2)
-    |> hd()
-  end
-
-  defp provider_result(%{content: _content, tool_calls: _tool_calls} = result), do: {:ok, result}
-  defp provider_result(content), do: {:ok, %{content: content}}
 
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 end

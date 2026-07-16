@@ -9,6 +9,8 @@ defmodule NovelApplication.DialoguePlanningService do
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AgentFinalizer
+  alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunFlows.ConversationTurn
@@ -18,8 +20,13 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.ProviderProgress
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
-  alias NovelApplication.ProviderActivityProjector
-  alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentPlan}
+  alias NovelApplication.ContextAssembler
+  alias NovelApplication.DialogueGateway
+  alias NovelApplication.JudgmentProtocol
+  alias NovelApplication.TraceWriter
+  alias NovelApplication.TurnResultBuilder
+  alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentPlan, AgentStep}
+  alias NovelDomain.{CandidateDirection, DialogueContext, DialogueFrame}
 
   @profile_routing_allowed_tools ["profile_route"]
   @profile_routing_profile_ref "profile_routing_v1"
@@ -153,22 +160,11 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # ── profile 选择在 AgentRun 内作为第一轮模型裁决发生；这里不再用关键词预先裁决 ──
 
-  defp agent_run_agent_plan(run_id, :profile_routing) do
-    AgentPlan.new(%{
-      plan_id: "ap_#{run_id}",
-      run_ref: run_id,
-      version: 1,
-      goal_version: 1,
-      steps: [
-        plan_step("route_profile", :explore, "读取作者输入并由模型选择本轮工作流", [
-          "profile_routed"
-        ]),
-        plan_step("continue_selected_profile", :explore, "进入被选择的 AgentRun profile", [
-          "selected_profile_plan_attached"
-        ])
-      ]
-    })
-  end
+  # 判断循环入口无预制计划轨道（ADR-0025 N-PLAN）：轨道 = judgment 事件链；
+  # 机械准备（上下文组装）与判断①由 next_step_planner 按循环推进，不排 app 步骤。
+  # 计划形状复用 pending_model_plan（与创作 profile"计划待模型产生"同一语义）。
+  defp agent_run_agent_plan(run_id, :profile_routing),
+    do: {:ok, pending_model_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :character_design_with_context),
     do: {:ok, pending_model_plan(run_id)}
@@ -405,162 +401,469 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp profile_route_next_step(run, sequence, snapshot, provider_execution, input) do
-    result_fn =
-      provider_execution
-      |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
-      |> Execution.result_fn()
+  # ── 判断①循环（ADR-0025 CP1：机械准备 → 判断① → reply 终结 / 切能力 profile / 停等） ──
+  #
+  # 路由语义并入判断①：action=execute/plan + capability 等价旧路由选 profile；
+  # action=reply 回复内联终结（简单对话 2 次调用）；action=await_author 停等作者。
+  # CP1 能力目录不含检索（explore 由 CP5 打开）。
 
-    with result_fn when is_function(result_fn, 1) <- result_fn,
-         {:ok, %{content: content}} <- result_fn.(profile_routing_prompt(run, input)),
-         {:ok, parsed} <- parse_json(content),
-         {:ok, profile, selection} <- build_profile_selection(parsed),
-         {:ok, decision} <- profile_route_decision(run, sequence, selection) do
-      {:execute, profile_route_step(profile, selection, input), decision,
-       %{provider_call_count: 1}}
-    else
-      nil -> {:error, :provider_execution_required}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_profile_route_decision, other}}
+  @judgment_capability_profiles %{
+    "character_design" => :character_design_with_context,
+    "character_evolution" => :character_evolution_with_context,
+    "prose_writing" => :prose_drafting_with_quality,
+    "plot_outline" => :plot_outline_with_context,
+    "world_building" => :world_building_with_context,
+    "work_archive_read" => :readonly_batch_context,
+    "provider_progress" => :provider_progress
+  }
+
+  defp judgment_loop_next_step(run, sequence, snapshot, provider_execution, input) do
+    state = judgment_stage_state(snapshot)
+
+    cond do
+      judgment_settled(state) == "completed" ->
+        judgment_terminal(run, sequence, :complete, "本轮回应已生成。")
+
+      judgment_settled(state) == "awaiting_author" ->
+        judgment_terminal(run, sequence, :await_author, "等待作者说明后继续。")
+
+      judgment_context(state) == nil ->
+        judgment_context_next_step(run, sequence, input)
+
+      true ->
+        judgment_next_step(run, sequence, provider_execution, input, state)
     end
   end
 
-  defp profile_route_step(profile, selection, input) do
-    fn run, sequence, snapshot ->
-      with {:ok, target_plan} <- agent_run_agent_plan(run.run_id, profile) do
-        emit_profile_route_event(snapshot, selection)
-        observation = profile_route_observation(run, sequence, selection)
+  defp judgment_stage_state(snapshot) when is_map(snapshot),
+    do: Map.get(snapshot, :stage_state) || Map.get(snapshot, "stage_state") || %{}
 
-        {:ok,
-         %{
-           observations: [observation],
-           stage_state: %{
-             routed_profile: Atom.to_string(profile),
-             routed_profile_ref: selection.profile_ref,
-             profile_selection: selection
-           },
-           run_patch: %{
-             profile_ref: selection.profile_ref,
-             authority_scope:
-               authority_scope(profile, Map.put(input, :profile_selection, selection)),
-             plan: target_plan,
-             plan_ref: plan_id(target_plan),
-             plan_version: plan_version(target_plan),
-             budget: routed_profile_budget(run.goal.text, profile, input)
-           },
-           progress_signature: "#{run.run_id}:profile_route:#{selection.profile_ref}"
-         }}
+  defp judgment_stage_state(_snapshot), do: %{}
+
+  defp judgment_settled(state),
+    do: Map.get(state, :judgment_settled) || Map.get(state, "judgment_settled")
+
+  defp judgment_context(state),
+    do: Map.get(state, :judgment_context) || Map.get(state, "judgment_context")
+
+  defp judgment_terminal(run, sequence, kind, summary) do
+    decision =
+      judgment_mech_decision(run, sequence, "judgment_settle", summary, [
+        "judgment_" <> Atom.to_string(kind)
+      ])
+
+    with {:ok, decision} <- decision do
+      {kind, decision, %{provider_call_count: 0, suppress_plan_event: true}}
+    end
+  end
+
+  # 机械准备：组装作品上下文（0 调用、确定性——永不问模型）。
+  defp judgment_context_next_step(run, sequence, input) do
+    with {:ok, decision} <-
+           judgment_mech_decision(run, sequence, "context_assemble", "组装当前作品上下文。", [
+             "judgment_mechanical_prep"
+           ]) do
+      {:execute, judgment_context_step(input), decision,
+       %{provider_call_count: 0, suppress_plan_event: true}}
+    end
+  end
+
+  defp judgment_context_step(input) do
+    fn run, sequence, snapshot ->
+      text = map_get(input, :text) || run.goal.text
+      ws_id = map_get(input, :workspace_id) || run.workspace_id
+      turn_id = map_get(input, :turn_id) || run.parent_turn_ref
+
+      context =
+        ContextAssembler.assemble_for_input(
+          ws_id,
+          text,
+          context_fetcher_or_default(map_get(input, :context_fetcher)),
+          session_id: map_get(input, :session_id),
+          assembly_policy: NovelApplication.current_assembly_policy()
+        )
+
+      emit_judgment_stage(snapshot, :goal_understood, "已组装当前作品上下文。", ["context_assembled"], %{
+        stage: :context_assembled,
+        context_ref_count: length(context.context_refs || [])
+      })
+
+      {:ok,
+       %{
+         step: judgment_agent_step(run, sequence, "组装创作上下文"),
+         observations: [
+           judgment_observation(run, sequence, "已组装本轮创作上下文。", "context:#{turn_id}", %{
+             stage: :context_assembled
+           })
+         ],
+         stage_state: %{judgment_context: context, judgment_input: input},
+         provider_call_count: 0,
+         progress_signature: "#{run.run_id}:judgment_context:#{turn_id}"
+       }}
+    end
+  end
+
+  # 判断①：两段式（call1 叙事流式 + call2 judgment_decision），随后按 action 分发。
+  defp judgment_next_step(run, sequence, provider_execution, input, state) do
+    with {:ok, decision} <-
+           judgment_mech_decision(run, sequence, "judgment", "判断本轮形态。", [
+             "judgment_requested"
+           ]) do
+      {:execute, judgment_step(provider_execution, input, state), decision,
+       %{provider_call_count: 0, suppress_plan_event: true}}
+    end
+  end
+
+  defp judgment_step(provider_execution, input, state) do
+    fn run, sequence, snapshot ->
+      context = judgment_context(state)
+      text = map_get(input, :text) || run.goal.text
+
+      protocol_input = %{
+        author_text: text,
+        context_block: judgment_context_block(context),
+        options: []
+      }
+
+      case JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input) do
+        {:ok, judgment} ->
+          emit_judgment_decided(snapshot, judgment)
+          dispatch_judgment(judgment, run, sequence, input, context)
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
 
-  defp emit_profile_route_event(_snapshot, _selection), do: :ok
+  defp dispatch_judgment(%{action: "reply"} = judgment, run, sequence, input, context),
+    do: finalize_judgment_reply(judgment, run, sequence, input, context, :completed)
 
-  defp profile_route_observation(run, sequence, selection) do
-    {:ok, observation} =
-      AgentObservation.new(%{
-        observation_id: "obs_#{run.run_id}_#{sequence}_profile_route",
-        run_ref: run.run_id,
-        step_ref: run.current_step_ref || "step_#{run.run_id}_#{sequence}",
-        observation_type: :custom,
-        source_ref: "profile:#{selection.profile_ref}",
-        summary: selection.summary,
-        structured_payload: %{
-          profile_ref: selection.profile_ref,
-          source: selection.source,
-          reason_codes: selection.reason_codes,
-          matched_terms: selection.matched_terms
-        },
-        evidence_refs: ["profile:#{selection.profile_ref}"],
-        confidence: selection.confidence
-      })
+  defp dispatch_judgment(%{action: "await_author"} = judgment, run, sequence, input, context),
+    do: finalize_judgment_reply(judgment, run, sequence, input, context, :awaiting_author)
 
-    observation
+  defp dispatch_judgment(%{action: action} = judgment, run, sequence, input, _context)
+       when action in ["execute", "plan"] do
+    case Map.fetch(@judgment_capability_profiles, judgment.capability || "") do
+      {:ok, profile} ->
+        judgment_switch_result(profile, judgment, input, run, sequence)
+
+      :error ->
+        {:error, {:unknown_judgment_capability, judgment.capability}}
+    end
   end
 
-  defp profile_route_decision(run, sequence, selection) do
+  defp dispatch_judgment(judgment, _run, _sequence, _input, _context),
+    do: {:error, {:unknown_judgment_action, judgment.action}}
+
+  # reply / await_author 终结：判断结构机械转换 DialogueFrame（frame 语义并入判断①），
+  # 下游 Trace / TurnResultBuilder / 持久化副作用沿用零改动；正文=call1 输出（N-NARR 字节绑定）。
+  defp finalize_judgment_reply(judgment, run, sequence, input, context, settle) do
+    turn_id = map_get(input, :turn_id) || run.parent_turn_ref
+    ws_id = map_get(input, :workspace_id) || run.workspace_id
+    frame = judgment_frame(judgment, turn_id, ws_id, context)
+    candidates = judgment_candidates(judgment, frame.frame_id)
+
+    {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: turn_id}, context)
+
+    turn_result =
+      frame
+      |> TurnResultBuilder.build(trace_summary, candidates)
+      |> scope_judgment_turn_result(input, run)
+      |> AgentFinalizer.attach_run_summary(judgment_run_summary(run, settle))
+
+    DialogueGateway.persist_turn_side_effects(
+      {:ok, turn_result, trace, candidates, context},
+      ws_id,
+      map_get(input, :session_id),
+      map_get(input, :text) || run.goal.text,
+      map_get(input, :trace_persister),
+      map_get(input, :memory_recorder)
+    )
+
+    {:ok,
+     %{
+       step: judgment_agent_step(run, sequence, "判断并生成本轮回应"),
+       observations: [
+         judgment_observation(run, sequence, judgment.narrative, "judgment:#{turn_id}", %{
+           stage: :judgment_decided,
+           action: judgment.action
+         })
+       ],
+       turn_result: turn_result,
+       stage_state: %{judgment_settled: settle_state(settle)},
+       provider_call_count: judgment.provider_call_count,
+       progress_signature: "#{run.run_id}:judgment:#{turn_id}"
+     }}
+  end
+
+  defp settle_state(:completed), do: "completed"
+  defp settle_state(:awaiting_author), do: "awaiting_author"
+
+  # execute/plan：切换到能力 profile（等价旧路由；计划起草→机械 cursor 沿用）。
+  defp judgment_switch_result(profile, judgment, input, run, sequence) do
+    selection = judgment_selection(judgment, profile)
+
+    with {:ok, target_plan} <- agent_run_agent_plan(run.run_id, profile) do
+      {:ok,
+       %{
+         step: judgment_agent_step(run, sequence, "判断进入#{selection.profile_ref}"),
+         observations: [
+           judgment_observation(
+             run,
+             sequence,
+             judgment.narrative,
+             "profile:#{selection.profile_ref}",
+             %{
+               stage: :judgment_decided,
+               action: judgment.action,
+               profile_ref: selection.profile_ref
+             }
+           )
+         ],
+         stage_state: %{
+           routed_profile: Atom.to_string(profile),
+           routed_profile_ref: selection.profile_ref,
+           profile_selection: selection
+         },
+         run_patch: %{
+           profile_ref: selection.profile_ref,
+           authority_scope:
+             authority_scope(profile, Map.put(input, :profile_selection, selection)),
+           plan: target_plan,
+           plan_ref: plan_id(target_plan),
+           plan_version: plan_version(target_plan),
+           budget: routed_profile_budget(run.goal.text, profile, input)
+         },
+         provider_call_count: judgment.provider_call_count,
+         progress_signature: "#{run.run_id}:judgment_switch:#{selection.profile_ref}"
+       }}
+    end
+  end
+
+  defp judgment_selection(judgment, profile) do
+    %{
+      profile_ref: profile_ref(profile),
+      source: "judgment_loop",
+      reason_codes: ["model_profile_selected", "judgment_" <> judgment.action],
+      matched_terms: [],
+      summary: judgment.narrative,
+      confidence: 1.0
+    }
+  end
+
+  defp judgment_run_summary(run, settle) do
+    %{
+      run_id: run.run_id,
+      run_mode: run.run_mode,
+      parent_turn_ref: run.parent_turn_ref,
+      profile_ref: run.profile_ref,
+      status: settle
+    }
+  end
+
+  # 判断结构 → DialogueFrame 机械转换（非预制创作决策：全部字段来自模型判断输出）。
+  defp judgment_frame(judgment, turn_id, ws_id, context) do
+    frame_type =
+      if judgment.candidate_directions == [], do: :casual_reply, else: :creative_exploration
+
+    context_ref =
+      case context do
+        %DialogueContext{workspace_id: id} when is_binary(id) -> "context:#{id}"
+        _ -> nil
+      end
+
+    %DialogueFrame{
+      schema_version: "3.0-draft",
+      frame_id: NovelFoundation.ID.unique("frame"),
+      turn_id: turn_id,
+      workspace_id: ws_id,
+      primary: true,
+      frame_type: frame_type,
+      source_refs: %{
+        author_input_ref: "author_input:#{turn_id}",
+        dialogue_context_ref: context_ref
+      },
+      dialogue_goal: %{summary: "回应作者本轮输入"},
+      tool_need: %{needs_tool: false, reason_code: :no_tool_needed},
+      execution_readiness: :not_applicable,
+      author_visible_draft: %{message: judgment.narrative},
+      evidence_summary: %{judgment: true, action: judgment.action, context_used: context != nil},
+      uncertainty: []
+    }
+  end
+
+  # 候选随判断结构携带（S2 保全）：字节绑定 provider tool arguments（I1/I3 语义不变）。
+  defp judgment_candidates(%{candidate_directions: directions}, frame_id) do
+    Enum.map(directions, fn c ->
+      %CandidateDirection{
+        direction_id: NovelFoundation.ID.unique("dir"),
+        title: c |> map_get(:title) |> to_string() |> String.trim(),
+        pitch: c |> map_get(:pitch) |> to_string() |> String.trim(),
+        tone_tags: map_get(c, :tone_tags) || [],
+        source_frame_ref: frame_id,
+        risk_hint: :low,
+        adoption_status: :not_adopted
+      }
+    end)
+  end
+
+  defp scope_judgment_turn_result(turn_result, input, run) do
+    turn_result
+    |> Map.put_new(:workspace_id, map_get(input, :workspace_id) || run.workspace_id)
+    |> Map.put_new(:work_id, map_get(input, :work_id) || run.work_id || run.workspace_id)
+    |> Map.put_new(:session_id, map_get(input, :session_id) || run.session_id)
+  end
+
+  # 判断①的作品上下文段（机械准备渲染）+ CP1 能力目录（不含检索，explore 由 CP5 打开）。
+  defp judgment_context_block(context) do
+    [
+      judgment_work_section(context),
+      judgment_chapters_section(context),
+      judgment_conversation_section(context),
+      judgment_capability_catalog()
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  defp judgment_work_section(%DialogueContext{current_work_snapshot: snapshot})
+       when is_map(snapshot) and map_size(snapshot) > 0 do
+    "## 当前作品上下文\n" <>
+      Enum.map_join(snapshot, "\n", fn {key, value} -> "- #{key}: #{value}" end)
+  end
+
+  defp judgment_work_section(_context),
+    do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
+
+  defp judgment_chapters_section(%DialogueContext{current_chapters: [_ | _] = chapters}) do
+    listed = Enum.map_join(chapters, "\n", &"- #{&1}")
+
+    "## 已写章节（共 #{length(chapters)} 章，按顺序）\n#{listed}\n" <>
+      "（回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）"
+  end
+
+  defp judgment_chapters_section(_context), do: ""
+
+  defp judgment_conversation_section(%DialogueContext{conversation_summary: summary})
+       when is_binary(summary) and summary != "" do
+    "## 会话摘要\n#{summary}"
+  end
+
+  defp judgment_conversation_section(_context), do: ""
+
+  defp judgment_capability_catalog do
+    """
+    ## 可用能力（判断"单动作执行"或"制定计划"时的目标集）
+    - character_design：设计新角色/反派（产出待采纳候选）
+    - character_evolution：更新角色当前状态、关系变化（产出待采纳演化记录）
+    - prose_writing：写/续写章节正文（产出待采纳草稿）
+    - plot_outline：规划章节大纲、卷纲、分章结构（产出待采纳大纲）
+    - world_building：世界观、设定、伏笔、写作规则（产出待采纳设定）
+    - work_archive_read：只读查看作品档案（角色列表、结构、统计；不产出候选）
+    """
+    |> String.trim()
+  end
+
+  defp emit_judgment_decided(snapshot, judgment) do
+    emit_judgment_stage(
+      snapshot,
+      :judgment_decided,
+      judgment.narrative,
+      ["judgment_decided", "judgment_" <> judgment.action],
+      %{
+        stage: :judgment_decided,
+        action: judgment.action,
+        capability: judgment.capability,
+        reason: judgment.reason,
+        candidate_count: length(judgment.candidate_directions),
+        author_narrative: judgment.narrative,
+        author_narrative_source: judgment.narrative_source
+      },
+      judgment_event_visibility(judgment)
+    )
+  end
+
+  defp judgment_event_visibility(%{narrative_source: source}) do
+    if AgentNarrativeSource.provider_output_source?(source), do: :author, else: :developer
+  end
+
+  defp emit_judgment_stage(snapshot, type, summary, reason_codes, payload, visibility \\ :author) do
+    case Map.get(snapshot, :stage_sink) do
+      sink when is_function(sink, 1) ->
+        sink.(%{
+          event_type: type,
+          visibility: visibility,
+          summary: summary,
+          reason_codes: reason_codes,
+          refs: [],
+          payload: payload
+        })
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp judgment_mech_decision(run, sequence, target, summary, reason_codes) do
     AgentNextStepDecision.new(%{
       decision_id: "and_#{run.run_id}_#{sequence}",
       run_ref: run.run_id,
       sequence: sequence,
       decision_type: :execute_step,
-      summary: selection.summary,
-      target_tool_ref: "profile_route",
+      summary: summary,
+      target_tool_ref: target,
       write_intent: :none,
       risk_hint: :low,
-      reason_codes: ["profile_route_decided" | selection.reason_codes],
+      reason_codes: reason_codes,
       observation_refs: [],
-      confidence: selection.confidence
+      confidence: 1.0
     })
   end
 
-  defp build_profile_selection(parsed) when is_map(parsed) do
-    profile_ref =
-      parsed
-      |> map_get(:profile_ref)
-      |> case do
-        nil -> map_get(parsed, :selected_profile_ref)
-        value -> value
-      end
-      |> normalize_profile_ref()
+  defp judgment_agent_step(run, sequence, goal) do
+    slug =
+      goal
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9一-龥]+/u, "_")
+      |> String.trim("_")
 
-    with {:ok, profile} <- profile_for_ref(profile_ref) do
-      summary =
-        parsed
-        |> map_get(:summary)
-        |> normalize_summary("已选择 #{profile_ref} 工作流。")
+    {:ok, step} =
+      AgentStep.new(%{
+        step_id: run.current_step_ref || "step_#{run.run_id}_#{sequence}",
+        run_ref: run.run_id,
+        sequence: sequence,
+        goal: goal,
+        status: :completed,
+        observation_refs: [],
+        state_snapshot_ref:
+          Enum.join(
+            ["agent_snapshot", run.work_id, run.session_id, run.run_id, "step", sequence],
+            ":"
+          ),
+        idempotency_key: "#{run.run_id}:#{sequence}:judgment_loop:#{slug}:goal_v#{run.goal.version}"
+      })
 
-      selection = %{
-        profile_ref: profile_ref,
-        source: "model_profile_router",
-        reason_codes:
-          parsed
-          |> map_get(:reason_codes)
-          |> string_list()
-          |> ensure_reason_code("model_profile_selected"),
-        matched_terms: parsed |> map_get(:matched_terms) |> string_list(),
-        summary: summary,
-        confidence: parsed |> map_get(:confidence) |> confidence()
-      }
-
-      {:ok, profile, selection}
-    end
+    step
   end
 
-  defp build_profile_selection(_parsed), do: {:error, :profile_route_json_object_required}
+  defp judgment_observation(run, sequence, summary, source_ref, payload) do
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: "obs_#{run.run_id}_#{sequence}_judgment",
+        run_ref: run.run_id,
+        step_ref: run.current_step_ref || "step_#{run.run_id}_#{sequence}",
+        observation_type: :custom,
+        source_ref: source_ref,
+        summary: summary,
+        structured_payload: payload,
+        evidence_refs: [source_ref],
+        confidence: 1.0
+      })
 
-  defp profile_routing_prompt(run, input) do
-    """
-    你是小说创作系统的 AgentRun profile router。你只决定本轮应该进入哪个 AgentRun profile。
-    你不批准工具执行，不生成作品内容，不调用工具；后续 profile 仍会逐步规划并重新经过系统裁决。
-
-    ## 作者输入
-    #{map_get(input, :text) || run.goal.text}
-
-    ## 可选 profile
-    - conversation_turn_v1: 普通对话、问答、方向讨论、无需直接生成待采纳创作候选。
-    - character_design_with_context_v1: 需要先看现有角色阵容，再设计/新增角色或反派。
-    - prose_drafting_with_quality_v1: 写正文、续写章节、生成正文草稿，并需要质量复核。
-    - plot_outline_with_context_v1: 规划章节大纲、卷纲、分章结构。
-    - character_evolution_with_context_v1: 更新角色当前状态、关系变化、成长/黑化/受伤等演化记忆候选。
-    - world_building_with_context_v1: 世界观、设定、伏笔、线索、写作规则、风格规则候选。
-    - provider_progress_v1: 明确要求演示 provider 进度、流式事件或取消边界。
-    - readonly_batch_context_v1: 明确要求只读批量查看作品/角色/规则/上下文。
-
-    ## 决策要求
-    - 只能从上面的 profile_ref 中选一个。
-    - 如果作者意图不明确，选择 conversation_turn_v1。
-    - 输出只允许严格 JSON，不要解释过程。
-
-    ## 输出格式
-    {
-      "profile_ref": "conversation_turn_v1",
-      "summary": "作者可读的一句话，说明为什么进入该工作流",
-      "reason_codes": ["model_profile_selected"],
-      "matched_terms": ["从作者输入中支持该选择的短词"],
-      "confidence": 0.0
-    }
-    """
+    observation
   end
 
   defp routed_profile(snapshot) when is_map(snapshot) do
@@ -643,11 +946,12 @@ defmodule NovelApplication.DialoguePlanningService do
   defp routed_profile_budget(text, profile, input) do
     base = run_budget(text, profile, input)
 
-    # +1 = 路由本身的 step 与 provider 调用；两段式规划开销已在 run_budget/3 补足
+    # +2 = 判断循环入场开销：机械准备 1 step（0 调用）+ 判断① 1 step（两段式 2 调用）；
+    # 两段式规划开销已在 run_budget/3 补足
     %{
       base
-      | max_steps: base.max_steps + 1,
-        max_provider_calls: base.max_provider_calls + 1
+      | max_steps: base.max_steps + 2,
+        max_provider_calls: base.max_provider_calls + 2
     }
   end
 
@@ -655,102 +959,6 @@ defmodule NovelApplication.DialoguePlanningService do
     budgets
     |> Enum.map(&Map.fetch!(&1, key))
     |> Enum.max()
-  end
-
-  defp normalize_profile_ref(value) when is_binary(value), do: String.trim(value)
-
-  defp normalize_profile_ref(value) when is_atom(value),
-    do: value |> Atom.to_string() |> normalize_profile_ref()
-
-  defp normalize_profile_ref(_value), do: ""
-
-  defp normalize_summary(value, default) when is_binary(value) do
-    case String.trim(value) do
-      "" -> default
-      text -> text
-    end
-  end
-
-  defp normalize_summary(_value, default), do: default
-
-  defp string_list(values) when is_list(values) do
-    values
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp string_list(_values), do: []
-
-  defp ensure_reason_code([], fallback), do: [fallback]
-  defp ensure_reason_code(codes, _fallback), do: codes
-
-  defp confidence(value) when is_float(value) and value >= 0.0 and value <= 1.0, do: value
-  defp confidence(value) when is_integer(value) and value >= 0 and value <= 1, do: value * 1.0
-  defp confidence(_value), do: 1.0
-
-  defp parse_json(content) when is_binary(content) do
-    content
-    |> strip_code_fence()
-    |> find_brace_substring()
-    |> Jason.decode()
-    |> case do
-      {:ok, parsed} when is_map(parsed) -> {:ok, parsed}
-      {:ok, _other} -> {:error, :json_object_required}
-      {:error, _} -> {:error, :json_parse_failed}
-    end
-  end
-
-  defp parse_json(_), do: {:error, :json_parse_failed}
-
-  defp strip_code_fence(content) do
-    trimmed = String.trim(content)
-
-    cond do
-      String.starts_with?(trimmed, "```json") ->
-        trimmed
-        |> String.replace_prefix("```json", "")
-        |> String.replace_suffix("```", "")
-        |> String.trim()
-
-      String.starts_with?(trimmed, "```") ->
-        trimmed
-        |> String.replace_prefix("```", "")
-        |> String.replace_suffix("```", "")
-        |> String.trim()
-
-      true ->
-        trimmed
-    end
-  end
-
-  defp find_brace_substring(content) do
-    case {first_open(content), last_close(content)} do
-      {start_pos, end_pos}
-      when not is_nil(start_pos) and not is_nil(end_pos) and start_pos < end_pos ->
-        String.slice(content, start_pos..end_pos)
-
-      _ ->
-        content
-    end
-  end
-
-  defp first_open(s) do
-    case String.split(s, "{", parts: 2) do
-      [before, _] -> byte_size(before)
-      [_] -> nil
-    end
-  end
-
-  defp last_close(s) do
-    s
-    |> String.reverse()
-    |> String.split("}", parts: 2)
-    |> case do
-      [before, _] -> byte_size(s) - byte_size(before) - 1
-      [_] -> nil
-    end
   end
 
   defp prose_drafting_next_step_planner(context, context_fetcher, provider_execution, input) do
@@ -778,7 +986,7 @@ defmodule NovelApplication.DialoguePlanningService do
     fn run, sequence, snapshot ->
       case routed_profile(snapshot) do
         nil ->
-          profile_route_next_step(run, sequence, snapshot, provider_execution, input)
+          judgment_loop_next_step(run, sequence, snapshot, provider_execution, input)
 
         routed_profile ->
           run_selected_profile_planner(
@@ -1013,12 +1221,12 @@ defmodule NovelApplication.DialoguePlanningService do
         run_budget(text, :readonly_batch_context)
       ]
 
-    # +1 = 路由本身的 provider 调用；两段式规划开销由 run_budget/3 的
-    # plan_overhead_budget 统一补足
+    # +2 = 判断循环入场开销：机械准备 1 step（0 调用）+ 判断①两段式 2 调用；
+    # 两段式规划开销由 run_budget/3 的 plan_overhead_budget 统一补足
     %{
-      max_steps: max_budget(routed, :max_steps) + 1,
+      max_steps: max_budget(routed, :max_steps) + 2,
       max_tool_calls: max_budget(routed, :max_tool_calls),
-      max_provider_calls: max_budget(routed, :max_provider_calls) + 1,
+      max_provider_calls: max_budget(routed, :max_provider_calls) + 2,
       max_replans: max_budget(routed, :max_replans),
       max_pending_artifacts: max_budget(routed, :max_pending_artifacts)
     }

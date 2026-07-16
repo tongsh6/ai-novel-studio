@@ -300,6 +300,7 @@ export const WORKBENCH = {
   agenticLoopReasoningLabel: "推理",
   agenticLoopPlanVersion: (version: number) => `v${version}`,
   agenticLoopEventLabels: {
+    judgment_decided: "判断",
     plan_drafted: "计划",
     plan_revised: "修订",
     exploration_observed: "观察",
