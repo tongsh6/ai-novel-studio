@@ -82,6 +82,14 @@ defmodule NovelAgent.Provider.Stub do
     text = prompt_text(prompt)
 
     cond do
+      NovelAgent.Provider.tool_call_prompt?(prompt) and judgment_prompt?(text) ->
+        judgment_decision_result(text)
+
+      # 判断①第一段（ADR-0025 方案 B）：自由输出判断叙事；判"直接回复"时同一次
+      # 输出空行后内联回复正文。
+      judgment_prompt?(text) ->
+        Result.new(judgment_narrative_content(text))
+
       NovelAgent.Provider.tool_call_prompt?(prompt) and agent_plan_prompt?(text) ->
         native_agent_plan_result(prompt, text)
 
@@ -92,6 +100,98 @@ defmodule NovelAgent.Provider.Stub do
       true ->
         Result.new(infer_response(text))
     end
+  end
+
+  # ── 判断①（ADR-0025 方案 B 回复内联）契约样本 ──
+  # 按作者输入语义确定性判五选一形态，与真实 LLM 遵循同一契约：简单请求不开计划、
+  # 多步复杂任务开计划、缺作品事实先探索、意图不明等作者说清。
+
+  defp judgment_prompt?(text), do: String.contains?(text, "创作判断器")
+
+  defp judgment_narrative_content(text) do
+    {action, _capability} = judgment_action(text)
+    narrative = judgment_narrative(action)
+
+    if action == "reply" do
+      narrative <> "\n\n" <> judgment_reply_body()
+    else
+      narrative
+    end
+  end
+
+  defp judgment_decision_result(text) do
+    {action, capability} = judgment_action(text)
+
+    arguments =
+      %{
+        "action" => action,
+        "reason" => judgment_reason(action),
+        "reply_included" => action == "reply"
+      }
+      |> then(fn args ->
+        if capability, do: Map.put(args, "capability", capability), else: args
+      end)
+
+    Result.new(judgment_reason(action), nil,
+      tool_calls: [
+        %{"name" => "judgment_decision", "arguments" => arguments}
+      ]
+    )
+  end
+
+  defp judgment_action(text) do
+    author_text = judgment_author_input(text)
+
+    cond do
+      String.contains?(author_text, "设计") and
+          (String.contains?(author_text, "角色") or String.contains?(author_text, "反派")) ->
+        {"execute", "character_design"}
+
+      String.contains?(author_text, "梳理") and
+          (String.contains?(author_text, "重写") or String.contains?(author_text, "更新")) ->
+        {"plan", nil}
+
+      String.contains?(author_text, "交代过") or String.contains?(author_text, "查一下") ->
+        {"explore", nil}
+
+      String.length(String.trim(author_text)) <= 6 ->
+        {"await_author", nil}
+
+      true ->
+        {"reply", nil}
+    end
+  end
+
+  defp judgment_author_input(text) do
+    case Regex.run(~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su, text) do
+      [_, author_text] -> String.trim(author_text)
+      _ -> text
+    end
+  end
+
+  defp judgment_narrative(action) do
+    case action do
+      "reply" -> "你想直接和我讨论这个话题；当前作品摘要里已经有回答需要的信息，我直接回复你。"
+      "execute" -> "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
+      "plan" -> "这件事涉及多个相互依赖的步骤，我需要先制定一份可预览的计划再逐步推进。"
+      "explore" -> "回答这个问题需要正文细节，但当前只有结构摘要；我需要先检索作品事实。"
+      "await_author" -> "你的意图我还不能确定，先停下来向你确认，避免做错方向。"
+    end
+  end
+
+  defp judgment_reason(action) do
+    case action do
+      "reply" -> "context_sufficient_for_direct_reply"
+      "execute" -> "single_capability_satisfies_request"
+      "plan" -> "multi_step_dependencies_require_plan"
+      "explore" -> "missing_work_facts_require_retrieval"
+      "await_author" -> "author_intent_unclear"
+    end
+  end
+
+  defp judgment_reply_body do
+    "从当前作品状态看，这个问题可以直接回答：结构摘要里已经列出了章节与角色现状，" <>
+      "你可以基于它继续推进创作方向。"
   end
 
   defp infer_response(text) do
