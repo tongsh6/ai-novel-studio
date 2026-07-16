@@ -245,6 +245,89 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     end
   end
 
+  test "计划起草把作者点名章按 prompt 作品章节列表精确匹配为全名 target_chapter" do
+    prompt = %{
+      messages: [
+        %{
+          role: "user",
+          content: """
+          你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
+
+          ## 当前 AgentRun
+          - run_id: run_plan_chapter_match
+          - profile_ref: prose_drafting_with_quality_v1
+          - goal_version: 1
+          - author_goal: 请根据已采纳章节计划生成第02章的正文草稿
+          - plan_step_targets: context_assemble, prose_writing
+
+          ## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）
+          - 第01章：底层灵气账单
+          - 第02章：矿区追击战
+          - 第03章：黑市调频师
+
+          ## 计划要求
+          - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+          """
+        }
+      ],
+      tools: [%{name: "agent_plan_draft", description: "", input_schema: %{}}],
+      tool_choice: "agent_plan_draft"
+    }
+
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+
+    [%{"arguments" => arguments}] = result.tool_calls
+
+    prose_step =
+      arguments
+      |> get_in([:plan, :steps])
+      |> Enum.find(&(&1.target_tool_ref == "prose_writing"))
+
+    # 与真实 LLM 契约对称：点名"第02章"按章号对应到列表全名；requested_chapter_raw 保留作者原话。
+    assert prose_step.target_chapter == "第02章：矿区追击战"
+    assert prose_step.requested_chapter_raw == "第02章"
+  end
+
+  test "计划起草点名列表外的章时 target_chapter 保持 null（缺失策略 block 信号）" do
+    prompt = %{
+      messages: [
+        %{
+          role: "user",
+          content: """
+          你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
+
+          ## 当前 AgentRun
+          - run_id: run_plan_chapter_miss
+          - profile_ref: prose_drafting_with_quality_v1
+          - goal_version: 1
+          - author_goal: 请生成第99章的正文草稿
+          - plan_step_targets: context_assemble, prose_writing
+
+          ## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）
+          - 第01章：底层灵气账单
+
+          ## 计划要求
+          - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+          """
+        }
+      ],
+      tools: [%{name: "agent_plan_draft", description: "", input_schema: %{}}],
+      tool_choice: "agent_plan_draft"
+    }
+
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+
+    [%{"arguments" => arguments}] = result.tool_calls
+
+    prose_step =
+      arguments
+      |> get_in([:plan, :steps])
+      |> Enum.find(&(&1.target_tool_ref == "prose_writing"))
+
+    assert prose_step.target_chapter == nil
+    assert prose_step.requested_chapter_raw == "第99章"
+  end
+
   test "AU04FAILTOOL marker fails only at creative tool provider stage" do
     plan_prompt = """
     proposed_actions

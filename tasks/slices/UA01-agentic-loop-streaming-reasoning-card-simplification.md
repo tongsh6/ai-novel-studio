@@ -56,20 +56,62 @@ ADR-0023 CP4 后流式退化的根因链（已核实）：
 - **CP3 批次二收口（2026-07-15 晚）**：streaming-progress 已按两段式口径校准复跑绿
   （provider_progress_v1 = 路由 1 + 起草 2 + complete 1 = 4）。**累计 20 个场景 id 绿**。
 - **三个长尾的深度归因（真问题，非资产校准，逐个独立处置）**：
-  1. `p1-prose-revision-candidate`：**真实产品回归**——点名章节的正文草稿请求中
-     `target_chapter="第02章"`（stub 截断名）未命中全称章节列表，作者原文兜底匹配
-     也失败（`matched_chapter=""`，missing_policy block → writer 被阻 → D7 replan
-     再失败 → awaiting_author）。作者原文含全称、匹配逻辑健全，疑为 AgentRun 链路
-     `DialogueContext.current_chapters` 供给回归（引入点在 7-05 native tool call/
-     上下文链变更后；场景 6 月末曾绿）。证据：`artifacts/slice-verify/
-     p1-prose-revision-candidate-tauri/app-log`（writing_coordinate.done matched=""）。
-  2. `agent-provider-execution-error-author-safe`：**疑似真实回归**——provider 失败
-     场景 run_started 后直接 run_failed，provider_progress 帧 0 条（原验收语义：
-     失败被投影为 author-safe 事件 + 安全 fallback TurnResult）。两段式起草失败
-     路径疑似丢投影与安全回应；与 ADR-0024 S7（run 终态必须有 TurnResult）同题。
-  3. `agent-no-progress-stop`：场景机制过时——原设计靠"两次 roster 重复读"诱导
-     no-progress，ADR-0023 计划驱动后机械推进不会重复读；no-progress 现由预算/
-     D 系触发，场景需按新机制重定义诱导方式与断言。
+  1. `p1-prose-revision-candidate`：**真实产品回归——已定位并系统性修复（2026-07-15）**。
+     根因不在 `DialogueContext.current_chapters`（复现证实 fetcher 章节供给健全），而在
+     **规划期 prompt 丢了「作品章节」列表段**：Order 62 从旧 `Planner` 两阶段拆分迁到
+     `AgenticPlanDraftPlanner` 时，只带了 `author_goal`，没带旧 Planner 的
+     `accepted_chapters_section`（作品章节全名列表）。但 `target_chapter` 契约仍要求模型
+     "从列表精确复制全名，对不上填 null"——没有列表，真实模型与 stub 都只能填 null →
+     点名章被 `MissingPolicyResult` 判 hard missing（`matched_chapter=""`）→ writer 短路
+     → D7 replan 再失败 → awaiting_author。这是**规划机械准备缺项**（ADR-0025：机械准备
+     不问模型），不是补丁。修复链路（沿正确数据流）：
+     `WorkspaceContext.chapter_titles_reader/0`（新读端口，与 context fetcher 章节同源）
+     → `NovelApplication.persistence_chapter_titles_reader/0`（既有注入门控）
+     → `AgenticPlanDraftPlanner` 起草/修订四个 prompt 全部注入「## 作品章节」段 + 契约行
+     改为"按列表精确复制全名，对不上填 null"；stub `prose_writing_plan_step` 停止硬编码
+     `target_chapter: nil`，改为按章号对到 prompt 列表全名（列表外保持 null，
+     `cp0-missing-chapter-block` 语义不变）。测试：planner +2 回归（prompt 必含章节段/
+     无章时省略）、stub +2 契约（命中→全名 / 列表外→null）、全 umbrella 1218 tests 绿、
+     I1/I2/I3 绿。外部验收侧顺带一处正当校准：修订 run `provider_calls` 2→3（两段式规划
+     实测 = 计划 reasoning + 计划结构 + writer），driver 与 native-tauri-verifier 两侧
+     finder 同步（原值 2 是两段式前 stale，与 20 场景 streaming 批同类校准）。
+  2. `agent-provider-execution-error-author-safe`：**真实产品缺陷——已定位并系统性修复
+     （2026-07-16）**。归因三层：
+     ① 失败点被 Order 62 意外前移：run 内路由是新引入的第一个 provider 调用，stub 失败
+     标记未豁免路由 prompt → 失败发生在路由而非设计缝（对话回应调用）。桩已把
+     `profile_routing_prompt?` 加入机械准备豁免族（与决策/起草/修订同类），恢复设计缝。
+     ② "socket 0 条 provider_progress" 不是回归而是 ADR-0022 的有意收紧（channel 只广播
+     author 可见事件，developer 级 provider_progress 从不上 socket）；驱动的 socket 取证
+     断言从根上过时，已迁移到持久化 ProviderRun 事实（activity API provider_runs[].events
+     含 started+error、purposes、statuses），与 CP3 批次口径一致。
+     ③ **真实产品缺陷（ADR-0024 S7 违约）**：runtime 三处 run_failed 终局裸退——无安全
+     TurnResult（"run 停了没有下文"），且 `inspect(reason)` 把原始 provider 载荷
+     （"UA01PROVIDERFAIL raw provider failure payload"）直接放进 author 可见事件摘要
+     （N-NARR/47 红线）。系统性修复：`agent_run_server` 三处失败终局统一收口
+     `settle_run_failed/3`——作者摘要只用结构词（按 provider/内部错误分类）、原始载荷
+     只进业务日志（developer JSONL）、附安全兜底 TurnResult（文案复用
+     `Planner.provider_failure_fallback_message/1`，frame 兜底与 run 终局同映射）；
+     恢复动作族（steer/resume available_actions）留给 ADR-0024 CP3。
+     验证：runtime 新增 S7 聚焦测试（路由失败 → 投影事实 + 净化摘要 + 安全 TurnResult）、
+     全 umbrella 1219 tests 绿、verifier 174 绿、真实 Tauri 复跑绿（summary：
+     provider_run_count=4，purposes=[planner, author_reasoning, conversation]，
+     event_types 含 started+error，consumed=4，behavior=
+     provider_failure_absorbed_into_safe_reply_with_persisted_provider_facts）。
+  3. `agent-no-progress-stop`：**场景已按 ADR-0023 计划驱动机制重定义（2026-07-16）**。
+     旧诱导（"两次 roster 重复读"）在机械 cursor 下不可能发生；产品现行 no-progress
+     保护 = `progress_signature` 重复判停（`agent_run_server.apply_progress_signature`），
+     其真实触发形态是**修订空转**：模型起草单步计划（只读上下文）→ 计划走完回应未生成
+     → D6 修订 → 修订没有补足新步骤、只是把同一步再排一遍 → 机械执行重复步 → 签名
+     重复（conversation context 步签名 `run:context:turn_id` 按 run 恒定）→
+     awaiting_author + no_progress，空转步产物被丢弃。新诱导：UA01NOPROGRESS 标记 →
+     桩确定性复刻"修订不出新步骤"的弱模型失败形态（draft 单 context 步 / revision
+     追加同款 context 步）。断言迁移：roster 工具计数删除（全程 0 工具）、新增
+     plan_drafted(单步)/plan_revised 帧、replans=1、budget 按两段式实测（steps=2、
+     provider=5=路由 1+起草 2+空转修订 2）、无 TurnResult 帧。key_events 移除
+     orchestrator.decide/toolbox.execute（无工具执行）。runtime 新增聚焦测试
+     （空转修订 → no_progress 判停 + 产物丢弃 + 账目断言）。真实 Tauri 复跑绿
+     （summary：stop_reason=no_progress，behavior=
+     bounded_agent_run_stops_when_spinning_plan_revision_makes_no_progress）。
 
 
 ## 5a. Stage 首验暴露缺陷与修复（2026-07-06，用户拍板双修）

@@ -210,6 +210,81 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert retry_text =~ "无法被系统解析"
   end
 
+  defp reasoning_provider_result do
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun_reasoning",
+        provider_call_ref: "pcall_reasoning",
+        status: :ok,
+        output_type: :text,
+        content: %{text: @narrative},
+        refs: ["pcall_reasoning"]
+      })
+
+    %{content: @narrative, tool_calls: [], provider_output: output}
+  end
+
+  test "planning prompts carry the work chapter list so target_chapter contract is satisfiable" do
+    test_pid = self()
+
+    result_fn = fn prompt ->
+      send(test_pid, {:prompt, prompt})
+
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        {:ok, provider_result("")}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    titles_reader = fn "ws_plan_draft" -> ["第01章：开端", "第02章：矿区追击战"] end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(
+               probe_run(),
+               %Execution{result_fn: result_fn},
+               %{},
+               chapter_titles_reader: titles_reader
+             )
+
+    assert_received {:prompt, reasoning_prompt}
+    assert_received {:prompt, structure_prompt}
+
+    # 两段 prompt 都必须携带「作品章节」列表：target_chapter 契约要求模型精确复制列表全名，
+    # 缺了列表点名章请求只能填 null → 被缺失策略误判"点名了不存在的章"（本回归的根因）。
+    for prompt <- [reasoning_prompt, structure_prompt] do
+      text = prompt.messages |> hd() |> Map.fetch!(:content)
+      assert text =~ "## 作品章节"
+      assert text =~ "- 第02章：矿区追击战"
+      assert text =~ "精确复制全名"
+    end
+  end
+
+  test "planning prompts omit the chapter section when the work has no chapters" do
+    test_pid = self()
+
+    result_fn = fn prompt ->
+      send(test_pid, {:prompt, prompt})
+
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        {:ok, provider_result("")}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(
+               probe_run(),
+               %Execution{result_fn: result_fn},
+               %{},
+               chapter_titles_reader: fn _workspace_id -> [] end
+             )
+
+    assert_received {:prompt, reasoning_prompt}
+    refute reasoning_prompt.messages |> hd() |> Map.fetch!(:content) =~ "## 作品章节"
+  end
+
   test "empty content and missing author_reasoning still fails honestly after retry" do
     arguments = Map.delete(plan_arguments(), "author_reasoning")
     tool_calls = [%{"name" => "agent_plan_draft", "arguments" => arguments}]

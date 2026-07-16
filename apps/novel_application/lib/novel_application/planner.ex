@@ -805,6 +805,18 @@ defmodule NovelApplication.Planner do
     }
   end
 
+  @doc """
+  Provider 失败时的作者安全兜底文案。
+
+  这是 47 文案指南的合法系统词例外：provider 不可用时模型无法自产文案，只能由系统
+  按失败类别给出结构性说明。frame 兜底（form_frame fallback_frame）与 AgentRun
+  失败终局（ADR-0024 S7，agent_run_server 安全 TurnResult）共用同一份映射，
+  保证同类失败在两条链路上文案一致。
+  """
+  @spec provider_failure_fallback_message(term()) :: String.t()
+  def provider_failure_fallback_message(reason),
+    do: reason |> frame_error_reason_code() |> fallback_message()
+
   defp frame_error_reason_code(:json_parse_failed), do: :json_parse_failed
   defp frame_error_reason_code(:frame_contract_invalid), do: :json_parse_failed
   defp frame_error_reason_code(%{type: :invalid_request}), do: :invalid_request

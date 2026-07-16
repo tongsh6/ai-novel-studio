@@ -190,6 +190,17 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回章节标题读端口：`(work_id) -> 当前作品章节全名列表（含已规划但还没写正文的章）`。
+
+  供 AgentRun 规划期（AgenticPlanDraftPlanner）注入「作品章节」段：target_chapter 契约
+  要求模型从该列表精确复制全名；列表缺席时，点名章的正文请求会被缺失策略误判为
+  "点名了不存在的章"而硬阻断。未启用真实持久化时返回 nil（prompt 不含作品章节段）。
+  """
+  def persistence_chapter_titles_reader do
+    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.chapter_titles_reader()
+  end
+
+  @doc """
   返回角色主档案读端口：`(work_id) -> 当前作品已采纳角色列表`（设计 21 §7.2 主档案层）。
 
   供创作/角色设计上下文注入"现有角色"（VS-00C 同向 / AU09-character-dossier-roundtrip I-c）：

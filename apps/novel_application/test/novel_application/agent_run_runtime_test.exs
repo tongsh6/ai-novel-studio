@@ -490,6 +490,118 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event_full, :run_completed, _}, 500
   end
 
+  test "spinning plan revision that repeats the same step stops as awaiting_author no_progress" do
+    parent = self()
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :conversation_turn,
+        %{
+          text: "测试修订空转被 no_progress 判停",
+          workspace_id: "ws-conversation-no-progress",
+          work_id: "work-conversation-no-progress",
+          session_id: "session-conversation-no-progress",
+          turn_id: "turn-conversation-no-progress"
+        },
+        nil,
+        conversation_no_progress_provider()
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:awaiting_author, 1_000)
+    awaiting = List.last(events)
+
+    # 模型起草单步计划 → 计划耗尽触发修订 → 修订只是重复同一步（空转）
+    assert Enum.find(events, &(&1.event_type == :plan_drafted))
+    assert Enum.find(events, &(&1.event_type == :plan_revised))
+
+    # runtime 以 progress_signature 重复判停：awaiting_author + no_progress
+    assert "no_progress" in awaiting.reason_codes
+    assert awaiting.summary =~ "未取得新进展"
+
+    # 空转步的产物被丢弃：没有 turn_result，也没有工具调用
+    refute Enum.any?(events, &(&1.event_type == :turn_result_ready))
+    refute Enum.any?(events, &(&1.event_type == :tool_started))
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+    assert run.consumed_budget.replans == 1
+    assert run.consumed_budget.tool_calls == 0
+    # 两个 context 步（初稿一步 + 空转重复一步）；起草 2 + 修订 2 = 4 次 provider 调用
+    assert run.consumed_budget.steps == 2
+    assert run.consumed_budget.provider_calls == 4
+  end
+
+  test "profile routing provider failure settles author-safe: sanitized run_failed + safe fallback TurnResult (ADR-0024 S7)" do
+    parent = self()
+
+    execution = %Execution{
+      purpose: :conversation,
+      execute_fn: fn _prompt -> provider_activity_error_result() end
+    }
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :profile_routing,
+        %{
+          text: "路由期 provider 失败也必须作者安全",
+          workspace_id: "ws-route-error",
+          work_id: "work-route-error",
+          session_id: "session-route-error",
+          turn_id: "turn-route-error"
+        },
+        nil,
+        execution
+      )
+
+    assert {:ok, _run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:run_failed, 1_000)
+    failed = List.last(events)
+
+    # ① 失败调用的 provider 事实仍进入 developer 投影（provider_started / provider_error）
+    assert Enum.any?(
+             events,
+             &(&1.event_type == :provider_progress and "provider_started" in &1.reason_codes)
+           )
+
+    assert Enum.any?(
+             events,
+             &(&1.event_type == :provider_progress and "provider_error" in &1.reason_codes)
+           )
+
+    # ② 作者可见摘要只用系统结构词，原始 provider 载荷不进任何事件（N-NARR/47 红线）
+    assert failed.summary == "模型调用失败，本轮运行已安全停止。"
+    assert "provider_error" in failed.reason_codes
+    refute inspect(events) =~ "raw provider failure payload"
+    refute inspect(events) =~ "raw_prompt"
+
+    # ③ S7（ADR-0024 #121）：失败终局携带安全兜底 TurnResult——run 停了必须有下文
+    turn_result = failed.payload.turn_result
+    assert turn_result.assistant_message.text =~ "无法连接到创作引擎"
+    assert turn_result.assistant_message.text =~ "没有创建待采纳内容"
+    assert turn_result.phase == "failed"
+    assert turn_result.status == "failed"
+
+    assert turn_result.truthfulness == %{
+             tool_called: false,
+             artifact_adopted: false,
+             production_write_performed: false
+           }
+
+    assert turn_result.agent_run.status == :failed
+    assert turn_result.agent_run.profile_ref == "profile_routing_v1"
+  end
+
   test "conversation turn projects provider execution error facts into author-safe provider progress" do
     parent = self()
 
@@ -2190,6 +2302,45 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         provider_result(result)
       end
     }
+  end
+
+  defp conversation_no_progress_provider do
+    %Execution{
+      result_fn: fn prompt ->
+        result =
+          cond do
+            agent_plan_revision_prompt?(prompt) -> conversation_spinning_plan_revision()
+            agent_plan_draft_prompt?(prompt) -> conversation_context_only_plan()
+            true -> reply_only_frame_json()
+          end
+
+        provider_result(result)
+      end
+    }
+  end
+
+  # 空转修订：修订计划保留已完成前缀后，只是把同一件事（读上下文）再排一遍——
+  # 真实弱模型"修订不出新步骤"失败形态；runtime 应以 progress_signature 重复判停。
+  defp conversation_spinning_plan_revision do
+    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+      "上一轮只读取了上下文还没有生成回应；我再读取一次作品上下文补足信息。",
+      [
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "assemble_conversation_context",
+          "context_assemble",
+          "组装当前作品上下文",
+          success_criteria: ["conversation_context_attached"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "assemble_conversation_context_again",
+          "context_assemble",
+          "再次组装当前作品上下文",
+          success_criteria: ["conversation_context_attached"]
+        )
+      ],
+      reason_codes: ["agent_plan_revised", "conversation_no_progress_probe"],
+      tool_name: "agent_plan_revision"
+    )
   end
 
   defp conversation_precondition_replan_provider do

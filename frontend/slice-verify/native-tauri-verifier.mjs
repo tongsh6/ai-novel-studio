@@ -635,10 +635,10 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // 重定义（ADR-0023）：no-progress = 修订空转被 progress_signature 判停，全程无工具执行，
+  // 因此不再要求 orchestrator.decide / toolbox.execute 证据。
   "agent-no-progress-stop": [
     "channel.user_message.start",
-    "orchestrator.decide.done",
-    "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -3232,7 +3232,8 @@ function findP1ProseRevisionCandidateEvidence(
       record.revision_agent_stage_events_visible === true &&
       Number(record.revision_consumed_steps ?? 0) === 4 &&
       Number(record.revision_consumed_tool_calls ?? 0) === 1 &&
-      Number(record.revision_consumed_provider_calls ?? 0) === 2 &&
+      // 两段式规划（Order 62）：修订 run = 计划 reasoning + 计划结构 + writer = 3 次 provider 调用
+      Number(record.revision_consumed_provider_calls ?? 0) === 3 &&
       record.adopt_event_sent === false &&
       record.chapter_title === targetChapterTitle,
   );
@@ -3389,7 +3390,8 @@ function p1ProseRevisionCandidateBehavior(
   if (uiState.revision_agent_stage_events_visible !== true) return null;
   if (Number(uiState.revision_consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.revision_consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 2) return null;
+  // 两段式规划（Order 62）：修订 run = 计划 reasoning + 计划结构 + writer = 3 次 provider 调用
+  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 3) return null;
   if (
     requestedSliceId === "agent-replay-no-provider" &&
     (evidence.replay_policy?.recall_provider !== false ||
@@ -6145,6 +6147,8 @@ function agentSessionTranscriptLazyPageBehavior(turnIds, records, evidence) {
   };
 }
 
+// ADR-0022 后 developer 事件不上作者 socket：provider 失败取证由持久化 ProviderRun
+// 事实（activity API provider_runs[].events）承担；作者面只验安全兜底回复 + run 完成。
 function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
   const sliceId = "agent-provider-execution-error-author-safe";
   const uiState = records.find(
@@ -6155,26 +6159,20 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
       record.parent_fast_ack_before_final_turn_result === true &&
       record.profile_ref === "conversation_turn_v1" &&
       record.final_turn_broadcast === true &&
-      Number(record.provider_progress_event_count ?? 0) >= 2 &&
-      boolValue(record.provider_progress_visibility_developer) === true &&
-      boolValue(record.provider_progress_has_step_ref) === true &&
+      Number(record.provider_activity_api_status ?? 0) === 200 &&
+      Number(record.provider_run_count ?? 0) >= 4 &&
       boolValue(record.provider_started_projected) === true &&
       boolValue(record.provider_error_projected) === true &&
-      boolValue(record.provider_execution_stream_projected) === true &&
       boolValue(record.provider_progress_raw_content_leaked) === false &&
       boolValue(record.safe_fallback_visible) === true &&
-      Array.isArray(record.provider_run_refs) &&
-      record.provider_run_refs.length >= 1 &&
-      Array.isArray(record.provider_call_refs) &&
-      record.provider_call_refs.length >= 1 &&
       Array.isArray(record.provider_purposes) &&
       record.provider_purposes.includes("author_reasoning") &&
       record.provider_purposes.includes("conversation") &&
       Array.isArray(record.provider_statuses) &&
-      record.provider_statuses.includes("error") &&
-      Array.isArray(record.provider_output_types) &&
-      record.provider_output_types.includes("empty") &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      (record.provider_statuses.includes("failed") ||
+        record.provider_statuses.includes("error")) &&
+      // 路由 1 + 计划 reasoning/结构 2 + 失败的回应调用 1 = 4（失败调用如实计数）
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.final_turn_result_run_id === record.run_id &&
       boolValue(record.no_tool_called) === true &&
       boolValue(record.no_auto_adoption) === true &&
@@ -6185,18 +6183,13 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
   return {
     slice_id: sliceId,
     turn_id: String(uiState.final_turn_id ?? uiState.turn_id ?? ""),
-    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")].filter(
-      Boolean,
-    ),
+    turn_ids: [String(uiState.final_turn_id ?? uiState.turn_id ?? "")].filter(Boolean),
     run_id: String(uiState.run_id ?? ""),
     profile_ref: uiState.profile_ref,
-    provider_progress_event_count: Number(uiState.provider_progress_event_count ?? 0),
-    provider_progress_reason_codes: uiState.provider_progress_reason_codes ?? [],
-    provider_run_refs: uiState.provider_run_refs ?? [],
-    provider_call_refs: uiState.provider_call_refs ?? [],
+    provider_run_count: Number(uiState.provider_run_count ?? 0),
+    provider_event_types: uiState.provider_event_types ?? [],
     provider_purposes: uiState.provider_purposes ?? [],
     provider_statuses: uiState.provider_statuses ?? [],
-    provider_output_types: uiState.provider_output_types ?? [],
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
     key_events: keyEventsForSlice(sliceId),
   };
@@ -6213,16 +6206,12 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
   );
   if (!uiState) return null;
   if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (Number(uiState.provider_activity_api_status ?? 0) !== 200) return null;
+  if (Number(uiState.provider_run_count ?? 0) < 4) return null;
   if (boolValue(uiState.provider_started_projected) !== true) return null;
   if (boolValue(uiState.provider_error_projected) !== true) return null;
-  if (boolValue(uiState.provider_execution_stream_projected) !== true) return null;
   if (boolValue(uiState.provider_progress_raw_content_leaked) !== false) return null;
   if (boolValue(uiState.safe_fallback_visible) !== true) return null;
-  if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1)
-    return null;
-  if (!Array.isArray(uiState.provider_call_refs) || uiState.provider_call_refs.length < 1) {
-    return null;
-  }
   if (
     !Array.isArray(uiState.provider_purposes) ||
     !uiState.provider_purposes.includes("author_reasoning") ||
@@ -6230,37 +6219,30 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
   ) {
     return null;
   }
-  if (!Array.isArray(uiState.provider_statuses) || !uiState.provider_statuses.includes("error")) {
-    return null;
-  }
   if (
-    !Array.isArray(uiState.provider_output_types) ||
-    !uiState.provider_output_types.includes("empty")
+    !Array.isArray(uiState.provider_statuses) ||
+    !(uiState.provider_statuses.includes("failed") || uiState.provider_statuses.includes("error"))
   ) {
     return null;
   }
 
   return {
     slice_id: "agent-provider-execution-error-author-safe",
-    behavior: "provider_execution_error_facts_projected_to_developer_telemetry",
+    behavior: "provider_failure_absorbed_into_safe_reply_with_persisted_provider_facts",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
-    provider_progress_event_count: evidence.provider_progress_event_count,
-    provider_progress_reason_codes: evidence.provider_progress_reason_codes,
-    provider_run_refs: evidence.provider_run_refs,
-    provider_call_refs: evidence.provider_call_refs,
+    provider_run_count: evidence.provider_run_count,
+    provider_event_types: evidence.provider_event_types,
     provider_purposes: evidence.provider_purposes,
     provider_statuses: evidence.provider_statuses,
-    provider_output_types: evidence.provider_output_types,
     consumed_provider_calls: evidence.consumed_provider_calls,
     assertions: [
       "plain_conversation_used_conversation_turn_profile_not_provider_progress_profile",
-      "provider_execution_error_event_was_projected_to_developer_telemetry",
-      "provider_activity_carried_provider_run_and_call_refs",
-      "provider_activity_did_not_expose_raw_prompt_or_provider_error_payload",
+      "failed_provider_call_facts_persisted_as_provider_run_events",
+      "persisted_provider_facts_did_not_expose_raw_prompt_or_provider_error_payload",
       "safe_fallback_turn_result_did_not_call_tool_or_write_artifact",
-      "final_run_state_recorded_planner_and_conversation_provider_calls",
+      "run_completed_with_routing_plan_and_failed_response_calls_counted",
     ],
   };
 }
@@ -7067,10 +7049,15 @@ function findUa01AgentStopEvidence(records, sliceId) {
       return Number(record.consumed_steps ?? 0) === 1;
     }
 
+    // 重定义（ADR-0023）：修订空转判停——两个 context 步（初稿 + 空转重复）、
+    // 路由 1 + 起草 2 + 空转修订 2 = 5 次 provider 调用、1 次 replan、0 工具。
     return (
       Number(record.consumed_steps ?? 0) === 2 &&
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
-      Number(record.roster_tool_count ?? 0) >= 2
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      Number(record.consumed_replans ?? 0) === 1 &&
+      Number(record.consumed_tool_calls ?? 0) === 0 &&
+      boolValue(record.plan_drafted_visible) === true &&
+      boolValue(record.plan_revised_visible) === true
     );
   });
   if (!uiState) return null;
@@ -7138,13 +7125,19 @@ function ua01AgentStopBehavior(turnIds, records, evidence, sliceId) {
     };
   }
 
+  // 重定义（ADR-0023）：修订空转判停——两个 context 步、5 次 provider 调用（路由 1 +
+  // 起草 2 + 空转修订 2）、1 次 replan、0 工具；空转步产物被丢弃（无 TurnResult）。
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
-  if (Number(uiState.roster_tool_count ?? 0) < 2) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_tool_calls ?? 0) !== 0) return null;
+  if (boolValue(uiState.plan_drafted_visible) !== true) return null;
+  if (boolValue(uiState.plan_revised_visible) !== true) return null;
+  if (boolValue(uiState.any_tool_executed) !== false) return null;
 
   return {
     slice_id: sliceId,
-    behavior: "bounded_agent_run_stops_when_repeated_roster_steps_make_no_progress",
+    behavior: "bounded_agent_run_stops_when_spinning_plan_revision_makes_no_progress",
     turn_ids: evidence.turn_ids,
     run_id: evidence.run_id,
     stop_reason: reason,
@@ -7152,11 +7145,12 @@ function ua01AgentStopBehavior(turnIds, records, evidence, sliceId) {
     consumed_tool_calls: evidence.consumed_tool_calls,
     consumed_provider_calls: evidence.consumed_provider_calls,
     assertions: [
-      "repeated_roster_request_was_sent_from_real_workbench",
-      "agent_run_executed_two_readonly_roster_steps",
+      "plain_conversation_request_was_sent_from_real_workbench",
+      "model_drafted_single_context_step_plan_then_revised_without_new_steps",
+      "runtime_detected_repeated_progress_signature_on_revised_step",
       "agent_run_stopped_as_awaiting_author_with_no_progress",
-      "character_design_provider_was_not_called_after_no_progress",
-      "no_final_character_turn_result_was_broadcast",
+      "no_tool_executed_and_no_final_turn_result_was_broadcast",
+      "spinning_revision_consumed_one_replan_budget",
     ],
   };
 }

@@ -8,6 +8,8 @@ defmodule NovelApplication.AgentRunServer do
 
   use GenServer
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentEventPublisher
   alias NovelApplication.AgentNarrativeSource
@@ -256,9 +258,7 @@ defmodule NovelApplication.AgentRunServer do
       state
       |> Map.put(:current_task_ref, nil)
       |> Map.put(:current_task_pid, nil)
-      |> put_run_status(:failed)
-      |> emit(:run_failed, "AgentRun step failed: #{inspect(reason)}", ["step_task_down"])
-      |> persist_run_state()
+      |> settle_run_failed({:step_task_down, reason}, ["step_task_down"])
 
     {:noreply, state}
   end
@@ -289,10 +289,8 @@ defmodule NovelApplication.AgentRunServer do
       not is_function(state.next_step_planner, 3) ->
         state =
           state
-          |> put_run_status(:failed)
           |> put_run_phase(:stopped)
-          |> emit(:run_failed, "AgentRun 缺少下一步规划器。", ["next_step_planner_required"])
-          |> persist_run_state()
+          |> settle_run_failed(:next_step_planner_required, ["next_step_planner_required"])
 
         {:noreply, state}
 
@@ -385,14 +383,87 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp handle_step_result(state, {:error, reason}) do
-    state
-    |> put_run_status(:failed)
-    |> emit(:run_failed, "AgentRun step failed: #{inspect(reason)}", ["step_failed"])
-    |> persist_run_state()
+    settle_run_failed(state, reason, ["step_failed" | failure_family_reason_codes(reason)])
   end
 
   defp handle_step_result(state, other) do
     handle_step_result(state, {:error, {:unexpected_step_result, other}})
+  end
+
+  # ── S7（ADR-0024 #121）：对话流中不允许存在「run 停了但没有下文」的终局 ──
+  #
+  # 失败终局统一收口：
+  # ① 作者可见摘要只用系统结构词——原始失败载荷（provider 错误 message、进程退出原因）
+  #    永不进入 author 事件（N-NARR/47 文案红线）；细节走业务日志（developer JSONL）。
+  # ② 附带安全兜底 TurnResult（说明 + 全 false truthfulness），作者在对话流中始终有下文；
+  #    恢复动作族（steer/resume available_actions）由 ADR-0024 CP3 扩展。
+  defp settle_run_failed(state, reason, reason_codes) do
+    LogEmit.emit(:agent_run, :run_failed, :error, %{
+      run_id: state.run.run_id,
+      reason_code: List.last(reason_codes),
+      outcome_detail: reason |> inspect() |> String.slice(0, 300)
+    })
+
+    turn_result = safe_failure_turn_result(state.run, reason)
+
+    state
+    |> put_run_status(:failed)
+    |> maybe_store_final_turn_result(turn_result)
+    |> emit(:run_failed, failure_author_summary(reason), reason_codes, [], %{
+      turn_result: turn_result
+    })
+    |> persist_run_state()
+  end
+
+  # provider 错误契约形状（Gateway execution_error：%{type:, message:}）判定失败家族。
+  defp provider_failure_reason?(reason),
+    do: is_map(reason) and is_atom(Map.get(reason, :type))
+
+  defp failure_family_reason_codes(reason) do
+    if provider_failure_reason?(reason), do: ["provider_error"], else: []
+  end
+
+  defp failure_author_summary(reason) do
+    if provider_failure_reason?(reason) do
+      "模型调用失败，本轮运行已安全停止。"
+    else
+      "本轮运行执行失败，已安全停止。"
+    end
+  end
+
+  defp safe_failure_turn_result(%AgentRun{} = run, reason) do
+    %{
+      schema_version: "3.0-draft",
+      turn_id: run.parent_turn_ref,
+      assistant_message: %{text: failure_fallback_message(reason)},
+      ui_cards: [],
+      phase: "failed",
+      status: "failed",
+      trace_summary: %{
+        decision_type: :run_failed,
+        no_write_reason: "run failed before producing any adoptable output"
+      },
+      truthfulness: %{
+        tool_called: false,
+        artifact_adopted: false,
+        production_write_performed: false
+      },
+      agent_run: %{
+        run_id: run.run_id,
+        run_mode: run.run_mode,
+        parent_turn_ref: run.parent_turn_ref,
+        profile_ref: run.profile_ref,
+        status: :failed
+      }
+    }
+  end
+
+  defp failure_fallback_message(reason) do
+    if provider_failure_reason?(reason) do
+      NovelApplication.Planner.provider_failure_fallback_message(reason)
+    else
+      "本轮运行遇到内部错误，已安全停止。没有创建待采纳内容，也没有写入作品事实。你可以重试，或继续对话。"
+    end
   end
 
   defp maybe_emit_loop_decision(state, %AgentNextStepDecision{} = decision) do

@@ -155,6 +155,22 @@ defmodule NovelPersistence.WorkspaceContext do
   defp normalize_title(_), do: ""
 
   @doc """
+  章节标题 reader port：`(work_id) -> 当前作品章节全名列表（含已规划但还没写正文的章）`。
+
+  供 AgentRun 规划期（AgenticPlanDraftPlanner）注入「作品章节」段：target_chapter 契约
+  要求模型从该列表精确复制全名，列表必须由应用层确定性提供（机械准备，不问模型）。
+  与 context fetcher 的 chapters 同源（reading projection toc）。
+  """
+  @spec chapter_titles_reader() :: (String.t() -> [String.t()])
+  def chapter_titles_reader do
+    fn work_id ->
+      work_id
+      |> fetch_structured_chapters()
+      |> titles_from_structured_chapters()
+    end
+  end
+
+  @doc """
   章摘要 reader port（VS-00C CP2.2）。返回 `by_title` / `previous` 两个能力，供
   TurnExecutionService 做 L5（截断前文以本章摘要兜底）与 L3a（注入目标章之前最近 N 章摘要的实现态连续性窗口）。
 

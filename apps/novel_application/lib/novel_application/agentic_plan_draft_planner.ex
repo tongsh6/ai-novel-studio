@@ -21,15 +21,17 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   @type provider_execution :: Execution.dependency()
 
-  @spec draft_plan_with_meta(AgentRun.t(), provider_execution(), map()) ::
+  @spec draft_plan_with_meta(AgentRun.t(), provider_execution(), map(), keyword()) ::
           {:ok, AgentPlan.t(), map()} | {:error, term()}
-  def draft_plan_with_meta(%AgentRun{} = run, provider_execution, snapshot \\ %{}) do
+  def draft_plan_with_meta(%AgentRun{} = run, provider_execution, snapshot \\ %{}, opts \\ []) do
+    chapter_titles = chapter_titles(run, opts)
+
     request_plan_with_meta(
       run,
       provider_execution,
       snapshot,
-      draft_reasoning_prompt(run, snapshot),
-      &draft_structure_prompt(run, snapshot, &1),
+      draft_reasoning_prompt(run, snapshot, chapter_titles),
+      &draft_structure_prompt(run, snapshot, chapter_titles, &1),
       @draft_tool_name,
       &draft_meta/2
     )
@@ -45,16 +47,39 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       |> Kernel.||("计划步骤已走完，但完成条件尚未成立。")
 
     revision_run = %{run | plan_version: next_plan_version(run)}
+    chapter_titles = chapter_titles(run, opts)
 
     request_plan_with_meta(
       revision_run,
       provider_execution,
       snapshot,
-      revision_reasoning_prompt(run, snapshot, revision_reason),
-      &revision_structure_prompt(run, snapshot, revision_reason, &1),
+      revision_reasoning_prompt(run, snapshot, chapter_titles, revision_reason),
+      &revision_structure_prompt(run, snapshot, chapter_titles, revision_reason, &1),
       @revision_tool_name,
       &revision_meta(&1, &2, revision_reason)
     )
+  end
+
+  # 规划期机械准备（ADR-0025）：作品章节全名列表由应用层确定性读取后注入 prompt，
+  # 不问模型。target_chapter 契约（精确复制列表全名）没有这份列表就无法履行——缺席时
+  # 点名章的正文请求会被缺失策略误判为"点名了不存在的章"而硬阻断。读取失败按无章节处理。
+  defp chapter_titles(%AgentRun{} = run, opts) do
+    reader =
+      Keyword.get(opts, :chapter_titles_reader) ||
+        NovelApplication.persistence_chapter_titles_reader()
+
+    with true <- is_function(reader, 1),
+         titles when is_list(titles) <- safe_chapter_titles(reader, run.workspace_id) do
+      Enum.filter(titles, &(is_binary(&1) and String.trim(&1) != ""))
+    else
+      _ -> []
+    end
+  end
+
+  defp safe_chapter_titles(reader, workspace_id) do
+    reader.(workspace_id)
+  rescue
+    _error -> []
   end
 
   # 两段式调用（ADR-0023 修订注记 2026-07-05，用户拍板体验优先）：
@@ -373,7 +398,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp plan_step_targets(_profile_ref), do: nil
 
-  defp draft_context_block(%AgentRun{} = run, snapshot) do
+  defp draft_context_block(%AgentRun{} = run, snapshot, chapter_titles) do
     """
     ## 当前 AgentRun
     - run_id: #{run.run_id}
@@ -383,19 +408,28 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
     - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
     - stage_state_keys: #{stage_state_keys(snapshot)}
-
+    #{accepted_chapters_section(chapter_titles)}
     ## 计划要求
     - 计划必须是当前作者目标的 per-run 动态计划，不要复述固定模板。
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
     - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；无法确定时填 null。
+    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
     - 只起草计划，不声称已经执行，不输出工具结果。
     - 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。
     """
     |> String.trim()
   end
 
-  defp revision_context_block(%AgentRun{} = run, snapshot, revision_reason) do
+  # 与旧 Planner accepted_chapters_section 同一契约措辞：target_chapter 只能是列表全名。
+  defp accepted_chapters_section([]), do: ""
+
+  defp accepted_chapters_section(chapter_titles) do
+    listed = Enum.map_join(chapter_titles, "\n", &"- #{&1}")
+
+    "\n## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）\n#{listed}\n"
+  end
+
+  defp revision_context_block(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
     """
     ## 当前 AgentRun
     - run_id: #{run.run_id}
@@ -406,7 +440,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
     - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
     - stage_state_keys: #{stage_state_keys(snapshot)}
-
+    #{accepted_chapters_section(chapter_titles)}
     ## 修订触发原因
     #{revision_reason}
 
@@ -420,7 +454,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - 输出完整修订后计划；已经完成的前缀步骤应保留，未完成步骤应追加或替换为当前目标仍需要的步骤。
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
     - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；无法确定时填 null。
+    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
     - 只修订计划，不声称已经执行，不输出工具结果。
     - 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。
     """
@@ -428,7 +462,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   # 两段式第一段：自由输出 reasoning，无 tools——content 可流式逐字显示给作者。
-  defp draft_reasoning_prompt(%AgentRun{} = run, snapshot) do
+  defp draft_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
     %{
       messages: [
         %{
@@ -436,7 +470,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
           content: """
           你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
 
-          #{draft_context_block(run, snapshot)}
+          #{draft_context_block(run, snapshot, chapter_titles)}
 
           ## 输出要求（46§9.4 意图开场段体裁）
           - 用自然中文向作者输出一段连贯的第一人称意图陈述，必须依次覆盖三件事：
@@ -457,13 +491,13 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   # 两段式第二段：强制 native tool call，把第一段 reasoning 结构化为 AgentPlan。
-  defp draft_structure_prompt(%AgentRun{} = run, snapshot, reasoning_text) do
+  defp draft_structure_prompt(%AgentRun{} = run, snapshot, chapter_titles, reasoning_text) do
     tool_prompt(
       @draft_tool_name,
       """
       你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
 
-      #{draft_context_block(run, snapshot)}
+      #{draft_context_block(run, snapshot, chapter_titles)}
 
       ## 你已向作者说明的计划 reasoning
       #{reasoning_text || "（reasoning 缺失：你必须在 author_reasoning 字段补写一段作者可见 reasoning 原文）"}
@@ -479,7 +513,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     )
   end
 
-  defp revision_reasoning_prompt(%AgentRun{} = run, snapshot, revision_reason) do
+  defp revision_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
     %{
       messages: [
         %{
@@ -487,7 +521,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
           content: """
           你是小说创作系统的 AgentRun 计划修订器。你只修订本次运行的可见 AgentPlan，不批准执行。
 
-          #{revision_context_block(run, snapshot, revision_reason)}
+          #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
 
           ## 输出要求（46§9.4 阶段结论段体裁）
           - 用自然中文向作者输出一段连贯的结论陈述，必须依次覆盖三件事：
@@ -505,13 +539,19 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     }
   end
 
-  defp revision_structure_prompt(%AgentRun{} = run, snapshot, revision_reason, reasoning_text) do
+  defp revision_structure_prompt(
+         %AgentRun{} = run,
+         snapshot,
+         chapter_titles,
+         revision_reason,
+         reasoning_text
+       ) do
     tool_prompt(
       @revision_tool_name,
       """
       你是小说创作系统的 AgentRun 计划修订器。你只修订本次运行的可见 AgentPlan，不批准执行。
 
-      #{revision_context_block(run, snapshot, revision_reason)}
+      #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
 
       ## 你已向作者说明的修订 reasoning
       #{reasoning_text || "（reasoning 缺失：你必须在 author_reasoning 字段补写一段作者可见 reasoning 原文）"}

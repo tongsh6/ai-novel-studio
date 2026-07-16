@@ -16181,7 +16181,8 @@ async function driveP1ProseRevisionCandidate(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 2,
+      // Order 62 两段式规划：修订 run = 计划 reasoning + 计划结构 + writer = 3 次 provider 调用
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
     "Revision AgentRun state did not finish with expected step/tool/provider counters",
     60_000,
   );
@@ -18914,32 +18915,9 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
     30_000,
   );
 
-  const providerStartedEvent = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "provider_progress" &&
-      frame.body?.visibility === "developer" &&
-      (frame.body?.reason_codes ?? []).includes("provider_started"),
-    "Provider error AgentRun did not project provider_started",
-    30_000,
-  );
-
-  const providerErrorEvent = await waitForNewFrame(
-    frames.indexOf(providerStartedEvent),
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "provider_progress" &&
-      frame.body?.visibility === "developer" &&
-      (frame.body?.reason_codes ?? []).includes("provider_error"),
-    "Provider error AgentRun did not project provider_error",
-    30_000,
-  );
-
+  // ADR-0022（2026-07-02 d0643cd3）：developer 级 provider_progress 不上作者 socket。
+  // provider_started / provider_error 取证改由持久化 ProviderRun 事实（activity API
+  // provider_runs[].events）承担，见下方 activity 断言块。
   const turnFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
@@ -18975,7 +18953,8 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "conversation_turn_v1" &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      // 两段式规划 + run 内路由：路由 1 + 计划 reasoning/结构 2 + 失败的回应调用 1 = 4
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
     "Provider error AgentRun state did not complete with the expected agentic provider calls",
     30_000,
   );
@@ -18993,31 +18972,53 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
   const turnIndex = frames.findIndex((frame) => frame === turnFrame);
   assert(ackIndex >= 0 && turnIndex > ackIndex, "Provider error TurnResult arrived before ack");
 
-  // Order 62 CP3 语义迁移：工作详情/执行记录已移除。作者可见错误语义由状态区 +
-  // 错误文案判定；模型事件与调用计数细节由下方 provider_progress 帧断言承担。
+  // 作者可见错误语义：对话流中出现安全兜底说明（提供者失败被吸收为诚实回复）。
   await page.waitForFunction(
     (expected) => expected.every((value) => document.body.innerText.includes(value)),
     ["创作执行", "无法连接到创作引擎"],
     { timeout: 30_000 },
   );
 
-  const providerProgressEvents = frames
-    .slice(frameStart)
-    .filter(
-      (frame) =>
-        frame.direction === "received" &&
-        frame.event === "agent_event" &&
-        frame.body?.run_ref === runId &&
-        frame.body?.event_type === "provider_progress" &&
-        frame.body?.visibility === "developer",
-    );
-  const progressJson = JSON.stringify(providerProgressEvents.map((frame) => frame.body ?? {}));
+  // provider 失败取证走持久化 ProviderRun 事实（ADR-0022：developer 事件不上 socket）。
+  const workId = sentFrame.body?.work_id;
+  const sessionId = sentFrame.body?.session_id;
+  const activityApi = await fetchAgentRunActivityApi(workId, sessionId, turnResult.turn_id);
+  const activityBody = activityApi.body ?? {};
+  const activityProviderRuns = Array.isArray(activityBody.provider_runs)
+    ? activityBody.provider_runs
+    : [];
+  const activityProviderEvents = activityProviderRuns.flatMap((run) =>
+    Array.isArray(run.events) ? run.events : [],
+  );
+  const activityEventTypes = [
+    ...new Set(activityProviderEvents.map((event) => event.event_type)),
+  ].filter(Boolean);
+  const activityProviderStatuses = [...new Set(activityProviderRuns.map((run) => run.status))]
+    .filter(Boolean)
+    .sort();
+  const activityProviderPurposes = [
+    ...new Set(activityProviderRuns.map((run) => run.purpose)),
+  ].filter(Boolean);
+  const activityJson = JSON.stringify(activityBody);
   const rawProviderContentLeaked =
-    progressJson.includes("UA01PROVIDERFAIL") ||
-    progressJson.includes("raw provider failure payload") ||
-    progressJson.includes("raw_prompt") ||
-    progressJson.includes("system_prompt") ||
-    progressJson.includes("assistant_message");
+    activityJson.includes("UA01PROVIDERFAIL") ||
+    activityJson.includes("raw provider failure payload") ||
+    activityJson.includes("raw_prompt") ||
+    activityJson.includes("system_prompt");
+
+  assert(activityApi.status === 200, "AgentRun activity API was not HTTP 200");
+  assert(
+    activityProviderRuns.length >= 4,
+    "Persisted ProviderRun facts did not cover routing/plan/failed-response calls",
+  );
+  assert(
+    activityEventTypes.includes("started") && activityEventTypes.includes("error"),
+    "Persisted ProviderRun events did not record provider_started + provider_error facts",
+  );
+  assert(
+    activityProviderStatuses.includes("failed") || activityProviderStatuses.includes("error"),
+    "Persisted ProviderRun facts did not record the failed provider call status",
+  );
 
   const visibleText = await page.locator("body").innerText();
   const uiState = await commonUiState(page, turnResult, sentFrame);
@@ -19039,40 +19040,16 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
       no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
       no_production_write: turnResult.truthfulness?.production_write_performed === false,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
-      provider_progress_event_count: providerProgressEvents.length,
-      provider_progress_reason_codes: providerProgressEvents.flatMap(
-        (frame) => frame.body?.reason_codes ?? [],
-      ),
-      provider_progress_visibility_developer: providerProgressEvents.every(
-        (frame) => frame.body?.visibility === "developer",
-      ),
-      provider_progress_has_step_ref: providerProgressEvents.every(
-        (frame) => typeof frame.body?.step_ref === "string",
-      ),
-      provider_started_projected: Boolean(providerStartedEvent),
-      provider_error_projected: Boolean(providerErrorEvent),
-      provider_run_refs: [
-        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.provider_run_ref)),
-      ].filter(Boolean),
-      provider_call_refs: [
-        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.provider_call_ref)),
-      ].filter(Boolean),
-      provider_purposes: [
-        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.purpose)),
-      ].filter(Boolean),
-      provider_statuses: [
-        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.status)),
-      ].filter(Boolean),
-      provider_output_types: [
-        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.output_type)),
-      ].filter(Boolean),
-      provider_execution_stream_projected: providerProgressEvents.every((frame) =>
-        (frame.body?.reason_codes ?? []).includes("provider_execution_stream"),
-      ),
+      provider_activity_api_status: activityApi.status,
+      provider_run_count: activityProviderRuns.length,
+      provider_event_types: activityEventTypes,
+      provider_started_projected: activityEventTypes.includes("started"),
+      provider_error_projected: activityEventTypes.includes("error"),
+      provider_statuses: activityProviderStatuses,
+      provider_purposes: activityProviderPurposes,
       provider_progress_raw_content_leaked: rawProviderContentLeaked,
       final_turn_result_run_id: runId,
-      safe_fallback_visible:
-        visibleText.includes("模型事件：调用失败") && visibleText.includes("无法连接到创作引擎"),
+      safe_fallback_visible: visibleText.includes("无法连接到创作引擎"),
     },
   ];
 }
@@ -22140,11 +22117,15 @@ async function driveAgentLoopBudgetLimit(page) {
 async function driveAgentNoProgressStop(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
-  const nonce = `UA01-NOPROG-${Date.now().toString(36)}`;
+  // 重定义（ADR-0023 计划驱动机制）：no-progress 的诱导不再是"两次 roster 重复读"
+  // （机械 cursor 不会重复计划步），而是"修订空转"——模型起草只读上下文的单步计划，
+  // 计划走完回应未生成触发修订，修订没有补足新步骤、只是把同一步再排一遍；runtime
+  // 以 progress_signature 重复判停（awaiting_author + no_progress），空转步产物被丢弃。
+  const nonce = `UA01NOPROGRESS-${Date.now().toString(36)}`;
   const work = await createWorkSeed({
     title: `UA01 AgentRun No Progress ${nonce}`,
     genre: "赛博修仙",
-    core_selling_point: "验证 bounded AgentRun 重复无进展时停止等待作者",
+    core_selling_point: "验证修订空转时 bounded AgentRun 停止等待作者",
     target_reader: "需要避免自动循环空转的作者",
     tone_preference: "冷静、清晰",
   });
@@ -22162,7 +22143,7 @@ async function driveAgentNoProgressStop(page) {
 
   const frameStart = frames.length;
   const logStart = readAppLogRecords().length;
-  const message = `先重复读取角色阵容直到没有新信息，然后再设计一个主要反派，标记${nonce}。`;
+  const message = `聊聊这部作品接下来可以怎么推进，标记${nonce}。`;
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -22174,7 +22155,7 @@ async function driveAgentNoProgressStop(page) {
       frame.event === "user_message" &&
       frame.body?.work_id === workId &&
       String(frame.body?.text ?? "").includes(nonce),
-    "UA-01 no-progress scenario did not send the repeated roster request",
+    "UA-01 no-progress scenario did not send the spinning-revision request",
     30_000,
   );
 
@@ -22192,11 +22173,29 @@ async function driveAgentNoProgressStop(page) {
   );
   const runId = ackFrame.body.response.run_id;
 
-  await waitForNewAppLogCount(
-    logStart,
-    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
-    2,
-    "UA-01 no-progress scenario did not execute two roster reads",
+  // 模型起草的单步计划（只读上下文）
+  const planDraftedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_drafted" &&
+      Array.isArray(frame.body?.payload?.plan_steps) &&
+      frame.body.payload.plan_steps.length === 1,
+    "UA-01 no-progress scenario did not broadcast the single-step drafted plan",
+    60_000,
+  );
+
+  // 修订发生但没有补足新步骤（空转修订）
+  const planRevisedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_revised",
+    "UA-01 no-progress scenario did not broadcast the spinning plan revision",
     60_000,
   );
 
@@ -22220,9 +22219,12 @@ async function driveAgentNoProgressStop(page) {
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
       frame.body?.status === "awaiting_author" &&
+      // 两个 context 步（初稿 + 空转重复）；路由 1 + 起草 2 + 空转修订 2 = 5 次 provider 调用
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
-    "UA-01 no-progress scenario did not broadcast stopped state with planner-only provider calls",
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5 &&
+      Number(frame.body?.consumed_budget?.replans ?? 0) === 1 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 0,
+    "UA-01 no-progress scenario did not broadcast stopped state with spinning-revision budget",
     60_000,
   );
 
@@ -22231,12 +22233,7 @@ async function driveAgentNoProgressStop(page) {
   const parentUserMessageLog = logsAfter.find(
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
-  const rosterToolCount = logsAfter.filter(
-    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
-  ).length;
-  const characterDesignExecuted = logsAfter.some(
-    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_design",
-  );
+  const anyToolExecuted = logsAfter.some((record) => record.event === "toolbox.execute.done");
   const finalTurnResultArrived = frames
     .slice(frameStart)
     .some(
@@ -22245,8 +22242,8 @@ async function driveAgentNoProgressStop(page) {
         frame.event === "turn_result" &&
         frame.body?.agent_run?.run_id === runId,
     );
-  assert(!characterDesignExecuted, "No-progress AgentRun still executed character_design");
-  assert(!finalTurnResultArrived, "No-progress AgentRun still emitted final character TurnResult");
+  assert(!anyToolExecuted, "No-progress AgentRun still executed a tool");
+  assert(!finalTurnResultArrived, "No-progress AgentRun still emitted a final TurnResult");
 
   const visibleText = await page.locator("body").innerText();
   const uiState = await commonUiState(
@@ -22266,14 +22263,17 @@ async function driveAgentNoProgressStop(page) {
       parent_turn_id: parentUserMessageLog?.turn_id,
       run_id: runId,
       run_mode: ackFrame.body.response.run_mode,
+      plan_drafted_visible: planDraftedFrame.body?.event_type === "plan_drafted",
+      plan_revised_visible: planRevisedFrame.body?.event_type === "plan_revised",
       awaiting_event_type: awaitingFrame.body?.event_type,
       awaiting_reason_codes: awaitingFrame.body?.reason_codes ?? [],
       terminal_status: awaitingState.body?.status,
       consumed_steps: awaitingState.body?.consumed_budget?.steps,
       consumed_tool_calls: awaitingState.body?.consumed_budget?.tool_calls,
       consumed_provider_calls: awaitingState.body?.consumed_budget?.provider_calls,
-      roster_tool_count: rosterToolCount,
-      character_design_executed: characterDesignExecuted,
+      consumed_replans: awaitingState.body?.consumed_budget?.replans,
+      any_tool_executed: anyToolExecuted,
+      character_design_executed: anyToolExecuted,
       final_turn_result_arrived: finalTurnResultArrived,
       no_progress_stop_visible:
         visibleText.includes("未取得新进展") || visibleText.includes("等待你确认"),

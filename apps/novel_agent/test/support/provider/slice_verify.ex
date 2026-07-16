@@ -144,8 +144,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  # 豁免内部机械准备类调用（路由/决策/计划起草/修订）：失败标记的设计缝是
+  # 对话自身的回应（frame）调用——「作者消息正常进入运行，创作引擎调用失败，
+  # 被吸收为安全回复」。路由是 Order 62 引入的 run 内第一调用，同类豁免。
   defp maybe_fail_provider_execution_prompt(prompt_text) do
     if String.contains?(prompt_text, @provider_failure_marker) and
+         not profile_routing_prompt?(prompt_text) and
          not agent_next_step_decision_prompt?(prompt_text) and
          not agent_plan_draft_prompt?(prompt_text) and
          not agent_plan_revision_prompt?(prompt_text) do
@@ -303,24 +307,67 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp agent_plan_revision_packet(prompt) do
-    prompt
-    |> String.replace("UA01D6REPLAN", "")
-    |> agent_plan_draft_packet()
-    |> Map.update!(:reasoning, &String.replace(&1, "起草", "修订"))
-    |> Map.update!(:reason_codes, fn codes ->
-      ["agent_plan_revised" | Enum.reject(codes, &(&1 == "agent_plan_drafted"))]
-      |> Enum.uniq()
-    end)
+    if agent_plan_profile_ref(prompt) == "conversation_turn_v1" and
+         String.contains?(prompt, "UA01NOPROGRESS") do
+      conversation_no_progress_agent_plan_packet(:revision)
+    else
+      prompt
+      |> String.replace("UA01D6REPLAN", "")
+      |> agent_plan_draft_packet()
+      |> Map.update!(:reasoning, &String.replace(&1, "起草", "修订"))
+      |> Map.update!(:reason_codes, fn codes ->
+        ["agent_plan_revised" | Enum.reject(codes, &(&1 == "agent_plan_drafted"))]
+        |> Enum.uniq()
+      end)
+    end
   end
 
   defp agent_plan_draft_packet(prompt) do
     profile_ref = agent_plan_profile_ref(prompt)
 
-    if profile_ref == "conversation_turn_v1" and String.contains?(prompt, "UA01D6REPLAN") do
-      conversation_d6_agent_plan_packet()
-    else
-      agent_plan_draft_packet_for_profile(profile_ref, prompt)
+    cond do
+      profile_ref == "conversation_turn_v1" and String.contains?(prompt, "UA01D6REPLAN") ->
+        conversation_d6_agent_plan_packet()
+
+      profile_ref == "conversation_turn_v1" and String.contains?(prompt, "UA01NOPROGRESS") ->
+        conversation_no_progress_agent_plan_packet(:draft)
+
+      true ->
+        agent_plan_draft_packet_for_profile(profile_ref, prompt)
     end
+  end
+
+  # 无进展空转（真实弱模型失败形态的确定性复刻）：起草只排"读上下文"一步；计划走完
+  # 回应未生成触发修订后，修订没有补足新步骤，只是把同一件事再排一遍。runtime 应以
+  # progress_signature 重复判停（awaiting_author + no_progress），而不是无限空转。
+  defp conversation_no_progress_agent_plan_packet(:draft) do
+    %{
+      reasoning: "先只读取当前作品上下文，确认现状后再决定下一步。",
+      steps: [
+        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
+          "context_observation_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "conversation_no_progress_probe"]
+    }
+  end
+
+  defp conversation_no_progress_agent_plan_packet(:revision) do
+    repeated_step =
+      "context_assemble"
+      |> plan_step("explore", "再次组装当前作品上下文。", ["context_observation_created"])
+      |> Map.put(:step_id, "context_assemble_again")
+
+    %{
+      reasoning: "上一轮只读取了上下文还没有生成回应；我再读取一次作品上下文补足信息。",
+      steps: [
+        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
+          "context_observation_created"
+        ]),
+        repeated_step
+      ],
+      reason_codes: ["agent_plan_revised", "conversation_no_progress_probe"]
+    }
   end
 
   defp agent_plan_profile_ref(prompt) do
@@ -534,7 +581,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp prose_writing_plan_step(prompt) do
     author_goal = agent_plan_author_goal(prompt)
-    {authoring_intent, requested_chapter_raw} = prose_plan_authoring_coordinate(author_goal)
+    chapters = accepted_chapters_in_prompt(prompt)
+
+    {authoring_intent, target_chapter, requested_chapter_raw} =
+      prose_plan_authoring_coordinate(author_goal, chapters)
+
     risk_hint = if prose_plan_high_risk_goal?(author_goal), do: "high", else: "low"
 
     "prose_writing"
@@ -546,7 +597,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       write_intent: "tentative",
       risk_hint: risk_hint,
       authoring_intent: authoring_intent,
-      target_chapter: nil,
+      target_chapter: target_chapter,
       requested_chapter_raw: requested_chapter_raw
     })
   end
@@ -558,7 +609,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp prose_plan_authoring_coordinate(author_goal) do
+  # 与真实 LLM 的计划契约对称：「作者点名的章按『作品章节』列表精确复制全名填 target_chapter，
+  # 列表中没有对应章或无法确定时填 null」。点名章按章号对到 prompt 列表全名；对不上 → null
+  # （block 信号，作者点名了不存在的章）；未点名 → null（由执行层按意图兜底解析）。
+  defp prose_plan_authoring_coordinate(author_goal, chapters) do
     intent =
       cond do
         contains_any?(author_goal, ["推翻", "重写", "改写", "重新写"]) -> "rewrite"
@@ -566,7 +620,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         true -> nil
       end
 
-    {intent, named_chapter_token(author_goal)}
+    case named_chapter_token(author_goal) do
+      nil ->
+        {intent, nil, nil}
+
+      token ->
+        num = chapter_num(token)
+        matched = num && Enum.find(chapters, fn title -> chapter_num(title) == num end)
+        {intent, matched, token}
+    end
   end
 
   defp prose_plan_high_risk_goal?(author_goal) do
