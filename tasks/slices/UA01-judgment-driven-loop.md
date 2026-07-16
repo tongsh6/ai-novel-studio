@@ -144,6 +144,15 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   error-author-safe 语义再迁、conversation flow 退役评估。另记：连跑 harness
   偶发早期 SIGTERM（exit 144，Phoenix ready 后被杀，重跑即过）——疑为前后 run
   清理竞态，未阻塞但值得观察。
+- 2026-07-17 **CP1 场景校准批二收口（commit ccd35ccd）**：创作 profile 家族七场景
+  判断入场口径真实 Tauri 绿（roster-design / prose / outline / world / evolution /
+  streaming-progress / p1-prose-revision-candidate）。计数位移三层落地（+2 步
+  +1 调用 + completed_step_count 判断步计入）；驱动 fast-ack 更名残留清；两处
+  "步骤描述进页面"过时断言迁 plan_drafted payload 推导（46§9.5）；UI 修复
+  "第 4/2 步"假计数（进度行 done 钳位计划轨道 total）。**批三待办**：au01/au02
+  家族、D6 基两场景 + no-progress 再诱导、error-author-safe 语义再迁、
+  world-style-rule / readonly-batch / cancel·steer·durable 家族 run-and-see、
+  conversation flow 退役评估（CP2 前置）。**CP1 累计 10 场景判断口径绿。**
 - 2026-07-16 **CP1a（协议资产落地，不翻入口）**：`NovelApplication.JudgmentProtocol`
   生产模块——判断①两段式请求机（call1 叙事流式 + call2 强制 judgment_decision，
   坏结构携带片段重试一次）、叙事绑定（content 优先 / arguments.author_narrative
