@@ -1,6 +1,6 @@
 # UA01 判断驱动交互循环（ADR-0025 实施）
 
-- 状态：CP0 done（文档批次 2026-07-15）/ CP1 todo（开工需用户批准 + MBC 探针前置）
+- 状态：CP0 done / CP1 done（2026-07-17）/ CP2 in progress（2026-07-17 开工，探针前置）
 - 类型：Agent Runtime Slice / Prompt Protocol Slice
 - 父 ADR：`docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md`（Accepted）
 - 展开层：`docs/design/notes/2026-07-15-judgment-driven-interactive-loop.md`
@@ -15,8 +15,8 @@
 | CP | 内容 | 状态 |
 |---|---|---|
 | CP0 | ADR-0025 + ADR-0023 注记 + 00 §2.3 形态章 + 00c/46§9.6/README 联动 | **done**（2026-07-15） |
-| CP1 | conversation 迁判断循环（方案 B：判断①两段 + 直接回复内联；路由并入判断①）。**前置**：MBC 探针验证内联协议与"是否开计划"判断质量 | todo |
-| CP2 | 单候选创作 profile 迁循环（执行内联自评 + 判断②按需） | todo |
+| CP1 | conversation 迁判断循环（方案 B：判断①两段 + 直接回复内联；路由并入判断①）。**前置**：MBC 探针验证内联协议与"是否开计划"判断质量 | **done**（2026-07-17，四批 28 场景绿） |
+| CP2 | 单候选创作 profile 迁循环（执行内联自评 + 判断②按需） | **in progress**（2026-07-17 开工） |
 | CP3 | prose/修订迁循环；D 系循环语义回归 | todo |
 | CP4 | 计划按需全量（判断①制定计划分支 + UI 真计划恢复显示） | todo |
 | CP5 | 探索内部翼（作品事实索引 + 检索工具箱 + 探索预算） | todo（可与 CP2/CP3 并行） |
@@ -92,6 +92,55 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
 5. **验收资产迁移面**（ADR 已知成本）：`agent-conversation-turn` 按判断循环
    口径重校准（2 次调用、judgment_decided 链）；au02 候选家族在新链路下必须
    保持绿（stub 判断 handler 镜像候选携带 + nonce 回显 + I2 指纹）。
+
+## 2c. CP2 六问（开工登记，2026-07-17，用户"开工"）
+
+1. **Contract**：ADR-0025 决策 1/5（执行内联自评、判断②按需、单候选创作 3 次调用
+   经济学）；`evaluation_of_last` 结构（ADR-0022）作自评载体；S1/S2 候选停等语义
+   不变；N-NARR（执行叙事与产物字节绑定 provider 输出）；I1/I2/I3 原样。
+2. **Invariant**：单候选创作正常路径恰 3 次 provider 调用（判断① 2 + 执行 1 内联
+   自评）；执行权不变（执行步仍逐一过 Orchestrator gate）；候选产出停 S1/S2（不
+   自动采纳）；自评"目标已达成"必须结构显式（禁措辞猜测）；判断②仅在自评不确定/
+   偏离时独立调用；机械准备永不问模型。
+3. **Boundary**：novel_application（4 个单候选 flow——design/evolution/outline/
+   world——执行骨架迁循环 + JudgmentProtocol 扩展自评 schema 与判断②请求机）；
+   novel_agent 仅桩契约样本；不改 novel_domain 执行权/AgentPlan 结构、novel_web
+   透传、S1-S7 契约。prose 双步（quality 复核）是 CP3，本 CP 不动。
+4. **Consumer**：workspace_channel 既有 user_message 入口；前端既有文档流 UI
+   （执行叙事 46§9.4 体裁、候选卡采纳桥沿用零改动）。
+5. **Proof**：MBC 执行内联自评探针（前置，ADR 开放问题 1 指名）+ runtime focused
+   tests + 真实 Tauri 场景（roster-design/outline/world/evolution 按 3 调用口径
+   重校准）+ I1/I2/I3。
+6. **Acceptance Driver**：`bash scripts/tauri_slice_verify.sh agent-roster-design`
+   等四场景按判断循环执行口径重校准（外部驱动真实页面；产品无验收感知逻辑）。
+
+**CP2 范围决定**：
+- 执行内联自评：writer 类执行调用的 native tool call arguments 携带
+  `evaluation_of_last` 式自评尾巴（goal_achieved 显式布尔 + 建议动作 + reason），
+  与创作产物同调用产出——正常路径免判断②。
+- 判断②按需：自评 goal_achieved=false 或产物偏离（确定性核对先行，D 系底座沿用）
+  时独立调用判断②（观察 + 续行：收束｜继续｜停等作者）。
+- 复合任务（先看阵容再设计等 agent_run_start 形态）：判断①仍可判 plan 走计划
+  驱动——计划按需语义（ADR 决策 2）不因 CP2 改变，CP2 只翻单候选直接执行路径。
+- 实施顺序（CP1 模式复刻）：前置探针 → CP2a 协议资产（自评 schema + 判断②请求机，
+  不翻 flow）→ CP2b 逐 flow 翻转（design 先行证明形态，再复制三个）→ 场景批。
+
+## 2d. CP2 前置探针结论（2026-07-17，execution-self-eval）
+
+`scripts/model_contracts/execution_self_eval.exs` 四用例阵列（资料充分/前置缺失/
+范围部分/设定冲突）双指标实测 live gpt-oss-120b：
+
+- **v1 forced tool call 形态**：长创作内容后结构键名出轨（protocol 0.875）+
+  forced tool call 无流式字节（执行段静默，违背主诉）——淘汰。
+- **v2 生产同形态自由 JSON**（writer 现行协议 + self_report 扩展字段）：协议 0.75、
+  自评方向 0.429→0.0（两版 prompt 均强偏"产出了内容=达成了目标"）——**内联自评
+  在该模型上不可靠**（ADR §8 开放问题 1 的答案）。
+- **CP2 裁决（走 ADR §5 预留回退）**：执行调用维持现行协议（自由 JSON 可流式，
+  self_report 现有语义保留）；**判断②为独立短结构调用**（判断①两段式同底座，
+  同模型 1.0 可靠区），由**确定性偏离信号**（D 系底座：产物缺失/风险 flags
+  confirm·block/计划不匹配）按需触发；单候选正常路径产出即停 S1/S2（作者裁决，
+  模型自评在此形态冗余）——**3 次调用经济学仍达成**（判断① 2 + 执行 1）。
+  探针保留供未来更强模型重估内联方案。stub 自检双 1.0。
 
 ## 3. 决策日志
 

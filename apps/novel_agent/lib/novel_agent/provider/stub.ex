@@ -85,6 +85,11 @@ defmodule NovelAgent.Provider.Stub do
       NovelAgent.Provider.tool_call_prompt?(prompt) and judgment_prompt?(text) ->
         judgment_decision_result(text)
 
+      # 执行内联自评（ADR-0025 CP2）：writer 自由输出严格 JSON（生产同形态），
+      # self_report 扩展 goal_achieved/next_suggestion（探针自检契约样本）。
+      creative_output_prompt?(text) ->
+        creative_output_result(text)
+
       # 判断①第一段（ADR-0025 方案 B）：自由输出判断叙事；判"直接回复"时同一次
       # 输出空行后内联回复正文。
       judgment_prompt?(text) ->
@@ -117,6 +122,48 @@ defmodule NovelAgent.Provider.Stub do
     else
       narrative
     end
+  end
+
+  defp creative_output_prompt?(text) do
+    String.contains?(text, "self_report") and String.contains?(text, "自评核对清单")
+  end
+
+  # 自评方向按探针四用例的确定性规则给出（诚实自评的契约样本）：
+  # 前提缺失（引用不存在的章节）/ 设定冲突（同名替换主角）→ 未达成 + 问作者；
+  # 多产物请求单次只出一个 → 未达成 + 继续；其余 → 达成 + 收束。
+  defp creative_output_result(text) do
+    {achieved, suggestion, reason} =
+      cond do
+        String.contains?(text, "第12章") ->
+          {false, "await_author", "请求引用的章节在作品中不存在，需要作者澄清前提。"}
+
+        String.contains?(text, "也叫林烬") or String.contains?(text, "替换现在的主角") ->
+          {false, "await_author", "替换主角与已确认设定冲突，属作者裁决事项。"}
+
+        String.contains?(text, "三人") or String.contains?(text, "各一个") ->
+          {false, "continue", "单次执行只产出一个候选，剩余成员待继续执行。"}
+
+        true ->
+          {true, "finish", "候选已完整覆盖本条请求的目标。"}
+      end
+
+    payload = %{
+      "items" => [
+        %{
+          "title" => "候选：黑市秩序官",
+          "body" => "一名笃信配额制度的灵气稽查系统旧吏，以规则之名行垄断之实。",
+          "rationale" => "与主角的破局动机形成镜像对照。"
+        }
+      ],
+      "self_report" => %{
+        "risk_flags" => [],
+        "goal_achieved" => achieved,
+        "next_suggestion" => suggestion,
+        "reason" => reason
+      }
+    }
+
+    Result.new(Jason.encode!(payload))
   end
 
   defp judgment_decision_result(text) do
