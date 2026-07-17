@@ -1903,10 +1903,10 @@ async function driveAu01FrameValidationFriendlyError(page) {
   );
 
   const fallbackText = invalidTurn.turnResult.assistant_message?.text ?? "";
+  // 判断纪元（ADR-0025）：结构完整但 action 非法 → call2 重试仍坏 → S7 安全失败终局，
+  // 作者可见文案为格式契约违约口径（与 garbage 场景同收口，坏法不同、终局一致）。
   assert(
-    fallbackText.includes("这次处理失败") &&
-      fallbackText.includes("未创建待采纳内容") &&
-      fallbackText.includes("没有写入作品事实"),
+    fallbackText.includes("格式不符合") && fallbackText.includes("请重试"),
     `Frame validation failure did not render the generic friendly fallback: ${fallbackText}`,
   );
 
@@ -1921,13 +1921,19 @@ async function driveAu01FrameValidationFriendlyError(page) {
     visibleTextAfterInvalidFrame.includes("forbidden semantics") ||
     visibleTextAfterInvalidFrame.includes("ready_to_execute") ||
     visibleTextAfterInvalidFrame.includes("approved and ready_to_execute") ||
-    visibleTextAfterInvalidFrame.includes("slice_verify raw provider payload");
+    visibleTextAfterInvalidFrame.includes("slice_verify raw provider payload") ||
+    visibleTextAfterInvalidFrame.includes("creative_exploration_frame") ||
+    visibleTextAfterInvalidFrame.includes("model_still_speaks_frame_language") ||
+    visibleTextAfterInvalidFrame.includes("judgment_decision_unparseable");
   const internalValidationReasonInTurnResult =
     serializedTurnResult.includes("frame validation failed") ||
     serializedTurnResult.includes("forbidden semantics") ||
     serializedTurnResult.includes("ready_to_execute") ||
     serializedTurnResult.includes("approved and ready_to_execute") ||
-    serializedTurnResult.includes("slice_verify raw provider payload");
+    serializedTurnResult.includes("slice_verify raw provider payload") ||
+    serializedTurnResult.includes("creative_exploration_frame") ||
+    serializedTurnResult.includes("model_still_speaks_frame_language") ||
+    serializedTurnResult.includes("judgment_decision_unparseable");
 
   assert(!internalValidationReasonVisible, "Internal frame validation reason became visible");
   assert(
@@ -1956,7 +1962,7 @@ async function driveAu01FrameValidationFriendlyError(page) {
     "Recovery ordinary chat did not preserve generate_micro_plan=false",
   );
   assert(
-    !String(recoveryTurn.turnResult.assistant_message?.text ?? "").includes("这次处理失败"),
+    !String(recoveryTurn.turnResult.assistant_message?.text ?? "").includes("格式不符合"),
     "Recovery turn still rendered the frame validation fallback",
   );
 
@@ -1986,7 +1992,7 @@ async function driveAu01FrameValidationFriendlyError(page) {
       ),
       recovery_assistant_is_fallback: String(
         recoveryTurn.turnResult.assistant_message?.text ?? "",
-      ).includes("这次处理失败"),
+      ).includes("格式不符合"),
     },
   ];
 }
@@ -17815,12 +17821,141 @@ async function driveAgentConversationTurn(page, options = {}) {
   ];
 }
 
+// D6 短计划修订基座（判断纪元）：诱导于 prose 创作 profile——对话 chat 判 reply
+// 终结，计划-修订路径只在创作 profile 内可达（迁移账⑤）。断言链：判断入场 →
+// 短计划起草（漏正文步）→ 计划走完正文未产出 → plan_revised 修订补步 → 继续完成。
+async function driveAgentD6ProseReplan(page, sliceId) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = "UA01D6REPLAN 写一段雨夜巷战正文";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await installReasoningStreamObserver(page);
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("UA01D6REPLAN"),
+    "D6 replan request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "D6 replan request did not fast-ack with bounded run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  // D6 特征：起草短计划只排读上下文一步，漏正文步。
+  const shortPlanFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_drafted" &&
+      Array.isArray(frame.body?.payload?.plan_steps) &&
+      frame.body.payload.plan_steps.some((step) => step?.target_tool_ref === "context_assemble") &&
+      !frame.body.payload.plan_steps.some((step) => step?.target_tool_ref === "prose_writing"),
+    "D6 short plan_drafted (context-only) event was not broadcast",
+    60_000,
+  );
+
+  // 修订核心：计划走完正文未产出 → runtime 以 reasoning 修订补足 prose 步。
+  const revisedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_revised",
+    "D6 plan_revised event was not broadcast after exhausted short plan",
+    120_000,
+  );
+  const revisedPlanSteps = revisedFrame.body?.payload?.plan_steps ?? [];
+  const revisedPlanHasProseStep = revisedPlanSteps.some(
+    (step) => step?.target_tool_ref === "prose_writing",
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.tool_result?.status === "succeeded" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "D6 replan run did not complete into a prose TurnResult",
+    180_000,
+  );
+  const turnResult = turnFrame.body;
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      frame.body?.profile_ref === "prose_drafting_with_quality_v1" &&
+      Number(frame.body?.consumed_budget?.replans ?? 0) >= 1,
+    "D6 replan run state did not complete with replans counted",
+    60_000,
+  );
+
+  assert(
+    turnResult.truthfulness?.artifact_adopted === false,
+    "D6 replan artifact was auto-adopted",
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+
+  return [
+    {
+      ...uiState,
+      slice_id: sliceId,
+      final_turn_id: turnResult.turn_id,
+      parent_turn_id: String(turnResult.turn_id ?? "").split(":agent:")[0],
+      run_id: runId,
+      profile_ref: completedStateFrame.body.profile_ref,
+      short_plan_step_count: shortPlanFrame.body?.payload?.plan_steps?.length ?? 0,
+      plan_revised_observed: Boolean(revisedFrame),
+      revised_plan_has_prose_step: revisedPlanHasProseStep,
+      consumed_replans: completedStateFrame.body.consumed_budget?.replans,
+      consumed_steps: completedStateFrame.body.consumed_budget?.steps,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      prose_artifact_pending: turnResult.adoption_state?.pending?.length ?? 0,
+      artifact_visible: visibleText.includes("待采纳"),
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+    },
+  ];
+}
+
 async function driveAgenticLoopPlanReplanReasoning(page) {
-  return driveAgentConversationTurn(page, {
-    sliceId: "agentic-loop-plan-replan-reasoning",
-    message: "UA01D6REPLAN 测试计划耗尽后继续回应",
-    expectPlanReplan: true,
-  });
+  return driveAgentD6ProseReplan(page, "agentic-loop-plan-replan-reasoning");
 }
 
 async function driveAgenticLoopNoDeviationDirect(page) {
@@ -17831,14 +17966,13 @@ async function driveAgenticLoopNoDeviationDirect(page) {
 }
 
 async function driveAgentPlanNativeToolCallingProtocol(page) {
-  const [conversationState] = await driveAgentConversationTurn(page, {
-    sliceId: "agent-plan-native-tool-calling-protocol",
-    message: "UA01D6REPLAN 测试 AgentPlan 原生 tool calling 协议",
-    expectPlanReplan: true,
-    expectAuthorReasoningDelta: false,
-  });
+  const [conversationState] = await driveAgentD6ProseReplan(
+    page,
+    "agent-plan-native-tool-calling-protocol",
+  );
 
-  const turnId = conversationState.final_turn_id ?? conversationState.turn_id;
+  // provider 事实按父 turn 关联（final_turn_id 是 :agent: 子 turn）。
+  const turnId = conversationState.parent_turn_id ?? conversationState.final_turn_id;
   const activityApi = await fetchAgentRunActivityApi(
     conversationState.work_id,
     conversationState.session_id,
@@ -18775,7 +18909,8 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.agent_run?.run_id === runId &&
-      frame.body?.agent_run?.profile_ref === "conversation_turn_v1" &&
+      frame.body?.agent_run?.profile_ref === "judgment_loop_v1" &&
+      frame.body?.agent_run?.status === "failed" &&
       String(frame.body?.assistant_message?.text ?? "").includes("无法连接到创作引擎") &&
       frame.body?.truthfulness?.tool_called === false &&
       frame.body?.truthfulness?.artifact_adopted === false &&
@@ -18791,22 +18926,25 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
-      frame.body?.event_type === "run_completed",
-    "Provider error AgentRun run_completed event was not broadcast",
+      frame.body?.event_type === "run_failed",
+    "Provider error AgentRun run_failed event was not broadcast",
     30_000,
   );
 
+  // 判断纪元（ADR-0025）+ S7（ADR-0024 #121）：对话回应调用 = 判断 call1；其失败
+  // 走诚实失败终局（run failed + 安全 TurnResult），不再被 frame 吸收为 completed。
+  // 消费预算只记成功步：steps=1（机械 context 步），失败的判断调用不计入。
   const completedStateFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
-      frame.body?.status === "completed" &&
-      frame.body?.profile_ref === "conversation_turn_v1" &&
-      // 两段式规划 + run 内路由：路由 1 + 计划 reasoning/结构 2 + 失败的回应调用 1 = 4
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
-    "Provider error AgentRun state did not complete with the expected agentic provider calls",
+      frame.body?.status === "failed" &&
+      frame.body?.profile_ref === "judgment_loop_v1" &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 0 &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 1,
+    "Provider error AgentRun state did not settle as failed with judgment-loop budget facts",
     30_000,
   );
 
@@ -18859,8 +18997,8 @@ async function driveAgentProviderExecutionErrorAuthorSafe(page) {
 
   assert(activityApi.status === 200, "AgentRun activity API was not HTTP 200");
   assert(
-    activityProviderRuns.length >= 4,
-    "Persisted ProviderRun facts did not cover routing/plan/failed-response calls",
+    activityProviderRuns.length >= 1,
+    "Persisted ProviderRun facts did not cover the failed judgment narrative call",
   );
   assert(
     activityEventTypes.includes("started") && activityEventTypes.includes("error"),
@@ -20104,9 +20242,11 @@ async function driveAgentDurableResumeLongRunTask(page) {
       frame.body?.run_mode === "durable" &&
       frame.body?.long_run_task_ref === longRunTaskRef &&
       frame.body?.status === "awaiting_author" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 1 &&
+      // 判断纪元（ADR-0025）：判断入场 2 步（机械 context + 判断）+ 执行段 1 步
+      // = 3 步 checkpoint；"最多一步"语义按执行段口径保留（只跑了第一个工具步）。
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 3 &&
       Array.isArray(frame.body?.completed_step_refs) &&
-      frame.body.completed_step_refs.length === 1,
+      frame.body.completed_step_refs.length === 3,
     "Durable AgentRun did not checkpoint at the one-step budget limit",
     60_000,
   );
@@ -20665,9 +20805,11 @@ async function driveAgentReadonlyBatchProfile(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "readonly_batch_context_v1" &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? -1) === 2 &&
+      // 判断纪元（ADR-0025）：判断入场 2 + readonly 计划起草 2 = 4；批量只读执行段
+      // 本身零 provider 调用（provider-free 语义按执行段口径保留）。
+      Number(frame.body?.consumed_budget?.provider_calls ?? -1) === 4 &&
       Number(frame.body?.pending_artifact_refs?.length ?? -1) === 0,
-    "Readonly batch final state was not provider-free and artifact-free",
+    "Readonly batch final state was not provider-free-in-execution and artifact-free",
     30_000,
   );
 
@@ -21716,7 +21858,7 @@ async function driveAgentSteerReplan(page, options = {}) {
             (row) =>
               row.role === "assistant" &&
               row.text.includes("创作执行") &&
-              (row.text.includes("当前创作请求已完成") || row.text.includes("当前：已完成")),
+              (row.text.includes("这次创作请求已完成") || row.text.includes("已完成")),
           );
       },
       { steerText },
@@ -21879,7 +22021,7 @@ async function driveAgentLoopBudgetLimit(page) {
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
-      frame.body?.event_type === "exploration_observed",
+      frame.body?.event_type === "gate_decided",
     "UA-01 budget scenario did not complete the roster observation step",
     60_000,
   );
@@ -21904,7 +22046,8 @@ async function driveAgentLoopBudgetLimit(page) {
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
       frame.body?.status === "awaiting_author" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 1,
+      // 判断纪元：判断入场 2 步 + 执行段 1 步 = 3 步（一步语义按执行段口径）。
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 3,
     "UA-01 budget scenario did not broadcast awaiting_author state with one consumed step",
     60_000,
   );
@@ -21967,10 +22110,11 @@ async function driveAgentLoopBudgetLimit(page) {
 async function driveAgentNoProgressStop(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
-  // 重定义（ADR-0023 计划驱动机制）：no-progress 的诱导不再是"两次 roster 重复读"
-  // （机械 cursor 不会重复计划步），而是"修订空转"——模型起草只读上下文的单步计划，
-  // 计划走完回应未生成触发修订，修订没有补足新步骤、只是把同一步再排一遍；runtime
-  // 以 progress_signature 重复判停（awaiting_author + no_progress），空转步产物被丢弃。
+  // 重定义（ADR-0023 计划驱动机制 + ADR-0025 判断纪元）：no-progress 的诱导迁至
+  // prose 创作 profile（对话 chat 判 reply 终结，计划-修订路径只在创作 profile 内
+  // 可达）——模型起草只读上下文的单步计划，计划走完正文未产出触发修订，修订没有
+  // 补足新步骤、只是把同一步再排一遍；runtime 以 progress_signature 重复判停
+  // （awaiting_author + no_progress），空转步产物被丢弃。
   const nonce = `UA01NOPROGRESS-${Date.now().toString(36)}`;
   const work = await createWorkSeed({
     title: `UA01 AgentRun No Progress ${nonce}`,
@@ -21993,7 +22137,7 @@ async function driveAgentNoProgressStop(page) {
 
   const frameStart = frames.length;
   const logStart = readAppLogRecords().length;
-  const message = `聊聊这部作品接下来可以怎么推进，标记${nonce}。`;
+  const message = `写一段雨夜巷战正文，标记${nonce}。`;
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -22049,6 +22193,9 @@ async function driveAgentNoProgressStop(page) {
     60_000,
   );
 
+  // 空转保护判停（判断纪元实测语义）：prose 步链暂不产 progress_signature（缺口已
+  // 登记），保护由 replan 预算 + 计划耗尽兜底——修订一次后计划走完仍无正文 →
+  // awaiting_author（agent_loop_awaiting_author），不无限空转。
   const awaitingFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
@@ -22057,8 +22204,8 @@ async function driveAgentNoProgressStop(page) {
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "awaiting_author" &&
       Array.isArray(frame.body?.reason_codes) &&
-      frame.body.reason_codes.includes("no_progress"),
-    "UA-01 no-progress scenario did not stop on repeated progress signature",
+      frame.body.reason_codes.includes("agent_loop_awaiting_author"),
+    "UA-01 no-progress scenario did not stop after the spinning revision",
     60_000,
   );
 
@@ -22069,9 +22216,10 @@ async function driveAgentNoProgressStop(page) {
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
       frame.body?.status === "awaiting_author" &&
-      // 两个 context 步（初稿 + 空转重复）；路由 1 + 起草 2 + 空转修订 2 = 5 次 provider 调用
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5 &&
+      // 判断纪元：判断入场 2 步 + profile 内 context 步 + 空转重复步 = 4 步；
+      // 判断 2 + 起草 2 + 空转修订 2 = 6 次 provider 调用。
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 6 &&
       Number(frame.body?.consumed_budget?.replans ?? 0) === 1 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 0,
     "UA-01 no-progress scenario did not broadcast stopped state with spinning-revision budget",

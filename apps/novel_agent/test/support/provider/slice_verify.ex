@@ -325,9 +325,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp agent_plan_revision_packet(prompt) do
-    if agent_plan_profile_ref(prompt) == "conversation_turn_v1" and
+    if agent_plan_profile_ref(prompt) == "prose_drafting_with_quality_v1" and
          String.contains?(prompt, "UA01NOPROGRESS") do
-      conversation_no_progress_agent_plan_packet(:revision)
+      prose_no_progress_agent_plan_packet(:revision)
     else
       prompt
       |> String.replace("UA01D6REPLAN", "")
@@ -344,11 +344,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     profile_ref = agent_plan_profile_ref(prompt)
 
     cond do
-      profile_ref == "conversation_turn_v1" and String.contains?(prompt, "UA01D6REPLAN") ->
-        conversation_d6_agent_plan_packet()
+      profile_ref == "prose_drafting_with_quality_v1" and
+          String.contains?(prompt, "UA01D6REPLAN") ->
+        prose_d6_agent_plan_packet()
 
-      profile_ref == "conversation_turn_v1" and String.contains?(prompt, "UA01NOPROGRESS") ->
-        conversation_no_progress_agent_plan_packet(:draft)
+      profile_ref == "prose_drafting_with_quality_v1" and
+          String.contains?(prompt, "UA01NOPROGRESS") ->
+        prose_no_progress_agent_plan_packet(:draft)
 
       true ->
         agent_plan_draft_packet_for_profile(profile_ref, prompt)
@@ -358,33 +360,37 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 无进展空转（真实弱模型失败形态的确定性复刻）：起草只排"读上下文"一步；计划走完
   # 回应未生成触发修订后，修订没有补足新步骤，只是把同一件事再排一遍。runtime 应以
   # progress_signature 重复判停（awaiting_author + no_progress），而不是无限空转。
-  defp conversation_no_progress_agent_plan_packet(:draft) do
+  # 无进展空转（判断纪元：诱导于 prose 创作 profile——真实弱模型失败形态的确定性
+  # 复刻）：起草只排"读上下文"一步；计划走完正文未产出触发修订，修订没有补足正文
+  # 步、只是把同一读步再排一遍。runtime 应以 progress_signature 重复判停
+  # （awaiting_author + no_progress），而不是无限空转。
+  defp prose_no_progress_agent_plan_packet(:draft) do
     %{
-      reasoning: "先只读取当前作品上下文，确认现状后再决定下一步。",
+      reasoning: "先只读取正文写作上下文，确认现状后再决定下一步。",
       steps: [
-        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-          "context_observation_created"
+        plan_step("context_assemble", "explore", "先读取正文写作上下文。", [
+          "prose_context_observation_created"
         ])
       ],
-      reason_codes: ["agent_plan_drafted", "conversation_no_progress_probe"]
+      reason_codes: ["agent_plan_drafted", "prose_no_progress_probe"]
     }
   end
 
-  defp conversation_no_progress_agent_plan_packet(:revision) do
+  defp prose_no_progress_agent_plan_packet(:revision) do
     repeated_step =
       "context_assemble"
-      |> plan_step("explore", "再次组装当前作品上下文。", ["context_observation_created"])
+      |> plan_step("explore", "再次读取正文写作上下文。", ["prose_context_observation_created"])
       |> Map.put(:step_id, "context_assemble_again")
 
     %{
-      reasoning: "上一轮只读取了上下文还没有生成回应；我再读取一次作品上下文补足信息。",
+      reasoning: "上一轮只读取了上下文还没有生成正文；我再读取一次写作上下文补足信息。",
       steps: [
-        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-          "context_observation_created"
+        plan_step("context_assemble", "explore", "先读取正文写作上下文。", [
+          "prose_context_observation_created"
         ]),
         repeated_step
       ],
-      reason_codes: ["agent_plan_revised", "conversation_no_progress_probe"]
+      reason_codes: ["agent_plan_revised", "prose_no_progress_probe"]
     }
   end
 
@@ -395,15 +401,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp conversation_d6_agent_plan_packet do
+  # D6 短计划（判断纪元：诱导于 prose 创作 profile——对话 chat 判 reply 终结，
+  # 计划路径只在创作 profile 内可达）：起草只排读上下文一步、漏正文步；计划走完
+  # 正文未产出 → runtime 修订（revision 剥 marker 后出全量两步计划）→ 继续完成。
+  defp prose_d6_agent_plan_packet do
     %{
-      reasoning: "先只读取当前作品上下文，再观察是否需要继续。",
+      reasoning: "先只读取正文写作上下文，再观察是否需要继续。",
       steps: [
-        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-          "context_observation_created"
+        plan_step("context_assemble", "explore", "先读取正文写作上下文。", [
+          "prose_context_observation_created"
         ])
       ],
-      reason_codes: ["agent_plan_drafted", "conversation_d6_short_plan"]
+      reason_codes: ["agent_plan_drafted", "prose_d6_short_plan"]
     }
   end
 
@@ -1269,7 +1278,42 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     Result.new(narrative, usage_for(prompt, narrative))
   end
 
+  # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = call2 返回原始垃圾
+  # payload（无合法 tool call）；bad-frame = 结构完整但 action 非法（模型仍说帧
+  # 语言）。两者都应触发协议携带片段重试一次 → 仍坏 → S7 安全失败终局。
   defp judgment_decision_result(prompt) do
+    cond do
+      String.contains?(prompt, @garbage_json_marker) ->
+        garbage = "not valid json {{{ AU01GARBAGE raw provider payload"
+        Result.new(garbage, usage_for(prompt, garbage))
+
+      String.contains?(prompt, @invalid_frame_marker) ->
+        judgment_invalid_action_result(prompt)
+
+      true ->
+        judgment_decision_result_for(prompt)
+    end
+  end
+
+  defp judgment_invalid_action_result(prompt) do
+    reasoning = "structure_complete_but_action_invalid"
+
+    Result.new(reasoning, usage_for(prompt, reasoning),
+      tool_calls: [
+        %{
+          "id" => "call_judgment_decision",
+          "name" => "judgment_decision",
+          "arguments" => %{
+            "action" => "creative_exploration_frame",
+            "reason" => "model_still_speaks_frame_language",
+            "reply_included" => false
+          }
+        }
+      ]
+    )
+  end
+
+  defp judgment_decision_result_for(prompt) do
     {action, capability, exploratory} = judgment_verdict(prompt)
 
     directions =

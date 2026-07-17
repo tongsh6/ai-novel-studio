@@ -453,9 +453,8 @@ const sliceKeyEvents = {
   ],
   "agentic-loop-plan-replan-reasoning": [
     "channel.user_message.start",
-    "provider_gateway.complete.start",
-    "provider_gateway.complete.done",
     "orchestrator.decide.done",
+    "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -469,9 +468,8 @@ const sliceKeyEvents = {
   ],
   "agent-plan-native-tool-calling-protocol": [
     "channel.user_message.start",
-    "provider_gateway.complete.start",
-    "provider_gateway.complete.done",
     "orchestrator.decide.done",
+    "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -1353,14 +1351,12 @@ const sliceKeyEvents = {
   ],
   "au01-garbage-json-recovery": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
     "channel.user_message.done",
   ],
   "au01-frame-validation-friendly-error": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.error",
-    "channel.user_message.error",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
     "channel.user_message.done",
   ],
   "au01-turnresult-recorder-ui-consistency": [
@@ -4176,84 +4172,42 @@ function findAgenticLoopPlanReplanReasoningEvidence(records) {
   const sliceId = "agentic-loop-plan-replan-reasoning";
   const keyEvents = keyEventsForSlice(sliceId);
 
+  // 判断纪元（ADR-0025，迁移账⑤）：D6 短计划诱导于 prose 创作 profile——对话 chat
+  // 判 reply 终结，计划-修订路径只在创作 profile 内可达。证据核心：短计划只排读
+  // 上下文一步（漏正文步）→ plan_revised 修订补足 prose 步 → 继续完成出正文候选。
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
-      record.plain_input_sent_from_real_workbench === true &&
-      record.parent_fast_ack_before_final_turn_result === true &&
-      record.run_mode === "bounded" &&
-      record.profile_ref === "conversation_turn_v1" &&
-      record.final_turn_broadcast === true &&
-      record.no_tool_called === true &&
-      record.no_auto_adoption === true &&
-      record.no_production_write === true &&
-      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
-      record.agent_stage_events_visible === true &&
-      record.context_step_visible === true &&
-      record.frame_step_visible === true &&
-      record.strategy_step_visible === true &&
-      record.finalize_step_visible === true &&
-      record.context_result_visible === true &&
-      record.strategy_decision_visible === true &&
-      record.ui_agentic_loop_plan_visible === true &&
-      record.ui_agentic_loop_reasoning_visible === true &&
-      record.ui_agentic_loop_result_visible === true &&
-      Number(record.initial_plan_step_count ?? 0) === 1 &&
-      boolValue(record.initial_plan_only_context) === true &&
-      boolValue(record.plan_revised_visible) === true &&
-      Number(record.plan_revised_event_count ?? 0) >= 1 &&
-      record.plan_revised_target_tool_ref === "dialogue_frame" &&
-      Number(record.plan_revised_plan_version ?? 0) === 2 &&
-      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
-      record.plan_revised_author_narrative_source_type === "provider_output" &&
-      String(record.plan_revised_revision_reason ?? "").includes("本轮回应尚未生成") &&
-      boolValue(record.revised_plan_has_frame_step) === true &&
-      boolValue(record.revised_plan_has_strategy_step) === true &&
-      boolValue(record.revised_plan_has_finalize_step) === true &&
-      Number(record.completed_step_count ?? 0) === 4 &&
-      Number(record.consumed_steps ?? 0) === 4 &&
-      Number(record.consumed_tool_calls ?? -1) === 0 &&
-      // Order 62 CP1 两段式规划后：路由 1 + 起草 2 + 修订 2（两段式）+ 回应 1。
-      Number(record.consumed_provider_calls ?? 0) === 6 &&
-      Number(record.consumed_replans ?? 0) === 1 &&
-      Number(record.log_sync_turn_count ?? 0) === 0 &&
-      Number(record.log_toolbox_execute_count ?? 0) === 0,
+      record.profile_ref === "prose_drafting_with_quality_v1" &&
+      typeof record.run_id === "string" &&
+      record.run_id !== "" &&
+      Number(record.short_plan_step_count ?? 0) === 1 &&
+      boolValue(record.plan_revised_observed) === true &&
+      boolValue(record.revised_plan_has_prose_step) === true &&
+      Number(record.consumed_replans ?? 0) >= 1 &&
+      Number(record.prose_artifact_pending ?? 0) >= 1,
   );
   if (!uiState) return null;
 
-  const runId = String(uiState.run_id ?? "");
-  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
-  const parentTurnId = String(uiState.parent_turn_id ?? "");
-  if (!runId || !finalTurnId) return null;
-
-  const boundedAck = records.some(
-    (record) =>
-      record.event === "channel.user_message.done" &&
-      record.run_id === runId &&
-      String(record.run_mode ?? "") === "bounded",
+  // channel 键落在父 turn（final_turn_id 是 :agent: 子 turn）。
+  const parentTurnId = String(
+    uiState.parent_turn_id ?? String(uiState.final_turn_id ?? "").split(":agent:")[0] ?? "",
   );
-  if (!boundedAck) return null;
+  const turnRecords = records.filter((record) => record.turn_id === parentTurnId);
+  if (!eventsPresentWithCorrelation(turnRecords, ["channel.user_message.start"])) return null;
 
   return {
     slice_id: sliceId,
-    turn_id: finalTurnId,
-    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
-    parent_turn_id: parentTurnId,
-    final_turn_id: finalTurnId,
-    run_id: runId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId].filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
     profile_ref: uiState.profile_ref,
-    consumed_steps: Number(uiState.consumed_steps ?? 0),
-    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
-    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    short_plan_step_count: Number(uiState.short_plan_step_count ?? 0),
     consumed_replans: Number(uiState.consumed_replans ?? 0),
-    initial_plan_step_count: Number(uiState.initial_plan_step_count ?? 0),
-    plan_revised_plan_version: Number(uiState.plan_revised_plan_version ?? 0),
-    plan_revised_revision_reason: String(uiState.plan_revised_revision_reason ?? ""),
     key_events: keyEvents,
   };
 }
-
 function agenticLoopPlanReplanReasoningBehavior(turnIds, _turnRecords, records, evidence) {
   if (turnIds.length < 1) return null;
 
@@ -4264,60 +4218,28 @@ function agenticLoopPlanReplanReasoningBehavior(turnIds, _turnRecords, records, 
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
-  if (uiState.profile_ref !== "conversation_turn_v1") return null;
-  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
-  if (uiState.no_tool_called !== true) return null;
-  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
-  if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
-  if (Number(uiState.initial_plan_step_count ?? 0) !== 1) return null;
-  if (boolValue(uiState.initial_plan_only_context) !== true) return null;
-  if (boolValue(uiState.plan_revised_visible) !== true) return null;
-  if (Number(uiState.plan_revised_event_count ?? 0) < 1) return null;
-  if (uiState.plan_revised_target_tool_ref !== "dialogue_frame") return null;
-  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
-  if (boolValue(uiState.plan_revised_evaluation_plan_holds) !== false) return null;
-  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
-  if (!String(uiState.plan_revised_revision_reason ?? "").includes("本轮回应尚未生成")) {
-    return null;
-  }
-  if (boolValue(uiState.revised_plan_has_frame_step) !== true) return null;
-  if (boolValue(uiState.revised_plan_has_strategy_step) !== true) return null;
-  if (boolValue(uiState.revised_plan_has_finalize_step) !== true) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
-  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  // Order 62 CP1 两段式规划后：路由 1 + 起草 2 + 修订 2（两段式）+ 回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
-  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
-  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
-  if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
+  if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
+  if (Number(uiState.short_plan_step_count ?? 0) !== 1) return null;
+  if (boolValue(uiState.plan_revised_observed) !== true) return null;
+  if (boolValue(uiState.revised_plan_has_prose_step) !== true) return null;
+  if (Number(uiState.consumed_replans ?? 0) < 1) return null;
+  if (Number(uiState.prose_artifact_pending ?? 0) < 1) return null;
 
   return {
     slice_id: "agentic-loop-plan-replan-reasoning",
-    behavior: "plan_exhausted_without_completion_replans_before_awaiting_author",
+    behavior: "exhausted_short_plan_revises_and_continues_to_prose_artifact",
     turn_ids: turnIds,
-    parent_turn_id: evidence.parent_turn_id,
-    final_turn_id: evidence.final_turn_id,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
-    consumed_steps: evidence.consumed_steps,
-    consumed_tool_calls: evidence.consumed_tool_calls,
-    consumed_provider_calls: evidence.consumed_provider_calls,
     consumed_replans: evidence.consumed_replans,
-    initial_plan_step_count: evidence.initial_plan_step_count,
-    plan_revised_plan_version: evidence.plan_revised_plan_version,
-    plan_revised_revision_reason: evidence.plan_revised_revision_reason,
     assertions: [
-      "real_tauri_input_created_a_short_model_drafted_plan",
-      "d6_plan_exhausted_signal_promoted_to_provider_sourced_plan_revised",
-      "revised_plan_restored_frame_strategy_and_finalize_steps",
-      "runtime_consumed_one_replan_budget",
-      "revised_plan_continued_to_completed_turn_without_tool_or_write",
-      "channel_did_not_use_dialogue_fallback_main_chain",
+      "short_plan_drafted_with_context_step_only",
+      "plan_revised_after_plan_exhausted_without_prose",
+      "revised_plan_added_prose_writing_step",
+      "run_completed_into_pending_prose_artifact_without_auto_adoption",
     ],
   };
 }
-
-// 判断循环下"无偏离直通" = 简单对话零修订直达回复，与 conversation-turn 同证据形状。
 function findAgenticLoopNoDeviationDirectEvidence(records) {
   return findAgentConversationTurnEvidence(records, "agentic-loop-no-deviation-direct");
 }
@@ -4344,87 +4266,46 @@ function findAgentPlanNativeToolCallingProtocolEvidence(records) {
   const sliceId = "agent-plan-native-tool-calling-protocol";
   const keyEvents = keyEventsForSlice(sliceId);
 
+  // 判断纪元（迁移账⑤）：D6 prose 基座之上，验证计划起草/修订走 provider native
+  // tool call 协议，且计划参数不泄漏进开发者遥测。
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
-      record.plain_input_sent_from_real_workbench === true &&
-      record.parent_fast_ack_before_final_turn_result === true &&
-      record.run_mode === "bounded" &&
-      record.profile_ref === "conversation_turn_v1" &&
-      record.final_turn_broadcast === true &&
-      record.no_tool_called === true &&
-      record.no_auto_adoption === true &&
-      record.no_production_write === true &&
-      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
-      record.agent_stage_events_visible === true &&
-      record.context_step_visible === true &&
-      record.frame_step_visible === true &&
-      record.strategy_step_visible === true &&
-      record.finalize_step_visible === true &&
-      record.ui_agentic_loop_plan_visible === true &&
-      record.ui_agentic_loop_reasoning_visible === true &&
-      record.ui_agentic_loop_result_visible === true &&
-      Number(record.initial_plan_step_count ?? 0) === 1 &&
-      boolValue(record.initial_plan_only_context) === true &&
-      boolValue(record.plan_revised_visible) === true &&
-      Number(record.plan_revised_event_count ?? 0) >= 1 &&
-      record.plan_revised_target_tool_ref === "dialogue_frame" &&
-      Number(record.plan_revised_plan_version ?? 0) === 2 &&
-      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
-      record.plan_revised_author_narrative_source_type === "provider_output" &&
-      boolValue(record.revised_plan_has_frame_step) === true &&
-      boolValue(record.revised_plan_has_strategy_step) === true &&
-      boolValue(record.revised_plan_has_finalize_step) === true &&
-      Number(record.consumed_steps ?? 0) === 4 &&
-      Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
-      Number(record.consumed_replans ?? 0) === 1 &&
+      record.profile_ref === "prose_drafting_with_quality_v1" &&
+      typeof record.run_id === "string" &&
+      record.run_id !== "" &&
+      Number(record.short_plan_step_count ?? 0) === 1 &&
+      boolValue(record.plan_revised_observed) === true &&
+      boolValue(record.revised_plan_has_prose_step) === true &&
+      Number(record.consumed_replans ?? 0) >= 1 &&
       Number(record.provider_activity_api_status ?? 0) === 200 &&
       Number(record.native_tool_call_final_output_count ?? 0) >= 2 &&
       boolValue(record.native_tool_call_draft_projected) === true &&
       boolValue(record.native_tool_call_revision_projected) === true &&
-      boolValue(record.native_tool_call_arguments_leaked) === false &&
-      Array.isArray(record.native_tool_call_names) &&
-      record.native_tool_call_names.includes("agent_plan_draft") &&
-      record.native_tool_call_names.includes("agent_plan_revision") &&
-      Number(record.log_sync_turn_count ?? 0) === 0 &&
-      Number(record.log_toolbox_execute_count ?? 0) === 0,
+      boolValue(record.native_tool_call_arguments_leaked) === false,
   );
   if (!uiState) return null;
 
-  const runId = String(uiState.run_id ?? "");
-  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
-  const parentTurnId = String(uiState.parent_turn_id ?? "");
-  if (!runId || !finalTurnId) return null;
-  const turnIds = [...new Set([parentTurnId, finalTurnId].filter(Boolean))];
-
-  const boundedAck = records.some(
-    (record) =>
-      record.event === "channel.user_message.done" &&
-      record.run_id === runId &&
-      String(record.run_mode ?? "") === "bounded",
+  const parentTurnId = String(
+    uiState.parent_turn_id ?? String(uiState.final_turn_id ?? "").split(":agent:")[0] ?? "",
   );
-  if (!boundedAck) return null;
+  const turnRecords = records.filter((record) => record.turn_id === parentTurnId);
+  if (!eventsPresentWithCorrelation(turnRecords, ["channel.user_message.start"])) return null;
 
   return {
     slice_id: sliceId,
-    turn_id: finalTurnId,
-    turn_ids: turnIds,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId].filter(Boolean),
     parent_turn_id: parentTurnId,
-    final_turn_id: finalTurnId,
-    run_id: runId,
+    final_turn_id: String(uiState.final_turn_id ?? ""),
+    run_id: String(uiState.run_id ?? ""),
     profile_ref: uiState.profile_ref,
-    consumed_steps: Number(uiState.consumed_steps ?? 0),
-    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
-    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
     consumed_replans: Number(uiState.consumed_replans ?? 0),
-    native_tool_call_names: uiState.native_tool_call_names,
-    native_tool_call_final_output_count: Number(uiState.native_tool_call_final_output_count ?? 0),
+    native_tool_call_names: uiState.native_tool_call_names ?? [],
     key_events: keyEvents,
   };
 }
-
 function agentPlanNativeToolCallingProtocolBehavior(turnIds, _turnRecords, records, evidence) {
   if (turnIds.length < 1) return null;
 
@@ -4435,14 +4316,9 @@ function agentPlanNativeToolCallingProtocolBehavior(turnIds, _turnRecords, recor
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
-  if (uiState.profile_ref !== "conversation_turn_v1") return null;
-  if (uiState.plan_revised_visible !== true) return null;
-  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
-  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
-  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
-  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
+  if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
+  if (boolValue(uiState.plan_revised_observed) !== true) return null;
+  if (Number(uiState.consumed_replans ?? 0) < 1) return null;
   if (Number(uiState.provider_activity_api_status ?? 0) !== 200) return null;
   if (Number(uiState.native_tool_call_final_output_count ?? 0) < 2) return null;
   if (uiState.native_tool_call_draft_projected !== true) return null;
@@ -4457,21 +4333,16 @@ function agentPlanNativeToolCallingProtocolBehavior(turnIds, _turnRecords, recor
     final_turn_id: evidence.final_turn_id,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
-    consumed_steps: evidence.consumed_steps,
-    consumed_tool_calls: evidence.consumed_tool_calls,
-    consumed_provider_calls: evidence.consumed_provider_calls,
     consumed_replans: evidence.consumed_replans,
     native_tool_call_names: evidence.native_tool_call_names,
     assertions: [
       "agent_plan_draft_structure_came_from_native_tool_call",
       "agent_plan_revision_structure_came_from_native_tool_call",
-      "author_reasoning_remained_provider_output_text",
       "native_tool_call_arguments_not_exposed_in_developer_telemetry",
-      "runtime_continued_revised_agent_plan_without_dialogue_fallback",
+      "runtime_continued_revised_agent_plan_to_prose_artifact",
     ],
   };
 }
-
 function findAgenticLoopBudgetDeviationReplanEvidence(records) {
   const sliceId = "agentic-loop-budget-deviation-replan";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -5403,8 +5274,9 @@ function findAgentDurableResumeLongRunTaskEvidence(records) {
       typeof record.long_run_task_ref === "string" &&
       record.long_run_task_ref !== "" &&
       record.checkpoint_status_before_restart === "awaiting_author" &&
-      Number(record.checkpoint_completed_step_count ?? 0) === 1 &&
-      Number(record.checkpoint_consumed_steps ?? 0) === 1 &&
+      // 判断纪元：判断入场 2 步 + 执行段 1 步 = 3 步 checkpoint（一步语义按执行段口径）。
+      Number(record.checkpoint_completed_step_count ?? 0) === 3 &&
+      Number(record.checkpoint_consumed_steps ?? 0) === 3 &&
       record.recovery_event_type === "run_resumed" &&
       Array.isArray(record.recovery_reason_codes) &&
       record.recovery_reason_codes.includes("durable_recovered") &&
@@ -5470,7 +5342,7 @@ function agentDurableResumeLongRunTaskBehavior(turnIds, records, evidence) {
   if (!uiState) return null;
   if (uiState.run_mode !== "durable") return null;
   if (uiState.parent_fast_ack_with_long_run_task_ref !== true) return null;
-  if (Number(uiState.checkpoint_completed_step_count ?? 0) !== 1) return null;
+  if (Number(uiState.checkpoint_completed_step_count ?? 0) !== 3) return null;
   if (uiState.recovered !== true) return null;
   if (uiState.runtime_live_after_restart !== false) return null;
   if (uiState.recovered_status !== "awaiting_author") return null;
@@ -6005,19 +5877,19 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
       record.profile_ref === "judgment_loop_v1" &&
       record.final_turn_broadcast === true &&
       Number(record.provider_activity_api_status ?? 0) === 200 &&
-      Number(record.provider_run_count ?? 0) >= 4 &&
+      Number(record.provider_run_count ?? 0) >= 1 &&
       boolValue(record.provider_started_projected) === true &&
       boolValue(record.provider_error_projected) === true &&
       boolValue(record.provider_progress_raw_content_leaked) === false &&
       boolValue(record.safe_fallback_visible) === true &&
       Array.isArray(record.provider_purposes) &&
       record.provider_purposes.includes("author_reasoning") &&
-      record.provider_purposes.includes("conversation") &&
       Array.isArray(record.provider_statuses) &&
       (record.provider_statuses.includes("failed") ||
         record.provider_statuses.includes("error")) &&
-      // 路由 1 + 计划 reasoning/结构 2 + 失败的回应调用 1 = 4（失败调用如实计数）
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      // 判断纪元（ADR-0025）+ S7：对话回应调用 = 判断 call1，失败即诚实失败终局。
+      // 消费预算只记成功消费（失败调用的如实记录在 ProviderRun 持久化事实里）。
+      Number(record.consumed_provider_calls ?? 0) === 0 &&
       record.final_turn_result_run_id === record.run_id &&
       boolValue(record.no_tool_called) === true &&
       boolValue(record.no_auto_adoption) === true &&
@@ -6050,17 +5922,16 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
-  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.profile_ref !== "judgment_loop_v1") return null;
   if (Number(uiState.provider_activity_api_status ?? 0) !== 200) return null;
-  if (Number(uiState.provider_run_count ?? 0) < 4) return null;
+  if (Number(uiState.provider_run_count ?? 0) < 1) return null;
   if (boolValue(uiState.provider_started_projected) !== true) return null;
   if (boolValue(uiState.provider_error_projected) !== true) return null;
   if (boolValue(uiState.provider_progress_raw_content_leaked) !== false) return null;
   if (boolValue(uiState.safe_fallback_visible) !== true) return null;
   if (
     !Array.isArray(uiState.provider_purposes) ||
-    !uiState.provider_purposes.includes("author_reasoning") ||
-    !uiState.provider_purposes.includes("planner")
+    !uiState.provider_purposes.includes("author_reasoning")
   ) {
     return null;
   }
@@ -6073,7 +5944,7 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
 
   return {
     slice_id: "agent-provider-execution-error-author-safe",
-    behavior: "provider_failure_absorbed_into_safe_reply_with_persisted_provider_facts",
+    behavior: "provider_failure_settles_run_failed_with_safe_turn_result_and_persisted_facts",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
@@ -6083,11 +5954,11 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
     provider_statuses: evidence.provider_statuses,
     consumed_provider_calls: evidence.consumed_provider_calls,
     assertions: [
-      "plain_conversation_used_conversation_turn_profile_not_provider_progress_profile",
-      "failed_provider_call_facts_persisted_as_provider_run_events",
+      "plain_conversation_used_judgment_loop_profile_not_provider_progress_profile",
+      "failed_judgment_call_facts_persisted_as_provider_run_events",
       "persisted_provider_facts_did_not_expose_raw_prompt_or_provider_error_payload",
       "safe_fallback_turn_result_did_not_call_tool_or_write_artifact",
-      "run_completed_with_routing_plan_and_failed_response_calls_counted",
+      "run_settled_failed_without_counting_failed_call_into_consumed_budget",
     ],
   };
 }
@@ -6255,7 +6126,8 @@ function findAgentReadonlyBatchProfileEvidence(records) {
       Number(record.plan_drafted_step_count ?? 0) >= 2 &&
       record.final_turn_result_run_id === record.run_id &&
       boolValue(record.replay_recall_provider) === false &&
-      Number(record.consumed_provider_calls ?? -1) === 2 &&
+      // 判断纪元：判断入场 2 + readonly 计划起草 2 = 4；批量只读执行段零 provider 调用。
+      Number(record.consumed_provider_calls ?? -1) === 4 &&
       Number(record.consumed_tool_calls ?? 0) >= 4 &&
       Number(record.pending_artifact_count ?? -1) === 0 &&
       Number(record.artifact_event_count ?? -1) === 0 &&
@@ -6291,7 +6163,7 @@ function agentReadonlyBatchProfileBehavior(turnIds, records, evidence) {
   if (boolValue(uiState.plan_drafted_visible) !== true) return null;
   if (uiState.plan_drafted_target_tool_ref !== "readonly_batch") return null;
   if (boolValue(uiState.replay_recall_provider) !== false) return null;
-  if (Number(uiState.consumed_provider_calls ?? -1) !== 2) return null;
+  if (Number(uiState.consumed_provider_calls ?? -1) !== 4) return null;
   if (Number(uiState.pending_artifact_count ?? -1) !== 0) return null;
   if (Number(uiState.artifact_event_count ?? -1) !== 0) return null;
 
@@ -6867,7 +6739,9 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
 
 function expectedAgentStopReason(sliceId) {
   if (sliceId === "agent-loop-budget-limit") return "budget_exhausted";
-  if (sliceId === "agent-no-progress-stop") return "no_progress";
+  // 判断纪元实测：prose 步链暂不产 progress_signature（缺口已登记），空转判停由
+  // replan 预算 + 计划耗尽兜底（agent_loop_awaiting_author）。
+  if (sliceId === "agent-no-progress-stop") return "agent_loop_awaiting_author";
   return null;
 }
 
@@ -6891,14 +6765,16 @@ function findUa01AgentStopEvidence(records, sliceId) {
     }
 
     if (sliceId === "agent-loop-budget-limit") {
-      return Number(record.consumed_steps ?? 0) === 1;
+      // 判断纪元：判断入场 2 步 + 执行段 1 步 = 3 步（一步语义按执行段口径）。
+      return Number(record.consumed_steps ?? 0) === 3;
     }
 
-    // 重定义（ADR-0023）：修订空转判停——两个 context 步（初稿 + 空转重复）、
-    // 路由 1 + 起草 2 + 空转修订 2 = 5 次 provider 调用、1 次 replan、0 工具。
+    // 重定义（ADR-0023 + ADR-0025 判断纪元）：修订空转判停迁 prose profile——
+    // 判断入场 2 步 + context 步 + 空转重复步 = 4 步；判断 2 + 起草 2 + 空转修订 2
+    // = 6 次 provider 调用、1 次 replan、0 工具。
     return (
-      Number(record.consumed_steps ?? 0) === 2 &&
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 6 &&
       Number(record.consumed_replans ?? 0) === 1 &&
       Number(record.consumed_tool_calls ?? 0) === 0 &&
       boolValue(record.plan_drafted_visible) === true &&
@@ -6951,7 +6827,8 @@ function ua01AgentStopBehavior(turnIds, records, evidence, sliceId) {
   if (uiState.final_turn_result_arrived !== false) return null;
 
   if (sliceId === "agent-loop-budget-limit") {
-    if (Number(uiState.consumed_steps ?? 0) !== 1) return null;
+    // 判断纪元：判断入场 2 步 + 执行段 1 步 = 3 步（一步语义按执行段口径）。
+    if (Number(uiState.consumed_steps ?? 0) !== 3) return null;
 
     return {
       slice_id: sliceId,
@@ -6970,10 +6847,11 @@ function ua01AgentStopBehavior(turnIds, records, evidence, sliceId) {
     };
   }
 
-  // 重定义（ADR-0023）：修订空转判停——两个 context 步、5 次 provider 调用（路由 1 +
-  // 起草 2 + 空转修订 2）、1 次 replan、0 工具；空转步产物被丢弃（无 TurnResult）。
-  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  // 重定义（ADR-0023 + ADR-0025 判断纪元）：修订空转判停迁 prose profile——判断
+  // 入场 2 步 + context 步 + 空转重复步 = 4 步；判断 2 + 起草 2 + 空转修订 2 = 6 次
+  // provider 调用、1 次 replan、0 工具；空转步产物被丢弃（无 TurnResult）。
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
   if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 0) return null;
   if (boolValue(uiState.plan_drafted_visible) !== true) return null;
@@ -19106,6 +18984,16 @@ function findAu01GarbageJsonRecoveryEvidence(records) {
     }
   }
 
+  // 判断纪元（ADR-0025）：垃圾结构 turn 判断未落地（无 judgment.decided.done，
+  // call2 重试仍坏 → S7 安全终局）；恢复 turn 判断正常落地。
+  const garbageJudgment = allTurnRecords.some(
+    (record) => record.turn_id === garbageTurnId && record.event === "judgment.decided.done",
+  );
+  const recoveryJudgment = allTurnRecords.some(
+    (record) => record.turn_id === recoveryTurnId && record.event === "judgment.decided.done",
+  );
+  if (garbageJudgment || !recoveryJudgment) return null;
+
   if (uiState.fallback_message_visible !== true) return null;
   if (uiState.raw_provider_payload_visible !== false) return null;
   if (uiState.input_enabled_after_garbage !== true) return null;
@@ -19175,8 +19063,23 @@ function garbageJsonRecoveryBehavior(turnIds, turnRecords, _records, evidence, o
   if (evidence.recovery_message_visible !== true) return null;
   if (evidence.recovery_assistant_reply_visible !== true) return null;
   if (evidence.recovery_assistant_is_fallback !== false) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
+  // 判断纪元：垃圾结构 turn 判断未落地（S7 安全终局），恢复 turn 判断落地。
+  const [garbageTurnId, recoveryTurnId] = turnIds;
+  if (
+    turnRecords.some(
+      (record) => record.turn_id === garbageTurnId && record.event === "judgment.decided.done",
+    )
+  ) {
+    return null;
+  }
+  if (
+    !turnRecords.some(
+      (record) => record.turn_id === recoveryTurnId && record.event === "judgment.decided.done",
+    )
+  ) {
+    return null;
+  }
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
     return null;
@@ -19188,6 +19091,7 @@ function garbageJsonRecoveryBehavior(turnIds, turnRecords, _records, evidence, o
     turn_ids: turnIds,
     assertions: [
       "malformed_provider_json_rendered_friendly_fallback",
+      "garbage_judgment_structure_settled_as_safe_failure",
       "raw_provider_payload_not_visible",
       "input_remained_available_after_malformed_json",
       "channel_remained_connected_after_malformed_json",
@@ -19214,19 +19118,23 @@ function findAu01FrameValidationFriendlyErrorEvidence(records) {
   const invalidRecords = records.filter((record) => record.turn_id === invalidTurnId);
   const recoveryRecords = records.filter((record) => record.turn_id === recoveryTurnId);
 
+  // 判断纪元（ADR-0025）：action 非法 → call2 重试仍坏 → S7 安全失败终局，
+  // channel 侧为安全 TurnResult 正常完成链（不再有 handle_input/user_message.error）。
   const invalidRequiredEvents = [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.error",
-    "channel.user_message.error",
+    "context.assemble.done",
+    "channel.user_message.done",
   ];
   const recoveryRequiredEvents = [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
+    "judgment.decided.done",
     "channel.user_message.done",
   ];
 
   if (!eventsPresentWithCorrelation(invalidRecords, invalidRequiredEvents)) return null;
   if (!eventsPresentWithCorrelation(recoveryRecords, recoveryRequiredEvents)) return null;
+  if (invalidRecords.some((record) => record.event === "judgment.decided.done")) return null;
 
   const invalidStart = invalidRecords.find(
     (record) => record.event === "channel.user_message.start",
@@ -19290,17 +19198,19 @@ function frameValidationFriendlyErrorBehavior(turnIds, turnRecords, _records, ev
   if (evidence.recovery_message_visible !== true) return null;
   if (evidence.recovery_assistant_reply_visible !== true) return null;
   if (evidence.recovery_assistant_is_fallback !== false) return null;
+  // 判断纪元：非法结构 turn 无判断落地、S7 安全完成；恢复 turn 判断落地。
   if (
     !eventsPresentWithCorrelation(invalidRecords, [
-      "dialogue_gateway.handle_input.error",
-      "channel.user_message.error",
+      "context.assemble.done",
+      "channel.user_message.done",
     ])
   ) {
     return null;
   }
+  if (invalidRecords.some((record) => record.event === "judgment.decided.done")) return null;
   if (
     !eventsPresentWithCorrelation(recoveryRecords, [
-      "dialogue_gateway.handle_input.done",
+      "judgment.decided.done",
       "channel.user_message.done",
     ])
   ) {
@@ -19313,10 +19223,10 @@ function frameValidationFriendlyErrorBehavior(turnIds, turnRecords, _records, ev
 
   return {
     slice_id: "au01-frame-validation-friendly-error",
-    behavior: "forbidden_frame_semantics_are_blocked_without_leaking_internal_reason",
+    behavior: "invalid_judgment_structure_settles_safely_without_leaking_internal_reason",
     turn_ids: turnIds,
     assertions: [
-      "forbidden_frame_semantics_blocked_at_gateway",
+      "invalid_judgment_action_settled_as_safe_failure",
       "author_visible_fallback_is_friendly",
       "internal_validation_reason_not_visible",
       "internal_validation_reason_not_in_turn_result",

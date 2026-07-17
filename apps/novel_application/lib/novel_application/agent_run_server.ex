@@ -416,6 +416,10 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   # provider 错误契约形状（Gateway execution_error：%{type:, message:}）判定失败家族。
+  # 判断结构不可解析（ADR-0025 判断①call2 重试后仍坏）= provider 输出契约违约，
+  # 与帧纪元 :frame_contract_invalid 同格——作者应得到"格式不符合契约，请重试"。
+  defp provider_failure_reason?({:judgment_decision_unparseable, _fragment}), do: true
+
   defp provider_failure_reason?(reason),
     do: is_map(reason) and is_atom(Map.get(reason, :type))
 

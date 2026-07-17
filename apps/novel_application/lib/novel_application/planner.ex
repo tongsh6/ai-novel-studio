@@ -825,6 +825,7 @@ defmodule NovelApplication.Planner do
 
   defp frame_error_reason_code(:json_parse_failed), do: :json_parse_failed
   defp frame_error_reason_code(:frame_contract_invalid), do: :json_parse_failed
+  defp frame_error_reason_code({:judgment_decision_unparseable, _}), do: :json_parse_failed
   defp frame_error_reason_code(%{type: :invalid_request}), do: :invalid_request
   defp frame_error_reason_code(%{type: :invalid_response}), do: :invalid_response
   defp frame_error_reason_code(%{type: :timeout}), do: :provider_timeout

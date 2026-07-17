@@ -175,6 +175,39 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   → S7）、D6 基两场景 + no-progress 再诱导、error-author-safe 语义再迁、
   world-style-rule / readonly-batch / cancel·steer·durable 家族 run-and-see、
   conversation flow 退役评估（CP2 前置）。
+- 2026-07-17 **CP1 场景校准批四收口（迁移账②⑤⑥⑦清账）**：
+  ① **garbage-json-recovery / frame-validation-friendly-error 语义重定义绿**：帧 JSON
+  恢复路径已不存在，新语义 = 判断 call2 坏结构（垃圾 payload / 非法 action 两种坏
+  法）→ 协议携带片段重试一次 → 仍坏 → S7 安全失败终局 → 恢复轮正常判断。错误分类
+  学接入：`{:judgment_decision_unparseable, _}` 归 :json_parse_failed（与帧纪元
+  :frame_contract_invalid 同格），作者文案"格式不符合契约，请重试"；anti-leak 断言
+  保留（内部原因词不进页面/TurnResult）。
+  ② **error-author-safe 语义再迁绿**：对话回应调用 = 判断 call1，其失败走 S7 诚实
+  失败终局（run failed + 安全 TurnResult + ProviderRun 失败事实持久化 + 消费预算不
+  记失败调用），不再被帧吸收为 completed。
+  ③ **D6 基两场景迁 prose 基座绿**（plan-replan-reasoning / native-tool-calling-
+  protocol）：诱导迁 prose 创作 profile（对话 chat 判 reply 终结，计划-修订路径只在
+  创作 profile 内可达）——短计划漏正文步 → plan_revised 补足 → 正文候选；native
+  tool 遥测（draft+revision）不泄漏参数。共用基座 driveAgentD6ProseReplan；父 turn
+  （:agent: 后缀剥离）修正 activity/键定位。
+  ④ **no-progress 迁 prose 空转基座**：修订空转判停成立（steps 4 / calls 6 /
+  replans 1）。**产品观测缺口登记**：prose 步链不产 progress_signature，no_progress
+  提前判停对 prose profile 不生效；空转保护当前由 replan 预算 + 计划耗尽兜底
+  （agent_loop_awaiting_author）承担，不无限空转。signature 补全为后续小项。
+  ⑤ **run-and-see 家族校准**：cancel-honest-boundary / cancel-target-binding /
+  interrupt-safe-point 摸底即绿；steer 绿（链路 plan_adjusted→plan_revised 全通，
+  终态文案对齐"这次创作请求已完成"）；readonly-batch 绿（执行段 provider-free 口
+  径：判断 2 + 计划 2 = 4 调用，批量只读执行段零调用）；budget-limit 绿、
+  no-progress 绿（计数迁执行段口径：判断入场 2 步 + 执行段 N 步；"最多一步"语义按
+  执行段保留）；durable 同口径校准完成（checkpoint 3 步来自实测帧）但 harness 端口
+  竞态三次误伤未过验，登记复验余项。
+  ⑥ **conversation flow 退役评估（迁移账⑦，CP2 前置）**：遗存 =
+  agent_run_flows/conversation_turn.ex + agentic_{plan_draft,next_step}_planner 的
+  conversation_turn_v1 分支 + profile 注册 + stub packets + runtime 直连测试；
+  user_message 链路无入口可达。建议 CP2 删除（直连测试先换 fixture profile）。
+  **剩余长尾（不阻塞主线，后续 run-and-see）**：durable 复验（harness 端口竞态）、
+  agentic-loop-budget-deviation-replan（D5 对话基座需迁 prose）、au03+ 家族。
+  **CP1 累计 28 场景判断口径绿；批四后回主线 CP2。**
 - 2026-07-16 **CP1a（协议资产落地，不翻入口）**：`NovelApplication.JudgmentProtocol`
   生产模块——判断①两段式请求机（call1 叙事流式 + call2 强制 judgment_decision，
   坏结构携带片段重试一次）、叙事绑定（content 优先 / arguments.author_narrative
