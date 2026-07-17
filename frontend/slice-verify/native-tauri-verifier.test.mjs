@@ -2670,7 +2670,7 @@ describe("native Tauri slice verifier", () => {
         "micro_plan_not_requested",
         "no_adoption_or_projection_events",
         "assistant_messages_not_fallback",
-        "deterministic_provider_form_frame_called_per_turn",
+        "deterministic_provider_judgment_called_per_turn",
       ],
     });
   });
@@ -5535,7 +5535,7 @@ describe("native Tauri slice verifier", () => {
       thinking_visible_after_reply: false,
       key_events: [
         "channel.user_message.start",
-        "planner.form_frame.done",
+        "judgment.decided.done",
         "channel.user_message.done",
       ],
     });
@@ -5557,7 +5557,6 @@ describe("native Tauri slice verifier", () => {
       recovery_assistant_reply_visible: true,
       key_events: [
         "channel.user_message.start",
-        "dialogue_gateway.handle_input.done",
         "channel.user_message.done",
       ],
     });
@@ -5591,7 +5590,7 @@ describe("native Tauri slice verifier", () => {
         "blank_input_left_thinking_hidden",
         "input_remained_available_after_blank",
         "following_valid_chat_completed_without_micro_plan",
-        "deterministic_provider_form_frame_called_for_recovery_turn",
+        "deterministic_provider_judgment_called_for_recovery_turn",
       ],
     });
   });
@@ -5735,7 +5734,7 @@ describe("native Tauri slice verifier", () => {
         "work_session.resume.done",
         "channel.join.done",
         "channel.user_message.start",
-        "dialogue_gateway.handle_input.done",
+        "judgment.decided.done",
         "channel.user_message.done",
         "work_session.show.done",
         "slice_verify.ui_state.done",
@@ -7113,8 +7112,8 @@ describe("native Tauri slice verifier", () => {
   it("accepts ordinary chat behavior only when both turns complete without micro plan or fallback", () => {
     const records = ordinaryTwoTurnRecords();
     const llmRecords = [
-      lmRecord("turn-a", "form_frame", "可以，我们先聊小说创作。"),
-      lmRecord("turn-b", "form_frame", "还可以从人物和世界规则继续展开。"),
+      lmRecord("turn-a", "judgment", "可以，我们先聊小说创作。"),
+      lmRecord("turn-b", "judgment", "还可以从人物和世界规则继续展开。"),
     ];
     const evidence = findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records);
 
@@ -7136,7 +7135,7 @@ describe("native Tauri slice verifier", () => {
         "no_action_candidate_or_adoption_cards_rendered",
         "no_error_events",
         "assistant_messages_not_fallback",
-        "lmstudio_form_frame_called_per_turn",
+        "lmstudio_judgment_called_per_turn",
       ],
     });
   });
@@ -7149,7 +7148,7 @@ describe("native Tauri slice verifier", () => {
       findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
         provider: "slice_verify",
       })?.assertions,
-    ).toContain("deterministic_provider_form_frame_called_per_turn");
+    ).toContain("deterministic_provider_judgment_called_per_turn");
   });
 
   it("accepts AU-05 behavior only when adoption boundary persisted a mutation", () => {
@@ -7860,21 +7859,13 @@ function ordinaryTwoTurnRecords() {
       generate_micro_plan: false,
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: turnId,
       workspace_id: "ws-chat",
       work_id: "work-chat",
       duration_ms: 12,
       outcome: "ok",
       candidate_count: 0,
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: turnId,
-      workspace_id: "ws-chat",
-      work_id: "work-chat",
-      duration_ms: 12,
-      outcome: "ok",
     },
     {
       event: "channel.user_message.done",
@@ -7936,21 +7927,13 @@ function emptyMessageGuardRecords() {
       generate_micro_plan: false,
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: "turn-recovery",
       workspace_id: "ws-chat",
       work_id: "work-chat",
       duration_ms: 12,
       outcome: "ok",
       candidate_count: 0,
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: "turn-recovery",
-      workspace_id: "ws-chat",
-      work_id: "work-chat",
-      duration_ms: 12,
-      outcome: "ok",
     },
     {
       event: "channel.user_message.done",
@@ -8158,13 +8141,15 @@ function turnresultRecorderUiConsistencyRecords() {
       text_len: 30,
       generate_micro_plan: false,
     },
-    {
-      event: "dialogue_gateway.handle_input.done",
+      {
+      event: "judgment.decided.done",
       turn_id: "turn-recorder",
       workspace_id: "work-chat",
       work_id: "work-chat",
-      duration_ms: 12,
+      duration_ms: 0,
       outcome: "ok",
+      text_len: 30,
+      generate_micro_plan: false,
     },
     {
       event: "channel.user_message.done",
@@ -9375,7 +9360,7 @@ function au02CandidateContinuationRecords(sourceTurnId, followTurnId) {
       candidate_ref: "dir-1",
     },
     {
-      event: "dialogue_gateway.handle_input.start",
+      event: "context.assemble.done",
       turn_id: followTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9384,21 +9369,12 @@ function au02CandidateContinuationRecords(sourceTurnId, followTurnId) {
       outcome: "start",
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: followTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
       session_id: "session-1",
       duration_ms: 20,
-      outcome: "ok",
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: followTurnId,
-      workspace_id: "ws-1",
-      work_id: "work-1",
-      session_id: "session-1",
-      duration_ms: 32,
       outcome: "ok",
     },
     {
@@ -9460,7 +9436,7 @@ function au02CandidateMultiturnContextRecords(sourceTurnId, continuationTurnId, 
       generate_micro_plan: false,
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: sourceTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9493,7 +9469,7 @@ function au02CandidateMultiturnContextRecords(sourceTurnId, continuationTurnId, 
       candidate_ref: "dir-1",
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: continuationTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9524,7 +9500,7 @@ function au02CandidateMultiturnContextRecords(sourceTurnId, continuationTurnId, 
       generate_micro_plan: false,
     },
     {
-      event: "dialogue_gateway.handle_input.start",
+      event: "context.assemble.done",
       turn_id: followupTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9544,7 +9520,7 @@ function au02CandidateMultiturnContextRecords(sourceTurnId, continuationTurnId, 
       has_session_summary: true,
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: followupTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9552,15 +9528,6 @@ function au02CandidateMultiturnContextRecords(sourceTurnId, continuationTurnId, 
       frame_type: "casual_reply",
       candidate_count: 0,
       duration_ms: 20,
-      outcome: "ok",
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: followupTurnId,
-      workspace_id: "ws-1",
-      work_id: "work-1",
-      session_id: "session-1",
-      duration_ms: 32,
       outcome: "ok",
     },
     {
@@ -9617,7 +9584,7 @@ function au02CandidateFreeformFollowupRecords(sourceTurnId, followTurnId) {
       generate_micro_plan: false,
     },
     {
-      event: "dialogue_gateway.handle_input.start",
+      event: "context.assemble.done",
       turn_id: followTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9626,21 +9593,12 @@ function au02CandidateFreeformFollowupRecords(sourceTurnId, followTurnId) {
       outcome: "start",
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: followTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
       session_id: "session-1",
       duration_ms: 20,
-      outcome: "ok",
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: followTurnId,
-      workspace_id: "ws-1",
-      work_id: "work-1",
-      session_id: "session-1",
-      duration_ms: 32,
       outcome: "ok",
     },
     {
@@ -9705,7 +9663,7 @@ function au02NaturalExplorationNoSlotFormRecords(sourceTurnId) {
       generate_micro_plan: false,
     },
     {
-      event: "dialogue_gateway.handle_input.start",
+      event: "context.assemble.done",
       turn_id: sourceTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9714,7 +9672,7 @@ function au02NaturalExplorationNoSlotFormRecords(sourceTurnId) {
       outcome: "start",
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: sourceTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9722,15 +9680,6 @@ function au02NaturalExplorationNoSlotFormRecords(sourceTurnId) {
       frame_type: "creative_exploration",
       candidate_count: 2,
       duration_ms: 20,
-      outcome: "ok",
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: sourceTurnId,
-      workspace_id: "ws-1",
-      work_id: "work-1",
-      session_id: "session-1",
-      duration_ms: 32,
       outcome: "ok",
     },
     {
@@ -9796,7 +9745,7 @@ function au02CandidateFallbackUiRecords(sourceTurnId) {
       generate_micro_plan: false,
     },
     {
-      event: "dialogue_gateway.handle_input.start",
+      event: "context.assemble.done",
       turn_id: sourceTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9805,7 +9754,7 @@ function au02CandidateFallbackUiRecords(sourceTurnId) {
       outcome: "start",
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: sourceTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9813,15 +9762,6 @@ function au02CandidateFallbackUiRecords(sourceTurnId) {
       frame_type: "creative_exploration",
       candidate_count: 3,
       duration_ms: 20,
-      outcome: "ok",
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: sourceTurnId,
-      workspace_id: "ws-1",
-      work_id: "work-1",
-      session_id: "session-1",
-      duration_ms: 32,
       outcome: "ok",
     },
     {
@@ -9879,7 +9819,7 @@ function au02UnadoptedCandidateNoReadingFactRecords(sourceTurnId) {
       generate_micro_plan: false,
     },
     {
-      event: "dialogue_gateway.handle_input.start",
+      event: "context.assemble.done",
       turn_id: sourceTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
@@ -9888,21 +9828,12 @@ function au02UnadoptedCandidateNoReadingFactRecords(sourceTurnId) {
       outcome: "start",
     },
     {
-      event: "planner.form_frame.done",
+      event: "judgment.decided.done",
       turn_id: sourceTurnId,
       workspace_id: "ws-1",
       work_id: "work-1",
       session_id: "session-1",
       duration_ms: 20,
-      outcome: "ok",
-    },
-    {
-      event: "dialogue_gateway.handle_input.done",
-      turn_id: sourceTurnId,
-      workspace_id: "ws-1",
-      work_id: "work-1",
-      session_id: "session-1",
-      duration_ms: 32,
       outcome: "ok",
     },
     {

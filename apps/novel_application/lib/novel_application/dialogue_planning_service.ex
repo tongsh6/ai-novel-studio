@@ -8,6 +8,8 @@ defmodule NovelApplication.DialoguePlanningService do
   author-safe agent_event / agent_run_state 投影给 UI。
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgentNarrativeSource
@@ -474,6 +476,15 @@ defmodule NovelApplication.DialoguePlanningService do
       ws_id = map_get(input, :workspace_id) || run.workspace_id
       turn_id = map_get(input, :turn_id) || run.parent_turn_ref
 
+      # 业务日志 turn/session 关联（与旧 conversation context 步同款）：缺失会让
+      # context.assemble.done 等 JSONL 失去 per-turn 关联，外部验收无法归组。
+      NovelCommon.LogContext.put_turn(
+        ws_id,
+        map_get(input, :work_id) || run.work_id || ws_id,
+        turn_id,
+        map_get(input, :session_id) || run.session_id
+      )
+
       context =
         ContextAssembler.assemble_for_input(
           ws_id,
@@ -516,6 +527,18 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp judgment_step(provider_execution, input, state) do
     fn run, sequence, snapshot ->
+      # LogContext 是进程本地的；判断步与 context 步在不同 step task 进程，
+      # 必须各自设置 turn 关联（否则 judgment.decided.done 等业务日志失联）。
+      NovelCommon.LogContext.put_turn(
+        map_get(input, :workspace_id) || run.workspace_id,
+        map_get(input, :work_id) || run.work_id || run.workspace_id,
+        map_get(input, :turn_id) || run.parent_turn_ref,
+        map_get(input, :session_id) || run.session_id
+      )
+
+      # llm 调用日志步名（live 取证用；旧 planner 为 form_frame，判断循环为 judgment）。
+      NovelCommon.LogContext.put_step("judgment")
+
       context = judgment_context(state)
       text = map_get(input, :text) || run.goal.text
 
@@ -534,6 +557,19 @@ defmodule NovelApplication.DialoguePlanningService do
           {:error, reason}
       end
     end
+  end
+
+  # 业务日志（ADR-0018 观测族）：判断结构落地事实——frame 语义并入判断后，
+  # 取代旧 planner.form_frame.done 的 JSONL 覆盖；frame_type/candidate_count 记
+  # 解析与兜底之后的最终口径（外部验收据此归组）。
+  defp log_judgment_decided(judgment, frame_type, candidate_count) do
+    LogEmit.emit(:judgment, :decided, :done, %{
+      action: judgment.action,
+      capability: judgment.capability,
+      frame_type: to_string(frame_type),
+      candidate_count: candidate_count,
+      reason_code: judgment.reason
+    })
   end
 
   defp dispatch_judgment(%{action: "reply"} = judgment, run, sequence, input, context),
@@ -563,6 +599,7 @@ defmodule NovelApplication.DialoguePlanningService do
     ws_id = map_get(input, :workspace_id) || run.workspace_id
     frame = judgment_frame(judgment, turn_id, ws_id, context)
     candidates = judgment_candidates(judgment, frame.frame_id)
+    log_judgment_decided(judgment, frame.frame_type, length(candidates))
 
     {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: turn_id}, context)
 
@@ -602,6 +639,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # execute/plan：切换到能力 profile（等价旧路由；计划起草→机械 cursor 沿用）。
   defp judgment_switch_result(profile, judgment, input, run, sequence) do
+    log_judgment_decided(judgment, "judgment_" <> judgment.action, 0)
     selection = judgment_selection(judgment, profile)
 
     with {:ok, target_plan} <- agent_run_agent_plan(run.run_id, profile) do
@@ -662,10 +700,14 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
+  # 探索意图：有效候选或"意图给候选但结构坏了"都算（坏结构由兜底候选降级承接）。
+  defp judgment_exploration?(judgment),
+    do: judgment.candidate_directions != [] or judgment[:candidate_directions_present] == true
+
   # 判断结构 → DialogueFrame 机械转换（非预制创作决策：全部字段来自模型判断输出）。
   defp judgment_frame(judgment, turn_id, ws_id, context) do
     frame_type =
-      if judgment.candidate_directions == [], do: :casual_reply, else: :creative_exploration
+      if judgment_exploration?(judgment), do: :creative_exploration, else: :casual_reply
 
     context_ref =
       case context do
@@ -694,18 +736,29 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   # 候选随判断结构携带（S2 保全）：字节绑定 provider tool arguments（I1/I3 语义不变）。
-  defp judgment_candidates(%{candidate_directions: directions}, frame_id) do
-    Enum.map(directions, fn c ->
-      %CandidateDirection{
-        direction_id: NovelFoundation.ID.unique("dir"),
-        title: c |> map_get(:title) |> to_string() |> String.trim(),
-        pitch: c |> map_get(:pitch) |> to_string() |> String.trim(),
-        tone_tags: map_get(c, :tone_tags) || [],
-        source_frame_ref: frame_id,
-        risk_hint: :low,
-        adoption_status: :not_adopted
-      }
-    end)
+  # 判定探索但有效候选为空（坏结构/空标题）→ 应用兜底候选（与 frame 路径同一份，
+  # Planner.fallback_candidates——S2 韧性语义平移）。
+  defp judgment_candidates(%{candidate_directions: directions} = judgment, frame_id) do
+    candidates =
+      directions
+      |> Enum.map(fn c ->
+        %CandidateDirection{
+          direction_id: NovelFoundation.ID.unique("dir"),
+          title: c |> map_get(:title) |> to_string() |> String.trim(),
+          pitch: c |> map_get(:pitch) |> to_string() |> String.trim(),
+          tone_tags: map_get(c, :tone_tags) || [],
+          source_frame_ref: frame_id,
+          risk_hint: :low,
+          adoption_status: :not_adopted
+        }
+      end)
+      |> Enum.filter(&(&1.title != "" and &1.pitch != ""))
+
+    if candidates == [] and judgment_exploration?(judgment) do
+      NovelApplication.Planner.fallback_candidates(frame_id)
+    else
+      candidates
+    end
   end
 
   defp scope_judgment_turn_result(turn_result, input, run) do

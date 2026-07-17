@@ -1344,12 +1344,11 @@ const sliceKeyEvents = {
   ],
   "au01-ordinary-chat-two-turn-roundtrip": [
     "channel.user_message.start",
-    "planner.form_frame.done",
+    "judgment.decided.done",
     "channel.user_message.done",
   ],
   "au01-empty-message-guard": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
   ],
   "au01-garbage-json-recovery": [
@@ -1368,55 +1367,47 @@ const sliceKeyEvents = {
     "work_session.resume.done",
     "channel.join.done",
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "work_session.show.done",
     "slice_verify.ui_state.done",
   ],
+  // ADR-0025 CP1 判断链：机械 context（带 turn 关联）取代 frame 管线。
   "au02-natural-exploration-no-slot-form": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // ADR-0025 CP1 判断链：机械 context（带 turn 关联）取代 frame 管线。
   "au02-candidate-fallback-ui": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // ADR-0025 CP1 判断链：机械 context（带 turn 关联）取代 frame 管线。
   "au02-candidate-continuation": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
     "channel.user_message.done",
   ],
   "au02-candidate-multiturn-context": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
     "context.assemble.done",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // ADR-0025 CP1 判断链：机械 context（带 turn 关联）取代 frame 管线。
   "au02-freeform-followup-after-candidate": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
     "channel.user_message.done",
   ],
+  // ADR-0025 CP1 判断链：机械 context（带 turn 关联）取代 frame 管线。
   "au02-unadopted-candidate-no-reading-fact": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
     "channel.user_message.done",
     "channel.get_toc.done",
     "slice_verify.ui_state.done",
@@ -10386,17 +10377,17 @@ function findNaturalExplorationNoSlotFormEvidence(records) {
 
   const frame = turnRecords.find(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) > 0,
   );
   if (!frame) return null;
 
+  // ADR-0025 CP1 判断链（带 turn 关联的机械准备 + 判断结构落地）。
   for (const event of [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
+    "judgment.decided.done",
     "channel.user_message.done",
   ]) {
     if (
@@ -10491,17 +10482,17 @@ function findCandidateFallbackUiEvidence(records) {
 
   const frame = turnRecords.find(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) >= 2,
   );
   if (!frame) return null;
 
+  // ADR-0025 CP1 判断链（带 turn 关联的机械准备 + 判断结构落地）。
   for (const event of [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
+    "judgment.decided.done",
     "channel.user_message.done",
   ]) {
     if (
@@ -10632,7 +10623,7 @@ function findCandidateMultiturnContextEvidence(records) {
 
   const sourceFrame = sourceRecords.find(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) > 0,
   );
@@ -10802,11 +10793,11 @@ function findUnadoptedCandidateNoReadingFactEvidence(records) {
   if (start.candidate_ref || start.candidate_source_turn_ref) return null;
   if (!hasRequiredCorrelationFields(start)) return null;
 
+  // ADR-0025 CP1 判断链（带 turn 关联的机械准备 + 判断结构落地）。
   for (const event of [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "context.assemble.done",
+    "judgment.decided.done",
     "channel.user_message.done",
   ]) {
     if (
@@ -11307,11 +11298,11 @@ function findP1ChapterDraftGenerationEvidence(records) {
 
 function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   const uiState = ordinaryChatUiState(turnIds, turnRecords);
   if (!uiState) return null;
@@ -11330,8 +11321,8 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
       "no_error_events",
       "assistant_messages_not_fallback",
       options.provider === "lmstudio"
-        ? "lmstudio_form_frame_called_per_turn"
-        : "deterministic_provider_form_frame_called_per_turn",
+        ? "lmstudio_judgment_called_per_turn"
+        : "deterministic_provider_judgment_called_per_turn",
     ],
   };
 }
@@ -11339,16 +11330,16 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
 function naturalExplorationNoSlotFormBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
   if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   const frame = turnRecords.find(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) > 0,
   );
@@ -11418,16 +11409,16 @@ function naturalExplorationNoSlotFormBehavior(turnIds, turnRecords, records, evi
 function candidateFallbackUiBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
   if (hasErrorEvent(turnRecords)) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
   if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   const frame = turnRecords.find(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) >= 2,
   );
@@ -11483,14 +11474,14 @@ function candidateFallbackUiBehavior(turnIds, turnRecords, records, evidence, op
 
 function candidateContinuationBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 1) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
   if (hasEventPrefix(turnRecords, "channel.discard.")) return null;
   if (hasEventPrefix(turnRecords, "channel.modify_draft.")) return null;
   if (hasEventPrefix(turnRecords, "channel.get_toc.")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   const start = turnRecords.find((record) => record.event === "channel.user_message.start");
   if (!start?.candidate_ref || !start?.candidate_source_turn_ref) return null;
@@ -11507,8 +11498,8 @@ function candidateContinuationBehavior(turnIds, turnRecords, options) {
       "no_adoption_or_projection_events",
       "assistant_messages_not_fallback",
       options.provider === "lmstudio"
-        ? "lmstudio_form_frame_called_per_turn"
-        : "deterministic_provider_form_frame_called_per_turn",
+        ? "lmstudio_judgment_called_per_turn"
+        : "deterministic_provider_judgment_called_per_turn",
     ],
   };
 }
@@ -11519,7 +11510,7 @@ function candidateMultiturnContextBehavior(turnIds, turnRecords, evidence, optio
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
   if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   const [sourceTurnId, continuationTurnId, followupTurnId] = turnIds;
   const sourceRecords = turnRecords.filter((record) => record.turn_id === sourceTurnId);
@@ -11528,7 +11519,7 @@ function candidateMultiturnContextBehavior(turnIds, turnRecords, evidence, optio
 
   const sourceFrame = sourceRecords.find(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) > 0,
   );
@@ -11597,13 +11588,13 @@ function candidateMultiturnContextBehavior(turnIds, turnRecords, evidence, optio
 
 function candidateFreeformFollowupBehavior(turnIds, turnRecords, evidence, options) {
   if (turnIds.length !== 1) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
   if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
   if (hasEventPrefix(turnRecords, "projection.")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   const start = turnRecords.find((record) => record.event === "channel.user_message.start");
   if (start?.candidate_ref || start?.candidate_source_turn_ref) return null;
@@ -11639,12 +11630,12 @@ function candidateFreeformFollowupBehavior(turnIds, turnRecords, evidence, optio
 function unadoptedCandidateNoReadingFactBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
   if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   const uiState = records.find(
     (record) =>
@@ -18965,7 +18956,7 @@ function findOrdinaryChatTwoTurnEvidence(records) {
     const hasRequiredEvents = keyEvents.every((event) =>
       turnRecords.some((record) => {
         if (record.event !== event) return false;
-        if (event === "planner.form_frame.done") return record.turn_id === turnId;
+        if (event === "judgment.decided.done") return record.turn_id === turnId;
         return hasRequiredCorrelationFields(record);
       }),
     );
@@ -19152,10 +19143,10 @@ function emptyMessageGuardBehavior(turnIds, turnRecords, evidence, options) {
   if (evidence.thinking_visible_after_blank !== false) return null;
   if (evidence.recovery_message_visible !== true) return null;
   if (evidence.recovery_assistant_reply_visible !== true) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
   return {
     slice_id: "au01-empty-message-guard",
@@ -19168,8 +19159,8 @@ function emptyMessageGuardBehavior(turnIds, turnRecords, evidence, options) {
       "input_remained_available_after_blank",
       "following_valid_chat_completed_without_micro_plan",
       options.provider === "lmstudio"
-        ? "lmstudio_form_frame_called_for_recovery_turn"
-        : "deterministic_provider_form_frame_called_for_recovery_turn",
+        ? "lmstudio_judgment_called_for_recovery_turn"
+        : "deterministic_provider_judgment_called_for_recovery_turn",
     ],
   };
 }
@@ -19355,7 +19346,7 @@ function findAu01TurnresultRecorderUiConsistencyEvidence(records) {
   if (
     !eventsPresentWithCorrelation(turnRecords, [
       "channel.user_message.start",
-      "dialogue_gateway.handle_input.done",
+      "judgment.decided.done",
       "channel.user_message.done",
     ])
   ) {

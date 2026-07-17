@@ -1231,7 +1231,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_verdict(prompt) do
     author_text = judgment_author_input(prompt)
     normalized = String.downcase(author_text)
-    {profile_ref, _summary, _reason_codes} = profile_route_match(normalized)
+
+    # 讨论保护先行（与生产判断 prompt 的判别规则、planner 的 explicit_discussion_only
+    # 同语义）：作者显式说"先聊/只聊/不写"时不得进入创作能力，按直接回复处理。
+    profile_ref =
+      if conversation_only_text?(normalized) do
+        "conversation_turn_v1"
+      else
+        {ref, _summary, _reason_codes} = profile_route_match(normalized)
+        ref
+      end
 
     case Map.get(@judgment_capability_for_profile, profile_ref) do
       nil ->
@@ -1255,6 +1264,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_narrative_result(prompt) do
     {action, _capability, exploratory} = judgment_verdict(prompt)
+    exploratory = exploratory or String.contains?(prompt, @malformed_candidates_marker)
     narrative = judgment_narrative_text(action, exploratory, prompt)
     Result.new(narrative, usage_for(prompt, narrative))
   end
@@ -1263,7 +1273,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     {action, capability, exploratory} = judgment_verdict(prompt)
 
     directions =
-      if exploratory, do: candidate_directions(true, prompt), else: []
+      cond do
+        String.contains?(prompt, @malformed_candidates_marker) ->
+          # 坏候选结构（与旧帧路径同款诱导）：对象而非数组——消费层应降级兜底候选。
+          %{"title" => "", "pitch" => ""}
+
+        exploratory ->
+          candidate_directions(true, prompt)
+
+        true ->
+          []
+      end
 
     arguments =
       %{
@@ -1275,7 +1295,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         if capability, do: Map.put(args, "capability", capability), else: args
       end)
       |> then(fn args ->
-        if directions == [], do: args, else: Map.put(args, "candidate_directions", directions)
+        if directions in [[], nil],
+          do: args,
+          else: Map.put(args, "candidate_directions", directions)
       end)
 
     reasoning = judgment_reason_code(action)
@@ -1314,8 +1336,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_reason_code("execute"), do: "single_capability_satisfies_request"
   defp judgment_reason_code(_action), do: "multi_step_dependencies_require_plan"
 
+  # 与帧机器 exploratory_prompt? 同一 terms（判断循环下 S2 候选判定不收窄），
+  # 外加候选类显式词；创作产出类输入已被路由规则表先行截获。
   defp exploratory_prompt_text?(author_text) do
-    contains_any?(author_text, ["候选", "几个方向", "方向候选", "切入", "头脑风暴", "怎么切入"])
+    contains_any?(author_text, [
+      "生成",
+      "角色",
+      "方向",
+      "怎么切入",
+      "小说创作",
+      "候选",
+      "头脑风暴"
+    ])
   end
 
   defp profile_route_match(normalized) do
@@ -1965,17 +1997,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp current_user_message(_prompt), do: nil
 
-  defp author_input_text_from_prompt(prompt) do
-    case Regex.run(~r/用户消息：\s*(.*?)\s*$/s, prompt) do
-      [_, text] ->
-        text
+  # 依次尝试各代 prompt 的作者输入段体裁；最后一个为判断①（ADR-0025）。
+  @author_input_patterns [
+    ~r/用户消息：\s*(.*?)\s*$/s,
+    ~r/## 用户输入\s*(.*?)\s*## 输出格式/s,
+    ~r/##\s*作者输入\s*\n(.*?)(?:\n##|\z)/su
+  ]
 
-      _ ->
-        case Regex.run(~r/## 用户输入\s*(.*?)\s*## 输出格式/s, prompt) do
-          [_, text] -> text
-          _ -> prompt
-        end
-    end
+  defp author_input_text_from_prompt(prompt) do
+    Enum.find_value(@author_input_patterns, prompt, fn pattern ->
+      case Regex.run(pattern, prompt) do
+        [_, text] -> String.trim(text)
+        _ -> nil
+      end
+    end)
   end
 
   defp author_input_text_from_profile_route_prompt(prompt) do

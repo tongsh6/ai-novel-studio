@@ -4579,7 +4579,7 @@ async function driveNaturalExplorationNoSlotForm(page) {
 
   const frameRecord = await waitForAppLogRecord(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.turn_id === sourceTurnResult.turn_id &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) > 0,
@@ -4693,7 +4693,7 @@ async function driveCandidateFallbackUi(page) {
 
   const frameRecord = await waitForAppLogRecord(
     (record) =>
-      record.event === "planner.form_frame.done" &&
+      record.event === "judgment.decided.done" &&
       record.turn_id === sourceTurnResult.turn_id &&
       record.frame_type === "creative_exploration" &&
       Number(record.candidate_count ?? 0) >= 2,

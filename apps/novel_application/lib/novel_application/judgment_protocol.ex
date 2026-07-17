@@ -33,6 +33,7 @@ defmodule NovelApplication.JudgmentProtocol do
           reason: String.t(),
           reply_included: boolean(),
           candidate_directions: [map()],
+          candidate_directions_present: boolean(),
           narrative: String.t(),
           narrative_source: map() | nil,
           provider_call_count: pos_integer()
@@ -157,6 +158,9 @@ defmodule NovelApplication.JudgmentProtocol do
            reason: map_get(arguments, :reason) || "",
            reply_included: map_get(arguments, :reply_included) == true,
            candidate_directions: candidate_directions(arguments),
+           # 探索意图原始信号：字段存在且非空（哪怕结构坏了）——坏结构不丢意图，
+           # 由消费层降级为应用兜底候选（S2 韧性，旧 frame 兜底语义平移）。
+           candidate_directions_present: candidate_directions_present?(arguments),
            narrative: narrative,
            narrative_source: narrative_source,
            provider_call_count: 1 + request.attempt
@@ -372,6 +376,15 @@ defmodule NovelApplication.JudgmentProtocol do
     case map_get(provider_result, :tool_calls) do
       calls when is_list(calls) -> calls
       _ -> []
+    end
+  end
+
+  defp candidate_directions_present?(arguments) do
+    case map_get(arguments, :candidate_directions) do
+      nil -> false
+      [] -> false
+      %{} = m when map_size(m) == 0 -> false
+      _present -> true
     end
   end
 

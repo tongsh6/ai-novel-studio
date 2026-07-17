@@ -153,6 +153,28 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   家族、D6 基两场景 + no-progress 再诱导、error-author-safe 语义再迁、
   world-style-rule / readonly-batch / cancel·steer·durable 家族 run-and-see、
   conversation flow 退役评估（CP2 前置）。**CP1 累计 10 场景判断口径绿。**
+- 2026-07-17 **CP1 场景校准批三收口**：au01/au02 家族九场景判断口径真实 Tauri 绿
+  （au01 ordinary / empty-guard / recorder；au02 continuation / natural-exploration /
+  multiturn-context / freeform-followup / unadopted / adoption-bridge / fallback-ui）。
+  键事件链迁判断纪元（start → context.assemble.done → judgment.decided.done → done）；
+  fixtures 按函数域逐块迁移（教训：全局正则清扫曾污染无关 fixture，git 重置后改
+  锚定替换）。**两个真实产品观测缺口修复**：① 判断循环两步 Task 进程各自缺
+  LogContext.put_turn/put_step，llm-log 无法按 turn 关联（修：context 步 put_turn、
+  判断步 put_turn+put_step("judgment")）；② 判断纪元缺业务 JSONL——补
+  `judgment.decided.done`（action/capability/frame_type/candidate_count，对齐旧
+  planner.form_frame.done 观测口径，外部验收按此归组）。**兜底候选语义系统性移植
+  （fallback-ui 修复）**：协议新增 `candidate_directions_present` 原始信号（坏结构
+  不丢探索意图）；`Planner.fallback_candidates/1` 公开为两路径共享兜底集（矛盾切入/
+  人物切入）；judgment_candidates 有效性过滤（title/pitch 非空）+ 判探索而有效候选
+  空 → 兜底降级；judgment.decided.done 迁分发分支、记解析与兜底后最终口径。协议
+  单测新增（judgment_protocol_test 3 例锚定意图信号）；credo nesting 修
+  （author_input_patterns 列表化消三层 case）。全门禁绿：umbrella 全套 + I1/I2/I3 +
+  前端 typecheck/lint/394 tests + xref cycles + arch_check + 静态扫描 touched 清零。
+  **CP1 累计 19 场景判断口径绿。批四待办**：garbage-json-recovery /
+  frame-validation-friendly-error 语义重定义（帧 JSON 恢复路径已不存在 → call2 重试
+  → S7）、D6 基两场景 + no-progress 再诱导、error-author-safe 语义再迁、
+  world-style-rule / readonly-batch / cancel·steer·durable 家族 run-and-see、
+  conversation flow 退役评估（CP2 前置）。
 - 2026-07-16 **CP1a（协议资产落地，不翻入口）**：`NovelApplication.JudgmentProtocol`
   生产模块——判断①两段式请求机（call1 叙事流式 + call2 强制 judgment_decision，
   坏结构携带片段重试一次）、叙事绑定（content 优先 / arguments.author_narrative

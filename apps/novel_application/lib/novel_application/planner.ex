@@ -753,7 +753,13 @@ defmodule NovelApplication.Planner do
     title != "" and pitch != ""
   end
 
-  defp fallback_candidates(frame_id) do
+  @doc """
+  探索候选不可用（坏结构/空/无效）时的应用兜底候选（S2 韧性）。
+
+  frame 路径与判断循环 reply 路径共用同一份兜底集，保证同类降级行为一致。
+  """
+  @spec fallback_candidates(String.t()) :: [CandidateDirection.t()]
+  def fallback_candidates(frame_id) do
     [
       %CandidateDirection{
         direction_id: NovelFoundation.ID.unique("dir"),
