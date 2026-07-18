@@ -13,6 +13,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.AgentObservationAssembler
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
+  alias NovelApplication.JudgmentProtocol
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
   alias NovelCommon.LogContext
@@ -101,76 +102,137 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
+  # CP3a（ADR-0025 判断②）：偏离信号不再打给"计划修订模型"（修订产出的"新计划"
+  # 只是同两步重排、坐标不变——纯伪修订）；改为判断②独立短调用（探针裁决形态）：
+  # 观察 + 续行——continue（按 guidance 重试当前步）｜ await_author（停等作者）。
   defp maybe_replan_deviation(run, sequence, snapshot, spec, deviation) do
     if replan_available?(run) do
-      with {:ok, revised_plan, revision_meta} <-
-             AgenticPlanDraftPlanner.revise_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot,
-               revision_reason: AgenticDeviationSignal.revision_reason(deviation)
-             ) do
-        execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta, deviation)
-      end
+      continuation_judgment(run, sequence, snapshot, spec, deviation, :retry_current)
     else
       mechanical_await_author_decision(run, sequence)
     end
   end
 
+  # 计划耗尽而正文未产出（D6 语义判断②形态）：continue = 机械追加 prose 步
+  # （耗尽未产出时缺的必然是产出步——机械判据成立），await = 停等作者。
   defp maybe_replan_exhausted_plan(run, sequence, snapshot, spec) do
     if replan_available?(run) do
-      with {:ok, revised_plan, revision_meta} <-
-             AgenticPlanDraftPlanner.revise_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot,
-               revision_reason: @plan_exhausted_replan_reason
-             ) do
-        execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta, nil)
-      end
+      deviation = %{
+        signal: "plan_exhausted",
+        ref: "plan_exhausted_v#{run.plan_version || 1}",
+        summary: @plan_exhausted_replan_reason
+      }
+
+      continuation_judgment(run, sequence, snapshot, spec, deviation, :append_prose)
     else
       mechanical_await_author_decision(run, sequence)
     end
   end
 
-  defp execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta, deviation) do
-    revised_run = %{
-      run
-      | plan: revised_plan,
-        plan_ref: revised_plan.plan_id,
-        plan_version: revised_plan.version
+  defp continuation_judgment(run, sequence, snapshot, spec, deviation, continue_mode) do
+    input = %{
+      goal_text: run.goal.text,
+      deviation_summary: AgenticDeviationSignal.revision_reason(deviation),
+      observation_block: continuation_observation_block(snapshot)
     }
 
-    steps = plan_steps(revised_plan)
-    index = plan_cursor(snapshot)
+    case JudgmentProtocol.request_continuation(
+           continuation_provider_execution(spec, snapshot),
+           snapshot,
+           input
+         ) do
+      {:ok, %{action: "continue"} = continuation} ->
+        continue_after_judgment(run, sequence, snapshot, deviation, continuation, continue_mode)
 
-    meta =
-      revision_meta
-      |> Map.put(:agent_plan, revised_plan)
-      |> Map.put(:agent_plan_cursor, index)
-      |> attach_deviation_meta(deviation, snapshot)
+      {:ok, %{action: "await_author"} = continuation} ->
+        continuation_await_decision(run, sequence, snapshot, deviation, continuation)
 
-    if index < length(steps) do
-      steps
-      |> Enum.at(index)
-      |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
-    else
-      revised_await_author_decision(revised_run, sequence, meta)
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp revised_await_author_decision(run, sequence, meta) do
+  defp continuation_provider_execution(spec, snapshot) do
+    (Map.get(spec, :planner_provider_execution) ||
+       Map.get(spec, :provider_execution) ||
+       Execution.dependency(purpose: :planner))
+    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
+  end
+
+  defp continuation_observation_block(snapshot) do
+    snapshot
+    |> Map.get(:observations, [])
+    |> Enum.map(& &1.summary)
+    |> Enum.reject(&blank?/1)
+    |> case do
+      [] -> nil
+      summaries -> summaries |> Enum.take(-6) |> Enum.join("\n")
+    end
+  end
+
+  defp continue_after_judgment(run, sequence, snapshot, deviation, continuation, continue_mode) do
+    steps = plan_steps(run.plan)
+    index = plan_cursor(snapshot)
+
+    step =
+      case continue_mode do
+        :retry_current when index < length(steps) -> Enum.at(steps, index)
+        _ -> mechanical_prose_retry_step(continuation)
+      end
+
+    meta =
+      %{
+        provider_call_count: continuation.provider_call_count,
+        agent_plan_cursor: min(index, max(length(steps) - 1, 0)),
+        # replan 计数由 runtime 按 decision 的 plan_revision 事实自动 +1
+        # （maybe_attach_replan），meta 不重复计。
+        reason_codes: ["judgment_continuation", "judgment_continue"],
+        evaluation_of_last: %{
+          advanced: false,
+          plan_holds: false,
+          new_constraint: continuation.guidance
+        },
+        plan_revision: %{
+          revision_reason: continuation.narrative,
+          guidance: continuation.guidance
+        },
+        author_narrative: continuation.narrative,
+        author_narrative_source: continuation.narrative_source
+      }
+      |> attach_deviation_meta(deviation, snapshot)
+
+    mechanical_execute_decision(step, run, sequence, snapshot, meta)
+  end
+
+  defp mechanical_prose_retry_step(continuation) do
+    %{
+      step_id: "judgment_continue_prose",
+      target_tool_ref: "prose_writing",
+      description: "按判断②指引继续生成正文草稿：#{continuation.guidance}",
+      write_intent: :tentative
+    }
+  end
+
+  defp continuation_await_decision(run, sequence, snapshot, deviation, continuation) do
     with {:ok, decision, await_meta} <- mechanical_await_author_decision(run, sequence) do
       decision = %{
         decision
-        | reason_codes:
-            (meta_reason_codes(meta) ++ decision.reason_codes)
-            |> Enum.uniq(),
-          evaluation_of_last: meta_evaluation(meta, sequence),
-          plan_revision: map_get(meta, :plan_revision)
+        | summary: continuation.narrative,
+          reason_codes:
+            (["judgment_continuation", "judgment_await_author"] ++
+               AgenticDeviationSignal.reason_codes(deviation) ++ decision.reason_codes)
+            |> Enum.uniq()
+            |> Enum.reject(&(&1 == "agent_plan_revised"))
       }
 
-      {:ok, decision, Map.merge(await_meta, meta)}
+      meta =
+        await_meta
+        |> Map.put(:provider_call_count, continuation.provider_call_count)
+        |> Map.put(:author_narrative, continuation.narrative)
+        |> Map.put(:author_narrative_source, continuation.narrative_source)
+        |> attach_deviation_meta(deviation, snapshot)
+
+      {:ok, decision, meta}
     end
   end
 

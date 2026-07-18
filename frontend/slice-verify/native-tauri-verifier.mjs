@@ -4183,8 +4183,7 @@ function findAgenticLoopPlanReplanReasoningEvidence(records) {
       typeof record.run_id === "string" &&
       record.run_id !== "" &&
       Number(record.short_plan_step_count ?? 0) === 1 &&
-      boolValue(record.plan_revised_observed) === true &&
-      boolValue(record.revised_plan_has_prose_step) === true &&
+      boolValue(record.judgment_continuation_observed) === true &&
       Number(record.consumed_replans ?? 0) >= 1 &&
       Number(record.prose_artifact_pending ?? 0) >= 1,
   );
@@ -4220,8 +4219,7 @@ function agenticLoopPlanReplanReasoningBehavior(turnIds, _turnRecords, records, 
   if (!uiState) return null;
   if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
   if (Number(uiState.short_plan_step_count ?? 0) !== 1) return null;
-  if (boolValue(uiState.plan_revised_observed) !== true) return null;
-  if (boolValue(uiState.revised_plan_has_prose_step) !== true) return null;
+  if (boolValue(uiState.judgment_continuation_observed) !== true) return null;
   if (Number(uiState.consumed_replans ?? 0) < 1) return null;
   if (Number(uiState.prose_artifact_pending ?? 0) < 1) return null;
 
@@ -4234,8 +4232,7 @@ function agenticLoopPlanReplanReasoningBehavior(turnIds, _turnRecords, records, 
     consumed_replans: evidence.consumed_replans,
     assertions: [
       "short_plan_drafted_with_context_step_only",
-      "plan_revised_after_plan_exhausted_without_prose",
-      "revised_plan_added_prose_writing_step",
+      "judgment_continuation_continued_after_exhausted_short_plan",
       "run_completed_into_pending_prose_artifact_without_auto_adoption",
     ],
   };
@@ -4276,13 +4273,12 @@ function findAgentPlanNativeToolCallingProtocolEvidence(records) {
       typeof record.run_id === "string" &&
       record.run_id !== "" &&
       Number(record.short_plan_step_count ?? 0) === 1 &&
-      boolValue(record.plan_revised_observed) === true &&
-      boolValue(record.revised_plan_has_prose_step) === true &&
+      boolValue(record.judgment_continuation_observed) === true &&
       Number(record.consumed_replans ?? 0) >= 1 &&
       Number(record.provider_activity_api_status ?? 0) === 200 &&
       Number(record.native_tool_call_final_output_count ?? 0) >= 2 &&
       boolValue(record.native_tool_call_draft_projected) === true &&
-      boolValue(record.native_tool_call_revision_projected) === true &&
+      boolValue(record.native_tool_call_continuation_projected) === true &&
       boolValue(record.native_tool_call_arguments_leaked) === false,
   );
   if (!uiState) return null;
@@ -4317,12 +4313,12 @@ function agentPlanNativeToolCallingProtocolBehavior(turnIds, _turnRecords, recor
   );
   if (!uiState) return null;
   if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
-  if (boolValue(uiState.plan_revised_observed) !== true) return null;
+  if (boolValue(uiState.judgment_continuation_observed) !== true) return null;
   if (Number(uiState.consumed_replans ?? 0) < 1) return null;
   if (Number(uiState.provider_activity_api_status ?? 0) !== 200) return null;
   if (Number(uiState.native_tool_call_final_output_count ?? 0) < 2) return null;
   if (uiState.native_tool_call_draft_projected !== true) return null;
-  if (uiState.native_tool_call_revision_projected !== true) return null;
+  if (uiState.native_tool_call_continuation_projected !== true) return null;
   if (uiState.native_tool_call_arguments_leaked !== false) return null;
 
   return {
@@ -4337,9 +4333,9 @@ function agentPlanNativeToolCallingProtocolBehavior(turnIds, _turnRecords, recor
     native_tool_call_names: evidence.native_tool_call_names,
     assertions: [
       "agent_plan_draft_structure_came_from_native_tool_call",
-      "agent_plan_revision_structure_came_from_native_tool_call",
+      "judgment_continuation_structure_came_from_native_tool_call",
       "native_tool_call_arguments_not_exposed_in_developer_telemetry",
-      "runtime_continued_revised_agent_plan_to_prose_artifact",
+      "runtime_continued_after_judgment_to_prose_artifact",
     ],
   };
 }

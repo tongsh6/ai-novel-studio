@@ -299,8 +299,7 @@ it("requires D6 plan revision evidence before completing an exhausted conversati
         run_id: "run-d6",
         profile_ref: "prose_drafting_with_quality_v1",
         short_plan_step_count: 1,
-        plan_revised_observed: true,
-        revised_plan_has_prose_step: true,
+        judgment_continuation_observed: true,
         consumed_replans: 1,
         prose_artifact_pending: 1,
       },
@@ -319,14 +318,13 @@ it("requires D6 plan revision evidence before completing an exhausted conversati
     ).toMatchObject({
       slice_id: "agentic-loop-plan-replan-reasoning",
       assertions: expect.arrayContaining([
-        "plan_revised_after_plan_exhausted_without_prose",
-        "revised_plan_added_prose_writing_step",
+        "judgment_continuation_continued_after_exhausted_short_plan",
       ]),
     });
 
     const missingReplanRecords = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, plan_revised_observed: false }
+        ? { ...record, judgment_continuation_observed: false }
         : record,
     );
 
@@ -354,15 +352,14 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         run_id: "run-native-plan",
         profile_ref: "prose_drafting_with_quality_v1",
         short_plan_step_count: 1,
-        plan_revised_observed: true,
-        revised_plan_has_prose_step: true,
+        judgment_continuation_observed: true,
         consumed_replans: 1,
         prose_artifact_pending: 1,
         provider_activity_api_status: 200,
         native_tool_call_final_output_count: 2,
-        native_tool_call_names: ["agent_plan_draft", "agent_plan_revision"],
+        native_tool_call_names: ["agent_plan_draft", "continuation_decision"],
         native_tool_call_draft_projected: true,
-        native_tool_call_revision_projected: true,
+        native_tool_call_continuation_projected: true,
         native_tool_call_arguments_leaked: false,
       },
     ];
@@ -380,7 +377,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       slice_id: "agent-plan-native-tool-calling-protocol",
       assertions: expect.arrayContaining([
         "agent_plan_draft_structure_came_from_native_tool_call",
-        "agent_plan_revision_structure_came_from_native_tool_call",
+        "judgment_continuation_structure_came_from_native_tool_call",
       ]),
     });
 

@@ -388,8 +388,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-d1-plan")}
 
-        plan_revision_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_revision(prompt), "pc-agent-prose-d1-replan")}
+        continuation_narrative_prompt?(prompt) ->
+          continuation_narrative("写作模型连续故障，我先停下来，等你确认后再继续。")
+
+        continuation_decision_prompt?(prompt) ->
+          continuation_decision("await_author", "")
 
         true ->
           send(parent, {:writer_prompt, prompt})
@@ -414,17 +417,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     events = collect_agent_events_until(:awaiting_author, 2_000)
     assert_receive {:writer_prompt, _prompt}, 500
 
-    plan_revised = find_event!(events, :plan_revised)
-    assert "agentic_deviation:D1" in plan_revised.reason_codes
-    assert plan_revised.payload.evaluation_of_last.plan_holds == false
-    assert plan_revised.payload.revision_reason =~ "D1 偏离信号"
-
-    find_event!(events, :awaiting_author)
+    # CP3a：偏离信号走判断②（观察 + 续行），不再产 plan_revised 伪修订。
+    awaiting = find_event!(events, :awaiting_author)
+    assert "judgment_continuation" in awaiting.reason_codes
+    assert "agentic_deviation:D1" in awaiting.reason_codes
+    assert awaiting.summary =~ "停下来"
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :awaiting_author
-    assert state.run.consumed_budget.replans == 1
+    # 判断② await 不消耗 replan（无模型计划修订）。
+    assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 1
+    # runtime 直连（无判断①入场）：起草 2 + 失败 writer 步 2 + 判断② 2 = 6。
     assert state.run.consumed_budget.provider_calls == 6
   end
 
@@ -436,10 +440,17 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-d2-plan")}
 
-        plan_revision_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_revision(prompt), "pc-agent-prose-d2-replan")}
+        continuation_narrative_prompt?(prompt) ->
+          continuation_narrative("质量复核发现规则冲突需要你确认：草稿保留在待采纳区，等你裁决。")
+
+        continuation_decision_prompt?(prompt) ->
+          # confirm finding 的裁决权在作者（S 系权力结构）——判断②观察后停等；
+          # continue 改进闭环需要"中间产物替代"契约，登记 CP3b。
+          continuation_decision("await_author", "")
 
         true ->
+          send(parent, :writer_called)
+
           {:ok,
            %{
              provider_call_id: "pc-agent-prose-d2-writer",
@@ -495,16 +506,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         parent
       )
 
-    events = collect_agent_events_until(:awaiting_author, 2_000)
-    plan_revised = find_event!(events, :plan_revised)
-    assert "agentic_deviation:D2" in plan_revised.reason_codes
-    assert plan_revised.payload.revision_reason =~ "D2 偏离信号"
+    # CP3a：quality confirm finding → 判断②观察（作者可见叙事）→ 停等作者裁决
+    # （confirm 的裁决权在作者，不再产伪修订；草稿保留待采纳区随 findings 附出）。
+    events = collect_agent_events_until(:awaiting_author, 3_000)
+
     assert Enum.any?(events, fn {type, _event} -> type == :artifact_created end)
+
+    awaiting = find_event!(events, :awaiting_author)
+    assert "judgment_continuation" in awaiting.reason_codes
+    assert "agentic_deviation:D2" in awaiting.reason_codes
+    assert awaiting.summary =~ "确认"
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :awaiting_author
-    assert state.run.consumed_budget.replans == 1
+    # 判断② await 不消耗 replan（无模型计划修订）。
+    assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 1
+    # runtime 直连（无判断①入场）：起草 2 + prose 步 2（writer+评估）+ 判断② 2 = 6。
     assert state.run.consumed_budget.provider_calls == 6
   end
 
@@ -520,8 +538,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              "pc-agent-prose-d4-plan"
            )}
 
-        plan_revision_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_revision(prompt), "pc-agent-prose-d4-replan")}
+        continuation_narrative_prompt?(prompt) ->
+          continuation_narrative("这一步被系统权限门禁拦下，需要你确认后才能继续。")
+
+        continuation_decision_prompt?(prompt) ->
+          continuation_decision("await_author", "")
 
         true ->
           send(parent, {:unexpected_writer_prompt, prompt})
@@ -552,17 +573,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert gate.payload.decision_type == :require_confirmation
     assert gate.payload.first_blocking_gate == "authority"
 
-    plan_revised = find_event!(events, :plan_revised)
-    assert "agentic_deviation:D4" in plan_revised.reason_codes
-    assert plan_revised.payload.revision_reason =~ "D4 偏离信号"
+    # CP3a：gate deny → 判断②观察（门禁裁决权在作者）→ 停等，不再产伪修订。
+    awaiting = find_event!(events, :awaiting_author)
+    assert "judgment_continuation" in awaiting.reason_codes
+    assert "agentic_deviation:D4" in awaiting.reason_codes
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :awaiting_author
-    assert state.run.consumed_budget.replans == 1
+    assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 0
+    # runtime 直连：起草 2 + 判断② 2 = 4（writer 未派发）。
     assert state.run.consumed_budget.provider_calls == 4
   end
-
   test "D7 deterministic missing chapter gap revises plan without calling writer provider" do
     parent = self()
 
@@ -579,8 +601,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              "pc-agent-prose-d7-plan"
            )}
 
-        plan_revision_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_revision(prompt), "pc-agent-prose-d7-replan")}
+        continuation_narrative_prompt?(prompt) ->
+          continuation_narrative("你点名的章节在作品里还不存在，需要你确认目标章后我再继续。")
+
+        continuation_decision_prompt?(prompt) ->
+          continuation_decision("await_author", "")
 
         true ->
           send(parent, {:unexpected_writer_prompt, prompt})
@@ -607,22 +632,59 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     events = collect_agent_events_until(:awaiting_author, 2_000)
     refute_receive {:unexpected_writer_prompt, _prompt}, 200
 
-    plan_revised = find_event!(events, :plan_revised)
-    assert "agentic_deviation:D7" in plan_revised.reason_codes
-    assert plan_revised.payload.revision_reason =~ "D7 偏离信号"
+    # CP3a：缺章 gap → 判断②观察（目标章裁决权在作者）→ 停等，不再产伪修订。
+    awaiting = find_event!(events, :awaiting_author)
+    assert "judgment_continuation" in awaiting.reason_codes
+    assert "agentic_deviation:D7" in awaiting.reason_codes
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :awaiting_author
-    assert state.run.consumed_budget.replans == 1
-    assert state.run.consumed_budget.tool_calls == 0
+    assert state.run.consumed_budget.replans == 0
+    # runtime 直连：起草 2 + 判断② 2 = 4（writer provider 未调用）。
     assert state.run.consumed_budget.provider_calls == 4
   end
-
   defp plan_draft_prompt?(prompt),
     do: prompt_contains?(prompt, "AgentRun 计划起草器")
 
   defp plan_revision_prompt?(prompt),
     do: prompt_contains?(prompt, "AgentRun 计划修订器")
+
+  # CP3a 判断②两段式（偏离信号 → 观察 + 续行，替代模型计划修订）。
+  defp continuation_narrative_prompt?(prompt),
+    do: prompt_contains?(prompt, "你的两种续行方式")
+
+  defp continuation_decision_prompt?(prompt),
+    do: prompt_contains?(prompt, "continuation_decision")
+
+  defp continuation_narrative(text) do
+    {:ok,
+     %{
+       content: text,
+       provider_output: %NovelCommon.Contracts.ProviderOutput{
+         provider_run_ref: "prun-continuation",
+         provider_call_ref: "pcall-continuation",
+         status: :ok,
+         content: %{text: text}
+       }
+     }}
+  end
+
+  defp continuation_decision(action, guidance) do
+    {:ok,
+     %{
+       content: "",
+       tool_calls: [
+         %{
+           "name" => "continuation_decision",
+           "arguments" => %{
+             "action" => action,
+             "guidance" => guidance,
+             "reason" => "continuation_#{action}"
+           }
+         }
+       ]
+     }}
+  end
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
 

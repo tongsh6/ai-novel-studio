@@ -1,6 +1,6 @@
 # UA01 判断驱动交互循环（ADR-0025 实施）
 
-- 状态：CP0 done / CP1 done（2026-07-17）/ CP2 in progress（2026-07-17 开工，探针前置）
+- 状态：CP0/CP1/CP2 done / CP3a done（判断②上线 2026-07-18）/ CP3b todo
 - 类型：Agent Runtime Slice / Prompt Protocol Slice
 - 父 ADR：`docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md`（Accepted）
 - 展开层：`docs/design/notes/2026-07-15-judgment-driven-interactive-loop.md`
@@ -16,8 +16,8 @@
 |---|---|---|
 | CP0 | ADR-0025 + ADR-0023 注记 + 00 §2.3 形态章 + 00c/46§9.6/README 联动 | **done**（2026-07-15） |
 | CP1 | conversation 迁判断循环（方案 B：判断①两段 + 直接回复内联；路由并入判断①）。**前置**：MBC 探针验证内联协议与"是否开计划"判断质量 | **done**（2026-07-17，四批 28 场景绿） |
-| CP2 | 单候选创作 profile 迁循环（执行内联自评 + 判断②按需） | **in progress**（2026-07-17 开工） |
-| CP3 | prose/修订迁循环；D 系循环语义回归 | todo |
+| CP2 | 单候选创作 profile 迁循环（执行内联自评 + 判断②按需） | **done**（2026-07-18，CP2b 去伪计划 + 探针裁决判断②独立化） |
+| CP3 | prose/修订迁循环；D 系循环语义回归 | **CP3a done**（2026-07-18，判断②上线）/ CP3b todo |
 | CP4 | 计划按需全量（判断①制定计划分支 + UI 真计划恢复显示） | todo |
 | CP5 | 探索内部翼（作品事实索引 + 检索工具箱 + 探索预算） | todo（可与 CP2/CP3 并行） |
 | CP6 | 探索外部翼（SearchProvider + web_search + 带来源设定候选 + 网络授权边界） | todo（依赖 CP5 框架） |
@@ -166,6 +166,38 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   interrupt/cancel 的"run 在轨"证据迁 judgment_decided（cancel×2 / interrupt /
   budget-limit 绿）。durable 环境竞态四连（ECONNREFUSED，非本改动）持续登记复验
   余项。全门禁：umbrella 8 app 0 fail + I1/I2/I3 + vitest 394 + 扫描 touched 零。
+
+## 2f. CP3a 判断②上线（2026-07-18，用户"继续"批准）
+
+**协议**：`JudgmentProtocol.request_continuation/3`——观察 + 续行两段式（call1 观察
+叙事流式作者可见 + call2 forced `continuation_decision`{action continue|await_author
++ guidance + reason}，坏结构携带片段重试一次；判断①同底座同温度协议）。
+
+**接线（prose_drafting_with_quality）**：两个模型修订点换判断②——
+- deviation 信号（D 系确定性核对：质量 confirm/block、gate deny、缺章 gap、工具
+  故障、预算）→ 判断②：continue 按 guidance 重试当前步 ｜ await_author 停等；
+  修订调用产出的"新计划"只是同两步重排（纯伪修订），已消灭。
+- 计划耗尽正文未出（D6 语义）→ 判断②：continue 机械补 prose 产出步（耗尽未产出
+  时缺的必然是产出步——机械判据）｜ await。continue 消耗 replans 预算（runtime
+  按 decision 修订事实自动计数，预算门兜底空转）。
+- **prose 计划起草保留**：起草承载写作坐标解析（作者点名章的 target_chapter /
+  authoring_intent——真实模型判断，非伪计划；CP0 hard-missing 机制依赖）。
+
+**裁决语义（S 系权力结构对齐）**：quality confirm finding / gate deny / 缺章 gap /
+工具故障 → 判断②观察后停等作者（confirm 的裁决权本来在作者）；判断② continue 的
+改进闭环撞 max_pending_artifacts backstop（首稿已成候选，改进稿需"中间产物替代"
+契约）——**登记 CP3b**：中间产物 supersede 语义 + 改进闭环 + prose_revision_from_
+findings 机械化评估。
+
+**runtime 增强**：awaiting_author 事件透传 decision.reason_codes（judgment_
+continuation/agentic_deviation:* 进作者可见事件）。
+
+**场景**：prose 正常路径绿（无 deviation 零判断②开销）；D6 双场景绿（判断②
+continue 补步端到端 + continuation_decision native tool 遥测）；D 系 focused
+tests 7/7 迁判断②语义（D1 故障→await、D2 质量→await、D4 gate→await、D7 缺章
+→await、D6 耗尽→continue）。**no-progress 场景退役登记**：修订空转诱导在判断②
+形态无对应物（空转保护由 replans 预算门承担，D 系单测实证）；后续按"判断②预算
+兜底"重设计。SliceVerify/测试 continuation 桩样本落地。
 
 ## 3. 决策日志
 

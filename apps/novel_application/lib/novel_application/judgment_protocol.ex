@@ -27,6 +27,9 @@ defmodule NovelApplication.JudgmentProtocol do
   @base_actions ~w(reply execute plan await_author)
   @explore_action "explore"
 
+  @continuation_tool_name "continuation_decision"
+  @continuation_actions ~w(continue await_author)
+
   @type judgment :: %{
           action: String.t(),
           capability: String.t() | nil,
@@ -41,6 +44,9 @@ defmodule NovelApplication.JudgmentProtocol do
 
   @spec tool_name() :: String.t()
   def tool_name, do: @judgment_tool_name
+
+  @spec continuation_tool_name() :: String.t()
+  def continuation_tool_name, do: @continuation_tool_name
 
   @spec actions(keyword()) :: [String.t()]
   def actions(opts \\ []) do
@@ -78,6 +84,110 @@ defmodule NovelApplication.JudgmentProtocol do
         retry?: true
       })
     end
+  end
+
+  @doc """
+  执行判断②两段式调用（ADR-0025 观察 + 续行；CP2 探针裁决：独立短结构调用，
+  由确定性偏离信号按需触发，不内联在执行调用里）。
+
+  `input` 至少含 `:goal_text`（本轮创作目标）、`:deviation_summary`（确定性偏离
+  信号摘要）与 `:observation_block`（机械汇总的当前产出观察）。返回 continuation
+  map（action continue|await_author + guidance + narrative 绑定）；坏结构携带
+  片段重试一次，仍坏则诚实报错（上层按 S7 收口）。
+  """
+  @spec request_continuation(Execution.dependency(), map(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def request_continuation(provider_execution, snapshot \\ %{}, input) do
+    with {:ok, narrative_fn} <- result_fn(provider_execution, snapshot, :author_reasoning),
+         {:ok, decision_fn} <- result_fn(provider_execution, snapshot, :planner),
+         {:ok, narrative, narrative_result} <-
+           request_narrative(continuation_narrative_prompt(input), narrative_fn) do
+      request_continuation_decision(%{
+        prompt: continuation_decision_prompt(input, narrative),
+        result_fn: decision_fn,
+        narrative: narrative,
+        narrative_result: narrative_result,
+        attempt: 1,
+        retry?: true
+      })
+    end
+  end
+
+  defp request_continuation_decision(%{prompt: prompt, result_fn: result_fn} = request) do
+    case result_fn.(prompt) do
+      {:ok, provider_result} -> parse_continuation(provider_result, request)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp parse_continuation(provider_result, request) do
+    arguments =
+      provider_result
+      |> tool_calls()
+      |> Enum.find_value(fn call ->
+        if map_get(call, :name) == @continuation_tool_name,
+          do: normalize_arguments(map_get(call, :arguments))
+      end)
+
+    with %{} = arguments <- arguments,
+         action when is_binary(action) <- map_get(arguments, :action),
+         true <- action in @continuation_actions do
+      build_continuation(arguments, action, provider_result, request)
+    else
+      _ -> continuation_retry_or_fail(provider_result, request)
+    end
+  end
+
+  defp build_continuation(arguments, action, provider_result, request) do
+    case bind_narrative(arguments, request, provider_result) do
+      {:ok, narrative, narrative_source} ->
+        {:ok,
+         %{
+           action: action,
+           guidance: map_get(arguments, :guidance) || "",
+           reason: map_get(arguments, :reason) || "",
+           narrative: narrative,
+           narrative_source: narrative_source,
+           provider_call_count: 1 + request.attempt
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp continuation_retry_or_fail(provider_result, %{retry?: true} = request) do
+    fragment =
+      provider_result |> tool_calls() |> inspect() |> String.slice(0, 400)
+
+    retry_prompt =
+      update_in(request.prompt, [:messages], fn [message | rest] ->
+        [
+          %{
+            message
+            | content:
+                message.content <>
+                  "\n\n## 上次输出无法被系统解析\n" <>
+                  "上一次调用返回的结构不合法（片段：#{fragment}）。" <>
+                  "必须调用 #{@continuation_tool_name}，action 只能取 " <>
+                  "#{Enum.join(@continuation_actions, " / ")}。"
+          }
+          | rest
+        ]
+      end)
+
+    request_continuation_decision(%{
+      request
+      | prompt: retry_prompt,
+        retry?: false,
+        attempt: request.attempt + 1
+    })
+  end
+
+  defp continuation_retry_or_fail(provider_result, _request) do
+    {:error,
+     {:continuation_decision_unparseable,
+      provider_result |> tool_calls() |> inspect() |> String.slice(0, 200)}}
   end
 
   # ── call1：自由输出判断叙事（流式） ──
@@ -235,6 +345,85 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   # ── prompt 构造（探针与生产共用同一真源） ──
+
+  @doc "判断② call1 自由输出 prompt：观察叙事（作者可见，46§9.4 体裁）。"
+  @spec continuation_narrative_prompt(map()) :: map()
+  def continuation_narrative_prompt(input) do
+    %{
+      messages: [
+        %{
+          role: "user",
+          content: """
+          你是小说创作系统的创作判断器。当前创作执行出现了需要你判断的情况，你要观察现状并决定续行方式，向作者说明。
+
+          ## 本轮创作目标
+          #{Map.fetch!(input, :goal_text)}
+
+          ## 出现的情况（系统确定性核对结果）
+          #{Map.fetch!(input, :deviation_summary)}
+
+          ## 当前产出观察
+          #{Map.get(input, :observation_block) || "（暂无产出观察）"}
+
+          ## 你的两种续行方式
+          - 继续执行：情况可以由你在下一次执行中修正（比如按质量意见改进产出）。
+          - 停下来等作者：情况需要作者裁决（前提缺失、方向分歧、风险超出你能处理的范围）。
+
+          ## 输出要求（会逐字实时显示给作者）
+          - 用自然中文输出一段连贯的观察说明：先说你看到了什么，再说你打算怎么办、为什么。
+          - 只输出观察说明；不要开始执行，不要标题、JSON、代码块或内部机器名。
+          """
+        }
+      ]
+    }
+  end
+
+  @doc "判断② call2 强制 tool call prompt：轻量续行结构。"
+  @spec continuation_decision_prompt(map(), String.t()) :: map()
+  def continuation_decision_prompt(input, narrative) do
+    %{
+      messages: [
+        %{
+          role: "user",
+          content: """
+          你是小说创作系统的创作判断器。你刚才已向作者输出了观察说明（如下）。现在把续行判断结构化。
+
+          ## 本轮创作目标
+          #{Map.fetch!(input, :goal_text)}
+
+          ## 出现的情况
+          #{Map.fetch!(input, :deviation_summary)}
+
+          ## 你已输出的观察说明
+          #{narrative}
+
+          ## 输出格式
+          - native tool call：必须调用 #{@continuation_tool_name}，把判断放入 tool arguments。
+          - action：continue（继续执行，下一次执行按 guidance 修正）｜ await_author（停下来等作者裁决）。
+          - guidance：action=continue 时，给下一次执行的一句修正指引；await_author 时留空。
+          - author_narrative：若你在上一步没有输出观察说明，在此补写一段作者可见原文。
+          """
+        }
+      ],
+      tools: [
+        %{
+          name: @continuation_tool_name,
+          description: "Structure the continuation judgment for the creative loop.",
+          input_schema: %{
+            type: "object",
+            properties: %{
+              action: %{type: "string", enum: @continuation_actions},
+              guidance: %{anyOf: [%{type: "string"}, %{type: "null"}]},
+              reason: %{type: "string"},
+              author_narrative: %{anyOf: [%{type: "string"}, %{type: "null"}]}
+            },
+            required: ["action", "reason"]
+          }
+        }
+      ],
+      tool_choice: @continuation_tool_name
+    }
+  end
 
   @doc "call1 自由输出 prompt：判断叙事 + 直接回复内联（46§9.4 意图段体裁）。"
   @spec narrative_prompt(map()) :: map()

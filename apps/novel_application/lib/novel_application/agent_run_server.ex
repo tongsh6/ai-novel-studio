@@ -497,9 +497,12 @@ defmodule NovelApplication.AgentRunServer do
     state
     |> put_run_status(:awaiting_author)
     |> put_run_phase(:stopped)
-    |> emit(:awaiting_author, decision.summary, ["agent_loop_awaiting_author"], [
-      decision.decision_id
-    ])
+    |> emit(
+      :awaiting_author,
+      decision.summary,
+      Enum.uniq(["agent_loop_awaiting_author" | List.wrap(decision.reason_codes)]),
+      [decision.decision_id]
+    )
   end
 
   defp maybe_apply_loop_status(state, _status, _decision), do: state

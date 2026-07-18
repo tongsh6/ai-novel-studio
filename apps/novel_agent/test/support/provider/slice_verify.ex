@@ -213,10 +213,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp response_result(prompt, prompt_text) do
-    if judgment_prompt?(prompt_text) do
-      judgment_result(prompt, prompt_text)
-    else
-      non_judgment_response_result(prompt, prompt_text)
+    cond do
+      continuation_prompt?(prompt_text) ->
+        continuation_result(prompt, prompt_text)
+
+      judgment_prompt?(prompt_text) ->
+        judgment_result(prompt, prompt_text)
+
+      true ->
+        non_judgment_response_result(prompt, prompt_text)
     end
   end
 
@@ -227,6 +232,41 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       judgment_decision_result(prompt_text)
     else
       judgment_narrative_result(prompt_text)
+    end
+  end
+
+  # 判断②（ADR-0025 CP3a）：观察 + 续行两段式——计划耗尽（D6 语义）判 continue
+  # 补产出步；其余偏离（质量/门禁/缺章/工具故障）裁决权在作者，判 await_author。
+  defp continuation_prompt?(text),
+    do: String.contains?(text, "你的两种续行方式") or String.contains?(text, "continuation_decision")
+
+  defp continuation_result(prompt, text) do
+    if NovelAgent.Provider.tool_call_prompt?(prompt) do
+      {action, guidance} =
+        if String.contains?(text, "计划步骤已走完") do
+          {"continue", "补足正文产出步，按原目标继续生成草稿。"}
+        else
+          {"await_author", ""}
+        end
+
+      arguments = %{
+        "action" => action,
+        "guidance" => guidance,
+        "reason" => "continuation_#{action}"
+      }
+
+      Result.new("continuation_#{action}", nil,
+        tool_calls: [%{"name" => "continuation_decision", "arguments" => arguments}]
+      )
+    else
+      narrative =
+        if String.contains?(text, "计划步骤已走完") do
+          "计划走完但正文还没有产出，我会补上产出步继续完成这轮草稿。"
+        else
+          "这个情况需要你裁决，我先停下来，草稿与说明都保留在这轮记录里。"
+        end
+
+      Result.new(narrative)
     end
   end
 

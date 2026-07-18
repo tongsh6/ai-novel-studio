@@ -17875,21 +17875,8 @@ async function driveAgentD6ProseReplan(page, sliceId) {
     60_000,
   );
 
-  // 修订核心：计划走完正文未产出 → runtime 以 reasoning 修订补足 prose 步。
-  const revisedFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_revised",
-    "D6 plan_revised event was not broadcast after exhausted short plan",
-    120_000,
-  );
-  const revisedPlanSteps = revisedFrame.body?.payload?.plan_steps ?? [];
-  const revisedPlanHasProseStep = revisedPlanSteps.some(
-    (step) => step?.target_tool_ref === "prose_writing",
-  );
+  // CP3a：计划走完正文未产出 → 判断②（观察 + 续行）判 continue，机械补足 prose
+  // 产出步——不再产 plan_revised 伪修订；续行事实由 state 帧 replans 计数证明。
 
   const turnFrame = await waitForNewFrame(
     frameStart,
@@ -17935,8 +17922,8 @@ async function driveAgentD6ProseReplan(page, sliceId) {
       run_id: runId,
       profile_ref: completedStateFrame.body.profile_ref,
       short_plan_step_count: shortPlanFrame.body?.payload?.plan_steps?.length ?? 0,
-      plan_revised_observed: Boolean(revisedFrame),
-      revised_plan_has_prose_step: revisedPlanHasProseStep,
+      judgment_continuation_observed:
+        Number(completedStateFrame.body?.consumed_budget?.replans ?? 0) >= 1,
       consumed_replans: completedStateFrame.body.consumed_budget?.replans,
       consumed_steps: completedStateFrame.body.consumed_budget?.steps,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
@@ -18009,9 +17996,10 @@ async function driveAgentPlanNativeToolCallingProtocol(page) {
     nativeToolCallNames.includes("agent_plan_draft"),
     "AgentPlan draft did not project native tool call telemetry",
   );
+  // CP3a：修订调用已被判断②取代——续行结构走 continuation_decision native tool call。
   assert(
-    nativeToolCallNames.includes("agent_plan_revision"),
-    "AgentPlan revision did not project native tool call telemetry",
+    nativeToolCallNames.includes("continuation_decision"),
+    "Judgment continuation did not project native tool call telemetry",
   );
   assert(
     !nativeToolCallArgumentsLeaked,
@@ -18028,7 +18016,7 @@ async function driveAgentPlanNativeToolCallingProtocol(page) {
       native_tool_call_final_output_count: nativeToolFinalEvents.length,
       native_tool_call_names: nativeToolCallNames,
       native_tool_call_draft_projected: nativeToolCallNames.includes("agent_plan_draft"),
-      native_tool_call_revision_projected: nativeToolCallNames.includes("agent_plan_revision"),
+      native_tool_call_continuation_projected: nativeToolCallNames.includes("continuation_decision"),
       native_tool_call_arguments_leaked: nativeToolCallArgumentsLeaked,
       provider_progress_reason_codes: providerProgressEvents.flatMap(
         (frame) => frame.body?.reason_codes ?? [],
@@ -20473,9 +20461,9 @@ async function driveAgentProviderStreamingProgress(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "provider_progress_v1" &&
-      // ADR-0025 CP1 判断入场：判断 2 + 计划起草 2 + provider_complete 1。
-      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      // provider_progress profile 未机械化（CP2b 只翻单候选创作族）：
+      // 判断 2 + 计划起草 2 + provider_complete 1 = 5。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "Provider progress run state did not record provider call budget",
     30_000,
   );
