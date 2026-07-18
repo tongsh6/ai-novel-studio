@@ -281,6 +281,49 @@ deviation 判断②先 await）→ CP4b 真计划修订（判断② continue 修
   plan_steps_visible_in_ui=true）。judgment-plan 场景回归绿。**CP4 全量收口**。
   余项：explore 步接入（CP5 联动）。
 
+## 2j. CP1-CP4 实现系统性回顾（2026-07-18，用户指令；四类问题框架）
+
+**触发**：CP5 方案被指出"用途预制 + 无视现有能力"两个根源问题，回顾前 CP 是否同病。
+分类：A 用途预制（app 替模型预想用法）/ B 平行重复建设（不盘点现状）/
+C 枚举维度错位（用途面 vs 数据面）/ D 桩预言固化（桩替产品定语义）。
+
+**B 类实锤（帧纪元死代码未退役，最重）**：
+- B-1 `DialogueGateway.handle_input` → `Planner.form_frame` 整条帧管线生产零调用
+  者（判断纪元主链不经它；保活者仅 novel_e2e v3_full_chain + 3 个直连测试）。
+  Planner 的 form_frame/form_micro_plan/build_candidates 族为死区（活的仅
+  provider_failure_fallback_message 与 fallback_candidates）。
+- B-2 `AgenticNextStepPlanner.next_decision` 族（ADR-0023 逐步选步模式）生产零
+  消费（仅自身单测）；各 flow 只用其 with_provider_call_meta 管道 helper——死活
+  混居一个模块。
+- 处置：合并为**帧纪元退役清单**（独立 slice，需批准排期）：handle_input 管线、
+  form_frame 族、conversation_turn flow、next_decision 族、两 planner 的
+  conversation 分支、e2e v3_full_chain 迁判断链；with_provider_call_meta 迁出。
+- B-3 判断②新建协议**维持**（补论证）：next_decision 是"步目录选步"（被机械
+  cursor 取代的模式），判断②是"偏离观察+续行裁决"——非同一物；evaluation_of_last
+  结构已复用。过程瑕疵：当时未做此盘点即新建。
+
+**A 类（重新定性）**：
+- A-1 prose 机械补步（判断② continue 的 :append_prose）**合法维持**：机械计划
+  语境下续行动作唯一（补产出步，无自由度=机械），模型判方向（判断）——与 CP4b
+  真计划修订（步序有自由度→模型修订）是同一原则在不同自由度下的正确分层。
+- A-2 机械步 description 文案（作者可见状态行）属结构词家族，合法；记文档债：
+  47 文案指南补"机械步状态行属结构词"注记。
+
+**C 类**：未见实质违规（capability→profile 映射、judgment_plan 起草目录均为
+能力面枚举；判断① prompt 判别规则是给模型的指引，模型可判任意 action）。
+
+**D 类实锤**：
+- D-1 **判断②零 MBC 探针**：判断①有六用例探针（live 1.0），判断②续行方向
+  （continue/await）直接上线——桩预言（质量→continue/故障→await）仅有 prompt
+  粗指引对齐，live 模型方向质量未验证。处置：补 continuation 探针（judgment
+  探针同模式，四用例）。
+- D-2 D2 improve/await 语义演进复盘：初版 await 由实现约束触发但最终语义产品
+  驱动（S 系裁决权→supersede 后改进闭环），无需处置。
+
+**根因自省**：CP2 探针 v1（先设计后盘点生产 writer 形态）与 CP5 方案同病——
+"先设计后盘点"顺序病。纠正律：新协议/新能力先做现状盘点（消费者、既有 API、
+同语义机制）再设计，盘点结论进六问 Boundary 项。
+
 ## 3. 决策日志
 
 - 2026-07-15：CP0 文档批次落地（用户"同意 开始落所有的文档"）。ADR-0025 同日
