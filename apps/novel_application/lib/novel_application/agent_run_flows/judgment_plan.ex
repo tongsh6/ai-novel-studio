@@ -110,10 +110,65 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     end
   end
 
-  # 机械计划耗尽而产物未出：无模型计划可修订（伪计划已消灭），诚实停等作者。
-  defp maybe_replan_exhausted_plan(run, sequence, _snapshot, _spec) do
-    mechanical_await_author_decision(run, sequence)
+  # CP4b（ADR-0025 决策 2）：真计划是活文档——计划走完而目标未达时由模型修订
+  # 自己的计划（D 系机制以真计划形态复活，plan_revised 照发、replans 计数）；
+  # 修订预算耗尽则停等作者。
+  defp maybe_replan_exhausted_plan(run, sequence, snapshot, spec) do
+    if replan_available?(run) do
+      with {:ok, revised_plan, revision_meta} <-
+             AgenticPlanDraftPlanner.revise_plan_with_meta(
+               run,
+               planner_provider_execution(spec),
+               snapshot,
+               revision_reason: "计划步骤已走完，但作者请求的目标产出尚未完成。"
+             ) do
+        execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta)
+      end
+    else
+      mechanical_await_author_decision(run, sequence)
+    end
   end
+
+  defp execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta) do
+    revised_run = %{
+      run
+      | plan: revised_plan,
+        plan_ref: revised_plan.plan_id,
+        plan_version: revised_plan.version
+    }
+
+    steps = plan_steps(revised_plan)
+    index = plan_cursor(snapshot)
+
+    meta =
+      revision_meta
+      |> Map.put(:agent_plan, revised_plan)
+      |> Map.put(:agent_plan_cursor, index)
+
+    if index < length(steps) do
+      steps
+      |> Enum.at(index)
+      |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
+    else
+      mechanical_await_author_decision(run, sequence)
+    end
+  end
+
+  defp replan_available?(run) do
+    consumed = budget_value(run.consumed_budget, :replans, 0)
+    max = budget_value(run.budget, :max_replans, 0)
+
+    consumed < max
+  end
+
+  defp budget_value(map, key, default) when is_map(map) do
+    case map_get(map, key) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> default
+    end
+  end
+
+  defp budget_value(_map, _key, default), do: default
 
   defp plan_cursor(snapshot) when is_map(snapshot) do
     snapshot

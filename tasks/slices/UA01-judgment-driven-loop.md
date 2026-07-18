@@ -1,6 +1,6 @@
 # UA01 判断驱动交互循环（ADR-0025 实施）
 
-- 状态：CP0-CP3 done（2026-07-18）/ CP4 todo / CP5-CP6 todo
+- 状态：CP0-CP4 done（2026-07-18）/ CP5-CP6 todo（探索两翼）
 - 类型：Agent Runtime Slice / Prompt Protocol Slice
 - 父 ADR：`docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md`（Accepted）
 - 展开层：`docs/design/notes/2026-07-15-judgment-driven-interactive-loop.md`
@@ -18,7 +18,7 @@
 | CP1 | conversation 迁判断循环（方案 B：判断①两段 + 直接回复内联；路由并入判断①）。**前置**：MBC 探针验证内联协议与"是否开计划"判断质量 | **done**（2026-07-17，四批 28 场景绿） |
 | CP2 | 单候选创作 profile 迁循环（执行内联自评 + 判断②按需） | **done**（2026-07-18，CP2b 去伪计划 + 探针裁决判断②独立化） |
 | CP3 | prose/修订迁循环；D 系循环语义回归 | **done**（2026-07-18，判断②+改进闭环+修订机械化） |
-| CP4 | 计划按需全量（判断①制定计划分支 + UI 真计划恢复显示） | todo |
+| CP4 | 计划按需全量（判断①制定计划分支 + UI 真计划恢复显示） | **done**（2026-07-18） |
 | CP5 | 探索内部翼（作品事实索引 + 检索工具箱 + 探索预算） | todo（可与 CP2/CP3 并行） |
 | CP6 | 探索外部翼（SearchProvider + web_search + 带来源设定候选 + 网络授权边界） | todo（依赖 CP5 框架） |
 
@@ -273,8 +273,13 @@ deviation 判断②先 await）→ CP4b 真计划修订（判断② continue 修
   请求 → judgment_decided(plan) → 模型自产 ≥3 步跨 ≥2 能力计划 → 逐步过门禁 →
   ≥2 待采纳产物 → 完成。代表性回归批绿（design/prose/outline/D2-improve；
   conversation-turn 一次持久化事实计数 flake 复跑即绿，登记观察）。
-- **CP4b 余项**：真计划修订（判断② continue 修订活文档，D 系以真计划复活）、
-  UI 步骤/进度深化、explore 步接入（CP5 联动）。
+- **CP4b 收口（2026-07-18 同日）**：真计划修订落地——计划走完而目标未达时由模型
+  修订自己的计划（AgenticPlanDraftPlanner.revise 真修订：真计划的活文档语义，
+  plan_revised 照发、replans 计数、修订预算耗尽停等作者）；focused 闭环绿（短计划
+  → 模型修订补产出步 → 完成，replans 1）。**UI 真计划步骤已天然恢复显示**
+  （plan_drafted 渲染链一直在，真事件回来即显示——场景实证
+  plan_steps_visible_in_ui=true）。judgment-plan 场景回归绿。**CP4 全量收口**。
+  余项：explore 步接入（CP5 联动）。
 
 ## 3. 决策日志
 

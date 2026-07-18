@@ -112,6 +112,120 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert state.run.consumed_budget.provider_calls == 4
   end
 
+  test "judgment plan revises its own plan when exhausted before the goal is met" do
+    parent = self()
+
+    result_fn = fn prompt ->
+      text = prompt_text(prompt)
+
+      cond do
+        revision_prompt?(text) ->
+          send(parent, :plan_revision_called)
+
+          {:ok,
+           %{
+             content: "计划走完但正文还没产出，我补上正文步继续完成。",
+             provider_call_id: "pc-jp-revise",
+             tool_calls: [
+               %{
+                 "name" => "agent_plan_revision",
+                 "arguments" => %{
+                   "plan" => %{
+                     "steps" => [
+                       plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
+                       plan_step("s2", "prose_writing", "act", "补写目标章节正文。")
+                     ]
+                   },
+                   "reason_codes" => ["agent_plan_revised"],
+                   "confidence" => 1.0
+                 }
+               }
+             ]
+           }}
+
+        plan_draft_prompt?(text) ->
+          # CP4b 诱导：起草短计划（只读上下文，漏产出步）。
+          {:ok,
+           %{
+             content: "先读取上下文再看下一步。",
+             provider_call_id: "pc-jp-short-plan",
+             tool_calls: [
+               %{
+                 "name" => "agent_plan_draft",
+                 "arguments" => %{
+                   "plan" => %{
+                     "steps" => [
+                       plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。")
+                     ]
+                   },
+                   "reason_codes" => ["agent_plan_drafted"],
+                   "confidence" => 1.0
+                 }
+               }
+             ]
+           }}
+
+        true ->
+          {:ok,
+           %{
+             provider_call_id: "pc-jp-tool2",
+             content:
+               Jason.encode!(%{
+                 items: [
+                   %{
+                     item_id: "jp-rev-item-#{System.unique_integer([:positive])}",
+                     title: "修订后计划产出",
+                     body: "按修订后计划生成的正文候选。",
+                     rationale: "真计划修订闭环。"
+                   }
+                 ]
+               })
+           }}
+      end
+    end
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :judgment_plan,
+        %{
+          text: "把伏笔梳理后重写第02章结尾。",
+          workspace_id: "ws-jp2",
+          work_id: "work-jp2",
+          session_id: "session-jp2",
+          turn_id: "turn-jp2",
+          chapter_prose_reader: fn _work_id, _chapter -> "" end,
+          chapter_summary_reader: %{},
+          character_reader: fn _work_id -> [] end
+        },
+        nil,
+        %Execution{result_fn: result_fn}
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:agent_event, :plan_drafted, _}, 500
+    assert_receive :plan_revision_called, 2_000
+
+    # 真计划修订：plan_revised 照发（模型修订自己的计划——D 系真计划形态）。
+    assert_receive {:agent_event, :plan_revised, revised_event}, 500
+
+    assert Enum.any?(
+             revised_event.payload.plan_steps,
+             &(&1.target_tool_ref == "prose_writing")
+           )
+
+    assert_receive {:agent_event, :run_completed, _}, 3_000
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :completed
+    assert state.run.consumed_budget.replans == 1
+    assert length(state.run.pending_artifact_refs) == 1
+  end
+
   defp plan_step(id, target, kind, description) do
     %{
       "step_id" => id,
@@ -126,6 +240,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   end
 
   defp plan_draft_prompt?(text), do: String.contains?(text, "agent_plan_draft")
+
+  defp revision_prompt?(text), do: String.contains?(text, "计划修订器")
 
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 end
