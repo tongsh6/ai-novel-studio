@@ -2330,7 +2330,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp maybe_append_revision_fingerprint(body, brief, context) do
     text = "#{brief}\n#{context}"
 
-    if String.contains?(text, "违反既有规则且需要作者确认") or
+    if String.contains?(text, "续行修正指引") or
+         String.contains?(text, "违反既有规则且需要作者确认") or
          String.contains?(text, "需要作者确认的设定变化") do
       body <> "\n这一次他改写了约定：已为规则变化补上对应代价，复活的代价是他亲手烧掉了自己的名字。"
     else

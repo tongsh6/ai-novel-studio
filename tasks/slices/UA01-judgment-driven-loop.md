@@ -218,11 +218,15 @@ final TurnResult completed）；umbrella 全绿。**deviation 场景族四场景
 D1 工具故障 / D4 gate deny / D7 缺章 gap 三 await 场景真实 Tauri 绿（judgment_
 continuation + replans 0 + 停等）；driver/verifier/fixtures 全迁 mode 分流形态。
 
-**余项（登记）**：D2 improve 场景（agentic-loop-quality-deviation-replan）卡在
-桩语境传导——判断② guidance 未进执行 brief，复评桩无法确定性识别"改进重试"。
-正确修法是产品改进：guidance 传导进续行步的创作 brief（模型指引应到达执行），
-随 CP3b 余批实施；改进闭环 runtime 语义已由 focused 实证，不阻塞。
-prose_revision_from_findings 机械化评估、no-progress 判断②预算兜底重设计同批。
+**余批收口（2026-07-18 同日）**：guidance 传导落地——判断② continue 的修正指引
+经 decision（evaluation_of_last.new_constraint）传导进续行步创作 brief（"续行修正
+指引："段，模型指引到达写作调用）；credo 收参（frame 确定性重建）。**D2 improve
+场景真实 Tauri 绿**（改进闭环端到端：finding → 判断② continue → guidance 进
+brief → 中间稿替代（artifact_superseded 可见）→ 改进稿 → 复评通过 → completed，
+最终 TurnResult 为改进稿单 pending）；driver 终局断言按 mode 分流。D 系全族回归
+零回归（D1/D4/D7 await + prose 正常 + p1-revision 五场景绿）。
+**下批余项**：prose_revision_from_findings 机械化（恒定四步序列，CP2b 同构）、
+no-progress 判断②预算兜底重设计。
 
 ## 3. 决策日志
 

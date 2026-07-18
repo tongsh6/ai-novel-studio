@@ -18387,7 +18387,21 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
   );
   const finalTurnResultFrame = turnResultFrames[turnResultFrames.length - 1];
   const finalTurnResultArrived = Boolean(finalTurnResultFrame);
-  if (allowCandidateTurnResult) {
+  if (mode === "improve") {
+    // 改进闭环终局：最终 TurnResult 是改进稿（completed + 单 pending，复评通过）。
+    assert(
+      finalTurnResultArrived,
+      `${signal} improve loop did not emit the final improved TurnResult`,
+    );
+    assert(
+      finalTurnResultFrame.body?.agent_run?.status === "completed",
+      `${signal} improved TurnResult did not carry completed AgentRun status`,
+    );
+    assert(
+      (finalTurnResultFrame.body?.adoption_state?.pending ?? []).length === 1,
+      `${signal} improved TurnResult did not expose exactly the improved pending candidate`,
+    );
+  } else if (allowCandidateTurnResult) {
     assert(
       finalTurnResultArrived,
       `${signal} deviation did not emit the expected candidate TurnResult`,

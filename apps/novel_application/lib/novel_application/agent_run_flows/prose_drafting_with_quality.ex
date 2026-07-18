@@ -517,11 +517,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           run,
           sequence,
           spec,
-          frame,
           plan,
           decision_result,
           observations,
-          snapshot
+          snapshot,
+          continuation_guidance(decision)
         )
       else
         {:ok,
@@ -542,7 +542,32 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
-  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations, snapshot) do
+  # 判断②续行修正指引（CP3b）：continue 决策携带的 guidance 必须传导到执行 brief
+  # ——模型的修正指引要到达写作调用，改进稿才真正"按意见修正"。
+  defp continuation_guidance(%{reason_codes: codes} = decision) do
+    if is_list(codes) and "judgment_continue" in codes do
+      case decision.evaluation_of_last do
+        %{new_constraint: guidance} when is_binary(guidance) and guidance != "" -> guidance
+        _ -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp continuation_guidance(_decision), do: nil
+
+  defp do_execute_tool_step(
+         run,
+         sequence,
+         spec,
+         plan,
+         decision,
+         observations,
+         snapshot,
+         guidance
+       ) do
+    frame = frame(run, sequence, plan.plan_goal.summary)
     execution_context = Map.get(stage_state(snapshot), :context) || Map.get(spec, :context)
 
     emit_stage(
@@ -566,7 +591,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         decision: decision,
         candidates: [],
         context: execution_context,
-        author_input: %{text: author_input_text(run, plan, observations)},
+        author_input: %{text: author_input_text(run, plan, observations, guidance)},
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot, :writer),
         quality_provider_execution: quality_provider_execution(spec, snapshot),
@@ -784,7 +809,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     )
   end
 
-  defp author_input_text(run, plan, observations) do
+  defp author_input_text(run, plan, observations, guidance) do
     observation_text =
       observations
       |> Enum.map(& &1.summary)
@@ -794,11 +819,17 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     [
       run.goal.text,
       "当前 AgentStep：#{plan.plan_goal.summary}",
-      observation_section(observation_text)
+      observation_section(observation_text),
+      guidance_section(guidance)
     ]
     |> Enum.reject(&blank?/1)
     |> Enum.join("\n\n")
   end
+
+  defp guidance_section(guidance) when is_binary(guidance) and guidance != "",
+    do: "续行修正指引：\n#{guidance}"
+
+  defp guidance_section(_guidance), do: nil
 
   defp observation_section(""), do: nil
   defp observation_section(text), do: "已完成观察：\n#{text}"
