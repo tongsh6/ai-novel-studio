@@ -187,6 +187,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           String.contains?(prompt, @quality_eval_fail_marker_cn) ->
         "evaluator 故意返回的非 JSON 文本 #{@quality_eval_fail_marker}"
 
+      # 判断②改进闭环（CP3b）：writer 修正稿带修正指纹——复评放行（确定性改进语义）。
+      String.contains?(prompt, "已为规则变化补上对应代价") ->
+        Jason.encode!(%{"findings" => []})
+
       quality_confirm_prompt?(prompt) ->
         Jason.encode!(%{
           "findings" => [
@@ -243,10 +247,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp continuation_result(prompt, text) do
     if NovelAgent.Provider.tool_call_prompt?(prompt) do
       {action, guidance} =
-        if String.contains?(text, "计划步骤已走完") do
-          {"continue", "补足正文产出步，按原目标继续生成草稿。"}
-        else
-          {"await_author", ""}
+        cond do
+          String.contains?(text, "计划步骤已走完") ->
+            {"continue", "补足正文产出步，按原目标继续生成草稿。"}
+
+          # 质量复核 finding 可由指引修正 → 改进闭环（中间稿将被替代）。
+          String.contains?(text, "质量复核") ->
+            {"continue", "按质量意见修正后重新产出草稿。"}
+
+          # 工具故障 / 门禁 / 缺章等：裁决权在作者。
+          true ->
+            {"await_author", ""}
         end
 
       arguments = %{
@@ -260,10 +271,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       )
     else
       narrative =
-        if String.contains?(text, "计划步骤已走完") do
-          "计划走完但正文还没有产出，我会补上产出步继续完成这轮草稿。"
-        else
-          "这个情况需要你裁决，我先停下来，草稿与说明都保留在这轮记录里。"
+        cond do
+          String.contains?(text, "计划步骤已走完") ->
+            "计划走完但正文还没有产出，我会补上产出步继续完成这轮草稿。"
+
+          String.contains?(text, "质量复核") ->
+            "质量复核提出了需要处理的意见，我会按意见修正后重新交付这轮草稿。"
+
+          true ->
+            "这个情况需要你裁决，我先停下来，草稿与说明都保留在这轮记录里。"
         end
 
       Result.new(narrative)
@@ -2305,6 +2321,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       true ->
         opening_body(brief, context)
+    end
+    |> maybe_append_revision_fingerprint(brief, context)
+  end
+
+  # 判断②改进闭环（CP3b）：改进重试的 writer prompt 携带质量 finding 观察——
+  # 修正稿统一带修正指纹句（复评桩据此放行），与 body 分支形态无关。
+  defp maybe_append_revision_fingerprint(body, brief, context) do
+    text = "#{brief}\n#{context}"
+
+    if String.contains?(text, "违反既有规则且需要作者确认") or
+         String.contains?(text, "需要作者确认的设定变化") do
+      body <> "\n这一次他改写了约定：已为规则变化补上对应代价，复活的代价是他亲手烧掉了自己的名字。"
+    else
+      body
     end
   end
 

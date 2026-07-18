@@ -4455,59 +4455,62 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
 }
 
 const AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS = {
+  // CP3b（判断②）：偏离续行两形态——improve（质量类改进闭环：中间稿被替代、改进稿
+  // 完成收束）｜ await（故障/门禁/缺章：观察后停等作者）。计数为判断纪元生产口径。
   "agentic-loop-tool-failure-replan": {
     signal: "D1",
-    reasonNeedle: "工具 prose_writing 执行失败",
-    steps: 2,
+    mode: "await",
+    steps: 4,
     toolCalls: 1,
-    providerCalls: 5,
-    behavior: "tool_failure_triggers_provider_sourced_replan_before_awaiting_author",
+    providerCalls: 8,
+    behavior: "tool_failure_settles_awaiting_author_after_judgment_continuation",
     assertions: [
-      "d1_tool_failure_promoted_to_provider_sourced_plan_revised",
-      "writer_failure_did_not_become_run_failed_before_replan",
+      "d1_tool_failure_observed_by_judgment_continuation",
+      "writer_failure_did_not_become_run_failed_before_judgment",
     ],
   },
   "agentic-loop-quality-deviation-replan": {
     signal: "D2",
-    reasonNeedle: "质量复核要求行动",
-    steps: 2,
-    toolCalls: 1,
-    providerCalls: 5,
-    minArtifactEvents: 1,
+    mode: "improve",
+    steps: 5,
+    toolCalls: 2,
+    providerCalls: 10,
+    minArtifactEvents: 2,
     allowCandidateTurnResult: true,
-    behavior: "quality_action_triggers_provider_sourced_replan_before_awaiting_author",
+    behavior: "quality_finding_improves_draft_through_judgment_continuation",
     assertions: [
-      "d2_quality_action_promoted_to_provider_sourced_plan_revised",
-      "quality_confirm_did_not_silently_complete_without_replan",
+      "d2_quality_finding_judged_continue_with_guidance",
+      "intermediate_draft_superseded_by_improved_draft",
+      "improved_draft_completed_without_author_intervention",
     ],
   },
   "agentic-loop-gate-deviation-replan": {
     signal: "D4",
-    reasonNeedle: "Orchestrator 未允许执行",
-    steps: 2,
+    mode: "await",
+    steps: 4,
     toolCalls: 0,
-    providerCalls: 3,
+    providerCalls: 6,
     gateDecisionType: "require_confirmation",
     gateFirstBlockingGate: "authority",
     maxToolStartedEvents: 0,
-    behavior: "gate_deny_triggers_provider_sourced_replan_without_writer_dispatch",
+    behavior: "gate_deny_settles_awaiting_author_after_judgment_continuation",
     assertions: [
-      "d4_gate_deny_promoted_to_provider_sourced_plan_revised",
+      "d4_gate_deny_observed_by_judgment_continuation",
       "orchestrator_gate_was_not_bypassed",
       "writer_provider_was_not_dispatched_after_gate_deny",
     ],
   },
   "agentic-loop-deterministic-gap-replan": {
     signal: "D7",
-    reasonNeedle: "写作坐标存在确定性缺口",
-    steps: 2,
+    mode: "await",
+    steps: 4,
     toolCalls: 0,
-    providerCalls: 3,
+    providerCalls: 6,
     maxToolCompletedEvents: 0,
     maxToolboxExecuteCount: 0,
-    behavior: "deterministic_gap_triggers_provider_sourced_replan_without_writer_dispatch",
+    behavior: "deterministic_gap_settles_awaiting_author_after_judgment_continuation",
     assertions: [
-      "d7_deterministic_gap_promoted_to_provider_sourced_plan_revised",
+      "d7_deterministic_gap_observed_by_judgment_continuation",
       "missing_policy_blocked_writer_dispatch",
     ],
   },
@@ -4530,19 +4533,20 @@ function findAgenticLoopProseDeviationEvidence(records, sliceId) {
       record.parent_fast_ack_before_terminal === true &&
       record.run_mode === "bounded" &&
       record.profile_ref === "prose_drafting_with_quality_v1" &&
-      boolValue(record.plan_revised_visible) === true &&
-      Number(record.plan_revised_event_count ?? 0) >= 1 &&
-      (record.plan_revised_reason_codes ?? []).includes(`agentic_deviation:${expected.signal}`) &&
-      Number(record.plan_revised_plan_version ?? 0) === 2 &&
-      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
-      record.plan_revised_author_narrative_source_type === "provider_output" &&
-      String(record.plan_revised_revision_reason ?? "").includes(expected.reasonNeedle) &&
-      record.awaiting_event_type === "awaiting_author" &&
-      record.terminal_status === "awaiting_author" &&
+      record.continuation_mode === expected.mode &&
+      boolValue(record.judgment_continuation_observed) === true &&
+      boolValue(record.deviation_signal_observed) === true &&
+      (expected.mode === "improve"
+        ? record.terminal_event_type === "run_completed" &&
+          record.terminal_status === "completed" &&
+          Number(record.artifact_superseded_event_count ?? 0) >= 1 &&
+          Number(record.consumed_replans ?? -1) === 1
+        : record.terminal_event_type === "awaiting_author" &&
+          record.terminal_status === "awaiting_author" &&
+          Number(record.consumed_replans ?? -1) === 0) &&
       Number(record.consumed_steps ?? -1) === expected.steps &&
       Number(record.consumed_tool_calls ?? -1) === expected.toolCalls &&
       Number(record.consumed_provider_calls ?? -1) === expected.providerCalls &&
-      Number(record.consumed_replans ?? -1) === 1 &&
       proseDeviationTurnResultMatches(record, expected) &&
       Number(record.log_sync_turn_count ?? -1) === 0,
   );
@@ -4609,8 +4613,9 @@ function findAgenticLoopProseDeviationEvidence(records, sliceId) {
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
     consumed_replans: Number(uiState.consumed_replans ?? 0),
-    plan_revised_plan_version: Number(uiState.plan_revised_plan_version ?? 0),
-    plan_revised_revision_reason: String(uiState.plan_revised_revision_reason ?? ""),
+    continuation_mode: uiState.continuation_mode,
+    terminal_status: uiState.terminal_status,
+    artifact_superseded_event_count: Number(uiState.artifact_superseded_event_count ?? 0),
     gate_decision_type: uiState.gate_decision_type ?? null,
     gate_first_blocking_gate: uiState.gate_first_blocking_gate ?? null,
     artifact_event_count: Number(uiState.artifact_event_count ?? 0),
@@ -4636,22 +4641,20 @@ function agenticLoopProseDeviationBehavior(turnIds, _turnRecords, records, evide
   if (!uiState) return null;
   if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
   if (uiState.parent_fast_ack_before_terminal !== true) return null;
-  if (boolValue(uiState.plan_revised_visible) !== true) return null;
-  if (Number(uiState.plan_revised_event_count ?? 0) < 1) return null;
-  if (!(uiState.plan_revised_reason_codes ?? []).includes(`agentic_deviation:${expected.signal}`)) {
-    return null;
+  if (uiState.continuation_mode !== expected.mode) return null;
+  if (boolValue(uiState.judgment_continuation_observed) !== true) return null;
+  if (boolValue(uiState.deviation_signal_observed) !== true) return null;
+  if (expected.mode === "improve") {
+    if (uiState.terminal_status !== "completed") return null;
+    if (Number(uiState.artifact_superseded_event_count ?? 0) < 1) return null;
+    if (Number(uiState.consumed_replans ?? -1) !== 1) return null;
+  } else {
+    if (uiState.terminal_status !== "awaiting_author") return null;
+    if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
   }
-  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
-  if (boolValue(uiState.plan_revised_evaluation_plan_holds) !== false) return null;
-  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
-  if (!String(uiState.plan_revised_revision_reason ?? "").includes(expected.reasonNeedle)) {
-    return null;
-  }
-  if (uiState.terminal_status !== "awaiting_author") return null;
   if (Number(uiState.consumed_steps ?? -1) !== expected.steps) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== expected.toolCalls) return null;
   if (Number(uiState.consumed_provider_calls ?? -1) !== expected.providerCalls) return null;
-  if (Number(uiState.consumed_replans ?? -1) !== 1) return null;
   if (!proseDeviationTurnResultMatches(uiState, expected)) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (
@@ -4667,9 +4670,12 @@ function agenticLoopProseDeviationBehavior(turnIds, _turnRecords, records, evide
     return null;
   }
 
-  const turnResultAssertion = expected.allowCandidateTurnResult
-    ? "candidate_turn_result_exposed_pending_artifact_and_waited_for_author"
-    : "run_waited_for_author_without_final_turn_result";
+  const turnResultAssertion =
+    expected.mode === "improve"
+      ? "improved_turn_result_completed_with_single_pending_artifact"
+      : expected.allowCandidateTurnResult
+        ? "candidate_turn_result_exposed_pending_artifact_and_waited_for_author"
+        : "run_waited_for_author_without_final_turn_result";
 
   return {
     slice_id: evidence.slice_id,
@@ -4687,8 +4693,7 @@ function agenticLoopProseDeviationBehavior(turnIds, _turnRecords, records, evide
     plan_revised_revision_reason: evidence.plan_revised_revision_reason,
     assertions: [
       "real_tauri_input_triggered_prose_deviation_signal",
-      "provider_sourced_plan_revised_was_visible",
-      "runtime_consumed_one_replan_budget",
+      "judgment_continuation_narrative_was_provider_sourced",
       turnResultAssertion,
       "channel_did_not_use_dialogue_fallback_main_chain",
       ...expected.assertions,
@@ -4697,6 +4702,15 @@ function agenticLoopProseDeviationBehavior(turnIds, _turnRecords, records, evide
 }
 
 function proseDeviationTurnResultMatches(record, expected) {
+  if (expected.mode === "improve") {
+    // 改进闭环终局：改进稿完成收束，pending 只剩改进稿（中间稿已被替代）。
+    return (
+      boolValue(record.final_turn_result_arrived) === true &&
+      record.final_turn_result_agent_run_status === "completed" &&
+      Number(record.final_turn_result_pending_artifact_count ?? 0) === 1
+    );
+  }
+
   if (expected.allowCandidateTurnResult) {
     return (
       boolValue(record.final_turn_result_arrived) === true &&

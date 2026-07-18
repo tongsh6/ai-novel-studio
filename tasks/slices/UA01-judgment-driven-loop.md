@@ -199,6 +199,31 @@ tests 7/7 迁判断②语义（D1 故障→await、D2 质量→await、D4 gate�
 形态无对应物（空转保护由 replans 预算门承担，D 系单测实证）；后续按"判断②预算
 兜底"重设计。SliceVerify/测试 continuation 桩样本落地。
 
+## 2g. CP3b 中间产物 supersede 契约（2026-07-18，用户"继续"批准）
+
+**契约**：判断② continue 改进闭环的"中间稿替代"语义——
+- Domain：`AgentRun.supersede_pending_artifacts/2`（refs 移出待采纳集合）；
+  `:artifact_superseded` 事件类型（novel_common 契约 + runtime stage 族 + copy
+  "已替代"）。
+- Runtime 两段式落地：步启动前快照局部替代（放行 pending 预算）；步结果收口时
+  state 落地 + 作者可见事件（"上一稿已按质量意见改进，被新稿替代。"）。
+- prose flow：判断② continue meta 声明 `supersede_artifact_refs`（续行重产出即
+  替代本 run 中间稿）。
+- 预算语义更新：plan_overhead 从"修订余量"改"判断②续行余量"（calls +1+4×replans、
+  steps/tools +replans）；作者显式"最多一步"预算为硬约束不膨胀（one-step 指纹）。
+
+**验证**：D2 focused 改进闭环端到端绿（confirm finding → 判断② continue →
+supersede（预算放行+事件）→ 改进稿 → 复评通过 → completed，pending 只剩改进稿，
+final TurnResult completed）；umbrella 全绿。**deviation 场景族四场景判断②口径**：
+D1 工具故障 / D4 gate deny / D7 缺章 gap 三 await 场景真实 Tauri 绿（judgment_
+continuation + replans 0 + 停等）；driver/verifier/fixtures 全迁 mode 分流形态。
+
+**余项（登记）**：D2 improve 场景（agentic-loop-quality-deviation-replan）卡在
+桩语境传导——判断② guidance 未进执行 brief，复评桩无法确定性识别"改进重试"。
+正确修法是产品改进：guidance 传导进续行步的创作 brief（模型指引应到达执行），
+随 CP3b 余批实施；改进闭环 runtime 语义已由 focused 实证，不阻塞。
+prose_revision_from_findings 机械化评估、no-progress 判断②预算兜底重设计同批。
+
 ## 3. 决策日志
 
 - 2026-07-15：CP0 文档批次落地（用户"同意 开始落所有的文档"）。ADR-0025 同日

@@ -141,6 +141,15 @@ defmodule NovelDomain.AgentRun do
     is_integer(limit) and limit >= 0 and length(run.pending_artifact_refs) >= limit
   end
 
+  @doc """
+  判断②改进闭环（ADR-0025 CP3b）：中间稿被改进稿替代——refs 从待采纳集合移除
+  （不再计入 pending 预算、不再作为候选呈现；trace 留痕由事件承担）。
+  """
+  @spec supersede_pending_artifacts(t(), [String.t()]) :: t()
+  def supersede_pending_artifacts(%__MODULE__{} = run, refs) when is_list(refs) do
+    %{run | pending_artifact_refs: Enum.reject(run.pending_artifact_refs, &(&1 in refs))}
+  end
+
   @spec interrupt_requested?(t()) :: boolean()
   def interrupt_requested?(%__MODULE__{interrupt_state: %{status: :none}}), do: false
   def interrupt_requested?(%__MODULE__{}), do: true

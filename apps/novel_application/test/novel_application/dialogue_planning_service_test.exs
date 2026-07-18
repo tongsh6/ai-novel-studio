@@ -180,8 +180,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         "prose_drafting_with_quality_v1"
       )
 
-    assert routed_run.budget.max_steps == 6
-    assert routed_run.budget.max_provider_calls == 9
+    assert routed_run.budget.max_steps == 7
+    assert routed_run.budget.max_provider_calls == 12
     assert routed_run.plan.steps == []
   end
 
@@ -215,9 +215,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["plot_outline"]
-    assert routed_run.budget.max_steps == 6
-    assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 9
+    assert routed_run.budget.max_steps == 7
+    assert routed_run.budget.max_tool_calls == 3
+    assert routed_run.budget.max_provider_calls == 12
 
     assert [
              %{step_id: "assemble_outline_context", kind: :explore},
@@ -240,9 +240,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["character_evolution"]
-    assert routed_run.budget.max_steps == 6
-    assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 9
+    assert routed_run.budget.max_steps == 7
+    assert routed_run.budget.max_tool_calls == 3
+    assert routed_run.budget.max_provider_calls == 12
 
     assert [
              %{step_id: "assemble_character_evolution_context", kind: :explore},
@@ -265,9 +265,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert routed_run.authority_scope.allowed_tools == ["world_building"]
-    assert routed_run.budget.max_steps == 6
-    assert routed_run.budget.max_tool_calls == 2
-    assert routed_run.budget.max_provider_calls == 9
+    assert routed_run.budget.max_steps == 7
+    assert routed_run.budget.max_tool_calls == 3
+    assert routed_run.budget.max_provider_calls == 12
 
     assert [
              %{step_id: "assemble_world_building_context", kind: :explore},
@@ -359,8 +359,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     assert spec.run_attrs.profile_ref == "prose_revision_from_findings_v1"
     assert spec.run_attrs.parent_turn_ref == "turn-source"
-    assert spec.run_attrs.budget.max_steps == 5
-    assert spec.run_attrs.budget.max_provider_calls == 5
+    assert spec.run_attrs.budget.max_steps == 6
+    assert spec.run_attrs.budget.max_provider_calls == 8
     assert spec.run_attrs.authority_scope.allowed_tools == ["prose_writing"]
     assert is_function(spec.next_step_planner, 3)
     refute Map.has_key?(spec, :steps)

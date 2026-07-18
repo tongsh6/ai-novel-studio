@@ -488,51 +488,57 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       "agentic-loop-tool-failure-replan",
       {
         signal: "D1",
-        reason: "D1 偏离信号：工具 prose_writing 执行失败，先修订计划再决定后续动作。",
-        steps: 2,
+        mode: "await",
+        steps: 4,
         toolCalls: 1,
-        providerCalls: 5,
-        behavior: "tool_failure_triggers_provider_sourced_replan_before_awaiting_author",
+        providerCalls: 8,
+        behavior: "tool_failure_settles_awaiting_author_after_judgment_continuation",
+        headAssertion: "d1_tool_failure_observed_by_judgment_continuation",
       },
     ],
     [
       "agentic-loop-quality-deviation-replan",
       {
         signal: "D2",
-        reason: "D2 偏离信号：质量复核要求行动：confirm",
-        steps: 2,
-        toolCalls: 1,
-        providerCalls: 5,
-        artifactEvents: 1,
+        mode: "improve",
+        steps: 5,
+        toolCalls: 2,
+        providerCalls: 10,
+        artifactEvents: 2,
+        supersededEvents: 1,
         allowCandidateTurnResult: true,
-        behavior: "quality_action_triggers_provider_sourced_replan_before_awaiting_author",
+        behavior: "quality_finding_improves_draft_through_judgment_continuation",
+        headAssertion: "intermediate_draft_superseded_by_improved_draft",
       },
     ],
     [
       "agentic-loop-gate-deviation-replan",
       {
         signal: "D4",
-        reason: "D4 偏离信号：Orchestrator 未允许执行 prose_writing：require_confirmation。",
-        steps: 2,
+        mode: "await",
+        steps: 4,
         toolCalls: 0,
-        providerCalls: 3,
+        providerCalls: 6,
         gateDecisionType: "require_confirmation",
         gateFirstBlockingGate: "authority",
-        behavior: "gate_deny_triggers_provider_sourced_replan_without_writer_dispatch",
+        behavior: "gate_deny_settles_awaiting_author_after_judgment_continuation",
+        headAssertion: "d4_gate_deny_observed_by_judgment_continuation",
       },
     ],
     [
       "agentic-loop-deterministic-gap-replan",
       {
         signal: "D7",
-        reason: "D7 偏离信号：写作坐标存在确定性缺口，当前步骤无法继续生成正文。",
-        steps: 2,
+        mode: "await",
+        steps: 4,
         toolCalls: 0,
-        providerCalls: 3,
-        behavior: "deterministic_gap_triggers_provider_sourced_replan_without_writer_dispatch",
+        providerCalls: 6,
+        behavior: "deterministic_gap_settles_awaiting_author_after_judgment_continuation",
+        headAssertion: "d7_deterministic_gap_observed_by_judgment_continuation",
       },
     ],
   ])("requires %s prose deviation replan evidence", (sliceId, expected) => {
+    const improve = expected.mode === "improve";
     const records = [
       {
         event: "channel.user_message.done",
@@ -550,30 +556,26 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         parent_fast_ack_before_terminal: true,
         run_mode: "bounded",
         profile_ref: "prose_drafting_with_quality_v1",
-        plan_revised_visible: true,
-        plan_revised_event_count: 1,
-        plan_revised_reason_codes: [
-          "agent_plan_revised",
-          "agentic_deviation",
-          `agentic_deviation:${expected.signal}`,
-        ],
-        plan_revised_plan_version: 2,
-        plan_revised_revision_reason: expected.reason,
-        plan_revised_evaluation_plan_holds: false,
-        plan_revised_author_narrative_source_type: "provider_output",
-        awaiting_event_type: "awaiting_author",
-        terminal_status: "awaiting_author",
+        continuation_mode: expected.mode,
+        judgment_continuation_observed: true,
+        deviation_signal_observed: true,
+        artifact_superseded_event_count: expected.supersededEvents ?? 0,
+        terminal_event_type: improve ? "run_completed" : "awaiting_author",
+        terminal_status: improve ? "completed" : "awaiting_author",
         consumed_steps: expected.steps,
         consumed_tool_calls: expected.toolCalls,
         consumed_provider_calls: expected.providerCalls,
-        consumed_replans: 1,
-        final_turn_result_arrived: expected.allowCandidateTurnResult === true,
-        final_turn_result_agent_run_status:
-          expected.allowCandidateTurnResult === true ? "awaiting_author" : null,
+        consumed_replans: improve ? 1 : 0,
+        final_turn_result_arrived: improve || expected.allowCandidateTurnResult === true,
+        final_turn_result_agent_run_status: improve
+          ? "completed"
+          : expected.allowCandidateTurnResult === true
+            ? "awaiting_author"
+            : null,
         final_turn_result_pending_artifact_count:
-          expected.allowCandidateTurnResult === true ? 1 : 0,
+          improve || expected.allowCandidateTurnResult === true ? 1 : 0,
         final_turn_result_quality_policy_action:
-          expected.allowCandidateTurnResult === true ? "confirm" : null,
+          !improve && expected.allowCandidateTurnResult === true ? "confirm" : null,
         gate_decision_type: expected.gateDecisionType ?? null,
         gate_first_blocking_gate: expected.gateFirstBlockingGate ?? null,
         artifact_event_count: expected.artifactEvents ?? 0,
@@ -586,42 +588,32 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
     expect(evidence).toMatchObject({
       slice_id: sliceId,
       turn_id: `turn-${expected.signal}`,
-      turn_ids: [`turn-${expected.signal}`],
-      parent_turn_id: `turn-${expected.signal}`,
       run_id: `run-${expected.signal}`,
       profile_ref: "prose_drafting_with_quality_v1",
       signal: expected.signal,
+      continuation_mode: expected.mode,
       consumed_steps: expected.steps,
-      consumed_tool_calls: expected.toolCalls,
       consumed_provider_calls: expected.providerCalls,
-      consumed_replans: 1,
-      plan_revised_plan_version: 2,
-      plan_revised_revision_reason: expected.reason,
+      consumed_replans: improve ? 1 : 0,
       key_events: keyEventsForSlice(sliceId),
     });
-    const turnResultAssertion =
-      expected.allowCandidateTurnResult === true
-        ? "candidate_turn_result_exposed_pending_artifact_and_waited_for_author"
-        : "run_waited_for_author_without_final_turn_result";
 
     expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toMatchObject({
       slice_id: sliceId,
       behavior: expected.behavior,
       assertions: expect.arrayContaining([
-        "provider_sourced_plan_revised_was_visible",
-        "runtime_consumed_one_replan_budget",
-        turnResultAssertion,
+        "judgment_continuation_narrative_was_provider_sourced",
+        expected.headAssertion,
       ]),
     });
 
-    const missingSignalRecords = records.map((record) =>
+    const missingContinuationRecords = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, plan_revised_reason_codes: ["agent_plan_revised"] }
+        ? { ...record, judgment_continuation_observed: false }
         : record,
     );
-    expect(findNativeSliceEvidence(sliceId, missingSignalRecords)).toBeNull();
+    expect(findNativeSliceEvidence(sliceId, missingContinuationRecords)).toBeNull();
   });
-
   it("accepts agent steer replan evidence from the active-run main input", () => {
     const records = [
       {

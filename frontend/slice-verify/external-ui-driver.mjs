@@ -18280,48 +18280,97 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
     30_000,
   );
 
-  const planRevisedFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_revised" &&
-      Number(frame.body?.payload?.plan_version ?? 0) === 2 &&
-      frame.body?.payload?.evaluation_of_last?.plan_holds === false &&
-      (frame.body?.reason_codes ?? []).includes(`agentic_deviation:${signal}`) &&
-      String(frame.body?.payload?.plan_revision?.revision_reason ?? "").includes(reasonNeedle) &&
-      frame.body?.payload?.author_narrative_source?.source_type === "provider_output",
-    `${signal} deviation did not publish provider-sourced plan_revised`,
-    30_000,
-  );
+  // CP3b（判断②）：偏离信号分两种续行——improve（质量类：判断② continue 改进闭环，
+  // 中间稿被替代、改进稿完成收束）｜ await（故障/门禁/缺章：裁决权在作者，观察后停等）。
+  const mode = config.mode === "improve" ? "improve" : "await";
+  let terminalFrame;
+  let terminalStateFrame;
 
-  const awaitingFrame = await waitForNewFrame(
-    frames.indexOf(planRevisedFrame) + 1,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "awaiting_author",
-    `${signal} deviation did not stop awaiting author after plan revision`,
-    30_000,
-  );
+  if (mode === "improve") {
+    await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "plan_revised" &&
+        (frame.body?.reason_codes ?? []).includes(`agentic_deviation:${signal}`) &&
+        frame.body?.payload?.author_narrative_source?.source_type === "provider_output",
+      `${signal} deviation did not publish the judgment continuation as plan_revised`,
+      60_000,
+    );
 
-  const awaitingStateFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_run_state" &&
-      frame.body?.run_id === runId &&
-      frame.body?.status === "awaiting_author" &&
-      frame.body?.profile_ref === "prose_drafting_with_quality_v1" &&
-      Number(frame.body?.consumed_budget?.steps ?? -1) === expected.steps &&
-      Number(frame.body?.consumed_budget?.tool_calls ?? -1) === expected.toolCalls &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? -1) === expected.providerCalls &&
-      Number(frame.body?.consumed_budget?.replans ?? -1) === 1,
-    `${signal} deviation did not broadcast awaiting_author state with expected budget`,
-    30_000,
-  );
+    const supersededFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "artifact_superseded" &&
+        Array.isArray(frame.body?.refs) &&
+        frame.body.refs.length > 0,
+      `${signal} deviation did not supersede the intermediate draft`,
+      120_000,
+    );
+
+    terminalFrame = await waitForNewFrame(
+      frames.indexOf(supersededFrame) + 1,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "run_completed",
+      `${signal} deviation improve loop did not complete`,
+      120_000,
+    );
+
+    terminalStateFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.status === "completed" &&
+        frame.body?.profile_ref === "prose_drafting_with_quality_v1" &&
+        Number(frame.body?.consumed_budget?.steps ?? -1) === expected.steps &&
+        Number(frame.body?.consumed_budget?.tool_calls ?? -1) === expected.toolCalls &&
+        Number(frame.body?.consumed_budget?.provider_calls ?? -1) === expected.providerCalls &&
+        Number(frame.body?.consumed_budget?.replans ?? -1) === 1,
+      `${signal} deviation improve loop did not settle with expected budget`,
+      60_000,
+    );
+  } else {
+    terminalFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "awaiting_author" &&
+        (frame.body?.reason_codes ?? []).includes("judgment_continuation") &&
+        (frame.body?.reason_codes ?? []).includes(`agentic_deviation:${signal}`),
+      `${signal} deviation did not stop awaiting author after judgment continuation`,
+      60_000,
+    );
+
+    terminalStateFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.status === "awaiting_author" &&
+        frame.body?.profile_ref === "prose_drafting_with_quality_v1" &&
+        Number(frame.body?.consumed_budget?.steps ?? -1) === expected.steps &&
+        Number(frame.body?.consumed_budget?.tool_calls ?? -1) === expected.toolCalls &&
+        Number(frame.body?.consumed_budget?.provider_calls ?? -1) === expected.providerCalls &&
+        Number(frame.body?.consumed_budget?.replans ?? -1) === 0,
+      `${signal} deviation did not broadcast awaiting_author state with expected budget`,
+      60_000,
+    );
+  }
+  const awaitingFrame = terminalFrame;
+  const awaitingStateFrame = terminalStateFrame;
 
   await sleep(750);
   const framesAfter = frames.slice(frameStart);
@@ -18329,12 +18378,14 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
   const parentUserMessageLog = logsAfter.find(
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
-  const finalTurnResultFrame = framesAfter.find(
+  // 改进闭环下首稿有中途 TurnResult（quality confirm 停等形态）；"最终"取最后一帧。
+  const turnResultFrames = framesAfter.filter(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.agent_run?.run_id === runId,
   );
+  const finalTurnResultFrame = turnResultFrames[turnResultFrames.length - 1];
   const finalTurnResultArrived = Boolean(finalTurnResultFrame);
   if (allowCandidateTurnResult) {
     assert(
@@ -18381,23 +18432,25 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
       profile_ref: awaitingStateFrame.body?.profile_ref,
       plain_input_sent_from_real_workbench: true,
       parent_fast_ack_before_terminal: frames.indexOf(ackFrame) < frames.indexOf(awaitingFrame),
-      plan_revised_visible: true,
-      plan_revised_event_count: framesAfter.filter(
+      continuation_mode: mode,
+      judgment_continuation_observed: (terminalFrame.body?.reason_codes ?? []).includes(
+        "judgment_continuation",
+      ) || mode === "improve",
+      deviation_signal_observed: framesAfter.some(
         (frame) =>
           frame.direction === "received" &&
           frame.event === "agent_event" &&
           frame.body?.run_ref === runId &&
-          frame.body?.event_type === "plan_revised",
+          (frame.body?.reason_codes ?? []).includes(`agentic_deviation:${signal}`),
+      ),
+      artifact_superseded_event_count: framesAfter.filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_event" &&
+          frame.body?.run_ref === runId &&
+          frame.body?.event_type === "artifact_superseded",
       ).length,
-      plan_revised_reason_codes: planRevisedFrame.body?.reason_codes ?? [],
-      plan_revised_plan_version: planRevisedFrame.body?.payload?.plan_version ?? null,
-      plan_revised_revision_reason:
-        planRevisedFrame.body?.payload?.plan_revision?.revision_reason ?? "",
-      plan_revised_evaluation_plan_holds:
-        planRevisedFrame.body?.payload?.evaluation_of_last?.plan_holds,
-      plan_revised_author_narrative_source_type:
-        planRevisedFrame.body?.payload?.author_narrative_source?.source_type,
-      awaiting_event_type: awaitingFrame.body?.event_type,
+      terminal_event_type: terminalFrame.body?.event_type,
       terminal_status: awaitingStateFrame.body?.status,
       consumed_steps: awaitingStateFrame.body?.consumed_budget?.steps,
       consumed_tool_calls: awaitingStateFrame.body?.consumed_budget?.tool_calls,
@@ -18451,7 +18504,9 @@ async function driveAgenticLoopToolFailureReplan(page) {
     signal: "D1",
     reasonNeedle: "工具 prose_writing 执行失败",
     message: "写下一章正文草稿 AU04FAILTOOL",
-    expected: { steps: 4, toolCalls: 1, providerCalls: 6 },
+    mode: "await",
+    // 判断入场 2 + 起草 2 + 失败步 2 + 判断② 2 = 8；steps: 入场 2 + context + 失败步。
+    expected: { steps: 4, toolCalls: 1, providerCalls: 8 },
   });
 }
 
@@ -18461,7 +18516,9 @@ async function driveAgenticLoopQualityDeviationReplan(page) {
     signal: "D2",
     reasonNeedle: "质量复核要求行动",
     message: "写下一章正文草稿，主角无需代价复活，违反既有规则",
-    expected: { steps: 4, toolCalls: 1, providerCalls: 6 },
+    mode: "improve",
+    // 判断入场 2 + 起草 2 + 首步 2 + 判断② 2 + 改进步 2 = 10；steps 5；改进闭环双工具。
+    expected: { steps: 5, toolCalls: 2, providerCalls: 10 },
     allowCandidateTurnResult: true,
   });
 }
@@ -18472,7 +18529,9 @@ async function driveAgenticLoopGateDeviationReplan(page) {
     signal: "D4",
     reasonNeedle: "Orchestrator 未允许执行",
     message: "写下一章正文草稿，高风险，确认后再执行",
-    expected: { steps: 4, toolCalls: 0, providerCalls: 4 },
+    mode: "await",
+    // 判断入场 2 + 起草 2 + 判断② 2 = 6（writer 未派发）。
+    expected: { steps: 4, toolCalls: 0, providerCalls: 6 },
   });
 }
 
@@ -18482,7 +18541,9 @@ async function driveAgenticLoopDeterministicGapReplan(page) {
     signal: "D7",
     reasonNeedle: "写作坐标存在确定性缺口",
     message: "续写第99章正文",
-    expected: { steps: 4, toolCalls: 0, providerCalls: 4 },
+    mode: "await",
+    // 判断入场 2 + 起草 2 + 判断② 2 = 6（writer 未调用）。
+    expected: { steps: 4, toolCalls: 0, providerCalls: 6 },
   });
 }
 

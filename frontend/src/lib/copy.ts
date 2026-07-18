@@ -303,6 +303,7 @@ export const WORKBENCH = {
     judgment_decided: "判断",
     plan_drafted: "计划",
     plan_revised: "修订",
+    artifact_superseded: "已替代",
     exploration_observed: "观察",
     evaluation_made: "评估",
     provider_progress: "推理",

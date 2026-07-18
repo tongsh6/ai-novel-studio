@@ -186,6 +186,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         agent_plan_cursor: min(index, max(length(steps) - 1, 0)),
         # replan 计数由 runtime 按 decision 的 plan_revision 事实自动 +1
         # （maybe_attach_replan），meta 不重复计。
+        # CP3b：续行重产出即替代本 run 的中间稿（改进闭环，pending 预算随之放行）。
+        supersede_artifact_refs: run.pending_artifact_refs,
         reason_codes: ["judgment_continuation", "judgment_continue"],
         evaluation_of_last: %{
           advanced: false,

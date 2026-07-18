@@ -1607,7 +1607,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       )
 
     assert spec.run_attrs.profile_ref == "provider_progress_v1"
-    assert spec.run_attrs.budget.max_provider_calls == 4
+    assert spec.run_attrs.budget.max_provider_calls == 7
     assert is_function(spec.next_step_planner, 3)
 
     assert_raise ArgumentError, "provider_progress_v1 requires next_step_planner/1", fn ->
@@ -1681,7 +1681,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert spec.run_attrs.profile_ref == "readonly_batch_context_v1"
     assert spec.run_attrs.authority_scope.production_write == false
-    assert spec.run_attrs.budget.max_provider_calls == 4
+    assert spec.run_attrs.budget.max_provider_calls == 7
     assert is_function(spec.next_step_planner, 3)
 
     assert_raise ArgumentError, "readonly_batch_context_v1 requires next_step_planner/1", fn ->

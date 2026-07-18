@@ -354,6 +354,7 @@ defmodule NovelApplication.AgentRunServer do
     state =
       state
       |> merge_stage_state(Map.get(result, :stage_state))
+      |> apply_superseded_artifacts(result)
       |> apply_progress_signature(Map.get(result, :progress_signature))
 
     no_progress_stopped? = no_progress_stopped?(state)
@@ -780,6 +781,25 @@ defmodule NovelApplication.AgentRunServer do
     run = %{state.run | pending_artifact_refs: Enum.uniq(state.run.pending_artifact_refs ++ refs)}
     %{state | run: run}
   end
+
+  # CP3b：中间稿替代落 state + 作者可见说明（结构词；改进稿本体随 artifact_created）。
+  defp apply_superseded_artifacts(state, result) when is_map(result) do
+    case result[:supersede_artifact_refs] do
+      [_ | _] = refs ->
+        %{state | run: AgentRun.supersede_pending_artifacts(state.run, refs)}
+        |> emit(
+          :artifact_superseded,
+          "上一稿已按质量意见改进，被新稿替代。",
+          ["artifact_superseded", "judgment_continuation"],
+          refs
+        )
+
+      _ ->
+        state
+    end
+  end
+
+  defp apply_superseded_artifacts(state, _result), do: state
 
   defp maybe_emit_artifact_created(state, [_ | _] = refs, turn_result) when is_map(turn_result) do
     emit(
@@ -1357,12 +1377,33 @@ defmodule NovelApplication.AgentRunServer do
        ) do
     maybe_emit_agent_plan_drafted(snapshot, decision, meta)
 
+    # CP3b（判断②改进闭环）：续行重产出前，中间稿按 meta 声明被替代——快照上先移出
+    # 待采纳集合放行 pending 预算；state 落地与 artifact_superseded 事件随步结果收口。
+    run = apply_supersede_refs(run, supersede_refs(meta))
+
     if AgentRun.pending_artifact_budget_reached?(run) do
       complete_for_pending_artifact_budget(run, sequence, decision, meta)
     else
       step_fun
       |> execute_step_fun(run, sequence, snapshot)
       |> attach_loop_decision(decision, meta)
+      |> attach_supersede_refs(meta)
+    end
+  end
+
+  defp supersede_refs(meta) when is_map(meta),
+    do: meta |> meta_value(:supersede_artifact_refs) |> List.wrap() |> Enum.filter(&is_binary/1)
+
+  defp supersede_refs(_meta), do: []
+
+  defp apply_supersede_refs(run, []), do: run
+  defp apply_supersede_refs(run, refs), do: AgentRun.supersede_pending_artifacts(run, refs)
+
+  defp attach_supersede_refs(result, meta) do
+    case {result, supersede_refs(meta)} do
+      {_result, []} -> result
+      {{:ok, map}, refs} when is_map(map) -> {:ok, Map.put(map, :supersede_artifact_refs, refs)}
+      _ -> result
     end
   end
 

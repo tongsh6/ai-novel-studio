@@ -1254,11 +1254,22 @@ defmodule NovelApplication.DialoguePlanningService do
     plan_overhead_budget(base)
   end
 
-  # 计划起草/修订为两段式调用（流式 reasoning + 结构化 tool call）：
-  # 每次规划交互多一次 reasoning 调用；按 1 次起草 + 至多 max_replans 次修订补足
-  # backstop 余量（ADR-0023 修订注记 2026-07-05，体验优先）。
+  # 判断②续行余量（ADR-0025 CP3）：起草两段式多 1 次 reasoning 调用；模型计划修订
+  # 已被判断②取代——每次续行 = 判断②两段 2 + 续行重产出步（占 1 步 1 工具、prose
+  # 双调用上界 2），三维各按 max_replans 补足 backstop 余量（上限是兜底不是配额）。
+  # 作者显式"最多一步"预算（max_steps: 1 指纹）是硬约束：停等后无续行，不加余量，
+  # 只补起草 reasoning。
+  defp plan_overhead_budget(%{max_steps: 1} = base) do
+    %{base | max_provider_calls: base.max_provider_calls + 1}
+  end
+
   defp plan_overhead_budget(base) do
-    %{base | max_provider_calls: base.max_provider_calls + 1 + base.max_replans}
+    %{
+      base
+      | max_provider_calls: base.max_provider_calls + 1 + base.max_replans * 4,
+        max_steps: base.max_steps + base.max_replans,
+        max_tool_calls: base.max_tool_calls + base.max_replans
+    }
   end
 
   defp run_budget(text, :profile_routing) do
