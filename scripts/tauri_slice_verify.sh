@@ -254,6 +254,7 @@ EOF
 is_ua01_acceptance_alias() {
   case "$1" in
     agent-bounded-roster-to-character-design | \
+      judgment-plan-multi-step | \
       agent-step-regate | \
       agent-no-multistep-plan-bypass | \
       agent-event-author-safe | \

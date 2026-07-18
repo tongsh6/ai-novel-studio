@@ -577,6 +577,28 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     }
   end
 
+  # CP4：跨能力真计划样本（判断①判"复杂"后的模型自产计划）。
+  defp agent_plan_draft_packet_for_profile("judgment_plan_v1") do
+    %{
+      reasoning: "先读取作品上下文，再依次完成大纲调整、正文重写与角色演化更新。",
+      steps: [
+        plan_step("context_assemble", "explore", "读取当前作品上下文与伏笔线索。", [
+          "context_observation_created"
+        ]),
+        plan_step("plot_outline", "act", "按伏笔梳理结果调整章节大纲。", [
+          "tentative_outline_draft_created"
+        ]),
+        plan_step("prose_writing", "act", "基于调整后的大纲重写目标章节正文。", [
+          "tentative_prose_fragment_created"
+        ]),
+        plan_step("character_evolution", "act", "按新剧情推进相关角色的演化记忆。", [
+          "tentative_character_evolution_seed_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "judgment_plan_drafted"]
+    }
+  end
+
   defp agent_plan_draft_packet_for_profile("prose_revision_from_findings_v1") do
     %{
       reasoning: "先读取待修订草稿和质量发现，再完成授权、生成并汇总修订候选。",
@@ -1299,14 +1321,36 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     # 讨论保护先行（与生产判断 prompt 的判别规则、planner 的 explicit_discussion_only
     # 同语义）：作者显式说"先聊/只聊/不写"时不得进入创作能力，按直接回复处理。
-    profile_ref =
-      if conversation_only_text?(normalized) do
-        "conversation_turn_v1"
-      else
-        {ref, _summary, _reason_codes} = profile_route_match(normalized)
-        ref
-      end
+    cond do
+      conversation_only_text?(normalized) ->
+        judgment_verdict_for_profile("conversation_turn_v1", author_text, prompt)
 
+      # CP4（ADR-0025 决策 2）：请求本身包含多个相互依赖的创作阶段 → 制定计划
+      # （与生产判断 prompt 的判别规则同语义：单产物即单动作，多阶段才开计划）。
+      multi_stage_plan_text?(normalized) ->
+        {"plan", nil, false}
+
+      true ->
+        {ref, _summary, _reason_codes} = profile_route_match(normalized)
+        judgment_verdict_for_profile(ref, author_text, prompt)
+    end
+  end
+
+  # 多阶段判定：命中 ≥2 个不同创作能力域即视为多阶段复合请求。
+  @plan_stage_probes [
+    ["大纲", "章节规划", "梳理"],
+    ["重写", "续写", "正文"],
+    ["角色档案", "角色演化", "更新相关角色", "人物小传"],
+    ["世界观", "伏笔", "门派设定"]
+  ]
+
+  defp multi_stage_plan_text?(normalized) do
+    @plan_stage_probes
+    |> Enum.count(fn probes -> contains_any?(normalized, probes) end)
+    |> Kernel.>=(2)
+  end
+
+  defp judgment_verdict_for_profile(profile_ref, author_text, prompt) do
     case Map.get(@judgment_capability_for_profile, profile_ref) do
       nil ->
         exploratory =

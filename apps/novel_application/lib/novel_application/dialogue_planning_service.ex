@@ -16,6 +16,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunFlows.ConversationTurn
+  alias NovelApplication.AgentRunFlows.JudgmentPlan
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
@@ -37,6 +38,7 @@ defmodule NovelApplication.DialoguePlanningService do
   @prose_allowed_tools ["prose_writing"]
   @prose_profile_ref ProseDraftingWithQuality.profile_ref()
   @plot_outline_allowed_tools ["plot_outline"]
+  @judgment_plan_profile_ref JudgmentPlan.profile_ref()
   @plot_outline_profile_ref PlotOutlineWithContext.profile_ref()
   @character_evolution_allowed_tools ["character_evolution"]
   @character_evolution_profile_ref CharacterEvolutionWithContext.profile_ref()
@@ -172,6 +174,9 @@ defmodule NovelApplication.DialoguePlanningService do
     do: {:ok, pending_model_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :prose_drafting_with_quality),
+    do: {:ok, pending_model_plan(run_id)}
+
+  defp agent_run_agent_plan(run_id, :judgment_plan),
     do: {:ok, pending_model_plan(run_id)}
 
   defp agent_run_agent_plan(run_id, :plot_outline_with_context) do
@@ -578,8 +583,12 @@ defmodule NovelApplication.DialoguePlanningService do
   defp dispatch_judgment(%{action: "await_author"} = judgment, run, sequence, input, context),
     do: finalize_judgment_reply(judgment, run, sequence, input, context, :awaiting_author)
 
-  defp dispatch_judgment(%{action: action} = judgment, run, sequence, input, _context)
-       when action in ["execute", "plan"] do
+  # CP4（ADR-0025 决策 2）：plan ≠ execute——判"复杂"进跨能力真计划 profile，
+  # 计划由模型基于能力目录制定（judgment_plan flow 内起草，plan_drafted 照发）。
+  defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, _context),
+    do: judgment_switch_result(:judgment_plan, judgment, input, run, sequence)
+
+  defp dispatch_judgment(%{action: "execute"} = judgment, run, sequence, input, _context) do
     case Map.fetch(@judgment_capability_profiles, judgment.capability || "") do
       {:ok, profile} ->
         judgment_switch_result(profile, judgment, input, run, sequence)
@@ -937,6 +946,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_for_ref(@conversation_profile_ref), do: {:ok, :conversation_turn}
   defp profile_for_ref(@character_profile_ref), do: {:ok, :character_design_with_context}
   defp profile_for_ref(@prose_profile_ref), do: {:ok, :prose_drafting_with_quality}
+  defp profile_for_ref(@judgment_plan_profile_ref), do: {:ok, :judgment_plan}
   defp profile_for_ref(@plot_outline_profile_ref), do: {:ok, :plot_outline_with_context}
 
   defp profile_for_ref(@character_evolution_profile_ref),
@@ -973,6 +983,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_atom_lookup do
     %{
       "conversation_turn" => :conversation_turn,
+      "judgment_plan" => :judgment_plan,
       "character_design_with_context" => :character_design_with_context,
       "prose_drafting_with_quality" => :prose_drafting_with_quality,
       "plot_outline_with_context" => :plot_outline_with_context,
@@ -986,6 +997,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp routable_profiles do
     [
       :conversation_turn,
+      :judgment_plan,
       :character_design_with_context,
       :prose_drafting_with_quality,
       :plot_outline_with_context,
@@ -1078,6 +1090,26 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     prose_drafting_next_step_planner(context, context_fetcher, provider_execution, input)
+  end
+
+  defp agent_next_step_planner(
+         :judgment_plan,
+         _text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ) do
+    JudgmentPlan.next_step_planner(%{
+      context: context,
+      context_fetcher:
+        context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
+      chapter_prose_reader: map_get(input, :chapter_prose_reader),
+      chapter_summary_reader: map_get(input, :chapter_summary_reader),
+      character_reader: map_get(input, :character_reader)
+    })
   end
 
   defp agent_next_step_planner(
@@ -1336,6 +1368,17 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
+  defp run_budget(_text, :judgment_plan) do
+    # CP4 跨能力真计划：起草 2 + 至多 5 能力步（每步至多 2 调用）；多产物上限 3。
+    %{
+      max_steps: 6,
+      max_tool_calls: 5,
+      max_provider_calls: 12,
+      max_replans: 1,
+      max_pending_artifacts: 3
+    }
+  end
+
   defp run_budget(text, :plot_outline_with_context) do
     if one_step_budget?(text) do
       %{
@@ -1474,6 +1517,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_ref(:profile_routing), do: @profile_routing_profile_ref
   defp profile_ref(:character_design_with_context), do: @character_profile_ref
   defp profile_ref(:prose_drafting_with_quality), do: @prose_profile_ref
+  defp profile_ref(:judgment_plan), do: @judgment_plan_profile_ref
   defp profile_ref(:plot_outline_with_context), do: @plot_outline_profile_ref
   defp profile_ref(:character_evolution_with_context), do: @character_evolution_profile_ref
   defp profile_ref(:world_building_with_context), do: @world_building_profile_ref
@@ -1485,6 +1529,8 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:profile_routing), do: @profile_routing_allowed_tools
   defp allowed_tools(:character_design_with_context), do: @character_allowed_tools
   defp allowed_tools(:prose_drafting_with_quality), do: @prose_allowed_tools
+  defp allowed_tools(:judgment_plan),
+    do: ~w(character_roster character_design character_evolution plot_outline world_building prose_writing)
   defp allowed_tools(:plot_outline_with_context), do: @plot_outline_allowed_tools
   defp allowed_tools(:character_evolution_with_context), do: @character_evolution_allowed_tools
   defp allowed_tools(:world_building_with_context), do: @world_building_allowed_tools

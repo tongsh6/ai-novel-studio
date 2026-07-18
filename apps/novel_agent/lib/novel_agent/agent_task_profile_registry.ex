@@ -16,6 +16,25 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  # CP4（ADR-0025 决策 2）：判断①判"复杂"时的跨能力真计划 profile——
+  # 能力目录为可选目标集，计划由模型制定并维护（N-PLAN）。
+  @judgment_plan_profile %{
+    profile_id: "judgment_plan_v1",
+    allowed_tools: [
+      "character_roster",
+      "character_design",
+      "character_evolution",
+      "plot_outline",
+      "world_building",
+      "prose_writing"
+    ],
+    required_observations: [],
+    completion_conditions: ["planned_steps_completed"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   @prose_drafting_profile %{
     profile_id: "prose_drafting_with_quality_v1",
     allowed_tools: ["prose_writing"],
@@ -117,6 +136,7 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   @spec get(String.t()) :: map() | nil
   def get("judgment_loop_v1"), do: @judgment_loop_profile
   def get("character_design_with_context_v1"), do: @character_design_profile
+  def get("judgment_plan_v1"), do: @judgment_plan_profile
   def get("prose_drafting_with_quality_v1"), do: @prose_drafting_profile
   def get("plot_outline_with_context_v1"), do: @plot_outline_profile
   def get("character_evolution_with_context_v1"), do: @character_evolution_profile

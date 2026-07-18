@@ -160,6 +160,7 @@ export const nativeSliceIds = [
   "agentic-loop-deterministic-gap-replan",
   "agent-plot-outline-with-context",
   "agent-world-building-with-context",
+  "judgment-plan-multi-step",
   "agent-world-building-style-rule-with-context",
   "agent-character-evolution-with-context",
   ...ua01AgentScenarioIds,
@@ -542,6 +543,14 @@ const sliceKeyEvents = {
   ],
   "agent-plot-outline-with-context": [
     "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "judgment-plan-multi-step": [
+    "channel.user_message.start",
+    "judgment.decided.done",
     "orchestrator.decide.done",
     "toolbox.execute.done",
     "channel.user_message.done",
@@ -1889,6 +1898,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAgenticLoopProseDeviationEvidence(records, sliceId);
   }
 
+  if (sliceId === "judgment-plan-multi-step") {
+    return findJudgmentPlanMultiStepEvidence(records);
+  }
+
   if (sliceId === "agent-plot-outline-with-context") {
     return findAgentPlotOutlineWithContextEvidence(records);
   }
@@ -2555,6 +2568,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "agent-conversation-turn") {
     return agentConversationTurnBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "judgment-plan-multi-step") {
+    return judgmentPlanMultiStepBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agentic-loop-plan-replan-reasoning") {
@@ -4150,6 +4167,77 @@ function agentConversationTurnBehavior(
       "inline_reply_turn_result_byte_carried_streamed_narrative_prefix",
       "simple_conversation_consumed_exactly_two_provider_calls",
       "no_tool_no_adoption_no_production_write",
+    ],
+  };
+}
+
+// CP4（ADR-0025 决策 2）：判断①判"复杂"→ 模型自产跨能力真计划 → 多产物停待采纳。
+function findJudgmentPlanMultiStepEvidence(records) {
+  const sliceId = "judgment-plan-multi-step";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "judgment_plan_v1" &&
+      typeof record.run_id === "string" &&
+      record.run_id !== "" &&
+      boolValue(record.judgment_action_plan) === true &&
+      Number(record.model_plan_step_count ?? 0) >= 3 &&
+      Number(record.model_plan_distinct_act_targets ?? 0) >= 2 &&
+      Number(record.pending_artifact_count ?? 0) >= 2 &&
+      Number(record.artifact_event_count ?? 0) >= 2 &&
+      boolValue(record.final_turn_result_arrived) === true &&
+      Number(record.final_pending_in_turn_result ?? 0) >= 1,
+  );
+  if (!uiState) return null;
+
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  const turnRecords = records.filter((record) => record.turn_id === parentTurnId);
+  if (!eventsPresentWithCorrelation(turnRecords, ["channel.user_message.start"])) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId].filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    model_plan_step_count: Number(uiState.model_plan_step_count ?? 0),
+    pending_artifact_count: Number(uiState.pending_artifact_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function judgmentPlanMultiStepBehavior(turnIds, records, evidence) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "judgment-plan-multi-step" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "judgment_plan_v1") return null;
+  if (boolValue(uiState.judgment_action_plan) !== true) return null;
+  if (Number(uiState.model_plan_step_count ?? 0) < 3) return null;
+  if (Number(uiState.model_plan_distinct_act_targets ?? 0) < 2) return null;
+  if (Number(uiState.pending_artifact_count ?? 0) < 2) return null;
+
+  return {
+    slice_id: "judgment-plan-multi-step",
+    behavior: "complex_request_judged_plan_and_executed_model_drafted_capability_plan",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    model_plan_step_count: evidence.model_plan_step_count,
+    pending_artifact_count: evidence.pending_artifact_count,
+    assertions: [
+      "judgment_chose_plan_for_multi_stage_request",
+      "model_drafted_plan_spanned_multiple_capabilities",
+      "plan_steps_executed_through_orchestrator_gates",
+      "multiple_artifacts_stopped_pending_author_adoption",
     ],
   };
 }

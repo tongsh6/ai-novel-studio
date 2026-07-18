@@ -235,6 +235,47 @@ agent-revision-orchestrator-boundary 双场景真实 Tauri 绿（plan_drafted �
 退役评估名单）。CP3 全收口。
 **下批余项**：no-progress 判断②预算兜底重设计（小件）；durable 环境复验。
 
+## 2h. CP4 六问（开工登记，2026-07-18，用户"继续"）
+
+1. **Contract**：ADR-0025 决策 2（计划按需：模型判复杂才制定、能力目录为可选目标
+   集、AgentPlan 结构沿用、活文档可修订）；N-PLAN 新文本（存在计划时必须模型制定
+   维护，app 不得预制轨道）；plan_drafted/plan_revised 照发（真计划值得展示）。
+2. **Invariant**：判断① plan ≠ execute——plan 产生模型自产 AgentPlan（每步 target
+   为能力目录成员）；每步执行仍逐一过 Orchestrator gate；多产物停 S1/S2 作者采纳；
+   计划步序来自模型（app 仅机械 cursor 推进）；I1/I2/I3 原样。
+3. **Boundary**：novel_application（judgment_plan flow + AgenticPlanDraftPlanner
+   能力目录分支 + dispatch plan 接线）；novel_agent（profile 注册 + 桩样本）；
+   不改 novel_domain AgentPlan 结构、novel_web 透传、S1-S7。
+4. **Consumer**：workspace_channel 既有入口；前端文档流（plan_drafted 步骤/进度
+   恢复显示——真计划有信息量，46§9.5 删的是恒定伪计划）。
+5. **Proof**：focused runtime tests（判 plan → 起草 → 逐步 → 多产物）+ 真实 Tauri
+   新场景（复合创作请求端到端）+ I1/I2/I3；MBC multi_step 判断力已由 CP1 探针验证。
+6. **Acceptance Driver**：新场景 `judgment-plan-multi-step`（外部驱动真实页面：
+   复合请求 → 真计划步骤可见 → 逐步产出 → 多产物停采纳）。
+
+**CP4 分步**：CP4a 最小链（判 plan → 能力目录起草 → 通用步执行 → 完成/停等；
+deviation 判断②先 await）→ CP4b 真计划修订（判断② continue 修订活文档，D 系
+以真计划形态复活）+ UI 深化。
+
+## 2i. CP4a 落地（2026-07-18，判断①自产真计划最小链）
+
+- **judgment_plan_v1 profile**：跨能力真计划——判断① plan ≠ execute（dispatch 分
+  流），判"复杂"进 judgment_plan flow：计划由模型基于能力目录制定
+  （AgenticPlanDraftPlanner + judgment_plan 目录：context/roster/design/evolution/
+  outline/world/prose 七目标集），plan_drafted 照发（真计划值得展示）；app 只做
+  机械 cursor 推进 + 每步 Orchestrator 门禁；多产物逐个进待采纳区。
+- **接线全链**：dispatch plan 分支 / profile 注册 / 起草目录 / run_spec 族
+  （spec/预算 steps6·tools5·calls12·pending3/恢复映射/routable+lookup 交棒名单）；
+  桩多能力样本 + 多阶段判 plan 规则（命中 ≥2 创作能力域，与生产判别规则同语义）。
+- **focused**：判 plan → 真计划三步（context/outline/prose）→ 双产物 → completed
+  （起草 2 + 两 act 步各 1 = 4 calls，runtime 直连）。
+- **场景 `judgment-plan-multi-step` 真实 Tauri 绿**（harness 白名单注册）：复合
+  请求 → judgment_decided(plan) → 模型自产 ≥3 步跨 ≥2 能力计划 → 逐步过门禁 →
+  ≥2 待采纳产物 → 完成。代表性回归批绿（design/prose/outline/D2-improve；
+  conversation-turn 一次持久化事实计数 flake 复跑即绿，登记观察）。
+- **CP4b 余项**：真计划修订（判断② continue 修订活文档，D 系以真计划复活）、
+  UI 步骤/进度深化、explore 步接入（CP5 联动）。
+
 ## 3. 决策日志
 
 - 2026-07-15：CP0 文档批次落地（用户"同意 开始落所有的文档"）。ADR-0025 同日

@@ -389,6 +389,19 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp plan_step_targets("world_building_with_context_v1"),
     do: ["context_assemble", "world_building"]
 
+  # CP4（ADR-0025 决策 2 计划按需）：判断①判"复杂"时的跨能力真计划——
+  # 能力目录为可选目标集，步序由模型按作者请求的实际阶段制定。
+  defp plan_step_targets("judgment_plan_v1"),
+    do: [
+      "context_assemble",
+      "character_roster",
+      "character_design",
+      "character_evolution",
+      "plot_outline",
+      "world_building",
+      "prose_writing"
+    ]
+
   defp plan_step_targets("provider_progress_v1"), do: ["provider_complete"]
 
   defp plan_step_targets("readonly_batch_context_v1"), do: ["readonly_batch"]
@@ -578,6 +591,21 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     """
   end
 
+  defp step_catalog("judgment_plan_v1") do
+    """
+    - context_assemble | explore | 读取当前作品上下文；建议作为首步
+    - character_roster | explore | 读取当前已确认角色阵容（只读查询）
+    - character_design | act | 设计新角色（产出待采纳候选）
+    - character_evolution | act | 推进已有角色的演化记忆（产出待采纳草稿）
+    - plot_outline | act | 规划章节大纲（产出待采纳草稿）
+    - world_building | act | 设计世界观设定、伏笔或规则（产出待采纳候选）
+    - prose_writing | act | 写或续写章节正文（产出待采纳草稿）
+
+    按作者请求的实际阶段排步：只排完成这条请求所需的能力步，先读后写，
+    前后依赖用 depends_on 表达；不要为单一产物的请求排多余步骤。
+    """
+  end
+
   defp step_catalog("prose_drafting_with_quality_v1") do
     """
     - context_assemble | explore | 读取正文写作上下文
@@ -640,6 +668,9 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     do: ["context_assemble", "dialogue_frame", "strategy_gate", "response_finalize"]
 
   defp internal_observation_steps("prose_drafting_with_quality_v1"), do: ["context_assemble"]
+
+  defp internal_observation_steps("judgment_plan_v1"),
+    do: ["context_assemble", "character_roster"]
 
   defp internal_observation_steps("prose_revision_from_findings_v1"),
     do: ["revision_prepare", "revision_plan", "revision_finalize"]

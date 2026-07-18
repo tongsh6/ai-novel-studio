@@ -19809,6 +19809,165 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
   ];
 }
 
+// CP4（ADR-0025 决策 2 计划按需）：判断①判"复杂"→ 模型基于能力目录自产真计划
+// （plan_drafted 照发）→ 机械 cursor 逐能力步过门禁 → 多产物停待采纳。
+async function driveJudgmentPlanMultiStep(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = "把前两章的伏笔梳理一遍，按梳理结果调整章节大纲，再重写第02章结尾，并更新相关角色档案。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await installReasoningStreamObserver(page);
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "Judgment plan request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "Judgment plan request did not fast-ack with bounded run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const judgmentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "judgment_decided",
+    "Judgment plan run did not broadcast judgment_decided",
+    60_000,
+  );
+
+  // 真计划：模型自产多能力步序（非 app 预制轨道）。
+  const planDraftedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_drafted" &&
+      Array.isArray(frame.body?.payload?.plan_steps) &&
+      frame.body.payload.plan_steps.length >= 3,
+    "Judgment plan run did not broadcast the model-drafted multi-capability plan",
+    60_000,
+  );
+  const planSteps = planDraftedFrame.body.payload.plan_steps;
+  const planTargets = planSteps.map((step) => step?.target_tool_ref);
+  const distinctActTargets = [
+    ...new Set(
+      planTargets.filter((target) =>
+        ["character_design", "character_evolution", "plot_outline", "world_building", "prose_writing"].includes(
+          target,
+        ),
+      ),
+    ),
+  ];
+  assert(
+    distinctActTargets.length >= 2,
+    "Model-drafted plan did not span multiple creative capabilities",
+  );
+
+  const runCompletedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Judgment plan run did not complete",
+    240_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      frame.body?.profile_ref === "judgment_plan_v1" &&
+      (frame.body?.pending_artifact_refs ?? []).length >= 2,
+    "Judgment plan run state did not complete with multiple pending artifacts",
+    60_000,
+  );
+
+  const artifactEventCount = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "artifact_created",
+    ).length;
+  assert(artifactEventCount >= 2, "Judgment plan run did not create multiple pending artifacts");
+
+  const visibleText = await page.locator("body").innerText();
+  const lastTurnResultFrame = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId,
+    )
+    .at(-1);
+  const uiState = await commonUiState(page, lastTurnResultFrame?.body ?? {}, sentFrame);
+
+  return [
+    {
+      ...uiState,
+      slice_id: "judgment-plan-multi-step",
+      parent_turn_id: String(lastTurnResultFrame?.body?.turn_id ?? "").split(":agent:")[0],
+      run_id: runId,
+      profile_ref: completedStateFrame.body.profile_ref,
+      judgment_action_plan:
+        (judgmentFrame.body?.reason_codes ?? []).includes("judgment_plan") ||
+        judgmentFrame.body?.payload?.action === "plan",
+      model_plan_step_count: planSteps.length,
+      model_plan_distinct_act_targets: distinctActTargets.length,
+      pending_artifact_count: (completedStateFrame.body?.pending_artifact_refs ?? []).length,
+      artifact_event_count: artifactEventCount,
+      consumed_steps: completedStateFrame.body.consumed_budget?.steps,
+      consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      consumed_replans: completedStateFrame.body.consumed_budget?.replans,
+      final_turn_result_arrived: Boolean(lastTurnResultFrame),
+      final_pending_in_turn_result:
+        lastTurnResultFrame?.body?.adoption_state?.pending?.length ?? 0,
+      plan_steps_visible_in_ui: visibleText.includes("调整章节大纲") || visibleText.includes("计划"),
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+    },
+  ];
+}
+
 async function driveAgentWorldBuildingStyleRuleWithContext(page) {
   return driveAgentWorldBuildingWithContext(page, {
     sliceId: "agent-world-building-style-rule-with-context",
@@ -22320,6 +22479,7 @@ const drivers = {
   "agent-session-transcript-lazy-page": driveAgentSessionTranscriptLazyPage,
   "agent-plot-outline-with-context": driveAgentPlotOutlineWithContext,
   "agent-world-building-with-context": driveAgentWorldBuildingWithContext,
+  "judgment-plan-multi-step": driveJudgmentPlanMultiStep,
   "agent-world-building-style-rule-with-context": driveAgentWorldBuildingStyleRuleWithContext,
   "agent-character-evolution-with-context": driveAgentCharacterEvolutionWithContext,
   "agent-durable-resume-long-run-task": driveAgentDurableResumeLongRunTask,
