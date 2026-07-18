@@ -81,19 +81,30 @@ defmodule NovelAgent.Provider.Stub do
   defp infer_result(prompt) do
     text = prompt_text(prompt)
 
-    cond do
-      NovelAgent.Provider.tool_call_prompt?(prompt) and judgment_prompt?(text) ->
-        judgment_decision_result(text)
+    judgment_family_result(prompt, text) || infer_non_judgment_result(prompt, text)
+  end
 
+  # 判断族分发（ADR-0025）：判断②（观察+续行）先于判断①判别——continuation
+  # prompt 也含"创作判断器"措辞，顺序即正确性。两段式：forced tool 结构段 /
+  # 自由叙事段；非判断族返回 nil 交回主分发。
+  defp judgment_family_result(prompt, text) do
+    tool_call? = NovelAgent.Provider.tool_call_prompt?(prompt)
+
+    cond do
+      tool_call? and continuation_prompt?(text) -> continuation_decision_result(text)
+      continuation_prompt?(text) -> Result.new(continuation_narrative_content(text))
+      tool_call? and judgment_prompt?(text) -> judgment_decision_result(text)
+      judgment_prompt?(text) and not tool_call? -> Result.new(judgment_narrative_content(text))
+      true -> nil
+    end
+  end
+
+  defp infer_non_judgment_result(prompt, text) do
+    cond do
       # 执行内联自评（ADR-0025 CP2）：writer 自由输出严格 JSON（生产同形态），
       # self_report 扩展 goal_achieved/next_suggestion（探针自检契约样本）。
       creative_output_prompt?(text) ->
         creative_output_result(text)
-
-      # 判断①第一段（ADR-0025 方案 B）：自由输出判断叙事；判"直接回复"时同一次
-      # 输出空行后内联回复正文。
-      judgment_prompt?(text) ->
-        Result.new(judgment_narrative_content(text))
 
       NovelAgent.Provider.tool_call_prompt?(prompt) and agent_plan_prompt?(text) ->
         native_agent_plan_result(prompt, text)
@@ -122,6 +133,49 @@ defmodule NovelAgent.Provider.Stub do
     else
       narrative
     end
+  end
+
+  defp continuation_prompt?(text),
+    do: String.contains?(text, "你的两种续行方式") or String.contains?(text, "continuation_decision")
+
+  defp continuation_direction(text) do
+    cond do
+      String.contains?(text, "质量复核") or String.contains?(text, "质量意见") ->
+        {"continue", "按质量意见修正后重新产出。"}
+
+      String.contains?(text, "计划步骤已走完") or String.contains?(text, "尚未完成") ->
+        {"continue", "补足产出步，按原目标继续。"}
+
+      true ->
+        {"await_author", ""}
+    end
+  end
+
+  defp continuation_narrative_content(text) do
+    case continuation_direction(text) do
+      {"continue", _guidance} ->
+        "我看到了当前的情况，可以在下一次执行中修正，我会继续完成这轮产出。"
+
+      _ ->
+        "这个情况需要你裁决，我先停下来，等你确认后继续。"
+    end
+  end
+
+  defp continuation_decision_result(text) do
+    {action, guidance} = continuation_direction(text)
+
+    Result.new("continuation_#{action}", nil,
+      tool_calls: [
+        %{
+          "name" => "continuation_decision",
+          "arguments" => %{
+            "action" => action,
+            "guidance" => guidance,
+            "reason" => "continuation_#{action}"
+          }
+        }
+      ]
+    )
   end
 
   defp creative_output_prompt?(text) do

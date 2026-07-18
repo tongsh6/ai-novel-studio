@@ -313,10 +313,12 @@ C 枚举维度错位（用途面 vs 数据面）/ D 桩预言固化（桩替产�
 能力面枚举；判断① prompt 判别规则是给模型的指引，模型可判任意 action）。
 
 **D 类实锤**：
-- D-1 **判断②零 MBC 探针**：判断①有六用例探针（live 1.0），判断②续行方向
-  （continue/await）直接上线——桩预言（质量→continue/故障→await）仅有 prompt
-  粗指引对齐，live 模型方向质量未验证。处置：补 continuation 探针（judgment
-  探针同模式，四用例）。
+- D-1 **判断②零 MBC 探针 → 已补课（同日）**：`continuation_judgment.exs` 四用例
+  （质量可修正→continue / 计划耗尽缺产出步→continue / 工具连续故障→await /
+  前提缺失→await），消费生产构造器。**探针立刻抓到真问题**：live gpt-oss-120b
+  首跑方向 0.5（耗尽误判停、故障误判续）——判断② prompt 补判别规则（四条边界，
+  与判断①同打法）后 live 双 1.0。桩预言与产品 prompt 现在有共同真源。
+  lib Stub 补判断族分发（判断②先于判断①判别；圈复杂度收敛提炼）。
 - D-2 D2 improve/await 语义演进复盘：初版 await 由实现约束触发但最终语义产品
   驱动（S 系裁决权→supersede 后改进闭环），无需处置。
 
