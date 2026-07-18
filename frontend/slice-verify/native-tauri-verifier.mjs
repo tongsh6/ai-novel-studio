@@ -4737,8 +4737,7 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       record.context_step_visible === true &&
       record.context_event_visible === true &&
       record.context_observation_visible === true &&
-      record.strategy_step_visible === true &&
-      record.plan_event_visible === true &&
+      Number(record.plan_drafted_event_count ?? -1) === 0 &&
       record.gate_event_visible === true &&
       record.outline_step_visible === true &&
       record.tool_started_visible === true &&
@@ -4751,7 +4750,8 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_outline_draft_visible === true &&
       record.ui_outline_adoption_actions_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -4826,8 +4826,7 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
   if (uiState.context_step_visible !== true) return null;
   if (uiState.context_event_visible !== true) return null;
   if (uiState.context_observation_visible !== true) return null;
-  if (uiState.strategy_step_visible !== true) return null;
-  if (uiState.plan_event_visible !== true) return null;
+  if (Number(uiState.plan_drafted_event_count ?? -1) !== 0) return null;
   if (uiState.gate_event_visible !== true) return null;
   if (uiState.outline_step_visible !== true) return null;
   if (uiState.tool_started_visible !== true) return null;
@@ -4841,7 +4840,7 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_plot_outline_tool_done !== true) return null;
@@ -4925,8 +4924,7 @@ function findAgentWorldBuildingWithContextEvidence(
       record.context_step_visible === true &&
       record.context_event_visible === true &&
       record.context_observation_visible === true &&
-      record.strategy_step_visible === true &&
-      record.plan_event_visible === true &&
+      Number(record.plan_drafted_event_count ?? -1) === 0 &&
       record.gate_event_visible === true &&
       record.world_step_visible === true &&
       record.tool_started_visible === true &&
@@ -4935,15 +4933,13 @@ function findAgentWorldBuildingWithContextEvidence(
       record.finalization_step_visible === true &&
       record.artifact_observation_visible === true &&
       record.artifact_event_visible === true &&
-      record.ui_context_step_visible === true &&
-      record.ui_strategy_step_visible === true &&
-      record.ui_world_step_visible === true &&
       record.ui_finalization_step_visible === true &&
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_world_building_draft_visible === true &&
@@ -5028,8 +5024,7 @@ function agentWorldBuildingWithContextBehavior(turnIds, _turnRecords, records, e
   if (uiState.context_step_visible !== true) return null;
   if (uiState.context_event_visible !== true) return null;
   if (uiState.context_observation_visible !== true) return null;
-  if (uiState.strategy_step_visible !== true) return null;
-  if (uiState.plan_event_visible !== true) return null;
+  if (Number(uiState.plan_drafted_event_count ?? -1) !== 0) return null;
   if (uiState.gate_event_visible !== true) return null;
   if (uiState.world_step_visible !== true) return null;
   if (uiState.tool_started_visible !== true) return null;
@@ -5038,14 +5033,11 @@ function agentWorldBuildingWithContextBehavior(turnIds, _turnRecords, records, e
   if (uiState.finalization_step_visible !== true) return null;
   if (uiState.artifact_observation_visible !== true) return null;
   if (uiState.artifact_event_visible !== true) return null;
-  if (uiState.ui_context_step_visible !== true) return null;
-  if (uiState.ui_strategy_step_visible !== true) return null;
-  if (uiState.ui_world_step_visible !== true) return null;
   if (uiState.ui_finalization_step_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_world_building_tool_done !== true) return null;
@@ -5112,8 +5104,7 @@ function findAgentCharacterEvolutionWithContextEvidence(records) {
       record.context_step_visible === true &&
       record.context_event_visible === true &&
       record.context_observation_visible === true &&
-      record.strategy_step_visible === true &&
-      record.plan_event_visible === true &&
+      Number(record.plan_drafted_event_count ?? -1) === 0 &&
       record.gate_event_visible === true &&
       record.evolution_step_visible === true &&
       record.tool_started_visible === true &&
@@ -5126,7 +5117,8 @@ function findAgentCharacterEvolutionWithContextEvidence(records) {
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_character_evolution_draft_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
@@ -5210,8 +5202,7 @@ function agentCharacterEvolutionWithContextBehavior(
   if (uiState.context_step_visible !== true) return null;
   if (uiState.context_event_visible !== true) return null;
   if (uiState.context_observation_visible !== true) return null;
-  if (uiState.strategy_step_visible !== true) return null;
-  if (uiState.plan_event_visible !== true) return null;
+  if (Number(uiState.plan_drafted_event_count ?? -1) !== 0) return null;
   if (uiState.gate_event_visible !== true) return null;
   if (uiState.evolution_step_visible !== true) return null;
   if (uiState.tool_started_visible !== true) return null;
@@ -5223,7 +5214,7 @@ function agentCharacterEvolutionWithContextBehavior(
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + 执行/回应 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_character_evolution_tool_done !== true) return null;
@@ -6204,11 +6195,8 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       record.parent_fast_ack_before_final_turn_result === true &&
       record.run_mode === "bounded" &&
       record.profile_ref === "character_design_with_context_v1" &&
-      record.plan_drafted_visible === true &&
-      record.plan_drafted_target_tool_ref === "character_roster" &&
-      Number(record.plan_drafted_step_count ?? 0) === 2 &&
-      Array.isArray(record.plan_drafted_targets) &&
-      record.plan_drafted_targets.join(",") === "character_roster,character_design" &&
+      // CP2b：机械步序不发 plan_drafted（付费伪计划已消灭）。
+      Number(record.plan_drafted_event_count ?? -1) === 0 &&
       record.roster_observation_visible === true &&
       typeof record.roster_observation_summary === "string" &&
       record.roster_observation_summary.length > 0 &&
@@ -6227,7 +6215,8 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 2 &&
       // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_artifact_event_visible === true &&
@@ -6277,8 +6266,7 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
     run_id: runId,
     profile_ref: uiState.profile_ref,
     plan_drafted_target_tool_ref: uiState.plan_drafted_target_tool_ref,
-    plan_drafted_step_count: Number(uiState.plan_drafted_step_count ?? 0),
-    plan_drafted_targets: uiState.plan_drafted_targets ?? [],
+    plan_drafted_event_count: Number(uiState.plan_drafted_event_count ?? -1),
     pending_artifact_id: artifactId,
     pending_artifact_type: uiState.pending_artifact_type,
     consumed_steps: Number(uiState.consumed_steps ?? 0),
@@ -6413,15 +6401,8 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   );
   if (!uiState) return null;
   if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
-  if (uiState.plan_drafted_visible !== true) return null;
-  if (uiState.plan_drafted_target_tool_ref !== "character_roster") return null;
-  if (Number(uiState.plan_drafted_step_count ?? 0) !== 2) return null;
-  if (
-    !Array.isArray(uiState.plan_drafted_targets) ||
-    uiState.plan_drafted_targets.join(",") !== "character_roster,character_design"
-  ) {
-    return null;
-  }
+  // CP2b：机械步序不发 plan_drafted（付费伪计划已消灭）。
+  if (Number(uiState.plan_drafted_event_count ?? -1) !== 0) return null;
   if (uiState.roster_observation_visible !== true) return null;
   if (typeof uiState.roster_observation_summary !== "string") return null;
   if (uiState.roster_observation_summary.length === 0) return null;
@@ -6433,22 +6414,24 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
-  // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
   }
 
   const eventTypes = Array.isArray(uiState.agent_event_types) ? uiState.agent_event_types : [];
+  // CP2b：机械步序无 plan_drafted；判断纪元轨道以 judgment_decided 为证。
   for (const eventType of [
     "run_started",
-    "plan_drafted",
+    "judgment_decided",
     "turn_result_ready",
     "artifact_created",
     "run_completed",
   ]) {
     if (!eventTypes.includes(eventType)) return null;
   }
+  if (eventTypes.includes("plan_drafted")) return null;
 
   const descriptor = ua01AgentBehaviorDescriptor(requestedSliceId, options.provider);
 
@@ -6628,10 +6611,8 @@ function findUa01AgentSteerEvidence(records, sliceId) {
       record.command_target_bound_to_active_run === true &&
       record.no_cross_run_command === true &&
       record.plan_adjusted_event_type === "plan_adjusted" &&
-      record.plan_revised_event_type === "plan_revised" &&
-      record.plan_revised_author_narrative_source_type === "provider_output" &&
-      record.plan_revised_evaluation_plan_holds === false &&
-      Number(record.consumed_replans ?? -1) === 1 &&
+      // CP2b：机械 flow 的 steer 不消耗 replan（无模型修订调用）。
+      Number(record.consumed_replans ?? -1) === 0 &&
       Number(record.adjusted_goal_version ?? 0) >= 2,
   );
   if (!uiState) return null;
@@ -6682,10 +6663,8 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
   if (uiState.command_ack_received !== true) return null;
   if (uiState.command_target_bound_to_active_run !== true) return null;
   if (uiState.plan_adjusted_event_type !== "plan_adjusted") return null;
-  if (uiState.plan_revised_event_type !== "plan_revised") return null;
-  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
-  if (uiState.plan_revised_evaluation_plan_holds !== false) return null;
-  if (Number(uiState.consumed_replans ?? -1) !== 1) return null;
+  // CP2b：机械 flow 的 steer 不消耗 replan（无模型修订调用）。
+  if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
   if (Number(uiState.adjusted_goal_version ?? 0) < 2) return null;
   if (mainInputSteer && uiState.no_second_user_message_for_steer !== true) return null;
   if (mainInputSteer && uiState.main_input_steer_placeholder_visible !== true) return null;
@@ -6701,7 +6680,7 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
     behavior:
       sliceId === "agent-natural-language-steer"
         ? "main_input_natural_language_steer_updates_active_agent_run_without_second_turn"
-        : "main_input_steer_updates_bounded_agent_run_goal_and_emits_model_sourced_plan_revised",
+        : "main_input_steer_updates_bounded_agent_run_goal_for_mechanical_flow",
     turn_ids: evidence.turn_ids,
     run_id: evidence.run_id,
     command: "steer",
@@ -6721,7 +6700,7 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
             : "main_input_steer_did_not_create_second_user_message_or_run",
           "steer_command_targeted_active_run_id_and_received_ack",
           "plan_adjusted_agent_event_was_broadcast",
-          "next_planner_narrative_was_promoted_to_model_sourced_plan_revised",
+          "steer_updated_goal_carried_into_subsequent_execution",
           "steer_replan_consumed_one_replan_budget",
           "agent_run_state_broadcast_adjusted_goal_version",
           "frontend_did_not_mutate_run_state_without_backend_ack",

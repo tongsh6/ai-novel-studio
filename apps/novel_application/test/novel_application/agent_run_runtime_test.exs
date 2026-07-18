@@ -1568,7 +1568,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
     assert run.pending_artifact_refs == [artifact_id]
-    assert run.consumed_budget.provider_calls == 3
+    # CP2b：机械计划 0 调用，仅 design writer 1 调用。
+    assert run.consumed_budget.provider_calls == 1
   end
 
   test "provider progress flow emits author-safe provider progress and provider budget" do
@@ -1767,12 +1768,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute_receive {:agent_event, :artifact_created, _}, 80
   end
 
-  test "character design follows model-drafted plan instead of repeating old roster planner branch" do
+  test "character design runs mechanical plan without draft calls or plan events" do
     parent = self()
 
+    # CP2b（ADR-0025）：单候选 flow 步序机械恒定——起草/旧 next-step 调用都不该发生。
     result_fn = fn prompt ->
       cond do
         agent_plan_draft_prompt?(prompt) ->
+          send(parent, :plan_draft_called)
           {:ok, character_design_plan_draft()}
 
         agent_next_step_prompt?(prompt) ->
@@ -1808,12 +1811,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive :provider_called, 500
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500
 
-    refute_receive :old_next_step_planner_called, 80
+    refute_receive :plan_draft_called, 80
+    refute_receive :old_next_step_planner_called, 10
+    refute_receive {:agent_event, :plan_drafted, _}, 10
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
     assert run.completed_step_refs == ["step_#{run_id}_1", "step_#{run_id}_2"]
-    assert run.consumed_budget.provider_calls == 3
+    # CP2b：机械计划 0 调用，仅 design writer 1 调用。
+    assert run.consumed_budget.provider_calls == 1
   end
 
   defp base_run(run_id) do

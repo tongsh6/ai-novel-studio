@@ -142,6 +142,31 @@ overall_pass_rate=1.0**（证据 `artifacts/model-contracts/lmstudio/judgment-pr
   模型自评在此形态冗余）——**3 次调用经济学仍达成**（判断① 2 + 执行 1）。
   探针保留供未来更强模型重估内联方案。stub 自检双 1.0。
 
+## 2e. CP2b 去伪计划落地（2026-07-18，用户"继续"批准）
+
+四个单候选 flow（design / evolution / outline / world）执行骨架机械化：
+
+- **付费伪计划消灭**：原每次执行花 2 次真实调用"起草"恒定两步计划（N-PLAN 违背
+  形态）；改为机械构造（0 调用、suppress_plan_event——机械序列不是模型计划，不发
+  plan_drafted；无计划 run 的作者可见轨道 = judgment 事件链）。机械判据成立：步序
+  对相同输入恒定、不含创作判断。
+- **单候选创作 5→3 次调用**（判断① 2 + writer 1）——ADR §5 经济学目标达成。
+- 机械计划耗尽而产物未出 → 直接停等作者（无模型计划可修订，AgenticPlanDraftPlanner
+  的 draft/revise 路径与 replan 机制从四 flow 移除；prose 双步系 CP3 保留）。
+- 验收资产迁移：plan_drafted 等待删除 + `plan_drafted_event_count===0` 负例
+  （伪计划消灭的机器证据）+ 计数钉 3 + eventTypes 迁 judgment_decided；world 机械
+  步描述对齐 stub 样本文案；折叠卡 UI 下页面步骤文本断言（ui_context/world_step_
+  visible）时机脆弱——移除，证据源改事件帧。
+- **六场景真实 Tauri 绿**：bounded-roster-to-character-design / evolution /
+  outline / world / world-style-rule + 后端 focused tests 迁移（无 plan_drafted
+  负例 + 计数 3→1 runtime 直连口径）。
+- **受影响场景回归全绿**：steer 语义迁移——机械 flow 无模型计划可修订，steer =
+  goal 更新（版本 +1）+ plan_adjusted + 后续执行携带新方向，不再有 plan_revised
+  promote、不消耗 replan（natural-language-steer / steer-replan 双绿）；
+  interrupt/cancel 的"run 在轨"证据迁 judgment_decided（cancel×2 / interrupt /
+  budget-limit 绿）。durable 环境竞态四连（ECONNREFUSED，非本改动）持续登记复验
+  余项。全门禁：umbrella 8 app 0 fail + I1/I2/I3 + vitest 394 + 扫描 touched 零。
+
 ## 3. 决策日志
 
 - 2026-07-15：CP0 文档批次落地（用户"同意 开始落所有的文档"）。ADR-0025 同日

@@ -70,18 +70,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :plan_drafted, context_step}
-    assert context_step.summary =~ "读取世界设定上下文"
-    assert context_step.payload.target_tool_ref == "context_assemble"
-
-    assert [
-             %{target_tool_ref: "context_assemble"},
-             %{target_tool_ref: "world_building"}
-           ] = context_step.payload.plan_steps
-
-    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      context_step.payload.author_narrative_source
-    )
+    # CP2b：机械步序不发 plan_drafted（付费伪计划已消灭），
+    # 无计划 run 的轨道 = judgment 事件链。
 
     assert_receive {:agent_event, :goal_understood, context_event}, 500
     assert context_event.summary =~ "世界设定上下文"
@@ -117,7 +107,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 3
+    # CP2b：机械计划 0 调用，仅 writer 1 调用。
+    assert state.run.consumed_budget.provider_calls == 1
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
 
     turn_result = artifact_event.payload.turn_result
@@ -208,7 +199,8 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert state.run.status == :completed
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 3
+    # CP2b：机械计划 0 调用，仅 writer 1 调用。
+    assert state.run.consumed_budget.provider_calls == 1
 
     turn_result = artifact_event.payload.turn_result
     assert turn_result.agent_run.run_id == run_id

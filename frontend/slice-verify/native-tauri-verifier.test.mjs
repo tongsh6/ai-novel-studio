@@ -651,10 +651,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         command_target_bound_to_active_run: true,
         no_cross_run_command: true,
         plan_adjusted_event_type: "plan_adjusted",
-        plan_revised_event_type: "plan_revised",
-        plan_revised_author_narrative_source_type: "provider_output",
-        plan_revised_evaluation_plan_holds: false,
-        consumed_replans: 1,
+        consumed_replans: 0,
         adjusted_goal_version: 2,
       },
     ];
@@ -666,11 +663,10 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       run_id: "run-steer",
       command_source: "main_input",
       adjusted_goal_version: 2,
-      consumed_replans: 1,
+      consumed_replans: 0,
     });
     expect(findSliceBehaviorEvidence("agent-steer-replan", records, evidence)).toMatchObject({
-      behavior:
-        "main_input_steer_updates_bounded_agent_run_goal_and_emits_model_sourced_plan_revised",
+      behavior: "main_input_steer_updates_bounded_agent_run_goal_for_mechanical_flow",
       command_source: "main_input",
       assertions: expect.arrayContaining([
         "active_agent_run_switches_main_input_to_steering_placeholder",
@@ -720,7 +716,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
     expect(findNativeSliceEvidence("agent-natural-language-steer", records)).toBeNull();
   });
 
-  it("rejects agent steer replan evidence without replan budget consumption", () => {
+  it("rejects agent steer evidence when replan budget was unexpectedly consumed", () => {
     const records = [
       {
         event: "channel.user_message.done",
@@ -749,7 +745,8 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         plan_revised_event_type: "plan_revised",
         plan_revised_author_narrative_source_type: "provider_output",
         plan_revised_evaluation_plan_holds: false,
-        consumed_replans: 0,
+        // CP2b：机械 flow 的 steer 不消耗 replan——出现消耗即为非法证据。
+        consumed_replans: 1,
         adjusted_goal_version: 2,
       },
     ];
@@ -831,8 +828,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         context_step_visible: true,
         context_event_visible: true,
         context_observation_visible: true,
-        strategy_step_visible: true,
-        plan_event_visible: true,
+        plan_drafted_event_count: 0,
         gate_event_visible: true,
         world_step_visible: true,
         tool_started_visible: true,
@@ -842,13 +838,12 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         artifact_observation_visible: true,
         artifact_event_visible: true,
         ui_context_step_visible: true,
-        ui_strategy_step_visible: true,
         ui_world_step_visible: true,
         ui_finalization_step_visible: true,
         completed_step_count: 4,
         consumed_steps: 4,
         consumed_tool_calls: 1,
-        consumed_provider_calls: 5,
+        consumed_provider_calls: 3,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         ui_world_building_draft_visible: true,
@@ -879,7 +874,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       world_building_nonce: "WORLD123",
       consumed_steps: 4,
       consumed_tool_calls: 1,
-      consumed_provider_calls: 5,
+      consumed_provider_calls: 3,
       ui_profile_selection_visible: true,
       ui_profile_selection_terms_visible: true,
       ui_profile_selection_path_visible: true,

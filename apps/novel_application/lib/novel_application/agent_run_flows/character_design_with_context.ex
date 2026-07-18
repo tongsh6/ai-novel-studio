@@ -8,7 +8,6 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
-  alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
@@ -22,7 +21,6 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   @profile_ref "character_design_with_context_v1"
   @roster_step_target "character_roster"
   @design_step_target "character_design"
-  @plan_exhausted_replan_reason "计划步骤已走完，但角色候选尚未生成。"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
@@ -46,22 +44,43 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     end
   end
 
-  defp plan_for_run(run, snapshot, spec) do
-    if model_plan_ready?(run.plan) do
+  # CP2b（ADR-0025 判断纪元）：单候选 flow 的步序恒定（读阵容 → 设计候选），符合
+  # 机械准备判据——对相同输入恒定、不含创作判断。原"模型起草计划"每次花 2 次调用
+  # 产出同一结构，是 N-PLAN 要消灭的付费伪计划；改为机械构造（0 调用），且不发
+  # plan_drafted（机械序列不是模型计划；无计划 run 的作者可见轨道 = judgment 事件链）。
+  defp plan_for_run(run, _snapshot, _spec) do
+    if mechanical_plan_ready?(run.plan) do
       {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
     else
-      with {:ok, plan, meta} <-
-             AgenticPlanDraftPlanner.draft_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot
-             ) do
-        {:ok, plan, Map.put(meta, :agent_plan, plan)}
-      end
+      plan = mechanical_plan(run)
+      {:ok, plan, %{provider_call_count: 0, suppress_plan_event: true, agent_plan: plan}}
     end
   end
 
-  defp model_plan_ready?(plan) when is_map(plan) do
+  defp mechanical_plan(run) do
+    %{
+      plan_id: "ap_#{run.run_id}",
+      run_ref: run.run_id,
+      version: 1,
+      goal_version: 1,
+      steps: [
+        %{
+          step_id: "mech_roster",
+          target_tool_ref: @roster_step_target,
+          description: "读取当前作品已确认角色阵容。",
+          write_intent: :none
+        },
+        %{
+          step_id: "mech_design",
+          target_tool_ref: @design_step_target,
+          description: "基于已读取的角色阵容设计新的角色候选。",
+          write_intent: :tentative
+        }
+      ]
+    }
+  end
+
+  defp mechanical_plan_ready?(plan) when is_map(plan) do
     case Map.get(plan, :steps) || Map.get(plan, "steps") do
       [_ | _] = steps ->
         Enum.all?(steps, &(not blank?(map_get(&1, :target_tool_ref))))
@@ -71,7 +90,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     end
   end
 
-  defp model_plan_ready?(_plan), do: false
+  defp mechanical_plan_ready?(_plan), do: false
 
   defp mechanical_decision(run, sequence, snapshot, meta, spec) do
     steps = plan_steps(run.plan)
@@ -92,45 +111,9 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     end
   end
 
-  defp maybe_replan_exhausted_plan(run, sequence, snapshot, spec) do
-    if replan_available?(run) do
-      with {:ok, revised_plan, revision_meta} <-
-             AgenticPlanDraftPlanner.revise_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot,
-               revision_reason: @plan_exhausted_replan_reason
-             ) do
-        execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta)
-      end
-    else
-      mechanical_await_author_decision(run, sequence)
-    end
-  end
-
-  defp execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta) do
-    revised_run = %{
-      run
-      | plan: revised_plan,
-        plan_ref: revised_plan.plan_id,
-        plan_version: revised_plan.version
-    }
-
-    steps = plan_steps(revised_plan)
-    index = plan_cursor(snapshot)
-
-    meta =
-      revision_meta
-      |> Map.put(:agent_plan, revised_plan)
-      |> Map.put(:agent_plan_cursor, index)
-
-    if index < length(steps) do
-      steps
-      |> Enum.at(index)
-      |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
-    else
-      mechanical_await_author_decision(run, sequence)
-    end
+  # 机械计划耗尽而产物未出：无模型计划可修订（伪计划已消灭），诚实停等作者。
+  defp maybe_replan_exhausted_plan(run, sequence, _snapshot, _spec) do
+    mechanical_await_author_decision(run, sequence)
   end
 
   defp plan_cursor(snapshot) when is_map(snapshot) do
@@ -244,22 +227,6 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
 
   defp observation_refs(_observations), do: []
 
-  defp replan_available?(run) do
-    consumed = budget_value(run.consumed_budget, :replans, 0)
-    max = budget_value(run.budget, :max_replans, 0)
-
-    consumed < max
-  end
-
-  defp budget_value(map, key, default) when is_map(map) do
-    case map_get(map, key) do
-      value when is_integer(value) and value >= 0 -> value
-      _ -> default
-    end
-  end
-
-  defp budget_value(_map, _key, default), do: default
-
   defp meta_reason_codes(meta), do: meta |> map_get(:reason_codes) |> string_list()
 
   defp plan_step_reason_codes(step, target, meta) do
@@ -369,12 +336,6 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   end
 
   defp provider_execution(_tool_name, _spec, _snapshot), do: nil
-
-  defp planner_provider_execution(spec) do
-    Map.get(spec, :planner_provider_execution) ||
-      Map.get(spec, :provider_execution) ||
-      Execution.dependency(purpose: :planner)
-  end
 
   defp author_input_text(run, plan, observations) do
     observation_text =

@@ -43,13 +43,6 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :plan_drafted, plan_event}, 500
-    assert plan_event.refs != []
-
-    assert [
-             %{target_tool_ref: "character_roster"},
-             %{target_tool_ref: "character_design"}
-           ] = plan_event.payload.plan_steps
 
     assert_receive {:agent_event, :exploration_observed, roster_event}
     assert roster_event.summary =~ "林烬"
@@ -59,12 +52,16 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
     assert_receive {:agent_event, :run_completed, _}, 500
 
+    # CP2b：机械步序不发 plan_drafted（无计划 run 的轨道 = judgment 事件链）。
+    refute_receive {:agent_event, :plan_drafted, _}, 10
+
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 2
-    assert state.run.consumed_budget.provider_calls == 3
+    # CP2b：机械计划 0 调用（付费伪计划已消灭），只剩 design writer 1 调用。
+    assert state.run.consumed_budget.provider_calls == 1
 
     assert Enum.any?(state.observations, &(&1.observation_type == :character_roster))
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))

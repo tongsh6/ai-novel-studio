@@ -16703,26 +16703,9 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
     30_000,
   );
 
-  const planDraftFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted" &&
-      frame.body?.payload?.target_tool_ref === "character_roster" &&
-      Array.isArray(frame.body?.payload?.plan_steps) &&
-      frame.body.payload.plan_steps.length === 2,
-    "UA-01 model-drafted AgentPlan event was not broadcast",
-    30_000,
-  );
-  const planDraftSteps = planDraftFrame.body?.payload?.plan_steps ?? [];
-  const planDraftTargets = planDraftSteps.map((step) => step?.target_tool_ref);
-  assert(
-    JSON.stringify(planDraftTargets) === JSON.stringify(["character_roster", "character_design"]),
-    "UA-01 plan_drafted payload did not include roster and character_design steps",
-  );
-
+  // CP2b（ADR-0025）：单候选 flow 步序机械恒定，付费伪计划已消灭——不发
+  // plan_drafted（无计划 run 的作者可见轨道 = judgment 事件链）。事后以帧计数
+  // 断言其不存在（见 run_completed 后）。
   const rosterTurnFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
@@ -16783,10 +16766,26 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 2 &&
-      // ADR-0025 CP1 判断入场：机械 context+判断① 2 步 2 调用 + 计划起草 2 + writer 1。
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
+      // ADR-0025 CP2b：判断入场 2 步 2 调用 + 机械计划 0 调用 + writer 1 =
+      // 单候选创作恰 3 次调用（付费伪计划的起草 2 调用已消灭）。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
     "UA-01 AgentRun state did not finish with the expected bounded budget counters",
     60_000,
+  );
+
+  // CP2b 负例：机械步序不发 plan_drafted（伪计划消灭的机器证据）。
+  const planDraftedFrameCount = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "plan_drafted",
+    ).length;
+  assert(
+    planDraftedFrameCount === 0,
+    "Mechanical single-candidate run still broadcast a plan_drafted pseudo-plan event",
   );
 
   await waitForNewAppLogRecord(
@@ -16916,10 +16915,7 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       agent_event_types: agentEvents,
       agent_events_author_safe: agentEventsAuthorSafe,
       agent_state_statuses: agentStates,
-      plan_drafted_visible: planDraftFrame.body?.event_type === "plan_drafted",
-      plan_drafted_target_tool_ref: planDraftFrame.body?.payload?.target_tool_ref,
-      plan_drafted_step_count: planDraftSteps.length,
-      plan_drafted_targets: planDraftTargets,
+      plan_drafted_event_count: planDraftedFrameCount,
       roster_observation_visible:
         rosterTurnFrame.body?.tool_result?.tool_name === "character_roster" &&
         rosterTurnFrame.body?.tool_result?.status === "succeeded",
@@ -17325,9 +17321,7 @@ async function driveAgentProseDraftingWithQuality(page) {
         toolStartedFrame.body?.event_type === "tool_started" &&
         toolCompletedFrame.body?.event_type === "tool_completed" &&
         runCompletedFrame.body?.event_type === "run_completed",
-      context_step_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
-        contextStepFrame.body?.payload?.target_tool_ref === "context_assemble",
+      context_step_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_observation_visible:
         contextEventFrame.body?.event_type === "goal_understood" &&
@@ -19084,27 +19078,11 @@ async function driveAgentPlotOutlineWithContext(page) {
   );
   const runId = ackFrame.body.response.run_id;
 
-  const contextStepFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted" &&
-      frame.body?.payload?.target_tool_ref === "context_assemble",
-    "Plot outline AgentRun did not propose the context assembly step",
-    30_000,
-  );
-  const draftedPlanSteps = contextStepFrame.body?.payload?.plan_steps ?? [];
-  const planDraftIncludesContextStep =
-    Array.isArray(draftedPlanSteps) &&
-    draftedPlanSteps.some((step) => step?.target_tool_ref === "context_assemble");
-  const planDraftIncludesOutlineStep =
-    Array.isArray(draftedPlanSteps) &&
-    draftedPlanSteps.some((step) => step?.target_tool_ref === "plot_outline");
+  // CP2b（ADR-0025）：机械步序不发 plan_drafted（付费伪计划已消灭）；
+  // 事后以帧计数断言其不存在（见 run_completed 后）。
 
   const contextEventFrame = await waitForNewFrame(
-    frames.indexOf(contextStepFrame) + 1,
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
@@ -19206,9 +19184,25 @@ async function driveAgentPlotOutlineWithContext(page) {
       frame.body?.profile_ref === "plot_outline_with_context_v1" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
     "Plot outline AgentRun state did not complete with expected counters",
     60_000,
+  );
+
+  // CP2b 负例：机械步序不发 plan_drafted（伪计划消灭的机器证据）。
+  const planDraftedFrameCount = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "plan_drafted",
+    ).length;
+  assert(
+    planDraftedFrameCount === 0,
+    "Mechanical single-candidate run still broadcast a plan_drafted pseudo-plan event",
   );
 
   await waitForNewAppLogRecord(
@@ -19300,23 +19294,17 @@ async function driveAgentPlotOutlineWithContext(page) {
       consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
       agent_stage_events_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
         contextEventFrame.body?.event_type === "goal_understood" &&
         contextObservationLog?.event === "context.assemble.done" &&
-        planDraftIncludesContextStep &&
-        planDraftIncludesOutlineStep &&
         gateEventFrame.body?.event_type === "gate_decided" &&
         toolStartedFrame.body?.event_type === "tool_started" &&
         toolCompletedFrame.body?.event_type === "tool_completed" &&
         artifactEventFrame.body?.event_type === "artifact_created" &&
         runCompletedFrame.body?.event_type === "run_completed",
-      context_step_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
-        contextStepFrame.body?.payload?.target_tool_ref === "context_assemble",
+      context_step_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_observation_visible: contextObservationLog?.event === "context.assemble.done",
-      strategy_step_visible: planDraftIncludesOutlineStep,
-      plan_event_visible: planDraftIncludesContextStep && planDraftIncludesOutlineStep,
+      plan_drafted_event_count: planDraftedFrameCount,
       gate_event_visible: gateEventFrame.body?.event_type === "gate_decided",
       strategy_observation_visible: false,
       outline_step_visible:
@@ -19444,27 +19432,10 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
     30_000,
   );
 
-  const contextStepFrame = await waitForNewFrame(
-    frames.indexOf(profileRouteFrame) + 1,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted" &&
-      frame.body?.payload?.target_tool_ref === "context_assemble",
-    "World building AgentRun did not propose the context assembly step",
-    30_000,
-  );
-  const draftedPlanSteps = contextStepFrame.body?.payload?.plan_steps ?? [];
-  const planDraftIncludesContextStep =
-    Array.isArray(draftedPlanSteps) &&
-    draftedPlanSteps.some((step) => step?.target_tool_ref === "context_assemble");
-  const planDraftIncludesWorldStep =
-    Array.isArray(draftedPlanSteps) &&
-    draftedPlanSteps.some((step) => step?.target_tool_ref === "world_building");
-
+  // CP2b（ADR-0025）：机械步序不发 plan_drafted（付费伪计划已消灭）；
+  // 事后以帧计数断言其不存在（见 run_completed 后）。
   const contextEventFrame = await waitForNewFrame(
-    frames.indexOf(contextStepFrame) + 1,
+    frames.indexOf(profileRouteFrame) + 1,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
@@ -19567,9 +19538,25 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       frame.body?.profile_ref === "world_building_with_context_v1" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
     "World building AgentRun state did not complete with expected counters",
     60_000,
+  );
+
+  // CP2b 负例：机械步序不发 plan_drafted（伪计划消灭的机器证据）。
+  const planDraftedFrameCount = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "plan_drafted",
+    ).length;
+  assert(
+    planDraftedFrameCount === 0,
+    "Mechanical single-candidate run still broadcast a plan_drafted pseudo-plan event",
   );
 
   await waitForNewAppLogRecord(
@@ -19681,23 +19668,17 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
       agent_stage_events_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
         contextEventFrame.body?.event_type === "goal_understood" &&
         contextObservationLog?.event === "context.assemble.done" &&
-        planDraftIncludesContextStep &&
-        planDraftIncludesWorldStep &&
         gateEventFrame.body?.event_type === "gate_decided" &&
         toolStartedFrame.body?.event_type === "tool_started" &&
         toolCompletedFrame.body?.event_type === "tool_completed" &&
         artifactEventFrame.body?.event_type === "artifact_created" &&
         runCompletedFrame.body?.event_type === "run_completed",
-      context_step_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
-        contextStepFrame.body?.payload?.target_tool_ref === "context_assemble",
+      context_step_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_observation_visible: contextObservationLog?.event === "context.assemble.done",
-      strategy_step_visible: planDraftIncludesWorldStep,
-      plan_event_visible: planDraftIncludesContextStep && planDraftIncludesWorldStep,
+      plan_drafted_event_count: planDraftedFrameCount,
       gate_event_visible: gateEventFrame.body?.event_type === "gate_decided",
       strategy_observation_visible: false,
       world_step_visible:
@@ -19718,7 +19699,7 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
         visibleText.includes("先读取世界设定上下文") ||
         visibleText.includes("先读取作品设定上下文"),
       // 46§9.5：步骤描述不进页面，事实来自 plan_drafted 事件 payload。
-      ui_strategy_step_visible: planDraftIncludesWorldStep,
+      ui_strategy_step_visible: false,
       ui_world_step_visible:
         visibleText.includes("生成世界设定、伏笔或规则草稿") ||
         visibleText.includes("生成世界设定草稿"),
@@ -19863,27 +19844,11 @@ async function driveAgentCharacterEvolutionWithContext(page) {
   );
   const runId = ackFrame.body.response.run_id;
 
-  const contextStepFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted" &&
-      frame.body?.payload?.target_tool_ref === "context_assemble",
-    "Character evolution AgentRun did not propose the context assembly step",
-    30_000,
-  );
-  const draftedPlanSteps = contextStepFrame.body?.payload?.plan_steps ?? [];
-  const planDraftIncludesContextStep =
-    Array.isArray(draftedPlanSteps) &&
-    draftedPlanSteps.some((step) => step?.target_tool_ref === "context_assemble");
-  const planDraftIncludesEvolutionStep =
-    Array.isArray(draftedPlanSteps) &&
-    draftedPlanSteps.some((step) => step?.target_tool_ref === "character_evolution");
+  // CP2b（ADR-0025）：机械步序不发 plan_drafted（付费伪计划已消灭）；
+  // 事后以帧计数断言其不存在（见 run_completed 后）。
 
   const contextEventFrame = await waitForNewFrame(
-    frames.indexOf(contextStepFrame) + 1,
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
@@ -19986,9 +19951,25 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       frame.body?.profile_ref === "character_evolution_with_context_v1" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
     "Character evolution AgentRun state did not complete with expected counters",
     60_000,
+  );
+
+  // CP2b 负例：机械步序不发 plan_drafted（伪计划消灭的机器证据）。
+  const planDraftedFrameCount = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "plan_drafted",
+    ).length;
+  assert(
+    planDraftedFrameCount === 0,
+    "Mechanical single-candidate run still broadcast a plan_drafted pseudo-plan event",
   );
 
   await waitForNewAppLogRecord(
@@ -20104,23 +20085,17 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
       agent_stage_events_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
         contextEventFrame.body?.event_type === "goal_understood" &&
         contextObservationLog?.event === "context.assemble.done" &&
-        planDraftIncludesContextStep &&
-        planDraftIncludesEvolutionStep &&
         gateEventFrame.body?.event_type === "gate_decided" &&
         toolStartedFrame.body?.event_type === "tool_started" &&
         toolCompletedFrame.body?.event_type === "tool_completed" &&
         artifactEventFrame.body?.event_type === "artifact_created" &&
         runCompletedFrame.body?.event_type === "run_completed",
-      context_step_visible:
-        contextStepFrame.body?.event_type === "plan_drafted" &&
-        contextStepFrame.body?.payload?.target_tool_ref === "context_assemble",
+      context_step_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_observation_visible: contextObservationLog?.event === "context.assemble.done",
-      strategy_step_visible: planDraftIncludesEvolutionStep,
-      plan_event_visible: planDraftIncludesContextStep && planDraftIncludesEvolutionStep,
+      plan_drafted_event_count: planDraftedFrameCount,
       gate_event_visible: gateEventFrame.body?.event_type === "gate_decided",
       strategy_observation_visible: false,
       evolution_step_visible:
@@ -20499,7 +20474,8 @@ async function driveAgentProviderStreamingProgress(page) {
       frame.body?.status === "completed" &&
       frame.body?.profile_ref === "provider_progress_v1" &&
       // ADR-0025 CP1 判断入场：判断 2 + 计划起草 2 + provider_complete 1。
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
+      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
     "Provider progress run state did not record provider call budget",
     30_000,
   );
@@ -21200,14 +21176,15 @@ async function driveUa01AgentInterruptCommand(page, command) {
     30_000,
   );
 
+  // CP2b：机械步序不发 plan_drafted；run 在轨证据改判断纪元信号。
   await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted",
-    "UA-01 interrupt scenario did not broadcast any plan_drafted event",
+      frame.body?.event_type === "judgment_decided",
+    "UA-01 interrupt scenario did not broadcast the judgment_decided event",
     30_000,
   );
 
@@ -21793,17 +21770,9 @@ async function driveAgentSteerReplan(page, options = {}) {
     30_000,
   );
 
-  const planRevisedFrame = await waitForNewFrame(
-    steerFrameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_revised",
-    "UA-01 steer did not promote the next planner narrative to plan_revised",
-    30_000,
-  );
-
+  // CP2b：机械 flow 无模型计划可修订——steer 语义 = goal 更新（版本 +1、nonce 进
+  // goal.text，见下方 adjustedStateFrame）+ 后续执行步携带新方向；不再有
+  // plan_revised promote。
   const adjustedStateFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
@@ -21916,15 +21885,6 @@ async function driveAgentSteerReplan(page, options = {}) {
       command_ack_received: commandAckFrame.body?.response?.received === true,
       command_target_bound_to_active_run: commandFrame.body?.run_id === runId,
       plan_adjusted_event_type: planAdjustedFrame.body?.event_type,
-      plan_revised_event_type: planRevisedFrame.body?.event_type,
-      plan_revised_summary: planRevisedFrame.body?.summary ?? "",
-      plan_revised_author_narrative_source_type:
-        planRevisedFrame.body?.payload?.author_narrative_source?.source_type,
-      plan_revised_plan_version: planRevisedFrame.body?.payload?.plan_version ?? null,
-      plan_revised_revision_reason:
-        planRevisedFrame.body?.payload?.plan_revision?.revision_reason ?? "",
-      plan_revised_evaluation_plan_holds:
-        planRevisedFrame.body?.payload?.evaluation_of_last?.plan_holds,
       consumed_steps: terminalStateFrame.body?.consumed_budget?.steps,
       consumed_tool_calls: terminalStateFrame.body?.consumed_budget?.tool_calls,
       consumed_provider_calls: terminalStateFrame.body?.consumed_budget?.provider_calls,
