@@ -3,11 +3,9 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   Bounded AgentRun flow for `revise_from_findings` author actions.
   """
 
-  alias NovelAgent.Provider.Execution
   alias NovelApplication.ActionValidator
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
-  alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
   alias NovelApplication.ProseRevisionService
   alias NovelApplication.ProviderActivityProjector
@@ -21,7 +19,6 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   @plan_step_target "revision_plan"
   @finalize_step_target "revision_finalize"
   @prose_step_target "prose_writing"
-  @plan_exhausted_replan_reason "计划步骤已走完，但修订候选尚未生成。"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
@@ -45,22 +42,54 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
     end
   end
 
-  defp plan_for_run(run, snapshot, spec) do
-    if model_plan_ready?(run.plan) do
+  # CP3b 尾批（ADR-0025 判断纪元）：修订 flow 的四步序列恒定（读草稿与发现 →
+  # 修订策略与裁决 → 生成修订候选 → 汇总确认），符合机械准备判据——原"模型起草
+  # 计划"是付费伪计划，改机械构造（0 调用、不发 plan_drafted）。
+  defp plan_for_run(run, _snapshot, _spec) do
+    if mechanical_plan_ready?(run.plan) do
       {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
     else
-      with {:ok, plan, meta} <-
-             AgenticPlanDraftPlanner.draft_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot
-             ) do
-        {:ok, plan, Map.put(meta, :agent_plan, plan)}
-      end
+      plan = mechanical_plan(run)
+      {:ok, plan, %{provider_call_count: 0, suppress_plan_event: true, agent_plan: plan}}
     end
   end
 
-  defp model_plan_ready?(plan) when is_map(plan) do
+  defp mechanical_plan(run) do
+    %{
+      plan_id: "ap_#{run.run_id}",
+      run_ref: run.run_id,
+      version: 1,
+      goal_version: 1,
+      steps: [
+        %{
+          step_id: "mech_revision_prepare",
+          target_tool_ref: @prepare_step_target,
+          description: "读取待修订草稿和质量发现。",
+          write_intent: :none
+        },
+        %{
+          step_id: "mech_revision_plan",
+          target_tool_ref: @plan_step_target,
+          description: "制定修订执行策略并重新经过系统裁决。",
+          write_intent: :none
+        },
+        %{
+          step_id: "mech_revision_prose",
+          target_tool_ref: @prose_step_target,
+          description: "基于修订计划生成正文修订候选。",
+          write_intent: :tentative
+        },
+        %{
+          step_id: "mech_revision_finalize",
+          target_tool_ref: @finalize_step_target,
+          description: "汇总修订候选给作者确认。",
+          write_intent: :none
+        }
+      ]
+    }
+  end
+
+  defp mechanical_plan_ready?(plan) when is_map(plan) do
     case Map.get(plan, :steps) || Map.get(plan, "steps") do
       [_ | _] = steps ->
         Enum.all?(steps, &(not blank?(map_get(&1, :target_tool_ref))))
@@ -70,7 +99,7 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
     end
   end
 
-  defp model_plan_ready?(_plan), do: false
+  defp mechanical_plan_ready?(_plan), do: false
 
   defp mechanical_decision(run, sequence, snapshot, meta, spec) do
     steps = plan_steps(run.plan)
@@ -91,45 +120,9 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
     end
   end
 
-  defp maybe_replan_exhausted_plan(run, sequence, snapshot, spec) do
-    if replan_available?(run) do
-      with {:ok, revised_plan, revision_meta} <-
-             AgenticPlanDraftPlanner.revise_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot,
-               revision_reason: @plan_exhausted_replan_reason
-             ) do
-        execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta)
-      end
-    else
-      mechanical_await_author_decision(run, sequence)
-    end
-  end
-
-  defp execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta) do
-    revised_run = %{
-      run
-      | plan: revised_plan,
-        plan_ref: revised_plan.plan_id,
-        plan_version: revised_plan.version
-    }
-
-    steps = plan_steps(revised_plan)
-    index = plan_cursor(snapshot)
-
-    meta =
-      revision_meta
-      |> Map.put(:agent_plan, revised_plan)
-      |> Map.put(:agent_plan_cursor, index)
-
-    if index < length(steps) do
-      steps
-      |> Enum.at(index)
-      |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
-    else
-      mechanical_await_author_decision(run, sequence)
-    end
+  # 机械计划耗尽而修订候选未出：无模型计划可修订（伪计划已消灭），诚实停等作者。
+  defp maybe_replan_exhausted_plan(run, sequence, _snapshot, _spec) do
+    mechanical_await_author_decision(run, sequence)
   end
 
   defp plan_cursor(snapshot) when is_map(snapshot) do
@@ -245,22 +238,6 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
     do: Enum.map(observations, & &1.observation_id)
 
   defp observation_refs(_observations), do: []
-
-  defp replan_available?(run) do
-    consumed = budget_value(run.consumed_budget, :replans, 0)
-    max = budget_value(run.budget, :max_replans, 0)
-
-    consumed < max
-  end
-
-  defp budget_value(map, key, default) when is_map(map) do
-    case map_get(map, key) do
-      value when is_integer(value) and value >= 0 -> value
-      _ -> default
-    end
-  end
-
-  defp budget_value(_map, _key, default), do: default
 
   defp meta_reason_codes(meta), do: meta |> map_get(:reason_codes) |> string_list()
 
@@ -451,12 +428,6 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
 
   defp provider_execution(spec),
     do: Map.get(spec, :provider_execution)
-
-  defp planner_provider_execution(spec) do
-    Map.get(spec, :planner_provider_execution) ||
-      Map.get(spec, :provider_execution) ||
-      Execution.dependency(purpose: :planner)
-  end
 
   defp provider_execution(spec, snapshot) do
     spec

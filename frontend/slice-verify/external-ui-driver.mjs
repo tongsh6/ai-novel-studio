@@ -16068,26 +16068,8 @@ async function driveP1ProseRevisionCandidate(page) {
     30_000,
   );
 
-  const revisionPlanDraftFrame = await waitForNewFrame(
-    beforeReviseFrameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === revisionRunId &&
-      frame.body?.event_type === "plan_drafted" &&
-      frame.body?.payload?.target_tool_ref === "revision_prepare" &&
-      Array.isArray(frame.body?.payload?.plan_steps) &&
-      frame.body.payload.plan_steps.length === 4,
-    "Revision model-drafted AgentPlan event was not broadcast",
-    30_000,
-  );
-  const revisionPlanDraftSteps = revisionPlanDraftFrame.body?.payload?.plan_steps ?? [];
-  const revisionPlanDraftTargets = revisionPlanDraftSteps.map((step) => step?.target_tool_ref);
-  assert(
-    JSON.stringify(revisionPlanDraftTargets) ===
-      JSON.stringify(["revision_prepare", "revision_plan", "prose_writing", "revision_finalize"]),
-    "Revision plan_drafted payload did not include the expected mechanical cursor steps",
-  );
+  // CP3b 尾批：修订四步序列机械恒定，付费伪计划已消灭——不发 plan_drafted；
+  // 事后以帧计数断言其不存在（见 revision 完成后）。
 
   const revisionSourceEventFrame = await waitForNewFrame(
     beforeReviseFrameCount,
@@ -16187,8 +16169,8 @@ async function driveP1ProseRevisionCandidate(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      // Order 62 两段式规划：修订 run = 计划 reasoning + 计划结构 + writer = 3 次 provider 调用
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      // CP3b 尾批：机械计划 0 调用（伪计划已消灭），仅修订 writer 1 调用。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
     "Revision AgentRun state did not finish with expected step/tool/provider counters",
     60_000,
   );
@@ -16250,12 +16232,16 @@ async function driveP1ProseRevisionCandidate(page) {
       revision_profile_ref: revisionCompletedStateFrame.body.profile_ref,
       revision_parent_fast_ack_before_final_turn_result:
         revisionAckIndex >= 0 && revisionTurnIndex > revisionAckIndex,
-      revision_plan_drafted_visible: revisionPlanDraftFrame.body?.event_type === "plan_drafted",
-      revision_plan_drafted_target_tool_ref: revisionPlanDraftFrame.body?.payload?.target_tool_ref,
-      revision_plan_drafted_step_count: revisionPlanDraftSteps.length,
-      revision_plan_drafted_targets: revisionPlanDraftTargets,
+      revision_plan_drafted_event_count: frames
+        .slice(beforeReviseFrameCount)
+        .filter(
+          (frame) =>
+            frame.direction === "received" &&
+            frame.event === "agent_event" &&
+            frame.body?.run_ref === revisionRunId &&
+            frame.body?.event_type === "plan_drafted",
+        ).length,
       revision_agent_stage_events_visible:
-        revisionPlanDraftFrame.body?.event_type === "plan_drafted" &&
         revisionSourceEventFrame.body?.event_type === "goal_understood" &&
         revisionGateEventFrame.body?.event_type === "gate_decided" &&
         revisionToolStartedFrame.body?.event_type === "tool_started" &&
@@ -16264,14 +16250,15 @@ async function driveP1ProseRevisionCandidate(page) {
         revisionTurnResult.trace_summary?.no_write_reason ===
           "revision draft is tentative and not auto-adopted" &&
         revisionArtifactEventFrame.body?.event_type === "artifact_created",
-      revision_source_step_visible: revisionPlanDraftTargets.includes("revision_prepare"),
+      revision_source_step_visible: revisionSourceEventFrame.body?.event_type === "goal_understood",
       revision_source_event_visible:
         revisionSourceEventFrame.body?.event_type === "goal_understood",
-      revision_plan_step_visible: revisionPlanDraftTargets.includes("revision_plan"),
+      revision_plan_step_visible:
+        revisionGateEventFrame.body?.payload?.stage === "revision_orchestrator_decision_recorded",
       revision_plan_event_visible:
         revisionGateEventFrame.body?.payload?.stage === "revision_orchestrator_decision_recorded",
       revision_gate_event_visible: revisionGateEventFrame.body?.event_type === "gate_decided",
-      revision_execute_step_visible: revisionPlanDraftTargets.includes("prose_writing"),
+      revision_execute_step_visible: revisionToolStartedFrame.body?.event_type === "tool_started",
       revision_tool_started_visible: revisionToolStartedFrame.body?.event_type === "tool_started",
       revision_tool_completed_visible:
         revisionToolCompletedFrame.body?.event_type === "tool_completed",
@@ -16279,7 +16266,8 @@ async function driveP1ProseRevisionCandidate(page) {
         revisionTurnResult.truthfulness?.production_write_performed === false &&
         revisionTurnResult.trace_summary?.no_write_reason ===
           "revision draft is tentative and not auto-adopted",
-      revision_finalization_step_visible: revisionPlanDraftTargets.includes("revision_finalize"),
+      revision_finalization_step_visible:
+        revisionArtifactEventFrame.body?.event_type === "artifact_created",
       revision_artifact_event_visible:
         revisionArtifactEventFrame.body?.event_type === "artifact_created",
       revision_completed_step_count:

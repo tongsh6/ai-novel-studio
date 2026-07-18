@@ -97,20 +97,6 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :plan_drafted, plan_event}
-    assert plan_event.summary =~ "读取待修订草稿"
-    assert plan_event.payload.target_tool_ref == "revision_prepare"
-
-    assert [
-             %{target_tool_ref: "revision_prepare"},
-             %{target_tool_ref: "revision_plan"},
-             %{target_tool_ref: "prose_writing"},
-             %{target_tool_ref: "revision_finalize"}
-           ] = plan_event.payload.plan_steps
-
-    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      plan_event.payload.author_narrative_source
-    )
 
     assert_receive {:agent_event, :goal_understood, context_event}, 500
     assert context_event.summary =~ "待修订草稿"
@@ -137,14 +123,17 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert execute_observation.summary =~ "不自动采纳"
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
-    assert_receive {:agent_event, :run_completed, _}, 500
+    assert_receive {:agent_event, :run_completed, _}
+    # CP3b 尾批：机械步序不发 plan_drafted（无计划 run 的轨道 = judgment 事件链）。
+    refute_receive {:agent_event, :plan_drafted, _}, 10, 500
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
     assert length(state.run.completed_step_refs) == 4
     assert state.run.consumed_budget.steps == 4
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 3
+    # CP3b 尾批：机械计划 0 调用，仅修订 writer 1 调用。
+    assert state.run.consumed_budget.provider_calls == 1
 
     turn_result = artifact_event.payload.turn_result
     assert turn_result.agent_run.run_id == run_id

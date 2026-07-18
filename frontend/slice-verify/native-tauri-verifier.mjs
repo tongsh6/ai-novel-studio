@@ -3210,17 +3210,12 @@ function findP1ProseRevisionCandidateEvidence(
       record.revision_run_mode === "bounded" &&
       record.revision_profile_ref === "prose_revision_from_findings_v1" &&
       record.revision_parent_fast_ack_before_final_turn_result === true &&
-      record.revision_plan_drafted_visible === true &&
-      record.revision_plan_drafted_target_tool_ref === "revision_prepare" &&
-      Number(record.revision_plan_drafted_step_count ?? 0) === 4 &&
-      Array.isArray(record.revision_plan_drafted_targets) &&
-      record.revision_plan_drafted_targets.join(",") ===
-        "revision_prepare,revision_plan,prose_writing,revision_finalize" &&
+      // CP3b 尾批：修订四步机械恒定，不发 plan_drafted（负例）；机械计划 0 调用。
+      Number(record.revision_plan_drafted_event_count ?? -1) === 0 &&
       record.revision_agent_stage_events_visible === true &&
       Number(record.revision_consumed_steps ?? 0) === 4 &&
       Number(record.revision_consumed_tool_calls ?? 0) === 1 &&
-      // 两段式规划（Order 62）：修订 run = 计划 reasoning + 计划结构 + writer = 3 次 provider 调用
-      Number(record.revision_consumed_provider_calls ?? 0) === 3 &&
+      Number(record.revision_consumed_provider_calls ?? 0) === 1 &&
       record.adopt_event_sent === false &&
       record.chapter_title === targetChapterTitle,
   );
@@ -3364,21 +3359,12 @@ function p1ProseRevisionCandidateBehavior(
   if (uiState.revision_run_mode !== "bounded") return null;
   if (uiState.revision_profile_ref !== "prose_revision_from_findings_v1") return null;
   if (uiState.revision_parent_fast_ack_before_final_turn_result !== true) return null;
-  if (uiState.revision_plan_drafted_visible !== true) return null;
-  if (uiState.revision_plan_drafted_target_tool_ref !== "revision_prepare") return null;
-  if (Number(uiState.revision_plan_drafted_step_count ?? 0) !== 4) return null;
-  if (
-    !Array.isArray(uiState.revision_plan_drafted_targets) ||
-    uiState.revision_plan_drafted_targets.join(",") !==
-      "revision_prepare,revision_plan,prose_writing,revision_finalize"
-  ) {
-    return null;
-  }
+  if (Number(uiState.revision_plan_drafted_event_count ?? -1) !== 0) return null;
   if (uiState.revision_agent_stage_events_visible !== true) return null;
   if (Number(uiState.revision_consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.revision_consumed_tool_calls ?? 0) !== 1) return null;
   // 两段式规划（Order 62）：修订 run = 计划 reasoning + 计划结构 + writer = 3 次 provider 调用
-  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 3) return null;
+  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 1) return null;
   if (
     requestedSliceId === "agent-replay-no-provider" &&
     (evidence.replay_policy?.recall_provider !== false ||

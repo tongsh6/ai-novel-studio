@@ -1,6 +1,6 @@
 # UA01 判断驱动交互循环（ADR-0025 实施）
 
-- 状态：CP0/CP1/CP2 done / CP3a done（判断②上线 2026-07-18）/ CP3b todo
+- 状态：CP0-CP3 done（2026-07-18）/ CP4 todo / CP5-CP6 todo
 - 类型：Agent Runtime Slice / Prompt Protocol Slice
 - 父 ADR：`docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md`（Accepted）
 - 展开层：`docs/design/notes/2026-07-15-judgment-driven-interactive-loop.md`
@@ -17,7 +17,7 @@
 | CP0 | ADR-0025 + ADR-0023 注记 + 00 §2.3 形态章 + 00c/46§9.6/README 联动 | **done**（2026-07-15） |
 | CP1 | conversation 迁判断循环（方案 B：判断①两段 + 直接回复内联；路由并入判断①）。**前置**：MBC 探针验证内联协议与"是否开计划"判断质量 | **done**（2026-07-17，四批 28 场景绿） |
 | CP2 | 单候选创作 profile 迁循环（执行内联自评 + 判断②按需） | **done**（2026-07-18，CP2b 去伪计划 + 探针裁决判断②独立化） |
-| CP3 | prose/修订迁循环；D 系循环语义回归 | **CP3a done**（2026-07-18，判断②上线）/ CP3b todo |
+| CP3 | prose/修订迁循环；D 系循环语义回归 | **done**（2026-07-18，判断②+改进闭环+修订机械化） |
 | CP4 | 计划按需全量（判断①制定计划分支 + UI 真计划恢复显示） | todo |
 | CP5 | 探索内部翼（作品事实索引 + 检索工具箱 + 探索预算） | todo（可与 CP2/CP3 并行） |
 | CP6 | 探索外部翼（SearchProvider + web_search + 带来源设定候选 + 网络授权边界） | todo（依赖 CP5 框架） |
@@ -225,8 +225,15 @@ continuation + replans 0 + 停等）；driver/verifier/fixtures 全迁 mode 分�
 brief → 中间稿替代（artifact_superseded 可见）→ 改进稿 → 复评通过 → completed，
 最终 TurnResult 为改进稿单 pending）；driver 终局断言按 mode 分流。D 系全族回归
 零回归（D1/D4/D7 await + prose 正常 + p1-revision 五场景绿）。
-**下批余项**：prose_revision_from_findings 机械化（恒定四步序列，CP2b 同构）、
-no-progress 判断②预算兜底重设计。
+**尾批收口（2026-07-18 同日）**：prose_revision_from_findings 机械化落地——
+恒定四步（读草稿与发现 → 修订策略与裁决 → 生成修订候选 → 汇总确认）机械构造，
+起草 2 调用消灭，修订 run **3→1 调用**（仅修订 writer）；耗尽未产出停等作者
+（作者显式修订动作，裁决语义）；focused + p1-prose-revision-candidate +
+agent-revision-orchestrator-boundary 双场景真实 Tauri 绿（plan_drafted 负例 +
+计数钉 1 + 步可见字段迁事件级证据）。**交互链路的付费伪计划至此全部消灭**
+（AgenticPlanDraftPlanner 交互消费者清零，仅剩 conversation_turn 遗存——CP2
+退役评估名单）。CP3 全收口。
+**下批余项**：no-progress 判断②预算兜底重设计（小件）；durable 环境复验。
 
 ## 3. 决策日志
 
