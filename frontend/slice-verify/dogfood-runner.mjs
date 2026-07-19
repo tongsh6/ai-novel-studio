@@ -54,6 +54,20 @@ function recordFrame(direction, payload) {
   if (decoded) frames.push({ direction, ...decoded });
 }
 
+// 超时取证：近帧摘要（direction:event:turn:status:tool:pending 数），归因
+// "server 完成而 runner 盲等"类间歇缺陷。
+function frameDigest(fromIndex, limit = 15) {
+  return frames
+    .slice(Math.max(fromIndex, frames.length - limit))
+    .map((f) => {
+      const b = f.body ?? {};
+      return `${f.direction}:${f.event}:${b.turn_id ?? ""}:${b.status ?? ""}:${
+        b.tool_result?.tool_name ?? ""
+      }:${(b.adoption_state?.pending ?? []).length}`;
+    })
+    .join(" | ");
+}
+
 // fromIndex：只匹配该下标之后到达的帧。长跑会话里历史帧大量累积（含旧轮的
 // needs_confirmation / pending），不限定起点会误匹配历史帧、走错分支。
 async function waitForFrame(predicate, message, timeoutMs = 60_000, fromIndex = 0) {
@@ -133,6 +147,20 @@ function nextPendingChapter(toc, skippedTitles) {
 // turn_result（僵尸草稿帧），不绑定 turn 会把上一轮的迟到帧误认成本轮产出。
 async function sendAuthorMessage(page, instruction) {
   const fromIndex = frames.length;
+  // M2 实锤：上一轮超时放弃的 run 可能仍在服务端执行并占用输入框——像真实作者
+  // 一样先等它完成（长等 10 分钟），等不到再点「取消」清场，绝不带病 fill。
+  try {
+    await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 600_000 });
+  } catch (waitError) {
+    const cancelButton = page.getByRole("button", { name: /取消/ }).last();
+    if ((await cancelButton.count()) > 0) {
+      log("input blocked by an active run — cancelling it before sending");
+      await cancelButton.click({ timeout: 10_000 }).catch(() => {});
+      await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 60_000 });
+    } else {
+      throw waitError;
+    }
+  }
   await page.locator(chatInputSelector).fill(instruction);
   await page.getByRole("button", { name: /^发送$/ }).click();
 
