@@ -93,6 +93,46 @@ defmodule NovelDomain.ChapterSummary do
     end)
   end
 
+  @doc """
+  从 canonical `summary_text` 解析回四栏 map（`render_sections/1` 的逆变换）。
+
+  确定性标签解析：只认识【标签】前缀行，未知标签忽略、缺栏键缺席（不伪造）、
+  「（无）」占位还原为缺席。无任何标签时整段归 :plot（与生成侧兜底同语义）。
+  五本账等按维度消费（M3）与探索面结构化渲染统一走本入口。
+  """
+  @spec parse_sections(String.t() | nil) :: %{atom() => String.t()}
+  def parse_sections(text) when is_binary(text) do
+    by_label = Map.new(@section_labels, fn {key, label} -> {label, key} end)
+
+    sections =
+      text
+      |> String.split("【", trim: true)
+      |> Enum.reduce(%{}, fn chunk, acc ->
+        case String.split(chunk, "】", parts: 2) do
+          [label, body] ->
+            case Map.get(by_label, String.trim(label)) do
+              nil -> acc
+              key -> put_section(acc, key, String.trim(body))
+            end
+
+          _ ->
+            acc
+        end
+      end)
+
+    case {map_size(sections), String.trim(text)} do
+      {0, ""} -> %{}
+      {0, trimmed} -> %{plot: trimmed}
+      _ -> sections
+    end
+  end
+
+  def parse_sections(_text), do: %{}
+
+  defp put_section(acc, _key, ""), do: acc
+  defp put_section(acc, _key, "（无）"), do: acc
+  defp put_section(acc, key, body), do: Map.put(acc, key, body)
+
   @doc "校验文本是否含全部四栏标签（四栏结构成立）。"
   @spec four_column?(any()) :: boolean()
   def four_column?(text) when is_binary(text) do

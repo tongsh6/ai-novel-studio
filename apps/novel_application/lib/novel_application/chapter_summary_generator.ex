@@ -62,33 +62,17 @@ defmodule NovelApplication.ChapterSummaryGenerator do
 
   # 按四栏标签解析模型输出；任一栏缺失则该栏留空（render 时补「（无）」）。
   # 完全解析不到四栏时，把整段输出归入“情节推进”，避免丢失内容。
+  # 解析走域层公共逆变换（真源单点，Order 4 契约化）；生成侧保留空文本兜底语义。
   defp parse_sections(text, prose) do
-    by_label =
-      ChapterSummary.section_labels()
-      |> Map.new(fn {key, label} -> {label, key} end)
+    case ChapterSummary.parse_sections(text) do
+      sections when map_size(sections) == 0 ->
+        %{plot: text |> normalize() |> fallback(prose)}
 
-    sections =
-      text
-      |> String.split("【", trim: true)
-      |> Enum.reduce(%{}, fn chunk, acc -> merge_section(acc, chunk, by_label) end)
+      %{plot: _} = sections ->
+        sections
 
-    if map_size(sections) == 0 do
-      %{plot: text |> normalize() |> fallback(prose)}
-    else
-      sections
-    end
-  end
-
-  defp merge_section(acc, chunk, by_label) do
-    case String.split(chunk, "】", parts: 2) do
-      [label, body] ->
-        case Map.get(by_label, String.trim(label)) do
-          nil -> acc
-          key -> Map.put(acc, key, String.trim(body))
-        end
-
-      _ ->
-        acc
+      sections ->
+        sections
     end
   end
 
