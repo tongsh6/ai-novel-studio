@@ -126,12 +126,17 @@ defmodule NovelAgent.Provider.Stub do
 
   defp judgment_narrative_content(text) do
     {action, _capability} = judgment_action(text)
-    narrative = judgment_narrative(action)
+    {action, _extra} = shape_judgment_action(action, text)
 
-    if action == "reply" do
-      narrative <> "\n\n" <> judgment_reply_body()
-    else
-      narrative
+    cond do
+      action == "reply" and String.contains?(text, "## 探索观察") ->
+        judgment_narrative(action) <> "\n\n" <> exploration_cited_reply(text)
+
+      action == "reply" ->
+        judgment_narrative(action) <> "\n\n" <> judgment_reply_body()
+
+      true ->
+        judgment_narrative(action)
     end
   end
 
@@ -222,6 +227,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp judgment_decision_result(text) do
     {action, capability} = judgment_action(text)
+    {action, extra_args} = shape_judgment_action(action, text)
 
     arguments =
       %{
@@ -232,12 +238,43 @@ defmodule NovelAgent.Provider.Stub do
       |> then(fn args ->
         if capability, do: Map.put(args, "capability", capability), else: args
       end)
+      |> Map.merge(extra_args)
 
     Result.new(judgment_reason(action), nil,
       tool_calls: [
         %{"name" => "judgment_decision", "arguments" => arguments}
       ]
     )
+  end
+
+  # CP5a 内部翼：explore 仅在判断 prompt 开放「先探索」形态时成立（协议 options
+  # 决定五选一/四选一；stub 尊重同一开关）；prompt 已带「探索观察」段则回环收束
+  # 为 reply。explore_request 点名 prose_search + 「」引用词（无引用词取查询短语尾）。
+  defp shape_judgment_action("explore", text) do
+    cond do
+      # call1 带观察段 / call2 内嵌引用回复叙事（依据如下）→ 回环收束 reply
+      String.contains?(text, "## 探索观察") or String.contains?(text, "依据如下") ->
+        {"reply", %{"reply_included" => true}}
+
+      # call1 开放「先探索」形态 / call2 内嵌探索叙事回声 → explore 成立
+      String.contains?(text, "先探索") or String.contains?(text, "我需要先检索作品事实") ->
+        {"explore",
+         %{"explore_request" => %{"tool" => "prose_search", "query" => explore_term(text)}}}
+
+      true ->
+        {"reply", %{"reply_included" => true}}
+    end
+  end
+
+  defp shape_judgment_action(action, _text), do: {action, %{}}
+
+  defp explore_term(text) do
+    author_text = judgment_author_input(text)
+
+    case quoted_term(author_text) do
+      "" -> author_text |> String.replace(~r/[查一下交代过吗？?，。]/u, "") |> String.slice(0, 8)
+      term -> term
+    end
   end
 
   # 顺序即优先级：探索/计划判别在能力词之前（与真实模型的语义判断对齐——
@@ -288,6 +325,37 @@ defmodule NovelAgent.Provider.Stub do
       "explore" -> "回答这个问题需要正文细节，但当前只有结构摘要；我需要先检索作品事实。"
       "await_author" -> "你的意图我还不能确定，先停下来向你确认，避免做错方向。"
     end
+  end
+
+  # 回环收束回复：字节透传观察段里含引用词的行（引用来自检索结果，桩不代答）。
+  defp exploration_cited_reply(text) do
+    term = quoted_term(judgment_author_input(text))
+
+    cited_line =
+      text
+      |> String.split("## 探索观察", parts: 2)
+      |> List.last()
+      |> String.split("\n")
+      |> cited_observation_line(term)
+
+    "我检索了正文中与「#{term}」相关的段落，依据如下：\n\n#{String.trim(cited_line)}"
+  end
+
+  defp quoted_term(author_text) do
+    case Regex.run(~r/「([^」]+)」/u, author_text) do
+      [_, quoted] -> quoted
+      _ -> ""
+    end
+  end
+
+  # 优先取带章名出处的命中行；段头（### 观察 N）含查询词但不是引用。
+  defp cited_observation_line(_lines, ""), do: ""
+
+  defp cited_observation_line(lines, term) do
+    hit_line = fn line -> String.contains?(line, term) and not String.starts_with?(line, "###") end
+
+    Enum.find(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||
+      Enum.find(lines, hit_line) || ""
   end
 
   defp judgment_reason(action) do

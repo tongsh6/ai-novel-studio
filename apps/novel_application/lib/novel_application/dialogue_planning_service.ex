@@ -24,6 +24,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
+  alias NovelApplication.ExplorationService
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
@@ -400,11 +401,15 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  # ── 判断①循环（ADR-0025 CP1：机械准备 → 判断① → reply 终结 / 切能力 profile / 停等） ──
+  # ── 判断①循环（ADR-0025：机械准备 → 判断① → reply 终结 / 切能力 profile / 探索回环 / 停等） ──
   #
   # 路由语义并入判断①：action=execute/plan + capability 等价旧路由选 profile；
   # action=reply 回复内联终结（简单对话 2 次调用）；action=await_author 停等作者。
-  # CP1 能力目录不含检索（explore 由 CP5 打开）。
+  # CP5a 内部翼：action=explore 按 explore_request 跑只读检索（ExplorationService，
+  # 0 提供者调用），观察写进 stage_state 回环再判断；回合硬上限后判断不再开放
+  # explore 选项（被迫四选一收束）。
+
+  @max_explore_rounds 2
 
   @judgment_capability_profiles %{
     "character_design" => :character_design_with_context,
@@ -444,6 +449,37 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp judgment_context(state),
     do: Map.get(state, :judgment_context) || Map.get(state, "judgment_context")
+
+  defp judgment_explorations(state) do
+    case Map.get(state, :judgment_explorations) || Map.get(state, "judgment_explorations") do
+      explorations when is_list(explorations) -> explorations
+      _ -> []
+    end
+  end
+
+  # 探索目录段（explore 开放时给判断 prompt）+ 已有观察段（机械渲染，
+  # 结构词家族 + 出处 refs——观察正文是检索结果字节，非系统代笔叙述）。
+  defp exploration_sections(explorations, explore_open?) do
+    catalog = if explore_open?, do: "\n\n" <> ExplorationService.catalog_section(), else: ""
+
+    observations =
+      case explorations do
+        [] ->
+          ""
+
+        list ->
+          rendered =
+            list
+            |> Enum.with_index(1)
+            |> Enum.map_join("\n\n", fn {observation, index} ->
+              "### 观察 #{index}（#{observation.tool}「#{observation.query}」）\n#{observation.summary}"
+            end)
+
+          "\n\n## 探索观察（已检索到的作品事实）\n\n" <> rendered
+      end
+
+    catalog <> observations
+  end
 
   defp judgment_terminal(run, sequence, kind, summary) do
     decision =
@@ -537,15 +573,14 @@ defmodule NovelApplication.DialoguePlanningService do
       NovelCommon.LogContext.put_step("judgment")
 
       context = judgment_context(state)
-      text = map_get(input, :text) || run.goal.text
-
-      protocol_input = %{
-        author_text: text,
-        context_block: judgment_context_block(context),
-        options: []
-      }
+      explorations = judgment_explorations(state)
+      protocol_input = judgment_protocol_input(input, run, context, explorations)
 
       case JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input) do
+        {:ok, %{action: "explore"} = judgment} ->
+          emit_judgment_decided(snapshot, judgment)
+          judgment_explore_result(judgment, run, sequence, input, context, snapshot, explorations)
+
         {:ok, judgment} ->
           emit_judgment_decided(snapshot, judgment)
           dispatch_judgment(judgment, run, sequence, input, context)
@@ -554,6 +589,17 @@ defmodule NovelApplication.DialoguePlanningService do
           {:error, reason}
       end
     end
+  end
+
+  defp judgment_protocol_input(input, run, context, explorations) do
+    explore_open? = length(explorations) < @max_explore_rounds
+
+    %{
+      author_text: map_get(input, :text) || run.goal.text,
+      context_block:
+        judgment_context_block(context) <> exploration_sections(explorations, explore_open?),
+      options: if(explore_open?, do: [explore: true], else: [])
+    }
   end
 
   # 业务日志（ADR-0018 观测族）：判断结构落地事实——frame 语义并入判断后，
@@ -637,6 +683,68 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp settle_state(:completed), do: "completed"
   defp settle_state(:awaiting_author), do: "awaiting_author"
+
+  # CP5a explore：按 explore_request 跑只读检索（同判断步内联执行，0 提供者调用），
+  # 观察追加进 stage_state（shallow merge 整表替换，故带旧值重建）后回环——planner
+  # 不见 settle 会再入判断步。explore_request 缺失（模型选了 explore 但没点名工具/
+  # 查询）按 S2 韧性降级停等，不伪造检索。工具失败记为观察（诚实呈现，下一轮判断
+  # 自行换面或停等），不硬失败整个 run。
+  defp judgment_explore_result(
+         %{explore_request: nil} = judgment,
+         run,
+         sequence,
+         input,
+         context,
+         _snapshot,
+         _explorations
+       ) do
+    degraded = %{judgment | reason: "explore_request_missing"}
+    finalize_judgment_reply(degraded, run, sequence, input, context, :awaiting_author)
+  end
+
+  defp judgment_explore_result(judgment, run, sequence, input, _context, snapshot, explorations) do
+    %{tool: tool, query: query} = judgment.explore_request
+    work_id = map_get(input, :work_id) || run.work_id || run.workspace_id
+    log_judgment_decided(judgment, "judgment_explore", 0)
+
+    observation =
+      case ExplorationService.run(work_id, tool, query) do
+        {:ok, observation} ->
+          observation
+
+        {:error, reason} ->
+          %{tool: tool, query: query, summary: "探索工具执行失败：#{inspect(reason)}", refs: []}
+      end
+
+    emit_judgment_stage(
+      snapshot,
+      :exploration_observed,
+      "已检索 #{tool}「#{query}」。",
+      ["exploration_observed", tool],
+      %{
+        stage: :exploration_observed,
+        tool: tool,
+        query: query,
+        refs: observation.refs,
+        summary: observation.summary
+      }
+    )
+
+    {:ok,
+     %{
+       step: judgment_agent_step(run, sequence, "探索：#{tool}「#{query}」"),
+       observations: [
+         judgment_observation(run, sequence, observation.summary, "explore:#{tool}:#{sequence}", %{
+           stage: :exploration_observed,
+           tool: tool,
+           query: query
+         })
+       ],
+       stage_state: %{judgment_explorations: explorations ++ [observation]},
+       provider_call_count: judgment.provider_call_count,
+       progress_signature: "#{run.run_id}:explore:#{sequence}:#{tool}:#{query}"
+     }}
+  end
 
   # execute/plan：切换到能力 profile（等价旧路由；计划起草→机械 cursor 沿用）。
   defp judgment_switch_result(profile, judgment, input, run, sequence) do
@@ -1278,11 +1386,15 @@ defmodule NovelApplication.DialoguePlanningService do
       ]
 
     # +2 = 判断循环入场开销：机械准备 1 step（0 调用）+ 判断①两段式 2 调用；
-    # 两段式规划开销由 run_budget/3 的 plan_overhead_budget 统一补足
+    # 两段式规划开销由 run_budget/3 的 plan_overhead_budget 统一补足。
+    # CP5a 探索余量（上界 backstop 非配额）：每回合 = 探索步 1 step（0 调用）+
+    # 再判断 1 step 2 调用，@max_explore_rounds 回合封顶。
+    explore_allowance = @max_explore_rounds * 2
+
     %{
-      max_steps: max_budget(routed, :max_steps) + 2,
+      max_steps: max_budget(routed, :max_steps) + 2 + explore_allowance,
       max_tool_calls: max_budget(routed, :max_tool_calls),
-      max_provider_calls: max_budget(routed, :max_provider_calls) + 2,
+      max_provider_calls: max_budget(routed, :max_provider_calls) + 2 + explore_allowance,
       max_replans: max_budget(routed, :max_replans),
       max_pending_artifacts: max_budget(routed, :max_pending_artifacts)
     }

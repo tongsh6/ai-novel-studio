@@ -388,6 +388,90 @@ au07-state-trace 两姊妹场景未在判断纪元重验（同 finder 族已前�
 重验时校）；agent 纪元 toolbox 遥测缺 turn/run 绑定（仅 decision_id/tool_request_id，
 可观测性改进项）。
 
+## 2l. CP5a 探索内部翼六问（开工登记，2026-07-19，用户"继续"；纠正律：盘点先于设计）
+
+**盘点结论（先于设计完成）**：
+- 数据面 4 面：档案 `WorkArchiveService`（profile/characters/foreshadowing/rules/stats）、
+  治理记忆 `MemoryManagementService.recall(work_id, %{query, token_budget})`、
+  阅读投影 `ReadingProjectionService.toc + chapter_content`（正文=scenes 的 accepted
+  drafts 物化）、正文全文检索=**唯一新建**。
+- 检索选型 spike（`spikes/fts_chinese_search/`，可复跑）：SQLite 3.53.3 FTS5 编入；
+  **trigram 表 + 查询整形**——≥3 字 MATCH（bm25 + snippet 引用），<3 字 LIKE 回退
+  （2 字仍走 trigram 索引，查询计划实证）；unigram 字切分弃（存储 ×2 / snippet 带
+  空格 / rank 语义弱）。写入成本 0.03ms/章（可忽略）。
+- 同语义机制盘点：`ContextAssembler`（机械准备，固定注入摘要）与
+  `readonly_batch_context` profile（execute 形态固定批量读档案四面）**都不动**——
+  探索翼=模型按需选面多轮检索，与两者互补不平行。判断①协议 explore 钩子已预留
+  （actions/forms_section/explore_capability_note，"CP5 打开"注记在案）；
+  `:exploration_observed` 已在 run server @stage_event_types。
+
+**六问**：
+1. **Contract**：ADR-0025 §5a 内部翼；`judgment_decision` args 扩 `explore_request`
+   {tool, query}（action=explore 时必填）；探索目录段进判断 prompt（与能力目录同段
+   机械渲染）；观察以 "## 探索观察" 段进后续判断上下文。
+2. **Invariant**：探索全程只读（authority production_write=false 不变）；N-NARR
+   不破——判断叙事仍系模型两段式字节绑定，探索观察摘要=检索结果机械渲染（结构词
+   家族，带 refs 出处）；探索回合硬上限 2（超出后判断不再开放 explore 选项，被迫
+   四选一收束）；I1/I2/I3 无涉（探索不产 artifact items）。
+3. **Boundary**：改 novel_persistence（FTS migration + ProseSearchRepo，watermark
+   惰性重建：accepted drafts 的 max(updated_at) > 索引水位才重建，采纳写路径零耦合）
+   + novel_application（ExplorationService 四面原子读 + judgment_protocol explore_request
+   + 循环 explore 分支 + routing 预算 explore 余量 +4 步 +4 调用）。不改 novel_domain /
+   novel_web / novel_agent 生产件（Stub/SliceVerify 测试替身除外）。
+4. **Consumer**：判断循环 explore 分支；场景 `judgment-explore-internal` 真实页面对话。
+5. **Proof**：协议 explore 解析直连测试；ProseSearchRepo 中文检索测试（≥3 字 MATCH
+   / 2 字 LIKE 回退 / 水位重建）；ExplorationService 四面测试；循环测试（explore→
+   观察→再判断→reply 收束 + 回合上限强制收束）；I1/I2/I3 + N-NARR + 伞级门禁。
+6. **Acceptance Driver**：`bash scripts/tauri_slice_verify.sh judgment-explore-internal`
+   ——外部驱动真实工作台：采纳一章正文 → 问只有正文里才有的事实 → 判断 explore →
+   prose_search 观察（exploration_observed 事件）→ 回复引用该事实。产品零验收感知
+   （无 env/slice id/自动上报，验收凭 app-log JSONL + ui-state 外部证据）。
+
+## 2m. CP5a 落地（2026-07-19，同日收口）
+
+**判断①内部翼上线（explore 生产打开）**：
+- 协议：`judgment_decision` args 扩 `explore_request` {tool, query}（schema + prompt
+  填写说明 + 归一化——tool/query 任一缺失即 nil 不猜）；判断 map 增 `explore_request`。
+- 循环：`dialogue_planning_service` 判断步开放 `explore: true`（回合 < 2 时），
+  prompt 注入探索目录段（ExplorationService.catalog_section 真源单点）+ 已有观察段
+  （"## 探索观察"）；explore 分发**判断步内联执行**只读检索（0 提供者调用），观察
+  追加 stage_state 回环再判断；回合硬上限 2 后四选一收束；explore_request 缺失按
+  S2 韧性降级停等（不伪造检索）；工具失败记为观察（下一轮判断自行换面或停等）。
+- 预算：routing 探索余量 +4 步 +4 调用（上界 backstop，非配额）。
+
+**ExplorationService（四面原子读，全包既有 API）**：prose_search / chapter_read /
+archive_read(5 facets) / memory_recall；观察=机械渲染结构词 + refs 出处，clip 1500。
+
+**prose_search 基础设施（唯一新建）**：
+- migration `prose_search_index`（FTS5 trigram, work/chapter UNINDEXED）+
+  `prose_search_watermarks`；`ProseSearchRepo`——水位惰性重建（accepted drafts
+  max(updated_at) 比对，采纳写路径零耦合）、选取语义与阅读投影一致（每 scene 最高
+  revision accepted，tentative 绝不进索引）、查询整形（≥3 字 MATCH bm25+snippet /
+  <3 字 LIKE 回退）。选型 spike `spikes/fts_chinese_search/`（可复跑，README 已入索引）。
+
+**桩与叙事回声契约**（call2 无 context 段，轮次靠 call1 叙事回声分辨）：
+- lib Stub：explore 尊重协议开关（"先探索"形态标记）；决策段靠"我需要先检索作品
+  事实"回声成立 explore、"依据如下"回声收束 reply；引用行=观察段中带章名出处的
+  命中行（字节透传，段头排除）。slice_verify 同款规则 + 「」引用词提取。
+- 前端：时间线 exploration_observed 允许以事件 summary 渲染（机械结构词状态行；
+  author_narrative 仍专属模型叙事，N-NARR 叙事族不适用）——探索在执行记录可见。
+
+**证据**：
+- 场景 `judgment-explore-internal` verified（真实工作台：采纳含「灵气账单」正文 →
+  问"查一下正文里「灵气账单」是怎么写的" → judgment.decided explore → prose_search
+  检索到已采纳正文字节（FTS snippet 标记片段进回复）→ reply 引用事实 + 出处章名；
+  behavior 断言含 explore 先于 reply、零 Toolbox dispatch、零 pending artifacts）。
+- 直连：协议 explore 归一 4 测；ProseSearchRepo 中文检索 6 测（MATCH/LIKE 回退/
+  水位重建/最高 revision/跨作品隔离）；ExplorationService 四面 5 测；循环回环 3 测
+  （全回环含真实检索命中 / 回合上限四选一 / 缺失降级停等）。
+- 门禁：伞级 1173 测 0 失败；I1/I2/I3/N-NARR 全 exit 0；MBC judgment stub 1.0；
+  compile 零警告；xref 无循环；arch ✓；前端 typecheck/lint/vitest 395+175 ✓；
+  静态扫描 touched 0（6 项 credo 全修：MapJoin ×2 / 圈复杂度拆分 ×3 / 嵌套扁平）。
+
+**CP5a 边界与后续**：judgment_plan 目录检索步（计划内探索步）与 MBC explore live
+探针（判断①第五形态方向质量）归 CP5b；CP6 外部翼（SearchProvider + 授权边界）待
+用户拍板开工。
+
 ## 3. 决策日志
 
 - 2026-07-15：CP0 文档批次落地（用户"同意 开始落所有的文档"）。ADR-0025 同日

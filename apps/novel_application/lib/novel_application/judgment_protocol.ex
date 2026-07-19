@@ -35,6 +35,7 @@ defmodule NovelApplication.JudgmentProtocol do
           capability: String.t() | nil,
           reason: String.t(),
           reply_included: boolean(),
+          explore_request: %{tool: String.t(), query: String.t()} | nil,
           candidate_directions: [map()],
           candidate_directions_present: boolean(),
           narrative: String.t(),
@@ -267,6 +268,7 @@ defmodule NovelApplication.JudgmentProtocol do
            capability: nonblank(map_get(arguments, :capability)),
            reason: map_get(arguments, :reason) || "",
            reply_included: map_get(arguments, :reply_included) == true,
+           explore_request: explore_request(arguments),
            candidate_directions: candidate_directions(arguments),
            # 探索意图原始信号：字段存在且非空（哪怕结构坏了）——坏结构不丢意图，
            # 由消费层降级为应用兜底候选（S2 韧性，旧 frame 兜底语义平移）。
@@ -497,6 +499,8 @@ defmodule NovelApplication.JudgmentProtocol do
           - reply_included：action=reply 且判断说明已包含给作者的回复正文时为 true。
           - candidate_directions：仅当 action=reply 且你的回复是给作者 2-3 个可选创作方向时填写
             （每个方向 {title, pitch, tone_tags}）；其它情况为空数组。
+          - explore_request：action=explore 时必填 {tool, query}——tool 从「探索目录」选择，
+            query 按该工具的 query 说明填写；其它 action 置 null。
           - author_narrative：若你在上一步没有输出判断说明，在此补写一段作者可见原文。
           """
         }
@@ -523,6 +527,19 @@ defmodule NovelApplication.JudgmentProtocol do
                   },
                   required: ["title", "pitch"]
                 }
+              },
+              explore_request: %{
+                anyOf: [
+                  %{
+                    type: "object",
+                    properties: %{
+                      tool: %{type: "string"},
+                      query: %{type: "string"}
+                    },
+                    required: ["tool", "query"]
+                  },
+                  %{type: "null"}
+                ]
               },
               author_narrative: %{anyOf: [%{type: "string"}, %{type: "null"}]}
             },
@@ -573,6 +590,20 @@ defmodule NovelApplication.JudgmentProtocol do
     case map_get(provider_result, :tool_calls) do
       calls when is_list(calls) -> calls
       _ -> []
+    end
+  end
+
+  # CP5 探索内部翼：action=explore 时模型在 explore_request 里点名检索工具与查询。
+  # 坏结构不猜——tool/query 任一缺失即 nil，消费层按缺失诚实降级（不伪造检索）。
+  defp explore_request(arguments) do
+    case map_get(arguments, :explore_request) do
+      %{} = request ->
+        tool = nonblank(map_get(request, :tool))
+        query = nonblank(map_get(request, :query))
+        if tool && query, do: %{tool: tool, query: query}, else: nil
+
+      _ ->
+        nil
     end
   end
 

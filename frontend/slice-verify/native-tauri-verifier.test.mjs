@@ -207,6 +207,76 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("agent-conversation-turn", extraCallRecords)).toBeNull();
   });
 
+  it("requires explore-then-cited-reply evidence for judgment-explore-internal (ADR-0025 CP5a)", () => {
+    const records = [
+      { event: "channel.user_message.start", turn_id: "turn-explore" },
+      { event: "judgment.decided.done", turn_id: "turn-explore", action: "explore" },
+      { event: "judgment.decided.done", turn_id: "turn-explore", action: "reply" },
+      { event: "channel.user_message.done", turn_id: "turn-explore" },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "judgment-explore-internal",
+        draft_turn_id: "turn-seed:agent:4",
+        adopt_turn_id: "turn-adopt",
+        explore_turn_id: "turn-explore:agent:2",
+        explore_question_text: "查一下正文里「灵气账单」是怎么写的",
+        explore_reply_text:
+          "我检索了正文中与「灵气账单」相关的段落，依据如下：\n\n「第01章：底层灵气账单」夜色压在底层灵气账单上…",
+        explore_reply_cites_fact: true,
+        explore_reply_cites_chapter: true,
+        exploration_visible_in_run_feedback: true,
+        explore_no_pending_artifacts: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("judgment-explore-internal", records);
+    expect(evidence).toMatchObject({
+      slice_id: "judgment-explore-internal",
+      explore_turn_id: "turn-explore:agent:2",
+      judgment_explore_count: 1,
+    });
+
+    expect(findSliceBehaviorEvidence("judgment-explore-internal", records, evidence)).toMatchObject({
+      behavior: "judgment_explores_adopted_prose_then_replies_with_cited_facts",
+      fact_term: "灵气账单",
+      assertions: expect.arrayContaining([
+        "judgment_decided_explore_before_reply_on_same_turn",
+        "exploration_ran_readonly_without_toolbox_dispatch",
+        "reply_cites_fact_term_and_source_chapter",
+      ]),
+    });
+
+    // 判断链缺 explore（只有 reply）→ 不算证据
+    const noExplore = records.filter(
+      (record) => !(record.event === "judgment.decided.done" && record.action === "explore"),
+    );
+    expect(findNativeSliceEvidence("judgment-explore-internal", noExplore)).toBeNull();
+
+    // 顺序颠倒（reply 先于 explore）→ 不算证据
+    const reversed = records.map((record) => {
+      if (record.event !== "judgment.decided.done") return record;
+      return { ...record, action: record.action === "explore" ? "reply" : "explore" };
+    });
+    expect(findNativeSliceEvidence("judgment-explore-internal", reversed)).toBeNull();
+
+    // 回复未引用事实 → 不算证据
+    const uncited = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, explore_reply_cites_fact: false }
+        : record,
+    );
+    expect(findNativeSliceEvidence("judgment-explore-internal", uncited)).toBeNull();
+
+    // 探索 turn 出现 toolbox dispatch → behavior 不成立（只读检索不经 Toolbox）
+    const withToolbox = [
+      ...records,
+      { event: "toolbox.execute.done", turn_id: "turn-explore:agent:2", tool_name: "prose_writing" },
+    ];
+    const toolboxEvidence = findNativeSliceEvidence("judgment-explore-internal", withToolbox);
+    expect(toolboxEvidence).not.toBeNull();
+    expect(findSliceBehaviorEvidence("judgment-explore-internal", withToolbox, toolboxEvidence)).toBeNull();
+  });
+
   it("requires judgment-loop direct reply evidence for the no-deviation scenario (ADR-0025 CP1)", () => {
     const records = [
       {

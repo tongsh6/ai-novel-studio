@@ -180,6 +180,7 @@ export const nativeSliceIds = [
   "p1-chapter-expansion",
   "p1-chapter-expansion-multichapter",
   "p1-chapter-word-count-target",
+  "judgment-explore-internal",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -913,6 +914,12 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "adoption.evaluate.done",
     "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "judgment-explore-internal": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "judgment.decided.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -1795,6 +1802,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterWordCountTargetEvidence(records);
   }
 
+  if (sliceId === "judgment-explore-internal") {
+    return findJudgmentExploreInternalEvidence(records);
+  }
+
   if (sliceId === "au04-confirm-before-execute") {
     return findAu04ConfirmBeforeExecuteEvidence(records);
   }
@@ -2402,6 +2413,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-word-count-target") {
     return p1ChapterWordCountTargetBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "judgment-explore-internal") {
+    return judgmentExploreInternalBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au04-confirm-before-execute") {
@@ -11897,6 +11912,55 @@ function findAu07StateTraceAdoptionReplayEvidence(records) {
   };
 }
 
+function findJudgmentExploreInternalEvidence(records) {
+  const sliceId = "judgment-explore-internal";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.explore_reply_cites_fact === true &&
+      record.explore_reply_cites_chapter === true &&
+      record.exploration_visible_in_run_feedback === true &&
+      record.explore_no_pending_artifacts === true,
+  );
+  if (!uiState) return null;
+
+  const exploreTurnId = String(uiState.explore_turn_id ?? "");
+  if (!exploreTurnId) return null;
+  const baseTurnId = exploreTurnId.split(":")[0];
+
+  // 判断链证据：同一探索 turn 上先 explore 后 reply 两次判断落地
+  // （judgment.decided.done 业务日志，LogContext 绑基 turn）。
+  const judgmentEvents = records.filter(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      (record.turn_id === baseTurnId || record.turn_id === exploreTurnId),
+  );
+  const exploreDecided = judgmentEvents.findIndex((record) => record.action === "explore");
+  const replyDecided = judgmentEvents.findIndex((record) => record.action === "reply");
+  if (exploreDecided < 0 || replyDecided < 0) return null;
+  if (exploreDecided > replyDecided) return null;
+
+  const question = String(uiState.explore_question_text ?? "");
+  const replyText = String(uiState.explore_reply_text ?? "");
+  if (!question.includes("正文里")) return null;
+  if (!replyText.includes("依据如下")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: exploreTurnId,
+    turn_ids: [...new Set([baseTurnId, exploreTurnId])],
+    draft_turn_id: uiState.draft_turn_id,
+    adopt_turn_id: uiState.adopt_turn_id,
+    explore_turn_id: exploreTurnId,
+    explore_question_text: question,
+    explore_reply_text: replyText,
+    judgment_explore_count: judgmentEvents.filter((record) => record.action === "explore").length,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
 function findP1ChapterWordCountTargetEvidence(records) {
   const sliceId = "p1-chapter-word-count-target";
   // 复用采纳-阅读链路证据：作者请求生成 → 工具产出 → accept 采纳 → 阅读投影字数自洽。
@@ -13798,6 +13862,49 @@ function au04LatestContextRebaseConfirmationBehavior(
       "confirmed_turn_trace_current_work_summary_included_renamed_title",
       "confirmed_turn_reason_codes_recorded_rebased_snapshot_and_gate_ref",
       "re_gate_dispatched_tool_and_left_output_pending_adoption",
+    ],
+  };
+}
+
+function judgmentExploreInternalBehavior(turnIds, turnRecords, records, evidence, _options) {
+  const sliceId = "judgment-explore-internal";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.explore_turn_id === evidence.explore_turn_id,
+  );
+  if (!uiState) return null;
+
+  // 探索问答本身零工具 dispatch / 零采纳（只读检索在判断步内联，不经 Toolbox）
+  const exploreToolbox = turnRecords.some(
+    (record) => record.event === "toolbox.execute.done" && record.turn_id === evidence.explore_turn_id,
+  );
+  if (exploreToolbox) return null;
+  if (uiState.explore_no_pending_artifacts !== true) return null;
+
+  // 回复引用的检索词同时出现在问题与回复里（作者问什么，回复答什么）
+  const question = String(uiState.explore_question_text ?? "");
+  const replyText = String(uiState.explore_reply_text ?? "");
+  const quoted = question.match(/「([^」]+)」/u);
+  if (!quoted) return null;
+  if (!replyText.includes(quoted[1])) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "judgment_explores_adopted_prose_then_replies_with_cited_facts",
+    turn_ids: turnIds,
+    explore_turn_id: evidence.explore_turn_id,
+    fact_term: quoted[1],
+    judgment_explore_count: evidence.judgment_explore_count,
+    assertions: [
+      "author_question_names_a_prose_only_fact",
+      "judgment_decided_explore_before_reply_on_same_turn",
+      "exploration_ran_readonly_without_toolbox_dispatch",
+      "exploration_observation_visible_in_run_feedback",
+      "reply_cites_fact_term_and_source_chapter",
+      "explore_turn_produced_no_pending_artifacts",
     ],
   };
 }

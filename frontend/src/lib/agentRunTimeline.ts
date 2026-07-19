@@ -156,11 +156,17 @@ export function activeToolActivity(events: AgentEventData[]): AgenticLoopActivit
 }
 
 function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {
-  return (
-    ["plan_drafted", "plan_revised", "exploration_observed", "evaluation_made"].includes(
+  if (
+    !["plan_drafted", "plan_revised", "exploration_observed", "evaluation_made"].includes(
       event.event_type,
-    ) && stringPayloadValue(event.payload, "author_narrative") !== null
-  );
+    )
+  ) {
+    return false;
+  }
+  if (stringPayloadValue(event.payload, "author_narrative") !== null) return true;
+  // 判断纪元探索观察（ADR-0025 CP5a）：机械检索的结构词摘要（无模型叙事，
+  // N-NARR 叙事族不适用），以事件 summary 渲染探索状态行。
+  return event.event_type === "exploration_observed" && typeof event.summary === "string";
 }
 
 function narrativeEventsFromReasoning(events: AgentEventData[]): AgenticLoopNarrativeEvent[] {
@@ -168,7 +174,7 @@ function narrativeEventsFromReasoning(events: AgentEventData[]): AgenticLoopNarr
     key: event.event_id,
     eventType: event.event_type,
     label: WORKBENCH.agenticLoopEventLabels[event.event_type] ?? event.event_type,
-    narrative: stringPayloadValue(event.payload, "author_narrative") ?? "",
+    narrative: stringPayloadValue(event.payload, "author_narrative") ?? event.summary ?? "",
     sequence: event.sequence,
   }));
 }

@@ -1,0 +1,249 @@
+defmodule NovelApplication.ExplorationService do
+  @moduledoc """
+  CP5 探索内部翼：判断循环的按需只读检索面（ADR-0025 §5a）。
+
+  原子工具按**数据面**组织（组合归模型，app 不预制用途）：
+
+  - `prose_search`  已采纳正文全文检索（唯一新建，FTS5 trigram；选型证据
+    `spikes/fts_chinese_search/`）
+  - `chapter_read`  按章名读已采纳正文（阅读投影同源）
+  - `archive_read`  作品档案面读取（profile/characters/foreshadowing/rules/stats）
+  - `memory_recall` 治理记忆检索
+
+  全部包既有服务 API（`ProseSearchRepo` / `ReadingProjectionService` /
+  `WorkArchiveService` / `MemoryManagementService`），不建平行读路径。观察
+  summary 是检索结果的机械渲染（结构词家族 + 出处 refs），不产生系统代笔叙述。
+  """
+
+  alias NovelApplication.{MemoryManagementService, ReadingProjectionService, WorkArchiveService}
+  alias NovelPersistence.ProseSearchRepo
+
+  @type observation :: %{
+          tool: String.t(),
+          query: String.t(),
+          summary: String.t(),
+          refs: [String.t()]
+        }
+
+  @archive_facets ~w(profile characters foreshadowing rules stats)
+  @summary_max_chars 1500
+  @chapter_clip_chars 1200
+
+  @catalog [
+    %{
+      tool: "prose_search",
+      query_help: "检索词（人物、物件、事件等正文用语）",
+      description: "全文检索已采纳正文，返回命中章节与原文片段"
+    },
+    %{
+      tool: "chapter_read",
+      query_help: "章节名（可只给编号如「第02章」）",
+      description: "读取某一章的已采纳正文"
+    },
+    %{
+      tool: "archive_read",
+      query_help: "档案面之一：profile｜characters｜foreshadowing｜rules｜stats",
+      description: "读取作品档案（简介/角色/伏笔/规则/统计）"
+    },
+    %{
+      tool: "memory_recall",
+      query_help: "检索词",
+      description: "检索治理记忆（已确认的设定、约束、方向）"
+    }
+  ]
+
+  @spec catalog() :: [map()]
+  def catalog, do: @catalog
+
+  @spec tool_names() :: [String.t()]
+  def tool_names, do: Enum.map(@catalog, & &1.tool)
+
+  @doc "判断 prompt 的探索目录段（与能力目录同段机械渲染，真源单点）。"
+  @spec catalog_section() :: String.t()
+  def catalog_section do
+    lines =
+      Enum.map_join(@catalog, "\n", fn entry ->
+        "- #{entry.tool}：#{entry.description}（query 填#{entry.query_help}）"
+      end)
+
+    "## 探索目录（explore 时 explore_request.tool 从此列表选择）\n" <> lines
+  end
+
+  @spec run(String.t(), String.t(), String.t()) :: {:ok, observation()} | {:error, term()}
+  def run(work_id, tool, query) when is_binary(work_id) and is_binary(tool) do
+    query = String.trim(query || "")
+
+    case tool do
+      "prose_search" -> prose_search(work_id, query)
+      "chapter_read" -> chapter_read(work_id, query)
+      "archive_read" -> archive_read(work_id, query)
+      "memory_recall" -> memory_recall(work_id, query)
+      other -> {:error, {:unknown_exploration_tool, other}}
+    end
+  end
+
+  def run(_work_id, tool, _query), do: {:error, {:unknown_exploration_tool, tool}}
+
+  # ── prose_search ──
+
+  defp prose_search(_work_id, ""), do: {:error, :empty_query}
+
+  defp prose_search(work_id, query) do
+    case ProseSearchRepo.search(work_id, query) do
+      {:ok, []} ->
+        {:ok, observation("prose_search", query, "正文中未检索到「#{query}」。", [])}
+
+      {:ok, hits} ->
+        summary =
+          Enum.map_join(hits, "\n", fn hit ->
+            "「#{hit.chapter_title}」#{hit.snippet}"
+          end)
+
+        {:ok,
+         observation(
+           "prose_search",
+           query,
+           "正文检索「#{query}」命中 #{length(hits)} 章：\n" <> summary,
+           Enum.map(hits, &"chapter:#{&1.chapter_id}")
+         )}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # ── chapter_read ──
+
+  defp chapter_read(_work_id, ""), do: {:error, :empty_query}
+
+  defp chapter_read(work_id, query) do
+    chapters =
+      work_id
+      |> ReadingProjectionService.toc()
+      |> Map.get(:volumes, [])
+      |> Enum.flat_map(&Map.get(&1, :chapters, []))
+
+    case Enum.find(chapters, &chapter_match?(&1, query)) do
+      nil ->
+        titles = Enum.map_join(chapters, "、", & &1.title)
+        {:ok, observation("chapter_read", query, "没有找到「#{query}」。现有章节：#{titles}", [])}
+
+      chapter ->
+        case ReadingProjectionService.chapter_content(chapter.id, work_id) do
+          {:ok, content} ->
+            text = content.scenes |> Enum.map_join("\n", & &1.content) |> clip(@chapter_clip_chars)
+
+            {:ok,
+             observation(
+               "chapter_read",
+               query,
+               "「#{content.title}」（有效字数 #{content.word_count}）：\n#{text}",
+               ["chapter:#{chapter.id}"]
+             )}
+
+          {:error, :not_found} ->
+            {:ok, observation("chapter_read", query, "「#{chapter.title}」还没有已采纳正文。", [])}
+        end
+    end
+  end
+
+  defp chapter_match?(chapter, query) do
+    title = chapter.title || ""
+    String.contains?(title, query) or String.contains?(query, title)
+  end
+
+  # ── archive_read ──
+
+  defp archive_read(work_id, facet) when facet in @archive_facets do
+    summary =
+      case facet do
+        "profile" -> render_profile(WorkArchiveService.profile(work_id))
+        "characters" -> render_characters(WorkArchiveService.characters(work_id))
+        "foreshadowing" -> render_memory_items("伏笔", WorkArchiveService.foreshadowing(work_id))
+        "rules" -> render_memory_items("规则", WorkArchiveService.rules(work_id))
+        "stats" -> render_stats(WorkArchiveService.stats(work_id))
+      end
+
+    {:ok, observation("archive_read", facet, summary, ["archive:#{facet}"])}
+  end
+
+  defp archive_read(_work_id, facet),
+    do: {:error, {:unknown_archive_facet, facet, @archive_facets}}
+
+  defp render_profile(profile) when map_size(profile) == 0, do: "作品档案暂无简介。"
+
+  defp render_profile(profile) do
+    [
+      {"书名", profile[:title]},
+      {"类型", profile[:genre]},
+      {"核心卖点", profile[:core_selling_point]},
+      {"目标读者", profile[:target_reader]},
+      {"基调", profile[:tone_preference]}
+    ]
+    |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
+    |> Enum.map_join("\n", fn {label, value} -> "#{label}：#{value}" end)
+    |> case do
+      "" -> "作品档案暂无简介。"
+      text -> text
+    end
+  end
+
+  defp render_characters([]), do: "档案中还没有已采纳角色。"
+
+  defp render_characters(characters) do
+    Enum.map_join(characters, "\n", fn character ->
+      role = character[:narrative_role] || character[:role]
+      summary = character[:summary] || ""
+      "#{character[:name]}（#{role}）：#{summary}"
+    end)
+  end
+
+  defp render_memory_items(label, []), do: "档案中还没有#{label}条目。"
+
+  defp render_memory_items(_label, items) do
+    Enum.map_join(items, "\n", fn item ->
+      title = item[:summary] || ""
+      body = item[:content] || ""
+      String.trim("#{title}：#{body}", "：")
+    end)
+  end
+
+  defp render_stats(stats) do
+    "已采纳正文总字数 #{stats[:words_total] || 0}；章节数 #{stats[:chapters] || 0}；" <>
+      "已采纳角色 #{stats[:characters] || 0}；确认记忆 #{stats[:memory_items] || 0}。"
+  end
+
+  # ── memory_recall ──
+
+  defp memory_recall(_work_id, ""), do: {:error, :empty_query}
+
+  defp memory_recall(work_id, query) do
+    case MemoryManagementService.recall(work_id, %{"query" => query}) do
+      {:ok, %{text: text, candidate_count: count}} when count > 0 and text != "" ->
+        {:ok,
+         observation("memory_recall", query, "记忆检索「#{query}」命中 #{count} 条：\n#{text}", [
+           "memory:#{count}"
+         ])}
+
+      {:ok, _empty} ->
+        {:ok, observation("memory_recall", query, "记忆中未检索到「#{query}」。", [])}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # ── 公共 ──
+
+  defp observation(tool, query, summary, refs) do
+    %{tool: tool, query: query, summary: clip(summary, @summary_max_chars), refs: refs}
+  end
+
+  defp clip(text, max) do
+    if String.length(text) > max do
+      String.slice(text, 0, max) <> "…（截断）"
+    else
+      text
+    end
+  end
+end

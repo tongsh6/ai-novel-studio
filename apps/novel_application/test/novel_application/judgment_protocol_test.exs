@@ -55,11 +55,42 @@ defmodule NovelApplication.JudgmentProtocolTest do
   defp prompt_text(prompt) when is_binary(prompt), do: prompt
   defp prompt_text(_), do: ""
 
-  defp request(arguments) do
+  defp request(arguments, options \\ []) do
     JudgmentProtocol.request_judgment(fake_execution(arguments), %{}, %{
       author_text: "想写赛博修仙，给我几个方向",
-      context_block: "（无上下文）"
+      context_block: "（无上下文）",
+      options: options
     })
+  end
+
+  test "explore_request 归一：tool+query 齐全成立，任一缺失为 nil（不猜）" do
+    assert {:ok, judgment} =
+             request(
+               %{
+                 "action" => "explore",
+                 "reason" => "missing_facts",
+                 "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
+               },
+               explore: true
+             )
+
+    assert judgment.action == "explore"
+    assert judgment.explore_request == %{tool: "prose_search", query: "灵气账单"}
+
+    assert {:ok, missing_query} =
+             request(
+               %{
+                 "action" => "explore",
+                 "reason" => "missing_facts",
+                 "explore_request" => %{"tool" => "prose_search", "query" => "  "}
+               },
+               explore: true
+             )
+
+    assert missing_query.explore_request == nil
+
+    assert {:ok, absent} = request(%{"action" => "reply", "reason" => "ok"})
+    assert absent.explore_request == nil
   end
 
   test "正常候选列表：解析为候选，present 为真" do

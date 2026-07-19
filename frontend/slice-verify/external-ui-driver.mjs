@@ -8771,6 +8771,122 @@ function visibleTextIncludesPendingDraft(visibleText) {
   return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(visibleText);
 }
 
+async function driveJudgmentExploreInternal(page) {
+  // CP5a 探索内部翼：作者问"只有正文里才有的事实"，判断① explore → prose_search
+  // 真实检索已采纳正文 → 观察回环 → reply 引用检索到的原文片段。
+  // 种子：对话自然语言生成第01章正文并采纳（桩把标题词织入正文——「灵气账单」
+  // 落在已采纳正文字节里，检索命中的是 content 而非仅标题）。
+  const requestText =
+    "请根据已采纳章节计划生成第01章：底层灵气账单：主角在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。正文草稿，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result was received for the explore-seed prose request",
+    200_000,
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+
+  await page.waitForFunction(
+    () =>
+      /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(
+        document.body.innerText,
+      ),
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+
+  const adoptTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
+    "No resolved adoption turn_result websocket frame was received after accept",
+    120_000,
+  );
+  const adoptTurnResult = adoptTurnFrame.body;
+
+  // 探索问答：只有正文里才有的事实（引用词「灵气账单」织在已采纳正文里）
+  const exploreQuestion = "查一下正文里「灵气账单」是怎么写的";
+  await page.locator(chatInputSelector).fill(exploreQuestion);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const exploreReplyFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      typeof frame.body?.assistant_message?.text === "string" &&
+      frame.body.assistant_message.text.includes("依据如下") &&
+      frame.body.assistant_message.text.includes("灵气账单"),
+    "No exploration-grounded reply turn_result was received for the prose-fact question",
+    200_000,
+  );
+  const exploreReply = exploreReplyFrame.body;
+  const replyText = exploreReply.assistant_message.text;
+
+  // 回复在真实页面可见，且执行记录出现探索观察（exploration_observed 渲染）
+  await page.waitForFunction(
+    () => document.body.innerText.includes("依据如下"),
+    { timeout: 15_000 },
+  );
+  const visibleText = await page.locator("body").innerText();
+  const explorationVisible = visibleText.includes("已检索");
+  const replyVisible = visibleText.includes("依据如下");
+
+  // 回复引用的片段必须是已采纳正文里的字节（引用行含检索词 + 出处章名）
+  const citesFact = replyText.includes("灵气账单");
+  const citesChapter = replyText.includes("第01章");
+
+  assert(replyVisible, "Exploration-grounded reply is not visible on the real page");
+  assert(citesFact, "Reply does not cite the prose fact term 灵气账单");
+  assert(citesChapter, "Reply does not cite the source chapter of the retrieved prose");
+  assert(
+    explorationVisible,
+    "Run feedback does not show the exploration observation (已检索) on the real page",
+  );
+  assert(
+    exploreReply.truthfulness?.artifact_adopted !== true,
+    "Explore reply turn must not adopt anything",
+  );
+  assert(
+    (exploreReply.adoption_state?.pending ?? []).length === 0,
+    "Explore reply turn must not produce pending artifacts",
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, exploreReply, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: exploreReply.turn_id,
+      draft_turn_id: draftTurnResult.turn_id,
+      adopt_turn_id: adoptTurnResult.turn_id,
+      explore_turn_id: exploreReply.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      explore_question_text: exploreQuestion,
+      explore_reply_text: replyText,
+      explore_reply_cites_fact: citesFact,
+      explore_reply_cites_chapter: citesChapter,
+      exploration_visible_in_run_feedback: explorationVisible,
+      explore_no_pending_artifacts: (exploreReply.adoption_state?.pending ?? []).length === 0,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveP1ChapterWordCountTarget(page) {
   const targetWordCount = 600;
   // 作者在对话框用自然语言给出"带篇幅"的创作指令：篇幅诉求由 Planner（AI）识别为
@@ -22553,6 +22669,7 @@ const drivers = {
   "p1-chapter-overwrite-confirm": driveP1ChapterOverwriteConfirm,
   "p1-chapter-expansion": driveP1ChapterExpansion,
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
+  "judgment-explore-internal": driveJudgmentExploreInternal,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,
   "au08-reading-readonly-no-write": driveAu08ReadingReadonlyNoWrite,

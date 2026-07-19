@@ -9,3 +9,4 @@
 | 目录 | 内容 |
 |---|---|
 | `v2_verification/` | paper_trail × Ecto × SQLite/PostgreSQL 兼容性、结构化输出选型四路对比（详见 `v2_verification/README.md`；被 `docs/design/tech-stack/verification/` 与 `13-risks.md` 引用） |
+| `fts_chinese_search/` | CP5 `prose_search` 中文检索选型：SQLite FTS5 trigram vs unigram 字切分实测（详见 `fts_chinese_search/README.md`；被 `tasks/slices/UA01-judgment-driven-loop.md` CP5 引用） |

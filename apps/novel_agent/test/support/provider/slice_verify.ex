@@ -1369,10 +1369,56 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_narrative_result(prompt) do
-    {action, _capability, exploratory} = judgment_verdict(prompt)
-    exploratory = exploratory or String.contains?(prompt, @malformed_candidates_marker)
-    narrative = judgment_narrative_text(action, exploratory, prompt)
+    narrative =
+      cond do
+        String.contains?(prompt, "## 探索观察") ->
+          exploration_reply_narrative(prompt)
+
+        explore_request_for(prompt) != nil ->
+          term = explore_quoted_term(judgment_author_input(prompt))
+          "回答这个问题需要正文里的具体事实；我先检索「#{term}」相关的段落再回复你。"
+
+        true ->
+          {action, _capability, exploratory} = judgment_verdict(prompt)
+          exploratory = exploratory or String.contains?(prompt, @malformed_candidates_marker)
+          judgment_narrative_text(action, exploratory, prompt)
+      end
+
     Result.new(narrative, usage_for(prompt, narrative))
+  end
+
+  # 回环第二判的回复：字节透传观察段命中行（含引用词的行），保持"回复引用检索
+  # 事实"的产品语义可被外部验收（不由桩代答产品内容——引用行来自观察=检索结果）。
+  defp exploration_reply_narrative(prompt) do
+    term = explore_quoted_term(judgment_author_input(prompt))
+
+    cited_line =
+      prompt
+      |> String.split("## 探索观察", parts: 2)
+      |> List.last()
+      |> String.split("\n")
+      |> cited_observation_line(term)
+
+    "我检索了正文中与「#{term}」相关的段落，依据如下：\n\n#{String.trim(cited_line)}\n\n" <>
+      "以上就是正文里关于「#{term}」的既有事实。"
+  end
+
+  defp explore_quoted_term(author_text) do
+    case Regex.run(~r/「([^」]+)」/u, author_text) do
+      [_, quoted] -> quoted
+      _ -> ""
+    end
+  end
+
+  # 优先取带章名出处的命中行（「第0X章…」片段行）；段头（### 观察 N）含查询词
+  # 但不是引用，排除。
+  defp cited_observation_line(_lines, ""), do: ""
+
+  defp cited_observation_line(lines, term) do
+    hit_line = fn line -> String.contains?(line, term) and not String.starts_with?(line, "###") end
+
+    Enum.find(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||
+      Enum.find(lines, hit_line) || ""
   end
 
   # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = call2 返回原始垃圾
@@ -1411,6 +1457,85 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_decision_result_for(prompt) do
+    request = explore_request_for(prompt)
+
+    cond do
+      # call2 内嵌引用回复叙事（依据如下）→ 回环收束 reply
+      String.contains?(prompt, "依据如下") ->
+        judgment_cited_reply_decision_result(prompt)
+
+      request != nil ->
+        judgment_explore_decision_result(prompt, request)
+
+      true ->
+        judgment_decision_verdict_result(prompt)
+    end
+  end
+
+  defp judgment_cited_reply_decision_result(prompt) do
+    arguments = %{
+      "action" => "reply",
+      "reason" => "context_sufficient_for_direct_reply",
+      "reply_included" => true
+    }
+
+    reasoning = "judgment_reply_after_exploration"
+
+    Result.new(reasoning, usage_for(prompt, reasoning),
+      tool_calls: [
+        %{
+          "id" => "call_judgment_decision",
+          "name" => "judgment_decision",
+          "arguments" => arguments
+        }
+      ]
+    )
+  end
+
+  # CP5a 内部翼：作者点名查正文事实（「」引用词 + 查/检索类动词）且判断 prompt
+  # 开放「探索目录」时判 explore（explore_request 点名 prose_search + 引用词）；
+  # prompt 已带「探索观察」段则不再探索（回环第二判），由 reply 引用观察收束。
+  defp explore_request_for(prompt) do
+    author_text = judgment_author_input(prompt)
+
+    # call1（叙事）：探索目录开放且尚无观察段；call2（决策，无 context 段）：
+    # 内嵌的 call1 叙事回声（先检索「）标记本轮已判探索。
+    explore_context? =
+      (String.contains?(prompt, "## 探索目录") and
+         not String.contains?(prompt, "## 探索观察")) or
+        String.contains?(prompt, "我先检索「")
+
+    with true <- explore_context?,
+         true <- contains_any?(author_text, ["查一下", "检索", "出现过", "正文里"]),
+         [_, term] <- Regex.run(~r/「([^」]+)」/u, author_text) do
+      %{"tool" => "prose_search", "query" => term}
+    else
+      _ -> nil
+    end
+  end
+
+  defp judgment_explore_decision_result(prompt, request) do
+    arguments = %{
+      "action" => "explore",
+      "reason" => "missing_work_facts_require_retrieval",
+      "reply_included" => false,
+      "explore_request" => request
+    }
+
+    reasoning = "judgment_explore"
+
+    Result.new(reasoning, usage_for(prompt, reasoning),
+      tool_calls: [
+        %{
+          "id" => "call_judgment_decision",
+          "name" => "judgment_decision",
+          "arguments" => arguments
+        }
+      ]
+    )
+  end
+
+  defp judgment_decision_verdict_result(prompt) do
     {action, capability, exploratory} = judgment_verdict(prompt)
 
     directions =
