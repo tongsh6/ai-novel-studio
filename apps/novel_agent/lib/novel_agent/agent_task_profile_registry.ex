@@ -85,19 +85,6 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
-  @conversation_allowed_tools NovelCommon.CapabilityRegistry.list()
-                              |> Enum.filter(&NovelCommon.CapabilityRegistry.dispatchable?/1)
-
-  @conversation_turn_profile %{
-    profile_id: "conversation_turn_v1",
-    allowed_tools: @conversation_allowed_tools,
-    required_observations: [],
-    completion_conditions: ["turn_result_emitted"],
-    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
-    run_policy_ref: "bounded_small_v1",
-    durable_eligible: false
-  }
-
   @provider_progress_profile %{
     profile_id: "provider_progress_v1",
     allowed_tools: ["provider_complete"],
@@ -142,7 +129,6 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   def get("character_evolution_with_context_v1"), do: @character_evolution_profile
   def get("world_building_with_context_v1"), do: @world_building_profile
   def get("prose_revision_from_findings_v1"), do: @prose_revision_profile
-  def get("conversation_turn_v1"), do: @conversation_turn_profile
   def get("provider_progress_v1"), do: @provider_progress_profile
   def get("readonly_batch_context_v1"), do: @readonly_batch_context_profile
   def get(_profile_id), do: nil

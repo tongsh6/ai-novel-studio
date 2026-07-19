@@ -467,13 +467,9 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   defp agent_plan_draft_response(prompt_text) do
-    profile_ref = agent_plan_profile_ref(prompt_text)
-
-    if profile_ref == "conversation_turn_v1" and String.contains?(prompt_text, "UA01D6REPLAN") do
-      conversation_d6_agent_plan()
-    else
-      agent_plan_draft_response_for_profile(profile_ref, prompt_text)
-    end
+    prompt_text
+    |> agent_plan_profile_ref()
+    |> agent_plan_draft_response_for_profile(prompt_text)
   end
 
   defp agent_plan_profile_ref(prompt_text) do
@@ -481,18 +477,6 @@ defmodule NovelAgent.Provider.Stub do
       [profile_ref] -> profile_ref
       _ -> nil
     end
-  end
-
-  defp conversation_d6_agent_plan do
-    %{
-      reasoning: "[stub] 先只读取当前作品上下文，再观察是否需要继续。",
-      steps: [
-        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-          "context_observation_created"
-        ])
-      ],
-      reason_codes: ["agent_plan_drafted", "conversation_d6_short_plan"]
-    }
   end
 
   defp agent_plan_draft_response_for_profile("prose_drafting_with_quality_v1", prompt_text) do
@@ -619,27 +603,6 @@ defmodule NovelAgent.Provider.Stub do
         ])
       ],
       reason_codes: ["agent_plan_drafted", "prose_revision_plan_drafted"]
-    }
-  end
-
-  defp agent_plan_draft_response_for_profile("conversation_turn_v1") do
-    %{
-      reasoning: "[stub] 先读取上下文，形成认知帧，完成系统裁决，再生成本轮回应。",
-      steps: [
-        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-          "context_observation_created"
-        ]),
-        plan_step("dialogue_frame", "explore", "形成对话认知帧。", [
-          "dialogue_frame_created"
-        ]),
-        plan_step("strategy_gate", "explore", "制定执行策略并完成系统裁决。", [
-          "strategy_decision_created"
-        ]),
-        plan_step("response_finalize", "explore", "生成本轮回应并写入可回放留痕。", [
-          "turn_result_emitted"
-        ])
-      ],
-      reason_codes: ["agent_plan_drafted", "conversation_plan_drafted"]
     }
   end
 
@@ -799,7 +762,6 @@ defmodule NovelAgent.Provider.Stub do
 
   defp profile_next_step_rules do
     [
-      {"conversation_turn_v1", &conversation_next_step_decision/1},
       {"world_building_with_context_v1", &world_building_next_step_decision/1},
       {"prose_drafting_with_quality_v1", &prose_drafting_next_step_decision/1},
       {"plot_outline_with_context_v1", &plot_outline_next_step_decision/1},
@@ -906,46 +868,12 @@ defmodule NovelAgent.Provider.Stub do
     end
   end
 
-  defp conversation_next_step_decision(prompt_text) do
-    observations = existing_observation_section(prompt_text)
-
-    cond do
-      String.contains?(observations, "已生成本轮回应") ->
-        done_next("[stub] 本轮回应已生成，目标已满足。")
-
-      conversation_strategy_observation?(observations) ->
-        continue_next("[stub] 根据系统裁决生成本轮回应。", "response_finalize")
-
-      String.contains?(observations, "对话认知帧") ->
-        continue_next("[stub] 基于对话认知帧完成执行策略与系统裁决。", "strategy_gate")
-
-      String.contains?(observations, "创作上下文") ->
-        continue_next("[stub] 基于已组装上下文形成对话认知帧。", "dialogue_frame")
-
-      true ->
-        continue_next("[stub] 先组装当前作品上下文。", "context_assemble")
-    end
-  end
-
   defp existing_observation_section(prompt_text) do
     prompt_text
     |> String.split("## 决策规则", parts: 2)
     |> hd()
   end
 
-  defp conversation_strategy_observation?(observations) do
-    Enum.any?(
-      ["无需工具", "工具执行授权", "执行策略生成失败", "作者确认", "授权判断"],
-      &String.contains?(observations, &1)
-    )
-  end
-
-  # ── 最小合法响应 ──
-
-  # creative items：生成产品形态的最小 fixture 内容，并保留 user 输入中的
-  # 随机标识符（nonce），避免离线 provider 在 UI 中泄漏 prompt/context heading。
-  # item_id 从 user input 派生 fingerprint，保证不同输入产生不同 id
-  # （I2 不变量：N 个语义独立输入的 item_id 集合两两不相交）。
   defp creative_items_json(prompt_text) do
     {brief, context} = extract_creative_parts(prompt_text)
     user_excerpt = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")

@@ -371,9 +371,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
-  defp plan_step_targets("conversation_turn_v1"),
-    do: ["context_assemble", "dialogue_frame", "strategy_gate", "response_finalize"]
-
   defp plan_step_targets("prose_drafting_with_quality_v1"),
     do: ["context_assemble", "prose_writing"]
 
@@ -580,17 +577,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     )
   end
 
-  defp step_catalog("conversation_turn_v1") do
-    """
-    - context_assemble | explore | 读取当前作品上下文；后续各步的输入基础
-    - dialogue_frame | explore | 形成对话认知帧；依赖 context_assemble 的产出
-    - strategy_gate | explore | 制定执行策略并完成系统裁决；依赖 dialogue_frame 产出的认知帧，不能跳过 dialogue_frame 直接执行
-    - response_finalize | explore | 生成本轮回应并写入可回放留痕；依赖 strategy_gate 的裁决结果
-
-    注意：创作能力（如 world_building / prose_writing / character_design 等）由 strategy_gate 裁决后在回应管线内自动调用，不能作为独立 PlanStep 排入计划；计划只能由上面四个步骤组成。
-    """
-  end
-
   defp step_catalog("judgment_plan_v1") do
     """
     - context_assemble | explore | 读取当前作品上下文；建议作为首步
@@ -663,9 +649,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   defp step_catalog(_profile_ref), do: "- allowed_tool | act | 执行一个允许能力"
-
-  defp internal_observation_steps("conversation_turn_v1"),
-    do: ["context_assemble", "dialogue_frame", "strategy_gate", "response_finalize"]
 
   defp internal_observation_steps("prose_drafting_with_quality_v1"), do: ["context_assemble"]
 

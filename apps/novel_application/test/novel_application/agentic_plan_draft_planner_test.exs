@@ -143,7 +143,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert meta.author_narrative_source.provider_run_ref == "prun_reasoning"
   end
 
-  test "conversation plan with creative tool as standalone step is rejected at draft time" do
+  test "plan with out-of-catalog tool as standalone step is rejected at draft time" do
     test_pid = self()
 
     {:ok, run} =
@@ -154,10 +154,10 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         session_id: "session_plan_target",
         parent_turn_ref: "turn_plan_target",
         origin_frame_ref: "frame_plan_target",
-        profile_ref: "conversation_turn_v1",
-        # 对话 profile 的 authority_scope 允许创作工具（由 strategy_gate 裁决后在
-        # 回应管线内调用），但它们不是合法的独立 PlanStep 目标
-        goal: %{text: "聊聊世界观怎么立", version: 1},
+        profile_ref: "prose_drafting_with_quality_v1",
+        # prose profile 的 authority_scope 允许 world_building 语汇出现，但它不在
+        # 该 profile 的起草步目录里——不是合法的独立 PlanStep 目标（通用目录校验）。
+        goal: %{text: "写一段正文草稿", version: 1},
         authority_scope: %{
           production_write: false,
           allowed_tools: ["world_building", "prose_writing"]

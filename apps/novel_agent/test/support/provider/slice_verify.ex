@@ -621,27 +621,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     }
   end
 
-  defp agent_plan_draft_packet_for_profile("conversation_turn_v1") do
-    %{
-      reasoning: "先读取上下文，形成认知帧，完成系统裁决，再生成本轮回应。",
-      steps: [
-        plan_step("context_assemble", "explore", "组装当前作品上下文。", [
-          "context_observation_created"
-        ]),
-        plan_step("dialogue_frame", "explore", "形成对话认知帧。", [
-          "dialogue_frame_created"
-        ]),
-        plan_step("strategy_gate", "explore", "制定执行策略并完成系统裁决。", [
-          "strategy_decision_created"
-        ]),
-        plan_step("response_finalize", "explore", "生成本轮回应并写入可回放留痕。", [
-          "turn_result_emitted"
-        ])
-      ],
-      reason_codes: ["agent_plan_drafted", "conversation_plan_drafted"]
-    }
-  end
-
   defp agent_plan_draft_packet_for_profile(_profile_ref) do
     %{
       reasoning: "为当前目标起草一条最小执行计划。",
@@ -1670,9 +1649,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp profile_next_step_decision(prompt) do
     cond do
-      String.contains?(prompt, "profile_ref: conversation_turn_v1") ->
-        conversation_turn_next_step_decision(prompt)
-
       String.contains?(prompt, "profile_ref: plot_outline_with_context_v1") ->
         plot_outline_next_step_decision(prompt)
 
@@ -1790,49 +1766,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           "missing_revision_source"
         ])
     end
-  end
-
-  defp conversation_turn_next_step_decision(prompt) do
-    cond do
-      conversation_observation_present?(prompt, ["已生成本轮回应"]) ->
-        done_next("已生成本轮回应，本轮目标已经满足。", [
-          "goal_satisfied",
-          "conversation_turn_response_created"
-        ])
-
-      conversation_observation_present?(prompt, [
-        "无需工具",
-        "工具执行授权",
-        "执行策略生成失败",
-        "作者确认",
-        "授权判断"
-      ]) ->
-        continue_next("根据系统裁决生成本轮回应。", "response_finalize", "none", [
-          "agentic_next_step",
-          "conversation_strategy_consumed"
-        ])
-
-      conversation_observation_present?(prompt, ["对话认知帧"]) ->
-        continue_next("基于对话认知帧完成执行策略与系统裁决。", "strategy_gate", "none", [
-          "agentic_next_step",
-          "dialogue_frame_consumed"
-        ])
-
-      conversation_observation_present?(prompt, ["创作上下文"]) ->
-        continue_next("基于已组装上下文形成对话认知帧。", "dialogue_frame", "none", [
-          "agentic_next_step",
-          "conversation_context_consumed"
-        ])
-
-      true ->
-        context_assemble_decision("先组装当前作品的创作上下文。", "missing_conversation_context")
-    end
-  end
-
-  defp conversation_observation_present?(prompt, needles) do
-    prompt
-    |> existing_observation_section()
-    |> then(fn section -> Enum.any?(needles, &String.contains?(section, &1)) end)
   end
 
   defp existing_observation_section(prompt) do

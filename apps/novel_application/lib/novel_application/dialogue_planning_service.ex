@@ -15,7 +15,6 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
-  alias NovelApplication.AgentRunFlows.ConversationTurn
   alias NovelApplication.AgentRunFlows.JudgmentPlan
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
@@ -50,9 +49,6 @@ defmodule NovelApplication.DialoguePlanningService do
   @provider_progress_profile_ref ProviderProgress.profile_ref()
   @readonly_batch_allowed_tools ["readonly_batch"]
   @readonly_batch_profile_ref ReadonlyBatchContext.profile_ref()
-  @conversation_allowed_tools NovelApplication.CapabilityRegistry.list()
-                              |> Enum.filter(&NovelApplication.CapabilityRegistry.dispatchable?/1)
-  @conversation_profile_ref ConversationTurn.profile_ref()
 
   @spec agent_run_candidate?(String.t()) :: boolean()
   def agent_run_candidate?(text) when is_binary(text) do
@@ -105,7 +101,6 @@ defmodule NovelApplication.DialoguePlanningService do
           | :prose_revision_from_findings
           | :provider_progress
           | :readonly_batch_context
-          | :conversation_turn
 
   @doc """
   为显式 profile 构建 bounded AgentRun 启动 spec（run_attrs + next_step_planner）。
@@ -272,9 +267,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp agent_run_agent_plan(run_id, :readonly_batch_context) do
     {:ok, pending_model_plan(run_id)}
   end
-
-  defp agent_run_agent_plan(run_id, :conversation_turn),
-    do: {:ok, pending_model_plan(run_id)}
 
   defp pending_model_plan(run_id) do
     %{
@@ -943,7 +935,6 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp routed_profile(_snapshot), do: nil
 
-  defp profile_for_ref(@conversation_profile_ref), do: {:ok, :conversation_turn}
   defp profile_for_ref(@character_profile_ref), do: {:ok, :character_design_with_context}
   defp profile_for_ref(@prose_profile_ref), do: {:ok, :prose_drafting_with_quality}
   defp profile_for_ref(@judgment_plan_profile_ref), do: {:ok, :judgment_plan}
@@ -982,7 +973,6 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp profile_atom_lookup do
     %{
-      "conversation_turn" => :conversation_turn,
       "judgment_plan" => :judgment_plan,
       "character_design_with_context" => :character_design_with_context,
       "prose_drafting_with_quality" => :prose_drafting_with_quality,
@@ -996,7 +986,6 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp routable_profiles do
     [
-      :conversation_turn,
       :judgment_plan,
       :character_design_with_context,
       :prose_drafting_with_quality,
@@ -1221,25 +1210,6 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp agent_next_step_planner(
-         :conversation_turn,
-         _text,
-         _context,
-         context_fetcher,
-         provider_execution,
-         input
-       ) do
-    ConversationTurn.next_step_planner(%{
-      input: input,
-      context_fetcher:
-        context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
-      provider_execution: provider_execution,
-      planner_provider_execution: map_get(input, :planner_provider_execution),
-      trace_persister: map_get(input, :trace_persister),
-      memory_recorder: map_get(input, :memory_recorder)
-    })
-  end
-
-  defp agent_next_step_planner(
          _profile,
          _text,
          _context,
@@ -1273,17 +1243,8 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp run_budget(text, profile, input) do
-    base =
-      case profile do
-        :conversation_turn ->
-          conversation_turn_budget(input)
-
-        _ ->
-          run_budget(text, profile)
-      end
-
-    plan_overhead_budget(base)
+  defp run_budget(text, profile, _input) do
+    plan_overhead_budget(run_budget(text, profile))
   end
 
   # 判断②续行余量（ADR-0025 CP3）：起草两段式多 1 次 reasoning 调用；模型计划修订
@@ -1307,7 +1268,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp run_budget(text, :profile_routing) do
     routed =
       [
-        run_budget(text, :conversation_turn),
         run_budget(text, :character_design_with_context),
         run_budget(text, :prose_drafting_with_quality),
         run_budget(text, :plot_outline_with_context),
@@ -1479,41 +1439,6 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
-  defp run_budget(text, :conversation_turn) do
-    conversation_turn_budget(%{text: text})
-  end
-
-  defp conversation_turn_budget(input) do
-    cond do
-      one_step_budget?(map_get(input, :text)) ->
-        %{
-          max_steps: 2,
-          max_tool_calls: 4,
-          max_provider_calls: 5,
-          max_replans: 1,
-          max_pending_artifacts: 3
-        }
-
-      map_get(input, :generate_micro_plan) in [true, "true"] ->
-        %{
-          max_steps: 5,
-          max_tool_calls: 4,
-          max_provider_calls: 6,
-          max_replans: 1,
-          max_pending_artifacts: 3
-        }
-
-      true ->
-        %{
-          max_steps: 5,
-          max_tool_calls: 4,
-          max_provider_calls: 4,
-          max_replans: 1,
-          max_pending_artifacts: 3
-        }
-    end
-  end
-
   defp profile_ref(:profile_routing), do: @profile_routing_profile_ref
   defp profile_ref(:character_design_with_context), do: @character_profile_ref
   defp profile_ref(:prose_drafting_with_quality), do: @prose_profile_ref
@@ -1524,7 +1449,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_ref(:prose_revision_from_findings), do: @revision_profile_ref
   defp profile_ref(:provider_progress), do: @provider_progress_profile_ref
   defp profile_ref(:readonly_batch_context), do: @readonly_batch_profile_ref
-  defp profile_ref(:conversation_turn), do: @conversation_profile_ref
 
   defp allowed_tools(:profile_routing), do: @profile_routing_allowed_tools
   defp allowed_tools(:character_design_with_context), do: @character_allowed_tools
@@ -1537,7 +1461,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:prose_revision_from_findings), do: @revision_allowed_tools
   defp allowed_tools(:provider_progress), do: @provider_progress_allowed_tools
   defp allowed_tools(:readonly_batch_context), do: @readonly_batch_allowed_tools
-  defp allowed_tools(:conversation_turn), do: @conversation_allowed_tools
 
   defp one_step_budget?(text) do
     normalized = normalize_text(text)

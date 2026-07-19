@@ -295,9 +295,19 @@ C 枚举维度错位（用途面 vs 数据面）/ D 桩预言固化（桩替产�
 - B-2 `AgenticNextStepPlanner.next_decision` 族（ADR-0023 逐步选步模式）生产零
   消费（仅自身单测）；各 flow 只用其 with_provider_call_meta 管道 helper——死活
   混居一个模块。
-- 处置：合并为**帧纪元退役清单**（独立 slice，需批准排期）：handle_input 管线、
-  form_frame 族、conversation_turn flow、next_decision 族、两 planner 的
-  conversation 分支、e2e v3_full_chain 迁判断链；with_provider_call_meta 迁出。
+- 处置：合并为**帧纪元退役清单**（用户批准）。**第一批已收口（2026-07-19，净删
+  4176 行）**：e2e v3_full_chain 10 测按覆盖对照删除（10/10 均有判断纪元场景对应：
+  gate→D4、确认→au04、tentative→单候选族、三个失败恢复→S7 场景族）；直连测试
+  （creative_exploration_loop / planner_real_llm / grounding 的死路径段）删；
+  runtime 7 个 conversation 载体测试删（provider facts 投影已由场景覆盖）；
+  next_step_planner_test 整删；conversation_turn flow（1121 行）+ service 全分支
+  + registry profile + 起草目录三分支 + Stub/SliceVerify conversation packets 删；
+  AgenticNextStepPlanner 瘦身为 meta 挂载工具（next_decision 族删，moduledoc 记
+  退役因由）；plan_draft 目录校验测试换 prose 载体（活机制保留）。
+  **第二批余项**：DialogueGateway handle_input 帧管线（~200 行入口+私有帧函数，
+  与活函数 persist_turn_side_effects 交织——本批一次激进清扫误删活函数后回滚，
+  留精细手术）；Planner form_frame/form_micro_plan 族（与 fallback 函数交织同理）。
+  教训重申：批量正则清扫禁令适用于生产文件（批三 fixture 教训的生产版）。
 - B-3 判断②新建协议**维持**（补论证）：next_decision 是"步目录选步"（被机械
   cursor 取代的模式），判断②是"偏离观察+续行裁决"——非同一物；evaluation_of_last
   结构已复用。过程瑕疵：当时未做此盘点即新建。
