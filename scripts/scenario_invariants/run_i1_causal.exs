@@ -27,7 +27,8 @@ defmodule I1CausalDriver do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.Result, as: ProviderResult
-  alias NovelApplication.DialogueGateway
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.DialoguePlanningService
 
   @cases [
     %{
@@ -38,7 +39,7 @@ defmodule I1CausalDriver do
     %{
       name: "character-seed",
       topic: "末日科幻人物草案",
-      instruction: "请基于以下主题生成主角候选。请把这串标识符原样嵌入到至少一个候选的描述中："
+      instruction: "请基于以下主题设计三位主角候选。请把这串标识符原样嵌入到至少一个候选的描述中："
     },
     %{
       name: "prose-fragment",
@@ -72,15 +73,14 @@ defmodule I1CausalDriver do
 
     input = %{
       text: text,
-      workspace_id: "i1-driver-#{c.name}",
-      generate_micro_plan: true
+      workspace_id: "i1-driver-#{c.name}"
     }
 
     result_fn = build_traced_result_fn(trace_agent)
 
     try do
-      case DialogueGateway.handle_input(input, nil, provider_execution(result_fn)) do
-        {:ok, turn_result, _trace, _candidates, _context} ->
+      case run_main_chain(input, provider_execution(result_fn)) do
+        {:ok, turn_result} ->
           calls = Agent.get(trace_agent, & &1) |> Enum.reverse()
           evaluate(c, nonce, turn_result, calls)
 
@@ -89,7 +89,7 @@ defmodule I1CausalDriver do
             case: c.name,
             nonce: nonce,
             outcome: :error,
-            detail: "DialogueGateway error: #{inspect(reason)}"
+            detail: "judgment main chain error: #{inspect(reason)}"
           }
       end
     rescue
@@ -107,6 +107,57 @@ defmodule I1CausalDriver do
 
   defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
+  # ── 判断纪元主链（2026-07 帧退役批次 2）──
+  #
+  # DialogueGateway.handle_input（帧链）随帧纪元退役。真实主链与 Channel 同构：
+  # DialoguePlanningService.plan_agent_run 产 run spec → AgentRunService.start_bounded
+  # 跑判断循环（判断① → 能力 profile 执行 → Toolbox）→ 事件流取最终 turn_result。
+  # 判定语义（items 精确字节回溯 Provider 响应）不变。
+
+  @terminal_event_types [:run_completed, :awaiting_author, :run_failed]
+  @agent_run_timeout_ms 120_000
+
+  defp run_main_chain(input, provider_execution) do
+    with {:ok, spec} <- DialoguePlanningService.plan_agent_run(input, nil, provider_execution),
+         me = self(),
+         {:ok, _run_id} <-
+           AgentRunService.start_bounded(
+             spec.run_attrs,
+             next_step_planner: spec.next_step_planner,
+             event_sink: fn event -> send(me, {:agent_event, event}) end
+           ) do
+      await_turn_result(nil)
+    end
+  end
+
+  defp await_turn_result(last_turn_result) do
+    receive do
+      {:agent_event, event} ->
+        turn_result = event_turn_result(event) || last_turn_result
+        event_type = Map.get(event, :event_type)
+
+        cond do
+          event_type == :run_failed ->
+            {:error, {:run_failed, Map.get(event, :summary)}}
+
+          event_type in @terminal_event_types ->
+            if is_map(turn_result), do: {:ok, turn_result}, else: {:error, :no_turn_result}
+
+          true ->
+            await_turn_result(turn_result)
+        end
+    after
+      @agent_run_timeout_ms -> {:error, :agent_run_timeout}
+    end
+  end
+
+  defp event_turn_result(event) do
+    case Map.get(event, :payload) do
+      %{turn_result: turn_result} when is_map(turn_result) -> turn_result
+      _ -> nil
+    end
+  end
+
   defp compose_input(c, nonce) do
     "#{c.instruction}#{nonce}。主题：#{c.topic}。要求标识符 #{nonce} 必须原样保留至少一处。"
   end
@@ -119,17 +170,20 @@ defmodule I1CausalDriver do
   # 3. 记录 (call_id, prompt, raw_response) 到 Agent
   # 4. 返回 map 附 :provider_call_id 让 Toolbox.handle_provider_content 提取写入 items
 
+  # 判断纪元协议是双段 native tool call：包裹必须整形保留 Gateway 结果的全部字段
+  # （尤其 tool_calls / provider_output），只附加 provider_call_id 供
+  # Toolbox.handle_provider_content 写入 items 的 provider_call_ref。
   defp build_traced_result_fn(trace_agent) do
     fn prompt ->
       call_id = "pc_" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
 
       case Gateway.complete(prompt) do
-        {:ok, %ProviderResult{content: content, usage: usage}} when is_binary(content) ->
+        {:ok, %ProviderResult{content: content} = result} ->
           Agent.update(trace_agent, fn calls ->
             [%{provider_call_id: call_id, prompt: prompt, raw_response: content} | calls]
           end)
 
-          {:ok, %{content: content, provider_call_id: call_id, usage: usage}}
+          {:ok, result |> Map.from_struct() |> Map.put(:provider_call_id, call_id)}
 
         {:ok, content} when is_binary(content) ->
           Agent.update(trace_agent, fn calls ->

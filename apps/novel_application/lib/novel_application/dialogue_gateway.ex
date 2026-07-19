@@ -10,289 +10,21 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
-  alias NovelApplication.Planner
   alias NovelApplication.ProseRevisionService
-  alias NovelApplication.TraceWriter
   alias NovelApplication.TurnExecutionService
-  alias NovelApplication.TurnResultBuilder
-  alias NovelCommon.LogContext
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateSet
   alias NovelDomain.ConfirmationBinding
-  alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
-
-  @doc "处理作者文本输入；未注入 provider 时显式走真实 Provider Gateway。"
-  @spec handle_input(map(), function() | nil) ::
-          {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(input, context_fetcher \\ nil) do
-    handle_input_with_provider(
-      input,
-      context_fetcher,
-      Execution.dependency(purpose: :conversation),
-      nil,
-      nil
-    )
-  end
-
-  @doc "处理作者文本输入；显式注入 provider execution dependency。"
-  @spec handle_input(map(), function() | nil, Execution.dependency()) ::
-          {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(_input, _context_fetcher, nil), do: provider_boundary_error()
-
-  def handle_input(input, context_fetcher, provider_execution) do
-    handle_input_with_provider(input, context_fetcher, provider_execution, nil, nil)
-  end
-
-  @doc "处理作者文本输入；显式注入 provider execution dependency 和 trace persister。"
-  @spec handle_input(map(), function() | nil, Execution.dependency(), function() | nil) ::
-          {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(_input, _context_fetcher, nil, _trace_persister), do: provider_boundary_error()
-
-  def handle_input(input, context_fetcher, provider_execution, trace_persister) do
-    handle_input_with_provider(input, context_fetcher, provider_execution, trace_persister, nil)
-  end
-
-  @doc "处理作者文本输入；显式走真实 Provider Gateway 并注入持久化回调。"
-  @spec handle_input_with_gateway(
-          map(),
-          (String.t() -> tuple()) | nil,
-          function() | nil,
-          function() | nil
-        ) ::
-          {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input_with_gateway(input, context_fetcher, trace_persister, memory_recorder) do
-    handle_input_with_provider(
-      input,
-      context_fetcher,
-      Execution.dependency(purpose: :conversation),
-      trace_persister,
-      memory_recorder
-    )
-  end
-
-  @doc "处理作者文本输入；显式注入 provider execution dependency 和持久化回调。"
-  @spec handle_input(
-          map(),
-          function() | nil,
-          Execution.dependency(),
-          function() | nil,
-          function() | nil
-        ) ::
-          {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(_input, _context_fetcher, nil, _trace_persister, _memory_recorder),
-    do: provider_boundary_error()
-
-  def handle_input(input, context_fetcher, provider_execution, trace_persister, memory_recorder) do
-    handle_input_with_provider(
-      input,
-      context_fetcher,
-      provider_execution,
-      trace_persister,
-      memory_recorder
-    )
-  end
-
-  defp handle_input_with_provider(
-         %{text: text} = input,
-         context_fetcher,
-         provider_execution,
-         trace_persister,
-         memory_recorder
-       )
-       when is_binary(text) and byte_size(text) > 0 do
-    case require_provider_execution(provider_execution) do
-      :ok ->
-        do_handle_input_with_provider(
-          input,
-          text,
-          context_fetcher,
-          provider_execution,
-          trace_persister,
-          memory_recorder
-        )
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp handle_input_with_provider(
-         _,
-         _fetcher,
-         _provider_execution,
-         _trace_persister,
-         _memory_recorder
-       ) do
-    LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
-      reason_code: :empty_text,
-      outcome_detail: "text is required"
-    })
-
-    {:error, "text is required"}
-  end
-
-  defp do_handle_input_with_provider(
-         input,
-         text,
-         context_fetcher,
-         provider_execution,
-         trace_persister,
-         memory_recorder
-       ) do
-    ws_id = Map.get(input, :workspace_id, "default")
-    work_id = Map.get(input, :work_id) || ws_id
-    session_id = Map.get(input, :session_id) || Map.get(input, "session_id")
-    generate_plan = Map.get(input, :generate_micro_plan, false)
-    turn_id = Map.get(input, :turn_id) || Map.get(input, "turn_id") || allocate_turn_id()
-    stage_sink = stage_sink(input)
-
-    t0 = System.monotonic_time(:millisecond)
-    LogContext.put_turn(ws_id, work_id, turn_id, session_id)
-
-    LogEmit.emit(:dialogue_gateway, :handle_input, :start, %{
-      workspace_id: ws_id,
-      work_id: work_id,
-      session_id: session_id
-    })
-
-    context =
-      ContextAssembler.assemble_for_input(
-        ws_id,
-        text,
-        context_fetcher_or_default(context_fetcher),
-        # CP1：在应用边界按当前 provider 解析组装策略，挂到 DialogueContext envelope。
-        session_id: session_id,
-        assembly_policy: NovelApplication.current_assembly_policy()
-      )
-
-    emit_agent_stage(
-      stage_sink,
-      :goal_understood,
-      "已组装当前作品上下文。",
-      [
-        "context_assembled"
-      ],
-      [],
-      %{
-        stage: :context_assembled,
-        has_context: DialogueContext.has_context?(context),
-        context_ref_count: context_ref_count(context)
-      }
-    )
-
-    frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}
-    {frame, candidates} = Planner.form_frame(frame_input, context, provider_execution)
-
-    # Update metadata now that Planner has generated frame_id.
-    LogContext.put_frame(frame.frame_id)
-
-    case DialogueFrame.validate(frame) do
-      :ok ->
-        result =
-          handle_valid_frame(
-            generate_plan,
-            frame,
-            candidates,
-            context,
-            input,
-            provider_execution,
-            stage_sink
-          )
-          |> scope_turn_result(ws_id, work_id, session_id)
-
-        persist_turn_side_effects(
-          result,
-          ws_id,
-          session_id,
-          text,
-          trace_persister,
-          memory_recorder
-        )
-
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:dialogue_gateway, :handle_input, :done, %{
-          turn_id: frame.turn_id,
-          frame_type: frame.frame_type,
-          duration_ms: duration
-        })
-
-        result
-
-      {:error, reasons} ->
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
-          duration_ms: duration,
-          reason_code: :frame_validation_failed,
-          outcome_detail: Enum.join(reasons, "; ")
-        })
-
-        {:error, "frame validation failed: #{Enum.join(reasons, "; ")}"}
-    end
-  end
-
-  defp provider_boundary_error do
-    {:error,
-     "provider execution must be explicit: inject provider execution or use the real Gateway entry"}
-  end
-
-  defp require_provider_execution(provider_execution) do
-    case Execution.result_fn(provider_execution) do
-      result_fn when is_function(result_fn, 1) -> :ok
-      _ -> provider_boundary_error()
-    end
-  end
 
   defp context_fetcher_or_default(nil),
     do: NovelApplication.persistence_fetcher() || (&empty_context/1)
 
   defp context_fetcher_or_default(fetcher), do: fetcher
 
-  defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
-
-  defp allocate_turn_id, do: NovelFoundation.ID.unique("turn")
-
-  defp scope_turn_result(
-         {:ok, turn_result, trace, candidates, context},
-         ws_id,
-         work_id,
-         session_id
-       ) do
-    {:ok, put_turn_result_scope(turn_result, ws_id, work_id, session_id), trace, candidates,
-     context}
-  end
-
-  defp scope_turn_result(result, _ws_id, _work_id, _session_id), do: result
-
-  defp put_turn_result_scope(turn_result, ws_id, work_id, session_id) do
-    turn_result
-    |> Map.put_new(:workspace_id, ws_id)
-    |> Map.put_new(:work_id, work_id)
-    |> Map.put_new(:session_id, session_id)
-  end
-
-  defp handle_valid_frame(
-         generate_plan,
-         frame,
-         candidates,
-         context,
-         input,
-         provider_execution,
-         stage_sink
-       ) do
-    if needs_micro_plan?(frame, generate_plan) do
-      handle_with_plan(frame, candidates, context, input, provider_execution, stage_sink)
-    else
-      handle_reply_only(frame, candidates, context, stage_sink)
-    end
-  end
-
-  @doc false
   def persist_turn_side_effects(
         result,
         ws_id,
@@ -579,25 +311,6 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  defp candidate_direction_to_boundary_candidate(candidate) do
-    candidate_id = map_field(candidate, :direction_id)
-
-    if blank?(candidate_id) do
-      nil
-    else
-      %{
-        candidate_id: candidate_id,
-        summary: map_field(candidate, :title) || candidate_id,
-        content_ref: map_field(candidate, :pitch) || candidate_id,
-        origin_ref: map_field(candidate, :source_frame_ref) || candidate_id,
-        risk_hint: candidate_risk_hint(map_field(candidate, :risk_hint)),
-        work_id: map_field(candidate, :work_id),
-        adoption_target_ref: map_field(candidate, :adoption_target_ref) || "work_direction",
-        canon_conflicts: map_field(candidate, :canon_conflicts) || []
-      }
-    end
-  end
-
   defp candidate_adoption_scope(source_turn_result) do
     [
       work_id:
@@ -606,14 +319,6 @@ defmodule NovelApplication.DialogueGateway do
       source_work_id: map_field(source_turn_result, :work_id)
     ]
   end
-
-  defp candidate_risk_hint(:high), do: :high
-  defp candidate_risk_hint(:medium), do: :medium
-  defp candidate_risk_hint(:low), do: :low
-  defp candidate_risk_hint("high"), do: :high
-  defp candidate_risk_hint("medium"), do: :medium
-  defp candidate_risk_hint("low"), do: :low
-  defp candidate_risk_hint(_), do: :low
 
   defp candidate_set_stability(source_turn_result) do
     source_turn_result
@@ -1194,11 +899,6 @@ defmodule NovelApplication.DialogueGateway do
     |> Enum.reject(&blank?/1)
   end
 
-  defp ref_part(value) when is_binary(value), do: String.trim(value)
-  defp ref_part(value) when is_atom(value), do: Atom.to_string(value)
-  defp ref_part(nil), do: nil
-  defp ref_part(value), do: to_string(value)
-
   defp confirmation_binding_view(%ConfirmationBinding{} = binding) do
     %{
       binding_id: binding.binding_id,
@@ -1232,239 +932,49 @@ defmodule NovelApplication.DialogueGateway do
     }
   end
 
-  # ── reply-only ────────────────────────────────
+  defp candidate_direction_to_boundary_candidate(candidate) do
+    candidate_id = map_field(candidate, :direction_id)
 
-  defp handle_reply_only(frame, candidates, context, stage_sink) do
-    {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
-
-    emit_agent_stage(
-      stage_sink,
-      :gate_decided,
-      "本轮裁决为直接回复，不调用工具。",
-      [
-        "reply_only_no_tool"
-      ],
-      [trace.trace_id],
+    if blank?(candidate_id) do
+      nil
+    else
       %{
-        stage: :reply_only_gate,
-        trace_ref: trace.trace_id,
-        decision_type: trace.decision_type,
-        no_tool_reason: trace.no_tool_reason
+        candidate_id: candidate_id,
+        summary: map_field(candidate, :title) || candidate_id,
+        content_ref: map_field(candidate, :pitch) || candidate_id,
+        origin_ref: map_field(candidate, :source_frame_ref) || candidate_id,
+        risk_hint: candidate_risk_hint(map_field(candidate, :risk_hint)),
+        work_id: map_field(candidate, :work_id),
+        adoption_target_ref: map_field(candidate, :adoption_target_ref) || "work_direction",
+        canon_conflicts: map_field(candidate, :canon_conflicts) || []
       }
-    )
-
-    turn_result = TurnResultBuilder.build(frame, trace_summary, candidates)
-    {:ok, turn_result, trace, candidates, context}
-  end
-
-  # ── plan + decision + behavior ────────────────
-
-  # Strategy 3: use frame.tool_need.needs_tool as the primary gate;
-  # generate_plan param acts as override (author says "帮我规划一下").
-  defp needs_micro_plan?(frame, generate_plan) do
-    generate_plan || frame.tool_need.needs_tool
-  end
-
-  defp handle_with_plan(frame, candidates, context, author_input, provider_execution, stage_sink) do
-    case Planner.form_micro_plan(frame, author_input, provider_execution, context) do
-      {:ok, plan} ->
-        {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
-
-        emit_agent_stage(
-          stage_sink,
-          :gate_decided,
-          orchestrator_decision_summary(decision),
-          [
-            "orchestrator_decision_recorded"
-          ],
-          [decision.decision_id],
-          %{
-            stage: :orchestrator_decision_recorded,
-            decision_ref: decision.decision_id,
-            decision_type: decision.decision_type,
-            first_blocking_gate: decision.first_blocking_gate
-          }
-        )
-
-        cond do
-          decision.decision_type == :allow_agent_run ->
-            {:start_agent_run, agent_run_launch(frame, plan, context, author_input)}
-
-          decision.decision_type == :allow_tool ->
-            handle_tool_dispatch(
-              frame,
-              plan,
-              decision,
-              candidates,
-              context,
-              author_input,
-              provider_execution,
-              stage_sink
-            )
-
-          behavior != nil ->
-            handle_behavior_open(frame, plan, decision, behavior, candidates, context)
-
-          true ->
-            handle_blocked_plan(frame, plan, decision, candidates, context)
-        end
-
-      {:error, _reason} ->
-        {trace, trace_summary} =
-          TraceWriter.record_recovery(frame, %{turn_id: frame.turn_id}, context)
-
-        turn_result = TurnResultBuilder.build(frame, trace_summary, candidates)
-        {:ok, turn_result, trace, candidates, context}
     end
   end
 
-  defp handle_blocked_plan(frame, plan, decision, candidates, context) do
-    {trace, trace_summary} =
-      TraceWriter.record_with_decision(frame, plan, decision, %{turn_id: frame.turn_id}, context)
+  defp candidate_risk_hint(:high), do: :high
+  defp candidate_risk_hint(:medium), do: :medium
+  defp candidate_risk_hint(:low), do: :low
+  defp candidate_risk_hint("high"), do: :high
+  defp candidate_risk_hint("medium"), do: :medium
+  defp candidate_risk_hint("low"), do: :low
+  defp candidate_risk_hint(_), do: :low
 
-    turn_result = TurnResultBuilder.build(frame, trace_summary, candidates, decision)
-    {:ok, turn_result, trace, candidates, context}
+  defp ref_part(value) when is_binary(value), do: String.trim(value)
+  defp ref_part(value) when is_atom(value), do: Atom.to_string(value)
+  defp ref_part(nil), do: nil
+  defp ref_part(value), do: to_string(value)
+
+  defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
+
+  defp provider_boundary_error do
+    {:error,
+     "provider execution must be explicit: inject provider execution or use the real Gateway entry"}
   end
-
-  defp handle_behavior_open(frame, plan, decision, behavior, candidates, context) do
-    {trace, trace_summary} =
-      TraceWriter.record_with_decision(frame, plan, decision, %{turn_id: frame.turn_id}, context)
-
-    trace = TraceWriter.attach_behavior(trace, behavior, :open)
-
-    # plan 是确认 re-gate 的载体（ADR-0009），但 TurnResult 要经 channel broadcast（Jason）
-    # 与 Interaction 持久化（Ecto :map），raw struct 会 Protocol.UndefinedError /
-    # Ecto.ChangeError。这里放 JSON 安全形态，确认侧用 MicroPlan.from_map 恢复。
-    turn_result =
-      TurnResultBuilder.build(frame, trace_summary, candidates, decision, nil, nil, behavior)
-      |> Map.put(:plan, jsonable(plan))
-      |> Map.put(:workspace_id, frame.workspace_id)
-
-    {:ok, turn_result, trace, candidates, context}
-  end
-
-  # ── agent run launch ──────────────────────────
-  # allow_agent_run 时不在此同步执行，而是把启动 bounded run 所需的最小信息上交给调用方
-  # （DialoguePlanningService），由其复用 AgentRun runtime 启动多步可打断 run。profile_ref 复用
-  # MicroPlan action 的 target_ref（Orchestrator.build_allow_agent_run_decision 同源读取）。
-  defp agent_run_launch(frame, plan, context, author_input) do
-    action =
-      Enum.find(plan.proposed_actions, &(Map.get(&1, :action_type) == :agent_run_start)) ||
-        hd(plan.proposed_actions)
-
-    %{
-      profile_ref: Map.get(action, :target_ref) || Map.get(action, :profile_ref),
-      goal_text: Map.get(author_input, :text) || Map.get(author_input, "text"),
-      frame: frame,
-      plan: plan,
-      context: context
-    }
-  end
-
-  # ── tool dispatch ─────────────────────────────
-
-  defp handle_tool_dispatch(
-         frame,
-         plan,
-         decision,
-         candidates,
-         context,
-         author_input,
-         provider_execution,
-         stage_sink
-       ) do
-    emit_agent_stage(
-      stage_sink,
-      :tool_started,
-      "已开始执行授权工具。",
-      [
-        "tool_started"
-      ],
-      [decision.decision_id],
-      %{
-        stage: :tool_started,
-        tool_name: tool_name(plan),
-        decision_ref: decision.decision_id
-      }
-    )
-
-    {turn_result, trace} =
-      TurnExecutionService.execute(%{
-        frame: frame,
-        plan: plan,
-        decision: decision,
-        candidates: candidates,
-        context: context,
-        author_input: author_input,
-        provider_execution: provider_execution,
-        quality_provider_execution: provider_execution,
-        chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
-        chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
-        character_reader: NovelApplication.persistence_character_reader()
-      })
-
-    emit_agent_stage(
-      stage_sink,
-      :tool_completed,
-      "授权工具执行完成。",
-      [
-        "tool_completed"
-      ],
-      [trace.trace_id],
-      %{
-        stage: :tool_completed,
-        tool_name: tool_name(plan),
-        trace_ref: trace.trace_id
-      }
-    )
-
-    {:ok, turn_result, trace, candidates, context}
-  end
-
-  defp stage_sink(input) do
-    case Map.get(input, :agent_stage_sink) || Map.get(input, "agent_stage_sink") do
-      fun when is_function(fun, 1) -> fun
-      _other -> nil
-    end
-  end
-
-  defp emit_agent_stage(nil, _event_type, _summary, _reason_codes, _refs, _payload), do: :ok
-
-  defp emit_agent_stage(stage_sink, event_type, summary, reason_codes, refs, payload)
-       when is_function(stage_sink, 1) do
-    stage_sink.(%{
-      event_type: event_type,
-      summary: summary,
-      reason_codes: reason_codes,
-      refs: refs,
-      payload: payload
-    })
-
-    :ok
-  end
-
-  defp context_ref_count(%DialogueContext{context_refs: refs}) when is_list(refs),
-    do: length(refs)
-
-  defp context_ref_count(_context), do: 0
-
-  defp orchestrator_decision_summary(decision) do
-    case decision.decision_type do
-      :allow_tool -> "Orchestrator 已授权单个工具动作。"
-      :allow_agent_run -> "Orchestrator 已授权启动 AgentRun。"
-      :needs_confirmation -> "Orchestrator 要求作者确认。"
-      :needs_clarification -> "Orchestrator 要求补充信息。"
-      :reject -> "Orchestrator 已拒绝执行。"
-      other -> "Orchestrator 已记录裁决：#{other}。"
-    end
-  end
-
-  defp tool_name(%MicroPlan{proposed_actions: [action | _]}), do: Map.get(action, :target_ref)
-  defp tool_name(_plan), do: nil
 
   defp changeset_error_summary(%Ecto.Changeset{errors: errors}) when errors != [] do
     errors |> Enum.map_join("; ", fn {field, {msg, _}} -> "#{field}: #{msg}" end)
   end
 
   defp changeset_error_summary(other), do: inspect(other)
+
 end

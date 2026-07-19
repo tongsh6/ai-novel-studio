@@ -28,7 +28,7 @@ defmodule NNarrDriver do
   alias NovelApplication.{AgentNarrativeSource, AgentRunService, DialoguePlanningService}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
 
-  @reasoning_types [:plan_drafted, :plan_revised, :exploration_observed, :evaluation_made]
+  @reasoning_types [:judgment_decided, :plan_drafted, :plan_revised, :exploration_observed, :evaluation_made]
 
   def run do
     File.mkdir_p!("artifacts/scenario-invariants")
@@ -59,7 +59,7 @@ defmodule NNarrDriver do
 
     spec =
       DialoguePlanningService.run_spec_for_profile(
-        :conversation_turn,
+        :profile_routing,
         %{
           text: "请根据当前作品状态回复下一步创作建议。",
           workspace_id: "n-narr-workspace",
@@ -117,6 +117,14 @@ defmodule NNarrDriver do
       execute_fn: fn prompt ->
         {content, tool_calls} =
           cond do
+            # 判断①第二段：强制 judgment_decision（reply 直答，本轮不动用创作能力）
+            judgment_decision_prompt?(prompt) ->
+              {"", [judgment_decision_tool_call()]}
+
+            # 判断①第一段：自由叙事流（作者可见 reasoning 的绑定来源）
+            judgment_narrative_prompt?(prompt) ->
+              {judgment_narrative(), []}
+
             # 两段式第二段：强制 tool call 的结构化调用
             agent_plan_structure_prompt?(prompt) ->
               packet = plan_draft_packet(prompt)
@@ -409,6 +417,8 @@ defmodule NNarrDriver do
   defp provider_purpose(prompt) do
     cond do
       # 结构化调用是 :planner，叙事 delta 只来自第一段流式 reasoning
+      judgment_decision_prompt?(prompt) -> :planner
+      judgment_narrative_prompt?(prompt) -> :author_reasoning
       agent_plan_structure_prompt?(prompt) -> :planner
       author_reasoning_prompt?(prompt) -> :author_reasoning
       true -> :conversation
@@ -417,6 +427,42 @@ defmodule NNarrDriver do
 
   defp author_reasoning_prompt?(prompt),
     do: agent_plan_draft_prompt?(prompt) or agent_next_step_prompt?(prompt)
+
+  # ── 判断纪元（2026-07 帧退役批次 2）：conversation_turn_v1 随帧纪元退役，
+  # 简单对话经 :profile_routing 判断循环 reply 直答。叙事绑定语义不变：
+  # 判断①call1 的流式叙事是作者可见 reasoning 的唯一合法来源。
+
+  @judgment_narrative "作者想直接讨论下一步创作方向；当前作品摘要已经覆盖回答所需的信息，我直接在本轮回复，不动用创作能力。"
+
+  defp judgment_narrative, do: @judgment_narrative
+
+  defp judgment_prompt?(prompt), do: prompt |> prompt_text() |> String.contains?("创作判断器")
+
+  defp judgment_decision_prompt?(prompt) when is_map(prompt) do
+    judgment_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) and
+      NovelAgent.Provider.tool_choice(prompt) == "judgment_decision"
+  end
+
+  defp judgment_decision_prompt?(_prompt), do: false
+
+  defp judgment_narrative_prompt?(prompt) when is_map(prompt) do
+    judgment_prompt?(prompt) and not NovelAgent.Provider.tool_call_prompt?(prompt)
+  end
+
+  defp judgment_narrative_prompt?(_prompt), do: false
+
+  defp judgment_decision_tool_call do
+    %{
+      "name" => "judgment_decision",
+      "arguments" => %{
+        "action" => "reply",
+        "capability" => nil,
+        "reply_included" => true,
+        "reason" => "context_sufficient_for_direct_reply",
+        "candidate_directions" => []
+      }
+    }
+  end
 
   defp agent_plan_structure_prompt?(prompt) when is_map(prompt) do
     NovelAgent.Provider.tool_call_prompt?(prompt) and

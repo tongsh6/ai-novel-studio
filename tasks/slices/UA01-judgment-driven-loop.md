@@ -336,6 +336,58 @@ C 枚举维度错位（用途面 vs 数据面）/ D 桩预言固化（桩替产�
 "先设计后盘点"顺序病。纠正律：新协议/新能力先做现状盘点（消费者、既有 API、
 同语义机制）再设计，盘点结论进六问 Boundary 项。
 
+## 2k. 帧纪元退役第二批收口（2026-07-19，用户"继续"）
+
+**生产手术**（B-1 余项，闭包分析 + 整块手术，非正则清扫）：
+- DialogueGateway 1470→981 行：handle_input 帧管线 + frame dispatch 族删；活根
+  persist_turn_side_effects / handle_action 及其 53 函数闭包保留（`&fn/1` capture
+  引用的 5 个函数经 git 恢复——闭包正则需含 capture 形态，教训入册）。
+- Planner 重写为 140 行：仅存活 narrate_tool_result 工具叙事族 + provider 失败
+  兜底族；form_frame/form_micro_plan/build_candidates 帧族删，moduledoc 记退役因由。
+
+**真产品缺口（退役测试失败暴露，全链修复 + 场景实证）**：
+- `target_word_count`（作者篇幅诉求）从未迁入判断纪元起草坐标——作者要约 600 字
+  实产 135 字。根因五层定位：Stub ✓ → 起草规划器 ✓ → **AgentPlan 步归一化白名单
+  丢弃**（真凶）→ decision 载体缺字段 → flow 未透传。修复：agent_plan.ex（白名单
+  + clamp 20_000）/ agent_next_step_decision.ex（字段）/ prose_drafting_with_quality.ex
+  （坐标透传）/ agentic_plan_draft_planner.ex（归一 + schema + prompt 指引）/
+  slice_verify.ex（"约 N 字"解析）。
+- **场景实证**：p1-chapter-word-count-target verified（600 请求 → 630 产出，
+  `turn_execution.target_word_count.done` 事件 600，word_count_meets_target=true）。
+
+**验证器判断纪元迁移**（finder/behavior 停在帧纪元语义）：
+- p1 adoption-reading 基 finder/behavior 族：ui-state 的 draft_turn_id 现为 agent
+  子 run（turn_X:agent:N），对话入口 start 在基 turn——finder 返回因果链 turn_ids
+  = [基, 子]；作者入口检查沿链任一 turn（帧纪元链长 1，语义不变）；agent 纪元
+  toolbox.execute.done 不带 turn_id（全 agent 场景一致），按整轮证据匹配工具成功。
+
+**测试迁移**：3 个死帧测试文件删（deep_exploration_loop / dialogue_gateway_logging
+/ dialogue_gateway_real_loop）；坐标解析测试（word-count ×4 + authoring intent ×2
++ 章节 prompt ×1 + 去泛化能力 prompt ×1）从 form_micro_plan 载体迁至
+AgenticPlanDraftPlanner（plan 步骤即判断纪元坐标载体）；creative_artifact 孤儿
+helper 清理。
+
+**不变量驱动器判断纪元迁移**（CI 强制件，全部骑在已删 handle_input / conversation_turn 上）：
+- 共享手术：DialoguePlanningService.plan_agent_run 产 spec → AgentRunService.start_bounded
+  跑判断循环 → 事件流取 turn_result（与 Channel 同构）。判定语义全部不变。
+- I1 因果绑定 3/3 pass（traced 包裹改为整形保留 Gateway 结果——判断协议是双段
+  native tool call，压扁字段会丢 tool_calls 致"模型调用失败"）。
+- I2 输入差异 3/3 disjoint；I3 种子贯通 Layer-B 3/3 + **Layer-A 参考层 3/3**
+  （判断主链 nonce 全程透传，SI-001 以来首次 Layer-A 全绿）。
+- N-NARR 叙事源绑定 PASS：conversation_turn_v1 → :profile_routing 判断循环；
+  脚本 provider 补判断①两段（叙事流 :author_reasoning / 决策 :planner）；
+  reasoning 事件族 + :judgment_decided。判断①call1 叙事字节绑定 + 流式前缀验证。
+- 驱动器判词表对齐：character 用例文本用"设计…主角"（Stub 判断词表 execute 路由）。
+
+**门禁**：伞级 1158 测试 0 失败；compile 零警告；xref 无循环；arch ✓；前端
+typecheck/lint/test 394 ✓（verifier 单测 174 ✓）；静态扫描 touched 0 发现
+（余 3 失败均既有基线：deps.audit / task_done_check / gitleaks 双项已处置台账）。
+
+**登记余项**：p1-chapter-adoption-reading（generate_micro_plan=true 按钮路径）与
+au07-state-trace 两姊妹场景未在判断纪元重验（同 finder 族已前向兼容，待各自路径
+重验时校）；agent 纪元 toolbox 遥测缺 turn/run 绑定（仅 decision_id/tool_request_id，
+可观测性改进项）。
+
 ## 3. 决策日志
 
 - 2026-07-15：CP0 文档批次落地（用户"同意 开始落所有的文档"）。ADR-0025 同日

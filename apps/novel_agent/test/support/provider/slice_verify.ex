@@ -682,8 +682,26 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       risk_hint: risk_hint,
       authoring_intent: authoring_intent,
       target_chapter: target_chapter,
-      requested_chapter_raw: requested_chapter_raw
+      requested_chapter_raw: requested_chapter_raw,
+      # 作者篇幅诉求（CP0 坐标族）：起草样本从原话解析"约 N 字"，无诉求为 nil。
+      target_word_count: author_target_word_count(author_goal)
     })
+  end
+
+  defp author_target_word_count(author_goal) do
+    case Regex.run(~r/约?\s*(\d{2,5})\s*字/u, author_goal) do
+      [_, n] -> String.to_integer(n)
+      _ -> cn_target_word_count(author_goal)
+    end
+  end
+
+  @cn_digits %{"一" => 1, "二" => 2, "三" => 3, "四" => 4, "五" => 5, "六" => 6, "七" => 7, "八" => 8, "九" => 9}
+  defp cn_target_word_count(author_goal) do
+    case Regex.run(~r/([一二三四五六七八九])(百|千)字/u, author_goal) do
+      [_, d, "百"] -> Map.fetch!(@cn_digits, d) * 100
+      [_, d, "千"] -> Map.fetch!(@cn_digits, d) * 1000
+      _ -> nil
+    end
   end
 
   defp agent_plan_author_goal(prompt) do

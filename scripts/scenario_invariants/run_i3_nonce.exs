@@ -11,10 +11,11 @@
 # - driver 通过 provider execution dependency 注入 `&NovelAgent.Provider.Gateway.complete/1`。
 #   MIX_ENV=test 时默认 provider 是 NovelAgent.Provider.Stub（合法 fixture），
 #   它根据 prompt 自动返回最小合法 JSON 并把 user 文本（含 nonce）字节透传。
-# - 通过真实入口 NovelApplication.DialogueGateway.handle_input/3 注入 N 个独立输入
+# - 通过判断纪元真实主链注入 N 个独立输入（DialoguePlanningService.plan_agent_run
+#   → AgentRunService.start_bounded 判断循环）
 # - 每个输入嵌入一次性随机 nonce
 # - 双层检查：
-#     Layer-A（主链，参考性）：handle_input → Planner → 可能 Toolbox → TurnResult，
+#     Layer-A（主链，参考性）：判断① → 能力 profile 执行 → Toolbox → TurnResult，
 #       检查 assistant_message / candidate_directions / tool_result.output / artifact items
 #     Layer-B（直接 Toolbox.execute，决定性）：定向打工具层，检查 ToolResult.output.items
 # - 退出码只取决于 Layer-B。Layer-A fail 不影响 exit code（informational）
@@ -29,7 +30,8 @@ defmodule I3NonceDriver do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Toolbox
-  alias NovelApplication.DialogueGateway
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.DialoguePlanningService
   alias NovelCommon.Contracts.ToolRequest
 
   @cases [
@@ -41,7 +43,7 @@ defmodule I3NonceDriver do
     %{
       name: "character-seed",
       topic: "末日科幻人物草案",
-      instruction: "请基于以下主题生成三个主角候选。请把这串标识符原样嵌入到至少一个候选的描述中："
+      instruction: "请基于以下主题设计三个主角候选。请把这串标识符原样嵌入到至少一个候选的描述中："
     },
     %{
       name: "prose-fragment",
@@ -74,20 +76,19 @@ defmodule I3NonceDriver do
 
     input = %{
       text: text,
-      workspace_id: "i3-driver-#{c.name}",
-      generate_micro_plan: true
+      workspace_id: "i3-driver-#{c.name}"
     }
 
     result_fn = build_stub_result_fn(nonce)
 
     layer_a =
       try do
-        case DialogueGateway.handle_input(input, nil, provider_execution(result_fn)) do
-          {:ok, turn_result, _trace, _candidates, _context} ->
+        case run_main_chain(input, provider_execution(result_fn)) do
+          {:ok, turn_result} ->
             {:ok, turn_result}
 
           {:error, reason} ->
-            {:error, "DialogueGateway error: #{inspect(reason)}"}
+            {:error, "judgment main chain error: #{inspect(reason)}"}
         end
       rescue
         e -> {:error, "exception: #{Exception.message(e)}"}
@@ -108,6 +109,56 @@ defmodule I3NonceDriver do
   # 如果 Toolbox 是 hardcoded 假实现，nonce 永远不会出现在 output.items。
 
   defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
+
+  # ── 判断纪元主链（2026-07 帧退役批次 2）──
+  #
+  # 帧链入口随帧纪元退役。Layer-A 与 Channel 同构：
+  # DialoguePlanningService.plan_agent_run 产 run spec → AgentRunService.start_bounded
+  # 跑判断循环 → 事件流取最终 turn_result。判定语义（nonce 必须透传到产出文本）不变。
+
+  @terminal_event_types [:run_completed, :awaiting_author, :run_failed]
+  @agent_run_timeout_ms 120_000
+
+  defp run_main_chain(input, provider_execution) do
+    with {:ok, spec} <- DialoguePlanningService.plan_agent_run(input, nil, provider_execution),
+         me = self(),
+         {:ok, _run_id} <-
+           AgentRunService.start_bounded(
+             spec.run_attrs,
+             next_step_planner: spec.next_step_planner,
+             event_sink: fn event -> send(me, {:agent_event, event}) end
+           ) do
+      await_turn_result(nil)
+    end
+  end
+
+  defp await_turn_result(last_turn_result) do
+    receive do
+      {:agent_event, event} ->
+        turn_result = event_turn_result(event) || last_turn_result
+        event_type = Map.get(event, :event_type)
+
+        cond do
+          event_type == :run_failed ->
+            {:error, {:run_failed, Map.get(event, :summary)}}
+
+          event_type in @terminal_event_types ->
+            if is_map(turn_result), do: {:ok, turn_result}, else: {:error, :no_turn_result}
+
+          true ->
+            await_turn_result(turn_result)
+        end
+    after
+      @agent_run_timeout_ms -> {:error, :agent_run_timeout}
+    end
+  end
+
+  defp event_turn_result(event) do
+    case Map.get(event, :payload) do
+      %{turn_result: turn_result} when is_map(turn_result) -> turn_result
+      _ -> nil
+    end
+  end
 
   defp run_layer_b_direct(c, nonce) do
     result_fn = build_stub_result_fn(nonce)
@@ -157,7 +208,7 @@ defmodule I3NonceDriver do
           layer_outcome(
             strings,
             nonce,
-            "Layer-A 主链路径（handle_input → Planner → 可能 Toolbox → TurnResult）"
+            "Layer-A 主链路径（判断① → 能力 profile 执行 → Toolbox → TurnResult）"
           )
 
         {:error, msg} ->
@@ -333,7 +384,7 @@ defmodule I3NonceDriver do
   # ── report ──
 
   # SI-001 判定边界：本 slice 闭环 Toolbox 路径（Layer-B）。
-  # Layer-A（主链 handle_input → Planner）的 nonce 透传由 SI-002 升级 stub 后闭环。
+  # Layer-A（判断纪元主链）的 nonce 透传由 SI-002 升级 stub 后闭环。
   # 因此 driver 的 exit code 只依赖 Layer-B；Layer-A 输出为 informational。
   defp summarize(results) do
     passed = Enum.count(results, &layer_b_pass?/1)
@@ -390,7 +441,7 @@ defmodule I3NonceDriver do
     #{summary.line}
 
     每个 case 分两层评估：
-    - **Layer-A（主链 handle_input → Planner，informational）**：反映完整主链 nonce 透传情况，检查 `assistant_message` / `candidate_directions` / `tool_result.output` / `artifact items`。SI-002 后已闭环（stub 升级为合法 fixture）
+    - **Layer-A（判断纪元主链，informational）**：反映完整主链 nonce 透传情况，检查 `assistant_message` / `candidate_directions` / `tool_result.output` / `artifact items`。SI-002 后已闭环（stub 升级为合法 fixture）
     - **Layer-B（直接 Toolbox.execute，决定性）**：定向打工具层，检查 `ToolResult.output.items` 的 title/body/rationale 是否包含本次 nonce
 
     **退出码只取决于 Layer-B**：Layer-B 全 pass → exit 0；任何 fail → exit 1。Layer-A 状态用于诊断主链路径，不影响 exit code。
@@ -410,7 +461,7 @@ defmodule I3NonceDriver do
     - **turn_id**（Layer-A）：`#{Map.get(r, :turn_id) || "—"}`
     - **frame_type**（Layer-A）：`#{Map.get(r, :frame_type) || "—"}`
     - **layer_a_has_artifact**：#{Map.get(r, :layer_a_has_artifact, false)}
-    - **Layer-A（主链 handle_input）**：#{layer_md(r.layer_a)}
+    - **Layer-A（判断纪元主链）**：#{layer_md(r.layer_a)}
     - **Layer-B（直接 Toolbox.execute）**：#{layer_md(r.layer_b)}
     """
 
@@ -464,8 +515,8 @@ defmodule I3NonceDriver do
       r.layer_a.outcome == :fail ->
         """
 
-        - **修复方向**（Layer-A fail）：主链 handle_input 路径未透传 nonce 到 turn_result —
-          1. 确认 Planner 的 prompt template 包含用户原文（应已包含，检查 form_frame/form_micro_plan）
+        - **修复方向**（Layer-A fail）：判断纪元主链未透传 nonce 到 turn_result —
+          1. 确认执行简报/工具 prompt 包含作者原文（TurnExecutionService 创作简报组装）
           2. 确认 Provider 响应解析路径不丢字段
         """
 

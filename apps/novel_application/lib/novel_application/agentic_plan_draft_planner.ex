@@ -299,7 +299,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       risk_hint: risk_hint(step),
       authoring_intent: nonblank(map_get(step, :authoring_intent)),
       target_chapter: nonblank(map_get(step, :target_chapter)),
-      requested_chapter_raw: nonblank(map_get(step, :requested_chapter_raw))
+      requested_chapter_raw: nonblank(map_get(step, :requested_chapter_raw)),
+      target_word_count: normalize_target_word_count(map_get(step, :target_word_count))
     }
   end
 
@@ -316,9 +317,24 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       risk_hint: :low,
       authoring_intent: nil,
       target_chapter: nil,
-      requested_chapter_raw: nil
+      requested_chapter_raw: nil,
+      target_word_count: nil
     }
   end
+
+  # 作者篇幅诉求（CP0 写作坐标族；帧纪元 form_micro_plan 同语义迁入）：
+  # 正整数上界 20_000，字符串容错解析，其余归 nil（无诉求不硬编）。
+  defp normalize_target_word_count(value) when is_integer(value) and value > 0,
+    do: min(value, 20_000)
+
+  defp normalize_target_word_count(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, _} when n > 0 -> min(n, 20_000)
+      _ -> nil
+    end
+  end
+
+  defp normalize_target_word_count(_), do: nil
 
   defp kind_for_target("prose_writing"), do: :act
   defp kind_for_target(_target), do: :explore
@@ -424,6 +440,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
     - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
     - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+    - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
     - 只起草计划，不声称已经执行，不输出工具结果。
     - 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。
     """
@@ -465,6 +482,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
     - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
     - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+    - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
     - 只修订计划，不声称已经执行，不输出工具结果。
     - 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。
     """
@@ -789,7 +807,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
                     ]
                   },
                   target_chapter: %{anyOf: [%{type: "string"}, %{type: "null"}]},
-                  requested_chapter_raw: %{anyOf: [%{type: "string"}, %{type: "null"}]}
+                  requested_chapter_raw: %{anyOf: [%{type: "string"}, %{type: "null"}]},
+                  target_word_count: %{anyOf: [%{type: "integer"}, %{type: "null"}]}
                 }
               }
             }

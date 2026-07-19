@@ -7,8 +7,8 @@
 #   MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs
 #
 # 设计：
-# - 跑 N=3 个语义独立的输入，通过 `DialogueGateway.handle_input` 真实主链产出
-#   artifact items，提取每个 case 的 item_id 集合
+# - 跑 N=3 个语义独立的输入，通过判断纪元真实主链（DialoguePlanningService.plan_agent_run
+#   → AgentRunService.start_bounded 判断循环）产出 artifact items，提取每个 case 的 item_id 集合
 # - 0/1 判定：N 个集合两两不相交 (pairwise_disjoint)
 # - 任一对相交 → I2 violation
 #
@@ -24,11 +24,13 @@
 defmodule I2VariationDriver do
   @moduledoc false
 
-  alias NovelApplication.DialogueGateway
+  alias NovelAgent.Provider.Execution
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.DialoguePlanningService
 
   @cases [
     %{name: "case-A", topic: "赛博修仙的章节计划，强调灵气垄断主线"},
-    %{name: "case-B", topic: "末日科幻的人物草案，三位幸存者视角"},
+    %{name: "case-B", topic: "末日科幻的主角设计，三位幸存者视角人物草案"},
     %{name: "case-C", topic: "古风武侠的开篇正文，江湖恩怨切入"}
   ]
 
@@ -69,13 +71,12 @@ defmodule I2VariationDriver do
 
     input = %{
       text: text,
-      workspace_id: "i2-driver-#{c.name}",
-      generate_micro_plan: true
+      workspace_id: "i2-driver-#{c.name}"
     }
 
     try do
-      case DialogueGateway.handle_input(input) do
-        {:ok, turn_result, _trace, _candidates, _context} ->
+      case run_main_chain(input, Execution.dependency(purpose: :conversation)) do
+        {:ok, turn_result} ->
           items = collect_items(turn_result)
           ids = items |> Enum.map(&Map.get(&1, :item_id)) |> Enum.reject(&is_nil/1)
 
@@ -92,7 +93,7 @@ defmodule I2VariationDriver do
             case: c.name,
             topic: c.topic,
             outcome: :error,
-            detail: "DialogueGateway error: #{inspect(reason)}",
+            detail: "judgment main chain error: #{inspect(reason)}",
             item_ids: [],
             item_count: 0
           }
@@ -107,6 +108,56 @@ defmodule I2VariationDriver do
           item_ids: [],
           item_count: 0
         }
+    end
+  end
+
+  # ── 判断纪元主链（2026-07 帧退役批次 2）──
+  #
+  # 帧链入口随帧纪元退役。真实主链与 Channel 同构：
+  # DialoguePlanningService.plan_agent_run 产 run spec → AgentRunService.start_bounded
+  # 跑判断循环 → 事件流取最终 turn_result。判定语义（item_id 集合两两不相交）不变。
+
+  @terminal_event_types [:run_completed, :awaiting_author, :run_failed]
+  @agent_run_timeout_ms 120_000
+
+  defp run_main_chain(input, provider_execution) do
+    with {:ok, spec} <- DialoguePlanningService.plan_agent_run(input, nil, provider_execution),
+         me = self(),
+         {:ok, _run_id} <-
+           AgentRunService.start_bounded(
+             spec.run_attrs,
+             next_step_planner: spec.next_step_planner,
+             event_sink: fn event -> send(me, {:agent_event, event}) end
+           ) do
+      await_turn_result(nil)
+    end
+  end
+
+  defp await_turn_result(last_turn_result) do
+    receive do
+      {:agent_event, event} ->
+        turn_result = event_turn_result(event) || last_turn_result
+        event_type = Map.get(event, :event_type)
+
+        cond do
+          event_type == :run_failed ->
+            {:error, {:run_failed, Map.get(event, :summary)}}
+
+          event_type in @terminal_event_types ->
+            if is_map(turn_result), do: {:ok, turn_result}, else: {:error, :no_turn_result}
+
+          true ->
+            await_turn_result(turn_result)
+        end
+    after
+      @agent_run_timeout_ms -> {:error, :agent_run_timeout}
+    end
+  end
+
+  defp event_turn_result(event) do
+    case Map.get(event, :payload) do
+      %{turn_result: turn_result} when is_map(turn_result) -> turn_result
+      _ -> nil
     end
   end
 

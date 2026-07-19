@@ -11791,7 +11791,12 @@ function findP1ChapterAdoptionReadingEvidence(
   if (!draftTurnId) return null;
   if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
 
-  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+  // 判断纪元：草稿卡由 agent 子 run 产出（turn_X:agent:N），对话入口
+  // channel.user_message.start 记录在基 turn（turn_X）；两个 id 同属一条因果链。
+  const baseTurnId = draftTurnId.split(":")[0];
+  const draftRecords = records.filter(
+    (record) => record.turn_id === draftTurnId || record.turn_id === baseTurnId,
+  );
 
   // 生成草稿按钮路径要求 generate_micro_plan=true；对话框自然语言创作路径为 false
   // （仍经 planner 判定走工具）。expectMicroPlan 区分两条真实入口。
@@ -11802,7 +11807,9 @@ function findP1ChapterAdoptionReadingEvidence(
   );
   if (!start) return null;
 
-  const generatedByTool = draftRecords.some(
+  // agent 纪元 toolbox.execute.done 不带 turn_id（只带 decision_id/tool_request_id），
+  // 与全体 agent 场景 finder 一致按整轮证据匹配工具成功。
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
@@ -11839,7 +11846,7 @@ function findP1ChapterAdoptionReadingEvidence(
   return {
     slice_id: sliceId,
     turn_id: draftTurnId,
-    turn_ids: [draftTurnId],
+    turn_ids: [...new Set([baseTurnId, draftTurnId])],
     draft_turn_id: draftTurnId,
     adopt_turn_id: uiState.adopt_turn_id,
     artifact_id: uiState.artifact_id,
@@ -13874,10 +13881,25 @@ function p1ChapterAdoptionReadingBehavior(
   sliceId = "p1-chapter-adoption-reading",
   expectMicroPlan = true,
 ) {
-  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, expectMicroPlan)) {
-    return null;
-  }
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  // 判断纪元：对话入口 start 在基 turn（turn_X），草稿卡在 agent 子 run（turn_X:agent:N）；
+  // evidence.turn_ids 携带这条因果链，作者入口只需在链上任一 turn 出现（帧纪元链长 1，语义不变）。
+  const chainTurnIds = evidence.turn_ids ?? [evidence.draft_turn_id];
+  const authorEntryOk = chainTurnIds.some((turnId) =>
+    turnsHaveGenerateMicroPlan([turnId], turnRecords, expectMicroPlan),
+  );
+  if (!authorEntryOk) return null;
+
+  // agent 纪元 toolbox.execute.done 不带 turn_id（只带 decision_id/tool_request_id），
+  // 帧纪元按 turn 绑定优先，否则与 finder 同准按整轮证据匹配 prose_writing 成功。
+  const toolboxOk =
+    turnsHaveEvent(chainTurnIds, turnRecords, "toolbox.execute.done") ||
+    records.some(
+      (record) =>
+        record.event === "toolbox.execute.done" &&
+        record.tool_name === "prose_writing" &&
+        record.tool_outcome === "succeeded",
+    );
+  if (!toolboxOk) return null;
 
   const uiState = records.find(
     (record) =>

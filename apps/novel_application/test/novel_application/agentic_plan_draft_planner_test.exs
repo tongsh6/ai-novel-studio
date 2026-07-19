@@ -285,6 +285,117 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     refute reasoning_prompt.messages |> hd() |> Map.fetch!(:content) =~ "## 作品章节"
   end
 
+  # 写作坐标解析（自帧纪元 Planner.form_micro_plan 载体迁移，2026-07 帧退役批次 2）：
+  # 判断纪元坐标载体是 plan 步骤（AgenticPlanDraftPlanner 归一 + AgentPlan 步骤白名单）。
+  describe "写作坐标解析（plan 步骤载体）" do
+    test "act 步携带作者篇幅诉求 target_word_count" do
+      step = drafted_act_step(Map.put(base_act_step(), "target_word_count", 800))
+      assert step.target_word_count == 800
+    end
+
+    test "未携带篇幅诉求时为 nil" do
+      step = drafted_act_step(base_act_step())
+      assert step.target_word_count == nil
+    end
+
+    test "字符串形式的篇幅诉求解析为整数" do
+      step = drafted_act_step(Map.put(base_act_step(), "target_word_count", "600"))
+      assert step.target_word_count == 600
+    end
+
+    test "离谱篇幅诉求钳制到上限" do
+      step = drafted_act_step(Map.put(base_act_step(), "target_word_count", 999_999))
+      assert step.target_word_count == 20_000
+    end
+
+    test "rewrite authoring_intent 随步骤解析" do
+      step = drafted_act_step(Map.put(base_act_step(), "authoring_intent", "rewrite"))
+      assert step.authoring_intent == :rewrite
+      assert step.target_chapter == "第01章：开端"
+    end
+
+    test "省略 authoring_intent 默认 nil（新章语义）" do
+      step =
+        base_act_step()
+        |> Map.drop(["authoring_intent", "target_chapter", "requested_chapter_raw"])
+        |> drafted_act_step()
+
+      assert step.authoring_intent == nil
+      assert step.target_chapter == nil
+    end
+  end
+
+  test "planning prompts do not list the removed generic creative capability" do
+    removed_capability = "creative_" <> "generation"
+    test_pid = self()
+
+    result_fn = fn prompt ->
+      send(test_pid, {:prompt, prompt})
+
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        {:ok, provider_result("")}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(
+               probe_run(),
+               %Execution{result_fn: result_fn}
+             )
+
+    assert_received {:prompt, reasoning_prompt}
+    assert_received {:prompt, structure_prompt}
+
+    for prompt <- [reasoning_prompt, structure_prompt] do
+      text = prompt.messages |> hd() |> Map.fetch!(:content)
+      refute text =~ removed_capability
+    end
+  end
+
+  defp base_act_step do
+    %{
+      "step_id" => "s1",
+      "kind" => "act",
+      "description" => "生成续写草稿并质量复核",
+      "success_criteria" => ["待采纳 prose_fragment"],
+      "target_tool_ref" => "prose_writing",
+      "write_intent" => "tentative",
+      "authoring_intent" => "continuation",
+      "target_chapter" => "第01章：开端",
+      "requested_chapter_raw" => "第01章"
+    }
+  end
+
+  defp drafted_act_step(act) do
+    arguments = %{
+      "author_reasoning" => @narrative,
+      "plan" => %{"steps" => [act]},
+      "reason_codes" => ["agent_plan_drafted"],
+      "confidence" => 0.9
+    }
+
+    tool_calls = [%{"name" => "agent_plan_draft", "arguments" => arguments}]
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun_act_step",
+        provider_call_ref: "pcall_act_step",
+        status: :ok,
+        output_type: :text,
+        content: %{text: "", tool_calls: tool_calls},
+        refs: ["pcall_act_step"]
+      })
+
+    result = %{content: "", tool_calls: tool_calls, provider_output: output}
+    execution = %Execution{result_fn: fn _prompt -> {:ok, result} end}
+
+    assert {:ok, plan, _meta} = AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+    assert [step] = plan.steps
+    step
+  end
+
   test "empty content and missing author_reasoning still fails honestly after retry" do
     arguments = Map.delete(plan_arguments(), "author_reasoning")
     tool_calls = [%{"name" => "agent_plan_draft", "arguments" => arguments}]

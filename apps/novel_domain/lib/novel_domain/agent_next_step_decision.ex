@@ -34,6 +34,7 @@ defmodule NovelDomain.AgentNextStepDecision do
           authoring_intent: authoring_intent() | nil,
           target_chapter: String.t() | nil,
           requested_chapter_raw: String.t() | nil,
+          target_word_count: pos_integer() | nil,
           reason_codes: [String.t()],
           observation_refs: [String.t()],
           evaluation_of_last: evaluation_of_last(),
@@ -53,6 +54,7 @@ defmodule NovelDomain.AgentNextStepDecision do
     :authoring_intent,
     :target_chapter,
     :requested_chapter_raw,
+    :target_word_count,
     write_intent: :none,
     risk_hint: :low,
     reason_codes: [],
@@ -105,6 +107,7 @@ defmodule NovelDomain.AgentNextStepDecision do
       authoring_intent: decision.authoring_intent,
       target_chapter: decision.target_chapter,
       requested_chapter_raw: decision.requested_chapter_raw,
+      target_word_count: decision.target_word_count,
       reason_codes: decision.reason_codes,
       observation_refs: decision.observation_refs,
       evaluation_of_last: decision.evaluation_of_last,
@@ -132,6 +135,7 @@ defmodule NovelDomain.AgentNextStepDecision do
     |> Map.update(:authoring_intent, nil, &normalize_authoring_intent/1)
     |> Map.update(:target_chapter, nil, &normalize_optional_string/1)
     |> Map.update(:requested_chapter_raw, nil, &normalize_optional_string/1)
+    |> Map.update(:target_word_count, nil, &positive_int/1)
   end
 
   defp atomize_known(attrs),
@@ -149,6 +153,7 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp known_key("authoring_intent"), do: :authoring_intent
   defp known_key("target_chapter"), do: :target_chapter
   defp known_key("requested_chapter_raw"), do: :requested_chapter_raw
+  defp known_key("target_word_count"), do: :target_word_count
   defp known_key("reason_codes"), do: :reason_codes
   defp known_key("observation_refs"), do: :observation_refs
   defp known_key("evaluation_of_last"), do: :evaluation_of_last

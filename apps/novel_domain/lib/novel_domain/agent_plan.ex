@@ -24,7 +24,8 @@ defmodule NovelDomain.AgentPlan do
           risk_hint: risk_hint(),
           authoring_intent: authoring_intent() | nil,
           target_chapter: String.t() | nil,
-          requested_chapter_raw: String.t() | nil
+          requested_chapter_raw: String.t() | nil,
+          target_word_count: pos_integer() | nil
         }
 
   @type stop_condition ::
@@ -127,7 +128,8 @@ defmodule NovelDomain.AgentPlan do
       risk_hint: normalize_risk_hint(value(item, :risk_hint)),
       authoring_intent: normalize_authoring_intent(value(item, :authoring_intent)),
       target_chapter: normalize_optional_string(value(item, :target_chapter)),
-      requested_chapter_raw: normalize_optional_string(value(item, :requested_chapter_raw))
+      requested_chapter_raw: normalize_optional_string(value(item, :requested_chapter_raw)),
+      target_word_count: normalize_word_count(value(item, :target_word_count))
     }
   end
 
@@ -144,7 +146,8 @@ defmodule NovelDomain.AgentPlan do
       risk_hint: :low,
       authoring_intent: nil,
       target_chapter: nil,
-      requested_chapter_raw: nil
+      requested_chapter_raw: nil,
+      target_word_count: nil
     }
 
   defp normalize_step_kind(value) when value in [:explore, :act], do: value
@@ -189,6 +192,17 @@ defmodule NovelDomain.AgentPlan do
   end
 
   defp normalize_strings(_), do: []
+
+  defp normalize_word_count(value) when is_integer(value) and value > 0, do: min(value, 20_000)
+
+  defp normalize_word_count(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, _} when n > 0 -> min(n, 20_000)
+      _ -> nil
+    end
+  end
+
+  defp normalize_word_count(_), do: nil
 
   defp normalize_optional_string(nil), do: nil
 
