@@ -118,6 +118,15 @@ defmodule NovelApplication.AgentRunService do
   @spec steer(String.t(), String.t()) :: :ok | {:error, :not_found}
   def steer(run_id, text) when is_binary(text), do: command(run_id, {:steer, text})
 
+  @doc """
+  作者已在采纳边界处理了本 run 的某个候选（accept 采纳）——通知 run 观察该作者
+  决定（M0 缺陷修复 2026-07-19：单候选改进循环以作者采纳为收束信号，不再对已被
+  作者拿走的候选继续改进/产未请求的第二候选）。非 pending 引用为无害 no-op。
+  """
+  @spec notify_artifact_resolved(String.t(), String.t()) :: :ok | {:error, :not_found}
+  def notify_artifact_resolved(run_id, artifact_ref) when is_binary(artifact_ref),
+    do: command(run_id, {:artifact_resolved, artifact_ref})
+
   @spec state(String.t(), timeout()) :: {:ok, map()} | {:error, term()}
   def state(run_id, timeout \\ 5_000) do
     case lookup(run_id) do

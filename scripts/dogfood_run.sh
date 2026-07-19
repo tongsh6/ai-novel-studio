@@ -22,6 +22,10 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 
+# 狗粮独立测试分区库（M0 实锤：与伞级 mix test 共享 ai_novel_studio_test.sqlite3
+# 互踩——狗粮 seed 残留污染绝对计数断言、并行跑互相重置）。分区后互不可见。
+export MIX_TEST_PARTITION="_dogfood"
+
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5769}"
 API_URL="http://127.0.0.1:${PHOENIX_PORT}"

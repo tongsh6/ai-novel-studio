@@ -109,7 +109,9 @@ async function readToc(page) {
     .getByRole("button", { name: "返回工作台" })
     .click({ timeout: 10_000 })
     .catch(() => {});
-  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  // 活跃 run 期间输入框可能被运行态占位（M0 实锤：改进步仍在跑时读目录），
+  // 等待放宽到 60s——run 收束后输入框恢复。
+  await page.locator(chatInputSelector).waitFor({ timeout: 60_000 });
   return resp;
 }
 
@@ -512,7 +514,13 @@ try {
       failures.push({ title: chapter.title, error: String(error?.message ?? error) });
       appendProgress({ chapter: chapter.title, error: String(error?.message ?? error) });
       log(`retry ${chapter.title} after error: ${error?.message ?? error}`);
-      toc = await readToc(page);
+      try {
+        toc = await readToc(page);
+      } catch (tocError) {
+        // 恢复路径读目录失败不终止整跑（M0 实锤：uncaught 曾直接杀死进程）；
+        // 保留旧 toc 进入下一轮重试。
+        log(`readToc failed during recovery: ${tocError?.message ?? tocError}`);
+      }
     }
   }
 

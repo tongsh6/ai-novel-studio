@@ -220,6 +220,34 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
+  # M0 缺陷修复（2026-07-19）：作者采纳 = 该候选的作者终局。从 pending 摘除 +
+  # stage_state 旗标（单候选 flow 在下一 planner 迭代边界按旗标机械收束）+
+  # 一等事件留痕。已终局/非 pending 引用一律无害 no-op（channel 侧不须精确判定）。
+  def handle_cast({:command, {:artifact_resolved, artifact_ref}}, state)
+      when is_binary(artifact_ref) do
+    if terminal?(state) or artifact_ref not in state.run.pending_artifact_refs do
+      {:noreply, state}
+    else
+      run = %{
+        state.run
+        | pending_artifact_refs: List.delete(state.run.pending_artifact_refs, artifact_ref)
+      }
+
+      adopted =
+        (Map.get(state.stage_state, :author_adopted_refs) || []) ++ [artifact_ref]
+
+      state =
+        %{state | run: run}
+        |> merge_stage_state(%{author_adopted_refs: adopted})
+        |> emit(:artifact_resolved, "作者已采纳本轮候选。", ["artifact_resolved", "author_adopted"], [
+          artifact_ref
+        ])
+        |> persist_run_state()
+
+      {:noreply, state}
+    end
+  end
+
   def handle_cast({:attach_event_sink, event_sink}, state)
       when is_function(event_sink, 1) or is_nil(event_sink) do
     {:noreply, %{state | event_sink: event_sink}}

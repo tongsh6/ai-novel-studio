@@ -55,6 +55,74 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.pending_artifact_refs == ["as_1"]
   end
 
+  test "author adoption notification removes pending ref, flags stage_state, and emits artifact_resolved (M0)" do
+    parent = self()
+    run_id = unique_run_id()
+
+    artifact_step = fn _run, sequence ->
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [observation(run_id, sequence)],
+         artifact_refs: ["as_author_settle"]
+       }}
+    end
+
+    blocking_step = fn _run, sequence ->
+      send(parent, {:blocking_step_started, sequence, self()})
+
+      receive do
+        :release_step -> :ok
+      after
+        2_000 -> :ok
+      end
+
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [observation(run_id, sequence)]
+       }}
+    end
+
+    planner = fn run, sequence, snapshot ->
+      case sequence do
+        1 ->
+          {:execute, fn r, s, _snap -> artifact_step.(r, s) end,
+           test_execute_decision(run, sequence), %{provider_call_count: 0}}
+
+        2 ->
+          {:execute, fn r, s, _snap -> blocking_step.(r, s) end,
+           test_execute_decision(run, sequence), %{provider_call_count: 0}}
+
+        _ ->
+          send(parent, {:final_snapshot, snapshot})
+          {:complete, test_complete_decision(run, sequence), %{provider_call_count: 0}}
+      end
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(parent)
+             )
+
+    # 步 2 阻塞窗口内作者采纳候选（真实竞态形态：run 仍在执行中）。
+    assert_receive {:blocking_step_started, 2, step_pid}, 1_000
+    assert :ok = AgentRunService.notify_artifact_resolved(run_id, "as_author_settle")
+    assert_receive {:agent_event, :artifact_resolved, "作者已采纳本轮候选。"}, 1_000
+    send(step_pid, :release_step)
+
+    assert_receive {:agent_event, :run_completed, _}, 2_000
+    assert_receive {:final_snapshot, snapshot}, 500
+
+    # 旗标进 stage_state（单候选 flow 据此在迭代边界收束）
+    assert snapshot.stage_state.author_adopted_refs == ["as_author_settle"]
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    # 作者已采纳的候选不再是 run 的 pending
+    assert run.pending_artifact_refs == []
+  end
+
   test "plan_revised is emitted only from a failed plan_holds evaluation and consumes replan budget" do
     parent = self()
     run_id = unique_run_id()

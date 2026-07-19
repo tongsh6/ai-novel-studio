@@ -20,6 +20,7 @@ defmodule NovelCommon.Contracts.AgentEvent do
           | :tool_completed
           | :artifact_created
           | :artifact_superseded
+          | :artifact_resolved
           | :turn_result_ready
           | :quality_review_started
           | :quality_finding_created
@@ -64,6 +65,7 @@ defmodule NovelCommon.Contracts.AgentEvent do
     :tool_completed,
     :artifact_created,
     :artifact_superseded,
+    :artifact_resolved,
     :turn_result_ready,
     :quality_review_started,
     :quality_finding_created,

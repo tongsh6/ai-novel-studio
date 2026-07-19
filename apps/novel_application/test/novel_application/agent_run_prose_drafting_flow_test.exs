@@ -380,6 +380,81 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert Agent.get(planner_counter, & &1) == 3
   end
 
+  test "作者已采纳旗标在迭代边界机械收束（0 调用，不再进判断②/改进步）（M0）" do
+    {:ok, plan} =
+      NovelDomain.AgentPlan.new(%{
+        plan_id: "ap_author_settle",
+        run_ref: "run_author_settle",
+        steps: [
+          %{
+            step_id: "s1",
+            kind: :explore,
+            status: :completed,
+            description: "读取正文写作上下文",
+            target_tool_ref: "context_assemble"
+          },
+          %{
+            step_id: "s2",
+            kind: :act,
+            status: :completed,
+            description: "生成正文草稿并触发质量复核",
+            target_tool_ref: "prose_writing",
+            write_intent: :tentative,
+            authoring_intent: :continuation,
+            target_chapter: "第01章：开端"
+          }
+        ]
+      })
+
+    {:ok, run} =
+      NovelDomain.AgentRun.new(%{
+        run_id: "run_author_settle",
+        workspace_id: "ws-author-settle",
+        work_id: "work-author-settle",
+        session_id: "session-author-settle",
+        parent_turn_ref: "turn-author-settle",
+        origin_frame_ref: "frame-author-settle",
+        profile_ref: "prose_drafting_with_quality_v1",
+        goal: %{text: "接着第01章往下写一段正文", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
+        plan: plan
+      })
+
+    flunk_provider = %Execution{
+      result_fn: fn _prompt -> flunk("settled run must not call any provider") end
+    }
+
+    spec =
+      NovelApplication.DialoguePlanningService.run_spec_for_profile(
+        :prose_drafting_with_quality,
+        %{
+          text: "接着第01章往下写一段正文",
+          workspace_id: "ws-author-settle",
+          work_id: "work-author-settle",
+          session_id: "session-author-settle",
+          turn_id: "turn-author-settle"
+        },
+        nil,
+        flunk_provider
+      )
+
+    snapshot = %{
+      stage_state: %{
+        agent_plan_cursor: 2,
+        author_adopted_refs: ["as_settled"]
+      },
+      observations: [],
+      events: [],
+      stage_sink: fn _event -> :ok end
+    }
+
+    # 计划已走完 + 旗标在：原本会进判断②（2 次调用）；收束语义下 0 调用直接完成。
+    assert {:complete, decision, meta} = spec.next_step_planner.(run, 3, snapshot)
+    assert decision.decision_type == :goal_satisfied
+    assert "author_adopted_candidate" in decision.reason_codes
+    assert meta.provider_call_count == 0
+  end
+
   test "D1 tool failure revises plan before waiting for author" do
     parent = self()
 

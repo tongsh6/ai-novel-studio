@@ -78,6 +78,43 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp model_plan_ready?(_plan), do: false
 
   defp mechanical_decision(run, sequence, snapshot, meta, spec) do
+    # M0 缺陷修复（2026-07-19）：作者已采纳本轮候选 = 单候选循环的作者终局——
+    # 在迭代边界机械收束（0 调用），不再对已被作者拿走的候选跑判断②/改进步/
+    # 产未请求的第二候选（僵尸候选 T5 判断纪元形态）。
+    if author_adopted_refs(snapshot) != [] do
+      mechanical_author_adopted_complete(run, sequence)
+    else
+      mechanical_decision_without_settlement(run, sequence, snapshot, meta, spec)
+    end
+  end
+
+  defp author_adopted_refs(snapshot) do
+    stage = Map.get(snapshot, :stage_state) || Map.get(snapshot, "stage_state") || %{}
+    Map.get(stage, :author_adopted_refs) || Map.get(stage, "author_adopted_refs") || []
+  end
+
+  defp mechanical_author_adopted_complete(run, sequence) do
+    AgentNextStepDecision.new(%{
+      decision_id: "and_#{run.run_id}_#{sequence}_author_adopted",
+      run_ref: run.run_id,
+      sequence: sequence,
+      decision_type: :goal_satisfied,
+      summary: "作者已采纳本轮候选，运行收束。",
+      target_tool_ref: nil,
+      write_intent: :none,
+      risk_hint: :low,
+      reason_codes: ["goal_satisfied", "author_adopted_candidate"],
+      observation_refs: [],
+      evaluation_of_last: %{advanced: true, plan_holds: true, new_constraint: nil},
+      confidence: 1.0
+    })
+    |> case do
+      {:ok, decision} -> {:ok, decision, %{provider_call_count: 0, suppress_plan_event: true}}
+      error -> error
+    end
+  end
+
+  defp mechanical_decision_without_settlement(run, sequence, snapshot, meta, spec) do
     steps = plan_steps(run.plan)
     index = plan_cursor(snapshot)
     meta = Map.put(meta, :agent_plan_cursor, index)

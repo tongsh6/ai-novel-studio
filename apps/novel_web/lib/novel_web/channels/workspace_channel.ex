@@ -1181,6 +1181,7 @@ defmodule NovelWeb.WorkspaceChannel do
   defp finish_adoption_author_action(socket, action_input, {:ok, action_result, turn_result}) do
     turn_result = scope_turn_result(socket, turn_result)
     socket = remember_action_result(socket, action_input, action_result)
+    notify_active_run_of_adoption(socket, action_input, action_result)
     broadcast!(socket, "action_result", action_result)
     broadcast!(socket, "turn_result", turn_result)
     socket = remember_turn_result(socket, turn_result)
@@ -1203,6 +1204,22 @@ defmodule NovelWeb.WorkspaceChannel do
 
     {:reply, {:error, %{reason: reason}}, socket}
   end
+
+  # M0 缺陷修复（2026-07-19）：accept 采纳成功后通知活跃 run（若有）——作者采纳
+  # 是单候选循环的收束信号。run 侧对非 pending 引用无害 no-op，此处不做精确归属判定。
+  defp notify_active_run_of_adoption(socket, %AuthorActionInput{action_type: type} = action_input, action_result)
+       when type in ["accept", "edit_then_accept"] do
+    run_id = socket.assigns[:active_agent_run_id]
+
+    if is_binary(run_id) and action_result.status in [:accepted, "accepted"] and
+         is_binary(action_input.target_ref) do
+      _ = AgentRunService.notify_artifact_resolved(run_id, action_input.target_ref)
+    end
+
+    :ok
+  end
+
+  defp notify_active_run_of_adoption(_socket, _action_input, _action_result), do: :ok
 
   defp action_payload(%AuthorActionInput{payload: payload}, key) when is_map(payload) do
     Map.get(payload, key) || Map.get(payload, to_string(key))
@@ -1501,6 +1518,8 @@ defmodule NovelWeb.WorkspaceChannel do
          session_id,
          duration
        ) do
+    socket = assign(socket, :active_agent_run_id, run_id)
+
     LogEmit.emit(:channel, :user_message, :done, %{
       duration_ms: duration,
       session_id: session_id,
