@@ -63,7 +63,8 @@ async function waitForFrame(predicate, message, timeoutMs = 60_000, fromIndex = 
     if (match) return match;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(message);
+  // 超时取证（M0：server 完成而 runner 盲等的间歇缺陷）——倾倒近帧摘要供归因。
+  throw new Error(`${message}\n  recent frames: ${frameDigest(fromIndex)}`);
 }
 
 function log(message) {
@@ -175,10 +176,19 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     (f.body?.adoption_state?.pending ?? []).length === 0 &&
     typeof f.body?.assistant_message?.text === "string";
 
+  // run 失败终局（S7 诚实失败，如起草空计划）同样秒级上抛——失败卡不是 prose，
+  // 等 600s 是浪费（M0 五跑实锤：steps must not be empty 白等 10 分钟）。
+  const failedRun = (f) =>
+    f.direction === "received" &&
+    f.event === "turn_result" &&
+    frameBelongsToTurn(f, turnId) &&
+    f.body?.agent_run?.status === "failed";
+
   let draftFrame = await waitForFrame(
     (f) =>
       freshProse(f) ||
       wrongRouteReply(f) ||
+      failedRun(f) ||
       (f.direction === "received" &&
         f.event === "turn_result" &&
         frameBelongsToTurn(f, turnId) &&
@@ -195,6 +205,10 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     throw new Error(
       `judgment routed the prose request to a chat reply for ${chapterTitle} (wrong-route, fail fast)`,
     );
+  }
+
+  if (failedRun(draftFrame)) {
+    throw new Error(`agent run failed for ${chapterTitle} (fail fast)`);
   }
 
   if (draftFrame.body?.status === "needs_confirmation") {
@@ -498,7 +512,10 @@ try {
       break;
     }
 
-    if (failures.filter((f) => f.title === chapter.title).length >= 2) {
+    const chapterFailureWeight = failures
+      .filter((f) => f.title === chapter.title)
+      .reduce((sum, f) => sum + (/fail fast/.test(f.error) ? 0.5 : 1.5), 0);
+    if (chapterFailureWeight >= 3) {
       log(`skip ${chapter.title} after repeated failures — moving on`);
       skippedTitles.add(chapter.title);
       continue;
