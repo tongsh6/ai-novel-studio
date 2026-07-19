@@ -75,6 +75,16 @@ defmodule ModelContracts.JudgmentProtocol do
       text: "改一下。",
       expected: ["await_author"],
       reply_case: false
+    },
+    %{
+      id: "continuation_phrasing",
+      # M0 狗粮实锤（2026-07-19）：续写措辞下 live 模型自造目录外能力名
+      # "text_generation" → dispatch 硬失败。capability enum + 越界重试修复后，
+      # 本用例钉住：续写请求判 execute 且 capability 必须是目录内 prose_writing。
+      text: "接着第01章往下继续写正文，和现有内容自然衔接。",
+      expected: ["execute"],
+      reply_case: false,
+      expected_capability: "prose_writing"
     }
   ]
 
@@ -170,7 +180,11 @@ defmodule ModelContracts.JudgmentProtocol do
     input = %{
       author_text: battery_case.text,
       context_block: probe_context_block(),
-      options: [explore: true]
+      options: [
+        explore: true,
+        capabilities:
+          ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
+      ]
     }
 
     case JudgmentProtocol.request_judgment(execution, %{}, input) do
@@ -225,8 +239,18 @@ defmodule ModelContracts.JudgmentProtocol do
       battery_case.reply_case and map_get(decision, :reply_included) != true ->
         {:fail, "reply_flag_wrong"}
 
+      capability_mismatch?(decision, battery_case) ->
+        {:fail, "capability_mismatch:got=#{inspect(map_get(decision, :capability))}"}
+
       true ->
         :ok
+    end
+  end
+
+  defp capability_mismatch?(decision, battery_case) do
+    case Map.get(battery_case, :expected_capability) do
+      nil -> false
+      expected -> map_get(decision, :capability) != expected
     end
   end
 

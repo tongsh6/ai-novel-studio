@@ -396,6 +396,94 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     step
   end
 
+  test "自由文本 authoring_intent 被拒并携带原因重试（M0 狗粮缺陷回归）；重试合法后成功" do
+    test_pid = self()
+
+    bad_step = Map.put(prose_act_step(), "authoring_intent", "自然衔接前文，推进本章情节")
+    good_step = Map.put(prose_act_step(), "authoring_intent", "continuation")
+
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        correction? =
+          prompt.messages |> hd() |> Map.fetch!(:content) |> String.contains?("无法被系统解析")
+
+        send(test_pid, {:structure_call, correction?})
+        step = if correction?, do: good_step, else: bad_step
+        {:ok, act_provider_result(step)}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:ok, plan, meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert_received {:structure_call, false}
+    assert_received {:structure_call, true}
+
+    # 重试成功：reasoning 1 + 结构 2 = 3 次调用；intent 按枚举落 plan
+    assert meta.provider_call_count == 3
+    assert [step] = plan.steps
+    assert step.authoring_intent == :continuation
+  end
+
+  test "重试仍是自由文本 authoring_intent 则诚实失败（不静默吞成新章语义）" do
+    bad_step = Map.put(prose_act_step(), "authoring_intent", "衔接前文继续推进")
+
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        {:ok, act_provider_result(bad_step)}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:error, {:invalid_authoring_intent, message}} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert message =~ "衔接前文继续推进"
+  end
+
+  defp prose_act_step do
+    %{
+      "step_id" => "s1",
+      "kind" => "act",
+      "description" => "接着第01章续写正文。",
+      "success_criteria" => ["待采纳 prose_fragment"],
+      "target_tool_ref" => "prose_writing",
+      "write_intent" => "tentative",
+      "target_chapter" => "第01章：开端",
+      "requested_chapter_raw" => "第01章"
+    }
+  end
+
+  defp act_provider_result(act) do
+    arguments = %{
+      "author_reasoning" => @narrative,
+      "plan" => %{"steps" => [act]},
+      "reason_codes" => ["agent_plan_drafted"],
+      "confidence" => 0.9
+    }
+
+    tool_calls = [%{"name" => "agent_plan_draft", "arguments" => arguments}]
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun_intent_#{System.unique_integer([:positive])}",
+        provider_call_ref: "pcall_intent_#{System.unique_integer([:positive])}",
+        status: :ok,
+        output_type: :text,
+        content: %{text: "", tool_calls: tool_calls},
+        refs: []
+      })
+
+    %{content: "", tool_calls: tool_calls, provider_output: output}
+  end
+
   test "empty content and missing author_reasoning still fails honestly after retry" do
     arguments = Map.delete(plan_arguments(), "author_reasoning")
     tool_calls = [%{"name" => "agent_plan_draft", "arguments" => arguments}]

@@ -252,12 +252,32 @@ defmodule NovelApplication.JudgmentProtocol do
 
     with %{} = arguments <- arguments,
          action when is_binary(action) <- map_get(arguments, :action),
-         true <- action in actions(request.options) do
+         true <- action in actions(request.options),
+         true <- capability_in_catalog?(action, arguments, request.options) do
       build_judgment(arguments, action, provider_result, request)
     else
       _ -> retry_or_fail(provider_result, request)
     end
   end
+
+  # M0 缺陷修复（2026-07-19 狗粮实锤）：live 模型在续写措辞下自造目录外能力名
+  # （"text_generation"）——execute 的 capability 必须在能力目录内（它选择执行
+  # profile），越界与结构不合法同等处理（携带片段重试一次，仍坏走 S7 诚实失败），
+  # 不得把发明的能力名放行到 dispatch 层硬失败整个 run。plan 的 capability 被
+  # dispatch 忽略（真计划自带步序），不校验（live 实测模型会填 "planning" 之类
+  # 占位词，连坐会把合法 plan 判死）。目录未传入（caller 不校验）时不拦。
+  defp capability_in_catalog?("execute", arguments, options) do
+    case Keyword.get(options || [], :capabilities) do
+      capabilities when is_list(capabilities) and capabilities != [] ->
+        capability = nonblank(map_get(arguments, :capability))
+        is_nil(capability) or capability in capabilities
+
+      _ ->
+        true
+    end
+  end
+
+  defp capability_in_catalog?(_action, _arguments, _options), do: true
 
   defp build_judgment(arguments, action, provider_result, request) do
     case bind_narrative(arguments, request, provider_result) do
@@ -331,7 +351,8 @@ defmodule NovelApplication.JudgmentProtocol do
                   "\n\n## 上次输出无法被系统解析\n" <>
                   "上一次调用返回的结构不合法（片段：#{fragment}）。" <>
                   "必须调用 #{@judgment_tool_name}，action 只能取 " <>
-                  "#{Enum.join(actions(request.options), " / ")}。"
+                  "#{Enum.join(actions(request.options), " / ")}。" <>
+                  capability_retry_hint(request.options)
           }
           | rest
         ]
@@ -495,7 +516,7 @@ defmodule NovelApplication.JudgmentProtocol do
           ## 输出格式
           - native tool call：必须调用 #{@judgment_tool_name}，把判断放入 tool arguments。
           - action：#{actions_help(opts)}。
-          - execute / plan 时 capability 填能力目录中的能力名#{explore_capability_note(opts)}。
+          - execute 时 capability 填能力目录中的能力名（只能取目录名）；plan 及其它 action 的 capability 填 null#{explore_capability_note(opts)}。
           - reply_included：action=reply 且判断说明已包含给作者的回复正文时为 true。
           - candidate_directions：仅当 action=reply 且你的回复是给作者 2-3 个可选创作方向时填写
             （每个方向 {title, pitch, tone_tags}）；其它情况为空数组。
@@ -513,7 +534,7 @@ defmodule NovelApplication.JudgmentProtocol do
             type: "object",
             properties: %{
               action: %{type: "string", enum: actions(opts)},
-              capability: %{anyOf: [%{type: "string"}, %{type: "null"}]},
+              capability: capability_schema(opts),
               reply_included: %{type: "boolean"},
               reason: %{type: "string"},
               candidate_directions: %{
@@ -582,6 +603,28 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp explore_capability_note(opts) do
     if Keyword.get(opts, :explore, false), do: "；先检索属于 explore，不算 execute", else: ""
+  end
+
+  defp capability_retry_hint(options) do
+    case Keyword.get(options || [], :capabilities) do
+      capabilities when is_list(capabilities) and capabilities != [] ->
+        "execute 的 capability 只能取 #{Enum.join(capabilities, " / ")}，不得自造能力名；plan 及其它 action 填 null。"
+
+      _ ->
+        ""
+    end
+  end
+
+  # capability schema：caller 传入能力目录时收紧为 enum（native tool call 强制，
+  # 模型无法自造能力名——M0 缺陷第一层防线）；未传入保持自由 string 向后兼容。
+  defp capability_schema(opts) do
+    case Keyword.get(opts, :capabilities) do
+      capabilities when is_list(capabilities) and capabilities != [] ->
+        %{anyOf: [%{type: "string", enum: capabilities}, %{type: "null"}]}
+
+      _ ->
+        %{anyOf: [%{type: "string"}, %{type: "null"}]}
+    end
   end
 
   # ── 工具 ──

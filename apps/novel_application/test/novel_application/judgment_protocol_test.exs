@@ -93,6 +93,39 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert absent.explore_request == nil
   end
 
+  test "capability 目录约束（M0 狗粮缺陷回归）：execute 越界重试后诚实失败，plan 不连坐，enum 进 schema" do
+    capabilities = ~w(prose_writing character_design)
+
+    # execute + 目录外能力名 → 重试仍坏 → S7 诚实失败（不放行到 dispatch）
+    assert {:error, {:judgment_decision_unparseable, _frag}} =
+             request(
+               %{"action" => "execute", "reason" => "go", "capability" => "text_generation"},
+               capabilities: capabilities
+             )
+
+    # execute + 目录内能力名 → 通过
+    assert {:ok, ok_judgment} =
+             request(
+               %{"action" => "execute", "reason" => "go", "capability" => "prose_writing"},
+               capabilities: capabilities
+             )
+
+    assert ok_judgment.capability == "prose_writing"
+
+    # plan + 占位能力名（live 实测形态）→ 不连坐（dispatch 忽略 plan 的 capability）
+    assert {:ok, plan_judgment} =
+             request(
+               %{"action" => "plan", "reason" => "multi", "capability" => "planning"},
+               capabilities: capabilities
+             )
+
+    assert plan_judgment.action == "plan"
+
+    # 目录未传入 → 保持向后兼容不拦
+    assert {:ok, _} =
+             request(%{"action" => "execute", "reason" => "go", "capability" => "text_generation"})
+  end
+
   test "正常候选列表：解析为候选，present 为真" do
     {:ok, judgment} =
       request(%{

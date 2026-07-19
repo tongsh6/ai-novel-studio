@@ -716,7 +716,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     prompt = prompt_text(prompt)
 
     {authoring_intent, target_chapter, requested_chapter_raw, reasoning} =
-      if String.contains?(prompt, "接着") do
+      # 嗅作者目标短语而非全 prompt（生产指引文案自身含"接着写"枚举说明，全文嗅探会误翻分支）
+      if String.contains?(prompt, "接着第01章") do
         {"continuation", "第01章：开端", "第01章", "先读取第01章上下文，再按续写意图生成正文草稿。"}
       else
         {"none", "第01章：开端", "第01章", "先读取正文写作上下文，再生成一份待采纳正文草稿并复核。"}

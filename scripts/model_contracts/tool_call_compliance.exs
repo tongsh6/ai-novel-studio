@@ -120,7 +120,12 @@ defmodule ModelContracts.ToolCallCompliance do
     # 生产同款依赖构造器：Gateway 路由 + ProviderExecution 物化 + execution refs 附回
     execution = Execution.dependency(provider: variant.provider, purpose: :author_reasoning)
 
-    case AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(variant.name, index), execution) do
+    case AgenticPlanDraftPlanner.draft_plan_with_meta(
+           probe_run(variant.name, index),
+           execution,
+           %{},
+           chapter_titles_reader: fn _workspace_id -> ["第01章：底层灵气账单"] end
+         ) do
       {:ok, plan, meta} ->
         classify_success(plan, meta)
 
@@ -130,12 +135,28 @@ defmodule ModelContracts.ToolCallCompliance do
   end
 
   defp classify_success(plan, meta) do
+    prose_step = Enum.find(plan.steps, &(&1.target_tool_ref == "prose_writing"))
+
     cond do
       plan.steps == [] ->
         %{outcome: :fail, detail: "plan_steps_empty"}
 
       not (is_binary(meta[:summary]) and String.trim(meta[:summary]) != "") ->
         %{outcome: :fail, detail: "reasoning_content_empty"}
+
+      is_nil(prose_step) ->
+        %{outcome: :fail, detail: "prose_step_missing"}
+
+      # M0 狗粮缺陷回归钉（2026-07-19）：续写措辞的目标下，prose 步坐标必须是
+      # continuation + 精确章名——自由文本 intent 曾被归一化吞成 nil → 覆盖已采纳正文。
+      prose_step.authoring_intent != :continuation ->
+        %{
+          outcome: :fail,
+          detail: "authoring_intent_not_continuation:#{inspect(prose_step.authoring_intent)}"
+        }
+
+      prose_step.target_chapter != "第01章：底层灵气账单" ->
+        %{outcome: :fail, detail: "target_chapter_unbound:#{inspect(prose_step.target_chapter)}"}
 
       true ->
         %{outcome: :pass, detail: nil}

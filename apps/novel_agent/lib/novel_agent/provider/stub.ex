@@ -750,9 +750,27 @@ defmodule NovelAgent.Provider.Stub do
       "write_intent" => "tentative",
       "risk_hint" => risk_hint,
       "authoring_intent" => authoring_intent,
-      "target_chapter" => nil,
+      "target_chapter" => listed_chapter_title(prompt_text, requested_chapter_raw),
       "requested_chapter_raw" => requested_chapter_raw
     })
+  end
+
+  # target_chapter 契约（与生产 prompt 同语义）：作者点名的章按「作品章节」列表
+  # 精确复制全名；列表缺席或没有对应章时填 null。
+  defp listed_chapter_title(_prompt_text, nil), do: nil
+
+  defp listed_chapter_title(prompt_text, requested_chapter_raw) do
+    case Regex.run(~r/## 作品章节.*?\n((?:- .+\n?)+)/su, prompt_text, capture: :all_but_first) do
+      [listed] ->
+        listed
+        |> String.split("\n")
+        |> Enum.map(&String.trim_leading(&1, "- "))
+        |> Enum.map(&String.trim/1)
+        |> Enum.find(&String.contains?(&1, requested_chapter_raw))
+
+      _ ->
+        nil
+    end
   end
 
   defp agent_plan_author_goal(prompt_text) do

@@ -177,6 +177,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp build_or_retry_plan({:ok, parsed}, ctx) do
     with {:ok, reasoning, origin, source_result} <- resolve_narrative(ctx, parsed),
+         :ok <- validate_writing_intents(parsed),
          {:ok, plan} <- build_plan(ctx.run, parsed),
          :ok <- validate_plan_targets(ctx.run, plan),
          {:ok, narrative_source} <-
@@ -355,6 +356,38 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
+  # M0 狗粮缺陷修复（2026-07-19）：live 模型把 authoring_intent 当自由文本填中文
+  # 短语（"自然衔接前文，推进本章情节"），域层归一化静默吞成 nil → 续写请求被坐标
+  # 成 first_draft → 覆盖已采纳正文（748→432 字数倒退实锤）。在归一化吞掉之前按
+  # 原始值校验：prose_writing 步的 authoring_intent 非枚举即结构不合法（携带原因
+  # 重试一次，仍坏诚实失败）——不猜测语义映射。
+  @writing_intent_values [nil, "", "none", "continuation", "rewrite"]
+
+  defp validate_writing_intents(parsed) do
+    steps =
+      parsed
+      |> map_get(:plan)
+      |> then(fn plan -> (is_map(plan) && map_get(plan, :steps)) || [] end)
+
+    invalid =
+      steps
+      |> Enum.filter(fn step ->
+        is_map(step) and map_get(step, :target_tool_ref) == "prose_writing" and
+          map_get(step, :authoring_intent) not in @writing_intent_values
+      end)
+      |> Enum.map(&map_get(&1, :authoring_intent))
+
+    case invalid do
+      [] ->
+        :ok
+
+      values ->
+        {:error,
+         {:invalid_authoring_intent,
+          "authoring_intent 只能取 continuation / rewrite / null（枚举，非描述文字），收到：#{inspect(Enum.uniq(values))}"}}
+    end
+  end
+
   defp validate_plan_targets(%AgentRun{} = run, %AgentPlan{steps: steps}) do
     allowed = MapSet.new(allowed_targets(run))
 
@@ -447,6 +480,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
     - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
     - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+    - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
     - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
     - 只起草计划，不声称已经执行，不输出工具结果。
     - 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。
@@ -489,6 +523,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
     - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
     - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+    - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
     - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
     - 只修订计划，不声称已经执行，不输出工具结果。
     - 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。

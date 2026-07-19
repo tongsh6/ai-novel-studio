@@ -151,7 +151,7 @@ function frameBelongsToTurn(frame, turnId) {
   return frameTurn === turnId || frameTurn.startsWith(`${turnId}:`);
 }
 
-async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null) {
+async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, options = {}) {
   const freshProse = (f) =>
     f.direction === "received" &&
     f.event === "turn_result" &&
@@ -221,6 +221,15 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null) {
   );
 
   if (settle.event === "action_result") {
+    if (options.continuation) {
+      // M0 缺陷守卫（2026-07-19）：续写请求绝不该触发整章覆盖确认——出现即产品
+      // 坐标回归（authoring_intent 未判 continuation）。真实作者会取消而不是确认；
+      // runner 按失败上抛（进重试路径），不再盲确认吞掉字数倒退。
+      throw new Error(
+        `continuation for ${chapterTitle} produced an overwrite confirmation (coordinate regression)`,
+      );
+    }
+
     log(`${chapterTitle}: overwrite confirmation — confirming replace`);
     await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
       timeout: 15_000,
@@ -300,13 +309,13 @@ async function planMoreChapters(page) {
 async function driveChapterTurn(page, chapter) {
   const words = Number(chapter.word_count ?? 0);
   const summary = String(chapter.summary ?? "").trim();
-  const instruction =
-    words === 0
-      ? `请根据已采纳章节计划生成${chapter.title}：${summary}正文草稿，保持为待采纳草稿。`
-      : `接着${chapter.title}往下写一段正文，自然衔接前文，推进本章情节。`;
+  const continuation = words > 0;
+  const instruction = continuation
+    ? `接着${chapter.title}往下写一段正文，自然衔接前文，推进本章情节。`
+    : `请根据已采纳章节计划生成${chapter.title}：${summary}正文草稿，保持为待采纳草稿。`;
 
   const { fromIndex, turnId } = await sendAuthorMessage(page, instruction);
-  return adoptPendingDraft(page, chapter.title, fromIndex, turnId);
+  return adoptPendingDraft(page, chapter.title, fromIndex, turnId, { continuation });
 }
 
 async function exportBook(page) {
@@ -484,14 +493,21 @@ try {
       chaptersAdvanced = advancedTitles.size;
       toc = await readToc(page);
       const after = flatChapters(toc).find((c) => c.title === chapter.title);
+      const wordsAfter = Number(after?.word_count ?? 0);
       appendProgress({
         chapter: chapter.title,
         turn_id: turnId,
         words_before: wordsBefore,
-        words_after: Number(after?.word_count ?? 0),
+        words_after: wordsAfter,
         duration_ms: Date.now() - turnStarted,
       });
-      log(`${chapter.title}: ${wordsBefore} -> ${after?.word_count} words`);
+      log(`${chapter.title}: ${wordsBefore} -> ${wordsAfter} words`);
+      if (wordsBefore > 0 && wordsAfter < wordsBefore) {
+        // 字数单调兜底：续写后字数倒退=已采纳正文被覆盖/丢失，按失败登记。
+        throw new Error(
+          `word count regression on ${chapter.title}: ${wordsBefore} -> ${wordsAfter}`,
+        );
+      }
     } catch (error) {
       failures.push({ title: chapter.title, error: String(error?.message ?? error) });
       appendProgress({ chapter: chapter.title, error: String(error?.message ?? error) });

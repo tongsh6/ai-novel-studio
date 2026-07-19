@@ -411,6 +411,10 @@ defmodule NovelApplication.DialoguePlanningService do
 
   @max_explore_rounds 2
 
+  # 判断①能力目录（prompt 目录 + schema enum + 解析校验三处同源；dispatch 表
+  # @judgment_capability_profiles 是超集——provider_progress 不在作者可选目录）。
+  @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
+
   @judgment_capability_profiles %{
     "character_design" => :character_design_with_context,
     "character_evolution" => :character_evolution_with_context,
@@ -598,7 +602,9 @@ defmodule NovelApplication.DialoguePlanningService do
       author_text: map_get(input, :text) || run.goal.text,
       context_block:
         judgment_context_block(context) <> exploration_sections(explorations, explore_open?),
-      options: if(explore_open?, do: [explore: true], else: [])
+      options:
+        [capabilities: @judgment_capabilities] ++
+          if(explore_open?, do: [explore: true], else: [])
     }
   end
 
