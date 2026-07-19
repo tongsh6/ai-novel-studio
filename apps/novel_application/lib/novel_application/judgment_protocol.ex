@@ -269,8 +269,10 @@ defmodule NovelApplication.JudgmentProtocol do
   defp capability_in_catalog?("execute", arguments, options) do
     case Keyword.get(options || [], :capabilities) do
       capabilities when is_list(capabilities) and capabilities != [] ->
-        capability = nonblank(map_get(arguments, :capability))
-        is_nil(capability) or capability in capabilities
+        # M2 缺陷八（2026-07-20 长跑实锤 ×3）：execute 的 capability 是必填
+        # （它选择执行 profile），null 同样越界——进重试路径要求模型补填目录名。
+        # 此前 is_nil 放行是误伤（本意只是目录未传时不拦）。
+        nonblank(map_get(arguments, :capability)) in capabilities
 
       _ ->
         true

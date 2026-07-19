@@ -121,6 +121,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert plan_judgment.action == "plan"
 
+    # execute + capability=null 同样越界（M2 缺陷八：null 洞——execute 必填）
+    assert {:error, {:judgment_decision_unparseable, _}} =
+             request(
+               %{"action" => "execute", "reason" => "go", "capability" => nil},
+               capabilities: capabilities
+             )
+
     # 目录未传入 → 保持向后兼容不拦
     assert {:ok, _} =
              request(%{"action" => "execute", "reason" => "go", "capability" => "text_generation"})
