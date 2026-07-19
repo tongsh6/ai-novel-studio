@@ -669,6 +669,12 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
+  # 套娃信封解套（与计划起草同型防护，M0 实锤类缺陷）：模型把 {name, arguments}
+  # 信封复制进 arguments 时取内层；仅精确同名且内层为 map 时触发。
+  defp normalize_arguments(%{"name" => name, "arguments" => inner})
+       when name in [@judgment_tool_name, @continuation_tool_name] and is_map(inner),
+       do: inner
+
   defp normalize_arguments(arguments) when is_map(arguments), do: arguments
 
   defp normalize_arguments(arguments) when is_binary(arguments) do

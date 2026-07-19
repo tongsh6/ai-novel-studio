@@ -777,7 +777,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     case matches do
       [call] ->
         case map_get(call, :arguments) do
-          args when is_map(args) -> {:ok, args}
+          args when is_map(args) -> {:ok, unwrap_envelope(args, tool_name)}
           _ -> {:error, :native_tool_call_arguments_required}
         end
 
@@ -786,6 +786,20 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
       _multiple ->
         {:error, {:native_tool_call_count_invalid, length(matches)}}
+    end
+  end
+
+  # M0 狗粮实锤（2026-07-19，"steps must not be empty" ×4 根因）：gpt-oss-120b 偶发
+  # 把工具调用信封复制进 arguments——%{"name" => 同名工具, "arguments" => %{真参数}}。
+  # 仅当信封 name 与本工具精确同名且内层为 map 时解套（结构确定性识别，非语义猜测；
+  # 其它形状原样返回交给既有校验诚实失败）。
+  defp unwrap_envelope(args, tool_name) do
+    inner = map_get(args, :arguments)
+
+    if map_get(args, :name) == tool_name and is_map(inner) do
+      inner
+    else
+      args
     end
   end
 

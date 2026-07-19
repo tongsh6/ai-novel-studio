@@ -396,6 +396,48 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     step
   end
 
+  test "套娃信封 arguments 被确定性解套（M0 空计划根因回归）" do
+    wrapped = %{
+      "name" => "agent_plan_draft",
+      "arguments" => %{
+        "author_reasoning" => @narrative,
+        "plan" => %{"steps" => [Map.put(prose_act_step(), "authoring_intent", "continuation")]},
+        "reason_codes" => ["agent_plan_drafted"],
+        "confidence" => 0.9
+      }
+    }
+
+    tool_calls = [%{"name" => "agent_plan_draft", "arguments" => wrapped}]
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun_envelope",
+        provider_call_ref: "pcall_envelope",
+        status: :ok,
+        output_type: :text,
+        content: %{text: "", tool_calls: tool_calls},
+        refs: []
+      })
+
+    # 两段式镜像实锤形态：call1 有叙事内容（正常流式），call2 结构调用被套娃。
+    execution = %Execution{
+      result_fn: fn prompt ->
+        if NovelAgent.Provider.tool_call_prompt?(prompt) do
+          {:ok, %{content: "", tool_calls: tool_calls, provider_output: output}}
+        else
+          {:ok, reasoning_provider_result()}
+        end
+      end
+    }
+
+    assert {:ok, plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+
+    assert [step] = plan.steps
+    assert step.target_tool_ref == "prose_writing"
+    assert step.authoring_intent == :continuation
+  end
+
   test "自由文本 authoring_intent 被拒并携带原因重试（M0 狗粮缺陷回归）；重试合法后成功" do
     test_pid = self()
 

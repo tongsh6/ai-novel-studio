@@ -514,7 +514,7 @@ try {
 
     const chapterFailureWeight = failures
       .filter((f) => f.title === chapter.title)
-      .reduce((sum, f) => sum + (/fail fast/.test(f.error) ? 0.5 : 1.5), 0);
+      .reduce((sum, f) => sum + (/fail fast|coordinate regression/.test(f.error) ? 0.5 : 1.5), 0);
     if (chapterFailureWeight >= 3) {
       log(`skip ${chapter.title} after repeated failures — moving on`);
       skippedTitles.add(chapter.title);

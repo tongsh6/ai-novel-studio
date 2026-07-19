@@ -49,3 +49,13 @@
 - 2026-07-04 — **用户拍板 T3 选 B**：候选预算上升为 `AgentRunPolicy` 契约项。实现取 backstop 语义（非 pre-planner 短路）：不改变正常完成路径与既有验收调用数口径，仅在候选达预算后 planner 仍提议 execute_step 时由系统裁决完成 run；候选计数复用既有 `AgentRun.pending_artifact_refs`（零 checkpoint/持久化形状变更）；`prose_drafting`/`character_design`/`plot_outline`/`character_evolution`/`world_building` 五个单候选创作 profile 设 1，conversation/revision/readonly/provider_progress 不设（revision 的 finalize 步在候选之后，不能被候选预算截断）。
 - 2026-07-04 — T3 实现：`AgentRun.budget.max_pending_artifacts` 进入 runtime 预算归一化与 profile budget matrix；`AgentRunServer` 在 planner 返回 `execute_step` 后、step 执行前检查候选预算，命中时发出完成裁决，不执行额外工具。T4 driver/verifier 同步加严。
 - 2026-07-04 — T4 复跑通过：`bash scripts/quality_accept.sh agent-prose-drafting-with-quality --surface tauri` 通过，证据 `artifacts/slice-verify/agent-prose-drafting-with-quality-tauri/summary.json`；latest summary 记录 run completed、pending prose fragment 恰 1，`prose_writing` dispatch 恰 1，provider calls=4。T5 仍等待下一次经批准狗粮长跑搭车验证 0 retry。
+
+
+## T5 长跑复验收口（2026-07-19/20，M0 判断纪元狗粮搭车）
+
+僵尸候选在判断纪元以新形态复现并系统性闭环：作者并发采纳候选后，质量 confirm →
+判断②改进闭环仍产未请求第二候选（且坐标 first_draft，若被采纳会覆盖刚采纳正文）。
+修复（commit e262cbe6）：一等事件 `:artifact_resolved` + 采纳通知管道（steer 同款）
++ prose 单候选 flow 迭代边界按 `author_adopted_refs` 旗标机械收束（0 调用）。
+M0 四/五跑 + resume 补跑全程零僵尸候选、零第二候选、字数单调——T5 复验通过。
+runtime 阻塞窗口测试 + flow 边界测试为回归钉。
