@@ -188,7 +188,7 @@
 |---|---|---|---|
 | NEM-GAP-01 | 主题 / 前提无建模位置 | E01 / E02 | work 元信息只有"卖点"（商业），没有"命题"（创作） |
 | NEM-GAP-02 | 核心设定引擎、成长体系、命名体系无对象 | E06 / E09 / E12 | 只能散落在 worldbuilding 文本里 |
-| NEM-GAP-03 | 章级设计无结构 | E18-E22 | `chapters.summary` 是一段自由文本，承载不了功能定位/四件套/情绪/断章 |
+| NEM-GAP-03 | ~~章级设计无结构~~ **已关闭**（2026-07-20） | E18-E22 | 全链落地：ChapterPlanDirection 九字段（VS-00C CP4）→ plot_outline writer 结构化文法产出 → ChapterPlanParser 物化 → 执行简报场级投影（chapter_projection）→ 探索面 chapter_read 三态可读（CP5b）→ 种子结构化后场景/狗粮全程方向在场（p1-prose-execution-brief degraded=false + judgment-explore-chapter-plan 引用设计态字段 verified） |
 | NEM-GAP-04 | 场级 craft 无槽位 | E23-E30 | scene 是空结构节点，无任何 craft 字段 |
 | NEM-GAP-05 | "向前看"的五本账缺位 | E33-E37 | 弧光/冲突/信息/情绪曲线/承诺只有 main_outline 文本兜底 |
 | NEM-GAP-06 | 三态对账无一等机制 | 全部 | 25 有提炼方向，但"实现态 vs 设计态对账"未被表述为机制 |

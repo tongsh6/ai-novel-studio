@@ -99,10 +99,14 @@ defmodule ModelContracts.JudgmentProtocol do
         System.halt(65)
 
       {:ok, variants} ->
+        # T1（call2 病灶收口）：每个 provider 变体 × 两种上下文形态——bare（探针
+        # 裸上下文）与 in_run（生产 prompt 同形：会话摘要 + 全章列表 + 采纳事实）。
+        # 症状率差 = 上下文负载对 call2 退化的贡献基线。
         results =
-          for variant <- variants do
-            cases = Enum.map(@battery, &run_case(variant, &1, runs))
-            %{variant: variant.name, cases: cases}
+          for variant <- variants, context_shape <- [:bare, :in_run] do
+            shaped = Map.put(variant, :context_shape, context_shape)
+            cases = Enum.map(@battery, &run_case(shaped, &1, runs))
+            %{variant: "#{variant.name}/#{context_shape}", cases: cases}
           end
 
         summary = write_summary(provider, results, runs, threshold)
@@ -179,7 +183,7 @@ defmodule ModelContracts.JudgmentProtocol do
 
     input = %{
       author_text: battery_case.text,
-      context_block: probe_context_block(),
+      context_block: probe_context_block(Map.get(variant, :context_shape, :bare)),
       options: [
         explore: true,
         capabilities:
@@ -267,7 +271,43 @@ defmodule ModelContracts.JudgmentProtocol do
 
   # ── 探针固定上下文（含检索能力目录，explore: true 开放五选一） ──
 
-  defp probe_context_block do
+  # in_run 形态：镜像 M0 狗粮生产 prompt 的实际负载（judgment_context_block 渲染
+  # 形态——作品上下文 + 12 章全列表 + 会话摘要含近轮采纳事实 + 能力目录）。
+  defp probe_context_block(:in_run) do
+    """
+    ## 当前作品上下文
+    - title: P1 单章正文草稿验证作品
+    - revision: 1
+    - core_selling_point: 从已采纳章节计划生成待采纳正文草稿
+    - genre: 赛博修仙
+    - target_reader: 关注长篇主链闭环的作者
+    - tone_preference: 克制、紧张、具象
+
+    ## 已写章节（共 12 章，按顺序）
+    - 第01章：底层灵气账单
+    - 第02章：旧服务器里的残诀
+    - 第03章：黑市调频师
+    - 第04章：巡检队的诱捕
+    - 第05章：霓虹地牢试炼
+    - 第06章：中层执行者的裂缝
+    - 第07章：断网之城
+    - 第08章：核心模块的代价
+    - 第09章：伪仙直播夜
+    - 第10章：反向筑基协议
+    - 第11章：天台上的背叛
+    - 第12章：第一卷终局：灵气回流
+    （回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）
+
+    ## 会话摘要
+    作者按章节计划逐章推进正文：上一轮为第01章生成了正文草稿并已采纳（约 1,288 字），
+    再上一轮采纳了章节计划（12 章）。作者的采纳节奏很快，通常草稿生成后立即确认保存。
+
+    #{capability_catalog_section()}
+    """
+    |> String.trim()
+  end
+
+  defp probe_context_block(_bare) do
     """
     ## 当前作品
     - 标题：星潮之下（赛博修仙）
@@ -278,6 +318,13 @@ defmodule ModelContracts.JudgmentProtocol do
     - 已确认角色：林烬（主角，灵气稽查官）、周衡（配角，黑市调频师）
     - 注意：以上只是结构摘要；各章正文细节、伏笔明细不在本段内，需要时必须先检索。
 
+    #{capability_catalog_section()}
+    """
+    |> String.trim()
+  end
+
+  defp capability_catalog_section do
+    """
     ## 可用能力（判断"单动作执行"或"制定计划"时的目标集）
     - character_design：设计新角色（产出待采纳候选）
     - prose_writing：写/续写章节正文（产出待采纳草稿）

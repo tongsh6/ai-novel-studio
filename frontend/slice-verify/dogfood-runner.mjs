@@ -366,6 +366,25 @@ async function exportBook(page) {
   return match?.[1] ?? "";
 }
 
+// T1 体温计（call2 病灶收口 slice）：重试率按症状分类聚合——harness 重试把问题
+// 变"能跑"不等于病愈，本表就是病灶体温计，进 summary.json 供跨跑对比。
+function retryThermometer(failures) {
+  const category = (error) => {
+    if (/wrong-route/.test(error)) return "wrong_route_reply";
+    if (/coordinate regression/.test(error)) return "coordinate_regression";
+    if (/agent run failed/.test(error)) return "run_failed";
+    if (/Timeout|No prose_fragment/.test(error)) return "timeout_600s";
+    return "other";
+  };
+
+  const by_category = {};
+  for (const f of failures) {
+    const c = category(String(f.error ?? ""));
+    by_category[c] = (by_category[c] ?? 0) + 1;
+  }
+  return { total_retries: failures.length, by_category };
+}
+
 function writeArtifacts(toc, exportPath, runMeta) {
   const chapters = flatChapters(toc);
   const total = Number(toc?.total_word_count ?? 0);
@@ -565,6 +584,7 @@ try {
 
   writeArtifacts(toc, exportPath, {
     chapters_advanced_this_run: chaptersAdvanced,
+    retry_thermometer: retryThermometer(failures),
     failures,
     run_duration_ms: Date.now() - startedAt,
   });
