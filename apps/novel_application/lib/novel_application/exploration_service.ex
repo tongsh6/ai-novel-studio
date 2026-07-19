@@ -16,7 +16,8 @@ defmodule NovelApplication.ExplorationService do
   """
 
   alias NovelApplication.{MemoryManagementService, ReadingProjectionService, WorkArchiveService}
-  alias NovelPersistence.ProseSearchRepo
+  alias NovelDomain.ChapterPlanDirection
+  alias NovelPersistence.{ChapterSummaryRepo, ProseSearchRepo}
 
   @type observation :: %{
           tool: String.t(),
@@ -25,7 +26,7 @@ defmodule NovelApplication.ExplorationService do
           refs: [String.t()]
         }
 
-  @archive_facets ~w(profile characters foreshadowing rules stats)
+  @archive_facets ~w(profile characters foreshadowing rules stats current_state relationships preferences)
   @summary_max_chars 1500
   @chapter_clip_chars 1200
 
@@ -38,12 +39,13 @@ defmodule NovelApplication.ExplorationService do
     %{
       tool: "chapter_read",
       query_help: "章节名（可只给编号如「第02章」）",
-      description: "读取某一章的已采纳正文"
+      description: "读取某一章的设计计划、章摘要与已采纳正文"
     },
     %{
       tool: "archive_read",
-      query_help: "档案面之一：profile｜characters｜foreshadowing｜rules｜stats",
-      description: "读取作品档案（简介/角色/伏笔/规则/统计）"
+      query_help:
+        "档案面之一：profile｜characters｜foreshadowing｜rules｜stats｜current_state｜relationships｜preferences",
+      description: "读取作品档案（简介/角色/伏笔/规则/统计/当前状态/人物关系/作者偏好）"
     },
     %{
       tool: "memory_recall",
@@ -129,21 +131,71 @@ defmodule NovelApplication.ExplorationService do
         {:ok, observation("chapter_read", query, "没有找到「#{query}」。现有章节：#{titles}", [])}
 
       chapter ->
-        case ReadingProjectionService.chapter_content(chapter.id, work_id) do
-          {:ok, content} ->
-            text = content.scenes |> Enum.map_join("\n", & &1.content) |> clip(@chapter_clip_chars)
+        sections =
+          [chapter_plan_section(chapter), chapter_summary_section(work_id, chapter)] ++
+            chapter_prose_sections(work_id, chapter)
 
-            {:ok,
-             observation(
-               "chapter_read",
-               query,
-               "「#{content.title}」（有效字数 #{content.word_count}）：\n#{text}",
-               ["chapter:#{chapter.id}"]
-             )}
+        {:ok,
+         observation(
+           "chapter_read",
+           query,
+           "「#{chapter.title}」\n" <> Enum.join(sections, "\n"),
+           ["chapter:#{chapter.id}"]
+         )}
+    end
+  end
 
-          {:error, :not_found} ->
-            {:ok, observation("chapter_read", query, "「#{chapter.title}」还没有已采纳正文。", [])}
-        end
+  # 设计态（E18-E22 结构化计划；ADR-0025 CP5b 探索补面 A）：无结构化计划时
+  # 回退 chapters.summary（大纲采纳的单行方向），两者皆无则诚实说明。
+  defp chapter_plan_section(chapter) do
+    plan = ChapterPlanDirection.from_storage(Map.get(chapter, :plan_direction))
+
+    rendered =
+      case plan do
+        nil ->
+          case Map.get(chapter, :summary) do
+            summary when is_binary(summary) and summary != "" -> summary
+            _ -> "（本章尚无设计计划）"
+          end
+
+        direction ->
+          [
+            {"功能定位", direction.chapter_role},
+            {"情节推进", direction.plot_progress},
+            {"人物变化", direction.character_change},
+            {"信息释放", direction.information_release},
+            {"伏笔动作", direction.foreshadowing_action},
+            {"情绪定位", direction.emotion},
+            {"章首拉力", direction.opening_hook},
+            {"章尾断章", direction.ending_hook},
+            {"篇幅与场次", direction.word_count_and_scenes}
+          ]
+          |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
+          |> Enum.map_join("；", fn {label, value} -> "#{label}：#{value}" end)
+      end
+
+    "【计划】#{rendered}"
+  end
+
+  # 实现态压缩层（chapter_summaries 治理摘要；CP5b 探索补面 B）。
+  defp chapter_summary_section(work_id, chapter) do
+    case ChapterSummaryRepo.current_accepted(work_id, chapter.id) do
+      %{summary_text: text} when is_binary(text) and text != "" ->
+        "【摘要】#{text}"
+
+      _ ->
+        "【摘要】（尚无章摘要）"
+    end
+  end
+
+  defp chapter_prose_sections(work_id, chapter) do
+    case ReadingProjectionService.chapter_content(chapter.id, work_id) do
+      {:ok, content} ->
+        text = content.scenes |> Enum.map_join("\n", & &1.content) |> clip(@chapter_clip_chars)
+        ["【正文】（有效字数 #{content.word_count}）\n#{text}"]
+
+      {:error, :not_found} ->
+        ["【正文】还没有已采纳正文。"]
     end
   end
 
@@ -162,6 +214,9 @@ defmodule NovelApplication.ExplorationService do
         "foreshadowing" -> render_memory_items("伏笔", WorkArchiveService.foreshadowing(work_id))
         "rules" -> render_memory_items("规则", WorkArchiveService.rules(work_id))
         "stats" -> render_stats(WorkArchiveService.stats(work_id))
+        "current_state" -> render_memory_items("当前状态", WorkArchiveService.current_states(work_id))
+        "relationships" -> render_memory_items("人物关系", WorkArchiveService.relationships(work_id))
+        "preferences" -> render_memory_items("作者偏好", WorkArchiveService.preferences(work_id))
       end
 
     {:ok, observation("archive_read", facet, summary, ["archive:#{facet}"])}

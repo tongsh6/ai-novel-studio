@@ -259,7 +259,7 @@ defmodule NovelAgent.Provider.Stub do
       # call1 开放「先探索」形态 / call2 内嵌探索叙事回声 → explore 成立
       String.contains?(text, "先探索") or String.contains?(text, "我需要先检索作品事实") ->
         {"explore",
-         %{"explore_request" => %{"tool" => "prose_search", "query" => explore_term(text)}}}
+         %{"explore_request" => %{"tool" => explore_tool(text), "query" => explore_term(text)}}}
 
       true ->
         {"reply", %{"reply_included" => true}}
@@ -267,6 +267,17 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   defp shape_judgment_action(action, _text), do: {action, %{}}
+
+  # 设计态问句（按计划/大纲）→ chapter_read；其余 → prose_search。
+  defp explore_tool(text) do
+    author_text = judgment_author_input(text)
+
+    if contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) do
+      "chapter_read"
+    else
+      "prose_search"
+    end
+  end
 
   defp explore_term(text) do
     author_text = judgment_author_input(text)
@@ -349,13 +360,30 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   # 优先取带章名出处的命中行；段头（### 观察 N）含查询词但不是引用。
+  # 命中行连同后续至多 2 行非空行成块（chapter_read 的计划/摘要紧随标题行）。
   defp cited_observation_line(_lines, ""), do: ""
 
   defp cited_observation_line(lines, term) do
     hit_line = fn line -> String.contains?(line, term) and not String.starts_with?(line, "###") end
 
-    Enum.find(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||
-      Enum.find(lines, hit_line) || ""
+    index =
+      Enum.find_index(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||
+        Enum.find_index(lines, hit_line)
+
+    case index do
+      nil ->
+        ""
+
+      index ->
+        lines
+        |> Enum.drop(index)
+        |> Enum.take(3)
+        |> Enum.take_while(fn line ->
+          trimmed = String.trim(line)
+          trimmed != "" and not String.starts_with?(trimmed, "###")
+        end)
+        |> Enum.join("\n")
+    end
   end
 
   defp judgment_reason(action) do

@@ -35,6 +35,7 @@ defmodule NovelDomain.AgentNextStepDecision do
           target_chapter: String.t() | nil,
           requested_chapter_raw: String.t() | nil,
           target_word_count: pos_integer() | nil,
+          exploration_query: String.t() | nil,
           reason_codes: [String.t()],
           observation_refs: [String.t()],
           evaluation_of_last: evaluation_of_last(),
@@ -55,6 +56,7 @@ defmodule NovelDomain.AgentNextStepDecision do
     :target_chapter,
     :requested_chapter_raw,
     :target_word_count,
+    :exploration_query,
     write_intent: :none,
     risk_hint: :low,
     reason_codes: [],
@@ -108,6 +110,7 @@ defmodule NovelDomain.AgentNextStepDecision do
       target_chapter: decision.target_chapter,
       requested_chapter_raw: decision.requested_chapter_raw,
       target_word_count: decision.target_word_count,
+      exploration_query: decision.exploration_query,
       reason_codes: decision.reason_codes,
       observation_refs: decision.observation_refs,
       evaluation_of_last: decision.evaluation_of_last,
@@ -136,6 +139,7 @@ defmodule NovelDomain.AgentNextStepDecision do
     |> Map.update(:target_chapter, nil, &normalize_optional_string/1)
     |> Map.update(:requested_chapter_raw, nil, &normalize_optional_string/1)
     |> Map.update(:target_word_count, nil, &positive_int/1)
+    |> Map.update(:exploration_query, nil, &nonblank_string/1)
   end
 
   defp atomize_known(attrs),
@@ -154,6 +158,7 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp known_key("target_chapter"), do: :target_chapter
   defp known_key("requested_chapter_raw"), do: :requested_chapter_raw
   defp known_key("target_word_count"), do: :target_word_count
+  defp known_key("exploration_query"), do: :exploration_query
   defp known_key("reason_codes"), do: :reason_codes
   defp known_key("observation_refs"), do: :observation_refs
   defp known_key("evaluation_of_last"), do: :evaluation_of_last
@@ -249,6 +254,15 @@ defmodule NovelDomain.AgentNextStepDecision do
 
   defp positive_int(value) when is_integer(value) and value > 0, do: value
   defp positive_int(_value), do: nil
+
+  defp nonblank_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp nonblank_string(_value), do: nil
 
   defp map_value(map, key) when is_map(map) do
     cond do

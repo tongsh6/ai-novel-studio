@@ -1,6 +1,6 @@
 # UA01 判断驱动交互循环（ADR-0025 实施）
 
-- 状态：CP0-CP4 done（2026-07-18）/ CP5-CP6 todo（探索两翼）
+- 状态：CP0-CP5 done（2026-07-19）/ CP6 todo（探索外部翼）
 - 类型：Agent Runtime Slice / Prompt Protocol Slice
 - 父 ADR：`docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md`（Accepted）
 - 展开层：`docs/design/notes/2026-07-15-judgment-driven-interactive-loop.md`
@@ -19,7 +19,7 @@
 | CP2 | 单候选创作 profile 迁循环（执行内联自评 + 判断②按需） | **done**（2026-07-18，CP2b 去伪计划 + 探针裁决判断②独立化） |
 | CP3 | prose/修订迁循环；D 系循环语义回归 | **done**（2026-07-18，判断②+改进闭环+修订机械化） |
 | CP4 | 计划按需全量（判断①制定计划分支 + UI 真计划恢复显示） | **done**（2026-07-18） |
-| CP5 | 探索内部翼（作品事实索引 + 检索工具箱 + 探索预算） | todo（可与 CP2/CP3 并行） |
+| CP5 | 探索内部翼（作品事实索引 + 检索工具箱 + 探索预算） | **done**（2026-07-19，CP5a 判断循环翼 + CP5b 补面/计划检索步；§2l-2n） |
 | CP6 | 探索外部翼（SearchProvider + web_search + 带来源设定候选 + 网络授权边界） | todo（依赖 CP5 框架） |
 
 ## 2a. CP1 前置：MBC judgment-protocol 探针（2026-07-16，done）
@@ -471,6 +471,50 @@ archive_read(5 facets) / memory_recall；观察=机械渲染结构词 + refs 出
 **CP5a 边界与后续**：judgment_plan 目录检索步（计划内探索步）与 MBC explore live
 探针（判断①第五形态方向质量）归 CP5b；CP6 外部翼（SearchProvider + 授权边界）待
 用户拍板开工。
+
+## 2n. CP5b 收口（2026-07-19，用户"先把 cp5 完成吧"）
+
+**探索补面 A/B/C（已物化未可达三项，全包既有 API）**：
+- A 设计态：`chapter_read` 升级三态渲染——【计划】（ChapterPlanDirection E18-E22
+  九字段结构化渲染，无结构化计划回退 chapters.summary 单行方向）+【摘要】
+  （ChapterSummaryRepo.current_accepted 治理摘要）+【正文】（原截断正文）。
+- B 压缩层：同上【摘要】段（chapter_summaries 表首次接入探索面）。
+- C 记忆按类枚举：archive_read 面扩 current_state / relationships / preferences
+  （WorkArchiveRepo/Service 三个新公开函数，与 foreshadowing/rules 同款
+  memory_items 语义）。CHARACTER_PROFILE（characters 面已有）与 IDEA（非确认
+  事实）刻意不入面。
+- 目录描述同步更新（真源单点 ExplorationService.catalog）。
+
+**计划内检索步（judgment_plan）**：
+- PlanStep / AgentNextStepDecision 扩 `exploration_query`（坐标模式，与
+  target_word_count 同链：draft schema + normalize + AgentPlan 白名单 + 决策载体）。
+- judgment_plan 目录与起草校验放行四检索工具（探索目录同源）；执行为判断步同款
+  内联只读（0 提供者调用、不经 Toolbox），观察进流 + author 侧 exploration_observed
+  阶段事件（runtime 另有 developer 侧观察事实回显，按载荷区分）；query 缺失/工具
+  失败记失败观察不硬失败。
+- flow 直连证明：context + archive_read(stats) + prose_writing 三步计划——steps 3 /
+  tools 1 / provider_calls 3（检索步零调用实证）。
+
+**桩契约升级**：explore 工具路由二分（设计态问句「按计划/大纲」→ chapter_read；
+正文事实问句 → prose_search）；引用块提取升级为命中行 + 后续 ≤2 行非空行
+（chapter_read 的【计划】紧随标题行，引用块才携带设计态内容）。lib Stub 与
+slice_verify 同款。
+
+**场景（设计态旗舰证明）**：`judgment-explore-chapter-plan` verified——只种大纲
+零正文，问"「第02章」按计划要写什么？"，判断 explore → chapter_read 读设计态 →
+回复引用"残缺功法/突破底层限制"（该内容只存在于已采纳章节计划）+ 出处章名；
+behavior 断言含设计态专属事实、零 Toolbox dispatch、零 pending。
+`judgment-explore-internal` 引用块改动后复验 verified。
+
+**门禁**：伞级 1176 测 0 失败（并行跑出的 persistence 单次毛刺复跑不再现，按环境
+毛刺登记）；I1/I2/I3/N-NARR 全 exit 0；xref/arch ✓；前端 176+396 全绿；静态扫描
+touched 0。
+
+**同步律落档**：08 §8 增「探索面同步律」——要素物化 slice 的六问 Consumer 项必须
+回答探索面可达性（chapter_summary 漏接为先例教训）。
+
+**C 轨登记（纯机制打磨，待被拉动）**：explore 方向质量 live MBC 探针（判断①第五
+形态判别边界校准）；记忆类面场景级验收（骑 chapter-plan 场景模式，直连测试已覆盖）。
 
 ## 3. 决策日志
 

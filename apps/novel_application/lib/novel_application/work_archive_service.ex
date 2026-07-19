@@ -22,4 +22,13 @@ defmodule NovelApplication.WorkArchiveService do
 
   @spec stats(String.t()) :: map()
   def stats(work_id) when is_binary(work_id), do: WorkArchiveRepo.stats(work_id)
+
+  @spec current_states(String.t()) :: [map()]
+  def current_states(work_id) when is_binary(work_id), do: WorkArchiveRepo.current_states(work_id)
+
+  @spec relationships(String.t()) :: [map()]
+  def relationships(work_id) when is_binary(work_id), do: WorkArchiveRepo.relationships(work_id)
+
+  @spec preferences(String.t()) :: [map()]
+  def preferences(work_id) when is_binary(work_id), do: WorkArchiveRepo.preferences(work_id)
 end

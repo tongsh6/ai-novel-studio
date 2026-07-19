@@ -207,6 +207,54 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("agent-conversation-turn", extraCallRecords)).toBeNull();
   });
 
+  it("requires design-state plan citation evidence for judgment-explore-chapter-plan (ADR-0025 CP5b)", () => {
+    const records = [
+      { event: "channel.user_message.start", turn_id: "turn-plan-q" },
+      { event: "judgment.decided.done", turn_id: "turn-plan-q", action: "explore" },
+      { event: "judgment.decided.done", turn_id: "turn-plan-q", action: "reply" },
+      { event: "channel.user_message.done", turn_id: "turn-plan-q" },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "judgment-explore-chapter-plan",
+        explore_turn_id: "turn-plan-q:agent:2",
+        explore_question_text: "「第02章」按计划要写什么？",
+        explore_reply_text:
+          "我检索了正文中与「第02章」相关的段落，依据如下：\n\n「第02章：旧服务器里的残诀」\n【计划】主角从废弃服务器中找到残缺功法，并第一次突破底层限制。",
+        explore_reply_cites_plan: true,
+        explore_reply_cites_chapter: true,
+        exploration_visible_in_run_feedback: true,
+        explore_no_pending_artifacts: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("judgment-explore-chapter-plan", records);
+    expect(evidence).toMatchObject({
+      slice_id: "judgment-explore-chapter-plan",
+      explore_turn_id: "turn-plan-q:agent:2",
+      judgment_explore_count: 1,
+    });
+
+    expect(
+      findSliceBehaviorEvidence("judgment-explore-chapter-plan", records, evidence),
+    ).toMatchObject({
+      behavior: "judgment_explores_chapter_plan_design_state_then_replies_with_cited_plan",
+      fact_term: "第02章",
+      assertions: expect.arrayContaining([
+        "author_question_names_a_design_state_only_fact",
+        "chapter_plan_retrieved_readonly_without_toolbox_dispatch",
+        "reply_cites_plan_content_and_chapter",
+      ]),
+    });
+
+    // 计划引用位缺失 → 不算证据
+    const uncited = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, explore_reply_cites_plan: false }
+        : record,
+    );
+    expect(findNativeSliceEvidence("judgment-explore-chapter-plan", uncited)).toBeNull();
+  });
+
   it("requires explore-then-cited-reply evidence for judgment-explore-internal (ADR-0025 CP5a)", () => {
     const records = [
       { event: "channel.user_message.start", turn_id: "turn-explore" },

@@ -76,6 +76,21 @@ defmodule NovelPersistence.WorkArchiveRepo do
     memory_items(work_id, @rule_types)
   end
 
+  @spec current_states(String.t()) :: [map()]
+  def current_states(work_id) when is_binary(work_id) do
+    memory_items(work_id, [MemoryType.current_state()])
+  end
+
+  @spec relationships(String.t()) :: [map()]
+  def relationships(work_id) when is_binary(work_id) do
+    memory_items(work_id, [MemoryType.relationship()])
+  end
+
+  @spec preferences(String.t()) :: [map()]
+  def preferences(work_id) when is_binary(work_id) do
+    memory_items(work_id, [MemoryType.author_preference()])
+  end
+
   @spec stats(String.t()) :: map()
   def stats(work_id) when is_binary(work_id) do
     with_uuid(work_id, empty_stats(), fn uuid ->

@@ -29,6 +29,10 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
 
   @profile_ref "judgment_plan_v1"
   @context_step_target "context_assemble"
+
+  # CP5b：计划内检索步（ADR-0025 §5a）——目录与 ExplorationService 探索目录同源
+  # （SSOT 由测试钉住），执行走判断步同款内联只读检索（0 提供者调用，不经 Toolbox）。
+  @exploration_step_targets ~w(prose_search chapter_read archive_read memory_recall)
   @capability_step_targets ~w(character_roster character_design character_evolution plot_outline world_building prose_writing)
 
   @spec profile_ref() :: String.t()
@@ -194,7 +198,9 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   defp mechanical_execute_decision(step, run, sequence, snapshot, meta) do
     target = map_get(step, :target_tool_ref)
 
-    with true <- target == @context_step_target or target in @capability_step_targets,
+    with true <-
+           target == @context_step_target or target in @capability_step_targets or
+             target in @exploration_step_targets,
          {:ok, decision} <-
            AgentNextStepDecision.new(%{
              decision_id:
@@ -203,6 +209,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
              sequence: sequence,
              decision_type: :execute_step,
              summary: map_get(step, :description) || "执行计划步骤。",
+             exploration_query: map_get(step, :exploration_query),
              target_tool_ref: target,
              write_intent: write_intent_for(step, target),
              risk_hint: :low,
@@ -317,6 +324,77 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     do: values |> Enum.map(&to_string/1) |> Enum.reject(&blank?/1)
 
   defp string_list(_values), do: []
+
+  # CP5b 计划内检索步：ExplorationService 内联只读（0 提供者调用，不经 Toolbox），
+  # 观察进流 + exploration_observed 事件；exploration_query 缺失或工具失败记为
+  # 失败观察（诚实呈现，后续步/修订自行应对），不硬失败整个 run。
+  defp execute_exploration_decision_step(run, sequence, decision, snapshot) do
+    tool = decision.target_tool_ref
+    query = decision.exploration_query || ""
+    work_id = run.work_id || run.workspace_id
+
+    observation_data =
+      case NovelApplication.ExplorationService.run(work_id, tool, query) do
+        {:ok, observation} ->
+          observation
+
+        {:error, reason} ->
+          %{tool: tool, query: query, summary: "检索步执行失败：#{inspect(reason)}", refs: []}
+      end
+
+    emit_stage(
+      snapshot,
+      :exploration_observed,
+      "已检索 #{tool}「#{query}」。",
+      ["exploration_observed", tool],
+      ["explore:#{tool}:#{sequence}"],
+      %{
+        stage: :exploration_observed,
+        tool: tool,
+        query: query,
+        refs: observation_data.refs,
+        summary: observation_data.summary
+      }
+    )
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: tool_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: "explore:#{tool}:#{sequence}",
+        summary: observation_data.summary,
+        structured_payload: %{stage: :exploration_observed, tool: tool, query: query},
+        evidence_refs: ["explore:#{tool}:#{sequence}"],
+        confidence: 1.0
+      })
+
+    {:ok,
+     %{
+       step: exploration_step(run, sequence, tool, query),
+       observations: [observation],
+       provider_call_count: 0,
+       progress_signature: "#{run.run_id}:plan_explore:#{sequence}:#{tool}:#{query}"
+     }}
+  end
+
+  defp exploration_step(run, sequence, tool, query) do
+    {:ok, step} =
+      AgentStep.new(%{
+        step_id: current_step_ref(run, sequence),
+        run_ref: run.run_id,
+        sequence: sequence,
+        status: :completed,
+        goal: "检索：#{tool}「#{query}」",
+        observation_refs: [tool_observation_id(run, sequence)],
+        state_snapshot_ref: state_snapshot_ref(run, sequence, "judgment_plan_explore"),
+        idempotency_key:
+          "#{run.run_id}:#{sequence}:judgment_plan_explore:#{tool}:goal_v#{run.goal.version}"
+      })
+
+    step
+  end
 
   defp execute_context_decision_step(run, sequence, spec, snapshot) do
     turn_id = "#{run.parent_turn_ref}:agent:#{sequence}"
@@ -664,6 +742,17 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     {:execute,
      fn run, sequence, snapshot ->
        execute_context_decision_step(run, sequence, spec, snapshot)
+     end, decision}
+  end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :execute_step, target_tool_ref: target} = decision,
+         _spec
+       )
+       when target in @exploration_step_targets do
+    {:execute,
+     fn run, sequence, snapshot ->
+       execute_exploration_decision_step(run, sequence, decision, snapshot)
      end, decision}
   end
 

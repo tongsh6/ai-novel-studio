@@ -8,7 +8,7 @@ defmodule NovelApplication.ExplorationServiceTest do
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
   alias NovelPersistence.Repo
-  alias NovelPersistence.Schemas.{Chapter, Draft, MemoryItem, Scene, Volume}
+  alias NovelPersistence.Schemas.{Chapter, ChapterSummary, Draft, MemoryItem, Scene, Volume}
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -41,16 +41,56 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert miss.refs == []
   end
 
-  test "chapter_read：按章名读已采纳正文；找不到时列出现有章节" do
+  test "chapter_read：三态渲染（设计计划/章摘要/已采纳正文）；找不到时列出现有章节" do
     work_id = seed_work_with_prose()
 
     assert {:ok, observation} = ExplorationService.run(work_id, "chapter_read", "第01章")
+    # 实现态正文
+    assert observation.summary =~ "【正文】"
     assert observation.summary =~ "灵气账单"
     assert observation.summary =~ "有效字数"
+    # 设计态与压缩层缺席时诚实说明
+    assert observation.summary =~ "【计划】（本章尚无设计计划）"
+    assert observation.summary =~ "【摘要】（尚无章摘要）"
 
     assert {:ok, miss} = ExplorationService.run(work_id, "chapter_read", "第99章")
     assert miss.summary =~ "没有找到"
     assert miss.summary =~ "第01章"
+  end
+
+  test "chapter_read：结构化章计划与治理摘要在场时按段渲染（CP5b 补面 A/B）" do
+    work_id = seed_work_with_prose()
+
+    chapter =
+      Chapter
+      |> Repo.all()
+      |> Enum.find(&(&1.work_id == work_id))
+
+    chapter
+    |> Chapter.changeset(%{
+      plan_direction: %{
+        "chapter_role" => "推进章",
+        "plot_progress" => "主角发现灵气带宽被公司暗中抽走",
+        "emotion" => "压抑中带爆发",
+        "ending_hook" => "灵气账单上浮现出陌生的扣费条目"
+      }
+    })
+    |> Repo.update!()
+
+    %ChapterSummary{}
+    |> ChapterSummary.changeset(%{
+      work_id: work_id,
+      chapter_id: chapter.id,
+      status: AdoptionStatus.accepted(),
+      summary_text: "主角在矿区核对账单，确认宗门抽成异常。"
+    })
+    |> Repo.insert!()
+
+    assert {:ok, observation} = ExplorationService.run(work_id, "chapter_read", "第01章")
+    assert observation.summary =~ "【计划】功能定位：推进章"
+    assert observation.summary =~ "情节推进：主角发现灵气带宽被公司暗中抽走"
+    assert observation.summary =~ "章尾断章：灵气账单上浮现出陌生的扣费条目"
+    assert observation.summary =~ "【摘要】主角在矿区核对账单，确认宗门抽成异常。"
   end
 
   test "archive_read：五个档案面可读，未知面诚实报错" do
@@ -68,6 +108,22 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     assert {:error, {:unknown_archive_facet, "secret_facet", _facets}} =
              ExplorationService.run(work_id, "archive_read", "secret_facet")
+  end
+
+  test "archive_read：记忆类面按类型枚举（CP5b 补面 C）" do
+    work_id = seed_work_with_prose()
+    insert_memory(work_id, MemoryType.current_state(), "陈九斤当前欠费三个月，被限制进入内门")
+    insert_memory(work_id, MemoryType.relationship(), "陈九斤与调频师阿绫是互相试探的盟友")
+    insert_memory(work_id, MemoryType.author_preference(), "打斗场面偏好短句与具象动作")
+
+    assert {:ok, state} = ExplorationService.run(work_id, "archive_read", "current_state")
+    assert state.summary =~ "欠费三个月"
+
+    assert {:ok, relationship} = ExplorationService.run(work_id, "archive_read", "relationships")
+    assert relationship.summary =~ "调频师阿绫"
+
+    assert {:ok, preference} = ExplorationService.run(work_id, "archive_read", "preferences")
+    assert preference.summary =~ "短句与具象动作"
   end
 
   test "memory_recall：检索确认记忆；未知工具诚实报错" do

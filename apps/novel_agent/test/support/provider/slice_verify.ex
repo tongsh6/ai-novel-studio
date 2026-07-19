@@ -1411,14 +1411,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   # 优先取带章名出处的命中行（「第0X章…」片段行）；段头（### 观察 N）含查询词
-  # 但不是引用，排除。
+  # 但不是引用，排除。命中行连同后续至多 2 行非空行成块（chapter_read 的
+  # 【计划】/【摘要】紧随标题行，引用块才携带设计态内容）。
   defp cited_observation_line(_lines, ""), do: ""
 
   defp cited_observation_line(lines, term) do
     hit_line = fn line -> String.contains?(line, term) and not String.starts_with?(line, "###") end
 
-    Enum.find(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||
-      Enum.find(lines, hit_line) || ""
+    index =
+      Enum.find_index(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||
+        Enum.find_index(lines, hit_line)
+
+    case index do
+      nil ->
+        ""
+
+      index ->
+        lines
+        |> Enum.drop(index)
+        |> Enum.take(3)
+        |> Enum.take_while(fn line ->
+          trimmed = String.trim(line)
+          trimmed != "" and not String.starts_with?(trimmed, "###")
+        end)
+        |> Enum.join("\n")
+    end
   end
 
   # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = call2 返回原始垃圾
@@ -1506,11 +1523,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         String.contains?(prompt, "我先检索「")
 
     with true <- explore_context?,
-         true <- contains_any?(author_text, ["查一下", "检索", "出现过", "正文里"]),
+         tool when is_binary(tool) <- explore_tool_for(author_text),
          [_, term] <- Regex.run(~r/「([^」]+)」/u, author_text) do
-      %{"tool" => "prose_search", "query" => term}
+      %{"tool" => tool, "query" => term}
     else
       _ -> nil
+    end
+  end
+
+  # 设计态问句（按计划/大纲/要写什么）→ chapter_read；正文事实问句 → prose_search。
+  defp explore_tool_for(author_text) do
+    cond do
+      contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) -> "chapter_read"
+      contains_any?(author_text, ["查一下", "检索", "出现过", "正文里"]) -> "prose_search"
+      true -> nil
     end
   end
 

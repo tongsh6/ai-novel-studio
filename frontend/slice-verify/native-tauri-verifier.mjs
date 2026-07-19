@@ -181,6 +181,7 @@ export const nativeSliceIds = [
   "p1-chapter-expansion-multichapter",
   "p1-chapter-word-count-target",
   "judgment-explore-internal",
+  "judgment-explore-chapter-plan",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -917,6 +918,12 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "judgment-explore-internal": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "judgment.decided.done",
+    "slice_verify.ui_state.done",
+  ],
+  "judgment-explore-chapter-plan": [
     "channel.user_message.start",
     "channel.user_message.done",
     "judgment.decided.done",
@@ -1806,6 +1813,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findJudgmentExploreInternalEvidence(records);
   }
 
+  if (sliceId === "judgment-explore-chapter-plan") {
+    return findJudgmentExploreChapterPlanEvidence(records);
+  }
+
   if (sliceId === "au04-confirm-before-execute") {
     return findAu04ConfirmBeforeExecuteEvidence(records);
   }
@@ -2417,6 +2428,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "judgment-explore-internal") {
     return judgmentExploreInternalBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "judgment-explore-chapter-plan") {
+    return judgmentExploreChapterPlanBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au04-confirm-before-execute") {
@@ -11912,6 +11927,51 @@ function findAu07StateTraceAdoptionReplayEvidence(records) {
   };
 }
 
+function findJudgmentExploreChapterPlanEvidence(records) {
+  const sliceId = "judgment-explore-chapter-plan";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.explore_reply_cites_plan === true &&
+      record.explore_reply_cites_chapter === true &&
+      record.exploration_visible_in_run_feedback === true &&
+      record.explore_no_pending_artifacts === true,
+  );
+  if (!uiState) return null;
+
+  const exploreTurnId = String(uiState.explore_turn_id ?? "");
+  if (!exploreTurnId) return null;
+  const baseTurnId = exploreTurnId.split(":")[0];
+
+  const judgmentEvents = records.filter(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      (record.turn_id === baseTurnId || record.turn_id === exploreTurnId),
+  );
+  const exploreDecided = judgmentEvents.findIndex((record) => record.action === "explore");
+  const replyDecided = judgmentEvents.findIndex((record) => record.action === "reply");
+  if (exploreDecided < 0 || replyDecided < 0) return null;
+  if (exploreDecided > replyDecided) return null;
+
+  const question = String(uiState.explore_question_text ?? "");
+  const replyText = String(uiState.explore_reply_text ?? "");
+  if (!question.includes("按计划")) return null;
+  if (!replyText.includes("依据如下")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: exploreTurnId,
+    turn_ids: [...new Set([baseTurnId, exploreTurnId])],
+    explore_turn_id: exploreTurnId,
+    explore_question_text: question,
+    explore_reply_text: replyText,
+    judgment_explore_count: judgmentEvents.filter((record) => record.action === "explore").length,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
 function findJudgmentExploreInternalEvidence(records) {
   const sliceId = "judgment-explore-internal";
 
@@ -13862,6 +13922,48 @@ function au04LatestContextRebaseConfirmationBehavior(
       "confirmed_turn_trace_current_work_summary_included_renamed_title",
       "confirmed_turn_reason_codes_recorded_rebased_snapshot_and_gate_ref",
       "re_gate_dispatched_tool_and_left_output_pending_adoption",
+    ],
+  };
+}
+
+function judgmentExploreChapterPlanBehavior(turnIds, turnRecords, records, evidence, _options) {
+  const sliceId = "judgment-explore-chapter-plan";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.explore_turn_id === evidence.explore_turn_id,
+  );
+  if (!uiState) return null;
+
+  // 设计态问答零工具 dispatch / 零采纳（chapter_read 在判断步内联，不经 Toolbox）
+  const exploreToolbox = turnRecords.some(
+    (record) => record.event === "toolbox.execute.done" && record.turn_id === evidence.explore_turn_id,
+  );
+  if (exploreToolbox) return null;
+  if (uiState.explore_no_pending_artifacts !== true) return null;
+
+  const question = String(uiState.explore_question_text ?? "");
+  const quoted = question.match(/「([^」]+)」/u);
+  if (!quoted) return null;
+  const replyText = String(uiState.explore_reply_text ?? "");
+  if (!replyText.includes(quoted[1])) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "judgment_explores_chapter_plan_design_state_then_replies_with_cited_plan",
+    turn_ids: turnIds,
+    explore_turn_id: evidence.explore_turn_id,
+    fact_term: quoted[1],
+    judgment_explore_count: evidence.judgment_explore_count,
+    assertions: [
+      "author_question_names_a_design_state_only_fact",
+      "judgment_decided_explore_before_reply_on_same_turn",
+      "chapter_plan_retrieved_readonly_without_toolbox_dispatch",
+      "exploration_observation_visible_in_run_feedback",
+      "reply_cites_plan_content_and_chapter",
+      "explore_turn_produced_no_pending_artifacts",
     ],
   };
 }

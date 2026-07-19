@@ -8771,6 +8771,75 @@ function visibleTextIncludesPendingDraft(visibleText) {
   return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(visibleText);
 }
 
+async function driveJudgmentExploreChapterPlan(page) {
+  // CP5b 设计态旗舰证明：作者问"某章按计划要写什么"——该信息只存在于已采纳章节
+  // 计划（种子大纲）里，没有任何正文。判断① explore → chapter_read 读设计态 →
+  // 回复引用计划内容与出处章名。
+  const exploreQuestion = "「第02章」按计划要写什么？";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(exploreQuestion);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const replyFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      typeof frame.body?.assistant_message?.text === "string" &&
+      frame.body.assistant_message.text.includes("依据如下") &&
+      frame.body.assistant_message.text.includes("第02章"),
+    "No plan-grounded reply turn_result was received for the chapter-plan question",
+    200_000,
+  );
+  const reply = replyFrame.body;
+  const replyText = reply.assistant_message.text;
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("依据如下"),
+    { timeout: 15_000 },
+  );
+  const visibleText = await page.locator("body").innerText();
+
+  // 引用的必须是设计态内容：种子计划第02章 = "旧服务器里的残诀…找到残缺功法…突破底层限制"
+  // （本场景零正文——这些词只可能来自章节计划）。
+  const citesPlanContent = replyText.includes("残缺功法") || replyText.includes("突破底层限制");
+  const citesChapter = replyText.includes("第02章");
+  const explorationVisible = visibleText.includes("已检索");
+
+  assert(citesChapter, "Reply does not cite the chapter of the plan");
+  assert(
+    citesPlanContent,
+    "Reply does not cite design-state plan content (which exists only in the adopted outline)",
+  );
+  assert(explorationVisible, "Run feedback does not show the exploration observation (已检索)");
+  assert(
+    reply.truthfulness?.artifact_adopted !== true,
+    "Plan-question reply turn must not adopt anything",
+  );
+  assert(
+    (reply.adoption_state?.pending ?? []).length === 0,
+    "Plan-question reply turn must not produce pending artifacts",
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, reply, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: reply.turn_id,
+      explore_turn_id: reply.turn_id,
+      explore_question_text: exploreQuestion,
+      explore_reply_text: replyText,
+      explore_reply_cites_plan: citesPlanContent,
+      explore_reply_cites_chapter: citesChapter,
+      exploration_visible_in_run_feedback: explorationVisible,
+      explore_no_pending_artifacts: (reply.adoption_state?.pending ?? []).length === 0,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveJudgmentExploreInternal(page) {
   // CP5a 探索内部翼：作者问"只有正文里才有的事实"，判断① explore → prose_search
   // 真实检索已采纳正文 → 观察回环 → reply 引用检索到的原文片段。
@@ -22669,6 +22738,7 @@ const drivers = {
   "p1-chapter-overwrite-confirm": driveP1ChapterOverwriteConfirm,
   "p1-chapter-expansion": driveP1ChapterExpansion,
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
+  "judgment-explore-chapter-plan": driveJudgmentExploreChapterPlan,
   "judgment-explore-internal": driveJudgmentExploreInternal,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,

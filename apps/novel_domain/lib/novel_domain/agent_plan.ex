@@ -25,7 +25,8 @@ defmodule NovelDomain.AgentPlan do
           authoring_intent: authoring_intent() | nil,
           target_chapter: String.t() | nil,
           requested_chapter_raw: String.t() | nil,
-          target_word_count: pos_integer() | nil
+          target_word_count: pos_integer() | nil,
+          exploration_query: String.t() | nil
         }
 
   @type stop_condition ::
@@ -129,7 +130,8 @@ defmodule NovelDomain.AgentPlan do
       authoring_intent: normalize_authoring_intent(value(item, :authoring_intent)),
       target_chapter: normalize_optional_string(value(item, :target_chapter)),
       requested_chapter_raw: normalize_optional_string(value(item, :requested_chapter_raw)),
-      target_word_count: normalize_word_count(value(item, :target_word_count))
+      target_word_count: normalize_word_count(value(item, :target_word_count)),
+      exploration_query: normalize_optional_string(value(item, :exploration_query))
     }
   end
 
@@ -147,7 +149,8 @@ defmodule NovelDomain.AgentPlan do
       authoring_intent: nil,
       target_chapter: nil,
       requested_chapter_raw: nil,
-      target_word_count: nil
+      target_word_count: nil,
+      exploration_query: nil
     }
 
   defp normalize_step_kind(value) when value in [:explore, :act], do: value

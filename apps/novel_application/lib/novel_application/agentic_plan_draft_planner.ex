@@ -300,7 +300,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       authoring_intent: nonblank(map_get(step, :authoring_intent)),
       target_chapter: nonblank(map_get(step, :target_chapter)),
       requested_chapter_raw: nonblank(map_get(step, :requested_chapter_raw)),
-      target_word_count: normalize_target_word_count(map_get(step, :target_word_count))
+      target_word_count: normalize_target_word_count(map_get(step, :target_word_count)),
+      exploration_query: nonblank(map_get(step, :exploration_query))
     }
   end
 
@@ -318,7 +319,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       authoring_intent: nil,
       target_chapter: nil,
       requested_chapter_raw: nil,
-      target_word_count: nil
+      target_word_count: nil,
+      exploration_query: nil
     }
   end
 
@@ -404,10 +406,15 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   # CP4（ADR-0025 决策 2 计划按需）：判断①判"复杂"时的跨能力真计划——
   # 能力目录为可选目标集，步序由模型按作者请求的实际阶段制定。
+  # CP5b：计划内检索步（探索目录同源；执行为内联只读 0 调用）。
   defp plan_step_targets("judgment_plan_v1"),
     do: [
       "context_assemble",
       "character_roster",
+      "prose_search",
+      "chapter_read",
+      "archive_read",
+      "memory_recall",
       "character_design",
       "character_evolution",
       "plot_outline",
@@ -599,6 +606,10 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     """
     - context_assemble | explore | 读取当前作品上下文；建议作为首步
     - character_roster | explore | 读取当前已确认角色阵容（只读查询）
+    - prose_search | explore | 全文检索已采纳正文（exploration_query 填检索词）
+    - chapter_read | explore | 读取某一章的设计计划、章摘要与已采纳正文（exploration_query 填章节名）
+    - archive_read | explore | 读取作品档案面（exploration_query 填 profile｜characters｜foreshadowing｜rules｜stats｜current_state｜relationships｜preferences 之一）
+    - memory_recall | explore | 检索治理记忆（exploration_query 填检索词）
     - character_design | act | 设计新角色（产出待采纳候选）
     - character_evolution | act | 推进已有角色的演化记忆（产出待采纳草稿）
     - plot_outline | act | 规划章节大纲（产出待采纳草稿）
@@ -607,6 +618,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
     按作者请求的实际阶段排步：只排完成这条请求所需的能力步，先读后写，
     前后依赖用 depends_on 表达；不要为单一产物的请求排多余步骤。
+    检索步（prose_search/chapter_read/archive_read/memory_recall）必须携带
+    exploration_query；非检索步该字段填 null。
     """
   end
 
@@ -808,7 +821,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
                   },
                   target_chapter: %{anyOf: [%{type: "string"}, %{type: "null"}]},
                   requested_chapter_raw: %{anyOf: [%{type: "string"}, %{type: "null"}]},
-                  target_word_count: %{anyOf: [%{type: "integer"}, %{type: "null"}]}
+                  target_word_count: %{anyOf: [%{type: "integer"}, %{type: "null"}]},
+                  exploration_query: %{anyOf: [%{type: "string"}, %{type: "null"}]}
                 }
               }
             }
