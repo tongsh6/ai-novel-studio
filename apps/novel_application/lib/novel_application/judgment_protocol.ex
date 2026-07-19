@@ -505,7 +505,10 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          你是小说创作系统的创作判断器。你刚才已向作者输出了判断说明（如下）。现在把这个判断结构化。
+          你是小说创作系统的创作判断器。你刚才已向作者输出了判断说明（如下），本次调用只是把该判断登记为结构化结果。
+
+          注意：action 的判定对象是「作者输入」一栏里的创作请求本身。"登记结构化"是系统流程指令，
+          不是作者的请求——不得因为本条指令而判 reply。
 
           ## 作者输入
           #{Map.fetch!(input, :author_text)}

@@ -26,6 +26,11 @@ source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 # 互踩——狗粮 seed 残留污染绝对计数断言、并行跑互相重置）。分区后互不可见。
 export MIX_TEST_PARTITION="_dogfood"
 
+# 狗粮独立构建目录（M0 实锤四跑：长跑期间外部 mix compile 重写共享 _build/test
+# 的 .beam，运行中节点惰性加载撞上半新码——socket 掉线重连风暴 + 在飞 run 无声
+# 崩死、第03章 turn 蒸发）。隔离后长跑期间可自由编译/跑测试。
+export MIX_BUILD_PATH="$PROJECT_ROOT/_build/test_dogfood"
+
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5769}"
 API_URL="http://127.0.0.1:${PHOENIX_PORT}"

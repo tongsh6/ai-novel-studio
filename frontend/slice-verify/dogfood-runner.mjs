@@ -164,9 +164,21 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
   // 系统可能把指令判为高风险（如重写语义）并出确认卡（AU-04）；
   // runner 像真实作者一样点「确认执行」，re-gate 后继续等正文产出。
   // 所有帧匹配从本轮发送之后开始（fromIndex），不与历史轮串。
+  // 误路由快速失败（M0 缺陷四）：本轮 turn 以"回复"收束（run completed 且无待采纳
+  // 正文）说明判断把创作请求判成了闲聊——立刻按失败上抛进重试，不再空等 600s。
+  const wrongRouteReply = (f) =>
+    f.direction === "received" &&
+    f.event === "turn_result" &&
+    frameBelongsToTurn(f, turnId) &&
+    f.body?.agent_run?.status === "completed" &&
+    !f.body?.tool_result &&
+    (f.body?.adoption_state?.pending ?? []).length === 0 &&
+    typeof f.body?.assistant_message?.text === "string";
+
   let draftFrame = await waitForFrame(
     (f) =>
       freshProse(f) ||
+      wrongRouteReply(f) ||
       (f.direction === "received" &&
         f.event === "turn_result" &&
         frameBelongsToTurn(f, turnId) &&
@@ -178,6 +190,12 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     600_000,
     fromIndex,
   );
+
+  if (wrongRouteReply(draftFrame)) {
+    throw new Error(
+      `judgment routed the prose request to a chat reply for ${chapterTitle} (wrong-route, fail fast)`,
+    );
+  }
 
   if (draftFrame.body?.status === "needs_confirmation") {
     log(`${chapterTitle}: confirmation required — confirming execution`);
