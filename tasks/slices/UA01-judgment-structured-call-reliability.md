@@ -111,16 +111,35 @@ funnel `Keyword.get(opts, :params, %InferenceParams{})` 用的是裸 struct（�
    `Execution.execute/2` 三处裸 `%InferenceParams{}` 字面量——全仓仅这 3 处，
    已改为 `InferenceParams.new()`，使止血阀真正覆盖所有调用路径（写作/评估/
    判断/对话规划/…），而不只是我最初误改的 judgment_protocol.ex 两行。
-2. **缺陷十·"@"损坏的真身**：与 token 上限无关。直接 curl LM Studio 端点复现：
-   即使 `reasoning_effort: low` 且 `reasoning_tokens: 0`，只要 prompt 要求模型
-   "按 JSON 结构自由生成文本"（无论内容多简单，"写一句话介绍你自己"同样触发），
-   模型立即退化成单字符（token id 31 "@"）无限重复；改用真正的
-   `response_format: json_schema` 强制约束，则直接复现 LM Studio 日志里那个
-   "Unexpected empty grammar stack after accepting piece: @ (31)" HTTP 400——
-   两个表现是**同一个 llama.cpp/gpt-oss-120b 语法引擎缺陷**的两种呈现（自由
-   模式下静默刷屏、强约束模式下崩溃）。这是 LM Studio/llama.cpp 对 gpt-oss
-   GGUF 的服务层缺陷，**不是本仓库代码能修的问题**，且按机器策略升级 LM
-   Studio / 换模型量化需先问用户，本 slice 不擅自执行。
+2. **缺陷十·"@"损坏的真身（首版定位错误，已用重载实验纠正）**：与 token 上限
+   无关，但**根因不是 gpt-oss/LM Studio 的结构性缺陷，是本次会话的服务端状态
+   被我自己的高强度压测搞坏了**。排查过程：
+   - 直接 curl 复测，同一句极简 prompt（"写一句话介绍你自己"要求 JSON 输出）
+     稳定复现"@"（token id 31）无限重复；换 `response_format: json_schema`
+     强约束则复现 LM Studio 日志里的
+     "Unexpected empty grammar stack after accepting piece: @ (31)" HTTP 400。
+     一度误判为 llama.cpp/gpt-oss Harmony 格式与语法引擎不兼容的结构性缺陷、
+     不可修，需要用户决策升级/换模型——**这个判断是错的**，被用户当场指出两点
+     反证：本项目历史上已多次成功用 gpt-oss 跑出正文（2026-06-11 日志实锤：
+     `finish_reason: "stop"`、reasoning_tokens 54-68、正文完整通顺），且应先查
+     公开信息而非直接下结论。
+   - 查证：LM Studio 官方 bug tracker 确有 gpt-oss + Harmony 格式相关的已知
+     issue（#1555/#1105，`response_format: json_schema` 强约束下语法采样器
+     拦截 Harmony 控制 token 导致乱码/崩溃），但**本项目 `json_mode` 默认
+     `false`，从未走强约束路径**，所以那两个 issue 不能解释本次故障。
+   - 决定性验证：用 `lms unload openai/gpt-oss-120b && lms load
+     openai/gpt-oss-120b` 清空模型会话状态后，**同一个曾经必现退化的 prompt
+     立刻恢复正常**（`finish_reason: "stop"`，输出格式完全正确）。这证明退化
+     是**服务端瞬时状态损坏**（很可能是本 session 内那次 18.3 万 token 失控
+     生成 + 多次强制语法崩溃 + 数十次连续压测请求共同造成的 slot/缓存异常），
+     不是模型或版本组合的固有缺陷，模型重载即可恢复，不需要升级/换模型的
+     用户决策。
+   - **教训**：这是本 slice 里第二次犯"孤立现象直接下结构性结论"的错——第一次
+     是把"空带 8000"当真证据（其实批日志里没有真样本），这次是把"复测三次都
+     复现"当成"结构性必现"（其实是同一个已被我搞坏的会话反复复测，样本不独立）。
+     纠正律：怀疑结构性缺陷前，先查该组件是否有更简单的状态类解释（重启/
+     重载/清缓存），且复测要跨会话/跨进程做，不能在同一个可能已被污染的
+     服务实例里反复测。
 
 **结构性收口（三道防线，互不替代，已落地+全量测试绿）**：
 
@@ -145,10 +164,16 @@ funnel `Keyword.get(opts, :params, %InferenceParams{})` 用的是裸 struct（�
   HTTP 200 但内容是低熵刷屏时归类可重试 `:invalid_response`，与"内容为空"
   同一优先级，防止垃圾内容冒充成功结果下传。
 
-**遗留（不在本仓库权限内，需用户决策）**：gpt-oss-120b + 当前 LM Studio 版本
-在"自由文本要求 JSON 结构"与"json_schema 强约束"两种请求下都会触发语法引擎
-缺陷，`purpose: :writer` 的结构化正文起草**当前对这个具体模型/版本组合不可靠
-——三道防线让失败可见、可重试、不拖垮系统，但不能让这个具体请求形态本身成功**。
-候选方向（需用户选择，本 slice 不擅自执行）：升级 LM Studio 版本排查上游是否
-已修复、换 gpt-oss-120b 的另一个量化/GGUF 构建、或 `:writer` 用途改配置到
-DeepSeek/云厂商等不受此缺陷影响的 provider。
+**结论修正**：gpt-oss-120b + 当前 LM Studio（0.4.16）组合对 `purpose: :writer`
+结构化正文起草**是可靠的**（历史日志与重载后复测均证实），不存在需要用户决策
+升级/换模型的结构性缺陷。三道防线的定位相应调整——不是"给一个坏模型兜底"，
+是"给任何 provider 都可能发生的瞬时服务端异常（长时间运行后状态劣化、单次
+异常请求波及后续请求）兜底"，这对哪个模型都成立，价值不因今天的具体诱因是
+"自己搞坏的"而减少。
+
+**遗留（运维知识，非代码缺陷）**：LM Studio 长时间运行/高强度调用（尤其是
+曾经发生过失控生成或强约束语法崩溃）后，若单次调用反常退化，`lms unload
+<model> && lms load <model>` 是已验证的低成本恢复手段，先于怀疑模型/版本
+不可用。是否要把"内容退化检测触发 N 次后自动建议/触发模型重载"做成自动化
+运维动作，留作后续独立评估——涉及本仓库代码去控制外部应用生命周期，范围
+比本 slice 大，需要单独设计与用户确认，不在本次顺手做。
