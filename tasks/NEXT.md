@@ -95,6 +95,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | B3 | work_direction 召回（AU09，探索翼=新消费者）、superseded 卡 UI 置灰、toolbox 遥测 run/turn 绑定 | 挂到拉动它的 A 轨项下 |
 | B4 | SU01 live vendor 矩阵、DeepSeek live 探针 | 等用户给凭据（用户门控） |
 | B5 | 47 文案指南机械步注记 | 顺手带走 |
+| B6 | `frontend/slice-verify/dogfood-runner.mjs` 判定架构债——文件里散落一堆各自手写的帧判定函数（事件名/字段字面量），契约理解不唯一、易与真实契约（`frontend/src/lib/socket.ts` 等）漂移（2026-07-20 `awaitingAuthor` 判错字段路径实锤）；已把 `adoptPendingDraft` 一处重构成"分类一次+穷尽分支"（`classifyChapterAttemptFrame`），其余判定点（`readToc`、settle/overwrite 确认等）仍是老写法，未同步重构 | 攒批一次做，理想情况下接入真实契约定义而非本文件自证 |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 

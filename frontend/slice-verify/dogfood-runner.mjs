@@ -182,84 +182,103 @@ function frameBelongsToTurn(frame, turnId) {
   return frameTurn === turnId || frameTurn.startsWith(`${turnId}:`);
 }
 
-async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, options = {}) {
-  const freshProse = (f) =>
-    f.direction === "received" &&
-    f.event === "turn_result" &&
-    frameBelongsToTurn(f, turnId) &&
-    f.body?.tool_result?.tool_name === "prose_writing" &&
-    f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment";
+// 一次尝试写某一章能落到的结局——分类一次、穷尽分支一次（判别联合形状），
+// 不再是"定义一堆判定函数 → 等到帧 → 再挨个 if 重判一遍是哪种"。新增结局种类
+// 只需要在这一个函数里加一条 case，不必在 waitForFrame 的 OR 列表和下面的
+// if 链两处同步改。
+//
+// 各分支的帧形状真源（不是本文件发明的，凭实测抓帧反推正是上一版判错
+// awaiting_author 的教训）：
+// - prose_ready / wrong_route_reply / run_failed / needs_confirmation：走
+//   turn_result 帧，字段路径见 frontend/src/lib/socket.ts 的 TurnResult 相关类型。
+// - awaiting_author：走独立的 "agent_run_state" 广播（同文件 AgentRunStateData，
+//   status/phase 顶层字段，不嵌套、不带 turn_id）；"真的停了"（不是仍在处理中途）
+//   的判据抄自后端权威定义 apps/novel_application/.../agent_run_server.ex 的
+//   no_progress_stopped?/1 —— status == :awaiting_author 且 phase == :stopped
+//   两者同时成立。frontend/src/lib/agentRunInputRouting.ts 的
+//   STEERABLE_AGENT_RUN_STATUSES 只到 status 粒度（前端"能不能插话"的更宽语义），
+//   不是这里要的"已停止"判据。
+function classifyChapterAttemptFrame(f, turnId) {
+  if (f.direction !== "received") return null;
 
-  // 系统可能把指令判为高风险（如重写语义）并出确认卡（AU-04）；
-  // runner 像真实作者一样点「确认执行」，re-gate 后继续等正文产出。
-  // 所有帧匹配从本轮发送之后开始（fromIndex），不与历史轮串。
-  // 误路由快速失败（M0 缺陷四）：本轮 turn 以"回复"收束（run completed 且无待采纳
-  // 正文）说明判断把创作请求判成了闲聊——立刻按失败上抛进重试，不再空等 600s。
-  const wrongRouteReply = (f) =>
-    f.direction === "received" &&
-    f.event === "turn_result" &&
-    frameBelongsToTurn(f, turnId) &&
+  if (f.event === "agent_run_state") {
+    if (f.body?.status === "awaiting_author" && f.body?.phase === "stopped") {
+      return { kind: "awaiting_author" };
+    }
+    return null;
+  }
+
+  if (f.event !== "turn_result" || !frameBelongsToTurn(f, turnId)) return null;
+
+  if (
+    f.body?.tool_result?.tool_name === "prose_writing" &&
+    f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment"
+  ) {
+    return { kind: "prose_ready" };
+  }
+
+  // 误路由快速失败（M0 缺陷四）：本轮 turn 以"回复"收束（run completed 且无
+  // 待采纳正文）说明判断把创作请求判成了闲聊。
+  if (
     f.body?.agent_run?.status === "completed" &&
     !f.body?.tool_result &&
     (f.body?.adoption_state?.pending ?? []).length === 0 &&
-    typeof f.body?.assistant_message?.text === "string";
+    typeof f.body?.assistant_message?.text === "string"
+  ) {
+    return { kind: "wrong_route_reply" };
+  }
 
-  // run 失败终局（S7 诚实失败，如起草空计划）同样秒级上抛——失败卡不是 prose，
-  // 等 600s 是浪费（M0 五跑实锤：steps must not be empty 白等 10 分钟）。
-  const failedRun = (f) =>
-    f.direction === "received" &&
-    f.event === "turn_result" &&
-    frameBelongsToTurn(f, turnId) &&
-    f.body?.agent_run?.status === "failed";
+  // run 失败终局（S7 诚实失败，如起草空计划）。
+  if (f.body?.agent_run?.status === "failed") {
+    return { kind: "run_failed" };
+  }
 
-  // M2 实锤（2026-07-20）：prose_writing 工具失败时 AgentRun 会诚实判定"工具层
-  // 错误、自己修不了"并主动收束到 awaiting_author（等作者裁决），不是 failed。
-  // 此前没有识别这个终态，waitForFrame 只能傻等满 600s，再叠加 readToc 60s +
-  // sendAuthorMessage 的 10 分钟输入阻塞等待，每次工具失败实测约耗 20 分钟。
-  //
-  // 首版实现判定错了帧形状（第一次实测才发现，教训记在这）：这个状态不是走
-  // turn_result 帧，是独立的 "agent_run_state" 广播（workspace_channel.ex
-  // agent_run_state_payload 顶层 status 字段，不嵌套在 agent_run 里）；它也不带
-  // turn_id（带的是 run_id），frameBelongsToTurn 对这类帧恒假，不能套用同一个
-  // 按轮次过滤——两处都对不上导致首版判定实测从未真正命中过，白白空等了 600s。
-  const awaitingAuthor = (f) =>
-    f.direction === "received" && f.event === "agent_run_state" && f.body?.status === "awaiting_author";
+  // 系统可能把指令判为高风险（如重写语义）并出确认卡（AU-04）。
+  if (
+    f.body?.status === "needs_confirmation" &&
+    (f.body?.available_actions ?? []).some(
+      (action) => action.action_type === "confirm_before_execute",
+    )
+  ) {
+    return { kind: "needs_confirmation" };
+  }
 
+  return null;
+}
+
+async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, options = {}) {
+  // 所有帧匹配从本轮发送之后开始（fromIndex），不与历史轮串。
   let draftFrame = await waitForFrame(
-    (f) =>
-      freshProse(f) ||
-      wrongRouteReply(f) ||
-      failedRun(f) ||
-      awaitingAuthor(f) ||
-      (f.direction === "received" &&
-        f.event === "turn_result" &&
-        frameBelongsToTurn(f, turnId) &&
-        f.body?.status === "needs_confirmation" &&
-        (f.body?.available_actions ?? []).some(
-          (action) => action.action_type === "confirm_before_execute",
-        )),
+    (f) => classifyChapterAttemptFrame(f, turnId) !== null,
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
     600_000,
     fromIndex,
   );
 
-  if (wrongRouteReply(draftFrame)) {
-    throw new Error(
-      `judgment routed the prose request to a chat reply for ${chapterTitle} (wrong-route, fail fast)`,
-    );
+  const outcome = classifyChapterAttemptFrame(draftFrame, turnId);
+
+  switch (outcome.kind) {
+    case "wrong_route_reply":
+      throw new Error(
+        `judgment routed the prose request to a chat reply for ${chapterTitle} (wrong-route, fail fast)`,
+      );
+    case "run_failed":
+      throw new Error(`agent run failed for ${chapterTitle} (fail fast)`);
+    case "awaiting_author":
+      // M2 实锤（2026-07-20）：prose_writing 工具失败时 AgentRun 会诚实判定
+      // "工具层错误、自己修不了"并主动收束到 awaiting_author，不是 failed。
+      // 此前没有识别这个终态，waitForFrame 只能傻等满 600s，再叠加 readToc
+      // 60s + sendAuthorMessage 10 分钟输入阻塞等待，每次工具失败实测约耗
+      // 20 分钟——与其它三类同款秒级快速失败，直接进已有重试/跳章路径。
+      throw new Error(
+        `agent run reached awaiting_author for ${chapterTitle} (tool failure, fail fast)`,
+      );
+    case "prose_ready":
+    case "needs_confirmation":
+      break;
   }
 
-  if (failedRun(draftFrame)) {
-    throw new Error(`agent run failed for ${chapterTitle} (fail fast)`);
-  }
-
-  if (awaitingAuthor(draftFrame)) {
-    throw new Error(
-      `agent run reached awaiting_author for ${chapterTitle} (tool failure, fail fast)`,
-    );
-  }
-
-  if (draftFrame.body?.status === "needs_confirmation") {
+  if (outcome.kind === "needs_confirmation") {
     log(`${chapterTitle}: confirmation required — confirming execution`);
     await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
       timeout: 15_000,
@@ -267,7 +286,7 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     // 失败重试可能在页面留下多张卡：永远点最新一张（消息流尾部）。
     await page.getByRole("button", { name: "确认执行" }).last().click();
     draftFrame = await waitForFrame(
-      freshProse,
+      (f) => classifyChapterAttemptFrame(f, turnId)?.kind === "prose_ready",
       `No prose_fragment turn_result after confirmation for ${chapterTitle}`,
       600_000,
       fromIndex,
