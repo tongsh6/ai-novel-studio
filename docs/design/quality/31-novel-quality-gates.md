@@ -383,6 +383,14 @@ v2 小说层默认至少保留以下质量门。
 2. **🟡 五门有效性未证**：`character_logic / knowledge_boundary / payoff_validity / web_hook_strength / power_scaling` 只靠独立 evaluator 的 LLM 自评，且从未用真实模型验证——属 ADR-0020 **I10（真实文学收益须人工盲评）**未闭环范围，不得用脚本冒充。
 3. **非产出期四门无运行钩子（🔴）**：`worldrule_conflict`（建立期）/`timeline_and_state`（维护期）/`foreshadowing`（规划期）/`serialization_retention`（建立/规划期）属其它阶段，当前质量评估只在产出期跑，这四门需各自阶段的运行钩子 + 读模型（世界规则注册表 / 跨章连续性 / 伏笔生命周期 / 章节群留存结构），是独立 slice 的基建活，不应塞进 prose 产出期评估硬凑。
 4. **术语未对账**：独立 evaluator 的 prompt 还引用了一组**不在本目录 11 门**的 VS-00E 场级 validator（`scene_change / emotional_transition / character_agency / causal_progression / setup_turn_consequence / brief_alignment / dialogue_intent_fit`，对照 `ProseExecutionBriefV1` 评"正文 vs 执行简述对齐"）。这组与 11 门目录是两套并存术语，需要在后续 slice 里归一。
+5. **`pacing` 确定性兜底（`dialogue_density`）指标本身选错了代理信号（2026-07-20 登记，未开工）**：
+   现状（`prose_quality_validators.ex`）——整段正文句子数 ≥8 且全程零对白标记（「」『』""）→ 判"叙述密度偏高、节奏偏慢"。这不是段落长度，但同属一类错误：**用表面词法特征（句数、有无引号）代理一个语义/结构属性（节奏），而两者并不等价**：
+   - 假阳性：动作/追逐/灾难类场景全程无对白也可以是全书最快的节奏（短句、高动词密度、强因果推进）——当前实现会把这种场景误判为"偏慢"。
+   - 假阴性：两个角色闲聊、没有任何情节推进，只要句子间穿插对白引号就完全不触发——恰恰是这类"有对白但没事发生"的场景才是真正拖慢主线的节奏问题。
+   - 零章级结构感知：高潮章后刻意安排的"喘息章"是正确的节奏设计（对白少、叙述多），当前实现会把正确的craft 选择当成缺陷标记。
+   - 真正决定"节奏"的是语义/结构维度：本章是否推进主目标、情绪/动作/信息密度是否匹配当前所处阶段、是否连续多章缺少推进或兑现（本节 §6.6 目标原文），这些词法统计量测不出来。
+   - 可行方向（未设计，只记方向）：本项目已有"声称的节奏意图"与"实际执行结果"两份结构化数据可比对，不必只靠自由浮动的 LLM 判断——`ChapterPlanDirection`（章级计划）已含 `emotion`/`plot_progress`/`opening_hook`/`ending_hook` 等字段声明本章"该是什么节奏"；`ChapterSummary` 四栏（`plot/characters/foreshadowing/mood`，见 `chapter_summary.ex`）记录本章"实际发生了什么"。把"声称的推进/情绪"与"摘要记录的实际推进/情绪"做比对（含跨章连续对比，捕捉"连续 N 章推进稀薄"），比要求 LLM 凭空评"这章节奏怎么样"更有据可查、更不易被同一个模型的自我评分蒙混——但这仍是语义比对，不能完全确定性化，且尚未验证比对本身的准确度（同样落在 I10 范围）。
+   - `dialogue_density` 现有实现**不撤**（它本来就只自称是"确定性兜底捕捉一个信号"，不是节奏检查本身，见本节原有注释），但不应被误当成"节奏已经测得对"——真正的节奏判断仍待建。
 
 ---
 
