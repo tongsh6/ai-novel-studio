@@ -22,9 +22,9 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.ProviderProgress
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
+  alias NovelApplication.ChapterListBudget
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
-  alias NovelApplication.ChapterListBudget
   alias NovelApplication.ExplorationService
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TraceWriter
@@ -608,7 +608,10 @@ defmodule NovelApplication.DialoguePlanningService do
           exploration_sections(explorations, explore_open?),
       options:
         [capabilities: @judgment_capabilities] ++
-          if(explore_open?, do: [explore: true], else: [])
+          if(explore_open?,
+            do: [explore: true, explore_tools: ExplorationService.tool_names()],
+            else: []
+          )
     }
   end
 

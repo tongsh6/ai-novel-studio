@@ -256,7 +256,8 @@ defmodule NovelApplication.JudgmentProtocol do
     with %{} = arguments <- arguments,
          action when is_binary(action) <- map_get(arguments, :action),
          true <- action in actions(request.options),
-         true <- capability_in_catalog?(action, arguments, request.options) do
+         true <- capability_in_catalog?(action, arguments, request.options),
+         true <- explore_tool_in_catalog?(action, arguments, request.options) do
       build_judgment(arguments, action, provider_result, request)
     else
       _ -> retry_or_fail(provider_result, request)
@@ -283,6 +284,26 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp capability_in_catalog?(_action, _arguments, _options), do: true
+
+  # 缺陷（2026-07-20，judgment-explore-internal 场景验收实测）：与 capability
+  # 同款病灶——模型编了目录外工具名（"text_search"，真实只有 prose_search/
+  # chapter_read/archive_read/memory_recall）时 schema enum 未必总能拦住
+  # （forced tool call 对嵌套约束执行不完整，与 call2 病灶同源），应用层校验
+  # 兜底：越界即重试，不把发明的工具名放行到 ExplorationService 硬失败。
+  defp explore_tool_in_catalog?("explore", arguments, options) do
+    case Keyword.get(options || [], :explore_tools) do
+      tools when is_list(tools) and tools != [] ->
+        case map_get(arguments, :explore_request) do
+          %{} = request -> nonblank(map_get(request, :tool)) in tools
+          _ -> true
+        end
+
+      _ ->
+        true
+    end
+  end
+
+  defp explore_tool_in_catalog?(_action, _arguments, _options), do: true
 
   defp build_judgment(arguments, action, provider_result, request) do
     case bind_narrative(arguments, request, provider_result) do
@@ -357,7 +378,8 @@ defmodule NovelApplication.JudgmentProtocol do
                   "上一次调用返回的结构不合法（片段：#{fragment}）。" <>
                   "必须调用 #{@judgment_tool_name}，action 只能取 " <>
                   "#{Enum.join(actions(request.options), " / ")}。" <>
-                  capability_retry_hint(request.options)
+                  capability_retry_hint(request.options) <>
+                  explore_tool_retry_hint(request.options)
           }
           | rest
         ]
@@ -562,7 +584,7 @@ defmodule NovelApplication.JudgmentProtocol do
                   %{
                     type: "object",
                     properties: %{
-                      tool: %{type: "string"},
+                      tool: explore_tool_schema(opts),
                       query: %{type: "string"}
                     },
                     required: ["tool", "query"]
@@ -637,6 +659,16 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
+  defp explore_tool_retry_hint(options) do
+    case Keyword.get(options || [], :explore_tools) do
+      tools when is_list(tools) and tools != [] ->
+        "explore_request.tool 只能取 #{Enum.join(tools, " / ")}，不得自造工具名（如 text_search 不存在）。"
+
+      _ ->
+        ""
+    end
+  end
+
   # capability schema：caller 传入能力目录时收紧为 enum（native tool call 强制，
   # 模型无法自造能力名——M0 缺陷第一层防线）；未传入保持自由 string 向后兼容。
   defp capability_schema(opts) do
@@ -646,6 +678,21 @@ defmodule NovelApplication.JudgmentProtocol do
 
       _ ->
         %{anyOf: [%{type: "string"}, %{type: "null"}]}
+    end
+  end
+
+  # 缺陷（2026-07-20，judgment-explore-internal 场景验收实测）：explore_request.tool
+  # 此前是裸 %{type: "string"}，模型编了个听起来合理但不存在的 "text_search"（真实
+  # 工具是 prose_search），ExplorationService 拒绝执行，探索两轮空转，最终诚实回复
+  # "没有检索工具"。与 capability 同款病灶（自造枚举值），同款收口：枚举收紧到
+  # ExplorationService.tool_names() 真源。
+  defp explore_tool_schema(opts) do
+    case Keyword.get(opts, :explore_tools) do
+      tools when is_list(tools) and tools != [] ->
+        %{type: "string", enum: tools}
+
+      _ ->
+        %{type: "string"}
     end
   end
 

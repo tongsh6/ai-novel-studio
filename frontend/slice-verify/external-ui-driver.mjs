@@ -17572,7 +17572,11 @@ async function driveAgentProseDraftingWithQuality(page) {
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
-  const message = options.message ?? "测试";
+  // 缺陷（2026-07-20）：默认输入"测试"是语义不明确的占位词，不是真实对话——
+  // 模型判 await_author（等作者说清）是合理判断，不是协议缺陷。改用 MBC
+  // judgment_protocol.exs chat_opinion 用例同款文本（已验证三种上下文形态
+  // 稳定判 reply，见 UA01 T2c 基线），场景与协议测量口径一致。
+  const message = options.message ?? "你觉得赛博修仙这个题材最大的看点是什么？";
   const outputSliceId = options.sliceId ?? "agent-conversation-turn";
   const expectAuthorReasoningDelta = options.expectAuthorReasoningDelta !== false;
   // ADR-0025 CP1 判断循环：机械准备 0 调用 + 判断①两段式（叙事流式 + judgment_decision

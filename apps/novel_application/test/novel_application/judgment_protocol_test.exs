@@ -133,6 +133,57 @@ defmodule NovelApplication.JudgmentProtocolTest do
              request(%{"action" => "execute", "reason" => "go", "capability" => "text_generation"})
   end
 
+  test "explore 工具目录约束（judgment-explore-internal 场景验收实测缺陷回归）：目录外工具名重试后诚实失败，enum 进 schema" do
+    tools = ~w(prose_search chapter_read archive_read memory_recall)
+
+    # explore + 目录外工具名（live 实测形态："text_search" 不存在）→ 重试仍坏 → 诚实失败
+    assert {:error, {:judgment_decision_unparseable, _frag}} =
+             request(
+               %{
+                 "action" => "explore",
+                 "reason" => "need_facts",
+                 "explore_request" => %{"tool" => "text_search", "query" => "灵气账单"}
+               },
+               explore: true,
+               explore_tools: tools
+             )
+
+    # explore + 目录内工具名 → 通过
+    assert {:ok, ok_judgment} =
+             request(
+               %{
+                 "action" => "explore",
+                 "reason" => "need_facts",
+                 "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
+               },
+               explore: true,
+               explore_tools: tools
+             )
+
+    assert ok_judgment.explore_request == %{tool: "prose_search", query: "灵气账单"}
+
+    # 非 explore action 不连坐（目录校验只管 explore）
+    assert {:ok, reply_judgment} =
+             request(
+               %{"action" => "reply", "reason" => "ok"},
+               explore: true,
+               explore_tools: tools
+             )
+
+    assert reply_judgment.action == "reply"
+
+    # 目录未传入 → 保持向后兼容不拦（与 capability 同款语义）
+    assert {:ok, _} =
+             request(
+               %{
+                 "action" => "explore",
+                 "reason" => "need_facts",
+                 "explore_request" => %{"tool" => "text_search", "query" => "灵气账单"}
+               },
+               explore: true
+             )
+  end
+
   test "正常候选列表：解析为候选，present 为真" do
     {:ok, judgment} =
       request(%{
