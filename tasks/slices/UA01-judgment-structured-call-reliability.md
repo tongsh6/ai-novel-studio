@@ -1,6 +1,6 @@
 # UA01 判断结构化调用可靠性（call2 病灶收口）
 
-- 状态：registered（2026-07-20，M0 复盘归并立项；未开工）
+- 状态：T1-T2 结构性收口完成（2026-07-20）；T3 nightly 阈值门禁常态化为后续项
 - 类型：Prompt Protocol Slice / MBC 测量 Slice
 - 父：`ADR-0025`（判断两段式协议）、`SI-model-behavior-contracts`（MBC 体系）
 - 来源：M0 五跑一日复盘 + 用户统筹提醒（"不能头疼治头脚痛医脚"）
@@ -177,3 +177,22 @@ funnel `Keyword.get(opts, :params, %InferenceParams{})` 用的是裸 struct（�
 不可用。是否要把"内容退化检测触发 N 次后自动建议/触发模型重载"做成自动化
 运维动作，留作后续独立评估——涉及本仓库代码去控制外部应用生命周期，范围
 比本 slice 大，需要单独设计与用户确认，不在本次顺手做。
+
+## T2c 干净基线（2026-07-20，T2 全套 + 挂钟修正后，lmstudio/gpt-oss-120b，7 用例 × 3 形态 × 3 轮 = 63 试验）
+
+发现并修正挂钟阀门自身的缺陷后（见上）重跑：探针跑在 `MIX_ENV=test` 但打真实
+模型，`config/test.exs` 的 LMStudio timeout 硬编码 5s（本意给纯单测 stub 快速
+失败），挂钟止血阀复用了这个字段做判定基准——首次复测 21 个用例里 4-6 个被
+误杀，数据整批作废。改为 env 可覆盖（`NOVEL_LMSTUDIO_TIMEOUT_MS`，
+`probe_run.sh`/`dogfood_run.sh` 显式设 300000）后干净重跑：
+
+- **protocol=1.0 / form=1.0 / blocked=0/21，三种上下文形态（bare/in_run/
+  long_run）完全一致**——T2a（章节列表有界投影）+ T2b（call2 回显封顶）+
+  T2d（provider 级 max_tokens + 挂钟时长 + 内容退化检测）落地后，call2
+  结构化可靠性在长上下文形态下不再退化，硬闸门干净通过。
+- judgment 准确率 bare 0.952 / in_run 0.857 / long_run 1.0，失败全部是
+  "expected=plan|explore got=reply"/"expected=explore got=reply"——已知的
+  plan 判界方差（ADR-0025 预算 backstop 兜底范畴），非协议指令误读，与
+  T1 基线（bare 0.952/in_run 0.905）同类且量级一致。
+- **T2 裁决**：结构性收口到此完成，症状率 0、体温计 0，T3 阈值门禁（protocol
+  1.0 硬闸门 + judgment ≥0.85）双形态达标。
