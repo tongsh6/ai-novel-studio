@@ -7,6 +7,9 @@
 #   3) 原始输出全量 tee      过滤管道（grep）块缓冲 → "零输出"被误诊为挂死，误杀健康探针两次；
 #                            观察一律 tail -f 日志文件，禁止在探针管道上接过滤器
 #   4) 并发探针预警          两个探针同时打 LM Studio 会排队互相拖慢，时延数据全部失真
+#   5) 真实超时兜底          test.exs 的 LMStudio timeout 默认 5s（给纯单测 stub 用），
+#                            探针打真实模型时这个值也是挂钟止血阀的判定基准（缺陷九跟进）——
+#                            不覆盖会把正常生成误判成超时，基线数据整批失真过一次
 #
 # 用法: bash scripts/probe_run.sh <scripts/model_contracts/xxx.exs> [provider] [runs]
 set -euo pipefail
@@ -25,6 +28,8 @@ fi
 
 export PHX_SERVER=false
 export MIX_BUILD_PATH="$PROJECT_ROOT/_build/test_probe"
+export NOVEL_LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-300000}"
+export NOVEL_DEEPSEEK_TIMEOUT_MS="${NOVEL_DEEPSEEK_TIMEOUT_MS:-300000}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 LOG_DIR="$PROJECT_ROOT/artifacts/model-contracts/logs"

@@ -31,6 +31,11 @@ export MIX_TEST_PARTITION="_dogfood"
 # 崩死、第03章 turn 蒸发）。隔离后长跑期间可自由编译/跑测试。
 export MIX_BUILD_PATH="$PROJECT_ROOT/_build/test_dogfood"
 
+# 真实超时兜底（缺陷九跟进，2026-07-20）：test.exs 的 LMStudio timeout 默认
+# 5s（给纯单测 stub 用），狗粮跑在 MIX_ENV=test 下但打真实模型——这个值现在
+# 兼作挂钟止血阀判定基准，不覆盖会把正常生成误判成超时，整个长跑立刻断线。
+export NOVEL_LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-300000}"
+
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5769}"
 API_URL="http://127.0.0.1:${PHOENIX_PORT}"

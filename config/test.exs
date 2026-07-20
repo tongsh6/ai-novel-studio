@@ -33,8 +33,14 @@ config :logger, level: :warning
 # Provider Gateway — 测试环境默认 stub，单测可手动注入 adapter
 config :novel_agent, :provider, default: :stub
 
-# LM Studio 测试超时设短（探活不应阻塞）。model 继承 config.exs 的环境变量配置。
-config :novel_agent, NovelAgent.Provider.LMStudio, timeout: 5_000
+# LM Studio 测试超时默认设短（纯单测走 stub，探活不应阻塞）。
+# 缺陷九跟进（2026-07-20）：这个值现在还兼作挂钟止血阀的判定基准
+# （OpenAICompatibleStream/AnthropicStream 复用 state.timeout）——real-LLM
+# 探针/狗粮虽然也跑在 MIX_ENV=test 下（为了 DB 分区/构建隔离），但打的是
+# 真实模型，5 秒会把正常生成误判成超时。real-LLM 场景必须显式覆盖，
+# 见 scripts/probe_run.sh / scripts/dogfood_run.sh 的 NOVEL_LMSTUDIO_TIMEOUT_MS。
+config :novel_agent, NovelAgent.Provider.LMStudio,
+  timeout: System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "5000") |> String.to_integer()
 
 config :novel_application, sync_memory_reference_log: true
 config :novel_application, sync_chapter_summary_maintenance: true
