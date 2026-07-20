@@ -80,9 +80,14 @@ defmodule NovelAgent.ProseQualityEvaluator do
   end
 
   defp decode(content) do
-    case Jason.decode(content) do
+    # 与 creative_provider/real.ex 同款收口（M2 长跑实测：10/12 次正文起草 JSON
+    # 解析失败因模型漏转义字符串内换行）——本 evaluator 同样要求模型产出含长文本
+    # 字段（summary/evidence_spans）的 JSON，同一风险面。
+    repaired = NovelAgent.Provider.repair_unescaped_control_chars(content)
+
+    case Jason.decode(repaired) do
       {:ok, value} -> {:ok, value}
-      {:error, _} -> extract_json(content)
+      {:error, _} -> extract_json(repaired)
     end
   end
 

@@ -284,4 +284,38 @@ defmodule NovelAgent.Provider do
   defp maybe_put(map, _key, []), do: map
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  # M2 长跑实测（2026-07-20）：正文起草 10/12 次 JSON 解析失败的具体成因——模型把
+  # 多段正文塞进 JSON 字符串值时，偶发漏转义段落换行（裸 0x0A 字节），JSON 语法
+  # 要求字符串内换行必须写成 \n，出现裸字节即解析失败。creative_provider/real.ex
+  # 与 prose_quality_evaluator.ex 都要求模型产出"含长文本字段的 JSON"，同一风险面，
+  # 收口到这里共享，而不是各自重试一次 LLM 调用（重试要多烧 60-90s 一次生成）。
+  #
+  # 只处理"字符串值内部的裸控制字符"：跟踪引号开合状态（尊重已有转义），只在
+  # 字符串内部把裸 \n \r \t 转成合法转义序列；字符串外部的结构空白（JSON 语法本身
+  # 允许 token 间换行）原样不动。对已经合法的 JSON 是纯粹的 no-op（合法 JSON 的
+  # 字符串内本来就没有裸控制字符——已经是 \n 两字符序列会被转义状态机原样放行）。
+  @spec repair_unescaped_control_chars(String.t()) :: String.t()
+  def repair_unescaped_control_chars(content) when is_binary(content) do
+    content
+    |> String.graphemes()
+    |> Enum.reduce({[], false, false}, &repair_char/2)
+    |> elem(0)
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
+  end
+
+  # 已被上一个字符的反斜杠标记为"转义中"：不管这个字符是什么，原样放行，
+  # 消费掉这一次转义（下一个字符恢复非转义状态）。
+  defp repair_char(char, {acc, in_string?, true}), do: {[char | acc], in_string?, false}
+
+  defp repair_char("\\", {acc, true = in_string?, false}), do: {["\\" | acc], in_string?, true}
+
+  defp repair_char("\"", {acc, in_string?, false}), do: {["\"" | acc], not in_string?, false}
+
+  defp repair_char("\n", {acc, true = in_string?, false}), do: {["\\n" | acc], in_string?, false}
+  defp repair_char("\r", {acc, true = in_string?, false}), do: {["\\r" | acc], in_string?, false}
+  defp repair_char("\t", {acc, true = in_string?, false}), do: {["\\t" | acc], in_string?, false}
+
+  defp repair_char(char, {acc, in_string?, false}), do: {[char | acc], in_string?, false}
 end

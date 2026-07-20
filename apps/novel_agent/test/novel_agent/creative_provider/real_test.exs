@@ -20,19 +20,44 @@ defmodule NovelAgent.CreativeProvider.RealTest do
                %{item_id: "i1", title: "开篇", body: "夜色压在账单上。", rationale: nil}
              ])
 
-  # 字符串值内裸换行 → 非法 JSON（gpt-oss-120b 长上下文下的真实坏法）。
+  # 字符串值内裸换行 → 非法 JSON（gpt-oss-120b 长上下文下的真实坏法，M2 长跑
+  # 实测 10/12 次正文起草解析失败均属此类）。2026-07-20 起 parse_content 在
+  # Jason.decode 前先过 NovelAgent.Provider.repair_unescaped_control_chars/1，
+  # 这类 fixture 现在**首次调用即修复成功，不再需要重试**——见下方
+  # "repairs unescaped newline" 测试。retry 机制仍保留给这类修复覆盖不到的
+  # 非法 JSON（如结构性错误、非受控字符导致的坏法），用 @unrepairable_bad_json
+  # 覆盖。
   @bad_json ~s([{"item_id": "i1", "title": "开篇", "body": "第一行\n第二行", "rationale": null}])
+
+  # 结构性非法 JSON（多余逗号），不是裸控制字符问题，repair_unescaped_control_chars
+  # 修不了——仍应触发既有的重试/诚实失败路径。
+  @unrepairable_bad_json ~s([{"item_id": "i1", "title": "开篇", "body": "b",}])
 
   defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
-  test "retries once with a correction prompt when provider returns invalid JSON" do
+  test "repairs unescaped newline in string value without needing a retry" do
+    {:ok, agent} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn _prompt ->
+      Agent.update(agent, &(&1 + 1))
+      {:ok, %{content: @bad_json}}
+    end
+
+    result = Real.generate(@request, provider_execution(result_fn))
+
+    assert result.status == :ok
+    assert [%{body: "第一行\n第二行"}] = result.items
+    assert Agent.get(agent, & &1) == 1
+  end
+
+  test "retries once with a correction prompt when provider returns structurally invalid JSON" do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     result_fn = fn prompt ->
       calls = Agent.get_and_update(agent, &{&1, &1 ++ [prompt]})
 
       if calls == [] do
-        {:ok, %{content: @bad_json}}
+        {:ok, %{content: @unrepairable_bad_json}}
       else
         {:ok, %{content: @good_json}}
       end
@@ -50,8 +75,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert correction =~ "重要："
   end
 
-  test "fails honestly when retry also returns invalid JSON" do
-    result_fn = fn _prompt -> {:ok, %{content: @bad_json}} end
+  test "fails honestly when retry also returns structurally invalid JSON" do
+    result_fn = fn _prompt -> {:ok, %{content: @unrepairable_bad_json}} end
 
     result = Real.generate(@request, provider_execution(result_fn))
 

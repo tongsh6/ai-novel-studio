@@ -344,7 +344,11 @@ defmodule NovelAgent.CreativeProvider.Real do
   end
 
   defp parse_content(content, provider_call_ref) do
-    trimmed = content |> strip_code_fence() |> String.trim()
+    trimmed =
+      content
+      |> strip_code_fence()
+      |> String.trim()
+      |> NovelAgent.Provider.repair_unescaped_control_chars()
 
     with {:ok, decoded} <- Jason.decode(trimmed),
          {:ok, raw_items, raw_self_report} <- creative_payload(decoded),
