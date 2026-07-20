@@ -269,3 +269,47 @@ run/章节的样本才能确认是否是同一成因。
 是**接近系统性失效**（连续 4 次 0 命中）。是否需要新起 session/work（而非
 继续 `--resume` 累积同一份超长历史）作为止损手段，留给下一步讨论，本条先如实
 记录现象与假说，不擅自决定止损动作。
+
+**根因定位（2026-07-20，LM Studio 原始日志实锤）——从"字段矛盾"精确到"解码层顶替"**：
+
+用户截图直接抓到了这次判断调用的隐藏推理链原文（call2 的 chain-of-thought，
+非最终输出）：
+
+```
+...It says capability 填能力目录中的能力名（只能取目录名）. Assume "creative_writing". Use that.
+...
+Let's call function.
+```
+
+紧接着的实际 tool call：
+
+```json
+{"reason":"作者请求生成第14章正文草稿，属于单动作执行的创作任务，需要直接进行文本写作。",
+ "action":"execute","capability":"character_design", ...}
+```
+
+**模型自己决定要用的值（`creative_writing`）和它实际写进结构化输出的值
+（`character_design`）是两个不同的字符串**——不是语义层面"理解错了"，是推理链
+的决定和最终序列化输出之间发生了不一致。且 `creative_writing` 本身就不在
+能力目录（`character_design/character_evolution/prose_writing/plot_outline/
+world_building/work_archive_read`）里，与本 slice 最早收口的"自造能力名"
+（M0 缺陷一：capability="text_generation"）是同一个模型癖好——差别是这次
+自造的名字没有出现在最终输出里浮出水面被 enum 校验拦住，而是在 LM Studio/
+llama.cpp 的强制工具调用语法约束解码阶段被**静默顶替**成了另一个合法但无关
+的目录值。应用层（Elixir）拿到的 JSON 本来就是合法的 `character_design`，
+现有的 enum 校验、reason 一致性校验都无法识别这类"顶替"——因为顶替后的值
+本身找不出任何结构或语义层面的破绽，只有对照同一次调用的隐藏推理链原文才能
+发现。
+
+这解释了为什么连续 4 次误路由每次落在不同的错误能力上（character_design/
+world_building/character_evolution/character_design）：不是模型稳定"相信"
+某个错误答案，是约束解码器每次把模型想说的无效名随机顶替到目录内某个合法
+成员，顶替目标本身是任意的。
+
+**影响判断**：这类"解码层顶替"如果确实存在且频繁，意味着 enum 校验从
+"防止自造名浮出水面"这个原始设计目的上看已经不够——校验的是顶替*之后*的
+值，而顶替本身已经把"作者到底要什么"这个信息丢了。真正的收口方向可能需要
+校验 reason 与 capability 的语义一致性（本文档前一节已提议但未设计），或者
+从根源上降低模型产生"creative_writing"这类越界冲动的概率（如 prompt 里
+更早、更醒目地重申目录，或换一个对 forced tool call 更服帖的模型/profile）。
+仍然只是假说与方向记录，未实现、未验证。
