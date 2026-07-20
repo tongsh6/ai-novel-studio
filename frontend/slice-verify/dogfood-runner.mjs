@@ -216,12 +216,14 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
   // 错误、自己修不了"并主动收束到 awaiting_author（等作者裁决），不是 failed。
   // 此前没有识别这个终态，waitForFrame 只能傻等满 600s，再叠加 readToc 60s +
   // sendAuthorMessage 的 10 分钟输入阻塞等待，每次工具失败实测约耗 20 分钟。
-  // 与 wrongRouteReply/failedRun 同款秒级快速失败，直接进已有重试/跳章路径。
+  //
+  // 首版实现判定错了帧形状（第一次实测才发现，教训记在这）：这个状态不是走
+  // turn_result 帧，是独立的 "agent_run_state" 广播（workspace_channel.ex
+  // agent_run_state_payload 顶层 status 字段，不嵌套在 agent_run 里）；它也不带
+  // turn_id（带的是 run_id），frameBelongsToTurn 对这类帧恒假，不能套用同一个
+  // 按轮次过滤——两处都对不上导致首版判定实测从未真正命中过，白白空等了 600s。
   const awaitingAuthor = (f) =>
-    f.direction === "received" &&
-    f.event === "turn_result" &&
-    frameBelongsToTurn(f, turnId) &&
-    f.body?.agent_run?.status === "awaiting_author";
+    f.direction === "received" && f.event === "agent_run_state" && f.body?.status === "awaiting_author";
 
   let draftFrame = await waitForFrame(
     (f) =>
