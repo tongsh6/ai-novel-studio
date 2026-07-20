@@ -9,7 +9,7 @@
 # 因 CP4 证据全部来自 stub）。本探针让该类 provider×模式组合问题在 nightly 暴露。
 #
 # 用法：
-#   mix run scripts/model_contracts/tool_call_compliance.exs [stub|lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/tool_call_compliance.exs [stub|lmstudio|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每变体试验次数（默认 3）
 #   MODEL_CONTRACT_MIN_PASS_RATE  通过率阈值（默认 1.0）

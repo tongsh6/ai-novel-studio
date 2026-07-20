@@ -474,7 +474,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
     - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
     - stage_state_keys: #{stage_state_keys(snapshot)}
-    #{accepted_chapters_section(chapter_titles)}
+    #{accepted_chapters_section(chapter_titles, run.goal.text)}
     ## 计划要求
     - 计划必须是当前作者目标的 per-run 动态计划，不要复述固定模板。
     - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
@@ -489,12 +489,16 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   # 与旧 Planner accepted_chapters_section 同一契约措辞：target_chapter 只能是列表全名。
-  defp accepted_chapters_section([]), do: ""
+  # T2a：有界投影（作者点名章恒在列——精确复制契约的依赖项由 ChapterListBudget 保证）。
+  defp accepted_chapters_section([], _author_text), do: ""
 
-  defp accepted_chapters_section(chapter_titles) do
-    listed = Enum.map_join(chapter_titles, "\n", &"- #{&1}")
+  defp accepted_chapters_section(chapter_titles, author_text) do
+    {listed, omitted} =
+      NovelApplication.ChapterListBudget.project(chapter_titles, author_text)
 
-    "\n## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）\n#{listed}\n"
+    "\n## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）\n" <>
+      NovelApplication.ChapterListBudget.render_lines(listed, omitted, length(chapter_titles)) <>
+      "\n"
   end
 
   defp revision_context_block(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
@@ -508,7 +512,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
     - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
     - stage_state_keys: #{stage_state_keys(snapshot)}
-    #{accepted_chapters_section(chapter_titles)}
+    #{accepted_chapters_section(chapter_titles, run.goal.text)}
     ## 修订触发原因
     #{revision_reason}
 

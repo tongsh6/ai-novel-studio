@@ -60,9 +60,11 @@ if config_env() == :prod and System.get_env("RELEASE_NAME") do
 
   # HTTP/WS 端点：固定监听 127.0.0.1:<port>（前端构建时把端点烘焙成同一端口，
   # 见 frontend/.env.production；CSP connect-src 亦已放行该端口）。
+  # PHX_SERVER=false 供离线脚本（MBC 探针等 mix run）关闭监听：探针只需应用启动
+  # 不需要 web 端口，占 4657 会与场景/狗粮后端撞车（harness 资源竞争实锤 ×2）。
   config :novel_web, NovelWeb.Endpoint,
     http: [ip: {127, 0, 0, 1}, port: port],
     url: [host: "localhost", port: port],
     secret_key_base: secret_key_base,
-    server: true
+    server: System.get_env("PHX_SERVER", "true") != "false"
 end

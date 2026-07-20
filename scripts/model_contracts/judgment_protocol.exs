@@ -12,7 +12,7 @@
 # 调用穿真实 Gateway/ProviderExecution 运行时（Execution.dependency(provider:)），秒级、不写库。
 #
 # 用法：
-#   mix run scripts/model_contracts/judgment_protocol.exs [stub|lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/judgment_protocol.exs [stub|lmstudio|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
 #   MODEL_CONTRACT_MIN_PASS_RATE  判断准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）
@@ -103,7 +103,7 @@ defmodule ModelContracts.JudgmentProtocol do
         # 裸上下文）与 in_run（生产 prompt 同形：会话摘要 + 全章列表 + 采纳事实）。
         # 症状率差 = 上下文负载对 call2 退化的贡献基线。
         results =
-          for variant <- variants, context_shape <- [:bare, :in_run] do
+          for variant <- variants, context_shape <- [:bare, :in_run, :long_run] do
             shaped = Map.put(variant, :context_shape, context_shape)
             cases = Enum.map(@battery, &run_case(shaped, &1, runs))
             %{variant: "#{variant.name}/#{context_shape}", cases: cases}
@@ -301,6 +301,35 @@ defmodule ModelContracts.JudgmentProtocol do
     ## 会话摘要
     作者按章节计划逐章推进正文：上一轮为第01章生成了正文草稿并已采纳（约 1,288 字），
     再上一轮采纳了章节计划（12 章）。作者的采纳节奏很快，通常草稿生成后立即确认保存。
+
+    #{capability_catalog_section()}
+    """
+    |> String.trim()
+  end
+
+  # long_run 形态：30 章作品经 T2a 预算投影后的真实 prompt 形貌（首章 + 最近 6 章
+  # + 折叠说明行）——call2 可靠性随上下文长度递减的回归钉（M2 实证形态）。
+  defp probe_context_block(:long_run) do
+    """
+    ## 当前作品上下文
+    - title: 长跑形态探针作品
+    - genre: 赛博修仙
+    - tone_preference: 克制、紧张、具象
+
+    ## 已写章节（共 30 章，按顺序）
+    - 第01章：底层灵气账单
+    - 第25章：残响回廊
+    - 第26章：灰色频段
+    - 第27章：矿脉深处的低语
+    - 第28章：断链之夜
+    - 第29章：回流前夜
+    - 第30章：临界点
+    （共 30 章；中段 23 章从略——只列首章、最近 6 章与作者点名章。）
+    （回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）
+
+    ## 会话摘要
+    作者按章节计划连载推进，最近数轮均为"生成下一章正文草稿并采纳"；上一轮采纳了
+    第30章草稿（约 1,400 字）。作者节奏稳定，通常草稿生成后立即确认保存。
 
     #{capability_catalog_section()}
     """

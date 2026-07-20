@@ -24,6 +24,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
+  alias NovelApplication.ChapterListBudget
   alias NovelApplication.ExplorationService
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TraceWriter
@@ -598,10 +599,13 @@ defmodule NovelApplication.DialoguePlanningService do
   defp judgment_protocol_input(input, run, context, explorations) do
     explore_open? = length(explorations) < @max_explore_rounds
 
+    author_text = map_get(input, :text) || run.goal.text
+
     %{
-      author_text: map_get(input, :text) || run.goal.text,
+      author_text: author_text,
       context_block:
-        judgment_context_block(context) <> exploration_sections(explorations, explore_open?),
+        judgment_context_block(context, author_text) <>
+          exploration_sections(explorations, explore_open?),
       options:
         [capabilities: @judgment_capabilities] ++
           if(explore_open?, do: [explore: true], else: [])
@@ -884,10 +888,10 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   # 判断①的作品上下文段（机械准备渲染）+ CP1 能力目录（不含检索，explore 由 CP5 打开）。
-  defp judgment_context_block(context) do
+  defp judgment_context_block(context, author_text) do
     [
       judgment_work_section(context),
-      judgment_chapters_section(context),
+      judgment_chapters_section(context, author_text),
       judgment_conversation_section(context),
       judgment_capability_catalog()
     ]
@@ -904,14 +908,16 @@ defmodule NovelApplication.DialoguePlanningService do
   defp judgment_work_section(_context),
     do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
 
-  defp judgment_chapters_section(%DialogueContext{current_chapters: [_ | _] = chapters}) do
-    listed = Enum.map_join(chapters, "\n", &"- #{&1}")
+  # T2a（call2 病灶结构性收口）：章节段有界投影——超限时首章+最近 N+作者点名章。
+  defp judgment_chapters_section(%DialogueContext{current_chapters: [_ | _] = chapters}, author_text) do
+    {listed, omitted} = ChapterListBudget.project(chapters, author_text)
 
-    "## 已写章节（共 #{length(chapters)} 章，按顺序）\n#{listed}\n" <>
-      "（回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）"
+    "## 已写章节（共 #{length(chapters)} 章，按顺序）\n" <>
+      ChapterListBudget.render_lines(listed, omitted, length(chapters)) <>
+      "\n（回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）"
   end
 
-  defp judgment_chapters_section(_context), do: ""
+  defp judgment_chapters_section(_context, _author_text), do: ""
 
   defp judgment_conversation_section(%DialogueContext{conversation_summary: summary})
        when is_binary(summary) and summary != "" do

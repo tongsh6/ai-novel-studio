@@ -428,7 +428,7 @@ defmodule NovelApplication.JudgmentProtocol do
           #{Map.fetch!(input, :deviation_summary)}
 
           ## 你已输出的观察说明
-          #{narrative}
+          #{clip_echo(narrative)}
 
           ## 输出格式
           - native tool call：必须调用 #{@continuation_tool_name}，把判断放入 tool arguments。
@@ -515,8 +515,8 @@ defmodule NovelApplication.JudgmentProtocol do
           ## 作者输入
           #{Map.fetch!(input, :author_text)}
 
-          ## 你已输出的判断说明
-          #{narrative}
+          ## 你已输出的判断说明（超长截断，只作登记参照）
+          #{clip_echo(narrative)}
 
           ## 输出格式
           - native tool call：必须调用 #{@judgment_tool_name}，把判断放入 tool arguments。
@@ -609,6 +609,20 @@ defmodule NovelApplication.JudgmentProtocol do
   defp explore_capability_note(opts) do
     if Keyword.get(opts, :explore, false), do: "；先检索属于 explore，不算 execute", else: ""
   end
+
+  # T2b（call2 病灶结构性收口）：结构化调用的叙事回显封顶——call2 只需登记参照，
+  # 全文已在 call1 流式呈现；长回显是上下文负载与判定漂移的放大器（M2 实证）。
+  @call2_echo_max_chars 240
+
+  defp clip_echo(narrative) when is_binary(narrative) do
+    if String.length(narrative) > @call2_echo_max_chars do
+      String.slice(narrative, 0, @call2_echo_max_chars) <> "…（后略）"
+    else
+      narrative
+    end
+  end
+
+  defp clip_echo(narrative), do: to_string(narrative)
 
   defp capability_retry_hint(options) do
     case Keyword.get(options || [], :capabilities) do

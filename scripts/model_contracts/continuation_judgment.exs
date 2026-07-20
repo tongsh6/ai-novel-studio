@@ -8,7 +8,7 @@
 #      （continue）/ 工具连续故障（await_author）/ 前提缺失需作者裁决（await_author）。
 #
 # 用法：
-#   mix run scripts/model_contracts/continuation_judgment.exs [stub|lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/continuation_judgment.exs [stub|lmstudio|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
 #   MODEL_CONTRACT_MIN_PASS_RATE  方向准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）

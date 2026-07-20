@@ -26,7 +26,7 @@
 # 调用穿真实 Gateway/ProviderExecution 运行时（Execution.dependency(provider:)），不写库。
 #
 # 用法：
-#   mix run scripts/model_contracts/execution_self_eval.exs [stub|lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/execution_self_eval.exs [stub|lmstudio|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
 #   MODEL_CONTRACT_MIN_PASS_RATE  自评准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）
