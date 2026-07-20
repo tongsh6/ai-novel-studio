@@ -167,6 +167,36 @@ defmodule NovelAgent.Provider do
 
   def extract_anthropic_tool_calls(_response), do: []
 
+  # 缺陷十（2026-07-20，与缺陷九同批发现但成因独立）：写作调用现场实测抓到
+  # gpt-oss-120b 采样退化——2000 token 上限内全部 1999 字符输出就是同一个字符
+  # 重复（"@" 连续刷满），HTTP 200 正常返回，下游只是因为凑巧不是合法 JSON 才
+  # 暴露。这与 max_tokens 无关：预算再大也只是刷更多同一个字符，任何一个
+  # provider/model 都可能在退化采样下产出这种低熵内容，是内容有效性问题不是
+  # 时长/预算问题，因此判定放在跨 adapter 共享层，和"内容为空"判定同一位置、
+  # 同一优先级。
+  @degenerate_min_length 40
+  @degenerate_unique_ratio_threshold 0.05
+
+  @spec degenerate_content?(String.t()) :: boolean()
+  def degenerate_content?(content) when is_binary(content) do
+    length = String.length(content)
+
+    length >= @degenerate_min_length and
+      unique_char_ratio(content, length) < @degenerate_unique_ratio_threshold
+  end
+
+  def degenerate_content?(_content), do: false
+
+  defp unique_char_ratio(content, length) do
+    unique_count =
+      content
+      |> String.graphemes()
+      |> MapSet.new()
+      |> MapSet.size()
+
+    unique_count / length
+  end
+
   defp normalize_tool_specs(specs) when is_list(specs) do
     Enum.flat_map(specs, fn spec ->
       name = map_get(spec, :name)

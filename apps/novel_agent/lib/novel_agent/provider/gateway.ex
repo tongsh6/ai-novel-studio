@@ -180,9 +180,14 @@ defmodule NovelAgent.Provider.Gateway do
   adapter execution boundary 物化为同一套 ProviderRun / ProviderEvent /
   ProviderOutput 事实。应用层不得在这里之外再新增 complete-vs-stream 分支。
   """
+  # 缺陷九（2026-07-20）：默认值必须走 InferenceParams.new/1（带 max_tokens 止血阀），
+  # 不能是裸 %InferenceParams{}（defstruct 字段全 nil=无界）。全仓 3 处默认值funnel
+  # 之一——Execution.execute/2、Gateway.complete/3 同类，三处必须同步，否则任一处漏改
+  # 就有调用路径绕过止血阀（实测：正文起草 purpose: :writer 走的正是 execution.ex 那处，
+  # 曾经真实跑到 36000+ token 未停）。
   @spec execute(Provider.prompt(), String.t() | nil, InferenceParams.t(), keyword()) ::
           execution_result()
-  def execute(prompt, model \\ nil, params \\ %InferenceParams{}, opts \\ []) do
+  def execute(prompt, model \\ nil, params \\ InferenceParams.new(), opts \\ []) do
     provider_name = Keyword.get(opts, :provider, default_provider())
     model_name = model || Keyword.get(opts, :model) || default_model()
     provider_call_ref = Keyword.get(opts, :provider_call_ref) || provider_call_ref()
@@ -222,7 +227,7 @@ defmodule NovelAgent.Provider.Gateway do
   LLM 不可用时返回 `{:error, error}`——不切换到替代执行路径，让上层告知用户。
   """
   @spec complete(String.t(), String.t() | nil, InferenceParams.t()) :: result()
-  def complete(prompt, model \\ nil, params \\ %InferenceParams{}) do
+  def complete(prompt, model \\ nil, params \\ InferenceParams.new()) do
     case execute(prompt, model, params) do
       {:ok, %{result: %Result{} = result}} ->
         {:ok, result}

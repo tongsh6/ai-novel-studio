@@ -32,6 +32,14 @@ defmodule NovelAgent.Provider.AnthropicStream do
     initial_events = AdapterExecution.initial_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
+    # 与 OpenAICompatibleStream 同一道纵深防御（缺陷九跟进，2026-07-20）：
+    # receive_timeout 对流式请求只挡"两个 chunk 之间的间隔"，挡不住模型持续
+    # 吐字符但就是停不下来。这里补总时长判定，与各 provider 自己的 max_tokens
+    # 无关——挂钟是唯一不随模型换代改变含义的尺子。Anthropic 托管模型失控概率
+    # 远低于本地开权重模型，但止血阀是系统不变量，不因单个 provider 风险低就
+    # 例外。
+    deadline_ms = Map.get(state, :timeout) || 300_000
+
     {:ok, acc} =
       Agent.start_link(fn ->
         %{
@@ -45,11 +53,12 @@ defmodule NovelAgent.Provider.AnthropicStream do
           usage: nil,
           model: Map.get(state, :model),
           parse_error?: false,
-          provider_error: nil
+          provider_error: nil,
+          deadline_exceeded?: false
         }
       end)
 
-    on_data = &handle_wire_chunk(ctx, acc, &1)
+    on_data = &handle_wire_chunk(ctx, acc, started, deadline_ms, &1)
 
     request_result =
       state
@@ -90,17 +99,33 @@ defmodule NovelAgent.Provider.AnthropicStream do
       {:error, :provider_internal, 0, "#{kind}: #{inspect(reason)}"}
   end
 
-  defp handle_wire_chunk(ctx, acc, chunk) do
-    if AdapterExecution.cancelled?(ctx) do
-      :halt
-    else
-      Agent.update(acc, &consume_wire_chunk(ctx, &1, chunk))
-      continue_or_halt(ctx)
+  defp handle_wire_chunk(ctx, acc, started, deadline_ms, chunk) do
+    cond do
+      AdapterExecution.cancelled?(ctx) ->
+        :halt
+
+      System.monotonic_time(:millisecond) - started > deadline_ms ->
+        Agent.update(acc, &Map.put(&1, :deadline_exceeded?, true))
+        :halt
+
+      true ->
+        Agent.update(acc, &consume_wire_chunk(ctx, &1, chunk))
+        continue_or_halt(ctx, acc, started, deadline_ms)
     end
   end
 
-  defp continue_or_halt(ctx) do
-    if AdapterExecution.cancelled?(ctx), do: :halt, else: :cont
+  defp continue_or_halt(ctx, acc, started, deadline_ms) do
+    cond do
+      AdapterExecution.cancelled?(ctx) ->
+        :halt
+
+      System.monotonic_time(:millisecond) - started > deadline_ms ->
+        Agent.update(acc, &Map.put(&1, :deadline_exceeded?, true))
+        :halt
+
+      true ->
+        :cont
+    end
   end
 
   defp consume_wire_chunk(ctx, acc, chunk) when is_binary(chunk) do
@@ -270,20 +295,33 @@ defmodule NovelAgent.Provider.AnthropicStream do
        }) do
     all_events = initial_events ++ Enum.reverse(acc.events)
 
-    if cancelled? do
-      AdapterExecution.materialize_cancelled(ctx,
-        initial_events: all_events,
-        emit: :terminal
-      )
-    else
-      provider_result = provider_result(acc, request_result, duration)
+    cond do
+      cancelled? ->
+        AdapterExecution.materialize_cancelled(ctx,
+          initial_events: all_events,
+          emit: :terminal
+        )
 
-      log_stream_result(state, url, body, provider_result, started)
+      Map.get(acc, :deadline_exceeded?, false) ->
+        provider_result =
+          error_result(:timeout, "Anthropic API 生成超过挂钟时长上限", 0, %{}, duration)
 
-      AdapterExecution.materialize_result(provider_result.result, ctx,
-        initial_events: all_events,
-        emit: :terminal
-      )
+        log_stream_result(state, url, body, provider_result, started)
+
+        AdapterExecution.materialize_result(provider_result.result, ctx,
+          initial_events: all_events,
+          emit: :terminal
+        )
+
+      true ->
+        provider_result = provider_result(acc, request_result, duration)
+
+        log_stream_result(state, url, body, provider_result, started)
+
+        AdapterExecution.materialize_result(provider_result.result, ctx,
+          initial_events: all_events,
+          emit: :terminal
+        )
     end
   end
 
@@ -300,6 +338,17 @@ defmodule NovelAgent.Provider.AnthropicStream do
 
       content == "" ->
         error_result(:invalid_response, "Anthropic API 响应内容为空", status, usage, duration)
+
+      NovelAgent.Provider.degenerate_content?(content) ->
+        # 缺陷十：与 openai_compatible_stream 同一判定，托管 API 风险更低但
+        # 不作为例外——见该模块同名分支注释。
+        error_result(
+          :invalid_response,
+          "Anthropic API 响应内容退化（低信息熵重复）",
+          status,
+          usage,
+          duration
+        )
 
       true ->
         %{

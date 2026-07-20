@@ -23,6 +23,7 @@ defmodule NovelAgent.Provider.DeepSeek do
     :endpoint,
     :model,
     :timeout,
+    :max_tokens,
     :http_fn,
     :eventsource_fn,
     :get_fn,
@@ -44,6 +45,7 @@ defmodule NovelAgent.Provider.DeepSeek do
           endpoint: String.t(),
           model: String.t(),
           timeout: pos_integer(),
+          max_tokens: pos_integer() | nil,
           http_fn: http_fn() | nil,
           eventsource_fn: eventsource_fn() | nil,
           get_fn: get_fn() | nil,
@@ -129,7 +131,10 @@ defmodule NovelAgent.Provider.DeepSeek do
     %{
       model: state.model,
       messages: NovelAgent.Provider.normalize_messages(prompt),
-      stream: stream?
+      stream: stream?,
+      # 缺陷九跟进（2026-07-20）：provider 自己的安全上限先垫底，params.max_tokens
+      # 非 nil 时 apply_params 覆盖——见 InferenceParams moduledoc。
+      max_tokens: state.max_tokens
     }
     |> HTTP.apply_params(params)
     |> maybe_json_mode(state.json_mode, prompt)
@@ -315,6 +320,9 @@ defmodule NovelAgent.Provider.DeepSeek do
       endpoint: Keyword.get(config, :endpoint, @default_endpoint),
       model: Keyword.get(config, :model, @default_model),
       timeout: Keyword.get(config, :timeout, 300_000),
+      # 缺陷九跟进：托管 API，风险低于本地可换模型，但止血阀是系统不变量，
+      # 不因单个 provider 风险低就例外——见 InferenceParams moduledoc。
+      max_tokens: Keyword.get(config, :max_tokens, 16_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
       eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
       get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),

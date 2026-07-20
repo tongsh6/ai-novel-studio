@@ -195,12 +195,11 @@ defmodule NovelApplication.JudgmentProtocol do
 
   # 判断调用温度为协议属性：叙事段 0.4（自然但守结构），结构段 0.2（裁决确定性）。
   # MBC 实测默认 0.7 下内联结构与 execute 边界随机摇摆（0.889~1.0），低温收敛。
-  # max_tokens：判断叙事/结构是短产出（缺陷九后按用途收窄；全局兜底 6000 在
-  # InferenceParams 默认值）。
-  defp judgment_params(:author_reasoning),
-    do: InferenceParams.new(temperature: 0.4, max_tokens: 1_500)
-
-  defp judgment_params(:planner), do: InferenceParams.new(temperature: 0.2, max_tokens: 800)
+  # max_tokens 不在此收窄：安全上限现归 provider 自己的配置（换模型验证时的
+  # 现测属性，不是跨 provider 通用常量），用途级再掐会截断推理链（缺陷九教训，
+  # 见可靠性 slice T2d、InferenceParams moduledoc）。
+  defp judgment_params(:author_reasoning), do: InferenceParams.new(temperature: 0.4)
+  defp judgment_params(:planner), do: InferenceParams.new(temperature: 0.2)
 
   defp result_fn(provider_execution, snapshot, purpose) do
     fun =

@@ -179,6 +179,82 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
       assert error_map.type == :provider_internal
     end
+
+    # 缺陷十（2026-07-20）：现场实测抓到 gpt-oss-120b 采样退化——HTTP 200 正常
+    # 返回，content 却是单字符刷满（"@" 重复 1999 次），不是任何 token 上限能挡住
+    # 的失控生成，是内容有效性问题。见 NovelAgent.Provider.degenerate_content?/1。
+    test "returns invalid_response for degenerate repeated-character content" do
+      degenerate = String.duplicate("@", 1999)
+
+      mock = fn _url, _body, _opts ->
+        {:ok, 200, %{"choices" => [%{"message" => %{"content" => degenerate}}], "usage" => %{}}}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert error_map.type == :invalid_response
+      assert error_map.message =~ "退化"
+    end
+
+    test "does not flag ordinary prose content as degenerate" do
+      prose = String.duplicate("这段正文有正常的中文叙述内容与足够的字符多样性。", 5)
+
+      mock = fn _url, _body, _opts ->
+        {:ok, 200, %{"choices" => [%{"message" => %{"content" => prose}}], "usage" => %{}}}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      assert {:ok, result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert result.content == prose
+    end
+
+    test "does not flag tool_calls-only response (empty content) as degenerate" do
+      mock = fn _url, _body, _opts ->
+        {:ok, 200,
+         %{
+           "choices" => [
+             %{
+               "message" => %{
+                 "content" => nil,
+                 "tool_calls" => [
+                   %{
+                     "id" => "call_1",
+                     "type" => "function",
+                     "function" => %{"name" => "judgment_decision", "arguments" => "{}"}
+                   }
+                 ]
+               }
+             }
+           ],
+           "usage" => %{}
+         }}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      assert {:ok, result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert result.tool_calls != []
+    end
   end
 
   describe "complete/4 usage accounting" do

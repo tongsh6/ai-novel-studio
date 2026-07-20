@@ -53,7 +53,11 @@ config :novel_agent, :provider, default: :lmstudio
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.5-122b-a10b"),
-  timeout: lmstudio_timeout_ms
+  timeout: lmstudio_timeout_ms,
+  # 缺陷九（2026-07-20）：无界生成止血阀，本地可换模型场景风险最高——换模型/
+  # 换量化后应按 scripts/probe_run.sh 实测复核这个数字是否仍然够用（不是"从此
+  # 一劳永逸"）。见 NovelAgent.Provider.InferenceParams moduledoc。
+  max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer()
 
 config :novel_agent, NovelAgent.Provider.Anthropic,
   api_key: System.get_env("NOVEL_ANTHROPIC_API_KEY"),
@@ -65,6 +69,7 @@ config :novel_agent, NovelAgent.Provider.DeepSeek,
   endpoint: System.get_env("NOVEL_DEEPSEEK_ENDPOINT", "https://api.deepseek.com"),
   model: System.get_env("NOVEL_DEEPSEEK_MODEL", "deepseek-v4-flash"),
   timeout: deepseek_timeout_ms,
+  max_tokens: System.get_env("NOVEL_DEEPSEEK_MAX_TOKENS", "16000") |> String.to_integer(),
   thinking: System.get_env("NOVEL_DEEPSEEK_THINKING", "disabled"),
   reasoning_effort: System.get_env("NOVEL_DEEPSEEK_REASONING_EFFORT")
 

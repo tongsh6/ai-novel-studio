@@ -14,7 +14,17 @@ defmodule NovelAgent.Provider.LMStudio do
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
 
-  defstruct [:endpoint, :model, :timeout, :http_fn, :eventsource_fn, :get_fn, :log_fn, :json_mode]
+  defstruct [
+    :endpoint,
+    :model,
+    :timeout,
+    :max_tokens,
+    :http_fn,
+    :eventsource_fn,
+    :get_fn,
+    :log_fn,
+    :json_mode
+  ]
 
   @type http_fn :: (String.t(), map(), keyword() -> {:ok, integer(), map()} | {:error, atom()})
   @type eventsource_fn ::
@@ -26,6 +36,7 @@ defmodule NovelAgent.Provider.LMStudio do
           endpoint: String.t(),
           model: String.t(),
           timeout: pos_integer(),
+          max_tokens: pos_integer() | nil,
           http_fn: http_fn(),
           eventsource_fn: eventsource_fn(),
           get_fn: get_fn(),
@@ -92,25 +103,41 @@ defmodule NovelAgent.Provider.LMStudio do
     tool_calls = NovelAgent.Provider.extract_openai_tool_calls(message)
     duration = System.monotonic_time(:millisecond) - start_time
     usage = Usage.from_openai_response(resp_body, state.model, duration)
+    attrs = %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}
 
-    if (is_binary(content) and content != "") or tool_calls != [] do
-      Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
+    content
+    |> classify_content(tool_calls)
+    |> build_success_result(content, tool_calls, usage, attrs)
+  end
 
-      {:ok, Result.new(content, usage, tool_calls: tool_calls),
-       %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}}
-    else
-      err = UpstreamError.new(:invalid_response, "响应内容为空", name())
-      Logger.warning("[LMStudio] #{err.message}")
+  # 缺陷十（2026-07-20）：采样退化时 HTTP 层仍是正常 200，只能靠内容判定拦下
+  # （见 NovelAgent.Provider.degenerate_content?/1 与流式路径同名判定）。
+  defp classify_content(_content, tool_calls) when tool_calls != [], do: :ok
 
-      attrs = %{
-        status: 200,
-        usage: usage,
-        duration: duration,
-        resp_body: Jason.encode!(resp_body)
-      }
+  defp classify_content(content, _tool_calls) when content in ["", nil], do: :empty
 
-      {:error, UpstreamError.to_error_tuple(err), attrs}
-    end
+  defp classify_content(content, _tool_calls) do
+    if NovelAgent.Provider.degenerate_content?(content), do: :degenerate, else: :ok
+  end
+
+  defp build_success_result(:ok, content, tool_calls, usage, attrs) do
+    Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节#{tool_calls_suffix(tool_calls)}")
+    {:ok, Result.new(content, usage, tool_calls: tool_calls), attrs}
+  end
+
+  defp build_success_result(:degenerate, _content, _tool_calls, _usage, attrs),
+    do: error_result_tuple("响应内容退化（低信息熵重复）", attrs)
+
+  defp build_success_result(:empty, _content, _tool_calls, _usage, attrs),
+    do: error_result_tuple("响应内容为空", attrs)
+
+  defp tool_calls_suffix([]), do: ""
+  defp tool_calls_suffix(_tool_calls), do: " + tool_calls"
+
+  defp error_result_tuple(message, attrs) do
+    err = UpstreamError.new(:invalid_response, message, name())
+    Logger.warning("[LMStudio] #{err.message}")
+    {:error, UpstreamError.to_error_tuple(err), attrs}
   end
 
   defp handle_error(:connection_refused, _msg, start_time) do
@@ -153,7 +180,10 @@ defmodule NovelAgent.Provider.LMStudio do
       %{
         model: state.model,
         messages: NovelAgent.Provider.normalize_messages(prompt),
-        stream: stream?
+        stream: stream?,
+        # 缺陷九跟进：provider 自己的安全上限先垫底，params.max_tokens 非 nil
+        # 时 apply_params 会覆盖（调用方显式偏好优先于 provider 默认兜底）。
+        max_tokens: state.max_tokens
       },
       params
     )
@@ -250,6 +280,10 @@ defmodule NovelAgent.Provider.LMStudio do
       endpoint: Keyword.get(config, :endpoint, "http://localhost:1234/v1"),
       model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
       timeout: Keyword.get(config, :timeout, 300_000),
+      # 缺陷九跟进（2026-07-20）：本地可换模型，安全上限归这里配置，不归
+      # InferenceParams 通用默认值——见该模块 moduledoc。32000 是保守生成值，
+      # 换模型/换量化后应按 scripts/probe_run.sh 实测复核。
+      max_tokens: Keyword.get(config, :max_tokens, 32_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
       eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
       get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),

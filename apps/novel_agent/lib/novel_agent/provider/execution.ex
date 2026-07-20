@@ -40,10 +40,15 @@ defmodule NovelAgent.Provider.Execution do
 
   @type dependency :: t() | nil
 
+  # 缺陷九（2026-07-20）：这是全系统唯一一处不显式传 :params 就会用到的默认值
+  # funnel——正文起草/质量评估/人物设计/情节大纲/世界观/角色演化/对话规划全部经此，
+  # 全仓只有 judgment_protocol.ex 显式调过 with_params。默认值必须是 InferenceParams.new()
+  # （带 max_tokens 止血阀），不能是裸 %InferenceParams{}（defstruct 字段全 nil=无界），
+  # 否则止血阀形同虚设——实测过：写作调用能跑到 36000+ token 不停。
   @spec execute(Provider.prompt(), keyword()) :: execution_result()
   def execute(prompt, opts \\ []) do
     model = Keyword.get(opts, :model)
-    params = Keyword.get(opts, :params, %InferenceParams{})
+    params = Keyword.get(opts, :params, InferenceParams.new())
     gateway_opts = Keyword.drop(opts, [:model, :params])
 
     Gateway.execute(prompt, model, params, gateway_opts)

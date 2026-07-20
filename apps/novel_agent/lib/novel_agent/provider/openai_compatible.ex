@@ -60,6 +60,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
         :endpoint,
         :model,
         :timeout,
+        :max_tokens,
         :http_fn,
         :eventsource_fn,
         :get_fn,
@@ -74,6 +75,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
               endpoint: String.t(),
               model: String.t(),
               timeout: pos_integer(),
+              max_tokens: pos_integer() | nil,
               http_fn: (String.t(), map(), keyword() -> HTTP.http_result()) | nil,
               eventsource_fn:
                 (String.t(), map(), keyword(), (binary() -> term()) ->
@@ -111,6 +113,10 @@ defmodule NovelAgent.Provider.OpenAICompatible do
           endpoint: Keyword.get(config, :endpoint, @oac_default_endpoint),
           model: Keyword.get(config, :model, @oac_default_model),
           timeout: Keyword.get(config, :timeout, 300_000),
+          # 缺陷九跟进（2026-07-20）：托管 API 矩阵，风险低于本地可换模型，但止血阀
+          # 是系统不变量——见 InferenceParams moduledoc、NovelAgent.Provider.DeepSeek
+          # 同名字段。
+          max_tokens: Keyword.get(config, :max_tokens, 16_000),
           http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
           eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
           get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
@@ -254,7 +260,10 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     %{
       model: state.model,
       messages: NovelAgent.Provider.normalize_messages(prompt),
-      stream: stream?
+      stream: stream?,
+      # 缺陷九跟进：provider 自己的安全上限先垫底，params.max_tokens 非 nil
+      # 时 apply_params 覆盖——见 InferenceParams moduledoc。
+      max_tokens: state.max_tokens
     }
     |> HTTP.apply_params(params)
     |> maybe_json_mode(state.json_mode, prompt)
