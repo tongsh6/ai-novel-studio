@@ -10,7 +10,27 @@
 
 ## 1. Current Focus
 
-**M2 验收跑进行中 + call2 T2 结构性收口启动（A 轨并行）**
+**T2 结构性收口完成（三形态 protocol=1.0/blocked=0）+ 缺陷九/十收口 + M2 重启（2026-07-20）**
+
+T2c 干净基线：修正挂钟阀门误用测试环境短超时后，bare/in_run/long_run 三形态
+protocol=1.0、form=1.0、blocked=0/21 完全一致——call2 结构化可靠性在长上下文
+下不再退化，T3 阈值门禁双形态达标，本 slice 结构性收口完成。
+
+途中发现并系统性收口的独立缺陷（非本次要修的目标，但同一批现场实测拉出）：
+**缺陷九**（无界生成）真根因是全仓仅 3 处的默认参数 funnel（`Gateway.execute/4`
+等）用裸 struct 绕过止血阀，非最初以为的 `InferenceParams.new/1`；落地三道
+防线——provider 级 max_tokens 配置化、模型无关的挂钟时长止血阀、内容退化检测
+（`degenerate_content?/1`）。**缺陷十**（"@"退化刷屏）首版误判为 gpt-oss-120b/
+LM Studio 结构性缺陷，用户当场指出两点反证后用 `lms unload/load` 重载模型
+验证为本 session 高强度压测造成的会话状态损坏，非结构性问题（教训见
+`tasks/slices/UA01-judgment-structured-call-reliability.md`）。场景验收复验
+顺带挖出 `explore_request.tool` 自造工具名（与 capability 同款病灶），已用
+enum+校验重试同款收口。质量门 `pacing` 确定性兜底指标（句数+零对白）选错代理
+信号已登记（`docs/design/quality/31-novel-quality-gates.md` §6.12 债务项 5），
+未实现。
+
+**M2 重启（Order 5，3/4 已 done 解锁）**：`--chapters 0 --target-words 100000
+--resume`，T2 全套修复落地后首次长跑，后台运行中，当前 12 章 14,062 字。
 
 M2 首两跑实锤 call2 病灶随上下文长度递减（17 章形态下 capability=null 高频，
 缺陷八）——T2 触发条件（连续两跑异常）命中，按数据启动结构性收口：T2a 判断
@@ -63,7 +83,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | 2.5 | M0 复盘 | A | call2 病灶收口：T1 基线落档（症状 0/42 复发、judgment bare 0.952/in_run 0.905、残余=plan 判界方差）；T2 按数据降级为观察项（体温计连续异常再启动）；T3 阈值门禁生效 | **done**（2026-07-20，T2 转观察） | ✓ 数据裁决完成 |
 | 3 | M1 | A | 章级设计结构化：盘点证明产链早已闭环（writer 文法/解析/简报投影全在），唯一缺口=种子未结构化致狗粮全程 degraded 写作——12 章种子 E18-E22 化，四场景 verified（brief degraded=false / 设计态引用 / 同种子双回归） | **done**（2026-07-20） | NEM-GAP-03 关闭（08 §6.2 注记）；下次狗粮即"按计划方向写"实证 |
 | 4 | M1 | A | 章摘要四栏：盘点证明生成/渲染/校验/存储全在（VS-00C CP2 遗产）且 live 实证在产（六跑 10 条 ACCEPTED 全四栏）；本件补唯一缺口=域层公共逆变换 parse_sections（五本账按维度消费入口，generator 真源统一）+ live 样本回归钉。第七问：chapter_read 已吐四栏文本 ✓ | **done**（2026-07-20） | 往返稳定/缺栏诚实/live 样本 4 测；五本账（M3）结构化消费入口就位 |
-| 5 | M2 | A | P1 百章验收跑 + 质量标准 4.3 核对 + 导出 | blocked by 3,4 | P1 里程碑关闭 |
+| 5 | M2 | A | P1 百章验收跑 + 质量标准 4.3 核对 + 导出 | **in progress**（2026-07-20 重启，T2 全套修复后） | P1 里程碑关闭 |
 | 6 | M3 | A | 重排：五本账+三态对账（GAP-05/06）/ CP6 外部翼 / 卷级蓝图——按 M2 暴露短板定序 | blocked by 5 | — |
 
 **B 轨债务台账（成批处理，单项超半天登记折返）**：
@@ -91,6 +111,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-07-20 | T2 结构性收口裁决完成（三形态 protocol=1.0/blocked=0），M2 重启为 Order 5 头队；缺陷九真根因改判为 3 处默认参数 funnel（非 InferenceParams 本身），缺陷十撤销"gpt-oss/LM Studio 结构性缺陷不可修"的结论，改判为本 session 压测造成的会话状态损坏。 | 用户两次指出误判：一次是"换个 AI 这个量级还一致吗"逼出 provider 级配置化+挂钟止血阀的系统性设计；一次是"该项目不是第一次用 gpt-oss、应先查公开信息"直接推翻了"结构性缺陷需升级/换模型"的错误结论——`lms unload/load` 重载模型后同一 prompt 立刻恢复正常，坐实是会话状态问题。教训：怀疑结构性缺陷前先查是否有更简单的状态类解释，复测要跨会话做，同一可能已污染的服务实例里反复测不算独立样本。 |
 | 2026-07-19 | 项目统筹复盘落地：三轨预算（A≥60/B≤25/C≤15）+ 领域拉动判据 + M0-M3 阶段队列 + NEXT.md 仪式恢复。CP5 全收口（CP5a 判断循环内部翼 + CP5b 补面/计划检索步/设计态场景/探索面同步律，commits dcdc3860/39b31efe）；帧纪元退役两批完成（c4509c86 等，净删约 6,900 行）；I1/I2/I3/N-NARR 驱动器迁判断主链全绿。 | 用户诊断"任务易被小方向带走出不来"，CP5 梳理暴露机制层/领域层倒挂（37 要素仅约 10 项物化、五本账全缺）；判断纪元零狗粮。M0 裁决跑先行，领域层（章级设计/摘要四栏/五本账）成为 A 轨主序。 |
 | 2026-07-15 | ADR-0025（判断驱动交互循环 + 计划按需 + 探索两翼）Accepted，CP0 文档批次落地（00 §2.3 形态章 / 00c N-PLAN 改写 / ADR-0023 适用域注记 / 46§9.6 / slice 立项）。 | 用户四次方向拍板（消灭形式主义→真循环→计划按需→探索必须）+ "同意 开始落所有的文档"。CP1（对话循环，方案 B 回复内联）开工前置 MBC 探针；实现排期与 Order 62 长尾收口的先后待用户定。 |
 | 2026-07-15 | DS01 CP1 实现落地：schema 闸门（ui_card/turn_result_v3 codegen + barrel 组合收紧）、前端删手写 TurnResult 与 6 个死卡片分支、turnResultWire safeParse（Channel + transcript 同一入口）、后端 result_card 删 actions 字段、契约单测（运行时 3 + 源码扫描 2）、漂移注入测试。全 gate 绿：后端 1214/0、前端 390/0 + typecheck/lint、xref/arch_check、I1 3/3 I2 3/3 I3 3/3、frontend_audit/design_trace、静态扫描 touched=0。**场景化验收未闭环**：`agent-bounded-roster-to-character-design` 在 DS01 改动与干净 baseline（stash 隔离复验）上以同一断言失败（driver 期望 provider_calls=3，Order 62 CP1 两段式规划后口径过时），属 Order 62 CP3 复跑批既有债务，非 DS01 回归。 | 顺带发现并登记：adoption_status 大小写漂移（JSON SSOT 大写 7 态 vs 线上小写，DS01 决策日志）；artifact_adoption_entry.json 扩展 payload/source refs 被 persistence SchemaDriftTest 抓出后同步 Ecto 镜像——JSON↔Ecto、JSON↔前端双向闸门自此对 adoption 条目同时生效。 |
