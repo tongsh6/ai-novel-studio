@@ -212,11 +212,23 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     frameBelongsToTurn(f, turnId) &&
     f.body?.agent_run?.status === "failed";
 
+  // M2 实锤（2026-07-20）：prose_writing 工具失败时 AgentRun 会诚实判定"工具层
+  // 错误、自己修不了"并主动收束到 awaiting_author（等作者裁决），不是 failed。
+  // 此前没有识别这个终态，waitForFrame 只能傻等满 600s，再叠加 readToc 60s +
+  // sendAuthorMessage 的 10 分钟输入阻塞等待，每次工具失败实测约耗 20 分钟。
+  // 与 wrongRouteReply/failedRun 同款秒级快速失败，直接进已有重试/跳章路径。
+  const awaitingAuthor = (f) =>
+    f.direction === "received" &&
+    f.event === "turn_result" &&
+    frameBelongsToTurn(f, turnId) &&
+    f.body?.agent_run?.status === "awaiting_author";
+
   let draftFrame = await waitForFrame(
     (f) =>
       freshProse(f) ||
       wrongRouteReply(f) ||
       failedRun(f) ||
+      awaitingAuthor(f) ||
       (f.direction === "received" &&
         f.event === "turn_result" &&
         frameBelongsToTurn(f, turnId) &&
@@ -237,6 +249,12 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
 
   if (failedRun(draftFrame)) {
     throw new Error(`agent run failed for ${chapterTitle} (fail fast)`);
+  }
+
+  if (awaitingAuthor(draftFrame)) {
+    throw new Error(
+      `agent run reached awaiting_author for ${chapterTitle} (tool failure, fail fast)`,
+    );
   }
 
   if (draftFrame.body?.status === "needs_confirmation") {
@@ -401,6 +419,7 @@ function retryThermometer(failures) {
     if (/wrong-route/.test(error)) return "wrong_route_reply";
     if (/coordinate regression/.test(error)) return "coordinate_regression";
     if (/agent run failed/.test(error)) return "run_failed";
+    if (/awaiting_author/.test(error)) return "tool_failed_awaiting_author";
     if (/Timeout|No prose_fragment/.test(error)) return "timeout_600s";
     return "other";
   };
