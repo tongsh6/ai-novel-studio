@@ -24,6 +24,7 @@
 | `check_design_trace.sh` | 前端组件设计追溯检查。 |
 | `dev.sh` | 本地开发启动入口。 |
 | `dogfood_run.sh` | 狗粮运行入口。 |
+| `probe_run.sh` | 模型契约探针统一入口（端口/构建隔离、原始日志 tee、并发预警——历史事故的机械化）。 |
 | `e2e_01_full_chain_check.sh` | E2E-01 聚合检查脚本。 |
 | `frontend_audit.sh` | 前端依赖、Tauri 配置和桌面约束审计。 |
 | `grep_turn.sh` | 按 turn 检索日志/证据辅助。 |
