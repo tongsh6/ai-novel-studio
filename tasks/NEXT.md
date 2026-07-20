@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-07-19
+> 最后更新：2026-07-20
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -29,8 +29,15 @@ enum+校验重试同款收口。质量门 `pacing` 确定性兜底指标（句�
 信号已登记（`docs/design/quality/31-novel-quality-gates.md` §6.12 债务项 5），
 未实现。
 
-**M2 重启（Order 5，3/4 已 done 解锁）**：`--chapters 0 --target-words 100000
---resume`，T2 全套修复落地后首次长跑，后台运行中，当前 12 章 14,062 字。
+**M2 重启后暂停（Order 5，2026-07-20）**：`--chapters 0 --target-words 100000
+--resume` 重启后遭遇 **T4 新病灶**（call2 的 `capability` 字段与同一次调用
+`reason` 自然语言矛盾，疑似强制工具调用语法约束解码阶段静默顶替模型自造的
+目录外能力名，非目录/结构校验能拦住）——同一长会话连续 4 次执行类判断 0
+命中 `prose_writing`，M2 重启后 51 分钟字数零增长。用户已决定停止 M2、登记
+病灶、切换新会话处理，**不要盲目重启 M2**，先读 `tasks/slices/
+UA01-judgment-structured-call-reliability.md` T4 节"接手摘要"。当前进度
+定格：16,816/100,000 字，12 章 DRAFTING + 5 章 PLANNED（13-17 待写）；工作区
+留有一张孤立"郑果"角色设定待采纳草稿（误路由产物），未清理。
 
 M2 首两跑实锤 call2 病灶随上下文长度递减（17 章形态下 capability=null 高频，
 缺陷八）——T2 触发条件（连续两跑异常）命中，按数据启动结构性收口：T2a 判断
@@ -83,7 +90,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | 2.5 | M0 复盘 | A | call2 病灶收口：T1 基线落档（症状 0/42 复发、judgment bare 0.952/in_run 0.905、残余=plan 判界方差）；T2 按数据降级为观察项（体温计连续异常再启动）；T3 阈值门禁生效 | **done**（2026-07-20，T2 转观察） | ✓ 数据裁决完成 |
 | 3 | M1 | A | 章级设计结构化：盘点证明产链早已闭环（writer 文法/解析/简报投影全在），唯一缺口=种子未结构化致狗粮全程 degraded 写作——12 章种子 E18-E22 化，四场景 verified（brief degraded=false / 设计态引用 / 同种子双回归） | **done**（2026-07-20） | NEM-GAP-03 关闭（08 §6.2 注记）；下次狗粮即"按计划方向写"实证 |
 | 4 | M1 | A | 章摘要四栏：盘点证明生成/渲染/校验/存储全在（VS-00C CP2 遗产）且 live 实证在产（六跑 10 条 ACCEPTED 全四栏）；本件补唯一缺口=域层公共逆变换 parse_sections（五本账按维度消费入口，generator 真源统一）+ live 样本回归钉。第七问：chapter_read 已吐四栏文本 ✓ | **done**（2026-07-20） | 往返稳定/缺栏诚实/live 样本 4 测；五本账（M3）结构化消费入口就位 |
-| 5 | M2 | A | P1 百章验收跑 + 质量标准 4.3 核对 + 导出 | **in progress**（2026-07-20 重启，T2 全套修复后） | P1 里程碑关闭 |
+| 5 | M2 | A | P1 百章验收跑 + 质量标准 4.3 核对 + 导出 | **paused，阻塞于 T4**（2026-07-20；16,816/100,000 字，先处理 T4 再重启） | P1 里程碑关闭 |
 | 6 | M3 | A | 重排：五本账+三态对账（GAP-05/06）/ CP6 外部翼 / 卷级蓝图——按 M2 暴露短板定序 | blocked by 5 | — |
 
 **B 轨债务台账（成批处理，单项超半天登记折返）**：
@@ -113,6 +120,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | Date | Decision | Why |
 |---|---|---|
 | 2026-07-20 | T2 结构性收口裁决完成（三形态 protocol=1.0/blocked=0），M2 重启为 Order 5 头队；缺陷九真根因改判为 3 处默认参数 funnel（非 InferenceParams 本身），缺陷十撤销"gpt-oss/LM Studio 结构性缺陷不可修"的结论，改判为本 session 压测造成的会话状态损坏。 | 用户两次指出误判：一次是"换个 AI 这个量级还一致吗"逼出 provider 级配置化+挂钟止血阀的系统性设计；一次是"该项目不是第一次用 gpt-oss、应先查公开信息"直接推翻了"结构性缺陷需升级/换模型"的错误结论——`lms unload/load` 重载模型后同一 prompt 立刻恢复正常，坐实是会话状态问题。教训：怀疑结构性缺陷前先查是否有更简单的状态类解释，复测要跨会话做，同一可能已污染的服务实例里反复测不算独立样本。 |
+| 2026-07-20 | M2 暂停，登记 T4 新病灶（call2 capability 与 reason 自相矛盾，疑似强制工具调用语法约束解码阶段静默顶替模型自造的目录外能力名），用户切换新会话处理，不在本会话继续等它自愈。 | 重启后连续 4 次执行类判断 0 命中 prose_writing（每次顶替到不同错误能力），51 分钟字数零增长；用户截图直接抓到隐藏推理链"决定用 creative_writing"但实际输出"character_design"的原始证据。用户判断"继续跑只是在耗时间不会有新进展"，止损优于继续观察同一个已经证实、尚未理解成因的系统性故障。 |
 | 2026-07-19 | 项目统筹复盘落地：三轨预算（A≥60/B≤25/C≤15）+ 领域拉动判据 + M0-M3 阶段队列 + NEXT.md 仪式恢复。CP5 全收口（CP5a 判断循环内部翼 + CP5b 补面/计划检索步/设计态场景/探索面同步律，commits dcdc3860/39b31efe）；帧纪元退役两批完成（c4509c86 等，净删约 6,900 行）；I1/I2/I3/N-NARR 驱动器迁判断主链全绿。 | 用户诊断"任务易被小方向带走出不来"，CP5 梳理暴露机制层/领域层倒挂（37 要素仅约 10 项物化、五本账全缺）；判断纪元零狗粮。M0 裁决跑先行，领域层（章级设计/摘要四栏/五本账）成为 A 轨主序。 |
 | 2026-07-15 | ADR-0025（判断驱动交互循环 + 计划按需 + 探索两翼）Accepted，CP0 文档批次落地（00 §2.3 形态章 / 00c N-PLAN 改写 / ADR-0023 适用域注记 / 46§9.6 / slice 立项）。 | 用户四次方向拍板（消灭形式主义→真循环→计划按需→探索必须）+ "同意 开始落所有的文档"。CP1（对话循环，方案 B 回复内联）开工前置 MBC 探针；实现排期与 Order 62 长尾收口的先后待用户定。 |
 | 2026-07-15 | DS01 CP1 实现落地：schema 闸门（ui_card/turn_result_v3 codegen + barrel 组合收紧）、前端删手写 TurnResult 与 6 个死卡片分支、turnResultWire safeParse（Channel + transcript 同一入口）、后端 result_card 删 actions 字段、契约单测（运行时 3 + 源码扫描 2）、漂移注入测试。全 gate 绿：后端 1214/0、前端 390/0 + typecheck/lint、xref/arch_check、I1 3/3 I2 3/3 I3 3/3、frontend_audit/design_trace、静态扫描 touched=0。**场景化验收未闭环**：`agent-bounded-roster-to-character-design` 在 DS01 改动与干净 baseline（stash 隔离复验）上以同一断言失败（driver 期望 provider_calls=3，Order 62 CP1 两段式规划后口径过时），属 Order 62 CP3 复跑批既有债务，非 DS01 回归。 | 顺带发现并登记：adoption_status 大小写漂移（JSON SSOT 大写 7 态 vs 线上小写，DS01 决策日志）；artifact_adoption_entry.json 扩展 payload/source refs 被 persistence SchemaDriftTest 抓出后同步 Ecto 镜像——JSON↔Ecto、JSON↔前端双向闸门自此对 adoption 条目同时生效。 |
