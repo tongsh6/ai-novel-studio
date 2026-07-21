@@ -204,6 +204,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | 3 | M1 | A | 章级设计结构化：盘点证明产链早已闭环（writer 文法/解析/简报投影全在），唯一缺口=种子未结构化致狗粮全程 degraded 写作——12 章种子 E18-E22 化，四场景 verified（brief degraded=false / 设计态引用 / 同种子双回归） | **done**（2026-07-20） | NEM-GAP-03 关闭（08 §6.2 注记）；下次狗粮即"按计划方向写"实证 |
 | 4 | M1 | A | 章摘要四栏：盘点证明生成/渲染/校验/存储全在（VS-00C CP2 遗产）且 live 实证在产（六跑 10 条 ACCEPTED 全四栏）；本件补唯一缺口=域层公共逆变换 parse_sections（五本账按维度消费入口，generator 真源统一）+ live 样本回归钉。第七问：chapter_read 已吐四栏文本 ✓ | **done**（2026-07-20） | 往返稳定/缺栏诚实/live 样本 4 测；五本账（M3）结构化消费入口就位 |
 | 5 | M2 | A | P1 百章验收跑 + 质量标准 4.3 核对 + 导出 | **done**（2026-07-21 P1 关闭，用户裁决：101,421 字/75 章/导出 ✓，Q1-Q5 带账 M3，豁免注记见里程碑文档 P1 Done 节） | ✓ |
+| 7 | M3 | A | **上下文组装四缺口**（2026-07-21 评估，用户确认登记）：①L3b 确认记忆进写作（世界规则/伏笔/角色状态，VS-00C §3.1 设计已留实现未接——写作防设定漂移与伏笔失忆的最大单项）②规划起草带最近章摘要窗（AgenticPlanDraftPlanner 现仅 chapter_titles，治扩章失忆）③NEM-GAP-01 立项档案补创作向字段（premise/theme/main_goal，08 §8 序位4"进入常驻上下文"；承诺账 design_ref 从此有真锚；与 AU-12 world_setting 物化 P2 债同族）④判断 call1 章节列表带 DRAFTING/PLANNED 状态（M2 prompt 实锤"已写章节共17章"实际12章） | 待定序（建议 ①③ 合并为一个 slice 排 CP4b/c 前后，②④ 为小件可搭车） | 写作带记忆、规划带前情、立项有命题、判断输入诚实 |
 | 6 | M3 | A | **五本账优先**（M2 暴露短板已裁决定序：Q5 要角/题材漂移=五本账 E33-E37 缺位直接实证）→ 三态对账（GAP-05/06）→ 卷级蓝图/CP6 外部翼 | **next** | 漂移类缺陷有账可查、可拦截 |
 
 **B 轨债务台账（成批处理，单项超半天登记折返）**：
@@ -217,6 +218,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | B5 | 47 文案指南机械步注记 | 顺手带走 |
 | B7 | T4 残余三小件：探针 call1 目录陈旧（capability_catalog_section 5 项旧目录 vs 生产 6+4）、会话摘要同质 assistant 消息无去重（"已通过采纳边界"×10 注水）、runner 章节请求四子句长措辞助推 plan 判界方差 | 攒批一次做；详见可靠性 slice "T4 收口"残余登记 |
 | B9 | M2 质量缺陷修向（P1 关闭带账）：Q2/Q3=writer prompt 加"不得引用章号/产品状态词"约束 + 导出泄漏 machine check 进质量门（"待采纳草稿"/【标签】/章号自指 pattern）；Q1 空章=下次节拍狗粮清算 clip_echo 时顺带补写；Q4 重复段观察 | Q2/Q3 攒批做或挂 M3 质量门；Q5 即 M3 主任务不在此表 |
+| B10 | 上下文组装小件（2026-07-21 评估余项）：OmissionNote 覆盖不全（仅 prior_prose 裁剪留痕，摘要窗/roster/账面 cap 的取舍无省略记录）；判断 call1 加账面一行摘要（待议，call2 病灶史提醒判断 prompt 加东西须谨慎）；摘要质量门（四栏齐全有校验、内容质量无——摘要是账本/摘要窗/规划共同上游）；why-panel 上下文可解释面板（VS-00C CP2 延后件，随 CP4c 前端批） | 攒批或挂对应 A 轨项 |
 | B8 | LM Studio 上下文配置属重启易失运维状态（2026-07-21 实锤：机器重启后 JIT 默认 8192，17 章形态 prose prompt+输出撑爆窗口 `truncated=1` → provider_response_invalid 无限重试；旧 M2 第13章三次"JSON 解析失败"极可能同病）。已手工 `lms load --context-length 32768` 恢复；候选钉：狗粮预检校验在载模型 context 阈值 + `finish_reason=length` 时报"上下文不足"而非可重试 invalid | 候选钉挂 M2 完跑复盘一并定 |
 | B6 | `frontend/slice-verify/dogfood-runner.mjs` 判定架构债——文件里散落一堆各自手写的帧判定函数（事件名/字段字面量），契约理解不唯一、易与真实契约（`frontend/src/lib/socket.ts` 等）漂移（2026-07-20 `awaitingAuthor` 判错字段路径实锤）；已把 `adoptPendingDraft` 一处重构成"分类一次+穷尽分支"（`classifyChapterAttemptFrame`），其余判定点（`readToc`、settle/overwrite 确认等）仍是老写法，未同步重构 | 攒批一次做，理想情况下接入真实契约定义而非本文件自证 |
 
