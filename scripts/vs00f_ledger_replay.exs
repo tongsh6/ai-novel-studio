@@ -120,6 +120,21 @@ IO.puts(
     "后期主角ON_TRACK=#{late_lead_on_track} STALLED计数=#{length(stalled)}"
 )
 
+# ── CP3：情绪曲线/冲突账 ──
+emotion_entries = Enum.filter(all_entries, &(&1.ledger == "emotion_curve"))
+emotion_counts = Enum.frequencies_by(emotion_entries, & &1.status)
+main_conflict = Enum.find(all_entries, &(&1.ledger == "conflict" and &1.subject_ref == "main"))
+
+IO.puts(
+  "[replay] CP3 情绪曲线: #{inspect(emotion_counts)} 冲突主线: " <>
+    "#{main_conflict && main_conflict.status} last_advanced=#{main_conflict && Map.get(main_conflict.payload, "last_advanced_seq")}"
+)
+
+cp3_ok =
+  (emotion_counts["MATCHED"] || 0) >= 40 and (emotion_counts["DEVIATED"] || 0) >= 5 and
+    main_conflict != nil and main_conflict.status == "ACTIVE" and
+    Map.get(main_conflict.payload, "last_advanced_seq") >= 70
+
 # ── CP2a：承诺/信息账 + 对账扫描（R1/R3/R4） ──
 promise = Enum.find(all_entries, &(&1.ledger == "promise"))
 leaks = Enum.filter(all_entries, &(&1.ledger == "information" and &1.status == "LEAKED"))
@@ -194,8 +209,8 @@ IO.puts(
 )
 
 if replayed > 0 and il1_ok and lingyuan_stalled and late_lead_on_track and
-     genre_fired and leak_fired and stall_reported and report_ok and adjudication_ok do
-  IO.puts("[replay] PASS —— M2 漂移靶全链（CP1 弧光 + CP2a 规则 + CP2b 报告 + CP2c-1 裁决）被账面暴露并可裁决")
+     genre_fired and leak_fired and stall_reported and report_ok and adjudication_ok and cp3_ok do
+  IO.puts("[replay] PASS —— 五本账全链（弧光/承诺/信息/情绪曲线/冲突 + 报告 + 裁决）在 M2 书上端到端成立")
 else
   IO.puts("[replay] FAIL")
   System.halt(1)

@@ -75,6 +75,11 @@ defmodule NovelApplication.LedgerMaintenance do
       ensure_genre_promise(deps, work_id)
       leaked_count = record_future_ref_leaks(deps.repo, work_id, input, chapter_id, current)
 
+      # CP3：情绪曲线记账（intended=章计划 E20 vs realized=摘要情绪栏，机械判定）
+      # + 主线冲突记账（设计角色=推进/高潮/转折章的采纳即主线推进，休眠规则同弧光）。
+      emotion_status = record_emotion_curve(deps.repo, work_id, input, chapter_id, current)
+      record_main_conflict(deps.repo, work_id, chapter_id, current, summary_ref)
+
       # CP2b 节拍（产品判据 milestones §4.4 每 10-20 章；简版=章 seq 整除节拍值
       # 触发；显式发起与 profile 化归 CP4）：全量对账并物化报告（TENTATIVE，
       # 作者裁决）。失败容忍由 reconcile 端口内部日志承担，不阻断记账。
@@ -87,10 +92,17 @@ defmodule NovelApplication.LedgerMaintenance do
         sighted: sighted_count,
         stalled: stalled_count,
         leaked: leaked_count,
+        emotion: emotion_status,
         roster: length(roster)
       })
 
-      {:ok, %{sighted: sighted_count, stalled: stalled_count, leaked: leaked_count}}
+      {:ok,
+       %{
+         sighted: sighted_count,
+         stalled: stalled_count,
+         leaked: leaked_count,
+         emotion: emotion_status
+       }}
     else
       {:error, reason} -> degrade(work_id, chapter_id, reason)
     end
@@ -191,6 +203,100 @@ defmodule NovelApplication.LedgerMaintenance do
     else
       _ -> :skip
     end
+  end
+
+  @conflict_progress_roles ~w(推进章 高潮章 转折章)
+
+  # CP3：情绪曲线记账——每采纳章一条（subject=chapter），全机械（记录性账目）。
+  defp record_emotion_curve(repo, work_id, input, chapter_id, current) do
+    realized =
+      input.summary_text |> ChapterSummary.parse_sections() |> Map.get(:mood)
+
+    status = LedgerEntry.emotion_status(Map.get(current, :emotion), realized)
+    summary_ref = Map.get(input, :summary_ref) || "chapter_summary:#{chapter_id}"
+
+    case LedgerEntry.new(%{
+           work_id: work_id,
+           ledger: "emotion_curve",
+           subject_kind: "chapter",
+           subject_ref: chapter_id,
+           subject_label: "#{current.title || "第#{current.seq}章"}·情绪",
+           status: status,
+           payload: %{
+             "intended" => Map.get(current, :emotion),
+             "realized" => realized,
+             "seq" => current.seq
+           },
+           source_refs: [summary_ref],
+           last_event_chapter: chapter_id
+         }) do
+      {:ok, entry} ->
+        persist(entry, repo)
+        status
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  # CP3：主线冲突记账——设计角色为推进/高潮/转折章的采纳推进主线；随后休眠重算。
+  defp record_main_conflict(repo, work_id, chapter_id, current, summary_ref) do
+    if Map.get(current, :chapter_role) in @conflict_progress_roles do
+      existing =
+        repo.list.(work_id)
+        |> Enum.find(&(&1.ledger == "conflict" and &1.subject_ref == "main"))
+
+      entry_result =
+        case existing do
+          nil ->
+            LedgerEntry.new(%{
+              work_id: work_id,
+              ledger: "conflict",
+              subject_kind: "plotline",
+              subject_ref: "main",
+              subject_label: "主线",
+              status: "ACTIVE",
+              payload: %{"line_kind" => "main"},
+              source_refs: [summary_ref]
+            })
+
+          found ->
+            LedgerEntry.new(found)
+        end
+
+      case entry_result do
+        {:ok, entry} ->
+          entry
+          |> LedgerEntry.conflict_advanced(%{
+            chapter_ref: chapter_id,
+            chapter_seq: current.seq,
+            source_ref: summary_ref
+          })
+          |> persist(repo)
+
+        {:error, _} ->
+          false
+      end
+    end
+
+    recompute_conflict_dormancy(repo, work_id, current.seq)
+  end
+
+  defp recompute_conflict_dormancy(repo, work_id, current_seq) do
+    threshold =
+      Application.get_env(:novel_application, :arc_stall_threshold_chapters, @default_stall_threshold)
+
+    repo.list.(work_id)
+    |> Enum.filter(&(&1.ledger == "conflict"))
+    |> Enum.each(fn stored ->
+      with {:ok, entry} <- LedgerEntry.new(stored),
+           {:changed, changed} <-
+             LedgerEntry.conflict_recompute_dormant(entry, current_seq, threshold) do
+        persist(changed, repo)
+      else
+        _ -> :ok
+      end
+    end)
   end
 
   @default_reconcile_cadence 10

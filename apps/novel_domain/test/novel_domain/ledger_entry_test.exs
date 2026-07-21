@@ -27,21 +27,23 @@ defmodule NovelDomain.LedgerEntryTest do
     assert {:ok, _} = LedgerEntry.new(arc_attrs())
   end
 
-  test "分账目录与状态机校验：未落地账拒绝构造、目录外值拒绝、已落地账各走各状态机" do
-    assert {:error, {:ledger_not_implemented, "emotion_curve"}} =
-             LedgerEntry.new(arc_attrs(%{ledger: "emotion_curve", status: "MATCHED"}))
-
+  test "分账目录与状态机校验：目录外值拒绝、五账各走各状态机（CP3 起全落地）" do
     assert {:error, {:unknown_ledger, "budget"}} =
              LedgerEntry.new(arc_attrs(%{ledger: "budget"}))
 
     assert {:error, {:invalid_status, "arc", "on_track"}} =
              LedgerEntry.new(arc_attrs(%{status: "on_track"}))
 
-    # CP2a：promise/information 状态机已落地
     assert {:ok, _} = LedgerEntry.new(arc_attrs(%{ledger: "promise", status: "OPEN"}))
     assert {:ok, _} = LedgerEntry.new(arc_attrs(%{ledger: "information", status: "LEAKED"}))
+    assert {:ok, _} = LedgerEntry.new(arc_attrs(%{ledger: "conflict", status: "ACTIVE"}))
+    assert {:ok, _} = LedgerEntry.new(arc_attrs(%{ledger: "emotion_curve", status: "DEVIATED"}))
+
     assert {:error, {:invalid_status, "promise", "SHATTERED"}} =
              LedgerEntry.new(arc_attrs(%{ledger: "promise", status: "SHATTERED"}))
+
+    assert {:error, {:invalid_status, "emotion_curve", "STALLED"}} =
+             LedgerEntry.new(arc_attrs(%{ledger: "emotion_curve", status: "STALLED"}))
   end
 
   test "arc_sighted：出场记账更新最近出场/出处/事件章，STALLED 机械回 ON_TRACK" do

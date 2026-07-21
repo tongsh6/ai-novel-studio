@@ -93,16 +93,29 @@ defmodule NovelPersistence.LedgerRepository do
     end
   end
 
-  @doc "章序号索引：chapter_id => %{seq, title}，供维护换算停滞窗口。"
-  @spec chapter_index(String.t()) :: %{String.t() => %{seq: non_neg_integer(), title: String.t()}}
+  @doc """
+  章序号索引：chapter_id => %{seq, title, emotion, chapter_role}，供维护换算
+  停滞窗口与情绪/冲突账（emotion/chapter_role 取自章计划 plan_direction，缺省 nil）。
+  """
+  @spec chapter_index(String.t()) :: %{String.t() => map()}
   def chapter_index(work_id) when is_binary(work_id) do
     case Ecto.UUID.cast(work_id) do
       {:ok, uuid} ->
         Chapter
         |> where([c], c.work_id == ^uuid)
-        |> select([c], {c.id, c.seq, c.title})
+        |> select([c], {c.id, c.seq, c.title, c.plan_direction})
         |> Repo.all()
-        |> Map.new(fn {id, seq, title} -> {to_string(id), %{seq: seq, title: title}} end)
+        |> Map.new(fn {id, seq, title, plan} ->
+          plan = plan || %{}
+
+          {to_string(id),
+           %{
+             seq: seq,
+             title: title,
+             emotion: plan["emotion"],
+             chapter_role: plan["chapter_role"]
+           }}
+        end)
 
       :error ->
         %{}

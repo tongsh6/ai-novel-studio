@@ -30,8 +30,13 @@ CP2a 已落（2026-07-21）：承诺/信息账对象化+提炼扩展（genre 承
 报告（作者可见）；重放 PASS（报告 5 偏离 TENTATIVE）。CP2c-1 已落（同日）：裁决服务核心（四处置、裁决态转移域层双保险、
 报告全裁决转 ACCEPTED、dismiss=结构化证据日志[33 Engine 无运行时代码，
 落地时收编]）；M2 报告真实裁决重放 PASS（凌渊→DRIFTED、二跑不再重复
-报警实证）。下一步：CP2c-2（作者裁决入口=裁决面入册或档案页 correction
-intent + revise_* 生成联动 VS-00E §8 + SC-AU13-B1/B2 场景）→ CP3 → CP4。
+报警实证）。CP2c-2 已并入 CP4（拍板④档案页起步，入口随 Ledgers 面板批一体交付）。
+CP3 已落（同日）：情绪曲线账（intended=plan_direction.emotion vs realized=
+摘要情绪栏，二元词重叠机械判定，M2 实测 54/15/6）+ 主线冲突账（推进/高潮/
+转折章采纳即推进，ACTIVE⇄DORMANT 同弧光语义）+ 探索面聚合呈现；重放 PASS。
+**五本账全部落地**。下一步：CP4（profile 化+显式发起+规划带账+Ledgers 面板
++作者裁决入口+revise 联动+SC-AU13-B1/B2/C1 场景）——面板含前端批次，建议
+独立工作周期开工。
 
 ---
 

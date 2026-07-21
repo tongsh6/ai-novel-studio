@@ -22,6 +22,11 @@ defmodule NovelDomain.LedgerEntry do
   # 与 LEAKED 条目的登记（前指是既成事实的记账，非裁决）。
   @information_statuses ~w(HIDDEN PARTIALLY_REVEALED REVEALED LEAKED)
   @promise_statuses ~w(OPEN PROGRESSING FULFILLED BROKEN RELEASED)
+  # CP3（契约 §2.3/§2.5）：冲突账 ACTIVE⇄DORMANT 机械双向（同弧光停滞语义）、
+  # 其余为裁决/终态；情绪曲线账每章一条全机械（记录性账目，无裁决态）。
+  @conflict_statuses ~w(ACTIVE DORMANT REVIVED ABSORBED ABANDONED RESOLVED)
+  @conflict_mechanical ~w(ACTIVE DORMANT)
+  @emotion_statuses ~w(MATCHED DEVIATED UNPLANNED)
   @subject_kinds ~w(character plotline fact chapter promise)
   @max_source_refs 20
 
@@ -155,8 +160,81 @@ defmodule NovelDomain.LedgerEntry do
   @adjudication_targets %{
     "arc" => %{"STALLED" => ~w(DRIFTED RESUMED), "DRIFTED" => ~w(RESUMED RETIRED)},
     "promise" => %{"OPEN" => ~w(BROKEN RELEASED), "PROGRESSING" => ~w(BROKEN RELEASED FULFILLED)},
-    "information" => %{"LEAKED" => ~w(REVEALED)}
+    "information" => %{"LEAKED" => ~w(REVEALED)},
+    "conflict" => %{
+      "ACTIVE" => ~w(RESOLVED ABSORBED ABANDONED),
+      "DORMANT" => ~w(REVIVED ABSORBED ABANDONED)
+    }
   }
+
+  @doc """
+  冲突账·推进记账（机械，CP3）：设计角色为推进/高潮/转折章的采纳即主线推进；
+  DORMANT 机械回 ACTIVE（推进解除休眠条件属记账事实）；裁决/终态不被机械改写。
+  """
+  @spec conflict_advanced(t(), %{
+          chapter_ref: String.t(),
+          chapter_seq: non_neg_integer(),
+          source_ref: String.t()
+        }) :: t()
+  def conflict_advanced(%__MODULE__{ledger: "conflict"} = entry, %{
+        chapter_ref: chapter_ref,
+        chapter_seq: chapter_seq,
+        source_ref: source_ref
+      }) do
+    payload =
+      entry.payload
+      |> Map.put("last_advanced_chapter", chapter_ref)
+      |> Map.put("last_advanced_seq", chapter_seq)
+
+    status = if entry.status in @conflict_mechanical, do: "ACTIVE", else: entry.status
+
+    %{
+      entry
+      | payload: payload,
+        status: status,
+        source_refs: prepend_ref(entry.source_refs, source_ref),
+        last_event_chapter: chapter_ref,
+        revision: entry.revision + 1
+    }
+  end
+
+  @doc "冲突账·休眠规则（机械，同弧光停滞语义）：推进落后当前章超阈值 ⇄。"
+  @spec conflict_recompute_dormant(t(), non_neg_integer(), pos_integer()) ::
+          :unchanged | {:changed, t()}
+  def conflict_recompute_dormant(%__MODULE__{ledger: "conflict"} = entry, current_seq, threshold)
+      when is_integer(current_seq) and is_integer(threshold) and threshold > 0 do
+    last_seq = Map.get(entry.payload, "last_advanced_seq")
+
+    if entry.status in @conflict_mechanical and is_integer(last_seq) do
+      target = if current_seq - last_seq > threshold, do: "DORMANT", else: "ACTIVE"
+      apply_stall_target(entry, target)
+    else
+      :unchanged
+    end
+  end
+
+  @doc """
+  情绪曲线判定（机械，CP3）：设计情绪与实现情绪存在二元词重叠 → MATCHED，
+  无重叠 → DEVIATED，设计缺席/实现缺席 → UNPLANNED（M2 实测 54/15/6）。
+  """
+  @spec emotion_status(String.t() | nil, String.t() | nil) :: String.t()
+  def emotion_status(intended, realized) do
+    cond do
+      intended in [nil, ""] or realized in [nil, ""] -> "UNPLANNED"
+      emotion_bigrams(intended) |> MapSet.intersection(emotion_bigrams(realized)) |> MapSet.size() > 0 -> "MATCHED"
+      true -> "DEVIATED"
+    end
+  end
+
+  defp emotion_bigrams(text) do
+    chars =
+      text |> String.replace(~r/[^一-鿿]/u, "") |> String.graphemes()
+
+    chars
+    |> Enum.zip(Enum.drop(chars, 1))
+    |> Enum.map(fn {a, b} -> a <> b end)
+    |> MapSet.new()
+  end
 
   @doc """
   作者裁决转移（CP2c）：只允许 @adjudication_targets 声明的转移；机械路径不可达
@@ -219,8 +297,17 @@ defmodule NovelDomain.LedgerEntry do
       else: {:error, {:invalid_status, "promise", status}}
   end
 
-  # 其余账的状态机随对应 CP 冻结（VS-00F §7）；未冻结前不接受构造。
-  defp validate_status(%{ledger: ledger}), do: {:error, {:ledger_not_implemented, ledger}}
+  defp validate_status(%{ledger: "conflict", status: status}) do
+    if status in @conflict_statuses,
+      do: :ok,
+      else: {:error, {:invalid_status, "conflict", status}}
+  end
+
+  defp validate_status(%{ledger: "emotion_curve", status: status}) do
+    if status in @emotion_statuses,
+      do: :ok,
+      else: {:error, {:invalid_status, "emotion_curve", status}}
+  end
 
   defp validate_source_refs(%{source_refs: refs}) do
     if is_list(refs) and refs != [] and Enum.all?(refs, &(is_binary(&1) and &1 != "")),

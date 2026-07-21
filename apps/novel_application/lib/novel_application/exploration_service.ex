@@ -282,7 +282,31 @@ defmodule NovelApplication.ExplorationService do
   # VS-00F 账面机械渲染（不代笔、不伪造）。CP2a 起含弧光/承诺/信息账；无数据诚实说明。
   defp render_ledgers([]), do: "账面暂无条目（账本随正文采纳自动记账；未落地账本诚实缺席）。"
 
-  defp render_ledgers(entries), do: Enum.map_join(entries, "\n", &render_ledger_entry/1)
+  # 情绪曲线账每章一条，逐条呈现会淹没观察——聚合为一行统计 + 最近偏差章；
+  # 其余账逐条机械呈现。
+  defp render_ledgers(entries) do
+    {emotion, rest} = Enum.split_with(entries, &(&1.ledger == "emotion_curve"))
+
+    [Enum.map_join(rest, "\n", &render_ledger_entry/1), render_emotion_aggregate(emotion)]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp render_emotion_aggregate([]), do: ""
+
+  defp render_emotion_aggregate(entries) do
+    counts = Enum.frequencies_by(entries, & &1.status)
+
+    deviated =
+      entries
+      |> Enum.filter(&(&1.status == "DEVIATED"))
+      |> Enum.sort_by(&(-(Map.get(&1.payload || %{}, "seq") || 0)))
+      |> Enum.take(3)
+      |> Enum.map_join("、", & &1.subject_label)
+
+    "情绪曲线账：符合 #{counts["MATCHED"] || 0} / 偏差 #{counts["DEVIATED"] || 0} / 无设计 #{counts["UNPLANNED"] || 0}" <>
+      if(deviated == "", do: "", else: "；最近偏差：#{deviated}")
+  end
 
   defp render_ledger_entry(%{ledger: "arc"} = entry) do
     seen = Map.get(entry.payload || %{}, "last_seen_seq")
@@ -296,6 +320,12 @@ defmodule NovelApplication.ExplorationService do
   defp render_ledger_entry(%{ledger: "information"} = entry) do
     fact = Map.get(entry.payload || %{}, "fact") || entry.subject_label
     "信息账·#{entry.subject_label}：#{entry.status}（#{fact}）"
+  end
+
+  defp render_ledger_entry(%{ledger: "conflict"} = entry) do
+    seq = Map.get(entry.payload || %{}, "last_advanced_seq")
+    advanced = if is_integer(seq), do: "最近推进第#{seq}章", else: "尚无推进记录"
+    "冲突账·#{entry.subject_label}：#{entry.status}，#{advanced}"
   end
 
   defp render_ledger_entry(entry), do: "#{entry.ledger}·#{entry.subject_label}：#{entry.status}"
