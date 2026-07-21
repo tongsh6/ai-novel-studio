@@ -31,6 +31,11 @@ export MIX_TEST_PARTITION="_dogfood"
 # 崩死、第03章 turn 蒸发）。隔离后长跑期间可自由编译/跑测试。
 export MIX_BUILD_PATH="$PROJECT_ROOT/_build/test_dogfood"
 
+# 狗粮断点库不进 $TMPDIR（2026-07-21 实锤：macOS 重启清 /var/folders，M2 的
+# --resume 断点 16.8k 字随之蒸发）；落项目本地 gitignored 目录，跨重启存活。
+export NOVEL_TEST_DB_DIR="$PROJECT_ROOT/tmp/dogfood-db"
+mkdir -p "$NOVEL_TEST_DB_DIR"
+
 # 真实超时兜底（缺陷九跟进，2026-07-20）：test.exs 的 LMStudio timeout 默认
 # 5s（给纯单测 stub 用），狗粮跑在 MIX_ENV=test 下但打真实模型——这个值现在
 # 兼作挂钟止血阀判定基准，不覆盖会把正常生成误判成超时，整个长跑立刻断线。

@@ -10,9 +10,11 @@ config :dialyxir,
 # 独立 database 名避免污染 dev。
 config :novel_persistence, NovelPersistence.Repo,
   adapter: Ecto.Adapters.SQLite3,
+  # NOVEL_TEST_DB_DIR：长生命周期分区（狗粮 --resume 断点）用，缺省仍走系统
+  # 临时目录。2026-07-21 实锤：macOS 重启清 /var/folders，M2 断点库随之蒸发。
   database:
     Path.join(
-      System.tmp_dir!(),
+      System.get_env("NOVEL_TEST_DB_DIR") || System.tmp_dir!(),
       "ai_novel_studio_test#{System.get_env("MIX_TEST_PARTITION", "")}.sqlite3"
     ),
   pool: Ecto.Adapters.SQL.Sandbox,
