@@ -912,15 +912,37 @@ defmodule NovelApplication.DialoguePlanningService do
     do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
 
   # T2a（call2 病灶结构性收口）：章节段有界投影——超限时首章+最近 N+作者点名章。
-  defp judgment_chapters_section(%DialogueContext{current_chapters: [_ | _] = chapters}, author_text) do
+  # Order 7-④（M2 实锤：标头"已写章节共17章"实际12章有正文）：标头区分已写/
+  # 计划中，未写正文的章标注「（计划中）」——判断器对写作进度的认知不再被计划章污染。
+  defp judgment_chapters_section(
+         %DialogueContext{current_chapters: [_ | _] = chapters} = context,
+         author_text
+       ) do
     {listed, omitted} = ChapterListBudget.project(chapters, author_text)
+    planned = planned_chapter_titles(context)
+    written_count = length(chapters) - MapSet.size(planned)
 
-    "## 已写章节（共 #{length(chapters)} 章，按顺序）\n" <>
-      ChapterListBudget.render_lines(listed, omitted, length(chapters)) <>
-      "\n（回答进度类问题时依据这里的章节顺序和数量；各章正文细节不在本段内。）"
+    annotated =
+      Enum.map(listed, fn title ->
+        if MapSet.member?(planned, title), do: "#{title}（计划中）", else: title
+      end)
+
+    "## 章节列表（共 #{length(chapters)} 章：已写 #{written_count} 章，计划中 #{MapSet.size(planned)} 章）\n" <>
+      ChapterListBudget.render_lines(annotated, omitted, length(chapters)) <>
+      "\n（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内。）"
   end
 
   defp judgment_chapters_section(_context, _author_text), do: ""
+
+  defp planned_chapter_titles(%DialogueContext{structured_chapters: structured})
+       when is_list(structured) do
+    structured
+    |> Enum.reject(&Map.get(&1, :has_prose, false))
+    |> Enum.map(& &1.title)
+    |> MapSet.new()
+  end
+
+  defp planned_chapter_titles(_context), do: MapSet.new()
 
   defp judgment_conversation_section(%DialogueContext{conversation_summary: summary})
        when is_binary(summary) and summary != "" do
