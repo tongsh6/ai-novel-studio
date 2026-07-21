@@ -151,6 +151,33 @@ defmodule NovelDomain.LedgerEntry do
   defp apply_stall_target(entry, target),
     do: {:changed, %{entry | status: target, revision: entry.revision + 1}}
 
+  # 裁决态转移合法集（CP2c，契约 §2.2/§2.6/§3.3）：只有作者裁决可进入的目标态。
+  @adjudication_targets %{
+    "arc" => %{"STALLED" => ~w(DRIFTED RESUMED), "DRIFTED" => ~w(RESUMED RETIRED)},
+    "promise" => %{"OPEN" => ~w(BROKEN RELEASED), "PROGRESSING" => ~w(BROKEN RELEASED FULFILLED)},
+    "information" => %{"LEAKED" => ~w(REVEALED)}
+  }
+
+  @doc """
+  作者裁决转移（CP2c）：只允许 @adjudication_targets 声明的转移；机械路径不可达
+  （I-L2：裁决态只能经作者裁决进入）。附 note 记入 payload["adjudication_note"]。
+  """
+  @spec adjudicate(t(), String.t(), String.t() | nil) :: {:ok, t()} | {:error, term()}
+  def adjudicate(%__MODULE__{} = entry, target, note \\ nil) do
+    allowed = @adjudication_targets |> Map.get(entry.ledger, %{}) |> Map.get(entry.status, [])
+
+    if target in allowed do
+      payload =
+        if note in [nil, ""],
+          do: entry.payload,
+          else: Map.put(entry.payload, "adjudication_note", note)
+
+      {:ok, %{entry | status: target, payload: payload, revision: entry.revision + 1}}
+    else
+      {:error, {:invalid_adjudication, entry.ledger, entry.status, target}}
+    end
+  end
+
   defp prepend_ref(refs, ref) when is_binary(ref) and ref != "" do
     [ref | Enum.reject(refs, &(&1 == ref))] |> Enum.take(@max_source_refs)
   end

@@ -45,6 +45,54 @@ defmodule NovelPersistence.ReconciliationReportRepo do
     end
   end
 
+  @doc "按 id 取报告（work 隔离）。"
+  @spec get(String.t(), String.t()) :: map() | nil
+  def get(work_id, report_id) when is_binary(work_id) and is_binary(report_id) do
+    case Ecto.UUID.cast(report_id) do
+      {:ok, uuid} ->
+        from(r in ReconciliationReport, where: r.id == ^uuid and r.work_id == ^work_id)
+        |> Repo.one()
+        |> case do
+          nil -> nil
+          report -> to_map(report)
+        end
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc """
+  写回裁决后的 findings（CP2c）；全部条目已裁决时报告转 ACCEPTED（裁决完成），
+  否则保持 TENTATIVE。
+  """
+  @spec update_findings(String.t(), String.t(), [map()]) :: {:ok, map()} | {:error, term()}
+  def update_findings(work_id, report_id, findings) when is_list(findings) do
+    with {:ok, uuid} <- Ecto.UUID.cast(report_id),
+         %ReconciliationReport{} = report <-
+           Repo.one(from(r in ReconciliationReport, where: r.id == ^uuid and r.work_id == ^work_id)) do
+      all_dispositioned? =
+        findings != [] and
+          Enum.all?(findings, fn f -> (f["disposition"] || f[:disposition]) not in [nil, ""] end)
+
+      status =
+        if all_dispositioned?, do: AdoptionStatus.accepted(), else: report.adoption_status
+
+      report
+      |> ReconciliationReport.changeset(%{
+        findings: %{"items" => findings},
+        adoption_status: status
+      })
+      |> Repo.update()
+      |> case do
+        {:ok, updated} -> {:ok, to_map(updated)}
+        {:error, changeset} -> {:error, changeset}
+      end
+    else
+      _ -> {:error, :report_not_found}
+    end
+  end
+
   defp to_map(%ReconciliationReport{} = report) do
     %{
       id: to_string(report.id),

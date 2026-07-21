@@ -149,6 +149,39 @@ report_ok =
 
 IO.puts("[replay] CP2b 报告: id=#{latest && latest.id} findings=#{latest && latest.finding_count} status=#{latest && latest.adoption_status}")
 
+# CP2c-1：对真实报告逐项裁决——第一条弧光停滞 accept_drift（凌渊类→DRIFTED），
+# 前指泄露项 dismiss（结构化证据日志）。
+stall_idx = Enum.find_index(latest.findings, &(&1["rule"] == "arc_stalled"))
+leak_idx = Enum.find_index(latest.findings, &(&1["rule"] == "planned_info_leak"))
+
+adjudicate = fn idx, disposition ->
+  NovelApplication.LedgerAdjudicationService.adjudicate(
+    %{work_id: work_id, report_id: latest.id, finding_index: idx,
+      disposition: disposition, actor_ref: "replay_author", note: "M2 重放裁决"},
+    NovelApplication.LedgerAdjudicationService.persistence_deps()
+  )
+end
+
+{:ok, %{finding: stall_finding}} = adjudicate.(stall_idx, "accept_drift")
+{:ok, _} = adjudicate.(leak_idx, "dismiss")
+
+after_entries = LedgerRepository.list_all(work_id)
+drifted = Enum.find(after_entries, &(&1.id == stall_finding["entry_ref"]))
+report_after = NovelPersistence.ReconciliationReportRepo.get(work_id, latest.id)
+
+dispositioned =
+  report_after.findings
+  |> Enum.count(&((&1["disposition"] || "") != ""))
+
+adjudication_ok =
+  drifted != nil and drifted.status == "DRIFTED" and dispositioned == 2 and
+    report_after.adoption_status == "TENTATIVE"
+
+IO.puts(
+  "[replay] CP2c-1 裁决: #{drifted && drifted.subject_label}→#{drifted && drifted.status} " <>
+    "已处置=#{dispositioned}/#{report_after.finding_count} 报告=#{report_after.adoption_status}"
+)
+
 IO.puts("[replay] reconcile findings=#{length(findings)} rules=#{inspect(counts)}")
 for f <- findings, do: IO.puts("  [#{f.severity}] #{f.rule}: #{String.slice(f.signal, 0, 80)}")
 
@@ -161,8 +194,8 @@ IO.puts(
 )
 
 if replayed > 0 and il1_ok and lingyuan_stalled and late_lead_on_track and
-     genre_fired and leak_fired and stall_reported and report_ok do
-  IO.puts("[replay] PASS —— M2 漂移靶（CP1 弧光 + CP2a 规则 + CP2b 报告物化）全部被账面暴露")
+     genre_fired and leak_fired and stall_reported and report_ok and adjudication_ok do
+  IO.puts("[replay] PASS —— M2 漂移靶全链（CP1 弧光 + CP2a 规则 + CP2b 报告 + CP2c-1 裁决）被账面暴露并可裁决")
 else
   IO.puts("[replay] FAIL")
   System.halt(1)
