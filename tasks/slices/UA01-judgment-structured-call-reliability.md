@@ -1,6 +1,6 @@
 # UA01 判断结构化调用可靠性（call2 病灶收口）
 
-- 状态：T1-T2 结构性收口完成（2026-07-20）；**T4 新病灶未收口，2026-07-20 已阻塞 M2、M2 已暂停**——见本文档 T4 节。下一次开工先读 T4，不要重复 T1-T3 已验证过的内容。
+- 状态：T1-T2 结构性收口完成（2026-07-20）；**T4 已收口（2026-07-21）**——根因=T2b 撤目录致 call2 失明（非长上下文/非服务端状态），修复=目录注入 call2 prompt+探针首调体温计，干净实例 A/B 实证 execute 命中 0/7→4/4，见"T4 收口"节。M2 可重启。
 - 类型：Prompt Protocol Slice / MBC 测量 Slice
 - 父：`ADR-0025`（判断两段式协议）、`SI-model-behavior-contracts`（MBC 体系）
 - 来源：M0 五跑一日复盘 + 用户统筹提醒（"不能头疼治头脚痛医脚"）
@@ -344,3 +344,89 @@ world_building/character_evolution/character_design）：不是模型稳定"相�
 从根源上降低模型产生"creative_writing"这类越界冲动的概率（如 prompt 里
 更早、更醒目地重申目录，或换一个对 forced tool call 更服帖的模型/profile）。
 仍然只是假说与方向记录，未实现、未验证。
+
+## T4 收口（2026-07-21，根因定位 + 修复 + 干净实例 A/B 实证）
+
+**裁决：两个候选假说双双出局，真根因是 T2b 自己引入的 call2 目录失明。**
+
+1. **"累积上下文过长"不成立**：复核 M2 全天 llm-calls 日志，call2 prompt 恒定
+   ~1116 字符 / ~800 input token（T2a/T2b 预算化正常工作），健康轮与误路由轮
+   逐字节同尺寸——误路由与上下文长度无关。
+2. **"服务端状态损坏"（缺陷十同款）不成立**：TTL 卸载后全新加载的干净实例上
+   逐字节重放 L757 原始请求 10 次，`prose_writing` **0/10**——误路由在干净
+   实例上完全复现，且"推理链自造名→输出被顶替成合法值"的原始截图现场
+   （`creative_writing`→`character_design`）重放复现 2 次。
+
+**真根因**：T2b 极小化把能力目录撤出 call2 prompt（"目录不进 call2，约束由
+schema enum 承载"），但 enum 包在 `anyOf` 内层，经 LM Studio/Harmony 模板
+渲染后对模型**不可见**——M2 全天 **15 次 call2 首调 0 命中 prose_writing**
+（8 次自造名原样浮出 / 1 次 null / 6 次被约束解码静默顶替成任意合法值），
+多条隐藏推理链明说"目录列表未给出，只能猜"。对照组：直挂 enum 的 `action`
+字段全天 100% 合法——失明的是 anyOf 内层，不是所有 enum。
+
+**"前半天正常"是重试网假象**：首调从来没对过。16:36 加载、被连续压测 5 小时
+的旧实例约束执行劣化，自造名原样浮出 → enum 校验拦住 → 带目录的重试 prompt
+纠正（全天重试 8/9 命中；1 次仍自造走诚实失败）。21:45:52 请求触发 JIT 重新
+加载（前一实例已卸载），新实例约束执行正常 → 自造名被**静默顶替成合法值** →
+重试网被绕过 → 误路由直通执行。瘟疫起点=新实例第一个判断调用（21:46:14），
+与上下文增长无关。T1/T2c 探针全绿同为假绿：探针把 request_judgment 当黑盒，
+内部重试把首调失明完全遮住（NEXT.md 反补丁自检条款的活教材）。
+
+**修复（已落地）**：
+- `judgment_protocol.ex`：`capability_help/1`、`explore_tool_help/1` 把能力
+  目录六名 + 探索工具四名注入 call2 prompt 正文（措辞逐字复用 retry hint 的
+  实证写法；目录未传保持旧措辞向后兼容）。enum schema/越界重试/null 校验全部
+  保留（防顶替的末道网）。
+- 探针 `judgment_protocol.exs`：新增 call2 体温计 `call2_first_try_rate` /
+  `call2_retries`（用 judgment.provider_call_count=2 判首调成功），阈值暂不
+  入闸门（测量先于设计）；probe options 补 `explore_tools`（此前与生产不同形，
+  镜像修正）。
+
+**干净实例 A/B 重放（L757 逐字节重放，各 10 次，2026-07-21）**：
+
+| 指标 | Arm A 旧 prompt | Arm B 新 prompt |
+|---|---|---|
+| 推理链自造能力名 | 7/10 | **0/10** |
+| 判 execute 时 capability 命中 prose_writing | 0/7（3 顶替 + 4 null） | **4/4** |
+| capability null 洞（缺陷八形态） | 4/10 | 0/10 |
+
+证据：`artifacts/model-contracts/lmstudio/t4-replay-ab-2026-07-21.json`。
+
+**廉价梯队全绿**：mix compile --warnings-as-errors / 全量 1208 测试 0 失败
+（新增 call2 目录注入回归单测）/ stub 探针 call2_first_try=1.0 / xref 无环 /
+arch_check / I1 I2 I3 三条不变量 3/3。
+
+**live 探针复跑（修复后，lmstudio/gpt-oss-120b，7 用例 × 3 形态 × 3 轮 = 63
+试验，2026-07-21）**：三形态 **call2_first_try=1.0 / call2_retries=0**（对照
+M2 生产首调 0/15）；protocol=1.0 / form=1.0 / blocked=0 三形态一致（T3 硬
+闸门通过）；judgment bare 0.905 / in_run 0.952 / long_run 1.0（阈值 0.85
+达标，与 T1/T2c 基线同量级，失败全为已知 plan/reply 判界方差）——**目录
+注入没有推高 plan 误判**，A/B 重放里 Arm B 的 plan 占比观察据此按"既有判界
+方差内"关闭，runner 长措辞收短仍留 B7 顺手项。
+
+**M2 达标跑实测追补（2026-07-21，101,421 字/75 章/5.28h 全新跑）**：T4 修复
+在产品级长跑中**零复发**——112 次重试无一 capability 错值。但暴露 T5 级新病灶
+**clip_echo 头部截断**：扩章批章节摘要变长 → call1 叙事超 240 字符 → 头部
+截断剪掉尾部"单动作执行"结论 → call2 只见意图复述、回落"登记"元指令误判
+reply。体温计：wrong_route_reply **97 次**、随章数单调递增（前 17 章 0 次，
+18 章起高发），8 章反复失败被跳过；tool_failed 12 次（其中第 13 章 2 次为
+上下文 8192 截断所致，重载 32k 后消失）；coordinate_regression 3 次。修复
+已实现：`clip_echo` 改头 120+尾 120 双端保留（保意图起点+裁决结论/内联回复
+尾），**未 live 验证**——探针 battery 叙事全短于 240 覆盖不到，需长摘要形态
+端到端判断验证（下一会话）。证据：`artifacts/novel-output/p1-100k-dogfood/
+summary.json`（retry_thermometer 首次全量数据）。
+
+**残余登记（不在本次收口范围）**：
+- **plan 判界方差在长复合措辞下的占比**：A/B 重放的作者输入是 runner 的四子句
+  长措辞（"生成第13章：…；…；…；…"），Arm B 有 6/10 判 plan/reply（Arm A
+  3/10）——样本不足以定性是目录列出后的副作用还是既有 plan 判界方差（ADR-0025
+  预算 backstop 范畴）。探针阵列（无歧义用例）的 judgment 准确率做裁决数据；
+  另 runner 章节请求措辞可考虑收短（B 轨）。
+- **探针 call1 目录陈旧**：`capability_catalog_section` 仍是 5 项旧目录（含
+  已不存在的 search_work_facts，缺 character_evolution/work_archive_read）——
+  与生产 judgment_context_block 背离；为保 T2c 基线可比性本轮未动，登记待修。
+- **会话摘要注水**：M2 会话摘要里"已通过采纳边界，采纳内容已进入已决状态。"
+  逐字重复 ×10 进 call1 上下文——压缩层对同质 assistant 消息无去重（B 轨）。
+- **reason↔capability 语义一致性校验方向关闭**：根因已修，文本启发式易误伤，
+  不再需要。
+- 郑果孤立草稿：M2 重启前在工作台人工废弃即可（不影响正文/章节数据）。
