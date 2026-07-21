@@ -224,9 +224,32 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       judgment_prompt?(prompt_text) ->
         judgment_result(prompt, prompt_text)
 
+      chapter_summary_prompt?(prompt_text) ->
+        Result.new(chapter_summary_body(prompt_text))
+
       true ->
         non_judgment_response_result(prompt, prompt_text)
     end
+  end
+
+  # VS-00F CP1（AU-13）：ChapterSummaryGenerator 独立摘要 prompt 的确定性四栏产出。
+  # 正文首行（roster 出场句，见 opening_body）归「人物状态与弧光」栏——复刻真实
+  # 模型把出场人物写进人物栏的行为，令弧光账提炼可命中真实角色名。
+  defp chapter_summary_prompt?(text), do: String.contains?(text, "连续性维护助手")
+
+  defp chapter_summary_body(prompt_text) do
+    prose =
+      case Regex.run(~r/已采纳正文：\n(.+)\z/su, prompt_text) do
+        [_, text] -> String.trim(text)
+        _ -> ""
+      end
+
+    lines = String.split(prose, "\n", trim: true)
+    first_line = List.first(lines) || "（无）"
+    plot = lines |> Enum.drop(1) |> Enum.join("") |> String.slice(0, 120)
+
+    "【情节推进】#{if plot == "", do: "（无）", else: plot}\n" <>
+      "【人物状态与弧光】#{first_line}\n【伏笔动作】（无）\n【情绪基调】紧张推进"
   end
 
   # 判断①（ADR-0025 方案 B）：结构段（forced tool）产 judgment_decision；
@@ -1524,16 +1547,29 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     with true <- explore_context?,
          tool when is_binary(tool) <- explore_tool_for(author_text),
-         [_, term] <- Regex.run(~r/「([^」]+)」/u, author_text) do
-      %{"tool" => tool, "query" => term}
+         query when is_binary(query) <- explore_query_for(tool, author_text) do
+      %{"tool" => tool, "query" => query}
     else
       _ -> nil
     end
   end
 
-  # 设计态问句（按计划/大纲/要写什么）→ chapter_read；正文事实问句 → prose_search。
+  # archive_read 的 query 是档案面名（VS-00F CP1：账面问句固定读 ledgers 面）；
+  # 其余工具沿用引用词。
+  defp explore_query_for("archive_read", _author_text), do: "ledgers"
+
+  defp explore_query_for(_tool, author_text) do
+    case Regex.run(~r/「([^」]+)」/u, author_text) do
+      [_, term] -> term
+      _ -> nil
+    end
+  end
+
+  # 账面问句 → archive_read(ledgers)（VS-00F CP1，优先于泛检索词）；设计态问句
+  # （按计划/大纲/要写什么）→ chapter_read；正文事实问句 → prose_search。
   defp explore_tool_for(author_text) do
     cond do
+      contains_any?(author_text, ["账面", "账本", "进度账"]) -> "archive_read"
       contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) -> "chapter_read"
       contains_any?(author_text, ["查一下", "检索", "出现过", "正文里"]) -> "prose_search"
       true -> nil
@@ -2587,6 +2623,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       if nonce_text == "", do: "", else: "档案暗码 #{nonce_text} 像冷光一样贴在他的视野边缘，提醒这不是幻觉。"
 
     [
+      roster_presence_sentence(context),
       "夜色压在#{subject}上，灵气账单从屋檐下垂落，像一串即将燃尽的符纸。",
       "主角停在巷口，听见远处公司巡检车的低鸣，也听见自己腕骨里那枚旧阵芯正在倒数。",
       nonce_sentence,
@@ -2594,6 +2631,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
+  end
+
+  # VS-00F CP1（AU-13）：真实模型带「现有角色」roster 上下文时会让角色出场（M2 达标
+  # 跑实证）；确定性正文复刻该行为——取 roster 首个角色名织入首句，令写后摘要人物栏
+  # 与弧光账提炼有真实姓名可命中。无 roster 时为空（不虚构角色）。
+  defp roster_presence_sentence(context) do
+    case Regex.run(~r/## 现有角色[^\n]*\n- ([^（：\n]+)/u, to_string(context)) do
+      [_, name] ->
+        trimmed = String.trim(name)
+        if trimmed == "", do: "", else: "#{trimmed}先一步候在巷口，压低声音向主角确认了暗号。"
+
+      _ ->
+        ""
+    end
   end
 
   # 续写正文：单段约 500 有效字，2 轮续写叠加初稿（约 168）即可越过 P1 单章 1000 字门槛。

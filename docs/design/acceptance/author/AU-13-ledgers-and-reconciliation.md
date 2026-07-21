@@ -33,15 +33,15 @@
 
 | 场景 | 内容 | CP |
 |---|---|---|
-| SC-AU13-A1 | 采纳一章正文 → 弧光账自动更新（出场角色 last_seen 前移）→ archive_read(ledgers) 可查 → 下一章写作简报含相关弧光条目 | CP1 |
-| SC-AU13-A2 | M2 75 章书重放：凌渊类"消失角色"被账面标 STALLED；无 design_ref 的接管线被报告 | CP1（重放驱动） |
+| SC-AU13-A1 | 采纳一章正文 → 弧光账自动更新（出场角色 last_seen 前移）→ archive_read(ledgers) 可查 → 下一章写作简报含相关弧光条目 | CP1 **verified**（`au13-arc-ledger-roundtrip` 真实 Tauri，2026-07-21） |
+| SC-AU13-A2 | M2 75 章书重放：凌渊类"消失角色"被账面标 STALLED；无 design_ref 的接管线被报告 | CP1 **verified**（`scripts/vs00f_ledger_replay.exs`，2026-07-21） |
 | SC-AU13-B1 | 对账报告产出与逐项裁决 roundtrip（四处置各一例；dismiss 进 experience evidence） | CP2 |
 | SC-AU13-B2 | revise_prose 处置 → VS-00E §8 sibling 修订候选 → 原稿保留 | CP2 |
 | SC-AU13-C1 | 面板 Ledgers 模块只读视图 + correction intent | CP4 |
 
 ## 5. 场景覆盖状态
 
-0/5（2026-07-21 立档，CP1 开工中）。
+2/5（2026-07-21：A1 真实 Tauri + A2 重放均 verified；B1/B2/C1 随 CP2/CP4）。
 
 ## 6. 落地路线
 
@@ -54,4 +54,4 @@
 
 ## 8. 验收命令
 
-随 CP1 场景注册后补（`bash scripts/slice_verify.sh <scenario>` 家族）。
+`bash scripts/tauri_slice_verify.sh au13-arc-ledger-roundtrip`；重放 `NOVEL_TEST_DB_DIR=<副本> MIX_TEST_PARTITION=_dogfood MIX_ENV=test mix run scripts/vs00f_ledger_replay.exs`。

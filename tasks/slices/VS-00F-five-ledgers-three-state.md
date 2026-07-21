@@ -1,6 +1,6 @@
 # VS-00F 五本账与三态对账（M3 主 slice）
 
-- 状态：**CP0 done（2026-07-21 用户"开工"拍板默认项）/ CP1 进行中**——契约 Frozen、ADR-0026 Accepted、同批修订全落（25 §5/§8.1、ADR-0018 白名单、00c §4/§6.5/§7#19、ui/43 §5 模块9、schemas 三件、AU-13 立档）
+- 状态：**CP0 done / CP1 done（2026-07-21）**——契约 Frozen + ADR-0026 + 同批修订全落；弧光账后端全链 + M2 75 章书重放 PASS + 真实 Tauri `au13-arc-ledger-roundtrip` 首轮 PASS（SC-AU13-A1/A2 双验收）。下一步 CP2（承诺账+信息账+对账报告+裁决面）。
 - 类型：Domain Ledger Slice（领域层，M3 阶段主任务）
 - 启动日期：2026-07-21
 - 所属契约：`docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md`
@@ -16,7 +16,7 @@
 | CP | 范围 | M2 验收靶 | 状态 |
 |---|---|---|---|
 | CP0 | 契约冻结（rev2）+ ADR-0026 + 同批文档修订（25 §5/§8.1、ADR-0018 白名单、00c 回填、schemas 登记、ui/43 §5、AU-13 立档；ADR-0024 修订按拍板④留 CP2+ 按需） | — | **done**（2026-07-21） |
-| CP1 | 弧光账最小闭环（信封落地 + arc 提炼/漂移规则 + 自动通过 + archive_read(ledgers) + writer 投影段） | 凌渊 STALLED 被账面暴露 | **后端闭环 + M2 重放 PASS**（2026-07-21）；余 Tauri 场景与 gap 见 §3 |
+| CP1 | 弧光账最小闭环（信封落地 + arc 提炼/漂移规则 + 自动通过 + archive_read(ledgers) + writer 投影段） | 凌渊 STALLED 被账面暴露 | **done**（2026-07-21：后端 + M2 重放 PASS + 真实 Tauri `au13-arc-ledger-roundtrip` 首轮 PASS） |
 | CP2 | 承诺账 + 信息账 + 全量对账报告首版 | 题材漂移产出 broken 候选；"第60章前指"泄露被报告 | 未开工 |
 | CP3 | 冲突账 + 情绪曲线账 | 主线停滞/情绪偏差可查 | 未开工 |
 | CP4 | 对账节拍机器化 + 规划消费账面 + 面板视图 | 下次百章狗粮：漂移 30 章内被拦截 | 未开工 |
@@ -55,11 +55,19 @@ vs00f_ledger_replay.exs` 对狗粮库副本重放 69 章摘要）：凌渊 STALL
 为机械双向（出场解除停滞条件属记账事实，非漂移裁决；DRIFTED/RESUMED 仍
 裁决专属）——契约 §2.2 单向箭头据此放宽，域模块注释为准。
 
-**未闭环缺口（CP1 收口前必做，不写 done）**：
-- SC-AU13-A1 外部自动化驱动真实页面场景（采纳→记账→探索可查→下一章简报含
-  账面）——需 slice_verify 场景注册 + 真实 Tauri 验收。
-- StateTrace 留痕（契约 §3.2）：账面权威变更暂只有业务日志，与章摘要维护
-  同病（先例本就缺 StateTrace），随维护 trace 债一并补。
+**SC-AU13-A1 已闭环（2026-07-21，真实 Tauri 首轮 PASS）**：场景
+`au13-arc-ledger-roundtrip`——采纳第1章（桩正文织入 roster 角色林岚，复刻
+真实模型带 roster 即用之的行为）→ `ledger.update.done sighted=1` → 账面
+问句判断走探索面 archive_read(ledgers)，回复逐字引用真实账目「弧光账·林岚：
+ON_TRACK，最近出场第1章」且页面可见 → 第2章写作请求携带账面投影
+（`context.progress_state.done entry_count=1`）。九事件链全齐 + evidence/
+behavior 双 handler。证据：`artifacts/slice-verify/au13-arc-ledger-roundtrip-
+tauri/summary.json`。配套 test-support：slice_verify 四栏摘要 clause（正文
+首行归人物栏）+ opening_body roster 织入 + 探索路由 账面→archive_read
+(query=ledgers)。
+
+**剩余登记（CP1 已 done，随后续 CP/债务批处理）**：
+- StateTrace 留痕（契约 §3.2）：账面权威变更暂只有业务日志，与章摘要维护同病（先例本就缺 StateTrace），随维护 trace 债一并补（不阻 CP1）。
 - M2 重放的 roster 为测试夹具注入（狗粮 seed 无角色采纳），生产 roster 来自
   角色采纳链路——不影响规则验证，登记素材边界。
 - 阈值校准：8 章在 M2 书上表现合理（三个消失角色全中、零误报），维持默认。

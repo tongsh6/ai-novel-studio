@@ -182,6 +182,7 @@ export const nativeSliceIds = [
   "p1-chapter-word-count-target",
   "judgment-explore-internal",
   "judgment-explore-chapter-plan",
+  "au13-arc-ledger-roundtrip",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -927,6 +928,17 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "channel.user_message.done",
     "judgment.decided.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au13-arc-ledger-roundtrip": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "ledger.update.done",
+    "judgment.decided.done",
+    "context.progress_state.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -1813,6 +1825,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findJudgmentExploreInternalEvidence(records);
   }
 
+  if (sliceId === "au13-arc-ledger-roundtrip") {
+    return findAu13ArcLedgerRoundtripEvidence(records);
+  }
+
   if (sliceId === "judgment-explore-chapter-plan") {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
@@ -2428,6 +2444,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "judgment-explore-internal") {
     return judgmentExploreInternalBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au13-arc-ledger-roundtrip") {
+    return au13ArcLedgerRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "judgment-explore-chapter-plan") {
@@ -11969,6 +11989,118 @@ function findJudgmentExploreChapterPlanEvidence(records) {
     explore_reply_text: replyText,
     judgment_explore_count: judgmentEvents.filter((record) => record.action === "explore").length,
     key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+// SC-AU13-A1（VS-00F CP1 / ADR-0026）：采纳即记账（ledger.update.done sighted>=1）、
+// 账面探索可查（reply 引用弧光账条目）、下一章写作携带账面投影（context.progress_state.done）。
+function findAu13ArcLedgerRoundtripEvidence(records) {
+  const sliceId = "au13-arc-ledger-roundtrip";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_contains_roster_name === true &&
+      record.ledger_reply_cites_entry === true &&
+      record.ledger_visible_on_page === true &&
+      record.ledger_no_pending_artifacts === true &&
+      Number(record.ledger_update_sighted ?? 0) >= 1 &&
+      Number(record.progress_state_entry_count ?? 0) >= 1,
+  );
+  if (!uiState) return null;
+
+  const adoptTurnId = String(uiState.adopt_turn_id ?? "");
+  const ledgerTurnId = String(uiState.ledger_turn_id ?? "");
+  if (!adoptTurnId || !ledgerTurnId) return null;
+
+  // 采纳即记账：ledger.update.done 落在采纳链路（同 work，弧光账，命中>=1）
+  const ledgerUpdate = records.find(
+    (record) =>
+      record.event === "ledger.update.done" &&
+      record.ledger === "arc" &&
+      Number(record.sighted ?? 0) >= 1,
+  );
+  if (!ledgerUpdate) return null;
+
+  // 账面探索：同一账面 turn 上先 explore 后 reply 两次判断落地
+  const baseLedgerTurnId = ledgerTurnId.split(":")[0];
+  const judgmentEvents = records.filter(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      (record.turn_id === baseLedgerTurnId || record.turn_id === ledgerTurnId),
+  );
+  const exploreDecided = judgmentEvents.findIndex((record) => record.action === "explore");
+  const replyDecided = judgmentEvents.findIndex((record) => record.action === "reply");
+  if (exploreDecided < 0 || replyDecided < 0 || exploreDecided > replyDecided) return null;
+
+  // 下一章投影：context.progress_state.done（entry_count>=1）
+  const progress = records.find(
+    (record) =>
+      record.event === "context.progress_state.done" && Number(record.entry_count ?? 0) >= 1,
+  );
+  if (!progress) return null;
+
+  const replyText = String(uiState.ledger_reply_text ?? "");
+  if (!replyText.includes("弧光账·")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: ledgerTurnId,
+    turn_ids: [
+      ...new Set(
+        [uiState.draft_turn_id, adoptTurnId, baseLedgerTurnId, ledgerTurnId, uiState.turn_id]
+          .filter(Boolean)
+          .map(String),
+      ),
+    ],
+    draft_turn_id: uiState.draft_turn_id,
+    adopt_turn_id: adoptTurnId,
+    ledger_turn_id: ledgerTurnId,
+    ledger_update_sighted: Number(uiState.ledger_update_sighted ?? 0),
+    progress_state_entry_count: Number(uiState.progress_state_entry_count ?? 0),
+    ledger_reply_text: replyText,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function au13ArcLedgerRoundtripBehavior(turnIds, turnRecords, records, evidence, _options) {
+  const sliceId = "au13-arc-ledger-roundtrip";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.ledger_turn_id === evidence.ledger_turn_id,
+  );
+  if (!uiState) return null;
+
+  // 账面问答只读：探索在判断步内联，零 Toolbox dispatch、零 pending artifact
+  const ledgerToolbox = turnRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" && record.turn_id === evidence.ledger_turn_id,
+  );
+  if (ledgerToolbox) return null;
+  if (uiState.ledger_no_pending_artifacts !== true) return null;
+
+  // 记账的主体来自已采纳 roster（回复引用弧光账·具名条目）
+  const replyText = String(uiState.ledger_reply_text ?? "");
+  if (!replyText.includes("弧光账·林岚")) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "adoption_updates_arc_ledger_then_explorable_then_projected_into_next_prose",
+    turn_ids: turnIds,
+    ledger_turn_id: evidence.ledger_turn_id,
+    ledger_update_sighted: evidence.ledger_update_sighted,
+    progress_state_entry_count: evidence.progress_state_entry_count,
+    assertions: [
+      "adopted_prose_triggers_arc_ledger_update_with_roster_hit",
+      "ledger_question_decides_explore_then_replies_on_same_turn",
+      "ledger_reply_cites_real_arc_entry_visible_on_page",
+      "ledger_question_readonly_no_toolbox_no_pending_artifacts",
+      "next_chapter_prose_request_carries_progress_state_projection",
+    ],
   };
 }
 

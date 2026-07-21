@@ -10,7 +10,7 @@
 
 ## 1. Current Focus
 
-**M3 推进（2026-07-21）：VS-00F CP0 done + CP1 弧光账后端闭环，M2 重放 PASS（机器账面复现人工 Q5 审计）**
+**M3 推进（2026-07-21）：VS-00F CP0+CP1 双 done——弧光账全链闭环，SC-AU13-A1 真实 Tauri 首轮 PASS + M2 重放 PASS，下一步 CP2**
 
 CP0：契约 Frozen（用户"开工"拍板默认项）+ ADR-0026 Accepted + 同批修订全落
 （25/ADR-0018/00c/ui43/schemas/AU-13）。CP1：LedgerEntry 域+持久化+维护钩子
@@ -18,9 +18,10 @@ CP0：契约 Frozen（用户"开工"拍板默认项）+ ADR-0026 Accepted + 同�
 progress_state 写作投影（含 Q2/Q3 反泄漏约束首落点）全链落地；**M2 75 章书
 重放 PASS**：凌渊 STALLED@25/凌云@52/沈墨@47、后期主角 ON_TRACK、韩晟零出场
 零条目——漂移首次被机器账面暴露（证据 artifacts/ledger-replay/）。全量 1221
-测试 0 失败+全门绿+触碰文件扫描清零。**CP1 余项**：SC-AU13-A1 真实 Tauri
-场景、StateTrace 留痕（随维护 trace 债）——见 slice §3 未闭环缺口。下一步：
-CP1 Tauri 场景收口 → CP2（承诺+信息账+对账报告+裁决面）。
+测试 0 失败+全门绿+触碰文件扫描清零。**CP1 已收口**：真实 Tauri 场景 `au13-arc-ledger-roundtrip` 首轮 PASS（采纳
+即记账 sighted=1→探索回复引用真实账目页面可见→次章请求带账面投影
+entry_count=1，九事件链全齐）；StateTrace 留痕随维护 trace 债后补（不阻）。
+下一步：CP2（承诺账+信息账+对账报告首版+裁决面入册）。
 
 ---
 

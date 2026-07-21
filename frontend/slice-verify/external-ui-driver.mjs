@@ -8956,6 +8956,161 @@ async function driveJudgmentExploreInternal(page) {
   ];
 }
 
+async function driveAu13ArcLedgerRoundtrip(page) {
+  // SC-AU13-A1（VS-00F CP1 / ADR-0026）：采纳一章正文 → 弧光账自动记账
+  // （ledger.update.done）→ 账面问句走探索面 archive_read(ledgers) → 回复引用
+  // 真实账目并在页面可见 → 下一章写作请求携带账面投影（context.progress_state.done）。
+  const requestText =
+    "请根据已采纳章节计划生成第01章：底层灵气账单：主角在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。正文草稿，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result was received for the AU13 chapter-1 request",
+    200_000,
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+  const draftBody = pendingArtifact.payload?.items?.[0]?.body ?? "";
+  const rosterWoven = draftBody.includes("林岚");
+
+  await page.waitForFunction(
+    () =>
+      /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(
+        document.body.innerText,
+      ),
+    { timeout: 10_000 },
+  );
+
+  const beforeAdoptLogCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+
+  const adoptTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
+    "No resolved adoption turn_result websocket frame was received after AU13 accept",
+    120_000,
+  );
+  const adoptTurnResult = adoptTurnFrame.body;
+
+  // 采纳即记账（test env 维护链同步）：弧光账更新命中已采纳角色（I-L1/I-L2 外证）
+  const ledgerUpdateRecord = await waitForNewAppLogRecord(
+    beforeAdoptLogCount,
+    (record) =>
+      record.event === "ledger.update.done" &&
+      record.ledger === "arc" &&
+      Number(record.sighted ?? 0) >= 1,
+    "Adoption did not trigger the arc ledger update (ledger.update.done sighted>=1)",
+    30_000,
+  );
+
+  // 账面问句：判断走探索面 archive_read(ledgers)，回复引用真实账目（I-L3 外证）
+  const ledgerQuestion = "查一下进度账面里「林岚」现在的状态";
+  await page.locator(chatInputSelector).fill(ledgerQuestion);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const ledgerReplyFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      typeof frame.body?.assistant_message?.text === "string" &&
+      frame.body.assistant_message.text.includes("弧光账·林岚"),
+    "No ledger-grounded reply turn_result was received for the ledger question",
+    200_000,
+  );
+  const ledgerReply = ledgerReplyFrame.body;
+  const ledgerReplyText = ledgerReply.assistant_message.text;
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("弧光账·林岚"),
+    { timeout: 15_000 },
+  );
+
+  // 下一章写作：请求携带账面投影（progress_state 进 provider 请求，外证=业务日志）
+  const chapterTwoText =
+    "请根据已采纳章节计划生成第02章：旧服务器里的残诀：主角从废弃服务器中找到残缺功法，并第一次突破底层限制。正文草稿，保持为待采纳草稿。";
+  const beforeChapterTwoLogCount = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(chapterTwoText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const progressRecord = await waitForNewAppLogRecord(
+    beforeChapterTwoLogCount,
+    (record) =>
+      record.event === "context.progress_state.done" && Number(record.entry_count ?? 0) >= 1,
+    "Chapter-2 prose request did not carry the arc ledger projection (context.progress_state.done)",
+    200_000,
+  );
+
+  const chapterTwoFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id !== draftTurnResult.turn_id &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "prose_fragment",
+      ),
+    "No chapter-2 prose_fragment turn_result was received",
+    200_000,
+  );
+  const chapterTwoResult = chapterTwoFrame.body;
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, chapterTwoResult, sentMessage);
+
+  assert(rosterWoven, "Chapter-1 draft did not weave the adopted roster character 林岚");
+  assert(
+    ledgerReplyText.includes("依据如下"),
+    "Ledger reply is not exploration-grounded (missing 依据如下)",
+  );
+  assert(
+    visibleText.includes("弧光账·林岚"),
+    "Arc ledger entry is not visible on the real page",
+  );
+  assert(
+    ledgerReply.truthfulness?.artifact_adopted !== true,
+    "Ledger question turn must not adopt anything",
+  );
+  assert(
+    (ledgerReply.adoption_state?.pending ?? []).length === 0,
+    "Ledger question turn must not produce pending artifacts",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: chapterTwoResult.turn_id,
+      draft_turn_id: draftTurnResult.turn_id,
+      adopt_turn_id: adoptTurnResult.turn_id,
+      ledger_turn_id: ledgerReply.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      ledger_question_text: ledgerQuestion,
+      ledger_reply_text: ledgerReplyText,
+      ledger_reply_cites_entry: ledgerReplyText.includes("弧光账·林岚"),
+      ledger_visible_on_page: visibleText.includes("弧光账·林岚"),
+      ledger_update_sighted: Number(ledgerUpdateRecord.sighted ?? 0),
+      progress_state_entry_count: Number(progressRecord.entry_count ?? 0),
+      draft_contains_roster_name: rosterWoven,
+      ledger_no_pending_artifacts: (ledgerReply.adoption_state?.pending ?? []).length === 0,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveP1ChapterWordCountTarget(page) {
   const targetWordCount = 600;
   // 作者在对话框用自然语言给出"带篇幅"的创作指令：篇幅诉求由 Planner（AI）识别为
@@ -22744,6 +22899,7 @@ const drivers = {
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
   "judgment-explore-chapter-plan": driveJudgmentExploreChapterPlan,
   "judgment-explore-internal": driveJudgmentExploreInternal,
+  "au13-arc-ledger-roundtrip": driveAu13ArcLedgerRoundtrip,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,
   "au08-reading-readonly-no-write": driveAu08ReadingReadonlyNoWrite,
