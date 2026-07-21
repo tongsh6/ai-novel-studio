@@ -82,6 +82,7 @@
 6. **Style / Writing preferences**（风格及排版偏好）
 7. **Long-run tasks**（长跑任务监控台，如批量推演）
 8. **Experience 经验沉淀**（只读证据、待审经验草稿、已启用经验规则）
+9. **Ledgers 五本账**（ADR-0026 / VS-00F 扩员：弧光/冲突/信息/情绪曲线/承诺账的进度态视图与对账报告；只读+修订走 correction intent，遵守本文件 §3/§4/§6 边界；落地排 VS-00F CP4）
 
 2026-06-17 实现状态：`AU12-work-profile-overview` 已补 Work 概览 CP1，只读展示 works 表中的立项字段（题材、核心卖点、目标读者、基调、状态、修订号），证据 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`。主题/大纲整合、采纳产物类立项要素和从概览发起 correction 修订仍属后续 checkpoint。
 

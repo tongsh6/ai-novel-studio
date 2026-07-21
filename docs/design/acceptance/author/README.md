@@ -18,3 +18,4 @@
 | `AU-10-workbench-ui.md` | 工作台实时交互 |
 | `AU-11-ai-guided-authoring.md` | AI 引导式创作会话结构 |
 | `AU-12-work-profile.md` | 查看与核对作品档案（立项设定 + 档案视图；2026-06-17 新立，与 AU-09 边界互斥） |
+| `AU-13-ledgers-and-reconciliation.md` | 五本账与三态对账（进度账面 + 对账报告裁决；2026-07-21 新立，ADR-0026/VS-00F 验收家族，与 AU-09/AU-12 三方互斥：记忆事实/立项档案/进度账面） |

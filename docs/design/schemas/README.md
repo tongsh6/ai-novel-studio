@@ -14,7 +14,8 @@
 | `foundation/ui_card.json` | ui_cards 信息通告卡片 schema；card_type 三卡集合 + 禁 actions 字段（ADR-0024 决策 2/3，N-SURF） |
 | `foundation/artifact_adoption_entry.json` | 采纳条目 schema |
 | `foundation/phase_next_action_compat.json` | phase / next_action 兼容 schema |
+| `foundation/ledger_entry.json` | 五本账统一信封（VS-00F §2 / ADR-0026）；进度视图对象，source_refs 非空（I-L1），status 与采纳 7 态正交 |
 
 ## foundation/enums/
 
-`slot_type` / `source_type` / `adoption_status` / `memory_status` / `memory_class` / `behavior_status` / `requiredness` —— 编译期冻结枚举的 SSOT。
+`slot_type` / `source_type` / `adoption_status` / `memory_status` / `memory_class` / `behavior_status` / `requiredness` / `ledger` / `arc_ledger_status` —— 编译期冻结枚举的 SSOT（`ledger` 五账分类、`arc_ledger_status` 弧光账状态机，ADR-0026；其余账状态机随对应 CP 增补）。

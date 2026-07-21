@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/ledger_entry.json",
+  "title": "LedgerEntry",
+  "description": "五本账统一信封（VS-00F §2.1 / ADR-0026）。权威层进度视图对象：只记进度与状态并经 source_refs 引用事实本体（正文/章摘要/memory_items/档案），不双写事实。status 为分账领域状态机（arc 见 enums/arc_ledger_status.json，其余账随对应 CP 冻结）；采纳状态由承载行的 adoption_status（7 态 SSOT）另行表达，两者正交。",
+  "type": "object",
+  "required": ["entry_id", "work_ref", "ledger", "subject_kind", "subject_ref", "subject_label", "status", "payload", "source_refs"],
+  "additionalProperties": false,
+  "properties": {
+    "entry_id": { "type": "string", "minLength": 1 },
+    "work_ref": { "type": "string", "minLength": 1 },
+    "ledger": { "$ref": "enums/ledger.json" },
+    "subject_kind": {
+      "type": "string",
+      "enum": ["character", "plotline", "fact", "chapter", "promise"]
+    },
+    "subject_ref": { "type": "string", "minLength": 1 },
+    "subject_label": { "type": "string", "minLength": 1 },
+    "design_ref": { "type": ["string", "null"], "description": "设计态锚点（章计划字段/卷蓝图/大纲条目/采纳记录）；实现态先行时为 null" },
+    "status": { "type": "string", "description": "分账领域状态机值（UPPER_SNAKE）；arc 账合法集见 enums/arc_ledger_status.json" },
+    "payload": { "type": "object", "description": "分账明细（VS-00F §2.2-2.6）；各账 payload 细则随对应 CP 在本目录冻结" },
+    "source_refs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "账面断言出处（章/摘要/采纳记录引用），I-L1 非空"
+    },
+    "last_event_chapter": { "type": ["string", "null"], "description": "最近账面变动对应章 ref（漂移检测时间轴锚点）" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "x-adr": "ADR-0026-five-ledgers-three-state-reconciliation-v3.md",
+  "x-section": "VS-00F §2",
+  "x-source": "08-novel-element-model.md §4.5/§10"
+}

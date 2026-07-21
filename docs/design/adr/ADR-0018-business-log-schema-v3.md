@@ -70,7 +70,7 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 
 形式：`<module>.<step>.<phase>`
 
-- `<module>`：`planner` / `context` / `orchestrator` / `toolbox` / `adoption` / `behavior` / `replay` / `task_runner` / `channel` / `provider`
+- `<module>`：`planner` / `context` / `orchestrator` / `toolbox` / `adoption` / `behavior` / `replay` / `task_runner` / `channel` / `provider` / `ledger`（ADR-0026 扩员：`ledger.update.*` / `ledger.reconcile.*`，携带 turn_id/work_id）
 - `<step>`：模块内步骤的小写下划线名（如 `form_frame`、`evaluate`、`execute`）
 - `<phase>`：`start` / `done` / `error`（仅这三个，不发明新词）
 

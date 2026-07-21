@@ -179,6 +179,7 @@ flowchart TB
 | `AgentRun` | `contracts/UA-01`, ADR-0021 | Application AgentRun runtime | AgentEvent / AgentRunState / UI / Trace | AgentRun 不是作者 turn；bounded run 不强制 LongRunTask | AgentRun and Turn Boundary v3 |
 | `AgentPlan` / `PlanStep` | `contracts/UA-01`, ADR-0022 | AgentRun loop / Workbench activity UI / Trace | AgentPlan 不是 MicroPlan；PlanStep 不是运行期 AgentStep | Agentic Loop Plan / Reasoning Authorship v3 |
 | `AgentEvent.author_narrative` | `contracts/UA-01`, ADR-0022 | Workbench activity UI / Trace / Replay | 作者可见过程叙述必须来自模型输出字节 | Agentic Loop Plan / Reasoning Authorship v3 |
+| `LedgerEntry` | `contracts/VS-00F`, ADR-0026 | Ledger maintenance（采纳后 hook） | archive_read(ledgers) / progress_state_packet / 面板 / Trace | 账面=进度视图非事实本体；source_refs 非空（I-L1）；权威变更只经采纳 ∪ LOW 自动通过（I-L2） | ADR-0026（已落） |
 
 ---
 
@@ -309,6 +310,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | `DecisionTrace` | `06` | replay / audit | 能解释为什么执行或没有执行 |
 | `TraceRedaction` | `06`, `07` | UI / audit | author/debug/replay 可见性不同 |
 | `ReplayReport` | `06` | developer / audit | replay 默认不重新调用 LLM |
+| 五本账与三态对账（LedgerEntry / hook.UPDATE_LEDGERS / ledger_reconciliation_v1） | `contracts/VS-00F`, `adr/ADR-0026` | prose_writing 上下文（progress_state_packet）/ 探索面 archive_read(ledgers) | I-L1 出处锚定、I-L2 采纳边界（自动通过=系统发起 TENTATIVE→ACCEPTED）、I-L3 探索可达、I-L4 规则确定性；M2 75 章书重放为 CP1 证明 |
 
 ### 6.6 UI contracts
 
@@ -358,6 +360,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | 16 | AgentRun 作者可见过程叙述必须有模型输出字节来源（N-NARR） | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md`, `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md` | `author_narrative_source` 与 ProviderOutput 字节绑定 driver |
 | 17 | （ADR-0025 改写）当存在计划时，计划必须由模型制定并维护，app 不得预制计划轨道；是否制定计划由模型判断，app 不得强制起草也不得按场景预分类；无计划循环的轨道 = judgment 事件链，同样禁止 app 预制创作决策（机械准备步除外）（N-PLAN） | `adr/ADR-0025-judgment-driven-interactive-loop-v3.md`, `adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md`, `notes/2026-07-15-judgment-driven-interactive-loop.md` | 有计划 run：plan 事件链 + native tool call 结构；无计划 run：judgment 链 + 无 app 预制轨道（driver 随 CP1 迁移） |
 | 18 | 作者决策只能通过决策面注册表登记的决策面进入主链；ui_cards 不携带可提交动作（N-SURF） | `adr/ADR-0024-decision-surface-registry-v3.md`, `07` §4, `notes/2026-07-15-dialogue-flow-decision-surface-review.md` | TurnResult 产出扫描 driver（动作语义只来自 available_actions / 入册决策面）＋契约漂移注入测试（CP1） |
+| 19 | 账面是进度视图非事实本体：LedgerEntry 断言必须有非空 source_refs（I-L1）；权威账面变更只经作者采纳 ∪ 系统发起的 LOW 风险 TENTATIVE→ACCEPTED（I-L2）；漂移规则确定性、模型不参与规则判定（I-L4）；账本落地与探索可达同批（I-L3） | `contracts/VS-00F` §5, `adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md` | 抽样回查 source_refs 存在性 + 对账运行前后权威层无 diff driver + archive_read(ledgers) 同批断言（VS-00F CP1） |
 
 这些不变量是后续 ADR 和垂直切面的主轴。任何实现计划如果不能指向其中至少一个不变量，就很可能不是承重垂直切面。
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/arc_ledger_status.json",
+  "title": "ArcLedgerStatus",
+  "description": "弧光账（ledger=arc）领域状态机。UPPER_SNAKE 对齐全仓 *_status 约定；与采纳 7 态（adoption_status）正交分层。DRIFTED/RESUMED 只能经作者裁决进入（VS-00F §3.3）。冻结于 VS-00F §2.2 / ADR-0026。",
+  "type": "string",
+  "enum": [
+    "ON_TRACK",
+    "STALLED",
+    "DRIFTED",
+    "RESUMED",
+    "COMPLETED",
+    "RETIRED"
+  ],
+  "x-adr": "ADR-0026-five-ledgers-three-state-reconciliation-v3.md",
+  "x-section": "VS-00F §2.2"
+}

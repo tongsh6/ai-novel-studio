@@ -1,6 +1,6 @@
 # VS-00F 五本账与三态对账（M3 主 slice）
 
-- 状态：**CP0 进行中**（契约 Proposed 待用户 review 冻结；冻结前不编码）
+- 状态：**CP0 done（2026-07-21 用户"开工"拍板默认项）/ CP1 进行中**——契约 Frozen、ADR-0026 Accepted、同批修订全落（25 §5/§8.1、ADR-0018 白名单、00c §4/§6.5/§7#19、ui/43 §5 模块9、schemas 三件、AU-13 立档）
 - 类型：Domain Ledger Slice（领域层，M3 阶段主任务）
 - 启动日期：2026-07-21
 - 所属契约：`docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md`
@@ -15,7 +15,7 @@
 
 | CP | 范围 | M2 验收靶 | 状态 |
 |---|---|---|---|
-| CP0 | 契约冻结（rev2，全树先例排查后修订）+ 配套 ADR + 同批文档修订（25 §5/§8.1、ADR-0018 白名单、ADR-0024 注册、00c 回填、schemas 登记、ui/43 §5、AU-13 立档） | — | 进行中（Proposed rev2） |
+| CP0 | 契约冻结（rev2）+ ADR-0026 + 同批文档修订（25 §5/§8.1、ADR-0018 白名单、00c 回填、schemas 登记、ui/43 §5、AU-13 立档；ADR-0024 修订按拍板④留 CP2+ 按需） | — | **done**（2026-07-21） |
 | CP1 | 弧光账最小闭环（信封落地 + arc 提炼/漂移规则 + 裁决 + archive_read(ledgers) + writer 投影段） | 凌渊 stalled 被账面暴露；凌云/沈逸无设计接管被报告 | 未开工 |
 | CP2 | 承诺账 + 信息账 + 全量对账报告首版 | 题材漂移产出 broken 候选；"第60章前指"泄露被报告 | 未开工 |
 | CP3 | 冲突账 + 情绪曲线账 | 主线停滞/情绪偏差可查 | 未开工 |

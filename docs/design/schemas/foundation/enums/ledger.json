@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/ledger.json",
+  "title": "Ledger",
+  "description": "五本账分类枚举（08 §4.5 E33-E37 贯穿账本）。分类枚举 lower_snake，对齐 memory_class 风格。冻结于 VS-00F §2.1 / ADR-0026。",
+  "type": "string",
+  "enum": [
+    "arc",
+    "conflict",
+    "information",
+    "emotion_curve",
+    "promise"
+  ],
+  "x-adr": "ADR-0026-five-ledgers-three-state-reconciliation-v3.md",
+  "x-section": "VS-00F §2.1",
+  "x-source": "08-novel-element-model.md §4.5"
+}

@@ -118,6 +118,7 @@ maintenance 产物不能因为是“系统自己维护的”就免检。
 3. `hook.SCAN_NEW_FORESHADOWING`
 4. `hook.SCAN_FORESHADOWING_RESOLUTION`
 5. `hook.RECORD_TIMELINE_EVENT`
+6. `hook.UPDATE_LEDGERS`（ADR-0026 / VS-00F 扩员：正文采纳后增量更新五本账受影响账目，输入=章摘要四栏+章计划映射）
 
 ### 5.1 说明
 
@@ -210,6 +211,12 @@ maintenance hook 默认产出的不是直接对象写入，而是 maintenance ar
 - `foreshadowing_artifact`
 - `timeline_event_artifact`
 - `continuity_warning_artifact`
+- `ledger_update_artifact`（ADR-0026 扩员：增量账面更新提议，LOW 风险走 §9.3 自动通过通道）
+- `reconciliation_report_artifact`（ADR-0026 扩员：周期性账面 vs 设计态对账报告，永远作者裁决）
+
+> 切分注记（ADR-0026）：`continuity_warning_artifact` = validator **逐项即时**冲突警告
+> （§10/§14 语义，事件驱动）；`reconciliation_report_artifact` = **周期性批量**的账面
+> vs 设计态漂移扫描（VS-00F §3）。触发与粒度不同，两名并存。
 
 ### 8.2 artifact 最小字段
 
