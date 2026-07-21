@@ -94,6 +94,44 @@ defmodule NovelPersistence.WorkArchiveRepo do
     memory_items(work_id, [MemoryType.author_preference()])
   end
 
+  @creative_fact_types [
+    MemoryType.foreshadowing(),
+    MemoryType.plot_fact(),
+    MemoryType.world_rule(),
+    MemoryType.constraint(),
+    MemoryType.current_state(),
+    MemoryType.relationship(),
+    MemoryType.style_rule(),
+    MemoryType.author_preference()
+  ]
+
+  @doc """
+  写作事实链读端口（CA02）：一次查询取全部确认记忆，按创作消费分组。
+
+  world_rules 不含 STYLE_RULE（与档案 rules 面口径不同）——风格归 style 组，
+  作为写作前风格锚与事实基线分开渲染。
+  """
+  @spec creative_facts(String.t()) :: %{
+          foreshadowing: [map()],
+          world_rules: [map()],
+          current_states: [map()],
+          relationships: [map()],
+          style: [map()]
+        }
+  def creative_facts(work_id) when is_binary(work_id) do
+    all = memory_items(work_id, @creative_fact_types)
+
+    %{
+      foreshadowing: of_types(all, @foreshadowing_types),
+      world_rules: of_types(all, [MemoryType.world_rule(), MemoryType.constraint()]),
+      current_states: of_types(all, [MemoryType.current_state()]),
+      relationships: of_types(all, [MemoryType.relationship()]),
+      style: of_types(all, [MemoryType.style_rule(), MemoryType.author_preference()])
+    }
+  end
+
+  defp of_types(items, types), do: Enum.filter(items, &(&1.type in types))
+
   @spec stats(String.t()) :: map()
   def stats(work_id) when is_binary(work_id) do
     with_uuid(work_id, empty_stats(), fn uuid ->

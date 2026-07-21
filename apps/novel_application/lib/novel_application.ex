@@ -270,6 +270,15 @@ defmodule NovelApplication do
     if inject_persistence?(), do: &NovelPersistence.WorkArchiveRepo.characters/1
   end
 
+  @doc """
+  确认记忆读端口（CA02 / VS-00C §3.1 L3b/L4 最小形态）：`(work_id) -> 分组确认记忆`
+  （伏笔/规则/状态/关系/风格），供写作事实段与风格段、evaluator 事实基线消费。
+  未启用真实持久化时返回 nil（无记忆注入，06 §5.0 诚实缺失）。
+  """
+  def persistence_memory_reader do
+    if inject_persistence?(), do: &NovelPersistence.WorkArchiveRepo.creative_facts/1
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)

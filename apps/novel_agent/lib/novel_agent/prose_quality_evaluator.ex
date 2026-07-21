@@ -137,7 +137,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
     服务冲突/潜台词、结尾是否留下继续阅读的驱动力（hook，且不是虚假承诺）、能力/境界/资源/代价
     与成长路径是否符合既有规则（不跳过必要铺垫、强度不失衡）。不要仅凭关键字命中就判失败。
 
-    #{brief_section(request)}#{reader_effect_section(request)}待评审正文：
+    #{brief_section(request)}#{reader_effect_section(request)}#{facts_section(request)}待评审正文：
     #{request.prose_text}
 
     只返回 JSON 对象。
@@ -157,6 +157,15 @@ defmodule NovelAgent.ProseQualityEvaluator do
   end
 
   defp reader_effect_section(_request), do: ""
+
+  # CA02（31 §6.12 🟡 门补输入）：作品事实基线——knowledge_boundary/character_logic/
+  # power_scaling 类判断据此比对，而非仅凭正文自评。缺席诚实缺席（不伪造基线）。
+  defp facts_section(%QualityEvaluationRequest{facts_context: facts})
+       when is_binary(facts) and facts != "" do
+    "作品事实基线（作者已确认的设定/伏笔/状态/风格，评审对照；正文与之冲突属高置信问题）：\n#{facts}\n\n"
+  end
+
+  defp facts_section(_request), do: ""
 
   defp correction_prompt(original_prompt, failed_content) do
     """

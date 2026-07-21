@@ -19,7 +19,9 @@
 
 | 文件 | 角色 |
 |---|---|
-| `VS-00F-five-ledgers-three-state.md` | **CP0 进行中 / M3 主 slice**：五本账（E33-E37）对象化 + 三态对账——契约 `VS-00F` Proposed 待冻结；CP1 弧光账最小闭环（M2 75 章书重放为验证靶）。 |
+| `VS-00F-five-ledgers-three-state.md` | **CP0-CP4a done / M3 主 slice**：五本账（E33-E37）对象化 + 三态对账——契约 Frozen + ADR-0026；五账全落，每步对 M2 75 章书重放 PASS；SC-AU13-A1 真实 Tauri PASS；余 CP4c 统一批（Ledgers 面板+裁决入口+显式发起，Pencil 先行）。 |
+| `CA01-planning-context-completion.md` | **CP1 闭环（2026-07-21）/ Order 7 刀二**：规划的世界感——works 创作锚三字段（premise/theme/main_goal，NEM-GAP-01）+ plot_outline 工具上下文纳入阵容/摘要窗（M2 凭空造角机制修复）+ 探索面同步律收口；余 planner 起草层注入/卷投影/写入链路 P2。 |
+| `CA02-writing-facts-context.md` | **CP1 闭环（2026-07-21）/ Order 7 刀一**：写作/评估事实链——确认记忆（伏笔/规则/状态/关系）+ 风格偏好（STYLE_RULE/AUTHOR_PREFERENCE）机械注入 prose 写作 prompt；evaluator 增 facts_context 事实基线（31 §6.12 🟡 门补输入）；余风格对象化/🔴 门读模型/狗粮清算。 |
 | `UA01-judgment-driven-loop.md` | **CP0 done / CP1 todo（ADR-0025 实施）**：判断驱动交互循环——判断①②/计划按需/探索两翼；CP1 前置 MBC 探针。 |
 | `UA01-codex-style-narrative-alignment.md` | **doing / 46§9.4 实施**：Codex 式叙事体裁对齐——提示词体裁（意图开场段/阶段结论段归模型）+ 段落体布局 + 活动行/进度行结构词。 |
 | `DS02-adoption-status-canonicalization.md` | **todo / 数据口径系统修正**：adoption_status 大小写全链路统一到 30 §3.2 canonical 大写 7 态，撤销 DS01 期间前端 barrel 的临时放宽（用户原则：不允许补丁式绕过成为终态）。 |

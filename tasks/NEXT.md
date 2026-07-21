@@ -50,10 +50,22 @@ plot_outline 工具上下文纳入阵容段+摘要窗段（M2 凭空造角直接
 同步律补 render_profile 三行（用户"七问"追问抓出的缺口）；全量 1234 测试
 0 失败+I1/I2/I3 绿+触碰文件扫描清零+真实 Tauri `agent-plot-outline-with-context`
 复跑 PASS。余项登记在 slice 文档：planner 起草层 planning_facts_section、
-卷投影 ⓒ、写入链路 P2；产品级效果随下次节拍狗粮清算。下一步：**Order 7
-刀一**（写作/评估事实链：①memory 进 prose+ⓑ风格偏好+ⓓevaluator 事实）；
-之后 **CP4c 统一批**=Pencil 原型（Ledgers 面板模块，UI 红线先出图）→面板+
-裁决入口+显式发起+profile 化+revise 联动+SC-AU13-B1/B2/C1。
+卷投影 ⓒ、写入链路 P2；产品级效果随下次节拍狗粮清算。
+**七问升格（同日，用户拍板，e18abe0e）**：探索可达（08 §8 探索面同步律）
+独立为开工检查第七问 Exploration——AGENTS.md/vertical-slice.md/08/VS-00C
+四处同步；历史 slice 六问不回溯。
+**Order 7 刀一 CA02 CP1 已闭环（同日，tasks/slices/CA02-writing-facts-context.md）**：
+确认记忆机械分组注入 prose 写作（伏笔/规则/状态/关系事实段+STYLE_RULE/
+AUTHOR_PREFERENCE 风格段，WorkArchiveRepo.creative_facts 读端口+
+facts_group_limit 策略预算+三执行点接线含 judgment_plan M2 主链）+
+evaluator facts_context 事实基线（31 §6.12 🟡 门补输入）。全量 1243 测试
+0 失败+I1/I2/I3+xref/arch 绿+真实 Tauri au13-arc-ledger-roundtrip 带改动
+复跑 PASS。**顺带 A/B 实锤既有失败**：p1-chapter-draft-generation 基线即
+超时（verifier 期望停留判断纪元前 planner.form_frame.done 等事件，属 07-06
+登记的 13 driver 验收语义迁移复跑未闭环债）——待清算批次追加。余项在
+slice 文档：23 风格对象化、🔴 门读模型、狗粮效果清算。下一步：**CP4c
+统一批**=Pencil 原型（Ledgers 面板模块，UI 红线先出图）→面板+裁决入口+
+显式发起+profile 化+revise 联动+SC-AU13-B1/B2/C1。
 
 ---
 

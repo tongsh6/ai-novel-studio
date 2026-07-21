@@ -52,6 +52,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:chapter_summary_reader) => map() | nil,
           optional(:character_reader) => function() | nil,
           optional(:ledger_reader) => function() | nil,
+          optional(:memory_reader) => function() | nil,
           optional(:source_turn_ref) => String.t(),
           optional(:idempotency_suffix) => String.t()
         }
@@ -125,6 +126,12 @@ defmodule NovelApplication.TurnExecutionService do
     progress_state =
       progress_state_section(frame, action, input[:ledger_reader])
 
+    # CA02（VS-00C §3.1 L3b/L4 最小形态）：确认记忆机械分组注入写作——事实段
+    # （伏笔/规则/状态/关系）+ 风格段（STYLE_RULE/AUTHOR_PREFERENCE）。与关键词
+    # recall 通道并存；无确认记忆时诚实缺席。
+    %{facts: creative_facts, style: style_guide} =
+      creative_memory_sections(frame, action, input[:context], input[:memory_reader])
+
     maybe_emit_target_word_count(frame, action)
 
     # VS-00E CP1：把章级方向展开为场级执行简述，渲染进 provider 请求并记入 trace。
@@ -156,7 +163,9 @@ defmodule NovelApplication.TurnExecutionService do
           characters: characters,
           execution_brief: render_execution_brief(brief_result),
           decision_packet: decision_packet(brief_result),
-          progress_state: progress_state
+          progress_state: progress_state,
+          creative_facts: creative_facts,
+          style_guide: style_guide
         }
       )
 
@@ -174,7 +183,8 @@ defmodule NovelApplication.TurnExecutionService do
         action,
         tool_result,
         quality_provider_execution,
-        render_execution_brief(brief_result)
+        render_execution_brief(brief_result),
+        facts_context_text(creative_facts, style_guide)
       )
 
     {trace, trace_summary} =
@@ -320,13 +330,16 @@ defmodule NovelApplication.TurnExecutionService do
     author_goal_text = author_goal_text(author_input)
 
     # 顺序：目标章结构对象（L2 设计态）→ 现有角色主档案（作品级阵容）→ 前文各章摘要
-    # （L3a 跨章实现态）→ 本章已采纳正文（L5 衔接）→ 当前作者输入。
+    # （L3a 跨章实现态）→ 本章已采纳正文（L5 衔接）→ 确认记忆事实（L3b）→ 风格偏好
+    # （L4 最小形态）→ 当前作者输入。
     context_text =
       [
         target_structure_section(frame, action, context, sections.resolved_chapter),
         sections.character_roster,
         sections.prior_summaries,
         prior_prose_section(action, sections.prior_prose),
+        sections.creative_facts,
+        sections.style_guide,
         tool_context_text(context, text)
       ]
       |> Enum.reject(&blank?/1)
@@ -690,6 +703,102 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp progress_state_section(_frame, _action, _reader), do: ""
 
+  # CA02（VS-00C §3.1 L3b/L4 最小形态）：确认记忆机械分组注入。仅 prose_writing；
+  # memory_reader 未注入或无确认记忆时诚实缺席（06 §5.0）。每组按策略
+  # facts_group_limit 截断（组内已按更新时间倒序），标题字串避开 stub/slice_verify
+  # 内容级锚点（现有角色/作品章节/已采纳章节/目标情绪/已采纳正文）。
+  defp creative_memory_sections(frame, action, context, memory_reader) do
+    if prose_writing_action?(action) and is_function(memory_reader, 1) do
+      facts = memory_reader.(frame.workspace_id)
+      limit = DialogueContext.policy(context).facts_group_limit
+
+      sections = %{
+        facts: render_creative_facts(facts, limit),
+        style: render_style_guide(Map.get(facts, :style, []), limit)
+      }
+
+      # ADR-0018 观测性：事实/风格段进入创作请求的事实；空段不发（诚实缺席不制造噪声）。
+      if sections.facts != "" or sections.style != "" do
+        LogEmit.emit(:context, :creative_facts, :done, %{
+          turn_id: frame.turn_id,
+          fact_lines: count_bullet_lines(sections.facts),
+          style_lines: count_bullet_lines(sections.style)
+        })
+      end
+
+      sections
+    else
+      %{facts: "", style: ""}
+    end
+  end
+
+  @creative_fact_groups [
+    {:foreshadowing, "伏笔与情节事实"},
+    {:world_rules, "世界规则与约束"},
+    {:current_states, "人物当前状态"},
+    {:relationships, "人物关系"}
+  ]
+
+  defp render_creative_facts(facts, limit) do
+    blocks =
+      Enum.flat_map(@creative_fact_groups, fn {key, label} ->
+        case facts |> Map.get(key, []) |> Enum.take(limit) do
+          [] -> []
+          items -> ["#{label}：\n" <> Enum.map_join(items, "\n", &fact_line/1)]
+        end
+      end)
+
+    case blocks do
+      [] -> ""
+      blocks -> "## 作品事实（作者已确认，写作必须保持一致）\n" <> Enum.join(blocks, "\n")
+    end
+  end
+
+  defp render_style_guide(style_items, limit) do
+    case Enum.take(style_items, limit) do
+      [] ->
+        ""
+
+      items ->
+        "## 写作风格与作者偏好（作者已确认，写作遵循）\n" <>
+          Enum.map_join(items, "\n", &fact_line/1)
+    end
+  end
+
+  # 条目行：summary 为压缩主句，content 兜底并裁剪（记忆正文可能很长，事实段是
+  # 提示不是档案，细节经探索面按需取）。
+  @fact_content_clip 200
+
+  defp fact_line(item) do
+    summary = trimmed(Map.get(item, :summary))
+    content = clip_chars(trimmed(Map.get(item, :content)), @fact_content_clip)
+
+    cond do
+      summary != "" and content != "" and summary != content -> "- #{summary}：#{content}"
+      summary != "" -> "- #{summary}"
+      true -> "- #{content}"
+    end
+  end
+
+  defp trimmed(nil), do: ""
+  defp trimmed(value) when is_binary(value), do: String.trim(value)
+
+  defp clip_chars(text, max) do
+    if String.length(text) > max, do: String.slice(text, 0, max) <> "……", else: text
+  end
+
+  defp count_bullet_lines(text) do
+    text |> String.split("\n") |> Enum.count(&String.starts_with?(&1, "- "))
+  end
+
+  # evaluator 事实基线（31 §6.12 🟡 门补输入）：与 writer 同源的事实+风格文本。
+  defp facts_context_text(facts, style) do
+    case [facts, style] |> Enum.reject(&blank?/1) |> Enum.join("\n\n") do
+      "" -> nil
+      text -> text
+    end
+  end
+
   defp plot_outline_action?(action) do
     (action[:target_ref] || action[:capability_name]) == "plot_outline"
   end
@@ -985,7 +1094,8 @@ defmodule NovelApplication.TurnExecutionService do
          action,
          %ToolResult{status: :succeeded} = tool_result,
          quality_provider_execution,
-         brief_text
+         brief_text,
+         facts_context
        ) do
     if prose_writing_action?(action) do
       ctx = %{
@@ -994,29 +1104,33 @@ defmodule NovelApplication.TurnExecutionService do
         source_type: :prose_fragment
       }
 
-      opts = semantic_opts(quality_provider_execution, frame, brief_text)
+      opts = semantic_opts(quality_provider_execution, frame, brief_text, facts_context)
       result = ProseQualityService.evaluate(prose_body(tool_result), ctx, opts)
       emit_quality(frame, result)
       result
     end
   end
 
-  defp run_prose_quality(_frame, _action, _tool_result, _quality_provider_execution, _brief_text),
-    do: nil
+  defp run_prose_quality(_frame, _action, _result, _quality_execution, _brief, _facts), do: nil
 
   # 独立 evaluator 通过单独的 quality provider execution 调用（与 writer 分离的
   # provider 调用 + 独立 prompt）。未注入时为确定性评估。
-  defp semantic_opts(quality_provider_execution, frame, brief_text) do
+  defp semantic_opts(quality_provider_execution, frame, brief_text, facts_context) do
     case Execution.result_fn(quality_provider_execution) do
       result_fn when is_function(result_fn, 1) ->
-        semantic_opts_from_provider_execution(quality_provider_execution, frame, brief_text)
+        semantic_opts_from_provider_execution(
+          quality_provider_execution,
+          frame,
+          brief_text,
+          facts_context
+        )
 
       _ ->
         []
     end
   end
 
-  defp semantic_opts_from_provider_execution(provider_execution, frame, brief_text) do
+  defp semantic_opts_from_provider_execution(provider_execution, frame, brief_text, facts_context) do
     semantic_fn = fn text, ctx ->
       request = %QualityEvaluationRequest{
         request_id: "qer_#{frame.turn_id}",
@@ -1024,7 +1138,8 @@ defmodule NovelApplication.TurnExecutionService do
         source_ref: Map.get(ctx, :source_ref),
         source_type: :prose_fragment,
         prose_text: text,
-        execution_brief: brief_text
+        execution_brief: brief_text,
+        facts_context: facts_context
       }
 
       case ProseQualityEvaluator.evaluate(request, provider_execution) do

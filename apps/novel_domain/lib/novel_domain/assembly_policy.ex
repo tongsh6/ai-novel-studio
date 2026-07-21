@@ -18,6 +18,7 @@ defmodule NovelDomain.AssemblyPolicy do
           consumer: consumer(),
           excerpt_budget_chars: pos_integer(),
           summary_window: non_neg_integer(),
+          facts_group_limit: non_neg_integer(),
           context_budget_chars: pos_integer() | nil
         }
 
@@ -25,14 +26,15 @@ defmodule NovelDomain.AssemblyPolicy do
             consumer: :tool,
             excerpt_budget_chars: 2000,
             summary_window: 15,
+            facts_group_limit: 8,
             context_budget_chars: nil
 
   # profile 矩阵（VS-00C §3.2）。floor 的 2000 与历史 @prior_prose_max_chars 一致，
   # 保证地板档 excerpt 行为不变；CP2.2 L3a 摘要窗口统一由策略给出。
   @profiles %{
-    floor: %{excerpt_budget_chars: 2000, summary_window: 15},
-    standard: %{excerpt_budget_chars: 8000, summary_window: 15},
-    large: %{excerpt_budget_chars: 200_000, summary_window: 15}
+    floor: %{excerpt_budget_chars: 2000, summary_window: 15, facts_group_limit: 8},
+    standard: %{excerpt_budget_chars: 8000, summary_window: 15, facts_group_limit: 12},
+    large: %{excerpt_budget_chars: 200_000, summary_window: 15, facts_group_limit: 20}
   }
 
   # provider → 档位。地板档：本地小窗口与确定性替身；大窗口档：云端大模型。
@@ -70,6 +72,7 @@ defmodule NovelDomain.AssemblyPolicy do
       consumer: :tool,
       excerpt_budget_chars: p.excerpt_budget_chars,
       summary_window: p.summary_window,
+      facts_group_limit: p.facts_group_limit,
       context_budget_chars: nil
     }
   end

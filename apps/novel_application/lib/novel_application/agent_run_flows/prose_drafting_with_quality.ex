@@ -642,7 +642,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         character_reader:
           reader_dep(spec, :character_reader, &NovelApplication.persistence_character_reader/0),
         ledger_reader:
-          reader_dep(spec, :ledger_reader, &NovelApplication.persistence_ledger_reader/0)
+          reader_dep(spec, :ledger_reader, &NovelApplication.persistence_ledger_reader/0),
+        memory_reader:
+          reader_dep(spec, :memory_reader, &NovelApplication.persistence_memory_reader/0)
       })
 
     tool_result = Map.get(turn_result, :tool_result) || %{}

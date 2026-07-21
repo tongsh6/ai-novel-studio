@@ -13,7 +13,8 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
           source_type: atom(),
           prose_text: String.t(),
           execution_brief: String.t() | nil,
-          reader_effect: String.t() | nil
+          reader_effect: String.t() | nil,
+          facts_context: String.t() | nil
         }
 
   @enforce_keys [:request_id, :prose_text]
@@ -24,6 +25,7 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
     :prose_text,
     source_type: :prose_fragment,
     execution_brief: nil,
-    reader_effect: nil
+    reader_effect: nil,
+    facts_context: nil
   ]
 end

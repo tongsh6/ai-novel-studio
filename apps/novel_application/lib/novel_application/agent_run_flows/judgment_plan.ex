@@ -482,7 +482,9 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         character_reader:
           Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader(),
         ledger_reader:
-          Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader()
+          Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader(),
+        memory_reader:
+          Map.get(spec, :memory_reader) || NovelApplication.persistence_memory_reader()
       })
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
