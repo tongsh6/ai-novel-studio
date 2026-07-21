@@ -25,6 +25,10 @@ defmodule NovelPersistence.Schemas.Work do
     field(:core_selling_point, :string)
     field(:target_reader, :string)
     field(:tone_preference, :string)
+    # NEM-GAP-01（CA01/08 §8 序位4）：创作向顶层锚——前提/主题/主线目标
+    field(:premise, :string)
+    field(:theme, :string)
+    field(:main_goal, :string)
     field(:adopted_at, :utc_datetime_usec)
     field(:revision, :integer, default: 1)
 
@@ -40,7 +44,7 @@ defmodule NovelPersistence.Schemas.Work do
       :status,
       :core_selling_point,
       :target_reader,
-      :tone_preference,
+      :tone_preference, :premise, :theme, :main_goal,
       :adopted_at,
       :revision
     ])

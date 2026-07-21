@@ -904,8 +904,11 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp judgment_work_section(%DialogueContext{current_work_snapshot: snapshot})
        when is_map(snapshot) and map_size(snapshot) > 0 do
+    # 缺席字段诚实缺席（06 §5.0）：nil/空串不渲染占位行（CA01 创作锚字段可选）。
     "## 当前作品上下文\n" <>
-      Enum.map_join(snapshot, "\n", fn {key, value} -> "- #{key}: #{value}" end)
+      (snapshot
+       |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+       |> Enum.map_join("\n", fn {key, value} -> "- #{key}: #{value}" end))
   end
 
   defp judgment_work_section(_context),

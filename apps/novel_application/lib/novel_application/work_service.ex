@@ -139,6 +139,9 @@ defmodule NovelApplication.WorkService do
       "title",
       "genre",
       "core_selling_point",
+      "premise",
+      "theme",
+      "main_goal",
       "target_reader",
       "tone_preference",
       "revision"

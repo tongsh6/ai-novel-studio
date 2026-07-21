@@ -136,8 +136,14 @@ defmodule NovelApplication.CharacterRosterContextTest do
     refute run("character_design", roster([])) =~ "## 现有角色"
   end
 
-  test "非角色/正文能力（plot_outline）不注入现有角色" do
+  test "plot_outline 注入现有角色（CA01 Order 7-ⓐ：M2 扩章批凭空造角的机制修复）" do
     prompts = run("plot_outline", roster([%{name: "沈砚", role: "主角", summary: "x"}]))
+    assert prompts =~ "## 现有角色"
+    assert prompts =~ "沈砚"
+  end
+
+  test "非角色向能力（world_building）不注入现有角色" do
+    prompts = run("world_building", roster([%{name: "沈砚", role: "主角", summary: "x"}]))
     refute prompts =~ "## 现有角色"
   end
 end

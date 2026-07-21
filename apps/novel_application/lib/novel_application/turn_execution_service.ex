@@ -612,14 +612,23 @@ defmodule NovelApplication.TurnExecutionService do
          %{previous: previous}
        )
        when is_function(previous, 3) do
-    if prose_writing_action?(action) do
-      policy = DialogueContext.policy(context)
+    policy = DialogueContext.policy(context)
 
-      previous.(frame.workspace_id, resolved_chapter, policy.summary_window)
-      |> Enum.reject(&(&1.chapter_title == resolved_chapter))
-      |> build_summaries_section(frame, policy)
-    else
-      ""
+    cond do
+      prose_writing_action?(action) ->
+        previous.(frame.workspace_id, resolved_chapter, policy.summary_window)
+        |> Enum.reject(&(&1.chapter_title == resolved_chapter))
+        |> build_summaries_section(frame, policy)
+
+      # CA01（Order 7 刀二·②）：规划带最近章摘要窗——扩章计划必须承接实际前情
+      # （M2 扩章批失忆的根）。target 传空串=取末 N 章（章表无空标题，take_while
+      # 不命中即全量再取尾窗，语义确定）。
+      plot_outline_action?(action) ->
+        previous.(frame.workspace_id, "", policy.summary_window)
+        |> build_summaries_section(frame, policy)
+
+      true ->
+        ""
     end
   end
 
@@ -823,11 +832,14 @@ defmodule NovelApplication.TurnExecutionService do
   defp normalize_character_list(characters) when is_list(characters), do: characters
   defp normalize_character_list(_characters), do: []
 
+  # CA01（Order 7 刀二·ⓐ）：plot_outline 纳入角色阵容注入——M2 扩章批凭空发明
+  # 接管主角团新角色的机制原因就是规划工具看不见现有 cast。
   defp character_context_action?(action) do
     (action[:target_ref] || action[:capability_name]) in [
       "character_design",
       "character_evolution",
-      "prose_writing"
+      "prose_writing",
+      "plot_outline"
     ]
   end
 

@@ -248,6 +248,10 @@ defmodule NovelApplication.ExplorationService do
       {"书名", profile[:title]},
       {"类型", profile[:genre]},
       {"核心卖点", profile[:core_selling_point]},
+      # CA01（NEM-GAP-01 要素物化 + 08 §8 探索面同步律）：创作锚三字段同批可达
+      {"前提", profile[:premise]},
+      {"主题", profile[:theme]},
+      {"主线目标", profile[:main_goal]},
       {"目标读者", profile[:target_reader]},
       {"基调", profile[:tone_preference]}
     ]

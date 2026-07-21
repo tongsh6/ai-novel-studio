@@ -42,10 +42,18 @@ CP3 已落（同日）：情绪曲线账（intended=plan_direction.emotion vs re
 规划带账拦截效果（CP4 验收靶=漂移 30 章内被拦）。CP4b 已并入 CP4c（承重裁决：profile 的第一真实消费者=显式发起入口，
 入口在面板批，无 consumer 不先建）。Order 7-④ 已落（同日）：判断章节段
 标头改「共N章：已写X/计划中Y」+计划章标注（计划中）——判断进度认知不再
-被计划章污染（M2 17/12 实锤修复）。下一步（独立周期）：**CP4c 统一批**
-=Pencil 原型（Ledgers 面板模块，UI 红线先出图）→面板+裁决入口+显式发起
-+profile 化+revise 联动+SC-AU13-B1/B2/C1；或按 Order 7 两刀先行——定序
-用户拍板。
+被计划章污染（M2 17/12 实锤修复）。定序已拍板：Order 7 两刀先行。
+**Order 7 刀二 CA01 CP1 已闭环（同日，tasks/slices/CA01-planning-context-completion.md）**：
+works 增创作锚三字段 premise/theme/main_goal（NEM-GAP-01，migration+schema+
+normalize_attrs 白名单+profile/snapshot 投影+判断 call1 nil 过滤诚实缺席）；
+plot_outline 工具上下文纳入阵容段+摘要窗段（M2 凭空造角直接杠杆）；探索面
+同步律补 render_profile 三行（用户"七问"追问抓出的缺口）；全量 1234 测试
+0 失败+I1/I2/I3 绿+触碰文件扫描清零+真实 Tauri `agent-plot-outline-with-context`
+复跑 PASS。余项登记在 slice 文档：planner 起草层 planning_facts_section、
+卷投影 ⓒ、写入链路 P2；产品级效果随下次节拍狗粮清算。下一步：**Order 7
+刀一**（写作/评估事实链：①memory 进 prose+ⓑ风格偏好+ⓓevaluator 事实）；
+之后 **CP4c 统一批**=Pencil 原型（Ledgers 面板模块，UI 红线先出图）→面板+
+裁决入口+显式发起+profile 化+revise 联动+SC-AU13-B1/B2/C1。
 
 ---
 
