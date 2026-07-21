@@ -10,15 +10,18 @@
 
 ## 1. Current Focus
 
-**M3 开工（2026-07-21）：VS-00F 五本账+三态对账 CP0——契约 Proposed 待用户冻结**
+**M3 开工（2026-07-21）：VS-00F 五本账+三态对账 CP0——契约 Proposed rev2 待用户冻结**
 
-P1 已关闭（用户裁决），队首切 M3。CP0 产出：契约包
-`docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md`
-（LedgerEntry 统一信封 + 五账 payload/状态机 + 两级对账节拍 + 处置四枚举 +
-四不变量 I-L1~L4 + CP1-CP4 分期，M2 缺陷 Q5 全部映射为各 CP 验收靶）+
-执行 slice `tasks/slices/VS-00F-five-ledgers-three-state.md`（CP1 六问已答，
-M2 75 章书重放为 Proof 素材）。**开放问题 4 项待拍板**（契约 §8：信封 vs
-分表 / CP1 选弧光账 / 停滞阈值 / 对账报告入口形态），冻结前不编码。
+P1 已关闭（用户裁决），队首切 M3。CP0 首稿后按用户要求做了**全树先例排查**
+（三并行代理扫 142 份设计文档 + 本体抽查），rev2 重写契约：投影认领 VS-00C
+§3.0 `progress_state_packet` 既有槽（06 §5.0 continuity ledgers 投影行同义）、
+两 artifact 归 25 §8.1 维护家族并与 continuity_warning 切分、自动通过=系统
+发起 TENTATIVE→ACCEPTED（ADR-0019 INV-1）首次契约化 25 §9.3、revise_prose
+复用 VS-00E §8、dismiss 接 Experience Engine（33）、裁决面认领 ADR-0024
+入册、status 枚举 UPPER_SNAKE、质量门 vs 账本分工表首画（31 §6 五处重叠）、
+验收开 AU-13 家族；契约 §9 附"复用 vs 新造"先例映射总表。**开放问题 5 项
+待拍板**（契约 §8：信封 vs 分表 / CP1 选弧光 / 停滞阈值 / 裁决 UI 载体 /
+配套 ADR 切分），冻结前不编码。
 
 ---
 

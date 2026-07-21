@@ -15,7 +15,7 @@
 
 | CP | 范围 | M2 验收靶 | 状态 |
 |---|---|---|---|
-| CP0 | 契约冻结 + slice 立项 | — | 进行中（Proposed） |
+| CP0 | 契约冻结（rev2，全树先例排查后修订）+ 配套 ADR + 同批文档修订（25 §5/§8.1、ADR-0018 白名单、ADR-0024 注册、00c 回填、schemas 登记、ui/43 §5、AU-13 立档） | — | 进行中（Proposed rev2） |
 | CP1 | 弧光账最小闭环（信封落地 + arc 提炼/漂移规则 + 裁决 + archive_read(ledgers) + writer 投影段） | 凌渊 stalled 被账面暴露；凌云/沈逸无设计接管被报告 | 未开工 |
 | CP2 | 承诺账 + 信息账 + 全量对账报告首版 | 题材漂移产出 broken 候选；"第60章前指"泄露被报告 | 未开工 |
 | CP3 | 冲突账 + 情绪曲线账 | 主线停滞/情绪偏差可查 | 未开工 |
@@ -25,7 +25,7 @@
 
 ## 1. CP1 开工检查（承重六问，契约冻结后生效）
 
-- **Contract**：`NovelDomain.LedgerEntry`（契约 §2 信封 + arc payload/状态机）、`hook.UPDATE_LEDGERS`（25 §6.1 默认触发族扩员）、`ledger_update_artifact` / `reconciliation_report_artifact`（25 §8 信封同型）；schema 进 `docs/design/schemas/` codegen SSOT。
+- **Contract**：`NovelDomain.LedgerEntry`（契约 §2 信封 + arc payload/状态机，status UPPER_SNAKE）、`hook.UPDATE_LEDGERS`（25 §5 UPDATE_ 族扩员）、`ledger_update_artifact`（25 §8.1 维护家族，复用公共信封字段）、自动通过=系统发起 TENTATIVE→ACCEPTED（ADR-0019 INV-1 合规，LOW 风险门槛）、投影认领 VS-00C §3.0 `progress_state_packet` 槽；schemas 登记 `foundation/ledger_entry.json`+`enums/ledger.json`（x-adr/x-source，入 README 索引与 codegen）。
 - **Invariant**：契约 §5 I-L1（证据锚定）/ I-L2（采纳边界，权威账面只经采纳变更）/ I-L3（探索可达同批）/ I-L4（漂移规则确定性）；既有 I1/I2/I3 场景不变量不破。
 - **Boundary**：novel_domain（纯 struct + 漂移规则纯函数）；novel_persistence（ledger_entries 表 + repository）；novel_application（提炼编排 + 对账服务 + archive_read 面扩展 + writer 投影段）；novel_web（账面查询经既有 Channel 入口）。**不改**：judgment 协议、AgentRun 主链、采纳通道本体（复用 author_action）。
 - **Consumer**：第一消费者=writer 上下文组装（出场角色弧光条目进 prose 简报）；第二=判断循环探索翼 `archive_read(ledgers)`；第三=对账报告的作者裁决动作。
@@ -38,4 +38,5 @@
 
 | 日期 | 事项 | 状态 |
 |---|---|---|
-| 2026-07-21 | 契约 Proposed：LedgerEntry 统一信封（非五表）、两级对账节拍、处置四枚举、CP1 选弧光账；开放问题 4 项见契约 §8 | 待用户拍板 |
+| 2026-07-21 | 契约 Proposed：LedgerEntry 统一信封（非五表）、两级对账节拍、处置四枚举、CP1 选弧光账 | 被 rev2 取代 |
+| 2026-07-21 | **rev2（用户要求全树先例排查后重写）**：三个并行代理扫全部 142 份设计文档产先例映射（契约 §9 复用 vs 新造总表）。主要修正：投影改认领 VS-00C §3.0 progress_state_packet 既有槽（撤回 execution_brief 塞入方案）；两 artifact 归 25 §8.1 维护家族并与 continuity_warning_artifact 切分；自动通过定义为系统发起 TENTATIVE→ACCEPTED（ADR-0019 INV-1）并首次契约化 25 §9.3 policy；revise_prose 复用 VS-00E §8 修订机械；dismiss 接 Experience Engine（33）与 feedback_patch 切割；裁决面认领 ADR-0024 入册纪律；status 枚举改 UPPER_SNAKE；修正"08 §4.4"失效引用（正确出处=产品里程碑 §4.4）；新画质量门 vs 账本对账分工表（31 §6 五处重叠首次画线）；验收开新 AU-13 家族。开放问题 5 项见契约 §8 | 待用户拍板冻结 |
