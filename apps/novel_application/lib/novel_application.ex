@@ -206,7 +206,7 @@ defmodule NovelApplication do
   探索面消费弧光账。未启用真实持久化时返回 nil（无账面注入，06 §5.0 诚实缺失）。
   """
   def persistence_ledger_reader do
-    if inject_persistence?(), do: &NovelPersistence.LedgerRepository.list/1
+    if inject_persistence?(), do: &NovelPersistence.LedgerRepository.list_all/1
   end
 
   defp sync_chapter_summary_maintenance? do

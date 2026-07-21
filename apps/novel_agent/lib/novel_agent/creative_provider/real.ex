@@ -172,7 +172,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），
     必须在至少一个条目的 title/body/rationale 中原样保留。
-
+    #{progress_state_section(request)}
     只返回 JSON 数组。
     """
   end
@@ -295,17 +295,12 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp execution_brief_section(_request), do: ""
 
-  # VS-00F CP1（ADR-0026）：弧光账投影追加在三锚点与 execution_brief 之后，不污染
-  # 锚点捕获。显式声明"背景参照"并禁止把账面状态词/章号写进正文——M2 达标跑 Q2/Q3
-  # 实锤（"待采纳草稿"状态词与"第51章中恢复的…"章号自指泄进正文）的针对性约束。
+  # VS-00F（ADR-0026）：账面投影追加在三锚点之后，不污染锚点捕获。段落文案由
+  # application 按 action 渲染完成（prose=弧光+反泄漏约束；plot_outline=五账规划
+  # 摘要+延续性要求，CP4a），本函数只做原样嵌入。
   defp progress_state_section(%CreativeRequest{progress_state: progress})
        when is_binary(progress) and progress != "" do
-    """
-
-    进度账面（相关角色近期弧光，供保持人物连续性参考）：
-    #{progress}
-    注意：本段仅为背景参照。不得在正文中引用本段的状态词、编号或章号；角色是否出场由情节需要决定。
-    """
+    "\n#{progress}\n"
   end
 
   defp progress_state_section(_request), do: ""

@@ -651,31 +651,122 @@ defmodule NovelApplication.TurnExecutionService do
   # 上限 6 条控预算；无 reader/无账面数据返回空串（诚实缺席，不伪造账本存在）。
   @progress_state_max_entries 6
 
+  # VS-00F 账面投影（progress_state_packet 传输载体）：文案按 action 在此渲染
+  # 完成，provider 侧只做原样嵌入。prose=出场角色弧光+反泄漏约束（Q2/Q3 修向）；
+  # plot_outline=五账规划摘要+延续性要求（CP4a：治增量规划与前文脱节的根）。
   defp progress_state_section(frame, action, reader) when is_function(reader, 1) do
-    if prose_writing_action?(action) do
-      section =
-        frame.workspace_id
-        |> reader.()
-        |> Enum.sort_by(&progress_entry_rank/1)
-        |> Enum.take(@progress_state_max_entries)
-        |> Enum.map_join("\n", &progress_entry_line/1)
+    section =
+      cond do
+        prose_writing_action?(action) ->
+          frame.workspace_id |> reader.() |> prose_progress_text()
 
-      # ADR-0018 观测性：账面投影进入写作请求的事实（外部验收与运维据此归因；
-      # 空账面不发——诚实缺席不制造噪声）。
-      if section != "" do
-        LogEmit.emit(:context, :progress_state, :done, %{
-          turn_id: frame.turn_id,
-          entry_count: section |> String.split("\n") |> length()
-        })
+        plot_outline_action?(action) ->
+          frame.workspace_id |> reader.() |> planning_ledger_digest()
+
+        true ->
+          ""
       end
 
-      section
-    else
-      ""
+    # ADR-0018 观测性：账面投影进入创作请求的事实（外部验收与运维据此归因；
+    # 空账面不发——诚实缺席不制造噪声）。
+    if section != "" do
+      LogEmit.emit(:context, :progress_state, :done, %{
+        turn_id: frame.turn_id,
+        entry_count: section |> String.split("\n") |> length()
+      })
     end
+
+    section
   end
 
   defp progress_state_section(_frame, _action, _reader), do: ""
+
+  defp plot_outline_action?(action) do
+    (action[:target_ref] || action[:capability_name]) == "plot_outline"
+  end
+
+  @doc false
+  def prose_progress_text(entries) do
+    lines =
+      entries
+      |> Enum.filter(&(&1.ledger == "arc"))
+      |> Enum.sort_by(&progress_entry_rank/1)
+      |> Enum.take(@progress_state_max_entries)
+      |> Enum.map_join("\n", &progress_entry_line/1)
+
+    if lines == "" do
+      ""
+    else
+      "进度账面（相关角色近期弧光，供保持人物连续性参考）：\n#{lines}\n" <>
+        "注意：本段仅为背景参照。不得在正文中引用本段的状态词、编号或章号；角色是否出场由情节需要决定。"
+    end
+  end
+
+  # CP4a：规划消费账面——弧光/主线/承诺/情绪的机械摘要 + 延续性要求。
+  @doc false
+  def planning_ledger_digest([]), do: ""
+
+  @doc false
+  def planning_ledger_digest(entries) do
+    lines =
+      arc_digest_lines(entries) ++
+        conflict_digest_lines(entries) ++
+        promise_digest_lines(entries) ++ emotion_digest_lines(entries)
+
+    if lines == [] do
+      ""
+    else
+      "账面摘要（规划参照）：\n#{Enum.join(lines, "\n")}\n" <>
+        "规划要求：延续上述未完成弧光与主线，停滞角色需给出回归或明确退场安排；" <>
+        "除非作者明示转向，不引入取代现有主角团的新主导角色，保持类型承诺的题材元素在场。"
+    end
+  end
+
+  defp arc_digest_lines(entries) do
+    arc = Enum.filter(entries, &(&1.ledger == "arc"))
+    stalled = arc |> Enum.filter(&(&1.status == "STALLED")) |> Enum.map(& &1.subject_label)
+    on_track = arc |> Enum.filter(&(&1.status == "ON_TRACK")) |> Enum.map(& &1.subject_label)
+
+    Enum.reject(
+      [
+        if(stalled != [], do: "- 弧光停滞待处理：#{Enum.join(stalled, "、")}"),
+        if(on_track != [], do: "- 弧光推进中：#{Enum.join(on_track, "、")}")
+      ],
+      &is_nil/1
+    )
+  end
+
+  defp conflict_digest_lines(entries) do
+    case Enum.find(entries, &(&1.ledger == "conflict" and &1.subject_ref == "main")) do
+      nil ->
+        []
+
+      main ->
+        seq = Map.get(main.payload || %{}, "last_advanced_seq") || "?"
+        ["- 主线：#{main.status}，最近推进第#{seq}章"]
+    end
+  end
+
+  defp promise_digest_lines(entries) do
+    case Enum.find(entries, &(&1.ledger == "promise" and &1.subject_ref == "genre")) do
+      nil -> []
+      promise -> ["- #{promise.subject_label}：#{promise.status}"]
+    end
+  end
+
+  defp emotion_digest_lines(entries) do
+    case Enum.filter(entries, &(&1.ledger == "emotion_curve")) do
+      [] ->
+        []
+
+      emotion ->
+        counts = Enum.frequencies_by(emotion, & &1.status)
+
+        [
+          "- 情绪曲线：符合#{counts["MATCHED"] || 0}/偏差#{counts["DEVIATED"] || 0}/无设计#{counts["UNPLANNED"] || 0}"
+        ]
+    end
+  end
 
   defp progress_entry_rank(entry) do
     stalled_rank = if entry.status == "STALLED", do: 0, else: 1

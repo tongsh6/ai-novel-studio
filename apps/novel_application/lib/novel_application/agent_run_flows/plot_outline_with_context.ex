@@ -347,7 +347,9 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
           Map.get(spec, :chapter_summary_reader) ||
             NovelApplication.persistence_chapter_summary_reader(),
         character_reader:
-          Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader()
+          Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader(),
+        ledger_reader:
+          Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader()
       })
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
