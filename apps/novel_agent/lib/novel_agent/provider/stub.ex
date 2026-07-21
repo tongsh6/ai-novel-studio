@@ -268,23 +268,30 @@ defmodule NovelAgent.Provider.Stub do
 
   defp shape_judgment_action(action, _text), do: {action, %{}}
 
-  # 设计态问句（按计划/大纲）→ chapter_read；其余 → prose_search。
+  # 设计态问句（按计划/大纲）→ chapter_read；账面问句 → archive_read(ledgers)
+  # （VS-00F CP1 探索面）；其余 → prose_search。
   defp explore_tool(text) do
     author_text = judgment_author_input(text)
 
-    if contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) do
-      "chapter_read"
-    else
-      "prose_search"
+    cond do
+      contains_any?(author_text, ["账面", "账本", "进度账"]) -> "archive_read"
+      contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) -> "chapter_read"
+      true -> "prose_search"
     end
   end
 
   defp explore_term(text) do
     author_text = judgment_author_input(text)
 
-    case quoted_term(author_text) do
-      "" -> author_text |> String.replace(~r/[查一下交代过吗？?，。]/u, "") |> String.slice(0, 8)
-      term -> term
+    cond do
+      contains_any?(author_text, ["账面", "账本", "进度账"]) ->
+        "ledgers"
+
+      true ->
+        case quoted_term(author_text) do
+          "" -> author_text |> String.replace(~r/[查一下交代过吗？?，。]/u, "") |> String.slice(0, 8)
+          term -> term
+        end
     end
   end
 

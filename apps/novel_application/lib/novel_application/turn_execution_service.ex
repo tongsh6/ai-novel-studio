@@ -653,11 +653,23 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp progress_state_section(frame, action, reader) when is_function(reader, 1) do
     if prose_writing_action?(action) do
-      frame.workspace_id
-      |> reader.()
-      |> Enum.sort_by(&progress_entry_rank/1)
-      |> Enum.take(@progress_state_max_entries)
-      |> Enum.map_join("\n", &progress_entry_line/1)
+      section =
+        frame.workspace_id
+        |> reader.()
+        |> Enum.sort_by(&progress_entry_rank/1)
+        |> Enum.take(@progress_state_max_entries)
+        |> Enum.map_join("\n", &progress_entry_line/1)
+
+      # ADR-0018 观测性：账面投影进入写作请求的事实（外部验收与运维据此归因；
+      # 空账面不发——诚实缺席不制造噪声）。
+      if section != "" do
+        LogEmit.emit(:context, :progress_state, :done, %{
+          turn_id: frame.turn_id,
+          entry_count: section |> String.split("\n") |> length()
+        })
+      end
+
+      section
     else
       ""
     end
