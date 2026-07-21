@@ -140,7 +140,11 @@ defmodule NovelApplication do
   end
 
   defp run_summary_maintenance_async(input, generator, repo) do
-    task = fn -> NovelApplication.ChapterSummaryMaintenance.run(input, generator, repo) end
+    task = fn ->
+      result = NovelApplication.ChapterSummaryMaintenance.run(input, generator, repo)
+      run_ledger_maintenance_after_summary(input, result)
+      result
+    end
 
     if sync_chapter_summary_maintenance?() do
       _ = task.()
@@ -148,6 +152,50 @@ defmodule NovelApplication do
     else
       start_background_task(task)
     end
+  end
+
+  # VS-00F CP1（ADR-0026 hook.UPDATE_LEDGERS）：章摘要产出后同任务串行更新弧光账
+  # （提炼输入直接吃摘要文本，无回读竞态）。摘要降级则以空文本进入维护用例，由其
+  # 降级路径登记 ledger.update.error；账面维护自身失败容忍，绝不影响采纳主链。
+  defp run_ledger_maintenance_after_summary(input, {:ok, summary}) do
+    NovelApplication.LedgerMaintenance.run(
+      %{
+        work_id: Map.get(input, :work_id),
+        chapter_id: Map.get(input, :chapter_id),
+        summary_text: summary.summary_text
+      },
+      ledger_maintenance_deps()
+    )
+  end
+
+  defp run_ledger_maintenance_after_summary(input, _degraded) do
+    NovelApplication.LedgerMaintenance.run(
+      %{
+        work_id: Map.get(input, :work_id),
+        chapter_id: Map.get(input, :chapter_id),
+        summary_text: ""
+      },
+      ledger_maintenance_deps()
+    )
+  end
+
+  defp ledger_maintenance_deps do
+    %{
+      roster: &NovelPersistence.WorkArchiveRepo.characters/1,
+      chapter_index: &NovelPersistence.LedgerRepository.chapter_index/1,
+      repo: %{
+        list: &NovelPersistence.LedgerRepository.list/1,
+        upsert: &NovelPersistence.LedgerRepository.upsert/1
+      }
+    }
+  end
+
+  @doc """
+  账面读取端口（VS-00F CP1 / ADR-0026）：供写作上下文 progress_state 投影与
+  探索面消费弧光账。未启用真实持久化时返回 nil（无账面注入，06 §5.0 诚实缺失）。
+  """
+  def persistence_ledger_reader do
+    if inject_persistence?(), do: &NovelPersistence.LedgerRepository.list/1
   end
 
   defp sync_chapter_summary_maintenance? do

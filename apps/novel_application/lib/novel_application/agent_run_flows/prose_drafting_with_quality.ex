@@ -595,6 +595,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
   defp continuation_guidance(_decision), do: nil
 
+  defp reader_dep(spec, key, fallback), do: Map.get(spec, key) || fallback.()
+
   defp do_execute_tool_step(
          run,
          sequence,
@@ -634,13 +636,13 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         provider_execution: provider_execution(spec, snapshot, :writer),
         quality_provider_execution: quality_provider_execution(spec, snapshot),
         chapter_prose_reader:
-          Map.get(spec, :chapter_prose_reader) ||
-            NovelApplication.persistence_chapter_prose_reader(),
+          reader_dep(spec, :chapter_prose_reader, &NovelApplication.persistence_chapter_prose_reader/0),
         chapter_summary_reader:
-          Map.get(spec, :chapter_summary_reader) ||
-            NovelApplication.persistence_chapter_summary_reader(),
+          reader_dep(spec, :chapter_summary_reader, &NovelApplication.persistence_chapter_summary_reader/0),
         character_reader:
-          Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader()
+          reader_dep(spec, :character_reader, &NovelApplication.persistence_character_reader/0),
+        ledger_reader:
+          reader_dep(spec, :ledger_reader, &NovelApplication.persistence_ledger_reader/0)
       })
 
     tool_result = Map.get(turn_result, :tool_result) || %{}

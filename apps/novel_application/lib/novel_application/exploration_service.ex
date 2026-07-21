@@ -26,7 +26,8 @@ defmodule NovelApplication.ExplorationService do
           refs: [String.t()]
         }
 
-  @archive_facets ~w(profile characters foreshadowing rules stats current_state relationships preferences)
+  # ledgers 面为 VS-00F CP1（ADR-0026）第 9 面：五本账进度视图（探索面同步律，08 §8）。
+  @archive_facets ~w(profile characters foreshadowing rules stats current_state relationships preferences ledgers)
   @summary_max_chars 1500
   @chapter_clip_chars 1200
 
@@ -207,23 +208,35 @@ defmodule NovelApplication.ExplorationService do
   # ── archive_read ──
 
   defp archive_read(work_id, facet) when facet in @archive_facets do
-    summary =
-      case facet do
-        "profile" -> render_profile(WorkArchiveService.profile(work_id))
-        "characters" -> render_characters(WorkArchiveService.characters(work_id))
-        "foreshadowing" -> render_memory_items("伏笔", WorkArchiveService.foreshadowing(work_id))
-        "rules" -> render_memory_items("规则", WorkArchiveService.rules(work_id))
-        "stats" -> render_stats(WorkArchiveService.stats(work_id))
-        "current_state" -> render_memory_items("当前状态", WorkArchiveService.current_states(work_id))
-        "relationships" -> render_memory_items("人物关系", WorkArchiveService.relationships(work_id))
-        "preferences" -> render_memory_items("作者偏好", WorkArchiveService.preferences(work_id))
-      end
-
-    {:ok, observation("archive_read", facet, summary, ["archive:#{facet}"])}
+    {:ok, observation("archive_read", facet, facet_summary(facet, work_id), ["archive:#{facet}"])}
   end
 
   defp archive_read(_work_id, facet),
     do: {:error, {:unknown_archive_facet, facet, @archive_facets}}
+
+  defp facet_summary("profile", work_id), do: render_profile(WorkArchiveService.profile(work_id))
+
+  defp facet_summary("characters", work_id),
+    do: render_characters(WorkArchiveService.characters(work_id))
+
+  defp facet_summary("foreshadowing", work_id),
+    do: render_memory_items("伏笔", WorkArchiveService.foreshadowing(work_id))
+
+  defp facet_summary("rules", work_id),
+    do: render_memory_items("规则", WorkArchiveService.rules(work_id))
+
+  defp facet_summary("stats", work_id), do: render_stats(WorkArchiveService.stats(work_id))
+
+  defp facet_summary("current_state", work_id),
+    do: render_memory_items("当前状态", WorkArchiveService.current_states(work_id))
+
+  defp facet_summary("relationships", work_id),
+    do: render_memory_items("人物关系", WorkArchiveService.relationships(work_id))
+
+  defp facet_summary("preferences", work_id),
+    do: render_memory_items("作者偏好", WorkArchiveService.preferences(work_id))
+
+  defp facet_summary("ledgers", work_id), do: render_ledgers(WorkArchiveService.ledgers(work_id))
 
   defp render_profile(profile) when map_size(profile) == 0, do: "作品档案暂无简介。"
 
@@ -260,6 +273,17 @@ defmodule NovelApplication.ExplorationService do
       title = item[:summary] || ""
       body = item[:content] || ""
       String.trim("#{title}：#{body}", "：")
+    end)
+  end
+
+  # VS-00F CP1：账面机械渲染（不代笔、不伪造）。CP1 只有弧光账；无数据诚实说明。
+  defp render_ledgers([]), do: "账面暂无条目（弧光账随正文采纳自动记账；其余账本随后续版本落地）。"
+
+  defp render_ledgers(entries) do
+    Enum.map_join(entries, "\n", fn entry ->
+      seen = Map.get(entry.payload || %{}, "last_seen_seq")
+      seen_text = if is_integer(seen), do: "最近出场第#{seen}章", else: "尚无出场记录"
+      "弧光账·#{entry.subject_label}：#{entry.status}，#{seen_text}"
     end)
   end
 

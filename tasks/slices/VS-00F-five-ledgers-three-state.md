@@ -16,7 +16,7 @@
 | CP | 范围 | M2 验收靶 | 状态 |
 |---|---|---|---|
 | CP0 | 契约冻结（rev2）+ ADR-0026 + 同批文档修订（25 §5/§8.1、ADR-0018 白名单、00c 回填、schemas 登记、ui/43 §5、AU-13 立档；ADR-0024 修订按拍板④留 CP2+ 按需） | — | **done**（2026-07-21） |
-| CP1 | 弧光账最小闭环（信封落地 + arc 提炼/漂移规则 + 裁决 + archive_read(ledgers) + writer 投影段） | 凌渊 stalled 被账面暴露；凌云/沈逸无设计接管被报告 | 未开工 |
+| CP1 | 弧光账最小闭环（信封落地 + arc 提炼/漂移规则 + 自动通过 + archive_read(ledgers) + writer 投影段） | 凌渊 STALLED 被账面暴露 | **后端闭环 + M2 重放 PASS**（2026-07-21）；余 Tauri 场景与 gap 见 §3 |
 | CP2 | 承诺账 + 信息账 + 全量对账报告首版 | 题材漂移产出 broken 候选；"第60章前指"泄露被报告 | 未开工 |
 | CP3 | 冲突账 + 情绪曲线账 | 主线停滞/情绪偏差可查 | 未开工 |
 | CP4 | 对账节拍机器化 + 规划消费账面 + 面板视图 | 下次百章狗粮：漂移 30 章内被拦截 | 未开工 |
@@ -33,6 +33,36 @@
 - **Acceptance Driver**：外部自动化驱动真实工作台：采纳一章正文 → 账面更新候选出现 → 作者采纳 → 档案/探索可查该账目 → 下一章写作简报含相关弧光条目（网络帧+UI 断言）；产品代码零验收感知。
 
 ---
+
+## 3. CP1 实施记录（2026-07-21）
+
+**已落地（后端全链）**：`NovelDomain.LedgerEntry`（信封+I-L1 构造校验+弧光机械规则
+纯函数）；`ledger_entries` 表+`LedgerRepository`（upsert 走 TENTATIVE→ACCEPTED
+两步仪式守 ADR-0019 INV-1，I-L1 持久化双兜底）；`LedgerMaintenance`（确定性
+提炼=摘要人物栏 roster 名/别名匹配、停滞窗口锚定采纳章 seq、失败容忍、
+ledger.update.* 业务日志）挂在章摘要维护后同任务串行；`archive_read` 第 9 面
+`ledgers`；`progress_state` 投影走 tool_input→CreativeRequest→real.ex 段
+（含"不得在正文引用状态词/章号"反泄漏约束——Q2/Q3 修向的首个落点）。
+
+**验证**：单测 12 项（域 5/维护 4/仓储 3）+ 全量 1221 测试 0 失败 + xref/arch +
+I1/I2/I3 + 静态扫描触碰文件 0。**M2 75 章书重放 PASS**（`scripts/
+vs00f_ledger_replay.exs` 对狗粮库副本重放 69 章摘要）：凌渊 STALLED@25、
+凌云 STALLED@52、沈墨 STALLED@47、林浩/柳烟/沈逸 ON_TRACK@75、韩晟零出场
+零条目（不凭空记账）——**机器账面完整复现人工 Q5 审计**；I-L3 实证（facet
+同源可查 6 条）。证据：`artifacts/ledger-replay/m2-replay-2026-07-21.txt`。
+
+**实施中的契约微调（数据驱动，登记备案）**：弧光状态机 `ON_TRACK ⇄ STALLED`
+为机械双向（出场解除停滞条件属记账事实，非漂移裁决；DRIFTED/RESUMED 仍
+裁决专属）——契约 §2.2 单向箭头据此放宽，域模块注释为准。
+
+**未闭环缺口（CP1 收口前必做，不写 done）**：
+- SC-AU13-A1 外部自动化驱动真实页面场景（采纳→记账→探索可查→下一章简报含
+  账面）——需 slice_verify 场景注册 + 真实 Tauri 验收。
+- StateTrace 留痕（契约 §3.2）：账面权威变更暂只有业务日志，与章摘要维护
+  同病（先例本就缺 StateTrace），随维护 trace 债一并补。
+- M2 重放的 roster 为测试夹具注入（狗粮 seed 无角色采纳），生产 roster 来自
+  角色采纳链路——不影响规则验证，登记素材边界。
+- 阈值校准：8 章在 M2 书上表现合理（三个消失角色全中、零误报），维持默认。
 
 ## 2. 决策记录
 

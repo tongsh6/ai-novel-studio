@@ -51,6 +51,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:chapter_prose_reader) => function(),
           optional(:chapter_summary_reader) => map() | nil,
           optional(:character_reader) => function() | nil,
+          optional(:ledger_reader) => function() | nil,
           optional(:source_turn_ref) => String.t(),
           optional(:idempotency_suffix) => String.t()
         }
@@ -119,6 +120,11 @@ defmodule NovelApplication.TurnExecutionService do
     characters =
       read_character_roster(frame, action, input[:character_reader])
 
+    # VS-00F CP1（ADR-0026）：progress_state_packet 账面投影（VS-00C §3.0 既有槽）。
+    # 仅 prose_writing 注入弧光账相关条目；无账面数据时诚实缺席（06 §5.0，不伪造）。
+    progress_state =
+      progress_state_section(frame, action, input[:ledger_reader])
+
     maybe_emit_target_word_count(frame, action)
 
     # VS-00E CP1：把章级方向展开为场级执行简述，渲染进 provider 请求并记入 trace。
@@ -149,7 +155,8 @@ defmodule NovelApplication.TurnExecutionService do
           character_roster: character_roster,
           characters: characters,
           execution_brief: render_execution_brief(brief_result),
-          decision_packet: decision_packet(brief_result)
+          decision_packet: decision_packet(brief_result),
+          progress_state: progress_state
         }
       )
 
@@ -337,6 +344,7 @@ defmodule NovelApplication.TurnExecutionService do
     |> maybe_put_characters(action, sections.characters)
     |> maybe_put_execution_brief(sections)
     |> maybe_put_decision_packet(sections)
+    |> maybe_put_progress_state(sections)
   end
 
   defp maybe_put_author_goal_text(input, text) when is_binary(text) and text != "",
@@ -352,6 +360,15 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp maybe_put_execution_brief(input, _sections), do: input
+
+  # VS-00F CP1：账面投影文本放入工具输入（progress_state_packet 的传输载体，
+  # 与 execution_brief 同型走 tool_input 独立字段，不进 context_text 不碰 stub 锚点）。
+  defp maybe_put_progress_state(input, %{progress_state: text})
+       when is_binary(text) and text != "" do
+    Map.put(input, "progress_state", text)
+  end
+
+  defp maybe_put_progress_state(input, _sections), do: input
 
   defp maybe_put_decision_packet(input, %{decision_packet: packet}) when is_map(packet) do
     Map.put(input, "decision_packet", packet)
@@ -629,6 +646,44 @@ defmodule NovelApplication.TurnExecutionService do
   defp prose_writing_action?(action) do
     (action[:target_ref] || action[:capability_name]) == "prose_writing"
   end
+
+  # VS-00F CP1：弧光账投影渲染（机械，不代笔）。STALLED 优先、按最近出场倒序，
+  # 上限 6 条控预算；无 reader/无账面数据返回空串（诚实缺席，不伪造账本存在）。
+  @progress_state_max_entries 6
+
+  defp progress_state_section(frame, action, reader) when is_function(reader, 1) do
+    if prose_writing_action?(action) do
+      frame.workspace_id
+      |> reader.()
+      |> Enum.sort_by(&progress_entry_rank/1)
+      |> Enum.take(@progress_state_max_entries)
+      |> Enum.map_join("\n", &progress_entry_line/1)
+    else
+      ""
+    end
+  end
+
+  defp progress_state_section(_frame, _action, _reader), do: ""
+
+  defp progress_entry_rank(entry) do
+    stalled_rank = if entry.status == "STALLED", do: 0, else: 1
+    seq = Map.get(entry.payload || %{}, "last_seen_seq") || 0
+    {stalled_rank, -seq}
+  end
+
+  defp progress_entry_line(entry) do
+    seen = Map.get(entry.payload || %{}, "last_seen_seq")
+    seen_text = if is_integer(seen), do: "最近出场第#{seen}章", else: "尚无出场记录"
+    "- #{entry.subject_label}：#{status_label(entry.status)}，#{seen_text}"
+  end
+
+  defp status_label("ON_TRACK"), do: "弧光推进中"
+  defp status_label("STALLED"), do: "已多章未出场"
+  defp status_label("DRIFTED"), do: "已确认偏离设计"
+  defp status_label("RESUMED"), do: "裁决后回归"
+  defp status_label("COMPLETED"), do: "弧光已完成"
+  defp status_label("RETIRED"), do: "已退场"
+  defp status_label(other), do: other
 
   # I-c（AU09 角色主档案）：从 Character 主档案读现有角色，注入创作/角色设计上下文。
   # 仅对会用到角色的能力注入：character_design（设计新角色看现有阵容）、prose_writing（写作保持一致）。

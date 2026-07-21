@@ -1,0 +1,199 @@
+defmodule NovelApplication.LedgerMaintenance do
+  @moduledoc """
+  五本账增量维护用例（VS-00F §3.1 `hook.UPDATE_LEDGERS` / ADR-0026）。CP1 只落弧光账。
+
+  正文采纳完成、章摘要维护产出后运行（同一后台任务内串行，输入直接吃摘要文本，
+  不回读竞态）。提炼为**确定性**规则（I-L4 模型不参与）：在摘要「人物状态与弧光」
+  栏（缺栏降级整段）中匹配已采纳角色名/别名 → 出场记账；随后按停滞规则重算全部
+  弧光条目。写入走仓储 upsert（系统发起的自动通过，LOW 风险，I-L2）。
+
+  **失败容忍**同章摘要维护先例：任何异常降级为 `{:degraded, reason}` +
+  `ledger.update.error` 业务日志（ADR-0018 module=ledger），绝不阻断采纳主链。
+  """
+
+  require NovelCommon.LogEmit
+
+  alias NovelCommon.LogEmit
+  alias NovelDomain.ChapterSummary
+  alias NovelDomain.LedgerEntry
+
+  @default_stall_threshold 8
+  @presence_note_max_chars 120
+
+  @typedoc "维护输入：采纳锚点 + 已产出的章摘要文本。"
+  @type input :: %{
+          required(:work_id) => String.t(),
+          required(:chapter_id) => String.t(),
+          required(:summary_text) => String.t(),
+          optional(:summary_ref) => String.t() | nil
+        }
+
+  @typedoc "端口：角色阵容 / 章序号索引 / 账面仓储。"
+  @type deps :: %{
+          required(:roster) => (String.t() -> [map()]),
+          required(:chapter_index) => (String.t() -> map()),
+          required(:repo) => %{
+            required(:list) => (String.t() -> [map()]),
+            required(:upsert) => (map() -> {:ok, map()} | {:error, term()})
+          }
+        }
+
+  @spec run(input(), deps()) :: {:ok, map()} | {:degraded, term()}
+  def run(input, deps) do
+    work_id = Map.get(input, :work_id)
+    chapter_id = Map.get(input, :chapter_id)
+
+    try do
+      do_run(input, deps, work_id, chapter_id)
+    rescue
+      error -> degrade(work_id, chapter_id, error)
+    end
+  end
+
+  defp do_run(input, deps, work_id, chapter_id) do
+    with :ok <- validate(input),
+         index = deps.chapter_index.(work_id),
+         {:ok, current} <- fetch_chapter(index, chapter_id) do
+      roster = deps.roster.(work_id)
+      text = extraction_text(input.summary_text)
+      sighted = Enum.filter(roster, &subject_in_text?(&1, text))
+      summary_ref = Map.get(input, :summary_ref) || "chapter_summary:#{chapter_id}"
+
+      sighted_count =
+        Enum.count(sighted, fn character ->
+          record_sighting(deps.repo, work_id, character, chapter_id, current, text, summary_ref)
+        end)
+
+      # 停滞窗口锚定本次采纳章的 seq（写作进度），不是章索引最大 seq——索引里
+      # 含未写的计划章，用它会把窗口提前拉爆（增量规划先扩章、后逐章写的形态）。
+      stalled_count = recompute_stalls(deps.repo, work_id, current.seq)
+
+      LogEmit.emit(:ledger, :update, :done, %{
+        work_id: work_id,
+        chapter_id: chapter_id,
+        ledger: "arc",
+        sighted: sighted_count,
+        stalled: stalled_count,
+        roster: length(roster)
+      })
+
+      {:ok, %{sighted: sighted_count, stalled: stalled_count}}
+    else
+      {:error, reason} -> degrade(work_id, chapter_id, reason)
+    end
+  end
+
+  defp validate(%{work_id: work_id, chapter_id: chapter_id, summary_text: text})
+       when is_binary(work_id) and work_id != "" and is_binary(chapter_id) and
+              chapter_id != "" and is_binary(text) and text != "",
+       do: :ok
+
+  defp validate(_input), do: {:error, :missing_ledger_maintenance_input}
+
+  defp fetch_chapter(index, chapter_id) do
+    case Map.get(index, chapter_id) do
+      %{seq: seq} = chapter when is_integer(seq) -> {:ok, chapter}
+      _ -> {:error, :chapter_not_in_index}
+    end
+  end
+
+  # 提炼文本：优先「人物状态与弧光」栏；缺栏降级「情节推进」栏；再降整段。
+  defp extraction_text(summary_text) do
+    sections = ChapterSummary.parse_sections(summary_text)
+    Map.get(sections, :characters) || Map.get(sections, :plot) || summary_text
+  end
+
+  defp subject_in_text?(character, text) do
+    names = [character[:name] | character[:aliases] || []]
+
+    Enum.any?(names, fn name ->
+      is_binary(name) and String.length(name) >= 2 and String.contains?(text, name)
+    end)
+  end
+
+  defp record_sighting(repo, work_id, character, chapter_id, current, text, summary_ref) do
+    existing =
+      repo.list.(work_id)
+      |> Enum.find(&(&1.subject_ref == to_string(character[:id])))
+
+    entry_result =
+      case existing do
+        nil ->
+          LedgerEntry.new(%{
+            work_id: work_id,
+            ledger: "arc",
+            subject_kind: "character",
+            subject_ref: to_string(character[:id]),
+            subject_label: character[:name],
+            status: "ON_TRACK",
+            source_refs: [summary_ref]
+          })
+
+        found ->
+          LedgerEntry.new(Map.put(found, :ledger, found.ledger))
+      end
+
+    case entry_result do
+      {:ok, entry} ->
+        entry
+        |> LedgerEntry.arc_sighted(%{
+          chapter_ref: chapter_id,
+          chapter_seq: current.seq,
+          source_ref: summary_ref,
+          presence_note: presence_note(text)
+        })
+        |> persist(repo)
+
+      {:error, _reason} ->
+        false
+    end
+  end
+
+  defp presence_note(text) do
+    text |> String.trim() |> String.slice(0, @presence_note_max_chars)
+  end
+
+  defp recompute_stalls(repo, work_id, current_seq) do
+    threshold =
+      Application.get_env(:novel_application, :arc_stall_threshold_chapters, @default_stall_threshold)
+
+    repo.list.(work_id)
+    |> Enum.count(fn stored ->
+      with {:ok, entry} <- LedgerEntry.new(stored),
+           {:changed, changed} <- LedgerEntry.arc_recompute_stall(entry, current_seq, threshold) do
+        persist(changed, repo) and changed.status == "STALLED"
+      else
+        _ -> false
+      end
+    end)
+  end
+
+  defp persist(%LedgerEntry{} = entry, repo) do
+    attrs = %{
+      work_id: entry.work_id,
+      ledger: entry.ledger,
+      subject_kind: entry.subject_kind,
+      subject_ref: entry.subject_ref,
+      subject_label: entry.subject_label,
+      design_ref: entry.design_ref,
+      status: entry.status,
+      payload: entry.payload,
+      source_refs: entry.source_refs,
+      last_event_chapter: entry.last_event_chapter,
+      revision: entry.revision
+    }
+
+    match?({:ok, _}, repo.upsert.(attrs))
+  end
+
+  defp degrade(work_id, chapter_id, reason) do
+    LogEmit.emit(:ledger, :update, :error, %{
+      work_id: work_id,
+      chapter_id: chapter_id,
+      reason_code: :ledger_maintenance_failed,
+      outcome_detail: inspect(reason)
+    })
+
+    {:degraded, reason}
+  end
+end
