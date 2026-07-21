@@ -228,8 +228,9 @@ UI 实现必须严格遵循 `docs/design/ui/` 中的设计文档和 Pencil 原�
 4. **Consumer**：第一个真实消费者是谁？Channel、Frontend、Application test、Projection builder 或其他？
 5. **Proof**：用什么测试或命令证明链路和不变量成立？
 6. **Acceptance Driver**：由哪个外部自动化脚本驱动真实页面完成场景化验收？产品代码是否新增任何验收感知逻辑（默认必须为 no；若不是 no，必须说明它为何是真实产品能力而非验收钩子）？
+7. **Exploration**：本 slice 物化的要素/数据，AI 经探索面（判断循环内部翼工具目录）如何同批可达（`docs/design/08-novel-element-model.md` §8 探索面同步律）？非要素物化 slice 可答"不适用"并说明理由。
 
-如果这 6 项答不上来，先补 slice 设计，不要编码。
+如果这 7 项答不上来，先补 slice 设计，不要编码。
 
 ### Slice 完成标准：外部自动化驱动真实页面
 
