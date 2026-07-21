@@ -24,8 +24,13 @@ if (next) {
   requireSection(next, files.next, "## 5. Selection Rule");
   requireSection(next, files.next, "## 6. Decision Log");
 
-  const nextTasks = [...next.matchAll(/\|\s*\d+\s*\|\s*([^|\s]+)\s*\|\s*next\s*\|/g)]
-    .map((match) => match[1]);
+  // 队列表列序（2026-07-19 三轨改版）：Order | 阶段 | 轨 | 任务 | 状态 | 完成判据。
+  // 状态在第 5 列，允许加粗与括注（如 "**next**（…）"）。
+  const nextTasks = [
+    ...next.matchAll(
+      /\|\s*\d+(?:\.\d+)?\s*\|([^|]*)\|[^|]*\|[^|]*\|\s*\*{0,2}next\*{0,2}(?:[^|]*)\|/g,
+    ),
+  ].map((match) => match[1].trim());
 
   if (nextTasks.length !== 1) {
     failures.push(
