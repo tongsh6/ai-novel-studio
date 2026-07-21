@@ -20,6 +20,7 @@
 # 退出码：0 通过；1 低于阈值；65 凭据/环境阻塞（全部试验均为连接/凭据类失败）。
 
 alias NovelAgent.Provider.{DeepSeek, Execution}
+alias NovelApplication.ExplorationService
 alias NovelApplication.JudgmentProtocol
 
 defmodule ModelContracts.JudgmentProtocol do
@@ -166,6 +167,9 @@ defmodule ModelContracts.JudgmentProtocol do
       form_applicable: Enum.count(trials, &(&1.form in [:pass, :fail])),
       judgment_pass: Enum.count(trials, &(&1.judgment == :pass)),
       judgment_applicable: Enum.count(trials, &(&1.judgment in [:pass, :fail])),
+      call2_first_pass: Enum.count(trials, &(&1.call2_first_pass == true)),
+      call2_first_applicable: Enum.count(trials, &is_boolean(&1.call2_first_pass)),
+      call2_retries: trials |> Enum.map(& &1.call2_retries) |> Enum.sum(),
       failures:
         trials
         |> Enum.map(& &1.detail)
@@ -187,7 +191,10 @@ defmodule ModelContracts.JudgmentProtocol do
       options: [
         explore: true,
         capabilities:
-          ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
+          ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read),
+        # T4 镜像修正：生产恒传 explore_tools（dialogue_planning_service），探针此前
+        # 缺失导致 call2 prompt 形态与生产不同形。
+        explore_tools: ExplorationService.tool_names()
       ]
     }
 
@@ -205,15 +212,38 @@ defmodule ModelContracts.JudgmentProtocol do
             {:fail, d} -> {:fail, d}
           end
 
-        %{protocol: :pass, form: form, judgment: judgment_outcome, detail: detail}
+        # T4 体温计：provider_call_count=2 即 call2 首调可用（无越界/结构重试）。
+        # T1/T2c 只看最终结果，内部重试把首调自造能力名完全遮住（假绿教训）。
+        %{
+          protocol: :pass,
+          form: form,
+          judgment: judgment_outcome,
+          detail: detail,
+          call2_first_pass: Map.get(judgment, :provider_call_count) == 2,
+          call2_retries: max((Map.get(judgment, :provider_call_count) || 2) - 2, 0)
+        }
 
       {:error, reason} ->
         case classify_error(reason, "judgment") do
           {:blocked, detail} ->
-            %{protocol: :blocked, form: :skip, judgment: :skip, detail: detail}
+            %{
+              protocol: :blocked,
+              form: :skip,
+              judgment: :skip,
+              detail: detail,
+              call2_first_pass: nil,
+              call2_retries: 0
+            }
 
           {:fail, detail} ->
-            %{protocol: :fail, form: :skip, judgment: :skip, detail: detail}
+            %{
+              protocol: :fail,
+              form: :skip,
+              judgment: :skip,
+              detail: detail,
+              call2_first_pass: false,
+              call2_retries: 1
+            }
         end
     end
   end
@@ -383,6 +413,10 @@ defmodule ModelContracts.JudgmentProtocol do
           form_applicable = cases |> Enum.map(& &1.form_applicable) |> Enum.sum()
           judgment_pass = cases |> Enum.map(& &1.judgment_pass) |> Enum.sum()
           judgment_applicable = cases |> Enum.map(& &1.judgment_applicable) |> Enum.sum()
+          call2_first_pass = cases |> Enum.map(& &1.call2_first_pass) |> Enum.sum()
+
+          call2_first_applicable =
+            cases |> Enum.map(& &1.call2_first_applicable) |> Enum.sum()
 
           %{
             variant: result.variant,
@@ -391,7 +425,10 @@ defmodule ModelContracts.JudgmentProtocol do
             blocked: blocked,
             protocol_compliance_rate: rate(protocol_pass, total - blocked),
             form_adherence_rate: rate(form_pass, form_applicable),
-            judgment_accuracy: rate(judgment_pass, judgment_applicable)
+            judgment_accuracy: rate(judgment_pass, judgment_applicable),
+            # T4 体温计：首调即合法结构的比率与重试总数（阈值暂不入闸门，先测量）。
+            call2_first_try_rate: rate(call2_first_pass, call2_first_applicable),
+            call2_retries: cases |> Enum.map(& &1.call2_retries) |> Enum.sum()
           }
         end)
     }
@@ -418,7 +455,8 @@ defmodule ModelContracts.JudgmentProtocol do
       IO.puts(
         "[mbc/judgment-protocol] #{summary.provider}/#{variant.variant} " <>
           "protocol=#{variant.protocol_compliance_rate} form=#{variant.form_adherence_rate} " <>
-          "judgment=#{variant.judgment_accuracy} blocked=#{variant.blocked}/#{variant.total_runs}"
+          "judgment=#{variant.judgment_accuracy} call2_first_try=#{variant.call2_first_try_rate} " <>
+          "call2_retries=#{variant.call2_retries} blocked=#{variant.blocked}/#{variant.total_runs}"
       )
     end)
 

@@ -546,11 +546,11 @@ defmodule NovelApplication.JudgmentProtocol do
           ## 输出格式
           - native tool call：必须调用 #{@judgment_tool_name}，把判断放入 tool arguments。
           - action：#{actions_help(opts)}。
-          - execute 时 capability 填能力目录中的能力名（只能取目录名）；plan 及其它 action 的 capability 填 null#{explore_capability_note(opts)}。
+          - execute 时 #{capability_help(opts)}；plan 及其它 action 的 capability 填 null#{explore_capability_note(opts)}。
           - reply_included：action=reply 且判断说明已包含给作者的回复正文时为 true。
           - candidate_directions：仅当 action=reply 且你的回复是给作者 2-3 个可选创作方向时填写
             （每个方向 {title, pitch, tone_tags}）；其它情况为空数组。
-          - explore_request：action=explore 时必填 {tool, query}——tool 从「探索目录」选择，
+          - explore_request：action=explore 时必填 {tool, query}——#{explore_tool_help(opts)}，
             query 按该工具的 query 说明填写；其它 action 置 null。
           - author_narrative：若你在上一步没有输出判断说明，在此补写一段作者可见原文。
           """
@@ -639,15 +639,49 @@ defmodule NovelApplication.JudgmentProtocol do
   # 全文已在 call1 流式呈现；长回显是上下文负载与判定漂移的放大器（M2 实证）。
   @call2_echo_max_chars 240
 
+  # 双端保留（T4 追补，2026-07-21 M2 实锤）：头部截断在叙事变长（扩章批长摘要
+  # 复述）时必然剪掉尾部"判定为单动作执行"结论，call2 只见意图复述不见裁决，
+  # 回落到"登记"元指令误判 reply（第18/19/21章 10 分钟 3 次，重试均纠正）。
+  # 头 120 保意图起点，尾 120 保结论/内联回复尾。
   defp clip_echo(narrative) when is_binary(narrative) do
     if String.length(narrative) > @call2_echo_max_chars do
-      String.slice(narrative, 0, @call2_echo_max_chars) <> "…（后略）"
+      half = div(@call2_echo_max_chars, 2)
+
+      String.slice(narrative, 0, half) <>
+        "\n…（中略）…\n" <> String.slice(narrative, -half, half)
     else
       narrative
     end
   end
 
   defp clip_echo(narrative), do: to_string(narrative)
+
+  # T4（call2 病灶收口，2026-07-21）：目录名必须进 call2 prompt 正文。M2 实锤：
+  # 目录只放 schema enum（且包在 anyOf 内层）时对模型不可见——全天 15 次首调
+  # 0 命中 prose_writing（8 次自造名浮出 / 1 次 null / 6 次被约束解码静默顶替成
+  # 任意合法枚举值），隐藏推理链明说"目录列表未给出，只能猜"；顶替后值合法导致
+  # 越界重试网被绕过、误路由直通执行（对照组：直挂 enum 的 action 字段全天合法）。
+  # 措辞与 capability_retry_hint 一致——带目录的重试文案 M2 全天 8/9 命中，是
+  # 实证写法。干净实例 A/B 重放：旧 prompt 0/10、新 prompt 判 execute 时 4/4。
+  defp capability_help(opts) do
+    case Keyword.get(opts, :capabilities) do
+      capabilities when is_list(capabilities) and capabilities != [] ->
+        "capability 只能取 #{Enum.join(capabilities, " / ")}，不得自造能力名"
+
+      _ ->
+        "capability 填能力目录中的能力名（只能取目录名）"
+    end
+  end
+
+  defp explore_tool_help(opts) do
+    case Keyword.get(opts, :explore_tools) do
+      tools when is_list(tools) and tools != [] ->
+        "tool 只能取 #{Enum.join(tools, " / ")}，不得自造工具名"
+
+      _ ->
+        "tool 从「探索目录」选择"
+    end
+  end
 
   defp capability_retry_hint(options) do
     case Keyword.get(options || [], :capabilities) do

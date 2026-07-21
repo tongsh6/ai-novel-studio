@@ -133,6 +133,61 @@ defmodule NovelApplication.JudgmentProtocolTest do
              request(%{"action" => "execute", "reason" => "go", "capability" => "text_generation"})
   end
 
+  test "call2 prompt 注入目录（T4 M2 误路由回归）：传目录时列出实名，未传保持旧措辞" do
+    # M2 实锤（2026-07-20）：目录只放 schema enum（anyOf 内层）对模型不可见，
+    # 全天 15 次首调 0 命中（自造名/null/被约束解码顶替成任意合法值）；顶替值
+    # 合法导致越界重试网被绕过。目录名必须出现在 call2 prompt 正文里。
+    input = %{
+      author_text: "接着写正文",
+      options: [
+        explore: true,
+        capabilities: ~w(character_design prose_writing),
+        explore_tools: ~w(prose_search chapter_read)
+      ]
+    }
+
+    text = input |> JudgmentProtocol.decision_prompt(@narrative) |> prompt_text()
+
+    assert text =~ "capability 只能取 character_design / prose_writing，不得自造能力名"
+    assert text =~ "tool 只能取 prose_search / chapter_read，不得自造工具名"
+
+    bare_text =
+      %{author_text: "接着写正文", options: []}
+      |> JudgmentProtocol.decision_prompt(@narrative)
+      |> prompt_text()
+
+    assert bare_text =~ "capability 填能力目录中的能力名（只能取目录名）"
+    assert bare_text =~ "tool 从「探索目录」选择"
+  end
+
+  test "call2 回显双端保留（M2 达标跑缺陷回归）：长叙事保头尾，结论不被剪，短叙事原样" do
+    # M2 实锤（2026-07-21）：扩章批摘要变长后 call1 叙事超 240 字符，旧头部截断
+    # 剪掉尾部"单动作执行"结论 → call2 只见意图复述误判 reply（97/112 次重试）。
+    head = String.duplicate("述", 300)
+    conclusion = "因此本轮判定为单动作执行。"
+    long_narrative = head <> conclusion
+
+    text =
+      %{author_text: "写第21章", options: []}
+      |> JudgmentProtocol.decision_prompt(long_narrative)
+      |> prompt_text()
+
+    assert text =~ String.duplicate("述", 120)
+    assert text =~ "…（中略）…"
+    assert text =~ conclusion
+    refute text =~ String.duplicate("述", 121)
+
+    short_narrative = "判断说明很短。判定为直接回复。"
+
+    short_text =
+      %{author_text: "写第21章", options: []}
+      |> JudgmentProtocol.decision_prompt(short_narrative)
+      |> prompt_text()
+
+    assert short_text =~ short_narrative
+    refute short_text =~ "（中略）"
+  end
+
   test "explore 工具目录约束（judgment-explore-internal 场景验收实测缺陷回归）：目录外工具名重试后诚实失败，enum 进 schema" do
     tools = ~w(prose_search chapter_read archive_read memory_recall)
 
