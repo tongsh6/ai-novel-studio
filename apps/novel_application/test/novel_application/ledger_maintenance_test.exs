@@ -129,6 +129,34 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     assert leak.source_refs != []
   end
 
+  test "CP2b 节拍：章 seq 命中节拍值触发 reconcile 端口，未命中不触发" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    deps =
+      deps(agent)
+      |> Map.put(:reconcile, fn work_id, seq ->
+        Agent.update(calls, &[{work_id, seq} | &1])
+        {:ok, :no_findings}
+      end)
+
+    {:ok, _} =
+      LedgerMaintenance.run(
+        %{work_id: "w", chapter_id: "ch-3", summary_text: summary_with_characters("凌渊。")},
+        deps
+      )
+
+    assert Agent.get(calls, & &1) == []
+
+    {:ok, _} =
+      LedgerMaintenance.run(
+        %{work_id: "w", chapter_id: "ch-10", summary_text: summary_with_characters("凌渊。")},
+        deps
+      )
+
+    assert Agent.get(calls, & &1) == [{"w", 10}]
+  end
+
   test "失败容忍：空摘要/章不在索引降级为 degraded，不抛错" do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
 

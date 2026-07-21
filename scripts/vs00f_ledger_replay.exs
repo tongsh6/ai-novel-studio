@@ -132,6 +132,23 @@ for l <- leaks, do: IO.puts("  #{l.subject_label} (#{Map.get(l.payload, "fact")}
     NovelApplication.LedgerReconciliationService.persistence_deps()
   )
 
+# CP2b：物化报告（TENTATIVE）→ latest 可读 → 探索面 ledgers 呈现
+{:ok, report} =
+  NovelApplication.LedgerReconciliationService.materialize(
+    work_id,
+    NovelApplication.LedgerReconciliationService.persistence_deps(),
+    NovelApplication.LedgerReconciliationService.persistence_report_repo(),
+    75
+  )
+
+latest = NovelPersistence.ReconciliationReportRepo.latest(work_id)
+
+report_ok =
+  is_map(report) and latest != nil and latest.adoption_status == "TENTATIVE" and
+    latest.finding_count == length(findings)
+
+IO.puts("[replay] CP2b 报告: id=#{latest && latest.id} findings=#{latest && latest.finding_count} status=#{latest && latest.adoption_status}")
+
 IO.puts("[replay] reconcile findings=#{length(findings)} rules=#{inspect(counts)}")
 for f <- findings, do: IO.puts("  [#{f.severity}] #{f.rule}: #{String.slice(f.signal, 0, 80)}")
 
@@ -144,8 +161,8 @@ IO.puts(
 )
 
 if replayed > 0 and il1_ok and lingyuan_stalled and late_lead_on_track and
-     genre_fired and leak_fired and stall_reported do
-  IO.puts("[replay] PASS —— M2 漂移靶（CP1 弧光 + CP2a 承诺/信息/报告）全部被账面暴露")
+     genre_fired and leak_fired and stall_reported and report_ok do
+  IO.puts("[replay] PASS —— M2 漂移靶（CP1 弧光 + CP2a 规则 + CP2b 报告物化）全部被账面暴露")
 else
   IO.puts("[replay] FAIL")
   System.halt(1)

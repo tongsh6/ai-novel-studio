@@ -75,6 +75,11 @@ defmodule NovelApplication.LedgerMaintenance do
       ensure_genre_promise(deps, work_id)
       leaked_count = record_future_ref_leaks(deps.repo, work_id, input, chapter_id, current)
 
+      # CP2b 节拍（产品判据 milestones §4.4 每 10-20 章；简版=章 seq 整除节拍值
+      # 触发；显式发起与 profile 化归 CP4）：全量对账并物化报告（TENTATIVE，
+      # 作者裁决）。失败容忍由 reconcile 端口内部日志承担，不阻断记账。
+      maybe_reconcile(deps, work_id, current.seq)
+
       LogEmit.emit(:ledger, :update, :done, %{
         work_id: work_id,
         chapter_id: chapter_id,
@@ -186,6 +191,21 @@ defmodule NovelApplication.LedgerMaintenance do
     else
       _ -> :skip
     end
+  end
+
+  @default_reconcile_cadence 10
+
+  defp maybe_reconcile(deps, work_id, current_seq) do
+    cadence =
+      Application.get_env(:novel_application, :ledger_reconcile_cadence_chapters, @default_reconcile_cadence)
+
+    reconcile = Map.get(deps, :reconcile)
+
+    if is_function(reconcile, 2) and cadence > 0 and rem(current_seq, cadence) == 0 do
+      reconcile.(work_id, current_seq)
+    end
+
+    :ok
   end
 
   defp genre_promise_exists?(repo, work_id) do

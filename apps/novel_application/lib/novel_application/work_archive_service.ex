@@ -32,8 +32,13 @@ defmodule NovelApplication.WorkArchiveService do
   @spec preferences(String.t()) :: [map()]
   def preferences(work_id) when is_binary(work_id), do: WorkArchiveRepo.preferences(work_id)
 
-  @doc "五本账进度视图（VS-00F CP1 / ADR-0026；当前只有弧光账）。"
+  @doc "五本账进度视图（VS-00F CP1/CP2a：弧光/承诺/信息账）。"
   @spec ledgers(String.t()) :: [map()]
   def ledgers(work_id) when is_binary(work_id),
     do: NovelPersistence.LedgerRepository.list_all(work_id)
+
+  @doc "当前活跃对账报告（TENTATIVE，作者裁决材料；无则 nil。VS-00F CP2b）。"
+  @spec latest_reconciliation_report(String.t()) :: map() | nil
+  def latest_reconciliation_report(work_id) when is_binary(work_id),
+    do: NovelPersistence.ReconciliationReportRepo.latest(work_id)
 end

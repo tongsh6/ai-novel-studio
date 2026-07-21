@@ -236,7 +236,10 @@ defmodule NovelApplication.ExplorationService do
   defp facet_summary("preferences", work_id),
     do: render_memory_items("作者偏好", WorkArchiveService.preferences(work_id))
 
-  defp facet_summary("ledgers", work_id), do: render_ledgers(WorkArchiveService.ledgers(work_id))
+  defp facet_summary("ledgers", work_id) do
+    render_ledgers(WorkArchiveService.ledgers(work_id)) <>
+      render_reconciliation_report(WorkArchiveService.latest_reconciliation_report(work_id))
+  end
 
   defp render_profile(profile) when map_size(profile) == 0, do: "作品档案暂无简介。"
 
@@ -296,6 +299,21 @@ defmodule NovelApplication.ExplorationService do
   end
 
   defp render_ledger_entry(entry), do: "#{entry.ledger}·#{entry.subject_label}：#{entry.status}"
+
+  # CP2b：最新对账报告（TENTATIVE 裁决材料）随账面机械呈现；无报告不虚构。
+  defp render_reconciliation_report(nil), do: ""
+
+  defp render_reconciliation_report(report) do
+    items =
+      report.findings
+      |> Enum.map_join("\n", fn finding ->
+        severity = finding["severity"] || finding[:severity]
+        signal = finding["signal"] || finding[:signal]
+        "- [#{severity}] #{signal}"
+      end)
+
+    "\n对账报告（待作者裁决，#{report.finding_count} 项偏离）：\n#{items}"
+  end
 
   defp render_stats(stats) do
     "已采纳正文总字数 #{stats[:words_total] || 0}；章节数 #{stats[:chapters] || 0}；" <>

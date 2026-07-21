@@ -25,9 +25,11 @@ CP2a 已落（2026-07-21）：承诺/信息账对象化+提炼扩展（genre 承
 档案播种、正文前指→LEAKED 条目）+ 对账规则 R1/R3/R4（R3 身份锚点=作品
 自身早期摘要自识别 ∧ 文档频率过滤，M2 实测锚点[调频 公司 灵气 散修]末窗
 归零 4/8 命中；最小锚点数护栏防孤锚误判；R2 无设计接管需 design_ref 回填
-延 CP2b）+ 只读扫描服务（I-L2 权威无 diff）；重放 PASS 全靶。下一步：
-CP2b（报告物化+ledger_reconciliation_v1 profile+作者可见面）→ CP2c
-（四处置裁决 roundtrip+裁决面入册）。
+延 CP2b）+ 只读扫描服务（I-L2 权威无 diff）；重放 PASS 全靶。CP2b 已落（同日）：报告物化（TENTATIVE/单活跃/SUPERSEDE 链，空偏离不落盘）
++ 章数节拍触发（默认 10；profile 化按契约归 CP4）+ ledgers 探索面附最新
+报告（作者可见）；重放 PASS（报告 5 偏离 TENTATIVE）。下一步：CP2c
+（四处置裁决 roundtrip：revise_prose→VS-00E §8、dismiss→Experience、
+裁决面入册 ADR-0024，SC-AU13-B1/B2 场景）。
 
 ---
 
