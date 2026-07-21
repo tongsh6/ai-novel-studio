@@ -10,6 +10,18 @@
 
 ## 1. Current Focus
 
+**M3 开工（2026-07-21）：VS-00F 五本账+三态对账 CP0——契约 Proposed 待用户冻结**
+
+P1 已关闭（用户裁决），队首切 M3。CP0 产出：契约包
+`docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md`
+（LedgerEntry 统一信封 + 五账 payload/状态机 + 两级对账节拍 + 处置四枚举 +
+四不变量 I-L1~L4 + CP1-CP4 分期，M2 缺陷 Q5 全部映射为各 CP 验收靶）+
+执行 slice `tasks/slices/VS-00F-five-ledgers-three-state.md`（CP1 六问已答，
+M2 75 章书重放为 Proof 素材）。**开放问题 4 项待拍板**（契约 §8：信封 vs
+分表 / CP1 选弧光账 / 停滞阈值 / 对账报告入口形态），冻结前不编码。
+
+---
+
 **M2 达标跑完成（2026-07-21）：101,421 字 / 75 章 / 5.28h / 导出 ✓，P1 字数目标首次在判断纪元达成；质量核对与残留收口待做**
 
 全新起跑（原断点库随机器重启被 macOS 清 TMPDIR 蒸发，已修：狗粮库迁
