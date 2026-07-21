@@ -21,7 +21,13 @@ progress_state 写作投影（含 Q2/Q3 反泄漏约束首落点）全链落地�
 测试 0 失败+全门绿+触碰文件扫描清零。**CP1 已收口**：真实 Tauri 场景 `au13-arc-ledger-roundtrip` 首轮 PASS（采纳
 即记账 sighted=1→探索回复引用真实账目页面可见→次章请求带账面投影
 entry_count=1，九事件链全齐）；StateTrace 留痕随维护 trace 债后补（不阻）。
-下一步：CP2（承诺账+信息账+对账报告首版+裁决面入册）。
+CP2a 已落（2026-07-21）：承诺/信息账对象化+提炼扩展（genre 承诺
+档案播种、正文前指→LEAKED 条目）+ 对账规则 R1/R3/R4（R3 身份锚点=作品
+自身早期摘要自识别 ∧ 文档频率过滤，M2 实测锚点[调频 公司 灵气 散修]末窗
+归零 4/8 命中；最小锚点数护栏防孤锚误判；R2 无设计接管需 design_ref 回填
+延 CP2b）+ 只读扫描服务（I-L2 权威无 diff）；重放 PASS 全靶。下一步：
+CP2b（报告物化+ledger_reconciliation_v1 profile+作者可见面）→ CP2c
+（四处置裁决 roundtrip+裁决面入册）。
 
 ---
 

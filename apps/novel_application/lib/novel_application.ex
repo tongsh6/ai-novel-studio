@@ -162,7 +162,8 @@ defmodule NovelApplication do
       %{
         work_id: Map.get(input, :work_id),
         chapter_id: Map.get(input, :chapter_id),
-        summary_text: summary.summary_text
+        summary_text: summary.summary_text,
+        prose_text: Map.get(input, :prose_text)
       },
       ledger_maintenance_deps()
     )
@@ -183,8 +184,9 @@ defmodule NovelApplication do
     %{
       roster: &NovelPersistence.WorkArchiveRepo.characters/1,
       chapter_index: &NovelPersistence.LedgerRepository.chapter_index/1,
+      profile: &NovelPersistence.WorkArchiveRepo.profile/1,
       repo: %{
-        list: &NovelPersistence.LedgerRepository.list/1,
+        list: &NovelPersistence.LedgerRepository.list_all/1,
         upsert: &NovelPersistence.LedgerRepository.upsert/1
       }
     }

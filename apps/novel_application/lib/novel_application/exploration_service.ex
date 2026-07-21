@@ -276,16 +276,26 @@ defmodule NovelApplication.ExplorationService do
     end)
   end
 
-  # VS-00F CP1：账面机械渲染（不代笔、不伪造）。CP1 只有弧光账；无数据诚实说明。
-  defp render_ledgers([]), do: "账面暂无条目（弧光账随正文采纳自动记账；其余账本随后续版本落地）。"
+  # VS-00F 账面机械渲染（不代笔、不伪造）。CP2a 起含弧光/承诺/信息账；无数据诚实说明。
+  defp render_ledgers([]), do: "账面暂无条目（账本随正文采纳自动记账；未落地账本诚实缺席）。"
 
-  defp render_ledgers(entries) do
-    Enum.map_join(entries, "\n", fn entry ->
-      seen = Map.get(entry.payload || %{}, "last_seen_seq")
-      seen_text = if is_integer(seen), do: "最近出场第#{seen}章", else: "尚无出场记录"
-      "弧光账·#{entry.subject_label}：#{entry.status}，#{seen_text}"
-    end)
+  defp render_ledgers(entries), do: Enum.map_join(entries, "\n", &render_ledger_entry/1)
+
+  defp render_ledger_entry(%{ledger: "arc"} = entry) do
+    seen = Map.get(entry.payload || %{}, "last_seen_seq")
+    seen_text = if is_integer(seen), do: "最近出场第#{seen}章", else: "尚无出场记录"
+    "弧光账·#{entry.subject_label}：#{entry.status}，#{seen_text}"
   end
+
+  defp render_ledger_entry(%{ledger: "promise"} = entry),
+    do: "承诺账·#{entry.subject_label}：#{entry.status}"
+
+  defp render_ledger_entry(%{ledger: "information"} = entry) do
+    fact = Map.get(entry.payload || %{}, "fact") || entry.subject_label
+    "信息账·#{entry.subject_label}：#{entry.status}（#{fact}）"
+  end
+
+  defp render_ledger_entry(entry), do: "#{entry.ledger}·#{entry.subject_label}：#{entry.status}"
 
   defp render_stats(stats) do
     "已采纳正文总字数 #{stats[:words_total] || 0}；章节数 #{stats[:chapters] || 0}；" <>

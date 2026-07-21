@@ -27,6 +27,17 @@ defmodule NovelPersistence.LedgerRepository do
     |> Enum.map(&to_map/1)
   end
 
+  @doc "作品全部账面条目（五账通查，CP2a：维护与档案面消费）。"
+  @spec list_all(String.t()) :: [map()]
+  def list_all(work_id) when is_binary(work_id) do
+    LedgerEntry
+    |> where([e], e.work_id == ^work_id)
+    |> where([e], e.adoption_status in ^@accepted)
+    |> order_by([e], asc: e.ledger, asc: e.subject_label)
+    |> Repo.all()
+    |> Enum.map(&to_map/1)
+  end
+
   @doc """
   按 (work_id, ledger, subject_ref) 幂等写入账面（维护自动通过通道，I-L2 /
   ADR-0019 INV-1）：先落/更新 TENTATIVE 行，再由系统发起接受到 ACCEPTED——
@@ -59,6 +70,26 @@ defmodule NovelPersistence.LedgerRepository do
       {:ok, to_map(accepted)}
     else
       {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  @doc "已接受章摘要按章序：[{seq, summary_text}]，供对账规则（R3 身份锚点）消费。"
+  @spec accepted_summaries_by_seq(String.t()) :: [{non_neg_integer(), String.t()}]
+  def accepted_summaries_by_seq(work_id) when is_binary(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, uuid} ->
+        from(s in NovelPersistence.Schemas.ChapterSummary,
+          join: c in Chapter,
+          on: fragment("?", c.id) == fragment("?", s.chapter_id),
+          where: s.work_id == ^work_id and c.work_id == ^uuid,
+          where: s.status in ^@accepted,
+          order_by: [asc: c.seq],
+          select: {c.seq, s.summary_text}
+        )
+        |> Repo.all()
+
+      :error ->
+        []
     end
   end
 

@@ -17,7 +17,7 @@
 |---|---|---|---|
 | CP0 | 契约冻结（rev2）+ ADR-0026 + 同批文档修订（25 §5/§8.1、ADR-0018 白名单、00c 回填、schemas 登记、ui/43 §5、AU-13 立档；ADR-0024 修订按拍板④留 CP2+ 按需） | — | **done**（2026-07-21） |
 | CP1 | 弧光账最小闭环（信封落地 + arc 提炼/漂移规则 + 自动通过 + archive_read(ledgers) + writer 投影段） | 凌渊 STALLED 被账面暴露 | **done**（2026-07-21：后端 + M2 重放 PASS + 真实 Tauri `au13-arc-ledger-roundtrip` 首轮 PASS） |
-| CP2 | 承诺账 + 信息账 + 全量对账报告首版 | 题材漂移产出 broken 候选；"第60章前指"泄露被报告 | 未开工 |
+| CP2 | 承诺账 + 信息账 + 全量对账报告首版 + 裁决 roundtrip。最小实现步（checkpoint 不缩验收范围）：**CP2a** 两账对象化+增量提炼扩展（genre 承诺条目锚定词来自作品档案自身、正文/摘要前指扫描→LEAKED 条目）+ 对账规则纯函数（R1 弧光停滞/R2 无设计接管/R3 genre 承诺偏移/R4 前指泄露）+ M2 重放实证；**CP2b** reconciliation_report_artifact 物化 + `ledger_reconciliation_v1` profile + 作者可见面；**CP2c** 四处置裁决 roundtrip（revise_prose→VS-00E §8、dismiss→Experience、裁决面入册） | 题材漂移产出 BROKEN 候选；"第60章前指"泄露被报告（CP2a 重放即测）；SC-AU13-B1/B2（CP2c） | **CP2a done**（2026-07-21：重放 PASS——承诺账立账/前指 LEAKED/扫描 5 偏离[3 停滞+genre BROKEN 候选+前指泄露]；证据 artifacts/ledger-replay/m2-replay-cp2a-2026-07-21.txt）；CP2b/CP2c 未开工 |
 | CP3 | 冲突账 + 情绪曲线账 | 主线停滞/情绪偏差可查 | 未开工 |
 | CP4 | 对账节拍机器化 + 规划消费账面 + 面板视图 | 下次百章狗粮：漂移 30 章内被拦截 | 未开工 |
 

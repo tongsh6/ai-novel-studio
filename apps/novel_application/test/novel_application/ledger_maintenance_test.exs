@@ -102,6 +102,33 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     assert Map.has_key?(Agent.get(agent, & &1), "char-sy")
   end
 
+  test "CP2a：genre 承诺档案播种（幂等）+ 正文前指→信息账 LEAKED 条目" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+
+    deps =
+      Map.put(deps(agent), :profile, fn _work_id -> %{genre: "赛博修仙"} end)
+
+    input = %{
+      work_id: "w",
+      chapter_id: "ch-3",
+      summary_text: summary_with_characters("凌渊出场。"),
+      prose_text: "他忽然想到，那是第9章将要出现的裂痕前兆。第2章的旧账无妨。"
+    }
+
+    assert {:ok, %{leaked: 1}} = LedgerMaintenance.run(input, deps)
+    # 二次运行幂等：承诺不重复播种，前指 upsert 同一条目
+    assert {:ok, %{leaked: 1}} = LedgerMaintenance.run(input, deps)
+
+    entries = Agent.get(agent, & &1) |> Map.values()
+    promises = Enum.filter(entries, &(&1.ledger == "promise"))
+    leaks = Enum.filter(entries, &(&1.ledger == "information"))
+
+    assert [%{subject_ref: "genre", status: "OPEN"}] = promises
+    assert [%{status: "LEAKED"} = leak] = leaks
+    assert leak.subject_label =~ "第9章"
+    assert leak.source_refs != []
+  end
+
   test "失败容忍：空摘要/章不在索引降级为 degraded，不抛错" do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
 

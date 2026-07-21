@@ -13,7 +13,7 @@
 import Ecto.Query
 
 alias NovelPersistence.{LedgerRepository, Repo}
-alias NovelPersistence.Schemas.{Chapter, ChapterSummary, Character, Work}
+alias NovelPersistence.Schemas.{Chapter, ChapterSummary, Character, Draft, Scene, Work}
 
 roster_fixture = ~w(林浩 凌渊 凌云 沈墨 沈逸 柳烟 韩晟)
 
@@ -54,10 +54,23 @@ summaries =
   )
   |> Map.new()
 
+prose_by_chapter =
+  Repo.all(
+    from(d in Draft,
+      join: s in Scene,
+      on: s.id == d.scene_id,
+      where: d.status in ["ACCEPTED", "EDITED_ACCEPTED"],
+      select: {s.chapter_id, d.content}
+    )
+  )
+  |> Enum.group_by(fn {cid, _} -> to_string(cid) end, fn {_, c} -> c end)
+  |> Map.new(fn {cid, texts} -> {cid, Enum.join(texts, "\n")} end)
+
 deps = %{
   roster: &NovelPersistence.WorkArchiveRepo.characters/1,
   chapter_index: &LedgerRepository.chapter_index/1,
-  repo: %{list: &LedgerRepository.list/1, upsert: &LedgerRepository.upsert/1}
+  profile: &NovelPersistence.WorkArchiveRepo.profile/1,
+  repo: %{list: &LedgerRepository.list_all/1, upsert: &LedgerRepository.upsert/1}
 }
 
 replayed =
@@ -68,7 +81,12 @@ replayed =
 
       summary_text ->
         case NovelApplication.LedgerMaintenance.run(
-               %{work_id: work_id, chapter_id: to_string(chapter_id), summary_text: summary_text},
+               %{
+                 work_id: work_id,
+                 chapter_id: to_string(chapter_id),
+                 summary_text: summary_text,
+                 prose_text: Map.get(prose_by_chapter, to_string(chapter_id))
+               },
                deps
              ) do
           {:ok, _} -> acc + 1
@@ -78,6 +96,7 @@ replayed =
   end)
 
 entries = LedgerRepository.list(work_id)
+all_entries = LedgerRepository.list_all(work_id)
 
 IO.puts("[replay] chapters_replayed=#{replayed} ledger_entries=#{length(entries)}")
 
@@ -101,8 +120,32 @@ IO.puts(
     "后期主角ON_TRACK=#{late_lead_on_track} STALLED计数=#{length(stalled)}"
 )
 
-if replayed > 0 and il1_ok and lingyuan_stalled and late_lead_on_track do
-  IO.puts("[replay] PASS —— M2 漂移靶被账面暴露")
+# ── CP2a：承诺/信息账 + 对账扫描（R1/R3/R4） ──
+promise = Enum.find(all_entries, &(&1.ledger == "promise"))
+leaks = Enum.filter(all_entries, &(&1.ledger == "information" and &1.status == "LEAKED"))
+IO.puts("[replay] promise=#{inspect(promise && promise.subject_label)} leaked_entries=#{length(leaks)}")
+for l <- leaks, do: IO.puts("  #{l.subject_label} (#{Map.get(l.payload, "fact")})")
+
+{:ok, %{findings: findings, counts: counts}} =
+  NovelApplication.LedgerReconciliationService.scan(
+    work_id,
+    NovelApplication.LedgerReconciliationService.persistence_deps()
+  )
+
+IO.puts("[replay] reconcile findings=#{length(findings)} rules=#{inspect(counts)}")
+for f <- findings, do: IO.puts("  [#{f.severity}] #{f.rule}: #{String.slice(f.signal, 0, 80)}")
+
+genre_fired = Enum.any?(findings, &(&1.rule == "genre_promise_shift"))
+leak_fired = Enum.any?(findings, &(&1.rule == "planned_info_leak" and String.contains?(&1.signal, "第60章")))
+stall_reported = Enum.any?(findings, &(&1.rule == "arc_stalled"))
+
+IO.puts(
+  "[replay] CP2a 判定: genre_BROKEN候选=#{genre_fired} 前指第60章被报告=#{leak_fired} 停滞入报告=#{stall_reported}"
+)
+
+if replayed > 0 and il1_ok and lingyuan_stalled and late_lead_on_track and
+     genre_fired and leak_fired and stall_reported do
+  IO.puts("[replay] PASS —— M2 漂移靶（CP1 弧光 + CP2a 承诺/信息/报告）全部被账面暴露")
 else
   IO.puts("[replay] FAIL")
   System.halt(1)

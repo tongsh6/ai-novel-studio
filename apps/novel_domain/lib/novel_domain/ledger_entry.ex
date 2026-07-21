@@ -17,6 +17,11 @@ defmodule NovelDomain.LedgerEntry do
   @ledgers ~w(arc conflict information emotion_curve promise)
   @arc_statuses ~w(ON_TRACK STALLED DRIFTED RESUMED COMPLETED RETIRED)
   @arc_mechanical ~w(ON_TRACK STALLED)
+  # CP2a（契约 §2.4/§2.6）：信息账/承诺账状态机。LEAKED/BROKEN 为对账判定产出的
+  # 异常候选（报告项），权威转移仍走裁决（CP2c）；维护机械可写的只有各自初始态
+  # 与 LEAKED 条目的登记（前指是既成事实的记账，非裁决）。
+  @information_statuses ~w(HIDDEN PARTIALLY_REVEALED REVEALED LEAKED)
+  @promise_statuses ~w(OPEN PROGRESSING FULFILLED BROKEN RELEASED)
   @subject_kinds ~w(character plotline fact chapter promise)
   @max_source_refs 20
 
@@ -173,6 +178,18 @@ defmodule NovelDomain.LedgerEntry do
 
   defp validate_status(%{ledger: "arc", status: status}) do
     if status in @arc_statuses, do: :ok, else: {:error, {:invalid_status, "arc", status}}
+  end
+
+  defp validate_status(%{ledger: "information", status: status}) do
+    if status in @information_statuses,
+      do: :ok,
+      else: {:error, {:invalid_status, "information", status}}
+  end
+
+  defp validate_status(%{ledger: "promise", status: status}) do
+    if status in @promise_statuses,
+      do: :ok,
+      else: {:error, {:invalid_status, "promise", status}}
   end
 
   # 其余账的状态机随对应 CP 冻结（VS-00F §7）；未冻结前不接受构造。

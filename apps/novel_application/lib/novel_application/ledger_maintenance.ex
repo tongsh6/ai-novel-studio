@@ -20,18 +20,20 @@ defmodule NovelApplication.LedgerMaintenance do
   @default_stall_threshold 8
   @presence_note_max_chars 120
 
-  @typedoc "维护输入：采纳锚点 + 已产出的章摘要文本。"
+  @typedoc "维护输入：采纳锚点 + 已产出的章摘要文本（+ 可选采纳正文，前指扫描用）。"
   @type input :: %{
           required(:work_id) => String.t(),
           required(:chapter_id) => String.t(),
           required(:summary_text) => String.t(),
+          optional(:prose_text) => String.t() | nil,
           optional(:summary_ref) => String.t() | nil
         }
 
-  @typedoc "端口：角色阵容 / 章序号索引 / 账面仓储。"
+  @typedoc "端口：角色阵容 / 章序号索引 / 作品档案 / 账面仓储。"
   @type deps :: %{
           required(:roster) => (String.t() -> [map()]),
           required(:chapter_index) => (String.t() -> map()),
+          optional(:profile) => (String.t() -> map()),
           required(:repo) => %{
             required(:list) => (String.t() -> [map()]),
             required(:upsert) => (map() -> {:ok, map()} | {:error, term()})
@@ -68,16 +70,22 @@ defmodule NovelApplication.LedgerMaintenance do
       # 含未写的计划章，用它会把窗口提前拉爆（增量规划先扩章、后逐章写的形态）。
       stalled_count = recompute_stalls(deps.repo, work_id, current.seq)
 
+      # CP2a：genre 承诺条目播种（首次记账时从作品档案立账，OPEN）+ 正文前指
+      # 扫描 → 信息账 LEAKED 条目（计划信息泄进实现态是既成事实的记账，非裁决）。
+      ensure_genre_promise(deps, work_id)
+      leaked_count = record_future_ref_leaks(deps.repo, work_id, input, chapter_id, current)
+
       LogEmit.emit(:ledger, :update, :done, %{
         work_id: work_id,
         chapter_id: chapter_id,
         ledger: "arc",
         sighted: sighted_count,
         stalled: stalled_count,
+        leaked: leaked_count,
         roster: length(roster)
       })
 
-      {:ok, %{sighted: sighted_count, stalled: stalled_count}}
+      {:ok, %{sighted: sighted_count, stalled: stalled_count, leaked: leaked_count}}
     else
       {:error, reason} -> degrade(work_id, chapter_id, reason)
     end
@@ -114,7 +122,7 @@ defmodule NovelApplication.LedgerMaintenance do
   defp record_sighting(repo, work_id, character, chapter_id, current, text, summary_ref) do
     existing =
       repo.list.(work_id)
-      |> Enum.find(&(&1.subject_ref == to_string(character[:id])))
+      |> Enum.find(&(&1.ledger == "arc" and &1.subject_ref == to_string(character[:id])))
 
     entry_result =
       case existing do
@@ -158,12 +166,72 @@ defmodule NovelApplication.LedgerMaintenance do
       Application.get_env(:novel_application, :arc_stall_threshold_chapters, @default_stall_threshold)
 
     repo.list.(work_id)
+    |> Enum.filter(&(&1.ledger == "arc"))
     |> Enum.count(fn stored ->
       with {:ok, entry} <- LedgerEntry.new(stored),
            {:changed, changed} <- LedgerEntry.arc_recompute_stall(entry, current_seq, threshold) do
         persist(changed, repo) and changed.status == "STALLED"
       else
         _ -> false
+      end
+    end)
+  end
+
+  defp ensure_genre_promise(deps, work_id) do
+    with profile_fn when is_function(profile_fn, 1) <- Map.get(deps, :profile),
+         profile when is_map(profile) <- profile_fn.(work_id),
+         genre when is_binary(genre) and genre != "" <- profile[:genre],
+         false <- genre_promise_exists?(deps.repo, work_id) do
+      seed_genre_promise(deps.repo, work_id, genre)
+    else
+      _ -> :skip
+    end
+  end
+
+  defp genre_promise_exists?(repo, work_id) do
+    repo.list.(work_id)
+    |> Enum.any?(&(&1.ledger == "promise" and &1.subject_ref == "genre"))
+  end
+
+  defp seed_genre_promise(repo, work_id, genre) do
+    case LedgerEntry.new(%{
+           work_id: work_id,
+           ledger: "promise",
+           subject_kind: "promise",
+           subject_ref: "genre",
+           subject_label: "类型承诺：#{genre}",
+           status: "OPEN",
+           payload: %{"promise_kind" => "genre", "content" => genre},
+           source_refs: ["work_profile:#{work_id}"]
+         }) do
+      {:ok, entry} -> persist(entry, repo)
+      {:error, _} -> false
+    end
+  end
+
+  defp record_future_ref_leaks(repo, work_id, input, chapter_id, current) do
+    prose = Map.get(input, :prose_text)
+    summary_ref = Map.get(input, :summary_ref) || "chapter_summary:#{chapter_id}"
+
+    prose
+    |> NovelDomain.LedgerReconciliation.future_chapter_refs(current.seq)
+    |> Enum.count(fn future_seq ->
+      case LedgerEntry.new(%{
+             work_id: work_id,
+             ledger: "information",
+             subject_kind: "fact",
+             subject_ref: "future_ref_#{future_seq}",
+             subject_label: "正文前指第#{future_seq}章",
+             status: "LEAKED",
+             payload: %{
+               "fact" => "第#{current.seq}章正文引用了尚未写作的第#{future_seq}章",
+               "leaked_at_seq" => current.seq
+             },
+             source_refs: [summary_ref],
+             last_event_chapter: chapter_id
+           }) do
+        {:ok, entry} -> persist(entry, repo)
+        {:error, _} -> false
       end
     end)
   end

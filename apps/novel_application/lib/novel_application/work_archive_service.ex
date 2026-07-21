@@ -35,5 +35,5 @@ defmodule NovelApplication.WorkArchiveService do
   @doc "五本账进度视图（VS-00F CP1 / ADR-0026；当前只有弧光账）。"
   @spec ledgers(String.t()) :: [map()]
   def ledgers(work_id) when is_binary(work_id),
-    do: NovelPersistence.LedgerRepository.list(work_id)
+    do: NovelPersistence.LedgerRepository.list_all(work_id)
 end
