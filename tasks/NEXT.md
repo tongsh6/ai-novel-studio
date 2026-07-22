@@ -79,8 +79,17 @@ au13 复跑 PASS。**CP4c-3 已落（同日）**：SC-AU13-B1+C1 并场景
 例→dismiss 证据日志→correction intent 真实 user_message→报告全处置诚实清空）
 + SC-AU13-B2 `au13-revise-prose-sibling`（revise_prose→改写意图→tentative
 sibling 候选→阅读投影证原稿保留）两场景真实 Tauri PASS；AU-13 场景覆盖
-5/5。**VS-00F CP4c 收口**，唯余小件：收起态 rail 待处置计数（B 项）+定期化
-LongRunTask（A20 随需求）。
+5/5。**VS-00F CP4c 收口**。
+**狗粮前小修批已落（2026-07-22，用户批）**：①B9 Q2/Q3 修向——meta_leak
+pattern 扩容（第N章自指/待采纳/审校）+writer 红线（正文只写故事本身，章节
+坐标是背景非剧情事实）+导出泄漏机器检查（export.leak_check.done 事件，与
+生成期 validator 同一 pattern 源）；②B8 预检钉——dogfood_run.sh 启动前
+lms ps 机械检查 contextLength≥32768 不达标拒跑；③rail 待处置计数（面板
+onReviewPendingChange 回调同步+join/turn 后刷新）。全门绿+裁决场景复跑
+PASS。**下一步：M3 节拍狗粮长跑（重型门，用户拍板启动）**——一次清算：
+CP4a 拦截靶（漂移 30 章内被审读报告拦）/CA01 造角题材/CA02 设定伏笔一致
+/clip_echo 指标/resume 跨重启/B8-B9 生效验证。唯余：定期化 LongRunTask
+（A20 随需求）。
 
 ---
 

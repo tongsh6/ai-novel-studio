@@ -74,6 +74,35 @@ if [[ "$PROVIDER" != "slice_verify" && "$PROVIDER" != "lmstudio" ]]; then
   exit 1
 fi
 
+# B8 预检钉（M2 实锤：模型 JIT 重载后上下文回落 8192，达标章续写 HTTP 400 截断
+# prose）：lmstudio 长跑启动前机械检查已加载模型 contextLength ≥ 32768，不达标
+# 直接拒跑并给出重载指令，不允许带病起跑。
+MIN_CONTEXT_LENGTH=32768
+if [[ "$PROVIDER" == "lmstudio" ]]; then
+  if ! command -v lms >/dev/null 2>&1; then
+    echo "[dogfood][B8] 未找到 lms CLI，无法预检模型上下文；请先安装/启动 LM Studio。" >&2
+    exit 1
+  fi
+
+  LOADED_CONTEXT="$(lms ps --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    models = json.load(sys.stdin)
+except Exception:
+    models = []
+llms = [m.get("contextLength", 0) for m in models if m.get("type") == "llm"]
+print(max(llms) if llms else 0)
+')"
+
+  if [[ -z "$LOADED_CONTEXT" || "$LOADED_CONTEXT" -lt "$MIN_CONTEXT_LENGTH" ]]; then
+    echo "[dogfood][B8] 预检失败：已加载模型 contextLength=$LOADED_CONTEXT < $MIN_CONTEXT_LENGTH。" >&2
+    echo "[dogfood][B8] 请先执行：lms load openai/gpt-oss-120b --context-length 32768" >&2
+    exit 1
+  fi
+
+  echo "[dogfood][B8] 模型上下文预检通过：contextLength=$LOADED_CONTEXT"
+fi
+
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood"
 APP_LOG_DIR="$ARTIFACT_DIR/app-log"
 LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"

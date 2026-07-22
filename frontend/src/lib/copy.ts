@@ -402,6 +402,7 @@ export const WORKBENCH = {
   archiveRailOpen: "打开档案",
   archiveRailDetail: "查看详情",
   pendingAdoptionsPrefix: "待采纳",
+  reviewPendingPrefix: "审读待处置",
   sessionRailSummary: "会话",
   sessionSearchPlaceholder: "搜索会话",
   sessionCreate: "新建会话",

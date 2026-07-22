@@ -52,6 +52,25 @@ defmodule NovelApplication.ProseQualityValidatorsTest do
     assert "validator.prose_pattern_repetition" in refs
   end
 
+  test "B9：章号叙述自指与工作流程词 → prose_pattern_repetition（M2 Q2/Q3 修向）" do
+    for leaky <- [
+          "他想起第51章中恢复的记忆碎片，握紧了拳。",
+          "那是第60章将要出现的巨变的前兆。",
+          "此段为待采纳内容，需后续审校。"
+        ] do
+      refs = V.evaluate(leaky, %{}) |> validator_refs()
+      assert "validator.prose_pattern_repetition" in refs, "未命中：#{leaky}"
+    end
+
+    clean = "他握紧了拳，记忆碎片在脑海里翻涌，巷口的风带着铁锈味。"
+    refute "validator.prose_pattern_repetition" in (V.evaluate(clean, %{}) |> validator_refs())
+  end
+
+  test "B9：meta_leak_hits 导出扫描与生成期同一 pattern 源" do
+    assert V.meta_leak_hits("这是第12章的伏笔。") != []
+    assert V.meta_leak_hits("干净的正文段落。") == []
+  end
+
   test "ai cliche overuse → prose_pattern_repetition" do
     text =
       "随着夜色降临，他不由得停下脚步，仿佛听见了什么。一阵风吹过，他微微一怔，缓缓转身，心头掠过一丝不安。"

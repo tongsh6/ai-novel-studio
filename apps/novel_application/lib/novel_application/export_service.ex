@@ -16,6 +16,9 @@ defmodule NovelApplication.ExportService do
   读取章节、渲染文档、写入文件等阶段收到增量进度，用于前端进度弹窗展示。
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
+  alias NovelApplication.ProseQualityValidators
   alias NovelApplication.ReadingProjectionService
   alias NovelApplication.WorkService
   alias NovelDomain.ExportDocument
@@ -52,6 +55,21 @@ defmodule NovelApplication.ExportService do
 
     on_progress.(25, "正在读取章节内容")
     scenes_by_chapter = scenes_by_chapter(work_id, chapters)
+
+    # B9（M2 Q2/Q3 修向）：导出前元泄漏机器检查——正文 body 里的章号自指/工作流程词
+    # 与生成期 validator 同一 pattern 源；只留痕不拦导出（导出的是已采纳事实，
+    # 拦截点在生成与采纳，导出检查是收口审计信号）。
+    leak_hits =
+      scenes_by_chapter
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.flat_map(&ProseQualityValidators.meta_leak_hits(&1.content || ""))
+
+    LogEmit.emit(:export, :leak_check, :done, %{
+      work_id: work_id,
+      hit_count: length(leak_hits),
+      samples: leak_hits |> Enum.uniq() |> Enum.take(5)
+    })
 
     on_progress.(60, "正在渲染全书 Markdown")
 

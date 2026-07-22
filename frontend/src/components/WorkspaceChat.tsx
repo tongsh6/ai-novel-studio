@@ -30,6 +30,7 @@ import {
   joinWorkspace,
   sendMessage,
   sendAuthorAction,
+  getReviewReport,
   sendAgentCommand,
   onAgentEvent,
   onAgentRunState,
@@ -828,6 +829,8 @@ export function WorkspaceChat() {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  // CP4c rail：审读报告待处置数（TENTATIVE 报告的未处置偏离项；无报告为 0）
+  const [reviewPendingCount, setReviewPendingCount] = useState(0);
   const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string>("");
   const [llmMessage, setLlmMessage] = useState<string>("");
@@ -1340,9 +1343,31 @@ export function WorkspaceChat() {
         setWorkSwitchingId(null);
       });
 
+    setReviewPendingCount(0);
+    void getReviewReport(channel, work.id)
+      .then((report) => {
+        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id }))
+          return;
+        setReviewPendingCount(
+          (report?.findings ?? []).filter((finding) => !finding.disposition).length,
+        );
+      })
+      .catch(() => {});
+
     channel.on("turn_result", (result: unknown) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
       handleTurnResult(parseIncomingTurnResult(result));
+      // CP4c rail 待处置计数：turn 完成后刷新审读报告待处置数（章数节拍/全书审读
+      // 都可能在 turn 内物化报告；轻量只读，读失败保留旧值不清零）。
+      void getReviewReport(channel, work.id)
+        .then((report) => {
+          if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id }))
+            return;
+          setReviewPendingCount(
+            (report?.findings ?? []).filter((finding) => !finding.disposition).length,
+          );
+        })
+        .catch(() => {});
     });
     onTaskState(channel, (state) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
@@ -3764,6 +3789,11 @@ export function WorkspaceChat() {
               {pendingAdoptionsCount > 0 && (
                 <div className={styles.spItemTitle}>
                   {WORKBENCH.pendingAdoptionsPrefix} {pendingAdoptionsCount}
+                </div>
+              )}
+              {reviewPendingCount > 0 && (
+                <div className={styles.spItemTitle} onClick={() => setIsPanelOpen(true)}>
+                  {WORKBENCH.reviewPendingPrefix} {reviewPendingCount}
                 </div>
               )}
               <details className={styles.sessionRailDetails}>

@@ -51,11 +51,14 @@ defmodule NovelApplication.ProseQualityValidators do
   ]
 
   # 结构/状态元标签不应出现在正文 body
+  # B9（M2 Q2/Q3 修向）：章号叙述自指与工作流程词都是元泄漏——正文只写故事本身。
   @meta_label_patterns [
     ~r/场景\s*[0-9０-９一二三四五六七八九十]+/u,
     ~r/第\s*[0-9０-９一二三四五六七八九十]+\s*场/u,
+    ~r/第\s*[0-9０-９一二三四五六七八九十百千]+\s*章/u,
     ~r/正文草稿/u,
-    ~r/待采纳草稿/u,
+    ~r/待采纳/u,
+    ~r/审校/u,
     ~r/(^|\n)\s*标题[:：]/u
   ]
 
@@ -81,6 +84,14 @@ defmodule NovelApplication.ProseQualityValidators do
   end
 
   def evaluate(_text, _ctx), do: []
+
+  @doc """
+  B9：元泄漏命中扫描——导出质量门与生成期 validator 复用同一 pattern 集
+  （章号自指/工作流程词/结构标签），单一规则源。
+  """
+  @spec meta_leak_hits(String.t()) :: [String.t()]
+  def meta_leak_hits(text) when is_binary(text), do: pattern_hits(text, @meta_label_patterns)
+  def meta_leak_hits(_text), do: []
 
   # ── 直接情绪标签 → emotion_expression_balance ──────
   defp direct_emotion_finding(text, ctx) do
@@ -180,7 +191,7 @@ defmodule NovelApplication.ProseQualityValidators do
         ctx,
         "validator.prose_pattern_repetition",
         @style_gate,
-        "正文 body 出现结构/状态元标签（如 场景N / 第N场 / 标题：），不属于小说正文。",
+        "正文 body 出现结构/状态元标签或工作流程词（如 场景N / 第N章 / 待采纳 / 审校），不属于小说正文。",
         hits
       )
     end

@@ -60,6 +60,8 @@ interface Props {
   onNewForeshadowing: () => void;
   onNewRule: () => void;
   onNewAction: (prompt: string) => void;
+  /** CP4c rail 同步：面板侧审读待处置数变化时通知父级（裁决无 turn_result 广播） */
+  onReviewPendingChange?: (count: number) => void;
 }
 
 type TabType = "overview" | "outline" | "character" | "foreshadowing" | "rule" | "ledger";
@@ -274,6 +276,7 @@ export function StructurePanel({
   onNewForeshadowing,
   onNewRule,
   onNewAction,
+  onReviewPendingChange,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>(
     () =>
@@ -290,6 +293,13 @@ export function StructurePanel({
   const [ledgerThreads, setLedgerThreads] = useState<LedgerThreads | null>(null);
   const [reviewReport, setReviewReport] = useState<ReviewReport | null>(null);
   const [ledgerActionError, setLedgerActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!onReviewPendingChange) return;
+    const pending = (reviewReport?.findings ?? []).filter((f) => !f.disposition).length;
+    onReviewPendingChange(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewReport]);
   const [profileLoadFailed, setProfileLoadFailed] = useState(false);
   const [profileRetryNonce, setProfileRetryNonce] = useState(0);
   const [archiveLoading, setArchiveLoading] = useState(false);
