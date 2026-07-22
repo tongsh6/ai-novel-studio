@@ -731,6 +731,7 @@ export const STRUCTURE_PANEL = {
     emptyThreads: "尚无脉络记录；采纳章节正文后系统会自动维护。",
     threadEmpty: "暂无记录",
     adjudicateFailed: "处置失败，请重试。",
+    reviewStartFailed: "发起全书审读失败，请重试。",
     jumpHint: "角色与伏笔的对象详情在「角色」「伏笔」页查看；此处只看进度。",
     reportTitle: "审读报告",
     reportUpTo: (seq: number) => `截至第 ${seq} 章`,
@@ -781,7 +782,7 @@ export const STRUCTURE_PANEL = {
     },
     ledger: {
       label: "发起全书审读",
-      hint: "脉络与报告只读；处置逐项进行。",
+      hint: "审读在后台运行，结论回到对话区；脉络与报告只读。",
       prompt: "请对全书做一次审读：对照设计核查五条脉络（角色弧光、主线冲突、题材承诺、信息与伏笔、情绪曲线），产出审读报告，不要改动任何设定或正文。",
     },
   },

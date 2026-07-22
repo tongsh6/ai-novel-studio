@@ -600,6 +600,22 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     }
   end
 
+  defp agent_plan_draft_packet_for_profile("ledger_reconciliation_v1") do
+    %{
+      reasoning: "机械执行一次全书审读并物化审读报告；规则判定由系统完成，不改设定或正文。",
+      steps: [
+        plan_step("ledger_reconcile", "act", "机械执行全书审读并物化审读报告。", [
+          "ledger_reconcile_observation_exists"
+        ]),
+        plan_step("ledger_reconcile", "act", "汇总审读结论并声明未改动设定或正文。", [
+          "ledger_reconcile_turn_result_emitted",
+          "production_write_false"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "ledger_reconcile_plan_drafted"]
+    }
+  end
+
   # CP4：跨能力真计划样本（判断①判"复杂"后的模型自产计划）。
   defp agent_plan_draft_packet_for_profile("judgment_plan_v1") do
     %{

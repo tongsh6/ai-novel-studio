@@ -16,6 +16,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunFlows.JudgmentPlan
+  alias NovelApplication.AgentRunFlows.LedgerReconciliation
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
@@ -51,6 +52,8 @@ defmodule NovelApplication.DialoguePlanningService do
   @provider_progress_profile_ref ProviderProgress.profile_ref()
   @readonly_batch_allowed_tools ["readonly_batch"]
   @readonly_batch_profile_ref ReadonlyBatchContext.profile_ref()
+  @ledger_reconciliation_profile_ref LedgerReconciliation.profile_ref()
+  @ledger_reconciliation_allowed_tools ["ledger_reconcile"]
 
   @spec agent_run_candidate?(String.t()) :: boolean()
   def agent_run_candidate?(text) when is_binary(text) do
@@ -103,6 +106,7 @@ defmodule NovelApplication.DialoguePlanningService do
           | :prose_revision_from_findings
           | :provider_progress
           | :readonly_batch_context
+          | :ledger_reconciliation
 
   @doc """
   为显式 profile 构建 bounded AgentRun 启动 spec（run_attrs + next_step_planner）。
@@ -267,6 +271,10 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp agent_run_agent_plan(run_id, :readonly_batch_context) do
+    {:ok, pending_model_plan(run_id)}
+  end
+
+  defp agent_run_agent_plan(run_id, :ledger_reconciliation) do
     {:ok, pending_model_plan(run_id)}
   end
 
@@ -1358,6 +1366,21 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp agent_next_step_planner(
+         :ledger_reconciliation,
+         _text,
+         _context,
+         _context_fetcher,
+         provider_execution,
+         input
+       ) do
+    LedgerReconciliation.next_step_planner(%{
+      reconcile_fn: map_get(input, :reconcile_fn),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution)
+    })
+  end
+
+  defp agent_next_step_planner(
          _profile,
          _text,
          _context,
@@ -1591,6 +1614,18 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
+  # 全书审读（CP4c-2）：机械审读 1 步 + 收尾 1 步；模型只起草计划（provider 1 调用
+  # 由 plan_overhead_budget 补足）。恰一 tentative 报告走 repo 物化不占 artifact 位。
+  defp run_budget(_text, :ledger_reconciliation) do
+    %{
+      max_steps: 3,
+      max_tool_calls: 3,
+      max_provider_calls: 1,
+      max_replans: 1,
+      max_pending_artifacts: 1
+    }
+  end
+
   defp profile_ref(:profile_routing), do: @profile_routing_profile_ref
   defp profile_ref(:character_design_with_context), do: @character_profile_ref
   defp profile_ref(:prose_drafting_with_quality), do: @prose_profile_ref
@@ -1601,6 +1636,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_ref(:prose_revision_from_findings), do: @revision_profile_ref
   defp profile_ref(:provider_progress), do: @provider_progress_profile_ref
   defp profile_ref(:readonly_batch_context), do: @readonly_batch_profile_ref
+  defp profile_ref(:ledger_reconciliation), do: @ledger_reconciliation_profile_ref
 
   defp allowed_tools(:profile_routing), do: @profile_routing_allowed_tools
   defp allowed_tools(:character_design_with_context), do: @character_allowed_tools
@@ -1613,6 +1649,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:prose_revision_from_findings), do: @revision_allowed_tools
   defp allowed_tools(:provider_progress), do: @provider_progress_allowed_tools
   defp allowed_tools(:readonly_batch_context), do: @readonly_batch_allowed_tools
+  defp allowed_tools(:ledger_reconciliation), do: @ledger_reconciliation_allowed_tools
 
   defp one_step_budget?(text) do
     normalized = normalize_text(text)

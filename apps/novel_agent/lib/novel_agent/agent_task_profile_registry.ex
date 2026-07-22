@@ -109,6 +109,18 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  # 全书审读 profile（VS-00F CP4c-2）：readonly 只读纪律 + 恰一 tentative 审读报告
+  # （repo 物化）；规则判定机械（I-L4），模型只起草计划。
+  @ledger_reconciliation_profile %{
+    profile_id: "ledger_reconciliation_v1",
+    allowed_tools: ["ledger_reconcile"],
+    required_observations: [],
+    completion_conditions: ["ledger_reconcile_observation_exists"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   # 判断循环入口 profile（ADR-0025 CP1）：路由语义已并入判断①，能力=判断本身。
   @judgment_loop_profile %{
     profile_id: "judgment_loop_v1",
@@ -131,6 +143,7 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   def get("prose_revision_from_findings_v1"), do: @prose_revision_profile
   def get("provider_progress_v1"), do: @provider_progress_profile
   def get("readonly_batch_context_v1"), do: @readonly_batch_context_profile
+  def get("ledger_reconciliation_v1"), do: @ledger_reconciliation_profile
   def get(_profile_id), do: nil
 
   @spec allowed_tool?(String.t(), String.t()) :: boolean()

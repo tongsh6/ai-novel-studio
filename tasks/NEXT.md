@@ -71,9 +71,10 @@ Pencil 原型（43§5-9-threads-panel，基准=当前真实面板非初版照搬
 **对话区限列宽修复**（用户反馈）+ 全链字串改名；au13 真实 Tauri 复跑
 PASS；au12-correction-intent 实锤为判断纪元既有 driver 债（pre-CA01 基线
 即败，同 13 driver 迁移债族）。两条用户 UI 原则已固化记忆：整合优先于
-加法（重叠盘点）、.pen 是初版只取风格理念。**CP4c 余**：CP4c-2 显式发起
-真实报告物化（ledger_reconciliation_v1 profile，当前按钮只发对话意图，
-诚实未闭环）→CP4c-3 SC-AU13-B1/B2/C1 场景+rail 待处置计数。
+加法（重叠盘点）、.pen 是初版只取风格理念。**CP4c-2 已落（同日）**：ledger_reconciliation_v1
+AgentRun profile（模型只起草计划，审读与物化全程机械，app 侧事实口径）+
+channel start_full_review+面板按钮真实起 run；runtime/wire 测试+全门绿+
+au13 复跑 PASS。**CP4c 余**：CP4c-3 SC-AU13-B1/B2/C1 场景+rail 待处置计数。
 
 ---
 

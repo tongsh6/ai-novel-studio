@@ -1488,6 +1488,26 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert_reply(ref, :ok, %{report: nil})
     end
 
+    test "CP4c-2 显式发起全书审读：启动 ledger_reconciliation_v1 run 异步于 turn 主链" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref =
+        push(socket, "author_action", %{
+          "action" => %{
+            "action_id" => "act-review-1",
+            "action_type" => "start_full_review",
+            "source_turn_ref" => "panel",
+            "idempotency_key" => "review-1"
+          }
+        })
+
+      assert_reply(ref, :ok, %{action_status: "running", run_id: run_id})
+      assert is_binary(run_id)
+    end
+
     test "CP4c 裁决动作：报告不存在时诚实报错" do
       {:ok, _, socket} =
         UserSocket

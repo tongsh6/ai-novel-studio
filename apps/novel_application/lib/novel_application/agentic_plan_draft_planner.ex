@@ -458,6 +458,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp plan_step_targets("provider_progress_v1"), do: ["provider_complete"]
 
   defp plan_step_targets("readonly_batch_context_v1"), do: ["readonly_batch"]
+  defp plan_step_targets("ledger_reconciliation_v1"), do: ["ledger_reconcile"]
 
   defp plan_step_targets("prose_revision_from_findings_v1"),
     do: ["revision_prepare", "revision_plan", "prose_writing", "revision_finalize"]
@@ -706,6 +707,12 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp step_catalog("readonly_batch_context_v1") do
     """
     - readonly_batch | explore | 并行读取并汇总只读上下文；不得写入作品或生成候选
+    """
+  end
+
+  defp step_catalog("ledger_reconciliation_v1") do
+    """
+    - ledger_reconcile | act | 机械执行全书审读并物化审读报告（对照设计与五条脉络；规则判定由系统机械完成，不得改写设定或正文）
     """
   end
 

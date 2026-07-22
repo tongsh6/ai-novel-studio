@@ -1100,6 +1100,57 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  # CP4c-2（VS-00F 契约 §3.2）：显式发起全书审读——ledger_reconciliation_v1
+  # AgentRun（readonly 纪律+恰一 tentative 审读报告；规则判定机械，模型只起草计划）。
+  # 面板作者动作，异步于 turn 主链。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: "start_full_review"} = action_input,
+         _source_turn_result
+       ) do
+    input = %{
+      text: "对全书做一次审读：对照设计核查五条脉络并产出审读报告，不改动任何设定或正文。",
+      workspace_id: socket.assigns[:workspace_id] || "lobby",
+      work_id: socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby",
+      work_revision: current_work_revision(socket.assigns[:work_id]),
+      session_id: socket.assigns[:session_id],
+      turn_id: action_input.source_turn_ref,
+      origin_frame_ref: "frame_#{action_input.source_turn_ref}_ledger_review"
+    }
+
+    spec =
+      NovelApplication.DialoguePlanningService.run_spec_for_profile(
+        :ledger_reconciliation,
+        input,
+        nil
+      )
+
+    case start_agent_run(spec.run_attrs, spec) do
+      {:agent_run_started, run_id, attrs} ->
+        LogEmit.emit(:channel, :author_action, :done, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          action_status: :running,
+          run_id: run_id
+        })
+
+        {:reply,
+         {:ok,
+          %{
+            received: true,
+            action_status: "running",
+            run_id: run_id,
+            turn_id: Map.get(attrs, :parent_turn_ref)
+          }}, socket}
+
+      other ->
+        {:reply, {:error, %{reason: inspect(other)}}, socket}
+    end
+  end
+
   defp handle_author_action(socket, action_input, source_turn_result) do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
   end

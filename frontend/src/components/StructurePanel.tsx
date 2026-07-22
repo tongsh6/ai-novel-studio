@@ -1021,7 +1021,28 @@ export function StructurePanel({
       </Tabs.Root>
 
       <div className={styles.footerActions}>
-        <button className={styles.btnSecondary} onClick={() => onNewAction(footerAction.prompt)}>
+        <button
+          className={styles.btnSecondary}
+          onClick={() => {
+            // CP4c-2：脉络页动作=显式发起全书审读（ledger_reconciliation_v1 AgentRun，
+            // 异步于 turn 主链、运行进对话流）；其余 tab 保持意图发起回对话流。
+            if (activeTab === "ledger") {
+              if (!channel) return;
+              const nonce = `full-review-${Date.now()}`;
+              setLedgerActionError(null);
+              void sendAuthorAction(channel, {
+                source_turn_ref: "panel",
+                action_id: nonce,
+                action_type: "start_full_review",
+                idempotency_key: nonce,
+              })
+                .then(() => onClose())
+                .catch(() => setLedgerActionError(STRUCTURE_PANEL.ledger.reviewStartFailed));
+              return;
+            }
+            onNewAction(footerAction.prompt);
+          }}
+        >
           {footerAction.label}
         </button>
         <div className={styles.actionsHint}>{footerAction.hint}</div>

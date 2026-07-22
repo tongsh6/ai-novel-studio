@@ -685,6 +685,22 @@ defmodule NovelAgent.Provider.Stub do
     }
   end
 
+  defp agent_plan_draft_response_for_profile("ledger_reconciliation_v1") do
+    %{
+      reasoning: "[stub] 机械执行一次全书审读并物化审读报告；规则判定由系统完成，不改设定或正文。",
+      steps: [
+        plan_step("ledger_reconcile", "act", "机械执行全书审读并物化审读报告。", [
+          "ledger_reconcile_observation_exists"
+        ]),
+        plan_step("ledger_reconcile", "act", "汇总审读结论并声明未改动设定或正文。", [
+          "ledger_reconcile_turn_result_emitted",
+          "production_write_false"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "ledger_reconcile_plan_drafted"]
+    }
+  end
+
   defp agent_plan_draft_response_for_profile("prose_revision_from_findings_v1") do
     %{
       reasoning: "[stub] 先读取待修订草稿和质量发现，再完成授权、生成并汇总修订候选。",
