@@ -9111,6 +9111,251 @@ async function driveAu13ArcLedgerRoundtrip(page) {
   ];
 }
 
+
+async function driveAu13ReviewAdjudicationRoundtrip(page) {
+  // SC-AU13-B1 + SC-AU13-C1（VS-00F CP4c-3）：面板「脉络」只读视图（C1）→ 显式
+  // 发起全书审读（ledger_reconciliation_v1 真实 run）→ 审读报告四处置各一例（B1，
+  // dismiss 进证据日志；修订类 correction intent 回对话流）→ 全部处置后报告转已处置。
+  const openThreadsTab = async () => {
+    await page.getByText("打开档案").first().click();
+    await waitForArchivePanel(page);
+    await page.getByRole("tab", { name: /^脉络/ }).click();
+    await page.waitForFunction(() => document.body.innerText.includes("五条脉络"), {
+      timeout: 10_000,
+    });
+  };
+  const findingCard = (name) =>
+    page.locator('[class*="cardItem"]').filter({ hasText: name }).first();
+
+  // 1.（C1）只读视图：五条脉络 + 停滞 chip + 报告诚实缺席 + 只读提示
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await openThreadsTab();
+  await page.waitForFunction(() => document.body.innerText.includes("角色弧光"), {
+    timeout: 10_000,
+  });
+  await page.waitForFunction(() => document.body.innerText.includes("停滞 4"), {
+    timeout: 10_000,
+  });
+  await page.waitForFunction(
+    () => document.body.innerText.includes("暂无待处置的审读报告"),
+    { timeout: 10_000 },
+  );
+  await page.waitForFunction(() => document.body.innerText.includes("脉络与报告只读"), {
+    timeout: 10_000,
+  });
+
+  // 2. 显式发起全书审读（真实 AgentRun；报告机械物化）
+  const beforeReviewLogCount = readAppLogRecords().length;
+  const frameStartReview = frames.length;
+  await page.getByRole("button", { name: "发起全书审读", exact: true }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("全书审读完成"), {
+    timeout: 120_000,
+  });
+  await page.waitForFunction(() => document.body.innerText.includes("4 处偏离"), {
+    timeout: 10_000,
+  });
+  const reportRecord = await waitForNewAppLogRecord(
+    beforeReviewLogCount,
+    (record) => record.event === "ledger.report.done",
+    "No ledger.report.done record after explicit full review",
+    60_000,
+  );
+
+  // 3. 报告可见（待处置）：四条停滞偏离
+  await openThreadsTab();
+  await page.waitForFunction(() => document.body.innerText.includes("审读报告"), {
+    timeout: 10_000,
+  });
+  await page.waitForFunction(
+    () => document.body.innerText.includes("自第1章后未再出场"),
+    { timeout: 10_000 },
+  );
+
+  // 4a. 凌渊 → 接受走向（面板内即时已处置，账面裁决态转移）
+  await findingCard("凌渊").getByRole("button", { name: "接受走向", exact: true }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("已处置"), {
+    timeout: 10_000,
+  });
+
+  // 4b. 沈墨 → 标记误报（dismiss 结构化证据日志）
+  const beforeDismissLogCount = readAppLogRecords().length;
+  await findingCard("沈墨").getByRole("button", { name: "标记误报", exact: true }).click();
+  await waitForNewAppLogRecord(
+    beforeDismissLogCount,
+    (record) => record.event === "ledger.dismiss.done",
+    "No ledger.dismiss.done evidence record after dismiss disposition",
+    30_000,
+  );
+
+  // 4c. 韩晟 → 修订设定（correction intent 回对话流：真实 user_message）
+  const frameStartDesign = frames.length;
+  await findingCard("韩晟").getByRole("button", { name: "修订设定", exact: true }).click();
+  const designIntentFrame = await waitForNewFrame(
+    frameStartDesign,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("修订设定") &&
+      String(frame.body?.text ?? "").includes("韩晟"),
+    "Revise-design disposition did not send a correction intent user_message",
+    30_000,
+  );
+  const designTurnFrame = await waitForNewFrame(
+    frameStartDesign,
+    (frame) => frame.direction === "received" && frame.event === "turn_result",
+    "No turn_result after revise-design correction intent",
+    120_000,
+  );
+
+  // 4d. 白露 → 修订正文（correction intent 回对话流）
+  await openThreadsTab();
+  const frameStartProse = frames.length;
+  await findingCard("白露").getByRole("button", { name: "修订正文", exact: true }).click();
+  const proseIntentFrame = await waitForNewFrame(
+    frameStartProse,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("修订正文") &&
+      String(frame.body?.text ?? "").includes("白露"),
+    "Revise-prose disposition did not send a correction intent user_message",
+    30_000,
+  );
+  const proseTurnFrame = await waitForNewFrame(
+    frameStartProse,
+    (frame) => frame.direction === "received" && frame.event === "turn_result",
+    "No turn_result after revise-prose correction intent",
+    120_000,
+  );
+
+  // 5. 全部处置 → 报告转 ACCEPTED、活跃报告清空（latest 只回 TENTATIVE）：
+  // 重开面板读真实持久态，诚实显示"暂无待处置的审读报告"。
+  await openThreadsTab();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("暂无待处置的审读报告"),
+    { timeout: 10_000 },
+  );
+
+  const adjudicateRecords = readAppLogRecords().filter(
+    (record) => record.event === "ledger.adjudicate.done",
+  );
+  const dispositions = new Set(adjudicateRecords.map((record) => record.disposition));
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au13-review-adjudication-roundtrip",
+      design_turn_id: String(designTurnFrame.body?.turn_id ?? ""),
+      prose_turn_id: String(proseTurnFrame.body?.turn_id ?? ""),
+      review_report_id: String(reportRecord.report_id ?? ""),
+      review_finding_count: Number(reportRecord.finding_count ?? 0),
+      adjudicated_count: adjudicateRecords.length,
+      dispositions: Array.from(dispositions).sort(),
+      dismiss_evidence_logged: true,
+      design_intent_text: String(designIntentFrame.body?.text ?? ""),
+      prose_intent_text: String(proseIntentFrame.body?.text ?? ""),
+      report_fully_dispositioned: true,
+    },
+  ];
+}
+
+
+async function driveAu13ReviseProseSibling(page) {
+  // SC-AU13-B2（VS-00F CP4c-3 / VS-00E §8）：revise_prose 处置 → correction intent
+  // 回对话流（改写=高风险，确认后执行）→ 产 sibling 修订候选（待采纳 prose_fragment）
+  // → 原稿保留（阅读投影仍是 seed 正文，候选未进作品事实）。
+  const openThreadsTab = async () => {
+    await page.getByText("打开档案").first().click();
+    await waitForArchivePanel(page);
+    await page.getByRole("tab", { name: /^脉络/ }).click();
+    await page.waitForFunction(() => document.body.innerText.includes("五条脉络"), {
+      timeout: 10_000,
+    });
+  };
+
+  // 1. 显式发起全书审读 → 1 处偏离（凌渊停滞）
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await openThreadsTab();
+  const beforeReviewLogCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: "发起全书审读", exact: true }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("全书审读完成"), {
+    timeout: 120_000,
+  });
+  const reportRecord = await waitForNewAppLogRecord(
+    beforeReviewLogCount,
+    (record) => record.event === "ledger.report.done",
+    "No ledger.report.done record after explicit full review",
+    60_000,
+  );
+
+  // 2. 修订正文处置 → 真实 user_message（含改写与保留原稿承诺）
+  await openThreadsTab();
+  const frameStartProse = frames.length;
+  await page
+    .locator('[class*="cardItem"]')
+    .filter({ hasText: "凌渊" })
+    .first()
+    .getByRole("button", { name: "修订正文", exact: true })
+    .click();
+  const proseIntentFrame = await waitForNewFrame(
+    frameStartProse,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("修订正文") &&
+      String(frame.body?.text ?? "").includes("改写") &&
+      String(frame.body?.text ?? "").includes("保留原稿"),
+    "Revise-prose disposition did not send the rewrite correction intent",
+    30_000,
+  );
+
+  // 3. 判断纪元 CP4 严格裁决：改写产出保持 tentative 候选（采纳边界保护），
+  // 直接等待 sibling 修订候选（待采纳 prose_fragment），未采纳、无生产写入。
+  const candidateTurnFrame = await waitForNewFrame(
+    frameStartProse,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.adoption_state?.pending?.some?.(
+        (entry) => entry.artifact_type === "prose_fragment",
+      ),
+    "No pending prose_fragment revision candidate after confirmation",
+    200_000,
+  );
+  const candidateTurn = candidateTurnFrame.body;
+  const pendingCandidate = candidateTurn.adoption_state.pending.find(
+    (entry) => entry.artifact_type === "prose_fragment",
+  );
+  assert(
+    candidateTurn.truthfulness?.artifact_adopted !== true,
+    "Revision candidate must stay pending (not adopted)",
+  );
+
+  // 5. 原稿保留：阅读投影仍是 seed 正文（候选未进作品事实）
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("灵气账单在夜色里泛着冷光"),
+    { timeout: 15_000 },
+  );
+  const originalPreserved = await page.evaluate(() =>
+    document.body.innerText.includes("灵气账单在夜色里泛着冷光"),
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au13-revise-prose-sibling",
+      review_report_id: String(reportRecord.report_id ?? ""),
+      review_finding_count: Number(reportRecord.finding_count ?? 0),
+      prose_intent_text: String(proseIntentFrame.body?.text ?? ""),
+      candidate_turn_id: String(candidateTurn.turn_id ?? ""),
+      candidate_artifact_id: String(pendingCandidate?.artifact_id ?? ""),
+      candidate_pending_not_adopted: candidateTurn.truthfulness?.artifact_adopted !== true,
+      original_preserved_in_reading: originalPreserved === true,
+    },
+  ];
+}
+
 async function driveP1ChapterWordCountTarget(page) {
   const targetWordCount = 600;
   // 作者在对话框用自然语言给出"带篇幅"的创作指令：篇幅诉求由 Planner（AI）识别为
@@ -22900,6 +23145,8 @@ const drivers = {
   "judgment-explore-chapter-plan": driveJudgmentExploreChapterPlan,
   "judgment-explore-internal": driveJudgmentExploreInternal,
   "au13-arc-ledger-roundtrip": driveAu13ArcLedgerRoundtrip,
+  "au13-review-adjudication-roundtrip": driveAu13ReviewAdjudicationRoundtrip,
+  "au13-revise-prose-sibling": driveAu13ReviseProseSibling,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,
   "au08-reading-readonly-no-write": driveAu08ReadingReadonlyNoWrite,

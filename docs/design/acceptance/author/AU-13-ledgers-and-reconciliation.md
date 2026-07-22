@@ -35,13 +35,13 @@
 |---|---|---|
 | SC-AU13-A1 | 采纳一章正文 → 弧光账自动更新（出场角色 last_seen 前移）→ archive_read(ledgers) 可查 → 下一章写作简报含相关弧光条目 | CP1 **verified**（`au13-arc-ledger-roundtrip` 真实 Tauri，2026-07-21） |
 | SC-AU13-A2 | M2 75 章书重放：凌渊类"消失角色"被账面标 STALLED；无 design_ref 的接管线被报告 | CP1 **verified**（`scripts/vs00f_ledger_replay.exs`，2026-07-21） |
-| SC-AU13-B1 | 对账报告产出与逐项裁决 roundtrip（四处置各一例；dismiss 进 experience evidence） | CP2 |
-| SC-AU13-B2 | revise_prose 处置 → VS-00E §8 sibling 修订候选 → 原稿保留 | CP2 |
-| SC-AU13-C1 | 面板 Ledgers 模块只读视图 + correction intent | CP4 |
+| SC-AU13-B1 | 审读报告产出与逐项裁决 roundtrip（四处置各一例；dismiss 进 experience evidence） | CP2 **verified**（`au13-review-adjudication-roundtrip` 真实 Tauri，2026-07-22） |
+| SC-AU13-B2 | revise_prose 处置 → VS-00E §8 sibling 修订候选 → 原稿保留 | CP2 **verified**（`au13-revise-prose-sibling` 真实 Tauri，2026-07-22） |
+| SC-AU13-C1 | 面板「脉络」模块只读视图 + correction intent | CP4 **verified**（并入 `au13-review-adjudication-roundtrip` 场景步骤 1/4c，2026-07-22） |
 
 ## 5. 场景覆盖状态
 
-2/5（2026-07-21：A1 真实 Tauri + A2 重放均 verified；B1/B2/C1 随 CP2/CP4）。
+5/5（2026-07-22：A1/A2/B1/B2/C1 全部 verified；C1 并入 B1 场景交付——面板只读视图与 correction intent 是同一 roundtrip 的步骤，避免第二个近重复场景）。
 
 ## 6. 落地路线
 
@@ -54,4 +54,4 @@
 
 ## 8. 验收命令
 
-`bash scripts/tauri_slice_verify.sh au13-arc-ledger-roundtrip`；重放 `NOVEL_TEST_DB_DIR=<副本> MIX_TEST_PARTITION=_dogfood MIX_ENV=test mix run scripts/vs00f_ledger_replay.exs`。
+`bash scripts/tauri_slice_verify.sh au13-arc-ledger-roundtrip`、`au13-review-adjudication-roundtrip`、`au13-revise-prose-sibling`；重放 `NOVEL_TEST_DB_DIR=<副本> MIX_TEST_PARTITION=_dogfood MIX_ENV=test mix run scripts/vs00f_ledger_replay.exs`。

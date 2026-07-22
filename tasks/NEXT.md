@@ -74,7 +74,13 @@ PASS；au12-correction-intent 实锤为判断纪元既有 driver 债（pre-CA01 
 加法（重叠盘点）、.pen 是初版只取风格理念。**CP4c-2 已落（同日）**：ledger_reconciliation_v1
 AgentRun profile（模型只起草计划，审读与物化全程机械，app 侧事实口径）+
 channel start_full_review+面板按钮真实起 run；runtime/wire 测试+全门绿+
-au13 复跑 PASS。**CP4c 余**：CP4c-3 SC-AU13-B1/B2/C1 场景+rail 待处置计数。
+au13 复跑 PASS。**CP4c-3 已落（同日）**：SC-AU13-B1+C1 并场景
+`au13-review-adjudication-roundtrip`（只读视图→真实审读 run→4 偏离四处置各一
+例→dismiss 证据日志→correction intent 真实 user_message→报告全处置诚实清空）
++ SC-AU13-B2 `au13-revise-prose-sibling`（revise_prose→改写意图→tentative
+sibling 候选→阅读投影证原稿保留）两场景真实 Tauri PASS；AU-13 场景覆盖
+5/5。**VS-00F CP4c 收口**，唯余小件：收起态 rail 待处置计数（B 项）+定期化
+LongRunTask（A20 随需求）。
 
 ---
 

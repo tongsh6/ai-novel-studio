@@ -752,7 +752,7 @@ export const STRUCTURE_PANEL = {
     reviseDesignPrompt: (signal: string) =>
       `审读报告发现「${signal}」，我选择修订设定：请根据这条偏离生成待采纳的设定修订草稿，不要直接写入档案。`,
     reviseProsePrompt: (signal: string) =>
-      `审读报告发现「${signal}」，我选择修订正文：请针对相关章节生成待采纳的修订候选，保留原稿。`,
+      `审读报告发现「${signal}」，我选择修订正文：请改写相关章节的正文，生成待采纳的正文草稿作为修订候选，保留原稿不覆盖。`,
   },
   panelActions: {
     overview: {

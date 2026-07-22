@@ -183,6 +183,8 @@ export const nativeSliceIds = [
   "judgment-explore-internal",
   "judgment-explore-chapter-plan",
   "au13-arc-ledger-roundtrip",
+  "au13-review-adjudication-roundtrip",
+  "au13-revise-prose-sibling",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -939,6 +941,24 @@ const sliceKeyEvents = {
     "ledger.update.done",
     "judgment.decided.done",
     "context.progress_state.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au13-review-adjudication-roundtrip": [
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "ledger.report.done",
+    "ledger.adjudicate.done",
+    "ledger.dismiss.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au13-revise-prose-sibling": [
+    "channel.author_action.start",
+    "ledger.report.done",
+    "ledger.adjudicate.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -1829,6 +1849,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu13ArcLedgerRoundtripEvidence(records);
   }
 
+  if (sliceId === "au13-review-adjudication-roundtrip") {
+    return findAu13ReviewAdjudicationEvidence(records);
+  }
+
+  if (sliceId === "au13-revise-prose-sibling") {
+    return findAu13ReviseProseSiblingEvidence(records);
+  }
+
   if (sliceId === "judgment-explore-chapter-plan") {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
@@ -2448,6 +2476,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au13-arc-ledger-roundtrip") {
     return au13ArcLedgerRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au13-review-adjudication-roundtrip") {
+    return au13ReviewAdjudicationBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au13-revise-prose-sibling") {
+    return au13ReviseProseSiblingBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "judgment-explore-chapter-plan") {
@@ -11994,6 +12030,132 @@ function findJudgmentExploreChapterPlanEvidence(records) {
 
 // SC-AU13-A1（VS-00F CP1 / ADR-0026）：采纳即记账（ledger.update.done sighted>=1）、
 // 账面探索可查（reply 引用弧光账条目）、下一章写作携带账面投影（context.progress_state.done）。
+
+// SC-AU13-B1+C1（VS-00F CP4c-3）：显式全书审读物化报告（ledger.report.done）→
+// 四处置逐项裁决（ledger.adjudicate.done ×4，四种 disposition 各一）→ dismiss 进
+// 证据日志（ledger.dismiss.done）→ 修订类 correction intent 走真实 user_message。
+
+// SC-AU13-B2（VS-00F CP4c-3 / VS-00E §8）：revise_prose 处置 → 高风险改写确认 →
+// sibling 修订候选（pending prose_fragment）→ 原稿保留（阅读投影仍为 seed 正文）。
+function findAu13ReviseProseSiblingEvidence(records) {
+  const sliceId = "au13-revise-prose-sibling";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Number(record.review_finding_count ?? 0) >= 1 &&
+      record.candidate_pending_not_adopted === true &&
+      record.original_preserved_in_reading === true &&
+      String(record.candidate_artifact_id ?? "") !== "",
+  );
+  if (!uiState) return null;
+
+  const report = records.find((record) => record.event === "ledger.report.done");
+  if (!report) return null;
+
+  const revise = records.find(
+    (record) =>
+      record.event === "ledger.adjudicate.done" && record.disposition === "revise_prose",
+  );
+  if (!revise) return null;
+
+  const candidateTurnId = String(uiState.candidate_turn_id ?? "");
+  if (!candidateTurnId) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: candidateTurnId,
+    turn_ids: [candidateTurnId],
+    candidate_artifact_id: String(uiState.candidate_artifact_id ?? ""),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function au13ReviseProseSiblingBehavior(_turnIds, _turnRecords, records, evidence, _options) {
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au13-revise-prose-sibling",
+  );
+  if (!uiState) return null;
+  if (!String(uiState.prose_intent_text ?? "").includes("保留原稿")) return null;
+
+  return {
+    slice_id: evidence.slice_id,
+    revise_prose_sibling_candidate: true,
+    original_preserved: true,
+    candidate_pending_not_adopted: true,
+  };
+}
+
+function findAu13ReviewAdjudicationEvidence(records) {
+  const sliceId = "au13-review-adjudication-roundtrip";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Number(record.review_finding_count ?? 0) >= 4 &&
+      Number(record.adjudicated_count ?? 0) >= 4 &&
+      record.dismiss_evidence_logged === true &&
+      record.report_fully_dispositioned === true,
+  );
+  if (!uiState) return null;
+
+  const report = records.find(
+    (record) => record.event === "ledger.report.done" && Number(record.finding_count ?? 0) >= 4,
+  );
+  if (!report) return null;
+
+  const adjudications = records.filter((record) => record.event === "ledger.adjudicate.done");
+  const dispositions = new Set(adjudications.map((record) => record.disposition));
+  const required = ["accept_drift", "dismiss", "revise_design", "revise_prose"];
+  if (!required.every((d) => dispositions.has(d))) return null;
+
+  const dismissEvidence = records.find((record) => record.event === "ledger.dismiss.done");
+  if (!dismissEvidence) return null;
+
+  const designTurnId = String(uiState.design_turn_id ?? "");
+  const proseTurnId = String(uiState.prose_turn_id ?? "");
+  if (!designTurnId || !proseTurnId) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: designTurnId,
+    turn_ids: [...new Set([designTurnId, proseTurnId].filter(Boolean))],
+    review_report_id: String(uiState.review_report_id ?? ""),
+    review_finding_count: Number(uiState.review_finding_count ?? 0),
+    adjudicated_count: adjudications.length,
+    dispositions: [...dispositions].sort(),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function au13ReviewAdjudicationBehavior(_turnIds, _turnRecords, records, evidence, _options) {
+  if (!evidence) return null;
+
+  // 修订类处置的意图文本必须包含处置措辞（correction intent 真实回流对话）
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au13-review-adjudication-roundtrip",
+  );
+  if (!uiState) return null;
+  if (!String(uiState.design_intent_text ?? "").includes("修订设定")) return null;
+  if (!String(uiState.prose_intent_text ?? "").includes("修订正文")) return null;
+
+  return {
+    slice_id: evidence.slice_id,
+    adjudication_roundtrip: true,
+    dispositions: evidence.dispositions,
+    dismiss_evidence: true,
+    correction_intents_via_user_message: true,
+  };
+}
+
 function findAu13ArcLedgerRoundtripEvidence(records) {
   const sliceId = "au13-arc-ledger-roundtrip";
 
