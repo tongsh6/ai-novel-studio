@@ -110,8 +110,11 @@ CP4a 拦截（漂移 30 章内被审读报告拦）/CA01 造角题材/CA02 设�
 升级回路（审读需设计负债规则族：N 章无 PROTAGONIST→主角未物化 finding/
 正文高频人物∉roster→接管候选[R2 可行形态]，处置=引导物化走既有采纳流）。
 修法与收官循环骨架修法合并成一刀：**承重事实清单（per-capability manifest）
-+缺席行为学+设计负债规则**；prompt 体系化（目录/六段骨架/模型口径层）并入
-UA01-agentic-loop-prompt-hardening 作架构层。call2"登记"误判修复已落盘待
++缺席行为学+设计负债规则+设定盘点修复回路**；prompt 体系化（目录/六段
+骨架/模型口径层）并入 UA01-agentic-loop-prompt-hardening 作架构层。五场
+讨论合流定型见 `docs/design/notes/2026-07-22-prompt-as-function-of-state.md`
+（用户确认"完整的 AI 指令提示词完善方向"=prompt 即状态函数三维度；两拍板
+点待定：工作假定层/盘点触发形态）。call2"登记"误判修复已落盘待
 A/B（9b8e35e5，本跑旧构建作基线）。唯余：定期化 LongRunTask（A20 随需求）。
 
 ---
