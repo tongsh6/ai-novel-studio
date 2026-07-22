@@ -290,7 +290,8 @@ stateDiagram-v2
 
 缺失处理：
 
-1. `absent`：需要的材料不存在，AI message 必须明示缺失。
+1. `absent`：需要的材料不存在，AI message 必须明示缺失。**（VS-00G 守则化升级：承重事实
+   缺席时不止"明示缺失"，还注入缺席守则+行为约束——AbsenceDirective，防真空被模型想象填补）**
 2. `omitted`：材料存在但因预算、权限或相关性被裁剪，必须产生 omission note。
 3. `stale`：材料可能过期，必须进入 freshness note 或降权。
 4. `conflicting`：设计态、实现态或记忆冲突时，必须暴露冲突，不能在 context assembly 阶段自行合并。
@@ -399,7 +400,7 @@ Context assembly 必须显式记录策略。
 | `sensitive` | 当前消费者无权读取 |
 | `stale` | 已过期或被 superseded |
 | `debug_only` | 只能用于 debug/replay |
-| `requires_confirmation` | 需要作者确认后才可纳入 |
+| `requires_confirmation` | 需要作者确认后才可纳入（**指普通材料**；与 VS-00G 工作假定切分：暂用态是显式【暂定】标注的系统判断，经专用可标注通道注入，非本条约束的"材料"）|
 
 ---
 

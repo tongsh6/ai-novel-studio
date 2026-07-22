@@ -40,7 +40,10 @@
 **队首：VS-00G CP0→CP1 开工**——承重事实完备性与补全回路 contract pack 已
 **Frozen**（docs/design/contracts/VS-00G-*.md；三路全树先例排查+8 项裁决：假定放行
 分级/盘点三类全产/AU-13 扩+AU-14 新立/假定用户可见名「暂定设定」，其余取建议默认）。
-CP 路线：CP0 同批修订+AU 立档 → CP1 manifest+MissingPolicyResult 扩展+缺席守则
+**CP0 done（2026-07-23）**：契约冻结重构（工作假定=既有对象 tentative 态+标注，
+零新实体，用户"慎重新增实体"第四纪律）+同批修订六处（08 NEM-GAP-08/VS-00C
+design_missing 档/VS-00F I-L1 修订+负债规则续编/06 absent 守则化+切分）+AU-14
+立档+AU-13 D 系。CP 路线：CP1 manifest+MissingPolicyResult 扩展+缺席守则
 （prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
 收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。

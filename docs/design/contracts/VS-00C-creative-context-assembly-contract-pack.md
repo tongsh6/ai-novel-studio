@@ -201,8 +201,11 @@ ReaderEffectBrief
 | `high_risk_confirm` | 可继续但需要作者知道风险 | 世界规则冲突、必要前文摘要 stale、续写目标正文为空但章已标记有正文 | 进入确认/澄清路径，trace 记录风险 |
 | `degrade_with_note` | 可降级执行且有替代物 | 原文超预算，以 chapter_summary 替代；旧对话被 session summary 替代 | 调用 AI，写 OmissionNote + replacement |
 | `omit_with_trace` | 低风险省略 | 无关记忆、过期运行态、debug-only 材料 | 调用 AI，写 OmissionNote |
+| `design_missing`（VS-00G 扩展） | 承重设计态对象"该建未建"（非"作品还没写到"，是系统级从未物化） | 已写数十章但无 PROTAGONIST 角色；无全书骨架 | 按 manifest 处置：缺席守则注入 / 暂用态注入 / 记 design_missing 供负债规则消费；不阻断但留痕 |
 
-`MissingPolicyResult` 是 provider 调用前的系统判断，不是 AI 判断。AI 可以在输出自报告里暴露它感知到的不确定性，但不能覆盖该结果。
+`MissingPolicyResult` 是 provider 调用前的系统判断，不是 AI 判断。承重事实完备性判定
+（VS-00G CapabilityFactManifest）作为本决策器的类别扩展归口，不另立第二套决策器
+（保 VS00C-I9 统一决策）。AI 可以在输出自报告里暴露它感知到的不确定性，但不能覆盖该结果。
 
 #### 3.0.4 创作输出的自报告字段
 

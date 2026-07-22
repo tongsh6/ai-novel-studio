@@ -186,13 +186,14 @@
 
 | 编号 | 缺口 | 涉及要素 | 现状 |
 |---|---|---|---|
-| NEM-GAP-01 | 主题 / 前提无建模位置 | E01 / E02 | work 元信息只有"卖点"（商业），没有"命题"（创作） |
+| NEM-GAP-01 | 主题 / 前提无建模位置 | E01 / E02 | ~~work 无"命题"字段~~ **部分关闭**（CA01：works 增 premise/theme/main_goal）；全书骨架（目标体量/连载形态）续批见 NEM-GAP-08 |
 | NEM-GAP-02 | 核心设定引擎、成长体系、命名体系无对象 | E06 / E09 / E12 | 只能散落在 worldbuilding 文本里 |
 | NEM-GAP-03 | ~~章级设计无结构~~ **已关闭**（2026-07-20） | E18-E22 | 全链落地：ChapterPlanDirection 九字段（VS-00C CP4）→ plot_outline writer 结构化文法产出 → ChapterPlanParser 物化 → 执行简报场级投影（chapter_projection）→ 探索面 chapter_read 三态可读（CP5b）→ 种子结构化后场景/狗粮全程方向在场（p1-prose-execution-brief degraded=false + judgment-explore-chapter-plan 引用设计态字段 verified） |
 | NEM-GAP-04 | 场级 craft 无槽位 | E23-E30 | scene 是空结构节点，无任何 craft 字段 |
 | NEM-GAP-05 | "向前看"的五本账缺位 | E33-E37 | 弧光/冲突/信息/情绪曲线/承诺只有 main_outline 文本兜底 |
 | NEM-GAP-06 | 三态对账无一等机制 | 全部 | 25 有提炼方向，但"实现态 vs 设计态对账"未被表述为机制 |
-| NEM-GAP-07 | 卷级蓝图无结构 | E14-E17 | volume 是结构容器，无目标/编织/节奏字段 |
+| NEM-GAP-07 | 卷级蓝图无结构 | E14-E17 | volume 是结构容器，无目标/编织/节奏字段（VS-00G 只落全书骨架消费面，卷级对象仍待"开新卷"动作提出） |
+| NEM-GAP-08 | 全书体量/连载形态无建模位 + 承重事实"该建未建"无检测回路 | E01/E08 + 全部 | ~~works 无目标体量、无收官守则、无"主角未物化"类负债检测~~ **VS-00G 冻结**（承重事实完备性与补全回路：manifest/缺席守则/设计负债规则族/设定盘点/工作假定/全书骨架；M3 狗粮地基事实真空实证） |
 
 ---
 
@@ -270,7 +271,7 @@ slice，必须回答"探索面（判断循环内部翼工具目录）如何可�
 
 1. 各要素的字段 schema 与枚举全集（含章功能、情绪、断章类型的枚举）
 2. 五本账的对象 schema 与状态机
-3. 三态对账的触发时机与产物形态
+3. ~~三态对账的触发时机与产物形态~~ **已冻结**（VS-00F 五本账+三态对账；VS-00G 设计负债规则族扩展"应有设计态 vs 缺位"对账）
 4. 场级 craft 槽的完整集合
 5. strategy_artifact（网文打法）与要素模型的挂接方式
 
@@ -279,4 +280,5 @@ slice，必须回答"探索面（判断循环内部翼工具目录）如何可�
 ## 11. 下一步
 
 1. `contracts/VS-00C-creative-context-assembly-contract-pack.md` 引用本文作为上游，按 §8 顺序修订其 checkpoint 范围。
-2. 五本账 + 三态对账在 VS-00C 各 checkpoint 落地、提炼数据可用后，立项独立 contract pack。
+2. 五本账 + 三态对账在 VS-00C 各 checkpoint 落地、提炼数据可用后，立项独立 contract pack。**已落地**：`contracts/VS-00F`（五本账+三态对账，Frozen）。
+3. 承重事实完备性与补全回路（NEM-GAP-08）立项独立 contract pack。**已落地**：`contracts/VS-00G`（Frozen，2026-07-22；M3 节拍狗粮地基事实真空拉动）。
