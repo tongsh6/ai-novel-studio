@@ -142,6 +142,57 @@ defmodule NovelDomain.LedgerReconciliation do
 
   def future_chapter_refs(_text, _seq), do: []
 
+  @doc """
+  R5：主角未物化（VS-00G 设计负债规则族）——对照"应有设计态 vs 设计态缺位"。
+
+  已写章数达阈值但 roster 无任何 accepted `narrative_role=PROTAGONIST` → 偏离项。
+  确定性（I-L4）；主体是缺位对象无 entry_ref，source_refs 指向缺位查询证据侧
+  （已扫章范围，I-L1 修订）。处置=引导物化（revise_design 变体，携盘点入口）。
+
+  `roster`：accepted 角色 map 列表（含 `:narrative_role`）；`chapter_count`：已写章数；
+  `threshold`：催办前的最小章数（策略化，默认调用方传，VS-00G OQ3=10）。
+  """
+  @spec protagonist_undermaterialized_finding([map()], non_neg_integer(), non_neg_integer()) ::
+          finding() | nil
+  def protagonist_undermaterialized_finding(roster, chapter_count, threshold)
+      when is_list(roster) and is_integer(chapter_count) and is_integer(threshold) do
+    has_protagonist? = Enum.any?(roster, &(protagonist_role(&1) == "PROTAGONIST"))
+
+    cond do
+      has_protagonist? ->
+        nil
+
+      chapter_count < threshold ->
+        nil
+
+      true ->
+        %{
+          rule: "protagonist_undermaterialized",
+          ledger: "design_debt",
+          severity: "warn",
+          entry_ref: nil,
+          signal:
+            "已写 #{chapter_count} 章但作品未登记任何主角（无 PROTAGONIST 角色档案）——" <>
+              "建议盘点正文中的主角团并物化，否则弧光账无记账主体、无法追踪要角连续性。",
+          source_refs: ["chapters:1-#{chapter_count}"],
+          proposed_disposition: "revise_design"
+        }
+    end
+  end
+
+  def protagonist_undermaterialized_finding(_roster, _count, _threshold), do: nil
+
+  defp protagonist_role(character) when is_map(character) do
+    character
+    |> Map.get(:narrative_role, Map.get(character, "narrative_role"))
+    |> case do
+      role when is_binary(role) -> role
+      _ -> nil
+    end
+  end
+
+  defp protagonist_role(_character), do: nil
+
   defp bigrams(text) do
     chars =
       text

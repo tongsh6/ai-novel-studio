@@ -25,7 +25,8 @@ defmodule NovelApplication.LedgerReconciliationService do
   def scan(work_id, deps) do
     entries = deps.entries.(work_id)
     summaries = deps.summaries.(work_id)
-    roster_names = deps.roster.(work_id) |> Enum.map(& &1[:name]) |> Enum.filter(&is_binary/1)
+    roster = deps.roster.(work_id)
+    roster_names = roster |> Enum.map(& &1[:name]) |> Enum.filter(&is_binary/1)
 
     arc_entries = Enum.filter(entries, &(&1.ledger == "arc"))
     promise_entry = Enum.find(entries, &(&1.ledger == "promise" and &1.subject_ref == "genre"))
@@ -34,7 +35,8 @@ defmodule NovelApplication.LedgerReconciliationService do
     findings =
       LedgerReconciliation.arc_stalled_findings(arc_entries) ++
         List.wrap(LedgerReconciliation.genre_promise_finding(promise_entry, summaries, roster_names)) ++
-        Enum.map(leaked_entries, &leak_finding/1)
+        Enum.map(leaked_entries, &leak_finding/1) ++
+        design_debt_findings(roster, summaries)
 
     counts = Enum.frequencies_by(findings, & &1.rule)
 
@@ -107,6 +109,24 @@ defmodule NovelApplication.LedgerReconciliationService do
   end
 
   # R4 的报告呈现：LEAKED 条目（维护已记账的既成事实）聚合为偏离项。
+  # VS-00G CP2 设计负债规则族："应有设计态 vs 设计态缺位"。R5 主角未物化先落
+  # （最可靠、数据现成）；R2 无设计接管需人物栏结构化提取（延后，见 slice 登记）；
+  # R6/R7 依赖 CP3 全书骨架字段。阈值 R5=10（VS-00G OQ3，策略化默认）。
+  @protagonist_debt_threshold 10
+
+  defp design_debt_findings(roster, summaries) do
+    chapter_count = length(summaries)
+
+    [
+      LedgerReconciliation.protagonist_undermaterialized_finding(
+        roster,
+        chapter_count,
+        @protagonist_debt_threshold
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
   defp leak_finding(entry) do
     %{
       rule: "planned_info_leak",

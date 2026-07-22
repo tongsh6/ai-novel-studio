@@ -84,4 +84,36 @@ defmodule NovelDomain.LedgerReconciliationTest do
     assert LedgerReconciliation.future_chapter_refs(text, 3) == [60, 45]
     assert LedgerReconciliation.future_chapter_refs(nil, 3) == []
   end
+
+  describe "R5 主角未物化（VS-00G 设计负债）" do
+    test "已写达阈值且无 PROTAGONIST → warn finding（引导物化，source_refs 指缺位查询）" do
+      f = LedgerReconciliation.protagonist_undermaterialized_finding([], 20, 10)
+      assert f.rule == "protagonist_undermaterialized"
+      assert f.ledger == "design_debt"
+      assert f.severity == "warn"
+      assert f.entry_ref == nil
+      assert f.source_refs == ["chapters:1-20"]
+      assert f.proposed_disposition == "revise_design"
+      assert f.signal =~ "未登记任何主角"
+    end
+
+    test "roster 含 PROTAGONIST → 不产（主角已物化）" do
+      roster = [%{name: "沈砚", narrative_role: "PROTAGONIST"}]
+      assert LedgerReconciliation.protagonist_undermaterialized_finding(roster, 20, 10) == nil
+    end
+
+    test "字符串 key 的 narrative_role 也识别" do
+      roster = [%{"name" => "沈砚", "narrative_role" => "PROTAGONIST"}]
+      assert LedgerReconciliation.protagonist_undermaterialized_finding(roster, 20, 10) == nil
+    end
+
+    test "未达章数阈值 → 不催（还没写够，诚实不报）" do
+      assert LedgerReconciliation.protagonist_undermaterialized_finding([], 5, 10) == nil
+    end
+
+    test "有角色但无一是 PROTAGONIST → 仍报（配角不算主角物化）" do
+      roster = [%{name: "白露", narrative_role: "SUPPORTING"}, %{name: "沈砚"}]
+      assert LedgerReconciliation.protagonist_undermaterialized_finding(roster, 20, 10) != nil
+    end
+  end
 end

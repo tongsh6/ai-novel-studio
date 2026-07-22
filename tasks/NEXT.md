@@ -47,7 +47,11 @@ design_missing 档/VS-00F I-L1 修订+负债规则续编/06 absent 守则化+切
 required，prose/plot_outline 登记）+MissingPolicyResult design_missing 档+
 AbsenceDirective 缺席守则+机械准备注入（turn_execution_service，context.
 fact_completeness.done 留痕）；单测 8+6，全门绿，**百章标本重放 PASS**（真实
-读端口 characters=0→主角缺席守则注入，M3 地基真空产品级下药）。CP 路线：CP2 负债规则 R2/R5-R7
+读端口 characters=0→主角缺席守则注入，M3 地基真空产品级下药）。**CP2 R5 done（2026-07-23）**：主角未物化负债规则（design_debt ledger，
+阈值 10 策略化，缺位查询 source_refs，revise_design 引导处置）接入真实对账
+扫描；domain 单测 5，全门绿，**百章标本重放 PASS**（characters=0→R5 与
+R3/R4 同产 4 偏离，M3 弧光线失明检测层修复）。R2 登记（需人物栏结构化提取）、
+R6/R7 随 CP3。CP 路线：CP3 全书骨架字段+规划注入+收官守则
 （prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
 收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
