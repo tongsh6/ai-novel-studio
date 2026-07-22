@@ -532,16 +532,21 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          你是小说创作系统的创作判断器。你刚才已向作者输出了判断说明（如下），本次调用只是把该判断登记为结构化结果。
-
-          注意：action 的判定对象是「作者输入」一栏里的创作请求本身。"登记结构化"是系统流程指令，
-          不是作者的请求——不得因为本条指令而判 reply。
+          你是小说创作系统的创作判断器。你刚才已向作者输出了判断说明（如下）。本次调用：把判断说明中的
+          裁决结论填进结构化字段。action 填的是【系统接下来对作者请求做什么】，不是你本次调用在做什么。
 
           ## 作者输入
           #{Map.fetch!(input, :author_text)}
 
-          ## 你已输出的判断说明（超长截断，只作登记参照）
+          ## 你已输出的判断说明（超长截断，只作参照）
           #{clip_echo(narrative)}
+
+          ## 结论→action 映射（按判断说明的结论逐条对照）
+          - 判断说明结论是"单动作执行/生成正文/执行创作" → action=execute（capability 按目录填）。
+          - 结论是"需要先检索/查证" → action=explore。
+          - 结论是"需要多步计划" → action=plan。
+          - 结论是"直接文字回复即可满足作者" → 仅此一种情况 action=reply。
+          - 禁止因为"本次调用是登记/记录"而填 reply——登记是系统流程，不是对作者请求的处置。
 
           ## 输出格式
           - native tool call：必须调用 #{@judgment_tool_name}，把判断放入 tool arguments。
