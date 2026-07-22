@@ -10,114 +10,40 @@
 
 ## 1. Current Focus
 
-**M3 推进（2026-07-21）：VS-00F CP0+CP1 双 done——弧光账全链闭环，SC-AU13-A1 真实 Tauri 首轮 PASS + M2 重放 PASS，下一步 CP2**
+**M3 节拍狗粮已完成并审计（2026-07-22）：100 章 / 140k 词达成 / 全书导出 ✓——队首 = 状态函数刀 slice 设计**
 
-CP0：契约 Frozen（用户"开工"拍板默认项）+ ADR-0026 Accepted + 同批修订全落
-（25/ADR-0018/00c/ui43/schemas/AU-13）。CP1：LedgerEntry 域+持久化+维护钩子
-（确定性提炼+停滞规则+TENTATIVE→ACCEPTED 自动通过）+ archive_read 第 9 面 +
-progress_state 写作投影（含 Q2/Q3 反泄漏约束首落点）全链落地；**M2 75 章书
-重放 PASS**：凌渊 STALLED@25/凌云@52/沈墨@47、后期主角 ON_TRACK、韩晟零出场
-零条目——漂移首次被机器账面暴露（证据 artifacts/ledger-replay/）。全量 1221
-测试 0 失败+全门绿+触碰文件扫描清零。**CP1 已收口**：真实 Tauri 场景 `au13-arc-ledger-roundtrip` 首轮 PASS（采纳
-即记账 sighted=1→探索回复引用真实账目页面可见→次章请求带账面投影
-entry_count=1，九事件链全齐）；StateTrace 留痕随维护 trace 债后补（不阻）。
-CP2a 已落（2026-07-21）：承诺/信息账对象化+提炼扩展（genre 承诺
-档案播种、正文前指→LEAKED 条目）+ 对账规则 R1/R3/R4（R3 身份锚点=作品
-自身早期摘要自识别 ∧ 文档频率过滤，M2 实测锚点[调频 公司 灵气 散修]末窗
-归零 4/8 命中；最小锚点数护栏防孤锚误判；R2 无设计接管需 design_ref 回填
-延 CP2b）+ 只读扫描服务（I-L2 权威无 diff）；重放 PASS 全靶。CP2b 已落（同日）：报告物化（TENTATIVE/单活跃/SUPERSEDE 链，空偏离不落盘）
-+ 章数节拍触发（默认 10；profile 化按契约归 CP4）+ ledgers 探索面附最新
-报告（作者可见）；重放 PASS（报告 5 偏离 TENTATIVE）。CP2c-1 已落（同日）：裁决服务核心（四处置、裁决态转移域层双保险、
-报告全裁决转 ACCEPTED、dismiss=结构化证据日志[33 Engine 无运行时代码，
-落地时收编]）；M2 报告真实裁决重放 PASS（凌渊→DRIFTED、二跑不再重复
-报警实证）。CP2c-2 已并入 CP4（拍板④档案页起步，入口随 Ledgers 面板批一体交付）。
-CP3 已落（同日）：情绪曲线账（intended=plan_direction.emotion vs realized=
-摘要情绪栏，二元词重叠机械判定，M2 实测 54/15/6）+ 主线冲突账（推进/高潮/
-转折章采纳即推进，ACTIVE⇄DORMANT 同弧光语义）+ 探索面聚合呈现；重放 PASS。
-**五本账全部落地**。CP4a 已落（同日）：规划消费账面——plot_outline 注入
-五账规划摘要（停滞弧光/主线/类型承诺/情绪曲线聚合）+延续性要求（"停滞
-角色需回归或明确退场；不引入取代主角团的新主导角色；保持类型承诺题材
-元素"——直接对着 M2 漂移病灶下药），progress_state 同通道、prose 文案随
-迁 app 侧。**待清算批次（下次节拍狗粮）**：clip_echo 指标+库迁移 resume+
-规划带账拦截效果（CP4 验收靶=漂移 30 章内被拦）。CP4b 已并入 CP4c（承重裁决：profile 的第一真实消费者=显式发起入口，
-入口在面板批，无 consumer 不先建）。Order 7-④ 已落（同日）：判断章节段
-标头改「共N章：已写X/计划中Y」+计划章标注（计划中）——判断进度认知不再
-被计划章污染（M2 17/12 实锤修复）。定序已拍板：Order 7 两刀先行。
-**Order 7 刀二 CA01 CP1 已闭环（同日，tasks/slices/CA01-planning-context-completion.md）**：
-works 增创作锚三字段 premise/theme/main_goal（NEM-GAP-01，migration+schema+
-normalize_attrs 白名单+profile/snapshot 投影+判断 call1 nil 过滤诚实缺席）；
-plot_outline 工具上下文纳入阵容段+摘要窗段（M2 凭空造角直接杠杆）；探索面
-同步律补 render_profile 三行（用户"七问"追问抓出的缺口）；全量 1234 测试
-0 失败+I1/I2/I3 绿+触碰文件扫描清零+真实 Tauri `agent-plot-outline-with-context`
-复跑 PASS。余项登记在 slice 文档：planner 起草层 planning_facts_section、
-卷投影 ⓒ、写入链路 P2；产品级效果随下次节拍狗粮清算。
-**七问升格（同日，用户拍板，e18abe0e）**：探索可达（08 §8 探索面同步律）
-独立为开工检查第七问 Exploration——AGENTS.md/vertical-slice.md/08/VS-00C
-四处同步；历史 slice 六问不回溯。
-**Order 7 刀一 CA02 CP1 已闭环（同日，tasks/slices/CA02-writing-facts-context.md）**：
-确认记忆机械分组注入 prose 写作（伏笔/规则/状态/关系事实段+STYLE_RULE/
-AUTHOR_PREFERENCE 风格段，WorkArchiveRepo.creative_facts 读端口+
-facts_group_limit 策略预算+三执行点接线含 judgment_plan M2 主链）+
-evaluator facts_context 事实基线（31 §6.12 🟡 门补输入）。全量 1243 测试
-0 失败+I1/I2/I3+xref/arch 绿+真实 Tauri au13-arc-ledger-roundtrip 带改动
-复跑 PASS。**顺带 A/B 实锤既有失败**：p1-chapter-draft-generation 基线即
-超时（verifier 期望停留判断纪元前 planner.form_frame.done 等事件，属 07-06
-登记的 13 driver 验收语义迁移复跑未闭环债）——待清算批次追加。余项在
-slice 文档：23 风格对象化、🔴 门读模型、狗粮效果清算。
-**CP4c-1 已落（2026-07-22，详见 VS-00F slice CP4 行）**：用户拍板创作语境
-命名（用户可见「脉络/审读」，"账"不合创作氛围；ui43 §5.0.1 映射表）+
-Pencil 原型（43§5-9-threads-panel，基准=当前真实面板非初版照搬）+ 后端读
-投影/裁决动作 + 前端「脉络」tab（五脉+审读报告四处置+概览整合行）+
-**对话区限列宽修复**（用户反馈）+ 全链字串改名；au13 真实 Tauri 复跑
-PASS；au12-correction-intent 实锤为判断纪元既有 driver 债（pre-CA01 基线
-即败，同 13 driver 迁移债族）。两条用户 UI 原则已固化记忆：整合优先于
-加法（重叠盘点）、.pen 是初版只取风格理念。**CP4c-2 已落（同日）**：ledger_reconciliation_v1
-AgentRun profile（模型只起草计划，审读与物化全程机械，app 侧事实口径）+
-channel start_full_review+面板按钮真实起 run；runtime/wire 测试+全门绿+
-au13 复跑 PASS。**CP4c-3 已落（同日）**：SC-AU13-B1+C1 并场景
-`au13-review-adjudication-roundtrip`（只读视图→真实审读 run→4 偏离四处置各一
-例→dismiss 证据日志→correction intent 真实 user_message→报告全处置诚实清空）
-+ SC-AU13-B2 `au13-revise-prose-sibling`（revise_prose→改写意图→tentative
-sibling 候选→阅读投影证原稿保留）两场景真实 Tauri PASS；AU-13 场景覆盖
-5/5。**VS-00F CP4c 收口**。
-**狗粮前小修批已落（2026-07-22，用户批）**：①B9 Q2/Q3 修向——meta_leak
-pattern 扩容（第N章自指/待采纳/审校）+writer 红线（正文只写故事本身，章节
-坐标是背景非剧情事实）+导出泄漏机器检查（export.leak_check.done 事件，与
-生成期 validator 同一 pattern 源）；②B8 预检钉——dogfood_run.sh 启动前
-lms ps 机械检查 contextLength≥32768 不达标拒跑；③rail 待处置计数（面板
-onReviewPendingChange 回调同步+join/turn 后刷新）。全门绿+裁决场景复跑
-PASS。**M3 节拍狗粮长跑进行中（2026-07-22，用户拍板）**——清算靶：
-CP4a 拦截（漂移 30 章内被审读报告拦）/CA01 造角题材/CA02 设定伏笔一致
-/clip_echo 指标/resume 跨重启（✓已实证：12 章 17,615 字跨进程续跑）/B8
-（✓预检首战生效）/B9 生效验证。首跑 21 分钟即收官暴露参数语义：扩章仅由
---target-words 驱动（--chapters 只是上限），已按 --resume --chapters 88
---target-words 140000 重启。
-**跑中新病灶登记（用户观察实锤）：规划层无全书骨架，每批扩章自带收官**——
-第 12 章「第一卷终局」/第 20 章「黎明新生」收官味标题，每批规划都写完整
-故事，续扩只能发明更大赌注→M2 Q5 接管/题材漂移的上游机制。修法阶梯：
-①规划期结构上下文（CA01 余项 planning_facts_section 落点：目标体量+当前
-进度位置+「未到体量不收官」约束；works 或需补"目标体量/连载形态"立项
-字段）②卷级蓝图对象化（NEM-GAP-07，08 §8 序位 6 的"对应创作动作"已出现，
-需契约冻结；CA01 余项 ⓒ 卷投影同族归并）③审读侧兜底（提前收官=确定性
-对账规则：前 30 章高潮/终局章密度异常）。跑完随审计定刀。
-**跑中第二病灶实锤（2026-07-22 10:46 只读副本取证，50 章时点）：地基事实
-真空——characters=0/arc 条目=0/审读报告=0 份**。狗粮 runner 只采纳章计划与
-正文，角色从未走采纳边界→弧光账无主体全程空转→审读每次扫描"无偏离"→
-三次收官+阵容轮换五脉一声没吭；CP4 拦截靶本跑判定结构性无法达成（非规则
-失灵，是账本没有记账主体）。用户"探索与引导缺失"讨论定型为三层缺失链：
-①能力执行无"承重事实完备性"概念（组装只管已存在的，不检查该存在的）
-②诚实缺席对模型是真空（需"缺席声明+行为守则"第三态）③无"该建未建"
-升级回路（审读需设计负债规则族：N 章无 PROTAGONIST→主角未物化 finding/
-正文高频人物∉roster→接管候选[R2 可行形态]，处置=引导物化走既有采纳流）。
-修法与收官循环骨架修法合并成一刀：**承重事实清单（per-capability manifest）
-+缺席行为学+设计负债规则+设定盘点修复回路**；prompt 体系化（目录/六段
-骨架/模型口径层）并入 UA01-agentic-loop-prompt-hardening 作架构层。五场
-讨论合流定型见 `docs/design/notes/2026-07-22-prompt-as-function-of-state.md`
-（用户确认"完整的 AI 指令提示词完善方向"=prompt 即状态函数三维度；**两拍板
-点已裁决 2026-07-22：工作假定层=全要素开放**[连带硬性要求：三防护逐条强制+
-假定注册表一等对象+假定间一致性校验+永不静默转正]、**盘点触发=A+B+C 全落**
-[A+B 先行 C 随后，打扰节律：同一缺失只提一次可关闭]）。call2"登记"误判修复已落盘待
-A/B（9b8e35e5，本跑旧构建作基线）。唯余：定期化 LongRunTask（A20 随需求）。
+一日两跑（21 分钟参数误跑：扩章仅由 --target-words 驱动；主跑 ~5.9h `--resume
+--chapters 88 --target-words 140000`，跨进程续跑实证）。审计与 A/B 证据：
+`artifacts/novel-output/p1-100k-dogfood/m3-audit-2026-07-22.txt`、
+`artifacts/model-contracts/lmstudio/call2-registry-replay-ab-2026-07-22.json`。
+
+**六清算靶判定**：
+- resume ✓（12 章 17.6k 字带回续跑）；B8 预检 ✓（32768 放行语义生效）；
+- clip_echo ✓：wrong_route 97→20（-79%）；残余 19 例="登记"混淆（模型判 execute 却填
+  reply）——**已修复并重放完胜 0/19→19/19 首调命中**（9b8e35e5，百章重负载 context，
+  工具 `scripts/replay_call2_wrong_route.exs`；探针三形态 call2_first_try=1.0）；
+- CP4a 拦截**部分达成**：R3 题材承诺第 60 章开火（critical，距漂移爆发 31-40 章约压线）
+  +R4 前指泄露 ×2（61→68/64→71）+报告链 10 份 SUPERSEDE 正常+面板待处置真实点亮；
+  **弧光线结构性失明**（characters=0→无记账主体）；
+- CA01 **在场但无效**：判断 call1 全程带 premise/main_goal 仍三次收官+漂成太空歌剧
+  （一行锚敌不过十几章漂移摘要）；
+- CA02 **结构性空转**：181 条记忆全 DRAFT_CONTEXT，设定/伏笔型零条（事实链建好、上游无事实）；
+- B9 **不足**：已采纳正文仍 25 处元泄漏（advisory warn 拦不住 runner 自动采纳，修向=
+  meta_leak 升采纳级）。Q1 型短章 8→1（大幅改善）。
+
+**三跑中病灶（机器证据坐实）**：①收官循环（收官味标题 7 个：12/16/18/20/31/42/100）
+②"登记"误判（已收口）③**地基事实真空**（characters=0/arc=0/设定记忆=0——五脉仅三条
+在工作；太空歌剧吸引子=规模棘轮+语料先验+摘要窗低通+收官点火）。五场讨论合流定型
+`docs/design/notes/2026-07-22-prompt-as-function-of-state.md`（prompt 即状态函数三维度；
+两拍板已裁决：工作假定层全要素开放[三防护+假定注册表+一致性硬性]、盘点触发 A+B+C 全落）。
+
+**队首：状态函数刀 slice 设计**——承重事实清单 manifest+缺席行为学+设计负债规则族+
+设定盘点+工作假定层+全书骨架，按七问起草、契约冻结后开工。次刀：B9 升采纳级。
+百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
+
+两日完成索引（细节全在各 slice/notes，此处不复述）：VS-00F CP0→CP4c 全收口（AU-13 5/5，
+脉络/审读命名+面板+审读 run+三场景）｜CA01/CA02 CP1｜七问升格｜文案三层术语｜对话列宽
+修复｜狗粮前小修批（B8/B9/rail）｜call2 修复+重放取证。
 
 ---
 
