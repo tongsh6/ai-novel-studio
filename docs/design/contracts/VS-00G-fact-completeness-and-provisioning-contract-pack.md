@@ -248,7 +248,7 @@ recommended 事实的假定等作者放行。记忆类假定无持久态，直�
 | CP | 内容 | 标本重放靶 |
 |---|---|---|
 | CP0 | **done（2026-07-23）**：本包冻结重构（零新实体）+同批修订（08 NEM-GAP-08/VS-00C design_missing/VS-00F I-L1 修订+负债规则续编/06 absent 守则化+requires_confirmation 切分）+AU-14 立档+AU-13 D 系登记；00c atlas 与 ADR-0018 白名单随 CP1 实际事件名回填 | — |
-| CP1 | manifest+MissingPolicyResult 扩展+缺席守则（prose/plot_outline 两能力先行） | 重放：空 roster 书的 prose 请求注入主角缺席守则 |
+| CP1 | **done（2026-07-23）**：CapabilityFactManifest（主角 E07/prose+plot_outline）+MissingPolicyResult design_missing 档+AbsenceDirective 缺席守则+机械准备注入+context.fact_completeness.done 留痕 | **重放 PASS**：真实读端口读百章标本 characters=0→主角缺席守则注入（artifacts/vs00g-replay/cp1-replay-2026-07-23.txt）；单测 domain 8+application 6 |
 | CP2 | 负债规则族 R2/R5/R6/R7+审读报告渠道+处置引导 | 重放：标本在 ch10 即产"主角未物化"、ch12 计划批产"提前收官" finding |
 | CP3 | 全书骨架字段+规划注入+收官守则 | 重放：扩章 prompt 带骨架段（对照实验：终局标题密度） |
 | CP4 | 盘点 run+提案集+逐项采纳扩展+触发 A/B | 标本盘点：提案含主角团+世界规则，采纳后弧光账就位 |

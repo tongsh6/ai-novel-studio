@@ -13,7 +13,9 @@ defmodule NovelDomain.MissingPolicyResult do
 
   alias NovelDomain.WritingCoordinate
 
-  @type severity :: :ok | :block | :confirm | :degrade | :omit
+  # :design_missing（VS-00G）——承重设计态对象"该建未建"（非"作品还没写到"）。
+  # 不阻断（空 roster 写作是合法起步），产缺席守则+留痕供负债规则消费。
+  @type severity :: :ok | :block | :confirm | :degrade | :omit | :design_missing
   @type missing_item :: %{what: atom(), reason: atom(), ref: String.t() | nil}
 
   @type t :: %__MODULE__{severity: severity(), missing: [missing_item()]}

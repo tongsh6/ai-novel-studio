@@ -43,7 +43,11 @@
 **CP0 done（2026-07-23）**：契约冻结重构（工作假定=既有对象 tentative 态+标注，
 零新实体，用户"慎重新增实体"第四纪律）+同批修订六处（08 NEM-GAP-08/VS-00C
 design_missing 档/VS-00F I-L1 修订+负债规则续编/06 absent 守则化+切分）+AU-14
-立档+AU-13 D 系。CP 路线：CP1 manifest+MissingPolicyResult 扩展+缺席守则
+立档+AU-13 D 系。**CP1 done（2026-07-23）**：CapabilityFactManifest（domain 纯函数，主角 E07
+required，prose/plot_outline 登记）+MissingPolicyResult design_missing 档+
+AbsenceDirective 缺席守则+机械准备注入（turn_execution_service，context.
+fact_completeness.done 留痕）；单测 8+6，全门绿，**百章标本重放 PASS**（真实
+读端口 characters=0→主角缺席守则注入，M3 地基真空产品级下药）。CP 路线：CP2 负债规则 R2/R5-R7
 （prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
 收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。

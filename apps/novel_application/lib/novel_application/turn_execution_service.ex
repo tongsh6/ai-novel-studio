@@ -132,6 +132,12 @@ defmodule NovelApplication.TurnExecutionService do
     %{facts: creative_facts, style: style_guide} =
       creative_memory_sections(frame, action, input[:context], input[:memory_reader])
 
+    # VS-00G CP1：承重事实完备性判定（机械准备，0 调用，ADR-0025）。按能力 manifest
+    # 对现状快照逐项查缺，required 缺席且有守则→注入缺席守则（防主角真空被模型想象填补，
+    # M3 地基事实真空病例的直接下药）；design_missing 留痕供负债规则消费（CP2）。
+    absence_directives =
+      absence_directives_section(frame, action, input[:character_reader])
+
     maybe_emit_target_word_count(frame, action)
 
     # VS-00E CP1：把章级方向展开为场级执行简述，渲染进 provider 请求并记入 trace。
@@ -165,7 +171,8 @@ defmodule NovelApplication.TurnExecutionService do
           decision_packet: decision_packet(brief_result),
           progress_state: progress_state,
           creative_facts: creative_facts,
-          style_guide: style_guide
+          style_guide: style_guide,
+          absence_directives: absence_directives
         }
       )
 
@@ -340,6 +347,7 @@ defmodule NovelApplication.TurnExecutionService do
         prior_prose_section(action, sections.prior_prose),
         sections.creative_facts,
         sections.style_guide,
+        sections.absence_directives,
         tool_context_text(context, text)
       ]
       |> Enum.reject(&blank?/1)
@@ -919,6 +927,41 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp existing_characters_section(_frame, _action, _reader), do: ""
+
+  # VS-00G CP1：承重事实完备性判定 + 缺席守则注入（机械准备）。按能力 manifest 对
+  # 现状快照逐项查缺；required 缺席且有守则 → 注入缺席守则文本。design_missing 留痕
+  # 供负债规则消费（CP2）。仅对 manifest 登记的能力生效（未登记能力空段）。
+  defp absence_directives_section(frame, action, reader) do
+    capability = to_string(action[:target_ref] || action[:capability_name] || "")
+
+    case NovelDomain.CapabilityFactManifest.facts(capability) do
+      [] ->
+        ""
+
+      _facts ->
+        snapshot = %{roster: fact_completeness_roster(frame, reader)}
+        missing = NovelDomain.CapabilityFactManifest.evaluate_presence(capability, snapshot)
+        emit_fact_completeness(frame, capability, missing)
+        NovelDomain.AbsenceDirective.render(missing)
+    end
+  end
+
+  defp fact_completeness_roster(frame, reader) when is_function(reader, 1) do
+    frame.workspace_id |> reader.() |> normalize_character_list()
+  end
+
+  defp fact_completeness_roster(_frame, _reader), do: []
+
+  defp emit_fact_completeness(_frame, _capability, []), do: :ok
+
+  defp emit_fact_completeness(frame, capability, missing) do
+    LogEmit.emit(:context, :fact_completeness, :done, %{
+      turn_id: frame.turn_id,
+      capability: capability,
+      design_missing: Enum.map(missing, &to_string(&1.element)),
+      required_missing: missing |> Enum.filter(&(&1.tier == :required)) |> length()
+    })
+  end
 
   defp read_character_roster(frame, action, reader) when is_function(reader, 1) do
     if (action[:target_ref] || action[:capability_name]) == "character_roster" do
