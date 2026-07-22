@@ -37,11 +37,12 @@
 `docs/design/notes/2026-07-22-prompt-as-function-of-state.md`（prompt 即状态函数三维度；
 两拍板已裁决：工作假定层全要素开放[三防护+假定注册表+一致性硬性]、盘点触发 A+B+C 全落）。
 
-**队首：VS-00G 契约拍板**——承重事实完备性与补全回路 contract pack 已按三路全树先例
-排查起草为 Proposed（docs/design/contracts/VS-00G-*.md：manifest=MissingPolicyResult
-扩展非另立、假定注册表=第三状态机不落 memory_items、盘点=纯复用既有 seed 映射与
-run 壳、R2 收编+R5-R7 负债规则、全书骨架=34 §4.1 字段先例+CA01 链路；§8 八项开放
-问题待用户拍板，冻结前不编码）。次刀：B9 升采纳级。
+**队首：VS-00G CP0→CP1 开工**——承重事实完备性与补全回路 contract pack 已
+**Frozen**（docs/design/contracts/VS-00G-*.md；三路全树先例排查+8 项裁决：假定放行
+分级/盘点三类全产/AU-13 扩+AU-14 新立/假定用户可见名「暂定设定」，其余取建议默认）。
+CP 路线：CP0 同批修订+AU 立档 → CP1 manifest+MissingPolicyResult 扩展+缺席守则
+（prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
+收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
 
 两日完成索引（细节全在各 slice/notes，此处不复述）：VS-00F CP0→CP4c 全收口（AU-13 5/5，
