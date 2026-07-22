@@ -37,8 +37,11 @@
 `docs/design/notes/2026-07-22-prompt-as-function-of-state.md`（prompt 即状态函数三维度；
 两拍板已裁决：工作假定层全要素开放[三防护+假定注册表+一致性硬性]、盘点触发 A+B+C 全落）。
 
-**队首：状态函数刀 slice 设计**——承重事实清单 manifest+缺席行为学+设计负债规则族+
-设定盘点+工作假定层+全书骨架，按七问起草、契约冻结后开工。次刀：B9 升采纳级。
+**队首：VS-00G 契约拍板**——承重事实完备性与补全回路 contract pack 已按三路全树先例
+排查起草为 Proposed（docs/design/contracts/VS-00G-*.md：manifest=MissingPolicyResult
+扩展非另立、假定注册表=第三状态机不落 memory_items、盘点=纯复用既有 seed 映射与
+run 壳、R2 收编+R5-R7 负债规则、全书骨架=34 §4.1 字段先例+CA01 链路；§8 八项开放
+问题待用户拍板，冻结前不编码）。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
 
 两日完成索引（细节全在各 slice/notes，此处不复述）：VS-00F CP0→CP4c 全收口（AU-13 5/5，
