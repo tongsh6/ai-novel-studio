@@ -116,4 +116,27 @@ defmodule NovelDomain.LedgerReconciliationTest do
       assert LedgerReconciliation.protagonist_undermaterialized_finding(roster, 20, 10) != nil
     end
   end
+
+  describe "R6 全书骨架缺位（VS-00G 设计负债）" do
+    test "已写达阈值且无 target_length → warn finding（引导补立项）" do
+      f = LedgerReconciliation.skeleton_missing_finding(nil, 30, 20)
+      assert f.rule == "skeleton_missing"
+      assert f.ledger == "design_debt"
+      assert f.proposed_disposition == "revise_design"
+      assert f.signal =~ "未设定目标体量"
+      assert "work_profile:target_length" in f.source_refs
+    end
+
+    test "target_length 已设 → 不产（骨架已立）" do
+      assert LedgerReconciliation.skeleton_missing_finding(140_000, 30, 20) == nil
+    end
+
+    test "未达章数阈值 → 不催（起步期不催立项）" do
+      assert LedgerReconciliation.skeleton_missing_finding(nil, 5, 20) == nil
+    end
+
+    test "target_length=0 视为未立" do
+      assert LedgerReconciliation.skeleton_missing_finding(0, 30, 20) != nil
+    end
+  end
 end

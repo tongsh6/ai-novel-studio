@@ -138,6 +138,11 @@ defmodule NovelApplication.TurnExecutionService do
     absence_directives =
       absence_directives_section(frame, action, input[:character_reader])
 
+    # VS-00G CP3：规划期全书骨架注入 + 收官守则（仅 plot_outline）。直接对着 M3 收官
+    # 循环下药——扩章批不再自带终局章（骨架事实+当前进度+指令式禁终局，决策点邻近）。
+    # 无 target_length（骨架未立）时空段（R6 负债规则催办，不在此伪造骨架）。
+    work_skeleton = work_skeleton_section(action, input[:context])
+
     maybe_emit_target_word_count(frame, action)
 
     # VS-00E CP1：把章级方向展开为场级执行简述，渲染进 provider 请求并记入 trace。
@@ -172,7 +177,8 @@ defmodule NovelApplication.TurnExecutionService do
           progress_state: progress_state,
           creative_facts: creative_facts,
           style_guide: style_guide,
-          absence_directives: absence_directives
+          absence_directives: absence_directives,
+          work_skeleton: work_skeleton
         }
       )
 
@@ -347,6 +353,7 @@ defmodule NovelApplication.TurnExecutionService do
         prior_prose_section(action, sections.prior_prose),
         sections.creative_facts,
         sections.style_guide,
+        sections.work_skeleton,
         sections.absence_directives,
         tool_context_text(context, text)
       ]
@@ -810,6 +817,30 @@ defmodule NovelApplication.TurnExecutionService do
   defp plot_outline_action?(action) do
     (action[:target_ref] || action[:capability_name]) == "plot_outline"
   end
+
+  # VS-00G CP3：规划期全书骨架段+收官守则（仅 plot_outline）。已写章数用当前章列表长度
+  # 近似（含计划章，作规模信号）；无 target_length 时空段（诚实缺席，R6 负债催办）。
+  defp work_skeleton_section(action, context) do
+    if plot_outline_action?(action) do
+      snapshot = work_skeleton_snapshot(context)
+      written = work_skeleton_written_count(context)
+      NovelDomain.WorkSkeleton.render(snapshot, written)
+    else
+      ""
+    end
+  end
+
+  defp work_skeleton_snapshot(%DialogueContext{current_work_snapshot: snapshot})
+       when is_map(snapshot),
+       do: snapshot
+
+  defp work_skeleton_snapshot(_context), do: %{}
+
+  defp work_skeleton_written_count(%DialogueContext{current_chapters: chapters})
+       when is_list(chapters),
+       do: length(chapters)
+
+  defp work_skeleton_written_count(_context), do: 0
 
   @doc false
   def prose_progress_text(entries) do

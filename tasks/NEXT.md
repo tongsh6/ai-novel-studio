@@ -51,7 +51,12 @@ fact_completeness.done 留痕）；单测 8+6，全门绿，**百章标本重放
 阈值 10 策略化，缺位查询 source_refs，revise_design 引导处置）接入真实对账
 扫描；domain 单测 5，全门绿，**百章标本重放 PASS**（characters=0→R5 与
 R3/R4 同产 4 偏离，M3 弧光线失明检测层修复）。R2 登记（需人物栏结构化提取）、
-R6/R7 随 CP3。CP 路线：CP3 全书骨架字段+规划注入+收官守则
+R6/R7 随 CP3。**CP3 done（2026-07-23，R7 除外）**：works 增全书骨架三字段（target_length/
+planned_volumes/serial_form，CA01 加字段链路全复制零新表）+WorkSkeleton domain
+（骨架段+收官守则：距目标禁终局/接近可收束）+plot_outline 规划注入（决策点邻近，
+治收官循环）+探索面 profile 三行+R6 骨架缺位负债规则；全门绿，**百章标本重放
+PASS**（R5+R6 同产，M3 无主角无骨架双负债被揪出）。R7 提前收官登记（需章功能
+定位密度判定接章计划 reader）。CP 路线：CP4 盘点 run+逐项采纳扩展
 （prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
 收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。

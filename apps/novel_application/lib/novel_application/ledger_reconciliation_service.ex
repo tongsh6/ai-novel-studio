@@ -18,7 +18,8 @@ defmodule NovelApplication.LedgerReconciliationService do
   @type deps :: %{
           required(:entries) => (String.t() -> [map()]),
           required(:summaries) => (String.t() -> [{non_neg_integer(), String.t()}]),
-          required(:roster) => (String.t() -> [map()])
+          required(:roster) => (String.t() -> [map()]),
+          optional(:profile) => (String.t() -> map())
         }
 
   @spec scan(String.t(), deps()) :: {:ok, %{findings: [map()], counts: map()}}
@@ -27,6 +28,17 @@ defmodule NovelApplication.LedgerReconciliationService do
     summaries = deps.summaries.(work_id)
     roster = deps.roster.(work_id)
     roster_names = roster |> Enum.map(& &1[:name]) |> Enum.filter(&is_binary/1)
+    # profile 读失败（如标本旧 schema 无骨架列）时安全降级为空——R6 不触发，其余规则不受影响。
+    profile =
+      if deps[:profile] do
+        try do
+          deps.profile.(work_id)
+        rescue
+          _ -> %{}
+        end
+      else
+        %{}
+      end
 
     arc_entries = Enum.filter(entries, &(&1.ledger == "arc"))
     promise_entry = Enum.find(entries, &(&1.ledger == "promise" and &1.subject_ref == "genre"))
@@ -36,7 +48,7 @@ defmodule NovelApplication.LedgerReconciliationService do
       LedgerReconciliation.arc_stalled_findings(arc_entries) ++
         List.wrap(LedgerReconciliation.genre_promise_finding(promise_entry, summaries, roster_names)) ++
         Enum.map(leaked_entries, &leak_finding/1) ++
-        design_debt_findings(roster, summaries)
+        design_debt_findings(roster, summaries, profile)
 
     counts = Enum.frequencies_by(findings, & &1.rule)
 
@@ -98,7 +110,8 @@ defmodule NovelApplication.LedgerReconciliationService do
     %{
       entries: &NovelPersistence.LedgerRepository.list_all/1,
       summaries: &NovelPersistence.LedgerRepository.accepted_summaries_by_seq/1,
-      roster: &NovelPersistence.WorkArchiveRepo.characters/1
+      roster: &NovelPersistence.WorkArchiveRepo.characters/1,
+      profile: &NovelPersistence.WorkArchiveRepo.profile/1
     }
   end
 
@@ -113,15 +126,22 @@ defmodule NovelApplication.LedgerReconciliationService do
   # （最可靠、数据现成）；R2 无设计接管需人物栏结构化提取（延后，见 slice 登记）；
   # R6/R7 依赖 CP3 全书骨架字段。阈值 R5=10（VS-00G OQ3，策略化默认）。
   @protagonist_debt_threshold 10
+  @skeleton_debt_threshold 20
 
-  defp design_debt_findings(roster, summaries) do
+  defp design_debt_findings(roster, summaries, profile) do
     chapter_count = length(summaries)
+    target_length = profile[:target_length] || profile["target_length"]
 
     [
       LedgerReconciliation.protagonist_undermaterialized_finding(
         roster,
         chapter_count,
         @protagonist_debt_threshold
+      ),
+      LedgerReconciliation.skeleton_missing_finding(
+        target_length,
+        chapter_count,
+        @skeleton_debt_threshold
       )
     ]
     |> Enum.reject(&is_nil/1)

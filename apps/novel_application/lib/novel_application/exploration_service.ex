@@ -252,6 +252,10 @@ defmodule NovelApplication.ExplorationService do
       {"前提", profile[:premise]},
       {"主题", profile[:theme]},
       {"主线目标", profile[:main_goal]},
+      # VS-00G CP3（NEM-GAP-08 全书骨架 + 探索面同步律）：目标体量/卷数/连载形态同批可达
+      {"目标体量（字）", profile[:target_length]},
+      {"预计卷数", profile[:planned_volumes]},
+      {"连载形态", profile[:serial_form]},
       {"目标读者", profile[:target_reader]},
       {"基调", profile[:tone_preference]}
     ]

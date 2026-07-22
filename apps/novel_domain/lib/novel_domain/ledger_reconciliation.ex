@@ -182,6 +182,42 @@ defmodule NovelDomain.LedgerReconciliation do
 
   def protagonist_undermaterialized_finding(_roster, _count, _threshold), do: nil
 
+  @doc """
+  R6：全书骨架缺位（VS-00G 设计负债）——已写章数达阈值但 works 无 target_length
+  （骨架未立→规划无收官守则约束，收官循环的结构缺口）。处置=引导补立项。
+
+  `target_length`：nil/0 表示未立骨架；`chapter_count`：已写章数；`threshold`：默认 20（OQ3）。
+  """
+  @spec skeleton_missing_finding(integer() | nil, non_neg_integer(), non_neg_integer()) ::
+          finding() | nil
+  def skeleton_missing_finding(target_length, chapter_count, threshold)
+      when is_integer(chapter_count) and is_integer(threshold) do
+    skeleton_present? = is_integer(target_length) and target_length > 0
+
+    cond do
+      skeleton_present? ->
+        nil
+
+      chapter_count < threshold ->
+        nil
+
+      true ->
+        %{
+          rule: "skeleton_missing",
+          ledger: "design_debt",
+          severity: "warn",
+          entry_ref: nil,
+          signal:
+            "已写 #{chapter_count} 章但作品未设定目标体量与连载形态——" <>
+              "建议补全全书规划（目标字数/预计卷数/连载形态），否则规划无收官守则约束、易反复自带终局。",
+          source_refs: ["chapters:1-#{chapter_count}", "work_profile:target_length"],
+          proposed_disposition: "revise_design"
+        }
+    end
+  end
+
+  def skeleton_missing_finding(_target, _count, _threshold), do: nil
+
   defp protagonist_role(character) when is_map(character) do
     character
     |> Map.get(:narrative_role, Map.get(character, "narrative_role"))

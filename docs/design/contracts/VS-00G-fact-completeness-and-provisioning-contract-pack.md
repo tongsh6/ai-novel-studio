@@ -250,7 +250,7 @@ recommended 事实的假定等作者放行。记忆类假定无持久态，直�
 | CP0 | **done（2026-07-23）**：本包冻结重构（零新实体）+同批修订（08 NEM-GAP-08/VS-00C design_missing/VS-00F I-L1 修订+负债规则续编/06 absent 守则化+requires_confirmation 切分）+AU-14 立档+AU-13 D 系登记；00c atlas 与 ADR-0018 白名单随 CP1 实际事件名回填 | — |
 | CP1 | **done（2026-07-23）**：CapabilityFactManifest（主角 E07/prose+plot_outline）+MissingPolicyResult design_missing 档+AbsenceDirective 缺席守则+机械准备注入+context.fact_completeness.done 留痕 | **重放 PASS**：真实读端口读百章标本 characters=0→主角缺席守则注入（artifacts/vs00g-replay/cp1-replay-2026-07-23.txt）；单测 domain 8+application 6 |
 | CP2 | **R5 done（2026-07-23）**：主角未物化负债规则（ledger=design_debt，阈值 10 策略化，source_refs 指缺位查询[I-L1 修订]，处置=revise_design 引导变体）接入既有对账扫描+报告渠道。**重放 PASS**：百章标本 characters=0→R5 与 R3/R4 同产（artifacts/vs00g-replay/cp2-replay-2026-07-23.txt）。**R2 登记**（无设计接管需人物栏结构化提取，延后）；**R6/R7 随 CP3**（依赖全书骨架字段） | 重放：百章标本产"主角未物化" finding ✓ |
-| CP3 | 全书骨架字段+规划注入+收官守则 | 重放：扩章 prompt 带骨架段（对照实验：终局标题密度） |
+| CP3 | **done（2026-07-23，R7 除外）**：works 增 target_length/planned_volumes/serial_form（CA01 链路全复制，零新表）+WorkSkeleton domain（骨架段+收官守则[距目标禁终局]）+plot_outline 规划注入+探索面 profile 三行+**R6 骨架缺位负债规则**（profile 读容错降级）。**重放 PASS**：百章标本 R5+R6 同产（characters=0+旧 schema 无骨架→主角未物化+骨架缺位，artifacts/vs00g-replay/cp3-replay-r5-r6-2026-07-23.txt）；单测 domain 6+application 3+R6 4。**R7 提前收官登记**（需章标题/功能定位密度判定，接章计划 reader，随后） | 重放：R5+R6 同产 ✓；收官守则注入单测验证 |
 | CP4 | 盘点 run+提案集+逐项采纳扩展+触发 A/B | 标本盘点：提案含主角团+世界规则，采纳后弧光账就位 |
 | CP5 | 暂用态字段（provisional_source/active）+可标注注入通道+「暂定设定」视图+触发 C | SC-AU14-A2 |
 

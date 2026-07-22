@@ -142,6 +142,9 @@ defmodule NovelApplication.WorkService do
       "premise",
       "theme",
       "main_goal",
+      "target_length",
+      "planned_volumes",
+      "serial_form",
       "target_reader",
       "tone_preference",
       "revision"

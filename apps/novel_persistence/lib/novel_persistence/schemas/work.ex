@@ -29,6 +29,10 @@ defmodule NovelPersistence.Schemas.Work do
     field(:premise, :string)
     field(:theme, :string)
     field(:main_goal, :string)
+    # NEM-GAP-08（VS-00G CP3）：全书骨架——目标体量/预计卷数/连载形态（34 §4.1）
+    field(:target_length, :integer)
+    field(:planned_volumes, :integer)
+    field(:serial_form, :string)
     field(:adopted_at, :utc_datetime_usec)
     field(:revision, :integer, default: 1)
 
@@ -45,6 +49,7 @@ defmodule NovelPersistence.Schemas.Work do
       :core_selling_point,
       :target_reader,
       :tone_preference, :premise, :theme, :main_goal,
+      :target_length, :planned_volumes, :serial_form,
       :adopted_at,
       :revision
     ])
