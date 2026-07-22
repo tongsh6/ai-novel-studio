@@ -9027,7 +9027,7 @@ async function driveAu13ArcLedgerRoundtrip(page) {
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       typeof frame.body?.assistant_message?.text === "string" &&
-      frame.body.assistant_message.text.includes("弧光账·林岚"),
+      frame.body.assistant_message.text.includes("角色弧光·林岚"),
     "No ledger-grounded reply turn_result was received for the ledger question",
     200_000,
   );
@@ -9035,7 +9035,7 @@ async function driveAu13ArcLedgerRoundtrip(page) {
   const ledgerReplyText = ledgerReply.assistant_message.text;
 
   await page.waitForFunction(
-    () => document.body.innerText.includes("弧光账·林岚"),
+    () => document.body.innerText.includes("角色弧光·林岚"),
     { timeout: 15_000 },
   );
 
@@ -9078,7 +9078,7 @@ async function driveAu13ArcLedgerRoundtrip(page) {
     "Ledger reply is not exploration-grounded (missing 依据如下)",
   );
   assert(
-    visibleText.includes("弧光账·林岚"),
+    visibleText.includes("角色弧光·林岚"),
     "Arc ledger entry is not visible on the real page",
   );
   assert(
@@ -9100,8 +9100,8 @@ async function driveAu13ArcLedgerRoundtrip(page) {
       artifact_id: pendingArtifact.artifact_id,
       ledger_question_text: ledgerQuestion,
       ledger_reply_text: ledgerReplyText,
-      ledger_reply_cites_entry: ledgerReplyText.includes("弧光账·林岚"),
-      ledger_visible_on_page: visibleText.includes("弧光账·林岚"),
+      ledger_reply_cites_entry: ledgerReplyText.includes("角色弧光·林岚"),
+      ledger_visible_on_page: visibleText.includes("角色弧光·林岚"),
       ledger_update_sighted: Number(ledgerUpdateRecord.sighted ?? 0),
       progress_state_entry_count: Number(progressRecord.entry_count ?? 0),
       draft_contains_roster_name: rosterWoven,

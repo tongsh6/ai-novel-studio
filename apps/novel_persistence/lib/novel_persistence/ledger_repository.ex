@@ -19,23 +19,35 @@ defmodule NovelPersistence.LedgerRepository do
   @doc "作品的（默认弧光）账面条目，采纳态限已接受。"
   @spec list(String.t(), String.t()) :: [map()]
   def list(work_id, ledger \\ "arc") when is_binary(work_id) and is_binary(ledger) do
-    LedgerEntry
-    |> where([e], e.work_id == ^work_id and e.ledger == ^ledger)
-    |> where([e], e.adoption_status in ^@accepted)
-    |> order_by([e], asc: e.subject_label)
-    |> Repo.all()
-    |> Enum.map(&to_map/1)
+    with_work_uuid(work_id, [], fn ->
+      LedgerEntry
+      |> where([e], e.work_id == ^work_id and e.ledger == ^ledger)
+      |> where([e], e.adoption_status in ^@accepted)
+      |> order_by([e], asc: e.subject_label)
+      |> Repo.all()
+      |> Enum.map(&to_map/1)
+    end)
   end
 
   @doc "作品全部账面条目（五账通查，CP2a：维护与档案面消费）。"
   @spec list_all(String.t()) :: [map()]
   def list_all(work_id) when is_binary(work_id) do
-    LedgerEntry
-    |> where([e], e.work_id == ^work_id)
-    |> where([e], e.adoption_status in ^@accepted)
-    |> order_by([e], asc: e.ledger, asc: e.subject_label)
-    |> Repo.all()
-    |> Enum.map(&to_map/1)
+    with_work_uuid(work_id, [], fn ->
+      LedgerEntry
+      |> where([e], e.work_id == ^work_id)
+      |> where([e], e.adoption_status in ^@accepted)
+      |> order_by([e], asc: e.ledger, asc: e.subject_label)
+      |> Repo.all()
+      |> Enum.map(&to_map/1)
+    end)
+  end
+
+  # 占位 work id（如 "lobby"）不触库诚实空返回——与 WorkArchiveRepo.with_uuid 同惯例。
+  defp with_work_uuid(work_id, fallback, fun) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, _} -> fun.()
+      :error -> fallback
+    end
   end
 
   @doc """

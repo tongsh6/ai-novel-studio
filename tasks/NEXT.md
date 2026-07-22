@@ -63,9 +63,17 @@ evaluator facts_context 事实基线（31 §6.12 🟡 门补输入）。全量 1
 复跑 PASS。**顺带 A/B 实锤既有失败**：p1-chapter-draft-generation 基线即
 超时（verifier 期望停留判断纪元前 planner.form_frame.done 等事件，属 07-06
 登记的 13 driver 验收语义迁移复跑未闭环债）——待清算批次追加。余项在
-slice 文档：23 风格对象化、🔴 门读模型、狗粮效果清算。下一步：**CP4c
-统一批**=Pencil 原型（Ledgers 面板模块，UI 红线先出图）→面板+裁决入口+
-显式发起+profile 化+revise 联动+SC-AU13-B1/B2/C1。
+slice 文档：23 风格对象化、🔴 门读模型、狗粮效果清算。
+**CP4c-1 已落（2026-07-22，详见 VS-00F slice CP4 行）**：用户拍板创作语境
+命名（用户可见「脉络/审读」，"账"不合创作氛围；ui43 §5.0.1 映射表）+
+Pencil 原型（43§5-9-threads-panel，基准=当前真实面板非初版照搬）+ 后端读
+投影/裁决动作 + 前端「脉络」tab（五脉+审读报告四处置+概览整合行）+
+**对话区限列宽修复**（用户反馈）+ 全链字串改名；au13 真实 Tauri 复跑
+PASS；au12-correction-intent 实锤为判断纪元既有 driver 债（pre-CA01 基线
+即败，同 13 driver 迁移债族）。两条用户 UI 原则已固化记忆：整合优先于
+加法（重叠盘点）、.pen 是初版只取风格理念。**CP4c 余**：CP4c-2 显式发起
+真实报告物化（ledger_reconciliation_v1 profile，当前按钮只发对话意图，
+诚实未闭环）→CP4c-3 SC-AU13-B1/B2/C1 场景+rail 待处置计数。
 
 ---
 

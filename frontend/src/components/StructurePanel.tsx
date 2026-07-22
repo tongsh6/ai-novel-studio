@@ -1,5 +1,6 @@
-// Design: docs/design/ui/43-structure-panel.md §5
+// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1）
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
+// Prototype: novel-studio.pen → 43§5-9-threads-panel (uyZGw)
 import * as Tabs from "@radix-ui/react-tabs";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -19,8 +20,21 @@ import {
   getRules,
   getWorkStats,
   getWorkProfile,
+  getLedgerThreads,
+  getReviewReport,
+  sendAuthorAction,
 } from "../lib/socket";
-import type { TocData, CharacterData, MemoryItemData, WorkStats, WorkProfile } from "../lib/socket";
+import type {
+  TocData,
+  CharacterData,
+  MemoryItemData,
+  WorkStats,
+  WorkProfile,
+  LedgerThreads,
+  LedgerThreadEntry,
+  ReviewReport,
+  ReviewFinding,
+} from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -48,7 +62,7 @@ interface Props {
   onNewAction: (prompt: string) => void;
 }
 
-type TabType = "overview" | "outline" | "character" | "foreshadowing" | "rule";
+type TabType = "overview" | "outline" | "character" | "foreshadowing" | "rule" | "ledger";
 type SelectedArchiveItem = { kind: "character"; id: string } | { kind: "memory"; id: string };
 type PendingTabType = TabType;
 
@@ -56,6 +70,36 @@ function payloadText(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return fallback;
+}
+
+// CP4c「脉络」：五账进度态渲染（进度+跳转，不复制对象列表——ui43 §5.0.1 整合红线）
+const THREAD_ORDER = ["arc", "conflict", "promise", "information", "emotion_curve"] as const;
+const ATTENTION_STATUSES = new Set(["STALLED", "LEAKED", "BROKEN", "DEVIATED"]);
+
+function ledgerStatusLabel(status: string): string {
+  return (STRUCTURE_PANEL.ledger.statusLabels as Record<string, string>)[status] ?? status;
+}
+
+function threadSummary(key: (typeof THREAD_ORDER)[number], entries: LedgerThreadEntry[]): string {
+  if (entries.length === 0) return STRUCTURE_PANEL.ledger.threadEmpty;
+  if (key === "emotion_curve") {
+    const count = (status: string) => entries.filter((e) => e.status === status).length;
+    return `${ledgerStatusLabel("MATCHED")} ${count("MATCHED")} · ${ledgerStatusLabel("DEVIATED")} ${count("DEVIATED")} · ${ledgerStatusLabel("UNPLANNED")} ${count("UNPLANNED")}`;
+  }
+  const head = entries
+    .slice(0, 2)
+    .map((e) => `${e.subject_label} ${ledgerStatusLabel(e.status)}`)
+    .join("，");
+  return entries.length > 2 ? `${head} 等 ${entries.length} 项` : head;
+}
+
+function threadChip(entries: LedgerThreadEntry[]): { text: string; accent: boolean } | null {
+  const attention = entries.filter((e) => ATTENTION_STATUSES.has(e.status));
+  if (attention.length > 0) {
+    return { text: `${ledgerStatusLabel(attention[0].status)} ${attention.length}`, accent: true };
+  }
+  if (entries.length > 0) return { text: `${entries.length} 项`, accent: false };
+  return null;
 }
 
 function profileText(value: unknown): string {
@@ -243,6 +287,9 @@ export function StructurePanel({
   const [rules, setRules] = useState<MemoryItemData[]>([]);
   const [stats, setStats] = useState<WorkStats | null>(null);
   const [profile, setProfile] = useState<WorkProfile | null>(null);
+  const [ledgerThreads, setLedgerThreads] = useState<LedgerThreads | null>(null);
+  const [reviewReport, setReviewReport] = useState<ReviewReport | null>(null);
+  const [ledgerActionError, setLedgerActionError] = useState<string | null>(null);
   const [profileLoadFailed, setProfileLoadFailed] = useState(false);
   const [profileRetryNonce, setProfileRetryNonce] = useState(0);
   const [archiveLoading, setArchiveLoading] = useState(false);
@@ -284,6 +331,8 @@ export function StructurePanel({
         setRules([]);
         setStats(null);
         setProfile(null);
+        setLedgerThreads(null);
+        setReviewReport(null);
         setProfileLoadFailed(false);
       }
       setArchiveLoading(true);
@@ -327,6 +376,17 @@ export function StructurePanel({
         .catch(() => {
           anyFailed = true;
         }),
+      // CP4c 脉络：五账进度态 + 最新审读报告（只读；读失败保留快照，与档案读同策略）
+      getLedgerThreads(channel, workId)
+        .then((data) => !cancelled && setLedgerThreads(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
+      getReviewReport(channel, workId)
+        .then((data) => !cancelled && setReviewReport(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
     ];
 
     void Promise.allSettled(reads).then(() => {
@@ -352,6 +412,7 @@ export function StructurePanel({
       (artifact) => pendingArtifactTab(artifact) === "foreshadowing",
     ),
     rule: pendingAdoptions.filter((artifact) => pendingArtifactTab(artifact) === "rule"),
+    ledger: [],
   };
   const tabPendingCount = (tab: PendingTabType) => pendingByTab[tab].length;
   const tabLabel = (tab: PendingTabType, label: string) => {
@@ -362,6 +423,49 @@ export function StructurePanel({
 
   // 已采纳卷/章结构即大纲（结构携带 summary + 进度），单一数据源，作为面板章节列表。
   const planChapters = (toc?.volumes ?? []).flatMap((vol) => vol.chapters);
+
+  // CP4c「脉络」：待处置偏离计数（tab 角标与概览审读行共用）；裁决=作者动作+
+  // revise_* 回对话流发起修订意图（只读+意图边界，ui43 §3）。
+  const pendingLedgerFindings = (reviewReport?.findings ?? []).filter((f) => !f.disposition);
+  const ledgerTabLabel =
+    pendingLedgerFindings.length > 0 ? (
+      <span className={styles.tabTextAccent}>
+        {`${STRUCTURE_PANEL.tabs.ledger} (${pendingLedgerFindings.length})`}
+      </span>
+    ) : (
+      STRUCTURE_PANEL.tabs.ledger
+    );
+
+  const handleAdjudicate = (finding: ReviewFinding, index: number, disposition: string) => {
+    if (!channel || !reviewReport) return;
+    setLedgerActionError(null);
+    void sendAuthorAction(channel, {
+      source_turn_ref: "panel",
+      action_id: `adjudicate-${reviewReport.id}-${index}`,
+      action_type: "adjudicate_finding",
+      idempotency_key: `adjudicate-${reviewReport.id}-${index}-${disposition}`,
+      payload: { report_id: reviewReport.id, finding_index: index, disposition },
+    })
+      .then(() => {
+        setReviewReport((prev) =>
+          prev
+            ? {
+                ...prev,
+                findings: prev.findings.map((f, i) => (i === index ? { ...f, disposition } : f)),
+              }
+            : prev,
+        );
+        if (disposition === "revise_design") {
+          onNewAction(STRUCTURE_PANEL.ledger.reviseDesignPrompt(finding.signal));
+        }
+        if (disposition === "revise_prose") {
+          onNewAction(STRUCTURE_PANEL.ledger.reviseProsePrompt(finding.signal));
+        }
+      })
+      .catch(() => {
+        setLedgerActionError(STRUCTURE_PANEL.ledger.adjudicateFailed);
+      });
+  };
 
   const selectedCharacter =
     selectedArchiveItem?.kind === "character"
@@ -484,6 +588,9 @@ export function StructurePanel({
           <Tabs.Trigger className={styles.tabBtn} value="rule">
             {tabLabel("rule", STRUCTURE_PANEL.tabs.rule)}
           </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabBtn} value="ledger">
+            {ledgerTabLabel}
+          </Tabs.Trigger>
         </Tabs.List>
 
         <div className={styles.content}>
@@ -525,6 +632,15 @@ export function StructurePanel({
                     {STRUCTURE_PANEL.profile.reviseLabel}
                   </button>
                 </div>
+              </div>
+            )}
+            {reviewReport && (
+              <div className={styles.section}>
+                <button className={styles.btnGhost} onClick={() => setActiveTab("ledger")}>
+                  {pendingLedgerFindings.length > 0
+                    ? STRUCTURE_PANEL.ledger.overviewLine(pendingLedgerFindings.length)
+                    : STRUCTURE_PANEL.ledger.overviewLineClear}
+                </button>
               </div>
             )}
             {renderPendingSection(
@@ -801,6 +917,105 @@ export function StructurePanel({
               />
             ) : null}
             {selectedDetail && renderDetail(selectedDetail)}
+          </Tabs.Content>
+
+          <Tabs.Content value="ledger" className={styles.tabContent}>
+            <div className={styles.section}>
+              <div className={styles.secHeader}>
+                <span className={styles.secTitle}>
+                  {STRUCTURE_PANEL.ledger.threadsSectionTitle}
+                </span>
+              </div>
+              {THREAD_ORDER.map((key) => {
+                const entries = ledgerThreads?.[key] ?? [];
+                const chip = threadChip(entries);
+                return (
+                  <div key={key} className={styles.ledgerRow}>
+                    <div className={styles.ledgerRowMain}>
+                      <span className={styles.cardTitle}>
+                        {STRUCTURE_PANEL.ledger.threadNames[key]}
+                      </span>
+                      <span className={styles.cardDesc}>{threadSummary(key, entries)}</span>
+                    </div>
+                    {chip && (
+                      <span
+                        className={
+                          chip.accent
+                            ? `${styles.ledgerChip} ${styles.ledgerChipAccent}`
+                            : styles.ledgerChip
+                        }
+                      >
+                        {chip.text}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              <div className={styles.detailHint}>{STRUCTURE_PANEL.ledger.jumpHint}</div>
+            </div>
+            {reviewReport ? (
+              <div className={styles.section}>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>
+                    {STRUCTURE_PANEL.ledger.reportTitle}
+                    {reviewReport.scanned_at_seq != null &&
+                      ` · ${STRUCTURE_PANEL.ledger.reportUpTo(reviewReport.scanned_at_seq)}`}
+                  </span>
+                  <span
+                    className={
+                      pendingLedgerFindings.length > 0
+                        ? `${styles.ledgerChip} ${styles.ledgerChipAccent}`
+                        : styles.ledgerChip
+                    }
+                  >
+                    {pendingLedgerFindings.length > 0
+                      ? STRUCTURE_PANEL.ledger.reportPendingChip
+                      : STRUCTURE_PANEL.ledger.reportResolvedChip}
+                  </span>
+                </div>
+                {ledgerActionError && (
+                  <div className={styles.archiveStatusBannerError}>{ledgerActionError}</div>
+                )}
+                {reviewReport.findings.map((finding, index) => (
+                  <div key={`${finding.rule}-${index}`} className={styles.cardItem}>
+                    <div className={styles.cardTitle}>{finding.signal}</div>
+                    <div className={styles.cardDesc}>
+                      {STRUCTURE_PANEL.ledger.evidencePrefix}
+                      {(finding.source_refs ?? []).join("、") || "—"}
+                    </div>
+                    {finding.disposition ? (
+                      <div className={styles.cardDesc}>
+                        {STRUCTURE_PANEL.ledger.dispositionDone}
+                        {" · "}
+                        {(STRUCTURE_PANEL.ledger.dispositions as Record<string, string>)[
+                          finding.disposition
+                        ] ?? finding.disposition}
+                      </div>
+                    ) : (
+                      <div className={styles.cardActions}>
+                        {(["revise_design", "revise_prose", "accept_drift", "dismiss"] as const).map(
+                          (disposition) => (
+                            <button
+                              key={disposition}
+                              className={styles.btnSecondary}
+                              onClick={() => handleAdjudicate(finding, index, disposition)}
+                            >
+                              {STRUCTURE_PANEL.ledger.dispositions[disposition]}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div className={styles.detailHint}>{STRUCTURE_PANEL.ledger.boundaryHint}</div>
+              </div>
+            ) : (
+              <EmptyState
+                title={STRUCTURE_PANEL.ledger.reportTitle}
+                description={STRUCTURE_PANEL.ledger.reportEmpty}
+              />
+            )}
           </Tabs.Content>
         </div>
       </Tabs.Root>

@@ -274,7 +274,7 @@ defmodule NovelAgent.Provider.Stub do
     author_text = judgment_author_input(text)
 
     cond do
-      contains_any?(author_text, ["账面", "账本", "进度账"]) -> "archive_read"
+      contains_any?(author_text, ["账面", "账本", "进度账", "脉络", "审读"]) -> "archive_read"
       contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) -> "chapter_read"
       true -> "prose_search"
     end
@@ -283,15 +283,13 @@ defmodule NovelAgent.Provider.Stub do
   defp explore_term(text) do
     author_text = judgment_author_input(text)
 
-    cond do
-      contains_any?(author_text, ["账面", "账本", "进度账"]) ->
-        "ledgers"
-
-      true ->
-        case quoted_term(author_text) do
-          "" -> author_text |> String.replace(~r/[查一下交代过吗？?，。]/u, "") |> String.slice(0, 8)
-          term -> term
-        end
+    if contains_any?(author_text, ["账面", "账本", "进度账", "脉络", "审读"]) do
+      "ledgers"
+    else
+      case quoted_term(author_text) do
+        "" -> author_text |> String.replace(~r/[查一下交代过吗？?，。]/u, "") |> String.slice(0, 8)
+        term -> term
+      end
     end
   end
 

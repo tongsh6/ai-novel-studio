@@ -595,6 +595,32 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
+  # CP4c（VS-00F / ui43 §5 模块 9「脉络」）：五账分组进度态（面板 L2 只读）。
+  def handle_in("get_ledger_threads", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.LedgerViewService.threads(work_id)
+
+    LogEmit.emit(:channel, :get_ledger_threads, :done, %{
+      work_id: work_id,
+      entry_count: data |> Map.values() |> List.flatten() |> length()
+    })
+
+    {:reply, {:ok, data}, socket}
+  end
+
+  # CP4c：最新活跃审读报告（面板 L3 只读；无报告诚实回 nil）。
+  def handle_in("get_review_report", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    report = NovelApplication.LedgerViewService.review_report(work_id)
+
+    LogEmit.emit(:channel, :get_review_report, :done, %{
+      work_id: work_id,
+      finding_count: (report && report.finding_count) || 0
+    })
+
+    {:reply, {:ok, %{report: report}}, socket}
+  end
+
   def handle_in("get_work_stats", payload, socket) do
     work_id = archive_work_id(payload, socket)
     data = NovelApplication.WorkArchiveService.stats(work_id)
@@ -1025,8 +1051,69 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  # CP4c（VS-00F §3.3 / AU-13）：审读报告逐项裁决。面板发起的作者动作，不依赖
+  # turn available_actions（报告是档案对象非 turn 产物）；幂等由 author_action
+  # receipt 机制承接。revise_* 返回 follow_up——前端据此回对话流发起修订意图
+  # （复用 correction intent 范式），本动作只记处置不生成内容。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: "adjudicate_finding"} = action_input,
+         _source_turn_result
+       ) do
+    payload = action_input.payload || %{}
+
+    input = %{
+      work_id: socket.assigns[:work_id],
+      report_id: payload["report_id"],
+      finding_index: payload["finding_index"],
+      disposition: payload["disposition"],
+      actor_ref: "author",
+      note: payload["note"]
+    }
+
+    case NovelApplication.LedgerViewService.adjudicate(input) do
+      {:ok, %{report: report}} ->
+        result = adjudication_result(action_input, report, nil)
+        socket = remember_action_result(socket, action_input, result)
+        broadcast!(socket, "action_result", result)
+
+        {:reply,
+         {:ok, %{received: true, action_status: "applied", report_status: report.adoption_status}},
+         socket}
+
+      {:follow_up, kind, %{report: report}} ->
+        result = adjudication_result(action_input, report, kind)
+        socket = remember_action_result(socket, action_input, result)
+        broadcast!(socket, "action_result", result)
+
+        {:reply,
+         {:ok,
+          %{
+            received: true,
+            action_status: "applied",
+            report_status: report.adoption_status,
+            follow_up: to_string(kind)
+          }}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
   defp handle_author_action(socket, action_input, source_turn_result) do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
+  end
+
+  defp adjudication_result(action_input, report, follow_up) do
+    %{
+      action_id: action_input.action_id,
+      action_type: "adjudicate_finding",
+      status: "applied",
+      turn_id: action_input.source_turn_ref,
+      report_id: report.id,
+      report_status: report.adoption_status,
+      follow_up: follow_up && to_string(follow_up)
+    }
   end
 
   defp route_adoption_confirmation(socket, action_input, source_turn_result, draft_turn) do

@@ -12042,7 +12042,7 @@ function findAu13ArcLedgerRoundtripEvidence(records) {
   if (!progress) return null;
 
   const replyText = String(uiState.ledger_reply_text ?? "");
-  if (!replyText.includes("弧光账·")) return null;
+  if (!replyText.includes("角色弧光·")) return null;
 
   return {
     slice_id: sliceId,
@@ -12085,7 +12085,7 @@ function au13ArcLedgerRoundtripBehavior(turnIds, turnRecords, records, evidence,
 
   // 记账的主体来自已采纳 roster（回复引用弧光账·具名条目）
   const replyText = String(uiState.ledger_reply_text ?? "");
-  if (!replyText.includes("弧光账·林岚")) return null;
+  if (!replyText.includes("角色弧光·林岚")) return null;
 
   return {
     slice_id: sliceId,

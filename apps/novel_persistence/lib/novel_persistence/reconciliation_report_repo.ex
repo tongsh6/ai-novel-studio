@@ -33,6 +33,13 @@ defmodule NovelPersistence.ReconciliationReportRepo do
   @doc "当前活跃（TENTATIVE）报告；无则 nil。"
   @spec latest(String.t()) :: map() | nil
   def latest(work_id) when is_binary(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, _} -> do_latest(work_id)
+      :error -> nil
+    end
+  end
+
+  defp do_latest(work_id) do
     from(r in ReconciliationReport,
       where: r.work_id == ^work_id and r.adoption_status == ^AdoptionStatus.tentative(),
       order_by: [desc: r.inserted_at],

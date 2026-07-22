@@ -284,7 +284,7 @@ defmodule NovelApplication.ExplorationService do
   end
 
   # VS-00F 账面机械渲染（不代笔、不伪造）。CP2a 起含弧光/承诺/信息账；无数据诚实说明。
-  defp render_ledgers([]), do: "账面暂无条目（账本随正文采纳自动记账；未落地账本诚实缺席）。"
+  defp render_ledgers([]), do: "脉络暂无记录（脉络随正文采纳自动维护；未落地脉络诚实缺席）。"
 
   # 情绪曲线账每章一条，逐条呈现会淹没观察——聚合为一行统计 + 最近偏差章；
   # 其余账逐条机械呈现。
@@ -308,28 +308,28 @@ defmodule NovelApplication.ExplorationService do
       |> Enum.take(3)
       |> Enum.map_join("、", & &1.subject_label)
 
-    "情绪曲线账：符合 #{counts["MATCHED"] || 0} / 偏差 #{counts["DEVIATED"] || 0} / 无设计 #{counts["UNPLANNED"] || 0}" <>
-      if(deviated == "", do: "", else: "；最近偏差：#{deviated}")
+    "情绪曲线：相符 #{counts["MATCHED"] || 0} / 偏离 #{counts["DEVIATED"] || 0} / 计划外 #{counts["UNPLANNED"] || 0}" <>
+      if(deviated == "", do: "", else: "；最近偏离：#{deviated}")
   end
 
   defp render_ledger_entry(%{ledger: "arc"} = entry) do
     seen = Map.get(entry.payload || %{}, "last_seen_seq")
     seen_text = if is_integer(seen), do: "最近出场第#{seen}章", else: "尚无出场记录"
-    "弧光账·#{entry.subject_label}：#{entry.status}，#{seen_text}"
+    "角色弧光·#{entry.subject_label}：#{entry.status}，#{seen_text}"
   end
 
   defp render_ledger_entry(%{ledger: "promise"} = entry),
-    do: "承诺账·#{entry.subject_label}：#{entry.status}"
+    do: "题材承诺·#{entry.subject_label}：#{entry.status}"
 
   defp render_ledger_entry(%{ledger: "information"} = entry) do
     fact = Map.get(entry.payload || %{}, "fact") || entry.subject_label
-    "信息账·#{entry.subject_label}：#{entry.status}（#{fact}）"
+    "信息与伏笔·#{entry.subject_label}：#{entry.status}（#{fact}）"
   end
 
   defp render_ledger_entry(%{ledger: "conflict"} = entry) do
     seq = Map.get(entry.payload || %{}, "last_advanced_seq")
     advanced = if is_integer(seq), do: "最近推进第#{seq}章", else: "尚无推进记录"
-    "冲突账·#{entry.subject_label}：#{entry.status}，#{advanced}"
+    "主线冲突·#{entry.subject_label}：#{entry.status}，#{advanced}"
   end
 
   defp render_ledger_entry(entry), do: "#{entry.ledger}·#{entry.subject_label}：#{entry.status}"
@@ -346,7 +346,7 @@ defmodule NovelApplication.ExplorationService do
         "- [#{severity}] #{signal}"
       end)
 
-    "\n对账报告（待作者裁决，#{report.finding_count} 项偏离）：\n#{items}"
+    "\n审读报告（待作者处置，#{report.finding_count} 处偏离）：\n#{items}"
   end
 
   defp render_stats(stats) do

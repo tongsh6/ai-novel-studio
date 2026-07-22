@@ -418,3 +418,37 @@
   max-width: 380px;
   overflow-wrap: break-word;
 }
+
+/* CP4c 模块 9「脉络」：进度行与状态 chip（ui43 §5.0.1；状态带文字不只靠颜色） */
+.ledgerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ledgerRow:last-of-type {
+  border-bottom: none;
+}
+
+.ledgerRowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ledgerChip {
+  border: 1px solid var(--border-subtle);
+  color: var(--foreground-secondary);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--rounded-sm);
+  white-space: nowrap;
+}
+
+.ledgerChipAccent {
+  border-color: var(--accent);
+  color: var(--accent);
+}

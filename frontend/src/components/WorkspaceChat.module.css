@@ -471,10 +471,13 @@
 }
 
 .chatArea {
+  /* 会话内容限最大列宽并居中：面板收起时不允许左右消息贴满全宽拉开
+     （2026-07-21 用户反馈；ui43 §5.0.1 同批整合红线） */
   flex: 1;
-  padding: 32px 144px 32px 32px;
+  padding: 32px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 24px;
   overflow-y: auto;
 }
@@ -484,7 +487,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  max-width: 800px;
+  width: min(880px, 100%);
   padding: 12px 14px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--rounded-sm);
@@ -516,7 +519,7 @@
 .transcriptHistoryLoader {
   display: flex;
   justify-content: center;
-  max-width: 800px;
+  width: min(880px, 100%);
 }
 
 .userMsg,
@@ -527,20 +530,18 @@
 }
 
 .userMsg {
-  align-self: flex-end;
+  width: min(880px, 100%);
   align-items: flex-end;
-  max-width: 920px;
 }
 
 .assistantMsg {
-  align-self: flex-start;
   align-items: flex-start;
-  width: min(960px, 100%);
+  width: min(880px, 100%);
 }
 
 .agentRunFlow {
   display: flex;
-  width: min(960px, 100%);
+  width: min(880px, 100%);
   gap: 16px;
   color: var(--foreground-primary);
 }

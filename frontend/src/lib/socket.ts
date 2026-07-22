@@ -495,6 +495,65 @@ export function getRules(channel: Channel, workId: string): Promise<MemoryItemDa
   });
 }
 
+// CP4c（VS-00F / ui43 §5 模块 9「脉络」）：五账进度态 + 审读报告（只读投影）
+export interface LedgerThreadEntry {
+  id: string;
+  ledger: string;
+  subject_label: string;
+  subject_ref?: string | null;
+  status: string;
+  payload?: Record<string, unknown>;
+  source_refs?: string[];
+  last_event_chapter?: string | null;
+}
+
+export interface LedgerThreads {
+  arc: LedgerThreadEntry[];
+  conflict: LedgerThreadEntry[];
+  promise: LedgerThreadEntry[];
+  information: LedgerThreadEntry[];
+  emotion_curve: LedgerThreadEntry[];
+}
+
+export interface ReviewFinding {
+  rule: string;
+  ledger: string;
+  severity?: string;
+  signal: string;
+  source_refs?: string[];
+  proposed_disposition?: string;
+  disposition?: string | null;
+}
+
+export interface ReviewReport {
+  id: string;
+  findings: ReviewFinding[];
+  finding_count: number;
+  scanned_at_seq: number | null;
+  adoption_status: string;
+  inserted_at?: string;
+}
+
+export function getLedgerThreads(channel: Channel, workId: string): Promise<LedgerThreads> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_ledger_threads", { work_id: workId })
+      .receive("ok", (response) => resolve(response as LedgerThreads))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_ledger_threads timeout")));
+  });
+}
+
+export function getReviewReport(channel: Channel, workId: string): Promise<ReviewReport | null> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_review_report", { work_id: workId })
+      .receive("ok", (response) => resolve((response as { report: ReviewReport | null }).report))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_review_report timeout")));
+  });
+}
+
 export interface WorkProfile {
   title?: string;
   genre?: string;

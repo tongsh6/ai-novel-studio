@@ -1569,7 +1569,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # （按计划/大纲/要写什么）→ chapter_read；正文事实问句 → prose_search。
   defp explore_tool_for(author_text) do
     cond do
-      contains_any?(author_text, ["账面", "账本", "进度账"]) -> "archive_read"
+      contains_any?(author_text, ["账面", "账本", "进度账", "脉络", "审读"]) -> "archive_read"
       contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) -> "chapter_read"
       contains_any?(author_text, ["查一下", "检索", "出现过", "正文里"]) -> "prose_search"
       true -> nil

@@ -1467,6 +1467,51 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       ref = push(socket, "get_work_stats", %{"work_id" => "lobby"})
       assert_reply(ref, :ok, %{characters: 0, memory_items: 0, drafts_total: 0})
     end
+
+    test "CP4c 脉络读投影：空账/无报告诚实为空，不伪造" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref = push(socket, "get_ledger_threads", %{"work_id" => "lobby"})
+
+      assert_reply(ref, :ok, %{
+        "arc" => [],
+        "conflict" => [],
+        "promise" => [],
+        "information" => [],
+        "emotion_curve" => []
+      })
+
+      ref = push(socket, "get_review_report", %{"work_id" => "lobby"})
+      assert_reply(ref, :ok, %{report: nil})
+    end
+
+    test "CP4c 裁决动作：报告不存在时诚实报错" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref =
+        push(socket, "author_action", %{
+          "action" => %{
+            "action_id" => "act-adj-1",
+            "action_type" => "adjudicate_finding",
+            "source_turn_ref" => "panel",
+            "idempotency_key" => "adj-1",
+            "payload" => %{
+              "report_id" => "report-missing",
+              "finding_index" => 0,
+              "disposition" => "accept_drift"
+            }
+          }
+        })
+
+      assert_reply(ref, :error, %{reason: reason})
+      assert reason =~ "report_not_found"
+    end
   end
 
   # ── VS-07 Proof: ping/pong ──

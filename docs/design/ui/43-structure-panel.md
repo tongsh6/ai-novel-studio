@@ -82,7 +82,27 @@
 6. **Style / Writing preferences**（风格及排版偏好）
 7. **Long-run tasks**（长跑任务监控台，如批量推演）
 8. **Experience 经验沉淀**（只读证据、待审经验草稿、已启用经验规则）
-9. **Ledgers 五本账**（ADR-0026 / VS-00F 扩员：弧光/冲突/信息/情绪曲线/承诺账的进度态视图与对账报告；只读+修订走 correction intent，遵守本文件 §3/§4/§6 边界；落地排 VS-00F CP4）
+9. **Ledgers 五本账 → 用户可见名「脉络」**（ADR-0026 / VS-00F 扩员：弧光/冲突/信息/情绪曲线/承诺账的进度态视图与审读报告；只读+修订走 correction intent，遵守本文件 §3/§4/§6 边界；落地排 VS-00F CP4）
+
+### 5.0.1 模块 9「脉络」命名与整合决定（2026-07-21 用户拍板）
+
+内部契约名（LedgerEntry / ledgers / reconciliation_report，`contracts/VS-00F`）不变；用户可见文案按创作语境命名（40 §3.1"内部枚举不暴露"）：
+
+| 内部概念 | 用户可见名 |
+|---|---|
+| ledgers 模块（tab） | **脉络** |
+| 五本账 arc/conflict/promise/information/emotion_curve | 角色弧光 / 主线冲突 / 题材承诺 / 信息与伏笔 / 情绪曲线 |
+| reconciliation report / 全量对账 | **审读报告** / **发起全书审读** |
+| ON_TRACK / STALLED | 延续中 / 停滞 |
+| LEAKED | 提前泄底 |
+| BROKEN（承诺） | 失守 |
+| ACTIVE / DORMANT | 推进中 / 搁置 |
+| MATCHED / DEVIATED / UNPLANNED | 相符 / 偏离 / 计划外 |
+| 四处置 revise_design/revise_prose/accept_drift/dismiss | 修订设定 / 修订正文 / 接受走向 / 标记误报 |
+
+整合红线（防加法式冗余，2026-07-21 用户原则）：审读摘要行并入**概览** L1（跳转脉络页）；脉络页内"信息与伏笔/角色弧光"只放进度态+跳转，**不复制**伏笔/角色 tab 的对象列表；待处置计数与收起态 rail 的待采纳同一视觉语言；"修订正文"处置复用 revise_from_findings 动作链；"发起全书审读"走各 tab 底部动作条既有范式。另一条同批修复：对话区会话内容限最大列宽（面板收起时不允许左右消息贴满全宽拉开）。
+
+原型：`novel-studio.pen → 43§5-9-threads-panel (uyZGw)`。
 
 2026-06-17 实现状态：`AU12-work-profile-overview` 已补 Work 概览 CP1，只读展示 works 表中的立项字段（题材、核心卖点、目标读者、基调、状态、修订号），证据 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`。主题/大纲整合、采纳产物类立项要素和从概览发起 correction 修订仍属后续 checkpoint。
 

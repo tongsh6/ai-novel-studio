@@ -815,7 +815,7 @@ defmodule NovelApplication.TurnExecutionService do
     if lines == "" do
       ""
     else
-      "进度账面（相关角色近期弧光，供保持人物连续性参考）：\n#{lines}\n" <>
+      "作品脉络（相关角色近期弧光，供保持人物连续性参考）：\n#{lines}\n" <>
         "注意：本段仅为背景参照。不得在正文中引用本段的状态词、编号或章号；角色是否出场由情节需要决定。"
     end
   end
@@ -834,7 +834,7 @@ defmodule NovelApplication.TurnExecutionService do
     if lines == [] do
       ""
     else
-      "账面摘要（规划参照）：\n#{Enum.join(lines, "\n")}\n" <>
+      "作品脉络摘要（规划参照）：\n#{Enum.join(lines, "\n")}\n" <>
         "规划要求：延续上述未完成弧光与主线，停滞角色需给出回归或明确退场安排；" <>
         "除非作者明示转向，不引入取代现有主角团的新主导角色，保持类型承诺的题材元素在场。"
     end

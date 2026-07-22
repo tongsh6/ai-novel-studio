@@ -528,6 +528,7 @@ export const STRUCTURE_PANEL = {
     character: "角色",
     foreshadowing: "伏笔",
     rule: "经验规则",
+    ledger: "脉络",
   },
   profile: {
     sectionTitle: "立项设定",
@@ -569,6 +570,7 @@ export const STRUCTURE_PANEL = {
     character: "待保存角色",
     foreshadowing: "待收录伏笔",
     rule: "待启用规则",
+    ledger: "待处理内容",
   },
   pendingBadges: {
     overview: "待处理",
@@ -576,6 +578,7 @@ export const STRUCTURE_PANEL = {
     character: "角色草稿",
     foreshadowing: "伏笔草稿",
     rule: "规则草稿",
+    ledger: "待处理",
   },
   pendingFallbackTitles: {
     overview: "待保存草稿",
@@ -583,6 +586,7 @@ export const STRUCTURE_PANEL = {
     character: "角色草稿",
     foreshadowing: "伏笔草稿",
     rule: "规则草稿",
+    ledger: "待处理草稿",
   },
   pendingDestinations: {
     overview: "保存后进入对应作品档案。",
@@ -590,6 +594,7 @@ export const STRUCTURE_PANEL = {
     character: "保存后进入角色档案。",
     foreshadowing: "保存后进入伏笔追踪。",
     rule: "保存后进入经验规则。",
+    ledger: "保存后进入对应作品档案。",
   },
   pendingAcceptLabels: {
     overview: "保存到作品档案",
@@ -597,6 +602,7 @@ export const STRUCTURE_PANEL = {
     character: "保存角色",
     foreshadowing: "收入伏笔",
     rule: "启用规则",
+    ledger: "保存",
   },
   confirmedForeshadowingSection: "已确认设定",
   newForeshadowing: "新增伏笔",
@@ -696,6 +702,57 @@ export const STRUCTURE_PANEL = {
   foreshadowingEmptyDesc: "在对话中说「创建主线大纲」或「构建世界观」，AI 会生成设定内容。",
   ruleEmptyTitle: "经验规则",
   ruleEmptyDesc: "在对话中说「导入风格样本」或「构建世界观」，AI 会生成写作规则和设定约束。",
+  // 模块 9「脉络」（VS-00F CP4c / ui43 §5.0.1 命名拍板）：五账进度态 + 审读报告。
+  // 只放进度与跳转，不复制伏笔/角色 tab 的对象列表（整合红线）。
+  ledger: {
+    threadsSectionTitle: "五条脉络",
+    threadNames: {
+      arc: "角色弧光",
+      conflict: "主线冲突",
+      promise: "题材承诺",
+      information: "信息与伏笔",
+      emotion_curve: "情绪曲线",
+    },
+    statusLabels: {
+      ON_TRACK: "延续中",
+      STALLED: "停滞",
+      DRIFTED: "已接受偏离",
+      RESUMED: "回归",
+      ACTIVE: "推进中",
+      DORMANT: "搁置",
+      OPEN: "待兑现",
+      KEPT: "已兑现",
+      BROKEN: "失守",
+      LEAKED: "提前泄底",
+      MATCHED: "相符",
+      DEVIATED: "偏离",
+      UNPLANNED: "计划外",
+    },
+    emptyThreads: "尚无脉络记录；采纳章节正文后系统会自动维护。",
+    threadEmpty: "暂无记录",
+    adjudicateFailed: "处置失败，请重试。",
+    jumpHint: "角色与伏笔的对象详情在「角色」「伏笔」页查看；此处只看进度。",
+    reportTitle: "审读报告",
+    reportUpTo: (seq: number) => `截至第 ${seq} 章`,
+    reportPendingChip: "待处置",
+    reportResolvedChip: "已处置",
+    reportEmpty: "暂无待处置的审读报告；系统每 10 章自动审读一次。",
+    evidencePrefix: "证据：",
+    dispositions: {
+      revise_design: "修订设定",
+      revise_prose: "修订正文",
+      accept_drift: "接受走向",
+      dismiss: "标记误报",
+    },
+    dispositionDone: "已处置",
+    boundaryHint: "处置回对话区确认执行，不静默改写设定或正文；误报进入经验回路。",
+    overviewLine: (count: number) => `最新审读：${count} 处偏离待处置`,
+    overviewLineClear: "最新审读：无偏离",
+    reviseDesignPrompt: (signal: string) =>
+      `审读报告发现「${signal}」，我选择修订设定：请根据这条偏离生成待采纳的设定修订草稿，不要直接写入档案。`,
+    reviseProsePrompt: (signal: string) =>
+      `审读报告发现「${signal}」，我选择修订正文：请针对相关章节生成待采纳的修订候选，保留原稿。`,
+  },
   panelActions: {
     overview: {
       label: "发起综合修订",
@@ -721,6 +778,11 @@ export const STRUCTURE_PANEL = {
       label: "发起规则修订",
       hint: "新增或修订经验规则，转到对话区确认。",
       prompt: "我想新增或修订一条经验规则。请先根据当前作品风格和设定给出建议。",
+    },
+    ledger: {
+      label: "发起全书审读",
+      hint: "脉络与报告只读；处置逐项进行。",
+      prompt: "请对全书做一次审读：对照设计核查五条脉络（角色弧光、主线冲突、题材承诺、信息与伏笔、情绪曲线），产出审读报告，不要改动任何设定或正文。",
     },
   },
   aliasPrefix: "别名：",
