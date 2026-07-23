@@ -107,7 +107,14 @@ defmodule NovelDomain.TentativeArtifactSet do
   end
 
   # 逐候选独立采纳的类型：每个 item 是一个独立的作品资产候选。
-  defp per_candidate_type?(type), do: type in [:character_seed, "character_seed"]
+  # VS-00G CP4a（收编 user-journeys H13"伏笔/规则逐项采纳扩展"）：设定盘点提案集
+  # 含多类 seed，每类都逐项独立采纳（采纳一个只落一个 canon）。outline_draft 等
+  # "同一产物多 item"仍整体采纳，不在此列。
+  @per_candidate_types ~w(character_seed world_rule_seed foreshadowing_seed style_rule_seed constraint_seed)a
+
+  defp per_candidate_type?(type) when is_atom(type), do: type in @per_candidate_types
+  defp per_candidate_type?(type) when is_binary(type), do: String.to_existing_atom(type) in @per_candidate_types
+  defp per_candidate_type?(_type), do: false
 
   defp item_field(item, key) when is_map(item),
     do: Map.get(item, key) || Map.get(item, Atom.to_string(key))

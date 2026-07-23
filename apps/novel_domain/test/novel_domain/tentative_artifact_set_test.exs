@@ -47,5 +47,13 @@ defmodule NovelDomain.TentativeArtifactSetTest do
       assert [%{artifact_id: "as_1", item_id: nil}] = units
       assert length(hd(units).items) == 2
     end
+
+    test "VS-00G CP4a：设定盘点 seed 家族各类型都逐项拆分（world_rule/foreshadowing/style/constraint）" do
+      for type <- [:world_rule_seed, :foreshadowing_seed, :style_rule_seed, :constraint_seed] do
+        units = TentativeArtifactSet.adoptable_units(set(type, [item("i1", "甲"), item("i2", "乙")]))
+        assert length(units) == 2, "#{type} 应逐项拆分"
+        assert Enum.map(units, & &1.item_id) == ["i1", "i2"]
+      end
+    end
   end
 end
