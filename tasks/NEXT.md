@@ -62,7 +62,12 @@ PASS**（R5+R6 同产，M3 无主角无骨架双负债被揪出）。R7 提前�
 提炼出主角林浩(PROTAGONIST)+4 配角+6 世界规则+5 伏笔全带依据章（便宜验证
 阶梯 live 单点，非狗粮；证据 artifacts/vs00g-replay/cp4b-inventory-live-probe）；
 盘点能力核心不确定性消除。剩余=run 机制建设（fact_inventory_v1 profile+提案集
-+channel+逐项采纳，确定性可验）。CP 路线：CP4b run 机制 → CP5 暂定设定
++channel+逐项采纳，确定性可验）。**CP4b-1 done（2026-07-23）**：FactInventoryService 提炼引擎（材料装配→
+提炼 prompt→provider→结构化提案+坏 JSON 重试，provider 可注入确定性可测，
+单测 6，全门绿）。剩余 CP4b-2（fact_inventory_v1 run flow+提案 seed 落位
+字段映射+channel start_fact_inventory+逐项采纳）→CP5 暂定设定（既有对象
+tentative 态+provisional 字段+面板）——run 机制建设，确定性可验但涉及采纳
+链路字段映射与 run flow 结构，较大段。CP 路线：CP4b-2 → CP5
 （prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
 收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。

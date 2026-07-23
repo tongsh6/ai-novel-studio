@@ -252,7 +252,8 @@ recommended 事实的假定等作者放行。记忆类假定无持久态，直�
 | CP2 | **R5 done（2026-07-23）**：主角未物化负债规则（ledger=design_debt，阈值 10 策略化，source_refs 指缺位查询[I-L1 修订]，处置=revise_design 引导变体）接入既有对账扫描+报告渠道。**重放 PASS**：百章标本 characters=0→R5 与 R3/R4 同产（artifacts/vs00g-replay/cp2-replay-2026-07-23.txt）。**R2 登记**（无设计接管需人物栏结构化提取，延后）；**R6/R7 随 CP3**（依赖全书骨架字段） | 重放：百章标本产"主角未物化" finding ✓ |
 | CP3 | **done（2026-07-23，R7 除外）**：works 增 target_length/planned_volumes/serial_form（CA01 链路全复制，零新表）+WorkSkeleton domain（骨架段+收官守则[距目标禁终局]）+plot_outline 规划注入+探索面 profile 三行+**R6 骨架缺位负债规则**（profile 读容错降级）。**重放 PASS**：百章标本 R5+R6 同产（characters=0+旧 schema 无骨架→主角未物化+骨架缺位，artifacts/vs00g-replay/cp3-replay-r5-r6-2026-07-23.txt）；单测 domain 6+application 3+R6 4。**R7 提前收官登记**（需章标题/功能定位密度判定，接章计划 reader，随后） | 重放：R5+R6 同产 ✓；收官守则注入单测验证 |
 | CP4a | **done（2026-07-23）**：逐项采纳白名单扩展（per_candidate_type? 从 character_seed 扩到全 seed 家族 world_rule/foreshadowing/style_rule/constraint，收编 H13）——盘点提案逐项采纳前提件 | 单测 4 |
-| CP4b | **提炼可行性 live 验证 PASS（2026-07-23）**：真实 LM Studio gpt-oss-120b 从百章标本前 12 章正文提炼出主角林浩（PROTAGONIST）+4 配角+6 世界规则+5 伏笔，全部有依据章（artifacts/vs00g-replay/cp4b-inventory-live-probe-2026-07-23.txt；JSON 健壮性交生产坏 JSON 重试）。**剩余=run 机制建设**（fact_inventory_v1 profile+提案集产出+channel+逐项采纳落位，确定性可验，机制层不再依赖真实模型质量） | 提炼质量 live PASS ✓；run 机制待建 |
+| CP4b-1 | **done（2026-07-23）**：FactInventoryService 提炼引擎（材料装配→提炼 prompt→provider→结构化提案[角色/规则/伏笔]+坏 JSON 携片段重试；provider 可注入确定性可测）；单测 6 | 提炼引擎单测 + live 验证 |
+| CP4b-2 | **提炼可行性 live 验证 PASS（2026-07-23）**：真实 LM Studio gpt-oss-120b 从百章标本前 12 章正文提炼出主角林浩（PROTAGONIST）+4 配角+6 世界规则+5 伏笔，全部有依据章（artifacts/vs00g-replay/cp4b-inventory-live-probe-2026-07-23.txt；JSON 健壮性交生产坏 JSON 重试）。**剩余=run 机制建设**（fact_inventory_v1 profile+提案 seed 落位字段映射+channel+逐项采纳，确定性可验） | 提炼质量 live PASS ✓；run 机制待建 |
 | CP5 | 暂用态字段（provisional_source/active）+可标注注入通道+「暂定设定」视图+触发 C | SC-AU14-A2 |
 
 ---
