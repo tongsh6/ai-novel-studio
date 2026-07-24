@@ -11,7 +11,7 @@ const artifactDir =
   process.env.SLICE_VERIFY_ARTIFACT_DIR ??
   path.resolve("..", "artifacts", "slice-verify", sliceId ?? "unknown");
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
-const agentRunSteerInputSelector = 'input[placeholder="补充调整当前请求..."]';
+const agentRunSteerInputSelector = 'input[placeholder="输入补充要求，或直接继续任务…"]';
 const acceptDraftButtonPattern = /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/;
 const readingModeButtonPattern = /\[阅读模式\]|阅读/;
 
@@ -1283,7 +1283,17 @@ async function waitForNewAppLogCount(afterCount, predicate, minCount, message, t
 }
 
 function viewportForSlice(id) {
-  if (id === "au10-workbench-matrix-layout") return { width: 1280, height: 800 };
+  if (
+    [
+      "au10-workbench-matrix-layout",
+      "p1-prose-revision-candidate",
+      "quality-revision-action-run-anchoring",
+      "agent-revision-orchestrator-boundary",
+      "agent-replay-no-provider",
+    ].includes(id)
+  ) {
+    return { width: 1280, height: 800 };
+  }
   return { width: 1440, height: 900 };
 }
 
@@ -1351,7 +1361,7 @@ async function captureWorkbenchLayout(page, phase) {
       provider_status_visible: /Stub|LM Studio|DeepSeek|Anthropic|模型已连接|模型未连接/.test(text),
       task_status_visible: text.includes("无任务"),
       reading_entry_visible: text.includes("[阅读模式]") || text.includes("阅读"),
-      archive_entry_visible: text.includes("打开档案"),
+      archive_entry_visible: text.includes("档案"),
     };
   }, phase);
 }
@@ -1627,9 +1637,7 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
     messageTextIndexes[1].index < messageTextIndexes[2].index &&
     messageTextIndexes[2].index < messageTextIndexes[3].index;
   const agentRunActivityIndexes = await visibleAgentRunActivityIndexes(page);
-  const secondAgentRunActivityAnchored = agentRunActivityIndexes.some(
-    (entry) => entry.index > messageTextIndexes[2].index,
-  );
+  const terminalAgentRunActivityCleared = agentRunActivityIndexes.length === 0;
   const userMessageCount = await page.locator('[class*="userMsg"]').count();
   const assistantMessageCount = await page.locator('[class*="assistantMsg"]').count();
   const availableActionCount = await page.locator('[class*="cardActions"] button').count();
@@ -1650,12 +1658,12 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
     "Second assistant reply is not visible",
   );
   assert(
-    firstTurn.agentRunActivityObserved || secondTurn.agentRunActivityObserved,
-    "AgentRun activity was missed",
+    firstTurn.agentRunActivityObserved && secondTurn.agentRunActivityObserved,
+    "AgentRun activity was not observed while each ordinary chat turn was running",
   );
   assert(
-    secondAgentRunActivityAnchored,
-    `Second user message did not get its own AgentRun activity flow: ${JSON.stringify(
+    terminalAgentRunActivityCleared,
+    `Completed ordinary chat kept low-value AgentRun activity summaries: ${JSON.stringify(
       agentRunActivityIndexes,
     )}`,
   );
@@ -1689,9 +1697,10 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
       message_text_order_anchored: messageTextOrderAnchored,
       agent_run_activity_indexes: agentRunActivityIndexes,
       agent_run_activity_count: agentRunActivityIndexes.length,
-      second_agent_run_activity_anchored: secondAgentRunActivityAnchored,
+      second_agent_run_activity_anchored: false,
       agent_run_activity_observed:
-        firstTurn.agentRunActivityObserved || secondTurn.agentRunActivityObserved,
+        firstTurn.agentRunActivityObserved && secondTurn.agentRunActivityObserved,
+      terminal_agent_run_activity_cleared: terminalAgentRunActivityCleared,
       thinking_visible_after_reply: visibleText.includes("思考中"),
       available_action_count: availableActionCount,
       card_action_count: cardActionCount,
@@ -1705,6 +1714,142 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
       second_assistant_reply_visible: visibleText.includes(
         secondTurn.turnResult.assistant_message.text,
       ),
+    },
+  ];
+}
+
+async function visibleFrameBadgeState(page, turnResult, expectedLabel) {
+  const assistantText = String(turnResult.assistant_message?.text ?? "");
+  const message = page
+    .locator('[class*="assistantMsg"]')
+    .filter({ hasText: assistantText })
+    .last();
+  const badge = message.getByText(expectedLabel, { exact: true });
+
+  await message.waitFor({ timeout: 30_000 });
+  await badge.waitFor({ timeout: 30_000 });
+
+  const [badgeBox, messageBox, style, label, title] = await Promise.all([
+    badge.boundingBox(),
+    message.boundingBox(),
+    badge.evaluate((element) => {
+      const computed = window.getComputedStyle(element);
+      return {
+        background_color: computed.backgroundColor,
+        border_color: computed.borderTopColor,
+        color: computed.color,
+      };
+    }),
+    badge.innerText(),
+    badge.getAttribute("title"),
+  ]);
+
+  assert(badgeBox && messageBox, `${expectedLabel} frame badge has no visible geometry`);
+  const withinAssistantMessage =
+    badgeBox.x >= messageBox.x &&
+    badgeBox.x + badgeBox.width <= messageBox.x + messageBox.width &&
+    badgeBox.y >= messageBox.y &&
+    badgeBox.y + badgeBox.height <= messageBox.y + messageBox.height;
+
+  assert(withinAssistantMessage, `${expectedLabel} frame badge escaped its assistant message`);
+
+  return {
+    label,
+    title,
+    background_color: style.background_color,
+    border_color: style.border_color,
+    color: style.color,
+    width: badgeBox.width,
+    height: badgeBox.height,
+    within_assistant_message: withinAssistantMessage,
+  };
+}
+
+async function driveGapWt04NonExplorationFrameBadges(page) {
+  const questionMessage = "这一章赢得太轻，为什么会削弱张力？请只解释原因。";
+  const metaMessage =
+    "以后采用这种协作方式：先讨论方案，再由我确认是否进入创作，可以吗？";
+  const frameStart = frames.length;
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const questionTurn = await sendOrdinaryChatTurn(page, questionMessage, frames.length);
+  const metaTurn = await sendOrdinaryChatTurn(page, metaMessage, frames.length);
+  const questionResult = questionTurn.turnResult;
+  const metaResult = metaTurn.turnResult;
+
+  assert(
+    questionResult.frame_summary?.frame_type === "question_answer",
+    `Question turn returned ${questionResult.frame_summary?.frame_type ?? "no frame type"}`,
+  );
+  assert(
+    metaResult.frame_summary?.frame_type === "meta_discussion",
+    `Meta turn returned ${metaResult.frame_summary?.frame_type ?? "no frame type"}`,
+  );
+
+  const questionBadge = await visibleFrameBadgeState(page, questionResult, "回答问题");
+  const metaBadge = await visibleFrameBadgeState(page, metaResult, "创作讨论");
+  assert(
+    questionBadge.background_color !== metaBadge.background_color ||
+      questionBadge.color !== metaBadge.color,
+    "Question and meta frame badges lost their distinct semantic tones",
+  );
+
+  const sentFrames = frames.slice(frameStart).filter(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      [questionMessage, metaMessage].includes(String(frame.body?.text ?? "")),
+  );
+  assert(sentFrames.length === 2, "Non-exploration frame scenario did not send both messages");
+  assert(
+    sentFrames.every((frame) => frame.body?.generate_micro_plan === false),
+    "Non-exploration frame scenario requested a MicroPlan",
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const availableActionCount = await page.locator('[class*="cardActions"] button').count();
+  const candidatePanelCount = await page.locator("[class*=candidatePanel]").count();
+  const authorActionSent = frames
+    .slice(frameStart)
+    .some((frame) => frame.direction === "sent" && frame.event === "author_action");
+  const actionResultReceived = frames
+    .slice(frameStart)
+    .some((frame) => frame.direction === "received" && frame.event === "action_result");
+  const uiState = await commonUiState(page, metaResult, sentFrames.at(-1));
+
+  assert(visibleText.includes(questionResult.assistant_message.text), "Question answer is not visible");
+  assert(visibleText.includes(metaResult.assistant_message.text), "Meta discussion reply is not visible");
+  assert(availableActionCount === 0, "Non-exploration frame badges rendered action buttons");
+  assert(candidatePanelCount === 0, "Non-exploration frame badges rendered candidate panels");
+  assert(!authorActionSent, "Non-exploration frame scenario sent author_action");
+  assert(!actionResultReceived, "Non-exploration frame scenario received action_result");
+
+  return [
+    {
+      ...uiState,
+      slice_id: "gap-wt04-non-exploration-frame-badges",
+      turn_id: questionResult.turn_id,
+      turn_ids: [questionResult.turn_id, metaResult.turn_id],
+      ui_turn_ids: [questionResult.turn_id, metaResult.turn_id],
+      question_turn_id: questionResult.turn_id,
+      meta_turn_id: metaResult.turn_id,
+      question_frame_type: questionResult.frame_summary?.frame_type,
+      meta_frame_type: metaResult.frame_summary?.frame_type,
+      question_dialogue_goal: questionResult.frame_summary?.dialogue_goal,
+      meta_dialogue_goal: metaResult.frame_summary?.dialogue_goal,
+      question_badge: questionBadge,
+      meta_badge: metaBadge,
+      semantic_tones_distinct:
+        questionBadge.background_color !== metaBadge.background_color ||
+        questionBadge.color !== metaBadge.color,
+      question_answer_visible: visibleText.includes(questionResult.assistant_message.text),
+      meta_discussion_visible: visibleText.includes(metaResult.assistant_message.text),
+      available_action_count: availableActionCount,
+      candidate_panel_count: candidatePanelCount,
+      no_author_action_sent: !authorActionSent,
+      no_action_result_received: !actionResultReceived,
+      production_write_performed: false,
     },
   ];
 }
@@ -2340,8 +2485,7 @@ async function driveAgentSessionTranscriptLazyPage(page) {
       provider_recalled_during_load_older:
         providerCallCountAfterLoadOlder > providerCallCountBeforeLoadOlder,
       // Order 62 CP3 语义迁移：折叠区/明细 UI 已移除；历史消息运行组随消息直接渲染。
-      older_ui_agent_flow_visible:
-        visibleAfterOlderActivityExpand.includes("创作执行"),
+      older_ui_agent_flow_visible: visibleAfterOlderActivityExpand.includes("创作执行"),
       older_ui_provider_run_replay_raw_content_leaked: olderUiRawContentLeaked,
       provider_recalled_during_older_activity_expand:
         providerCallCountAfterOlderActivityExpand > providerCallCountAfterLoadOlder,
@@ -2350,7 +2494,7 @@ async function driveAgentSessionTranscriptLazyPage(page) {
 }
 
 async function openArchiveTab(page, tabName) {
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: tabName }).click();
   return await waitForArchivePanel(page);
 }
@@ -4317,12 +4461,88 @@ async function createCandidateSourceTurn(
 
 async function driveCandidateContinuation(page) {
   const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page);
+  const candidatePanel = page.getByText("可讨论方向", { exact: true }).locator("..");
+  const assistantMessage = page.getByText(sourceTurnResult.assistant_message.text, {
+    exact: true,
+  });
+  const [candidatePanelBox, assistantMessageBox] = await Promise.all([
+    candidatePanel.boundingBox(),
+    assistantMessage.boundingBox(),
+  ]);
+  assert(candidatePanelBox, "Candidate direction panel is not visible");
+  assert(assistantMessageBox, "Source assistant message is not visible");
+  assert(
+    Math.abs(candidatePanelBox.x - assistantMessageBox.x) <= 1,
+    "Candidate direction panel did not align with the assistant reading rail",
+  );
+  assert(
+    Math.abs(candidatePanelBox.width - assistantMessageBox.width) <= 1,
+    `Candidate direction panel width ${candidatePanelBox.width}px did not match assistant output width ${assistantMessageBox.width}px`,
+  );
+  assert(
+    candidatePanelBox.width <= 701,
+    `Candidate direction panel exceeded the 700px assistant reading width: ${candidatePanelBox.width}px`,
+  );
+  assert(
+    candidatePanelBox.x + candidatePanelBox.width <= assistantMessageBox.x + 701,
+    "Candidate direction panel protruded beyond the assistant reading rail",
+  );
+  const candidateCard = candidatePanel.locator('[class*="candidateCard"]').first();
+  const continueButton = candidatePanel
+    .getByRole("button", { name: /继续讨论|继续聊这个方向/ })
+    .first();
+  const adoptButton = candidatePanel
+    .getByRole("button", { name: /设为后续方向|采用这个方向/ })
+    .first();
+  const [candidatePanelVisual, candidateCardVisual, continueVisual, adoptVisual] =
+    await Promise.all([
+      candidatePanel.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background_color: style.backgroundColor,
+        };
+      }),
+      candidateCard.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background_color: style.backgroundColor,
+          border_top_width: style.borderTopWidth,
+        };
+      }),
+      continueButton.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background_color: style.backgroundColor,
+          color: style.color,
+          border_top_width: style.borderTopWidth,
+        };
+      }),
+      adoptButton.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background_color: style.backgroundColor,
+          color: style.color,
+          border_top_width: style.borderTopWidth,
+        };
+      }),
+    ]);
+  assert(
+    candidatePanelVisual.background_color !== "rgba(0, 0, 0, 0)",
+    "Candidate panel used a transparent fallback instead of a defined surface token",
+  );
+  assert(
+    candidateCardVisual.border_top_width !== "0px",
+    "Candidate card did not render the boundary defined by the Pencil prototype",
+  );
+  assert(
+    continueVisual.background_color === adoptVisual.background_color &&
+      continueVisual.border_top_width !== "0px" &&
+      adoptVisual.border_top_width !== "0px",
+    "Candidate actions did not match the equal-weight outlined treatment in the Pencil prototype",
+  );
   const afterSourceFrameCount = frames.length;
 
-  await page
-    .getByRole("button", { name: /继续讨论|继续聊这个方向/ })
-    .first()
-    .click();
+  await continueButton.click();
 
   const continuationFrame = await waitForNewFrame(
     afterSourceFrameCount,
@@ -4366,6 +4586,50 @@ async function driveCandidateContinuation(page) {
     "Candidate continuation claimed a production write",
   );
 
+  const collapsedSummaryText = `已沿「${candidate.title}」继续讨论`;
+  const collapsedCandidatePanel = page
+    .locator("details")
+    .filter({ hasText: collapsedSummaryText })
+    .first();
+  await collapsedCandidatePanel.waitFor({ state: "visible", timeout: 10_000 });
+  const collapsedAfterContinue = await collapsedCandidatePanel.evaluate(
+    (element) => element.open === false,
+  );
+  assert(
+    collapsedAfterContinue,
+    "Source candidate panel did not collapse after the continuation message was accepted",
+  );
+  assert(
+    !(await collapsedCandidatePanel.locator('[class*="candidateCard"]').first().isVisible()),
+    "Collapsed candidate panel still exposed its candidate card contents",
+  );
+
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 30_000 });
+  const restoredCandidatePanel = page
+    .locator("details")
+    .filter({ hasText: collapsedSummaryText })
+    .first();
+  await restoredCandidatePanel.waitFor({ state: "visible", timeout: 30_000 });
+  const collapsedAfterReload = await restoredCandidatePanel.evaluate(
+    (element) => element.open === false,
+  );
+  assert(
+    collapsedAfterReload,
+    "Reload did not restore the source candidate panel to its persisted collapsed state",
+  );
+
+  await restoredCandidatePanel.locator("summary").click();
+  await restoredCandidatePanel
+    .locator('[class*="candidateCard"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 10_000 });
+  const candidatePanelReexpanded = await restoredCandidatePanel.evaluate(
+    (element) => element.open === true,
+  );
+  assert(candidatePanelReexpanded, "Restored candidate disclosure could not be expanded");
+  await restoredCandidatePanel.locator("summary").click();
+
   const uiState = await commonUiState(page, continuationTurnResult, continuationFrame);
 
   return [
@@ -4381,6 +4645,20 @@ async function driveCandidateContinuation(page) {
         sourceTurnResult.frame_summary?.dialogue_goal ??
         null,
       candidate_panel_count: await page.locator("[class*=candidatePanel]").count(),
+      candidate_panel_width: candidatePanelBox.width,
+      candidate_panel_aligned_to_assistant_rail:
+        Math.abs(candidatePanelBox.x - assistantMessageBox.x) <= 1 &&
+        Math.abs(candidatePanelBox.width - assistantMessageBox.width) <= 1 &&
+        candidatePanelBox.x + candidatePanelBox.width <= assistantMessageBox.x + 701,
+      candidate_panel_surface_defined: candidatePanelVisual.background_color !== "rgba(0, 0, 0, 0)",
+      candidate_card_boundary_visible: candidateCardVisual.border_top_width !== "0px",
+      candidate_actions_match_prototype:
+        continueVisual.background_color === adoptVisual.background_color &&
+        continueVisual.border_top_width !== "0px" &&
+        adoptVisual.border_top_width !== "0px",
+      candidate_panel_collapsed_after_continue: collapsedAfterContinue,
+      candidate_panel_collapsed_after_reload: collapsedAfterReload,
+      candidate_panel_reexpanded: candidatePanelReexpanded,
       candidate_selection_sent: true,
       generate_micro_plan: continuationFrame.body.generate_micro_plan,
       candidate_selected: continuationTurnResult.truthfulness?.candidate_selected ?? false,
@@ -5486,7 +5764,7 @@ async function driveCanonConflictRecovery(page) {
 }
 
 async function driveP1ChapterPlanMinimum(page) {
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.getByRole("button", { name: "规划卷章结构" }).click();
 
@@ -5566,7 +5844,7 @@ async function driveP1ChapterPlanMinimum(page) {
   );
   const adoptionTurnResult = adoptionFrame.body;
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
 
   // 大纲与结构单一数据源 = 已采纳卷/章结构（get_toc），不再有独立的 get_chapter_plans。
@@ -5582,6 +5860,12 @@ async function driveP1ChapterPlanMinimum(page) {
   );
 
   const visibleText = await page.locator("body").innerText();
+  if (verifyActionRunAnchoring) {
+    assert(
+      !visibleText.includes("正在生成修订稿"),
+      "Completed revision history still displayed a running activity",
+    );
+  }
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, generationTurnResult, sentMessage);
 
@@ -5626,7 +5910,7 @@ async function driveP1ChapterPlanMinimum(page) {
 }
 
 async function driveP1ChapterDraftGeneration(page) {
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     () =>
@@ -5746,7 +6030,7 @@ async function driveVs00cCp3StructuredContext(page) {
   const previousChapterTitle = "第01章：底层灵气账单";
   const nextChapterTitle = "第03章";
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     ({ previousTitle, targetTitle }) =>
@@ -5841,7 +6125,7 @@ async function driveVs00cCp3StructuredContext(page) {
 }
 
 async function driveVs00cCp4ChapterPlanStructure(page) {
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.getByRole("button", { name: "规划卷章结构" }).click();
 
@@ -5930,7 +6214,7 @@ async function driveVs00cCp4ChapterPlanStructure(page) {
   );
   const adoptionTurnResult = adoptionFrame.body;
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     (targetTitle) =>
@@ -6083,7 +6367,7 @@ function effectiveWordCount(text) {
 
 async function driveP1ChapterAdoptionReading(page) {
   // 复用 p1-chapter-draft-generation：打开档案大纲 → 生成第 1 章正文草稿。
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     () =>
@@ -6274,7 +6558,7 @@ async function driveAu07StateTraceAdoptionReplay(page) {
 }
 
 async function driveAu05DiscardAuthorAction(page) {
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     () =>
@@ -6691,7 +6975,7 @@ async function driveAu08ReadingReadonlyNoWrite(page) {
     const visibleText = document.body.innerText;
 
     return {
-      workbench_visible: visibleText.includes("当前作品") || visibleText.includes("打开档案"),
+      workbench_visible: visibleText.includes("当前作品") || visibleText.includes("档案"),
       reading_mode_visible: visibleText.includes("阅读模式"),
       chat_input_present: Boolean(input),
       chat_input_disabled: Boolean(input?.disabled),
@@ -6834,7 +7118,7 @@ async function driveAu08ReadingReturnContext(page) {
     const visibleText = document.body.innerText;
 
     return {
-      workbench_visible: visibleText.includes("打开档案") && visibleText.includes("发送"),
+      workbench_visible: visibleText.includes("档案") && visibleText.includes("发送"),
       reading_mode_visible: visibleText.includes("阅读模式"),
       welcome_message_count: (visibleText.match(/欢迎使用 AI Novel Studio/g) ?? []).length,
       chat_input_present: Boolean(input),
@@ -8794,10 +9078,9 @@ async function driveJudgmentExploreChapterPlan(page) {
   const reply = replyFrame.body;
   const replyText = reply.assistant_message.text;
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("依据如下"),
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("依据如下"), {
+    timeout: 15_000,
+  });
   const visibleText = await page.locator("body").innerText();
 
   // 引用的必须是设计态内容：种子计划第02章 = "旧服务器里的残诀…找到残缺功法…突破底层限制"
@@ -8906,10 +9189,9 @@ async function driveJudgmentExploreInternal(page) {
   const replyText = exploreReply.assistant_message.text;
 
   // 回复在真实页面可见，且执行记录出现探索观察（exploration_observed 渲染）
-  await page.waitForFunction(
-    () => document.body.innerText.includes("依据如下"),
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("依据如下"), {
+    timeout: 15_000,
+  });
   const visibleText = await page.locator("body").innerText();
   const explorationVisible = visibleText.includes("已检索");
   const replyVisible = visibleText.includes("依据如下");
@@ -9034,10 +9316,9 @@ async function driveAu13ArcLedgerRoundtrip(page) {
   const ledgerReply = ledgerReplyFrame.body;
   const ledgerReplyText = ledgerReply.assistant_message.text;
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("角色弧光·林岚"),
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("角色弧光·林岚"), {
+    timeout: 15_000,
+  });
 
   // 下一章写作：请求携带账面投影（progress_state 进 provider 请求，外证=业务日志）
   const chapterTwoText =
@@ -9077,10 +9358,7 @@ async function driveAu13ArcLedgerRoundtrip(page) {
     ledgerReplyText.includes("依据如下"),
     "Ledger reply is not exploration-grounded (missing 依据如下)",
   );
-  assert(
-    visibleText.includes("角色弧光·林岚"),
-    "Arc ledger entry is not visible on the real page",
-  );
+  assert(visibleText.includes("角色弧光·林岚"), "Arc ledger entry is not visible on the real page");
   assert(
     ledgerReply.truthfulness?.artifact_adopted !== true,
     "Ledger question turn must not adopt anything",
@@ -9111,13 +9389,617 @@ async function driveAu13ArcLedgerRoundtrip(page) {
   ];
 }
 
+async function driveAu14FactInventoryRoundtrip(page) {
+  // SC-AU14-B1（VS-00G CP4b-2）：从真实作品档案显式发起设定盘点 → fact_inventory_v1
+  // 读取已采纳正文 → 同批返回角色/规则/伏笔 tentative 候选 → 只逐项采纳一名角色和
+  // 一条规则 → 其余候选仍 pending，且只有已采纳项进入对应档案投影。
+  await configureProviderRuntime({ provider: "slice_verify" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await waitForArchivePanel(page);
+  await page.getByRole("tab", { name: "概览" }).click();
+
+  await page.getByRole("button", { name: "发起设定盘点", exact: true }).click();
+
+  const startActionFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "start_fact_inventory",
+    "Archive inventory action did not send start_fact_inventory",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.action_status === "running" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "start_fact_inventory did not fast-ack with a running run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const inventoryTurnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const pending = frame.body?.adoption_state?.pending ?? [];
+      const types = new Set(pending.map((entry) => entry.artifact_type));
+      return (
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId &&
+        frame.body?.agent_run?.profile_ref === "fact_inventory_v1" &&
+        frame.body?.tool_result?.tool_name === "fact_inventory" &&
+        frame.body?.tool_result?.status === "succeeded" &&
+        types.has("character_seed") &&
+        types.has("world_rule_seed") &&
+        types.has("foreshadowing_seed")
+      );
+    },
+    "fact_inventory_v1 did not broadcast the three existing seed families",
+    120_000,
+  );
+  const inventoryTurn = inventoryTurnFrame.body;
+  const pending = inventoryTurn.adoption_state?.pending ?? [];
+  const characterPending = pending.filter((entry) => entry.artifact_type === "character_seed");
+  const rulePending = pending.find((entry) => entry.artifact_type === "world_rule_seed");
+  const foreshadowPending = pending.find((entry) => entry.artifact_type === "foreshadowing_seed");
+  const shenyanPending =
+    characterPending.find((entry) =>
+      String(entry.payload?.items?.[0]?.title ?? "").includes("沈砚"),
+    ) ?? characterPending[0];
+
+  assert(characterPending.length === 2, "Inventory did not return two independent characters");
+  assert(rulePending, "Inventory did not return a world_rule_seed");
+  assert(foreshadowPending, "Inventory did not return a foreshadowing_seed");
+  assert(pending.length === 4, `Expected 4 inventory pending units, got ${pending.length}`);
+  assert(
+    (inventoryTurn.available_actions ?? []).length === 12,
+    "Inventory did not expose three author actions for each pending unit",
+  );
+  assert(
+    inventoryTurn.truthfulness?.artifact_adopted === false &&
+      inventoryTurn.truthfulness?.production_write_performed === false,
+    "Inventory proposal wrote or adopted a work fact before author action",
+  );
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Fact inventory AgentRun completion event was not broadcast",
+    60_000,
+  );
+  const completionStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      frame.body?.profile_ref === "fact_inventory_v1" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 1 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+    "Fact inventory AgentRun did not complete with the expected 1-step / 1-tool / 3-provider budget",
+    60_000,
+  );
+  const completionState = completionStateFrame.body;
+
+  await page.waitForFunction(
+    () =>
+      ["沈砚", "云栖", "灵气按频段计费", "残诀后半卷"].every((text) =>
+        document.body.innerText.includes(text),
+      ),
+    undefined,
+    { timeout: 30_000 },
+  );
+
+  const shenyanChoice = page.getByRole("radio", { name: "沈砚" });
+  await shenyanChoice.waitFor({ timeout: 10_000 });
+  await shenyanChoice.click();
+  const shenyanIndex = characterPending.indexOf(shenyanPending);
+  const shenyanOptionLabel = `方案 ${String.fromCharCode(65 + shenyanIndex)}`;
+  const characterButton = page.getByRole("button", {
+    name: `保存${shenyanOptionLabel} 到作品档案`,
+    exact: true,
+  });
+  await characterButton.waitFor({ timeout: 10_000 });
+  const characterAdoptionStart = frames.length;
+  await characterButton.click();
+
+  await waitForNewFrame(
+    characterAdoptionStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === shenyanPending.artifact_id,
+    "Character inventory candidate did not send its own accept target",
+    30_000,
+  );
+  const characterAdoptFrame = await waitForNewFrame(
+    characterAdoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === shenyanPending.artifact_id,
+      ),
+    "Character inventory candidate was not resolved through the adoption boundary",
+    120_000,
+  );
+
+  const ruleAdoptionStart = frames.length;
+  const genericArchiveAccept = page.getByRole("button", {
+    name: "保存到作品档案",
+    exact: true,
+  });
+  await genericArchiveAccept.first().waitFor({ timeout: 10_000 });
+  await genericArchiveAccept.first().click();
+
+  await waitForNewFrame(
+    ruleAdoptionStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === rulePending.artifact_id,
+    "World-rule inventory candidate did not send the expected accept target",
+    30_000,
+  );
+  const ruleAdoptFrame = await waitForNewFrame(
+    ruleAdoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === rulePending.artifact_id,
+      ),
+    "World-rule inventory candidate was not resolved through the adoption boundary",
+    120_000,
+  );
+
+  const archiveLogStart = readAppLogRecords().length;
+  const archivePanel = await openArchiveTab(page, "角色");
+  await archivePanel.getByText("沈砚").first().waitFor({ timeout: 10_000 });
+  const characterRecord = await waitForNewAppLogRecord(
+    archiveLogStart,
+    (record) =>
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 1,
+    "Archive did not expose exactly the adopted inventory character",
+    20_000,
+  );
+
+  await page.getByRole("tab", { name: "经验规则" }).click();
+  await archivePanel.getByText("灵气按频段计费").first().waitFor({ timeout: 10_000 });
+  const ruleRecord = await waitForNewAppLogRecord(
+    archiveLogStart,
+    (record) => record.event === "channel.get_rules.done" && Number(record.rule_count ?? 0) === 1,
+    "Archive did not expose exactly the adopted inventory rule",
+    20_000,
+  );
+
+  await page.getByRole("tab", { name: "伏笔" }).click();
+  await archivePanel.getByText("残诀后半卷").first().waitFor({ timeout: 10_000 });
+  const foreshadowRecord = await waitForNewAppLogRecord(
+    archiveLogStart,
+    (record) =>
+      record.event === "channel.get_foreshadowing.done" && Number(record.item_count ?? 0) === 0,
+    "Unadopted inventory foreshadowing leaked into the accepted archive",
+    20_000,
+  );
+
+  // Adoption TurnResult is scoped to the artifact set being decided, not a global pending snapshot.
+  // Verify global pending state through the real archive tabs, whose badges are rendered from the
+  // workbench's merged pending adoption state.
+  const pendingCharacterTab = page.getByRole("tab", { name: "角色 (1)", exact: true });
+  const pendingForeshadowTab = page.getByRole("tab", { name: "伏笔 (1)", exact: true });
+  await pendingCharacterTab.waitFor({ timeout: 10_000 });
+  await pendingForeshadowTab.waitFor({ timeout: 10_000 });
+  const unadoptedCharacterVisible = await pendingCharacterTab.isVisible();
+  const unadoptedForeshadowVisible = await pendingForeshadowTab.isVisible();
+
+  const remainingIds = pending
+    .filter(
+      (entry) =>
+        entry.artifact_id !== shenyanPending.artifact_id &&
+        entry.artifact_id !== rulePending.artifact_id,
+    )
+    .map((entry) => entry.artifact_id);
+  assert(
+    remainingIds.includes(foreshadowPending.artifact_id) && unadoptedForeshadowVisible,
+    "Unadopted foreshadowing did not remain pending",
+  );
+  assert(
+    characterPending.some(
+      (entry) =>
+        entry.artifact_id !== shenyanPending.artifact_id &&
+        remainingIds.includes(entry.artifact_id),
+    ) && unadoptedCharacterVisible,
+    "Unadopted second character did not remain pending",
+  );
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au14-fact-inventory-roundtrip",
+      work_id: startActionFrame.body?.work_id,
+      run_id: runId,
+      profile_ref: completionState?.profile_ref,
+      inventory_turn_id: inventoryTurn.turn_id,
+      character_adoption_turn_id: characterAdoptFrame.body?.turn_id,
+      rule_adoption_turn_id: ruleAdoptFrame.body?.turn_id,
+      pending_count: pending.length,
+      pending_character_count: characterPending.length,
+      pending_rule_count: rulePending ? 1 : 0,
+      pending_foreshadow_count: foreshadowPending ? 1 : 0,
+      available_action_count: (inventoryTurn.available_actions ?? []).length,
+      proposed_without_write:
+        inventoryTurn.truthfulness?.artifact_adopted === false &&
+        inventoryTurn.truthfulness?.production_write_performed === false,
+      adopted_character_id: shenyanPending.artifact_id,
+      adopted_rule_id: rulePending.artifact_id,
+      unadopted_foreshadow_id: foreshadowPending.artifact_id,
+      unadopted_items_remain_pending:
+        unadoptedCharacterVisible &&
+        unadoptedForeshadowVisible &&
+        remainingIds.includes(foreshadowPending.artifact_id) &&
+        remainingIds.length === 2,
+      archive_character_count: Number(characterRecord.character_count ?? 0),
+      archive_rule_count: Number(ruleRecord.rule_count ?? 0),
+      archive_foreshadowing_count: Number(foreshadowRecord.item_count ?? 0),
+      archive_character_visible: true,
+      archive_rule_visible: true,
+      start_action_logged: logsAfter.some(
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          record.action_type === "start_fact_inventory",
+      ),
+      consumed_steps: completionState?.consumed_budget?.steps,
+      consumed_tool_calls: completionState?.consumed_budget?.tool_calls,
+      consumed_provider_calls: completionState?.consumed_budget?.provider_calls,
+    },
+  ];
+}
+
+async function driveAu14FindingInventoryArcLoop(page) {
+  // SC-AU14-A1（VS-00G CP4c）：已采纳 10 章且角色档案为空 → 全书审读真实产出
+  // protagonist_undermaterialized finding → 卡片主动作「发起盘点」绑定报告条目 →
+  // fact_inventory_v1 提案 → 逐项采纳 PROTAGONIST → 下一章正文采纳后弧光账开始记账。
+  await configureProviderRuntime({ provider: "slice_verify" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  const logStart = readAppLogRecords().length;
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await waitForArchivePanel(page);
+  await page.getByRole("tab", { name: /^脉络/ }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("暂无待处置的审读报告"), {
+    timeout: 10_000,
+  });
+
+  const reviewLogStart = readAppLogRecords().length;
+  await page.getByRole("button", { name: "发起全书审读", exact: true }).click();
+  const reportRecord = await waitForNewAppLogRecord(
+    reviewLogStart,
+    (record) =>
+      record.event === "ledger.report.done" &&
+      Number(record.finding_count ?? 0) === 1 &&
+      Number(record.rules?.protagonist_undermaterialized ?? 0) === 1,
+    "Full review did not materialize the protagonist_undermaterialized finding",
+    120_000,
+  );
+
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await waitForArchivePanel(page);
+  await page.getByRole("tab", { name: /^脉络/ }).click();
+  const findingCard = page
+    .locator('[class*="cardItem"]')
+    .filter({ hasText: "未登记任何主角" })
+    .first();
+  await findingCard.waitFor({ timeout: 15_000 });
+  await findingCard.getByRole("button", { name: "发起盘点", exact: true }).waitFor({
+    timeout: 10_000,
+  });
+
+  const inventoryFrameStart = frames.length;
+  const inventoryLogStart = readAppLogRecords().length;
+  await findingCard.getByRole("button", { name: "发起盘点", exact: true }).click();
+
+  const startActionFrame = await waitForNewFrame(
+    inventoryFrameStart,
+    (frame) => {
+      const action = frame.body?.action ?? {};
+      const payload = action.payload ?? {};
+      return (
+        frame.direction === "sent" &&
+        frame.event === "author_action" &&
+        action.action_type === "start_fact_inventory" &&
+        payload.trigger_type === "finding" &&
+        payload.report_id === reportRecord.report_id &&
+        payload.finding_index === 0 &&
+        payload.finding_rule === "protagonist_undermaterialized"
+      );
+    },
+    "Finding action did not bind start_fact_inventory to the report, index, and rule",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    inventoryFrameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.action_status === "running" &&
+        typeof response.run_id === "string" &&
+        response.trigger_type === "finding" &&
+        response.trigger_report_id === reportRecord.report_id &&
+        response.trigger_finding_index === 0 &&
+        response.trigger_rule === "protagonist_undermaterialized" &&
+        response.report_status === "ACCEPTED"
+      );
+    },
+    "Finding-triggered inventory did not fast-ack with its verified binding",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const inventoryTurnFrame = await waitForNewFrame(
+    inventoryFrameStart,
+    (frame) => {
+      const pending = frame.body?.adoption_state?.pending ?? [];
+      return (
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId &&
+        frame.body?.agent_run?.profile_ref === "fact_inventory_v1" &&
+        frame.body?.tool_result?.tool_name === "fact_inventory" &&
+        pending.some(
+          (entry) =>
+            entry.artifact_type === "character_seed" &&
+            String(entry.payload?.items?.[0]?.title ?? "").includes("沈砚") &&
+            entry.payload?.items?.[0]?.narrative_role === "PROTAGONIST",
+        )
+      );
+    },
+    "Finding-triggered inventory did not produce the protagonist candidate",
+    120_000,
+  );
+  const inventoryTurn = inventoryTurnFrame.body;
+  const pending = inventoryTurn.adoption_state?.pending ?? [];
+  const protagonistPending = pending.find(
+    (entry) =>
+      entry.artifact_type === "character_seed" &&
+      String(entry.payload?.items?.[0]?.title ?? "").includes("沈砚") &&
+      entry.payload?.items?.[0]?.narrative_role === "PROTAGONIST",
+  );
+  assert(protagonistPending, "Inventory proposal did not contain a PROTAGONIST candidate");
+  assert(
+    inventoryTurn.truthfulness?.artifact_adopted === false &&
+      inventoryTurn.truthfulness?.production_write_performed === false,
+    "Finding-triggered inventory wrote a work fact before author adoption",
+  );
+
+  await waitForNewFrame(
+    inventoryFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Finding-triggered fact inventory AgentRun did not complete",
+    60_000,
+  );
+
+  const triggerLog = await waitForNewAppLogRecord(
+    inventoryLogStart,
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "start_fact_inventory" &&
+      record.run_id === runId &&
+      record.trigger_type === "finding" &&
+      record.trigger_report_id === reportRecord.report_id &&
+      Number(record.trigger_finding_index ?? -1) === 0 &&
+      record.trigger_rule === "protagonist_undermaterialized",
+    "Author action log did not preserve the finding trigger binding",
+    30_000,
+  );
+  const adjudicationLog = await waitForNewAppLogRecord(
+    inventoryLogStart,
+    (record) =>
+      record.event === "ledger.adjudicate.done" &&
+      record.report_id === reportRecord.report_id &&
+      record.rule === "protagonist_undermaterialized" &&
+      record.disposition === "revise_design" &&
+      record.report_status === "ACCEPTED",
+    "Finding trigger did not record the existing revise_design disposition",
+    30_000,
+  );
+
+  await page.waitForFunction(() => document.body.innerText.includes("沈砚"), {
+    timeout: 30_000,
+  });
+  const protagonistChoice = page.getByRole("radio", { name: "沈砚" });
+  await protagonistChoice.waitFor({ timeout: 10_000 });
+  await protagonistChoice.click();
+  const characterOptions = pending.filter((entry) => entry.artifact_type === "character_seed");
+  const protagonistIndex = characterOptions.indexOf(protagonistPending);
+  const protagonistOptionLabel = `方案 ${String.fromCharCode(65 + protagonistIndex)}`;
+  const protagonistAcceptButton = page.getByRole("button", {
+    name: `保存${protagonistOptionLabel} 到作品档案`,
+    exact: true,
+  });
+  await protagonistAcceptButton.waitFor({ timeout: 10_000 });
+
+  const protagonistAdoptionStart = frames.length;
+  await protagonistAcceptButton.click();
+  const protagonistAdoptFrame = await waitForNewFrame(
+    protagonistAdoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === protagonistPending.artifact_id,
+      ),
+    "Protagonist candidate was not adopted through the existing boundary",
+    120_000,
+  );
+
+  const characterArchive = await openArchiveTab(page, "角色");
+  const protagonistArchiveCard = characterArchive
+    .locator('[class*="cardItem"]')
+    .filter({ hasText: "沈砚" })
+    .filter({ hasText: "主角" })
+    .first();
+  await protagonistArchiveCard.waitFor({ timeout: 10_000 });
+  const protagonistVisibleAsRole =
+    (await protagonistArchiveCard.isVisible()) &&
+    (await protagonistArchiveCard.getByText("主角", { exact: true }).first().isVisible());
+  await closeArchiveIfOpen(page);
+
+  const chapterElevenRequest =
+    "请根据已采纳章节计划生成第11章：频段反击。让已采纳主角沈砚亲自核对旧服务器回传的调频记录并决定反击，生成待采纳正文草稿。";
+  const proseFrameStart = frames.length;
+  await page.locator(chatInputSelector).fill(chapterElevenRequest);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const proseTurnFrame = await waitForNewFrame(
+    proseFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) =>
+          entry.artifact_type === "prose_fragment" &&
+          String(entry.payload?.items?.[0]?.body ?? "").includes("沈砚"),
+      ),
+    "Next prose turn did not weave the newly adopted protagonist",
+    200_000,
+  );
+  const proseTurn = proseTurnFrame.body;
+  const prosePending = (proseTurn.adoption_state?.pending ?? []).find(
+    (entry) => entry.artifact_type === "prose_fragment",
+  );
+  const proseBody = String(prosePending?.payload?.items?.[0]?.body ?? "");
+  assert(prosePending, "Next prose turn did not expose a pending prose artifact");
+  assert(proseBody.includes("沈砚"), "Next prose artifact omitted the adopted protagonist");
+
+  const proseAdoptionLogStart = readAppLogRecords().length;
+  const proseAdoptionFrameStart = frames.length;
+  const proseAcceptButton = page.getByRole("button", {
+    name: "保存为章节正文",
+    exact: true,
+  });
+  await proseAcceptButton.last().waitFor({ timeout: 10_000 });
+  await proseAcceptButton.last().click();
+
+  const proseAdoptFrame = await waitForNewFrame(
+    proseAdoptionFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === prosePending.artifact_id,
+      ),
+    "Next prose was not adopted through the visible page action",
+    120_000,
+  );
+  const ledgerUpdate = await waitForNewAppLogRecord(
+    proseAdoptionLogStart,
+    (record) =>
+      record.event === "ledger.update.done" &&
+      record.ledger === "arc" &&
+      Number(record.sighted ?? 0) >= 1 &&
+      Number(record.roster ?? 0) === 1,
+    "Next prose adoption did not start the protagonist arc ledger",
+    30_000,
+  );
+
+  const threadsPanel = await openArchiveTab(page, "脉络");
+  const protagonistArcRow = threadsPanel
+    .locator('[class*="ledgerRow"]')
+    .filter({ hasText: "角色弧光" })
+    .filter({ hasText: "沈砚" })
+    .filter({ hasText: "延续中" })
+    .first();
+  await protagonistArcRow.waitFor({ timeout: 10_000 });
+  await threadsPanel.getByText("暂无待处置的审读报告").first().waitFor({ timeout: 10_000 });
+  const arcVisible = await protagonistArcRow.isVisible();
+  const reportResolved = await threadsPanel.getByText("暂无待处置的审读报告").first().isVisible();
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au14-finding-inventory-arc-loop",
+      work_id: startActionFrame.body?.work_id,
+      review_report_id: String(reportRecord.report_id ?? ""),
+      review_finding_count: Number(reportRecord.finding_count ?? 0),
+      finding_rule: "protagonist_undermaterialized",
+      finding_action_label: "发起盘点",
+      finding_binding_sent: true,
+      finding_binding_logged: Boolean(triggerLog),
+      finding_disposition_recorded: Boolean(adjudicationLog),
+      report_resolved: reportResolved,
+      run_id: runId,
+      profile_ref: inventoryTurn.agent_run?.profile_ref,
+      inventory_turn_id: inventoryTurn.turn_id,
+      protagonist_adoption_turn_id: protagonistAdoptFrame.body?.turn_id,
+      prose_turn_id: proseTurn.turn_id,
+      prose_adoption_turn_id: proseAdoptFrame.body?.turn_id,
+      protagonist_artifact_id: protagonistPending.artifact_id,
+      protagonist_role: protagonistPending.payload?.items?.[0]?.narrative_role,
+      protagonist_visible_as_role: protagonistVisibleAsRole,
+      inventory_proposed_without_write:
+        inventoryTurn.truthfulness?.artifact_adopted === false &&
+        inventoryTurn.truthfulness?.production_write_performed === false,
+      next_prose_contains_protagonist: proseBody.includes("沈砚"),
+      arc_ledger_sighted: Number(ledgerUpdate.sighted ?? 0),
+      arc_ledger_visible: arcVisible,
+      start_action_logged: logsAfter.some(
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          record.action_type === "start_fact_inventory" &&
+          record.trigger_rule === "protagonist_undermaterialized",
+      ),
+    },
+  ];
+}
 
 async function driveAu13ReviewAdjudicationRoundtrip(page) {
   // SC-AU13-B1 + SC-AU13-C1（VS-00F CP4c-3）：面板「脉络」只读视图（C1）→ 显式
   // 发起全书审读（ledger_reconciliation_v1 真实 run）→ 审读报告四处置各一例（B1，
   // dismiss 进证据日志；修订类 correction intent 回对话流）→ 全部处置后报告转已处置。
   const openThreadsTab = async () => {
-    await page.getByText("打开档案").first().click();
+    await page.getByRole("button", { name: "打开档案" }).first().click();
     await waitForArchivePanel(page);
     await page.getByRole("tab", { name: /^脉络/ }).click();
     await page.waitForFunction(() => document.body.innerText.includes("五条脉络"), {
@@ -9136,10 +10018,9 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   await page.waitForFunction(() => document.body.innerText.includes("停滞 4"), {
     timeout: 10_000,
   });
-  await page.waitForFunction(
-    () => document.body.innerText.includes("暂无待处置的审读报告"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("暂无待处置的审读报告"), {
+    timeout: 10_000,
+  });
   await page.waitForFunction(() => document.body.innerText.includes("脉络与报告只读"), {
     timeout: 10_000,
   });
@@ -9166,10 +10047,9 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   await page.waitForFunction(() => document.body.innerText.includes("审读报告"), {
     timeout: 10_000,
   });
-  await page.waitForFunction(
-    () => document.body.innerText.includes("自第1章后未再出场"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("自第1章后未再出场"), {
+    timeout: 10_000,
+  });
 
   // 4a. 凌渊 → 接受走向（面板内即时已处置，账面裁决态转移）
   await findingCard("凌渊").getByRole("button", { name: "接受走向", exact: true }).click();
@@ -9231,10 +10111,9 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   // 5. 全部处置 → 报告转 ACCEPTED、活跃报告清空（latest 只回 TENTATIVE）：
   // 重开面板读真实持久态，诚实显示"暂无待处置的审读报告"。
   await openThreadsTab();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("暂无待处置的审读报告"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("暂无待处置的审读报告"), {
+    timeout: 10_000,
+  });
 
   const adjudicateRecords = readAppLogRecords().filter(
     (record) => record.event === "ledger.adjudicate.done",
@@ -9259,13 +10138,12 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   ];
 }
 
-
 async function driveAu13ReviseProseSibling(page) {
   // SC-AU13-B2（VS-00F CP4c-3 / VS-00E §8）：revise_prose 处置 → correction intent
   // 回对话流（改写=高风险，确认后执行）→ 产 sibling 修订候选（待采纳 prose_fragment）
   // → 原稿保留（阅读投影仍是 seed 正文，候选未进作品事实）。
   const openThreadsTab = async () => {
-    await page.getByText("打开档案").first().click();
+    await page.getByRole("button", { name: "打开档案" }).first().click();
     await waitForArchivePanel(page);
     await page.getByRole("tab", { name: /^脉络/ }).click();
     await page.waitForFunction(() => document.body.innerText.includes("五条脉络"), {
@@ -9333,10 +10211,9 @@ async function driveAu13ReviseProseSibling(page) {
 
   // 5. 原稿保留：阅读投影仍是 seed 正文（候选未进作品事实）
   await page.getByRole("button", { name: readingModeButtonPattern }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("灵气账单在夜色里泛着冷光"),
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("灵气账单在夜色里泛着冷光"), {
+    timeout: 15_000,
+  });
   const originalPreserved = await page.evaluate(() =>
     document.body.innerText.includes("灵气账单在夜色里泛着冷光"),
   );
@@ -9910,7 +10787,7 @@ async function driveP1ChapterExpansionMultichapter(page) {
 
 async function driveP1ChapterEditThenAccept(page) {
   // 复用 p1-chapter-draft-generation：生成第 1 章正文草稿。
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     () =>
@@ -10050,7 +10927,7 @@ async function driveP1ChapterOverwriteConfirm(page) {
   const seen = new Set();
 
   async function generatePendingDraft() {
-    await page.getByText("打开档案").first().click();
+    await page.getByRole("button", { name: "打开档案" }).first().click();
     await page.getByRole("tab", { name: "大纲与结构" }).click();
     await page.waitForFunction(
       () =>
@@ -11460,7 +12337,7 @@ async function driveAu09AdoptSettingRecall(page) {
 }
 
 async function driveAu09CharacterDossierRoundtrip(page) {
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "角色" }).click();
   await page.getByRole("button", { name: "创建角色" }).first().click();
 
@@ -11516,7 +12393,7 @@ async function driveAu09CharacterDossierRoundtrip(page) {
   const adoptedStateRef = String(adoptFrame.body.truthfulness?.adopted_state_ref ?? "");
   assert(adoptedStateRef.length > 0, "Character adoption did not expose adopted_state_ref");
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "角色" }).click();
   const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
   await archivePanel.getByText(characterTitle).first().waitFor({ timeout: 10_000 });
@@ -11653,7 +12530,7 @@ async function driveAu09CharacterRoleTaxonomyProtagonistPolicy(page) {
   assert(adoptedStateRef.length > 0, "Protagonist adoption did not expose adopted_state_ref");
 
   // Phase C：作品档案角色 tab 展示该角色，并以结构化"主角"叙事角色标注，缺口提示消失。
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "角色" }).click();
   const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
   await archivePanel.getByText(protagonistName).first().waitFor({ timeout: 10_000 });
@@ -11735,11 +12612,30 @@ async function driveAu09CharacterCandidatePerItemAdoption(page) {
 
   // 设计两个不同方向的角色候选 → character_design 返回两条独立候选。
   const designBefore = frames.length;
-  const design = await sendOrdinaryChatTurn(
+  let design = await sendOrdinaryChatTurn(
     page,
-    "请给我设计两个不同方向的新角色候选，让我挑一个。",
+    "请给我设计两个不同方向的新反派角色候选，让我挑一个。",
     designBefore,
   );
+  if (
+    !(design.turnResult.adoption_state?.pending ?? []).some(
+      (entry) => entry.artifact_type === "character_seed",
+    )
+  ) {
+    const finalDesignFrame = await waitForNewFrame(
+      designBefore,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.tool_name === "character_design" &&
+        (frame.body?.adoption_state?.pending ?? []).some(
+          (entry) => entry.artifact_type === "character_seed",
+        ),
+      "Character design AgentRun did not broadcast the final candidate TurnResult",
+      120_000,
+    );
+    design = { ...design, turnResult: finalDesignFrame.body };
+  }
 
   const pending = (design.turnResult.adoption_state?.pending ?? []).filter(
     (entry) => entry.artifact_type === "character_seed",
@@ -11763,22 +12659,42 @@ async function driveAu09CharacterCandidatePerItemAdoption(page) {
   const candidateBName = nameOf(candidateB);
   const candidateAName = nameOf(candidateA);
 
-  // 每个候选都有自己的"采纳"按钮：统计 accept 按钮数量恰为候选数。
-  // accept 按钮文案统一以"保存到作品档案："开头（character_seed=档案类），逐候选附候选名。
-  // 用子串/精确名匹配（不用动态 RegExp），既能逐项点击也避免 ReDoS 风险。
-  const acceptPrefix = "保存到作品档案：";
-  const acceptButtons = page.getByRole("button", { name: acceptPrefix });
-  await acceptButtons.first().waitFor({ timeout: 10_000 });
-  const acceptButtonCount = await acceptButtons.count();
+  // 两个候选各有独立 action target；UI 先单选候选，再只显示当前候选的操作。
+  const choiceRadios = page.getByRole("radio", { name: "选择方案" });
+  await choiceRadios.first().waitFor({ timeout: 10_000 });
+  const choiceRadioCount = await choiceRadios.count();
   assert(
-    acceptButtonCount === 2,
-    `Each character candidate must have its own adopt button; found ${acceptButtonCount}`,
+    choiceRadioCount === 2,
+    `Each character candidate must have its own selector; found ${choiceRadioCount}`,
   );
-
-  const acceptButtonFor = (name) =>
-    page.getByRole("button", { name: `${acceptPrefix}${name}`, exact: true });
-
-  await acceptButtonFor(candidateBName).first().click();
+  const candidateActionTargetCount = (design.turnResult.available_actions ?? []).filter(
+    (action) =>
+      action.action_type === "accept" &&
+      pending.some((entry) => entry.artifact_id === action.target_ref),
+  ).length;
+  assert(
+    candidateActionTargetCount === 2,
+    `Expected 2 independent character accept targets, got ${candidateActionTargetCount}`,
+  );
+  const candidateBIndex = pending.indexOf(candidateB);
+  const candidateAIndex = pending.indexOf(candidateA);
+  const optionLabelFor = (index) => `方案 ${String.fromCharCode(65 + index)}`;
+  const candidateBRadio = page.getByRole("radio", { name: candidateBName });
+  const candidateARadio = page.getByRole("radio", { name: candidateAName });
+  await candidateBRadio.click();
+  const selectedAcceptButton = page.getByRole("button", {
+    name: `保存${optionLabelFor(candidateBIndex)} 到作品档案`,
+    exact: true,
+  });
+  await selectedAcceptButton.waitFor({ timeout: 10_000 });
+  const selectedActionButtonCount = await page
+    .getByRole("button", { name: /^保存方案 . 到作品档案$/ })
+    .count();
+  assert(
+    selectedActionButtonCount === 1,
+    `Only the selected candidate should expose an accept button; found ${selectedActionButtonCount}`,
+  );
+  await selectedAcceptButton.click();
 
   // 采纳候选 B：resolved 包含 B 的 artifact_id。
   const adoptFrame = await waitForNewFrame(
@@ -11796,14 +12712,20 @@ async function driveAu09CharacterCandidatePerItemAdoption(page) {
   const adoptedStateRef = String(adoptFrame.body.truthfulness?.adopted_state_ref ?? "");
   assert(adoptedStateRef.length > 0, "Candidate B adoption did not expose adopted_state_ref");
 
-  // 候选 A 仍可采纳：A 的采纳按钮仍在；B 的采纳按钮已消失。
-  const unadoptedStillPending = (await acceptButtonFor(candidateAName).count()) >= 1;
-  assert(unadoptedStillPending, "Unadopted candidate A lost its adopt button after adopting B");
-  const adoptedButtonGone = (await acceptButtonFor(candidateBName).count()) === 0;
-  assert(adoptedButtonGone, "Adopted candidate B adopt button should disappear after adoption");
+  // 候选 A 仍可选择并采纳；已处理的 B 选择器禁用，不能再次提交。
+  await candidateARadio.click();
+  const unadoptedAcceptButton = page.getByRole("button", {
+    name: `保存${optionLabelFor(candidateAIndex)} 到作品档案`,
+    exact: true,
+  });
+  await unadoptedAcceptButton.waitFor({ timeout: 10_000 });
+  const unadoptedStillPending = await unadoptedAcceptButton.isEnabled();
+  assert(unadoptedStillPending, "Unadopted candidate A lost its selectable accept action");
+  const adoptedChoiceDisabled = await candidateBRadio.isDisabled();
+  assert(adoptedChoiceDisabled, "Adopted candidate B selector should be disabled after adoption");
 
   // 作品档案角色 tab：只显示已采纳的候选 B，未采纳的候选 A 不进入作品事实。
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "角色" }).click();
   const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
   await archivePanel.getByText(candidateBName).first().waitFor({ timeout: 10_000 });
@@ -11850,12 +12772,14 @@ async function driveAu09CharacterCandidatePerItemAdoption(page) {
       design_turn_id: design.turnResult.turn_id,
       adoption_turn_id: adoptFrame.body.turn_id,
       candidate_count: pending.length,
-      accept_button_count: acceptButtonCount,
+      choice_radio_count: choiceRadioCount,
+      candidate_action_target_count: candidateActionTargetCount,
+      selected_action_button_count: selectedActionButtonCount,
       adopted_candidate_name: candidateBName,
       unadopted_candidate_name: candidateAName,
       adopted_state_ref: adoptedStateRef,
       unadopted_still_pending: unadoptedStillPending,
-      adopted_button_gone: adoptedButtonGone,
+      adopted_choice_disabled: adoptedChoiceDisabled,
       archive_has_adopted: archiveHasAdopted,
       archive_excludes_unadopted: archiveExcludesUnadopted,
       archive_character_count: charactersLoaded.character_count,
@@ -11883,7 +12807,7 @@ async function driveAu12ArchiveConcurrentModelRunReadSnapshot(page) {
   await waitForVisibleWorkTitle(page, seed.title);
 
   // Phase 1：执行前先正常加载一次档案 → 概览显示立项快照（题材 / 卖点）。
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
   let archivePanel = await waitForArchivePanel(page);
   await archivePanel.getByText(seed.genre).first().waitFor({ timeout: 15_000 });
@@ -11906,7 +12830,7 @@ async function driveAu12ArchiveConcurrentModelRunReadSnapshot(page) {
   );
 
   // Phase 3：模型执行期间打开档案 → 概览仍显示立项快照（非空白）+ 诚实加载/更新指示；turn 尚未完成。
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
   archivePanel = await waitForArchivePanel(page);
   await page.waitForFunction(
@@ -12059,7 +12983,7 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
   );
   await adopt(designBefore, seedPending, "character_seed");
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "角色" }).click();
   const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
   await archivePanel.getByText("林烬").first().waitFor({ timeout: 10_000 });
@@ -14077,7 +15001,7 @@ async function driveSu02ArtifactProjectionTraceIsolation(page) {
   const sourceJoin = await ensureWorkSelectedByTitle(page, sourceTitle, sourceWork.id);
   await waitForVisibleWorkTitle(page, sourceTitle);
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     (title) =>
@@ -15019,7 +15943,7 @@ async function driveAu12WorkProfileOverview(page) {
     timeout: 15_000,
   });
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
 
   await waitForFrame(
@@ -15144,7 +16068,7 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
   const frameStart = frames.length;
   const logStart = readAppLogRecords().length;
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
   await page.getByRole("button", { name: "提出立项修订" }).click();
 
@@ -15303,7 +16227,7 @@ async function driveAu12ProfileReadFailureDegrade(page) {
     });
     const offlineBodyText = await page.locator("body").innerText();
 
-    await page.getByText("打开档案").first().click();
+    await page.getByRole("button", { name: "打开档案" }).first().click();
     await page.getByRole("tab", { name: "概览" }).click();
     await page.waitForFunction(
       () =>
@@ -15472,7 +16396,7 @@ async function driveAu12WorkProfileStatusIsolation(page) {
   await waitForVisibleWorkTitle(page, acceptedTitle);
   const acceptedProfileFrameStart = frames.length;
   const acceptedProfileLogStart = readAppLogRecords().length;
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
 
   const acceptedProfileReply = await waitForNewFrame(
@@ -15546,7 +16470,7 @@ async function driveAu12WorkProfileStatusIsolation(page) {
   await waitForVisibleWorkTitle(page, emptyTitle);
   const emptyProfileFrameStart = frames.length;
   const emptyProfileLogStart = readAppLogRecords().length;
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
 
   const emptyProfileReply = await waitForNewFrame(
@@ -15823,7 +16747,7 @@ async function driveCp0MissingChapterBlock(page) {
 }
 
 async function driveE2E01DowngradeRealPage(page) {
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
   await page.getByRole("button", { name: "发起综合修订" }).click();
 
@@ -16441,7 +17365,7 @@ async function driveE2E01ChannelActionSecurity(page) {
 async function driveP1ProseExecutionBrief(page) {
   const targetChapterTitle = "第02章：旧服务器里的残诀";
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     (targetTitle) =>
@@ -16553,8 +17477,9 @@ async function driveP1ProseExecutionBrief(page) {
 
 async function driveP1ProseRevisionCandidate(page) {
   const targetChapterTitle = "第02章：矿区追击战";
+  const verifyActionRunAnchoring = sliceId === "quality-revision-action-run-anchoring";
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     (targetTitle) =>
@@ -16641,6 +17566,26 @@ async function driveP1ProseRevisionCandidate(page) {
     30_000,
   );
   const revisionRunId = revisionAckFrame.body.response.run_id;
+  const revisionReceiptId = revisionAckFrame.body.response.receipt_id;
+
+  if (verifyActionRunAnchoring) {
+    const ack = revisionAckFrame.body.response;
+    assert(typeof revisionReceiptId === "string" && revisionReceiptId !== "", "Missing receipt_id");
+    assert(ack.source_turn_ref === draftTurnResult.turn_id, "Ack source_turn_ref drifted");
+    assert(
+      ack.source_surface_ref === `quality_review:${draftTurnResult.turn_id}`,
+      "Ack source_surface_ref drifted",
+    );
+    assert(ack.target_artifact_ref === originalArtifactId, "Ack target artifact drifted");
+    assert(ack.trigger?.kind === "author_action", "Ack trigger kind is not author_action");
+    assert(ack.trigger?.receipt_id === revisionReceiptId, "Ack/trigger receipt_id mismatch");
+    assert(ack.trigger?.action_type === "revise_from_findings", "Ack trigger action mismatch");
+    assert(ack.trigger?.source_turn_ref === draftTurnResult.turn_id, "Trigger source turn drifted");
+    assert(
+      ack.trigger?.target_artifact_ref === originalArtifactId,
+      "Trigger target artifact drifted",
+    );
+  }
 
   await waitForNewFrame(
     beforeReviseFrameCount,
@@ -16652,6 +17597,182 @@ async function driveP1ProseRevisionCandidate(page) {
     "Revision AgentRun run_started event was not broadcast",
     30_000,
   );
+
+  let revisionPausedStateFrame = null;
+  let revisionReconnectedStateFrame = null;
+  let revisionResumeCommandFrame = null;
+  let pausedUiSemantics = null;
+  let completedActionSemantics = null;
+
+  if (verifyActionRunAnchoring) {
+    await page
+      .getByText("质量复核：1 项建议 · 修订任务已提交", { exact: true })
+      .waitFor({ timeout: 10_000 });
+    await page
+      .getByLabel("来源：质量复核 · 原稿保留")
+      .waitFor({ state: "visible", timeout: 10_000 });
+    const revisionFlow = page
+      .getByLabel("当前创作请求的工作过程")
+      .filter({ hasText: "正在生成修订稿" });
+    assert(
+      (await revisionFlow.count()) === 1,
+      "Revision run did not render one assistant work turn",
+    );
+    assert(
+      (await page.getByRole("region", { name: "当前创作任务控制" }).count()) === 1,
+      "Revision run did not render one fixed control dock",
+    );
+    assert(
+      !frames
+        .slice(beforeReviseFrameCount)
+        .some((frame) => frame.direction === "sent" && frame.event === "user_message"),
+      "Revision action incorrectly created a second user_message",
+    );
+
+    await waitForNewFrame(
+      beforeReviseFrameCount,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === revisionRunId &&
+        frame.body?.event_type === "tool_started",
+      "Revision run did not reach the slow provider step before pause",
+      30_000,
+    );
+
+    await page.getByRole("button", { name: /^暂停$/ }).click();
+    await waitForNewFrame(
+      beforeReviseFrameCount,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "agent_command" &&
+        frame.body?.run_id === revisionRunId &&
+        frame.body?.command === "pause",
+      "Revision pause command was not bound to its run_id",
+      30_000,
+    );
+
+    revisionPausedStateFrame = await waitForNewFrame(
+      beforeReviseFrameCount,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === revisionRunId &&
+        frame.body?.status === "paused" &&
+        frame.body?.trigger?.receipt_id === revisionReceiptId &&
+        frame.body?.current_activity?.kind === "revision_draft_generation",
+      "Revision run did not pause with its trigger/current_activity binding",
+      60_000,
+    );
+
+    await page.waitForFunction(
+      () => {
+        const bodyText = document.body.innerText;
+        const sendButton = Array.from(document.querySelectorAll("button")).find(
+          (button) => button.textContent?.trim() === "发送调整",
+        );
+        return (
+          bodyText.includes("1 个任务已暂停") &&
+          bodyText.includes("修订已暂停，继续后会从当前步骤恢复。") &&
+          bodyText.includes("已暂停 · 修订原稿") &&
+          !bodyText.includes("正在生成修订稿") &&
+          sendButton instanceof HTMLButtonElement &&
+          sendButton.disabled
+        );
+      },
+      undefined,
+      { timeout: 20_000 },
+    );
+    const pausedDialogueText = await page
+      .getByLabel("当前创作请求的工作过程")
+      .filter({ hasText: "修订已暂停" })
+      .innerText();
+    const pausedDockText = await page.getByRole("region", { name: "当前创作任务控制" }).innerText();
+    const pausedContinueBackground = await page
+      .getByRole("button", { name: /^继续$/ })
+      .evaluate((button) => window.getComputedStyle(button).backgroundColor);
+    pausedUiSemantics = {
+      viewport: page.viewportSize(),
+      document_scroll_width: await page.evaluate(() => document.documentElement.scrollWidth),
+      topbar_paused_task_visible: (await page.locator("body").innerText()).includes(
+        "1 个任务已暂停",
+      ),
+      paused_dialogue_text: pausedDialogueText,
+      paused_dialogue_has_running_copy: pausedDialogueText.includes("正在生成修订稿"),
+      paused_dialogue_has_structural_progress: /第 \d+\/\d+ 步/.test(pausedDialogueText),
+      paused_dock_text: pausedDockText,
+      empty_send_disabled: await page.getByRole("button", { name: "发送调整" }).isDisabled(),
+      continue_background: pausedContinueBackground,
+    };
+    assert(
+      pausedUiSemantics.viewport?.width === 1280 &&
+        pausedUiSemantics.viewport?.height === 800 &&
+        pausedUiSemantics.document_scroll_width <= 1280,
+      `Paused workbench did not fit the 1280x800 desktop baseline: ${JSON.stringify(pausedUiSemantics)}`,
+    );
+    assert(
+      !pausedUiSemantics.paused_dialogue_has_running_copy &&
+        !pausedUiSemantics.paused_dialogue_has_structural_progress &&
+        pausedUiSemantics.empty_send_disabled &&
+        ["rgb(0, 0, 0)", "rgb(21, 21, 21)", "rgb(47, 47, 47)"].includes(
+          pausedUiSemantics.continue_background,
+        ),
+      `Paused UI semantics remained contradictory or visually ambiguous: ${JSON.stringify(pausedUiSemantics)}`,
+    );
+
+    await page.screenshot({
+      path: path.join(artifactDir, `${sliceId}-paused.png`),
+      fullPage: true,
+    });
+
+    const reconnectFrameStart = frames.length;
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+      timeout: 60_000,
+    });
+
+    revisionReconnectedStateFrame = await waitForNewFrame(
+      reconnectFrameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === revisionRunId &&
+        frame.body?.status === "paused" &&
+        frame.body?.recovered === true &&
+        frame.body?.runtime_live === true &&
+        frame.body?.trigger?.receipt_id === revisionReceiptId,
+      "Refresh did not reconnect the same live bounded revision run",
+      60_000,
+    );
+
+    await page
+      .getByText("质量复核：1 项建议 · 修订任务已提交", { exact: true })
+      .waitFor({ timeout: 20_000 });
+    assert(
+      (await page
+        .getByLabel("当前创作请求的工作过程")
+        .filter({ hasText: "修订已暂停" })
+        .count()) === 1,
+      "Refresh duplicated or detached the revision assistant work turn",
+    );
+    assert(
+      (await page.getByRole("region", { name: "当前创作任务控制" }).count()) === 1,
+      "Refresh duplicated or lost the revision control dock",
+    );
+
+    await page.getByRole("button", { name: /^继续$/ }).click();
+    revisionResumeCommandFrame = await waitForNewFrame(
+      reconnectFrameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "agent_command" &&
+        frame.body?.run_id === revisionRunId &&
+        frame.body?.command === "resume",
+      "Revision resume command was not bound to the reconnected run_id",
+      30_000,
+    );
+  }
 
   // CP3b 尾批：修订四步序列机械恒定，付费伪计划已消灭——不发 plan_drafted；
   // 事后以帧计数断言其不存在（见 revision 完成后）。
@@ -16781,6 +17902,67 @@ async function driveP1ProseRevisionCandidate(page) {
   await page.waitForFunction(() => document.body.innerText.includes("修订草稿"), undefined, {
     timeout: 10_000,
   });
+  if (verifyActionRunAnchoring) {
+    const saveOriginalButton = page.getByRole("button", { name: "保存原稿" });
+    const saveRevisionButton = page.getByRole("button", { name: "保存修订稿" });
+    const saveOriginalCount = await saveOriginalButton.count();
+    const saveRevisionCount = await saveRevisionButton.count();
+    const visibleButtonLabels = (await page.getByRole("button").allTextContents())
+      .map((label) => label.trim())
+      .filter(Boolean)
+      .join(" | ");
+    assert(
+      saveOriginalCount === 1,
+      `Completed comparison did not keep exactly one independently actionable original draft (original=${saveOriginalCount}, revision=${saveRevisionCount}, buttons=${visibleButtonLabels})`,
+    );
+    assert(
+      saveRevisionCount === 1,
+      `Completed comparison did not expose exactly one independently actionable revision draft (original=${saveOriginalCount}, revision=${saveRevisionCount}, buttons=${visibleButtonLabels})`,
+    );
+    // 长正文会让两组动作落在滚动容器的不同位置；像作者一样分别滚动确认，
+    // 不要求两个按钮同时出现在当前 viewport。
+    await saveOriginalButton.scrollIntoViewIfNeeded();
+    await saveOriginalButton.waitFor({ state: "visible", timeout: 10_000 });
+    await saveRevisionButton.scrollIntoViewIfNeeded();
+    await saveRevisionButton.waitFor({ state: "visible", timeout: 10_000 });
+    const originalGroupVisible = await page.getByText("原稿候选", { exact: true }).isVisible();
+    const revisionGroupVisible = await page.getByText("修订稿候选", { exact: true }).isVisible();
+    const saveOriginalBackground = await saveOriginalButton.evaluate(
+      (button) => window.getComputedStyle(button).backgroundColor,
+    );
+    const discardOriginalButton = page.getByRole("button", { name: "放弃原稿" });
+    await discardOriginalButton.scrollIntoViewIfNeeded();
+    const discardOriginalColor = await discardOriginalButton.evaluate(
+      (button) => window.getComputedStyle(button).color,
+    );
+    const beforeDiscardConfirmFrameCount = frames.length;
+    await discardOriginalButton.click();
+    await page
+      .getByRole("dialog", { name: "放弃这份候选？" })
+      .waitFor({ state: "visible", timeout: 10_000 });
+    await page.getByRole("button", { name: "取消" }).last().click();
+    completedActionSemantics = {
+      original_group_visible: originalGroupVisible,
+      revision_group_visible: revisionGroupVisible,
+      save_original_background: saveOriginalBackground,
+      discard_original_color: discardOriginalColor,
+      discard_requires_confirmation: true,
+      discard_cancel_sent_author_action: frames
+        .slice(beforeDiscardConfirmFrameCount)
+        .some((frame) => frame.direction === "sent" && frame.event === "author_action"),
+    };
+    assert(
+      originalGroupVisible &&
+        revisionGroupVisible &&
+        ["rgb(0, 0, 0)", "rgb(21, 21, 21)", "rgb(47, 47, 47)"].includes(saveOriginalBackground) &&
+        !completedActionSemantics.discard_cancel_sent_author_action,
+      `Candidate action hierarchy or discard confirmation drifted: ${JSON.stringify(completedActionSemantics)}`,
+    );
+    assert(
+      (await page.getByRole("region", { name: "当前创作任务控制" }).count()) === 0,
+      "Completed revision run left a stale fixed control dock",
+    );
+  }
 
   const visibleText = await page.locator("body").innerText();
   const sentMessage = latestSentUserMessage();
@@ -16813,8 +17995,33 @@ async function driveP1ProseRevisionCandidate(page) {
       revise_action_clicked: true,
       revise_action_sent: true,
       revision_run_id: revisionRunId,
+      revision_receipt_id: revisionReceiptId,
       revision_run_mode: revisionAckFrame.body.response.run_mode,
       revision_profile_ref: revisionCompletedStateFrame.body.profile_ref,
+      revision_trigger_source_turn_ref:
+        revisionAckFrame.body.response.trigger?.source_turn_ref ?? null,
+      revision_trigger_source_surface_ref:
+        revisionAckFrame.body.response.trigger?.source_surface_ref ?? null,
+      revision_trigger_target_artifact_ref:
+        revisionAckFrame.body.response.trigger?.target_artifact_ref ?? null,
+      revision_trigger_finding_refs:
+        revisionAckFrame.body.response.trigger?.quality_finding_refs ?? [],
+      revision_second_user_message_sent: frames
+        .slice(beforeReviseFrameCount)
+        .some((frame) => frame.direction === "sent" && frame.event === "user_message"),
+      revision_paused_same_run:
+        revisionPausedStateFrame?.body?.run_id === revisionRunId &&
+        revisionPausedStateFrame?.body?.status === "paused",
+      revision_reconnected_same_live_run:
+        revisionReconnectedStateFrame?.body?.run_id === revisionRunId &&
+        revisionReconnectedStateFrame?.body?.recovered === true &&
+        revisionReconnectedStateFrame?.body?.runtime_live === true,
+      revision_resumed_same_run: revisionResumeCommandFrame?.body?.run_id === revisionRunId,
+      paused_ui_semantics: pausedUiSemantics,
+      completed_action_semantics: completedActionSemantics,
+      completed_ui_has_running_copy: visibleText.includes("正在生成修订稿"),
+      revision_completed_provider_calls:
+        revisionCompletedStateFrame.body.consumed_budget?.provider_calls,
       revision_parent_fast_ack_before_final_turn_result:
         revisionAckIndex >= 0 && revisionTurnIndex > revisionAckIndex,
       revision_plan_drafted_event_count: frames
@@ -16875,7 +18082,8 @@ async function driveP1ProseRevisionCandidate(page) {
         revisionTurnResult.trace_summary?.replay_policy?.use_recorded_frame,
       revision_card_visible: visibleText.includes("修订草稿"),
       quality_review_card_visible:
-        visibleText.includes("质量复核") && visibleText.includes("按这些问题重写"),
+        visibleText.includes("质量复核") &&
+        visibleText.includes(verifyActionRunAnchoring ? "修订任务已提交" : "按这些问题重写"),
       revision_body_differs: revisionBody !== originalBody,
       revision_pending: true,
       adopt_event_sent: frames.some(
@@ -16888,7 +18096,7 @@ async function driveP1ProseRevisionCandidate(page) {
 async function driveP1ProseQualityFindingRoundtrip(page) {
   const targetChapterTitle = "第02章：矿区追击战";
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     (targetTitle) =>
@@ -16984,7 +18192,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
 async function driveP1ProseQualityEvaluatorDegrade(page) {
   const targetChapterTitle = "第02章：评审降级章";
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     (targetTitle) =>
@@ -17076,7 +18284,7 @@ async function driveP1ProseQualityEvaluatorDegrade(page) {
 async function driveP1ProseQualityAdoptionBoundary(page) {
   const targetChapterTitle = "第02章：矿区追击战";
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
   await page.waitForFunction(
     (targetTitle) =>
@@ -17514,11 +18722,8 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       //（状态 chip + 计划 checklist），完成态以状态标签/顶栏无任务判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() =>
-          Boolean(document.querySelector('section[aria-label="推理"]')),
-        )),
-      ui_agent_completed_visible:
-        visibleText.includes("已完成") || visibleText.includes("无任务"),
+        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+      ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_artifact_event_visible:
         visibleText.includes("已生成待采纳候选") ||
         (visibleText.includes("角色设定草稿") && visibleText.includes("待保存设定草稿")),
@@ -17847,9 +19052,7 @@ async function driveAgentProseDraftingWithQuality(page) {
   const activityPurposes = (
     Array.isArray(activityResponse.body?.provider_runs) ? activityResponse.body.provider_runs : []
   ).map((run) => String(run?.purpose ?? ""));
-  const persistedProviderRunCount = Number(
-    activityResponse.body?.totals?.provider_run_count ?? 0,
-  );
+  const persistedProviderRunCount = Number(activityResponse.body?.totals?.provider_run_count ?? 0);
   assert(
     activityResponse.status === 200 &&
       persistedProviderRunCount ===
@@ -17935,11 +19138,8 @@ async function driveAgentProseDraftingWithQuality(page) {
       //（状态标签 + 计划 checklist）与持久化 ProviderRun 事实判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() =>
-          Boolean(document.querySelector('section[aria-label="推理"]')),
-        )),
-      ui_agent_completed_visible:
-        visibleText.includes("已完成") || visibleText.includes("无任务"),
+        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+      ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_prose_draft_visible: visibleText.includes("章节正文草稿"),
       ui_quality_review_visible: visibleText.includes("质量复核"),
       ui_revision_action_visible: visibleText.includes("按这些问题重写"),
@@ -18274,9 +19474,7 @@ async function driveAgentConversationTurn(page, options = {}) {
     ? activityResponse.body.provider_runs
     : [];
   const activityPurposes = activityProviderRuns.map((run) => String(run?.purpose ?? ""));
-  const persistedProviderRunCount = Number(
-    activityResponse.body?.totals?.provider_run_count ?? 0,
-  );
+  const persistedProviderRunCount = Number(activityResponse.body?.totals?.provider_run_count ?? 0);
   assert(
     activityResponse.status === 200 && persistedProviderRunCount === expectedProviderCalls,
     `Conversation persisted ProviderRun facts (${persistedProviderRunCount}) did not match the judgment call count (${expectedProviderCalls})`,
@@ -18370,8 +19568,7 @@ async function driveAgentConversationTurn(page, options = {}) {
       provider_final_output_projected: providerReasonCodes.includes("provider_final_output"),
       persisted_provider_run_count: persistedProviderRunCount,
       persisted_provider_purposes: activityPurposes,
-      persisted_provider_facts_matched_budget:
-        persistedProviderRunCount === expectedProviderCalls,
+      persisted_provider_facts_matched_budget: persistedProviderRunCount === expectedProviderCalls,
       ui_agentic_loop_reasoning_visible: agenticLoopSections.reasoning,
       ui_agentic_loop_result_visible:
         authorVisibleText.includes("已完成") || authorVisibleText.includes("无任务"),
@@ -18593,7 +19790,8 @@ async function driveAgentPlanNativeToolCallingProtocol(page) {
       native_tool_call_final_output_count: nativeToolFinalEvents.length,
       native_tool_call_names: nativeToolCallNames,
       native_tool_call_draft_projected: nativeToolCallNames.includes("agent_plan_draft"),
-      native_tool_call_continuation_projected: nativeToolCallNames.includes("continuation_decision"),
+      native_tool_call_continuation_projected:
+        nativeToolCallNames.includes("continuation_decision"),
       native_tool_call_arguments_leaked: nativeToolCallArgumentsLeaked,
       provider_progress_reason_codes: providerProgressEvents.flatMap(
         (frame) => frame.body?.reason_codes ?? [],
@@ -19024,9 +20222,9 @@ async function driveAgenticLoopProseDeviationReplan(page, config) {
       plain_input_sent_from_real_workbench: true,
       parent_fast_ack_before_terminal: frames.indexOf(ackFrame) < frames.indexOf(awaitingFrame),
       continuation_mode: mode,
-      judgment_continuation_observed: (terminalFrame.body?.reason_codes ?? []).includes(
-        "judgment_continuation",
-      ) || mode === "improve",
+      judgment_continuation_observed:
+        (terminalFrame.body?.reason_codes ?? []).includes("judgment_continuation") ||
+        mode === "improve",
       deviation_signal_observed: framesAfter.some(
         (frame) =>
           frame.direction === "received" &&
@@ -19324,9 +20522,9 @@ async function driveAgentProviderExecutionActivityRestored(page) {
   // 只含 author 可见事件；developer 级 provider 事实以 ProviderRun 事件序列持久化，
   // 从 provider_runs[].events 取证（started / completed 终态齐全才算恢复成功）。
   const queriedProviderRunEventTypes = (runsList) =>
-    runsList.flatMap((run) => (Array.isArray(run.events) ? run.events : [])).map((event) =>
-      String(event?.event_type ?? ""),
-    );
+    runsList
+      .flatMap((run) => (Array.isArray(run.events) ? run.events : []))
+      .map((event) => String(event?.event_type ?? ""));
   const queriedProviderRuns = Array.isArray(activityApiBody.provider_runs)
     ? activityApiBody.provider_runs
     : [];
@@ -19969,11 +21167,8 @@ async function driveAgentPlotOutlineWithContext(page) {
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() =>
-          Boolean(document.querySelector('section[aria-label="推理"]')),
-        )),
-      ui_agent_completed_visible:
-        visibleText.includes("已完成") || visibleText.includes("无任务"),
+        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+      ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_outline_draft_visible:
         visibleText.includes("章节大纲草稿") || visibleText.includes("大纲草稿"),
       ui_outline_adoption_actions_visible:
@@ -20253,8 +21448,7 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
   // 改以新三层 UI（状态标签 + 采纳卡 + 采纳动作）判定，口径不弱化。
   await page.waitForFunction(
     (draftLabel) =>
-      (document.body.innerText.includes("已完成") ||
-        document.body.innerText.includes("无任务")) &&
+      (document.body.innerText.includes("已完成") || document.body.innerText.includes("无任务")) &&
       (document.body.innerText.includes("世界设定草稿") ||
         document.body.innerText.includes(draftLabel)) &&
       document.body.innerText.includes("保存到作品档案"),
@@ -20348,11 +21542,8 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() =>
-          Boolean(document.querySelector('section[aria-label="推理"]')),
-        )),
-      ui_agent_completed_visible:
-        visibleText.includes("已完成") || visibleText.includes("无任务"),
+        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+      ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_world_building_draft_visible:
         visibleText.includes("世界设定草稿") || visibleText.includes(expectedDraftLabel),
       ui_profile_selection_visible:
@@ -20403,7 +21594,8 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
 async function driveJudgmentPlanMultiStep(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
-  const message = "把前两章的伏笔梳理一遍，按梳理结果调整章节大纲，再重写第02章结尾，并更新相关角色档案。";
+  const message =
+    "把前两章的伏笔梳理一遍，按梳理结果调整章节大纲，再重写第02章结尾，并更新相关角色档案。";
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await installReasoningStreamObserver(page);
@@ -20471,9 +21663,13 @@ async function driveJudgmentPlanMultiStep(page) {
   const distinctActTargets = [
     ...new Set(
       planTargets.filter((target) =>
-        ["character_design", "character_evolution", "plot_outline", "world_building", "prose_writing"].includes(
-          target,
-        ),
+        [
+          "character_design",
+          "character_evolution",
+          "plot_outline",
+          "world_building",
+          "prose_writing",
+        ].includes(target),
       ),
     ),
   ];
@@ -20548,9 +21744,9 @@ async function driveJudgmentPlanMultiStep(page) {
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
       consumed_replans: completedStateFrame.body.consumed_budget?.replans,
       final_turn_result_arrived: Boolean(lastTurnResultFrame),
-      final_pending_in_turn_result:
-        lastTurnResultFrame?.body?.adoption_state?.pending?.length ?? 0,
-      plan_steps_visible_in_ui: visibleText.includes("调整章节大纲") || visibleText.includes("计划"),
+      final_pending_in_turn_result: lastTurnResultFrame?.body?.adoption_state?.pending?.length ?? 0,
+      plan_steps_visible_in_ui:
+        visibleText.includes("调整章节大纲") || visibleText.includes("计划"),
       work_id: sentFrame.body?.work_id,
       session_id: sentFrame.body?.session_id,
     },
@@ -20918,11 +22114,8 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
       ui_agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() =>
-          Boolean(document.querySelector('section[aria-label="推理"]')),
-        )),
-      ui_agent_completed_visible:
-        visibleText.includes("已完成") || visibleText.includes("无任务"),
+        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
+      ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_character_evolution_draft_visible: visibleText.includes("角色演化记忆草稿"),
       ui_execution_brief_path_visible:
         visibleText.includes("本轮路径：") &&
@@ -21331,8 +22524,7 @@ async function driveAgentProviderCancelHonestBoundary(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
   const frameStart = frames.length;
-  const requestText =
-    "请展示 provider 进度和取消边界：UA01CP6SLOW，保持较长 provider 调用以便我点击取消。";
+  const requestText = "请写下一章正文草稿：UA01CP6SLOW，保持较长模型调用以便我点击终止任务。";
 
   await page.locator(chatInputSelector).fill(requestText);
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -21367,24 +22559,41 @@ async function driveAgentProviderCancelHonestBoundary(page) {
       frame.direction === "received" &&
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
-      frame.body?.profile_ref === "provider_progress_v1",
-    "Provider cancel AgentRun did not transition to provider_progress_v1",
+      frame.body?.profile_ref === "prose_drafting_with_quality_v1" &&
+      frame.body?.current_task === true,
+    "Provider cancel AgentRun did not transition to the author-reachable prose provider flow",
     30_000,
   );
 
-  await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "provider_progress" &&
-      (frame.body?.reason_codes ?? []).includes("provider_call_started"),
-    "Provider cancel scenario did not enter provider progress step",
-    20_000,
+  const taskWorkspace = page.getByRole("group", { name: "当前创作任务工作区" });
+  await taskWorkspace.waitFor({ timeout: 10_000 });
+  const taskWorkspaceBox = await taskWorkspace.boundingBox();
+  assert(
+    taskWorkspaceBox && taskWorkspaceBox.width <= 882,
+    "Integrated AgentRun workspace exceeded the shared 880px conversation rail",
   );
-
-  await page.getByRole("button", { name: /^取消$/ }).click();
+  const terminateButton = page.getByRole("button", { name: /^终止任务$/ });
+  await terminateButton.waitFor({ timeout: 10_000 });
+  const terminateButtonBefore = await terminateButton.boundingBox();
+  await page.waitForTimeout(400);
+  const terminateButtonAfter = await terminateButton.boundingBox();
+  assert(
+    terminateButtonBefore &&
+      terminateButtonAfter &&
+      Math.abs(terminateButtonBefore.x - terminateButtonAfter.x) <= 1,
+    "Fixed AgentRun terminate control moved while provider text was streaming",
+  );
+  const inlineTranscriptActionCount = await page
+    .locator('[aria-label="当前创作请求的工作过程"] button')
+    .count();
+  assert(
+    inlineTranscriptActionCount === 0,
+    "Provider cancel transcript still contains actionable controls",
+  );
+  await terminateButton.click();
+  const terminateConfirmButton = page.getByRole("button", { name: /^确认终止$/ });
+  await terminateConfirmButton.waitFor({ timeout: 10_000 });
+  await terminateConfirmButton.click();
 
   const commandFrame = await waitForNewFrame(
     frameStart,
@@ -21421,7 +22630,7 @@ async function driveAgentProviderCancelHonestBoundary(page) {
     20_000,
   );
 
-  await page.waitForFunction(() => document.body.innerText.includes("正在取消"), {
+  await page.waitForFunction(() => document.body.innerText.includes("正在终止"), {
     timeout: 20_000,
   });
 
@@ -21474,7 +22683,15 @@ async function driveAgentProviderCancelHonestBoundary(page) {
       terminal_event_type: cancelledEventFrame.body?.event_type,
       terminal_status: cancelledStateFrame.body?.status,
       provider_execution_cancel_visible:
-        visibleText.includes("正在取消") || visibleText.includes("已取消"),
+        visibleText.includes("正在终止") || visibleText.includes("已终止"),
+      fixed_control_dock_visible_before_command: true,
+      task_workspace_width: taskWorkspaceBox?.width ?? null,
+      fixed_control_x_delta:
+        terminateButtonBefore && terminateButtonAfter
+          ? Math.abs(terminateButtonBefore.x - terminateButtonAfter.x)
+          : null,
+      inline_transcript_action_count: inlineTranscriptActionCount,
+      termination_confirmation_visible: true,
       user_message_text: sentFrame.body?.text,
     },
   ];
@@ -21879,16 +23096,14 @@ async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
       // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
       agent_panel_visible:
         visibleText.includes("创作执行") &&
-        (await page.evaluate(() =>
-          Boolean(document.querySelector('section[aria-label="推理"]')),
-        )),
+        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
       agent_completed_status_visible:
         visibleText.includes("已完成") || visibleText.includes("无任务"),
       roster_activity_visible: visibleText.includes("已读取当前角色阵容"),
       artifact_activity_visible: visibleText.includes("已生成待采纳候选"),
       save_archive_action_visible: visibleText.includes("保存到作品档案"),
       pause_control_visible: visibleText.includes("暂停"),
-      cancel_control_visible: visibleText.includes("取消"),
+      cancel_control_visible: visibleText.includes("终止任务"),
       adopt_event_sent: frames.some(
         (frame) => frame.direction === "sent" && frame.event === "adopt",
       ),
@@ -21987,8 +23202,55 @@ async function driveUa01AgentInterruptCommand(page, command) {
     30_000,
   );
 
-  const buttonName = command === "pause" ? /^暂停$/ : /^取消$/;
-  await page.getByRole("button", { name: buttonName }).click();
+  const controlDock = page.getByRole("region", { name: "当前创作任务控制" });
+  await controlDock.waitFor({ timeout: 10_000 });
+  const taskWorkspace = page.getByRole("group", { name: "当前创作任务工作区" });
+  await taskWorkspace.waitFor({ timeout: 10_000 });
+  const taskWorkspaceBox = await taskWorkspace.boundingBox();
+  assert(
+    taskWorkspaceBox && taskWorkspaceBox.width <= 882,
+    "Integrated AgentRun workspace exceeded the shared 880px conversation rail",
+  );
+  const primaryAction = page.getByRole("button", {
+    name: command === "pause" ? /^暂停$/ : /^终止任务$/,
+  });
+  const pauseActionCountBefore = await page.getByRole("button", { name: /^暂停$/ }).count();
+  const resumeActionCountBefore = await page.getByRole("button", { name: /^继续$/ }).count();
+  if (command === "pause") {
+    assert(
+      pauseActionCountBefore === 1 && resumeActionCountBefore === 0,
+      "Fixed AgentRun dock did not expose exactly one pause action before the pause command",
+    );
+  }
+  const primaryActionBefore = await primaryAction.boundingBox();
+  await page.waitForTimeout(400);
+  const primaryActionAfter = await primaryAction.boundingBox();
+  assert(
+    primaryActionBefore &&
+      primaryActionAfter &&
+      Math.abs(primaryActionBefore.x - primaryActionAfter.x) <= 1,
+    `Fixed AgentRun ${command} control moved while the transcript was updating`,
+  );
+  assert(
+    (await page.locator('[aria-label="当前创作请求的工作过程"] button').count()) === 0,
+    "AgentRun transcript still contains actionable controls",
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, `${sliceId}-control-dock-active.png`),
+    fullPage: true,
+  });
+  await primaryAction.click();
+  let terminationConfirmationVisible = false;
+  if (command === "cancel") {
+    const terminateConfirmButton = page.getByRole("button", { name: /^确认终止$/ });
+    await terminateConfirmButton.waitFor({ timeout: 10_000 });
+    terminationConfirmationVisible = true;
+    await page.screenshot({
+      path: path.join(artifactDir, `${sliceId}-termination-confirmation.png`),
+      fullPage: true,
+    });
+    await terminateConfirmButton.click();
+  }
 
   const commandFrame = await waitForNewFrame(
     frameStart,
@@ -22028,7 +23290,8 @@ async function driveUa01AgentInterruptCommand(page, command) {
 
   const terminalStatus = command === "pause" ? "paused" : "cancelled";
   const terminalEventType = command === "pause" ? "run_paused" : "run_cancelled";
-  const terminalSummary = command === "pause" ? "已暂停" : "已取消";
+  const terminalEventSummary = command === "pause" ? "已暂停" : "已取消";
+  const terminalVisibleSummary = command === "pause" ? "已暂停" : "已终止";
 
   const terminalEvent = await waitForNewFrame(
     frameStart,
@@ -22037,7 +23300,7 @@ async function driveUa01AgentInterruptCommand(page, command) {
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === terminalEventType &&
-      String(frame.body?.summary ?? "").includes(terminalSummary),
+      String(frame.body?.summary ?? "").includes(terminalEventSummary),
     `UA-01 ${command} did not reach terminal interrupt state`,
     60_000,
   );
@@ -22052,6 +23315,13 @@ async function driveUa01AgentInterruptCommand(page, command) {
     `UA-01 ${command} did not broadcast ${terminalStatus} run state`,
     60_000,
   );
+
+  const resumeActionCount =
+    command === "pause" ? await page.getByRole("button", { name: /^继续$/ }).count() : 0;
+  const pauseActionCount = await page.getByRole("button", { name: /^暂停$/ }).count();
+  const dockCountAfterTerminal = await page
+    .getByRole("region", { name: "当前创作任务控制" })
+    .count();
 
   const visibleText = await page.locator("body").innerText();
   const logsAfter = readAppLogRecords().slice(logStart);
@@ -22093,8 +23363,21 @@ async function driveUa01AgentInterruptCommand(page, command) {
       provider_execution_cancel_strategy: interruptEvent.body?.payload?.cancel_strategy,
       interrupt_status_visible:
         visibleText.includes("正在请求暂停") ||
-        visibleText.includes("正在取消") ||
-        visibleText.includes(terminalSummary),
+        visibleText.includes("正在终止") ||
+        visibleText.includes(terminalVisibleSummary),
+      fixed_control_dock_visible_before_command: true,
+      task_workspace_width: taskWorkspaceBox?.width ?? null,
+      fixed_control_x_delta:
+        primaryActionBefore && primaryActionAfter
+          ? Math.abs(primaryActionBefore.x - primaryActionAfter.x)
+          : null,
+      inline_transcript_action_count: 0,
+      termination_confirmation_visible: terminationConfirmationVisible,
+      pause_action_count_before_command: pauseActionCountBefore,
+      resume_action_count_before_command: resumeActionCountBefore,
+      pause_action_count_after_terminal: pauseActionCount,
+      resume_action_count_after_pause: resumeActionCount,
+      control_dock_count_after_terminal: dockCountAfterTerminal,
       no_cross_run_command: commandFrame.body?.run_id === runId,
       user_message_text: sentFrame.body?.text,
     },
@@ -22133,7 +23416,7 @@ async function driveAgentArchiveReadDuringRun(page) {
   );
   await waitForVisibleWorkTitle(page, seed.title);
 
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
   let archivePanel = await waitForArchivePanel(page);
   await archivePanel.getByText(seed.genre).first().waitFor({ timeout: 15_000 });
@@ -22184,7 +23467,7 @@ async function driveAgentArchiveReadDuringRun(page) {
   );
 
   const archiveOpenFrameCount = frames.length;
-  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "概览" }).click();
   archivePanel = await waitForArchivePanel(page);
   const duringSnapshot = await archivePanelSnapshot(archivePanel);
@@ -22501,7 +23784,7 @@ async function driveAgentSteerReplan(page, options = {}) {
       "UA-01 steer scenario did not expose the active-run main input steering placeholder",
     );
     await page.locator(agentRunSteerInputSelector).fill(steerText);
-    await page.getByRole("button", { name: /^发送$/ }).click();
+    await page.getByRole("button", { name: /^发送调整$/ }).click();
   } else {
     await page.getByLabel("调整方向").fill(steerText);
     await page.getByRole("button", { name: /^调整方向$/ }).click();
@@ -23081,6 +24364,7 @@ const drivers = {
   "agent-no-progress-stop": driveAgentNoProgressStop,
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,
   "p1-prose-revision-candidate": driveP1ProseRevisionCandidate,
+  "quality-revision-action-run-anchoring": driveP1ProseRevisionCandidate,
   "agent-revision-orchestrator-boundary": driveP1ProseRevisionCandidate,
   "agent-replay-no-provider": driveP1ProseRevisionCandidate,
   "p1-prose-quality-finding-roundtrip": driveP1ProseQualityFindingRoundtrip,
@@ -23102,6 +24386,7 @@ const drivers = {
   "su02-work-restart-recovery": driveSu02WorkRestartRecovery,
   "su03-assistant-display-name": driveSu03AssistantDisplayName,
   "au01-ordinary-chat-two-turn-roundtrip": driveAu01OrdinaryChatTwoTurnRoundtrip,
+  "gap-wt04-non-exploration-frame-badges": driveGapWt04NonExplorationFrameBadges,
   "au01-empty-message-guard": driveAu01EmptyMessageGuard,
   "au01-garbage-json-recovery": driveAu01GarbageJsonRecovery,
   "au01-frame-validation-friendly-error": driveAu01FrameValidationFriendlyError,
@@ -23147,6 +24432,8 @@ const drivers = {
   "au13-arc-ledger-roundtrip": driveAu13ArcLedgerRoundtrip,
   "au13-review-adjudication-roundtrip": driveAu13ReviewAdjudicationRoundtrip,
   "au13-revise-prose-sibling": driveAu13ReviseProseSibling,
+  "au14-fact-inventory-roundtrip": driveAu14FactInventoryRoundtrip,
+  "au14-finding-inventory-arc-loop": driveAu14FindingInventoryArcLoop,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,
   "au08-reading-readonly-no-write": driveAu08ReadingReadonlyNoWrite,

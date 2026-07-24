@@ -68,6 +68,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("e2e-01-replay-report");
     expect(nativeSliceIds).toContain("e2e-01-channel-action-security");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
+    expect(nativeSliceIds).toContain("gap-wt04-non-exploration-frame-badges");
     expect(nativeSliceIds).toContain("au01-empty-message-guard");
     expect(nativeSliceIds).toContain("au01-garbage-json-recovery");
     expect(nativeSliceIds).toContain("au01-frame-validation-friendly-error");
@@ -106,10 +107,209 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au04-history-confirmation-readonly");
     expect(nativeSliceIds).toContain("au04-cross-work-confirmation-guard");
     expect(nativeSliceIds).toContain("au04-latest-context-rebase-confirmation");
+    expect(nativeSliceIds).toContain("au14-fact-inventory-roundtrip");
+    expect(nativeSliceIds).toContain("au14-finding-inventory-arc-loop");
     expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
     expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
     expect(nativeSliceIds).toContain("vs00c-cp5-reader-effect-brief");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("requires selective adoption evidence for AU-14 fact inventory", () => {
+    const records = [
+      {
+        event: "channel.author_action.done",
+        action_type: "start_fact_inventory",
+        run_id: "run-au14",
+      },
+      {
+        event: "adoption.evaluate.done",
+        decision_type: "adopt_tentative",
+        outcome: "ok",
+      },
+      {
+        event: "adoption.evaluate.done",
+        decision_type: "adopt_tentative",
+        outcome: "ok",
+      },
+      {
+        event: "channel.get_characters.done",
+        character_count: 1,
+      },
+      {
+        event: "channel.get_rules.done",
+        rule_count: 1,
+      },
+      {
+        event: "channel.get_foreshadowing.done",
+        item_count: 0,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au14-fact-inventory-roundtrip",
+        profile_ref: "fact_inventory_v1",
+        run_id: "run-au14",
+        inventory_turn_id: "turn-inventory",
+        character_adoption_turn_id: "turn-character",
+        rule_adoption_turn_id: "turn-rule",
+        pending_count: 4,
+        pending_character_count: 2,
+        pending_rule_count: 1,
+        pending_foreshadow_count: 1,
+        available_action_count: 12,
+        proposed_without_write: true,
+        adopted_character_id: "as-character::shen",
+        adopted_rule_id: "as-rule",
+        unadopted_foreshadow_id: "as-foreshadow",
+        unadopted_items_remain_pending: true,
+        consumed_steps: 1,
+        consumed_tool_calls: 1,
+        consumed_provider_calls: 3,
+        archive_character_count: 1,
+        archive_rule_count: 1,
+        archive_foreshadowing_count: 0,
+        archive_character_visible: true,
+        archive_rule_visible: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au14-fact-inventory-roundtrip", records);
+    expect(evidence).toEqual({
+      slice_id: "au14-fact-inventory-roundtrip",
+      turn_id: "turn-inventory",
+      turn_ids: ["turn-inventory", "turn-character", "turn-rule"],
+      run_id: "run-au14",
+      profile_ref: "fact_inventory_v1",
+      adopted_character_id: "as-character::shen",
+      adopted_rule_id: "as-rule",
+      unadopted_foreshadow_id: "as-foreshadow",
+      key_events: keyEventsForSlice("au14-fact-inventory-roundtrip"),
+    });
+    expect(findSliceBehaviorEvidence("au14-fact-inventory-roundtrip", records, evidence)).toEqual({
+      slice_id: "au14-fact-inventory-roundtrip",
+      behavior: "archive_action_runs_fact_inventory_then_adopts_only_selected_existing_seed_items",
+      run_id: "run-au14",
+      profile_ref: "fact_inventory_v1",
+      assertions: [
+        "real_archive_action_started_fact_inventory_agent_run",
+        "accepted_material_produced_existing_character_rule_foreshadow_seed_families",
+        "proposal_created_four_independent_pending_units_without_write",
+        "author_adopted_one_character_and_one_rule_through_existing_boundary",
+        "unadopted_character_and_foreshadowing_remained_pending",
+        "archive_projections_contained_only_adopted_items",
+      ],
+    });
+
+    const leakedForeshadowRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, archive_foreshadowing_count: 1 }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("au14-fact-inventory-roundtrip", leakedForeshadowRecords),
+    ).toBeNull();
+  });
+
+  it("requires a bound protagonist finding, protagonist adoption, and next-prose arc update", () => {
+    const records = [
+      {
+        event: "ledger.report.done",
+        report_id: "report-au14-a1",
+        finding_count: 1,
+        rules: { protagonist_undermaterialized: 1 },
+      },
+      {
+        event: "ledger.adjudicate.done",
+        report_id: "report-au14-a1",
+        rule: "protagonist_undermaterialized",
+        disposition: "revise_design",
+        report_status: "ACCEPTED",
+      },
+      {
+        event: "channel.author_action.done",
+        action_type: "start_fact_inventory",
+        run_id: "run-au14-a1",
+        trigger_type: "finding",
+        trigger_report_id: "report-au14-a1",
+        trigger_finding_index: 0,
+        trigger_rule: "protagonist_undermaterialized",
+      },
+      {
+        event: "adoption.evaluate.done",
+        decision_type: "adopt_tentative",
+        outcome: "ok",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-prose",
+      },
+      {
+        event: "adoption.evaluate.done",
+        decision_type: "adopt_tentative",
+        outcome: "ok",
+      },
+      {
+        event: "ledger.update.done",
+        ledger: "arc",
+        sighted: 1,
+        roster: 1,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au14-finding-inventory-arc-loop",
+        review_report_id: "report-au14-a1",
+        review_finding_count: 1,
+        finding_rule: "protagonist_undermaterialized",
+        finding_action_label: "发起盘点",
+        finding_binding_sent: true,
+        finding_binding_logged: true,
+        finding_disposition_recorded: true,
+        report_resolved: true,
+        run_id: "run-au14-a1",
+        profile_ref: "fact_inventory_v1",
+        inventory_turn_id: "turn-inventory",
+        protagonist_adoption_turn_id: "turn-character",
+        prose_turn_id: "turn-prose",
+        prose_adoption_turn_id: "turn-prose-adopt",
+        protagonist_artifact_id: "as-character::shenyan",
+        protagonist_role: "PROTAGONIST",
+        protagonist_visible_as_role: true,
+        inventory_proposed_without_write: true,
+        next_prose_contains_protagonist: true,
+        arc_ledger_sighted: 1,
+        arc_ledger_visible: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au14-finding-inventory-arc-loop", records);
+    expect(evidence).toEqual({
+      slice_id: "au14-finding-inventory-arc-loop",
+      turn_id: "turn-prose-adopt",
+      turn_ids: ["turn-inventory", "turn-character", "turn-prose", "turn-prose-adopt"],
+      run_id: "run-au14-a1",
+      profile_ref: "fact_inventory_v1",
+      review_report_id: "report-au14-a1",
+      protagonist_artifact_id: "as-character::shenyan",
+      key_events: keyEventsForSlice("au14-finding-inventory-arc-loop"),
+    });
+    expect(findSliceBehaviorEvidence("au14-finding-inventory-arc-loop", records, evidence)).toEqual(
+      {
+        slice_id: "au14-finding-inventory-arc-loop",
+        behavior:
+          "protagonist_debt_finding_starts_bound_inventory_then_next_prose_adoption_starts_arc_ledger",
+        run_id: "run-au14-a1",
+        profile_ref: "fact_inventory_v1",
+        assertions: [
+          "real_full_review_materialized_protagonist_undermaterialized_finding",
+          "finding_primary_action_bound_report_index_and_rule_to_fact_inventory",
+          "existing_revise_design_disposition_resolved_the_report",
+          "fact_inventory_proposed_protagonist_without_production_write",
+          "author_adopted_protagonist_through_existing_per_item_boundary",
+          "next_real_prose_draft_wove_the_adopted_protagonist",
+          "next_prose_adoption_started_the_protagonist_arc_ledger_without_history_backfill",
+        ],
+      },
+    );
   });
 
   it("requires the judgment chain for ordinary conversation turns (ADR-0025 CP1)", () => {
@@ -284,15 +484,17 @@ describe("native Tauri slice verifier", () => {
       judgment_explore_count: 1,
     });
 
-    expect(findSliceBehaviorEvidence("judgment-explore-internal", records, evidence)).toMatchObject({
-      behavior: "judgment_explores_adopted_prose_then_replies_with_cited_facts",
-      fact_term: "灵气账单",
-      assertions: expect.arrayContaining([
-        "judgment_decided_explore_before_reply_on_same_turn",
-        "exploration_ran_readonly_without_toolbox_dispatch",
-        "reply_cites_fact_term_and_source_chapter",
-      ]),
-    });
+    expect(findSliceBehaviorEvidence("judgment-explore-internal", records, evidence)).toMatchObject(
+      {
+        behavior: "judgment_explores_adopted_prose_then_replies_with_cited_facts",
+        fact_term: "灵气账单",
+        assertions: expect.arrayContaining([
+          "judgment_decided_explore_before_reply_on_same_turn",
+          "exploration_ran_readonly_without_toolbox_dispatch",
+          "reply_cites_fact_term_and_source_chapter",
+        ]),
+      },
+    );
 
     // 判断链缺 explore（只有 reply）→ 不算证据
     const noExplore = records.filter(
@@ -318,11 +520,17 @@ describe("native Tauri slice verifier", () => {
     // 探索 turn 出现 toolbox dispatch → behavior 不成立（只读检索不经 Toolbox）
     const withToolbox = [
       ...records,
-      { event: "toolbox.execute.done", turn_id: "turn-explore:agent:2", tool_name: "prose_writing" },
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-explore:agent:2",
+        tool_name: "prose_writing",
+      },
     ];
     const toolboxEvidence = findNativeSliceEvidence("judgment-explore-internal", withToolbox);
     expect(toolboxEvidence).not.toBeNull();
-    expect(findSliceBehaviorEvidence("judgment-explore-internal", withToolbox, toolboxEvidence)).toBeNull();
+    expect(
+      findSliceBehaviorEvidence("judgment-explore-internal", withToolbox, toolboxEvidence),
+    ).toBeNull();
   });
 
   it("requires judgment-loop direct reply evidence for the no-deviation scenario (ADR-0025 CP1)", () => {
@@ -398,7 +606,7 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("agentic-loop-no-deviation-direct", replanRecords)).toBeNull();
   });
 
-it("requires D6 plan revision evidence before completing an exhausted conversation plan", () => {
+  it("requires D6 plan revision evidence before completing an exhausted conversation plan", () => {
     // 判断纪元（迁移账⑤）：D6 短计划诱导于 prose 创作 profile。
     const records = [
       {
@@ -451,7 +659,7 @@ it("requires D6 plan revision evidence before completing an exhausted conversati
     ).toBeNull();
   });
 
-it("requires native tool-call telemetry for AgentPlan draft and revision", () => {
+  it("requires native tool-call telemetry for AgentPlan draft and revision", () => {
     // 判断纪元（迁移账⑤）：D6 prose 基座上验证 native tool call 协议遥测。
     const records = [
       {
@@ -2679,6 +2887,14 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       frame_badge_kind: "exploration",
       frame_badge_goal: "帮作者展开赛博修仙方向",
       candidate_panel_count: 1,
+      candidate_panel_width: 686.390625,
+      candidate_panel_aligned_to_assistant_rail: true,
+      candidate_panel_surface_defined: true,
+      candidate_card_boundary_visible: true,
+      candidate_actions_match_prototype: true,
+      candidate_panel_collapsed_after_continue: true,
+      candidate_panel_collapsed_after_reload: true,
+      candidate_panel_reexpanded: true,
       key_events: keyEventsForSlice("au02-candidate-continuation"),
     });
     expect(findSliceBehaviorEvidence("au02-candidate-continuation", records, evidence)).toEqual({
@@ -2690,6 +2906,9 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       assertions: [
         "candidate_ref_sent_from_real_workbench",
         "micro_plan_not_requested",
+        "source_candidate_panel_collapsed_after_accept",
+        "candidate_panel_collapse_restored_after_reload",
+        "restored_candidate_panel_remains_expandable",
         "no_adoption_or_projection_events",
         "assistant_messages_not_fallback",
         "deterministic_provider_judgment_called_per_turn",
@@ -5547,18 +5766,58 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         { snippet: "second assistant", index: 3, role: "assistant" },
       ],
       message_text_order_anchored: true,
-      agent_run_activity_indexes: [
-        { index: 1, role: "assistant", hasActivity: true },
-        { index: 3, role: "assistant", hasActivity: true },
-      ],
-      agent_run_activity_count: 2,
-      second_agent_run_activity_anchored: true,
+      agent_run_activity_indexes: [],
+      agent_run_activity_count: 0,
+      second_agent_run_activity_anchored: false,
       agent_run_activity_observed: true,
+      terminal_agent_run_activity_cleared: true,
       thinking_visible_after_reply: false,
       key_events: [
         "channel.user_message.start",
         "judgment.decided.done",
         "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("requires visible question-answer and meta-discussion frame badges", () => {
+    const records = gapWt04NonExplorationFrameRecords();
+
+    expect(findNativeSliceEvidence("gap-wt04-non-exploration-frame-badges", records)).toEqual({
+      slice_id: "gap-wt04-non-exploration-frame-badges",
+      turn_id: "turn-question",
+      turn_ids: ["turn-question", "turn-meta"],
+      question_turn_id: "turn-question",
+      meta_turn_id: "turn-meta",
+      question_frame_type: "question_answer",
+      meta_frame_type: "meta_discussion",
+      question_badge: {
+        label: "回答问题",
+        title: "回答问题：诊断章节爽感不足和胜利过轻",
+        background_color: "rgba(32, 118, 110, 0.08)",
+        border_color: "rgba(32, 118, 110, 0.35)",
+        color: "rgb(20, 83, 77)",
+        width: 64,
+        height: 24,
+        within_assistant_message: true,
+      },
+      meta_badge: {
+        label: "创作讨论",
+        title: "创作讨论：约定先讨论方案再决定是否生成的协作方式",
+        background_color: "rgba(97, 84, 170, 0.08)",
+        border_color: "rgba(97, 84, 170, 0.32)",
+        color: "rgb(71, 63, 145)",
+        width: 64,
+        height: 24,
+        within_assistant_message: true,
+      },
+      semantic_tones_distinct: true,
+      production_write_performed: false,
+      key_events: [
+        "channel.user_message.start",
+        "judgment.decided.done",
+        "channel.user_message.done",
+        "slice_verify.ui_state.done",
       ],
     });
   });
@@ -5577,10 +5836,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       thinking_visible_after_blank: false,
       recovery_message_visible: true,
       recovery_assistant_reply_visible: true,
-      key_events: [
-        "channel.user_message.start",
-        "channel.user_message.done",
-      ],
+      key_events: ["channel.user_message.start", "channel.user_message.done"],
     });
   });
 
@@ -5825,7 +6081,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
     expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toBeNull();
   });
 
-  it("rejects ordinary two-turn evidence when the second user turn has no AgentRun activity flow", () => {
+  it("rejects ordinary two-turn evidence when a completed AgentRun summary remains visible", () => {
     const records = ordinaryTwoTurnRecords().map((record) =>
       record.event === "slice_verify.ui_state.done"
         ? {
@@ -5833,6 +6089,7 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
             agent_run_activity_indexes: [{ index: 1, role: "assistant", hasActivity: true }],
             agent_run_activity_count: 1,
             second_agent_run_activity_anchored: false,
+            terminal_agent_run_activity_cleared: false,
           }
         : record,
     );
@@ -7150,8 +7407,8 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
       assertions: [
         "two_user_turns_completed",
         "real_workbench_rendered_two_user_and_two_assistant_turns_in_order",
-        "agent_run_activity_appeared_and_legacy_thinking_cleared",
-        "agent_run_activity_anchored_per_turn",
+        "agent_run_activity_appeared_during_each_turn_and_legacy_thinking_cleared",
+        "trivial_completed_agent_run_summaries_cleared_after_reply",
         "micro_plan_not_requested",
         "no_action_candidate_or_adoption_cards_rendered",
         "no_error_events",
@@ -7170,6 +7427,37 @@ it("requires native tool-call telemetry for AgentPlan draft and revision", () =>
         provider: "slice_verify",
       })?.assertions,
     ).toContain("deterministic_provider_judgment_called_per_turn");
+  });
+
+  it("accepts non-exploration frame behavior without action or write semantics", () => {
+    const records = gapWt04NonExplorationFrameRecords();
+    const evidence = findNativeSliceEvidence(
+      "gap-wt04-non-exploration-frame-badges",
+      records,
+    );
+
+    expect(
+      findSliceBehaviorEvidence(
+        "gap-wt04-non-exploration-frame-badges",
+        records,
+        evidence,
+        { provider: "slice_verify" },
+      ),
+    ).toEqual({
+      slice_id: "gap-wt04-non-exploration-frame-badges",
+      behavior: "non_exploration_frames_are_visibly_distinct_without_execution",
+      turn_ids: ["turn-question", "turn-meta"],
+      assertions: [
+        "question_answer_frame_rendered_as_answer_badge",
+        "meta_discussion_frame_rendered_as_discussion_badge",
+        "semantic_badge_tones_are_distinct",
+        "badges_remain_inside_assistant_messages",
+        "micro_plan_not_requested",
+        "no_action_candidate_adoption_or_production_write",
+        "assistant_messages_not_fallback",
+        "deterministic_provider_judgment_called_per_turn",
+      ],
+    });
   });
 
   it("accepts AU-05 behavior only when adoption boundary persisted a mutation", () => {
@@ -7919,18 +8207,96 @@ function ordinaryTwoTurnRecords() {
         { snippet: "second assistant", index: 3, role: "assistant" },
       ],
       message_text_order_anchored: true,
-      agent_run_activity_indexes: [
-        { index: 1, role: "assistant", hasActivity: true },
-        { index: 3, role: "assistant", hasActivity: true },
-      ],
-      agent_run_activity_count: 2,
-      second_agent_run_activity_anchored: true,
+      agent_run_activity_indexes: [],
+      agent_run_activity_count: 0,
+      second_agent_run_activity_anchored: false,
       agent_run_activity_observed: true,
+      terminal_agent_run_activity_cleared: true,
       thinking_visible_after_reply: false,
       available_action_count: 0,
       card_action_count: 0,
       candidate_panel_count: 0,
       adoption_decision_card_count: 0,
+    },
+  ];
+}
+
+function gapWt04NonExplorationFrameRecords() {
+  const records = [
+    ["turn-question", "question_answer"],
+    ["turn-meta", "meta_discussion"],
+  ].flatMap(([turnId, frameType]) => [
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 32,
+      generate_micro_plan: false,
+    },
+    {
+      event: "judgment.decided.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+      frame_type: frameType,
+      candidate_count: 0,
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 14,
+      outcome: "ok",
+    },
+  ]);
+
+  return [
+    ...records,
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: "turn-meta",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "gap-wt04-non-exploration-frame-badges",
+      ui_turn_ids: ["turn-question", "turn-meta"],
+      question_frame_type: "question_answer",
+      meta_frame_type: "meta_discussion",
+      question_badge: {
+        label: "回答问题",
+        title: "回答问题：诊断章节爽感不足和胜利过轻",
+        background_color: "rgba(32, 118, 110, 0.08)",
+        border_color: "rgba(32, 118, 110, 0.35)",
+        color: "rgb(20, 83, 77)",
+        width: 64,
+        height: 24,
+        within_assistant_message: true,
+      },
+      meta_badge: {
+        label: "创作讨论",
+        title: "创作讨论：约定先讨论方案再决定是否生成的协作方式",
+        background_color: "rgba(97, 84, 170, 0.08)",
+        border_color: "rgba(97, 84, 170, 0.32)",
+        color: "rgb(71, 63, 145)",
+        width: 64,
+        height: 24,
+        within_assistant_message: true,
+      },
+      semantic_tones_distinct: true,
+      question_answer_visible: true,
+      meta_discussion_visible: true,
+      available_action_count: 0,
+      candidate_panel_count: 0,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      production_write_performed: false,
     },
   ];
 }
@@ -8178,7 +8544,7 @@ function turnresultRecorderUiConsistencyRecords() {
       text_len: 30,
       generate_micro_plan: false,
     },
-      {
+    {
       event: "judgment.decided.done",
       turn_id: "turn-recorder",
       workspace_id: "work-chat",
@@ -9382,6 +9748,14 @@ function au02CandidateContinuationRecords(sourceTurnId, followTurnId) {
       frame_badge_kind: "exploration",
       frame_badge_goal: "帮作者展开赛博修仙方向",
       candidate_panel_count: 1,
+      candidate_panel_width: 686.390625,
+      candidate_panel_aligned_to_assistant_rail: true,
+      candidate_panel_surface_defined: true,
+      candidate_card_boundary_visible: true,
+      candidate_actions_match_prototype: true,
+      candidate_panel_collapsed_after_continue: true,
+      candidate_panel_collapsed_after_reload: true,
+      candidate_panel_reexpanded: true,
     },
     {
       event: "channel.user_message.start",

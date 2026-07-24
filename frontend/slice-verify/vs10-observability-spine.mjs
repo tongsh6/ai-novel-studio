@@ -118,7 +118,7 @@ try {
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await page.getByText("已连接", { exact: false }).first().waitFor({ timeout: 30_000 });
 
-  await page.getByText("打开档案", { exact: false }).click();
+  await page.getByRole("button", { name: "打开档案" }).click();
   await page.getByRole("tab", { name: "伏笔" }).click();
   await page.getByRole("button", { name: "发起伏笔调整" }).click();
 

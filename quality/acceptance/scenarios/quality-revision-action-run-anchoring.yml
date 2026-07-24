@@ -1,0 +1,69 @@
+id: quality-revision-action-run-anchoring
+title: 质量修订动作回执、工作回合与运行控制绑定
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh quality-revision-action-run-anchoring --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - author-action-idempotency
+  - source-bound-agent-run
+  - one-run-one-assistant-work-turn
+  - tentative-artifact-not-production
+  - revision-and-original-adopt-independently
+
+setup:
+  seed: scripts/seed_quality_revision_action_run_anchoring.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline (大纲与结构)
+  - click: 生成正文草稿 for the action chapter
+  - click: 按这些问题重写
+  - verify: stable action receipt, one source-bound assistant work turn, one fixed run dock
+  - click: 暂停 while the revision provider is active
+  - refresh: real Tauri page while the bounded run is paused
+  - click: 继续 on the reconnected same run
+  - verify: original and revision candidates expose independent actions
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/quality-revision-action-run-anchoring-tauri
+
+assertions:
+  ui:
+    - quality card transitions from short submitting state to a compact 修订任务已提交 summary
+    - exactly one 来源：质量复核 · 原稿保留 receipt is visible
+    - exactly one 修订原稿 assistant work turn is visible
+    - exactly one 当前创作任务控制 dock is visible while active and none after completion
+    - paused state at 1280x800 shows 1 个任务已暂停, no running copy or motion, disabled empty send, and primary 继续
+    - refreshed paused state exposes 继续 for the same run
+    - completed revision history no longer displays 正在生成修订稿
+    - completed comparison exposes independent 原稿候选 and 修订稿候选 action groups
+    - 放弃原稿 opens a confirmation dialog and cancelling it sends no author_action
+  network:
+    - revise_from_findings emits author_action and no second user_message
+    - ack receipt_id/run_id/source_turn_ref/source_surface_ref/target_artifact_ref match trigger
+    - pause and resume commands target the acknowledged run_id
+    - refresh receives agent_run_state for the same run_id with recovered=true/runtime_live=true
+    - final TurnResult and completed state retain the same run_id with one provider call
+  data:
+    - author_action receipt is persisted and duplicate-safe
+    - AgentRun trigger is persisted with source and finding refs
+    - original and revision remain separate tentative artifacts until an explicit decision
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

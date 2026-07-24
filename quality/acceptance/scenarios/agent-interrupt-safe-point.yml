@@ -22,8 +22,10 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: slow bounded roster-to-character-design AgentRun request
-  - click: visible pause control in AgentRun panel
+  - verify: status, controls, and adjustment input share one workspace no wider than the 880px conversation rail
+  - click: the single pause control in the integrated task workspace
   - wait_for: interrupt_requested event and paused run state for the same run_id
+  - verify: the inline transcript keeps only status history; pause and resume reuse one stable action slot
 
 evidence:
   required:
@@ -41,6 +43,8 @@ assertions:
   data:
     - run state reaches paused
     - provider_execution_cancel_requested is false for pause
+    - pause and resume are never shown simultaneously
+    - the integrated task workspace width is at most 882px
 
 anti_hooks:
   product_acceptance_logic_added: false

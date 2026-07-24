@@ -1,0 +1,64 @@
+id: au14-fact-inventory-roundtrip
+title: 作品档案主动盘点：既有设定种子逐项采纳
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au14-fact-inventory-roundtrip --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md
+  - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/VS-00G-fact-inventory-run.md
+
+invariants:
+  - inventory-proposals-use-existing-character-rule-and-foreshadowing-seed-families
+  - inventory-proposals-remain-pending-before-author-adoption
+  - adopting-selected-items-writes-only-those-items
+  - unadopted-items-never-enter-the-work-archive
+  - no-new-entity-or-production-write-path
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au14_fact_inventory.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with accepted chapter material and an empty setting archive
+  - open: 作品档案概览
+  - click: 发起设定盘点
+  - observe: two character, one rule, and one foreshadowing proposal render as pending cards
+  - adopt: only one character and the rule
+  - open: 角色、经验规则与伏笔档案
+  - observe: only the two selected items entered their matching archive projections
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au14-fact-inventory-roundtrip-tauri
+
+assertions:
+  ui:
+    - 作品档案提供真实的发起设定盘点入口
+    - four independently adoptable pending items use existing card families
+    - adopting one character leaves the other character and foreshadowing pending
+    - archive projections show one adopted character, one adopted rule, and no foreshadowing
+  network:
+    - author_action start_fact_inventory returns a bounded run_id before the final result
+    - fact_inventory_v1 broadcasts one TurnResult with existing tentative artifact sets
+    - adoption actions resolve only the selected artifact ids
+  data:
+    - accepted chapter material is the inventory input
+    - proposal creation performs no production write
+    - selected adoption persists exactly one character and one rule
+    - unadopted character and foreshadowing do not enter archive projections
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

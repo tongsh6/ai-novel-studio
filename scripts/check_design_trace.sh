@@ -155,7 +155,7 @@ for file in "${WITH_TRACE[@]}"; do
   if [[ -n "$PROTOTYPE_REF" ]]; then
     FRAME_ID=$(echo "$PROTOTYPE_REF" | grep -oE '\([A-Za-z0-9]+\)' | tr -d '()' || echo "")
     if [[ -n "$FRAME_ID" ]] && [[ "$PEN_AVAILABLE" == true ]]; then
-      if grep -q "\"id\": \"$FRAME_ID\"" "$PEN_FILE" 2>/dev/null; then
+      if grep -Eq "\"id\"[[:space:]]*:[[:space:]]*\"$FRAME_ID\"" "$PEN_FILE" 2>/dev/null; then
         pass "$file: 原型 frame $FRAME_ID 在 .pen 文件中存在"
       else
         warn "$file: 原型 frame $FRAME_ID 在 .pen 文件中未找到"

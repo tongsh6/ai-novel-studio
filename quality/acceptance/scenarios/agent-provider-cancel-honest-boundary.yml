@@ -21,8 +21,10 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - send: request that starts a long provider step
-  - click: cancel current AgentRun
+  - send: an author-reachable prose request that starts a long provider step
+  - verify: the integrated task workspace stays within the 880px conversation rail
+  - click: terminate task in the integrated task workspace
+  - confirm: visible termination impact dialog
   - verify: cancel event binds the active run_id
   - verify: UI and trace report provider_execution_cancel until terminal cancelled state
 
@@ -40,6 +42,7 @@ assertions:
     - interrupt event records provider_execution_cancel_requested
     - final state records provider_execution_cancelled
     - ProviderExecution cancellation stays in one runtime path
+    - the integrated task workspace width is at most 882px
 
 anti_hooks:
   product_acceptance_logic_added: false

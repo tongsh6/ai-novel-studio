@@ -24,10 +24,10 @@ user_flow:
   - open: real Tauri workbench
   - input: 我想写一个雨夜开场的悬疑故事，先聊聊气质。
   - click: 发送
-  - wait_for: assistant reply visible and first AgentRun activity flow anchored
+  - wait_for: assistant reply visible; transient AgentRun activity clears after completion
   - input: 这种雨夜气质会让读者产生什么第一印象？
   - click: 发送
-  - wait_for: second assistant reply visible and second AgentRun activity flow anchored
+  - wait_for: second assistant reply visible; transient AgentRun activity clears after completion
   - observe: no action, candidate, adoption, or confirmation cards
 
 evidence:
@@ -47,8 +47,8 @@ evidence:
 assertions:
   ui:
     - two user messages and two assistant replies are visible in order
-    - each assistant reply/workflow is anchored below the user message that triggered it, even if events arrive late
-    - AgentRun activity appears for each turn and the legacy thinking indicator is not left visible after replies
+    - each assistant reply is anchored below the user message that triggered it, even if events arrive late
+    - transient AgentRun activity appears while each turn runs, then trivial completed summaries and the legacy thinking indicator are absent after replies
     - input remains usable for the second turn
     - no action, candidate, adoption, or confirmation card appears
   network:

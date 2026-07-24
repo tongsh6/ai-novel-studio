@@ -59,6 +59,7 @@
 | `seed_p1_prose_execution_brief.exs` | P1 prose execution brief seed。 |
 | `seed_p1_prose_quality_evaluator_degrade.exs` | P1 prose quality evaluator degrade seed。 |
 | `seed_p1_prose_revision_candidate.exs` | P1 prose revision candidate seed。 |
+| `seed_quality_revision_action_run_anchoring.exs` | 质量修订动作回执、同 run 暂停/刷新/继续验收 seed。 |
 | `seed_stage_startup_context.exs` | stage startup context seed。 |
 | `slice_verify.sh` | legacy/browser slice verify 入口。 |
 | `slice_verify_server.exs` | slice verify server 辅助入口。 |

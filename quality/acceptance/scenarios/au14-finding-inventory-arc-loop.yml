@@ -1,0 +1,70 @@
+id: au14-finding-inventory-arc-loop
+title: 主角缺位审读 finding 发起盘点并恢复弧光记账
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au14-finding-inventory-arc-loop --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md
+  - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/VS-00G-fact-inventory-run.md
+
+invariants:
+  - finding-trigger-is-bound-to-active-report-index-and-server-verified-rule
+  - finding-trigger-reuses-revise-design-and-fact-inventory-v1
+  - inventory-proposal-does-not-write-before-author-adoption
+  - protagonist-adoption-uses-the-existing-per-item-boundary
+  - arc-ledger-starts-on-the-next-prose-adoption-without-history-backfill
+  - no-new-disposition-or-production-write-path
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au14_finding_inventory_arc.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with ten accepted chapters and an empty character archive
+  - open: 作品档案脉络
+  - click: 发起全书审读
+  - observe: 主角未物化 finding and its primary 发起盘点 action
+  - click: 发起盘点
+  - observe: fact_inventory_v1 returns a PROTAGONIST proposal without writing the archive
+  - adopt: 沈砚 through the existing per-item character action
+  - create: chapter eleven prose that includes the adopted protagonist
+  - adopt: chapter eleven prose
+  - open: 作品档案脉络
+  - observe: 沈砚 arc ledger entry is 延续中 and the prior report is resolved
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au14-finding-inventory-arc-loop-tauri
+
+assertions:
+  ui:
+    - 主角缺位卡只把发起盘点作为推荐主动作
+    - adopted character is visible as 主角 in the archive
+    - next adopted prose visibly contains 沈砚
+    - 脉络 shows 沈砚 延续中 and no active review report
+  network:
+    - start_fact_inventory payload binds trigger_type report_id finding_index and finding_rule
+    - server reply and author-action log preserve the verified binding
+    - inventory and both adoption actions travel through the real websocket path
+  data:
+    - review materializes exactly one protagonist_undermaterialized finding
+    - finding disposition is the existing revise_design value
+    - inventory proposal performs no production write
+    - adopted character persists as narrative_role PROTAGONIST
+    - ledger.update.done occurs after the next prose adoption with sighted at least one
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

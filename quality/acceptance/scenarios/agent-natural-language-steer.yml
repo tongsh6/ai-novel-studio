@@ -24,7 +24,8 @@ user_flow:
   - open: real Tauri workbench
   - send: slow bounded roster-to-character-design AgentRun request
   - wait_for: active run_id and first AgentStep
-  - send: steering text through the main chat input
+  - verify: active task workspace is aligned to the 880px conversation content rail
+  - send: steering text through the integrated "调整当前任务" input and "发送调整" action
   - verify: steering text remains visible in the transcript as the latest local author message
   - verify: active AgentRun work-state remains visible after the steering text is submitted
   - wait_for: completed agent_run_state for the same run_id
@@ -41,6 +42,8 @@ evidence:
 
 assertions:
   ui:
+    - active task workspace width is no greater than 882px
+    - only "发送调整" is presented as the filled primary action while the task is running
     - steering text remains visible as a local author-message anchor
     - active AgentRun work-state remains visible after main-input steering
     - completed AgentRun work-state remains visible after the latest steering author message

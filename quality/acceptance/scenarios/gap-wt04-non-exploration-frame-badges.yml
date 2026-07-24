@@ -1,0 +1,58 @@
+id: gap-wt04-non-exploration-frame-badges
+title: 非探索回合语义徽标真实工作台复验
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh gap-wt04-non-exploration-frame-badges --surface tauri
+
+contract:
+  - docs/design/07-workbench-ui-contract.md
+  - docs/design/ui/41-workbench-layout.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/design/ui/47-ui-copy-guidelines.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - frame-badge-is-derived-from-server-frame-summary
+  - question-answer-and-meta-discussion-use-author-facing-labels
+  - semantic-badges-remain-inside-the-assistant-message
+  - non-exploration-dialogue-does-not-trigger-action-adoption-or-write
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 这一章赢得太轻，为什么会削弱张力？请只解释原因。
+  - click: 发送
+  - observe: 回答问题 badge and assistant reply
+  - input: 以后采用这种协作方式：先讨论方案，再由我确认是否进入创作，可以吗？
+  - click: 发送
+  - observe: 创作讨论 badge and assistant reply
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/gap-wt04-non-exploration-frame-badges-tauri
+
+assertions:
+  ui:
+    - question_answer renders 回答问题 inside its assistant message
+    - meta_discussion renders 创作讨论 inside its assistant message
+    - question and meta badges have visibly distinct semantic tones
+    - no action buttons or candidate panels appear
+  network:
+    - both user_message frames preserve generate_micro_plan=false
+    - no author_action or action_result frame is emitted
+  data:
+    - the two turns retain question_answer and meta_discussion frame types
+    - production_write_performed remains false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

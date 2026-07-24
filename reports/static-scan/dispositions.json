@@ -37,5 +37,13 @@
     "updated_at": "2026-07-01",
     "handling": "gitleaks generic-api-key 命中 Pencil .pen 文件内部 fileToken 元数据。扫描报告为 redacted match，未指向产品 provider/API 配置、运行密钥或用户可用凭证；.pen 文件按项目规则只能通过 Pencil MCP 编辑，不做 shell 文本改写。",
     "recommendation": "继续保留 gitleaks 扫描。若 Pencil 后续生成新的 token 字段或位置导致新 fingerprint，需要重新按 .pen/Pencil MCP 语义复核；若确认是外部可用凭证，再由凭证所有者轮换并通过 Pencil 源文件流程清除。"
+  },
+  "credo|Credo.Check.Refactor.Nesting|apps/novel_domain/lib/novel_domain/chapter_summary.ex|113|Nesting": {
+    "status": "deferred",
+    "owner": "codex",
+    "updated_at": "2026-07-23",
+    "planned_fix": "chapter-summary-parse-refactor",
+    "handling": "2026-07-20 已有的 parse_sections 嵌套告警，不在 VS-00G CP4b-2 改动范围；当前函数有既有回归保护且不阻塞设定盘点，避免为清理无关 P2 扩大本 slice。",
+    "recommendation": "下次修改 ChapterSummary 解析时抽取标签到 section 映射私有函数，并复跑 chapter_summary 单测。"
   }
 }

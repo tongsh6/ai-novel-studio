@@ -66,6 +66,7 @@ function canonicalSliceId(sliceId) {
   if (isUa01AgentScenario(sliceId)) return ua01AgentCanonicalSliceId;
   if (sliceId === "agent-revision-orchestrator-boundary") return "p1-prose-revision-candidate";
   if (sliceId === "agent-replay-no-provider") return "p1-prose-revision-candidate";
+  if (sliceId === "quality-revision-action-run-anchoring") return "p1-prose-revision-candidate";
   return sliceId;
 }
 
@@ -125,6 +126,7 @@ export const nativeSliceIds = [
   "e2e-01-replay-report",
   "e2e-01-channel-action-security",
   "au01-ordinary-chat-two-turn-roundtrip",
+  "gap-wt04-non-exploration-frame-badges",
   "au01-empty-message-guard",
   "au01-garbage-json-recovery",
   "au01-frame-validation-friendly-error",
@@ -145,6 +147,7 @@ export const nativeSliceIds = [
   "p1-chapter-draft-generation",
   "p1-prose-execution-brief",
   "p1-prose-revision-candidate",
+  "quality-revision-action-run-anchoring",
   "p1-prose-quality-finding-roundtrip",
   "p1-prose-quality-evaluator-degrade",
   "p1-prose-quality-adoption-boundary",
@@ -185,6 +188,8 @@ export const nativeSliceIds = [
   "au13-arc-ledger-roundtrip",
   "au13-review-adjudication-roundtrip",
   "au13-revise-prose-sibling",
+  "au14-fact-inventory-roundtrip",
+  "au14-finding-inventory-arc-loop",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -961,6 +966,27 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au14-fact-inventory-roundtrip": [
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "adoption.evaluate.done",
+    "channel.get_characters.done",
+    "channel.get_rules.done",
+    "channel.get_foreshadowing.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au14-finding-inventory-arc-loop": [
+    "channel.author_action.start",
+    "ledger.report.done",
+    "ledger.adjudicate.done",
+    "channel.author_action.done",
+    "adoption.evaluate.done",
+    "channel.get_characters.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "ledger.update.done",
+    "slice_verify.ui_state.done",
+  ],
   "p1-chapter-word-count-target": [
     "channel.user_message.start",
     "toolbox.execute.done",
@@ -1400,10 +1426,13 @@ const sliceKeyEvents = {
     "judgment.decided.done",
     "channel.user_message.done",
   ],
-  "au01-empty-message-guard": [
+  "gap-wt04-non-exploration-frame-badges": [
     "channel.user_message.start",
+    "judgment.decided.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
   ],
+  "au01-empty-message-guard": ["channel.user_message.start", "channel.user_message.done"],
   "au01-garbage-json-recovery": [
     "channel.user_message.start",
     "context.assemble.done",
@@ -1753,6 +1782,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findOrdinaryChatTwoTurnEvidence(records);
   }
 
+  if (sliceId === "gap-wt04-non-exploration-frame-badges") {
+    return findGapWt04NonExplorationFrameEvidence(records);
+  }
+
   if (sliceId === "au01-empty-message-guard") {
     return findAu01EmptyMessageGuardEvidence(records);
   }
@@ -1857,6 +1890,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu13ReviseProseSiblingEvidence(records);
   }
 
+  if (sliceId === "au14-fact-inventory-roundtrip") {
+    return findAu14FactInventoryEvidence(records);
+  }
+
+  if (sliceId === "au14-finding-inventory-arc-loop") {
+    return findAu14FindingInventoryArcEvidence(records);
+  }
+
   if (sliceId === "judgment-explore-chapter-plan") {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
@@ -1913,8 +1954,11 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ProseExecutionBriefEvidence(records);
   }
 
-  if (sliceId === "p1-prose-revision-candidate") {
-    return findP1ProseRevisionCandidateEvidence(records);
+  if (
+    sliceId === "p1-prose-revision-candidate" ||
+    sliceId === "quality-revision-action-run-anchoring"
+  ) {
+    return findP1ProseRevisionCandidateEvidence(records, sliceId);
   }
 
   if (
@@ -2486,6 +2530,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return au13ReviseProseSiblingBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "au14-fact-inventory-roundtrip") {
+    return au14FactInventoryBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au14-finding-inventory-arc-loop") {
+    return au14FindingInventoryArcBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
   if (sliceId === "judgment-explore-chapter-plan") {
     return judgmentExploreChapterPlanBehavior(turnIds, turnRecords, records, evidence, options);
   }
@@ -2618,8 +2670,18 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
-  if (sliceId === "p1-prose-revision-candidate") {
-    return p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidence, options);
+  if (
+    sliceId === "p1-prose-revision-candidate" ||
+    sliceId === "quality-revision-action-run-anchoring"
+  ) {
+    return p1ProseRevisionCandidateBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+      sliceId,
+    );
   }
 
   if (
@@ -2781,6 +2843,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au01-ordinary-chat-two-turn-roundtrip") {
     return ordinaryChatBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "gap-wt04-non-exploration-frame-badges") {
+    return gapWt04NonExplorationFrameBehavior(turnIds, turnRecords, evidence, options);
   }
 
   if (sliceId === "au01-empty-message-guard") {
@@ -3290,6 +3356,30 @@ function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, 
   };
 }
 
+function qualityRevisionUiSemanticsPassed(uiState) {
+  const paused = uiState?.paused_ui_semantics;
+  const completed = uiState?.completed_action_semantics;
+
+  return (
+    paused?.viewport?.width === 1280 &&
+    paused?.viewport?.height === 800 &&
+    Number(paused?.document_scroll_width ?? 0) <= 1280 &&
+    paused?.topbar_paused_task_visible === true &&
+    paused?.paused_dialogue_has_running_copy === false &&
+    paused?.paused_dialogue_has_structural_progress === false &&
+    paused?.empty_send_disabled === true &&
+    ["rgb(0, 0, 0)", "rgb(21, 21, 21)", "rgb(47, 47, 47)"].includes(paused?.continue_background) &&
+    completed?.original_group_visible === true &&
+    completed?.revision_group_visible === true &&
+    ["rgb(0, 0, 0)", "rgb(21, 21, 21)", "rgb(47, 47, 47)"].includes(
+      completed?.save_original_background,
+    ) &&
+    completed?.discard_requires_confirmation === true &&
+    completed?.discard_cancel_sent_author_action === false &&
+    uiState?.completed_ui_has_running_copy === false
+  );
+}
+
 function findP1ProseRevisionCandidateEvidence(
   records,
   requestedSliceId = "p1-prose-revision-candidate",
@@ -3327,6 +3417,22 @@ function findP1ProseRevisionCandidateEvidence(
   const draftTurnId = String(uiState.turn_id ?? "");
   const originalArtifactId = String(uiState.original_artifact_id ?? "");
   if (!draftTurnId || !originalArtifactId) return null;
+  if (
+    requestedSliceId === "quality-revision-action-run-anchoring" &&
+    (!String(uiState.revision_receipt_id ?? "") ||
+      uiState.revision_trigger_source_turn_ref !== draftTurnId ||
+      uiState.revision_trigger_source_surface_ref !== `quality_review:${draftTurnId}` ||
+      uiState.revision_trigger_target_artifact_ref !== originalArtifactId ||
+      !Array.isArray(uiState.revision_trigger_finding_refs) ||
+      uiState.revision_trigger_finding_refs.length === 0 ||
+      uiState.revision_second_user_message_sent !== false ||
+      uiState.revision_paused_same_run !== true ||
+      uiState.revision_reconnected_same_live_run !== true ||
+      uiState.revision_resumed_same_run !== true ||
+      !qualityRevisionUiSemanticsPassed(uiState))
+  ) {
+    return null;
+  }
 
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
   const requiresDraftContext = requestedSliceId === "p1-prose-revision-candidate";
@@ -3387,8 +3493,20 @@ function findP1ProseRevisionCandidateEvidence(
     revision_artifact_ref: revision.revision_artifact_ref ?? uiState.revision_artifact_id ?? null,
     revision_base: revision.revision_base,
     revision_run_id: uiState.revision_run_id ?? null,
+    revision_receipt_id: uiState.revision_receipt_id ?? null,
     revision_run_mode: uiState.revision_run_mode,
     revision_profile_ref: uiState.revision_profile_ref,
+    revision_trigger_source_turn_ref: uiState.revision_trigger_source_turn_ref ?? null,
+    revision_trigger_source_surface_ref: uiState.revision_trigger_source_surface_ref ?? null,
+    revision_trigger_target_artifact_ref: uiState.revision_trigger_target_artifact_ref ?? null,
+    revision_trigger_finding_refs: uiState.revision_trigger_finding_refs ?? [],
+    revision_second_user_message_sent: uiState.revision_second_user_message_sent,
+    revision_paused_same_run: uiState.revision_paused_same_run,
+    revision_reconnected_same_live_run: uiState.revision_reconnected_same_live_run,
+    revision_resumed_same_run: uiState.revision_resumed_same_run,
+    paused_ui_semantics: uiState.paused_ui_semantics,
+    completed_action_semantics: uiState.completed_action_semantics,
+    completed_ui_has_running_copy: uiState.completed_ui_has_running_copy,
     revision_plan_drafted_target_tool_ref: uiState.revision_plan_drafted_target_tool_ref,
     revision_plan_drafted_step_count: Number(uiState.revision_plan_drafted_step_count ?? 0),
     revision_plan_drafted_targets: uiState.revision_plan_drafted_targets ?? [],
@@ -3469,6 +3587,22 @@ function p1ProseRevisionCandidateBehavior(
   // 两段式规划（Order 62）：修订 run = 计划 reasoning + 计划结构 + writer = 3 次 provider 调用
   if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 1) return null;
   if (
+    requestedSliceId === "quality-revision-action-run-anchoring" &&
+    (!String(uiState.revision_receipt_id ?? "") ||
+      uiState.revision_trigger_source_turn_ref !== draftTurnId ||
+      uiState.revision_trigger_source_surface_ref !== `quality_review:${draftTurnId}` ||
+      uiState.revision_trigger_target_artifact_ref !== evidence.original_artifact_id ||
+      !Array.isArray(uiState.revision_trigger_finding_refs) ||
+      uiState.revision_trigger_finding_refs.length === 0 ||
+      uiState.revision_second_user_message_sent !== false ||
+      uiState.revision_paused_same_run !== true ||
+      uiState.revision_reconnected_same_live_run !== true ||
+      uiState.revision_resumed_same_run !== true ||
+      !qualityRevisionUiSemanticsPassed(uiState))
+  ) {
+    return null;
+  }
+  if (
     requestedSliceId === "agent-replay-no-provider" &&
     (evidence.replay_policy?.recall_provider !== false ||
       evidence.replay_policy?.use_recorded_frame !== true)
@@ -3477,42 +3611,59 @@ function p1ProseRevisionCandidateBehavior(
   }
 
   const behavior =
-    requestedSliceId === "agent-revision-orchestrator-boundary"
-      ? "revision_author_action_regated_through_orchestrator_before_tool_execution"
-      : requestedSliceId === "agent-replay-no-provider"
-        ? "revision_replay_policy_uses_recorded_frame_without_provider_recall"
-        : "quality_findings_drove_revise_from_findings_into_sibling_tentative_revision_draft";
+    requestedSliceId === "quality-revision-action-run-anchoring"
+      ? "quality_revision_action_receipt_and_single_assistant_run_remain_source_bound_across_pause_reload_resume"
+      : requestedSliceId === "agent-revision-orchestrator-boundary"
+        ? "revision_author_action_regated_through_orchestrator_before_tool_execution"
+        : requestedSliceId === "agent-replay-no-provider"
+          ? "revision_replay_policy_uses_recorded_frame_without_provider_recall"
+          : "quality_findings_drove_revise_from_findings_into_sibling_tentative_revision_draft";
   const assertions =
-    requestedSliceId === "agent-revision-orchestrator-boundary"
+    requestedSliceId === "quality-revision-action-run-anchoring"
       ? [
-          "revise_from_findings_author_action_was_sent_from_real_page",
-          "revision_author_action_fast_acked_with_bounded_agent_run",
-          "revision_agent_run_followed_model_drafted_plan_with_mechanical_cursor",
-          "revision_path_used_real_orchestrator_decision_ref",
-          "revision_path_created_tool_request_ref_before_toolbox_execution",
-          "sibling_tentative_revision_draft_generated_with_provenance_to_original",
-          "revision_draft_not_auto_adopted",
+          "quality_card_exposes_decision_only_and_stable_submission_receipt",
+          "revision_action_does_not_create_a_second_user_message",
+          "one_source_bound_assistant_work_turn_controls_one_bounded_run",
+          "pause_command_targets_the_revision_run_id",
+          "reload_reconnects_the_same_live_paused_run_without_provider_replay",
+          "resume_command_targets_the_reconnected_revision_run_id",
+          "paused_ui_is_static_truthful_and_fits_the_1280x800_desktop_baseline",
+          "empty_steering_input_is_disabled_and_continue_is_the_primary_paused_action",
+          "completed_revision_history_does_not_keep_a_running_activity",
+          "completed_run_removes_the_fixed_control_dock",
+          "original_and_revision_drafts_use_independent_hierarchical_action_groups",
+          "discard_requires_confirmation_and_cancel_sends_no_author_action",
         ]
-      : requestedSliceId === "agent-replay-no-provider"
+      : requestedSliceId === "agent-revision-orchestrator-boundary"
         ? [
-            "revision_author_action_fast_acked_with_bounded_agent_run",
-            "revision_agent_run_completed_before_replay_evidence",
-            "revision_turn_result_replay_policy_uses_recorded_frame",
-            "revision_turn_result_replay_policy_recall_provider_false",
-            "revision_draft_not_auto_adopted",
-            "revision_provider_is_not_recalled_by_replay_policy",
-          ]
-        : [
-            "real_archive_outline_action_chapter_draft_clicked",
-            "independent_quality_review_found_at_least_one_finding",
-            "quality_review_card_and_revise_action_visible_on_real_page",
-            "author_clicked_revise_from_findings_on_real_page",
+            "revise_from_findings_author_action_was_sent_from_real_page",
             "revision_author_action_fast_acked_with_bounded_agent_run",
             "revision_agent_run_followed_model_drafted_plan_with_mechanical_cursor",
+            "revision_path_used_real_orchestrator_decision_ref",
+            "revision_path_created_tool_request_ref_before_toolbox_execution",
             "sibling_tentative_revision_draft_generated_with_provenance_to_original",
-            "revision_draft_body_differs_from_original",
             "revision_draft_not_auto_adopted",
-          ];
+          ]
+        : requestedSliceId === "agent-replay-no-provider"
+          ? [
+              "revision_author_action_fast_acked_with_bounded_agent_run",
+              "revision_agent_run_completed_before_replay_evidence",
+              "revision_turn_result_replay_policy_uses_recorded_frame",
+              "revision_turn_result_replay_policy_recall_provider_false",
+              "revision_draft_not_auto_adopted",
+              "revision_provider_is_not_recalled_by_replay_policy",
+            ]
+          : [
+              "real_archive_outline_action_chapter_draft_clicked",
+              "independent_quality_review_found_at_least_one_finding",
+              "quality_review_card_and_revise_action_visible_on_real_page",
+              "author_clicked_revise_from_findings_on_real_page",
+              "revision_author_action_fast_acked_with_bounded_agent_run",
+              "revision_agent_run_followed_model_drafted_plan_with_mechanical_cursor",
+              "sibling_tentative_revision_draft_generated_with_provenance_to_original",
+              "revision_draft_body_differs_from_original",
+              "revision_draft_not_auto_adopted",
+            ];
 
   return {
     slice_id: requestedSliceId,
@@ -3528,8 +3679,20 @@ function p1ProseRevisionCandidateBehavior(
     revision_base: revision.revision_base,
     revision_artifact_ref: revision.revision_artifact_ref ?? null,
     revision_run_id: evidence.revision_run_id,
+    revision_receipt_id: evidence.revision_receipt_id,
     revision_run_mode: evidence.revision_run_mode,
     revision_profile_ref: evidence.revision_profile_ref,
+    revision_trigger_source_turn_ref: evidence.revision_trigger_source_turn_ref,
+    revision_trigger_source_surface_ref: evidence.revision_trigger_source_surface_ref,
+    revision_trigger_target_artifact_ref: evidence.revision_trigger_target_artifact_ref,
+    revision_trigger_finding_refs: evidence.revision_trigger_finding_refs,
+    revision_second_user_message_sent: evidence.revision_second_user_message_sent,
+    revision_paused_same_run: evidence.revision_paused_same_run,
+    revision_reconnected_same_live_run: evidence.revision_reconnected_same_live_run,
+    revision_resumed_same_run: evidence.revision_resumed_same_run,
+    paused_ui_semantics: evidence.paused_ui_semantics,
+    completed_action_semantics: evidence.completed_action_semantics,
+    completed_ui_has_running_copy: evidence.completed_ui_has_running_copy,
     revision_plan_drafted_target_tool_ref: evidence.revision_plan_drafted_target_tool_ref,
     revision_plan_drafted_step_count: evidence.revision_plan_drafted_step_count,
     revision_plan_drafted_targets: evidence.revision_plan_drafted_targets,
@@ -5632,9 +5795,9 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
   if (boolValue(uiState.provider_chunk_raw_content_leaked) !== false) return null;
   if (Number(uiState.author_reasoning_delta_event_count ?? 0) < 2) return null;
   if (uiState.author_reasoning_delta_payload_key !== "author_narrative_delta") return null;
-      if (boolValue(uiState.ui_author_reasoning_delta_visible) !== true) return null;
+  if (boolValue(uiState.ui_author_reasoning_delta_visible) !== true) return null;
   if (boolValue(uiState.ui_author_reasoning_cumulative_delta_visible) !== true) return null;
-    if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
+  if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
   // Order 62 CP3 语义迁移：模型执行流/明细 UI 已移除；provider 取证由帧家族与
   // 持久化 ProviderRun 事实（persisted_provider_facts_matched_budget）承担。
   if (boolValue(uiState.persisted_provider_facts_matched_budget) !== true) return null;
@@ -6046,8 +6209,7 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
       Array.isArray(record.provider_purposes) &&
       record.provider_purposes.includes("author_reasoning") &&
       Array.isArray(record.provider_statuses) &&
-      (record.provider_statuses.includes("failed") ||
-        record.provider_statuses.includes("error")) &&
+      (record.provider_statuses.includes("failed") || record.provider_statuses.includes("error")) &&
       // 判断纪元（ADR-0025）+ S7：对话回应调用 = 判断 call1，失败即诚实失败终局。
       // 消费预算只记成功消费（失败调用的如实记录在 ProviderRun 持久化事实里）。
       Number(record.consumed_provider_calls ?? 0) === 0 &&
@@ -6209,7 +6371,7 @@ function findAgentProviderCancelHonestBoundaryEvidence(records) {
       record.request_sent_from_real_workbench === true &&
       record.command_sent_from_real_button === true &&
       record.command_target_bound_to_active_run === true &&
-      record.profile_ref === "provider_progress_v1" &&
+      record.profile_ref === "prose_drafting_with_quality_v1" &&
       Array.isArray(record.interrupt_reason_codes) &&
       record.interrupt_reason_codes.includes("provider_execution_cancel_requested") &&
       record.cancel_strategy === "provider_execution_cancel" &&
@@ -6217,6 +6379,11 @@ function findAgentProviderCancelHonestBoundaryEvidence(records) {
       boolValue(record.current_task_active_during_cancel) === true &&
       boolValue(record.cancelling_status_visible_before_terminal_state) === true &&
       boolValue(record.cancelling_current_task) === true &&
+      record.fixed_control_dock_visible_before_command === true &&
+      Number(record.task_workspace_width ?? Number.POSITIVE_INFINITY) <= 882 &&
+      Number(record.fixed_control_x_delta ?? Number.POSITIVE_INFINITY) <= 1 &&
+      Number(record.inline_transcript_action_count ?? -1) === 0 &&
+      record.termination_confirmation_visible === true &&
       record.terminal_event_type === "run_cancelled" &&
       record.terminal_status === "cancelled" &&
       boolValue(record.provider_execution_cancel_visible) === true,
@@ -6261,7 +6428,10 @@ function agentProviderCancelHonestBoundaryBehavior(turnIds, records, evidence) {
     cancel_strategy: evidence.cancel_strategy,
     terminal_status: evidence.terminal_status,
     assertions: [
-      "cancel_command_was_bound_to_active_run_id",
+      "cancel_command_was_confirmed_from_fixed_control_dock_and_bound_to_active_run_id",
+      "integrated_task_workspace_matched_the_880px_conversation_rail",
+      "control_dock_position_remained_stable_while_provider_text_streamed",
+      "inline_transcript_kept_status_history_without_actions",
       "provider_execution_cancel_was_requested_on_active_run",
       "ui_exposed_cancelling_before_final_cancelled_state",
       "final_state_was_cancelled_through_provider_execution_cancel",
@@ -6653,8 +6823,18 @@ function findUa01AgentInterruptEvidence(records, sliceId) {
       record.command_ack_received === true &&
       record.command_target_bound_to_active_run === true &&
       record.no_cross_run_command === true &&
+      record.fixed_control_dock_visible_before_command === true &&
+      Number(record.task_workspace_width ?? Number.POSITIVE_INFINITY) <= 882 &&
+      Number(record.fixed_control_x_delta ?? Number.POSITIVE_INFINITY) <= 1 &&
+      Number(record.inline_transcript_action_count ?? -1) === 0 &&
       record.terminal_status === terminalStatus &&
       boolValue(record.provider_execution_cancel_requested) === expectsProviderExecutionCancel &&
+      (sliceId !== "agent-interrupt-safe-point" ||
+        (Number(record.pause_action_count_before_command ?? -1) === 1 &&
+          Number(record.resume_action_count_before_command ?? -1) === 0)) &&
+      (sliceId !== "agent-cancel-target-binding" ||
+        (record.termination_confirmation_visible === true &&
+          Number(record.control_dock_count_after_terminal ?? -1) === 0)) &&
       (!expectsProviderExecutionCancel ||
         record.provider_execution_cancel_strategy === "provider_execution_cancel"),
   );
@@ -6726,7 +6906,11 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
       command,
       terminal_status: terminalStatus,
       assertions: [
-        "pause_command_was_sent_from_real_agent_run_control",
+        "pause_command_was_sent_from_fixed_agent_run_control_dock",
+        "integrated_task_workspace_matched_the_880px_conversation_rail",
+        "control_dock_position_remained_stable_while_transcript_updated",
+        "inline_transcript_kept_status_history_without_actions",
+        "running_state_exposed_pause_without_a_simultaneous_resume_action",
         "pause_command_targeted_active_run_id_and_received_ack",
         "interrupt_requested_event_was_broadcast_before_paused_state",
         "run_paused_state_was_broadcast_for_same_run_id",
@@ -6747,7 +6931,11 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
       command,
       terminal_status: terminalStatus,
       assertions: [
-        "cancel_command_was_sent_from_real_agent_run_control",
+        "cancel_command_was_confirmed_from_fixed_agent_run_control_dock",
+        "integrated_task_workspace_matched_the_880px_conversation_rail",
+        "control_dock_position_remained_stable_while_transcript_updated",
+        "inline_transcript_kept_status_history_without_actions",
+        "termination_impact_dialog_was_visible_before_cancel_command",
         "cancel_command_targeted_active_run_id_and_received_ack",
         "cross_run_cancel_was_not_accepted_by_the_driver_evidence",
         "run_cancelled_state_was_broadcast_for_same_run_id",
@@ -10581,7 +10769,16 @@ function findCandidateContinuationEvidence(records) {
       record.slice_id === sliceId &&
       record.frame_badge_kind === "exploration" &&
       record.frame_badge_label &&
-      Number(record.candidate_panel_count ?? 0) > 0,
+      Number(record.candidate_panel_count ?? 0) > 0 &&
+      Number(record.candidate_panel_width ?? 0) > 0 &&
+      Number(record.candidate_panel_width ?? 0) <= 701 &&
+      record.candidate_panel_aligned_to_assistant_rail === true &&
+      record.candidate_panel_surface_defined === true &&
+      record.candidate_card_boundary_visible === true &&
+      record.candidate_actions_match_prototype === true &&
+      record.candidate_panel_collapsed_after_continue === true &&
+      record.candidate_panel_collapsed_after_reload === true &&
+      record.candidate_panel_reexpanded === true,
   );
 
   if (!uiState) return null;
@@ -10611,6 +10808,16 @@ function findCandidateContinuationEvidence(records) {
       frame_badge_kind: uiState.frame_badge_kind,
       frame_badge_goal: uiState.frame_badge_goal,
       candidate_panel_count: Number(uiState.candidate_panel_count ?? 0),
+      candidate_panel_width: Number(uiState.candidate_panel_width),
+      candidate_panel_aligned_to_assistant_rail:
+        uiState.candidate_panel_aligned_to_assistant_rail,
+      candidate_panel_surface_defined: uiState.candidate_panel_surface_defined,
+      candidate_card_boundary_visible: uiState.candidate_card_boundary_visible,
+      candidate_actions_match_prototype: uiState.candidate_actions_match_prototype,
+      candidate_panel_collapsed_after_continue:
+        uiState.candidate_panel_collapsed_after_continue,
+      candidate_panel_collapsed_after_reload: uiState.candidate_panel_collapsed_after_reload,
+      candidate_panel_reexpanded: uiState.candidate_panel_reexpanded,
       key_events: keyEvents,
     };
   }
@@ -11341,11 +11548,60 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
     assertions: [
       "two_user_turns_completed",
       "real_workbench_rendered_two_user_and_two_assistant_turns_in_order",
-      "agent_run_activity_appeared_and_legacy_thinking_cleared",
-      "agent_run_activity_anchored_per_turn",
+      "agent_run_activity_appeared_during_each_turn_and_legacy_thinking_cleared",
+      "trivial_completed_agent_run_summaries_cleared_after_reply",
       "micro_plan_not_requested",
       "no_action_candidate_or_adoption_cards_rendered",
       "no_error_events",
+      "assistant_messages_not_fallback",
+      options.provider === "lmstudio"
+        ? "lmstudio_judgment_called_per_turn"
+        : "deterministic_provider_judgment_called_per_turn",
+    ],
+  };
+}
+
+function gapWt04NonExplorationFrameBehavior(turnIds, turnRecords, evidence, options) {
+  if (turnIds.length !== 2) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
+
+  const [questionTurnId, metaTurnId] = turnIds;
+  const questionFrame = turnRecords.find(
+    (record) =>
+      record.turn_id === questionTurnId &&
+      record.event === "judgment.decided.done" &&
+      record.frame_type === "question_answer",
+  );
+  const metaFrame = turnRecords.find(
+    (record) =>
+      record.turn_id === metaTurnId &&
+      record.event === "judgment.decided.done" &&
+      record.frame_type === "meta_discussion",
+  );
+  if (!questionFrame || !metaFrame) return null;
+
+  if (!evidence || evidence.slice_id !== "gap-wt04-non-exploration-frame-badges") return null;
+  if (!Array.isArray(evidence.turn_ids) || !turnIds.every((id) => evidence.turn_ids.includes(id))) {
+    return null;
+  }
+
+  return {
+    slice_id: "gap-wt04-non-exploration-frame-badges",
+    behavior: "non_exploration_frames_are_visibly_distinct_without_execution",
+    turn_ids: turnIds,
+    assertions: [
+      "question_answer_frame_rendered_as_answer_badge",
+      "meta_discussion_frame_rendered_as_discussion_badge",
+      "semantic_badge_tones_are_distinct",
+      "badges_remain_inside_assistant_messages",
+      "micro_plan_not_requested",
+      "no_action_candidate_adoption_or_production_write",
       "assistant_messages_not_fallback",
       options.provider === "lmstudio"
         ? "lmstudio_judgment_called_per_turn"
@@ -11522,6 +11778,9 @@ function candidateContinuationBehavior(turnIds, turnRecords, options) {
     assertions: [
       "candidate_ref_sent_from_real_workbench",
       "micro_plan_not_requested",
+      "source_candidate_panel_collapsed_after_accept",
+      "candidate_panel_collapse_restored_after_reload",
+      "restored_candidate_panel_remains_expandable",
       "no_adoption_or_projection_events",
       "assistant_messages_not_fallback",
       options.provider === "lmstudio"
@@ -12037,6 +12296,247 @@ function findJudgmentExploreChapterPlanEvidence(records) {
 
 // SC-AU13-B2（VS-00F CP4c-3 / VS-00E §8）：revise_prose 处置 → 高风险改写确认 →
 // sibling 修订候选（pending prose_fragment）→ 原稿保留（阅读投影仍为 seed 正文）。
+function findAu14FactInventoryEvidence(records) {
+  const sliceId = "au14-fact-inventory-roundtrip";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "fact_inventory_v1" &&
+      Number(record.pending_count ?? 0) === 4 &&
+      Number(record.pending_character_count ?? 0) === 2 &&
+      Number(record.pending_rule_count ?? 0) === 1 &&
+      Number(record.pending_foreshadow_count ?? 0) === 1 &&
+      Number(record.available_action_count ?? 0) === 12 &&
+      record.proposed_without_write === true &&
+      record.unadopted_items_remain_pending === true &&
+      Number(record.consumed_steps ?? 0) === 1 &&
+      Number(record.consumed_tool_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      Number(record.archive_character_count ?? 0) === 1 &&
+      Number(record.archive_rule_count ?? 0) === 1 &&
+      Number(record.archive_foreshadowing_count ?? -1) === 0 &&
+      record.archive_character_visible === true &&
+      record.archive_rule_visible === true,
+  );
+  if (!uiState) return null;
+
+  const startAction = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "start_fact_inventory" &&
+      record.run_id === uiState.run_id,
+  );
+  if (!startAction) return null;
+
+  const adoptionRecords = records.filter(
+    (record) =>
+      record.event === "adoption.evaluate.done" &&
+      record.decision_type === "adopt_tentative" &&
+      record.outcome === "ok",
+  );
+  if (adoptionRecords.length < 2) return null;
+
+  const archiveFacts = records.filter((record) =>
+    [
+      "channel.get_characters.done",
+      "channel.get_rules.done",
+      "channel.get_foreshadowing.done",
+    ].includes(record.event),
+  );
+  if (
+    !archiveFacts.some(
+      (record) =>
+        record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) === 1,
+    ) ||
+    !archiveFacts.some(
+      (record) => record.event === "channel.get_rules.done" && Number(record.rule_count ?? 0) === 1,
+    ) ||
+    !archiveFacts.some(
+      (record) =>
+        record.event === "channel.get_foreshadowing.done" && Number(record.item_count ?? -1) === 0,
+    )
+  ) {
+    return null;
+  }
+
+  const turnIds = [
+    uiState.inventory_turn_id,
+    uiState.character_adoption_turn_id,
+    uiState.rule_adoption_turn_id,
+  ]
+    .filter(Boolean)
+    .map(String);
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.inventory_turn_id ?? ""),
+    turn_ids: [...new Set(turnIds)],
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    adopted_character_id: String(uiState.adopted_character_id ?? ""),
+    adopted_rule_id: String(uiState.adopted_rule_id ?? ""),
+    unadopted_foreshadow_id: String(uiState.unadopted_foreshadow_id ?? ""),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function au14FactInventoryBehavior(_turnIds, _turnRecords, records, evidence, _options) {
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au14-fact-inventory-roundtrip" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.proposed_without_write !== true) return null;
+  if (uiState.unadopted_items_remain_pending !== true) return null;
+  if (Number(uiState.archive_character_count ?? 0) !== 1) return null;
+  if (Number(uiState.archive_rule_count ?? 0) !== 1) return null;
+  if (Number(uiState.archive_foreshadowing_count ?? -1) !== 0) return null;
+
+  return {
+    slice_id: evidence.slice_id,
+    behavior: "archive_action_runs_fact_inventory_then_adopts_only_selected_existing_seed_items",
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    assertions: [
+      "real_archive_action_started_fact_inventory_agent_run",
+      "accepted_material_produced_existing_character_rule_foreshadow_seed_families",
+      "proposal_created_four_independent_pending_units_without_write",
+      "author_adopted_one_character_and_one_rule_through_existing_boundary",
+      "unadopted_character_and_foreshadowing_remained_pending",
+      "archive_projections_contained_only_adopted_items",
+    ],
+  };
+}
+
+function findAu14FindingInventoryArcEvidence(records) {
+  const sliceId = "au14-finding-inventory-arc-loop";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.finding_rule === "protagonist_undermaterialized" &&
+      record.finding_action_label === "发起盘点" &&
+      record.finding_binding_sent === true &&
+      record.finding_binding_logged === true &&
+      record.finding_disposition_recorded === true &&
+      record.report_resolved === true &&
+      record.profile_ref === "fact_inventory_v1" &&
+      record.protagonist_role === "PROTAGONIST" &&
+      record.protagonist_visible_as_role === true &&
+      record.inventory_proposed_without_write === true &&
+      record.next_prose_contains_protagonist === true &&
+      Number(record.arc_ledger_sighted ?? 0) >= 1 &&
+      record.arc_ledger_visible === true,
+  );
+  if (!uiState) return null;
+
+  const reportIndex = records.findIndex(
+    (record) =>
+      record.event === "ledger.report.done" &&
+      record.report_id === uiState.review_report_id &&
+      Number(record.rules?.protagonist_undermaterialized ?? 0) === 1,
+  );
+  const adjudicationIndex = records.findIndex(
+    (record) =>
+      record.event === "ledger.adjudicate.done" &&
+      record.report_id === uiState.review_report_id &&
+      record.rule === "protagonist_undermaterialized" &&
+      record.disposition === "revise_design" &&
+      record.report_status === "ACCEPTED",
+  );
+  const inventoryStartIndex = records.findIndex(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "start_fact_inventory" &&
+      record.run_id === uiState.run_id &&
+      record.trigger_type === "finding" &&
+      record.trigger_report_id === uiState.review_report_id &&
+      Number(record.trigger_finding_index ?? -1) === 0 &&
+      record.trigger_rule === "protagonist_undermaterialized",
+  );
+  const adoptionIndices = records
+    .map((record, index) => ({ record, index }))
+    .filter(
+      ({ record }) =>
+        record.event === "adoption.evaluate.done" &&
+        record.decision_type === "adopt_tentative" &&
+        record.outcome === "ok",
+    )
+    .map(({ index }) => index);
+  const arcIndex = records.findIndex(
+    (record) =>
+      record.event === "ledger.update.done" &&
+      record.ledger === "arc" &&
+      Number(record.sighted ?? 0) >= 1 &&
+      Number(record.roster ?? 0) === 1,
+  );
+
+  if (
+    reportIndex < 0 ||
+    adjudicationIndex <= reportIndex ||
+    inventoryStartIndex <= adjudicationIndex ||
+    adoptionIndices.length < 2 ||
+    arcIndex <= adoptionIndices.at(-1)
+  ) {
+    return null;
+  }
+
+  const turnIds = [
+    uiState.inventory_turn_id,
+    uiState.protagonist_adoption_turn_id,
+    uiState.prose_turn_id,
+    uiState.prose_adoption_turn_id,
+  ]
+    .filter(Boolean)
+    .map(String);
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.prose_adoption_turn_id ?? ""),
+    turn_ids: [...new Set(turnIds)],
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    review_report_id: String(uiState.review_report_id ?? ""),
+    protagonist_artifact_id: String(uiState.protagonist_artifact_id ?? ""),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function au14FindingInventoryArcBehavior(_turnIds, _turnRecords, records, evidence, _options) {
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === evidence.slice_id &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: evidence.slice_id,
+    behavior:
+      "protagonist_debt_finding_starts_bound_inventory_then_next_prose_adoption_starts_arc_ledger",
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    assertions: [
+      "real_full_review_materialized_protagonist_undermaterialized_finding",
+      "finding_primary_action_bound_report_index_and_rule_to_fact_inventory",
+      "existing_revise_design_disposition_resolved_the_report",
+      "fact_inventory_proposed_protagonist_without_production_write",
+      "author_adopted_protagonist_through_existing_per_item_boundary",
+      "next_real_prose_draft_wove_the_adopted_protagonist",
+      "next_prose_adoption_started_the_protagonist_arc_ledger_without_history_backfill",
+    ],
+  };
+}
+
 function findAu13ReviseProseSiblingEvidence(records) {
   const sliceId = "au13-revise-prose-sibling";
 
@@ -12055,8 +12555,7 @@ function findAu13ReviseProseSiblingEvidence(records) {
   if (!report) return null;
 
   const revise = records.find(
-    (record) =>
-      record.event === "ledger.adjudicate.done" && record.disposition === "revise_prose",
+    (record) => record.event === "ledger.adjudicate.done" && record.disposition === "revise_prose",
   );
   if (!revise) return null;
 
@@ -14233,7 +14732,8 @@ function judgmentExploreChapterPlanBehavior(turnIds, turnRecords, records, evide
 
   // 设计态问答零工具 dispatch / 零采纳（chapter_read 在判断步内联，不经 Toolbox）
   const exploreToolbox = turnRecords.some(
-    (record) => record.event === "toolbox.execute.done" && record.turn_id === evidence.explore_turn_id,
+    (record) =>
+      record.event === "toolbox.execute.done" && record.turn_id === evidence.explore_turn_id,
   );
   if (exploreToolbox) return null;
   if (uiState.explore_no_pending_artifacts !== true) return null;
@@ -14275,7 +14775,8 @@ function judgmentExploreInternalBehavior(turnIds, turnRecords, records, evidence
 
   // 探索问答本身零工具 dispatch / 零采纳（只读检索在判断步内联，不经 Toolbox）
   const exploreToolbox = turnRecords.some(
-    (record) => record.event === "toolbox.execute.done" && record.turn_id === evidence.explore_turn_id,
+    (record) =>
+      record.event === "toolbox.execute.done" && record.turn_id === evidence.explore_turn_id,
   );
   if (exploreToolbox) return null;
   if (uiState.explore_no_pending_artifacts !== true) return null;
@@ -16454,11 +16955,13 @@ function findAu09CharacterCandidatePerItemAdoptionEvidence(records) {
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
       Number(record.candidate_count ?? 0) >= 2 &&
-      Number(record.accept_button_count ?? 0) >= 2 &&
+      Number(record.choice_radio_count ?? 0) >= 2 &&
+      Number(record.candidate_action_target_count ?? 0) >= 2 &&
+      Number(record.selected_action_button_count ?? 0) === 1 &&
       record.archive_has_adopted === true &&
       record.archive_excludes_unadopted === true &&
       record.unadopted_still_pending === true &&
-      record.adopted_button_gone === true &&
+      record.adopted_choice_disabled === true &&
       Number(record.archive_character_count ?? 0) === 1 &&
       String(record.adopted_state_ref ?? "").length > 0,
   );
@@ -16470,7 +16973,6 @@ function findAu09CharacterCandidatePerItemAdoptionEvidence(records) {
   // 设计轮真实调用 character_design 工具产出候选。
   const designGenerated = records.some(
     (record) =>
-      record.turn_id === uiState.design_turn_id &&
       record.event === "toolbox.execute.done" &&
       record.tool_name === "character_design" &&
       record.tool_outcome === "succeeded",
@@ -16492,7 +16994,9 @@ function findAu09CharacterCandidatePerItemAdoptionEvidence(records) {
     turn_id: uiState.adoption_turn_id,
     turn_ids: turnIds,
     candidate_count: uiState.candidate_count,
-    accept_button_count: uiState.accept_button_count,
+    choice_radio_count: uiState.choice_radio_count,
+    candidate_action_target_count: uiState.candidate_action_target_count,
+    selected_action_button_count: uiState.selected_action_button_count,
     adopted_candidate_name: uiState.adopted_candidate_name,
     unadopted_candidate_name: uiState.unadopted_candidate_name,
     adopted_state_ref: uiState.adopted_state_ref,
@@ -16515,10 +17019,13 @@ function au09CharacterCandidatePerItemAdoptionBehavior(
   );
   if (!uiState) return null;
   if (Number(uiState.candidate_count ?? 0) < 2) return null;
-  if (Number(uiState.accept_button_count ?? 0) < 2) return null;
+  if (Number(uiState.choice_radio_count ?? 0) < 2) return null;
+  if (Number(uiState.candidate_action_target_count ?? 0) < 2) return null;
+  if (Number(uiState.selected_action_button_count ?? 0) !== 1) return null;
   if (uiState.archive_has_adopted !== true) return null;
   if (uiState.archive_excludes_unadopted !== true) return null;
   if (uiState.unadopted_still_pending !== true) return null;
+  if (uiState.adopted_choice_disabled !== true) return null;
   if (Number(uiState.archive_character_count ?? 0) !== 1) return null;
 
   return {
@@ -16530,9 +17037,11 @@ function au09CharacterCandidatePerItemAdoptionBehavior(
     unadopted_candidate_name: uiState.unadopted_candidate_name,
     assertions: [
       "character_design_returned_two_independent_candidates",
-      "each_candidate_has_its_own_adopt_button",
+      "each_candidate_has_its_own_selector_and_action_target",
+      "only_selected_candidate_exposes_shared_footer_actions",
       "adopting_one_candidate_resolves_only_that_candidate",
-      "unadopted_candidate_keeps_its_adopt_button",
+      "unadopted_candidate_remains_selectable",
+      "adopted_candidate_selector_is_disabled",
       "adopted_candidate_written_to_character_dossier",
       "unadopted_candidate_excluded_from_character_dossier",
       "only_one_character_persisted_to_production_fact",
@@ -19457,7 +19966,74 @@ function findOrdinaryChatTwoTurnEvidence(records) {
     agent_run_activity_count: Number(uiState.agent_run_activity_count ?? 0),
     second_agent_run_activity_anchored: uiState.second_agent_run_activity_anchored,
     agent_run_activity_observed: uiState.agent_run_activity_observed,
+    terminal_agent_run_activity_cleared: uiState.terminal_agent_run_activity_cleared,
     thinking_visible_after_reply: uiState.thinking_visible_after_reply,
+    key_events: keyEvents,
+  };
+}
+
+function findGapWt04NonExplorationFrameEvidence(records) {
+  const sliceId = "gap-wt04-non-exploration-frame-badges";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!uiState) return null;
+
+  const turnIds = uiState.ui_turn_ids;
+  if (!Array.isArray(turnIds) || turnIds.length !== 2) return null;
+
+  const expectedFrames = [
+    [turnIds[0], "question_answer"],
+    [turnIds[1], "meta_discussion"],
+  ];
+
+  for (const [turnId, expectedFrameType] of expectedFrames) {
+    const currentTurn = records.filter((record) => record.turn_id === turnId);
+    const start = currentTurn.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) return null;
+    if (!currentTurn.some((record) => record.event === "channel.user_message.done")) return null;
+    if (
+      !currentTurn.some(
+        (record) =>
+          record.event === "judgment.decided.done" &&
+          record.frame_type === expectedFrameType,
+      )
+    ) {
+      return null;
+    }
+    if (currentTurn.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+      return null;
+    }
+  }
+
+  if (uiState.question_frame_type !== "question_answer") return null;
+  if (uiState.meta_frame_type !== "meta_discussion") return null;
+  if (uiState.question_badge?.label !== "回答问题") return null;
+  if (uiState.meta_badge?.label !== "创作讨论") return null;
+  if (uiState.question_badge?.within_assistant_message !== true) return null;
+  if (uiState.meta_badge?.within_assistant_message !== true) return null;
+  if (uiState.semantic_tones_distinct !== true) return null;
+  if (uiState.question_answer_visible !== true) return null;
+  if (uiState.meta_discussion_visible !== true) return null;
+  if (Number(uiState.available_action_count ?? -1) !== 0) return null;
+  if (Number(uiState.candidate_panel_count ?? -1) !== 0) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+  if (uiState.production_write_performed !== false) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnIds[0],
+    turn_ids: turnIds,
+    question_turn_id: turnIds[0],
+    meta_turn_id: turnIds[1],
+    question_frame_type: uiState.question_frame_type,
+    meta_frame_type: uiState.meta_frame_type,
+    question_badge: uiState.question_badge,
+    meta_badge: uiState.meta_badge,
+    semantic_tones_distinct: uiState.semantic_tones_distinct,
+    production_write_performed: uiState.production_write_performed,
     key_events: keyEvents,
   };
 }
@@ -19475,8 +20051,8 @@ function ordinaryChatUiState(turnIds, turnRecords) {
   if (Number(uiState.user_message_count ?? 0) < 2) return null;
   if (Number(uiState.assistant_turn_message_count ?? 0) < 2) return null;
   if (uiState.agent_run_activity_observed !== true) return null;
-  if (Number(uiState.agent_run_activity_count ?? 0) < 2) return null;
-  if (uiState.second_agent_run_activity_anchored !== true) return null;
+  if (Number(uiState.agent_run_activity_count ?? 0) !== 0) return null;
+  if (uiState.terminal_agent_run_activity_cleared !== true) return null;
   if (uiState.thinking_visible_after_reply !== false) return null;
   if (uiState.message_text_order_anchored !== true) return null;
   if (Number(uiState.available_action_count ?? 0) !== 0) return null;

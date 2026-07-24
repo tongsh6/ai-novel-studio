@@ -22,7 +22,9 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: slow bounded roster-to-character-design AgentRun request
-  - click: visible cancel control in AgentRun panel
+  - verify: status, controls, and adjustment input share one workspace no wider than the 880px conversation rail
+  - click: terminate task in the integrated task workspace
+  - confirm: visible termination impact dialog
   - wait_for: interrupt_requested event and cancelled run state for the same run_id
 
 evidence:
@@ -41,6 +43,7 @@ assertions:
   data:
     - cancel does not target a stale or cross-run id
     - provider_execution_cancel_requested is true for active cancel
+    - the integrated task workspace width is at most 882px
 
 anti_hooks:
   product_acceptance_logic_added: false

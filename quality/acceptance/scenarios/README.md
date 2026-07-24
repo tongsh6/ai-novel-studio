@@ -11,6 +11,7 @@
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
 | `au01-ordinary-chat-two-turn-roundtrip.yml` | 普通聊天两轮真实工作台闭环 |
 | `au01-turnresult-recorder-ui-consistency.yml` | TurnResult、recorder 与恢复 UI 一致 |
+| `gap-wt04-non-exploration-frame-badges.yml` | `question_answer` / `meta_discussion` 的作者可见语义徽标真实页面复验 |
 | `ua01-agent-bounded-roster-to-character-design.yml` | 复合角色任务启动 bounded AgentRun 并产出待采纳角色草稿 |
 | `agent-bounded-roster-to-character-design.yml` | AgentRun 角色阵容 Observation 传递到角色设计 |
 | `agent-step-regate.yml` | 每个 AgentStep 重新经过 Orchestrator gate |
@@ -26,6 +27,7 @@
 | `agent-archive-read-during-run.yml` | AgentRun 运行中作品档案仍可读取 |
 | `agent-tentative-boundary.yml` | Agent 产物保持 tentative，不自动采纳或写主档案 |
 | `agent-revision-orchestrator-boundary.yml` | 修订候选动作重新经过 Orchestrator 后再执行 |
+| `quality-revision-action-run-anchoring.yml` | 质量修订动作的稳定回执、来源工作回合、同 run 控制与刷新重连 |
 | `agent-replay-no-provider.yml` | Agent/修订 replay policy 不重新调用 provider |
 | `agent-work-isolation.yml` | 源作品 AgentRun 迟到输出不污染切换后的目标作品 |
 | `agent-provider-call-budget.yml` | AgentRun step/tool/provider 调用预算可追踪 |
@@ -113,6 +115,8 @@
 | `au12-profile-read-failure-degrade.yml` | 作品档案读取失败诚实降级与重试恢复 |
 | `au12-correction-intent-roundtrip.yml` | 作品档案立项修订意图回到对话与采纳边界 |
 | `au12-work-profile-status-isolation.yml` | 作品档案状态、空字段与跨作品隔离 |
+| `au14-fact-inventory-roundtrip.yml` | 作品档案主动盘点与既有设定种子逐项采纳 |
+| `au14-finding-inventory-arc-loop.yml` | 主角缺位 finding 绑定盘点，采纳主角后由下一章正文采纳开始弧光记账 |
 | `dogfood-runner.yml` | P1 长篇狗粮运行器 |
 | `e2e-01-downgrade-real-page.yml` | E2E-01 真实页面多步 MicroPlan 降级 |
 | `e2e-01-full-chain.yml` | E2E-01 端到端全链路聚合验收 |

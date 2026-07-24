@@ -24,9 +24,10 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - design: two character candidates in one turn
-  - observe: each candidate has its own adopt button
+  - observe: each candidate has its own selector and independent action target
+  - select: only the second candidate
   - adopt: only the second candidate
-  - observe: the first candidate keeps its adopt button and is not written
+  - observe: the first candidate stays selectable and is not written
   - open: archive character tab
   - observe: only the adopted candidate is present
 
@@ -42,8 +43,9 @@ evidence:
 
 assertions:
   ui:
-    - two character candidates render two distinct adopt buttons
-    - adopting one candidate removes only its button and keeps the other
+    - two character candidates render two distinct radio selectors
+    - only the selected candidate exposes the shared footer actions
+    - adopting one candidate disables only its selector and keeps the other selectable
     - archive character tab shows only the adopted candidate
   network:
     - character_design returns two independent candidate items

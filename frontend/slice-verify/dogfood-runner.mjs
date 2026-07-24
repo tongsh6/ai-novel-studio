@@ -152,10 +152,14 @@ async function sendAuthorMessage(page, instruction) {
   try {
     await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 600_000 });
   } catch (waitError) {
-    const cancelButton = page.getByRole("button", { name: /取消/ }).last();
+    const cancelButton = page.getByRole("button", { name: /终止任务|取消/ }).last();
     if ((await cancelButton.count()) > 0) {
       log("input blocked by an active run — cancelling it before sending");
       await cancelButton.click({ timeout: 10_000 }).catch(() => {});
+      const confirmButton = page.getByRole("button", { name: /^确认终止$/ });
+      if ((await confirmButton.count()) > 0) {
+        await confirmButton.click({ timeout: 10_000 }).catch(() => {});
+      }
       await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 60_000 });
     } else {
       throw waitError;

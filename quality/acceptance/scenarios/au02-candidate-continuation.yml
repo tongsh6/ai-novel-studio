@@ -12,6 +12,10 @@ contract:
 invariants:
   - candidate-selection-is-user-message-not-adoption-action
   - candidate-continuation-visible
+  - candidate-panel-stays-within-assistant-reading-rail
+  - candidate-panel-matches-pencil-surface-and-boundaries
+  - accepted-candidate-continuation-collapses-source-panel
+  - candidate-collapse-restores-from-session-transcript
   - candidate-selected-does-not-imply-candidate-adopted
   - no-production-write
 
@@ -41,6 +45,10 @@ assertions:
   ui:
     - candidate direction visible
     - continuation action visible
+    - candidate panel matches the assistant output width and does not exceed the 700px reading rail
+    - candidate panel uses the Pencil-defined surface, card boundary, and equal-weight outlined actions
+    - accepted continuation collapses only the source candidate group into a titled disclosure
+    - reload restores the disclosure from persisted candidate_selection and it can be expanded again
     - continuation does not require an adoption action
   network:
     - user_message sent with candidate_selection
