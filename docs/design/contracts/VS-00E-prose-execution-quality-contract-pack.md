@@ -128,6 +128,23 @@ evaluator 失败                     → quality_review_unavailable
 
 新增作者动作 `revise_from_findings`（§12）：基于选定 findings 调用正文 writer，产出 **sibling tentative artifact**（新 artifact id），设置 `revision_base = 原 artifact id` / `revision_reason = findings` / `quality_finding_refs`。原稿继续保留、不被覆盖；修订稿不自动采纳、不自动进入阅读投影；原稿与修订稿都各自走现有 adoption 七态；一次动作最多一个候选；evaluator 不得自动递归触发下一次修订。修订调用必须重新经过 `ExecutionOrchestrator`，不得伪造 `decision_ref` 或从 application 编排直接绕过 gate 调用 toolbox。`TentativeArtifactSet` provenance 扩展 `quality_finding_refs / revision_base / revision_reason`，不破坏现有 artifact type 与 adoption 七态。
 
+### 8.1 作者动作、回执与 AgentRun 的绑定
+
+`revise_from_findings` 不创建第二条 `user_message`。Channel 在启动 bounded run 后返回并持久化
+同一份 author-action receipt；receipt 与 `AgentRun.trigger` 必须共享：
+
+```text
+receipt_id / action_id / action_type
+source_turn_ref / source_surface_ref
+target_artifact_ref / quality_finding_refs
+```
+
+重复提交同一 `idempotency_key` 必须返回同一 `receipt_id/run_id`，不得重跑 provider。前端把
+receipt 放回来源质量卡下方，把运行过程渲染为来源 assistant turn 的唯一工作回合；固定控制坞
+只控制该 `run_id`，不得复制模型叙事。bounded run 刷新后只允许重连仍存活的 Supervisor 并
+替换 event sink，不允许从数据库重建或重放 provider；完成后的 TurnResult 继续携带 trigger，
+用于 transcript reload 后恢复 receipt/source 关系。
+
 ## 9. evaluator 失败如何降级
 
 `ProseQualityService` evaluator 调用失败（连接/超时/二次非法 JSON）时返回 `quality_review_unavailable`：
@@ -166,6 +183,9 @@ I7 文学类 finding 默认不硬阻断作者采纳（WARN / ADOPTION_REVIEW 为
 I8 一次 revision action 最多生成一个候选
 I9 前端不能自行提升 finding 的严重级别
 I10 真实质量收益必须通过人工盲评验证（不得用 fixture 假装）
+I11 同一 revision action receipt 最多绑定一个 run_id
+I12 一个 action-triggered run 只渲染一个来源 assistant 工作回合
+I13 bounded refresh 只重连存活 run，不重放 provider
 ```
 
 ## 13. 兼容性红线
@@ -177,7 +197,7 @@ I10 真实质量收益必须通过人工盲评验证（不得用 fixture 假装�
 
 ## 14. 验收（CP1–CP3 注册到 `quality/acceptance/scenarios.yml`）
 
-`p1-prose-execution-brief`（CP1）、`p1-prose-quality-finding-roundtrip` / `p1-prose-quality-evaluator-degrade`（CP2）、`p1-prose-revision-candidate` / `p1-prose-quality-adoption-boundary`（CP3）、`p1-prose-quality-real-provider-sample`（真实 provider 仅收集盲评材料，不得自动断言「文学质量提升」）。质量基线 fixture 见 `quality/acceptance/fixtures/prose-quality/`（CP0 建立，§16 坏样本，确定性可复现，不依赖云端模型）。
+`p1-prose-execution-brief`（CP1）、`p1-prose-quality-finding-roundtrip` / `p1-prose-quality-evaluator-degrade`（CP2）、`p1-prose-revision-candidate` / `p1-prose-quality-adoption-boundary`（CP3）、`quality-revision-action-run-anchoring`（动作回执、单一工作回合、同 run 控制与刷新重连）、`p1-prose-quality-real-provider-sample`（真实 provider 仅收集盲评材料，不得自动断言「文学质量提升」）。质量基线 fixture 见 `quality/acceptance/fixtures/prose-quality/`（CP0 建立，§16 坏样本，确定性可复现，不依赖云端模型）。
 
 ## 15. checkpoint 边界
 

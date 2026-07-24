@@ -140,6 +140,20 @@
         "phase": { "type": "string" },
         "parent_turn_ref": { "type": ["string", "null"] },
         "profile_ref": { "type": "string" },
+        "trigger": {
+          "type": ["object", "null"],
+          "description": "author_action 启动 run 的来源绑定；普通 user_message run 为 null。",
+          "properties": {
+            "kind": { "type": "string" },
+            "receipt_id": { "type": ["string", "null"] },
+            "action_id": { "type": ["string", "null"] },
+            "action_type": { "type": ["string", "null"] },
+            "source_turn_ref": { "type": ["string", "null"] },
+            "source_surface_ref": { "type": ["string", "null"] },
+            "target_artifact_ref": { "type": ["string", "null"] },
+            "quality_finding_refs": { "type": "array", "items": { "type": "string" } }
+          }
+        },
         "long_run_task_ref": { "type": ["string", "null"] }
       }
     },

@@ -192,7 +192,17 @@ describe("session API helpers", () => {
 
   it("converts transcript entries to chat messages and keeps turn_result", () => {
     const transcript: SessionTranscriptEntry[] = [
-      { role: "user", text: "第一句", turn_id: "turn-1", turn_result: null },
+      {
+        role: "user",
+        text: "第一句",
+        turn_id: "turn-1",
+        candidate_selection: {
+          source_turn_ref: "turn-candidates",
+          candidate_set_ref: "candidate_set:turn-candidates",
+          candidate_ref: "dir-1",
+        },
+        turn_result: null,
+      },
       {
         role: "assistant",
         text: "第二句",
@@ -210,7 +220,12 @@ describe("session API helpers", () => {
     ];
 
     expect(transcriptToMessages(transcript)).toEqual([
-      { role: "user", text: "第一句", turnId: "turn-1" },
+      {
+        role: "user",
+        text: "第一句",
+        turnId: "turn-1",
+        candidateSelection: transcript[0].candidate_selection,
+      },
       {
         role: "assistant",
         text: "第二句",

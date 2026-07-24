@@ -153,6 +153,11 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | `46§6-checkpoint-feedback` | checkpoint 原因、pending artifacts、恢复/取消/调整动作 |
 | `46§7-inline-interaction-states` | 按钮触发后的即时反馈、主对话不重复追加内部状态 |
 | `46§9-agentic-loop-reasoning-flow`（当前冻结 screen，见 ADR-0022 / ADR-0023 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`） | 同一 assistant 工作态回复内展示 agentic loop 推理流五态（探索中 / 执行中 / 受阻等待作者 / 重规划 v1→v2 / 完成态）：叙事措辞归模型（浅色左橙边条=模型逐字输出）、结构骨架归 app（状态 chip / 版本 / 进度 / 可选 action）；provider 遥测降级为开发者视图；不展示 raw prompt、provider 术语或私有 chain-of-thought。替代已于 2026-07-01 删除的 `46§8-agent-run-dialogue-flow-v4` |
+| `46§9.7-agent-run-control-dock` | active AgentRun 的控制固定在输入区上方；对话内只保留运行记录；暂停/继续共用一个主操作槽位；终止任务独立并二次确认 |
+| `46§9.8-quality-revision-ready` | 质量卡只承载问题选择与修订决策；原稿保留独立保存、放弃、编辑后保存动作 |
+| `46§9.8-quality-revision-running` | 作者动作回执与来源绑定；同一 revision run 只出现一个 assistant 工作回合 |
+| `46§9.8-quality-revision-paused` | 暂停态沿用同一动作回执、assistant 工作回合与固定控制坞，不复制第二套进度 |
+| `46§9.8-quality-revision-comparison` | run 终态后固定控制坞收起；原稿与修订稿作为两个独立 tentative 候选分别决策 |
 
 ---
 
@@ -279,6 +284,9 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 2. **运行组卡片容器视觉移除**（轨道线/面板边界）。AI 的一次回应就是一段文档流：
    模型叙事段落 → 进行中活动行 → 模型结论段 → 回复正文/产物卡，全部内联于同一
    assistant 消息。
+   如果最终 `assistant_message.text` 与 `author_narrative` 含有逐字相同的完整段落，
+   UI 只保留 `assistant_message` 中的一份；只允许按完整段落做规范化空白后的精确去重，
+   不做模糊匹配，不改写模型原文，也不隐藏不相同的过程叙事。
 3. **保留的结构物（极简）**：状态词（进行中/已完成/等待你确认）、轻量进度
    （第 n/m 步 · k 份草稿待采纳 · 约 x 字）、进行中活动行（§9.4.4 收紧版）、
    暂停/继续/取消控制。均为骨架词，不叙述。
@@ -299,3 +307,92 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 **真计划恢复步骤/进度显示**——当模型判断需要并制定了计划（plan_drafted 携带
 模型起草结构）时，步骤 checklist 与「第 n/m 步」恢复；无计划循环只有叙事段落 +
 活动行 + 状态词。探索动作显示活动行「正在查阅…/正在搜索资料…」。
+
+### 9.7 一体化运行工作区（2026-07-24 用户拍板）
+
+active AgentRun 的暂停、继续、终止和自然语言调整入口不得跟随流式文本宽度或消息高度
+移动。控制面采用**对话内状态记录 + 固定的一体化任务工作区**：
+
+1. 对话内的 assistant 工作态展示模型叙事和当前语义活动，但不再承载可操作按钮。
+   active run 的状态、结构进度统一由固定控制坞显示，避免两处逐字重复
+   “状态 · 任务 · 第 n/m 步”；终态结构结果才随对话保留为历史记录。
+2. active run 期间，状态、控制和“调整当前任务”输入合并为一张固定工作卡。它位于
+   `chatArea` 滚动容器之外，因此流式文字增长、换行和作者滚动历史都不得改变控制位置。
+3. 对话消息、固定工作卡和普通输入区共用同一条 `880px` 最大内容轨道；宽屏居中，窄屏
+   使用 `16–32px` 自适应页边距，不允许控制面重新铺满整个左侧工作区。
+4. 工作卡状态行消费既有 `agent_run_state`、AgentPlan cursor 和 pending artifact refs，显示
+   当前状态与轻量进度；展开后只显示 author-safe 运行摘要，不新增 provider console 或
+   raw trace。
+5. 状态行右侧保留两个稳定槽位：
+   - 主操作槽位在 `running` 显示「暂停」，在 `paused / awaiting_author` 显示「继续」，
+     `pausing / cancelling` 显示不可重复触发的处理中状态；暂停和继续不得同时出现。
+   - 危险操作显示「终止任务」，与主操作拉开层级；点击后必须说明影响并二次确认。
+6. 工作卡输入行必须持续显示“调整当前任务”语义，提交按钮使用「发送调整」。
+   空输入时发送按钮必须明确禁用并降为中性灰；暂停且空输入时「继续」是唯一黑色主操作。
+   输入补充要求后，「发送调整」升为黑色主操作，「继续」退为描边操作；运行中的暂停和
+   终止始终保持次级/危险层级，避免双主操作竞争。
+7. `paused` 状态必须停止 spinner、呼吸点等运行中动效，语义活动改成
+   “已暂停，继续后从当前步骤恢复”；顶栏同步显示“1 个任务已暂停”，不得同时出现
+   “无任务”或“正在生成”。`completed / cancelled / failed` 终态同样不得残留
+   “正在生成/正在执行”等活动行。
+8. 「终止任务」仍提交 canonical `agent_command cancel`，只改作者界面语义，不新增状态和
+   command。说明文案必须明确：尚未完成的生成停止；已写入作品的内容不删除；待处理候选
+   不自动采纳。
+9. run 进入 `completed / cancelled / failed` 后任务工作卡立即收起，并恢复普通对话输入；
+   对话内终态记录保留。窄宽度下状态、控制和输入允许分行，但操作顺序与语义不变。
+   其中普通聊天的 bounded run 若成功完成且没有独立模型过程叙事、计划、待采纳产物、
+   正文草稿或 `author_action` 来源，完整 assistant 回复已经是充分终态反馈，可省略
+   “已完成 · 创作执行”结构摘要；失败/取消、durable run、作者动作、计划和产物终态
+   仍必须保留。
+
+该布局由 `46§9.7-agent-run-control-dock`（`dxUhh`）冻结。真实验收沿用
+`agent-interrupt-safe-point`、`agent-cancel-target-binding` 与
+`agent-provider-cancel-honest-boundary`：从固定控制坞操作真实页面，继续证明 command
+绑定当前 `run_id`，暂停不请求 ProviderExecution cancel，终止仍走单一取消路径。产品代码
+不得增加验收专用 DOM hook。
+
+### 9.8 作者动作触发的单一工作回合（2026-07-24 用户拍板）
+
+质量卡等决策面发起 `author_action` 后，不得同时出现“卡片内无限 loading”“游离的泛化
+AI 状态块”“固定控制坞”三套并行反馈。动作、运行和结果按一条可恢复的来源链呈现：
+
+1. **决策面只负责决定**。质量卡展示 findings 选择与“生成修订稿”动作；服务端确认启动
+   后折叠为“质量复核：n 项建议 · 修订任务已提交”的可展开摘要，不继续用大面积警告卡或
+   spinner 冒充整段运行进度。
+2. **动作必须有回执**。`action_result` 返回稳定 `receipt_id`、`run_id`、
+   `source_turn_ref`、`source_surface_ref` 与 trigger；对话显示
+   “你选择了：按 n 项质量问题生成修订稿”，并明确来源质量卡与目标原稿。它是
+   `author_action` 回执，不得伪装成第二条 `user_message`。回执与对应 assistant 工作回合
+   必须组成同一来源链，不能被大段垂直留白切散。
+3. **一个 run 只有一个 assistant 工作回合**。同一回合原地消费模型叙事、
+   `current_activity`、轻量进度与终态 TurnResult；不得再追加一个仅含
+   “创作执行 / 当前创作请求进行中”的泛化状态块。活动行只显示一次当前活动。
+4. **固定坞只控制同一 run**。控制坞消费与 assistant 工作回合相同的 `run_id`，
+   只承担状态、结构进度、暂停/继续/终止与 steering；不得复制模型叙事或活动文案。
+5. **来源绑定必须可恢复**。AgentRun 持久 `trigger.kind=author_action` 及动作/来源/
+   目标/finding refs；页面刷新后通过活跃 run 状态恢复回执与工作回合锚点，不创建
+   第二个作者 turn，也不重新调用 provider。
+6. **候选独立且动作有主次**。原稿与修订稿各自显示同构候选操作组：保存为主操作，
+   编辑后保存为次操作，放弃为低层级危险操作并二次确认。两者都是独立 tentative
+   artifact，生成修订稿不锁定、不覆盖、不自动采纳原稿；若作者先后保存两个版本，
+   沿用既有 revision conflict/确认边界。
+7. **失败诚实收束**。run 启动失败不得留下幽灵回执或永久 loading；运行失败时回执保留，
+   同一 assistant 工作回合显示失败与恢复建议，控制坞收起。
+
+运行态公开契约最小形状：
+
+```text
+trigger = {
+  kind, receipt_id, action_id, action_type,
+  source_turn_ref, source_surface_ref,
+  target_artifact_ref, quality_finding_refs
+}
+
+current_activity = {
+  kind, phase, completed_steps, total_steps
+}
+```
+
+本节由四个 `46§9.8-quality-revision-*` Pencil frame 冻结。场景验收必须从真实质量卡
+点击开始，证明仅产生一次 `author_action`、零第二条 `user_message`，回执/run/source
+绑定一致，刷新后仍恢复到同一 assistant 工作回合，终态后原稿与修订稿可分别决策。

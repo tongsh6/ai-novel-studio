@@ -25,10 +25,93 @@ export interface AgentRunAnchorAck {
 export interface AgentRunAnchorState {
   run_id: string;
   parent_turn_ref?: string | null;
+  trigger?: {
+    kind?: string | null;
+    source_turn_ref?: string | null;
+  } | null;
 }
 
 export interface AgentRunRuntimeStateLike {
   status: string;
+}
+
+export interface QualityRevisionArtifactLike {
+  artifact_id: string;
+  artifact_type: string;
+  revision_base?: string | null;
+}
+
+export interface QualityRevisionTurnResultLike {
+  trace_summary?: Record<string, unknown>;
+  ui_cards?: Array<{
+    artifact_refs?: string[];
+    revision_of?: string | null;
+  }>;
+  agent_run?: {
+    trigger?: {
+      action_type?: string | null;
+    } | null;
+  } | null;
+  adoption_state?: {
+    pending?: Array<{ artifact_id?: string }>;
+  };
+  available_actions?: Array<{
+    action_type?: string;
+    target_ref?: string;
+  }>;
+  quality_review?: {
+    findings?: unknown[];
+  };
+}
+
+export function selectAgentRunActivitySummary<T extends { run_id?: unknown }>(
+  agentRuns: T[],
+  runId: string | null,
+): T | null {
+  if (runId !== null) {
+    return agentRuns.find((entry) => normalizedString(entry.run_id) === runId) ?? null;
+  }
+
+  return agentRuns[0] ?? null;
+}
+
+export function qualityRevisionArtifactRole(
+  turnResult: QualityRevisionTurnResultLike,
+  artifact: QualityRevisionArtifactLike | null,
+): "original" | "revision" | null {
+  if (
+    !artifact ||
+    !["prose_fragment", "scene_draft"].includes(artifact.artifact_type)
+  ) {
+    return null;
+  }
+
+  if (normalizedString(artifact.revision_base)) return "revision";
+  if (normalizedString(turnResult.trace_summary?.revision_base)) return "revision";
+
+  const revisionCardMatches = (turnResult.ui_cards ?? []).some((card) => {
+    const artifactRefs = Array.isArray(card.artifact_refs) ? card.artifact_refs : [];
+    return (
+      normalizedString(card.revision_of) !== null &&
+      artifactRefs.includes(artifact.artifact_id)
+    );
+  });
+  if (revisionCardMatches) return "revision";
+
+  const trigger = turnResult.agent_run?.trigger;
+  const artifactIsPending = (turnResult.adoption_state?.pending ?? []).some(
+    (pending) => pending.artifact_id === artifact.artifact_id,
+  );
+  if (trigger?.action_type === "revise_from_findings" && artifactIsPending) return "revision";
+
+  const exposesRevisionAction = (turnResult.available_actions ?? []).some(
+    (action) =>
+      action.action_type === "revise_from_findings" && action.target_ref === artifact.artifact_id,
+  );
+  if (exposesRevisionAction) return "original";
+
+  if ((turnResult.quality_review?.findings?.length ?? 0) > 0) return "original";
+  return null;
 }
 
 const TERMINAL_AGENT_RUN_STATUSES = new Set(["completed", "cancelled", "failed"]);
@@ -148,10 +231,20 @@ export function messageAnchorsAgentRun(
   message: AgentRunAnchorMessage,
   run: AgentRunAnchorState,
 ): boolean {
-  if (message.role !== "user") return false;
-  if (message.agentRunId && message.agentRunId === run.run_id) return true;
-  if (message.turnId && run.parent_turn_ref && message.turnId === run.parent_turn_ref) return true;
-  return false;
+  if (message.role === "user") {
+    if (run.trigger?.kind === "author_action") return false;
+    if (message.agentRunId && message.agentRunId === run.run_id) return true;
+    return Boolean(message.turnId && run.parent_turn_ref && message.turnId === run.parent_turn_ref);
+  }
+
+  const sourceTurnRef = normalizedString(run.trigger?.source_turn_ref);
+  if (run.trigger?.kind !== "author_action" || sourceTurnRef === null) return false;
+
+  const turnResult = message.turnResult as AgentRunAnchorTurnResult | undefined;
+  return (
+    normalizedString(message.turnId) === sourceTurnRef ||
+    normalizedString(turnResult?.turn_id) === sourceTurnRef
+  );
 }
 
 export function shouldRenderUserAgentRunPlaceholder(

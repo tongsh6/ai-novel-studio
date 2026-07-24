@@ -5,6 +5,12 @@
 > 2026-06-20 复核结论：普通聊天两轮真实工作台 checkpoint 已闭环。`scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 现在可从真实 Tauri 工作台输入两轮自然创作聊天，验证两轮 user/assistant 可见顺序、thinking 出现后清退、`generate_micro_plan=false`、无 `planner.form_micro_plan.*` 事件、无 action/candidate/adoption UI；`--real-lmstudio` 模式进一步证明真实 LM Studio 每轮都有对应 `form_frame` request 且 assistant 回复不是 fallback。`au01-empty-message-guard` 已补空白输入真实页面验收：空格发送不产生 `user_message` frame、不追加可见消息、不进入 thinking，随后有效普通聊天仍可完成。`au01-garbage-json-recovery` 已补 malformed provider frame JSON 真实页面验收：显示友好 fallback、raw payload 不可见、输入/Channel 可恢复并继续普通聊天。`au01-frame-validation-friendly-error` 已补 forbidden semantics frame 真实页面验收：作者看到通用友好 fallback，UI 和 websocket `turn_result` 不暴露内部 validation reason，业务日志保留详细 reason，随后普通聊天恢复。`au01-turnresult-recorder-ui-consistency` 已补同一 turn 的 UI / websocket `turn_result` / interaction recorder transcript / reload 恢复 UI 对账。AU-01 文件级退出标准已满足，可以进入 AU-02；这不等于所有产品场景完整验收，D1 trace/replay UI 归 AU-07 cross-reference，C3 no-slot-form UI 反证为 P2 后续。
 >
 > 2026-06-22 二轮复核结论：本文件第一轮 file-level deliverable 不回退。已串行复跑 5 个 AU-01 quality entry：`au01-ordinary-chat-two-turn-roundtrip`、`au01-empty-message-guard`、`au01-garbage-json-recovery`、`au01-frame-validation-friendly-error`、`au01-turnresult-recorder-ui-consistency`，并额外复跑 `bash scripts/tauri_slice_verify.sh --real-lmstudio au01-ordinary-chat-two-turn-roundtrip`。当前 evidence 仍证明普通聊天两轮可见、thinking 清退、no MicroPlan/no action/candidate/adoption、空白输入无 `user_message`、乱码/forbidden frame 友好降级且可恢复、TurnResult/recorder/reload UI 同源，真实 LM Studio 两轮 request 为 HTTP 200。2026-06-22 cross-reference 复核回填 `au07-trace-why-entry`、`au07-persisted-trace-query`、`au07-partial-replay-ui`、`au07-gate-reason-why` 和 `au07-trace-query-scope-negative-matrix`：真实 Tauri 普通聊天后点击“为什么”证明当前 turn author-safe why dialog 可见、raw prompt/provider/debug 不可见，reload 后旧 turn “为什么”会按 work/session/turn scope 查询持久 trace 并渲染 no-provider replay，缺 refs 时会诚实显示 partial warning，降级 gate 也能显示作者安全中文解释，跨 work/session/turn 负向 replay 查询 404 且不泄露 trace。未发现 AU-01 内应关闭的新 P0/P1；D1 的当前 turn why/no-provider、普通旧 turn 最小 trace query、partial replay、gate reason 和 scoped negative matrix 子证据已由 AU-07 回填，完整 replay、developer view、多类型 UI 继续作为 AU-07 P1 cross-reference，C3 no-slot-form UI 反证继续作为 P2 后续。AU-01 满足二轮退出标准，可继续 AU-02。
+>
+> 2026-07-24 普通对话 UI 降噪复验：每轮执行中仍能观察到瞬时 AgentRun 工作态，
+> 但成功完成且无独立过程叙事、计划、产物或 author_action 的 bounded run 不再保留
+> “已完成 · 创作执行”摘要；`casual_reply` 不再重复显示“AI 回应”frame badge。
+> `au01-ordinary-chat-two-turn-roundtrip` 已更新外部 driver 与真实 Tauri evidence，
+> 继续证明两轮回复顺序、瞬时活动反馈、完成后清退、no MicroPlan 和无动作卡。
 
 ---
 

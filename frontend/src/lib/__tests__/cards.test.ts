@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { UICardData as UICard } from "../../components/UICards";
 import { CandidateSetCard, DefaultCard } from "../../components/UICards";
+import { CARD } from "../copy";
 import {
   adoptionDecisionCopy,
   adoptionDecisionFollowUpAction,
@@ -87,6 +88,77 @@ describe("card type contracts", () => {
     expect(html).toContain("创作依据：直接呈现生死决策瞬间。");
     expect(html).not.toContain("不应渲染");
     expect(html).not.toContain("accept-local");
+  });
+
+  it("multi-item adoption starts unselected and keeps actions disabled until one item is chosen", () => {
+    const card = {
+      card_type: "candidate_set",
+      candidate_set_ref: "as-choice",
+      title: "角色设定草稿",
+      items: [
+        { item_id: "character-a", title: "沈砚", body: "冷峻调查者。" },
+        { item_id: "character-b", title: "云栖", body: "游离秩序的线人。" },
+      ],
+    } as UICard;
+
+    const html = renderToStaticMarkup(
+      React.createElement(CandidateSetCard, {
+        card,
+        selectionMode: true,
+        selectedItemId: null,
+        onSelectItem: () => undefined,
+        renderItemActions: (item) =>
+          React.createElement(
+            "button",
+            { "data-target": String(item.item_id) },
+            `保存 ${String(item.item_id)}`,
+          ),
+        renderEmptySelectionActions: React.createElement(
+          "button",
+          { disabled: true },
+          CARD.tentativeArtifact.candidateEmptyAcceptLabel,
+        ),
+      }),
+    );
+
+    expect(html.match(/type="radio"/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="选择方案 A：沈砚"');
+    expect(html).toContain('aria-label="选择方案 B：云栖"');
+    expect(html).toContain(CARD.tentativeArtifact.candidateSelectionRequired);
+    expect(html).toContain(CARD.tentativeArtifact.candidateEmptyAcceptLabel);
+    expect(html).not.toContain("data-target");
+  });
+
+  it("multi-item adoption renders only the selected item actions in the shared footer", () => {
+    const card = {
+      card_type: "candidate_set",
+      candidate_set_ref: "as-choice",
+      title: "角色设定草稿",
+      items: [
+        { item_id: "character-a", title: "沈砚", body: "冷峻调查者。" },
+        { item_id: "character-b", title: "云栖", body: "游离秩序的线人。" },
+      ],
+    } as UICard;
+
+    const html = renderToStaticMarkup(
+      React.createElement(CandidateSetCard, {
+        card,
+        selectionMode: true,
+        selectedItemId: "character-b",
+        onSelectItem: () => undefined,
+        renderItemActions: (item) =>
+          React.createElement(
+            "button",
+            { "data-target": String(item.item_id) },
+            `保存 ${String(item.item_id)}`,
+          ),
+      }),
+    );
+
+    expect(html).toContain("已选择：方案 B · 云栖");
+    expect(html).toContain('data-target="character-b"');
+    expect(html).not.toContain('data-target="character-a"');
+    expect(html).toContain("checked");
   });
 
   it("prose candidate_set fallback uses chapter draft language", () => {

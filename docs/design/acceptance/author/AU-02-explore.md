@@ -5,6 +5,8 @@
 > 2026-06-21 对账结论：后端 creative exploration、candidate fallback、malformed candidate 修复已有较强证据；真实 `WorkspaceChat` 已能渲染候选卡，并区分“继续讨论”“自由追问”和“设为后续方向”。`au02-natural-exploration-no-slot-form` 证明模糊创意从真实工作台进入 `creative_exploration`，自然回复和候选卡可见，且没有机械 slot form、MicroPlan、工具/确认/采纳卡或 production write；同一 driver 的 `--real-lmstudio` 变体进一步证明真实 LM Studio 请求成功，用户可见回复是中文自然语言、没有 JSON/代码块形态，候选方向语义贴合“赛博修仙”。`au02-candidate-fallback-ui` 证明上游候选坏格式时 Planner fallback 候选会以真实候选卡渲染，字段非空、`not_adopted`，且无 action/adoption/write；`au02-candidate-continuation` 证明继续讨论发送 `user_message.candidate_selection`，不提交 `author_action`、不触发 adoption、不写作品事实；`au02-candidate-multiturn-context` 证明点击继续讨论后，再发送不带候选引用的普通追问时，会话上下文仍能沿着已选候选方向继续，且无 action/adoption/write；`au02-freeform-followup-after-candidate` 证明候选卡出现后作者不点候选按钮也能直接手输自由追问，发送无 `candidate_selection` 的普通 `user_message`；`au02-candidate-adoption-bridge` 证明明确采纳才提交服务端授权 `author_action.choose_candidate` 并进入 `AdoptionBoundary`；`au02-unadopted-candidate-no-reading-fact` 证明未点击候选动作时阅读模式仍为空 TOC，候选标题/简介不进入阅读内容，且无 action/adoption/projection/write；7 个 AU-02 默认 quality acceptance 入口和 `au02-natural-exploration-no-slot-form --provider lmstudio` 均已复跑通过；`AU02-candidate-schema-codegen` 固化候选方向 schema/codegen，防止 `not_adopted` 再与 artifact adoption 7 态或旧 fixture 混淆。历史旁路工作台已退役删除，不再作为当前证据。
 >
 > 2026-06-22 二轮复核结论：本文件第一轮 file-level deliverable 不回退。已串行复跑 7 个 AU-02 默认 Tauri quality entry：`au02-natural-exploration-no-slot-form`、`au02-candidate-fallback-ui`、`au02-candidate-continuation`、`au02-candidate-multiturn-context`、`au02-freeform-followup-after-candidate`、`au02-unadopted-candidate-no-reading-fact`、`au02-candidate-adoption-bridge`，并复跑 `bash scripts/quality_accept.sh au02-natural-exploration-no-slot-form --surface tauri --provider lmstudio`。当前 evidence 继续证明模糊创意进入自然探索且无 slot form/MicroPlan/write，坏候选 fallback 可渲染为 `not_adopted` 候选卡，候选继续讨论与自由追问都不等于 adoption，未采纳候选不进入阅读/事实，明确采纳通过服务端授权 action 进入 `AdoptionBoundary`，真实 LM Studio 中文探索质量通过。D2 schema/codegen 回归也已用 `mix codegen.enums --check` 和前端候选契约测试复验。未发现 AU-02 内应关闭的新 P0/P1；高风险/stale/conflict/cross-work 采纳安全矩阵仍归 AU-05，已采纳投影完整矩阵仍归 AU-08。AU-02 满足二轮退出标准，可继续 AU-03。
+>
+> 2026-07-24 UI 对账补充：既有 Pencil `41§3-main-workbench` 已明确候选区域与 assistant 阅读列同宽，候选面板使用浅灰承载面、内部候选使用白色有边界卡片，两个动作保持等权描边。实现复核发现候选样式引用了 3 个未定义 CSS 变量，导致运行时表面和边界丢失；已按原型修正，并把宽度、表面、卡片边界和动作权重纳入 `au02-candidate-continuation` 外部驱动断言。随后用户明确新增点击后收束要求，Pencil 增加 `41§3.1-candidate-discussion-collapsed`：服务端接受“继续讨论”后，来源候选组自动折叠为可展开摘要；刷新后从 transcript 的 `candidate_selection` 恢复折叠态。折叠仍只表示 selection，不表示 adoption，也不隐藏后续新候选。对应真实 Tauri 场景须同时证明点击折叠、刷新恢复、可重新展开、无 adoption / production write。
 
 ---
 
@@ -108,8 +110,10 @@
 - 卡片展示在 AI 回复附近或明确候选区域；
 - 候选数量合理，通常 2-3 个；
 - 卡片不被误显示为正式设定或已采纳内容。
+- 作者点击“继续讨论”并收到服务端接受后，来源候选组折叠成带候选标题的摘要；
+- 刷新后该摘要从同一 session transcript 的 `candidate_selection` 恢复，作者仍可手动展开查看原候选。
 
-**当前证据**：`WorkspaceChat.tsx` 渲染 `msg.turnResult.candidate_directions`；`turn_result_candidates.test.ts` 覆盖字段存在时可渲染；`au02-candidate-continuation` 和 `au02-candidate-adoption-bridge` 都从真实 Tauri 工作台观察到候选卡。
+**当前证据**：`WorkspaceChat.tsx` 渲染 `msg.turnResult.candidate_directions`；`turn_result_candidates.test.ts` 覆盖字段存在时可渲染；`au02-candidate-continuation` 和 `au02-candidate-adoption-bridge` 都从真实 Tauri 工作台观察到候选卡。2026-07-24 的 `au02-candidate-continuation` 还验证候选面板与 assistant 阅读轨同宽，并符合 Pencil 定义的面板表面、卡片边界和等权动作。
 
 **当前状态**：Tauri 已验收。
 

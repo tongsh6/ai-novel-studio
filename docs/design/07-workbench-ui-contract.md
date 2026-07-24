@@ -388,6 +388,9 @@ candidate presented
 
 1. candidate card 必须标识 tentative。
 2. 选择 candidate 后是否需要 confirmation 由 Orchestrator 决定。
+3. “继续讨论”通过 `user_message.candidate_selection` 进入普通对话主链；服务端接受后，UI 可以把来源候选组折叠为带候选标题的可展开摘要。
+4. 折叠态必须能从同一 session transcript 中持久化的 `candidate_selection.source_turn_ref` / `candidate_ref` 恢复；不得把仅存在前端内存的布尔值当作恢复事实。
+5. 折叠只属于展示收束：它不得改变 candidate adoption 状态，不得隐藏后续新候选，也不得阻止作者重新展开并提交服务端授权的 `choose_candidate`。
 3. adoption 后 UI 才能展示 production state 已更新。
 4. projection notice 必须来自 adopted StateTrace。
 
@@ -563,6 +566,8 @@ UI 可以有本地状态，但必须限于展示层。
 - loading / optimistic disabled。
 - trace summary 是否展开。
 - projection 刷新中提示。
+
+其中候选组“默认是否折叠”可由持久 transcript 中的 `candidate_selection` 推导；作者在当前页面手动展开仍是纯本地展示状态。
 
 不允许：
 

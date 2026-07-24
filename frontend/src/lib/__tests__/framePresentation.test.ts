@@ -26,6 +26,17 @@ describe("frame presentation", () => {
     expect(presentation.tone).toBe("execution");
   });
 
+  it("does not repeat the AI role with a casual reply badge", () => {
+    const presentation = framePresentationForSummary({
+      frame_type: "casual_reply",
+      dialogue_goal: "继续普通创作讨论",
+    });
+
+    expect(presentation.visible).toBe(false);
+    expect(presentation.label).toBe("AI 回应");
+    expect(presentation.tone).toBe("reply");
+  });
+
   it("lets a downgrade decision override an execution frame badge", () => {
     const presentation = framePresentationForSummary({
       frame_type: "execution_candidate",

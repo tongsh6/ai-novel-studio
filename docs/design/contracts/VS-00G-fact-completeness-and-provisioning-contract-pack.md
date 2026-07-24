@@ -172,8 +172,10 @@ proposed_disposition），编号续接（R2 收编落地）：
   character_seed 扩到全 seed 家族（收编 user-journeys H13"伏笔/规则逐项采纳扩展"登记）。
 - 交互：45§2 引导流（候选+确认收束）与 §4.3"读文本→提取→确认卡"先例；提炼先例=
   ChapterSummaryGenerator（失败容忍+独立 prompt+采纳边界）。
-- 触发：A=负债 finding 处置动作；B=面板"发起设定盘点"（底部动作条范式）；C=对话流自动
-  提议（同一缺失只提一次、可关闭）。A+B 先行。
+- 触发：A=负债 finding 处置动作（`protagonist_undermaterialized` 卡显示「发起盘点」，
+  携 `report_id + finding_index + finding_rule`；服务端反查真实条目后记录
+  `revise_design`，再启动同一 `fact_inventory_v1`）；B=面板"发起设定盘点"（底部动作条范式）；
+  C=对话流自动提议（同一缺失只提一次、可关闭）。A+B 先行。
 - AU-12 world_setting 物化 P2 债在本包收编：盘点提案采纳后按 06 §4.5 映射落位；works
   字段类提案（骨架/创作锚）落位=立项字段回写（该债的正向链路）。
 
@@ -253,7 +255,8 @@ recommended 事实的假定等作者放行。记忆类假定无持久态，直�
 | CP3 | **done（2026-07-23，R7 除外）**：works 增 target_length/planned_volumes/serial_form（CA01 链路全复制，零新表）+WorkSkeleton domain（骨架段+收官守则[距目标禁终局]）+plot_outline 规划注入+探索面 profile 三行+**R6 骨架缺位负债规则**（profile 读容错降级）。**重放 PASS**：百章标本 R5+R6 同产（characters=0+旧 schema 无骨架→主角未物化+骨架缺位，artifacts/vs00g-replay/cp3-replay-r5-r6-2026-07-23.txt）；单测 domain 6+application 3+R6 4。**R7 提前收官登记**（需章标题/功能定位密度判定，接章计划 reader，随后） | 重放：R5+R6 同产 ✓；收官守则注入单测验证 |
 | CP4a | **done（2026-07-23）**：逐项采纳白名单扩展（per_candidate_type? 从 character_seed 扩到全 seed 家族 world_rule/foreshadowing/style_rule/constraint，收编 H13）——盘点提案逐项采纳前提件 | 单测 4 |
 | CP4b-1 | **done（2026-07-23）**：FactInventoryService 提炼引擎（材料装配→提炼 prompt→provider→结构化提案[角色/规则/伏笔]+坏 JSON 携片段重试；provider 可注入确定性可测）；单测 6 | 提炼引擎单测 + live 验证 |
-| CP4b-2 | **提炼可行性 live 验证 PASS（2026-07-23）**：真实 LM Studio gpt-oss-120b 从百章标本前 12 章正文提炼出主角林浩（PROTAGONIST）+4 配角+6 世界规则+5 伏笔，全部有依据章（artifacts/vs00g-replay/cp4b-inventory-live-probe-2026-07-23.txt；JSON 健壮性交生产坏 JSON 重试）。**剩余=run 机制建设**（fact_inventory_v1 profile+提案 seed 落位字段映射+channel+逐项采纳，确定性可验） | 提炼质量 live PASS ✓；run 机制待建 |
+| CP4b-2 | **done（2026-07-24，主动触发 B 核心链）**：在既有 live 提炼验证之上接通 `fact_inventory_v1`（model-drafted plan + mechanical inventory）、已采纳材料读端口、三类既有 seed 提案集、`start_fact_inventory` Channel 动作与作品档案底部入口；SC-AU14-B1 外部 Tauri 核心链 PASS：4 个独立 pending（角色 2/规则 1/伏笔 1）、提案阶段零写入、只采纳角色 1+规则 1 后档案投影精确为 1/1/0，另两项仍 pending。**计划内余项**：全书规划字段建议与 CP5 暂定候选/生命周期，未覆盖前 AU-14 不标 done。 | 提炼质量 live PASS ✓；主动 run+逐项采纳页面链 PASS ✓ |
+| CP4c | **done（2026-07-24，finding 触发 A）**：`protagonist_undermaterialized` 的 `revise_design` 变体显示「发起盘点」，单次命令绑定活跃报告条目并启动既有 `fact_inventory_v1`；SC-AU14-A1 外部 Tauri 全链 PASS：空档案 10 章触发唯一 finding，逐项采纳主角沈砚后角色档案可见，下一章正文采纳令弧光账首次出现沈砚，且不倒灌历史账面。 | finding→盘点→逐项采纳→后续正文→弧光起账 PASS ✓ |
 | CP5 | 暂用态字段（provisional_source/active）+可标注注入通道+「暂定设定」视图+触发 C | SC-AU14-A2 |
 
 ---

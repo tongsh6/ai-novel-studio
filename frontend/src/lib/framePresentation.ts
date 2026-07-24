@@ -82,7 +82,7 @@ export function framePresentationForSummary(
     };
 
   return {
-    visible: frameType.length > 0,
+    visible: frameType.length > 0 && frameType !== "casual_reply",
     label: presentation.label,
     tone: presentation.tone,
     goal,

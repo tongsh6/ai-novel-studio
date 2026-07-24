@@ -1,5 +1,5 @@
-// Design: docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md §7/§15
-// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
+// Design: docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md §7/§15; docs/design/ui/46-state-and-feedback.md §9.8
+// Prototype: novel-studio.pen → 46§9.8-quality-revision-ready (AH4WW)
 import { Children, isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
@@ -95,7 +95,9 @@ describe("QualityReviewCard", () => {
     };
 
     // 无修订入口（例如阅读态）→ 不渲染重写按钮
-    expect(collectText(QualityReviewCard({ review }))).not.toContain(CARD.qualityReview.reviseButton);
+    expect(collectText(QualityReviewCard({ review }))).not.toContain(
+      CARD.qualityReview.reviseButton,
+    );
 
     // 有修订入口且已全选 → 渲染“按这些问题重写”
     const withRevise = collectText(
@@ -108,5 +110,38 @@ describe("QualityReviewCard", () => {
     );
     expect(withRevise).toContain(CARD.qualityReview.reviseButton);
     expect(withRevise).toContain(CARD.qualityReview.reviseHint);
+  });
+
+  it("switches from short submit feedback to a stable submitted decision state", () => {
+    const review: QualityReviewView = {
+      status: "warnings",
+      policy_action: "proceed_with_warning",
+      review_status: "completed",
+      findings: [
+        {
+          quality_gate: "quality_gate.style_fit",
+          validator: "validator.prose_pattern_repetition",
+          severity: "warn",
+          action: "warn",
+          summary: "句式节奏单一",
+        },
+      ],
+    };
+
+    const submitted = collectText(
+      QualityReviewCard({
+        review,
+        selectedFindingIds: ["validator.prose_pattern_repetition"],
+        onToggleFinding: () => {},
+        onRevise: () => {},
+        revisionStarted: true,
+      }),
+    );
+
+    expect(submitted).toContain(CARD.qualityReview.revisionSubmittedSummary(1));
+    expect(submitted).toContain(CARD.qualityReview.revisionSubmittedExpand);
+    expect(submitted).toContain("句式节奏单一");
+    expect(submitted).not.toContain(CARD.qualityReview.reviseButton);
+    expect(submitted).not.toContain(CARD.qualityReview.revisingButton);
   });
 });

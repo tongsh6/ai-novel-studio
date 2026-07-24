@@ -15,7 +15,7 @@
 | `VS-00D-ai-guided-authoring-contract-pack.md` | AI 引导式创作三层 + Message 契约 |
 | `VS-00E-prose-execution-quality-contract-pack.md` | 正文场级执行简述 + 独立质量评估 + 修订候选（ProseExecutionBriefV1 / QualityFinding / revise_from_findings；ADR-0020；CP0–CP3） |
 | `VS-00F-five-ledgers-three-state-contract-pack.md` | 五本账（E33-E37）对象化 + 三态对账机制（LedgerEntry 信封 / 两级对账节拍 / 处置枚举；08 NEM-GAP-05/06；**Proposed 待冻结**，M2 漂移实证拉动） |
-- `VS-00G-fact-completeness-and-provisioning-contract-pack.md` — **Proposed**：承重事实完备性与补全回路（承重事实清单 manifest/缺席守则/设计负债规则族/设定盘点/工作假定/全书骨架）——M3 审计三病灶（地基事实真空/收官循环/在场但无效）的合并修法契约；8 项开放问题待拍板，冻结前不编码。
+- `VS-00G-fact-completeness-and-provisioning-contract-pack.md` — **Frozen / CP4b-2 core done, CP4 doing**：承重事实完备性与补全回路（承重事实清单 manifest/缺席守则/设计负债规则族/设定盘点/工作假定/全书骨架）；`fact_inventory_v1` 主动入口与选择性采纳核心链已通过真实 Tauri，当前沿 `tasks/slices/VS-00G-fact-inventory-run.md` 继续 finding 触发 A 与规划字段建议。
 | `UA-01-unified-agent-run-loop-contract-pack.md` | 统一 AgentRun 循环与可打断创作对话流（AgentRun / AgentStep / AgentEvent；ADR-0021；UA-CP0–CP4 进行中，CP5/CP6 未实现） |
 | `VS-01-execution-authority-contract-pack.md` | 执行权与降级确认 |
 | `VS-02-tool-provenance-contract-pack.md` | 工具调用溯源（ToolRequest/Result/Trace） |

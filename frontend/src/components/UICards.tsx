@@ -1,11 +1,12 @@
-// Design: docs/design/ui/42-card-system.md §3 (card component rendering)
-// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
+// Design: docs/design/ui/42-card-system.md §3
+// Design: docs/design/ui/46-state-and-feedback.md §9.8
+// Prototype: novel-studio.pen → 42§4-adoption-card-exclusive-choice (IIPsi), 46§9.8-quality-revision-ready (AH4WW)
 import type { ReactNode } from "react";
 
 import { CARD } from "../lib/copy";
 import type { UiCard } from "../lib/schemas";
 import styles from "./UICards.module.css";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Loader2 } from "lucide-react";
 
 // 卡片形状来自 codegen（docs/design/schemas/foundation/ui_card.json，ADR-0024 决策 2/3）。
 // 未知 card_type 的漂移告警在校验层（lib/turnResultWire.ts）完成，这里只负责容错渲染。
@@ -114,6 +115,7 @@ export function QualityReviewCard({
   onToggleAllFindings,
   onRevise,
   revising = false,
+  revisionStarted = false,
 }: {
   review: QualityReviewView;
   selectedFindingIds?: string[];
@@ -121,6 +123,7 @@ export function QualityReviewCard({
   onToggleAllFindings?: () => void;
   onRevise?: () => void;
   revising?: boolean;
+  revisionStarted?: boolean;
 }) {
   if (review.review_status === "unavailable") {
     return (
@@ -139,15 +142,73 @@ export function QualityReviewCard({
   }
 
   const allSelected = selectedFindingIds.length === review.findings.length;
+  const revisionDecisionLocked = revising || revisionStarted;
+
+  if (revisionStarted) {
+    return (
+      <details className={styles.qualityReviewSubmitted}>
+        <summary className={styles.qualityReviewSubmittedSummary}>
+          <span className={styles.buttonIconText}>
+            <Check size={14} aria-hidden="true" />
+            <span>{CARD.qualityReview.revisionSubmittedSummary(review.findings.length)}</span>
+          </span>
+          <span className={styles.qualityReviewSubmittedExpand}>
+            {CARD.qualityReview.revisionSubmittedExpand}
+          </span>
+          <span className={styles.qualityReviewSubmittedCollapse}>
+            {CARD.qualityReview.revisionSubmittedCollapse}
+          </span>
+        </summary>
+        <div className={styles.qualityReviewSubmittedBody}>
+          <div className={styles.findingsList}>
+            {review.findings.map((finding, index) => {
+              const evidence = displayText(finding.evidence_spans?.[0]?.text);
+              const gateLabel = finding.quality_gate
+                ? CARD.qualityReview.gateLabels[finding.quality_gate] ||
+                  finding.quality_gate.replace("quality_gate.", "").toUpperCase()
+                : "";
+
+              return (
+                <div key={index} className={styles.findingCard}>
+                  <div className={styles.findingCardHeader}>
+                    <div className={styles.findingCardContent}>
+                      <div className={styles.findingSummaryContainer}>
+                        {gateLabel && (
+                          <span className={styles.findingCategoryBadge}>{gateLabel}</span>
+                        )}
+                        <span className={styles.findingSummary}>{finding.summary}</span>
+                      </div>
+                      {evidence && (
+                        <blockquote className={styles.evidenceQuote}>
+                          <span className={styles.evidencePrefix}>
+                            {CARD.qualityReview.evidencePrefix}
+                          </span>
+                          {evidence}
+                        </blockquote>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </details>
+    );
+  }
 
   return (
-    <div className={`${styles.card} ${styles.warningCard}`}>
+    <div className={`${styles.card} ${styles.warningCard} ${styles.qualityReviewCard}`}>
       <div className={styles.header}>
         <AlertTriangle className={styles.warningIconLucide} size={16} />
         <div className={styles.title}>{CARD.qualityReview.title(review.findings.length)}</div>
       </div>
 
-      <div className={`${styles.findingsContainer} ${revising ? styles.revisingContainer : ""}`}>
+      <div
+        className={`${styles.findingsContainer} ${
+          revisionDecisionLocked ? styles.revisingContainer : ""
+        }`}
+      >
         {onRevise && review.findings.length > 1 && onToggleAllFindings && (
           <div className={styles.selectAllRow}>
             <label className={styles.selectAllLabel}>
@@ -155,7 +216,7 @@ export function QualityReviewCard({
                 type="checkbox"
                 checked={allSelected}
                 onChange={onToggleAllFindings}
-                disabled={revising}
+                disabled={revisionDecisionLocked}
               />
               <span>全选所有可改进问题</span>
             </label>
@@ -179,7 +240,7 @@ export function QualityReviewCard({
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      disabled={revising}
+                      disabled={revisionDecisionLocked}
                       onChange={() => onToggleFinding(findingId)}
                       className={styles.findingCheckbox}
                     />
@@ -187,9 +248,7 @@ export function QualityReviewCard({
                   <div className={styles.findingCardContent}>
                     <div className={styles.findingSummaryContainer}>
                       {gateLabel && (
-                        <span className={styles.findingCategoryBadge}>
-                          {gateLabel}
-                        </span>
+                        <span className={styles.findingCategoryBadge}>{gateLabel}</span>
                       )}
                       <span className={styles.findingSummary}>{finding.summary}</span>
                     </div>
@@ -217,9 +276,14 @@ export function QualityReviewCard({
               type="button"
               className={styles.btnSecondary}
               onClick={onRevise}
-              disabled={revising || selectedFindingIds.length === 0}
+              disabled={revisionDecisionLocked || selectedFindingIds.length === 0}
             >
-              {revising ? (
+              {revisionStarted ? (
+                <span className={styles.buttonIconText}>
+                  <Check size={14} aria-hidden="true" />
+                  <span>{CARD.qualityReview.revisionStartedButton}</span>
+                </span>
+              ) : revising ? (
                 <span className={styles.buttonIconText}>
                   <Loader2 className={styles.spinner} size={14} />
                   <span>
@@ -258,46 +322,133 @@ export function ResultCard({ card }: Props) {
 export function CandidateSetCard({
   card,
   renderItemActions,
+  selectionMode = false,
+  selectedItemId = null,
+  onSelectItem,
+  renderEmptySelectionActions,
 }: Props & {
-  // 逐候选采纳动作渲染器：动作数据仍全部来自 available_actions（卡片数据不携带
-  // 动作，N-SURF），这里只是把对应候选的按钮渲染进该候选卡片内部，消除底部
-  // 平铺重复按钮的归属歧义。多候选左右铺开由 candidateItems 网格承担。
+  // 动作数据仍全部来自 available_actions（卡片数据不携带动作，N-SURF）。
+  // selectionMode 只改变动作的可见归属：先选中一项，再在统一底栏渲染该项动作。
   renderItemActions?: (item: Record<string, unknown>, index: number) => ReactNode;
+  selectionMode?: boolean;
+  selectedItemId?: string | null;
+  onSelectItem?: (itemId: string) => void;
+  renderEmptySelectionActions?: ReactNode;
 }) {
   const items = Array.isArray(card.items) ? card.items : [];
   const fallbackCopy = artifactDraftCopy(card);
   const title = card.title || fallbackCopy.title;
   const description = card.body || fallbackCopy.body;
+  const itemViews = items.map((item: Record<string, unknown>, index) => {
+    const itemTitle = displayText(item.title) || `候选 ${index + 1}`;
+    const itemId = displayText(item.item_id);
+    const actions = renderItemActions?.(item, index);
+    return {
+      item,
+      index,
+      itemId,
+      itemTitle,
+      body: displayText(item.body),
+      rationale: displayText(item.rationale),
+      actions,
+      selectable: itemId !== null && actions !== null && actions !== undefined,
+      optionLabel: CARD.tentativeArtifact.candidateOptionLabel(index),
+    };
+  });
+  const selectedItem = selectionMode
+    ? itemViews.find((item) => item.itemId === selectedItemId && item.selectable)
+    : undefined;
+  const selectionGroupName = `candidate-selection-${card.candidate_set_ref || title}`;
 
   return (
-    <div className={`${styles.card} ${styles.candidateSetCard}`}>
+    <div
+      className={`${styles.card} ${styles.candidateSetCard} ${
+        selectionMode ? styles.candidateChoiceSetCard : ""
+      }`}
+    >
       <div className={styles.header}>
         <div className={styles.title}>{title}</div>
       </div>
       {description && <div className={styles.body}>{description}</div>}
+      {selectionMode && (
+        <div className={styles.candidateChoiceInstruction}>
+          {CARD.tentativeArtifact.candidateSelectionInstruction}
+        </div>
+      )}
       {items.length > 0 && (
-        <div className={styles.candidateItems}>
-          {items.map((item: Record<string, unknown>, index) => {
-            const title = displayText(item.title) || `候选 ${index + 1}`;
-            const body = displayText(item.body);
-            const rationale = displayText(item.rationale);
-            const key = typeof item.item_id === "string" ? item.item_id : `${title}-${index}`;
-            const actions = renderItemActions?.(item, index);
-
-            return (
-              <article key={key} className={styles.candidateItem}>
-                <div className={styles.candidateItemTitle}>{title}</div>
-                {body && <div className={styles.candidateItemBody}>{body}</div>}
-                {rationale && (
-                  <div className={styles.candidateItemRationale}>
-                    {CARD.artifactDraft.rationalePrefix}
-                    {rationale}
-                  </div>
-                )}
-                {actions ? <div className={styles.candidateItemActions}>{actions}</div> : null}
-              </article>
-            );
-          })}
+        <div
+          className={styles.candidateItems}
+          role={selectionMode ? "radiogroup" : undefined}
+          aria-label={selectionMode ? title : undefined}
+        >
+          {itemViews.map(
+            ({ index, itemId, itemTitle, body, rationale, actions, selectable, optionLabel }) => {
+              const key = itemId || `${itemTitle}-${index}`;
+              const selected = selectionMode && itemId === selectedItem?.itemId;
+              return (
+                <article
+                  key={key}
+                  className={`${styles.candidateItem} ${
+                    selectionMode ? styles.candidateChoiceItem : ""
+                  } ${selected ? styles.candidateItemSelected : ""} ${
+                    selectionMode && !selectable ? styles.candidateItemHandled : ""
+                  }`}
+                >
+                  {selectionMode && itemId ? (
+                    <label className={styles.candidateChoiceHeader}>
+                      <input
+                        type="radio"
+                        name={selectionGroupName}
+                        value={itemId}
+                        checked={selected}
+                        disabled={!selectable}
+                        aria-label={CARD.tentativeArtifact.candidateSelectionAriaLabel(
+                          optionLabel,
+                          itemTitle,
+                        )}
+                        onChange={() => onSelectItem?.(itemId)}
+                      />
+                      <span className={styles.candidateChoiceOption}>
+                        {optionLabel} · {itemTitle}
+                      </span>
+                      {!selectable && (
+                        <span className={styles.candidateChoiceHandled}>
+                          {CARD.tentativeArtifact.candidateHandledLabel}
+                        </span>
+                      )}
+                    </label>
+                  ) : (
+                    <div className={styles.candidateItemTitle}>{itemTitle}</div>
+                  )}
+                  {body && <div className={styles.candidateItemBody}>{body}</div>}
+                  {rationale && (
+                    <div className={styles.candidateItemRationale}>
+                      {CARD.artifactDraft.rationalePrefix}
+                      {rationale}
+                    </div>
+                  )}
+                  {!selectionMode && actions ? (
+                    <div className={styles.candidateItemActions}>{actions}</div>
+                  ) : null}
+                </article>
+              );
+            },
+          )}
+        </div>
+      )}
+      {selectionMode && (
+        <div className={styles.candidateSelectionFooter}>
+          <div className={styles.candidateSelectionStatus} aria-live="polite">
+            {selectedItem
+              ? CARD.tentativeArtifact.candidateSelectedSummary(
+                  selectedItem.optionLabel,
+                  selectedItem.itemTitle,
+                )
+              : CARD.tentativeArtifact.candidateSelectionRequired}
+          </div>
+          <div className={styles.candidateSelectionActions}>
+            {selectedItem?.actions ?? renderEmptySelectionActions}
+          </div>
         </div>
       )}
     </div>

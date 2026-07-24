@@ -1,4 +1,5 @@
 import { apiBaseUrl } from "./env";
+import type { CandidateSelectionPayload } from "./socket";
 import { parseIncomingTurnResult, type WireTurnResult } from "./turnResultWire";
 
 export interface WorkSessionDto {
@@ -20,6 +21,7 @@ export interface SessionTranscriptEntry {
   turn_id: string;
   role: "user" | "assistant" | "system";
   text: string;
+  candidate_selection?: CandidateSelectionPayload | null;
   turn_result: Record<string, unknown> | null;
   inserted_at?: string | null;
 }
@@ -73,6 +75,7 @@ export interface ChatMessageFromTranscript {
   role: "user" | "assistant";
   text: string;
   turnId?: string | null;
+  candidateSelection?: CandidateSelectionPayload | null;
   turnResult?: WireTurnResult;
 }
 
@@ -260,6 +263,7 @@ export function transcriptToMessages(
       role: entry.role,
       text: entry.text,
       turnId: entry.turn_id,
+      ...(entry.candidate_selection ? { candidateSelection: entry.candidate_selection } : {}),
       // 恢复的历史 turn_result 与 Channel 广播走同一契约校验入口（漂移告警、容错透传）。
       ...(entry.turn_result ? { turnResult: parseIncomingTurnResult(entry.turn_result) } : {}),
     }));

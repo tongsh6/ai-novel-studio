@@ -40,6 +40,57 @@ export interface AgenticLoopReasoningFlow {
   narrativeEvents: AgenticLoopNarrativeEvent[];
 }
 
+function normalizedNarrativeForComparison(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function omitNarrativesRepeatedInAssistantMessage(
+  events: AgenticLoopNarrativeEvent[],
+  assistantMessageText?: string,
+): AgenticLoopNarrativeEvent[] {
+  if (!assistantMessageText?.trim()) return events;
+
+  const assistantNarrativeBlocks = new Set(
+    [assistantMessageText, ...assistantMessageText.split(/\n\s*\n+/)]
+      .map(normalizedNarrativeForComparison)
+      .filter((value) => value !== ""),
+  );
+
+  return events.filter(
+    (event) => !assistantNarrativeBlocks.has(normalizedNarrativeForComparison(event.narrative)),
+  );
+}
+
+interface AgentRunDialogueStatusVisibility {
+  status?: string | null;
+  runMode?: string | null;
+  triggerKind?: string | null;
+  narrativeCount: number;
+  planStepCount: number;
+  pendingArtifactCount: number;
+  draftCharCount?: number | null;
+}
+
+export function shouldShowAgentRunDialogueStatus({
+  status,
+  runMode,
+  triggerKind,
+  narrativeCount,
+  planStepCount,
+  pendingArtifactCount,
+  draftCharCount,
+}: AgentRunDialogueStatusVisibility): boolean {
+  if (status !== "completed") return true;
+
+  return (
+    narrativeCount > 0 ||
+    planStepCount > 0 ||
+    pendingArtifactCount > 0 ||
+    (draftCharCount ?? 0) > 0 ||
+    runMode === "durable" ||
+    triggerKind === "author_action"
+  );
+}
 
 function stringPayloadValue(
   payload: Record<string, unknown> | undefined,
@@ -313,9 +364,6 @@ function stringRecordValue(
   const value = record?.[key];
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
-
-
-
 
 
 

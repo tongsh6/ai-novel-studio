@@ -100,7 +100,15 @@
 | MATCHED / DEVIATED / UNPLANNED | 相符 / 偏离 / 计划外 |
 | 四处置 revise_design/revise_prose/accept_drift/dismiss | 修订设定 / 修订正文 / 接受走向 / 标记误报 |
 
+`protagonist_undermaterialized` 是 `revise_design` 的**引导物化变体**：卡片不显示泛化的
+「修订设定」，而显示主动作 **「发起盘点」**。点击时必须把当前
+`report_id + finding_index + finding_rule` 绑定到 `start_fact_inventory`；服务端反查活跃报告
+与真实规则、记录既有 `revise_design` 处置后，启动现有 `fact_inventory_v1`。它不是第五种处置，
+也不是前端代发一条泛化聊天 prompt。其它三项仍作为次级选择保留。
+
 整合红线（防加法式冗余，2026-07-21 用户原则）：审读摘要行并入**概览** L1（跳转脉络页）；脉络页内"信息与伏笔/角色弧光"只放进度态+跳转，**不复制**伏笔/角色 tab 的对象列表；待处置计数与收起态 rail 的待采纳同一视觉语言；"修订正文"处置复用 revise_from_findings 动作链；"发起全书审读"走各 tab 底部动作条既有范式。另一条同批修复：对话区会话内容限最大列宽（面板收起时不允许左右消息贴满全宽拉开）。
+
+桌面工作台的作品档案收起态 rail 基准宽度为 **128px**，只保留“档案图标 + 档案短标签 + 待采纳数字 badge”；会话历史移到顶栏作品上下文入口，避免把对话历史与作品对象混成同一信息架构。展开面板仍为 **500px**。该宽度不得通过压缩正文阅读行宽获得，1280×800 基准窗口下必须保留主对话区的 880px 操作宽度。
 
 原型：`novel-studio.pen → 43§5-9-threads-panel (uyZGw)`。
 

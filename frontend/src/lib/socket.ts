@@ -96,6 +96,17 @@ export interface AgentEventData {
   emitted_at?: string | null;
 }
 
+export interface AgentRunTriggerData {
+  kind?: string | null;
+  receipt_id?: string | null;
+  action_id?: string | null;
+  action_type?: string | null;
+  source_turn_ref?: string | null;
+  source_surface_ref?: string | null;
+  target_artifact_ref?: string | null;
+  quality_finding_refs?: string[];
+}
+
 export interface AgentRunStateData {
   run_id: string;
   run_mode: string;
@@ -107,6 +118,13 @@ export interface AgentRunStateData {
   parent_turn_ref?: string | null;
   origin_frame_ref?: string | null;
   profile_ref?: string | null;
+  trigger?: AgentRunTriggerData | null;
+  current_activity?: {
+    kind?: string;
+    phase?: string;
+    completed_steps?: number;
+    total_steps?: number;
+  } | null;
   goal?: { text?: string; version?: number };
   current_step_ref?: string | null;
   completed_step_refs?: string[];
@@ -179,16 +197,31 @@ export interface AuthorActionPayload {
   payload?: Record<string, unknown>;
 }
 
+export interface AuthorActionResult {
+  received: boolean;
+  action_status: string;
+  duplicate?: boolean;
+  receipt_id?: string | null;
+  run_id?: string;
+  run_mode?: string;
+  long_run_task_ref?: string | null;
+  turn_id?: string;
+  source_turn_ref?: string;
+  source_surface_ref?: string;
+  target_artifact_ref?: string;
+  profile_ref?: string;
+  goal?: { text?: string; version?: number };
+  trigger?: AgentRunTriggerData | null;
+}
+
 export function sendAuthorAction(
   channel: Channel,
   action: AuthorActionPayload,
-): Promise<{ received: boolean; action_status: string; duplicate?: boolean }> {
+): Promise<AuthorActionResult> {
   return new Promise((resolve, reject) => {
     channel
       .push("author_action", { action }, LLM_TURN_TIMEOUT_MS)
-      .receive("ok", (response) =>
-        resolve(response as { received: boolean; action_status: string; duplicate?: boolean }),
-      )
+      .receive("ok", (response) => resolve(response as AuthorActionResult))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("author_action timeout")));
   });

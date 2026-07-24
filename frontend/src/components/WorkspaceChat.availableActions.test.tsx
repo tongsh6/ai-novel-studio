@@ -6,9 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   WorkspaceCandidatePanel,
   WorkspaceSessionList,
+  type ArtifactEntry,
   type CandidateDirection,
   type TurnResult,
 } from "./WorkspaceChat";
+import { qualityRevisionArtifactRole } from "../lib/agentRunAnchoring";
 import { WORKBENCH } from "../lib/copy";
 import { toAuthorActionPayload } from "../lib/workbenchActions";
 import type { AuthorActionPayload } from "../lib/socket";
@@ -147,6 +149,98 @@ const session = (overrides: Partial<WorkSessionDto>): WorkSessionDto => ({
   ...overrides,
 });
 
+const proseArtifact = (overrides: Partial<ArtifactEntry> = {}): ArtifactEntry => ({
+  artifact_id: "artifact-revision-1",
+  artifact_type: "prose_fragment",
+  adoption_status: "tentative",
+  requires_adoption: true,
+  payload: { title: "修订草稿" },
+  ...overrides,
+});
+
+describe("WorkspaceChat quality revision action labels", () => {
+  it("recognizes a revision from the trace summary emitted by the revision flow", () => {
+    const artifact = proseArtifact();
+    const result = turnResult({
+      adoption_state: { pending: [artifact], resolved: [] },
+      trace_summary: { revision_base: "artifact-original-1" },
+    });
+
+    expect(qualityRevisionArtifactRole(result, artifact)).toBe("revision");
+  });
+
+  it("recognizes a revision from its candidate card or author-action trigger fallback", () => {
+    const artifact = proseArtifact();
+    const cardResult = turnResult({
+      adoption_state: { pending: [artifact], resolved: [] },
+      ui_cards: [
+        {
+          card_type: "candidate_set",
+          artifact_refs: [artifact.artifact_id],
+          revision_of: "artifact-original-1",
+        },
+      ],
+    });
+    const triggerResult = turnResult({
+      adoption_state: { pending: [artifact], resolved: [] },
+      agent_run: {
+        run_id: "run-revision-1",
+        run_mode: "bounded",
+        status: "completed",
+        trigger: {
+          kind: "author_action",
+          action_type: "revise_from_findings",
+          target_artifact_ref: "artifact-original-1",
+        },
+      },
+    });
+
+    expect(qualityRevisionArtifactRole(cardResult, artifact)).toBe("revision");
+    expect(qualityRevisionArtifactRole(triggerResult, artifact)).toBe("revision");
+  });
+
+  it("keeps a reviewed source artifact independently identifiable as the original", () => {
+    const artifact = proseArtifact({ artifact_id: "artifact-original-1" });
+    const result = turnResult({
+      adoption_state: { pending: [artifact], resolved: [] },
+      quality_review: {
+        status: "failed",
+        policy_action: "warn",
+        review_status: "completed",
+        findings: [
+          {
+            quality_gate: "style",
+            validator: "prose_quality",
+            severity: "warning",
+            action: "revise",
+            summary: "句式节奏单一",
+          },
+        ],
+      },
+    });
+
+    expect(qualityRevisionArtifactRole(result, artifact)).toBe("original");
+  });
+
+  it("restores the original role from its revise action when history omits quality details", () => {
+    const artifact = proseArtifact({ artifact_id: "artifact-original-1" });
+    const result = turnResult({
+      adoption_state: { pending: [artifact], resolved: [] },
+      available_actions: [
+        {
+          action_id: "revise-from-findings-1",
+          action_type: "revise_from_findings",
+          source_turn_ref: "turn-original-1",
+          target_ref: artifact.artifact_id,
+          enabled: true,
+        },
+      ],
+    });
+
+    expect(qualityRevisionArtifactRole(result, artifact)).toBe("original");
+  });
+});
+
 describe("WorkspaceChat candidate controls", () => {
   it("continues discussion without submitting a choose_candidate author_action", () => {
     const result = turnResult({
@@ -184,6 +278,24 @@ describe("WorkspaceChat candidate controls", () => {
     button.props.onClick?.();
 
     expect(continued).toEqual([result.candidate_directions![0]]);
+  });
+
+  it("collapses a continued candidate group into a disclosure without claiming adoption", () => {
+    const result = turnResult();
+    const tree = WorkspaceCandidatePanel({
+      turnResult: result,
+      candidates: result.candidate_directions ?? [],
+      loading: false,
+      socketConnected: true,
+      continuedCandidateRef: "dir-1",
+      onCandidateContinue: vi.fn(),
+      onCandidateAdopt: vi.fn(),
+    });
+
+    expect(tree.type).toBe("details");
+    expect(textContent(tree)).toContain("已沿「赛博公司垄断流」继续讨论");
+    expect(textContent(tree)).toContain(WORKBENCH.candidateCollapsedExpandLabel);
+    expect(textContent(tree)).not.toContain("已采纳");
   });
 
   it("submits the server action payload from the adopt button", () => {

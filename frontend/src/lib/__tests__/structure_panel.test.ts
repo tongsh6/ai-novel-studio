@@ -5,6 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StructurePanel } from "../../components/StructurePanel";
 import type { ArtifactEntry } from "../../components/WorkspaceChat";
 import { STRUCTURE_PANEL } from "../copy";
+import {
+  isFindingFactInventoryAction,
+  reviewFindingDispositionLabel,
+} from "../reviewFindingActions";
 import { useAppStore } from "../store";
 
 const artifact: ArtifactEntry = {
@@ -71,6 +75,25 @@ function renderPanel(
 }
 
 describe("StructurePanel available action contract", () => {
+  it("turns only the protagonist missing revise_design action into the bound inventory entry", () => {
+    const protagonistFinding = {
+      rule: "protagonist_undermaterialized",
+      ledger: "design_debt",
+      signal: "已采纳正文达到 10 章，但角色档案中没有主角。",
+      proposed_disposition: "revise_design",
+    };
+    const otherFinding = {
+      ...protagonistFinding,
+      rule: "work_skeleton_missing",
+    };
+
+    expect(isFindingFactInventoryAction(protagonistFinding, "revise_design")).toBe(true);
+    expect(reviewFindingDispositionLabel(protagonistFinding, "revise_design")).toBe("发起盘点");
+    expect(isFindingFactInventoryAction(protagonistFinding, "revise_prose")).toBe(false);
+    expect(isFindingFactInventoryAction(otherFinding, "revise_design")).toBe(false);
+    expect(reviewFindingDispositionLabel(otherFinding, "revise_design")).toBe("修订设定");
+  });
+
   it("keeps character creation as a role-design intent instead of foreshadowing copy", () => {
     expect(STRUCTURE_PANEL.createCharacterPrompt).toContain("角色");
     expect(STRUCTURE_PANEL.createCharacterPrompt).not.toContain("伏笔");
@@ -81,6 +104,8 @@ describe("StructurePanel available action contract", () => {
     expect(STRUCTURE_PANEL.panelActions.outline.label).toBe("发起大纲调整");
     expect(STRUCTURE_PANEL.panelActions.outline.hint).toContain("对话区");
     expect(STRUCTURE_PANEL.panelActions.overview.label).toBe("发起综合修订");
+    expect(STRUCTURE_PANEL.factInventory.label).toBe("发起设定盘点");
+    expect(STRUCTURE_PANEL.factInventory.hint).toContain("逐项确认后才进入档案");
     expect(STRUCTURE_PANEL.profile.reviseLabel).toBe("提出立项修订");
     expect(STRUCTURE_PANEL.profile.revisePrompt).toContain("待采纳的设定修订草稿");
     expect(STRUCTURE_PANEL.profile.readFailureTitle).toBe("作品档案读取失败");
@@ -93,8 +118,9 @@ describe("StructurePanel available action contract", () => {
     const html = renderPanel(() => ({ enabled: true }), []);
 
     expect(html).toContain("提出立项修订");
+    expect(html).toContain("发起设定盘点");
     expect(html).toContain("发起综合修订");
-    expect(html).toContain("跨模块调整，转到对话区拆分确认。");
+    expect(html).toContain("从已采纳正文提炼角色、规则与伏笔");
   });
 
   it("routes pending outline drafts to the outline tab instead of foreshadowing", () => {

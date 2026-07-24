@@ -124,6 +124,21 @@ UI 不得把 `next_action`、`action_type` 和按钮中文文案混成同一个�
 2. 把候选值在确认前当作已执行参数。
 3. 用 UI 文案创造新的 `action_type`。
 
+### 4.3 多候选逐项操作
+
+当一张 `candidate_set` 同时展示多个条目时，UI 必须先检查
+`available_actions[].target_ref` 的真实粒度：
+
+- 若至少两个条目分别存在 `<candidate_set_ref>::<item_id>` 形式的独立 action
+  target，卡片使用单选控件绑定“本次操作对象”；未选择时底栏操作禁用，选择后只渲染
+  当前条目的 `accept` / `discard` / `edit_then_accept` 动作。
+- 单选只限定本次动作目标，不自动废弃其他条目。一次动作完成后，其他仍为 pending 的
+  候选继续保留待处理。
+- 若 action target 只指向整个 candidate set，则维持整组操作，不得用前端单选制造
+  “只处理一项”的假象。
+- 该交互对应 Pencil 原型
+  `novel-studio.pen → 42§4-adoption-card-exclusive-choice (IIPsi)`。
+
 ---
 
 ## 5. 验收标准约束

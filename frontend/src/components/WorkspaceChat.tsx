@@ -1,7 +1,7 @@
 // Design: docs/design/ui/41-workbench-layout.md §2 (3-zone workbench)
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
-// Design: docs/design/ui/46-state-and-feedback.md §9 (Agentic loop reasoning flow)
-// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 46§9-agentic-loop-reasoning-flow (DM8gx)
+// Design: docs/design/ui/46-state-and-feedback.md §9 / §9.8 (AgentRun + action receipt)
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl)
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -10,6 +10,7 @@ import {
   Archive,
   BookOpen,
   Bot,
+  Check,
   ChevronDown,
   CircleHelp,
   Loader2,
@@ -38,6 +39,9 @@ import {
   type AgentEventData,
   type AgentCommand,
   type AgentRunStateData,
+  type AgentRunTriggerData,
+  type AuthorActionResult,
+  type CandidateSelectionPayload,
   type SendMessageResult,
   type TaskStateData,
 } from "../lib/socket";
@@ -84,6 +88,8 @@ import {
 import {
   activeToolActivity,
   agentRunReasoningFlow,
+  omitNarrativesRepeatedInAssistantMessage,
+  shouldShowAgentRunDialogueStatus,
   type AgentRunProviderUsageData,
 } from "../lib/agentRunTimeline";
 import {
@@ -116,6 +122,7 @@ import {
   STRUCTURE_PANEL,
   TRACE,
   WORKBENCH,
+  candidateDiscussionCollapsedText,
   candidateContinuationText,
 } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
@@ -124,6 +131,8 @@ import {
   bindAgentRunAckToUserMessage,
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
+  qualityRevisionArtifactRole,
+  selectAgentRunActivitySummary,
   shouldRenderAnchoredAgentRunStatus,
   shouldRenderStandaloneAgentRunStatus,
   shouldRenderUserAgentRunPlaceholder,
@@ -152,6 +161,7 @@ export type TurnResult = WireTurnResult & {
     events?: AgentEventData[];
     provider_runs?: AgentRunProviderUsageData[];
     activity_loaded?: boolean;
+    trigger?: AgentRunTriggerData | null;
   };
 };
 
@@ -182,6 +192,7 @@ export interface ChatMessage {
   turnId?: string | null;
   clientMessageId?: string;
   agentRunId?: string | null;
+  candidateSelection?: CandidateSelectionPayload | null;
   turnResult?: TurnResult;
 }
 
@@ -232,6 +243,7 @@ export interface WorkspaceCandidatePanelProps {
   candidates: CandidateDirection[];
   loading: boolean;
   socketConnected: boolean;
+  continuedCandidateRef?: string | null;
   onCandidateContinue: (turnResult: TurnResult, candidate: CandidateDirection) => void;
   onCandidateAdopt: (turnResult: TurnResult, action: AvailableActionLike) => void;
 }
@@ -241,11 +253,15 @@ export function WorkspaceCandidatePanel({
   candidates,
   loading,
   socketConnected,
+  continuedCandidateRef = null,
   onCandidateContinue,
   onCandidateAdopt,
 }: WorkspaceCandidatePanelProps) {
-  return (
-    <div className={styles.candidatePanel}>
+  const continuedCandidate =
+    candidates.find((candidate) => candidate.direction_id === continuedCandidateRef) ?? null;
+
+  const panelContent = (
+    <>
       <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
       <div className={styles.candidateList}>
         {candidates.map((candidate, candidateIndex) => {
@@ -309,8 +325,28 @@ export function WorkspaceCandidatePanel({
           );
         })}
       </div>
-    </div>
+    </>
   );
+
+  if (continuedCandidate) {
+    return (
+      <details className={styles.candidatePanel}>
+        <summary className={styles.candidateCollapsedSummary}>
+          <span className={styles.candidateCollapsedStatus}>
+            <Check size={16} aria-hidden="true" />
+            <span>{candidateDiscussionCollapsedText(continuedCandidate.title)}</span>
+          </span>
+          <span className={styles.candidateCollapsedDisclosure}>
+            <span>{WORKBENCH.candidateCollapsedExpandLabel}</span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </span>
+        </summary>
+        <div className={styles.candidateExpandedBody}>{panelContent}</div>
+      </details>
+    );
+  }
+
+  return <div className={styles.candidatePanel}>{panelContent}</div>;
 }
 
 export interface WorkspaceSessionListProps {
@@ -445,6 +481,7 @@ function startupConnectingMessage(): ChatMessage {
 const STARTUP_MAX_ATTEMPTS = 30;
 const STARTUP_RETRY_MS = 1000;
 const TERMINAL_AGENT_RUN_STATUSES = new Set(["completed", "cancelled", "failed"]);
+const MOTION_AGENT_RUN_STATUSES = new Set(["created", "running", "pausing", "cancelling"]);
 
 function turnResultAgentRunId(turnResult: TurnResult | undefined): string | null {
   const runId = turnResult?.agent_run?.run_id;
@@ -463,6 +500,7 @@ function stateFromTurnResult(turnResult: TurnResult): AgentRunStateData | null {
     long_run_task_ref: turnResult.agent_run?.long_run_task_ref ?? null,
     parent_turn_ref: turnResult.agent_run?.parent_turn_ref ?? turnResult.parent_turn_id ?? null,
     profile_ref: turnResult.agent_run?.profile_ref ?? null,
+    trigger: turnResult.agent_run?.trigger ?? null,
   };
 }
 
@@ -497,39 +535,6 @@ function mergeAgentRunEvents(restored: AgentEventData[], live: AgentEventData[])
     if (a.sequence !== b.sequence) return a.sequence - b.sequence;
     return (a.emitted_at ?? "").localeCompare(b.emitted_at ?? "");
   });
-}
-
-function presentAgentEventSummary(summary: string): string {
-  const trimmed = summary.trim();
-
-  switch (trimmed) {
-    case "AgentRun 已启动。":
-      return WORKBENCH.agentRunStartedSummary;
-    case "AgentRun 已完成。":
-      return WORKBENCH.agentRunCompletedSummary;
-    case "AgentRun 已恢复。":
-      return WORKBENCH.agentRunResumedSummary;
-    case "正在取消 AgentRun。":
-      return WORKBENCH.agentRunCancellingSummary;
-    case "AgentRun 未取得新进展，已停止等待作者确认。":
-      return WORKBENCH.agentRunNoProgressSummary;
-    default:
-      return trimmed.replaceAll("AgentRun", WORKBENCH.agentRunUserFacingName);
-  }
-}
-
-function latestAgentRunSummary(
-  run: AgentRunStateData | null,
-  events: AgentEventData[],
-  preparing: boolean,
-): string {
-  if (preparing) return WORKBENCH.agentRunPreparingEvent;
-
-  const lastSummary = events.at(-1)?.summary?.trim();
-  if (lastSummary) return presentAgentEventSummary(lastSummary);
-
-  if (!run) return WORKBENCH.agentRunEmptyEvent;
-  return WORKBENCH.agentRunFallbackStatus(WORKBENCH.agentRunStatusLabels[run.status] ?? run.status);
 }
 
 type AgenticLoopPhaseStatus = "pending" | "active" | "done";
@@ -572,50 +577,57 @@ interface AgentRunDialogueFlowProps {
   run: AgentRunStateData | null;
   events: AgentEventData[];
   preparing?: boolean;
-  canPause?: boolean;
-  canResume?: boolean;
-  canCancel?: boolean;
-  onCommand?: (command: AgentCommand) => void;
   // 46§9.4 进度行：待采纳草稿总字数（由调用方从 adoption_state 计算；无产物为 null）。
   draftCharCount?: number | null;
+  assistantMessageText?: string;
 }
 
-function AgentRunDialogueFlow({
+export function AgentRunDialogueFlow({
   run,
   events,
   preparing = false,
-  canPause = false,
-  canResume = false,
-  canCancel = false,
-  onCommand,
   draftCharCount = null,
+  assistantMessageText,
 }: AgentRunDialogueFlowProps) {
   const reasoningFlow = agentRunReasoningFlow(events);
+  const visibleNarrativeEvents = omitNarrativesRepeatedInAssistantMessage(
+    reasoningFlow.narrativeEvents,
+    assistantMessageText,
+  );
   const statusTone = agenticLoopStatusTone(run);
   const statusLabel =
     run &&
     (WORKBENCH.agentRunStatusLabels[run.status] ??
       (run.status || WORKBENCH.agentRunPreparingStatus));
-  const statusSummary = preparing
-    ? WORKBENCH.agentRunPreparingEvent
-    : latestAgentRunSummary(run, [], false);
-  const showControls =
-    run !== null && onCommand !== undefined && !TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+  const statusSummary = preparing ? WORKBENCH.agentRunPreparingEvent : null;
 
   // 46§9.4：轻量进度行（纯计数骨架词）与进行中活动指示。
   // 步数以运行时事实（completed_step_refs）为准——计划面板的步骤状态是事件快照，
   // 完成态下可能落后于真实进度，不能作为计数来源（避免假计数）。
-  const totalStepCount = reasoningFlow.planSteps.length;
+  const totalStepCount = Math.max(
+    reasoningFlow.planSteps.length,
+    run?.current_activity?.total_steps ?? 0,
+  );
   // 进度行语义是"计划轨道内"进度；completed_step_refs 含判断循环入场步（机械准备/
   // 判断①），会超过计划步总数——钳位到 total，避免"第 4/2 步"式假计数。
   const doneStepCount = Math.min(
     Math.max(
       reasoningFlow.planSteps.filter((step) => step.status === "done").length,
       run?.completed_step_refs?.length ?? 0,
+      run?.current_activity?.completed_steps ?? 0,
     ),
     totalStepCount,
   );
   const pendingArtifactCount = run?.pending_artifact_refs?.length ?? 0;
+  const showStatusMeta = shouldShowAgentRunDialogueStatus({
+    status: run?.status,
+    runMode: run?.run_mode,
+    triggerKind: run?.trigger?.kind,
+    narrativeCount: visibleNarrativeEvents.length,
+    planStepCount: reasoningFlow.planSteps.length,
+    pendingArtifactCount,
+    draftCharCount,
+  });
   const progressParts = [
     totalStepCount > 0 ? WORKBENCH.agenticLoopProgressStep(doneStepCount, totalStepCount) : null,
     pendingArtifactCount > 0 ? WORKBENCH.agenticLoopProgressPending(pendingArtifactCount) : null,
@@ -624,17 +636,36 @@ function AgentRunDialogueFlow({
       : null,
   ].filter((part): part is string => part !== null);
   const runIsTerminal = run !== null && TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+  const runIsPaused = run?.status === "paused";
+  const runIsAwaitingAuthor = run?.status === "awaiting_author";
   const activityKind = runIsTerminal ? null : activeToolActivity(events);
-  const activityText =
-    activityKind === "reading"
-      ? WORKBENCH.agenticLoopActivityReading
-      : activityKind === "drafting"
-        ? WORKBENCH.agenticLoopActivityDrafting
-        : activityKind === "reasoning"
-          ? WORKBENCH.agenticLoopActivityReasoning
-          : activityKind === "working"
-            ? WORKBENCH.agenticLoopActivityWorking
-            : null;
+  const isQualityRevisionRun =
+    run?.trigger?.kind === "author_action" && run.trigger.action_type === "revise_from_findings";
+  const activityText = runIsTerminal
+    ? null
+    : runIsPaused
+      ? isQualityRevisionRun
+        ? WORKBENCH.qualityRevisionPausedActivity
+        : WORKBENCH.agentRunPausedActivity
+      : runIsAwaitingAuthor
+        ? WORKBENCH.agentRunAwaitingActivity
+        : isQualityRevisionRun
+          ? WORKBENCH.qualityRevisionActivity
+          : activityKind === "reading"
+            ? WORKBENCH.agenticLoopActivityReading
+            : activityKind === "drafting"
+              ? WORKBENCH.agenticLoopActivityDrafting
+              : activityKind === "reasoning"
+                ? WORKBENCH.agenticLoopActivityReasoning
+                : activityKind === "working"
+                  ? WORKBENCH.agenticLoopActivityWorking
+                  : null;
+  // 非终态的状态、结构进度和控制统一由底部控制坞承担；对话工作回合只讲
+  // 当前语义活动，避免和控制坞逐字重复“状态 · 任务 · 第 n/m 步”。
+  const showDialogueStatusMeta = showStatusMeta && (preparing || runIsTerminal);
+  const activityHasMotion = run === null || MOTION_AGENT_RUN_STATUSES.has(run.status);
+
+  if (visibleNarrativeEvents.length === 0 && !activityText && !showDialogueStatusMeta) return null;
 
   // 46§9.5 文档流化（2026-07-15 用户拍板）：移除卡片容器（轨道线/面板）与常驻
   // 计划 checklist——计划顺序由模型意图开场段唯一表达，修订由 plan_revised 叙事
@@ -642,12 +673,12 @@ function AgentRunDialogueFlow({
   // AI 的一次回应就是一段文档流：叙事段落 → 进行中活动行 → 结构状态词。
   return (
     <div className={styles.agentRunFlowInline} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
-      {reasoningFlow.narrativeEvents.length > 0 && (
+      {visibleNarrativeEvents.length > 0 && (
         <section
           className={styles.agenticLoopReasoning}
           aria-label={WORKBENCH.agenticLoopReasoningLabel}
         >
-          {reasoningFlow.narrativeEvents.map((event) => (
+          {visibleNarrativeEvents.map((event) => (
             <p
               key={event.key}
               className={styles.agenticLoopNarrativeParagraph}
@@ -660,73 +691,209 @@ function AgentRunDialogueFlow({
       )}
 
       {activityText && (
-        <div className={styles.agenticLoopActivityLine} aria-live="polite">
-          <Loader2 className={styles.spinnerIcon} size={13} aria-hidden="true" />
+        <div
+          className={
+            activityHasMotion
+              ? styles.agenticLoopActivityLine
+              : styles.agenticLoopActivityLineStatic
+          }
+          aria-live="polite"
+        >
+          {activityHasMotion && (
+            <Loader2 className={styles.spinnerIcon} size={13} aria-hidden="true" />
+          )}
           <span>{activityText}</span>
         </div>
       )}
 
-      <div className={styles.agenticLoopStatusMeta}>
-        {/* 非终态常驻脉冲：作者一眼可辨"仍在执行"；终态消失。 */}
-        {!runIsTerminal && <span className={styles.agentRunStatusPulse} aria-hidden="true" />}
-        {statusLabel && (
-          <span className={styles.agenticLoopStatusChip} data-status={statusTone}>
-            {statusLabel}
+      {showDialogueStatusMeta && (
+        <div className={styles.agenticLoopStatusMeta}>
+          {/* 非终态常驻脉冲：作者一眼可辨"仍在执行"；终态消失。 */}
+          {!runIsTerminal && (
+            <span className={styles.agentRunStatusPulse} data-animated="true" aria-hidden="true" />
+          )}
+          {statusLabel && (
+            <span className={styles.agenticLoopStatusChip} data-status={statusTone}>
+              {statusLabel}
+            </span>
+          )}
+          <span>
+            {isQualityRevisionRun
+              ? WORKBENCH.qualityRevisionRunLabel
+              : WORKBENCH.agentRunInlineTitle}
           </span>
-        )}
-        <span>{WORKBENCH.agentRunInlineTitle}</span>
-        {run?.run_mode === "durable" && (
-          <span className={styles.agenticLoopStatusChip}>
-            {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
-            {run.long_run_task_ref
-              ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}`
-              : ""}
-          </span>
-        )}
-        {!runIsTerminal && <span>{statusSummary}</span>}
-        {progressParts.length > 0 && (
-          <span className={styles.agenticLoopProgressLine}>{progressParts.join(" · ")}</span>
-        )}
-      </div>
-
-        {showControls && (
-          <div
-            className={styles.agentRunInlineActions}
-            aria-label={WORKBENCH.agentRunControlsLabel}
-          >
-            <button
-              type="button"
-              className={styles.iconBtn}
-              title={WORKBENCH.agentRunPause}
-              disabled={!canPause}
-              onClick={() => onCommand?.("pause")}
-            >
-              <Pause size={14} aria-hidden="true" />
-              <span>{WORKBENCH.agentRunPause}</span>
-            </button>
-            <button
-              type="button"
-              className={styles.iconBtn}
-              title={WORKBENCH.agentRunResume}
-              disabled={!canResume}
-              onClick={() => onCommand?.("resume")}
-            >
-              <Play size={14} aria-hidden="true" />
-              <span>{WORKBENCH.agentRunResume}</span>
-            </button>
-            <button
-              type="button"
-              className={styles.iconBtn}
-              title={WORKBENCH.agentRunCancel}
-              disabled={!canCancel}
-              onClick={() => onCommand?.("cancel")}
-            >
-              <CircleX size={14} aria-hidden="true" />
-              <span>{WORKBENCH.agentRunCancel}</span>
-            </button>
-          </div>
-        )}
+          {run?.run_mode === "durable" && (
+            <span className={styles.agenticLoopStatusChip}>
+              {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
+              {run.long_run_task_ref
+                ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}`
+                : ""}
+            </span>
+          )}
+          {statusSummary && <span>{statusSummary}</span>}
+          {progressParts.length > 0 && (
+            <span className={styles.agenticLoopProgressLine}>{progressParts.join(" · ")}</span>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function AuthorActionReceipt({ run }: { run: AgentRunStateData }) {
+  const trigger = run.trigger;
+  if (trigger?.kind !== "author_action" || trigger.action_type !== "revise_from_findings") {
+    return null;
+  }
+
+  const findingCount = trigger.quality_finding_refs?.length ?? 0;
+
+  return (
+    <div className={styles.authorActionReceipt} aria-label={WORKBENCH.qualityRevisionReceiptSource}>
+      <span className={styles.authorActionReceiptMark} aria-hidden="true">
+        <Check size={13} />
+      </span>
+      <span className={styles.authorActionReceiptText}>
+        <span className={styles.authorActionReceiptTitle}>
+          {WORKBENCH.qualityRevisionReceipt(findingCount)}
+        </span>
+        <span className={styles.authorActionReceiptSource}>
+          {WORKBENCH.qualityRevisionReceiptSource}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+interface AgentRunControlDockProps {
+  run: AgentRunStateData;
+  events: AgentEventData[];
+  canPause: boolean;
+  canResume: boolean;
+  canCancel: boolean;
+  hasSteerInput?: boolean;
+  onCommand: (command: AgentCommand) => void;
+  onRequestCancel: () => void;
+}
+
+export function AgentRunControlDock({
+  run,
+  events,
+  canPause,
+  canResume,
+  canCancel,
+  hasSteerInput = false,
+  onCommand,
+  onRequestCancel,
+}: AgentRunControlDockProps) {
+  const reasoningFlow = agentRunReasoningFlow(events);
+  const totalStepCount = Math.max(
+    reasoningFlow.planSteps.length,
+    run.current_activity?.total_steps ?? 0,
+  );
+  const doneStepCount = Math.min(
+    Math.max(
+      reasoningFlow.planSteps.filter((step) => step.status === "done").length,
+      run.completed_step_refs?.length ?? 0,
+      run.current_activity?.completed_steps ?? 0,
+    ),
+    totalStepCount,
+  );
+  const pendingArtifactCount = run.pending_artifact_refs?.length ?? 0;
+  const progressParts = [
+    totalStepCount > 0 ? WORKBENCH.agenticLoopProgressStep(doneStepCount, totalStepCount) : null,
+    pendingArtifactCount > 0 ? WORKBENCH.agenticLoopProgressPending(pendingArtifactCount) : null,
+  ].filter((part): part is string => part !== null);
+  const statusLabel = WORKBENCH.agentRunStatusLabels[run.status] ?? run.status;
+  const isQualityRevisionRun =
+    run.trigger?.kind === "author_action" && run.trigger.action_type === "revise_from_findings";
+  const structuralDetail =
+    progressParts.length > 0
+      ? progressParts.join(" · ")
+      : isQualityRevisionRun
+        ? WORKBENCH.agentRunDockBoundToRevision
+        : WORKBENCH.agentRunStatus(run.status);
+  const isPausing = run.status === "pausing";
+  const isCancelling = run.status === "cancelling";
+  const primaryCommand: AgentCommand = canResume ? "resume" : "pause";
+  const primaryLabel = isCancelling
+    ? WORKBENCH.agentRunCommandProcessing
+    : isPausing
+      ? WORKBENCH.agentRunPausing
+      : canResume
+        ? WORKBENCH.agentRunResume
+        : WORKBENCH.agentRunPause;
+  const primaryDisabled = isPausing || isCancelling || (!canPause && !canResume);
+  const primaryActionClassName = [
+    styles.agentRunDockPrimaryAction,
+    canResume && !hasSteerInput ? styles.agentRunDockPrimaryActionEmphasis : "",
+  ].join(" ");
+  const pulseIsAnimated = MOTION_AGENT_RUN_STATUSES.has(run.status);
+
+  return (
+    <section className={styles.agentRunControlDock} aria-label={WORKBENCH.agentRunControlsLabel}>
+      <details className={styles.agentRunDockDetails}>
+        <summary
+          className={styles.agentRunDockSummary}
+          aria-label={WORKBENCH.agentRunDockDetailsToggle}
+        >
+          <span
+            className={styles.agentRunStatusPulse}
+            data-animated={pulseIsAnimated ? "true" : undefined}
+            aria-hidden="true"
+          />
+          <span className={styles.agentRunDockStatusText} aria-live="polite">
+            <span className={styles.agentRunDockStatusTitle}>
+              {isQualityRevisionRun
+                ? WORKBENCH.qualityRevisionDockTitle(statusLabel)
+                : WORKBENCH.agentRunDockTitle(statusLabel)}
+            </span>
+            <span className={styles.agentRunDockStatusDetail}>{structuralDetail}</span>
+          </span>
+          <ChevronDown className={styles.agentRunDockChevron} size={16} aria-hidden="true" />
+        </summary>
+        <div className={styles.agentRunDockExpanded}>
+          {isQualityRevisionRun && <span>{WORKBENCH.agentRunDockBoundToRevision}</span>}
+          {progressParts.length > 0 && <span>{progressParts.join(" · ")}</span>}
+          {run.run_mode === "durable" && (
+            <span>
+              {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
+              {run.long_run_task_ref
+                ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}`
+                : ""}
+            </span>
+          )}
+        </div>
+      </details>
+
+      <div className={styles.agentRunDockActions}>
+        <button
+          type="button"
+          className={primaryActionClassName}
+          disabled={primaryDisabled}
+          onClick={() => onCommand(primaryCommand)}
+        >
+          {isPausing || isCancelling ? (
+            <Loader2 className={styles.spinnerIcon} size={15} aria-hidden="true" />
+          ) : canResume ? (
+            <Play size={15} aria-hidden="true" />
+          ) : (
+            <Pause size={15} aria-hidden="true" />
+          )}
+          <span>{primaryLabel}</span>
+        </button>
+        <button
+          type="button"
+          className={styles.agentRunDockTerminateAction}
+          title={WORKBENCH.agentRunTerminateTitle}
+          disabled={!canCancel || isCancelling}
+          onClick={onRequestCancel}
+        >
+          <CircleX size={15} aria-hidden="true" />
+          <span>{WORKBENCH.agentRunTerminate}</span>
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -887,8 +1054,17 @@ export function WorkspaceChat() {
     action: AvailableAction;
     text: string;
   } | null>(null);
+  const [discardDialog, setDiscardDialog] = useState<{
+    turnResult: TurnResult;
+    action: AvailableAction;
+  } | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [agentRunTerminateDialogOpen, setAgentRunTerminateDialogOpen] = useState(false);
   const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
+  const [revisionSubmittingTurnId, setRevisionSubmittingTurnId] = useState<string | null>(null);
+  const [selectedCandidateItemIds, setSelectedCandidateItemIds] = useState<Record<string, string>>(
+    {},
+  );
   const [agentRunStates, setAgentRunStates] = useState<Record<string, AgentRunStateData>>({});
   const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
   const [agentRunActivityLoading, setAgentRunActivityLoading] = useState<Record<string, boolean>>(
@@ -979,7 +1155,7 @@ export function WorkspaceChat() {
   ): Record<string, unknown> | null {
     const agentRuns = Array.isArray(activity.agent_runs) ? activity.agent_runs : [];
     if (agentRuns.length === 0) return null;
-    return agentRuns.find((entry) => entry.run_id === runId) ?? agentRuns[0] ?? null;
+    return selectAgentRunActivitySummary(agentRuns, runId);
   }
 
   function agentRunActivityEvents(
@@ -1185,6 +1361,7 @@ export function WorkspaceChat() {
     setResumePendingAdoptions([]);
     setResumeResolvedAdoptions([]);
     setTranscriptRestored(false);
+    setRevisionSubmittingTurnId(null);
     resumeRestoredTranscriptRef.current = false;
     setMessages([]);
     setAgentRunStates({});
@@ -1507,21 +1684,40 @@ export function WorkspaceChat() {
   const visibleWorkTitle = getVisibleWorkTitle(runtimeState);
   const hasValidRuntimeWork = runtimeState.work.hasValidWork;
   const connectionLabel = runtimeState.ui.connectionLabel;
-  const visibleAgentRuns = Object.values(agentRunStates);
+  const visibleAgentRunMap = new Map<string, AgentRunStateData>();
+  for (const message of messages) {
+    if (!message.turnResult) continue;
+    const restoredState = stateFromTurnResult(message.turnResult);
+    if (restoredState) visibleAgentRunMap.set(restoredState.run_id, restoredState);
+  }
+  for (const liveState of Object.values(agentRunStates)) {
+    visibleAgentRunMap.set(
+      liveState.run_id,
+      mergeAgentRunRuntimeState(visibleAgentRunMap.get(liveState.run_id), liveState),
+    );
+  }
+  const visibleAgentRuns = Array.from(visibleAgentRunMap.values());
   const latestAgentRun = visibleAgentRuns.at(-1) ?? null;
   const latestMessage = messages.at(-1);
+  const continuedCandidatesBySourceTurn = new Map<string, string>();
+  for (const message of messages) {
+    const selection = message.candidateSelection;
+    if (!selection) continue;
+    continuedCandidatesBySourceTurn.set(selection.source_turn_ref, selection.candidate_ref);
+  }
   const agentRunIdsRenderedInTurns = new Set(
     messages.map((msg) => turnResultAgentRunId(msg.turnResult)).filter((runId) => runId !== null),
   );
   const latestAgentRunEvents = latestAgentRun
     ? agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id)
     : [];
-  const canPauseAgentRun =
-    latestAgentRun?.status === "running" || latestAgentRun?.status === "pausing";
+  const canPauseAgentRun = latestAgentRun?.status === "running";
   const canResumeAgentRun =
     latestAgentRun?.status === "paused" || latestAgentRun?.status === "awaiting_author";
   const canCancelAgentRun =
-    latestAgentRun !== null && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
+    latestAgentRun !== null &&
+    latestAgentRun.status !== "cancelling" &&
+    !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   const hasActiveAgentRun =
     latestAgentRun !== null && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   const latestAgentRunHasMessageAnchor =
@@ -1540,7 +1736,9 @@ export function WorkspaceChat() {
     latestAgentRun,
     pendingAnswerBehaviorId: pendingAnswerBid,
   });
+  const hasSteerInput = inputText.trim().length > 0;
   const canSubmitMainInput =
+    hasSteerInput &&
     socketConnected &&
     !isPanelOpen &&
     !isReadOnlySessionView &&
@@ -1581,7 +1779,44 @@ export function WorkspaceChat() {
     [activeSessionId, context.workId],
   );
 
-  // ... (rest of the component)
+  const rememberAuthorActionRunAck = useCallback(
+    (response: AuthorActionResult) => {
+      if (!response.run_id) return;
+
+      const acknowledgedState: AgentRunStateData = {
+        run_id: response.run_id,
+        run_mode: response.run_mode ?? "bounded",
+        status: "running",
+        phase: "executing",
+        long_run_task_ref: response.long_run_task_ref ?? null,
+        work_id: context.workId,
+        session_id: activeSessionId,
+        parent_turn_ref: response.turn_id ?? response.source_turn_ref ?? null,
+        profile_ref: response.profile_ref ?? null,
+        trigger: response.trigger ?? null,
+        current_activity: {
+          kind:
+            response.trigger?.action_type === "revise_from_findings"
+              ? "revision_draft_generation"
+              : "agent_run_execution",
+          phase: "preparing",
+          completed_steps: 0,
+          total_steps: 0,
+        },
+        goal: response.goal,
+        completed_step_refs: [],
+        pending_artifact_refs: [],
+        interrupt_state: { status: "none", requested_at: null },
+        current_task: true,
+      };
+
+      setAgentRunStates((prev) => ({
+        ...prev,
+        [response.run_id!]: mergeAgentRunRuntimeState(prev[response.run_id!], acknowledgedState),
+      }));
+    },
+    [activeSessionId, context.workId],
+  );
 
   // Handle pending build actions from ReadingMode (refresh/retry projection)
   useEffect(() => {
@@ -1689,6 +1924,11 @@ export function WorkspaceChat() {
     if (!channelRef.current || loading) return;
 
     const text = candidateContinuationText(candidate.title, candidate.pitch);
+    const candidateSelection: CandidateSelectionPayload = {
+      source_turn_ref: turnResult.turn_id,
+      candidate_set_ref: `candidate_set:${turnResult.turn_id}`,
+      candidate_ref: candidate.direction_id,
+    };
     const clientMessageId = nextLocalMessageId();
     setMessages((prev) => [...prev, { role: "user", text, clientMessageId }]);
     setPendingAgentRunAnchors((prev) => ({
@@ -1705,11 +1945,14 @@ export function WorkspaceChat() {
         null,
         activeSessionId,
         false,
-        {
-          source_turn_ref: turnResult.turn_id,
-          candidate_set_ref: `candidate_set:${turnResult.turn_id}`,
-          candidate_ref: candidate.direction_id,
-        },
+        candidateSelection,
+      );
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.clientMessageId === clientMessageId
+            ? { ...message, candidateSelection }
+            : message,
+        ),
       );
       rememberAgentRunAck(response, text, clientMessageId);
     } catch {
@@ -1723,8 +1966,8 @@ export function WorkspaceChat() {
     turnResult: TurnResult,
     action: AvailableActionLike,
     authorPayload?: Record<string, unknown>,
-  ) => {
-    if (!channelRef.current || action.enabled === false || loading) return;
+  ): Promise<AuthorActionResult | null> => {
+    if (!channelRef.current || action.enabled === false || loading) return null;
 
     setLoading(true);
 
@@ -1739,9 +1982,11 @@ export function WorkspaceChat() {
         setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionDuplicate }]);
         setLoading(false);
       }
+      return result;
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
       setLoading(false);
+      return null;
     }
   };
 
@@ -1755,9 +2000,18 @@ export function WorkspaceChat() {
       (candidate) => candidate.action_type === "revise_from_findings",
     );
     if (!action) return;
-    await handleAvailableAction(turnResult, action, {
-      quality_finding_refs: selectedFindingIds ?? action.quality_finding_refs ?? [],
-    });
+    setRevisionSubmittingTurnId(turnResult.turn_id);
+    try {
+      const result = await handleAvailableAction(turnResult, action, {
+        quality_finding_refs: selectedFindingIds ?? action.quality_finding_refs ?? [],
+      });
+      if (result?.run_id) {
+        rememberAuthorActionRunAck(result);
+      }
+    } finally {
+      setRevisionSubmittingTurnId(null);
+      setLoading(false);
+    }
   };
 
   // 从待采纳 artifact 取出可编辑的正文（payload.content 优先，否则拼接 items 正文）。
@@ -1797,6 +2051,13 @@ export function WorkspaceChat() {
     }
   };
 
+  const submitDiscard = async () => {
+    if (!discardDialog) return;
+    const target = discardDialog;
+    setDiscardDialog(null);
+    await handleAvailableAction(target.turnResult, target.action);
+  };
+
   const artifactForAction = (
     turnResult: TurnResult,
     action: AvailableActionLike,
@@ -1828,21 +2089,64 @@ export function WorkspaceChat() {
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
     const artifact = artifactForAction(turnResult, action);
+    const revisionRole = qualityRevisionArtifactRole(turnResult, artifact);
     let base: string;
-    if (action.action_type === "accept") base = acceptActionLabel(artifact?.artifact_type);
-    else if (action.action_type === "discard") base = CARD.tentativeArtifact.discardLabel;
-    else if (action.action_type === "edit_then_accept")
+    if (revisionRole === "original") {
+      if (action.action_type === "accept") base = CARD.tentativeArtifact.saveOriginalLabel;
+      else if (action.action_type === "discard") base = CARD.tentativeArtifact.discardOriginalLabel;
+      else if (action.action_type === "edit_then_accept")
+        base = CARD.tentativeArtifact.editOriginalLabel;
+      else return action.action_type;
+    } else if (revisionRole === "revision") {
+      if (action.action_type === "accept") base = CARD.tentativeArtifact.saveRevisionLabel;
+      else if (action.action_type === "discard") base = CARD.tentativeArtifact.discardRevisionLabel;
+      else if (action.action_type === "edit_then_accept")
+        base = CARD.tentativeArtifact.editRevisionLabel;
+      else return action.action_type;
+    } else if (action.action_type === "accept") {
+      base = acceptActionLabel(artifact?.artifact_type);
+    } else if (action.action_type === "discard") {
+      base = CARD.tentativeArtifact.discardLabel;
+    } else if (action.action_type === "edit_then_accept") {
       base = editThenAcceptActionLabel(artifact?.artifact_type);
-    else return action.action_type;
+    } else {
+      return action.action_type;
+    }
     // 同一轮存在多个角色候选时，把候选名拼到逐项按钮，避免“两个候选共用一个采纳按钮”。
     const name = perCandidateAdoptionName(turnResult, artifact);
     return name ? CARD.tentativeArtifact.candidateNameSuffix(base, name) : base;
+  };
+
+  const qualityRevisionActionGroupRole = (
+    turnResult: TurnResult,
+    actions: AvailableAction[],
+  ): "original" | "revision" | null => {
+    for (const action of actions) {
+      const role = qualityRevisionArtifactRole(turnResult, artifactForAction(turnResult, action));
+      if (role) return role;
+    }
+    return null;
+  };
+
+  const visibleActionClassName = (action: AvailableAction): string => {
+    if (action.action_type === "accept") return styles.btnPrimary;
+    if (action.action_type === "discard") return styles.btnDangerGhost;
+    return styles.btnSecondary;
   };
 
   const handleVisibleAvailableAction = (turnResult: TurnResult, action: AvailableAction) => {
     // edit_then_accept 需要作者先编辑正文，打开编辑弹窗而不是直接提交。
     if (action.action_type === "edit_then_accept") {
       setEditDialog({ turnResult, action, text: draftProseForAction(turnResult, action) });
+      return;
+    }
+    // 放弃候选是不可撤销的作者决策。原稿/修订稿彼此独立，但当前候选会从待采纳
+    // 集合移除，因此先明确确认，避免三个同权按钮造成误触。
+    if (
+      action.action_type === "discard" &&
+      qualityRevisionArtifactRole(turnResult, artifactForAction(turnResult, action)) !== null
+    ) {
+      setDiscardDialog({ turnResult, action });
       return;
     }
     void handleAvailableAction(turnResult, action);
@@ -1869,8 +2173,7 @@ export function WorkspaceChat() {
     if (!messagePending.has(unitArtifactId) || !livePending.has(unitArtifactId)) return [];
     return (turnResult.available_actions ?? []).filter(
       (action) =>
-        ADOPTION_ACTION_TYPES.includes(action.action_type) &&
-        action.target_ref === unitArtifactId,
+        ADOPTION_ACTION_TYPES.includes(action.action_type) && action.target_ref === unitArtifactId,
     );
   };
 
@@ -1878,6 +2181,42 @@ export function WorkspaceChat() {
     ADOPTION_ACTION_TYPES.includes(action.action_type) &&
     typeof action.target_ref === "string" &&
     action.target_ref.includes("::");
+
+  const hasMultiplePerItemAdoptionUnits = (
+    turnResult: TurnResult,
+    card: { candidate_set_ref?: string; items?: Array<Record<string, unknown>> },
+  ): boolean => {
+    if (!card.candidate_set_ref || !Array.isArray(card.items)) return false;
+    const itemIds = new Set(
+      card.items
+        .map((item) => (typeof item.item_id === "string" ? item.item_id : null))
+        .filter((itemId): itemId is string => itemId !== null),
+    );
+    const targetedItems = new Set<string>();
+    for (const action of turnResult.available_actions ?? []) {
+      if (!ADOPTION_ACTION_TYPES.includes(action.action_type)) continue;
+      for (const itemId of itemIds) {
+        if (action.target_ref === `${card.candidate_set_ref}::${itemId}`) {
+          targetedItems.add(itemId);
+        }
+      }
+    }
+    return targetedItems.size > 1;
+  };
+
+  const selectedCandidateActionLabel = (action: AvailableActionLike, index: number): string => {
+    const optionLabel = CARD.tentativeArtifact.candidateOptionLabel(index);
+    if (action.action_type === "accept") {
+      return CARD.tentativeArtifact.candidateSelectedAcceptLabel(optionLabel);
+    }
+    if (action.action_type === "discard") {
+      return CARD.tentativeArtifact.candidateSelectedDiscardLabel(optionLabel);
+    }
+    if (action.action_type === "edit_then_accept") {
+      return CARD.tentativeArtifact.candidateSelectedEditLabel(optionLabel);
+    }
+    return action.action_type;
+  };
 
   // 当前活跃行为 id：取最近一个携带 behavior_state 的 turn_result 的 active 行为。
   // 确认后采纳/取消会把 active 置空，确认按钮随之隐藏。
@@ -1904,6 +2243,18 @@ export function WorkspaceChat() {
   const actionTitle = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.disabled_reason) return action.disabled_reason;
     const artifact = artifactForAction(turnResult, action);
+    const revisionRole = qualityRevisionArtifactRole(turnResult, artifact);
+
+    if (revisionRole === "original") {
+      if (action.action_type === "accept") return WORKBENCH.saveOriginalActionTitle;
+      if (action.action_type === "discard") return WORKBENCH.discardOriginalActionTitle;
+      if (action.action_type === "edit_then_accept") return WORKBENCH.editOriginalActionTitle;
+    }
+    if (revisionRole === "revision") {
+      if (action.action_type === "accept") return WORKBENCH.saveRevisionActionTitle;
+      if (action.action_type === "discard") return WORKBENCH.discardRevisionActionTitle;
+      if (action.action_type === "edit_then_accept") return WORKBENCH.editRevisionActionTitle;
+    }
 
     if (action.action_type === "accept") return acceptActionTitle(artifact?.artifact_type);
     if (action.action_type === "discard") return WORKBENCH.discardActionTitle;
@@ -2627,28 +2978,35 @@ export function WorkspaceChat() {
   const leftColumnClassName = [styles.leftColumn, isPanelOpen ? styles.leftColumnDimmed : ""].join(
     " ",
   );
+  const activeAgentRunTaskLabel =
+    latestAgentRun && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status)
+      ? latestAgentRun.status === "paused"
+        ? WORKBENCH.taskAgentRunPausedLabel
+        : latestAgentRun.status === "awaiting_author"
+          ? WORKBENCH.taskAgentRunAwaitingLabel
+          : latestAgentRun.status === "pausing"
+            ? WORKBENCH.taskAgentRunPausingLabel
+            : latestAgentRun.status === "cancelling"
+              ? WORKBENCH.taskAgentRunCancellingLabel
+              : WORKBENCH.taskAgentRunRunningLabel
+      : null;
   const taskStatusLabel = workSwitchingId
     ? WORKBENCH.taskSwitchingLabel
-    : longRun.status === "running"
-      ? WORKBENCH.taskRunningLabel(longRun.budgetUsed)
-      : longRun.status === "checkpoint"
-        ? WORKBENCH.taskCheckpointLabel
-        : longRun.status === "completed"
-          ? WORKBENCH.taskCompletedLabel
-          : longRun.status === "failed"
-            ? WORKBENCH.taskFailedLabel
-            : WORKBENCH.taskIdleLabel;
+    : (activeAgentRunTaskLabel ??
+      (longRun.status === "running"
+        ? WORKBENCH.taskRunningLabel(longRun.budgetUsed)
+        : longRun.status === "checkpoint"
+          ? WORKBENCH.taskCheckpointLabel
+          : longRun.status === "completed"
+            ? WORKBENCH.taskCompletedLabel
+            : longRun.status === "failed"
+              ? WORKBENCH.taskFailedLabel
+              : WORKBENCH.taskIdleLabel));
   const modelStatusLabel =
     llmConnected === null
       ? WORKBENCH.modelCheckingLabel
       : llmConnected
         ? WORKBENCH.modelConnectedLabel
-        : WORKBENCH.modelDisconnectedLabel;
-  const modelStatusValue =
-    llmConnected === null
-      ? WORKBENCH.modelCheckingLabel
-      : llmConnected
-        ? llmModel || WORKBENCH.modelConnectedLabel
         : WORKBENCH.modelDisconnectedLabel;
   const modelStatusTitle =
     llmConnected && llmModel
@@ -2660,9 +3018,6 @@ export function WorkspaceChat() {
   const draftProviderOption = modelProviderState
     ? providerOption(modelProviderState.options, modelProviderDraft.provider)
     : null;
-  const modelProviderStatusLabel = selectedProviderOption
-    ? `${providerDisplayName(selectedProviderOption)} · ${modelStatusValue}`
-    : modelStatusLabel;
   const modelProviderStatusTitle = selectedProviderOption
     ? `${providerDisplayName(selectedProviderOption)} · ${modelStatusTitle}`
     : modelStatusTitle;
@@ -2949,6 +3304,35 @@ export function WorkspaceChat() {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
+          <details className={styles.sessionTopbarDetails}>
+            <summary className={styles.sessionTopbarSummary}>
+              <MessageCircle size={14} aria-hidden="true" />
+              <span>{WORKBENCH.sessionRailSummary}</span>
+            </summary>
+            <div className={styles.sessionTopbarPopover}>
+              <WorkspaceSessionList
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                sessionSearch={sessionSearch}
+                canCreateSession={
+                  socketConnected && Boolean(context.workId) && context.workId !== "lobby"
+                }
+                creatingSession={creatingSession}
+                onSessionSearch={(query) => {
+                  void handleSessionSearch(query);
+                }}
+                onOpenSession={(session) => {
+                  void handleOpenSession(session);
+                }}
+                onCreateSession={() => {
+                  void handleCreateSession();
+                }}
+                onArchiveSession={(session) => {
+                  void handleArchiveSession(session);
+                }}
+              />
+            </div>
+          </details>
           <button
             className={`${styles.btnSecondary} ${styles.readingModeButton}`}
             onClick={() => setMode("reading")}
@@ -2978,7 +3362,7 @@ export function WorkspaceChat() {
                 title={modelProviderStatusTitle}
               >
                 <Settings2 size={13} aria-hidden="true" />
-                <span className={styles.modelStatusValue}>{modelProviderStatusLabel}</span>
+                <span className={styles.modelStatusValue}>{modelStatusLabel}</span>
               </button>
             </Dialog.Trigger>
             <Dialog.Portal>
@@ -3264,7 +3648,13 @@ export function WorkspaceChat() {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
-          <div className={serviceBadgeClassName}>{WORKBENCH.syncStatusLabel(connectionLabel)}</div>
+          <div
+            className={`${serviceBadgeClassName} ${styles.syncStatus}`}
+            data-connected={socketConnected ? "true" : "false"}
+          >
+            <span className={styles.syncStatusDot} aria-hidden="true" />
+            <span>{WORKBENCH.syncStatusLabel(connectionLabel)}</span>
+          </div>
         </div>
       </div>
 
@@ -3338,6 +3728,13 @@ export function WorkspaceChat() {
                 msg.role === "user"
                   ? (visibleAgentRuns.find((run) => messageAnchorsAgentRun(msg, run)) ?? null)
                   : null;
+              const actionTriggeredAgentRun =
+                msg.role === "assistant"
+                  ? (visibleAgentRuns.find(
+                      (run) =>
+                        run.trigger?.kind === "author_action" && messageAnchorsAgentRun(msg, run),
+                    ) ?? null)
+                  : null;
               const pendingAgentRunAnchor =
                 msg.role === "user" && msg.clientMessageId
                   ? (pendingAgentRunAnchors[msg.clientMessageId] ?? null)
@@ -3357,7 +3754,12 @@ export function WorkspaceChat() {
               const anchoredAgentRunEvents = anchoredAgentRun
                 ? agentEvents.filter((event) => event.run_ref === anchoredAgentRun.run_id)
                 : [];
-              const anchoredRunIsLatest = latestAgentRun?.run_id === anchoredAgentRun?.run_id;
+              const actionTriggeredAgentRunEvents = actionTriggeredAgentRun
+                ? agentEvents.filter((event) => event.run_ref === actionTriggeredAgentRun.run_id)
+                : [];
+              const actionTriggeredRunHasResult =
+                actionTriggeredAgentRun !== null &&
+                agentRunIdsRenderedInTurns.has(actionTriggeredAgentRun.run_id);
               const messageAgentRunFromState = messageAgentRunId
                 ? agentRunStates[messageAgentRunId]
                 : null;
@@ -3377,7 +3779,6 @@ export function WorkspaceChat() {
                     agentEvents.filter((event) => event.run_ref === messageAgentRunId),
                   )
                 : [];
-              const messageRunIsLatest = latestAgentRun?.run_id === messageAgentRunId;
               const messageIdentity =
                 msg.turnResult?.turn_id ?? msg.turnId ?? msg.clientMessageId ?? String(i);
               const messageKey = `${msg.role}:${messageIdentity}:${messageAgentRunId ?? msg.agentRunId ?? "none"}`;
@@ -3412,17 +3813,8 @@ export function WorkspaceChat() {
                       <AgentRunDialogueFlow
                         run={messageAgentRun}
                         events={messageAgentRunEvents}
-                        canPause={messageRunIsLatest && canPauseAgentRun}
-                        canResume={messageRunIsLatest && canResumeAgentRun}
-                        canCancel={messageRunIsLatest && canCancelAgentRun}
                         draftCharCount={pendingDraftCharCount(msg.turnResult)}
-                        onCommand={
-                          messageRunIsLatest
-                            ? (command) => {
-                                void handleAgentCommand(command);
-                              }
-                            : undefined
-                        }
+                        assistantMessageText={msg.text}
                       />
                     )}
 
@@ -3447,19 +3839,60 @@ export function WorkspaceChat() {
                       msg.turnResult?.ui_cards?.map((card, ci) => {
                         // 卡片集合由 ADR-0024 决策 3 冻结（07 §4.2）；
                         // 未知类型走 DefaultCard 容错兜底，漂移告警在 turnResultWire 校验层。
+                        const turnResult = msg.turnResult;
+                        if (!turnResult) return null;
                         const cardKey = `${card.card_type}:${ci}`;
                         switch (card.card_type) {
                           case "confirmation_card":
                             return <ConfirmationCard key={cardKey} card={card} />;
-                          case "candidate_set":
+                          case "candidate_set": {
+                            const selectionMode = hasMultiplePerItemAdoptionUnits(turnResult, card);
+                            const selectionKey = `${turnResult.turn_id}:${
+                              card.candidate_set_ref ?? ci
+                            }`;
                             return (
                               <CandidateSetCard
                                 key={cardKey}
                                 card={card}
+                                selectionMode={selectionMode}
+                                selectedItemId={selectedCandidateItemIds[selectionKey] ?? null}
+                                onSelectItem={
+                                  selectionMode
+                                    ? (itemId) => {
+                                        setSelectedCandidateItemIds((current) => ({
+                                          ...current,
+                                          [selectionKey]: itemId,
+                                        }));
+                                      }
+                                    : undefined
+                                }
+                                renderEmptySelectionActions={
+                                  selectionMode ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className={styles.btnSecondary}
+                                        disabled
+                                      >
+                                        {CARD.tentativeArtifact.candidateEmptyDiscardLabel}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={styles.btnSecondary}
+                                        disabled
+                                      >
+                                        {CARD.tentativeArtifact.candidateEmptyEditLabel}
+                                      </button>
+                                      <button type="button" className={styles.btnPrimary} disabled>
+                                        {CARD.tentativeArtifact.candidateEmptyAcceptLabel}
+                                      </button>
+                                    </>
+                                  ) : undefined
+                                }
                                 renderItemActions={
                                   isReadOnlySessionView || !msg.turnResult
                                     ? undefined
-                                    : (item) => {
+                                    : (item, index) => {
                                         const itemActions = perItemAdoptionActions(
                                           msg.turnResult!,
                                           card,
@@ -3469,22 +3902,33 @@ export function WorkspaceChat() {
                                         return itemActions.map((action) => (
                                           <button
                                             key={action.action_id}
-                                            className={styles.btnSecondary}
+                                            type="button"
+                                            className={
+                                              selectionMode && action.action_type === "accept"
+                                                ? styles.btnPrimary
+                                                : styles.btnSecondary
+                                            }
                                             disabled={action.enabled === false || loading}
                                             title={actionTitle(msg.turnResult!, action)}
                                             onClick={() => {
                                               if (msg.turnResult) {
-                                                handleVisibleAvailableAction(msg.turnResult, action);
+                                                handleVisibleAvailableAction(
+                                                  msg.turnResult,
+                                                  action,
+                                                );
                                               }
                                             }}
                                           >
-                                            {actionLabel(msg.turnResult!, action)}
+                                            {selectionMode
+                                              ? selectedCandidateActionLabel(action, index)
+                                              : actionLabel(msg.turnResult!, action)}
                                           </button>
                                         ));
                                       }
                                 }
                               />
                             );
+                          }
                           case "result_card":
                             return <ResultCard key={cardKey} card={card} />;
                           default:
@@ -3529,7 +3973,8 @@ export function WorkspaceChat() {
                                   }
                                 : undefined
                             }
-                            revising={loading}
+                            revising={revisionSubmittingTurnId === turnId}
+                            revisionStarted={actionTriggeredAgentRun !== null}
                           />
                         );
                       }
@@ -3544,6 +3989,9 @@ export function WorkspaceChat() {
                           candidates={msg.turnResult.candidate_directions}
                           loading={loading}
                           socketConnected={socketConnected}
+                          continuedCandidateRef={
+                            continuedCandidatesBySourceTurn.get(msg.turnResult.turn_id) ?? null
+                          }
                           onCandidateContinue={(candidateTurnResult, candidate) => {
                             void handleCandidateContinue(candidateTurnResult, candidate);
                           }}
@@ -3555,26 +4003,66 @@ export function WorkspaceChat() {
 
                     {!isReadOnlySessionView &&
                       msg.turnResult &&
-                      visibleAvailableActions(msg.turnResult).length > 0 && (
-                        <div className={styles.cardActions}>
-                          {visibleAvailableActions(msg.turnResult).map((action) => (
-                            <button
-                              key={action.action_id}
-                              className={styles.btnSecondary}
-                              disabled={action.enabled === false}
-                              title={actionTitle(msg.turnResult!, action)}
-                              onClick={() => {
-                                if (msg.turnResult) {
-                                  handleVisibleAvailableAction(msg.turnResult, action);
-                                }
-                              }}
-                            >
-                              {actionLabel(msg.turnResult!, action)}
-                            </button>
-                          ))}
+                      visibleAvailableActions(msg.turnResult).length > 0 &&
+                      (() => {
+                        const actions = visibleAvailableActions(msg.turnResult);
+                        const groupRole = qualityRevisionActionGroupRole(msg.turnResult, actions);
+                        return (
+                          <div
+                            className={groupRole ? styles.artifactActionGroup : styles.cardActions}
+                          >
+                            {groupRole && (
+                              <div className={styles.artifactActionGroupHeader}>
+                                <span className={styles.artifactActionGroupTitle}>
+                                  {groupRole === "original"
+                                    ? CARD.tentativeArtifact.originalActionGroupTitle
+                                    : CARD.tentativeArtifact.revisionActionGroupTitle}
+                                </span>
+                                <span className={styles.artifactActionGroupHint}>
+                                  {CARD.tentativeArtifact.actionGroupHint}
+                                </span>
+                              </div>
+                            )}
+                            <div className={groupRole ? styles.cardActions : undefined}>
+                              {actions.map((action) => (
+                                <button
+                                  key={action.action_id}
+                                  type="button"
+                                  className={
+                                    groupRole ? visibleActionClassName(action) : styles.btnSecondary
+                                  }
+                                  disabled={action.enabled === false || loading}
+                                  title={actionTitle(msg.turnResult!, action)}
+                                  onClick={() => {
+                                    if (msg.turnResult) {
+                                      handleVisibleAvailableAction(msg.turnResult, action);
+                                    }
+                                  }}
+                                >
+                                  {actionLabel(msg.turnResult!, action)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                  </div>
+                  {actionTriggeredAgentRun && (
+                    <div className={styles.authorActionRunChain}>
+                      <AuthorActionReceipt run={actionTriggeredAgentRun} />
+                      {!actionTriggeredRunHasResult && (
+                        <div className={styles.assistantMsg}>
+                          <div className={styles.role}>
+                            {assistantRoleLabel("assistant", assistantDisplayName)}
+                          </div>
+                          <AgentRunDialogueFlow
+                            run={actionTriggeredAgentRun}
+                            events={actionTriggeredAgentRunEvents}
+                          />
                         </div>
                       )}
-                  </div>
+                    </div>
+                  )}
                   {shouldRenderAnchoredAgentRun && (
                     <div className={styles.assistantMsg}>
                       <div className={styles.role}>
@@ -3583,16 +4071,6 @@ export function WorkspaceChat() {
                       <AgentRunDialogueFlow
                         run={anchoredAgentRun}
                         events={anchoredAgentRunEvents}
-                        canPause={anchoredRunIsLatest && canPauseAgentRun}
-                        canResume={anchoredRunIsLatest && canResumeAgentRun}
-                        canCancel={anchoredRunIsLatest && canCancelAgentRun}
-                        onCommand={
-                          anchoredRunIsLatest
-                            ? (command) => {
-                                void handleAgentCommand(command);
-                              }
-                            : undefined
-                        }
                       />
                     </div>
                   )}
@@ -3613,16 +4091,7 @@ export function WorkspaceChat() {
                 <div className={styles.role}>
                   {assistantRoleLabel("assistant", assistantDisplayName)}
                 </div>
-                <AgentRunDialogueFlow
-                  run={latestAgentRun}
-                  events={latestAgentRunEvents}
-                  canPause={canPauseAgentRun}
-                  canResume={canResumeAgentRun}
-                  canCancel={canCancelAgentRun}
-                  onCommand={(command) => {
-                    void handleAgentCommand(command);
-                  }}
-                />
+                <AgentRunDialogueFlow run={latestAgentRun} events={latestAgentRunEvents} />
               </div>
             )}
 
@@ -3747,30 +4216,176 @@ export function WorkspaceChat() {
             </Dialog.Portal>
           </Dialog.Root>
 
+          <Dialog.Root
+            open={discardDialog !== null}
+            onOpenChange={(open) => {
+              if (!open && !loading) setDiscardDialog(null);
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className={styles.dialogOverlay} />
+              <Dialog.Content className={styles.dialogContent}>
+                <Dialog.Title className={styles.dialogTitle}>
+                  {CARD.tentativeArtifact.discardDialogTitle}
+                </Dialog.Title>
+                <Dialog.Description className={styles.dialogDescription}>
+                  {CARD.tentativeArtifact.discardDialogDescription}
+                </Dialog.Description>
+                {discardDialog && (
+                  <div className={styles.dialogStatus}>
+                    {actionLabel(discardDialog.turnResult, discardDialog.action)}
+                  </div>
+                )}
+                <div className={styles.dialogActions}>
+                  <button
+                    className={styles.btnSecondary}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setDiscardDialog(null)}
+                  >
+                    {BUTTON.cancel}
+                  </button>
+                  <button
+                    className={styles.btnDanger}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => {
+                      void submitDiscard();
+                    }}
+                  >
+                    {CARD.tentativeArtifact.discardDialogConfirm}
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+
+          <Dialog.Root
+            open={agentRunTerminateDialogOpen}
+            onOpenChange={setAgentRunTerminateDialogOpen}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className={styles.dialogOverlay} />
+              <Dialog.Content className={styles.dialogContent}>
+                <Dialog.Title className={styles.dialogTitle}>
+                  {WORKBENCH.agentRunTerminateDialogTitle}
+                </Dialog.Title>
+                <Dialog.Description className={styles.agentRunTerminateDescription}>
+                  {WORKBENCH.agentRunTerminateDialogDescription}
+                </Dialog.Description>
+                <div className={styles.dialogActions}>
+                  <Dialog.Close asChild>
+                    <button type="button" className={styles.btnSecondary}>
+                      {WORKBENCH.agentRunTerminateBack}
+                    </button>
+                  </Dialog.Close>
+                  <button
+                    type="button"
+                    className={styles.btnDanger}
+                    disabled={!canCancelAgentRun}
+                    onClick={() => {
+                      setAgentRunTerminateDialogOpen(false);
+                      void handleAgentCommand("cancel");
+                    }}
+                  >
+                    {WORKBENCH.agentRunTerminateConfirm}
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+
           {/* 输入区域 (Input Area) */}
           <div className={styles.inputArea}>
-            <input
-              type="text"
-              className={styles.inputBox}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                canRouteMainInputToAgentSteer
-                  ? WORKBENCH.agentRunMainInputSteerPlaceholder
-                  : WORKBENCH.inputPlaceholder
-              }
-              disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
-            />
-            <button
-              className={styles.sendBtn}
-              onClick={() => {
-                void handleSend();
-              }}
-              disabled={!canSubmitMainInput}
-            >
-              {WORKBENCH.send}
-            </button>
+            <div className={styles.composerRail}>
+              <div
+                className={
+                  !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
+                    ? styles.agentRunWorkspace
+                    : styles.standardComposer
+                }
+                role={
+                  !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
+                    ? "group"
+                    : undefined
+                }
+                aria-label={
+                  !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
+                    ? WORKBENCH.agentRunWorkspaceLabel
+                    : undefined
+                }
+              >
+                {!isReadOnlySessionView && hasActiveAgentRun && latestAgentRun && (
+                  <AgentRunControlDock
+                    run={latestAgentRun}
+                    events={latestAgentRunEvents}
+                    canPause={canPauseAgentRun}
+                    canResume={canResumeAgentRun}
+                    canCancel={canCancelAgentRun}
+                    hasSteerInput={hasSteerInput}
+                    onCommand={(command) => {
+                      void handleAgentCommand(command);
+                    }}
+                    onRequestCancel={() => setAgentRunTerminateDialogOpen(true)}
+                  />
+                )}
+                <div
+                  className={
+                    !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
+                      ? styles.agentRunComposerRow
+                      : styles.standardComposerRow
+                  }
+                >
+                  {!isReadOnlySessionView && hasActiveAgentRun && latestAgentRun && (
+                    <div className={styles.agentRunComposerContext}>
+                      <span className={styles.agentRunComposerLabel}>
+                        {WORKBENCH.agentRunWorkspaceInputLabel}
+                      </span>
+                      <span className={styles.agentRunComposerHint}>
+                        {canRouteMainInputToAgentSteer
+                          ? WORKBENCH.agentRunWorkspaceInputHint
+                          : WORKBENCH.agentRunWorkspaceInputUnavailableHint}
+                      </span>
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    className={styles.inputBox}
+                    aria-label={
+                      canRouteMainInputToAgentSteer
+                        ? WORKBENCH.agentRunWorkspaceInputLabel
+                        : undefined
+                    }
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={
+                      canRouteMainInputToAgentSteer
+                        ? WORKBENCH.agentRunMainInputSteerPlaceholder
+                        : hasActiveAgentRun
+                          ? WORKBENCH.agentRunMainInputUnavailablePlaceholder
+                          : WORKBENCH.inputPlaceholder
+                    }
+                    disabled={
+                      !socketConnected ||
+                      isPanelOpen ||
+                      isReadOnlySessionView ||
+                      (hasActiveAgentRun && !canRouteMainInputToAgentSteer)
+                    }
+                  />
+                  <button
+                    className={styles.sendBtn}
+                    type="button"
+                    onClick={() => {
+                      void handleSend();
+                    }}
+                    disabled={!canSubmitMainInput}
+                  >
+                    {hasActiveAgentRun ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -3779,49 +4394,30 @@ export function WorkspaceChat() {
           <div className={styles.structureRailCollapsed}>
             <div className={styles.spTitle}>{WORKBENCH.archiveRailTitle}</div>
             <div className={styles.railSummary}>
-              <div className={styles.openArchiveEntry} onClick={() => setIsPanelOpen(true)}>
-                <span className={styles.spItemCardText}>
-                  {WORKBENCH.archiveRailOpen}
-                  <br />
-                  {WORKBENCH.archiveRailDetail}
-                </span>
-              </div>
-              {pendingAdoptionsCount > 0 && (
-                <div className={styles.spItemTitle}>
-                  {WORKBENCH.pendingAdoptionsPrefix} {pendingAdoptionsCount}
-                </div>
-              )}
+              <button
+                type="button"
+                className={styles.openArchiveEntry}
+                aria-label={WORKBENCH.archiveRailOpen}
+                title={WORKBENCH.archiveRailOpen}
+                onClick={() => setIsPanelOpen(true)}
+              >
+                <Archive size={18} aria-hidden="true" />
+                <span className={styles.spItemCardText}>{WORKBENCH.archiveRailLabel}</span>
+                {pendingAdoptionsCount > 0 && (
+                  <span className={styles.archivePendingBadge}>
+                    {WORKBENCH.pendingAdoptionsPrefix} {pendingAdoptionsCount}
+                  </span>
+                )}
+              </button>
               {reviewPendingCount > 0 && (
-                <div className={styles.spItemTitle} onClick={() => setIsPanelOpen(true)}>
+                <button
+                  type="button"
+                  className={styles.spItemTitle}
+                  onClick={() => setIsPanelOpen(true)}
+                >
                   {WORKBENCH.reviewPendingPrefix} {reviewPendingCount}
-                </div>
+                </button>
               )}
-              <details className={styles.sessionRailDetails}>
-                <summary className={styles.sessionRailSummary}>
-                  {WORKBENCH.sessionRailSummary}
-                </summary>
-                <WorkspaceSessionList
-                  sessions={sessions}
-                  activeSessionId={activeSessionId}
-                  sessionSearch={sessionSearch}
-                  canCreateSession={
-                    socketConnected && Boolean(context.workId) && context.workId !== "lobby"
-                  }
-                  creatingSession={creatingSession}
-                  onSessionSearch={(query) => {
-                    void handleSessionSearch(query);
-                  }}
-                  onOpenSession={(session) => {
-                    void handleOpenSession(session);
-                  }}
-                  onCreateSession={() => {
-                    void handleCreateSession();
-                  }}
-                  onArchiveSession={(session) => {
-                    void handleArchiveSession(session);
-                  }}
-                />
-              </details>
             </div>
           </div>
         )}

@@ -3,9 +3,82 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentEventData } from "../lib/socket";
-import { activeToolActivity, agentRunReasoningFlow } from "../lib/agentRunTimeline";
+import {
+  activeToolActivity,
+  agentRunReasoningFlow,
+  omitNarrativesRepeatedInAssistantMessage,
+  shouldShowAgentRunDialogueStatus,
+} from "../lib/agentRunTimeline";
 
 describe("AgentRun reasoning flow", () => {
+  it("hides only a trivial completed ordinary-chat status summary", () => {
+    expect(
+      shouldShowAgentRunDialogueStatus({
+        status: "completed",
+        runMode: "bounded",
+        triggerKind: "user_message",
+        narrativeCount: 0,
+        planStepCount: 0,
+        pendingArtifactCount: 0,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldShowAgentRunDialogueStatus({
+        status: "completed",
+        runMode: "bounded",
+        triggerKind: "author_action",
+        narrativeCount: 0,
+        planStepCount: 0,
+        pendingArtifactCount: 0,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldShowAgentRunDialogueStatus({
+        status: "failed",
+        runMode: "bounded",
+        triggerKind: "user_message",
+        narrativeCount: 0,
+        planStepCount: 0,
+        pendingArtifactCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not repeat assistant message paragraphs in the AgentRun narrative flow", () => {
+    const narratives = [
+      {
+        key: "intent",
+        eventType: "plan_drafted",
+        label: "计划",
+        narrative: "我会先核对当前作品上下文。",
+        sequence: 1,
+      },
+      {
+        key: "result",
+        eventType: "evaluation_made",
+        label: "评估",
+        narrative: "上下文已经足够，可以直接继续讨论。",
+        sequence: 2,
+      },
+      {
+        key: "distinct",
+        eventType: "exploration_observed",
+        label: "观察",
+        narrative: "已查阅角色档案。",
+        sequence: 3,
+      },
+    ];
+
+    expect(
+      omitNarrativesRepeatedInAssistantMessage(
+        narratives,
+        "我会先核对当前作品上下文。\n\n上下文已经足够，可以直接继续讨论。",
+      ),
+    ).toEqual([narratives[2]]);
+  });
+
   it("builds the author-visible flow only from 46§9 narrative events", () => {
     const events: AgentEventData[] = [
       {

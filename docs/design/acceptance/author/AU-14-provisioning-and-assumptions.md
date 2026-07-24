@@ -51,7 +51,17 @@
 
 ## 5. 覆盖状态
 
-0/4（随 VS-00G CP4/CP5 立档）。
+1/4 完整闭环。SC-AU14-A1 已于 2026-07-24 通过真实 Tauri 页面验收：
+空角色档案已有 10 章正文 → 作品档案「审读」发起全书审读 →
+唯一 `protagonist_undermaterialized` finding 点「发起盘点」→ 服务端反查并绑定
+`report_id + finding_index + finding_rule` → `fact_inventory_v1` 提案包含主角沈砚 →
+逐项采纳沈砚后角色档案出现正式主角 → 再生成并采纳包含沈砚的第 11 章正文 →
+脉络账首次出现「沈砚 / 延续中」。采纳主角不倒灌前 10 章历史账面。
+
+SC-AU14-B1 的**核心档案提案链已部分覆盖**（2026-07-24）：
+真实 Tauri 作品档案入口 → `fact_inventory_v1` → 角色/规则/伏笔既有 seed 提案 →
+只采纳角色 1+规则 1 → 档案投影 1/1/0，另一个角色和伏笔仍 pending。B1 规划字段建议与
+暂定候选尚未覆盖，因此不把该场景计为完成。
 
 ## 6. 落地路线
 
@@ -59,9 +69,20 @@
 
 ## 7. 已知限制
 
-- CP1-CP3 期间盘点/暂定尚未落地，负债 finding 只报不引导（诚实标注）。
+- 负债 finding 触发 A 与其后的主角采纳/弧光起账链已落地；弧光账按后续正文采纳起账，
+  不对采纳前历史正文补记。
+- 主动触发 B 的角色/规则/伏笔核心链已落地；全书规划字段建议与暂定候选仍未落地。
+- CP5 暂定设定注入、确认/否决生命周期与触发 C 仍未落地。
 - 存量书稿导入（粘贴旧稿→建档）不在本 AU（VS-00G OQ8 独立 slice）。
 
 ## 8. 验收命令
 
-随 CP4/CP5 场景 driver 立档后补（`bash scripts/tauri_slice_verify.sh <scenario>`）。
+```bash
+bash scripts/tauri_slice_verify.sh au14-finding-inventory-arc-loop
+bash scripts/tauri_slice_verify.sh au14-fact-inventory-roundtrip
+```
+
+证据：
+
+- `artifacts/slice-verify/au14-finding-inventory-arc-loop-tauri/summary.json`
+- `artifacts/slice-verify/au14-fact-inventory-roundtrip-tauri/summary.json`

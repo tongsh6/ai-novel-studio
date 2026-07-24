@@ -1,10 +1,11 @@
-// Design: docs/design/ui/46-state-and-feedback.md §3.1 (AgentRun dialogue flow)
-// Prototype: novel-studio.pen → 46§8-agent-run-dialogue-flow-v4 (kg4wN)
+// Design: docs/design/ui/46-state-and-feedback.md §9.8 (action-triggered AgentRun anchoring)
+// Prototype: novel-studio.pen → 46§9.8-quality-revision-running (EYiyl)
 import { describe, expect, it } from "vitest";
 
 import {
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
+  selectAgentRunActivitySummary,
   shouldRenderAnchoredAgentRunStatus,
   shouldRenderStandaloneAgentRunStatus,
   shouldRenderUserAgentRunPlaceholder,
@@ -29,6 +30,16 @@ function turnResult(attrs: Partial<TurnResult>): TurnResult {
 }
 
 describe("WorkspaceChat AgentRun message anchoring", () => {
+  it("does not hydrate a persisted parent TurnResult with a different child AgentRun", () => {
+    const childRun = {
+      run_id: "run_revision_child",
+      trigger: { kind: "author_action", action_type: "revise_from_findings" },
+    };
+
+    expect(selectAgentRunActivitySummary([childRun], "run_original_draft")).toBeNull();
+    expect(selectAgentRunActivitySummary([childRun], null)).toBe(childRun);
+  });
+
   it("inserts a late AgentRun assistant result after its parent user turn", () => {
     const messages: AgentRunAnchorMessage<TurnResult>[] = [
       { role: "user", text: "第一条请求", turnId: "turn_parent_1", agentRunId: "run_1" },
@@ -140,6 +151,34 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
       status: "running",
       phase: "executing",
       parent_turn_ref: "turn_parent_3",
+    };
+
+    expect(messageAnchorsAgentRun(message, run)).toBe(true);
+  });
+
+  it("anchors an author-action AgentRun to its source assistant turn", () => {
+    const sourceTurn = turnResult({
+      turn_id: "turn_quality_1",
+      assistant_message: { text: "正文草稿与质量复核" },
+    });
+    const message: AgentRunAnchorMessage<TurnResult> = {
+      role: "assistant",
+      text: "正文草稿与质量复核",
+      turnId: sourceTurn.turn_id,
+      turnResult: sourceTurn,
+    };
+    const run: AgentRunStateData = {
+      run_id: "run_revision_1",
+      run_mode: "bounded",
+      status: "running",
+      phase: "executing",
+      parent_turn_ref: "turn_quality_1",
+      trigger: {
+        kind: "author_action",
+        action_type: "revise_from_findings",
+        source_turn_ref: "turn_quality_1",
+        source_surface_ref: "quality_review:turn_quality_1",
+      },
     };
 
     expect(messageAnchorsAgentRun(message, run)).toBe(true);
