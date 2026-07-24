@@ -22,6 +22,11 @@ defmodule NovelPersistence.AgentRunLogTest do
                origin_frame_ref: "frame-log",
                run_mode: "bounded",
                profile_ref: "character_design_with_context_v1",
+               trigger: %{
+                 "kind" => "author_action",
+                 "action_type" => "revise_from_findings",
+                 "source_turn_ref" => "turn-log"
+               },
                status: "running",
                phase: "executing",
                goal: %{"text" => "先读角色阵容再设计反派", "version" => 1},
@@ -34,6 +39,7 @@ defmodule NovelPersistence.AgentRunLogTest do
              })
 
     assert run.id == run_id
+    assert run.trigger["action_type"] == "revise_from_findings"
 
     assert {:ok, _updated} =
              AgentRunLog.upsert_run(%{
@@ -227,6 +233,9 @@ defmodule NovelPersistence.AgentRunLogTest do
              )
 
     assert [%{id: ^active_id}] = AgentRunLog.list_active_durable("work-active", "session-active")
+
+    assert [%{id: ^bounded_id}] =
+             AgentRunLog.list_active_bounded("work-active", "session-active")
   end
 
   test "lists active durable runs by work across sessions" do

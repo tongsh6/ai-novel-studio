@@ -17,6 +17,7 @@ defmodule NovelPersistence.Schemas.AgentRunRecord do
     field(:origin_frame_ref, :string)
     field(:run_mode, :string)
     field(:profile_ref, :string)
+    field(:trigger, :map)
     field(:status, :string)
     field(:phase, :string)
     field(:goal, :map)
@@ -54,6 +55,7 @@ defmodule NovelPersistence.Schemas.AgentRunRecord do
   ]
   @optional_fields [
     :goal,
+    :trigger,
     :goal_version,
     :plan,
     :plan_ref,
@@ -81,6 +83,7 @@ defmodule NovelPersistence.Schemas.AgentRunRecord do
       "created",
       "running",
       "pausing",
+      "cancelling",
       "paused",
       "awaiting_author",
       "completed",

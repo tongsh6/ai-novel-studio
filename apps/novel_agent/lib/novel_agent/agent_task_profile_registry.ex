@@ -121,6 +121,18 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  # 设定盘点 profile（VS-00G CP4b-2）：只读作品材料后，由模型提炼 tentative seed
+  # 提案；采纳仍走既有作者授权边界，profile 本身无 production write 权限。
+  @fact_inventory_profile %{
+    profile_id: "fact_inventory_v1",
+    allowed_tools: ["fact_inventory"],
+    required_observations: [],
+    completion_conditions: ["fact_inventory_artifacts_created"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   # 判断循环入口 profile（ADR-0025 CP1）：路由语义已并入判断①，能力=判断本身。
   @judgment_loop_profile %{
     profile_id: "judgment_loop_v1",
@@ -144,6 +156,7 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   def get("provider_progress_v1"), do: @provider_progress_profile
   def get("readonly_batch_context_v1"), do: @readonly_batch_context_profile
   def get("ledger_reconciliation_v1"), do: @ledger_reconciliation_profile
+  def get("fact_inventory_v1"), do: @fact_inventory_profile
   def get(_profile_id), do: nil
 
   @spec allowed_tool?(String.t(), String.t()) :: boolean()

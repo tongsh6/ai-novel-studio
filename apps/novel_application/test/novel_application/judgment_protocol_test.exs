@@ -130,7 +130,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     # 目录未传入 → 保持向后兼容不拦
     assert {:ok, _} =
-             request(%{"action" => "execute", "reason" => "go", "capability" => "text_generation"})
+             request(%{
+               "action" => "execute",
+               "reason" => "go",
+               "capability" => "text_generation"
+             })
   end
 
   test "call2 prompt 注入目录（T4 M2 误路由回归）：传目录时列出实名，未传保持旧措辞" do
@@ -158,6 +162,26 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert bare_text =~ "capability 填能力目录中的能力名（只能取目录名）"
     assert bare_text =~ "tool 从「探索目录」选择"
+  end
+
+  test "call2 schema 要求 provider 明确给出 reply frame 语义" do
+    prompt =
+      JudgmentProtocol.decision_prompt(
+        %{author_text: "为什么这一章张力不足？", options: []},
+        @narrative
+      )
+
+    [%{input_schema: schema}] = prompt.tools
+
+    assert "frame_type" in schema.required
+    assert "dialogue_goal" in schema.required
+
+    frame_type_schema = schema.properties.frame_type
+
+    assert %{type: "string", enum: frame_types} =
+             Enum.find(frame_type_schema.anyOf, &(&1[:type] == "string"))
+
+    assert frame_types == ~w(casual_reply creative_exploration question_answer meta_discussion)
   end
 
   test "call2 回显双端保留（M2 达标跑缺陷回归）：长叙事保头尾，结论不被剪，短叙事原样" do
@@ -271,5 +295,30 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert judgment.candidate_directions == []
     refute judgment.candidate_directions_present
+  end
+
+  test "reply frame type 与 dialogue goal 从判断结构原样归一" do
+    assert {:ok, judgment} =
+             request(%{
+               "action" => "reply",
+               "reason" => "answer_author_question",
+               "reply_included" => true,
+               "frame_type" => "question_answer",
+               "dialogue_goal" => "解释胜利过轻削弱张力的原因"
+             })
+
+    assert judgment.frame_type == "question_answer"
+    assert judgment.dialogue_goal == "解释胜利过轻削弱张力的原因"
+
+    assert {:ok, invalid} =
+             request(%{
+               "action" => "reply",
+               "reason" => "bad_frame",
+               "frame_type" => "execution_candidate",
+               "dialogue_goal" => "  "
+             })
+
+    assert invalid.frame_type == nil
+    assert invalid.dialogue_goal == nil
   end
 end

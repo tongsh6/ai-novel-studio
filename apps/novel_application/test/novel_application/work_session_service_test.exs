@@ -36,6 +36,37 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert Enum.map(snapshot.transcript, & &1.role) == ["user", "assistant"]
     end
 
+    test "returns persisted candidate selection metadata for UI disclosure recovery", %{
+      work: work
+    } do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      candidate_selection = %{
+        source_turn_ref: "turn-candidates",
+        candidate_set_ref: "candidate_set:turn-candidates",
+        candidate_ref: "dir-1"
+      }
+
+      record(
+        work.id,
+        session.id,
+        "turn-continuation",
+        "user",
+        "继续聊人物动机",
+        nil,
+        candidate_selection
+      )
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+      assert [entry] = snapshot.transcript
+      assert map_field(entry.candidate_selection, :source_turn_ref) == "turn-candidates"
+
+      assert map_field(entry.candidate_selection, :candidate_set_ref) ==
+               "candidate_set:turn-candidates"
+
+      assert map_field(entry.candidate_selection, :candidate_ref) == "dir-1"
+    end
+
     test "returns only the latest transcript page for long sessions", %{work: work} do
       {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
@@ -323,6 +354,51 @@ defmodule NovelApplication.WorkSessionServiceTest do
       refute Map.has_key?(agent_runs_by_turn["turn-two"], :events)
     end
 
+    test "does not replace a persisted turn's AgentRun identity with an author-action child run",
+         %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      record(work.id, session.id, "turn-quality-source", "assistant", "原稿与质量复核", %{
+        turn_id: "turn-quality-source",
+        assistant_message: %{text: "原稿与质量复核"},
+        agent_run: %{
+          run_id: "run-original-draft",
+          run_mode: "bounded",
+          profile_ref: "prose_drafting_with_quality_v1",
+          status: "completed"
+        }
+      })
+
+      assert {:ok, _child_run} =
+               AgentRunLog.upsert_run(%{
+                 id: "run-revision-child",
+                 workspace_id: work.id,
+                 work_id: work.id,
+                 session_id: session.id,
+                 parent_turn_ref: "turn-quality-source",
+                 origin_frame_ref: "frame-revision-child",
+                 run_mode: "bounded",
+                 profile_ref: "prose_revision_from_findings_v1",
+                 status: "completed",
+                 phase: "stopped",
+                 plan_ref: "ap-revision-child",
+                 plan_version: 1,
+                 trigger: %{
+                   kind: "author_action",
+                   action_type: "revise_from_findings",
+                   source_turn_ref: "turn-quality-source"
+                 }
+               })
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+      [entry] = snapshot.transcript
+      agent_run = entry.turn_result[:agent_run]
+
+      assert map_field(agent_run, :run_id) == "run-original-draft"
+      assert map_field(agent_run, :profile_ref) == "prose_drafting_with_quality_v1"
+      refute map_has_key?(agent_run, :trigger)
+    end
+
     test "does not include archived sessions in the default resume list", %{work: work} do
       {:ok, active} = WorkSessionRepo.ensure_active_for_work(work.id)
 
@@ -531,10 +607,19 @@ defmodule NovelApplication.WorkSessionServiceTest do
     end
   end
 
-  defp record(work_id, session_id, turn_id, role, text, turn_result \\ nil) do
+  defp record(
+         work_id,
+         session_id,
+         turn_id,
+         role,
+         text,
+         turn_result \\ nil,
+         candidate_selection \\ nil
+       ) do
     content =
       %{text: text}
       |> maybe_put_turn_result(turn_result)
+      |> maybe_put_candidate_selection(candidate_selection)
 
     {:ok, _} =
       MemoryLog.record(%{
@@ -552,6 +637,11 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
   defp maybe_put_turn_result(content, turn_result),
     do: Map.put(content, :turn_result, turn_result)
+
+  defp maybe_put_candidate_selection(content, nil), do: content
+
+  defp maybe_put_candidate_selection(content, candidate_selection),
+    do: Map.put(content, :candidate_selection, candidate_selection)
 
   defp map_field(map, key) when is_map(map),
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))

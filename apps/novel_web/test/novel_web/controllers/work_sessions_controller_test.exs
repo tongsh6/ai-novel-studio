@@ -25,7 +25,14 @@ defmodule NovelWeb.WorkSessionsControllerTest do
         session_id: session.id,
         turn_id: "turn-1",
         role: "user",
-        content: %{text: "第一句"}
+        content: %{
+          text: "第一句",
+          candidate_selection: %{
+            source_turn_ref: "turn-candidates",
+            candidate_set_ref: "candidate_set:turn-candidates",
+            candidate_ref: "dir-1"
+          }
+        }
       })
 
     conn = get(conn, "/api/works/#{work.id}/sessions/resume")
@@ -33,7 +40,17 @@ defmodule NovelWeb.WorkSessionsControllerTest do
 
     assert body["work"]["id"] == work.id
     assert body["active_session"]["id"] == session.id
-    assert [%{"text" => "第一句"}] = body["transcript"]
+
+    assert [
+             %{
+               "text" => "第一句",
+               "candidate_selection" => %{
+                 "source_turn_ref" => "turn-candidates",
+                 "candidate_set_ref" => "candidate_set:turn-candidates",
+                 "candidate_ref" => "dir-1"
+               }
+             }
+           ] = body["transcript"]
   end
 
   test "GET /api/works/:work_id/sessions/resume returns a paged transcript snapshot", %{

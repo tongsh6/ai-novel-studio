@@ -3,6 +3,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
   import Phoenix.ChannelTest
 
+  alias NovelApplication.AgentRunService
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
@@ -79,6 +80,51 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         }
       ],
       resolved: []
+    }
+  }
+
+  @quality_revision_turn_result %{
+    turn_id: "turn-quality-source",
+    frame_ref: "frame-quality-source",
+    available_actions: [
+      %{
+        action_id: "revise_from_findings:as-prose-original",
+        action_type: "revise_from_findings",
+        target_ref: "as-prose-original",
+        enabled: true,
+        idempotency_key: "idem:quality-revision",
+        quality_finding_refs: ["validator.prose_pattern_repetition"]
+      }
+    ],
+    adoption_state: %{
+      pending: [
+        %{
+          artifact_id: "as-prose-original",
+          artifact_type: :prose_fragment,
+          adoption_status: :tentative,
+          requires_adoption: true,
+          payload: %{
+            items: [
+              %{item_id: "scene-1", title: "废弃高架追逐", body: "他向前跑。他回头看。"}
+            ]
+          }
+        }
+      ],
+      resolved: []
+    },
+    quality_review: %{
+      status: "warnings",
+      policy_action: "proceed_with_warning",
+      review_status: "completed",
+      findings: [
+        %{
+          validator: "validator.prose_pattern_repetition",
+          quality_gate: "quality_gate.style_fit",
+          severity: "warn",
+          action: "warn",
+          summary: "句式节奏单一"
+        }
+      ]
     }
   }
 
@@ -908,6 +954,70 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
     end
   end
 
+  describe "quality revision author action" do
+    test "persists a stable receipt result and binds the revision run to its source surface" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @quality_revision_turn_result)
+
+      params = %{
+        "action" => %{
+          "action_id" => "revise_from_findings:as-prose-original",
+          "action_type" => "revise_from_findings",
+          "target_ref" => "as-prose-original",
+          "source_turn_ref" => "turn-quality-source",
+          "idempotency_key" => "idem:quality-revision",
+          "payload" => %{
+            "quality_finding_refs" => ["validator.prose_pattern_repetition"]
+          }
+        }
+      }
+
+      assert {:reply,
+              {:ok,
+               %{
+                 action_status: "running",
+                 receipt_id: receipt_id,
+                 run_id: run_id,
+                 source_turn_ref: "turn-quality-source",
+                 source_surface_ref: "quality_review:turn-quality-source",
+                 target_artifact_ref: "as-prose-original",
+                 trigger: %{
+                   kind: "author_action",
+                   action_type: "revise_from_findings",
+                   quality_finding_refs: ["validator.prose_pattern_repetition"]
+                 }
+               }}, socket} = WorkspaceChannel.handle_in("author_action", params, socket)
+
+      assert is_binary(receipt_id)
+      assert is_binary(run_id)
+
+      assert_broadcast("action_result", %{
+        receipt_id: ^receipt_id,
+        run_id: ^run_id,
+        source_surface_ref: "quality_review:turn-quality-source",
+        status: "running"
+      })
+
+      assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+      assert run.trigger.receipt_id == receipt_id
+      assert run.trigger.source_turn_ref == "turn-quality-source"
+      assert run.trigger.target_artifact_ref == "as-prose-original"
+
+      assert {:reply,
+              {:ok,
+               %{
+                 duplicate: true,
+                 receipt_id: ^receipt_id,
+                 run_id: ^run_id,
+                 action_status: "running"
+               }}, _socket} = WorkspaceChannel.handle_in("author_action", params, socket)
+    end
+  end
+
   describe "artifact adoption roundtrip" do
     test "adopt event goes through backend adoption boundary and broadcasts resolved turn_result" do
       {:ok, _, socket} =
@@ -1506,6 +1616,52 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       assert_reply(ref, :ok, %{action_status: "running", run_id: run_id})
       assert is_binary(run_id)
+    end
+
+    test "VS-00G CP4b-2 显式发起设定盘点：启动 fact_inventory_v1 run 异步于 turn 主链" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref =
+        push(socket, "author_action", %{
+          "action" => %{
+            "action_id" => "act-inventory-1",
+            "action_type" => "start_fact_inventory",
+            "source_turn_ref" => "panel",
+            "idempotency_key" => "inventory-1"
+          }
+        })
+
+      assert_reply(ref, :ok, %{action_status: "running", run_id: run_id})
+      assert is_binary(run_id)
+    end
+
+    test "VS-00G CP4c finding 触发盘点：报告绑定不存在时拒绝启动 run" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref =
+        push(socket, "author_action", %{
+          "action" => %{
+            "action_id" => "act-inventory-finding-missing",
+            "action_type" => "start_fact_inventory",
+            "source_turn_ref" => "panel",
+            "idempotency_key" => "inventory-finding-missing",
+            "payload" => %{
+              "trigger_type" => "finding",
+              "report_id" => "report-missing",
+              "finding_index" => 0,
+              "finding_rule" => "protagonist_undermaterialized"
+            }
+          }
+        })
+
+      assert_reply(ref, :error, %{reason: reason})
+      assert reason =~ "report_not_found"
     end
 
     test "CP4c 裁决动作：报告不存在时诚实报错" do

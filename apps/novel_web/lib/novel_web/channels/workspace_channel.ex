@@ -280,7 +280,7 @@ defmodule NovelWeb.WorkspaceChannel do
         })
 
         broadcast!(socket, "action_result", result)
-        {:reply, {:ok, %{received: true, action_status: result.status, duplicate: true}}, socket}
+        {:reply, {:ok, author_action_ack(result, duplicate: true)}, socket}
 
       :miss ->
         handle_author_action(socket, action_input, source_turn_result)
@@ -733,18 +733,42 @@ defmodule NovelWeb.WorkspaceChannel do
 
     if is_binary(work_id) and is_binary(session_id) do
       channel_pid = self()
+      event_sink = fn event -> send(channel_pid, {:agent_event, event}) end
+
+      {:ok, reconnected} =
+        AgentRunService.reconnect_bounded(
+          work_id,
+          session_id,
+          event_sink: event_sink
+        )
+
+      Enum.each(reconnected, &broadcast_reconnected_bounded_agent_run(socket, &1))
 
       {:ok, recovered} =
         AgentRunService.recover_durable(
           work_id,
           session_id,
           work_revision: current_work_revision(work_id),
-          event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
+          event_sink: event_sink
         )
 
       Enum.each(recovered, &broadcast_recovered_agent_run(socket, &1))
     end
   end
+
+  defp broadcast_reconnected_bounded_agent_run(socket, %{run: run} = state) do
+    broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+
+    LogEmit.emit(:channel, :agent_run_reconnect, :done, %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      run_id: run.run_id,
+      run_mode: :bounded,
+      runtime_live: true
+    })
+  end
+
+  defp broadcast_reconnected_bounded_agent_run(_socket, _state), do: :ok
 
   defp broadcast_recovered_agent_run(socket, %{recovery_event: %AgentEvent{} = event} = state) do
     if AgentEvent.author_visible?(event) do
@@ -865,6 +889,8 @@ defmodule NovelWeb.WorkspaceChannel do
       parent_turn_ref: run.parent_turn_ref,
       origin_frame_ref: run.origin_frame_ref,
       profile_ref: run.profile_ref,
+      trigger: stringify_atom_values(run.trigger),
+      current_activity: agent_run_current_activity(run),
       goal: run.goal,
       plan_ref: run.plan_ref,
       plan_version: run.plan_version,
@@ -881,6 +907,34 @@ defmodule NovelWeb.WorkspaceChannel do
       long_run_task: long_run_task_payload(Map.get(state, :long_run_task))
     }
   end
+
+  defp agent_run_current_activity(run) do
+    completed_steps = length(run.completed_step_refs || [])
+    total_steps = max(agent_run_plan_step_count(run.plan), completed_steps)
+
+    %{
+      kind:
+        if(get_in(run.trigger || %{}, [:action_type]) == "revise_from_findings",
+          do: "revision_draft_generation",
+          else: "agent_run_execution"
+        ),
+      phase: agent_run_activity_phase(run),
+      completed_steps: completed_steps,
+      total_steps: total_steps
+    }
+  end
+
+  defp agent_run_plan_step_count(%{steps: steps}) when is_list(steps), do: length(steps)
+  defp agent_run_plan_step_count(%{"steps" => steps}) when is_list(steps), do: length(steps)
+  defp agent_run_plan_step_count(_plan), do: 0
+
+  defp agent_run_activity_phase(%{status: status})
+       when status in [:completed, :cancelled, :failed],
+       do: "finalizing"
+
+  defp agent_run_activity_phase(%{phase: :planning}), do: "preparing"
+  defp agent_run_activity_phase(%{phase: :finalizing}), do: "finalizing"
+  defp agent_run_activity_phase(_run), do: "generating"
 
   defp long_run_task_payload(nil), do: nil
 
@@ -1078,7 +1132,8 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast!(socket, "action_result", result)
 
         {:reply,
-         {:ok, %{received: true, action_status: "applied", report_status: report.adoption_status}},
+         {:ok,
+          %{received: true, action_status: "applied", report_status: report.adoption_status}},
          socket}
 
       {:follow_up, kind, %{report: report}} ->
@@ -1151,6 +1206,71 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  # VS-00G CP4b-2/CP4c：作品档案主动入口或主角未物化 finding 发起设定盘点——
+  # fact_inventory_v1 AgentRun。finding 路径由服务端反查报告条目后记录既有
+  # revise_design 处置，不信任客户端自报 rule；盘点仍只生成 tentative seed。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: "start_fact_inventory"} = action_input,
+         _source_turn_result
+       ) do
+    payload = action_input.payload || %{}
+
+    case prepare_fact_inventory_trigger(socket, payload) do
+      {:ok, trigger} ->
+        input = %{
+          text: fact_inventory_prompt(trigger),
+          workspace_id: socket.assigns[:workspace_id] || "lobby",
+          work_id: socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby",
+          work_revision: current_work_revision(socket.assigns[:work_id]),
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          origin_frame_ref: "frame_#{action_input.source_turn_ref}_fact_inventory"
+        }
+
+        spec =
+          NovelApplication.DialoguePlanningService.run_spec_for_profile(
+            :fact_inventory,
+            input,
+            nil
+          )
+
+        case start_agent_run(spec.run_attrs, spec) do
+          {:agent_run_started, run_id, attrs} ->
+            log_fields =
+              %{
+                work_id: socket.assigns[:work_id],
+                session_id: socket.assigns[:session_id],
+                turn_id: action_input.source_turn_ref,
+                action_id: action_input.action_id,
+                action_type: action_input.action_type,
+                action_status: :running,
+                run_id: run_id
+              }
+              |> Map.merge(fact_inventory_trigger_log_fields(trigger))
+
+            LogEmit.emit(:channel, :author_action, :done, log_fields)
+
+            reply =
+              %{
+                received: true,
+                action_status: "running",
+                run_id: run_id,
+                turn_id: Map.get(attrs, :parent_turn_ref)
+              }
+              |> Map.merge(fact_inventory_trigger_reply_fields(trigger))
+
+            {:reply, {:ok, reply}, socket}
+
+          other ->
+            {:reply, {:error, %{reason: inspect(other)}}, socket}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
   defp handle_author_action(socket, action_input, source_turn_result) do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
   end
@@ -1164,6 +1284,100 @@ defmodule NovelWeb.WorkspaceChannel do
       report_id: report.id,
       report_status: report.adoption_status,
       follow_up: follow_up && to_string(follow_up)
+    }
+  end
+
+  defp prepare_fact_inventory_trigger(_socket, %{"trigger_type" => nil}), do: {:ok, nil}
+
+  defp prepare_fact_inventory_trigger(_socket, payload) when map_size(payload) == 0,
+    do: {:ok, nil}
+
+  defp prepare_fact_inventory_trigger(socket, %{"trigger_type" => "finding"} = payload) do
+    binding = %{
+      work_id: socket.assigns[:work_id],
+      report_id: payload["report_id"],
+      finding_index: payload["finding_index"]
+    }
+
+    with {:ok, %{finding: finding}} <-
+           NovelApplication.LedgerViewService.active_finding(binding),
+         :ok <- ensure_fact_inventory_finding(payload["finding_rule"], finding),
+         {:follow_up, :revise_design, %{report: report}} <-
+           NovelApplication.LedgerViewService.adjudicate(
+             Map.merge(binding, %{
+               disposition: "revise_design",
+               actor_ref: "author",
+               note: "从审读 finding 发起设定盘点"
+             })
+           ) do
+      {:ok,
+       %{
+         type: "finding",
+         report_id: report.id,
+         report_status: report.adoption_status,
+         finding_index: payload["finding_index"],
+         rule: finding["rule"],
+         signal: finding["signal"]
+       }}
+    else
+      {:ok, _result} -> {:error, :finding_disposition_did_not_request_inventory}
+      {:follow_up, other, _result} -> {:error, {:unexpected_finding_follow_up, other}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp prepare_fact_inventory_trigger(_socket, %{"trigger_type" => other}),
+    do: {:error, {:unsupported_fact_inventory_trigger, other}}
+
+  defp prepare_fact_inventory_trigger(_socket, %{}), do: {:ok, nil}
+
+  defp ensure_fact_inventory_finding(client_rule, finding) do
+    actual_rule = finding["rule"]
+
+    cond do
+      client_rule != actual_rule ->
+        {:error, {:finding_rule_mismatch, client_rule, actual_rule}}
+
+      actual_rule != "protagonist_undermaterialized" ->
+        {:error, {:finding_does_not_start_inventory, actual_rule}}
+
+      finding["proposed_disposition"] != "revise_design" ->
+        {:error,
+         {:finding_disposition_mismatch, finding["proposed_disposition"], "revise_design"}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp fact_inventory_prompt(nil) do
+    "从当前作品已采纳正文与摘要中盘点事实上已经存在的角色、世界规则和伏笔，整理为待采纳提案；不要直接写入作品档案。"
+  end
+
+  defp fact_inventory_prompt(%{type: "finding", signal: signal}) do
+    "审读发现「#{signal}」。从当前作品已采纳正文与摘要中发起设定盘点，优先识别实际主角及主角团，同时整理世界规则和伏笔为待采纳提案；不要直接写入作品档案。"
+  end
+
+  defp fact_inventory_trigger_log_fields(nil), do: %{}
+
+  defp fact_inventory_trigger_log_fields(trigger) do
+    %{
+      trigger_type: trigger.type,
+      trigger_report_id: trigger.report_id,
+      trigger_finding_index: trigger.finding_index,
+      trigger_rule: trigger.rule
+    }
+  end
+
+  defp fact_inventory_trigger_reply_fields(nil), do: %{}
+
+  defp fact_inventory_trigger_reply_fields(trigger) do
+    %{
+      trigger_type: trigger.type,
+      trigger_report_id: trigger.report_id,
+      trigger_finding_index: trigger.finding_index,
+      trigger_rule: trigger.rule,
+      report_status: trigger.report_status
     }
   end
 
@@ -1252,6 +1466,8 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp start_revision_agent_run(socket, action_input, source_turn_result) do
+    trigger = revision_agent_run_trigger(action_input)
+
     input = %{
       text: "按质量发现重写正文草稿",
       workspace_id: socket.assigns[:workspace_id] || "lobby",
@@ -1261,7 +1477,9 @@ defmodule NovelWeb.WorkspaceChannel do
       turn_id: action_input.source_turn_ref,
       origin_frame_ref: "frame_#{action_input.source_turn_ref}_revision",
       source_turn_result: source_turn_result,
-      action_input: action_input
+      action_input: action_input,
+      memory_recorder: NovelApplication.persistence_interaction_recorder(),
+      trigger: trigger
     }
 
     spec =
@@ -1274,6 +1492,26 @@ defmodule NovelWeb.WorkspaceChannel do
     case start_agent_run(spec.run_attrs, spec) do
       {:agent_run_started, run_id, attrs} ->
         run_mode = run_mode_string(attrs)
+
+        result = %{
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          idempotency_key: action_input.idempotency_key,
+          status: "running",
+          receipt_id: trigger.receipt_id,
+          run_id: run_id,
+          run_mode: run_mode,
+          long_run_task_ref: Map.get(attrs, :long_run_task_ref),
+          turn_id: Map.get(attrs, :parent_turn_ref),
+          source_turn_ref: trigger.source_turn_ref,
+          source_surface_ref: trigger.source_surface_ref,
+          target_artifact_ref: trigger.target_artifact_ref,
+          profile_ref: Map.get(attrs, :profile_ref),
+          goal: Map.get(attrs, :goal),
+          trigger: trigger
+        }
+
+        socket = remember_action_result(socket, action_input, result)
 
         LogEmit.emit(:channel, :author_action, :done, %{
           work_id: socket.assigns[:work_id],
@@ -1288,18 +1526,8 @@ defmodule NovelWeb.WorkspaceChannel do
           candidate_set_ref: action_input.candidate_set_ref
         })
 
-        {:reply,
-         {:ok,
-          %{
-            received: true,
-            action_status: "running",
-            run_id: run_id,
-            run_mode: run_mode,
-            long_run_task_ref: Map.get(attrs, :long_run_task_ref),
-            turn_id: Map.get(attrs, :parent_turn_ref),
-            profile_ref: Map.get(attrs, :profile_ref),
-            goal: Map.get(attrs, :goal)
-          }}, socket}
+        broadcast!(socket, "action_result", result)
+        {:reply, {:ok, author_action_ack(result)}, socket}
 
       {:error, reason} ->
         LogEmit.emit(:channel, :author_action, :error, %{
@@ -1315,6 +1543,55 @@ defmodule NovelWeb.WorkspaceChannel do
         {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
+
+  defp revision_agent_run_trigger(action_input) do
+    quality_finding_refs =
+      action_input
+      |> action_payload("quality_finding_refs")
+      |> case do
+        refs when is_list(refs) ->
+          refs
+          |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+          |> Enum.uniq()
+
+        _other ->
+          []
+      end
+
+    %{
+      kind: "author_action",
+      receipt_id: action_input.input_id,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      source_turn_ref: action_input.source_turn_ref,
+      source_surface_ref: "quality_review:#{action_input.source_turn_ref}",
+      target_artifact_ref: action_input.target_ref,
+      quality_finding_refs: quality_finding_refs
+    }
+  end
+
+  defp author_action_ack(result, opts \\ []) do
+    result
+    |> Map.take([
+      :receipt_id,
+      :run_id,
+      :run_mode,
+      :long_run_task_ref,
+      :turn_id,
+      :source_turn_ref,
+      :source_surface_ref,
+      :target_artifact_ref,
+      :profile_ref,
+      :goal,
+      :trigger
+    ])
+    |> Map.put(:received, true)
+    |> Map.put(:action_status, result.status)
+    |> maybe_put_duplicate(Keyword.get(opts, :duplicate, false))
+  end
+
+  defp maybe_put_duplicate(ack, true), do: Map.put(ack, :duplicate, true)
+  defp maybe_put_duplicate(ack, false), do: ack
 
   defp finish_adoption_author_action(socket, action_input, {:ok, action_result, turn_result}) do
     turn_result = scope_turn_result(socket, turn_result)
@@ -1345,7 +1622,11 @@ defmodule NovelWeb.WorkspaceChannel do
 
   # M0 缺陷修复（2026-07-19）：accept 采纳成功后通知活跃 run（若有）——作者采纳
   # 是单候选循环的收束信号。run 侧对非 pending 引用无害 no-op，此处不做精确归属判定。
-  defp notify_active_run_of_adoption(socket, %AuthorActionInput{action_type: type} = action_input, action_result)
+  defp notify_active_run_of_adoption(
+         socket,
+         %AuthorActionInput{action_type: type} = action_input,
+         action_result
+       )
        when type in ["accept", "edit_then_accept"] do
     run_id = socket.assigns[:active_agent_run_id]
 

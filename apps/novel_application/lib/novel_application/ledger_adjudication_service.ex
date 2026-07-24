@@ -33,6 +33,12 @@ defmodule NovelApplication.LedgerAdjudicationService do
           optional(:note) => String.t() | nil
         }
 
+  @type finding_input :: %{
+          required(:work_id) => String.t(),
+          required(:report_id) => String.t(),
+          required(:finding_index) => non_neg_integer()
+        }
+
   @type deps :: %{
           required(:report_repo) => %{
             required(:get) => (String.t(), String.t() -> map() | nil),
@@ -49,11 +55,8 @@ defmodule NovelApplication.LedgerAdjudicationService do
           {:ok, map()} | {:follow_up, atom(), map()} | {:error, term()}
   def adjudicate(input, deps) do
     with :ok <- validate(input),
-         report when is_map(report) <-
-           deps.report_repo.get.(input.work_id, input.report_id) || {:error, :report_not_found},
-         :ok <- ensure_adjudicable(report),
-         {:ok, finding} <- fetch_finding(report, input.finding_index),
-         :ok <- ensure_not_dispositioned(finding),
+         {:ok, %{report: report, finding: finding}} <-
+           active_finding(Map.take(input, [:work_id, :report_id, :finding_index]), deps),
          {:ok, effect} <- apply_disposition(input, finding, deps),
          {:ok, updated_report} <- record_disposition(input, report, deps) do
       LogEmit.emit(:ledger, :adjudicate, :done, %{
@@ -73,6 +76,25 @@ defmodule NovelApplication.LedgerAdjudicationService do
     end
   end
 
+  @doc """
+  读取仍可处置的报告条目，不产生副作用。
+
+  finding 触发其它作者动作时先用本入口绑定真实报告与真实规则，避免客户端仅凭
+  `rule` 文本发起不相干的后续运行。
+  """
+  @spec active_finding(finding_input(), deps()) ::
+          {:ok, %{report: map(), finding: map()}} | {:error, term()}
+  def active_finding(input, deps) do
+    with :ok <- validate_finding_input(input),
+         report when is_map(report) <-
+           deps.report_repo.get.(input.work_id, input.report_id) || {:error, :report_not_found},
+         :ok <- ensure_adjudicable(report),
+         {:ok, finding} <- fetch_finding(report, input.finding_index),
+         :ok <- ensure_not_dispositioned(finding) do
+      {:ok, %{report: report, finding: finding}}
+    end
+  end
+
   defp validate(%{
          work_id: w,
          report_id: r,
@@ -86,6 +108,13 @@ defmodule NovelApplication.LedgerAdjudicationService do
   end
 
   defp validate(_input), do: {:error, :missing_adjudication_input}
+
+  defp validate_finding_input(%{work_id: work_id, report_id: report_id, finding_index: index})
+       when is_binary(work_id) and work_id != "" and is_binary(report_id) and report_id != "" and
+              is_integer(index) and index >= 0,
+       do: :ok
+
+  defp validate_finding_input(_input), do: {:error, :missing_finding_input}
 
   defp ensure_adjudicable(%{adoption_status: "TENTATIVE"}), do: :ok
   defp ensure_adjudicable(%{adoption_status: status}), do: {:error, {:report_not_active, status}}

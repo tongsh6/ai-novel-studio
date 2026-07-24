@@ -60,6 +60,33 @@ defmodule NovelApplication.TurnResultBuilder do
     |> maybe_add_behavior(behavior)
   end
 
+  @doc """
+  为一次工具调用产生的多个既有 TentativeArtifactSet 构建同一个 TurnResult。
+
+  设定盘点会同批产角色/规则/伏笔，但每组必须保持原 artifact_type 和采纳语义；
+  此函数只合并既有 candidate_set / adoption_state / available_actions，不发明混合类型。
+  """
+  @spec build_artifact_sets(
+          DialogueFrame.t(),
+          map(),
+          OrchestratorDecision.t() | nil,
+          NovelCommon.Contracts.ToolResult.t(),
+          [TentativeArtifactSet.t()]
+        ) :: map()
+  def build_artifact_sets(frame, trace_summary, decision, tool_result, artifact_sets)
+      when is_list(artifact_sets) do
+    result =
+      build(frame, trace_summary, [], decision, tool_result, nil, nil)
+      |> Map.put(
+        :available_actions,
+        Enum.flat_map(artifact_sets, &AvailableActionBuilder.artifact_actions/1)
+      )
+
+    Enum.reduce(artifact_sets, result, fn artifact_set, acc ->
+      maybe_add_artifacts(acc, artifact_set)
+    end)
+  end
+
   # ── phase / status ────────────────────────────
 
   defp build_phase(nil, %ToolResult{status: :failed}), do: "failed"
@@ -178,9 +205,13 @@ defmodule NovelApplication.TurnResultBuilder do
     # 采纳一个只物化该条目对应的 item，其它候选保持 pending、不进入作品事实。
     units = TentativeArtifactSet.adoptable_units(as)
 
+    current_adoption_state = Map.get(r, :adoption_state, %{pending: [], resolved: []})
+
     adoption_state = %{
-      pending: Enum.map(units, &unit_pending_entry(as, &1)),
-      resolved: []
+      pending:
+        List.wrap(Map.get(current_adoption_state, :pending)) ++
+          Enum.map(units, &unit_pending_entry(as, &1)),
+      resolved: List.wrap(Map.get(current_adoption_state, :resolved))
     }
 
     candidate_set_card =

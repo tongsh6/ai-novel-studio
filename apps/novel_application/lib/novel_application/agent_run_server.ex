@@ -486,6 +486,7 @@ defmodule NovelApplication.AgentRunServer do
         run_mode: run.run_mode,
         parent_turn_ref: run.parent_turn_ref,
         profile_ref: run.profile_ref,
+        trigger: run.trigger,
         status: :failed
       }
     }
@@ -953,6 +954,7 @@ defmodule NovelApplication.AgentRunServer do
   defp run_started_payload(%AgentRun{} = run) do
     %{
       profile_ref: run.profile_ref,
+      trigger: run.trigger || %{},
       allowed_tools: Map.get(run.authority_scope, :allowed_tools, []),
       profile_selection:
         Map.get(run.authority_scope, :profile_selection) ||
@@ -1141,6 +1143,7 @@ defmodule NovelApplication.AgentRunServer do
       origin_frame_ref: run.origin_frame_ref,
       run_mode: atom_string(run.run_mode),
       profile_ref: run.profile_ref,
+      trigger: json_safe(run.trigger),
       status: atom_string(run.status),
       phase: atom_string(run.phase),
       goal: goal,

@@ -55,6 +55,42 @@ defmodule NovelDomain.AgentRunContractTest do
     assert run.authority_scope.profile_selection.matched_terms == ["角色阵容", "设计", "反派"]
   end
 
+  test "AgentRun normalizes a persisted author-action trigger without inventing fields" do
+    assert {:ok, run} =
+             AgentRun.new(%{
+               "run_id" => "run_revision",
+               "workspace_id" => "ws_1",
+               "work_id" => "work_1",
+               "session_id" => "sess_1",
+               "parent_turn_ref" => "turn_quality",
+               "origin_frame_ref" => "frame_revision",
+               "profile_ref" => "prose_revision_from_findings_v1",
+               "goal" => "按质量发现重写正文草稿",
+               "authority_scope" => %{
+                 "allowed_tools" => ["prose_revision_from_findings"]
+               },
+               "trigger" => %{
+                 "kind" => "author_action",
+                 "receipt_id" => "in_revision",
+                 "action_type" => "revise_from_findings",
+                 "source_turn_ref" => "turn_quality",
+                 "source_surface_ref" => "quality_review:turn_quality",
+                 "target_artifact_ref" => "artifact_original",
+                 "quality_finding_refs" => ["validator.style", "", "validator.style"]
+               }
+             })
+
+    assert run.trigger == %{
+             kind: "author_action",
+             receipt_id: "in_revision",
+             action_type: "revise_from_findings",
+             source_turn_ref: "turn_quality",
+             source_surface_ref: "quality_review:turn_quality",
+             target_artifact_ref: "artifact_original",
+             quality_finding_refs: ["validator.style"]
+           }
+  end
+
   test "bounded run rejects LongRunTask ownership" do
     assert {:error, errors} =
              AgentRun.new(%{

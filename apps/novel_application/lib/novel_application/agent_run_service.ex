@@ -87,6 +87,63 @@ defmodule NovelApplication.AgentRunService do
     {:ok, recovered}
   end
 
+  @doc """
+  Rebinds still-live bounded runs to a newly joined Channel without restarting
+  their planner/provider work.
+
+  The live supervisor is the liveness authority, so a refresh cannot race an
+  asynchronous persistence write. A stale non-terminal database record is
+  never reconstructed because bounded runs have no checkpoint replay contract.
+  """
+  @spec reconnect_bounded(String.t(), String.t(), keyword()) :: {:ok, [map()]}
+  def reconnect_bounded(work_id, session_id, opts \\ [])
+      when is_binary(work_id) and is_binary(session_id) do
+    event_sink = Keyword.get(opts, :event_sink)
+
+    states =
+      NovelApplication.AgentRunSupervisor
+      |> DynamicSupervisor.which_children()
+      |> Enum.flat_map(fn
+        {_id, pid, :worker, _modules} ->
+          reconnect_live_bounded(pid, work_id, session_id, event_sink)
+
+        _child ->
+          []
+      end)
+
+    {:ok, states}
+  rescue
+    _error -> {:ok, []}
+  catch
+    _kind, _reason -> {:ok, []}
+  end
+
+  defp reconnect_live_bounded(pid, work_id, session_id, event_sink) when is_pid(pid) do
+    case AgentRunServer.state(pid) do
+      %{
+        run: %{
+          run_mode: :bounded,
+          work_id: ^work_id,
+          session_id: ^session_id,
+          status: status
+        }
+      } = state
+      when status not in [:completed, :cancelled, :failed] ->
+        AgentRunServer.attach_event_sink(pid, event_sink)
+
+        [
+          state
+          |> Map.put(:recovered?, true)
+          |> Map.put(:runtime_live?, true)
+        ]
+
+      _state ->
+        []
+    end
+  catch
+    :exit, _reason -> []
+  end
+
   defp active_durable_records(work_id, session_id) do
     case AgentRunLog.list_active_durable(work_id, session_id) do
       [] -> AgentRunLog.list_active_durable_by_work(work_id)
@@ -271,6 +328,7 @@ defmodule NovelApplication.AgentRunService do
       parent_turn_ref: record.parent_turn_ref,
       origin_frame_ref: record.origin_frame_ref,
       profile_ref: record.profile_ref,
+      trigger: record.trigger,
       goal: record.goal,
       status: record.status,
       phase: record.phase,
@@ -398,6 +456,7 @@ defmodule NovelApplication.AgentRunService do
         origin_frame_ref: run.origin_frame_ref,
         run_mode: Atom.to_string(run.run_mode),
         profile_ref: run.profile_ref,
+        trigger: stringify(run.trigger),
         status: Atom.to_string(run.status),
         phase: Atom.to_string(run.phase),
         goal: run.goal,
@@ -705,6 +764,7 @@ defmodule NovelApplication.AgentRunService do
   end
 
   defp stringify(value) when is_list(value), do: Enum.map(value, &stringify/1)
+  defp stringify(nil), do: nil
   defp stringify(value) when is_atom(value), do: Atom.to_string(value)
   defp stringify(value), do: value
 end

@@ -80,6 +80,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       work_id: @work,
       session_id: "session-agent-prose-flow",
       turn_id: "turn-agent-prose-flow",
+      memory_recorder: fn workspace_id, entries ->
+        send(parent, {:recorded_prose_turn, workspace_id, entries})
+        :ok
+      end,
       quality_provider_execution: %Execution{result_fn: evaluator},
       chapter_prose_reader: fn _work_id, _chapter -> "" end,
       chapter_summary_reader: %{},
@@ -139,6 +143,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:agent_event, :exploration_observed, observation_event}, 500
     assert observation_event.summary =~ "正文草稿"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
+    assert_receive {:recorded_prose_turn, @work, recorded_entries}, 500
+    assert Enum.map(recorded_entries, & &1.role) == ["user", "assistant"]
+
+    assert List.last(recorded_entries).content.turn_result.turn_id ==
+             artifact_event.payload.turn_result.turn_id
+
     assert_receive {:agent_event, :evaluation_made, prose_decision}, 500
     assert prose_decision.payload.loop_decision_type == :goal_satisfied
     assert_receive {:agent_event, :run_completed, _}, 500
@@ -611,8 +621,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # 改进稿即最终 TurnResult（completed + 单 pending）。
     assert get_in(state.final_turn_result, [:agent_run, :status]) == :completed
     assert length(get_in(state.final_turn_result, [:adoption_state, :pending]) || []) == 1
+
     {:artifact_superseded, superseded_event} =
       Enum.find(events, fn {type, _event} -> type == :artifact_superseded end)
+
     refute Enum.any?(superseded_event.refs, &(&1 in state.run.pending_artifact_refs))
   end
 
@@ -675,6 +687,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # runtime 直连：起草 2 + 判断② 2 = 4（writer 未派发）。
     assert state.run.consumed_budget.provider_calls == 4
   end
+
   test "D7 deterministic missing chapter gap revises plan without calling writer provider" do
     parent = self()
 
@@ -733,6 +746,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # runtime 直连：起草 2 + 判断② 2 = 4（writer provider 未调用）。
     assert state.run.consumed_budget.provider_calls == 4
   end
+
   defp plan_draft_prompt?(prompt),
     do: prompt_contains?(prompt, "AgentRun 计划起草器")
 
@@ -790,8 +804,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   defp prose_plan_draft(prompt, opts \\ []) do
     prompt = prompt_text(prompt)
 
+    # 嗅作者目标短语而非全 prompt（生产指引文案自身含"接着写"枚举说明，全文嗅探会误翻分支）
     {authoring_intent, target_chapter, requested_chapter_raw, reasoning} =
-      # 嗅作者目标短语而非全 prompt（生产指引文案自身含"接着写"枚举说明，全文嗅探会误翻分支）
       if String.contains?(prompt, "接着第01章") do
         {"continuation", "第01章：开端", "第01章", "先读取第01章上下文，再按续写意图生成正文草稿。"}
       else

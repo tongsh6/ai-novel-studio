@@ -31,7 +31,8 @@ defmodule NovelApplication.DialogueGateway do
         session_id,
         text,
         trace_persister,
-        memory_recorder
+        memory_recorder,
+        interaction_metadata \\ %{}
       ) do
     maybe_persist_trace(
       result,
@@ -45,8 +46,58 @@ defmodule NovelApplication.DialogueGateway do
       ws_id,
       session_id,
       text,
-      memory_recorder || NovelApplication.persistence_interaction_recorder()
+      memory_recorder || NovelApplication.persistence_interaction_recorder(),
+      interaction_metadata
     )
+  end
+
+  @doc """
+  Persist an assistant-only TurnResult emitted by an author action.
+
+  Author actions such as `revise_from_findings` are receipts, not a second
+  `user_message`, so their eventual result must restore without inventing a
+  user transcript entry.
+  """
+  @spec persist_assistant_turn_result(
+          String.t(),
+          String.t(),
+          map(),
+          function() | nil
+        ) :: :ok
+  def persist_assistant_turn_result(ws_id, session_id, turn_result, recorder \\ nil)
+      when is_binary(ws_id) and is_binary(session_id) and is_map(turn_result) do
+    recorder = recorder || NovelApplication.persistence_interaction_recorder()
+
+    if is_function(recorder, 2) do
+      turn_id = Map.get(turn_result, :turn_id, NovelFoundation.ID.unique("turn"))
+      assistant_text = get_in(turn_result, [:assistant_message, :text]) || ""
+
+      entries = [
+        interaction_entry(
+          ws_id,
+          session_id,
+          turn_id,
+          "assistant",
+          assistant_text,
+          turn_result
+        )
+      ]
+
+      case recorder.(ws_id, entries) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          LogEmit.emit(:dialogue_gateway, :persist_interaction, :error, %{
+            reason_code: :persistence_failed,
+            outcome_detail: changeset_error_summary(reason)
+          })
+
+          :ok
+      end
+    else
+      :ok
+    end
   end
 
   # ── trace persistence ─────────────────────────
@@ -86,10 +137,12 @@ defmodule NovelApplication.DialogueGateway do
          ws_id,
          session_id,
          user_text,
-         recorder
+         recorder,
+         interaction_metadata
        )
        when is_function(recorder, 2) do
-    entries = interaction_entries(ws_id, session_id, turn_result, user_text)
+    entries =
+      interaction_entries(ws_id, session_id, turn_result, user_text, interaction_metadata)
 
     case recorder.(ws_id, entries) do
       :ok ->
@@ -105,26 +158,50 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  defp maybe_record_interactions(_, _ws_id, _session_id, _user_text, _recorder), do: :ok
+  defp maybe_record_interactions(
+         _result,
+         _ws_id,
+         _session_id,
+         _user_text,
+         _recorder,
+         _interaction_metadata
+       ),
+       do: :ok
 
-  defp interaction_entries(ws_id, session_id, turn_result, user_text) do
+  defp interaction_entries(ws_id, session_id, turn_result, user_text, interaction_metadata) do
     turn_id =
       Map.get(turn_result, :turn_id, NovelFoundation.ID.unique("turn"))
 
     assistant_text = get_in(turn_result, [:assistant_message, :text]) || ""
 
     [
-      interaction_entry(ws_id, session_id, turn_id, "user", user_text, nil),
+      interaction_entry(
+        ws_id,
+        session_id,
+        turn_id,
+        "user",
+        user_text,
+        nil,
+        interaction_metadata
+      ),
       interaction_entry(ws_id, session_id, turn_id, "assistant", assistant_text, turn_result)
     ]
   end
 
-  defp interaction_entry(ws_id, session_id, turn_id, role, text, turn_result) do
+  defp interaction_entry(
+         ws_id,
+         session_id,
+         turn_id,
+         role,
+         text,
+         turn_result,
+         interaction_metadata \\ %{}
+       ) do
     %{
       session_id: session_id,
       turn_id: turn_id,
       role: role,
-      content: interaction_content(text, turn_result),
+      content: interaction_content(text, turn_result, interaction_metadata),
       source_ref: turn_id,
       scope_ref: ws_id,
       freshness_score: 1.0,
@@ -134,10 +211,27 @@ defmodule NovelApplication.DialogueGateway do
     }
   end
 
-  defp interaction_content(text, nil), do: %{text: text}
+  defp interaction_content(text, nil, interaction_metadata) do
+    %{text: text}
+    |> maybe_put_candidate_selection(interaction_metadata)
+  end
 
-  defp interaction_content(text, turn_result),
+  defp interaction_content(text, turn_result, _interaction_metadata),
     do: %{text: text, turn_result: jsonable(turn_result)}
+
+  defp maybe_put_candidate_selection(content, interaction_metadata)
+       when is_map(interaction_metadata) do
+    case Map.get(interaction_metadata, :candidate_selection) ||
+           Map.get(interaction_metadata, "candidate_selection") do
+      selection when is_map(selection) ->
+        Map.put(content, :candidate_selection, jsonable(selection))
+
+      _ ->
+        content
+    end
+  end
+
+  defp maybe_put_candidate_selection(content, _interaction_metadata), do: content
 
   @doc false
   # 持久化/广播前把 turn_result 规范化为 JSON 安全形态：confirmation 路径的 turn_result
@@ -978,5 +1072,4 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp changeset_error_summary(other), do: inspect(other)
-
 end

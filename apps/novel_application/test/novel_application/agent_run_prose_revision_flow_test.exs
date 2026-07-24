@@ -75,7 +75,11 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       session_id: "session-agent-prose-revision-flow",
       turn_id: source.turn_id,
       source_turn_result: source,
-      action_input: action_input
+      action_input: action_input,
+      memory_recorder: fn workspace_id, entries ->
+        send(parent, {:recorded_revision_turn, workspace_id, entries})
+        :ok
+      end
     }
 
     planned =
@@ -123,7 +127,14 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert execute_observation.summary =~ "不自动采纳"
 
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
+    assert_receive {:recorded_revision_turn, @work, [recorded_entry]}, 500
+    assert recorded_entry.role == "assistant"
+
+    assert recorded_entry.content.turn_result.turn_id ==
+             artifact_event.payload.turn_result.turn_id
+
     assert_receive {:agent_event, :run_completed, _}
+
     # CP3b 尾批：机械步序不发 plan_drafted（无计划 run 的轨道 = judgment 事件链）。
     refute_receive {:agent_event, :plan_drafted, _}, 10, 500
 

@@ -81,6 +81,41 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert complete_meta.provider_call_count == 0
   end
 
+  test "判断 reply 的非探索 frame 语义机械进入 TurnResult" do
+    narrative = "胜利过轻会让阻力失去可信度，读者也感受不到代价递增。"
+
+    provider_execution =
+      judgment_execution("reply", nil,
+        narrative: narrative,
+        reply_included: true,
+        frame_type: "question_answer",
+        dialogue_goal: "解释胜利过轻削弱张力的原因"
+      )
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "这一章赢得太轻，为什么会削弱张力？",
+                 workspace_id: "ws-question",
+                 work_id: "work-question",
+                 session_id: "session-question",
+                 turn_id: "turn-question"
+               },
+               nil,
+               provider_execution
+             )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    {_context_result, judgment_result} = drive_judgment(spec, run, fn _event -> :ok end)
+
+    assert judgment_result.turn_result.frame_summary == %{
+             frame_type: :question_answer,
+             dialogue_goal: "解释胜利过轻削弱张力的原因"
+           }
+
+    assert judgment_result.turn_result.assistant_message.text == narrative
+  end
+
   test "判断 reply 可携带候选方向（S2 候选随判断结构携带）" do
     narrative = "你在比较方向；我给你两个可选切入。\n\n方向一从底层账单切入，方向二从矿区追击切入。"
 
@@ -351,7 +386,13 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
           session_id: "session-revision",
           turn_id: "turn-source",
           source_turn_result: %{},
-          action_input: nil
+          action_input: nil,
+          trigger: %{
+            kind: "author_action",
+            receipt_id: "receipt-revision",
+            action_type: "revise_from_findings",
+            source_turn_ref: "turn-source"
+          }
         },
         nil,
         fn _ -> {:ok, %{content: "{}"}} end
@@ -359,6 +400,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     assert spec.run_attrs.profile_ref == "prose_revision_from_findings_v1"
     assert spec.run_attrs.parent_turn_ref == "turn-source"
+    assert spec.run_attrs.trigger.receipt_id == "receipt-revision"
+    assert spec.run_attrs.trigger.action_type == "revise_from_findings"
     assert spec.run_attrs.budget.max_steps == 6
     assert spec.run_attrs.budget.max_provider_calls == 8
     assert spec.run_attrs.authority_scope.allowed_tools == ["prose_writing"]
@@ -442,16 +485,10 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         "reason" => "test_judgment",
         "reply_included" => Keyword.get(opts, :reply_included, false)
       }
-      |> then(fn args -> if capability, do: Map.put(args, "capability", capability), else: args end)
-      |> then(fn args ->
-        case Keyword.get(opts, :candidate_directions) do
-          directions when is_list(directions) ->
-            Map.put(args, "candidate_directions", directions)
-
-          _ ->
-            args
-        end
-      end)
+      |> maybe_put("capability", capability)
+      |> maybe_put_list("candidate_directions", Keyword.get(opts, :candidate_directions))
+      |> maybe_put_binary("frame_type", Keyword.get(opts, :frame_type))
+      |> maybe_put_binary("dialogue_goal", Keyword.get(opts, :dialogue_goal))
 
     %Execution{
       result_fn: fn prompt ->
@@ -478,6 +515,19 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       end
     }
   end
+
+  defp maybe_put(arguments, _key, nil), do: arguments
+  defp maybe_put(arguments, key, value), do: Map.put(arguments, key, value)
+
+  defp maybe_put_list(arguments, key, value) when is_list(value),
+    do: Map.put(arguments, key, value)
+
+  defp maybe_put_list(arguments, _key, _value), do: arguments
+
+  defp maybe_put_binary(arguments, key, value) when is_binary(value),
+    do: Map.put(arguments, key, value)
+
+  defp maybe_put_binary(arguments, _key, _value), do: arguments
 
   defp judgment_prompt?(prompt), do: prompt_contains?(prompt, "创作判断器")
 

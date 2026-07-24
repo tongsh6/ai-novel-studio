@@ -252,6 +252,7 @@ defmodule NovelApplication.WorkSessionService do
       turn_id: interaction.turn_id,
       role: interaction.role,
       text: text_from_content(interaction.content),
+      candidate_selection: candidate_selection_from_content(interaction.content),
       turn_result: turn_result,
       inserted_at: interaction.inserted_at
     }
@@ -356,7 +357,7 @@ defmodule NovelApplication.WorkSessionService do
 
   defp select_agent_run(runs, requested_run_id)
        when is_binary(requested_run_id) and requested_run_id != "" do
-    Enum.find(runs, &(&1.id == requested_run_id)) || List.last(runs)
+    Enum.find(runs, &(&1.id == requested_run_id))
   end
 
   defp select_agent_run(runs, _requested_run_id), do: List.last(runs)
@@ -402,6 +403,7 @@ defmodule NovelApplication.WorkSessionService do
       |> Map.put(:status, run.status)
       |> Map.put(:phase, run.phase)
       |> Map.put(:profile_ref, run.profile_ref)
+      |> Map.put(:trigger, run.trigger)
       |> Map.put(:long_run_task_ref, run.long_run_task_ref)
       |> Map.put(:plan_ref, run.plan_ref)
       |> Map.put(:plan_version, run.plan_version)
@@ -417,6 +419,11 @@ defmodule NovelApplication.WorkSessionService do
     do: to_string(content["text"] || content[:text] || "")
 
   defp text_from_content(_), do: ""
+
+  defp candidate_selection_from_content(content) when is_map(content),
+    do: content["candidate_selection"] || content[:candidate_selection]
+
+  defp candidate_selection_from_content(_), do: nil
 
   defp turn_id(turn_result), do: get_in_any(turn_result, [:turn_id])
 

@@ -23,6 +23,16 @@ defmodule NovelDomain.AgentRun do
   @type interrupt_status :: :none | :pause_requested | :cancel_requested | :steer_requested
 
   @type goal :: %{text: String.t(), version: pos_integer()}
+  @type trigger :: %{
+          required(:kind) => String.t(),
+          optional(:receipt_id) => String.t(),
+          optional(:action_id) => String.t(),
+          optional(:action_type) => String.t(),
+          optional(:source_turn_ref) => String.t(),
+          optional(:source_surface_ref) => String.t(),
+          optional(:target_artifact_ref) => String.t(),
+          optional(:quality_finding_refs) => [String.t()]
+        }
   @type budget :: %{
           max_steps: pos_integer(),
           max_tool_calls: non_neg_integer(),
@@ -46,6 +56,7 @@ defmodule NovelDomain.AgentRun do
           parent_turn_ref: String.t(),
           origin_frame_ref: String.t(),
           profile_ref: String.t(),
+          trigger: trigger() | nil,
           goal: goal(),
           status: status(),
           phase: phase(),
@@ -75,6 +86,7 @@ defmodule NovelDomain.AgentRun do
     :parent_turn_ref,
     :origin_frame_ref,
     :profile_ref,
+    :trigger,
     :plan,
     :plan_ref,
     :current_step_ref,
@@ -163,6 +175,7 @@ defmodule NovelDomain.AgentRun do
     |> Map.update(:status, :created, &normalize_status/1)
     |> Map.update(:phase, :planning, &normalize_phase/1)
     |> Map.update(:goal, %{text: "", version: 1}, &normalize_goal/1)
+    |> Map.update(:trigger, nil, &normalize_trigger/1)
     |> Map.update(:completed_step_refs, [], &normalize_refs/1)
     |> Map.update(:pending_artifact_refs, [], &normalize_refs/1)
     |> Map.update(
@@ -221,6 +234,7 @@ defmodule NovelDomain.AgentRun do
   defp known_key("parent_turn_ref"), do: :parent_turn_ref
   defp known_key("origin_frame_ref"), do: :origin_frame_ref
   defp known_key("profile_ref"), do: :profile_ref
+  defp known_key("trigger"), do: :trigger
   defp known_key("plan"), do: :plan
   defp known_key("goal"), do: :goal
   defp known_key("status"), do: :status
@@ -282,6 +296,28 @@ defmodule NovelDomain.AgentRun do
 
   defp normalize_goal(text) when is_binary(text), do: %{text: String.trim(text), version: 1}
   defp normalize_goal(_), do: %{text: "", version: 1}
+
+  defp normalize_trigger(trigger) when is_map(trigger) do
+    %{
+      kind: normalized_optional_text(value(trigger, :kind)),
+      receipt_id: normalized_optional_text(value(trigger, :receipt_id)),
+      action_id: normalized_optional_text(value(trigger, :action_id)),
+      action_type: normalized_optional_text(value(trigger, :action_type)),
+      source_turn_ref: normalized_optional_text(value(trigger, :source_turn_ref)),
+      source_surface_ref: normalized_optional_text(value(trigger, :source_surface_ref)),
+      target_artifact_ref: normalized_optional_text(value(trigger, :target_artifact_ref)),
+      quality_finding_refs:
+        trigger |> value(:quality_finding_refs) |> normalize_refs() |> Enum.uniq()
+    }
+    |> Enum.reject(fn {_key, value} -> value in [nil, []] end)
+    |> Map.new()
+    |> case do
+      %{kind: _kind} = normalized -> normalized
+      _other -> nil
+    end
+  end
+
+  defp normalize_trigger(_trigger), do: nil
 
   defp normalize_refs(refs) when is_list(refs),
     do: refs |> Enum.map(&to_string/1) |> Enum.reject(&(&1 == ""))
@@ -436,6 +472,17 @@ defmodule NovelDomain.AgentRun do
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp text(map), do: value(map, :text) |> to_string() |> String.trim()
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp normalized_optional_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp normalized_optional_text(nil), do: nil
+  defp normalized_optional_text(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalized_optional_text(_value), do: nil
 
   defp positive_int(value, _fallback) when is_integer(value) and value > 0, do: value
   defp positive_int(_value, fallback), do: fallback

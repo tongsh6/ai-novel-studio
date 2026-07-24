@@ -87,6 +87,17 @@ defmodule NovelPersistence.AuthorActionReceiptRepo do
       {"status", value} -> {:status, value}
       {"idempotency_key", value} -> {:idempotency_key, value}
       {"duplicate", value} -> {:duplicate, value}
+      {"receipt_id", value} -> {:receipt_id, value}
+      {"run_id", value} -> {:run_id, value}
+      {"run_mode", value} -> {:run_mode, value}
+      {"long_run_task_ref", value} -> {:long_run_task_ref, value}
+      {"turn_id", value} -> {:turn_id, value}
+      {"source_turn_ref", value} -> {:source_turn_ref, value}
+      {"source_surface_ref", value} -> {:source_surface_ref, value}
+      {"target_artifact_ref", value} -> {:target_artifact_ref, value}
+      {"profile_ref", value} -> {:profile_ref, value}
+      {"goal", value} -> {:goal, value}
+      {"trigger", value} -> {:trigger, value}
       {key, value} -> {key, value}
     end)
   end

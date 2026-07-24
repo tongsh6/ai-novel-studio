@@ -55,6 +55,57 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.pending_artifact_refs == ["as_1"]
   end
 
+  test "bounded reconnect rebinds the same live run without replaying its planner" do
+    parent = self()
+    run_id = unique_run_id()
+    work_id = "work_reconnect_#{run_id}"
+    session_id = "session_reconnect_#{run_id}"
+
+    blocking_step = fn _run, sequence ->
+      send(parent, {:bounded_reconnect_step_started, sequence, self()})
+
+      receive do
+        :release_reconnected_step -> :ok
+      after
+        2_000 -> :ok
+      end
+
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [observation(run_id, sequence)]
+       }}
+    end
+
+    run_attrs =
+      base_run(run_id)
+      |> Map.put(:work_id, work_id)
+      |> Map.put(:workspace_id, work_id)
+      |> Map.put(:session_id, session_id)
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(run_attrs,
+               next_step_planner: sequential_steps([blocking_step])
+             )
+
+    assert_receive {:bounded_reconnect_step_started, 1, step_pid}, 1_000
+    on_exit(fn -> send(step_pid, :release_reconnected_step) end)
+
+    assert {:ok, [reconnected]} =
+             AgentRunService.reconnect_bounded(work_id, session_id,
+               event_sink: event_sink(parent)
+             )
+
+    assert reconnected.run.run_id == run_id
+    assert reconnected.run.status == :running
+    assert reconnected.recovered?
+    assert reconnected.runtime_live?
+    refute_receive {:bounded_reconnect_step_started, 1, _other_pid}, 20
+
+    send(step_pid, :release_reconnected_step)
+    assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 1_000
+  end
+
   test "author adoption notification removes pending ref, flags stage_state, and emits artifact_resolved (M0)" do
     parent = self()
     run_id = unique_run_id()

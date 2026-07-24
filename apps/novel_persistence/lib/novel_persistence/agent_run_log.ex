@@ -162,6 +162,18 @@ defmodule NovelPersistence.AgentRunLog do
     |> Repo.all()
   end
 
+  @spec list_active_bounded(String.t(), String.t()) :: [AgentRunRecord.t()]
+  def list_active_bounded(work_id, session_id)
+      when is_binary(work_id) and is_binary(session_id) do
+    from(r in AgentRunRecord,
+      where:
+        r.work_id == ^work_id and r.session_id == ^session_id and r.run_mode == "bounded" and
+          r.status not in ["completed", "cancelled", "failed"],
+      order_by: [desc: r.updated_at]
+    )
+    |> Repo.all()
+  end
+
   defp normalize_ids(ids) do
     ids
     |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))

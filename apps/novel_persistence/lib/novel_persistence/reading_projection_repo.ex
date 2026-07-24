@@ -15,6 +15,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.ChapterSummary
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
@@ -153,12 +154,73 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
   def accepted_chapter_prose(_work_id, _chapter_title), do: ""
 
+  @doc """
+  设定盘点材料读端口（VS-00G CP4b-2）。
+
+  优先读取整部作品当前 ACCEPTED 章摘要（按章节顺序、每章最新一条），让长篇盘点覆盖全书且
+  保持上下文有界；旧作品若尚无章摘要，则回退前 12 章已采纳正文。tentative 正文与历史
+  superseded 摘要都不进入材料。
+  """
+  @spec fact_inventory_materials(String.t()) :: [
+          %{seq: non_neg_integer(), title: String.t(), prose: String.t()}
+        ]
+  def fact_inventory_materials(work_id) when is_binary(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, work_uuid} ->
+        case current_summary_materials(work_uuid) do
+          [] -> prose_fallback_materials(work_uuid)
+          materials -> materials
+        end
+
+      :error ->
+        []
+    end
+  end
+
+  def fact_inventory_materials(_work_id), do: []
+
   defp get_chapter_by_title(work_uuid, title) do
     Chapter
     |> where([c], c.work_id == ^work_uuid and c.title == ^title)
     |> order_by([c], asc: c.seq)
     |> limit(1)
     |> Repo.one()
+  end
+
+  defp current_summary_materials(work_uuid) do
+    accepted = AdoptionStatus.accepted()
+
+    ChapterSummary
+    |> join(:inner, [summary], chapter in Chapter, on: chapter.id == summary.chapter_id)
+    |> where(
+      [summary, chapter],
+      summary.work_id == ^work_uuid and chapter.work_id == ^work_uuid and
+        summary.status == ^accepted
+    )
+    |> order_by([summary, chapter], asc: chapter.seq, desc: summary.inserted_at)
+    |> select([summary, chapter], %{
+      chapter_id: chapter.id,
+      seq: chapter.seq,
+      title: chapter.title,
+      prose: summary.summary_text
+    })
+    |> Repo.all()
+    |> Enum.uniq_by(& &1.chapter_id)
+    |> Enum.map(&Map.delete(&1, :chapter_id))
+  end
+
+  defp prose_fallback_materials(work_uuid) do
+    work_uuid
+    |> structure_chapters()
+    |> Enum.take(12)
+    |> Enum.map(fn chapter ->
+      %{
+        seq: chapter.seq,
+        title: chapter.title,
+        prose: accepted_chapter_prose(work_uuid, chapter.title)
+      }
+    end)
+    |> Enum.reject(&(String.trim(&1.prose) == ""))
   end
 
   # 目录按已采纳的卷/章结构展示（含还没有正文的计划章，SC-AU08-B2）。

@@ -4,6 +4,7 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.ChapterSummary
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
@@ -195,6 +196,38 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
     end
   end
 
+  describe "fact_inventory_materials/1" do
+    test "优先按章节顺序读取每章最新 ACCEPTED 摘要，排除旧摘要和正文原文" do
+      work_id = Ecto.UUID.generate()
+      volume = insert_volume(work_id, "第一卷", 1)
+      chapter1 = insert_chapter(work_id, volume.id, "第一章", 1)
+      chapter2 = insert_chapter(work_id, volume.id, "第二章", 2)
+      scene1 = insert_scene(work_id, chapter1.id, "第一场", 1)
+      scene2 = insert_scene(work_id, chapter2.id, "第一场", 1)
+      insert_draft(work_id, scene1.id, "不应优先使用的长正文一", AdoptionStatus.accepted(), 1)
+      insert_draft(work_id, scene2.id, "不应优先使用的长正文二", AdoptionStatus.accepted(), 1)
+
+      insert_summary(work_id, chapter1.id, "第一章旧摘要", AdoptionStatus.accepted())
+      insert_summary(work_id, chapter1.id, "第一章最新摘要", AdoptionStatus.accepted())
+      insert_summary(work_id, chapter2.id, "第二章待定摘要", AdoptionStatus.tentative())
+      insert_summary(work_id, chapter2.id, "第二章确认摘要", AdoptionStatus.accepted())
+
+      assert [
+               %{seq: 1, title: "第一章", prose: "第一章最新摘要"},
+               %{seq: 2, title: "第二章", prose: "第二章确认摘要"}
+             ] = ReadingProjectionRepo.fact_inventory_materials(work_id)
+    end
+
+    test "无 ACCEPTED 摘要时回退有限的已采纳正文，排除 tentative" do
+      work_id = Ecto.UUID.generate()
+      insert_reading_chain(work_id, "第一卷", "第一章", "已采纳正文", :accepted)
+      insert_reading_chain(work_id, "第二卷", "第二章", "未采纳正文", :tentative)
+
+      assert [%{title: "第一章", prose: "已采纳正文"}] =
+               ReadingProjectionRepo.fact_inventory_materials(work_id)
+    end
+  end
+
   defp insert_reading_chain(work_id, volume_title, chapter_title, content, draft_state) do
     volume = insert_volume(work_id, volume_title, 1)
     chapter = insert_chapter(work_id, volume.id, chapter_title, 1)
@@ -237,6 +270,17 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
       content: content,
       status: status,
       revision: revision
+    })
+    |> Repo.insert!()
+  end
+
+  defp insert_summary(work_id, chapter_id, summary_text, status) do
+    %ChapterSummary{}
+    |> ChapterSummary.changeset(%{
+      work_id: work_id,
+      chapter_id: chapter_id,
+      summary_text: summary_text,
+      status: status
     })
     |> Repo.insert!()
   end

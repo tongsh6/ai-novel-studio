@@ -15,6 +15,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
+  alias NovelApplication.AgentRunFlows.FactInventory
   alias NovelApplication.AgentRunFlows.JudgmentPlan
   alias NovelApplication.AgentRunFlows.LedgerReconciliation
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
@@ -54,6 +55,8 @@ defmodule NovelApplication.DialoguePlanningService do
   @readonly_batch_profile_ref ReadonlyBatchContext.profile_ref()
   @ledger_reconciliation_profile_ref LedgerReconciliation.profile_ref()
   @ledger_reconciliation_allowed_tools ["ledger_reconcile"]
+  @fact_inventory_profile_ref FactInventory.profile_ref()
+  @fact_inventory_allowed_tools ["fact_inventory"]
 
   @spec agent_run_candidate?(String.t()) :: boolean()
   def agent_run_candidate?(text) when is_binary(text) do
@@ -107,6 +110,7 @@ defmodule NovelApplication.DialoguePlanningService do
           | :provider_progress
           | :readonly_batch_context
           | :ledger_reconciliation
+          | :fact_inventory
 
   @doc """
   为显式 profile 构建 bounded AgentRun 启动 spec（run_attrs + next_step_planner）。
@@ -278,6 +282,10 @@ defmodule NovelApplication.DialoguePlanningService do
     {:ok, pending_model_plan(run_id)}
   end
 
+  defp agent_run_agent_plan(run_id, :fact_inventory) do
+    {:ok, pending_model_plan(run_id)}
+  end
+
   defp pending_model_plan(run_id) do
     %{
       plan_id: "ap_#{run_id}",
@@ -329,6 +337,7 @@ defmodule NovelApplication.DialoguePlanningService do
       parent_turn_ref: turn_id,
       origin_frame_ref: origin_frame_ref,
       profile_ref: profile_ref(profile),
+      trigger: map_get(input, :trigger),
       plan: agent_plan,
       plan_ref: plan_id(agent_plan),
       plan_version: plan_version(agent_plan),
@@ -683,7 +692,8 @@ defmodule NovelApplication.DialoguePlanningService do
       map_get(input, :session_id),
       map_get(input, :text) || run.goal.text,
       map_get(input, :trace_persister),
-      map_get(input, :memory_recorder)
+      map_get(input, :memory_recorder),
+      %{candidate_selection: map_get(input, :candidate_selection)}
     )
 
     {:ok,
@@ -755,11 +765,17 @@ defmodule NovelApplication.DialoguePlanningService do
      %{
        step: judgment_agent_step(run, sequence, "探索：#{tool}「#{query}」"),
        observations: [
-         judgment_observation(run, sequence, observation.summary, "explore:#{tool}:#{sequence}", %{
-           stage: :exploration_observed,
-           tool: tool,
-           query: query
-         })
+         judgment_observation(
+           run,
+           sequence,
+           observation.summary,
+           "explore:#{tool}:#{sequence}",
+           %{
+             stage: :exploration_observed,
+             tool: tool,
+             query: query
+           }
+         )
        ],
        stage_state: %{judgment_explorations: explorations ++ [observation]},
        provider_call_count: judgment.provider_call_count,
@@ -837,7 +853,11 @@ defmodule NovelApplication.DialoguePlanningService do
   # 判断结构 → DialogueFrame 机械转换（非预制创作决策：全部字段来自模型判断输出）。
   defp judgment_frame(judgment, turn_id, ws_id, context) do
     frame_type =
-      if judgment_exploration?(judgment), do: :creative_exploration, else: :casual_reply
+      if judgment_exploration?(judgment) do
+        :creative_exploration
+      else
+        reply_frame_type(judgment.frame_type)
+      end
 
     context_ref =
       case context do
@@ -856,14 +876,23 @@ defmodule NovelApplication.DialoguePlanningService do
         author_input_ref: "author_input:#{turn_id}",
         dialogue_context_ref: context_ref
       },
-      dialogue_goal: %{summary: "回应作者本轮输入"},
-      tool_need: %{needs_tool: false, reason_code: :no_tool_needed},
+      dialogue_goal: %{summary: judgment.dialogue_goal || "回应作者本轮输入"},
+      tool_need: %{needs_tool: false, reason_code: reply_reason_code(frame_type)},
       execution_readiness: :not_applicable,
       author_visible_draft: %{message: judgment.narrative},
       evidence_summary: %{judgment: true, action: judgment.action, context_used: context != nil},
       uncertainty: []
     }
   end
+
+  defp reply_frame_type("creative_exploration"), do: :creative_exploration
+  defp reply_frame_type("question_answer"), do: :question_answer
+  defp reply_frame_type("meta_discussion"), do: :meta_discussion
+  defp reply_frame_type(_), do: :casual_reply
+
+  defp reply_reason_code(:creative_exploration), do: :exploratory_only
+  defp reply_reason_code(:meta_discussion), do: :user_requested_discussion
+  defp reply_reason_code(_), do: :no_tool_needed
 
   # 候选随判断结构携带（S2 保全）：字节绑定 provider tool arguments（I1/I3 语义不变）。
   # 判定探索但有效候选为空（坏结构/空标题）→ 应用兜底候选（与 frame 路径同一份，
@@ -1053,7 +1082,8 @@ defmodule NovelApplication.DialoguePlanningService do
             ["agent_snapshot", run.work_id, run.session_id, run.run_id, "step", sequence],
             ":"
           ),
-        idempotency_key: "#{run.run_id}:#{sequence}:judgment_loop:#{slug}:goal_v#{run.goal.version}"
+        idempotency_key:
+          "#{run.run_id}:#{sequence}:judgment_loop:#{slug}:goal_v#{run.goal.version}"
       })
 
     step
@@ -1179,6 +1209,8 @@ defmodule NovelApplication.DialoguePlanningService do
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution),
       quality_provider_execution: map_get(input, :quality_provider_execution),
+      trace_persister: map_get(input, :trace_persister),
+      memory_recorder: map_get(input, :memory_recorder),
       chapter_prose_reader: map_get(input, :chapter_prose_reader),
       chapter_summary_reader: map_get(input, :chapter_summary_reader),
       character_reader: map_get(input, :character_reader)
@@ -1330,6 +1362,7 @@ defmodule NovelApplication.DialoguePlanningService do
       action_input: map_get(input, :action_input),
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution),
+      memory_recorder: map_get(input, :memory_recorder),
       author_text: text
     })
   end
@@ -1375,6 +1408,21 @@ defmodule NovelApplication.DialoguePlanningService do
        ) do
     LedgerReconciliation.next_step_planner(%{
       reconcile_fn: map_get(input, :reconcile_fn),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution)
+    })
+  end
+
+  defp agent_next_step_planner(
+         :fact_inventory,
+         _text,
+         _context,
+         _context_fetcher,
+         provider_execution,
+         input
+       ) do
+    FactInventory.next_step_planner(%{
+      material_reader: map_get(input, :material_reader),
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution)
     })
@@ -1626,6 +1674,19 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
+  # 设定盘点（VS-00G CP4b-2）：本 profile 的业务调用上界为提炼 2 次（坏 JSON 修正）；
+  # 模型计划起草/续行余量统一由 plan_overhead_budget/1 补足。盘点可同批产多条
+  # character/rule/foreshadowing seed，因此 pending backstop 高于单候选创作 profile。
+  defp run_budget(_text, :fact_inventory) do
+    %{
+      max_steps: 3,
+      max_tool_calls: 1,
+      max_provider_calls: 2,
+      max_replans: 1,
+      max_pending_artifacts: 60
+    }
+  end
+
   defp profile_ref(:profile_routing), do: @profile_routing_profile_ref
   defp profile_ref(:character_design_with_context), do: @character_profile_ref
   defp profile_ref(:prose_drafting_with_quality), do: @prose_profile_ref
@@ -1637,12 +1698,16 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_ref(:provider_progress), do: @provider_progress_profile_ref
   defp profile_ref(:readonly_batch_context), do: @readonly_batch_profile_ref
   defp profile_ref(:ledger_reconciliation), do: @ledger_reconciliation_profile_ref
+  defp profile_ref(:fact_inventory), do: @fact_inventory_profile_ref
 
   defp allowed_tools(:profile_routing), do: @profile_routing_allowed_tools
   defp allowed_tools(:character_design_with_context), do: @character_allowed_tools
   defp allowed_tools(:prose_drafting_with_quality), do: @prose_allowed_tools
+
   defp allowed_tools(:judgment_plan),
-    do: ~w(character_roster character_design character_evolution plot_outline world_building prose_writing)
+    do:
+      ~w(character_roster character_design character_evolution plot_outline world_building prose_writing)
+
   defp allowed_tools(:plot_outline_with_context), do: @plot_outline_allowed_tools
   defp allowed_tools(:character_evolution_with_context), do: @character_evolution_allowed_tools
   defp allowed_tools(:world_building_with_context), do: @world_building_allowed_tools
@@ -1650,6 +1715,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:provider_progress), do: @provider_progress_allowed_tools
   defp allowed_tools(:readonly_batch_context), do: @readonly_batch_allowed_tools
   defp allowed_tools(:ledger_reconciliation), do: @ledger_reconciliation_allowed_tools
+  defp allowed_tools(:fact_inventory), do: @fact_inventory_allowed_tools
 
   defp one_step_budget?(text) do
     normalized = normalize_text(text)

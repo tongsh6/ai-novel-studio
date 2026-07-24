@@ -142,13 +142,80 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert Enum.any?(reasons, &String.contains?(&1, "approved"))
       assert Enum.any?(reasons, &String.contains?(&1, "ready_to_execute"))
     end
-
   end
 
   describe "trace persister callback" do
   end
 
   describe "interaction recorder callback" do
+    test "candidate continuation persists selection metadata on the user interaction" do
+      parent = self()
+
+      recorder = fn workspace_id, entries ->
+        send(parent, {:recorded_candidate_selection, workspace_id, entries})
+        :ok
+      end
+
+      turn_result = %{
+        turn_id: "turn-continuation",
+        assistant_message: %{text: "我们继续沿这个方向展开。"}
+      }
+
+      candidate_selection = %{
+        source_turn_ref: "turn-candidates",
+        candidate_set_ref: "candidate_set:turn-candidates",
+        candidate_ref: "dir-1"
+      }
+
+      assert :ok =
+               DialogueGateway.persist_turn_side_effects(
+                 {:ok, turn_result, nil, [], nil},
+                 "work-1",
+                 "session-1",
+                 "继续聊人物动机",
+                 nil,
+                 recorder,
+                 %{candidate_selection: candidate_selection}
+               )
+
+      assert_receive {:recorded_candidate_selection, "work-1", [user_entry, assistant_entry]}
+      assert user_entry.role == "user"
+      assert user_entry.content.candidate_selection == candidate_selection
+      assert assistant_entry.role == "assistant"
+      refute Map.has_key?(assistant_entry.content, :candidate_selection)
+    end
+
+    test "author-action result persists one assistant entry without inventing a user message" do
+      parent = self()
+
+      recorder = fn workspace_id, entries ->
+        send(parent, {:recorded_action_result, workspace_id, entries})
+        :ok
+      end
+
+      turn_result = %{
+        turn_id: "turn-revision-result",
+        assistant_message: %{text: "修订稿已生成。"},
+        agent_run: %{
+          run_id: "run-revision",
+          trigger: %{kind: "author_action", receipt_id: "receipt-revision"}
+        }
+      }
+
+      assert :ok =
+               DialogueGateway.persist_assistant_turn_result(
+                 "work-1",
+                 "session-1",
+                 turn_result,
+                 recorder
+               )
+
+      assert_receive {:recorded_action_result, "work-1", [entry]}
+      assert entry.role == "assistant"
+      assert entry.turn_id == "turn-revision-result"
+      assert entry.content.turn_result.agent_run.run_id == "run-revision"
+    end
+
     test "jsonable normalizes encoder-less structs and keeps Jason-native scalars" do
       # 回归：require_confirmation 的 turn_result 内嵌 MicroPlan 等无 Encoder 的 struct，
       # 持久化（Ecto :map）/广播（Jason）若不规范化会崩。jsonable 只展开无 Encoder 的

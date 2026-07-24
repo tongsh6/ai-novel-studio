@@ -50,6 +50,7 @@ defmodule NovelApplication.ProviderActivityService do
       status: run.status,
       phase: run.phase,
       parent_turn_ref: run.parent_turn_ref,
+      trigger: run.trigger,
       long_run_task_ref: run.long_run_task_ref,
       plan_ref: run.plan_ref,
       plan_version: run.plan_version,

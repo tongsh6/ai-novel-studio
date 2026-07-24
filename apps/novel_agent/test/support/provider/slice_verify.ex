@@ -127,6 +127,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     String.contains?(prompt, "JSON 数组") and String.contains?(prompt, "artifact_type：")
   end
 
+  defp fact_inventory_prompt?(prompt) do
+    String.contains?(prompt, "小说设定盘点助手") and
+      String.contains?(prompt, "\"artifact_type\"") and
+      String.contains?(prompt, "正文摘录")
+  end
+
   defp tool_narration_prompt?(prompt) do
     String.contains?(prompt, "## 工具执行结果") and
       String.contains?(prompt, "请用 1-2 句自然中文")
@@ -365,6 +371,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp structured_response_content(prompt, prompt_text) do
     cond do
+      fact_inventory_prompt?(prompt_text) ->
+        fact_inventory_response() |> Jason.encode!()
+
       creative_items_prompt?(prompt_text) ->
         creative_items_response(prompt_text) |> Jason.encode!()
 
@@ -383,6 +392,44 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       true ->
         frame_response(prompt) |> Jason.encode!()
     end
+  end
+
+  # SC-AU14-B1：test-support provider 只根据真实盘点 prompt 返回确定性 canonical items；
+  # 产品 runtime 不识别 slice id，也不自动触发/采纳。外部 driver 仍需从真实档案入口点击，
+  # 并让 production FactInventoryService 完成校验、分组与逐项采纳边界。
+  defp fact_inventory_response do
+    [
+      %{
+        artifact_type: "character_seed",
+        item_id: "inventory-shenyan",
+        title: "沈砚",
+        body: "追查灵气账单异常的核心视角人物。",
+        rationale: "依据第01章",
+        narrative_role: "PROTAGONIST"
+      },
+      %{
+        artifact_type: "character_seed",
+        item_id: "inventory-yunqi",
+        title: "云栖",
+        body: "把残诀交给沈砚并提示旧服务器线索的关键配角。",
+        rationale: "依据第02章",
+        narrative_role: "SUPPORTING"
+      },
+      %{
+        artifact_type: "world_rule_seed",
+        item_id: "inventory-frequency-billing",
+        title: "灵气按频段计费",
+        body: "城市灵气由公司按频段计费，欠费后会被停灵。",
+        rationale: "依据第01章"
+      },
+      %{
+        artifact_type: "foreshadowing_seed",
+        item_id: "inventory-missing-manual",
+        title: "残诀后半卷",
+        body: "旧服务器里的残诀缺失后半卷，去向尚未揭示。",
+        rationale: "依据第02章"
+      }
+    ]
   end
 
   defp agent_plan_draft_result(prompt) do
@@ -616,6 +663,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     }
   end
 
+  defp agent_plan_draft_packet_for_profile("fact_inventory_v1") do
+    %{
+      reasoning: "读取当前作品已采纳材料，提炼事实上已经存在的角色、规则和伏笔候选。",
+      steps: [
+        plan_step("fact_inventory", "act", "读取作品材料并整理待采纳设定提案。", [
+          "fact_inventory_artifacts_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_drafted", "fact_inventory_plan_drafted"]
+    }
+  end
+
   # CP4：跨能力真计划样本（判断①判"复杂"后的模型自产计划）。
   defp agent_plan_draft_packet_for_profile("judgment_plan_v1") do
     %{
@@ -734,7 +793,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  @cn_digits %{"一" => 1, "二" => 2, "三" => 3, "四" => 4, "五" => 5, "六" => 6, "七" => 7, "八" => 8, "九" => 9}
+  @cn_digits %{
+    "一" => 1,
+    "二" => 2,
+    "三" => 3,
+    "四" => 4,
+    "五" => 5,
+    "六" => 6,
+    "七" => 7,
+    "八" => 8,
+    "九" => 9
+  }
   defp cn_target_word_count(author_goal) do
     case Regex.run(~r/([一二三四五六七八九])(百|千)字/u, author_goal) do
       [_, d, "百"] -> Map.fetch!(@cn_digits, d) * 100
@@ -797,7 +866,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       no_tool_reason: no_tool_reason(flags),
       execution_readiness: execution_readiness(flags),
       assistant_message:
-        frame_message(flags.slow_work_switch, flags.quality_diagnosis, flags.exploratory, prompt),
+        frame_message(
+          flags.slow_work_switch,
+          flags.quality_diagnosis,
+          flags.meta_discussion,
+          flags.exploratory,
+          prompt
+        ),
       candidate_directions:
         candidate_directions(
           flags.exploratory and not flags.candidate_context_followup and
@@ -810,9 +885,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp frame_flags(prompt) do
+    quality_diagnosis = quality_diagnosis_prompt?(prompt)
+    meta_discussion = meta_discussion_prompt?(prompt)
+
     %{
-      quality_diagnosis: quality_diagnosis_prompt?(prompt),
-      exploratory: exploratory_prompt?(prompt),
+      quality_diagnosis: quality_diagnosis,
+      meta_discussion: meta_discussion,
+      exploratory: exploratory_prompt?(prompt) and not quality_diagnosis and not meta_discussion,
       slow_work_switch: slow_work_switch_prompt?(prompt),
       candidate_context_followup: candidate_context_followup_prompt?(prompt),
       readonly_character_query: readonly_character_query_prompt?(prompt),
@@ -827,6 +906,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp frame_type(%{slow_work_switch: true}), do: "casual_reply"
   defp frame_type(%{candidate_context_followup: true}), do: "casual_reply"
   defp frame_type(%{quality_diagnosis: true}), do: "question_answer"
+  defp frame_type(%{meta_discussion: true}), do: "meta_discussion"
   defp frame_type(%{exploratory: true}), do: "creative_exploration"
   defp frame_type(_flags), do: "casual_reply"
 
@@ -836,6 +916,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp dialogue_goal_summary(%{slow_work_switch: true}), do: "验证慢回复跨作品归属"
   defp dialogue_goal_summary(%{candidate_context_followup: true}), do: "围绕已选候选方向继续探索"
   defp dialogue_goal_summary(%{quality_diagnosis: true}), do: "诊断章节爽感不足和胜利过轻"
+  defp dialogue_goal_summary(%{meta_discussion: true}), do: "约定创作协作流程"
   defp dialogue_goal_summary(_flags), do: "验证工作台对话主链"
 
   defp no_tool_reason(%{readonly_character_query: true}), do: "tool_needed"
@@ -919,6 +1000,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     contains_any?(text, ["不够爽", "赢得太轻", "爽点", "张力不够", "质量诊断", "不成立"])
   end
 
+  defp meta_discussion_prompt?(prompt) do
+    text = author_input_text(prompt)
+
+    contains_any?(text, [
+      "协作方式",
+      "创作流程",
+      "先讨论方案",
+      "再决定是否生成",
+      "下一步怎么合作"
+    ])
+  end
+
   defp readonly_character_query_prompt?(prompt) do
     text = author_input_text(prompt)
 
@@ -981,7 +1074,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     Enum.any?(["生成", "角色", "方向", "怎么切入", "小说创作"], &String.contains?(text, &1))
   end
 
-  defp frame_message(true, _quality_diagnosis, _exploratory, prompt) do
+  defp frame_message(true, _quality_diagnosis, _meta_discussion, _exploratory, prompt) do
     nonce =
       prompt
       |> author_input_text()
@@ -991,7 +1084,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     "慢回复归属校验完成：#{nonce || @slow_work_switch_marker} 只属于原作品。"
   end
 
-  defp frame_message(false, true, _exploratory, prompt) do
+  defp frame_message(false, true, _meta_discussion, _exploratory, prompt) do
     if quality_context_missing_prompt?(prompt) do
       "我还缺少当前章节摘要或正文，只能先按通用质量原则判断：需要补充目标章材料，再对冲突压力、代价和读者回报做具体诊断；这轮不会改写正文或写入作品事实。"
     else
@@ -999,7 +1092,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp frame_message(false, false, true, prompt) do
+  defp frame_message(false, false, true, _exploratory, _prompt) do
+    "可以。之后我会先和你讨论方案、取舍与风险；只有你明确要求生成时，才进入创作执行。"
+  end
+
+  defp frame_message(false, false, false, true, prompt) do
     case candidate_context_nonce(prompt) do
       nil ->
         "可以先从人物动机、核心冲突和世界规则三个方向拆开看。"
@@ -1009,7 +1106,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp frame_message(false, false, false, prompt) do
+  defp frame_message(false, false, false, false, prompt) do
     if candidate_context_followup_prompt?(prompt) do
       nonce = candidate_context_nonce(prompt)
       "沿着人物动机 #{nonce} 这个方向，开场冲突可以从主角想要突破规则、却必须先承受代价开始。"
@@ -1455,7 +1552,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp cited_observation_line(_lines, ""), do: ""
 
   defp cited_observation_line(lines, term) do
-    hit_line = fn line -> String.contains?(line, term) and not String.starts_with?(line, "###") end
+    hit_line = fn line ->
+      String.contains?(line, term) and not String.starts_with?(line, "###")
+    end
 
     index =
       Enum.find_index(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||
@@ -1532,7 +1631,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     arguments = %{
       "action" => "reply",
       "reason" => "context_sufficient_for_direct_reply",
-      "reply_included" => true
+      "reply_included" => true,
+      "frame_type" => "question_answer",
+      "dialogue_goal" => judgment_dialogue_goal(prompt)
     }
 
     reasoning = "judgment_reply_after_exploration"
@@ -1598,6 +1699,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       "action" => "explore",
       "reason" => "missing_work_facts_require_retrieval",
       "reply_included" => false,
+      "frame_type" => nil,
+      "dialogue_goal" => judgment_dialogue_goal(prompt),
       "explore_request" => request
     }
 
@@ -1644,6 +1747,19 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           do: args,
           else: Map.put(args, "candidate_directions", directions)
       end)
+      |> then(fn args ->
+        case judgment_reply_frame(action, exploratory, prompt) do
+          {nil, goal} ->
+            args
+            |> Map.put("frame_type", nil)
+            |> Map.put("dialogue_goal", goal)
+
+          {frame_type, goal} ->
+            args
+            |> Map.put("frame_type", frame_type)
+            |> Map.put("dialogue_goal", goal)
+        end
+      end)
 
     reasoning = judgment_reason_code(action)
 
@@ -1663,7 +1779,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       if exploratory do
         "围绕你的方向我给出两个可选切入，见下方候选；你可以直接采纳或继续聊。"
       else
-        frame_message(false, false, false, prompt)
+        frame_message(
+          false,
+          quality_diagnosis_prompt?(prompt),
+          meta_discussion_prompt?(prompt),
+          false,
+          prompt
+        )
       end
 
     "你想直接和我讨论这个话题；当前信息足够，我直接回应你。\n\n" <> reply_body
@@ -1675,6 +1797,33 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_narrative_text(_action, _exploratory, _prompt) do
     "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
+  end
+
+  defp judgment_reply_frame(action, _exploratory, prompt) when action != "reply",
+    do: {nil, judgment_dialogue_goal(prompt)}
+
+  defp judgment_reply_frame("reply", true, prompt),
+    do: {"creative_exploration", judgment_dialogue_goal(prompt)}
+
+  defp judgment_reply_frame("reply", false, prompt) do
+    cond do
+      quality_diagnosis_prompt?(prompt) ->
+        {"question_answer", "诊断章节胜利过轻削弱张力的原因"}
+
+      meta_discussion_prompt?(prompt) ->
+        {"meta_discussion", "约定先讨论方案再决定是否生成的协作方式"}
+
+      true ->
+        {"casual_reply", judgment_dialogue_goal(prompt)}
+    end
+  end
+
+  defp judgment_dialogue_goal(prompt) do
+    prompt
+    |> judgment_author_input()
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+    |> String.slice(0, 80)
   end
 
   defp judgment_reason_code("reply"), do: "context_sufficient_for_direct_reply"

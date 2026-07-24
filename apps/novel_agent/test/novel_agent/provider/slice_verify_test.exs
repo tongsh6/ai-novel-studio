@@ -52,6 +52,52 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert body["reason_codes"] == ["model_profile_selected", "prose_drafting_text_match"]
   end
 
+  test "SC-AU14-B1 设定盘点 prompt 返回现有三类 seed canonical items" do
+    prompt = """
+    你是小说设定盘点助手。下面是一部作品前 2 章的正文摘录。
+    只返回 JSON 数组，每项必须包含 "artifact_type" / "item_id" / "title" / "body"。
+
+    正文摘录：
+    【第1章 第01章：底层灵气账单】
+    沈砚发现灵气按频段计费。
+    """
+
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+
+    items = Jason.decode!(result.content)
+
+    assert Enum.map(items, & &1["artifact_type"]) == [
+             "character_seed",
+             "character_seed",
+             "world_rule_seed",
+             "foreshadowing_seed"
+           ]
+
+    assert Enum.all?(items, &(is_binary(&1["item_id"]) and is_binary(&1["body"])))
+  end
+
+  test "SC-AU14-B1 fact_inventory profile 只起草一个允许的盘点步骤" do
+    prompt = %{
+      messages: [
+        %{
+          role: "user",
+          content: """
+          你是小说创作系统的 AgentRun 计划起草器。
+          - profile_ref: fact_inventory_v1
+          - plan_step_targets: fact_inventory
+          """
+        }
+      ],
+      tools: [%{name: "agent_plan_draft", description: "", input_schema: %{}}],
+      tool_choice: "agent_plan_draft"
+    }
+
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+    [%{"arguments" => arguments}] = result.tool_calls
+
+    assert [%{target_tool_ref: "fact_inventory"}] = get_in(arguments, [:plan, :steps])
+  end
+
   test "AU11 missing work state quality diagnosis asks for target chapter material" do
     prompt = [
       %{
@@ -67,6 +113,24 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert body["frame_type"] == "question_answer"
     assert body["assistant_message"] =~ "缺少当前章节摘要或正文"
     assert body["assistant_message"] =~ "不会改写正文或写入作品事实"
+  end
+
+  test "GAP-WT-04 meta discussion returns an author-facing non-execution frame" do
+    prompt = [
+      %{
+        role: "user",
+        content: "以后采用这种协作方式：先讨论方案，再由我确认是否进入创作，可以吗？"
+      }
+    ]
+
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+
+    body = Jason.decode!(result.content)
+    assert body["frame_type"] == "meta_discussion"
+    assert body["dialogue_goal_summary"] == "约定创作协作流程"
+    assert body["needs_tool"] == false
+    assert body["candidate_directions"] == []
+    assert body["assistant_message"] =~ "只有你明确要求生成时"
   end
 
   test "AU02BADCANDIDATES marker returns malformed candidate payload for fallback verification" do

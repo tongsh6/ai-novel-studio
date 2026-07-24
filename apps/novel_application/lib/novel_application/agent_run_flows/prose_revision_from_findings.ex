@@ -7,6 +7,7 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.DialogueGateway
   alias NovelApplication.ProseRevisionService
   alias NovelApplication.ProviderActivityProjector
   alias NovelDomain.AgentNextStepDecision
@@ -392,13 +393,14 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
     end
   end
 
-  defp finalization_step_fun do
+  defp finalization_step_fun(spec) do
     fn run, sequence, snapshot ->
       state = stage_state(snapshot)
 
       case Map.get(state, :revision_result) do
         result when is_map(result) ->
           final_turn_result = finalize(result.turn_result, run)
+          persist_revision_turn(run, final_turn_result, spec)
           step_id = current_step_ref(run, sequence)
           artifact_refs = artifact_refs(final_turn_result)
 
@@ -424,6 +426,15 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
           {:error, {:missing_revision_result_stage_state, Map.keys(state)}}
       end
     end
+  end
+
+  defp persist_revision_turn(run, turn_result, spec) do
+    DialogueGateway.persist_assistant_turn_result(
+      run.workspace_id,
+      run.session_id,
+      turn_result,
+      Map.get(spec, :memory_recorder)
+    )
   end
 
   defp provider_execution(spec),
@@ -692,9 +703,9 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
            decision_type: :execute_step,
            target_tool_ref: @finalize_step_target
          } = decision,
-         _spec
+         spec
        ),
-       do: {:execute, finalization_step_fun(), decision}
+       do: {:execute, finalization_step_fun(spec), decision}
 
   defp next_step_from_decision(
          %AgentNextStepDecision{decision_type: :goal_satisfied} = decision,
@@ -763,6 +774,7 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
       run_mode: run.run_mode,
       parent_turn_ref: run.parent_turn_ref,
       profile_ref: run.profile_ref,
+      trigger: run.trigger,
       status: :completed
     })
   end

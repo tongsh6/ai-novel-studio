@@ -26,6 +26,7 @@ defmodule NovelApplication.JudgmentProtocol do
   @judgment_tool_name "judgment_decision"
   @base_actions ~w(reply execute plan await_author)
   @explore_action "explore"
+  @reply_frame_types ~w(casual_reply creative_exploration question_answer meta_discussion)
 
   @continuation_tool_name "continuation_decision"
   @continuation_actions ~w(continue await_author)
@@ -34,6 +35,8 @@ defmodule NovelApplication.JudgmentProtocol do
           action: String.t(),
           capability: String.t() | nil,
           reason: String.t(),
+          frame_type: String.t() | nil,
+          dialogue_goal: String.t() | nil,
           reply_included: boolean(),
           explore_request: %{tool: String.t(), query: String.t()} | nil,
           candidate_directions: [map()],
@@ -313,6 +316,8 @@ defmodule NovelApplication.JudgmentProtocol do
            action: action,
            capability: nonblank(map_get(arguments, :capability)),
            reason: map_get(arguments, :reason) || "",
+           frame_type: reply_frame_type(arguments),
+           dialogue_goal: nonblank(map_get(arguments, :dialogue_goal)),
            reply_included: map_get(arguments, :reply_included) == true,
            explore_request: explore_request(arguments),
            candidate_directions: candidate_directions(arguments),
@@ -385,7 +390,12 @@ defmodule NovelApplication.JudgmentProtocol do
         ]
       end)
 
-    request_decision(%{request | prompt: retry_prompt, retry?: false, attempt: request.attempt + 1})
+    request_decision(%{
+      request
+      | prompt: retry_prompt,
+        retry?: false,
+        attempt: request.attempt + 1
+    })
   end
 
   defp retry_or_fail(provider_result, _request) do
@@ -553,6 +563,12 @@ defmodule NovelApplication.JudgmentProtocol do
           - action：#{actions_help(opts)}。
           - execute 时 #{capability_help(opts)}；plan 及其它 action 的 capability 填 null#{explore_capability_note(opts)}。
           - reply_included：action=reply 且判断说明已包含给作者的回复正文时为 true。
+          - frame_type：action=reply 或 await_author 时，从
+            casual_reply / creative_exploration / question_answer / meta_discussion 中选择；
+            其它 action 置 null。创作方向候选属于 creative_exploration；回答作者关于作品、
+            系统或写作过程的问题属于 question_answer；讨论工作台流程或下一步协作方式属于
+            meta_discussion；其余普通回应属于 casual_reply。
+          - dialogue_goal：用一句简短中文概括作者本轮目标；不得写系统执行步骤或内部推理。
           - candidate_directions：仅当 action=reply 且你的回复是给作者 2-3 个可选创作方向时填写
             （每个方向 {title, pitch, tone_tags}）；其它情况为空数组。
           - explore_request：action=explore 时必填 {tool, query}——#{explore_tool_help(opts)}，
@@ -570,6 +586,13 @@ defmodule NovelApplication.JudgmentProtocol do
             properties: %{
               action: %{type: "string", enum: actions(opts)},
               capability: capability_schema(opts),
+              frame_type: %{
+                anyOf: [
+                  %{type: "string", enum: @reply_frame_types},
+                  %{type: "null"}
+                ]
+              },
+              dialogue_goal: %{anyOf: [%{type: "string"}, %{type: "null"}]},
               reply_included: %{type: "boolean"},
               reason: %{type: "string"},
               candidate_directions: %{
@@ -599,7 +622,7 @@ defmodule NovelApplication.JudgmentProtocol do
               },
               author_narrative: %{anyOf: [%{type: "string"}, %{type: "null"}]}
             },
-            required: ["action", "reason"]
+            required: ["action", "reason", "frame_type", "dialogue_goal"]
           }
         }
       ],
@@ -771,6 +794,13 @@ defmodule NovelApplication.JudgmentProtocol do
     case map_get(arguments, :candidate_directions) do
       directions when is_list(directions) -> Enum.filter(directions, &is_map/1)
       _ -> []
+    end
+  end
+
+  defp reply_frame_type(arguments) do
+    case nonblank(map_get(arguments, :frame_type)) do
+      value when value in @reply_frame_types -> value
+      _ -> nil
     end
   end
 

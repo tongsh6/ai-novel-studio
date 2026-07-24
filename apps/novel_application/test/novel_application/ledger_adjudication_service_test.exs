@@ -8,21 +8,51 @@ defmodule NovelApplication.LedgerAdjudicationServiceTest do
   alias NovelApplication.LedgerAdjudicationService
 
   defp finding(rule, entry_ref) do
-    %{"rule" => rule, "ledger" => "arc", "severity" => "warn", "entry_ref" => entry_ref,
-      "signal" => "样例", "source_refs" => ["s"], "proposed_disposition" => "revise_design"}
+    %{
+      "rule" => rule,
+      "ledger" => "arc",
+      "severity" => "warn",
+      "entry_ref" => entry_ref,
+      "signal" => "样例",
+      "source_refs" => ["s"],
+      "proposed_disposition" => "revise_design"
+    }
   end
 
   defp setup_state(findings) do
-    {:ok, reports} = Agent.start_link(fn ->
-      %{"r1" => %{id: "r1", work_id: "w", adoption_status: "TENTATIVE", findings: findings, finding_count: length(findings)}}
-    end)
+    {:ok, reports} =
+      Agent.start_link(fn ->
+        %{
+          "r1" => %{
+            id: "r1",
+            work_id: "w",
+            adoption_status: "TENTATIVE",
+            findings: findings,
+            finding_count: length(findings)
+          }
+        }
+      end)
 
-    {:ok, entries} = Agent.start_link(fn ->
-      %{"le_1" => %{id: "le_1", work_id: "w", ledger: "arc", subject_kind: "character",
-        subject_ref: "char-1", subject_label: "凌渊", design_ref: nil, status: "STALLED",
-        payload: %{"last_seen_seq" => 25}, source_refs: ["s"], last_event_chapter: nil,
-        adoption_status: "ACCEPTED", revision: 3}}
-    end)
+    {:ok, entries} =
+      Agent.start_link(fn ->
+        %{
+          "le_1" => %{
+            id: "le_1",
+            work_id: "w",
+            ledger: "arc",
+            subject_kind: "character",
+            subject_ref: "char-1",
+            subject_label: "凌渊",
+            design_ref: nil,
+            status: "STALLED",
+            payload: %{"last_seen_seq" => 25},
+            source_refs: ["s"],
+            last_event_chapter: nil,
+            adoption_status: "ACCEPTED",
+            revision: 3
+          }
+        }
+      end)
 
     deps = %{
       report_repo: %{
@@ -31,8 +61,13 @@ defmodule NovelApplication.LedgerAdjudicationServiceTest do
           Agent.get_and_update(reports, fn state ->
             report = Map.fetch!(state, id)
             all = findings != [] and Enum.all?(findings, &((&1["disposition"] || "") != ""))
-            updated = %{report | findings: findings,
-              adoption_status: if(all, do: "ACCEPTED", else: report.adoption_status)}
+
+            updated = %{
+              report
+              | findings: findings,
+                adoption_status: if(all, do: "ACCEPTED", else: report.adoption_status)
+            }
+
             {{:ok, updated}, Map.put(state, id, updated)}
           end)
         end
@@ -50,20 +85,30 @@ defmodule NovelApplication.LedgerAdjudicationServiceTest do
   end
 
   defp input(index, disposition) do
-    %{work_id: "w", report_id: "r1", finding_index: index, disposition: disposition, actor_ref: "author"}
+    %{
+      work_id: "w",
+      report_id: "r1",
+      finding_index: index,
+      disposition: disposition,
+      actor_ref: "author"
+    }
   end
 
   test "accept_drift：arc STALLED 条目裁决转 DRIFTED，处置记账" do
-    {deps, _reports, entries} = setup_state([finding("arc_stalled", "le_1"), finding("planned_info_leak", nil)])
+    {deps, _reports, entries} =
+      setup_state([finding("arc_stalled", "le_1"), finding("planned_info_leak", nil)])
 
-    assert {:ok, %{report: report}} = LedgerAdjudicationService.adjudicate(input(0, "accept_drift"), deps)
+    assert {:ok, %{report: report}} =
+             LedgerAdjudicationService.adjudicate(input(0, "accept_drift"), deps)
+
     assert Agent.get(entries, & &1)["le_1"].status == "DRIFTED"
     assert Enum.at(report.findings, 0)["disposition"] == "accept_drift"
     assert report.adoption_status == "TENTATIVE"
   end
 
   test "dismiss 不动账面；revise_* 返回 follow_up；全裁决后报告 ACCEPTED；双裁决拒绝" do
-    {deps, _reports, entries} = setup_state([finding("arc_stalled", "le_1"), finding("genre_promise_shift", nil)])
+    {deps, _reports, entries} =
+      setup_state([finding("arc_stalled", "le_1"), finding("genre_promise_shift", nil)])
 
     assert {:ok, _} = LedgerAdjudicationService.adjudicate(input(0, "dismiss"), deps)
     assert Agent.get(entries, & &1)["le_1"].status == "STALLED"
@@ -88,6 +133,43 @@ defmodule NovelApplication.LedgerAdjudicationServiceTest do
              LedgerAdjudicationService.adjudicate(input(0, "shrug"), deps)
 
     assert {:error, :missing_adjudication_input} =
-             LedgerAdjudicationService.adjudicate(Map.put(input(0, "dismiss"), :actor_ref, ""), deps)
+             LedgerAdjudicationService.adjudicate(
+               Map.put(input(0, "dismiss"), :actor_ref, ""),
+               deps
+             )
+  end
+
+  test "active_finding 只读绑定活跃且未处置的真实条目" do
+    {deps, reports, _} =
+      setup_state([
+        finding("protagonist_undermaterialized", nil),
+        finding("genre_promise_shift", nil)
+      ])
+
+    assert {:ok, %{report: %{id: "r1"}, finding: %{"rule" => rule}}} =
+             LedgerAdjudicationService.active_finding(
+               %{work_id: "w", report_id: "r1", finding_index: 0},
+               deps
+             )
+
+    assert rule == "protagonist_undermaterialized"
+
+    assert {:ok, _} = LedgerAdjudicationService.adjudicate(input(0, "dismiss"), deps)
+
+    assert {:error, {:already_dispositioned, "dismiss"}} =
+             LedgerAdjudicationService.active_finding(
+               %{work_id: "w", report_id: "r1", finding_index: 0},
+               deps
+             )
+
+    Agent.update(reports, fn state ->
+      update_in(state["r1"].adoption_status, fn _ -> "SUPERSEDED" end)
+    end)
+
+    assert {:error, {:report_not_active, "SUPERSEDED"}} =
+             LedgerAdjudicationService.active_finding(
+               %{work_id: "w", report_id: "r1", finding_index: 1},
+               deps
+             )
   end
 end

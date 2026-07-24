@@ -290,6 +290,7 @@ defmodule NovelWeb.WorkSessionsController do
       turn_id: interaction.turn_id,
       role: interaction.role,
       text: interaction.text,
+      candidate_selection: interaction.candidate_selection,
       turn_result: interaction.turn_result,
       inserted_at: iso(interaction.inserted_at)
     }

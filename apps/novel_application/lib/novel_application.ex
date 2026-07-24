@@ -124,6 +124,17 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回设定盘点材料读端口：`work_id -> [%{seq, title, prose}]`。
+
+  生产实现优先消费整部作品当前章摘要，旧作品无摘要时回退有限的已采纳正文；未启用真实
+  持久化时返回 nil，由盘点 run 诚实失败而不是伪造材料。
+  """
+  def persistence_fact_inventory_material_reader do
+    if inject_persistence?(),
+      do: &NovelPersistence.ReadingProjectionRepo.fact_inventory_materials/1
+  end
+
+  @doc """
   返回章摘要 maintainer：正文采纳完成后产连续性摘要（VS-00C CP2.1 / contract §5.3）。
 
   未启用真实持久化时返回 nil（采纳路径无后续摘要副作用）。默认通过

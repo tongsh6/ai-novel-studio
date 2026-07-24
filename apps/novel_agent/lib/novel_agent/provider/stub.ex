@@ -233,7 +233,9 @@ defmodule NovelAgent.Provider.Stub do
       %{
         "action" => action,
         "reason" => judgment_reason(action),
-        "reply_included" => action == "reply"
+        "reply_included" => action == "reply",
+        "frame_type" => stub_reply_frame_type(action, text),
+        "dialogue_goal" => stub_dialogue_goal(text)
       }
       |> then(fn args ->
         if capability, do: Map.put(args, "capability", capability), else: args
@@ -267,6 +269,31 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   defp shape_judgment_action(action, _text), do: {action, %{}}
+
+  defp stub_reply_frame_type(action, text) when action in ["reply", "await_author"] do
+    author_text = judgment_author_input(text)
+
+    cond do
+      contains_any?(author_text, ["协作方式", "创作流程", "下一步怎么合作"]) ->
+        "meta_discussion"
+
+      contains_any?(author_text, ["为什么", "怎么", "如何", "吗？", "吗?"]) ->
+        "question_answer"
+
+      true ->
+        "casual_reply"
+    end
+  end
+
+  defp stub_reply_frame_type(_action, _text), do: nil
+
+  defp stub_dialogue_goal(text) do
+    text
+    |> judgment_author_input()
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+    |> String.slice(0, 80)
+  end
 
   # 设计态问句（按计划/大纲）→ chapter_read；账面问句 → archive_read(ledgers)
   # （VS-00F CP1 探索面）；其余 → prose_search。
@@ -304,10 +331,8 @@ defmodule NovelAgent.Provider.Stub do
     {["聊聊", "只聊", "先聊", "随便聊"], [], {"reply", nil}},
     {["正文草稿", "写下一章", "续写", "正文"], [], {"execute", "prose_writing"}},
     {["章节大纲", "章节计划", "分章大纲", "卷纲"], [], {"execute", "plot_outline"}},
-    {["角色演化", "角色成长", "当前状态", "关系变化", "受伤", "黑化"], [],
-     {"execute", "character_evolution"}},
-    {["世界观", "世界设定", "世界规则", "伏笔", "写作规则", "风格规则"], [],
-     {"execute", "world_building"}},
+    {["角色演化", "角色成长", "当前状态", "关系变化", "受伤", "黑化"], [], {"execute", "character_evolution"}},
+    {["世界观", "世界设定", "世界规则", "伏笔", "写作规则", "风格规则"], [], {"execute", "world_building"}},
     {["设计", "新增"], ["角色", "反派", "主角"], {"execute", "character_design"}},
     {["角色阵容", "现有角色", "已有角色"], [], {"execute", "character_design"}}
   ]
@@ -369,7 +394,9 @@ defmodule NovelAgent.Provider.Stub do
   defp cited_observation_line(_lines, ""), do: ""
 
   defp cited_observation_line(lines, term) do
-    hit_line = fn line -> String.contains?(line, term) and not String.starts_with?(line, "###") end
+    hit_line = fn line ->
+      String.contains?(line, term) and not String.starts_with?(line, "###")
+    end
 
     index =
       Enum.find_index(lines, fn line -> hit_line.(line) and line =~ ~r/「第[^」]*」/u end) ||

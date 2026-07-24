@@ -33,6 +33,15 @@ defmodule NovelApplication.LedgerViewService do
     LedgerAdjudicationService.adjudicate(input, LedgerAdjudicationService.persistence_deps())
   end
 
+  @doc "读取仍可处置的报告条目，供 finding 绑定的后续作者动作做服务端反查。"
+  @spec active_finding(map()) :: {:ok, map()} | {:error, term()}
+  def active_finding(input) when is_map(input) do
+    LedgerAdjudicationService.active_finding(
+      input,
+      LedgerAdjudicationService.persistence_deps()
+    )
+  end
+
   defp thread_entry(entry) do
     Map.take(entry, [
       :id,

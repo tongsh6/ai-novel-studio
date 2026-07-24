@@ -12,6 +12,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
   alias NovelApplication.ContextAssembler
+  alias NovelApplication.DialogueGateway
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.ProviderActivityProjector
@@ -624,7 +625,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       }
     )
 
-    {turn_result, _trace} =
+    {turn_result, trace} =
       TurnExecutionService.execute(%{
         frame: frame,
         plan: plan,
@@ -636,9 +637,17 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         provider_execution: provider_execution(spec, snapshot, :writer),
         quality_provider_execution: quality_provider_execution(spec, snapshot),
         chapter_prose_reader:
-          reader_dep(spec, :chapter_prose_reader, &NovelApplication.persistence_chapter_prose_reader/0),
+          reader_dep(
+            spec,
+            :chapter_prose_reader,
+            &NovelApplication.persistence_chapter_prose_reader/0
+          ),
         chapter_summary_reader:
-          reader_dep(spec, :chapter_summary_reader, &NovelApplication.persistence_chapter_summary_reader/0),
+          reader_dep(
+            spec,
+            :chapter_summary_reader,
+            &NovelApplication.persistence_chapter_summary_reader/0
+          ),
         character_reader:
           reader_dep(spec, :character_reader, &NovelApplication.persistence_character_reader/0),
         ledger_reader:
@@ -657,7 +666,21 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         {:ok, deterministic_gap_deviation(run, sequence, plan, turn_result)}
 
       :completed ->
-        {:ok, completed_tool_step(run, sequence, frame, plan, turn_result, tool_result, snapshot)}
+        {:ok,
+         completed_tool_step(
+           run,
+           sequence,
+           %{
+             frame: frame,
+             plan: plan,
+             turn_result: turn_result,
+             tool_result: tool_result,
+             trace: trace,
+             context: execution_context,
+             spec: spec,
+             snapshot: snapshot
+           }
+         )}
     end
   end
 
@@ -700,7 +723,16 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     )
   end
 
-  defp completed_tool_step(run, sequence, frame, plan, turn_result, tool_result, snapshot) do
+  defp completed_tool_step(run, sequence, %{
+         frame: frame,
+         plan: plan,
+         turn_result: turn_result,
+         tool_result: tool_result,
+         trace: trace,
+         context: context,
+         spec: spec,
+         snapshot: snapshot
+       }) do
     emit_stage(
       snapshot,
       :tool_completed,
@@ -717,6 +749,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     )
 
     turn_result = finalize(turn_result, run, turn_result_run_status(turn_result))
+    persist_completed_turn(run, turn_result, trace, context, spec)
     step_id = current_step_ref(run, sequence)
 
     %{
@@ -733,6 +766,17 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       provider_call_count: provider_call_count(turn_result),
       progress_signature: progress_signature(turn_result)
     }
+  end
+
+  defp persist_completed_turn(run, turn_result, trace, context, spec) do
+    DialogueGateway.persist_turn_side_effects(
+      {:ok, turn_result, trace, [], context},
+      run.workspace_id,
+      run.session_id,
+      run.goal.text,
+      Map.get(spec, :trace_persister),
+      Map.get(spec, :memory_recorder)
+    )
   end
 
   defp deterministic_gap_turn_result?(turn_result) when is_map(turn_result) do
