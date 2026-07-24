@@ -58,3 +58,16 @@
 ## 7. 设计原则
 
 本 slice 必须把 provider capability 与 runtime 编排解耦：provider 只声明和执行能力，application 决定 AgentRun 状态推进，web/frontend 只消费协议。优先小步扩展现有 AgentEvent/AgentRunState/Trace，不新建平行 streaming bus 或 batch runner。
+
+## 8. 运行控制坞体验收口（2026-07-24）
+
+- 用户确认 active run 采用「对话内状态记录 + 输入区上方固定控制坞」，解决流式文本增长时
+  暂停/继续/取消按钮随内容宽度漂移的问题。
+- Contract 与命令语义不变：暂停/继续共用一个主操作槽位，危险操作在作者界面改称
+  「终止任务」，确认后仍发送 canonical `agent_command cancel`。
+- 第二轮 UX 收口把固定控制坞与自然语言调整输入合并为一张任务工作卡，并与 `880px`
+  对话内容轨道对齐；运行中仅「发送调整」保持黑色主操作，暂停/终止降为描边操作。
+- Boundary 仅涉及 Pencil、`WorkspaceChat`、展示文案与既有外部 driver；不修改
+  `novel_agent / novel_application / novel_web`，不增加验收 hook。
+- Proof 复用 `agent-interrupt-safe-point`、`agent-cancel-target-binding`、
+  `agent-provider-cancel-honest-boundary`，并新增固定控制坞组件测试与布局断言。

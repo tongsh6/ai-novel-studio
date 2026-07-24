@@ -631,6 +631,15 @@ touched 0。
   **剩余长尾（不阻塞主线，后续 run-and-see）**：durable 复验（harness 端口竞态）、
   agentic-loop-budget-deviation-replan（D5 对话基座需迁 prose）、au03+ 家族。
   **CP1 累计 28 场景判断口径绿；批四后回主线 CP2。**
+- 2026-07-24 **GAP-WT-04 非探索 frame 语义补齐**：真实 1280×800 Tauri 复验发现
+  CP1 冻结的“判断 call2 直接产出 DialogueFrame 所需意图/形态字段”未完整落地：
+  `judgment_decision` 只有 action/capability，`judgment_frame/4` 因此把所有无候选
+  reply 写成 `casual_reply`，导致前端已有的 `question_answer` / `meta_discussion`
+  badge 不可达。协议现补回 provider-bound `frame_type` / `dialogue_goal`，应用层只做
+  allowlist 归一与机械转换；旧 provider 缺字段仍安全降级 `casual_reply`，候选存在时
+  仍以 `creative_exploration` 为准。`gap-wt04-non-exploration-frame-badges` 真实桌面
+  双回合通过，证明两种 badge 可见、色调不同、位于 assistant 回合内，且无 MicroPlan、
+  action、adoption 或 production write。
 - 2026-07-16 **CP1a（协议资产落地，不翻入口）**：`NovelApplication.JudgmentProtocol`
   生产模块——判断①两段式请求机（call1 叙事流式 + call2 强制 judgment_decision，
   坏结构携带片段重试一次）、叙事绑定（content 优先 / arguments.author_narrative

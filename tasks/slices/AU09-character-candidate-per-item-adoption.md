@@ -25,7 +25,7 @@
   - `novel_persistence`：采纳只物化目标候选。
   - **不改**：不绕过 AdoptionBoundary；不把前端点击直接写库。
 - **Consumer**：角色候选卡、AdoptionWorkflow、作品档案角色 tab。
-- **Proof**：真实 Tauri 工作台触发两个角色候选，UI 显示两个待采纳按钮；点击第二个只写入第二个角色；第一个不进入 Character / memory / context。
+- **Proof**：真实 Tauri 工作台触发两个角色候选，UI 显示两个单选入口并只为当前选中项展示操作；选择并保存第二个只写入第二个角色；第一个不进入 Character / memory / context。
 - **Acceptance Driver**：新增 `au09-character-candidate-per-item-adoption` 外部 Tauri driver；产品代码新增验收感知逻辑：no。
 
 ## 3. 涉及范围
@@ -62,7 +62,8 @@
 ## 6. 决策日志
 
 - 2026-06-23 — 登记用户反馈 10。该问题是采纳授权粒度 bug，不是单纯 UI 文案问题；必须由服务端 item-scoped action 证明。
-- 2026-06-24 — 闭环：用 `TentativeArtifactSet.adoptable_units/1` 把候选集分解为逐候选独立采纳单元（仅 `character_seed` 多候选拆分；`outline_draft` 等多 item 属同一产物保持整体）。每候选有独立 `artifact_id`（`set::item`）+ 独立 accept/discard/edit + 独立 pending；采纳一个只物化该候选的 Character，其它候选保持 pending（仍可在档案/对话中采纳）但不进入已确认角色/记忆/上下文。`AdoptionWorkflow`/`AdoptionRepository` 采纳契约零改动（按 artifact_id 查 pending，条目现含单 item）。真实 Tauri 证明：一轮 2 候选 → 2 采纳按钮 → 采纳第二个 → 只写第二个 Character、第一个保留按钮且未入已确认角色、档案仅 1 个已确认角色。
+- 2026-06-24 — 闭环：用 `TentativeArtifactSet.adoptable_units/1` 把候选集分解为逐候选独立采纳单元（仅 `character_seed` 多候选拆分；`outline_draft` 等多 item 属同一产物保持整体）。每候选有独立 `artifact_id`（`set::item`）+ 独立 accept/discard/edit + 独立 pending；采纳一个只物化该候选的 Character，其它候选保持 pending（仍可在档案/对话中采纳）但不进入已确认角色/记忆/上下文。`AdoptionWorkflow`/`AdoptionRepository` 采纳契约零改动（按 artifact_id 查 pending，条目现含单 item）。
+- 2026-07-24 — 交互澄清：保留上述逐项 action target，不改采纳边界；多候选卡改为先单选本次操作对象，底栏只展示选中项的 accept/discard/edit，未选择时禁用。真实 Tauri 证明：一轮 2 候选 → 2 单选入口 / 2 独立 action target → 选择并采纳第二个 → 只写第二个 Character、第一个仍可选择且未入已确认角色、档案仅 1 个已确认角色。
 
 ## 7. 试行反馈
 

@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-07-21
+> 最后更新：2026-07-24
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -9,6 +9,40 @@
 ---
 
 ## 1. Current Focus
+
+> 2026-07-24 用户定向插单：`UA01-quality-revision-action-run-anchoring` 已完成。
+> 质量卡修订现具备持久动作回执、source-bound AgentRun、单一 assistant 工作回合、
+> 同 run 控制坞与刷新重连；真实 Tauri 暂停→刷新→继续通过。队列已回到下方
+> VS-00G 当前队首。
+>
+> 2026-07-24 同会话 UI 收口：`assistant_message.text` 与 AgentRun
+> `author_narrative` 改为完整段落精确去重，普通对话不再重复展示同一模型原文；
+> 用户/AI 双向阅读宽度、128px 作品档案 rail、输入栏/档案 rail 无装饰分隔线已同步
+> 代码、UI 文档与 Pencil。`au01-ordinary-chat-two-turn-roundtrip` 和
+> `quality-revision-action-run-anchoring` 真实 Tauri 复验通过。随后继续移除普通
+> `casual_reply` 的“AI 回应”重复 badge，以及无叙事/计划/产物/动作价值的 completed
+> AgentRun 摘要；执行中瞬时反馈和承重运行状态仍保留，两条 Tauri 场景再次通过。
+> 随后完成任务状态/操作层级收口：顶栏聚合真实 AgentRun，暂停/终态不再显示运行中
+> 文案或动效，空发送禁用且“继续”按输入状态切换主次；质量卡提交后折叠，原稿/修订稿
+> 使用同构候选操作组并对放弃二次确认；会话移到顶栏，档案 rail 只保留档案与 badge，
+> 健康状态降为中性。`quality-revision-action-run-anchoring` 在 1280×800 真实 Tauri
+> 再次通过，summary 已纳入无横向溢出、静态暂停、终态无 running copy 和零误提交断言。
+> 随后将 assistant 正文、AgentRun 过程叙事与探索方向统一到同一阅读列宽；Pencil
+> `41§3-main-workbench` 已补探索方向示例，`au02-candidate-continuation` 在真实
+> 1280×800 Tauri 中实测正文与候选面板均为 `686.39px` 且左右边缘一致。
+> 复核既有 Pencil 与实现后，先纠正候选面板中 3 个未定义 CSS 变量，并按原型恢复
+> 浅灰承载面、白色候选卡边界与等权描边动作。随后用户明确新增候选讨论收束：
+> Pencil 已增加 `41§3.1-candidate-discussion-collapsed`；“继续讨论”获服务端接受后，
+> 来源候选组自动折叠，刷新后从 session transcript 的 `candidate_selection` 恢复，
+> 且仍可手动展开。`au02-candidate-continuation` 真实 Tauri 已证明点击折叠、刷新恢复、
+> 可重新展开，并继续满足无 adoption / production write。
+> 同日补齐 GAP-WT-04 非探索样例：真实验收发现 ADR-0025 判断链虽然前端已支持
+> `question_answer` / `meta_discussion`，但 call2 未携带 frame 语义，所有非候选回复
+> 都被机械降级为 `casual_reply`。现已按 UA01 冻结设计补回 `frame_type` /
+> `dialogue_goal` 判断字段，并由 1280×800 Tauri 双回合证明“回答问题/创作讨论”
+> badge 可达、色调不同且无 action/adoption/write。GAP-WT-04 机器闭环已补齐，
+> 只剩真人 walkthrough 观感确认。
+> 本 UI 收口不改变当前队首。
 
 **M3 节拍狗粮已完成并审计（2026-07-22）：100 章 / 140k 词达成 / 全书导出 ✓——队首 = 状态函数刀 slice 设计**
 
@@ -61,13 +95,18 @@ PASS**（R5+R6 同产，M3 无主角无骨架双负债被揪出）。R7 提前�
 盘点提案逐项采纳的前提件；domain 单测 4，全门绿。**CP4b 提炼可行性 live PASS（2026-07-23）**：真实 LM Studio 从百章标本正文
 提炼出主角林浩(PROTAGONIST)+4 配角+6 世界规则+5 伏笔全带依据章（便宜验证
 阶梯 live 单点，非狗粮；证据 artifacts/vs00g-replay/cp4b-inventory-live-probe）；
-盘点能力核心不确定性消除。剩余=run 机制建设（fact_inventory_v1 profile+提案集
-+channel+逐项采纳，确定性可验）。**CP4b-1 done（2026-07-23）**：FactInventoryService 提炼引擎（材料装配→
+盘点能力核心不确定性消除。**CP4b-1 done（2026-07-23）**：FactInventoryService 提炼引擎（材料装配→
 提炼 prompt→provider→结构化提案+坏 JSON 重试，provider 可注入确定性可测，
-单测 6，全门绿）。剩余 CP4b-2（fact_inventory_v1 run flow+提案 seed 落位
-字段映射+channel start_fact_inventory+逐项采纳）→CP5 暂定设定（既有对象
-tentative 态+provisional 字段+面板）——run 机制建设，确定性可验但涉及采纳
-链路字段映射与 run flow 结构，较大段。CP 路线：CP4b-2 → CP5
+单测 6，全门绿）。**CP4b-2 done（2026-07-24，主动触发 B 核心链）**：
+`fact_inventory_v1` run flow+已采纳材料读端口+三类既有 seed 提案映射+
+Channel `start_fact_inventory`+作品档案入口+逐项采纳已接通；真实 Tauri
+`au14-fact-inventory-roundtrip` PASS（4 pending，选择性采纳后档案角色/规则/伏笔=1/1/0，
+未采纳角色与伏笔仍 pending，提案阶段零 production write）。**CP4c done（2026-07-24，
+finding 触发 A）**：`protagonist_undermaterialized` 的「发起盘点」绑定活跃报告条目并复用
+同一盘点 run；真实 Tauri `au14-finding-inventory-arc-loop` PASS（空档案 10 章→唯一 finding
+→采纳主角沈砚→再采纳第 11 章正文→弧光账首次出现沈砚，不倒灌历史），SC-AU14-A1 完整闭环，
+AU-14 当前 1/4。**当前队首**：CP4 的全书规划字段建议，随后 CP5 暂定设定（既有对象
+tentative 态+provisional 字段+面板）；SC-AU14-B1 当前只覆盖核心档案提案链。CP 路线：CP4 余项 → CP5
 （prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
 收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
@@ -239,7 +278,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | 5 | M2 | A | P1 百章验收跑 + 质量标准 4.3 核对 + 导出 | **done**（2026-07-21 P1 关闭，用户裁决：101,421 字/75 章/导出 ✓，Q1-Q5 带账 M3，豁免注记见里程碑文档 P1 Done 节） | ✓ |
 | 8 | M3 | A | **结构化容器空转全表排查（2026-07-23 用户拍板，B11/地基真空泛化）**。根假设：规划层/维护层只产扁平结果、不产结构化事实 → 多个既有存储容器被空转/退化使用。已实证两例：**characters 空转**（角色只活正文，自由创作从不写档案→弧光账无主体）、**volumes 退化**（单一默认卷占位，planner 只产扁平章列表→章全挂'第一卷'，B11）。排查维度（像上下文组装全景矩阵）：每张业务表 ×（schema 字段丰富度 / 生产写入路径是否存在且写全字段 / 百章标本实测数据丰富度 / 消费侧是否读全）。候选嫌疑（初步待证）：scene（E23-E30 场级 craft 字段位 NEM-GAP-04）、chapter（plan_direction 九字段是否写全）、mutation/interaction 等。产出：表×使用深度矩阵 + 每个空转/退化归类到 NEM-GAP + 根因是否统一为'规划层不产结构化事实'。方法：schema+生产写入路径+标本实测三对照，只读不改。 | 待启动（VS-00G 主刀期间或后，可先 Explore 一轮出矩阵） | 空转/退化表全部揭露且归因，不再零散发现；决定哪些进入'规划层结构化生产'刀 |
 | 7 | M3 | A | **上下文组装补全**（2026-07-21 两轮评估+全景矩阵，用户确认登记）。**刀一·写作/评估的事实链**：①L3b 确认记忆进写作（世界规则/伏笔/角色状态，VS-00C §3.1 设计留位未实现——防设定漂移与伏笔失忆最大单项）+ ⓑ风格/作者偏好进创作调用（23 设计断裂：STYLE_RULE/AUTHOR_PREFERENCE 仅探索可查，writer 事前无风格锚、style_fit 只能事后拦）+ ⓓ质量评估器事实输入（knowledge_boundary/timeline 门 🔴 的根因=evaluator 只有正文+brief 无事实）——同一注入基建。**刀二·规划的世界感**：②规划带最近章摘要窗 + ⓐ规划带角色阵容（AgenticPlanDraftPlanner 仅 chapter_titles，**M2 扩章批凭空发明凌云/沈墨/沈逸接管主角团的机制原因**）+ ⓒ卷结构投影（volumes 表零消费，NEM-GAP-07 消费面侧影）+ ③NEM-GAP-01 立项创作字段（premise/theme/main_goal 进常驻上下文，08 §8 序位4 处方；承诺账 design_ref 有真锚）——规划上下文一次补齐。**小件搭车**：④判断章节列表带 DRAFTING/PLANNED 状态（M2 实锤 17/12）+ ⓔ判断 call1 一行"对账报告待裁决"（裁决流程自然发生的前提）。设计裁决依据：06 §5.0 投影表早已定义完整投影集，实现只接了结构链（章/摘要/正文），事实链（记忆/风格/卷/报告）几乎全断——M2 病谱完全对应 | 待定序（建议刀一/刀二各一 slice，排 CP4b/c 前后） | 写作带事实与风格、规划带世界感、立项有命题、判断输入诚实 |
-| 6 | M3 | A | **五本账优先**（M2 暴露短板已裁决定序：Q5 要角/题材漂移=五本账 E33-E37 缺位直接实证）→ 三态对账（GAP-05/06）→ 卷级蓝图/CP6 外部翼 | **next** | 漂移类缺陷有账可查、可拦截 |
+| 6 | M3 | A | **五本账优先**（M2 暴露短板已裁决定序：Q5 要角/题材漂移=五本账 E33-E37 缺位直接实证）→ 三态对账（GAP-05/06）→ 卷级蓝图/CP6 外部翼 | **next**（五本账已 done；VS-00G CP4c finding 触发 A done，当前推进 CP4 全书规划字段建议） | 漂移类缺陷已有账可查、可拦截；当前按 Current Focus 继续补全回路 |
 
 **B 轨债务台账（成批处理，单项超半天登记折返）**：
 
@@ -256,6 +295,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | B10 | 上下文组装小件（2026-07-21 评估余项）：OmissionNote 覆盖不全（仅 prior_prose 裁剪留痕，摘要窗/roster/账面 cap 的取舍无省略记录）；判断 call1 加账面一行摘要（待议，call2 病灶史提醒判断 prompt 加东西须谨慎）；摘要质量门（四栏齐全有校验、内容质量无——摘要是账本/摘要窗/规划共同上游）；why-panel 上下文可解释面板（VS-00C CP2 延后件，随 CP4c 前端批） | 攒批或挂对应 A 轨项 |
 | B8 | LM Studio 上下文配置属重启易失运维状态（2026-07-21 实锤：机器重启后 JIT 默认 8192，17 章形态 prose prompt+输出撑爆窗口 `truncated=1` → provider_response_invalid 无限重试；旧 M2 第13章三次"JSON 解析失败"极可能同病）。已手工 `lms load --context-length 32768` 恢复；候选钉：狗粮预检校验在载模型 context 阈值 + `finish_reason=length` 时报"上下文不足"而非可重试 invalid | 候选钉挂 M2 完跑复盘一并定 |
 | B6 | `frontend/slice-verify/dogfood-runner.mjs` 判定架构债——文件里散落一堆各自手写的帧判定函数（事件名/字段字面量），契约理解不唯一、易与真实契约（`frontend/src/lib/socket.ts` 等）漂移（2026-07-20 `awaitingAuthor` 判错字段路径实锤）；已把 `adoptPendingDraft` 一处重构成"分类一次+穷尽分支"（`classifyChapterAttemptFrame`），其余判定点（`readToc`、settle/overwrite 确认等）仍是老写法，未同步重构 | 攒批一次做，理想情况下接入真实契约定义而非本文件自证 |
+| B12 | **AU10 工作台渲染稳定性与局部刷新隔离（2026-07-24 用户反馈）**：当前无整页 reload 证据；视觉“整体闪烁”初判为 `WorkspaceChat` 多状态联动 render、可变 key/条件渲染 remount、异步元素/输入区/档案几何变化与自动滚动叠加。四方案已登记：A 最小防闪烁、B 组件/状态边界、C TanStack Query server-state 收敛、D 显式工作台状态机。 | 详见 `AU10-workbench-render-stability.md`；先 CP0 外部测量，再默认 A→B，C/D 仅证据触发；P1 B 轨，不改变 VS-00G 唯一队首 |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 
@@ -272,6 +312,7 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-07-24 | 登记 `AU10-workbench-render-stability` 为 P1/B 轨，不改变当前 VS-00G 唯一队首；四方案定序为 CP0 测量 → A 最小防闪烁 → B 组件/状态边界，C Query 化与 D 状态机按证据触发。 | 当前问题属于真实用户可见体验债务，但尚无文档级 reload 或 P0 阻塞证据；先冻结 remount/layout/scroll 的量化基线，可避免直接把症状升级成全量状态架构重写，也能与 UA01 streaming、AU12 last-known snapshot 既有职责保持正交。 |
 | 2026-07-21 | **P1 里程碑关闭**（用户裁决）：达标跑 101,421 字/75 章/5.28h/导出 ✓，Q1-Q5 缺陷带账进 M3（豁免注记入里程碑文档）；M3 定序=五本账优先（Q5 漂移直接拉动）。狗粮验证纪律固化"攒批清算"模式（修复只积累+便宜梯队，搭节拍跑一次清算，不为单个修复单独起跑）。 | P1 目的=证明产品链路能产出 10 万字长篇，已由外部自动化驱动真实工作台全程实证；Q2/Q3 修向是 B 轨小件，Q5（要角/题材随扩章批漂移）恰是 M3 五本账主任务，留在 P1 里错位。07-19 复盘"底盘跑到货物前面、第 30 章开始漂移"的预判被本跑数据完整证实——机制层此后由领域要素拉动。 |
 | 2026-07-21 | T4 收口：根因改判为 T2b 撤目录致 call2 目录失明（推翻"长上下文"假说，排除"服务端状态损坏"假说）；修复=目录注入 call2 prompt + 探针首调体温计；reason↔capability 一致性校验方向关闭。M2 解除阻塞。 | 三重证据裁决：①M2 全天 call2 prompt 恒定 ~800 token（预算化在工作，上下文没长）；②LM Studio 日志钉住瘟疫起点=21:46 JIT 新实例第一个判断调用（约束执行从"劣化浮出"翻转为"正常顶替"），非上下文增长点；③干净实例逐字节重放：旧 prompt 0/10 命中且顶替现场复现，新 prompt 判 execute 4/4 命中、自造名 0/10。教训：T1/T2c 探针绿是"重试遮首调"假绿——体温计必须测首调，不测协议黑盒的最终值。 |
 | 2026-07-20 | T2 结构性收口裁决完成（三形态 protocol=1.0/blocked=0），M2 重启为 Order 5 头队；缺陷九真根因改判为 3 处默认参数 funnel（非 InferenceParams 本身），缺陷十撤销"gpt-oss/LM Studio 结构性缺陷不可修"的结论，改判为本 session 压测造成的会话状态损坏。 | 用户两次指出误判：一次是"换个 AI 这个量级还一致吗"逼出 provider 级配置化+挂钟止血阀的系统性设计；一次是"该项目不是第一次用 gpt-oss、应先查公开信息"直接推翻了"结构性缺陷需升级/换模型"的错误结论——`lms unload/load` 重载模型后同一 prompt 立刻恢复正常，坐实是会话状态问题。教训：怀疑结构性缺陷前先查是否有更简单的状态类解释，复测要跨会话做，同一可能已污染的服务实例里反复测不算独立样本。 |
