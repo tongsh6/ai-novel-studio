@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-07-24
+> 最后更新：2026-07-25
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -10,6 +10,20 @@
 
 ## 1. Current Focus
 
+> 2026-07-24 用户截图插单：`UA01-natural-language-steering` 的
+> `awaiting_author` regression checkpoint 已完成。原登记只覆盖 S7 上位缺口和
+> running steer，未覆盖“作者补充后 run 不恢复、旧确认提示重复”的具体故障；
+> 现 `agent-awaiting-author-steer-resume` 真实 Tauri 已证明同 run 恢复并完成、
+> goal version=2、零第二 user turn/run、旧提示仅一次。队列回到下方 P1 正文质量
+> 插单；ADR-0024 S7 CP3 仍不据此标 done。
+>
+> 2026-07-24 用户定向插单：`P1-prose-quality-evidence-and-scoped-revision` 已完成。
+> 已落地“局部形式异常召回 → 机械重复/刻意修辞语义判定 → 章节级叙事节奏独立评审”；
+> 质量卡强制原句、位置、判断理由、影响范围和置信度，修订默认只改命中句段，仅在 finding
+> 明确覆盖段落/整章时扩大范围。Pencil `AH4WW/EYiyl/hRFxB`、代码、schema 和三章真实
+> Tauri 语义边界均已对齐；局部修订 sibling 与同 run 控制坞复验通过。fixture 不冒充真实
+> 模型文学收益，I10 仍由真实样本人工盲评。本插单已收口，队列回到 VS-00G。
+>
 > 2026-07-24 用户定向插单：`UA01-quality-revision-action-run-anchoring` 已完成。
 > 质量卡修订现具备持久动作回执、source-bound AgentRun、单一 assistant 工作回合、
 > 同 run 控制坞与刷新重连；真实 Tauri 暂停→刷新→继续通过。队列已回到下方
@@ -296,6 +310,8 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | B8 | LM Studio 上下文配置属重启易失运维状态（2026-07-21 实锤：机器重启后 JIT 默认 8192，17 章形态 prose prompt+输出撑爆窗口 `truncated=1` → provider_response_invalid 无限重试；旧 M2 第13章三次"JSON 解析失败"极可能同病）。已手工 `lms load --context-length 32768` 恢复；候选钉：狗粮预检校验在载模型 context 阈值 + `finish_reason=length` 时报"上下文不足"而非可重试 invalid | 候选钉挂 M2 完跑复盘一并定 |
 | B6 | `frontend/slice-verify/dogfood-runner.mjs` 判定架构债——文件里散落一堆各自手写的帧判定函数（事件名/字段字面量），契约理解不唯一、易与真实契约（`frontend/src/lib/socket.ts` 等）漂移（2026-07-20 `awaitingAuthor` 判错字段路径实锤）；已把 `adoptPendingDraft` 一处重构成"分类一次+穷尽分支"（`classifyChapterAttemptFrame`），其余判定点（`readToc`、settle/overwrite 确认等）仍是老写法，未同步重构 | 攒批一次做，理想情况下接入真实契约定义而非本文件自证 |
 | B12 | **AU10 工作台渲染稳定性与局部刷新隔离（2026-07-24 用户反馈）**：当前无整页 reload 证据；视觉“整体闪烁”初判为 `WorkspaceChat` 多状态联动 render、可变 key/条件渲染 remount、异步元素/输入区/档案几何变化与自动滚动叠加。四方案已登记：A 最小防闪烁、B 组件/状态边界、C TanStack Query server-state 收敛、D 显式工作台状态机。 | 详见 `AU10-workbench-render-stability.md`；先 CP0 外部测量，再默认 A→B，C/D 仅证据触发；P1 B 轨，不改变 VS-00G 唯一队首 |
+| B13 | **ADR 实施/闭环与 traceability 债（2026-07-25 审计）**：当前 26 个 ADR 中可明确判定 8 个未完全闭环——产品/契约缺口 `ADR-0008/0016/0017/0019/0024/0025`，仍为 Proposed 的 `ADR-0022`，以及只剩真实样本人工盲评 I10 的 `ADR-0020`。本次“第一章字数太少了→已经确认了”Stage 现场不是 Provider 超时：两次判断调用均成功；run `run_mrz30t37_4lt` 收到 goal v2 后连续三次 `run_resumed → awaiting_author`，最终 `status=awaiting_author/phase=stopped` 且无 `active_behavior_ref`，归属 `ADR-0008` blocking clarification 与 `ADR-0024` S7 CP3。治理侧 `mix run scripts/adr_trace.exs` 当前报告 26/26 ADR 缺 `enforced_by`，且仍 exit 0，故“其余 18 个无明确核心阻塞”尚非机器认证结论。 | 不改变 VS-00G 唯一队首；S4/S7 与 blocking clarification 由 ADR-0024/UA-06 owner 收口，DS02/外部搜索翼/Projection/Replay/I10 各回原 owner；另行补 `enforced_by` 与把 `adr_trace` 从 soft warn 升为可阻断门禁，实施前先按 ADR→slice→代码→真实页面证据逐项定 owner |
+| B14 | **P0 awaiting_author 幽灵任务与失败气泡（2026-07-25 用户截图）**：live run 裸 `resume` 会重放旧 settled 判断；刷新/后端重启后 dead bounded run 仍被历史 TurnResult 投影成可继续任务；`not_found` 每次被追加为新的 AI“操作失败”气泡；steer 作者输入只改 goal、未进入 Interaction。 | 已登记 `DS03-awaiting-author-runtime-validity-and-recovery-surface.md`，owner 为 ADR-0024 S7 CP3，并与 ADR-0008/UA-06 blocking clarification 对齐。目标结构：paused 才可 resume；awaiting_author 必须提交非空 steer/action；dead bounded 明示失效并重新发起；错误内联去重；steer 可持久恢复。本轮不改变 VS-00G 唯一队首。 |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 
@@ -312,6 +328,8 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-07-25 | 登记 `DS03-awaiting-author-runtime-validity-and-recovery-surface` 为 P0/B14，不改变当前唯一队首。 | 用户截图与 Stage DB/AgentEvent 证明问题不是模型连续失败：同一 bounded run 裸 resume 重放旧 awaiting 判断，runtime 失活后历史 TurnResult 仍授予控制权，`not_found` 被追加为 AI 气泡，steer 作者输入未持久化。该边界不在已完成的 UA01 live-steer checkpoint 内，归属 ADR-0024 S7 CP3。 |
+| 2026-07-25 | 登记 ADR 实施/闭环审计：当前可明确判定 8/26 未完全闭环，并把 `adr_trace` 26/26 缺 `enforced_by` 的机器追溯缺口列为 B13；不据 ADR 文件头的 Accepted/Proposed 单字段宣称实现完成。 | Stage 日志与 SQLite 状态已直接证明本次卡住属于 `awaiting_author` 恢复/澄清决策面缺口，而非模型或网络超时；同时 ADR 索引、slice 索引与最新 owner 文件存在状态漂移，必须保留“决策已接受 / 代码已实现 / 真实页面已闭环 / 机器可追溯”四层口径。 |
 | 2026-07-24 | 登记 `AU10-workbench-render-stability` 为 P1/B 轨，不改变当前 VS-00G 唯一队首；四方案定序为 CP0 测量 → A 最小防闪烁 → B 组件/状态边界，C Query 化与 D 状态机按证据触发。 | 当前问题属于真实用户可见体验债务，但尚无文档级 reload 或 P0 阻塞证据；先冻结 remount/layout/scroll 的量化基线，可避免直接把症状升级成全量状态架构重写，也能与 UA01 streaming、AU12 last-known snapshot 既有职责保持正交。 |
 | 2026-07-21 | **P1 里程碑关闭**（用户裁决）：达标跑 101,421 字/75 章/5.28h/导出 ✓，Q1-Q5 缺陷带账进 M3（豁免注记入里程碑文档）；M3 定序=五本账优先（Q5 漂移直接拉动）。狗粮验证纪律固化"攒批清算"模式（修复只积累+便宜梯队，搭节拍跑一次清算，不为单个修复单独起跑）。 | P1 目的=证明产品链路能产出 10 万字长篇，已由外部自动化驱动真实工作台全程实证；Q2/Q3 修向是 B 轨小件，Q5（要角/题材随扩章批漂移）恰是 M3 五本账主任务，留在 P1 里错位。07-19 复盘"底盘跑到货物前面、第 30 章开始漂移"的预判被本跑数据完整证实——机制层此后由领域要素拉动。 |
 | 2026-07-21 | T4 收口：根因改判为 T2b 撤目录致 call2 目录失明（推翻"长上下文"假说，排除"服务端状态损坏"假说）；修复=目录注入 call2 prompt + 探针首调体温计；reason↔capability 一致性校验方向关闭。M2 解除阻塞。 | 三重证据裁决：①M2 全天 call2 prompt 恒定 ~800 token（预算化在工作，上下文没长）；②LM Studio 日志钉住瘟疫起点=21:46 JIT 新实例第一个判断调用（约束执行从"劣化浮出"翻转为"正常顶替"），非上下文增长点；③干净实例逐字节重放：旧 prompt 0/10 命中且顶替现场复现，新 prompt 判 execute 4/4 命中、自造名 0/10。教训：T1/T2c 探针绿是"重试遮首调"假绿——体温计必须测首调，不测协议黑盒的最终值。 |
