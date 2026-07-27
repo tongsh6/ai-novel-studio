@@ -37,7 +37,9 @@ defmodule NovelApplication.FactInventoryRunTest do
       work_id: "work-fact-inventory",
       session_id: "session-fact-inventory",
       turn_id: "turn-fact-inventory",
-      material_reader: fn "work-fact-inventory" -> materials() end
+      material_reader: fn "work-fact-inventory" -> materials() end,
+      # CP4d：这本书 target_length 缺位 → 盘点应同批产全书规划建议（其余字段已立不建议）
+      skeleton_reader: fn "work-fact-inventory" -> ["target_length"] end
     }
 
     spec =
@@ -63,6 +65,10 @@ defmodule NovelApplication.FactInventoryRunTest do
     assert_receive {:inventory_prompt, prompt}, 1_000
     assert prompt =~ "第1章 灵气账单"
     assert prompt =~ "\"item_id\""
+    # CP4d：只对缺位字段请求全书规划建议
+    assert prompt =~ "work_skeleton_suggestion"
+    assert prompt =~ "target_length：目标总字数"
+    refute prompt =~ "serial_form：连载形态"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 1_000
     assert_receive {:agent_event, :run_completed, _}, 1_000
 
@@ -71,17 +77,30 @@ defmodule NovelApplication.FactInventoryRunTest do
     assert Enum.map(turn_result.ui_cards, & &1.artifact_type) == [
              :character_seed,
              :world_rule_seed,
-             :foreshadowing_seed
+             :foreshadowing_seed,
+             :work_skeleton_suggestion
            ]
 
     assert Enum.map(turn_result.adoption_state.pending, & &1.artifact_type) == [
              :character_seed,
              :character_seed,
              :world_rule_seed,
-             :foreshadowing_seed
+             :foreshadowing_seed,
+             :work_skeleton_suggestion
            ]
 
-    assert length(turn_result.available_actions) == 12
+    skeleton_pending =
+      Enum.find(
+        turn_result.adoption_state.pending,
+        &(&1.artifact_type == :work_skeleton_suggestion)
+      )
+
+    assert skeleton_pending.payload.title == "全书规划建议"
+    assert [skeleton_item] = skeleton_pending.payload.items
+    assert skeleton_item.skeleton_field == "target_length"
+    assert skeleton_item.skeleton_value == 300_000
+
+    assert length(turn_result.available_actions) == 15
     assert turn_result.truthfulness.tool_called
     refute turn_result.truthfulness.artifact_adopted
     refute turn_result.truthfulness.production_write_performed
@@ -101,7 +120,7 @@ defmodule NovelApplication.FactInventoryRunTest do
     assert run.consumed_budget.steps == 1
     assert run.consumed_budget.tool_calls == 1
     assert run.consumed_budget.provider_calls == 3
-    assert length(run.pending_artifact_refs) == 4
+    assert length(run.pending_artifact_refs) == 5
   end
 
   defp plan_draft do
@@ -159,6 +178,15 @@ defmodule NovelApplication.FactInventoryRunTest do
         title: "残诀后半卷",
         body: "残诀缺失的后半卷尚未揭示。",
         rationale: "依据第2章"
+      },
+      %{
+        artifact_type: "work_skeleton_suggestion",
+        item_id: "skeleton_target_length",
+        title: "目标体量",
+        body: "按前两章节奏推断全书约 30 万字。",
+        rationale: "依据前2章体量",
+        skeleton_field: "target_length",
+        skeleton_value: 300_000
       }
     ])
   end

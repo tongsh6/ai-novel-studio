@@ -127,6 +127,31 @@ defmodule NovelApplication.WorkService do
     end
   end
 
+  @skeleton_fields [:target_length, :planned_volumes, :serial_form]
+
+  @doc """
+  返回该作品当前缺位的全书规划字段名（VS-00G CP4d）。
+
+  设定盘点只对缺位字段产建议——作者已立的规划值不重复建议、不覆盖。
+  作品不存在时返回 []（盘点对骨架建议诚实降级，档案提案链不受影响）。
+  """
+  @spec missing_skeleton_fields(String.t()) :: [String.t()]
+  def missing_skeleton_fields(id) when is_binary(id) do
+    case WorkRepo.get(id) do
+      nil ->
+        []
+
+      %Work{} = work ->
+        @skeleton_fields
+        |> Enum.filter(&skeleton_field_missing?(Map.get(work, &1)))
+        |> Enum.map(&Atom.to_string/1)
+    end
+  end
+
+  defp skeleton_field_missing?(nil), do: true
+  defp skeleton_field_missing?(value) when is_binary(value), do: String.trim(value) == ""
+  defp skeleton_field_missing?(_value), do: false
+
   # ── private ────────────────────────────────
 
   defp normalize_attrs(attrs) do

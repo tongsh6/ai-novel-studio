@@ -172,6 +172,18 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
           subtype -> Map.put(item, :memory_subtype, subtype)
         end
 
+      # skeleton_field / skeleton_value（可选）：全书规划字段建议的结构化槽位
+      # （VS-00G CP4d，采纳=立项字段回写）。同样非 I1 约束字段；field 仅接受立项
+      # 规划三字段、value 按字段类型收敛，任一不合法则整对丢弃（不臆造字段值）。
+      item =
+        case normalize_skeleton_suggestion(
+               map_get(raw, :skeleton_field),
+               map_get(raw, :skeleton_value)
+             ) do
+          nil -> item
+          {field, value} -> item |> Map.put(:skeleton_field, field) |> Map.put(:skeleton_value, value)
+        end
+
       {:ok, item}
     end
   end
@@ -179,6 +191,52 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   defp normalize_item(_raw) do
     {:error, %{code: "invalid_item", message: "creative item must be a map"}}
   end
+
+  # 全书规划字段建议槽位规范化（VS-00G CP4d）：target_length/planned_volumes 收敛为
+  # 正整数，serial_form 收敛为非空字符串；字段名不在立项规划三字段内一律丢弃。
+  @doc false
+  @spec normalize_skeleton_suggestion(term(), term()) ::
+          {String.t(), pos_integer() | String.t()} | nil
+  def normalize_skeleton_suggestion(field, value) when is_binary(field) do
+    case field |> String.trim() |> String.downcase() do
+      numeric_field when numeric_field in ["target_length", "planned_volumes"] ->
+        case coerce_positive_integer(value) do
+          nil -> nil
+          int -> {numeric_field, int}
+        end
+
+      "serial_form" ->
+        case normalize_serial_form(value) do
+          nil -> nil
+          form -> {"serial_form", form}
+        end
+
+      _other ->
+        nil
+    end
+  end
+
+  def normalize_skeleton_suggestion(_field, _value), do: nil
+
+  defp normalize_serial_form(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      form -> form
+    end
+  end
+
+  defp normalize_serial_form(_value), do: nil
+
+  defp coerce_positive_integer(value) when is_integer(value) and value > 0, do: value
+
+  defp coerce_positive_integer(value) when is_binary(value) do
+    case value |> String.trim() |> Integer.parse() do
+      {int, ""} when int > 0 -> int
+      _ -> nil
+    end
+  end
+
+  defp coerce_positive_integer(_value), do: nil
 
   # 把 provider 输出的叙事角色规范化到 NarrativeRole 契约枚举。
   # 接受 canonical 枚举值（大小写不敏感）与常见中文同义词；无法识别返回 nil

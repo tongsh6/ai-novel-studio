@@ -135,6 +135,13 @@ function profileRows(profile: WorkProfile | null): { label: string; value: strin
     },
     { label: STRUCTURE_PANEL.profile.targetReader, value: profileText(profile?.target_reader) },
     { label: STRUCTURE_PANEL.profile.tonePreference, value: profileText(profile?.tone_preference) },
+    // VS-00G CP4d：全书规划三字段——采纳全书规划建议后作者在此看到立项规划落值。
+    { label: STRUCTURE_PANEL.profile.targetLength, value: profileText(profile?.target_length) },
+    {
+      label: STRUCTURE_PANEL.profile.plannedVolumes,
+      value: profileText(profile?.planned_volumes),
+    },
+    { label: STRUCTURE_PANEL.profile.serialForm, value: profileText(profile?.serial_form) },
     { label: STRUCTURE_PANEL.profile.revision, value: profileText(profile?.revision) },
     { label: STRUCTURE_PANEL.profile.updatedAt, value: profileText(profile?.updated_at) },
   ];
@@ -193,6 +200,9 @@ function pendingArtifactTab(artifact: ArtifactEntry): PendingTabType {
   ) {
     return "rule";
   }
+
+  // VS-00G CP4d：全书规划建议归大纲与结构域（采纳后写入立项规划字段）。
+  if (artifactType === "work_skeleton_suggestion") return "outline";
 
   if (artifactType === "world_setting") {
     const text = [

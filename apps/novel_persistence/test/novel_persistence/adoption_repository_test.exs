@@ -196,6 +196,69 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert Repo.get!(MemoryItem, profile.memory_item_id).type == MemoryType.character_profile()
     end
 
+    # VS-00G CP4d：全书规划建议采纳 = works 立项字段回写——不写记忆、不建档案对象，
+    # mutation 留痕，revision 与作者手工立项编辑同一冲突语义。
+    test "adopts work_skeleton_suggestion by writing back the works planning field" do
+      {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "规划回写作品"})
+      assert work.target_length == nil
+      revision_before = work.revision
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work.id,
+                 source_turn_ref: "turn-skeleton-adopt",
+                 artifact_id: "as-skeleton-1::skeleton_target_length",
+                 artifact_type: :work_skeleton_suggestion,
+                 base_revision: 1,
+                 content: "按已写节奏推断全书约 30 万字。",
+                 summary: "目标体量",
+                 skeleton_field: "target_length",
+                 skeleton_value: 300_000
+               })
+
+      assert persisted.mutation_status == "APPLIED"
+      assert persisted.work_planning_updated == true
+      assert persisted.work_revision > revision_before
+      refute Map.has_key?(persisted, :memory_item_id)
+      refute Map.has_key?(persisted, :character_id)
+
+      updated = Repo.get!(NovelPersistence.Schemas.Work, work.id)
+      assert updated.target_length == 300_000
+      assert updated.planned_volumes == nil
+      assert updated.serial_form == nil
+
+      assert [mutation] = MutationLog.list_by_turn("turn-skeleton-adopt")
+      assert mutation.mutation_type == "adopt_artifact"
+    end
+
+    test "rejects work_skeleton_suggestion with illegal field or missing value" do
+      {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "规划回写拒绝"})
+
+      base = %{
+        actor_ref: "author",
+        work_id: work.id,
+        source_turn_ref: "turn-skeleton-reject",
+        artifact_id: "as-skeleton-bad",
+        artifact_type: :work_skeleton_suggestion,
+        base_revision: 1,
+        content: "非法建议",
+        summary: "非法"
+      }
+
+      assert {:error, {:invalid_skeleton_field, "premise"}} =
+               AdoptionRepository.persist(
+                 Map.merge(base, %{skeleton_field: "premise", skeleton_value: "文本"})
+               )
+
+      assert {:error, :skeleton_value_missing} =
+               AdoptionRepository.persist(Map.put(base, :skeleton_field, "target_length"))
+
+      untouched = Repo.get!(NovelPersistence.Schemas.Work, work.id)
+      assert untouched.target_length == nil
+      assert MutationLog.list_by_turn("turn-skeleton-reject") == []
+    end
+
     test "adopts foreshadowing_seed into governed memory visible in archive tab" do
       work_id = Ecto.UUID.generate()
 

@@ -21,33 +21,45 @@ defmodule NovelApplication.FactInventoryService do
   @type proposal :: %{
           characters: [map()],
           world_rules: [map()],
-          foreshadowings: [map()]
+          foreshadowings: [map()],
+          skeleton_suggestions: [map()]
         }
 
   @material_prose_clip 700
+  @skeleton_fields ~w(target_length planned_volumes serial_form)
+
+  @doc false
+  def skeleton_fields, do: @skeleton_fields
 
   @doc """
   盘点提炼：材料 → 提案。`materials` 为 `[%{seq, title, prose}]`（application 装配
   时从章正文读端口读取并截断）。返回结构化提案或错误。
   """
-  @spec inventory([material_item()], Execution.dependency()) ::
+  @spec inventory([material_item()], Execution.dependency(), keyword()) ::
           {:ok, proposal()} | {:error, term()}
-  def inventory(materials, provider_execution) when is_list(materials) do
-    case inventory_with_meta(materials, provider_execution) do
+  def inventory(materials, provider_execution, opts \\ []) when is_list(materials) do
+    case inventory_with_meta(materials, provider_execution, opts) do
       {:ok, proposal, _meta} -> {:ok, proposal}
       {:error, reason} -> {:error, reason}
     end
   end
 
   @doc """
-  与 `inventory/2` 相同，但同时返回本次提炼真实消耗的 provider 调用数。
+  与 `inventory/3` 相同，但同时返回本次提炼真实消耗的 provider 调用数。
 
   AgentRun 依赖此口径执行预算核算；首轮合法 JSON 为 1，坏 JSON 修正后成功为 2。
+
+  `opts[:missing_skeleton_fields]`（VS-00G CP4d）：当前作品缺位的全书规划字段
+  （target_length/planned_volumes/serial_form 子集）。非空时提炼额外产出
+  `work_skeleton_suggestion` 建议（每字段一条，采纳=立项字段回写）；只建议
+  缺位字段，不覆盖作者已立值。
   """
-  @spec inventory_with_meta([material_item()], Execution.dependency()) ::
+  @spec inventory_with_meta([material_item()], Execution.dependency(), keyword()) ::
           {:ok, proposal(), %{provider_call_count: pos_integer()}} | {:error, term()}
-  def inventory_with_meta(materials, provider_execution) when is_list(materials) do
-    prompt = inventory_prompt(build_material_text(materials), length(materials))
+  def inventory_with_meta(materials, provider_execution, opts \\ []) when is_list(materials) do
+    missing_fields = normalize_missing_fields(Keyword.get(opts, :missing_skeleton_fields, []))
+
+    prompt = inventory_prompt(build_material_text(materials), length(materials), missing_fields)
 
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
@@ -57,6 +69,15 @@ defmodule NovelApplication.FactInventoryService do
         {:error, :provider_execution_missing}
     end
   end
+
+  defp normalize_missing_fields(fields) when is_list(fields) do
+    fields
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&(&1 in @skeleton_fields))
+    |> Enum.uniq()
+  end
+
+  defp normalize_missing_fields(_fields), do: []
 
   # 携带失败片段重试一次，再失败才报错（real.ex 坏 JSON 同模式）。
   defp do_extract(prompt, result_fn, retry?, attempt) do
@@ -110,7 +131,8 @@ defmodule NovelApplication.FactInventoryService do
     [
       {:character_seed, Map.get(proposal, :characters, [])},
       {:world_rule_seed, Map.get(proposal, :world_rules, [])},
-      {:foreshadowing_seed, Map.get(proposal, :foreshadowings, [])}
+      {:foreshadowing_seed, Map.get(proposal, :foreshadowings, [])},
+      {:work_skeleton_suggestion, Map.get(proposal, :skeleton_suggestions, [])}
     ]
     |> Enum.reject(fn {_type, items} -> items == [] end)
     |> Enum.map(fn {artifact_type, items} ->
@@ -135,8 +157,8 @@ defmodule NovelApplication.FactInventoryService do
   end
 
   @doc false
-  @spec inventory_prompt(String.t(), non_neg_integer()) :: String.t()
-  def inventory_prompt(material_text, chapter_count) do
+  @spec inventory_prompt(String.t(), non_neg_integer(), [String.t()]) :: String.t()
+  def inventory_prompt(material_text, chapter_count, missing_skeleton_fields \\ []) do
     """
     你是小说设定盘点助手。下面是一部作品前 #{chapter_count} 章的正文摘录。请从正文中反向提炼出
     作品"事实上已经存在"的设定，整理成结构化提案供作者采纳登记。
@@ -147,9 +169,9 @@ defmodule NovelApplication.FactInventoryService do
     - 世界规则：正文反复出现、支撑剧情的世界观规则或设定。
     - 伏笔：正文埋下但尚未回收的线索。
     - 每项标注依据（出现的章）。
-
+    #{skeleton_prompt_section(missing_skeleton_fields)}
     只返回 JSON 数组，不要附加任何额外文字。每项必须包含：
-    - "artifact_type"：只能是 character_seed / world_rule_seed / foreshadowing_seed
+    - "artifact_type"：只能是 character_seed / world_rule_seed / foreshadowing_seed#{skeleton_type_hint(missing_skeleton_fields)}
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：角色名、规则短名或伏笔短名
     - "body"：从正文提炼出的具体设定
@@ -164,12 +186,53 @@ defmodule NovelApplication.FactInventoryService do
       {"artifact_type":"world_rule_seed","item_id":"rule_x","title":"规则短名",
        "body":"规则内容","rationale":"依据第N章"},
       {"artifact_type":"foreshadowing_seed","item_id":"foreshadow_x","title":"伏笔短名",
-       "body":"伏笔内容","rationale":"依据第N章"}
+       "body":"伏笔内容","rationale":"依据第N章"}#{skeleton_prompt_example(missing_skeleton_fields)}
     ]
 
     正文摘录：
     #{material_text}
     """
+  end
+
+  # 全书规划建议指令段（VS-00G CP4d）：只在存在缺位字段时出现，且只列缺位字段——
+  # 作者已立的规划值不重复建议、不覆盖。
+  defp skeleton_prompt_section([]), do: ""
+
+  defp skeleton_prompt_section(missing_fields) do
+    field_lines =
+      Enum.map_join(missing_fields, "\n", fn
+        "target_length" ->
+          "  - target_length：目标总字数（正整数，skeleton_value 填数字）"
+
+        "planned_volumes" ->
+          "  - planned_volumes：预计卷数（正整数，skeleton_value 填数字）"
+
+        "serial_form" ->
+          "  - serial_form：连载形态（如 连载 / 买断 / 短篇集，skeleton_value 填文本）"
+      end)
+
+    """
+    - 全书规划：这本书还没有登记以下规划字段。请按已写正文的体量、节奏和结构推断合理值，
+      每个字段产出一条 work_skeleton_suggestion（不要建议下面列表以外的字段）：
+    #{field_lines}
+      每条另带 "skeleton_field"（字段名）与 "skeleton_value"（建议值）；title 用字段的
+      中文名（目标体量/预计卷数/连载形态），body 写建议值与推断说明。
+    """
+  end
+
+  defp skeleton_type_hint([]), do: ""
+  defp skeleton_type_hint(_missing_fields), do: " / work_skeleton_suggestion"
+
+  defp skeleton_prompt_example([]), do: ""
+
+  defp skeleton_prompt_example(_missing_fields) do
+    """
+    ,
+      {"artifact_type":"work_skeleton_suggestion","item_id":"skeleton_target_length",
+       "title":"目标体量","body":"按已写节奏推断全书约 30 万字","rationale":"依据前 N 章体量",
+       "skeleton_field":"target_length","skeleton_value":300000}
+    """
+    |> String.trim_trailing()
   end
 
   defp correction_prompt(original_prompt, failed_content) do
@@ -187,10 +250,11 @@ defmodule NovelApplication.FactInventoryService do
   defp validate_and_group(decoded, provider_call_ref) do
     decoded
     |> Enum.reduce_while(
-      %{characters: [], world_rules: [], foreshadowings: []},
+      %{characters: [], world_rules: [], foreshadowings: [], skeleton_suggestions: []},
       fn raw, grouped ->
         with {:ok, bucket} <- proposal_bucket(raw),
-             {:ok, [item]} <- ToolOutputContract.validate_creative_items([raw]) do
+             {:ok, [item]} <- ToolOutputContract.validate_creative_items([raw]),
+             {:ok, item} <- ensure_skeleton_slots(bucket, item) do
           item = maybe_put_provider_call_ref(item, provider_call_ref)
           {:cont, Map.update!(grouped, bucket, &(&1 ++ [item]))}
         else
@@ -202,7 +266,7 @@ defmodule NovelApplication.FactInventoryService do
       {:error, _reason} = error ->
         error
 
-      %{characters: [], world_rules: [], foreshadowings: []} ->
+      %{characters: [], world_rules: [], foreshadowings: [], skeleton_suggestions: []} ->
         {:error, :empty_proposal}
 
       grouped ->
@@ -210,15 +274,31 @@ defmodule NovelApplication.FactInventoryService do
     end
   end
 
+  # 全书规划建议必须带合法结构化槽位（字段名+可落库的值），否则视为坏输出走重试——
+  # 不静默丢弃、不代模型补值（I1：结构化槽位与创作字节同样不修补）。
+  defp ensure_skeleton_slots(:skeleton_suggestions, item) do
+    if is_binary(Map.get(item, :skeleton_field)) and Map.has_key?(item, :skeleton_value) do
+      {:ok, item}
+    else
+      {:error, :invalid_skeleton_suggestion}
+    end
+  end
+
+  defp ensure_skeleton_slots(_bucket, item), do: {:ok, item}
+
+  @proposal_buckets %{
+    "character_seed" => :characters,
+    "world_rule_seed" => :world_rules,
+    "foreshadowing_seed" => :foreshadowings,
+    "work_skeleton_suggestion" => :skeleton_suggestions
+  }
+
   defp proposal_bucket(raw) when is_map(raw) do
-    case Map.get(raw, "artifact_type") || Map.get(raw, :artifact_type) do
-      "character_seed" -> {:ok, :characters}
-      :character_seed -> {:ok, :characters}
-      "world_rule_seed" -> {:ok, :world_rules}
-      :world_rule_seed -> {:ok, :world_rules}
-      "foreshadowing_seed" -> {:ok, :foreshadowings}
-      :foreshadowing_seed -> {:ok, :foreshadowings}
-      other -> {:error, {:unsupported_inventory_artifact_type, other}}
+    type = Map.get(raw, "artifact_type") || Map.get(raw, :artifact_type)
+
+    case Map.fetch(@proposal_buckets, to_string(type || "")) do
+      {:ok, bucket} -> {:ok, bucket}
+      :error -> {:error, {:unsupported_inventory_artifact_type, type}}
     end
   end
 

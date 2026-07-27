@@ -426,6 +426,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       summary: adoption_chapter_title(artifact),
       narrative_role: artifact_narrative_role(artifact),
       memory_subtype: artifact_memory_subtype(artifact),
+      skeleton_field: artifact_skeleton_slot(artifact, :skeleton_field),
+      skeleton_value: artifact_skeleton_slot(artifact, :skeleton_value),
       mode: adoption_mode(artifact),
       decision_id: decision.adoption_decision_id
     }
@@ -1196,6 +1198,20 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp item_narrative_role(_), do: nil
 
+  # 全书规划建议槽位（VS-00G CP4d）：逐项采纳后单元只剩一个 item，取第一个带槽位
+  # 的 item（与 narrative_role 同先例）。落位=works 立项字段回写。
+  defp artifact_skeleton_slot(artifact, key) do
+    payload = artifact_field(artifact, :payload) || %{}
+    items = payload[:items] || payload["items"]
+
+    if is_list(items) do
+      Enum.find_value(items, fn
+        item when is_map(item) -> Map.get(item, key) || Map.get(item, Atom.to_string(key))
+        _item -> nil
+      end)
+    end
+  end
+
   # 角色演化记忆子类（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）来自 artifact item。
   defp artifact_memory_subtype(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
@@ -1331,6 +1347,8 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp candidate_type("style_rule_seed"), do: :setting
   defp candidate_type(:constraint_seed), do: :setting
   defp candidate_type("constraint_seed"), do: :setting
+  defp candidate_type(:work_skeleton_suggestion), do: :setting
+  defp candidate_type("work_skeleton_suggestion"), do: :setting
   defp candidate_type(:outline_draft), do: :outline
   defp candidate_type("outline_draft"), do: :outline
   defp candidate_type(_), do: :draft_fragment

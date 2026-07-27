@@ -17,6 +17,7 @@ defmodule NovelDomain.TentativeArtifactSet do
           | :world_rule_seed
           | :style_rule_seed
           | :constraint_seed
+          | :work_skeleton_suggestion
 
   @type artifact_item :: %{
           required(:item_id) => String.t(),
@@ -110,7 +111,9 @@ defmodule NovelDomain.TentativeArtifactSet do
   # VS-00G CP4a（收编 user-journeys H13"伏笔/规则逐项采纳扩展"）：设定盘点提案集
   # 含多类 seed，每类都逐项独立采纳（采纳一个只落一个 canon）。outline_draft 等
   # "同一产物多 item"仍整体采纳，不在此列。
-  @per_candidate_types ~w(character_seed world_rule_seed foreshadowing_seed style_rule_seed constraint_seed)a
+  # VS-00G CP4d：work_skeleton_suggestion 每 item = 一个缺位规划字段的建议
+  # （target_length/planned_volumes/serial_form），采纳一项只回写一个立项字段。
+  @per_candidate_types ~w(character_seed world_rule_seed foreshadowing_seed style_rule_seed constraint_seed work_skeleton_suggestion)a
 
   defp per_candidate_type?(type) when is_atom(type), do: type in @per_candidate_types
   defp per_candidate_type?(type) when is_binary(type), do: String.to_existing_atom(type) in @per_candidate_types

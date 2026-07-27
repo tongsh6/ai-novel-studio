@@ -33,6 +33,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelPersistence.Schemas.Mutation
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
+  alias NovelPersistence.Schemas.Work
 
   # 计划是扁平章列表、无卷分组，用单一默认卷承载已采纳卷/章结构。
   @default_volume_title "第一卷"
@@ -57,6 +58,9 @@ defmodule NovelPersistence.AdoptionRepository do
     |> Multi.run(:character, fn repo, %{mutation: mutation} ->
       maybe_persist_character(repo, attrs, mutation.id)
     end)
+    |> Multi.run(:work_planning, fn repo, _changes ->
+      maybe_apply_work_skeleton(repo, attrs)
+    end)
     |> Multi.run(:reading_projection, fn repo, %{mutation: mutation} ->
       maybe_persist_reading_projection(repo, attrs, mutation.id)
     end)
@@ -70,17 +74,21 @@ defmodule NovelPersistence.AdoptionRepository do
          mutation: mutation,
          memory_item: memory_item,
          character: character,
+         work_planning: work_planning,
          reading_projection: reading_projection
        }} ->
-        {:ok, build_persist_result(mutation, memory_item, character, reading_projection)}
+        {:ok,
+         build_persist_result(mutation, memory_item, character, work_planning, reading_projection)}
 
       {:error, _step, reason, _changes} ->
         {:error, reason}
     end
   end
 
-  # 采纳产物按层落地：character_seed → Character 主档案（不写记忆）；其它 → confirmed memory。
-  defp build_persist_result(mutation, memory_item, character, reading_projection) do
+  # 采纳产物按层落地：character_seed → Character 主档案（不写记忆）；
+  # work_skeleton_suggestion → works 立项规划字段回写（VS-00G CP4d，不写记忆）；
+  # 其它 → confirmed memory。
+  defp build_persist_result(mutation, memory_item, character, work_planning, reading_projection) do
     %{
       mutation_id: mutation.id,
       mutation_status: mutation.status,
@@ -89,6 +97,7 @@ defmodule NovelPersistence.AdoptionRepository do
     }
     |> put_memory_item(memory_item)
     |> put_character(character)
+    |> put_work_planning(work_planning)
   end
 
   defp put_memory_item(result, nil), do: result
@@ -107,9 +116,20 @@ defmodule NovelPersistence.AdoptionRepository do
     |> Map.put(:character_status, character.status)
   end
 
-  # character_seed 是角色主档案层（21 §7.2），不写记忆；其它创作产物落 confirmed memory。
+  defp put_work_planning(result, nil), do: result
+
+  defp put_work_planning(result, %Work{} = work) do
+    result
+    |> Map.put(:work_planning_updated, true)
+    |> Map.put(:work_revision, work.revision)
+  end
+
+  # character_seed 是角色主档案层（21 §7.2），不写记忆；work_skeleton_suggestion 是
+  # 立项规划字段回写（VS-00G CP4d），同样不写记忆；其它创作产物落 confirmed memory。
   defp maybe_persist_memory_item(repo, attrs, mutation_id) do
-    if character_dossier_artifact?(Map.get(attrs, :artifact_type)) do
+    artifact_type = Map.get(attrs, :artifact_type)
+
+    if character_dossier_artifact?(artifact_type) or work_skeleton_artifact?(artifact_type) do
       {:ok, nil}
     else
       %MemoryItem{}
@@ -117,6 +137,48 @@ defmodule NovelPersistence.AdoptionRepository do
       |> repo.insert()
     end
   end
+
+  # work_skeleton_suggestion 采纳 → works 立项规划字段回写（VS-00G CP4d 契约
+  # 「works 字段类提案落位=立项字段回写」）。字段白名单硬校验；值缺失/字段非法
+  # 一律拒绝采纳（不静默吞掉作者授权）。revision 经 Work.changeset optimistic_lock
+  # 正常递增，与作者手工立项编辑同一冲突语义。
+  @skeleton_writable_fields ~w(target_length planned_volumes serial_form)
+
+  defp maybe_apply_work_skeleton(repo, attrs) do
+    if work_skeleton_artifact?(Map.get(attrs, :artifact_type)) do
+      apply_work_skeleton(repo, attrs)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp apply_work_skeleton(repo, attrs) do
+    field = attrs |> Map.get(:skeleton_field) |> to_string()
+    value = Map.get(attrs, :skeleton_value)
+
+    cond do
+      field not in @skeleton_writable_fields ->
+        {:error, {:invalid_skeleton_field, field}}
+
+      is_nil(value) ->
+        {:error, :skeleton_value_missing}
+
+      true ->
+        case repo.get(Work, Map.fetch!(attrs, :work_id)) do
+          nil ->
+            {:error, :work_not_found}
+
+          %Work{} = work ->
+            work
+            |> Work.changeset(%{field => value})
+            |> repo.update(stale_error_field: :revision)
+        end
+    end
+  end
+
+  defp work_skeleton_artifact?(:work_skeleton_suggestion), do: true
+  defp work_skeleton_artifact?("work_skeleton_suggestion"), do: true
+  defp work_skeleton_artifact?(_type), do: false
 
   # character_seed 采纳 → 结构化 Character 主档案（accepted）。
   # name ← artifact 标题（attrs.summary），summary ← artifact 正文（attrs.content），

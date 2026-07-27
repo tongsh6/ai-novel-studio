@@ -55,5 +55,16 @@ defmodule NovelDomain.TentativeArtifactSetTest do
         assert Enum.map(units, & &1.item_id) == ["i1", "i2"]
       end
     end
+
+    # VS-00G CP4d：全书规划字段建议每 item 对应一个缺位字段，采纳一项只回写一个字段。
+    test "VS-00G CP4d：work_skeleton_suggestion 逐字段独立采纳" do
+      units =
+        TentativeArtifactSet.adoptable_units(
+          set(:work_skeleton_suggestion, [item("skeleton_target_length", "目标体量"), item("skeleton_serial_form", "连载形态")])
+        )
+
+      assert length(units) == 2
+      assert Enum.map(units, & &1.item_id) == ["skeleton_target_length", "skeleton_serial_form"]
+    end
   end
 end

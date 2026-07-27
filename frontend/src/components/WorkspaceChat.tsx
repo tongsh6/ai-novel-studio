@@ -449,6 +449,9 @@ function acceptActionLabel(artifactType?: string): string {
   if (isProseArtifact(artifactType)) return CARD.tentativeArtifact.acceptProseLabel;
   if (isOutlineArtifact(artifactType)) return CARD.tentativeArtifact.acceptOutlineLabel;
   if (isArchiveArtifact(artifactType)) return CARD.tentativeArtifact.acceptArchiveLabel;
+  // VS-00G CP4d：全书规划建议采纳=立项字段回写，不是档案对象写入。
+  if (artifactType === "work_skeleton_suggestion")
+    return CARD.tentativeArtifact.acceptWorkSkeletonLabel;
   return CARD.tentativeArtifact.acceptLabel;
 }
 

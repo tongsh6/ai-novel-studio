@@ -186,12 +186,16 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
 
   defp inventory_step(spec) do
     fn run, sequence, snapshot ->
+      missing_skeleton_fields = skeleton_reader(spec).(run.work_id)
+
       with [_ | _] = materials <- material_reader(spec).(run.work_id),
            {:ok, proposal, proposal_meta} <-
              FactInventoryService.inventory_with_meta(
                materials,
-               inventory_provider_execution(spec, snapshot)
+               inventory_provider_execution(spec, snapshot),
+               missing_skeleton_fields: missing_skeleton_fields
              ),
+           proposal = filter_skeleton_suggestions(proposal, missing_skeleton_fields),
            [_ | _] = artifact_sets <-
              FactInventoryService.artifact_sets(proposal, %{
                source_turn_ref: inventory_turn_id(run, sequence),
@@ -336,7 +340,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
       tool_need: %{needs_tool: true, reason_code: :tool_needed},
       execution_readiness: :ready,
       author_visible_draft: %{
-        message: "设定盘点完成：整理出 #{item_count} 条角色、规则或伏笔提案。它们仍是待采纳草稿，请逐项确认。"
+        message: "设定盘点完成：整理出 #{item_count} 条设定与规划提案。它们仍是待采纳草稿，请逐项确认。"
       },
       evidence_summary: %{agent_run_ref: run.run_id},
       uncertainty: []
@@ -348,6 +352,30 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
   defp material_reader(_spec) do
     NovelApplication.persistence_fact_inventory_material_reader() ||
       fn _work_id -> nil end
+  end
+
+  # VS-00G CP4d：全书规划缺位读端口（可注入）。默认读 works 立项字段；只对缺位
+  # 字段请求建议，作者已立值不重复建议。读取失败降级为 []（骨架建议诚实缺席，
+  # 档案提案链不受影响），不让盘点 run 因骨架读取死掉。
+  defp skeleton_reader(%{skeleton_reader: reader}) when is_function(reader, 1), do: reader
+
+  defp skeleton_reader(_spec) do
+    fn work_id ->
+      try do
+        NovelApplication.WorkService.missing_skeleton_fields(work_id)
+      rescue
+        _error -> []
+      catch
+        _kind, _reason -> []
+      end
+    end
+  end
+
+  # 双保险：即使模型对非缺位字段越权产建议，也在提案层按缺位集合筛除（选择不改写）。
+  defp filter_skeleton_suggestions(proposal, missing_fields) do
+    Map.update(proposal, :skeleton_suggestions, [], fn suggestions ->
+      Enum.filter(suggestions, &(map_get(&1, :skeleton_field) in missing_fields))
+    end)
   end
 
   defp inventory_provider_execution(spec, snapshot) do

@@ -65,6 +65,11 @@ function artifactDraftCopy(card: UICardData): { title: string; body: string } {
         title: CARD.artifactDraft.constraintTitle,
         body: CARD.artifactDraft.archiveDescription,
       };
+    case "work_skeleton_suggestion":
+      return {
+        title: CARD.artifactDraft.workSkeletonTitle,
+        body: CARD.artifactDraft.workSkeletonDescription,
+      };
     default:
       return {
         title: CARD.artifactDraft.fallbackTitle,

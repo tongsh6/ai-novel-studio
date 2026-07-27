@@ -360,6 +360,11 @@ defmodule NovelApplication.TurnResultBuilder do
        when type in [:world_setting, "world_setting"],
        do: "世界设定草稿"
 
+  # VS-00G CP4d：全书规划字段建议（采纳=立项字段回写，OQ7 用户可见词「全书规划」）。
+  defp artifact_payload_title(%{artifact_type: type})
+       when type in [:work_skeleton_suggestion, "work_skeleton_suggestion"],
+       do: "全书规划建议"
+
   defp artifact_payload_title(_as), do: "待保存草稿"
 
   defp artifact_card_body(%{items: items} = as) do
@@ -399,6 +404,10 @@ defmodule NovelApplication.TurnResultBuilder do
               "constraint_seed"
             ],
        do: "这是待保存设定草稿。确认保存后会进入作品档案；未保存前不会写入作品事实。"
+
+  defp artifact_save_hint(%{artifact_type: type})
+       when type in [:work_skeleton_suggestion, "work_skeleton_suggestion"],
+       do: "这是全书规划建议。采纳后会写入作品的立项规划字段；未采纳前不会改变全书规划。"
 
   defp artifact_save_hint(_as),
     do: "这是待保存草稿。确认保存后才会进入作品档案；未保存前不会写入作品事实。"

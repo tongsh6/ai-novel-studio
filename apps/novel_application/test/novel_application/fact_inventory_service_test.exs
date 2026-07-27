@@ -177,4 +177,81 @@ defmodule NovelApplication.FactInventoryServiceTest do
     assert item.rationale == "依据第1章"
     assert item.provider_call_ref == "pcall-inventory-2"
   end
+
+  # ── VS-00G CP4d：全书规划字段建议 ──────────────────────
+
+  defp skeleton_item_json(field, value) do
+    %{
+      "artifact_type" => "work_skeleton_suggestion",
+      "item_id" => "skeleton_#{field}",
+      "title" => "目标体量",
+      "body" => "按已写节奏推断建议值 #{value}",
+      "rationale" => "依据前2章体量",
+      "skeleton_field" => field,
+      "skeleton_value" => value
+    }
+  end
+
+  test "CP4d：缺位字段时 prompt 才含全书规划指令段，且只列缺位字段" do
+    prompt_with =
+      Inventory.inventory_prompt("正文", 2, ["target_length", "serial_form"])
+
+    assert prompt_with =~ "work_skeleton_suggestion"
+    assert prompt_with =~ "target_length"
+    assert prompt_with =~ "serial_form"
+    refute prompt_with =~ "planned_volumes：预计卷数"
+
+    prompt_without = Inventory.inventory_prompt("正文", 2, [])
+    refute prompt_without =~ "work_skeleton_suggestion"
+  end
+
+  test "CP4d：解析全书规划建议——结构化槽位保留，字符串数值收敛为正整数" do
+    json = Jason.encode!([skeleton_item_json("target_length", "300000")])
+
+    {:ok, proposal} = Inventory.parse_proposal(json)
+
+    assert [item] = proposal.skeleton_suggestions
+    assert item.skeleton_field == "target_length"
+    assert item.skeleton_value == 300_000
+    assert item.title == "目标体量"
+  end
+
+  test "CP4d：全书规划建议缺合法槽位 → 坏输出（走重试而非静默丢弃）" do
+    missing_slot =
+      Jason.encode!([Map.drop(skeleton_item_json("target_length", 300_000), ["skeleton_value"])])
+
+    assert {:error, :invalid_skeleton_suggestion} = Inventory.parse_proposal(missing_slot)
+
+    bad_field = Jason.encode!([skeleton_item_json("premise", "文本")])
+    assert {:error, :invalid_skeleton_suggestion} = Inventory.parse_proposal(bad_field)
+  end
+
+  test "CP4d：artifact_sets 含 work_skeleton_suggestion 集，item 槽位不改写" do
+    json =
+      Jason.encode!([
+        skeleton_item_json("serial_form", "连载"),
+        %{
+          "artifact_type" => "character_seed",
+          "item_id" => "c1",
+          "title" => "甲",
+          "body" => "档案",
+          "rationale" => nil
+        }
+      ])
+
+    {:ok, proposal} = Inventory.parse_proposal(json)
+
+    sets =
+      Inventory.artifact_sets(proposal, %{
+        source_turn_ref: "turn-inventory",
+        source_tool_result_ref: "tr-inventory"
+      })
+
+    assert Enum.map(sets, & &1.artifact_type) == [:character_seed, :work_skeleton_suggestion]
+
+    skeleton_set = Enum.find(sets, &(&1.artifact_type == :work_skeleton_suggestion))
+    assert [item] = skeleton_set.items
+    assert item.skeleton_field == "serial_form"
+    assert item.skeleton_value == "连载"
+  end
 end

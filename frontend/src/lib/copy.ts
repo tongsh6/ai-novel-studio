@@ -167,6 +167,7 @@ export const CARD = {
     acceptProseLabel: "保存为章节正文",
     acceptOutlineLabel: "保存到大纲",
     acceptArchiveLabel: "保存到作品档案",
+    acceptWorkSkeletonLabel: "采纳为全书规划",
     discardLabel: "不保存",
     editThenAcceptLabel: "修改后保存",
     editProseThenAcceptLabel: "修改后保存正文",
@@ -220,6 +221,10 @@ export const CARD = {
     foreshadowingTitle: "伏笔草稿",
     ruleTitle: "规则草稿",
     constraintTitle: "约束草稿",
+    // VS-00G CP4d：全书规划建议（OQ7 用户可见词「全书规划」；采纳=立项字段回写）
+    workSkeletonTitle: "全书规划建议",
+    workSkeletonDescription:
+      "这是全书规划建议（目标体量/预计卷数/连载形态）。采纳后写入作品的立项规划；未采纳前不会改变全书规划。",
     archiveDescription: "这是待保存设定草稿。保存后会进入作品档案；未保存前不会写入作品事实。",
     fallbackTitle: "待保存草稿",
     fallbackDescription: "这是待保存草稿。保存后才会进入作品档案；未保存前不会写入作品事实。",
@@ -656,6 +661,10 @@ export const STRUCTURE_PANEL = {
     coreSellingPoint: "核心卖点",
     targetReader: "目标读者",
     tonePreference: "基调",
+    // VS-00G CP4d：全书规划三字段（契约 §2.4；用户可见词「全书规划」）
+    targetLength: "目标体量",
+    plannedVolumes: "预计卷数",
+    serialForm: "连载形态",
     revision: "修订号",
     updatedAt: "最后更新",
     emptyValue: "暂未填写",

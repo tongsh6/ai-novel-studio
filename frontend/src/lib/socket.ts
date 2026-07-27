@@ -619,6 +619,10 @@ export interface WorkProfile {
   core_selling_point?: string;
   target_reader?: string;
   tone_preference?: string;
+  // VS-00G CP4d：全书规划三字段（采纳全书规划建议或立项时写入）
+  target_length?: number | null;
+  planned_volumes?: number | null;
+  serial_form?: string | null;
   status?: string;
   revision?: number;
   updated_at?: string | null;
