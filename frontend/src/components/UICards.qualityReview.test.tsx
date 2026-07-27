@@ -6,11 +6,35 @@ import { describe, expect, it } from "vitest";
 import { QualityReviewCard, type QualityReviewView } from "./UICards";
 import { CARD } from "../lib/copy";
 
+function finding(
+  overrides: Partial<QualityReviewView["findings"][number]> = {},
+): QualityReviewView["findings"][number] {
+  return {
+    quality_finding_id: "qf_test",
+    quality_gate: "quality_gate.style_fit",
+    validator: "validator.prose_pattern_repetition",
+    severity: "warn",
+    action: "warn",
+    summary: "身体反应模板高频重复",
+    reasoning: "同一身体反应在局部反复出现，没有承担新的叙事作用。",
+    confidence: 0.92,
+    impact_scope: "local",
+    revision_scope: "local",
+    evidence_spans: [{ text: "心脏猛地一跳", sentence_start: 2, sentence_end: 2 }],
+    suggested_revision: { instruction: "只替换命中表达。" },
+    ...overrides,
+  };
+}
+
 function collectText(node: ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(collectText).join("");
-  if (isValidElement(node)) {
+  if (isValidElement<Record<string, unknown>>(node)) {
+    if (typeof node.type === "function") {
+      const Component = node.type as (props: Record<string, unknown>) => ReactNode;
+      return collectText(Component(node.props));
+    }
     const children = (node.props as { children?: ReactNode }).children;
     return Children.toArray(children).map(collectText).join("");
   }
@@ -28,21 +52,19 @@ describe("QualityReviewCard", () => {
       policy_action: "proceed_with_warning",
       review_status: "completed",
       findings: [
-        {
-          quality_gate: "quality_gate.style_fit",
-          validator: "validator.prose_pattern_repetition",
-          severity: "warn",
-          action: "warn",
-          summary: "身体反应模板高频重复",
-          evidence_spans: [{ text: "心脏猛地一跳" }],
-        },
-        {
+        finding(),
+        finding({
+          quality_finding_id: "qf_agency",
           quality_gate: "quality_gate.character_logic",
           validator: "validator.character_agency",
-          severity: "warn",
           action: "adoption_review",
           summary: "主角缺乏目标",
-        },
+          reasoning: "正文没有呈现主角的选择。",
+          confidence: 0.81,
+          impact_scope: "paragraph",
+          revision_scope: "paragraph",
+          evidence_spans: [{ text: "他只是站在那里。", sentence_start: 5, sentence_end: 5 }],
+        }),
       ],
     };
 
@@ -51,6 +73,10 @@ describe("QualityReviewCard", () => {
     expect(text).toContain("身体反应模板高频重复");
     expect(text).toContain("主角缺乏目标");
     expect(text).toContain("心脏猛地一跳");
+    expect(text).toContain("第 2 句");
+    expect(text).toContain("判断理由");
+    expect(text).toContain("影响范围");
+    expect(text).toContain("置信度 92%");
   });
 
   it("shows honest unavailable notice when review did not complete", () => {
@@ -78,20 +104,12 @@ describe("QualityReviewCard", () => {
     expect(render(review)).toBeNull();
   });
 
-  it("shows the 按这些问题重写 affordance only when a revise handler is provided", () => {
+  it("shows the scoped revision affordance only when a revise handler is provided", () => {
     const review: QualityReviewView = {
       status: "warnings",
       policy_action: "proceed_with_warning",
       review_status: "completed",
-      findings: [
-        {
-          quality_gate: "quality_gate.style_fit",
-          validator: "validator.prose_pattern_repetition",
-          severity: "warn",
-          action: "warn",
-          summary: "身体反应模板高频重复",
-        },
-      ],
+      findings: [finding()],
     };
 
     // 无修订入口（例如阅读态）→ 不渲染重写按钮
@@ -99,11 +117,11 @@ describe("QualityReviewCard", () => {
       CARD.qualityReview.reviseButton,
     );
 
-    // 有修订入口且已全选 → 渲染“按这些问题重写”
+    // 有修订入口且已全选 → 渲染 local scope 主动作
     const withRevise = collectText(
       QualityReviewCard({
         review,
-        selectedFindingIds: ["validator.prose_pattern_repetition"],
+        selectedFindingIds: ["qf_test"],
         onToggleFinding: () => {},
         onRevise: () => {},
       }),
@@ -117,21 +135,13 @@ describe("QualityReviewCard", () => {
       status: "warnings",
       policy_action: "proceed_with_warning",
       review_status: "completed",
-      findings: [
-        {
-          quality_gate: "quality_gate.style_fit",
-          validator: "validator.prose_pattern_repetition",
-          severity: "warn",
-          action: "warn",
-          summary: "句式节奏单一",
-        },
-      ],
+      findings: [finding({ summary: "句式节奏单一" })],
     };
 
     const submitted = collectText(
       QualityReviewCard({
         review,
-        selectedFindingIds: ["validator.prose_pattern_repetition"],
+        selectedFindingIds: ["qf_test"],
         onToggleFinding: () => {},
         onRevise: () => {},
         revisionStarted: true,

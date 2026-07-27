@@ -745,7 +745,7 @@ native_action_description() {
       echo "seed chapter plan with structured chapter-2 direction -> open real archive outline -> generate chapter 2 draft -> verify scene execution brief projected (has_plan_direction + prose_execution_brief.built non-degraded with stable brief_ref) entered the prose request/trace, draft stays tentative"
       ;;
     p1-prose-revision-candidate)
-      echo "seed chapter plan with an action chapter -> open real archive outline -> generate the action-chapter draft -> verify quality review surfaces a finding + 按这些问题重写 action -> click it -> verify a sibling tentative revision draft is generated (revision_base points at the original), original retained, nothing auto-adopted"
+      echo "seed chapter plan with an action chapter -> open real archive outline -> generate the action-chapter draft -> verify quality review surfaces evidence/reason/scope/confidence + 局部修订所选问题 action -> click it -> verify a sibling tentative revision draft is generated (revision_base points at the original), original retained, nothing auto-adopted"
       ;;
     quality-revision-action-run-anchoring)
       echo "seed a slow revision provider window -> click quality revision -> verify stable receipt + one assistant work turn + one run-bound dock -> pause -> refresh -> reconnect and resume the same bounded run -> verify independent original/revision actions"
@@ -757,7 +757,7 @@ native_action_description() {
       echo "seed chapter plan with a degrade chapter (summary carries a CN degrade marker) -> open real archive outline -> generate that chapter's draft -> verify the independent evaluator fails and the review honestly degrades to unavailable (本次质量复核未完成) without faking a completed/passed verdict or fabricating findings, the marker never leaks into the prose body, and the draft still stays tentative"
       ;;
     p1-prose-quality-adoption-boundary)
-      echo "seed chapter plan with an action chapter -> open real archive outline -> generate the draft (finding) -> 按这些问题重写 to get a sibling revision draft -> with both drafts pending, adopt the revision through the real adoption boundary and verify the original is NOT auto-resolved (stays independently tentative, one accept action left): revision and original each traverse their own adoption states"
+      echo "seed chapter plan with an action chapter -> open real archive outline -> generate the draft (finding) -> 局部修订所选问题 to get a sibling revision draft -> with both drafts pending, adopt the revision through the real adoption boundary and verify the original is NOT auto-resolved (stays independently tentative, one accept action left): revision and original each traverse their own adoption states"
       ;;
     ua01-agent-bounded-roster-to-character-design)
       echo "send compound author request from the real workbench -> verify bounded AgentRun fast ack, roster observation, re-gated character_design step, author-visible run events, and tentative character_seed without production write"

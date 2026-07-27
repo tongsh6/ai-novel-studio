@@ -28,6 +28,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @candidate_context_marker "AU02CTX"
   @tool_failure_marker "AU04FAILTOOL"
   @provider_failure_marker "UA01PROVIDERFAIL"
+  @awaiting_author_steer_marker "UA01AWAITSTEER"
 
   defstruct []
 
@@ -185,7 +186,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     String.contains?(prompt, "质量评审") and String.contains?(prompt, "findings")
   end
 
-  # 默认空 findings（评审完成、无语义问题）；prompt 含 fail-marker（英文或中文）时返回非法 JSON →
+  # 默认空 findings（评审完成、无语义问题）；形式分析器召回 action-beat 候选时，由本
+  # test-support evaluator 确认为机械重复；prompt 含 fail-marker 时返回非法 JSON →
   # evaluator 两次解析失败 → review_status unavailable（复现诚实降级）。
   defp quality_evaluator_response(prompt) do
     cond do
@@ -201,20 +203,124 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         Jason.encode!(%{
           "findings" => [
             %{
+              "quality_finding_id" => "qf_slice_rule_conflict",
               "quality_gate_ref" => "quality_gate.rule_consistency",
               "validator_ref" => "slice_verify.rule_conflict_confirm",
               "severity" => "high",
               "action" => "confirm",
               "summary" => "正文包含违反既有规则且需要作者确认的设定变化。",
-              "evidence_spans" => [%{"text" => "无需代价，违反既有规则"}],
+              "reasoning" => "正文明确取消了已确认规则要求的代价。",
+              "evidence_spans" => [
+                %{
+                  "text" => "无需代价，违反既有规则",
+                  "location" => "规则变化所在句",
+                  "sentence_start" => 1,
+                  "sentence_end" => 1
+                }
+              ],
+              "impact_scope" => "paragraph",
+              "revision_scope" => "paragraph",
               "brief_field_refs" => [],
-              "confidence" => 0.91
+              "confidence" => 0.91,
+              "suggested_revision" => %{"instruction" => "补回规则代价或交由作者确认。"}
+            }
+          ]
+        })
+
+      intentional_rhetoric_candidate_prompt?(prompt) ->
+        Jason.encode!(%{"findings" => []})
+
+      narrative_pacing_mismatch_prompt?(prompt) ->
+        Jason.encode!(%{
+          "findings" => [
+            %{
+              "quality_finding_id" => "qf_slice_narrative_pacing",
+              "quality_gate_ref" => "quality_gate.pacing",
+              "validator_ref" => "validator.narrative_pacing_fit",
+              "severity" => "warn",
+              "action" => "adoption_review",
+              "summary" => "本章承担主线推进，但正文停留在静态环境与重复动作，缺少计划要求的证据争夺。",
+              "reasoning" => "章节方向要求夺回黑账证据并推动主线；正文四句都没有发生选择、阻力、信息释放或局面变化，实际叙事密度与章功能不匹配。",
+              "evidence_spans" => [
+                %{
+                  "text" => "雨落在窗沿。灯影缓慢地移过旧墙。他反复擦拭那枚已经干净的杯子。钟声响过三次，房间里仍然没有新的决定。",
+                  "sentence_start" => 1,
+                  "sentence_end" => 4
+                }
+              ],
+              "impact_scope" => "chapter",
+              "revision_scope" => "chapter",
+              "brief_field_refs" => [
+                "chapter_direction.chapter_role",
+                "chapter_direction.plot_progress",
+                "reader_effect_brief"
+              ],
+              "confidence" => 0.9,
+              "suggested_revision" => %{
+                "instruction" => "重排整章，使证据争夺、人物选择和信息释放形成可见推进。"
+              }
+            }
+          ]
+        })
+
+      mechanical_form_candidate_prompt?(prompt) ->
+        candidate_id = form_candidate_id(prompt)
+
+        Jason.encode!(%{
+          "findings" => [
+            %{
+              "quality_finding_id" => "qf_#{candidate_id}",
+              "candidate_id" => candidate_id,
+              "quality_gate_ref" => "quality_gate.style_fit",
+              "validator_ref" => "validator.sentence_rhythm_uniformity",
+              "severity" => "warn",
+              "action" => "warn",
+              "summary" => "连续动作句使用相同句首和标点骨架，且没有形成强度或后果递进。",
+              "reasoning" => "这些句子都只陈述一个动作；重复没有承担排比、仪式感或情绪升级功能。",
+              "evidence_spans" => [
+                %{
+                  "text" => "他猛地侧身。他一刀劈下。他反手格挡。",
+                  "sentence_start" => 1,
+                  "sentence_end" => 3
+                }
+              ],
+              "impact_scope" => "local",
+              "revision_scope" => "local",
+              "brief_field_refs" => [],
+              "confidence" => 0.88,
+              "suggested_revision" => %{
+                "instruction" => "只改命中句段，让动作在风险、后果或视角上形成递进。"
+              }
             }
           ]
         })
 
       true ->
         Jason.encode!(%{"findings" => []})
+    end
+  end
+
+  defp mechanical_form_candidate_prompt?(prompt) do
+    String.contains?(prompt, "detector.sentence_structure_uniformity") and
+      String.contains?(prompt, "他猛地侧身")
+  end
+
+  defp intentional_rhetoric_candidate_prompt?(prompt) do
+    String.contains?(prompt, "刻意排比演练") and
+      String.contains?(prompt, "detector.sentence_structure_uniformity") and
+      String.contains?(prompt, "他要活着")
+  end
+
+  defp narrative_pacing_mismatch_prompt?(prompt) do
+    String.contains?(prompt, "章节节奏错配演练") and
+      String.contains?(prompt, "\"chapter_role\":\"主线推进章\"") and
+      String.contains?(prompt, "雨落在窗沿")
+  end
+
+  defp form_candidate_id(prompt) do
+    case Regex.run(~r/"candidate_id":"([^"]+)"/u, prompt) do
+      [_, candidate_id] -> candidate_id
+      _ -> "fc_slice_action"
     end
   end
 
@@ -350,8 +456,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp response_content(prompt, prompt_text) do
     cond do
       # VS-00E：独立质量 evaluator 的 prompt（含「质量评审」+「findings」，无正文三锚点）。
-      # 默认返回空 findings（确定性 validator 仍可命中）；带 fail-marker 时返回非法 JSON 以
-      # 复现 evaluator 降级。仅 test-support，不进生产 runtime。
+      # 默认返回空 findings；局部形式候选需由本 evaluator 明确确认后才能进入 finding。
+      # 带 fail-marker 时返回非法 JSON 以复现 evaluator 降级。仅 test-support，不进生产 runtime。
       quality_evaluator_prompt?(prompt_text) ->
         quality_evaluator_response(prompt_text)
 
@@ -1455,6 +1561,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     # 讨论保护先行（与生产判断 prompt 的判别规则、planner 的 explicit_discussion_only
     # 同语义）：作者显式说"先聊/只聊/不写"时不得进入创作能力，按直接回复处理。
     cond do
+      String.contains?(author_text, @awaiting_author_steer_marker) ->
+        {"await_author", nil, false}
+
       conversation_only_text?(normalized) ->
         judgment_verdict_for_profile("conversation_turn_v1", author_text, prompt)
 
@@ -1795,6 +1904,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
   end
 
+  defp judgment_narrative_text("await_author", _exploratory, _prompt) do
+    "我理解你希望增加第一章的篇幅，但还需要你明确扩写方式；请补充具体方向后，我再继续。"
+  end
+
   defp judgment_narrative_text(_action, _exploratory, _prompt) do
     "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
   end
@@ -1828,6 +1941,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_reason_code("reply"), do: "context_sufficient_for_direct_reply"
   defp judgment_reason_code("execute"), do: "single_capability_satisfies_request"
+  defp judgment_reason_code("await_author"), do: "author_direction_required"
   defp judgment_reason_code(_action), do: "multi_step_dependencies_require_plan"
 
   # 与帧机器 exploratory_prompt? 同一 terms（判断循环下 S2 候选判定不收窄），
@@ -2653,24 +2767,34 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp prose_body(brief, context) do
-    cond do
-      # VS-00E：短促动作场面（作者要求“短促 + 动作/打斗/追击”）确定性产出句首/结构高度雷同
-      # 的短句正文。这是“模型写出了节奏单调的动作段”这一真实情况的离线复刻：产品侧
-      # 确定性 validator（uniform_line / sentence_start_repetition）会如实命中，作者据此
-      # 可走 revise_from_findings。仅在写新正文（非修订/续写）时生效，避免污染其它 slice。
-      action_beat_prose?(brief, context) and not revision_brief?(brief) ->
-        action_beat_body(brief, context)
-
-      continuation_brief?(brief) ->
-        continuation_body(brief, context)
-
-      is_integer(target_word_count_in_brief(brief)) ->
-        length_targeted_body(target_word_count_in_brief(brief), brief, context)
-
-      true ->
-        opening_body(brief, context)
+    case special_quality_fixture_body(brief, context) do
+      nil -> ordinary_prose_body(brief, context)
+      body -> body
     end
     |> maybe_append_revision_fingerprint(brief, context)
+  end
+
+  defp special_quality_fixture_body(brief, context) do
+    if revision_brief?(brief), do: nil, else: first_draft_quality_fixture_body(brief, context)
+  end
+
+  defp first_draft_quality_fixture_body(brief, context) do
+    cond do
+      intentional_rhetoric_prose?(brief, context) -> intentional_rhetoric_body()
+      narrative_pacing_mismatch_prose?(brief, context) -> narrative_pacing_mismatch_body()
+      action_beat_prose?(brief, context) -> action_beat_body(brief, context)
+      true -> nil
+    end
+  end
+
+  defp ordinary_prose_body(brief, context) do
+    target_word_count = target_word_count_in_brief(brief)
+
+    cond do
+      continuation_brief?(brief) -> continuation_body(brief, context)
+      is_integer(target_word_count) -> length_targeted_body(target_word_count, brief, context)
+      true -> opening_body(brief, context)
+    end
   end
 
   # 判断②改进闭环（CP3b）：改进重试的 writer prompt 携带质量 finding 观察——
@@ -2693,11 +2817,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     contains_any?(text, ["短促", "短句", "快节奏"]) and contains_any?(text, ["动作", "打斗", "追击", "缠斗"])
   end
 
+  defp intentional_rhetoric_prose?(brief, _context),
+    do: String.contains?(to_string(brief), "刻意排比演练")
+
+  defp narrative_pacing_mismatch_prose?(brief, _context),
+    do: String.contains?(to_string(brief), "章节节奏错配演练")
+
   # revision_section 由 application 渲染为「[质量修订要求]…」追加在锚点之后；修订轮即便
   # 上文动作场面雷同，也产出节奏有变化的新稿，证明“按问题重写”确实换了一稿。
   defp revision_brief?(brief), do: String.contains?(to_string(brief), "[质量修订要求]")
 
-  # 句首与行结构高度雷同的短促动作段：5 行皆以「他」开头、无逗号 → 命中 uniform_line。
+  # 句首与行结构高度雷同的短促动作段：形式分析召回后交给 evaluator 判定。
   defp action_beat_body(brief, context) do
     nonce_text =
       "#{brief}\n#{context}" |> random_identifier_tokens() |> Enum.take(1) |> Enum.join("、")
@@ -2710,6 +2840,25 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       "他反手格挡。",
       "他迈步逼近。",
       nonce_line
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp intentional_rhetoric_body do
+    [
+      "他要活着。",
+      "他要回去。",
+      "他要雪耻。"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp narrative_pacing_mismatch_body do
+    [
+      "雨落在窗沿。",
+      "灯影缓慢地移过旧墙。",
+      "他反复擦拭那枚已经干净的杯子。",
+      "钟声响过三次，房间里仍然没有新的决定。"
     ]
     |> Enum.join("\n")
   end

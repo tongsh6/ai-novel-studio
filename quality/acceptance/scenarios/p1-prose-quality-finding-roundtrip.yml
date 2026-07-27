@@ -20,8 +20,13 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - open: archive outline (大纲与结构)
-  - click: 生成正文草稿 for the action chapter (节奏单调动作段)
-  - wait_for: quality review card with at least one finding summary visible
+  - click: 生成正文草稿 for the action chapter (局部形式候选)
+  - wait_for: independent evaluator confirms mechanical repetition
+  - wait_for: quality review card with summary, original quote, position, reasoning, impact scope and confidence
+  - click: 生成正文草稿 for the intentional-rhetoric chapter
+  - wait_for: form candidate is recalled but semantic evaluator suppresses the mechanical finding
+  - click: 生成正文草稿 for the chapter-level pacing mismatch
+  - wait_for: pacing finding is produced without a local form candidate
 
 evidence:
   required:
@@ -35,6 +40,12 @@ assertions:
   ui:
     - quality review card visible (质量复核)
     - backend finding summary text displayed verbatim on the real page
+    - original quote / position / reasoning / impact scope / confidence visible
+    - finding impact_scope = local and revision_scope = local
+    - 局部修订所选问题 action visible
+    - intentional rhetoric is not shown as a mechanical repetition problem
+    - chapter pacing finding displays the same evidence fields
+    - chapter pacing finding exposes 按所选问题修订整章
     - finding summary does not appear inside the prose draft body
     - draft stays tentative, no adoption triggered
   network:
@@ -43,6 +54,8 @@ assertions:
   data:
     - prose_quality.evaluated emitted with finding_count>=1
     - quality_policy.decided emitted with review_status=completed
+    - rhetoric turn has form_candidate_count>=1 and finding_count=0
+    - pacing turn has form_candidate_count=0 and validator.narrative_pacing_fit
     - finding is not a story fact (absent from draft body, no adopt event)
 
 anti_hooks:

@@ -25,7 +25,7 @@ user_flow:
   - open: real Tauri workbench
   - open: archive outline (大纲与结构)
   - click: 生成正文草稿 for the action chapter
-  - click: 按这些问题重写
+  - click: 局部修订所选问题
   - verify: stable action receipt, one source-bound assistant work turn, one fixed run dock
   - click: 暂停 while the revision provider is active
   - refresh: real Tauri page while the bounded run is paused

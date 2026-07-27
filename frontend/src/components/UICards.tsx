@@ -3,6 +3,7 @@
 // Prototype: novel-studio.pen → 42§4-adoption-card-exclusive-choice (IIPsi), 46§9.8-quality-revision-ready (AH4WW)
 import type { ReactNode } from "react";
 
+import type { TurnResultV3 } from "../generated/foundation/turn_result_v3";
 import { CARD } from "../lib/copy";
 import type { UiCard } from "../lib/schemas";
 import styles from "./UICards.module.css";
@@ -90,22 +91,99 @@ export function ConfirmationCard({ card }: Props) {
 
 // VS-00E CP2：正文质量复核摘要。复用 warning 视觉，不新增 Card taxonomy 状态机。
 // finding 仅供作者审阅，不代表作品事实，不改变可采纳性。
-export interface QualityFindingView {
-  quality_gate: string;
-  validator: string;
-  severity: string;
-  action: string;
-  summary: string;
-  evidence_spans?: { text?: string }[];
-  brief_field_refs?: string[];
-  can_override?: boolean;
+export type QualityReviewView = NonNullable<TurnResultV3["quality_review"]>;
+export type QualityFindingView = QualityReviewView["findings"][number];
+
+function findingId(finding: QualityFindingView, index: number): string {
+  return finding.quality_finding_id || finding.validator || `${index}`;
 }
 
-export interface QualityReviewView {
-  status: string;
-  policy_action: string;
-  review_status: string;
-  findings: QualityFindingView[];
+function findingLocation(finding: QualityFindingView): string {
+  const first = finding.evidence_spans?.[0];
+  if (
+    typeof first?.sentence_start === "number" &&
+    typeof first?.sentence_end === "number"
+  ) {
+    return CARD.qualityReview.positionSentences(first.sentence_start, first.sentence_end);
+  }
+  return displayText(first?.location) || CARD.qualityReview.positionFallback;
+}
+
+function suggestedRevision(finding: QualityFindingView): string | null {
+  return displayText(finding.suggested_revision?.instruction);
+}
+
+function scopeRank(scope: string): number {
+  if (scope === "chapter") return 3;
+  if (scope === "paragraph") return 2;
+  return 1;
+}
+
+function selectedRevisionScope(
+  findings: QualityFindingView[],
+  selectedFindingIds: string[],
+): string {
+  return findings
+    .filter((finding, index) => selectedFindingIds.includes(findingId(finding, index)))
+    .map((finding) => finding.revision_scope)
+    .sort((left, right) => scopeRank(right) - scopeRank(left))[0] || "local";
+}
+
+function QualityFindingContent({ finding }: { finding: QualityFindingView }) {
+  const gateLabel = finding.quality_gate
+    ? CARD.qualityReview.gateLabels[finding.quality_gate] ||
+      finding.quality_gate.replace("quality_gate.", "").toUpperCase()
+    : "";
+  const impactLabel =
+    CARD.qualityReview.impactScopeLabels[finding.impact_scope || "local"] ||
+    finding.impact_scope ||
+    CARD.qualityReview.impactScopeLabels.local;
+  const confidencePercent = Math.round(
+    (typeof finding.confidence === "number" ? finding.confidence : 0.5) * 100,
+  );
+  const evidence = (finding.evidence_spans || [])
+    .map((span) => displayText(span.text))
+    .filter((text): text is string => Boolean(text))
+    .slice(0, 3);
+  const suggestion = suggestedRevision(finding);
+
+  return (
+    <div className={styles.findingCardContent}>
+      <div className={styles.findingSummaryContainer}>
+        <div className={styles.findingBadges}>
+          {gateLabel && <span className={styles.findingCategoryBadge}>{gateLabel}</span>}
+          <span className={styles.findingMetaBadge}>
+            {CARD.qualityReview.confidenceLabel(confidencePercent)}
+          </span>
+        </div>
+        <span className={styles.findingSummary}>{finding.summary}</span>
+      </div>
+      <div className={styles.findingMetadata}>
+        <span>
+          {CARD.qualityReview.positionLabel} · {findingLocation(finding)}
+        </span>
+        <span>
+          {CARD.qualityReview.impactLabel} · {impactLabel}
+        </span>
+      </div>
+      {evidence.map((text, index) => (
+        <blockquote className={styles.evidenceQuote} key={`${text}-${index}`}>
+          <span className={styles.evidencePrefix}>{CARD.qualityReview.evidencePrefix}</span>
+          {text}
+        </blockquote>
+      ))}
+      <div className={styles.findingReasoning}>
+        <span className={styles.findingDetailLabel}>{CARD.qualityReview.reasoningLabel}</span>
+        <span>{displayText(finding.reasoning) || CARD.qualityReview.reasoningFallback}</span>
+      </div>
+      {suggestion && (
+        <div className={styles.findingSuggestion}>
+          <span className={styles.findingDetailLabel}>{CARD.qualityReview.suggestionLabel}</span>
+          <span>{suggestion}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function QualityReviewCard({
@@ -143,6 +221,9 @@ export function QualityReviewCard({
 
   const allSelected = selectedFindingIds.length === review.findings.length;
   const revisionDecisionLocked = revising || revisionStarted;
+  const revisionScope = selectedRevisionScope(review.findings, selectedFindingIds);
+  const revisionAction =
+    CARD.qualityReview.reviseButtons[revisionScope] || CARD.qualityReview.reviseButton;
 
   if (revisionStarted) {
     return (
@@ -162,31 +243,10 @@ export function QualityReviewCard({
         <div className={styles.qualityReviewSubmittedBody}>
           <div className={styles.findingsList}>
             {review.findings.map((finding, index) => {
-              const evidence = displayText(finding.evidence_spans?.[0]?.text);
-              const gateLabel = finding.quality_gate
-                ? CARD.qualityReview.gateLabels[finding.quality_gate] ||
-                  finding.quality_gate.replace("quality_gate.", "").toUpperCase()
-                : "";
-
               return (
-                <div key={index} className={styles.findingCard}>
+                <div key={findingId(finding, index)} className={styles.findingCard}>
                   <div className={styles.findingCardHeader}>
-                    <div className={styles.findingCardContent}>
-                      <div className={styles.findingSummaryContainer}>
-                        {gateLabel && (
-                          <span className={styles.findingCategoryBadge}>{gateLabel}</span>
-                        )}
-                        <span className={styles.findingSummary}>{finding.summary}</span>
-                      </div>
-                      {evidence && (
-                        <blockquote className={styles.evidenceQuote}>
-                          <span className={styles.evidencePrefix}>
-                            {CARD.qualityReview.evidencePrefix}
-                          </span>
-                          {evidence}
-                        </blockquote>
-                      )}
-                    </div>
+                    <QualityFindingContent finding={finding} />
                   </div>
                 </div>
               );
@@ -218,49 +278,29 @@ export function QualityReviewCard({
                 onChange={onToggleAllFindings}
                 disabled={revisionDecisionLocked}
               />
-              <span>全选所有可改进问题</span>
+              <span>{CARD.qualityReview.selectAll}</span>
             </label>
           </div>
         )}
 
         <div className={styles.findingsList}>
           {review.findings.map((finding, index) => {
-            const evidence = displayText(finding.evidence_spans?.[0]?.text);
-            const findingId = finding.validator || `${index}`;
-            const isSelected = selectedFindingIds.includes(findingId);
-            const gateLabel = finding.quality_gate
-              ? CARD.qualityReview.gateLabels[finding.quality_gate] ||
-                finding.quality_gate.replace("quality_gate.", "").toUpperCase()
-              : "";
+            const id = findingId(finding, index);
+            const isSelected = selectedFindingIds.includes(id);
 
             return (
-              <div key={index} className={styles.findingCard}>
+              <div key={id} className={styles.findingCard}>
                 <div className={styles.findingCardHeader}>
                   {onRevise && onToggleFinding ? (
                     <input
                       type="checkbox"
                       checked={isSelected}
                       disabled={revisionDecisionLocked}
-                      onChange={() => onToggleFinding(findingId)}
+                      onChange={() => onToggleFinding(id)}
                       className={styles.findingCheckbox}
                     />
                   ) : null}
-                  <div className={styles.findingCardContent}>
-                    <div className={styles.findingSummaryContainer}>
-                      {gateLabel && (
-                        <span className={styles.findingCategoryBadge}>{gateLabel}</span>
-                      )}
-                      <span className={styles.findingSummary}>{finding.summary}</span>
-                    </div>
-                    {evidence && (
-                      <blockquote className={styles.evidenceQuote}>
-                        <span className={styles.evidencePrefix}>
-                          {CARD.qualityReview.evidencePrefix}
-                        </span>
-                        {evidence}
-                      </blockquote>
-                    )}
-                  </div>
+                  <QualityFindingContent finding={finding} />
                 </div>
               </div>
             );
@@ -293,11 +333,11 @@ export function QualityReviewCard({
                   </span>
                 </span>
               ) : selectedFindingIds.length === 0 ? (
-                "请选择要重写的问题"
+                CARD.qualityReview.selectProblemFirst
               ) : selectedFindingIds.length === review.findings.length ? (
-                CARD.qualityReview.reviseButton
+                revisionAction
               ) : (
-                `按所选 ${selectedFindingIds.length} 项问题重写`
+                CARD.qualityReview.reviseSelected(selectedFindingIds.length, revisionAction)
               )}
             </button>
           </div>

@@ -182,7 +182,7 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh quality-revision-action-run-anchoring --surface tauri
   - id: p1-prose-quality-finding-roundtrip
-    title: "正文质量发现忠实展示且不成为作品事实（VS-00E CP2）"
+    title: "正文形式候选、修辞裁决与章节节奏证据化往返（VS-00E CP2）"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/p1-prose-quality-finding-roundtrip.yml

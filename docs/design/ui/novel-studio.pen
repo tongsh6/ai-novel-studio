@@ -10562,49 +10562,265 @@
                         },
                         {
                           "type": "frame",
-                          "id": "rEVPB",
-                          "name": "findingRow",
+                          "id": "o0ayy9",
+                          "name": "findingDetailCard",
                           "width": "fill_container",
                           "fill": "#FFFFFF",
                           "cornerRadius": 7,
+                          "layout": "vertical",
                           "gap": 10,
                           "padding": 14,
-                          "alignItems": "center",
                           "children": [
                             {
                               "type": "frame",
-                              "id": "VS8mE",
-                              "name": "selectedCheck",
-                              "width": 20,
-                              "height": 20,
-                              "fill": "#F4A340",
-                              "cornerRadius": 5,
-                              "justifyContent": "center",
-                              "alignItems": "center",
+                              "id": "mA4Lz",
+                              "name": "findingSelectionHeader",
+                              "width": "fill_container",
+                              "gap": 10,
                               "children": [
                                 {
-                                  "type": "icon",
-                                  "id": "VKfA2",
-                                  "name": "checkIcon",
-                                  "width": 13,
-                                  "height": 13,
-                                  "icon": "check",
-                                  "library": "lucide",
-                                  "fill": "#FFFFFF"
+                                  "type": "frame",
+                                  "id": "lepFM",
+                                  "name": "selectedCheck",
+                                  "width": 20,
+                                  "height": 20,
+                                  "fill": "#F4A340",
+                                  "cornerRadius": 5,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "icon",
+                                      "id": "ffhxi",
+                                      "name": "checkIcon",
+                                      "width": 13,
+                                      "height": 13,
+                                      "icon": "check",
+                                      "library": "lucide",
+                                      "fill": "#FFFFFF"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "UC7VE",
+                                  "name": "findingHeading",
+                                  "width": "fill_container",
+                                  "layout": "vertical",
+                                  "gap": 7,
+                                  "children": [
+                                    {
+                                      "type": "frame",
+                                      "id": "S2Nbwg",
+                                      "name": "findingBadges",
+                                      "gap": 6,
+                                      "alignItems": "center",
+                                      "children": [
+                                        {
+                                          "type": "frame",
+                                          "id": "wp7RT",
+                                          "name": "styleBadge",
+                                          "fill": "#FFF4E4",
+                                          "cornerRadius": 4,
+                                          "stroke": "#F1B366",
+                                          "strokeWidth": 1,
+                                          "padding": [
+                                            3,
+                                            7
+                                          ],
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "w6X0m",
+                                              "name": "styleBadgeLabel",
+                                              "fill": "#B85F00",
+                                              "content": "风格与句式",
+                                              "fontFamily": "Inter",
+                                              "fontSize": 11,
+                                              "fontWeight": "600"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "frame",
+                                          "id": "DjfQk",
+                                          "name": "confidenceBadge",
+                                          "fill": "#F5F3EF",
+                                          "cornerRadius": 4,
+                                          "padding": [
+                                            3,
+                                            7
+                                          ],
+                                          "children": [
+                                            {
+                                              "type": "text",
+                                              "id": "DSUV1",
+                                              "name": "confidenceLabel",
+                                              "fill": "#5F5952",
+                                              "content": "高置信度 · 88%",
+                                              "fontFamily": "Inter",
+                                              "fontSize": 11,
+                                              "fontWeight": "500"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "HaQFg",
+                                      "name": "findingSummary",
+                                      "fill": "#2B2926",
+                                      "textGrowth": "fixed-width",
+                                      "width": "fill_container",
+                                      "content": "第 2–4 句出现相同句首与标点骨架，且动作没有形成递进，更接近机械重复而非刻意排比。",
+                                      "lineHeight": 1.5,
+                                      "fontFamily": "Inter",
+                                      "fontSize": 14,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
                                 }
                               ]
                             },
                             {
-                              "type": "text",
-                              "id": "L0KM03",
-                              "name": "findingText",
-                              "fill": "#4E4943",
-                              "textGrowth": "fixed-width",
+                              "type": "frame",
+                              "id": "Y4q1FK",
+                              "name": "findingMetadata",
+                              "gap": 18,
+                              "padding": [
+                                0,
+                                0,
+                                0,
+                                30
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "WLCt8",
+                                  "name": "positionMeta",
+                                  "fill": "#68625A",
+                                  "content": "位置  第 2–4 句",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "M60e3",
+                                  "name": "impactMeta",
+                                  "fill": "#68625A",
+                                  "content": "影响范围  局部",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "r5dTLn",
+                              "name": "evidenceBlock",
                               "width": "fill_container",
-                              "content": "多行句子结构与长度高度雷同，节奏缺少变化。",
-                              "fontFamily": "Inter",
-                              "fontSize": 14,
-                              "fontWeight": "normal"
+                              "fill": "#FCFAF7",
+                              "cornerRadius": 5,
+                              "layout": "vertical",
+                              "gap": 4,
+                              "padding": [
+                                9,
+                                11
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "aAV0B",
+                                  "name": "evidenceLabel",
+                                  "fill": "#68625A",
+                                  "content": "原句",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "vH8jd",
+                                  "name": "evidenceText",
+                                  "fill": "#3F3B37",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "“他猛地侧身。他一刀劈下。他反手格挡。”",
+                                  "lineHeight": 1.55,
+                                  "fontFamily": "Inter",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "D1nTm",
+                              "name": "judgmentReason",
+                              "width": "fill_container",
+                              "layout": "vertical",
+                              "gap": 4,
+                              "padding": [
+                                0,
+                                0,
+                                0,
+                                30
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "WqWtS",
+                                  "name": "reasonLabel",
+                                  "fill": "#68625A",
+                                  "content": "判断理由",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "XuKSf",
+                                  "name": "reasonText",
+                                  "fill": "#5F5952",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "三句都以“他”起句，句内都是单一动作陈述；重复没有建立强度、意义或视角上的递进。",
+                                  "lineHeight": 1.55,
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "lOV1G",
+                              "name": "revisionScopeHint",
+                              "width": "fill_container",
+                              "padding": [
+                                0,
+                                0,
+                                0,
+                                30
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Tr25V",
+                                  "name": "revisionScopeText",
+                                  "fill": "#5F5952",
+                                  "textGrowth": "fixed-width",
+                                  "width": "fill_container",
+                                  "content": "建议：只改第 2–4 句，保留前后情节、人物状态与其余原文。",
+                                  "lineHeight": 1.5,
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "500"
+                                }
+                              ]
                             }
                           ]
                         },
@@ -10621,7 +10837,7 @@
                               "id": "Ug71N",
                               "name": "revisionHint",
                               "fill": "#7B736B",
-                              "content": "将生成独立修订稿；原稿保留，不会自动覆盖。",
+                              "content": "将优先局部修订所选句段；原稿保留，不会自动覆盖。",
                               "fontFamily": "Inter",
                               "fontSize": 12,
                               "fontWeight": "normal"
@@ -10642,7 +10858,7 @@
                                   "id": "VLhfX",
                                   "name": "startRevisionLabel",
                                   "fill": "#FFFFFF",
-                                  "content": "按 1 项问题生成修订稿",
+                                  "content": "局部修订所选问题",
                                   "fontFamily": "Inter",
                                   "fontSize": 13,
                                   "fontWeight": "600"
@@ -11180,7 +11396,7 @@
                           "id": "O8LHJ",
                           "name": "qualitySummaryBody",
                           "fill": "#7B736B",
-                          "content": "句式节奏单一 · 原稿仍可独立保存、编辑或放弃",
+                          "content": "第 2–4 句 · 机械重复 · 局部修订",
                           "fontFamily": "Inter",
                           "fontSize": 12,
                           "fontWeight": "normal"
@@ -11235,7 +11451,7 @@
                               "id": "QSRWV",
                               "name": "receiptTitle",
                               "fill": "#2B2926",
-                              "content": "你选择了：按 1 项质量问题生成修订稿",
+                              "content": "你选择了：局部修订 1 项质量问题",
                               "fontFamily": "Inter",
                               "fontSize": 14,
                               "fontWeight": "600"
@@ -11283,7 +11499,7 @@
                           "fill": "#2B2926",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "我会保留追逐段的冷峻语气，改写过于整齐的长句：先用短句切开危险升级，再用一处较长的观察句缓冲节奏。修订稿会作为新候选返回，原稿不会被覆盖。",
+                          "content": "我会只调整第 2–4 句：打破相同句首与标点骨架，让三个动作形成危险升级；前后情节、人物状态和其余原文保持不变。修订稿会作为新候选返回，原稿不会被覆盖。",
                           "lineHeight": 1.65,
                           "fontFamily": "Inter",
                           "fontSize": 15,
@@ -11879,7 +12095,7 @@
                           "id": "q759tk",
                           "name": "pausedQualityBody",
                           "fill": "#7B736B",
-                          "content": "句式节奏单一 · 原稿仍可独立保存、编辑或放弃",
+                          "content": "第 2–4 句 · 机械重复 · 局部修订",
                           "fontFamily": "Inter",
                           "fontSize": 12,
                           "fontWeight": "normal"
@@ -11934,7 +12150,7 @@
                               "id": "J7CUdd",
                               "name": "pausedReceiptTitle",
                               "fill": "#2B2926",
-                              "content": "你选择了：按 1 项质量问题生成修订稿",
+                              "content": "你选择了：局部修订 1 项质量问题",
                               "fontFamily": "Inter",
                               "fontSize": 14,
                               "fontWeight": "600"
@@ -11982,7 +12198,7 @@
                           "fill": "#2B2926",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "我会保留追逐段的冷峻语气，改写过于整齐的长句。任务已在安全点暂停，继续后会从当前修订步骤恢复。",
+                          "content": "我会只调整第 2–4 句，打破相同句首与标点骨架，让动作形成递进；前后情节、人物状态和其余原文保持不变。任务已在安全点暂停，继续后会从当前修订步骤恢复。",
                           "lineHeight": 1.65,
                           "fontFamily": "Inter",
                           "fontSize": 15,

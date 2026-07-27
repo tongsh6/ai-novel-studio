@@ -271,6 +271,36 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
        }}
     end
 
+    evaluate = fn _prompt ->
+      {:ok,
+       %{
+         content:
+           Jason.encode!(%{
+             "findings" => [
+               %{
+                 "quality_finding_id" => "qf_agent_revision_source",
+                 "quality_gate_ref" => "quality_gate.style_fit",
+                 "validator_ref" => "validator.sentence_rhythm_uniformity",
+                 "severity" => "warn",
+                 "action" => "warn",
+                 "summary" => "连续句式机械重复",
+                 "reasoning" => "四句使用相同结构，却没有形成强度、意义或后果递进。",
+                 "evidence_spans" => [
+                   %{
+                     "text" => @bad_prose,
+                     "sentence_start" => 1,
+                     "sentence_end" => 4
+                   }
+                 ],
+                 "impact_scope" => "local",
+                 "revision_scope" => "local",
+                 "confidence" => 0.89
+               }
+             ]
+           })
+       }}
+    end
+
     {turn_result, _trace} =
       TurnExecutionService.execute(%{
         frame: frame(),
@@ -278,7 +308,8 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        provider_execution: %Execution{result_fn: complete}
+        provider_execution: %Execution{result_fn: complete},
+        quality_provider_execution: %Execution{result_fn: evaluate}
       })
 
     turn_result

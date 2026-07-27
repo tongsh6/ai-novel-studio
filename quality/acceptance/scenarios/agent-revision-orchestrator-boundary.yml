@@ -24,7 +24,7 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - generate: prose draft with quality finding
-  - click: 按这些问题重写
+  - click: 局部修订所选问题
   - verify: revision author_action fast-acks with bounded AgentRun
   - verify: revision AgentRun emits one model-drafted AgentPlan and advances through source, plan, tool, and finalization by mechanical cursor
   - verify: revision uses real OrchestratorDecision and ToolRequest before Toolbox execution

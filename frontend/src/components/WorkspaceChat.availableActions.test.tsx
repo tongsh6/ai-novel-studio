@@ -209,11 +209,23 @@ describe("WorkspaceChat quality revision action labels", () => {
         review_status: "completed",
         findings: [
           {
+            quality_finding_id: "qf_prose_quality",
             quality_gate: "style",
             validator: "prose_quality",
             severity: "warning",
             action: "revise",
             summary: "句式节奏单一",
+            reasoning: "连续句段结构相同且没有形成递进。",
+            confidence: 0.88,
+            impact_scope: "local",
+            revision_scope: "local",
+            evidence_spans: [
+              {
+                text: "他侧身。他挥刀。他格挡。",
+                sentence_start: 2,
+                sentence_end: 4,
+              },
+            ],
           },
         ],
       },

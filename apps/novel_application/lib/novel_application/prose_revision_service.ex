@@ -2,7 +2,7 @@ defmodule NovelApplication.ProseRevisionService do
   @moduledoc """
   VS-00E CP3：按质量发现重写（`revise_from_findings`）。
 
-  作者在某个待采纳正文草稿的质量复核里选择“按这些问题重写”后，本服务：
+  作者在某个待采纳正文草稿的质量复核里选择按范围修订后，本服务：
 
   1. 从 source TurnResult 取出被修订的原草稿（标题 + 正文）与其归章 provenance；
   2. 取出作者所选的质量发现（缺省取全部可见发现）；
@@ -225,7 +225,7 @@ defmodule NovelApplication.ProseRevisionService do
 
   # ── 所选发现 ───────────────────────────────────────────────
 
-  # 作者可在 payload.quality_finding_refs 指定要处理的发现（用 validator 引用标识）；
+  # 作者可在 payload.quality_finding_refs 指定要处理的发现（优先用 quality_finding_id）；
   # 缺省时处理本次质量复核里全部可见发现。findings 来自 source TurnResult 的
   # quality_review（作者可见摘要，非作品事实）。
   defp selected_findings(source_turn_result, %AuthorActionInput{} = action_input) do
@@ -238,8 +238,13 @@ defmodule NovelApplication.ProseRevisionService do
     refs = requested_refs(action_input)
 
     case refs do
-      [] -> all
-      _ -> Enum.filter(all, fn f -> field(f, :validator) in refs end)
+      [] ->
+        all
+
+      _ ->
+        Enum.filter(all, fn finding ->
+          finding_ref(finding) in refs or field(finding, :validator) in refs
+        end)
     end
   end
 
@@ -339,9 +344,9 @@ defmodule NovelApplication.ProseRevisionService do
       tool_name: @prose_tool,
       tool_version: (entry && entry.tool_version) || "unknown",
       input: %{
-        "creative_brief" => revision_brief(),
+        "creative_brief" => revision_brief(findings),
         "context_text" => original_context(original),
-        "revision" => revision_section(findings)
+        "revision" => revision_section(findings, revision_scope(findings))
       },
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
@@ -351,9 +356,12 @@ defmodule NovelApplication.ProseRevisionService do
     }
   end
 
-  defp revision_brief do
-    "请基于下文给出的原正文进行修订：保留原有情节走向、人物状态与作品设定，" <>
-      "只针对所列质量问题逐项改写，不要新增情节、不要改变作品事实，输出一段完整连贯的正文。"
+  defp revision_brief(findings) do
+    scope = revision_scope(findings)
+
+    "请基于下文给出的原正文进行#{revision_scope_label(scope)}：保留原有情节走向、人物状态与作品设定，" <>
+      revision_scope_constraint(scope) <>
+      "不要新增情节、不要改变作品事实，输出一段完整连贯的正文候选。"
   end
 
   defp original_context(%{title: title, body: body}) do
@@ -361,10 +369,10 @@ defmodule NovelApplication.ProseRevisionService do
     "#{header}\n#{body}"
   end
 
-  defp revision_section(findings) do
+  defp revision_section(findings, scope) do
     items =
       findings
-      |> Enum.map(&finding_summary/1)
+      |> Enum.map(&finding_instruction/1)
       |> Enum.reject(&(&1 == ""))
       |> Enum.with_index(1)
       |> Enum.map_join("\n", fn {text, i} -> "#{i}. #{text}" end)
@@ -373,9 +381,11 @@ defmodule NovelApplication.ProseRevisionService do
 
     """
     [质量修订要求]
-    请仅针对以下质量问题改写上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
+    本次修订范围：#{revision_scope_label(scope)}。
+    #{revision_scope_constraint(scope)}
+    请仅针对以下质量问题修改上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
     #{body}
-    修订后保持与原正文相同的情节与人物状态，只解决上述问题。
+    修订后保持与原正文相同的情节与人物状态，只解决上述问题；仍返回完整正文供作者对比。
     """
   end
 
@@ -409,12 +419,97 @@ defmodule NovelApplication.ProseRevisionService do
 
   defp finding_refs(findings) do
     findings
-    |> Enum.map(fn f -> field(f, :validator) |> to_text() end)
+    |> Enum.map(&finding_ref/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
 
   defp finding_summary(finding), do: finding |> field(:summary) |> to_text()
+
+  defp finding_ref(finding) do
+    finding
+    |> field(:quality_finding_id)
+    |> to_text()
+    |> case do
+      "" -> finding |> field(:validator) |> to_text()
+      ref -> ref
+    end
+  end
+
+  defp finding_instruction(finding) do
+    summary = finding_summary(finding)
+    reasoning = finding |> field(:reasoning) |> to_text()
+    position = finding |> field(:evidence_spans) |> List.wrap() |> evidence_position()
+    evidence = finding |> field(:evidence_spans) |> List.wrap() |> evidence_text()
+    suggestion = finding |> field(:suggested_revision) |> field(:instruction) |> to_text()
+
+    [
+      summary,
+      if(position == "", do: nil, else: "位置：#{position}"),
+      if(evidence == "", do: nil, else: "原句：#{evidence}"),
+      if(reasoning == "", do: nil, else: "判断理由：#{reasoning}"),
+      if(suggestion == "", do: nil, else: "修订策略：#{suggestion}")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n   ")
+  end
+
+  defp evidence_position([]), do: ""
+
+  defp evidence_position([span | _]) do
+    start_index = field(span, :sentence_start)
+    end_index = field(span, :sentence_end)
+    location = field(span, :location) |> to_text()
+
+    cond do
+      is_integer(start_index) and is_integer(end_index) and start_index == end_index ->
+        "第 #{start_index} 句"
+
+      is_integer(start_index) and is_integer(end_index) ->
+        "第 #{start_index}–#{end_index} 句"
+
+      location != "" ->
+        location
+
+      true ->
+        ""
+    end
+  end
+
+  defp evidence_text(spans) do
+    spans
+    |> Enum.map(fn span -> span |> field(:text) |> to_text() end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.take(3)
+    |> Enum.join(" / ")
+  end
+
+  defp revision_scope(findings) do
+    findings
+    |> Enum.map(fn finding -> finding |> field(:revision_scope) |> normalize_scope() end)
+    |> Enum.max_by(&scope_rank/1, fn -> :local end)
+  end
+
+  defp normalize_scope(value) when value in [:chapter, "chapter"], do: :chapter
+  defp normalize_scope(value) when value in [:paragraph, "paragraph"], do: :paragraph
+  defp normalize_scope(_value), do: :local
+
+  defp scope_rank(:local), do: 1
+  defp scope_rank(:paragraph), do: 2
+  defp scope_rank(:chapter), do: 3
+
+  defp revision_scope_label(:local), do: "局部修订"
+  defp revision_scope_label(:paragraph), do: "相关段落修订"
+  defp revision_scope_label(:chapter), do: "整章修订"
+
+  defp revision_scope_constraint(:local),
+    do: "只修改证据位置命中的句段，命中范围外的文字应尽量逐字保持不变。"
+
+  defp revision_scope_constraint(:paragraph),
+    do: "只修改证据所在段落，其他段落应尽量逐字保持不变。"
+
+  defp revision_scope_constraint(:chapter),
+    do: "问题覆盖整章，可以调整章内结构，但不得改变已确认作品事实。"
 
   defp revise_action_result(%AuthorActionInput{} = action_input, artifact_set) do
     %{

@@ -21,7 +21,7 @@ user_flow:
   - open: real Tauri workbench
   - open: archive outline (大纲与结构)
   - click: 生成正文草稿 for the action chapter (finding)
-  - click: 按这些问题重写 to generate a sibling revision draft
+  - click: 局部修订所选问题 to generate a sibling revision draft
   - with both drafts pending, adopt the revision draft through the adoption boundary
   - verify the original draft is not auto-resolved and stays independently tentative
 

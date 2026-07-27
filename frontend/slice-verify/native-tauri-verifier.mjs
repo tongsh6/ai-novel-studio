@@ -3708,119 +3708,263 @@ function p1ProseRevisionCandidateBehavior(
 function findP1ProseQualityFindingRoundtripEvidence(records) {
   const sliceId = "p1-prose-quality-finding-roundtrip";
   const keyEvents = keyEventsForSlice(sliceId);
-  const targetChapterTitle = "第02章：矿区追击战";
+  const mechanicalChapterTitle = "第02章：矿区追击战";
+  const rhetoricChapterTitle = "第03章：誓词回环";
+  const pacingChapterTitle = "第04章：静室失速";
 
-  const uiState = records.find(
+  const mechanicalState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
+      record.quality_case === "mechanical_repetition" &&
       record.draft_generated === true &&
       record.draft_pending === true &&
       record.quality_review_status === "completed" &&
       record.quality_review_card_visible === true &&
       record.finding_summary_displayed === true &&
+      record.finding_id_present === true &&
+      record.finding_evidence_present === true &&
+      record.finding_position_present === true &&
+      record.finding_reasoning_present === true &&
+      Number(record.finding_confidence ?? -1) >= 0 &&
+      Number(record.finding_confidence ?? -1) <= 1 &&
+      record.finding_impact_scope === "local" &&
+      record.finding_revision_scope === "local" &&
+      record.quality_finding_details_visible === true &&
+      record.local_revision_action_visible === true &&
       record.finding_in_draft_body === false &&
       record.adopt_event_sent === false &&
+      Number(record.quality_form_candidate_count_logged ?? 0) >= 1 &&
       Number(record.quality_findings_count ?? 0) >= 1 &&
-      record.chapter_title === targetChapterTitle,
+      record.chapter_title === mechanicalChapterTitle,
   );
-  if (!uiState) return null;
+  if (!mechanicalState) return null;
 
-  const draftTurnId = String(uiState.turn_id ?? "");
-  if (!draftTurnId) return null;
+  const rhetoricState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.quality_case === "intentional_rhetoric" &&
+      record.chapter_title === rhetoricChapterTitle &&
+      record.quality_review_status === "completed" &&
+      Number(record.quality_form_candidate_count_logged ?? 0) >= 1 &&
+      record.mechanical_finding_suppressed === true &&
+      record.adopt_event_sent === false,
+  );
+  if (!rhetoricState) return null;
 
-  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+  const pacingState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.quality_case === "chapter_pacing" &&
+      record.chapter_title === pacingChapterTitle &&
+      record.quality_review_status === "completed" &&
+      Number(record.quality_form_candidate_count_logged ?? -1) === 0 &&
+      record.finding_validator === "validator.narrative_pacing_fit" &&
+      record.finding_id_present === true &&
+      record.finding_evidence_present === true &&
+      record.finding_position_present === true &&
+      record.finding_reasoning_present === true &&
+      Number(record.finding_confidence ?? -1) >= 0 &&
+      Number(record.finding_confidence ?? -1) <= 1 &&
+      record.finding_impact_scope === "chapter" &&
+      record.finding_revision_scope === "chapter" &&
+      record.finding_summary_displayed === true &&
+      record.quality_finding_details_visible === true &&
+      record.chapter_revision_action_visible === true &&
+      record.adopt_event_sent === false,
+  );
+  if (!pacingState) return null;
 
-  const contextTurnId = contextAssembleTurnIdForDraftTurn(records, draftTurnId);
-  if (!contextTurnId) return null;
+  const mechanicalTurnId = String(mechanicalState.turn_id ?? "");
+  const rhetoricTurnId = String(rhetoricState.turn_id ?? "");
+  const pacingTurnId = String(pacingState.turn_id ?? "");
+  const turnIds = [mechanicalTurnId, rhetoricTurnId, pacingTurnId];
+  if (turnIds.some((turnId) => !turnId)) return null;
+
+  for (const [turnId, chapterTitle] of [
+    [mechanicalTurnId, mechanicalChapterTitle],
+    [rhetoricTurnId, rhetoricChapterTitle],
+    [pacingTurnId, pacingChapterTitle],
+  ]) {
+    if (!contextAssembleTurnIdForDraftTurn(records, turnId)) return null;
+    if (
+      !records.some(
+        (record) =>
+          record.turn_id === turnId &&
+          record.event === "context.structure.done" &&
+          record.target_chapter === chapterTitle,
+      )
+    ) {
+      return null;
+    }
+  }
+
+  const mechanicalQuality = records.find(
+    (record) =>
+      record.turn_id === mechanicalTurnId &&
+      record.event === "prose_quality.evaluated.done" &&
+      Number(record.form_candidate_count ?? 0) >= 1 &&
+      Number(record.finding_count ?? 0) >= 1,
+  );
+  if (!mechanicalQuality) return null;
+
+  const rhetoricQuality = records.find(
+    (record) =>
+      record.turn_id === rhetoricTurnId &&
+      record.event === "prose_quality.evaluated.done" &&
+      Number(record.form_candidate_count ?? 0) >= 1 &&
+      Number(record.finding_count ?? -1) === 0 &&
+      record.review_status === "completed",
+  );
+  if (!rhetoricQuality) return null;
+
+  const pacingQuality = records.find(
+    (record) =>
+      record.turn_id === pacingTurnId &&
+      record.event === "prose_quality.evaluated.done" &&
+      Number(record.form_candidate_count ?? -1) === 0 &&
+      Number(record.finding_count ?? 0) >= 1 &&
+      record.review_status === "completed",
+  );
+  if (!pacingQuality) return null;
+
+  // 三个评审都由真实正文入口触发；评审完成态经策略事件确认，不是降级。
   if (
-    !draftRecords.some(
-      (record) =>
-        record.event === "context.structure.done" && record.target_chapter === targetChapterTitle,
+    turnIds.some(
+      (turnId) =>
+        !records.some(
+          (record) =>
+            record.turn_id === turnId &&
+            record.event === "quality_policy.decided.done" &&
+            record.review_status === "completed",
+        ),
     )
   ) {
     return null;
   }
 
-  const quality = draftRecords.find(
-    (record) =>
-      record.event === "prose_quality.evaluated.done" && Number(record.finding_count ?? 0) >= 1,
-  );
-  if (!quality) return null;
-
-  // 评审完成态（review_status completed）经策略事件确认，不是降级
-  const policy = draftRecords.find(
-    (record) =>
-      record.event === "quality_policy.decided.done" && record.review_status === "completed",
-  );
-  if (!policy) return null;
-
-  const generatedByTool = records.some(
+  const generatedByToolCount = records.filter(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
       record.tool_outcome === "succeeded",
-  );
-  if (!generatedByTool) return null;
+  ).length;
+  if (generatedByToolCount < 3) return null;
 
   return {
     slice_id: sliceId,
-    turn_id: draftTurnId,
-    turn_ids: [draftTurnId],
-    draft_turn_id: draftTurnId,
-    context_turn_id: contextTurnId,
+    turn_id: pacingTurnId,
+    turn_ids: turnIds,
+    draft_turn_id: mechanicalTurnId,
+    mechanical_turn_id: mechanicalTurnId,
+    rhetoric_turn_id: rhetoricTurnId,
+    pacing_turn_id: pacingTurnId,
     artifact_type: "prose_fragment",
-    chapter_title: targetChapterTitle,
-    finding_validator: String(uiState.finding_validator ?? ""),
-    finding_count: Number(quality.finding_count ?? 0),
+    chapter_title: mechanicalChapterTitle,
+    finding_validator: String(mechanicalState.finding_validator ?? ""),
+    finding_count: Number(mechanicalQuality.finding_count ?? 0),
+    finding_confidence: Number(mechanicalState.finding_confidence ?? -1),
+    finding_impact_scope: String(mechanicalState.finding_impact_scope ?? ""),
+    finding_revision_scope: String(mechanicalState.finding_revision_scope ?? ""),
+    rhetoric_form_candidate_count: Number(rhetoricQuality.form_candidate_count ?? 0),
+    rhetoric_finding_count: Number(rhetoricQuality.finding_count ?? -1),
+    pacing_form_candidate_count: Number(pacingQuality.form_candidate_count ?? -1),
+    pacing_finding_count: Number(pacingQuality.finding_count ?? 0),
+    pacing_validator: String(pacingState.finding_validator ?? ""),
+    pacing_impact_scope: String(pacingState.finding_impact_scope ?? ""),
+    pacing_revision_scope: String(pacingState.finding_revision_scope ?? ""),
     key_events: keyEvents,
   };
 }
 
 function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, evidence, options) {
-  if (turnIds.length !== 1) return null;
-  const draftTurnId = evidence.draft_turn_id;
-
-  if (!contextAssembleTurnIdForDraftTurn(records, draftTurnId)) return null;
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.structure.done")) return null;
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "prose_quality.evaluated.done")) return null;
+  if (turnIds.length !== 3) return null;
+  if (turnIds.some((turnId) => !contextAssembleTurnIdForDraftTurn(records, turnId))) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "context.structure.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "prose_quality.evaluated.done")) return null;
   if (
-    !records.some(
+    records.filter(
       (record) =>
         record.event === "toolbox.execute.done" &&
         record.tool_name === "prose_writing" &&
         record.tool_outcome === "succeeded",
-    )
+    ).length < 3
   ) {
     return null;
   }
   if (hasEventPrefix(records, "channel.adopt.")) return null;
 
-  const uiState = records.find(
+  const mechanicalState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === "p1-prose-quality-finding-roundtrip" &&
-      record.turn_id === draftTurnId,
+      record.quality_case === "mechanical_repetition" &&
+      record.turn_id === evidence.mechanical_turn_id,
   );
-  if (!uiState) return null;
-  if (uiState.quality_review_status !== "completed") return null;
-  if (uiState.quality_review_card_visible !== true) return null;
-  if (uiState.finding_summary_displayed !== true) return null;
-  if (uiState.finding_in_draft_body !== false) return null;
-  if (uiState.adopt_event_sent !== false) return null;
+  if (!mechanicalState) return null;
+  if (mechanicalState.quality_review_status !== "completed") return null;
+  if (mechanicalState.quality_review_card_visible !== true) return null;
+  if (mechanicalState.finding_summary_displayed !== true) return null;
+  if (mechanicalState.finding_id_present !== true) return null;
+  if (mechanicalState.finding_evidence_present !== true) return null;
+  if (mechanicalState.finding_position_present !== true) return null;
+  if (mechanicalState.finding_reasoning_present !== true) return null;
+  if (Number(mechanicalState.finding_confidence ?? -1) < 0) return null;
+  if (Number(mechanicalState.finding_confidence ?? -1) > 1) return null;
+  if (mechanicalState.finding_impact_scope !== "local") return null;
+  if (mechanicalState.finding_revision_scope !== "local") return null;
+  if (mechanicalState.quality_finding_details_visible !== true) return null;
+  if (mechanicalState.local_revision_action_visible !== true) return null;
+  if (mechanicalState.finding_in_draft_body !== false) return null;
+  if (mechanicalState.adopt_event_sent !== false) return null;
+
+  const rhetoricState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-quality-finding-roundtrip" &&
+      record.quality_case === "intentional_rhetoric" &&
+      record.turn_id === evidence.rhetoric_turn_id,
+  );
+  if (!rhetoricState || rhetoricState.mechanical_finding_suppressed !== true) return null;
+  if (Number(rhetoricState.quality_form_candidate_count_logged ?? 0) < 1) return null;
+
+  const pacingState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-quality-finding-roundtrip" &&
+      record.quality_case === "chapter_pacing" &&
+      record.turn_id === evidence.pacing_turn_id,
+  );
+  if (!pacingState) return null;
+  if (pacingState.finding_validator !== "validator.narrative_pacing_fit") return null;
+  if (pacingState.finding_impact_scope !== "chapter") return null;
+  if (pacingState.finding_revision_scope !== "chapter") return null;
+  if (pacingState.quality_finding_details_visible !== true) return null;
+  if (pacingState.chapter_revision_action_visible !== true) return null;
 
   return {
     slice_id: "p1-prose-quality-finding-roundtrip",
-    behavior: "independent_quality_review_finding_faithfully_displayed_without_becoming_story_fact",
+    behavior:
+      "form_candidate_semantic_adjudication_and_independent_chapter_pacing_are_evidence_backed",
     turn_ids: turnIds,
     artifact_type: evidence.artifact_type,
     chapter_title: evidence.chapter_title,
     finding_validator: evidence.finding_validator,
     finding_count: evidence.finding_count,
+    finding_confidence: evidence.finding_confidence,
+    finding_impact_scope: evidence.finding_impact_scope,
+    finding_revision_scope: evidence.finding_revision_scope,
     assertions: [
       "real_archive_outline_action_chapter_draft_clicked",
       "independent_quality_review_completed_with_at_least_one_finding",
       "finding_summary_text_displayed_verbatim_on_real_page",
+      "finding_stable_id_original_quote_sentence_position_reason_scope_and_confidence_displayed",
+      "local_finding_exposes_local_revision_action",
+      "intentional_rhetoric_recalled_as_form_candidate_but_not_promoted_to_finding",
+      "chapter_pacing_detected_without_local_form_candidate",
+      "chapter_scope_pacing_finding_exposes_chapter_revision_action",
       "finding_not_leaked_into_prose_draft_body",
       "draft_stays_tentative_no_adoption_triggered_by_finding",
     ],

@@ -38,13 +38,15 @@ defmodule NovelDomain.QualityFindingTest do
     test "can_override defaults: block false, others true; explicit respected" do
       assert Finding.new(base(%{"action" => "block"})).can_override == false
       assert Finding.new(base(%{"action" => "warn"})).can_override == true
-      assert Finding.new(base(%{"action" => "block", "can_override" => true})).can_override == true
+
+      assert Finding.new(base(%{"action" => "block", "can_override" => true})).can_override ==
+               true
     end
 
-    test "confidence normalized, out-of-range dropped" do
+    test "confidence normalized, out-of-range falls back to an explicit neutral value" do
       assert Finding.new(base(%{"confidence" => 0.8})).confidence == 0.8
-      assert Finding.new(base(%{"confidence" => 5.0})).confidence == nil
-      assert Finding.new(base(%{"confidence" => "high"})).confidence == nil
+      assert Finding.new(base(%{"confidence" => 5.0})).confidence == 0.5
+      assert Finding.new(base(%{"confidence" => "high"})).confidence == 0.5
     end
   end
 
@@ -67,7 +69,11 @@ defmodule NovelDomain.QualityFindingTest do
       assert safe["quality_gate"] == "quality_gate.style_fit"
       assert safe["summary"] == "模板化"
       assert safe["evidence_spans"] == [%{"text" => "心脏猛地一跳"}]
-      refute Map.has_key?(safe, "quality_finding_id")
+      assert String.starts_with?(safe["quality_finding_id"], "qf_")
+      assert safe["reasoning"] != ""
+      assert safe["confidence"] == 0.5
+      assert safe["impact_scope"] == "local"
+      assert safe["revision_scope"] == "local"
     end
   end
 end

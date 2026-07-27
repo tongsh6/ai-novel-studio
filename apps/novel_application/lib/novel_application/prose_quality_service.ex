@@ -13,12 +13,14 @@ defmodule NovelApplication.ProseQualityService do
   无 `semantic_fn` 时为确定性评估，`review_status: :completed`。
   """
 
+  alias NovelApplication.ProseFormCandidateAnalyzer
   alias NovelApplication.ProseQualityPolicy
   alias NovelApplication.ProseQualityValidators
   alias NovelDomain.QualityFinding
 
   @type result :: %{
           findings: [QualityFinding.t()],
+          form_candidates: [map()],
           review_status: :completed | :unavailable,
           evaluator_provider_call_ref: String.t() | nil,
           policy: ProseQualityPolicy.t()
@@ -31,15 +33,18 @@ defmodule NovelApplication.ProseQualityService do
   @spec evaluate(String.t() | nil, map(), keyword()) :: result()
   def evaluate(prose_text, ctx \\ %{}, opts \\ []) do
     deterministic = ProseQualityValidators.evaluate(prose_text, ctx)
+    form_candidates = ProseFormCandidateAnalyzer.detect(prose_text)
+    semantic_ctx = Map.put(ctx, :form_candidates, form_candidates)
 
     {semantic, review_status, evaluator_provider_call_ref} =
-      run_semantic(Keyword.get(opts, :semantic_fn), prose_text, ctx)
+      run_semantic(Keyword.get(opts, :semantic_fn), prose_text, semantic_ctx)
 
     findings = deterministic ++ semantic
     policy = ProseQualityPolicy.decide(findings, review_status: review_status)
 
     %{
       findings: findings,
+      form_candidates: form_candidates,
       review_status: review_status,
       evaluator_provider_call_ref: evaluator_provider_call_ref,
       policy: policy
@@ -85,10 +90,27 @@ defmodule NovelApplication.ProseQualityService do
   # 语义 evaluator 只给质量判断，溯源字段由服务用 ctx 补齐。
   defp decorate(map, ctx) when is_map(map) do
     map
+    |> attach_candidate_evidence(Map.get(ctx, :form_candidates, []))
     |> Map.put_new("source_ref", Map.get(ctx, :source_ref))
     |> Map.put_new("source_turn_ref", Map.get(ctx, :source_turn_ref))
     |> Map.put_new("source_type", Map.get(ctx, :source_type, :prose_fragment))
   end
 
   defp decorate(map, _ctx), do: map
+
+  defp attach_candidate_evidence(map, candidates) do
+    candidate_id = Map.get(map, "candidate_id") || Map.get(map, :candidate_id)
+
+    case Enum.find(candidates, &(&1["candidate_id"] == candidate_id)) do
+      nil ->
+        map
+
+      candidate ->
+        map
+        |> Map.put_new("quality_finding_id", "qf_#{candidate_id}")
+        |> Map.put_new("evidence_spans", candidate["evidence_spans"])
+        |> Map.put_new("impact_scope", "local")
+        |> Map.put_new("revision_scope", "local")
+    end
+  end
 end

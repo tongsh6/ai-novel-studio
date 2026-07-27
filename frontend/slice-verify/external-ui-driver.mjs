@@ -17496,8 +17496,7 @@ async function driveP1ProseRevisionCandidate(page) {
   );
   await draftButtons.nth(1).click();
 
-  // 正文草稿 turn：携带质量复核发现 + revise_from_findings 可用动作（节奏单调动作段被
-  // 确定性 validator 命中）。
+  // 正文草稿 turn：形式分析先召回候选，再由独立 evaluator 确认为局部机械重复。
   const draftTurnFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
@@ -17512,6 +17511,24 @@ async function driveP1ProseRevisionCandidate(page) {
     "No prose_fragment turn_result with quality findings + revise action was received",
   );
   const draftTurnResult = draftTurnFrame.body;
+  const sourceFinding = draftTurnResult.quality_review.findings[0];
+  assert(
+    typeof sourceFinding?.quality_finding_id === "string" &&
+      sourceFinding.quality_finding_id !== "",
+    "Quality finding did not carry a stable quality_finding_id",
+  );
+  assert(
+    Array.isArray(sourceFinding?.evidence_spans) &&
+      String(sourceFinding.evidence_spans[0]?.text ?? "") !== "",
+    "Quality finding did not carry original prose evidence",
+  );
+  assert(
+    String(sourceFinding?.reasoning ?? "") !== "" &&
+      typeof sourceFinding?.confidence === "number" &&
+      sourceFinding?.impact_scope === "local" &&
+      sourceFinding?.revision_scope === "local",
+    "Quality finding did not carry reason/confidence/local scope",
+  );
   const originalArtifactId = draftTurnResult.adoption_state.pending[0].artifact_id;
   const originalBody = draftTurnResult.adoption_state.pending[0].payload?.items?.[0]?.body ?? "";
 
@@ -17524,17 +17541,22 @@ async function driveP1ProseRevisionCandidate(page) {
     "No prose_quality.evaluated app log with findings for the draft turn",
   );
 
-  // 真实页面可见：质量复核卡 + 「按这些问题重写」入口
+  // 真实页面可见：证据化质量复核卡 + 「局部修订所选问题」入口
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("质量复核") &&
-      document.body.innerText.includes("按这些问题重写"),
+      document.body.innerText.includes("原句") &&
+      document.body.innerText.includes("位置") &&
+      document.body.innerText.includes("判断理由") &&
+      document.body.innerText.includes("影响范围") &&
+      document.body.innerText.includes("置信度") &&
+      document.body.innerText.includes("局部修订所选问题"),
     undefined,
     { timeout: 10_000 },
   );
 
   const beforeReviseFrameCount = frames.length;
-  await page.getByRole("button", { name: "按这些问题重写" }).first().click();
+  await page.getByRole("button", { name: "局部修订所选问题" }).first().click();
 
   // revise_from_findings 作者动作被真实工作台发出
   const reviseActionFrame = await waitForNewFrame(
@@ -18082,8 +18104,7 @@ async function driveP1ProseRevisionCandidate(page) {
         revisionTurnResult.trace_summary?.replay_policy?.use_recorded_frame,
       revision_card_visible: visibleText.includes("修订草稿"),
       quality_review_card_visible:
-        visibleText.includes("质量复核") &&
-        visibleText.includes(verifyActionRunAnchoring ? "修订任务已提交" : "按这些问题重写"),
+        visibleText.includes("质量复核") && visibleText.includes("修订任务已提交"),
       revision_body_differs: revisionBody !== originalBody,
       revision_pending: true,
       adopt_event_sent: frames.some(
@@ -18113,7 +18134,7 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
   );
   await draftButtons.nth(1).click();
 
-  // 正文草稿 turn：携带质量复核发现（节奏单调动作段被确定性 validator 命中）
+  // 正文草稿 turn：形式候选经独立 evaluator 确认为局部机械重复。
   const draftTurnFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
@@ -18136,6 +18157,22 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     `Expected completed review_status, got ${review.review_status}`,
   );
   assert(findingSummary !== "", "Backend finding has empty summary");
+  assert(
+    typeof finding.quality_finding_id === "string" && finding.quality_finding_id !== "",
+    "Backend finding has no stable quality_finding_id",
+  );
+  assert(
+    Array.isArray(finding.evidence_spans) &&
+      String(finding.evidence_spans[0]?.text ?? "") !== "",
+    "Backend finding has no original prose evidence",
+  );
+  assert(String(finding.reasoning ?? "") !== "", "Backend finding has no judgment reasoning");
+  assert(
+    typeof finding.confidence === "number" &&
+      finding.impact_scope === "local" &&
+      finding.revision_scope === "local",
+    "Backend finding has no confidence/local impact/local revision scope",
+  );
 
   // 外部证据：本轮跑了独立质量评估并命中发现
   const qualityRecord = await waitForAppLogRecord(
@@ -18146,10 +18183,17 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     "No prose_quality.evaluated app log with findings for the draft turn",
   );
 
-  // 真实页面忠实展示：质量复核卡 + 后端发现摘要原文逐字可见
+  // 真实页面忠实展示：摘要、原句、位置、理由、影响范围、置信度和局部修订动作。
   await page.waitForFunction(
     (summary) =>
-      document.body.innerText.includes("质量复核") && document.body.innerText.includes(summary),
+      document.body.innerText.includes("质量复核") &&
+      document.body.innerText.includes(summary) &&
+      document.body.innerText.includes("原句") &&
+      document.body.innerText.includes("位置") &&
+      document.body.innerText.includes("判断理由") &&
+      document.body.innerText.includes("影响范围") &&
+      document.body.innerText.includes("置信度") &&
+      document.body.innerText.includes("局部修订所选问题"),
     findingSummary,
     { timeout: 10_000 },
   );
@@ -18168,20 +18212,207 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     "Finding-roundtrip turn unexpectedly submitted an adopt event",
   );
 
+  const mechanicalState = {
+    ...uiState,
+    turn_id: draftTurnResult.turn_id,
+    quality_case: "mechanical_repetition",
+    chapter_title: targetChapterTitle,
+    draft_generated: true,
+    draft_pending: true,
+    quality_review_status: review.review_status,
+    quality_findings_count: review.findings.length,
+    quality_form_candidate_count_logged: Number(qualityRecord.form_candidate_count ?? 0),
+    quality_finding_count_logged: Number(qualityRecord.finding_count ?? 0),
+    finding_validator: String(finding.validator ?? ""),
+    finding_id_present: String(finding.quality_finding_id ?? "") !== "",
+    finding_evidence_present: String(finding.evidence_spans?.[0]?.text ?? "") !== "",
+    finding_position_present:
+      Number(finding.evidence_spans?.[0]?.sentence_start ?? 0) > 0 &&
+      Number(finding.evidence_spans?.[0]?.sentence_end ?? 0) > 0,
+    finding_reasoning_present: String(finding.reasoning ?? "") !== "",
+    finding_confidence: Number(finding.confidence ?? -1),
+    finding_impact_scope: String(finding.impact_scope ?? ""),
+    finding_revision_scope: String(finding.revision_scope ?? ""),
+    finding_summary_displayed: visibleText.includes(findingSummary),
+    quality_review_card_visible: visibleText.includes("质量复核"),
+    quality_finding_details_visible:
+      visibleText.includes("原句") &&
+      visibleText.includes("位置") &&
+      visibleText.includes("判断理由") &&
+      visibleText.includes("影响范围") &&
+      visibleText.includes("置信度"),
+    local_revision_action_visible: visibleText.includes("局部修订所选问题"),
+    finding_in_draft_body: draftBody.includes(findingSummary),
+    adopt_event_sent: frames.some(
+      (frame) => frame.direction === "sent" && frame.event === "adopt",
+    ),
+  };
+
+  // 语义边界 1：形式分析器召回同句首/同骨架，但独立 evaluator 将递进誓词识别为刻意
+  // 排比，不生成 mechanical repetition finding。
+  const rhetoricChapterTitle = "第03章：誓词回环";
+  await closeArchiveIfOpen(page);
+  await openArchiveTab(page, "大纲与结构");
+  await page.waitForFunction(
+    (chapterTitle) => document.body.innerText.includes(chapterTitle),
+    rhetoricChapterTitle,
+    { timeout: 10_000 },
+  );
+  const rhetoricButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert((await rhetoricButtons.count()) >= 3, "Archive did not render the rhetoric chapter");
+  const beforeRhetoricFrameCount = frames.length;
+  await rhetoricButtons.nth(2).click();
+
+  const rhetoricTurnFrame = await waitForNewFrame(
+    beforeRhetoricFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      String(
+        frame.body?.adoption_state?.pending?.[0]?.payload?.items?.[0]?.title ?? "",
+      ).includes(rhetoricChapterTitle),
+    "No prose turn_result was received for the intentional-rhetoric chapter",
+  );
+  const rhetoricTurnResult = rhetoricTurnFrame.body;
+  const rhetoricReview = rhetoricTurnResult.quality_review;
+  assert(rhetoricReview?.review_status === "completed", "Rhetoric review did not complete");
+  assert(
+    !rhetoricReview.findings.some(
+      (item) => item.validator === "validator.sentence_rhythm_uniformity",
+    ),
+    "Intentional rhetoric was incorrectly promoted to a mechanical repetition finding",
+  );
+  const rhetoricQualityRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" &&
+      record.turn_id === rhetoricTurnResult.turn_id,
+    "No prose quality log was emitted for the rhetoric chapter",
+  );
+  assert(
+    Number(rhetoricQualityRecord.form_candidate_count ?? 0) >= 1,
+    "Intentional rhetoric was not recalled by the form analyzer before semantic suppression",
+  );
+  const rhetoricUiState = await commonUiState(
+    page,
+    rhetoricTurnResult,
+    latestSentUserMessage(),
+  );
+
+  // 语义边界 2：正文没有同句首/同骨架召回，但实际叙事密度与主线推进章功能错配；
+  // evaluator 独立生成 chapter scope pacing finding。
+  const pacingChapterTitle = "第04章：静室失速";
+  await closeArchiveIfOpen(page);
+  await openArchiveTab(page, "大纲与结构");
+  await page.waitForFunction(
+    (chapterTitle) => document.body.innerText.includes(chapterTitle),
+    pacingChapterTitle,
+    { timeout: 10_000 },
+  );
+  const pacingButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert((await pacingButtons.count()) >= 4, "Archive did not render the pacing chapter");
+  const beforePacingFrameCount = frames.length;
+  await pacingButtons.nth(3).click();
+
+  const pacingTurnFrame = await waitForNewFrame(
+    beforePacingFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      String(
+        frame.body?.adoption_state?.pending?.[0]?.payload?.items?.[0]?.title ?? "",
+      ).includes(pacingChapterTitle),
+    "No prose turn_result was received for the pacing-mismatch chapter",
+  );
+  const pacingTurnResult = pacingTurnFrame.body;
+  const pacingReview = pacingTurnResult.quality_review;
+  const pacingFinding = pacingReview?.findings?.find(
+    (item) => item.validator === "validator.narrative_pacing_fit",
+  );
+  assert(pacingReview?.review_status === "completed", "Pacing review did not complete");
+  assert(pacingFinding, "Chapter-level narrative pacing mismatch was not detected");
+  assert(
+    pacingFinding.impact_scope === "chapter" &&
+      pacingFinding.revision_scope === "chapter" &&
+      typeof pacingFinding.confidence === "number" &&
+      String(pacingFinding.evidence_spans?.[0]?.text ?? "") !== "" &&
+      String(pacingFinding.reasoning ?? "") !== "",
+    "Chapter-level pacing finding omitted evidence, reasoning, confidence or chapter scope",
+  );
+  const pacingQualityRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" &&
+      record.turn_id === pacingTurnResult.turn_id &&
+      Number(record.finding_count ?? 0) >= 1,
+    "No prose quality finding log was emitted for the pacing chapter",
+  );
+  assert(
+    Number(pacingQualityRecord.form_candidate_count ?? 0) === 0,
+    "Chapter pacing finding unexpectedly depended on a local form candidate",
+  );
+  const pacingSummary = String(pacingFinding.summary ?? "");
+  await page.waitForFunction(
+    (summary) =>
+      document.body.innerText.includes(summary) &&
+      document.body.innerText.includes("按所选问题修订整章") &&
+      document.body.innerText.includes("判断理由") &&
+      document.body.innerText.includes("置信度"),
+    pacingSummary,
+    { timeout: 10_000 },
+  );
+  const pacingVisibleText = await page.locator("body").innerText();
+  const pacingUiState = await commonUiState(
+    page,
+    pacingTurnResult,
+    latestSentUserMessage(),
+  );
+
   return [
+    mechanicalState,
     {
-      ...uiState,
-      turn_id: draftTurnResult.turn_id,
-      chapter_title: targetChapterTitle,
-      draft_generated: true,
-      draft_pending: true,
-      quality_review_status: review.review_status,
-      quality_findings_count: review.findings.length,
-      quality_finding_count_logged: Number(qualityRecord.finding_count ?? 0),
-      finding_validator: String(finding.validator ?? ""),
-      finding_summary_displayed: visibleText.includes(findingSummary),
-      quality_review_card_visible: visibleText.includes("质量复核"),
-      finding_in_draft_body: draftBody.includes(findingSummary),
+      ...rhetoricUiState,
+      turn_id: rhetoricTurnResult.turn_id,
+      quality_case: "intentional_rhetoric",
+      chapter_title: rhetoricChapterTitle,
+      quality_review_status: rhetoricReview.review_status,
+      quality_form_candidate_count_logged: Number(
+        rhetoricQualityRecord.form_candidate_count ?? 0,
+      ),
+      quality_findings_count: rhetoricReview.findings.length,
+      mechanical_finding_suppressed: !rhetoricReview.findings.some(
+        (item) => item.validator === "validator.sentence_rhythm_uniformity",
+      ),
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+    },
+    {
+      ...pacingUiState,
+      turn_id: pacingTurnResult.turn_id,
+      quality_case: "chapter_pacing",
+      chapter_title: pacingChapterTitle,
+      quality_review_status: pacingReview.review_status,
+      quality_form_candidate_count_logged: Number(
+        pacingQualityRecord.form_candidate_count ?? 0,
+      ),
+      quality_findings_count: pacingReview.findings.length,
+      finding_validator: String(pacingFinding.validator ?? ""),
+      finding_id_present: String(pacingFinding.quality_finding_id ?? "") !== "",
+      finding_evidence_present: String(pacingFinding.evidence_spans?.[0]?.text ?? "") !== "",
+      finding_position_present:
+        Number(pacingFinding.evidence_spans?.[0]?.sentence_start ?? 0) > 0 &&
+        Number(pacingFinding.evidence_spans?.[0]?.sentence_end ?? 0) > 0,
+      finding_reasoning_present: String(pacingFinding.reasoning ?? "") !== "",
+      finding_confidence: Number(pacingFinding.confidence ?? -1),
+      finding_impact_scope: String(pacingFinding.impact_scope ?? ""),
+      finding_revision_scope: String(pacingFinding.revision_scope ?? ""),
+      finding_summary_displayed: pacingVisibleText.includes(pacingSummary),
+      quality_finding_details_visible:
+        pacingVisibleText.includes("原句") &&
+        pacingVisibleText.includes("位置") &&
+        pacingVisibleText.includes("判断理由") &&
+        pacingVisibleText.includes("影响范围") &&
+        pacingVisibleText.includes("置信度"),
+      chapter_revision_action_visible: pacingVisibleText.includes("按所选问题修订整章"),
       adopt_event_sent: frames.some(
         (frame) => frame.direction === "sent" && frame.event === "adopt",
       ),
@@ -18316,7 +18547,7 @@ async function driveP1ProseQualityAdoptionBoundary(page) {
 
   // 重写 → 修订候选 turn（sibling tentative 草稿）
   const beforeRevise = frames.length;
-  await page.getByRole("button", { name: "按这些问题重写" }).first().click();
+  await page.getByRole("button", { name: "局部修订所选问题" }).first().click();
   const revisionTurnFrame = await waitForNewFrame(
     beforeRevise,
     (frame) =>
@@ -19142,7 +19373,7 @@ async function driveAgentProseDraftingWithQuality(page) {
       ui_agent_completed_visible: visibleText.includes("已完成") || visibleText.includes("无任务"),
       ui_prose_draft_visible: visibleText.includes("章节正文草稿"),
       ui_quality_review_visible: visibleText.includes("质量复核"),
-      ui_revision_action_visible: visibleText.includes("按这些问题重写"),
+      ui_revision_action_visible: visibleText.includes("局部修订所选问题"),
       persisted_provider_run_count: persistedProviderRunCount,
       persisted_provider_purposes: activityPurposes,
       persisted_provider_facts_matched_budget:

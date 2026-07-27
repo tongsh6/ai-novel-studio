@@ -72,12 +72,49 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   defp parse_findings(content) do
     with {:ok, decoded} <- decode(content),
-         findings when is_list(findings) <- extract_findings(decoded) do
-      {:ok, Enum.filter(findings, &is_map/1)}
+         findings when is_list(findings) <- extract_findings(decoded),
+         true <- Enum.all?(findings, &valid_finding?/1) do
+      {:ok, findings}
     else
       _ -> :error
     end
   end
+
+  defp valid_finding?(finding) when is_map(finding) do
+    non_empty_string?(finding["quality_finding_id"]) and
+      non_empty_string?(finding["quality_gate_ref"]) and
+      non_empty_string?(finding["validator_ref"]) and
+      non_empty_string?(finding["summary"]) and
+      non_empty_string?(finding["reasoning"]) and
+      valid_evidence_spans?(finding["evidence_spans"]) and
+      finding["impact_scope"] in ["local", "paragraph", "chapter"] and
+      finding["revision_scope"] in ["local", "paragraph", "chapter"] and
+      valid_confidence?(finding["confidence"])
+  end
+
+  defp valid_finding?(_finding), do: false
+
+  defp valid_evidence_spans?(spans) when is_list(spans) and spans != [] do
+    Enum.all?(spans, fn span ->
+      is_map(span) and
+        non_empty_string?(span["text"]) and
+        positive_integer?(span["sentence_start"]) and
+        positive_integer?(span["sentence_end"]) and
+        span["sentence_end"] >= span["sentence_start"]
+    end)
+  end
+
+  defp valid_evidence_spans?(_spans), do: false
+
+  defp valid_confidence?(confidence) when is_number(confidence),
+    do: confidence >= 0 and confidence <= 1
+
+  defp valid_confidence?(_confidence), do: false
+
+  defp non_empty_string?(value) when is_binary(value), do: String.trim(value) != ""
+  defp non_empty_string?(_value), do: false
+
+  defp positive_integer?(value), do: is_integer(value) and value > 0
 
   defp decode(content) do
     # 与 creative_provider/real.ex 同款收口（M2 长跑实测：10/12 次正文起草 JSON
@@ -116,6 +153,8 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
     顶层对象必须包含 "findings"：JSON 数组，每个元素是一个发现项（只列真实存在的问题，
     没有问题则返回空数组）。每个发现项包含：
+    - "quality_finding_id"：稳定 finding 标识；形式候选确认项使用 "qf_" + candidate_id
+    - "candidate_id"：仅形式候选确认项填写对应 candidate_id，其他 finding 可省略
     - "quality_gate_ref"：如 quality_gate.character_logic / quality_gate.pacing /
       quality_gate.payoff_validity / quality_gate.style_fit / quality_gate.knowledge_boundary /
       quality_gate.web_hook_strength / quality_gate.power_scaling
@@ -128,11 +167,33 @@ defmodule NovelAgent.ProseQualityEvaluator do
       只有高置信事实冲突/认知越界才用 block/confirm；战力膨胀仅当与既有规则硬冲突才 block，
       成长过快用 confirm/adoption_review）
     - "summary"：一句话说明问题
-    - "evidence_spans"：数组，每项 {"text": "正文中的证据片段"}
+    - "reasoning"：说明为什么这些原句构成问题；不得只复述统计信号
+    - "evidence_spans"：数组，每项至少包含
+      {"text": "正文中的原句", "sentence_start": 2, "sentence_end": 4}
+    - "impact_scope"：local | paragraph | chapter
+    - "revision_scope"：local | paragraph | chapter；默认 local，只有问题确实覆盖段落或整章
+      才能扩大
     - "brief_field_refs"：数组，关联的执行简述字段（如 scene_1.emotion_transition），没有则 []
     - "confidence"：0~1 之间的小数
+    - "suggested_revision"：{"instruction": "给作者的具体修订策略"}
 
-    评审维度：场景是否产生变化、情绪转向是否有触发、人物是否有明确目标与阻力、人物行动是否
+    任务 A：局部形式候选的语义判定。
+    #{form_candidates_section(request)}
+    形式候选只是召回信号，不是问题结论。这里必须区分机械重复与刻意排比、回环、咒语感、
+    仪式感或情绪升级。只要原句在强度、意义、视角、动作后果或情绪上形成清晰递进，就不要
+    输出 finding。只有重复没有形成上述递进、读感近似模板填充时，才输出
+    quality_gate.style_fit / validator.sentence_rhythm_uniformity，并沿用 candidate_id、
+    位置和原句证据。禁止把此类形式问题命名为“章节节奏”。
+
+    任务 B：章节级叙事节奏独立评审。
+    #{pacing_context_section(request)}
+    节奏是“实际叙事密度是否匹配本章结构功能”的相对判断，不是句长、句数、段落长度或对白
+    数量统计。请对照章功能、情节推进、人物变化、信息释放、情绪目标和 hook，判断正文的
+    事件密度、张力轨迹以及细写/概述选择是否匹配。只有存在具体错配且能引用正文原句时，
+    才输出 quality_gate.pacing / validator.narrative_pacing_fit；影响整章时
+    impact_scope/revision_scope 才可为 chapter。
+
+    其他评审维度：场景是否产生变化、情绪转向是否有触发、人物是否有明确目标与阻力、人物行动是否
     来自选择、转折是否导致后果、信息释放是否符合执行简述、实际读者效果是否偏离目标、对话是否
     服务冲突/潜台词、结尾是否留下继续阅读的驱动力（hook，且不是虚假承诺）、能力/境界/资源/代价
     与成长路径是否符合既有规则（不跳过必要铺垫、强度不失衡）。不要仅凭关键字命中就判失败。
@@ -167,10 +228,26 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   defp facts_section(_request), do: ""
 
+  defp form_candidates_section(%QualityEvaluationRequest{form_candidates: candidates})
+       when is_list(candidates) and candidates != [] do
+    "待判定形式候选（JSON）：\n#{Jason.encode!(candidates)}"
+  end
+
+  defp form_candidates_section(_request), do: "本次没有形式候选；不要自行虚构形式命中。"
+
+  defp pacing_context_section(%QualityEvaluationRequest{pacing_context: context})
+       when is_map(context) and map_size(context) > 0 do
+    "章节结构参照（JSON）：\n#{Jason.encode!(context)}"
+  end
+
+  defp pacing_context_section(_request),
+    do: "本次缺少章节结构参照；不得输出 narrative_pacing_fit finding。"
+
   defp correction_prompt(original_prompt, failed_content) do
     """
-    你上一次的输出不是合法 JSON。请严格重新输出一个包含 "findings" 数组的 JSON 对象，
-    不要输出 JSON 以外的任何文字。
+    你上一次的输出不是合法且字段完整的质量评审 JSON。请严格重新输出一个包含 "findings"
+    数组的 JSON 对象；每个 finding 必须包含原句证据、句子位置、判断理由、影响范围、修订
+    范围和 0~1 置信度。不要输出 JSON 以外的任何文字。
 
     ## 你的上一次输出（截取前 300 字符）
     #{String.slice(failed_content, 0, 300)}

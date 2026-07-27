@@ -63,11 +63,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
            Jason.encode!(%{
              "findings" => [
                %{
+                 "quality_finding_id" => "qf_agent_character_agency",
                  "quality_gate_ref" => "quality_gate.character_logic",
                  "validator_ref" => "validator.character_agency",
                  "severity" => "warn",
                  "action" => "adoption_review",
-                 "summary" => "主角缺乏主动目标"
+                 "summary" => "主角缺乏主动目标",
+                 "reasoning" => "正文只罗列被动动作，没有呈现主角的目标或选择。",
+                 "evidence_spans" => [
+                   %{
+                     "text" => "他走进房间，看了看四周，坐了下来。",
+                     "sentence_start" => 1,
+                     "sentence_end" => 1
+                   }
+                 ],
+                 "impact_scope" => "paragraph",
+                 "revision_scope" => "paragraph",
+                 "confidence" => 0.84
                }
              ]
            })
@@ -568,11 +580,23 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         if count == 0 do
           [
             %{
+              "quality_finding_id" => "qf_agent_rule_conflict",
               "quality_gate_ref" => "quality_gate.rule_consistency",
               "validator_ref" => "validator.rule_conflict",
               "severity" => "high",
               "action" => "confirm",
-              "summary" => "违反既有规则且需要作者确认"
+              "summary" => "违反既有规则且需要作者确认",
+              "reasoning" => "正文明确写成无需代价复活，与既有规则要求的代价冲突。",
+              "evidence_spans" => [
+                %{
+                  "text" => "主角无需代价就复活并推翻既有规则。",
+                  "sentence_start" => 1,
+                  "sentence_end" => 1
+                }
+              ],
+              "impact_scope" => "paragraph",
+              "revision_scope" => "paragraph",
+              "confidence" => 0.94
             }
           ]
         else

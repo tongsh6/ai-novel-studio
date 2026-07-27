@@ -34,7 +34,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert revise.action_id == "revise_from_findings:#{pending.artifact_id}"
     assert revise.enabled == true
     # 携带本轮发现引用，供前端/服务知道要处理哪些问题
-    assert "validator.prose_pattern_repetition" in revise.quality_finding_refs
+    assert "qf_cp3_uniform" in revise.quality_finding_refs
   end
 
   test "revise_from_findings produces a new tentative revision draft; original retained; not auto-adopted" do
@@ -47,6 +47,8 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert prompt =~ "上下文："
     assert prompt =~ "重要："
     assert prompt =~ "[质量修订要求]"
+    assert prompt =~ "本次修订范围：局部修订"
+    assert prompt =~ "命中范围外的文字应尽量逐字保持不变"
     assert prompt =~ @bad_prose
     assert prompt =~ "行结构" or prompt =~ "重复" or prompt =~ "句"
 
@@ -60,7 +62,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     card = Enum.find(revision_turn.ui_cards, &(&1.card_type == "candidate_set"))
     assert card.revision_of == original_pending.artifact_id
     assert is_binary(card.revision_reason) and card.revision_reason != ""
-    assert "validator.prose_pattern_repetition" in card.quality_finding_refs
+    assert "qf_cp3_uniform" in card.quality_finding_refs
     assert card.title =~ "修订草稿"
 
     # 4. 修订草稿是 tentative、不自动采纳：照常给出 accept/discard 动作
@@ -201,10 +203,46 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        provider_execution: %Execution{result_fn: complete}
+        provider_execution: %Execution{result_fn: complete},
+        quality_provider_execution: quality_complete()
       })
 
     turn_result
+  end
+
+  defp quality_complete do
+    %Execution{
+      result_fn: fn _prompt ->
+        {:ok,
+         %{
+           content:
+             Jason.encode!(%{
+               "findings" => [
+                 %{
+                   "quality_finding_id" => "qf_cp3_uniform",
+                   "quality_gate_ref" => "quality_gate.style_fit",
+                   "validator_ref" => "validator.sentence_rhythm_uniformity",
+                   "severity" => "warn",
+                   "action" => "warn",
+                   "summary" => "连续动作句式机械重复",
+                   "reasoning" => "相同骨架没有形成强度或后果递进。",
+                   "confidence" => 0.88,
+                   "impact_scope" => "local",
+                   "revision_scope" => "local",
+                   "evidence_spans" => [
+                     %{
+                       "text" => @bad_prose,
+                       "sentence_start" => 1,
+                       "sentence_end" => 4
+                     }
+                   ],
+                   "suggested_revision" => %{"instruction" => "只改第 1–4 句。"}
+                 }
+               ]
+             })
+         }}
+      end
+    }
   end
 
   defp context do

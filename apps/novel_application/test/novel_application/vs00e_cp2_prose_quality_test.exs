@@ -13,7 +13,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
   alias NovelDomain.OrchestratorDecision
 
   @work "work-vs00e-cp2"
-  # 行结构过度均匀的坏正文（命中确定性 validator.prose_pattern_repetition）
+  # 行结构过度均匀的坏正文（形式分析召回后，由独立 evaluator 确认为机械重复）
   @bad_prose "他走进房间，看了看四周，坐了下来。他拿起书本，翻了翻几页，放了下来。他望向窗外，看了看天色，叹了口气。他端起茶杯，喝了一小口，搁了回去。"
 
   test "bad prose produces quality_review with findings; artifact body unchanged (finding not a story fact)" do
@@ -27,7 +27,12 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     assert review.findings != []
 
     refs = Enum.map(review.findings, & &1["validator"])
-    assert "validator.prose_pattern_repetition" in refs
+    assert "validator.sentence_rhythm_uniformity" in refs
+    [finding] = review.findings
+    assert finding["evidence_spans"] != []
+    assert finding["reasoning"] != ""
+    assert finding["impact_scope"] == "local"
+    assert finding["revision_scope"] == "local"
 
     # finding 不是作品事实：待采纳产物正文仍是模型原文，未被质量评估改写
     pending = hd(turn_result.adoption_state.pending)
@@ -43,12 +48,25 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
          content:
            Jason.encode!(%{
              "findings" => [
+               quality_finding(),
                %{
+                 "quality_finding_id" => "qf_cp2_character_agency",
                  "quality_gate_ref" => "quality_gate.character_logic",
                  "validator_ref" => "validator.character_agency",
                  "severity" => "warn",
                  "action" => "adoption_review",
-                 "summary" => "主角缺乏目标"
+                 "summary" => "主角缺乏目标",
+                 "reasoning" => "正文没有呈现主角的主动选择。",
+                 "confidence" => 0.82,
+                 "impact_scope" => "paragraph",
+                 "revision_scope" => "paragraph",
+                 "evidence_spans" => [
+                   %{
+                     "text" => "他望向窗外，看了看天色，叹了口气。",
+                     "sentence_start" => 3,
+                     "sentence_end" => 3
+                   }
+                 ]
                }
              ]
            })
@@ -61,7 +79,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     assert review.policy_action == "adoption_review"
     refs = Enum.map(review.findings, & &1["validator"])
     assert "validator.character_agency" in refs
-    assert "validator.prose_pattern_repetition" in refs
+    assert "validator.sentence_rhythm_uniformity" in refs
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-cp2-writer"
     assert turn_result.trace_summary.evaluator_provider_call_ref == "pc-cp2-evaluator"
     assert turn_result.trace_summary.provider_call_budget.writer == 1
@@ -78,6 +96,8 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
   end
 
   defp run(quality_result_fn \\ nil) do
+    quality_result_fn = quality_result_fn || quality_complete()
+
     complete = fn _prompt ->
       {:ok,
        %{
@@ -107,6 +127,39 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
       })
 
     {turn_result, nil}
+  end
+
+  defp quality_complete do
+    fn _prompt ->
+      {:ok,
+       %{
+         provider_call_ref: "pc-cp2-evaluator",
+         content: Jason.encode!(%{"findings" => [quality_finding()]})
+       }}
+    end
+  end
+
+  defp quality_finding do
+    %{
+      "quality_finding_id" => "qf_cp2_uniform",
+      "quality_gate_ref" => "quality_gate.style_fit",
+      "validator_ref" => "validator.sentence_rhythm_uniformity",
+      "severity" => "warn",
+      "action" => "warn",
+      "summary" => "连续动作句式机械重复",
+      "reasoning" => "相同句首与标点骨架没有形成强度、意义或后果递进。",
+      "confidence" => 0.88,
+      "impact_scope" => "local",
+      "revision_scope" => "local",
+      "evidence_spans" => [
+        %{
+          "text" => @bad_prose,
+          "sentence_start" => 1,
+          "sentence_end" => 4
+        }
+      ],
+      "suggested_revision" => %{"instruction" => "只修改第 1–4 句的句式结构。"}
+    }
   end
 
   defp context do

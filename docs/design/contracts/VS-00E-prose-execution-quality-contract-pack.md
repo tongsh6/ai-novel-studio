@@ -90,21 +90,34 @@ CP1 引入 `CreativeDecisionPacket`（代码态 plain map，由 `CreativeDecisio
 
 ## 6. 正文生成后哪些 validator 被执行
 
-正文产出后由独立 `ProseQualityService.evaluate/4` 运行，分两类：
+正文产出后由独立 `ProseQualityService.evaluate/3` 运行，分三层：
 
-- **确定性 validator（非 LLM，§11.1）**：连续句首重复、重复句式、段落长度过度均匀、高频身体反应模板、高频直接情绪标签、高频 AI 套话、短距离重复短语、结构元标签误入正文。
-- **语义 validator（独立 evaluator LLM，§11.2）**：`scene_change` / `emotional_transition` / `character_agency` / `causal_progression` / `setup_turn_consequence` / `brief_alignment` / `prose_pattern_repetition` / `emotion_expression_balance` / `dialogue_intent_fit`。
+- **确定性 finding（非 LLM，§11.1）**：高频身体反应模板、高频直接情绪标签、高频
+  AI 套话、结构元标签误入正文等可由明确规则确认的问题。
+- **局部形式候选（非 LLM，§11.1）**：连续窗口内的句首、完整标点骨架和长度接近度只
+  召回 `form_candidates`，不得直接成为 `QualityFinding`，也不得把形式雷同命名为
+  “节奏问题”。
+- **语义 validator（独立 evaluator LLM，§11.2）**：
+  1. 对 `form_candidates` 逐项区分机械重复与刻意排比/回环/咒语式重复，只有缺少强度、
+     意义、视角或情绪递进的机械重复才输出 `validator.sentence_rhythm_uniformity`；
+  2. 独立对照 `ChapterPlanDirection` / `ReaderEffectBrief` 的章功能、情节推进、情绪目标、
+     信息释放和 hook，判断实际正文的事件密度、张力轨迹、细写/概述选择是否匹配，输出
+     `validator.narrative_pacing_fit`；
+  3. 继续执行 `scene_change` / `emotional_transition` / `character_agency` /
+     `causal_progression` / `setup_turn_consequence` / `brief_alignment` /
+     `emotion_expression_balance` / `dialogue_intent_fit` 等语义检查。
 
 validator → quality gate 映射（**不为每个问题新建顶级 gate**；仅新增一个 `quality_gate.style_fit` 承载风格/句式两条 validator，其余挂现有 gate）：
 
 | Quality Gate | Validator | 默认 action |
 |---|---|---|
 | `quality_gate.pacing`（已存在） | `validator.emotional_transition` | WARN |
-| `quality_gate.pacing` | `validator.scene_pacing_fit` | WARN |
+| `quality_gate.pacing` | `validator.narrative_pacing_fit` | WARN / ADOPTION_REVIEW |
 | `quality_gate.character_logic`（已存在） | `validator.character_agency` | ADOPTION_REVIEW |
 | `quality_gate.character_logic` | `validator.reaction_earned` | WARN |
 | `quality_gate.payoff_validity`（已存在） | `validator.setup_turn_consequence` | WARN |
 | `quality_gate.style_fit`（**本 pack 新增**） | `validator.prose_pattern_repetition` | WARN |
+| `quality_gate.style_fit` | `validator.sentence_rhythm_uniformity` | WARN |
 | `quality_gate.style_fit` | `validator.emotion_expression_balance` | WARN |
 | `quality_gate.knowledge_boundary`（已存在） | `validator.character_knowledge_boundary` | BLOCK / CONFIRM |
 
@@ -122,11 +135,42 @@ validator → quality gate 映射（**不为每个问题新建顶级 gate**；�
 evaluator 失败                     → quality_review_unavailable
 ```
 
-`TurnResultBuilder` 在 TurnResult 增加 `quality_review`（status + findings + policy_action / review_status）。前端（§15）在正文草稿卡下展示 `QualityReviewCard`，复用现有 available actions，**不新建平行 Card 状态机**，**不提升 finding 严重级别**，**不隐藏原始正文**。
+`TurnResultBuilder` 在 TurnResult 增加 `quality_review`（status + findings + policy_action /
+review_status）。每个作者可见 finding 必须包含：
+
+```text
+quality_finding_id
+quality_gate / validator / severity / action
+summary / reasoning / confidence
+evidence_spans[{text, sentence_start, sentence_end, start_offset?, end_offset?}]
+impact_scope(local|paragraph|chapter)
+revision_scope(local|paragraph|chapter)
+brief_field_refs / suggested_revision / can_override
+```
+
+前端（§15）在正文草稿卡下展示 `QualityReviewCard`，至少显示原句、位置、判断理由、
+影响范围和置信度，复用现有 available actions，**不新建平行 Card 状态机**，
+**不提升 finding 严重级别**，**不隐藏原始正文**。`quality_finding_id` 是选择动作与
+provenance 的稳定标识；`validator` 只表示规则类型，不能代替 finding id。
 
 ## 8. 修订候选如何保持 tentative/adoption 边界
 
-新增作者动作 `revise_from_findings`（§12）：基于选定 findings 调用正文 writer，产出 **sibling tentative artifact**（新 artifact id），设置 `revision_base = 原 artifact id` / `revision_reason = findings` / `quality_finding_refs`。原稿继续保留、不被覆盖；修订稿不自动采纳、不自动进入阅读投影；原稿与修订稿都各自走现有 adoption 七态；一次动作最多一个候选；evaluator 不得自动递归触发下一次修订。修订调用必须重新经过 `ExecutionOrchestrator`，不得伪造 `decision_ref` 或从 application 编排直接绕过 gate 调用 toolbox。`TentativeArtifactSet` provenance 扩展 `quality_finding_refs / revision_base / revision_reason`，不破坏现有 artifact type 与 adoption 七态。
+新增作者动作 `revise_from_findings`（§12）：基于选定 findings 调用正文 writer，产出
+**sibling tentative artifact**（新 artifact id），设置 `revision_base = 原 artifact id` /
+`revision_reason = findings` / `quality_finding_refs`。修订范围由所选 findings 的最高
+`revision_scope` 决定：
+
+```text
+local      → 只改 evidence_spans 命中的句段，范围外文本尽量保持不变
+paragraph  → 只改命中段落
+chapter    → 允许章级重组，但仍不得改变已确认作品事实
+```
+
+默认是 `local`；不得因为实现方便把局部问题升级成整章重写。writer 虽返回完整正文候选，
+但 scope 约束必须进入修订 prompt。原稿继续保留、不被覆盖；修订稿不自动采纳、不自动进入
+阅读投影；原稿与修订稿都各自走现有 adoption 七态；一次动作最多一个候选；evaluator 不得
+自动递归触发下一次修订。修订调用必须重新经过 `ExecutionOrchestrator`，不得伪造
+`decision_ref` 或从 application 编排直接绕过 gate 调用 toolbox。
 
 ### 8.1 作者动作、回执与 AgentRun 的绑定
 
@@ -186,6 +230,10 @@ I10 真实质量收益必须通过人工盲评验证（不得用 fixture 假装�
 I11 同一 revision action receipt 最多绑定一个 run_id
 I12 一个 action-triggered run 只渲染一个来源 assistant 工作回合
 I13 bounded refresh 只重连存活 run，不重放 provider
+I14 形式统计只召回候选，不直接成为文学质量结论
+I15 刻意修辞不得仅因形式重复被判为机械问题
+I16 章节节奏 finding 必须引用章功能/推进/情绪/信息等结构参照
+I17 局部 finding 默认局部修订，范围升级必须来自 finding 的明确 scope
 ```
 
 ## 13. 兼容性红线
@@ -198,6 +246,10 @@ I13 bounded refresh 只重连存活 run，不重放 provider
 ## 14. 验收（CP1–CP3 注册到 `quality/acceptance/scenarios.yml`）
 
 `p1-prose-execution-brief`（CP1）、`p1-prose-quality-finding-roundtrip` / `p1-prose-quality-evaluator-degrade`（CP2）、`p1-prose-revision-candidate` / `p1-prose-quality-adoption-boundary`（CP3）、`quality-revision-action-run-anchoring`（动作回执、单一工作回合、同 run 控制与刷新重连）、`p1-prose-quality-real-provider-sample`（真实 provider 仅收集盲评材料，不得自动断言「文学质量提升」）。质量基线 fixture 见 `quality/acceptance/fixtures/prose-quality/`（CP0 建立，§16 坏样本，确定性可复现，不依赖云端模型）。
+
+其中 `p1-prose-quality-finding-roundtrip` 必须从真实正文入口连续覆盖三类语义边界：机械
+重复候选被确认、刻意修辞候选被抑制、没有局部形式候选的章节功能/叙事密度错配被独立
+识别；前两者分别证明形式召回与修辞裁决职责，第三者证明章节节奏不依赖形式统计。
 
 ## 15. checkpoint 边界
 

@@ -197,7 +197,8 @@ defmodule NovelApplication.TurnExecutionService do
         tool_result,
         quality_provider_execution,
         render_execution_brief(brief_result),
-        facts_context_text(creative_facts, style_guide)
+        facts_context_text(creative_facts, style_guide),
+        quality_pacing_context(brief_result)
       )
 
     {trace, trace_summary} =
@@ -1161,15 +1162,16 @@ defmodule NovelApplication.TurnExecutionService do
 
   # ── VS-00E CP2：独立质量评估 ──────────────────────
 
-  # 仅 prose_writing 成功路径评估。CP2 当前接入确定性 validator（无 semantic_fn，
-  # review_status=completed）；语义 evaluator 作为可注入 semantic_fn 在后续接 Gateway。
+  # 仅 prose_writing 成功路径评估。确定性 validator 与局部形式候选总是运行；当独立质量
+  # provider execution 可用时，同轮调用语义 evaluator 完成候选裁决与章节节奏评审。
   defp run_prose_quality(
          frame,
          action,
          %ToolResult{status: :succeeded} = tool_result,
          quality_provider_execution,
          brief_text,
-         facts_context
+         facts_context,
+         pacing_context
        ) do
     if prose_writing_action?(action) do
       ctx = %{
@@ -1178,25 +1180,49 @@ defmodule NovelApplication.TurnExecutionService do
         source_type: :prose_fragment
       }
 
-      opts = semantic_opts(quality_provider_execution, frame, brief_text, facts_context)
+      opts =
+        semantic_opts(
+          quality_provider_execution,
+          frame,
+          brief_text,
+          facts_context,
+          pacing_context
+        )
+
       result = ProseQualityService.evaluate(prose_body(tool_result), ctx, opts)
       emit_quality(frame, result)
       result
     end
   end
 
-  defp run_prose_quality(_frame, _action, _result, _quality_execution, _brief, _facts), do: nil
+  defp run_prose_quality(
+         _frame,
+         _action,
+         _result,
+         _quality_execution,
+         _brief,
+         _facts,
+         _pacing
+       ),
+       do: nil
 
   # 独立 evaluator 通过单独的 quality provider execution 调用（与 writer 分离的
   # provider 调用 + 独立 prompt）。未注入时为确定性评估。
-  defp semantic_opts(quality_provider_execution, frame, brief_text, facts_context) do
+  defp semantic_opts(
+         quality_provider_execution,
+         frame,
+         brief_text,
+         facts_context,
+         pacing_context
+       ) do
     case Execution.result_fn(quality_provider_execution) do
       result_fn when is_function(result_fn, 1) ->
         semantic_opts_from_provider_execution(
           quality_provider_execution,
           frame,
           brief_text,
-          facts_context
+          facts_context,
+          pacing_context
         )
 
       _ ->
@@ -1204,7 +1230,13 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  defp semantic_opts_from_provider_execution(provider_execution, frame, brief_text, facts_context) do
+  defp semantic_opts_from_provider_execution(
+         provider_execution,
+         frame,
+         brief_text,
+         facts_context,
+         pacing_context
+       ) do
     semantic_fn = fn text, ctx ->
       request = %QualityEvaluationRequest{
         request_id: "qer_#{frame.turn_id}",
@@ -1213,7 +1245,9 @@ defmodule NovelApplication.TurnExecutionService do
         source_type: :prose_fragment,
         prose_text: text,
         execution_brief: brief_text,
-        facts_context: facts_context
+        facts_context: facts_context,
+        form_candidates: Map.get(ctx, :form_candidates, []),
+        pacing_context: pacing_context
       }
 
       case ProseQualityEvaluator.evaluate(request, provider_execution) do
@@ -1228,6 +1262,32 @@ defmodule NovelApplication.TurnExecutionService do
     [semantic_fn: semantic_fn]
   end
 
+  defp quality_pacing_context({_, %{decision_packet: packet}}) when is_map(packet) do
+    direction =
+      packet
+      |> Map.get("chapter_direction")
+      |> ChapterPlanDirection.to_storage()
+
+    reader_effect =
+      case Map.get(packet, "reader_effect_brief") do
+        %ReaderEffectBrief{} = brief -> ReaderEffectBrief.to_storage(brief)
+        _ -> nil
+      end
+
+    context =
+      %{
+        "chapter_direction" => direction,
+        "reader_effect_brief" => reader_effect,
+        "chapter" => Map.get(packet, "chapter", %{})
+      }
+      |> Enum.reject(fn {_key, value} -> value in [nil, %{}] end)
+      |> Map.new()
+
+    if map_size(context) == 0, do: nil, else: context
+  end
+
+  defp quality_pacing_context(_brief_result), do: nil
+
   defp prose_body(%ToolResult{output: %{items: [item | _]}}) when is_map(item) do
     clean_text(Map.get(item, :body) || Map.get(item, "body"))
   end
@@ -1237,10 +1297,16 @@ defmodule NovelApplication.TurnExecutionService do
   defp clean_text(value) when is_binary(value), do: value
   defp clean_text(_value), do: ""
 
-  defp emit_quality(frame, %{findings: findings, review_status: status, policy: policy}) do
+  defp emit_quality(frame, %{
+         findings: findings,
+         form_candidates: form_candidates,
+         review_status: status,
+         policy: policy
+       }) do
     LogEmit.emit(:prose_quality, :evaluated, :done, %{
       turn_id: frame.turn_id,
       finding_count: length(findings),
+      form_candidate_count: length(form_candidates),
       review_status: status
     })
 
@@ -1270,7 +1336,7 @@ defmodule NovelApplication.TurnExecutionService do
 
   # VS-00E CP3：本轮有质量发现且存在待采纳正文草稿时，暴露 revise_from_findings 可用动作。
   # ActionValidator 反“凭空发明动作”，故修订入口必须在 source TurnResult 的 available_actions
-  # 中先登记，作者才能据此触发“按这些问题重写”。无发现或无正文草稿时不暴露。
+  # 中先登记，作者才能据此触发按范围修订。无发现或无正文草稿时不暴露。
   defp maybe_add_revise_action(turn_result, []), do: turn_result
 
   defp maybe_add_revise_action(turn_result, findings) do
@@ -1288,7 +1354,10 @@ defmodule NovelApplication.TurnExecutionService do
           enabled: true,
           idempotency_key: "idem:#{turn_result.turn_id}:revise_from_findings:#{artifact_id}",
           quality_finding_refs:
-            findings |> Enum.map(& &1.validator_ref) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+            findings
+            |> Enum.map(&(&1.quality_finding_id || &1.validator_ref))
+            |> Enum.reject(&is_nil/1)
+            |> Enum.uniq()
         }
 
         Map.update(turn_result, :available_actions, [action], fn actions ->

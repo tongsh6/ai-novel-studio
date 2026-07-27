@@ -24,8 +24,8 @@ user_flow:
   - open: real Tauri workbench
   - open: archive outline (大纲与结构)
   - click: 生成正文草稿 for the action chapter (节奏单调动作段)
-  - wait_for: quality review card with a finding + 按这些问题重写 action
-  - click: 按这些问题重写
+  - wait_for: quality review card with evidence/reason/scope/confidence + 局部修订所选问题 action
+  - click: 局部修订所选问题
   - verify: revision author_action fast-acks with bounded AgentRun
   - verify: revision AgentRun emits one model-drafted AgentPlan with revision_prepare, revision_plan, prose_writing, revision_finalize, then advances by mechanical cursor
   - wait_for: sibling tentative revision draft visible (修订草稿)
@@ -41,7 +41,7 @@ evidence:
 assertions:
   ui:
     - quality review card visible with at least one finding
-    - 按这些问题重写 action visible on the real page
+    - 局部修订所选问题 action visible on the real page
     - sibling revision draft card (修订草稿) visible after clicking
     - original draft retained, nothing auto-adopted
   network:

@@ -109,21 +109,59 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["quality_gate", "validator", "severity", "action", "summary"],
+            "required": [
+              "quality_finding_id",
+              "quality_gate",
+              "validator",
+              "severity",
+              "action",
+              "summary",
+              "reasoning",
+              "evidence_spans",
+              "confidence",
+              "impact_scope",
+              "revision_scope"
+            ],
             "properties": {
+              "quality_finding_id": { "type": "string", "minLength": 1 },
               "quality_gate": { "type": "string" },
               "validator": { "type": "string" },
               "severity": { "type": "string" },
               "action": { "type": "string" },
-              "summary": { "type": "string" },
+              "summary": { "type": "string", "minLength": 1 },
+              "reasoning": { "type": "string", "minLength": 1 },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "impact_scope": {
+                "type": "string",
+                "enum": ["local", "paragraph", "chapter"]
+              },
+              "revision_scope": {
+                "type": "string",
+                "enum": ["local", "paragraph", "chapter"]
+              },
               "evidence_spans": {
                 "type": "array",
+                "minItems": 1,
                 "items": {
                   "type": "object",
-                  "properties": { "text": { "type": "string" } }
+                  "required": ["text", "sentence_start", "sentence_end"],
+                  "properties": {
+                    "text": { "type": "string", "minLength": 1 },
+                    "location": { "type": "string" },
+                    "sentence_start": { "type": "integer", "minimum": 1 },
+                    "sentence_end": { "type": "integer", "minimum": 1 },
+                    "start_offset": { "type": "integer", "minimum": 0 },
+                    "end_offset": { "type": "integer", "minimum": 0 }
+                  }
                 }
               },
               "brief_field_refs": { "type": "array", "items": { "type": "string" } },
+              "suggested_revision": {
+                "type": ["object", "null"],
+                "properties": {
+                  "instruction": { "type": "string" }
+                }
+              },
               "can_override": { "type": "boolean" }
             }
           }

@@ -242,6 +242,10 @@ v2 小说层默认至少保留以下质量门。
 - 检查章节是否拖慢主目标推进
 - 检查情绪、动作、信息密度是否与当前阶段匹配
 - 检查是否连续多章缺少推进或兑现
+- 以 `ChapterPlanDirection.chapter_role / plot_progress / character_change /
+  information_release / emotion / opening_hook / ending_hook` 与 `ReaderEffectBrief` 为参照，
+  判断实际事件密度、张力轨迹和细写/概述选择是否匹配
+- 句长、句数、段落长度与对白数量只能描述形式，不能代理章节叙事节奏
 
 默认动作：
 
@@ -319,19 +323,22 @@ v2 小说层默认至少保留以下质量门。
 
 目标（承载 VS-00E `validator.prose_pattern_repetition` / `validator.emotion_expression_balance` 等正文风格类 validator；§7.1 已引用该门）：
 
-- 检查行文是否模板化：连续句首重复、句式重复、段落长度过度均匀、高频身体反应模板、高频 AI 套话、短距离重复短语
+- 检查行文是否模板化：高频身体反应模板、高频 AI 套话、短距离重复短语
+- 句首、完整标点骨架与句长接近只作为局部形式候选；必须由独立 evaluator 区分机械重复
+  与刻意排比/回环/咒语式重复，形式候选不得直接成为 finding
 - 检查情绪表达是否失衡：关键情绪被直接声明而非戏剧化（show/tell 平衡——仅关键转折/关键选择要求戏剧化，过渡与非关键状态允许概述）
 - 检查正文实际读者效果是否偏离 `ReaderEffectBrief` / `ProseExecutionBriefV1`
 
 默认动作：
 
 - 文学类问题以 `WARN` / `ADOPTION_REVIEW` 为主，**默认不硬阻断作者采纳**（ADR-0020 I7）
-- 确定性句式/模板命中：`WARN`
+- 可机械确认的模板命中：`WARN`
+- 形式候选经语义确认属于机械重复：`WARN`
 - 不得仅凭关键字命中直接判定语义质量失败
 
 ---
 
-### 6.12 实现状态对照（machine-checked，截至 2026-06-28）
+### 6.12 实现状态对照（machine-checked，截至 2026-07-24）
 
 > 本节状态以 **production lib（`apps/*/lib`）实际代码**为准核对，不以本目录的设计意图为准。
 > 本目录 §6 是"应该有哪些门"，本节是"现在真有什么"。两者会漂移，改动质量门实现后请同步本表。
@@ -344,15 +351,16 @@ v2 小说层默认至少保留以下质量门。
 >
 > 三档：
 > - 🟢 **确定性已实现 + 真实页面验收**：有非 LLM validator，且被外部自动化真实页面验收覆盖。
-> - 🟡 **仅 LLM、未验证**：只在独立 evaluator（`prose_quality_evaluator.ex`）的 prompt 里被列为可用 ref，**从未用真实模型跑过**（CP2/CP3 验收全程 slice_verify，对评审 prompt 默认返回空 findings），准确度未知。
+> - 🟡 **语义 evaluator 已实现、真实模型未验证**：独立 evaluator 与真实页面链可以完成，
+>   但 slice_verify 只能验证契约/边界，不能证明真实模型的文学判断准确度。
 > - 🔴 **仅设计**：production lib 零引用，只存在于本目录。
 
 | # | 质量门 | §7.3 产出期默认 | 确定性 validator | LLM evaluator prompt | 真实模型验证过 | 状态 |
 |---|---|:--:|:--:|:--:|:--:|---|
-| 6.11 | `style_fit` 风格与句式 | ✅ | ✅ 6 函数→2 ref | ✅ | ✅ slice_verify | 🟢 已实现 + 验收 |
+| 6.11 | `style_fit` 风格与句式 | ✅ | ✅ 4 类明确规则 + 形式候选召回 | ✅（含机械重复/修辞判定） | ❌ | 🟡 真实页面链通过、真实模型待验证 |
 | 6.2 | `character_logic` 人物逻辑 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
 | 6.5 | `knowledge_boundary` 信息越界 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
-| 6.6 | `pacing` 节奏 | ✅ | ✅ 1 函数 | ✅ | ❌ 语义部分 | 🟢 确定性已实现（real-page 验收待补） |
+| 6.6 | `pacing` 节奏 | ✅ | ❌（不允许形式代理） | ✅ `narrative_pacing_fit` | ❌ | 🟡 真实页面链通过、真实模型待验证 |
 | 6.7 | `payoff_validity` 爽点成立 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
 | 6.8 | `web_hook_strength` Hook 强度 | ✅ | ❌ 语义、不宜确定性 | ✅ | ❌ | 🟡 仅 LLM、未验证 |
 | 6.9 | `power_scaling` 战力膨胀 | ✅ | ❌ 需规则模型 | ✅ | ❌ | 🟡 仅 LLM、未验证 |
@@ -361,7 +369,8 @@ v2 小说层默认至少保留以下质量门。
 | 6.4 | `foreshadowing` 伏笔 | （规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 | 6.10 | `serialization_retention` 网文留存 | （建立/规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 
-分布：🟢 2（`style_fit` 确定性+真实页面验收；`pacing` 确定性已实现、real-page 验收待补） / 🟡 5 / 🔴 4。
+分布：`style_fit` 与 `pacing` 已完成本节要求的运行结构和外部真实页面链验证；真实模型
+文学收益仍按 I10 单独验证。其余门状态沿下表已知缺口处理。
 
 **确定性实现细节**（`apps/novel_application/lib/novel_application/prose_quality_validators.ex`）：
 
@@ -370,21 +379,28 @@ v2 小说层默认至少保留以下质量门。
 | `style_fit` | `emotion_expression_balance` | 直接情绪声明（show/tell 失衡） | ≥2 处 | `warn` |
 | `style_fit` | `prose_pattern_repetition` | 身体反应模板 | ≥3 处 | `warn` |
 | `style_fit` | `prose_pattern_repetition` | AI 套话（随着/仿佛/一阵/微微/缓缓/一丝） | ≥4 处 | `warn` |
-| `style_fit` | `prose_pattern_repetition` | 连续句首雷同（≥3 句句首 2 字相同） | ≥3 句 | `warn` |
-| `style_fit` | `prose_pattern_repetition` | 行结构过度均匀（同首字+同逗号数） | ≥3 行 | `warn` |
 | `style_fit` | `prose_pattern_repetition` | 结构元标签混入正文（场景N/第N场/标题：） | ≥1 处 | `warn` |
-| `pacing` | `dialogue_density` | 长段落零对白（叙述密度偏高、节奏偏慢） | 句数 ≥8 且无对白引号 | `warn` |
 
-> `dialogue_density` 是 §6.6 节奏门的确定性兜底：只抓"整段无对白"这一确定性信号（保守阈值，避免误伤短促动作 beat 与纯叙述过场）；节奏的语义判断（是否拖慢主目标、连续疲劳）仍由独立 evaluator 负责。建议性 WARN、作者可越过。
+局部形式召回由 `ProseFormCandidateAnalyzer` 执行：连续至少 3 句具有相同句首、相同完整
+标点骨架且长度离散率不超过 0.35 时，只产生带原句/句号范围/offset/signals 的
+`form_candidate`。候选由 evaluator 判定；确认机械重复后才产
+`validator.sentence_rhythm_uniformity`，刻意修辞返回空 finding。
 
 **已知缺口与债务**：
 
-1. **产出期门已全部至少有评估钩子（2026-06-28）**：§7.3 产出期 7 门——`style_fit`（🟢 确定性+验收）、`pacing`（🟢 确定性 `dialogue_density`，验收待补）、`character_logic` / `knowledge_boundary` / `payoff_validity` / `web_hook_strength` / `power_scaling`（🟡 独立 evaluator rubric）。其中 `web_hook_strength`（需"章尾驱动力"语境）与 `power_scaling`（需既有功法/境界规则模型）**本质语义、确定性化不成立**（强行关键字会误报，违反 §6.6/§6.11 与 prose-ai-taste-findings），故只落 LLM evaluator，待 I10 真实模型验证。
+1. **产出期门已全部至少有评估钩子**：§7.3 产出期 7 门——`style_fit` 由明确规则、
+   形式候选与语义判定组成；`pacing` 只走带章功能参照的独立语义评审；
+   `character_logic / knowledge_boundary / payoff_validity / web_hook_strength / power_scaling`
+   继续使用独立 evaluator rubric。其中 `web_hook_strength` 与 `power_scaling` 本质语义，
+   不强行确定性化，待 I10 真实模型验证。
 2. **🟡 五门有效性未证**：`character_logic / knowledge_boundary / payoff_validity / web_hook_strength / power_scaling` 只靠独立 evaluator 的 LLM 自评，且从未用真实模型验证——属 ADR-0020 **I10（真实文学收益须人工盲评）**未闭环范围，不得用脚本冒充。
 3. **非产出期四门无运行钩子（🔴）**：`worldrule_conflict`（建立期）/`timeline_and_state`（维护期）/`foreshadowing`（规划期）/`serialization_retention`（建立/规划期）属其它阶段，当前质量评估只在产出期跑，这四门需各自阶段的运行钩子 + 读模型（世界规则注册表 / 跨章连续性 / 伏笔生命周期 / 章节群留存结构），是独立 slice 的基建活，不应塞进 prose 产出期评估硬凑。
 4. **术语未对账**：独立 evaluator 的 prompt 还引用了一组**不在本目录 11 门**的 VS-00E 场级 validator（`scene_change / emotional_transition / character_agency / causal_progression / setup_turn_consequence / brief_alignment / dialogue_intent_fit`，对照 `ProseExecutionBriefV1` 评"正文 vs 执行简述对齐"）。这组与 11 门目录是两套并存术语，需要在后续 slice 里归一。
-5. **`pacing` 确定性兜底（`dialogue_density`）用了错误维度的指标（2026-07-20 登记+定义对齐，未开工）**：
-   现状（`prose_quality_validators.ex`）——整段正文句子数 ≥8 且全程零对白标记（「」『』""）→ 判"叙述密度偏高、节奏偏慢"。
+5. **`pacing` 错误形式代理已于 2026-07-24 移除，章节级语义参照已接入**：
+   旧 `dialogue_density`（整段句子数 ≥8 且零对白即判偏慢）已从 production validator
+   删除；句首/标点/长度也不再被命名为节奏。当前 evaluator request 显式携带
+   `ChapterPlanDirection`、`ReaderEffectBrief` 与章坐标，并以
+   `validator.narrative_pacing_fit` 独立评估结构定位与实际叙事密度是否匹配。
 
    **节奏的定义（与用户对齐）**：节奏不是一段文字可以脱离上下文单独打分的固有属性（不存在"这段文字节奏 7 分"），而是一个**相对匹配关系**——这一章实际写出来的事件/情绪/信息密度，是否匹配它自己在全书结构中**声明的功能定位**该有的密度。同一段"慢"文字，出现在高潮章后的喘息章里是对的（该慢），出现在该推进主线的章节里就是缺陷（不该慢）；离开"这里该是什么节奏"这个结构参照系，"节奏快慢"本身就不是一个可判断的问题。本项目已有这个参照系的载体——`ChapterPlanDirection.chapter_role`（章功能定位：推进章/铺垫章/高潮章/过渡章/转折章）本身就是在声明"这一章该是什么密度"。
 
@@ -394,14 +410,19 @@ v2 小说层默认至少保留以下质量门。
    - **细写 vs 概述的主动选择**：压缩叙述（"三年后他出狱了"一句跳过三年）是作者主动加速节奏的手段，字数短正是因为要快；逐帧细写一个瞬间（子弹如何穿过空气）字数长恰恰是为了拉长紧张感、刻意减速。**这个选择的方向和字数是反着来的，不是同向的**。
 
    **句长/句数为什么是错误维度（不是这个触发条件的边界案例，是这整个维度本身不成立）**：节奏是**内容层**属性（上面三件事），句长句数是**形式层**统计量（用了多少字/句去说），两者不是同一件事，用后者代理前者会两个方向都测反：
-   - 假阳性：动作/追逐/灾难类场景全程无对白，句数多但可以是全书最快节奏——当前实现会把它误判为"偏慢"。
+   - 假阳性：动作/追逐/灾难类场景全程无对白，句数多但可以是全书最快节奏——旧实现会把它误判为"偏慢"。
    - 假阴性：两个角色闲聊、零情节推进，只要穿插对白引号就完全不触发——恰恰是这类"有对白但没事发生"的场景才是真正拖慢主线的节奏问题。
-   - 零章级结构感知：高潮章后刻意安排的"喘息章"是正确的节奏设计（叙述多、对白少），当前实现会把正确的 craft 选择当成缺陷标记——这也是"节奏需要结构参照系"这条定义本身决定的：不知道这一章该是什么密度，就不可能判断实际密度对不对。
+   - 零章级结构感知：高潮章后刻意安排的"喘息章"是正确的节奏设计（叙述多、对白少），旧实现会把正确的 craft 选择当成缺陷标记——这也是"节奏需要结构参照系"这条定义本身决定的：不知道这一章该是什么密度，就不可能判断实际密度对不对。
 
    这不是调阈值、换触发条件能修的问题——只要还在"数句子/数对白标记"这个维度里打转，换任何阈值都会在上面两类假阳性/假阴性之间来回摆，必须换成对照"结构声明的密度"来判断实际密度的维度。
 
-   - 可行方向（未设计，只记方向）：本项目已有"结构声明的密度"与"实际执行结果"两份结构化数据可比对，不必只靠自由浮动的 LLM 判断——`ChapterPlanDirection.chapter_role` 定参照系（这一章该是推进/铺垫/高潮/过渡/转折的哪种密度），同结构体的 `emotion`/`plot_progress`/`opening_hook`/`ending_hook` 具体声明该密度下该有的情绪与推进量；`ChapterSummary` 四栏（`plot/characters/foreshadowing/mood`，见 `chapter_summary.ex`）记录本章"实际发生了什么"。把"按 chapter_role 该有的推进/情绪"与"摘要记录的实际推进/情绪"做比对（含跨章连续对比，捕捉"连续 N 章推进稀薄"），比要求 LLM 凭空评"这章节奏怎么样"更有据可查、更不易被同一个模型的自我评分蒙混——但这仍是语义比对，不能完全确定性化，且尚未验证比对本身的准确度（同样落在 I10 范围）。
-   - `dialogue_density` 现有实现**不撤**（它本来就只自称是"确定性兜底捕捉一个信号"，不是节奏检查本身，见本节原有注释），但不应被误当成"节奏已经测得对"——真正的节奏判断仍待建，且不应再往"句长句数"这个维度上继续加条件/调阈值。
+   - 当前实现：`ChapterPlanDirection.chapter_role` 定参照系，同结构体的
+     `emotion / plot_progress / character_change / information_release / opening_hook /
+     ending_hook` 与 `ReaderEffectBrief` 一起进入 evaluator request；evaluator 必须引用
+     正文证据并说明实际密度与结构定位的错配。跨章连续疲劳仍需在后续接入跨章摘要窗口。
+   - 当前剩余缺口不是结构实现，而是 I10：`narrative_pacing_fit` 对真实小说样本的文学判断
+     准确度仍需真实模型样本与人工盲评验证；fixture/测试桩只能证明链路和边界，不能宣称
+     文学收益。
 
 ---
 

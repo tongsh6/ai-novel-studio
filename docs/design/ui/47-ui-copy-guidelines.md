@@ -119,6 +119,13 @@
 | `tentative_artifact` | 待采纳产物 / 候选稿 |
 | `NextAction` | 下一步建议 / 当前需要你处理 |
 | `quality_finding` | 质量提醒 / 风险发现 |
+| `quality_finding.position` | 使用“第 n 句 / 第 n–m 句 / 正文中第 n 处命中”，不写内部 offset |
+| `quality_finding.reasoning` | 说明原句为何构成问题，不能只复述“命中规则” |
+| `quality_finding.impact_scope` | 局部 / 相关段落 / 整章 |
+| `quality_finding.confidence` | 显示百分比，表达模型判断把握，不等同于事实正确率 |
+| `revise_from_findings.local` | 局部修订所选问题 |
+| `revise_from_findings.paragraph` | 修订相关段落 |
+| `revise_from_findings.chapter` | 按所选问题修订整章 |
 | `approval_policy` | 确认规则 / 风险确认要求 |
 | `checkpoint`（普通作者界面） | 暂停点 / 长跑暂停 |
 | `long-run` | 长跑任务 / 批量续写 |

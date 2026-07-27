@@ -12,6 +12,7 @@ defmodule NovelDomain.QualityFinding do
   @actions [:warn, :adoption_review, :block, :confirm]
   @severities [:info, :warn, :high]
   @source_types [:prose_fragment, :scene_draft, :chapter_draft]
+  @scopes [:local, :paragraph, :chapter]
 
   @type t :: %__MODULE__{
           quality_finding_id: String.t() | nil,
@@ -23,8 +24,11 @@ defmodule NovelDomain.QualityFinding do
           severity: atom(),
           action: atom(),
           summary: String.t(),
-          confidence: float() | nil,
+          reasoning: String.t(),
+          confidence: float(),
           evidence_spans: [map()],
+          impact_scope: atom(),
+          revision_scope: atom(),
           brief_field_refs: [String.t()],
           suggested_revision: map() | nil,
           can_override: boolean(),
@@ -40,8 +44,11 @@ defmodule NovelDomain.QualityFinding do
             severity: :warn,
             action: :warn,
             summary: "",
-            confidence: nil,
+            reasoning: "",
+            confidence: 0.5,
             evidence_spans: [],
+            impact_scope: :local,
+            revision_scope: :local,
             brief_field_refs: [],
             suggested_revision: nil,
             can_override: true,
@@ -76,7 +83,9 @@ defmodule NovelDomain.QualityFinding do
       action = normalize_action(get_any(attrs, [:action, "action"]))
 
       %__MODULE__{
-        quality_finding_id: clean(get_any(attrs, [:quality_finding_id, "quality_finding_id"])),
+        quality_finding_id:
+          clean(get_any(attrs, [:quality_finding_id, "quality_finding_id"])) ||
+            stable_id(gate, validator, summary, attrs),
         quality_gate_ref: gate,
         validator_ref: validator,
         source_ref: clean(get_any(attrs, [:source_ref, "source_ref"])),
@@ -85,8 +94,17 @@ defmodule NovelDomain.QualityFinding do
         severity: normalize_severity(get_any(attrs, [:severity, "severity"])),
         action: action,
         summary: summary,
-        confidence: normalize_confidence(get_any(attrs, [:confidence, "confidence"])),
+        reasoning:
+          clean(get_any(attrs, [:reasoning, "reasoning"])) ||
+            "该判断基于正文证据与质量规则形成，建议结合原句复核。",
+        confidence: normalize_confidence(get_any(attrs, [:confidence, "confidence"])) || 0.5,
         evidence_spans: normalize_spans(get_any(attrs, [:evidence_spans, "evidence_spans"])),
+        impact_scope: normalize_scope(get_any(attrs, [:impact_scope, "impact_scope"])),
+        revision_scope:
+          normalize_scope(
+            get_any(attrs, [:revision_scope, "revision_scope"]) ||
+              get_any(attrs, [:impact_scope, "impact_scope"])
+          ),
         brief_field_refs: clean_list(get_any(attrs, [:brief_field_refs, "brief_field_refs"])),
         suggested_revision:
           normalize_map(get_any(attrs, [:suggested_revision, "suggested_revision"])),
@@ -110,8 +128,11 @@ defmodule NovelDomain.QualityFinding do
       "severity" => Atom.to_string(f.severity),
       "action" => Atom.to_string(f.action),
       "summary" => f.summary,
+      "reasoning" => f.reasoning,
       "confidence" => f.confidence,
       "evidence_spans" => f.evidence_spans,
+      "impact_scope" => Atom.to_string(f.impact_scope),
+      "revision_scope" => Atom.to_string(f.revision_scope),
       "brief_field_refs" => f.brief_field_refs,
       "suggested_revision" => f.suggested_revision,
       "can_override" => f.can_override
@@ -119,18 +140,24 @@ defmodule NovelDomain.QualityFinding do
   end
 
   @doc """
-  作者可见摘要（TurnResult / UI 用）：只暴露作者需要的字段，不泄露内部 id/置信度细节。
+  作者可见摘要（TurnResult / UI 用）：暴露作者做决定所需的证据、位置、理由、范围与置信度。
   """
   @spec author_safe_summary(t()) :: map()
   def author_safe_summary(%__MODULE__{} = f) do
     %{
+      "quality_finding_id" => f.quality_finding_id,
       "quality_gate" => f.quality_gate_ref,
       "validator" => f.validator_ref,
       "severity" => Atom.to_string(f.severity),
       "action" => Atom.to_string(f.action),
       "summary" => f.summary,
+      "reasoning" => f.reasoning,
+      "confidence" => f.confidence,
       "evidence_spans" => f.evidence_spans,
+      "impact_scope" => Atom.to_string(f.impact_scope),
+      "revision_scope" => Atom.to_string(f.revision_scope),
       "brief_field_refs" => f.brief_field_refs,
+      "suggested_revision" => f.suggested_revision,
       "can_override" => f.can_override
     }
   end
@@ -172,6 +199,13 @@ defmodule NovelDomain.QualityFinding do
   defp normalize_confidence(value) when is_integer(value) and value in 0..1, do: value / 1
   defp normalize_confidence(_value), do: nil
 
+  defp normalize_scope(value) do
+    case to_existing_atom(value) do
+      scope when scope in @scopes -> scope
+      _ -> :local
+    end
+  end
+
   defp normalize_spans(list) when is_list(list), do: Enum.filter(list, &is_map/1)
   defp normalize_spans(_list), do: []
 
@@ -201,4 +235,14 @@ defmodule NovelDomain.QualityFinding do
     do: list |> Enum.map(&clean/1) |> Enum.reject(&is_nil/1)
 
   defp clean_list(_list), do: []
+
+  defp stable_id(gate, validator, summary, attrs) do
+    evidence = get_any(attrs, [:evidence_spans, "evidence_spans"])
+    seed = :erlang.term_to_binary({gate, validator, summary, evidence})
+
+    "qf_" <>
+      (:crypto.hash(:sha256, seed)
+       |> Base.encode16(case: :lower)
+       |> String.slice(0, 16))
+  end
 end

@@ -14,7 +14,9 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
           prose_text: String.t(),
           execution_brief: String.t() | nil,
           reader_effect: String.t() | nil,
-          facts_context: String.t() | nil
+          facts_context: String.t() | nil,
+          form_candidates: [map()],
+          pacing_context: map() | nil
         }
 
   @enforce_keys [:request_id, :prose_text]
@@ -26,6 +28,8 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
     source_type: :prose_fragment,
     execution_brief: nil,
     reader_effect: nil,
-    facts_context: nil
+    facts_context: nil,
+    form_candidates: [],
+    pacing_context: nil
   ]
 end

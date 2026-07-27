@@ -3941,7 +3941,10 @@ export function WorkspaceChat() {
                       if (!isReadOnlySessionView && turnResult && turnResult.quality_review) {
                         const qr = turnResult.quality_review;
                         const turnId = turnResult.turn_id;
-                        const defaultIds = qr.findings.map((f) => f.validator || "");
+                        const defaultIds = qr.findings.map(
+                          (finding, index) =>
+                            finding.quality_finding_id || finding.validator || `${index}`,
+                        );
 
                         return (
                           <QualityReviewCard
