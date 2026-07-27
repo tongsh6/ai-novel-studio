@@ -1,6 +1,6 @@
 # DS03 Awaiting Author Runtime Validity and Recovery Surface
 
-- 状态：todo / P0 用户可见阻断
+- 状态：done / verified（2026-07-28，三场景真实 Tauri 全 PASS）
 - 类型：Decision Surface Slice / AgentRun Runtime Slice / UI Contract Slice / Acceptance Slice
 - 登记日期：2026-07-25
 - 父决策：ADR-0024 S7 CP3、ADR-0008 blocking clarification
@@ -117,14 +117,14 @@ Stage SQLite 与事件记录对账：
 
 | # | 任务 | Status | 说明 |
 |---|---|---|---|
-| T1 | 冻结 S7 recovery surface schema 与状态矩阵 | todo | 明确 paused / awaiting / dead bounded / durable |
-| T2 | 收紧 AgentRun resume 状态门禁 | todo | resume 仅允许 paused；awaiting 必须 steer/action |
-| T3 | 建立 join 后 runtime liveness 真源 | todo | 历史 TurnResult 不再单独授予控制权 |
-| T4 | 持久化 steer 作者输入与来源引用 | todo | refresh/replay 可恢复 |
-| T5 | 控制坞按状态切换动作与文案 | todo | awaiting 输入必填；dead bounded 提供重新发起 |
-| T6 | 系统错误内联、去重和 pending 防连击 | todo | 不新增 AI 气泡 |
-| T7 | 局部测试与 contract/schema 回归 | todo | application/web/frontend/persistence |
-| T8 | 真实 Tauri 三场景验收 | todo | live awaiting、refresh-live、refresh-dead |
+| T1 | 冻结 S7 recovery surface schema 与状态矩阵 | done | 状态矩阵冻结在 `docs/design/ui/46-state-and-feedback.md` §9.7.1 + ADR-0024「S7 运行时有效性」修订节；`agent_run_state` schema codegen 显式归 DS01，不据此关闭 S7 |
+| T2 | 收紧 AgentRun resume 状态门禁 | done | resume/steer 改同步 call：resume 仅 paused（awaiting 回 `awaiting_author_requires_input`，非 resumable 回 `not_resumable`）；steer 空白文本回 `steer_requires_text`、终态回 `not_steerable`；channel error reason 结构化透传 |
+| T3 | 建立 join 后 runtime liveness 真源 | done | 稳态快照/重连恒带 `runtime_live: true`；join 时 `AgentRunService.list_dead_bounded/2`（复用闲置 `AgentRunLog.list_active_bounded/2`）对 dead bounded 广播 `runtime_live: false` 只读快照 + `channel.agent_run_expired.done` 留痕；前端 `agentRunRuntimeAuthority`（live/dead/unknown）成为命令权限唯一判据，历史 TurnResult 快照不再授权 |
+| T4 | 持久化 steer 作者输入与来源引用 | done | steer 接受后 `DialogueGateway.persist_author_steer/5` 落 user interaction（content 携带 `agent_run_id`，turn_id=`{parent_turn_ref}:steer:{goal_version}` 幂等）；goal.version>1 的再次 settle 只补 assistant entry 防重复；transcript DTO/controller/前端 `agentRunId` 全链透传 |
+| T5 | 控制坞按状态切换动作与文案 | done | awaiting=补充提示+终止（无裸「继续」，占位语拆分）；dead bounded=「原任务已失效」+「重新发起任务」（预填 goal、走新 user_message）；dead durable=检查点口径无实时控制；unknown=「正在确认任务状态…」全禁用；dead run 不计顶栏聚合、主输入回普通语义 |
+| T6 | 系统错误内联、去重和 pending 防连击 | done | `AgentCommandError` 保留结构化 reason；失败=控制坞单一内联 status（run/command/reason 去重、成功清除），不追加 assistant 气泡；steer 失败撤回乐观消息并还原输入；`not_found` 即时本地降级 dead；command in-flight 全按钮防连击 |
+| T7 | 局部测试与 contract/schema 回归 | done | 后端 496+120 全绿（新增：paused 恢复、awaiting 拒裸 resume/空 steer、dead bounded join 广播+not_found、steer 持久化 entry、transcript agent_run_id）；前端 typecheck/lint/428 组件测试全绿（dock 状态矩阵 5 新例）；verifier 单测通过 |
+| T8 | 真实 Tauri 三场景验收 | done | 三场景全 PASS（2026-07-28）：`agent-awaiting-author-input-required`（无裸继续/空输入禁发/同 run 恢复/刷新后补充恰一次——首跑抓出 prose flow 完成时二次写 user entry 的重复病灶并修复）；`agent-bounded-refresh-live-resume`（暂停→刷新→reconnect `recovered+runtime_live`→继续→完成，无第二 run/无重启）；`agent-dead-bounded-run-expiry`（Phoenix 外部重启→`runtime_live:false`→失效文案+唯一重新发起→预填 goal→新 run_id，零 agent_command 打向死 run）。证据 `artifacts/slice-verify/agent-*-tauri/` |
 
 ## 7. 验收矩阵
 
@@ -153,13 +153,13 @@ Stage SQLite 与事件记录对账：
 
 ## 8. 完成标准
 
-- [ ] 状态矩阵 contract/schema 已冻结并 codegen
-- [ ] application / web / persistence / frontend 局部测试通过
-- [ ] 三个外部 Tauri 场景全部通过
-- [ ] steer Interaction 刷新恢复证据可查
-- [ ] `bash scripts/quality_manifest_check.sh`
-- [ ] `bash scripts/check_design_trace.sh`
-- [ ] `bash scripts/ai_static_scan.sh --top 10`
+- [x] 状态矩阵 contract 已冻结（46 §9.7.1 + ADR-0024 修订节；`agent_run_state` schema codegen 显式归 DS01，见决策日志残余登记）
+- [x] application / web / persistence / frontend 局部测试通过（后端 496+120 全绿、前端 typecheck/lint/428 全绿、verifier 184 全绿）
+- [x] 三个外部 Tauri 场景全部通过（见 T8）
+- [x] steer Interaction 刷新恢复证据可查（场景 A reload 断言 + `agent-awaiting-author-input-required-tauri/ui-state.json`）
+- [x] `bash scripts/quality_manifest_check.sh`
+- [x] `bash scripts/check_design_trace.sh`
+- [x] `bash scripts/ai_static_scan.sh --top 10`（本 slice 触碰项全处置：persist_author_steer 圈复杂度已重构；gitleaks 两项为既有 false_positive/accepted_risk 台账）
 
 ## 9. 决策日志
 
@@ -167,3 +167,19 @@ Stage SQLite 与事件记录对账：
   不回退 `UA01-natural-language-steering` 已完成的 live steer checkpoint；本 slice 专门关闭
   runtime validity、S7 recovery surface、steer persistence 与错误展示边界。
 - 2026-07-25 — 本轮只登记，不修改生产代码，不改变 `tasks/NEXT.md` 当前唯一队首。
+- 2026-07-28 — 用户拍板插单执行。实现取舍：
+  - resume/steer 从 `GenServer.cast` 改同步 call——原 cast 语义下「命令被拒绝」对前端
+    表现为成功回执，是幽灵任务的机制根源之一；改 call 后拒绝结构化可见。
+  - awaiting_author 的提交路径收束为 composer「发送调整」（空输入禁用）单一入口，
+    控制坞不再给任何主按钮——避免「提交补充」与「发送调整」双提交竞争，也保住
+    `agent-awaiting-author-steer-resume` 既有场景契约。
+  - dead bounded 不改写持久层状态（历史记录保持 awaiting_author 真相），失效只经
+    wire（`runtime_live: false`）声明；「重新发起」=预填原 goal 走新 `user_message`。
+  - steer 持久化用独立 user interaction + 二次 settle 抑制 user entry，而非依赖
+    settle 对重写——后者在 run 死亡/取消时丢失作者输入。
+- 2026-07-28 — 残余登记（不阻塞本 slice）：①prose 等非 judgment flow 的 settle 持久化
+  不走 `effective_author_text`，其 user/assistant 对在完成时才落库，mid-run steer entry
+  的 transcript 顺序会先于原始请求（judgment flow 无此问题）；待这些 flow 引入
+  awaiting/steer 语义时一并对齐。②Pencil `46§9.7-agent-run-control-dock`（dxUhh）尚未
+  补 dead/awaiting 变体 frame，文字契约已冻结在 46 §9.7.1。③`agent_run_state` schema
+  codegen 归 DS01。

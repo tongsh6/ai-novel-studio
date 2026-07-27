@@ -180,3 +180,29 @@ ui_cards 不携带可提交动作；
 - 需要创建的 schema：ui_card（含 3 种入册卡片字段）、S1-S7 决策面字段的 codegen 源（CP1）。
 - 需要进入的 slice：`decision-surface` CP1 / CP2 / CP3（按 `tasks/slices/` 六问立项，需用户批准 implementation plan）。
 - 仍需 Deferred 的问题：`capability_notice` 是否入册；S4 载体形式（behavior_state 投影 vs 信息卡）；`schema_version` 收敛节奏。
+
+## 修订：S7 运行时有效性与恢复面状态矩阵（2026-07-28，DS03 冻结）
+
+DS03（`tasks/slices/DS03-awaiting-author-runtime-validity-and-recovery-surface.md`）
+冻结 S7 的**运行时有效性前提**——在 available_actions 载体（CP3 本体，仍开放）之前，
+先钉死「历史状态 / 实时运行时 / 作者决策面」的单一状态契约：
+
+1. **命令权限真源**：`TurnResult.agent_run` 是历史展示事实；实时命令权限唯一来自
+   服务端 `agent_run_state` 帧的 `runtime_live`——稳态快照与 bounded 重连恒为
+   `true`；join 时发现的 dead bounded run 广播 `runtime_live: false` 只读快照
+   （`AgentRunService.list_dead_bounded/2`）；durable 检查点恢复沿用既有
+   `runtime_live: false`。缺失（仅历史快照）视为 unknown，不授予命令。
+2. **resume 门禁（同步命令）**：仅 `paused` 可 resume；`awaiting_author` 裸 resume
+   返回 `awaiting_author_requires_input`，恢复入口只有非空 steer（`steer_requires_text`
+   拒空白）或绑定 action。拒绝必须对作者可见（channel error reason 结构化透传）。
+3. **steer 持久化**：steer 被接受后以 user interaction 落库（content 携带
+   `agent_run_id`，turn_id 派生 `{parent_turn_ref}:steer:{goal_version}` 幂等）；同一
+   turn 因 steer 再次 settle 只补 assistant entry，不重复 user beat。刷新后 transcript
+   恢复作者补充及其 run 锚定。
+4. **错误呈现**：命令失败是控制坞内单一内联 system status（按 run/command/reason
+   去重），不得追加为 assistant 消息；`not_found` 同时把该 run 前端降级为 dead。
+5. **UI 状态矩阵**：见 `docs/design/ui/46-state-and-feedback.md` §9.7.1（paused /
+   awaiting live / dead bounded / durable checkpoint / unknown 五行）。
+
+S7 注册表行的 available_actions 载体与 `agent_run_state` schema codegen 仍属
+CP3 / DS01 范围，本修订不据此关闭 S7。

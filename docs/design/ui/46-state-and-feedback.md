@@ -323,14 +323,18 @@ active AgentRun 的暂停、继续、终止和自然语言调整入口不得跟�
 4. 工作卡状态行消费既有 `agent_run_state`、AgentPlan cursor 和 pending artifact refs，显示
    当前状态与轻量进度；展开后只显示 author-safe 运行摘要，不新增 provider console 或
    raw trace。
-5. 状态行右侧保留两个稳定槽位：
-   - 主操作槽位在 `running` 显示「暂停」，在 `paused / awaiting_author` 显示「继续」，
+5. 状态行右侧保留两个稳定槽位（2026-07-28 DS03 修订：`awaiting_author` 撤出裸「继续」）：
+   - 主操作槽位在 `running` 显示「暂停」，在 `paused` 显示「继续」，
      `pausing / cancelling` 显示不可重复触发的处理中状态；暂停和继续不得同时出现。
+   - `awaiting_author` 是系统缺作者输入的决策点，不显示「继续」；主操作槽位改为
+     补充引导文案，唯一恢复路径是输入非空补充后「发送调整」（服务端拒绝裸 resume）。
    - 危险操作显示「终止任务」，与主操作拉开层级；点击后必须说明影响并二次确认。
 6. 工作卡输入行必须持续显示“调整当前任务”语义，提交按钮使用「发送调整」。
    空输入时发送按钮必须明确禁用并降为中性灰；暂停且空输入时「继续」是唯一黑色主操作。
    输入补充要求后，「发送调整」升为黑色主操作，「继续」退为描边操作；运行中的暂停和
-   终止始终保持次级/危险层级，避免双主操作竞争。
+   终止始终保持次级/危险层级，避免双主操作竞争。`running` 与 `awaiting_author` 的输入
+   占位语分开：前者为“输入调整方向，引导当前任务…”，后者为“输入具体补充后发送，
+   任务将按新方向继续…”，不得暗示可以“直接继续”。
 7. `paused` 状态必须停止 spinner、呼吸点等运行中动效，语义活动改成
    “已暂停，继续后从当前步骤恢复”；顶栏同步显示“1 个任务已暂停”，不得同时出现
    “无任务”或“正在生成”。`completed / cancelled / failed` 终态同样不得残留
@@ -350,6 +354,25 @@ active AgentRun 的暂停、继续、终止和自然语言调整入口不得跟�
 `agent-provider-cancel-honest-boundary`：从固定控制坞操作真实页面，继续证明 command
 绑定当前 `run_id`，暂停不请求 ProviderExecution cancel，终止仍走单一取消路径。产品代码
 不得增加验收专用 DOM hook。
+
+#### 9.7.1 运行时有效性与恢复面（2026-07-28 DS03 冻结）
+
+历史 `TurnResult.agent_run` 只是可读快照，不授予实时命令权限；控制坞的命令权限
+唯一真源是服务端 `agent_run_state` 帧的 `runtime_live` 字段。状态矩阵：
+
+| 状态 | 作者语义 | 主操作 |
+|---|---|---|
+| `paused` + runtime live | 作者主动暂停，可原地恢复 | 「继续」 |
+| `awaiting_author` + runtime live | 缺少作者决策/补充 | 非空输入后「发送调整」；无裸「继续」 |
+| bounded runtime dead | 历史任务已失效 | 「重新发起任务」（预填原目标，走新 `user_message`，不向旧 run 发 `agent_command`） |
+| durable checkpoint（runtime dead） | 有持久检查点 | 显示“已从检查点恢复，实时控制不可用”；不复用 bounded resume 假象 |
+| liveness 未确认（仅历史快照） | 状态确认中 | 全部命令按钮禁用，显示“正在确认任务状态…” |
+
+命令失败（`not_found` / `awaiting_author_requires_input` / `steer_requires_text` /
+`run_scope_mismatch` / `timeout` …）在控制坞内显示**单一**内联 system status（按
+run/command/reason 去重，成功后清除），不得追加为 assistant 气泡；`not_found` 同时把
+该 run 本地降为 dead。command pending 期间所有提交按钮禁用（防连击）。dead run 不再
+计入顶栏“进行中任务”聚合，主输入框恢复普通消息语义。
 
 ### 9.8 作者动作触发的单一工作回合（2026-07-24 用户拍板）
 
