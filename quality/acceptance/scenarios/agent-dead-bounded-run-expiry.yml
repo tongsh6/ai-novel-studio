@@ -1,0 +1,62 @@
+id: agent-dead-bounded-run-expiry
+title: 后端重启后失活 bounded run 诚实降级，只能重新发起新任务
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-dead-bounded-run-expiry --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - dead-bounded-run-grants-no-command-authority
+  - expired-run-degrades-honestly-without-failure-bubble
+  - restart-creates-new-run-not-resume
+  - no-agent-command-to-dead-run
+
+setup:
+  seed: none
+  provider: slice_verify
+  awaiting_marker: UA01AWAITSTEER
+  external_service_restart: phoenix
+
+user_flow:
+  - open: real Tauri workbench
+  - send: an ambiguous request that stops the bounded run at awaiting_author
+  - restart: the Phoenix backend from outside the product
+  - reload: the workbench page
+  - wait_for: channel.agent_run_expired.done and the dead agent_run_state (runtime_live=false)
+  - verify: 原任务已失效 copy, the single 重新发起任务 action, and no 继续/暂停/终止任务 actions
+  - click: 重新发起任务 and verify the enabled main input is prefilled with the original goal text
+  - send: the restart request through the plain 发送 action
+  - verify: a new bounded run_id is acked and no agent_command targets the dead run_id
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-dead-bounded-run-expiry-tauri
+
+assertions:
+  ui:
+    - expired dock shows 原任务已失效 and 后台运行已结束，历史记录仍可查看。可重新发起任务继续。
+    - 重新发起任务 is the only run action; 继续 / 暂停 / 终止任务 counts are all zero
+    - the page shows no 操作失败，请重试。 and no 1 个任务等待确认 badge
+    - the main input is enabled and prefilled with the dead run goal text, and the send action reads 发送
+  network:
+    - the dead agent_run_state carries runtime_live=false for the original run_id
+    - the restart is sent as a plain user_message and acked with a new bounded run_id
+    - no agent_command frame targets the dead run_id after the reload
+  data:
+    - channel.agent_run_expired.done is logged for the dead run_id
+    - the new run_id differs from the dead run_id
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

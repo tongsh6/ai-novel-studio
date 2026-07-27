@@ -377,6 +377,27 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-awaiting-author-steer-resume.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-awaiting-author-steer-resume --surface tauri
+  - id: agent-awaiting-author-input-required
+    title: "awaiting_author 必填补充：无裸继续、空输入禁发、刷新不重复"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-awaiting-author-input-required.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-awaiting-author-input-required --surface tauri
+  - id: agent-bounded-refresh-live-resume
+    title: "刷新后活 runtime 重连同一 bounded run 并原地恢复"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-bounded-refresh-live-resume.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-bounded-refresh-live-resume --surface tauri
+  - id: agent-dead-bounded-run-expiry
+    title: "后端重启后失活 bounded run 诚实降级，只能重新发起新任务"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-dead-bounded-run-expiry.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-dead-bounded-run-expiry --surface tauri
   - id: agent-loop-budget-limit
     title: "AgentRun 受作者预算限制停止等待作者"
     tier: nightly

@@ -1,0 +1,60 @@
+id: agent-bounded-refresh-live-resume
+title: 刷新后活 runtime 重连同一 bounded run 并原地恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-bounded-refresh-live-resume --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - bounded-runtime-survives-page-refresh
+  - reconnect-rebinds-same-run-without-restart
+  - resume-command-bound-to-same-run
+  - completed-steps-preserved-across-refresh
+
+setup:
+  seed: none
+  provider: slice_verify
+  slow_marker: SU02SLOW
+
+user_flow:
+  - open: real Tauri workbench
+  - send: a slow bounded AgentRun request carrying the SU02SLOW marker
+  - wait_for: bounded ack and the running AgentRun state
+  - click: 暂停 in the control dock and wait for run_paused + paused state
+  - reload: the workbench page while the runtime stays alive
+  - wait_for: channel.agent_run_reconnect.done and the reconnect agent_run_state (recovered + runtime_live)
+  - click: the restored 继续 action
+  - wait_for: agent_command resume ack, run_resumed (resume_requested), and completed state for the same run_id
+  - verify: no second run, no run restart, and the pre-pause completed steps are preserved
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-bounded-refresh-live-resume-tauri
+
+assertions:
+  ui:
+    - paused control dock is restored after the reload with an enabled 继续 action
+  network:
+    - reconnect agent_run_state carries the same run_id with recovered=true and runtime_live=true
+    - resume is sent as agent_command bound to the same run_id and acked
+    - run_resumed is broadcast with resume_requested and the run reaches completed
+    - no agent_event run_started appears after the reload
+  data:
+    - channel.agent_run_expired.done is not required; channel.agent_run_reconnect.done is logged for the run_id
+    - all agent_run_state frames after the reload belong to the original run_id
+    - completed_step_refs from the paused state are contained in the terminal state
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

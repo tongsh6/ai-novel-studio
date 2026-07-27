@@ -1,0 +1,63 @@
+id: agent-awaiting-author-input-required
+title: awaiting_author 必填补充：无裸继续、空输入禁发、刷新不重复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-awaiting-author-input-required --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - awaiting-author-requires-concrete-input
+  - no-bare-resume-while-awaiting-author
+  - awaiting-input-steer-resumes-same-run
+  - steer-message-persists-once-across-reload
+  - command-authority-follows-runtime-state
+
+setup:
+  seed: none
+  provider: slice_verify
+  awaiting_marker: UA01AWAITSTEER
+
+user_flow:
+  - open: real Tauri workbench
+  - send: an ambiguous request that requires an expansion direction
+  - wait_for: awaiting_author state, TurnResult, and the required-input control dock
+  - verify: no bare 继续 action, the required-input hint, the awaiting placeholder, and a disabled empty 发送调整
+  - send: a concrete expansion direction through "发送调整"
+  - wait_for: plan_adjusted and run_resumed (resume_after_steer) for the same run_id
+  - wait_for: completed state and the final TurnResult for the same run_id
+  - reload: the workbench page
+  - verify: the steer message and the awaiting prompt are each restored exactly once without a failure bubble
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-awaiting-author-input-required-tauri
+
+assertions:
+  ui:
+    - awaiting_author dock shows the required-input hint instead of a bare 继续 action
+    - main input carries the awaiting placeholder 输入具体补充后发送，任务将按新方向继续…
+    - empty input keeps the 发送调整 action disabled
+    - reloaded transcript shows the steer message exactly once and no 操作失败，请重试。
+  network:
+    - concrete adjustment is sent as agent_command steer bound to the active run_id
+    - plan_adjusted and run_resumed with resume_after_steer are broadcast for the same run_id
+    - the same run_id reaches completed with a final TurnResult
+  data:
+    - the steer text persists as one user interaction and is restored once after reload
+    - the awaiting prompt appears exactly once after reload
+    - no second AgentRun is created by the adjustment
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

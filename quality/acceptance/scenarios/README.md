@@ -23,6 +23,9 @@
 | `agent-steer-replan.yml` | AgentRun 主输入 steer 绑定 active run_id 并广播重规划状态 |
 | `agent-natural-language-steer.yml` | 运行中主输入框自然语言 steering 绑定 active AgentRun |
 | `agent-awaiting-author-steer-resume.yml` | 等待作者补充后由真实任务输入恢复同一 AgentRun，且不重复旧确认提示 |
+| `agent-awaiting-author-input-required.yml` | awaiting_author 必填补充：无裸继续、空输入禁发、刷新后 steer 消息与停等提示各恢复一次（DS03） |
+| `agent-bounded-refresh-live-resume.yml` | 刷新后活 runtime 重连同一 bounded run，继续按钮原地恢复且不产生第二个 run（DS03） |
+| `agent-dead-bounded-run-expiry.yml` | 后端重启后失活 bounded run 诚实降级为「原任务已失效」，只能预填 goal 重新发起新 run（DS03） |
 | `agent-loop-budget-limit.yml` | AgentRun 受作者预算限制停止等待作者 |
 | `agent-no-progress-stop.yml` | AgentRun 重复无进展时停止等待作者 |
 | `agent-archive-read-during-run.yml` | AgentRun 运行中作品档案仍可读取 |

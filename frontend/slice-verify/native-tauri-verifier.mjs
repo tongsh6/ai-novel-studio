@@ -15,6 +15,10 @@ const ua01AgentSteerScenarioIds = [
   "agent-steer-replan",
   "agent-natural-language-steer",
   "agent-awaiting-author-steer-resume",
+  // DS03 状态矩阵：awaiting 必填补充 / 刷新重连活 runtime / 失活 runtime 诚实降级。
+  "agent-awaiting-author-input-required",
+  "agent-bounded-refresh-live-resume",
+  "agent-dead-bounded-run-expiry",
 ];
 const ua01AgentStopScenarioIds = ["agent-loop-budget-limit", "agent-no-progress-stop"];
 const ua01AgentArchiveScenarioIds = ["agent-archive-read-during-run"];
@@ -654,6 +658,23 @@ const sliceKeyEvents = {
     "orchestrator.decide.done",
     "toolbox.execute.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-awaiting-author-input-required": [
+    "channel.join.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-bounded-refresh-live-resume": [
+    "channel.join.done",
+    "channel.user_message.done",
+    "channel.agent_run_reconnect.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-dead-bounded-run-expiry": [
+    "channel.join.done",
+    "channel.user_message.done",
+    "channel.agent_run_expired.done",
     "slice_verify.ui_state.done",
   ],
   "agent-loop-budget-limit": [
@@ -7107,6 +7128,18 @@ function findUa01AgentSteerEvidence(records, sliceId) {
     return findUa01AwaitingAuthorSteerEvidence(records);
   }
 
+  if (sliceId === "agent-awaiting-author-input-required") {
+    return findDs03AwaitingAuthorInputRequiredEvidence(records);
+  }
+
+  if (sliceId === "agent-bounded-refresh-live-resume") {
+    return findDs03BoundedRefreshLiveResumeEvidence(records);
+  }
+
+  if (sliceId === "agent-dead-bounded-run-expiry") {
+    return findDs03DeadBoundedRunExpiryEvidence(records);
+  }
+
   const keyEvents = keyEventsForSlice(sliceId);
   const mainInputSteer = ua01AgentSteerUsesMainInput(sliceId);
   const uiState = records.find(
@@ -7234,6 +7267,18 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
     return ua01AwaitingAuthorSteerBehavior(turnIds, records, evidence);
   }
 
+  if (sliceId === "agent-awaiting-author-input-required") {
+    return ds03AwaitingAuthorInputRequiredBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-bounded-refresh-live-resume") {
+    return ds03BoundedRefreshLiveResumeBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-dead-bounded-run-expiry") {
+    return ds03DeadBoundedRunExpiryBehavior(turnIds, records, evidence);
+  }
+
   const mainInputSteer = ua01AgentSteerUsesMainInput(sliceId);
   if (turnIds.length !== 1) return null;
 
@@ -7348,6 +7393,308 @@ function ua01AwaitingAuthorSteerBehavior(turnIds, records, evidence) {
       "same_agent_run_reached_completed_with_a_final_turn_result",
       "original_awaiting_prompt_remained_once_and_was_not_repeated",
       "final_result_was_visible_after_the_author_adjustment",
+    ],
+  };
+}
+
+// ── DS03 状态矩阵：awaiting_author 必填补充（无裸继续 + 空输入禁发 + 刷新不重复） ──
+function findDs03AwaitingAuthorInputRequiredEvidence(records) {
+  const sliceId = "agent-awaiting-author-input-required";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      record.awaiting_status === "awaiting_author" &&
+      record.terminal_status === "completed" &&
+      record.command === "steer" &&
+      record.command_ack_received === true &&
+      record.command_target_bound_to_active_run === true &&
+      record.bare_resume_absent_while_awaiting === true &&
+      record.awaiting_input_hint_visible === true &&
+      record.awaiting_placeholder_visible === true &&
+      record.empty_send_disabled_while_awaiting === true &&
+      record.same_run_resumed_after_input === true &&
+      Array.isArray(record.run_resumed_reason_codes) &&
+      record.run_resumed_reason_codes.includes("resume_after_steer") &&
+      record.steer_text_restored_after_reload === true &&
+      Number(record.steer_text_reload_occurrence_count ?? 0) === 1 &&
+      Number(record.stale_awaiting_prompt_after_reload_count ?? 0) === 1 &&
+      record.no_failure_bubble === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    command: "steer",
+    command_source: "awaiting_author_task_input",
+    awaiting_status: uiState.awaiting_status,
+    terminal_status: uiState.terminal_status,
+    steer_text_reload_occurrence_count: Number(uiState.steer_text_reload_occurrence_count ?? 0),
+    stale_awaiting_prompt_after_reload_count: Number(
+      uiState.stale_awaiting_prompt_after_reload_count ?? 0,
+    ),
+    key_events: keyEvents,
+  };
+}
+
+function ds03AwaitingAuthorInputRequiredBehavior(turnIds, records, evidence) {
+  const sliceId = "agent-awaiting-author-input-required";
+  if (turnIds.length !== 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.bare_resume_absent_while_awaiting !== true) return null;
+  if (uiState.awaiting_input_hint_visible !== true) return null;
+  if (uiState.awaiting_placeholder_visible !== true) return null;
+  if (uiState.empty_send_disabled_while_awaiting !== true) return null;
+  if (uiState.same_run_resumed_after_input !== true) return null;
+  if (uiState.steer_text_restored_after_reload !== true) return null;
+  if (Number(uiState.steer_text_reload_occurrence_count ?? 0) !== 1) return null;
+  if (Number(uiState.stale_awaiting_prompt_after_reload_count ?? 0) !== 1) return null;
+  if (uiState.no_failure_bubble !== true) return null;
+  if (uiState.terminal_status !== "completed") return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "awaiting_author_requires_concrete_input_and_survives_reload_without_duplicates",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    command: "steer",
+    command_source: evidence.command_source,
+    awaiting_status: evidence.awaiting_status,
+    terminal_status: evidence.terminal_status,
+    steer_text_reload_occurrence_count: evidence.steer_text_reload_occurrence_count,
+    stale_awaiting_prompt_after_reload_count: evidence.stale_awaiting_prompt_after_reload_count,
+    assertions: [
+      "awaiting_author_dock_exposed_no_bare_resume_action",
+      "awaiting_input_hint_and_required_placeholder_were_visible",
+      "empty_input_kept_the_send_adjustment_action_disabled",
+      "concrete_adjustment_was_sent_as_agent_command_steer",
+      "plan_adjusted_and_run_resumed_after_steer_bound_the_same_run",
+      "same_agent_run_reached_completed_after_the_adjustment",
+      "steer_message_was_persisted_and_restored_once_after_reload",
+      "awaiting_prompt_stayed_singular_after_reload",
+      "no_failure_bubble_was_shown_after_reload",
+    ],
+  };
+}
+
+// ── DS03 状态矩阵：刷新后活 runtime 重连同一 bounded run 并原地恢复 ──
+function findDs03BoundedRefreshLiveResumeEvidence(records) {
+  const sliceId = "agent-bounded-refresh-live-resume";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      record.paused_status === "paused" &&
+      record.reconnect_recovered === true &&
+      record.reconnect_runtime_live === true &&
+      record.resume_command_bound_to_same_run === true &&
+      Array.isArray(record.run_resumed_reason_codes) &&
+      record.run_resumed_reason_codes.includes("resume_requested") &&
+      record.no_second_run_after_reload === true &&
+      record.no_run_restart_after_reload === true &&
+      record.completed_steps_preserved === true &&
+      record.terminal_status === "completed",
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  const reconnectLogged = records.some(
+    (record) =>
+      record.event === "channel.agent_run_reconnect.done" && record.run_id === runId,
+  );
+  if (!reconnectLogged) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    command: "resume",
+    command_source: "reconnected_control_dock",
+    paused_status: uiState.paused_status,
+    terminal_status: uiState.terminal_status,
+    run_resumed_reason_codes: uiState.run_resumed_reason_codes,
+    key_events: keyEvents,
+  };
+}
+
+function ds03BoundedRefreshLiveResumeBehavior(turnIds, records, evidence) {
+  const sliceId = "agent-bounded-refresh-live-resume";
+  if (turnIds.length !== 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.reconnect_recovered !== true) return null;
+  if (uiState.reconnect_runtime_live !== true) return null;
+  if (uiState.resume_command_bound_to_same_run !== true) return null;
+  if (!Array.isArray(uiState.run_resumed_reason_codes)) return null;
+  if (!uiState.run_resumed_reason_codes.includes("resume_requested")) return null;
+  if (uiState.no_second_run_after_reload !== true) return null;
+  if (uiState.no_run_restart_after_reload !== true) return null;
+  if (uiState.completed_steps_preserved !== true) return null;
+  if (uiState.terminal_status !== "completed") return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "page_refresh_reconnects_the_live_bounded_run_and_resumes_it_in_place",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    command: "resume",
+    command_source: evidence.command_source,
+    paused_status: evidence.paused_status,
+    terminal_status: evidence.terminal_status,
+    run_resumed_reason_codes: evidence.run_resumed_reason_codes,
+    assertions: [
+      "paused_bounded_run_survived_the_page_reload",
+      "channel_logged_agent_run_reconnect_for_the_same_run_id",
+      "reconnect_state_carried_recovered_and_runtime_live",
+      "resume_command_and_ack_were_bound_to_the_same_run_id",
+      "run_resumed_was_broadcast_with_resume_requested",
+      "no_second_run_or_run_restart_appeared_after_reload",
+      "steps_completed_before_pause_were_preserved_to_completion",
+    ],
+  };
+}
+
+// ── DS03 状态矩阵：后端重启后失活 bounded run 诚实降级，只能重新发起 ──
+function findDs03DeadBoundedRunExpiryEvidence(records) {
+  const sliceId = "agent-dead-bounded-run-expiry";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      boolValue(record.dead_state_runtime_live) === false &&
+      record.expired_title_visible === true &&
+      record.expired_detail_visible === true &&
+      record.restart_action_visible === true &&
+      record.bare_resume_absent_for_dead_run === true &&
+      record.terminate_absent_for_dead_run === true &&
+      record.no_failure_bubble === true &&
+      record.restart_prefill_matches_goal === true &&
+      record.send_label_is_normal_send === true &&
+      typeof record.new_run_id === "string" &&
+      record.new_run_id !== "" &&
+      record.new_run_id !== record.run_id &&
+      record.new_run_differs_from_dead_run === true &&
+      record.no_agent_command_to_dead_run === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  const expiredLogged = records.some(
+    (record) => record.event === "channel.agent_run_expired.done" && record.run_id === runId,
+  );
+  if (!expiredLogged) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    new_run_id: uiState.new_run_id,
+    dead_state_runtime_live: boolValue(uiState.dead_state_runtime_live),
+    key_events: keyEvents,
+  };
+}
+
+function ds03DeadBoundedRunExpiryBehavior(turnIds, records, evidence) {
+  const sliceId = "agent-dead-bounded-run-expiry";
+  if (turnIds.length !== 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (boolValue(uiState.dead_state_runtime_live) !== false) return null;
+  if (uiState.expired_title_visible !== true) return null;
+  if (uiState.expired_detail_visible !== true) return null;
+  if (uiState.restart_action_visible !== true) return null;
+  if (uiState.bare_resume_absent_for_dead_run !== true) return null;
+  if (uiState.terminate_absent_for_dead_run !== true) return null;
+  if (uiState.no_failure_bubble !== true) return null;
+  if (uiState.restart_prefill_matches_goal !== true) return null;
+  if (uiState.send_label_is_normal_send !== true) return null;
+  if (uiState.new_run_differs_from_dead_run !== true) return null;
+  if (uiState.no_agent_command_to_dead_run !== true) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "dead_bounded_run_degrades_honestly_and_restarts_as_a_new_run",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    new_run_id: evidence.new_run_id,
+    dead_state_runtime_live: evidence.dead_state_runtime_live,
+    assertions: [
+      "backend_restart_broadcast_runtime_live_false_for_the_dead_run",
+      "channel_logged_agent_run_expired_for_the_same_run_id",
+      "expired_copy_and_restart_only_action_were_visible",
+      "no_resume_pause_or_terminate_action_remained_for_the_dead_run",
+      "no_failure_bubble_was_shown_for_the_honest_degrade",
+      "restart_action_prefilled_the_enabled_main_input_with_the_goal_text",
+      "composer_fell_back_to_the_plain_send_action",
+      "restart_went_through_a_plain_user_message_into_a_new_run_id",
+      "no_agent_command_targeted_the_dead_run_after_reload",
     ],
   };
 }

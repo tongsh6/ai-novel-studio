@@ -11,7 +11,9 @@ const artifactDir =
   process.env.SLICE_VERIFY_ARTIFACT_DIR ??
   path.resolve("..", "artifacts", "slice-verify", sliceId ?? "unknown");
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
-const agentRunSteerInputSelector = 'input[placeholder="输入补充要求，或直接继续任务…"]';
+// DS03 状态矩阵拆分：running 期为「引导」占位，awaiting_author 期为「必填补充」占位。
+const agentRunSteerInputSelector =
+  'input[placeholder="输入调整方向，引导当前任务…"], input[placeholder="输入具体补充后发送，任务将按新方向继续…"]';
 const acceptDraftButtonPattern = /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/;
 const readingModeButtonPattern = /\[阅读模式\]|阅读/;
 
@@ -24495,6 +24497,771 @@ async function driveAgentAwaitingAuthorSteerResume(page) {
   ];
 }
 
+// ── DS03 状态矩阵：awaiting_author 只接受具体补充，控制坞不提供裸「继续」 ──
+async function driveAgentAwaitingAuthorInputRequired(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `DS03-AWAIT-INPUT-${Date.now().toString(36)}`;
+  const awaitingPrompt =
+    "我理解你希望增加第一章的篇幅，但还需要你明确扩写方式；请补充具体方向后，我再继续。";
+  const awaitingInputHint = "等待你的补充：输入具体方向后发送，任务才会继续。";
+  const awaitingInputSelector = 'input[placeholder="输入具体补充后发送，任务将按新方向继续…"]';
+  const failureBubbleText = "操作失败，请重试。";
+  const initialText = `第一章字数太少了，标记UA01AWAITSTEER-${nonce}。`;
+  const steerText =
+    "直接在现有正文基础上扩写，增加场景、细节和心理描写，保持现有结构与情节不变。";
+  const work = await createWorkSeed({
+    title: `DS03 Awaiting Input Required ${nonce}`,
+    genre: "悬疑",
+    core_selling_point: "验证 awaiting_author 必须提交具体补充且不提供裸继续",
+    target_reader: "需要在任务停等时明确补充方向的作者",
+    tone_preference: "克制、细腻",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the DS03 awaiting-input work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(initialText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "DS03 awaiting-input scenario did not send the initial author message",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "DS03 awaiting-input scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const awaitingStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "awaiting_author",
+    "DS03 awaiting-input scenario did not enter awaiting_author",
+    60_000,
+  );
+
+  const awaitingTurnResultFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.status === "awaiting_author",
+    "DS03 awaiting-input awaiting_author TurnResult was not broadcast",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (expectedPrompt) => document.body.innerText.includes(expectedPrompt),
+    awaitingPrompt,
+    { timeout: 30_000 },
+  );
+  await page.waitForFunction(
+    (expectedHint) => document.body.innerText.includes(expectedHint),
+    awaitingInputHint,
+    { timeout: 30_000 },
+  );
+
+  const bareResumeCount = await page.getByRole("button", { name: /^继续$/ }).count();
+  assert(
+    bareResumeCount === 0,
+    `awaiting_author control dock still exposed a bare resume action (count=${bareResumeCount})`,
+  );
+
+  const awaitingInput = page.locator(awaitingInputSelector);
+  await awaitingInput.waitFor({ state: "visible", timeout: 30_000 });
+  const awaitingInputValue = await awaitingInput.inputValue();
+  assert(
+    awaitingInputValue === "",
+    "awaiting_author main input was not empty before the disabled-send check",
+  );
+
+  const steerSendButton = page.getByRole("button", { name: /^发送调整$/ });
+  await steerSendButton.waitFor({ state: "visible", timeout: 30_000 });
+  const emptySendDisabled = await steerSendButton.isDisabled();
+  assert(emptySendDisabled, "empty awaiting_author input did not disable the 发送调整 action");
+
+  const steerFrameStart = frames.length;
+  await awaitingInput.fill(steerText);
+  await steerSendButton.click();
+
+  const commandFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === "steer" &&
+      frame.body?.text === steerText,
+    "DS03 awaiting-input adjustment was not sent as agent_command steer",
+    30_000,
+  );
+
+  const commandAckFrame = await waitForNewFrame(
+    frames.indexOf(commandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.run_id === runId &&
+      frame.body?.response?.command === "steer",
+    "DS03 awaiting-input steer did not ack for the same run_id",
+    30_000,
+  );
+
+  const planAdjustedFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_adjusted",
+    "DS03 awaiting-input steer did not broadcast plan_adjusted",
+    30_000,
+  );
+
+  const runResumedFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_resumed" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("resume_after_steer"),
+    "DS03 awaiting-input steer did not resume the same AgentRun",
+    30_000,
+  );
+
+  const terminalStateFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed",
+    "DS03 awaiting-input resumed AgentRun did not complete",
+    90_000,
+  );
+
+  const finalTurnResultFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.status === "completed",
+    "DS03 awaiting-input resumed AgentRun did not broadcast its final TurnResult",
+    30_000,
+  );
+
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.waitForFunction(
+    (expectedText) => document.body.innerText.includes(expectedText),
+    steerText,
+    { timeout: 60_000 },
+  );
+
+  const reloadedText = await page.locator("body").innerText();
+  const steerTextReloadCount = reloadedText.split(steerText).length - 1;
+  const staleAwaitingPromptReloadCount = reloadedText.split(awaitingPrompt).length - 1;
+  const failureBubbleVisible = reloadedText.includes(failureBubbleText);
+  assert(
+    steerTextReloadCount === 1,
+    `restored steer message should appear once after reload, got ${steerTextReloadCount}`,
+  );
+  assert(
+    staleAwaitingPromptReloadCount === 1,
+    `awaiting_author prompt should appear once after reload, got ${staleAwaitingPromptReloadCount}`,
+  );
+  assert(!failureBubbleVisible, "reloaded transcript showed 操作失败，请重试。");
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-awaiting-author-input-required",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: work.title,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      awaiting_status: awaitingStateFrame.body?.status,
+      terminal_status: terminalStateFrame.body?.status,
+      awaiting_turn_result_id: awaitingTurnResultFrame.body?.turn_id,
+      final_turn_result_id: finalTurnResultFrame.body?.turn_id,
+      command: commandFrame.body?.command,
+      command_text: commandFrame.body?.text,
+      command_ack_received: commandAckFrame.body?.response?.received === true,
+      command_target_bound_to_active_run: commandFrame.body?.run_id === runId,
+      plan_adjusted_event_type: planAdjustedFrame.body?.event_type,
+      run_resumed_event_type: runResumedFrame.body?.event_type,
+      run_resumed_reason_codes: runResumedFrame.body?.reason_codes ?? [],
+      bare_resume_absent_while_awaiting: bareResumeCount === 0,
+      awaiting_input_hint_visible: true,
+      awaiting_placeholder_visible: true,
+      empty_send_disabled_while_awaiting: emptySendDisabled === true,
+      same_run_resumed_after_input:
+        runResumedFrame.body?.run_ref === runId &&
+        (runResumedFrame.body?.reason_codes ?? []).includes("resume_after_steer") &&
+        terminalStateFrame.body?.run_id === runId,
+      steer_text_restored_after_reload: steerTextReloadCount >= 1,
+      steer_text_reload_occurrence_count: steerTextReloadCount,
+      stale_awaiting_prompt_after_reload_count: staleAwaitingPromptReloadCount,
+      no_failure_bubble: !failureBubbleVisible,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+// ── DS03 状态矩阵：刷新后 bounded runtime 仍活——reconnect 恢复同一 run 并可继续 ──
+async function driveAgentBoundedRefreshLiveResume(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `DS03-LIVE-${Date.now().toString(36)}`;
+  const work = await createWorkSeed({
+    title: `DS03 Bounded Refresh Live Resume ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: "验证刷新后仍活的 bounded AgentRun 重连并原地恢复",
+    target_reader: "需要跨页面刷新继续同一任务的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the DS03 live-resume work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+  await sleep(750);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const message = `先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派；标记SU02SLOW-${nonce}，慢速执行以便我暂停后刷新页面。`;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "DS03 live-resume scenario did not send the author request through the real channel",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "DS03 live-resume scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "running",
+    "DS03 live-resume scenario did not broadcast a running AgentRun state",
+    30_000,
+  );
+
+  const pauseButton = page.getByRole("button", { name: /^暂停$/ });
+  await pauseButton.waitFor({ state: "visible", timeout: 30_000 });
+  await pauseButton.click();
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_paused",
+    "DS03 live-resume scenario did not broadcast run_paused",
+    60_000,
+  );
+
+  const pausedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "paused",
+    "DS03 live-resume scenario did not broadcast the paused AgentRun state",
+    60_000,
+  );
+  const pausedCompletedStepRefs = Array.isArray(pausedStateFrame.body?.completed_step_refs)
+    ? pausedStateFrame.body.completed_step_refs
+    : [];
+
+  const reloadFrameStart = frames.length;
+  const reloadLogStart = readAppLogRecords().length;
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.waitForFunction(
+    () => /服务: 已连接|同步已连接/.test(document.body.innerText),
+    null,
+    { timeout: 60_000 },
+  );
+
+  await waitForNewAppLogRecord(
+    reloadLogStart,
+    (record) => record.event === "channel.agent_run_reconnect.done" && record.run_id === runId,
+    "Channel did not log the live bounded AgentRun reconnect after reload",
+    60_000,
+  );
+
+  const reconnectStateFrame = await waitForNewFrame(
+    reloadFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "paused" &&
+      frame.body?.recovered === true &&
+      frame.body?.runtime_live === true,
+    "Reload did not broadcast the reconnected live AgentRun state",
+    60_000,
+  );
+
+  const resumeButton = page.getByRole("button", { name: /^继续$/ });
+  await resumeButton.waitFor({ state: "visible", timeout: 30_000 });
+  const resumeEnabled = await resumeButton.isEnabled();
+  assert(resumeEnabled, "Reconnected paused AgentRun did not expose an enabled resume action");
+  await resumeButton.click();
+
+  const resumeCommandFrame = await waitForNewFrame(
+    reloadFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === "resume",
+    "Resume was not sent as agent_command for the reconnected run_id",
+    30_000,
+  );
+
+  const resumeAckFrame = await waitForNewFrame(
+    frames.indexOf(resumeCommandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.run_id === runId &&
+      frame.body?.response?.command === "resume",
+    "Resume agent_command did not ack for the same run_id",
+    30_000,
+  );
+
+  const runResumedFrame = await waitForNewFrame(
+    reloadFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_resumed" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("resume_requested"),
+    "Reconnected AgentRun did not broadcast run_resumed with resume_requested",
+    30_000,
+  );
+
+  const terminalStateFrame = await waitForNewFrame(
+    reloadFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed",
+    "Reconnected AgentRun did not complete after resume",
+    90_000,
+  );
+
+  const framesAfterReload = frames.slice(reloadFrameStart);
+  const runIdsAfterReload = new Set(
+    framesAfterReload
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_run_state" &&
+          typeof frame.body?.run_id === "string",
+      )
+      .map((frame) => frame.body.run_id),
+  );
+  const runStartedAfterReload = framesAfterReload.some(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.event_type === "run_started",
+  );
+  const terminalStepRefs = Array.isArray(terminalStateFrame.body?.completed_step_refs)
+    ? terminalStateFrame.body.completed_step_refs
+    : [];
+  const completedStepsPreserved = pausedCompletedStepRefs.every((ref) =>
+    terminalStepRefs.includes(ref),
+  );
+  assert(
+    runIdsAfterReload.size === 1 && runIdsAfterReload.has(runId),
+    `Reload produced agent_run_state frames for other runs: ${[...runIdsAfterReload].join(",")}`,
+  );
+  assert(!runStartedAfterReload, "Reload restarted the bounded AgentRun instead of reconnecting");
+  assert(
+    completedStepsPreserved,
+    "Steps completed before the pause were lost after the reload resume",
+  );
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-bounded-refresh-live-resume",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: work.title,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      paused_status: pausedStateFrame.body?.status,
+      reconnect_recovered: reconnectStateFrame.body?.recovered === true,
+      reconnect_runtime_live: reconnectStateFrame.body?.runtime_live === true,
+      resume_command_bound_to_same_run:
+        resumeCommandFrame.body?.run_id === runId &&
+        resumeAckFrame.body?.response?.run_id === runId,
+      run_resumed_reason_codes: runResumedFrame.body?.reason_codes ?? [],
+      no_second_run_after_reload: runIdsAfterReload.size === 1 && runIdsAfterReload.has(runId),
+      no_run_restart_after_reload: !runStartedAfterReload,
+      completed_steps_preserved: completedStepsPreserved,
+      paused_completed_step_count: pausedCompletedStepRefs.length,
+      terminal_completed_step_count: terminalStepRefs.length,
+      terminal_status: terminalStateFrame.body?.status,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+// ── DS03 状态矩阵：后端重启后 bounded runtime 失活——历史任务只降级不授权 ──
+async function driveAgentDeadBoundedRunExpiry(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `DS03-DEAD-${Date.now().toString(36)}`;
+  const initialText = `第一章字数太少了，标记UA01AWAITSTEER-${nonce}。`;
+  const expiredTitle = "原任务已失效";
+  const expiredDetail = "后台运行已结束，历史记录仍可查看。可重新发起任务继续。";
+  const failureBubbleText = "操作失败，请重试。";
+  const awaitingBadgeText = "1 个任务等待确认";
+  const work = await createWorkSeed({
+    title: `DS03 Dead Bounded Run Expiry ${nonce}`,
+    genre: "悬疑",
+    core_selling_point: "验证后端重启后失活 bounded run 诚实降级并只能重新发起",
+    target_reader: "需要在服务重启后安全接续创作的作者",
+    tone_preference: "克制、细腻",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the DS03 dead-run work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(initialText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "DS03 dead-run scenario did not send the initial author message",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "DS03 dead-run scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "awaiting_author",
+    "DS03 dead-run scenario did not enter awaiting_author",
+    60_000,
+  );
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.status === "awaiting_author",
+    "DS03 dead-run awaiting_author TurnResult was not broadcast",
+    30_000,
+  );
+
+  const service = createPhoenixServiceController();
+  try {
+    await service.stopOriginal();
+    await service.restart();
+
+    const reloadFrameStart = frames.length;
+    const reloadLogStart = readAppLogRecords().length;
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    await page.waitForFunction(
+      () => /服务: 已连接|同步已连接/.test(document.body.innerText),
+      null,
+      { timeout: 60_000 },
+    );
+
+    await waitForNewAppLogRecord(
+      reloadLogStart,
+      (record) => record.event === "channel.agent_run_expired.done" && record.run_id === runId,
+      "Channel did not log the expired bounded AgentRun after backend restart",
+      60_000,
+    );
+
+    const deadStateFrame = await waitForNewFrame(
+      reloadFrameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.runtime_live === false,
+      "Backend restart did not broadcast the dead bounded AgentRun snapshot",
+      60_000,
+    );
+    const goalText = String(deadStateFrame.body?.goal?.text ?? "");
+    assert(
+      goalText.includes(nonce),
+      "Dead AgentRun snapshot did not carry the original task goal text",
+    );
+
+    await page.waitForFunction(
+      (expected) => expected.every((value) => document.body.innerText.includes(value)),
+      [expiredTitle, expiredDetail],
+      { timeout: 30_000 },
+    );
+
+    const restartButton = page.getByRole("button", { name: /^重新发起任务$/ });
+    await restartButton.waitFor({ state: "visible", timeout: 30_000 });
+    const bareResumeCount = await page.getByRole("button", { name: /^继续$/ }).count();
+    const pauseCount = await page.getByRole("button", { name: /^暂停$/ }).count();
+    const terminateCount = await page.getByRole("button", { name: /^终止任务$/ }).count();
+    const deadVisibleText = await page.locator("body").innerText();
+    const failureBubbleVisible = deadVisibleText.includes(failureBubbleText);
+    const awaitingBadgeVisible = deadVisibleText.includes(awaitingBadgeText);
+    assert(bareResumeCount === 0, "Dead bounded run still exposed a 继续 action");
+    assert(pauseCount === 0, "Dead bounded run still exposed a 暂停 action");
+    assert(terminateCount === 0, "Dead bounded run still exposed a 终止任务 action");
+    assert(!failureBubbleVisible, "Dead bounded run degrade showed 操作失败，请重试。");
+    assert(!awaitingBadgeVisible, "Dead bounded run still counted into 1 个任务等待确认");
+
+    await restartButton.click();
+    await page.waitForFunction(
+      ({ selector, expectedValue }) => {
+        const input = document.querySelector(selector);
+        return (
+          input instanceof HTMLInputElement && input.value === expectedValue && !input.disabled
+        );
+      },
+      { selector: chatInputSelector, expectedValue: goalText },
+      { timeout: 10_000 },
+    );
+    const mainInput = page.locator(chatInputSelector);
+    const prefillValue = await mainInput.inputValue();
+    const mainInputEnabled = await mainInput.isEnabled();
+    assert(
+      prefillValue === goalText && mainInputEnabled,
+      "重新发起任务 did not prefill the enabled main input with the original goal text",
+    );
+
+    const steerSendCount = await page.getByRole("button", { name: /^发送调整$/ }).count();
+    const normalSendButton = page.getByRole("button", { name: /^发送$/ });
+    const normalSendCount = await normalSendButton.count();
+    assert(
+      steerSendCount === 0 && normalSendCount === 1,
+      "Dead-run restart composer did not fall back to the plain 发送 action",
+    );
+
+    const restartSendFrameStart = frames.length;
+    await normalSendButton.click();
+
+    const restartSentFrame = await waitForNewFrame(
+      restartSendFrameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        frame.body?.work_id === workId &&
+        frame.body?.text === goalText,
+      "Restarted task was not sent as a plain user_message",
+      30_000,
+    );
+
+    const restartAckFrame = await waitForNewFrame(
+      restartSendFrameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        frame.body?.response?.received === true &&
+        typeof frame.body?.response?.run_id === "string" &&
+        frame.body?.response?.run_mode === "bounded",
+      "Restarted task did not receive a new bounded AgentRun ack",
+      30_000,
+    );
+    const newRunId = restartAckFrame.body.response.run_id;
+    assert(newRunId !== runId, "Restarted task reused the dead run_id instead of a new AgentRun");
+
+    const agentCommandsToDeadRun = frames
+      .slice(reloadFrameStart)
+      .filter(
+        (frame) =>
+          frame.direction === "sent" &&
+          frame.event === "agent_command" &&
+          frame.body?.run_id === runId,
+      );
+    assert(
+      agentCommandsToDeadRun.length === 0,
+      "An agent_command was still sent to the dead run_id after reload",
+    );
+
+    const logsAfter = readAppLogRecords().slice(logStart);
+    const parentUserMessageLog = logsAfter.find(
+      (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+    );
+    const uiState = await commonUiState(
+      page,
+      { turn_id: parentUserMessageLog?.turn_id ?? "" },
+      sentFrame,
+    );
+
+    return [
+      {
+        ...uiState,
+        slice_id: "agent-dead-bounded-run-expiry",
+        work_id: workId,
+        workspace_id: workId,
+        session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+        work_title: work.title,
+        parent_turn_id: parentUserMessageLog?.turn_id,
+        run_id: runId,
+        run_mode: ackFrame.body.response.run_mode,
+        dead_state_runtime_live: deadStateFrame.body?.runtime_live,
+        dead_state_recovered: deadStateFrame.body?.recovered,
+        dead_goal_text: goalText,
+        expired_title_visible: deadVisibleText.includes(expiredTitle),
+        expired_detail_visible: deadVisibleText.includes(expiredDetail),
+        restart_action_visible: true,
+        bare_resume_absent_for_dead_run: bareResumeCount === 0,
+        pause_absent_for_dead_run: pauseCount === 0,
+        terminate_absent_for_dead_run: terminateCount === 0,
+        awaiting_badge_absent_for_dead_run: !awaitingBadgeVisible,
+        no_failure_bubble: !failureBubbleVisible,
+        restart_prefill_matches_goal: prefillValue === goalText && mainInputEnabled,
+        send_label_is_normal_send: steerSendCount === 0 && normalSendCount === 1,
+        restart_sent_as_user_message: restartSentFrame.body?.text === goalText,
+        new_run_id: newRunId,
+        new_run_differs_from_dead_run: newRunId !== runId,
+        no_agent_command_to_dead_run: agentCommandsToDeadRun.length === 0,
+        user_message_text: sentFrame.body?.text,
+      },
+    ];
+  } finally {
+    await service.stopRestarted();
+  }
+}
+
 async function driveAgentLoopBudgetLimit(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
@@ -24854,6 +25621,9 @@ const drivers = {
   "agent-steer-replan": driveAgentSteerReplan,
   "agent-natural-language-steer": driveAgentNaturalLanguageSteer,
   "agent-awaiting-author-steer-resume": driveAgentAwaitingAuthorSteerResume,
+  "agent-awaiting-author-input-required": driveAgentAwaitingAuthorInputRequired,
+  "agent-bounded-refresh-live-resume": driveAgentBoundedRefreshLiveResume,
+  "agent-dead-bounded-run-expiry": driveAgentDeadBoundedRunExpiry,
   "agent-loop-budget-limit": driveAgentLoopBudgetLimit,
   "agent-no-progress-stop": driveAgentNoProgressStop,
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,

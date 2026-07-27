@@ -23,6 +23,9 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("su01-model-provider-switching");
     expect(nativeSliceIds).toContain("su03-assistant-display-name");
     expect(nativeSliceIds).toContain("agent-awaiting-author-steer-resume");
+    expect(nativeSliceIds).toContain("agent-awaiting-author-input-required");
+    expect(nativeSliceIds).toContain("agent-bounded-refresh-live-resume");
+    expect(nativeSliceIds).toContain("agent-dead-bounded-run-expiry");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
@@ -1060,6 +1063,198 @@ describe("native Tauri slice verifier", () => {
     );
     expect(
       findNativeSliceEvidence("agent-awaiting-author-steer-resume", duplicatedPromptRecords),
+    ).toBeNull();
+  });
+
+  it("accepts DS03 awaiting-input evidence only when the required-input surface holds and reload keeps single copies", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-awaiting-input",
+        run_id: "run-awaiting-input",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-awaiting-author-input-required",
+        parent_turn_id: "turn-awaiting-input",
+        run_id: "run-awaiting-input",
+        run_mode: "bounded",
+        awaiting_status: "awaiting_author",
+        terminal_status: "completed",
+        command: "steer",
+        command_ack_received: true,
+        command_target_bound_to_active_run: true,
+        bare_resume_absent_while_awaiting: true,
+        awaiting_input_hint_visible: true,
+        awaiting_placeholder_visible: true,
+        empty_send_disabled_while_awaiting: true,
+        same_run_resumed_after_input: true,
+        run_resumed_reason_codes: ["steer_requested", "resume_after_steer"],
+        steer_text_restored_after_reload: true,
+        steer_text_reload_occurrence_count: 1,
+        stale_awaiting_prompt_after_reload_count: 1,
+        no_failure_bubble: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-awaiting-author-input-required", records);
+
+    expect(evidence).toMatchObject({
+      turn_id: "turn-awaiting-input",
+      run_id: "run-awaiting-input",
+      command_source: "awaiting_author_task_input",
+      awaiting_status: "awaiting_author",
+      terminal_status: "completed",
+      steer_text_reload_occurrence_count: 1,
+      stale_awaiting_prompt_after_reload_count: 1,
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-awaiting-author-input-required", records, evidence),
+    ).toMatchObject({
+      behavior:
+        "awaiting_author_requires_concrete_input_and_survives_reload_without_duplicates",
+      assertions: expect.arrayContaining([
+        "awaiting_author_dock_exposed_no_bare_resume_action",
+        "empty_input_kept_the_send_adjustment_action_disabled",
+        "steer_message_was_persisted_and_restored_once_after_reload",
+      ]),
+    });
+
+    const bareResumeRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, bare_resume_absent_while_awaiting: false }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-awaiting-author-input-required", bareResumeRecords),
+    ).toBeNull();
+  });
+
+  it("accepts DS03 live refresh-resume evidence only when the same run reconnects and resumes in place", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-live-resume",
+        run_id: "run-live-resume",
+        run_mode: "bounded",
+      },
+      {
+        event: "channel.agent_run_reconnect.done",
+        run_id: "run-live-resume",
+        run_mode: "bounded",
+        runtime_live: true,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-bounded-refresh-live-resume",
+        parent_turn_id: "turn-live-resume",
+        run_id: "run-live-resume",
+        run_mode: "bounded",
+        paused_status: "paused",
+        reconnect_recovered: true,
+        reconnect_runtime_live: true,
+        resume_command_bound_to_same_run: true,
+        run_resumed_reason_codes: ["resume_requested"],
+        no_second_run_after_reload: true,
+        no_run_restart_after_reload: true,
+        completed_steps_preserved: true,
+        terminal_status: "completed",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-bounded-refresh-live-resume", records);
+
+    expect(evidence).toMatchObject({
+      turn_id: "turn-live-resume",
+      run_id: "run-live-resume",
+      command: "resume",
+      command_source: "reconnected_control_dock",
+      paused_status: "paused",
+      terminal_status: "completed",
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-bounded-refresh-live-resume", records, evidence),
+    ).toMatchObject({
+      behavior: "page_refresh_reconnects_the_live_bounded_run_and_resumes_it_in_place",
+      assertions: expect.arrayContaining([
+        "channel_logged_agent_run_reconnect_for_the_same_run_id",
+        "reconnect_state_carried_recovered_and_runtime_live",
+        "no_second_run_or_run_restart_appeared_after_reload",
+      ]),
+    });
+
+    const deadRuntimeRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, reconnect_runtime_live: false }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-bounded-refresh-live-resume", deadRuntimeRecords),
+    ).toBeNull();
+  });
+
+  it("accepts DS03 dead-run expiry evidence only when the dead run degrades honestly into a new run", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-dead-run",
+        run_id: "run-dead",
+        run_mode: "bounded",
+      },
+      {
+        event: "channel.agent_run_expired.done",
+        run_id: "run-dead",
+        run_mode: "bounded",
+        runtime_live: false,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-dead-bounded-run-expiry",
+        parent_turn_id: "turn-dead-run",
+        run_id: "run-dead",
+        run_mode: "bounded",
+        dead_state_runtime_live: false,
+        expired_title_visible: true,
+        expired_detail_visible: true,
+        restart_action_visible: true,
+        bare_resume_absent_for_dead_run: true,
+        terminate_absent_for_dead_run: true,
+        no_failure_bubble: true,
+        restart_prefill_matches_goal: true,
+        send_label_is_normal_send: true,
+        new_run_id: "run-restarted",
+        new_run_differs_from_dead_run: true,
+        no_agent_command_to_dead_run: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-dead-bounded-run-expiry", records);
+
+    expect(evidence).toMatchObject({
+      turn_id: "turn-dead-run",
+      run_id: "run-dead",
+      new_run_id: "run-restarted",
+      dead_state_runtime_live: false,
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-dead-bounded-run-expiry", records, evidence),
+    ).toMatchObject({
+      behavior: "dead_bounded_run_degrades_honestly_and_restarts_as_a_new_run",
+      assertions: expect.arrayContaining([
+        "backend_restart_broadcast_runtime_live_false_for_the_dead_run",
+        "no_resume_pause_or_terminate_action_remained_for_the_dead_run",
+        "no_agent_command_targeted_the_dead_run_after_reload",
+      ]),
+    });
+
+    const commandToDeadRunRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, no_agent_command_to_dead_run: false }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-dead-bounded-run-expiry", commandToDeadRunRecords),
     ).toBeNull();
   });
 

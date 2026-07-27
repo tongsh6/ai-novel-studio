@@ -144,6 +144,9 @@ Implemented external UI driver slice ids:
   agent-steer-replan
   agent-natural-language-steer
   agent-awaiting-author-steer-resume
+  agent-awaiting-author-input-required
+  agent-bounded-refresh-live-resume
+  agent-dead-bounded-run-expiry
   agent-loop-budget-limit
   agent-no-progress-stop
   agent-archive-read-during-run
@@ -278,6 +281,9 @@ is_ua01_acceptance_alias() {
       agent-steer-replan | \
       agent-natural-language-steer | \
       agent-awaiting-author-steer-resume | \
+      agent-awaiting-author-input-required | \
+      agent-bounded-refresh-live-resume | \
+      agent-dead-bounded-run-expiry | \
       agent-loop-budget-limit | \
       agent-no-progress-stop | \
       agent-archive-read-during-run | \
@@ -793,6 +799,15 @@ native_action_description() {
       ;;
     agent-awaiting-author-steer-resume)
       echo "send an ambiguous expansion request -> wait for awaiting_author -> submit a concrete adjustment through the real task input -> verify the same run resumes and completes without repeating the stale confirmation prompt"
+      ;;
+    agent-awaiting-author-input-required)
+      echo "send an ambiguous expansion request -> wait for awaiting_author -> verify no bare resume action, required-input hint/placeholder, and disabled empty send -> submit a concrete adjustment -> verify the same run resumes to completed and the reload keeps the steer message exactly once"
+      ;;
+    agent-bounded-refresh-live-resume)
+      echo "send a slow bounded AgentRun -> pause it -> reload the workbench -> verify the channel reconnects the same live run (recovered + runtime_live) -> click resume -> verify run_resumed with resume_requested and completion without a second run or run restart"
+      ;;
+    agent-dead-bounded-run-expiry)
+      echo "send an awaiting_author bounded AgentRun -> restart Phoenix externally -> reload -> verify the dead run degrades honestly (expired copy, restart-only action, no live commands) -> restart the task from the prefilled goal -> verify a new run_id and no agent_command to the dead run"
       ;;
     agent-loop-budget-limit)
       echo "send a bounded AgentRun request with an explicit one-step author budget -> verify the run stops awaiting_author at budget_exhausted before character_design"
@@ -1565,6 +1580,9 @@ case "$SLICE_ID" in
     agent-steer-replan | \
     agent-natural-language-steer | \
     agent-awaiting-author-steer-resume | \
+    agent-awaiting-author-input-required | \
+    agent-bounded-refresh-live-resume | \
+    agent-dead-bounded-run-expiry | \
     agent-loop-budget-limit | \
     agent-no-progress-stop | \
     agent-archive-read-during-run | \
