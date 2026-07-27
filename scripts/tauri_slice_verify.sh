@@ -143,6 +143,7 @@ Implemented external UI driver slice ids:
   agent-cancel-target-binding
   agent-steer-replan
   agent-natural-language-steer
+  agent-awaiting-author-steer-resume
   agent-loop-budget-limit
   agent-no-progress-stop
   agent-archive-read-during-run
@@ -276,6 +277,7 @@ is_ua01_acceptance_alias() {
       agent-cancel-target-binding | \
       agent-steer-replan | \
       agent-natural-language-steer | \
+      agent-awaiting-author-steer-resume | \
       agent-loop-budget-limit | \
       agent-no-progress-stop | \
       agent-archive-read-during-run | \
@@ -788,6 +790,9 @@ native_action_description() {
       ;;
     agent-natural-language-steer)
       echo "send a slow bounded AgentRun from the real workbench -> submit steering text through the main chat input -> verify it becomes agent_command steer for the active run_id without creating a second user_message or run"
+      ;;
+    agent-awaiting-author-steer-resume)
+      echo "send an ambiguous expansion request -> wait for awaiting_author -> submit a concrete adjustment through the real task input -> verify the same run resumes and completes without repeating the stale confirmation prompt"
       ;;
     agent-loop-budget-limit)
       echo "send a bounded AgentRun request with an explicit one-step author budget -> verify the run stops awaiting_author at budget_exhausted before character_design"
@@ -1559,6 +1564,7 @@ case "$SLICE_ID" in
     agent-cancel-target-binding | \
     agent-steer-replan | \
     agent-natural-language-steer | \
+    agent-awaiting-author-steer-resume | \
     agent-loop-budget-limit | \
     agent-no-progress-stop | \
     agent-archive-read-during-run | \

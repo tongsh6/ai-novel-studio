@@ -527,7 +527,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp judgment_context_step(input) do
     fn run, sequence, snapshot ->
-      text = map_get(input, :text) || run.goal.text
+      text = effective_author_text(input, run)
       ws_id = map_get(input, :workspace_id) || run.workspace_id
       turn_id = map_get(input, :turn_id) || run.parent_turn_ref
 
@@ -616,7 +616,7 @@ defmodule NovelApplication.DialoguePlanningService do
   defp judgment_protocol_input(input, run, context, explorations) do
     explore_open? = length(explorations) < @max_explore_rounds
 
-    author_text = map_get(input, :text) || run.goal.text
+    author_text = effective_author_text(input, run)
 
     %{
       author_text: author_text,
@@ -690,7 +690,7 @@ defmodule NovelApplication.DialoguePlanningService do
       {:ok, turn_result, trace, candidates, context},
       ws_id,
       map_get(input, :session_id),
-      map_get(input, :text) || run.goal.text,
+      effective_author_text(input, run),
       map_get(input, :trace_persister),
       map_get(input, :memory_recorder),
       %{candidate_selection: map_get(input, :candidate_selection)}
@@ -714,6 +714,17 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp settle_state(:completed), do: "completed"
   defp settle_state(:awaiting_author), do: "awaiting_author"
+
+  defp effective_author_text(input, run) do
+    goal_text = run.goal.text |> to_string() |> String.trim()
+    original_text = map_get(input, :text)
+
+    cond do
+      run.goal.version > 1 and goal_text != "" -> goal_text
+      is_binary(original_text) and String.trim(original_text) != "" -> String.trim(original_text)
+      true -> goal_text
+    end
+  end
 
   # CP5a explore：按 explore_request 跑只读检索（同判断步内联执行，0 提供者调用），
   # 观察追加进 stage_state（shallow merge 整表替换，故带旧值重建）后回环——planner

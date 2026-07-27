@@ -23495,7 +23495,7 @@ async function driveUa01AgentInterruptCommand(page, command) {
   );
 
   const commandAckFrame = await waitForNewFrame(
-    frames.indexOf(commandFrame) + 1,
+    steerFrameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "phx_reply" &&
@@ -24233,6 +24233,268 @@ async function driveAgentNaturalLanguageSteer(page) {
   });
 }
 
+async function driveAgentAwaitingAuthorSteerResume(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-AWAIT-STEER-${Date.now().toString(36)}`;
+  const awaitingPrompt =
+    "我理解你希望增加第一章的篇幅，但还需要你明确扩写方式；请补充具体方向后，我再继续。";
+  const initialText = `第一章字数太少了，标记UA01AWAITSTEER-${nonce}。`;
+  const steerText =
+    "直接在现有正文基础上扩写，增加场景、细节和心理描写，保持现有结构与情节不变。";
+  const work = await createWorkSeed({
+    title: `UA01 Awaiting Author Steer ${nonce}`,
+    genre: "悬疑",
+    core_selling_point: "验证等待作者补充后恢复同一创作任务",
+    target_reader: "关注章节节奏与细节密度的作者",
+    tone_preference: "克制、细腻",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the UA-01 awaiting-author steer work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(initialText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 awaiting-author scenario did not send the initial author message",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "UA-01 awaiting-author scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const awaitingStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "awaiting_author",
+    "UA-01 scenario did not enter awaiting_author",
+    60_000,
+  );
+
+  const awaitingTurnResultFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.status === "awaiting_author",
+    "UA-01 awaiting_author TurnResult was not broadcast",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (expectedPrompt) => document.body.innerText.includes(expectedPrompt),
+    awaitingPrompt,
+    { timeout: 30_000 },
+  );
+  await page.locator(agentRunSteerInputSelector).waitFor({ state: "visible", timeout: 30_000 });
+
+  const steerFrameStart = frames.length;
+  await page.locator(agentRunSteerInputSelector).fill(steerText);
+  await page.getByRole("button", { name: /^发送调整$/ }).click();
+  const steerTextVisibleAfterSubmit = await page
+    .waitForFunction((expectedText) => document.body.innerText.includes(expectedText), steerText, {
+      timeout: 3_000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  assert(
+    steerTextVisibleAfterSubmit,
+    "Awaiting-author adjustment did not remain visible as a local author message",
+  );
+
+  const commandFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === "steer" &&
+      frame.body?.text === steerText,
+    "Awaiting-author adjustment was not sent as agent_command steer",
+    30_000,
+  );
+
+  const commandAckFrame = await waitForNewFrame(
+    frames.indexOf(commandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.run_id === runId &&
+      frame.body?.response?.command === "steer",
+    "Awaiting-author steer did not ack for the same run_id",
+    30_000,
+  );
+
+  const planAdjustedFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_adjusted",
+    "Awaiting-author steer did not broadcast plan_adjusted",
+    30_000,
+  );
+
+  const runResumedFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_resumed" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("resume_after_steer"),
+    "Awaiting-author steer did not resume the same AgentRun",
+    30_000,
+  );
+
+  const adjustedRunningStateFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "running" &&
+      frame.body?.goal?.text === steerText &&
+      Number(frame.body?.goal?.version ?? 0) >= 2,
+    "Resumed AgentRun did not broadcast the versioned author adjustment",
+    30_000,
+  );
+
+  const terminalStateFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed",
+    "Resumed awaiting-author AgentRun did not complete",
+    90_000,
+  );
+
+  const finalTurnResultFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.status === "completed",
+    "Resumed awaiting-author AgentRun did not broadcast its final TurnResult",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (finalText) => document.body.innerText.includes(finalText),
+    finalTurnResultFrame.body?.assistant_message?.text ?? "章节正文草稿",
+    { timeout: 30_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const stalePromptCount = visibleText.split(awaitingPrompt).length - 1;
+  assert(
+    stalePromptCount === 1,
+    `Awaiting-author prompt should appear once, got ${stalePromptCount}`,
+  );
+  const framesAfterSteer = frames.slice(steerFrameStart);
+  const secondUserMessageForSteer = framesAfterSteer.find(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === steerText,
+  );
+  const runIdsAfterSteer = new Set(
+    framesAfterSteer
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_run_state" &&
+          typeof frame.body?.run_id === "string",
+      )
+      .map((frame) => frame.body.run_id),
+  );
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-awaiting-author-steer-resume",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: work.title,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      initial_turn_result_id: awaitingTurnResultFrame.body?.turn_id,
+      final_turn_result_id: finalTurnResultFrame.body?.turn_id,
+      awaiting_status: awaitingStateFrame.body?.status,
+      terminal_status: terminalStateFrame.body?.status,
+      command: commandFrame.body?.command,
+      command_text: commandFrame.body?.text,
+      command_ack_received: commandAckFrame.body?.response?.received === true,
+      command_target_bound_to_active_run: commandFrame.body?.run_id === runId,
+      plan_adjusted_event_type: planAdjustedFrame.body?.event_type,
+      run_resumed_event_type: runResumedFrame.body?.event_type,
+      run_resumed_reason_codes: runResumedFrame.body?.reason_codes ?? [],
+      adjusted_goal_text: adjustedRunningStateFrame.body?.goal?.text,
+      adjusted_goal_version: adjustedRunningStateFrame.body?.goal?.version,
+      steer_text_visible_after_submit: steerTextVisibleAfterSubmit,
+      no_second_user_message_for_steer: !secondUserMessageForSteer,
+      no_second_run_after_steer: runIdsAfterSteer.size === 1 && runIdsAfterSteer.has(runId),
+      stale_awaiting_prompt_total_count: stalePromptCount,
+      stale_awaiting_prompt_not_repeated: stalePromptCount === 1,
+      final_result_visible_after_adjustment: true,
+      final_result_child_of_same_parent:
+        finalTurnResultFrame.body?.agent_run?.parent_turn_ref ===
+        awaitingTurnResultFrame.body?.agent_run?.parent_turn_ref,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
 async function driveAgentLoopBudgetLimit(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
@@ -24591,6 +24853,7 @@ const drivers = {
   "agent-readonly-batch-profile": driveAgentReadonlyBatchProfile,
   "agent-steer-replan": driveAgentSteerReplan,
   "agent-natural-language-steer": driveAgentNaturalLanguageSteer,
+  "agent-awaiting-author-steer-resume": driveAgentAwaitingAuthorSteerResume,
   "agent-loop-budget-limit": driveAgentLoopBudgetLimit,
   "agent-no-progress-stop": driveAgentNoProgressStop,
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,

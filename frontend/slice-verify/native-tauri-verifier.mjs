@@ -11,7 +11,11 @@ const ua01AgentScenarioIds = [
 
 const ua01AgentInterruptScenarioIds = ["agent-interrupt-safe-point", "agent-cancel-target-binding"];
 
-const ua01AgentSteerScenarioIds = ["agent-steer-replan", "agent-natural-language-steer"];
+const ua01AgentSteerScenarioIds = [
+  "agent-steer-replan",
+  "agent-natural-language-steer",
+  "agent-awaiting-author-steer-resume",
+];
 const ua01AgentStopScenarioIds = ["agent-loop-budget-limit", "agent-no-progress-stop"];
 const ua01AgentArchiveScenarioIds = ["agent-archive-read-during-run"];
 const ua01AgentIsolationScenarioIds = ["agent-work-isolation"];
@@ -642,6 +646,13 @@ const sliceKeyEvents = {
   "agent-natural-language-steer": [
     "channel.user_message.start",
     "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-awaiting-author-steer-resume": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -7092,6 +7103,10 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
 }
 
 function findUa01AgentSteerEvidence(records, sliceId) {
+  if (sliceId === "agent-awaiting-author-steer-resume") {
+    return findUa01AwaitingAuthorSteerEvidence(records);
+  }
+
   const keyEvents = keyEventsForSlice(sliceId);
   const mainInputSteer = ua01AgentSteerUsesMainInput(sliceId);
   const uiState = records.find(
@@ -7146,11 +7161,79 @@ function findUa01AgentSteerEvidence(records, sliceId) {
   };
 }
 
+function findUa01AwaitingAuthorSteerEvidence(records) {
+  const sliceId = "agent-awaiting-author-steer-resume";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      record.awaiting_status === "awaiting_author" &&
+      record.terminal_status === "completed" &&
+      record.command === "steer" &&
+      record.command_ack_received === true &&
+      record.command_target_bound_to_active_run === true &&
+      record.plan_adjusted_event_type === "plan_adjusted" &&
+      record.run_resumed_event_type === "run_resumed" &&
+      Array.isArray(record.run_resumed_reason_codes) &&
+      record.run_resumed_reason_codes.includes("resume_after_steer") &&
+      Number(record.adjusted_goal_version ?? 0) >= 2 &&
+      record.steer_text_visible_after_submit === true &&
+      record.no_second_user_message_for_steer === true &&
+      record.no_second_run_after_steer === true &&
+      record.stale_awaiting_prompt_not_repeated === true &&
+      Number(record.stale_awaiting_prompt_total_count ?? 0) === 1 &&
+      record.final_result_visible_after_adjustment === true &&
+      record.final_result_child_of_same_parent === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    command: "steer",
+    command_source: "awaiting_author_task_input",
+    awaiting_status: uiState.awaiting_status,
+    terminal_status: uiState.terminal_status,
+    adjusted_goal_version: Number(uiState.adjusted_goal_version ?? 0),
+    no_second_user_message_for_steer: true,
+    no_second_run_after_steer: true,
+    stale_awaiting_prompt_total_count: Number(
+      uiState.stale_awaiting_prompt_total_count ?? 0,
+    ),
+    key_events: keyEvents,
+  };
+}
+
 function ua01AgentSteerUsesMainInput(sliceId) {
-  return sliceId === "agent-steer-replan" || sliceId === "agent-natural-language-steer";
+  return (
+    sliceId === "agent-steer-replan" ||
+    sliceId === "agent-natural-language-steer" ||
+    sliceId === "agent-awaiting-author-steer-resume"
+  );
 }
 
 function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
+  if (sliceId === "agent-awaiting-author-steer-resume") {
+    return ua01AwaitingAuthorSteerBehavior(turnIds, records, evidence);
+  }
+
   const mainInputSteer = ua01AgentSteerUsesMainInput(sliceId);
   if (turnIds.length !== 1) return null;
 
@@ -7215,6 +7298,57 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
           "agent_run_state_broadcast_adjusted_goal_version",
           "frontend_did_not_mutate_run_state_without_backend_ack",
         ],
+  };
+}
+
+function ua01AwaitingAuthorSteerBehavior(turnIds, records, evidence) {
+  const sliceId = "agent-awaiting-author-steer-resume";
+  if (turnIds.length !== 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.command !== "steer") return null;
+  if (uiState.command_ack_received !== true) return null;
+  if (uiState.command_target_bound_to_active_run !== true) return null;
+  if (uiState.plan_adjusted_event_type !== "plan_adjusted") return null;
+  if (uiState.run_resumed_event_type !== "run_resumed") return null;
+  if (uiState.awaiting_status !== "awaiting_author") return null;
+  if (uiState.terminal_status !== "completed") return null;
+  if (Number(uiState.adjusted_goal_version ?? 0) < 2) return null;
+  if (uiState.no_second_user_message_for_steer !== true) return null;
+  if (uiState.no_second_run_after_steer !== true) return null;
+  if (uiState.stale_awaiting_prompt_not_repeated !== true) return null;
+  if (uiState.final_result_visible_after_adjustment !== true) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "awaiting_author_adjustment_resumes_and_completes_the_same_agent_run",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    command: "steer",
+    command_source: evidence.command_source,
+    awaiting_status: evidence.awaiting_status,
+    terminal_status: evidence.terminal_status,
+    adjusted_goal_version: evidence.adjusted_goal_version,
+    no_second_user_message_for_steer: evidence.no_second_user_message_for_steer,
+    no_second_run_after_steer: evidence.no_second_run_after_steer,
+    stale_awaiting_prompt_total_count: evidence.stale_awaiting_prompt_total_count,
+    assertions: [
+      "ambiguous_request_reached_awaiting_author_with_visible_prompt",
+      "fixed_task_input_sent_author_adjustment_as_agent_command_steer",
+      "steer_command_targeted_the_existing_run_id_and_received_ack",
+      "plan_adjusted_and_run_resumed_were_broadcast_for_the_same_run",
+      "goal_version_two_carried_the_exact_author_adjustment",
+      "adjustment_did_not_create_a_second_user_message_or_agent_run",
+      "same_agent_run_reached_completed_with_a_final_turn_result",
+      "original_awaiting_prompt_remained_once_and_was_not_repeated",
+      "final_result_was_visible_after_the_author_adjustment",
+    ],
   };
 }
 

@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assistantMessageTextForAgentRun,
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
   selectAgentRunActivitySummary,
@@ -138,6 +139,62 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
     ]);
   });
 
+  it("moves a resumed run result after the latest same-run steering message", () => {
+    const awaitingResult = turnResult({
+      turn_id: "turn_parent_resume:agent:2",
+      phase: "awaiting_author",
+      status: "needs_clarification",
+      assistant_message: { text: "请补充具体扩写方向。" },
+      agent_run: {
+        run_id: "run_resume",
+        run_mode: "bounded",
+        parent_turn_ref: "turn_parent_resume",
+        profile_ref: "judgment_loop_v1",
+        status: "awaiting_author",
+      },
+    });
+    const messages: AgentRunAnchorMessage<TurnResult>[] = [
+      {
+        role: "user",
+        text: "第一章字数太少了",
+        turnId: "turn_parent_resume",
+        agentRunId: "run_resume",
+      },
+      {
+        role: "assistant",
+        text: "请补充具体扩写方向。",
+        turnId: awaitingResult.turn_id,
+        agentRunId: "run_resume",
+        turnResult: awaitingResult,
+      },
+      {
+        role: "user",
+        text: "直接扩写，保持情节不变",
+        clientMessageId: "local-resume-steer",
+        agentRunId: "run_resume",
+      },
+    ];
+    const completedResult = turnResult({
+      turn_id: awaitingResult.turn_id,
+      assistant_message: { text: "已按你的要求完成扩写。" },
+      agent_run: {
+        run_id: "run_resume",
+        run_mode: "bounded",
+        parent_turn_ref: "turn_parent_resume",
+        profile_ref: "prose_drafting_with_quality_v1",
+        status: "completed",
+      },
+    });
+
+    expect(
+      upsertAssistantTurnResultMessage(messages, completedResult).map((message) => message.text),
+    ).toEqual([
+      "第一章字数太少了",
+      "直接扩写，保持情节不变",
+      "已按你的要求完成扩写。",
+    ]);
+  });
+
   it("anchors a running AgentRun to the user message that received its fast ack", () => {
     const message: AgentRunAnchorMessage<TurnResult> = {
       role: "user",
@@ -154,6 +211,62 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
     };
 
     expect(messageAnchorsAgentRun(message, run)).toBe(true);
+  });
+
+  it("collects all assistant texts when the same run spans awaiting and completed turns", () => {
+    const sourceResult = turnResult({
+      turn_id: "turn_parent_steer:agent:2",
+      assistant_message: { text: "请补充具体扩写方向。" },
+      agent_run: {
+        run_id: "run_steer",
+        run_mode: "bounded",
+        parent_turn_ref: "turn_parent_steer",
+        profile_ref: "conversation_turn_v1",
+        status: "awaiting_author",
+      },
+    });
+    const messages: AgentRunAnchorMessage<TurnResult>[] = [
+      {
+        role: "user",
+        text: "第一章字数太少了",
+        turnId: "turn_parent_steer",
+        agentRunId: "run_steer",
+      },
+      {
+        role: "assistant",
+        text: "请补充具体扩写方向。",
+        turnId: sourceResult.turn_id,
+        agentRunId: "run_steer",
+        turnResult: sourceResult,
+      },
+      {
+        role: "user",
+        text: "直接扩写，保持情节不变",
+        clientMessageId: "local-steer",
+        agentRunId: "run_steer",
+      },
+      {
+        role: "assistant",
+        text: "已按你的要求完成扩写。",
+        turnId: "turn_parent_steer:agent:7",
+        agentRunId: "run_steer",
+        turnResult: turnResult({
+          turn_id: "turn_parent_steer:agent:7",
+          assistant_message: { text: "已按你的要求完成扩写。" },
+          agent_run: {
+            run_id: "run_steer",
+            run_mode: "bounded",
+            parent_turn_ref: "turn_parent_steer",
+            profile_ref: "prose_drafting_with_quality_v1",
+            status: "completed",
+          },
+        }),
+      },
+    ];
+
+    expect(assistantMessageTextForAgentRun(messages, "run_steer")).toBe(
+      "请补充具体扩写方向。\n\n已按你的要求完成扩写。",
+    );
   });
 
   it("anchors an author-action AgentRun to its source assistant turn", () => {

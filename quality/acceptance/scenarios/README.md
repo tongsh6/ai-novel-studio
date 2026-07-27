@@ -22,6 +22,7 @@
 | `agent-cancel-target-binding.yml` | AgentRun cancel 绑定 active run_id 并协作式取消 |
 | `agent-steer-replan.yml` | AgentRun 主输入 steer 绑定 active run_id 并广播重规划状态 |
 | `agent-natural-language-steer.yml` | 运行中主输入框自然语言 steering 绑定 active AgentRun |
+| `agent-awaiting-author-steer-resume.yml` | 等待作者补充后由真实任务输入恢复同一 AgentRun，且不重复旧确认提示 |
 | `agent-loop-budget-limit.yml` | AgentRun 受作者预算限制停止等待作者 |
 | `agent-no-progress-stop.yml` | AgentRun 重复无进展时停止等待作者 |
 | `agent-archive-read-during-run.yml` | AgentRun 运行中作品档案仍可读取 |

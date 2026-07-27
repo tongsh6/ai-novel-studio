@@ -128,6 +128,7 @@ import {
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
 import {
+  assistantMessageTextForAgentRun,
   bindAgentRunAckToUserMessage,
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
@@ -3814,7 +3815,10 @@ export function WorkspaceChat() {
                         run={messageAgentRun}
                         events={messageAgentRunEvents}
                         draftCharCount={pendingDraftCharCount(msg.turnResult)}
-                        assistantMessageText={msg.text}
+                        assistantMessageText={
+                          assistantMessageTextForAgentRun(messages, messageAgentRun.run_id) ??
+                          msg.text
+                        }
                       />
                     )}
 
@@ -4074,6 +4078,10 @@ export function WorkspaceChat() {
                       <AgentRunDialogueFlow
                         run={anchoredAgentRun}
                         events={anchoredAgentRunEvents}
+                        assistantMessageText={assistantMessageTextForAgentRun(
+                          messages,
+                          anchoredAgentRun?.run_id ?? null,
+                        )}
                       />
                     </div>
                   )}

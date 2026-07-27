@@ -22,6 +22,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("su01-provider-test-failure-ui");
     expect(nativeSliceIds).toContain("su01-model-provider-switching");
     expect(nativeSliceIds).toContain("su03-assistant-display-name");
+    expect(nativeSliceIds).toContain("agent-awaiting-author-steer-resume");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
@@ -992,6 +993,74 @@ describe("native Tauri slice verifier", () => {
         "steer_replan_consumed_one_replan_budget",
       ]),
     });
+  });
+
+  it("accepts awaiting-author steer evidence only when the same run resumes and stale prompt stays singular", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-awaiting-steer",
+        run_id: "run-awaiting-steer",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-awaiting-author-steer-resume",
+        parent_turn_id: "turn-awaiting-steer",
+        run_id: "run-awaiting-steer",
+        run_mode: "bounded",
+        awaiting_status: "awaiting_author",
+        terminal_status: "completed",
+        command: "steer",
+        command_ack_received: true,
+        command_target_bound_to_active_run: true,
+        plan_adjusted_event_type: "plan_adjusted",
+        run_resumed_event_type: "run_resumed",
+        run_resumed_reason_codes: ["steer_requested", "resume_after_steer"],
+        adjusted_goal_version: 2,
+        steer_text_visible_after_submit: true,
+        no_second_user_message_for_steer: true,
+        no_second_run_after_steer: true,
+        stale_awaiting_prompt_total_count: 1,
+        stale_awaiting_prompt_not_repeated: true,
+        final_result_visible_after_adjustment: true,
+        final_result_child_of_same_parent: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-awaiting-author-steer-resume", records);
+
+    expect(evidence).toMatchObject({
+      turn_id: "turn-awaiting-steer",
+      run_id: "run-awaiting-steer",
+      command_source: "awaiting_author_task_input",
+      awaiting_status: "awaiting_author",
+      terminal_status: "completed",
+      adjusted_goal_version: 2,
+      stale_awaiting_prompt_total_count: 1,
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-awaiting-author-steer-resume", records, evidence),
+    ).toMatchObject({
+      behavior: "awaiting_author_adjustment_resumes_and_completes_the_same_agent_run",
+      assertions: expect.arrayContaining([
+        "plan_adjusted_and_run_resumed_were_broadcast_for_the_same_run",
+        "original_awaiting_prompt_remained_once_and_was_not_repeated",
+      ]),
+    });
+
+    const duplicatedPromptRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            stale_awaiting_prompt_total_count: 2,
+            stale_awaiting_prompt_not_repeated: false,
+          }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-awaiting-author-steer-resume", duplicatedPromptRecords),
+    ).toBeNull();
   });
 
   it("rejects main-input steer evidence when the terminal work state disappears after the latest user message", () => {

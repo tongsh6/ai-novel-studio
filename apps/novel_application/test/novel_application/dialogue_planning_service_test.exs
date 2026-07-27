@@ -81,6 +81,46 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert complete_meta.provider_call_count == 0
   end
 
+  test "awaiting_author steer 后判断 prompt 使用 goal version 2 的作者补充" do
+    parent = self()
+    original_text = "第一章字数太少了"
+    steered_text = "直接在现有正文基础上扩写，保持现有结构与情节不变"
+
+    provider_execution =
+      judgment_execution("reply", nil,
+        narrative: "已收到明确方向，我会按现有结构扩写。",
+        reply_included: true,
+        on_prompt: fn prompt -> send(parent, {:judgment_prompt, prompt_text(prompt)}) end
+      )
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: original_text,
+                 workspace_id: "ws-awaiting-steer",
+                 work_id: "work-awaiting-steer",
+                 session_id: "session-awaiting-steer",
+                 turn_id: "turn-awaiting-steer"
+               },
+               nil,
+               provider_execution
+             )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    steered_run = %{run | goal: %{run.goal | text: steered_text, version: 2}}
+
+    {_context_result, _judgment_result} =
+      drive_judgment(spec, steered_run, fn _event -> :ok end)
+
+    assert_receive {:judgment_prompt, narrative_prompt}
+    assert_receive {:judgment_prompt, structured_prompt}
+
+    for prompt <- [narrative_prompt, structured_prompt] do
+      assert prompt =~ steered_text
+      refute prompt =~ original_text
+    end
+  end
+
   test "判断 reply 的非探索 frame 语义机械进入 TurnResult" do
     narrative = "胜利过轻会让阻力失去可信度，读者也感受不到代价递增。"
 
@@ -479,6 +519,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     narrative =
       Keyword.get(opts, :narrative, "我理解你的意图，这是一个明确的创作动作，我直接执行。")
 
+    on_prompt = Keyword.get(opts, :on_prompt, fn _prompt -> :ok end)
+
     arguments =
       %{
         "action" => action,
@@ -492,6 +534,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     %Execution{
       result_fn: fn prompt ->
+        on_prompt.(prompt)
+
         cond do
           judgment_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
             {:ok,

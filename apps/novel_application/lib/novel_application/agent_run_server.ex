@@ -208,15 +208,24 @@ defmodule NovelApplication.AgentRunServer do
     if terminal?(state) do
       {:noreply, state}
     else
+      resume_after_steer? =
+        state.run.status == :awaiting_author and is_nil(state.current_task_ref)
+
       goal = %{state.run.goal | text: text, version: state.run.goal.version + 1}
 
       state =
         %{state | run: %{state.run | goal: goal}}
+        |> maybe_prepare_awaiting_author_steer(resume_after_steer?)
         |> put_interrupt(:steer_requested)
         |> emit(:plan_adjusted, "已收到新的创作方向。", ["steer_requested"])
+        |> maybe_resume_after_steer(resume_after_steer?)
         |> persist_run_state()
 
-      {:noreply, state}
+      if resume_after_steer? do
+        {:noreply, state, {:continue, :run_next_step}}
+      else
+        {:noreply, state}
+      end
     end
   end
 
@@ -914,6 +923,45 @@ defmodule NovelApplication.AgentRunServer do
 
   defp resumable?(state),
     do: state.run.status in [:paused, :awaiting_author] and is_nil(state.current_task_ref)
+
+  # awaiting_author 是系统主动交还作者的决策点。作者补充新方向后，同一 run 必须
+  # 重新进入判断，而不是继续消费上一次的 settled/context/checkpoint；goal.version
+  # 已变化，旧 progress signature 也不能把新目标误判为重复空转。已完成 steps、
+  # observations 与 pending artifacts 保留，符合 steer 的 Observation 保留语义。
+  defp maybe_prepare_awaiting_author_steer(state, true) do
+    stage_state =
+      state.stage_state
+      |> Map.drop([
+        :judgment_settled,
+        "judgment_settled",
+        :judgment_context,
+        "judgment_context",
+        :judgment_input,
+        "judgment_input"
+      ])
+
+    %{
+      state
+      | stage_state: stage_state,
+        progress_signatures: MapSet.new(),
+        final_turn_result: nil
+    }
+  end
+
+  defp maybe_prepare_awaiting_author_steer(state, false), do: state
+
+  defp maybe_resume_after_steer(state, true) do
+    state
+    |> put_run_status(:running)
+    |> put_run_phase(:executing)
+    |> emit(
+      :run_resumed,
+      "已收到调整，正在按新方向继续。",
+      ["steer_requested", "resume_after_steer"]
+    )
+  end
+
+  defp maybe_resume_after_steer(state, false), do: state
 
   defp terminal?(state), do: state.run.status in [:completed, :cancelled, :failed]
 

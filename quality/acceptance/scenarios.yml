@@ -370,6 +370,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-natural-language-steer.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-natural-language-steer --surface tauri
+  - id: agent-awaiting-author-steer-resume
+    title: "等待作者补充后恢复同一 AgentRun 并完成"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-awaiting-author-steer-resume.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-awaiting-author-steer-resume --surface tauri
   - id: agent-loop-budget-limit
     title: "AgentRun 受作者预算限制停止等待作者"
     tier: nightly

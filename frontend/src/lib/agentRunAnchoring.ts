@@ -124,6 +124,27 @@ function turnResultAgentRunId(turnResult: AgentRunAnchorTurnResult | undefined):
   return normalizedString(turnResult?.agent_run?.run_id);
 }
 
+export function assistantMessageTextForAgentRun(
+  messages: readonly AgentRunAnchorMessage<AgentRunAnchorTurnResult>[],
+  runId: string | null,
+): string | undefined {
+  if (runId === null) return undefined;
+
+  const texts = Array.from(
+    new Set(
+      messages
+        .filter(
+          (message) =>
+            message.role === "assistant" && turnResultAgentRunId(message.turnResult) === runId,
+        )
+        .map((message) => message.text.trim())
+        .filter((text) => text !== ""),
+    ),
+  );
+
+  return texts.length > 0 ? texts.join("\n\n") : undefined;
+}
+
 function turnResultParentTurnId(
   turnResult: AgentRunAnchorTurnResult,
   messages: AgentRunAnchorMessage<AgentRunAnchorTurnResult>[],
@@ -194,7 +215,27 @@ export function upsertAssistantTurnResultMessage<
     (message) => message.turnResult?.turn_id === turnResult.turn_id,
   );
   if (existingIndex >= 0) {
-    return messages.map((message, index) => (index === existingIndex ? assistantMessage : message));
+    const updated = messages.map((message, index) =>
+      index === existingIndex ? assistantMessage : message,
+    );
+    const runId = turnResultAgentRunId(turnResult);
+    const latestSteerIndex =
+      runId === null
+        ? -1
+        : updated.findLastIndex(
+            (message) => message.role === "user" && message.agentRunId === runId,
+          );
+
+    if (latestSteerIndex <= existingIndex) return updated;
+
+    const withoutAssistant = updated.filter((_message, index) => index !== existingIndex);
+    const adjustedSteerIndex = latestSteerIndex - 1;
+
+    return [
+      ...withoutAssistant.slice(0, adjustedSteerIndex + 1),
+      assistantMessage,
+      ...withoutAssistant.slice(adjustedSteerIndex + 1),
+    ];
   }
 
   const parentTurnId = turnResultParentTurnId(turnResult, messages);

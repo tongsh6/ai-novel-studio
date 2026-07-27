@@ -1,0 +1,63 @@
+id: agent-awaiting-author-steer-resume
+title: 等待作者补充后恢复同一 AgentRun 并完成
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-awaiting-author-steer-resume --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - author-can-steer-agent-run
+  - awaiting-author-steer-resumes-same-run
+  - natural-language-steer-does-not-create-second-run
+  - stale-awaiting-decision-is-not-replayed
+  - agent-event-is-not-turn-result
+
+setup:
+  seed: none
+  provider: slice_verify
+  awaiting_marker: UA01AWAITSTEER
+
+user_flow:
+  - open: real Tauri workbench
+  - send: an ambiguous request that requires an expansion direction
+  - wait_for: awaiting_author TurnResult and the fixed task input
+  - send: a concrete expansion direction through "发送调整"
+  - verify: adjustment is agent_command steer bound to the active run_id
+  - wait_for: plan_adjusted and run_resumed for the same run_id
+  - wait_for: completed TurnResult for the same run_id
+  - verify: the completed assistant result appears after the adjustment message
+  - verify: the original awaiting-author prompt remains before the adjustment and is not repeated after it
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-awaiting-author-steer-resume-tauri
+
+assertions:
+  ui:
+    - awaiting-author prompt is visible before the adjustment
+    - fixed task input accepts the concrete author direction
+    - final assistant result is rendered after the adjustment message
+    - awaiting-author prompt occurs exactly once and never repeats after the adjustment
+  network:
+    - adjustment is sent as agent_command steer for the active run_id
+    - no second channel user_message is sent for the adjustment
+    - plan_adjusted and run_resumed are broadcast for the same run_id
+  data:
+    - adjusted agent_run_state carries goal version >= 2 and exact adjustment text
+    - the same run_id reaches completed
+    - no second AgentRun is created after the adjustment
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

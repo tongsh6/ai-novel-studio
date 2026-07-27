@@ -1088,6 +1088,53 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.completed_step_refs == ["step_1", "step_2"]
   end
 
+  test "steer resumes an awaiting-author run without creating a second run" do
+    parent = self()
+    run_id = unique_run_id()
+
+    planner = fn run, sequence, _snapshot ->
+      if run.goal.version == 1 do
+        {:ok, decision} =
+          AgentNextStepDecision.new(%{
+            decision_id: "and_#{run.run_id}_#{sequence}_await_author",
+            run_ref: run.run_id,
+            sequence: sequence,
+            decision_type: :await_author,
+            summary: "请补充具体扩写方向。",
+            reason_codes: ["test_await_author"]
+          })
+
+        {:await_author, decision, %{provider_call_count: 0}}
+      else
+        send(parent, {:resumed_goal, run.run_id, run.goal})
+        {:complete, test_complete_decision(run, sequence), %{provider_call_count: 0}}
+      end
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:agent_event, :awaiting_author, "请补充具体扩写方向。"}, 500
+    assert {:ok, %{run: awaiting_run}} = AgentRunService.state(run_id)
+    assert awaiting_run.status == :awaiting_author
+
+    assert :ok = AgentRunService.steer(run_id, "直接在现有正文基础上扩写，保持情节不变")
+
+    assert_receive {:agent_event, :plan_adjusted, "已收到新的创作方向。"}, 500
+    assert_receive {:agent_event, :run_resumed, "已收到调整，正在按新方向继续。"}, 500
+    assert_receive {:resumed_goal, ^run_id, resumed_goal}, 500
+    assert resumed_goal.text == "直接在现有正文基础上扩写，保持情节不变"
+    assert resumed_goal.version == 2
+    assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500
+
+    assert {:ok, %{run: completed_run}} = AgentRunService.state(run_id)
+    assert completed_run.run_id == run_id
+    assert completed_run.status == :completed
+  end
+
   test "steer updates run goal without pretending to complete the active step" do
     parent = self()
     run_id = unique_run_id()
