@@ -100,6 +100,70 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
+  @doc """
+  Persist an author steer input as a user interaction (DS03).
+
+  steer 走 agent_command 而非 user_message，此前只更新 AgentRun goal（覆盖写），
+  刷新后作者补充在对话中消失。本函数把补充文本落为 session Interaction：
+  role=user、content 携带 agent_run_id（transcript 恢复时前端据此把消息锚回同
+  run），turn_id 由 parent_turn_ref + goal_version 派生（同一次 steer 幂等）。
+  """
+  @spec persist_author_steer(String.t(), String.t(), map(), String.t(), function() | nil) :: :ok
+  def persist_author_steer(ws_id, session_id, steer_info, text, recorder \\ nil)
+      when is_binary(ws_id) and is_binary(session_id) and is_map(steer_info) and is_binary(text) do
+    recorder = recorder || NovelApplication.persistence_interaction_recorder()
+
+    if is_function(recorder, 2) do
+      entry = steer_interaction_entry(ws_id, session_id, steer_info, text)
+      record_steer_entry(recorder, ws_id, entry)
+    else
+      :ok
+    end
+  end
+
+  defp steer_interaction_entry(ws_id, session_id, steer_info, text) do
+    run_id = Map.fetch!(steer_info, :run_id)
+
+    %{
+      session_id: session_id,
+      turn_id: steer_turn_id(steer_info),
+      role: "user",
+      content: %{text: text, agent_run_id: run_id},
+      source_ref: run_id,
+      scope_ref: ws_id,
+      freshness_score: 1.0,
+      importance_score: 0.5,
+      replayable: true,
+      retrievable: true
+    }
+  end
+
+  defp steer_turn_id(steer_info) do
+    parent_turn_ref = Map.get(steer_info, :parent_turn_ref)
+    goal_version = Map.get(steer_info, :goal_version)
+
+    if is_binary(parent_turn_ref) and parent_turn_ref != "" and is_integer(goal_version) do
+      "#{parent_turn_ref}:steer:#{goal_version}"
+    else
+      NovelFoundation.ID.unique("turn")
+    end
+  end
+
+  defp record_steer_entry(recorder, ws_id, entry) do
+    case recorder.(ws_id, [entry]) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        LogEmit.emit(:dialogue_gateway, :persist_steer_interaction, :error, %{
+          reason_code: :persistence_failed,
+          outcome_detail: changeset_error_summary(reason)
+        })
+
+        :ok
+    end
+  end
+
   # ── trace persistence ─────────────────────────
 
   defp maybe_persist_trace(
@@ -174,19 +238,35 @@ defmodule NovelApplication.DialogueGateway do
 
     assistant_text = get_in(turn_result, [:assistant_message, :text]) || ""
 
-    [
-      interaction_entry(
-        ws_id,
-        session_id,
-        turn_id,
-        "user",
-        user_text,
-        nil,
-        interaction_metadata
-      ),
-      interaction_entry(ws_id, session_id, turn_id, "assistant", assistant_text, turn_result)
-    ]
+    user_entries =
+      if suppress_user_entry?(interaction_metadata) do
+        []
+      else
+        [
+          interaction_entry(
+            ws_id,
+            session_id,
+            turn_id,
+            "user",
+            user_text,
+            nil,
+            interaction_metadata
+          )
+        ]
+      end
+
+    user_entries ++
+      [interaction_entry(ws_id, session_id, turn_id, "assistant", assistant_text, turn_result)]
   end
+
+  # DS03：同一 turn 因 steer 再次 settle 时不重复 user entry（作者补充已由
+  # persist_author_steer 独立落库）。
+  defp suppress_user_entry?(interaction_metadata) when is_map(interaction_metadata) do
+    Map.get(interaction_metadata, :suppress_user_entry) ||
+      Map.get(interaction_metadata, "suppress_user_entry") || false
+  end
+
+  defp suppress_user_entry?(_interaction_metadata), do: false
 
   defp interaction_entry(
          ws_id,

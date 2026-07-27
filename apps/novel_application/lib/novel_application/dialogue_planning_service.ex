@@ -686,6 +686,9 @@ defmodule NovelApplication.DialoguePlanningService do
       |> scope_judgment_turn_result(input, run)
       |> AgentFinalizer.attach_run_summary(judgment_run_summary(run, settle))
 
+    # DS03：steer 后（goal.version > 1）的再次 settle 只补 assistant entry——
+    # 作者补充的 user beat 已由 steer 时刻的独立 interaction 落库（persist_author_steer），
+    # 这里再写 user 会在 transcript 中重复同一句补充。
     DialogueGateway.persist_turn_side_effects(
       {:ok, turn_result, trace, candidates, context},
       ws_id,
@@ -693,7 +696,10 @@ defmodule NovelApplication.DialoguePlanningService do
       effective_author_text(input, run),
       map_get(input, :trace_persister),
       map_get(input, :memory_recorder),
-      %{candidate_selection: map_get(input, :candidate_selection)}
+      %{
+        candidate_selection: map_get(input, :candidate_selection),
+        suppress_user_entry: run.goal.version > 1
+      }
     )
 
     {:ok,

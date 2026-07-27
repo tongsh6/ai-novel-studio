@@ -115,7 +115,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
              )
 
     assert_receive :roster_reader_started
-    assert :ok = AgentRunService.steer(run_id, "改成政治操盘者，不做武力型反派")
+    assert {:ok, _} = AgentRunService.steer(run_id, "改成政治操盘者，不做武力型反派")
     assert_receive {:agent_event, :plan_adjusted, _}
     assert_receive {:provider_prompt, provider_prompt}, 500
     assert provider_prompt =~ "改成政治操盘者"

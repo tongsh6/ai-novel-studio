@@ -11,6 +11,7 @@ defmodule NovelWeb.WorkspaceChannel do
   require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelApplication.AgentRunService
+  alias NovelApplication.DialogueGateway
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TaskRunner
   alias NovelApplication.WorkSessionService
@@ -674,6 +675,9 @@ defmodule NovelWeb.WorkspaceChannel do
 
   def handle_info({:agent_run_state_snapshot, _run_ref, {:ok, state}}, socket) do
     if agent_run_state_belongs_to_socket?(state, socket) do
+      # 快照来自成功的 live GenServer call——runtime 此刻在场。稳态广播显式携带
+      # liveness，前端命令权限以此为真源而非历史 TurnResult（DS03）。
+      state = Map.put(state, :runtime_live?, true)
       broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
     end
 
@@ -753,6 +757,9 @@ defmodule NovelWeb.WorkspaceChannel do
         )
 
       Enum.each(recovered, &broadcast_recovered_agent_run(socket, &1))
+
+      {:ok, dead_bounded} = AgentRunService.list_dead_bounded(work_id, session_id)
+      Enum.each(dead_bounded, &broadcast_dead_bounded_agent_run(socket, &1))
     end
   end
 
@@ -769,6 +776,23 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp broadcast_reconnected_bounded_agent_run(_socket, _state), do: :ok
+
+  # DS03：bounded runtime 已死但持久层仍非终态——广播 runtime_live: false 的只读
+  # 快照，前端据此把历史任务降为「已失效」，不得再提供实时命令入口。
+  defp broadcast_dead_bounded_agent_run(socket, %{run: run} = state) do
+    broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+
+    LogEmit.emit(:channel, :agent_run_expired, :done, %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      run_id: run.run_id,
+      run_mode: :bounded,
+      runtime_live: false,
+      status: run.status
+    })
+  end
+
+  defp broadcast_dead_bounded_agent_run(_socket, _state), do: :ok
 
   defp broadcast_recovered_agent_run(socket, %{recovery_event: %AgentEvent{} = event} = state) do
     if AgentEvent.author_visible?(event) do
@@ -807,7 +831,7 @@ defmodule NovelWeb.WorkspaceChannel do
         "pause" -> AgentRunService.pause(run_id)
         "resume" -> AgentRunService.resume(run_id)
         "cancel" -> AgentRunService.cancel(run_id)
-        "steer" -> AgentRunService.steer(run_id, Map.get(payload, "text", ""))
+        "steer" -> dispatch_steer(socket, run_id, Map.get(payload, "text", ""))
         _ -> {:error, :unknown_command}
       end
     end
@@ -815,6 +839,25 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp dispatch_agent_command(_socket, _run_id, _command, _payload),
     do: {:error, :unknown_command}
+
+  # DS03：steer 被接受后把作者补充持久化为 session Interaction——作者输入不得
+  # 只存在于 React state / AgentRun goal，刷新后必须能从 transcript 恢复。
+  defp dispatch_steer(socket, run_id, text) do
+    case AgentRunService.steer(run_id, text) do
+      {:ok, steer_info} ->
+        work_id = socket.assigns[:work_id]
+        session_id = socket.assigns[:session_id]
+
+        if is_binary(work_id) and is_binary(session_id) do
+          DialogueGateway.persist_author_steer(work_id, session_id, steer_info, text)
+        end
+
+        :ok
+
+      error ->
+        error
+    end
+  end
 
   defp ensure_run_belongs_to_socket(socket, run_id) do
     case AgentRunService.state(run_id) do

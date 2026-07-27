@@ -133,7 +133,7 @@ export interface AgentRunStateData {
   current_task?: boolean;
   remaining_steps?: number;
   recovered?: boolean;
-  runtime_live?: boolean;
+  runtime_live?: boolean | null;
   long_run_task?: {
     task_id?: string;
     status?: string;
@@ -161,6 +161,32 @@ export function onAgentRunState(
   channel.on("agent_run_state", (payload: AgentRunStateData) => callback(payload));
 }
 
+// 服务端 agent_command 拒绝携带结构化 reason（not_found /
+// awaiting_author_requires_input / steer_requires_text / run_scope_mismatch …）。
+// 保留原样供 UI 分支文案，不塌缩成笼统 Error 文本。
+export class AgentCommandError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(reason);
+    this.name = "AgentCommandError";
+    this.reason = reason;
+  }
+}
+
+export function agentCommandErrorReason(error: unknown): string {
+  return error instanceof AgentCommandError ? error.reason : "unknown";
+}
+
+function commandErrorReasonFromPayload(payload: unknown): string {
+  if (typeof payload === "object" && payload !== null && "reason" in payload) {
+    const reason = (payload as { reason?: unknown }).reason;
+    if (typeof reason === "string" && reason.trim() !== "") return reason;
+  }
+  if (typeof payload === "string" && payload.trim() !== "") return payload;
+  return "unknown";
+}
+
 export function sendAgentCommand(
   channel: Channel,
   runId: string,
@@ -173,8 +199,8 @@ export function sendAgentCommand(
       .receive("ok", (response) =>
         resolve(response as { received: boolean; run_id: string; command: string }),
       )
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("agent command timeout")));
+      .receive("error", (error) => reject(new AgentCommandError(commandErrorReasonFromPayload(error))))
+      .receive("timeout", () => reject(new AgentCommandError("timeout")));
   });
 }
 

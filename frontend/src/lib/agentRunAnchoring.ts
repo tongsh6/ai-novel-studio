@@ -357,3 +357,17 @@ export function mergeAgentRunRuntimeState<State extends AgentRunRuntimeStateLike
 
   return { ...previous, ...incoming };
 }
+
+export type AgentRunRuntimeAuthority = "live" | "dead" | "unknown";
+
+// DS03：历史 TurnResult 只是可读快照，不授予实时命令权限。命令权限的唯一真源是
+// 服务端 agent_run_state 帧中的 runtime_live——true 为 live，false 为已失活，
+// 缺失（仅历史快照、或 join 恢复尚未完成）时为 unknown，一律不给可提交动作。
+export function agentRunRuntimeAuthority(
+  run: { runtime_live?: boolean | null } | null | undefined,
+): AgentRunRuntimeAuthority {
+  if (!run) return "unknown";
+  if (run.runtime_live === true) return "live";
+  if (run.runtime_live === false) return "dead";
+  return "unknown";
+}

@@ -36,6 +36,29 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert Enum.map(snapshot.transcript, & &1.role) == ["user", "assistant"]
     end
 
+    # DS03：steer 作者补充的 interaction content 携带 agent_run_id，
+    # transcript DTO 必须透传，供前端把恢复的消息锚回同一 AgentRun。
+    test "returns agent_run_id for persisted steer interactions", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      {:ok, _} =
+        MemoryLog.record(%{
+          workspace_id: work.id,
+          session_id: session.id,
+          turn_id: "turn-origin:steer:2",
+          role: "user",
+          content: %{text: "在现有正文基础上扩充场景和心理描写", agent_run_id: "run-steer"},
+          source_ref: "run-steer",
+          scope_ref: work.id
+        })
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+      assert [entry] = snapshot.transcript
+      assert entry.agent_run_id == "run-steer"
+      assert entry.role == "user"
+      assert entry.text == "在现有正文基础上扩充场景和心理描写"
+    end
+
     test "returns persisted candidate selection metadata for UI disclosure recovery", %{
       work: work
     } do

@@ -81,8 +81,18 @@ defmodule NovelApplication.AgentRunServer do
   def attach_event_sink(server, event_sink),
     do: GenServer.cast(server, {:attach_event_sink, event_sink})
 
-  @spec command(GenServer.server(), :pause | :resume | :cancel | {:steer, String.t()}) :: :ok
+  @spec command(GenServer.server(), :pause | :cancel) :: :ok
   def command(server, command), do: GenServer.cast(server, {:command, command})
+
+  @spec resume(GenServer.server(), timeout()) ::
+          :ok | {:error, :awaiting_author_requires_input | :not_resumable}
+  def resume(server, timeout \\ 5_000), do: GenServer.call(server, {:command, :resume}, timeout)
+
+  @spec steer(GenServer.server(), String.t(), timeout()) ::
+          {:ok, %{run_id: String.t(), parent_turn_ref: String.t() | nil, goal_version: pos_integer()}}
+          | {:error, :not_steerable}
+  def steer(server, text, timeout \\ 5_000),
+    do: GenServer.call(server, {:command, {:steer, text}}, timeout)
 
   @spec state(GenServer.server(), timeout()) :: map()
   def state(server, timeout \\ 5_000), do: GenServer.call(server, :state, timeout)
@@ -119,6 +129,65 @@ defmodule NovelApplication.AgentRunServer do
   @impl true
   def handle_call(:state, _from, state) do
     {:reply, snapshot(state), state}
+  end
+
+  # resume 是同步 call：命令被拒绝必须对作者可见（DS03）。awaiting_author 是系统
+  # 缺作者输入的决策点，裸 resume 只会重放旧 settled 判断，必须走非空 steer 或
+  # 绑定 action；resume 仅服务作者主动暂停（paused）的原地恢复。
+  def handle_call({:command, :resume}, _from, state) do
+    cond do
+      state.run.status == :awaiting_author ->
+        {:reply, {:error, :awaiting_author_requires_input}, state}
+
+      not resumable?(state) ->
+        {:reply, {:error, :not_resumable}, state}
+
+      true ->
+        state =
+          state
+          |> clear_interrupt()
+          |> put_run_status(:running)
+          |> put_run_phase(:executing)
+          |> emit(:run_resumed, "AgentRun 已恢复。", ["resume_requested"])
+          |> persist_run_state()
+
+        {:reply, :ok, state, {:continue, :run_next_step}}
+    end
+  end
+
+  # steer 是同步 call（DS03）：拒绝可见，且回执携带 run_id / parent_turn_ref /
+  # goal_version，供调用方把作者补充持久化为 session Interaction（刷新可恢复）。
+  def handle_call({:command, {:steer, text}}, _from, state) when is_binary(text) do
+    if terminal?(state) do
+      {:reply, {:error, :not_steerable}, state}
+    else
+      resume_after_steer? =
+        state.run.status == :awaiting_author and is_nil(state.current_task_ref)
+
+      goal = %{state.run.goal | text: text, version: state.run.goal.version + 1}
+
+      state =
+        %{state | run: %{state.run | goal: goal}}
+        |> maybe_prepare_awaiting_author_steer(resume_after_steer?)
+        |> put_interrupt(:steer_requested)
+        |> emit(:plan_adjusted, "已收到新的创作方向。", ["steer_requested"])
+        |> maybe_resume_after_steer(resume_after_steer?)
+        |> persist_run_state()
+
+      reply =
+        {:ok,
+         %{
+           run_id: state.run.run_id,
+           parent_turn_ref: state.run.parent_turn_ref,
+           goal_version: state.run.goal.version
+         }}
+
+      if resume_after_steer? do
+        {:reply, reply, state, {:continue, :run_next_step}}
+      else
+        {:reply, reply, state}
+      end
+    end
   end
 
   @impl true
@@ -185,47 +254,6 @@ defmodule NovelApplication.AgentRunServer do
           ])
 
         {:noreply, cancel_now(state)}
-    end
-  end
-
-  def handle_cast({:command, :resume}, state) do
-    if resumable?(state) do
-      state =
-        state
-        |> clear_interrupt()
-        |> put_run_status(:running)
-        |> put_run_phase(:executing)
-        |> emit(:run_resumed, "AgentRun 已恢复。", ["resume_requested"])
-        |> persist_run_state()
-
-      {:noreply, state, {:continue, :run_next_step}}
-    else
-      {:noreply, state}
-    end
-  end
-
-  def handle_cast({:command, {:steer, text}}, state) when is_binary(text) do
-    if terminal?(state) do
-      {:noreply, state}
-    else
-      resume_after_steer? =
-        state.run.status == :awaiting_author and is_nil(state.current_task_ref)
-
-      goal = %{state.run.goal | text: text, version: state.run.goal.version + 1}
-
-      state =
-        %{state | run: %{state.run | goal: goal}}
-        |> maybe_prepare_awaiting_author_steer(resume_after_steer?)
-        |> put_interrupt(:steer_requested)
-        |> emit(:plan_adjusted, "已收到新的创作方向。", ["steer_requested"])
-        |> maybe_resume_after_steer(resume_after_steer?)
-        |> persist_run_state()
-
-      if resume_after_steer? do
-        {:noreply, state, {:continue, :run_next_step}}
-      else
-        {:noreply, state}
-      end
     end
   end
 
@@ -921,8 +949,10 @@ defmodule NovelApplication.AgentRunServer do
   defp blocking_interrupt_requested?(state),
     do: pause_requested?(state) or cancel_requested?(state)
 
+  # 仅 paused 可 resume（DS03）：awaiting_author 的恢复入口是非空 steer / 绑定
+  # action（见 handle_call resume 分支的拒绝语义与 steer 的 resume_after_steer）。
   defp resumable?(state),
-    do: state.run.status in [:paused, :awaiting_author] and is_nil(state.current_task_ref)
+    do: state.run.status == :paused and is_nil(state.current_task_ref)
 
   # awaiting_author 是系统主动交还作者的决策点。作者补充新方向后，同一 run 必须
   # 重新进入判断，而不是继续消费上一次的 settled/context/checkpoint；goal.version

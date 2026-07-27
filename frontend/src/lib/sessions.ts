@@ -22,6 +22,8 @@ export interface SessionTranscriptEntry {
   role: "user" | "assistant" | "system";
   text: string;
   candidate_selection?: CandidateSelectionPayload | null;
+  // DS03：steer 作者补充恢复时携带来源 run，前端据此把消息锚回同一 AgentRun。
+  agent_run_id?: string | null;
   turn_result: Record<string, unknown> | null;
   inserted_at?: string | null;
 }
@@ -76,6 +78,7 @@ export interface ChatMessageFromTranscript {
   text: string;
   turnId?: string | null;
   candidateSelection?: CandidateSelectionPayload | null;
+  agentRunId?: string | null;
   turnResult?: WireTurnResult;
 }
 
@@ -264,6 +267,7 @@ export function transcriptToMessages(
       text: entry.text,
       turnId: entry.turn_id,
       ...(entry.candidate_selection ? { candidateSelection: entry.candidate_selection } : {}),
+      ...(entry.agent_run_id ? { agentRunId: entry.agent_run_id } : {}),
       // 恢复的历史 turn_result 与 Channel 广播走同一契约校验入口（漂移告警、容错透传）。
       ...(entry.turn_result ? { turnResult: parseIncomingTurnResult(entry.turn_result) } : {}),
     }));

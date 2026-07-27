@@ -368,6 +368,86 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.completed_step_refs == ["step_1"]
   end
 
+  test "resume from paused continues the same run in place" do
+    parent = self()
+    run_id = unique_run_id()
+
+    slow_step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+      Process.sleep(80)
+      {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
+    end
+
+    fast_step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+      {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(
+               base_run(run_id),
+               next_step_planner: sequential_steps([slow_step, fast_step]),
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:step_started, 1}
+    assert :ok = AgentRunService.pause(run_id)
+    assert_receive {:agent_event, :run_paused, "AgentRun 已暂停。"}, 500
+
+    assert :ok = AgentRunService.resume(run_id)
+
+    assert_receive {:agent_event, :run_resumed, "AgentRun 已恢复。"}, 500
+    assert_receive {:step_started, 2}, 500
+    assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :completed
+    assert run.completed_step_refs == ["step_1", "step_2"]
+  end
+
+  # DS03：awaiting_author 是缺作者输入的决策点。裸 resume 必须被结构化拒绝且
+  # 不重放旧 settled 判断；空白 steer 同样不得进入判断循环。
+  test "awaiting-author run refuses bare resume and blank steer with structured reasons" do
+    parent = self()
+    run_id = unique_run_id()
+
+    planner = fn run, sequence, _snapshot ->
+      if run.goal.version == 1 do
+        {:ok, decision} =
+          AgentNextStepDecision.new(%{
+            decision_id: "and_#{run.run_id}_#{sequence}_await_author",
+            run_ref: run.run_id,
+            sequence: sequence,
+            decision_type: :await_author,
+            summary: "请补充具体扩写方向。",
+            reason_codes: ["test_await_author"]
+          })
+
+        {:await_author, decision, %{provider_call_count: 0}}
+      else
+        {:complete, test_complete_decision(run, sequence), %{provider_call_count: 0}}
+      end
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:agent_event, :awaiting_author, "请补充具体扩写方向。"}, 500
+
+    assert {:error, :awaiting_author_requires_input} = AgentRunService.resume(run_id)
+    assert {:error, :steer_requires_text} = AgentRunService.steer(run_id, "   ")
+
+    refute_receive {:agent_event, :run_resumed, _}, 120
+    refute_receive {:agent_event, :plan_adjusted, _}, 10
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+    assert run.goal.version == 1
+  end
+
   test "cancel during an active step requests provider execution cancellation" do
     parent = self()
     run_id = unique_run_id()
@@ -1121,7 +1201,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, %{run: awaiting_run}} = AgentRunService.state(run_id)
     assert awaiting_run.status == :awaiting_author
 
-    assert :ok = AgentRunService.steer(run_id, "直接在现有正文基础上扩写，保持情节不变")
+    assert {:ok, _} = AgentRunService.steer(run_id, "直接在现有正文基础上扩写，保持情节不变")
 
     assert_receive {:agent_event, :plan_adjusted, "已收到新的创作方向。"}, 500
     assert_receive {:agent_event, :run_resumed, "已收到调整，正在按新方向继续。"}, 500
@@ -1152,7 +1232,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
              )
 
     assert_receive {:step_started, 1}
-    assert :ok = AgentRunService.steer(run_id, "改成更冷静的反派")
+    assert {:ok, _} = AgentRunService.steer(run_id, "改成更冷静的反派")
 
     assert_receive {:agent_event, :plan_adjusted, "已收到新的创作方向。"}
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
@@ -1201,7 +1281,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
              )
 
     assert_receive {:step_started, 1}
-    assert :ok = AgentRunService.steer(run_id, "改成更冷静的反派")
+    assert {:ok, _} = AgentRunService.steer(run_id, "改成更冷静的反派")
 
     assert_receive {:agent_event_full, :plan_adjusted, _event}, 500
     assert_receive {:agent_event_full, :plan_revised, event}, 500

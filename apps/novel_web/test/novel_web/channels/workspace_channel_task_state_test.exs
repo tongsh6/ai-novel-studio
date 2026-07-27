@@ -340,6 +340,72 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     )
   end
 
+  # DS03：bounded runtime 已死时，join 必须广播 runtime_live: false 的只读快照
+  # 明示失效；历史非终态记录不得授予实时命令权限（resume 一律 not_found）。
+  test "join broadcasts runtime_live false for dead bounded runs and refuses commands" do
+    {:ok, work} = WorkService.create(%{"title" => "失活任务作品"})
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+    run_id = "run-dead-bounded-#{System.unique_integer([:positive, :monotonic])}"
+
+    assert {:ok, _record} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: work.id,
+               work_id: work.id,
+               session_id: session_id,
+               parent_turn_ref: "turn-dead-bounded",
+               origin_frame_ref: "frame-dead-bounded",
+               run_mode: "bounded",
+               profile_ref: "character_design_with_context_v1",
+               status: "awaiting_author",
+               phase: "stopped",
+               goal: %{"text" => "在现有基础上扩写第一章", "version" => 1},
+               goal_version: 1,
+               run_policy: %{"allowed_tool_refs" => ["character_roster"]},
+               authority_scope: %{
+                 "production_write" => false,
+                 "allowed_tools" => ["character_roster"]
+               },
+               budget: %{
+                 "max_steps" => 2,
+                 "max_tool_calls" => 2,
+                 "max_provider_calls" => 1,
+                 "max_replans" => 1
+               },
+               consumed_budget: %{
+                 "steps" => 1,
+                 "tool_calls" => 1,
+                 "provider_calls" => 0,
+                 "replans" => 0
+               },
+               completed_step_refs: ["step-dead-bounded-1"],
+               interrupt_state: %{"status" => "none"}
+             })
+
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    assert_broadcast(
+      "agent_run_state",
+      %{
+        run_id: ^run_id,
+        run_mode: "bounded",
+        status: "awaiting_author",
+        recovered: false,
+        runtime_live: false
+      },
+      1_000
+    )
+
+    ref = push(socket, "agent_command", %{"run_id" => run_id, "command" => "resume"})
+    assert_reply(ref, :error, %{reason: "not_found"})
+  end
+
   test "join marks durable AgentRun stale when work revision changed" do
     {:ok, work} = WorkService.create(%{"title" => "恢复前作品"})
     {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)

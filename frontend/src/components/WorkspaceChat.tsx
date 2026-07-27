@@ -33,6 +33,7 @@ import {
   sendAuthorAction,
   getReviewReport,
   sendAgentCommand,
+  agentCommandErrorReason,
   onAgentEvent,
   onAgentRunState,
   onTaskState,
@@ -128,10 +129,12 @@ import {
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
 import {
+  agentRunRuntimeAuthority,
   assistantMessageTextForAgentRun,
   bindAgentRunAckToUserMessage,
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
+  type AgentRunRuntimeAuthority,
   qualityRevisionArtifactRole,
   selectAgentRunActivitySummary,
   shouldRenderAnchoredAgentRunStatus,
@@ -772,9 +775,16 @@ interface AgentRunControlDockProps {
   canPause: boolean;
   canResume: boolean;
   canCancel: boolean;
+  // DS03 状态矩阵：live=可实时命令；dead=已失活（bounded 走重新发起、durable 走
+  // 检查点口径）；unknown=liveness 尚未确认，不给可提交动作。
+  runtimeAuthority: AgentRunRuntimeAuthority;
+  awaitingInput: boolean;
+  commandInFlight: boolean;
+  noticeText?: string | null;
   hasSteerInput?: boolean;
   onCommand: (command: AgentCommand) => void;
   onRequestCancel: () => void;
+  onRestartTask: () => void;
 }
 
 export function AgentRunControlDock({
@@ -783,9 +793,14 @@ export function AgentRunControlDock({
   canPause,
   canResume,
   canCancel,
+  runtimeAuthority,
+  awaitingInput,
+  commandInFlight,
+  noticeText = null,
   hasSteerInput = false,
   onCommand,
   onRequestCancel,
+  onRestartTask,
 }: AgentRunControlDockProps) {
   const reasoningFlow = agentRunReasoningFlow(events);
   const totalStepCount = Math.max(
@@ -816,6 +831,10 @@ export function AgentRunControlDock({
         : WORKBENCH.agentRunStatus(run.status);
   const isPausing = run.status === "pausing";
   const isCancelling = run.status === "cancelling";
+  const runtimeDead = runtimeAuthority === "dead";
+  const runtimeUnknown = runtimeAuthority === "unknown";
+  const isExpiredBounded = runtimeDead && run.run_mode !== "durable";
+  const isDeadDurableCheckpoint = runtimeDead && run.run_mode === "durable";
   const primaryCommand: AgentCommand = canResume ? "resume" : "pause";
   const primaryLabel = isCancelling
     ? WORKBENCH.agentRunCommandProcessing
@@ -824,12 +843,24 @@ export function AgentRunControlDock({
       : canResume
         ? WORKBENCH.agentRunResume
         : WORKBENCH.agentRunPause;
-  const primaryDisabled = isPausing || isCancelling || (!canPause && !canResume);
+  const primaryDisabled = isPausing || isCancelling || commandInFlight || (!canPause && !canResume);
   const primaryActionClassName = [
     styles.agentRunDockPrimaryAction,
     canResume && !hasSteerInput ? styles.agentRunDockPrimaryActionEmphasis : "",
   ].join(" ");
-  const pulseIsAnimated = MOTION_AGENT_RUN_STATUSES.has(run.status);
+  const pulseIsAnimated = !runtimeDead && MOTION_AGENT_RUN_STATUSES.has(run.status);
+  const dockTitle = isExpiredBounded
+    ? WORKBENCH.agentRunExpiredTitle
+    : isQualityRevisionRun
+      ? WORKBENCH.qualityRevisionDockTitle(statusLabel)
+      : WORKBENCH.agentRunDockTitle(statusLabel);
+  const dockDetail = isExpiredBounded
+    ? WORKBENCH.agentRunExpiredDetail
+    : isDeadDurableCheckpoint
+      ? WORKBENCH.agentRunCheckpointNoLiveControl
+      : runtimeUnknown
+        ? WORKBENCH.agentRunAuthorityUnknownDetail
+        : structuralDetail;
 
   return (
     <section className={styles.agentRunControlDock} aria-label={WORKBENCH.agentRunControlsLabel}>
@@ -844,12 +875,8 @@ export function AgentRunControlDock({
             aria-hidden="true"
           />
           <span className={styles.agentRunDockStatusText} aria-live="polite">
-            <span className={styles.agentRunDockStatusTitle}>
-              {isQualityRevisionRun
-                ? WORKBENCH.qualityRevisionDockTitle(statusLabel)
-                : WORKBENCH.agentRunDockTitle(statusLabel)}
-            </span>
-            <span className={styles.agentRunDockStatusDetail}>{structuralDetail}</span>
+            <span className={styles.agentRunDockStatusTitle}>{dockTitle}</span>
+            <span className={styles.agentRunDockStatusDetail}>{dockDetail}</span>
           </span>
           <ChevronDown className={styles.agentRunDockChevron} size={16} aria-hidden="true" />
         </summary>
@@ -867,32 +894,73 @@ export function AgentRunControlDock({
         </div>
       </details>
 
-      <div className={styles.agentRunDockActions}>
-        <button
-          type="button"
-          className={primaryActionClassName}
-          disabled={primaryDisabled}
-          onClick={() => onCommand(primaryCommand)}
-        >
-          {isPausing || isCancelling ? (
-            <Loader2 className={styles.spinnerIcon} size={15} aria-hidden="true" />
-          ) : canResume ? (
+      {noticeText && (
+        <div role="status" className={styles.agentRunDockNotice}>
+          {noticeText}
+        </div>
+      )}
+
+      <div
+        className={
+          isExpiredBounded || awaitingInput
+            ? styles.agentRunDockActionsFlex
+            : styles.agentRunDockActions
+        }
+      >
+        {isExpiredBounded ? (
+          <button
+            type="button"
+            className={styles.agentRunDockPrimaryAction}
+            onClick={onRestartTask}
+          >
             <Play size={15} aria-hidden="true" />
-          ) : (
-            <Pause size={15} aria-hidden="true" />
-          )}
-          <span>{primaryLabel}</span>
-        </button>
-        <button
-          type="button"
-          className={styles.agentRunDockTerminateAction}
-          title={WORKBENCH.agentRunTerminateTitle}
-          disabled={!canCancel || isCancelling}
-          onClick={onRequestCancel}
-        >
-          <CircleX size={15} aria-hidden="true" />
-          <span>{WORKBENCH.agentRunTerminate}</span>
-        </button>
+            <span>{WORKBENCH.agentRunRestartTask}</span>
+          </button>
+        ) : isDeadDurableCheckpoint ? null : awaitingInput ? (
+          <>
+            <span className={styles.agentRunDockAwaitingHint}>
+              {WORKBENCH.agentRunAwaitingInputHint}
+            </span>
+            <button
+              type="button"
+              className={styles.agentRunDockTerminateAction}
+              title={WORKBENCH.agentRunTerminateTitle}
+              disabled={!canCancel || isCancelling || commandInFlight}
+              onClick={onRequestCancel}
+            >
+              <CircleX size={15} aria-hidden="true" />
+              <span>{WORKBENCH.agentRunTerminate}</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={primaryActionClassName}
+              disabled={primaryDisabled}
+              onClick={() => onCommand(primaryCommand)}
+            >
+              {isPausing || isCancelling ? (
+                <Loader2 className={styles.spinnerIcon} size={15} aria-hidden="true" />
+              ) : canResume ? (
+                <Play size={15} aria-hidden="true" />
+              ) : (
+                <Pause size={15} aria-hidden="true" />
+              )}
+              <span>{primaryLabel}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.agentRunDockTerminateAction}
+              title={WORKBENCH.agentRunTerminateTitle}
+              disabled={!canCancel || isCancelling || commandInFlight}
+              onClick={onRequestCancel}
+            >
+              <CircleX size={15} aria-hidden="true" />
+              <span>{WORKBENCH.agentRunTerminate}</span>
+            </button>
+          </>
+        )}
       </div>
     </section>
   );
@@ -1067,6 +1135,14 @@ export function WorkspaceChat() {
     {},
   );
   const [agentRunStates, setAgentRunStates] = useState<Record<string, AgentRunStateData>>({});
+  // DS03：命令失败以单一内联 system status 呈现（按 run/command/reason 去重、
+  // 可被下一次成功清除），不追加 assistant 气泡；pending 期间防连击。
+  const [agentCommandNotice, setAgentCommandNotice] = useState<{
+    runId: string;
+    command: string;
+    reason: string;
+  } | null>(null);
+  const [agentCommandInFlight, setAgentCommandInFlight] = useState(false);
   const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
   const [agentRunActivityLoading, setAgentRunActivityLoading] = useState<Record<string, boolean>>(
     {},
@@ -1089,6 +1165,7 @@ export function WorkspaceChat() {
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
+  const mainInputRef = useRef<HTMLInputElement | null>(null);
   const chatPinnedToBottomRef = useRef(true);
   const chatMessageCountRef = useRef(0);
   const resumeRestoredTranscriptRef = useRef(false);
@@ -1712,11 +1789,19 @@ export function WorkspaceChat() {
   const latestAgentRunEvents = latestAgentRun
     ? agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id)
     : [];
-  const canPauseAgentRun = latestAgentRun?.status === "running";
-  const canResumeAgentRun =
-    latestAgentRun?.status === "paused" || latestAgentRun?.status === "awaiting_author";
+  // DS03 状态矩阵：命令权限唯一真源是服务端 agent_run_state 的 runtime_live；
+  // 历史 TurnResult 快照（authority=unknown）与已失活 runtime（dead）都不授予
+  // 实时命令。paused 才可 resume；awaiting_author 只能提交非空补充。
+  const latestAgentRunAuthority = agentRunRuntimeAuthority(latestAgentRun);
+  const latestAgentRunIsLive = latestAgentRunAuthority === "live";
+  const latestAgentRunIsDead = latestAgentRunAuthority === "dead";
+  const canPauseAgentRun = latestAgentRun?.status === "running" && latestAgentRunIsLive;
+  const canResumeAgentRun = latestAgentRun?.status === "paused" && latestAgentRunIsLive;
+  const awaitingAuthorInputRequired =
+    latestAgentRun?.status === "awaiting_author" && !latestAgentRunIsDead;
   const canCancelAgentRun =
     latestAgentRun !== null &&
+    latestAgentRunIsLive &&
     latestAgentRun.status !== "cancelling" &&
     !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   const hasActiveAgentRun =
@@ -1743,7 +1828,13 @@ export function WorkspaceChat() {
     socketConnected &&
     !isPanelOpen &&
     !isReadOnlySessionView &&
-    (!loading || canRouteMainInputToAgentSteer);
+    (!loading || canRouteMainInputToAgentSteer) &&
+    !(canRouteMainInputToAgentSteer && agentCommandInFlight);
+  const agentCommandNoticeText =
+    agentCommandNotice && latestAgentRun && agentCommandNotice.runId === latestAgentRun.run_id
+      ? (WORKBENCH.agentRunCommandNotices[agentCommandNotice.reason] ??
+        WORKBENCH.agentRunCommandNoticeFallback(agentCommandNotice.reason))
+      : null;
 
   const rememberAgentRunAck = useCallback(
     (response: SendMessageResult, text: string, clientMessageId: string | null = null) => {
@@ -1770,6 +1861,8 @@ export function WorkspaceChat() {
         pending_artifact_refs: [],
         interrupt_state: { status: "none", requested_at: null },
         current_task: true,
+        // ack 即服务端已接受启动——runtime 此刻在场（DS03 命令权限真源）。
+        runtime_live: true,
       };
 
       setAgentRunStates((prev) => ({
@@ -1809,6 +1902,7 @@ export function WorkspaceChat() {
         pending_artifact_refs: [],
         interrupt_state: { status: "none", requested_at: null },
         current_task: true,
+        runtime_live: true,
       };
 
       setAgentRunStates((prev) => ({
@@ -1842,14 +1936,52 @@ export function WorkspaceChat() {
       });
   }, [activeSessionId, context.workId, rememberAgentRunAck]);
 
+  // DS03：not_found 意味着 runtime 已失活——本地立即把该 run 降为 dead，
+  // 历史状态不再授予命令权限，控制坞切换到「重新发起」。
+  const demoteAgentRunToDead = useCallback((run: AgentRunStateData) => {
+    setAgentRunStates((prev) => ({
+      ...prev,
+      [run.run_id]: { ...(prev[run.run_id] ?? run), runtime_live: false },
+    }));
+  }, []);
+
+  const noteAgentCommandFailure = useCallback(
+    (run: AgentRunStateData, command: string, error: unknown) => {
+      const reason = agentCommandErrorReason(error);
+      setAgentCommandNotice((prev) =>
+        prev && prev.runId === run.run_id && prev.command === command && prev.reason === reason
+          ? prev
+          : { runId: run.run_id, command, reason },
+      );
+      if (reason === "not_found") demoteAgentRunToDead(run);
+    },
+    [demoteAgentRunToDead],
+  );
+
   async function handleAgentCommand(command: AgentCommand, text?: string) {
     if (!channelRef.current || !latestAgentRun) return;
+    if (agentCommandInFlight) return;
 
+    const run = latestAgentRun;
+    setAgentCommandInFlight(true);
     try {
-      await sendAgentCommand(channelRef.current, latestAgentRun.run_id, command, text);
-    } catch {
-      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
+      await sendAgentCommand(channelRef.current, run.run_id, command, text);
+      setAgentCommandNotice(null);
+    } catch (error) {
+      noteAgentCommandFailure(run, command, error);
+    } finally {
+      setAgentCommandInFlight(false);
     }
+  }
+
+  // DS03：dead bounded run 的恢复路径是重新发起新任务——预填原任务目标，
+  // 作者确认后走普通 user_message 起新 run；不向旧 run 发送任何 agent_command。
+  function handleRestartDeadAgentRunTask() {
+    if (!latestAgentRun) return;
+    const goalText = typeof latestAgentRun.goal?.text === "string" ? latestAgentRun.goal.text : "";
+    setInputText((current) => (current.trim() !== "" ? current : goalText));
+    setAgentCommandNotice(null);
+    mainInputRef.current?.focus();
   }
 
   function nextLocalMessageId(): string {
@@ -1872,6 +2004,8 @@ export function WorkspaceChat() {
         generateMicroPlan: options.generateMicroPlan ?? false,
       })
     ) {
+      if (agentCommandInFlight) return;
+      const steerRun = latestAgentRun!;
       const clientMessageId = nextLocalMessageId();
       setMessages((prev) => [
         ...prev,
@@ -1879,16 +2013,26 @@ export function WorkspaceChat() {
           role: "user",
           text,
           clientMessageId,
-          agentRunId: latestAgentRun!.run_id,
+          agentRunId: steerRun.run_id,
         },
       ]);
       if (messageText === inputText) setInputText("");
       setLoading(true);
+      setAgentCommandInFlight(true);
       try {
-        await sendAgentCommand(channelRef.current, latestAgentRun!.run_id, "steer", text);
-      } catch {
-        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
+        await sendAgentCommand(channelRef.current, steerRun.run_id, "steer", text);
+        setAgentCommandNotice(null);
+      } catch (error) {
+        // DS03：失败不追加 assistant 气泡；撤回乐观 user 消息并还原输入，
+        // 失败原因内联在控制坞 system status。
+        setMessages((prev) =>
+          prev.filter((message) => message.clientMessageId !== clientMessageId),
+        );
+        setInputText(text);
         setLoading(false);
+        noteAgentCommandFailure(steerRun, "steer", error);
+      } finally {
+        setAgentCommandInFlight(false);
       }
       return;
     }
@@ -2979,8 +3123,9 @@ export function WorkspaceChat() {
   const leftColumnClassName = [styles.leftColumn, isPanelOpen ? styles.leftColumnDimmed : ""].join(
     " ",
   );
+  // DS03：已失活的历史任务不再计入顶栏「进行中任务」聚合。
   const activeAgentRunTaskLabel =
-    latestAgentRun && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status)
+    latestAgentRun && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status) && !latestAgentRunIsDead
       ? latestAgentRun.status === "paused"
         ? WORKBENCH.taskAgentRunPausedLabel
         : latestAgentRun.status === "awaiting_author"
@@ -4333,11 +4478,16 @@ export function WorkspaceChat() {
                     canPause={canPauseAgentRun}
                     canResume={canResumeAgentRun}
                     canCancel={canCancelAgentRun}
+                    runtimeAuthority={latestAgentRunAuthority}
+                    awaitingInput={awaitingAuthorInputRequired}
+                    commandInFlight={agentCommandInFlight}
+                    noticeText={agentCommandNoticeText}
                     hasSteerInput={hasSteerInput}
                     onCommand={(command) => {
                       void handleAgentCommand(command);
                     }}
                     onRequestCancel={() => setAgentRunTerminateDialogOpen(true)}
+                    onRestartTask={handleRestartDeadAgentRunTask}
                   />
                 )}
                 <div
@@ -4360,6 +4510,7 @@ export function WorkspaceChat() {
                     </div>
                   )}
                   <input
+                    ref={mainInputRef}
                     type="text"
                     className={styles.inputBox}
                     aria-label={
@@ -4372,8 +4523,10 @@ export function WorkspaceChat() {
                     onKeyDown={handleKeyDown}
                     placeholder={
                       canRouteMainInputToAgentSteer
-                        ? WORKBENCH.agentRunMainInputSteerPlaceholder
-                        : hasActiveAgentRun
+                        ? awaitingAuthorInputRequired
+                          ? WORKBENCH.agentRunAwaitingInputPlaceholder
+                          : WORKBENCH.agentRunMainInputSteerPlaceholder
+                        : hasActiveAgentRun && !latestAgentRunIsDead
                           ? WORKBENCH.agentRunMainInputUnavailablePlaceholder
                           : WORKBENCH.inputPlaceholder
                     }
@@ -4381,7 +4534,9 @@ export function WorkspaceChat() {
                       !socketConnected ||
                       isPanelOpen ||
                       isReadOnlySessionView ||
-                      (hasActiveAgentRun && !canRouteMainInputToAgentSteer)
+                      (hasActiveAgentRun &&
+                        !latestAgentRunIsDead &&
+                        !canRouteMainInputToAgentSteer)
                     }
                   />
                   <button
@@ -4392,7 +4547,7 @@ export function WorkspaceChat() {
                     }}
                     disabled={!canSubmitMainInput}
                   >
-                    {hasActiveAgentRun ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
+                    {canRouteMainInputToAgentSteer ? WORKBENCH.agentRunSteerSend : WORKBENCH.send}
                   </button>
                 </div>
               </div>

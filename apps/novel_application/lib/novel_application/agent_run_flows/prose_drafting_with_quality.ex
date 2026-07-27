@@ -769,13 +769,16 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   end
 
   defp persist_completed_turn(run, turn_result, trace, context, spec) do
+    # DS03：steer 后（goal.version > 1）goal.text 即作者补充文本，且该补充已由
+    # persist_author_steer 独立落库——完成时再写 user entry 会在 transcript 重复。
     DialogueGateway.persist_turn_side_effects(
       {:ok, turn_result, trace, [], context},
       run.workspace_id,
       run.session_id,
       run.goal.text,
       Map.get(spec, :trace_persister),
-      Map.get(spec, :memory_recorder)
+      Map.get(spec, :memory_recorder),
+      %{suppress_user_entry: run.goal.version > 1}
     )
   end
 

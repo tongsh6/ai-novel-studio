@@ -151,6 +151,33 @@ defmodule NovelApplication.AgentRunService do
     end
   end
 
+  @doc """
+  列出 join 时已失活的 bounded run（DS03）：持久层仍是非终态、但 runtime Registry
+  已无进程。bounded 无 checkpoint replay 契约，不重建进程，只产出只读快照供
+  channel 以 runtime_live: false 明示失效——历史 TurnResult 不得再授予命令权限。
+  """
+  @spec list_dead_bounded(String.t(), String.t()) :: {:ok, [map()]}
+  def list_dead_bounded(work_id, session_id)
+      when is_binary(work_id) and is_binary(session_id) do
+    states =
+      work_id
+      |> AgentRunLog.list_active_bounded(session_id)
+      |> Enum.flat_map(fn record ->
+        with {:error, :not_found} <- lookup(record.id),
+             {:ok, run} <- run_from_record(record) do
+          [%{run: run, remaining_steps: 0, current_task?: false, recovered?: false, runtime_live?: false}]
+        else
+          _ -> []
+        end
+      end)
+
+    {:ok, states}
+  rescue
+    _error -> {:ok, []}
+  catch
+    _kind, _reason -> {:ok, []}
+  end
+
   @spec attach_event_sink(String.t(), function() | nil) :: :ok | {:error, :not_found}
   def attach_event_sink(run_id, event_sink) when is_binary(run_id) do
     case lookup(run_id) do
@@ -166,14 +193,47 @@ defmodule NovelApplication.AgentRunService do
   @spec pause(String.t()) :: :ok | {:error, :not_found}
   def pause(run_id), do: command(run_id, :pause)
 
-  @spec resume(String.t()) :: :ok | {:error, :not_found}
-  def resume(run_id), do: command(run_id, :resume)
+  @doc """
+  resume 是同步命令（DS03）：拒绝必须对调用方可见。仅 paused 可原地恢复；
+  awaiting_author 返回 :awaiting_author_requires_input，引导非空 steer / 绑定 action。
+  """
+  @spec resume(String.t()) ::
+          :ok
+          | {:error,
+             :not_found | :awaiting_author_requires_input | :not_resumable | :resume_timeout}
+  def resume(run_id) do
+    case lookup(run_id) do
+      {:ok, pid} -> AgentRunServer.resume(pid)
+      error -> error
+    end
+  catch
+    :exit, {:timeout, _call} -> {:error, :resume_timeout}
+    :exit, reason -> {:error, {:resume_call_exit, reason}}
+  end
 
   @spec cancel(String.t()) :: :ok | {:error, :not_found}
   def cancel(run_id), do: command(run_id, :cancel)
 
-  @spec steer(String.t(), String.t()) :: :ok | {:error, :not_found}
-  def steer(run_id, text) when is_binary(text), do: command(run_id, {:steer, text})
+  @doc """
+  steer 是同步命令（DS03）：空文本拒绝，成功回执携带 run_id / parent_turn_ref /
+  goal_version，供 channel 把作者补充持久化为 session Interaction。
+  """
+  @spec steer(String.t(), String.t()) ::
+          {:ok, %{run_id: String.t(), parent_turn_ref: String.t() | nil, goal_version: pos_integer()}}
+          | {:error, :not_found | :steer_requires_text | :not_steerable | :steer_timeout}
+  def steer(run_id, text) when is_binary(text) do
+    if String.trim(text) == "" do
+      {:error, :steer_requires_text}
+    else
+      case lookup(run_id) do
+        {:ok, pid} -> AgentRunServer.steer(pid, text)
+        error -> error
+      end
+    end
+  catch
+    :exit, {:timeout, _call} -> {:error, :steer_timeout}
+    :exit, reason -> {:error, {:steer_call_exit, reason}}
+  end
 
   @doc """
   作者已在采纳边界处理了本 run 的某个候选（accept 采纳）——通知 run 观察该作者

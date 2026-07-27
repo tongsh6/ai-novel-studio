@@ -253,10 +253,22 @@ defmodule NovelApplication.WorkSessionService do
       role: interaction.role,
       text: text_from_content(interaction.content),
       candidate_selection: candidate_selection_from_content(interaction.content),
+      agent_run_id: agent_run_id_from_content(interaction.content),
       turn_result: turn_result,
       inserted_at: interaction.inserted_at
     }
   end
+
+  # DS03：steer 作者补充以 user interaction 落库，content 携带 agent_run_id；
+  # transcript 恢复时前端据此把该消息锚回同一 AgentRun。
+  defp agent_run_id_from_content(content) when is_map(content) do
+    case content["agent_run_id"] || content[:agent_run_id] do
+      run_id when is_binary(run_id) and run_id != "" -> run_id
+      _ -> nil
+    end
+  end
+
+  defp agent_run_id_from_content(_content), do: nil
 
   defp transcript_turn_results(transcript) do
     transcript

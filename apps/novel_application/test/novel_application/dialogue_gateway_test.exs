@@ -216,6 +216,33 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert entry.content.turn_result.agent_run.run_id == "run-revision"
     end
 
+    # DS03：steer 作者补充落为 user interaction，content 携带 agent_run_id，
+    # turn_id 由 parent_turn_ref + goal_version 派生（同一次 steer 幂等）。
+    test "author steer persists one user entry bound to the source run" do
+      parent = self()
+
+      recorder = fn workspace_id, entries ->
+        send(parent, {:recorded_steer, workspace_id, entries})
+        :ok
+      end
+
+      assert :ok =
+               DialogueGateway.persist_author_steer(
+                 "work-1",
+                 "session-1",
+                 %{run_id: "run-steer", parent_turn_ref: "turn-origin", goal_version: 2},
+                 "在现有正文基础上扩充场景和心理描写",
+                 recorder
+               )
+
+      assert_receive {:recorded_steer, "work-1", [entry]}
+      assert entry.role == "user"
+      assert entry.turn_id == "turn-origin:steer:2"
+      assert entry.source_ref == "run-steer"
+      assert entry.content == %{text: "在现有正文基础上扩充场景和心理描写", agent_run_id: "run-steer"}
+      assert entry.session_id == "session-1"
+    end
+
     test "jsonable normalizes encoder-less structs and keeps Jason-native scalars" do
       # 回归：require_confirmation 的 turn_result 内嵌 MicroPlan 等无 Encoder 的 struct，
       # 持久化（Ecto :map）/广播（Jason）若不规范化会崩。jsonable 只展开无 Encoder 的

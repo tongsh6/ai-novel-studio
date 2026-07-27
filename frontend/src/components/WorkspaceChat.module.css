@@ -1274,6 +1274,33 @@
   min-height: 36px;
 }
 
+/* DS03 状态矩阵分支（已失效重新发起 / 等待补充提示）内容宽度不定，用弹性布局 */
+.agentRunDockActionsFlex {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 36px;
+}
+
+/* DS03：命令失败的单一内联 system status——系统口径，不伪装 AI 消息 */
+.agentRunDockNotice {
+  color: #a03d33;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.agentRunDockAwaitingHint {
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
 .agentRunDockPrimaryAction,
 .agentRunDockTerminateAction {
   display: inline-flex;
