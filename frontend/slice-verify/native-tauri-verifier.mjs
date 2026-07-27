@@ -12929,11 +12929,16 @@ function findAu14FactInventoryEvidence(records) {
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
       record.profile_ref === "fact_inventory_v1" &&
-      Number(record.pending_count ?? 0) === 4 &&
+      Number(record.pending_count ?? 0) === 5 &&
       Number(record.pending_character_count ?? 0) === 2 &&
       Number(record.pending_rule_count ?? 0) === 1 &&
       Number(record.pending_foreshadow_count ?? 0) === 1 &&
-      Number(record.available_action_count ?? 0) === 12 &&
+      Number(record.pending_skeleton_count ?? 0) === 1 &&
+      Number(record.available_action_count ?? 0) === 15 &&
+      record.skeleton_field === "target_length" &&
+      Number(record.skeleton_value ?? 0) === 300000 &&
+      record.work_planning_value_absent_before_adoption === true &&
+      record.work_planning_visible_after_adoption === true &&
       record.proposed_without_write === true &&
       record.unadopted_items_remain_pending === true &&
       Number(record.consumed_steps ?? 0) === 1 &&
@@ -13031,8 +13036,10 @@ function au14FactInventoryBehavior(_turnIds, _turnRecords, records, evidence, _o
     assertions: [
       "real_archive_action_started_fact_inventory_agent_run",
       "accepted_material_produced_existing_character_rule_foreshadow_seed_families",
-      "proposal_created_four_independent_pending_units_without_write",
-      "author_adopted_one_character_and_one_rule_through_existing_boundary",
+      "proposal_included_work_skeleton_suggestion_for_missing_planning_field",
+      "proposal_created_five_independent_pending_units_without_write",
+      "author_adopted_one_character_one_rule_and_planning_suggestion_through_existing_boundary",
+      "planning_adoption_wrote_back_work_target_length_visible_in_profile",
       "unadopted_character_and_foreshadowing_remained_pending",
       "archive_projections_contained_only_adopted_items",
     ],

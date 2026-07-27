@@ -9449,10 +9449,11 @@ async function driveAu14FactInventoryRoundtrip(page) {
         frame.body?.tool_result?.status === "succeeded" &&
         types.has("character_seed") &&
         types.has("world_rule_seed") &&
-        types.has("foreshadowing_seed")
+        types.has("foreshadowing_seed") &&
+        types.has("work_skeleton_suggestion")
       );
     },
-    "fact_inventory_v1 did not broadcast the three existing seed families",
+    "fact_inventory_v1 did not broadcast the seed families plus the planning suggestion",
     120_000,
   );
   const inventoryTurn = inventoryTurnFrame.body;
@@ -9460,6 +9461,10 @@ async function driveAu14FactInventoryRoundtrip(page) {
   const characterPending = pending.filter((entry) => entry.artifact_type === "character_seed");
   const rulePending = pending.find((entry) => entry.artifact_type === "world_rule_seed");
   const foreshadowPending = pending.find((entry) => entry.artifact_type === "foreshadowing_seed");
+  // VS-00G CP4d：这本书未立全书规划 → 盘点同批产全书规划建议（target_length 缺位）。
+  const skeletonPending = pending.find(
+    (entry) => entry.artifact_type === "work_skeleton_suggestion",
+  );
   const shenyanPending =
     characterPending.find((entry) =>
       String(entry.payload?.items?.[0]?.title ?? "").includes("沈砚"),
@@ -9468,10 +9473,22 @@ async function driveAu14FactInventoryRoundtrip(page) {
   assert(characterPending.length === 2, "Inventory did not return two independent characters");
   assert(rulePending, "Inventory did not return a world_rule_seed");
   assert(foreshadowPending, "Inventory did not return a foreshadowing_seed");
-  assert(pending.length === 4, `Expected 4 inventory pending units, got ${pending.length}`);
+  assert(skeletonPending, "Inventory did not return a work_skeleton_suggestion");
+  const skeletonItem = skeletonPending.payload?.items?.[0] ?? {};
   assert(
-    (inventoryTurn.available_actions ?? []).length === 12,
+    skeletonItem.skeleton_field === "target_length" &&
+      Number(skeletonItem.skeleton_value) === 300000,
+    "Planning suggestion did not carry the structured target_length slot",
+  );
+  assert(pending.length === 5, `Expected 5 inventory pending units, got ${pending.length}`);
+  assert(
+    (inventoryTurn.available_actions ?? []).length === 15,
     "Inventory did not expose three author actions for each pending unit",
+  );
+  const bodyTextBeforeAdoption = await page.locator("body").innerText();
+  assert(
+    !bodyTextBeforeAdoption.includes("300000"),
+    "Planning value leaked into the work profile before adoption",
   );
   assert(
     inventoryTurn.truthfulness?.artifact_adopted === false &&
@@ -9581,6 +9598,35 @@ async function driveAu14FactInventoryRoundtrip(page) {
     120_000,
   );
 
+  // VS-00G CP4d：采纳全书规划建议 → works 立项字段回写（非档案对象写入）。
+  const skeletonAdoptionStart = frames.length;
+  const skeletonAccept = page.getByRole("button", { name: "采纳为全书规划", exact: true });
+  await skeletonAccept.first().waitFor({ timeout: 10_000 });
+  await skeletonAccept.first().click();
+
+  await waitForNewFrame(
+    skeletonAdoptionStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === skeletonPending.artifact_id,
+    "Planning suggestion did not send its own accept target",
+    30_000,
+  );
+  const skeletonAdoptFrame = await waitForNewFrame(
+    skeletonAdoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === skeletonPending.artifact_id,
+      ),
+    "Planning suggestion was not resolved through the adoption boundary",
+    120_000,
+  );
+
   const archiveLogStart = readAppLogRecords().length;
   const archivePanel = await openArchiveTab(page, "角色");
   await archivePanel.getByText("沈砚").first().waitFor({ timeout: 10_000 });
@@ -9621,11 +9667,22 @@ async function driveAu14FactInventoryRoundtrip(page) {
   const unadoptedCharacterVisible = await pendingCharacterTab.isVisible();
   const unadoptedForeshadowVisible = await pendingForeshadowTab.isVisible();
 
+  // 采纳规划建议后回到概览：目标体量应显示已回写的立项值（作者可见后果面）。
+  await page.getByRole("tab", { name: "概览" }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("目标体量") && document.body.innerText.includes("300000"),
+    undefined,
+    { timeout: 15_000 },
+  );
+  const workPlanningVisibleAfterAdoption = true;
+
   const remainingIds = pending
     .filter(
       (entry) =>
         entry.artifact_id !== shenyanPending.artifact_id &&
-        entry.artifact_id !== rulePending.artifact_id,
+        entry.artifact_id !== rulePending.artifact_id &&
+        entry.artifact_id !== skeletonPending.artifact_id,
     )
     .map((entry) => entry.artifact_id);
   assert(
@@ -9653,16 +9710,23 @@ async function driveAu14FactInventoryRoundtrip(page) {
       inventory_turn_id: inventoryTurn.turn_id,
       character_adoption_turn_id: characterAdoptFrame.body?.turn_id,
       rule_adoption_turn_id: ruleAdoptFrame.body?.turn_id,
+      skeleton_adoption_turn_id: skeletonAdoptFrame.body?.turn_id,
       pending_count: pending.length,
       pending_character_count: characterPending.length,
       pending_rule_count: rulePending ? 1 : 0,
       pending_foreshadow_count: foreshadowPending ? 1 : 0,
+      pending_skeleton_count: skeletonPending ? 1 : 0,
       available_action_count: (inventoryTurn.available_actions ?? []).length,
       proposed_without_write:
         inventoryTurn.truthfulness?.artifact_adopted === false &&
         inventoryTurn.truthfulness?.production_write_performed === false,
       adopted_character_id: shenyanPending.artifact_id,
       adopted_rule_id: rulePending.artifact_id,
+      adopted_skeleton_id: skeletonPending.artifact_id,
+      skeleton_field: skeletonItem.skeleton_field,
+      skeleton_value: Number(skeletonItem.skeleton_value),
+      work_planning_value_absent_before_adoption: !bodyTextBeforeAdoption.includes("300000"),
+      work_planning_visible_after_adoption: workPlanningVisibleAfterAdoption,
       unadopted_foreshadow_id: foreshadowPending.artifact_id,
       unadopted_items_remain_pending:
         unadoptedCharacterVisible &&

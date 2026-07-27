@@ -478,7 +478,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp structured_response_content(prompt, prompt_text) do
     cond do
       fact_inventory_prompt?(prompt_text) ->
-        fact_inventory_response() |> Jason.encode!()
+        fact_inventory_response(prompt_text) |> Jason.encode!()
 
       creative_items_prompt?(prompt_text) ->
         creative_items_response(prompt_text) |> Jason.encode!()
@@ -503,7 +503,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # SC-AU14-B1：test-support provider 只根据真实盘点 prompt 返回确定性 canonical items；
   # 产品 runtime 不识别 slice id，也不自动触发/采纳。外部 driver 仍需从真实档案入口点击，
   # 并让 production FactInventoryService 完成校验、分组与逐项采纳边界。
-  defp fact_inventory_response do
+  # CP4d：prompt 请求全书规划建议（只列缺位字段）时，按请求附带 target_length 建议——
+  # 与真实模型同语义：只响应 prompt 中列出的缺位字段。
+  defp fact_inventory_response(prompt_text) do
+    base = fact_inventory_base_response()
+
+    if String.contains?(prompt_text, "work_skeleton_suggestion") and
+         String.contains?(prompt_text, "target_length") do
+      base ++
+        [
+          %{
+            artifact_type: "work_skeleton_suggestion",
+            item_id: "inventory-skeleton-target-length",
+            title: "目标体量",
+            body: "按前两章的叙事节奏与单章体量推断，全书目标约 30 万字。",
+            rationale: "依据第01-02章体量",
+            skeleton_field: "target_length",
+            skeleton_value: 300_000
+          }
+        ]
+    else
+      base
+    end
+  end
+
+  defp fact_inventory_base_response do
     [
       %{
         artifact_type: "character_seed",
