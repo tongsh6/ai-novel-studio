@@ -2,7 +2,7 @@
 
 - 状态：doing
 - 所属完整闭环：VS-00G 承重事实完备性与补全回路 CP4
-- 当前 checkpoint：CP4c（finding 触发 A，done）
+- 当前 checkpoint：CP4d（全书规划字段建议，done）；余 CP5 暂定候选
 - 验收锚点：`docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md`
 - 契约锚点：`docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md` §3.3 / §5 / §7
 
@@ -68,6 +68,12 @@ CP4c 接通 A：`protagonist_undermaterialized` finding 的 `revise_design` 变�
 - [x] 新增并跑通 SC-AU14-A1 外部 Tauri driver：主角采纳后由下一章正文采纳开始弧光记账。
 - [x] 运行局部测试、全门禁、I1/I2/I3 和静态扫描闭环。
 - [x] 同步 NEXT / contract / AU-14 覆盖状态；如实登记 A 触发及 CP5 缺口。
+- [x] CP4d（2026-07-28）：盘点对缺位规划字段产 `work_skeleton_suggestion`（结构化
+  skeleton_field/skeleton_value 槽位循 narrative_role 先例；prompt 只列缺位字段+flow
+  双保险过滤）；逐项采纳=works 立项字段回写（AdoptionRepository work 分支，mutation
+  留痕+optimistic revision，不写记忆/档案对象）；档案概览新增全书规划三行；
+  SC-AU14-B1 扩展（5 pending/15 actions/采纳后概览显示目标体量）与 SC-AU14-A1
+  复验均真实 Tauri PASS。
 
 ## 5. 验证
 

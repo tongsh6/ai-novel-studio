@@ -132,10 +132,13 @@ Channel `start_fact_inventory`+作品档案入口+逐项采纳已接通；真实
 finding 触发 A）**：`protagonist_undermaterialized` 的「发起盘点」绑定活跃报告条目并复用
 同一盘点 run；真实 Tauri `au14-finding-inventory-arc-loop` PASS（空档案 10 章→唯一 finding
 →采纳主角沈砚→再采纳第 11 章正文→弧光账首次出现沈砚，不倒灌历史），SC-AU14-A1 完整闭环，
-AU-14 当前 1/4。**当前队首**：CP4 的全书规划字段建议，随后 CP5 暂定设定（既有对象
-tentative 态+provisional 字段+面板）；SC-AU14-B1 当前只覆盖核心档案提案链。CP 路线：CP4 余项 → CP5
-（prose/plot_outline 先行，百章标本重放验证）→ CP2 负债规则 R2/R5-R7 → CP3 全书骨架+
-收官守则 → CP4 盘点 run+逐项采纳扩展 → CP5 假定注册表+「暂定设定」区。次刀：B9 升采纳级。
+AU-14 当前 1/4。**CP4d done（2026-07-28）**：全书规划字段建议（OQ4 三类之二）——盘点对
+缺位规划字段产 `work_skeleton_suggestion`（结构化槽位循 narrative_role 先例，只建议
+缺位字段），逐项采纳=works 立项字段回写（mutation 留痕+revision 递增，不写记忆/档案
+对象），档案概览新增全书规划三行；SC-AU14-B1 扩展+A1 复验真实 Tauri PASS。至此 CP3
+收官守则对存量无骨架书有了补全入口（R6 正向链路）。**当前队首**：CP5 暂定设定
+（既有对象 tentative 态+provisional 字段+「暂定设定」面板+盘点暂定候选[三类之三]+
+触发 C）。CP 路线余：CP5 → CP2 负债规则 R2/R7 → 次刀：B9 升采纳级。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
 
 两日完成索引（细节全在各 slice/notes，此处不复述）：VS-00F CP0→CP4c 全收口（AU-13 5/5，
