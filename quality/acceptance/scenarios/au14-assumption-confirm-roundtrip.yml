@@ -1,0 +1,64 @@
+id: au14-assumption-confirm-roundtrip
+title: 盘点激活暂定主角：作者确认就地转正
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au14-assumption-confirm-roundtrip --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md
+  - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/VS-00G-fact-inventory-run.md
+
+invariants:
+  - required-assumption-auto-activation-is-announced-to-the-author
+  - provisional-assumption-stays-tentative-until-author-decision
+  - confirm-converts-the-existing-character-row-in-place-without-duplicates
+  - assumption-section-disappears-after-decision
+  - no-new-entity-or-production-write-path
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au14_fact_inventory.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with accepted chapter material and an empty character archive
+  - open: 作品档案概览
+  - click: 发起设定盘点
+  - observe: completion message announces the protagonist was listed as a provisional assumption
+  - observe: 概览「暂定设定」区 renders the【暂定】badge, the 主角：沈砚 row, and 确认/否决 actions
+  - click: 确认
+  - observe: the provisional section disappears
+  - open: 角色档案
+  - observe: 沈砚 appears exactly once as an accepted character
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au14-assumption-confirm-roundtrip-tauri
+
+assertions:
+  ui:
+    - 盘点完成消息含「已把盘点出的主角列为【暂定】设定」
+    - 概览可见「暂定设定」「【暂定】」「主角：沈砚」与「确认」「否决」按钮
+    - 确认后暂定设定区消失（页面不再含「【暂定】主角」）
+    - 角色档案「已确认角色」段沈砚恰出现一次
+  network:
+    - author_action start_fact_inventory returns a bounded run_id before the final result
+    - author_action confirm_assumption carries payload.character_ref and replies assumption_status ACCEPTED
+  data:
+    - channel.get_assumptions.done reports assumption_count>=1 after inventory completion
+    - channel.get_characters.done reports character_count=1 after confirm
+    - confirm converts the tentative AI_ASSUMPTION row in place without inserting a duplicate
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

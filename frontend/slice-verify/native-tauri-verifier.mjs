@@ -198,6 +198,8 @@ export const nativeSliceIds = [
   "au13-revise-prose-sibling",
   "au14-fact-inventory-roundtrip",
   "au14-finding-inventory-arc-loop",
+  "au14-assumption-confirm-roundtrip",
+  "au14-assumption-provisional-injection",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -1017,6 +1019,21 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "channel.user_message.done",
     "ledger.update.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au14-assumption-confirm-roundtrip": [
+    "channel.join.done",
+    "channel.author_action.done",
+    "channel.get_assumptions.done",
+    "channel.get_characters.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au14-assumption-provisional-injection": [
+    "channel.join.done",
+    "channel.author_action.done",
+    "channel.get_assumptions.done",
+    "channel.get_characters.done",
+    "context.fact_completeness.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -1930,6 +1947,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu14FindingInventoryArcEvidence(records);
   }
 
+  if (sliceId === "au14-assumption-confirm-roundtrip") {
+    return findAu14AssumptionConfirmEvidence(records);
+  }
+
+  if (sliceId === "au14-assumption-provisional-injection") {
+    return findAu14AssumptionProvisionalInjectionEvidence(records);
+  }
+
   if (sliceId === "judgment-explore-chapter-plan") {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
@@ -2568,6 +2593,20 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au14-finding-inventory-arc-loop") {
     return au14FindingInventoryArcBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au14-assumption-confirm-roundtrip") {
+    return au14AssumptionConfirmBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au14-assumption-provisional-injection") {
+    return au14AssumptionProvisionalInjectionBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "judgment-explore-chapter-plan") {
@@ -13165,6 +13204,217 @@ function au14FindingInventoryArcBehavior(_turnIds, _turnRecords, records, eviden
       "author_adopted_protagonist_through_existing_per_item_boundary",
       "next_real_prose_draft_wove_the_adopted_protagonist",
       "next_prose_adoption_started_the_protagonist_arc_ledger_without_history_backfill",
+    ],
+  };
+}
+
+// SC-AU14-A3（VS-00G CP5e）：盘点自动激活主角【暂定】设定 → 概览暂定设定区可见
+// → 确认就地转正（ACCEPTED）→ 暂定设定区消失、角色档案恰一条已确认主角。
+function findAu14AssumptionConfirmEvidence(records) {
+  const sliceId = "au14-assumption-confirm-roundtrip";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "fact_inventory_v1" &&
+      record.inventory_activated_assumption === true &&
+      Number(record.assumption_count ?? 0) >= 1 &&
+      record.assumption_section_visible === true &&
+      record.assumption_badge_visible === true &&
+      record.confirm_action_sent === true &&
+      String(record.confirmed_character_ref ?? "") !== "" &&
+      record.assumption_status_after_confirm === "ACCEPTED" &&
+      record.assumption_section_cleared_after_confirm === true &&
+      Number(record.archive_character_count ?? 0) === 1 &&
+      record.confirmed_character_visible === true &&
+      record.no_duplicate_character_rows === true,
+  );
+  if (!uiState) return null;
+
+  const startAction = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "start_fact_inventory" &&
+      record.run_id === uiState.run_id,
+  );
+  if (!startAction) return null;
+
+  const assumptionsRead = records.find(
+    (record) =>
+      record.event === "channel.get_assumptions.done" &&
+      Number(record.assumption_count ?? 0) >= 1,
+  );
+  if (!assumptionsRead) return null;
+
+  const confirmAction = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "confirm_assumption" &&
+      record.assumption_status === "ACCEPTED",
+  );
+  if (!confirmAction) return null;
+
+  const charactersRead = records.find(
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      Number(record.character_count ?? 0) === 1,
+  );
+  if (!charactersRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.inventory_turn_id ?? ""),
+    turn_ids: [String(uiState.inventory_turn_id ?? "")].filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    confirmed_character_ref: String(uiState.confirmed_character_ref ?? ""),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function au14AssumptionConfirmBehavior(_turnIds, _turnRecords, records, evidence, _options) {
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au14-assumption-confirm-roundtrip" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.assumption_status_after_confirm !== "ACCEPTED") return null;
+  if (uiState.assumption_section_cleared_after_confirm !== true) return null;
+  if (Number(uiState.archive_character_count ?? 0) !== 1) return null;
+  if (uiState.no_duplicate_character_rows !== true) return null;
+
+  return {
+    slice_id: evidence.slice_id,
+    behavior:
+      "inventory_activated_assumption_confirmed_in_place_into_exactly_one_accepted_character",
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    assertions: [
+      "fact_inventory_completion_announced_the_activated_provisional_protagonist",
+      "overview_assumption_section_rendered_badge_row_and_decision_actions",
+      "confirm_assumption_carried_the_character_ref_and_replied_accepted",
+      "assumption_section_disappeared_after_confirm",
+      "confirmed_protagonist_entered_the_character_archive_exactly_once",
+    ],
+  };
+}
+
+// SC-AU14-A2（VS-00G CP5e）：激活假定计入主角在场判定（design_missing 无 protagonist、
+// prompt 带【暂定】标注）→ 否决后缺席守则回归（assumption_active==0、design_missing
+// 含 protagonist）。prompt 证据来源须如实标注（llm_calls / fact_completeness_only）。
+function findAu14AssumptionProvisionalInjectionEvidence(records) {
+  const sliceId = "au14-assumption-provisional-injection";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "fact_inventory_v1" &&
+      record.inventory_activated_assumption === true &&
+      Number(record.assumption_active_during_first_prose ?? 0) >= 1 &&
+      record.protagonist_present_with_assumption === true &&
+      record.provisional_marker_in_prompt === true &&
+      record.discard_action_sent === true &&
+      String(record.discarded_character_ref ?? "") !== "" &&
+      record.assumption_status_after_discard === "DISCARDED" &&
+      record.assumption_section_cleared_after_discard === true &&
+      Number(record.assumption_active_after_discard ?? -1) === 0 &&
+      record.absence_directive_restored === true &&
+      ["llm_calls", "fact_completeness_only"].includes(record.prompt_marker_evidence),
+  );
+  if (!uiState) return null;
+
+  const startAction = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "start_fact_inventory" &&
+      record.run_id === uiState.run_id,
+  );
+  if (!startAction) return null;
+
+  const discardIndex = records.findIndex(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "discard_assumption" &&
+      record.assumption_status === "DISCARDED",
+  );
+  const withAssumptionIndex = records.findIndex(
+    (record) =>
+      record.event === "context.fact_completeness.done" &&
+      Number(record.assumption_active ?? 0) >= 1 &&
+      Array.isArray(record.design_missing) &&
+      !record.design_missing.includes("protagonist"),
+  );
+  const restoredIndex = records.findIndex(
+    (record) =>
+      record.event === "context.fact_completeness.done" &&
+      Number(record.assumption_active ?? -1) === 0 &&
+      Array.isArray(record.design_missing) &&
+      record.design_missing.includes("protagonist"),
+  );
+
+  if (
+    withAssumptionIndex < 0 ||
+    discardIndex <= withAssumptionIndex ||
+    restoredIndex <= discardIndex
+  ) {
+    return null;
+  }
+
+  const turnIds = [uiState.inventory_turn_id, uiState.first_prose_turn_id]
+    .filter(Boolean)
+    .map(String);
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.first_prose_turn_id ?? ""),
+    turn_ids: [...new Set(turnIds)],
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    discarded_character_ref: String(uiState.discarded_character_ref ?? ""),
+    prompt_marker_evidence: uiState.prompt_marker_evidence,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function au14AssumptionProvisionalInjectionBehavior(
+  _turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au14-assumption-provisional-injection" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (Number(uiState.assumption_active_during_first_prose ?? 0) < 1) return null;
+  if (Number(uiState.assumption_active_after_discard ?? -1) !== 0) return null;
+  if (uiState.absence_directive_restored !== true) return null;
+
+  return {
+    slice_id: evidence.slice_id,
+    behavior:
+      "active_assumption_satisfies_protagonist_presence_until_discard_restores_absence_directive",
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    prompt_marker_evidence: evidence.prompt_marker_evidence,
+    assertions: [
+      "fact_inventory_activated_the_provisional_protagonist_without_author_decision",
+      "first_prose_mechanical_preparation_counted_the_active_assumption_as_protagonist_presence",
+      "provisional_marker_evidence_source_recorded_honestly",
+      "author_discard_replied_discarded_and_cleared_the_assumption_section",
+      "second_prose_mechanical_preparation_restored_the_protagonist_absence_directive",
     ],
   };
 }

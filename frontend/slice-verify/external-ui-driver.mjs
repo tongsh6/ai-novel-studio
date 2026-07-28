@@ -1016,6 +1016,41 @@ function readAppLogRecords() {
     });
 }
 
+// LLM 调用留痕（artifacts/.../llm-calls/*.jsonl，行格式 `[ts] {json}`）。
+// slice_verify 桩 provider 不产 HTTP 调用留痕，返回空数组；live provider 运行时
+// 可用于 prompt 内容取证。
+function readLlmCallRecords() {
+  const llmDir = path.join(artifactDir, "llm-calls");
+  if (!fs.existsSync(llmDir)) return [];
+
+  return fs
+    .readdirSync(llmDir)
+    .filter((name) => name.endsWith(".jsonl"))
+    .sort()
+    .flatMap((name) =>
+      fs
+        .readFileSync(path.join(llmDir, name), "utf8")
+        .split("\n")
+        .flatMap((line) => {
+          const start = line.indexOf("{");
+          if (start < 0) return [];
+          try {
+            return [JSON.parse(line.slice(start))];
+          } catch {
+            return [];
+          }
+        }),
+    );
+}
+
+function llmCallPromptText(record) {
+  try {
+    return JSON.stringify(record?.request?.body ?? {});
+  } catch {
+    return "";
+  }
+}
+
 function readSeedField(name) {
   const seedPath = path.join(artifactDir, "seed.log");
   if (!fs.existsSync(seedPath)) return null;
@@ -10055,6 +10090,427 @@ async function driveAu14FindingInventoryArcLoop(page) {
           record.event === "channel.author_action.done" &&
           record.action_type === "start_fact_inventory" &&
           record.trigger_rule === "protagonist_undermaterialized",
+      ),
+    },
+  ];
+}
+
+async function driveAu14AssumptionInventoryActivation(page, { frameStart }) {
+  // VS-00G CP5e 公共段：从作品档案概览显式发起设定盘点 → fact_inventory_v1 完成后
+  // 书内无 accepted 角色且提案含 PROTAGONIST → 主角自动物化为【暂定】设定，完成
+  // 消息明示告知与裁决入口（OQ2 防护①）。
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await waitForArchivePanel(page);
+  await page.getByRole("tab", { name: "概览" }).click();
+
+  await page.getByRole("button", { name: "发起设定盘点", exact: true }).click();
+
+  const startActionFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "start_fact_inventory",
+    "Archive inventory action did not send start_fact_inventory",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.action_status === "running" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "start_fact_inventory did not fast-ack with a running run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const inventoryTurnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const pending = frame.body?.adoption_state?.pending ?? [];
+      return (
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId &&
+        frame.body?.agent_run?.profile_ref === "fact_inventory_v1" &&
+        frame.body?.tool_result?.tool_name === "fact_inventory" &&
+        pending.some(
+          (entry) =>
+            entry.artifact_type === "character_seed" &&
+            String(entry.payload?.items?.[0]?.title ?? "").includes("沈砚") &&
+            entry.payload?.items?.[0]?.narrative_role === "PROTAGONIST",
+        )
+      );
+    },
+    "fact_inventory_v1 did not propose the PROTAGONIST candidate",
+    120_000,
+  );
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Fact inventory AgentRun completion event was not broadcast",
+    60_000,
+  );
+
+  // 盘点完成消息明示假定激活（用户可见通知，非隐藏状态）。
+  await page.waitForFunction(
+    () => document.body.innerText.includes("已把盘点出的主角列为【暂定】设定"),
+    undefined,
+    { timeout: 30_000 },
+  );
+
+  return { startActionFrame, runId, inventoryTurn: inventoryTurnFrame.body };
+}
+
+async function driveAu14ReopenOverviewWithAssumptions(page) {
+  // 面板打开时才拉 get_assumptions；关开档案一次触发暂定设定区刷新。
+  await closeArchiveIfOpen(page);
+  const assumptionLogStart = readAppLogRecords().length;
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  const archivePanel = await waitForArchivePanel(page);
+  await page.getByRole("tab", { name: "概览" }).click();
+  const assumptionsRecord = await waitForNewAppLogRecord(
+    assumptionLogStart,
+    (record) =>
+      record.event === "channel.get_assumptions.done" &&
+      Number(record.assumption_count ?? 0) >= 1,
+    "Archive did not expose the activated assumption through get_assumptions",
+    20_000,
+  );
+  return { archivePanel, assumptionsRecord };
+}
+
+async function driveAu14AssumptionConfirmRoundtrip(page) {
+  // SC-AU14-A3（VS-00G CP5e）：盘点自动激活主角【暂定】设定 → 档案概览暂定设定区
+  // 可见（badge/角色行/确认/否决）→ 作者点「确认」就地转正 → 暂定设定区消失、
+  // 角色档案恰出现一条已确认主角（两条确认路径不产重复行）。
+  await configureProviderRuntime({ provider: "slice_verify" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const { startActionFrame, runId, inventoryTurn } = await driveAu14AssumptionInventoryActivation(
+    page,
+    { frameStart },
+  );
+
+  const { archivePanel, assumptionsRecord } = await driveAu14ReopenOverviewWithAssumptions(page);
+
+  // 暂定设定区用户可见断言：区标题、【暂定】badge、主角行、确认/否决按钮。
+  await archivePanel.getByText("暂定设定", { exact: true }).first().waitFor({ timeout: 10_000 });
+  await archivePanel.getByText("【暂定】", { exact: true }).first().waitFor({ timeout: 10_000 });
+  await archivePanel.getByText("主角：沈砚", { exact: true }).first().waitFor({ timeout: 10_000 });
+  const confirmButton = archivePanel.getByRole("button", { name: "确认", exact: true }).first();
+  const discardButton = archivePanel.getByRole("button", { name: "否决", exact: true }).first();
+  await confirmButton.waitFor({ timeout: 10_000 });
+  await discardButton.waitFor({ timeout: 10_000 });
+  const assumptionSectionVisible = await archivePanel
+    .getByText("暂定设定", { exact: true })
+    .first()
+    .isVisible();
+  const assumptionBadgeVisible = await archivePanel
+    .getByText("【暂定】", { exact: true })
+    .first()
+    .isVisible();
+
+  const confirmFrameStart = frames.length;
+  const confirmLogStart = readAppLogRecords().length;
+  await confirmButton.click();
+
+  const confirmActionFrame = await waitForNewFrame(
+    confirmFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_assumption" &&
+      typeof frame.body?.action?.payload?.character_ref === "string" &&
+      frame.body.action.payload.character_ref !== "",
+    "Assumption confirm did not send confirm_assumption with a character_ref",
+    30_000,
+  );
+  const characterRef = confirmActionFrame.body.action.payload.character_ref;
+
+  const confirmReplyFrame = await waitForNewFrame(
+    confirmFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.action_status === "applied" &&
+      frame.body?.response?.character_ref === characterRef &&
+      frame.body?.response?.assumption_status === "ACCEPTED",
+    "confirm_assumption did not reply with assumption_status ACCEPTED",
+    30_000,
+  );
+
+  // 确认后暂定设定区消失（页面不再含【暂定】主角行）。
+  await page.waitForFunction(
+    () => !document.body.innerText.includes("【暂定】主角"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  await archivePanel
+    .getByText("暂定设定", { exact: true })
+    .first()
+    .waitFor({ state: "detached", timeout: 10_000 });
+
+  // 确认成功后面板刷新角色档案（真实读端口，非本地拼装）。
+  const charactersRecord = await waitForNewAppLogRecord(
+    confirmLogStart,
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      Number(record.character_count ?? 0) === 1,
+    "Confirmed assumption did not appear as exactly one accepted character",
+    20_000,
+  );
+
+  await page.getByRole("tab", { name: "角色" }).click();
+  await archivePanel.getByText("已确认角色").first().waitFor({ timeout: 10_000 });
+  const confirmedRows = archivePanel.locator('[class*="cardItem"]').filter({ hasText: "沈砚" });
+  await confirmedRows.first().waitFor({ timeout: 10_000 });
+  const confirmedRowCount = await confirmedRows.count();
+  const confirmedCharacterVisible = await confirmedRows.first().isVisible();
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au14-assumption-confirm-roundtrip",
+      work_id: startActionFrame.body?.work_id,
+      run_id: runId,
+      profile_ref: inventoryTurn.agent_run?.profile_ref,
+      inventory_turn_id: inventoryTurn.turn_id,
+      inventory_activated_assumption: true,
+      assumption_count: Number(assumptionsRecord.assumption_count ?? 0),
+      assumption_section_visible: assumptionSectionVisible,
+      assumption_badge_visible: assumptionBadgeVisible,
+      confirm_action_sent: true,
+      confirmed_character_ref: characterRef,
+      assumption_status_after_confirm: confirmReplyFrame.body?.response?.assumption_status,
+      assumption_section_cleared_after_confirm: true,
+      archive_character_count: Number(charactersRecord.character_count ?? 0),
+      confirmed_character_visible: confirmedCharacterVisible,
+      no_duplicate_character_rows: confirmedRowCount === 1,
+      start_action_logged: logsAfter.some(
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          record.action_type === "start_fact_inventory",
+      ),
+      confirm_action_logged: logsAfter.some(
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          record.action_type === "confirm_assumption" &&
+          record.assumption_status === "ACCEPTED",
+      ),
+    },
+  ];
+}
+
+async function driveAu14AssumptionProvisionalInjection(page) {
+  // SC-AU14-A2（VS-00G CP5e）：盘点激活主角假定（不确认不否决）→ 下一章正文机械
+  // 准备把激活假定计入主角在场判定（context.fact_completeness.done assumption_active>=1
+  // 且 design_missing 不含 protagonist，prompt 带【暂定】标注）→ 作者否决 → 再写一章
+  // 回到缺席守则（assumption_active==0 且 design_missing 含 protagonist）。
+  await configureProviderRuntime({ provider: "slice_verify" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const { startActionFrame, runId, inventoryTurn } = await driveAu14AssumptionInventoryActivation(
+    page,
+    { frameStart },
+  );
+
+  await closeArchiveIfOpen(page);
+
+  // 第一章正文（假定激活期）。措辞照 SC-AU14-A1 的第 11 章请求，但不称「已采纳主角」
+  // ——此刻沈砚仅是【暂定】设定。
+  const firstProseRequest =
+    "请根据已采纳章节计划生成第11章：频段反击。让沈砚亲自核对旧服务器回传的调频记录并决定反击，生成待采纳正文草稿。";
+  const llmCallCountBeforeFirstProse = readLlmCallRecords().length;
+  const firstProseLogStart = readAppLogRecords().length;
+  const firstProseFrameStart = frames.length;
+  await page.locator(chatInputSelector).fill(firstProseRequest);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const firstFactRecord = await waitForNewAppLogRecord(
+    firstProseLogStart,
+    (record) =>
+      record.event === "context.fact_completeness.done" &&
+      Number(record.assumption_active ?? 0) >= 1 &&
+      Array.isArray(record.design_missing) &&
+      !record.design_missing.includes("protagonist"),
+    "Active assumption was not counted into protagonist presence for the first prose turn",
+    200_000,
+  );
+  const firstProseTurnFrame = await waitForNewFrame(
+    firstProseFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "prose_fragment",
+      ),
+    "First prose turn did not produce a pending prose draft",
+    200_000,
+  );
+  const firstProseLlmCalls = readLlmCallRecords().slice(llmCallCountBeforeFirstProse);
+  const provisionalMarkerInLlm = firstProseLlmCalls.some((record) => {
+    const text = llmCallPromptText(record);
+    return (
+      text.includes("【暂定】主角：沈砚") && text.includes("不得当作已定案设定展开重大转折")
+    );
+  });
+
+  // 打开档案概览 → 否决假定。
+  const { archivePanel } = await driveAu14ReopenOverviewWithAssumptions(page);
+  await archivePanel.getByText("主角：沈砚", { exact: true }).first().waitFor({ timeout: 10_000 });
+
+  const discardFrameStart = frames.length;
+  await archivePanel.getByRole("button", { name: "否决", exact: true }).first().click();
+
+  const discardActionFrame = await waitForNewFrame(
+    discardFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "discard_assumption" &&
+      typeof frame.body?.action?.payload?.character_ref === "string" &&
+      frame.body.action.payload.character_ref !== "",
+    "Assumption discard did not send discard_assumption with a character_ref",
+    30_000,
+  );
+  const characterRef = discardActionFrame.body.action.payload.character_ref;
+
+  const discardReplyFrame = await waitForNewFrame(
+    discardFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.action_status === "applied" &&
+      frame.body?.response?.character_ref === characterRef &&
+      frame.body?.response?.assumption_status === "DISCARDED",
+    "discard_assumption did not reply with assumption_status DISCARDED",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    () => !document.body.innerText.includes("【暂定】主角"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  await archivePanel
+    .getByText("暂定设定", { exact: true })
+    .first()
+    .waitFor({ state: "detached", timeout: 10_000 });
+  await closeArchiveIfOpen(page);
+
+  // 第二章正文（否决后）：缺席守则回归。
+  const secondProseRequest =
+    "请根据已采纳章节计划生成第11章：频段反击。围绕旧服务器回传的调频记录写出反击行动，生成待采纳正文草稿。";
+  const llmCallCountBeforeSecondProse = readLlmCallRecords().length;
+  const secondProseLogStart = readAppLogRecords().length;
+  const secondProseFrameStart = frames.length;
+  await page.locator(chatInputSelector).fill(secondProseRequest);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const secondFactRecord = await waitForNewAppLogRecord(
+    secondProseLogStart,
+    (record) =>
+      record.event === "context.fact_completeness.done" &&
+      Number(record.assumption_active ?? -1) === 0 &&
+      Array.isArray(record.design_missing) &&
+      record.design_missing.includes("protagonist"),
+    "Discarded assumption did not restore the protagonist absence directive",
+    200_000,
+  );
+  await waitForNewFrame(
+    secondProseFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "prose_fragment",
+      ),
+    "Second prose turn did not produce a pending prose draft",
+    200_000,
+  );
+  const secondProseLlmCalls = readLlmCallRecords().slice(llmCallCountBeforeSecondProse);
+  const absenceMarkerInLlm = secondProseLlmCalls.some((record) =>
+    llmCallPromptText(record).includes("尚未确立主角档案"),
+  );
+  const provisionalMarkerAfterDiscard = secondProseLlmCalls.some((record) =>
+    llmCallPromptText(record).includes("【暂定】主角"),
+  );
+
+  // prompt 证据来源如实标注：slice_verify 桩 provider 无 HTTP 留痕时退化为
+  // fact_completeness 机械留痕（注入与留痕同一代码路径）。
+  const llmEvidenceAvailable = firstProseLlmCalls.length > 0 && secondProseLlmCalls.length > 0;
+  const promptMarkerEvidence = llmEvidenceAvailable ? "llm_calls" : "fact_completeness_only";
+  if (llmEvidenceAvailable) {
+    assert(provisionalMarkerInLlm, "First prose prompt lost the provisional protagonist marker");
+    assert(absenceMarkerInLlm, "Second prose prompt lost the protagonist absence directive");
+    assert(
+      !provisionalMarkerAfterDiscard,
+      "Discarded assumption still annotated the second prose prompt",
+    );
+  }
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au14-assumption-provisional-injection",
+      work_id: startActionFrame.body?.work_id,
+      run_id: runId,
+      profile_ref: inventoryTurn.agent_run?.profile_ref,
+      inventory_turn_id: inventoryTurn.turn_id,
+      inventory_activated_assumption: true,
+      first_prose_turn_id: firstProseTurnFrame.body?.turn_id,
+      assumption_active_during_first_prose: Number(firstFactRecord.assumption_active ?? 0),
+      protagonist_present_with_assumption: !firstFactRecord.design_missing.includes("protagonist"),
+      provisional_marker_in_prompt: llmEvidenceAvailable
+        ? provisionalMarkerInLlm
+        : Number(firstFactRecord.assumption_active ?? 0) >= 1,
+      discard_action_sent: true,
+      discarded_character_ref: characterRef,
+      assumption_status_after_discard: discardReplyFrame.body?.response?.assumption_status,
+      assumption_section_cleared_after_discard: true,
+      assumption_active_after_discard: Number(secondFactRecord.assumption_active ?? -1),
+      absence_directive_restored:
+        secondFactRecord.design_missing.includes("protagonist") &&
+        (llmEvidenceAvailable ? absenceMarkerInLlm && !provisionalMarkerAfterDiscard : true),
+      prompt_marker_evidence: promptMarkerEvidence,
+      start_action_logged: logsAfter.some(
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          record.action_type === "start_fact_inventory",
+      ),
+      discard_action_logged: logsAfter.some(
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          record.action_type === "discard_assumption" &&
+          record.assumption_status === "DISCARDED",
       ),
     },
   ];
@@ -25762,6 +26218,8 @@ const drivers = {
   "au13-revise-prose-sibling": driveAu13ReviseProseSibling,
   "au14-fact-inventory-roundtrip": driveAu14FactInventoryRoundtrip,
   "au14-finding-inventory-arc-loop": driveAu14FindingInventoryArcLoop,
+  "au14-assumption-confirm-roundtrip": driveAu14AssumptionConfirmRoundtrip,
+  "au14-assumption-provisional-injection": driveAu14AssumptionProvisionalInjection,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,
   "au08-reading-readonly-no-write": driveAu08ReadingReadonlyNoWrite,

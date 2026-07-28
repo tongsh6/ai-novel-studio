@@ -1,0 +1,66 @@
+id: au14-assumption-provisional-injection
+title: 激活假定计入主角在场判定，否决后缺席守则回归
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au14-assumption-provisional-injection --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md
+  - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/VS-00G-fact-inventory-run.md
+
+invariants:
+  - active-assumption-counts-as-protagonist-presence-in-mechanical-preparation
+  - provisional-injection-carries-the-explicit-tentative-marker
+  - discard-stops-injection-and-restores-the-absence-directive
+  - prompt-marker-evidence-source-is-recorded-honestly
+  - no-new-entity-or-production-write-path
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au14_finding_inventory_arc.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with 10 accepted chapters and an empty character archive
+  - open: 作品档案概览
+  - click: 发起设定盘点
+  - observe: completion message announces the provisional protagonist assumption
+  - type: chapter-11 prose request in the workbench chat
+  - observe: fact completeness records the active assumption and no protagonist absence
+  - open: 作品档案概览
+  - click: 否决
+  - observe: the provisional section disappears
+  - type: another chapter-11 prose request
+  - observe: fact completeness records zero active assumptions and the protagonist absence
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au14-assumption-provisional-injection-tauri
+
+assertions:
+  ui:
+    - 盘点完成消息含「已把盘点出的主角列为【暂定】设定」
+    - 概览「暂定设定」区可见「主角：沈砚」与「否决」按钮
+    - 否决后暂定设定区消失（页面不再含「【暂定】主角」）
+    - 两次正文请求都产出待采纳正文草稿
+  network:
+    - author_action start_fact_inventory returns a bounded run_id before the final result
+    - author_action discard_assumption carries payload.character_ref and replies assumption_status DISCARDED
+  data:
+    - first prose turn logs context.fact_completeness.done with assumption_active>=1 and design_missing without protagonist
+    - second prose turn logs context.fact_completeness.done with assumption_active=0 and design_missing containing protagonist
+    - prompt marker evidence is recorded as llm_calls or fact_completeness_only, never fabricated
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

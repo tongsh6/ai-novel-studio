@@ -121,6 +121,8 @@
 | `au12-work-profile-status-isolation.yml` | 作品档案状态、空字段与跨作品隔离 |
 | `au14-fact-inventory-roundtrip.yml` | 作品档案主动盘点与既有设定种子逐项采纳 |
 | `au14-finding-inventory-arc-loop.yml` | 主角缺位 finding 绑定盘点，采纳主角后由下一章正文采纳开始弧光记账 |
+| `au14-assumption-confirm-roundtrip.yml` | 盘点激活暂定主角，作者确认就地转正为唯一已确认角色 |
+| `au14-assumption-provisional-injection.yml` | 激活假定计入主角在场判定并带【暂定】标注，否决后缺席守则回归 |
 | `dogfood-runner.yml` | P1 长篇狗粮运行器 |
 | `e2e-01-downgrade-real-page.yml` | E2E-01 真实页面多步 MicroPlan 降级 |
 | `e2e-01-full-chain.yml` | E2E-01 端到端全链路聚合验收 |

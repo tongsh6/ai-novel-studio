@@ -113,6 +113,8 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au04-latest-context-rebase-confirmation");
     expect(nativeSliceIds).toContain("au14-fact-inventory-roundtrip");
     expect(nativeSliceIds).toContain("au14-finding-inventory-arc-loop");
+    expect(nativeSliceIds).toContain("au14-assumption-confirm-roundtrip");
+    expect(nativeSliceIds).toContain("au14-assumption-provisional-injection");
     expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
     expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
     expect(nativeSliceIds).toContain("vs00c-cp5-reader-effect-brief");
@@ -323,6 +325,169 @@ describe("native Tauri slice verifier", () => {
         ],
       },
     );
+  });
+
+  it("requires the assumption confirm roundtrip to end with exactly one accepted character", () => {
+    const records = [
+      {
+        event: "channel.author_action.done",
+        action_type: "start_fact_inventory",
+        run_id: "run-au14-a3",
+      },
+      {
+        event: "channel.get_assumptions.done",
+        assumption_count: 1,
+      },
+      {
+        event: "channel.author_action.done",
+        action_type: "confirm_assumption",
+        assumption_status: "ACCEPTED",
+      },
+      {
+        event: "channel.get_characters.done",
+        character_count: 1,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au14-assumption-confirm-roundtrip",
+        run_id: "run-au14-a3",
+        profile_ref: "fact_inventory_v1",
+        inventory_turn_id: "turn-inventory",
+        inventory_activated_assumption: true,
+        assumption_count: 1,
+        assumption_section_visible: true,
+        assumption_badge_visible: true,
+        confirm_action_sent: true,
+        confirmed_character_ref: "character-shenyan",
+        assumption_status_after_confirm: "ACCEPTED",
+        assumption_section_cleared_after_confirm: true,
+        archive_character_count: 1,
+        confirmed_character_visible: true,
+        no_duplicate_character_rows: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au14-assumption-confirm-roundtrip", records);
+    expect(evidence).toEqual({
+      slice_id: "au14-assumption-confirm-roundtrip",
+      turn_id: "turn-inventory",
+      turn_ids: ["turn-inventory"],
+      run_id: "run-au14-a3",
+      profile_ref: "fact_inventory_v1",
+      confirmed_character_ref: "character-shenyan",
+      key_events: keyEventsForSlice("au14-assumption-confirm-roundtrip"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au14-assumption-confirm-roundtrip", records, evidence),
+    ).toEqual({
+      slice_id: "au14-assumption-confirm-roundtrip",
+      behavior:
+        "inventory_activated_assumption_confirmed_in_place_into_exactly_one_accepted_character",
+      run_id: "run-au14-a3",
+      profile_ref: "fact_inventory_v1",
+      assertions: [
+        "fact_inventory_completion_announced_the_activated_provisional_protagonist",
+        "overview_assumption_section_rendered_badge_row_and_decision_actions",
+        "confirm_assumption_carried_the_character_ref_and_replied_accepted",
+        "assumption_section_disappeared_after_confirm",
+        "confirmed_protagonist_entered_the_character_archive_exactly_once",
+      ],
+    });
+
+    // 负例翻转：角色 tab 出现重复行（两条确认路径插了重复角色）→ 证据不成立。
+    const duplicatedRowRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, no_duplicate_character_rows: false }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("au14-assumption-confirm-roundtrip", duplicatedRowRecords),
+    ).toBeNull();
+  });
+
+  it("requires assumption-backed presence first and absence directive restoration after discard", () => {
+    const records = [
+      {
+        event: "channel.author_action.done",
+        action_type: "start_fact_inventory",
+        run_id: "run-au14-a2",
+      },
+      {
+        event: "context.fact_completeness.done",
+        capability: "prose_writing",
+        assumption_active: 1,
+        design_missing: [],
+      },
+      {
+        event: "channel.author_action.done",
+        action_type: "discard_assumption",
+        assumption_status: "DISCARDED",
+      },
+      {
+        event: "context.fact_completeness.done",
+        capability: "prose_writing",
+        assumption_active: 0,
+        design_missing: ["protagonist"],
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au14-assumption-provisional-injection",
+        run_id: "run-au14-a2",
+        profile_ref: "fact_inventory_v1",
+        inventory_turn_id: "turn-inventory",
+        inventory_activated_assumption: true,
+        first_prose_turn_id: "turn-prose-1",
+        assumption_active_during_first_prose: 1,
+        protagonist_present_with_assumption: true,
+        provisional_marker_in_prompt: true,
+        discard_action_sent: true,
+        discarded_character_ref: "character-shenyan",
+        assumption_status_after_discard: "DISCARDED",
+        assumption_section_cleared_after_discard: true,
+        assumption_active_after_discard: 0,
+        absence_directive_restored: true,
+        prompt_marker_evidence: "fact_completeness_only",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au14-assumption-provisional-injection", records);
+    expect(evidence).toEqual({
+      slice_id: "au14-assumption-provisional-injection",
+      turn_id: "turn-prose-1",
+      turn_ids: ["turn-inventory", "turn-prose-1"],
+      run_id: "run-au14-a2",
+      profile_ref: "fact_inventory_v1",
+      discarded_character_ref: "character-shenyan",
+      prompt_marker_evidence: "fact_completeness_only",
+      key_events: keyEventsForSlice("au14-assumption-provisional-injection"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au14-assumption-provisional-injection", records, evidence),
+    ).toEqual({
+      slice_id: "au14-assumption-provisional-injection",
+      behavior:
+        "active_assumption_satisfies_protagonist_presence_until_discard_restores_absence_directive",
+      run_id: "run-au14-a2",
+      profile_ref: "fact_inventory_v1",
+      prompt_marker_evidence: "fact_completeness_only",
+      assertions: [
+        "fact_inventory_activated_the_provisional_protagonist_without_author_decision",
+        "first_prose_mechanical_preparation_counted_the_active_assumption_as_protagonist_presence",
+        "provisional_marker_evidence_source_recorded_honestly",
+        "author_discard_replied_discarded_and_cleared_the_assumption_section",
+        "second_prose_mechanical_preparation_restored_the_protagonist_absence_directive",
+      ],
+    });
+
+    // 负例翻转：否决后 fact_completeness 仍不含 protagonist（缺席守则没有回归）→ 证据不成立。
+    const absenceNotRestoredRecords = records.map((record) =>
+      record.event === "context.fact_completeness.done" && record.assumption_active === 0
+        ? { ...record, design_missing: [] }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("au14-assumption-provisional-injection", absenceNotRestoredRecords),
+    ).toBeNull();
   });
 
   it("requires the judgment chain for ordinary conversation turns (ADR-0025 CP1)", () => {

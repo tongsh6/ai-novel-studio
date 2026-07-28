@@ -1001,6 +1001,20 @@ scenarios:
     manifest: quality/acceptance/scenarios/au14-finding-inventory-arc-loop.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au14-finding-inventory-arc-loop --surface tauri
+  - id: au14-assumption-confirm-roundtrip
+    title: "盘点激活暂定主角：作者确认就地转正"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au14-assumption-confirm-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au14-assumption-confirm-roundtrip --surface tauri
+  - id: au14-assumption-provisional-injection
+    title: "激活假定计入主角在场判定，否决后缺席守则回归"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au14-assumption-provisional-injection.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au14-assumption-provisional-injection --surface tauri
   - id: au03-long-session-compression
     title: "长会话压缩上下文"
     tier: nightly
