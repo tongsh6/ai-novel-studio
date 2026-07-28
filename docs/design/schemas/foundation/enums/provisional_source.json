@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/provisional_source.json",
+  "title": "ProvisionalSource",
+  "description": "暂用态来源标注（VS-00G §2.3 工作假定）。区分「AI 假定」（盘点/分析产出、可被系统带【暂定】标注注入）与普通作者候选（provisional_source 为空的 tentative 对象）。零新实体：这是既有 tentative 对象上的来源标注字段，不是新状态机。",
+  "type": "string",
+  "enum": [
+    "AI_ASSUMPTION"
+  ],
+  "x-adr": "VS-00G",
+  "x-section": "contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md §2.3 / §3.4",
+  "x-source": "2026-07-23 用户拍板「慎重新增实体」；OQ2 分级放行；OQ7 用户可见名「暂定设定」"
+}
