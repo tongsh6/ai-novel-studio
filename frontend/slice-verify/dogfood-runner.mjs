@@ -326,7 +326,17 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
   );
 
   if (settle.event === "action_result") {
-    if (options.continuation) {
+    const settleReasonCodes = settle.body?.decision?.reason_codes ?? [];
+    const metaLeakConfirmation = settleReasonCodes.includes("meta_leak_detected");
+
+    if (metaLeakConfirmation) {
+      // B9 元泄漏升采纳级：泄漏正文不再静默采纳。runner 模拟作者显式确认并计数
+      // （拦截数即 M4 审计靶：对照 M3 的 25 处静默存活）。续写/首稿同语义。
+      metaLeakInterceptions.push({ chapter: chapterTitle, at: new Date().toISOString() });
+      log(
+        `${chapterTitle}: meta-leak adoption intercepted (#${metaLeakInterceptions.length}) — confirming explicitly`,
+      );
+    } else if (options.continuation) {
       // M0 缺陷守卫（2026-07-19）：续写请求绝不该触发整章覆盖确认——出现即产品
       // 坐标回归（authoring_intent 未判 continuation）。真实作者会取消而不是确认；
       // runner 按失败上抛（进重试路径），不再盲确认吞掉字数倒退。
@@ -335,7 +345,7 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
       );
     }
 
-    log(`${chapterTitle}: overwrite confirmation — confirming replace`);
+    if (!metaLeakConfirmation) log(`${chapterTitle}: overwrite confirmation — confirming replace`);
     await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
       timeout: 15_000,
     });
@@ -435,6 +445,111 @@ async function exportBook(page) {
   const visibleText = await page.locator("body").innerText();
   const match = /已导出到\s+([^\n]+\.md)/.exec(visibleText);
   return match?.[1] ?? "";
+}
+
+// VS-00G 盘点节拍（M4）：R5 阈值章数后，runner 模拟真实作者响应产品补全引导——
+// 从档案发起一次设定盘点，逐项采纳主角候选与全书规划建议（真实模型提炼，走真实
+// 采纳边界；规划回写后收官守则即激活，是 M4 收官循环靶的前提件）。仅尝试一次，
+// 失败如实登记（盘点回路的长跑表现本身就是审计靶）。
+async function closeArchiveIfOpen(page) {
+  const closeArchive = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchive.count()) > 0) {
+    await closeArchive.first().click();
+    await page.locator(chatInputSelector).waitFor({ timeout: 15_000 });
+  }
+}
+
+function itemField(item, key) {
+  return item?.[key] ?? item?.[String(key)];
+}
+
+async function adoptInventoryUnit(page, unit, optionLabel, acceptName, fromIndex) {
+  if (optionLabel) {
+    const radio = page.getByRole("radio", { name: optionLabel, exact: true });
+    if ((await radio.count()) > 0) await radio.last().click();
+  }
+
+  await page.getByRole("button", { name: acceptName, exact: true }).last().click();
+  await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.truthfulness?.artifact_adopted === true &&
+      (f.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === unit.artifact_id,
+      ),
+    `inventory unit ${unit.artifact_id} was not adopted`,
+    120_000,
+    fromIndex,
+  );
+}
+
+async function runInventoryBeat(page) {
+  const fromIndex = frames.length;
+
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+  await page.getByRole("button", { name: "发起设定盘点", exact: true }).click();
+
+  const inventoryTurnFrame = await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.agent_run?.profile_ref === "fact_inventory_v1" &&
+      f.body?.tool_result?.tool_name === "fact_inventory" &&
+      (f.body?.adoption_state?.pending ?? []).length > 0,
+    "fact inventory produced no proposals",
+    600_000,
+    fromIndex,
+  );
+
+  const pending = inventoryTurnFrame.body.adoption_state.pending ?? [];
+  const characterUnits = pending.filter((e) => e.artifact_type === "character_seed");
+  const skeletonUnits = pending.filter((e) => e.artifact_type === "work_skeleton_suggestion");
+
+  const protagonistUnit =
+    characterUnits.find((e) =>
+      (e.payload?.items ?? []).some((item) => itemField(item, "narrative_role") === "PROTAGONIST"),
+    ) ?? characterUnits[0];
+
+  // 档案面板遮提案卡：回对话流逐项采纳。
+  await closeArchiveIfOpen(page);
+  await page.waitForFunction(() => document.body.innerText.includes("设定盘点完成"), null, {
+    timeout: 30_000,
+  });
+
+  const adopted = { protagonist: null, skeleton_fields: [] };
+
+  if (protagonistUnit) {
+    const setPrefix = String(protagonistUnit.artifact_id).split("::")[0];
+    const setUnits = characterUnits.filter(
+      (e) => String(e.artifact_id).split("::")[0] === setPrefix,
+    );
+    const optionLabel =
+      setUnits.length > 1
+        ? `方案 ${String.fromCharCode(65 + setUnits.indexOf(protagonistUnit))}`
+        : null;
+    const acceptName = optionLabel ? `保存${optionLabel} 到作品档案` : "保存到作品档案";
+    await adoptInventoryUnit(page, protagonistUnit, optionLabel, acceptName, fromIndex);
+    adopted.protagonist =
+      itemField(protagonistUnit.payload?.items?.[0], "title") ?? protagonistUnit.artifact_id;
+    log(`inventory beat: adopted protagonist ${adopted.protagonist}`);
+  }
+
+  for (const unit of skeletonUnits) {
+    const field = itemField(unit.payload?.items?.[0], "skeleton_field");
+    await adoptInventoryUnit(page, unit, null, "采纳为全书规划", fromIndex);
+    adopted.skeleton_fields.push(field);
+    log(`inventory beat: adopted planning field ${field}`);
+  }
+
+  return {
+    proposals_total: pending.length,
+    characters_proposed: characterUnits.length,
+    skeleton_proposed: skeletonUnits.length,
+    adopted_protagonist: adopted.protagonist,
+    adopted_skeleton_fields: adopted.skeleton_fields,
+  };
 }
 
 // T1 体温计（call2 病灶收口 slice）：重试率按症状分类聚合——harness 重试把问题
@@ -546,6 +661,11 @@ page.on("websocket", (ws) => {
 const startedAt = Date.now();
 let chaptersAdvanced = 0;
 const failures = [];
+// B9 体温计（M4）：元泄漏采纳拦截计数——M3 为 25 处静默入正文，本跑每次拦截
+// 都是「不再静默」的证据；runner 模拟作者显式确认后继续（主权语义）。
+const metaLeakInterceptions = [];
+// VS-00G 盘点节拍（M4）：R5 阈值后由 runner 模拟作者响应产品引导发起一次盘点。
+const inventoryBeat = { attempted: false, result: null };
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -636,6 +756,25 @@ try {
           `word count regression on ${chapter.title}: ${wordsBefore} -> ${wordsAfter}`,
         );
       }
+
+      // VS-00G 盘点节拍：达标章数过 R5 阈值（10+2 缓冲）后模拟作者响应补全引导，
+      // 一次性发起盘点并采纳主角/全书规划——之后收官守则、弧光账、R7/R8 全部上线。
+      const settledChapters = flatChapters(toc).filter(
+        (c) => Number(c.word_count ?? 0) >= minWords,
+      ).length;
+      if (!inventoryBeat.attempted && settledChapters >= 12) {
+        inventoryBeat.attempted = true;
+        try {
+          inventoryBeat.result = await runInventoryBeat(page);
+          appendProgress({ inventory_beat: inventoryBeat.result });
+          log(`inventory beat done: ${JSON.stringify(inventoryBeat.result)}`);
+        } catch (error) {
+          inventoryBeat.result = { error: String(error?.message ?? error) };
+          appendProgress({ inventory_beat_error: inventoryBeat.result.error });
+          log(`inventory beat failed (logged, run continues): ${inventoryBeat.result.error}`);
+          await closeArchiveIfOpen(page).catch(() => {});
+        }
+      }
     } catch (error) {
       failures.push({ title: chapter.title, error: String(error?.message ?? error) });
       appendProgress({ chapter: chapter.title, error: String(error?.message ?? error) });
@@ -658,6 +797,11 @@ try {
     chapters_advanced_this_run: chaptersAdvanced,
     retry_thermometer: retryThermometer(failures),
     failures,
+    // B9 体温计（M4 审计靶）：对照 M3 的 25 处静默泄漏存活。
+    meta_leak_interceptions: metaLeakInterceptions.length,
+    meta_leak_intercepted_chapters: metaLeakInterceptions,
+    // VS-00G 盘点节拍结果（补全回路长跑表现）。
+    inventory_beat: inventoryBeat,
     run_duration_ms: Date.now() - startedAt,
   });
 

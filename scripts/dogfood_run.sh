@@ -33,8 +33,11 @@ export MIX_BUILD_PATH="$PROJECT_ROOT/_build/test_dogfood"
 
 # 狗粮断点库不进 $TMPDIR（2026-07-21 实锤：macOS 重启清 /var/folders，M2 的
 # --resume 断点 16.8k 字随之蒸发）；落项目本地 gitignored 目录，跨重启存活。
-export NOVEL_TEST_DB_DIR="$PROJECT_ROOT/tmp/dogfood-db"
+# M4 起支持环境覆盖：历史标本库（tmp/dogfood-db=M3 百章标本，供重放开发）不与
+# 新节拍跑混用——fresh run 会 drop 库，指向标本即毁标本。
+export NOVEL_TEST_DB_DIR="${NOVEL_TEST_DB_DIR:-$PROJECT_ROOT/tmp/dogfood-db}"
 mkdir -p "$NOVEL_TEST_DB_DIR"
+echo "[dogfood] db dir: $NOVEL_TEST_DB_DIR"
 
 # 真实超时兜底（缺陷九跟进，2026-07-20）：test.exs 的 LMStudio timeout 默认
 # 5s（给纯单测 stub 用），狗粮跑在 MIX_ENV=test 下但打真实模型——这个值现在
@@ -103,7 +106,7 @@ print(max(llms) if llms else 0)
   echo "[dogfood][B8] 模型上下文预检通过：contextLength=$LOADED_CONTEXT"
 fi
 
-ARTIFACT_DIR="$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood"
+ARTIFACT_DIR="${DOGFOOD_ARTIFACT_DIR:-$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood}"
 APP_LOG_DIR="$ARTIFACT_DIR/app-log"
 LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"
 mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR"
