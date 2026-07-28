@@ -302,9 +302,11 @@ defmodule NovelDomain.LedgerReconciliation do
 
   defp finale_marker?(chapter) do
     text =
-      [chapter_field(chapter, :title), chapter_field(chapter, :chapter_role)]
-      |> Enum.map(&to_string/1)
-      |> Enum.join(" ")
+      Enum.map_join(
+        [chapter_field(chapter, :title), chapter_field(chapter, :chapter_role)],
+        " ",
+        &to_string/1
+      )
 
     Enum.any?(@finale_markers, &String.contains?(text, &1))
   end
