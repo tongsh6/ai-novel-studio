@@ -1230,7 +1230,8 @@ defmodule NovelApplication.DialoguePlanningService do
       memory_recorder: map_get(input, :memory_recorder),
       chapter_prose_reader: map_get(input, :chapter_prose_reader),
       chapter_summary_reader: map_get(input, :chapter_summary_reader),
-      character_reader: map_get(input, :character_reader)
+      character_reader: map_get(input, :character_reader),
+      assumption_reader: map_get(input, :assumption_reader)
     })
   end
 
@@ -1271,7 +1272,8 @@ defmodule NovelApplication.DialoguePlanningService do
       context: context,
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution),
-      character_reader: map_get(input, :character_reader)
+      character_reader: map_get(input, :character_reader),
+      assumption_reader: map_get(input, :assumption_reader)
     })
   end
 
@@ -1302,7 +1304,8 @@ defmodule NovelApplication.DialoguePlanningService do
       planner_provider_execution: map_get(input, :planner_provider_execution),
       chapter_prose_reader: map_get(input, :chapter_prose_reader),
       chapter_summary_reader: map_get(input, :chapter_summary_reader),
-      character_reader: map_get(input, :character_reader)
+      character_reader: map_get(input, :character_reader),
+      assumption_reader: map_get(input, :assumption_reader)
     })
   end
 
@@ -1322,7 +1325,8 @@ defmodule NovelApplication.DialoguePlanningService do
       planner_provider_execution: map_get(input, :planner_provider_execution),
       chapter_prose_reader: map_get(input, :chapter_prose_reader),
       chapter_summary_reader: map_get(input, :chapter_summary_reader),
-      character_reader: map_get(input, :character_reader)
+      character_reader: map_get(input, :character_reader),
+      assumption_reader: map_get(input, :assumption_reader)
     })
   end
 
@@ -1342,7 +1346,8 @@ defmodule NovelApplication.DialoguePlanningService do
       planner_provider_execution: map_get(input, :planner_provider_execution),
       chapter_prose_reader: map_get(input, :chapter_prose_reader),
       chapter_summary_reader: map_get(input, :chapter_summary_reader),
-      character_reader: map_get(input, :character_reader)
+      character_reader: map_get(input, :character_reader),
+      assumption_reader: map_get(input, :assumption_reader)
     })
   end
 
@@ -1362,7 +1367,8 @@ defmodule NovelApplication.DialoguePlanningService do
       planner_provider_execution: map_get(input, :planner_provider_execution),
       chapter_prose_reader: map_get(input, :chapter_prose_reader),
       chapter_summary_reader: map_get(input, :chapter_summary_reader),
-      character_reader: map_get(input, :character_reader)
+      character_reader: map_get(input, :character_reader),
+      assumption_reader: map_get(input, :assumption_reader)
     })
   end
 

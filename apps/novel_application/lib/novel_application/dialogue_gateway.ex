@@ -972,6 +972,7 @@ defmodule NovelApplication.DialogueGateway do
           chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
           chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
           character_reader: NovelApplication.persistence_character_reader(),
+          assumption_reader: NovelApplication.persistence_assumption_character_reader(),
           ledger_reader: NovelApplication.persistence_ledger_reader(),
           memory_reader: NovelApplication.persistence_memory_reader(),
           idempotency_suffix: "_confirmed"

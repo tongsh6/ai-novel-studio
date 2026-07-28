@@ -99,11 +99,35 @@ defmodule NovelApplication.AbsenceDirectiveInjectionTest do
     input =
       if character_reader, do: Map.put(input, :character_reader, character_reader), else: input
 
+    input =
+      case Process.get(:assumption_reader) do
+        nil -> input
+        reader -> Map.put(input, :assumption_reader, reader)
+      end
+
     {_turn_result, _trace} = TurnExecutionService.execute(input)
     agent |> Agent.get(& &1) |> Enum.join("\n\n")
   end
 
   defp roster(list), do: fn _work -> list end
+
+  defp with_assumptions(list, fun) do
+    Process.put(:assumption_reader, fn _work -> list end)
+    fun.()
+  after
+    Process.delete(:assumption_reader)
+  end
+
+  defp active_assumption do
+    %{
+      name: "沈砚",
+      narrative_role: "PROTAGONIST",
+      summary: "追查灵气账单的核心视角人物。",
+      status: "TENTATIVE",
+      provisional_source: "AI_ASSUMPTION",
+      provisional_active: true
+    }
+  end
 
   test "prose_writing：roster 无 PROTAGONIST → 注入主角缺席守则" do
     prompts = run("prose_writing", roster([%{name: "沈砚", narrative_role: "SUPPORTING"}]))
@@ -135,5 +159,46 @@ defmodule NovelApplication.AbsenceDirectiveInjectionTest do
   test "未登记能力（world_building）→ 无缺席守则段" do
     prompts = run("world_building", roster([]))
     refute prompts =~ "承重事实缺席提示"
+  end
+
+  # ── VS-00G CP5c：激活假定的可标注注入 ──────────────────────
+
+  test "CP5c：激活的主角假定计入在场（缺席守则让位），以【暂定】标注段注入" do
+    prompts =
+      with_assumptions([active_assumption()], fn -> run("prose_writing", roster([])) end)
+
+    refute prompts =~ "尚未确立主角档案"
+    assert prompts =~ "【暂定】主角：沈砚"
+    assert prompts =~ "追查灵气账单的核心视角人物"
+    assert prompts =~ "依据：设定盘点"
+    assert prompts =~ "不得当作已定案设定展开重大转折"
+  end
+
+  test "CP5c：未激活的假定（provisional_active=false）不注入也不算在场" do
+    inactive = Map.put(active_assumption(), :provisional_active, false)
+
+    prompts = with_assumptions([inactive], fn -> run("prose_writing", roster([])) end)
+
+    assert prompts =~ "尚未确立主角档案"
+    refute prompts =~ "【暂定】主角"
+  end
+
+  test "CP5c：plot_outline 同样消费激活假定（规划期方向锚）" do
+    prompts =
+      with_assumptions([active_assumption()], fn -> run("plot_outline", roster([])) end)
+
+    refute prompts =~ "尚未确立主角档案"
+    assert prompts =~ "【暂定】主角：沈砚"
+  end
+
+  test "CP5c：假定读端口抛错 → 诚实降级回缺席守则（注入通道不阻断创作）" do
+    prompts =
+      with_assumptions(:raise, fn ->
+        Process.put(:assumption_reader, fn _work -> raise "boom" end)
+        run("prose_writing", roster([]))
+      end)
+
+    assert prompts =~ "尚未确立主角档案"
+    refute prompts =~ "【暂定】主角"
   end
 end

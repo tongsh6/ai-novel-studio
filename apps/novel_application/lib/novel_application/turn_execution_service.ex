@@ -51,6 +51,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:chapter_prose_reader) => function(),
           optional(:chapter_summary_reader) => map() | nil,
           optional(:character_reader) => function() | nil,
+          optional(:assumption_reader) => function() | nil,
           optional(:ledger_reader) => function() | nil,
           optional(:memory_reader) => function() | nil,
           optional(:source_turn_ref) => String.t(),
@@ -135,8 +136,15 @@ defmodule NovelApplication.TurnExecutionService do
     # VS-00G CP1：承重事实完备性判定（机械准备，0 调用，ADR-0025）。按能力 manifest
     # 对现状快照逐项查缺，required 缺席且有守则→注入缺席守则（防主角真空被模型想象填补，
     # M3 地基事实真空病例的直接下药）；design_missing 留痕供负债规则消费（CP2）。
+    # VS-00G CP5c：激活中的工作假定计入在场判定（缺席守则让位），并以【暂定】标注段
+    # 注入——注入期临时文本，随 turn 消失不落持久层（§2.3 三防护①）。
     absence_directives =
-      absence_directives_section(frame, action, input[:character_reader])
+      absence_directives_section(
+        frame,
+        action,
+        input[:character_reader],
+        input[:assumption_reader]
+      )
 
     # VS-00G CP3：规划期全书骨架注入 + 收官守则（仅 plot_outline）。直接对着 M3 收官
     # 循环下药——扩章批不再自带终局章（骨架事实+当前进度+指令式禁终局，决策点邻近）。
@@ -963,7 +971,7 @@ defmodule NovelApplication.TurnExecutionService do
   # VS-00G CP1：承重事实完备性判定 + 缺席守则注入（机械准备）。按能力 manifest 对
   # 现状快照逐项查缺；required 缺席且有守则 → 注入缺席守则文本。design_missing 留痕
   # 供负债规则消费（CP2）。仅对 manifest 登记的能力生效（未登记能力空段）。
-  defp absence_directives_section(frame, action, reader) do
+  defp absence_directives_section(frame, action, reader, assumption_reader) do
     capability = to_string(action[:target_ref] || action[:capability_name] || "")
 
     case NovelDomain.CapabilityFactManifest.facts(capability) do
@@ -971,11 +979,61 @@ defmodule NovelApplication.TurnExecutionService do
         ""
 
       _facts ->
-        snapshot = %{roster: fact_completeness_roster(frame, reader)}
+        assumptions = active_assumption_characters(frame, assumption_reader)
+        snapshot = %{roster: fact_completeness_roster(frame, reader) ++ assumptions}
         missing = NovelDomain.CapabilityFactManifest.evaluate_presence(capability, snapshot)
-        emit_fact_completeness(frame, capability, missing)
-        NovelDomain.AbsenceDirective.render(missing)
+        emit_fact_completeness(frame, capability, missing, length(assumptions))
+        NovelDomain.AbsenceDirective.render(missing) <> assumption_section(assumptions)
     end
+  end
+
+  # CP5c：激活假定读取（失败降级空列表——注入通道诚实缺席，不阻断创作调用）。
+  defp active_assumption_characters(frame, reader) when is_function(reader, 1) do
+    frame.workspace_id
+    |> reader.()
+    |> Enum.filter(&NovelDomain.WorkingAssumption.active?/1)
+    |> Enum.map(fn character ->
+      %{
+        name: Map.get(character, :name),
+        narrative_role: Map.get(character, :narrative_role),
+        summary: Map.get(character, :summary)
+      }
+    end)
+  rescue
+    _error -> []
+  catch
+    _kind, _reason -> []
+  end
+
+  defp active_assumption_characters(_frame, _reader), do: []
+
+  # CP5c 防护①：【暂定】标注段——模型可参考但明知未确认；作者侧同文案有裁决入口。
+  defp assumption_section([]), do: ""
+
+  defp assumption_section(assumptions) do
+    lines =
+      Enum.map_join(assumptions, "\n", fn assumption ->
+        role_label =
+          case assumption.narrative_role do
+            "PROTAGONIST" -> "主角"
+            _ -> "角色"
+          end
+
+        content =
+          [
+            "#{role_label}：#{assumption.name}",
+            case to_string(assumption.summary || "") do
+              "" -> nil
+              summary -> summary
+            end
+          ]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.join("——")
+
+        "- " <> NovelDomain.WorkingAssumption.annotate(content, "设定盘点")
+      end)
+
+    "\n\n暂定设定（作者尚未确认，按此暂用，不得当作已定案设定展开重大转折）：\n" <> lines
   end
 
   defp fact_completeness_roster(frame, reader) when is_function(reader, 1) do
@@ -984,14 +1042,15 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp fact_completeness_roster(_frame, _reader), do: []
 
-  defp emit_fact_completeness(_frame, _capability, []), do: :ok
+  defp emit_fact_completeness(_frame, _capability, [], 0), do: :ok
 
-  defp emit_fact_completeness(frame, capability, missing) do
+  defp emit_fact_completeness(frame, capability, missing, assumption_count) do
     LogEmit.emit(:context, :fact_completeness, :done, %{
       turn_id: frame.turn_id,
       capability: capability,
       design_missing: Enum.map(missing, &to_string(&1.element)),
-      required_missing: missing |> Enum.filter(&(&1.tier == :required)) |> length()
+      required_missing: missing |> Enum.filter(&(&1.tier == :required)) |> length(),
+      assumption_active: assumption_count
     })
   end
 

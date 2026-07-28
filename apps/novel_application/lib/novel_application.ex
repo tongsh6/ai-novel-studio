@@ -145,6 +145,15 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回工作假定读端口（VS-00G CP5c）：「暂定设定」角色清单，供可标注注入通道与
+  暂定设定区消费。未启用真实持久化时返回 nil（注入通道诚实缺席）。
+  """
+  def persistence_assumption_character_reader do
+    if inject_persistence?(),
+      do: &NovelPersistence.AssumptionRepo.list_assumption_characters/1
+  end
+
+  @doc """
   返回章摘要 maintainer：正文采纳完成后产连续性摘要（VS-00C CP2.1 / contract §5.3）。
 
   未启用真实持久化时返回 nil（采纳路径无后续摘要副作用）。默认通过
