@@ -21,6 +21,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.NarrativeRole
+  alias NovelFoundation.Enums.ProvisionalSource
   alias NovelFoundation.Enums.SourceType
   alias NovelFoundation.Enums.StructureStatus
   alias NovelFoundation.ID
@@ -215,7 +216,7 @@ defmodule NovelPersistence.AdoptionRepository do
             where:
               c.work_id == ^uuid and c.name == ^name and
                 c.status == ^AdoptionStatus.tentative() and
-                c.provisional_source == ^NovelFoundation.Enums.ProvisionalSource.ai_assumption(),
+                c.provisional_source == ^ProvisionalSource.ai_assumption(),
             limit: 1
           )
         )

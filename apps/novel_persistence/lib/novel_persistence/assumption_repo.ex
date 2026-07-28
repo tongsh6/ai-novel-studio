@@ -82,9 +82,8 @@ defmodule NovelPersistence.AssumptionRepo do
   @spec confirm_character(String.t(), String.t()) ::
           {:ok, Character.t()} | {:error, :assumption_not_found | Ecto.Changeset.t()}
   def confirm_character(work_id, character_id) do
-    with %Character{} = assumption <- get_assumption(work_id, character_id) do
-      assumption |> Character.adopt_changeset() |> Repo.update()
-    else
+    case get_assumption(work_id, character_id) do
+      %Character{} = assumption -> assumption |> Character.adopt_changeset() |> Repo.update()
       nil -> {:error, :assumption_not_found}
     end
   end
@@ -95,9 +94,8 @@ defmodule NovelPersistence.AssumptionRepo do
   @spec discard_character(String.t(), String.t()) ::
           {:ok, Character.t()} | {:error, :assumption_not_found | Ecto.Changeset.t()}
   def discard_character(work_id, character_id) do
-    with %Character{} = assumption <- get_assumption(work_id, character_id) do
-      assumption |> Character.discard_changeset() |> Repo.update()
-    else
+    case get_assumption(work_id, character_id) do
+      %Character{} = assumption -> assumption |> Character.discard_changeset() |> Repo.update()
       nil -> {:error, :assumption_not_found}
     end
   end

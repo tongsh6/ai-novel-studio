@@ -1339,48 +1339,52 @@ defmodule NovelWeb.WorkspaceChannel do
     payload = action_input.payload || %{}
     character_ref = to_string(payload["character_ref"] || payload[:character_ref] || "")
 
-    result =
-      case action_type do
-        "confirm_assumption" -> NovelApplication.AssumptionService.confirm(work_id, character_ref)
-        "discard_assumption" -> NovelApplication.AssumptionService.discard(work_id, character_ref)
-      end
-
-    case result do
-      {:ok, assumption} ->
-        LogEmit.emit(:channel, :author_action, :done, %{
-          work_id: work_id,
-          session_id: socket.assigns[:session_id],
-          action_id: action_input.action_id,
-          action_type: action_type,
-          action_status: :applied,
-          character_ref: character_ref,
-          assumption_status: assumption.status
-        })
-
-        {:reply,
-         {:ok,
-          %{
-            received: true,
-            action_status: "applied",
-            character_ref: character_ref,
-            assumption_status: assumption.status
-          }}, socket}
-
-      {:error, reason} ->
-        LogEmit.emit(:channel, :author_action, :error, %{
-          work_id: work_id,
-          action_id: action_input.action_id,
-          action_type: action_type,
-          reason_code: :assumption_decision_failed,
-          outcome_detail: inspect(reason)
-        })
-
-        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
-    end
+    action_type
+    |> assumption_decision(work_id, character_ref)
+    |> reply_assumption_decision(socket, action_input, work_id, character_ref)
   end
 
   defp handle_author_action(socket, action_input, source_turn_result) do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
+  end
+
+  defp assumption_decision("confirm_assumption", work_id, character_ref),
+    do: NovelApplication.AssumptionService.confirm(work_id, character_ref)
+
+  defp assumption_decision("discard_assumption", work_id, character_ref),
+    do: NovelApplication.AssumptionService.discard(work_id, character_ref)
+
+  defp reply_assumption_decision({:ok, assumption}, socket, action_input, work_id, character_ref) do
+    LogEmit.emit(:channel, :author_action, :done, %{
+      work_id: work_id,
+      session_id: socket.assigns[:session_id],
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      action_status: :applied,
+      character_ref: character_ref,
+      assumption_status: assumption.status
+    })
+
+    {:reply,
+     {:ok,
+      %{
+        received: true,
+        action_status: "applied",
+        character_ref: character_ref,
+        assumption_status: assumption.status
+      }}, socket}
+  end
+
+  defp reply_assumption_decision({:error, reason}, socket, action_input, work_id, _character_ref) do
+    LogEmit.emit(:channel, :author_action, :error, %{
+      work_id: work_id,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      reason_code: :assumption_decision_failed,
+      outcome_detail: inspect(reason)
+    })
+
+    {:reply, {:error, %{reason: reason_text(reason)}}, socket}
   end
 
   defp adjudication_result(action_input, report, follow_up) do

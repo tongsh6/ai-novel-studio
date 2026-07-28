@@ -9,7 +9,9 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
   alias NovelApplication.WorkSessionService
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog, MemoryLog, Repo, WorkSessionRepo}
+  alias NovelPersistence.AssumptionRepo
   alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
@@ -413,7 +415,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
 
     assert {:ok, assumption} =
-             NovelPersistence.AssumptionRepo.materialize_character(%{
+             AssumptionRepo.materialize_character(%{
                work_id: work.id,
                name: "沈砚",
                summary: "盘点暂定主角。",
@@ -453,7 +455,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert [%{name: "沈砚"}] = characters
 
     assert {:ok, second} =
-             NovelPersistence.AssumptionRepo.materialize_character(%{
+             AssumptionRepo.materialize_character(%{
                work_id: work.id,
                name: "云栖",
                summary: "暂定配角。",
@@ -463,12 +465,12 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     # 已有 accepted 角色时物化被 canon 守卫跳过——直接构造 tentative 假定行验证否决链
     second =
       case second do
-        %NovelPersistence.Schemas.Character{} = row ->
+        %Character{} = row ->
           row
 
         :skipped_canon_present ->
-          %NovelPersistence.Schemas.Character{}
-          |> NovelPersistence.Schemas.Character.changeset(%{
+          %Character{}
+          |> Character.changeset(%{
             work_id: work.id,
             name: "云栖",
             status: "TENTATIVE",
