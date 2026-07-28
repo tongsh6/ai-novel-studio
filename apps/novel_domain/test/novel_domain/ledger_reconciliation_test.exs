@@ -139,4 +139,89 @@ defmodule NovelDomain.LedgerReconciliationTest do
       assert LedgerReconciliation.skeleton_missing_finding(0, 30, 20) != nil
     end
   end
+
+  describe "R7 提前收官（VS-00G，M3 收官循环检测层）" do
+    defp chapter(seq, title, role \\ nil), do: %{seq: seq, title: title, chapter_role: role}
+
+    test "进度低于阈值且近窗含终局标题 → warn finding（引导调整规划）" do
+      f =
+        LedgerReconciliation.premature_finale_finding(
+          12.5,
+          [chapter(11, "第11章：频段反击"), chapter(12, "第12章：大结局")],
+          70
+        )
+
+      assert f.rule == "premature_finale"
+      assert f.ledger == "design_debt"
+      assert f.proposed_disposition == "revise_design"
+      assert f.signal =~ "13%"
+      assert f.signal =~ "第 12 章"
+      assert "chapter_plan:12" in f.source_refs
+    end
+
+    test "章功能定位含收官同样命中（不只看标题）" do
+      f =
+        LedgerReconciliation.premature_finale_finding(
+          30,
+          [chapter(20, "第20章：平静", "收官铺垫")],
+          70
+        )
+
+      assert f != nil
+      assert f.signal =~ "第 20 章"
+    end
+
+    test "进度已达阈值 → 不产（接近目标可收束）" do
+      assert LedgerReconciliation.premature_finale_finding(
+               85,
+               [chapter(90, "第90章：大结局")],
+               70
+             ) == nil
+    end
+
+    test "近窗无终局信号 → 不产" do
+      assert LedgerReconciliation.premature_finale_finding(
+               10,
+               [chapter(11, "第11章：反击"), chapter(12, "第12章：追查")],
+               70
+             ) == nil
+    end
+  end
+
+  describe "R8 暂定设定超龄未决（VS-00G §2.3 防护③）" do
+    test "激活后推进达阈值仍未裁决 → warn 催办（指向暂定设定区）" do
+      f =
+        LedgerReconciliation.assumption_overdue_finding(
+          %{id: "char-1", name: "沈砚", narrative_role: "PROTAGONIST"},
+          10,
+          10
+        )
+
+      assert f.rule == "assumption_overdue"
+      assert f.ledger == "design_debt"
+      assert f.proposed_disposition == "revise_design"
+      assert f.signal =~ "主角：沈砚"
+      assert f.signal =~ "10 章仍未裁决"
+      assert f.source_refs == ["assumption:char-1"]
+    end
+
+    test "未达阈值 → 不催（假定仍在正常寿命内）" do
+      assert LedgerReconciliation.assumption_overdue_finding(
+               %{id: "char-1", name: "沈砚", narrative_role: "PROTAGONIST"},
+               9,
+               10
+             ) == nil
+    end
+
+    test "非主角假定按角色措辞" do
+      f =
+        LedgerReconciliation.assumption_overdue_finding(
+          %{id: "char-2", name: "云栖", narrative_role: "SUPPORTING"},
+          12,
+          10
+        )
+
+      assert f.signal =~ "角色：云栖"
+    end
+  end
 end

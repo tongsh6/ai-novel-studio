@@ -48,7 +48,9 @@ defmodule NovelApplication.LedgerReconciliationService do
       LedgerReconciliation.arc_stalled_findings(arc_entries) ++
         List.wrap(LedgerReconciliation.genre_promise_finding(promise_entry, summaries, roster_names)) ++
         Enum.map(leaked_entries, &leak_finding/1) ++
-        design_debt_findings(roster, summaries, profile)
+        design_debt_findings(roster, summaries, profile) ++
+        premature_finale_findings(work_id, deps, profile) ++
+        assumption_overdue_findings(work_id, deps)
 
     counts = Enum.frequencies_by(findings, & &1.rule)
 
@@ -111,7 +113,12 @@ defmodule NovelApplication.LedgerReconciliationService do
       entries: &NovelPersistence.LedgerRepository.list_all/1,
       summaries: &NovelPersistence.LedgerRepository.accepted_summaries_by_seq/1,
       roster: &NovelPersistence.WorkArchiveRepo.characters/1,
-      profile: &NovelPersistence.WorkArchiveRepo.profile/1
+      profile: &NovelPersistence.WorkArchiveRepo.profile/1,
+      # VS-00G R7/R8（可选读端口；缺席时对应规则诚实跳过，旧 deps 兼容）
+      stats: &NovelPersistence.WorkArchiveRepo.stats/1,
+      chapter_index: &NovelPersistence.LedgerRepository.chapter_index/1,
+      assumptions: &NovelPersistence.AssumptionRepo.list_assumption_characters/1,
+      summary_count_since: &NovelPersistence.LedgerRepository.accepted_summary_count_since/2
     }
   end
 
@@ -127,6 +134,9 @@ defmodule NovelApplication.LedgerReconciliationService do
   # R6/R7 依赖 CP3 全书骨架字段。阈值 R5=10（VS-00G OQ3，策略化默认）。
   @protagonist_debt_threshold 10
   @skeleton_debt_threshold 20
+  # R7：进度低于该百分比时出现终局/收官章计划即偏离（策略化，I-L4）；近窗=末 5 章计划。
+  @premature_finale_progress_threshold 70
+  @premature_finale_window 5
 
   defp design_debt_findings(roster, summaries, profile) do
     chapter_count = length(summaries)
@@ -145,6 +155,67 @@ defmodule NovelApplication.LedgerReconciliationService do
       )
     ]
     |> Enum.reject(&is_nil/1)
+  end
+
+  # R7 提前收官（VS-00G，M3 收官循环检测层）：目标体量已立且读端口在场才判定；
+  # 进度=已采纳字数/target_length。读端口缺席或读失败→诚实跳过（旧 deps 兼容）。
+  defp premature_finale_findings(work_id, deps, profile) do
+    target_length = profile[:target_length] || profile["target_length"]
+
+    with true <- is_integer(target_length) and target_length > 0,
+         stats_reader when is_function(stats_reader, 1) <- deps[:stats],
+         index_reader when is_function(index_reader, 1) <- deps[:chapter_index] do
+      words_total = work_id |> stats_reader.() |> Map.get(:words_total, 0)
+      progress_percent = words_total / target_length * 100
+
+      recent_chapters =
+        work_id
+        |> index_reader.()
+        |> Map.values()
+        |> Enum.sort_by(& &1.seq)
+        |> Enum.take(-@premature_finale_window)
+
+      List.wrap(
+        LedgerReconciliation.premature_finale_finding(
+          progress_percent,
+          recent_chapters,
+          @premature_finale_progress_threshold
+        )
+      )
+    else
+      _ -> []
+    end
+  rescue
+    _error -> []
+  end
+
+  # R8 假定超龄催办（VS-00G §2.3 防护③）：激活中的工作假定按「激活后新增已采纳
+  # 章摘要数」计龄，达 OQ3 阈值未裁决即催办。读端口缺席→诚实跳过。
+  defp assumption_overdue_findings(work_id, deps) do
+    with assumptions_reader when is_function(assumptions_reader, 1) <- deps[:assumptions],
+         count_reader when is_function(count_reader, 2) <- deps[:summary_count_since] do
+      work_id
+      |> assumptions_reader.()
+      |> Enum.filter(&NovelDomain.WorkingAssumption.active?/1)
+      |> Enum.map(fn assumption ->
+        age = count_reader.(work_id, Map.get(assumption, :inserted_at))
+
+        LedgerReconciliation.assumption_overdue_finding(
+          %{
+            id: Map.get(assumption, :id),
+            name: Map.get(assumption, :name),
+            narrative_role: Map.get(assumption, :narrative_role)
+          },
+          age,
+          NovelDomain.WorkingAssumption.default_lifespan_chapters()
+        )
+      end)
+      |> Enum.reject(&is_nil/1)
+    else
+      _ -> []
+    end
+  rescue
+    _error -> []
   end
 
   defp leak_finding(entry) do

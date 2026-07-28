@@ -218,6 +218,102 @@ defmodule NovelDomain.LedgerReconciliation do
 
   def skeleton_missing_finding(_target, _count, _threshold), do: nil
 
+  @finale_markers ~w(终局 大结局 完结 收官 落幕)
+
+  @doc """
+  R7：提前收官（VS-00G 设计负债）——进度未达阈值%但近窗章计划已带终局/收官
+  功能定位或标题（M3 收官循环病灶的检测层：收官味标题 7 次散布全书）。
+
+  `progress_percent`：当前字数/目标体量*100（目标未立时调用方不调本规则，归 R6）；
+  `recent_chapters`：近窗章计划 `[%{seq, title, chapter_role}]`；
+  `progress_threshold`：低于该进度出现收官信号即偏离（策略化，默认 70）。
+  """
+  @spec premature_finale_finding(number(), [map()], non_neg_integer()) :: finding() | nil
+  def premature_finale_finding(progress_percent, recent_chapters, progress_threshold)
+      when is_number(progress_percent) and is_list(recent_chapters) and
+             is_integer(progress_threshold) do
+    finale_chapters = Enum.filter(recent_chapters, &finale_marker?/1)
+
+    cond do
+      progress_percent >= progress_threshold ->
+        nil
+
+      finale_chapters == [] ->
+        nil
+
+      true ->
+        seqs = finale_chapters |> Enum.map(&chapter_field(&1, :seq)) |> Enum.reject(&is_nil/1)
+
+        %{
+          rule: "premature_finale",
+          ledger: "design_debt",
+          severity: "warn",
+          entry_ref: nil,
+          signal:
+            "全书进度约 #{round(progress_percent)}%，但近期章计划已出现终局/收官定位" <>
+              "（第 #{Enum.join(seqs, "、")} 章）——距目标体量尚远，建议调整规划；" <>
+              "如确要收束请明示确认。",
+          source_refs: Enum.map(seqs, &"chapter_plan:#{&1}"),
+          proposed_disposition: "revise_design"
+        }
+    end
+  end
+
+  def premature_finale_finding(_progress, _chapters, _threshold), do: nil
+
+  @doc """
+  R8：暂定设定超龄未决（VS-00G §2.3 防护③寿命追踪）——激活中的工作假定
+  挂满阈值章数仍未确认/否决 → 催办（防事实上的静默转正）。
+
+  `assumption`：`%{id, name, narrative_role}`（调用方已按 active 过滤）；
+  `chapters_since_activation`：激活后新增的已采纳章摘要数；`threshold`：OQ3=10。
+  """
+  @spec assumption_overdue_finding(map(), non_neg_integer(), non_neg_integer()) ::
+          finding() | nil
+  def assumption_overdue_finding(assumption, chapters_since_activation, threshold)
+      when is_map(assumption) and is_integer(chapters_since_activation) and
+             is_integer(threshold) do
+    if chapters_since_activation < threshold do
+      nil
+    else
+      name = chapter_field(assumption, :name) || "未命名"
+
+      role_label =
+        case chapter_field(assumption, :narrative_role) do
+          "PROTAGONIST" -> "主角"
+          _ -> "角色"
+        end
+
+      %{
+        rule: "assumption_overdue",
+        ledger: "design_debt",
+        severity: "warn",
+        entry_ref: nil,
+        signal:
+          "暂定设定「#{role_label}：#{name}」激活后已推进 #{chapters_since_activation} 章仍未裁决——" <>
+            "创作一直按【暂定】前提展开，请在档案的暂定设定区确认（转正）或否决（停用）。",
+        source_refs: ["assumption:#{chapter_field(assumption, :id)}"],
+        proposed_disposition: "revise_design"
+      }
+    end
+  end
+
+  def assumption_overdue_finding(_assumption, _chapters, _threshold), do: nil
+
+  defp finale_marker?(chapter) do
+    text =
+      [chapter_field(chapter, :title), chapter_field(chapter, :chapter_role)]
+      |> Enum.map(&to_string/1)
+      |> Enum.join(" ")
+
+    Enum.any?(@finale_markers, &String.contains?(text, &1))
+  end
+
+  defp chapter_field(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp chapter_field(_map, _key), do: nil
+
   defp protagonist_role(character) when is_map(character) do
     character
     |> Map.get(:narrative_role, Map.get(character, "narrative_role"))

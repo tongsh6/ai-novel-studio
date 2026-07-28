@@ -106,6 +106,23 @@ defmodule NovelPersistence.LedgerRepository do
   end
 
   @doc """
+  激活时点后的已采纳章摘要数（VS-00G R8 假定计龄）：摘要随正文采纳产生，
+  以其新增量近似「激活后推进章数」。
+  """
+  @spec accepted_summary_count_since(String.t(), DateTime.t()) :: non_neg_integer()
+  def accepted_summary_count_since(work_id, %DateTime{} = since) when is_binary(work_id) do
+    from(s in NovelPersistence.Schemas.ChapterSummary,
+      where: s.work_id == ^work_id,
+      where: s.status in ^@accepted,
+      where: s.inserted_at > ^since,
+      select: count(s.id)
+    )
+    |> Repo.one() || 0
+  end
+
+  def accepted_summary_count_since(_work_id, _since), do: 0
+
+  @doc """
   章序号索引：chapter_id => %{seq, title, emotion, chapter_role}，供维护换算
   停滞窗口与情绪/冲突账（emotion/chapter_role 取自章计划 plan_direction，缺省 nil）。
   """
