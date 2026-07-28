@@ -75,6 +75,49 @@ defmodule NovelPersistence.AssumptionRepo do
     end
   end
 
+  @doc """
+  作者确认假定（防护②）：就地转正 accepted（ADR-0019 INV-1 内，不产新行），
+  provisional_active 收束。只作用于本作品的 AI 假定行；找不到诚实报错。
+  """
+  @spec confirm_character(String.t(), String.t()) ::
+          {:ok, Character.t()} | {:error, :assumption_not_found | Ecto.Changeset.t()}
+  def confirm_character(work_id, character_id) do
+    with %Character{} = assumption <- get_assumption(work_id, character_id) do
+      assumption |> Character.adopt_changeset() |> Repo.update()
+    else
+      nil -> {:error, :assumption_not_found}
+    end
+  end
+
+  @doc """
+  作者否决假定（防护②）：discarded，停注入；同名不再自动重提（物化守卫按名去重）。
+  """
+  @spec discard_character(String.t(), String.t()) ::
+          {:ok, Character.t()} | {:error, :assumption_not_found | Ecto.Changeset.t()}
+  def discard_character(work_id, character_id) do
+    with %Character{} = assumption <- get_assumption(work_id, character_id) do
+      assumption |> Character.discard_changeset() |> Repo.update()
+    else
+      nil -> {:error, :assumption_not_found}
+    end
+  end
+
+  defp get_assumption(work_id, character_id) do
+    with {:ok, work_uuid} <- Ecto.UUID.cast(to_string(work_id)),
+         {:ok, character_uuid} <- Ecto.UUID.cast(to_string(character_id)) do
+      Character
+      |> where(
+        [c],
+        c.id == ^character_uuid and c.work_id == ^work_uuid and
+          c.status == ^AdoptionStatus.tentative() and
+          c.provisional_source == ^ProvisionalSource.ai_assumption()
+      )
+      |> Repo.one()
+    else
+      :error -> nil
+    end
+  end
+
   defp accepted_character_exists?(work_id) do
     case Ecto.UUID.cast(work_id) do
       {:ok, uuid} ->

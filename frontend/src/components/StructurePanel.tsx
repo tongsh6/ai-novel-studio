@@ -24,9 +24,11 @@ import {
   getRules,
   getWorkStats,
   getWorkProfile,
+  getAssumptions,
   getLedgerThreads,
   getReviewReport,
   sendAuthorAction,
+  type AssumptionDto,
 } from "../lib/socket";
 import type {
   TocData,
@@ -310,6 +312,9 @@ export function StructurePanel({
   const [reviewReport, setReviewReport] = useState<ReviewReport | null>(null);
   const [ledgerActionError, setLedgerActionError] = useState<string | null>(null);
   const [factInventoryActionError, setFactInventoryActionError] = useState<string | null>(null);
+  // VS-00G CP5d：「暂定设定」区（AI 工作假定的可见裁决面，OQ7）。
+  const [assumptions, setAssumptions] = useState<AssumptionDto[]>([]);
+  const [assumptionActionError, setAssumptionActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!onReviewPendingChange) return;
@@ -324,6 +329,31 @@ export function StructurePanel({
   const [selectedArchiveItem, setSelectedArchiveItem] = useState<SelectedArchiveItem | null>(null);
   const context = useAppStore((s) => s.context);
   const channel = useAppStore((s) => s.channel);
+
+  // VS-00G CP5d 防护②：一键确认（就地转正进正式档案）/否决（停止使用）。
+  const decideAssumption = (assumption: AssumptionDto, decision: "confirm" | "discard") => {
+    if (!channel || !context.workId) return;
+    const workId = context.workId;
+    const actionId = `${decision}-assumption-${assumption.id}`;
+
+    void sendAuthorAction(channel, {
+      source_turn_ref: "panel",
+      action_id: actionId,
+      action_type: decision === "confirm" ? "confirm_assumption" : "discard_assumption",
+      idempotency_key: actionId,
+      payload: { character_ref: assumption.id },
+    })
+      .then(() => {
+        setAssumptionActionError(null);
+        setAssumptions((prev) => prev.filter((item) => item.id !== assumption.id));
+        if (decision === "confirm") {
+          void getCharacters(channel, workId)
+            .then((data) => setCharacters(data))
+            .catch(() => {});
+        }
+      })
+      .catch(() => setAssumptionActionError(STRUCTURE_PANEL.assumptions.actionFailed));
+  };
   const pendingAdoptionCount = pendingAdoptions.length;
   const lastWorkIdRef = useRef<string | null>(null);
   const profileRef = useRef<WorkProfile | null>(null);
@@ -374,6 +404,11 @@ export function StructurePanel({
         }),
       getCharacters(channel, workId)
         .then((data) => !cancelled && setCharacters(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
+      getAssumptions(channel, workId)
+        .then((data) => !cancelled && setAssumptions(data))
         .catch(() => {
           anyFailed = true;
         }),
@@ -695,6 +730,54 @@ export function StructurePanel({
                     {STRUCTURE_PANEL.profile.reviseLabel}
                   </button>
                 </div>
+                {assumptions.length > 0 && (
+                  <div className={styles.assumptionSection}>
+                    <div className={styles.secHeader}>
+                      <span className={styles.secTitle}>
+                        {STRUCTURE_PANEL.assumptions.sectionTitle}
+                      </span>
+                    </div>
+                    <div className={styles.detailHint}>{STRUCTURE_PANEL.assumptions.hint}</div>
+                    {assumptions.map((assumption) => (
+                      <div className={styles.assumptionRow} key={assumption.id}>
+                        <div className={styles.assumptionBody}>
+                          <span className={styles.assumptionBadge}>
+                            {STRUCTURE_PANEL.assumptions.badge}
+                          </span>
+                          <span className={styles.assumptionName}>
+                            {(assumption.narrative_role &&
+                              STRUCTURE_PANEL.assumptions.roleLabels[
+                                assumption.narrative_role
+                              ]) ??
+                              ""}
+                            {assumption.narrative_role ? "：" : ""}
+                            {assumption.name}
+                          </span>
+                          {assumption.summary && (
+                            <span className={styles.assumptionSummary}>{assumption.summary}</span>
+                          )}
+                        </div>
+                        <div className={styles.cardActions}>
+                          <button
+                            className={styles.btnSecondary}
+                            onClick={() => decideAssumption(assumption, "confirm")}
+                          >
+                            {STRUCTURE_PANEL.assumptions.confirmLabel}
+                          </button>
+                          <button
+                            className={styles.btnSecondary}
+                            onClick={() => decideAssumption(assumption, "discard")}
+                          >
+                            {STRUCTURE_PANEL.assumptions.discardLabel}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {assumptionActionError && (
+                      <div className={styles.footerActionError}>{assumptionActionError}</div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {reviewReport && (

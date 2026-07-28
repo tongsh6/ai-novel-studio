@@ -406,6 +406,106 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert_reply(ref, :error, %{reason: "not_found"})
   end
 
+  # VS-00G CP5d：「暂定设定」读端口与一键确认/否决——确认就地转正进正式档案，
+  # 否决停注入；两者都不产新行（ADR-0019 INV-1）。
+  test "assumption surface lists, confirms and discards AI assumptions in place" do
+    {:ok, work} = WorkService.create(%{"title" => "暂定设定作品"})
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+
+    assert {:ok, assumption} =
+             NovelPersistence.AssumptionRepo.materialize_character(%{
+               work_id: work.id,
+               name: "沈砚",
+               summary: "盘点暂定主角。",
+               narrative_role: "PROTAGONIST"
+             })
+
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    ref = push(socket, "get_assumptions", %{"work_id" => work.id})
+    assert_reply(ref, :ok, %{assumptions: [listed]})
+    assert listed.name == "沈砚"
+    assert listed.provisional_active == true
+
+    confirm_ref =
+      push(socket, "author_action", %{
+        "action" => %{
+          "source_turn_ref" => "panel",
+          "action_id" => "confirm-assumption-1",
+          "action_type" => "confirm_assumption",
+          "idempotency_key" => "confirm-assumption-1",
+          "payload" => %{"character_ref" => assumption.id}
+        }
+      })
+
+    assert_reply(confirm_ref, :ok, %{action_status: "applied", assumption_status: "ACCEPTED"})
+
+    ref = push(socket, "get_assumptions", %{"work_id" => work.id})
+    assert_reply(ref, :ok, %{assumptions: []})
+
+    characters = NovelApplication.WorkArchiveService.characters(work.id)
+    assert [%{name: "沈砚"}] = characters
+
+    assert {:ok, second} =
+             NovelPersistence.AssumptionRepo.materialize_character(%{
+               work_id: work.id,
+               name: "云栖",
+               summary: "暂定配角。",
+               narrative_role: "SUPPORTING"
+             })
+
+    # 已有 accepted 角色时物化被 canon 守卫跳过——直接构造 tentative 假定行验证否决链
+    second =
+      case second do
+        %NovelPersistence.Schemas.Character{} = row ->
+          row
+
+        :skipped_canon_present ->
+          %NovelPersistence.Schemas.Character{}
+          |> NovelPersistence.Schemas.Character.changeset(%{
+            work_id: work.id,
+            name: "云栖",
+            status: "TENTATIVE",
+            provisional_source: "AI_ASSUMPTION",
+            provisional_active: true
+          })
+          |> Repo.insert!()
+      end
+
+    discard_ref =
+      push(socket, "author_action", %{
+        "action" => %{
+          "source_turn_ref" => "panel",
+          "action_id" => "discard-assumption-1",
+          "action_type" => "discard_assumption",
+          "idempotency_key" => "discard-assumption-1",
+          "payload" => %{"character_ref" => second.id}
+        }
+      })
+
+    assert_reply(discard_ref, :ok, %{action_status: "applied", assumption_status: "DISCARDED"})
+    assert [%{name: "沈砚"}] = NovelApplication.WorkArchiveService.characters(work.id)
+
+    missing_ref =
+      push(socket, "author_action", %{
+        "action" => %{
+          "source_turn_ref" => "panel",
+          "action_id" => "confirm-assumption-missing",
+          "action_type" => "confirm_assumption",
+          "idempotency_key" => "confirm-assumption-missing",
+          "payload" => %{"character_ref" => Ecto.UUID.generate()}
+        }
+      })
+
+    assert_reply(missing_ref, :error, %{reason: "assumption_not_found"})
+  end
+
   test "join marks durable AgentRun stale when work revision changed" do
     {:ok, work} = WorkService.create(%{"title" => "恢复前作品"})
     {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)

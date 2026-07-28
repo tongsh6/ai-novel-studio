@@ -153,6 +153,7 @@ defmodule NovelApplication do
       do: &NovelPersistence.AssumptionRepo.list_assumption_characters/1
   end
 
+
   @doc """
   返回章摘要 maintainer：正文采纳完成后产连续性摘要（VS-00C CP2.1 / contract §5.3）。
 

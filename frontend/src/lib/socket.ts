@@ -628,6 +628,28 @@ export interface WorkProfile {
   updated_at?: string | null;
 }
 
+// VS-00G CP5d：「暂定设定」——AI 工作假定（tentative + AI_ASSUMPTION）的读端口。
+export interface AssumptionDto {
+  id: string;
+  name: string;
+  summary?: string | null;
+  narrative_role?: string | null;
+  provisional_active?: boolean;
+  status?: string;
+}
+
+export function getAssumptions(channel: Channel, workId: string): Promise<AssumptionDto[]> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_assumptions", { work_id: workId })
+      .receive("ok", (response) =>
+        resolve((response as { assumptions?: AssumptionDto[] }).assumptions ?? []),
+      )
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_assumptions timeout")));
+  });
+}
+
 export function getWorkProfile(channel: Channel, workId: string): Promise<WorkProfile> {
   return new Promise((resolve, reject) => {
     channel

@@ -327,6 +327,51 @@
   overflow-wrap: break-word;
 }
 
+/* VS-00G CP5d：「暂定设定」区（AI 工作假定裁决面，OQ7） */
+.assumptionSection {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assumptionRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--surface);
+}
+
+.assumptionBody {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.assumptionBadge {
+  color: var(--foreground-secondary);
+  font-weight: 600;
+}
+
+.assumptionName {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.assumptionSummary {
+  color: var(--foreground-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 /* L1 Overview */
 .overview {
   display: flex;

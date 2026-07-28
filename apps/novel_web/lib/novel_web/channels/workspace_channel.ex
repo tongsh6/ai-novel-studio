@@ -572,6 +572,19 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
+  # VS-00G CP5d：「暂定设定」区读端口——AI 工作假定清单（tentative+AI_ASSUMPTION）。
+  def handle_in("get_assumptions", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.AssumptionService.list(work_id)
+
+    LogEmit.emit(:channel, :get_assumptions, :done, %{
+      work_id: work_id,
+      assumption_count: length(data)
+    })
+
+    {:reply, {:ok, %{assumptions: data}}, socket}
+  end
+
   def handle_in("get_foreshadowing", payload, socket) do
     work_id = archive_work_id(payload, socket)
     data = NovelApplication.WorkArchiveService.foreshadowing(work_id)
@@ -1311,6 +1324,58 @@ defmodule NovelWeb.WorkspaceChannel do
 
       {:error, reason} ->
         {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
+  # VS-00G CP5d（§2.3 防护②）：「暂定设定」一键确认/否决——生命周期即既有
+  # AdoptionStatus 状态机（确认=就地 accepted 转正，否决=discarded 停注入）。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: action_type} = action_input,
+         _source_turn_result
+       )
+       when action_type in ["confirm_assumption", "discard_assumption"] do
+    work_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || ""
+    payload = action_input.payload || %{}
+    character_ref = to_string(payload["character_ref"] || payload[:character_ref] || "")
+
+    result =
+      case action_type do
+        "confirm_assumption" -> NovelApplication.AssumptionService.confirm(work_id, character_ref)
+        "discard_assumption" -> NovelApplication.AssumptionService.discard(work_id, character_ref)
+      end
+
+    case result do
+      {:ok, assumption} ->
+        LogEmit.emit(:channel, :author_action, :done, %{
+          work_id: work_id,
+          session_id: socket.assigns[:session_id],
+          action_id: action_input.action_id,
+          action_type: action_type,
+          action_status: :applied,
+          character_ref: character_ref,
+          assumption_status: assumption.status
+        })
+
+        {:reply,
+         {:ok,
+          %{
+            received: true,
+            action_status: "applied",
+            character_ref: character_ref,
+            assumption_status: assumption.status
+          }}, socket}
+
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: work_id,
+          action_id: action_input.action_id,
+          action_type: action_type,
+          reason_code: :assumption_decision_failed,
+          outcome_detail: inspect(reason)
+        })
+
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
 

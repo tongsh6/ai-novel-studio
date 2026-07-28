@@ -654,6 +654,22 @@ export const STRUCTURE_PANEL = {
     rule: "经验规则",
     ledger: "脉络",
   },
+  // VS-00G CP5d（OQ7 用户可见名）：AI 工作假定的可见裁决面。
+  assumptions: {
+    sectionTitle: "暂定设定",
+    badge: "【暂定】",
+    hint: "这些是 AI 从盘点中暂用的设定，创作时会带【暂定】标注参考；确认后进入正式档案，否决后停止使用。",
+    confirmLabel: "确认",
+    discardLabel: "否决",
+    actionFailed: "暂定设定操作失败，请重试。",
+    roleLabels: {
+      PROTAGONIST: "主角",
+      ANTAGONIST: "反派",
+      SUPPORTING: "配角",
+      MINOR: "次要角色",
+      ENSEMBLE_POV: "群像视角",
+    } as Record<string, string>,
+  },
   profile: {
     sectionTitle: "立项设定",
     title: "作品名",
