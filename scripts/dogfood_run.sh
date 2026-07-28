@@ -104,6 +104,31 @@ print(max(llms) if llms else 0)
   fi
 
   echo "[dogfood][B8] 模型上下文预检通过：contextLength=$LOADED_CONTEXT"
+
+  # M4 实锤（2026-07-29）：config/test.exs 曾整块覆盖 LMStudio 配置致 model 回落到
+  # 适配器硬编码默认值，179 次调用全部请求未加载的模型名 → 判断结构退化 → run_failed
+  # 风暴，跑了 15 分钟才被人眼发现。此钉机器校验「产品将要请求的模型」确在已载列表内。
+  CONFIGURED_MODEL="$(MIX_ENV=test mix run --no-start -e '
+    NovelAgent.Provider.LMStudio.from_config().model |> IO.write()
+  ' 2>/dev/null | tail -1)"
+
+  LOADED_MODELS="$(lms ps --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    models = json.load(sys.stdin)
+except Exception:
+    models = []
+print("\n".join(m.get("identifier", "") for m in models if m.get("type") == "llm"))
+')"
+
+  if ! printf '%s\n' "$LOADED_MODELS" | grep -Fxq "$CONFIGURED_MODEL"; then
+    echo "[dogfood][B8b] 预检失败：产品配置将请求模型 '$CONFIGURED_MODEL'，但 LM Studio 已载模型为：" >&2
+    printf '  - %s\n' $LOADED_MODELS >&2
+    echo "[dogfood][B8b] 请对齐二者（改 NOVEL_LMSTUDIO_MODEL 或 lms load 对应模型）后重跑。" >&2
+    exit 1
+  fi
+
+  echo "[dogfood][B8b] 模型一致性预检通过：$CONFIGURED_MODEL"
 fi
 
 ARTIFACT_DIR="${DOGFOOD_ARTIFACT_DIR:-$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood}"

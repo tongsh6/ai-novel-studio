@@ -41,7 +41,16 @@ config :novel_agent, :provider, default: :stub
 # 探针/狗粮虽然也跑在 MIX_ENV=test 下（为了 DB 分区/构建隔离），但打的是
 # 真实模型，5 秒会把正常生成误判成超时。real-LLM 场景必须显式覆盖，
 # 见 scripts/probe_run.sh / scripts/dogfood_run.sh 的 NOVEL_LMSTUDIO_TIMEOUT_MS。
+# M4 狗粮实锤（2026-07-29）：Elixir 配置对同一 key 是整块替换而非深合并——本块
+# 此前只写 timeout，把 config.exs 的 endpoint/model/max_tokens 一并覆盖丢失，
+# 回落到适配器硬编码默认模型名（qwen/qwen3.6-35b-a3b）。狗粮跑在 MIX_ENV=test
+# 下打真实 LM Studio，179 次调用全部请求了未加载的模型 → judgment call2 结构
+# 退化（capability 恒缺）→ run_failed 风暴。此处必须与 config.exs 同源取值，
+# 只覆盖 test 专有的 timeout 默认值。
 config :novel_agent, NovelAgent.Provider.LMStudio,
+  endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
+  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "openai/gpt-oss-120b"),
+  max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer(),
   timeout: System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "5000") |> String.to_integer()
 
 config :novel_application, sync_memory_reference_log: true

@@ -52,7 +52,7 @@ config :novel_agent, :provider, default: :lmstudio
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
-  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.5-122b-a10b"),
+  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "openai/gpt-oss-120b"),
   timeout: lmstudio_timeout_ms,
   # 缺陷九（2026-07-20）：无界生成止血阀，本地可换模型场景风险最高——换模型/
   # 换量化后应按 scripts/probe_run.sh 实测复核这个数字是否仍然够用（不是"从此
