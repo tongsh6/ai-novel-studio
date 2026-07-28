@@ -622,7 +622,13 @@ defmodule NovelApplication.JudgmentProtocol do
               },
               author_narrative: %{anyOf: [%{type: "string"}, %{type: "null"}]}
             },
-            required: ["action", "reason", "frame_type", "dialogue_goal"]
+            # T4 残余收口（M4 狗粮实锤，2026-07-29）：capability 此前是可选字段，
+            # 强制工具调用只保证 required 字段出现——模型填完 required 就交差，
+            # capability 整键缺失（13/13 失败样本全缺），prompt 目录段与重试提示
+            # 都压不住（都不改变"可以不填"这个结构事实），execute 判定越界后
+            # 重试仍缺 → run_failed 风暴。列入 required 后模型必须给出该键；
+            # schema 本身允许 null（anyOf 含 null），plan/reply 显式填 null 不受影响。
+            required: ["action", "reason", "frame_type", "dialogue_goal", "capability"]
           }
         }
       ],
