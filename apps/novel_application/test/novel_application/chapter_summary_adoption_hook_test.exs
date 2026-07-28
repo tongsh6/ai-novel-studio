@@ -40,7 +40,7 @@ defmodule NovelApplication.ChapterSummaryAdoptionHookTest do
     assert_received {:maintain, input}
     assert input.work_id == "work-1"
     assert input.chapter_id == "chapter-1"
-    assert input.prose_text == "第一章正文"
+    assert input.prose_text == "巷口的灯在雨里晃。"
     assert input.revision_base == "draft:draft-1:1"
   end
 
@@ -77,7 +77,7 @@ defmodule NovelApplication.ChapterSummaryAdoptionHookTest do
   end
 
   defp prose_source_turn do
-    source_turn(:prose_fragment, %{title: "第一章", content: "第一章正文"})
+    source_turn(:prose_fragment, %{title: "第一章", content: "巷口的灯在雨里晃。"})
   end
 
   defp character_source_turn do

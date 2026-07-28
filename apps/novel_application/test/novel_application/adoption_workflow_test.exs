@@ -200,6 +200,78 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                )
     end
 
+    # B9 元泄漏升采纳级（M3 审计：25 处泄漏经 advisory warn 存活）：正文候选含
+    # 元泄漏（产品状态词/章号自指/结构标签）→ 采纳升 require_confirmation，
+    # 不再静默写入正文；作者显式确认后仍可采纳（主权保留）。
+    test "prose artifact with meta leak requires confirmation instead of silent adoption" do
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :prose_fragment,
+          payload: %{
+            title: "第一章",
+            items: [
+              %{
+                item_id: "p1",
+                title: "第一章",
+                body: "他望着屏幕上的【待采纳草稿】字样，这是第12章中埋下的伏笔。",
+                rationale: nil
+              }
+            ]
+          }
+        })
+
+      writer = fn _attrs -> flunk("meta-leak prose must not persist before confirmation") end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{"artifact_id" => "as-1"}, writer)
+
+      assert action_result.status == "needs_confirmation"
+      assert action_result.decision.decision_type == :require_confirmation
+      assert "meta_leak_detected" in action_result.decision.reason_codes
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
+    test "meta-leak prose adopts after explicit confirmation (author sovereignty)" do
+      writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
+
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :prose_fragment,
+          payload: %{
+            title: "第一章",
+            items: [%{item_id: "p1", title: "第一章", body: "待采纳的名单摊在桌上。", rationale: nil}]
+          }
+        })
+
+      assert {:ok, action_result, _turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "confirmation_satisfied" => true},
+                 writer
+               )
+
+      assert action_result.status == "accepted"
+      assert action_result.decision.decision_type == :adopt_tentative
+    end
+
+    test "clean prose adopts without meta-leak confirmation" do
+      writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
+
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :prose_fragment,
+          payload: %{
+            title: "第一章",
+            items: [%{item_id: "p1", title: "第一章", body: "巷口的灯在雨里晃。", rationale: nil}]
+          }
+        })
+
+      assert {:ok, action_result, _turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{"artifact_id" => "as-1"}, writer)
+
+      assert action_result.status == "accepted"
+    end
+
     test "confirmation_satisfied re-gate adopts a previously high-risk artifact" do
       writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
 

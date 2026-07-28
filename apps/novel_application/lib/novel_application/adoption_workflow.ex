@@ -86,6 +86,19 @@ defmodule NovelApplication.AdoptionWorkflow do
     work_context
     |> Map.put(:confirmation_satisfied, truthy?(Map.get(params, "confirmation_satisfied")))
     |> Map.put(:overwrite, overwrite_existing?(overwrite_reader, work_context.work_id, artifact))
+    |> Map.put(:meta_leak_hits, artifact_meta_leak_hits(artifact))
+  end
+
+  # B9 元泄漏升采纳级（M3 审计：25 处泄漏经 advisory warn 存活——自动采纳绕过
+  # 警告）。正文类候选采纳前机械扫描元泄漏（章号自指/工作流程词/结构标签，与
+  # 生成期 validator/导出门同一 pattern 源），命中即升 require_confirmation；
+  # 作者显式确认后仍可采纳（作者主权），但不再静默进入正文。
+  defp artifact_meta_leak_hits(artifact) do
+    if reading_projection_artifact_type?(artifact_field(artifact, :artifact_type)) do
+      NovelApplication.ProseQualityValidators.meta_leak_hits(artifact_content(artifact) || "")
+    else
+      []
+    end
   end
 
   # 续写（append）是追加新场景，不是覆盖，不需确认；只有重写/默认覆盖才查目标章已有正文。
@@ -311,6 +324,8 @@ defmodule NovelApplication.AdoptionWorkflow do
              %{"candidate_id" => artifact_id, "work_id" => work_context.work_id},
              nil,
              work_context
+             |> Map.put(:confirmation_satisfied, truthy?(Map.get(params, "confirmation_satisfied")))
+             |> Map.put(:meta_leak_hits, artifact_meta_leak_hits(edited_artifact))
            ),
          true <- AdoptionDecision.adopted?(decision),
          {:ok, persisted} <-

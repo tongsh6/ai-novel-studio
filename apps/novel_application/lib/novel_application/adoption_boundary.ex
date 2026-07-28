@@ -71,7 +71,8 @@ defmodule NovelApplication.AdoptionBoundary do
       &stability_decision/1,
       &canon_conflict_decision/1,
       &overwrite_decision/1,
-      &high_risk_decision/1
+      &high_risk_decision/1,
+      &meta_leak_decision/1
     ]
     |> Enum.find_value(fn decision_fn -> decision_fn.(context) end)
     |> case do
@@ -212,6 +213,33 @@ defmodule NovelApplication.AdoptionBoundary do
   end
 
   defp confirmation_satisfied?(opts), do: option_field(opts, :confirmation_satisfied) == true
+
+  # B9 元泄漏升采纳级：调用方对正文类候选预扫元泄漏（opts.meta_leak_hits），命中
+  # 即需显式确认——advisory warn 拦不住自动采纳（M3 审计 25 处泄漏存活），采纳级
+  # 确认是最后一道门；作者确认后仍可采纳（主权保留）。
+  defp meta_leak_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref,
+         opts: opts
+       }) do
+    hits = option_field(opts, :meta_leak_hits) || []
+
+    if hits != [] and not confirmation_satisfied?(opts) do
+      %AdoptionDecision{
+        adoption_decision_id: decision_id,
+        turn_id: candidate_set.turn_id,
+        source_action_ref: "choose_candidate",
+        candidate_ref: candidate_id,
+        decision_type: :require_confirmation,
+        target_ref: candidate.adoption_target_ref,
+        reason_codes: ["meta_leak_detected", "confirmation_required"],
+        decision_trace_ref: decision_trace_ref
+      }
+    end
+  end
 
   defp adopt_tentative_decision(%{
          candidate: candidate,
