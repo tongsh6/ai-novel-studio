@@ -650,6 +650,12 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
           ),
         character_reader:
           reader_dep(spec, :character_reader, &NovelApplication.persistence_character_reader/0),
+        assumption_reader:
+          reader_dep(
+            spec,
+            :assumption_reader,
+            &NovelApplication.persistence_assumption_character_reader/0
+          ),
         ledger_reader:
           reader_dep(spec, :ledger_reader, &NovelApplication.persistence_ledger_reader/0),
         memory_reader:
