@@ -51,7 +51,18 @@
 
 ## 5. 覆盖状态
 
-1/4 完整闭环。SC-AU14-A1 已于 2026-07-24 通过真实 Tauri 页面验收：
+3/4 完整闭环（A1/A2/A3；B1 见下）。SC-AU14-A2 与 SC-AU14-A3 已于 2026-07-28
+通过真实 Tauri 页面验收（VS-00G CP5e）：
+
+- **A3**（`au14-assumption-confirm-roundtrip`）：空角色档案发起盘点 → 主角自动物化为
+  【暂定】设定并在完成消息中通知 → 档案概览「暂定设定」区可见（badge/主角行/确认/
+  否决）→ 一键确认 → 同一行就地转正 accepted 进正式角色档案（恰一行，无重复），
+  暂定区消失。
+- **A2**（`au14-assumption-provisional-injection`）：假定激活期生成正文 → 机械准备
+  `assumption_active>=1` 且主角不再计缺席（design_missing 无 protagonist）→ 概览
+  「否决」→ 再生成一章 → `assumption_active==0` 且主角缺席守则回归。
+
+SC-AU14-A1 已于 2026-07-24 通过真实 Tauri 页面验收：
 空角色档案已有 10 章正文 → 作品档案「审读」发起全书审读 →
 唯一 `protagonist_undermaterialized` finding 点「发起盘点」→ 服务端反查并绑定
 `report_id + finding_index + finding_rule` → `fact_inventory_v1` 提案包含主角沈砚 →
@@ -62,8 +73,9 @@ SC-AU14-B1 的**核心档案提案链+全书规划字段建议已覆盖**（2026
 真实 Tauri 作品档案入口 → `fact_inventory_v1` → 角色/规则/伏笔既有 seed 提案 +
 `work_skeleton_suggestion` 规划建议（target_length 缺位）→ 5 个独立 pending/15 个
 逐项动作 → 采纳角色 1+规则 1+规划建议 1 → 档案投影 1/1/0、概览「目标体量」显示
-回写值 300000（采纳前为空），另一个角色和伏笔仍 pending。B1 仅余暂定候选
-（CP5 三类之三）未覆盖，该场景仍不计为完成。
+回写值 300000（采纳前为空），另一个角色和伏笔仍 pending。第三类（暂定候选）的
+盘点同批产出与裁决已由 A3 场景在同一 `fact_inventory_v1` run 上覆盖；B1 自身场景
+尚未并入该断言（并入或据 A3 认定 B1 完成，留用户裁决），暂不计为完成。
 
 ## 6. 落地路线
 
@@ -74,8 +86,8 @@ SC-AU14-B1 的**核心档案提案链+全书规划字段建议已覆盖**（2026
 - 负债 finding 触发 A 与其后的主角采纳/弧光起账链已落地；弧光账按后续正文采纳起账，
   不对采纳前历史正文补记。
 - 主动触发 B 的角色/规则/伏笔核心链与全书规划字段建议已落地（后者只建议缺位字段，
-  采纳=立项字段回写）；暂定候选仍未落地（CP5）。
-- CP5 暂定设定注入、确认/否决生命周期与触发 C 仍未落地。
+  采纳=立项字段回写）；暂定候选的盘点同批物化已落地（CP5b，required 主角自动激活）。
+- CP5 暂定设定注入与确认/否决生命周期已落地（A2/A3）；触发 C（对话流自动提议）、假定寿命催办、works 级假定、记忆类假定注入富化仍未落地。
 - 存量书稿导入（粘贴旧稿→建档）不在本 AU（VS-00G OQ8 独立 slice）。
 
 ## 8. 验收命令
@@ -83,9 +95,13 @@ SC-AU14-B1 的**核心档案提案链+全书规划字段建议已覆盖**（2026
 ```bash
 bash scripts/tauri_slice_verify.sh au14-finding-inventory-arc-loop
 bash scripts/tauri_slice_verify.sh au14-fact-inventory-roundtrip
+bash scripts/tauri_slice_verify.sh au14-assumption-confirm-roundtrip
+bash scripts/tauri_slice_verify.sh au14-assumption-provisional-injection
 ```
 
 证据：
 
 - `artifacts/slice-verify/au14-finding-inventory-arc-loop-tauri/summary.json`
 - `artifacts/slice-verify/au14-fact-inventory-roundtrip-tauri/summary.json`
+- `artifacts/slice-verify/au14-assumption-confirm-roundtrip-tauri/summary.json`
+- `artifacts/slice-verify/au14-assumption-provisional-injection-tauri/summary.json`

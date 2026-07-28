@@ -1,8 +1,9 @@
 # VS-00G 设定盘点运行链
 
 - 状态：doing
-- 所属完整闭环：VS-00G 承重事实完备性与补全回路 CP4
-- 当前 checkpoint：CP4d（全书规划字段建议，done）；余 CP5 暂定候选
+- 所属完整闭环：VS-00G 承重事实完备性与补全回路 CP4/CP5
+- 当前 checkpoint：CP5a-d done（字段位+生命周期/盘点暂定候选/【暂定】注入/暂定设定区）；
+  CP5e（SC-AU14-A2/A3 场景）doing；余项=触发 C、寿命催办、works 级假定、记忆类注入富化
 - 验收锚点：`docs/design/acceptance/author/AU-14-provisioning-and-assumptions.md`
 - 契约锚点：`docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md` §3.3 / §5 / §7
 
@@ -74,6 +75,25 @@ CP4c 接通 A：`protagonist_undermaterialized` finding 的 `revise_design` 变�
   留痕+optimistic revision，不写记忆/档案对象）；档案概览新增全书规划三行；
   SC-AU14-B1 扩展（5 pending/15 actions/采纳后概览显示目标体量）与 SC-AU14-A1
   复验均真实 Tauri PASS。
+- [x] CP5a（2026-07-28）：characters 加 provisional_source/provisional_active（migration+
+  ProvisionalSource 枚举 codegen+schema 校验）；WorkingAssumption 域策略纯函数
+  （OQ2 分级放行/canon 优先激活门禁/同批同名一致性/OQ3 寿命 10 章/【暂定】标注）。
+  works 级假定按「行级标注无法表达字段级假定」歧义登记余项待定形。
+- [x] CP5b（2026-07-28）：盘点 PROTAGONIST 候选经 AssumptionRepo 物化为暂定角色
+  （required 自动激活+完成消息即时通知）；守卫集中持久层（canon 在场/同名跳过含已
+  否决、失败降级不断主链）；采纳同名收束（character_seed 采纳遇同名假定行就地转正，
+  两条确认路径收敛零重复行）。
+- [x] CP5c（2026-07-28）：prose/plot_outline 完备性判定纳入激活假定（缺席守则让位），
+  【暂定】标注段注入期临时文本（AU-09 红线内）；fact_completeness 留痕增
+  assumption_active；百章标本重放双靶 PASS 零写入
+  （artifacts/vs00g-replay/cp5c-replay-2026-07-28.txt）。
+- [x] CP5d（2026-07-28）：档案概览「暂定设定」区（OQ7，【暂定】badge+确认/否决）；
+  channel get_assumptions 读端口 + confirm/discard_assumption 作者动作（就地转正/
+  discarded 停注入）；channel 测试覆盖全链。
+- [ ] CP5e：SC-AU14-A3（面板确认→正式档案）与 SC-AU14-A2（【暂定】注入→否决→回缺席
+  守则）真实 Tauri。
+- [ ] CP5 余项（不阻塞 CP5e）：触发 C（对话流自动提议盘点，同一缺失只提一次可关闭）、
+  假定寿命催办负债规则（OQ3 超 10 章未决）、works 级假定定形、记忆类假定注入富化。
 
 ## 5. 验证
 
