@@ -502,9 +502,28 @@ async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallbac
     }
   }
 
-  const fallback = page.getByRole("button", { name: acceptFallback, exact: true });
-  await fallback.last().click();
-  return `fallback:${acceptFallback}`;
+  const exact = page.getByRole("button", { name: acceptFallback, exact: true });
+  if ((await exact.count()) > 0) {
+    await exact.last().click();
+    return `exact:${acceptFallback}`;
+  }
+
+  // 文案再变也不至于整拍报废：按语义宽匹配（保存…档案 / 采纳…全书规划）兜底。
+  const loose = page.getByRole("button", { name: /(保存.*档案|采纳.*全书规划)/ });
+  if ((await loose.count()) > 0) {
+    const label = await loose.last().innerText();
+    await loose.last().click();
+    return `loose:${label.trim()}`;
+  }
+
+  const labels = await page.$$eval("button", (btns) =>
+    btns.map((b) => (b.textContent ?? "").trim()).filter((t) => t.length > 0 && t.length < 40),
+  );
+  throw new Error(
+    `no inventory accept button matched (itemName=${itemName ?? "-"} option=${
+      optionLabel ?? "-"
+    } fallback=${acceptFallback}); visible buttons: ${labels.slice(-25).join(" | ")}`,
+  );
 }
 
 async function adoptInventoryUnit(page, unit, opts, fromIndex) {
