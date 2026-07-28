@@ -475,13 +475,40 @@ function itemField(item, key) {
   return item?.[key] ?? item?.[String(key)];
 }
 
-async function adoptInventoryUnit(page, unit, optionLabel, acceptName, fromIndex) {
-  if (optionLabel) {
-    const radio = page.getByRole("radio", { name: optionLabel, exact: true });
-    if ((await radio.count()) > 0) await radio.last().click();
+// 逐项采纳按钮有两种真实渲染：①候选单选组（先选「方案 X」再点「保存方案 X 到作品档案」）；
+// ②逐项独立按钮带候选名后缀（「保存到作品档案：沈砚」）。外部作者视角两种都要认——
+// M4 实锤：只认①时盘点节拍在采纳步 30s 超时。
+async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallback }) {
+  if (itemName) {
+    const named = page.getByRole("button", { name: new RegExp(`保存.*${itemName}`) });
+    if ((await named.count()) > 0) {
+      await named.last().click();
+      return `named:${itemName}`;
+    }
   }
 
-  await page.getByRole("button", { name: acceptName, exact: true }).last().click();
+  if (optionLabel) {
+    const radio = page.getByRole("radio", { name: optionLabel, exact: true });
+    if ((await radio.count()) > 0) {
+      await radio.last().click();
+      const optionButton = page.getByRole("button", {
+        name: `保存${optionLabel} 到作品档案`,
+        exact: true,
+      });
+      if ((await optionButton.count()) > 0) {
+        await optionButton.last().click();
+        return `option:${optionLabel}`;
+      }
+    }
+  }
+
+  const fallback = page.getByRole("button", { name: acceptFallback, exact: true });
+  await fallback.last().click();
+  return `fallback:${acceptFallback}`;
+}
+
+async function adoptInventoryUnit(page, unit, opts, fromIndex) {
+  await clickInventoryAccept(page, opts);
   await waitForFrame(
     (f) =>
       f.direction === "received" &&
@@ -537,20 +564,30 @@ async function runInventoryBeat(page) {
     const setUnits = characterUnits.filter(
       (e) => String(e.artifact_id).split("::")[0] === setPrefix,
     );
+    const itemName = itemField(protagonistUnit.payload?.items?.[0], "title");
     const optionLabel =
       setUnits.length > 1
         ? `方案 ${String.fromCharCode(65 + setUnits.indexOf(protagonistUnit))}`
         : null;
-    const acceptName = optionLabel ? `保存${optionLabel} 到作品档案` : "保存到作品档案";
-    await adoptInventoryUnit(page, protagonistUnit, optionLabel, acceptName, fromIndex);
-    adopted.protagonist =
-      itemField(protagonistUnit.payload?.items?.[0], "title") ?? protagonistUnit.artifact_id;
+
+    await adoptInventoryUnit(
+      page,
+      protagonistUnit,
+      { itemName, optionLabel, acceptFallback: "保存到作品档案" },
+      fromIndex,
+    );
+    adopted.protagonist = itemName ?? protagonistUnit.artifact_id;
     log(`inventory beat: adopted protagonist ${adopted.protagonist}`);
   }
 
   for (const unit of skeletonUnits) {
     const field = itemField(unit.payload?.items?.[0], "skeleton_field");
-    await adoptInventoryUnit(page, unit, null, "采纳为全书规划", fromIndex);
+    await adoptInventoryUnit(
+      page,
+      unit,
+      { itemName: null, optionLabel: null, acceptFallback: "采纳为全书规划" },
+      fromIndex,
+    );
     adopted.skeleton_fields.push(field);
     log(`inventory beat: adopted planning field ${field}`);
   }
@@ -677,7 +714,7 @@ const failures = [];
 // 都是「不再静默」的证据；runner 模拟作者显式确认后继续（主权语义）。
 const metaLeakInterceptions = [];
 // VS-00G 盘点节拍（M4）：R5 阈值后由 runner 模拟作者响应产品引导发起一次盘点。
-const inventoryBeat = { attempted: false, result: null };
+const inventoryBeat = { attempted: false, attempts: 0, done: false, result: null };
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
@@ -774,16 +811,25 @@ try {
       const settledChapters = flatChapters(toc).filter(
         (c) => Number(c.word_count ?? 0) >= minWords,
       ).length;
-      if (!inventoryBeat.attempted && settledChapters >= 12) {
+      // 盘点节拍是本跑的关键验证靶（补全回路真实表现），失败允许重试至多 3 次
+      // （每次隔一章），全败才登记放弃——不阻断长跑主链。
+      if (!inventoryBeat.done && inventoryBeat.attempts < 3 && settledChapters >= 12) {
+        inventoryBeat.attempts += 1;
         inventoryBeat.attempted = true;
         try {
           inventoryBeat.result = await runInventoryBeat(page);
+          inventoryBeat.done = true;
           appendProgress({ inventory_beat: inventoryBeat.result });
           log(`inventory beat done: ${JSON.stringify(inventoryBeat.result)}`);
         } catch (error) {
-          inventoryBeat.result = { error: String(error?.message ?? error) };
+          inventoryBeat.result = {
+            error: String(error?.message ?? error),
+            attempt: inventoryBeat.attempts,
+          };
           appendProgress({ inventory_beat_error: inventoryBeat.result.error });
-          log(`inventory beat failed (logged, run continues): ${inventoryBeat.result.error}`);
+          log(
+            `inventory beat attempt ${inventoryBeat.attempts} failed (run continues): ${inventoryBeat.result.error}`,
+          );
           await closeArchiveIfOpen(page).catch(() => {});
         }
       }
