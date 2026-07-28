@@ -29,6 +29,9 @@ const minWords = Number(process.env.DOGFOOD_MIN_WORDS ?? "1000");
 const targetWords = Number(process.env.DOGFOOD_TARGET_WORDS ?? "0");
 const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
+// 正文采纳按钮的真实文案集合：无质量发现=「保存为章节正文」；带发现时草稿归类
+// 为「原稿」=「保存原稿」（VS-00E 质量主链语义）。两者都是产品正常行为。
+const PROSE_ACCEPT_LABELS = ["保存为章节正文", "保存原稿"];
 
 fs.mkdirSync(artifactDir, { recursive: true });
 fs.mkdirSync(path.join(artifactDir, "export"), { recursive: true });
@@ -299,12 +302,21 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
 
   const pending = draftFrame.body.adoption_state.pending[0];
 
-  await page.waitForFunction(() => document.body.innerText.includes("保存为章节正文"), null, {
-    timeout: 15_000,
-  });
+  // VS-00E 质量主链上线后（P1 正文质量证据化批）：带质量发现的草稿在前端归类为
+  // 「原稿」，采纳按钮文案变为「保存原稿」（无发现时仍是「保存为章节正文」）。
+  // runner 是外部作者视角，两种真实文案都要认——只认旧文案会把产品正常行为
+  // 误判成超时（M4 实锤：18 次超时全是带发现的章）。
+  await page.waitForFunction(
+    (labels) => labels.some((label) => document.body.innerText.includes(label)),
+    PROSE_ACCEPT_LABELS,
+    { timeout: 30_000 },
+  );
   // 同上：多卡堆积时 .first() 会点到旧 turn 的卡（其 accept 永远 needs_confirmation），
   // 本轮 artifact 永远等不到 resolved —— 必须点最新卡。
-  await page.getByRole("button", { name: "保存为章节正文" }).last().click();
+  const acceptButton = page
+    .getByRole("button", { name: new RegExp(`^(${PROSE_ACCEPT_LABELS.join("|")})$`) })
+    .last();
+  await acceptButton.click();
 
   // accept 可能因目标章已有正文被采纳层判覆盖确认（needs_confirmation 的 action_result）；
   // runner 像真实作者一样点「确认执行」完成覆盖替换（overwrite-confirm 链）。
@@ -366,11 +378,11 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
 
   await page
     .waitForFunction(
-      () =>
-        ![...document.querySelectorAll("button")].some(
-          (btn) => (btn.textContent ?? "").trim() === "保存为章节正文",
+      (labels) =>
+        ![...document.querySelectorAll("button")].some((btn) =>
+          labels.includes((btn.textContent ?? "").trim()),
         ),
-      null,
+      PROSE_ACCEPT_LABELS,
       { timeout: 15_000 },
     )
     .catch(() => {
