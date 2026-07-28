@@ -184,13 +184,44 @@ defmodule NovelPersistence.AdoptionRepository do
   # name ← artifact 标题（attrs.summary），summary ← artifact 正文（attrs.content），
   # narrative_role ← artifact item 的结构化叙事角色（缺省 nil，使主角成为可校验事实而非默认）；
   # aliases 等其它结构化字段与演化记忆留 CP2。
+  # VS-00G CP5b 同名收束：同名 AI 假定行（tentative+AI_ASSUMPTION）已存在时就地转正
+  # （契约 §3.4「就地 accepted」），不插重复行——两条确认路径（提案采纳/暂定设定确认）
+  # 收敛到同一行。
   defp maybe_persist_character(repo, attrs, _mutation_id) do
     if character_dossier_artifact?(Map.get(attrs, :artifact_type)) do
-      %Character{}
-      |> Character.changeset(character_attrs(attrs))
-      |> repo.insert()
+      character_attrs = character_attrs(attrs)
+
+      case assumption_character(repo, Map.fetch!(attrs, :work_id), character_attrs.name) do
+        %Character{} = assumption ->
+          assumption
+          |> Character.changeset(Map.put(character_attrs, :provisional_active, false))
+          |> repo.update()
+
+        nil ->
+          %Character{}
+          |> Character.changeset(character_attrs)
+          |> repo.insert()
+      end
     else
       {:ok, nil}
+    end
+  end
+
+  defp assumption_character(repo, work_id, name) do
+    case Ecto.UUID.cast(to_string(work_id)) do
+      {:ok, uuid} ->
+        repo.one(
+          from(c in Character,
+            where:
+              c.work_id == ^uuid and c.name == ^name and
+                c.status == ^AdoptionStatus.tentative() and
+                c.provisional_source == ^NovelFoundation.Enums.ProvisionalSource.ai_assumption(),
+            limit: 1
+          )
+        )
+
+      :error ->
+        nil
     end
   end
 

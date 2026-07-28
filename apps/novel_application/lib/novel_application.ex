@@ -135,6 +135,16 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回工作假定物化写端口（VS-00G CP5b）：盘点产出的主角候选 → tentative Character
+  （AI_ASSUMPTION + required 自动激活）。守卫（canon 在场/同名跳过）集中在持久层；
+  未启用真实持久化时返回 nil，盘点对假定诚实缺席（档案提案链不受影响）。
+  """
+  def persistence_assumption_character_writer do
+    if inject_persistence?(),
+      do: &NovelPersistence.AssumptionRepo.materialize_character/1
+  end
+
+  @doc """
   返回章摘要 maintainer：正文采纳完成后产连续性摘要（VS-00C CP2.1 / contract §5.3）。
 
   未启用真实持久化时返回 nil（采纳路径无后续摘要副作用）。默认通过

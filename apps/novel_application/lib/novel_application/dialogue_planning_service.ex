@@ -1441,6 +1441,7 @@ defmodule NovelApplication.DialoguePlanningService do
     FactInventory.next_step_planner(%{
       material_reader: map_get(input, :material_reader),
       skeleton_reader: map_get(input, :skeleton_reader),
+      assumption_writer: map_get(input, :assumption_writer),
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution)
     })

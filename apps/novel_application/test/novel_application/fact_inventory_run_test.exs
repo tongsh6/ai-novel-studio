@@ -39,7 +39,12 @@ defmodule NovelApplication.FactInventoryRunTest do
       turn_id: "turn-fact-inventory",
       material_reader: fn "work-fact-inventory" -> materials() end,
       # CP4d：这本书 target_length 缺位 → 盘点应同批产全书规划建议（其余字段已立不建议）
-      skeleton_reader: fn "work-fact-inventory" -> ["target_length"] end
+      skeleton_reader: fn "work-fact-inventory" -> ["target_length"] end,
+      # CP5b：主角是 required 事实 → PROTAGONIST 候选应物化为暂定角色（自动激活）
+      assumption_writer: fn attrs ->
+        send(parent, {:assumption_materialized, attrs})
+        {:ok, %{id: "char-assumption", name: attrs.name}}
+      end
     }
 
     spec =
@@ -72,7 +77,15 @@ defmodule NovelApplication.FactInventoryRunTest do
     assert_receive {:agent_event, :artifact_created, artifact_event}, 1_000
     assert_receive {:agent_event, :run_completed, _}, 1_000
 
+    # CP5b：主角候选被物化为暂定角色（required 自动激活），作者收到即时通知
+    assert_receive {:assumption_materialized, assumption_attrs}, 500
+    assert assumption_attrs.name == "沈砚"
+    assert assumption_attrs.narrative_role == "PROTAGONIST"
+    assert assumption_attrs.work_id == "work-fact-inventory"
+
     turn_result = artifact_event.payload.turn_result
+    assert turn_result.assistant_message.text =~ "【暂定】"
+    assert turn_result.assistant_message.text =~ "确认或否决"
 
     assert Enum.map(turn_result.ui_cards, & &1.artifact_type) == [
              :character_seed,

@@ -196,6 +196,42 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert Repo.get!(MemoryItem, profile.memory_item_id).type == MemoryType.character_profile()
     end
 
+    # VS-00G CP5b 同名收束：同名 AI 假定行存在时，character_seed 采纳就地转正同一行
+    # （契约 §3.4「就地 accepted」），不插重复行；provisional_active 收束。
+    test "character_seed adoption converts the same-name AI assumption row in place" do
+      {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "假定收束作品"})
+
+      assert {:ok, assumption} =
+               NovelPersistence.AssumptionRepo.materialize_character(%{
+                 work_id: work.id,
+                 name: "沈砚",
+                 summary: "盘点暂定主角。",
+                 narrative_role: "PROTAGONIST"
+               })
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work.id,
+                 source_turn_ref: "turn-assumption-adopt",
+                 artifact_id: "as-assume-1::char",
+                 artifact_type: :character_seed,
+                 base_revision: 1,
+                 content: "追查灵气账单的核心视角人物。",
+                 summary: "沈砚",
+                 narrative_role: "PROTAGONIST"
+               })
+
+      assert persisted.character_id == assumption.id
+
+      rows = Repo.all(from(c in Character, where: c.work_id == ^work.id))
+      assert [converted] = rows
+      assert converted.id == assumption.id
+      assert converted.status == AdoptionStatus.accepted()
+      assert converted.provisional_active == false
+      assert converted.summary == "追查灵气账单的核心视角人物。"
+    end
+
     # VS-00G CP4d：全书规划建议采纳 = works 立项字段回写——不写记忆、不建档案对象，
     # mutation 留痕，revision 与作者手工立项编辑同一冲突语义。
     test "adopts work_skeleton_suggestion by writing back the works planning field" do

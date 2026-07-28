@@ -196,6 +196,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
                missing_skeleton_fields: missing_skeleton_fields
              ),
            proposal = filter_skeleton_suggestions(proposal, missing_skeleton_fields),
+           assumption_result = materialize_protagonist_assumption(spec, run, proposal),
            [_ | _] = artifact_sets <-
              FactInventoryService.artifact_sets(proposal, %{
                source_turn_ref: inventory_turn_id(run, sequence),
@@ -206,7 +207,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
                ]
              }) do
         turn_result =
-          build_turn_result(run, sequence, materials, artifact_sets)
+          build_turn_result(run, sequence, materials, artifact_sets, assumption_result)
           |> AgentFinalizer.attach_run_summary(%{
             run_id: run.run_id,
             run_mode: run.run_mode,
@@ -216,7 +217,11 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
           })
 
         refs = artifact_refs(turn_result)
-        summary = inventory_summary(artifact_sets, refs)
+
+        summary =
+          artifact_sets
+          |> inventory_summary(refs)
+          |> Map.put(:assumption, assumption_result)
 
         {:ok,
          %{
@@ -237,9 +242,53 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     end
   end
 
-  defp build_turn_result(run, sequence, materials, artifact_sets) do
+  # VS-00G CP5b（OQ2 required 自动放行）：主角是 required 事实——盘点提炼出
+  # PROTAGONIST 候选且写端口在场时，物化为 tentative Character（AI_ASSUMPTION+
+  # provisional_active）。守卫（canon 在场/同名跳过）集中在持久层；物化失败绝不
+  # 阻断盘点主链（档案提案链不受影响）。
+  defp materialize_protagonist_assumption(spec, run, proposal) do
+    writer = assumption_writer(spec)
+
+    protagonist =
+      proposal
+      |> Map.get(:characters, [])
+      |> Enum.find(&(map_get(&1, :narrative_role) == "PROTAGONIST"))
+
+    cond do
+      is_nil(writer) ->
+        :writer_missing
+
+      is_nil(protagonist) ->
+        :no_protagonist_candidate
+
+      true ->
+        try do
+          case writer.(%{
+                 work_id: run.work_id,
+                 name: to_string(map_get(protagonist, :title)),
+                 summary: map_get(protagonist, :body),
+                 narrative_role: map_get(protagonist, :narrative_role)
+               }) do
+            {:ok, skipped} when is_atom(skipped) -> skipped
+            {:ok, _character} -> :activated
+            {:error, _reason} -> :materialize_failed
+          end
+        rescue
+          _error -> :materialize_failed
+        catch
+          _kind, _reason -> :materialize_failed
+        end
+    end
+  end
+
+  defp assumption_writer(%{assumption_writer: writer}) when is_function(writer, 1), do: writer
+
+  defp assumption_writer(_spec),
+    do: NovelApplication.persistence_assumption_character_writer()
+
+  defp build_turn_result(run, sequence, materials, artifact_sets, assumption_result) do
     items = Enum.flat_map(artifact_sets, & &1.items)
-    frame = frame(run, sequence, length(items))
+    frame = frame(run, sequence, length(items), assumption_result)
 
     tool_result = %ToolResult{
       tool_result_id: tool_result_id(run, sequence),
@@ -327,7 +376,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     step
   end
 
-  defp frame(run, sequence, item_count) do
+  defp frame(run, sequence, item_count, assumption_result) do
     %DialogueFrame{
       schema_version: "3.0-draft",
       frame_id: "frame_#{run.run_id}_#{sequence}",
@@ -340,12 +389,20 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
       tool_need: %{needs_tool: true, reason_code: :tool_needed},
       execution_readiness: :ready,
       author_visible_draft: %{
-        message: "设定盘点完成：整理出 #{item_count} 条设定与规划提案。它们仍是待采纳草稿，请逐项确认。"
+        message:
+          "设定盘点完成：整理出 #{item_count} 条设定与规划提案。它们仍是待采纳草稿，请逐项确认。" <>
+            assumption_notice(assumption_result)
       },
       evidence_summary: %{agent_run_ref: run.run_id},
       uncertainty: []
     }
   end
+
+  # OQ2 即时通知（防护①作者侧）：required 假定自动激活时明示告知与裁决入口。
+  defp assumption_notice(:activated),
+    do: "另外，我已把盘点出的主角列为【暂定】设定并开始参考；你可以在作品档案的暂定设定区确认或否决。"
+
+  defp assumption_notice(_other), do: ""
 
   defp material_reader(%{material_reader: reader}) when is_function(reader, 1), do: reader
 
