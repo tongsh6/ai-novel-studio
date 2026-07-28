@@ -9557,6 +9557,24 @@ async function driveAu14FactInventoryRoundtrip(page) {
   );
   const completionState = completionStateFrame.body;
 
+  // VS-00G OQ4 三类同产之三（暂定候选，B1 断言并入 2026-07-28）：盘点完成即物化
+  // 【暂定】主角并明示通知；概览暂定设定区在采纳前可见。
+  await page.waitForFunction(
+    () => document.body.innerText.includes("已把盘点出的主角列为【暂定】设定"),
+    undefined,
+    { timeout: 30_000 },
+  );
+  const { assumptionsRecord } = await driveAu14ReopenOverviewWithAssumptions(page);
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("暂定设定") &&
+      document.body.innerText.includes("【暂定】") &&
+      document.body.innerText.includes("主角：沈砚"),
+    undefined,
+    { timeout: 15_000 },
+  );
+  await closeArchiveIfOpen(page);
+
   await page.waitForFunction(
     () =>
       ["沈砚", "云栖", "灵气按频段计费", "残诀后半卷"].every((text) =>
@@ -9664,6 +9682,15 @@ async function driveAu14FactInventoryRoundtrip(page) {
 
   const archiveLogStart = readAppLogRecords().length;
   const archivePanel = await openArchiveTab(page, "角色");
+  // 同名收束终态：沈砚经提案卡采纳后，暂定行就地转正——暂定设定归零（零重复行）。
+  const assumptionAfterAdoptionRecord = await waitForNewAppLogRecord(
+    archiveLogStart,
+    (record) =>
+      record.event === "channel.get_assumptions.done" &&
+      Number(record.assumption_count ?? -1) === 0,
+    "Assumption was not consumed in place by the same-name character adoption",
+    20_000,
+  );
   await archivePanel.getByText("沈砚").first().waitFor({ timeout: 10_000 });
   const characterRecord = await waitForNewAppLogRecord(
     archiveLogStart,
@@ -9760,6 +9787,12 @@ async function driveAu14FactInventoryRoundtrip(page) {
       adopted_skeleton_id: skeletonPending.artifact_id,
       skeleton_field: skeletonItem.skeleton_field,
       skeleton_value: Number(skeletonItem.skeleton_value),
+      assumption_candidate_produced: true,
+      assumption_notice_visible: true,
+      assumption_count_logged: Number(assumptionsRecord.assumption_count ?? 0),
+      assumption_section_visible: true,
+      assumption_consumed_by_adoption:
+        Number(assumptionAfterAdoptionRecord.assumption_count ?? -1) === 0,
       work_planning_value_absent_before_adoption: !bodyTextBeforeAdoption.includes("300000"),
       work_planning_visible_after_adoption: workPlanningVisibleAfterAdoption,
       unadopted_foreshadow_id: foreshadowPending.artifact_id,

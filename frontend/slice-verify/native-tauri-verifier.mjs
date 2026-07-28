@@ -12978,6 +12978,11 @@ function findAu14FactInventoryEvidence(records) {
       Number(record.skeleton_value ?? 0) === 300000 &&
       record.work_planning_value_absent_before_adoption === true &&
       record.work_planning_visible_after_adoption === true &&
+      record.assumption_candidate_produced === true &&
+      record.assumption_notice_visible === true &&
+      Number(record.assumption_count_logged ?? 0) >= 1 &&
+      record.assumption_section_visible === true &&
+      record.assumption_consumed_by_adoption === true &&
       record.proposed_without_write === true &&
       record.unadopted_items_remain_pending === true &&
       Number(record.consumed_steps ?? 0) === 1 &&
@@ -13077,8 +13082,10 @@ function au14FactInventoryBehavior(_turnIds, _turnRecords, records, evidence, _o
       "accepted_material_produced_existing_character_rule_foreshadow_seed_families",
       "proposal_included_work_skeleton_suggestion_for_missing_planning_field",
       "proposal_created_five_independent_pending_units_without_write",
+      "inventory_materialized_provisional_assumption_with_visible_notice_and_section",
       "author_adopted_one_character_one_rule_and_planning_suggestion_through_existing_boundary",
       "planning_adoption_wrote_back_work_target_length_visible_in_profile",
+      "same_name_adoption_consumed_assumption_in_place",
       "unadopted_character_and_foreshadowing_remained_pending",
       "archive_projections_contained_only_adopted_items",
     ],
