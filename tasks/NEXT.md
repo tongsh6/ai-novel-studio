@@ -162,10 +162,23 @@ revise_design）；R5/R6 因缺口补上而正确消失。短跑 12 章/18k 字�
 显示「保存到作品档案」）；②同名角色重复采纳堆重复档案行（分两层修：盘点 prompt 带
 已在档名单 + 采纳端同名升 require_confirmation 交作者裁决，**不按 name 静默 upsert**）。
 另加「大纲与结构」全书规划进度摘要行（口径与收官守则注入同源，43 §5.0.0 冻结）。
-**当前队首**：R7 真实页面验收（并入 `au13-review-adjudication-roundtrip`）→ 同名确认/
-候选组文案并入既有 au14 场景断言 → Order 8 结构化容器空转全表排查。CP5 剩余余项
-（等拉动）：触发 C、works 级假定、记忆类注入富化；CP2 R2；**新登记**：`tasks/slices/AU12-character-identity-merge.md`
-（同名/别名角色身份归并；本次只落拦截三层，已有重复行的合并/别名/真重名消歧未做）。
+**三件后续已全部收口（2026-07-29）**：①**R7 真实页面验收 done**——SC-AU13-D2 verified，
+并进既有 `au13-review-adjudication-roundtrip`（种子立 6 万字目标、只写第 1 章=进度 1%，
+但第 4 章计划已是「第一卷终局」；真实 Tauri 一轮通过，5 findings，driver 按可见文本
+parse 进度与章号、校 `chapter_plan:4` 证据、断言 correction intent 回对话流；顺带补了
+该场景一直缺的 manifest yml）。②**同名裁决/候选组文案并入 au14 场景 done**——不预置同名
+ACCEPTED 角色（会走 `:skipped_canon_present` 掐断暂定设定链），改为场景内自然产生：
+沈砚采纳后二次盘点，stub 照抄 M4 真实模型行为重提已在档角色；真实 Tauri PASS，
+accept_label=「采纳方案 A 为全书规划」、rows 1→2。③**Order 8 排查 done**（见上表 Order 8 行）。
+**顺带修一个新缺口**：确认卡说不清「为什么要我确认」——`decision_message` 改为按
+`reason_codes` 分派（同名点名档案里已有的是谁、元泄漏摆出命中原文），拦住了还得给
+作者裁决材料；该文案已由 au14 场景取得真实页面证据。
+
+**当前队首待用户拍板**：Order 8 给出的「规划层结构化生产」刀候选与顺序
+（①卷结构 ②角色主体+AU12 归并 ③场级 craft ④information 账+design_ref）。
+CP5 剩余余项（等拉动）：触发 C、works 级假定、记忆类注入富化；CP2 R2；
+**新登记**：`tasks/slices/AU12-character-identity-merge.md`（同名/别名角色身份归并；
+本次只落拦截三层，已有重复行的合并/别名/真重名消歧未做）。
 百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
 
 两日完成索引（细节全在各 slice/notes，此处不复述）：VS-00F CP0→CP4c 全收口（AU-13 5/5，
