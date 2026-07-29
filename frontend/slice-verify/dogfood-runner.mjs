@@ -682,6 +682,14 @@ function writeArtifacts(toc, exportPath, runMeta) {
     ),
   );
 
+  // 体温计追加式留痕（M4 实锤：跨 resume 的多轮跑里，最后一次「无待办章」的
+  // 2.4 秒收尾跑把 summary.json 整个覆盖，15 次 B9 拦截与盘点节拍结果全被抹掉，
+  // 只能回头从 launcher 日志重建）。逐轮 append，summary 仍保留当轮快照。
+  fs.appendFileSync(
+    path.join(artifactDir, "run-metrics.jsonl"),
+    `${JSON.stringify({ at: new Date().toISOString(), total_word_count: total, chapter_count: chapters.length, ...runMeta })}\n`,
+  );
+
   fs.writeFileSync(
     path.join(artifactDir, "summary.json"),
     JSON.stringify(
