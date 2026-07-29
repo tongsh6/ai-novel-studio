@@ -193,6 +193,9 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert turn_result.behavior_state.active.target_ref == "as-1"
       assert turn_result.behavior_state.active.status == "WAITING_USER"
 
+      # 高风险确认没有专属原因语义，回落泛化文案（按 reason_codes 分派不得挤掉它）。
+      assert turn_result.assistant_message.text == generic_confirmation_message()
+
       # contract：采纳路径 emit 的 behavior_state 合 schema（{active,history}+status 枚举）
       assert :ok =
                NovelFoundation.TurnResultValidator.validate_behavior_state(
@@ -229,6 +232,11 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert action_result.decision.decision_type == :require_confirmation
       assert "meta_leak_detected" in action_result.decision.reason_codes
       assert turn_result.truthfulness.production_write_performed == false
+
+      # 同理：作者要判断的是「这句该不该留在正文」，卡片得先把命中的原文摆出来。
+      assert turn_result.assistant_message.text =~ "待采纳"
+      assert turn_result.assistant_message.text =~ "第12章"
+      refute turn_result.assistant_message.text == generic_confirmation_message()
     end
 
     test "meta-leak prose adopts after explicit confirmation (author sovereignty)" do
@@ -297,6 +305,12 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert action_result.status == "needs_confirmation"
       assert "duplicate_character_name" in action_result.decision.reason_codes
       assert turn_result.truthfulness.production_write_performed == false
+
+      # 拦住了还得给作者裁决材料：卡片必须说出档案里已有的是谁，否则作者无从
+      # 判断真重名/别名/改名。
+      assert turn_result.assistant_message.text =~ "沈洛"
+      assert turn_result.assistant_message.text =~ "别名"
+      refute turn_result.assistant_message.text == generic_confirmation_message()
     end
 
     test "different-name character adopts without duplicate confirmation" do
@@ -576,6 +590,9 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                })
     end
   end
+
+  # 未识别原因时的回落文案：新增分派不得把它挤掉（既有确认路径靠它）。
+  defp generic_confirmation_message, do: "这段草稿需要你进一步确认对象和影响后才能采纳；当前未写入正文或作品事实。"
 
   defp source_turn_result(artifact_attrs \\ %{}, source_attrs \\ %{}) do
     Map.merge(

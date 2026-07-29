@@ -483,8 +483,12 @@ async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallbac
   // 候选组渲染（M4 实锤真形状）：单选项 aria-label = 「选择方案 X：候选名」，
   // 选中前采纳按钮是 disabled 的「保存所选方案到作品档案」，选中后变为
   // 「保存方案 X 到作品档案」。必须先选中候选，按钮才可点。
+  // 候选名是运行期数据，不拼进正则（动态 RegExp 会被静态扫描判 ReDoS）：
+  // Playwright 的 name 传字符串即按可访问名子串匹配，静态正则只用来限定按钮语义。
+  const acceptNamePattern = /(保存.*作品档案|采纳.*全书规划)/;
+
   if (itemName) {
-    const radio = page.getByRole("radio", { name: new RegExp(`选择.*：${itemName}`) });
+    const radio = page.getByRole("radio", { name: itemName });
     if ((await radio.count()) > 0) {
       await radio.last().check();
       const selected = page.getByRole("button", {
@@ -495,13 +499,15 @@ async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallbac
         return `candidate:${itemName}`;
       }
       const anyAccept = page
-        .getByRole("button", { name: /(保存.*作品档案|采纳.*全书规划)/ })
+        .getByRole("button", { name: acceptNamePattern })
         .and(page.locator("button:not([disabled])"));
       await anyAccept.last().click();
       return `candidate-loose:${itemName}`;
     }
 
-    const named = page.getByRole("button", { name: new RegExp(`保存.*${itemName}`) });
+    const named = page
+      .getByRole("button", { name: itemName })
+      .and(page.getByRole("button", { name: acceptNamePattern }));
     if ((await named.count()) > 0) {
       await named.last().click();
       return `named:${itemName}`;
@@ -509,7 +515,7 @@ async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallbac
   }
 
   if (optionLabel) {
-    const radio = page.getByRole("radio", { name: new RegExp(`选择${optionLabel}`) });
+    const radio = page.getByRole("radio", { name: optionLabel });
     if ((await radio.count()) > 0) {
       await radio.last().check();
       const optionButton = page.getByRole("button", { name: /保存方案 .* 到作品档案/ });

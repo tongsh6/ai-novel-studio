@@ -839,7 +839,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       schema_version: "3.0-draft",
       turn_id: NovelFoundation.ID.unique("turn_adopt"),
       parent_turn_id: source_turn_id,
-      assistant_message: %{text: decision_message(decision)},
+      assistant_message: %{text: decision_message(decision, artifact)},
       ui_cards: [],
       trace_summary: %{
         decision_type: to_string(decision.decision_type),
@@ -930,16 +930,59 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp decision_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
   defp decision_status(_decision), do: "conversational"
 
-  defp decision_message(%AdoptionDecision{decision_type: :require_confirmation}),
-    do: "这段草稿需要你进一步确认对象和影响后才能采纳；当前未写入正文或作品事实。"
+  # 确认卡必须说清「为什么要我确认」：拦截住了但不给裁决材料，等于把判断推给作者
+  # 又不给他依据（M4 的 15 次元泄漏确认，作者并不知道泄漏在哪一句）。按 reason_codes
+  # 分派具体理由，落在原因语义上；未识别的原因回落原泛化文案。
+  defp decision_message(%AdoptionDecision{decision_type: :require_confirmation} = decision, artifact) do
+    reason_codes = decision.reason_codes || []
 
-  defp decision_message(%AdoptionDecision{decision_type: :reject}),
+    cond do
+      "duplicate_character_name" in reason_codes ->
+        duplicate_name_confirmation_message(artifact)
+
+      "meta_leak_detected" in reason_codes ->
+        meta_leak_confirmation_message(artifact)
+
+      true ->
+        "这段草稿需要你进一步确认对象和影响后才能采纳；当前未写入正文或作品事实。"
+    end
+  end
+
+  defp decision_message(%AdoptionDecision{decision_type: :reject}, _artifact),
     do: "当前不能采纳这段草稿，来源或状态已不满足采纳条件；草稿仍保留为待采纳。"
 
-  defp decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}),
+  defp decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}, _artifact),
     do: "未能采纳这段草稿，请重新生成或检查目标章节后再试；当前未写入作品事实。"
 
-  defp decision_message(_decision), do: "已处理这段草稿的采纳请求。"
+  defp decision_message(_decision, _artifact), do: "已处理这段草稿的采纳请求。"
+
+  # 同名不是数据冲突而是创作判断（真重名/别名/改名），必须把「已有谁」告诉作者。
+  defp duplicate_name_confirmation_message(artifact) do
+    name = artifact |> adoption_chapter_title() |> to_string() |> String.trim()
+
+    name_part = if name == "", do: "同名", else: "名为「#{name}」的"
+
+    "作品档案里已经有#{name_part}已确认角色。同名可能是同一个人、别名或改名，" <>
+      "也可能确实是两个同名角色——这需要你判断。确认后会新增一条角色档案；当前未写入作品事实。"
+  end
+
+  # 元泄漏拦截同理：作者要判断的是「这句产品用语该不该留在正文里」，得先看见是哪句。
+  defp meta_leak_confirmation_message(artifact) do
+    hits =
+      artifact
+      |> artifact_meta_leak_hits()
+      |> Enum.uniq()
+      |> Enum.take(3)
+
+    hit_part =
+      case hits do
+        [] -> "产品用语或章节自指"
+        list -> Enum.map_join(list, "、", &"「#{&1}」")
+      end
+
+    "这段草稿里出现了#{hit_part}——属于产品用语或章节自指，采纳后会原样进入正文，" <>
+      "读者也会看到。确认后仍按原文保存；当前未写入正文。"
+  end
 
   defp build_edited_turn_result(
          source_turn_result,
