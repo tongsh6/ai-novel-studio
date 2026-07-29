@@ -31,6 +31,7 @@ const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 // 正文采纳按钮的真实文案集合：无质量发现=「保存为章节正文」；带发现时草稿归类
 // 为「原稿」=「保存原稿」（VS-00E 质量主链语义）。两者都是产品正常行为。
+const BEAT_SETTLED_MIN_WORDS = 1000;
 const PROSE_ACCEPT_LABELS = ["保存为章节正文", "保存原稿"];
 
 fs.mkdirSync(artifactDir, { recursive: true });
@@ -851,8 +852,11 @@ try {
 
       // VS-00G 盘点节拍：达标章数过 R5 阈值（10+2 缓冲）后模拟作者响应补全引导，
       // 一次性发起盘点并采纳主角/全书规划——之后收官守则、弧光账、R7/R8 全部上线。
+      // 节拍阈值用固定下限，不绑当轮 --min-words：节拍语义是「书已经写够章数、
+      // 该盘点补全设定了」，与本轮把字数目标抬到多少无关（否则调高 min-words
+      // 会连带把节拍推迟到重写完所有章之后）。
       const settledChapters = flatChapters(toc).filter(
-        (c) => Number(c.word_count ?? 0) >= minWords,
+        (c) => Number(c.word_count ?? 0) >= BEAT_SETTLED_MIN_WORDS,
       ).length;
       // 盘点节拍是本跑的关键验证靶（补全回路真实表现），失败允许重试至多 3 次
       // （每次隔一章），全败才登记放弃——不阻断长跑主链。
