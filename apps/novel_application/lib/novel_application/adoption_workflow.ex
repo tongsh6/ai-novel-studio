@@ -20,6 +20,8 @@ defmodule NovelApplication.AdoptionWorkflow do
           map() | nil,
           map(),
           function() | nil,
+          function() | nil,
+          function() | nil,
           (String.t(), String.t() -> boolean()) | nil
         ) ::
           {:ok, map(), map()} | {:error, String.t()}
@@ -28,18 +30,27 @@ defmodule NovelApplication.AdoptionWorkflow do
         params,
         adoption_writer \\ NovelApplication.persistence_adoption_writer(),
         overwrite_reader \\ NovelApplication.persistence_overwrite_reader(),
-        summary_maintainer \\ NovelApplication.chapter_summary_maintainer()
+        summary_maintainer \\ NovelApplication.chapter_summary_maintainer(),
+        duplicate_name_checker \\ NovelApplication.persistence_accepted_character_name_checker()
       )
 
-  def handle_adopt(nil, _params, _adoption_writer, _overwrite_reader, _summary_maintainer),
-    do: {:error, "source_turn_result not available"}
+  def handle_adopt(
+        nil,
+        _params,
+        _adoption_writer,
+        _overwrite_reader,
+        _summary_maintainer,
+        _duplicate_name_checker
+      ),
+      do: {:error, "source_turn_result not available"}
 
   def handle_adopt(
         source_turn_result,
         %{"artifact_id" => artifact_id} = params,
         adoption_writer,
         overwrite_reader,
-        summary_maintainer
+        summary_maintainer,
+        duplicate_name_checker
       )
       when is_binary(artifact_id) do
     # 结构性/无效 action（artifact 不存在、跨作品、stale revision）保持 {:error}，
@@ -50,7 +61,14 @@ defmodule NovelApplication.AdoptionWorkflow do
          {:ok, work_context} <- validate_work_boundary(source_turn_result, artifact, params),
          :ok <- check_revision_base(artifact, params) do
       candidate_set = candidate_set_from_artifact(source_turn_result, artifact)
-      opts = adoption_decision_opts(work_context, artifact, params, overwrite_reader)
+      opts =
+        adoption_decision_opts(
+          work_context,
+          artifact,
+          params,
+          overwrite_reader,
+          duplicate_name_checker
+        )
 
       decision =
         AdoptionBoundary.evaluate(
@@ -76,18 +94,44 @@ defmodule NovelApplication.AdoptionWorkflow do
         _params,
         _adoption_writer,
         _overwrite_reader,
-        _maintainer
+        _maintainer,
+        _duplicate_name_checker
       ),
       do: {:error, "artifact_id is required"}
 
   # 把 work boundary、覆盖判定、确认状态合成采纳边界 opts。
   # 覆盖已有正文（同 title 章节已有已采纳内容）= 高风险 production write → 需确认。
-  defp adoption_decision_opts(work_context, artifact, params, overwrite_reader) do
+  defp adoption_decision_opts(work_context, artifact, params, overwrite_reader, name_checker) do
     work_context
     |> Map.put(:confirmation_satisfied, truthy?(Map.get(params, "confirmation_satisfied")))
     |> Map.put(:overwrite, overwrite_existing?(overwrite_reader, work_context.work_id, artifact))
     |> Map.put(:meta_leak_hits, artifact_meta_leak_hits(artifact))
+    |> Map.put(
+      :duplicate_character_name,
+      duplicate_character_name(work_context, artifact, name_checker)
+    )
   end
+
+  # 同名角色（M4 实锤）：档案已有同名已确认角色时不静默处理——同名可能是重复
+  # 采纳、同一人的补充、别名，也可能真是两个同名角色，这是创作判断不是数据判断。
+  # 命中即升 require_confirmation 交作者裁决（与 B9 元泄漏同款拦截+主权语义）。
+  defp duplicate_character_name(work_context, artifact, name_checker) do
+    with true <- is_function(name_checker, 2),
+         true <- character_dossier_artifact?(artifact_field(artifact, :artifact_type)),
+         work_id when is_binary(work_id) <- Map.get(work_context, :work_id),
+         name when is_binary(name) <- adoption_chapter_title(artifact),
+         true <- name_checker.(work_id, name) do
+      String.trim(name)
+    else
+      _ -> nil
+    end
+  end
+
+  defp character_dossier_artifact?(type)
+       when type in [:character_seed, "character_seed"],
+       do: true
+
+  defp character_dossier_artifact?(_type), do: false
 
   # B9 元泄漏升采纳级（M3 审计：25 处泄漏经 advisory warn 存活——自动采纳绕过
   # 警告）。正文类候选采纳前机械扫描元泄漏（章号自指/工作流程词/结构标签，与

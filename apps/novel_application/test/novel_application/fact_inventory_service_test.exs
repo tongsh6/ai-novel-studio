@@ -192,6 +192,38 @@ defmodule NovelApplication.FactInventoryServiceTest do
     }
   end
 
+  # 同名角色（M4 实锤）：盘点材料只有正文时，模型看不到档案已有谁，每次都把
+  # 已在档角色当新发现重提，采纳后堆重复行。已在档名单进 prompt 消除该重复源。
+  test "已在档角色进 prompt 并明示不要重复提案" do
+    prompt = Inventory.inventory_prompt("正文", 2, [], ["沈洛", "云栖"])
+
+    assert prompt =~ "已登记的角色"
+    assert prompt =~ "沈洛、云栖"
+    assert prompt =~ "不要再作为新角色提案"
+  end
+
+  test "无已在档角色时 prompt 不出现该段（空档案首盘不加噪声）" do
+    prompt = Inventory.inventory_prompt("正文", 2, [], [])
+    refute prompt =~ "已登记的角色"
+  end
+
+  test "已在档名单去空白去重，接受字符串与角色 map 两种形状" do
+    {:ok, agent} = Agent.start_link(fn -> nil end)
+
+    {:ok, _} =
+      Inventory.inventory(
+        materials(),
+        provider(fn p ->
+          Agent.update(agent, fn _ -> p end)
+          {:ok, %{content: valid_proposal_json()}}
+        end),
+        known_characters: [" 沈洛 ", %{name: "沈洛"}, %{"name" => "云栖"}, "", nil]
+      )
+
+    prompt = Agent.get(agent, & &1)
+    assert prompt =~ "沈洛、云栖"
+  end
+
   test "CP4d：缺位字段时 prompt 才含全书规划指令段，且只列缺位字段" do
     prompt_with =
       Inventory.inventory_prompt("正文", 2, ["target_length", "serial_form"])

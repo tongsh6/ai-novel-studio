@@ -58,8 +58,15 @@ defmodule NovelApplication.FactInventoryService do
           {:ok, proposal(), %{provider_call_count: pos_integer()}} | {:error, term()}
   def inventory_with_meta(materials, provider_execution, opts \\ []) when is_list(materials) do
     missing_fields = normalize_missing_fields(Keyword.get(opts, :missing_skeleton_fields, []))
+    known_characters = normalize_known_characters(Keyword.get(opts, :known_characters, []))
 
-    prompt = inventory_prompt(build_material_text(materials), length(materials), missing_fields)
+    prompt =
+      inventory_prompt(
+        build_material_text(materials),
+        length(materials),
+        missing_fields,
+        known_characters
+      )
 
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
@@ -69,6 +76,22 @@ defmodule NovelApplication.FactInventoryService do
         {:error, :provider_execution_missing}
     end
   end
+
+  # 已在档角色名单（M4 实锤）：盘点材料此前只有正文，模型看不到档案已有谁，
+  # 每次盘点都把已在档角色当「新发现」重提，采纳后堆出重复档案行。盘点的语义是
+  # 补全缺口——已经有的不算缺口。
+  defp normalize_known_characters(names) when is_list(names) do
+    names
+    |> Enum.map(fn
+      name when is_binary(name) -> String.trim(name)
+      %{} = character -> character |> Map.get(:name, Map.get(character, "name", "")) |> to_string() |> String.trim()
+      other -> other |> to_string() |> String.trim()
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp normalize_known_characters(_names), do: []
 
   defp normalize_missing_fields(fields) when is_list(fields) do
     fields
@@ -157,12 +180,17 @@ defmodule NovelApplication.FactInventoryService do
   end
 
   @doc false
-  @spec inventory_prompt(String.t(), non_neg_integer(), [String.t()]) :: String.t()
-  def inventory_prompt(material_text, chapter_count, missing_skeleton_fields \\ []) do
+  @spec inventory_prompt(String.t(), non_neg_integer(), [String.t()], [String.t()]) :: String.t()
+  def inventory_prompt(
+        material_text,
+        chapter_count,
+        missing_skeleton_fields \\ [],
+        known_characters \\ []
+      ) do
     """
     你是小说设定盘点助手。下面是一部作品前 #{chapter_count} 章的正文摘录。请从正文中反向提炼出
     作品"事实上已经存在"的设定，整理成结构化提案供作者采纳登记。
-
+    #{known_characters_section(known_characters)}
     要求：
     - 只提炼正文中实际出现的设定，不发明正文里没有的内容。
     - 主角：找出正文的核心视角人物/主角（可多个），narrative_role 取 PROTAGONIST/SUPPORTING/ANTAGONIST/MINOR 之一。
@@ -191,6 +219,22 @@ defmodule NovelApplication.FactInventoryService do
 
     正文摘录：
     #{material_text}
+    """
+  end
+
+  # 已在档角色段：盘点=补全缺口，已登记的角色不该被当成新发现重提（M4 实锤：
+  # 同一主角被反复提案采纳，档案堆出 4 行重复）。同名不同人是创作判断，仍由
+  # 采纳边界交作者裁决，此处只消除「系统自己制造的重复」。
+  defp known_characters_section([]), do: ""
+
+  defp known_characters_section(names) do
+    """
+
+    ## 作品档案中已登记的角色（不要重复提案）
+    #{Enum.map_join(names, "、", & &1)}
+
+    上列角色已在档案中，**不要再作为新角色提案**。如果正文里有关于他们的重要新信息，
+    也不要重复提交同名角色——本次只提案档案中尚未登记的角色。
     """
   end
 

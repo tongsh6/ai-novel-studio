@@ -72,7 +72,8 @@ defmodule NovelApplication.AdoptionBoundary do
       &canon_conflict_decision/1,
       &overwrite_decision/1,
       &high_risk_decision/1,
-      &meta_leak_decision/1
+      &meta_leak_decision/1,
+      &duplicate_character_decision/1
     ]
     |> Enum.find_value(fn decision_fn -> decision_fn.(context) end)
     |> case do
@@ -217,6 +218,34 @@ defmodule NovelApplication.AdoptionBoundary do
   # B9 元泄漏升采纳级：调用方对正文类候选预扫元泄漏（opts.meta_leak_hits），命中
   # 即需显式确认——advisory warn 拦不住自动采纳（M3 审计 25 处泄漏存活），采纳级
   # 确认是最后一道门；作者确认后仍可采纳（主权保留）。
+  # 同名角色（M4 实锤）：档案已有同名已确认角色时不静默写入——同名可能是重复
+  # 采纳、同一人的补充、别名，也可能真是两个同名角色，这是创作判断不是数据判断。
+  # 升 require_confirmation 交作者裁决；作者确认后按新建放行（合并/别名归并随
+  # 档案侧角色合并能力另做，见 slice 登记）。
+  defp duplicate_character_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref,
+         opts: opts
+       }) do
+    duplicate_name = option_field(opts, :duplicate_character_name)
+
+    if is_binary(duplicate_name) and duplicate_name != "" and not confirmation_satisfied?(opts) do
+      %AdoptionDecision{
+        adoption_decision_id: decision_id,
+        turn_id: candidate_set.turn_id,
+        source_action_ref: "choose_candidate",
+        candidate_ref: candidate_id,
+        decision_type: :require_confirmation,
+        target_ref: candidate.adoption_target_ref,
+        reason_codes: ["duplicate_character_name", "confirmation_required"],
+        decision_trace_ref: decision_trace_ref
+      }
+    end
+  end
+
   defp meta_leak_decision(%{
          candidate: candidate,
          candidate_id: candidate_id,

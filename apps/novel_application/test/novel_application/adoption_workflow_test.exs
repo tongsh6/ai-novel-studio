@@ -272,6 +272,81 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert action_result.status == "accepted"
     end
 
+    # 同名角色（M4 实锤：同一主角被反复提案采纳，档案堆出 4 行重复）：同名可能是
+    # 重复采纳、同一人的补充、别名，也可能真是两个同名角色——创作判断不是数据判断，
+    # 因此不静默合并也不静默新建，升 require_confirmation 交作者裁决。
+    test "same-name accepted character requires confirmation before adopting again" do
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :character_seed,
+          payload: %{title: "沈洛", content: "追查灵气账单的核心视角人物。"}
+        })
+
+      writer = fn _attrs -> flunk("duplicate-name character must not persist before confirmation") end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer,
+                 nil,
+                 nil,
+                 fn "work-1", "沈洛" -> true end
+               )
+
+      assert action_result.status == "needs_confirmation"
+      assert "duplicate_character_name" in action_result.decision.reason_codes
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
+    test "different-name character adopts without duplicate confirmation" do
+      writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
+
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :character_seed,
+          payload: %{title: "云栖", content: "关键配角。"}
+        })
+
+      assert {:ok, action_result, _turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer,
+                 nil,
+                 nil,
+                 fn "work-1", "云栖" -> false end
+               )
+
+      assert action_result.status == "accepted"
+    end
+
+    test "author confirmation lets the same-name character through (作者裁决优先)" do
+      writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
+
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :character_seed,
+          payload: %{title: "沈洛", content: "书里第二个同名者。"}
+        })
+
+      assert {:ok, action_result, _turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{
+                   "artifact_id" => "as-1",
+                   "work_id" => "work-1",
+                   "confirmation_satisfied" => true
+                 },
+                 writer,
+                 nil,
+                 nil,
+                 fn "work-1", "沈洛" -> true end
+               )
+
+      assert action_result.status == "accepted"
+    end
+
     test "confirmation_satisfied re-gate adopts a previously high-risk artifact" do
       writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
 

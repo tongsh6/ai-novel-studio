@@ -56,6 +56,30 @@ defmodule NovelPersistence.AssumptionRepo do
     end
   end
 
+  @doc """
+  该作品是否已有同名的**已确认**角色（M4 实锤：同名重复采纳堆出重复档案行）。
+
+  同名不等于同一人（真重名/别名/改名都是创作判断），因此这里只回答事实问题，
+  由采纳边界据此要求作者裁决——不静默合并，也不静默新建。
+  """
+  @spec accepted_character_named?(String.t(), String.t()) :: boolean()
+  def accepted_character_named?(work_id, name) when is_binary(work_id) and is_binary(name) do
+    trimmed = String.trim(name)
+
+    case Ecto.UUID.cast(work_id) do
+      {:ok, uuid} when trimmed != "" ->
+        Character
+        |> where([c], c.work_id == ^uuid and c.name == ^trimmed and c.status in ^@accepted_statuses)
+        |> limit(1)
+        |> Repo.exists?()
+
+      _ ->
+        false
+    end
+  end
+
+  def accepted_character_named?(_work_id, _name), do: false
+
   @doc "列出该作品的工作假定角色（「暂定设定」区与可标注注入通道的读端口）。"
   @spec list_assumption_characters(String.t()) :: [Character.t()]
   def list_assumption_characters(work_id) when is_binary(work_id) do

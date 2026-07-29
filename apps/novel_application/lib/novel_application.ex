@@ -154,6 +154,18 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回同名已确认角色检查端口（M4 实锤：同名重复采纳堆出重复档案行）。
+  未启用真实持久化时返回恒 false 探针（不拦截，与此前行为一致）。
+  """
+  def persistence_accepted_character_name_checker do
+    if inject_persistence?() do
+      &NovelPersistence.AssumptionRepo.accepted_character_named?/2
+    else
+      fn _work_id, _name -> false end
+    end
+  end
+
+  @doc """
   返回章摘要 maintainer：正文采纳完成后产连续性摘要（VS-00C CP2.1 / contract §5.3）。
 
   未启用真实持久化时返回 nil（采纳路径无后续摘要副作用）。默认通过

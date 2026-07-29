@@ -193,7 +193,8 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
              FactInventoryService.inventory_with_meta(
                materials,
                inventory_provider_execution(spec, snapshot),
-               missing_skeleton_fields: missing_skeleton_fields
+               missing_skeleton_fields: missing_skeleton_fields,
+               known_characters: known_characters(spec, run)
              ),
            proposal = filter_skeleton_suggestions(proposal, missing_skeleton_fields),
            assumption_result = materialize_protagonist_assumption(spec, run, proposal),
@@ -403,6 +404,30 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     do: "另外，我已把盘点出的主角列为【暂定】设定并开始参考；你可以在作品档案的暂定设定区确认或否决。"
 
   defp assumption_notice(_other), do: ""
+
+  # 已在档角色（M4 实锤）：盘点是补全缺口，已登记角色不该被当新发现重提。
+  # 读端口缺席/失败降级为空（盘点照常，重复由采纳边界的同名确认兜底）。
+  defp known_characters(spec, run) do
+    reader =
+      Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader()
+
+    if is_function(reader, 1) do
+      try do
+        run.work_id
+        |> reader.()
+        |> Enum.map(fn character ->
+          Map.get(character, :name) || Map.get(character, "name")
+        end)
+        |> Enum.filter(&is_binary/1)
+      rescue
+        _error -> []
+      catch
+        _kind, _reason -> []
+      end
+    else
+      []
+    end
+  end
 
   defp material_reader(%{material_reader: reader}) when is_function(reader, 1), do: reader
 
