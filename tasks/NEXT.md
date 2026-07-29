@@ -174,8 +174,19 @@ accept_label=「采纳方案 A 为全书规划」、rows 1→2。③**Order 8 �
 `reason_codes` 分派（同名点名档案里已有的是谁、元泄漏摆出命中原文），拦住了还得给
 作者裁决材料；该文案已由 au14 场景取得真实页面证据。
 
-**当前队首待用户拍板**：Order 8 给出的「规划层结构化生产」刀候选与顺序
-（①卷结构 ②角色主体+AU12 归并 ③场级 craft ④information 账+design_ref）。
+**当前队首：AU08 卷结构（用户已拍板 Order 8 刀序，①卷结构先行）**——
+`tasks/slices/AU08-volume-structured-planning.md`。**CP1 done（2026-07-29，拆雷）**：
+`chapter.seq` 此前按 `volume_id` 取 max，**只因恰好只有一卷才没出事**（m4 实测 105 章 /
+105 distinct seq / 1 卷）；一旦建第二卷，卷二首章 seq=1 与卷一首章撞号，而账本
+`accepted_summaries_by_seq/1`、阅读章列表、正文检索三处都跨全书按 `c.seq` 排序 →
+**静默乱序**（账本错位、R7 末 N 章窗取错）。已收为 work 级全局（书里章号本就是
+「第12章」而非「卷二第2章」），三条不变量测试反向验证确实会红（实测 `[1,1,1]`、
+`[1,1,7]`）。**CP2 next**：plot_outline prompt 增卷槽位（只在 planned_volumes>1 时要求）
++ ChapterPlanParser 识别卷边界 + `find_or_create_volume` 接受卷规格，无卷信息退化单卷。
+**CP3**：前端两处 flatMap 收口 + 探索面卷分布 + 真实 Tauri。
+刀序余项（等拉动）：②角色主体+AU12 归并（**只补 roster 不做归并会把空转换成噪声**）
+③场级 craft ④information 账+design_ref。R2「自由创作只产两种 artifact」是另一把刀，
+不与本刀合并。
 CP5 剩余余项（等拉动）：触发 C、works 级假定、记忆类注入富化；CP2 R2；
 **新登记**：`tasks/slices/AU12-character-identity-merge.md`（同名/别名角色身份归并；
 本次只落拦截三层，已有重复行的合并/别名/真重名消歧未做）。

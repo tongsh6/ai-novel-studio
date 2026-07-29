@@ -538,7 +538,7 @@ defmodule NovelPersistence.AdoptionRepository do
           work_id: work_id,
           volume_id: volume_id,
           title: title,
-          seq: next_chapter_seq(repo, volume_id),
+          seq: next_chapter_seq(repo, work_id),
           status: StructureStatus.planned(),
           summary: summary,
           plan_direction: plan_direction
@@ -640,7 +640,7 @@ defmodule NovelPersistence.AdoptionRepository do
           work_id: work_id,
           volume_id: volume_id,
           title: title,
-          seq: next_chapter_seq(repo, volume_id)
+          seq: next_chapter_seq(repo, work_id)
         })
 
       chapter ->
@@ -680,8 +680,13 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   # 下一个 seq 用 max(seq)+1（非 count+1）：删行后也不会和现存 seq 撞（A5）。
-  defp next_chapter_seq(repo, volume_id) do
-    (Chapter |> where([c], c.volume_id == ^volume_id) |> repo.aggregate(:max, :seq) || 0) + 1
+  # 章号在 work 内全局单调（AU08 CP1 不变量）：书里的章号本就是全局的（「第12章」而非
+  # 「卷二第2章」），且账本 accepted_summaries_by_seq/1、阅读章列表、正文检索三处都跨全书
+  # 按 c.seq 排序。此前按 volume_id 取 max，在只有一卷时与全局等价而未暴露；一旦建出第
+  # 二卷，卷二首章 seq=1 会与卷一首章撞号，上述三处静默乱序（账本错位、R7 末 N 章窗取错、
+  # 检索顺序乱）。卷的次序由 volume.seq 承担，章号不再随卷重启。
+  defp next_chapter_seq(repo, work_id) do
+    (Chapter |> where([c], c.work_id == ^work_id) |> repo.aggregate(:max, :seq) || 0) + 1
   end
 
   defp next_scene_seq(repo, chapter_id) do

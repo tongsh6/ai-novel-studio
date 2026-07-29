@@ -684,6 +684,137 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
     end
   end
 
+  # AU08 CP1：章号在 work 内全局单调。此前按 volume_id 取 max，只有一卷时与全局等价而
+  # 从未暴露；一旦建出第二卷，卷二首章 seq=1 会与卷一首章撞号，而账本
+  # accepted_summaries_by_seq/1、阅读章列表、正文检索三处都跨全书按 c.seq 排序 —— 症状
+  # 是静默乱序（账本错位、R7 末 N 章窗取错），必须在引入多卷前钉住。
+  describe "章号全局单调 (AU08 CP1 不变量)" do
+    test "单卷下与旧口径逐字节等价：物化计划章得到 1..N 连续章号" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-seq-1",
+                 artifact_id: "as-seq-1",
+                 artifact_type: :outline_draft,
+                 content: "第01章：起: 甲。\n第02章：承: 乙。\n第03章：转: 丙。",
+                 summary: "三章计划"
+               })
+
+      assert [1, 2, 3] == chapter_seqs(work_id)
+    end
+
+    test "多卷下新章不与他卷撞号：全局取 max 而非卷内取 max" do
+      work_id = Ecto.UUID.generate()
+
+      # 卷一：两章（seq 1、2）
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-seq-2",
+                 artifact_id: "as-seq-2",
+                 artifact_type: :outline_draft,
+                 content: "第01章：起: 甲。\n第02章：承: 乙。",
+                 summary: "卷一计划"
+               })
+
+      # 第二卷（多卷落地前用遗留数据模拟：卷内本身尚无章）
+      second_volume =
+        %Volume{}
+        |> Volume.changeset(%{
+          work_id: work_id,
+          title: "第二卷",
+          seq: 2,
+          status: StructureStatus.completed()
+        })
+        |> Repo.insert!()
+
+      # 直接在第二卷下建章，走的是与生产同一条 next_chapter_seq 口径：
+      # 旧口径会给出 seq=1（卷内 max+1）→ 与卷一首章撞号；新口径必须给出 3。
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-seq-3",
+                 artifact_id: "as-seq-3",
+                 artifact_type: :prose_fragment,
+                 content: "第三章正文。",
+                 summary: "第03章：合"
+               })
+
+      seqs = chapter_seqs(work_id)
+
+      assert seqs == [1, 2, 3], "章号必须全局单调，实得 #{inspect(seqs)}"
+      assert length(Enum.uniq(seqs)) == length(seqs), "work 内章号必须全局唯一"
+
+      # 第二卷存在但新章仍进规范卷（多卷归属是 CP2 的事）；本用例只钉章号口径。
+      assert Repo.aggregate(where(Volume, [v], v.work_id == ^work_id), :count) == 2
+      refute is_nil(second_volume.id)
+    end
+
+    test "跨卷遗留数据下追加新章：取全局 max+1，不复用任一卷内空档" do
+      work_id = Ecto.UUID.generate()
+
+      volume_one =
+        %Volume{}
+        |> Volume.changeset(%{
+          work_id: work_id,
+          title: "第一卷",
+          seq: 1,
+          status: StructureStatus.completed()
+        })
+        |> Repo.insert!()
+
+      volume_two =
+        %Volume{}
+        |> Volume.changeset(%{
+          work_id: work_id,
+          title: "第二卷",
+          seq: 2,
+          status: StructureStatus.completed()
+        })
+        |> Repo.insert!()
+
+      # 卷一 seq=1，卷二 seq=7（全局 max=7）：新章必须是 8，不是卷内 max+1（2 或 8）
+      for {volume, seq, title} <- [{volume_one, 1, "旧章甲"}, {volume_two, 7, "旧章乙"}] do
+        %Chapter{}
+        |> Chapter.changeset(%{
+          work_id: work_id,
+          volume_id: volume.id,
+          title: title,
+          seq: seq,
+          status: StructureStatus.completed()
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-seq-4",
+                 artifact_id: "as-seq-4",
+                 artifact_type: :prose_fragment,
+                 content: "新章正文。",
+                 summary: "全新章"
+               })
+
+      seqs = chapter_seqs(work_id)
+      assert seqs == [1, 7, 8], "新章应取全局 max+1，实得 #{inspect(seqs)}"
+    end
+  end
+
+  defp chapter_seqs(work_id) do
+    Chapter
+    |> where([c], c.work_id == ^work_id)
+    |> order_by([c], asc: c.seq)
+    |> select([c], c.seq)
+    |> Repo.all()
+  end
+
   defp chapter_content_for(work_id, title) do
     %{volumes: volumes} = ReadingProjectionRepo.toc(work_id)
 
