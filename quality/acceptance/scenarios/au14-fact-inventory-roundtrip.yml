@@ -15,6 +15,8 @@ invariants:
   - inventory-proposals-remain-pending-before-author-adoption
   - adopting-selected-items-writes-only-those-items
   - unadopted-items-never-enter-the-work-archive
+  - planning-suggestion-candidate-group-adopts-as-work-plan-not-archive-object
+  - duplicate-accepted-character-name-requires-author-adjudication-before-any-write
   - no-new-entity-or-production-write-path
   - no-production-acceptance-hooks
 
@@ -26,10 +28,19 @@ user_flow:
   - open: real Tauri workbench with accepted chapter material and an empty setting archive
   - open: 作品档案概览
   - click: 发起设定盘点
-  - observe: two character, one rule, and one foreshadowing proposal render as pending cards
+  - observe: two character, one rule, one foreshadowing and two planning proposals render as pending cards
   - adopt: only one character and the rule
+  - select: the 目标体量 option inside the multi-suggestion planning candidate group
+  - observe: the selected accept button reads 采纳方案 A 为全书规划, never 保存方案 A 到作品档案
+  - adopt: the selected planning suggestion and see the work profile carry the target length
   - open: 角色、经验规则与伏笔档案
-  - observe: only the two selected items entered their matching archive projections
+  - observe: only the selected items entered their matching archive projections
+  - click: 发起设定盘点 again now that 沈砚 is an accepted character
+  - adopt: the re-proposed same-name character candidate
+  - observe: a confirmation card names 沈砚 and explains 别名 / 改名 / 真重名 before anything is written
+  - observe: 角色档案 still holds exactly one 沈砚 row while the confirmation is open
+  - click: 确认执行
+  - observe: 角色档案 now holds a second 沈砚 row (author sovereignty over a real duplicate)
 
 evidence:
   required:
@@ -44,18 +55,26 @@ evidence:
 assertions:
   ui:
     - 作品档案提供真实的发起设定盘点入口
-    - four independently adoptable pending items use existing card families
+    - six independently adoptable pending items use existing card families
     - adopting one character leaves the other character and foreshadowing pending
     - archive projections show one adopted character, one adopted rule, and no foreshadowing
+    - the multi-suggestion planning group's selected accept button reads 采纳方案 A 为全书规划
+    - the planning group never offers 保存方案 A 到作品档案 or 保存所选方案到作品档案
+    - the same-name confirmation card names the existing 沈砚 and states 别名 / 改名 as real possibilities
+    - 角色档案 holds one 沈砚 row before confirmation and two after the author confirms
   network:
     - author_action start_fact_inventory returns a bounded run_id before the final result
     - fact_inventory_v1 broadcasts one TurnResult with existing tentative artifact sets
     - adoption actions resolve only the selected artifact ids
+    - the same-name accept returns status needs_confirmation with reason_codes duplicate_character_name
+    - confirm_before_execute re-gates the same-name adoption and resolves the artifact
   data:
     - accepted chapter material is the inventory input
     - proposal creation performs no production write
     - selected adoption persists exactly one character and one rule
     - unadopted character and foreshadowing do not enter archive projections
+    - the same-name accept performs no production write before author confirmation
+    - app log records action_status needs_confirmation bound to the re-proposal turn
 
 anti_hooks:
   product_acceptance_logic_added: false

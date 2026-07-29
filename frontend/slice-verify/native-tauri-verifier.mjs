@@ -12960,6 +12960,31 @@ function findJudgmentExploreChapterPlanEvidence(records) {
 
 // SC-AU13-B2（VS-00F CP4c-3 / VS-00E §8）：revise_prose 处置 → 高风险改写确认 →
 // sibling 修订候选（pending prose_fragment）→ 原稿保留（阅读投影仍为 seed 正文）。
+// VS-00G CP4d（M4b 实锤）：候选组的采纳按钮必须说「采纳方案 X 为全书规划」——写的是
+// works 立项规划字段，不是档案对象；退回「保存方案 X 到作品档案」即语义错误。
+const SKELETON_CANDIDATE_ACCEPT_LABEL_PATTERN = /^采纳方案 .+ 为全书规划$/;
+
+function skeletonCandidateLabelIsWorkPlan(label) {
+  if (typeof label !== "string" || label.trim() === "") return false;
+  const trimmed = label.trim();
+  return (
+    SKELETON_CANDIDATE_ACCEPT_LABEL_PATTERN.test(trimmed) &&
+    !trimmed.includes("保存") &&
+    !trimmed.includes("作品档案")
+  );
+}
+
+// 同名确认卡必须把裁决材料交给作者：已有谁（角色名）+ 同名的真实可能（别名/改名）。
+function duplicateConfirmMessageExplainsWhy(message) {
+  if (typeof message !== "string" || message.trim() === "") return false;
+  return (
+    message.includes("沈砚") &&
+    message.includes("已确认角色") &&
+    message.includes("别名") &&
+    message.includes("改名")
+  );
+}
+
 function findAu14FactInventoryEvidence(records) {
   const sliceId = "au14-fact-inventory-roundtrip";
 
@@ -12968,14 +12993,20 @@ function findAu14FactInventoryEvidence(records) {
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
       record.profile_ref === "fact_inventory_v1" &&
-      Number(record.pending_count ?? 0) === 5 &&
+      Number(record.pending_count ?? 0) === 6 &&
       Number(record.pending_character_count ?? 0) === 2 &&
       Number(record.pending_rule_count ?? 0) === 1 &&
       Number(record.pending_foreshadow_count ?? 0) === 1 &&
-      Number(record.pending_skeleton_count ?? 0) === 1 &&
-      Number(record.available_action_count ?? 0) === 15 &&
+      Number(record.pending_skeleton_count ?? 0) === 2 &&
+      Number(record.available_action_count ?? 0) === 18 &&
       record.skeleton_field === "target_length" &&
       Number(record.skeleton_value ?? 0) === 300000 &&
+      skeletonCandidateLabelIsWorkPlan(record.skeleton_candidate_accept_label) &&
+      duplicateConfirmMessageExplainsWhy(record.duplicate_confirm_message) &&
+      Number(record.duplicate_rows_before_confirm ?? -1) === 1 &&
+      Number(record.duplicate_rows_after_confirm ?? -1) === 2 &&
+      record.duplicate_write_blocked_before_confirm === true &&
+      record.duplicate_needs_confirmation_logged === true &&
       record.work_planning_value_absent_before_adoption === true &&
       record.work_planning_visible_after_adoption === true &&
       record.assumption_candidate_produced === true &&
@@ -13071,6 +13102,12 @@ function au14FactInventoryBehavior(_turnIds, _turnRecords, records, evidence, _o
   if (Number(uiState.archive_character_count ?? 0) !== 1) return null;
   if (Number(uiState.archive_rule_count ?? 0) !== 1) return null;
   if (Number(uiState.archive_foreshadowing_count ?? -1) !== 0) return null;
+  if (!skeletonCandidateLabelIsWorkPlan(uiState.skeleton_candidate_accept_label)) return null;
+  if (!duplicateConfirmMessageExplainsWhy(uiState.duplicate_confirm_message)) return null;
+  if (Number(uiState.duplicate_rows_before_confirm ?? -1) !== 1) return null;
+  if (Number(uiState.duplicate_rows_after_confirm ?? -1) !== 2) return null;
+  if (uiState.duplicate_write_blocked_before_confirm !== true) return null;
+  if (uiState.duplicate_needs_confirmation_logged !== true) return null;
 
   return {
     slice_id: evidence.slice_id,
@@ -13081,11 +13118,13 @@ function au14FactInventoryBehavior(_turnIds, _turnRecords, records, evidence, _o
       "real_archive_action_started_fact_inventory_agent_run",
       "accepted_material_produced_existing_character_rule_foreshadow_seed_families",
       "proposal_included_work_skeleton_suggestion_for_missing_planning_field",
-      "proposal_created_five_independent_pending_units_without_write",
+      "proposal_created_six_independent_pending_units_without_write",
       "inventory_materialized_provisional_assumption_with_visible_notice_and_section",
       "author_adopted_one_character_one_rule_and_planning_suggestion_through_existing_boundary",
+      "skeleton_candidate_labeled_as_work_plan",
       "planning_adoption_wrote_back_work_target_length_visible_in_profile",
       "same_name_adoption_consumed_assumption_in_place",
+      "duplicate_character_required_author_adjudication",
       "unadopted_character_and_foreshadowing_remained_pending",
       "archive_projections_contained_only_adopted_items",
     ],

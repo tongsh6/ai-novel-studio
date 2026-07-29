@@ -503,27 +503,70 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # SC-AU14-B1：test-support provider 只根据真实盘点 prompt 返回确定性 canonical items；
   # 产品 runtime 不识别 slice id，也不自动触发/采纳。外部 driver 仍需从真实档案入口点击，
   # 并让 production FactInventoryService 完成校验、分组与逐项采纳边界。
-  # CP4d：prompt 请求全书规划建议（只列缺位字段）时，按请求附带 target_length 建议——
+  # CP4d：prompt 请求全书规划建议（只列缺位字段）时，按请求附带对应建议——
   # 与真实模型同语义：只响应 prompt 中列出的缺位字段。
   defp fact_inventory_response(prompt_text) do
-    base = fact_inventory_base_response()
-
-    if String.contains?(prompt_text, "work_skeleton_suggestion") and
-         String.contains?(prompt_text, "target_length") do
-      base ++
-        [
-          %{
-            artifact_type: "work_skeleton_suggestion",
-            item_id: "inventory-skeleton-target-length",
-            title: "目标体量",
-            body: "按前两章的叙事节奏与单章体量推断，全书目标约 30 万字。",
-            rationale: "依据第01-02章体量",
-            skeleton_field: "target_length",
-            skeleton_value: 300_000
-          }
-        ]
+    if known_character_reproposal_prompt?(prompt_text) do
+      duplicate_character_reproposal()
     else
-      base
+      fact_inventory_base_response() ++ skeleton_suggestions(prompt_text)
+    end
+  end
+
+  # M4 实锤的真实模型行为：盘点 prompt 已列出「作品档案中已登记的角色（不要重复提案）」，
+  # 模型仍会把已在档角色当成「新发现」重新提案。此处照抄该行为，让采纳边界的同名裁决
+  # （require_confirmation）成为可被外部验收的后果。分支只看真实产品状态（prompt 里
+  # 是否出现已在档角色段），不认识任何 slice id。
+  defp known_character_reproposal_prompt?(prompt_text) do
+    String.contains?(prompt_text, "作品档案中已登记的角色") and
+      String.contains?(prompt_text, "沈砚")
+  end
+
+  defp duplicate_character_reproposal do
+    [
+      %{
+        artifact_type: "character_seed",
+        item_id: "inventory-shenyan-repropose",
+        title: "沈砚",
+        body: "城西旧机房的老维修工，与追查账单的年轻人同名，两人此前从未照面。",
+        rationale: "依据第02章",
+        narrative_role: "MINOR"
+      }
+    ]
+  end
+
+  # 只对 prompt 里真正列为缺位的规划字段产建议（与真实模型同语义）；未列出的字段
+  # 不越权建议。这里回应其中两条，足以让候选组形态（多条建议单选）成立。
+  defp skeleton_suggestions(prompt_text) do
+    if String.contains?(prompt_text, "work_skeleton_suggestion") do
+      [
+        {"target_length：目标总字数",
+         %{
+           artifact_type: "work_skeleton_suggestion",
+           item_id: "inventory-skeleton-target-length",
+           title: "目标体量",
+           body: "按前两章的叙事节奏与单章体量推断，全书目标约 30 万字。",
+           rationale: "依据第01-02章体量",
+           skeleton_field: "target_length",
+           skeleton_value: 300_000
+         }},
+        {"planned_volumes：预计卷数",
+         %{
+           artifact_type: "work_skeleton_suggestion",
+           item_id: "inventory-skeleton-planned-volumes",
+           title: "预计卷数",
+           body: "按账单线与残诀线的两段结构推断，全书预计 6 卷。",
+           rationale: "依据第01-02章结构",
+           skeleton_field: "planned_volumes",
+           skeleton_value: 6
+         }}
+      ]
+      |> Enum.filter(fn {field_line, _suggestion} ->
+        String.contains?(prompt_text, field_line)
+      end)
+      |> Enum.map(fn {_field_line, suggestion} -> suggestion end)
+    else
+      []
     end
   end
 

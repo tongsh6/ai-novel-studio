@@ -159,14 +159,21 @@ describe("native Tauri slice verifier", () => {
         character_adoption_turn_id: "turn-character",
         rule_adoption_turn_id: "turn-rule",
         skeleton_adoption_turn_id: "turn-skeleton",
-        pending_count: 5,
+        pending_count: 6,
         pending_character_count: 2,
         pending_rule_count: 1,
         pending_foreshadow_count: 1,
-        pending_skeleton_count: 1,
-        available_action_count: 15,
+        pending_skeleton_count: 2,
+        available_action_count: 18,
         skeleton_field: "target_length",
         skeleton_value: 300000,
+        skeleton_candidate_accept_label: "采纳方案 A 为全书规划",
+        duplicate_confirm_message:
+          "作品档案里已经有名为「沈砚」的已确认角色。同名可能是同一个人、别名或改名，也可能确实是两个同名角色——这需要你判断。确认后会新增一条角色档案；当前未写入作品事实。",
+        duplicate_rows_before_confirm: 1,
+        duplicate_rows_after_confirm: 2,
+        duplicate_write_blocked_before_confirm: true,
+        duplicate_needs_confirmation_logged: true,
         work_planning_value_absent_before_adoption: true,
         work_planning_visible_after_adoption: true,
         assumption_candidate_produced: true,
@@ -212,11 +219,13 @@ describe("native Tauri slice verifier", () => {
         "real_archive_action_started_fact_inventory_agent_run",
         "accepted_material_produced_existing_character_rule_foreshadow_seed_families",
         "proposal_included_work_skeleton_suggestion_for_missing_planning_field",
-        "proposal_created_five_independent_pending_units_without_write",
+        "proposal_created_six_independent_pending_units_without_write",
         "inventory_materialized_provisional_assumption_with_visible_notice_and_section",
         "author_adopted_one_character_one_rule_and_planning_suggestion_through_existing_boundary",
+        "skeleton_candidate_labeled_as_work_plan",
         "planning_adoption_wrote_back_work_target_length_visible_in_profile",
         "same_name_adoption_consumed_assumption_in_place",
+        "duplicate_character_required_author_adjudication",
         "unadopted_character_and_foreshadowing_remained_pending",
         "archive_projections_contained_only_adopted_items",
       ],
@@ -229,6 +238,51 @@ describe("native Tauri slice verifier", () => {
     );
     expect(
       findNativeSliceEvidence("au14-fact-inventory-roundtrip", leakedForeshadowRecords),
+    ).toBeNull();
+
+    // 负例①：候选组采纳按钮退回通用的「保存方案 X 到作品档案」——规划建议写的是
+    // works 立项字段而非档案对象，文案语义错误必须判失败。
+    const archiveWordedSkeletonRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, skeleton_candidate_accept_label: "保存方案 A 到作品档案" }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("au14-fact-inventory-roundtrip", archiveWordedSkeletonRecords),
+    ).toBeNull();
+    expect(
+      findSliceBehaviorEvidence(
+        "au14-fact-inventory-roundtrip",
+        archiveWordedSkeletonRecords,
+        evidence,
+      ),
+    ).toBeNull();
+
+    // 负例②：确认前档案里已经出现第二行同名角色——说明同名采纳没被拦住。
+    const unblockedDuplicateRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, duplicate_rows_before_confirm: 2 }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("au14-fact-inventory-roundtrip", unblockedDuplicateRecords),
+    ).toBeNull();
+    expect(
+      findSliceBehaviorEvidence(
+        "au14-fact-inventory-roundtrip",
+        unblockedDuplicateRecords,
+        evidence,
+      ),
+    ).toBeNull();
+
+    // 负例③：确认卡不说明理由（只说撞名不给裁决材料）——作者无法判断。
+    const uninformativeConfirmRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, duplicate_confirm_message: "这段草稿需要你进一步确认后才能采纳。" }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("au14-fact-inventory-roundtrip", uninformativeConfirmRecords),
     ).toBeNull();
   });
 

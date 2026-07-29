@@ -9496,9 +9496,13 @@ async function driveAu14FactInventoryRoundtrip(page) {
   const characterPending = pending.filter((entry) => entry.artifact_type === "character_seed");
   const rulePending = pending.find((entry) => entry.artifact_type === "world_rule_seed");
   const foreshadowPending = pending.find((entry) => entry.artifact_type === "foreshadowing_seed");
-  // VS-00G CP4d：这本书未立全书规划 → 盘点同批产全书规划建议（target_length 缺位）。
-  const skeletonPending = pending.find(
+  // VS-00G CP4d：这本书未立全书规划 → 盘点同批产全书规划建议（target_length /
+  // planned_volumes 双缺位 → 两条建议渲染成候选组）。
+  const skeletonPendings = pending.filter(
     (entry) => entry.artifact_type === "work_skeleton_suggestion",
+  );
+  const skeletonPending = skeletonPendings.find(
+    (entry) => entry.payload?.items?.[0]?.skeleton_field === "target_length",
   );
   const shenyanPending =
     characterPending.find((entry) =>
@@ -9508,16 +9512,20 @@ async function driveAu14FactInventoryRoundtrip(page) {
   assert(characterPending.length === 2, "Inventory did not return two independent characters");
   assert(rulePending, "Inventory did not return a world_rule_seed");
   assert(foreshadowPending, "Inventory did not return a foreshadowing_seed");
-  assert(skeletonPending, "Inventory did not return a work_skeleton_suggestion");
+  assert(
+    skeletonPendings.length === 2,
+    `Expected two independent planning suggestions, got ${skeletonPendings.length}`,
+  );
+  assert(skeletonPending, "Inventory did not return a target_length work_skeleton_suggestion");
   const skeletonItem = skeletonPending.payload?.items?.[0] ?? {};
   assert(
     skeletonItem.skeleton_field === "target_length" &&
       Number(skeletonItem.skeleton_value) === 300000,
     "Planning suggestion did not carry the structured target_length slot",
   );
-  assert(pending.length === 5, `Expected 5 inventory pending units, got ${pending.length}`);
+  assert(pending.length === 6, `Expected 6 inventory pending units, got ${pending.length}`);
   assert(
-    (inventoryTurn.available_actions ?? []).length === 15,
+    (inventoryTurn.available_actions ?? []).length === 18,
     "Inventory did not expose three author actions for each pending unit",
   );
   const bodyTextBeforeAdoption = await page.locator("body").innerText();
@@ -9652,10 +9660,46 @@ async function driveAu14FactInventoryRoundtrip(page) {
   );
 
   // VS-00G CP4d：采纳全书规划建议 → works 立项字段回写（非档案对象写入）。
+  // 同批两条建议渲染为候选组：候选组的采纳文案必须同样按 artifact 类型分派——
+  // 写的是 works 立项规划字段，不是档案对象（M4b 实锤的文案语义错误）。
+  const skeletonCard = page
+    .locator('[class*="candidateSetCard"]')
+    .filter({ hasText: "全书规划建议" })
+    .first();
+  await skeletonCard.waitFor({ timeout: 10_000 });
+  const skeletonIndex = skeletonPendings.indexOf(skeletonPending);
+  const skeletonOptionLabel = `方案 ${String.fromCharCode(65 + skeletonIndex)}`;
+  await skeletonCard
+    .getByRole("button", { name: "采纳所选方案为全书规划", exact: true })
+    .waitFor({ timeout: 10_000 });
+  assert(
+    (await skeletonCard
+      .getByRole("button", { name: "保存所选方案到作品档案", exact: true })
+      .count()) === 0,
+    "Planning suggestion group offered the archive-object wording before selection",
+  );
+
+  const skeletonChoice = skeletonCard.getByRole("radio", {
+    name: `选择${skeletonOptionLabel}：目标体量`,
+    exact: true,
+  });
+  await skeletonChoice.waitFor({ timeout: 10_000 });
+  await skeletonChoice.click();
+
   const skeletonAdoptionStart = frames.length;
-  const skeletonAccept = page.getByRole("button", { name: "采纳为全书规划", exact: true });
-  await skeletonAccept.first().waitFor({ timeout: 10_000 });
-  await skeletonAccept.first().click();
+  const skeletonAccept = skeletonCard.getByRole("button", {
+    name: `采纳${skeletonOptionLabel} 为全书规划`,
+    exact: true,
+  });
+  await skeletonAccept.waitFor({ timeout: 10_000 });
+  const skeletonCandidateAcceptLabel = (await skeletonAccept.innerText()).trim();
+  assert(
+    (await skeletonCard
+      .getByRole("button", { name: `保存${skeletonOptionLabel} 到作品档案`, exact: true })
+      .count()) === 0,
+    "Selected planning suggestion still offered the archive-object accept wording",
+  );
+  await skeletonAccept.click();
 
   await waitForNewFrame(
     skeletonAdoptionStart,
@@ -9760,6 +9804,178 @@ async function driveAu14FactInventoryRoundtrip(page) {
     "Unadopted second character did not remain pending",
   );
 
+  // ── 同名角色采纳升 require_confirmation（M4 实锤）：档案已有已确认的「沈砚」后再次
+  // 盘点，模型仍把已在档角色当新发现重提；采纳这条同名提案不能静默新建一行，必须先把
+  // 「已经有谁、可能是什么关系」讲清楚交作者裁决，确认后作者主权仍可采纳。
+  const secondInventoryFrameStart = frames.length;
+  await page.getByRole("button", { name: "发起设定盘点", exact: true }).click();
+
+  const secondAckFrame = await waitForNewFrame(
+    secondInventoryFrameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.action_status === "running" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== "" &&
+        response.run_id !== runId
+      );
+    },
+    "Second fact inventory did not fast-ack with its own running run_id",
+    30_000,
+  );
+  const secondRunId = secondAckFrame.body.response.run_id;
+
+  const duplicateTurnFrame = await waitForNewFrame(
+    secondInventoryFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === secondRunId &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) =>
+          entry.artifact_type === "character_seed" &&
+          String(entry.payload?.items?.[0]?.title ?? "") === "沈砚",
+      ),
+    "Second inventory did not re-propose the already-registered character",
+    120_000,
+  );
+  const duplicatePending = (duplicateTurnFrame.body.adoption_state?.pending ?? []).find(
+    (entry) =>
+      entry.artifact_type === "character_seed" &&
+      String(entry.payload?.items?.[0]?.title ?? "") === "沈砚",
+  );
+
+  await closeArchiveIfOpen(page);
+  const duplicateAdoptionLogStart = readAppLogRecords().length;
+  const duplicateAdoptionStart = frames.length;
+  const duplicateAccept = page.getByRole("button", { name: "保存到作品档案", exact: true });
+  await duplicateAccept.last().waitFor({ timeout: 10_000 });
+  await duplicateAccept.last().click();
+
+  await waitForNewFrame(
+    duplicateAdoptionStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === duplicatePending.artifact_id,
+    "Duplicate-name candidate did not send its own accept target",
+    30_000,
+  );
+  const duplicateConfirmFrame = await waitForNewFrame(
+    duplicateAdoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      frame.body?.truthfulness?.artifact_adopted === false &&
+      frame.body?.truthfulness?.production_write_performed === false &&
+      (frame.body?.adoption_decision?.reason_codes ?? []).includes("duplicate_character_name"),
+    "Adopting a same-name character did not require author adjudication",
+    120_000,
+  );
+
+  // 确认卡必须讲清「为什么要我判断」：已有谁 + 同名的几种真实可能（别名/改名/真重名）。
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText;
+      return (
+        text.includes("作品档案里已经有名为「沈砚」的已确认角色") &&
+        text.includes("别名") &&
+        text.includes("改名") &&
+        text.includes("确认执行") &&
+        text.includes("拒绝")
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const duplicateConfirmMessage = String(
+    duplicateConfirmFrame.body?.assistant_message?.text ?? "",
+  ).trim();
+  assert(
+    duplicateConfirmMessage.includes("沈砚") &&
+      duplicateConfirmMessage.includes("别名") &&
+      duplicateConfirmMessage.includes("改名"),
+    "Duplicate-name confirmation did not explain why the author must judge",
+  );
+
+  const beforeConfirmLogStart = readAppLogRecords().length;
+  const beforeConfirmPanel = await openArchiveTab(page, "角色");
+  await waitForNewAppLogRecord(
+    beforeConfirmLogStart,
+    (record) =>
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? -1) === 1,
+    "Duplicate-name adoption wrote a character row before the author confirmed",
+    20_000,
+  );
+  const beforeConfirmRows = beforeConfirmPanel
+    .locator('[class*="cardItem"]')
+    .filter({ hasText: "沈砚" });
+  await beforeConfirmRows.first().waitFor({ timeout: 10_000 });
+  const duplicateRowsBeforeConfirm = await beforeConfirmRows.count();
+  assert(
+    duplicateRowsBeforeConfirm === 1,
+    "Archive already showed a second same-name row before the author confirmed",
+  );
+  await closeArchiveIfOpen(page);
+
+  const duplicateConfirmFrameStart = frames.length;
+  const duplicateConfirmButton = page.getByRole("button", { name: "确认执行", exact: true });
+  await duplicateConfirmButton.last().waitFor({ timeout: 10_000 });
+  await duplicateConfirmButton.last().click();
+
+  const duplicateAdoptFrame = await waitForNewFrame(
+    duplicateConfirmFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === duplicatePending.artifact_id,
+      ),
+    "Author confirmation did not adopt the same-name candidate",
+    120_000,
+  );
+
+  const afterConfirmLogStart = readAppLogRecords().length;
+  const afterConfirmPanel = await openArchiveTab(page, "角色");
+  await waitForNewAppLogRecord(
+    afterConfirmLogStart,
+    (record) =>
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? -1) === 2,
+    "Author-confirmed same-name adoption did not add a second character row",
+    20_000,
+  );
+  const afterConfirmRows = afterConfirmPanel
+    .locator('[class*="cardItem"]')
+    .filter({ hasText: "沈砚" });
+  await afterConfirmRows.nth(1).waitFor({ timeout: 10_000 });
+  const duplicateRowsAfterConfirm = await afterConfirmRows.count();
+  assert(
+    duplicateRowsAfterConfirm === 2,
+    "Author-confirmed same name did not appear as a second archive row",
+  );
+
+  const duplicateNeedsConfirmationLogged = readAppLogRecords()
+    .slice(duplicateAdoptionLogStart)
+    .some(
+      (record) =>
+        record.event === "channel.author_action.done" &&
+        record.action_type === "accept" &&
+        record.action_status === "needs_confirmation" &&
+        record.turn_id === duplicateTurnFrame.body.turn_id,
+    );
+  assert(
+    duplicateNeedsConfirmationLogged,
+    "App log did not record needs_confirmation for the same-name adoption turn",
+  );
+
   const logsAfter = readAppLogRecords().slice(logStart);
 
   return [
@@ -9777,7 +9993,7 @@ async function driveAu14FactInventoryRoundtrip(page) {
       pending_character_count: characterPending.length,
       pending_rule_count: rulePending ? 1 : 0,
       pending_foreshadow_count: foreshadowPending ? 1 : 0,
-      pending_skeleton_count: skeletonPending ? 1 : 0,
+      pending_skeleton_count: skeletonPendings.length,
       available_action_count: (inventoryTurn.available_actions ?? []).length,
       proposed_without_write:
         inventoryTurn.truthfulness?.artifact_adopted === false &&
@@ -9787,6 +10003,17 @@ async function driveAu14FactInventoryRoundtrip(page) {
       adopted_skeleton_id: skeletonPending.artifact_id,
       skeleton_field: skeletonItem.skeleton_field,
       skeleton_value: Number(skeletonItem.skeleton_value),
+      skeleton_candidate_accept_label: skeletonCandidateAcceptLabel,
+      second_run_id: secondRunId,
+      duplicate_artifact_id: duplicatePending.artifact_id,
+      duplicate_adoption_turn_id: duplicateConfirmFrame.body?.turn_id,
+      duplicate_confirmed_turn_id: duplicateAdoptFrame.body?.turn_id,
+      duplicate_confirm_message: duplicateConfirmMessage,
+      duplicate_rows_before_confirm: duplicateRowsBeforeConfirm,
+      duplicate_rows_after_confirm: duplicateRowsAfterConfirm,
+      duplicate_needs_confirmation_logged: duplicateNeedsConfirmationLogged,
+      duplicate_write_blocked_before_confirm:
+        duplicateConfirmFrame.body?.truthfulness?.production_write_performed === false,
       assumption_candidate_produced: true,
       assumption_notice_visible: true,
       assumption_count_logged: Number(assumptionsRecord.assumption_count ?? 0),
@@ -9800,7 +10027,7 @@ async function driveAu14FactInventoryRoundtrip(page) {
         unadoptedCharacterVisible &&
         unadoptedForeshadowVisible &&
         remainingIds.includes(foreshadowPending.artifact_id) &&
-        remainingIds.length === 2,
+        remainingIds.length === 3,
       archive_character_count: Number(characterRecord.character_count ?? 0),
       archive_rule_count: Number(ruleRecord.rule_count ?? 0),
       archive_foreshadowing_count: Number(foreshadowRecord.item_count ?? 0),
