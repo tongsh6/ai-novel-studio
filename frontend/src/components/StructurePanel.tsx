@@ -486,6 +486,40 @@ export function StructurePanel({
   // 已采纳卷/章结构即大纲（结构携带 summary + 进度），单一数据源，作为面板章节列表。
   const planChapters = (toc?.volumes ?? []).flatMap((vol) => vol.chapters);
 
+  // VS-00G §2.4 全书规划进度摘要（口径与收官守则注入同源）：目标体量未立时诚实
+  // 提示缺口而不是留空——「不知道要写多长」正是收官循环与题材漂移的结构缺口。
+  const skeletonProgressLine = (() => {
+    const currentWords = Number(stats?.words_total ?? toc?.total_word_count ?? 0);
+    const targetWords = Number(profile?.target_length ?? 0);
+    const plannedVolumes = Number(profile?.planned_volumes ?? 0);
+    const currentVolumes = Number(stats?.volumes ?? toc?.volumes?.length ?? 0);
+    const serialForm = profileText(profile?.serial_form);
+    const hasSerialForm = serialForm !== STRUCTURE_PANEL.profile.emptyValue;
+
+    if (targetWords <= 0 && plannedVolumes <= 0 && !hasSerialForm) {
+      return currentWords > 0 ? STRUCTURE_PANEL.skeletonProgress.missingHint : null;
+    }
+
+    const parts: string[] = [
+      targetWords > 0
+        ? STRUCTURE_PANEL.skeletonProgress.words(
+            currentWords,
+            targetWords,
+            Math.round((currentWords / targetWords) * 100),
+          )
+        : STRUCTURE_PANEL.skeletonProgress.wordsWithoutTarget(currentWords),
+    ];
+
+    if (plannedVolumes > 0) {
+      parts.push(STRUCTURE_PANEL.skeletonProgress.volumes(currentVolumes, plannedVolumes));
+    }
+    if (hasSerialForm) {
+      parts.push(STRUCTURE_PANEL.skeletonProgress.serialForm(serialForm));
+    }
+
+    return parts.join("｜");
+  })();
+
   // CP4c「脉络」：待处置偏离计数（tab 角标与概览审读行共用）；裁决=作者动作+
   // revise_* 回对话流发起修订意图（只读+意图边界，ui43 §3）。
   const pendingLedgerFindings = (reviewReport?.findings ?? []).filter((f) => !f.disposition);
@@ -868,6 +902,14 @@ export function StructurePanel({
               pendingByTab.outline,
               getArtifactActionState,
               onArtifactAction,
+            )}
+            {skeletonProgressLine && (
+              <div className={styles.section}>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>{STRUCTURE_PANEL.skeletonProgress.label}</span>
+                </div>
+                <div className={styles.detailHint}>{skeletonProgressLine}</div>
+              </div>
             )}
             {planChapters.length > 0 ? (
               <div className={styles.section}>

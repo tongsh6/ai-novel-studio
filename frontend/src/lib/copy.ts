@@ -202,6 +202,11 @@ export const CARD = {
     candidateEmptyDiscardLabel: "不保存所选方案",
     candidateEmptyEditLabel: "编辑所选方案",
     candidateEmptyAcceptLabel: "保存所选方案到作品档案",
+    // VS-00G CP4d（M4 狗粮实锤）：候选组此前无视 artifact 类型统一说「保存到作品
+    // 档案」——全书规划建议写的是立项规划字段而非档案对象，文案语义错误。
+    candidateEmptyAcceptWorkSkeletonLabel: "采纳所选方案为全书规划",
+    candidateSelectedAcceptWorkSkeletonLabel: (optionLabel: string) =>
+      `采纳${optionLabel} 为全书规划`,
     candidateSelectedDiscardLabel: (optionLabel: string) => `不保存${optionLabel}`,
     candidateSelectedEditLabel: (optionLabel: string) => `编辑${optionLabel} 后保存`,
     candidateSelectedAcceptLabel: (optionLabel: string) => `保存${optionLabel} 到作品档案`,
@@ -813,6 +818,19 @@ export const STRUCTURE_PANEL = {
     SYSTEM: "系统",
   },
   outlineEmptyTitle: "大纲与结构",
+  // VS-00G §2.4：全书规划进度摘要——与收官守则注入 prompt 的口径同源（当前
+  // N/M、全书 P%），作者看到的进度就是系统判断能否收官、R7 是否报提前收官的依据。
+  // 只放摘要，权威字段仍在「概览 → 立项设定」（进度态不复制对象列表）。
+  skeletonProgress: {
+    label: "全书规划",
+    words: (current: number, target: number, percent: number) =>
+      `目标 ${target.toLocaleString("zh-CN")} 字 · 当前 ${current.toLocaleString("zh-CN")} 字（${percent}%）`,
+    wordsWithoutTarget: (current: number) =>
+      `当前 ${current.toLocaleString("zh-CN")} 字 · 目标体量未设定`,
+    volumes: (current: number, planned: number) => `计划 ${planned} 卷 · 当前 ${current} 卷`,
+    serialForm: (form: string) => form,
+    missingHint: "尚未设定全书规划；可在概览发起设定盘点或补立项，规划到位后系统才会按目标体量约束收官。",
+  },
   acceptedChapterPlanSection: "已采纳章节计划",
   chapterCountUnit: "章",
   generateChapterDraft: "生成正文草稿",

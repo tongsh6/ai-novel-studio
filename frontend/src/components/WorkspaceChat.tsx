@@ -2352,9 +2352,18 @@ export function WorkspaceChat() {
     return targetedItems.size > 1;
   };
 
-  const selectedCandidateActionLabel = (action: AvailableActionLike, index: number): string => {
+  const selectedCandidateActionLabel = (
+    action: AvailableActionLike,
+    index: number,
+    artifactType?: string,
+  ): string => {
     const optionLabel = CARD.tentativeArtifact.candidateOptionLabel(index);
     if (action.action_type === "accept") {
+      // 候选组同样按 artifact 类型分派采纳语义：全书规划建议写的是立项规划字段，
+      // 不是档案对象（VS-00G CP4d，M4 狗粮抓出的文案语义错误）。
+      if (artifactType === "work_skeleton_suggestion") {
+        return CARD.tentativeArtifact.candidateSelectedAcceptWorkSkeletonLabel(optionLabel);
+      }
       return CARD.tentativeArtifact.candidateSelectedAcceptLabel(optionLabel);
     }
     if (action.action_type === "discard") {
@@ -4036,7 +4045,10 @@ export function WorkspaceChat() {
                                         {CARD.tentativeArtifact.candidateEmptyEditLabel}
                                       </button>
                                       <button type="button" className={styles.btnPrimary} disabled>
-                                        {CARD.tentativeArtifact.candidateEmptyAcceptLabel}
+                                        {card.artifact_type === "work_skeleton_suggestion"
+                                          ? CARD.tentativeArtifact
+                                              .candidateEmptyAcceptWorkSkeletonLabel
+                                          : CARD.tentativeArtifact.candidateEmptyAcceptLabel}
                                       </button>
                                     </>
                                   ) : undefined
@@ -4072,7 +4084,11 @@ export function WorkspaceChat() {
                                             }}
                                           >
                                             {selectionMode
-                                              ? selectedCandidateActionLabel(action, index)
+                                              ? selectedCandidateActionLabel(
+                                                  action,
+                                                  index,
+                                                  card.artifact_type,
+                                                )
                                               : actionLabel(msg.turnResult!, action)}
                                           </button>
                                         ));
