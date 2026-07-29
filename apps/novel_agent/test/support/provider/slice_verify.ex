@@ -1544,22 +1544,24 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       |> Integer.to_string(36)
 
     start = existing_chapter_count(context) + 1
+    volume_titles = outline_volume_assignments(context, length(@outline_chapter_themes))
 
     @outline_chapter_themes
-    |> Enum.with_index(start)
-    |> Enum.map(fn {theme, n} ->
+    |> Enum.with_index()
+    |> Enum.map(fn {theme, index} ->
+      n = start + index
       seq = n |> Integer.to_string() |> String.pad_leading(2, "0")
 
       %{
         item_id: "slice_outline_#{fingerprint}_#{n}",
         title: "第#{seq}章：#{theme}",
-        body: outline_chapter_body(theme, n),
+        body: outline_chapter_body(theme, n, Enum.at(volume_titles, index)),
         rationale: nil
       }
     end)
   end
 
-  defp outline_chapter_body(theme, n) do
+  defp outline_chapter_body(theme, n, volume_title) do
     """
     章功能定位：#{outline_chapter_role(n)}
     情节推进：围绕「#{theme}」推进主线第 #{n} 阶段。
@@ -1572,6 +1574,55 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     字数与场次：约 3000 字，2 场。
     """
     |> String.trim()
+    |> append_volume_line(volume_title)
+  end
+
+  defp append_volume_line(body, nil), do: body
+  defp append_volume_line(body, title), do: body <> "\n所属卷：#{title}"
+
+  # AU08 CP2：卷归属逐章标注只在**真实规划 prompt 里出现分卷要求**时产出。
+  # 该要求由 `NovelDomain.WorkSkeleton.volume_directive/1` 渲染，只有作品立了
+  # `planned_volumes > 1`（且骨架有目标体量）才会出现在上下文段里。桩只认这段真实
+  # 产品文本，不认 slice id / 环境变量：没有要求就不标注，与单卷书逐字节等价。
+  defp outline_volume_assignments(context, chapter_count) do
+    case requested_volume_count(context) do
+      nil ->
+        List.duplicate(nil, chapter_count)
+
+      volume_count ->
+        chapter_count
+        |> volume_chunk_sizes(volume_count)
+        |> Enum.with_index()
+        |> Enum.flat_map(fn {size, index} -> List.duplicate(volume_title(index), size) end)
+    end
+  end
+
+  defp requested_volume_count(context) do
+    with [_, digits] <- Regex.run(~r/分卷规划要求：全书分\s*(\d+)\s*卷/u, to_string(context)),
+         {count, ""} <- Integer.parse(digits),
+         true <- count > 1 do
+      count
+    else
+      _ -> nil
+    end
+  end
+
+  # 故意不均分：首卷让出 1 章给末卷。卷内章数只能从逐章标注读出，验收断言不可能靠
+  # 「按章数均分」猜中，从而证明分组来自标注而非事后平均。
+  defp volume_chunk_sizes(total, count) do
+    base = div(total, count)
+    rest = rem(total, count)
+    sizes = Enum.map(0..(count - 1), fn i -> base + if(i < rest, do: 1, else: 0) end)
+
+    if count > 1 and hd(sizes) > 1 do
+      sizes |> List.update_at(0, &(&1 - 1)) |> List.update_at(count - 1, &(&1 + 1))
+    else
+      sizes
+    end
+  end
+
+  defp volume_title(index) do
+    Enum.at(@outline_volume_titles, index) || "第#{index + 1}卷·未名"
   end
 
   defp outline_chapter_role(n) when rem(n, 5) == 0, do: "高潮章"

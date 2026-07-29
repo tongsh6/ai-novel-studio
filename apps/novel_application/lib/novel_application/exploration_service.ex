@@ -120,16 +120,13 @@ defmodule NovelApplication.ExplorationService do
   defp chapter_read(_work_id, ""), do: {:error, :empty_query}
 
   defp chapter_read(work_id, query) do
-    chapters =
-      work_id
-      |> ReadingProjectionService.toc()
-      |> Map.get(:volumes, [])
-      |> Enum.flat_map(&Map.get(&1, :chapters, []))
+    volumes = work_id |> ReadingProjectionService.toc() |> Map.get(:volumes, [])
+    chapters = Enum.flat_map(volumes, &Map.get(&1, :chapters, []))
 
     case Enum.find(chapters, &chapter_match?(&1, query)) do
       nil ->
-        titles = Enum.map_join(chapters, "、", & &1.title)
-        {:ok, observation("chapter_read", query, "没有找到「#{query}」。现有章节：#{titles}", [])}
+        {:ok,
+         observation("chapter_read", query, "没有找到「#{query}」。现有章节：#{chapter_index_text(volumes)}", [])}
 
       chapter ->
         sections =
@@ -354,8 +351,25 @@ defmodule NovelApplication.ExplorationService do
   end
 
   defp render_stats(stats) do
-    "已采纳正文总字数 #{stats[:words_total] || 0}；章节数 #{stats[:chapters] || 0}；" <>
+    "已采纳正文总字数 #{stats[:words_total] || 0}；卷数 #{stats[:volumes] || 0}；" <>
+      "章节数 #{stats[:chapters] || 0}；" <>
       "已采纳角色 #{stats[:characters] || 0}；确认记忆 #{stats[:memory_items] || 0}。"
+  end
+
+  # AU08 CP3（08 §8 探索面同步律）：卷划分落地即须同批可达——AI 判断循环里读到的
+  # 章清单必须体现实际卷结构，否则规划期只知「预计卷数」而不知已经分成了哪几卷。
+  # 单卷时保持扁平（与分卷前逐字节等价，不给单卷书造层级）。
+  defp chapter_index_text(volumes) do
+    case volumes do
+      [single] ->
+        single |> Map.get(:chapters, []) |> Enum.map_join("、", & &1.title)
+
+      many ->
+        Enum.map_join(many, "；", fn volume ->
+          titles = volume |> Map.get(:chapters, []) |> Enum.map_join("、", & &1.title)
+          "#{Map.get(volume, :title, "未命名卷")}：#{titles}"
+        end)
+    end
   end
 
   # ── memory_recall ──

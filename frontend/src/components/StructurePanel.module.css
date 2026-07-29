@@ -118,6 +118,17 @@
   color: var(--accent);
 }
 
+/* AU08 CP3：多卷书的卷分组表头。单卷不渲染（见 StructurePanel 条件），避免给单卷书
+   加一层无信息量的层级。 */
+.volumeHeader {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--foreground);
+  padding: 10px 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+
 .cardAccent {
   padding: 16px;
   border: 1px solid var(--accent);

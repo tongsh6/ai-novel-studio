@@ -484,7 +484,34 @@ export function StructurePanel({
   };
 
   // 已采纳卷/章结构即大纲（结构携带 summary + 进度），单一数据源，作为面板章节列表。
-  const planChapters = (toc?.volumes ?? []).flatMap((vol) => vol.chapters);
+  const planVolumes = toc?.volumes ?? [];
+  const planChapters = planVolumes.flatMap((vol) => vol.chapters);
+  // AU08 CP3：多卷书按卷分组显示；单卷书维持扁平列表——给单卷加一层「第一卷」表头
+  // 只是噪声，作者看到的层级要对应真实结构。
+  const showVolumeGrouping = planVolumes.length > 1;
+
+  const renderPlanChapter = (ch: (typeof planChapters)[number]) => (
+    <div key={ch.id} className={styles.cardItem}>
+      <span className={styles.cardTitle}>{ch.title}</span>
+      <div className={styles.cardDesc}>
+        {(ch.word_count ?? 0) > 0
+          ? `${STRUCTURE_PANEL.chapterWrittenPrefix} ${ch.word_count} ${STRUCTURE_PANEL.chapterWordsUnit}`
+          : STRUCTURE_PANEL.chapterPendingBadge}
+      </div>
+      {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
+      <div className={styles.cardActions}>
+        <button
+          className={styles.btnGhost}
+          onClick={() => {
+            onDraftChapter(`${ch.title}：${ch.summary ?? ""}`);
+            onClose();
+          }}
+        >
+          {STRUCTURE_PANEL.generateChapterDraft}
+        </button>
+      </div>
+    </div>
+  );
 
   // VS-00G §2.4 全书规划进度摘要（口径与收官守则注入同源）：目标体量未立时诚实
   // 提示缺口而不是留空——「不知道要写多长」正是收官循环与题材漂移的结构缺口。
@@ -919,28 +946,17 @@ export function StructurePanel({
                     {` · ${planChapters.length}${STRUCTURE_PANEL.chapterCountUnit}`}
                   </span>
                 </div>
-                {planChapters.map((ch) => (
-                  <div key={ch.id} className={styles.cardItem}>
-                    <span className={styles.cardTitle}>{ch.title}</span>
-                    <div className={styles.cardDesc}>
-                      {(ch.word_count ?? 0) > 0
-                        ? `${STRUCTURE_PANEL.chapterWrittenPrefix} ${ch.word_count} ${STRUCTURE_PANEL.chapterWordsUnit}`
-                        : STRUCTURE_PANEL.chapterPendingBadge}
-                    </div>
-                    {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
-                    <div className={styles.cardActions}>
-                      <button
-                        className={styles.btnGhost}
-                        onClick={() => {
-                          onDraftChapter(`${ch.title}：${ch.summary ?? ""}`);
-                          onClose();
-                        }}
-                      >
-                        {STRUCTURE_PANEL.generateChapterDraft}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                {showVolumeGrouping
+                  ? planVolumes.map((vol) => (
+                      <div key={vol.id}>
+                        <div className={styles.volumeHeader}>
+                          {vol.title}
+                          {` · ${vol.chapters.length}${STRUCTURE_PANEL.chapterCountUnit}`}
+                        </div>
+                        {vol.chapters.map(renderPlanChapter)}
+                      </div>
+                    ))
+                  : planChapters.map(renderPlanChapter)}
               </div>
             ) : pendingByTab.outline.length === 0 ? (
               <EmptyState

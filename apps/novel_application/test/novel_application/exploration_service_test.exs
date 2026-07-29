@@ -168,6 +168,47 @@ defmodule NovelApplication.ExplorationServiceTest do
     work.id
   end
 
+  # AU08 CP3（08 §8 探索面同步律）：卷划分落地即须同批可达——判断循环里读到的章清单
+  # 必须体现实际卷结构，否则规划期只知「预计卷数」而不知已经分成了哪几卷。
+  test "chapter_read：多卷时章清单按卷分组；单卷保持扁平" do
+    single_work = seed_work_with_prose()
+
+    assert {:ok, miss} = ExplorationService.run(single_work, "chapter_read", "第99章")
+    assert miss.summary =~ "第01章：底层灵气账单"
+    refute miss.summary =~ "卷一："
+
+    multi_work = seed_work_with_two_volumes()
+
+    assert {:ok, multi_miss} = ExplorationService.run(multi_work, "chapter_read", "第99章")
+    assert multi_miss.summary =~ "第一卷·觉醒：第01章：起"
+    assert multi_miss.summary =~ "第二卷·裂变：第02章：承"
+  end
+
+  defp seed_work_with_two_volumes do
+    {:ok, work} = WorkService.create(%{"title" => "分卷书"})
+
+    for {volume_title, seq, chapter_title} <- [
+          {"第一卷·觉醒", 1, "第01章：起"},
+          {"第二卷·裂变", 2, "第02章：承"}
+        ] do
+      volume =
+        %Volume{}
+        |> Volume.changeset(%{work_id: work.id, title: volume_title, seq: seq})
+        |> Repo.insert!()
+
+      %Chapter{}
+      |> Chapter.changeset(%{
+        work_id: work.id,
+        volume_id: volume.id,
+        title: chapter_title,
+        seq: seq
+      })
+      |> Repo.insert!()
+    end
+
+    work.id
+  end
+
   defp insert_memory(work_id, type, content) do
     %MemoryItem{}
     |> MemoryItem.changeset(%{
