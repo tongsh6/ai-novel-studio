@@ -479,7 +479,23 @@ function itemField(item, key) {
 // ②逐项独立按钮带候选名后缀（「保存到作品档案：沈砚」）。外部作者视角两种都要认——
 // M4 实锤：只认①时盘点节拍在采纳步 30s 超时。
 async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallback }) {
+  // 候选组渲染（M4 实锤真形状）：单选项 aria-label = 「选择方案 X：候选名」，
+  // 选中前采纳按钮是 disabled 的「保存所选方案到作品档案」，选中后变为
+  // 「保存方案 X 到作品档案」。必须先选中候选，按钮才可点。
   if (itemName) {
+    const radio = page.getByRole("radio", { name: new RegExp(`选择.*：${itemName}`) });
+    if ((await radio.count()) > 0) {
+      await radio.last().check();
+      const selected = page.getByRole("button", { name: /保存方案 .* 到作品档案/ });
+      if ((await selected.count()) > 0) {
+        await selected.last().click();
+        return `candidate:${itemName}`;
+      }
+      const anyAccept = page.getByRole("button", { name: /保存.*作品档案/ });
+      await anyAccept.last().click();
+      return `candidate-loose:${itemName}`;
+    }
+
     const named = page.getByRole("button", { name: new RegExp(`保存.*${itemName}`) });
     if ((await named.count()) > 0) {
       await named.last().click();
@@ -488,13 +504,10 @@ async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallbac
   }
 
   if (optionLabel) {
-    const radio = page.getByRole("radio", { name: optionLabel, exact: true });
+    const radio = page.getByRole("radio", { name: new RegExp(`选择${optionLabel}`) });
     if ((await radio.count()) > 0) {
-      await radio.last().click();
-      const optionButton = page.getByRole("button", {
-        name: `保存${optionLabel} 到作品档案`,
-        exact: true,
-      });
+      await radio.last().check();
+      const optionButton = page.getByRole("button", { name: /保存方案 .* 到作品档案/ });
       if ((await optionButton.count()) > 0) {
         await optionButton.last().click();
         return `option:${optionLabel}`;
@@ -508,8 +521,11 @@ async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallbac
     return `exact:${acceptFallback}`;
   }
 
-  // 文案再变也不至于整拍报废：按语义宽匹配（保存…档案 / 采纳…全书规划）兜底。
-  const loose = page.getByRole("button", { name: /(保存.*档案|采纳.*全书规划)/ });
+  // 文案再变也不至于整拍报废：按语义宽匹配兜底，但必须跳过 disabled 按钮
+  // （未选中候选时「保存所选方案到作品档案」恒 disabled，点它只会空等 30s）。
+  const loose = page
+    .getByRole("button", { name: /(保存.*档案|采纳.*全书规划)/ })
+    .and(page.locator("button:not([disabled])"));
   if ((await loose.count()) > 0) {
     const label = await loose.last().innerText();
     await loose.last().click();
