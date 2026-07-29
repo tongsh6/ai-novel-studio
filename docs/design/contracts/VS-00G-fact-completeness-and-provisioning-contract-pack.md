@@ -151,6 +151,16 @@ proposed_disposition），编号续接（R2 收编落地）：
 | R5 主角未物化 | 已写章数 ≥ 阈值 且 无 accepted narrative_role=PROTAGONIST 且无暂用态主角 | 引导物化（盘点/立项流） |
 | R6 骨架缺位 | 已写章数 ≥ 阈值 且 target_length 空 | 引导补立项（对话流确认目标体量） |
 | R7 提前收官 | 进度 < 阈值% 且 近窗章计划含终局/收官功能定位密度异常 | revise_design（调整规划）或作者确认收束 |
+| R8 假定寿命催办 | 激活工作假定存续 ≥ 寿命阈值章 且 仍未经作者确认/否决 | revise_design（确认或否决该暂定设定） |
+
+R7/R8 落地口径（CP6 冻结）：
+
+- R7 判定三件同时成立：`target_length` 已设且 > 0（缺位时整体让位 R6，两规则不重复报同一
+  缺口）；进度 = 已采纳正文字数 ÷ target_length × 100 **< 70**；末 **5** 章（按 seq）中有章
+  的 `title` 或 `plan_direction.chapter_role` 命中强标记 `终局/大结局/完结/收官/落幕`。
+- R7 是**规划位置异常**，不是题材漂移（后者归 VS-00F R3 题材承诺）；signal 同时给出进度
+  百分比与命中章号，作者据此判断是"规划要改"还是"真要收束"。
+- 两阈值（70% / 5 章窗）与寿命阈值同走 I-L4 策略化路径，不从狗粮书标定。
 
 - **I-L1 措辞修订**（§10）："引用真实存在的对象"扩为"引用真实存在的对象**或真实执行的
   缺位查询**（负债 finding 的 source_refs=证据侧：统计窗口章/摘要 refs/空查询口径）"。
@@ -252,13 +262,14 @@ recommended 事实的假定等作者放行。记忆类假定无持久态，直�
 | CP0 | **done（2026-07-23）**：本包冻结重构（零新实体）+同批修订（08 NEM-GAP-08/VS-00C design_missing/VS-00F I-L1 修订+负债规则续编/06 absent 守则化+requires_confirmation 切分）+AU-14 立档+AU-13 D 系登记；00c atlas 与 ADR-0018 白名单随 CP1 实际事件名回填 | — |
 | CP1 | **done（2026-07-23）**：CapabilityFactManifest（主角 E07/prose+plot_outline）+MissingPolicyResult design_missing 档+AbsenceDirective 缺席守则+机械准备注入+context.fact_completeness.done 留痕 | **重放 PASS**：真实读端口读百章标本 characters=0→主角缺席守则注入（artifacts/vs00g-replay/cp1-replay-2026-07-23.txt）；单测 domain 8+application 6 |
 | CP2 | **R5 done（2026-07-23）**：主角未物化负债规则（ledger=design_debt，阈值 10 策略化，source_refs 指缺位查询[I-L1 修订]，处置=revise_design 引导变体）接入既有对账扫描+报告渠道。**重放 PASS**：百章标本 characters=0→R5 与 R3/R4 同产（artifacts/vs00g-replay/cp2-replay-2026-07-23.txt）。**R2 登记**（无设计接管需人物栏结构化提取，延后）；**R6/R7 随 CP3**（依赖全书骨架字段） | 重放：百章标本产"主角未物化" finding ✓ |
-| CP3 | **done（2026-07-23，R7 除外）**：works 增 target_length/planned_volumes/serial_form（CA01 链路全复制，零新表）+WorkSkeleton domain（骨架段+收官守则[距目标禁终局]）+plot_outline 规划注入+探索面 profile 三行+**R6 骨架缺位负债规则**（profile 读容错降级）。**重放 PASS**：百章标本 R5+R6 同产（characters=0+旧 schema 无骨架→主角未物化+骨架缺位，artifacts/vs00g-replay/cp3-replay-r5-r6-2026-07-23.txt）；单测 domain 6+application 3+R6 4。**R7 提前收官登记**（需章标题/功能定位密度判定，接章计划 reader，随后） | 重放：R5+R6 同产 ✓；收官守则注入单测验证 |
+| CP3 | **done（2026-07-23，R7 除外）**：works 增 target_length/planned_volumes/serial_form（CA01 链路全复制，零新表）+WorkSkeleton domain（骨架段+收官守则[距目标禁终局]）+plot_outline 规划注入+探索面 profile 三行+**R6 骨架缺位负债规则**（profile 读容错降级）。**重放 PASS**：百章标本 R5+R6 同产（characters=0+旧 schema 无骨架→主角未物化+骨架缺位，artifacts/vs00g-replay/cp3-replay-r5-r6-2026-07-23.txt）；单测 domain 6+application 3+R6 4。**R7 提前收官延后**（需章标题/功能定位密度判定，接章计划 reader）→ **已于 CP6 补齐** | 重放：R5+R6 同产 ✓；收官守则注入单测验证 |
 | CP4a | **done（2026-07-23）**：逐项采纳白名单扩展（per_candidate_type? 从 character_seed 扩到全 seed 家族 world_rule/foreshadowing/style_rule/constraint，收编 H13）——盘点提案逐项采纳前提件 | 单测 4 |
 | CP4b-1 | **done（2026-07-23）**：FactInventoryService 提炼引擎（材料装配→提炼 prompt→provider→结构化提案[角色/规则/伏笔]+坏 JSON 携片段重试；provider 可注入确定性可测）；单测 6 | 提炼引擎单测 + live 验证 |
 | CP4b-2 | **done（2026-07-24，主动触发 B 核心链）**：在既有 live 提炼验证之上接通 `fact_inventory_v1`（model-drafted plan + mechanical inventory）、已采纳材料读端口、三类既有 seed 提案集、`start_fact_inventory` Channel 动作与作品档案底部入口；SC-AU14-B1 外部 Tauri 核心链 PASS：4 个独立 pending（角色 2/规则 1/伏笔 1）、提案阶段零写入、只采纳角色 1+规则 1 后档案投影精确为 1/1/0，另两项仍 pending。**计划内余项**：全书规划字段建议与 CP5 暂定候选/生命周期，未覆盖前 AU-14 不标 done。 | 提炼质量 live PASS ✓；主动 run+逐项采纳页面链 PASS ✓ |
 | CP4c | **done（2026-07-24，finding 触发 A）**：`protagonist_undermaterialized` 的 `revise_design` 变体显示「发起盘点」，单次命令绑定活跃报告条目并启动既有 `fact_inventory_v1`；SC-AU14-A1 外部 Tauri 全链 PASS：空档案 10 章触发唯一 finding，逐项采纳主角沈砚后角色档案可见，下一章正文采纳令弧光账首次出现沈砚，且不倒灌历史账面。 | finding→盘点→逐项采纳→后续正文→弧光起账 PASS ✓ |
 | CP4d | **done（2026-07-28，全书规划字段建议——OQ4 三类之二）**：盘点对缺位规划字段（target_length/planned_volumes/serial_form）同批产 `work_skeleton_suggestion` 提案（artifact item 带结构化 skeleton_field/skeleton_value 槽位，循 narrative_role 先例；只建议缺位字段，flow 双保险过滤）；逐项采纳=works 立项字段回写（AdoptionRepository work 分支，mutation 留痕+optimistic revision，不写记忆/档案对象）；档案概览新增全书规划三行（作者可见后果面）。SC-AU14-B1 扩展 PASS：5 pending/15 actions，采纳规划建议后概览显示目标体量，未采纳字段仍空。 | 单测 domain/common/service/flow/persistence 全绿；SC-AU14-B1 扩展 Tauri PASS ✓ |
-| CP5 | **CP5a-d done（2026-07-28）**：a=characters 加 provisional_source/active 两字段（migration+ProvisionalSource 枚举 codegen）+WorkingAssumption 域策略（OQ2 分级放行/canon 优先门禁/同批同名一致性/OQ3 寿命阈值/【暂定】标注）；b=盘点 PROTAGONIST 候选物化暂定角色（required 自动激活+即时通知；canon 在场/同名守卫集中持久层；失败降级不断主链）+采纳同名收束（character_seed 采纳遇同名假定行就地转正，两确认路径收敛零重复行）；c=可标注注入通道（激活假定计入在场判定、缺席守则让位、【暂定】段注入期临时文本；**百章标本重放双靶 PASS 零写入** artifacts/vs00g-replay/cp5c-replay-2026-07-28.txt）；d=「暂定设定」区+一键确认/否决（channel get_assumptions+confirm/discard_assumption 作者动作）。**CP5e doing**：SC-AU14-A2/A3 场景。**余项**：触发 C（对话流自动提议）、寿命催办负债规则、works 级假定（行级标注歧义待定形）、记忆类假定注入富化 | SC-AU14-A2/A3 |
+| CP5 | **CP5a-d done（2026-07-28）**：a=characters 加 provisional_source/active 两字段（migration+ProvisionalSource 枚举 codegen）+WorkingAssumption 域策略（OQ2 分级放行/canon 优先门禁/同批同名一致性/OQ3 寿命阈值/【暂定】标注）；b=盘点 PROTAGONIST 候选物化暂定角色（required 自动激活+即时通知；canon 在场/同名守卫集中持久层；失败降级不断主链）+采纳同名收束（character_seed 采纳遇同名假定行就地转正，两确认路径收敛零重复行）；c=可标注注入通道（激活假定计入在场判定、缺席守则让位、【暂定】段注入期临时文本；**百章标本重放双靶 PASS 零写入** artifacts/vs00g-replay/cp5c-replay-2026-07-28.txt）；d=「暂定设定」区+一键确认/否决（channel get_assumptions+confirm/discard_assumption 作者动作）。e=SC-AU14-A2/A3 外部 Tauri PASS（AU-14 4/4）。**余项**：触发 C（对话流自动提议）、寿命催办负债规则、works 级假定（行级标注歧义待定形）、记忆类假定注入富化 | SC-AU14-A2/A3 ✓ |
+| CP6（R7 收口） | **done（2026-07-29，CP3 遗留的 R7 补齐）**：`premature_finale` 提前收官负债规则（域 `LedgerReconciliation.premature_finale_finding/3`：进度<70% 且末 5 章标题/`chapter_role` 含终局/大结局/完结/收官/落幕 → ledger=design_debt、severity=warn、处置 revise_design、refs `chapter_plan:<seq>`；target_length 缺位时整体让位给 R6）+ R8 假定寿命催办。**M4b 短跑真实模型 PASS**：盘点 13 提案→主角沈洛就地转正→**规划三字段回写 300000/2/连载**→R7 对第 12 章「第一卷终局」开火（进度 7%），且 R5/R6 因缺口补上而正确消失——治漂移全链在真实模型下首次走通（`artifacts/novel-output/m4-dogfood/m4-audit-2026-07-29.md` §4b）。**短跑顺带修两个产品缺陷**：候选组采纳文案无视 artifact 类型；同名角色重复采纳堆重复档案行（源头 prompt 带已在档名单 + 采纳端同名升 require_confirmation 交作者裁决，**不按 name 静默 upsert**——同名≠同一人）。 | M4b 短跑真实模型 R7 开火 ✓；真实页面可见性并入 SC-AU13 审读场景 |
 
 ---
 

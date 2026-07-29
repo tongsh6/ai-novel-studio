@@ -39,10 +39,15 @@
 | SC-AU13-B2 | revise_prose 处置 → VS-00E §8 sibling 修订候选 → 原稿保留 | CP2 **verified**（`au13-revise-prose-sibling` 真实 Tauri，2026-07-22） |
 | SC-AU13-C1 | 面板「脉络」模块只读视图 + correction intent | CP4 **verified**（并入 `au13-review-adjudication-roundtrip` 场景步骤 1/4c，2026-07-22） |
 | SC-AU13-D1 | 设计负债（VS-00G）：骨架缺位 finding → 对话流补目标体量 → 规划 prompt 带骨架段+收官守则 → 扩章批不再产终局章（百章标本重放先证） | VS-00G CP2/CP3 |
+| SC-AU13-D2 | 设计负债（VS-00G R7 提前收官）：目标体量已立 + 进度远未及 + 近窗章计划出现终局定位 → 审读报告出现 `premature_finale` 条目（含进度百分比与命中章号）→ 作者可 revise_design 裁决 | VS-00G CP6（并入 `au13-review-adjudication-roundtrip` 场景，**doing**） |
 
 ## 5. 场景覆盖状态
 
-5/5（2026-07-22：A1/A2/B1/B2/C1 全部 verified；C1 并入 B1 场景交付——面板只读视图与 correction intent 是同一 roundtrip 的步骤，避免第二个近重复场景）。
+5/5 承重场景（2026-07-22：A1/A2/B1/B2/C1 全部 verified；C1 并入 B1 场景交付——面板只读视图与 correction intent 是同一 roundtrip 的步骤，避免第二个近重复场景）。
+
+设计负债 D 系（VS-00G 扩展）：D1 由百章标本重放先证（R6 开火→骨架回写→收官守则注入）；
+D2 的规则侧已由 M4b 短跑真实模型证明开火（`artifacts/novel-output/m4-dogfood/m4-audit-2026-07-29.md`
+§4b），**真实页面可见性并入 B1 场景**——同一份审读报告多一条 finding，不另起近重复场景。
 
 ## 6. 落地路线
 
