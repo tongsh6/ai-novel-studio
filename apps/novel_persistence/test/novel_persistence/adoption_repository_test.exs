@@ -807,6 +807,109 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
     end
   end
 
+  # AU08 CP2：计划章按各自标注的所属卷物化。B11「章全挂第一卷」的正面修复。
+  describe "计划分卷物化 (AU08 CP2)" do
+    test "标注所属卷的计划物化为多卷，各章挂到对应卷，章号仍全局单调" do
+      work_id = Ecto.UUID.generate()
+
+      content = """
+      第01章：起: 甲。
+      所属卷：第一卷·觉醒
+      第02章：承: 乙。
+      所属卷：第一卷·觉醒
+      第03章：转: 丙。
+      所属卷：第二卷·裂变
+      """
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-vol-1",
+                 artifact_id: "as-vol-1",
+                 artifact_type: :outline_draft,
+                 content: String.trim(content),
+                 summary: "分卷计划"
+               })
+
+      assert %{volumes: [vol1, vol2]} = ReadingProjectionRepo.toc(work_id)
+
+      assert vol1.title == "第一卷·觉醒"
+      assert Enum.map(vol1.chapters, & &1.title) == ["第01章：起", "第02章：承"]
+
+      assert vol2.title == "第二卷·裂变"
+      assert Enum.map(vol2.chapters, & &1.title) == ["第03章：转"]
+
+      # 卷分了，但章号不随卷重启（CP1 不变量在多卷下继续成立）。
+      assert chapter_seqs(work_id) == [1, 2, 3]
+    end
+
+    test "同一卷名幂等：二次采纳追加章不重复建卷" do
+      work_id = Ecto.UUID.generate()
+
+      for {artifact_id, content} <- [
+            {"as-vol-2a", "第01章：起: 甲。\n所属卷：第一卷·觉醒"},
+            {"as-vol-2b", "第02章：承: 乙。\n所属卷：第一卷·觉醒"}
+          ] do
+        assert {:ok, _} =
+                 AdoptionRepository.persist(%{
+                   actor_ref: "author",
+                   work_id: work_id,
+                   source_turn_ref: "turn-#{artifact_id}",
+                   artifact_id: artifact_id,
+                   artifact_type: :outline_draft,
+                   content: content,
+                   summary: "分卷计划"
+                 })
+      end
+
+      assert Repo.aggregate(where(Volume, [v], v.work_id == ^work_id), :count) == 1
+      assert %{volumes: [%{chapters: chapters}]} = ReadingProjectionRepo.toc(work_id)
+      assert length(chapters) == 2
+    end
+
+    test "无卷标注时全部落规范单卷（与 CP2 之前逐字节等价）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-vol-3",
+                 artifact_id: "as-vol-3",
+                 artifact_type: :outline_draft,
+                 content: "第01章：起: 甲。\n第02章：承: 乙。",
+                 summary: "无分卷计划"
+               })
+
+      assert %{volumes: [%{title: "第一卷", chapters: chapters}]} =
+               ReadingProjectionRepo.toc(work_id)
+
+      assert length(chapters) == 2
+    end
+
+    test "部分章有标注、部分没有：有标注的进对应卷，没标注的进规范卷" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-vol-4",
+                 artifact_id: "as-vol-4",
+                 artifact_type: :outline_draft,
+                 content: "第01章：起: 甲。\n第02章：承: 乙。\n所属卷：第二卷",
+                 summary: "半标注计划"
+               })
+
+      assert %{volumes: volumes} = ReadingProjectionRepo.toc(work_id)
+
+      titles = Enum.map(volumes, &{&1.title, Enum.map(&1.chapters, fn c -> c.title end)})
+      assert {"第一卷", ["第01章：起"]} in titles
+      assert {"第二卷", ["第02章：承"]} in titles
+    end
+  end
+
   defp chapter_seqs(work_id) do
     Chapter
     |> where([c], c.work_id == ^work_id)

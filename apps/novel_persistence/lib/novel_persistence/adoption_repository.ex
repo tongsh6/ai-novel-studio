@@ -501,18 +501,20 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
+  # AU08 CP2：计划章按各自标注的所属卷物化。无标注（单卷书或旧计划）→ 全部落规范卷，
+  # 与 CP2 之前逐字节等价。卷按 (work_id, title) 幂等复用，同名不重复建卷。
   defp materialize_chapter_structure(repo, work_id, content) do
-    chapters = ChapterPlanParser.parse(content)
-
-    with {:ok, volume} <- find_or_create_volume(repo, work_id) do
-      reduce_planned_chapters(repo, work_id, volume.id, chapters)
-    end
+    content
+    |> ChapterPlanParser.parse()
+    |> reduce_planned_chapters(repo, work_id)
   end
 
-  defp reduce_planned_chapters(repo, work_id, volume_id, chapters) do
+  defp reduce_planned_chapters(chapters, repo, work_id) do
     Enum.reduce_while(chapters, {:ok, 0}, fn chapter, {:ok, n} ->
-      case ensure_planned_chapter(repo, work_id, volume_id, chapter) do
-        :ok -> {:cont, {:ok, n + 1}}
+      with {:ok, volume} <- find_or_create_volume(repo, work_id, chapter[:volume_title]),
+           :ok <- ensure_planned_chapter(repo, work_id, volume.id, chapter) do
+        {:cont, {:ok, n + 1}}
+      else
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
@@ -604,9 +606,32 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   # 当前作品的规范卷：复用已存在的（计划物化或历史采纳建的）首个卷；无则建默认卷。
-  # 计划是扁平章列表，无卷分组（v3 27 §5.1：TOC 以 volume ordering 为一级、arc 仅 secondary），
-  # 故用单一默认卷承载。
-  defp find_or_create_volume(repo, work_id) do
+  # AU08 CP2 起，计划章可标注所属卷（`所属卷：xxx`）：给了卷标题就按 (work_id, title)
+  # 幂等取用/新建，没给就仍落规范卷（单卷书与旧计划逐字节等价）。
+  defp find_or_create_volume(repo, work_id, volume_title \\ nil)
+
+  defp find_or_create_volume(repo, work_id, volume_title)
+       when is_binary(volume_title) and volume_title != "" do
+    title = String.trim(volume_title)
+
+    Volume
+    |> where([v], v.work_id == ^work_id and v.title == ^title)
+    |> limit(1)
+    |> repo.one()
+    |> case do
+      nil ->
+        insert_volume(repo, %{
+          work_id: work_id,
+          title: title,
+          seq: next_volume_seq(repo, work_id)
+        })
+
+      volume ->
+        {:ok, volume}
+    end
+  end
+
+  defp find_or_create_volume(repo, work_id, _volume_title) do
     Volume
     |> where([v], v.work_id == ^work_id)
     |> order_by([v], asc: v.seq)

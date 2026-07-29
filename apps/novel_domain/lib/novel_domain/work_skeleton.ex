@@ -42,11 +42,41 @@ defmodule NovelDomain.WorkSkeleton do
           |> Enum.reject(&is_nil/1)
           |> Enum.join("\n")
 
-        "## 全书规划（连载参照）\n" <> facts <> "\n" <> closure_directive(progress)
+        directives =
+          [closure_directive(progress), volume_directive(snapshot)]
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.join("\n")
+
+        "## 全书规划（连载参照）\n" <> facts <> "\n" <> directives
     end
   end
 
   def render(_snapshot, _written), do: ""
+
+  @doc """
+  卷分组守则（AU08 CP2）：`planned_volumes > 1` 时要求逐章标注所属卷。
+
+  与收官守则同款——CA01「在场但无效」判例的第二次修正：`planned_volumes: 2` 此前只作为
+  事实行渲染（「预计卷数：2」），模型看得到却没有任何指令要它真去分卷，于是全书章一律
+  落进单一默认卷（B11 / NEM-GAP-07）。字段在场 ≠ 守则生效，故此处给出**指令式**分卷要求
+  与精确到行的输出格式（`ChapterPlanParser` 的解析口径）。
+
+  单卷（或未立卷数）不发指令——单卷书逐章标注是噪声。
+  """
+  @spec volume_directive(snapshot()) :: String.t()
+  def volume_directive(snapshot) when is_map(snapshot) do
+    case planned_volumes(snapshot) do
+      n when is_integer(n) and n > 1 ->
+        "分卷规划要求：全书分 #{n} 卷，每章必须在结构化方向中另起一行标注所属卷，" <>
+          "格式为「所属卷：卷标题」（例：所属卷：第一卷）；同卷各章连续排列，" <>
+          "卷标题在全书内保持一致，不要为同一卷起两个名字。"
+
+      _ ->
+        ""
+    end
+  end
+
+  def volume_directive(_snapshot), do: ""
 
   @doc "收官守则文本：距目标体量尚远 → 指令式禁终局；接近 → 可安排收束。"
   @spec closure_directive(float()) :: String.t()
@@ -74,10 +104,14 @@ defmodule NovelDomain.WorkSkeleton do
   end
 
   defp volume_line(snapshot) do
-    case Map.get(snapshot, :planned_volumes, Map.get(snapshot, "planned_volumes")) do
+    case planned_volumes(snapshot) do
       n when is_integer(n) and n > 0 -> "- 预计卷数：#{n}"
       _ -> nil
     end
+  end
+
+  defp planned_volumes(snapshot) do
+    Map.get(snapshot, :planned_volumes, Map.get(snapshot, "planned_volumes"))
   end
 
   defp serial_line(snapshot) do

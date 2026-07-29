@@ -34,11 +34,17 @@ defmodule NovelPersistence.ChapterPlanParser do
                           do: {label, field}
                     )
 
+  # AU08 CP2：卷归属逐章标注（`所属卷：第一卷`）。它不是章的「方向」（E18-E22 九字段是
+  # 写作指导），而是结构归属，故独立成 chapter 字段而非塞进 plan_direction。
+  # 选逐章标注而非卷标题分隔行：标注自描述、不依赖行序，重排/追加不会串卷。
+  @volume_labels ["所属卷", "卷归属", "所属分卷"]
+
   @type chapter :: %{
           seq: pos_integer(),
           title: String.t(),
           summary: String.t() | nil,
-          plan_direction: map() | nil
+          plan_direction: map() | nil,
+          volume_title: String.t() | nil
         }
 
   @doc "解析章节计划文本为有序章节条目（seq 从 1 起）。空标题行被丢弃。"
@@ -76,25 +82,53 @@ defmodule NovelPersistence.ChapterPlanParser do
     |> Enum.map(&Enum.reverse/1)
   end
 
+  # 标注行不得被当成新章的起始行。卷标注若用 ASCII 冒号加空格写成 `所属卷: 第一卷`，
+  # 会命中 `contains?(": ")` —— 不把它算进 label_line? 就会当场劈出一个空章。
   defp chapter_start_line?(line) do
-    not direction_label_line?(line) and
+    not label_line?(line) and
       (String.contains?(line, ": ") or Regex.match?(~r/^第\s*[0-9０-９一二三四五六七八九十百]+\s*[章节回]/u, line))
   end
 
   defp parse_block([first | rest]) do
     {title, initial} = parse_title_and_initial(first)
-    direction_text = [initial | rest] |> Enum.reject(&blank?/1) |> Enum.join("\n")
-    direction = parse_direction(direction_text)
+    body_lines = [initial | rest] |> Enum.reject(&blank?/1)
+    {volume_title, direction_lines} = extract_volume_title(body_lines)
+    direction = direction_lines |> Enum.join("\n") |> parse_direction()
 
     %{
       seq: 0,
       title: title,
       summary: summary(initial, direction),
-      plan_direction: ChapterPlanDirection.to_storage(direction)
+      plan_direction: ChapterPlanDirection.to_storage(direction),
+      volume_title: volume_title
     }
   end
 
-  defp parse_block(_block), do: %{seq: 0, title: "", summary: nil, plan_direction: nil}
+  defp parse_block(_block),
+    do: %{seq: 0, title: "", summary: nil, plan_direction: nil, volume_title: nil}
+
+  # 卷标注抽出后不再参与方向解析与摘要计算：它是结构归属，不该混进写作指导文本。
+  defp extract_volume_title(lines) do
+    {volume_lines, rest} = Enum.split_with(lines, &volume_label_line?/1)
+
+    volume_title =
+      volume_lines
+      |> Enum.find_value(fn line ->
+        case split_label(line) do
+          {:ok, _label, value} -> blank_to_nil(value)
+          :error -> nil
+        end
+      end)
+
+    {volume_title, rest}
+  end
+
+  defp volume_label_line?(line) do
+    case split_label(line) do
+      {:ok, label, _value} -> normalize_direction_label(label) in @volume_labels
+      :error -> false
+    end
+  end
 
   defp parse_title_and_initial(line) do
     case String.split(line, ": ", parts: 2) do
@@ -139,6 +173,8 @@ defmodule NovelPersistence.ChapterPlanParser do
       :error -> false
     end
   end
+
+  defp label_line?(line), do: direction_label_line?(line) or volume_label_line?(line)
 
   defp direction_field(label) do
     label
