@@ -39,7 +39,7 @@
 | SC-AU13-B2 | revise_prose 处置 → VS-00E §8 sibling 修订候选 → 原稿保留 | CP2 **verified**（`au13-revise-prose-sibling` 真实 Tauri，2026-07-22） |
 | SC-AU13-C1 | 面板「脉络」模块只读视图 + correction intent | CP4 **verified**（并入 `au13-review-adjudication-roundtrip` 场景步骤 1/4c，2026-07-22） |
 | SC-AU13-D1 | 设计负债（VS-00G）：骨架缺位 finding → 对话流补目标体量 → 规划 prompt 带骨架段+收官守则 → 扩章批不再产终局章（百章标本重放先证） | VS-00G CP2/CP3 |
-| SC-AU13-D2 | 设计负债（VS-00G R7 提前收官）：目标体量已立 + 进度远未及 + 近窗章计划出现终局定位 → 审读报告出现 `premature_finale` 条目（含进度百分比与命中章号）→ 作者可 revise_design 裁决 | VS-00G CP6（并入 `au13-review-adjudication-roundtrip` 场景，**doing**） |
+| SC-AU13-D2 | 设计负债（VS-00G R7 提前收官）：目标体量已立 + 进度远未及 + 近窗章计划出现终局定位 → 审读报告出现 `premature_finale` 条目（含进度百分比与命中章号）→ 作者可 revise_design 裁决 | VS-00G CP6 **verified**（并入 `au13-review-adjudication-roundtrip` 真实 Tauri 场景步骤 3b/4e，2026-07-29） |
 
 ## 5. 场景覆盖状态
 
@@ -47,7 +47,10 @@
 
 设计负债 D 系（VS-00G 扩展）：D1 由百章标本重放先证（R6 开火→骨架回写→收官守则注入）；
 D2 的规则侧已由 M4b 短跑真实模型证明开火（`artifacts/novel-output/m4-dogfood/m4-audit-2026-07-29.md`
-§4b），**真实页面可见性并入 B1 场景**——同一份审读报告多一条 finding，不另起近重复场景。
+§4b），**真实页面可见性已并入 B1 场景**（2026-07-29 verified）——同一份审读报告多一条 finding，
+不另起近重复场景：种子作品立 6 万字目标、只写第 1 章（进度 1%），但第 4 章计划已是
+「第一卷终局」，审读报告第 5 条即 `premature_finale`，页面可见进度百分比与命中章号，
+`revise_design` 处置把收官信号原文带回对话流。
 
 ## 6. 落地路线
 

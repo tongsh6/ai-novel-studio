@@ -232,6 +232,91 @@ describe("native Tauri slice verifier", () => {
     ).toBeNull();
   });
 
+  it("requires the review roundtrip to report the premature-finale design debt with progress and chapter", () => {
+    const sliceId = "au13-review-adjudication-roundtrip";
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      design_turn_id: "turn-design",
+      prose_turn_id: "turn-prose",
+      review_report_id: "report-au13-b1",
+      review_finding_count: 5,
+      adjudicated_count: 5,
+      dispositions: ["accept_drift", "dismiss", "revise_design", "revise_prose"],
+      dismiss_evidence_logged: true,
+      design_intent_text: "审读报告发现「韩晟 自第1章后未再出场（停滞阈值超限）」，我选择修订设定：…",
+      prose_intent_text: "审读报告发现「白露 自第1章后未再出场（停滞阈值超限）」，我选择修订正文：…",
+      report_fully_dispositioned: true,
+      premature_finale_visible: true,
+      premature_finale_chapter_seq: 4,
+      premature_finale_progress_percent: 1,
+      premature_finale_signal:
+        "全书进度约 1%，但近期章计划已出现终局/收官定位（第 4 章）——距目标体量尚远，建议调整规划；如确要收束请明示确认。 证据：chapter_plan:4",
+      premature_finale_intent_text:
+        "审读报告发现「全书进度约 1%，但近期章计划已出现终局/收官定位（第 4 章）——距目标体量尚远…」，我选择修订设定：…",
+      premature_finale_turn_id: "turn-finale",
+      review_rules: { arc_stalled: 4, premature_finale: 1 },
+    };
+    const records = [
+      {
+        event: "ledger.report.done",
+        report_id: "report-au13-b1",
+        finding_count: 5,
+        rules: { arc_stalled: 4, premature_finale: 1 },
+      },
+      { event: "ledger.adjudicate.done", disposition: "accept_drift" },
+      { event: "ledger.adjudicate.done", disposition: "dismiss" },
+      { event: "ledger.dismiss.done", rule: "arc_stalled" },
+      { event: "ledger.adjudicate.done", disposition: "revise_design" },
+      { event: "ledger.adjudicate.done", disposition: "revise_prose" },
+      { event: "ledger.adjudicate.done", disposition: "revise_design", rule: "premature_finale" },
+      uiState,
+    ];
+
+    const evidence = findNativeSliceEvidence(sliceId, records);
+    expect(evidence).toEqual({
+      slice_id: sliceId,
+      turn_id: "turn-design",
+      turn_ids: ["turn-design", "turn-prose", "turn-finale"],
+      review_report_id: "report-au13-b1",
+      review_finding_count: 5,
+      adjudicated_count: 5,
+      dispositions: ["accept_drift", "dismiss", "revise_design", "revise_prose"],
+      premature_finale_chapter_seq: 4,
+      premature_finale_progress_percent: 1,
+      review_rules: { arc_stalled: 4, premature_finale: 1 },
+      key_events: keyEventsForSlice(sliceId),
+    });
+    expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toEqual({
+      slice_id: sliceId,
+      adjudication_roundtrip: true,
+      dispositions: ["accept_drift", "dismiss", "revise_design", "revise_prose"],
+      dismiss_evidence: true,
+      correction_intents_via_user_message: true,
+      premature_finale_reported_with_progress_and_chapter: true,
+      premature_finale_chapter_seq: 4,
+      premature_finale_progress_percent: 1,
+    });
+
+    const withoutFinaleOnPage = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, premature_finale_visible: false }
+        : record,
+    );
+    expect(findNativeSliceEvidence(sliceId, withoutFinaleOnPage)).toBeNull();
+
+    const withoutFinaleRule = records.map((record) => {
+      if (record.event === "ledger.report.done") {
+        return { ...record, finding_count: 4, rules: { arc_stalled: 4 } };
+      }
+      if (record.event === "slice_verify.ui_state.done") {
+        return { ...record, review_rules: { arc_stalled: 4 } };
+      }
+      return record;
+    });
+    expect(findNativeSliceEvidence(sliceId, withoutFinaleRule)).toBeNull();
+  });
+
   it("requires a bound protagonist finding, protagonist adoption, and next-prose arc update", () => {
     const records = [
       {

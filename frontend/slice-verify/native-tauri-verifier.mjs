@@ -13482,19 +13482,26 @@ function au13ReviseProseSiblingBehavior(_turnIds, _turnRecords, records, evidenc
 function findAu13ReviewAdjudicationEvidence(records) {
   const sliceId = "au13-review-adjudication-roundtrip";
 
+  // 报告条目 = 4 条停滞偏离 + 1 条 VS-00G R7 提前收官设计负债，逐条真实处置。
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
-      Number(record.review_finding_count ?? 0) >= 4 &&
-      Number(record.adjudicated_count ?? 0) >= 4 &&
+      Number(record.review_finding_count ?? 0) >= 5 &&
+      Number(record.adjudicated_count ?? 0) >= 5 &&
       record.dismiss_evidence_logged === true &&
-      record.report_fully_dispositioned === true,
+      record.report_fully_dispositioned === true &&
+      record.premature_finale_visible === true &&
+      Number(record.premature_finale_chapter_seq ?? 0) > 0 &&
+      Number(record.review_rules?.premature_finale ?? 0) >= 1,
   );
   if (!uiState) return null;
 
   const report = records.find(
-    (record) => record.event === "ledger.report.done" && Number(record.finding_count ?? 0) >= 4,
+    (record) =>
+      record.event === "ledger.report.done" &&
+      Number(record.finding_count ?? 0) >= 5 &&
+      Number(record.rules?.premature_finale ?? 0) >= 1,
   );
   if (!report) return null;
 
@@ -13508,16 +13515,20 @@ function findAu13ReviewAdjudicationEvidence(records) {
 
   const designTurnId = String(uiState.design_turn_id ?? "");
   const proseTurnId = String(uiState.prose_turn_id ?? "");
-  if (!designTurnId || !proseTurnId) return null;
+  const finaleTurnId = String(uiState.premature_finale_turn_id ?? "");
+  if (!designTurnId || !proseTurnId || !finaleTurnId) return null;
 
   return {
     slice_id: sliceId,
     turn_id: designTurnId,
-    turn_ids: [...new Set([designTurnId, proseTurnId].filter(Boolean))],
+    turn_ids: [...new Set([designTurnId, proseTurnId, finaleTurnId].filter(Boolean))],
     review_report_id: String(uiState.review_report_id ?? ""),
     review_finding_count: Number(uiState.review_finding_count ?? 0),
     adjudicated_count: adjudications.length,
     dispositions: [...dispositions].sort(),
+    premature_finale_chapter_seq: Number(uiState.premature_finale_chapter_seq ?? 0),
+    premature_finale_progress_percent: Number(uiState.premature_finale_progress_percent ?? 0),
+    review_rules: uiState.review_rules ?? {},
     key_events: keyEventsForSlice(sliceId),
   };
 }
@@ -13535,12 +13546,30 @@ function au13ReviewAdjudicationBehavior(_turnIds, _turnRecords, records, evidenc
   if (!String(uiState.design_intent_text ?? "").includes("修订设定")) return null;
   if (!String(uiState.prose_intent_text ?? "").includes("修订正文")) return null;
 
+  // VS-00G R7：提前收官条目必须带作者可见的进度（低于阈值）与终局章号，
+  // 并以 revise_design 走同一条 correction intent 链路。
+  const finaleSignal = String(uiState.premature_finale_signal ?? "");
+  const finaleProgressPercent = Number(uiState.premature_finale_progress_percent ?? NaN);
+  const finaleChapterSeq = Number(uiState.premature_finale_chapter_seq ?? 0);
+  const finaleReported =
+    finaleSignal.includes("终局/收官定位") &&
+    finaleSignal.includes("距目标体量尚远") &&
+    Number.isFinite(finaleProgressPercent) &&
+    finaleProgressPercent < 70 &&
+    finaleChapterSeq > 0 &&
+    String(uiState.premature_finale_intent_text ?? "").includes("修订设定") &&
+    Number(evidence.review_rules?.premature_finale ?? 0) >= 1;
+  if (!finaleReported) return null;
+
   return {
     slice_id: evidence.slice_id,
     adjudication_roundtrip: true,
     dispositions: evidence.dispositions,
     dismiss_evidence: true,
     correction_intents_via_user_message: true,
+    premature_finale_reported_with_progress_and_chapter: true,
+    premature_finale_chapter_seq: finaleChapterSeq,
+    premature_finale_progress_percent: finaleProgressPercent,
   };
 }
 

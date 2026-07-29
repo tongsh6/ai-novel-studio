@@ -1,0 +1,76 @@
+id: au13-review-adjudication-roundtrip
+title: 审读报告逐项裁决与提前收官设计负债
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au13-review-adjudication-roundtrip --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md
+  - docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md
+  - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/VS-00F-five-ledgers-three-state.md
+
+invariants:
+  - ledger-panel-and-report-are-readonly-until-author-adjudicates
+  - full-review-runs-the-real-ledger-reconciliation-profile-without-preseeded-report
+  - every-finding-carries-non-empty-source-refs
+  - four-dispositions-each-resolve-exactly-one-finding
+  - dismiss-lands-in-structured-experience-evidence
+  - revise-dispositions-return-to-the-dialogue-as-correction-intent
+  - premature-finale-reported-before-target-length
+  - no-silent-rewrite-of-design-or-prose
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au13_review_adjudication.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench seeded with four adopted characters, four STALLED arc entries, a four-chapter plan whose chapter four is 第一卷终局, an adopted chapter-one prose and a 60000-word target length
+  - open: 作品档案脉络
+  - observe: 五条脉络 with 停滞 4 chip, honest empty report and readonly hint
+  - click: 发起全书审读
+  - observe: 全书审读完成：发现 5 处偏离
+  - open: 作品档案脉络
+  - observe: four 自第1章后未再出场 findings plus one 终局/收官定位 finding stating 全书进度约 N% and 第 4 章
+  - click: 接受走向 on 凌渊
+  - click: 标记误报 on 沈墨
+  - click: 修订设定 on 韩晟
+  - click: 修订正文 on 白露
+  - click: 修订设定 on the 提前收官 finding
+  - open: 作品档案脉络
+  - observe: 暂无待处置的审读报告
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri
+
+assertions:
+  ui:
+    - 脉络 tab shows five threads, the STALLED chip and the readonly hint before any review
+    - review report card lists four arc findings and one premature-finale finding
+    - premature-finale card states the progress percent, the finale chapter seq and cites chapter_plan evidence
+    - premature-finale card offers the 修订设定 disposition
+    - report shows 暂无待处置的审读报告 after all five findings are dispositioned
+  network:
+    - 发起全书审读 travels as a real author action that starts ledger_reconciliation_v1
+    - revise_design and revise_prose dispositions send correction intents as real user_message frames
+    - premature-finale correction intent carries the 终局/收官定位 signal verbatim
+  data:
+    - ledger.report.done reports finding_count 5 and rules premature_finale at least 1
+    - ledger.adjudicate.done covers accept_drift dismiss revise_design revise_prose
+    - ledger.dismiss.done records the dismissed finding as structured evidence
+    - premature-finale progress percent is below the 70 percent rule threshold
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

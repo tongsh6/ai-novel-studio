@@ -10553,6 +10553,9 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   // SC-AU13-B1 + SC-AU13-C1（VS-00F CP4c-3）：面板「脉络」只读视图（C1）→ 显式
   // 发起全书审读（ledger_reconciliation_v1 真实 run）→ 审读报告四处置各一例（B1，
   // dismiss 进证据日志；修订类 correction intent 回对话流）→ 全部处置后报告转已处置。
+  // VS-00G R7 并入：同一份真实报告里还必须出现「提前收官」设计负债条目——种子作品
+  // 已立目标体量、正文才写第 1 章，但第 4 章计划已是「第一卷终局」，审读须在真实
+  // 页面上报出进度与章号，并提供 revise_design 处置。
   const openThreadsTab = async () => {
     await page.getByRole("button", { name: "打开档案" }).first().click();
     await waitForArchivePanel(page);
@@ -10587,7 +10590,7 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   await page.waitForFunction(() => document.body.innerText.includes("全书审读完成"), {
     timeout: 120_000,
   });
-  await page.waitForFunction(() => document.body.innerText.includes("4 处偏离"), {
+  await page.waitForFunction(() => document.body.innerText.includes("5 处偏离"), {
     timeout: 10_000,
   });
   const reportRecord = await waitForNewAppLogRecord(
@@ -10596,8 +10599,14 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
     "No ledger.report.done record after explicit full review",
     60_000,
   );
+  const reviewRules =
+    reportRecord.rules && typeof reportRecord.rules === "object" ? reportRecord.rules : {};
+  assert(
+    Number(reviewRules.premature_finale ?? 0) >= 1,
+    `ledger.report.done rules must report premature_finale, got ${JSON.stringify(reviewRules)}`,
+  );
 
-  // 3. 报告可见（待处置）：四条停滞偏离
+  // 3. 报告可见（待处置）：四条停滞偏离 + 一条提前收官设计负债（VS-00G R7）
   await openThreadsTab();
   await page.waitForFunction(() => document.body.innerText.includes("审读报告"), {
     timeout: 10_000,
@@ -10605,6 +10614,39 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   await page.waitForFunction(() => document.body.innerText.includes("自第1章后未再出场"), {
     timeout: 10_000,
   });
+
+  // 3b.（VS-00G R7）提前收官条目：作者可见的进度、终局章号与证据引用，
+  // 且提供「修订设定」处置动作（该规则的建议处置 = revise_design）。
+  const finaleCard = findingCard("终局/收官定位");
+  await finaleCard.waitFor({ timeout: 10_000 });
+  const finaleSignal = normalizeVisibleText(await finaleCard.innerText());
+  assert(
+    finaleSignal.includes("距目标体量尚远"),
+    `Premature-finale finding must state the remaining distance to target length, got: ${finaleSignal}`,
+  );
+  const finaleSeqMatch = finaleSignal.match(/第\s*([0-9]+)\s*章/);
+  assert(
+    finaleSeqMatch,
+    `Premature-finale finding must name the finale chapter seq, got: ${finaleSignal}`,
+  );
+  const finaleProgressMatch = finaleSignal.match(/全书进度约\s*([0-9]+)\s*%/);
+  assert(
+    finaleProgressMatch,
+    `Premature-finale finding must state the overall progress percent, got: ${finaleSignal}`,
+  );
+  assert(
+    finaleSignal.includes(`chapter_plan:${finaleSeqMatch[1]}`),
+    `Premature-finale finding must cite the finale chapter plan as evidence, got: ${finaleSignal}`,
+  );
+  await finaleCard
+    .getByRole("button", { name: "修订设定", exact: true })
+    .waitFor({ timeout: 10_000 });
+  const finaleChapterSeq = Number(finaleSeqMatch[1]);
+  const finaleProgressPercent = Number(finaleProgressMatch[1]);
+  assert(
+    finaleProgressPercent < 70,
+    `Premature-finale finding must fire below the progress threshold, got ${finaleProgressPercent}%`,
+  );
 
   // 4a. 凌渊 → 接受走向（面板内即时已处置，账面裁决态转移）
   await findingCard("凌渊").getByRole("button", { name: "接受走向", exact: true }).click();
@@ -10660,7 +10702,31 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
     frameStartProse,
     (frame) => frame.direction === "received" && frame.event === "turn_result",
     "No turn_result after revise-prose correction intent",
-    120_000,
+    200_000,
+  );
+
+  // 4e.（VS-00G R7）提前收官 → 修订设定：设计负债条目走同一条真实处置链路，
+  // correction intent 把收官信号原文带回对话流（不静默改规划）。
+  await openThreadsTab();
+  const frameStartFinale = frames.length;
+  await findingCard("终局/收官定位")
+    .getByRole("button", { name: "修订设定", exact: true })
+    .click();
+  const finaleIntentFrame = await waitForNewFrame(
+    frameStartFinale,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("修订设定") &&
+      String(frame.body?.text ?? "").includes("终局/收官定位"),
+    "Premature-finale disposition did not send a correction intent user_message",
+    30_000,
+  );
+  const finaleTurnFrame = await waitForNewFrame(
+    frameStartFinale,
+    (frame) => frame.direction === "received" && frame.event === "turn_result",
+    "No turn_result after premature-finale correction intent",
+    200_000,
   );
 
   // 5. 全部处置 → 报告转 ACCEPTED、活跃报告清空（latest 只回 TENTATIVE）：
@@ -10689,6 +10755,14 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
       design_intent_text: String(designIntentFrame.body?.text ?? ""),
       prose_intent_text: String(proseIntentFrame.body?.text ?? ""),
       report_fully_dispositioned: true,
+      // VS-00G R7 提前收官（页面可见文本 + 真实报告留痕）
+      premature_finale_visible: true,
+      premature_finale_chapter_seq: finaleChapterSeq,
+      premature_finale_progress_percent: finaleProgressPercent,
+      premature_finale_signal: finaleSignal,
+      premature_finale_intent_text: String(finaleIntentFrame.body?.text ?? ""),
+      premature_finale_turn_id: String(finaleTurnFrame.body?.turn_id ?? ""),
+      review_rules: reviewRules,
     },
   ];
 }

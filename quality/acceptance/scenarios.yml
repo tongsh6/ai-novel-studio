@@ -987,6 +987,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au12-archive-concurrent-model-run-read-snapshot.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au12-archive-concurrent-model-run-read-snapshot --surface tauri
+  - id: au13-review-adjudication-roundtrip
+    title: "审读报告逐项裁决与提前收官设计负债"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au13-review-adjudication-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au13-review-adjudication-roundtrip --surface tauri
   - id: au14-fact-inventory-roundtrip
     title: "作品档案主动盘点：既有设定种子逐项采纳"
     tier: nightly

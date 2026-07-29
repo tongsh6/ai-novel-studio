@@ -154,4 +154,7 @@ for {name, profile} <- characters do
     })
 end
 
-IO.puts("[au13-review-adjudication-seed] work_id=#{work.id} session_id=#{session_id}")
+IO.puts(
+  "[au13-review-adjudication-seed] work_id=#{work.id} session_id=#{session_id} " <>
+    "finale_chapter_seq=4 target_length=60000"
+)
