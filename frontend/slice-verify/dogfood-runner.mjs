@@ -487,12 +487,16 @@ async function clickInventoryAccept(page, { itemName, optionLabel, acceptFallbac
     const radio = page.getByRole("radio", { name: new RegExp(`选择.*：${itemName}`) });
     if ((await radio.count()) > 0) {
       await radio.last().check();
-      const selected = page.getByRole("button", { name: /保存方案 .* 到作品档案/ });
+      const selected = page.getByRole("button", {
+        name: /(保存方案 .* 到作品档案|采纳方案 .* 为全书规划)/,
+      });
       if ((await selected.count()) > 0) {
         await selected.last().click();
         return `candidate:${itemName}`;
       }
-      const anyAccept = page.getByRole("button", { name: /保存.*作品档案/ });
+      const anyAccept = page
+        .getByRole("button", { name: /(保存.*作品档案|采纳.*全书规划)/ })
+        .and(page.locator("button:not([disabled])"));
       await anyAccept.last().click();
       return `candidate-loose:${itemName}`;
     }
@@ -618,10 +622,13 @@ async function runInventoryBeat(page) {
 
   for (const unit of skeletonUnits) {
     const field = itemField(unit.payload?.items?.[0], "skeleton_field");
+    // 规划建议同样可能渲染成候选组（一次盘点常产多条规划字段建议）——必须带
+    // itemName 走「先选候选再点启用按钮」路径，否则按钮恒 disabled 点不动。
+    const skeletonName = itemField(unit.payload?.items?.[0], "title");
     await adoptInventoryUnit(
       page,
       unit,
-      { itemName: null, optionLabel: null, acceptFallback: "采纳为全书规划" },
+      { itemName: skeletonName, optionLabel: null, acceptFallback: "采纳为全书规划" },
       fromIndex,
     );
     adopted.skeleton_fields.push(field);
