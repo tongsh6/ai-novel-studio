@@ -79,6 +79,7 @@
 | `au07-tooltrace-registry-redacted-io.yml` | ToolTrace registry snapshot 与 redacted I/O |
 | `au07-state-trace-adoption-replay.yml` | 采纳与阅读投影携带可回放 StateTrace |
 | `au07-trace-why-entry.yml` | 工作台为什么入口与 author-safe trace 摘要 |
+| `au08-volume-structured-planning.yml` | 分卷规划物化为多卷目录（档案大纲与阅读目录按卷分层） |
 | `au08-reading-return-context.yml` | 阅读返回工作台后保持同一 work/session 上下文 |
 | `au08-reading-readonly-no-write.yml` | 阅读模式查看、导出和返回保持只读 |
 | `au09-adopt-setting-recall.yml` | 档案伏笔规则采纳为可召回设定 |

@@ -181,9 +181,28 @@ accept_label=「采纳方案 A 为全书规划」、rows 1→2。③**Order 8 �
 `accepted_summaries_by_seq/1`、阅读章列表、正文检索三处都跨全书按 `c.seq` 排序 →
 **静默乱序**（账本错位、R7 末 N 章窗取错）。已收为 work 级全局（书里章号本就是
 「第12章」而非「卷二第2章」），三条不变量测试反向验证确实会红（实测 `[1,1,1]`、
-`[1,1,7]`）。**CP2 next**：plot_outline prompt 增卷槽位（只在 planned_volumes>1 时要求）
-+ ChapterPlanParser 识别卷边界 + `find_or_create_volume` 接受卷规格，无卷信息退化单卷。
-**CP3**：前端两处 flatMap 收口 + 探索面卷分布 + 真实 Tauri。
+`[1,1,7]`）。**CP2 done**：`WorkSkeleton.volume_directive/1`（planned_volumes>1 才发指令式分卷要求，
+CA01「字段在场≠守则生效」第二次重演）+ ChapterPlanParser 识别逐章 `所属卷：xxx` 标注 +
+`find_or_create_volume/3` 按 (work_id,title) 幂等建卷，无标注退化单卷。坑：标注若写成
+ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例钉住。
+**CP3 done**：StructurePanel 大纲 tab 多卷分组（单卷保持扁平）+ 探索面卷分布 +
+**真实 Tauri PASS**（`volume_headers=["第一卷·觉醒 · 5章","第二卷·裂变 · 7章"]`，
+故意 5/7 不等分防「按章数均分」猜中，driver 要求页面分组逐条等于模型输出的 `所属卷` 标注）。
+更正：ReadingMode 目录本就按卷渲染，先前说它扔掉分组是看漏。**AU08 slice done**。
+
+**本 slice 顺带查出、需用户裁决的两件（未自行处置）**：
+1. **`p1-chapter-plan-minimum` 已红**（既有回归，非本批引入）。先修掉一个既有 JS 崩溃
+   （`driveP1ChapterPlanMinimum` 里误植了修订驱动的代码块，引用本作用域不存在的
+   `verifyActionRunAnchoring` → 必然 ReferenceError，该门长期跑不起来）；修掉后暴露更深
+   的问题：**规划请求现在走 bounded AgentRun**，而它的 verifier 仍要求判断纪元之前的直路
+   trace 形状。机器证据：`planner.form_frame.done=0`、`planner.form_micro_plan.done=0`、
+   采纳落 `<parent>:agent:4` 子 turn、`toolbox.execute.done` 不带 turn_id。
+   **我没改它的断言**——把测试期望改成「现在的样子」会掩盖「plot_outline 该不该起
+   bounded run」这个产品问题（记忆里 2026-06-29 的裁决是"仅 character 复合起 bounded run"），
+   那是拍板题不是修 bug。
+2. **ESLint 只覆盖 `**/*.{ts,tsx}`，验收 harness 的 .mjs driver 零静态检查**——这正是上面
+   那个必然抛 ReferenceError 的标识符能长期存活的原因。纳入 lint 可能一次性翻出大量既有
+   告警，是否做、做到什么程度需拍板。
 刀序余项（等拉动）：②角色主体+AU12 归并（**只补 roster 不做归并会把空转换成噪声**）
 ③场级 craft ④information 账+design_ref。R2「自由创作只产两种 artifact」是另一把刀，
 不与本刀合并。

@@ -152,6 +152,7 @@ export const nativeSliceIds = [
   "au05-canon-conflict-recovery",
   "au05-discard-author-action",
   "p1-chapter-plan-minimum",
+  "au08-volume-structured-planning",
   "p1-chapter-draft-generation",
   "p1-prose-execution-brief",
   "p1-prose-revision-candidate",
@@ -380,6 +381,22 @@ const sliceKeyEvents = {
     "planner.form_micro_plan.done",
     "toolbox.execute.done",
     "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  // 规划请求走 bounded AgentRun（judgment → allow_tool → plot_outline），
+  // 因此关键事件是 judgment/orchestrator/toolbox，而不是 planner.form_* 直路。
+  "au08-volume-structured-planning": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "judgment.decided.done",
+    "channel.user_message.done",
+    "context.fact_completeness.done",
+    "toolbox.execute.done",
     "channel.author_action.start",
     "adoption.evaluate.done",
     "channel.author_action.done",
@@ -1899,6 +1916,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterPlanMinimumEvidence(records);
   }
 
+  if (sliceId === "au08-volume-structured-planning") {
+    return findAu08VolumeStructuredPlanningEvidence(records);
+  }
+
   if (sliceId === "p1-chapter-draft-generation") {
     return findP1ChapterDraftGenerationEvidence(records);
   }
@@ -2545,6 +2566,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-plan-minimum") {
     return p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au08-volume-structured-planning") {
+    return au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "p1-chapter-draft-generation") {
@@ -12125,6 +12150,150 @@ function findP1ChapterPlanMinimumEvidence(records) {
   };
 }
 
+// AU08 卷结构：卷表头文本形如「第一卷·觉醒 · 5章」，末尾的章数是作者看到的口径。
+function volumeHeaderChapterCount(header) {
+  const match = String(header ?? "").match(/·\s*(\d+)章$/);
+  return match ? Number(match[1]) : null;
+}
+
+function stringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
+}
+
+function findAu08VolumeStructuredPlanningEvidence(records) {
+  const sliceId = "au08-volume-structured-planning";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.outline_adopt_clicked === true &&
+      record.outline_adopted === true &&
+      record.chapter_plan_visible === true &&
+      record.reading_projection_materialized === false &&
+      Array.isArray(record.volume_headers) &&
+      // 分卷书的核心断言：两个卷表头，不是单卷扁平列表。
+      record.volume_headers.length === 2,
+  );
+  if (!uiState) return null;
+
+  const volumeHeaders = stringArray(uiState.volume_headers);
+  const planVolumeTitles = stringArray(uiState.plan_volume_titles);
+  const readingTocVolumeHeaders = stringArray(uiState.reading_toc_volume_headers);
+  const volumeChapterCounts = Array.isArray(uiState.volume_chapter_counts)
+    ? uiState.volume_chapter_counts.map(Number)
+    : null;
+  const chapterTitlesByVolume = Array.isArray(uiState.chapter_titles_by_volume)
+    ? uiState.chapter_titles_by_volume
+    : null;
+  const planChapterTitlesByVolume = Array.isArray(uiState.plan_chapter_titles_by_volume)
+    ? uiState.plan_chapter_titles_by_volume
+    : null;
+
+  if (!volumeHeaders || !planVolumeTitles || !readingTocVolumeHeaders) return null;
+  if (!volumeChapterCounts || !chapterTitlesByVolume || !planChapterTitlesByVolume) return null;
+  if (planVolumeTitles.length !== 2) return null;
+  if (readingTocVolumeHeaders.length !== 2) return null;
+  if (volumeChapterCounts.length !== 2) return null;
+  if (chapterTitlesByVolume.length !== 2) return null;
+  if (planChapterTitlesByVolume.length !== 2) return null;
+
+  const chapterCount = Number(uiState.chapter_count ?? 0);
+  if (chapterCount < 8) return null;
+
+  for (let index = 0; index < 2; index += 1) {
+    const rendered = stringArray(chapterTitlesByVolume[index]);
+    const planned = stringArray(planChapterTitlesByVolume[index]);
+    if (!rendered || !planned) return null;
+    if (rendered.length < 1) return null;
+
+    // 卷表头必须是「该卷卷名 · N章」，且 N 与该卷下真正渲染出的章数一致。
+    if (!volumeHeaders[index].startsWith(planVolumeTitles[index])) return null;
+    if (volumeHeaderChapterCount(volumeHeaders[index]) !== volumeChapterCounts[index]) return null;
+    if (volumeChapterCounts[index] !== rendered.length) return null;
+
+    // 章归属必须与规划产出的逐章卷标注逐条一致：分组来自采纳的计划，不是 UI 均分。
+    if (rendered.length !== planned.length) return null;
+    if (rendered.some((title, position) => title !== planned[position])) return null;
+
+    // 阅读目录的卷头与档案大纲同源同序。
+    if (readingTocVolumeHeaders[index] !== planVolumeTitles[index]) return null;
+  }
+
+  if (volumeChapterCounts[0] + volumeChapterCounts[1] !== chapterCount) return null;
+  if (chapterTitlesByVolume[0].some((title) => chapterTitlesByVolume[1].includes(title))) {
+    return null;
+  }
+
+  const generationTurnId = String(uiState.generation_turn_id ?? "");
+  const adoptionTurnId = String(uiState.adoption_turn_id ?? "");
+  // 规划走 bounded AgentRun：channel 级留痕在父 turn，工具执行/采纳在 `:agent:N` 子 turn。
+  const parentTurnId = String(uiState.parent_turn_id ?? generationTurnId.split(":agent:")[0] ?? "");
+  if (!generationTurnId || !adoptionTurnId || !parentTurnId) return null;
+  if (!generationTurnId.startsWith(parentTurnId)) return null;
+
+  const generationRecords = records.filter((record) => record.turn_id === generationTurnId);
+  const parentRecords = records.filter((record) => record.turn_id === parentTurnId);
+
+  const microPlanStarted = parentRecords.some(
+    (record) =>
+      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+  );
+  // 章计划能力由 AI 判帧选出（不是 driver 指定的），并进入 bounded run。
+  const routedToPlotOutline = parentRecords.some(
+    (record) => record.event === "judgment.decided.done" && record.capability === "plot_outline",
+  );
+  const boundedRun = parentRecords.some(
+    (record) => record.event === "channel.user_message.done" && record.run_mode === "bounded",
+  );
+
+  // 工具执行留痕不带 turn_id，用 decision_id 与本次执行 turn 绑定（同一决策 → 同一次执行）。
+  const decisionIds = generationRecords
+    .map((record) => record.decision_id)
+    .filter((value) => typeof value === "string" && value !== "");
+  const generatedByTool = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "plot_outline" &&
+      record.tool_outcome === "succeeded" &&
+      decisionIds.includes(record.decision_id),
+  );
+  const adopted = generationRecords.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  // 目录投影本身就是两卷（volume_count 来自后端 get_toc，不是前端拼出来的分组）。
+  const tocGroupedByVolume = records.some(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.volume_count ?? 0) === 2 &&
+      Number(record.chapter_count ?? 0) === chapterCount,
+  );
+
+  if (!generatedByTool || !microPlanStarted || !adopted || !tocGroupedByVolume) return null;
+  if (!routedToPlotOutline || !boundedRun) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: generationTurnId,
+    turn_ids: [parentTurnId, generationTurnId],
+    generation_turn_id: generationTurnId,
+    parent_turn_id: parentTurnId,
+    adoption_turn_id: adoptionTurnId,
+    artifact_id: uiState.artifact_id,
+    chapter_count: chapterCount,
+    volume_headers: volumeHeaders,
+    volume_chapter_counts: volumeChapterCounts,
+    chapter_titles_by_volume: chapterTitlesByVolume,
+    reading_toc_volume_headers: readingTocVolumeHeaders,
+    key_events: keyEvents,
+  };
+}
+
 function findP1ChapterDraftGenerationEvidence(records) {
   const sliceId = "p1-chapter-draft-generation";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -12691,6 +12860,48 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_and_micro_plan_called"
         : "deterministic_provider_form_frame_and_micro_plan_called",
+    ],
+  };
+}
+
+function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evidence, _options) {
+  // 作者从真实工作台发起（父 turn 带 micro plan），能力由判帧选出并进入 bounded run；
+  // 采纳落在执行子 turn。
+  if (!turnsHaveGenerateMicroPlan([evidence.parent_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.parent_turn_id], turnRecords, "judgment.decided.done")) return null;
+  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "channel.author_action.done"))
+    return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au08-volume-structured-planning" &&
+      record.generation_turn_id === evidence.generation_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.volume_grouping_matches_plan !== true) return null;
+  if (uiState.reading_toc_grouped_by_volume !== true) return null;
+  if (Number(uiState.toc_volume_count ?? 0) !== 2) return null;
+  if (Number(uiState.toc_frame_volume_count ?? 0) !== 2) return null;
+
+  return {
+    slice_id: "au08-volume-structured-planning",
+    behavior: "chapter_plan_materialized_into_declared_volumes_and_read_by_volume",
+    turn_ids: turnIds,
+    chapter_count: Number(uiState.chapter_count ?? 0),
+    volume_headers: evidence.volume_headers,
+    volume_chapter_counts: evidence.volume_chapter_counts,
+    assertions: [
+      "real_archive_outline_start_planning_clicked",
+      "micro_plan_requested_from_real_workbench",
+      "plot_outline_capability_selected_by_judgment_and_run_bounded",
+      "plot_outline_generated_outline_draft_with_per_chapter_volume_assignment",
+      "outline_draft_adopted_through_adoption_boundary",
+      "plan_materialized_into_multiple_volumes",
+      "archive_outline_rendered_two_volume_headers_with_chapter_counts",
+      "volume_chapter_membership_matches_adopted_plan_assignment",
+      "reading_toc_grouped_by_volume",
+      "toc_projection_returned_two_volumes",
     ],
   };
 }

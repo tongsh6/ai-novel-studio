@@ -8737,6 +8737,80 @@ describe("native Tauri slice verifier", () => {
       ],
     });
   });
+
+  it("accepts AU-08 volume structured planning only when the adopted plan renders two volumes", () => {
+    const records = au08VolumeStructuredPlanningRecords();
+    const evidence = findNativeSliceEvidence("au08-volume-structured-planning", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au08-volume-structured-planning",
+      turn_id: "turn-au08:agent:4",
+      turn_ids: ["turn-au08", "turn-au08:agent:4"],
+      generation_turn_id: "turn-au08:agent:4",
+      parent_turn_id: "turn-au08",
+      adoption_turn_id: "turn-au08-adopt",
+      artifact_id: "artifact-outline-au08",
+      chapter_count: 12,
+      volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章"],
+      volume_chapter_counts: [5, 7],
+      chapter_titles_by_volume: [au08VolumeOneChapters(), au08VolumeTwoChapters()],
+      reading_toc_volume_headers: ["第一卷·觉醒", "第二卷·裂变"],
+      key_events: keyEventsForSlice("au08-volume-structured-planning"),
+    });
+
+    expect(
+      findSliceBehaviorEvidence("au08-volume-structured-planning", records, evidence, {
+        provider: "slice_verify",
+      }),
+    ).toEqual({
+      slice_id: "au08-volume-structured-planning",
+      behavior: "chapter_plan_materialized_into_declared_volumes_and_read_by_volume",
+      turn_ids: ["turn-au08", "turn-au08:agent:4"],
+      chapter_count: 12,
+      volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章"],
+      volume_chapter_counts: [5, 7],
+      assertions: [
+        "real_archive_outline_start_planning_clicked",
+        "micro_plan_requested_from_real_workbench",
+        "plot_outline_capability_selected_by_judgment_and_run_bounded",
+        "plot_outline_generated_outline_draft_with_per_chapter_volume_assignment",
+        "outline_draft_adopted_through_adoption_boundary",
+        "plan_materialized_into_multiple_volumes",
+        "archive_outline_rendered_two_volume_headers_with_chapter_counts",
+        "volume_chapter_membership_matches_adopted_plan_assignment",
+        "reading_toc_grouped_by_volume",
+        "toc_projection_returned_two_volumes",
+      ],
+    });
+  });
+
+  it("rejects AU-08 volume evidence when the outline still renders a single volume", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        volume_headers: ["第一卷·觉醒 · 12章"],
+        volume_chapter_counts: [12],
+        chapter_titles_by_volume: [[...au08VolumeOneChapters(), ...au08VolumeTwoChapters()]],
+        reading_toc_volume_headers: ["第一卷·觉醒"],
+      },
+      tocOverrides: { volume_count: 1 },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 volume evidence when a chapter is rendered under the wrong volume", () => {
+    const volumeOne = au08VolumeOneChapters();
+    const volumeTwo = au08VolumeTwoChapters();
+    // 章数与卷表头都不变，只把一章挪到隔壁卷：分组与采纳的计划标注不再一致。
+    const swappedOne = [...volumeOne.slice(0, 4), volumeTwo[0]];
+    const swappedTwo = [volumeOne[4], ...volumeTwo.slice(1)];
+
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: { chapter_titles_by_volume: [swappedOne, swappedTwo] },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
 });
 
 function ordinaryTwoTurnRecords() {
@@ -11785,6 +11859,157 @@ function au08ReadingReturnContextRecords() {
       workspace_id: "work-au08-readonly",
       work_id: "work-au08-readonly",
       session_id: "session-au08-readonly",
+    },
+  ];
+}
+
+function au08VolumeOneChapters() {
+  return ["第01章：觉醒", "第02章：试炼", "第03章：盟约", "第04章：裂隙", "第05章：暗流"];
+}
+
+function au08VolumeTwoChapters() {
+  return [
+    "第06章：突围",
+    "第07章：真相",
+    "第08章：背叛",
+    "第09章：抉择",
+    "第10章：决战",
+    "第11章：余烬",
+    "第12章：新生",
+  ];
+}
+
+function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrides = {} } = {}) {
+  // 规划走 bounded AgentRun：channel 级留痕落父 turn，工具执行/采纳落 `:agent:N` 子 turn，
+  // toolbox.execute.done 不带 turn_id，只能靠 decision_id 与执行子 turn 绑定。
+  const parentTurnId = "turn-au08";
+  const generationTurnId = "turn-au08:agent:4";
+  const adoptionTurnId = "turn-au08-adopt";
+  const decisionId = "decision-au08";
+  const workId = "work-au08";
+
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: workId,
+      work_id: workId,
+      session_id: "session-au08",
+      duration_ms: 4,
+      outcome: "ok",
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: workId,
+      work_id: workId,
+      session_id: "session-au08",
+      duration_ms: 0,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: parentTurnId,
+      workspace_id: workId,
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "start",
+      generate_micro_plan: true,
+      message_preview: "请基于当前作品规划卷章结构，并生成章节大纲。",
+    },
+    {
+      event: "judgment.decided.done",
+      turn_id: parentTurnId,
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "ok",
+      frame_type: "judgment_execute",
+      capability: "plot_outline",
+      reason_code: "single_capability_satisfies_request",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: parentTurnId,
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "ok",
+      run_mode: "bounded",
+      run_id: "run-au08",
+    },
+    {
+      event: "context.fact_completeness.done",
+      turn_id: generationTurnId,
+      decision_id: decisionId,
+      outcome: "ok",
+      capability: "plot_outline",
+    },
+    {
+      event: "toolbox.execute.done",
+      decision_id: decisionId,
+      outcome: "ok",
+      tool_name: "plot_outline",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: generationTurnId,
+      work_id: workId,
+      session_id: "session-au08",
+      action_type: "accept",
+      target_ref: "artifact-outline-au08",
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: generationTurnId,
+      work_id: workId,
+      session_id: "session-au08",
+      decision_type: "adopt_tentative",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: generationTurnId,
+      work_id: workId,
+      session_id: "session-au08",
+      action_type: "accept",
+      action_status: "accepted",
+    },
+    {
+      event: "channel.get_toc.done",
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "ok",
+      volume_count: 2,
+      chapter_count: 12,
+      total_word_count: 0,
+      ...tocOverrides,
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: generationTurnId,
+      workspace_id: workId,
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "ok",
+      slice_id: "au08-volume-structured-planning",
+      generation_turn_id: generationTurnId,
+      parent_turn_id: parentTurnId,
+      adoption_turn_id: adoptionTurnId,
+      artifact_id: "artifact-outline-au08",
+      artifact_type: "outline_draft",
+      chapter_count: 12,
+      chapter_plan_visible: true,
+      outline_adopt_clicked: true,
+      outline_adopted: true,
+      plan_volume_titles: ["第一卷·觉醒", "第二卷·裂变"],
+      plan_chapter_titles_by_volume: [au08VolumeOneChapters(), au08VolumeTwoChapters()],
+      volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章"],
+      volume_chapter_counts: [5, 7],
+      chapter_titles_by_volume: [au08VolumeOneChapters(), au08VolumeTwoChapters()],
+      volume_grouping_matches_plan: true,
+      reading_toc_volume_headers: ["第一卷·觉醒", "第二卷·裂变"],
+      reading_toc_grouped_by_volume: true,
+      toc_volume_count: 2,
+      toc_frame_volume_count: 2,
+      reading_projection_materialized: false,
+      ...uiStateOverrides,
     },
   ];
 }

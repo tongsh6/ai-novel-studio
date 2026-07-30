@@ -1369,6 +1369,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 章节计划主题（确定性、稳定、可支撑长篇），用于 outline_draft 多章生成。
   @outline_chapter_themes ~w(觉醒 试炼 盟约 裂隙 暗流 突围 真相 背叛 抉择 决战 余烬 新生)
 
+  # 分卷卷名：仅在真实规划 prompt 里出现分卷要求时按顺序取用（见 outline_volume_assignments/2）。
+  @outline_volume_titles ["第一卷·觉醒", "第二卷·裂变", "第三卷·归墟", "第四卷·长夜"]
+
   defp creative_items_response(prompt) do
     {brief, context} = creative_prompt_parts(prompt)
 

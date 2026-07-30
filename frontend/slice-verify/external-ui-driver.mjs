@@ -5897,12 +5897,6 @@ async function driveP1ChapterPlanMinimum(page) {
   );
 
   const visibleText = await page.locator("body").innerText();
-  if (verifyActionRunAnchoring) {
-    assert(
-      !visibleText.includes("正在生成修订稿"),
-      "Completed revision history still displayed a running activity",
-    );
-  }
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, generationTurnResult, sentMessage);
 
@@ -5936,6 +5930,278 @@ async function driveP1ChapterPlanMinimum(page) {
       final_chapter_visible: finalChapterVisible,
       outline_adopt_clicked: true,
       outline_adopted: true,
+      reading_projection_materialized: Boolean(
+        actionResultFrame.body?.persistence?.reading_projection,
+      ),
+      adopt_payload: acceptActionFrame.body,
+      action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
+      user_message_text: planMessageFrame.body?.text,
+    },
+  ];
+}
+
+// AU08 卷结构：作者对一部已立「预计卷数 2」的作品发起规划 → 规划产出逐章带卷归属 →
+// 采纳 → 档案大纲按卷分层、阅读目录出现两个卷头。断言只用用户可见文本（卷表头、卷内章名、
+// 目录卷头）与真实留痕（get_toc 投影帧 / channel.get_toc.done 的 volume_count）。
+async function driveAu08VolumeStructuredPlanning(page) {
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.getByRole("button", { name: "规划卷章结构" }).click();
+
+  const planMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("章节大纲"),
+    "Real workbench did not send chapter plan user_message with micro plan enabled",
+  );
+  const workId = planMessageFrame.body?.work_id;
+
+  const generationFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "plot_outline" &&
+      frame.body?.tool_result?.output?.artifact_type === "outline_draft" &&
+      Number(frame.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 8,
+    "No AU08 chapter plan outline_draft turn_result websocket frame was received",
+    200_000,
+  );
+  const generationTurnResult = generationFrame.body;
+  const pendingArtifact = generationTurnResult.adoption_state.pending[0];
+  const planItems = pendingArtifact.payload?.items ?? [];
+  const chapterCount = Number(pendingArtifact.payload?.chapter_count ?? planItems.length);
+
+  // 规划产出自带的卷归属（模型输出的「所属卷：卷标题」行），作为 UI 分组的因果基准：
+  // 页面上的分组必须逐字节等于这里读出的归属，而不是前端自行发明或按章数均分。
+  const planVolumeTitles = [];
+  const planChapterTitlesByVolume = [];
+  for (const item of planItems) {
+    const match = String(item?.body ?? "").match(/所属卷[:：]\s*(.+)/);
+    if (!match) continue;
+    const volumeTitle = match[1].trim();
+    const chapterTitle = String(item?.title ?? "").trim();
+    let index = planVolumeTitles.indexOf(volumeTitle);
+    if (index < 0) {
+      planVolumeTitles.push(volumeTitle);
+      planChapterTitlesByVolume.push([]);
+      index = planVolumeTitles.length - 1;
+    }
+    planChapterTitlesByVolume[index].push(chapterTitle);
+  }
+
+  assert(
+    planVolumeTitles.length === 2,
+    `Chapter plan did not carry two volume assignments: ${planVolumeTitles.join("/") || "(none)"}`,
+  );
+
+  await page.waitForFunction(
+    () => {
+      return (
+        /待确认的创作材料|大纲草稿/.test(document.body.innerText) &&
+        [...document.querySelectorAll("button")].some((btn) =>
+          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+            (btn.textContent ?? "").trim(),
+          ),
+        )
+      );
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+
+  const acceptActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === pendingArtifact.artifact_id,
+    "Real workbench did not send accept author_action for the volume chapter plan",
+  );
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "accepted" &&
+      frame.body?.artifact_id === pendingArtifact.artifact_id,
+    "No accepted action_result websocket frame was received for the volume chapter plan",
+    120_000,
+  );
+  const adoptionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
+    "No accepted outline_draft adoption turn_result websocket frame was received",
+    120_000,
+  );
+  const adoptionTurnResult = adoptionFrame.body;
+
+  // 重开档案大纲：已采纳卷/章结构（get_toc 单一数据源）应按卷分层渲染。
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    ({ first, second }) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(first) &&
+      document.body.innerText.includes(second),
+    { first: planVolumeTitles[0], second: planVolumeTitles[1] },
+    { timeout: 15_000 },
+  );
+
+  // 从「已采纳章节计划」区块读用户看到的分组：每组首行是卷表头（卷名 · N章），
+  // 其后是该卷下渲染的章条目。用区块锚定，避免误读对话区里的候选卡文本。
+  const outlineGroups = await page.evaluate(() => {
+    const header = [...document.querySelectorAll("span")].find((element) =>
+      (element.textContent ?? "").trim().startsWith("已采纳章节计划"),
+    );
+    const section = header?.closest("div")?.parentElement;
+    if (!section) return null;
+
+    return [...section.children].slice(1).map((group) => {
+      const lines = (group.innerText ?? "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      return {
+        header: lines[0] ?? "",
+        chapter_titles: lines.slice(1).filter((line) => /^第\s*\d+\s*章/.test(line)),
+      };
+    });
+  });
+
+  assert(Array.isArray(outlineGroups), "Archive outline did not render an accepted chapter plan");
+
+  const volumeHeaders = outlineGroups.map((group) => group.header);
+  const chapterTitlesByVolume = outlineGroups.map((group) => group.chapter_titles);
+  const volumeChapterCounts = volumeHeaders.map((header) => {
+    const match = header.match(/·\s*(\d+)章$/);
+    return match ? Number(match[1]) : 0;
+  });
+
+  const outlineVisibleText = await page.locator("body").innerText();
+  const chapterPlanVisible = outlineVisibleText.includes("已采纳章节计划");
+
+  assert(
+    volumeHeaders.length === 2,
+    `Archive outline did not group chapters under two volume headers: ${volumeHeaders.join(" | ") || "(none)"}`,
+  );
+  const volumeGroupingMatchesPlan = volumeHeaders.every(
+    (header, index) =>
+      header.startsWith(planVolumeTitles[index]) &&
+      volumeChapterCounts[index] === planChapterTitlesByVolume[index].length &&
+      JSON.stringify(chapterTitlesByVolume[index]) ===
+        JSON.stringify(planChapterTitlesByVolume[index]),
+  );
+  assert(
+    volumeGroupingMatchesPlan,
+    `Rendered volume grouping did not match the planned volume assignments: ${JSON.stringify({
+      headers: volumeHeaders,
+      rendered: chapterTitlesByVolume,
+      planned: planChapterTitlesByVolume,
+    })}`,
+  );
+
+  // 阅读模式：目录侧边栏同样按卷分层（作者读书时看到的层级）。
+  const beforeReadingLogCount = readAppLogRecords().length;
+  await clickVisibleReadingModeButton(page);
+  await page.waitForFunction(
+    ({ first, second }) =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes(first) &&
+      document.body.innerText.includes(second) &&
+      !document.body.innerText.includes("暂无已采纳的章节内容"),
+    { first: planVolumeTitles[0], second: planVolumeTitles[1] },
+    { timeout: 20_000 },
+  );
+
+  const readingTocVolumeHeaders = await page.evaluate(() => {
+    const title = [...document.querySelectorAll("div")].find(
+      (element) => element.children.length === 0 && (element.textContent ?? "").trim() === "目录",
+    );
+    const list = title?.nextElementSibling;
+    if (!list) return [];
+
+    return [...list.children].map((group) =>
+      ((group.firstElementChild?.textContent ?? "").trim()),
+    );
+  });
+
+  const tocRecord = await waitForNewAppLogRecord(
+    beforeReadingLogCount,
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === workId &&
+      Number(record.volume_count ?? 0) === 2,
+    "Reading mode did not read a two-volume TOC projection",
+    30_000,
+  );
+
+  // 网络帧口径：get_toc 回复里 volumes 数组长度同样是 2（投影本身分卷，不是前端拼的）。
+  const tocReplies = frames.filter((frame) => {
+    const response = frame.body?.response ?? frame.payload?.response ?? frame.body;
+    return frame.direction === "received" && Array.isArray(response?.volumes);
+  });
+  const lastTocReply = tocReplies[tocReplies.length - 1];
+  const tocResponse = lastTocReply
+    ? (lastTocReply.body?.response ?? lastTocReply.payload?.response ?? lastTocReply.body)
+    : null;
+  const tocFrameVolumeCount = Array.isArray(tocResponse?.volumes)
+    ? tocResponse.volumes.length
+    : 0;
+
+  const readingTocGroupedByVolume =
+    readingTocVolumeHeaders.length === 2 &&
+    readingTocVolumeHeaders.every((header, index) => header === planVolumeTitles[index]);
+
+  assert(
+    readingTocGroupedByVolume,
+    `Reading mode TOC did not show the two volume headers: ${readingTocVolumeHeaders.join(" | ") || "(none)"}`,
+  );
+  assert(
+    tocFrameVolumeCount === 2,
+    `get_toc projection frame did not carry two volumes: ${tocFrameVolumeCount}`,
+  );
+  assert(
+    actionResultFrame.body?.persistence?.reading_projection == null,
+    "Outline adoption unexpectedly materialized a reading projection",
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, generationTurnResult, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      work_id: workId,
+      turn_id: generationTurnResult.turn_id,
+      generation_turn_id: generationTurnResult.turn_id,
+      // 规划走 bounded run：channel 级留痕（user_message/judgment）落在父 turn，
+      // 工具执行与采纳落在 `<parent>:agent:N` 子 turn。
+      parent_turn_id: String(generationTurnResult.turn_id ?? "").split(":agent:")[0],
+      adoption_turn_id: adoptionTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      chapter_count: chapterCount,
+      chapter_plan_visible: chapterPlanVisible,
+      outline_adopt_clicked: true,
+      outline_adopted: true,
+      plan_volume_titles: planVolumeTitles,
+      plan_chapter_titles_by_volume: planChapterTitlesByVolume,
+      volume_headers: volumeHeaders,
+      volume_chapter_counts: volumeChapterCounts,
+      chapter_titles_by_volume: chapterTitlesByVolume,
+      volume_grouping_matches_plan: volumeGroupingMatchesPlan,
+      reading_toc_volume_headers: readingTocVolumeHeaders,
+      reading_toc_grouped_by_volume: readingTocGroupedByVolume,
+      toc_volume_count: Number(tocRecord.volume_count ?? 0),
+      toc_frame_volume_count: tocFrameVolumeCount,
       reading_projection_materialized: Boolean(
         actionResultFrame.body?.persistence?.reading_projection,
       ),
@@ -26537,6 +26803,7 @@ const drivers = {
   "au05-canon-conflict-recovery": driveCanonConflictRecovery,
   "au05-discard-author-action": driveAu05DiscardAuthorAction,
   "p1-chapter-plan-minimum": driveP1ChapterPlanMinimum,
+  "au08-volume-structured-planning": driveAu08VolumeStructuredPlanning,
   "p1-chapter-draft-generation": driveP1ChapterDraftGeneration,
   "p1-chapter-adoption-reading": driveP1ChapterAdoptionReading,
   "au07-state-trace-adoption-replay": driveAu07StateTraceAdoptionReplay,

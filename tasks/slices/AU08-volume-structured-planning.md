@@ -1,6 +1,6 @@
 # AU08-volume-structured-planning：卷结构的规划层结构化生产
 
-**状态**：doing（2026-07-29 开工）
+**状态**：**done（2026-07-30，CP1-CP3 全落 + 真实页面验收 PASS）**
 **来源**：Order 8 排查 R1 组首位候选（`docs/design/notes/2026-07-29-container-utilization-survey.md`
 §5），用户拍板顺序中的第 ①。收编既有 B11「章全挂第一卷」缺陷与 NEM-GAP-07。
 
@@ -77,7 +77,43 @@
 **最小实现步不缩范围**：CP1 单独交付不算 slice done——它只拆雷不产卷。
 完整闭环以 CP3 的真实页面验收为准。
 
+## 3b. 交付结果（2026-07-30）
+
+**CP1-CP3 全落，真实 Tauri PASS**（`au08-volume-structured-planning`）：
+`volume_headers=["第一卷·觉醒 · 5章","第二卷·裂变 · 7章"]`、`volume_chapter_counts=[5,7]`、
+`reading_toc_volume_headers` 两卷、`chapter_count=12`。
+
+**场景为何新建而非并入**（红线要求优先并入既有场景，此处说明为何不能）：
+`p1-chapter-adoption-reading` / `p1-chapter-expansion-multichapter` 都预置已采纳的
+扁平章计划、根本不跑 planner，穿不了「规划 prompt → parser → 卷物化」这条链；
+唯一从真实页面起规划的 `p1-chapter-plan-minimum` 其作品没有 `target_length`，
+`volume_directive` 结构上不可能发火，要并入就得改掉那个门的种子与契约（等于改既有
+场景而非扩展）。
+
+**两条防自证措施**：①stub 只认真实 prompt 文本 `分卷规划要求：全书分 N 卷`
+（`WorkSkeleton.volume_directive/1` 渲染），不认 slice id / env；②故意 **5/7 不等分**，
+使「按章数均分」猜不中；③driver 从 turn_result 帧读出模型输出的逐章 `所属卷` 标注，
+要求页面分组**逐条等于**该标注（I1 式因果绑定，防前端自行发明分组）。
+
+## 3c. 本 slice 顺带查出的两个既有缺陷（与卷结构无关，均已修）
+
+1. **`external-ui-driver.mjs` 含字面 NUL 字节**（本批引入，已修）：AU08 driver 曾用
+   `join("\0")` 做比较分隔符 → 整个文件被 grep 判为二进制，**所有 grep 静默返回空**。
+   这骗过了我自己的多次核查。已改用 `JSON.stringify` 比较。
+2. **`driveP1ChapterPlanMinimum` 里误植了修订驱动的代码块**（既有，已修）：引用
+   `verifyActionRunAnchoring` —— 该 `const` 只在 18602 行另一个函数内定义，本作用域
+   必然抛 `ReferenceError`。`p1-chapter-plan-minimum` 因此**长期跑不起来**。
+
 ## 4. 决策日志
 
 - 2026-07-29 — 用户拍板 Order 8 刀候选顺序，卷结构列第 ①。开工时查出 `chapter.seq`
   卷内作用域与三处全局消费者的冲突，裁决收为全局 seq（理由见 §1）。
+- 2026-07-30 — CP1-CP3 全落，真实页面验收 PASS，slice done。修 §3c 两个既有缺陷时
+  **发现两个待用户裁决的问题**（不在本 slice 范围，已登记 NEXT，未自行处置）：
+  ①`p1-chapter-plan-minimum` 修掉 JS 崩溃后暴露更深的回归——规划请求现在走 bounded
+  AgentRun，其 verifier 仍要求判断纪元之前的直路 trace 形状（机器证据：
+  `planner.form_frame.done=0`、`planner.form_micro_plan.done=0`，采纳落
+  `<parent>:agent:4` 子 turn）。**未改它的断言**——把测试期望改成"现在的样子"会掩盖
+  「plot_outline 该不该起 bounded run」这个产品问题，那是用户的裁决。
+  ②ESLint 只覆盖 `**/*.{ts,tsx}`，**验收 harness 的 .mjs driver 零静态检查**——
+  这正是必然抛 ReferenceError 的标识符能长期存活的原因。

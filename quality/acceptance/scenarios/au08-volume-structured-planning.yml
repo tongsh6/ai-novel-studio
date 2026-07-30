@@ -1,0 +1,63 @@
+id: au08-volume-structured-planning
+title: 分卷规划物化为多卷目录
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au08-volume-structured-planning --surface tauri
+
+contract:
+  - docs/design/schemas/foundation/turn_result_v3.json
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU08-volume-structured-planning.md
+
+invariants:
+  - I1-causal-binding
+  - chapter-plan-materializes-into-declared-volumes
+  - adoption-boundary-authorized-only
+
+setup:
+  seed: scripts/seed_au08_volume_planning.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - click: 大纲与结构
+  - click: 规划卷章结构
+  - wait_for: 章节计划候选（逐章带「所属卷：卷标题」）
+  - click: 保存到大纲
+  - reopen: archive outline
+  - wait_for: 两个卷表头（卷名 · N章）
+  - click: 阅读
+  - wait_for: 阅读目录出现两个卷头
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au08-volume-structured-planning-tauri
+
+assertions:
+  ui:
+    - archive outline renders two volume headers with per-volume chapter counts
+    - each volume lists exactly the chapters assigned to it by the adopted plan
+    - reading mode TOC renders the same two volume headers in the same order
+  network:
+    - user_message sent with micro plan
+    - plot_outline outline_draft turn_result received with per-chapter volume assignment
+    - author_action accept sent and accepted
+    - get_toc reply carries two volumes
+  data:
+    - judgment selected the plot_outline capability and the turn ran as a bounded run
+    - toolbox.execute.done for plot_outline is bound to the executing turn by decision_id
+    - channel.get_toc.done records volume_count=2 with the full chapter count
+    - outline adoption did not materialize a reading projection
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

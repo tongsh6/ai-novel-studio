@@ -46,6 +46,7 @@
 | `seed_au05_canon_conflict_recovery.exs` | AU-05 canon conflict recovery seed。 |
 | `seed_au05_conflict_cross_work_recovery.exs` | AU-05 跨作品 conflict recovery seed。 |
 | `seed_au05_stale_conflict_cross_work_freshness.exs` | AU-05 stale conflict freshness seed。 |
+| `seed_au08_volume_planning.exs` | AU-08 分卷规划 seed（只立 planned_volumes=2 骨架，卷/章由真实链路产出）。 |
 | `seed_au09_archive_real_data.exs` | AU-09 档案真实数据 seed。 |
 | `seed_au09_archive_stats_current.exs` | AU-09 当前档案统计 seed。 |
 | `seed_au09_au03_session_memory_layering.exs` | AU-09/AU-03 session memory layering seed。 |

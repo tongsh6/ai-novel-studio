@@ -153,6 +153,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-chapter-plan-minimum.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-chapter-plan-minimum --surface tauri
+  - id: au08-volume-structured-planning
+    title: "分卷规划物化为多卷目录"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au08-volume-structured-planning.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au08-volume-structured-planning --surface tauri
   - id: p1-chapter-draft-generation
     title: "章节草稿生成闭环"
     tier: nightly
