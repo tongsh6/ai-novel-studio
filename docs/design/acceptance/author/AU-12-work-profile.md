@@ -92,8 +92,10 @@
 
 - **SC-AU12-E1**：档案里同名双行（m4b 存量重复标本）+ 别名行，作者从角色详情发起
   「并入其他角色…」两次裁决归并 → 档案收拢为单行且别名可见 → 脉络角色弧光归一为
-  单条 → 归并零 adoption/正文/记忆写入。已挂真实 Tauri / quality acceptance：
-  `au12-character-identity-merge`（设计 43 §5.0.2；slice
+  单条 → 归并阶段零 adoption/正文/记忆写入 → 盘点把归并产生的别名当新人物重提，
+  采纳被**别名命中确认卡**拦住并点名「『洛公子』是已确认角色『沈洛』的已登记别名」
+  → 作者拒绝后档案不变、全场景零 accepted 采纳。已挂真实 Tauri / quality
+  acceptance：`au12-character-identity-merge`（设计 43 §5.0.2；slice
   `tasks/slices/AU12-character-identity-merge.md`）。
 
 ### 场景组 D：真实入口与自动化

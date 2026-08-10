@@ -207,19 +207,19 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**当前队首：Order 8 刀序②角色主体+AU12 归并——CP1+CP2 已落（2026-08-10），
-下一 checkpoint = CP3 消费面证明**。`tasks/slices/AU12-character-identity-merge.md`
-七问齐、三拍板已裁决（SUPERSEDED/档案侧入口/两链同批）。**CP1 归并主链 done**：
-domain 纯计算+单 Multi（别名并集/主名切换/arc 吸收）+channel `merge_characters`+
-档案详情合并弹窗（43 §5.0.2）；真实 Tauri PASS `au12-character-identity-merge`
-（m4b 同名标本 3→2→1 行、别名可见、arc 归一、零 adoption 写入）。**CP2 输入面+
-别名后门 done**：盘点/character_design 两链贯通 role/aliases（prompt→normalize_item
-白名单→采纳链→双 writer，有值才写防清空）；后门两处堵死（known_characters 名单
-含别名 + checker 升级返回规范行，**别名命中确认卡点名「『X』是『Y』的已登记别名」**）；
-真实 Tauri：au14 盘点场景扩断言 PASS（档案行可见身份+别名），两个 assumption 场景
-复跑无回归；全量 1402 后端+437 前端+I1/I2/I3 绿。**CP3 待做**：①别称 sighting
-（章摘要用别称→弧光记账，别名匹配首个真实生效证据）②阵容注入含 role 证据
-③别名命中确认卡真实页面验收（现仅 workflow 单测，诚实缺口，需独立场景扩展）。
+**Order 8 刀序②角色主体+AU12 归并——slice done（CP1/CP2 2026-08-10，CP3
+2026-08-11），队首 = 刀序③场级 craft（开工前按七问补 slice 设计）**。
+`tasks/slices/AU12-character-identity-merge.md` 全档：**CP1 归并主链**（domain 纯
+计算+单 Multi+channel `merge_characters`+档案合并弹窗 43 §5.0.2；真实 Tauri PASS，
+m4b 同名标本 3→2→1 行、arc 归一、零 adoption 写入）；**CP2 输入面+别名后门**
+（盘点/character_design 两链贯通 role/aliases；known_characters 名单含别名+checker
+返回规范行，别名命中卡点名「『X』是『Y』的已登记别名」；au14 扩断言 PASS+两
+assumption 场景无回归）；**CP3 消费面**（别称 sighting 单测自 CP2 起成真链路证据、
+阵容注入行升级为「名（身份，别名：…）：摘要」、**别名拦截卡真实页面闭环**：au12
+场景扩尾段——盘点重提归并产生的别名→卡点名归属→拒绝→档案不变，一轮 PASS）。
+**登记缺口**：①别称 sighting 真实页面级=M5 狗粮观察项（fixture 不自发用别称，
+扭曲 fixture 违背狗粮纪律；长跑后查 arc 账 source_refs 是否含别称章）；②同名
+确认卡内嵌「并入既有行」选项（拍板遗留的后续 CP，等拉动）。
 刀序余项（等拉动）：③场级 craft ④information 账+design_ref。
 R2「自由创作只产两种 artifact」是另一把刀，不与本刀合并。
 CP5 剩余余项（等拉动）：触发 C、works 级假定、记忆类注入富化；CP2 R2；
