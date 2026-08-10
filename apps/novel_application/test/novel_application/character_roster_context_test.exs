@@ -128,6 +128,22 @@ defmodule NovelApplication.CharacterRosterContextTest do
     assert prompts =~ "沈砚：稽查官"
   end
 
+  # AU12 CP3 写作一致性：模型必须知道「洛公子」就是「沈洛」，续写历史称呼时
+  # 才不会把别名当新角色写；身份与别名同进括号段，各自可单独出现。
+  test "注入行携带别名（与身份同括号段；仅别名时括号段只有别名）" do
+    prompts =
+      run(
+        "prose_writing",
+        roster([
+          %{name: "沈洛", role: "底层调查者", aliases: ["洛公子"], summary: "追查账单的核心人物"},
+          %{name: "云栖", role: nil, aliases: ["栖姐", "云姨"], summary: "旧机房维护者"}
+        ])
+      )
+
+    assert prompts =~ "沈洛（底层调查者，别名：洛公子）：追查账单的核心人物"
+    assert prompts =~ "云栖（别名：栖姐、云姨）：旧机房维护者"
+  end
+
   test "未注入 character_reader 时无现有角色段（行为不变）" do
     refute run("character_design", nil) =~ "## 现有角色"
   end

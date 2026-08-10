@@ -1105,13 +1105,26 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp character_roster_line(character) when is_map(character) do
     name = character |> Map.get(:name) |> to_string()
-    role = character_role_suffix(Map.get(character, :role))
+    descriptor = character_descriptor_suffix(character)
     summary = character_summary_suffix(Map.get(character, :summary))
-    "- #{name}#{role}#{summary}"
+    "- #{name}#{descriptor}#{summary}"
   end
 
-  defp character_role_suffix(role) when is_binary(role) and role != "", do: "（#{role}）"
-  defp character_role_suffix(_role), do: ""
+  # 括号段 = 身份 + 别名（AU12 CP3 写作一致性）：模型必须知道「洛公子」就是
+  # 「沈洛」，续写历史称呼时才不会把别名当新角色写。两者都缺则无括号段。
+  defp character_descriptor_suffix(character) do
+    role = Map.get(character, :role)
+    aliases = Map.get(character, :aliases) || []
+
+    parts =
+      [
+        if(is_binary(role) and role != "", do: role),
+        if(is_list(aliases) and aliases != [], do: "别名：" <> Enum.join(aliases, "、"))
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    if parts == [], do: "", else: "（#{Enum.join(parts, "，")}）"
+  end
 
   defp character_summary_suffix(summary) when is_binary(summary) do
     case String.trim(summary) do
