@@ -72,7 +72,11 @@ defmodule NovelApplication.ExplorationServiceTest do
         "chapter_role" => "推进章",
         "plot_progress" => "主角发现灵气带宽被公司暗中抽走",
         "emotion" => "压抑中带爆发",
-        "ending_hook" => "灵气账单上浮现出陌生的扣费条目"
+        "ending_hook" => "灵气账单上浮现出陌生的扣费条目",
+        "scene_plans" => [
+          %{"title" => "对账", "goal" => "确认暗扣", "agendas" => "主角要证据", "emotion" => "压抑"},
+          %{"title" => "夜巡"}
+        ]
       }
     })
     |> Repo.update!()
@@ -90,6 +94,8 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert observation.summary =~ "【计划】功能定位：推进章"
     assert observation.summary =~ "情节推进：主角发现灵气带宽被公司暗中抽走"
     assert observation.summary =~ "章尾断章：灵气账单上浮现出陌生的扣费条目"
+    # NEM04 刀③探索面同步律：规划落库的逐场三槽在判断循环内可读。
+    assert observation.summary =~ "场次计划：对账（目标：确认暗扣；议程：主角要证据；情绪：压抑） / 夜巡"
     assert observation.summary =~ "【摘要】主角在矿区核对账单，确认宗门抽成异常。"
   end
 

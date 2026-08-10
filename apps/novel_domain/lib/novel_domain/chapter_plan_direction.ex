@@ -18,6 +18,9 @@ defmodule NovelDomain.ChapterPlanDirection do
     :word_count_and_scenes
   ]
 
+  @typedoc "场级计划最小三槽（NEM04 刀③）：title 必填，goal/agendas/emotion 可缺省。"
+  @type scene_plan :: %{required(String.t()) => String.t()}
+
   @type t :: %__MODULE__{
           chapter_role: String.t() | nil,
           plot_progress: String.t() | nil,
@@ -27,10 +30,14 @@ defmodule NovelDomain.ChapterPlanDirection do
           emotion: String.t() | nil,
           opening_hook: String.t() | nil,
           ending_hook: String.t() | nil,
-          word_count_and_scenes: String.t() | nil
+          word_count_and_scenes: String.t() | nil,
+          scene_plans: [scene_plan()]
         }
 
-  defstruct @fields
+  # scene_plans（NEM04 刀③）：逐场最小三槽，有序即场次 seq。设计态数据，与九字段
+  # 同居 plan_direction（慎重新增实体：既有 map 字段承载，零新列）；`word_count_and_scenes`
+  # 保留人读摘要口径不动。无场次标注时列表为空、存储键不存在——一切现状不变。
+  defstruct @fields ++ [scene_plans: []]
 
   @spec fields() :: [atom()]
   def fields, do: @fields
@@ -48,10 +55,13 @@ defmodule NovelDomain.ChapterPlanDirection do
       end)
       |> Enum.into(%{})
 
-    if Enum.all?(values, fn {_field, value} -> blank?(value) end) do
+    scene_plans =
+      attrs |> get_any([:scene_plans, "scene_plans"]) |> normalize_scene_plans()
+
+    if scene_plans == [] and Enum.all?(values, fn {_field, value} -> blank?(value) end) do
       nil
     else
-      struct(__MODULE__, values)
+      struct(__MODULE__, Map.put(values, :scene_plans, scene_plans))
     end
   end
 
@@ -67,9 +77,11 @@ defmodule NovelDomain.ChapterPlanDirection do
   def to_storage(%__MODULE__{} = direction) do
     direction
     |> Map.from_struct()
+    |> Map.delete(:scene_plans)
     |> Enum.reduce(%{}, fn {field, value}, acc ->
       if blank?(value), do: acc, else: Map.put(acc, Atom.to_string(field), value)
     end)
+    |> put_scene_plans(direction.scene_plans)
     |> empty_to_nil()
   end
 
@@ -134,6 +146,37 @@ defmodule NovelDomain.ChapterPlanDirection do
 
   defp pair(_label, value) when value in [nil, ""], do: ""
   defp pair(label, value), do: "#{label}=#{value}"
+
+  defp put_scene_plans(map, []), do: map
+  defp put_scene_plans(map, plans), do: Map.put(map, "scene_plans", plans)
+
+  defp normalize_scene_plans(list) when is_list(list) do
+    list |> Enum.map(&normalize_scene_plan/1) |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_scene_plans(_), do: []
+
+  defp normalize_scene_plan(plan) when is_map(plan) do
+    title = plan |> get_any([:title, "title"]) |> clean()
+
+    if is_nil(title) do
+      nil
+    else
+      %{"title" => title}
+      |> put_scene_slot(:goal, "goal", plan)
+      |> put_scene_slot(:agendas, "agendas", plan)
+      |> put_scene_slot(:emotion, "emotion", plan)
+    end
+  end
+
+  defp normalize_scene_plan(_plan), do: nil
+
+  defp put_scene_slot(map, atom_key, string_key, plan) do
+    case plan |> get_any([atom_key, string_key]) |> clean() do
+      nil -> map
+      value -> Map.put(map, string_key, value)
+    end
+  end
 
   defp get_any(map, keys) do
     Enum.find_value(keys, fn key ->

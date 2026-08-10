@@ -54,7 +54,37 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
 
   # ── scene unit 投影 ────────────────────────────────
 
-  # 有结构化章方向：确定性投影为一个场级单元（CP1 单场；多场展开属后续）。
+  # 规划落库的逐场计划（NEM04 刀③，VS-00E「多场展开」就此闭环）：每个场次
+  # 一个单元，目标/议程/情绪直达 writer；场缺情绪时回退章级情绪定位。
+  defp scene_units(
+         %ChapterPlanDirection{scene_plans: [_ | _] = plans} = direction,
+         _chapter,
+         _author_input
+       ) do
+    units =
+      plans
+      |> Enum.with_index(1)
+      |> Enum.map(fn {plan, index} ->
+        %{
+          "unit_id" => "scene_#{index}",
+          "scene_title" => plan["title"],
+          "scene_mode" => "planned_scene",
+          "target_change" =>
+            case clean(plan["goal"]) do
+              nil -> %{}
+              goal -> %{"type" => "planned_scene", "description" => goal}
+            end,
+          "character_agendas" => clean(plan["agendas"]),
+          "emotion_transition" =>
+            drop_blank(%{"end" => clean(plan["emotion"]) || clean(direction.emotion)})
+        }
+        |> drop_empty_values()
+      end)
+
+    {units, false, ["chapter_plan_scene_plans"]}
+  end
+
+  # 有结构化章方向：确定性投影为一个场级单元（无逐场计划时的章级回退）。
   defp scene_units(%ChapterPlanDirection{} = direction, _chapter, _author_input) do
     target_change =
       case clean(direction.character_change) || clean(direction.plot_progress) do

@@ -164,6 +164,8 @@ defmodule NovelAgent.CreativeProvider.Real do
       章首拉力：开章吸引读者继续读的钩子
       章尾断章：章尾悬念、危机或期待断点
       字数与场次：建议字数与场次划分
+      另可按叙事需要给出逐场计划（每场一行，1-3 行；没把握就省略场次行）：
+      场次：场名｜目标：该场必须发生的改变｜议程：出场人物各自想要什么｜情绪：该场情绪基调
     - "rationale"：一句话说明该章在整体结构中的作用（或 null）
 
     capability：#{request.tool_name}

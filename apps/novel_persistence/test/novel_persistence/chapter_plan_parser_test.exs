@@ -112,6 +112,53 @@ defmodule NovelPersistence.ChapterPlanParserTest do
       refute Enum.any?(chapters, &(&1.title == "所属卷"))
     end
 
+    test "场次逐场标注解析进 plan_direction.scene_plans（NEM04 刀③）" do
+      assert [%{plan_direction: direction}] =
+               ChapterPlanParser.parse("""
+               第01章：黑市对账夜: 沈洛潜入黑市。
+               情节推进：追查暗扣流向
+               场次：对账｜目标：核对暗扣并确认被抽走的频段｜议程：沈洛要证据、摊主要脱身｜情绪：压抑
+               场次：夜巡｜目标：躲过巡检带走残页｜情绪：紧绷
+               字数与场次：约1200字，两场（对账/夜巡）
+               """)
+
+      assert direction["plot_progress"] == "追查暗扣流向"
+      assert direction["word_count_and_scenes"] == "约1200字，两场（对账/夜巡）"
+
+      assert direction["scene_plans"] == [
+               %{
+                 "title" => "对账",
+                 "goal" => "核对暗扣并确认被抽走的频段",
+                 "agendas" => "沈洛要证据、摊主要脱身",
+                 "emotion" => "压抑"
+               },
+               %{"title" => "夜巡", "goal" => "躲过巡检带走残页", "emotion" => "紧绷"}
+             ]
+    end
+
+    test "场次行 ASCII 冒号写法不劈假章；无标题场次行整行丢弃" do
+      chapters =
+        ChapterPlanParser.parse("""
+        第01章：起: 甲。
+        场次: 对账｜目标：核对
+        场次：｜目标：无标题应丢弃
+        """)
+
+      assert [%{title: "第01章：起", plan_direction: direction}] = chapters
+      refute Enum.any?(chapters, &(&1.title == "场次"))
+      assert direction["scene_plans"] == [%{"title" => "对账", "goal" => "核对"}]
+    end
+
+    test "无场次标注时 plan_direction 不含 scene_plans 键（旧计划逐字节等价）" do
+      assert [%{plan_direction: direction}] =
+               ChapterPlanParser.parse("""
+               第01章：起: 甲。
+               情节推进：主角发现账单异常
+               """)
+
+      refute Map.has_key?(direction, "scene_plans")
+    end
+
     test "无标注时 volume_title 为 nil（单卷书与旧计划逐字节等价）" do
       assert [%{title: "第01章：起", volume_title: nil, summary: "甲。"}] =
                ChapterPlanParser.parse("第01章：起: 甲。")

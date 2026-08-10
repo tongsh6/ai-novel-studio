@@ -420,7 +420,7 @@ defmodule NovelPersistence.AdoptionRepository do
     with {:ok, volume} <- find_or_create_volume(repo, work_id),
          {:ok, chapter} <- find_or_create_chapter(repo, work_id, volume.id, chapter_title),
          :ok <- mark_chapter_drafted(repo, chapter),
-         {:ok, scene} <- resolve_scene(repo, work_id, chapter.id, chapter_title, mode),
+         {:ok, scene} <- resolve_scene(repo, work_id, chapter, chapter_title, mode),
          :ok <- maybe_supersede_scene(repo, work_id, scene.id, mode),
          {:ok, draft} <-
            insert_draft(repo, %{
@@ -451,14 +451,26 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   # :overwrite —— 复用同章同 title 场景（章身份=场景身份）。
-  # :append —— 续写：同章新建场景（seq+1）累积。
-  defp resolve_scene(repo, work_id, chapter_id, chapter_title, :overwrite) do
-    find_or_create_scene(repo, work_id, chapter_id, chapter_title)
+  # :append —— 续写：同章新建场景（seq+1）累积；场景名优先用该章计划的场次名
+  # （plan_direction.scene_plans，NEM04 刀③），计划没排到这一场时保持「场景 N」。
+  # 存量占位行不回填（拍板③）。
+  defp resolve_scene(repo, work_id, chapter, chapter_title, :overwrite) do
+    find_or_create_scene(repo, work_id, chapter.id, chapter_title)
   end
 
-  defp resolve_scene(repo, work_id, chapter_id, _chapter_title, :append) do
-    seq = next_scene_seq(repo, chapter_id)
-    insert_scene(repo, %{work_id: work_id, chapter_id: chapter_id, title: "场景 #{seq}", seq: seq})
+  defp resolve_scene(repo, work_id, chapter, _chapter_title, :append) do
+    seq = next_scene_seq(repo, chapter.id)
+    title = planned_scene_title(chapter, seq) || "场景 #{seq}"
+    insert_scene(repo, %{work_id: work_id, chapter_id: chapter.id, title: title, seq: seq})
+  end
+
+  defp planned_scene_title(chapter, seq) do
+    with %{"scene_plans" => plans} when is_list(plans) <- Map.get(chapter, :plan_direction),
+         %{"title" => title} when is_binary(title) and title != "" <- Enum.at(plans, seq - 1) do
+      title
+    else
+      _ -> nil
+    end
   end
 
   defp maybe_supersede_scene(repo, work_id, scene_id, :overwrite) do

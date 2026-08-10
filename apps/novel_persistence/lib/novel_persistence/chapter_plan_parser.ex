@@ -39,6 +39,19 @@ defmodule NovelPersistence.ChapterPlanParser do
   # 选逐章标注而非卷标题分隔行：标注自描述、不依赖行序，重排/追加不会串卷。
   @volume_labels ["所属卷", "卷归属", "所属分卷"]
 
+  # NEM04 刀③：场级计划逐场标注（`场次：标题｜目标：…｜议程：…｜情绪：…`）。
+  # 子槽用｜分隔（避开方向解析的；切分）；标题必填，缺则整行丢弃；行序即场次 seq。
+  @scene_labels ["场次", "场景"]
+  @scene_slot_labels %{
+    "目标" => "goal",
+    "场景目标" => "goal",
+    "议程" => "agendas",
+    "人物议程" => "agendas",
+    "出场人物议程" => "agendas",
+    "情绪" => "emotion",
+    "情绪定位" => "emotion"
+  }
+
   @type chapter :: %{
           seq: pos_integer(),
           title: String.t(),
@@ -92,8 +105,10 @@ defmodule NovelPersistence.ChapterPlanParser do
   defp parse_block([first | rest]) do
     {title, initial} = parse_title_and_initial(first)
     body_lines = [initial | rest] |> Enum.reject(&blank?/1)
-    {volume_title, direction_lines} = extract_volume_title(body_lines)
+    {volume_title, body_lines} = extract_volume_title(body_lines)
+    {scene_plans, direction_lines} = extract_scene_plans(body_lines)
     direction = direction_lines |> Enum.join("\n") |> parse_direction()
+    direction = with_scene_plans(direction, scene_plans)
 
     %{
       seq: 0,
@@ -128,6 +143,66 @@ defmodule NovelPersistence.ChapterPlanParser do
       {:ok, label, _value} -> normalize_direction_label(label) in @volume_labels
       :error -> false
     end
+  end
+
+  # 场次行先抽取后参与方向解析（volume_title 同先例）：它是逐场结构，不该混进
+  # 章级写作指导文本。
+  defp extract_scene_plans(lines) do
+    {scene_lines, rest} = Enum.split_with(lines, &scene_label_line?/1)
+
+    plans =
+      scene_lines
+      |> Enum.map(&parse_scene_line/1)
+      |> Enum.reject(&is_nil/1)
+
+    {plans, rest}
+  end
+
+  defp scene_label_line?(line) do
+    case split_label(line) do
+      {:ok, label, _value} -> normalize_direction_label(label) in @scene_labels
+      :error -> false
+    end
+  end
+
+  defp parse_scene_line(line) do
+    case split_label(line) do
+      {:ok, _label, value} ->
+        [title_part | slot_parts] = String.split(value, ~r/[｜|]/u)
+        title = String.trim(title_part)
+
+        if title == "" do
+          nil
+        else
+          slot_parts
+          |> Enum.reduce(%{"title" => title}, &put_scene_slot/2)
+        end
+
+      :error ->
+        nil
+    end
+  end
+
+  defp put_scene_slot(part, acc) do
+    with {:ok, label, value} <- split_label(part),
+         key when is_binary(key) <-
+           Map.get(@scene_slot_labels, normalize_direction_label(label)) do
+      Map.put(acc, key, value)
+    else
+      _ -> acc
+    end
+  end
+
+  defp with_scene_plans(direction, []), do: direction
+
+  defp with_scene_plans(nil, scene_plans),
+    do: ChapterPlanDirection.new(%{scene_plans: scene_plans})
+
+  defp with_scene_plans(direction, scene_plans) do
+    direction
+    |> Map.from_struct()
+    |> Map.put(:scene_plans, scene_plans)
+    |> ChapterPlanDirection.new()
   end
 
   defp parse_title_and_initial(line) do
@@ -174,7 +249,10 @@ defmodule NovelPersistence.ChapterPlanParser do
     end
   end
 
-  defp label_line?(line), do: direction_label_line?(line) or volume_label_line?(line)
+  # 场次行也必须算 label 行——写成 ASCII `场次: 对账` 会命中 `contains?(": ")`，
+  # 不拦就当场劈出假章（AU08 卷标注同款雷）。
+  defp label_line?(line),
+    do: direction_label_line?(line) or volume_label_line?(line) or scene_label_line?(line)
 
   defp direction_field(label) do
     label

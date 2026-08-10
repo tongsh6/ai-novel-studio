@@ -166,7 +166,8 @@ defmodule NovelApplication.ExplorationService do
             {"情绪定位", direction.emotion},
             {"章首拉力", direction.opening_hook},
             {"章尾断章", direction.ending_hook},
-            {"篇幅与场次", direction.word_count_and_scenes}
+            {"篇幅与场次", direction.word_count_and_scenes},
+            {"场次计划", scene_plans_text(direction.scene_plans)}
           ]
           |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
           |> Enum.map_join("；", fn {label, value} -> "#{label}：#{value}" end)
@@ -174,6 +175,26 @@ defmodule NovelApplication.ExplorationService do
 
     "【计划】#{rendered}"
   end
+
+  # 场次计划（NEM04 刀③，探索面同步律）：规划落库的逐场三槽在判断循环内可读。
+  defp scene_plans_text([]), do: nil
+
+  defp scene_plans_text(plans) when is_list(plans) do
+    Enum.map_join(plans, " / ", fn plan ->
+      slots =
+        [
+          plan["goal"] && "目标：#{plan["goal"]}",
+          plan["agendas"] && "议程：#{plan["agendas"]}",
+          plan["emotion"] && "情绪：#{plan["emotion"]}"
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("；")
+
+      if slots == "", do: plan["title"], else: "#{plan["title"]}（#{slots}）"
+    end)
+  end
+
+  defp scene_plans_text(_plans), do: nil
 
   # 实现态压缩层（chapter_summaries 治理摘要；CP5b 探索补面 B）。
   defp chapter_summary_section(work_id, chapter) do

@@ -44,6 +44,55 @@ defmodule NovelApplication.ProseExecutionBriefBuilderTest do
     assert unit["information_delta"]["reader_learns"] == "残诀来源指向旧实验"
   end
 
+  # NEM04 刀③：规划落库的逐场计划展开为多场单元——VS-00E「多场展开属后续」就此闭环。
+  test "expands planned scene_plans into per-scene units with title/goal/agendas/emotion" do
+    direction =
+      ChapterPlanDirection.from_storage(%{
+        "emotion" => "紧张",
+        "plot_progress" => "潜入黑市",
+        "scene_plans" => [
+          %{
+            "title" => "对账",
+            "goal" => "核对暗扣确认被抽走的频段",
+            "agendas" => "沈洛要证据、摊主要脱身",
+            "emotion" => "压抑"
+          },
+          %{"title" => "夜巡", "goal" => "躲过巡检带走残页"}
+        ]
+      })
+
+    {brief, meta} =
+      build(%{
+        chapter_direction: direction,
+        chapter: %{"title" => "第01章", "summary" => "x"},
+        author_input: "写第一章",
+        source_turn_ref: "turn-1"
+      })
+
+    refute meta.degraded
+    assert "chapter_plan_scene_plans" in meta.source
+
+    assert [first, second] = brief.scene_units
+    assert first["unit_id"] == "scene_1"
+    assert first["scene_title"] == "对账"
+    assert first["scene_mode"] == "planned_scene"
+    assert first["target_change"]["description"] == "核对暗扣确认被抽走的频段"
+    assert first["character_agendas"] == "沈洛要证据、摊主要脱身"
+    assert first["emotion_transition"]["end"] == "压抑"
+    refute Map.get(first, "degraded")
+
+    # 场缺情绪回退章级情绪定位；缺议程不写空壳键。
+    assert second["scene_title"] == "夜巡"
+    assert second["emotion_transition"]["end"] == "紧张"
+    refute Map.has_key?(second, "character_agendas")
+
+    # prompt 渲染带场名与议程原文（writer 可读性）。
+    section = NovelDomain.ProseExecutionBrief.to_prompt_section(brief)
+    assert section =~ "scene_1（planned_scene）场：对账"
+    assert section =~ "人物议程：沈洛要证据、摊主要脱身"
+    assert section =~ "场：夜巡"
+  end
+
   test "degrades to minimal brief from plan summary when no structured direction" do
     {brief, meta} =
       build(%{

@@ -654,6 +654,53 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert audit.chapter_count == 1
     end
 
+    # NEM04 刀③：续写新场景优先用章计划的场次名，治「场景 N」占位（存量不回填）。
+    test "续写场景优先用章计划场次名（plan_direction.scene_plans）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-plan",
+                 artifact_id: "as-scene-plan",
+                 artifact_type: :outline_draft,
+                 content: """
+                 第01章：黑市对账夜: 沈洛潜入黑市。
+                 场次：对账｜目标：核对暗扣｜情绪：压抑
+                 场次：夜巡｜目标：躲过巡检｜情绪：紧绷
+                 """,
+                 summary: "一章两场计划"
+               })
+
+      for {turn, artifact, content, mode} <- [
+            {"turn-1", "as-s1", "对账段正文。", nil},
+            {"turn-2", "as-s2", "夜巡段正文。", :append}
+          ] do
+        attrs = %{
+          actor_ref: "author",
+          work_id: work_id,
+          source_turn_ref: turn,
+          artifact_id: artifact,
+          artifact_type: :prose_fragment,
+          content: content,
+          summary: "第01章：黑市对账夜"
+        }
+
+        attrs = if mode, do: Map.put(attrs, :mode, mode), else: attrs
+        assert {:ok, _} = AdoptionRepository.persist(attrs)
+      end
+
+      titles =
+        Repo.all(
+          from(s in Scene, where: s.work_id == ^work_id, order_by: [asc: s.seq], select: s.title)
+        )
+
+      # 首段 overwrite 场景保持章身份命名（既有语义不动）；续写场景吃到计划场次名
+      # 「夜巡」而不是「场景 2」。
+      assert titles == ["第01章：黑市对账夜", "夜巡"]
+    end
+
     test "重写（默认 overwrite）仍 supersede 旧场景，不累积" do
       work_id = Ecto.UUID.generate()
 

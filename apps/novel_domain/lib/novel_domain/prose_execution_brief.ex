@@ -31,9 +31,11 @@ defmodule NovelDomain.ProseExecutionBrief do
             source_refs: [],
             created_at: nil
 
-  @scene_unit_keys ~w(unit_id scene_mode target_change causal_spine character_agendas
-                      information_delta emotion_transition dialogue_intent sensory_anchor
-                      degraded degraded_reason)a
+  # scene_title（可选，NEM04 刀③）：规划态场次名（「对账」「夜巡」），随计划落库的
+  # scene_plans 进入逐场单元；unit_id 仍是稳定引用，标题只服务 writer 可读性。
+  @scene_unit_keys ~w(unit_id scene_title scene_mode target_change causal_spine
+                      character_agendas information_delta emotion_transition dialogue_intent
+                      sensory_anchor degraded degraded_reason)a
 
   @doc """
   从 map 构造并清洗。string / atom 键皆可。
@@ -179,10 +181,11 @@ defmodule NovelDomain.ProseExecutionBrief do
 
   defp scene_unit_lines(unit) do
     tc = unit["target_change"] || %{}
+    title = clean(unit["scene_title"])
 
     lines =
       [
-        "- #{unit["unit_id"]}（#{unit["scene_mode"] || "未标注"}）",
+        "- #{unit["unit_id"]}（#{unit["scene_mode"] || "未标注"}）#{if title, do: "场：#{title}", else: ""}",
         sub("目标变化", "#{tc["type"]}：#{tc["description"]}"),
         causal_line(unit["causal_spine"]),
         agendas_line(unit["character_agendas"]),
@@ -220,6 +223,10 @@ defmodule NovelDomain.ProseExecutionBrief do
 
     sub("人物议程", text)
   end
+
+  # 规划落库的议程是自由文本（「沈洛要证据、摊主要脱身」）——原样进 prompt，
+  # 不过度解析成结构（NEM04 刀③）。
+  defp agendas_line(text) when is_binary(text), do: sub("人物议程", text)
 
   defp agendas_line(_), do: nil
 

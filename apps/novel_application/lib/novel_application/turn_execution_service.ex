@@ -1222,7 +1222,8 @@ defmodule NovelApplication.TurnExecutionService do
       turn_id: frame.turn_id,
       brief_ref: ProseExecutionBrief.ref(brief),
       scene_unit_count: length(brief.scene_units),
-      degraded: meta.degraded
+      degraded: meta.degraded,
+      brief_source: meta.source
     })
   end
 
