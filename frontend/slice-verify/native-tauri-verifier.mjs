@@ -373,22 +373,22 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
+  // 规划请求走 bounded AgentRun（judgment → allow_tool → plot_outline），
+  // 因此关键事件是 judgment/orchestrator/toolbox，而不是 planner.form_* 直路。
   "p1-chapter-plan-minimum": [
     "work_session.resume.done",
     "channel.join.done",
     "channel.user_message.start",
-    "planner.form_frame.done",
-    "planner.form_micro_plan.done",
-    "toolbox.execute.done",
+    "judgment.decided.done",
     "channel.user_message.done",
+    "context.fact_completeness.done",
+    "toolbox.execute.done",
     "channel.author_action.start",
     "adoption.evaluate.done",
     "channel.author_action.done",
     "channel.get_toc.done",
     "slice_verify.ui_state.done",
   ],
-  // 规划请求走 bounded AgentRun（judgment → allow_tool → plot_outline），
-  // 因此关键事件是 judgment/orchestrator/toolbox，而不是 planner.form_* 直路。
   "au08-volume-structured-planning": [
     "work_session.resume.done",
     "channel.join.done",
@@ -3975,7 +3975,7 @@ function findP1ProseQualityFindingRoundtripEvidence(records) {
   };
 }
 
-function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, evidence, options) {
+function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, evidence, _options) {
   if (turnIds.length !== 3) return null;
   if (turnIds.some((turnId) => !contextAssembleTurnIdForDraftTurn(records, turnId))) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "context.structure.done")) return null;
@@ -4133,7 +4133,7 @@ function findP1ProseQualityEvaluatorDegradeEvidence(records) {
   };
 }
 
-function p1ProseQualityEvaluatorDegradeBehavior(turnIds, turnRecords, records, evidence, options) {
+function p1ProseQualityEvaluatorDegradeBehavior(turnIds, turnRecords, records, evidence, _options) {
   if (turnIds.length !== 1) return null;
   const draftTurnId = evidence.draft_turn_id;
 
@@ -4243,7 +4243,7 @@ function findP1ProseQualityAdoptionBoundaryEvidence(records) {
   };
 }
 
-function p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, evidence, options) {
+function p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, evidence, _options) {
   if (turnIds.length !== 1) return null;
 
   // 修订候选生成 + 修订稿走真实采纳边界
@@ -12107,18 +12107,36 @@ function findP1ChapterPlanMinimumEvidence(records) {
 
   const generationTurnId = String(uiState.generation_turn_id ?? "");
   const adoptionTurnId = String(uiState.adoption_turn_id ?? "");
-  if (!generationTurnId || !adoptionTurnId) return null;
+  // 规划走 bounded AgentRun：channel 级留痕在父 turn，工具执行/采纳在 `:agent:N` 子 turn。
+  const parentTurnId = String(uiState.parent_turn_id ?? generationTurnId.split(":agent:")[0] ?? "");
+  if (!generationTurnId || !adoptionTurnId || !parentTurnId) return null;
+  if (!generationTurnId.startsWith(parentTurnId)) return null;
 
   const generationRecords = records.filter((record) => record.turn_id === generationTurnId);
-  const generatedByTool = generationRecords.some(
+  const parentRecords = records.filter((record) => record.turn_id === parentTurnId);
+
+  const microPlanStarted = parentRecords.some(
+    (record) =>
+      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+  );
+  // 章计划能力由 AI 判帧选出（不是 driver 指定的），并进入 bounded run。
+  const routedToPlotOutline = parentRecords.some(
+    (record) => record.event === "judgment.decided.done" && record.capability === "plot_outline",
+  );
+  const boundedRun = parentRecords.some(
+    (record) => record.event === "channel.user_message.done" && record.run_mode === "bounded",
+  );
+
+  // 工具执行留痕不带 turn_id，用 decision_id 与本次执行 turn 绑定（同一决策 → 同一次执行）。
+  const decisionIds = generationRecords
+    .map((record) => record.decision_id)
+    .filter((value) => typeof value === "string" && value !== "");
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "plot_outline" &&
-      record.tool_outcome === "succeeded",
-  );
-  const microPlanStarted = generationRecords.some(
-    (record) =>
-      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+      record.tool_outcome === "succeeded" &&
+      decisionIds.includes(record.decision_id),
   );
   // 采纳走当前模型 author_action accept（channel adopt handler 已是遗留、前端不用）。
   // 持久化/未物化阅读投影由 uiState 门（reading_projection_materialized===false）保证。
@@ -12137,12 +12155,14 @@ function findP1ChapterPlanMinimumEvidence(records) {
   );
 
   if (!generatedByTool || !microPlanStarted || !adopted || !chapterStructureRead) return null;
+  if (!routedToPlotOutline || !boundedRun) return null;
 
   return {
     slice_id: sliceId,
     turn_id: generationTurnId,
-    turn_ids: [generationTurnId],
+    turn_ids: [parentTurnId, generationTurnId],
     generation_turn_id: generationTurnId,
+    parent_turn_id: parentTurnId,
     adoption_turn_id: adoptionTurnId,
     artifact_id: uiState.artifact_id,
     chapter_count: uiState.chapter_count,
@@ -12811,21 +12831,13 @@ function unadoptedCandidateNoReadingFactBehavior(turnIds, turnRecords, records, 
   };
 }
 
-function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, options) {
-  if (turnIds.length !== 1) return null;
-  if (!turnsHaveGenerateMicroPlan([evidence.generation_turn_id], turnRecords, true)) return null;
-  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "planner.form_micro_plan.done")) {
-    return null;
-  }
-  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "toolbox.execute.done"))
-    return null;
+function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, _options) {
+  // 作者从真实工作台发起（父 turn 带 micro plan），能力由判帧选出并进入 bounded run；
+  // 采纳落在执行子 turn。
+  if (!turnsHaveGenerateMicroPlan([evidence.parent_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.parent_turn_id], turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "channel.author_action.done"))
     return null;
-  if (
-    !lmstudioHasSteps(options, [evidence.generation_turn_id], ["form_frame", "form_micro_plan"])
-  ) {
-    return null;
-  }
 
   const uiState = records.find(
     (record) =>
@@ -12852,14 +12864,12 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
     assertions: [
       "real_archive_outline_start_planning_clicked",
       "micro_plan_requested_from_real_workbench",
+      "plot_outline_capability_selected_by_judgment_and_run_bounded",
       "plot_outline_generated_outline_draft",
       "outline_draft_adopted_through_adoption_boundary",
       "outline_draft_did_not_materialize_reading_projection",
       "adopted_plan_materialized_chapter_structure_read_via_toc",
       "real_ui_rendered_first_and_final_chapter_titles",
-      options.provider === "lmstudio"
-        ? "lmstudio_form_frame_and_micro_plan_called"
-        : "deterministic_provider_form_frame_and_micro_plan_called",
     ],
   };
 }

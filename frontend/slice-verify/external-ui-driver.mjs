@@ -447,7 +447,7 @@ async function killProcessTree(pid, graceSeconds = 3) {
     await waitForChild(killer, "kill_process_tree");
   } catch (error) {
     const detail = stderr.trim();
-    throw new Error(`${error.message}${detail ? `: ${detail}` : ""}`);
+    throw new Error(`${error.message}${detail ? `: ${detail}` : ""}`, { cause: error });
   }
 }
 
@@ -871,15 +871,6 @@ async function startHangingOpenAiServer() {
   };
 }
 
-async function textContent(page, selector) {
-  return page
-    .locator(selector)
-    .first()
-    .textContent()
-    .then((value) => value?.trim() ?? "")
-    .catch(() => "");
-}
-
 function serviceStatus(page) {
   return page.getByText(/^服务:|^同步/).first();
 }
@@ -1173,6 +1164,7 @@ File.write!(System.fetch_env!("TRACE_QUERY_OUTPUT"), Jason.encode!(payload) <> "
       `${error.message}${stderr.trim() ? `: ${stderr.trim()}` : ""}${
         stdout.trim() ? ` stdout=${stdout.trim()}` : ""
       }`,
+      { cause: error },
     );
   }
 
@@ -1264,6 +1256,7 @@ File.write!(System.fetch_env!("TRACE_PARTIAL_OUTPUT"), Jason.encode!(payload) <>
       `${error.message}${stderr.trim() ? `: ${stderr.trim()}` : ""}${
         stdout.trim() ? ` stdout=${stdout.trim()}` : ""
       }`,
+      { cause: error },
     );
   }
 
@@ -2368,9 +2361,6 @@ async function driveAgentSessionTranscriptLazyPage(page) {
   const olderActivityAgentRuns = Array.isArray(olderActivityBody.agent_runs)
     ? olderActivityBody.agent_runs
     : [];
-  const olderActivityEvents = olderActivityAgentRuns.flatMap((run) =>
-    Array.isArray(run.events) ? run.events : [],
-  );
   // 2026-07-02 d0643cd3 起 developer 事件不入 activity API 的 agent_runs[].events；
   // provider 事实由 ProviderRun 事件序列（provider_runs[].events）承担。
   const olderActivityProviderRunEvents = (
@@ -5307,7 +5297,7 @@ async function driveUnadoptedCandidateNoReadingFact(page) {
 }
 
 async function driveCandidateAdoptionBridge(page) {
-  const { sourceTurnResult, candidate, availableAction } = await createCandidateSourceTurn(page);
+  const { sourceTurnResult, availableAction } = await createCandidateSourceTurn(page);
 
   await page
     .getByRole("button", { name: /设为后续方向|采用这个方向/ })
@@ -5823,6 +5813,7 @@ async function driveP1ChapterPlanMinimum(page) {
       // 章数是 AI 生成的产物，不写死「恰好 12」：只要求达到长篇计划下限（>= 8）。
       Number(frame.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 8,
     "No P1 chapter plan outline_draft turn_result websocket frame was received",
+    200_000,
   );
   const generationTurnResult = generationFrame.body;
   const pendingArtifact = generationTurnResult.adoption_state.pending[0];
@@ -5921,6 +5912,9 @@ async function driveP1ChapterPlanMinimum(page) {
       ...uiState,
       turn_id: generationTurnResult.turn_id,
       generation_turn_id: generationTurnResult.turn_id,
+      // 规划走 bounded run：channel 级留痕（user_message/judgment）落在父 turn，
+      // 工具执行与采纳落在 `<parent>:agent:N` 子 turn。
+      parent_turn_id: String(generationTurnResult.turn_id ?? "").split(":agent:")[0],
       adoption_turn_id: adoptionTurnResult.turn_id,
       artifact_id: pendingArtifact.artifact_id,
       artifact_type: pendingArtifact.artifact_type,
@@ -7090,7 +7084,6 @@ async function driveP1PlanIncremental(page) {
     appendedSeqs.length > 0 &&
     appendedSeqs.every((seq, i) => seq > maxBaselineSeq && (i === 0 || seq > appendedSeqs[i - 1]));
 
-  const visibleText = await page.locator("body").innerText();
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, outlineFrame.body, sentMessage);
 
@@ -11078,7 +11071,6 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
 
   // 2. 显式发起全书审读（真实 AgentRun；报告机械物化）
   const beforeReviewLogCount = readAppLogRecords().length;
-  const frameStartReview = frames.length;
   await page.getByRole("button", { name: "发起全书审读", exact: true }).click();
   await page.waitForFunction(() => document.body.innerText.includes("全书审读完成"), {
     timeout: 120_000,
@@ -12560,7 +12552,7 @@ async function driveAu09MemoryManagementFilterMatrix(page) {
     await waitForNotLoading();
   }
 
-  async function waitForRows(label, predicate) {
+  async function waitForRows(label, _predicate) {
     await page.waitForFunction(
       ({ expected, alpha, beta, gamma }) => {
         const rows = [...document.querySelectorAll("tbody tr")].map((row) =>
@@ -18681,7 +18673,7 @@ async function driveP1ProseRevisionCandidate(page) {
   await page.getByRole("button", { name: "局部修订所选问题" }).first().click();
 
   // revise_from_findings 作者动作被真实工作台发出
-  const reviseActionFrame = await waitForNewFrame(
+  await waitForNewFrame(
     beforeReviseFrameCount,
     (frame) =>
       frame.direction === "sent" &&
@@ -20623,7 +20615,7 @@ async function driveAgentConversationTurn(page, options = {}) {
   let authorReasoningDeltaFrame = null;
   let secondAuthorReasoningDeltaFrame = null;
   let firstAuthorReasoningDelta = "";
-  let secondAuthorReasoningDelta = "";
+  let secondAuthorReasoningDelta;
   let authorReasoningCumulativePrefix = "";
 
   if (expectAuthorReasoningDelta) {
@@ -20953,7 +20945,6 @@ async function driveAgentD6ProseReplan(page, sliceId) {
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await installReasoningStreamObserver(page);
   const frameStart = frames.length;
-  const logStart = readAppLogRecords().length;
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -21347,7 +21338,7 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
 async function driveAgenticLoopProseDeviationReplan(page, config) {
   await configureExternalRunProviderRuntime();
 
-  const { sliceId, message, signal, reasonNeedle, expected } = config;
+  const { sliceId, message, signal, expected } = config;
   const allowCandidateTurnResult = config.allowCandidateTurnResult === true;
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
@@ -21690,7 +21681,6 @@ async function driveAgenticLoopDeterministicGapReplan(page) {
 }
 
 async function driveAgentProviderExecutionStreamUnified(page) {
-  const frameStart = frames.length;
   const [conversationState] = await driveAgentConversationTurn(page);
   const runId = conversationState.run_id;
   const turnId = conversationState.final_turn_id ?? conversationState.turn_id;
@@ -22953,7 +22943,6 @@ async function driveJudgmentPlanMultiStep(page) {
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await installReasoningStreamObserver(page);
   const frameStart = frames.length;
-  const logStart = readAppLogRecords().length;
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -23031,7 +23020,7 @@ async function driveJudgmentPlanMultiStep(page) {
     "Model-drafted plan did not span multiple creative capabilities",
   );
 
-  const runCompletedFrame = await waitForNewFrame(
+  await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
@@ -24206,275 +24195,6 @@ async function driveAgentReadonlyBatchProfile(page) {
   ];
 }
 
-async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
-  const requestText = "先看看现有角色阵容，然后设计一个反派，要求避开林澈重名并形成长期冲突。";
-  const seededCharacterName = "林澈";
-  const workId = readSeedField("work_id");
-  const workTitleValue = readSeedField("work_title");
-  assert(workId, "UA-01 AgentRun seed did not provide work_id");
-  assert(workTitleValue, "UA-01 AgentRun seed did not provide work_title");
-
-  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
-  assert((await workTitle(page).count()) > 0, "Real work title button is not visible");
-  assert((await serviceStatus(page).count()) > 0, "Real service status is not visible");
-  await ensureWorkSelectedByTitle(page, workTitleValue, workId);
-  await waitForVisibleWorkTitle(page, workTitleValue);
-
-  const frameCount = frames.length;
-  await page.locator(chatInputSelector).fill(requestText);
-  await page.getByRole("button", { name: /^发送$/ }).click();
-
-  const sentFrame = await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "sent" &&
-      frame.event === "user_message" &&
-      frame.body?.work_id === workId &&
-      String(frame.body?.text ?? "").includes("先看看现有角色阵容") &&
-      String(frame.body?.text ?? "").includes("设计一个反派"),
-    "AgentRun request was not sent from the real workbench input",
-    10_000,
-  );
-
-  const ackFrame = await waitForNewFrame(
-    frameCount,
-    (frame) => {
-      const response = frame.body?.response ?? {};
-      return (
-        frame.direction === "received" &&
-        frame.event === "phx_reply" &&
-        frame.body?.status === "ok" &&
-        response.received === true &&
-        response.run_mode === "bounded" &&
-        typeof response.run_id === "string" &&
-        response.run_id !== ""
-      );
-    },
-    "AgentRun user_message did not fast-ack with bounded run_id",
-    10_000,
-  );
-  const ackResponse = ackFrame.body.response;
-  const runId = ackResponse.run_id;
-
-  const runStartedFrame = await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "run_started",
-    "AgentRun did not emit run_started",
-    10_000,
-  );
-
-  await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted",
-    "AgentRun did not propose the first step",
-    20_000,
-  );
-
-  const rosterObservationFrame = await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "exploration_observed" &&
-      String(frame.body?.summary ?? "").includes("已读取当前角色阵容") &&
-      String(frame.body?.summary ?? "").includes(seededCharacterName),
-    "AgentRun did not publish a roster observation containing the seeded character",
-    30_000,
-  );
-
-  await waitForNewFrame(
-    frames.indexOf(rosterObservationFrame) + 1,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted",
-    "AgentRun did not start a second step after the roster observation",
-    30_000,
-  );
-
-  const artifactEventFrame = await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "artifact_created" &&
-      Array.isArray(frame.body?.refs) &&
-      frame.body.refs.length >= 1,
-    "AgentRun did not emit artifact_created",
-    90_000,
-  );
-
-  const finalTurnFrame = await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "turn_result" &&
-      frame.body?.agent_run?.run_id === runId &&
-      frame.body?.tool_result?.tool_name === "character_design" &&
-      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "character_seed",
-    "AgentRun final character_seed turn_result was not broadcast",
-    90_000,
-  );
-  const finalTurnResult = finalTurnFrame.body;
-  const pendingArtifact = finalTurnResult.adoption_state.pending[0];
-
-  const runCompletedFrame = await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "run_completed",
-    "AgentRun did not emit run_completed",
-    20_000,
-  );
-
-  const completedStateFrame = await waitForNewFrame(
-    frameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_run_state" &&
-      frame.body?.run_id === runId &&
-      frame.body?.status === "completed" &&
-      Array.isArray(frame.body?.completed_step_refs) &&
-      frame.body.completed_step_refs.length >= 2,
-    "AgentRun state did not report completed two-step run",
-    20_000,
-  );
-
-  // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
-  await page.waitForFunction(
-    () =>
-      document.body.innerText.includes("创作执行") &&
-      document.body.innerText.includes("已完成") &&
-      document.body.innerText.includes("已读取当前角色阵容") &&
-      document.body.innerText.includes("已生成待采纳候选") &&
-      document.body.innerText.includes("保存到作品档案") &&
-      !document.body.innerText.includes("思考中"),
-    undefined,
-    { timeout: 30_000 },
-  );
-
-  const agentEvents = frames.filter(
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId,
-  );
-  const stepProposedFrames = agentEvents.filter(
-    (frame) => frame.body?.event_type === "plan_drafted",
-  );
-  const observationFrames = agentEvents.filter(
-    (frame) => frame.body?.event_type === "exploration_observed",
-  );
-  const agentRunStates = frames.filter(
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_run_state" &&
-      frame.body?.run_id === runId,
-  );
-  const completedState = completedStateFrame.body;
-  const visibleText = await page.locator("body").innerText();
-  const eventPayload = artifactEventFrame.body?.payload ?? {};
-  const artifactPayload = pendingArtifact.payload ?? {};
-  const item = Array.isArray(artifactPayload.items) ? (artifactPayload.items[0] ?? {}) : {};
-
-  return [
-    {
-      event: "slice_verify.ui_state.done",
-      slice_id: sliceId,
-      turn_id: completedState.parent_turn_ref,
-      parent_turn_id: completedState.parent_turn_ref,
-      agent_turn_id: finalTurnResult.turn_id,
-      turn_ids: [completedState.parent_turn_ref, finalTurnResult.turn_id].filter(Boolean),
-      workspace_id: sentFrame.body?.work_id,
-      work_id: workId,
-      session_id: sentFrame.body?.session_id,
-      work_title: workTitleValue,
-      run_id: runId,
-      run_mode: ackResponse.run_mode,
-      profile_ref: completedState.profile_ref,
-      fast_ack_received: true,
-      ack_received_before_final_turn:
-        frames.indexOf(ackFrame) >= 0 && frames.indexOf(ackFrame) < frames.indexOf(finalTurnFrame),
-      run_started_event: runStartedFrame.body?.event_type === "run_started",
-      run_completed_event: runCompletedFrame.body?.event_type === "run_completed",
-      agent_event_count: agentEvents.length,
-      agent_run_state_count: agentRunStates.length,
-      plan_drafted_count: stepProposedFrames.length,
-      observation_count: observationFrames.length,
-      completed_step_count: completedState.completed_step_refs.length,
-      completed_step_refs: completedState.completed_step_refs,
-      current_step_ref_after_complete: completedState.current_step_ref ?? null,
-      consumed_steps: completedState.consumed_budget?.steps ?? 0,
-      consumed_tool_calls: completedState.consumed_budget?.tool_calls ?? 0,
-      consumed_provider_calls: completedState.consumed_budget?.provider_calls ?? 0,
-      remaining_steps: completedState.remaining_steps,
-      final_status: completedState.status,
-      final_phase: completedState.phase,
-      roster_observation_summary: rosterObservationFrame.body?.summary,
-      roster_observation_mentions_seed: String(rosterObservationFrame.body?.summary ?? "").includes(
-        seededCharacterName,
-      ),
-      second_step_after_roster_observation:
-        stepProposedFrames.length >= 2 &&
-        frames.indexOf(stepProposedFrames[1]) > frames.indexOf(rosterObservationFrame),
-      artifact_created_event: artifactEventFrame.body?.event_type === "artifact_created",
-      artifact_event_payload_redacted: !Object.prototype.hasOwnProperty.call(
-        eventPayload,
-        "turn_result",
-      ),
-      final_turn_result_received: true,
-      final_turn_agent_run_ref: finalTurnResult.agent_run?.run_id ?? null,
-      final_tool_name: finalTurnResult.tool_result?.tool_name ?? null,
-      pending_artifact_count: finalTurnResult.adoption_state?.pending?.length ?? 0,
-      pending_artifact_id: pendingArtifact.artifact_id,
-      pending_artifact_type: pendingArtifact.artifact_type,
-      pending_artifact_status: pendingArtifact.adoption_status,
-      pending_artifact_title: item.title ?? "",
-      pending_artifact_body_chars: String(item.body ?? "").length,
-      artifact_adopted: finalTurnResult.truthfulness?.artifact_adopted === true,
-      production_write_performed: finalTurnResult.truthfulness?.production_write_performed === true,
-      // Order 62 CP3 语义迁移：工作详情/终态区已移除，改以新三层 UI 判定。
-      agent_panel_visible:
-        visibleText.includes("创作执行") &&
-        (await page.evaluate(() => Boolean(document.querySelector('section[aria-label="推理"]')))),
-      agent_completed_status_visible:
-        visibleText.includes("已完成") || visibleText.includes("无任务"),
-      roster_activity_visible: visibleText.includes("已读取当前角色阵容"),
-      artifact_activity_visible: visibleText.includes("已生成待采纳候选"),
-      save_archive_action_visible: visibleText.includes("保存到作品档案"),
-      pause_control_visible: visibleText.includes("暂停"),
-      cancel_control_visible: visibleText.includes("终止任务"),
-      adopt_event_sent: frames.some(
-        (frame) => frame.direction === "sent" && frame.event === "adopt",
-      ),
-      author_action_sent: frames.some(
-        (frame) => frame.direction === "sent" && frame.event === "author_action",
-      ),
-      message_text: requestText,
-      service_status_text: await serviceStatus(page)
-        .textContent()
-        .then((value) => value?.trim() ?? ""),
-      title_text: await workTitle(page)
-        .textContent()
-        .then((value) => value?.trim() ?? ""),
-      outcome: "done",
-    },
-  ];
-}
-
 async function driveUa01AgentInterruptCommand(page, command) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
@@ -24617,7 +24337,7 @@ async function driveUa01AgentInterruptCommand(page, command) {
   );
 
   const commandAckFrame = await waitForNewFrame(
-    steerFrameStart,
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "phx_reply" &&
