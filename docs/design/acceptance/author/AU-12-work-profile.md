@@ -50,6 +50,7 @@
 | AU12-I5 | tentative / accepted 状态可辨，不把未确认立项显示为既定事实 | SC-AU12-A4 |
 | AU12-I6 | 缺字段或读取失败必须诚实显示，不编造、不静默空白 | SC-AU12-B3 |
 | AU12-I7 | 修改立项只经 correction intent 回对话流，不绕过 Agent 直接写库 | SC-AU12-C2 |
+| AU12-I8 | 角色身份归并只能由作者裁决发起（禁止按 name 静默合并）；被并入行 SUPERSEDED 隐藏、弧光账归一无悬空引用、归并零正文/记忆写入 | SC-AU12-E1 |
 
 ---
 
@@ -86,6 +87,14 @@
 
 - **SC-AU12-C1**：在档案查看不产生任何 production write（无 adoption/无库写）。
 - **SC-AU12-C2**：作者在档案点「修订」→ 发起 correction intent 抛回对话流，由 Agent 处理并重新过采纳边界，不直接写 works 表（编辑 checkpoint）。
+
+### 场景组 E：角色身份归并（AU12 slice CP1，2026-08-10）
+
+- **SC-AU12-E1**：档案里同名双行（m4b 存量重复标本）+ 别名行，作者从角色详情发起
+  「并入其他角色…」两次裁决归并 → 档案收拢为单行且别名可见 → 脉络角色弧光归一为
+  单条 → 归并零 adoption/正文/记忆写入。已挂真实 Tauri / quality acceptance：
+  `au12-character-identity-merge`（设计 43 §5.0.2；slice
+  `tasks/slices/AU12-character-identity-merge.md`）。
 
 ### 场景组 D：真实入口与自动化
 

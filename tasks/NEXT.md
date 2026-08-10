@@ -207,9 +207,19 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**当前队首：Order 8 刀序②角色主体+AU12 归并**（开工前按七问补 slice 设计；
-**只补 roster 不做归并会把空转换成噪声**）。刀序余项（等拉动）：③场级 craft
-④information 账+design_ref。R2「自由创作只产两种 artifact」是另一把刀，不与本刀合并。
+**当前队首：Order 8 刀序②角色主体+AU12 归并——slice 已设计并落 CP1（2026-08-10）**。
+`tasks/slices/AU12-character-identity-merge.md` 七问已补全；三拍板已裁决（①被并入行
+置 SUPERSEDED ②合并入口档案侧先行，确认卡内嵌选项另拍 ③CP2 覆盖盘点+
+character_design 两链）。**CP1 归并主链 done**：domain 纯计算+persistence 单 Multi
+（别名并集/主名切换/arc 吸收/SUPERSEDED 隐藏）+channel `merge_characters`+档案
+详情合并弹窗（43 §5.0.2）；**真实 Tauri PASS** `au12-character-identity-merge`
+（seed 复刻 m4b 同名双行+双 arc 标本，两次归并 3→2→1 行、别名「洛公子」可见、
+arc 账 entry_count 2→1、零 adoption/记忆写入）。**下一 checkpoint：CP2 输入面**
+（盘点 prompt+normalize_item 白名单+采纳链贯通 role/aliases，**同批必须堵别名后门**：
+known_characters 名单含 aliases + duplicate checker 匹配别名，否则「洛公子」类提案
+绕过同名拦截）；CP3 消费面证明（别称 sighting 真实生效）。
+刀序余项（等拉动）：③场级 craft ④information 账+design_ref。
+R2「自由创作只产两种 artifact」是另一把刀，不与本刀合并。
 CP5 剩余余项（等拉动）：触发 C、works 级假定、记忆类注入富化；CP2 R2；
 **新登记**：`tasks/slices/AU12-character-identity-merge.md`（同名/别名角色身份归并；
 本次只落拦截三层，已有重复行的合并/别名/真重名消歧未做）。
