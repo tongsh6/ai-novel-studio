@@ -13262,6 +13262,9 @@ function findAu14FactInventoryEvidence(records) {
       Number(record.archive_rule_count ?? 0) === 1 &&
       Number(record.archive_foreshadowing_count ?? -1) === 0 &&
       record.archive_character_visible === true &&
+      // AU12 CP2：盘点提案携带的 role/aliases 经采纳链落档并用户可见。
+      record.adopted_character_role_visible === true &&
+      record.adopted_character_alias_visible === true &&
       record.archive_rule_visible === true,
   );
   if (!uiState) return null;

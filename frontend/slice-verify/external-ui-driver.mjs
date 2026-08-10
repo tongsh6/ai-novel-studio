@@ -10203,6 +10203,25 @@ async function driveAu14FactInventoryRoundtrip(page) {
     20_000,
   );
   await archivePanel.getByText("沈砚").first().waitFor({ timeout: 10_000 });
+  // AU12 CP2 角色主体输入面：盘点提案携带的 role/aliases 经采纳链落到角色主档案，
+  // 档案行用户可见（身份内联标签 + 别名行）。
+  const adoptedCharacterRow = archivePanel
+    .locator('[class*="cardItem"]')
+    .filter({ hasText: "沈砚" })
+    .first();
+  await adoptedCharacterRow
+    .getByText("底层灵气缴费者出身的调查者")
+    .first()
+    .waitFor({ timeout: 10_000 });
+  await adoptedCharacterRow.getByText("别名：砚哥").first().waitFor({ timeout: 10_000 });
+  const adoptedCharacterRoleVisible = await adoptedCharacterRow
+    .getByText("底层灵气缴费者出身的调查者")
+    .first()
+    .isVisible();
+  const adoptedCharacterAliasVisible = await adoptedCharacterRow
+    .getByText("别名：砚哥")
+    .first()
+    .isVisible();
   const characterRecord = await waitForNewAppLogRecord(
     archiveLogStart,
     (record) =>
@@ -10499,6 +10518,8 @@ async function driveAu14FactInventoryRoundtrip(page) {
       archive_rule_count: Number(ruleRecord.rule_count ?? 0),
       archive_foreshadowing_count: Number(foreshadowRecord.item_count ?? 0),
       archive_character_visible: true,
+      adopted_character_role_visible: adoptedCharacterRoleVisible,
+      adopted_character_alias_visible: adoptedCharacterAliasVisible,
       archive_rule_visible: true,
       start_action_logged: logsAfter.some(
         (record) =>

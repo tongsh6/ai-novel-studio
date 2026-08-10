@@ -194,6 +194,8 @@ describe("native Tauri slice verifier", () => {
         archive_rule_count: 1,
         archive_foreshadowing_count: 0,
         archive_character_visible: true,
+        adopted_character_role_visible: true,
+        adopted_character_alias_visible: true,
         archive_rule_visible: true,
       },
     ];

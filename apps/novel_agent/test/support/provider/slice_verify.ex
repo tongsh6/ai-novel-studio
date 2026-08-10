@@ -578,7 +578,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         title: "沈砚",
         body: "追查灵气账单异常的核心视角人物。",
         rationale: "依据第01章",
-        narrative_role: "PROTAGONIST"
+        narrative_role: "PROTAGONIST",
+        role: "底层灵气缴费者出身的调查者",
+        aliases: ["砚哥"]
       },
       %{
         artifact_type: "character_seed",
