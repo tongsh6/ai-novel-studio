@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-07-28
+> 最后更新：2026-08-10
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -174,7 +174,7 @@ accept_label=「采纳方案 A 为全书规划」、rows 1→2。③**Order 8 �
 `reason_codes` 分派（同名点名档案里已有的是谁、元泄漏摆出命中原文），拦住了还得给
 作者裁决材料；该文案已由 au14 场景取得真实页面证据。
 
-**当前队首：AU08 卷结构（用户已拍板 Order 8 刀序，①卷结构先行）**——
+**AU08 卷结构 slice done（Order 8 刀序①，2026-07-29 收口）**——
 `tasks/slices/AU08-volume-structured-planning.md`。**CP1 done（2026-07-29，拆雷）**：
 `chapter.seq` 此前按 `volume_id` 取 max，**只因恰好只有一卷才没出事**（m4 实测 105 章 /
 105 distinct seq / 1 卷）；一旦建第二卷，卷二首章 seq=1 与卷一首章撞号，而账本
@@ -190,22 +190,26 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
 故意 5/7 不等分防「按章数均分」猜中，driver 要求页面分组逐条等于模型输出的 `所属卷` 标注）。
 更正：ReadingMode 目录本就按卷渲染，先前说它扔掉分组是看漏。**AU08 slice done**。
 
-**本 slice 顺带查出、需用户裁决的两件（未自行处置）**：
-1. **`p1-chapter-plan-minimum` 已红**（既有回归，非本批引入）。先修掉一个既有 JS 崩溃
-   （`driveP1ChapterPlanMinimum` 里误植了修订驱动的代码块，引用本作用域不存在的
-   `verifyActionRunAnchoring` → 必然 ReferenceError，该门长期跑不起来）；修掉后暴露更深
-   的问题：**规划请求现在走 bounded AgentRun**，而它的 verifier 仍要求判断纪元之前的直路
-   trace 形状。机器证据：`planner.form_frame.done=0`、`planner.form_micro_plan.done=0`、
-   采纳落 `<parent>:agent:4` 子 turn、`toolbox.execute.done` 不带 turn_id。
-   **我没改它的断言**——把测试期望改成「现在的样子」会掩盖「plot_outline 该不该起
-   bounded run」这个产品问题（记忆里 2026-06-29 的裁决是"仅 character 复合起 bounded run"），
-   那是拍板题不是修 bug。
-2. **ESLint 只覆盖 `**/*.{ts,tsx}`，验收 harness 的 .mjs driver 零静态检查**——这正是上面
-   那个必然抛 ReferenceError 的标识符能长期存活的原因。纳入 lint 可能一次性翻出大量既有
-   告警，是否做、做到什么程度需拍板。
-刀序余项（等拉动）：②角色主体+AU12 归并（**只补 roster 不做归并会把空转换成噪声**）
-③场级 craft ④information 账+design_ref。R2「自由创作只产两种 artifact」是另一把刀，
-不与本刀合并。
+**AU08 顺带查出的两件已裁决并收口（2026-08-10）**：
+1. **`p1-chapter-plan-minimum` 红门转绿**。裁决：plot_outline 走 bounded AgentRun 认可为
+   当前产品形态（ADR-0023 计划驱动 + 规划两段式演进的自然结果，2026-06-29「仅 character
+   复合起 run」已被后续演进取代），产品不改；driver/verifier 验收语义照 AU08 同构迁移
+   （`judgment.decided.done` 键事件、父/子 turn 分层、`decision_id` 绑定工具执行、
+   `run_mode=bounded` 断言），真实 Tauri PASS（turn_id=turn_msn4geze_3:agent:4，
+   子 turn 形状即证）。
+2. **验收 harness .mjs 已纳入 ESLint 正确性检查**（`frontend/eslint.config.js` 对
+   `slice-verify/**/*.mjs` 加独立块：仅 recommended 正确性规则 + no-unused-vars，
+   globals=node+browser 双执行环境，不做风格检查）。首跑 21 错全清零：**又抓出一个同类
+   必崩门**——`driveUa01AgentInterruptCommand` 里 `steerFrameStart` 误植（DS03 b06f0015
+   起 `agent-interrupt-safe-point` / `agent-cancel-target-binding` 两门必 ReferenceError），
+   修复后 agent-interrupt-safe-point 真实 Tauri PASS；顺带清掉从未注册的死 driver
+   `driveUa01AgentBoundedRosterToCharacterDesignSeeded`（269 行）与散落死变量/丢 cause 的
+   rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
+   四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
+
+**当前队首：Order 8 刀序②角色主体+AU12 归并**（开工前按七问补 slice 设计；
+**只补 roster 不做归并会把空转换成噪声**）。刀序余项（等拉动）：③场级 craft
+④information 账+design_ref。R2「自由创作只产两种 artifact」是另一把刀，不与本刀合并。
 CP5 剩余余项（等拉动）：触发 C、works 级假定、记忆类注入富化；CP2 R2；
 **新登记**：`tasks/slices/AU12-character-identity-merge.md`（同名/别名角色身份归并；
 本次只落拦截三层，已有重复行的合并/别名/真重名消歧未做）。
