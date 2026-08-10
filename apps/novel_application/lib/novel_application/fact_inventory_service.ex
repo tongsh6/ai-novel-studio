@@ -206,11 +206,15 @@ defmodule NovelApplication.FactInventoryService do
     - "rationale"：依据章节；没有则 null
     - character_seed 另带 "narrative_role"：
       PROTAGONIST / SUPPORTING / ANTAGONIST / MINOR / ENSEMBLE_POV 之一
+    - character_seed 可带 "role"：一句话身份描述（用作品语境写）；正文没有依据就省略
+    - character_seed 可带 "aliases"：字符串数组，正文中实际出现过的别称/化名/旧名；
+      没有就省略，不要编造
 
     示例形状：
     [
       {"artifact_type":"character_seed","item_id":"char_x","title":"人物名",
-       "body":"人物设定","rationale":"依据第N章","narrative_role":"PROTAGONIST"},
+       "body":"人物设定","rationale":"依据第N章","narrative_role":"PROTAGONIST",
+       "role":"身份一句话","aliases":["别称"]},
       {"artifact_type":"world_rule_seed","item_id":"rule_x","title":"规则短名",
        "body":"规则内容","rationale":"依据第N章"},
       {"artifact_type":"foreshadowing_seed","item_id":"foreshadow_x","title":"伏笔短名",
@@ -233,8 +237,9 @@ defmodule NovelApplication.FactInventoryService do
     ## 作品档案中已登记的角色（不要重复提案）
     #{Enum.map_join(names, "、", & &1)}
 
-    上列角色已在档案中，**不要再作为新角色提案**。如果正文里有关于他们的重要新信息，
-    也不要重复提交同名角色——本次只提案档案中尚未登记的角色。
+    上列角色已在档案中（含已登记的别名），**不要再作为新角色提案**。如果正文里有
+    关于他们的重要新信息，也不要重复提交同名或同别名角色——本次只提案档案中尚未
+    登记的角色。
     """
   end
 

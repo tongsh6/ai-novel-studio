@@ -35,6 +35,45 @@ defmodule NovelPersistence.AssumptionRepoTest do
     assert listed.id == character.id
   end
 
+  # AU12 CP2 别名后门：同名精确命中与别名命中都要能回答「命中的是谁」，
+  # 确认卡据此点名规范行；未命中/占位 work id 诚实返回 nil。
+  test "accepted_character_matching 命中同名/别名并返回规范行主名" do
+    work = create_work()
+
+    %Character{}
+    |> Character.changeset(%{
+      work_id: work.id,
+      name: "沈洛",
+      aliases: ["洛公子"],
+      status: AdoptionStatus.accepted()
+    })
+    |> Repo.insert!()
+
+    assert %{name: "沈洛", alias_hit: false} =
+             AssumptionRepo.accepted_character_matching(work.id, " 沈洛 ")
+
+    assert %{name: "沈洛", alias_hit: true} =
+             AssumptionRepo.accepted_character_matching(work.id, "洛公子")
+
+    assert AssumptionRepo.accepted_character_matching(work.id, "无此人") == nil
+    assert AssumptionRepo.accepted_character_matching("lobby", "沈洛") == nil
+
+    assert AssumptionRepo.accepted_character_named?(work.id, "洛公子")
+    refute AssumptionRepo.accepted_character_named?(work.id, "无此人")
+  end
+
+  test "物化假定携带 role/aliases（AU12 CP2 输入面）" do
+    work = create_work()
+
+    assert {:ok, %Character{} = character} =
+             AssumptionRepo.materialize_character(
+               attrs(work, %{role: "底层调查者", aliases: ["砚哥"]})
+             )
+
+    assert character.role == "底层调查者"
+    assert character.aliases == ["砚哥"]
+  end
+
   test "canon 优先：已有 accepted 角色时不物化假定" do
     work = create_work()
 

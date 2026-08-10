@@ -140,57 +140,76 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
          {:ok, title} <- fetch_string(raw, :title),
          {:ok, body} <- fetch_string(raw, :body) do
       rationale = map_get(raw, :rationale)
-      provider_call_ref = map_get(raw, :provider_call_ref)
 
-      item =
-        %{
-          item_id: item_id,
-          title: title,
-          body: body,
-          rationale: if(is_binary(rationale), do: rationale, else: nil)
-        }
+      item = %{
+        item_id: item_id,
+        title: title,
+        body: body,
+        rationale: if(is_binary(rationale), do: rationale, else: nil)
+      }
 
-      item =
-        if is_binary(provider_call_ref) do
-          Map.put(item, :provider_call_ref, provider_call_ref)
-        else
-          item
-        end
-
-      # narrative_role（可选）：角色设计候选的结构化叙事角色分类。非 I1 约束字段
-      # （I1 只校验 title/body/rationale），仅在合法枚举值时保留，否则丢弃为 nil。
-      item =
-        case normalize_narrative_role(map_get(raw, :narrative_role)) do
-          nil -> item
-          narrative_role -> Map.put(item, :narrative_role, narrative_role)
-        end
-
-      # memory_subtype（可选）：角色演化记忆的角色 MemoryType 子类。同样非 I1 约束字段。
-      item =
-        case normalize_memory_subtype(map_get(raw, :memory_subtype)) do
-          nil -> item
-          subtype -> Map.put(item, :memory_subtype, subtype)
-        end
-
-      # skeleton_field / skeleton_value（可选）：全书规划字段建议的结构化槽位
-      # （VS-00G CP4d，采纳=立项字段回写）。同样非 I1 约束字段；field 仅接受立项
-      # 规划三字段、value 按字段类型收敛，任一不合法则整对丢弃（不臆造字段值）。
-      item =
-        case normalize_skeleton_suggestion(
-               map_get(raw, :skeleton_field),
-               map_get(raw, :skeleton_value)
-             ) do
-          nil -> item
-          {field, value} -> item |> Map.put(:skeleton_field, field) |> Map.put(:skeleton_value, value)
-        end
-
-      {:ok, item}
+      {:ok, item |> put_optional_fields(raw) |> put_skeleton_suggestion(raw)}
     end
   end
 
   defp normalize_item(_raw) do
     {:error, %{code: "invalid_item", message: "creative item must be a map"}}
   end
+
+  # 可选结构化键统一走重建式白名单 opt-in（非 I1 约束字段，I1 只校验
+  # title/body/rationale）：normalizer 返回 nil 即整键丢弃，不写空壳——
+  # narrative_role（叙事角色枚举）/ memory_subtype（角色记忆子类）/
+  # role（一句话身份描述）/ aliases（去空去重别称数组，AU12 CP2）。
+  defp put_optional_fields(item, raw) do
+    provider_call_ref = map_get(raw, :provider_call_ref)
+
+    [
+      {:provider_call_ref, if(is_binary(provider_call_ref), do: provider_call_ref)},
+      {:narrative_role, normalize_narrative_role(map_get(raw, :narrative_role))},
+      {:memory_subtype, normalize_memory_subtype(map_get(raw, :memory_subtype))},
+      {:role, normalize_character_role(map_get(raw, :role))},
+      {:aliases, normalize_character_aliases(map_get(raw, :aliases))}
+    ]
+    |> Enum.reduce(item, fn
+      {_key, nil}, acc -> acc
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
+  end
+
+  # skeleton_field / skeleton_value（可选）：全书规划字段建议的结构化槽位
+  # （VS-00G CP4d，采纳=立项字段回写）。field 仅接受立项规划三字段、value 按
+  # 字段类型收敛，任一不合法则整对丢弃（不臆造字段值）。
+  defp put_skeleton_suggestion(item, raw) do
+    case normalize_skeleton_suggestion(
+           map_get(raw, :skeleton_field),
+           map_get(raw, :skeleton_value)
+         ) do
+      nil -> item
+      {field, value} -> item |> Map.put(:skeleton_field, field) |> Map.put(:skeleton_value, value)
+    end
+  end
+
+  defp normalize_character_role(role) when is_binary(role) do
+    case String.trim(role) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_character_role(_role), do: nil
+
+  defp normalize_character_aliases(aliases) when is_list(aliases) do
+    normalized =
+      aliases
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if normalized == [], do: nil, else: normalized
+  end
+
+  defp normalize_character_aliases(_aliases), do: nil
 
   # 全书规划字段建议槽位规范化（VS-00G CP4d）：target_length/planned_volumes 收敛为
   # 正整数，serial_form 收敛为非空字符串；字段名不在立项规划三字段内一律丢弃。

@@ -76,6 +76,32 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
       refute Map.has_key?(item, :narrative_role)
     end
 
+    # AU12 CP2 角色主体输入面：role/aliases 是重建式白名单的显式 opt-in 键——
+    # 不加白名单模型输出会被静默丢弃（narrative_role 同先例）。
+    test "role/aliases 收敛后保留到 item；空壳与非法形状整键丢弃" do
+      assert {:ok, [item]} =
+               ToolOutputContract.validate_creative_items([
+                 %{
+                   item_id: "i1",
+                   title: "云栖",
+                   body: "关键配角",
+                   role: "  旧机房维护者 ",
+                   aliases: ["栖姐", " 栖姐 ", "", 42, "云姨"]
+                 }
+               ])
+
+      assert item.role == "旧机房维护者"
+      assert item.aliases == ["栖姐", "云姨"]
+
+      assert {:ok, [bare]} =
+               ToolOutputContract.validate_creative_items([
+                 %{item_id: "i2", title: "无名", body: "身份不明", role: "  ", aliases: ["", 1]}
+               ])
+
+      refute Map.has_key?(bare, :role)
+      refute Map.has_key?(bare, :aliases)
+    end
+
     test "memory_subtype 归一化到角色 MemoryType 子集并保留到 item（AU-09 §4.5）" do
       assert ToolOutputContract.normalize_memory_subtype("relationship") == "RELATIONSHIP"
       assert ToolOutputContract.normalize_memory_subtype("结盟反目") == "RELATIONSHIP"

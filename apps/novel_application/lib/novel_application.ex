@@ -159,9 +159,11 @@ defmodule NovelApplication do
   """
   def persistence_accepted_character_name_checker do
     if inject_persistence?() do
-      &NovelPersistence.AssumptionRepo.accepted_character_named?/2
+      # AU12 CP2：返回命中详情（规范行主名 + 是否别名命中），确认卡据此点名
+      # 「它是谁的别名」；布尔真值语义向后兼容（nil 即未命中）。
+      &NovelPersistence.AssumptionRepo.accepted_character_matching/2
     else
-      fn _work_id, _name -> false end
+      fn _work_id, _name -> nil end
     end
   end
 

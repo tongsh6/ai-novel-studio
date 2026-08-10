@@ -268,7 +268,9 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
                  work_id: run.work_id,
                  name: to_string(map_get(protagonist, :title)),
                  summary: map_get(protagonist, :body),
-                 narrative_role: map_get(protagonist, :narrative_role)
+                 narrative_role: map_get(protagonist, :narrative_role),
+                 role: map_get(protagonist, :role),
+                 aliases: map_get(protagonist, :aliases)
                }) do
             {:ok, skipped} when is_atom(skipped) -> skipped
             {:ok, _character} -> :activated
@@ -415,8 +417,12 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
       try do
         run.work_id
         |> reader.()
-        |> Enum.map(fn character ->
-          Map.get(character, :name) || Map.get(character, "name")
+        |> Enum.flat_map(fn character ->
+          # AU12 CP2 别名后门：名单必须含别名，否则「洛公子」类提案在 prompt 侧
+          # 就被当成新发现（采纳边界的别名命中确认是第二道门，不是第一道）。
+          name = Map.get(character, :name) || Map.get(character, "name")
+          aliases = Map.get(character, :aliases) || Map.get(character, "aliases") || []
+          [name | List.wrap(aliases)]
         end)
         |> Enum.filter(&is_binary/1)
       rescue

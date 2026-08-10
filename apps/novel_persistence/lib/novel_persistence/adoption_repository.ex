@@ -226,6 +226,8 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
+  # role/aliases（AU12 CP2）：有值才写入——nil 不进 changeset，避免就地转正/更新
+  # 路径把既有别名/身份清空。
   defp character_attrs(attrs) do
     %{
       work_id: Map.fetch!(attrs, :work_id),
@@ -234,7 +236,12 @@ defmodule NovelPersistence.AdoptionRepository do
       narrative_role: character_narrative_role(attrs),
       status: AdoptionStatus.accepted()
     }
+    |> put_present(:role, Map.get(attrs, :role))
+    |> put_present(:aliases, Map.get(attrs, :aliases))
   end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
 
   defp character_narrative_role(attrs) do
     case Map.get(attrs, :narrative_role) do

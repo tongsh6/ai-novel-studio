@@ -48,6 +48,8 @@ defmodule NovelPersistence.AssumptionRepo do
           name: name,
           summary: Map.get(attrs, :summary),
           narrative_role: Map.get(attrs, :narrative_role),
+          role: Map.get(attrs, :role),
+          aliases: Map.get(attrs, :aliases),
           status: AdoptionStatus.tentative(),
           provisional_source: ProvisionalSource.ai_assumption(),
           provisional_active: true
@@ -64,21 +66,48 @@ defmodule NovelPersistence.AssumptionRepo do
   """
   @spec accepted_character_named?(String.t(), String.t()) :: boolean()
   def accepted_character_named?(work_id, name) when is_binary(work_id) and is_binary(name) do
+    accepted_character_matching(work_id, name) != nil
+  end
+
+  def accepted_character_named?(_work_id, _name), do: false
+
+  @doc """
+  同名/别名命中详情（AU12 CP2 别名后门）：aliases 一旦有生产写入，「洛公子」类
+  提案会绕过精确同名匹配——命中别名同样要交作者裁决，且确认卡必须点名
+  「它是谁的别名」。返回 `%{name: 规范行主名, alias_hit: 是否别名命中}` 或 nil。
+
+  别名匹配在应用层完成（roster 是小集合；SQLite 数组列无法用 `in` 下推）。
+  """
+  @spec accepted_character_matching(String.t(), String.t()) ::
+          %{name: String.t(), alias_hit: boolean()} | nil
+  def accepted_character_matching(work_id, name) when is_binary(work_id) and is_binary(name) do
     trimmed = String.trim(name)
 
     case Ecto.UUID.cast(work_id) do
       {:ok, uuid} when trimmed != "" ->
-        Character
-        |> where([c], c.work_id == ^uuid and c.name == ^trimmed and c.status in ^@accepted_statuses)
-        |> limit(1)
-        |> Repo.exists?()
+        rows =
+          Character
+          |> where([c], c.work_id == ^uuid and c.status in ^@accepted_statuses)
+          |> select([c], %{name: c.name, aliases: c.aliases})
+          |> Repo.all()
+
+        cond do
+          Enum.any?(rows, &(&1.name == trimmed)) ->
+            %{name: trimmed, alias_hit: false}
+
+          match = Enum.find(rows, &(trimmed in (&1.aliases || []))) ->
+            %{name: match.name, alias_hit: true}
+
+          true ->
+            nil
+        end
 
       _ ->
-        false
+        nil
     end
   end
 
-  def accepted_character_named?(_work_id, _name), do: false
+  def accepted_character_matching(_work_id, _name), do: nil
 
   @doc "列出该作品的工作假定角色（「暂定设定」区与可标注注入通道的读端口）。"
   @spec list_assumption_characters(String.t()) :: [Character.t()]

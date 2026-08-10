@@ -84,7 +84,8 @@ defmodule NovelApplication.AdoptionWorkflow do
         artifact,
         params,
         adoption_writer,
-        summary_maintainer
+        summary_maintainer,
+        opts
       )
     end
   end
@@ -102,26 +103,40 @@ defmodule NovelApplication.AdoptionWorkflow do
   # 把 work boundary、覆盖判定、确认状态合成采纳边界 opts。
   # 覆盖已有正文（同 title 章节已有已采纳内容）= 高风险 production write → 需确认。
   defp adoption_decision_opts(work_context, artifact, params, overwrite_reader, name_checker) do
+    duplicate_match = duplicate_character_match(work_context, artifact, name_checker)
+
     work_context
     |> Map.put(:confirmation_satisfied, truthy?(Map.get(params, "confirmation_satisfied")))
     |> Map.put(:overwrite, overwrite_existing?(overwrite_reader, work_context.work_id, artifact))
     |> Map.put(:meta_leak_hits, artifact_meta_leak_hits(artifact))
-    |> Map.put(
-      :duplicate_character_name,
-      duplicate_character_name(work_context, artifact, name_checker)
-    )
+    |> Map.put(:duplicate_character_name, duplicate_match && duplicate_match.proposed)
+    |> Map.put(:duplicate_character_canonical, duplicate_match && duplicate_match.canonical)
+    |> Map.put(:duplicate_character_alias_hit, (duplicate_match && duplicate_match.alias_hit) == true)
   end
 
-  # 同名角色（M4 实锤）：档案已有同名已确认角色时不静默处理——同名可能是重复
-  # 采纳、同一人的补充、别名，也可能真是两个同名角色，这是创作判断不是数据判断。
-  # 命中即升 require_confirmation 交作者裁决（与 B9 元泄漏同款拦截+主权语义）。
-  defp duplicate_character_name(work_context, artifact, name_checker) do
+  # 同名/别名角色（M4 实锤 + AU12 CP2 别名后门）：档案已有同名已确认角色、或提案
+  # 名命中某已确认角色的别名时，都不静默处理——同名可能是重复采纳、同一人的补充、
+  # 别名，也可能真是两个同名角色，这是创作判断不是数据判断。命中即升
+  # require_confirmation 交作者裁决（与 B9 元泄漏同款拦截+主权语义）。
+  # checker 返回命中详情（%{name, alias_hit}）；旧式布尔 checker（测试注入）兼容。
+  defp duplicate_character_match(work_context, artifact, name_checker) do
     with true <- is_function(name_checker, 2),
          true <- character_dossier_artifact?(artifact_field(artifact, :artifact_type)),
          work_id when is_binary(work_id) <- Map.get(work_context, :work_id),
          name when is_binary(name) <- adoption_chapter_title(artifact),
-         true <- name_checker.(work_id, name) do
-      String.trim(name)
+         trimmed = String.trim(name),
+         match when match not in [nil, false] <- name_checker.(work_id, name) do
+      case match do
+        %{name: canonical} = detail ->
+          %{
+            proposed: trimmed,
+            canonical: canonical,
+            alias_hit: Map.get(detail, :alias_hit) == true
+          }
+
+        _boolean_true ->
+          %{proposed: trimmed, canonical: trimmed, alias_hit: false}
+      end
     else
       _ -> nil
     end
@@ -175,7 +190,8 @@ defmodule NovelApplication.AdoptionWorkflow do
          artifact,
          params,
          adoption_writer,
-         summary_maintainer
+         summary_maintainer,
+         decision_opts
        ) do
     if AdoptionDecision.adopted?(decision) do
       case persist_adoption(adoption_writer, source_turn_result, decision, artifact, params) do
@@ -196,7 +212,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       end
     else
       {:ok, build_decision_action_result(decision, artifact),
-       build_decision_turn_result(source_turn_result, decision, artifact)}
+       build_decision_turn_result(source_turn_result, decision, artifact, decision_opts)}
     end
   end
 
@@ -484,6 +500,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       content: artifact_content(artifact),
       summary: adoption_chapter_title(artifact),
       narrative_role: artifact_narrative_role(artifact),
+      role: artifact_character_field(artifact, :role),
+      aliases: artifact_character_field(artifact, :aliases),
       memory_subtype: artifact_memory_subtype(artifact),
       skeleton_field: artifact_skeleton_slot(artifact, :skeleton_field),
       skeleton_value: artifact_skeleton_slot(artifact, :skeleton_value),
@@ -829,7 +847,12 @@ defmodule NovelApplication.AdoptionWorkflow do
   # - require_confirmation：打开 confirmation BehaviorState + confirm/reject available_actions
   #   （ADR-0008/0009），作者确认后重新 gate；artifact 留在原 pending。
   # - reject / fail_with_recovery：终态，available_actions 为空。
-  defp build_decision_turn_result(source_turn_result, %AdoptionDecision{} = decision, artifact) do
+  defp build_decision_turn_result(
+         source_turn_result,
+         %AdoptionDecision{} = decision,
+         artifact,
+         decision_opts
+       ) do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
     confirmation? = decision.decision_type == :require_confirmation
@@ -839,7 +862,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       schema_version: "3.0-draft",
       turn_id: NovelFoundation.ID.unique("turn_adopt"),
       parent_turn_id: source_turn_id,
-      assistant_message: %{text: decision_message(decision, artifact)},
+      assistant_message: %{text: decision_message(decision, artifact, decision_opts)},
       ui_cards: [],
       trace_summary: %{
         decision_type: to_string(decision.decision_type),
@@ -933,12 +956,16 @@ defmodule NovelApplication.AdoptionWorkflow do
   # 确认卡必须说清「为什么要我确认」：拦截住了但不给裁决材料，等于把判断推给作者
   # 又不给他依据（M4 的 15 次元泄漏确认，作者并不知道泄漏在哪一句）。按 reason_codes
   # 分派具体理由，落在原因语义上；未识别的原因回落原泛化文案。
-  defp decision_message(%AdoptionDecision{decision_type: :require_confirmation} = decision, artifact) do
+  defp decision_message(
+         %AdoptionDecision{decision_type: :require_confirmation} = decision,
+         artifact,
+         decision_opts
+       ) do
     reason_codes = decision.reason_codes || []
 
     cond do
       "duplicate_character_name" in reason_codes ->
-        duplicate_name_confirmation_message(artifact)
+        duplicate_name_confirmation_message(artifact, decision_opts)
 
       "meta_leak_detected" in reason_codes ->
         meta_leak_confirmation_message(artifact)
@@ -948,22 +975,30 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
-  defp decision_message(%AdoptionDecision{decision_type: :reject}, _artifact),
+  defp decision_message(%AdoptionDecision{decision_type: :reject}, _artifact, _decision_opts),
     do: "当前不能采纳这段草稿，来源或状态已不满足采纳条件；草稿仍保留为待采纳。"
 
-  defp decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}, _artifact),
+  defp decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}, _artifact, _opts),
     do: "未能采纳这段草稿，请重新生成或检查目标章节后再试；当前未写入作品事实。"
 
-  defp decision_message(_decision, _artifact), do: "已处理这段草稿的采纳请求。"
+  defp decision_message(_decision, _artifact, _decision_opts), do: "已处理这段草稿的采纳请求。"
 
   # 同名不是数据冲突而是创作判断（真重名/别名/改名），必须把「已有谁」告诉作者。
-  defp duplicate_name_confirmation_message(artifact) do
+  # 别名命中（AU12 CP2）时更要点名「它是谁的别名」——作者裁决材料不能少这半句。
+  defp duplicate_name_confirmation_message(artifact, decision_opts) do
     name = artifact |> adoption_chapter_title() |> to_string() |> String.trim()
+    canonical = to_string(Map.get(decision_opts, :duplicate_character_canonical) || "")
+    alias_hit = Map.get(decision_opts, :duplicate_character_alias_hit) == true
 
-    name_part = if name == "", do: "同名", else: "名为「#{name}」的"
+    if alias_hit and name != "" and canonical != "" do
+      "「#{name}」是已确认角色「#{canonical}」的已登记别名。这可能是同一个人的重复提案，" <>
+        "也可能是恰好同名的新角色——这需要你判断。确认后会新增一条角色档案；当前未写入作品事实。"
+    else
+      name_part = if name == "", do: "同名", else: "名为「#{name}」的"
 
-    "作品档案里已经有#{name_part}已确认角色。同名可能是同一个人、别名或改名，" <>
-      "也可能确实是两个同名角色——这需要你判断。确认后会新增一条角色档案；当前未写入作品事实。"
+      "作品档案里已经有#{name_part}已确认角色。同名可能是同一个人、别名或改名，" <>
+        "也可能确实是两个同名角色——这需要你判断。确认后会新增一条角色档案；当前未写入作品事实。"
+    end
   end
 
   # 元泄漏拦截同理：作者要判断的是「这句产品用语该不该留在正文里」，得先看见是哪句。
@@ -1299,6 +1334,20 @@ defmodule NovelApplication.AdoptionWorkflow do
     do: Map.get(item, :narrative_role) || Map.get(item, "narrative_role")
 
   defp item_narrative_role(_), do: nil
+
+  # role/aliases（AU12 CP2 角色主体输入面）：与 narrative_role 同先例——取第一个
+  # 带该键的 item（逐项采纳后单元只剩一个 item），落到角色主档案。
+  defp artifact_character_field(artifact, key) do
+    payload = artifact_field(artifact, :payload) || %{}
+    items = payload[:items] || payload["items"]
+
+    if is_list(items) do
+      Enum.find_value(items, fn
+        item when is_map(item) -> Map.get(item, key) || Map.get(item, to_string(key))
+        _ -> nil
+      end)
+    end
+  end
 
   # 全书规划建议槽位（VS-00G CP4d）：逐项采纳后单元只剩一个 item，取第一个带槽位
   # 的 item（与 narrative_role 同先例）。落位=works 立项字段回写。

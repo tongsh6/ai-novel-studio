@@ -313,6 +313,78 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       refute turn_result.assistant_message.text == generic_confirmation_message()
     end
 
+    # AU12 CP2 别名后门：提案名命中已确认角色的**别名**同样要交作者裁决，且确认卡
+    # 必须点名「它是谁的别名」——否则 aliases 一有生产写入，「洛公子」类提案就绕过
+    # 精确同名拦截静默新建一行。
+    test "alias-hit proposal requires confirmation and names the canonical character" do
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :character_seed,
+          payload: %{title: "洛公子", content: "黑市情报线上的马甲身份。"}
+        })
+
+      writer = fn _attrs -> flunk("alias-hit character must not persist before confirmation") end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer,
+                 nil,
+                 nil,
+                 fn "work-1", "洛公子" -> %{name: "沈洛", alias_hit: true} end
+               )
+
+      assert action_result.status == "needs_confirmation"
+      assert "duplicate_character_name" in action_result.decision.reason_codes
+      assert turn_result.truthfulness.production_write_performed == false
+      assert turn_result.assistant_message.text =~ "「洛公子」是已确认角色「沈洛」的已登记别名"
+    end
+
+    # AU12 CP2 输入面：item 携带的 role/aliases 经采纳链进 writer attrs
+    # （narrative_role 加字段链路同先例）。
+    test "character item role and aliases reach the adoption writer attrs" do
+      parent = self()
+
+      writer = fn attrs ->
+        send(parent, {:writer_attrs, attrs})
+        {:ok, %{mutation_id: "m1", persisted: true}}
+      end
+
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :character_seed,
+          payload: %{
+            title: "云栖",
+            content: "关键配角。",
+            items: [
+              %{
+                item_id: "i1",
+                title: "云栖",
+                body: "关键配角。",
+                role: "旧机房维护者",
+                aliases: ["栖姐"]
+              }
+            ]
+          }
+        })
+
+      assert {:ok, action_result, _turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer,
+                 nil,
+                 nil,
+                 fn "work-1", "云栖" -> nil end
+               )
+
+      assert action_result.status == "accepted"
+      assert_received {:writer_attrs, attrs}
+      assert attrs.role == "旧机房维护者"
+      assert attrs.aliases == ["栖姐"]
+    end
+
     test "different-name character adopts without duplicate confirmation" do
       writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
 
