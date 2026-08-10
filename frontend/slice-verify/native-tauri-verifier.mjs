@@ -3295,7 +3295,9 @@ function findP1ProseExecutionBriefEvidence(records) {
       record.degraded === false &&
       typeof record.brief_ref === "string" &&
       record.brief_ref.startsWith("brief:") &&
-      Number(record.scene_unit_count ?? 0) >= 1,
+      // NEM04 刀③：种子带两条场次标注 → 简报按规划逐场展开。
+      Number(record.scene_unit_count ?? 0) === 2 &&
+      (record.brief_source ?? []).includes("chapter_plan_scene_plans"),
   );
   if (!briefBuilt) return null;
 

@@ -18910,7 +18910,15 @@ async function driveP1ProseExecutionBrief(page) {
     typeof briefRecord.brief_ref === "string" && briefRecord.brief_ref.startsWith("brief:"),
     "Execution brief log missing stable brief_ref",
   );
-  assert(Number(briefRecord.scene_unit_count ?? 0) >= 1, "Execution brief had no scene units");
+  // NEM04 刀③：种子第 02 章计划带两条场次标注 → 简报按规划逐场展开（非章级投影）。
+  assert(
+    Number(briefRecord.scene_unit_count ?? 0) === 2,
+    `Execution brief did not expand the two planned scenes: ${JSON.stringify(briefRecord)}`,
+  );
+  assert(
+    (briefRecord.brief_source ?? []).includes("chapter_plan_scene_plans"),
+    `Execution brief did not source from planned scenes: ${JSON.stringify(briefRecord)}`,
+  );
 
   await page.waitForFunction(
     (targetTitle) =>
@@ -18943,6 +18951,9 @@ async function driveP1ProseExecutionBrief(page) {
       execution_brief_degraded: briefRecord.degraded === true,
       execution_brief_ref: briefRecord.brief_ref,
       execution_brief_scene_units: Number(briefRecord.scene_unit_count ?? 0),
+      execution_brief_from_planned_scenes: (briefRecord.brief_source ?? []).includes(
+        "chapter_plan_scene_plans",
+      ),
       trace_prose_execution_brief_ref:
         draftTurnResult?.trace_summary?.prose_execution_brief_ref ?? null,
       has_plan_direction_context: true,

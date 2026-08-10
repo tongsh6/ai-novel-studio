@@ -1592,6 +1592,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end)
   end
 
+  # 场次逐场标注（NEM04 刀③）：真实 prompt 已要求逐场计划，桩按同格式产两场，
+  # 复刻真实模型行为；解析/简报多场展开由 production 完成，桩不感知任何 slice。
   defp outline_chapter_body(theme, n, volume_title) do
     """
     章功能定位：#{outline_chapter_role(n)}
@@ -1602,6 +1604,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     情绪定位：紧张、期待。
     章首拉力：以「#{theme}」相关异常开场。
     章尾断章：在「#{theme}」线索刚要揭晓时切断。
+    场次：#{theme}对峙｜目标：把「#{theme}」的冲突推到当面摊牌｜议程：主角要真相、对手要脱身｜情绪：紧张
+    场次：#{theme}收线｜目标：拿到「#{theme}」的关键线索并付出代价｜情绪：期待
     字数与场次：约 3000 字，2 场。
     """
     |> String.trim()
