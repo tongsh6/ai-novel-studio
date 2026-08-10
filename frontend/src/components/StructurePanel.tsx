@@ -1,9 +1,11 @@
-// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1）
+// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1，角色归并见 §5.0.2）
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 // Prototype: novel-studio.pen → 43§5-9-threads-panel (uyZGw)
+import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   archiveDetailRows,
   archiveDetailSummary,
@@ -354,6 +356,49 @@ export function StructurePanel({
       })
       .catch(() => setAssumptionActionError(STRUCTURE_PANEL.assumptions.actionFailed));
   };
+
+  // AU12（43 §5.0.2）：档案侧角色身份归并——同名是同一人/别名/改名还是真重名
+  // 只能由作者裁决；当前选中行是被并入方（source），弹窗里选保留行（target）。
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [mergeTargetId, setMergeTargetId] = useState("");
+  const [mergeKeepName, setMergeKeepName] = useState<"target" | "source">("target");
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [mergeBusy, setMergeBusy] = useState(false);
+
+  const openMergeDialog = (candidates: CharacterData[]) => {
+    setMergeTargetId(candidates[0]?.id ?? "");
+    setMergeKeepName("target");
+    setMergeError(null);
+    setMergeBusy(false);
+    setMergeDialogOpen(true);
+  };
+
+  const mergeCharacters = (source: CharacterData, targetId: string) => {
+    if (!channel || !context.workId || !targetId || mergeBusy) return;
+    const workId = context.workId;
+    const actionId = `merge-characters-${source.id}-${targetId}`;
+    setMergeBusy(true);
+    setMergeError(null);
+
+    void sendAuthorAction(channel, {
+      source_turn_ref: "panel",
+      action_id: actionId,
+      action_type: "merge_characters",
+      idempotency_key: actionId,
+      payload: { source_ref: source.id, target_ref: targetId, keep_name: mergeKeepName },
+    })
+      .then(() => {
+        setMergeDialogOpen(false);
+        setSelectedArchiveItem(null);
+        void getCharacters(channel, workId)
+          .then((data) => setCharacters(data))
+          .catch(() => {});
+      })
+      .catch(() => {
+        setMergeBusy(false);
+        setMergeError(STRUCTURE_PANEL.characterMerge.actionFailed);
+      });
+  };
   const pendingAdoptionCount = pendingAdoptions.length;
   const lastWorkIdRef = useRef<string | null>(null);
   const profileRef = useRef<WorkProfile | null>(null);
@@ -639,6 +684,17 @@ export function StructurePanel({
     : selectedMemory
       ? { kind: "memory" as const, item: selectedMemory }
       : null;
+
+  // AU12 归并候选：同作品其余已确认角色，同名行置顶（最常见的归并场景）。
+  const mergeCandidates = selectedCharacter
+    ? [...characters]
+        .filter((c) => c.id !== selectedCharacter.id)
+        .sort(
+          (a, b) =>
+            Number(b.name === selectedCharacter.name) - Number(a.name === selectedCharacter.name),
+        )
+    : [];
+  const mergeTarget = mergeCandidates.find((c) => c.id === mergeTargetId) ?? mergeCandidates[0];
 
   return (
     <div
@@ -1057,7 +1113,103 @@ export function StructurePanel({
                 }}
               />
             ) : null}
-            {selectedDetail && renderDetail(selectedDetail)}
+            {selectedDetail &&
+              renderDetail(
+                selectedDetail,
+                selectedDetail.kind === "character" &&
+                  selectedCharacter &&
+                  mergeCandidates.length > 0 ? (
+                  <div className={styles.cardActions}>
+                    <button
+                      className={styles.btnSecondary}
+                      onClick={() => openMergeDialog(mergeCandidates)}
+                    >
+                      {STRUCTURE_PANEL.characterMerge.openLabel}
+                    </button>
+                  </div>
+                ) : undefined,
+              )}
+            {selectedCharacter && mergeTarget && (
+              <Dialog.Root
+                open={mergeDialogOpen}
+                onOpenChange={(open) => {
+                  if (!mergeBusy) setMergeDialogOpen(open);
+                }}
+              >
+                <Dialog.Portal>
+                  <Dialog.Overlay className={styles.dialogOverlay} />
+                  <Dialog.Content
+                    className={styles.dialogContent}
+                    aria-describedby="character-merge-hint"
+                  >
+                    <Dialog.Title className={styles.dialogTitle}>
+                      {STRUCTURE_PANEL.characterMerge.dialogTitle}
+                    </Dialog.Title>
+                    <p id="character-merge-hint" className={styles.dialogDescription}>
+                      {STRUCTURE_PANEL.characterMerge.dialogHint}
+                    </p>
+                    <label className={styles.dialogField}>
+                      {STRUCTURE_PANEL.characterMerge.targetLabel}
+                      <select
+                        className={styles.dialogSelect}
+                        value={mergeTarget.id}
+                        onChange={(event) => setMergeTargetId(event.target.value)}
+                      >
+                        {mergeCandidates.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.name}
+                            {candidate.role ? `（${candidate.role}）` : ""}
+                            {candidate.summary ? ` — ${candidate.summary.slice(0, 24)}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <fieldset className={styles.dialogField}>
+                      <legend>{STRUCTURE_PANEL.characterMerge.keepNameLabel}</legend>
+                      <label className={styles.dialogRadioRow}>
+                        <input
+                          type="radio"
+                          name="merge-keep-name"
+                          checked={mergeKeepName === "target"}
+                          onChange={() => setMergeKeepName("target")}
+                        />
+                        {STRUCTURE_PANEL.characterMerge.keepTargetName(mergeTarget.name)}
+                      </label>
+                      <label className={styles.dialogRadioRow}>
+                        <input
+                          type="radio"
+                          name="merge-keep-name"
+                          checked={mergeKeepName === "source"}
+                          onChange={() => setMergeKeepName("source")}
+                        />
+                        {STRUCTURE_PANEL.characterMerge.keepSourceName(selectedCharacter.name)}
+                      </label>
+                    </fieldset>
+                    <div className={styles.dialogConsequence}>
+                      {STRUCTURE_PANEL.characterMerge.consequence(
+                        selectedCharacter.name,
+                        mergeTarget.name,
+                      )}
+                    </div>
+                    {mergeError && <div className={styles.dialogError}>{mergeError}</div>}
+                    <div className={styles.dialogActions}>
+                      <Dialog.Close asChild>
+                        <button className={styles.btnGhost} disabled={mergeBusy}>
+                          {STRUCTURE_PANEL.characterMerge.cancelLabel}
+                        </button>
+                      </Dialog.Close>
+                      <button
+                        className={styles.btnSecondary}
+                        disabled={mergeBusy}
+                        onClick={() => mergeCharacters(selectedCharacter, mergeTarget.id)}
+                      >
+                        {STRUCTURE_PANEL.characterMerge.confirmLabel}
+                      </button>
+                    </div>
+                  </Dialog.Content>
+                </Dialog.Portal>
+              </Dialog.Root>
+            )}
           </Tabs.Content>
 
           <Tabs.Content value="rule" className={styles.tabContent}>
@@ -1363,7 +1515,7 @@ function EmptyState({
   );
 }
 
-function renderDetail(detail: ArchiveDetailItem) {
+function renderDetail(detail: ArchiveDetailItem, actions?: ReactNode) {
   const summary = archiveDetailSummary(detail);
 
   return (
@@ -1381,6 +1533,7 @@ function renderDetail(detail: ArchiveDetailItem) {
           </div>
         ))}
       </dl>
+      {actions}
       <div className={styles.detailHint}>{STRUCTURE_PANEL.detailHint}</div>
     </div>
   );

@@ -10,9 +10,11 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog, MemoryLog, Repo, WorkSessionRepo}
   alias NovelPersistence.AssumptionRepo
+  alias NovelPersistence.LedgerRepository
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
+  alias NovelPersistence.Schemas.LedgerEntry
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
   alias NovelWeb.UserSocket
@@ -506,6 +508,83 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
       })
 
     assert_reply(missing_ref, :error, %{reason: "assumption_not_found"})
+  end
+
+  # AU12：档案侧 merge_characters——同名双行（m4b 标本形状）由作者裁决并入一行，
+  # 源行 SUPERSEDED 隐藏、arc 账归一、别名吸收；重复提交诚实拒绝。
+  test "merge_characters absorbs the duplicate row and unifies the arc ledger" do
+    {:ok, work} = WorkService.create(%{"title" => "身份归并作品"})
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+
+    insert_character = fn name ->
+      %Character{}
+      |> Character.changeset(%{work_id: work.id, name: name, status: AdoptionStatus.accepted()})
+      |> Repo.insert!()
+    end
+
+    target = insert_character.("沈洛")
+    source = insert_character.("洛公子")
+
+    %LedgerEntry{}
+    |> LedgerEntry.changeset(%{
+      work_id: work.id,
+      ledger: "arc",
+      subject_kind: "character",
+      subject_ref: to_string(source.id),
+      subject_label: source.name,
+      status: "ON_TRACK",
+      payload: %{"last_seen_seq" => 5},
+      source_refs: ["sum-5"],
+      adoption_status: AdoptionStatus.accepted()
+    })
+    |> Repo.insert!()
+
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    merge_ref =
+      push(socket, "author_action", %{
+        "action" => %{
+          "source_turn_ref" => "panel",
+          "action_id" => "merge-characters-1",
+          "action_type" => "merge_characters",
+          "idempotency_key" => "merge-characters-1",
+          "payload" => %{
+            "source_ref" => source.id,
+            "target_ref" => target.id,
+            "keep_name" => "target"
+          }
+        }
+      })
+
+    assert_reply(merge_ref, :ok, %{action_status: "applied", target: merged})
+    assert merged.name == "沈洛"
+    assert merged.aliases == ["洛公子"]
+
+    # 档案只剩一行；arc 账整条改挂保留行
+    assert [%{name: "沈洛"}] = NovelApplication.WorkArchiveService.characters(work.id)
+    assert [entry] = LedgerRepository.list(work.id, "arc")
+    assert entry.subject_ref == to_string(target.id)
+    assert entry.subject_label == "沈洛"
+
+    # 已并入的行不能再次作为 source——诚实拒绝而非静默幂等
+    repeat_ref =
+      push(socket, "author_action", %{
+        "action" => %{
+          "source_turn_ref" => "panel",
+          "action_id" => "merge-characters-2",
+          "action_type" => "merge_characters",
+          "idempotency_key" => "merge-characters-2",
+          "payload" => %{"source_ref" => source.id, "target_ref" => target.id}
+        }
+      })
+
+    assert_reply(repeat_ref, :error, %{})
   end
 
   test "join marks durable AgentRun stale when work revision changed" do

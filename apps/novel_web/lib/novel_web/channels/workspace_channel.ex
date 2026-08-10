@@ -1344,8 +1344,65 @@ defmodule NovelWeb.WorkspaceChannel do
     |> reply_assumption_decision(socket, action_input, work_id, character_ref)
   end
 
+  # AU12：档案侧角色身份归并——name 不是身份主键，同名是同一人/别名/改名还是
+  # 真重名只能由作者裁决；作者从档案发起 merge_characters，把 source 行并入 target 行。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: "merge_characters"} = action_input,
+         _source_turn_result
+       ) do
+    work_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || ""
+    payload = action_input.payload || %{}
+    source_ref = merge_payload_field(payload, :source_ref)
+    target_ref = merge_payload_field(payload, :target_ref)
+    keep_name = merge_payload_field(payload, :keep_name, "target")
+
+    work_id
+    |> NovelApplication.CharacterIdentityService.merge(source_ref, target_ref, keep_name)
+    |> reply_character_merge(socket, action_input, work_id, source_ref, target_ref)
+  end
+
   defp handle_author_action(socket, action_input, source_turn_result) do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
+  end
+
+  defp merge_payload_field(payload, key, default \\ "") do
+    to_string(payload[to_string(key)] || payload[key] || default)
+  end
+
+  defp reply_character_merge({:ok, merged}, socket, action_input, work_id, source_ref, target_ref) do
+    LogEmit.emit(:channel, :author_action, :done, %{
+      work_id: work_id,
+      session_id: socket.assigns[:session_id],
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      action_status: :applied,
+      source_ref: source_ref,
+      target_ref: target_ref,
+      merged_name: merged.target.name,
+      merged_alias_count: length(merged.target.aliases)
+    })
+
+    {:reply,
+     {:ok,
+      %{
+        received: true,
+        action_status: "applied",
+        target: merged.target,
+        superseded_ref: merged.superseded_ref
+      }}, socket}
+  end
+
+  defp reply_character_merge({:error, reason}, socket, action_input, work_id, _source, _target) do
+    LogEmit.emit(:channel, :author_action, :error, %{
+      work_id: work_id,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      reason_code: :character_merge_failed,
+      outcome_detail: inspect(reason)
+    })
+
+    {:reply, {:error, %{reason: reason_text(reason)}}, socket}
   end
 
   defp assumption_decision("confirm_assumption", work_id, character_ref),

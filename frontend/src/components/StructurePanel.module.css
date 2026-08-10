@@ -519,3 +519,89 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* AU12 角色身份归并弹窗（43 §5.0.2；token 体系与导出弹窗一致） */
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+.dialogContent {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 440px;
+  max-width: calc(100vw - 48px);
+  background-color: var(--surface-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-md);
+  padding: 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dialogTitle {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: bold;
+  margin: 0;
+}
+
+.dialogDescription {
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.dialogField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--foreground-primary);
+}
+
+.dialogSelect {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 6px 8px;
+}
+
+.dialogRadioRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--foreground-primary);
+}
+
+.dialogConsequence {
+  color: var(--foreground-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  border-left: 2px solid var(--border-subtle);
+  padding-left: 10px;
+}
+
+.dialogError {
+  color: var(--danger, #b3261e);
+  font-size: 12px;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

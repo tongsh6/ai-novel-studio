@@ -957,6 +957,24 @@ export const STRUCTURE_PANEL = {
     },
   },
   aliasPrefix: "别名：",
+  // AU12 角色身份归并（43 §5.0.2）：同名是同一人/别名/改名还是真重名只能由作者裁决。
+  characterMerge: {
+    openLabel: "并入其他角色…",
+    dialogTitle: "并入其他角色",
+    dialogHint:
+      "同名可能是同一个人、别名或改名，也可能确实是两个同名角色。并入会把当前角色的档案行归并进所选角色，称呼保留为别名；此操作只整理档案，不修改任何正文。",
+    targetLabel: "并入到",
+    targetPlaceholder: "选择要保留的角色",
+    keepNameLabel: "保留哪个主名？",
+    keepTargetName: (name: string) => `保留「${name}」（当前名转为别名）`,
+    keepSourceName: (name: string) => `改用「${name}」（原主名转为别名）`,
+    consequence: (source: string, target: string) =>
+      `「${source}」的档案行将并入「${target}」并从角色列表隐藏；弧光记录随之归一。`,
+    confirmLabel: "确认并入",
+    cancelLabel: "取消",
+    actionFailed: "并入失败，角色状态可能已变化，请刷新后重试",
+    noTargets: "没有可并入的其他角色",
+  },
 } as const;
 
 // ============================================================
