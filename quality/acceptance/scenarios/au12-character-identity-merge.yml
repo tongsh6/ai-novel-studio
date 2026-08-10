@@ -1,0 +1,59 @@
+id: au12-character-identity-merge
+title: 同名与别名角色档案行由作者裁决归并
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au12-character-identity-merge --surface tauri
+
+contract:
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/AU12-character-identity-merge.md
+
+invariants:
+  - merge-only-by-author-adjudication-never-by-name
+  - merged-arc-ledger-keeps-unique-subject-ref-without-dangling-rows
+  - merge-is-archive-only-no-prose-or-memory-write
+
+setup:
+  seed: scripts/seed_au12_character_merge.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - click: 角色 tab（可见两行同名沈洛与一行洛公子）
+  - click: 第二行沈洛的 查看详情
+  - click: 并入其他角色…
+  - verify: 弹窗展示目标选择（同名置顶）、主名单选与后果预览
+  - click: 确认并入（同名收拢，3 行 → 2 行）
+  - click: 洛公子的 查看详情 → 并入其他角色… → 确认并入
+  - verify: 角色档案只剩一行沈洛且展示 别名：洛公子
+  - open: 脉络 tab，角色弧光归一为单条
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au12-character-identity-merge-tauri
+
+assertions:
+  ui:
+    - duplicate rows visible before merge
+    - merge dialog shows target select, keep-name choice and consequence copy
+    - final roster shows a single row with the absorbed alias
+    - threads panel arc summary collapses to a single subject
+  network:
+    - author_action merge_characters sent with source_ref/target_ref/keep_name
+    - reply returns action_status applied with merged target
+  data:
+    - superseded rows leave the archive projection
+    - arc ledger keeps a single entry pointing at the surviving character id
+    - no adoption/memory/prose write is produced by merging
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

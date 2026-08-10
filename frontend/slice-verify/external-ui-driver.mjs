@@ -9685,6 +9685,214 @@ async function driveAu13ArcLedgerRoundtrip(page) {
   ];
 }
 
+// AU12（43 §5.0.2）：档案里同名双行「沈洛」（m4b 存量重复标本）+ 别名行「洛公子」。
+// 作者两次裁决归并：先同名收拢（3→2 行），再把别名马甲并入（2→1 行，别名可见）；
+// 弧光账由两条同名条目归一为单条；归并只整理档案，零 adoption/正文/记忆写入。
+async function driveAu12CharacterIdentityMerge(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  const logStart = readAppLogRecords().length;
+  await closeArchiveIfOpen(page);
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  const archivePanel = await waitForArchivePanel(page);
+  await page.getByRole("tab", { name: "角色" }).click();
+  await archivePanel.getByText("已确认角色").first().waitFor({ timeout: 10_000 });
+
+  const characterRows = () => archivePanel.locator('[class*="cardItem"]');
+  const rowsTitled = (name) =>
+    characterRows().filter({
+      has: page.locator('[class*="cardTitle"]').getByText(name, { exact: false }),
+    });
+  const waitForRowCount = async (expected, message) => {
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      const count = await characterRows().count();
+      if (count === expected) return count;
+      if (Date.now() > deadline) throw new Error(`${message}: rendered ${count} rows`);
+      await page.waitForTimeout(200);
+    }
+  };
+
+  await rowsTitled("洛公子").first().waitFor({ timeout: 10_000 });
+  const rowsBefore = await characterRows().count();
+  const sameNameRowsBefore = await rowsTitled("沈洛").count();
+  assert(rowsBefore === 3, `Seeded roster should render 3 rows, got ${rowsBefore}`);
+  assert(
+    sameNameRowsBefore === 2,
+    `Seeded roster should render 2 same-name rows, got ${sameNameRowsBefore}`,
+  );
+
+  // 第一次归并：把第二行「沈洛」并入第一行（同名收拢；同名候选置顶为默认目标）。
+  await rowsTitled("沈洛").nth(1).getByRole("button", { name: "查看详情" }).click();
+  await archivePanel.getByRole("button", { name: "并入其他角色…" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByText("并入其他角色", { exact: true }).first().waitFor({ timeout: 10_000 });
+  const mergeDialogTargetOptions = await dialog.locator("select option").count();
+  const firstMergeConsequence = await dialog
+    .locator('[class*="dialogConsequence"]')
+    .first()
+    .innerText();
+  await page.screenshot({
+    path: path.join(artifactDir, "au12-character-identity-merge-dialog.png"),
+    fullPage: true,
+  });
+
+  const firstMergeFrameStart = frames.length;
+  await dialog.getByRole("button", { name: "确认并入" }).click();
+
+  const firstMergeActionFrame = await waitForNewFrame(
+    firstMergeFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "merge_characters" &&
+      typeof frame.body?.action?.payload?.source_ref === "string" &&
+      typeof frame.body?.action?.payload?.target_ref === "string",
+    "Real workbench did not send the first merge_characters author_action",
+  );
+  const firstMergeReplyFrame = await waitForNewFrame(
+    firstMergeFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.action_status === "applied" &&
+      frame.body?.response?.target?.name === "沈洛",
+    "First merge did not reply applied with the surviving character",
+  );
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      Number(record.character_count ?? 0) === 2,
+    "First merge did not refresh the roster to two rows",
+    20_000,
+  );
+  const rowsAfterFirstMerge = await waitForRowCount(
+    2,
+    "Roster did not render two rows after the first merge",
+  );
+
+  // 第二次归并：把别名马甲「洛公子」并入「沈洛」（别名吸收）。
+  await rowsTitled("洛公子").first().getByRole("button", { name: "查看详情" }).click();
+  await archivePanel.getByRole("button", { name: "并入其他角色…" }).click();
+  await dialog.getByText("并入其他角色", { exact: true }).first().waitFor({ timeout: 10_000 });
+  const secondMergeConsequence = await dialog
+    .locator('[class*="dialogConsequence"]')
+    .first()
+    .innerText();
+
+  const secondMergeFrameStart = frames.length;
+  await dialog.getByRole("button", { name: "确认并入" }).click();
+
+  await waitForNewFrame(
+    secondMergeFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "merge_characters",
+    "Real workbench did not send the second merge_characters author_action",
+  );
+  const secondMergeReplyFrame = await waitForNewFrame(
+    secondMergeFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.action_status === "applied" &&
+      (frame.body?.response?.target?.aliases ?? []).includes("洛公子"),
+    "Second merge did not reply applied with the absorbed alias",
+  );
+
+  const charactersFinalRecord = await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      Number(record.character_count ?? 0) === 1,
+    "Second merge did not collapse the roster to a single row",
+    20_000,
+  );
+  const rowsFinal = await waitForRowCount(
+    1,
+    "Roster did not render a single row after both merges",
+  );
+  const finalRowText = await characterRows().first().innerText();
+  const mergedAliasVisible = finalRowText.includes("别名：洛公子");
+  assert(mergedAliasVisible, "Merged row did not show the absorbed alias 洛公子");
+
+  // 脉络：角色弧光由两条同名条目归一为单条（真实读端口，非前端拼装）。
+  // 脉络数据在面板打开时批量拉取，关开档案一次触发刷新（与暂定设定区同款手法）。
+  const threadsLogStart = readAppLogRecords().length;
+  await closeArchiveIfOpen(page);
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  const reopenedPanel = await waitForArchivePanel(page);
+  const threadsRecord = await waitForNewAppLogRecord(
+    threadsLogStart,
+    (record) => record.event === "channel.get_ledger_threads.done",
+    "Reopened archive did not read the ledger threads after merging",
+    20_000,
+  );
+  await page.getByRole("tab", { name: "脉络" }).click();
+  await reopenedPanel.getByText("五条脉络").first().waitFor({ timeout: 10_000 });
+  const arcRowText = await reopenedPanel
+    .locator('[class*="ledgerRow"]')
+    .filter({ hasText: "角色弧光" })
+    .first()
+    .innerText();
+  const arcSubjectMentions = (arcRowText.match(/沈洛/g) ?? []).length;
+  assert(
+    arcSubjectMentions === 1,
+    `Arc thread should mention the merged subject exactly once, got: ${arcRowText}`,
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "au12-character-identity-merge-final.png"),
+    fullPage: true,
+  });
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const joinRecord = readAppLogRecords()
+    .filter((record) => record.event === "channel.join.done" && record.work_id)
+    .pop();
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au12-character-identity-merge",
+      work_id: joinRecord?.work_id ?? null,
+      rows_before: rowsBefore,
+      same_name_rows_before: sameNameRowsBefore,
+      merge_dialog_target_options: mergeDialogTargetOptions,
+      first_merge_consequence: firstMergeConsequence,
+      second_merge_consequence: secondMergeConsequence,
+      rows_after_first_merge: rowsAfterFirstMerge,
+      rows_final: rowsFinal,
+      first_merge_source_ref: firstMergeActionFrame.body?.action?.payload?.source_ref,
+      first_merge_target_ref: firstMergeActionFrame.body?.action?.payload?.target_ref,
+      first_merge_keep_name: firstMergeActionFrame.body?.action?.payload?.keep_name,
+      first_merge_applied: firstMergeReplyFrame.body?.response?.action_status === "applied",
+      second_merge_applied: secondMergeReplyFrame.body?.response?.action_status === "applied",
+      merged_target_name: secondMergeReplyFrame.body?.response?.target?.name,
+      merged_target_aliases: secondMergeReplyFrame.body?.response?.target?.aliases ?? [],
+      merged_alias_visible: mergedAliasVisible,
+      final_character_count: Number(charactersFinalRecord.character_count ?? 0),
+      ledger_entry_count_after: Number(threadsRecord.entry_count ?? 0),
+      arc_subject_mentions_after: arcSubjectMentions,
+      merge_actions_logged: logsAfter.filter(
+        (record) =>
+          record.event === "channel.author_action.done" &&
+          record.action_type === "merge_characters",
+      ).length,
+      no_adoption_write: !logsAfter.some(
+        (record) =>
+          record.event === "adoption.evaluate.done" ||
+          String(record.event ?? "").startsWith("channel.adopt."),
+      ),
+    },
+  ];
+}
+
 async function driveAu14FactInventoryRoundtrip(page) {
   // SC-AU14-B1（VS-00G CP4b-2）：从真实作品档案显式发起设定盘点 → fact_inventory_v1
   // 读取已采纳正文 → 同批返回角色/规则/伏笔 tentative 候选 → 只逐项采纳一名角色和
@@ -26540,6 +26748,7 @@ const drivers = {
   "au14-fact-inventory-roundtrip": driveAu14FactInventoryRoundtrip,
   "au14-finding-inventory-arc-loop": driveAu14FindingInventoryArcLoop,
   "au14-assumption-confirm-roundtrip": driveAu14AssumptionConfirmRoundtrip,
+  "au12-character-identity-merge": driveAu12CharacterIdentityMerge,
   "au14-assumption-provisional-injection": driveAu14AssumptionProvisionalInjection,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,

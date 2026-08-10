@@ -1029,6 +1029,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au14-assumption-provisional-injection.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au14-assumption-provisional-injection --surface tauri
+  - id: au12-character-identity-merge
+    title: "同名与别名角色档案行由作者裁决归并"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au12-character-identity-merge.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au12-character-identity-merge --surface tauri
   - id: au03-long-session-compression
     title: "长会话压缩上下文"
     tier: nightly

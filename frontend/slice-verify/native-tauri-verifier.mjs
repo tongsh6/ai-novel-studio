@@ -201,6 +201,7 @@ export const nativeSliceIds = [
   "au14-finding-inventory-arc-loop",
   "au14-assumption-confirm-roundtrip",
   "au14-assumption-provisional-injection",
+  "au12-character-identity-merge",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -1051,6 +1052,15 @@ const sliceKeyEvents = {
     "channel.get_assumptions.done",
     "channel.get_characters.done",
     "context.fact_completeness.done",
+    "slice_verify.ui_state.done",
+  ],
+  // AU12 归并是纯档案面板动作：无 turn，证据 = 角色读端口 + merge author_action + 脉络读端口。
+  "au12-character-identity-merge": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.get_characters.done",
+    "channel.author_action.done",
+    "channel.get_ledger_threads.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -1976,6 +1986,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu14AssumptionProvisionalInjectionEvidence(records);
   }
 
+  if (sliceId === "au12-character-identity-merge") {
+    return findAu12CharacterIdentityMergeEvidence(records);
+  }
+
   if (sliceId === "judgment-explore-chapter-plan") {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
@@ -2543,6 +2557,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "e2e-01-channel-action-security") {
     return e2e01ChannelActionSecurityBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au12-character-identity-merge") {
+    return au12CharacterIdentityMergeBehavior(records, evidence, options);
   }
 
   if (
@@ -13471,6 +13489,88 @@ function au14FindingInventoryArcBehavior(_turnIds, _turnRecords, records, eviden
       "author_adopted_protagonist_through_existing_per_item_boundary",
       "next_real_prose_draft_wove_the_adopted_protagonist",
       "next_prose_adoption_started_the_protagonist_arc_ledger_without_history_backfill",
+    ],
+  };
+}
+
+// AU12：档案同名双行 + 别名行由作者两次裁决归并为单一身份；无 turn 的纯面板动作，
+// 证据 = ui_state 门 + 两条 merge author_action applied + 角色/脉络读端口终态。
+function findAu12CharacterIdentityMergeEvidence(records) {
+  const sliceId = "au12-character-identity-merge";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.rows_before === 3 &&
+      record.same_name_rows_before === 2 &&
+      record.rows_after_first_merge === 2 &&
+      record.rows_final === 1 &&
+      record.first_merge_applied === true &&
+      record.second_merge_applied === true &&
+      record.merged_alias_visible === true &&
+      Number(record.merge_actions_logged ?? 0) === 2 &&
+      Number(record.final_character_count ?? 0) === 1 &&
+      Number(record.ledger_entry_count_after ?? 0) === 1 &&
+      Number(record.arc_subject_mentions_after ?? 0) === 1 &&
+      record.no_adoption_write === true,
+  );
+  if (!uiState) return null;
+
+  const mergeActions = records.filter(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "merge_characters" &&
+      record.action_status === "applied",
+  );
+  if (mergeActions.length !== 2) return null;
+
+  const rosterCollapsed = records.some(
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      Number(record.character_count ?? 0) === 1,
+  );
+  if (!rosterCollapsed) return null;
+
+  const ledgerUnified = records.some(
+    (record) =>
+      record.event === "channel.get_ledger_threads.done" &&
+      Number(record.entry_count ?? 0) === 1,
+  );
+  if (!ledgerUnified) return null;
+
+  // 归并是纯档案操作：全程零采纳评估/记忆写入。
+  if (records.some((record) => record.event === "adoption.evaluate.done")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_ids: [],
+    work_id: uiState.work_id,
+    merged_target_name: uiState.merged_target_name,
+    merged_target_aliases: uiState.merged_target_aliases,
+    key_events: keyEvents,
+  };
+}
+
+function au12CharacterIdentityMergeBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  if (!(evidence.merged_target_aliases ?? []).includes("洛公子")) return null;
+  if (evidence.merged_target_name !== "沈洛") return null;
+
+  return {
+    slice_id: "au12-character-identity-merge",
+    behavior: "duplicate_and_alias_rows_merged_by_author_into_single_identity",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    assertions: [
+      "duplicate_same_name_rows_visible_before_merge",
+      "merge_initiated_from_real_archive_detail",
+      "merge_dialog_offered_target_choice_and_consequence",
+      "two_merge_actions_applied_through_author_adjudication",
+      "roster_collapsed_to_single_row_with_absorbed_alias",
+      "arc_ledger_unified_to_single_subject",
+      "merge_performed_no_adoption_or_content_write",
     ],
   };
 }
