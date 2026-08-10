@@ -506,10 +506,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # CP4d：prompt 请求全书规划建议（只列缺位字段）时，按请求附带对应建议——
   # 与真实模型同语义：只响应 prompt 中列出的缺位字段。
   defp fact_inventory_response(prompt_text) do
-    if known_character_reproposal_prompt?(prompt_text) do
-      duplicate_character_reproposal()
-    else
-      fact_inventory_base_response() ++ skeleton_suggestions(prompt_text)
+    cond do
+      known_character_reproposal_prompt?(prompt_text) ->
+        duplicate_character_reproposal()
+
+      alias_reproposal_prompt?(prompt_text) ->
+        alias_character_reproposal()
+
+      true ->
+        fact_inventory_base_response() ++ skeleton_suggestions(prompt_text)
     end
   end
 
@@ -531,6 +536,27 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         body: "城西旧机房的老维修工，与追查账单的年轻人同名，两人此前从未照面。",
         rationale: "依据第02章",
         narrative_role: "MINOR"
+      }
+    ]
+  end
+
+  # AU12 CP3：M4 同名重提行为的别名变体——已在档名单里明确列了别名，模型仍把
+  # 别名当新人物重提。分支只看真实产品状态（prompt 已在档段落里出现该别名），
+  # 让采纳边界的别名命中确认（点名「它是谁的别名」）成为可被外部验收的后果。
+  defp alias_reproposal_prompt?(prompt_text) do
+    String.contains?(prompt_text, "作品档案中已登记的角色") and
+      String.contains?(prompt_text, "洛公子")
+  end
+
+  defp alias_character_reproposal do
+    [
+      %{
+        artifact_type: "character_seed",
+        item_id: "inventory-luogongzi-repropose",
+        title: "洛公子",
+        body: "黑市情报线上活跃的神秘人物，与账单追查者关系密切。",
+        rationale: "依据第01章",
+        narrative_role: "SUPPORTING"
       }
     ]
   end

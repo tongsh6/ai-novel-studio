@@ -13517,7 +13517,15 @@ function findAu12CharacterIdentityMergeEvidence(records) {
       Number(record.final_character_count ?? 0) === 1 &&
       Number(record.ledger_entry_count_after ?? 0) === 1 &&
       Number(record.arc_subject_mentions_after ?? 0) === 1 &&
-      record.no_adoption_write === true,
+      record.merge_phase_no_adoption_write === true &&
+      // CP3 别名拦截卡：盘点重提别名 → 确认卡点名归属 → 拒绝后档案不变。
+      record.alias_guard_card_visible === true &&
+      record.alias_guard_names_canonical === true &&
+      record.alias_guard_write_blocked === true &&
+      record.alias_guard_rejected === true &&
+      Number(record.characters_after_alias_guard ?? 0) === 1 &&
+      Number(record.rows_after_alias_guard ?? 0) === 1 &&
+      record.alias_still_visible_after_guard === true,
   );
   if (!uiState) return null;
 
@@ -13543,8 +13551,23 @@ function findAu12CharacterIdentityMergeEvidence(records) {
   );
   if (!ledgerUnified) return null;
 
-  // 归并是纯档案操作：全程零采纳评估/记忆写入。
-  if (records.some((record) => record.event === "adoption.evaluate.done")) return null;
+  // 别名拦截卡真实留痕：accept 走到 needs_confirmation；整个场景零 accepted
+  // 采纳（合并与拒绝都不产生 production 采纳写入）。
+  const aliasGuardLogged = records.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "needs_confirmation",
+  );
+  if (!aliasGuardLogged) return null;
+
+  const anyAccepted = records.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (anyAccepted) return null;
 
   return {
     slice_id: sliceId,
@@ -13574,6 +13597,9 @@ function au12CharacterIdentityMergeBehavior(records, evidence, _options) {
       "roster_collapsed_to_single_row_with_absorbed_alias",
       "arc_ledger_unified_to_single_subject",
       "merge_performed_no_adoption_or_content_write",
+      "inventory_reproposed_alias_blocked_by_alias_hit_confirmation",
+      "alias_guard_card_named_the_canonical_character",
+      "author_rejection_left_the_archive_unchanged",
     ],
   };
 }

@@ -20,6 +20,35 @@ alias NovelPersistence.Schemas.Character
 {:ok, snapshot} = WorkSessionService.resume(work.id)
 session_id = snapshot.active_session.id
 
+# 已采纳一章计划与正文（CP3 盘点材料）：盘点只能读 accepted 材料；正文里的
+# 「洛公子」正是归并后将进入已在档别名名单的称呼。
+{:ok, _plan} =
+  AdoptionRepository.persist(%{
+    actor_ref: "author",
+    work_id: work.id,
+    source_turn_ref: "turn_au12_merge_seed_plan",
+    artifact_id: "as_au12_merge_seed_plan",
+    artifact_type: :outline_draft,
+    base_revision: 1,
+    content: "第01章：黑市对账夜: 沈洛以洛公子的名号潜入黑市，追查灵气账单的暗扣流向。",
+    summary: "AU12 一章章节计划"
+  })
+
+{:ok, _prose} =
+  AdoptionRepository.persist(%{
+    actor_ref: "author",
+    work_id: work.id,
+    source_turn_ref: "turn_au12_merge_seed_prose",
+    artifact_id: "as_au12_merge_seed_prose",
+    artifact_type: :prose_fragment,
+    base_revision: 1,
+    content:
+      "黑市只认洛公子这个名号。他把三张灵气账单摊在摊位的冷光下，逐行核对暗扣的流向，" <>
+        "摊主压低声音提醒他，公司巡检今晚会来。第二个自称沈洛的人上周也来问过同样的问题，" <>
+        "这让他决定当面查个清楚。",
+    summary: "第01章：黑市对账夜"
+  })
+
 characters = [
   {"沈洛", "核心视角人物，被动觉醒线：从缴费者转为追查者。"},
   {"沈洛", "核心视角人物，重复登记行：领袖式反抗与调频技术线。"},

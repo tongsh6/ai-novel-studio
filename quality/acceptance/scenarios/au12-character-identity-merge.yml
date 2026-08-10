@@ -28,6 +28,11 @@ user_flow:
   - click: 洛公子的 查看详情 → 并入其他角色… → 确认并入
   - verify: 角色档案只剩一行沈洛且展示 别名：洛公子
   - open: 脉络 tab，角色弧光归一为单条
+  - click: 概览 → 发起设定盘点（已在档名单含归并产生的别名）
+  - click: 采纳盘点重提的「洛公子」候选
+  - verify: 别名命中确认卡点名「『洛公子』是已确认角色『沈洛』的已登记别名」
+  - click: 拒绝（作者判定为同一人的重复提案）
+  - verify: 档案仍是单行沈洛（含别名），零 production write
 
 evidence:
   required:
@@ -50,7 +55,8 @@ assertions:
   data:
     - superseded rows leave the archive projection
     - arc ledger keeps a single entry pointing at the surviving character id
-    - no adoption/memory/prose write is produced by merging
+    - the merge phase produces no adoption/memory/prose write
+    - alias re-proposal ends needs_confirmation with zero accepted adoption in the whole scenario
 
 anti_hooks:
   product_acceptance_logic_added: false

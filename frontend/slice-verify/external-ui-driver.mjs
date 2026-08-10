@@ -9851,6 +9851,138 @@ async function driveAu12CharacterIdentityMerge(page) {
     fullPage: true,
   });
 
+  // 归并阶段零 adoption 写入（合并是纯档案操作）——快照必须在盘点开始前取，
+  // 后续别名拦截卡阶段会合法产生 needs_confirmation 的 adoption 评估。
+  const mergePhaseNoAdoptionWrite = !readAppLogRecords()
+    .slice(logStart)
+    .some(
+      (record) =>
+        record.event === "adoption.evaluate.done" ||
+        String(record.event ?? "").startsWith("channel.adopt."),
+    );
+
+  // CP3 别名拦截卡：归并产生的别名进入已在档名单后，盘点仍把「洛公子」当新人物
+  // 重提（M4 同名重提行为的别名变体）——采纳被别名命中确认卡拦住并点名归属；
+  // 作者拒绝后档案不变（此处作者判定为同一人的重复提案）。
+  await page.getByRole("tab", { name: "概览" }).click();
+  const inventoryFrameStart = frames.length;
+  await page.getByRole("button", { name: "发起设定盘点", exact: true }).click();
+
+  const inventoryTurnFrame = await waitForNewFrame(
+    inventoryFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) =>
+          entry.artifact_type === "character_seed" &&
+          String(entry.payload?.items?.[0]?.title ?? "") === "洛公子",
+      ),
+    "Inventory did not re-propose the merged alias as a new character",
+    120_000,
+  );
+  const aliasPending = (inventoryTurnFrame.body.adoption_state?.pending ?? []).find(
+    (entry) =>
+      entry.artifact_type === "character_seed" &&
+      String(entry.payload?.items?.[0]?.title ?? "") === "洛公子",
+  );
+
+  await closeArchiveIfOpen(page);
+  const aliasAdoptionStart = frames.length;
+  const aliasAccept = page.getByRole("button", { name: "保存到作品档案", exact: true });
+  await aliasAccept.last().waitFor({ timeout: 10_000 });
+  await aliasAccept.last().click();
+
+  await waitForNewFrame(
+    aliasAdoptionStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === aliasPending.artifact_id,
+    "Alias re-proposal did not send its own accept target",
+    30_000,
+  );
+  const aliasGuardFrame = await waitForNewFrame(
+    aliasAdoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      frame.body?.truthfulness?.artifact_adopted === false &&
+      frame.body?.truthfulness?.production_write_performed === false &&
+      (frame.body?.adoption_decision?.reason_codes ?? []).includes("duplicate_character_name"),
+    "Adopting the alias re-proposal did not require author adjudication",
+    120_000,
+  );
+
+  // 别名命中卡必须点名归属，作者才有裁决材料。
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText;
+      return (
+        text.includes("「洛公子」是已确认角色「沈洛」的已登记别名") &&
+        text.includes("确认执行") &&
+        text.includes("拒绝")
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const aliasGuardMessage = String(aliasGuardFrame.body?.assistant_message?.text ?? "").trim();
+  const aliasGuardNamesCanonical = aliasGuardMessage.includes(
+    "「洛公子」是已确认角色「沈洛」的已登记别名",
+  );
+  assert(
+    aliasGuardNamesCanonical,
+    `Alias guard card did not name the canonical row: ${aliasGuardMessage}`,
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "au12-character-identity-merge-alias-guard.png"),
+    fullPage: true,
+  });
+
+  const rejectStart = frames.length;
+  await page.getByRole("button", { name: "拒绝" }).first().click();
+  await waitForNewFrame(
+    rejectStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "reject_or_cancel_confirmation",
+    "Real workbench did not send the reject for the alias guard",
+    30_000,
+  );
+  const aliasRejectTurnFrame = await waitForNewFrame(
+    rejectStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "cancelled" &&
+      frame.body?.truthfulness?.production_write_performed === false,
+    "Rejecting the alias re-proposal did not close it without writes",
+    60_000,
+  );
+
+  // 拒绝后档案不变：重开档案仍是单行沈洛（含别名），洛公子没有成为新行。
+  const afterGuardLogStart = readAppLogRecords().length;
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await waitForArchivePanel(page);
+  await page.getByRole("tab", { name: "角色" }).click();
+  const charactersAfterGuardRecord = await waitForNewAppLogRecord(
+    afterGuardLogStart,
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      Number(record.character_count ?? 0) === 1,
+    "Alias guard rejection did not leave the roster unchanged",
+    20_000,
+  );
+  await rowsTitled("沈洛").first().waitFor({ timeout: 10_000 });
+  const rowsAfterGuard = await rowsTitled("沈洛").count();
+  const aliasStillVisible = (await rowsTitled("沈洛").first().innerText()).includes(
+    "别名：洛公子",
+  );
+
   const logsAfter = readAppLogRecords().slice(logStart);
   const joinRecord = readAppLogRecords()
     .filter((record) => record.event === "channel.join.done" && record.work_id)
@@ -9884,11 +10016,16 @@ async function driveAu12CharacterIdentityMerge(page) {
           record.event === "channel.author_action.done" &&
           record.action_type === "merge_characters",
       ).length,
-      no_adoption_write: !logsAfter.some(
-        (record) =>
-          record.event === "adoption.evaluate.done" ||
-          String(record.event ?? "").startsWith("channel.adopt."),
-      ),
+      merge_phase_no_adoption_write: mergePhaseNoAdoptionWrite,
+      alias_reproposal_artifact_id: aliasPending.artifact_id,
+      alias_guard_card_visible: true,
+      alias_guard_names_canonical: aliasGuardNamesCanonical,
+      alias_guard_write_blocked:
+        aliasGuardFrame.body?.truthfulness?.production_write_performed === false,
+      alias_guard_rejected: aliasRejectTurnFrame.body?.status === "cancelled",
+      characters_after_alias_guard: Number(charactersAfterGuardRecord.character_count ?? 0),
+      rows_after_alias_guard: rowsAfterGuard,
+      alias_still_visible_after_guard: aliasStillVisible,
     },
   ];
 }
