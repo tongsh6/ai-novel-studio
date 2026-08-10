@@ -207,8 +207,17 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**Order 8 刀序②角色主体+AU12 归并——slice done（CP1/CP2 2026-08-10，CP3
-2026-08-11），队首 = 刀序③场级 craft（开工前按七问补 slice 设计）**。
+**刀序③场级 craft——slice done（2026-08-11，`tasks/slices/NEM04-scene-craft-planning.md`），
+队首 = 刀序④ information 账+design_ref（开工前按七问补 slice 设计）**。
+刀③收口一页话：章计划逐场标注（`场次：名｜目标｜议程｜情绪`，AU08 所属卷同款先例）
+→ `plan_direction.scene_plans`（存储位按第四纪律阶梯改判：既有 map 字段承载零新列，
+设计态不进 production 行；scenes 表「场景 N」由续写按计划场次命名治理，存量不回填）
+→ `ProseExecutionBrief` 多场展开闭环（VS-00E「多场展开属后续」销账，
+`brief_source=chapter_plan_scene_plans` 留痕）→ 探索面 chapter_read 场次可读。
+真实 Tauri：简报场景 `scene_unit_count==2`+source 门 PASS，au08/p1 规划两门零回归；
+1408 后端+437 前端+I1/I2/I3 全绿。NEM-GAP-04 部分关闭（E25-E30 等拉动）。
+
+**刀序②角色主体+AU12 归并——slice done（CP1/CP2 2026-08-10，CP3 2026-08-11）**。
 `tasks/slices/AU12-character-identity-merge.md` 全档：**CP1 归并主链**（domain 纯
 计算+单 Multi+channel `merge_characters`+档案合并弹窗 43 §5.0.2；真实 Tauri PASS，
 m4b 同名标本 3→2→1 行、arc 归一、零 adoption 写入）；**CP2 输入面+别名后门**

@@ -189,7 +189,7 @@
 | NEM-GAP-01 | 主题 / 前提无建模位置 | E01 / E02 | ~~work 无"命题"字段~~ **部分关闭**（CA01：works 增 premise/theme/main_goal）；全书骨架（目标体量/连载形态）续批见 NEM-GAP-08 |
 | NEM-GAP-02 | 核心设定引擎、成长体系、命名体系无对象 | E06 / E09 / E12 | 只能散落在 worldbuilding 文本里 |
 | NEM-GAP-03 | ~~章级设计无结构~~ **已关闭**（2026-07-20） | E18-E22 | 全链落地：ChapterPlanDirection 九字段（VS-00C CP4）→ plot_outline writer 结构化文法产出 → ChapterPlanParser 物化 → 执行简报场级投影（chapter_projection）→ 探索面 chapter_read 三态可读（CP5b）→ 种子结构化后场景/狗粮全程方向在场（p1-prose-execution-brief degraded=false + judgment-explore-chapter-plan 引用设计态字段 verified） |
-| NEM-GAP-04 | 场级 craft 无槽位 | E23-E30 | scene 是空结构节点，无任何 craft 字段 |
+| NEM-GAP-04 | 场级 craft 无槽位 | E23-E30 | ~~scene 是空结构节点，无任何 craft 字段~~ **部分关闭**（NEM04 刀③ 2026-08-11：最小三槽「场景目标/出场人物议程/情绪」经章计划逐场标注落 `plan_direction.scene_plans`（慎重新增实体：既有 map 字段承载，设计态不进 production 行），`ProseExecutionBrief` 多场展开闭环、续写场景按计划场次名；E25-E30 其余要素槽等拉动） |
 | NEM-GAP-05 | "向前看"的五本账缺位 | E33-E37 | 弧光/冲突/信息/情绪曲线/承诺只有 main_outline 文本兜底 |
 | NEM-GAP-06 | 三态对账无一等机制 | 全部 | 25 有提炼方向，但"实现态 vs 设计态对账"未被表述为机制 |
 | NEM-GAP-07 | 卷级蓝图无结构**+ volumes 表退化使用** | E14-E17 | volume 无目标/编织/节奏字段（VS-00G 只落全书骨架消费面，卷级对象仍待"开新卷"动作提出）；**2026-07-23 核查实证：volumes 表退化为单一默认卷占位——唯一写入 AdoptionRepository.insert_volume 恒造"第一卷"（planner 只产扁平章列表无卷结构，章被迫全挂默认卷），百章标本 volumes=1/100 章全挂其下；与地基事实真空同源（规划层不产结构化卷/角色），活化需规划层改造 planner 产多卷** |
