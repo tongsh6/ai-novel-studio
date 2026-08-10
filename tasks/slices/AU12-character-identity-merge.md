@@ -1,6 +1,6 @@
 # AU12-character-identity-merge：角色主体 + 同名/别名身份归并（Order 8 刀序②）
 
-**状态**：in_progress（**CP1 done 2026-08-10**，CP2/CP3 待做；三拍板项已裁决，见 §8）
+**状态**：in_progress（**CP1/CP2 done 2026-08-10**，CP3 待做；三拍板项已裁决，见 §8）
 **来源**：2026-07-29 M4b 短跑实锤——档案里出现 4 行同名「沈洛」；Order 8 排查
 （`docs/design/notes/2026-07-29-container-utilization-survey.md` §3.5/§5.2）拍板
 本刀范围 = **角色主体（role/aliases 生产写入）必须连身份归并一起做**：
@@ -132,10 +132,24 @@ aliases 一旦有值，「洛公子」的新提案不会被同名拦截拦住（
   `get_ledger_threads` entry_count 2→1、零 adoption/记忆写入；证据
   `artifacts/slice-verify/au12-character-identity-merge-tauri/`）。
   坑：脉络数据在面板打开时批量拉取，归并后须关开档案一次才有新读端口留痕。
-- **CP2 输入面 + 后门**：§4.2 全链贯通 + §4.3 两处；`au14-fact-inventory-roundtrip`
-  扩断言（采纳后行带 aliases/role）或标本重放；别名拦截负例。
-- **CP3 消费面证明**：章摘要用**别称**提及 → 弧光 sighting 记账（别名匹配首次
-  真实生效）；阵容注入行含 role。若 CP1/CP2 场景已覆盖则登记证据即可，不新起。
+- **CP2 输入面 + 后门 done（2026-08-10）**：§4.2 全链贯通（盘点 prompt 增 role/
+  aliases 两字段 + `normalize_item` 白名单 opt-in（顺带把可选键链重构成统一归约，
+  治 credo 复杂度）+ adoption_workflow attrs 增槽 + `character_attrs` 有值才写
+  （nil 不进 changeset，防就地转正清空既有别名）+ `materialize_character`/
+  主角假定物化带两键 + real.ex character_design prompt 同构）；§4.3 后门两处
+  （known_characters 名单含别名 + checker 升级 `accepted_character_matching/2`
+  返回 `%{name: 规范行, alias_hit}`，布尔旧 checker 兼容；**别名命中确认卡点名
+  「『X』是已确认角色『Y』的已登记别名」**，opts 经 finalize 穿线到文案）。
+  单测：contract role/aliases 收敛 + workflow 别名命中卡文案/attrs 贯通 +
+  assumption_repo matching/物化带键，全量 1402 后端 + 437 前端绿，I1/I2/I3 PASS。
+  **真实 Tauri**：`au14-fact-inventory-roundtrip` 扩断言 PASS（采纳后档案行可见
+  身份「底层灵气缴费者出身的调查者」+「别名：砚哥」，同名重提确认链保持绿）；
+  `au14-assumption-confirm-roundtrip`/`au14-assumption-provisional-injection`
+  复跑 PASS（假定物化路径带 role/aliases 无回归）。
+- **CP3 消费面证明（待做）**：①章摘要用**别称**提及 → 弧光 sighting 记账
+  （别名匹配首次真实生效）；②阵容注入行含 role 的注入证据；③**别名命中确认卡的
+  真实页面验收**（CP2 只有 workflow 单测证据，尚无外部 driver 走真实页面命中
+  别名的场景——诚实缺口，不并入 au14 现场景以免破坏既有断言，需独立扩展）。
 
 顺序：CP1 先行（处理存量噪声，给 CP2 新输入兜底），与 Order 8 警告的因果一致。
 
