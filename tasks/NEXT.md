@@ -207,8 +207,27 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**刀序③场级 craft——slice done（2026-08-11，`tasks/slices/NEM04-scene-craft-planning.md`），
-队首 = 刀序④ information 账+design_ref（开工前按七问补 slice 设计）**。
+**刀序④ information 账+design_ref——slice done（2026-08-11，
+`tasks/slices/VS00F-information-ledger.md`）。Order 8 四把刀全部落地，
+队首 = 待用户拍板下一主线**。候选（按承重直觉排序，不代拍板）：
+① R2「自由创作只产两种 artifact」独立刀（Order 8 认定的更大一块——主循环常态
+产 foreshadowing/world_rule/character/constraint seed，类型分派表本是全的等不到
+输入）；② 写前推理层（四层体系备忘指认的最大真空——正文/规划调用前对携带状态
+做处理得出本章使命，`notes/2026-08-11-establish-carry-process-write-pipeline.md`）；
+③ M5 节拍狗粮（刀①-④ + AU12 + NEM04 的长跑验证，顺带观察别称 sighting 与
+场级指导实效——狗粮须用户批准）。
+刀④收口一页话：信息账正账双源建账（伏笔带 planned_reveal 预期归己/章计划信息，
+design_ref 全账首个真实写入）→ R9 仅超期开火+收官清单（无全局阈值）→
+prose/planning 注入（未回收伏笔+禁提前揭示，R4 事前预防）→ 回收=盘点模型提议+
+作者采纳收账（机械匹配与纯人工双否决后的定型）。真实 Tauri 全环
+`au14-foreshadow-resolution-roundtrip` PASS；payload 细则/状态枚举冻结进
+schemas（五本账首份）；1422 后端+437 前端+I1/I2/I3 绿。
+
+**遗留拍板项（不阻塞）**：reasonNeedle 疑丢断言；同名确认卡内嵌「并入既有行」；
+mix format 51 个历史漂移文件是否全量格式化（PR 时 CI 会红）；M5 狗粮观察项
+（别称 sighting 真实页面级/场级指导实效）。
+
+**刀序③场级 craft——slice done（2026-08-11，`tasks/slices/NEM04-scene-craft-planning.md`）**。
 刀③收口一页话：章计划逐场标注（`场次：名｜目标｜议程｜情绪`，AU08 所属卷同款先例）
 → `plan_direction.scene_plans`（存储位按第四纪律阶梯改判：既有 map 字段承载零新列，
 设计态不进 production 行；scenes 表「场景 N」由续写按计划场次命名治理，存量不回填）

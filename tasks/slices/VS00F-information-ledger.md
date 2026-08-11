@@ -1,8 +1,9 @@
 # VS00F-information-ledger：信息账正账与 design_ref 首落（Order 8 刀序④）
 
-**状态**：in_progress（CP1 开工；拍板全落见 §7——用户否决全局阈值与机械回收，
-定型「预期归伏笔自己/回收=模型提议+作者裁决」，并升华为四层体系备忘
-`docs/design/notes/2026-08-11-establish-carry-process-write-pipeline.md`）
+**状态**：**done（CP1/CP2/CP3 2026-08-11）**；拍板全落见 §7——用户否决全局阈值
+与机械回收，定型「预期归伏笔自己/回收=模型提议+作者裁决」，并升华为四层体系备忘
+`docs/design/notes/2026-08-11-establish-carry-process-write-pipeline.md`。
+**Order 8 四把刀至此全部落地。**
 **来源**：Order 8 排查 §3.9/§5.4（information 账三库近乎零行，五本账唯一常态零行的
 一本；design_ref 三库 100% NULL，三态对账缺半条腿）；VS-00F CP2 的信息账「正账」
 半边从未建成（LEAKED 异常态已落，HIDDEN→REVEALED 生命周期零代码）。
@@ -119,9 +120,15 @@ statusLabels 补「未揭示 / 部分揭示 / 已揭示」;信息行摘要沿用
   （R7 同源阈值）+ 裁决边 HIDDEN→REVEALED + accept_drift 映射（判已回收/不再
   追踪）+ statusLabels 三态文案 + prose 信息双段（伏笔按预期临近/禁提前揭示）+
   planning 摘要行。单测五组，1418 后端+437 前端零回归，I1/I2/I3 PASS。
-- **CP3 盘点回收提案 + 真实 Tauri**：`foreshadowing_resolution` 第四类提案
-  （盘点 prompt/映射/采纳=REVEALED）+ 场景验收（AU-13/14 族扩展：埋伏笔带预期 →
-  超期 finding → 盘点提议回收 → 作者采纳 → 账面 REVEALED + 注入证据）。
+- **CP3 盘点回收提案 + 真实 Tauri done（2026-08-11，312f7a41/54f97e00）**：
+  盘点「未回收伏笔核对」段（注入账面引用）→ `foreshadowing_resolution` 第四类
+  提案（resolution_target 白名单收敛须锚定 `foreshadow_` 前缀）→ 逐项采纳=
+  账面 HIDDEN→REVEALED（幂等、不产新记忆、目标缺失诚实拒绝）→ 采纳文案
+  「确认伏笔已回收」按类型分派。**真实 Tauri 全环 PASS**
+  （`au14-foreshadow-resolution-roundtrip`：HIDDEN 可见→审读超期 finding 上屏→
+  prose 注入信息段（零弧光下 progress_state 发射即证）→提案锚定逐字节相等→
+  采纳→脉络已揭示）。坑：审读报告物化后 finding 须重开脉络 tab 才上屏
+  （au13 同款面板旧态）。
 
 ## 6. 七问
 
