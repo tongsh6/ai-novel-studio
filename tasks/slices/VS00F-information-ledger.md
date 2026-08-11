@@ -107,10 +107,12 @@ statusLabels 补「未揭示 / 部分揭示 / 已揭示」;信息行摘要沿用
 
 ## 5. CP 拆分
 
-- **CP1 建账双源 + planned_reveal 槽贯通**：domain 纯函数 + 章计划物化/伏笔 seed
-  采纳两个建账钩（design_ref 首落）+ plan_info 机械 REVEALED（该章正文采纳时）+
-  foreshadowing_seed 提案链 planned_reveal 槽（prompt→normalize→采纳→账 payload）；
-  单测 + 全量回归 + 标本重放（无计划信息/无伏笔的旧数据零新条目）。
+- **CP1 建账双源 + planned_reveal 槽贯通 done（2026-08-11，dd44c993）**：
+  伏笔 seed 采纳建账（design_ref 首个真实写入）+ 章计划信息释放建账（重物化幂等
+  不回退）+ 本章正文采纳机械 REVEALED + planned_reveal 槽全链（盘点 prompt 可选
+  输出→normalize 白名单收敛→采纳链→账 payload）；账面两步仪式在采纳事务内执行。
+  单测四组，1412 后端零回归（旧数据零新条目由全部既有 fixture 证明），I1/I2/I3
+  PASS。
 - **CP2 R9 超期 + 收官清单 + 裁决 + 面板 + 注入**：`foreshadowing_overdue`
   （仅有预期且超期）+ 收官前未回收清单（进度口径与收官守则同源）+ 裁决转移边
   HIDDEN→REVEALED + statusLabels 文案 + progress_state 信息段（prose 双段 +
