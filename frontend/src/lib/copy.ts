@@ -168,6 +168,8 @@ export const CARD = {
     acceptOutlineLabel: "保存到大纲",
     acceptArchiveLabel: "保存到作品档案",
     acceptWorkSkeletonLabel: "采纳为全书规划",
+    // VS00F 刀④：伏笔回收提案采纳=账面收束，不是档案对象写入（文案按类型分派）。
+    acceptForeshadowResolutionLabel: "确认伏笔已回收",
     discardLabel: "不保存",
     editThenAcceptLabel: "修改后保存",
     editProseThenAcceptLabel: "修改后保存正文",

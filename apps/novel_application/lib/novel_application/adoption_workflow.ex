@@ -503,6 +503,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       role: artifact_character_field(artifact, :role),
       aliases: artifact_character_field(artifact, :aliases),
       planned_reveal: artifact_character_field(artifact, :planned_reveal),
+      resolution_target: artifact_character_field(artifact, :resolution_target),
+      resolved_at_seq: artifact_character_field(artifact, :resolved_at_seq),
       memory_subtype: artifact_memory_subtype(artifact),
       skeleton_field: artifact_skeleton_slot(artifact, :skeleton_field),
       skeleton_value: artifact_skeleton_slot(artifact, :skeleton_value),

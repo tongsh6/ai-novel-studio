@@ -69,8 +69,8 @@ defmodule NovelPersistence.AdoptionRepository do
     |> Multi.run(:chapter_structure, fn repo, _changes ->
       maybe_materialize_chapter_structure(repo, attrs)
     end)
-    |> Multi.run(:information_ledger, fn repo, %{memory_item: memory_item} ->
-      maybe_seed_foreshadow_entry(repo, attrs, memory_item)
+    |> Multi.run(:information_ledger, fn repo, %{mutation: mutation, memory_item: memory_item} ->
+      maybe_update_information_ledger(repo, attrs, mutation, memory_item)
     end)
     |> Repo.transaction()
     |> case do
@@ -134,7 +134,9 @@ defmodule NovelPersistence.AdoptionRepository do
   defp maybe_persist_memory_item(repo, attrs, mutation_id) do
     artifact_type = Map.get(attrs, :artifact_type)
 
-    if character_dossier_artifact?(artifact_type) or work_skeleton_artifact?(artifact_type) do
+    if character_dossier_artifact?(artifact_type) or work_skeleton_artifact?(artifact_type) or
+         foreshadowing_resolution_artifact?(artifact_type) do
+      # foreshadowing_resolution 采纳=账面状态收束，不产新记忆（伏笔本体记忆已在）。
       {:ok, nil}
     else
       %MemoryItem{}
@@ -640,6 +642,73 @@ defmodule NovelPersistence.AdoptionRepository do
       changes
     end
   end
+
+  # VS00F 刀④：信息账写入分派——伏笔 seed 采纳建账（CP1）；回收提案采纳收账（CP3）。
+  defp maybe_update_information_ledger(repo, attrs, mutation, memory_item) do
+    artifact_type = Map.get(attrs, :artifact_type)
+
+    cond do
+      foreshadowing_artifact?(artifact_type) ->
+        maybe_seed_foreshadow_entry(repo, attrs, memory_item)
+
+      foreshadowing_resolution_artifact?(artifact_type) ->
+        apply_foreshadowing_resolution(repo, attrs, mutation.id)
+
+      true ->
+        {:ok, nil}
+    end
+  end
+
+  # VS00F 刀④（CP3）：伏笔回收提案采纳=账面 HIDDEN→REVEALED（回收是语义判断，
+  # 模型只提议、作者采纳才落账）。目标缺失诚实拒绝；已 REVEALED 幂等成功
+  # （重复采纳不炸）；LEAKED 等其它状态不由回收提案改写。
+  defp apply_foreshadowing_resolution(repo, attrs, mutation_id) do
+    work_id = to_string(Map.fetch!(attrs, :work_id))
+    target = to_string(Map.get(attrs, :resolution_target) || "")
+
+    entry =
+      if String.starts_with?(target, "foreshadow_") do
+        repo.one(
+          from(e in LedgerEntry,
+            where:
+              e.work_id == ^work_id and e.ledger == "information" and e.subject_ref == ^target
+          )
+        )
+      end
+
+    case entry do
+      nil ->
+        {:error, :resolution_target_not_found}
+
+      %LedgerEntry{status: "REVEALED"} = revealed ->
+        {:ok, revealed}
+
+      %LedgerEntry{status: "HIDDEN"} = hidden ->
+        refs =
+          (hidden.source_refs ++ ["mutation:#{mutation_id}"] ++ resolved_chapter_ref(attrs))
+          |> Enum.uniq()
+
+        hidden
+        |> LedgerEntry.changeset(%{status: "REVEALED", source_refs: refs})
+        |> repo.update()
+
+      %LedgerEntry{} ->
+        {:error, :resolution_target_not_resolvable}
+    end
+  end
+
+  defp resolved_chapter_ref(attrs) do
+    case Map.get(attrs, :resolved_at_seq) do
+      seq when is_integer(seq) and seq > 0 -> ["chapter_seq:#{seq}"]
+      _ -> []
+    end
+  end
+
+  defp foreshadowing_resolution_artifact?(type)
+       when type in [:foreshadowing_resolution, "foreshadowing_resolution"],
+       do: true
+
+  defp foreshadowing_resolution_artifact?(_type), do: false
 
   # VS00F 刀④（CP1）：伏笔 seed 采纳建账——每条伏笔一条 information 条目
   # （subject_ref 派生自 memory id），design_ref 指向伏笔记忆。planted_at_seq =

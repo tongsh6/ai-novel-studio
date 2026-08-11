@@ -72,6 +72,49 @@ defmodule NovelApplication.FactInventoryServiceTest do
     assert character.provider_call_ref == "pcall-inventory-1"
   end
 
+  # VS00F 刀④ CP3：回收提案解析分组 + 核对段注入（模型只提议、作者采纳落账）。
+  test "foreshadowing_resolution 提案解析进独立分组并成独立 artifact set" do
+    json =
+      Jason.encode!([
+        %{
+          "artifact_type" => "foreshadowing_resolution",
+          "item_id" => "res-1",
+          "title" => "矿区旧账",
+          "body" => "第7章中旧账编号被当面兑现。",
+          "rationale" => "依据第7章",
+          "resolution_target" => "foreshadow_m1",
+          "resolved_at_seq" => 7
+        }
+      ])
+
+    {:ok, proposal} =
+      Inventory.inventory(materials(), provider(fn _p -> {:ok, %{content: json}} end))
+
+    assert [item] = proposal.foreshadowing_resolutions
+    assert item.resolution_target == "foreshadow_m1"
+    assert item.resolved_at_seq == 7
+
+    sets =
+      Inventory.artifact_sets(proposal, %{
+        source_turn_ref: "turn-1",
+        source_tool_result_ref: "tr-1"
+      })
+
+    assert [%{artifact_type: :foreshadowing_resolution, items: [_]}] = sets
+  end
+
+  test "未回收伏笔核对段注入账面引用；无未回收时无该段" do
+    prompt =
+      Inventory.inventory_prompt("正文", 2, [], [], [
+        %{ref: "foreshadow_m1", label: "伏笔：矿区旧账"}
+      ])
+
+    assert prompt =~ "## 未回收伏笔核对"
+    assert prompt =~ "[foreshadow_m1] 伏笔：矿区旧账"
+    assert prompt =~ "foreshadowing_resolution"
+    refute Inventory.inventory_prompt("正文", 2) =~ "未回收伏笔核对"
+  end
+
   test "提炼 prompt 含材料正文与结构化输出契约" do
     prompt = Inventory.inventory_prompt(Inventory.build_material_text(materials()), 2)
     assert prompt =~ "设定盘点助手"

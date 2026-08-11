@@ -169,7 +169,9 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
       {:memory_subtype, normalize_memory_subtype(map_get(raw, :memory_subtype))},
       {:role, normalize_character_role(map_get(raw, :role))},
       {:aliases, normalize_character_aliases(map_get(raw, :aliases))},
-      {:planned_reveal, normalize_planned_reveal(map_get(raw, :planned_reveal))}
+      {:planned_reveal, normalize_planned_reveal(map_get(raw, :planned_reveal))},
+      {:resolution_target, normalize_resolution_target(map_get(raw, :resolution_target))},
+      {:resolved_at_seq, normalize_reveal_seq(map_get(raw, :resolved_at_seq))}
     ]
     |> Enum.reduce(item, fn
       {_key, nil}, acc -> acc
@@ -248,6 +250,15 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   end
 
   defp normalize_reveal_seq(_seq), do: nil
+
+  # resolution_target（可选，VS00F 刀④ CP3）：伏笔回收提案指向的账面条目引用
+  # （`foreshadow_<memory_id>`）——身份锚定账面，防模型臆造目标。
+  defp normalize_resolution_target(target) when is_binary(target) do
+    trimmed = String.trim(target)
+    if String.starts_with?(trimmed, "foreshadow_") and trimmed != "foreshadow_", do: trimmed
+  end
+
+  defp normalize_resolution_target(_target), do: nil
 
   # 全书规划字段建议槽位规范化（VS-00G CP4d）：target_length/planned_volumes 收敛为
   # 正整数，serial_form 收敛为非空字符串；字段名不在立项规划三字段内一律丢弃。

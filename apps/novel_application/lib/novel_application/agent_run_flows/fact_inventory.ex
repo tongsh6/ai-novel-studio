@@ -194,7 +194,8 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
                materials,
                inventory_provider_execution(spec, snapshot),
                missing_skeleton_fields: missing_skeleton_fields,
-               known_characters: known_characters(spec, run)
+               known_characters: known_characters(spec, run),
+               unresolved_foreshadows: unresolved_foreshadows(spec, run)
              ),
            proposal = filter_skeleton_suggestions(proposal, missing_skeleton_fields),
            assumption_result = materialize_protagonist_assumption(spec, run, proposal),
@@ -425,6 +426,35 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
           [name | List.wrap(aliases)]
         end)
         |> Enum.filter(&is_binary/1)
+      rescue
+        _error -> []
+      catch
+        _kind, _reason -> []
+      end
+    else
+      []
+    end
+  end
+
+  # 未回收伏笔清单（VS00F 刀④ CP3）：账面 HIDDEN 伏笔条目进盘点核对段，回收
+  # 提案身份锚定账面 ref。读端口缺席/失败降级为空（盘点照常，回收核对不出现）。
+  defp unresolved_foreshadows(spec, run) do
+    reader = Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader()
+
+    if is_function(reader, 1) do
+      try do
+        run.work_id
+        |> reader.()
+        |> Enum.filter(fn entry ->
+          map_get(entry, :ledger) == "information" and map_get(entry, :status) == "HIDDEN" and
+            String.starts_with?(to_string(map_get(entry, :subject_ref)), "foreshadow_")
+        end)
+        |> Enum.map(fn entry ->
+          %{
+            ref: to_string(map_get(entry, :subject_ref)),
+            label: to_string(map_get(entry, :subject_label))
+          }
+        end)
       rescue
         _error -> []
       catch

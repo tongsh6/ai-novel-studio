@@ -60,12 +60,16 @@ defmodule NovelApplication.FactInventoryService do
     missing_fields = normalize_missing_fields(Keyword.get(opts, :missing_skeleton_fields, []))
     known_characters = normalize_known_characters(Keyword.get(opts, :known_characters, []))
 
+    unresolved_foreshadows =
+      normalize_unresolved_foreshadows(Keyword.get(opts, :unresolved_foreshadows, []))
+
     prompt =
       inventory_prompt(
         build_material_text(materials),
         length(materials),
         missing_fields,
-        known_characters
+        known_characters,
+        unresolved_foreshadows
       )
 
     case Execution.result_fn(provider_execution) do
@@ -92,6 +96,24 @@ defmodule NovelApplication.FactInventoryService do
   end
 
   defp normalize_known_characters(_names), do: []
+
+  # 未回收伏笔清单（VS00F 刀④ CP3）：注入账面引用（foreshadow_<id>）与标签，
+  # 让回收提案能身份锚定账面条目，不臆造目标。
+  defp normalize_unresolved_foreshadows(items) when is_list(items) do
+    items
+    |> Enum.map(fn
+      %{} = item ->
+        ref = item |> Map.get(:ref, Map.get(item, "ref", "")) |> to_string() |> String.trim()
+        label = item |> Map.get(:label, Map.get(item, "label", "")) |> to_string() |> String.trim()
+        %{ref: ref, label: label}
+
+      _other ->
+        %{ref: "", label: ""}
+    end)
+    |> Enum.reject(&(&1.ref == "" or &1.label == ""))
+  end
+
+  defp normalize_unresolved_foreshadows(_items), do: []
 
   defp normalize_missing_fields(fields) when is_list(fields) do
     fields
@@ -155,7 +177,8 @@ defmodule NovelApplication.FactInventoryService do
       {:character_seed, Map.get(proposal, :characters, [])},
       {:world_rule_seed, Map.get(proposal, :world_rules, [])},
       {:foreshadowing_seed, Map.get(proposal, :foreshadowings, [])},
-      {:work_skeleton_suggestion, Map.get(proposal, :skeleton_suggestions, [])}
+      {:work_skeleton_suggestion, Map.get(proposal, :skeleton_suggestions, [])},
+      {:foreshadowing_resolution, Map.get(proposal, :foreshadowing_resolutions, [])}
     ]
     |> Enum.reject(fn {_type, items} -> items == [] end)
     |> Enum.map(fn {artifact_type, items} ->
@@ -180,17 +203,19 @@ defmodule NovelApplication.FactInventoryService do
   end
 
   @doc false
-  @spec inventory_prompt(String.t(), non_neg_integer(), [String.t()], [String.t()]) :: String.t()
+  @spec inventory_prompt(String.t(), non_neg_integer(), [String.t()], [String.t()], [map()]) ::
+          String.t()
   def inventory_prompt(
         material_text,
         chapter_count,
         missing_skeleton_fields \\ [],
-        known_characters \\ []
+        known_characters \\ [],
+        unresolved_foreshadows \\ []
       ) do
     """
     你是小说设定盘点助手。下面是一部作品前 #{chapter_count} 章的正文摘录。请从正文中反向提炼出
     作品"事实上已经存在"的设定，整理成结构化提案供作者采纳登记。
-    #{known_characters_section(known_characters)}
+    #{known_characters_section(known_characters)}#{unresolved_foreshadows_section(unresolved_foreshadows)}
     要求：
     - 只提炼正文中实际出现的设定，不发明正文里没有的内容。
     - 主角：找出正文的核心视角人物/主角（可多个），narrative_role 取 PROTAGONIST/SUPPORTING/ANTAGONIST/MINOR 之一。
@@ -232,6 +257,24 @@ defmodule NovelApplication.FactInventoryService do
   # 已在档角色段：盘点=补全缺口，已登记的角色不该被当成新发现重提（M4 实锤：
   # 同一主角被反复提案采纳，档案堆出 4 行重复）。同名不同人是创作判断，仍由
   # 采纳边界交作者裁决，此处只消除「系统自己制造的重复」。
+  # 未回收伏笔核对段（VS00F 刀④ CP3）：回收是语义判断——模型只提议、作者采纳
+  # 才落账。resolution_target 必须原样引用账面 ref，防臆造目标。
+  defp unresolved_foreshadows_section([]), do: ""
+
+  defp unresolved_foreshadows_section(items) do
+    """
+
+    ## 未回收伏笔核对（仅当正文材料里已实际回收时才提案，不要臆断）
+    #{Enum.map_join(items, "\n", fn item -> "- [#{item.ref}] #{item.label}" end)}
+
+    如判断上列某条伏笔已在正文中回收，产出 foreshadowing_resolution 提案：
+    {"artifact_type":"foreshadowing_resolution","item_id":"resolution_x","title":"伏笔短名",
+     "body":"正文如何回收它的描述","rationale":"依据第N章","resolution_target":"foreshadow_…",
+     "resolved_at_seq":N}
+    resolution_target 必须原样使用上列中括号内的引用；没有已回收的就不产出此类提案。
+    """
+  end
+
   defp known_characters_section([]), do: ""
 
   defp known_characters_section(names) do
@@ -302,7 +345,13 @@ defmodule NovelApplication.FactInventoryService do
   defp validate_and_group(decoded, provider_call_ref) do
     decoded
     |> Enum.reduce_while(
-      %{characters: [], world_rules: [], foreshadowings: [], skeleton_suggestions: []},
+      %{
+        characters: [],
+        world_rules: [],
+        foreshadowings: [],
+        skeleton_suggestions: [],
+        foreshadowing_resolutions: []
+      },
       fn raw, grouped ->
         with {:ok, bucket} <- proposal_bucket(raw),
              {:ok, [item]} <- ToolOutputContract.validate_creative_items([raw]),
@@ -318,7 +367,13 @@ defmodule NovelApplication.FactInventoryService do
       {:error, _reason} = error ->
         error
 
-      %{characters: [], world_rules: [], foreshadowings: [], skeleton_suggestions: []} ->
+      %{
+        characters: [],
+        world_rules: [],
+        foreshadowings: [],
+        skeleton_suggestions: [],
+        foreshadowing_resolutions: []
+      } ->
         {:error, :empty_proposal}
 
       grouped ->
@@ -342,7 +397,8 @@ defmodule NovelApplication.FactInventoryService do
     "character_seed" => :characters,
     "world_rule_seed" => :world_rules,
     "foreshadowing_seed" => :foreshadowings,
-    "work_skeleton_suggestion" => :skeleton_suggestions
+    "work_skeleton_suggestion" => :skeleton_suggestions,
+    "foreshadowing_resolution" => :foreshadowing_resolutions
   }
 
   defp proposal_bucket(raw) when is_map(raw) do

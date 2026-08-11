@@ -352,6 +352,67 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert entry.payload["planned_reveal"] == %{"kind" => "volume", "seq" => 3}
     end
 
+    test "回收提案采纳=账面 HIDDEN→REVEALED，幂等且不产记忆（VS00F 刀④ CP3）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, foreshadow} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-fr-plant",
+                 artifact_id: "as-fr-plant",
+                 artifact_type: :foreshadowing_seed,
+                 base_revision: 1,
+                 content: "矿区旧账编号的去向。",
+                 summary: "伏笔：矿区旧账",
+                 planned_reveal: %{"kind" => "chapter", "seq" => 5}
+               })
+
+      target = "foreshadow_#{foreshadow.memory_item_id}"
+
+      resolve = fn turn, artifact ->
+        AdoptionRepository.persist(%{
+          actor_ref: "author",
+          work_id: work_id,
+          source_turn_ref: turn,
+          artifact_id: artifact,
+          artifact_type: :foreshadowing_resolution,
+          base_revision: 1,
+          content: "第7章中旧账编号被当面兑现。",
+          summary: "矿区旧账",
+          resolution_target: target,
+          resolved_at_seq: 7
+        })
+      end
+
+      assert {:ok, resolved} = resolve.("turn-fr-1", "as-fr-1")
+      # 回收提案不产记忆（伏笔本体记忆已在）
+      refute Map.has_key?(resolved, :memory_item_id)
+
+      assert [entry] = NovelPersistence.LedgerRepository.list(work_id, "information")
+      assert entry.status == "REVEALED"
+      assert "chapter_seq:7" in entry.source_refs
+      assert Enum.any?(entry.source_refs, &String.starts_with?(&1, "mutation:"))
+
+      # 幂等：重复采纳成功且账面不变
+      assert {:ok, _} = resolve.("turn-fr-2", "as-fr-2")
+      assert [%{status: "REVEALED"}] = NovelPersistence.LedgerRepository.list(work_id, "information")
+
+      # 目标不存在诚实拒绝
+      assert {:error, :resolution_target_not_found} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-fr-3",
+                 artifact_id: "as-fr-3",
+                 artifact_type: :foreshadowing_resolution,
+                 base_revision: 1,
+                 content: "x",
+                 summary: "不存在的伏笔",
+                 resolution_target: "foreshadow_missing"
+               })
+    end
+
     test "章计划信息释放建账 plan_info 条目，重物化不重复不回退（VS00F 刀④）" do
       work_id = Ecto.UUID.generate()
 

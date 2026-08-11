@@ -143,6 +143,30 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
       end
     end
 
+    # VS00F 刀④ CP3：回收提案槽——resolution_target 必须锚定账面引用，防臆造。
+    test "resolution_target/resolved_at_seq 收敛；非 foreshadow_ 引用整键丢弃" do
+      assert {:ok, [item]} =
+               ToolOutputContract.validate_creative_items([
+                 %{
+                   item_id: "r1",
+                   title: "矿区旧账",
+                   body: "第7章已兑现",
+                   resolution_target: " foreshadow_abc ",
+                   resolved_at_seq: "7"
+                 }
+               ])
+
+      assert item.resolution_target == "foreshadow_abc"
+      assert item.resolved_at_seq == 7
+
+      assert {:ok, [bad]} =
+               ToolOutputContract.validate_creative_items([
+                 %{item_id: "r2", title: "x", body: "y", resolution_target: "memory_item:1"}
+               ])
+
+      refute Map.has_key?(bad, :resolution_target)
+    end
+
     test "memory_subtype 归一化到角色 MemoryType 子集并保留到 item（AU-09 §4.5）" do
       assert ToolOutputContract.normalize_memory_subtype("relationship") == "RELATIONSHIP"
       assert ToolOutputContract.normalize_memory_subtype("结盟反目") == "RELATIONSHIP"

@@ -113,7 +113,9 @@ defmodule NovelDomain.TentativeArtifactSet do
   # "同一产物多 item"仍整体采纳，不在此列。
   # VS-00G CP4d：work_skeleton_suggestion 每 item = 一个缺位规划字段的建议
   # （target_length/planned_volumes/serial_form），采纳一项只回写一个立项字段。
-  @per_candidate_types ~w(character_seed world_rule_seed foreshadowing_seed style_rule_seed constraint_seed work_skeleton_suggestion)a
+  # VS00F 刀④ CP3：foreshadowing_resolution 每 item = 一条伏笔的回收确认，
+  # 采纳一项只收一条账（模型提议、作者逐条收账）。
+  @per_candidate_types ~w(character_seed world_rule_seed foreshadowing_seed style_rule_seed constraint_seed work_skeleton_suggestion foreshadowing_resolution)a
 
   defp per_candidate_type?(type) when is_atom(type), do: type in @per_candidate_types
   defp per_candidate_type?(type) when is_binary(type), do: String.to_existing_atom(type) in @per_candidate_types
