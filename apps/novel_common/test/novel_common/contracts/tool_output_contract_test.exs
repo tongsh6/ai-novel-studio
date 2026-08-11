@@ -102,6 +102,47 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
       refute Map.has_key?(bare, :aliases)
     end
 
+    # VS00F 刀④：伏笔预期回收槽——预期归伏笔自己，不合法整键丢弃（机器不发明预期）。
+    test "planned_reveal 收敛为 kind/seq 结构；whole_book 不带 seq；不合法丢弃" do
+      assert {:ok, [item]} =
+               ToolOutputContract.validate_creative_items([
+                 %{
+                   item_id: "f1",
+                   title: "矿区旧账",
+                   body: "编号伏笔",
+                   planned_reveal: %{"kind" => "Volume", "seq" => "3"}
+                 }
+               ])
+
+      assert item.planned_reveal == %{"kind" => "volume", "seq" => 3}
+
+      assert {:ok, [whole]} =
+               ToolOutputContract.validate_creative_items([
+                 %{
+                   item_id: "f2",
+                   title: "身世之谜",
+                   body: "贯穿全书",
+                   planned_reveal: %{"kind" => "whole_book"}
+                 }
+               ])
+
+      assert whole.planned_reveal == %{"kind" => "whole_book"}
+
+      for bad <- [
+            %{"kind" => "chapter"},
+            %{"kind" => "sometime", "seq" => 3},
+            %{"seq" => 5},
+            "第三卷"
+          ] do
+        assert {:ok, [dropped]} =
+                 ToolOutputContract.validate_creative_items([
+                   %{item_id: "f3", title: "x", body: "y", planned_reveal: bad}
+                 ])
+
+        refute Map.has_key?(dropped, :planned_reveal)
+      end
+    end
+
     test "memory_subtype 归一化到角色 MemoryType 子集并保留到 item（AU-09 §4.5）" do
       assert ToolOutputContract.normalize_memory_subtype("relationship") == "RELATIONSHIP"
       assert ToolOutputContract.normalize_memory_subtype("结盟反目") == "RELATIONSHIP"

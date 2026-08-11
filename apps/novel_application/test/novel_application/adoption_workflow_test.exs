@@ -363,7 +363,8 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                 title: "云栖",
                 body: "关键配角。",
                 role: "旧机房维护者",
-                aliases: ["栖姐"]
+                aliases: ["栖姐"],
+                planned_reveal: %{"kind" => "chapter", "seq" => 9}
               }
             ]
           }
@@ -383,6 +384,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert_received {:writer_attrs, attrs}
       assert attrs.role == "旧机房维护者"
       assert attrs.aliases == ["栖姐"]
+      assert attrs.planned_reveal == %{"kind" => "chapter", "seq" => 9}
     end
 
     test "different-name character adopts without duplicate confirmation" do

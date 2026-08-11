@@ -129,6 +129,48 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     assert leak.source_refs != []
   end
 
+  # VS00F 刀④：本章正文采纳 → 本章计划信息条目机械置 REVEALED；其它章的条目
+  # 与无条目情形都不动。
+  test "本章 plan_info 条目随正文采纳置 REVEALED,他章条目不动" do
+    {:ok, agent} = Agent.start_link(fn -> %{} end)
+
+    seed_entry = fn subject_ref, seq ->
+      Agent.update(
+        agent,
+        &Map.put(&1, subject_ref, %{
+          id: "le-#{subject_ref}",
+          work_id: "w",
+          ledger: "information",
+          subject_kind: "fact",
+          subject_ref: subject_ref,
+          subject_label: "第#{seq}章信息释放",
+          status: "HIDDEN",
+          payload: %{"fact" => "信息#{seq}", "planned_reveal_seq" => seq},
+          source_refs: ["chapter_plan:#{seq}"],
+          adoption_status: "ACCEPTED"
+        })
+      )
+    end
+
+    seed_entry.("plan_info_3", 3)
+    seed_entry.("plan_info_7", 7)
+
+    assert {:ok, _} =
+             LedgerMaintenance.run(
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-3",
+                 summary_text: summary_with_characters("凌渊出场。")
+               },
+               deps(agent)
+             )
+
+    entries = Agent.get(agent, & &1)
+    assert entries["plan_info_3"].status == "REVEALED"
+    assert "chapter_summary:ch-3" in entries["plan_info_3"].source_refs
+    assert entries["plan_info_7"].status == "HIDDEN"
+  end
+
   test "CP2b 节拍：章 seq 命中节拍值触发 reconcile 端口，未命中不触发" do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
     {:ok, calls} = Agent.start_link(fn -> [] end)

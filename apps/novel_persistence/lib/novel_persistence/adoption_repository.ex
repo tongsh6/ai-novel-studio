@@ -30,6 +30,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
+  alias NovelPersistence.Schemas.LedgerEntry
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.Schemas.Mutation
   alias NovelPersistence.Schemas.Scene
@@ -67,6 +68,9 @@ defmodule NovelPersistence.AdoptionRepository do
     end)
     |> Multi.run(:chapter_structure, fn repo, _changes ->
       maybe_materialize_chapter_structure(repo, attrs)
+    end)
+    |> Multi.run(:information_ledger, fn repo, %{memory_item: memory_item} ->
+      maybe_seed_foreshadow_entry(repo, attrs, memory_item)
     end)
     |> Repo.transaction()
     |> case do
@@ -549,39 +553,79 @@ defmodule NovelPersistence.AdoptionRepository do
     summary = blank_to_nil(Map.get(chapter, :summary))
     plan_direction = ChapterPlanDirection.to_storage(Map.get(chapter, :plan_direction))
 
-    Chapter
-    |> where([c], c.work_id == ^work_id and c.title == ^title)
-    |> limit(1)
-    |> repo.one()
-    |> case do
-      nil ->
-        insert_chapter(repo, %{
-          work_id: work_id,
-          volume_id: volume_id,
-          title: title,
-          seq: next_chapter_seq(repo, work_id),
-          status: StructureStatus.planned(),
-          summary: summary,
-          plan_direction: plan_direction
-        })
-        |> wrap_chapter_result()
+    result =
+      Chapter
+      |> where([c], c.work_id == ^work_id and c.title == ^title)
+      |> limit(1)
+      |> repo.one()
+      |> case do
+        nil ->
+          insert_chapter(repo, %{
+            work_id: work_id,
+            volume_id: volume_id,
+            title: title,
+            seq: next_chapter_seq(repo, work_id),
+            status: StructureStatus.planned(),
+            summary: summary,
+            plan_direction: plan_direction
+          })
 
-      %Chapter{} = existing_chapter ->
-        changes =
-          %{}
-          |> maybe_put_missing_summary(existing_chapter.summary, summary)
-          |> maybe_put_missing_direction(existing_chapter.plan_direction, plan_direction)
+        %Chapter{} = existing_chapter ->
+          changes =
+            %{}
+            |> maybe_put_missing_summary(existing_chapter.summary, summary)
+            |> maybe_put_missing_direction(existing_chapter.plan_direction, plan_direction)
 
-        if changes == %{} do
-          :ok
-        else
-          existing_chapter
-          |> Chapter.changeset(changes)
-          |> repo.update()
-          |> wrap_chapter_result()
+          if changes == %{} do
+            {:ok, existing_chapter}
+          else
+            existing_chapter |> Chapter.changeset(changes) |> repo.update()
+          end
+      end
+
+    with {:ok, chapter_row} <- result,
+         :ok <- maybe_seed_plan_info_entry(repo, work_id, chapter_row) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # VS00F 刀④（CP1）：章计划「信息释放」建账——设计承诺入账，身份=设计槽位
+  # （subject_ref 派生自章 seq，天然幂等），design_ref 指向章计划。已有条目不动
+  # （重物化不得把已推进状态打回 HIDDEN）。planned_reveal_seq = 本章（信息释放
+  # 是本章计划的组成部分）。
+  defp maybe_seed_plan_info_entry(repo, work_id, %Chapter{} = chapter) do
+    fact = plan_information_release(chapter.plan_direction)
+    subject_ref = "plan_info_#{chapter.seq}"
+
+    cond do
+      is_nil(fact) ->
+        :ok
+
+      information_entry_exists?(repo, work_id, subject_ref) ->
+        :ok
+
+      true ->
+        case seed_information_entry(repo, %{
+               work_id: work_id,
+               subject_ref: subject_ref,
+               subject_label: "第#{chapter.seq}章信息释放",
+               design_ref: "chapter_plan:#{chapter.seq}",
+               payload: %{"fact" => fact, "planned_reveal_seq" => chapter.seq},
+               source_refs: ["chapter_plan:#{chapter.seq}"]
+             }) do
+          {:ok, _entry} -> :ok
+          {:error, reason} -> {:error, reason}
         end
     end
   end
+
+  defp plan_information_release(%{} = plan_direction) do
+    blank_to_nil(Map.get(plan_direction, "information_release"))
+  end
+
+  defp plan_information_release(_plan_direction), do: nil
 
   defp maybe_put_missing_summary(changes, existing, summary)
        when existing in [nil, ""] and not is_nil(summary),
@@ -597,8 +641,100 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
-  defp wrap_chapter_result({:ok, _chapter}), do: :ok
-  defp wrap_chapter_result({:error, reason}), do: {:error, reason}
+  # VS00F 刀④（CP1）：伏笔 seed 采纳建账——每条伏笔一条 information 条目
+  # （subject_ref 派生自 memory id），design_ref 指向伏笔记忆。planted_at_seq =
+  # 采纳时最大非计划章 seq（机械口径：伏笔进入档案时书写到了哪）；planned_reveal
+  # 来自提案结构化槽（作者/模型没说就没有，机器不发明预期）。
+  defp maybe_seed_foreshadow_entry(repo, attrs, %MemoryItem{} = memory_item) do
+    if foreshadowing_artifact?(Map.get(attrs, :artifact_type)) do
+      work_id = Map.fetch!(attrs, :work_id)
+      subject_ref = "foreshadow_#{memory_item.id}"
+
+      if information_entry_exists?(repo, work_id, subject_ref) do
+        {:ok, nil}
+      else
+        payload =
+          %{
+            "fact" => to_string(Map.get(attrs, :content) || memory_item.content || ""),
+            "planted_at_seq" => max_written_chapter_seq(repo, work_id)
+          }
+          |> put_planned_reveal(Map.get(attrs, :planned_reveal))
+
+        seed_information_entry(repo, %{
+          work_id: work_id,
+          subject_ref: subject_ref,
+          subject_label: foreshadow_label(attrs, memory_item),
+          design_ref: "memory_item:#{memory_item.id}",
+          payload: payload,
+          source_refs: ["memory_item:#{memory_item.id}"]
+        })
+      end
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp maybe_seed_foreshadow_entry(_repo, _attrs, _memory_item), do: {:ok, nil}
+
+  defp foreshadowing_artifact?(type)
+       when type in [:foreshadowing_seed, "foreshadowing_seed"],
+       do: true
+
+  defp foreshadowing_artifact?(_type), do: false
+
+  defp foreshadow_label(attrs, memory_item) do
+    label = blank_to_nil(Map.get(attrs, :summary)) || blank_to_nil(memory_item.summary) || "伏笔"
+
+    if String.starts_with?(label, "伏笔"), do: label, else: "伏笔：#{label}"
+  end
+
+  defp put_planned_reveal(payload, %{} = planned_reveal),
+    do: Map.put(payload, "planned_reveal", planned_reveal)
+
+  defp put_planned_reveal(payload, _planned_reveal), do: payload
+
+  defp max_written_chapter_seq(repo, work_id) do
+    planned = StructureStatus.planned()
+
+    Chapter
+    |> where([c], c.work_id == ^work_id and c.status != ^planned)
+    |> select([c], max(c.seq))
+    |> repo.one()
+    |> Kernel.||(0)
+  end
+
+  defp information_entry_exists?(repo, work_id, subject_ref) do
+    LedgerEntry
+    |> where(
+      [e],
+      e.work_id == ^to_string(work_id) and e.ledger == "information" and
+        e.subject_ref == ^subject_ref
+    )
+    |> repo.exists?()
+  end
+
+  # 账面两步仪式（ADR-0019 INV-1 同款：TENTATIVE 先落、系统发起接受到 ACCEPTED，
+  # 与 LedgerRepository.upsert 同型，此处在采纳事务内执行）。
+  defp seed_information_entry(repo, attrs) do
+    base = %{
+      work_id: to_string(attrs.work_id),
+      ledger: "information",
+      subject_kind: "fact",
+      subject_ref: attrs.subject_ref,
+      subject_label: attrs.subject_label,
+      design_ref: attrs.design_ref,
+      status: "HIDDEN",
+      payload: attrs.payload,
+      source_refs: attrs.source_refs,
+      adoption_status: AdoptionStatus.tentative()
+    }
+
+    with {:ok, tentative} <- %LedgerEntry{} |> LedgerEntry.changeset(base) |> repo.insert() do
+      tentative
+      |> LedgerEntry.changeset(%{adoption_status: AdoptionStatus.accepted()})
+      |> repo.update()
+    end
+  end
 
   defp blank_to_nil(value) when is_binary(value) do
     case String.trim(value) do

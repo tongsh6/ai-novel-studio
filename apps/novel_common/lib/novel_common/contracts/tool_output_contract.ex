@@ -168,7 +168,8 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
       {:narrative_role, normalize_narrative_role(map_get(raw, :narrative_role))},
       {:memory_subtype, normalize_memory_subtype(map_get(raw, :memory_subtype))},
       {:role, normalize_character_role(map_get(raw, :role))},
-      {:aliases, normalize_character_aliases(map_get(raw, :aliases))}
+      {:aliases, normalize_character_aliases(map_get(raw, :aliases))},
+      {:planned_reveal, normalize_planned_reveal(map_get(raw, :planned_reveal))}
     ]
     |> Enum.reduce(item, fn
       {_key, nil}, acc -> acc
@@ -210,6 +211,43 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   end
 
   defp normalize_character_aliases(_aliases), do: nil
+
+  # planned_reveal（可选，VS00F 刀④）：伏笔的预期回收时机——预期归伏笔自己，
+  # 不设全局阈值（用户拍板「有的几章就收,有的贯穿全书」）。收敛为
+  # %{"kind" => chapter|volume|whole_book, "seq" => 正整数|nil}；chapter/volume
+  # 必须带 seq，whole_book 不带；不合法整键丢弃（机器不发明预期）。
+  @planned_reveal_kinds ~w(chapter volume whole_book)
+
+  defp normalize_planned_reveal(raw) when is_map(raw) do
+    kind = raw |> map_get(:kind) |> normalize_reveal_kind()
+    seq = raw |> map_get(:seq) |> normalize_reveal_seq()
+
+    cond do
+      kind == "whole_book" -> %{"kind" => kind}
+      kind in @planned_reveal_kinds and is_integer(seq) -> %{"kind" => kind, "seq" => seq}
+      true -> nil
+    end
+  end
+
+  defp normalize_planned_reveal(_raw), do: nil
+
+  defp normalize_reveal_kind(kind) when is_binary(kind) do
+    normalized = kind |> String.trim() |> String.downcase()
+    if normalized in @planned_reveal_kinds, do: normalized
+  end
+
+  defp normalize_reveal_kind(_kind), do: nil
+
+  defp normalize_reveal_seq(seq) when is_integer(seq) and seq > 0, do: seq
+
+  defp normalize_reveal_seq(seq) when is_binary(seq) do
+    case Integer.parse(String.trim(seq)) do
+      {value, ""} when value > 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp normalize_reveal_seq(_seq), do: nil
 
   # 全书规划字段建议槽位规范化（VS-00G CP4d）：target_length/planned_volumes 收敛为
   # 正整数，serial_form 收敛为非空字符串；字段名不在立项规划三字段内一律丢弃。

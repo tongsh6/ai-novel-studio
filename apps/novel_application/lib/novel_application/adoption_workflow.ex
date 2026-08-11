@@ -502,6 +502,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       narrative_role: artifact_narrative_role(artifact),
       role: artifact_character_field(artifact, :role),
       aliases: artifact_character_field(artifact, :aliases),
+      planned_reveal: artifact_character_field(artifact, :planned_reveal),
       memory_subtype: artifact_memory_subtype(artifact),
       skeleton_field: artifact_skeleton_slot(artifact, :skeleton_field),
       skeleton_value: artifact_skeleton_slot(artifact, :skeleton_value),

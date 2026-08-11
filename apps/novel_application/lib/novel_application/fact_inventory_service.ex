@@ -209,6 +209,9 @@ defmodule NovelApplication.FactInventoryService do
     - character_seed 可带 "role"：一句话身份描述（用作品语境写）；正文没有依据就省略
     - character_seed 可带 "aliases"：字符串数组，正文中实际出现过的别称/化名/旧名；
       没有就省略，不要编造
+    - foreshadowing_seed 可带 "planned_reveal"：该伏笔的预期回收时机，仅当正文或
+      设定明确暗示时给出，形如 {"kind":"chapter","seq":12} / {"kind":"volume","seq":2} /
+      {"kind":"whole_book"}；没把握就省略——不要发明预期
 
     示例形状：
     [

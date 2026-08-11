@@ -319,6 +319,80 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                NovelPersistence.WorkArchiveRepo.foreshadowing(work_id)
 
       assert [] = NovelPersistence.WorkArchiveRepo.rules(work_id)
+
+      # VS00F 刀④：伏笔采纳同批建信息账（HIDDEN，design_ref 指向伏笔记忆，
+      # planned_reveal 来自提案结构化槽）。重复采纳不堆条目。
+      assert [entry] = NovelPersistence.LedgerRepository.list(work_id, "information")
+      assert entry.subject_ref == "foreshadow_#{memory.id}"
+      assert entry.subject_label == "伏笔：矿区旧账"
+      assert entry.status == "HIDDEN"
+      assert entry.design_ref == "memory_item:#{memory.id}"
+      assert entry.payload["fact"] =~ "矿区旧账"
+      assert entry.payload["planted_at_seq"] == 0
+      refute Map.has_key?(entry.payload, "planned_reveal")
+    end
+
+    test "foreshadowing_seed 带 planned_reveal 槽时入账 payload（VS00F 刀④）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-foreshadowing-pr",
+                 artifact_id: "as-foreshadowing-pr",
+                 artifact_type: :foreshadowing_seed,
+                 base_revision: 1,
+                 content: "残诀后半卷的去向。",
+                 summary: "伏笔：残诀后半卷",
+                 planned_reveal: %{"kind" => "volume", "seq" => 3}
+               })
+
+      assert [entry] = NovelPersistence.LedgerRepository.list(work_id, "information")
+      assert entry.payload["planned_reveal"] == %{"kind" => "volume", "seq" => 3}
+    end
+
+    test "章计划信息释放建账 plan_info 条目，重物化不重复不回退（VS00F 刀④）" do
+      work_id = Ecto.UUID.generate()
+
+      plan = """
+      第01章：底层灵气账单: 主角核对账单。
+      信息释放：公司正在抽取底层修士灵气
+      第02章：旧服务器: 主角潜入机房。
+      """
+
+      persist_plan = fn turn, artifact ->
+        AdoptionRepository.persist(%{
+          actor_ref: "author",
+          work_id: work_id,
+          source_turn_ref: turn,
+          artifact_id: artifact,
+          artifact_type: :outline_draft,
+          base_revision: 1,
+          content: plan,
+          summary: "两章计划"
+        })
+      end
+
+      assert {:ok, _} = persist_plan.("turn-plan-1", "as-plan-1")
+
+      # 只有带「信息释放」的第 1 章建账；第 2 章无信息计划零条目。
+      assert [entry] = NovelPersistence.LedgerRepository.list(work_id, "information")
+      assert entry.subject_ref == "plan_info_1"
+      assert entry.subject_label == "第1章信息释放"
+      assert entry.status == "HIDDEN"
+      assert entry.design_ref == "chapter_plan:1"
+      assert entry.payload["fact"] == "公司正在抽取底层修士灵气"
+      assert entry.payload["planned_reveal_seq"] == 1
+
+      # 重物化幂等：不堆第二条,也不把状态打回（模拟已推进态）。
+      {:ok, revealed} = NovelDomain.LedgerEntry.new(Map.put(entry, :status, "REVEALED"))
+      {:ok, _} = NovelPersistence.LedgerRepository.upsert(Map.from_struct(revealed))
+
+      assert {:ok, _} = persist_plan.("turn-plan-2", "as-plan-2")
+
+      assert [after_entry] = NovelPersistence.LedgerRepository.list(work_id, "information")
+      assert after_entry.status == "REVEALED"
     end
 
     test "adopts style_rule_seed into governed memory visible in archive tab" do

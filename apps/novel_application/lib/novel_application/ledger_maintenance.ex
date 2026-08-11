@@ -75,6 +75,11 @@ defmodule NovelApplication.LedgerMaintenance do
       ensure_genre_promise(deps, work_id)
       leaked_count = record_future_ref_leaks(deps.repo, work_id, input, chapter_id, current)
 
+      # VS00F 刀④（CP1）：本章正文采纳 → 本章计划信息条目机械置 REVEALED
+      # （信息释放是本章计划的组成部分，章写完即按计划释放；「写了但没释放」
+      # 属质量门层语义判断，不由账面冒充）。
+      reveal_plan_info(deps.repo, work_id, current, summary_ref)
+
       # CP3：情绪曲线记账（intended=章计划 E20 vs realized=摘要情绪栏，机械判定）
       # + 主线冲突记账（设计角色=推进/高潮/转折章的采纳即主线推进，休眠规则同弧光）。
       emotion_status = record_emotion_curve(deps.repo, work_id, input, chapter_id, current)
@@ -332,6 +337,33 @@ defmodule NovelApplication.LedgerMaintenance do
          }) do
       {:ok, entry} -> persist(entry, repo)
       {:error, _} -> false
+    end
+  end
+
+  defp reveal_plan_info(repo, work_id, current, summary_ref) do
+    subject_ref = "plan_info_#{current.seq}"
+
+    repo.list.(work_id)
+    |> Enum.find(
+      &(&1.ledger == "information" and &1.subject_ref == subject_ref and &1.status == "HIDDEN")
+    )
+    |> case do
+      nil ->
+        :ok
+
+      entry ->
+        entry
+        |> Map.put(:status, "REVEALED")
+        |> Map.update(:source_refs, [summary_ref], &Enum.uniq(&1 ++ [summary_ref]))
+        |> LedgerEntry.new()
+        |> case do
+          {:ok, updated} ->
+            persist(updated, repo)
+            :ok
+
+          {:error, _reason} ->
+            :ok
+        end
     end
   end
 
