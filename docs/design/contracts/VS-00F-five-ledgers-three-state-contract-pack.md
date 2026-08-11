@@ -71,6 +71,18 @@ LedgerEntry
 - status：`HIDDEN → PARTIALLY_REVEALED → REVEALED`；异常态 `LEAKED`（实现态早于设计揭示点）。
 - 漂移信号：计划信息直述进正文（M2 靶：正文前指"第60章将要出现的…"）。与 `quality/31` §6.5 knowledge_boundary 门的分工见 §6.2。
 
+> **正账落地修订（2026-08-11，VS00F 刀④ CP1，`tasks/slices/VS00F-information-ledger.md`）**：
+> payload 细则冻结为 `schemas/foundation/ledger_information_payload.json`（五本账
+> payload 细则首份）。两类条目：伏笔（`foreshadow_<memory_id>`，design_ref=
+> `memory_item:<id>`——design_ref 首个真实写入）与章计划信息（`plan_info_<seq>`，
+> design_ref=`chapter_plan:<seq>`）。`planned_reveal` 结构化为
+> `{kind: chapter|volume|whole_book, seq}`——**预期归伏笔自己，不设全局阈值**
+> （用户拍板「有的几章就收，有的贯穿全书」；模型/作者未给即缺席，机器不发明）。
+> `reader_knows`/`character_knowledge` 机械层无判定源**刻意不填**（留位不冒充）。
+> 回收判定=盘点家族模型提议+作者采纳（CP3），机械匹配与纯人工两案均被用户否决；
+> REVEALED 的机械进入路径仅一条：本章正文采纳释放本章计划信息。
+> 状态枚举冻结 `schemas/foundation/enums/information_ledger_status.json`。
+
 ### 2.5 E36 情绪曲线账（ledger=emotion_curve, subject=chapter）
 
 - payload：`intended`（章计划 E20）、`realized`（章摘要 `:mood` 栏）、`delta_note`（可 null）。

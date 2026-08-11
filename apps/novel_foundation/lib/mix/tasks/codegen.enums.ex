@@ -103,7 +103,9 @@ defmodule Mix.Tasks.Codegen.Enums do
       values
       |> Enum.map_join("\n", &"  def #{value_to_function_name(&1)}, do: #{inspect(&1)}")
 
-    """
+    # 输出走 mix format 同一 canon：CI 同时跑 `mix format --check-formatted` 与
+    # `mix codegen.enums --check`，裸文本会让超行宽的枚举列表两检互斥。
+    render_formatted("""
     # AUTO-GENERATED FROM #{source} — DO NOT EDIT.
     # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
     defmodule #{module} do
@@ -130,7 +132,12 @@ defmodule Mix.Tasks.Codegen.Enums do
 
     #{accessors}
     end
-    """
+    """)
+  end
+
+  defp render_formatted(source) do
+    formatted = source |> Code.format_string!() |> IO.iodata_to_binary()
+    formatted <> "\n"
   end
 
   # "WAITING_USER" -> :waiting_user; :writer -> :writer

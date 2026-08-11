@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/ledger_information_payload.json",
+  "title": "LedgerInformationPayload",
+  "description": "信息账（ledger=information）payload 细则（VS-00F §2.4，兑现 ledger_entry.json「各账 payload 细则随对应 CP 在本目录冻结」的首份）。两类条目：伏笔（subject_ref=foreshadow_<memory_id>，design_ref=memory_item:<id>）与章计划信息（subject_ref=plan_info_<seq>，design_ref=chapter_plan:<seq>）。契约留位字段 reader_knows/character_knowledge 机械层无判定源刻意不填（机器不发明），有真实判定回路时再增补本 schema。",
+  "type": "object",
+  "required": ["fact"],
+  "additionalProperties": false,
+  "properties": {
+    "fact": {
+      "type": "string",
+      "minLength": 1,
+      "description": "信息/伏笔内容原文（提案 body 或章计划信息释放字段，字节保真）"
+    },
+    "planted_at_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "伏笔条目：采纳入账时最大非计划章 seq（机械口径「书写到了哪」；0=尚无正文）"
+    },
+    "planned_reveal_seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "章计划信息条目：预期揭示章=承载它的章（信息释放是本章计划的组成部分）"
+    },
+    "planned_reveal": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "description": "伏笔条目：预期回收时机——预期归伏笔自己，不设全局阈值（刀④拍板「有的几章就收，有的贯穿全书」）；提案链未给出即整键缺席，机器不发明预期",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["chapter", "volume", "whole_book"]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "chapter/volume 必填；whole_book 无此键"
+        }
+      }
+    },
+    "leaked_at_seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "LEAKED 条目（R4 前指）：泄露发生章 seq"
+    }
+  },
+  "x-adr": "ADR-0026-five-ledgers-three-state-reconciliation-v3.md",
+  "x-section": "VS-00F §2.4",
+  "x-source": "tasks/slices/VS00F-information-ledger.md"
+}
