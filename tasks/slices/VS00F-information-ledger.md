@@ -113,10 +113,12 @@ statusLabels 补「未揭示 / 部分揭示 / 已揭示」;信息行摘要沿用
   输出→normalize 白名单收敛→采纳链→账 payload）；账面两步仪式在采纳事务内执行。
   单测四组，1412 后端零回归（旧数据零新条目由全部既有 fixture 证明），I1/I2/I3
   PASS。
-- **CP2 R9 超期 + 收官清单 + 裁决 + 面板 + 注入**：`foreshadowing_overdue`
-  （仅有预期且超期）+ 收官前未回收清单（进度口径与收官守则同源）+ 裁决转移边
-  HIDDEN→REVEALED + statusLabels 文案 + progress_state 信息段（prose 双段 +
-  planning 摘要行）。
+- **CP2 R9 超期 + 收官清单 + 裁决 + 面板 + 注入 done（2026-08-11，85117523）**：
+  R9 `foreshadowing_overdue`（仅有预期且超期，`written_progress` 读端口与
+  planted_at_seq 同口径）+ `unresolved_foreshadowing_at_endgame` 收官清单
+  （R7 同源阈值）+ 裁决边 HIDDEN→REVEALED + accept_drift 映射（判已回收/不再
+  追踪）+ statusLabels 三态文案 + prose 信息双段（伏笔按预期临近/禁提前揭示）+
+  planning 摘要行。单测五组，1418 后端+437 前端零回归，I1/I2/I3 PASS。
 - **CP3 盘点回收提案 + 真实 Tauri**：`foreshadowing_resolution` 第四类提案
   （盘点 prompt/映射/采纳=REVEALED）+ 场景验收（AU-13/14 族扩展：埋伏笔带预期 →
   超期 finding → 盘点提议回收 → 作者采纳 → 账面 REVEALED + 注入证据）。
