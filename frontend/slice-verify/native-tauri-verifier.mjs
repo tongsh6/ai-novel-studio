@@ -202,6 +202,7 @@ export const nativeSliceIds = [
   "au14-assumption-confirm-roundtrip",
   "au14-assumption-provisional-injection",
   "au12-character-identity-merge",
+  "au14-foreshadow-resolution-roundtrip",
   "p1-export-minimum",
   "au08-reading-readonly-no-write",
   "au08-reading-return-context",
@@ -1052,6 +1053,17 @@ const sliceKeyEvents = {
     "channel.get_assumptions.done",
     "channel.get_characters.done",
     "context.fact_completeness.done",
+    "slice_verify.ui_state.done",
+  ],
+  // VS00F 刀④：伏笔全环——审读 R9 超期 + prose 注入 + 盘点回收提案采纳 + 脉络收束。
+  "au14-foreshadow-resolution-roundtrip": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.get_ledger_threads.done",
+    "ledger.reconcile.done",
+    "context.progress_state.done",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   // AU12 归并是纯档案面板动作：无 turn，证据 = 角色读端口 + merge author_action + 脉络读端口。
@@ -1990,6 +2002,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu12CharacterIdentityMergeEvidence(records);
   }
 
+  if (sliceId === "au14-foreshadow-resolution-roundtrip") {
+    return findAu14ForeshadowResolutionEvidence(records);
+  }
+
   if (sliceId === "judgment-explore-chapter-plan") {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
@@ -2561,6 +2577,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au12-character-identity-merge") {
     return au12CharacterIdentityMergeBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au14-foreshadow-resolution-roundtrip") {
+    return au14ForeshadowResolutionBehavior(records, evidence, options);
   }
 
   if (
@@ -13494,6 +13514,79 @@ function au14FindingInventoryArcBehavior(_turnIds, _turnRecords, records, eviden
       "author_adopted_protagonist_through_existing_per_item_boundary",
       "next_real_prose_draft_wove_the_adopted_protagonist",
       "next_prose_adoption_started_the_protagonist_arc_ledger_without_history_backfill",
+    ],
+  };
+}
+
+// VS00F 刀④ CP3：伏笔全环——R9 超期 finding、prose 信息段注入（零弧光下
+// progress_state 发射即证）、盘点回收提案身份锚定账面、采纳收账、脉络收束。
+function findAu14ForeshadowResolutionEvidence(records) {
+  const sliceId = "au14-foreshadow-resolution-roundtrip";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Number(record.initial_arc_count ?? -1) === 0 &&
+      record.initial_info_status === "HIDDEN" &&
+      Number(record.overdue_rule_count ?? 0) >= 1 &&
+      record.overdue_signal_visible === true &&
+      Number(record.progress_state_entry_count ?? 0) >= 1 &&
+      record.prose_draft_pending === true &&
+      record.resolution_target_anchored === true &&
+      record.resolution_adopted === true &&
+      record.final_info_revealed === true &&
+      record.revealed_visible === true,
+  );
+  if (!uiState) return null;
+
+  const reconciled = records.some(
+    (record) =>
+      record.event === "ledger.reconcile.done" &&
+      Number(record.rules?.foreshadowing_overdue ?? 0) >= 1,
+  );
+  if (!reconciled) return null;
+
+  const progressFired = records.some(
+    (record) =>
+      record.event === "context.progress_state.done" && Number(record.entry_count ?? 0) >= 1,
+  );
+  if (!progressFired) return null;
+
+  const adopted = records.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!adopted) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_ids: [],
+    work_id: uiState.work_id,
+    foreshadow_ref: uiState.foreshadow_ref,
+    key_events: keyEvents,
+  };
+}
+
+function au14ForeshadowResolutionBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  if (!String(evidence.foreshadow_ref ?? "").startsWith("foreshadow_")) return null;
+
+  return {
+    slice_id: "au14-foreshadow-resolution-roundtrip",
+    behavior: "foreshadow_expectation_overdue_reminder_and_author_settled_resolution",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    assertions: [
+      "hidden_foreshadow_visible_with_zero_arc_entries",
+      "overdue_fired_only_for_dated_expectation",
+      "prose_progress_state_carried_information_section",
+      "inventory_resolution_anchored_the_ledger_ref",
+      "reveal_happened_only_through_author_adoption",
+      "threads_panel_settled_to_revealed",
     ],
   };
 }

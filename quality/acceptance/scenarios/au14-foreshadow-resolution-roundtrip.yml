@@ -1,0 +1,58 @@
+id: au14-foreshadow-resolution-roundtrip
+title: 伏笔超期提醒与作者收账全环
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au14-foreshadow-resolution-roundtrip --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md
+  - docs/design/schemas/foundation/ledger_information_payload.json
+  - tasks/slices/VS00F-information-ledger.md
+
+invariants:
+  - overdue-fires-only-for-dated-expectations
+  - resolution-is-model-proposed-author-adopted-never-mechanical
+  - ledger-reveal-only-through-adoption-boundary
+
+setup:
+  seed: scripts/seed_au14_foreshadow_resolution.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench（seed：伏笔预期第 1 章回收，已写到第 2 章）
+  - click: 打开档案 → 脉络（信息与伏笔行可见未揭示条目）
+  - click: 发起全书审读 → 审读报告含伏笔超期 finding（预期第 1 章回收）
+  - input: 第03章正文请求（progress_state 注入信息段——作品零弧光条目，注入发射即证信息段）
+  - click: 概览 → 发起设定盘点 → 盘点核对未回收伏笔并产回收提案
+  - click: 确认伏笔已回收（按类型分派的采纳文案）
+  - verify: 脉络信息行转已揭示，零新记忆写入
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au14-foreshadow-resolution-roundtrip-tauri
+
+assertions:
+  ui:
+    - threads panel shows the hidden foreshadow before resolution
+    - review report names the overdue expectation and chapter
+    - resolution candidate accept button reads 确认伏笔已回收
+    - threads panel shows 已揭示 after adoption
+  network:
+    - inventory turn_result carries a pending foreshadowing_resolution with resolution_target
+    - accept author_action resolves the artifact and the reply is accepted
+    - get_ledger_threads reply shows the information entry REVEALED after adoption
+  data:
+    - ledger.reconcile.done records foreshadowing_overdue
+    - context.progress_state.done fires on the prose turn with zero arc entries
+    - reveal happens only through the adoption boundary (no mechanical reveal in this scenario)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

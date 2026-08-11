@@ -10030,6 +10030,209 @@ async function driveAu12CharacterIdentityMerge(page) {
   ];
 }
 
+// VS00F 刀④ CP3：伏笔从「埋设带预期」到「超期提醒」到「模型提议回收、作者收账」全环。
+// seed：伏笔预期第 1 章回收、已写到第 2 章（R9 超期）；角色档案为空——零弧光条目，
+// prose 的 progress_state 一旦发射即证明信息段真实注入。回收只经作者采纳落账。
+async function driveAu14ForeshadowResolutionRoundtrip(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  // ① 脉络初态：信息与伏笔行一条 HIDDEN 伏笔；弧光零条目。
+  const initialFrameStart = frames.length;
+  const threadsPanel = await openArchiveTab(page, "脉络");
+  await threadsPanel.getByText("信息与伏笔").first().waitFor({ timeout: 10_000 });
+
+  const initialThreadsFrame = await waitForNewFrame(
+    initialFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      Array.isArray(frame.body?.response?.information),
+    "Archive did not read ledger threads on open",
+    30_000,
+  );
+  const initialInfo = initialThreadsFrame.body.response.information;
+  const initialArcCount = (initialThreadsFrame.body.response.arc ?? []).length;
+  assert(initialArcCount === 0, "Seed unexpectedly produced arc entries (roster must be empty)");
+  assert(
+    initialInfo.length === 1 &&
+      initialInfo[0].status === "HIDDEN" &&
+      String(initialInfo[0].subject_ref ?? "").startsWith("foreshadow_"),
+    `Seed did not surface exactly one hidden foreshadow: ${JSON.stringify(initialInfo)}`,
+  );
+  const foreshadowRef = String(initialInfo[0].subject_ref);
+
+  // ② 发起全书审读 → R9 超期 finding（仅有预期且超期才开火）。
+  const reviewLogStart = readAppLogRecords().length;
+  await page.getByRole("button", { name: "发起全书审读", exact: true }).click();
+  const reconcileRecord = await waitForNewAppLogRecord(
+    reviewLogStart,
+    (record) =>
+      record.event === "ledger.reconcile.done" && Number(record.finding_count ?? 0) >= 1,
+    "Full review did not reconcile with findings",
+    200_000,
+  );
+  const overdueRuleCount = Number(reconcileRecord.rules?.foreshadowing_overdue ?? 0);
+  assert(overdueRuleCount >= 1, `Review did not record foreshadowing_overdue: ${JSON.stringify(reconcileRecord.rules)}`);
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("全书审读完成"),
+    undefined,
+    { timeout: 200_000 },
+  );
+
+  // 报告物化后面板是旧态：重开脉络 tab 刷新审读区，finding 才上屏（au13 同款）。
+  await closeArchiveIfOpen(page);
+  await openArchiveTab(page, "脉络");
+  await page.waitForFunction(
+    () => document.body.innerText.includes("审读报告"),
+    undefined,
+    { timeout: 15_000 },
+  );
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("预期第 1 章回收") &&
+      document.body.innerText.includes("矿区旧账"),
+    undefined,
+    { timeout: 15_000 },
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "au14-foreshadow-resolution-overdue.png"),
+    fullPage: true,
+  });
+
+  // ③ 注入证据：第03章 prose 请求 → progress_state 发射（零弧光 → 只能来自信息段）。
+  await closeArchiveIfOpen(page);
+  const proseLogStart = readAppLogRecords().length;
+  const proseFrameStart = frames.length;
+  await page
+    .locator(chatInputSelector)
+    .fill("请根据已采纳章节计划生成第03章：巡检收网的正文草稿。");
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const progressRecord = await waitForNewAppLogRecord(
+    proseLogStart,
+    (record) =>
+      record.event === "context.progress_state.done" && Number(record.entry_count ?? 0) >= 1,
+    "Prose turn did not inject the information progress_state section",
+    200_000,
+  );
+  await waitForNewFrame(
+    proseFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "prose_fragment",
+      ),
+    "Prose draft turn_result did not arrive",
+    200_000,
+  );
+
+  // ④ 盘点 → 回收提案（resolution_target 锚定账面 ref）→ 确认伏笔已回收。
+  await openArchiveTab(page, "概览");
+  const inventoryFrameStart = frames.length;
+  await page.getByRole("button", { name: "发起设定盘点", exact: true }).click();
+
+  const inventoryTurnFrame = await waitForNewFrame(
+    inventoryFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "foreshadowing_resolution",
+      ),
+    "Inventory did not propose the foreshadowing resolution",
+    200_000,
+  );
+  const resolutionPending = (inventoryTurnFrame.body.adoption_state?.pending ?? []).find(
+    (entry) => entry.artifact_type === "foreshadowing_resolution",
+  );
+  const resolutionTarget = String(resolutionPending.payload?.items?.[0]?.resolution_target ?? "");
+  assert(
+    resolutionTarget === foreshadowRef,
+    `Resolution target did not anchor the ledger ref: ${resolutionTarget} vs ${foreshadowRef}`,
+  );
+
+  await closeArchiveIfOpen(page);
+  const adoptStart = frames.length;
+  const acceptButton = page.getByRole("button", { name: "确认伏笔已回收", exact: true });
+  await acceptButton.last().waitFor({ timeout: 10_000 });
+  await page.screenshot({
+    path: path.join(artifactDir, "au14-foreshadow-resolution-candidate.png"),
+    fullPage: true,
+  });
+  await acceptButton.last().click();
+
+  await waitForNewFrame(
+    adoptStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === resolutionPending.artifact_id,
+    "Resolution candidate did not send its accept target",
+    30_000,
+  );
+  const acceptResultFrame = await waitForNewFrame(
+    adoptStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "accepted" &&
+      frame.body?.artifact_id === resolutionPending.artifact_id,
+    "Resolution adoption did not return accepted",
+    120_000,
+  );
+
+  // ⑤ 复开脉络：信息行已揭示（真实读端口，非前端拼装）。
+  await closeArchiveIfOpen(page);
+  const reopenFrameStart = frames.length;
+  const reopenedPanel = await openArchiveTab(page, "脉络");
+  const finalThreadsFrame = await waitForNewFrame(
+    reopenFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      Array.isArray(frame.body?.response?.information) &&
+      frame.body.response.information.some((entry) => entry.status === "REVEALED"),
+    "Threads did not show the revealed foreshadow after adoption",
+    30_000,
+  );
+  await reopenedPanel.getByText("已揭示").first().waitFor({ timeout: 10_000 });
+  await page.screenshot({
+    path: path.join(artifactDir, "au14-foreshadow-resolution-revealed.png"),
+    fullPage: true,
+  });
+
+  const joinRecord = readAppLogRecords()
+    .filter((record) => record.event === "channel.join.done" && record.work_id)
+    .pop();
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au14-foreshadow-resolution-roundtrip",
+      work_id: joinRecord?.work_id ?? null,
+      foreshadow_ref: foreshadowRef,
+      initial_arc_count: initialArcCount,
+      initial_info_status: initialInfo[0].status,
+      review_finding_count: Number(reconcileRecord.finding_count ?? 0),
+      overdue_rule_count: overdueRuleCount,
+      overdue_signal_visible: true,
+      progress_state_entry_count: Number(progressRecord.entry_count ?? 0),
+      prose_draft_pending: true,
+      resolution_target_anchored: resolutionTarget === foreshadowRef,
+      resolution_artifact_id: resolutionPending.artifact_id,
+      resolution_adopted: acceptResultFrame.body?.status === "accepted",
+      final_info_revealed: finalThreadsFrame.body.response.information.some(
+        (entry) => entry.status === "REVEALED",
+      ),
+      revealed_visible: true,
+    },
+  ];
+}
+
 async function driveAu14FactInventoryRoundtrip(page) {
   // SC-AU14-B1（VS-00G CP4b-2）：从真实作品档案显式发起设定盘点 → fact_inventory_v1
   // 读取已采纳正文 → 同批返回角色/规则/伏笔 tentative 候选 → 只逐项采纳一名角色和
@@ -26918,6 +27121,7 @@ const drivers = {
   "au14-finding-inventory-arc-loop": driveAu14FindingInventoryArcLoop,
   "au14-assumption-confirm-roundtrip": driveAu14AssumptionConfirmRoundtrip,
   "au12-character-identity-merge": driveAu12CharacterIdentityMerge,
+  "au14-foreshadow-resolution-roundtrip": driveAu14ForeshadowResolutionRoundtrip,
   "au14-assumption-provisional-injection": driveAu14AssumptionProvisionalInjection,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,

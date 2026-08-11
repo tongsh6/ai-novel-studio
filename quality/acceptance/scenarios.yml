@@ -1036,6 +1036,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au12-character-identity-merge.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au12-character-identity-merge --surface tauri
+  - id: au14-foreshadow-resolution-roundtrip
+    title: "伏笔超期提醒与作者收账全环"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au14-foreshadow-resolution-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au14-foreshadow-resolution-roundtrip --surface tauri
   - id: au03-long-session-compression
     title: "长会话压缩上下文"
     tier: nightly

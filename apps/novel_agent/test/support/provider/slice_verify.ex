@@ -507,6 +507,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 与真实模型同语义：只响应 prompt 中列出的缺位字段。
   defp fact_inventory_response(prompt_text) do
     cond do
+      foreshadow_resolution_prompt?(prompt_text) ->
+        foreshadow_resolution_proposal(prompt_text)
+
       known_character_reproposal_prompt?(prompt_text) ->
         duplicate_character_reproposal()
 
@@ -515,6 +518,34 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       true ->
         fact_inventory_base_response() ++ skeleton_suggestions(prompt_text)
+    end
+  end
+
+  # VS00F 刀④ CP3：桩按真实 prompt 的「未回收伏笔核对」段产回收提案——
+  # resolution_target 原样取自段内账面引用（不认 slice id）；模型只提议，
+  # 采纳边界与落账由 production 完成。
+  defp foreshadow_resolution_prompt?(prompt_text) do
+    String.contains?(prompt_text, "未回收伏笔核对") and
+      String.contains?(prompt_text, "[foreshadow_")
+  end
+
+  defp foreshadow_resolution_proposal(prompt_text) do
+    case Regex.run(~r/- \[(foreshadow_[^\]]+)\] (?:伏笔：)?([^\n]+)/u, prompt_text) do
+      [_, ref, label] ->
+        [
+          %{
+            artifact_type: "foreshadowing_resolution",
+            item_id: "inventory-resolution-1",
+            title: String.trim(label),
+            body: "第2章正文中该伏笔已当面兑现，线索完成回收。",
+            rationale: "依据第02章",
+            resolution_target: ref,
+            resolved_at_seq: 2
+          }
+        ]
+
+      _ ->
+        fact_inventory_base_response()
     end
   end
 
