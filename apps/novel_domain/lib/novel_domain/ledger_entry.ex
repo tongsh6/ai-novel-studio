@@ -160,7 +160,9 @@ defmodule NovelDomain.LedgerEntry do
   @adjudication_targets %{
     "arc" => %{"STALLED" => ~w(DRIFTED RESUMED), "DRIFTED" => ~w(RESUMED RETIRED)},
     "promise" => %{"OPEN" => ~w(BROKEN RELEASED), "PROGRESSING" => ~w(BROKEN RELEASED FULFILLED)},
-    "information" => %{"LEAKED" => ~w(REVEALED)},
+    # HIDDEN→REVEALED：作者裁决「已回收/不再追踪」（VS00F 刀④——回收是语义判断，
+    # 机械层不判，模型只提议（盘点回收提案），落账只经作者）。
+    "information" => %{"LEAKED" => ~w(REVEALED), "HIDDEN" => ~w(REVEALED)},
     "conflict" => %{
       "ACTIVE" => ~w(RESOLVED ABSORBED ABANDONED),
       "DORMANT" => ~w(REVIVED ABSORBED ABANDONED)

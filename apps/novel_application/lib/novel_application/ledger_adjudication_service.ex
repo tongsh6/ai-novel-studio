@@ -178,6 +178,8 @@ defmodule NovelApplication.LedgerAdjudicationService do
   defp accept_drift_target(%{ledger: "arc", status: "STALLED"}), do: "DRIFTED"
   defp accept_drift_target(%{ledger: "promise", status: "OPEN"}), do: "BROKEN"
   defp accept_drift_target(%{ledger: "promise", status: "PROGRESSING"}), do: "BROKEN"
+  # VS00F 刀④ R9：作者对超期伏笔选「接受走向」= 判已回收/不再追踪，账面收束。
+  defp accept_drift_target(%{ledger: "information", status: "HIDDEN"}), do: "REVEALED"
   defp accept_drift_target(_entry), do: nil
 
   defp record_disposition(input, report, deps) do

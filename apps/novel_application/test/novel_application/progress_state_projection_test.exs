@@ -30,6 +30,60 @@ defmodule NovelApplication.ProgressStateProjectionTest do
     assert TurnExecutionService.prose_progress_text([]) == ""
   end
 
+  # VS00F 刀④：prose 注入信息双段——有到期预期的伏笔按临近排序逐条、长线仅计数；
+  # HIDDEN 的章计划信息=禁提前揭示清单（R4 泄露的事前预防）。
+  test "prose 投影信息双段：伏笔按预期临近排序、长线仅计数、计划信息禁提前揭示" do
+    info_entries = [
+      %{
+        ledger: "information",
+        subject_ref: "foreshadow_m1",
+        subject_label: "伏笔：矿区旧账",
+        status: "HIDDEN",
+        payload: %{"planned_reveal" => %{"kind" => "chapter", "seq" => 12}}
+      },
+      %{
+        ledger: "information",
+        subject_ref: "foreshadow_m2",
+        subject_label: "伏笔：残诀后半卷",
+        status: "HIDDEN",
+        payload: %{"planned_reveal" => %{"kind" => "volume", "seq" => 2}}
+      },
+      %{
+        ledger: "information",
+        subject_ref: "foreshadow_m3",
+        subject_label: "伏笔：身世之谜",
+        status: "HIDDEN",
+        payload: %{"planned_reveal" => %{"kind" => "whole_book"}}
+      },
+      %{
+        ledger: "information",
+        subject_ref: "foreshadow_m4",
+        subject_label: "伏笔：已回收的旧线",
+        status: "REVEALED",
+        payload: %{}
+      },
+      %{
+        ledger: "information",
+        subject_ref: "plan_info_9",
+        subject_label: "第9章信息释放",
+        status: "HIDDEN",
+        payload: %{"fact" => "公司正在抽取底层修士灵气", "planned_reveal_seq" => 9}
+      }
+    ]
+
+    text = TurnExecutionService.prose_progress_text(info_entries)
+
+    assert text =~ "未回收伏笔"
+    assert text =~ "伏笔：残诀后半卷（预期第2卷内回收）"
+    assert text =~ "伏笔：矿区旧账（预期第12章回收）"
+    assert text =~ "另有 1 条长线伏笔未回收"
+    refute text =~ "身世之谜（"
+    refute text =~ "已回收的旧线"
+    assert text =~ "后续章节计划信息（正文不得提前揭示）"
+    assert text =~ "第9章前保密：公司正在抽取底层修士灵气"
+    assert text =~ "不得在正文中引用本段的状态词、编号或章号"
+  end
+
   test "plot_outline 规划摘要：五账聚合 + 延续性要求" do
     text = TurnExecutionService.planning_ledger_digest(entries())
 
@@ -40,5 +94,29 @@ defmodule NovelApplication.ProgressStateProjectionTest do
     assert text =~ "情绪曲线：符合1/偏差1/无设计0"
     assert text =~ "不引入取代现有主角团的新主导角色"
     assert TurnExecutionService.planning_ledger_digest([]) == ""
+  end
+
+  test "规划摘要含未回收伏笔计数与最近到期预期（VS00F 刀④）" do
+    with_foreshadow =
+      entries() ++
+        [
+          %{
+            ledger: "information",
+            subject_ref: "foreshadow_m1",
+            subject_label: "伏笔：矿区旧账",
+            status: "HIDDEN",
+            payload: %{"planned_reveal" => %{"kind" => "chapter", "seq" => 12}}
+          },
+          %{
+            ledger: "information",
+            subject_ref: "foreshadow_m3",
+            subject_label: "伏笔：身世之谜",
+            status: "HIDDEN",
+            payload: %{}
+          }
+        ]
+
+    text = TurnExecutionService.planning_ledger_digest(with_foreshadow)
+    assert text =~ "未回收伏笔 2 条，最近预期第12章回收"
   end
 end

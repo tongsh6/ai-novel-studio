@@ -50,7 +50,8 @@ defmodule NovelApplication.LedgerReconciliationService do
         Enum.map(leaked_entries, &leak_finding/1) ++
         design_debt_findings(roster, summaries, profile) ++
         premature_finale_findings(work_id, deps, profile) ++
-        assumption_overdue_findings(work_id, deps)
+        assumption_overdue_findings(work_id, deps) ++
+        foreshadowing_findings(work_id, entries, deps, profile)
 
     counts = Enum.frequencies_by(findings, & &1.rule)
 
@@ -118,7 +119,9 @@ defmodule NovelApplication.LedgerReconciliationService do
       stats: &NovelPersistence.WorkArchiveRepo.stats/1,
       chapter_index: &NovelPersistence.LedgerRepository.chapter_index/1,
       assumptions: &NovelPersistence.AssumptionRepo.list_assumption_characters/1,
-      summary_count_since: &NovelPersistence.LedgerRepository.accepted_summary_count_since/2
+      summary_count_since: &NovelPersistence.LedgerRepository.accepted_summary_count_since/2,
+      # VS00F 刀④ R9（可选读端口；缺席时伏笔超期规则诚实跳过）
+      written_progress: &NovelPersistence.LedgerRepository.written_progress/1
     }
   end
 
@@ -185,6 +188,40 @@ defmodule NovelApplication.LedgerReconciliationService do
     else
       _ -> []
     end
+  rescue
+    _error -> []
+  end
+
+  # VS00F 刀④：R9 伏笔超期（仅有预期且已超期，机械比对已写章/卷）+ 收官前未回收
+  # 清单（whole_book/无预期型只在进度达 R7 同源阈值时列名过目）。读端口缺席→诚实跳过。
+  defp foreshadowing_findings(work_id, entries, deps, profile) do
+    overdue =
+      case deps[:written_progress] do
+        progress_reader when is_function(progress_reader, 1) ->
+          LedgerReconciliation.foreshadowing_overdue_findings(entries, progress_reader.(work_id))
+
+        _ ->
+          []
+      end
+
+    endgame =
+      with target_length when is_integer(target_length) and target_length > 0 <-
+             profile[:target_length] || profile["target_length"],
+           stats_reader when is_function(stats_reader, 1) <- deps[:stats] do
+        words_total = work_id |> stats_reader.() |> Map.get(:words_total, 0)
+
+        List.wrap(
+          LedgerReconciliation.unresolved_foreshadowing_endgame_finding(
+            entries,
+            words_total / target_length * 100,
+            @premature_finale_progress_threshold
+          )
+        )
+      else
+        _ -> []
+      end
+
+    overdue ++ endgame
   rescue
     _error -> []
   end

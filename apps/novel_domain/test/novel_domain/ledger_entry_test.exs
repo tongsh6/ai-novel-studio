@@ -27,6 +27,25 @@ defmodule NovelDomain.LedgerEntryTest do
     assert {:ok, _} = LedgerEntry.new(arc_attrs())
   end
 
+  # VS00F 刀④：回收是语义判断——机械层不判，落账只经作者裁决（HIDDEN→REVEALED 边）。
+  test "information 裁决转移边：HIDDEN/LEAKED 可裁决为 REVEALED，其余目标拒绝" do
+    {:ok, hidden} =
+      LedgerEntry.new(
+        arc_attrs(%{ledger: "information", status: "HIDDEN", subject_kind: "fact"})
+      )
+
+    assert {:ok, revealed} = LedgerEntry.adjudicate(hidden, "REVEALED", "作者判已回收")
+    assert revealed.status == "REVEALED"
+
+    {:ok, leaked} =
+      LedgerEntry.new(
+        arc_attrs(%{ledger: "information", status: "LEAKED", subject_kind: "fact"})
+      )
+
+    assert {:ok, _} = LedgerEntry.adjudicate(leaked, "REVEALED", nil)
+    assert {:error, _} = LedgerEntry.adjudicate(hidden, "PARTIALLY_REVEALED", nil)
+  end
+
   test "分账目录与状态机校验：目录外值拒绝、五账各走各状态机（CP3 起全落地）" do
     assert {:error, {:unknown_ledger, "budget"}} =
              LedgerEntry.new(arc_attrs(%{ledger: "budget"}))

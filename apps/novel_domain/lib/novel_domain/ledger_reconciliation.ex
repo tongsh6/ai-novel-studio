@@ -336,4 +336,119 @@ defmodule NovelDomain.LedgerReconciliation do
 
     chars |> Enum.zip(Enum.drop(chars, 1)) |> Enum.map(fn {a, b} -> a <> b end)
   end
+
+  @doc """
+  R9：伏笔超期未回收（VS00F 刀④）——预期归伏笔自己（payload.planned_reveal），
+  **仅「有预期且已超期」开火**：chapter 型比已写章 seq、volume 型比已写卷 seq；
+  whole_book 与无预期永不产此 finding（收官清单另行，见
+  `unresolved_foreshadowing_endgame_finding/3`）。全局阈值不存在（用户拍板
+  「有的几章就收，有的贯穿全书」）。
+
+  `progress`：`%{chapter_seq, volume_seq}`（机械口径：最大非计划章及其所在卷）。
+  """
+  @spec foreshadowing_overdue_findings([map()], map()) :: [finding()]
+  def foreshadowing_overdue_findings(entries, %{} = progress) when is_list(entries) do
+    entries
+    |> Enum.filter(&hidden_foreshadow?/1)
+    |> Enum.map(&foreshadow_overdue_finding(&1, progress))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def foreshadowing_overdue_findings(_entries, _progress), do: []
+
+  defp hidden_foreshadow?(entry) do
+    chapter_field(entry, :ledger) == "information" and
+      chapter_field(entry, :status) == "HIDDEN" and
+      String.starts_with?(to_string(chapter_field(entry, :subject_ref)), "foreshadow_")
+  end
+
+  defp foreshadow_overdue_finding(entry, progress) do
+    payload = chapter_field(entry, :payload) || %{}
+
+    case Map.get(payload, "planned_reveal") do
+      %{"kind" => "chapter", "seq" => seq}
+      when is_integer(seq) and progress.chapter_seq > seq ->
+        overdue_finding(entry, "预期第 #{seq} 章回收", progress.chapter_seq)
+
+      %{"kind" => "volume", "seq" => seq}
+      when is_integer(seq) and progress.volume_seq > seq ->
+        overdue_finding(entry, "预期第 #{seq} 卷内回收", progress.chapter_seq)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp overdue_finding(entry, expectation, current_seq) do
+    label = chapter_field(entry, :subject_label) || "伏笔"
+    design_ref = chapter_field(entry, :design_ref)
+
+    %{
+      rule: "foreshadowing_overdue",
+      ledger: "information",
+      severity: "warn",
+      entry_ref: chapter_field(entry, :id),
+      signal:
+        "「#{label}」#{expectation}，现已写到第 #{current_seq} 章仍未回收——" <>
+          "请在正文中回收、调整预期，或裁决不再追踪。",
+      source_refs:
+        ((chapter_field(entry, :source_refs) || []) ++ List.wrap(design_ref)) |> Enum.uniq(),
+      proposed_disposition: "revise_prose"
+    }
+  end
+
+  @doc """
+  收官前未回收伏笔清单（VS00F 刀④）——whole_book 与无预期型**永不催办**，
+  只在全书进度接近目标体量（R7 同源口径）时列名交作者过目，逐条决定回收或放弃。
+  """
+  @spec unresolved_foreshadowing_endgame_finding([map()], number(), non_neg_integer()) ::
+          finding() | nil
+  def unresolved_foreshadowing_endgame_finding(entries, progress_percent, threshold)
+      when is_list(entries) and is_number(progress_percent) and is_integer(threshold) do
+    unresolved =
+      entries
+      |> Enum.filter(&hidden_foreshadow?/1)
+      |> Enum.reject(&dated_expectation?/1)
+
+    cond do
+      progress_percent < threshold ->
+        nil
+
+      unresolved == [] ->
+        nil
+
+      true ->
+        labels =
+          unresolved
+          |> Enum.map(&(chapter_field(&1, :subject_label) || "伏笔"))
+          |> Enum.take(5)
+
+        %{
+          rule: "unresolved_foreshadowing_at_endgame",
+          ledger: "information",
+          severity: "warn",
+          entry_ref: nil,
+          signal:
+            "全书进度约 #{round(progress_percent)}%，仍有 #{length(unresolved)} 条长线伏笔未回收" <>
+              "（贯穿全书/未定预期型）：#{Enum.join(labels, "、")}——收官前请逐条决定回收或放弃。",
+          source_refs:
+            unresolved
+            |> Enum.flat_map(&List.wrap(chapter_field(&1, :design_ref)))
+            |> Enum.uniq(),
+          proposed_disposition: "revise_design"
+        }
+    end
+  end
+
+  def unresolved_foreshadowing_endgame_finding(_entries, _progress, _threshold), do: nil
+
+  defp dated_expectation?(entry) do
+    case (chapter_field(entry, :payload) || %{})["planned_reveal"] do
+      %{"kind" => kind, "seq" => seq} when kind in ["chapter", "volume"] and is_integer(seq) ->
+        true
+
+      _ ->
+        false
+    end
+  end
 end

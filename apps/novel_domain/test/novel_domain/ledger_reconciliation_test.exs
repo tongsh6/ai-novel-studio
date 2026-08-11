@@ -224,4 +224,102 @@ defmodule NovelDomain.LedgerReconciliationTest do
       assert f.signal =~ "角色：云栖"
     end
   end
+
+  # VS00F 刀④：预期归伏笔自己——R9 仅对「有预期且已超期」开火；whole_book/无预期
+  # 永不催办，只在进度达阈值时进收官清单。
+  describe "R9 伏笔超期与收官清单" do
+    defp foreshadow_entry(overrides) do
+      Map.merge(
+        %{
+          id: "le-f1",
+          ledger: "information",
+          status: "HIDDEN",
+          subject_ref: "foreshadow_m1",
+          subject_label: "伏笔：矿区旧账",
+          design_ref: "memory_item:m1",
+          payload: %{},
+          source_refs: ["memory_item:m1"]
+        },
+        overrides
+      )
+    end
+
+    test "chapter 型超期开火；volume 型超卷开火；未到期/whole_book/无预期不产" do
+      entries = [
+        foreshadow_entry(%{
+          id: "le-ch",
+          subject_ref: "foreshadow_ch",
+          payload: %{"planned_reveal" => %{"kind" => "chapter", "seq" => 5}}
+        }),
+        foreshadow_entry(%{
+          id: "le-vol",
+          subject_ref: "foreshadow_vol",
+          subject_label: "伏笔：残诀后半卷",
+          payload: %{"planned_reveal" => %{"kind" => "volume", "seq" => 1}}
+        }),
+        foreshadow_entry(%{
+          id: "le-future",
+          subject_ref: "foreshadow_future",
+          payload: %{"planned_reveal" => %{"kind" => "chapter", "seq" => 30}}
+        }),
+        foreshadow_entry(%{
+          id: "le-book",
+          subject_ref: "foreshadow_book",
+          payload: %{"planned_reveal" => %{"kind" => "whole_book"}}
+        }),
+        foreshadow_entry(%{id: "le-none", subject_ref: "foreshadow_none"}),
+        foreshadow_entry(%{
+          id: "le-revealed",
+          subject_ref: "foreshadow_done",
+          status: "REVEALED",
+          payload: %{"planned_reveal" => %{"kind" => "chapter", "seq" => 3}}
+        })
+      ]
+
+      findings =
+        LedgerReconciliation.foreshadowing_overdue_findings(entries, %{
+          chapter_seq: 8,
+          volume_seq: 2
+        })
+
+      assert length(findings) == 2
+      assert Enum.all?(findings, &(&1.rule == "foreshadowing_overdue"))
+
+      chapter_finding = Enum.find(findings, &(&1.entry_ref == "le-ch"))
+      assert chapter_finding.signal =~ "预期第 5 章回收"
+      assert chapter_finding.signal =~ "第 8 章仍未回收"
+      assert "memory_item:m1" in chapter_finding.source_refs
+      assert chapter_finding.proposed_disposition == "revise_prose"
+
+      assert Enum.find(findings, &(&1.entry_ref == "le-vol")).signal =~ "预期第 1 卷内回收"
+    end
+
+    test "收官清单：进度达阈值列出长线/未定预期伏笔；未达或无未收不产" do
+      entries = [
+        foreshadow_entry(%{
+          id: "le-book",
+          subject_ref: "foreshadow_book",
+          subject_label: "伏笔：身世之谜",
+          payload: %{"planned_reveal" => %{"kind" => "whole_book"}}
+        }),
+        foreshadow_entry(%{id: "le-none", subject_ref: "foreshadow_none"}),
+        foreshadow_entry(%{
+          id: "le-dated",
+          subject_ref: "foreshadow_dated",
+          payload: %{"planned_reveal" => %{"kind" => "chapter", "seq" => 90}}
+        })
+      ]
+
+      finding = LedgerReconciliation.unresolved_foreshadowing_endgame_finding(entries, 82.5, 70)
+
+      assert finding.rule == "unresolved_foreshadowing_at_endgame"
+      assert finding.signal =~ "仍有 2 条长线伏笔未回收"
+      assert finding.signal =~ "身世之谜"
+      refute finding.signal =~ "foreshadow_dated"
+      assert finding.proposed_disposition == "revise_design"
+
+      assert LedgerReconciliation.unresolved_foreshadowing_endgame_finding(entries, 40, 70) == nil
+      assert LedgerReconciliation.unresolved_foreshadowing_endgame_finding([], 90, 70) == nil
+    end
+  end
 end

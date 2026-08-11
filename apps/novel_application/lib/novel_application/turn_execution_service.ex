@@ -853,19 +853,89 @@ defmodule NovelApplication.TurnExecutionService do
 
   @doc false
   def prose_progress_text(entries) do
-    lines =
+    arc_lines =
       entries
       |> Enum.filter(&(&1.ledger == "arc"))
       |> Enum.sort_by(&progress_entry_rank/1)
       |> Enum.take(@progress_state_max_entries)
       |> Enum.map_join("\n", &progress_entry_line/1)
 
-    if lines == "" do
+    blocks =
+      [
+        if(arc_lines != "",
+          do: "作品脉络（相关角色近期弧光，供保持人物连续性参考）：\n#{arc_lines}"
+        ),
+        prose_foreshadow_block(entries),
+        prose_secrecy_block(entries)
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    if blocks == [] do
       ""
     else
-      "作品脉络（相关角色近期弧光，供保持人物连续性参考）：\n#{lines}\n" <>
-        "注意：本段仅为背景参照。不得在正文中引用本段的状态词、编号或章号；角色是否出场由情节需要决定。"
+      Enum.join(blocks, "\n") <>
+        "\n注意：本段仅为背景参照。不得在正文中引用本段的状态词、编号或章号；角色是否出场由情节需要决定。"
     end
+  end
+
+  # VS00F 刀④（携带按预期相关性）：有到期预期（chapter/volume 型）的未回收伏笔
+  # 按预期临近排序逐条列出；whole_book/未定预期型不逐条打扰，仅计数行。
+  defp prose_foreshadow_block(entries) do
+    hidden =
+      Enum.filter(
+        entries,
+        &(&1.ledger == "information" and &1.status == "HIDDEN" and
+            String.starts_with?(to_string(&1.subject_ref), "foreshadow_"))
+      )
+
+    {dated, undated} = Enum.split_with(hidden, &foreshadow_expectation(&1))
+
+    dated_lines =
+      dated
+      |> Enum.sort_by(fn entry -> elem(foreshadow_expectation(entry), 1) end)
+      |> Enum.take(3)
+      |> Enum.map(fn entry ->
+        {kind, seq} = foreshadow_expectation(entry)
+        expectation = if kind == "chapter", do: "预期第#{seq}章回收", else: "预期第#{seq}卷内回收"
+        "- #{entry.subject_label}（#{expectation}）"
+      end)
+
+    count_line =
+      if undated != [], do: "- 另有 #{length(undated)} 条长线伏笔未回收（贯穿全书/未定预期）"
+
+    lines = dated_lines ++ List.wrap(count_line)
+
+    if lines == [], do: nil, else: "未回收伏笔（按预期临近排序，随情节自然推进）：\n" <> Enum.join(lines, "\n")
+  end
+
+  defp foreshadow_expectation(entry) do
+    case (entry.payload || %{})["planned_reveal"] do
+      %{"kind" => kind, "seq" => seq} when kind in ["chapter", "volume"] and is_integer(seq) ->
+        {kind, seq}
+
+      _ ->
+        nil
+    end
+  end
+
+  # VS00F 刀④（R4 泄露的事前预防）：HIDDEN 的章计划信息条目=尚未写作的章的
+  # 计划信息，正文不得提前揭示（机械构造禁写清单，与事后 R4 检测成对）。
+  defp prose_secrecy_block(entries) do
+    lines =
+      entries
+      |> Enum.filter(
+        &(&1.ledger == "information" and &1.status == "HIDDEN" and
+            String.starts_with?(to_string(&1.subject_ref), "plan_info_"))
+      )
+      |> Enum.sort_by(&((&1.payload || %{})["planned_reveal_seq"] || 0))
+      |> Enum.take(3)
+      |> Enum.map(fn entry ->
+        seq = (entry.payload || %{})["planned_reveal_seq"]
+        fact = (entry.payload || %{})["fact"]
+        "- 第#{seq}章前保密：#{fact}"
+      end)
+
+    if lines == [], do: nil, else: "后续章节计划信息（正文不得提前揭示）：\n" <> Enum.join(lines, "\n")
   end
 
   # CP4a：规划消费账面——弧光/主线/承诺/情绪的机械摘要 + 延续性要求。
@@ -877,7 +947,8 @@ defmodule NovelApplication.TurnExecutionService do
     lines =
       arc_digest_lines(entries) ++
         conflict_digest_lines(entries) ++
-        promise_digest_lines(entries) ++ emotion_digest_lines(entries)
+        promise_digest_lines(entries) ++
+        emotion_digest_lines(entries) ++ information_digest_lines(entries)
 
     if lines == [] do
       ""
@@ -931,6 +1002,36 @@ defmodule NovelApplication.TurnExecutionService do
         [
           "- 情绪曲线：符合#{counts["MATCHED"] || 0}/偏差#{counts["DEVIATED"] || 0}/无设计#{counts["UNPLANNED"] || 0}"
         ]
+    end
+  end
+
+  # VS00F 刀④：规划侧信息账摘要——未回收伏笔计数与最近到期预期（规划该给回收留位）。
+  defp information_digest_lines(entries) do
+    hidden =
+      Enum.filter(
+        entries,
+        &(&1.ledger == "information" and &1.status == "HIDDEN" and
+            String.starts_with?(to_string(&1.subject_ref), "foreshadow_"))
+      )
+
+    if hidden == [] do
+      []
+    else
+      nearest =
+        hidden
+        |> Enum.map(&foreshadow_expectation/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.sort_by(&elem(&1, 1))
+        |> List.first()
+
+      nearest_part =
+        case nearest do
+          {"chapter", seq} -> "，最近预期第#{seq}章回收"
+          {"volume", seq} -> "，最近预期第#{seq}卷内回收"
+          nil -> ""
+        end
+
+      ["- 未回收伏笔 #{length(hidden)} 条#{nearest_part}"]
     end
   end
 

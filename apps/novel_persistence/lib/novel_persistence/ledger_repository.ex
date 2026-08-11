@@ -10,9 +10,11 @@ defmodule NovelPersistence.LedgerRepository do
   import Ecto.Query
 
   alias NovelFoundation.Enums.AdoptionStatus
+  alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.LedgerEntry
+  alias NovelPersistence.Schemas.Volume
 
   @accepted [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
 
@@ -82,6 +84,30 @@ defmodule NovelPersistence.LedgerRepository do
       {:ok, to_map(accepted)}
     else
       {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  @doc """
+  机械进度口径（VS00F 刀④ R9）：最大非计划章 seq 及其所在卷 seq；
+  无已写章为 0/0（与伏笔建账的 planted_at_seq 同口径）。
+  """
+  @spec written_progress(String.t()) :: %{chapter_seq: non_neg_integer(), volume_seq: non_neg_integer()}
+  def written_progress(work_id) when is_binary(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, uuid} ->
+        planned = StructureStatus.planned()
+
+        Chapter
+        |> join(:inner, [c], v in Volume, on: c.volume_id == v.id)
+        |> where([c], c.work_id == ^uuid and c.status != ^planned)
+        |> order_by([c], desc: c.seq)
+        |> limit(1)
+        |> select([c, v], %{chapter_seq: c.seq, volume_seq: v.seq})
+        |> Repo.one()
+        |> Kernel.||(%{chapter_seq: 0, volume_seq: 0})
+
+      :error ->
+        %{chapter_seq: 0, volume_seq: 0}
     end
   end
 

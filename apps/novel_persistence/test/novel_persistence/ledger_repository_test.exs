@@ -26,6 +26,44 @@ defmodule NovelPersistence.LedgerRepositoryTest do
     )
   end
 
+  # VS00F 刀④ R9：机械进度口径=最大非计划章及其所在卷；无已写章诚实 0/0。
+  test "written_progress 取最大非计划章与其卷；无已写章为 0/0" do
+    alias NovelFoundation.Enums.StructureStatus
+    alias NovelPersistence.Repo
+    alias NovelPersistence.Schemas.{Chapter, Volume}
+
+    work_uuid = Ecto.UUID.generate()
+
+    assert LedgerRepository.written_progress(work_uuid) == %{chapter_seq: 0, volume_seq: 0}
+    assert LedgerRepository.written_progress("lobby") == %{chapter_seq: 0, volume_seq: 0}
+
+    [v1, v2] =
+      for seq <- [1, 2] do
+        %Volume{}
+        |> Volume.changeset(%{work_id: work_uuid, title: "第#{seq}卷", seq: seq})
+        |> Repo.insert!()
+      end
+
+    insert_chapter = fn volume, seq, status ->
+      %Chapter{}
+      |> Chapter.changeset(%{
+        work_id: work_uuid,
+        volume_id: volume.id,
+        title: "第#{seq}章",
+        seq: seq,
+        status: status
+      })
+      |> Repo.insert!()
+    end
+
+    insert_chapter.(v1, 1, StructureStatus.drafting())
+    insert_chapter.(v2, 2, StructureStatus.drafting())
+    # 计划章不计进度
+    insert_chapter.(v2, 3, StructureStatus.planned())
+
+    assert LedgerRepository.written_progress(work_uuid) == %{chapter_seq: 2, volume_seq: 2}
+  end
+
   test "upsert 以 (work, ledger, subject) 幂等：二次写入更新同一行", %{work_id: work_id} do
     assert {:ok, first} = LedgerRepository.upsert(arc_attrs(work_id))
     assert first.adoption_status == "ACCEPTED"
