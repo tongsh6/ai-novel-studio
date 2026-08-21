@@ -162,6 +162,7 @@ export const nativeSliceIds = [
   "p1-prose-quality-adoption-boundary",
   "agent-prose-drafting-with-quality",
   "p1-prose-companion-artifacts",
+  "wr01-chapter-mission-before-prose",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -492,6 +493,16 @@ const sliceKeyEvents = {
     "channel.author_action.start",
     "adoption.evaluate.done",
     "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  // WR01 写前推理：推理步业务日志落在推理步自己的 agent turn，证据 turn_ids 含三段。
+  "wr01-chapter-mission-before-prose": [
+    "channel.user_message.start",
+    "chapter_mission.derived.done",
+    "orchestrator.decide.done",
+    "prose_execution_brief.built.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
@@ -1961,6 +1972,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ProseCompanionArtifactsEvidence(records);
   }
 
+  if (sliceId === "wr01-chapter-mission-before-prose") {
+    return findWr01ChapterMissionEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2865,6 +2880,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-prose-companion-artifacts") {
     return p1ProseCompanionArtifactsBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "wr01-chapter-mission-before-prose") {
+    return wr01ChapterMissionBehavior(turnIds, records, evidence, options);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -4562,6 +4581,133 @@ function p1ProseCompanionArtifactsBehavior(turnIds, records, evidence) {
       "character_accept_used_the_existing_server_authorized_adoption_boundary",
       "adopted_character_became_visible_in_the_real_archive",
       "unselected_companion_seeds_remained_pending",
+    ],
+  };
+}
+
+function findWr01ChapterMissionEvidence(records) {
+  const sliceId = "wr01-chapter-mission-before-prose";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "prose_drafting_with_quality_v1" &&
+      record.tool_name === "prose_writing" &&
+      typeof record.mission_ref === "string" &&
+      record.mission_ref.startsWith("mission:") &&
+      record.plan_mission_before_prose === true &&
+      record.mission_narrative_visible === true &&
+      record.mission_event_source_bound === true &&
+      record.basis_refs_within_materials === true &&
+      record.unbound_basis_excluded === true &&
+      record.brief_source_has_mission === true &&
+      record.brief_mission_ref_matches === true &&
+      record.trace_mission_ref_matches === true &&
+      record.draft_pending === true &&
+      record.no_write === true &&
+      record.no_adoption === true,
+  );
+  if (!uiState) return null;
+
+  const missionRecord = records.find(
+    (record) =>
+      record.event === "chapter_mission.derived.done" &&
+      record.run_id === uiState.run_id &&
+      record.mission_ref === uiState.mission_ref &&
+      Array.isArray(record.basis_refs) &&
+      record.basis_refs.length >= 1 &&
+      record.basis_refs.every((ref) =>
+        /^(plan|ledger|skeleton|roster|chapter_summary):/.test(String(ref)),
+      ) &&
+      !record.basis_refs.some((ref) => String(ref).endsWith("foreshadow_unlisted")) &&
+      Number(record.input_ref_count ?? 0) >= record.basis_refs.length,
+  );
+  if (!missionRecord) return null;
+
+  const briefRecord = records.find(
+    (record) =>
+      record.event === "prose_execution_brief.built.done" &&
+      record.turn_id === uiState.final_turn_id &&
+      (record.brief_source ?? []).includes("chapter_mission") &&
+      record.chapter_mission_ref === uiState.mission_ref,
+  );
+  if (!briefRecord) return null;
+
+  const generatedByTool = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.final_turn_id,
+    turn_ids: [uiState.parent_turn_id, uiState.mission_turn_id, uiState.final_turn_id].filter(
+      Boolean,
+    ),
+    parent_turn_id: uiState.parent_turn_id,
+    mission_turn_id: uiState.mission_turn_id,
+    final_turn_id: uiState.final_turn_id,
+    run_id: uiState.run_id,
+    profile_ref: uiState.profile_ref,
+    mission_ref: uiState.mission_ref,
+    basis_refs: missionRecord.basis_refs.map(String),
+    dropped_unbound_count: Number(missionRecord.dropped_unbound_count ?? 0),
+    input_ref_count: Number(missionRecord.input_ref_count ?? 0),
+    brief_source: briefRecord.brief_source ?? [],
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function wr01ChapterMissionBehavior(turnIds, records, evidence, options = {}) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "wr01-chapter-mission-before-prose" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.plan_mission_before_prose !== true) return null;
+  if (uiState.mission_narrative_visible !== true || uiState.mission_event_source_bound !== true) {
+    return null;
+  }
+  if (uiState.basis_refs_within_materials !== true || uiState.unbound_basis_excluded !== true) {
+    return null;
+  }
+  if (uiState.brief_source_has_mission !== true || uiState.brief_mission_ref_matches !== true) {
+    return null;
+  }
+  if (uiState.trace_mission_ref_matches !== true) return null;
+  if (uiState.draft_pending !== true || uiState.no_write !== true || uiState.no_adoption !== true) {
+    return null;
+  }
+  // 确定性替身刻意多给一条越界依据：app 侧绑定过滤必须真的丢掉它（I-M1 的可观测证据）。
+  if (options.provider !== "lmstudio" && Number(evidence.dropped_unbound_count ?? 0) < 1) {
+    return null;
+  }
+
+  return {
+    slice_id: "wr01-chapter-mission-before-prose",
+    behavior:
+      "model_derived_chapter_mission_before_prose_writing_with_bound_basis_and_no_write",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    mission_ref: evidence.mission_ref,
+    basis_refs: evidence.basis_refs,
+    dropped_unbound_count: evidence.dropped_unbound_count,
+    assertions: [
+      "real_workbench_prose_request_reached_the_bounded_prose_profile",
+      "model_plan_scheduled_chapter_mission_before_prose_writing",
+      "mission_step_selected_materials_and_listed_refs_mechanically",
+      "mission_basis_refs_stayed_inside_selected_materials",
+      "out_of_material_basis_was_dropped_by_binding_filter",
+      "mission_narrative_was_source_bound_and_visible_in_reasoning_area",
+      "execution_brief_sourced_from_chapter_mission_with_matching_ref",
+      "turn_result_trace_carried_chapter_mission_ref",
+      "prose_draft_remained_tentative_without_production_write",
     ],
   };
 }

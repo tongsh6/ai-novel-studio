@@ -208,9 +208,13 @@ export function activeToolActivity(events: AgentEventData[]): AgenticLoopActivit
 
 function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {
   if (
-    !["plan_drafted", "plan_revised", "exploration_observed", "evaluation_made"].includes(
-      event.event_type,
-    )
+    ![
+      "plan_drafted",
+      "plan_revised",
+      "exploration_observed",
+      "evaluation_made",
+      "mission_derived",
+    ].includes(event.event_type)
   ) {
     return false;
   }

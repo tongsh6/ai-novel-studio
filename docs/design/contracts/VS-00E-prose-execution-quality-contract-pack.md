@@ -258,3 +258,89 @@ I17 局部 finding 默认局部修订，范围升级必须来自 finding 的明�
 - **CP2（已闭环）**：独立 `ProseQualityService`，产 `QualityFinding`，evaluator 与 writer 分离，evaluator 失败诚实降级；writer/evaluator provider call ref 独立追踪。
 - **CP3（已闭环）**：`revise_from_findings` 重新经过 Orchestrator，产 sibling tentative revision，原稿保留，修订稿独立采纳，revision replay 不重调 provider。
 - 非目标（设计预留，不在 VS-00E 实现）：完整 E36 情绪曲线账 / E37 承诺账 / 自动永久 experience rule / 全量风格对象库 / 自动无限改写 / 多轮自主批量润色。
+
+---
+
+## 16. 写前推理：本章使命（`ChapterMissionV1`，2026-08-21 WR01）
+
+> 立论：`notes/2026-08-11-establish-carry-process-write-pipeline.md` §2/§4（处理层真空）。
+> 用户拍板（2026-08-21）：正文 run 新增模型步 / 本期不持久化、不预确认 / 失败降级继续写。
+
+### 16.1 是什么
+
+`ChapterMissionV1` 是写前推理步的输出值对象（`NovelDomain.ChapterMission`）：
+
+```yaml
+mission_id: cm_xxx
+statement: 一两句话——这一章现在必须干什么（模型原话）
+must_advance: [ { text, basis_ref, basis_label } ]   # 1..N，依据必须是材料里列名的 ref
+must_avoid:   [ { text, basis_ref, basis_label } ]   # 0..N
+dropped:      [ ... ]                                # 依据越界、被机械丢弃的条目（留痕）
+confidence / provider_call_ref / degraded / degraded_reason
+```
+
+它回答的是 §2 链条里缺失的一步：`ChapterPlanDirection`（设计态）与五本账/进度（进度态）
+**对表之后**本章该推进什么。`ProseExecutionBriefV1` 仍回答「每一场怎么演」，使命进入其
+`chapter_context["mission"]`，不改变 scene_units 结构。
+
+### 16.2 机械半边与模型半边
+
+- 携带选取（`NovelDomain.ChapterMissionInputs`，0 调用）：按写作坐标选材料并逐条列名
+  `[ref]`——本章计划九字段+场次（`plan:<seq>:<field>`）、有预期的未回收伏笔按临近
+  （`ledger:information:foreshadow_*`，无预期只计数）、后续章保密信息
+  （`ledger:information:plan_info_*`）、弧光（STALLED 优先）、主线、题材承诺、最近三章
+  情绪曲线、全书进度（`skeleton:progress`）、在场角色。不新设阈值（VS00F 刀④口径）。
+- 模型推导（`NovelApplication.ChapterMissionService`，1 次 native tool-call
+  `chapter_mission`）：返回 statement / must_advance / must_avoid / author_reasoning。
+- 依据绑定（I-M1）：`basis_ref ∉ 材料 ref 集合` 的条目进 `dropped`，不进简报、不进 prompt。
+- 叙事绑定（I-M3）：`author_reasoning` 走 N-NARR 绑定（content 优先 / tool arguments 回退），
+  以 `mission_derived` 事件进作者推理区；绑定失败不作废使命，只不发作者可见事件。
+
+### 16.3 运行形态（ADR-0023 N-PLAN 合规）
+
+`chapter_mission` 是 `prose_drafting_with_quality_v1` 的 flow 内模型步（`kind: explore`，
+`internal_observation_steps`），由模型排入计划；`prose_writing` 声明 D1 前置
+`step_preconditions: %{"prose_writing" => [:chapter_mission]}`——模型漏排时 replan 改道，
+不硬失败。作者显式一步预算（`max_steps: 1`）不声明前置。预算：正文 run `max_steps` 4→5、
+`max_provider_calls` 5→6。
+
+### 16.4 进简报与 provider message
+
+`CreativeDecisionPacket["chapter_mission"]` → `ProseExecutionBriefBuilder` →
+`chapter_context["mission"]`（不含 `dropped`）→ `ProseExecutionBrief.to_prompt_section/1`
+在章行之后渲染：
+
+```text
+本章使命：<statement>
+· 必须推进：<text>（依据：<basis_label>）
+· 不得：<text>（依据：<basis_label>）
+```
+
+`brief_source` 取值新增：`"chapter_mission"`（在场）/ `"chapter_mission_degraded"`（推理
+失败降级，简报不伪造使命）；未排步时不变。三锚点与既有段顺序不变（§13）。
+
+### 16.5 留痕
+
+- 业务日志 `chapter_mission.derived.done`（`turn_id/run_id/mission_ref/must_advance_count/
+  must_avoid_count/dropped_unbound_count/basis_refs/input_ref_count/provider_call_ref/
+  narrative_bound`）与 `chapter_mission.derived.error`（`reason`）；
+- `prose_execution_brief.built.done` 增 `chapter_mission_ref`；
+- `trace_summary.chapter_mission_ref`；
+- AgentRun 事件 `mission_derived`（`author_narrative` + `author_narrative_source`）。
+
+### 16.6 不变量
+
+- I-M1 依据绑定：简报中每条使命条目的 `basis_ref` ∈ 本步材料 ref 集合。
+- I-M2 设计态：使命不写 `chapters` / `memory_items` / `ledger_entries`；
+  `production_write_performed=false`。
+- I-M3 叙事只来自模型输出字节。
+- I-M4 降级不拦稿：推理失败/缺席时正文照常生成，`brief_source` 如实标注。
+- I-M5 预期归对象，不设全局阈值。
+
+### 16.7 本期边界（诚实未做）
+
+- 使命不持久化、作者无预确认/改写入口（下一期候选：落 `chapters.plan_direction`
+  ["chapter_mission"] + 暂定裁决 + `chapter_read` 探索可达）。
+- 只接正文路径；`plot_outline` 规划前推理另排。
+- 携带层五通道的统一选取策略仍是独立刀，本节选取器只是首个样板。
+

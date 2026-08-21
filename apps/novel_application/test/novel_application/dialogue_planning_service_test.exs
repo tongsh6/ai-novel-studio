@@ -255,8 +255,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         "prose_drafting_with_quality_v1"
       )
 
-    assert routed_run.budget.max_steps == 7
-    assert routed_run.budget.max_provider_calls == 12
+    # WR01：正文 run 多一步写前推理（chapter_mission，1 调用）。
+    assert routed_run.budget.max_steps == 8
+    assert routed_run.budget.max_provider_calls == 13
     assert routed_run.plan.steps == []
   end
 

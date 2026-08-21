@@ -109,6 +109,10 @@ defmodule NovelAgent.Provider.Stub do
       NovelAgent.Provider.tool_call_prompt?(prompt) and agent_plan_prompt?(text) ->
         native_agent_plan_result(prompt, text)
 
+      # WR01 写前推理步：forced tool call 产本章使命（依据只取 prompt 材料里列名的 ref）。
+      NovelAgent.Provider.tool_call_prompt?(prompt) and chapter_mission_prompt?(text) ->
+        chapter_mission_result(prompt, text)
+
       # 两段式规划第一段：无 tools 的自由流式 reasoning 调用，只返回叙事 content。
       agent_plan_prompt?(text) ->
         Result.new(agent_plan_reasoning_content(text))
@@ -121,6 +125,62 @@ defmodule NovelAgent.Provider.Stub do
   # ── 判断①（ADR-0025 方案 B 回复内联）契约样本 ──
   # 按作者输入语义确定性判五选一形态，与真实 LLM 遵循同一契约：简单请求不开计划、
   # 多步复杂任务开计划、缺作品事实先探索、意图不明等作者说清。
+
+  # ── WR01 写前推理替身 ──
+  # 按真实 prompt 材料中列名的 [ref] 产本章使命（不发明依据；材料为空时只给 statement）。
+  defp chapter_mission_prompt?(text), do: String.contains?(text, "写前推理器")
+
+  defp chapter_mission_result(prompt, text) do
+    refs =
+      ~r/\[([a-z_]+:[^\]\s]+)\]/u
+      |> Regex.scan(text)
+      |> Enum.map(fn [_, ref] -> ref end)
+      |> Enum.uniq()
+
+    foreshadow = Enum.find(refs, &String.contains?(&1, ":foreshadow_"))
+    arc = Enum.find(refs, &String.starts_with?(&1, "ledger:arc:"))
+    plan = Enum.find(refs, &String.starts_with?(&1, "plan:"))
+    secrecy = Enum.find(refs, &String.contains?(&1, ":plan_info_"))
+
+    must_advance =
+      [
+        foreshadow && %{"text" => "推进这条到期伏笔的回收线，让线索在本章兑现。", "basis_ref" => foreshadow},
+        arc && %{"text" => "让停滞角色在本章重新入场并推动其弧光。", "basis_ref" => arc},
+        plan && %{"text" => "按本章计划完成既定情节推进。", "basis_ref" => plan}
+      ]
+      |> Enum.reject(&(&1 in [nil, false]))
+      |> Enum.take(3)
+
+    must_avoid =
+      [secrecy && %{"text" => "不得提前揭示后续章的计划信息。", "basis_ref" => secrecy}]
+      |> Enum.reject(&(&1 in [nil, false]))
+
+    reasoning =
+      "[stub] 我核对了本章计划与作品脉络：" <>
+        if(foreshadow, do: "有一条到期未回收的伏笔压在本章；", else: "没有到期的伏笔压力；") <>
+        if(arc, do: "有角色弧光停滞待回归；", else: "弧光无停滞；") <>
+        "本章只推进上述线索，不提前揭示后续计划。"
+
+    statement =
+      if foreshadow,
+        do: "本章必须推进到期伏笔的回收，并让停滞角色回到情节中。",
+        else: "本章按计划推进，不引入新的主导冲突。"
+
+    Result.new(reasoning, nil,
+      tool_calls: [
+        %{
+          "name" => NovelAgent.Provider.tool_choice(prompt) || "chapter_mission",
+          "arguments" => %{
+            "author_reasoning" => reasoning,
+            "statement" => statement,
+            "must_advance" => must_advance,
+            "must_avoid" => must_avoid,
+            "confidence" => 0.9
+          }
+        }
+      ]
+    )
+  end
 
   defp judgment_prompt?(text), do: String.contains?(text, "创作判断器")
 
@@ -613,6 +673,9 @@ defmodule NovelAgent.Provider.Stub do
       steps: [
         plan_step("context_assemble", "explore", "先读取正文写作上下文。", [
           "prose_context_observation_created"
+        ]),
+        plan_step("chapter_mission", "explore", "按本章计划与作品脉络推导本章使命。", [
+          "chapter_mission_derived"
         ]),
         prose_writing_plan_step(prompt_text)
       ],

@@ -91,6 +91,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
     expect(nativeSliceIds).toContain("p1-prose-companion-artifacts");
+    expect(nativeSliceIds).toContain("wr01-chapter-mission-before-prose");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -8901,6 +8902,111 @@ describe("native Tauri slice verifier", () => {
 
     const leakedWrite = records.map((record) => ({ ...record, no_write_before_action: false }));
     expect(findNativeSliceEvidence("p1-prose-companion-artifacts", leakedWrite)).toBeNull();
+  });
+
+  it("requires a bound chapter mission before prose writing with no production write (WR01)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "wr01-chapter-mission-before-prose",
+      parent_turn_id: "turn-wr01",
+      mission_turn_id: "turn-wr01:agent:3",
+      final_turn_id: "turn-wr01:agent:4",
+      run_id: "run-wr01",
+      profile_ref: "prose_drafting_with_quality_v1",
+      tool_name: "prose_writing",
+      mission_ref: "mission:cm_wr01",
+      plan_mission_before_prose: true,
+      mission_narrative_visible: true,
+      mission_event_source_bound: true,
+      basis_refs_within_materials: true,
+      unbound_basis_excluded: true,
+      brief_source_has_mission: true,
+      brief_mission_ref_matches: true,
+      trace_mission_ref_matches: true,
+      draft_pending: true,
+      no_write: true,
+      no_adoption: true,
+    };
+    const records = [
+      uiState,
+      {
+        event: "chapter_mission.derived.done",
+        turn_id: "turn-wr01:agent:3",
+        run_id: "run-wr01",
+        mission_ref: "mission:cm_wr01",
+        basis_refs: ["ledger:information:foreshadow_a", "plan:3:chapter_role"],
+        dropped_unbound_count: 1,
+        input_ref_count: 9,
+      },
+      {
+        event: "prose_execution_brief.built.done",
+        turn_id: "turn-wr01:agent:4",
+        brief_ref: "brief:peb_1",
+        brief_source: ["chapter_plan_scene_plans", "chapter_mission"],
+        chapter_mission_ref: "mission:cm_wr01",
+      },
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-wr01:agent:4",
+        tool_name: "prose_writing",
+        tool_outcome: "succeeded",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("wr01-chapter-mission-before-prose", records);
+    expect(evidence).toEqual({
+      slice_id: "wr01-chapter-mission-before-prose",
+      turn_id: "turn-wr01:agent:4",
+      turn_ids: ["turn-wr01", "turn-wr01:agent:3", "turn-wr01:agent:4"],
+      parent_turn_id: "turn-wr01",
+      mission_turn_id: "turn-wr01:agent:3",
+      final_turn_id: "turn-wr01:agent:4",
+      run_id: "run-wr01",
+      profile_ref: "prose_drafting_with_quality_v1",
+      mission_ref: "mission:cm_wr01",
+      basis_refs: ["ledger:information:foreshadow_a", "plan:3:chapter_role"],
+      dropped_unbound_count: 1,
+      input_ref_count: 9,
+      brief_source: ["chapter_plan_scene_plans", "chapter_mission"],
+      key_events: keyEventsForSlice("wr01-chapter-mission-before-prose"),
+    });
+
+    const behavior = findSliceBehaviorEvidence(
+      "wr01-chapter-mission-before-prose",
+      records,
+      evidence,
+    );
+    expect(behavior?.behavior).toBe(
+      "model_derived_chapter_mission_before_prose_writing_with_bound_basis_and_no_write",
+    );
+    expect(behavior?.assertions).toContain("out_of_material_basis_was_dropped_by_binding_filter");
+
+    // 依据越界未被丢弃 / 简报未带使命 / 发生写入 → 证据不成立
+    const leakedBasis = records.map((record) =>
+      record.event === "chapter_mission.derived.done"
+        ? {
+            ...record,
+            basis_refs: [...record.basis_refs, "ledger:information:foreshadow_unlisted"],
+          }
+        : record,
+    );
+    expect(findNativeSliceEvidence("wr01-chapter-mission-before-prose", leakedBasis)).toBeNull();
+
+    const briefWithoutMission = records.map((record) =>
+      record.event === "prose_execution_brief.built.done"
+        ? { ...record, brief_source: ["chapter_plan_scene_plans"] }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("wr01-chapter-mission-before-prose", briefWithoutMission),
+    ).toBeNull();
+
+    const wroteProduction = records.map((record) =>
+      record.event === "slice_verify.ui_state.done" ? { ...record, no_write: false } : record,
+    );
+    expect(
+      findNativeSliceEvidence("wr01-chapter-mission-before-prose", wroteProduction),
+    ).toBeNull();
   });
 });
 

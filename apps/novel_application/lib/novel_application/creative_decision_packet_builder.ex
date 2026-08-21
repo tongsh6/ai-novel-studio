@@ -15,7 +15,8 @@ defmodule NovelApplication.CreativeDecisionPacketBuilder do
           optional(:reader_effect_brief) => term(),
           optional(:chapter) => map(),
           optional(:author_input) => String.t(),
-          optional(:source_turn_ref) => String.t()
+          optional(:source_turn_ref) => String.t(),
+          optional(:chapter_mission) => map() | nil
         }
 
   @spec build(input()) :: map()
@@ -26,7 +27,9 @@ defmodule NovelApplication.CreativeDecisionPacketBuilder do
       "reader_effect_brief" => Map.get(inputs, :reader_effect_brief),
       "chapter" => Map.get(inputs, :chapter, %{}),
       "author_input" => Map.get(inputs, :author_input, ""),
-      "source_turn_ref" => Map.get(inputs, :source_turn_ref)
+      "source_turn_ref" => Map.get(inputs, :source_turn_ref),
+      # WR01：写前推理产出的本章使命（设计态，随 run 消失；VS-00E §16）
+      "chapter_mission" => Map.get(inputs, :chapter_mission)
     }
   end
 end

@@ -202,7 +202,7 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 
 1. 状态行：只展示同一 run 的结构状态、状态 chip（含终态）和短枚举文案；不得重复推理区里的 `author_narrative_delta` / `author_narrative`。
 2. 计划：显示 `plan_steps`（状态符号 + 模型 step 描述）；发生修订时显示 `plan_version` pill。
-3. 推理：运行中先聚合 `author_reasoning` delta 为一条持续增长的模型原文；最终按事件顺序展示 `plan_drafted / plan_revised / exploration_observed / evaluation_made` 等带 source-bound `author_narrative` 的事件，并去重同一 provider run 的临时 delta；`gate_decided` / `tool_started` / `tool_completed` / `artifact_created` / final `turn_result` 等只作为结构事实更新计划状态与状态行。同一段叙事不得再出现在状态行。
+3. 推理：运行中先聚合 `author_reasoning` delta 为一条持续增长的模型原文；最终按事件顺序展示 `plan_drafted / plan_revised / exploration_observed / evaluation_made / mission_derived`（写前推理「本章使命」，WR01 / VS-00E §16）等带 source-bound `author_narrative` 的事件，并去重同一 provider run 的临时 delta；`gate_decided` / `tool_started` / `tool_completed` / `artifact_created` / final `turn_result` 等只作为结构事实更新计划状态与状态行。同一段叙事不得再出现在状态行。
 
 最终正文、候选、修订稿仍走既有 `TurnResult` / tentative artifact 出口。
 

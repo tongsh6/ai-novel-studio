@@ -96,6 +96,31 @@ defmodule NovelDomain.WorkSkeleton do
   @spec closure_threshold() :: float()
   def closure_threshold, do: @closure_threshold
 
+  @doc """
+  进度口径（WR01 写前推理复用，与 `render/2` 同源）：骨架未立返回 nil。
+  """
+  @spec progress(snapshot(), non_neg_integer()) ::
+          %{target_length: pos_integer(), est_chapters: pos_integer(), percent: non_neg_integer()}
+          | nil
+  def progress(snapshot, written_chapters)
+      when is_map(snapshot) and is_integer(written_chapters) do
+    case target_length(snapshot) do
+      nil ->
+        nil
+
+      target ->
+        est_chapters = max(ceil(target / @avg_chapter_length), 1)
+
+        %{
+          target_length: target,
+          est_chapters: est_chapters,
+          percent: round(written_chapters / est_chapters * 100)
+        }
+    end
+  end
+
+  def progress(_snapshot, _written_chapters), do: nil
+
   defp target_length(snapshot) do
     case Map.get(snapshot, :target_length, Map.get(snapshot, "target_length")) do
       n when is_integer(n) and n > 0 -> n

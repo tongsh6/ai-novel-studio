@@ -1904,6 +1904,7 @@ defmodule NovelApplication.AgentRunServer do
     :plan_revised,
     :exploration_observed,
     :evaluation_made,
+    :mission_derived,
     :gate_decided,
     :tool_started,
     :tool_completed,

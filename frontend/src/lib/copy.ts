@@ -402,6 +402,7 @@ export const WORKBENCH = {
     artifact_superseded: "已替代",
     exploration_observed: "观察",
     evaluation_made: "评估",
+    mission_derived: "本章使命",
     provider_progress: "推理",
   } as Record<string, string>,
   // 46§9.4.4：活动行仅承担进行中指示（spinner 文字形态）；完成后的动作描述

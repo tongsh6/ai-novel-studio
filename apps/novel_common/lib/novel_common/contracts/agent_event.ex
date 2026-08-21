@@ -15,6 +15,7 @@ defmodule NovelCommon.Contracts.AgentEvent do
           | :plan_adjusted
           | :exploration_observed
           | :evaluation_made
+          | :mission_derived
           | :gate_decided
           | :tool_started
           | :tool_completed
@@ -60,6 +61,8 @@ defmodule NovelCommon.Contracts.AgentEvent do
     :plan_adjusted,
     :exploration_observed,
     :evaluation_made,
+    # WR01 写前推理：本章使命叙事事件（author_narrative source-bound，VS-00E §16）
+    :mission_derived,
     :gate_decided,
     :tool_started,
     :tool_completed,

@@ -21307,6 +21307,212 @@ async function driveP1ProseCompanionArtifacts(page) {
   ];
 }
 
+// WR01 写前推理层：真实工作台发一条第 03 章正文请求 → 模型计划把 chapter_mission 排在
+// prose_writing 之前 → mission_derived 事件的模型原话出现在推理区 → app-log 证使命依据
+// ref ⊆ 机械选取材料、越界依据被丢弃、简报来源含 chapter_mission → 正文仍 tentative、零写入。
+async function driveWr01ChapterMissionBeforeProse(page) {
+  const sliceId = "wr01-chapter-mission-before-prose";
+  const targetChapterTitle = "第03章：巡检收网";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = `请根据已采纳章节计划生成${targetChapterTitle}的正文草稿，约600字，保持为待采纳草稿。`;
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "Chapter mission request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.run_mode === "bounded" &&
+      typeof frame.body?.response?.run_id === "string",
+    "Chapter mission request did not start a bounded AgentRun",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  // 外部证据 1：模型起草的计划把 chapter_mission 排在 prose_writing 之前（N-PLAN：步由模型排入）。
+  const planFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_drafted" &&
+      Array.isArray(frame.body?.payload?.plan_steps),
+    "No plan_drafted agent event with plan_steps for the prose run",
+    60_000,
+  );
+  const planTargets = planFrame.body.payload.plan_steps.map((step) =>
+    String(step.target_tool_ref ?? ""),
+  );
+  const missionIndex = planTargets.indexOf("chapter_mission");
+  const proseIndex = planTargets.indexOf("prose_writing");
+  assert(
+    missionIndex >= 0 && proseIndex > missionIndex,
+    `Model plan did not schedule chapter_mission before prose_writing: ${planTargets.join(" > ")}`,
+  );
+
+  // 外部证据 2：mission_derived 事件带 source-bound 的模型原话。
+  const missionFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "mission_derived" &&
+      typeof frame.body?.payload?.author_narrative === "string" &&
+      frame.body.payload.author_narrative.trim() !== "",
+    "No mission_derived agent event with author narrative was broadcast",
+    90_000,
+  );
+  const missionPayload = missionFrame.body.payload;
+  const missionNarrative = String(missionPayload.author_narrative);
+  const missionSourceBound =
+    missionPayload.author_narrative_source &&
+    typeof missionPayload.author_narrative_source === "object" &&
+    ["provider_output", "provider_output_tool_narrative"].includes(
+      String(missionPayload.author_narrative_source.source_type ?? ""),
+    );
+  assert(missionSourceBound, "mission_derived narrative was not bound to provider output");
+
+  // 外部证据 3：机械选取材料与依据绑定（app-log）。
+  const missionRecord = await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "chapter_mission.derived.done" &&
+      record.run_id === runId &&
+      typeof record.mission_ref === "string" &&
+      Array.isArray(record.basis_refs),
+    "No chapter_mission.derived.done app log for the prose run",
+    60_000,
+  );
+  const basisRefs = missionRecord.basis_refs.map(String);
+  const basisRefsWithinMaterials =
+    basisRefs.length >= 1 &&
+    basisRefs.every((ref) => /^(plan|ledger|skeleton|roster|chapter_summary):/.test(ref)) &&
+    Number(missionRecord.input_ref_count ?? 0) >= basisRefs.length;
+  const unboundBasisExcluded = !basisRefs.some((ref) => ref.endsWith("foreshadow_unlisted"));
+  assert(basisRefsWithinMaterials, `Mission basis refs escaped the selected materials: ${JSON.stringify(missionRecord)}`);
+  assert(unboundBasisExcluded, "Out-of-material basis was not dropped by the binding filter");
+  assert(
+    Number(missionRecord.dropped_unbound_count ?? 0) >= 1,
+    `Deterministic provider emitted an unbound basis but nothing was dropped: ${JSON.stringify(missionRecord)}`,
+  );
+
+  // 正文 turn：使命进入简报后才写正文；草稿 tentative、零写入。
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "prose_fragment",
+      ),
+    "Prose writing did not return a pending prose_fragment after the mission step",
+    120_000,
+  );
+  const turnResult = turnFrame.body;
+
+  const briefRecord = await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "prose_execution_brief.built.done" &&
+      record.turn_id === turnResult.turn_id,
+    "No prose_execution_brief.built.done app log for the prose turn",
+    30_000,
+  );
+  const briefSourceHasMission = (briefRecord.brief_source ?? []).includes("chapter_mission");
+  const briefMissionRefMatches = briefRecord.chapter_mission_ref === missionRecord.mission_ref;
+  assert(briefSourceHasMission, `Execution brief did not source from chapter_mission: ${JSON.stringify(briefRecord)}`);
+  assert(briefMissionRefMatches, "Execution brief mission ref did not match the derived mission");
+
+  const traceMissionRefMatches =
+    turnResult.trace_summary?.chapter_mission_ref === missionRecord.mission_ref;
+  assert(traceMissionRefMatches, "TurnResult trace_summary did not carry the chapter_mission_ref");
+  assert(
+    turnResult.truthfulness?.artifact_adopted === false &&
+      turnResult.truthfulness?.production_write_performed === false,
+    "Chapter mission run performed a production write or auto-adoption",
+  );
+
+  // 作者可见：推理区出现模型原话（46 §9 文档流段落，不渲染标签）。
+  const narrativeSnippet = missionNarrative.slice(0, 24);
+  await page.waitForFunction(
+    (snippet) => {
+      const sections = Array.from(document.querySelectorAll('section[aria-label="推理"]'));
+      return sections.some((section) => section.innerText.includes(snippet));
+    },
+    narrativeSnippet,
+    { timeout: 30_000 },
+  );
+  await page.waitForFunction(
+    () => /待保存章节草稿|章节正文草稿|待确认的创作材料/.test(document.body.innerText),
+    undefined,
+    { timeout: 30_000 },
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "wr01-chapter-mission-before-prose.png"),
+    fullPage: true,
+  });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+      parent_turn_id: String(turnResult.turn_id ?? "").split(":agent:")[0],
+      mission_turn_id: missionRecord.turn_id,
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      profile_ref: turnResult.agent_run?.profile_ref,
+      tool_name: turnResult.tool_result?.tool_name,
+      chapter_title: targetChapterTitle,
+      mission_ref: missionRecord.mission_ref,
+      plan_targets: planTargets,
+      plan_mission_before_prose: missionIndex >= 0 && proseIndex > missionIndex,
+      mission_narrative_visible: true,
+      mission_event_source_bound: Boolean(missionSourceBound),
+      must_advance_count: Number(missionRecord.must_advance_count ?? 0),
+      must_avoid_count: Number(missionRecord.must_avoid_count ?? 0),
+      dropped_unbound_count: Number(missionRecord.dropped_unbound_count ?? 0),
+      basis_refs: basisRefs,
+      input_ref_count: Number(missionRecord.input_ref_count ?? 0),
+      basis_refs_within_materials: basisRefsWithinMaterials,
+      unbound_basis_excluded: unboundBasisExcluded,
+      brief_source_has_mission: briefSourceHasMission,
+      brief_mission_ref_matches: briefMissionRefMatches,
+      trace_mission_ref_matches: traceMissionRefMatches,
+      draft_pending: (turnResult.adoption_state?.pending ?? []).some(
+        (entry) =>
+          entry.artifact_type === "prose_fragment" &&
+          String(entry.adoption_status ?? "") === "tentative",
+      ),
+      no_write: turnResult.truthfulness?.production_write_performed === false,
+      no_adoption: turnResult.truthfulness?.artifact_adopted === false,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -27230,6 +27436,7 @@ const drivers = {
   "agent-provider-call-budget": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-prose-drafting-with-quality": driveAgentProseDraftingWithQuality,
   "p1-prose-companion-artifacts": driveP1ProseCompanionArtifacts,
+  "wr01-chapter-mission-before-prose": driveWr01ChapterMissionBeforeProse,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

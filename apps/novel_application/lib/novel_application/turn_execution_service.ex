@@ -25,6 +25,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelCommon.Contracts.QualityEvaluationResult
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
+  alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
@@ -156,16 +157,19 @@ defmodule NovelApplication.TurnExecutionService do
     # VS-00E CP1：把章级方向展开为场级执行简述，渲染进 provider 请求并记入 trace。
     # 仅 prose_writing 路径生成；缺结构化章方向时降级（不伪造场级因果）。brief 是设计态、
     # 非作品事实。
+    # WR01：写前推理步产出的本章使命（stage_state 透传，设计态）随 packet 进简报；
+    # 未排步/一步预算时为 nil，简报形态与此前逐字节一致。
     brief_result =
       prose_execution_brief(
         frame,
         action,
         input[:context],
         resolved_chapter,
-        author_input_text(frame, input[:author_input])
+        author_input_text(frame, input[:author_input]),
+        input[:chapter_mission]
       )
 
-    emit_execution_brief(frame, brief_result)
+    emit_execution_brief(frame, brief_result, chapter_mission_ref(input[:chapter_mission]))
 
     req =
       build_tool_request(
@@ -221,6 +225,7 @@ defmodule NovelApplication.TurnExecutionService do
           turn_id: frame.turn_id,
           omission_notes: omission_notes,
           brief_ref: execution_brief_ref(brief_result),
+          chapter_mission_ref: chapter_mission_ref(input[:chapter_mission]),
           decision_packet_ref: decision_packet_ref(brief_result),
           writer_provider_call_ref: writer_provider_call_ref(tool_result),
           evaluator_provider_call_ref: evaluator_provider_call_ref(quality),
@@ -455,7 +460,9 @@ defmodule NovelApplication.TurnExecutionService do
   #   注意：current_chapters 现含计划待写章，不能简单取 List.last（会落到末尾的计划空章）。
   # - 其它（写全新章、不针对具体章）→ ""（不归章，由创作内容自身标题命名）。
   # AI 只识别意图与候选目标章；安全解析在应用层用 DialogueContext.current_chapters 完成。
-  defp resolve_target_chapter(action, context, reader, work_id, author_text) do
+  # WR01：写前推理步与正文步共用同一目标章解析（使命与正文对同一章）。
+  @doc false
+  def resolve_target_chapter(action, context, reader, work_id, author_text) do
     chapters = accepted_chapter_titles(context)
     target = normalize_target_chapter(action[:target_chapter])
     intent = action[:authoring_intent]
@@ -1260,7 +1267,8 @@ defmodule NovelApplication.TurnExecutionService do
          action,
          %DialogueContext{} = context,
          resolved_chapter,
-         author_text
+         author_text,
+         chapter_mission
        ) do
     if prose_writing_action?(action) do
       target = structure_target_title(action, resolved_chapter)
@@ -1278,7 +1286,8 @@ defmodule NovelApplication.TurnExecutionService do
           reader_effect_brief: reader_effect,
           chapter: current_chapter_map(current),
           author_input: author_text,
-          source_turn_ref: frame.turn_id
+          source_turn_ref: frame.turn_id,
+          chapter_mission: chapter_mission
         }
         |> CreativeDecisionPacketBuilder.build()
 
@@ -1292,7 +1301,10 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  defp prose_execution_brief(_frame, _action, _context, _resolved_chapter, _author_text), do: nil
+  defp prose_execution_brief(_frame, _action, _context, _resolved_chapter, _author_text, _mission),
+    do: nil
+
+  defp chapter_mission_ref(mission), do: ChapterMission.ref(mission)
 
   defp current_chapter_map(current) when is_map(current) do
     %{
@@ -1317,7 +1329,7 @@ defmodule NovelApplication.TurnExecutionService do
   defp decision_packet_ref({_, %{decision_packet_ref: ref}}) when is_binary(ref), do: ref
   defp decision_packet_ref(_), do: nil
 
-  defp emit_execution_brief(frame, {brief, meta}) do
+  defp emit_execution_brief(frame, {brief, meta}, mission_ref) do
     LogEmit.emit(:creative_decision_packet, :built, :done, %{turn_id: frame.turn_id})
 
     LogEmit.emit(:prose_execution_brief, :built, :done, %{
@@ -1325,11 +1337,12 @@ defmodule NovelApplication.TurnExecutionService do
       brief_ref: ProseExecutionBrief.ref(brief),
       scene_unit_count: length(brief.scene_units),
       degraded: meta.degraded,
-      brief_source: meta.source
+      brief_source: meta.source,
+      chapter_mission_ref: mission_ref
     })
   end
 
-  defp emit_execution_brief(_frame, _brief_result), do: :ok
+  defp emit_execution_brief(_frame, _brief_result, _mission_ref), do: :ok
 
   defp provider_execution(input), do: Map.get(input, :provider_execution)
 

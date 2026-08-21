@@ -11,6 +11,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
   升级为多场（含 LLM 展开），本模块是其唯一入口。
   """
 
+  alias NovelDomain.ChapterMission
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.ProseExecutionBrief
 
@@ -32,7 +33,11 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
     {scene_units, degraded?, source} =
       scene_units(direction, chapter, author_input)
 
-    source = source ++ if(is_nil(reader_effect), do: [], else: ["reader_effect_brief"])
+    {mission_context, mission_source} = mission_context(packet["chapter_mission"])
+
+    source =
+      source ++
+        if(is_nil(reader_effect), do: [], else: ["reader_effect_brief"]) ++ mission_source
 
     brief =
       ProseExecutionBrief.new(%{
@@ -44,7 +49,8 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
           "scene_ref" => nil,
           "source_turn_ref" => source_turn_ref
         },
-        chapter_context: chapter_context(direction, reader_effect),
+        chapter_context:
+          direction |> chapter_context(reader_effect) |> Map.merge(mission_context),
         scene_units: scene_units,
         source_refs: source
       })
@@ -132,6 +138,27 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
       "reader_effect_ref" => if(is_nil(reader_effect), do: nil, else: "reader_effect_brief")
     }
     |> drop_blank()
+  end
+
+  # WR01（VS-00E §16）：本章使命进 chapter_context。present → 带 statement/条目，
+  # brief_source += "chapter_mission"；推理降级 → 只留痕 "chapter_mission_degraded"（不伪造
+  # 使命，writer 按既有简报写）；缺席（未排步/一步预算）→ 不动。
+  defp mission_context(mission) do
+    case ChapterMission.from_map(mission) do
+      nil ->
+        {%{}, []}
+
+      %ChapterMission{degraded: true, degraded_reason: reason} ->
+        {drop_blank(%{"mission_degraded_reason" => reason}), ["chapter_mission_degraded"]}
+
+      %ChapterMission{} = present ->
+        if ChapterMission.present?(present) do
+          {%{"mission" => present |> ChapterMission.to_map() |> Map.drop(["dropped"])},
+           ["chapter_mission"]}
+        else
+          {%{}, []}
+        end
+    end
   end
 
   defp direction_role(%ChapterPlanDirection{chapter_role: role}), do: clean(role)

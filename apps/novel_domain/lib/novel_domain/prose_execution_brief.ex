@@ -103,9 +103,10 @@ defmodule NovelDomain.ProseExecutionBrief do
   def to_prompt_section(%__MODULE__{} = brief) do
     header = "## 场级执行简述（写前执行结构，按场推进）"
     chapter_line = chapter_context_line(brief.chapter_context)
+    mission_block = mission_block(brief.chapter_context)
     scenes = Enum.map_join(brief.scene_units, "\n", &scene_unit_lines/1)
 
-    [header, chapter_line, scenes]
+    [header, chapter_line, mission_block, scenes]
     |> Enum.reject(&blank?/1)
     |> Enum.join("\n")
   end
@@ -178,6 +179,17 @@ defmodule NovelDomain.ProseExecutionBrief do
   end
 
   defp chapter_context_line(_ctx), do: nil
+
+  # WR01：写前推理产出的本章使命随简报进入 writer prompt（设计态，决策点邻近；
+  # VS-00E §16）。降级/缺席时整块不出现，不伪造使命。
+  defp mission_block(ctx) when is_map(ctx) do
+    case NovelDomain.ChapterMission.to_prompt_lines(ctx["mission"]) do
+      [] -> nil
+      lines -> Enum.join(lines, "\n")
+    end
+  end
+
+  defp mission_block(_ctx), do: nil
 
   defp scene_unit_lines(unit) do
     tc = unit["target_change"] || %{}

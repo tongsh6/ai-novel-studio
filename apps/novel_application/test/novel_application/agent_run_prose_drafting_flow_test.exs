@@ -16,6 +16,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
+
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-planner")}
 
@@ -166,6 +169,29 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:agent_event, :evaluation_made, context_decision}, 500
     assert "agent_step_evaluated" in context_decision.reason_codes
 
+    # WR01 写前推理步：模型原话进作者可见事件（N-NARR 绑定），观察进流。
+    assert_receive {:agent_event, :mission_derived, mission_event}, 1_000
+    assert mission_event.visibility == :author
+    assert mission_event.payload.author_narrative =~ "我核对了第01章计划与作品脉络"
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      mission_event.payload.author_narrative_source
+    )
+
+    assert mission_event.payload.must_advance_count == 1
+    assert mission_event.payload.must_avoid_count == 1
+    assert mission_event.payload.dropped_unbound_count == 1
+
+    assert mission_event.payload.basis_refs == [
+             "plan:1:plot_progress",
+             "plan:1:information_release"
+           ]
+
+    assert_receive {:agent_event, :exploration_observed, mission_observation}, 500
+    assert mission_observation.summary =~ "已完成写前推理"
+    assert_receive {:agent_event, :evaluation_made, mission_decision}, 500
+    assert mission_decision.payload.loop_decision_type == :execute_step
+
     assert_receive {:agent_event, :evaluation_made, plan_event}, 500
     assert "agent_step_evaluated" in plan_event.reason_codes
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
@@ -177,6 +203,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert writer_prompt =~ "用户创作简述："
     assert writer_prompt =~ "场级执行简述"
     assert writer_prompt =~ "companion_artifacts"
+    # WR01：使命随简报进 writer prompt，带依据文本；越界条目不得出现。
+    assert writer_prompt =~ "本章使命：本章必须让主角从被动观察转向主动寻找出口。"
+    assert writer_prompt =~ "· 必须推进：让主角进入异常房间并找到压力来源（依据：情节推进：主角进入异常房间并发现压力来源）"
+    assert writer_prompt =~ "· 不得：不直接点破旧公司实验"
+    refute writer_prompt =~ "不存在的伏笔"
     assert_receive {:evaluator_prompt, evaluator_prompt}, 500
     assert evaluator_prompt =~ "质量评审"
     refute evaluator_prompt =~ "用户创作简述："
@@ -199,10 +230,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
-    assert length(state.run.completed_step_refs) == 2
-    assert state.run.consumed_budget.steps == 2
+    # WR01：context + chapter_mission + prose_writing 三步；写前推理 +1 调用。
+    assert length(state.run.completed_step_refs) == 3
+    assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 4
+    assert state.run.consumed_budget.provider_calls == 5
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
     assert Enum.any?(state.observations, &(&1.observation_type == :quality_review))
 
@@ -212,6 +244,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert turn_result.tool_result.tool_name == "prose_writing"
     assert turn_result.truthfulness.artifact_adopted == false
     assert turn_result.truthfulness.production_write_performed == false
+
+    assert String.starts_with?(
+             Map.get(turn_result.trace_summary, :chapter_mission_ref),
+             "mission:"
+           )
 
     assert Enum.map(turn_result.adoption_state.pending, & &1.artifact_type) == [
              :prose_fragment,
@@ -241,6 +278,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
+
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-cont-planner")}
 
@@ -337,6 +377,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
+
         plan_draft_prompt?(prompt) ->
           attempt = Agent.get_and_update(planner_counter, fn count -> {count + 1, count + 1} end)
           send(parent, {:planner_prompt, attempt, prompt})
@@ -437,10 +480,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
-    assert state.run.consumed_budget.steps == 2
+    # WR01：context + chapter_mission + prose_writing 三步。
+    assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 1
-    # 规划 3（reasoning + 结构失败 + 纠错）+ writer 1 + evaluator 1
-    assert state.run.consumed_budget.provider_calls == 5
+    # 规划 3（reasoning + 结构失败 + 纠错）+ 写前推理 1 + writer 1 + evaluator 1
+    assert state.run.consumed_budget.provider_calls == 6
     assert Agent.get(planner_counter, & &1) == 3
   end
 
@@ -524,6 +568,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
+
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-d1-plan")}
 
@@ -567,8 +614,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # 判断② await 不消耗 replan（无模型计划修订）。
     assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 1
-    # runtime 直连（无判断①入场）：起草 2 + 失败 writer 步 2 + 判断② 2 = 6。
-    assert state.run.consumed_budget.provider_calls == 6
+
+    # runtime 直连（无判断①入场）：起草 2 + 写前推理 1 + 失败 writer 步 2 + 判断② 2 = 7。
+    assert state.run.consumed_budget.provider_calls == 7
   end
 
   test "D2 actionable quality finding revises plan before waiting for author" do
@@ -576,6 +624,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
+
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-d2-plan")}
 
@@ -681,7 +732,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.consumed_budget.replans == 1
     assert state.run.consumed_budget.tool_calls == 2
     # runtime 直连：起草 2 + prose 步 2 + 判断② 2 + 重试步 2（writer+复评）= 8。
-    assert state.run.consumed_budget.provider_calls == 8
+    # WR01：+1 写前推理调用。
+    assert state.run.consumed_budget.provider_calls == 9
     # 改进闭环终局：pending 只剩改进稿（首稿已被替代）。
     assert length(state.run.pending_artifact_refs) == 1
     # 改进稿即最终 TurnResult（completed + 单 pending）。
@@ -699,6 +751,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
+
         plan_draft_prompt?(prompt) ->
           {:ok,
            with_provider_call(
@@ -750,8 +805,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.status == :awaiting_author
     assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 0
-    # runtime 直连：起草 2 + 判断② 2 = 4（writer 未派发）。
-    assert state.run.consumed_budget.provider_calls == 4
+    # runtime 直连：起草 2 + 写前推理 1 + 判断② 2 = 5（writer 未派发）。
+    assert state.run.consumed_budget.provider_calls == 5
   end
 
   test "D7 deterministic missing chapter gap revises plan without calling writer provider" do
@@ -759,6 +814,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
+
         plan_draft_prompt?(prompt) ->
           {:ok,
            with_provider_call(
@@ -809,8 +867,26 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :awaiting_author
     assert state.run.consumed_budget.replans == 0
-    # runtime 直连：起草 2 + 判断② 2 = 4（writer provider 未调用）。
-    assert state.run.consumed_budget.provider_calls == 4
+
+    # runtime 直连：起草 2 + 写前推理 1 + 判断② 2 = 5（writer provider 未调用）。
+    assert state.run.consumed_budget.provider_calls == 5
+  end
+
+  # WR01：写前推理步的确定性结果——一条依据在材料内（context() 的第 01 章计划字段）、
+  # 一条越界依据（必须被 ChapterMission.bind 机械丢弃，不进 writer prompt）。
+  defp mission_prompt?(prompt),
+    do: prompt_contains?(prompt, NovelApplication.ChapterMissionService.prompt_anchor())
+
+  defp mission_result do
+    NovelApplication.TestAgenticLoopFixtures.mission_tool_call_result(
+      "我核对了第01章计划与作品脉络：本章先让主角找到压力来源，不提前揭示旧公司实验。",
+      "本章必须让主角从被动观察转向主动寻找出口。",
+      must_advance: [
+        %{"text" => "让主角进入异常房间并找到压力来源", "basis_ref" => "plan:1:plot_progress"},
+        %{"text" => "回收一条不存在的伏笔", "basis_ref" => "ledger:information:foreshadow_unlisted"}
+      ],
+      must_avoid: [%{"text" => "不直接点破旧公司实验", "basis_ref" => "plan:1:information_release"}]
+    )
   end
 
   defp plan_draft_prompt?(prompt),
@@ -891,6 +967,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           "context_assemble",
           "读取正文写作上下文",
           success_criteria: ["prose_context_attached"]
+        ),
+        NovelApplication.TestAgenticLoopFixtures.plan_step(
+          "derive_chapter_mission",
+          "chapter_mission",
+          "按本章计划与作品脉络推导本章使命",
+          success_criteria: ["chapter_mission_derived"]
         ),
         NovelApplication.TestAgenticLoopFixtures.plan_step(
           "draft_prose_with_quality",

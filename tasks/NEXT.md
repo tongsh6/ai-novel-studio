@@ -207,15 +207,28 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
+**WR01 写前推理层「本章使命」——slice done（2026-08-21，
+`tasks/slices/WR01-chapter-mission-pre-writing-reasoning.md`）。队首 = 待用户拍板下一主线**。
+候选（不代拍板）：① M5 节拍狗粮（刀①-④ + AU12 + NEM04 + R2 + WR01 的长跑验证：别称
+sighting、场级指导实效、伴生产物「不凑数」、**本章使命在 qwen3.8-27b 下的 tool-call 稳定性
+与对正文的实际牵引**——狗粮须用户批准；默认模型名已对齐 `qwen/qwen3.8-27b`，跑前按 B8
+预检）；② WR01 第二期：使命落 `chapters.plan_direction["chapter_mission"]` + 作者确认/改写
+（暂定机制泛化到章）+ `chapter_read` 探索可达 + 「为什么」面板展示简报与使命；③ 规划
+（plot_outline）前推理；④ 携带层五通道统一选取策略（VS-00C AssemblyPolicy 语义扩展）。
+WR01 收口一页话：三拍板（正文 run 新增模型步 / 本期不存不预确认 / 失败降级继续写）→
+`ChapterMissionInputs` 按坐标选十组材料逐条 `[ref]` 列名（不设阈值）→ `ChapterMissionService`
+一次 `chapter_mission` tool-call（坏结构重试 1，依据越界机械丢弃 I-M1，叙事 N-NARR 绑定）→
+flow 内模型步由模型排入计划、`prose_writing` 声明 D1 前置（一步预算除外）、预算 +1 步 +1 调用
+→ 使命进 `ProseExecutionBrief.chapter_context["mission"]` 渲染在章行后（`brief_source`
+`chapter_mission|chapter_mission_degraded`）→ `mission_derived` 事件进推理区 → trace/日志留痕。
+VS-00E §16 冻结；真实 Tauri PASS（计划顺序 / 依据 ⊆ 材料且越界丢弃 / 叙事可见 / 简报来源 /
+零写入）；1442 后端 + 439 前端 + I1/I2/I3 绿。
+**登记缺口**：①使命不持久化、作者无改写入口（第二期）；②推理区不显示事件标签（46 §9.5
+文档流化后仅段落），「本章使命」标签文案已备在 copy.ts 未露出；③`must_avoid` 只有在后续章
+计划带信息释放时才有材料（seed 场景为 0，符合不凑数）。
+
 **R2「自由创作只产两种 artifact」独立刀——slice done（2026-08-21，
-`tasks/slices/P1-prose-companion-artifacts.md`）。队首 = 待用户拍板下一主线**。
-候选（按承重直觉排序，不代拍板）：① 写前推理层（四层体系备忘指认的最大真空——
-正文/规划调用前对携带状态做处理得出本章使命，
-`notes/2026-08-11-establish-carry-process-write-pipeline.md`）；② M5 节拍狗粮
-（刀①-④ + AU12 + NEM04 + R2 的长跑验证，观察别称 sighting、场级指导实效、
-**真实模型伴生产物是否「只提取有依据的新事实、不凑数」**——狗粮须用户批准；
-本地 LM Studio 已切 `qwen/qwen3.8-27b`，默认模型名 7 处已对齐，狗粮前须按
-B8 预检复核）。
+`tasks/slices/P1-prose-companion-artifacts.md`）。**
 R2 收口一页话：VS-02A §3.2 冻结「同一次 `prose_writing` 调用返回正文 + 0..N 个
 既有 seed（character/foreshadowing/world_rule/constraint）」→ contract 校验
 （仅四类/主伴 item_id 唯一/非 prose 工具带伴生即拒）→ adapter 分组 + assembler

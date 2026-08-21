@@ -175,6 +175,7 @@ defmodule NovelApplication.TraceWriter do
       }
       |> maybe_put_omissions(turn_result)
       |> maybe_put_brief_ref(turn_result)
+      |> maybe_put_mission_ref(turn_result)
       |> maybe_put_decision_packet_ref(turn_result)
       |> maybe_put_provider_refs(turn_result)
       |> maybe_put_quality(turn_result)
@@ -212,6 +213,14 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_brief_ref(summary, _turn_result), do: summary
+
+  # WR01（VS-00E §16）：写前推理的本章使命引用进作者可见 trace summary（设计态留痕）。
+  defp maybe_put_mission_ref(summary, %{chapter_mission_ref: ref})
+       when is_binary(ref) and ref != "" do
+    Map.put(summary, :chapter_mission_ref, ref)
+  end
+
+  defp maybe_put_mission_ref(summary, _turn_result), do: summary
 
   # VS-00E CP0/CP1：CreativeDecisionPacket 是一次 turn 的决策载体，不是作品事实；
   # trace 只暴露 author-safe ref，完整 packet 留在 ToolRequest/CreativeRequest 边界。

@@ -11,6 +11,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ExecutionOrchestrator
@@ -21,12 +22,18 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
+  alias NovelDomain.ChapterMission
+  alias NovelDomain.ChapterMissionInputs
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   @profile_ref "prose_drafting_with_quality_v1"
   @context_step_target "context_assemble"
+  # WR01 写前推理步：模型排入计划的 flow 内模型步（1 调用），产出 stage_state.chapter_mission。
+  @mission_step_target "chapter_mission"
   @plan_exhausted_replan_reason "计划步骤已走完，但正文候选尚未生成。"
 
   @spec profile_ref() :: String.t()
@@ -120,7 +127,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     index = plan_cursor(snapshot)
     meta = Map.put(meta, :agent_plan_cursor, index)
 
-    case AgenticDeviationSignal.next(run, snapshot, steps, index) do
+    case AgenticDeviationSignal.next(run, snapshot, steps, index,
+           step_preconditions: step_preconditions(run)
+         ) do
       nil ->
         cond do
           index < length(steps) ->
@@ -315,7 +324,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp mechanical_execute_decision(step, run, sequence, snapshot, meta) do
     target = map_get(step, :target_tool_ref)
 
-    with true <- target in [@context_step_target, "prose_writing"],
+    with true <- target in [@context_step_target, @mission_step_target, "prose_writing"],
          {:ok, decision} <-
            AgentNextStepDecision.new(%{
              decision_id:
@@ -543,6 +552,279 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
      }}
   end
 
+  # ── WR01 写前推理步（本章使命）────────────────────────
+  #
+  # 四层体系 ③处理层首刀：机械选取携带状态（0 调用，`ChapterMissionInputs`）+ 模型
+  # 推导本章使命（1 调用，`ChapterMissionService`）。成功 → stage_state.chapter_mission
+  # 进正文步的执行简报，并以 N-NARR 绑定的模型原话发 mission_derived 事件；失败 →
+  # 用户拍板「降级继续写」：stage_state 放带 degraded 标记的使命（满足 D1 前置），
+  # 正文按既有简报生成，失败原因留痕。本步不写任何权威层（I-M2）。
+  defp execute_mission_decision_step(run, sequence, spec, decision, snapshot) do
+    turn_id = "#{run.parent_turn_ref}:agent:#{sequence}"
+    context = Map.get(stage_state(snapshot), :context) || context_for_run(spec, run, turn_id)
+    inputs = mission_inputs(run, spec, context, decision)
+
+    provider_execution =
+      spec
+      |> mission_provider_execution()
+      |> Execution.with_purpose(:planner)
+      |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
+
+    case ChapterMissionService.derive(inputs, provider_execution, author_text: run.goal.text) do
+      {:ok, mission, meta} ->
+        mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot)
+
+      {:error, reason, meta} ->
+        mission_failure(run, sequence, turn_id, inputs, reason, meta)
+    end
+  end
+
+  defp mission_provider_execution(spec) do
+    Map.get(spec, :mission_provider_execution) ||
+      Map.get(spec, :planner_provider_execution) ||
+      Map.get(spec, :provider_execution) ||
+      Execution.dependency(purpose: :planner)
+  end
+
+  defp mission_inputs(run, spec, context, decision) do
+    work_id = run.work_id || run.workspace_id
+
+    ChapterMissionInputs.build(%{
+      chapter: mission_target_chapter(run, spec, context, decision),
+      entries:
+        safe_read(
+          reader_dep(spec, :ledger_reader, &NovelApplication.persistence_ledger_reader/0),
+          work_id,
+          []
+        ),
+      written_progress:
+        safe_read(
+          reader_dep(
+            spec,
+            :written_progress_reader,
+            &NovelApplication.persistence_written_progress_reader/0
+          ),
+          work_id,
+          nil
+        ),
+      work_snapshot: context_work_snapshot(context),
+      written_chapters: written_chapter_count(context),
+      roster:
+        safe_read(
+          reader_dep(spec, :character_reader, &NovelApplication.persistence_character_reader/0),
+          work_id,
+          []
+        )
+    })
+  end
+
+  # 使命与正文对同一章：复用 TurnExecutionService 的目标章解析（计划 prose 步的
+  # target_chapter/authoring_intent + 作者原话点名 + 续写回退最新已写章）；
+  # 解析不到时取下一待写章（结构列表里首个无正文章）；都没有则只带进度态。
+  defp mission_target_chapter(run, spec, %DialogueContext{} = context, decision) do
+    prose_step = prose_plan_step(run.plan)
+
+    action = %{
+      target_chapter: map_get(prose_step, :target_chapter) || decision.target_chapter,
+      authoring_intent:
+        normalize_mission_intent(
+          map_get(prose_step, :authoring_intent) || decision.authoring_intent
+        )
+    }
+
+    reader =
+      reader_dep(
+        spec,
+        :chapter_prose_reader,
+        &NovelApplication.persistence_chapter_prose_reader/0
+      )
+
+    title =
+      TurnExecutionService.resolve_target_chapter(
+        action,
+        context,
+        reader,
+        run.work_id || run.workspace_id,
+        run.goal.text
+      )
+
+    chapters = context.structured_chapters || []
+
+    case title do
+      "" -> Enum.find(chapters, &(Map.get(&1, :has_prose) == false))
+      title -> Enum.find(chapters, &(Map.get(&1, :title) == title))
+    end
+  end
+
+  defp mission_target_chapter(_run, _spec, _context, _decision), do: nil
+
+  defp prose_plan_step(plan) do
+    plan
+    |> plan_steps()
+    |> Enum.find(&(map_get(&1, :target_tool_ref) == "prose_writing"))
+  end
+
+  defp normalize_mission_intent(intent) when intent in [:continuation, "continuation"],
+    do: :continuation
+
+  defp normalize_mission_intent(intent) when intent in [:rewrite, "rewrite"], do: :rewrite
+  defp normalize_mission_intent(_intent), do: nil
+
+  defp context_work_snapshot(%DialogueContext{current_work_snapshot: %{} = snapshot}),
+    do: snapshot
+
+  defp context_work_snapshot(_context), do: %{}
+
+  defp written_chapter_count(%DialogueContext{structured_chapters: chapters})
+       when is_list(chapters),
+       do: Enum.count(chapters, &(Map.get(&1, :has_prose) == true))
+
+  defp written_chapter_count(_context), do: 0
+
+  defp safe_read(reader, work_id, default) when is_function(reader, 1) and is_binary(work_id) do
+    case reader.(work_id) do
+      nil -> default
+      value -> value
+    end
+  rescue
+    _error -> default
+  end
+
+  defp safe_read(_reader, _work_id, default), do: default
+
+  defp mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot) do
+    mission_ref = ChapterMission.ref(mission) || "mission:#{turn_id}"
+    counts = mission_counts(mission, inputs)
+
+    LogEmit.emit(
+      :chapter_mission,
+      :derived,
+      :done,
+      Map.merge(counts, %{
+        turn_id: turn_id,
+        run_id: run.run_id,
+        mission_ref: mission_ref,
+        provider_call_ref: meta.provider_call_ref,
+        provider_call_count: meta.provider_call_count,
+        narrative_bound: is_binary(meta.narrative)
+      })
+    )
+
+    if is_binary(meta.narrative) and is_map(meta.narrative_source) do
+      emit_stage(
+        snapshot,
+        :mission_derived,
+        meta.narrative,
+        ["mission_derived"],
+        [mission_ref],
+        Map.merge(counts, %{
+          stage: :mission_derived,
+          mission_ref: mission_ref,
+          author_narrative: meta.narrative,
+          author_narrative_source: meta.narrative_source
+        })
+      )
+    end
+
+    {:ok,
+     %{
+       step: mission_step(run, sequence, "写前推理：推导本章使命"),
+       observations: [mission_observation(run, sequence, turn_id, mission_ref, counts)],
+       stage_state: %{chapter_mission: ChapterMission.to_map(mission)},
+       provider_call_count: meta.provider_call_count,
+       progress_signature: "#{run.run_id}:chapter_mission:#{turn_id}"
+     }}
+  end
+
+  defp mission_failure(run, sequence, turn_id, inputs, reason, meta) do
+    reason_text = reason |> inspect() |> String.slice(0, 200)
+
+    LogEmit.emit(:chapter_mission, :derived, :error, %{
+      turn_id: turn_id,
+      run_id: run.run_id,
+      reason: reason_text,
+      input_ref_count: MapSet.size(ChapterMissionInputs.refs(inputs)),
+      provider_call_count: Map.get(meta, :provider_call_count, 0)
+    })
+
+    degraded = ChapterMission.degraded(reason_text)
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: mission_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: "mission:#{turn_id}",
+        summary: "写前推理未完成，正文按既有执行简报继续。",
+        structured_payload: %{stage: :mission_degraded, reason: reason_text},
+        evidence_refs: ["mission:#{turn_id}"],
+        confidence: 1.0
+      })
+
+    {:ok,
+     %{
+       step: mission_step(run, sequence, "写前推理：未完成，降级继续"),
+       observations: [observation],
+       stage_state: %{chapter_mission: ChapterMission.to_map(degraded)},
+       provider_call_count: Map.get(meta, :provider_call_count, 0),
+       progress_signature: "#{run.run_id}:chapter_mission:#{turn_id}"
+     }}
+  end
+
+  defp mission_counts(mission, inputs) do
+    %{
+      must_advance_count: length(mission.must_advance),
+      must_avoid_count: length(mission.must_avoid),
+      dropped_unbound_count: length(mission.dropped),
+      basis_refs: ChapterMission.basis_refs(mission),
+      input_ref_count: MapSet.size(ChapterMissionInputs.refs(inputs))
+    }
+  end
+
+  defp mission_observation(run, sequence, turn_id, mission_ref, counts) do
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: mission_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: mission_ref,
+        summary:
+          "已完成写前推理：必须推进 #{counts.must_advance_count} 条、不得 #{counts.must_avoid_count} 条，" <>
+            "依据 #{length(counts.basis_refs)} 条，越界丢弃 #{counts.dropped_unbound_count} 条。",
+        structured_payload: Map.put(counts, :stage, :mission_derived),
+        evidence_refs: [mission_ref, "mission:#{turn_id}"],
+        confidence: 1.0
+      })
+
+    observation
+  end
+
+  defp mission_step(run, sequence, goal) do
+    {:ok, step} =
+      AgentStep.new(%{
+        step_id: current_step_ref(run, sequence),
+        run_ref: run.run_id,
+        sequence: sequence,
+        status: :completed,
+        goal: goal,
+        observation_refs: [mission_observation_id(run, sequence)],
+        state_snapshot_ref: state_snapshot_ref(run, sequence, "chapter_mission"),
+        idempotency_key: "#{run.run_id}:#{sequence}:chapter_mission:goal_v#{run.goal.version}"
+      })
+
+    step
+  end
+
+  defp mission_observation_id(run, sequence), do: "obs_#{run.run_id}_#{sequence}_chapter_mission"
+
+  # WR01（ADR-0023 D1）：prose_writing 依赖写前推理产出的 stage_state.chapter_mission；
+  # 模型漏排 chapter_mission 步时在派发前走 replan 给一次改道机会，而非执行期硬失败。
+  # 作者显式一步预算（max_steps: 1）是硬约束，不声明前置、不逼模型排两步。
+  defp step_preconditions(%{budget: %{max_steps: 1}}), do: %{}
+  defp step_preconditions(_run), do: %{"prose_writing" => [:chapter_mission]}
+
   defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
       frame = frame(run, sequence, plan.plan_goal.summary)
@@ -632,6 +914,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         decision: decision,
         candidates: [],
         context: execution_context,
+        chapter_mission: Map.get(stage_state(snapshot), :chapter_mission),
         author_input: %{text: author_input_text(run, plan, observations, guidance)},
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot, :writer),
@@ -1117,6 +1400,19 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     {:execute,
      fn run, sequence, snapshot ->
        execute_context_decision_step(run, sequence, spec, snapshot)
+     end, decision}
+  end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @mission_step_target
+         } = decision,
+         spec
+       ) do
+    {:execute,
+     fn run, sequence, snapshot ->
+       execute_mission_decision_step(run, sequence, spec, decision, snapshot)
      end, decision}
   end
 

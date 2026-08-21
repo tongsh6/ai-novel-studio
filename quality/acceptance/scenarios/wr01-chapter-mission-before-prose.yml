@@ -1,0 +1,56 @@
+id: wr01-chapter-mission-before-prose
+title: 正文写作前由模型推导本章使命并进入执行简报
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh wr01-chapter-mission-before-prose --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - mission-basis-refs-are-subset-of-mechanically-selected-input-refs
+  - mission-is-design-state-and-performs-no-production-write
+  - mission-narrative-bytes-come-from-provider-output
+  - mission-enters-execution-brief-before-writer-call
+  - unbound-basis-items-are-dropped-not-rendered
+
+setup:
+  seed: scripts/seed_wr01_chapter_mission.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: continuation request for chapter 3 from the real chat input
+  - wait_for: bounded prose AgentRun whose model plan contains chapter_mission before prose_writing
+  - verify: the reasoning area shows a「本章使命」segment with visible model narrative
+  - verify: the prose draft stays tentative and no production write happened
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/wr01-chapter-mission-before-prose-tauri
+
+assertions:
+  ui:
+    - reasoning area renders a mission_derived segment labelled 本章使命 with model narrative
+    - prose draft candidate card is visible and remains pending
+  network:
+    - plan_drafted event lists chapter_mission before prose_writing
+    - mission_derived agent event carries author_narrative and author_narrative_source
+    - final TurnResult trace_summary carries chapter_mission_ref and production_write_performed=false
+  data:
+    - chapter_mission.derived.done basis_refs are a subset of the selected input refs and dropped_unbound_count records the out-of-material basis
+    - prose_execution_brief.built.done brief_source includes chapter_mission and chapter_mission_ref matches
+    - writer provider prompt contains the 本章使命 block and excludes dropped items
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

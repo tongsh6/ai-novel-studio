@@ -223,6 +223,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-prose-companion-artifacts.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-prose-companion-artifacts --surface tauri
+  - id: wr01-chapter-mission-before-prose
+    title: "正文写作前由模型推导本章使命并进入执行简报"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/wr01-chapter-mission-before-prose.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh wr01-chapter-mission-before-prose --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

@@ -68,6 +68,26 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     }
   end
 
+  # WR01：写前推理步的确定性 tool-call 结果（content=作者可见叙事，arguments 同带
+  # author_reasoning 以覆盖强制 tool_choice 下空 content 的回退绑定路径）。
+  def mission_tool_call_result(reasoning, statement, opts \\ []) do
+    %{
+      content: Keyword.get(opts, :content, reasoning),
+      tool_calls: [
+        %{
+          "name" => "chapter_mission",
+          "arguments" => %{
+            "author_reasoning" => reasoning,
+            "statement" => statement,
+            "must_advance" => Keyword.get(opts, :must_advance, []),
+            "must_avoid" => Keyword.get(opts, :must_avoid, []),
+            "confidence" => Keyword.get(opts, :confidence, 0.9)
+          }
+        }
+      ]
+    }
+  end
+
   def prompt_text(prompt) when is_binary(prompt), do: prompt
 
   def prompt_text(prompt) do

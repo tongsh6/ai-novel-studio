@@ -45,6 +45,7 @@
 | `agent-readonly-batch-profile.yml` | AgentRun 只读 batch profile 可并行读取且不写作品事实（CP6，nightly active） |
 | `agent-prose-drafting-with-quality.yml` | AgentRun 正文草稿 Profile 复用正文质量复核链路 |
 | `p1-prose-companion-artifacts.yml` | 一次正文生成产出正文与四类待采纳伴生要素，并验证选择性采纳 |
+| `wr01-chapter-mission-before-prose.yml` | 正文写作前由模型推导本章使命（依据 ref 机器核验）并进入执行简报与推理区（WR01） |
 | `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun，并在 46§9 推理区实时显示多段 `author_narrative_delta` |
 | `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 计划耗尽后触发 provider-sourced `plan_revised` 并继续完成对话 |
 | `agentic-loop-no-deviation-direct.yml` | ADR-0023 无偏离直通路径只消费起草计划且不触发重规划 |

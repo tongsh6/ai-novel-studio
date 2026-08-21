@@ -253,6 +253,14 @@ defmodule NovelApplication do
     if inject_persistence?(), do: &NovelPersistence.LedgerRepository.list_all/1
   end
 
+  @doc """
+  已写进度读取端口（WR01 写前推理 / R9 同源口径）：`%{chapter_seq, volume_seq}`。
+  未启用真实持久化时返回 nil（推理只带设计态，诚实缺席）。
+  """
+  def persistence_written_progress_reader do
+    if inject_persistence?(), do: &NovelPersistence.LedgerRepository.written_progress/1
+  end
+
   defp sync_chapter_summary_maintenance? do
     Application.get_env(:novel_application, :sync_chapter_summary_maintenance, false)
   end

@@ -1556,6 +1556,8 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
+  # WR01：正文 run 多一步写前推理（chapter_mission，1 调用）——max_steps 4→5、
+  # max_provider_calls 5→6；作者显式一步预算不变（一步预算是硬约束，不排推理步）。
   defp run_budget(text, :prose_drafting_with_quality) do
     if one_step_budget?(text) do
       %{
@@ -1567,9 +1569,9 @@ defmodule NovelApplication.DialoguePlanningService do
       }
     else
       %{
-        max_steps: 4,
+        max_steps: 5,
         max_tool_calls: 2,
-        max_provider_calls: 5,
+        max_provider_calls: 6,
         max_replans: 1,
         max_pending_artifacts: 1
       }
