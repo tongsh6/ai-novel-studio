@@ -32,7 +32,7 @@ Application.put_env(:novel_persistence, NovelPersistence.Repo, repo_config)
 
 Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
-  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "openai/gpt-oss-120b"),
+  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.8-27b"),
   timeout:
     System.get_env(
       "NOVEL_LMSTUDIO_TIMEOUT_MS",

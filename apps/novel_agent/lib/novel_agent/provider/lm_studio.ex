@@ -278,7 +278,7 @@ defmodule NovelAgent.Provider.LMStudio do
   def from_config(config \\ Application.get_env(:novel_agent, __MODULE__, [])) do
     %__MODULE__{
       endpoint: Keyword.get(config, :endpoint, "http://localhost:1234/v1"),
-      model: Keyword.get(config, :model, "openai/gpt-oss-120b"),
+      model: Keyword.get(config, :model, "qwen/qwen3.8-27b"),
       timeout: Keyword.get(config, :timeout, 300_000),
       # 缺陷九跟进（2026-07-20）：本地可换模型，安全上限归这里配置，不归
       # InferenceParams 通用默认值——见该模块 moduledoc。32000 是保守生成值，

@@ -99,7 +99,7 @@ print(max(llms) if llms else 0)
 
   if [[ -z "$LOADED_CONTEXT" || "$LOADED_CONTEXT" -lt "$MIN_CONTEXT_LENGTH" ]]; then
     echo "[dogfood][B8] 预检失败：已加载模型 contextLength=$LOADED_CONTEXT < $MIN_CONTEXT_LENGTH。" >&2
-    echo "[dogfood][B8] 请先执行：lms load openai/gpt-oss-120b --context-length 32768" >&2
+    echo "[dogfood][B8] 请先执行：lms load qwen/qwen3.8-27b --context-length 32768" >&2
     exit 1
   fi
 
