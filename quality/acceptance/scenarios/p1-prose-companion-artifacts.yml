@@ -1,0 +1,59 @@
+id: p1-prose-companion-artifacts
+title: 一次正文生成产出四类待采纳伴生要素
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-prose-companion-artifacts --surface tauri
+
+contract:
+  - docs/design/contracts/VS-02A-tentative-creative-artifact-contract-pack.md
+  - docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md
+  - docs/design/07-workbench-ui-contract.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-fields-remain-byte-identical-through-artifact-projection
+  - prose-companion-item-ids-are-unique-within-one-provider-result
+  - all-primary-and-companion-artifacts-remain-tentative-before-author-action
+  - generation-performs-no-production-write
+  - selective-adoption-does-not-resolve-unselected-companions
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: prose request introducing a character, foreshadowing, world rule, and writing constraint
+  - wait_for: bounded AgentRun and one prose_writing TurnResult
+  - verify: five existing candidate-set cards remain tentative, accepted character count remains zero, and the character is reachable in the archive pending area
+  - adopt: only the character seed through its visible save action
+  - verify: adopted character appears in archive while three unselected companion seeds remain pending
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-prose-companion-artifacts-tauri
+
+assertions:
+  ui:
+    - prose, character, foreshadowing, world rule, and constraint each render as an existing candidate-set card
+    - each pending artifact exposes accept, discard, and edit-then-accept actions
+    - accepted character count is zero before adoption while the candidate remains visible in the archive pending area
+    - character is visible as an accepted character after selective adoption
+  network:
+    - final TurnResult uses prose_writing and carries five independently pending artifact groups
+    - all five artifacts reference the same writer provider call
+    - character adoption travels through author_action and adoption evaluation
+  data:
+    - generation reports no production write and no automatic adoption
+    - companion item ids are unique across the primary prose item and all companion items
+    - unselected companion artifacts remain pending after character adoption
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

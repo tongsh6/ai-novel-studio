@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `P1-prose-companion-artifacts.md` | **done（2026-08-21）/ R2 独立刀**：正文主循环同一次 `prose_writing` 调用产 `prose_fragment`，并可同轮产角色/伏笔/世界规则/约束四类既有 seed；全部保持 tentative、逐项采纳，复用既有多候选卡与档案落位。真实 Tauri `p1-prose-companion-artifacts` PASS（五组同轮 / 采纳前零写入 / 选择性采纳余 3 组 pending）；真实模型是否「不凑数」归 M5 狗粮观察。 |
 | `P1-prose-quality-evidence-and-scoped-revision.md` | **done / 用户定向插单闭环**：复用 VS-00E 质量主链，把句式形式统计降为候选召回，由独立 evaluator 区分机械重复与刻意修辞，并以章功能为参照独立判断章节叙事节奏；质量卡补原句、位置、判断理由、影响范围和置信度，`revise_from_findings` 默认局部修订。三章真实 Tauri 语义边界、局部修订 sibling 与同 run 控制坞均通过；真实模型文学准确度仍按 I10 人工盲评。 |
 | `VS-00G-fact-inventory-run.md` | **doing / CP4c done**：设定盘点运行链——作品档案主动入口与主角缺位 finding 均可启动同一 `fact_inventory_v1`，角色/规则/伏笔既有 seed tentative 提案、逐项采纳及下一章弧光起账已通过真实 Tauri；CP4 仍缺全书规划字段建议，CP5 暂定设定另续。 |
 | `VS-00F-five-ledgers-three-state.md` | **CP0-CP4a done / M3 主 slice**：五本账（E33-E37）对象化 + 三态对账——契约 Frozen + ADR-0026；五账全落，每步对 M2 75 章书重放 PASS；SC-AU13-A1 真实 Tauri PASS；余 CP4c 统一批（Ledgers 面板+裁决入口+显式发起，Pencil 先行）。 |

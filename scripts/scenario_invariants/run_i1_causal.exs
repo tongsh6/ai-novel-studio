@@ -274,6 +274,26 @@ defmodule I1CausalDriver do
   defp compare_against_raw(item, call) do
     case Jason.decode(call.raw_response |> strip_code_fence() |> String.trim()) do
       {:ok, raw_items} when is_list(raw_items) ->
+        compare_against_raw_items(item, raw_items)
+
+      {:ok, %{} = payload} ->
+        raw_items =
+          List.wrap(Map.get(payload, "items")) ++
+            List.wrap(Map.get(payload, "companion_artifacts"))
+
+        compare_against_raw_items(item, raw_items)
+
+      _ ->
+        %{
+          item_id: Map.get(item, :item_id),
+          outcome: :fail,
+          reason: "raw_response 不是合法 creative JSON，无法解析主产物与伴生产物",
+          item_title: Map.get(item, :title)
+        }
+    end
+  end
+
+  defp compare_against_raw_items(item, raw_items) do
         item_id = Map.get(item, :item_id)
         raw_item = Enum.find(raw_items, &(Map.get(&1, "item_id") == item_id))
 
@@ -289,15 +309,6 @@ defmodule I1CausalDriver do
           true ->
             compare_fields(item, raw_item)
         end
-
-      _ ->
-        %{
-          item_id: Map.get(item, :item_id),
-          outcome: :fail,
-          reason: "raw_response 不是合法 JSON 数组，无法解析为 items",
-          item_title: Map.get(item, :title)
-        }
-    end
   end
 
   defp compare_fields(item, raw_item) do

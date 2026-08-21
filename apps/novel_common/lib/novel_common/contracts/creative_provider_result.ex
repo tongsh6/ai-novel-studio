@@ -14,9 +14,19 @@ defmodule NovelCommon.Contracts.CreativeProviderResult do
           optional(:provider_call_ref) => String.t() | nil
         }
 
+  @type companion_artifact :: %{
+          required(:artifact_type) => atom(),
+          required(:item_id) => String.t(),
+          required(:title) => String.t(),
+          required(:body) => String.t(),
+          required(:rationale) => String.t() | nil,
+          optional(:provider_call_ref) => String.t() | nil
+        }
+
   @type t :: %__MODULE__{
           status: :ok | :error,
           items: [item()],
+          companion_artifacts: [companion_artifact()],
           self_report: map() | nil,
           provider_call_ref: String.t() | nil,
           errors: [map()],
@@ -25,6 +35,7 @@ defmodule NovelCommon.Contracts.CreativeProviderResult do
 
   defstruct status: :ok,
             items: [],
+            companion_artifacts: [],
             self_report: nil,
             provider_call_ref: nil,
             errors: [],

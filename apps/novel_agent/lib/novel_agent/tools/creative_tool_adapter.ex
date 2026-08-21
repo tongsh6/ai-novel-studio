@@ -8,6 +8,13 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
 
+  @companion_artifact_order [
+    :character_seed,
+    :foreshadowing_seed,
+    :world_rule_seed,
+    :constraint_seed
+  ]
+
   @spec execute(ToolRequest.t(), atom(), Execution.dependency(), module()) ::
           ToolResult.t()
   def execute(%ToolRequest{} = req, artifact_type, provider_execution, provider_module) do
@@ -18,13 +25,9 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       {:ok, normalized_type} ->
         request = creative_request(req, normalized_type)
 
-        case provider_module.generate(request, provider_execution) do
-          %CreativeProviderResult{status: :ok, items: items, self_report: self_report} ->
-            succeeded_tool_result(req, result_id, now, normalized_type, items, self_report)
-
-          %CreativeProviderResult{status: :error, errors: errors} ->
-            failed_tool_result(req, result_id, now, errors)
-        end
+        request
+        |> provider_module.generate(provider_execution)
+        |> provider_result_to_tool_result(req, result_id, now, normalized_type)
 
       {:error, %{code: code, message: message}} ->
         failed_tool_result(req, result_id, now, [%{code: code, message: message}])
@@ -60,7 +63,78 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
   defp optional_map(value) when is_map(value), do: value
   defp optional_map(_value), do: nil
 
-  defp succeeded_tool_result(req, result_id, now, artifact_type, items, self_report) do
+  defp provider_result_to_tool_result(
+         %CreativeProviderResult{
+           status: :ok,
+           items: items,
+           companion_artifacts: companion_artifacts,
+           self_report: self_report
+         },
+         req,
+         result_id,
+         now,
+         artifact_type
+       ) do
+    case validate_provider_output(req, items, companion_artifacts) do
+      {:ok, normalized_items, normalized_companions} ->
+        succeeded_tool_result(
+          req,
+          result_id,
+          now,
+          artifact_type,
+          normalized_items,
+          normalized_companions,
+          self_report
+        )
+
+      {:error, %{code: code, message: message}} ->
+        failed_tool_result(req, result_id, now, [%{code: code, message: message}])
+    end
+  end
+
+  defp provider_result_to_tool_result(
+         %CreativeProviderResult{status: :error, errors: errors},
+         req,
+         result_id,
+         now,
+         _artifact_type
+       ),
+       do: failed_tool_result(req, result_id, now, errors)
+
+  defp validate_provider_output(req, items, companion_artifacts) do
+    with {:ok, normalized_items} <- ToolOutputContract.validate_creative_items(items),
+         {:ok, normalized_companions} <-
+           ToolOutputContract.validate_prose_companion_artifacts(companion_artifacts),
+         :ok <- validate_companion_scope(req.tool_name, normalized_companions),
+         :ok <-
+           ToolOutputContract.validate_unique_item_ids(normalized_items, normalized_companions) do
+      {:ok, normalized_items, normalized_companions}
+    end
+  end
+
+  defp validate_companion_scope("prose_writing", _companion_artifacts), do: :ok
+  defp validate_companion_scope(_tool_name, []), do: :ok
+
+  defp validate_companion_scope(_tool_name, _companion_artifacts) do
+    {:error,
+     %{
+       code: "unexpected_companion_artifacts",
+       message: "companion artifacts are only allowed for prose_writing"
+     }}
+  end
+
+  defp succeeded_tool_result(
+         req,
+         result_id,
+         now,
+         artifact_type,
+         items,
+         companion_artifacts,
+         self_report
+       ) do
+    companion_groups = companion_groups(companion_artifacts)
+    all_items = items ++ companion_artifacts
+
     %ToolResult{
       tool_result_id: result_id,
       tool_request_ref: req.tool_request_id,
@@ -71,18 +145,47 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
           output_contract_ref: "tentative_artifact_v1",
           artifact_type: artifact_type,
           item_count: length(items),
-          items: items
+          items: items,
+          companion_item_count: length(companion_artifacts),
+          companion_artifacts: companion_groups
         }
         |> maybe_put_self_report(self_report),
       state_delta:
-        [%{type: :tentative_artifact, key: req.tool_name, artifact_type: artifact_type}]
+        ([%{type: :tentative_artifact, key: req.tool_name, artifact_type: artifact_type}] ++
+           Enum.map(companion_groups, fn group ->
+             %{
+               type: :tentative_artifact,
+               key: req.tool_name,
+               artifact_type: group.artifact_type
+             }
+           end))
         |> maybe_add_self_report_delta(self_report),
-      artifact_refs: Enum.map(items, & &1.item_id),
+      artifact_refs: Enum.map(all_items, & &1.item_id),
       warnings: self_report_warnings(self_report),
       usage: %{duration_ms: 0, tool: req.tool_name, version: req.tool_version},
       trace_refs: ["tool_trace:#{result_id}"],
       completed_at: now
     }
+  end
+
+  defp companion_groups(items) when is_list(items) do
+    grouped = Enum.group_by(items, & &1.artifact_type)
+
+    @companion_artifact_order
+    |> Enum.flat_map(fn artifact_type ->
+      case Map.get(grouped, artifact_type, []) do
+        [] ->
+          []
+
+        grouped_items ->
+          [
+            %{
+              artifact_type: artifact_type,
+              items: Enum.map(grouped_items, &Map.delete(&1, :artifact_type))
+            }
+          ]
+      end
+    end)
   end
 
   defp maybe_put_self_report(output, nil), do: output

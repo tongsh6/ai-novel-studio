@@ -19,6 +19,13 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     :constraint_seed
   ]
 
+  @prose_companion_artifact_types [
+    :character_seed,
+    :foreshadowing_seed,
+    :world_rule_seed,
+    :constraint_seed
+  ]
+
   @spec creative_artifact_types() :: [atom()]
   def creative_artifact_types, do: @creative_artifact_types
 
@@ -75,6 +82,69 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   def validate_creative_items(_items) do
     {:error,
      %{code: "invalid_items", message: "creative tool output items must be a non-empty list"}}
+  end
+
+  @doc """
+  Validate the optional seed items emitted alongside one prose fragment.
+
+  Each entry keeps the canonical creative item fields and adds one of the four
+  existing prose companion artifact types. An empty list is valid because not
+  every passage introduces a durable fact.
+  """
+  @spec validate_prose_companion_artifacts(term()) :: {:ok, [map()]} | {:error, map()}
+  def validate_prose_companion_artifacts(nil), do: {:ok, []}
+  def validate_prose_companion_artifacts([]), do: {:ok, []}
+
+  def validate_prose_companion_artifacts(items) when is_list(items) do
+    items
+    |> Enum.reduce_while([], fn raw, acc ->
+      with true <- is_map(raw),
+           {:ok, artifact_type} <- normalize_artifact_type(map_get(raw, :artifact_type)),
+           true <- artifact_type in @prose_companion_artifact_types,
+           {:ok, [item]} <- validate_creative_items([raw]) do
+        {:cont, [Map.put(item, :artifact_type, artifact_type) | acc]}
+      else
+        false ->
+          {:halt,
+           {:error,
+            %{
+              code: "invalid_companion_artifact",
+              message: "prose companion artifact must use an allowed seed type"
+            }}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:error, _reason} = error -> error
+      normalized -> {:ok, Enum.reverse(normalized)}
+    end
+  end
+
+  def validate_prose_companion_artifacts(_items) do
+    {:error,
+     %{
+       code: "invalid_companion_artifacts",
+       message: "prose companion_artifacts must be a list"
+     }}
+  end
+
+  @doc false
+  @spec validate_unique_item_ids([map()], [map()]) :: :ok | {:error, map()}
+  def validate_unique_item_ids(primary_items, companion_artifacts)
+      when is_list(primary_items) and is_list(companion_artifacts) do
+    ids = Enum.map(primary_items ++ companion_artifacts, &map_get(&1, :item_id))
+
+    if length(ids) == length(Enum.uniq(ids)) do
+      :ok
+    else
+      {:error,
+       %{
+         code: "duplicate_item_id",
+         message: "creative primary and companion item_id values must be unique"
+       }}
+    end
   end
 
   @doc """

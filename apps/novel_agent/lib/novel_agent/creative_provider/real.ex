@@ -33,9 +33,12 @@ defmodule NovelAgent.CreativeProvider.Real do
   def generate(%CreativeRequest{} = request, provider_execution) do
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
-        request
-        |> build_prompt()
-        |> do_generate(result_fn, _retry? = true)
+        result =
+          request
+          |> build_prompt()
+          |> do_generate(result_fn, _retry? = true)
+
+        enforce_companion_scope(result, request)
 
       _ ->
         provider_error(
@@ -44,6 +47,28 @@ defmodule NovelAgent.CreativeProvider.Real do
         )
     end
   end
+
+  defp enforce_companion_scope(
+         %CreativeProviderResult{status: :ok, companion_artifacts: companions} = result,
+         %CreativeRequest{tool_name: "prose_writing"}
+       )
+       when is_list(companions),
+       do: result
+
+  defp enforce_companion_scope(
+         %CreativeProviderResult{status: :ok, companion_artifacts: []} = result,
+         _request
+       ),
+       do: result
+
+  defp enforce_companion_scope(%CreativeProviderResult{status: :ok}, _request) do
+    provider_error(
+      "unexpected_companion_artifacts",
+      "only prose_writing may return companion_artifacts"
+    )
+  end
+
+  defp enforce_companion_scope(result, _request), do: result
 
   defp do_generate(prompt, result_fn, retry?) do
     case result_fn.(prompt) do
@@ -117,6 +142,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     顶层对象必须包含：
     - "items"：JSON 数组，且恰好包含一个连贯正文条目
+    - "companion_artifacts"：本轮新引入且值得登记的伴生产物数组；没有则 []，不得凑数
     - "self_report"：非权威自报告对象，只供质量门和 trace 复核，不代表作品事实
 
     items 内的正文条目必须包含以下键：
@@ -124,6 +150,11 @@ defmodule NovelAgent.CreativeProvider.Real do
     - "title"：本段正文的简短标题（只给一个标题，不要罗列多个备选）
     - "body"：一段连贯、完整的正文。直接写正文，不要在开头重复标题或章节名，也不要把同一情节用多个不同开头写多遍。若上下文中已给出本章前文，请在其后自然衔接续写，承接情节与人物状态，不要从头另起或重复已写内容。body 内不得出现独立的结构/状态元标签，例如“场景 2”“第2场”“第二场”“正文草稿”“待采纳草稿”“标题：”；这些只能放在 title / self_report 等结构字段里，不属于小说正文。
     - "rationale"：一句话依据（或 null）
+
+    companion_artifacts 每项含 artifact_type/item_id/title/body/rationale。类型仅限
+    character_seed、foreshadowing_seed、world_rule_seed、constraint_seed；角色可带
+    narrative_role/role/aliases。只提取有依据的新事实，不重复已有事实或升级普通细节。
+    rationale 写明依据；所有 item_id 唯一。
 
     self_report 必须包含以下键：
     - "assumptions"：数组；列出你为了完成正文所做的关键假设，没有则 []
@@ -367,12 +398,17 @@ defmodule NovelAgent.CreativeProvider.Real do
       |> NovelAgent.Provider.repair_unescaped_control_chars()
 
     with {:ok, decoded} <- Jason.decode(trimmed),
-         {:ok, raw_items, raw_self_report} <- creative_payload(decoded),
+         {:ok, raw_items, raw_self_report, raw_companions} <- creative_payload(decoded),
          {:ok, items} <- ToolOutputContract.validate_creative_items(raw_items),
+         {:ok, companion_artifacts} <-
+           ToolOutputContract.validate_prose_companion_artifacts(raw_companions),
+         :ok <- ToolOutputContract.validate_unique_item_ids(items, companion_artifacts),
          {:ok, self_report} <- ToolOutputContract.normalize_creative_self_report(raw_self_report) do
       %CreativeProviderResult{
         status: :ok,
         items: put_provider_call_ref(items, provider_call_ref),
+        companion_artifacts:
+          put_companion_provider_call_ref(companion_artifacts, provider_call_ref),
         self_report: self_report,
         provider_call_ref: provider_call_ref
       }
@@ -391,12 +427,16 @@ defmodule NovelAgent.CreativeProvider.Real do
     end
   end
 
-  defp creative_payload(items) when is_list(items), do: {:ok, items, nil}
+  defp creative_payload(items) when is_list(items), do: {:ok, items, nil, []}
 
   defp creative_payload(%{} = payload) do
     items = Map.get(payload, "items") || Map.get(payload, :items)
     self_report = Map.get(payload, "self_report") || Map.get(payload, :self_report)
-    {:ok, items, self_report}
+
+    companion_artifacts =
+      Map.get(payload, "companion_artifacts") || Map.get(payload, :companion_artifacts) || []
+
+    {:ok, items, self_report, companion_artifacts}
   end
 
   defp creative_payload(_decoded) do
@@ -414,6 +454,12 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp put_provider_call_ref(items, nil), do: items
 
   defp put_provider_call_ref(items, provider_call_ref) do
+    Enum.map(items, &Map.put(&1, :provider_call_ref, provider_call_ref))
+  end
+
+  defp put_companion_provider_call_ref(items, nil), do: items
+
+  defp put_companion_provider_call_ref(items, provider_call_ref) do
     Enum.map(items, &Map.put(&1, :provider_call_ref, provider_call_ref))
   end
 

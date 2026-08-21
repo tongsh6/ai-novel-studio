@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-08-10
+> 最后更新：2026-08-21
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -207,15 +207,31 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
+**R2「自由创作只产两种 artifact」独立刀——slice done（2026-08-21，
+`tasks/slices/P1-prose-companion-artifacts.md`）。队首 = 待用户拍板下一主线**。
+候选（按承重直觉排序，不代拍板）：① 写前推理层（四层体系备忘指认的最大真空——
+正文/规划调用前对携带状态做处理得出本章使命，
+`notes/2026-08-11-establish-carry-process-write-pipeline.md`）；② M5 节拍狗粮
+（刀①-④ + AU12 + NEM04 + R2 的长跑验证，观察别称 sighting、场级指导实效、
+**真实模型伴生产物是否「只提取有依据的新事实、不凑数」**——狗粮须用户批准；
+本地 LM Studio 已切 `qwen/qwen3.8-27b`，默认模型名 7 处已对齐，狗粮前须按
+B8 预检复核）。
+R2 收口一页话：VS-02A §3.2 冻结「同一次 `prose_writing` 调用返回正文 + 0..N 个
+既有 seed（character/foreshadowing/world_rule/constraint）」→ contract 校验
+（仅四类/主伴 item_id 唯一/非 prose 工具带伴生即拒）→ adapter 分组 + assembler
+`assemble_all`（伴生组不继承章归属 provenance）→ TurnResult 多组 candidate_set
+零前端改动 → 逐项采纳沿既有落位。真实 Tauri `p1-prose-companion-artifacts` PASS
+（五组同轮 / 15 动作 / 采纳前零写入 / 选择性采纳余 3 组 pending）；I1 driver 扩到
+解析顶层 `items ++ companion_artifacts`。1429 后端+438 前端+I1/I2/I3 绿。
+**同日顺带**：`req` 0.5.17 两条安全公告（GHSA-655f-mp8p-96gv high /
+GHSA-px9f-whj3-246m moderate）→ `mix deps.update req` 升 0.7.3（传递带升 finch
+0.23 / plug 1.20.3 / plug_crypto / decimal，全套测试兜底，live streaming 路径未
+重验）；pnpm 在 nvm node 24.19.0 下按 24.14.1 同款 `corepack enable` 恢复。
+**登记缺口**：`constraint_seed` 候选卡头沿用「规则草稿」文案（`copy.ts` 已有
+`constraintTitle` 未分派，改动连带既有 driver 断言，等拉动）。
+
 **刀序④ information 账+design_ref——slice done（2026-08-11，
-`tasks/slices/VS00F-information-ledger.md`）。Order 8 四把刀全部落地，
-队首 = 待用户拍板下一主线**。候选（按承重直觉排序，不代拍板）：
-① R2「自由创作只产两种 artifact」独立刀（Order 8 认定的更大一块——主循环常态
-产 foreshadowing/world_rule/character/constraint seed，类型分派表本是全的等不到
-输入）；② 写前推理层（四层体系备忘指认的最大真空——正文/规划调用前对携带状态
-做处理得出本章使命，`notes/2026-08-11-establish-carry-process-write-pipeline.md`）；
-③ M5 节拍狗粮（刀①-④ + AU12 + NEM04 的长跑验证，顺带观察别称 sighting 与
-场级指导实效——狗粮须用户批准）。
+`tasks/slices/VS00F-information-ledger.md`）。Order 8 四把刀全部落地。**
 刀④收口一页话：信息账正账双源建账（伏笔带 planned_reveal 预期归己/章计划信息，
 design_ref 全账首个真实写入）→ R9 仅超期开火+收官清单（无全局阈值）→
 prose/planning 注入（未回收伏笔+禁提前揭示，R4 事前预防）→ 回收=盘点模型提议+

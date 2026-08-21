@@ -113,6 +113,49 @@ defmodule NovelApplication.CreativeArtifactTest do
   end
 
   describe "ArtifactAssembler" do
+    test "assembles primary prose and companion seeds as separate tentative sets" do
+      result = %ToolResult{
+        tool_result_id: "tr-companions",
+        tool_request_ref: "tq-companions",
+        tool_name: "prose_writing",
+        status: :succeeded,
+        output: %{
+          artifact_type: :prose_fragment,
+          items: [%{item_id: "prose", title: "正文", body: "正文", rationale: nil}],
+          companion_artifacts: [
+            %{
+              artifact_type: :character_seed,
+              items: [
+                %{item_id: "char", title: "岑雾", body: "巡夜人", rationale: "正文首次出场"}
+              ]
+            },
+            %{
+              artifact_type: :world_rule_seed,
+              items: [
+                %{item_id: "rule", title: "灯禁", body: "日落后禁灯", rationale: "正文依据"}
+              ]
+            }
+          ]
+        }
+      }
+
+      assert {:ok, [prose, character, rule]} =
+               ArtifactAssembler.assemble_all(result, "turn-companions", %{
+                 authoring_intent: :continuation,
+                 target_chapter: "第01章：灯禁"
+               })
+
+      assert prose.artifact_type == :prose_fragment
+      assert prose.authoring_intent == :continuation
+      assert prose.target_chapter == "第01章：灯禁"
+      assert character.artifact_type == :character_seed
+      assert character.authoring_intent == nil
+      assert character.target_chapter == nil
+      assert rule.artifact_type == :world_rule_seed
+      assert Enum.all?([prose, character, rule], &(&1.adoption_status == :tentative))
+      assert Enum.all?([prose, character, rule], &(&1.source_tool_result_ref == "tr-companions"))
+    end
+
     test "accepts world_setting as a tentative artifact type" do
       result =
         Toolbox.execute(request("world_building"), fixed_json_provider([single_item("world")]))

@@ -3,6 +3,63 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
 
   alias NovelCommon.Contracts.ToolOutputContract
 
+  test "validates prose companion artifacts and preserves existing seed semantics" do
+    assert {:ok,
+            [
+              %{
+                artifact_type: :character_seed,
+                item_id: "char-new",
+                title: "岑雾",
+                body: "新登场的巡夜人",
+                rationale: "正文中首次出场",
+                narrative_role: "SUPPORTING"
+              },
+              %{
+                artifact_type: :constraint_seed,
+                item_id: "constraint-night",
+                title: "夜间约束",
+                body: "日落后不得点灯",
+                rationale: "作者明确要求"
+              }
+            ]} =
+             ToolOutputContract.validate_prose_companion_artifacts([
+               %{
+                 "artifact_type" => "character_seed",
+                 "item_id" => "char-new",
+                 "title" => "岑雾",
+                 "body" => "新登场的巡夜人",
+                 "rationale" => "正文中首次出场",
+                 "narrative_role" => "SUPPORTING"
+               },
+               %{
+                 "artifact_type" => "constraint_seed",
+                 "item_id" => "constraint-night",
+                 "title" => "夜间约束",
+                 "body" => "日落后不得点灯",
+                 "rationale" => "作者明确要求"
+               }
+             ])
+
+    assert {:error, %{code: "invalid_companion_artifact"}} =
+             ToolOutputContract.validate_prose_companion_artifacts([
+               %{
+                 artifact_type: "style_rule_seed",
+                 item_id: "style",
+                 title: "风格",
+                 body: "短句",
+                 rationale: nil
+               }
+             ])
+  end
+
+  test "rejects duplicate item ids across prose and companions" do
+    primary = [%{item_id: "same"}]
+    companions = [%{item_id: "same", artifact_type: :world_rule_seed}]
+
+    assert {:error, %{code: "duplicate_item_id"}} =
+             ToolOutputContract.validate_unique_item_ids(primary, companions)
+  end
+
   test "accepts explicit archive artifact types" do
     assert {:ok, :foreshadowing_seed} =
              ToolOutputContract.normalize_artifact_type("foreshadowing_seed")

@@ -1463,7 +1463,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           |> maybe_put_narrative_role(prompt, brief)
 
         if prose_fragment_prompt?(prompt) do
-          %{items: [item], self_report: creative_self_report(context)}
+          %{
+            items: [item],
+            companion_artifacts: prose_companion_artifacts(brief, fingerprint),
+            self_report: creative_self_report(context)
+          }
         else
           [item]
         end
@@ -1578,6 +1582,48 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp prose_fragment_prompt?(prompt),
     do: String.contains?(prompt, "artifact_type：prose_fragment")
+
+  # P1 R2：仅 test/support provider 的确定性语义 fixture。真实作者请求同时明确新角色、
+  # 伏笔、世界规则和后续约束时，正文调用按生产 contract 同轮返回四类 companion seed；
+  # 普通正文请求保持 []，不为凑数伪造设定。
+  defp prose_companion_artifacts(brief, fingerprint) do
+    if contains_any?(brief, ["岑雾", "灯禁", "前三章不揭示"]) do
+      [
+        %{
+          artifact_type: "character_seed",
+          item_id: "slice_companion_character_#{fingerprint}",
+          title: "岑雾",
+          body: "巡夜人，负责追查城中违规点灯者。",
+          rationale: "作者要求在本轮正文中新引入岑雾。",
+          narrative_role: "SUPPORTING",
+          role: "巡夜人"
+        },
+        %{
+          artifact_type: "foreshadowing_seed",
+          item_id: "slice_companion_foreshadow_#{fingerprint}",
+          title: "第三盏灯的蓝灰",
+          body: "第三盏灯熄灭后留下无法擦除的蓝灰。",
+          rationale: "正文中新埋且尚未回收的线索。"
+        },
+        %{
+          artifact_type: "world_rule_seed",
+          item_id: "slice_companion_rule_#{fingerprint}",
+          title: "夜间灯禁",
+          body: "日落后点亮第三盏灯会引来巡夜人。",
+          rationale: "本轮正文建立、会持续约束人物行动的世界规则。"
+        },
+        %{
+          artifact_type: "constraint_seed",
+          item_id: "slice_companion_constraint_#{fingerprint}",
+          title: "前三章不揭示灯禁源头",
+          body: "前三章不得解释灯禁与蓝灰的真正来源。",
+          rationale: "作者在本轮创作简述中明确提出的后续约束。"
+        }
+      ]
+    else
+      []
+    end
+  end
 
   defp creative_self_report(context) do
     %{

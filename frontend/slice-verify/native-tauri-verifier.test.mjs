@@ -90,6 +90,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
+    expect(nativeSliceIds).toContain("p1-prose-companion-artifacts");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -8812,6 +8813,94 @@ describe("native Tauri slice verifier", () => {
     });
 
     expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("requires five tentative prose companion groups and selective character adoption", () => {
+    const records = [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "p1-prose-companion-artifacts",
+        parent_turn_id: "turn-prose-companions",
+        final_turn_id: "turn-prose-companions:agent:4",
+        run_id: "run-prose-companions",
+        profile_ref: "prose_drafting_with_quality_v1",
+        provider_call_ref: "pcall-prose-companions",
+        tool_name: "prose_writing",
+        pending_types: [
+          "prose_fragment",
+          "character_seed",
+          "foreshadowing_seed",
+          "world_rule_seed",
+          "constraint_seed",
+        ],
+        pending_count: 5,
+        candidate_card_count: 5,
+        available_adoption_action_count: 15,
+        all_tentative_before_action: true,
+        no_write_before_action: true,
+        no_adoption_before_action: true,
+        character_absent_before_action: true,
+        pending_character_visible_in_archive_before_action: true,
+        character_adopted: true,
+        character_visible_after_action: true,
+        remaining_companion_pending_count: 3,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("p1-prose-companion-artifacts", records);
+    expect(evidence).toEqual({
+      slice_id: "p1-prose-companion-artifacts",
+      turn_id: "turn-prose-companions:agent:4",
+      turn_ids: ["turn-prose-companions", "turn-prose-companions:agent:4"],
+      parent_turn_id: "turn-prose-companions",
+      final_turn_id: "turn-prose-companions:agent:4",
+      run_id: "run-prose-companions",
+      profile_ref: "prose_drafting_with_quality_v1",
+      provider_call_ref: "pcall-prose-companions",
+      pending_types: [
+        "prose_fragment",
+        "character_seed",
+        "foreshadowing_seed",
+        "world_rule_seed",
+        "constraint_seed",
+      ],
+      pending_count: 5,
+      candidate_card_count: 5,
+      available_adoption_action_count: 15,
+      remaining_companion_pending_count: 3,
+      key_events: keyEventsForSlice("p1-prose-companion-artifacts"),
+    });
+
+    expect(findSliceBehaviorEvidence("p1-prose-companion-artifacts", records, evidence)).toEqual({
+      slice_id: "p1-prose-companion-artifacts",
+      behavior:
+        "one_prose_provider_call_emitted_tentative_primary_and_four_companion_seed_families_with_selective_adoption",
+      turn_ids: ["turn-prose-companions", "turn-prose-companions:agent:4"],
+      run_id: "run-prose-companions",
+      profile_ref: "prose_drafting_with_quality_v1",
+      provider_call_ref: "pcall-prose-companions",
+      pending_types: [
+        "prose_fragment",
+        "character_seed",
+        "foreshadowing_seed",
+        "world_rule_seed",
+        "constraint_seed",
+      ],
+      assertions: [
+        "real_workbench_prose_request_reached_the_bounded_prose_profile",
+        "one_prose_tool_result_carried_primary_prose_and_four_existing_seed_families",
+        "all_five_artifacts_rendered_as_existing_candidate_set_cards",
+        "all_five_artifacts_remained_tentative_before_author_action",
+        "generation_performed_no_adoption_or_production_write",
+        "accepted_character_count_remained_zero_while_pending_character_was_visible_in_archive",
+        "character_accept_used_the_existing_server_authorized_adoption_boundary",
+        "adopted_character_became_visible_in_the_real_archive",
+        "unselected_companion_seeds_remained_pending",
+      ],
+    });
+
+    const leakedWrite = records.map((record) => ({ ...record, no_write_before_action: false }));
+    expect(findNativeSliceEvidence("p1-prose-companion-artifacts", leakedWrite)).toBeNull();
   });
 });
 

@@ -84,6 +84,40 @@ TentativeArtifactSet 表示 AI 生成的待采纳创作材料。
 - `ToolAdapter` 负责具体工具到 artifact_type 的 contract 映射：`character_design -> character_seed`、`plot_outline -> outline_draft`、`prose_writing -> prose_fragment`；`world_building` 保持工具能力名，但按作者意图输出 `world_setting` / `foreshadowing_seed` / `world_rule_seed` / `style_rule_seed` / `constraint_seed`，其中 `world_setting` 仅表示普通世界观/背景设定草稿，不承载伏笔或规则默认语义。
 - provider failure / invalid output 必须返回 failed `ToolResult`；不得生成 `TentativeArtifactSet`、candidate_set card 或采纳类 action。
 
+### 3.2 正文创作的伴生产物（2026-08-11）
+
+`prose_writing` 可以在同一次 provider 调用中返回一份正文主产物，以及正文中本轮新引入、
+仍需作者确认的伴生产物。当前允许的伴生类型仅为：
+
+- `character_seed`
+- `foreshadowing_seed`
+- `world_rule_seed`
+- `constraint_seed`
+
+运行时形状为：
+
+```text
+prose_writing ToolResult
+  primary artifact       -> prose_fragment TentativeArtifactSet
+  companion artifacts    -> 0..N 个既有 seed TentativeArtifactSet
+```
+
+约束：
+
+1. 伴生产物与正文来自同一次 provider 原始响应；`item_id/title/body/rationale` 必须按
+   provider 返回原样进入 ToolResult 和 artifact，不得由 application 补写创作字节。
+2. 主产物与全部伴生产物的 `item_id` 必须唯一；类型未知、字段不合法或 id 冲突均属于
+   provider output validation failure，不得静默改型或合并。
+3. 伴生产物只记录本轮新引入、可独立登记的内容；已有角色/规则不得重复提案，普通叙述
+   细节不得为凑数升级为设定。
+4. `companion_artifacts` 必须显式存在；没有新事实时返回空数组。系统不得为了固定数量
+   伪造候选。
+5. 每个类型分别建立 `TentativeArtifactSet`，复用既有逐项采纳与落位映射；正文的
+   `authoring_intent/target_chapter` provenance 不复制到 seed 产物。
+6. 任一候选在作者明确采纳前都不得进入 Character、Memory 或 Reading Projection。
+7. 该扩展不新增 UI card type；同一 TurnResult 通过多个既有 `candidate_set` 展示，动作
+   仍只来自 `available_actions`。
+
 ---
 
 ## 4. TurnResult Truthfulness Rules

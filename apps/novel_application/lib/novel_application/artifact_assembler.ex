@@ -52,6 +52,61 @@ defmodule NovelApplication.ArtifactAssembler do
     {:error, %{code: "invalid_tool_output", message: "creative tool output is missing"}}
   end
 
+  @doc """
+  Assemble a creative ToolResult that may contain one primary artifact group
+  plus prose companion groups. The primary group keeps chapter/revision
+  provenance; companion seeds keep only the shared turn/tool source.
+  """
+  @spec assemble_all(ToolResult.t(), String.t(), map()) ::
+          {:ok, [TentativeArtifactSet.t()]} | {:error, map()}
+  def assemble_all(tool_result, turn_ref, provenance \\ %{})
+
+  def assemble_all(
+        %ToolResult{status: :succeeded, output: output} = tool_result,
+        turn_ref,
+        provenance
+      )
+      when is_map(output) do
+    with {:ok, primary} <- assemble(tool_result, turn_ref, provenance),
+         {:ok, companions} <- assemble_companions(tool_result, turn_ref, output) do
+      {:ok, [primary | companions]}
+    end
+  end
+
+  def assemble_all(%ToolResult{} = tool_result, turn_ref, provenance),
+    do: assemble(tool_result, turn_ref, provenance) |> wrap_primary()
+
+  defp assemble_companions(tool_result, turn_ref, output) do
+    case Map.get(output, :companion_artifacts, []) do
+      groups when is_list(groups) ->
+        groups
+        |> Enum.reduce_while([], &assemble_companion(&1, &2, tool_result, turn_ref))
+        |> finalize_companions()
+
+      _other ->
+        {:error,
+         %{
+           code: "invalid_companion_artifacts",
+           message: "creative tool companion_artifacts must be a list"
+         }}
+    end
+  end
+
+  defp assemble_companion(group, acc, tool_result, turn_ref) do
+    companion_result = %{tool_result | output: group}
+
+    case assemble(companion_result, turn_ref, %{}) do
+      {:ok, artifact_set} -> {:cont, [artifact_set | acc]}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp finalize_companions({:error, _reason} = error), do: error
+  defp finalize_companions(artifact_sets), do: {:ok, Enum.reverse(artifact_sets)}
+
+  defp wrap_primary({:ok, primary}), do: {:ok, [primary]}
+  defp wrap_primary({:error, _reason} = error), do: error
+
   defp normalize_authoring_intent(:continuation), do: :continuation
   defp normalize_authoring_intent(:rewrite), do: :rewrite
   defp normalize_authoring_intent("continuation"), do: :continuation

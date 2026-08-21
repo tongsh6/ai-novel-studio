@@ -21094,6 +21094,219 @@ async function driveAgentProseDraftingWithQuality(page) {
   ];
 }
 
+async function driveP1ProseCompanionArtifacts(page) {
+  const sliceId = "p1-prose-companion-artifacts";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message =
+    "请写一段正文：新角色岑雾在夜间灯禁下发现第三盏灯留下蓝灰，并把‘前三章不揭示灯禁源头’作为后续创作约束。";
+  const expectedTypes = [
+    "prose_fragment",
+    "character_seed",
+    "foreshadowing_seed",
+    "world_rule_seed",
+    "constraint_seed",
+  ];
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "Prose companion request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.run_mode === "bounded" &&
+      typeof frame.body?.response?.run_id === "string",
+    "Prose companion request did not start a bounded AgentRun",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const pending = frame.body?.adoption_state?.pending ?? [];
+      const types = pending.map((entry) => String(entry.artifact_type ?? ""));
+      return (
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId &&
+        frame.body?.tool_result?.tool_name === "prose_writing" &&
+        expectedTypes.every((type) => types.includes(type))
+      );
+    },
+    "Prose writing did not return the primary draft and four companion seed families",
+    120_000,
+  );
+  const turnResult = turnFrame.body;
+  const pending = turnResult.adoption_state?.pending ?? [];
+  const pendingTypes = pending.map((entry) => String(entry.artifact_type ?? ""));
+  const characterPending = pending.find((entry) => entry.artifact_type === "character_seed");
+
+  assert(pending.length === 5, `Expected 5 pending artifacts, got ${pending.length}`);
+  assert(characterPending, "Companion output did not expose a character_seed pending artifact");
+  assert(
+    pending.every(
+      (entry) =>
+        entry.requires_adoption === true && String(entry.adoption_status ?? "") === "tentative",
+    ),
+    "Primary or companion artifact bypassed the tentative boundary",
+  );
+  assert(
+    (turnResult.available_actions ?? []).filter((action) =>
+      ["accept", "discard", "edit_then_accept"].includes(action.action_type),
+    ).length === 15,
+    "Five pending artifacts did not expose three server-authorized actions each",
+  );
+  assert(
+    turnResult.truthfulness?.artifact_adopted === false &&
+      turnResult.truthfulness?.production_write_performed === false,
+    "Prose companion generation wrote an authoritative fact before author action",
+  );
+
+  await page.waitForFunction(
+    (titles) => titles.every((title) => document.body.innerText.includes(title)),
+    ["章节正文草稿", "岑雾", "第三盏灯的蓝灰", "夜间灯禁", "前三章不揭示灯禁源头"],
+    { timeout: 30_000 },
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "p1-prose-companion-artifacts-pending.png"),
+    fullPage: true,
+  });
+
+  // 采纳前「角色」事实计数必须仍为 0；同批候选按探索面同步律会出现在档案的
+  // 待采纳区域，因此不能用整块 panel 文本是否含角色名来判断事实泄漏。
+  const beforeArchiveLogStart = readAppLogRecords().length;
+  const beforeArchive = await openArchiveTab(page, "角色");
+  const archiveBeforeText = await beforeArchive.innerText();
+  const beforeCharacterQuery = await waitForNewAppLogRecord(
+    beforeArchiveLogStart,
+    (record) => record.event === "channel.get_characters.done",
+    "Archive did not query accepted characters before companion adoption",
+    30_000,
+  );
+  assert(
+    Number(beforeCharacterQuery.character_count ?? -1) === 0,
+    "Companion character leaked into accepted character facts before adoption",
+  );
+  assert(
+    archiveBeforeText.includes("待保存角色") && archiveBeforeText.includes("岑雾"),
+    "Companion character was not reachable from the archive pending exploration surface",
+  );
+  await closeArchiveIfOpen(page);
+
+  // 正文的采纳文案是「保存为章节正文」，其后第一个「保存到作品档案」即角色组；
+  // 点击后的 author_action.target_ref 仍做精确绑定断言，避免仅凭视觉顺序放行。
+  const characterAccept = page.getByRole("button", {
+    name: "保存到作品档案",
+    exact: true,
+  }).first();
+  await characterAccept.waitFor({ timeout: 10_000 });
+
+  const adoptionStart = frames.length;
+  await characterAccept.click();
+  await waitForNewFrame(
+    adoptionStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === characterPending.artifact_id,
+    "Companion character did not submit its server-authorized accept action",
+    30_000,
+  );
+  const adoptedFrame = await waitForNewFrame(
+    adoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === characterPending.artifact_id,
+      ),
+    "Companion character was not resolved through the adoption boundary",
+    120_000,
+  );
+
+  const afterArchiveLogStart = readAppLogRecords().length;
+  const afterArchive = await openArchiveTab(page, "角色");
+  const afterCharacterQuery = await waitForNewAppLogRecord(
+    afterArchiveLogStart,
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      Number(record.character_count ?? 0) >= 1,
+    "Archive did not expose the adopted companion character as an accepted fact",
+    30_000,
+  );
+  await afterArchive.getByText("岑雾", { exact: false }).first().waitFor({ timeout: 15_000 });
+  await page.screenshot({
+    path: path.join(artifactDir, "p1-prose-companion-artifacts-character-adopted.png"),
+    fullPage: true,
+  });
+  await closeArchiveIfOpen(page);
+
+  const remainingCompanionTitles = [
+    "第三盏灯的蓝灰",
+    "夜间灯禁",
+    "前三章不揭示灯禁源头",
+  ];
+  await page.waitForFunction(
+    (titles) => titles.every((title) => document.body.innerText.includes(title)),
+    remainingCompanionTitles,
+    { timeout: 15_000 },
+  );
+  const remainingCompanionPendingCount = remainingCompanionTitles.length;
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+      parent_turn_id: String(turnResult.turn_id ?? "").split(":agent:")[0],
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      profile_ref: turnResult.agent_run?.profile_ref,
+      provider_call_ref: turnResult.trace_summary?.writer_provider_call_ref,
+      tool_name: turnResult.tool_result?.tool_name,
+      pending_types: pendingTypes,
+      pending_count: pending.length,
+      candidate_card_count: (turnResult.ui_cards ?? []).filter(
+        (card) => card.card_type === "candidate_set",
+      ).length,
+      available_adoption_action_count: (turnResult.available_actions ?? []).filter((action) =>
+        ["accept", "discard", "edit_then_accept"].includes(action.action_type),
+      ).length,
+      all_tentative_before_action: pending.every(
+        (entry) => String(entry.adoption_status ?? "") === "tentative",
+      ),
+      no_write_before_action: turnResult.truthfulness?.production_write_performed === false,
+      no_adoption_before_action: turnResult.truthfulness?.artifact_adopted === false,
+      character_absent_before_action: Number(beforeCharacterQuery.character_count ?? -1) === 0,
+      pending_character_visible_in_archive_before_action:
+        archiveBeforeText.includes("待保存角色") && archiveBeforeText.includes("岑雾"),
+      character_adopted: adoptedFrame.body?.truthfulness?.artifact_adopted === true,
+      character_visible_after_action: Number(afterCharacterQuery.character_count ?? 0) >= 1,
+      remaining_companion_pending_count: remainingCompanionPendingCount,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -27016,6 +27229,7 @@ const drivers = {
   "agent-tentative-boundary": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-provider-call-budget": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-prose-drafting-with-quality": driveAgentProseDraftingWithQuality,
+  "p1-prose-companion-artifacts": driveP1ProseCompanionArtifacts,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

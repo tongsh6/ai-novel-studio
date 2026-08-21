@@ -216,6 +216,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-prose-drafting-with-quality.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-prose-drafting-with-quality --surface tauri
+  - id: p1-prose-companion-artifacts
+    title: "一次正文生成产出四类待采纳伴生要素"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-prose-companion-artifacts.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-prose-companion-artifacts --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

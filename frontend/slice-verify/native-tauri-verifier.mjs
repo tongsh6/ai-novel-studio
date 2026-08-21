@@ -161,6 +161,7 @@ export const nativeSliceIds = [
   "p1-prose-quality-evaluator-degrade",
   "p1-prose-quality-adoption-boundary",
   "agent-prose-drafting-with-quality",
+  "p1-prose-companion-artifacts",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -481,6 +482,16 @@ const sliceKeyEvents = {
     "prose_quality.evaluated.done",
     "quality_policy.decided.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-prose-companion-artifacts": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
@@ -1946,6 +1957,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterDraftGenerationEvidence(records);
   }
 
+  if (sliceId === "p1-prose-companion-artifacts") {
+    return findP1ProseCompanionArtifactsEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2846,6 +2861,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "agent-prose-drafting-with-quality") {
     return agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-prose-companion-artifacts") {
+    return p1ProseCompanionArtifactsBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -4453,6 +4472,97 @@ function findAgentProseDraftingWithQualityEvidence(records) {
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
     key_events: keyEvents,
+  };
+}
+
+function findP1ProseCompanionArtifactsEvidence(records) {
+  const sliceId = "p1-prose-companion-artifacts";
+  const expectedTypes = [
+    "prose_fragment",
+    "character_seed",
+    "foreshadowing_seed",
+    "world_rule_seed",
+    "constraint_seed",
+  ];
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "prose_drafting_with_quality_v1" &&
+      record.tool_name === "prose_writing" &&
+      Number(record.pending_count ?? 0) === 5 &&
+      Number(record.candidate_card_count ?? 0) === 5 &&
+      Number(record.available_adoption_action_count ?? 0) === 15 &&
+      expectedTypes.every((type) => (record.pending_types ?? []).includes(type)) &&
+      record.all_tentative_before_action === true &&
+      record.no_write_before_action === true &&
+      record.no_adoption_before_action === true &&
+      record.character_absent_before_action === true &&
+      record.pending_character_visible_in_archive_before_action === true &&
+      record.character_adopted === true &&
+      record.character_visible_after_action === true &&
+      Number(record.remaining_companion_pending_count ?? -1) === 3,
+  );
+  if (!uiState) return null;
+  if (!String(uiState.provider_call_ref ?? "")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.final_turn_id,
+    turn_ids: [uiState.parent_turn_id, uiState.final_turn_id].filter(Boolean),
+    parent_turn_id: uiState.parent_turn_id,
+    final_turn_id: uiState.final_turn_id,
+    run_id: uiState.run_id,
+    profile_ref: uiState.profile_ref,
+    provider_call_ref: uiState.provider_call_ref,
+    pending_types: uiState.pending_types,
+    pending_count: Number(uiState.pending_count),
+    candidate_card_count: Number(uiState.candidate_card_count),
+    available_adoption_action_count: Number(uiState.available_adoption_action_count),
+    remaining_companion_pending_count: Number(uiState.remaining_companion_pending_count),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function p1ProseCompanionArtifactsBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-companion-artifacts" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.all_tentative_before_action !== true) return null;
+  if (uiState.no_write_before_action !== true || uiState.no_adoption_before_action !== true) {
+    return null;
+  }
+  if (uiState.character_absent_before_action !== true) return null;
+  if (uiState.pending_character_visible_in_archive_before_action !== true) return null;
+  if (uiState.character_adopted !== true || uiState.character_visible_after_action !== true) {
+    return null;
+  }
+  if (Number(uiState.remaining_companion_pending_count ?? -1) !== 3) return null;
+
+  return {
+    slice_id: "p1-prose-companion-artifacts",
+    behavior:
+      "one_prose_provider_call_emitted_tentative_primary_and_four_companion_seed_families_with_selective_adoption",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    provider_call_ref: evidence.provider_call_ref,
+    pending_types: evidence.pending_types,
+    assertions: [
+      "real_workbench_prose_request_reached_the_bounded_prose_profile",
+      "one_prose_tool_result_carried_primary_prose_and_four_existing_seed_families",
+      "all_five_artifacts_rendered_as_existing_candidate_set_cards",
+      "all_five_artifacts_remained_tentative_before_author_action",
+      "generation_performed_no_adoption_or_production_write",
+      "accepted_character_count_remained_zero_while_pending_character_was_visible_in_archive",
+      "character_accept_used_the_existing_server_authorized_adoption_boundary",
+      "adopted_character_became_visible_in_the_real_archive",
+      "unselected_companion_seeds_remained_pending",
+    ],
   };
 }
 

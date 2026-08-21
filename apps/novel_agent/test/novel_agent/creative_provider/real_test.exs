@@ -153,6 +153,114 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert result.self_report.quality_action == :confirm
   end
 
+  test "prose writing keeps four allowed companion seed families on the same provider call" do
+    content =
+      Jason.encode!(%{
+        items: [
+          %{item_id: "prose-1", title: "灯禁", body: "岑雾吹灭了第三盏灯。", rationale: nil}
+        ],
+        companion_artifacts: [
+          %{
+            artifact_type: "character_seed",
+            item_id: "char-cenwu",
+            title: "岑雾",
+            body: "巡夜人",
+            rationale: "正文首次出场",
+            narrative_role: "SUPPORTING"
+          },
+          %{
+            artifact_type: "foreshadowing_seed",
+            item_id: "foreshadow-third-lamp",
+            title: "第三盏灯",
+            body: "第三盏灯熄灭后留下蓝灰",
+            rationale: "正文新埋线索"
+          },
+          %{
+            artifact_type: "world_rule_seed",
+            item_id: "rule-night-light",
+            title: "夜间灯禁",
+            body: "日落后点灯会招来巡夜人",
+            rationale: "正文建立持续规则"
+          },
+          %{
+            artifact_type: "constraint_seed",
+            item_id: "constraint-no-reveal",
+            title: "暂不揭示灯禁源头",
+            body: "前三章不解释灯禁来源",
+            rationale: "作者明确要求"
+          }
+        ],
+        self_report: %{assumptions: [], used_context_refs: [], risk_flags: []}
+      })
+
+    result =
+      Real.generate(
+        @request,
+        provider_execution(fn _prompt ->
+          {:ok, %ProviderResult{content: content, provider_call_ref: "pcall-companions"}}
+        end)
+      )
+
+    assert result.status == :ok
+    assert Enum.map(result.companion_artifacts, & &1.artifact_type) == [
+             :character_seed,
+             :foreshadowing_seed,
+             :world_rule_seed,
+             :constraint_seed
+           ]
+
+    assert Enum.all?(
+             result.items ++ result.companion_artifacts,
+             &(&1.provider_call_ref == "pcall-companions")
+           )
+  end
+
+  test "rejects duplicate ids and companions on non-prose capabilities" do
+    duplicate =
+      Jason.encode!(%{
+        items: [%{item_id: "same", title: "正文", body: "正文", rationale: nil}],
+        companion_artifacts: [
+          %{
+            artifact_type: "world_rule_seed",
+            item_id: "same",
+            title: "规则",
+            body: "规则",
+            rationale: nil
+          }
+        ]
+      })
+
+    assert %{status: :error, errors: [%{code: "duplicate_item_id"}]} =
+             Real.generate(@request, provider_execution(fn _ -> {:ok, %{content: duplicate}} end))
+
+    non_prose = %{@request | tool_name: "character_design", artifact_type: :character_seed}
+
+    assert %{status: :error, errors: [%{code: "unexpected_companion_artifacts"}]} =
+             Real.generate(
+               non_prose,
+               provider_execution(fn _ ->
+                 {:ok,
+                  %{
+                    content:
+                      Jason.encode!(%{
+                        items: [
+                          %{item_id: "char-1", title: "角色", body: "角色", rationale: nil}
+                        ],
+                        companion_artifacts: [
+                          %{
+                            artifact_type: "world_rule_seed",
+                            item_id: "rule-1",
+                            title: "规则",
+                            body: "规则",
+                            rationale: nil
+                          }
+                        ]
+                      })
+                  }}
+               end)
+             )
+  end
+
   test "prose writing prompt asks for ReaderEffect self report without losing anchors" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
@@ -165,6 +273,11 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     prompt = Agent.get(agent, & &1)
     assert prompt =~ "self_report"
+    assert prompt =~ "companion_artifacts"
+    assert prompt =~ "character_seed"
+    assert prompt =~ "foreshadowing_seed"
+    assert prompt =~ "world_rule_seed"
+    assert prompt =~ "constraint_seed"
     assert prompt =~ "risk_flags"
     assert prompt =~ "body 内不得出现独立的结构/状态元标签"
     assert prompt =~ "场景 2"

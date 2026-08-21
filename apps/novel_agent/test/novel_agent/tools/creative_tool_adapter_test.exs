@@ -61,6 +61,61 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
     end
   end
 
+  defmodule CompanionProvider do
+    @behaviour NovelAgent.CreativeProvider
+
+    alias NovelCommon.Contracts.CreativeProviderResult
+
+    @impl true
+    def generate(_request, _provider_execution) do
+      %CreativeProviderResult{
+        status: :ok,
+        items: [
+          %{item_id: "prose", title: "正文", body: "正文内容", rationale: nil}
+        ],
+        companion_artifacts: [
+          %{
+            artifact_type: :world_rule_seed,
+            item_id: "rule",
+            title: "世界规则",
+            body: "规则内容",
+            rationale: "正文依据"
+          },
+          %{
+            artifact_type: :character_seed,
+            item_id: "character",
+            title: "新角色",
+            body: "角色内容",
+            rationale: "正文依据"
+          }
+        ]
+      }
+    end
+  end
+
+  defmodule DuplicateCompanionProvider do
+    @behaviour NovelAgent.CreativeProvider
+
+    alias NovelCommon.Contracts.CreativeProviderResult
+
+    @impl true
+    def generate(_request, _provider_execution) do
+      %CreativeProviderResult{
+        status: :ok,
+        items: [%{item_id: "shared", title: "正文", body: "正文内容", rationale: nil}],
+        companion_artifacts: [
+          %{
+            artifact_type: :character_seed,
+            item_id: "shared",
+            title: "重复角色",
+            body: "角色内容",
+            rationale: nil
+          }
+        ]
+      }
+    end
+  end
+
   test "passes creative self_report as observation and non-authoritative warning" do
     result =
       CreativeToolAdapter.execute(
@@ -104,6 +159,48 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
 
     assert result.status == :succeeded
     assert [%{provider_call_ref: "pcall-tool-execution"}] = result.output.items
+  end
+
+  test "projects prose companions into grouped ToolResult state without production writes" do
+    result =
+      CreativeToolAdapter.execute(
+        request(),
+        :prose_fragment,
+        %Execution{result_fn: fn _ -> {:ok, %{content: "unused"}} end},
+        CompanionProvider
+      )
+
+    assert result.status == :succeeded
+    assert result.artifact_refs == ["prose", "rule", "character"]
+    assert result.output.companion_item_count == 2
+
+    assert Enum.map(result.output.companion_artifacts, & &1.artifact_type) == [
+             :character_seed,
+             :world_rule_seed
+           ]
+
+    assert Enum.map(result.state_delta, & &1.artifact_type) == [
+             :prose_fragment,
+             :character_seed,
+             :world_rule_seed
+           ]
+
+    refute Enum.any?(result.state_delta, &(&1.type == :production_write))
+  end
+
+  test "rejects duplicate primary and companion item ids at the tool adapter boundary" do
+    result =
+      CreativeToolAdapter.execute(
+        request(),
+        :prose_fragment,
+        %Execution{result_fn: fn _ -> {:ok, %{content: "unused"}} end},
+        DuplicateCompanionProvider
+      )
+
+    assert result.status == :failed
+    assert [%{code: "duplicate_item_id"}] = result.errors
+    assert result.artifact_refs == []
+    assert result.state_delta == []
   end
 
   defp request do

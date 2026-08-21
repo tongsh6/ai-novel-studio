@@ -194,7 +194,8 @@ defmodule NovelApplication.TurnExecutionService do
     quality_provider_execution = quality_provider_execution(input)
 
     tool_result = dispatch_tool(req, provider_execution)
-    artifact_set = assemble_artifact(tool_result, frame.turn_id, plan, resolved_chapter)
+    artifact_sets = assemble_artifacts(tool_result, frame.turn_id, plan, resolved_chapter)
+    artifact_set = List.first(artifact_sets)
 
     # VS-00E CP2：正文生成后运行独立质量评估（与 writer 逻辑分离），产出 QualityFinding +
     # 策略。只读，不改 artifact / 作品事实；evaluator 失败诚实降级为 quality_review_unavailable。
@@ -234,13 +235,13 @@ defmodule NovelApplication.TurnExecutionService do
     assistant_message = narrate(tool_result, artifact_set, provider_execution)
 
     turn_result =
-      TurnResultBuilder.build(
+      build_turn_result(
         frame,
         trace_summary,
         input[:candidates] || [],
         decision,
         tool_result,
-        artifact_set
+        artifact_sets
       )
       |> Map.put(:assistant_message, %{text: assistant_message})
       |> maybe_put_quality_review(quality)
@@ -1743,20 +1744,77 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp dispatch_tool(%ToolRequest{} = req, _result_fn), do: AuthorizedToolExecutor.execute(req)
 
-  defp assemble_artifact(
+  defp assemble_artifacts(
          %ToolResult{tool_name: tool_name} = result,
          turn_id,
          plan,
          resolved_chapter
        )
        when tool_name in @creative_tools do
-    case ArtifactAssembler.assemble(result, turn_id, provenance(plan, resolved_chapter)) do
-      {:ok, artifact_set} -> artifact_set
-      {:error, _reason} -> nil
+    case ArtifactAssembler.assemble_all(result, turn_id, provenance(plan, resolved_chapter)) do
+      {:ok, artifact_sets} -> artifact_sets
+      {:error, _reason} -> []
     end
   end
 
-  defp assemble_artifact(_result, _turn_id, _plan, _resolved_chapter), do: nil
+  defp assemble_artifacts(_result, _turn_id, _plan, _resolved_chapter), do: []
+
+  defp build_turn_result(
+         frame,
+         trace_summary,
+         candidates,
+         decision,
+         tool_result,
+         [_primary, _companion | _] = artifact_sets
+       ) do
+    TurnResultBuilder.build_artifact_sets(
+      frame,
+      trace_summary,
+      decision,
+      tool_result,
+      artifact_sets
+    )
+    |> maybe_add_candidates_to_multi_artifact(frame, candidates)
+  end
+
+  defp build_turn_result(
+         frame,
+         trace_summary,
+         candidates,
+         decision,
+         tool_result,
+         [artifact_set]
+       ) do
+    TurnResultBuilder.build(
+      frame,
+      trace_summary,
+      candidates,
+      decision,
+      tool_result,
+      artifact_set
+    )
+  end
+
+  defp build_turn_result(frame, trace_summary, candidates, decision, tool_result, []) do
+    TurnResultBuilder.build(frame, trace_summary, candidates, decision, tool_result, nil)
+  end
+
+  # Creative execution currently does not combine exploration candidates with
+  # tool artifacts, but keep the input honest if a caller provides them.
+  defp maybe_add_candidates_to_multi_artifact(result, _frame, []), do: result
+
+  defp maybe_add_candidates_to_multi_artifact(result, frame, candidates) do
+    candidate_result = TurnResultBuilder.build(frame, %{}, candidates)
+
+    result
+    |> Map.put(:candidate_directions, Map.get(candidate_result, :candidate_directions, []))
+    |> Map.update(:ui_cards, Map.get(candidate_result, :ui_cards, []), fn cards ->
+      cards ++ Map.get(candidate_result, :ui_cards, [])
+    end)
+    |> Map.update(:available_actions, Map.get(candidate_result, :available_actions, []), fn actions ->
+      actions ++ Map.get(candidate_result, :available_actions, [])
+    end)
+  end
 
   # artifact provenance：authoring_intent 来自 plan；target_chapter 用应用层解析后的归章
   # （命中/回退后的章），保证"生成时读前文的章"与"采纳时归入的章"是同一章。

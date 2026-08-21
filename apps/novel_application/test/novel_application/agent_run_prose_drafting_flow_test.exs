@@ -42,6 +42,37 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                      rationale: "首稿候选。"
                    }
                  ],
+                 companion_artifacts: [
+                   %{
+                     artifact_type: "character_seed",
+                     item_id: "agent-prose-character",
+                     title: "岑雾",
+                     body: "巡夜人，负责追查灵气账单异常。",
+                     rationale: "正文中首次出场。",
+                     narrative_role: "SUPPORTING"
+                   },
+                   %{
+                     artifact_type: "foreshadowing_seed",
+                     item_id: "agent-prose-foreshadow",
+                     title: "账单上的蓝灰",
+                     body: "被抹除的账目都会留下蓝灰。",
+                     rationale: "正文新埋且尚未回收的线索。"
+                   },
+                   %{
+                     artifact_type: "world_rule_seed",
+                     item_id: "agent-prose-world-rule",
+                     title: "账目抹除规则",
+                     body: "灵气账目不能被无痕删除。",
+                     rationale: "正文建立的持续世界规则。"
+                   },
+                   %{
+                     artifact_type: "constraint_seed",
+                     item_id: "agent-prose-constraint",
+                     title: "暂不揭示账单来源",
+                     body: "前三章不解释异常账单的制造者。",
+                     rationale: "作者本轮明确要求。"
+                   }
+                 ],
                  self_report: %{
                    assumptions: [],
                    intended_reader_effect: "压迫感",
@@ -145,6 +176,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:writer_prompt, writer_prompt}, 500
     assert writer_prompt =~ "用户创作简述："
     assert writer_prompt =~ "场级执行简述"
+    assert writer_prompt =~ "companion_artifacts"
     assert_receive {:evaluator_prompt, evaluator_prompt}, 500
     assert evaluator_prompt =~ "质量评审"
     refute evaluator_prompt =~ "用户创作简述："
@@ -181,8 +213,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert turn_result.truthfulness.artifact_adopted == false
     assert turn_result.truthfulness.production_write_performed == false
 
-    assert [%{adoption_status: :tentative, artifact_type: :prose_fragment}] =
-             turn_result.adoption_state.pending
+    assert Enum.map(turn_result.adoption_state.pending, & &1.artifact_type) == [
+             :prose_fragment,
+             :character_seed,
+             :foreshadowing_seed,
+             :world_rule_seed,
+             :constraint_seed
+           ]
+
+    assert Enum.all?(turn_result.adoption_state.pending, &(&1.adoption_status == :tentative))
+    assert length(turn_result.ui_cards) == 5
+    assert Enum.all?(turn_result.ui_cards, &(&1.card_type == "candidate_set"))
+    assert length(turn_result.available_actions) >= 15
 
     assert turn_result.quality_review.review_status == "completed"
     assert turn_result.quality_review.findings != []
