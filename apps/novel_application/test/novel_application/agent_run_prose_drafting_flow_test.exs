@@ -133,7 +133,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       quality_provider_execution: %Execution{result_fn: evaluator},
       chapter_prose_reader: fn _work_id, _chapter -> "" end,
       chapter_summary_reader: %{},
-      character_reader: fn _work_id -> [] end
+      character_reader: fn _work_id -> [] end,
+      # WR01b：推理成功即落暂定（写端口可注入；作者版在场由端口自行拒绝覆盖）。
+      chapter_mission_writer: fn work_id, seq, mission_map ->
+        send(parent, {:mission_persisted, work_id, seq, mission_map})
+        {:ok, :stored, mission_map}
+      end
     }
 
     planned =
@@ -181,6 +186,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert mission_event.payload.must_advance_count == 1
     assert mission_event.payload.must_avoid_count == 1
     assert mission_event.payload.dropped_unbound_count == 1
+    assert_receive {:mission_persisted, @work, 1, persisted_mission}, 500
+    assert persisted_mission["statement"] == "本章必须让主角从被动观察转向主动寻找出口。"
+    refute Map.has_key?(persisted_mission, "dropped")
 
     assert mission_event.payload.basis_refs == [
              "plan:1:plot_progress",
@@ -270,6 +278,123 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert turn_result.trace_summary.provider_call_budget.writer == 1
     assert turn_result.trace_summary.provider_call_budget.evaluator == 1
     assert Enum.any?(turn_result.available_actions, &(&1.action_type == "revise_from_findings"))
+  end
+
+  test "作者已定使命在场：推理步 0 调用直取作者版进简报，不推导不覆盖（WR01b I-M6）" do
+    parent = self()
+
+    writer = fn prompt ->
+      cond do
+        mission_prompt?(prompt) ->
+          flunk("author version present: chapter_mission must not be derived by the model")
+
+        plan_draft_prompt?(prompt) ->
+          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-author-mission-planner")}
+
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
+
+        true ->
+          send(parent, {:writer_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-author-mission-writer",
+             content:
+               Jason.encode!(%{
+                 items: [
+                   %{
+                     item_id: "author-mission-item",
+                     title: "第01章：开端",
+                     body: "沈洛按作者定下的使命，只做一件事：找到出口。",
+                     rationale: "首稿候选。"
+                   }
+                 ],
+                 companion_artifacts: [],
+                 self_report: %{
+                   assumptions: [],
+                   intended_reader_effect: "压迫感",
+                   used_context_refs: ["prose_execution_brief"],
+                   risk_flags: []
+                 }
+               })
+           }}
+      end
+    end
+
+    evaluator = fn _prompt ->
+      {:ok,
+       %{
+         provider_call_ref: "pc-author-mission-evaluator",
+         content: Jason.encode!(%{"findings" => []})
+       }}
+    end
+
+    author_mission = %{
+      "mission_id" => "cm_author_test",
+      "statement" => "这一章只写主角找到出口，不解释房间来历。",
+      "must_advance" => [%{"text" => "找到出口"}],
+      "must_avoid" => [%{"text" => "不解释房间来历"}],
+      "status" => "AUTHOR_EDITED",
+      "source" => "author"
+    }
+
+    base_context = context()
+
+    context_with_author_mission = %{
+      base_context
+      | structured_chapters:
+          Enum.map(base_context.structured_chapters, fn chapter ->
+            Map.update!(chapter, :plan_direction, &Map.put(&1, "chapter_mission", author_mission))
+          end)
+    }
+
+    run_id =
+      start_prose_run!(
+        %{
+          text: "先写第01章正文草稿，再做质量复核。",
+          session_id: "session-author-mission",
+          turn_id: "turn-author-mission",
+          quality_provider_execution: %Execution{result_fn: evaluator},
+          context_override: context_with_author_mission,
+          chapter_mission_writer: fn _work_id, _seq, _map ->
+            flunk("author version present: tentative mission must not be persisted")
+          end
+        },
+        writer,
+        parent
+      )
+
+    assert_receive {:writer_prompt, writer_prompt}, 2_000
+    assert writer_prompt =~ "本章使命（作者已定）：这一章只写主角找到出口，不解释房间来历。"
+    assert writer_prompt =~ "· 必须推进：找到出口"
+    assert writer_prompt =~ "· 不得：不解释房间来历"
+
+    events = collect_agent_events_until(:run_completed, 3_000)
+    refute Enum.any?(events, fn {event_type, _event} -> event_type == :mission_derived end)
+
+    author_observation =
+      Enum.find(events, fn {event_type, event} ->
+        event_type == :exploration_observed and event.summary =~ "作者已定版"
+      end)
+
+    assert author_observation
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :completed
+
+    assert Map.get(state.final_turn_result.trace_summary, :chapter_mission_ref) ==
+             "mission:cm_author_test"
+
+    assert Map.get(state.final_turn_result.trace_summary, :chapter_mission_statement) ==
+             "这一章只写主角找到出口，不解释房间来历。"
+
+    # 规划 2 + writer 1 + evaluator 1 = 4：没有写前推理调用。
+    assert state.run.consumed_budget.provider_calls == 4
   end
 
   test "continuation decision injects prior prose into writer and marks pending artifact for append adoption" do
@@ -1009,11 +1134,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       }
       |> Map.merge(input_overrides)
 
+    {context_override, input} = Map.pop(input, :context_override)
+
     planned =
       DialoguePlanningService.run_spec_for_profile(
         :prose_drafting_with_quality,
         input,
-        context(),
+        context_override || context(),
         %Execution{result_fn: writer}
       )
 

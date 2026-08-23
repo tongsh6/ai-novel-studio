@@ -635,9 +635,15 @@ defmodule NovelPersistence.AdoptionRepository do
 
   defp maybe_put_missing_summary(changes, _existing, _summary), do: changes
 
+  # WR01b：只落了本章使命的章，其设计态（E18-E22/场次）仍算缺失——补方向时把作者
+  # 裁决过的使命一并带回，不让大纲重物化丢掉它。
   defp maybe_put_missing_direction(changes, existing, plan_direction) do
-    if ChapterPlanDirection.empty?(existing) and not is_nil(plan_direction) do
-      Map.put(changes, :plan_direction, plan_direction)
+    if ChapterPlanDirection.design_empty?(existing) and not is_nil(plan_direction) do
+      Map.put(
+        changes,
+        :plan_direction,
+        ChapterPlanDirection.carry_mission(plan_direction, existing)
+      )
     else
       changes
     end

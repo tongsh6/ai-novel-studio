@@ -31,6 +31,8 @@ import {
   getReviewReport,
   sendAuthorAction,
   type AssumptionDto,
+  type ChapterMissionDto,
+  type TocChapter,
 } from "../lib/socket";
 import type {
   TocData,
@@ -357,6 +359,159 @@ export function StructurePanel({
       .catch(() => setAssumptionActionError(STRUCTURE_PANEL.assumptions.actionFailed));
   };
 
+  // WR01b（43 §5.0.3）：本章使命裁决——确认 / 改写（就地编辑）/ 作废；成功后重读 TOC。
+  const [missionEditChapterId, setMissionEditChapterId] = useState<string | null>(null);
+  const [missionDraft, setMissionDraft] = useState({ statement: "", advance: "", avoid: "" });
+  const [missionActionError, setMissionActionError] = useState<string | null>(null);
+
+  const refreshToc = () => {
+    if (!channel || !context.workId) return;
+    void getToc(channel, context.workId)
+      .then((data) => setToc(data))
+      .catch(() => {});
+  };
+
+  const startMissionEdit = (ch: TocChapter, mission: ChapterMissionDto) => {
+    setMissionEditChapterId(ch.id);
+    setMissionDraft({
+      statement: mission.statement ?? "",
+      advance: (mission.must_advance ?? []).map((item) => item.text).join("\n"),
+      avoid: (mission.must_avoid ?? []).map((item) => item.text).join("\n"),
+    });
+  };
+
+  const decideChapterMission = (
+    ch: TocChapter,
+    decision: "confirm" | "rewrite" | "discard",
+    extra: Record<string, unknown> = {},
+  ) => {
+    if (!channel || !context.workId) return;
+    const actionId = `${decision}-chapter-mission-${ch.id}`;
+
+    void sendAuthorAction(channel, {
+      source_turn_ref: "panel",
+      action_id: actionId,
+      action_type: `${decision}_chapter_mission`,
+      idempotency_key: actionId,
+      payload: { chapter_ref: ch.id, ...extra },
+    })
+      .then(() => {
+        setMissionActionError(null);
+        setMissionEditChapterId(null);
+        refreshToc();
+      })
+      .catch(() => setMissionActionError(STRUCTURE_PANEL.chapterMission.actionFailed));
+  };
+
+  const renderChapterMission = (ch: TocChapter) => {
+    const mission = ch.plan_direction?.chapter_mission;
+    if (!mission || !mission.statement) return null;
+    const M = STRUCTURE_PANEL.chapterMission;
+    const status = mission.status ?? "TENTATIVE";
+    const editing = missionEditChapterId === ch.id;
+
+    return (
+      <div className={styles.missionBlock}>
+        <div className={styles.assumptionBody}>
+          <span className={styles.assumptionBadge}>{M.statusLabels[status] ?? status}</span>
+          <span className={styles.missionLabel}>{M.label}</span>
+        </div>
+        {editing ? (
+          <div className={styles.missionEditor}>
+            <label className={styles.missionEditorLabel}>
+              {M.statementLabel}
+              <textarea
+                className={styles.missionTextarea}
+                aria-label={M.statementLabel}
+                value={missionDraft.statement}
+                onChange={(e) => setMissionDraft({ ...missionDraft, statement: e.target.value })}
+              />
+            </label>
+            <label className={styles.missionEditorLabel}>
+              {M.advanceLabel}
+              <textarea
+                className={styles.missionTextarea}
+                aria-label={M.advanceLabel}
+                value={missionDraft.advance}
+                onChange={(e) => setMissionDraft({ ...missionDraft, advance: e.target.value })}
+              />
+            </label>
+            <label className={styles.missionEditorLabel}>
+              {M.avoidLabel}
+              <textarea
+                className={styles.missionTextarea}
+                aria-label={M.avoidLabel}
+                value={missionDraft.avoid}
+                onChange={(e) => setMissionDraft({ ...missionDraft, avoid: e.target.value })}
+              />
+            </label>
+            <div className={styles.cardActions}>
+              <button
+                className={styles.btnSecondary}
+                disabled={missionDraft.statement.trim() === ""}
+                onClick={() =>
+                  decideChapterMission(ch, "rewrite", {
+                    statement: missionDraft.statement.trim(),
+                    must_advance: missionDraft.advance.split("\n"),
+                    must_avoid: missionDraft.avoid.split("\n"),
+                  })
+                }
+              >
+                {M.saveLabel}
+              </button>
+              <button className={styles.btnGhost} onClick={() => setMissionEditChapterId(null)}>
+                {M.cancelLabel}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className={styles.missionStatement}>{mission.statement}</div>
+            {(mission.must_advance ?? []).map((item, index) => (
+              <div className={styles.missionItem} key={`advance-${index}`}>
+                {M.advancePrefix}
+                {item.text}
+                {item.basis_label ? `（${M.basisPrefix}${item.basis_label}）` : ""}
+              </div>
+            ))}
+            {(mission.must_avoid ?? []).map((item, index) => (
+              <div className={styles.missionItem} key={`avoid-${index}`}>
+                {M.avoidPrefix}
+                {item.text}
+                {item.basis_label ? `（${M.basisPrefix}${item.basis_label}）` : ""}
+              </div>
+            ))}
+            <div className={styles.cardActions}>
+              {status === "TENTATIVE" && (
+                <button
+                  className={styles.btnSecondary}
+                  onClick={() => decideChapterMission(ch, "confirm")}
+                >
+                  {M.confirmLabel}
+                </button>
+              )}
+              <button
+                className={styles.btnSecondary}
+                onClick={() => startMissionEdit(ch, mission)}
+              >
+                {M.rewriteLabel}
+              </button>
+              <button
+                className={styles.btnSecondary}
+                onClick={() => decideChapterMission(ch, "discard")}
+              >
+                {M.discardLabel}
+              </button>
+            </div>
+          </>
+        )}
+        {missionActionError && editing === false && missionEditChapterId === null && (
+          <div className={styles.footerActionError}>{missionActionError}</div>
+        )}
+      </div>
+    );
+  };
+
   // AU12（43 §5.0.2）：档案侧角色身份归并——同名是同一人/别名/改名还是真重名
   // 只能由作者裁决；当前选中行是被并入方（source），弹窗里选保留行（target）。
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
@@ -535,7 +690,7 @@ export function StructurePanel({
   // 只是噪声，作者看到的层级要对应真实结构。
   const showVolumeGrouping = planVolumes.length > 1;
 
-  const renderPlanChapter = (ch: (typeof planChapters)[number]) => (
+  const renderPlanChapter = (ch: TocChapter) => (
     <div key={ch.id} className={styles.cardItem}>
       <span className={styles.cardTitle}>{ch.title}</span>
       <div className={styles.cardDesc}>
@@ -544,6 +699,7 @@ export function StructurePanel({
           : STRUCTURE_PANEL.chapterPendingBadge}
       </div>
       {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
+      {renderChapterMission(ch)}
       <div className={styles.cardActions}>
         <button
           className={styles.btnGhost}

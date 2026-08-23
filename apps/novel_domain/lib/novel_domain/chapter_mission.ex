@@ -24,9 +24,13 @@ defmodule NovelDomain.ChapterMission do
           confidence: float() | nil,
           provider_call_ref: String.t() | nil,
           degraded: boolean(),
-          degraded_reason: String.t() | nil
+          degraded_reason: String.t() | nil,
+          status: String.t() | nil,
+          source: String.t() | nil
         }
 
+  # status / source（WR01b）：落章计划后的裁决状态（`ChapterMissionStatus`）与来源
+  # （"model" 推导 / "author" 确认或改写）。随 run 消失的一期使命两者皆 nil。
   defstruct mission_id: nil,
             statement: nil,
             must_advance: [],
@@ -35,7 +39,14 @@ defmodule NovelDomain.ChapterMission do
             confidence: nil,
             provider_call_ref: nil,
             degraded: false,
-            degraded_reason: nil
+            degraded_reason: nil,
+            status: nil,
+            source: nil
+
+  alias NovelFoundation.Enums.ChapterMissionStatus
+
+  @source_model "model"
+  @source_author "author"
 
   @max_items 6
 
@@ -84,6 +95,49 @@ defmodule NovelDomain.ChapterMission do
     end
   end
 
+  @doc "作者版（已确认 / 作者改写）：推理步直接采用、不再调模型、不被覆盖（I-M6）。"
+  @spec author_version?(t() | map() | nil) :: boolean()
+  def author_version?(%__MODULE__{status: status}),
+    do: status in [ChapterMissionStatus.confirmed(), ChapterMissionStatus.author_edited()]
+
+  def author_version?(%{} = map), do: map |> from_map() |> author_version?()
+  def author_version?(_), do: false
+
+  @doc "落章计划的暂定版：模型推导产出，作者未裁决。"
+  @spec as_tentative(t()) :: t()
+  def as_tentative(%__MODULE__{} = mission),
+    do: %{mission | status: ChapterMissionStatus.tentative(), source: @source_model}
+
+  @doc "作者改写版：statement 必填，条目只有 text（依据归作者本人）。"
+  @spec from_author(map()) :: {:ok, t()} | {:error, :statement_required}
+  def from_author(attrs) when is_map(attrs) do
+    statement = clean(get(attrs, :statement))
+
+    if is_nil(statement) do
+      {:error, :statement_required}
+    else
+      {:ok,
+       %__MODULE__{
+         mission_id: NovelFoundation.ID.unique("cm_author"),
+         statement: statement,
+         must_advance: attrs |> get(:must_advance) |> normalize_items() |> Enum.take(@max_items),
+         must_avoid: attrs |> get(:must_avoid) |> normalize_items() |> Enum.take(@max_items),
+         status: ChapterMissionStatus.author_edited(),
+         source: @source_author
+       }}
+    end
+  end
+
+  @doc "存进 plan_direction 的 chapter_mission 键的形状：去掉 dropped 与降级字段。"
+  @spec persisted_map(t()) :: map()
+  def persisted_map(%__MODULE__{} = mission) do
+    mission
+    |> to_map()
+    |> Map.drop(["dropped", "degraded", "degraded_reason"])
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
   @doc "是否有可用内容（非降级且至少一句使命或一条条目）。"
   @spec present?(t() | map() | nil) :: boolean()
   def present?(%__MODULE__{degraded: true}), do: false
@@ -123,7 +177,9 @@ defmodule NovelDomain.ChapterMission do
       "confidence" => mission.confidence,
       "provider_call_ref" => mission.provider_call_ref,
       "degraded" => mission.degraded,
-      "degraded_reason" => mission.degraded_reason
+      "degraded_reason" => mission.degraded_reason,
+      "status" => mission.status,
+      "source" => mission.source
     }
   end
 
@@ -141,7 +197,9 @@ defmodule NovelDomain.ChapterMission do
       confidence: normalize_confidence(get(map, :confidence)),
       provider_call_ref: clean(get(map, :provider_call_ref)),
       degraded: get(map, :degraded) == true,
-      degraded_reason: clean(get(map, :degraded_reason))
+      degraded_reason: clean(get(map, :degraded_reason)),
+      status: clean(get(map, :status)),
+      source: clean(get(map, :source))
     }
   end
 
@@ -153,7 +211,8 @@ defmodule NovelDomain.ChapterMission do
   def to_prompt_lines(%__MODULE__{degraded: true}), do: []
 
   def to_prompt_lines(%__MODULE__{} = mission) do
-    statement = if mission.statement, do: ["本章使命：#{mission.statement}"], else: []
+    label = if mission.source == @source_author, do: "本章使命（作者已定）", else: "本章使命"
+    statement = if mission.statement, do: ["#{label}：#{mission.statement}"], else: []
 
     advance =
       Enum.map(mission.must_advance, fn item ->

@@ -76,7 +76,15 @@ defmodule NovelApplication.ExplorationServiceTest do
         "scene_plans" => [
           %{"title" => "对账", "goal" => "确认暗扣", "agendas" => "主角要证据", "emotion" => "压抑"},
           %{"title" => "夜巡"}
-        ]
+        ],
+        "chapter_mission" => %{
+          "mission_id" => "cm_1",
+          "statement" => "本章必须让暗扣被确认。",
+          "must_advance" => [%{"text" => "确认暗扣"}],
+          "must_avoid" => [%{"text" => "不揭示幕后"}],
+          "status" => "AUTHOR_EDITED",
+          "source" => "author"
+        }
       }
     })
     |> Repo.update!()
@@ -96,6 +104,9 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert observation.summary =~ "章尾断章：灵气账单上浮现出陌生的扣费条目"
     # NEM04 刀③探索面同步律：规划落库的逐场三槽在判断循环内可读。
     assert observation.summary =~ "场次计划：对账（目标：确认暗扣；议程：主角要证据；情绪：压抑） / 夜巡"
+
+    # WR01b 探索面同步律：落章计划的本章使命与裁决状态在判断循环内可读。
+    assert observation.summary =~ "本章使命：本章必须让暗扣被确认。（作者改写）；必须推进：确认暗扣；不得：不揭示幕后"
     assert observation.summary =~ "【摘要】主角在矿区核对账单，确认宗门抽成异常。"
   end
 
@@ -153,7 +164,12 @@ defmodule NovelApplication.ExplorationServiceTest do
 
     chapter =
       %Chapter{}
-      |> Chapter.changeset(%{work_id: work.id, volume_id: volume.id, title: "第01章：底层灵气账单", seq: 1})
+      |> Chapter.changeset(%{
+        work_id: work.id,
+        volume_id: volume.id,
+        title: "第01章：底层灵气账单",
+        seq: 1
+      })
       |> Repo.insert!()
 
     scene =

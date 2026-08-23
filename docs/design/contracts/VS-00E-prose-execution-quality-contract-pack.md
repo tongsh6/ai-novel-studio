@@ -337,10 +337,36 @@ confidence / provider_call_ref / degraded / degraded_reason
 - I-M4 降级不拦稿：推理失败/缺席时正文照常生成，`brief_source` 如实标注。
 - I-M5 预期归对象，不设全局阈值。
 
-### 16.7 本期边界（诚实未做）
+### 16.7 一期边界（2026-08-21）
 
-- 使命不持久化、作者无预确认/改写入口（下一期候选：落 `chapters.plan_direction`
-  ["chapter_mission"] + 暂定裁决 + `chapter_read` 探索可达）。
+- 一期使命不持久化、作者无预确认/改写入口 → **§16.8 二期已落**。
 - 只接正文路径；`plot_outline` 规划前推理另排。
 - 携带层五通道的统一选取策略仍是独立刀，本节选取器只是首个样板。
+
+### 16.8 二期：使命落章计划 + 作者裁决 + 探索可达（2026-08-22 WR01b）
+
+> 用户拍板：裁决入口在档案「大纲与结构」逐章；作者版下次直接用、不再让模型推；
+> 推理完成即存暂定。
+
+- **持久位**：`chapters.plan_direction["chapter_mission"]`（与 `scene_plans` 同款，零新表零新列；
+  `ChapterPlanDirection.chapter_mission` 透传，不参与 E18-E22 的 prompt_lines/summary）。形状 =
+  `ChapterMission.persisted_map/1`（无 dropped/降级字段）+ `status` + `source` + `derived_at/decided_at`。
+- **状态机** `ChapterMissionStatus`（`schemas/foundation/enums/chapter_mission_status.json`）：
+  `TENTATIVE`（模型推导，作者未裁决）→ `CONFIRMED`（作者确认）；`AUTHOR_EDITED`（作者改写，
+  换 mission_id、依据归作者）；作废 = 删键。`CONFIRMED / AUTHOR_EDITED` 为**作者版**。
+- **写入规则**：推理步成功即 `put_tentative`；作者版在场时**不覆盖、不推导、0 调用**（I-M6），
+  新暂定覆盖旧暂定。大纲重物化只补缺失的 E18-E22 并**带回既有使命**（`design_empty?` /
+  `carry_mission`）。
+- **作者裁决（ADR-0024 S8）**：`author_action` 三动作 `confirm_chapter_mission` /
+  `rewrite_chapter_mission`（payload `statement` + `must_advance[]` + `must_avoid[]`）/
+  `discard_chapter_mission`，payload `chapter_ref`=章 id；回执 `mission_status`。渲染责任=
+  档案大纲 tab（43 §5.0.3）。
+- **作者版进简报**：`to_prompt_lines` 标「本章使命（作者已定）」；业务日志
+  `chapter_mission.derived.done` 增 `source: model|author`、`persisted`、`mission_status`；
+  作者版不发 `mission_derived` 叙事事件（无模型原话可绑）。
+- **探索可达**：`chapter_read` 的【计划】段增「本章使命：一句话（暂定/作者已确认/作者改写）；
+  必须推进…；不得…」。
+- **why 面板**：`trace_summary.chapter_mission_statement`（author-safe 文本）→「本章使命：…」。
+- 不变量：I-M6 作者版不被覆盖；I-M7 使命仍是设计态（只进 plan_direction，
+  `production_write_performed=false`，暂定写入与 AU-14 暂定设定同款）。
 

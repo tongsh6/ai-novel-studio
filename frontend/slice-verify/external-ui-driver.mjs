@@ -21513,6 +21513,244 @@ async function driveWr01ChapterMissionBeforeProse(page) {
   ];
 }
 
+// WR01b：本章使命落章计划 + 作者裁决。第一次写第 03 章 → 使命存暂定 → 档案大纲 tab
+// 第 03 章出现【暂定】使命与三动作 → 作者「改写使命」就地编辑保存 → 回执 AUTHOR_EDITED、
+// 面板显示【作者改写】→ 第二次写第 03 章 → 推理步 0 调用直取作者版（source=author）→
+// 简报 chapter_mission_ref = 作者版 id → 两次正文都 tentative、零写入。
+async function driveWr01ChapterMissionAuthorDecision(page) {
+  const sliceId = "wr01-chapter-mission-author-decision";
+  const targetChapterTitle = "第03章：巡检收网";
+  const authorStatement = "作者版：这一章只写沈洛带底单撤出黑市，账牌编号留到下一章再对上。";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = `请根据已采纳章节计划生成${targetChapterTitle}的正文草稿，约600字，保持为待采纳草稿。`;
+
+  const runProse = async (label) => {
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    const frameStart = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    const sentFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === message,
+      `${label}: chapter mission request was not sent from the real workbench input`,
+      30_000,
+    );
+    const ackFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        frame.body?.response?.run_mode === "bounded" &&
+        typeof frame.body?.response?.run_id === "string",
+      `${label}: request did not start a bounded AgentRun`,
+      30_000,
+    );
+    const runId = ackFrame.body.response.run_id;
+
+    const missionRecord = await waitForNewAppLogRecord(
+      logStart,
+      (record) => record.event === "chapter_mission.derived.done" && record.run_id === runId,
+      `${label}: no chapter_mission.derived.done app log`,
+      90_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId &&
+        frame.body?.tool_result?.tool_name === "prose_writing" &&
+        (frame.body?.adoption_state?.pending ?? []).some(
+          (entry) => entry.artifact_type === "prose_fragment",
+        ),
+      `${label}: prose writing did not return a pending prose_fragment`,
+      120_000,
+    );
+    const turnResult = turnFrame.body;
+    const briefRecord = await waitForNewAppLogRecord(
+      logStart,
+      (record) =>
+        record.event === "prose_execution_brief.built.done" &&
+        record.turn_id === turnResult.turn_id,
+      `${label}: no prose_execution_brief.built.done app log`,
+      30_000,
+    );
+    const missionEventSeen = frames
+      .slice(frameStart)
+      .some(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_event" &&
+          frame.body?.run_ref === runId &&
+          frame.body?.event_type === "mission_derived",
+      );
+    assert(
+      turnResult.truthfulness?.artifact_adopted === false &&
+        turnResult.truthfulness?.production_write_performed === false,
+      `${label}: chapter mission run performed a production write or auto-adoption`,
+    );
+    return { sentFrame, runId, missionRecord, turnResult, briefRecord, missionEventSeen };
+  };
+
+  // 第一次：模型推导 → 暂定落章计划
+  const first = await runProse("first run");
+  assert(
+    first.missionRecord.source === "model" && first.missionRecord.persisted === "stored",
+    `First run did not persist a model-derived tentative mission: ${JSON.stringify(first.missionRecord)}`,
+  );
+  assert(first.missionEventSeen, "First run did not broadcast mission_derived");
+  const tentativeMissionRef = String(first.missionRecord.mission_ref ?? "");
+
+  // 档案大纲 tab：第 03 章显示【暂定】使命与三动作
+  const archive = await openArchiveTab(page, "大纲与结构");
+  await archive.getByText(targetChapterTitle, { exact: false }).first().waitFor({ timeout: 15_000 });
+  const chapterCard = archive.locator('[class*="cardItem"]').filter({ hasText: targetChapterTitle }).first();
+  await chapterCard.getByText("本章使命", { exact: true }).waitFor({ timeout: 15_000 });
+  await chapterCard.getByText("【暂定】", { exact: true }).waitFor({ timeout: 10_000 });
+  const confirmVisible = await chapterCard
+    .getByRole("button", { name: "确认使命", exact: true })
+    .isVisible();
+  const discardVisible = await chapterCard
+    .getByRole("button", { name: "作废使命", exact: true })
+    .isVisible();
+  await page.screenshot({
+    path: path.join(artifactDir, "wr01-chapter-mission-author-decision-tentative.png"),
+    fullPage: true,
+  });
+
+  // 作者改写：就地编辑一句使命并保存
+  await chapterCard.getByRole("button", { name: "改写使命", exact: true }).click();
+  const statementBox = chapterCard.getByLabel("一句使命");
+  await statementBox.waitFor({ timeout: 10_000 });
+  await statementBox.fill(authorStatement);
+  await chapterCard.getByLabel("必须推进（每行一条）").fill("带底单撤出黑市");
+  await chapterCard.getByLabel("不得（每行一条）").fill("不让账牌编号在本章对上");
+
+  const rewriteFrameStart = frames.length;
+  const rewriteLogStart = readAppLogRecords().length;
+  await chapterCard.getByRole("button", { name: "保存改写", exact: true }).click();
+
+  const rewriteActionFrame = await waitForNewFrame(
+    rewriteFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "rewrite_chapter_mission" &&
+      typeof frame.body?.action?.payload?.chapter_ref === "string" &&
+      String(frame.body?.action?.payload?.statement ?? "") === authorStatement,
+    "Rewrite did not send rewrite_chapter_mission with chapter_ref and statement",
+    30_000,
+  );
+  const chapterRef = rewriteActionFrame.body.action.payload.chapter_ref;
+  const rewriteReply = await waitForNewFrame(
+    rewriteFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.action_status === "applied" &&
+      frame.body?.response?.chapter_ref === chapterRef &&
+      frame.body?.response?.mission_status === "AUTHOR_EDITED",
+    "rewrite_chapter_mission did not reply AUTHOR_EDITED",
+    30_000,
+  );
+  const authorMissionId = String(rewriteReply.body.response.mission?.mission_id ?? "");
+  await waitForNewAppLogRecord(
+    rewriteLogStart,
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "rewrite_chapter_mission" &&
+      record.mission_status === "AUTHOR_EDITED",
+    "rewrite_chapter_mission was not logged as applied",
+    20_000,
+  );
+
+  // 面板重读 TOC：显示【作者改写】与作者原话
+  await chapterCard.getByText("【作者改写】", { exact: true }).waitFor({ timeout: 15_000 });
+  await chapterCard.getByText(authorStatement, { exact: false }).waitFor({ timeout: 15_000 });
+  const authorBadgeVisible = await chapterCard
+    .getByText("【作者改写】", { exact: true })
+    .isVisible();
+  await page.screenshot({
+    path: path.join(artifactDir, "wr01-chapter-mission-author-decision-rewritten.png"),
+    fullPage: true,
+  });
+  await closeArchiveIfOpen(page);
+
+  // 第二次：作者版在场 → 0 调用直取，不发 mission_derived，简报引用作者版
+  const second = await runProse("second run");
+  assert(
+    second.missionRecord.source === "author" &&
+      Number(second.missionRecord.provider_call_count ?? -1) === 0 &&
+      second.missionRecord.mission_status === "AUTHOR_EDITED",
+    `Second run did not take the author version with zero calls: ${JSON.stringify(second.missionRecord)}`,
+  );
+  assert(!second.missionEventSeen, "Second run broadcast mission_derived without a model call");
+  const authorMissionRef = `mission:${authorMissionId}`;
+  assert(
+    second.missionRecord.mission_ref === authorMissionRef &&
+      second.briefRecord.chapter_mission_ref === authorMissionRef &&
+      (second.briefRecord.brief_source ?? []).includes("chapter_mission"),
+    `Second run brief did not source from the author mission: ${JSON.stringify(second.briefRecord)}`,
+  );
+  assert(
+    second.turnResult.trace_summary?.chapter_mission_statement === authorStatement,
+    "Second run trace did not carry the author mission statement",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: first.sentFrame.body?.work_id,
+      session_id: first.sentFrame.body?.session_id,
+      first_run_id: first.runId,
+      first_turn_id: first.turnResult.turn_id,
+      first_mission_turn_id: first.missionRecord.turn_id,
+      second_run_id: second.runId,
+      second_turn_id: second.turnResult.turn_id,
+      second_mission_turn_id: second.missionRecord.turn_id,
+      parent_turn_ids: [
+        String(first.turnResult.turn_id ?? "").split(":agent:")[0],
+        String(second.turnResult.turn_id ?? "").split(":agent:")[0],
+      ],
+      profile_ref: second.turnResult.agent_run?.profile_ref,
+      chapter_ref: chapterRef,
+      chapter_title: targetChapterTitle,
+      tentative_mission_ref: tentativeMissionRef,
+      author_mission_ref: authorMissionRef,
+      author_statement: authorStatement,
+      first_mission_source: first.missionRecord.source,
+      first_mission_persisted: first.missionRecord.persisted,
+      tentative_badge_visible: true,
+      mission_actions_visible: confirmVisible && discardVisible,
+      rewrite_action_sent: true,
+      rewrite_status: rewriteReply.body.response.mission_status,
+      author_badge_visible: authorBadgeVisible,
+      second_mission_source: second.missionRecord.source,
+      second_mission_provider_calls: Number(second.missionRecord.provider_call_count ?? -1),
+      second_mission_event_seen: second.missionEventSeen,
+      second_brief_source_has_mission: (second.briefRecord.brief_source ?? []).includes(
+        "chapter_mission",
+      ),
+      second_brief_mission_ref_matches: second.briefRecord.chapter_mission_ref === authorMissionRef,
+      trace_statement_matches:
+        second.turnResult.trace_summary?.chapter_mission_statement === authorStatement,
+      no_write:
+        first.turnResult.truthfulness?.production_write_performed === false &&
+        second.turnResult.truthfulness?.production_write_performed === false,
+      user_message_text: message,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -27437,6 +27675,7 @@ const drivers = {
   "agent-prose-drafting-with-quality": driveAgentProseDraftingWithQuality,
   "p1-prose-companion-artifacts": driveP1ProseCompanionArtifacts,
   "wr01-chapter-mission-before-prose": driveWr01ChapterMissionBeforeProse,
+  "wr01-chapter-mission-author-decision": driveWr01ChapterMissionAuthorDecision,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

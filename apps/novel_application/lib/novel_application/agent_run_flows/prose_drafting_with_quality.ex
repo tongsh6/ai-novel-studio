@@ -562,21 +562,109 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp execute_mission_decision_step(run, sequence, spec, decision, snapshot) do
     turn_id = "#{run.parent_turn_ref}:agent:#{sequence}"
     context = Map.get(stage_state(snapshot), :context) || context_for_run(spec, run, turn_id)
-    inputs = mission_inputs(run, spec, context, decision)
+    chapter = mission_target_chapter(run, spec, context, decision)
 
-    provider_execution =
-      spec
-      |> mission_provider_execution()
-      |> Execution.with_purpose(:planner)
-      |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
+    # WR01b（I-M6 作者裁决优先）：目标章已有作者确认/改写的使命 → 直接采用，0 调用，
+    # 不推导、不覆盖。没有作者版才推导，并把结果落暂定（零新表，作者随时可裁决）。
+    case author_mission(chapter) do
+      %ChapterMission{} = mission ->
+        mission_author_success(run, sequence, turn_id, chapter, mission)
 
-    case ChapterMissionService.derive(inputs, provider_execution, author_text: run.goal.text) do
-      {:ok, mission, meta} ->
-        mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot)
+      nil ->
+        inputs = mission_inputs(run, spec, context, chapter)
 
-      {:error, reason, meta} ->
-        mission_failure(run, sequence, turn_id, inputs, reason, meta)
+        provider_execution =
+          spec
+          |> mission_provider_execution()
+          |> Execution.with_purpose(:planner)
+          |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
+
+        case ChapterMissionService.derive(inputs, provider_execution, author_text: run.goal.text) do
+          {:ok, mission, meta} ->
+            persisted = persist_tentative_mission(spec, run, chapter, mission)
+            mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot, persisted)
+
+          {:error, reason, meta} ->
+            mission_failure(run, sequence, turn_id, inputs, reason, meta)
+        end
     end
+  end
+
+  defp author_mission(%{plan_direction: %{} = plan_direction}) do
+    mission = plan_direction |> map_get(:chapter_mission) |> ChapterMission.from_map()
+    if ChapterMission.author_version?(mission), do: mission
+  end
+
+  defp author_mission(_chapter), do: nil
+
+  defp persist_tentative_mission(spec, run, %{seq: seq}, %ChapterMission{} = mission)
+       when is_integer(seq) do
+    writer =
+      reader_dep(
+        spec,
+        :chapter_mission_writer,
+        &NovelApplication.persistence_chapter_mission_writer/0
+      )
+
+    if is_function(writer, 3) do
+      case writer.(run.work_id || run.workspace_id, seq, ChapterMission.persisted_map(mission)) do
+        {:ok, outcome, _mission} -> to_string(outcome)
+        {:error, reason} -> "failed:#{inspect(reason)}"
+      end
+    else
+      "skipped"
+    end
+  rescue
+    error -> "failed:#{inspect(error)}"
+  end
+
+  defp persist_tentative_mission(_spec, _run, _chapter, _mission), do: "skipped"
+
+  defp mission_author_success(run, sequence, turn_id, chapter, mission) do
+    mission_ref = ChapterMission.ref(mission) || "mission:#{turn_id}"
+
+    LogEmit.emit(:chapter_mission, :derived, :done, %{
+      turn_id: turn_id,
+      run_id: run.run_id,
+      mission_ref: mission_ref,
+      source: "author",
+      mission_status: mission.status,
+      chapter_seq: Map.get(chapter, :seq),
+      must_advance_count: length(mission.must_advance),
+      must_avoid_count: length(mission.must_avoid),
+      dropped_unbound_count: 0,
+      basis_refs: [],
+      input_ref_count: 0,
+      provider_call_count: 0,
+      narrative_bound: false,
+      persisted: "author_version"
+    })
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: mission_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: mission_ref,
+        summary: "本章使命采用作者已定版（#{mission.status}），未调用模型推导。",
+        structured_payload: %{
+          stage: :mission_author_version,
+          mission_ref: mission_ref,
+          mission_status: mission.status
+        },
+        evidence_refs: [mission_ref],
+        confidence: 1.0
+      })
+
+    {:ok,
+     %{
+       step: mission_step(run, sequence, "写前推理：采用作者已定使命"),
+       observations: [observation],
+       stage_state: %{chapter_mission: ChapterMission.to_map(mission)},
+       provider_call_count: 0,
+       progress_signature: "#{run.run_id}:chapter_mission:#{turn_id}"
+     }}
   end
 
   defp mission_provider_execution(spec) do
@@ -586,11 +674,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       Execution.dependency(purpose: :planner)
   end
 
-  defp mission_inputs(run, spec, context, decision) do
+  defp mission_inputs(run, spec, context, chapter) do
     work_id = run.work_id || run.workspace_id
 
     ChapterMissionInputs.build(%{
-      chapter: mission_target_chapter(run, spec, context, decision),
+      chapter: chapter,
       entries:
         safe_read(
           reader_dep(spec, :ledger_reader, &NovelApplication.persistence_ledger_reader/0),
@@ -692,7 +780,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
   defp safe_read(_reader, _work_id, default), do: default
 
-  defp mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot) do
+  defp mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot, persisted) do
     mission_ref = ChapterMission.ref(mission) || "mission:#{turn_id}"
     counts = mission_counts(mission, inputs)
 
@@ -704,9 +792,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         turn_id: turn_id,
         run_id: run.run_id,
         mission_ref: mission_ref,
+        source: "model",
         provider_call_ref: meta.provider_call_ref,
         provider_call_count: meta.provider_call_count,
-        narrative_bound: is_binary(meta.narrative)
+        narrative_bound: is_binary(meta.narrative),
+        persisted: persisted
       })
     )
 

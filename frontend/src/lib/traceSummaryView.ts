@@ -237,6 +237,10 @@ function detailLines(summary: TraceSummaryLike): string[] {
   const recovery = stringValue(summary.recovery);
   if (recovery) lines.push(TRACE.recoveryApplied);
 
+  // WR01b：这一章按什么使命写的（author-safe 一句话，非 ref）。
+  const missionStatement = stringValue(summary.chapter_mission_statement);
+  if (missionStatement) lines.push(TRACE.chapterMission(missionStatement));
+
   lines.push(...aiMessageEnvelopeLines(summary.ai_message_envelope));
   lines.push(...replayIntegrityLines(summary));
 

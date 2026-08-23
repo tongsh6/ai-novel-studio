@@ -261,6 +261,14 @@ defmodule NovelApplication do
     if inject_persistence?(), do: &NovelPersistence.LedgerRepository.written_progress/1
   end
 
+  @doc """
+  本章使命暂定写入端口（WR01b）：推理步把模型推导的使命落 `chapters.plan_direction`
+  （作者版在场不覆盖）。未启用真实持久化时返回 nil（使命只活在本次 run）。
+  """
+  def persistence_chapter_mission_writer do
+    if inject_persistence?(), do: &NovelPersistence.ChapterMissionRepo.put_tentative/3
+  end
+
   defp sync_chapter_summary_maintenance? do
     Application.get_env(:novel_application, :sync_chapter_summary_maintenance, false)
   end

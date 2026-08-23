@@ -19,4 +19,4 @@
 
 ## foundation/enums/
 
-`slot_type` / `source_type` / `adoption_status` / `memory_status` / `memory_class` / `behavior_status` / `requiredness` / `ledger` / `arc_ledger_status` / `information_ledger_status` —— 编译期冻结枚举的 SSOT（`ledger` 五账分类、`arc_ledger_status` 弧光账状态机、`information_ledger_status` 信息账状态机（VS00F 刀④），ADR-0026；其余账状态机随对应 CP 增补）。
+`slot_type` / `source_type` / `adoption_status` / `memory_status` / `memory_class` / `behavior_status` / `requiredness` / `ledger` / `arc_ledger_status` / `information_ledger_status` / `chapter_mission_status` —— 编译期冻结枚举的 SSOT（`ledger` 五账分类、`arc_ledger_status` 弧光账状态机、`information_ledger_status` 信息账状态机（VS00F 刀④），ADR-0026；`chapter_mission_status` 本章使命裁决状态（WR01b，VS-00E §16.8 / ADR-0024 S8）；其余账状态机随对应 CP 增补）。

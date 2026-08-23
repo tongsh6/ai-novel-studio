@@ -31,13 +31,17 @@ defmodule NovelDomain.ChapterPlanDirection do
           opening_hook: String.t() | nil,
           ending_hook: String.t() | nil,
           word_count_and_scenes: String.t() | nil,
-          scene_plans: [scene_plan()]
+          scene_plans: [scene_plan()],
+          chapter_mission: map() | nil
         }
 
   # scene_plans（NEM04 刀③）：逐场最小三槽，有序即场次 seq。设计态数据，与九字段
   # 同居 plan_direction（慎重新增实体：既有 map 字段承载，零新列）；`word_count_and_scenes`
   # 保留人读摘要口径不动。无场次标注时列表为空、存储键不存在——一切现状不变。
-  defstruct @fields ++ [scene_plans: []]
+  # chapter_mission（WR01b）：写前推理的本章使命落章计划（string-keyed map，形状见
+  # `NovelDomain.ChapterMission`）。与 scene_plans 同款：既有 map 字段承载，零新列；
+  # 缺席时键不存在。它是裁决态设计对象，不参与 E18-E22 的 prompt_lines/summary。
+  defstruct @fields ++ [scene_plans: [], chapter_mission: nil]
 
   @spec fields() :: [atom()]
   def fields, do: @fields
@@ -58,10 +62,17 @@ defmodule NovelDomain.ChapterPlanDirection do
     scene_plans =
       attrs |> get_any([:scene_plans, "scene_plans"]) |> normalize_scene_plans()
 
-    if scene_plans == [] and Enum.all?(values, fn {_field, value} -> blank?(value) end) do
+    chapter_mission =
+      attrs |> get_any([:chapter_mission, "chapter_mission"]) |> normalize_chapter_mission()
+
+    if scene_plans == [] and is_nil(chapter_mission) and
+         Enum.all?(values, fn {_field, value} -> blank?(value) end) do
       nil
     else
-      struct(__MODULE__, Map.put(values, :scene_plans, scene_plans))
+      struct(
+        __MODULE__,
+        values |> Map.put(:scene_plans, scene_plans) |> Map.put(:chapter_mission, chapter_mission)
+      )
     end
   end
 
@@ -77,11 +88,12 @@ defmodule NovelDomain.ChapterPlanDirection do
   def to_storage(%__MODULE__{} = direction) do
     direction
     |> Map.from_struct()
-    |> Map.delete(:scene_plans)
+    |> Map.drop([:scene_plans, :chapter_mission])
     |> Enum.reduce(%{}, fn {field, value}, acc ->
       if blank?(value), do: acc, else: Map.put(acc, Atom.to_string(field), value)
     end)
     |> put_scene_plans(direction.scene_plans)
+    |> put_chapter_mission(direction.chapter_mission)
     |> empty_to_nil()
   end
 
@@ -90,6 +102,30 @@ defmodule NovelDomain.ChapterPlanDirection do
 
   @spec empty?(t() | map() | nil) :: boolean()
   def empty?(value), do: is_nil(from_storage(value))
+
+  @doc """
+  设计态（E18-E22 + 场次）是否为空——忽略 `chapter_mission`。章结构物化「只补缺失方向」
+  的判定用它：只落了使命的章，大纲采纳时仍应补进九字段（WR01b）。
+  """
+  @spec design_empty?(t() | map() | nil) :: boolean()
+  def design_empty?(value) do
+    case from_storage(value) do
+      nil -> true
+      direction -> empty?(%{direction | chapter_mission: nil})
+    end
+  end
+
+  @doc "把 `existing` 里的使命带进新方向（大纲重物化不得丢作者裁决过的使命）。"
+  @spec carry_mission(map() | nil, t() | map() | nil) :: map() | nil
+  def carry_mission(storage, existing) do
+    case from_storage(existing) do
+      %__MODULE__{chapter_mission: %{} = mission} ->
+        (storage || %{}) |> Map.put("chapter_mission", mission)
+
+      _ ->
+        storage
+    end
+  end
 
   @spec summary(t() | map() | nil) :: String.t()
   def summary(value) do
@@ -149,6 +185,17 @@ defmodule NovelDomain.ChapterPlanDirection do
 
   defp put_scene_plans(map, []), do: map
   defp put_scene_plans(map, plans), do: Map.put(map, "scene_plans", plans)
+
+  defp put_chapter_mission(map, nil), do: map
+  defp put_chapter_mission(map, mission), do: Map.put(map, "chapter_mission", mission)
+
+  defp normalize_chapter_mission(%{} = mission) when map_size(mission) > 0 do
+    mission
+    |> Enum.map(fn {key, value} -> {to_string(key), value} end)
+    |> Map.new()
+  end
+
+  defp normalize_chapter_mission(_), do: nil
 
   defp normalize_scene_plans(list) when is_list(list) do
     list |> Enum.map(&normalize_scene_plan/1) |> Enum.reject(&is_nil/1)

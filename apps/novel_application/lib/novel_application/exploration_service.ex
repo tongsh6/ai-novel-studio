@@ -126,7 +126,12 @@ defmodule NovelApplication.ExplorationService do
     case Enum.find(chapters, &chapter_match?(&1, query)) do
       nil ->
         {:ok,
-         observation("chapter_read", query, "没有找到「#{query}」。现有章节：#{chapter_index_text(volumes)}", [])}
+         observation(
+           "chapter_read",
+           query,
+           "没有找到「#{query}」。现有章节：#{chapter_index_text(volumes)}",
+           []
+         )}
 
       chapter ->
         sections =
@@ -167,7 +172,8 @@ defmodule NovelApplication.ExplorationService do
             {"章首拉力", direction.opening_hook},
             {"章尾断章", direction.ending_hook},
             {"篇幅与场次", direction.word_count_and_scenes},
-            {"场次计划", scene_plans_text(direction.scene_plans)}
+            {"场次计划", scene_plans_text(direction.scene_plans)},
+            {"本章使命", chapter_mission_text(direction.chapter_mission)}
           ]
           |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
           |> Enum.map_join("；", fn {label, value} -> "#{label}：#{value}" end)
@@ -195,6 +201,28 @@ defmodule NovelApplication.ExplorationService do
   end
 
   defp scene_plans_text(_plans), do: nil
+
+  # 本章使命（WR01b，探索面同步律）：落章计划的使命与裁决状态在判断循环内可读。
+  defp chapter_mission_text(nil), do: nil
+
+  defp chapter_mission_text(mission) do
+    case NovelDomain.ChapterMission.from_map(mission) do
+      %NovelDomain.ChapterMission{statement: statement} = m when is_binary(statement) ->
+        items =
+          Enum.map(m.must_advance, &"必须推进：#{&1["text"]}") ++
+            Enum.map(m.must_avoid, &"不得：#{&1["text"]}")
+
+        status = mission_status_label(m.status)
+        Enum.join(["#{statement}（#{status}）" | items], "；")
+
+      _ ->
+        nil
+    end
+  end
+
+  defp mission_status_label("CONFIRMED"), do: "作者已确认"
+  defp mission_status_label("AUTHOR_EDITED"), do: "作者改写"
+  defp mission_status_label(_), do: "暂定"
 
   # 实现态压缩层（chapter_summaries 治理摘要；CP5b 探索补面 B）。
   defp chapter_summary_section(work_id, chapter) do

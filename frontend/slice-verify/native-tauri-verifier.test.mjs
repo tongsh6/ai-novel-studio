@@ -92,6 +92,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
     expect(nativeSliceIds).toContain("p1-prose-companion-artifacts");
     expect(nativeSliceIds).toContain("wr01-chapter-mission-before-prose");
+    expect(nativeSliceIds).toContain("wr01-chapter-mission-author-decision");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9006,6 +9007,111 @@ describe("native Tauri slice verifier", () => {
     );
     expect(
       findNativeSliceEvidence("wr01-chapter-mission-before-prose", wroteProduction),
+    ).toBeNull();
+  });
+
+  it("requires tentative persistence, author rewrite, and zero-call reuse of the author mission (WR01b)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "wr01-chapter-mission-author-decision",
+      first_run_id: "run-a",
+      first_turn_id: "turn-a:agent:4",
+      first_mission_turn_id: "turn-a:agent:3",
+      second_run_id: "run-b",
+      second_turn_id: "turn-b:agent:4",
+      second_mission_turn_id: "turn-b:agent:3",
+      parent_turn_ids: ["turn-a", "turn-b"],
+      profile_ref: "prose_drafting_with_quality_v1",
+      chapter_ref: "ch-3",
+      tentative_mission_ref: "mission:cm_model",
+      author_mission_ref: "mission:cm_author_1",
+      first_mission_source: "model",
+      first_mission_persisted: "stored",
+      tentative_badge_visible: true,
+      mission_actions_visible: true,
+      rewrite_action_sent: true,
+      rewrite_status: "AUTHOR_EDITED",
+      author_badge_visible: true,
+      second_mission_source: "author",
+      second_mission_provider_calls: 0,
+      second_mission_event_seen: false,
+      second_brief_source_has_mission: true,
+      second_brief_mission_ref_matches: true,
+      trace_statement_matches: true,
+      no_write: true,
+    };
+    const records = [
+      uiState,
+      {
+        event: "chapter_mission.derived.done",
+        turn_id: "turn-a:agent:3",
+        run_id: "run-a",
+        mission_ref: "mission:cm_model",
+        source: "model",
+        persisted: "stored",
+      },
+      {
+        event: "channel.author_action.done",
+        action_type: "rewrite_chapter_mission",
+        chapter_ref: "ch-3",
+        mission_status: "AUTHOR_EDITED",
+      },
+      {
+        event: "chapter_mission.derived.done",
+        turn_id: "turn-b:agent:3",
+        run_id: "run-b",
+        mission_ref: "mission:cm_author_1",
+        source: "author",
+        provider_call_count: 0,
+      },
+      {
+        event: "prose_execution_brief.built.done",
+        turn_id: "turn-b:agent:4",
+        brief_source: ["chapter_plan_scene_plans", "chapter_mission"],
+        chapter_mission_ref: "mission:cm_author_1",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("wr01-chapter-mission-author-decision", records);
+    expect(evidence).toEqual({
+      slice_id: "wr01-chapter-mission-author-decision",
+      turn_id: "turn-b:agent:4",
+      turn_ids: ["turn-a", "turn-b", "turn-a:agent:3", "turn-a:agent:4", "turn-b:agent:3", "turn-b:agent:4"],
+      first_run_id: "run-a",
+      second_run_id: "run-b",
+      chapter_ref: "ch-3",
+      tentative_mission_ref: "mission:cm_model",
+      author_mission_ref: "mission:cm_author_1",
+      profile_ref: "prose_drafting_with_quality_v1",
+      key_events: keyEventsForSlice("wr01-chapter-mission-author-decision"),
+    });
+
+    const behavior = findSliceBehaviorEvidence(
+      "wr01-chapter-mission-author-decision",
+      records,
+      evidence,
+    );
+    expect(behavior?.assertions).toContain(
+      "second_prose_run_took_author_version_with_zero_mission_provider_calls",
+    );
+
+    // 第二次仍调了模型 / 简报引用的不是作者版 → 不成立
+    const modelAgain = records.map((record) =>
+      record.event === "chapter_mission.derived.done" && record.run_id === "run-b"
+        ? { ...record, source: "model", provider_call_count: 1 }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("wr01-chapter-mission-author-decision", modelAgain),
+    ).toBeNull();
+
+    const wrongBriefRef = records.map((record) =>
+      record.event === "prose_execution_brief.built.done"
+        ? { ...record, chapter_mission_ref: "mission:cm_model" }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("wr01-chapter-mission-author-decision", wrongBriefRef),
     ).toBeNull();
   });
 });

@@ -383,18 +383,31 @@ export interface WorkAudit {
   meets_threshold?: boolean;
 }
 
+// WR01b：落章计划的本章使命（plan_direction.chapter_mission，VS-00E §16.8）。
+export interface ChapterMissionDto {
+  mission_id?: string;
+  statement?: string;
+  must_advance?: { text: string; basis_label?: string }[];
+  must_avoid?: { text: string; basis_label?: string }[];
+  status?: string;
+  source?: string;
+}
+
+export interface TocChapter {
+  id: string;
+  title: string;
+  seq: number;
+  word_count?: number;
+  audit_status?: ChapterAuditStatus;
+  summary?: string | null;
+  plan_direction?: { chapter_mission?: ChapterMissionDto | null } | null;
+}
+
 export interface TocVolume {
   id: string;
   title: string;
   seq: number;
-  chapters: {
-    id: string;
-    title: string;
-    seq: number;
-    word_count?: number;
-    audit_status?: ChapterAuditStatus;
-    summary?: string | null;
-  }[];
+  chapters: TocChapter[];
 }
 
 export interface TocData {

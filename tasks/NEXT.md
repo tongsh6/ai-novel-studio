@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-08-21
+> 最后更新：2026-08-24
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -207,14 +207,25 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
+**WR01b 写前推理层二期——slice done（2026-08-24，
+`tasks/slices/WR01b-chapter-mission-author-decision.md`）。队首 = 待用户拍板下一主线**。
+候选（不代拍板）：① M5 节拍狗粮（刀①-④ + AU12 + NEM04 + R2 + WR01/WR01b 的长跑验证：
+别称 sighting、场级指导实效、伴生产物「不凑数」、本章使命在 qwen3.8-27b 下的 tool-call
+稳定性与对正文的实际牵引、**模型暂定使命被作者改写的频率**——狗粮须用户批准；默认模型名
+已对齐 `qwen/qwen3.8-27b`，跑前按 B8 预检）；② 规划（plot_outline）前推理；③ 携带层五通道
+统一选取策略（VS-00C AssemblyPolicy 语义扩展）。
+WR01b 收口一页话：三拍板（档案大纲 tab 逐章裁决 / 作者版直接用不再推 / 推理完成即存暂定）→
+`chapter_mission_status` 枚举 SSOT（TENTATIVE/CONFIRMED/AUTHOR_EDITED，作废=删键）→
+`ChapterPlanDirection.chapter_mission` 透传（重物化只补缺失方向并带回使命）→ `ChapterMissionRepo`
+零 migration → flow 作者版优先 0 调用、否则推导即落暂定（`persisted` 留痕）→ channel 三动作
+（ADR-0024 S8）→ 大纲 tab 使命块（徽标/三动作/就地编辑）→ `chapter_read` 可读 → why 面板一句
+使命。真实 Tauri PASS（暂定落库→作者改写→二次写作 0 调用直取作者版→零写入）；1450 后端 +
+440 前端 + I1/I2/I3 绿。
+**登记缺口**：①作者版在场时对话区无使命段（无模型原话，N-NARR）——若要提示应走状态行
+app copy；②确认/作废后面板靠重读 TOC 刷新，未做乐观更新。
+
 **WR01 写前推理层「本章使命」——slice done（2026-08-21，
-`tasks/slices/WR01-chapter-mission-pre-writing-reasoning.md`）。队首 = 待用户拍板下一主线**。
-候选（不代拍板）：① M5 节拍狗粮（刀①-④ + AU12 + NEM04 + R2 + WR01 的长跑验证：别称
-sighting、场级指导实效、伴生产物「不凑数」、**本章使命在 qwen3.8-27b 下的 tool-call 稳定性
-与对正文的实际牵引**——狗粮须用户批准；默认模型名已对齐 `qwen/qwen3.8-27b`，跑前按 B8
-预检）；② WR01 第二期：使命落 `chapters.plan_direction["chapter_mission"]` + 作者确认/改写
-（暂定机制泛化到章）+ `chapter_read` 探索可达 + 「为什么」面板展示简报与使命；③ 规划
-（plot_outline）前推理；④ 携带层五通道统一选取策略（VS-00C AssemblyPolicy 语义扩展）。
+`tasks/slices/WR01-chapter-mission-pre-writing-reasoning.md`）。**
 WR01 收口一页话：三拍板（正文 run 新增模型步 / 本期不存不预确认 / 失败降级继续写）→
 `ChapterMissionInputs` 按坐标选十组材料逐条 `[ref]` 列名（不设阈值）→ `ChapterMissionService`
 一次 `chapter_mission` tool-call（坏结构重试 1，依据越界机械丢弃 I-M1，叙事 N-NARR 绑定）→

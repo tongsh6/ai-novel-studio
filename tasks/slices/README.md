@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `WR01b-chapter-mission-author-decision.md` | **done（2026-08-24）/ 写前推理层二期**：本章使命落 `chapters.plan_direction["chapter_mission"]`（零新表，暂定/已确认/作者改写，作废=删键）；档案大纲 tab 逐章 确认/改写/作废（ADR-0024 S8）；作者版在场下次写作 0 调用直取；`chapter_read` 探索可达；why 面板「本章使命：…」。真实 Tauri `wr01-chapter-mission-author-decision` PASS。 |
 | `WR01-chapter-mission-pre-writing-reasoning.md` | **done（2026-08-21）/ 写前推理层首刀**：正文 run 新增模型步「本章使命」——机械选取携带状态（章计划×五本账×进度，逐条 `[ref]` 列名）+ 模型推导本章必须推进/不得做（依据 ref 机器核验，越界丢弃）→ 进执行简报与推理区（N-NARR 绑定）；本期不持久化、失败降级继续写。真实 Tauri `wr01-chapter-mission-before-prose` PASS；真实模型实效归 M5 狗粮观察。 |
 | `P1-prose-companion-artifacts.md` | **done（2026-08-21）/ R2 独立刀**：正文主循环同一次 `prose_writing` 调用产 `prose_fragment`，并可同轮产角色/伏笔/世界规则/约束四类既有 seed；全部保持 tentative、逐项采纳，复用既有多候选卡与档案落位。真实 Tauri `p1-prose-companion-artifacts` PASS（五组同轮 / 采纳前零写入 / 选择性采纳余 3 组 pending）；真实模型是否「不凑数」归 M5 狗粮观察。 |
 | `P1-prose-quality-evidence-and-scoped-revision.md` | **done / 用户定向插单闭环**：复用 VS-00E 质量主链，把句式形式统计降为候选召回，由独立 evaluator 区分机械重复与刻意修辞，并以章功能为参照独立判断章节叙事节奏；质量卡补原句、位置、判断理由、影响范围和置信度，`revise_from_findings` 默认局部修订。三章真实 Tauri 语义边界、局部修订 sibling 与同 run 控制坞均通过；真实模型文学准确度仍按 I10 人工盲评。 |

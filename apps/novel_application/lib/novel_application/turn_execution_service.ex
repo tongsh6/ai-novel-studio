@@ -226,6 +226,7 @@ defmodule NovelApplication.TurnExecutionService do
           omission_notes: omission_notes,
           brief_ref: execution_brief_ref(brief_result),
           chapter_mission_ref: chapter_mission_ref(input[:chapter_mission]),
+          chapter_mission_statement: chapter_mission_statement(input[:chapter_mission]),
           decision_packet_ref: decision_packet_ref(brief_result),
           writer_provider_call_ref: writer_provider_call_ref(tool_result),
           evaluator_provider_call_ref: evaluator_provider_call_ref(quality),
@@ -1305,6 +1306,15 @@ defmodule NovelApplication.TurnExecutionService do
     do: nil
 
   defp chapter_mission_ref(mission), do: ChapterMission.ref(mission)
+
+  # WR01b：作者可见 trace 带一句使命原文（author-safe 文本，非 ref），why 面板据此说明
+  # 「这一章按什么使命写的」。降级/缺席为 nil。
+  defp chapter_mission_statement(mission) do
+    case ChapterMission.from_map(mission) do
+      %ChapterMission{degraded: false, statement: statement} when is_binary(statement) -> statement
+      _ -> nil
+    end
+  end
 
   defp current_chapter_map(current) when is_map(current) do
     %{

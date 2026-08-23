@@ -230,6 +230,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/wr01-chapter-mission-before-prose.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh wr01-chapter-mission-before-prose --surface tauri
+  - id: wr01-chapter-mission-author-decision
+    title: "本章使命落章计划，作者在档案改写后下次写作直接采用"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/wr01-chapter-mission-author-decision.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh wr01-chapter-mission-author-decision --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

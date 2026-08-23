@@ -1,0 +1,56 @@
+id: wr01-chapter-mission-author-decision
+title: 本章使命落章计划，作者在档案改写后下次写作直接采用
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh wr01-chapter-mission-author-decision --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/ui/43-structure-panel.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - tentative-mission-is-persisted-on-chapter-plan-without-production-write
+  - author-version-is-never-overwritten-and-skips-model-derivation
+  - author-rewrite-travels-through-author-action-decision-surface
+  - author-mission-enters-execution-brief-with-matching-ref
+
+setup:
+  seed: scripts/seed_wr01_chapter_mission.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: chapter-3 draft request (mission derived and stored as TENTATIVE)
+  - open: archive 大纲与结构 tab, chapter 3 shows 【暂定】本章使命
+  - click: 改写使命, edit statement, 保存改写
+  - verify: reply AUTHOR_EDITED and panel shows 【作者改写】 with the author text
+  - send: chapter-3 draft request again
+  - verify: mission step used the author version with zero provider calls and the brief sourced from it
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/wr01-chapter-mission-author-decision-tauri
+
+assertions:
+  ui:
+    - archive outline chapter 3 renders 本章使命 with 【暂定】 badge and 确认使命/改写使命/作废使命 actions
+    - after saving the rewrite the chapter shows 【作者改写】 and the author statement
+  network:
+    - first run logs chapter_mission.derived.done source=model persisted=stored
+    - rewrite_chapter_mission author_action replies mission_status AUTHOR_EDITED
+    - second run logs chapter_mission.derived.done source=author provider_call_count=0 and no mission_derived event
+  data:
+    - second run prose_execution_brief.built.done brief_source includes chapter_mission and chapter_mission_ref equals the author mission id
+    - both prose drafts remain tentative with production_write_performed=false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
