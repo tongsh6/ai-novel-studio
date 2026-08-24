@@ -53,6 +53,62 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert report.replay_report.result_status == "complete"
   end
 
+  test "rebuilds mission fields from persisted state_trace_refs (WR01c why-panel replay)", %{
+    work: work,
+    session: session
+  } do
+    turn_id = "turn-mission-#{System.unique_integer([:positive, :monotonic])}"
+
+    {:ok, _} =
+      TraceRepository.insert(%{
+        workspace_id: work.id,
+        session_id: session.id,
+        trace_id: "trace-mission-#{System.unique_integer([:positive, :monotonic])}",
+        turn_id: turn_id,
+        frame_ref: "frame-mission",
+        decision_type: "tool_dispatched",
+        no_tool_reason: "tool_was_dispatched",
+        no_behavior_reason: "tool_execution_completed",
+        no_write_reason: "tool_result_not_adoption_awaiting_adoption_boundary",
+        turn_result_ref: turn_id,
+        replay_policy: %{use_recorded_frame: true, recall_provider: false},
+        event_order: ["author_input_received", "turn_result_emitted"],
+        state_trace_refs: [
+          %{
+            "kind" => "chapter_mission",
+            "ref" => "mission:cm_1",
+            "statement" => "本章必须让账牌兑现。",
+            "status" => "TENTATIVE",
+            "source" => "model",
+            "must_advance" => [%{"text" => "账牌兑现", "basis_label" => "第02章计划"}],
+            "must_avoid" => []
+          },
+          %{
+            "kind" => "planning_mission",
+            "ref" => "mission:cm_2",
+            "statement" => "接下来的章节安排伏笔回收。",
+            "status" => "AUTHOR_EDITED",
+            "source" => "author",
+            "must_advance" => [],
+            "must_avoid" => [%{"text" => "不开新卷"}]
+          }
+        ]
+      })
+
+    assert {:ok, report} = TraceReplayService.fetch_turn_report(work.id, session.id, turn_id)
+    summary = report.trace_summary
+
+    assert summary.chapter_mission_ref == "mission:cm_1"
+    assert summary.chapter_mission_statement == "本章必须让账牌兑现。"
+    assert summary.chapter_mission["status"] == "TENTATIVE"
+    assert [%{"text" => "账牌兑现", "basis_label" => "第02章计划"}] = summary.chapter_mission["must_advance"]
+    refute Map.has_key?(summary.chapter_mission, "kind")
+
+    assert summary.planning_mission_ref == "mission:cm_2"
+    assert summary.planning_mission_statement == "接下来的章节安排伏笔回收。"
+    assert summary.planning_mission["status"] == "AUTHOR_EDITED"
+  end
+
   test "restores whitelisted first blocking gate from persisted no-write reason", %{
     work: work,
     session: session

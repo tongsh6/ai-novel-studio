@@ -287,6 +287,25 @@ defmodule NovelApplication.ExplorationService do
       render_reconciliation_report(WorkArchiveService.latest_reconciliation_report(work_id))
   end
 
+  defp planning_mission_line(%{"planning_mission" => %{} = mission}) do
+    case mission["statement"] do
+      statement when is_binary(statement) and statement != "" ->
+        status =
+          case mission["status"] do
+            "CONFIRMED" -> "已确认"
+            "AUTHOR_EDITED" -> "作者改写"
+            _ -> "暂定"
+          end
+
+        "#{statement}（#{status}）"
+
+      _ ->
+        nil
+    end
+  end
+
+  defp planning_mission_line(_), do: nil
+
   defp render_profile(profile) when map_size(profile) == 0, do: "作品档案暂无简介。"
 
   defp render_profile(profile) do
@@ -303,7 +322,9 @@ defmodule NovelApplication.ExplorationService do
       {"预计卷数", profile[:planned_volumes]},
       {"连载形态", profile[:serial_form]},
       {"目标读者", profile[:target_reader]},
-      {"基调", profile[:tone_preference]}
+      {"基调", profile[:tone_preference]},
+      # WR01c（探索面同步律）：工作级规划使命同批可达
+      {"当前规划使命", planning_mission_line(profile[:planning_direction])}
     ]
     |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
     |> Enum.map_join("\n", fn {label, value} -> "#{label}：#{value}" end)

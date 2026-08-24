@@ -269,6 +269,15 @@ defmodule NovelApplication do
     if inject_persistence?(), do: &NovelPersistence.ChapterMissionRepo.put_tentative/3
   end
 
+  # WR01c：规划使命的 work 级持久写/读端口（plot flow 暂定落库与作者版直取）。
+  def persistence_planning_mission_writer do
+    if inject_persistence?(), do: &NovelPersistence.PlanningMissionRepo.put_tentative/2
+  end
+
+  def persistence_planning_mission_reader do
+    if inject_persistence?(), do: &NovelPersistence.PlanningMissionRepo.get_mission/1
+  end
+
   defp sync_chapter_summary_maintenance? do
     Application.get_env(:novel_application, :sync_chapter_summary_maintenance, false)
   end

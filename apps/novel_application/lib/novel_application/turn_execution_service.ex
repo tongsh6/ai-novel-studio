@@ -262,8 +262,10 @@ defmodule NovelApplication.TurnExecutionService do
           brief_ref: execution_brief_ref(brief_result),
           chapter_mission_ref: chapter_mission_ref(input[:chapter_mission]),
           chapter_mission_statement: chapter_mission_statement(input[:chapter_mission]),
+          chapter_mission_payload: mission_payload(input[:chapter_mission]),
           planning_mission_ref: ChapterMission.ref(input[:planning_mission]),
           planning_mission_statement: chapter_mission_statement(input[:planning_mission]),
+          planning_mission_payload: mission_payload(input[:planning_mission]),
           decision_packet_ref: decision_packet_ref(brief_result),
           writer_provider_call_ref: writer_provider_call_ref(tool_result),
           evaluator_provider_call_ref: evaluator_provider_call_ref(quality),
@@ -1386,6 +1388,44 @@ defmodule NovelApplication.TurnExecutionService do
       _ -> nil
     end
   end
+
+  # WR01c：why 面板的结构化使命 payload（author-safe：一句使命 + 逐条 + 依据标签，
+  # 不带 provider ref / dropped 细节）。缺席/降级为 nil，trace 不出现该键。
+  defp mission_payload(mission) do
+    case ChapterMission.from_map(mission) do
+      %ChapterMission{degraded: false} = m ->
+        if ChapterMission.present?(m), do: mission_payload_map(m)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp mission_payload_map(m) do
+    %{
+      "statement" => m.statement,
+      "status" => m.status,
+      "source" => m.source,
+      "must_advance" => Enum.map(m.must_advance, &mission_item_payload/1),
+      "must_avoid" => Enum.map(m.must_avoid, &mission_item_payload/1)
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp mission_item_payload(item) do
+    %{
+      "text" => mission_item_field(item, "text"),
+      "basis_label" => mission_item_field(item, "basis_label")
+    }
+    |> Enum.reject(fn {_k, v} -> v in [nil, ""] end)
+    |> Map.new()
+  end
+
+  defp mission_item_field(item, key) when is_map(item),
+    do: Map.get(item, key) || Map.get(item, String.to_existing_atom(key))
+
+  defp mission_item_field(_item, _key), do: nil
 
   defp current_chapter_map(current) when is_map(current) do
     %{

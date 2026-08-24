@@ -1335,7 +1335,10 @@ defmodule NovelApplication.DialoguePlanningService do
       ledger_reader: map_get(input, :ledger_reader),
       written_progress_reader: map_get(input, :written_progress_reader),
       # CA04 G2：规划带作品事实/风格。
-      memory_reader: map_get(input, :memory_reader)
+      memory_reader: map_get(input, :memory_reader),
+      # WR01c：规划使命的作者版读端口与暂定写端口（测试可注入）。
+      planning_mission_reader: map_get(input, :planning_mission_reader),
+      planning_mission_writer: map_get(input, :planning_mission_writer)
     })
   end
 

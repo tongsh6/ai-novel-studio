@@ -207,12 +207,28 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板（2026-08-24，CA04 收口后队列头无 doing 项）**。候选（不代拍板）：
-① **M5 节拍狗粮**（观察清单已累齐：别称 sighting / 场级指导 / 伴生产物不凑数 / 两使命工具
-调用稳定性与牵引力 / 作者改写率 / carry 日志 empty 告警——prior_summaries 长期 empty=摘要
-断链信号；启动须用户明确批准+便宜验证阶梯先行）；② **WR01 三期**（why 面板完整简报 +
-规划使命裁决；原建议等 M5 观察数据）。G4/G5 携带缺口已拍板缓办，留登记表
-（CA03 §3.1），不进候选。未推送提交积压 9 个，推送等用户指令。
+**队首 = 拍板（2026-08-24，WR01c 收口后队列头无 doing 项）**。首选候选：
+**M5 节拍狗粮**（观察清单已累齐：别称 sighting / 场级指导 / 伴生产物不凑数 / 两使命工具
+调用稳定性与牵引力 / **作者改写率与规划使命复用率（WR01c 新增）** / carry 日志 empty 告警
+——prior_summaries 长期 empty=摘要断链信号；启动须用户明确批准+便宜验证阶梯先行）。
+写前推理层四刀（WR01/WR01b/WR02/WR01c）全落：正文使命+章裁决+规划使命+工作级裁决与
+why 可见性，狗粮是它们的下一个验证场。G4/G5 留登记表（CA03 §3.1）。
+未推送提交积压 11 个，推送等用户指令。
+
+**WR01c 写前推理层三期——slice done（2026-08-24，
+`tasks/slices/WR01c-mission-why-brief-and-planning-decision.md`）。**
+WR01c 收口一页话：两拍板（why 面板使命完整结构 / 规划使命照抄 WR01b 模板）→
+A 半：trace_summary 结构化使命 payload（statement+逐条+依据标签，author-safe）经既有
+`state_trace_refs` 持久，why 弹窗独立区块，replay 同源重建（**修掉 replay 加载成功后
+覆盖丢使命行的既有缺口**）；B 半：`works.planning_direction["planning_mission"]`
+（migration 字段阶梯）+ `PlanningMissionRepo` 四动作（I-M6 同款）+ channel
+`*_planning_mission` 三分支（ADR-0024 S9）+ plot flow 作者版 0 调用直取/暂定落库 +
+`get_toc` 顶层投影 + archive_read profile「当前规划使命」行（探索面同步律）+
+档案大纲 tab 顶部工作级裁决块。真实 Tauri `wr01c-planning-mission-decision`
+（模型暂定→档案改写→0 调用直取→why 区块可见→零写入）PASS + `wr01` 复跑 PASS；
+契约 VS-00E §16.10 / 43 §5.0.4 / 46 §9.2。
+
+
 
 **CA04 携带缺口收口——slice done（2026-08-24，`tasks/slices/CA04-carry-gap-closure.md`，
 VS-00C §3.5 I12「改门=改行为」流程首用）。**

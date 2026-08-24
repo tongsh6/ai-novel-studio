@@ -167,6 +167,7 @@ export const nativeSliceIds = [
   "wr02-planning-mission-before-outline",
   "ca03-carry-registry-observability",
   "ca04-carry-gap-closure",
+  "wr01c-planning-mission-decision",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -538,6 +539,14 @@ const sliceKeyEvents = {
     "context.carry.done",
     "toolbox.execute.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "wr01c-planning-mission-decision": [
+    "channel.user_message.start",
+    "planning_mission.derived.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
@@ -2027,6 +2036,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findCa04CarryGapClosureEvidence(records);
   }
 
+  if (sliceId === "wr01c-planning-mission-decision") {
+    return findWr01cPlanningMissionDecisionEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2951,6 +2964,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "ca04-carry-gap-closure") {
     return ca04CarryGapClosureBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "wr01c-planning-mission-decision") {
+    return wr01cPlanningMissionDecisionBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -4898,6 +4915,120 @@ function wr01ChapterMissionAuthorDecisionBehavior(turnIds, records, evidence) {
       "execution_brief_sourced_from_author_mission_with_matching_ref",
       "trace_carried_author_mission_statement",
       "both_prose_drafts_remained_tentative_without_production_write",
+    ],
+  };
+}
+
+function findWr01cPlanningMissionDecisionEvidence(records) {
+  const sliceId = "wr01c-planning-mission-decision";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "plot_outline_with_context_v1" &&
+      record.first_mission_source === "model" &&
+      record.first_mission_persisted === "stored" &&
+      record.tentative_badge_visible === true &&
+      record.mission_actions_visible === true &&
+      record.rewrite_action_sent === true &&
+      record.rewrite_status === "AUTHOR_EDITED" &&
+      record.author_badge_visible === true &&
+      record.second_mission_source === "author" &&
+      Number(record.second_mission_provider_calls ?? -1) === 0 &&
+      record.second_mission_persisted === "author_version" &&
+      record.second_mission_event_seen === false &&
+      record.trace_statement_matches === true &&
+      record.trace_payload_matches === true &&
+      record.why_dialog_shows_mission === true &&
+      record.no_write === true,
+  );
+  if (!uiState) return null;
+
+  const firstMission = records.find(
+    (record) =>
+      record.event === "planning_mission.derived.done" &&
+      record.run_id === uiState.first_run_id &&
+      record.source === "model" &&
+      record.persisted === "stored",
+  );
+  if (!firstMission) return null;
+
+  const rewrite = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "rewrite_planning_mission" &&
+      record.mission_status === "AUTHOR_EDITED",
+  );
+  if (!rewrite) return null;
+
+  const secondMission = records.find(
+    (record) =>
+      record.event === "planning_mission.derived.done" &&
+      record.run_id === uiState.second_run_id &&
+      record.source === "author" &&
+      Number(record.provider_call_count ?? -1) === 0 &&
+      record.mission_ref === uiState.author_mission_ref,
+  );
+  if (!secondMission) return null;
+
+  const turnIds = [
+    ...(uiState.parent_turn_ids ?? []),
+    uiState.first_mission_turn_id,
+    uiState.first_turn_id,
+    uiState.second_mission_turn_id,
+    uiState.second_turn_id,
+  ].filter(Boolean);
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.second_turn_id,
+    turn_ids: turnIds,
+    first_run_id: uiState.first_run_id,
+    second_run_id: uiState.second_run_id,
+    tentative_mission_ref: uiState.tentative_mission_ref,
+    author_mission_ref: uiState.author_mission_ref,
+    profile_ref: uiState.profile_ref,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function wr01cPlanningMissionDecisionBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "wr01c-planning-mission-decision" &&
+      record.second_run_id === evidence.second_run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.first_mission_persisted !== "stored" || uiState.rewrite_status !== "AUTHOR_EDITED") {
+    return null;
+  }
+  if (uiState.second_mission_source !== "author" || uiState.second_mission_event_seen !== false) {
+    return null;
+  }
+  if (uiState.trace_payload_matches !== true || uiState.why_dialog_shows_mission !== true) {
+    return null;
+  }
+  if (uiState.no_write !== true) return null;
+
+  return {
+    slice_id: "wr01c-planning-mission-decision",
+    behavior:
+      "tentative_planning_mission_persisted_on_work_then_author_rewrite_took_precedence_and_why_panel_showed_structured_mission",
+    turn_ids: turnIds,
+    first_run_id: evidence.first_run_id,
+    second_run_id: evidence.second_run_id,
+    author_mission_ref: evidence.author_mission_ref,
+    assertions: [
+      "first_planning_run_derived_mission_and_stored_it_as_tentative_on_the_work",
+      "archive_outline_rendered_work_level_tentative_mission_with_confirm_rewrite_discard_actions",
+      "author_rewrite_travelled_through_rewrite_planning_mission_author_action",
+      "panel_reread_toc_and_showed_author_edited_badge_with_author_statement",
+      "second_planning_run_took_author_version_with_zero_mission_provider_calls",
+      "second_run_emitted_no_mission_derived_narrative_without_model_words",
+      "trace_carried_structured_author_mission_payload",
+      "why_dialog_rendered_the_structured_planning_mission_block",
+      "both_outline_drafts_remained_tentative_without_production_write",
     ],
   };
 }

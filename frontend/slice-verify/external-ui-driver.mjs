@@ -22228,6 +22228,245 @@ async function driveCa04CarryGapClosure(page) {
   ];
 }
 
+// WR01c 写前推理层三期：规划使命裁决 + why 弹窗结构化使命——第一次规划 run 推导使命并
+// 落 works.planning_direction 暂定 → 档案「大纲与结构」顶部工作级块作者改写 → 第二次规划
+// 0 调用直取作者版 → why 弹窗展示结构化使命区块；全程零生产写入。
+async function driveWr01cPlanningMissionDecision(page) {
+  const sliceId = "wr01c-planning-mission-decision";
+  const authorStatement = "作者版：接下来三章先收束黑市支线，再进入公司线。";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。";
+
+  const runPlanning = async (label) => {
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    const frameStart = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    const sentFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === message,
+      `${label}: planning request was not sent from the real workbench input`,
+      30_000,
+    );
+    const ackFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        frame.body?.response?.run_mode === "bounded" &&
+        typeof frame.body?.response?.run_id === "string",
+      `${label}: planning request did not start a bounded AgentRun`,
+      30_000,
+    );
+    const runId = ackFrame.body.response.run_id;
+
+    const missionRecord = await waitForNewAppLogRecord(
+      logStart,
+      (record) => record.event === "planning_mission.derived.done" && record.run_id === runId,
+      `${label}: no planning_mission.derived.done app log`,
+      90_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId &&
+        frame.body?.tool_result?.tool_name === "plot_outline" &&
+        (frame.body?.adoption_state?.pending ?? []).some(
+          (entry) =>
+            entry.artifact_type === "outline_draft" &&
+            String(entry.adoption_status ?? "") === "tentative",
+        ),
+      `${label}: plot outline did not return a pending outline_draft`,
+      120_000,
+    );
+    const turnResult = turnFrame.body;
+    const missionEventSeen = frames
+      .slice(frameStart)
+      .some(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_event" &&
+          frame.body?.run_ref === runId &&
+          frame.body?.event_type === "mission_derived",
+      );
+    assert(
+      turnResult.truthfulness?.artifact_adopted === false &&
+        turnResult.truthfulness?.production_write_performed === false,
+      `${label}: planning run performed a production write or auto-adoption`,
+    );
+    return { sentFrame, runId, missionRecord, turnResult, missionEventSeen };
+  };
+
+  // 第一次：模型推导 → 暂定落 works.planning_direction
+  const first = await runPlanning("first run");
+  assert(
+    first.missionRecord.source === "model" && first.missionRecord.persisted === "stored",
+    `First run did not persist a model-derived tentative planning mission: ${JSON.stringify(first.missionRecord)}`,
+  );
+  assert(first.missionEventSeen, "First run did not broadcast mission_derived");
+  const tentativeMissionRef = String(first.missionRecord.mission_ref ?? "");
+
+  // 档案大纲 tab 顶部：工作级【暂定】规划使命块与三动作
+  const archive = await openArchiveTab(page, "大纲与结构");
+  const missionSection = archive
+    .locator('[class*="section"]')
+    .filter({ hasText: "本轮规划使命" })
+    .first();
+  await missionSection.getByText("【暂定】", { exact: true }).waitFor({ timeout: 15_000 });
+  const confirmVisible = await missionSection
+    .getByRole("button", { name: "确认规划使命", exact: true })
+    .isVisible();
+  const discardVisible = await missionSection
+    .getByRole("button", { name: "作废规划使命", exact: true })
+    .isVisible();
+  await page.screenshot({
+    path: path.join(artifactDir, "wr01c-planning-mission-tentative.png"),
+    fullPage: true,
+  });
+
+  // 作者改写：就地编辑并保存
+  await missionSection.getByRole("button", { name: "改写规划使命", exact: true }).click();
+  const statementBox = missionSection.getByLabel("一句使命");
+  await statementBox.waitFor({ timeout: 10_000 });
+  await statementBox.fill(authorStatement);
+  await missionSection.getByLabel("必须推进（每行一条）").fill("收束黑市支线");
+  await missionSection.getByLabel("不得（每行一条）").fill("本批不开新卷");
+
+  const rewriteFrameStart = frames.length;
+  const rewriteLogStart = readAppLogRecords().length;
+  await missionSection.getByRole("button", { name: "保存改写", exact: true }).click();
+
+  const rewriteActionFrame = await waitForNewFrame(
+    rewriteFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "rewrite_planning_mission" &&
+      String(frame.body?.action?.payload?.statement ?? "") === authorStatement,
+    "Rewrite did not send rewrite_planning_mission with the author statement",
+    30_000,
+  );
+  const rewriteReply = await waitForNewFrame(
+    rewriteFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.action_status === "applied" &&
+      frame.body?.response?.mission_status === "AUTHOR_EDITED",
+    "rewrite_planning_mission did not reply AUTHOR_EDITED",
+    30_000,
+  );
+  const authorMissionId = String(rewriteReply.body.response.mission?.mission_id ?? "");
+  await waitForNewAppLogRecord(
+    rewriteLogStart,
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "rewrite_planning_mission" &&
+      record.mission_status === "AUTHOR_EDITED",
+    "rewrite_planning_mission was not logged as applied",
+    20_000,
+  );
+
+  await missionSection.getByText("【作者改写】", { exact: true }).waitFor({ timeout: 15_000 });
+  await missionSection.getByText(authorStatement, { exact: false }).waitFor({ timeout: 15_000 });
+  const authorBadgeVisible = await missionSection
+    .getByText("【作者改写】", { exact: true })
+    .isVisible();
+  await page.screenshot({
+    path: path.join(artifactDir, "wr01c-planning-mission-rewritten.png"),
+    fullPage: true,
+  });
+  await closeArchiveIfOpen(page);
+
+  // 第二次：作者版在场 → 0 调用直取，不发 mission_derived，trace 带结构化作者版
+  const second = await runPlanning("second run");
+  assert(
+    second.missionRecord.source === "author" &&
+      Number(second.missionRecord.provider_call_count ?? -1) === 0 &&
+      second.missionRecord.mission_status === "AUTHOR_EDITED" &&
+      second.missionRecord.persisted === "author_version",
+    `Second run did not take the author version with zero calls: ${JSON.stringify(second.missionRecord)}`,
+  );
+  assert(!second.missionEventSeen, "Second run broadcast mission_derived without a model call");
+  const authorMissionRef = `mission:${authorMissionId}`;
+  assert(
+    second.missionRecord.mission_ref === authorMissionRef,
+    `Second run mission ref did not match the author version: ${JSON.stringify(second.missionRecord)}`,
+  );
+  const tracePayload = second.turnResult.trace_summary?.planning_mission;
+  const traceStatementMatches =
+    second.turnResult.trace_summary?.planning_mission_statement === authorStatement;
+  const tracePayloadMatches =
+    tracePayload?.statement === authorStatement && tracePayload?.status === "AUTHOR_EDITED";
+  assert(
+    traceStatementMatches && tracePayloadMatches,
+    `Second run trace did not carry the structured author mission: ${JSON.stringify(second.turnResult.trace_summary)}`,
+  );
+
+  // why 弹窗：结构化使命区块（标签+状态+一句使命+逐条）
+  await page.getByRole("button", { name: "为什么", exact: true }).last().click();
+  const whyDialog = page.getByRole("dialog");
+  await whyDialog.getByText("本轮规划使命（作者改写）", { exact: false }).waitFor({ timeout: 15_000 });
+  await whyDialog.getByText(authorStatement, { exact: false }).waitFor({ timeout: 10_000 });
+  await whyDialog.getByText("必须推进：收束黑市支线", { exact: false }).waitFor({ timeout: 10_000 });
+  const whyDialogShowsMission = true;
+  await page.screenshot({
+    path: path.join(artifactDir, "wr01c-planning-mission-why-dialog.png"),
+    fullPage: true,
+  });
+  await page.keyboard.press("Escape");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: first.sentFrame.body?.work_id,
+      session_id: first.sentFrame.body?.session_id,
+      first_run_id: first.runId,
+      first_turn_id: first.turnResult.turn_id,
+      first_mission_turn_id: first.missionRecord.turn_id,
+      second_run_id: second.runId,
+      second_turn_id: second.turnResult.turn_id,
+      second_mission_turn_id: second.missionRecord.turn_id,
+      parent_turn_ids: [
+        String(first.turnResult.turn_id ?? "").split(":agent:")[0],
+        String(second.turnResult.turn_id ?? "").split(":agent:")[0],
+      ],
+      profile_ref: second.turnResult.agent_run?.profile_ref,
+      tentative_mission_ref: tentativeMissionRef,
+      author_mission_ref: authorMissionRef,
+      author_statement: authorStatement,
+      first_mission_source: first.missionRecord.source,
+      first_mission_persisted: first.missionRecord.persisted,
+      tentative_badge_visible: true,
+      mission_actions_visible: confirmVisible && discardVisible,
+      rewrite_action_sent: Boolean(rewriteActionFrame),
+      rewrite_status: rewriteReply.body.response.mission_status,
+      author_badge_visible: authorBadgeVisible,
+      second_mission_source: second.missionRecord.source,
+      second_mission_provider_calls: Number(second.missionRecord.provider_call_count ?? -1),
+      second_mission_persisted: second.missionRecord.persisted,
+      second_mission_event_seen: second.missionEventSeen,
+      trace_statement_matches: traceStatementMatches,
+      trace_payload_matches: tracePayloadMatches,
+      why_dialog_shows_mission: whyDialogShowsMission,
+      no_write:
+        first.turnResult.truthfulness?.production_write_performed === false &&
+        second.turnResult.truthfulness?.production_write_performed === false,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -28156,6 +28395,7 @@ const drivers = {
   "wr02-planning-mission-before-outline": driveWr02PlanningMissionBeforeOutline,
   "ca03-carry-registry-observability": driveCa03CarryRegistryObservability,
   "ca04-carry-gap-closure": driveCa04CarryGapClosure,
+  "wr01c-planning-mission-decision": driveWr01cPlanningMissionDecision,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

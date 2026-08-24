@@ -392,3 +392,33 @@ I-M1（依据 ⊆ 材料，越界机器丢弃）/ I-M3（叙事 source-bound）/
 - **本期边界**：规划使命是轮级设计、随 run 消失，不持久化、无作者预裁决（落位设计
   等 M5 观察后再议）；大纲草稿仍走既有逐章采纳边界。
 
+### 16.10 三期：使命可见性 + 规划使命裁决（2026-08-24 WR01c）
+
+写前推理层第四刀，两半：
+
+**A. why 面板完整使命（可见性）**
+
+- `trace_summary` 新增结构化 payload：`chapter_mission` / `planning_mission`（author-safe：
+  `statement` + `status` + `source` + `must_advance`/`must_avoid` 逐条 `{text, basis_label}`；
+  不带 provider ref / dropped 细节）。一句话字段（`*_statement`）保留兼容。
+- 持久位 = 既有 `state_trace_refs`（{:array,:map} 列，零 migration）：条目
+  `{kind: "chapter_mission"|"planning_mission", ref, ...payload}`；replay
+  （`TraceReplayService`）从同一条目重建 → **修复既有缺口**：why 弹窗 replay 加载成功后
+  不再覆盖丢使命行，广播与 replay 同源。
+- UI：why 弹窗独立使命区块（标签+状态+一句使命+逐条+依据标签，46 §9.2）；一句话行退役。
+
+**B. 规划使命作者裁决（WR01b 模板照抄到 work 级）**
+
+- 持久位：`works.planning_direction["planning_mission"]`（migration 加 map 列；与
+  `chapters.plan_direction` 同构；状态机复用 `ChapterMissionStatus`，作废=删键）。
+- `PlanningMissionRepo` 四动作（put_tentative 不覆盖作者版 I-M6 / confirm 只收暂定 /
+  rewrite 换 id 归作者 / discard 删键）+ `get_mission` 直取入口；
+  `PlanningMissionDecisionService` 用例层；channel author_action 三分支
+  `confirm|rewrite|discard_planning_mission`（work 级，payload 无 ref，ADR-0024 S9）。
+- flow：`plot_outline_with_context` 规划推理步先查作者版（`planning_mission_reader`）——
+  CONFIRMED/AUTHOR_EDITED 直接用（**0 调用**，日志 `source=author`，prompt 渲染带
+  「（作者已定）」后缀）；模型推导成功即落暂定（`planning_mission_writer`，日志 `persisted=`）。
+- 投影：`get_toc` 顶层 `planning_direction`（档案「大纲与结构」顶部裁决块，43 §5.0.4）；
+  `archive_read` profile facet 增「当前规划使命」行（探索面同步律）。
+- 场景：`wr01c-planning-mission-decision`（规划 run 落暂定 → 档案块裁决 → 改写后再规划
+  0 调用直取 → why 弹窗结构化区块）；`wr01-chapter-mission-before-prose` 复跑为行为回归。

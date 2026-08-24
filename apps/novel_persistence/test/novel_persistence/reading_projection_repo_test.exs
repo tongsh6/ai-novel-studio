@@ -56,6 +56,23 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
       refute scenes |> Enum.map_join("", & &1.content) =~ "不能出现"
     end
 
+    test "TOC 顶层带工作级规划使命（WR01c）；无使命时诚实为 nil" do
+      {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "规划使命投影作品"})
+      assert ReadingProjectionRepo.toc(work.id).planning_direction == nil
+
+      {:ok, :stored, _} =
+        NovelPersistence.PlanningMissionRepo.put_tentative(work.id, %{
+          "mission_id" => "cm_toc",
+          "statement" => "先给超期伏笔安排回收。",
+          "must_advance" => [],
+          "must_avoid" => []
+        })
+
+      toc = ReadingProjectionRepo.toc(work.id)
+      assert toc.planning_direction["planning_mission"]["statement"] == "先给超期伏笔安排回收。"
+      assert toc.planning_direction["planning_mission"]["status"] == "TENTATIVE"
+    end
+
     test "total_word_count 只统计已采纳正文且排除标点空白" do
       work_id = Ecto.UUID.generate()
 

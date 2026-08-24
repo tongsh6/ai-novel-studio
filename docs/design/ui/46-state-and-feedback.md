@@ -206,6 +206,10 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 
 最终正文、候选、修订稿仍走既有 `TurnResult` / tentative artifact 出口。
 
+「为什么」弹窗（WR01c）：`trace_summary.chapter_mission` / `planning_mission` 结构化 payload
+渲染为独立使命区块（标签+状态+一句使命+必须推进/不得逐条+依据标签）；缺 payload 的旧 trace
+回退一句话 statement。replay 加载成功后区块与广播同源（state_trace_refs 持久，不丢行）。
+
 ### 9.3 禁止
 
 - 禁止用 `ProviderActivityProjector`、前端 copy 或 `AgentObservation.summary` 拼作者可见过程叙事。

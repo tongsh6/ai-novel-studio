@@ -19,6 +19,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
+  alias NovelPersistence.Schemas.Work
 
   # 阅读视图按当前产品阶段（P1）审计正文有效字数。阶段阈值见
   # NovelDomain.NovelMilestone / docs/product/novel-output-milestones.md §3。
@@ -59,6 +60,8 @@ defmodule NovelPersistence.ReadingProjectionRepo do
           work_id: work_id,
           total_word_count: audit.total_word_count,
           audit: audit,
+          # WR01c：工作级规划使命随 TOC 进档案（大纲与结构 tab 顶部裁决块）。
+          planning_direction: work_planning_direction(work_id),
           volumes: annotate_audit_status(rendered_volumes, audit.min_chapter_words)
         }
 
@@ -67,9 +70,17 @@ defmodule NovelPersistence.ReadingProjectionRepo do
           work_id: work_id,
           total_word_count: 0,
           audit: ProseAudit.summarize([], @audit_stage),
+          planning_direction: nil,
           volumes: []
         }
     end
+  end
+
+  defp work_planning_direction(work_id) do
+    Work
+    |> where([w], w.id == ^work_id)
+    |> select([w], w.planning_direction)
+    |> Repo.one()
   end
 
   # 给每章附上审计状态（empty/short/ok），供阅读消费者标记短章/空章。

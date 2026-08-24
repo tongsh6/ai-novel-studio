@@ -1,0 +1,58 @@
+id: wr01c-planning-mission-decision
+title: 规划使命作者裁决与 why 弹窗结构化使命：暂定落作品、作者改写后 0 调用直取
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh wr01c-planning-mission-decision --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/ui/43-structure-panel.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - tentative-planning-mission-is-persisted-on-the-work-without-production-write
+  - author-version-is-never-overwritten-and-skips-model-derivation
+  - author-rewrite-travels-through-author-action-decision-surface
+  - why-dialog-renders-the-structured-mission-block-from-trace
+
+setup:
+  seed: scripts/seed_wr01_chapter_mission.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: planning request (mission derived and stored as TENTATIVE on the work)
+  - open: archive 大纲与结构 tab, top shows 【暂定】本轮规划使命 with three actions
+  - click: 改写规划使命, edit statement, 保存改写
+  - verify: reply AUTHOR_EDITED and panel shows 【作者改写】 with the author text
+  - send: planning request again
+  - verify: mission step used the author version with zero provider calls
+  - open: why dialog on the planning turn, structured mission block visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/wr01c-planning-mission-decision-tauri
+
+assertions:
+  ui:
+    - archive outline top renders 本轮规划使命 with 【暂定】 badge and 确认/改写/作废规划使命 actions
+    - after saving the rewrite the block shows 【作者改写】 and the author statement
+    - why dialog shows 本轮规划使命（作者改写） with the statement and must-advance items
+  network:
+    - first run logs planning_mission.derived.done source=model persisted=stored
+    - rewrite_planning_mission author_action replies mission_status AUTHOR_EDITED
+    - second run logs planning_mission.derived.done source=author provider_call_count=0 persisted=author_version and no mission_derived event
+  data:
+    - second run turn_result trace_summary.planning_mission payload carries the author statement with status AUTHOR_EDITED
+    - both outline drafts remain tentative with production_write_performed=false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

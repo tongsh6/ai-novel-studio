@@ -102,6 +102,30 @@ defmodule NovelApplication.TraceReplayService do
       replay_missing_trace_refs_count: length(report.missing_trace_refs)
     }
     |> put_tool_summary(record.tool_trace_refs || [])
+    |> put_mission_summary(record.state_trace_refs || [])
+  end
+
+  # WR01c：从持久 state_trace_refs 重建使命字段——replay 成功加载后 why 面板
+  # 不再丢「本章使命/本轮规划使命」（与广播 summary 同源）。
+  defp put_mission_summary(summary, state_refs) when is_list(state_refs) do
+    Enum.reduce(state_refs, summary, fn ref, acc ->
+      case map_value(ref, :kind) do
+        "chapter_mission" -> put_mission_fields(acc, ref, :chapter_mission)
+        "planning_mission" -> put_mission_fields(acc, ref, :planning_mission)
+        _other -> acc
+      end
+    end)
+  end
+
+  defp put_mission_summary(summary, _state_refs), do: summary
+
+  defp put_mission_fields(summary, ref_map, key) do
+    payload = Map.drop(ref_map, ["kind", "ref", :kind, :ref])
+
+    summary
+    |> Map.put(:"#{key}_ref", map_value(ref_map, :ref))
+    |> Map.put(:"#{key}_statement", map_value(ref_map, :statement))
+    |> Map.put(key, payload)
   end
 
   defp put_tool_summary(summary, [tool_ref | _]) when is_map(tool_ref) do

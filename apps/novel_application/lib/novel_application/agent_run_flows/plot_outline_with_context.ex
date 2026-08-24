@@ -308,6 +308,18 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   # （I-M4，规划 prompt 无使命段）。本期不持久化（轮级设计，随 run 消失）。
   defp execute_planning_mission_step(run, sequence, spec, snapshot) do
     turn_id = "#{run.parent_turn_ref}:agent:#{sequence}"
+
+    # WR01c：作者已定版（CONFIRMED/AUTHOR_EDITED）直接用，不再调模型（0 调用，I-M6）。
+    case author_planning_mission(spec, run) do
+      %ChapterMission{} = mission ->
+        planning_mission_author_success(run, sequence, turn_id, mission)
+
+      nil ->
+        derive_planning_mission(run, sequence, spec, snapshot, turn_id)
+    end
+  end
+
+  defp derive_planning_mission(run, sequence, spec, snapshot, turn_id) do
     context = Map.get(stage_state(snapshot), :context) || context_for_run(spec, run, turn_id)
     inputs = planning_mission_inputs(run, spec, context)
 
@@ -322,11 +334,90 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
            kind: :planning
          ) do
       {:ok, mission, meta} ->
-        planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot)
+        persisted = persist_tentative_planning_mission(spec, run, mission)
+        planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot, persisted)
 
       {:error, reason, meta} ->
         planning_mission_failure(run, sequence, turn_id, inputs, reason, meta)
     end
+  end
+
+  # WR01c：作者版读端口（works.planning_direction["planning_mission"]，测试可注入）。
+  defp author_planning_mission(spec, run) do
+    reader =
+      Map.get(spec, :planning_mission_reader) ||
+        NovelApplication.persistence_planning_mission_reader()
+
+    if is_function(reader, 1) do
+      mission = (run.work_id || run.workspace_id) |> reader.() |> ChapterMission.from_map()
+      if ChapterMission.author_version?(mission), do: mission
+    end
+  rescue
+    _error -> nil
+  end
+
+  # WR01c：推理成功即落暂定（作者版在场时 repo 端保持不覆盖，I-M6）。
+  defp persist_tentative_planning_mission(spec, run, %ChapterMission{} = mission) do
+    writer =
+      Map.get(spec, :planning_mission_writer) ||
+        NovelApplication.persistence_planning_mission_writer()
+
+    if is_function(writer, 2) do
+      case writer.(run.work_id || run.workspace_id, ChapterMission.persisted_map(mission)) do
+        {:ok, outcome, _mission} -> to_string(outcome)
+        {:error, reason} -> "failed:#{inspect(reason)}"
+      end
+    else
+      "skipped"
+    end
+  rescue
+    error -> "failed:#{inspect(error)}"
+  end
+
+  defp planning_mission_author_success(run, sequence, turn_id, mission) do
+    mission_ref = ChapterMission.ref(mission) || "mission:#{turn_id}"
+
+    LogEmit.emit(:planning_mission, :derived, :done, %{
+      turn_id: turn_id,
+      run_id: run.run_id,
+      mission_ref: mission_ref,
+      source: "author",
+      mission_status: mission.status,
+      must_advance_count: length(mission.must_advance),
+      must_avoid_count: length(mission.must_avoid),
+      dropped_unbound_count: 0,
+      basis_refs: [],
+      input_ref_count: 0,
+      provider_call_count: 0,
+      narrative_bound: false,
+      persisted: "author_version"
+    })
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: planning_mission_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: mission_ref,
+        summary: "本轮规划使命采用作者已定版（#{mission.status}），未调用模型推导。",
+        structured_payload: %{
+          stage: :mission_author_version,
+          mission_ref: mission_ref,
+          mission_status: mission.status
+        },
+        evidence_refs: [mission_ref],
+        confidence: 1.0
+      })
+
+    {:ok,
+     %{
+       step: planning_mission_step(run, sequence, "规划前推理：采用作者已定使命"),
+       observations: [observation],
+       stage_state: %{planning_mission: ChapterMission.to_map(mission)},
+       provider_call_count: 0,
+       progress_signature: "#{run.run_id}:planning_mission:#{turn_id}"
+     }}
   end
 
   defp planning_mission_inputs(run, spec, context) do
@@ -388,7 +479,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
 
   defp safe_read(_reader, _work_id, default), do: default
 
-  defp planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot) do
+  defp planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot, persisted) do
     mission_ref = ChapterMission.ref(mission) || "mission:#{turn_id}"
 
     counts = %{
@@ -410,7 +501,8 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         source: "model",
         provider_call_ref: meta.provider_call_ref,
         provider_call_count: meta.provider_call_count,
-        narrative_bound: is_binary(meta.narrative)
+        narrative_bound: is_binary(meta.narrative),
+        persisted: persisted
       })
     )
 

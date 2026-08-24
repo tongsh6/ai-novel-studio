@@ -42,6 +42,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
         serial_form: w.serial_form,
         target_reader: w.target_reader,
         tone_preference: w.tone_preference,
+        planning_direction: w.planning_direction,
         status: w.status,
         revision: w.revision,
         updated_at: w.updated_at

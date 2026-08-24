@@ -90,7 +90,13 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
         ]
       end,
       written_progress_reader: fn _work_id -> %{chapter_seq: 2, volume_seq: 1} end,
-      character_reader: fn _work_id -> [] end
+      character_reader: fn _work_id -> [] end,
+      # WR01c：暂定落库写端口（捕获替身，作者版读端口缺席 → 走模型推导）。
+      planning_mission_reader: fn _work_id -> nil end,
+      planning_mission_writer: fn work_id, mission_map ->
+        send(parent, {:planning_mission_persisted, work_id, mission_map})
+        {:ok, :stored, mission_map}
+      end
     }
 
     planned =
@@ -191,8 +197,117 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-agent-outline-writer"
     assert turn_result.trace_summary.planning_mission_ref =~ "mission:cm_"
     assert turn_result.trace_summary.planning_mission_statement == "接下来的章节必须给超期伏笔安排回收。"
+
+    # WR01c：why 面板结构化 payload（statement+逐条+依据标签，越界条目不出现）。
+    payload = turn_result.trace_summary.planning_mission
+    assert payload["statement"] == "接下来的章节必须给超期伏笔安排回收。"
+    assert [%{"text" => "给旧账伏笔安排回收章"} = advance] = payload["must_advance"]
+    assert is_binary(advance["basis_label"])
+    refute inspect(payload) =~ "越界依据"
+
+    # WR01c：推理成功即落暂定（写端口收到 persisted_map）。
+    assert_receive {:planning_mission_persisted, @work, persisted_map}, 500
+    assert persisted_map["statement"] == "接下来的章节必须给超期伏笔安排回收。"
     assert turn_result.trace_summary.provider_call_budget.writer == 1
     assert turn_result.trace_summary.provider_call_budget.evaluator == 0
+  end
+
+  test "author-edited planning mission is used directly with zero mission provider calls (WR01c)" do
+    parent = self()
+
+    result_fn = fn prompt ->
+      cond do
+        prompt_contains?(prompt, "规划前推理器") ->
+          send(parent, {:planning_mission_prompt, prompt})
+          {:error, :must_not_call_mission_model}
+
+        plan_draft_prompt?(prompt) ->
+          {:ok, Map.put(plot_outline_plan_draft(), :provider_call_id, "pc-author-outline-planner")}
+
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
+
+        true ->
+          send(parent, {:provider_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-author-outline-writer",
+             content:
+               Jason.encode!([
+                 %{
+                   "item_id" => "outline-author-01",
+                   "title" => "第01章：收束支线",
+                   "body" => "按作者要求收束当前支线。",
+                   "rationale" => nil
+                 }
+               ])
+           }}
+      end
+    end
+
+    input = %{
+      text: "请继续规划后续章节。",
+      workspace_id: @work,
+      work_id: @work,
+      session_id: "session-agent-outline-author",
+      turn_id: "turn-agent-outline-author",
+      ledger_reader: fn _work_id -> [] end,
+      written_progress_reader: fn _work_id -> %{chapter_seq: 2, volume_seq: 1} end,
+      character_reader: fn _work_id -> [] end,
+      # WR01c：作者已定版在场 → 直接用，不再调模型（0 调用）。
+      planning_mission_reader: fn _work_id ->
+        %{
+          "mission_id" => "cm_author_p1",
+          "statement" => "先收束当前支线，再开新章。",
+          "status" => "AUTHOR_EDITED",
+          "source" => "author",
+          "must_advance" => [%{"text" => "收束当前支线"}],
+          "must_avoid" => [%{"text" => "不开新卷"}]
+        }
+      end,
+      planning_mission_writer: fn _work_id, mission_map ->
+        send(parent, {:planning_mission_persisted, mission_map})
+        {:ok, :stored, mission_map}
+      end
+    }
+
+    planned =
+      DialoguePlanningService.run_spec_for_profile(
+        :plot_outline_with_context,
+        input,
+        context(),
+        %Execution{result_fn: result_fn}
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(planned.run_attrs,
+               next_step_planner: planned.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:agent_event, :run_completed, _}, 2_000
+    refute_received {:planning_mission_prompt, _}
+    refute_received {:planning_mission_persisted, _}
+
+    assert_received {:provider_prompt, provider_prompt}
+    assert provider_prompt =~ "本轮规划使命（作者已定）：先收束当前支线，再开新章。"
+    assert provider_prompt =~ "· 必须推进：收束当前支线"
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :completed
+    # 作者版 0 调用：三步不变，provider 调用只剩 writer 1 次。
+    assert state.run.consumed_budget.steps == 3
+    assert state.run.consumed_budget.provider_calls == 1
+
+    assert state.final_turn_result.trace_summary.planning_mission_statement ==
+             "先收束当前支线，再开新章。"
+
+    assert state.final_turn_result.trace_summary.planning_mission["status"] == "AUTHOR_EDITED"
   end
 
   defp plan_draft_prompt?(prompt), do: prompt_contains?(prompt, "AgentRun 计划起草器")

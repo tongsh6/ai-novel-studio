@@ -96,6 +96,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("wr02-planning-mission-before-outline");
     expect(nativeSliceIds).toContain("ca03-carry-registry-observability");
     expect(nativeSliceIds).toContain("ca04-carry-gap-closure");
+    expect(nativeSliceIds).toContain("wr01c-planning-mission-decision");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9346,6 +9347,89 @@ describe("native Tauri slice verifier", () => {
         : record,
     );
     expect(findNativeSliceEvidence("ca04-carry-gap-closure", factsMissing)).toBeNull();
+  });
+
+  it("requires work-level planning mission adjudication with author precedence (WR01c)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "wr01c-planning-mission-decision",
+      profile_ref: "plot_outline_with_context_v1",
+      first_run_id: "run-1",
+      first_turn_id: "t-1:agent:4",
+      first_mission_turn_id: "t-1:agent:2",
+      second_run_id: "run-2",
+      second_turn_id: "t-2:agent:4",
+      second_mission_turn_id: "t-2:agent:2",
+      parent_turn_ids: ["t-1", "t-2"],
+      tentative_mission_ref: "mission:cm_model",
+      author_mission_ref: "mission:cm_author_1",
+      first_mission_source: "model",
+      first_mission_persisted: "stored",
+      tentative_badge_visible: true,
+      mission_actions_visible: true,
+      rewrite_action_sent: true,
+      rewrite_status: "AUTHOR_EDITED",
+      author_badge_visible: true,
+      second_mission_source: "author",
+      second_mission_provider_calls: 0,
+      second_mission_persisted: "author_version",
+      second_mission_event_seen: false,
+      trace_statement_matches: true,
+      trace_payload_matches: true,
+      why_dialog_shows_mission: true,
+      no_write: true,
+    };
+    const records = [
+      uiState,
+      {
+        event: "planning_mission.derived.done",
+        run_id: "run-1",
+        source: "model",
+        persisted: "stored",
+        mission_ref: "mission:cm_model",
+      },
+      {
+        event: "channel.author_action.done",
+        action_type: "rewrite_planning_mission",
+        mission_status: "AUTHOR_EDITED",
+      },
+      {
+        event: "planning_mission.derived.done",
+        run_id: "run-2",
+        source: "author",
+        provider_call_count: 0,
+        mission_ref: "mission:cm_author_1",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("wr01c-planning-mission-decision", records);
+    expect(evidence?.turn_ids).toEqual([
+      "t-1",
+      "t-2",
+      "t-1:agent:2",
+      "t-1:agent:4",
+      "t-2:agent:2",
+      "t-2:agent:4",
+    ]);
+
+    const behavior = findSliceBehaviorEvidence("wr01c-planning-mission-decision", records, evidence);
+    expect(behavior?.assertions).toContain(
+      "second_planning_run_took_author_version_with_zero_mission_provider_calls",
+    );
+
+    // 第二跑调了模型（provider_call_count>0）→ 不成立
+    const modelCalled = records.map((record) =>
+      record.event === "planning_mission.derived.done" && record.run_id === "run-2"
+        ? { ...record, provider_call_count: 1 }
+        : record,
+    );
+    expect(findNativeSliceEvidence("wr01c-planning-mission-decision", modelCalled)).toBeNull();
+
+    // 改写没走 author_action 决策面 → 不成立
+    const noRewrite = records.filter(
+      (record) => record.action_type !== "rewrite_planning_mission",
+    );
+    expect(findNativeSliceEvidence("wr01c-planning-mission-decision", noRewrite)).toBeNull();
   });
 });
 

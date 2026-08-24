@@ -146,6 +146,9 @@ defmodule NovelApplication.TraceWriter do
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
       tool_trace_refs: [tool_trace_ref(req, result, decision)],
+      # WR01c：使命结构化 payload 进 state_trace_refs（既有 {:array,:map} 列，零 migration）——
+      # replay 重建与广播 summary 同源。
+      state_trace_refs: mission_state_refs(turn_result),
       event_order: [
         :author_input_received,
         :dialogue_frame_validated,
@@ -178,6 +181,7 @@ defmodule NovelApplication.TraceWriter do
       |> maybe_put_mission_ref(turn_result)
       |> maybe_put_mission_statement(turn_result)
       |> maybe_put_planning_mission(turn_result)
+      |> maybe_put_mission_payloads(turn_result)
       |> maybe_put_decision_packet_ref(turn_result)
       |> maybe_put_provider_refs(turn_result)
       |> maybe_put_quality(turn_result)
@@ -243,6 +247,41 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_planning_mission(summary, _turn_result), do: summary
+
+  # WR01c：why 面板的结构化使命区块（statement + 逐条 + 依据标签）。
+  defp maybe_put_mission_payloads(summary, turn_result) do
+    summary
+    |> maybe_put(:chapter_mission, mission_payload_value(turn_result[:chapter_mission_payload]))
+    |> maybe_put(:planning_mission, mission_payload_value(turn_result[:planning_mission_payload]))
+  end
+
+  defp mission_payload_value(%{} = payload) when map_size(payload) > 0, do: payload
+  defp mission_payload_value(_), do: nil
+
+  defp mission_state_refs(turn_result) when is_map(turn_result) do
+    [
+      mission_state_ref(
+        "chapter_mission",
+        turn_result[:chapter_mission_ref],
+        turn_result[:chapter_mission_payload]
+      ),
+      mission_state_ref(
+        "planning_mission",
+        turn_result[:planning_mission_ref],
+        turn_result[:planning_mission_payload]
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp mission_state_refs(_turn_result), do: []
+
+  defp mission_state_ref(kind, ref, %{} = payload)
+       when is_binary(ref) and ref != "" and map_size(payload) > 0 do
+    Map.merge(%{"kind" => kind, "ref" => ref}, payload)
+  end
+
+  defp mission_state_ref(_kind, _ref, _payload), do: nil
 
   # VS-00E CP0/CP1：CreativeDecisionPacket 是一次 turn 的决策载体，不是作品事实；
   # trace 只暴露 author-safe ref，完整 packet 留在 ToolRequest/CreativeRequest 边界。

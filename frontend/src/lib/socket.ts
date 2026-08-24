@@ -413,6 +413,8 @@ export interface TocVolume {
 export interface TocData {
   total_word_count?: number;
   audit?: WorkAudit;
+  // WR01c：工作级规划使命（works.planning_direction，档案「大纲与结构」顶部裁决块）。
+  planning_direction?: { planning_mission?: ChapterMissionDto | null } | null;
   volumes: TocVolume[];
 }
 

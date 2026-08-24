@@ -6,11 +6,26 @@ export interface TraceContextSourceView {
   summary: string | null;
 }
 
+export interface TraceMissionItemView {
+  text: string;
+  basisLabel: string | null;
+}
+
+// WR01c：why 弹窗的结构化使命区块（本章使命 / 本轮规划使命）。
+export interface TraceMissionView {
+  label: string;
+  statement: string;
+  statusLabel: string | null;
+  mustAdvance: TraceMissionItemView[];
+  mustAvoid: TraceMissionItemView[];
+}
+
 export interface TraceSummaryView {
   primaryReason: string;
   decisionLabel: string;
   goal: string | null;
   contextSources: TraceContextSourceView[];
+  missions: TraceMissionView[];
   detailLines: string[];
   integrityNote: string;
 }
@@ -83,9 +98,57 @@ export function toAuthorTraceSummary(
     decisionLabel: decisionLabel(decisionType),
     goal: authorSafeGoal(traceSummary.dialogue_goal) || authorSafeGoal(traceSummary.plan_goal),
     contextSources,
+    missions: missionViews(traceSummary),
     detailLines: details,
     integrityNote: TRACE.integrityNote,
   };
+}
+
+// WR01c：结构化使命 payload → 区块视图；缺 payload 时回退一句话 statement（旧 trace 兼容）。
+function missionViews(summary: TraceSummaryLike): TraceMissionView[] {
+  const views: TraceMissionView[] = [];
+  const chapter = missionView(
+    TRACE.missionSection.chapterLabel,
+    summary.chapter_mission,
+    stringValue(summary.chapter_mission_statement),
+  );
+  if (chapter) views.push(chapter);
+  const planning = missionView(
+    TRACE.missionSection.planningLabel,
+    summary.planning_mission,
+    stringValue(summary.planning_mission_statement),
+  );
+  if (planning) views.push(planning);
+  return views;
+}
+
+function missionView(
+  label: string,
+  payload: unknown,
+  fallbackStatement: string | null,
+): TraceMissionView | null {
+  const record =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+  const statement = stringValue(record?.statement) ?? fallbackStatement;
+  if (!statement) return null;
+
+  const status = stringValue(record?.status);
+  return {
+    label,
+    statement,
+    statusLabel: status ? (TRACE.missionSection.statusLabels[status] ?? status) : null,
+    mustAdvance: missionItems(record?.must_advance),
+    mustAvoid: missionItems(record?.must_avoid),
+  };
+}
+
+function missionItems(value: unknown): TraceMissionItemView[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
+    const text = stringValue(record?.text);
+    return text ? [{ text, basisLabel: stringValue(record?.basis_label) }] : [];
+  });
 }
 
 function reasonText(noToolReason: string | null, decisionType: string | null): string {
@@ -237,13 +300,7 @@ function detailLines(summary: TraceSummaryLike): string[] {
   const recovery = stringValue(summary.recovery);
   if (recovery) lines.push(TRACE.recoveryApplied);
 
-  // WR01b：这一章按什么使命写的（author-safe 一句话，非 ref）。
-  const missionStatement = stringValue(summary.chapter_mission_statement);
-  if (missionStatement) lines.push(TRACE.chapterMission(missionStatement));
-
-  const planningStatement = stringValue(summary.planning_mission_statement);
-  if (planningStatement) lines.push(TRACE.planningMission(planningStatement));
-
+  // WR01c：使命从 detailLines 一句话行升级为独立结构化区块（missions），不再重复进明细行。
   lines.push(...aiMessageEnvelopeLines(summary.ai_message_envelope));
   lines.push(...replayIntegrityLines(summary));
 

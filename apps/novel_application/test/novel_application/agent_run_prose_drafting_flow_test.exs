@@ -390,6 +390,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert Map.get(state.final_turn_result.trace_summary, :chapter_mission_ref) ==
              "mission:cm_author_test"
 
+    assert Map.get(state.final_turn_result.trace_summary, :chapter_mission)["statement"] ==
+             Map.get(state.final_turn_result.trace_summary, :chapter_mission_statement)
+
     assert Map.get(state.final_turn_result.trace_summary, :chapter_mission_statement) ==
              "这一章只写主角找到出口，不解释房间来历。"
 

@@ -33,6 +33,8 @@ defmodule NovelPersistence.Schemas.Work do
     field(:target_length, :integer)
     field(:planned_volumes, :integer)
     field(:serial_form, :string)
+    # WR01c：规划使命持久位（map，键 "planning_mission"，与 chapters.plan_direction 同构）
+    field(:planning_direction, :map)
     field(:adopted_at, :utc_datetime_usec)
     field(:revision, :integer, default: 1)
 
@@ -50,6 +52,7 @@ defmodule NovelPersistence.Schemas.Work do
       :target_reader,
       :tone_preference, :premise, :theme, :main_goal,
       :target_length, :planned_volumes, :serial_form,
+      :planning_direction,
       :adopted_at,
       :revision
     ])

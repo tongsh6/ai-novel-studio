@@ -87,6 +87,7 @@ supersede 契约文档，将 card_type 集合改写为 `candidate_set` / `confir
 | S6 | 运行中控制 | `agent_run_state` + AgentEvent 流 | pause / resume / cancel / steer（agent_command 通道） | 运行组（AgentRunDialogueFlow） | 已落地（ADR-0021/0022 系） |
 | S7 | 运行恢复（awaiting_author） | **待补**：awaiting_author 时产出 TurnResult | steer / resume / cancel 语义的 available_actions | **待补**：恢复提示 + 动作 | 缺口 → CP3 |
 | S8 | 本章使命裁决（2026-08-22 WR01b 修订增补） | `chapters.plan_direction["chapter_mission"]`（status=`ChapterMissionStatus`，经 `get_toc` 投影到档案） | `confirm_chapter_mission` / `rewrite_chapter_mission` / `discard_chapter_mission`（author_action，payload `chapter_ref`） | 档案「大纲与结构」逐章使命块（43 §5.0.3） | 已落地（VS-00E §16.8；设计态，不经采纳边界） |
+| S9 | 规划使命裁决（2026-08-24 WR01c 修订增补） | `works.planning_direction["planning_mission"]`（status=`ChapterMissionStatus`，经 `get_toc` 顶层投影到档案） | `confirm_planning_mission` / `rewrite_planning_mission` / `discard_planning_mission`（author_action，work 级，payload 无 ref） | 档案「大纲与结构」顶部工作级使命块（43 §5.0.4） | 已落地（VS-00E §16.10；设计态，不经采纳边界；作者版下轮规划 0 调用直取） |
 
 注册表维护规则：新增决策时刻必须先在本注册表登记一行（新 ADR 或本 ADR 修订），才能出现对应的字段、动作或 UI；不入册的决策入口视为契约违规。
 

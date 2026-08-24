@@ -403,6 +403,163 @@ export function StructurePanel({
       .catch(() => setMissionActionError(STRUCTURE_PANEL.chapterMission.actionFailed));
   };
 
+  // WR01c（43 §5.0.4 / ADR-0024 S9）：工作级规划使命裁决——确认 / 改写 / 作废；成功后重读 TOC。
+  const [planningMissionEditing, setPlanningMissionEditing] = useState(false);
+  const [planningMissionDraft, setPlanningMissionDraft] = useState({
+    statement: "",
+    advance: "",
+    avoid: "",
+  });
+  const [planningMissionError, setPlanningMissionError] = useState<string | null>(null);
+
+  const decidePlanningMission = (
+    decision: "confirm" | "rewrite" | "discard",
+    extra: Record<string, unknown> = {},
+  ) => {
+    if (!channel || !context.workId) return;
+    const actionId = `${decision}-planning-mission-${context.workId}`;
+
+    void sendAuthorAction(channel, {
+      source_turn_ref: "panel",
+      action_id: actionId,
+      action_type: `${decision}_planning_mission`,
+      idempotency_key: actionId,
+      payload: extra,
+    })
+      .then(() => {
+        setPlanningMissionError(null);
+        setPlanningMissionEditing(false);
+        refreshToc();
+      })
+      .catch(() => setPlanningMissionError(STRUCTURE_PANEL.planningMission.actionFailed));
+  };
+
+  const renderPlanningMission = () => {
+    const mission = toc?.planning_direction?.planning_mission;
+    if (!mission || !mission.statement) return null;
+    const M = STRUCTURE_PANEL.planningMission;
+    const status = mission.status ?? "TENTATIVE";
+
+    return (
+      <div className={styles.section}>
+        <div className={styles.secHeader}>
+          <span className={styles.secTitle}>{M.label}</span>
+        </div>
+        <div className={styles.missionBlock}>
+          <div className={styles.assumptionBody}>
+            <span className={styles.assumptionBadge}>{M.statusLabels[status] ?? status}</span>
+            <span className={styles.missionLabel}>{M.hint}</span>
+          </div>
+          {planningMissionEditing ? (
+            <div className={styles.missionEditor}>
+              <label className={styles.missionEditorLabel}>
+                {M.statementLabel}
+                <textarea
+                  className={styles.missionTextarea}
+                  aria-label={M.statementLabel}
+                  value={planningMissionDraft.statement}
+                  onChange={(e) =>
+                    setPlanningMissionDraft({ ...planningMissionDraft, statement: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.missionEditorLabel}>
+                {M.advanceLabel}
+                <textarea
+                  className={styles.missionTextarea}
+                  aria-label={M.advanceLabel}
+                  value={planningMissionDraft.advance}
+                  onChange={(e) =>
+                    setPlanningMissionDraft({ ...planningMissionDraft, advance: e.target.value })
+                  }
+                />
+              </label>
+              <label className={styles.missionEditorLabel}>
+                {M.avoidLabel}
+                <textarea
+                  className={styles.missionTextarea}
+                  aria-label={M.avoidLabel}
+                  value={planningMissionDraft.avoid}
+                  onChange={(e) =>
+                    setPlanningMissionDraft({ ...planningMissionDraft, avoid: e.target.value })
+                  }
+                />
+              </label>
+              <div className={styles.cardActions}>
+                <button
+                  className={styles.btnSecondary}
+                  disabled={planningMissionDraft.statement.trim() === ""}
+                  onClick={() =>
+                    decidePlanningMission("rewrite", {
+                      statement: planningMissionDraft.statement.trim(),
+                      must_advance: planningMissionDraft.advance.split("\n"),
+                      must_avoid: planningMissionDraft.avoid.split("\n"),
+                    })
+                  }
+                >
+                  {M.saveLabel}
+                </button>
+                <button className={styles.btnGhost} onClick={() => setPlanningMissionEditing(false)}>
+                  {M.cancelLabel}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className={styles.missionStatement}>{mission.statement}</div>
+              {(mission.must_advance ?? []).map((item, index) => (
+                <div className={styles.missionItem} key={`advance-${index}`}>
+                  {M.advancePrefix}
+                  {item.text}
+                  {item.basis_label ? `（${M.basisPrefix}${item.basis_label}）` : ""}
+                </div>
+              ))}
+              {(mission.must_avoid ?? []).map((item, index) => (
+                <div className={styles.missionItem} key={`avoid-${index}`}>
+                  {M.avoidPrefix}
+                  {item.text}
+                  {item.basis_label ? `（${M.basisPrefix}${item.basis_label}）` : ""}
+                </div>
+              ))}
+              <div className={styles.cardActions}>
+                {status === "TENTATIVE" && (
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => decidePlanningMission("confirm")}
+                  >
+                    {M.confirmLabel}
+                  </button>
+                )}
+                <button
+                  className={styles.btnSecondary}
+                  onClick={() => {
+                    setPlanningMissionEditing(true);
+                    setPlanningMissionDraft({
+                      statement: mission.statement ?? "",
+                      advance: (mission.must_advance ?? []).map((item) => item.text).join("\n"),
+                      avoid: (mission.must_avoid ?? []).map((item) => item.text).join("\n"),
+                    });
+                  }}
+                >
+                  {M.rewriteLabel}
+                </button>
+                <button
+                  className={styles.btnSecondary}
+                  onClick={() => decidePlanningMission("discard")}
+                >
+                  {M.discardLabel}
+                </button>
+              </div>
+            </>
+          )}
+          {planningMissionError && !planningMissionEditing && (
+            <div className={styles.footerActionError}>{planningMissionError}</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderChapterMission = (ch: TocChapter) => {
     const mission = ch.plan_direction?.chapter_mission;
     if (!mission || !mission.statement) return null;
@@ -1142,6 +1299,7 @@ export function StructurePanel({
               getArtifactActionState,
               onArtifactAction,
             )}
+            {renderPlanningMission()}
             {skeletonProgressLine && (
               <div className={styles.section}>
                 <div className={styles.secHeader}>

@@ -1365,6 +1365,25 @@ defmodule NovelWeb.WorkspaceChannel do
     |> reply_chapter_mission_decision(socket, action_input, work_id, chapter_ref)
   end
 
+  # WR01c（ADR-0024 S9）：规划使命裁决——work 级确认/改写/作废，payload 无 chapter_ref。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: action_type} = action_input,
+         _source_turn_result
+       )
+       when action_type in [
+              "confirm_planning_mission",
+              "rewrite_planning_mission",
+              "discard_planning_mission"
+            ] do
+    work_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || ""
+    payload = action_input.payload || %{}
+
+    action_type
+    |> planning_mission_decision(work_id, payload)
+    |> reply_planning_mission_decision(socket, action_input, work_id)
+  end
+
   # AU12：档案侧角色身份归并——name 不是身份主键，同名是同一人/别名/改名还是
   # 真重名只能由作者裁决；作者从档案发起 merge_characters，把 source 行并入 target 行。
   defp handle_author_action(
@@ -1435,6 +1454,15 @@ defmodule NovelWeb.WorkspaceChannel do
   defp chapter_mission_decision("rewrite_chapter_mission", work_id, chapter_ref, payload),
     do: NovelApplication.ChapterMissionDecisionService.rewrite(work_id, chapter_ref, payload)
 
+  defp planning_mission_decision("confirm_planning_mission", work_id, _payload),
+    do: NovelApplication.PlanningMissionDecisionService.confirm(work_id)
+
+  defp planning_mission_decision("discard_planning_mission", work_id, _payload),
+    do: NovelApplication.PlanningMissionDecisionService.discard(work_id)
+
+  defp planning_mission_decision("rewrite_planning_mission", work_id, payload),
+    do: NovelApplication.PlanningMissionDecisionService.rewrite(work_id, payload)
+
   defp reply_chapter_mission_decision({:ok, decision}, socket, action_input, work_id, chapter_ref) do
     LogEmit.emit(:channel, :author_action, :done, %{
       work_id: work_id,
@@ -1465,6 +1493,38 @@ defmodule NovelWeb.WorkspaceChannel do
       action_id: action_input.action_id,
       action_type: action_input.action_type,
       reason_code: :chapter_mission_decision_failed,
+      outcome_detail: inspect(reason)
+    })
+
+    {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+  end
+
+  defp reply_planning_mission_decision({:ok, decision}, socket, action_input, work_id) do
+    LogEmit.emit(:channel, :author_action, :done, %{
+      work_id: work_id,
+      session_id: socket.assigns[:session_id],
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      action_status: :applied,
+      mission_status: decision.mission_status
+    })
+
+    {:reply,
+     {:ok,
+      %{
+        received: true,
+        action_status: "applied",
+        mission_status: decision.mission_status,
+        mission: decision.mission
+      }}, socket}
+  end
+
+  defp reply_planning_mission_decision({:error, reason}, socket, action_input, work_id) do
+    LogEmit.emit(:channel, :author_action, :error, %{
+      work_id: work_id,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      reason_code: :planning_mission_decision_failed,
       outcome_detail: inspect(reason)
     })
 

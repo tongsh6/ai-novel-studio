@@ -3099,6 +3099,7 @@ export function WorkspaceChat() {
     decisionLabel: TRACE.decisions.unknown,
     goal: null,
     contextSources: [],
+    missions: [],
     detailLines: [],
     integrityNote: TRACE.integrityNote,
   });
@@ -4306,6 +4307,38 @@ export function WorkspaceChat() {
                     <div className={styles.traceSection}>
                       <div className={styles.traceValue}>{traceDialog.summary.primaryReason}</div>
                     </div>
+                    {/* WR01c：结构化使命区块（本章使命/本轮规划使命：一句话+逐条+依据） */}
+                    {traceDialog.summary.missions.map((mission) => (
+                      <div className={styles.traceSection} key={mission.label}>
+                        <div className={styles.traceLabel}>
+                          {mission.label}
+                          {mission.statusLabel ? `（${mission.statusLabel}）` : ""}
+                        </div>
+                        <div className={styles.traceValue}>{mission.statement}</div>
+                        {(mission.mustAdvance.length > 0 || mission.mustAvoid.length > 0) && (
+                          <ul className={styles.traceDetailList}>
+                            {mission.mustAdvance.map((item) => (
+                              <li key={`advance-${item.text}`}>
+                                {TRACE.missionSection.advancePrefix}
+                                {item.text}
+                                {item.basisLabel
+                                  ? `（${TRACE.missionSection.basisPrefix}${item.basisLabel}）`
+                                  : ""}
+                              </li>
+                            ))}
+                            {mission.mustAvoid.map((item) => (
+                              <li key={`avoid-${item.text}`}>
+                                {TRACE.missionSection.avoidPrefix}
+                                {item.text}
+                                {item.basisLabel
+                                  ? `（${TRACE.missionSection.basisPrefix}${item.basisLabel}）`
+                                  : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
                     <div className={styles.traceSection}>
                       <div className={styles.traceLabel}>{TRACE.contextLabel}</div>
                       {traceDialog.summary.contextSources.length > 0 ? (
