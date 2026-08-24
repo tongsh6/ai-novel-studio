@@ -640,9 +640,11 @@ defmodule NovelAgent.Provider.GatewayTest do
         done_record = Enum.find(records, &(&1["event"] == "provider_gateway.complete.done"))
 
         assert start_record["provider"] == "stub"
-        assert start_record["model"] == "qwen/qwen3.6-35b-a3b"
+        # M5 排查修（2026-08-25）：未声明模型时诚实记 "unconfigured"，
+        # 不再回落陈腐硬编码模型名（日志谎报曾直接误导狗粮排查）。
+        assert start_record["model"] == "unconfigured"
         assert done_record["provider"] == "stub"
-        assert done_record["model"] == "qwen/qwen3.6-35b-a3b"
+        assert done_record["model"] == "unconfigured"
         assert is_integer(done_record["duration_ms"])
 
         encoded = Jason.encode!(records)

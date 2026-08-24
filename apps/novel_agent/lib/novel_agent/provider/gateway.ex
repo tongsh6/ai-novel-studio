@@ -16,7 +16,7 @@ defmodule NovelAgent.Provider.Gateway do
 
       config :novel_agent, NovelAgent.Provider.LMStudio,
         endpoint: "http://localhost:1234/v1",
-        model: "qwen/qwen3.6-35b-a3b"
+        model: "qwen/qwen3.8-27b"
   """
 
   require Logger
@@ -189,7 +189,7 @@ defmodule NovelAgent.Provider.Gateway do
           execution_result()
   def execute(prompt, model \\ nil, params \\ InferenceParams.new(), opts \\ []) do
     provider_name = Keyword.get(opts, :provider, default_provider())
-    model_name = model || Keyword.get(opts, :model) || default_model()
+    model_name = model || Keyword.get(opts, :model) || default_model(provider_name)
     provider_call_ref = Keyword.get(opts, :provider_call_ref) || provider_call_ref()
     provider_run_id = Keyword.get(opts, :provider_run_id) || provider_run_id()
     purpose = Keyword.get(opts, :purpose, :conversation)
@@ -538,9 +538,25 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
-  defp default_model do
-    Application.get_env(:novel_agent, :provider, [])
-    |> Keyword.get(:model, "qwen/qwen3.6-35b-a3b")
+  # M5 狗粮排查（2026-08-25）：此处原为陈腐硬编码回落（"qwen/qwen3.6-35b-a3b"）——
+  # adapter 实际忽略该参数、按自身配置发 HTTP，于是 start/error 日志与 provider 事件
+  # 记的是一个从未被请求的模型名，直接误导排查（M4 B8b 同源病灶的日志变体）。
+  # 诚实解析：运行时配置 → 该 provider 的应用配置 → 全局 :provider 配置 →
+  # 明示 "unconfigured"（没人声明过就说没声明，不编造）。
+  defp default_model(provider_name) do
+    runtime_model = RuntimeConfig.provider_config(provider_name)[:model]
+
+    runtime_model ||
+      provider_app_config_model(provider_name) ||
+      Application.get_env(:novel_agent, :provider, [])[:model] ||
+      "unconfigured"
+  end
+
+  defp provider_app_config_model(provider_name) do
+    case Map.get(provider_modules(), provider_name) do
+      nil -> nil
+      module -> Application.get_env(:novel_agent, module, [])[:model]
+    end
   end
 
   defp fetch_provider(attrs) do

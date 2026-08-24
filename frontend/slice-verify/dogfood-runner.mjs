@@ -256,10 +256,14 @@ function classifyChapterAttemptFrame(f, turnId) {
 
 async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, options = {}) {
   // 所有帧匹配从本轮发送之后开始（fromIndex），不与历史轮串。
+  // M5 重标定（2026-08-25 实锤）：qwen3.8-27b（思考型）单章全链（判断+计划起草+
+  // 写前推理+writer）实测 12-18 分钟，600s 窗口会把 3 分钟龄的健康 writer 连 run
+  // 一起终止（writer|cancelled 17:24-17:38 实证）。节拍级等待放宽到 30 分钟；
+  // 秒级快速失败路径（run_failed/awaiting_author/wrong_route）不受影响。
   let draftFrame = await waitForFrame(
     (f) => classifyChapterAttemptFrame(f, turnId) !== null,
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
-    600_000,
+    1_800_000,
     fromIndex,
   );
 
@@ -296,7 +300,7 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
     draftFrame = await waitForFrame(
       (f) => classifyChapterAttemptFrame(f, turnId)?.kind === "prose_ready",
       `No prose_fragment turn_result after confirmation for ${chapterTitle}`,
-      600_000,
+      1_800_000,
       fromIndex,
     );
   }
@@ -408,7 +412,7 @@ async function planMoreChapters(page) {
       f.body?.tool_result?.output?.artifact_type === "outline_draft" &&
       Number(f.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 5,
     "No incremental outline_draft turn_result while expanding the plan",
-    600_000,
+    1_800_000,
     fromIndex,
   );
   const pending = outlineFrame.body.adoption_state.pending[0];

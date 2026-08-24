@@ -42,7 +42,12 @@ echo "[dogfood] db dir: $NOVEL_TEST_DB_DIR"
 # 真实超时兜底（缺陷九跟进，2026-07-20）：test.exs 的 LMStudio timeout 默认
 # 5s（给纯单测 stub 用），狗粮跑在 MIX_ENV=test 下但打真实模型——这个值现在
 # 兼作挂钟止血阀判定基准，不覆盖会把正常生成误判成超时，整个长跑立刻断线。
-export NOVEL_LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-300000}"
+# M5 重标定（2026-08-25 实锤）：切 qwen/qwen3.8-27b（思考型）后未复核此值，
+# writer 调用 10/10 撞 300s 阀、第一章永远写不出。裸探针实测：800 字正文
+# 234s / 7397 tok（思考 10787 字符 + 正文 862 字符，finish=stop）；产品 writer
+# prompt 更大且同调用产伴生产物 → 按 2× 余量取 900s。换模型/换量化后必须重跑
+# 探针复核（缺陷九注释的原话，这次真踩了）。
+export NOVEL_LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-900000}"
 
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5769}"
