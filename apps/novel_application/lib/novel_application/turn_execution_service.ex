@@ -902,11 +902,17 @@ defmodule NovelApplication.TurnExecutionService do
 
   # VS-00G CP3：规划期全书骨架段+收官守则（仅 plot_outline）。已写章数用当前章列表长度
   # 近似（含计划章，作规模信号）；无 target_length 时空段（诚实缺席，R6 负债催办）。
+  # CA04 G1：正文与规划共用骨架事实与收官守则口径；正文向不含分卷守则（规划指令）。
   defp work_skeleton_section(action, context) do
     if CarryRegistry.carries?(:work_skeleton, capability_name(action)) do
       snapshot = work_skeleton_snapshot(context)
       written = work_skeleton_written_count(context)
-      NovelDomain.WorkSkeleton.render(snapshot, written)
+
+      if prose_writing_action?(action) do
+        NovelDomain.WorkSkeleton.render_for_prose(snapshot, written)
+      else
+        NovelDomain.WorkSkeleton.render(snapshot, written)
+      end
     else
       ""
     end

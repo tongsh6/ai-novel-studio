@@ -54,6 +54,36 @@ defmodule NovelDomain.WorkSkeleton do
   def render(_snapshot, _written), do: ""
 
   @doc """
+  正文向渲染（CA04 G1）：骨架事实 + 收官守则，**不含分卷守则**（「逐章标注所属卷」是
+  规划指令，写章时是噪声）。骨架未立同样返回 ""（诚实缺席）。
+  """
+  @spec render_for_prose(snapshot(), non_neg_integer()) :: String.t()
+  def render_for_prose(snapshot, written_chapters)
+      when is_map(snapshot) and is_integer(written_chapters) do
+    case target_length(snapshot) do
+      nil ->
+        ""
+
+      target when target > 0 ->
+        est_chapters = ceil(target / @avg_chapter_length)
+        progress = if est_chapters > 0, do: written_chapters / est_chapters, else: 0.0
+
+        facts =
+          [
+            "- 目标体量：约 #{target} 字（预计 #{est_chapters} 章）",
+            serial_line(snapshot),
+            "- 当前进度：已写 #{written_chapters} 章（约全书 #{round(progress * 100)}%）"
+          ]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.join("\n")
+
+        "## 全书规划（连载参照）\n" <> facts <> "\n" <> closure_directive(progress)
+    end
+  end
+
+  def render_for_prose(_snapshot, _written), do: ""
+
+  @doc """
   卷分组守则（AU08 CP2）：`planned_volumes > 1` 时要求逐章标注所属卷。
 
   与收官守则同款——CA01「在场但无效」判例的第二次修正：`planned_volumes: 2` 此前只作为

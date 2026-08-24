@@ -117,9 +117,26 @@ defmodule NovelApplication.WorkSkeletonInjectionTest do
     refute prompts =~ "全书规划（连载参照）"
   end
 
-  test "非 plot_outline（prose_writing）→ 不注入骨架段（规划期专属）" do
-    snapshot = %{target_length: 140_000}
+  # CA04 G1：写章也带全书进度与收官守则；分卷守则是规划指令，不进正文。
+  test "prose_writing + 骨架已立 → 注入正文向骨架段（含收官守则，不含分卷守则）" do
+    snapshot = %{target_length: 140_000, planned_volumes: 5, serial_form: "连载"}
     prompts = run("prose_writing", snapshot, Enum.map(1..30, &"第#{&1}章"))
+
+    assert prompts =~ "全书规划（连载参照）"
+    assert prompts =~ "目标体量：约 140000 字"
+    assert prompts =~ "当前进度：已写 30 章"
+    assert prompts =~ "不得规划终局/收官/大结局/完结章"
+    refute prompts =~ "分卷规划要求"
+  end
+
+  test "prose_writing + 骨架未立 → 无骨架段（诚实缺席）" do
+    prompts = run("prose_writing", %{genre: "赛博修仙"}, ["第1章"])
+    refute prompts =~ "全书规划（连载参照）"
+  end
+
+  test "未放行能力（character_design）→ 不注入骨架段（登记表门）" do
+    snapshot = %{target_length: 140_000}
+    prompts = run("character_design", snapshot, Enum.map(1..30, &"第#{&1}章"))
     refute prompts =~ "全书规划（连载参照）"
   end
 end

@@ -166,6 +166,7 @@ export const nativeSliceIds = [
   "wr01-chapter-mission-author-decision",
   "wr02-planning-mission-before-outline",
   "ca03-carry-registry-observability",
+  "ca04-carry-gap-closure",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -526,6 +527,13 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "ca03-carry-registry-observability": [
+    "channel.user_message.start",
+    "context.carry.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "ca04-carry-gap-closure": [
     "channel.user_message.start",
     "context.carry.done",
     "toolbox.execute.done",
@@ -2015,6 +2023,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findCa03CarryRegistryEvidence(records);
   }
 
+  if (sliceId === "ca04-carry-gap-closure") {
+    return findCa04CarryGapClosureEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2935,6 +2947,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "ca03-carry-registry-observability") {
     return ca03CarryRegistryBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "ca04-carry-gap-closure") {
+    return ca04CarryGapClosureBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -5016,7 +5032,8 @@ function findCa03CarryRegistryEvidence(records) {
       ["target_structure", "creative_facts", "execution_brief", "dialogue_context"].every((id) =>
         (record.carried ?? []).includes(id),
       ) &&
-      ["work_skeleton", "planning_mission"].every((id) => (record.gated ?? []).includes(id)) &&
+      (record.gated ?? []).includes("planning_mission") &&
+      !(record.gated ?? []).includes("work_skeleton") &&
       (record.empty ?? []).includes("prior_prose"),
   );
   if (!proseCarry) return null;
@@ -5029,9 +5046,8 @@ function findCa03CarryRegistryEvidence(records) {
       ["planning_mission", "progress_state", "dialogue_context"].every((id) =>
         (record.carried ?? []).includes(id),
       ) &&
-      ["target_structure", "creative_facts", "execution_brief"].every((id) =>
-        (record.gated ?? []).includes(id),
-      ),
+      ["target_structure", "execution_brief"].every((id) => (record.gated ?? []).includes(id)) &&
+      (record.carried ?? []).includes("creative_facts"),
   );
   if (!planningCarry) return null;
 
@@ -5080,6 +5096,103 @@ function ca03CarryRegistryBehavior(turnIds, records, evidence) {
       "prior_prose_without_continuation_intent_reported_empty_not_gated",
       "carried_gated_empty_lists_stayed_disjoint",
       "both_artifacts_remained_tentative_without_production_write",
+    ],
+  };
+}
+
+function findCa04CarryGapClosureEvidence(records) {
+  const sliceId = "ca04-carry-gap-closure";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      typeof record.prose_turn_id === "string" &&
+      typeof record.planning_turn_id === "string" &&
+      typeof record.world_turn_id === "string" &&
+      record.prose_has_skeleton === true &&
+      record.planning_has_facts === true &&
+      record.world_has_roster === true &&
+      record.deferred_gates_unchanged === true &&
+      record.no_write === true,
+  );
+  if (!uiState) return null;
+
+  const proseCarry = records.find(
+    (record) =>
+      record.event === "context.carry.done" &&
+      record.turn_id === uiState.prose_turn_id &&
+      record.capability === "prose_writing" &&
+      ["work_skeleton", "creative_facts", "style_guide"].every((id) =>
+        (record.carried ?? []).includes(id),
+      ),
+  );
+  if (!proseCarry) return null;
+
+  const planningCarry = records.find(
+    (record) =>
+      record.event === "context.carry.done" &&
+      record.turn_id === uiState.planning_turn_id &&
+      record.capability === "plot_outline" &&
+      ["creative_facts", "style_guide", "work_skeleton"].every((id) =>
+        (record.carried ?? []).includes(id),
+      ),
+  );
+  if (!planningCarry) return null;
+
+  const worldCarry = records.find(
+    (record) =>
+      record.event === "context.carry.done" &&
+      record.turn_id === uiState.world_turn_id &&
+      record.capability === "world_building" &&
+      (record.carried ?? []).includes("character_roster") &&
+      ["progress_state", "work_skeleton"].every((id) => (record.gated ?? []).includes(id)),
+  );
+  if (!worldCarry) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.world_turn_id,
+    turn_ids: [
+      uiState.prose_parent_turn_id,
+      uiState.prose_turn_id,
+      uiState.planning_parent_turn_id,
+      uiState.planning_turn_id,
+      uiState.world_parent_turn_id,
+      uiState.world_turn_id,
+    ].filter(Boolean),
+    prose_turn_id: uiState.prose_turn_id,
+    planning_turn_id: uiState.planning_turn_id,
+    world_turn_id: uiState.world_turn_id,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function ca04CarryGapClosureBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "ca04-carry-gap-closure" &&
+      record.prose_turn_id === evidence.prose_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.prose_has_skeleton !== true || uiState.planning_has_facts !== true) return null;
+  if (uiState.world_has_roster !== true || uiState.deferred_gates_unchanged !== true) return null;
+  if (uiState.no_write !== true) return null;
+
+  return {
+    slice_id: "ca04-carry-gap-closure",
+    behavior:
+      "approved_carry_gate_changes_took_effect_with_real_sources_while_deferred_gates_stayed",
+    turn_ids: turnIds,
+    prose_turn_id: evidence.prose_turn_id,
+    planning_turn_id: evidence.planning_turn_id,
+    world_turn_id: evidence.world_turn_id,
+    assertions: [
+      "prose_call_carried_work_skeleton_facts_and_closure_directive",
+      "planning_call_carried_confirmed_facts_and_style",
+      "world_building_call_carried_character_roster",
+      "deferred_g4_g5_gates_stayed_unchanged",
+      "all_three_artifacts_remained_tentative_without_production_write",
     ],
   };
 }

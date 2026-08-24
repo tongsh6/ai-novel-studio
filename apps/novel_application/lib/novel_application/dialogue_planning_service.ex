@@ -1333,7 +1333,9 @@ defmodule NovelApplication.DialoguePlanningService do
       assumption_reader: map_get(input, :assumption_reader),
       # WR02：规划前推理的账面/进度读端口（测试可注入）。
       ledger_reader: map_get(input, :ledger_reader),
-      written_progress_reader: map_get(input, :written_progress_reader)
+      written_progress_reader: map_get(input, :written_progress_reader),
+      # CA04 G2：规划带作品事实/风格。
+      memory_reader: map_get(input, :memory_reader)
     })
   end
 

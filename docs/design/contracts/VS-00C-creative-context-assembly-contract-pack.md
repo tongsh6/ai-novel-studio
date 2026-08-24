@@ -315,12 +315,12 @@ per-consumer 的完整 ContextPacket 体系 defer（§9）；本期 planner 路�
 | id | 三态 | prose_writing | plot_outline | character_design | character_evolution | world_building | character_roster |
 |---|---|---|---|---|---|---|---|
 | target_structure | 设计态 | ✓ | — | — | — | — | — |
-| character_roster | 设计态 | ✓ | ✓ | ✓ | ✓ | — | — |
+| character_roster | 设计态 | ✓ | ✓ | ✓ | ✓ | ✓（CA04 G3） | — |
 | roster_payload（data） | 设计态 | — | — | — | — | — | ✓ |
 | prior_summaries | 实现态 | ✓（目标章前窗） | ✓（末 N 章） | — | — | — | — |
 | prior_prose | 实现态 | ✓（续写/重写） | — | — | — | — | — |
-| creative_facts / style_guide | 实现态 | ✓ | — | — | — | — | — |
-| work_skeleton | 设计态 | — | ✓ | — | — | — | — |
+| creative_facts / style_guide | 实现态 | ✓ | ✓（CA04 G2） | — | — | — | — |
+| work_skeleton | 设计态 | ✓（CA04 G1，正文向无分卷守则） | ✓ | — | — | — | — |
 | absence_directives | 在场判定 | manifest | manifest | — | — | — | — |
 | progress_state | 进度态 | ✓（弧光/伏笔/保密） | ✓（五账 digest） | — | — | — | — |
 | execution_brief / decision_packet（data） | 设计态 | ✓ | — | — | — | — | — |

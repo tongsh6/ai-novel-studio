@@ -95,6 +95,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("wr01-chapter-mission-author-decision");
     expect(nativeSliceIds).toContain("wr02-planning-mission-before-outline");
     expect(nativeSliceIds).toContain("ca03-carry-registry-observability");
+    expect(nativeSliceIds).toContain("ca04-carry-gap-closure");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9211,11 +9212,11 @@ describe("native Tauri slice verifier", () => {
       planning_parent_turn_id: "turn-o",
       planning_turn_id: "turn-o:agent:4",
       prose_carried: ["target_structure", "creative_facts", "execution_brief", "dialogue_context"],
-      prose_gated: ["work_skeleton", "planning_mission", "roster_payload"],
-      prose_empty: ["prior_prose", "style_guide"],
-      planning_carried: ["planning_mission", "progress_state", "dialogue_context"],
-      planning_gated: ["target_structure", "creative_facts", "execution_brief"],
-      planning_empty: ["work_skeleton"],
+      prose_gated: ["planning_mission", "roster_payload"],
+      prose_empty: ["prior_prose", "style_guide", "work_skeleton"],
+      planning_carried: ["creative_facts", "planning_mission", "progress_state", "dialogue_context"],
+      planning_gated: ["target_structure", "execution_brief"],
+      planning_empty: ["work_skeleton", "style_guide"],
       prose_prior_prose_empty_not_gated: true,
       lists_disjoint: true,
       no_write: true,
@@ -9227,16 +9228,16 @@ describe("native Tauri slice verifier", () => {
         turn_id: "turn-p:agent:5",
         capability: "prose_writing",
         carried: ["target_structure", "creative_facts", "execution_brief", "dialogue_context"],
-        gated: ["work_skeleton", "planning_mission", "roster_payload"],
-        empty: ["prior_prose", "style_guide"],
+        gated: ["planning_mission", "roster_payload"],
+        empty: ["prior_prose", "style_guide", "work_skeleton"],
       },
       {
         event: "context.carry.done",
         turn_id: "turn-o:agent:4",
         capability: "plot_outline",
-        carried: ["planning_mission", "progress_state", "dialogue_context"],
-        gated: ["target_structure", "creative_facts", "execution_brief"],
-        empty: ["work_skeleton"],
+        carried: ["creative_facts", "planning_mission", "progress_state", "dialogue_context"],
+        gated: ["target_structure", "execution_brief"],
+        empty: ["work_skeleton", "style_guide"],
       },
     ];
 
@@ -9253,24 +9254,98 @@ describe("native Tauri slice verifier", () => {
       "prior_prose_without_continuation_intent_reported_empty_not_gated",
     );
 
-    // gated 冒充 empty / 规划带了 prose 专属携带 → 不成立
-    const gatedAsEmpty = records.map((record) =>
+    // work_skeleton 被门挡（CA04 后不允许）/ 规划把 creative_facts 挡回去 → 不成立
+    const skeletonGated = records.map((record) =>
       record.event === "context.carry.done" && record.capability === "prose_writing"
-        ? { ...record, empty: [...record.empty, "work_skeleton"], gated: ["planning_mission", "roster_payload"] }
+        ? { ...record, gated: [...record.gated, "work_skeleton"], empty: ["prior_prose", "style_guide"] }
         : record,
     );
     expect(
-      findNativeSliceEvidence("ca03-carry-registry-observability", gatedAsEmpty),
+      findNativeSliceEvidence("ca03-carry-registry-observability", skeletonGated),
     ).toBeNull();
 
-    const leakedProseCarrier = records.map((record) =>
+    const factsGatedBack = records.map((record) =>
       record.event === "context.carry.done" && record.capability === "plot_outline"
-        ? { ...record, gated: ["target_structure", "creative_facts"] }
+        ? { ...record, carried: ["planning_mission", "progress_state", "dialogue_context"], gated: [...record.gated, "creative_facts"] }
         : record,
     );
     expect(
-      findNativeSliceEvidence("ca03-carry-registry-observability", leakedProseCarrier),
+      findNativeSliceEvidence("ca03-carry-registry-observability", factsGatedBack),
     ).toBeNull();
+  });
+
+  it("requires approved carry gate changes to take effect while deferred gates stay (CA04)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "ca04-carry-gap-closure",
+      prose_parent_turn_id: "t-p",
+      prose_turn_id: "t-p:agent:5",
+      planning_parent_turn_id: "t-o",
+      planning_turn_id: "t-o:agent:4",
+      world_parent_turn_id: "t-w",
+      world_turn_id: "t-w:agent:3",
+      prose_has_skeleton: true,
+      planning_has_facts: true,
+      world_has_roster: true,
+      deferred_gates_unchanged: true,
+      no_write: true,
+    };
+    const records = [
+      uiState,
+      {
+        event: "context.carry.done",
+        turn_id: "t-p:agent:5",
+        capability: "prose_writing",
+        carried: ["work_skeleton", "creative_facts", "style_guide", "dialogue_context"],
+        gated: ["planning_mission", "roster_payload"],
+        empty: ["prior_prose"],
+      },
+      {
+        event: "context.carry.done",
+        turn_id: "t-o:agent:4",
+        capability: "plot_outline",
+        carried: ["creative_facts", "style_guide", "work_skeleton", "planning_mission"],
+        gated: ["target_structure", "execution_brief"],
+        empty: [],
+      },
+      {
+        event: "context.carry.done",
+        turn_id: "t-w:agent:3",
+        capability: "world_building",
+        carried: ["character_roster", "dialogue_context"],
+        gated: ["progress_state", "work_skeleton", "creative_facts", "target_structure"],
+        empty: [],
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("ca04-carry-gap-closure", records);
+    expect(evidence?.turn_ids).toEqual([
+      "t-p",
+      "t-p:agent:5",
+      "t-o",
+      "t-o:agent:4",
+      "t-w",
+      "t-w:agent:3",
+    ]);
+
+    const behavior = findSliceBehaviorEvidence("ca04-carry-gap-closure", records, evidence);
+    expect(behavior?.assertions).toContain("deferred_g4_g5_gates_stayed_unchanged");
+
+    // 世界观把进度态带上（未拍板的门被顺手改了）→ 不成立
+    const deferredOpened = records.map((record) =>
+      record.event === "context.carry.done" && record.capability === "world_building"
+        ? { ...record, carried: [...record.carried, "progress_state"], gated: ["work_skeleton"] }
+        : record,
+    );
+    expect(findNativeSliceEvidence("ca04-carry-gap-closure", deferredOpened)).toBeNull();
+
+    // 规划的事实段又被门挡回去 → 不成立
+    const factsMissing = records.map((record) =>
+      record.event === "context.carry.done" && record.capability === "plot_outline"
+        ? { ...record, carried: ["work_skeleton", "planning_mission"] }
+        : record,
+    );
+    expect(findNativeSliceEvidence("ca04-carry-gap-closure", factsMissing)).toBeNull();
   });
 });
 

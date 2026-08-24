@@ -26,17 +26,26 @@ defmodule NovelApplication.CarryRegistry do
   # :manifest = 由 CapabilityFactManifest 是否登记该能力决定（VS-00G 语义门）。
   @carriers [
     %{id: :target_structure, state: :design, actions: ["prose_writing"]},
+    # CA04 G3：world_building 生成端看得见现有阵容（撞名/撞设定在生成端预防）。
     %{
       id: :character_roster,
       state: :design,
-      actions: ["character_design", "character_evolution", "prose_writing", "plot_outline"]
+      actions: [
+        "character_design",
+        "character_evolution",
+        "prose_writing",
+        "plot_outline",
+        "world_building"
+      ]
     },
     %{id: :roster_payload, state: :design, actions: ["character_roster"], kind: :data},
     %{id: :prior_summaries, state: :realized, actions: ["prose_writing", "plot_outline"]},
     %{id: :prior_prose, state: :realized, actions: ["prose_writing"]},
-    %{id: :creative_facts, state: :realized, actions: ["prose_writing"]},
-    %{id: :style_guide, state: :realized, actions: ["prose_writing"]},
-    %{id: :work_skeleton, state: :design, actions: ["plot_outline"]},
+    # CA04 G2：规划与写作对「已确认事实/风格」同源同段（扩章计划不与设定冲突）。
+    %{id: :creative_facts, state: :realized, actions: ["prose_writing", "plot_outline"]},
+    %{id: :style_guide, state: :realized, actions: ["prose_writing", "plot_outline"]},
+    # CA04 G1：写章也带全书进度与收官守则（正文向渲染不含分卷守则）。
+    %{id: :work_skeleton, state: :design, actions: ["prose_writing", "plot_outline"]},
     %{id: :absence_directives, state: :presence, actions: :manifest},
     %{id: :progress_state, state: :progress, actions: ["prose_writing", "plot_outline"]},
     %{id: :execution_brief, state: :design, actions: ["prose_writing"]},

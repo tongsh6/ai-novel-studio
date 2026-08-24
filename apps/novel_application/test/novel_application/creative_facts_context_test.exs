@@ -154,12 +154,18 @@ defmodule NovelApplication.CreativeFactsContextTest do
     refute prompts =~ "## 写作风格与作者偏好"
   end
 
-  test "非 prose 能力（plot_outline / character_design）不注入" do
-    for capability <- ["plot_outline", "character_design"] do
-      prompts = run(capability, facts_reader())
-      refute prompts =~ "## 作品事实"
-      refute prompts =~ "## 写作风格与作者偏好"
-    end
+  # CA04 G2：规划与写作对「已确认事实/风格」同源同段（扩章计划不与设定冲突）。
+  test "plot_outline 注入作品事实段与风格段（CA04 G2，登记表放行）" do
+    prompts = run("plot_outline", facts_reader())
+    assert prompts =~ "## 作品事实（作者已确认，写作必须保持一致）"
+    assert prompts =~ "伏笔与情节事实：\n- 灵脉断裂之谜"
+    assert prompts =~ "## 写作风格与作者偏好（作者已确认，写作遵循）"
+  end
+
+  test "未放行能力（character_design）不注入（登记表门）" do
+    prompts = run("character_design", facts_reader())
+    refute prompts =~ "## 作品事实"
+    refute prompts =~ "## 写作风格与作者偏好"
   end
 
   test "每组按策略 facts_group_limit 截断（floor=8）" do

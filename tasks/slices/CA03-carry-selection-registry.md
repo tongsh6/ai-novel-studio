@@ -60,15 +60,15 @@
 
 （manifest 门=CapabilityFactManifest 是否登记该能力，当前仅 prose_writing/plot_outline；权威表=`NovelApplication.CarryRegistry` + VS-00C §3.5。）
 
-## 3.1 缺口清单（登记表照出的门不对称——只登记，待作者逐条拍板，本刀不修）
+## 3.1 缺口清单（登记表照出的门不对称——2026-08-24 已逐条拍板，裁决见 CA04）
 
-| # | 缺口 | 现状 | 潜在后果 |
-|---|---|---|---|
-| G1 | 正文路径无全书骨架/收官守则 | work_skeleton 仅 plot | 写章模型不知道距目标还有多远（WR01 使命的 skeleton:progress 材料部分弥补） |
-| G2 | 规划路径无作品事实/风格段 | creative_facts/style 仅 prose | 扩章计划可能与已确认设定冲突 |
-| G3 | world_building 无阵容 | character_roster 门不含 world_building | 设定生成看不见现有角色，易撞名/撞设定 |
-| G4 | character_design/evolution 无进度态 | progress_state 仅 prose/plot | 设计角色时看不见弧光停滞名单 |
-| G5 | manifest 只登记 prose/plot | absence_directives 其余能力无缺席守则 | 其余能力在地基真空时无守则兜底 |
+| # | 缺口 | 现状（CA03 时） | 潜在后果 | 拍板落点 |
+|---|---|---|---|---|
+| G1 | 正文路径无全书骨架/收官守则 | work_skeleton 仅 plot | 写章模型不知道距目标还有多远（WR01 使命的 skeleton:progress 材料部分弥补） | **已修**（CA04：+prose，正文向渲染无分卷守则） |
+| G2 | 规划路径无作品事实/风格段 | creative_facts/style 仅 prose | 扩章计划可能与已确认设定冲突 | **已修**（CA04：+plot，同段同源） |
+| G3 | world_building 无阵容 | character_roster 门不含 world_building | 设定生成看不见现有角色，易撞名/撞设定 | **已修**（CA04：+world_building） |
+| G4 | character_design/evolution 无进度态 | progress_state 仅 prose/plot | 设计角色时看不见弧光停滞名单 | 缓，留登记表（等狗粮观察拉动） |
+| G5 | manifest 只登记 prose/plot | absence_directives 其余能力无缺席守则 | 其余能力在地基真空时无守则兜底 | 缓，留登记表（VS-00G 领域，等拉动） |
 
 ## 4. 任务清单
 
@@ -111,5 +111,5 @@
   不会生成。carry 日志把它正确分类为 empty 而非 gated，恰好演示了三分口径的价值；driver
   改为断言「不被门挡」。**衍生观察**：狗粮/真实使用中若 prose 轮 prior_summaries 长期 empty，
   即为摘要维护断链的告警信号——carry 日志首次让这类断链可被机器看见。
-- 缺口 G1-G5（§3.1）待作者逐条拍板；批准的做成下一刀（每补一处=改一条路径 prompt，须带
-  场景化验收）。
+- 缺口 G1-G5（§3.1）已于 2026-08-24 逐条拍板：G1/G2/G3 修（落点 `CA04-carry-gap-closure.md`，
+  I12 流程首用），G4/G5 缓留登记表。

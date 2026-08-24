@@ -34,8 +34,8 @@ evidence:
 
 assertions:
   data:
-    - prose turn carry log carries target_structure/character_roster/prior_summaries/creative_facts/progress_state/execution_brief/dialogue_context and gates work_skeleton/planning_mission/roster_payload
-    - planning turn carry log carries character_roster/prior_summaries/progress_state/planning_mission/dialogue_context and gates target_structure/creative_facts/execution_brief
+    - prose turn carry log carries target_structure/character_roster/creative_facts/progress_state/execution_brief/dialogue_context and gates planning_mission/roster_payload (work_skeleton empty per CA04, not gated)
+    - planning turn carry log carries character_roster/creative_facts/progress_state/planning_mission/dialogue_context and gates target_structure/execution_brief (CA04 opened facts/style to planning)
     - prose turn reports prior_prose as empty (no continuation intent), not gated
   network:
     - both turn results stay tentative with production_write_performed=false

@@ -1,0 +1,48 @@
+id: ca04-carry-gap-closure
+title: 携带缺口收口：正文带全书进度、规划带作品事实与风格、世界观带阵容
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh ca04-carry-gap-closure --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - approved-gate-changes-take-effect-only-through-the-registry
+  - prose-carries-work-skeleton-facts-and-closure-directive
+  - planning-carries-confirmed-facts-and-style
+  - world-building-carries-character-roster
+  - unapproved-gates-stay-unchanged
+
+setup:
+  seed: scripts/seed_ca04_carry_gaps.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: prose request, planning request, then world-building request
+  - verify: each carry log shows the newly approved carrier as carried (real data present)
+  - verify: all artifacts stay tentative with no production write
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/ca04-carry-gap-closure-tauri
+
+assertions:
+  data:
+    - prose carry log carries work_skeleton (skeleton seeded) alongside creative_facts/style_guide
+    - planning carry log carries creative_facts and style_guide and work_skeleton
+    - world_building carry log carries character_roster; progress_state stays gated for it (G4 deferred)
+  network:
+    - all three turn results stay tentative with production_write_performed=false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

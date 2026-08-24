@@ -21995,8 +21995,13 @@ async function driveCa03CarryRegistryObservability(page) {
     `prior_summaries must not be gated on prose: ${JSON.stringify(prose.carryRecord)}`,
   );
   assert(
-    includesAll(proseGated, ["work_skeleton", "planning_mission", "roster_payload"]),
+    includesAll(proseGated, ["planning_mission", "roster_payload"]),
     `Prose carry did not gate plot-only carriers: ${JSON.stringify(prose.carryRecord)}`,
+  );
+  // CA04 G1：work_skeleton 对 prose 已放行——seed 未立骨架 → 诚实 empty 而非 gated。
+  assert(
+    !proseGated.includes("work_skeleton"),
+    `work_skeleton must not be gated on prose after CA04: ${JSON.stringify(prose.carryRecord)}`,
   );
   // 无续写意图 → prior_prose 是「源空诚实缺席」而非被门挡（gated 不冒充 empty）
   assert(
@@ -22032,13 +22037,19 @@ async function driveCa03CarryRegistryObservability(page) {
   assert(
     includesAll(planGated, [
       "target_structure",
-      "creative_facts",
-      "style_guide",
       "execution_brief",
       "decision_packet",
       "prior_prose",
     ]),
     `Planning carry did not gate prose-only carriers: ${JSON.stringify(planning.carryRecord)}`,
+  );
+  // CA04 G2：creative_facts/style_guide 对规划已放行——seed 有已确认伏笔记忆 →
+  // creative_facts carried、style_guide 诚实 empty，都不得再是 gated。
+  assert(
+    planCarried.includes("creative_facts") &&
+      !planGated.includes("creative_facts") &&
+      !planGated.includes("style_guide"),
+    `Planning carry misclassified facts/style after CA04: ${JSON.stringify(planning.carryRecord)}`,
   );
 
   await page.screenshot({
@@ -22071,6 +22082,148 @@ async function driveCa03CarryRegistryObservability(page) {
       no_write:
         prose.turnResult.truthfulness?.production_write_performed === false &&
         planning.turnResult.truthfulness?.production_write_performed === false,
+    },
+  ];
+}
+
+// CA04 携带缺口收口：骨架/记忆/阵容齐备的 seed 下，三条拍板放行的新携带真的被带上——
+// 正文带全书进度与收官守则、规划带作品事实与风格、世界观带阵容；未拍板的门保持不变。
+async function driveCa04CarryGapClosure(page) {
+  const sliceId = "ca04-carry-gap-closure";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const sendAndCollect = async (message, toolName) => {
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    const frameStart = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    const sentFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === message,
+      `CA04 request was not sent: ${toolName}`,
+      30_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.tool_name === toolName &&
+        (frame.body?.adoption_state?.pending ?? []).some(
+          (entry) => String(entry.adoption_status ?? "") === "tentative",
+        ),
+      `No tentative turn_result for ${toolName}`,
+      120_000,
+    );
+    const turnResult = turnFrame.body;
+    assert(
+      turnResult.truthfulness?.production_write_performed === false &&
+        turnResult.truthfulness?.artifact_adopted === false,
+      `${toolName} run performed a production write or auto-adoption`,
+    );
+    const carryRecord = await waitForNewAppLogRecord(
+      logStart,
+      (record) =>
+        record.event === "context.carry.done" &&
+        record.turn_id === turnResult.turn_id &&
+        record.capability === toolName,
+      `No context.carry.done app log for ${toolName}`,
+      30_000,
+    );
+    return { sentFrame, turnResult, carryRecord };
+  };
+
+  const includesAll = (list, expected) => expected.every((id) => list.includes(id));
+
+  // ① 正文：G1——全书进度与收官守则被带上（骨架已立）。
+  const prose = await sendAndCollect(
+    "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约600字，保持为待采纳草稿。",
+    "prose_writing",
+  );
+  assert(
+    includesAll(prose.carryRecord.carried.map(String), [
+      "work_skeleton",
+      "creative_facts",
+      "style_guide",
+      "character_roster",
+      "progress_state",
+      "execution_brief",
+      "dialogue_context",
+    ]),
+    `Prose carry missed approved carriers: ${JSON.stringify(prose.carryRecord)}`,
+  );
+
+  // ② 规划：G2——作品事实与风格被带上（同源同段）。
+  const planning = await sendAndCollect(
+    "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。",
+    "plot_outline",
+  );
+  assert(
+    includesAll(planning.carryRecord.carried.map(String), [
+      "creative_facts",
+      "style_guide",
+      "work_skeleton",
+      "character_roster",
+      "progress_state",
+      "planning_mission",
+      "dialogue_context",
+    ]),
+    `Planning carry missed approved carriers: ${JSON.stringify(planning.carryRecord)}`,
+  );
+
+  // ③ 世界观：G3——阵容被带上；未拍板的门保持不变（进度态/骨架仍 gated，G4 缓）。
+  const world = await sendAndCollect(
+    "请设计一条世界观设定：灵气配给的分级制度，保持为待采纳草稿。",
+    "world_building",
+  );
+  const worldCarried = world.carryRecord.carried.map(String);
+  const worldGated = world.carryRecord.gated.map(String);
+  assert(
+    includesAll(worldCarried, ["character_roster", "dialogue_context"]),
+    `World-building carry missed roster: ${JSON.stringify(world.carryRecord)}`,
+  );
+  assert(
+    includesAll(worldGated, ["progress_state", "work_skeleton", "creative_facts"]),
+    `World-building deferred gates changed without拍板: ${JSON.stringify(world.carryRecord)}`,
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "ca04-carry-gap-closure.png"),
+    fullPage: true,
+  });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: prose.sentFrame.body?.work_id,
+      session_id: prose.sentFrame.body?.session_id,
+      prose_turn_id: prose.turnResult.turn_id,
+      planning_turn_id: planning.turnResult.turn_id,
+      world_turn_id: world.turnResult.turn_id,
+      prose_parent_turn_id: String(prose.turnResult.turn_id ?? "").split(":agent:")[0],
+      planning_parent_turn_id: String(planning.turnResult.turn_id ?? "").split(":agent:")[0],
+      world_parent_turn_id: String(world.turnResult.turn_id ?? "").split(":agent:")[0],
+      prose_carried: prose.carryRecord.carried.map(String),
+      planning_carried: planning.carryRecord.carried.map(String),
+      world_carried: worldCarried,
+      world_gated: worldGated,
+      prose_has_skeleton: prose.carryRecord.carried.includes("work_skeleton"),
+      planning_has_facts:
+        planning.carryRecord.carried.includes("creative_facts") &&
+        planning.carryRecord.carried.includes("style_guide"),
+      world_has_roster: worldCarried.includes("character_roster"),
+      deferred_gates_unchanged:
+        worldGated.includes("progress_state") && worldGated.includes("work_skeleton"),
+      no_write:
+        prose.turnResult.truthfulness?.production_write_performed === false &&
+        planning.turnResult.truthfulness?.production_write_performed === false &&
+        world.turnResult.truthfulness?.production_write_performed === false,
     },
   ];
 }
@@ -28002,6 +28155,7 @@ const drivers = {
   "wr01-chapter-mission-author-decision": driveWr01ChapterMissionAuthorDecision,
   "wr02-planning-mission-before-outline": driveWr02PlanningMissionBeforeOutline,
   "ca03-carry-registry-observability": driveCa03CarryRegistryObservability,
+  "ca04-carry-gap-closure": driveCa04CarryGapClosure,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

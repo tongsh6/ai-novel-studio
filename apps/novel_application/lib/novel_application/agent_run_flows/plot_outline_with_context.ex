@@ -507,6 +507,26 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     step
   end
 
+  # 读端口注入清单（测试可注入，缺省回落生产端口）；CA04 G2 补 memory_reader。
+  defp reader_deps(spec) do
+    %{
+      chapter_prose_reader:
+        Map.get(spec, :chapter_prose_reader) ||
+          NovelApplication.persistence_chapter_prose_reader(),
+      chapter_summary_reader:
+        Map.get(spec, :chapter_summary_reader) ||
+          NovelApplication.persistence_chapter_summary_reader(),
+      character_reader:
+        Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader(),
+      assumption_reader:
+        Map.get(spec, :assumption_reader) ||
+          NovelApplication.persistence_assumption_character_reader(),
+      ledger_reader:
+        Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader(),
+      memory_reader: Map.get(spec, :memory_reader) || NovelApplication.persistence_memory_reader()
+    }
+  end
+
   defp planning_mission_observation_id(run, sequence),
     do: "obs_#{run.run_id}_#{sequence}_planning_mission"
 
@@ -553,7 +573,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     )
 
     {turn_result, _trace} =
-      TurnExecutionService.execute(%{
+      %{
         frame: frame,
         plan: plan,
         decision: decision,
@@ -562,21 +582,10 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         author_input: %{text: author_input_text(run, plan, observations)},
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
-        chapter_prose_reader:
-          Map.get(spec, :chapter_prose_reader) ||
-            NovelApplication.persistence_chapter_prose_reader(),
-        chapter_summary_reader:
-          Map.get(spec, :chapter_summary_reader) ||
-            NovelApplication.persistence_chapter_summary_reader(),
-        character_reader:
-          Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader(),
-        assumption_reader:
-          Map.get(spec, :assumption_reader) ||
-            NovelApplication.persistence_assumption_character_reader(),
-        ledger_reader:
-          Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader(),
         planning_mission: Map.get(stage_state(snapshot), :planning_mission)
-      })
+      }
+      |> Map.merge(reader_deps(spec))
+      |> TurnExecutionService.execute()
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
 

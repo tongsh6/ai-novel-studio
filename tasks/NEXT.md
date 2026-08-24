@@ -207,8 +207,26 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**CA03 携带层统一——slice done（2026-08-24，`tasks/slices/CA03-carry-selection-registry.md`）。
-队首 = 待用户拍板下一主线**。候选（不代拍板）：① M5 节拍狗粮（观察清单已累齐：别称
+**队首 = 拍板（2026-08-24，CA04 收口后队列头无 doing 项）**。候选（不代拍板）：
+① **M5 节拍狗粮**（观察清单已累齐：别称 sighting / 场级指导 / 伴生产物不凑数 / 两使命工具
+调用稳定性与牵引力 / 作者改写率 / carry 日志 empty 告警——prior_summaries 长期 empty=摘要
+断链信号；启动须用户明确批准+便宜验证阶梯先行）；② **WR01 三期**（why 面板完整简报 +
+规划使命裁决；原建议等 M5 观察数据）。G4/G5 携带缺口已拍板缓办，留登记表
+（CA03 §3.1），不进候选。未推送提交积压 9 个，推送等用户指令。
+
+**CA04 携带缺口收口——slice done（2026-08-24，`tasks/slices/CA04-carry-gap-closure.md`，
+VS-00C §3.5 I12「改门=改行为」流程首用）。**
+CA04 收口一页话：拍板 G1/G2/G3 修、G4/G5 缓 → G1=`WorkSkeleton.render_for_prose/2`
+（骨架事实+收官守则，**无分卷守则**——分卷是规划指令写章是噪声）+TES 按调用点分流；
+G2=既有 `creative_memory_sections` 原样开门给 plot（同段同源），plot flow+DPS 补
+`memory_reader` 透传；G3=登记表 character_roster 行加 world_building（读端口本就在，
+纯登记行）。真实 Tauri：新场景 `ca04-carry-gap-closure`（骨架 140000 字/2 卷+确认伏笔/
+风格记忆+主角 seed，三次真实调用各证新携带 carried——prose 带 work_skeleton、plot 带
+creative_facts/style_guide、world_building 带 character_roster——未拍板门原样+三产物
+tentative 零写入）PASS + `ca03` 按新门更新预期复跑 PASS。全量后端 0 failures + 前端 443 +
+I1/I2/I3 + xref/arch/credo 全绿。
+
+**CA03 携带层统一——slice done（2026-08-24，`tasks/slices/CA03-carry-selection-registry.md`）。**候选（不代拍板）：① M5 节拍狗粮（观察清单已累齐：别称
 sighting / 场级指导 / 伴生产物不凑数 / 两类使命 tool-call 稳定性与牵引 / 作者改写率 /
 carry 日志的 empty 告警面——狗粮须用户批准，模型 `qwen/qwen3.8-27b`，B8 预检）；
 ② **携带缺口 G1-G5 逐条拍板**（CA03 §3.1：正文无骨架/规划无作品事实/world_building 无阵容/
