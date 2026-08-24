@@ -14,6 +14,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
+  alias NovelApplication.CarryRegistry
   alias NovelApplication.CharacterRosterNarration
   alias NovelApplication.CreativeDecisionPacketBuilder
   alias NovelApplication.Planner
@@ -159,17 +160,48 @@ defmodule NovelApplication.TurnExecutionService do
     # 非作品事实。
     # WR01：写前推理步产出的本章使命（stage_state 透传，设计态）随 packet 进简报；
     # 未排步/一步预算时为 nil，简报形态与此前逐字节一致。
+    author_text = author_input_text(frame, input[:author_input])
+
     brief_result =
       prose_execution_brief(
         frame,
         action,
         input[:context],
         resolved_chapter,
-        author_input_text(frame, input[:author_input]),
+        author_text,
         input[:chapter_mission]
       )
 
     emit_execution_brief(frame, brief_result, chapter_mission_ref(input[:chapter_mission]))
+
+    # CA03：目标章结构 / 会话上下文原在 tool_input 内部计算——上提到装配层，让携带
+    # 登记表日志能看全（bytes 不变，仅计算位置前移）。
+    target_structure =
+      target_structure_section(frame, action, input[:context], resolved_chapter)
+
+    dialogue_context_text = tool_context_text(input[:context], author_text)
+    planning_mission_text = render_planning_mission(action, input[:planning_mission])
+    execution_brief_text = render_execution_brief(brief_result)
+    decision_packet_data = decision_packet(brief_result)
+
+    # CA03（VS-00C §3.5）：携带三分日志——carried / gated（登记表挡的）/ empty（源空，
+    # 诚实缺席）。排查「谁带了什么」从翻代码变成看这一条。
+    emit_carry(frame, capability_name(action), [
+      {:target_structure, target_structure},
+      {:character_roster, character_roster},
+      {:roster_payload, characters},
+      {:prior_summaries, prior_summaries},
+      {:prior_prose, prior_prose},
+      {:creative_facts, creative_facts},
+      {:style_guide, style_guide},
+      {:work_skeleton, work_skeleton},
+      {:absence_directives, absence_directives},
+      {:progress_state, progress_state},
+      {:execution_brief, execution_brief_text},
+      {:decision_packet, decision_packet_data},
+      {:planning_mission, planning_mission_text},
+      {:dialogue_context, dialogue_context_text}
+    ])
 
     req =
       build_tool_request(
@@ -180,18 +212,20 @@ defmodule NovelApplication.TurnExecutionService do
         action,
         %{
           resolved_chapter: resolved_chapter,
+          target_structure: target_structure,
+          dialogue_context: dialogue_context_text,
           prior_prose: prior_prose,
           prior_summaries: prior_summaries,
           character_roster: character_roster,
           characters: characters,
-          execution_brief: render_execution_brief(brief_result),
-          decision_packet: decision_packet(brief_result),
+          execution_brief: execution_brief_text,
+          decision_packet: decision_packet_data,
           progress_state: progress_state,
           creative_facts: creative_facts,
           style_guide: style_guide,
           absence_directives: absence_directives,
           work_skeleton: work_skeleton,
-          planning_mission: render_planning_mission(action, input[:planning_mission])
+          planning_mission: planning_mission_text
         }
       )
 
@@ -210,7 +244,7 @@ defmodule NovelApplication.TurnExecutionService do
         action,
         tool_result,
         quality_provider_execution,
-        render_execution_brief(brief_result),
+        execution_brief_text,
         facts_context_text(creative_facts, style_guide),
         quality_pacing_context(brief_result)
       )
@@ -355,7 +389,7 @@ defmodule NovelApplication.TurnExecutionService do
          frame,
          action,
          author_input,
-         context,
+         _context,
          sections
        ) do
     text = author_input_text(frame, author_input)
@@ -366,7 +400,7 @@ defmodule NovelApplication.TurnExecutionService do
     # （L4 最小形态）→ 当前作者输入。
     context_text =
       [
-        target_structure_section(frame, action, context, sections.resolved_chapter),
+        sections.target_structure,
         sections.character_roster,
         sections.prior_summaries,
         prior_prose_section(action, sections.prior_prose),
@@ -374,7 +408,7 @@ defmodule NovelApplication.TurnExecutionService do
         sections.style_guide,
         sections.work_skeleton,
         sections.absence_directives,
-        tool_context_text(context, text)
+        sections.dialogue_context
       ]
       |> Enum.reject(&blank?/1)
       |> Enum.join("\n\n")
@@ -715,6 +749,22 @@ defmodule NovelApplication.TurnExecutionService do
     (action[:target_ref] || action[:capability_name]) == "prose_writing"
   end
 
+  # CA03：调用点能力名（携带登记表的门面键）。
+  defp capability_name(action),
+    do: to_string(action[:target_ref] || action[:capability_name] || "")
+
+  defp emit_carry(frame, capability, entries) do
+    report = CarryRegistry.carry_report(capability, entries)
+
+    LogEmit.emit(:context, :carry, :done, %{
+      turn_id: frame.turn_id,
+      capability: capability,
+      carried: report.carried,
+      gated: report.gated,
+      empty: report.empty
+    })
+  end
+
   # VS-00F CP1：弧光账投影渲染（机械，不代笔）。STALLED 优先、按最近出场倒序，
   # 上限 6 条控预算；无 reader/无账面数据返回空串（诚实缺席，不伪造账本存在）。
   @progress_state_max_entries 6
@@ -754,7 +804,8 @@ defmodule NovelApplication.TurnExecutionService do
   # facts_group_limit 截断（组内已按更新时间倒序），标题字串避开 stub/slice_verify
   # 内容级锚点（现有角色/作品章节/已采纳章节/目标情绪/已采纳正文）。
   defp creative_memory_sections(frame, action, context, memory_reader) do
-    if prose_writing_action?(action) and is_function(memory_reader, 1) do
+    if CarryRegistry.carries?(:creative_facts, capability_name(action)) and
+         is_function(memory_reader, 1) do
       facts = memory_reader.(frame.workspace_id)
       limit = DialogueContext.policy(context).facts_group_limit
 
@@ -852,7 +903,7 @@ defmodule NovelApplication.TurnExecutionService do
   # VS-00G CP3：规划期全书骨架段+收官守则（仅 plot_outline）。已写章数用当前章列表长度
   # 近似（含计划章，作规模信号）；无 target_length 时空段（诚实缺席，R6 负债催办）。
   defp work_skeleton_section(action, context) do
-    if plot_outline_action?(action) do
+    if CarryRegistry.carries?(:work_skeleton, capability_name(action)) do
       snapshot = work_skeleton_snapshot(context)
       written = work_skeleton_written_count(context)
       NovelDomain.WorkSkeleton.render(snapshot, written)
@@ -1080,7 +1131,7 @@ defmodule NovelApplication.TurnExecutionService do
   # I-c（AU09 角色主档案）：从 Character 主档案读现有角色，注入创作/角色设计上下文。
   # 仅对会用到角色的能力注入：character_design（设计新角色看现有阵容）、prose_writing（写作保持一致）。
   defp existing_characters_section(frame, action, reader) when is_function(reader, 1) do
-    if character_context_action?(action) do
+    if CarryRegistry.carries?(:character_roster, capability_name(action)) do
       frame.workspace_id
       |> reader.()
       |> build_characters_section(frame)
@@ -1178,7 +1229,7 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp read_character_roster(frame, action, reader) when is_function(reader, 1) do
-    if (action[:target_ref] || action[:capability_name]) == "character_roster" do
+    if CarryRegistry.carries?(:roster_payload, capability_name(action)) do
       characters = frame.workspace_id |> reader.() |> normalize_character_list()
 
       LogEmit.emit(:context, :characters, :done, %{
@@ -1200,15 +1251,6 @@ defmodule NovelApplication.TurnExecutionService do
 
   # CA01（Order 7 刀二·ⓐ）：plot_outline 纳入角色阵容注入——M2 扩章批凭空发明
   # 接管主角团新角色的机制原因就是规划工具看不见现有 cast。
-  defp character_context_action?(action) do
-    (action[:target_ref] || action[:capability_name]) in [
-      "character_design",
-      "character_evolution",
-      "prose_writing",
-      "plot_outline"
-    ]
-  end
-
   defp build_characters_section([], _frame), do: ""
 
   defp build_characters_section(characters, frame) when is_list(characters) do
@@ -1261,7 +1303,7 @@ defmodule NovelApplication.TurnExecutionService do
   # CP3（G6/G1）：tool 侧独立 L2 结构对象。current_chapters 标题列表仍保留给 planner；
   # prose_writing 额外拿到目标章计划摘要、顺序和前后章位置。
   defp target_structure_section(frame, action, %DialogueContext{} = context, resolved_chapter) do
-    if prose_writing_action?(action) do
+    if CarryRegistry.carries?(:target_structure, capability_name(action)) do
       target = structure_target_title(action, resolved_chapter)
 
       context.structured_chapters

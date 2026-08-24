@@ -300,6 +300,49 @@ DialogueContext +=
 
 per-consumer 的完整 ContextPacket 体系 defer（§9）；本期 planner 路径行为不变。
 
+### 3.5 携带登记表（2026-08-24 CA03）
+
+> 四层体系 ②携带层的收敛（`notes/2026-08-11` §2②/§4）。用户拍板：**先统一不改行为**——
+> 登记表 v1 = 现状快照，门的不对称是缺口清单（见 CA03 slice 档），修补须逐条拍板。
+
+创作调用前「往 prompt 里搬状态」的通道收敛为 `NovelApplication.CarryRegistry` 一张登记表：
+每条携带一行（id / 三态归类 / 服务哪些调用点 / 文本或数据载体）；组装层
+（`TurnExecutionService`）的携带门一律走 `CarryRegistry.carries?/2`，块的渲染函数原地不动
+（渲染内部保留的是**模式分派**——如 progress_state 的 prose/plot 两种 digest——不是门）。
+
+登记表 v1（✓=携带；`absence_directives` 的门 = `CapabilityFactManifest` 是否登记该能力）：
+
+| id | 三态 | prose_writing | plot_outline | character_design | character_evolution | world_building | character_roster |
+|---|---|---|---|---|---|---|---|
+| target_structure | 设计态 | ✓ | — | — | — | — | — |
+| character_roster | 设计态 | ✓ | ✓ | ✓ | ✓ | — | — |
+| roster_payload（data） | 设计态 | — | — | — | — | — | ✓ |
+| prior_summaries | 实现态 | ✓（目标章前窗） | ✓（末 N 章） | — | — | — | — |
+| prior_prose | 实现态 | ✓（续写/重写） | — | — | — | — | — |
+| creative_facts / style_guide | 实现态 | ✓ | — | — | — | — | — |
+| work_skeleton | 设计态 | — | ✓ | — | — | — | — |
+| absence_directives | 在场判定 | manifest | manifest | — | — | — | — |
+| progress_state | 进度态 | ✓（弧光/伏笔/保密） | ✓（五账 digest） | — | — | — | — |
+| execution_brief / decision_packet（data） | 设计态 | ✓ | — | — | — | — | — |
+| planning_mission | 设计态 | — | ✓ | — | — | — | — |
+| dialogue_context | 会话 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+观测（ADR-0018）：每次创作调用发 `context.carry.done`
+`%{turn_id, capability, carried, gated, empty}`——三分口径：
+
+- `carried`：真进了本次调用；
+- `gated`：登记表挡的（设计如此，不是缺失）；
+- `empty`：该带但源为空（诚实缺席，06 §5.0）。`gated` 不得冒充 `empty`。
+
+不变量：
+
+- **VS00C-I10（单一门面）**：携带条目「服务哪些调用点」只在登记表声明；组装层不得另设
+  per-block 调用点判定。
+- **VS00C-I11（登记纪律）**：新增携带通道必须先在登记表加一行（本节表格同步更新），
+  不入册视为契约违规（与 ADR-0024 注册表维护规则同款）。
+- **VS00C-I12（快照即行为）**：登记表行变更 = 某条路径的 prompt 行为变更，必须走拍板 +
+  场景化验收，不得以「整理」名义顺手改门。
+
 ---
 
 ## 4. 不变量（本契约保护的）

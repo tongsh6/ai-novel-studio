@@ -48,6 +48,7 @@
 | `wr01-chapter-mission-before-prose.yml` | 正文写作前由模型推导本章使命（依据 ref 机器核验）并进入执行简报与推理区（WR01） |
 | `wr01-chapter-mission-author-decision.yml` | 本章使命落章计划（暂定）→ 档案大纲 tab 作者改写 → 下次写作 0 调用直接采用作者版（WR01b） |
 | `wr02-planning-mission-before-outline.yml` | 大纲起草前由模型推导本轮规划使命（依据 ref 机器核验）并进入规划 prompt（WR02） |
+| `ca03-carry-registry-observability.yml` | 创作调用携带三分日志（carried/gated/empty）与携带登记表一致（CA03） |
 | `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun，并在 46§9 推理区实时显示多段 `author_narrative_delta` |
 | `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 计划耗尽后触发 provider-sourced `plan_revised` 并继续完成对话 |
 | `agentic-loop-no-deviation-direct.yml` | ADR-0023 无偏离直通路径只消费起草计划且不触发重规划 |

@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `CA03-carry-selection-registry.md` | **done（2026-08-24）/ 携带层统一**：创作调用前的携带通道收敛为 `CarryRegistry` 一张登记表（14 行，门只在登记表声明；渲染原地）；`context.carry.done` 三分日志（carried/gated/empty，gated 不冒充 empty）；行为逐字节不变（wr01/wr02 复跑 PASS）。缺口 G1-G5 已登记待拍板。 |
 | `WR02-planning-mission-pre-outline-reasoning.md` | **done（2026-08-24）/ 写前推理层第三刀**：规划路径的「本轮规划使命」——大纲起草前按五本账/进度/骨架推导这批章必须安排/不得安排什么（依据 ref 机器核验，越界丢弃），经 `CreativeRequest.planning_mission` 进规划 prompt 账面摘要段后；CP2b 机械步序第三步；本期不持久化、失败降级继续。真实 Tauri `wr02-planning-mission-before-outline` PASS。 |
 | `WR01b-chapter-mission-author-decision.md` | **done（2026-08-24）/ 写前推理层二期**：本章使命落 `chapters.plan_direction["chapter_mission"]`（零新表，暂定/已确认/作者改写，作废=删键）；档案大纲 tab 逐章 确认/改写/作废（ADR-0024 S8）；作者版在场下次写作 0 调用直取；`chapter_read` 探索可达；why 面板「本章使命：…」。真实 Tauri `wr01-chapter-mission-author-decision` PASS。 |
 | `WR01-chapter-mission-pre-writing-reasoning.md` | **done（2026-08-21）/ 写前推理层首刀**：正文 run 新增模型步「本章使命」——机械选取携带状态（章计划×五本账×进度，逐条 `[ref]` 列名）+ 模型推导本章必须推进/不得做（依据 ref 机器核验，越界丢弃）→ 进执行简报与推理区（N-NARR 绑定）；本期不持久化、失败降级继续写。真实 Tauri `wr01-chapter-mission-before-prose` PASS；真实模型实效归 M5 狗粮观察。 |

@@ -94,6 +94,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("wr01-chapter-mission-before-prose");
     expect(nativeSliceIds).toContain("wr01-chapter-mission-author-decision");
     expect(nativeSliceIds).toContain("wr02-planning-mission-before-outline");
+    expect(nativeSliceIds).toContain("ca03-carry-registry-observability");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9198,6 +9199,77 @@ describe("native Tauri slice verifier", () => {
     );
     expect(
       findNativeSliceEvidence("wr02-planning-mission-before-outline", wroteProduction),
+    ).toBeNull();
+  });
+
+  it("requires carry log three-way split to match the registry for prose and planning (CA03)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "ca03-carry-registry-observability",
+      prose_parent_turn_id: "turn-p",
+      prose_turn_id: "turn-p:agent:5",
+      planning_parent_turn_id: "turn-o",
+      planning_turn_id: "turn-o:agent:4",
+      prose_carried: ["target_structure", "creative_facts", "execution_brief", "dialogue_context"],
+      prose_gated: ["work_skeleton", "planning_mission", "roster_payload"],
+      prose_empty: ["prior_prose", "style_guide"],
+      planning_carried: ["planning_mission", "progress_state", "dialogue_context"],
+      planning_gated: ["target_structure", "creative_facts", "execution_brief"],
+      planning_empty: ["work_skeleton"],
+      prose_prior_prose_empty_not_gated: true,
+      lists_disjoint: true,
+      no_write: true,
+    };
+    const records = [
+      uiState,
+      {
+        event: "context.carry.done",
+        turn_id: "turn-p:agent:5",
+        capability: "prose_writing",
+        carried: ["target_structure", "creative_facts", "execution_brief", "dialogue_context"],
+        gated: ["work_skeleton", "planning_mission", "roster_payload"],
+        empty: ["prior_prose", "style_guide"],
+      },
+      {
+        event: "context.carry.done",
+        turn_id: "turn-o:agent:4",
+        capability: "plot_outline",
+        carried: ["planning_mission", "progress_state", "dialogue_context"],
+        gated: ["target_structure", "creative_facts", "execution_brief"],
+        empty: ["work_skeleton"],
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("ca03-carry-registry-observability", records);
+    expect(evidence?.turn_ids).toEqual(["turn-p", "turn-p:agent:5", "turn-o", "turn-o:agent:4"]);
+    expect(evidence?.key_events).toEqual(keyEventsForSlice("ca03-carry-registry-observability"));
+
+    const behavior = findSliceBehaviorEvidence(
+      "ca03-carry-registry-observability",
+      records,
+      evidence,
+    );
+    expect(behavior?.assertions).toContain(
+      "prior_prose_without_continuation_intent_reported_empty_not_gated",
+    );
+
+    // gated 冒充 empty / 规划带了 prose 专属携带 → 不成立
+    const gatedAsEmpty = records.map((record) =>
+      record.event === "context.carry.done" && record.capability === "prose_writing"
+        ? { ...record, empty: [...record.empty, "work_skeleton"], gated: ["planning_mission", "roster_payload"] }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("ca03-carry-registry-observability", gatedAsEmpty),
+    ).toBeNull();
+
+    const leakedProseCarrier = records.map((record) =>
+      record.event === "context.carry.done" && record.capability === "plot_outline"
+        ? { ...record, gated: ["target_structure", "creative_facts"] }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("ca03-carry-registry-observability", leakedProseCarrier),
     ).toBeNull();
   });
 });

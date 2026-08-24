@@ -1,0 +1,47 @@
+id: ca03-carry-registry-observability
+title: 创作调用携带三分日志与携带登记表一致
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh ca03-carry-registry-observability --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - carry-gates-are-declared-once-in-the-registry
+  - carry-log-separates-carried-gated-and-empty
+  - gated-carriers-never-masquerade-as-empty
+  - registry-refactor-changed-no-provider-prompt-bytes
+
+setup:
+  seed: scripts/seed_wr01_chapter_mission.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: one prose request then one planning request from the real chat input
+  - verify: each creative call logs context.carry.done with carried/gated/empty matching the registry for its capability
+  - verify: both artifacts stay tentative with no production write
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/ca03-carry-registry-observability-tauri
+
+assertions:
+  data:
+    - prose turn carry log carries target_structure/character_roster/prior_summaries/creative_facts/progress_state/execution_brief/dialogue_context and gates work_skeleton/planning_mission/roster_payload
+    - planning turn carry log carries character_roster/prior_summaries/progress_state/planning_mission/dialogue_context and gates target_structure/creative_facts/execution_brief
+    - prose turn reports prior_prose as empty (no continuation intent), not gated
+  network:
+    - both turn results stay tentative with production_write_performed=false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

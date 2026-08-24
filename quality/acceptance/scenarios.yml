@@ -244,6 +244,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/wr02-planning-mission-before-outline.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh wr02-planning-mission-before-outline --surface tauri
+  - id: ca03-carry-registry-observability
+    title: "创作调用携带三分日志与携带登记表一致"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/ca03-carry-registry-observability.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh ca03-carry-registry-observability --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

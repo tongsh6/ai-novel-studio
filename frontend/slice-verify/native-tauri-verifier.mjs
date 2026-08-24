@@ -165,6 +165,7 @@ export const nativeSliceIds = [
   "wr01-chapter-mission-before-prose",
   "wr01-chapter-mission-author-decision",
   "wr02-planning-mission-before-outline",
+  "ca03-carry-registry-observability",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -520,6 +521,13 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "planning_mission.derived.done",
     "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "ca03-carry-registry-observability": [
+    "channel.user_message.start",
+    "context.carry.done",
     "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
@@ -2003,6 +2011,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findWr02PlanningMissionEvidence(records);
   }
 
+  if (sliceId === "ca03-carry-registry-observability") {
+    return findCa03CarryRegistryEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2919,6 +2931,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "wr02-planning-mission-before-outline") {
     return wr02PlanningMissionBehavior(turnIds, records, evidence, options);
+  }
+
+  if (sliceId === "ca03-carry-registry-observability") {
+    return ca03CarryRegistryBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -4974,6 +4990,96 @@ function wr02PlanningMissionBehavior(turnIds, records, evidence, options = {}) {
       "mission_narrative_was_source_bound_and_visible_in_reasoning_area",
       "turn_result_trace_carried_planning_mission_ref_and_statement",
       "outline_draft_remained_tentative_without_production_write",
+    ],
+  };
+}
+
+function findCa03CarryRegistryEvidence(records) {
+  const sliceId = "ca03-carry-registry-observability";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      typeof record.prose_turn_id === "string" &&
+      typeof record.planning_turn_id === "string" &&
+      record.prose_prior_prose_empty_not_gated === true &&
+      record.lists_disjoint === true &&
+      record.no_write === true,
+  );
+  if (!uiState) return null;
+
+  const proseCarry = records.find(
+    (record) =>
+      record.event === "context.carry.done" &&
+      record.turn_id === uiState.prose_turn_id &&
+      record.capability === "prose_writing" &&
+      ["target_structure", "creative_facts", "execution_brief", "dialogue_context"].every((id) =>
+        (record.carried ?? []).includes(id),
+      ) &&
+      ["work_skeleton", "planning_mission"].every((id) => (record.gated ?? []).includes(id)) &&
+      (record.empty ?? []).includes("prior_prose"),
+  );
+  if (!proseCarry) return null;
+
+  const planningCarry = records.find(
+    (record) =>
+      record.event === "context.carry.done" &&
+      record.turn_id === uiState.planning_turn_id &&
+      record.capability === "plot_outline" &&
+      ["planning_mission", "progress_state", "dialogue_context"].every((id) =>
+        (record.carried ?? []).includes(id),
+      ) &&
+      ["target_structure", "creative_facts", "execution_brief"].every((id) =>
+        (record.gated ?? []).includes(id),
+      ),
+  );
+  if (!planningCarry) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.planning_turn_id,
+    turn_ids: [
+      uiState.prose_parent_turn_id,
+      uiState.prose_turn_id,
+      uiState.planning_parent_turn_id,
+      uiState.planning_turn_id,
+    ].filter(Boolean),
+    prose_turn_id: uiState.prose_turn_id,
+    planning_turn_id: uiState.planning_turn_id,
+    prose_carried: uiState.prose_carried,
+    prose_gated: uiState.prose_gated,
+    prose_empty: uiState.prose_empty,
+    planning_carried: uiState.planning_carried,
+    planning_gated: uiState.planning_gated,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function ca03CarryRegistryBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "ca03-carry-registry-observability" &&
+      record.prose_turn_id === evidence.prose_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.prose_prior_prose_empty_not_gated !== true) return null;
+  if (uiState.lists_disjoint !== true || uiState.no_write !== true) return null;
+
+  return {
+    slice_id: "ca03-carry-registry-observability",
+    behavior: "carry_log_three_way_split_matched_the_registry_for_prose_and_planning_calls",
+    turn_ids: turnIds,
+    prose_turn_id: evidence.prose_turn_id,
+    planning_turn_id: evidence.planning_turn_id,
+    assertions: [
+      "prose_call_carried_design_realized_and_progress_state_per_registry",
+      "plot_only_carriers_were_gated_on_the_prose_call",
+      "prose_only_carriers_were_gated_on_the_planning_call",
+      "planning_call_carried_planning_mission_and_ledger_digest",
+      "prior_prose_without_continuation_intent_reported_empty_not_gated",
+      "carried_gated_empty_lists_stayed_disjoint",
+      "both_artifacts_remained_tentative_without_production_write",
     ],
   };
 }

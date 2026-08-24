@@ -207,13 +207,23 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
+**CA03 携带层统一——slice done（2026-08-24，`tasks/slices/CA03-carry-selection-registry.md`）。
+队首 = 待用户拍板下一主线**。候选（不代拍板）：① M5 节拍狗粮（观察清单已累齐：别称
+sighting / 场级指导 / 伴生产物不凑数 / 两类使命 tool-call 稳定性与牵引 / 作者改写率 /
+carry 日志的 empty 告警面——狗粮须用户批准，模型 `qwen/qwen3.8-27b`，B8 预检）；
+② **携带缺口 G1-G5 逐条拍板**（CA03 §3.1：正文无骨架/规划无作品事实/world_building 无阵容/
+设计无进度态/manifest 只登记两能力——每补一处=改一条路径 prompt，独立小刀）；③ WR01 三期
+（why 面板完整简报、规划使命裁决——等 M5 观察）。
+CA03 收口一页话：用户拍板「先统一不改行为」→ `CarryRegistry` 14 行登记表（门唯一声明处，
+absence=manifest 门、dialogue_context=:all）→ TES 5 个纯开关门切登记表、target_structure/
+dialogue_context 上提装配层（bytes 不变）→ `context.carry.done` 三分日志（carried/gated/empty，
+gated 不冒充 empty）→ VS-00C §3.5 冻结（I10 单一门面 / I11 登记纪律 / I12 快照即行为）。
+真实 Tauri：新场景 PASS + wr01/wr02 复跑 PASS（行为回归干净）；1452 后端 + 442 前端 +
+I1/I2/I3 绿。首跑抓到 driver 预期错顺带发现观察面价值：seed 直插采纳层致 prior_summaries
+诚实 empty——carry 日志首次让摘要断链这类问题可被机器看见（M5 观察项 +1）。
+
 **WR02 规划前推理「本轮规划使命」——slice done（2026-08-24，
-`tasks/slices/WR02-planning-mission-pre-outline-reasoning.md`）。队首 = 待用户拍板下一主线**。
-候选（不代拍板）：① M5 节拍狗粮（长跑验证清单已累到：别称 sighting / 场级指导 / 伴生产物
-不凑数 / 本章使命 tool-call 稳定性与牵引 / 作者改写率 / **规划使命是否真让超期伏笔进新章
-计划**——狗粮须用户批准，模型 `qwen/qwen3.8-27b`，B8 预检）；② 携带层五通道统一选取策略
-（VS-00C AssemblyPolicy 语义扩展——写前推理层三刀已提供三个按坐标选取器样板）；③ WR01
-第三期（why 面板展示完整简报、规划使命作者裁决——等 M5 观察）。
+`tasks/slices/WR02-planning-mission-pre-outline-reasoning.md`）。**
 WR02 收口一页话：沿用 WR01 三拍板先例 → `ChapterMissionService kind: :planning`（工具名
 `planning_mission`/锚点「规划前推理器」，值对象与 I-M1/I-M3/I-M4 复用）→ `ChapterMissionInputs`
 `mode: :planning`（新增「已规划待写的章」材料组）→ plot flow CP2b 机械步序第三步（无

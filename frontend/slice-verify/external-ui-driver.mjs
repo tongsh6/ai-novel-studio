@@ -21908,6 +21908,173 @@ async function driveWr02PlanningMissionBeforeOutline(page) {
   ];
 }
 
+// CA03 携带登记表可见性：一次正文 + 一次规划，各自的 context.carry.done 三分
+// （carried/gated/empty）必须与登记表一致；gated 不冒充 empty；两产物 tentative 零写入。
+async function driveCa03CarryRegistryObservability(page) {
+  const sliceId = "ca03-carry-registry-observability";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const sendAndCollect = async (message, toolName, artifactType) => {
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    const frameStart = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    const sentFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === message,
+      `Carry request was not sent: ${toolName}`,
+      30_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.tool_name === toolName &&
+        (frame.body?.adoption_state?.pending ?? []).some(
+          (entry) =>
+            entry.artifact_type === artifactType &&
+            String(entry.adoption_status ?? "") === "tentative",
+        ),
+      `No tentative ${artifactType} turn_result for ${toolName}`,
+      120_000,
+    );
+    const turnResult = turnFrame.body;
+    assert(
+      turnResult.truthfulness?.production_write_performed === false &&
+        turnResult.truthfulness?.artifact_adopted === false,
+      `${toolName} carry run performed a production write or auto-adoption`,
+    );
+    const carryRecord = await waitForNewAppLogRecord(
+      logStart,
+      (record) =>
+        record.event === "context.carry.done" &&
+        record.turn_id === turnResult.turn_id &&
+        record.capability === toolName &&
+        Array.isArray(record.carried) &&
+        Array.isArray(record.gated) &&
+        Array.isArray(record.empty),
+      `No context.carry.done app log for ${toolName}`,
+      30_000,
+    );
+    return { sentFrame, turnResult, carryRecord };
+  };
+
+  const includesAll = (list, expected) => expected.every((id) => list.includes(id));
+  const disjoint = (a, b) => a.every((id) => !b.includes(id));
+
+  // ① 正文调用
+  const prose = await sendAndCollect(
+    "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约600字，保持为待采纳草稿。",
+    "prose_writing",
+    "prose_fragment",
+  );
+  const proseCarried = prose.carryRecord.carried.map(String);
+  const proseGated = prose.carryRecord.gated.map(String);
+  const proseEmpty = prose.carryRecord.empty.map(String);
+  assert(
+    includesAll(proseCarried, [
+      "target_structure",
+      "character_roster",
+      "creative_facts",
+      "progress_state",
+      "execution_brief",
+      "dialogue_context",
+    ]),
+    `Prose carry missed expected carriers: ${JSON.stringify(prose.carryRecord)}`,
+  );
+  // seed 直插采纳层、未经主链 → 治理摘要不存在：prior_summaries 是诚实 empty，
+  // 但绝不能是 gated（登记表对 prose 是放行的）。
+  assert(
+    !proseGated.includes("prior_summaries"),
+    `prior_summaries must not be gated on prose: ${JSON.stringify(prose.carryRecord)}`,
+  );
+  assert(
+    includesAll(proseGated, ["work_skeleton", "planning_mission", "roster_payload"]),
+    `Prose carry did not gate plot-only carriers: ${JSON.stringify(prose.carryRecord)}`,
+  );
+  // 无续写意图 → prior_prose 是「源空诚实缺席」而非被门挡（gated 不冒充 empty）
+  assert(
+    proseEmpty.includes("prior_prose") && !proseGated.includes("prior_prose"),
+    `Prose carry misclassified prior_prose: ${JSON.stringify(prose.carryRecord)}`,
+  );
+  assert(
+    disjoint(proseCarried, proseGated) && disjoint(proseCarried, proseEmpty),
+    "Prose carry lists overlap",
+  );
+
+  // ② 规划调用
+  const planning = await sendAndCollect(
+    "请按已有三章往后规划接下来三章的章节大纲，保持为待采纳草稿。",
+    "plot_outline",
+    "outline_draft",
+  );
+  const planCarried = planning.carryRecord.carried.map(String);
+  const planGated = planning.carryRecord.gated.map(String);
+  assert(
+    includesAll(planCarried, [
+      "character_roster",
+      "progress_state",
+      "planning_mission",
+      "dialogue_context",
+    ]),
+    `Planning carry missed expected carriers: ${JSON.stringify(planning.carryRecord)}`,
+  );
+  assert(
+    !planGated.includes("prior_summaries"),
+    `prior_summaries must not be gated on planning: ${JSON.stringify(planning.carryRecord)}`,
+  );
+  assert(
+    includesAll(planGated, [
+      "target_structure",
+      "creative_facts",
+      "style_guide",
+      "execution_brief",
+      "decision_packet",
+      "prior_prose",
+    ]),
+    `Planning carry did not gate prose-only carriers: ${JSON.stringify(planning.carryRecord)}`,
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "ca03-carry-registry-observability.png"),
+    fullPage: true,
+  });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: prose.sentFrame.body?.work_id,
+      session_id: prose.sentFrame.body?.session_id,
+      prose_turn_id: prose.turnResult.turn_id,
+      planning_turn_id: planning.turnResult.turn_id,
+      prose_parent_turn_id: String(prose.turnResult.turn_id ?? "").split(":agent:")[0],
+      planning_parent_turn_id: String(planning.turnResult.turn_id ?? "").split(":agent:")[0],
+      prose_carried: proseCarried,
+      prose_gated: proseGated,
+      prose_empty: proseEmpty,
+      planning_carried: planCarried,
+      planning_gated: planGated,
+      planning_empty: planning.carryRecord.empty.map(String),
+      prose_prior_prose_empty_not_gated:
+        proseEmpty.includes("prior_prose") && !proseGated.includes("prior_prose"),
+      lists_disjoint:
+        disjoint(proseCarried, proseGated) &&
+        disjoint(proseCarried, proseEmpty) &&
+        disjoint(planCarried, planGated),
+      no_write:
+        prose.turnResult.truthfulness?.production_write_performed === false &&
+        planning.turnResult.truthfulness?.production_write_performed === false,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -27834,6 +28001,7 @@ const drivers = {
   "wr01-chapter-mission-before-prose": driveWr01ChapterMissionBeforeProse,
   "wr01-chapter-mission-author-decision": driveWr01ChapterMissionAuthorDecision,
   "wr02-planning-mission-before-outline": driveWr02PlanningMissionBeforeOutline,
+  "ca03-carry-registry-observability": driveCa03CarryRegistryObservability,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,
