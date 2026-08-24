@@ -618,6 +618,7 @@ export const TRACE = {
   },
   recoveryApplied: "系统已使用降级恢复策略。",
   chapterMission: (statement: string) => `本章使命：${statement}`,
+  planningMission: (statement: string) => `本轮规划使命：${statement}`,
   toolUsed: (name: string) => `本轮使用了工具：${name}。`,
   toolWithStatus: (name: string, status: string) =>
     `本轮使用了工具：${name}，结果状态为 ${status}。`,

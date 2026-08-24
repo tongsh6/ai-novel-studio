@@ -23,14 +23,23 @@ defmodule NovelDomain.ChapterMissionInputs do
 
   @type item :: %{ref: String.t(), group: atom(), text: String.t()}
 
+  @type mode :: :prose | :planning
+
   @type t :: %__MODULE__{
+          mode: mode(),
           chapter: map() | nil,
           items: [item()],
           undated_foreshadow_count: non_neg_integer(),
           written_progress: map() | nil
         }
 
-  defstruct chapter: nil, items: [], undated_foreshadow_count: 0, written_progress: nil
+  # mode（WR02）：:prose = 写某一章前（目标章设计态在场）；:planning = 规划下一批章前
+  # （无目标章，材料含「已规划待写的章」，保密清单不豁免任何章）。
+  defstruct mode: :prose,
+            chapter: nil,
+            items: [],
+            undated_foreshadow_count: 0,
+            written_progress: nil
 
   @max_foreshadows 5
   @max_secrecy 3
@@ -52,6 +61,7 @@ defmodule NovelDomain.ChapterMissionInputs do
   """
   @spec build(map()) :: t()
   def build(attrs) when is_map(attrs) do
+    mode = if Map.get(attrs, :mode) == :planning, do: :planning, else: :prose
     chapter = normalize_chapter(Map.get(attrs, :chapter))
     entries = List.wrap(Map.get(attrs, :entries, []))
     progress = normalize_progress(Map.get(attrs, :written_progress))
@@ -60,6 +70,7 @@ defmodule NovelDomain.ChapterMissionInputs do
 
     items =
       plan_items(chapter) ++
+        planned_chapter_items(Map.get(attrs, :planned_chapters)) ++
         previous_summary_items(chapter, Map.get(attrs, :previous_summary)) ++
         foreshadow_items ++
         secrecy_items(entries, chapter) ++
@@ -71,6 +82,7 @@ defmodule NovelDomain.ChapterMissionInputs do
         roster_items(Map.get(attrs, :roster))
 
     %__MODULE__{
+      mode: mode,
       chapter: chapter,
       items: items,
       undated_foreshadow_count: undated,
@@ -109,6 +121,7 @@ defmodule NovelDomain.ChapterMissionInputs do
   def to_prompt_section(%__MODULE__{} = inputs) do
     groups = [
       {:plan, "本章计划（设计态）"},
+      {:planned, "已规划待写的章（设计态）"},
       {:previous_summary, "上一章实际写到哪（实现态摘要）"},
       {:foreshadow, "未回收伏笔（进度态，按预期临近）"},
       {:secrecy, "后续章计划信息（不得提前揭示）"},
@@ -134,7 +147,10 @@ defmodule NovelDomain.ChapterMissionInputs do
       end)
       |> Enum.reject(&is_nil/1)
 
-    header = chapter_header(inputs.chapter)
+    header =
+      if inputs.mode == :planning,
+        do: planning_header(),
+        else: chapter_header(inputs.chapter)
 
     [header | sections]
     |> Enum.reject(&blank?/1)
@@ -186,6 +202,35 @@ defmodule NovelDomain.ChapterMissionInputs do
     do: [item("plan:#{seq}:summary", :plan, "计划摘要：#{summary}")]
 
   defp plan_items(_chapter), do: []
+
+  # WR02 规划模式：已规划但未写的章作为材料（新批大纲要接着它们排）。
+  defp planned_chapter_items(chapters) when is_list(chapters) do
+    chapters
+    |> Enum.map(&normalize_planned_chapter/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.take(8)
+    |> Enum.map(fn %{seq: seq, title: title, summary: summary} ->
+      text =
+        [title, summary && "计划：#{summary}"]
+        |> Enum.reject(&(&1 in [nil, false, ""]))
+        |> Enum.join("；")
+
+      item("plan:#{seq}:summary", :planned, text)
+    end)
+  end
+
+  defp planned_chapter_items(_chapters), do: []
+
+  defp normalize_planned_chapter(%{} = chapter) do
+    seq = map_value(chapter, :seq)
+    title = map_value(chapter, :title)
+
+    if is_integer(seq) and is_binary(title) and title != "" do
+      %{seq: seq, title: title, summary: map_value(chapter, :summary)}
+    end
+  end
+
+  defp normalize_planned_chapter(_), do: nil
 
   defp previous_summary_items(%{seq: seq}, summary)
        when is_integer(seq) and seq > 1 and is_binary(summary) do
@@ -430,6 +475,8 @@ defmodule NovelDomain.ChapterMissionInputs do
     seq_text = if is_integer(seq), do: "第#{seq}章 ", else: ""
     "目标章：#{seq_text}#{title || ""}" |> String.trim()
   end
+
+  defp planning_header, do: "本轮规划（按当前进度态推导接下来该规划什么）"
 
   # ── 归一化 ──────────────────────────────────────────
 

@@ -93,6 +93,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("p1-prose-companion-artifacts");
     expect(nativeSliceIds).toContain("wr01-chapter-mission-before-prose");
     expect(nativeSliceIds).toContain("wr01-chapter-mission-author-decision");
+    expect(nativeSliceIds).toContain("wr02-planning-mission-before-outline");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9112,6 +9113,91 @@ describe("native Tauri slice verifier", () => {
     );
     expect(
       findNativeSliceEvidence("wr01-chapter-mission-author-decision", wrongBriefRef),
+    ).toBeNull();
+  });
+
+  it("requires a bound planning mission before plot outline with no production write (WR02)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "wr02-planning-mission-before-outline",
+      parent_turn_id: "turn-wr02",
+      mission_turn_id: "turn-wr02:agent:3",
+      final_turn_id: "turn-wr02:agent:4",
+      run_id: "run-wr02",
+      profile_ref: "plot_outline_with_context_v1",
+      tool_name: "plot_outline",
+      mission_ref: "mission:cm_wr02",
+      mission_narrative_visible: true,
+      mission_event_source_bound: true,
+      basis_refs_within_materials: true,
+      unbound_basis_excluded: true,
+      trace_mission_ref_matches: true,
+      outline_pending: true,
+      no_write: true,
+      no_adoption: true,
+    };
+    const records = [
+      uiState,
+      {
+        event: "planning_mission.derived.done",
+        turn_id: "turn-wr02:agent:3",
+        run_id: "run-wr02",
+        mission_ref: "mission:cm_wr02",
+        basis_refs: ["ledger:information:foreshadow_a", "plan:4:summary"],
+        dropped_unbound_count: 1,
+        input_ref_count: 8,
+      },
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-wr02:agent:4",
+        tool_name: "plot_outline",
+        tool_outcome: "succeeded",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("wr02-planning-mission-before-outline", records);
+    expect(evidence).toEqual({
+      slice_id: "wr02-planning-mission-before-outline",
+      turn_id: "turn-wr02:agent:4",
+      turn_ids: ["turn-wr02", "turn-wr02:agent:3", "turn-wr02:agent:4"],
+      parent_turn_id: "turn-wr02",
+      mission_turn_id: "turn-wr02:agent:3",
+      final_turn_id: "turn-wr02:agent:4",
+      run_id: "run-wr02",
+      profile_ref: "plot_outline_with_context_v1",
+      mission_ref: "mission:cm_wr02",
+      basis_refs: ["ledger:information:foreshadow_a", "plan:4:summary"],
+      dropped_unbound_count: 1,
+      input_ref_count: 8,
+      key_events: keyEventsForSlice("wr02-planning-mission-before-outline"),
+    });
+
+    const behavior = findSliceBehaviorEvidence(
+      "wr02-planning-mission-before-outline",
+      records,
+      evidence,
+    );
+    expect(behavior?.behavior).toBe(
+      "model_derived_planning_mission_before_plot_outline_with_bound_basis_and_no_write",
+    );
+
+    const leakedBasis = records.map((record) =>
+      record.event === "planning_mission.derived.done"
+        ? {
+            ...record,
+            basis_refs: [...record.basis_refs, "ledger:information:foreshadow_unlisted"],
+          }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("wr02-planning-mission-before-outline", leakedBasis),
+    ).toBeNull();
+
+    const wroteProduction = records.map((record) =>
+      record.event === "slice_verify.ui_state.done" ? { ...record, no_write: false } : record,
+    );
+    expect(
+      findNativeSliceEvidence("wr02-planning-mission-before-outline", wroteProduction),
     ).toBeNull();
   });
 });

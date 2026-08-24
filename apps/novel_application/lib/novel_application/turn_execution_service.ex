@@ -190,7 +190,8 @@ defmodule NovelApplication.TurnExecutionService do
           creative_facts: creative_facts,
           style_guide: style_guide,
           absence_directives: absence_directives,
-          work_skeleton: work_skeleton
+          work_skeleton: work_skeleton,
+          planning_mission: render_planning_mission(action, input[:planning_mission])
         }
       )
 
@@ -227,6 +228,8 @@ defmodule NovelApplication.TurnExecutionService do
           brief_ref: execution_brief_ref(brief_result),
           chapter_mission_ref: chapter_mission_ref(input[:chapter_mission]),
           chapter_mission_statement: chapter_mission_statement(input[:chapter_mission]),
+          planning_mission_ref: ChapterMission.ref(input[:planning_mission]),
+          planning_mission_statement: chapter_mission_statement(input[:planning_mission]),
           decision_packet_ref: decision_packet_ref(brief_result),
           writer_provider_call_ref: writer_provider_call_ref(tool_result),
           evaluator_provider_call_ref: evaluator_provider_call_ref(quality),
@@ -389,6 +392,7 @@ defmodule NovelApplication.TurnExecutionService do
     |> maybe_put_execution_brief(sections)
     |> maybe_put_decision_packet(sections)
     |> maybe_put_progress_state(sections)
+    |> maybe_put_planning_mission(sections)
   end
 
   defp maybe_put_author_goal_text(input, text) when is_binary(text) and text != "",
@@ -413,6 +417,15 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp maybe_put_progress_state(input, _sections), do: input
+
+  # WR02：规划前推理结论文本放入工具输入（与 progress_state 同型独立字段，
+  # 不进 context_text 不碰 stub 锚点）。
+  defp maybe_put_planning_mission(input, %{planning_mission: text})
+       when is_binary(text) and text != "" do
+    Map.put(input, "planning_mission", text)
+  end
+
+  defp maybe_put_planning_mission(input, _sections), do: input
 
   defp maybe_put_decision_packet(input, %{decision_packet: packet}) when is_map(packet) do
     Map.put(input, "decision_packet", packet)
@@ -1306,6 +1319,16 @@ defmodule NovelApplication.TurnExecutionService do
     do: nil
 
   defp chapter_mission_ref(mission), do: ChapterMission.ref(mission)
+
+  # WR02：规划前推理结论渲染（仅 plot_outline 路径；降级/缺席为 nil，prompt 不变）。
+  defp render_planning_mission(action, mission) do
+    if plot_outline_action?(action) do
+      case ChapterMission.to_prompt_lines(mission, "本轮规划使命") do
+        [] -> nil
+        lines -> Enum.join(["## 本轮规划使命（写前推理，按账面与进度）" | lines], "\n")
+      end
+    end
+  end
 
   # WR01b：作者可见 trace 带一句使命原文（author-safe 文本，非 ref），why 面板据此说明
   # 「这一章按什么使命写的」。降级/缺席为 nil。

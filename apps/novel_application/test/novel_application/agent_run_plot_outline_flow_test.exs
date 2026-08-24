@@ -15,6 +15,33 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
     result_fn = fn prompt ->
       cond do
+        # WR02：规划前推理步（一条依据在材料内、一条越界必须被丢弃）。
+        prompt_contains?(prompt, "规划前推理器") ->
+          send(parent, {:planning_mission_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-agent-outline-mission",
+             content: "我核对了账面与进度：先给超期伏笔安排回收。",
+             tool_calls: [
+               %{
+                 "name" => "planning_mission",
+                 "arguments" => %{
+                   "author_reasoning" => "我核对了账面与进度：先给超期伏笔安排回收。",
+                   "statement" => "接下来的章节必须给超期伏笔安排回收。",
+                   "must_advance" => [
+                     %{"text" => "给旧账伏笔安排回收章", "basis_ref" => "ledger:information:foreshadow_a"},
+                     %{"text" => "越界依据", "basis_ref" => "ledger:information:foreshadow_unlisted"}
+                   ],
+                   "must_avoid" => [
+                     %{"text" => "先别动第00章既定开局", "basis_ref" => "plan:0:summary"}
+                   ],
+                   "confidence" => 0.9
+                 }
+               }
+             ]
+           }}
+
         plan_draft_prompt?(prompt) ->
           {:ok, Map.put(plot_outline_plan_draft(), :provider_call_id, "pc-agent-outline-planner")}
 
@@ -49,7 +76,21 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       workspace_id: @work,
       work_id: @work,
       session_id: "session-agent-outline-flow",
-      turn_id: "turn-agent-outline-flow"
+      turn_id: "turn-agent-outline-flow",
+      ledger_reader: fn _work_id ->
+        [
+          %{
+            id: "le_a",
+            ledger: "information",
+            subject_ref: "foreshadow_a",
+            subject_label: "伏笔：旧账",
+            status: "HIDDEN",
+            payload: %{"planned_reveal" => %{"kind" => "chapter", "seq" => 1}}
+          }
+        ]
+      end,
+      written_progress_reader: fn _work_id -> %{chapter_seq: 2, volume_seq: 1} end,
+      character_reader: fn _work_id -> [] end
     }
 
     planned =
@@ -79,6 +120,25 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:agent_event, :evaluation_made, context_decision}, 500
     assert "agent_step_evaluated" in context_decision.reason_codes
 
+    # WR02：规划前推理步——模型原话进作者可见事件，依据越界条目被机械丢弃。
+    assert_receive {:planning_mission_prompt, mission_prompt}, 1_000
+    assert prompt_text(mission_prompt) =~ "本轮规划（按当前进度态推导接下来该规划什么）"
+    assert prompt_text(mission_prompt) =~ "[ledger:information:foreshadow_a]"
+    assert prompt_text(mission_prompt) =~ "[plan:0:summary]"
+    assert_receive {:agent_event, :mission_derived, mission_event}, 1_000
+    assert mission_event.payload.author_narrative =~ "先给超期伏笔安排回收"
+    assert mission_event.payload.dropped_unbound_count == 1
+
+    assert mission_event.payload.basis_refs == [
+             "ledger:information:foreshadow_a",
+             "plan:0:summary"
+           ]
+
+    assert_receive {:agent_event, :exploration_observed, mission_observation}, 500
+    assert mission_observation.summary =~ "已完成规划前推理"
+    assert_receive {:agent_event, :evaluation_made, mission_decision}, 500
+    assert "agent_step_evaluated" in mission_decision.reason_codes
+
     assert_receive {:agent_event, :evaluation_made, plan_event}, 500
     assert "agent_step_evaluated" in plan_event.reason_codes
     assert plan_event.payload.target_tool_ref == "plot_outline"
@@ -89,6 +149,11 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:provider_prompt, provider_prompt}, 500
     assert provider_prompt =~ "当前 AgentStep"
     assert provider_prompt =~ "章节大纲"
+    # WR02：使命结论进规划 prompt（紧跟账面摘要段），越界条目不得出现。
+    assert provider_prompt =~ "## 本轮规划使命（写前推理，按账面与进度）"
+    assert provider_prompt =~ "本轮规划使命：接下来的章节必须给超期伏笔安排回收。"
+    assert provider_prompt =~ "· 必须推进：给旧账伏笔安排回收章"
+    refute provider_prompt =~ "越界依据"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "章节大纲草稿已生成"
     assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
@@ -103,11 +168,12 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
-    assert length(state.run.completed_step_refs) == 2
-    assert state.run.consumed_budget.steps == 2
+
+    # WR02：context + planning_mission + plot_outline 三步；推理 1 调用 + writer 1 调用。
+    assert length(state.run.completed_step_refs) == 3
+    assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 1
-    # CP2b：机械计划 0 调用，仅 writer 1 调用。
-    assert state.run.consumed_budget.provider_calls == 1
+    assert state.run.consumed_budget.provider_calls == 2
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
 
     turn_result = artifact_event.payload.turn_result
@@ -123,6 +189,8 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
              turn_result.adoption_state.pending
 
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-agent-outline-writer"
+    assert turn_result.trace_summary.planning_mission_ref =~ "mission:cm_"
+    assert turn_result.trace_summary.planning_mission_statement == "接下来的章节必须给超期伏笔安排回收。"
     assert turn_result.trace_summary.provider_call_budget.writer == 1
     assert turn_result.trace_summary.provider_call_budget.evaluator == 0
   end

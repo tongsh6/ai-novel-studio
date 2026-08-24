@@ -454,7 +454,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # ── WR01 写前推理替身 ──
   # 按真实 prompt 材料中列名的 [ref] 产本章使命（不发明依据；材料为空时只给 statement）。
-  defp chapter_mission_prompt?(text), do: String.contains?(text, "写前推理器")
+  defp chapter_mission_prompt?(text),
+    do: String.contains?(text, "写前推理器") or String.contains?(text, "规划前推理器")
 
   defp chapter_mission_result(prompt, text) do
     refs =
@@ -468,14 +469,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     plan = Enum.find(refs, &String.starts_with?(&1, "plan:"))
     secrecy = Enum.find(refs, &String.contains?(&1, ":plan_info_"))
 
-    must_advance =
-      [
-        foreshadow && %{"text" => "推进这条到期伏笔的回收线，让线索在本章兑现。", "basis_ref" => foreshadow},
-        arc && %{"text" => "让停滞角色在本章重新入场并推动其弧光。", "basis_ref" => arc},
-        plan && %{"text" => "按本章计划完成既定情节推进。", "basis_ref" => plan}
-      ]
-      |> Enum.reject(&(&1 in [nil, false]))
-      |> Enum.take(3)
+    must_advance = mission_must_advance(foreshadow, arc, plan)
 
     must_avoid =
       [
@@ -485,16 +479,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       ]
       |> Enum.reject(&(&1 in [nil, false]))
 
-    reasoning =
-      "[stub] 我核对了本章计划与作品脉络：" <>
-        if(foreshadow, do: "有一条到期未回收的伏笔压在本章；", else: "没有到期的伏笔压力；") <>
-        if(arc, do: "有角色弧光停滞待回归；", else: "弧光无停滞；") <>
-        "本章只推进上述线索，不提前揭示后续计划。"
-
-    statement =
-      if foreshadow,
-        do: "本章必须推进到期伏笔的回收，并让停滞角色回到情节中。",
-        else: "本章按计划推进，不引入新的主导冲突。"
+    planning? = String.contains?(text, "规划前推理器")
+    reasoning = mission_reasoning(planning?, foreshadow, arc)
+    statement = mission_statement(planning?, foreshadow)
 
     Result.new(reasoning, nil,
       tool_calls: [
@@ -511,6 +498,38 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       ]
     )
   end
+
+  defp mission_must_advance(foreshadow, arc, plan) do
+    [
+      foreshadow && %{"text" => "推进这条到期伏笔的回收线，让线索在本章兑现。", "basis_ref" => foreshadow},
+      arc && %{"text" => "让停滞角色在本章重新入场并推动其弧光。", "basis_ref" => arc},
+      plan && %{"text" => "按本章计划完成既定情节推进。", "basis_ref" => plan}
+    ]
+    |> Enum.reject(&(&1 in [nil, false]))
+    |> Enum.take(3)
+  end
+
+  defp mission_reasoning(planning?, foreshadow, arc) do
+    "[stub] 我核对了#{if planning?, do: "账面与全书进度", else: "本章计划与作品脉络"}：" <>
+      if(foreshadow, do: "有一条到期未回收的伏笔；", else: "没有到期的伏笔压力；") <>
+      if(arc, do: "有角色弧光停滞待回归；", else: "弧光无停滞；") <>
+      if(planning?,
+        do: "这批章先安排回收与回归，不提前收官。",
+        else: "本章只推进上述线索，不提前揭示后续计划。"
+      )
+  end
+
+  defp mission_statement(true, foreshadow) when not is_nil(foreshadow),
+    do: "接下来的章节必须给到期伏笔安排回收，并让停滞角色重新入场。"
+
+  defp mission_statement(true, _foreshadow),
+    do: "接下来的章节按既有计划推进，不引入新的主导冲突。"
+
+  defp mission_statement(false, foreshadow) when not is_nil(foreshadow),
+    do: "本章必须推进到期伏笔的回收，并让停滞角色回到情节中。"
+
+  defp mission_statement(false, _foreshadow),
+    do: "本章按计划推进，不引入新的主导冲突。"
 
   defp agent_plan_reasoning_result(prompt, mode) do
     packet =

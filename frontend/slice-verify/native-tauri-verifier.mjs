@@ -164,6 +164,7 @@ export const nativeSliceIds = [
   "p1-prose-companion-artifacts",
   "wr01-chapter-mission-before-prose",
   "wr01-chapter-mission-author-decision",
+  "wr02-planning-mission-before-outline",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -513,6 +514,14 @@ const sliceKeyEvents = {
     "toolbox.execute.done",
     "channel.user_message.done",
     "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "wr02-planning-mission-before-outline": [
+    "channel.user_message.start",
+    "planning_mission.derived.done",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
@@ -1990,6 +1999,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findWr01ChapterMissionAuthorDecisionEvidence(records);
   }
 
+  if (sliceId === "wr02-planning-mission-before-outline") {
+    return findWr02PlanningMissionEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2902,6 +2915,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "wr01-chapter-mission-author-decision") {
     return wr01ChapterMissionAuthorDecisionBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "wr02-planning-mission-before-outline") {
+    return wr02PlanningMissionBehavior(turnIds, records, evidence, options);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -4849,6 +4866,114 @@ function wr01ChapterMissionAuthorDecisionBehavior(turnIds, records, evidence) {
       "execution_brief_sourced_from_author_mission_with_matching_ref",
       "trace_carried_author_mission_statement",
       "both_prose_drafts_remained_tentative_without_production_write",
+    ],
+  };
+}
+
+function findWr02PlanningMissionEvidence(records) {
+  const sliceId = "wr02-planning-mission-before-outline";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_ref === "plot_outline_with_context_v1" &&
+      record.tool_name === "plot_outline" &&
+      typeof record.mission_ref === "string" &&
+      record.mission_ref.startsWith("mission:") &&
+      record.mission_narrative_visible === true &&
+      record.mission_event_source_bound === true &&
+      record.basis_refs_within_materials === true &&
+      record.unbound_basis_excluded === true &&
+      record.trace_mission_ref_matches === true &&
+      record.outline_pending === true &&
+      record.no_write === true &&
+      record.no_adoption === true,
+  );
+  if (!uiState) return null;
+
+  const missionRecord = records.find(
+    (record) =>
+      record.event === "planning_mission.derived.done" &&
+      record.run_id === uiState.run_id &&
+      record.mission_ref === uiState.mission_ref &&
+      Array.isArray(record.basis_refs) &&
+      record.basis_refs.length >= 1 &&
+      record.basis_refs.every((ref) =>
+        /^(plan|ledger|skeleton|roster|chapter_summary):/.test(String(ref)),
+      ) &&
+      !record.basis_refs.some((ref) => String(ref).endsWith("foreshadow_unlisted")) &&
+      Number(record.input_ref_count ?? 0) >= record.basis_refs.length,
+  );
+  if (!missionRecord) return null;
+
+  const generatedByTool = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "plot_outline" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.final_turn_id,
+    turn_ids: [uiState.parent_turn_id, uiState.mission_turn_id, uiState.final_turn_id].filter(
+      Boolean,
+    ),
+    parent_turn_id: uiState.parent_turn_id,
+    mission_turn_id: uiState.mission_turn_id,
+    final_turn_id: uiState.final_turn_id,
+    run_id: uiState.run_id,
+    profile_ref: uiState.profile_ref,
+    mission_ref: uiState.mission_ref,
+    basis_refs: missionRecord.basis_refs.map(String),
+    dropped_unbound_count: Number(missionRecord.dropped_unbound_count ?? 0),
+    input_ref_count: Number(missionRecord.input_ref_count ?? 0),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function wr02PlanningMissionBehavior(turnIds, records, evidence, options = {}) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "wr02-planning-mission-before-outline" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.mission_narrative_visible !== true || uiState.mission_event_source_bound !== true) {
+    return null;
+  }
+  if (uiState.basis_refs_within_materials !== true || uiState.unbound_basis_excluded !== true) {
+    return null;
+  }
+  if (uiState.trace_mission_ref_matches !== true) return null;
+  if (uiState.outline_pending !== true || uiState.no_write !== true || uiState.no_adoption !== true) {
+    return null;
+  }
+  if (options.provider !== "lmstudio" && Number(evidence.dropped_unbound_count ?? 0) < 1) {
+    return null;
+  }
+
+  return {
+    slice_id: "wr02-planning-mission-before-outline",
+    behavior:
+      "model_derived_planning_mission_before_plot_outline_with_bound_basis_and_no_write",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    mission_ref: evidence.mission_ref,
+    basis_refs: evidence.basis_refs,
+    dropped_unbound_count: evidence.dropped_unbound_count,
+    assertions: [
+      "real_workbench_planning_request_reached_the_bounded_outline_profile",
+      "mechanical_step_order_ran_planning_mission_before_plot_outline",
+      "mission_step_selected_materials_and_listed_refs_mechanically",
+      "mission_basis_refs_stayed_inside_selected_materials",
+      "out_of_material_basis_was_dropped_by_binding_filter",
+      "mission_narrative_was_source_bound_and_visible_in_reasoning_area",
+      "turn_result_trace_carried_planning_mission_ref_and_statement",
+      "outline_draft_remained_tentative_without_production_write",
     ],
   };
 }

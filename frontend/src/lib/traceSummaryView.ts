@@ -241,6 +241,9 @@ function detailLines(summary: TraceSummaryLike): string[] {
   const missionStatement = stringValue(summary.chapter_mission_statement);
   if (missionStatement) lines.push(TRACE.chapterMission(missionStatement));
 
+  const planningStatement = stringValue(summary.planning_mission_statement);
+  if (planningStatement) lines.push(TRACE.planningMission(planningStatement));
+
   lines.push(...aiMessageEnvelopeLines(summary.ai_message_envelope));
   lines.push(...replayIntegrityLines(summary));
 

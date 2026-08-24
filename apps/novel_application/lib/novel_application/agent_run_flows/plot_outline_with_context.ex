@@ -9,6 +9,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
@@ -17,12 +18,18 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
+  alias NovelDomain.ChapterMission
+  alias NovelDomain.ChapterMissionInputs
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   @profile_ref "plot_outline_with_context_v1"
   @context_step_target "context_assemble"
+  # WR02 规划前推理步：CP2b 机械步序中的模型步（1 调用），产出 stage_state.planning_mission。
+  @mission_step_target "planning_mission"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
@@ -70,6 +77,12 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
           step_id: "mech_context",
           target_tool_ref: @context_step_target,
           description: "先读取章节大纲规划上下文。",
+          write_intent: :none
+        },
+        %{
+          step_id: "mech_planning_mission",
+          target_tool_ref: @mission_step_target,
+          description: "按账面与全书进度推导本轮规划使命。",
           write_intent: :none
         },
         %{
@@ -142,7 +155,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   defp mechanical_execute_decision(step, run, sequence, snapshot, meta) do
     target = map_get(step, :target_tool_ref)
 
-    with true <- target in [@context_step_target, "plot_outline"],
+    with true <- target in [@context_step_target, @mission_step_target, "plot_outline"],
          {:ok, decision} <-
            AgentNextStepDecision.new(%{
              decision_id:
@@ -288,6 +301,215 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
      }}
   end
 
+  # ── WR02 规划前推理步（本轮规划使命）────────────────────
+  #
+  # 机械半边选材料（mode=:planning，含已规划待写的章）+ 模型一次 planning_mission
+  # tool-call；依据越界机器丢弃（I-M1）、叙事 source-bound（I-M3）；失败降级继续规划
+  # （I-M4，规划 prompt 无使命段）。本期不持久化（轮级设计，随 run 消失）。
+  defp execute_planning_mission_step(run, sequence, spec, snapshot) do
+    turn_id = "#{run.parent_turn_ref}:agent:#{sequence}"
+    context = Map.get(stage_state(snapshot), :context) || context_for_run(spec, run, turn_id)
+    inputs = planning_mission_inputs(run, spec, context)
+
+    provider_execution =
+      (Map.get(spec, :planner_provider_execution) || Map.get(spec, :provider_execution) ||
+         Execution.dependency(purpose: :planner))
+      |> Execution.with_purpose(:planner)
+      |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :planner)
+
+    case ChapterMissionService.derive(inputs, provider_execution,
+           author_text: run.goal.text,
+           kind: :planning
+         ) do
+      {:ok, mission, meta} ->
+        planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot)
+
+      {:error, reason, meta} ->
+        planning_mission_failure(run, sequence, turn_id, inputs, reason, meta)
+    end
+  end
+
+  defp planning_mission_inputs(run, spec, context) do
+    work_id = run.work_id || run.workspace_id
+
+    ChapterMissionInputs.build(%{
+      mode: :planning,
+      chapter: nil,
+      planned_chapters: planned_unwritten_chapters(context),
+      entries:
+        safe_read(
+          Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader(),
+          work_id,
+          []
+        ),
+      written_progress:
+        safe_read(
+          Map.get(spec, :written_progress_reader) ||
+            NovelApplication.persistence_written_progress_reader(),
+          work_id,
+          nil
+        ),
+      work_snapshot: context_work_snapshot(context),
+      written_chapters: written_chapter_count(context),
+      roster:
+        safe_read(
+          Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader(),
+          work_id,
+          []
+        )
+    })
+  end
+
+  defp planned_unwritten_chapters(%DialogueContext{structured_chapters: chapters})
+       when is_list(chapters),
+       do: Enum.reject(chapters, &(Map.get(&1, :has_prose) == true))
+
+  defp planned_unwritten_chapters(_context), do: []
+
+  defp context_work_snapshot(%DialogueContext{current_work_snapshot: %{} = snapshot}),
+    do: snapshot
+
+  defp context_work_snapshot(_context), do: %{}
+
+  defp written_chapter_count(%DialogueContext{structured_chapters: chapters})
+       when is_list(chapters),
+       do: Enum.count(chapters, &(Map.get(&1, :has_prose) == true))
+
+  defp written_chapter_count(_context), do: 0
+
+  defp safe_read(reader, work_id, default) when is_function(reader, 1) and is_binary(work_id) do
+    case reader.(work_id) do
+      nil -> default
+      value -> value
+    end
+  rescue
+    _error -> default
+  end
+
+  defp safe_read(_reader, _work_id, default), do: default
+
+  defp planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot) do
+    mission_ref = ChapterMission.ref(mission) || "mission:#{turn_id}"
+
+    counts = %{
+      must_advance_count: length(mission.must_advance),
+      must_avoid_count: length(mission.must_avoid),
+      dropped_unbound_count: length(mission.dropped),
+      basis_refs: ChapterMission.basis_refs(mission),
+      input_ref_count: MapSet.size(ChapterMissionInputs.refs(inputs))
+    }
+
+    LogEmit.emit(
+      :planning_mission,
+      :derived,
+      :done,
+      Map.merge(counts, %{
+        turn_id: turn_id,
+        run_id: run.run_id,
+        mission_ref: mission_ref,
+        source: "model",
+        provider_call_ref: meta.provider_call_ref,
+        provider_call_count: meta.provider_call_count,
+        narrative_bound: is_binary(meta.narrative)
+      })
+    )
+
+    if is_binary(meta.narrative) and is_map(meta.narrative_source) do
+      emit_stage(
+        snapshot,
+        :mission_derived,
+        meta.narrative,
+        ["mission_derived"],
+        [mission_ref],
+        Map.merge(counts, %{
+          stage: :mission_derived,
+          mission_ref: mission_ref,
+          author_narrative: meta.narrative,
+          author_narrative_source: meta.narrative_source
+        })
+      )
+    end
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: planning_mission_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: mission_ref,
+        summary:
+          "已完成规划前推理：必须安排 #{counts.must_advance_count} 条、不得 #{counts.must_avoid_count} 条，" <>
+            "依据 #{length(counts.basis_refs)} 条，越界丢弃 #{counts.dropped_unbound_count} 条。",
+        structured_payload: Map.put(counts, :stage, :mission_derived),
+        evidence_refs: [mission_ref, "mission:#{turn_id}"],
+        confidence: 1.0
+      })
+
+    {:ok,
+     %{
+       step: planning_mission_step(run, sequence, "规划前推理：推导本轮规划使命"),
+       observations: [observation],
+       stage_state: %{planning_mission: ChapterMission.to_map(mission)},
+       provider_call_count: meta.provider_call_count,
+       progress_signature: "#{run.run_id}:planning_mission:#{turn_id}"
+     }}
+  end
+
+  defp planning_mission_failure(run, sequence, turn_id, inputs, reason, meta) do
+    reason_text = reason |> inspect() |> String.slice(0, 200)
+
+    LogEmit.emit(:planning_mission, :derived, :error, %{
+      turn_id: turn_id,
+      run_id: run.run_id,
+      reason: reason_text,
+      input_ref_count: MapSet.size(ChapterMissionInputs.refs(inputs)),
+      provider_call_count: Map.get(meta, :provider_call_count, 0)
+    })
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: planning_mission_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :custom,
+        source_ref: "mission:#{turn_id}",
+        summary: "规划前推理未完成，按既有账面摘要继续规划。",
+        structured_payload: %{stage: :mission_degraded, reason: reason_text},
+        evidence_refs: ["mission:#{turn_id}"],
+        confidence: 1.0
+      })
+
+    {:ok,
+     %{
+       step: planning_mission_step(run, sequence, "规划前推理：未完成，降级继续"),
+       observations: [observation],
+       stage_state: %{
+         planning_mission: ChapterMission.to_map(ChapterMission.degraded(reason_text))
+       },
+       provider_call_count: Map.get(meta, :provider_call_count, 0),
+       progress_signature: "#{run.run_id}:planning_mission:#{turn_id}"
+     }}
+  end
+
+  defp planning_mission_step(run, sequence, goal) do
+    {:ok, step} =
+      AgentStep.new(%{
+        step_id: current_step_ref(run, sequence),
+        run_ref: run.run_id,
+        sequence: sequence,
+        status: :completed,
+        goal: goal,
+        observation_refs: [planning_mission_observation_id(run, sequence)],
+        state_snapshot_ref: state_snapshot_ref(run, sequence, "planning_mission"),
+        idempotency_key: "#{run.run_id}:#{sequence}:planning_mission:goal_v#{run.goal.version}"
+      })
+
+    step
+  end
+
+  defp planning_mission_observation_id(run, sequence),
+    do: "obs_#{run.run_id}_#{sequence}_planning_mission"
+
   defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
     with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
       frame = frame(run, sequence, plan.plan_goal.summary)
@@ -352,7 +574,8 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
           Map.get(spec, :assumption_reader) ||
             NovelApplication.persistence_assumption_character_reader(),
         ledger_reader:
-          Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader()
+          Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader(),
+        planning_mission: Map.get(stage_state(snapshot), :planning_mission)
       })
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
@@ -614,6 +837,19 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     {:execute,
      fn run, sequence, snapshot ->
        execute_context_decision_step(run, sequence, spec, snapshot)
+     end, decision}
+  end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @mission_step_target
+         } = decision,
+         spec
+       ) do
+    {:execute,
+     fn run, sequence, snapshot ->
+       execute_planning_mission_step(run, sequence, spec, snapshot)
      end, decision}
   end
 

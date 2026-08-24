@@ -370,3 +370,25 @@ confidence / provider_call_ref / degraded / degraded_reason
 - 不变量：I-M6 作者版不被覆盖；I-M7 使命仍是设计态（只进 plan_direction，
   `production_write_performed=false`，暂定写入与 AU-14 暂定设定同款）。
 
+### 16.9 规划前推理：本轮规划使命（2026-08-24 WR02）
+
+写前推理层的第三刀：把「先想一步」接到规划路径。复用 `ChapterMissionV1` 值对象与
+I-M1（依据 ⊆ 材料，越界机器丢弃）/ I-M3（叙事 source-bound）/ I-M4（失败降级继续）；
+两类调用点独立登记（prompt 目录 SSOT）：
+
+- **工具名 / 锚点**：`planning_mission` /「规划前推理器」（`ChapterMissionService`
+  `kind: :planning`）；材料选取 `ChapterMissionInputs` `mode: :planning`——无目标章，
+  新增「已规划待写的章」材料组（`plan:<seq>:summary`），保密清单不豁免任何章。
+- **运行形态**：`plot_outline_with_context_v1` 是 CP2b 机械步序（单候选 flow，非模型
+  计划）——机械计划加第三步 `context_assemble → planning_mission → plot_outline`；
+  无 plan_drafted / D1 事宜。消耗：+1 步 +1 调用（既有预算内）。
+- **进 prompt**：`CreativeRequest.planning_mission`（默认 nil 向后兼容）——已渲染的
+  「## 本轮规划使命（写前推理，按账面与进度）」段，紧跟账面摘要段之后（摘要是材料、
+  使命是结论，决策点邻近）。降级/缺席时规划 prompt 逐字节不变。
+- **留痕**：`planning_mission.derived.done|error` 业务日志（basis_refs/dropped_unbound_count/
+  input_ref_count/provider_call_count/narrative_bound）；`mission_derived` 事件（推理区）；
+  `trace_summary.planning_mission_ref` + `planning_mission_statement`（why 面板
+  「本轮规划使命：…」）。
+- **本期边界**：规划使命是轮级设计、随 run 消失，不持久化、无作者预裁决（落位设计
+  等 M5 观察后再议）；大纲草稿仍走既有逐章采纳边界。
+

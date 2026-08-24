@@ -1,0 +1,54 @@
+id: wr02-planning-mission-before-outline
+title: 大纲起草前由模型推导本轮规划使命并进入规划 prompt
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh wr02-planning-mission-before-outline --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - planning-mission-basis-refs-are-subset-of-selected-input-refs
+  - planning-mission-is-design-state-and-performs-no-production-write
+  - planning-mission-narrative-bytes-come-from-provider-output
+  - planning-mission-enters-outline-prompt-before-drafting
+  - unbound-basis-items-are-dropped-not-rendered
+
+setup:
+  seed: scripts/seed_wr01_chapter_mission.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: continue-outline request for the next chapters from the real chat input
+  - wait_for: bounded plot_outline AgentRun (mechanical step order context -> planning_mission -> plot_outline)
+  - verify: reasoning area shows the planning-mission model narrative
+  - verify: outline draft stays tentative and no production write happened
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/wr02-planning-mission-before-outline-tauri
+
+assertions:
+  ui:
+    - reasoning area renders the mission_derived segment with model narrative
+    - outline draft candidate card is visible and remains pending
+  network:
+    - mission_derived agent event carries author_narrative and author_narrative_source
+    - final TurnResult trace_summary carries planning_mission_ref/statement and production_write_performed=false
+  data:
+    - planning_mission.derived.done basis_refs are a subset of the selected input refs and dropped_unbound_count records the out-of-material basis
+    - outline draft is produced by plot_outline after the mission step within the same run
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

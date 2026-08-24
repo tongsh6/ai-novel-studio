@@ -17,6 +17,7 @@ defmodule NovelCommon.Contracts.CreativeRequest do
           decision_packet: map() | nil,
           execution_brief: String.t() | nil,
           progress_state: String.t() | nil,
+          planning_mission: String.t() | nil,
           revision: String.t() | nil,
           provider_hints: map()
         }
@@ -37,6 +38,9 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     # VS-00F CP1（ADR-0026）：progress_state 为账面投影文本（progress_state_packet
     # 的传输载体，VS-00C §3.0 既有槽），仅 prose_writing 路径非空。默认 nil 不变。
     progress_state: nil,
+    # WR02（VS-00E §16.9）：planning_mission 为已渲染的「本轮规划使命」文本
+    # （规划前推理结论，进 provider message），仅 plot_outline 路径非空。默认 nil 不变。
+    planning_mission: nil,
     # VS-00E CP3：revision 为已渲染的“按质量发现重写”要求文本（进 provider message），
     # 追加在三锚点之后，仅 revise_from_findings 路径非空。默认 nil 时 prose prompt 不变。
     revision: nil,

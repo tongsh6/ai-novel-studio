@@ -208,10 +208,16 @@ defmodule NovelDomain.ChapterMission do
   降级/空使命返回 []。不输出 ref 内部 id，只输出依据的材料文本。
   """
   @spec to_prompt_lines(t() | map() | nil) :: [String.t()]
-  def to_prompt_lines(%__MODULE__{degraded: true}), do: []
+  def to_prompt_lines(mission), do: to_prompt_lines(mission, "本章使命")
 
-  def to_prompt_lines(%__MODULE__{} = mission) do
-    label = if mission.source == @source_author, do: "本章使命（作者已定）", else: "本章使命"
+  @doc "同 `to_prompt_lines/1`，但可换首行标签（WR02 规划路径用「本轮规划使命」）。"
+  @spec to_prompt_lines(t() | map() | nil, String.t()) :: [String.t()]
+  def to_prompt_lines(%__MODULE__{degraded: true}, _base_label), do: []
+
+  def to_prompt_lines(%__MODULE__{} = mission, base_label) do
+    label =
+      if mission.source == @source_author, do: "#{base_label}（作者已定）", else: base_label
+
     statement = if mission.statement, do: ["#{label}：#{mission.statement}"], else: []
 
     advance =
@@ -227,8 +233,8 @@ defmodule NovelDomain.ChapterMission do
     statement ++ advance ++ avoid
   end
 
-  def to_prompt_lines(%{} = map), do: map |> from_map() |> to_prompt_lines()
-  def to_prompt_lines(_), do: []
+  def to_prompt_lines(%{} = map, base_label), do: map |> from_map() |> to_prompt_lines(base_label)
+  def to_prompt_lines(_, _base_label), do: []
 
   # ── helpers ─────────────────────────────────────────
 

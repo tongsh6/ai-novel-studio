@@ -237,6 +237,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/wr01-chapter-mission-author-decision.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh wr01-chapter-mission-author-decision --surface tauri
+  - id: wr02-planning-mission-before-outline
+    title: "大纲起草前由模型推导本轮规划使命并进入规划 prompt"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/wr02-planning-mission-before-outline.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh wr02-planning-mission-before-outline --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

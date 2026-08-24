@@ -207,6 +207,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），
     必须在至少一个条目的 title/body/rationale 中原样保留。
     #{progress_state_section(request)}
+    #{planning_mission_section(request)}
     只返回 JSON 数组。
     """
   end
@@ -340,6 +341,15 @@ defmodule NovelAgent.CreativeProvider.Real do
   end
 
   defp progress_state_section(_request), do: ""
+
+  # WR02（VS-00E §16.9）：规划前推理结论（本轮规划使命）——账面摘要是材料、使命是结论，
+  # 相邻呈现且在输出契约之前（决策点邻近）。缺席/降级时为空段，规划 prompt 逐字节不变。
+  defp planning_mission_section(%CreativeRequest{planning_mission: text})
+       when is_binary(text) and text != "" do
+    "\n" <> text <> "\n"
+  end
+
+  defp planning_mission_section(_request), do: ""
 
   # VS-00E CP3：按质量发现重写要求（已由 application 渲染成文本）追加在 prose 三锚点 +
   # execution_brief 之后，不污染锚点捕获。仅 revise_from_findings 路径非空，缺省为空。

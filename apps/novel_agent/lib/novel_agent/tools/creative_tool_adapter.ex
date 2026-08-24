@@ -47,6 +47,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       execution_brief: optional_text(Map.get(req.input, "execution_brief")),
       # VS-00F CP1：账面投影文本（progress_state_packet 传输载体）同型透传。
       progress_state: optional_text(Map.get(req.input, "progress_state")),
+      # WR02：规划前推理结论文本同型透传（仅 plot_outline 路径非空）。
+      planning_mission: optional_text(Map.get(req.input, "planning_mission")),
       decision_packet: optional_map(Map.get(req.input, "decision_packet")),
       # VS-00E CP3：按质量发现重写的要求文本放入 input["revision"]，同样透传给 provider。
       revision: optional_text(Map.get(req.input, "revision")),

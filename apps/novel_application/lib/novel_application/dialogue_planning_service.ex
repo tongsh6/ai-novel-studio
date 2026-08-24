@@ -1330,7 +1330,10 @@ defmodule NovelApplication.DialoguePlanningService do
       chapter_prose_reader: map_get(input, :chapter_prose_reader),
       chapter_summary_reader: map_get(input, :chapter_summary_reader),
       character_reader: map_get(input, :character_reader),
-      assumption_reader: map_get(input, :assumption_reader)
+      assumption_reader: map_get(input, :assumption_reader),
+      # WR02：规划前推理的账面/进度读端口（测试可注入）。
+      ledger_reader: map_get(input, :ledger_reader),
+      written_progress_reader: map_get(input, :written_progress_reader)
     })
   end
 

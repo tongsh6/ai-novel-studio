@@ -207,8 +207,24 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
+**WR02 规划前推理「本轮规划使命」——slice done（2026-08-24，
+`tasks/slices/WR02-planning-mission-pre-outline-reasoning.md`）。队首 = 待用户拍板下一主线**。
+候选（不代拍板）：① M5 节拍狗粮（长跑验证清单已累到：别称 sighting / 场级指导 / 伴生产物
+不凑数 / 本章使命 tool-call 稳定性与牵引 / 作者改写率 / **规划使命是否真让超期伏笔进新章
+计划**——狗粮须用户批准，模型 `qwen/qwen3.8-27b`，B8 预检）；② 携带层五通道统一选取策略
+（VS-00C AssemblyPolicy 语义扩展——写前推理层三刀已提供三个按坐标选取器样板）；③ WR01
+第三期（why 面板展示完整简报、规划使命作者裁决——等 M5 观察）。
+WR02 收口一页话：沿用 WR01 三拍板先例 → `ChapterMissionService kind: :planning`（工具名
+`planning_mission`/锚点「规划前推理器」，值对象与 I-M1/I-M3/I-M4 复用）→ `ChapterMissionInputs`
+`mode: :planning`（新增「已规划待写的章」材料组）→ plot flow CP2b 机械步序第三步（无
+N-PLAN/D1）→ 使命段经 `CreativeRequest.planning_mission` 进规划 prompt 账面摘要段后（缺席
+逐字节不变）→ `planning_mission.derived.*` 日志 + `mission_derived` 事件 +
+`trace_summary.planning_mission_ref/statement`（why 面板「本轮规划使命：…」）。真实 Tauri
+PASS；1450 后端 + 441 前端 + I1/I2/I3 绿。
+**登记缺口**：规划使命不持久化、无作者裁决入口（等 M5 观察改写/否定率再定形态）。
+
 **WR01b 写前推理层二期——slice done（2026-08-24，
-`tasks/slices/WR01b-chapter-mission-author-decision.md`）。队首 = 待用户拍板下一主线**。
+`tasks/slices/WR01b-chapter-mission-author-decision.md`）。**
 候选（不代拍板）：① M5 节拍狗粮（刀①-④ + AU12 + NEM04 + R2 + WR01/WR01b 的长跑验证：
 别称 sighting、场级指导实效、伴生产物「不凑数」、本章使命在 qwen3.8-27b 下的 tool-call
 稳定性与对正文的实际牵引、**模型暂定使命被作者改写的频率**——狗粮须用户批准；默认模型名
