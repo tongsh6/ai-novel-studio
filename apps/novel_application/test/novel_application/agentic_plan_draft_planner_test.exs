@@ -438,6 +438,50 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert step.authoring_intent == :continuation
   end
 
+  test "plan 键二次编码（JSON 字符串）被确定性解套（M5 空计划根因回归）" do
+    plan_json =
+      Jason.encode!(%{
+        "steps" => [Map.put(prose_act_step(), "authoring_intent", "continuation")],
+        "summary" => "先读上下文再写第03章正文。"
+      })
+
+    wrapped = %{
+      "plan" => plan_json,
+      "author_reasoning" => @narrative,
+      "reason_codes" => ["agent_plan_drafted"],
+      "confidence" => 0.9
+    }
+
+    tool_calls = [%{"name" => "agent_plan_draft", "arguments" => wrapped}]
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun_plan_key",
+        provider_call_ref: "pcall_plan_key",
+        status: :ok,
+        output_type: :text,
+        content: %{text: "", tool_calls: tool_calls},
+        refs: []
+      })
+
+    execution = %Execution{
+      result_fn: fn prompt ->
+        if NovelAgent.Provider.tool_call_prompt?(prompt) do
+          {:ok, %{content: "", tool_calls: tool_calls, provider_output: output}}
+        else
+          {:ok, reasoning_provider_result()}
+        end
+      end
+    }
+
+    assert {:ok, plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+
+    assert [step] = plan.steps
+    assert step.target_tool_ref == "prose_writing"
+    assert step.authoring_intent == :continuation
+  end
+
   test "自由文本 authoring_intent 被拒并携带原因重试（M0 狗粮缺陷回归）；重试合法后成功" do
     test_pid = self()
 

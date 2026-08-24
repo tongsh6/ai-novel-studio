@@ -806,13 +806,29 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   # 把工具调用信封复制进 arguments——%{"name" => 同名工具, "arguments" => %{真参数}}。
   # 仅当信封 name 与本工具精确同名且内层为 map 时解套（结构确定性识别，非语义猜测；
   # 其它形状原样返回交给既有校验诚实失败）。
+  #
+  # M5 狗粮实锤（2026-08-25，qwen3.8-27b 第 03 章 run_failed 根因）：同族新变体——
+  # "plan" 键是本工具合法 schema（args.plan.steps），但模型偶发把 plan 的值二次编码
+  # 成 JSON 字符串（%{"plan" => "{\"steps\": [...]}"）→ 下游读 plan.steps 得空 →
+  # "steps must not be empty" 整 run 报废。结构确定性识别：仅当 plan 值是可解码为
+  # 含 "steps" 列表的 map 的字符串时，原位解码放回（不改结构）；其余形状原样交校验。
   defp unwrap_envelope(args, tool_name) do
     inner = map_get(args, :arguments)
 
     if map_get(args, :name) == tool_name and is_map(inner) do
-      inner
+      decode_stringified_plan(inner)
     else
-      args
+      decode_stringified_plan(args)
+    end
+  end
+
+  defp decode_stringified_plan(args) do
+    with plan when is_binary(plan) <- map_get(args, :plan),
+         {:ok, %{} = decoded} <- Jason.decode(plan),
+         steps when is_list(steps) <- map_get(decoded, :steps) do
+      if Map.has_key?(args, "plan"), do: Map.put(args, "plan", decoded), else: Map.put(args, :plan, decoded)
+    else
+      _ -> args
     end
   end
 
