@@ -104,9 +104,12 @@ async function readToc(page) {
     timeout: 15_000,
   });
 
+  // M5 实锤（2026-08-25）：channel 串行——accept 同步摘要维护（3 分钟级）期间
+  // get_toc 排队，20s 拿不到投影；且此前失败路径直接 throw、不返回工作台，
+  // UI 从此困在阅读模式（输入框与「阅读」按钮都不存在），后续每章连环假失败。
   const started = Date.now();
   let resp = null;
-  while (Date.now() - started < 20_000) {
+  while (Date.now() - started < 240_000) {
     const match = frames
       .slice(before)
       .find(
@@ -120,7 +123,13 @@ async function readToc(page) {
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  if (!resp) throw new Error("No get_toc projection frame after entering reading mode");
+  if (!resp) {
+    await page
+      .getByRole("button", { name: "返回工作台" })
+      .click({ timeout: 10_000 })
+      .catch(() => {});
+    throw new Error("No get_toc projection frame after entering reading mode");
+  }
 
   // 异常恢复路径下页面状态可能不在预期（残卡/弹层），点击失败不立即抛——
   // 以下一行「对话输入框可见」为准（仍不可见则诚实失败）。
@@ -156,6 +165,16 @@ async function sendAuthorMessage(page, instruction) {
   try {
     await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 600_000 });
   } catch (waitError) {
+    // M5 实锤：恢复路径可能把 UI 留在阅读模式（输入框 display 级隐藏）——
+    // 先像真实作者一样点「返回工作台」逃逸，再考虑取消清场。
+    const backButton = page.getByRole("button", { name: "返回工作台" });
+    if ((await backButton.count()) > 0) {
+      log("input hidden — leaving reading mode before retrying");
+      await backButton.click({ timeout: 10_000 }).catch(() => {});
+      await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 60_000 });
+      return await sendAuthorMessage(page, instruction);
+    }
+
     const cancelButton = page.getByRole("button", { name: /终止任务|取消/ }).last();
     if ((await cancelButton.count()) > 0) {
       log("input blocked by an active run — cancelling it before sending");
@@ -338,7 +357,10 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
         f.body?.status === "needs_confirmation" &&
         f.body?.artifact_id === pending.artifact_id),
     `No adoption or overwrite-confirmation result for ${chapterTitle}`,
-    120_000,
+    // M5 重标定（2026-08-25 实锤）：accept 动作在服务端同步执行章摘要维护模型调用
+    // （思考型 27b 实测 197.8s）后才回 accepted——120s 窗把成功采纳误判为失败，
+    // 恢复路径随之把 UI 困进阅读模式。放宽到 10 分钟。
+    600_000,
     fromIndex,
   );
 
