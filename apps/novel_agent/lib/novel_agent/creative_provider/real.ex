@@ -155,6 +155,9 @@ defmodule NovelAgent.CreativeProvider.Real do
     character_seed、foreshadowing_seed、world_rule_seed、constraint_seed；角色可带
     narrative_role/role/aliases。只提取有依据的新事实，不重复已有事实或升级普通细节。
     rationale 写明依据；所有 item_id 唯一。
+    若上下文中没有「现有角色」章节（作品尚无角色档案），必须为本段正文中每个具名
+    出场人物各产出一条 character_seed（含 narrative_role），供作者把人物立进档案；
+    已有「现有角色」章节时，仍只为真正新引入的人物产出 character_seed。
 
     self_report 必须包含以下键：
     - "assumptions"：数组；列出你为了完成正文所做的关键假设，没有则 []

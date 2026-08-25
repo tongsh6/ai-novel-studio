@@ -207,10 +207,17 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = D1 角色真空收口（2026-08-25 用户拍板「全走」，doing，
-`tasks/slices/D1-character-vacuum-closure.md`）**：CP1=守则真空分支+B9 词表扩叙事层
-元词（D2 并入）+seed 具名化；CP2=伴生角色 seed 接线（页面级验收归此）；④立项引导暂缓。
-其余产品债 D3-D6 仍待拍板（清单见
+**队首 = 拍板（2026-08-25，D1+D2 已收口）**：产品债 D3-D6 逐条裁决——D3 accept 同步
+摘要维护阻塞 channel（异步化）/ D4 planner 重试（CP0 实装，坏草稿率 ~1/4 实据）/
+D5 盘点回路思考型适配 / D6 按 purpose 分模型（新刀）；另有 D1 ④立项引导（暂缓等
+CP2 使用数据）。
+
+**D1 角色真空收口 done（2026-08-25，D2 并入）**：CP1=守则真空分支（取名指令替死锁令，
+仅显式 roster:[] 判真空、缺数据源维持原守则）+ B9 词表扩主角/反派/配角 + seed 具名化
+（附 CA04 G3 遗留断言校准——旧管道门禁链吞败判例实证）；CP2=伴生角色 seed 条件指导
+（模型可读条件零契约新增）+ 真实 Tauri 全环 PASS（真空守则→伴生卡采纳建档→次轮阵容
+进 prompt→守则双向切换→伴生零凑数；llm-calls prompt 级外证=替身落盘针）。
+MBC 判例落 VS-00G §2.2。（清单见
 `docs/design/notes/2026-08-25-m5-dogfood-observations.md` §3）——D1 角色真空→「主角」
 泄漏结构解 / D2 B9 词表扩叙事层元词 / D3 accept 同步摘要维护阻塞 channel（异步化）/
 D4 planner 重试（ADR-0023 CP0 实装，坏草稿率 ~1/4 章次实据）/ D5 盘点回路思考型适配 /

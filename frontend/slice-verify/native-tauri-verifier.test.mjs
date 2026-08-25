@@ -97,6 +97,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("ca03-carry-registry-observability");
     expect(nativeSliceIds).toContain("ca04-carry-gap-closure");
     expect(nativeSliceIds).toContain("wr01c-planning-mission-decision");
+    expect(nativeSliceIds).toContain("d1-character-vacuum-to-named-roster");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9430,6 +9431,62 @@ describe("native Tauri slice verifier", () => {
       (record) => record.action_type !== "rewrite_planning_mission",
     );
     expect(findNativeSliceEvidence("wr01c-planning-mission-decision", noRewrite)).toBeNull();
+  });
+
+  it("requires vacuum-to-roster loop with directive switch (D1 CP2)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "d1-character-vacuum-to-named-roster",
+      first_parent_turn_id: "t-1",
+      first_turn_id: "t-1:agent:5",
+      adoption_turn_id: "t-1",
+      second_parent_turn_id: "t-2",
+      second_turn_id: "t-2:agent:5",
+      character_artifact_id: "as::c1",
+      protagonist_missing_first: true,
+      vacuum_directive_in_first_prompt: true,
+      roster_in_second_prompt: true,
+      directive_switched_after_adoption: true,
+      second_turn_companion_count: 0,
+      archive_shows_adopted_character: true,
+      no_write_before_adoption: true,
+    };
+    const records = [
+      uiState,
+      {
+        event: "context.fact_completeness.done",
+        design_missing: ["protagonist"],
+      },
+      { event: "channel.author_action.done", action_type: "accept" },
+    ];
+
+    const evidence = findNativeSliceEvidence("d1-character-vacuum-to-named-roster", records);
+    expect(evidence?.turn_ids).toEqual(["t-1", "t-1:agent:5", "t-1", "t-2", "t-2:agent:5"]);
+
+    const behavior = findSliceBehaviorEvidence(
+      "d1-character-vacuum-to-named-roster",
+      records,
+      evidence,
+    );
+    expect(behavior?.assertions).toContain(
+      "directive_switched_from_vacuum_to_unmarked_protagonist",
+    );
+
+    // 第二轮伴生凑数 → 不成立
+    const fabricated = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, second_turn_companion_count: 2 }
+        : record,
+    );
+    expect(findNativeSliceEvidence("d1-character-vacuum-to-named-roster", fabricated)).toBeNull();
+
+    // 守则没切换（真空文案残留）→ 不成立
+    const stuck = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, directive_switched_after_adoption: false }
+        : record,
+    );
+    expect(findNativeSliceEvidence("d1-character-vacuum-to-named-roster", stuck)).toBeNull();
   });
 });
 

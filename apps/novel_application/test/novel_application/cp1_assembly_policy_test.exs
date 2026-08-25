@@ -114,7 +114,9 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
 
       assert prompt =~ "本章更早的正文已省略"
       # 注入的前文 excerpt 不应包含全部 3000 字（已裁到 ~2000）。
-      assert String.length(prompt) < 3000 + 800
+      # 余量=静态模板体量（D1 CP2 伴生条件指导使 prose 模板增长后重标 800→1100；
+      # 断言语义不变：裁剪必须发生，整体远小于「未裁剪 3000 字+模板」）。
+      assert String.length(prompt) < 3000 + 1100
       notes = turn_result.trace_summary[:omission_notes]
       assert is_list(notes) and length(notes) == 1
       assert hd(notes) =~ "超出本轮上下文预算"

@@ -22467,6 +22467,178 @@ async function driveWr01cPlanningMissionDecision(page) {
   ];
 }
 
+// D1 CP2 角色真空到具名阵容：零角色作品第一轮正文带「真空取名守则」并产伴生角色 seed →
+// 作者从候选卡采纳建档 → 第二轮正文 prompt 带「现有角色」阵容与该名字，守则切换为
+// 「有角色无主角标记」版。llm-calls 文件是 prompt 级外部证据（产品零验收感知）。
+async function driveD1CharacterVacuumToNamedRoster(page) {
+  const sliceId = "d1-character-vacuum-to-named-roster";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const readLlmCalls = () => {
+    const dir = path.join(artifactDir, "llm-calls");
+    if (!fs.existsSync(dir)) return "";
+    return fs
+      .readdirSync(dir)
+      .map((name) => fs.readFileSync(path.join(dir, name), "utf-8"))
+      .join("\n");
+  };
+
+  const sendProse = async (message, label) => {
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    const frameStart = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    const sentFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === message,
+      `${label}: prose request was not sent`,
+      30_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.tool_name === "prose_writing" &&
+        (frame.body?.adoption_state?.pending ?? []).some(
+          (entry) => entry.artifact_type === "prose_fragment",
+        ),
+      `${label}: no prose_fragment turn_result`,
+      120_000,
+    );
+    const turnResult = turnFrame.body;
+    assert(
+      turnResult.truthfulness?.artifact_adopted === false &&
+        turnResult.truthfulness?.production_write_performed === false,
+      `${label}: prose run wrote production facts before author action`,
+    );
+    return { sentFrame, turnResult, logStart };
+  };
+
+  // ① 第一轮：真空作品 + 触发伴生的具名正文请求
+  const first = await sendProse(
+    "请写一段正文：新角色岑雾在夜间灯禁下发现第三盏灯留下蓝灰，并把‘前三章不揭示灯禁源头’作为后续创作约束。",
+    "first",
+  );
+  const firstPending = first.turnResult.adoption_state?.pending ?? [];
+  const characterPending = firstPending.find((entry) => entry.artifact_type === "character_seed");
+  assert(characterPending, "First prose turn did not emit a companion character_seed");
+
+  const firstCompleteness = await waitForNewAppLogRecord(
+    first.logStart,
+    (record) =>
+      record.event === "context.fact_completeness.done" &&
+      (record.design_missing ?? []).includes("protagonist"),
+    "First turn did not log protagonist missing in fact completeness",
+    30_000,
+  );
+
+  const llmAfterFirst = readLlmCalls();
+  assert(
+    llmAfterFirst.includes("尚无任何角色档案") && llmAfterFirst.includes("取用稳定的具体名字"),
+    "First writer prompt did not carry the vacuum naming directive",
+  );
+  assert(
+    !llmAfterFirst.includes("## 现有角色"),
+    "Vacuum work unexpectedly carried a roster section before adoption",
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "d1-vacuum-first-turn.png"),
+    fullPage: true,
+  });
+
+  // ② 采纳伴生角色 seed（真实候选卡按钮 + server-authorized accept 绑定）
+  const characterAccept = page
+    .getByRole("button", { name: "保存到作品档案", exact: true })
+    .first();
+  await characterAccept.waitFor({ timeout: 15_000 });
+  const adoptionStart = frames.length;
+  await characterAccept.click();
+  await waitForNewFrame(
+    adoptionStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === characterPending.artifact_id,
+    "Companion character did not submit its accept action",
+    30_000,
+  );
+  const adoptedFrame = await waitForNewFrame(
+    adoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === characterPending.artifact_id,
+      ),
+    "Companion character was not resolved through the adoption boundary",
+    60_000,
+  );
+
+  // 档案「已确认角色」出现岑雾
+  const archive = await openArchiveTab(page, "角色");
+  await archive.getByText("已确认角色", { exact: false }).first().waitFor({ timeout: 15_000 });
+  await archive.getByText("岑雾", { exact: false }).first().waitFor({ timeout: 15_000 });
+  await page.screenshot({
+    path: path.join(artifactDir, "d1-adopted-character.png"),
+    fullPage: true,
+  });
+  await closeArchiveIfOpen(page);
+
+  // ③ 第二轮：普通续写（无触发词）——阵容进 prompt、守则切换、伴生不凑数
+  // 第二条消息刻意避开替身伴生触发词（岑雾/灯禁/前三章不揭示）——「岑雾」应由档案
+  // 注入的「现有角色」段进入 prompt，而非靠消息回显；伴生不凑数断言才有意义。
+  const second = await sendProse("请再写一段正文：巡夜人循着蓝灰痕迹追向城北废井。", "second");
+  const secondCompanions = (second.turnResult.adoption_state?.pending ?? []).filter(
+    (entry) => entry.artifact_type !== "prose_fragment",
+  );
+  assert(
+    secondCompanions.length === 0,
+    `Second prose turn fabricated companions: ${JSON.stringify(secondCompanions.map((c) => c.artifact_type))}`,
+  );
+
+  const llmAll = readLlmCalls();
+  const secondSlice = llmAll.slice(llmAfterFirst.length);
+  assert(
+    secondSlice.includes("## 现有角色") && secondSlice.includes("岑雾"),
+    "Second writer prompt did not carry the adopted character in the roster section",
+  );
+  assert(
+    secondSlice.includes("尚未确立主角档案") && !secondSlice.includes("尚无任何角色档案"),
+    "Directive did not switch from vacuum to unmarked-protagonist after adoption",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: first.sentFrame.body?.work_id,
+      session_id: first.sentFrame.body?.session_id,
+      first_turn_id: first.turnResult.turn_id,
+      adoption_turn_id: adoptedFrame.body.turn_id,
+      second_turn_id: second.turnResult.turn_id,
+      character_artifact_id: characterPending.artifact_id,
+      first_parent_turn_id: String(first.turnResult.turn_id ?? "").split(":agent:")[0],
+      second_parent_turn_id: String(second.turnResult.turn_id ?? "").split(":agent:")[0],
+      protagonist_missing_first: (firstCompleteness.design_missing ?? []).includes("protagonist"),
+      vacuum_directive_in_first_prompt: true,
+      roster_in_second_prompt: true,
+      directive_switched_after_adoption: true,
+      second_turn_companion_count: secondCompanions.length,
+      archive_shows_adopted_character: true,
+      no_write_before_adoption: true,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -28396,6 +28568,7 @@ const drivers = {
   "ca03-carry-registry-observability": driveCa03CarryRegistryObservability,
   "ca04-carry-gap-closure": driveCa04CarryGapClosure,
   "wr01c-planning-mission-decision": driveWr01cPlanningMissionDecision,
+  "d1-character-vacuum-to-named-roster": driveD1CharacterVacuumToNamedRoster,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

@@ -1,0 +1,54 @@
+id: d1-character-vacuum-to-named-roster
+title: 角色真空到具名阵容：真空守则取名指令、伴生角色 seed 采纳建档、次轮阵容进写作
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh d1-character-vacuum-to-named-roster --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
+  - docs/design/contracts/VS-02A-tentative-creative-artifact-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - vacuum-roster-injects-naming-directive-not-deadlock
+  - companion-character-seed-travels-through-adoption-boundary
+  - adopted-character-enters-next-prose-prompt-roster
+  - directive-switches-from-vacuum-to-unmarked-after-adoption
+
+setup:
+  seed: scripts/seed_d1_character_vacuum.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: first prose request introducing a named character (companion seeds emitted)
+  - verify: writer prompt carried the vacuum naming directive (llm-calls evidence)
+  - click: adopt the character_seed companion from the candidate card
+  - send: second prose request
+  - verify: second writer prompt carries 现有角色 roster with the adopted name, vacuum directive replaced by unmarked-protagonist directive
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_calls
+    - summary_json
+  artifact_dir: artifacts/slice-verify/d1-character-vacuum-to-named-roster-tauri
+
+assertions:
+  ui:
+    - companion character_seed renders as a pending candidate with accept action
+    - adopted character appears in archive 已确认角色 section
+  network:
+    - first turn fact_completeness lists protagonist missing; character adoption travels through author_action
+  data:
+    - first writer prompt contains 尚无任何角色档案 naming directive
+    - second writer prompt contains ## 现有角色 with the adopted name and 尚未确立主角档案 (vacuum directive gone)
+    - second prose turn emits no companion artifacts (不凑数)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

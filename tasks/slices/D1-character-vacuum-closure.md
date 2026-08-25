@@ -1,6 +1,6 @@
 # D1 角色真空收口：真空守则、叙事元词捕网与伴生角色 seed 接线
 
-- 状态：doing（CP1）
+- 状态：done（2026-08-25，CP1+CP2）
 - 类型：M5 狗粮产品债 D1+D2 收口（`docs/design/notes/2026-08-25-m5-dogfood-observations.md` §3）
 - 启动日期：2026-08-25
 - 拍板（2026-08-25 用户「全走」）：①守则真空分支 + ③B9 词表扩叙事层元词（=D2）+ ⑤狗粮 seed 具名化并为 CP1；②伴生角色 seed 接线立为 CP2（页面级验收归此）；④立项引导暂缓等 CP2 数据。
@@ -23,9 +23,9 @@
 | CP1-T2 | B9 词表扩「主角/反派/配角」+ finding 文案 + 测试 | done | 单一 pattern 源（生成期+导出门+采纳门同扩）；validators 测试含命中/干净负例 |
 | CP1-T3 | 狗粮 seed 具名化（陆沉舟）+ 受影响断言校准 | done | 30 处替换；driver 只耦合章标题未受影响；adoption_workflow prose 夹具改干净正文 |
 | CP1-T4 | VS-00G §2.2 契约更新 + 局部门禁 | done | 契约增真空变体与 MBC 判例；真退出码门禁链全绿（顺带首抓 CA04 G3 遗留断言败例——world_building 阵容放行后 roster 测试旧 refute 未同步、曾被旧管道链吞掉，本批一并校准） |
-| CP2-T1 | prose 伴生指导 roster 空分支（动作指令评审）+ 前端伴生采纳动线强化 | todo | |
-| CP2-T2 | 真实 Tauri 全环场景 + verifier + 登记 | todo | |
-| CP2-T3 | 全量门禁 + task_done + 收口 | todo | |
+| CP2-T1 | prose 伴生指导（模型可读条件）| done | 条件写进伴生指导段（「若上下文无现有角色章节→必须为具名出场人物各产 character_seed」），零契约新增；stub 三锚点不动（I3 守护）；前端动线经 R2 场景验收已足，零前端改动 |
+| CP2-T2 | 真实 Tauri 全环场景 + verifier + 登记 | done | `d1-character-vacuum-to-named-roster`：真空 seed→首轮 prompt 带真空取名守则（llm-calls 外证）+伴生角色卡→「保存到作品档案」采纳（target_ref 精确绑定）→档案已确认角色现「岑雾」→次轮 prompt 带「## 现有角色」与该名、守则切换为原版、伴生零凑数。替身补 prompt 落盘（test/support，产品零感知） |
+| CP2-T3 | 全量门禁 + task_done + 收口 | done | 真退出码门禁链全绿；task_done 统一收尾 |
 
 ## 3. 决策日志
 
@@ -34,4 +34,13 @@
 
 ## 4. 试行反馈
 
-待 CP2 页面级证据后补。
+- 2026-08-25 — CP2 真实 Tauri PASS（`artifacts/slice-verify/d1-character-vacuum-to-named-roster-tauri/`）：
+  真空作品首轮 writer prompt 实证带「尚无任何角色档案…取用稳定的具体名字」且无阵容段；
+  伴生 character_seed 经真实候选卡「保存到作品档案」走采纳边界（accept target_ref 绑定）；
+  档案「已确认角色」现岑雾；次轮 prompt 实证「## 现有角色」+岑雾、守则切换为
+  「尚未确立主角档案」（SUPPORTING 无主角标记，分支双向验证）、伴生零凑数。
+- 验收判例：替身场景 llm-calls 天然为空（记录器在 HTTP 层）——prompt 级外证靠替身自身落盘
+  （test/support 加 `log_received_prompt`，经 `SLICE_VERIFY_LLM_LOG_DIR` 同目录）；
+  替身伴生触发词表（岑雾/灯禁/前三章不揭示）会命中 driver 消息本身——「不凑数」断言的
+  第二条消息必须避开触发词，让阵容名走档案注入而非消息回显。
+- MBC 判例已随 VS-00G §2.2 落契约：换模型族后为旧失败模式建的防线须复验。

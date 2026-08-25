@@ -168,6 +168,7 @@ export const nativeSliceIds = [
   "ca03-carry-registry-observability",
   "ca04-carry-gap-closure",
   "wr01c-planning-mission-decision",
+  "d1-character-vacuum-to-named-roster",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -544,6 +545,14 @@ const sliceKeyEvents = {
   "wr01c-planning-mission-decision": [
     "channel.user_message.start",
     "planning_mission.derived.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "d1-character-vacuum-to-named-roster": [
+    "channel.user_message.start",
+    "context.fact_completeness.done",
     "toolbox.execute.done",
     "channel.user_message.done",
     "channel.author_action.done",
@@ -2040,6 +2049,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findWr01cPlanningMissionDecisionEvidence(records);
   }
 
+  if (sliceId === "d1-character-vacuum-to-named-roster") {
+    return findD1CharacterVacuumEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2968,6 +2981,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "wr01c-planning-mission-decision") {
     return wr01cPlanningMissionDecisionBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "d1-character-vacuum-to-named-roster") {
+    return d1CharacterVacuumBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -5029,6 +5046,88 @@ function wr01cPlanningMissionDecisionBehavior(turnIds, records, evidence) {
       "trace_carried_structured_author_mission_payload",
       "why_dialog_rendered_the_structured_planning_mission_block",
       "both_outline_drafts_remained_tentative_without_production_write",
+    ],
+  };
+}
+
+function findD1CharacterVacuumEvidence(records) {
+  const sliceId = "d1-character-vacuum-to-named-roster";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      typeof record.first_turn_id === "string" &&
+      typeof record.second_turn_id === "string" &&
+      typeof record.character_artifact_id === "string" &&
+      record.protagonist_missing_first === true &&
+      record.vacuum_directive_in_first_prompt === true &&
+      record.roster_in_second_prompt === true &&
+      record.directive_switched_after_adoption === true &&
+      Number(record.second_turn_companion_count ?? -1) === 0 &&
+      record.archive_shows_adopted_character === true &&
+      record.no_write_before_adoption === true,
+  );
+  if (!uiState) return null;
+
+  const completeness = records.find(
+    (record) =>
+      record.event === "context.fact_completeness.done" &&
+      (record.design_missing ?? []).includes("protagonist"),
+  );
+  if (!completeness) return null;
+
+  const adoption = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      String(record.action_type ?? "") === "accept",
+  );
+  if (!adoption) return null;
+
+  const turnIds = [
+    uiState.first_parent_turn_id,
+    uiState.first_turn_id,
+    uiState.adoption_turn_id,
+    uiState.second_parent_turn_id,
+    uiState.second_turn_id,
+  ].filter(Boolean);
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.second_turn_id,
+    turn_ids: turnIds,
+    first_turn_id: uiState.first_turn_id,
+    second_turn_id: uiState.second_turn_id,
+    character_artifact_id: uiState.character_artifact_id,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function d1CharacterVacuumBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "d1-character-vacuum-to-named-roster" &&
+      record.second_turn_id === evidence.second_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.vacuum_directive_in_first_prompt !== true) return null;
+  if (uiState.roster_in_second_prompt !== true) return null;
+  if (uiState.directive_switched_after_adoption !== true) return null;
+  if (Number(uiState.second_turn_companion_count ?? -1) !== 0) return null;
+
+  return {
+    slice_id: "d1-character-vacuum-to-named-roster",
+    behavior:
+      "vacuum_naming_directive_then_companion_character_adoption_fed_next_prompt_roster_and_switched_directive",
+    turn_ids: turnIds,
+    character_artifact_id: evidence.character_artifact_id,
+    assertions: [
+      "vacuum_work_first_prompt_carried_naming_directive_not_deadlock",
+      "companion_character_seed_travelled_through_adoption_boundary",
+      "adopted_character_entered_second_prompt_roster_section",
+      "directive_switched_from_vacuum_to_unmarked_protagonist",
+      "second_turn_emitted_no_companion_artifacts",
+      "no_production_write_before_author_action",
     ],
   };
 }

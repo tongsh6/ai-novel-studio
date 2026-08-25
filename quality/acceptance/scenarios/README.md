@@ -51,6 +51,7 @@
 | `ca03-carry-registry-observability.yml` | 创作调用携带三分日志（carried/gated/empty）与携带登记表一致（CA03） |
 | `ca04-carry-gap-closure.yml` | 拍板放行的三条新携带各有真实数据源时 carried：正文+全书进度/规划+作品事实与风格/世界观+阵容（CA04） |
 | `wr01c-planning-mission-decision.yml` | 规划使命暂定落作品→档案工作级块作者改写→下轮规划 0 调用直取→why 弹窗结构化使命区块（WR01c） |
+| `d1-character-vacuum-to-named-roster.yml` | 角色真空→真空守则取名指令→伴生角色 seed 采纳建档→次轮阵容进写作、守则切换（D1 CP2） |
 | `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun，并在 46§9 推理区实时显示多段 `author_narrative_delta` |
 | `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 计划耗尽后触发 provider-sourced `plan_revised` 并继续完成对话 |
 | `agentic-loop-no-deviation-direct.yml` | ADR-0023 无偏离直通路径只消费起草计划且不触发重规划 |

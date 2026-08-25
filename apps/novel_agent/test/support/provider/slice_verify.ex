@@ -35,6 +35,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @impl true
   def complete(_state, _model, prompt, _params) do
     prompt_text = prompt_text(prompt)
+
+    # D1 CP2：替身把收到的 prompt 落到 llm 日志目录（HTTP 层记录器在替身场景不落盘）——
+    # 场景化验收由此获得 prompt 级外部证据（守则文案/阵容段是否真进 prompt）。
+    # 仅 test/support 行为，产品零感知。
+    log_received_prompt(prompt_text)
     maybe_delay_su02_slow_work_switch(prompt_text)
     maybe_delay_archive_slow(prompt_text)
     maybe_delay_agent_cancel(prompt_text)
@@ -1564,6 +1569,28 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           [item]
         end
     end
+  end
+
+  defp log_received_prompt(prompt_text) do
+    case Application.get_env(:novel_common, :llm_log_dir) do
+      dir when is_binary(dir) and dir != "" ->
+        File.mkdir_p!(dir)
+        file = Path.join(dir, "#{Date.utc_today()}.jsonl")
+
+        line =
+          Jason.encode!(%{
+            ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+            provider: "slice_verify",
+            prompt: prompt_text
+          })
+
+        File.write!(file, line <> "\n", [:append])
+
+      _ ->
+        :ok
+    end
+  rescue
+    _error -> :ok
   end
 
   defp character_evolution_seed_prompt?(prompt),

@@ -280,6 +280,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "constraint_seed"
     assert prompt =~ "risk_flags"
     assert prompt =~ "body 内不得出现独立的结构/状态元标签"
+    # D1 CP2：档案真空时要求为具名出场人物产出 character_seed（模型可读条件，零契约新增）
+    assert prompt =~ "若上下文中没有「现有角色」章节"
+    assert prompt =~ "必须为本段正文中每个具名"
     assert prompt =~ "场景 2"
     assert prompt =~ "待采纳草稿"
     assert prompt =~ "用户创作简述："

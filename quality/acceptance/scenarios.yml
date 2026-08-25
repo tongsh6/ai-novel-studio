@@ -265,6 +265,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/wr01c-planning-mission-decision.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh wr01c-planning-mission-decision --surface tauri
+  - id: d1-character-vacuum-to-named-roster
+    title: "角色真空到具名阵容：真空守则、伴生角色 seed 建档、次轮阵容进写作"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/d1-character-vacuum-to-named-roster.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh d1-character-vacuum-to-named-roster --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly
