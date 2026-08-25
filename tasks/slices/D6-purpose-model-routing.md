@@ -44,7 +44,7 @@
 | T3 | 前端+Rust：偏好结构、payload、启动重放、设置对话框「按用途指定模型」区（select 吃模型列表）+ 单测 | done | modelProvider 全链归一/透传；vitest 449 + verifier 201；cargo test 绿 |
 | T4 | 场景 d6-purpose-model-routing 真实 Tauri + 门禁 + task_done + 收口 | done | 真实 Tauri PASS（writer 1 次命中覆盖、其余 6 次全局）+ 门禁全绿 |
 
-## 3. 决策日志
+## 3b. 决策日志
 
 - 2026-08-25 — 路由表寄生在既有 provider config keyword（`purpose_models` 键），不给
   RuntimeConfig 加新状态字段：配置进出走同一条 configure 链，清理/切 provider 语义
@@ -53,6 +53,20 @@
   个是既有 purpose 枚举独立键，盘点靠 route_hint 细化（purpose=:tool 共键考据见
   slice 分析）；未知键忽略而非报错——配置是偏好不是命令。
 - 2026-08-25 — 覆盖控件为 select 而非自由输入：SU-01 冻结立场「模型名不由作者手输」。
+
+## 3. CP2（路线 c，2026-08-26 用户「好 开始」）：LM Studio reasoning_effort 透传
+
+M6 对照归因（报告 §3b）揭示 qwen3.8 被按默认高档思考跑（关思考链路缺失）。探针实锤
+LM Studio 请求级顶层 `reasoning_effort` 有效（"none" 全关：默认档 92.9s/3963 思考字符
+烧光预算零正文 → "low" 13.7s / "none" 9.9s 正常出文；旧代 enable_thinking 无效）。
+
+- adapter：`LMStudio` state 增 `reasoning_effort`；请求体 `maybe_reasoning_effort`；
+  语义=thinking disabled → "none" 优先，显式 effort 透传，未配置不发（模型默认）。
+- 配置：四份 config 增 `NOVEL_LMSTUDIO_REASONING_EFFORT` env（狗粮/运维零 UI 控制）。
+- 设置页：descriptors lmstudio `supports_thinking: true`——既有 thinking 复选框+
+  强度下拉对 LM Studio 自动生效（零前端代码）。
+- 单测：lm_studio 3 例（透传/disabled→none 优先/未配置无键）。
+- 消费者：M7 公平对照狗粮（qwen3.8-27b **Q8_0** + effort=low）；作者日常控思考成本。
 
 ## 4. 试行反馈
 

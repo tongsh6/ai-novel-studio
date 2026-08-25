@@ -61,7 +61,9 @@ defmodule NovelAgent.Provider.Gateway do
       requires_api_key: false,
       supports_api_key: false,
       supports_endpoint: true,
-      supports_thinking: false,
+      # M6 对照（2026-08-26）：qwen3.8 族请求级 reasoning_effort 实证有效，
+      # 思考控制对 LM Studio 放开（作者关思考→adapter 发 "none"）。
+      supports_thinking: true,
       supports_streaming: true,
       supports_cancellation: true
     },

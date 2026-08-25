@@ -23,7 +23,8 @@ defmodule NovelAgent.Provider.LMStudio do
     :eventsource_fn,
     :get_fn,
     :log_fn,
-    :json_mode
+    :json_mode,
+    :reasoning_effort
   ]
 
   @type http_fn :: (String.t(), map(), keyword() -> {:ok, integer(), map()} | {:error, atom()})
@@ -41,7 +42,8 @@ defmodule NovelAgent.Provider.LMStudio do
           eventsource_fn: eventsource_fn(),
           get_fn: get_fn(),
           log_fn: log_fn(),
-          json_mode: boolean()
+          json_mode: boolean(),
+          reasoning_effort: String.t() | nil
         }
 
   @impl true
@@ -187,10 +189,16 @@ defmodule NovelAgent.Provider.LMStudio do
       },
       params
     )
+    |> maybe_reasoning_effort(state.reasoning_effort)
     |> maybe_json_mode(state.json_mode, prompt)
     |> NovelAgent.Provider.put_openai_tools(prompt)
     |> downgrade_named_tool_choice()
   end
+
+  defp maybe_reasoning_effort(body, effort) when is_binary(effort) and effort != "",
+    do: Map.put(body, :reasoning_effort, effort)
+
+  defp maybe_reasoning_effort(body, _effort), do: body
 
   # LM Studio API 约束：tool_choice 只接受字符串 none/auto/required，不支持
   # OpenAI 具名对象形式（HTTP 400 "Invalid tool_choice type: 'object'"）。
@@ -288,8 +296,22 @@ defmodule NovelAgent.Provider.LMStudio do
       eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
       get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5),
-      json_mode: Keyword.get(config, :json_mode, false)
+      json_mode: Keyword.get(config, :json_mode, false),
+      reasoning_effort: reasoning_effort_from(config)
     }
+  end
+
+  # qwen3.8 族思考控制（M6 对照考据，2026-08-26 探针实锤）：LM Studio 请求级顶层
+  # `reasoning_effort` 有效——"none" 完全关思考（默认档同一写作 prompt 92.9s 思考
+  # 3963 字符烧光预算零正文；"low" 13.7s / "none" 9.9s 正常出文）。旧代协议
+  # enable_thinking:false / no_think 对 3.8 无效。语义：作者关思考（thinking
+  # disabled）→ "none"；显式选深度 → 透传；未配置 → 不发（跟随模型默认）。
+  defp reasoning_effort_from(config) do
+    case {Keyword.get(config, :thinking), Keyword.get(config, :reasoning_effort)} do
+      {"disabled", _} -> "none"
+      {_, effort} when is_binary(effort) and effort != "" -> effort
+      _ -> nil
+    end
   end
 
   defp models_from_openai_list(%{"data" => models}) when is_list(models) do

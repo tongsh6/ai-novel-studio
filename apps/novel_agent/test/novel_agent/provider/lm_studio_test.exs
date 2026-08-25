@@ -86,6 +86,69 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert body.messages == messages
     end
 
+    test "reasoning_effort passes through to the request body (M6 qwen3.8 thinking control)" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+        {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}], "usage" => %{}}}
+      end
+
+      state =
+        LMStudio.from_config(
+          endpoint: "http://localhost:9999/v1",
+          http_fn: mock,
+          log_fn: fn _, _, _, _, _ -> :ok end,
+          reasoning_effort: "low"
+        )
+
+      assert {:ok, _} = LMStudio.complete(state, nil, "hi", %InferenceParams{})
+      assert_receive {:request_body, body}
+      assert body.reasoning_effort == "low"
+    end
+
+    test "thinking disabled maps to reasoning_effort none and wins over an explicit effort" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+        {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}], "usage" => %{}}}
+      end
+
+      state =
+        LMStudio.from_config(
+          endpoint: "http://localhost:9999/v1",
+          http_fn: mock,
+          log_fn: fn _, _, _, _, _ -> :ok end,
+          thinking: "disabled",
+          reasoning_effort: "medium"
+        )
+
+      assert {:ok, _} = LMStudio.complete(state, nil, "hi", %InferenceParams{})
+      assert_receive {:request_body, body}
+      assert body.reasoning_effort == "none"
+    end
+
+    test "without thinking config the request body carries no reasoning_effort key" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+        {:ok, 200, %{"choices" => [%{"message" => %{"content" => "ok"}}], "usage" => %{}}}
+      end
+
+      state =
+        LMStudio.from_config(
+          endpoint: "http://localhost:9999/v1",
+          http_fn: mock,
+          log_fn: fn _, _, _, _, _ -> :ok end
+        )
+
+      assert {:ok, _} = LMStudio.complete(state, nil, "hi", %InferenceParams{})
+      assert_receive {:request_body, body}
+      refute Map.has_key?(body, :reasoning_effort)
+    end
+
     test "named tool_choice downgrades to required string (LM Studio capability constraint)" do
       test_pid = self()
 

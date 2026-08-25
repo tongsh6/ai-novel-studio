@@ -43,6 +43,7 @@ config :novel_agent, NovelAgent.Provider.Anthropic,
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.8-27b"),
+  reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
   timeout: lmstudio_timeout_ms
 
 config :novel_agent, NovelAgent.Provider.DeepSeek,
