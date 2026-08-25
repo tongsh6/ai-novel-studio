@@ -1,4 +1,6 @@
 defmodule NovelApplication.AgentRunFlows.FactInventory do
+  require NovelCommon.LogEmit
+
   @moduledoc """
   设定盘点 AgentRun profile（VS-00G CP4b-2 / 契约 §3.3 `fact_inventory_v1`）。
 
@@ -190,7 +192,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
 
       with [_ | _] = materials <- material_reader(spec).(run.work_id),
            {:ok, proposal, proposal_meta} <-
-             FactInventoryService.inventory_with_meta(
+             inventory_with_batch_fallback(
                materials,
                inventory_provider_execution(spec, snapshot),
                missing_skeleton_fields: missing_skeleton_fields,
@@ -463,6 +465,53 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     else
       []
     end
+  end
+
+  # D5：全量盘点失败（思考型稳定退化实锤 retryable:false）→ 材料减半分批重试、
+  # 提案按 item_id 合并去重；最小批 3 章仍败则整体诚实失败。批间调用数累加如实上报。
+  @min_inventory_batch 3
+
+  defp inventory_with_batch_fallback(materials, provider_execution, opts) do
+    case FactInventoryService.inventory_with_meta(materials, provider_execution, opts) do
+      {:ok, _proposal, _meta} = ok ->
+        ok
+
+      {:error, reason} when length(materials) > @min_inventory_batch ->
+        half = div(length(materials) + 1, 2)
+        {left, right} = Enum.split(materials, half)
+
+        NovelCommon.LogEmit.emit(:fact_inventory, :batch_fallback, :start, %{
+          material_count: length(materials),
+          batch_sizes: [length(left), length(right)],
+          reason: inspect(reason) |> String.slice(0, 120)
+        })
+
+        with {:ok, p1, m1} <- inventory_with_batch_fallback(left, provider_execution, opts),
+             {:ok, p2, m2} <- inventory_with_batch_fallback(right, provider_execution, opts) do
+          {:ok, merge_proposals(p1, p2),
+           %{provider_call_count: m1.provider_call_count + m2.provider_call_count}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp merge_proposals(p1, p2) do
+    [
+      :characters,
+      :world_rules,
+      :foreshadowings,
+      :skeleton_suggestions,
+      :foreshadowing_resolutions
+    ]
+    |> Enum.reduce(%{}, fn key, acc ->
+      merged =
+        (Map.get(p1, key, []) ++ Map.get(p2, key, []))
+        |> Enum.uniq_by(&(&1[:item_id] || &1["item_id"] || &1))
+
+      Map.put(acc, key, merged)
+    end)
   end
 
   defp material_reader(%{material_reader: reader}) when is_function(reader, 1), do: reader

@@ -213,6 +213,51 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
     end
   end
 
+  describe "fact_inventory_materials/1（D5 逐章混合）" do
+    test "部分章缺摘要 → 该章回退正文而非整章丢弃" do
+      # insert_reading_chain 的章 seq 恒 1，混合判定按 seq 对齐——此处用底层帮手给两章
+      # 显式不同 seq。
+      work_id = Ecto.UUID.generate()
+      volume = insert_volume(work_id, "卷一", 1)
+      ch1 = insert_chapter(work_id, volume.id, "第01章：有摘要", 1)
+      scene1 = insert_scene(work_id, ch1.id, "场1", 1)
+
+      insert_draft(
+        work_id,
+        scene1.id,
+        "第一章正文。",
+        AdoptionStatus.accepted(),
+        1
+      )
+
+      ch2 = insert_chapter(work_id, volume.id, "第02章：无摘要", 2)
+      scene2 = insert_scene(work_id, ch2.id, "场1", 1)
+
+      insert_draft(
+        work_id,
+        scene2.id,
+        "第二章正文。",
+        AdoptionStatus.accepted(),
+        1
+      )
+
+      {:ok, _} =
+        %ChapterSummary{}
+        |> ChapterSummary.changeset(%{
+          work_id: work_id,
+          chapter_id: to_string(ch1.id),
+          status: "ACCEPTED",
+          summary_text: "【情节推进】第一章摘要。"
+        })
+        |> Repo.insert()
+
+      materials = ReadingProjectionRepo.fact_inventory_materials(work_id)
+      assert length(materials) == 2
+      assert Enum.find(materials, &(&1.title == "第01章：有摘要")).prose =~ "【情节推进】"
+      assert Enum.find(materials, &(&1.title == "第02章：无摘要")).prose =~ "第二章正文"
+    end
+  end
+
   describe "fact_inventory_materials/1" do
     test "优先按章节顺序读取每章最新 ACCEPTED 摘要，排除旧摘要和正文原文" do
       work_id = Ecto.UUID.generate()

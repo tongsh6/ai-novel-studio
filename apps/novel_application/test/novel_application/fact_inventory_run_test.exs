@@ -10,6 +10,83 @@ defmodule NovelApplication.FactInventoryRunTest do
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TestAgenticLoopFixtures
 
+  # D5：全量退化 → 降批两半各自成功 → 提案合并去重（batch_fallback 事件留痕）。
+  test "全量盘点退化 → 降批重试合并提案（D5）" do
+    parent = self()
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    eight = Enum.map(1..8, &%{seq: &1, title: "第0#{&1}章", prose: "第#{&1}章正文素材。"})
+
+    provider_execution = %Execution{
+      result_fn: fn prompt ->
+        prompt_text = TestAgenticLoopFixtures.prompt_text(prompt)
+
+        if String.contains?(prompt_text, "设定盘点助手") do
+          n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+
+          cond do
+            n == 1 ->
+              {:error, %{type: :invalid_response, message: "响应内容退化", retryable: false}}
+
+            String.contains?(prompt_text, "第01章") ->
+              {:ok,
+               %{
+                 content:
+                   ~s([{"artifact_type":"character_seed","item_id":"cl","title":"左半角色","body":"来自前半。","rationale":null,"evidence_chapters":[1]}]),
+                 provider_call_ref: "pcall-left"
+               }}
+
+            true ->
+              {:ok,
+               %{
+                 content:
+                   ~s([{"artifact_type":"world_rule_seed","item_id":"wr","title":"右半规则","body":"来自后半。","rationale":null,"evidence_chapters":[5]}]),
+                 provider_call_ref: "pcall-right"
+               }}
+          end
+        else
+          {:ok, plan_draft()}
+        end
+      end
+    }
+
+    input = %{
+      text: "从现有正文盘点角色、世界规则和伏笔，只生成待采纳提案。",
+      workspace_id: "ws-d5-batch",
+      work_id: "work-d5-batch",
+      session_id: "session-d5-batch",
+      turn_id: "turn-d5-batch",
+      material_reader: fn "work-d5-batch" -> eight end,
+      skeleton_reader: fn "work-d5-batch" -> [] end
+    }
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :fact_inventory,
+        input,
+        nil,
+        provider_execution
+      )
+
+    assert {:ok, _run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
+    assert_receive {:agent_event, :run_completed, _}, 2_000
+
+    turn_result = artifact_event.payload.turn_result
+    pending_types = turn_result.adoption_state.pending |> Enum.map(& &1.artifact_type)
+    assert :character_seed in pending_types
+    assert :world_rule_seed in pending_types
+
+    # 降批实证：1 次全量失败 + 左右两半各 1 次 = 恰 3 次盘点调用。
+    # 不再断言全局 jsonl 文件——log_jsonl env 是全局的，全量套件下被并发测试翻动致 flaky。
+    assert Agent.get(counter, & &1) == 3
+  end
+
   test "盘点 run 同批产角色/规则/伏笔，并保持逐项 tentative 与零 production write" do
     parent = self()
 

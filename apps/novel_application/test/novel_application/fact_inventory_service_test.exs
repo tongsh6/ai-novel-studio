@@ -124,6 +124,31 @@ defmodule NovelApplication.FactInventoryServiceTest do
     assert prompt =~ "只返回 JSON"
   end
 
+  test "provider 瞬态错误单次重试成功（D5/D4 同款）；退化 retryable:false 不重试" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    good =
+      ~s([{"artifact_type":"character_seed","item_id":"c1","title":"沈砚","body":"主视角。","rationale":null,"evidence_chapters":[1]}])
+
+    transient = fn _p ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+
+      if n == 1,
+        do: {:error, %{type: :timeout, message: "transient"}},
+        else: {:ok, %{content: good}}
+    end
+
+    assert {:ok, _proposal, %{provider_call_count: 2}} =
+             Inventory.inventory_with_meta(materials(), provider(transient))
+
+    degenerate = fn _p ->
+      {:error, %{type: :invalid_response, message: "退化", retryable: false}}
+    end
+
+    assert {:error, %{retryable: false}} =
+             Inventory.inventory_with_meta(materials(), provider(degenerate))
+  end
+
   test "坏 JSON 携带片段重试一次；重试产合法 JSON → 成功" do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 

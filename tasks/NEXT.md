@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-08-24
+> 最后更新：2026-08-25
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -207,9 +207,19 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板（2026-08-25，D4 已收口）**：剩余产品债——D5 盘点回路思考型适配（M5
-实锤 3/3 败：退化 627s+空提案×2）/ D6 按 purpose 分模型（writer 中位 532s vs judgment
-30s，治本新刀）/ D1④ 立项引导（暂缓等 CP2 使用数据）；③channel 串行在 B12。
+**队首 = 拍板：M5 产品债剩余刀序**——候选：D6 按 purpose 分模型（新刀；用户已点出
+gpt-oss-120b 对盘点/规划比 qwen3.8-27b 更友好的实践观察，可选先切回 gpt-oss 对照狗粮
+取数再定路由设计）/ D1④ 立项引导（暂缓等 CP2 数据）；③channel 串行在 B12。
+D 系 D1-D5 已全部收口。
+
+**D5 盘点思考型适配 done（2026-08-25，
+`tasks/slices/D5-inventory-thinking-model-adaptation.md`）**：材料逐章混合（四栏摘要
+seq 对位优先、缺失章回退正文截断——考据反转：拍板「摘要优先」落地为逐章混合而非整书
+all-or-nothing，一章缺摘要不拖全书降级）+ 退化自动降批（减半至最小批 3、提案 item_id
+合并去重、`fact_inventory.batch_fallback.start` 留痕）+ 瞬态族单次重试
+（retryable:false 直退）；au14 真实 Tauri 回归 PASS + 门禁全绿。判例：全局 log_jsonl
+env 文件断言在全量套件被并发测试翻动＝flaky，事件留痕断言改确定性 provider 调用计数。
+退化→降批页面级自愈只能真实模型观察，记入下次狗粮观察项。
 
 **D4 计划起草瞬态重试 done（2026-08-25）**：provider 瞬态族（含超时，拍板 a）单次重试
 ——叙事段独立额度、结构段与 M0 纠正重试共享单额度（两族互斥防重试链）；

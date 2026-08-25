@@ -175,12 +175,25 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   @spec fact_inventory_materials(String.t()) :: [
           %{seq: non_neg_integer(), title: String.t(), prose: String.t()}
         ]
+  # D5（M5 考据反转）：原实现 all-or-nothing——只要有任一章摘要就整表用摘要，
+  # 缺摘要的章被整章丢出材料（部分断供时盘点对那些章失明）。改逐章混合：
+  # 每章摘要优先、缺失章回退该章正文（截断在 service prompt 层）。
   def fact_inventory_materials(work_id) when is_binary(work_id) do
     case Ecto.UUID.cast(work_id) do
       {:ok, work_uuid} ->
-        case current_summary_materials(work_uuid) do
-          [] -> prose_fallback_materials(work_uuid)
-          materials -> materials
+        summaries =
+          work_uuid
+          |> current_summary_materials()
+          |> Map.new(&{&1.seq, &1})
+
+        work_uuid
+        |> prose_fallback_materials()
+        |> Enum.map(fn prose_material ->
+          Map.get(summaries, prose_material.seq, prose_material)
+        end)
+        |> case do
+          [] -> Map.values(summaries) |> Enum.sort_by(& &1.seq)
+          merged -> merged
         end
 
       :error ->
