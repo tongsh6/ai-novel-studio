@@ -49,6 +49,11 @@ echo "[dogfood] db dir: $NOVEL_TEST_DB_DIR"
 # 探针复核（缺陷九注释的原话，这次真踩了）。
 export NOVEL_LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-900000}"
 
+# D3（M5 实锤）：test 配置把摘要维护定成同步（验收确定性），狗粮吃了它——accept 同步
+# 跑 3 分钟级模型调用阻塞整个 channel（runner 假失败连锁的第一推力）。狗粮按生产
+# 语义走异步（BackgroundTaskSupervisor），断供自愈由读取侧惰性补做兜底。
+export NOVEL_SYNC_SUMMARY_MAINTENANCE="${NOVEL_SYNC_SUMMARY_MAINTENANCE:-false}"
+
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5769}"
 API_URL="http://127.0.0.1:${PHOENIX_PORT}"

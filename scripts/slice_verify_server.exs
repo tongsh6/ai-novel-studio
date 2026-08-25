@@ -22,6 +22,16 @@ Application.put_env(:novel_agent, :extra_providers,
 Application.put_env(:novel_agent, :provider, default: provider)
 Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
 
+# D3：摘要维护同步开关可被环境覆盖——狗粮/断供场景吃生产异步语义，
+# 既有验收场景保持 test 配置的同步确定性。
+if sync_override = System.get_env("NOVEL_SYNC_SUMMARY_MAINTENANCE") do
+  Application.put_env(
+    :novel_application,
+    :sync_chapter_summary_maintenance,
+    sync_override == "true"
+  )
+end
+
 repo_config =
   :novel_persistence
   |> Application.get_env(NovelPersistence.Repo, [])

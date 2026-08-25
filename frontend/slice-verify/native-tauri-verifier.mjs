@@ -169,6 +169,7 @@ export const nativeSliceIds = [
   "ca04-carry-gap-closure",
   "wr01c-planning-mission-decision",
   "d1-character-vacuum-to-named-roster",
+  "d3-summary-lazy-repair",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -556,6 +557,13 @@ const sliceKeyEvents = {
     "toolbox.execute.done",
     "channel.user_message.done",
     "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "d3-summary-lazy-repair": [
+    "channel.user_message.start",
+    "chapter_summary_repair.run.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
@@ -2053,6 +2061,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findD1CharacterVacuumEvidence(records);
   }
 
+  if (sliceId === "d3-summary-lazy-repair") {
+    return findD3SummaryLazyRepairEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -2985,6 +2997,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "d1-character-vacuum-to-named-roster") {
     return d1CharacterVacuumBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "d3-summary-lazy-repair") {
+    return d3SummaryLazyRepairBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -5128,6 +5144,77 @@ function d1CharacterVacuumBehavior(turnIds, records, evidence) {
       "directive_switched_from_vacuum_to_unmarked_protagonist",
       "second_turn_emitted_no_companion_artifacts",
       "no_production_write_before_author_action",
+    ],
+  };
+}
+
+function findD3SummaryLazyRepairEvidence(records) {
+  const sliceId = "d3-summary-lazy-repair";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      typeof record.first_turn_id === "string" &&
+      typeof record.third_turn_id === "string" &&
+      typeof record.repaired_chapter_id === "string" &&
+      record.adoption_not_blocked === true &&
+      record.repair_scheduled_from_read === true &&
+      record.repair_completed === true &&
+      record.repaired_summary_in_prompt === true,
+  );
+  if (!uiState) return null;
+
+  const repairDone = records.find(
+    (record) =>
+      record.event === "chapter_summary_repair.run.done" &&
+      record.chapter_id === uiState.repaired_chapter_id,
+  );
+  if (!repairDone) return null;
+
+  const turnIds = [
+    uiState.first_parent_turn_id,
+    uiState.first_turn_id,
+    uiState.adoption_turn_id,
+    uiState.second_parent_turn_id,
+    uiState.second_turn_id,
+    uiState.third_parent_turn_id,
+    uiState.third_turn_id,
+  ].filter(Boolean);
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.third_turn_id,
+    turn_ids: turnIds,
+    repaired_chapter_id: uiState.repaired_chapter_id,
+    third_turn_id: uiState.third_turn_id,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function d3SummaryLazyRepairBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "d3-summary-lazy-repair" &&
+      record.third_turn_id === evidence.third_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.adoption_not_blocked !== true) return null;
+  if (uiState.repair_completed !== true || uiState.repaired_summary_in_prompt !== true) {
+    return null;
+  }
+
+  return {
+    slice_id: "d3-summary-lazy-repair",
+    behavior:
+      "async_summary_failure_left_gap_then_read_path_lazy_repair_restored_summary_into_next_prompt",
+    turn_ids: turnIds,
+    repaired_chapter_id: evidence.repaired_chapter_id,
+    assertions: [
+      "summary_failure_never_blocked_adoption_main_chain",
+      "lazy_repair_scheduled_from_assembly_read_path",
+      "repair_completed_and_logged",
+      "repaired_summary_entered_subsequent_prose_prompt",
     ],
   };
 }

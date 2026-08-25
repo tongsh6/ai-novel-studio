@@ -22639,6 +22639,138 @@ async function driveD1CharacterVacuumToNamedRoster(page) {
   ];
 }
 
+// D3 摘要断供自愈：第 01 章标题带 D3SUMFAIL——替身让该章摘要生成定向失败（采纳主链
+// 不受影响）→ 第 02 章组装读摘要触发读取侧惰性补做 → 补做完成 → 后续写作 prompt 实证
+// 带回第 01 章摘要（llm-calls 外证）。
+async function driveD3SummaryLazyRepair(page) {
+  const sliceId = "d3-summary-lazy-repair";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const readLlm = () => {
+    const dir = path.join(artifactDir, "llm-calls");
+    if (!fs.existsSync(dir)) return "";
+    return fs
+      .readdirSync(dir)
+      .map((name) => fs.readFileSync(path.join(dir, name), "utf-8"))
+      .join("\n");
+  };
+
+  const sendProse = async (message, label) => {
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    const frameStart = frames.length;
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    const sentFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === message,
+      `${label}: request not sent`,
+      30_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.tool_name === "prose_writing" &&
+        (frame.body?.adoption_state?.pending ?? []).some(
+          (entry) => entry.artifact_type === "prose_fragment",
+        ),
+      `${label}: no prose turn_result`,
+      120_000,
+    );
+    return { sentFrame, turnResult: turnFrame.body, frameStart };
+  };
+
+  // ① 第 01 章（标题带 D3SUMFAIL → 正文第二句携带 → 摘要生成将失败）；采纳主链必须照常
+  const first = await sendProse(
+    "请根据已采纳章节计划生成第01章：D3SUMFAIL断供夜的正文草稿，约200字，保持为待采纳草稿。",
+    "first",
+  );
+  const acceptButton = page
+    .getByRole("button", { name: /^(保存为章节正文|保存原稿)$/ })
+    .last();
+  await acceptButton.waitFor({ timeout: 15_000 });
+  const adoptStart = frames.length;
+  await acceptButton.click();
+  const adoptedFrame = await waitForNewFrame(
+    adoptStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true,
+    "Chapter-1 adoption did not resolve (summary failure must not block the main chain)",
+    60_000,
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "d3-ch1-adopted.png"),
+    fullPage: true,
+  });
+
+  // ② 第 02 章：组装读摘要 → 调度惰性补做 → 等补做完成事件
+  const repairLogStart = readAppLogRecords().length;
+  const second = await sendProse(
+    "请根据已采纳章节计划生成第02章：蓝灰复检的正文草稿，约200字，保持为待采纳草稿。",
+    "second",
+  );
+  const repairStart = await waitForNewAppLogRecord(
+    repairLogStart,
+    (record) => record.event === "chapter_summary_repair.run.start",
+    "Lazy repair was not scheduled from the assembly read path",
+    60_000,
+  );
+  const repairDone = await waitForNewAppLogRecord(
+    repairLogStart,
+    (record) =>
+      record.event === "chapter_summary_repair.run.done" &&
+      record.chapter_id === repairStart.chapter_id,
+    "Lazy repair did not complete",
+    60_000,
+  );
+
+  // ③ 后续写作：prompt 实证带回第 01 章补做摘要（四栏标记 + 章题词）
+  const llmBefore = readLlm();
+  const third = await sendProse(
+    "请继续完善第02章：蓝灰复检的正文，补充一段，保持为待采纳草稿。",
+    "third",
+  );
+  const llmSlice = readLlm().slice(llmBefore.length);
+  assert(
+    llmSlice.includes("【情节推进】") && llmSlice.includes("断供夜"),
+    "Post-repair prose prompt did not carry the repaired chapter-1 summary",
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "d3-post-repair.png"),
+    fullPage: true,
+  });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: first.sentFrame.body?.work_id,
+      session_id: first.sentFrame.body?.session_id,
+      first_turn_id: first.turnResult.turn_id,
+      adoption_turn_id: adoptedFrame.body.turn_id,
+      second_turn_id: second.turnResult.turn_id,
+      third_turn_id: third.turnResult.turn_id,
+      repaired_chapter_id: repairDone.chapter_id,
+      first_parent_turn_id: String(first.turnResult.turn_id ?? "").split(":agent:")[0],
+      second_parent_turn_id: String(second.turnResult.turn_id ?? "").split(":agent:")[0],
+      third_parent_turn_id: String(third.turnResult.turn_id ?? "").split(":agent:")[0],
+      adoption_not_blocked: adoptedFrame.body?.truthfulness?.artifact_adopted === true,
+      repair_scheduled_from_read: true,
+      repair_completed: true,
+      repaired_summary_in_prompt: true,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -28569,6 +28701,7 @@ const drivers = {
   "ca04-carry-gap-closure": driveCa04CarryGapClosure,
   "wr01c-planning-mission-decision": driveWr01cPlanningMissionDecision,
   "d1-character-vacuum-to-named-roster": driveD1CharacterVacuumToNamedRoster,
+  "d3-summary-lazy-repair": driveD3SummaryLazyRepair,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

@@ -1,0 +1,51 @@
+id: d3-summary-lazy-repair
+title: 摘要断供自愈：异步失败留痕、读取侧惰性补做、补做摘要回流写作 prompt
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh d3-summary-lazy-repair --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - summary-failure-does-not-block-adoption-main-chain
+  - lazy-repair-triggers-from-read-path-in-async-mode
+  - repaired-summary-enters-subsequent-prose-prompt
+  - repair-is-idempotent-no-storm
+
+setup:
+  seed: scripts/seed_d3_summary_repair.exs
+  provider: slice_verify
+  env:
+    NOVEL_SYNC_SUMMARY_MAINTENANCE: "false"
+
+user_flow:
+  - open: real Tauri workbench
+  - send: chapter-1 prose request (title carries D3SUMFAIL -> summary generation fails async, adoption succeeds)
+  - send: chapter-2 prose request (assembly read schedules lazy repair for chapter 1)
+  - wait: chapter_summary_repair.run.done
+  - send: chapter-2 continuation request
+  - verify: its writer prompt carries chapter-1 repaired summary (llm-calls evidence)
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_calls
+    - summary_json
+  artifact_dir: artifacts/slice-verify/d3-summary-lazy-repair-tauri
+
+assertions:
+  network:
+    - chapter-1 adoption returns accepted (summary failure never blocks the main chain)
+  data:
+    - app log carries chapter_summary_repair.run.start and run.done for chapter 1
+    - post-repair prose prompt contains the repaired chapter-1 summary (llm-calls)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -207,10 +207,16 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板（2026-08-25，D1+D2 已收口）**：产品债 D3-D6 逐条裁决——D3 accept 同步
-摘要维护阻塞 channel（异步化）/ D4 planner 重试（CP0 实装，坏草稿率 ~1/4 实据）/
-D5 盘点回路思考型适配 / D6 按 purpose 分模型（新刀）；另有 D1 ④立项引导（暂缓等
-CP2 使用数据）。
+**队首 = 拍板（2026-08-25，D3 已收口）**：剩余产品债——D4 planner 重试（CP0 实装，
+坏草稿率 ~1/4 实据）/ D5 盘点回路思考型适配 / D6 按 purpose 分模型（新刀）/
+D1④ 立项引导（暂缓等 CP2 使用数据）；③channel 串行结构解在 B12。
+
+**D3 摘要维护可靠性 done（2026-08-25）**：狗粮吃生产异步语义（env 覆盖链）+ 后台任务
+可观测（start/run error 留痕；顺手修 maintenance degrade 谎报分类——谎报族第三例）+
+读取侧惰性补做（仅异步模式、previous 单触发点、cap 2）；真实 Tauri
+`d3-summary-lazy-repair` PASS（断供→补做→摘要回流 prompt 全链 llm-calls 外证）+
+p1 采纳回归 PASS（CP1 组合遗漏「替身正文主角句」急救验证）。判例：瞬态故障注入必须
+一次性；触发点挂恰一次读。
 
 **D1 角色真空收口 done（2026-08-25，D2 并入）**：CP1=守则真空分支（取名指令替死锁令，
 仅显式 roster:[] 判真空、缺数据源维持原守则）+ B9 词表扩主角/反派/配角 + seed 具名化

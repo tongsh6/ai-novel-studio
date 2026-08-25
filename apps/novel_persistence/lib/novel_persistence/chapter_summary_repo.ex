@@ -54,6 +54,46 @@ defmodule NovelPersistence.ChapterSummaryRepo do
     |> Repo.one()
   end
 
+  @doc """
+  D3 断供扫描：有 ACCEPTED 正文但无当前 ACCEPTED 摘要的章（按 seq 升序），
+  返回 `[%{chapter_id, chapter_title, prose_text}]`（正文按场序拼接）。
+  """
+  def chapters_missing_summary(work_id) when is_binary(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, work_uuid} ->
+        summarized =
+          from(s in ChapterSummary,
+            where: s.work_id == ^work_id and s.status == "ACCEPTED",
+            select: s.chapter_id
+          )
+          |> Repo.all()
+          |> MapSet.new()
+
+        from(c in NovelPersistence.Schemas.Chapter,
+          join: sc in NovelPersistence.Schemas.Scene,
+          on: sc.chapter_id == c.id,
+          join: d in NovelPersistence.Schemas.Draft,
+          on: d.scene_id == sc.id and d.status == "ACCEPTED",
+          where: c.work_id == ^work_uuid,
+          order_by: [asc: c.seq, asc: sc.seq],
+          select: {c.id, c.title, d.content}
+        )
+        |> Repo.all()
+        |> Enum.group_by(fn {id, title, _} -> {to_string(id), title} end, fn {_, _, content} ->
+          content
+        end)
+        |> Enum.reject(fn {{id, _title}, _} -> MapSet.member?(summarized, id) end)
+        |> Enum.map(fn {{id, title}, contents} ->
+          %{chapter_id: id, chapter_title: title, prose_text: Enum.join(contents, "\n")}
+        end)
+
+      :error ->
+        []
+    end
+  end
+
+  def chapters_missing_summary(_work_id), do: []
+
   @doc "作品维度最近 N 条 ACCEPTED 摘要（CP2.2 L3a 连续性层消费），按时间倒序。"
   @spec list_recent_accepted(String.t(), pos_integer()) :: [ChapterSummary.t()]
   def list_recent_accepted(work_id, limit) when is_binary(work_id) and is_integer(limit) do

@@ -46,7 +46,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     case maybe_fail_provider_execution_prompt(prompt_text) do
       :ok ->
-        maybe_fail_tool_failure_prompt(prompt_text)
+        case maybe_fail_tool_failure_prompt(prompt_text) do
+          :ok -> maybe_fail_summary_prompt(prompt_text)
+          error -> error
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -159,6 +162,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 豁免内部机械准备类调用（路由/决策/计划起草/修订）：失败标记的设计缝是
   # 对话自身的回应（frame）调用——「作者消息正常进入运行，创作引擎调用失败，
   # 被吸收为安全回复」。路由是 Order 62 引入的 run 内第一调用，同类豁免。
+  # D3：摘要生成定向失败注入——正文含 D3SUMFAIL（经章标题→创作主语进正文第二句）时
+  # 仅摘要调用失败，writer/评审不受影响；断供自愈场景以此制造缺口。
+  defp maybe_fail_summary_prompt(prompt_text) do
+    if chapter_summary_prompt?(prompt_text) and String.contains?(prompt_text, "D3SUMFAIL") and
+         not :persistent_term.get({__MODULE__, :d3_summary_failed_once}, false) do
+      # 一次性失败（瞬态故障语义）：正文里的标记是永久的，若每次都失败，补做也会
+      # 永远失败——真实病像（思考模型超时/退化）本就是瞬态的，补做正是它的解药。
+      :persistent_term.put({__MODULE__, :d3_summary_failed_once}, true)
+      {:error, %{type: :provider_error, message: "D3SUMFAIL summary generation failure"}}
+    else
+      :ok
+    end
+  end
+
   defp maybe_fail_provider_execution_prompt(prompt_text) do
     if String.contains?(prompt_text, @provider_failure_marker) and
          not profile_routing_prompt?(prompt_text) and
@@ -1794,7 +1811,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     """
     章功能定位：#{outline_chapter_role(n)}
     情节推进：围绕「#{theme}」推进主线第 #{n} 阶段。
-    人物变化：主角在「#{theme}」压力下完成一次选择升级。
+    人物变化：视角人物在「#{theme}」压力下完成一次选择升级。
     信息释放：释放与「#{theme}」相关的新线索。
     伏笔动作：埋下「#{theme}」后续回收点。
     情绪定位：紧张、期待。
@@ -3289,7 +3306,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     [
       roster_presence_sentence(context),
       "夜色压在#{subject}上，灵气账单从屋檐下垂落，像一串即将燃尽的符纸。",
-      "主角停在巷口，听见远处公司巡检车的低鸣，也听见自己腕骨里那枚旧阵芯正在倒数。",
+      # D1/D2 词表扩后正文不得含叙事层元词（此句原为「主角停在巷口…」——CP1 组合遗漏，
+      # 会让所有 prose 采纳场景撞 require_confirmation）。
+      "他停在巷口，听见远处公司巡检车的低鸣，也听见自己腕骨里那枚旧阵芯正在倒数。",
       nonce_sentence,
       "他没有立刻逃跑，而是把欠费记录折进袖中，反手扣住最后一张护身符，朝最黑的楼梯口走去。"
     ]

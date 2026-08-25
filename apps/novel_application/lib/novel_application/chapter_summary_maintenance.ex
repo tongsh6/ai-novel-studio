@@ -128,10 +128,17 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
     LogEmit.emit(:chapter_summary_maintenance, :run, :error, %{
       work_id: work_id,
       chapter_id: chapter_id,
-      reason_code: :persistence_failed,
+      # D3 排查判例：此前所有失败一律标 :persistence_failed（provider 错也算），
+      # 直接误导归因——按失败层诚实分类。
+      reason_code: degrade_reason_code(reason),
       outcome_detail: inspect(reason)
     })
 
     {:degraded, reason}
   end
+
+  defp degrade_reason_code(%{type: :provider_error}), do: :generation_failed
+  defp degrade_reason_code(%{type: :timeout}), do: :generation_failed
+  defp degrade_reason_code(:empty_prose), do: :empty_prose
+  defp degrade_reason_code(_reason), do: :persistence_failed
 end

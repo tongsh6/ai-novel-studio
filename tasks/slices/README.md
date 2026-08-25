@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `D3-summary-maintenance-reliability.md` | **done（2026-08-25）/ 摘要维护可靠性**：狗粮吃生产异步语义 + 后台任务可观测（含 degrade 谎报分类修）+ 读取侧惰性补做断供自愈；真实 Tauri `d3-summary-lazy-repair` PASS + p1 采纳回归 PASS（替身「主角」句急救）。 |
 | `D1-character-vacuum-closure.md` | **done（2026-08-25）/ 角色真空收口**：缺席守则真空分支（取名指令替死锁令，MBC 判例进 VS-00G）+ B9 词表扩叙事层元词（D2 并入）+ seed 具名化 + 伴生角色 seed 条件指导；真实 Tauri `d1-character-vacuum-to-named-roster` PASS（真空→采纳→阵容进 prompt→守则切换全环）。 |
 | `WR01c-mission-why-brief-and-planning-decision.md` | **done（2026-08-24）/ 写前推理层三期**：why 弹窗结构化使命区块（trace_summary payload + state_trace_refs 持久，广播/replay 同源，修 replay 丢行）+ 规划使命作者裁决（`works.planning_direction`，ADR-0024 S9，作者版下轮 0 调用直取）。真实 Tauri `wr01c-planning-mission-decision` PASS + `wr01` 复跑 PASS。 |
 | `CA04-carry-gap-closure.md` | **done（2026-08-24）/ 携带缺口收口**：拍板通过的三行门变更（正文+全书进度与收官守则、无分卷守则 / 规划+作品事实与风格同源 / world_building+阵容），I12 流程首用；G4/G5 缓留登记。真实 Tauri `ca04-carry-gap-closure` PASS + `ca03` 复跑 PASS。 |

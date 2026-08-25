@@ -98,6 +98,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("ca04-carry-gap-closure");
     expect(nativeSliceIds).toContain("wr01c-planning-mission-decision");
     expect(nativeSliceIds).toContain("d1-character-vacuum-to-named-roster");
+    expect(nativeSliceIds).toContain("d3-summary-lazy-repair");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9487,6 +9488,47 @@ describe("native Tauri slice verifier", () => {
         : record,
     );
     expect(findNativeSliceEvidence("d1-character-vacuum-to-named-roster", stuck)).toBeNull();
+  });
+
+  it("requires lazy summary repair loop (D3)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "d3-summary-lazy-repair",
+      first_parent_turn_id: "t-1",
+      first_turn_id: "t-1:agent:5",
+      adoption_turn_id: "t-1",
+      second_parent_turn_id: "t-2",
+      second_turn_id: "t-2:agent:5",
+      third_parent_turn_id: "t-3",
+      third_turn_id: "t-3:agent:5",
+      repaired_chapter_id: "ch-1",
+      adoption_not_blocked: true,
+      repair_scheduled_from_read: true,
+      repair_completed: true,
+      repaired_summary_in_prompt: true,
+    };
+    const records = [
+      uiState,
+      { event: "chapter_summary_repair.run.done", chapter_id: "ch-1" },
+    ];
+
+    const evidence = findNativeSliceEvidence("d3-summary-lazy-repair", records);
+    expect(evidence?.repaired_chapter_id).toBe("ch-1");
+
+    const behavior = findSliceBehaviorEvidence("d3-summary-lazy-repair", records, evidence);
+    expect(behavior?.assertions).toContain("repaired_summary_entered_subsequent_prose_prompt");
+
+    // 采纳被阻断 → 不成立
+    const blocked = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, adoption_not_blocked: false }
+        : record,
+    );
+    expect(findNativeSliceEvidence("d3-summary-lazy-repair", blocked)).toBeNull();
+
+    // 补做完成事件缺席 → 不成立
+    const noRepair = records.filter((record) => record.event !== "chapter_summary_repair.run.done");
+    expect(findNativeSliceEvidence("d3-summary-lazy-repair", noRepair)).toBeNull();
   });
 });
 

@@ -272,6 +272,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/d1-character-vacuum-to-named-roster.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh d1-character-vacuum-to-named-roster --surface tauri
+  - id: d3-summary-lazy-repair
+    title: "摘要断供自愈：异步失败留痕、读取侧惰性补做、补做摘要回流写作 prompt"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/d3-summary-lazy-repair.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh d3-summary-lazy-repair --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

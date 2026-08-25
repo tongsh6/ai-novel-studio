@@ -1,4 +1,6 @@
 defmodule NovelApplication do
+  require NovelCommon.LogEmit
+
   @moduledoc """
   Application 层根模块。v3 VS-00 阶段提供 DialogueGateway 作为对话入口。
 
@@ -282,15 +284,38 @@ defmodule NovelApplication do
     Application.get_env(:novel_application, :sync_chapter_summary_maintenance, false)
   end
 
+  # D3：后台任务失败可观测——start 失败与任务内崩溃都留业务日志（此前双双静默，
+  # fire-and-forget 丢摘要只能靠 carry 日志 prior_summaries empty 间接发现）。
+  # 失败容忍语义不变：只记录，绝不上抛、绝不影响调用方主链。
   defp start_background_task(task) do
+    observed = fn ->
+      try do
+        task.()
+      rescue
+        error ->
+          NovelCommon.LogEmit.emit(:background_task, :run, :error, %{
+            reason: inspect(error)
+          })
+
+          :error
+      end
+    end
+
     case Process.whereis(NovelApplication.BackgroundTaskSupervisor) do
       nil ->
-        _ = task.()
+        _ = observed.()
 
       _pid ->
-        case Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, task) do
-          {:ok, _pid} -> :ok
-          {:error, _reason} -> :ok
+        case Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, observed) do
+          {:ok, _pid} ->
+            :ok
+
+          {:error, reason} ->
+            NovelCommon.LogEmit.emit(:background_task, :start, :error, %{
+              reason: inspect(reason)
+            })
+
+            :ok
         end
     end
 
@@ -314,8 +339,78 @@ defmodule NovelApplication do
   本章摘要兜底（L5）与目标章前序 N 章摘要（L3a）。未启用真实持久化时返回 nil（无摘要消费）。
   """
   def persistence_chapter_summary_reader do
-    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.chapter_summary_reader()
+    if inject_persistence?() do
+      reader = NovelPersistence.WorkspaceContext.chapter_summary_reader()
+
+      # D3：读取侧惰性补做——组装读摘要时顺带调度一次断供扫描（仅异步模式；同步
+      # 测试环境行为逐字节不变）。调度只起后台任务，查询与补生成都在任务内。
+      # 触发点只挂 previous（每次组装恰一次窗口读）——by_title 是逐章定点读，
+      # 双挂会同 turn 重复调度补做（D3 场景实测两条 run.start 竞速）。
+      %{
+        by_title: reader.by_title,
+        previous: fn work_id, title, n ->
+          maybe_schedule_summary_repair(work_id)
+          reader.previous.(work_id, title, n)
+        end
+      }
+    end
   end
+
+  defp maybe_schedule_summary_repair(work_id) do
+    if not sync_chapter_summary_maintenance?() and
+         is_pid(Process.whereis(NovelApplication.BackgroundTaskSupervisor)) do
+      start_background_task(fn -> run_chapter_summary_repair(work_id) end)
+    end
+
+    :ok
+  end
+
+  @doc """
+  D3 断供补做：找出「有 ACCEPTED 正文但无当前摘要」的章（cap 2/次防风暴），
+  逐章重跑摘要维护（supersede+insert 单当前语义天然幂等）。失败容忍。
+  """
+  def run_chapter_summary_repair(work_id) when is_binary(work_id) do
+    generator = default_summary_generator()
+    repo = default_summary_repo()
+
+    work_id
+    |> NovelPersistence.ChapterSummaryRepo.chapters_missing_summary()
+    |> Enum.take(2)
+    |> Enum.each(fn %{chapter_id: chapter_id, prose_text: prose_text} ->
+      NovelCommon.LogEmit.emit(:chapter_summary_repair, :run, :start, %{
+        work_id: work_id,
+        chapter_id: chapter_id
+      })
+
+      input = %{
+        work_id: work_id,
+        chapter_id: chapter_id,
+        prose_text: prose_text,
+        source_ref: "summary_repair:#{chapter_id}"
+      }
+
+      result = NovelApplication.ChapterSummaryMaintenance.run(input, generator, repo)
+      run_ledger_maintenance_after_summary(input, result)
+
+      case result do
+        {:ok, _summary} ->
+          NovelCommon.LogEmit.emit(:chapter_summary_repair, :run, :done, %{
+            work_id: work_id,
+            chapter_id: chapter_id
+          })
+
+        _degraded ->
+          NovelCommon.LogEmit.emit(:chapter_summary_repair, :run, :error, %{
+            work_id: work_id,
+            chapter_id: chapter_id
+          })
+      end
+    end)
+
+    :ok
+  end
+
+  def run_chapter_summary_repair(_work_id), do: :ok
 
   @doc """
   返回章节标题读端口：`(work_id) -> 当前作品章节全名列表（含已规划但还没写正文的章）`。
