@@ -207,13 +207,21 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板（2026-08-24，WR01c 收口后队列头无 doing 项）**。首选候选：
-**M5 节拍狗粮**（观察清单已累齐：别称 sighting / 场级指导 / 伴生产物不凑数 / 两使命工具
-调用稳定性与牵引力 / **作者改写率与规划使命复用率（WR01c 新增）** / carry 日志 empty 告警
-——prior_summaries 长期 empty=摘要断链信号；启动须用户明确批准+便宜验证阶梯先行）。
-写前推理层四刀（WR01/WR01b/WR02/WR01c）全落：正文使命+章裁决+规划使命+工作级裁决与
-why 可见性，狗粮是它们的下一个验证场。G4/G5 留登记表（CA03 §3.1）。
-未推送提交积压 11 个，推送等用户指令。
+**队首 = 拍板（2026-08-25，M5 狗粮收官）**：产品债 D1-D6 逐条裁决（清单见
+`docs/design/notes/2026-08-25-m5-dogfood-observations.md` §3）——D1 角色真空→「主角」
+泄漏结构解 / D2 B9 词表扩叙事层元词 / D3 accept 同步摘要维护阻塞 channel（异步化）/
+D4 planner 重试（ADR-0023 CP0 实装，坏草稿率 ~1/4 章次实据）/ D5 盘点回路思考型适配 /
+D6 按 purpose 分模型（新刀）。G4/G5 携带缺口继续留登记表（CA03 §3.1）。
+
+**M5 节拍狗粮 done（2026-08-25）**：qwen3.8-27b 首跑收官——16 章 19339 有效字 14 章达标
+导出 ✓（8 次启动含 3 次标定失败；14/15 章思考重尾按设计跳过；扩章 +4 章模型自定规模）。
+观察清单全销账：chapter_mission 20/20 全成功全 model、planning_mission 3+1 降级、判断
+探索翼实测开火、carry 三分四大 empty 照妖 seed 真空（prior_summaries 仅首章 empty=真实
+主链摘要维护健康）、五账运转（情绪 6 DEVIATED/信息 14 REVEALED/审读 1 份）、盘点 3/3 败
+（思考型弱点）、writer 中位 532s 重尾撞阀率 24%。当夜修产品缺陷 3（Gateway 谎报模型名 /
+plan 值二次编码解套 / 超时未随模型复核）+ runner 九针（39496e28/0252536a/0a78e895/
+52b37c3e）；「主角」元词泄漏因果链作者现场抓到（→D1/D2）。报告与判例见 notes（d63ec9df）。
+未推送提交积压 16 个，推送等用户指令。
 
 **WR01c 写前推理层三期——slice done（2026-08-24，
 `tasks/slices/WR01c-mission-why-brief-and-planning-decision.md`）。**
