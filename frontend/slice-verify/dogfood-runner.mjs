@@ -82,7 +82,33 @@ async function waitForFrame(predicate, message, timeoutMs = 60_000, fromIndex = 
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   // 超时取证（M0：server 完成而 runner 盲等的间歇缺陷）——倾倒近帧摘要供归因。
-  throw new Error(`${message}\n  recent frames: ${frameDigest(fromIndex)}`);
+  // M5 加强（2026-08-25）：扩章三次「后端成功、runner 盲等」而 recent-15 只剩心跳——
+  // 追加窗口内全部 turn_result 帧的判定要素尸检，谓词哪一环假一击可见。
+  throw new Error(
+    `${message}\n  recent frames: ${frameDigest(fromIndex)}\n  turn_results: ${turnResultAutopsy(fromIndex)}`,
+  );
+}
+
+function turnResultAutopsy(fromIndex) {
+  const rows = frames
+    .slice(fromIndex)
+    .filter((f) => f.direction === "received" && f.event === "turn_result")
+    .slice(-6)
+    .map((f) => {
+      const body = f.body ?? {};
+      const pending = (body.adoption_state?.pending ?? []).map((p) => ({
+        type: p.artifact_type,
+        payload_keys: Object.keys(p.payload ?? {}),
+        chapter_count: p.payload?.chapter_count,
+      }));
+      return JSON.stringify({
+        turn_id: body.turn_id,
+        tool_name: body.tool_result?.tool_name,
+        artifact_type: body.tool_result?.output?.artifact_type,
+        pending,
+      });
+    });
+  return rows.length > 0 ? rows.join(" | ") : "(none)";
 }
 
 function log(message) {
@@ -432,7 +458,10 @@ async function planMoreChapters(page) {
       frameBelongsToTurn(f, turnId) &&
       f.body?.tool_result?.tool_name === "plot_outline" &&
       f.body?.tool_result?.output?.artifact_type === "outline_draft" &&
-      Number(f.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 5,
+      // M5 实锤（2026-08-25）：扩章规模由模型按字数缺口判断——差 2000 字时合理地只扩
+      // 2-3 章，历史硬编码 >=5 把后端两次成功产出的 outline 全部拒收（runner 不是用户
+      // 画像：不得替真实作者规定「一次必须扩几章」）。只要求至少 1 章。
+      Number(f.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 1,
     "No incremental outline_draft turn_result while expanding the plan",
     1_800_000,
     fromIndex,
@@ -473,7 +502,12 @@ async function driveChapterTurn(page, chapter) {
 }
 
 async function exportBook(page) {
-  await page.getByRole("button", { name: "阅读", exact: true }).click();
+  // M5 实锤（2026-08-25）：异常恢复后页面可能已停在阅读模式——「阅读」按钮不存在，
+  // 硬点 30s 超时且未捕获直接杀死整跑。两种起点都认：不在阅读模式才点「阅读」。
+  const readButton = page.getByRole("button", { name: "阅读", exact: true });
+  if ((await readButton.count()) > 0) {
+    await readButton.click();
+  }
   await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), null, {
     timeout: 15_000,
   });
@@ -836,7 +870,13 @@ try {
         planFailures += 1;
         appendProgress({ plan_expansion_error: String(error?.message ?? error) });
         log(`plan expansion error: ${error?.message ?? error}`);
-        toc = await readToc(page);
+        // M5 实锤（2026-08-25）：此处恢复 readToc 裸奔——它再抛（输入框被困 60s）就是
+        // 未捕获异常、整个 runner 崩死。失败时保留旧 toc 继续循环，下一轮再自愈。
+        try {
+          toc = await readToc(page);
+        } catch (tocError) {
+          log(`readToc after expansion error also failed (keeping stale toc): ${tocError?.message ?? tocError}`);
+        }
       }
       continue;
     }
@@ -934,8 +974,14 @@ try {
   }
 
   // 导出后页面停在阅读模式；最终 toc 用循环尾的最新投影（导出不改变字数事实）。
-  const exportPath = await exportBook(page);
-  log(`exported to ${exportPath}`);
+  let exportPath = "";
+  try {
+    exportPath = await exportBook(page);
+    log(`exported to ${exportPath}`);
+  } catch (exportError) {
+    log(`export failed (continuing to write artifacts): ${exportError?.message ?? exportError}`);
+    appendProgress({ export_error: String(exportError?.message ?? exportError) });
+  }
 
   writeArtifacts(toc, exportPath, {
     chapters_advanced_this_run: chaptersAdvanced,
