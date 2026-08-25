@@ -41,6 +41,39 @@
 4. **qwen 仅存的防守理由=文学质感**（业界口碑其写作更佳）。本报告不测文学质量；
    两书样章人工盲评（M5 书 vs M6 书）是填「写作」槽前的唯一缺口。
 
+## 3b. 归因：模型架构差 vs 项目针对性支持（2026-08-26 作者问询补节）
+
+**官方资料侧（速度差 22 倍的主因是架构，不是我们的代码）**：
+
+| 维度 | gpt-oss-120b（OpenAI 官方卡） | Qwen3.8-27B（官方发布资料） |
+|---|---|---|
+| 架构 | MoE：117B 总参、**每 token 仅激活 5.1B**（128 专家 Top-4） | **27B dense**：每 token 全 27B 参与计算 |
+| 思考 | reasoning effort 可调（low/medium/high） | 思考**默认开启**、可按请求关闭、`reasoning_effort` 调深度（对比 3.8-Max 不可关） |
+| 定位 | 官方明说「high-reasoning、**agentic**、function calling、structured outputs」为设计目标 | 原生多模态 dense，主打个人硬件部署 |
+
+Apple Silicon 上解码是访存受限的：每 token 激活参数量 5.1B vs 27B ≈ 5 倍固有速度差，
+再乘思考输出长度差（qwen 默认思考、M5 实测 800 字探针思考链 7397 token）→ 22 倍完全
+可由架构+运行形态解释。盘点/工具调用差距与 gpt-oss 的 agentic 训练目标一致。
+
+**项目侧审计（无针对性代码，但有两个历史耦合，方向相反）**：
+
+1. **产码零模型名行为分支**：全仓 grep gpt-oss/qwen 在 apps/*/lib 的非注释命中为零
+   ——没有任何「见到 gpt-oss 就走特殊路径」的代码；prompt/预算按 provider 参数化
+   （floor-profile 纪律）。degenerate_content? 防线甚至是「防 gpt-oss 采样退化」建的。
+2. **偏 gpt-oss 的耦合（真实存在）**：prompt 体系、步预算、JSON/tool-call 输出约定
+   是 M2-M4（gpt-oss 时代）标定长成的——qwen 属客场作战。
+3. **偏 qwen 的耦合（同样在场）**：M5 后的 900s 超时、D3 惰性补做、D4 重试、D5 降批
+   全是为 qwen 弱点建的补偿层，M6 跑时全部在场（gpt-oss 零触发）。
+4. **对 qwen 的真欠账（本次考据新发现）**：M5 判例「思考不可关」用的是
+   `enable_thinking:false` 与 `/no_think`——那是 Qwen3 旧代协议；3.8 官方机制是
+   **可按请求关闭 + `reasoning_effort` 调深度**，而我们 LM Studio adapter 根本不传
+   任何 thinking/reasoning 字段（`supports_thinking: false`，设置页该开关只对
+   DeepSeek 生效）。即 M5/M6 对照中 qwen 全程按**默认思考高档**跑——速度对照对它
+   不公平；盘点/planner 的失败有多少归思考重尾、多少归模型能力，现数据不可分。
+
+**结论**：22 倍速度差主因=架构（5 倍/token × 思考长度差），非项目偏袒；但「质量差」
+的对照要打折扣——公平对照需先给 LM Studio 链路接通 qwen3.8 的关思考/调 effort。
+
 ## 4. 路由表填表建议（待作者拍板）
 
 D6 设置区四槽（当前全部「跟随全局」，全局=qwen3.8-27b）：
@@ -54,6 +87,11 @@ D6 设置区四槽（当前全部「跟随全局」，全局=qwen3.8-27b）：
 
 操作即设置对话框两个下拉（LM Studio 同时挂双模型，D6 机制已就绪）；或全局直切
 gpt-oss-120b（若盲评也偏向它，连「写作」一起切，回到全局单模型零表）。
+
+第三条路（§3b 考据后新增）：**c) 先补公平对照**——LM Studio adapter 接通 qwen3.8 的
+关思考/`reasoning_effort`（新小刀，含 D6 设置页 thinking 开关对 lmstudio 放开），再跑
+一次 qwen 低思考对照，之后填表。代价：一把小刀+一次 30-60 分钟狗粮；收益：写作槽的
+裁决有干净数据（速度差会缩小到 ~5 倍级，质量变化未知）。
 
 ## 5. 证据路径
 
