@@ -44,15 +44,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     maybe_delay_archive_slow(prompt_text)
     maybe_delay_agent_cancel(prompt_text)
 
-    case maybe_fail_provider_execution_prompt(prompt_text) do
-      :ok ->
-        case maybe_fail_tool_failure_prompt(prompt_text) do
-          :ok -> maybe_fail_summary_prompt(prompt_text)
-          error -> error
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+    with :ok <- maybe_fail_provider_execution_prompt(prompt_text),
+         :ok <- maybe_fail_tool_failure_prompt(prompt_text),
+         :ok <- maybe_fail_summary_prompt(prompt_text) do
+      maybe_fail_plan_draft_prompt(prompt_text)
     end
     |> case do
       :ok ->
@@ -171,6 +166,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       # 永远失败——真实病像（思考模型超时/退化）本就是瞬态的，补做正是它的解药。
       :persistent_term.put({__MODULE__, :d3_summary_failed_once}, true)
       {:error, %{type: :provider_error, message: "D3SUMFAIL summary generation failure"}}
+    else
+      :ok
+    end
+  end
+
+  # D4：计划起草定向一次性失败（瞬态语义，D3 判例）——用户消息带 D4PLANFAIL 时
+  # agent_plan_draft 首调失败、重试成功；其余调用族不受影响。
+  defp maybe_fail_plan_draft_prompt(prompt_text) do
+    if agent_plan_draft_prompt?(prompt_text) and String.contains?(prompt_text, "D4PLANFAIL") and
+         not :persistent_term.get({__MODULE__, :d4_plan_failed_once}, false) do
+      :persistent_term.put({__MODULE__, :d4_plan_failed_once}, true)
+      {:error, %{type: :timeout, message: "D4PLANFAIL transient planner failure"}}
     else
       :ok
     end

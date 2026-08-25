@@ -22771,6 +22771,95 @@ async function driveD3SummaryLazyRepair(page) {
   ];
 }
 
+// D4 计划起草瞬态重试：消息带 D4PLANFAIL——替身让 agent_plan_draft 首调一次性失败 →
+// planner 单次原样重试成功 → run 正常完成、正文 tentative、retry 事件留痕。
+async function driveD4PlannerTransientRetry(page) {
+  const sliceId = "d4-planner-transient-retry";
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message =
+    "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约300字，保持为待采纳草稿。D4PLANFAIL";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "D4 request was not sent",
+    30_000,
+  );
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.run_mode === "bounded" &&
+      typeof frame.body?.response?.run_id === "string",
+    "D4 request did not start a bounded AgentRun",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const retryRecord = await waitForNewAppLogRecord(
+    logStart,
+    (record) => record.event === "plan_draft.retry.start",
+    "No plan_draft.retry.start after transient failure",
+    90_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) =>
+          entry.artifact_type === "prose_fragment" &&
+          String(entry.adoption_status ?? "") === "tentative",
+      ),
+    "Run did not complete with a tentative prose_fragment after the retry",
+    150_000,
+  );
+  const turnResult = turnFrame.body;
+  assert(
+    turnResult.truthfulness?.artifact_adopted === false &&
+      turnResult.truthfulness?.production_write_performed === false,
+    "D4 run wrote production facts before author action",
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "d4-retry-completed.png"),
+    fullPage: true,
+  });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+      run_id: runId,
+      turn_id: turnResult.turn_id,
+      parent_turn_id: String(turnResult.turn_id ?? "").split(":agent:")[0],
+      retry_stage: String(retryRecord.stage ?? ""),
+      retry_family: String(retryRecord.family ?? ""),
+      retry_logged: true,
+      run_completed_after_retry: true,
+      no_write: turnResult.truthfulness?.production_write_performed === false,
+    },
+  ];
+}
+
 async function driveAgentConversationTurn(page, options = {}) {
   await configureExternalRunProviderRuntime();
 
@@ -28702,6 +28791,7 @@ const drivers = {
   "wr01c-planning-mission-decision": driveWr01cPlanningMissionDecision,
   "d1-character-vacuum-to-named-roster": driveD1CharacterVacuumToNamedRoster,
   "d3-summary-lazy-repair": driveD3SummaryLazyRepair,
+  "d4-planner-transient-retry": driveD4PlannerTransientRetry,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

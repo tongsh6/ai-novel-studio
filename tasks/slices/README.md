@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `D4-planner-transient-retry.md` | **done（2026-08-25）/ 计划起草瞬态重试**：provider 错误族（含超时）单次重试（叙事段独立额度、结构段与纠正共享）、`plan_draft.retry` 双族留痕；真实 Tauri `d4-planner-transient-retry` PASS（ADR-0023 CP0 重试半边实装）。 |
 | `D3-summary-maintenance-reliability.md` | **done（2026-08-25）/ 摘要维护可靠性**：狗粮吃生产异步语义 + 后台任务可观测（含 degrade 谎报分类修）+ 读取侧惰性补做断供自愈；真实 Tauri `d3-summary-lazy-repair` PASS + p1 采纳回归 PASS（替身「主角」句急救）。 |
 | `D1-character-vacuum-closure.md` | **done（2026-08-25）/ 角色真空收口**：缺席守则真空分支（取名指令替死锁令，MBC 判例进 VS-00G）+ B9 词表扩叙事层元词（D2 并入）+ seed 具名化 + 伴生角色 seed 条件指导；真实 Tauri `d1-character-vacuum-to-named-roster` PASS（真空→采纳→阵容进 prompt→守则切换全环）。 |
 | `WR01c-mission-why-brief-and-planning-decision.md` | **done（2026-08-24）/ 写前推理层三期**：why 弹窗结构化使命区块（trace_summary payload + state_trace_refs 持久，广播/replay 同源，修 replay 丢行）+ 规划使命作者裁决（`works.planning_direction`，ADR-0024 S9，作者版下轮 0 调用直取）。真实 Tauri `wr01c-planning-mission-decision` PASS + `wr01` 复跑 PASS。 |

@@ -438,6 +438,74 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert step.authoring_intent == :continuation
   end
 
+  # ── D4：provider 瞬态错误单次重试 ──────────────────────
+
+  test "结构段 provider 首调超时 → 原样重试成功（D4 瞬态族）" do
+    test_pid = self()
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+        send(test_pid, {:structure_call, n})
+
+        if n == 1 do
+          {:error, %{type: :timeout, message: "transient"}}
+        else
+          {:ok, act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
+        end
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:ok, plan, meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert_received {:structure_call, 1}
+    assert_received {:structure_call, 2}
+    assert [_step] = plan.steps
+    # reasoning 1 + 结构 2 = 3 次调用如实计数
+    assert meta.provider_call_count == 3
+  end
+
+  test "结构段两次都失败 → 诚实上抛（单次额度不无限重试）" do
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        {:error, %{type: :timeout, message: "persistent"}}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:error, %{type: :timeout}} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+  end
+
+  test "叙事段首调失败 → 原样重试成功（D4 双段覆盖）" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        {:ok, act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
+      else
+        n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+        if n == 1, do: {:error, %{type: :provider_error, message: "empty"}}, else: {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:ok, plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert [_step] = plan.steps
+  end
+
   test "plan 键二次编码（JSON 字符串）被确定性解套（M5 空计划根因回归）" do
     plan_json =
       Jason.encode!(%{

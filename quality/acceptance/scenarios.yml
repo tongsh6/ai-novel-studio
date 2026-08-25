@@ -279,6 +279,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/d3-summary-lazy-repair.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh d3-summary-lazy-repair --surface tauri
+  - id: d4-planner-transient-retry
+    title: "计划起草瞬态失败单次重试：首调失败原样重发成功、retry 事件留痕"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/d4-planner-transient-retry.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh d4-planner-transient-retry --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

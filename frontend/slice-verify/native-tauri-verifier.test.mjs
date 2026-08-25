@@ -99,6 +99,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("wr01c-planning-mission-decision");
     expect(nativeSliceIds).toContain("d1-character-vacuum-to-named-roster");
     expect(nativeSliceIds).toContain("d3-summary-lazy-repair");
+    expect(nativeSliceIds).toContain("d4-planner-transient-retry");
     expect(nativeSliceIds).toContain("agentic-loop-plan-replan-reasoning");
     expect(nativeSliceIds).toContain("agentic-loop-no-deviation-direct");
     expect(nativeSliceIds).toContain("agent-plan-native-tool-calling-protocol");
@@ -9529,6 +9530,34 @@ describe("native Tauri slice verifier", () => {
     // 补做完成事件缺席 → 不成立
     const noRepair = records.filter((record) => record.event !== "chapter_summary_repair.run.done");
     expect(findNativeSliceEvidence("d3-summary-lazy-repair", noRepair)).toBeNull();
+  });
+
+  it("requires transient planner retry loop (D4)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "d4-planner-transient-retry",
+      parent_turn_id: "t-1",
+      turn_id: "t-1:agent:5",
+      run_id: "run-1",
+      retry_stage: "structure",
+      retry_family: "provider_error",
+      retry_logged: true,
+      run_completed_after_retry: true,
+      no_write: true,
+    };
+    const records = [uiState, { event: "plan_draft.retry.start", stage: "structure" }];
+
+    const evidence = findNativeSliceEvidence("d4-planner-transient-retry", records);
+    expect(evidence?.turn_ids).toEqual(["t-1", "t-1:agent:5"]);
+
+    const behavior = findSliceBehaviorEvidence("d4-planner-transient-retry", records, evidence);
+    expect(behavior?.assertions).toContain(
+      "planner_retried_same_prompt_once_and_logged_it",
+    );
+
+    // retry 事件缺席 → 不成立
+    const noRetry = records.filter((record) => record.event !== "plan_draft.retry.start");
+    expect(findNativeSliceEvidence("d4-planner-transient-retry", noRetry)).toBeNull();
   });
 });
 

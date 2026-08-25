@@ -207,9 +207,16 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板（2026-08-25，D3 已收口）**：剩余产品债——D4 planner 重试（CP0 实装，
-坏草稿率 ~1/4 实据）/ D5 盘点回路思考型适配 / D6 按 purpose 分模型（新刀）/
-D1④ 立项引导（暂缓等 CP2 使用数据）；③channel 串行结构解在 B12。
+**队首 = 拍板（2026-08-25，D4 已收口）**：剩余产品债——D5 盘点回路思考型适配（M5
+实锤 3/3 败：退化 627s+空提案×2）/ D6 按 purpose 分模型（writer 中位 532s vs judgment
+30s，治本新刀）/ D1④ 立项引导（暂缓等 CP2 使用数据）；③channel 串行在 B12。
+
+**D4 计划起草瞬态重试 done（2026-08-25）**：provider 瞬态族（含超时，拍板 a）单次重试
+——叙事段独立额度、结构段与 M0 纠正重试共享单额度（两族互斥防重试链）；
+`plan_draft.retry.start`（stage/family）双族留痕供狗粮体温计归因；替身 D4PLANFAIL
+一次性注入（D3 瞬态判例复用）。真实 Tauri PASS + 门禁全绿。考据修正：D4 登记时的
+~1/4 坏草稿率实为三族，其二已由 M0 骨架与 0a78e895 覆盖，本刀补 provider 直抛最后
+一族（ADR-0023 CP0 重试半边实装，观察保真仍留 CP0）。
 
 **D3 摘要维护可靠性 done（2026-08-25）**：狗粮吃生产异步语义（env 覆盖链）+ 后台任务
 可观测（start/run error 留痕；顺手修 maintenance degrade 谎报分类——谎报族第三例）+

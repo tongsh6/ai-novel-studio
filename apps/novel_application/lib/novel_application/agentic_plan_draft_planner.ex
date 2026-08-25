@@ -1,4 +1,6 @@
 defmodule NovelApplication.AgenticPlanDraftPlanner do
+  require NovelCommon.LogEmit
+
   @moduledoc """
   Provider-backed AgentPlan drafter for ADR-0023 plan-driven AgentRun loops.
 
@@ -127,7 +129,12 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
-  defp request_reasoning(prompt, result_fn) do
+  # D4（M5 实锤，ADR-0023 CP0 半边实装）：provider 瞬态错误（超时/空响应/连接类/
+  # 形状破坏）单次原样重试——同请求方差大（84-220s vs 900s 尾部），重试期望收益为正；
+  # 两次仍败诚实上抛。叙事段与结构段各自一次额度（结构段与纠正重试共享额度）。
+  defp request_reasoning(prompt, result_fn), do: request_reasoning(prompt, result_fn, true)
+
+  defp request_reasoning(prompt, result_fn, retry?) do
     case result_fn.(prompt) do
       {:ok, %{content: content} = provider_result} ->
         {:ok, nonblank(content), provider_result}
@@ -138,8 +145,16 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       {:ok, content} when is_binary(content) ->
         {:ok, nonblank(content), %{content: content}}
 
+      {:error, reason} when retry? ->
+        emit_plan_retry(:reasoning, :provider_error, reason)
+        request_reasoning(prompt, result_fn, false)
+
       {:error, reason} ->
         {:error, reason}
+
+      other when retry? ->
+        emit_plan_retry(:reasoning, :invalid_result, other)
+        request_reasoning(prompt, result_fn, false)
 
       other ->
         {:error, {:invalid_plan_reasoning_result, other}}
@@ -168,11 +183,28 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
         |> build_or_retry_plan(Map.merge(ctx, %{content: content, provider_result: provider_result}))
 
       {:error, reason} ->
-        {:error, reason}
+        provider_retry_or_error(reason, ctx)
 
       other ->
-        {:error, {:invalid_plan_draft_result, other}}
+        provider_retry_or_error({:invalid_plan_draft_result, other}, ctx)
     end
+  end
+
+  # D4：provider 层错误与结构纠正重试共享同一次 retry 额度（两族互斥，最坏 2 调用）；
+  # provider 错无「纠正」语义——原样重发。
+  defp provider_retry_or_error(reason, %{retry?: true} = ctx) do
+    emit_plan_retry(:structure, :provider_error, reason)
+    request_plan(ctx.prompt, %{ctx | attempt: ctx.attempt + 1, retry?: false})
+  end
+
+  defp provider_retry_or_error(reason, _ctx), do: {:error, reason}
+
+  defp emit_plan_retry(stage, family, reason) do
+    NovelCommon.LogEmit.emit(:plan_draft, :retry, :start, %{
+      stage: stage,
+      family: family,
+      reason: inspect(reason) |> String.slice(0, 200)
+    })
   end
 
   defp build_or_retry_plan({:ok, parsed}, ctx) do
@@ -200,6 +232,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp build_or_retry_plan({:error, reason}, ctx), do: retry_or_error(reason, ctx)
 
   defp retry_or_error(reason, %{retry?: true} = ctx) do
+    emit_plan_retry(:structure, :correction, reason)
+
     ctx.prompt
     |> tool_call_correction_prompt(ctx.content, reason)
     |> request_plan(%{ctx | attempt: ctx.attempt + 1, retry?: false})

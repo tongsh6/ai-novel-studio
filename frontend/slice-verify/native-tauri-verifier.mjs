@@ -170,6 +170,7 @@ export const nativeSliceIds = [
   "wr01c-planning-mission-decision",
   "d1-character-vacuum-to-named-roster",
   "d3-summary-lazy-repair",
+  "d4-planner-transient-retry",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -562,6 +563,13 @@ const sliceKeyEvents = {
   "d3-summary-lazy-repair": [
     "channel.user_message.start",
     "chapter_summary_repair.run.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "d4-planner-transient-retry": [
+    "channel.user_message.start",
+    "plan_draft.retry.start",
     "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
@@ -2065,6 +2073,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findD3SummaryLazyRepairEvidence(records);
   }
 
+  if (sliceId === "d4-planner-transient-retry") {
+    return findD4PlannerTransientRetryEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -3001,6 +3013,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "d3-summary-lazy-repair") {
     return d3SummaryLazyRepairBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "d4-planner-transient-retry") {
+    return d4PlannerTransientRetryBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -5215,6 +5231,57 @@ function d3SummaryLazyRepairBehavior(turnIds, records, evidence) {
       "lazy_repair_scheduled_from_assembly_read_path",
       "repair_completed_and_logged",
       "repaired_summary_entered_subsequent_prose_prompt",
+    ],
+  };
+}
+
+function findD4PlannerTransientRetryEvidence(records) {
+  const sliceId = "d4-planner-transient-retry";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      typeof record.turn_id === "string" &&
+      record.retry_logged === true &&
+      record.run_completed_after_retry === true &&
+      record.no_write === true,
+  );
+  if (!uiState) return null;
+
+  const retry = records.find((record) => record.event === "plan_draft.retry.start");
+  if (!retry) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: [uiState.parent_turn_id, uiState.turn_id].filter(Boolean),
+    run_id: uiState.run_id,
+    retry_family: uiState.retry_family,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function d4PlannerTransientRetryBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "d4-planner-transient-retry" &&
+      record.turn_id === evidence.turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.retry_logged !== true || uiState.run_completed_after_retry !== true) return null;
+  if (uiState.no_write !== true) return null;
+
+  return {
+    slice_id: "d4-planner-transient-retry",
+    behavior: "transient_plan_draft_failure_was_retried_once_and_run_completed_normally",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    assertions: [
+      "plan_draft_first_call_failed_transiently",
+      "planner_retried_same_prompt_once_and_logged_it",
+      "run_completed_with_tentative_prose_after_retry",
+      "no_production_write_before_author_action",
     ],
   };
 }

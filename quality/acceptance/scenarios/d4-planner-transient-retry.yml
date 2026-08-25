@@ -1,0 +1,44 @@
+id: d4-planner-transient-retry
+title: 计划起草瞬态失败单次重试：首调失败原样重发成功、retry 事件留痕、run 正常完成
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh d4-planner-transient-retry --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0023-plan-driven-agentic-execution.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - transient-planner-failure-is-retried-once-not-fatal
+  - retry-consumes-budget-honestly-and-is-logged
+  - two-failures-still-fail-honestly
+
+setup:
+  seed: scripts/seed_wr01_chapter_mission.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: chapter-3 prose request carrying D4PLANFAIL (plan draft first call fails transiently)
+  - verify: plan_draft.retry.start logged, run completes, prose stays tentative
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/d4-planner-transient-retry-tauri
+
+assertions:
+  network:
+    - request starts a bounded run and ends with a tentative prose_fragment turn_result
+  data:
+    - app log carries plan_draft.retry.start (provider_error family)
+    - no production write before author action
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
