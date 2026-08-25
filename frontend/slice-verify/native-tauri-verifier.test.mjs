@@ -9532,6 +9532,48 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("d3-summary-lazy-repair", noRepair)).toBeNull();
   });
 
+  it("requires per-purpose model routing evidence (D6)", () => {
+    const uiState = {
+      event: "slice_verify.ui_state.done",
+      slice_id: "d6-purpose-model-routing",
+      parent_turn_id: "t-1",
+      turn_id: "t-1:agent:5",
+      run_id: "run-1",
+      writer_override_model: "m-d6-writer",
+      writer_call_routed: true,
+      other_calls_follow_global: true,
+      purpose_section_visible: true,
+      follow_global_default_visible: true,
+      no_write: true,
+    };
+    const records = [
+      uiState,
+      { event: "provider_gateway.complete.start", model: "m-d6-writer" },
+      { event: "provider_gateway.complete.start", model: "unconfigured" },
+    ];
+
+    const evidence = findNativeSliceEvidence("d6-purpose-model-routing", records);
+    expect(evidence?.turn_ids).toEqual(["t-1", "t-1:agent:5"]);
+    expect(evidence?.routed_model).toBe("m-d6-writer");
+
+    const behavior = findSliceBehaviorEvidence("d6-purpose-model-routing", records, evidence);
+    expect(behavior?.assertions).toContain("unrouted_purpose_calls_kept_the_global_model");
+
+    // 路由命中的 gateway 调用缺席 → 不成立
+    const noRouted = records.filter(
+      (record) =>
+        !(record.event === "provider_gateway.complete.start" && record.model === "m-d6-writer"),
+    );
+    expect(findNativeSliceEvidence("d6-purpose-model-routing", noRouted)).toBeNull();
+
+    // 全部调用都被路由（无全局模型调用）→ 不成立
+    const allRouted = records.filter(
+      (record) =>
+        !(record.event === "provider_gateway.complete.start" && record.model === "unconfigured"),
+    );
+    expect(findNativeSliceEvidence("d6-purpose-model-routing", allRouted)).toBeNull();
+  });
+
   it("requires transient planner retry loop (D4)", () => {
     const uiState = {
       event: "slice_verify.ui_state.done",

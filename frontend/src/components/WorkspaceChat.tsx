@@ -105,6 +105,7 @@ import type { StructurePanelActionState, StructurePanelArtifactAction } from "./
 import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
 import {
+  PURPOSE_ROUTE_KEYS,
   getStoredProviderApiKey,
   isValidProviderEndpoint,
   listProviderModels,
@@ -218,6 +219,13 @@ function removePendingAgentRunAnchor(
 // 自由文本会被原样发往 provider，导致 HTTP 400（例如误填 0.7），故在表单层即收敛为枚举。
 type ReasoningEffort = "" | "low" | "medium" | "high";
 
+const MODEL_PROVIDER_PURPOSE_LABELS: Record<string, string> = {
+  writer: WORKBENCH.modelProviderPurposeWriter,
+  planner: WORKBENCH.modelProviderPurposePlanner,
+  evaluator: WORKBENCH.modelProviderPurposeEvaluator,
+  fact_inventory: WORKBENCH.modelProviderPurposeFactInventory,
+};
+
 const REASONING_EFFORT_OPTIONS: ReadonlyArray<{ value: ReasoningEffort; label: string }> = [
   { value: "", label: WORKBENCH.modelProviderReasoningDefault },
   { value: "low", label: WORKBENCH.modelProviderReasoningLow },
@@ -240,6 +248,7 @@ interface ModelProviderDraft {
   clearApiKey: boolean;
   thinking: "enabled" | "disabled";
   reasoningEffort: ReasoningEffort;
+  purposeModels: Record<string, string>;
 }
 
 export interface WorkspaceCandidatePanelProps {
@@ -995,6 +1004,7 @@ function modelProviderDraftFromState(state: ModelProviderRuntimeState): ModelPro
     clearApiKey: false,
     thinking: stored.thinking ?? "disabled",
     reasoningEffort: normalizeReasoningEffort(stored.reasoning_effort),
+    purposeModels: { ...(stored.purpose_models ?? {}) },
   };
 }
 
@@ -1014,6 +1024,7 @@ function modelProviderDraftForProvider(
     clearApiKey: false,
     thinking: stored.thinking ?? "disabled",
     reasoningEffort: normalizeReasoningEffort(stored.reasoning_effort),
+    purposeModels: { ...(stored.purpose_models ?? {}) },
   };
 }
 
@@ -1089,6 +1100,7 @@ export function WorkspaceChat() {
     clearApiKey: false,
     thinking: "disabled",
     reasoningEffort: "",
+    purposeModels: {},
   });
   const [modelProviderSaving, setModelProviderSaving] = useState(false);
   const [modelProviderTesting, setModelProviderTesting] = useState(false);
@@ -3076,6 +3088,7 @@ export function WorkspaceChat() {
         clearApiKey: modelProviderDraft.clearApiKey,
         thinking: modelProviderDraft.thinking,
         reasoningEffort: modelProviderDraft.reasoningEffort,
+        purposeModels: modelProviderDraft.purposeModels,
       });
 
       setModelProviderState(state);
@@ -3763,6 +3776,66 @@ export function WorkspaceChat() {
                         )}
                       </>
                     )}
+                  </>
+                )}
+                {modelProviderState && (
+                  <>
+                    <div className={styles.dialogLabel}>
+                      {WORKBENCH.modelProviderPurposeSection}
+                    </div>
+                    <p className={styles.dialogHint}>{WORKBENCH.modelProviderPurposeHint}</p>
+                    {PURPOSE_ROUTE_KEYS.map((purposeKey) => {
+                      const overrideValue = modelProviderDraft.purposeModels[purposeKey] ?? "";
+                      const overrideMissingFromList =
+                        overrideValue !== "" &&
+                        !modelProviderModels.some((model) => model.id === overrideValue);
+
+                      return (
+                        <div key={purposeKey}>
+                          <label
+                            className={styles.dialogLabel}
+                            htmlFor={`model-provider-purpose-${purposeKey}`}
+                          >
+                            {MODEL_PROVIDER_PURPOSE_LABELS[purposeKey]}
+                          </label>
+                          <select
+                            id={`model-provider-purpose-${purposeKey}`}
+                            className={styles.dialogInput}
+                            value={overrideValue}
+                            disabled={
+                              modelProviderSaving ||
+                              modelProviderTesting ||
+                              modelProviderModelsLoading ||
+                              (modelProviderModels.length === 0 && overrideValue === "")
+                            }
+                            onChange={(event) => {
+                              const model = event.target.value;
+                              setModelProviderDraft((prev) => {
+                                const next = { ...prev.purposeModels };
+                                if (model) {
+                                  next[purposeKey] = model;
+                                } else {
+                                  delete next[purposeKey];
+                                }
+                                return { ...prev, purposeModels: next };
+                              });
+                            }}
+                          >
+                            <option value="">
+                              {WORKBENCH.modelProviderPurposeFollowGlobal}
+                            </option>
+                            {overrideMissingFromList && (
+                              <option value={overrideValue}>{overrideValue}</option>
+                            )}
+                            {modelProviderModels.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
                   </>
                 )}
                 {modelProviderMessage && (

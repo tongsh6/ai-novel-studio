@@ -33,6 +33,8 @@ struct ModelProviderPreference {
     thinking: Option<String>,
     #[serde(default)]
     reasoning_effort: Option<String>,
+    #[serde(default)]
+    purpose_models: HashMap<String, String>,
 }
 
 /// Provider API keys，存放在与 preferences.json 同目录、但独立的受限文件里。
@@ -57,6 +59,8 @@ struct SetModelProviderSettingsInput {
     endpoint: Option<String>,
     thinking: Option<String>,
     reasoning_effort: Option<String>,
+    #[serde(default)]
+    purpose_models: Option<HashMap<String, String>>,
     api_key: Option<String>,
     #[serde(default)]
     clear_api_key: bool,
@@ -74,6 +78,7 @@ struct ModelProviderPreferenceStatus {
     endpoint: Option<String>,
     thinking: Option<String>,
     reasoning_effort: Option<String>,
+    purpose_models: HashMap<String, String>,
     api_key_configured: bool,
 }
 
@@ -231,6 +236,7 @@ fn set_model_provider_settings(
                 input.reasoning_effort,
                 MAX_PROVIDER_FIELD_LENGTH,
             ),
+            purpose_models: normalize_purpose_models(input.purpose_models),
         },
     );
 
@@ -327,6 +333,24 @@ fn normalize_optional_text(value: Option<String>, max_len: usize) -> Option<Stri
     Some(trimmed.chars().take(max_len).collect())
 }
 
+/// D6 按用途分模型（tasks/slices/D6-purpose-model-routing.md）：只收白名单用途键与
+/// 非空模型名，未知键/空值一律丢弃（跟随全局）。
+const PURPOSE_ROUTE_KEYS: [&str; 4] = ["writer", "planner", "evaluator", "fact_inventory"];
+
+fn normalize_purpose_models(value: Option<HashMap<String, String>>) -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    if let Some(map) = value {
+        for key in PURPOSE_ROUTE_KEYS {
+            if let Some(model) =
+                normalize_optional_text(map.get(key).cloned(), MAX_PROVIDER_FIELD_LENGTH)
+            {
+                result.insert(key.to_string(), model);
+            }
+        }
+    }
+    result
+}
+
 fn normalize_provider_thinking(value: Option<String>) -> Option<String> {
     match value.as_deref() {
         Some("enabled") => Some("enabled".into()),
@@ -355,6 +379,7 @@ fn settings_with_key_state(
                 endpoint: stored.endpoint,
                 thinking: stored.thinking,
                 reasoning_effort: stored.reasoning_effort,
+                purpose_models: stored.purpose_models,
                 api_key_configured: provider_secret_present(&secrets, provider),
             },
         );
@@ -610,6 +635,22 @@ fn shutdown_sidecar(app: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn normalize_purpose_models_keeps_whitelisted_non_empty_entries() {
+        let mut input = std::collections::HashMap::new();
+        input.insert("writer".to_string(), " m-writer ".to_string());
+        input.insert("planner".to_string(), "".to_string());
+        input.insert("bogus".to_string(), "m-x".to_string());
+
+        let result = super::normalize_purpose_models(Some(input));
+
+        assert_eq!(result.get("writer"), Some(&"m-writer".to_string()));
+        assert!(!result.contains_key("planner"));
+        assert!(!result.contains_key("bogus"));
+
+        assert!(super::normalize_purpose_models(None).is_empty());
+    }
+
     use super::*;
 
     fn temp_secrets_path(tag: &str) -> PathBuf {

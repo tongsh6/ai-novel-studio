@@ -22773,6 +22773,135 @@ async function driveD3SummaryLazyRepair(page) {
 
 // D4 计划起草瞬态重试：消息带 D4PLANFAIL——替身让 agent_plan_draft 首调一次性失败 →
 // planner 单次原样重试成功 → run 正常完成、正文 tentative、retry 事件留痕。
+async function driveD6PurposeModelRouting(page) {
+  const sliceId = "d6-purpose-model-routing";
+  const overrideModel = "m-d6-writer";
+  await configureProviderRuntime({
+    provider: "slice_verify",
+    purpose_models: { writer: overrideModel },
+  });
+
+  // 设置入口是顶栏模型状态 chip（Dialog.Trigger，su01-provider-health-model 同款选择器）；
+  // 其可见文本是健康态（模型已连接/未连接），不含「模型设置」。
+  const modelStatusButton = page.locator('[class*="modelStatusButton"]').first();
+  await modelStatusButton.waitFor({ timeout: 10_000 });
+  await modelStatusButton.click();
+  const dialog = page.getByRole("dialog", { name: "模型供应商" });
+  await dialog.waitFor({ timeout: 10_000 });
+  const dialogText = await dialog.innerText();
+  const purposeSectionVisible =
+    dialogText.includes("按用途指定模型") &&
+    dialogText.includes("正文写作") &&
+    dialogText.includes("规划") &&
+    dialogText.includes("质量评审") &&
+    dialogText.includes("设定盘点");
+  assert(purposeSectionVisible, "Per-purpose model section is not visible in real model settings");
+  const followGlobalDefaultVisible = dialogText.includes("跟随全局");
+  assert(
+    followGlobalDefaultVisible,
+    "Per-purpose selects do not show the follow-global default option",
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "d6-purpose-section.png"),
+    fullPage: true,
+  });
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await dialog.waitFor({ state: "detached", timeout: 10_000 });
+
+  const message =
+    "请根据已采纳章节计划生成第03章：巡检收网的正文草稿，约300字，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "D6 request was not sent",
+    30_000,
+  );
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.run_mode === "bounded" &&
+      typeof frame.body?.response?.run_id === "string",
+    "D6 request did not start a bounded AgentRun",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) =>
+          entry.artifact_type === "prose_fragment" &&
+          String(entry.adoption_status ?? "") === "tentative",
+      ),
+    "D6 run did not complete with a tentative prose_fragment",
+    150_000,
+  );
+  const turnResult = turnFrame.body;
+  assert(
+    turnResult.truthfulness?.artifact_adopted === false &&
+      turnResult.truthfulness?.production_write_performed === false,
+    "D6 run wrote production facts before author action",
+  );
+
+  const gatewayModels = readAppLogRecords()
+    .slice(logStart)
+    .filter((record) => record.event === "provider_gateway.complete.start")
+    .map((record) => String(record.model ?? ""));
+  const writerRouted = gatewayModels.filter((model) => model === overrideModel);
+  const othersFollowGlobal = gatewayModels.filter(
+    (model) => model !== "" && model !== overrideModel,
+  );
+  assert(
+    writerRouted.length >= 1,
+    `No provider gateway call used the writer override model (saw: ${gatewayModels.join(",")})`,
+  );
+  assert(
+    othersFollowGlobal.length >= 1,
+    "Every provider call was routed to the override model; unrouted purposes must follow global",
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "d6-routing-completed.png"),
+    fullPage: true,
+  });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+      run_id: runId,
+      turn_id: turnResult.turn_id,
+      parent_turn_id: String(turnResult.turn_id ?? "").split(":agent:")[0],
+      writer_override_model: overrideModel,
+      writer_call_routed: true,
+      other_calls_follow_global: true,
+      purpose_section_visible: purposeSectionVisible,
+      follow_global_default_visible: followGlobalDefaultVisible,
+      no_write: turnResult.truthfulness?.production_write_performed === false,
+    },
+  ];
+}
+
 async function driveD4PlannerTransientRetry(page) {
   const sliceId = "d4-planner-transient-retry";
   await configureProviderRuntime({ provider: "slice_verify" });
@@ -28792,6 +28921,7 @@ const drivers = {
   "d1-character-vacuum-to-named-roster": driveD1CharacterVacuumToNamedRoster,
   "d3-summary-lazy-repair": driveD3SummaryLazyRepair,
   "d4-planner-transient-retry": driveD4PlannerTransientRetry,
+  "d6-purpose-model-routing": driveD6PurposeModelRouting,
   "agent-conversation-turn": driveAgentConversationTurn,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,

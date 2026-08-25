@@ -19,6 +19,7 @@ defmodule NovelAgent.Provider.Execution do
     :result_fn,
     :execute_fn,
     :purpose,
+    :route_hint,
     :gateway_opts,
     :cancellation_token,
     metadata: %{}
@@ -33,6 +34,7 @@ defmodule NovelAgent.Provider.Execution do
           result_fn: result_fun(),
           execute_fn: execute_fun(),
           purpose: atom() | nil,
+          route_hint: atom() | nil,
           gateway_opts: keyword() | nil,
           cancellation_token: CancellationToken.t() | nil,
           metadata: map()
@@ -73,6 +75,7 @@ defmodule NovelAgent.Provider.Execution do
       result_fn: fn prompt -> complete(prompt, opts) end,
       execute_fn: fn prompt -> execute(prompt, opts) end,
       purpose: Keyword.get(opts, :purpose),
+      route_hint: Keyword.get(opts, :route_hint),
       gateway_opts: opts,
       cancellation_token: cancellation_token,
       metadata: Map.new(Keyword.drop(opts, [:model, :params, :event_sink, :cancellation_token]))
@@ -119,6 +122,24 @@ defmodule NovelAgent.Provider.Execution do
     do: %{dependency | purpose: purpose}
 
   def with_purpose(dependency, _purpose), do: dependency
+
+  @doc """
+  D6 路由粒度细化通道（tasks/slices/D6-purpose-model-routing.md）：purpose 枚举太粗时
+  （如盘点与其他工具共用 :tool），用 route_hint 给 Gateway 的按用途模型路由单独寻址。
+  只影响模型路由，不改变 ProviderRun.purpose 归因。
+  """
+  @spec with_route_hint(dependency(), atom()) :: dependency()
+  def with_route_hint(%__MODULE__{gateway_opts: opts} = dependency, route_hint)
+      when is_list(opts) do
+    dependency
+    |> Map.put(:route_hint, route_hint)
+    |> rebuild_gateway_execution(Keyword.put(opts, :route_hint, route_hint))
+  end
+
+  def with_route_hint(%__MODULE__{} = dependency, route_hint),
+    do: %{dependency | route_hint: route_hint}
+
+  def with_route_hint(dependency, _route_hint), do: dependency
 
   @spec with_params(dependency(), InferenceParams.t()) :: dependency()
   def with_params(%__MODULE__{gateway_opts: opts} = dependency, %InferenceParams{} = params)

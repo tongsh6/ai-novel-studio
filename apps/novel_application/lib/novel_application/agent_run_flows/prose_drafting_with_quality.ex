@@ -1243,15 +1243,20 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     %{step | status: :skipped, failure_ref: "deterministic_gap"}
   end
 
+  # D6 考据修正：purpose 必须打在依赖本体上（with_purpose 重建 gateway 闭包），
+  # 不能只写在 fallback 构造里——生产注入的依赖此前裸穿 Gateway（purpose 落默认
+  # :conversation），按用途路由与 ProviderRun 归因都对不上；投影器 stage 旁路的
+  # purpose 只管活动记录，不进 Gateway。
   defp provider_execution(spec, snapshot, purpose) do
-    (Map.get(spec, :provider_execution) ||
-       Execution.dependency(purpose: :writer))
+    (Map.get(spec, :provider_execution) || Execution.dependency(purpose: purpose))
+    |> Execution.with_purpose(purpose)
     |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: purpose)
   end
 
   defp quality_provider_execution(spec, snapshot) do
     (Map.get(spec, :quality_provider_execution) ||
        Execution.dependency(purpose: :evaluator))
+    |> Execution.with_purpose(:evaluator)
     |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :evaluator)
   end
 

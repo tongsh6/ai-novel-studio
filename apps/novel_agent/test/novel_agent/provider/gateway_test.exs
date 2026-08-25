@@ -179,6 +179,84 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
   end
 
+  describe "purpose model routing (D6)" do
+    test "purpose hit routes to the configured model while others follow the global default" do
+      RuntimeConfig.put_provider_config(:stub, purpose_models: %{writer: "m-d6-writer"})
+
+      assert {:ok, %{provider_run: %{model: "m-d6-writer"}}} =
+               Gateway.execute("d6 route", nil, InferenceParams.new(),
+                 provider: :stub,
+                 purpose: :writer
+               )
+
+      assert {:ok, %{provider_run: %{model: model}}} =
+               Gateway.execute("d6 route", nil, InferenceParams.new(),
+                 provider: :stub,
+                 purpose: :conversation
+               )
+
+      refute model == "m-d6-writer"
+    end
+
+    test "route_hint takes precedence over the coarse purpose key" do
+      RuntimeConfig.put_provider_config(:stub,
+        purpose_models: %{writer: "m-d6-writer", fact_inventory: "m-d6-inventory"}
+      )
+
+      assert {:ok, %{provider_run: %{model: "m-d6-inventory"}}} =
+               Gateway.execute("d6 route", nil, InferenceParams.new(),
+                 provider: :stub,
+                 purpose: :tool,
+                 route_hint: :fact_inventory
+               )
+    end
+
+    test "explicit model argument still wins over the routing table" do
+      RuntimeConfig.put_provider_config(:stub, purpose_models: %{writer: "m-d6-writer"})
+
+      assert {:ok, %{provider_run: %{model: "m-explicit"}}} =
+               Gateway.execute("d6 route", "m-explicit", InferenceParams.new(),
+                 provider: :stub,
+                 purpose: :writer
+               )
+    end
+
+    test "empty table and unrouted purposes follow the global default untouched" do
+      assert {:ok, %{provider_run: %{model: unrouted}}} =
+               Gateway.execute("d6 route", nil, InferenceParams.new(),
+                 provider: :stub,
+                 purpose: :writer
+               )
+
+      RuntimeConfig.put_provider_config(:stub, purpose_models: %{evaluator: "m-d6-eval"})
+
+      assert {:ok, %{provider_run: %{model: ^unrouted}}} =
+               Gateway.execute("d6 route", nil, InferenceParams.new(),
+                 provider: :stub,
+                 purpose: :writer
+               )
+    end
+
+    test "configure_provider normalizes purpose_models with whitelist and trims" do
+      assert {:ok, %{provider: :stub}} =
+               Gateway.configure_provider(%{
+                 "provider" => "stub",
+                 "purpose_models" => %{
+                   "writer" => " m-d6-writer ",
+                   "planner" => "",
+                   "bogus" => "m-x"
+                 }
+               })
+
+      assert RuntimeConfig.provider_config(:stub)[:purpose_models] == %{writer: "m-d6-writer"}
+    end
+
+    test "configure_provider without purpose_models keeps the config free of the key" do
+      assert {:ok, %{provider: :stub}} = Gateway.configure_provider(%{"provider" => "stub"})
+      refute Keyword.has_key?(RuntimeConfig.provider_config(:stub), :purpose_models)
+    end
+  end
+
   describe "configure_provider/1" do
     test "changes the runtime provider and merges provider config" do
       old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)

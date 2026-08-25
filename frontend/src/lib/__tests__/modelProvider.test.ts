@@ -9,6 +9,7 @@ import {
   listProviderModels,
   saveAndApplyModelProviderConfig,
   testProviderConnection,
+  normalizePurposeModels,
 } from "../modelProvider";
 
 function installLocalStorage() {
@@ -239,8 +240,43 @@ describe("model provider API client", () => {
         clear_api_key: false,
         thinking: "enabled",
         reasoning_effort: "medium",
+        purpose_models: null,
       },
     ]);
+  });
+
+  it("sends whitelisted per-purpose model overrides and drops unknown or empty entries", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        bodies.push(parseJsonBody(init));
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true, provider: "lmstudio", model: "m-global" }),
+        });
+      }),
+    );
+
+    await configureProvider({
+      provider: "lmstudio",
+      model: "m-global",
+      purposeModels: {
+        writer: " m-writer ",
+        planner: "",
+        bogus: "m-x",
+      },
+    });
+
+    expect(bodies[0].purpose_models).toEqual({ writer: "m-writer" });
+  });
+
+  it("normalizes stored purpose overrides against the route-key whitelist", () => {
+    expect(normalizePurposeModels({ writer: "m-w", bogus: "x", evaluator: "  " })).toEqual({
+      writer: "m-w",
+    });
+    expect(normalizePurposeModels(null)).toBeNull();
+    expect(normalizePurposeModels({})).toBeNull();
   });
 
   it("tests provider config without requiring a save first", async () => {

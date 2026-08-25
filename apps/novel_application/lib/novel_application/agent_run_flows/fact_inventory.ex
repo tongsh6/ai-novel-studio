@@ -547,6 +547,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
 
   defp inventory_provider_execution(spec, snapshot) do
     (Map.get(spec, :provider_execution) || Execution.dependency(purpose: :tool))
+    |> Execution.with_route_hint(:fact_inventory)
     |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :writer)
   end
 

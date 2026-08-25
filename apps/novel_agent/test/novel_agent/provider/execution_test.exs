@@ -80,6 +80,24 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert chunk_event.payload[:author_narrative_delta] =~ "[stub]"
   end
 
+  test "with_route_hint rebuilds gateway execution carrying the routing key (D6)" do
+    dependency =
+      Execution.dependency(
+        provider: :stub,
+        purpose: :tool,
+        provider_call_ref: "pcall_with_route_hint_test"
+      )
+
+    updated = Execution.with_route_hint(dependency, :fact_inventory)
+
+    assert updated.route_hint == :fact_inventory
+    assert Keyword.fetch!(updated.gateway_opts, :route_hint) == :fact_inventory
+    assert updated.purpose == :tool
+
+    complete = Execution.result_fn(updated)
+    assert {:ok, _result} = complete.("route hint smoke prompt")
+  end
+
   test "raw completion functions are not provider execution dependencies" do
     raw_result_fn = fn _prompt -> {:ok, %{content: "legacy"}} end
 

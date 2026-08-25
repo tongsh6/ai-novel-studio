@@ -1,0 +1,55 @@
+id: d6-purpose-model-routing
+title: 按用途分模型路由：writer 覆盖仅命中写作调用、其余调用跟随全局、设置区真实可见
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh d6-purpose-model-routing --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - tasks/slices/D6-purpose-model-routing.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - purpose-override-routes-only-that-purpose
+  - unrouted-purposes-follow-the-global-model
+  - provider-gateway-logs-report-the-routed-model-honestly
+  - per-purpose-section-is-real-product-ui-defaulting-to-follow-global
+
+setup:
+  seed: scripts/seed_wr01_chapter_mission.exs
+  provider: slice_verify
+
+user_flow:
+  - configure: writer purpose override through the public provider config API (su01-lmstudio-disconnected-health precedent)
+  - open: real model settings dialog and see the per-purpose section with follow-global defaults
+  - send: chapter-3 prose request from the real workbench composer
+  - verify: writer provider call logs the override model, other calls keep the global model, prose stays tentative
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/d6-purpose-model-routing-tauri
+
+assertions:
+  ui:
+    - model settings dialog shows 按用途指定模型 with four purpose rows defaulting to 跟随全局
+  network:
+    - request starts a bounded run and ends with a tentative prose_fragment turn_result
+  data:
+    - app log carries provider_gateway.complete.start with the override model for the writer call
+    - at least one provider call in the same turn keeps a different (global) model
+    - no production write before author action
+
+known_limits:
+  - Under the slice_verify stub there is no provider model list, so the override select cannot be
+    driven end-to-end from the UI here; the full UI select→save→route path needs a real LM Studio
+    with two models and is registered as a dogfood/walkthrough observation item.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

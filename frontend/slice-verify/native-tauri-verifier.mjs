@@ -171,6 +171,7 @@ export const nativeSliceIds = [
   "d1-character-vacuum-to-named-roster",
   "d3-summary-lazy-repair",
   "d4-planner-transient-retry",
+  "d6-purpose-model-routing",
   "agent-conversation-turn",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
@@ -570,6 +571,14 @@ const sliceKeyEvents = {
   "d4-planner-transient-retry": [
     "channel.user_message.start",
     "plan_draft.retry.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "d6-purpose-model-routing": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
     "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
@@ -2077,6 +2086,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findD4PlannerTransientRetryEvidence(records);
   }
 
+  if (sliceId === "d6-purpose-model-routing") {
+    return findD6PurposeModelRoutingEvidence(records);
+  }
+
   if (sliceId === "p1-word-count-audit") {
     return findP1WordCountAuditEvidence(records);
   }
@@ -3017,6 +3030,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "d4-planner-transient-retry") {
     return d4PlannerTransientRetryBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "d6-purpose-model-routing") {
+    return d6PurposeModelRoutingBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -5281,6 +5298,74 @@ function d4PlannerTransientRetryBehavior(turnIds, records, evidence) {
       "plan_draft_first_call_failed_transiently",
       "planner_retried_same_prompt_once_and_logged_it",
       "run_completed_with_tentative_prose_after_retry",
+      "no_production_write_before_author_action",
+    ],
+  };
+}
+
+function findD6PurposeModelRoutingEvidence(records) {
+  const sliceId = "d6-purpose-model-routing";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      typeof record.turn_id === "string" &&
+      typeof record.writer_override_model === "string" &&
+      record.writer_call_routed === true &&
+      record.other_calls_follow_global === true &&
+      record.purpose_section_visible === true &&
+      record.follow_global_default_visible === true &&
+      record.no_write === true,
+  );
+  if (!uiState) return null;
+
+  const routedCall = records.find(
+    (record) =>
+      record.event === "provider_gateway.complete.start" &&
+      record.model === uiState.writer_override_model,
+  );
+  if (!routedCall) return null;
+
+  const unroutedCall = records.find(
+    (record) =>
+      record.event === "provider_gateway.complete.start" &&
+      typeof record.model === "string" &&
+      record.model !== uiState.writer_override_model,
+  );
+  if (!unroutedCall) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: [uiState.parent_turn_id, uiState.turn_id].filter(Boolean),
+    run_id: uiState.run_id,
+    routed_model: uiState.writer_override_model,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function d6PurposeModelRoutingBehavior(turnIds, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "d6-purpose-model-routing" &&
+      record.turn_id === evidence.turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.writer_call_routed !== true || uiState.other_calls_follow_global !== true) {
+    return null;
+  }
+  if (uiState.no_write !== true) return null;
+
+  return {
+    slice_id: "d6-purpose-model-routing",
+    behavior: "writer_purpose_override_routed_only_writer_calls_and_others_followed_global",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    assertions: [
+      "writer_call_used_the_per_purpose_override_model",
+      "unrouted_purpose_calls_kept_the_global_model",
+      "per_purpose_settings_section_visible_with_follow_global_default",
       "no_production_write_before_author_action",
     ],
   };

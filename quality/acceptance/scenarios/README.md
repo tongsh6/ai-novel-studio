@@ -54,6 +54,7 @@
 | `d1-character-vacuum-to-named-roster.yml` | 角色真空→真空守则取名指令→伴生角色 seed 采纳建档→次轮阵容进写作、守则切换（D1 CP2） |
 | `d3-summary-lazy-repair.yml` | 摘要异步失败不阻采纳→读取侧惰性补做→补做摘要回流后续写作 prompt（D3） |
 | `d4-planner-transient-retry.yml` | 计划起草首调瞬态失败→单次原样重试成功→retry 事件留痕、run 正常完成（D4） |
+| `d6-purpose-model-routing.yml` | 按用途分模型：writer 覆盖仅命中写作调用、其余跟随全局、按用途设置区真实可见（D6） |
 | `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun，并在 46§9 推理区实时显示多段 `author_narrative_delta` |
 | `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 计划耗尽后触发 provider-sourced `plan_revised` 并继续完成对话 |
 | `agentic-loop-no-deviation-direct.yml` | ADR-0023 无偏离直通路径只消费起草计划且不触发重规划 |

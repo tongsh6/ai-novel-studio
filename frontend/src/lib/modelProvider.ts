@@ -67,11 +67,16 @@ export interface ProviderModelsResponse {
   detail?: string;
 }
 
+export const PURPOSE_ROUTE_KEYS = ["writer", "planner", "evaluator", "fact_inventory"] as const;
+
+export type PurposeRouteKey = (typeof PURPOSE_ROUTE_KEYS)[number];
+
 export interface StoredProviderPreference {
   model?: string | null;
   endpoint?: string | null;
   thinking?: "enabled" | "disabled" | null;
   reasoning_effort?: string | null;
+  purpose_models?: Record<string, string> | null;
   api_key_configured?: boolean;
 }
 
@@ -100,6 +105,7 @@ export interface ProviderConfigInput {
   clearApiKey?: boolean;
   thinking?: "enabled" | "disabled" | null;
   reasoningEffort?: string | null;
+  purposeModels?: Record<string, string> | null;
 }
 
 export interface ProviderConnectionResult {
@@ -216,6 +222,7 @@ export async function saveStoredProviderSettings(
           endpoint: normalizeOptionalText(input.endpoint),
           thinking: input.thinking ?? null,
           reasoningEffort: normalizeOptionalText(input.reasoningEffort),
+          purposeModels: normalizePurposeModels(input.purposeModels),
           apiKey: normalizeOptionalText(input.apiKey),
           clearApiKey: input.clearApiKey ?? false,
         },
@@ -230,6 +237,7 @@ export async function saveStoredProviderSettings(
     endpoint: normalizeOptionalText(input.endpoint),
     thinking: input.thinking ?? null,
     reasoning_effort: normalizeOptionalText(input.reasoningEffort),
+    purpose_models: normalizePurposeModels(input.purposeModels),
     api_key_configured: Boolean(normalizeOptionalText(input.apiKey)),
   };
 
@@ -269,6 +277,7 @@ export async function loadAndSyncModelProviderState(): Promise<ModelProviderRunt
       endpoint: preference.endpoint ?? providerOption(options, selectedProvider)?.endpoint ?? null,
       thinking: preference.thinking ?? null,
       reasoningEffort: preference.reasoning_effort ?? null,
+      purposeModels: preference.purpose_models ?? null,
       apiKey: await getStoredProviderApiKey(selectedProvider),
     });
   }
@@ -336,6 +345,7 @@ function toBackendPayload(input: ProviderConfigInput): Record<string, unknown> {
     clear_api_key: input.clearApiKey ?? false,
     thinking: input.thinking ?? null,
     reasoning_effort: normalizeOptionalText(input.reasoningEffort),
+    purpose_models: normalizePurposeModels(input.purposeModels),
   };
 }
 
@@ -397,6 +407,7 @@ function normalizeStoredSettings(raw: StoredProviderSettings): StoredProviderSet
       endpoint: normalizeOptionalText(preference.endpoint),
       thinking: normalizeThinking(preference.thinking),
       reasoning_effort: normalizeOptionalText(preference.reasoning_effort),
+      purpose_models: normalizePurposeModels(preference.purpose_models),
       api_key_configured: Boolean(preference.api_key_configured),
     };
   }
@@ -422,6 +433,18 @@ function normalizeSecretStorageStatus(raw: ProviderSecretStorageStatus): Provide
 
 function normalizeProviderId(value: unknown): ProviderId | null {
   return PROVIDER_IDS.includes(value as ProviderId) ? (value as ProviderId) : null;
+}
+
+export function normalizePurposeModels(value: unknown): Record<string, string> | null {
+  if (typeof value !== "object" || value === null) return null;
+
+  const result: Record<string, string> = {};
+  for (const key of PURPOSE_ROUTE_KEYS) {
+    const model = normalizeOptionalText((value as Record<string, unknown>)[key]);
+    if (model) result[key] = model;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 function normalizeThinking(value: unknown): "enabled" | "disabled" | null {

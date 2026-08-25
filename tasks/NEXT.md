@@ -207,10 +207,23 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板：M5 产品债剩余刀序**——候选：D6 按 purpose 分模型（新刀；用户已点出
-gpt-oss-120b 对盘点/规划比 qwen3.8-27b 更友好的实践观察，可选先切回 gpt-oss 对照狗粮
-取数再定路由设计）/ D1④ 立项引导（暂缓等 CP2 数据）；③channel 串行在 B12。
-D 系 D1-D5 已全部收口。
+**队首 = 拍板：M5 产品债收官后续**——候选：④切 gpt-oss-120b 对照狗粮取数并按用途
+填路由表（D6 机制已就绪，当前默认仍全局单模型；填表=LM Studio 挂双模型+设置区两个
+select）/ D1④ 立项引导（暂缓等 CP2 数据）；③channel 串行在 B12。D 系 D1-D6 全部收口。
+
+**D6 按用途分模型路由 done（2026-08-25，
+`tasks/slices/D6-purpose-model-routing.md`，拍板=①+③、默认态仍全局单模型）**：
+Gateway 唯一模型决定点挂 purpose→model 表（provider config `purpose_models`，键白名单
+writer/planner/evaluator/fact_inventory，未知键忽略、表空零行为变化、显式 model 仍最高
+优先）+ `route_hint` 细化通道（盘点 purpose=:tool 共键，`Execution.with_route_hint`
+单独寻址，ProviderRun 冻结枚举零改动）；设置对话框「按用途指定模型」select 区（吃供应
+商模型列表+「跟随全局」默认，延续模型名不手输立场）；Tauri 偏好/启动重放/浏览器兜底
+全链带表。**顺带修既有真缺陷**：注入依赖 purpose 裸穿 Gateway（只有 fallback 构造带
+purpose，writer/evaluator 在 Gateway 层一直落默认 :conversation，M5 体温计 writer 归因
+实为投影器旁路）——flow funnel 统一 with_purpose 后归因与路由同源；gateway 入口日志补
+purpose/route_hint。真实 Tauri `d6-purpose-model-routing` PASS：writer 调用恰 1 次记录
+覆盖模型、planner×3/evaluator×1/author_reasoning×2 保持全局；设置区真实可见默认跟随
+全局。诚实边界：UI select→保存→路由全链需真实 LM Studio 双模型（狗粮/走查观察项）。
 
 **D5 盘点思考型适配 done（2026-08-25，
 `tasks/slices/D5-inventory-thinking-model-adaptation.md`）**：材料逐章混合（四栏摘要

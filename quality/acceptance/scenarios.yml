@@ -286,6 +286,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/d4-planner-transient-retry.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh d4-planner-transient-retry --surface tauri
+  - id: d6-purpose-model-routing
+    title: "按用途分模型路由：writer 覆盖仅命中写作调用、其余调用跟随全局"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/d6-purpose-model-routing.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh d6-purpose-model-routing --surface tauri
   - id: agent-conversation-turn
     title: "普通对话输入统一进入 AgentRun"
     tier: nightly

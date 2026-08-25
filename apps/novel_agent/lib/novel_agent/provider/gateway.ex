@@ -189,7 +189,11 @@ defmodule NovelAgent.Provider.Gateway do
           execution_result()
   def execute(prompt, model \\ nil, params \\ InferenceParams.new(), opts \\ []) do
     provider_name = Keyword.get(opts, :provider, default_provider())
-    model_name = model || Keyword.get(opts, :model) || default_model(provider_name)
+    model_name =
+      model ||
+        Keyword.get(opts, :model) ||
+        purpose_route_model(provider_name, opts) ||
+        default_model(provider_name)
     provider_call_ref = Keyword.get(opts, :provider_call_ref) || provider_call_ref()
     provider_run_id = Keyword.get(opts, :provider_run_id) || provider_run_id()
     purpose = Keyword.get(opts, :purpose, :conversation)
@@ -200,7 +204,9 @@ defmodule NovelAgent.Provider.Gateway do
 
     LogEmit.emit(:provider_gateway, :complete, :start, %{
       provider: provider_name,
-      model: model_name
+      model: model_name,
+      purpose: purpose,
+      route_hint: Keyword.get(opts, :route_hint)
     })
 
     execution =
@@ -559,6 +565,29 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
+  # D6 按用途路由（tasks/slices/D6-purpose-model-routing.md）：provider 配置里的
+  # purpose_models 表（作者在模型设置里按用途覆盖；表空/键缺失=跟随全局默认模型）。
+  # route_hint 先于 purpose——粒度细化通道（盘点 purpose=:tool 与其他工具共键，靠
+  # route_hint 单独寻址）。未知键一律忽略（诚实跟随全局，不猜）。
+  @purpose_route_key_names %{
+    "writer" => :writer,
+    "planner" => :planner,
+    "evaluator" => :evaluator,
+    "fact_inventory" => :fact_inventory
+  }
+  @purpose_route_keys Map.values(@purpose_route_key_names)
+
+  defp purpose_route_model(provider_name, opts) do
+    route_key = Keyword.get(opts, :route_hint) || Keyword.get(opts, :purpose)
+
+    if route_key in @purpose_route_keys do
+      case RuntimeConfig.provider_config(provider_name)[:purpose_models] do
+        %{} = models -> Map.get(models, route_key)
+        _ -> nil
+      end
+    end
+  end
+
   defp fetch_provider(attrs) do
     provider = Map.get(attrs, :provider) || Map.get(attrs, "provider")
 
@@ -609,7 +638,8 @@ defmodule NovelAgent.Provider.Gateway do
           endpoint: endpoint,
           api_key: optional_string(attrs, :api_key),
           thinking: normalize_thinking(optional_string(attrs, :thinking)),
-          reasoning_effort: optional_string(attrs, :reasoning_effort)
+          reasoning_effort: optional_string(attrs, :reasoning_effort),
+          purpose_models: normalize_purpose_models(attrs)
         ]
         |> Enum.reject(fn
           {_key, nil} -> true
@@ -619,6 +649,48 @@ defmodule NovelAgent.Provider.Gateway do
       {:ok, config}
     end
   end
+
+  # 配置入口的 purpose_models 归一：只收白名单键、非空字符串值；空表归 nil
+  # （reject 后不落配置=跟随全局）。
+  defp normalize_purpose_models(attrs) do
+    case Map.get(attrs, :purpose_models) || Map.get(attrs, "purpose_models") do
+      %{} = map ->
+        map
+        |> Enum.reduce(%{}, &put_route_entry(&2, &1))
+        |> case do
+          empty when map_size(empty) == 0 -> nil
+          models -> models
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp put_route_entry(acc, {key, value}) do
+    with {:ok, route_key} <- route_key_from(key),
+         model when is_binary(model) <- non_empty_string(value) do
+      Map.put(acc, route_key, model)
+    else
+      _ -> acc
+    end
+  end
+
+  defp route_key_from(key) when is_atom(key), do: route_key_from(Atom.to_string(key))
+
+  defp route_key_from(key) when is_binary(key),
+    do: Map.fetch(@purpose_route_key_names, key)
+
+  defp route_key_from(_key), do: :error
+
+  defp non_empty_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp non_empty_string(_value), do: nil
 
   defp validate_endpoint(_provider, nil), do: :ok
 

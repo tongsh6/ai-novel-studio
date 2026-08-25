@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `D6-purpose-model-routing.md` | **done（2026-08-25）/ 按用途分模型路由**：Gateway 唯一决定点 purpose→model 查表（白名单 writer/planner/evaluator/fact_inventory、route_hint 细化、表空零行为变化）+ 设置对话框按用途 select 区 + Tauri 偏好全链；顺带修注入依赖 purpose 裸穿 Gateway 的既有缺陷（归因与路由同源化）；真实 Tauri `d6-purpose-model-routing` PASS。填表与跨供应商另行拍板。 |
 | `D5-inventory-thinking-model-adaptation.md` | **done（2026-08-25）/ 盘点思考型适配**：材料逐章混合（四栏摘要 seq 对位优先、缺失章回退正文截断）+ 退化自动降批合并（减半至最小批 3、提案 item_id 去重、`batch_fallback` 留痕）+ 瞬态单次重试（retryable:false 排除）；au14 真实 Tauri 回归 PASS。退化→降批页面级自愈留待真实模型狗粮观察。 |
 | `D4-planner-transient-retry.md` | **done（2026-08-25）/ 计划起草瞬态重试**：provider 错误族（含超时）单次重试（叙事段独立额度、结构段与纠正共享）、`plan_draft.retry` 双族留痕；真实 Tauri `d4-planner-transient-retry` PASS（ADR-0023 CP0 重试半边实装）。 |
 | `D3-summary-maintenance-reliability.md` | **done（2026-08-25）/ 摘要维护可靠性**：狗粮吃生产异步语义 + 后台任务可观测（含 degrade 谎报分类修）+ 读取侧惰性补做断供自愈；真实 Tauri `d3-summary-lazy-repair` PASS + p1 采纳回归 PASS（替身「主角」句急救）。 |
