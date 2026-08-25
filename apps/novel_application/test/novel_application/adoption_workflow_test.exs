@@ -115,7 +115,12 @@ defmodule NovelApplication.AdoptionWorkflowTest do
     end
 
     test "reading projection refs are emitted only after prose artifacts materialize reading content" do
-      source_turn = source_turn_result(%{artifact_type: :prose_fragment})
+      # D1/D2 词表扩后默认夹具文案「主角更果断」会触发元泄漏确认——本测试与词表无关，给干净正文。
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :prose_fragment,
+          payload: %{title: "正文", content: "陆沉舟收好账单。"}
+        })
 
       writer = fn _attrs ->
         {:ok,

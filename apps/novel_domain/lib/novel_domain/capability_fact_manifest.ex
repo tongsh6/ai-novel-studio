@@ -48,9 +48,19 @@ defmodule NovelDomain.CapabilityFactManifest do
     |> facts()
     |> Enum.reject(&present?(&1.element, snapshot))
     |> Enum.map(&Map.take(&1, [:element, :element_ref, :tier, :absence_directive]))
+    |> Enum.map(&vacuum_variant(&1, snapshot))
   end
 
   def evaluate_presence(_capability, _snapshot), do: []
+
+  # D1（M5 实锤）：主角缺席分两种事实——「有角色但无主角标记」维持原守则（防乱立）；
+  # 「角色档案显式为空」换真空守则（原守则的「不得另立新主角」在真空下是死锁令，
+  # 会把守指令的模型逼到用「主角」当人称写正文）。仅当快照显式 roster: [] 才判真空；
+  # 快照缺 roster 数据源维持原守则（无法确认≠确认为空）。
+  defp vacuum_variant(%{element: :protagonist} = missing, %{roster: []}),
+    do: %{missing | absence_directive: :protagonist_missing_vacuum}
+
+  defp vacuum_variant(missing, _snapshot), do: missing
 
   # 各要素的在场判定（机械查现状快照）。
   defp present?(:protagonist, %{roster: roster}) when is_list(roster) do

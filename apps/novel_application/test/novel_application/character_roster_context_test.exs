@@ -158,8 +158,12 @@ defmodule NovelApplication.CharacterRosterContextTest do
     assert prompts =~ "沈砚"
   end
 
-  test "非角色向能力（world_building）不注入现有角色" do
-    prompts = run("world_building", roster([%{name: "沈砚", role: "主角", summary: "x"}]))
-    refute prompts =~ "## 现有角色"
+  # CA04 G3（2026-08-24 拍板）：world_building 已放行阵容注入——设定生成端看得见现有
+  # 角色，撞名/撞设定在生成端预防。原「不注入」预期随门变更翻转（该败例曾被旧管道
+  # 门禁链吞掉，2026-08-25 真退出码链首抓）。
+  test "world_building 注入现有角色（CA04 G3 放行）" do
+    prompts = run("world_building", roster([%{name: "沈砚", narrative_role: "PROTAGONIST", summary: "x"}]))
+    assert prompts =~ "## 现有角色"
+    assert prompts =~ "沈砚"
   end
 end

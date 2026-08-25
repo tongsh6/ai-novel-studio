@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `D1-character-vacuum-closure.md` | **doing（CP1）/ 角色真空收口**：M5 债 D1+D2——缺席守则真空分支（取名指令替死锁令，MBC 判例）+ B9 词表扩叙事层元词 + 狗粮 seed 具名化；CP2=伴生角色 seed 接线与页面级全环验收。 |
 | `WR01c-mission-why-brief-and-planning-decision.md` | **done（2026-08-24）/ 写前推理层三期**：why 弹窗结构化使命区块（trace_summary payload + state_trace_refs 持久，广播/replay 同源，修 replay 丢行）+ 规划使命作者裁决（`works.planning_direction`，ADR-0024 S9，作者版下轮 0 调用直取）。真实 Tauri `wr01c-planning-mission-decision` PASS + `wr01` 复跑 PASS。 |
 | `CA04-carry-gap-closure.md` | **done（2026-08-24）/ 携带缺口收口**：拍板通过的三行门变更（正文+全书进度与收官守则、无分卷守则 / 规划+作品事实与风格同源 / world_building+阵容），I12 流程首用；G4/G5 缓留登记。真实 Tauri `ca04-carry-gap-closure` PASS + `ca03` 复跑 PASS。 |
 | `CA03-carry-selection-registry.md` | **done（2026-08-24）/ 携带层统一**：创作调用前的携带通道收敛为 `CarryRegistry` 一张登记表（14 行，门只在登记表声明；渲染原地）；`context.carry.done` 三分日志（carried/gated/empty，gated 不冒充 empty）；行为逐字节不变（wr01/wr02 复跑 PASS）。缺口 G1-G5 已登记待拍板。 |

@@ -141,9 +141,11 @@ defmodule NovelApplication.AbsenceDirectiveInjectionTest do
     refute prompts =~ "承重事实缺席提示"
   end
 
-  test "prose_writing：空 roster → 注入主角缺席守则（M3 地基真空直接病例）" do
+  test "prose_writing：空 roster → 注入真空守则（D1：取名指令而非死锁令）" do
     prompts = run("prose_writing", roster([]))
-    assert prompts =~ "尚未确立主角档案"
+    assert prompts =~ "尚无任何角色档案"
+    assert prompts =~ "取用稳定的具体名字"
+    refute prompts =~ "不得另立新主角"
   end
 
   test "plot_outline：无主角同样注入缺席守则（规划期也守）" do
@@ -179,7 +181,8 @@ defmodule NovelApplication.AbsenceDirectiveInjectionTest do
 
     prompts = with_assumptions([inactive], fn -> run("prose_writing", roster([])) end)
 
-    assert prompts =~ "尚未确立主角档案"
+    # D1：空 roster + 未激活假定 = 真空守则（假定未激活不计入在场）
+    assert prompts =~ "尚无任何角色档案"
     refute prompts =~ "【暂定】主角"
   end
 
@@ -198,7 +201,8 @@ defmodule NovelApplication.AbsenceDirectiveInjectionTest do
         run("prose_writing", roster([]))
       end)
 
-    assert prompts =~ "尚未确立主角档案"
+    # D1：读端口抛错降级为空假定；roster reader 在场且为空 → 真空守则
+    assert prompts =~ "尚无任何角色档案"
     refute prompts =~ "【暂定】主角"
   end
 end

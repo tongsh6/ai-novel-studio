@@ -44,6 +44,8 @@ defmodule NovelApplication.ProseQualityValidators do
 
   # 结构/状态元标签不应出现在正文 body
   # B9（M2 Q2/Q3 修向）：章号叙述自指与工作流程词都是元泄漏——正文只写故事本身。
+  # D1/D2（M5 实锤，2026-08-25）：叙事层元词入表——档案真空下模型把「主角」当人称
+  # 写进正文（41 处/5 章，M3 旧模型族 0 处）；正文只许具名人物，不许叙事标签。
   @meta_label_patterns [
     ~r/场景\s*[0-9０-９一二三四五六七八九十]+/u,
     ~r/第\s*[0-9０-９一二三四五六七八九十]+\s*场/u,
@@ -51,7 +53,10 @@ defmodule NovelApplication.ProseQualityValidators do
     ~r/正文草稿/u,
     ~r/待采纳/u,
     ~r/审校/u,
-    ~r/(^|\n)\s*标题[:：]/u
+    ~r/(^|\n)\s*标题[:：]/u,
+    ~r/主角/u,
+    ~r/反派/u,
+    ~r/配角/u
   ]
 
   @doc """
@@ -139,7 +144,7 @@ defmodule NovelApplication.ProseQualityValidators do
         ctx,
         "validator.prose_pattern_repetition",
         @style_gate,
-        "正文 body 出现结构/状态元标签或工作流程词（如 场景N / 第N章 / 待采纳 / 审校），不属于小说正文。",
+        "正文 body 出现结构/状态元标签、工作流程词或叙事层元词（如 场景N / 第N章 / 待采纳 / 主角 / 反派），不属于小说正文。",
         text,
         hits
       )

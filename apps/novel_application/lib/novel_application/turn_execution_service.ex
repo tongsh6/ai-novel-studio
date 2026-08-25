@@ -1162,7 +1162,17 @@ defmodule NovelApplication.TurnExecutionService do
 
       _facts ->
         assumptions = active_assumption_characters(frame, assumption_reader)
-        snapshot = %{roster: fact_completeness_roster(frame, reader) ++ assumptions}
+        roster = fact_completeness_roster(frame, reader) ++ assumptions
+
+        # D1：无 reader 且无激活假定 = 无法确认角色现状——快照不带 roster 键，
+        # manifest 维持原主角缺席守则；显式空 roster 才判档案真空（换取名守则）。
+        snapshot =
+          if is_function(reader, 1) or assumptions != [] do
+            %{roster: roster}
+          else
+            %{}
+          end
+
         missing = NovelDomain.CapabilityFactManifest.evaluate_presence(capability, snapshot)
         emit_fact_completeness(frame, capability, missing, length(assumptions))
         NovelDomain.AbsenceDirective.render(missing) <> assumption_section(assumptions)

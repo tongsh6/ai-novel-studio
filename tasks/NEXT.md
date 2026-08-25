@@ -207,7 +207,10 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板（2026-08-25，M5 狗粮收官）**：产品债 D1-D6 逐条裁决（清单见
+**队首 = D1 角色真空收口（2026-08-25 用户拍板「全走」，doing，
+`tasks/slices/D1-character-vacuum-closure.md`）**：CP1=守则真空分支+B9 词表扩叙事层
+元词（D2 并入）+seed 具名化；CP2=伴生角色 seed 接线（页面级验收归此）；④立项引导暂缓。
+其余产品债 D3-D6 仍待拍板（清单见
 `docs/design/notes/2026-08-25-m5-dogfood-observations.md` §3）——D1 角色真空→「主角」
 泄漏结构解 / D2 B9 词表扩叙事层元词 / D3 accept 同步摘要维护阻塞 channel（异步化）/
 D4 planner 重试（ADR-0023 CP0 实装，坏草稿率 ~1/4 章次实据）/ D5 盘点回路思考型适配 /

@@ -61,6 +61,10 @@ defmodule NovelApplication.ProseQualityValidatorsTest do
   test "B9：meta_leak_hits 导出扫描与生成期同一 pattern 源" do
     assert V.meta_leak_hits("这是第12章的伏笔。") != []
     assert V.meta_leak_hits("干净的正文段落。") == []
+    # D1/D2：叙事层元词（M5 实锤：档案真空下「主角」被当人称写进正文）
+    assert V.meta_leak_hits("陆沉舟把测灵针别进袖口，主角站在巷口。") != []
+    assert V.meta_leak_hits("反派冷笑一声。") != []
+    assert V.meta_leak_hits("陆沉舟把测灵针别进袖口。") == []
   end
 
   test "ai cliche overuse → prose_pattern_repetition" do

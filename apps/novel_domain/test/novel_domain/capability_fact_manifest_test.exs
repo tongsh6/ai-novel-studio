@@ -38,10 +38,24 @@ defmodule NovelDomain.CapabilityFactManifestTest do
 
   test "缺席守则从缺失清单渲染（含守则的才产文本）" do
     missing = Manifest.evaluate_presence("prose_writing", %{roster: []})
+    # D1：真空态（roster 显式为空）换真空守则 key；缺数据源维持原 key
+    assert Enum.any?(missing, &(&1.absence_directive == :protagonist_missing_vacuum))
+
+    unmarked = Manifest.evaluate_presence("prose_writing", %{roster: [%{name: "甲"}]})
+    assert Enum.any?(unmarked, &(&1.absence_directive == :protagonist_missing))
+
+    no_source = Manifest.evaluate_presence("prose_writing", %{})
+    assert Enum.any?(no_source, &(&1.absence_directive == :protagonist_missing))
+    assert NovelDomain.AbsenceDirective.directive(:protagonist_missing_vacuum) =~ "取用稳定的具体名字"
+
     text = AbsenceDirective.render(missing)
     assert text =~ "承重事实缺席提示"
-    assert text =~ "尚未确立主角档案"
-    assert text =~ "不得另立新主角"
+    # D1：真空清单渲染真空守则（取名指令），不再是死锁令
+    assert text =~ "尚无任何角色档案"
+    assert text =~ "取用稳定的具体名字"
+    refute text =~ "不得另立新主角"
+
+    assert AbsenceDirective.render(unmarked) =~ "不得另立新主角"
   end
 
   test "缺席守则：无缺失或无守则时空段" do
