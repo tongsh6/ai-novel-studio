@@ -207,8 +207,18 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = D7 T5：M10 狗粮复跑验证**（qwen BF16 + 拉满思考档，验证续写误判归零并重评
-模型定版）。D7 CP1 已落（①默认改安全侧 + ③写作步键存在性校验，门禁全绿）。
+**队首 = 拍板：模型定版重评**（`docs/design/notes/2026-08-26-m6-gptoss-contrast.md`
+§4f/§4g）——**M10c 复跑推翻了先前全部模型结论**：D7 修复后 qwen3.8-27B BF16 同配复跑
+12/12 章达标、18454 字、导出 ✓、**续写覆盖误判 0（修复前第 1 章即 3/3 死）**、盘点
+1/1 成功 17 提案主角建档、元词 0；而模型行为没变（仍 15 次省略 authoring_intent，
+软降级留痕为证）。剩余唯一真实差距=速度（gpt-oss 24.2s vs qwen-BF16 165s，全书
+30 分钟 vs 4 小时，架构差非纪律差）。三方案见 §4g，**推荐 c) D6 按用途分模型**
+（写作 qwen / 规划评审盘点 gpt-oss，双挂 86-92GB 本机可容，机制已就绪）；填写作槽
+前建议先做 M6 书 vs M10c 书文学盲评。
+
+**D7 T5 done（2026-08-26）**：M10 三跑校准——xhigh×BF16 撞产品 900s 护栏不可用
+（配置问题非 D7）；③硬失败版让 qwen 连续 run_failed（我方回归，已改软降级并提交
+fb6035e9）；M10c（BF16+none+完整 D7）全绿收官，D7 双修均验证有效。
 
 **新登记缺口 B15：bounded run 下 `toolbox.execute.*` 事件丢 turn_id**（可观测性债，
 2026-08-26 D7 回归排查挖出）——`LogEmit` 从 Logger metadata 取 turn_id，主链路迁进
