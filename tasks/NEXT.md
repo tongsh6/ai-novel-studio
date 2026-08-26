@@ -207,11 +207,17 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板：模型定版**（`docs/design/notes/2026-08-26-m6-gptoss-contrast.md`
-§4b/§4c）——M5/M6/M7/M8/M9 五跑收口，qwen3.8 三形态（Q8+none / Q8+medium /
-BF16 满精度）**坐标判定短板一致存在**，与量化和思考档位均无关；建议**全局直切
-gpt-oss-120b（零表）**。唯一未验项：M5 书 vs M6 书文学质感盲评（若 qwen 文笔显著
-胜出，可为「正文写作」槽单独保留 qwen 形态再验）。
+**队首 = 拍板：D7 续写意图破坏性默认修复**（P1 产品缺陷，2026-08-26 作者质疑
+「qwen3.8 能到 Opus 4.6 水平不可能判不了续写」后挖出真根因，
+`docs/design/notes/2026-08-26-m6-gptoss-contrast.md` §4d/§4e）——**归因推翻**：
+qwen 推理全对（原始 prompt/返回逐条为证），只是**省略可选字段 `authoring_intent`**
+（gpt-oss 14 次全填 vs qwen 全程 1 次）；产品 `adoption_mode/1` 把缺失落
+`_ -> :overwrite`（覆盖作者已采纳正文），planner 白名单 `@writing_intent_values`
+又把 nil 视为合法放行——「填错」堵住了、「不填」没堵。M0（2026-07-19）踩过孪生坑
+（748→432 字数倒退）只补了半边。**MBC 判例再现**：为一个模型族建的默认把另一族逼进
+破坏性路径。四方案见 §4e，推荐 ①默认改安全侧（nil→append）+③字段升必填。
+**模型定版拍板顺延到 D7 修复后重评**（原建议全局直切 gpt-oss 的速度/稳定性依据仍在，
+但「qwen 判断力不行」的指控已撤销）。
 
 **M8/M9 变量穷举 done（2026-08-26）**：M8=Q8+medium（思考 2475 字符实证）、
 M9=BF16 满精度 54.74GB+none——两跑第 1 章续写均 **3/3 误判**（M7-none 同款），
