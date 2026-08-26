@@ -816,6 +816,23 @@ function writeArtifacts(toc, exportPath, runMeta) {
   }
 }
 
+// M7 公平对照桥路（D6 CP2）：开跑前把思考档位显式写进运行时 provider 配置。
+// 走产品公开 config API（su01-lmstudio-disconnected 判例：config API 属外部公开面），
+// 不依赖 server 进程 env 求值链（M7 首启实锤该链存在未解之谜，显式优于隐式）。
+const reasoningEffort = (process.env.DOGFOOD_REASONING_EFFORT ?? "").trim();
+const apiBaseUrl = process.env.DOGFOOD_API_BASE_URL ?? "http://127.0.0.1:4657";
+if (reasoningEffort && provider === "lmstudio") {
+  const effortRes = await fetch(`${apiBaseUrl}/api/provider/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "lmstudio", reasoning_effort: reasoningEffort }),
+  });
+  if (!effortRes.ok) {
+    throw new Error(`configure reasoning_effort failed: HTTP ${effortRes.status}`);
+  }
+  log(`reasoning_effort=${reasoningEffort} applied via provider config API`);
+}
+
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 

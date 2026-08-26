@@ -207,11 +207,20 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板：D6 路由表怎么填**（`docs/design/notes/2026-08-26-m6-gptoss-contrast.md`
-§4）——盘点/规划/评审三槽切 gpt-oss-120b 无悬念；「正文写作」槽待 M5 书 vs M6 书样章
-人工盲评（速度 22 倍差 vs qwen 文学质感口碑）。可选走法：a) 盲评后四槽分别填（LM
-Studio 挂双模型）；b) 盲评偏 gpt-oss 则全局直切、零表。其余候选：D1④ 立项引导（暂缓
-等 CP2 数据）；③channel 串行在 B12。
+**队首 = 拍板：模型定版**（`docs/design/notes/2026-08-26-m6-gptoss-contrast.md`
+§4b 终版建议）——M5/M6/M7 三方对照收口，建议**全局直切 gpt-oss-120b（零表）**；
+可选附加：M5 书 vs M6 书文学盲评决定是否为「正文写作」槽保留 qwen 形态再验。
+其余候选：D1④ 立项引导（暂缓等 CP2 数据）；③channel 串行在 B12。
+
+**M7 公平对照狗粮 done（2026-08-26）**：qwen3.8-27B **Q8_0**（量化对齐）+
+`reasoning_effort=none`（运行形态对齐，347 调用全程实证在请求体）——12 章 16807 字
+（10 达标 2 skip）4h02m 收官；writer 中位 78.6s 零撞阀（速度问题解决）但**续写坐标
+判定系统性退化**：15 次「续写→覆盖确认」误判 + 3 次 skip（M6 全程 2 次），管线效率
+优势全数吐回；盘点节拍未触发（skip 章存在，数据缺口如实记）；元词 0（D1 修复跨模型
+站住）。结论=qwen 两形态均不胜任本产品 agentic 主链，gpt-oss 三维全胜且无项目偏袒
+（§3b 审计）。执行途中沉淀：GGUF variant 寻址判例/reasoning_effort 档位随模板变
+（low 在 GGUF 无效、none 通用）/env 求值谜团→runner 显式 config API 桥路
+（dogfood_run.sh+dogfood-runner.mjs）；B8 拒跑分支 unbound 修复。
 
 **M6 对照狗粮 done（2026-08-26，队首④取数动作）**：gpt-oss-120b 同刻度对照跑一次
 收官——12 章 18181 字 30 分 13 秒、201 调用全 200、provider_runs 全 purpose 全

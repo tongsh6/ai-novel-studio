@@ -108,7 +108,7 @@ print(max(llms) if llms else 0)
 ')"
 
   if [[ -z "$LOADED_CONTEXT" || "$LOADED_CONTEXT" -lt "$MIN_CONTEXT_LENGTH" ]]; then
-    echo "[dogfood][B8] 预检失败：已加载模型 contextLength=$LOADED_CONTEXT < $MIN_CONTEXT_LENGTH。" >&2
+    echo "[dogfood][B8] 预检失败：已加载模型 contextLength=${LOADED_CONTEXT} < ${MIN_CONTEXT_LENGTH}。" >&2
     echo "[dogfood][B8] 请先执行：lms load qwen/qwen3.8-27b --context-length 32768" >&2
     exit 1
   fi
@@ -238,6 +238,8 @@ SLICE_VERIFY_BASE_URL="http://127.0.0.1:${VITE_PORT}" \
   DOGFOOD_MIN_WORDS="$MIN_WORDS" \
   DOGFOOD_TARGET_WORDS="$TARGET_WORDS" \
   DOGFOOD_PROVIDER="$PROVIDER" \
+  DOGFOOD_API_BASE_URL="$API_URL" \
+  DOGFOOD_REASONING_EFFORT="${NOVEL_LMSTUDIO_REASONING_EFFORT:-}" \
   node slice-verify/dogfood-runner.mjs
 
 echo "[dogfood] done. artifacts: $ARTIFACT_DIR"
