@@ -207,7 +207,20 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
-**队首 = 拍板：D7 续写意图破坏性默认修复**（P1 产品缺陷，2026-08-26 作者质疑
+**队首 = D7 T5：M10 狗粮复跑验证**（qwen BF16 + 拉满思考档，验证续写误判归零并重评
+模型定版）。D7 CP1 已落（①默认改安全侧 + ③写作步键存在性校验，门禁全绿）。
+
+**新登记缺口 B15：bounded run 下 `toolbox.execute.*` 事件丢 turn_id**（可观测性债，
+2026-08-26 D7 回归排查挖出）——`LogEmit` 从 Logger metadata 取 turn_id，主链路迁进
+bounded AgentRun 后工具在 run server 进程执行、metadata 无该键。全仓产物印证：老产物
+`p1-100k-dogfood` 248/842 带，M4 狗粮（07-29）起全部 0，与 06-29 迁移时间线吻合。
+后果：`p1-chapter-expansion` / `p1-chapter-overwrite-confirm` 两个 P1 场景的 behavior
+门长期哑火（产品行为其实正确：本次 expansion 第 1 章 2 次续写累积 134→1224 字、
+intents 全 continuation、evidence 命中，只有 turn_id 门挂住）。**对照实验已排除 D7
+回归**（stash 掉 D7 同样超时）。修法：①run server 执行工具前灌 turn_id 进 Logger
+metadata（推荐）／②verifier 门改用 run_id（降证据强度，不推荐）。
+
+**～～队首 = 拍板：D7 续写意图破坏性默认修复～～（已拍板并落地 CP1）**（P1 产品缺陷，2026-08-26 作者质疑
 「qwen3.8 能到 Opus 4.6 水平不可能判不了续写」后挖出真根因，
 `docs/design/notes/2026-08-26-m6-gptoss-contrast.md` §4d/§4e）——**归因推翻**：
 qwen 推理全对（原始 prompt/返回逐条为证），只是**省略可选字段 `authoring_intent`**

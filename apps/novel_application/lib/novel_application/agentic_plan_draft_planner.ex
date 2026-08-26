@@ -397,30 +397,48 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   # 重试一次，仍坏诚实失败）——不猜测语义映射。
   @writing_intent_values [nil, "", "none", "continuation", "rewrite"]
 
+  # D7（2026-08-26）：值域校验之外再加**键存在性**校验。省略该键与显式填 null
+  # （写新章）在解析后都是 nil，无法区分；而「省略」恰恰是需要模型补齐的那种缺失
+  # （M6/M9 实锤：qwen 推理正确但常省略此键）。要求 prose_writing 步显式携带该键，
+  # 缺失即结构不合法，走既有携带原因重试一次骨架；值仍允许 null（写新章的正当取值）。
   defp validate_writing_intents(parsed) do
     steps =
       parsed
       |> map_get(:plan)
       |> then(fn plan -> (is_map(plan) && map_get(plan, :steps)) || [] end)
 
-    invalid =
-      steps
-      |> Enum.filter(fn step ->
-        is_map(step) and map_get(step, :target_tool_ref) == "prose_writing" and
-          map_get(step, :authoring_intent) not in @writing_intent_values
+    prose_steps =
+      Enum.filter(steps, fn step ->
+        is_map(step) and map_get(step, :target_tool_ref) == "prose_writing"
       end)
+
+    missing = Enum.reject(prose_steps, &authoring_intent_key?/1)
+
+    invalid =
+      prose_steps
+      |> Enum.filter(&(map_get(&1, :authoring_intent) not in @writing_intent_values))
       |> Enum.map(&map_get(&1, :authoring_intent))
 
-    case invalid do
-      [] ->
-        :ok
+    cond do
+      missing != [] ->
+        {:error,
+         {:missing_authoring_intent,
+          "prose_writing 步必须显式携带 authoring_intent 键（continuation / rewrite / null），本次有 #{length(missing)} 步缺该键"}}
 
-      values ->
+      invalid != [] ->
         {:error,
          {:invalid_authoring_intent,
-          "authoring_intent 只能取 continuation / rewrite / null（枚举，非描述文字），收到：#{inspect(Enum.uniq(values))}"}}
+          "authoring_intent 只能取 continuation / rewrite / null（枚举，非描述文字），收到：#{inspect(Enum.uniq(invalid))}"}}
+
+      true ->
+        :ok
     end
   end
+
+  defp authoring_intent_key?(step) when is_map(step),
+    do: Map.has_key?(step, :authoring_intent) or Map.has_key?(step, "authoring_intent")
+
+  defp authoring_intent_key?(_step), do: false
 
   defp validate_plan_targets(%AgentRun{} = run, %AgentPlan{steps: steps}) do
     allowed = MapSet.new(allowed_targets(run))

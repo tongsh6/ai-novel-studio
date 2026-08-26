@@ -342,7 +342,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   end
 
   defp plan_step(id, target, kind, description) do
-    %{
+    step = %{
       "step_id" => id,
       "kind" => kind,
       "description" => description,
@@ -352,6 +352,13 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       "write_intent" => if(kind == "act", do: "tentative", else: "none"),
       "risk_hint" => "low"
     }
+
+    # D7（2026-08-26）：prose_writing 步必须显式携带 authoring_intent 键（值可为
+    # null=写新章）——省略即结构不合法。本 fixture 的写作步语义是「重写/补写目标章」，
+    # 按 describe 中的措辞取 rewrite；键存在性才是契约要求的重点。
+    if target == "prose_writing",
+      do: Map.put(step, "authoring_intent", "rewrite"),
+      else: step
   end
 
   defp plan_draft_prompt?(text), do: String.contains?(text, "agent_plan_draft")

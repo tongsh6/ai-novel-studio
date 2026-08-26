@@ -314,15 +314,50 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       assert step.target_chapter == "第01章：开端"
     end
 
-    test "省略 authoring_intent 默认 nil（新章语义）" do
+    # D7（2026-08-26）：显式 null 是写新章的正当取值，仍须放行；「省略键」则不再
+    # 放行（见下一例）——两者解析后都是 nil，只能靠键存在性区分。
+    test "显式 authoring_intent=null 合法（新章语义）" do
       step =
         base_act_step()
-        |> Map.drop(["authoring_intent", "target_chapter", "requested_chapter_raw"])
+        |> Map.merge(%{"authoring_intent" => nil})
+        |> Map.drop(["target_chapter", "requested_chapter_raw"])
         |> drafted_act_step()
 
       assert step.authoring_intent == nil
       assert step.target_chapter == nil
     end
+  end
+
+  # D7：prose_writing 步省略 authoring_intent 键 → 结构不合法 → 携带原因重试一次。
+  # 缺陷背景：省略时采纳分流曾落 :overwrite（覆盖作者已采纳正文），M6/M9 对照实锤
+  # qwen 推理正确但常省略此键。
+  test "prose_writing 步省略 authoring_intent 键触发结构纠正重试" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    missing_step =
+      base_act_step()
+      |> Map.drop(["authoring_intent"])
+
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+        step = if n == 1, do: missing_step, else: base_act_step()
+
+        {:ok, act_provider_result(step)}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:ok, plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(
+               probe_run(),
+               %Execution{result_fn: result_fn}
+             )
+
+    assert [step] = plan.steps
+    assert step.authoring_intent == :continuation
+    assert Agent.get(counter, & &1) == 2, "缺键首稿应触发恰一次结构纠正重试"
   end
 
   test "planning prompts do not list the removed generic creative capability" do

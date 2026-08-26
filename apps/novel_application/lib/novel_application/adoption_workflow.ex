@@ -1262,12 +1262,22 @@ defmodule NovelApplication.AdoptionWorkflow do
     }
   end
 
-  # 采纳 provenance → 持久化分流：续写 append 同章新场景累积；重写/默认 overwrite 覆盖。
+  # 采纳 provenance → 持久化分流：**只有显式 rewrite 才覆盖**，其余（continuation /
+  # 新章 null / 字段缺失）一律 append。
+  #
+  # D7（2026-08-26）：原实现是 `continuation -> :append; _ -> :overwrite`，把「模型
+  # 没填 authoring_intent」等同于「作者要推翻重写」——覆盖已采纳正文是不可逆动作，
+  # 缺信息时默认执行它，方向错了。M6/M9 对照实锤：qwen3.8 推理完全正确（原文
+  # 「保留既有内容接着往下写」）但省略该可选字段（gpt-oss 14 次全填 vs qwen 1 次），
+  # 于是每次续写都被判成覆盖并弹确认卡。M0（2026-07-19）踩过孪生坑（填错→吞成 nil
+  # →748→432 字数倒退）时只补了「填错」半边，「不填」这半边留到现在。
+  # 安全性论证：新章（intent=null/none）目标章无已采纳正文，append 等价于首次写入；
+  # 续写 append 是本意；只有作者明确要重写才走破坏性分支。
   defp adoption_mode(artifact) do
     case artifact_field(artifact, :authoring_intent) do
-      :continuation -> :append
-      "continuation" -> :append
-      _ -> :overwrite
+      :rewrite -> :overwrite
+      "rewrite" -> :overwrite
+      _ -> :append
     end
   end
 
