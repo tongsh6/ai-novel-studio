@@ -209,7 +209,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp build_or_retry_plan({:ok, parsed}, ctx) do
     with {:ok, reasoning, origin, source_result} <- resolve_narrative(ctx, parsed),
-         :ok <- validate_writing_intents(parsed),
+         :ok <- validate_writing_intents(parsed, ctx),
          {:ok, plan} <- build_plan(ctx.run, parsed),
          :ok <- validate_plan_targets(ctx.run, plan),
          {:ok, narrative_source} <-
@@ -399,9 +399,17 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   # D7（2026-08-26）：值域校验之外再加**键存在性**校验。省略该键与显式填 null
   # （写新章）在解析后都是 nil，无法区分；而「省略」恰恰是需要模型补齐的那种缺失
-  # （M6/M9 实锤：qwen 推理正确但常省略此键）。要求 prose_writing 步显式携带该键，
-  # 缺失即结构不合法，走既有携带原因重试一次骨架；值仍允许 null（写新章的正当取值）。
-  defp validate_writing_intents(parsed) do
+  # （M6/M9 实锤：qwen 推理正确但常省略此键）。
+  #
+  # **缺键是软性要求（M10 实锤校准）**：先带原因重试一次请模型补齐；若重试后仍缺，
+  # **带痕放行**而不是让作者的 run 失败——因为 adoption_mode 已把「缺失」默认成
+  # 安全侧 append（D7 ①），缺这个键不再有破坏性后果。M10 首版把缺键做成硬失败，
+  # 实测 qwen 首稿与重试都省略 → agent_run.run_failed ×3、作者一个字都拿不到，
+  # 比修复前更糟；判据：**不可逆动作要 fail-safe，可选元数据不该 fail-hard**。
+  #
+  # 「填错」（非枚举值，如中文短语）仍是硬失败：那是语义不明，猜它等于赌作者的正文
+  # （M0 2026-07-19 判例：748→432 字数倒退）。
+  defp validate_writing_intents(parsed, ctx) do
     steps =
       parsed
       |> map_get(:plan)
@@ -420,10 +428,18 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       |> Enum.map(&map_get(&1, :authoring_intent))
 
     cond do
-      missing != [] ->
+      missing != [] and Map.get(ctx, :retry?, false) ->
         {:error,
          {:missing_authoring_intent,
           "prose_writing 步必须显式携带 authoring_intent 键（continuation / rewrite / null），本次有 #{length(missing)} 步缺该键"}}
+
+      missing != [] ->
+        NovelCommon.LogEmit.emit(:plan_draft, :authoring_intent_degrade, :done, %{
+          missing_steps: length(missing),
+          reason: "模型重试后仍未携带 authoring_intent 键，按安全侧（append）继续"
+        })
+
+        :ok
 
       invalid != [] ->
         {:error,

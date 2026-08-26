@@ -360,6 +360,33 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert Agent.get(counter, & &1) == 2, "缺键首稿应触发恰一次结构纠正重试"
   end
 
+  # D7 M10 校准：模型重试后仍省略该键时**带痕放行**，不让作者的 run 失败——
+  # adoption_mode 已把缺失默认成安全侧 append，缺这个键不再有破坏性后果。
+  # 实锤：硬失败版让 qwen 连续三次 agent_run.run_failed、作者一个字都拿不到。
+  test "重试后仍缺 authoring_intent 键则带痕放行而非 run 失败" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+    missing_step = Map.drop(base_act_step(), ["authoring_intent"])
+
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        Agent.update(counter, &(&1 + 1))
+        {:ok, act_provider_result(missing_step)}
+      else
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    assert {:ok, plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(
+               probe_run(),
+               %Execution{result_fn: result_fn}
+             )
+
+    assert [step] = plan.steps
+    assert step.authoring_intent == nil
+    assert Agent.get(counter, & &1) == 2, "应恰好 nudge 一次后放行，不再无限重试"
+  end
+
   test "planning prompts do not list the removed generic creative capability" do
     removed_capability = "creative_" <> "generation"
     test_pid = self()
