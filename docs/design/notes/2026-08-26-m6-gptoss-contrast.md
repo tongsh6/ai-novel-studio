@@ -141,6 +141,35 @@ gpt-oss-120b（若盲评也偏向它，连「写作」一起切，回到全局�
 显著胜出，可为「正文写作」槽单独保留 qwen 形态再验（Q8+medium 或 MLX+low）；否则四槽
 全默认即可。D6 路由机制保持就绪不空转（表空=零行为变化）。
 
+## 4c. M8/M9 变量穷举：坐标判定短板与精度、思考档位均无关（2026-08-26）
+
+M7 收官后作者追问两条可能的「没喂对 qwen」路径，逐条跑到头（同 runner 同 seed 同刻度，
+唯一变量如列）：
+
+| 跑次 | 形态 | 第 1 章续写判定 | 写作单调用中位 |
+|---|---|---|---|
+| M7 | Q8_0 + `effort=none` | ❌ 误判（全跑 15 次） | 78.6s |
+| **M8** | Q8_0 + `effort=medium`（思考 2475 字符实证） | ❌ **3/3 全误判**（第 1 章即 skip 阈） | 402s |
+| **M9** | **BF16 满精度**（54.74GB）+ `effort=none` | ❌ **3/3 全误判** | 115s |
+| M6 | gpt-oss-120b | ✓ 正常（全跑仅 2 次） | 24.2s |
+
+**结论（三形态穷举锁死）**：「续写 vs 重写」坐标判定退化**既不是量化伤（BF16 满精度
+照样错）、也不是关思考的代价（medium 保留思考照样错）**，是 qwen3.8-27b 在本产品该
+判定任务上的固有短板。M8/M9 各自在第 1 章即达 skip 阈后终止（结论已确定，继续跑 9-12
+小时只重复已知），部分数据如实登记。
+
+**BF16 工程实测（本机 M5 Max/128GB）**：加载 54.7GB/16bit@32k ctx，`--estimate-only`
+估 50.98 GiB；速度 41.0s/none、229.4s/medium、**~9.9 tok/s ≈ Q8 的 1/2.3**（访存翻倍）。
+**投机解码两模式均不可用**：`--speculative-draft-mtp` 报「requires a GGUF model with a
+bundled supported MTP head」（BF16 文件内无 MTP 头）；`--speculative-draft-simple
+--speculative-draft-model mtp-*.gguf` 加载到 12% **SIGSEGV**（MTP 头非独立草稿模型）。
+判例：`--speculative-draft-model` 只能配 `-simple`，配 `-mtp` 直接抛栈。
+
+**下载策略实测**：lmstudio-community 无 BF16（仅 Q4_K_M/Q6_K/Q8_0）；**ggml-org 单文件
+53.8GB**（免分片，另有 mtp 5.9GB/mmproj 0.87GB）；unsloth 需合并 2 分片；hf-mirror 不通。
+实测 ~19MB/s，约 50 分钟，curl `-C -` 断点续传 + `--retry 5` 兜底，落独立目录规避
+LM Studio 同名 variant 不可寻址判例。
+
 ## 5. 证据路径
 
 - `artifacts/novel-output/m6-gptoss-contrast/`（progress.jsonl / llm-calls / app-log /
