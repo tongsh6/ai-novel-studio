@@ -10,623 +10,42 @@
 
 ## 1. Current Focus
 
-> 2026-07-28 用户插单：`DS03-awaiting-author-runtime-validity-and-recovery-surface`
-> （B14 P0 幽灵任务）已完成收口。resume/steer 改同步 call 门禁（仅 paused 可
-> resume；awaiting_author 裸 resume 结构化拒绝，恢复入口只有非空补充）；
-> `runtime_live` 成为命令权限唯一真源——join 时对 dead bounded run 广播失效快照，
-> 历史 TurnResult 不再授予控制权；控制坞按 live/dead/unknown 状态矩阵切换（dead=
-> 「原任务已失效」+重新发起，不发 agent_command）；steer 作者输入持久化为带
-> `agent_run_id` 的 user interaction 并刷新恢复（顺带修掉二次 settle 重复写 user
-> entry 的病灶，judgment/prose 两条 flow）；命令失败收束为控制坞内单一去重
-> system status，「操作失败」假 AI 气泡移除。契约冻结 46 §9.7.1 + ADR-0024 S7
-> 修订节；三场景真实 Tauri 全 PASS（awaiting 输入必填 / 刷新 live 恢复 / 重启后
-> 失效明示）。S7 available_actions 载体与 agent_run_state codegen 仍归 ADR-0024
-> CP3 / DS01，B14 销账。队列回到下方 VS-00G 队首。
->
-> 2026-07-24 用户截图插单：`UA01-natural-language-steering` 的
-> `awaiting_author` regression checkpoint 已完成。原登记只覆盖 S7 上位缺口和
-> running steer，未覆盖“作者补充后 run 不恢复、旧确认提示重复”的具体故障；
-> 现 `agent-awaiting-author-steer-resume` 真实 Tauri 已证明同 run 恢复并完成、
-> goal version=2、零第二 user turn/run、旧提示仅一次。队列回到下方 P1 正文质量
-> 插单；ADR-0024 S7 CP3 仍不据此标 done。
->
-> 2026-07-24 用户定向插单：`P1-prose-quality-evidence-and-scoped-revision` 已完成。
-> 已落地“局部形式异常召回 → 机械重复/刻意修辞语义判定 → 章节级叙事节奏独立评审”；
-> 质量卡强制原句、位置、判断理由、影响范围和置信度，修订默认只改命中句段，仅在 finding
-> 明确覆盖段落/整章时扩大范围。Pencil `AH4WW/EYiyl/hRFxB`、代码、schema 和三章真实
-> Tauri 语义边界均已对齐；局部修订 sibling 与同 run 控制坞复验通过。fixture 不冒充真实
-> 模型文学收益，I10 仍由真实样本人工盲评。本插单已收口，队列回到 VS-00G。
->
-> 2026-07-24 用户定向插单：`UA01-quality-revision-action-run-anchoring` 已完成。
-> 质量卡修订现具备持久动作回执、source-bound AgentRun、单一 assistant 工作回合、
-> 同 run 控制坞与刷新重连；真实 Tauri 暂停→刷新→继续通过。队列已回到下方
-> VS-00G 当前队首。
->
-> 2026-07-24 同会话 UI 收口：`assistant_message.text` 与 AgentRun
-> `author_narrative` 改为完整段落精确去重，普通对话不再重复展示同一模型原文；
-> 用户/AI 双向阅读宽度、128px 作品档案 rail、输入栏/档案 rail 无装饰分隔线已同步
-> 代码、UI 文档与 Pencil。`au01-ordinary-chat-two-turn-roundtrip` 和
-> `quality-revision-action-run-anchoring` 真实 Tauri 复验通过。随后继续移除普通
-> `casual_reply` 的“AI 回应”重复 badge，以及无叙事/计划/产物/动作价值的 completed
-> AgentRun 摘要；执行中瞬时反馈和承重运行状态仍保留，两条 Tauri 场景再次通过。
-> 随后完成任务状态/操作层级收口：顶栏聚合真实 AgentRun，暂停/终态不再显示运行中
-> 文案或动效，空发送禁用且“继续”按输入状态切换主次；质量卡提交后折叠，原稿/修订稿
-> 使用同构候选操作组并对放弃二次确认；会话移到顶栏，档案 rail 只保留档案与 badge，
-> 健康状态降为中性。`quality-revision-action-run-anchoring` 在 1280×800 真实 Tauri
-> 再次通过，summary 已纳入无横向溢出、静态暂停、终态无 running copy 和零误提交断言。
-> 随后将 assistant 正文、AgentRun 过程叙事与探索方向统一到同一阅读列宽；Pencil
-> `41§3-main-workbench` 已补探索方向示例，`au02-candidate-continuation` 在真实
-> 1280×800 Tauri 中实测正文与候选面板均为 `686.39px` 且左右边缘一致。
-> 复核既有 Pencil 与实现后，先纠正候选面板中 3 个未定义 CSS 变量，并按原型恢复
-> 浅灰承载面、白色候选卡边界与等权描边动作。随后用户明确新增候选讨论收束：
-> Pencil 已增加 `41§3.1-candidate-discussion-collapsed`；“继续讨论”获服务端接受后，
-> 来源候选组自动折叠，刷新后从 session transcript 的 `candidate_selection` 恢复，
-> 且仍可手动展开。`au02-candidate-continuation` 真实 Tauri 已证明点击折叠、刷新恢复、
-> 可重新展开，并继续满足无 adoption / production write。
-> 同日补齐 GAP-WT-04 非探索样例：真实验收发现 ADR-0025 判断链虽然前端已支持
-> `question_answer` / `meta_discussion`，但 call2 未携带 frame 语义，所有非候选回复
-> 都被机械降级为 `casual_reply`。现已按 UA01 冻结设计补回 `frame_type` /
-> `dialogue_goal` 判断字段，并由 1280×800 Tauri 双回合证明“回答问题/创作讨论”
-> badge 可达、色调不同且无 action/adoption/write。GAP-WT-04 机器闭环已补齐，
-> 只剩真人 walkthrough 观感确认。
-> 本 UI 收口不改变当前队首。
+> 最后重构：2026-08-30（用户指令「综合任务队列，研究分析，梳理重构内容和顺序」；
+> 编年细节全部归 SSOT——slices README / notes / memory，本节只保留当前态与队列指针）
 
-**M3 节拍狗粮已完成并审计（2026-07-22）：100 章 / 140k 词达成 / 全书导出 ✓——队首 = 状态函数刀 slice 设计**
+**当前态（一段话）**：M5-M10c 六轮狗粮/对照收官，产品债 D1-D7 七刀全落；模型结论两次
+推翻后定格为「产品不绑模型，qwen/gpt-oss 主链均可用，速度差属架构」（notes/08-26）。
+Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象→根因→病理→成文哲学对照）
+完成：**A 类=文档已自我登记的差距无回收机制；B 类=哲学盲区四条**（作者无供给权/会话
+内核无跨 turn 义务/判定无对账/分权诗缺结果对账行），报告 notes/2026-08-30。两件未收
+尾：B15 已实现已验证未提交；D7-overwrite 不变量修复（A+B 方案）已提案未做。
 
-一日两跑（21 分钟参数误跑：扩章仅由 --target-words 驱动；主跑 ~5.9h `--resume
---chapters 88 --target-words 140000`，跨进程续跑实证）。审计与 A/B 证据：
-`artifacts/novel-output/p1-100k-dogfood/m3-audit-2026-07-22.txt`、
-`artifacts/model-contracts/lmstudio/call2-registry-replay-ab-2026-07-22.json`。
+**结构性判断（本次重构的灵魂）**：北极星 P1（10 万字长跑）已达成；stage 上已有真实
+作者在创作并被 D8 拦住——**主线应从「机器长跑里程碑」转向「真实作者可用性」**。
+队列按此重排：先止血（作者正被坑）→ 再补哲学（B 类盲区是后续所有刀的判据源）→
+再落机制刀（P/R 按新哲学）→ 再建差距回收（防 A 类复发）→ 而后回 A 轨主线存量。
 
-**六清算靶判定**：
-- resume ✓（12 章 17.6k 字带回续跑）；B8 预检 ✓（32768 放行语义生效）；
-- clip_echo ✓：wrong_route 97→20（-79%）；残余 19 例="登记"混淆（模型判 execute 却填
-  reply）——**已修复并重放完胜 0/19→19/19 首调命中**（9b8e35e5，百章重负载 context，
-  工具 `scripts/replay_call2_wrong_route.exs`；探针三形态 call2_first_try=1.0）；
-- CP4a 拦截**部分达成**：R3 题材承诺第 60 章开火（critical，距漂移爆发 31-40 章约压线）
-  +R4 前指泄露 ×2（61→68/64→71）+报告链 10 份 SUPERSEDE 正常+面板待处置真实点亮；
-  **弧光线结构性失明**（characters=0→无记账主体）；
-- CA01 **在场但无效**：判断 call1 全程带 premise/main_goal 仍三次收官+漂成太空歌剧
-  （一行锚敌不过十几章漂移摘要）；
-- CA02 **结构性空转**：181 条记忆全 DRAFT_CONTEXT，设定/伏笔型零条（事实链建好、上游无事实）；
-- B9 **不足**：已采纳正文仍 25 处元泄漏（advisory warn 拦不住 runner 自动采纳，修向=
-  meta_leak 升采纳级）。Q1 型短章 8→1（大幅改善）。
+**队列总览（顺序即优先级，详表见 §4）**：
 
-**三跑中病灶（机器证据坐实）**：①收官循环（收官味标题 7 个：12/16/18/20/31/42/100）
-②"登记"误判（已收口）③**地基事实真空**（characters=0/arc=0/设定记忆=0——五脉仅三条
-在工作；太空歌剧吸引子=规模棘轮+语料先验+摘要窗低通+收官点火）。五场讨论合流定型
-`docs/design/notes/2026-07-22-prompt-as-function-of-state.md`（prompt 即状态函数三维度；
-两拍板已裁决：工作假定层全要素开放[三防护+假定注册表+一致性硬性]、盘点触发 A+B+C 全落）。
+| 批 | 内容 | 状态 |
+|---|---|---|
+| Q0 收尾卫生 | B15 提交收口（expansion 场景已 PASS、门禁已绿，只差 commit） | 就绪 |
+| Q1 作者止血 | Q1a D7-overwrite 不变量修复（A 喂前文改产品事实判别 + B 按钮路径显式 rewrite）；Q1b D8 止血①②（能力描述澄清+判例行、reply 诚实反馈带待采纳候选；**归并 D1④ 立项引导**——D8 即其实弹） | Q1a 方案已提案待拍板；Q1b 待拍板 |
+| Q2 哲学补写 | B 类四条一次文档刀：00§2 补作者供给权、会话内核定义补跨 turn 义务、README 指导原则补「语义对账」与「缺口诚实律」（D7 fail-safe 判据一并入档）、VS-00D 分权诗补第五行（结果对账） | 待拍板 |
+| Q3 机制刀序列 | Q3a P1 语义对账最小版（规则级 reason×action 矛盾拦截；**测量先于设计**：先从历史 llm-calls 统计矛盾率基线）→ Q3b R2 能力缺口出口 → Q3c R1 作者内容物化（候选第二合法来源，I1 绑定作者消息）→ Q3d P2 作者义务状态（先 ADR）→ P3 产出对账（依赖 P2） | 依序待开 |
+| Q4 工程自反射 | 差距回收机制：G1-G7 / NEM-GAP / B 轨台账加 VS-00F 式账本语义（登记即挂账、超期即开火；轻量=脚本扫描+超期红名单进开工仪式）。GAP-06 三态对账在此复位 | 待拍板 |
+| 主线复位 | Q1-Q4 后回 A 轨存量，按「真实作者可用性」重排候选：DS02 adoption_status canonical 化（用户原则「不允许补丁式绕过成为终态」）、UA01 流式卡片简化（stage 体验反馈）、DS01 schema 闸门、判断纪元 CP1（ADR-0025）、Order 7 上下文组装刀一/刀二、AU09 方向召回 | 顺序待拍板 |
 
-**队首：VS-00G CP0→CP1 开工**——承重事实完备性与补全回路 contract pack 已
-**Frozen**（docs/design/contracts/VS-00G-*.md；三路全树先例排查+8 项裁决：假定放行
-分级/盘点三类全产/AU-13 扩+AU-14 新立/假定用户可见名「暂定设定」，其余取建议默认）。
-**CP0 done（2026-07-23）**：契约冻结重构（工作假定=既有对象 tentative 态+标注，
-零新实体，用户"慎重新增实体"第四纪律）+同批修订六处（08 NEM-GAP-08/VS-00C
-design_missing 档/VS-00F I-L1 修订+负债规则续编/06 absent 守则化+切分）+AU-14
-立档+AU-13 D 系。**CP1 done（2026-07-23）**：CapabilityFactManifest（domain 纯函数，主角 E07
-required，prose/plot_outline 登记）+MissingPolicyResult design_missing 档+
-AbsenceDirective 缺席守则+机械准备注入（turn_execution_service，context.
-fact_completeness.done 留痕）；单测 8+6，全门绿，**百章标本重放 PASS**（真实
-读端口 characters=0→主角缺席守则注入，M3 地基真空产品级下药）。**CP2 R5 done（2026-07-23）**：主角未物化负债规则（design_debt ledger，
-阈值 10 策略化，缺位查询 source_refs，revise_design 引导处置）接入真实对账
-扫描；domain 单测 5，全门绿，**百章标本重放 PASS**（characters=0→R5 与
-R3/R4 同产 4 偏离，M3 弧光线失明检测层修复）。R2 登记（需人物栏结构化提取）、
-R6/R7 随 CP3。**CP3 done（2026-07-23，R7 除外）**：works 增全书骨架三字段（target_length/
-planned_volumes/serial_form，CA01 加字段链路全复制零新表）+WorkSkeleton domain
-（骨架段+收官守则：距目标禁终局/接近可收束）+plot_outline 规划注入（决策点邻近，
-治收官循环）+探索面 profile 三行+R6 骨架缺位负债规则；全门绿，**百章标本重放
-PASS**（R5+R6 同产，M3 无主角无骨架双负债被揪出）。R7 提前收官登记（需章功能
-定位密度判定接章计划 reader）。**CP4a done（2026-07-23）**：逐项采纳白名单从 character_seed 扩到全 seed 家族
-（world_rule/foreshadowing/style_rule/constraint，收编 user-journeys H13），
-盘点提案逐项采纳的前提件；domain 单测 4，全门绿。**CP4b 提炼可行性 live PASS（2026-07-23）**：真实 LM Studio 从百章标本正文
-提炼出主角林浩(PROTAGONIST)+4 配角+6 世界规则+5 伏笔全带依据章（便宜验证
-阶梯 live 单点，非狗粮；证据 artifacts/vs00g-replay/cp4b-inventory-live-probe）；
-盘点能力核心不确定性消除。**CP4b-1 done（2026-07-23）**：FactInventoryService 提炼引擎（材料装配→
-提炼 prompt→provider→结构化提案+坏 JSON 重试，provider 可注入确定性可测，
-单测 6，全门绿）。**CP4b-2 done（2026-07-24，主动触发 B 核心链）**：
-`fact_inventory_v1` run flow+已采纳材料读端口+三类既有 seed 提案映射+
-Channel `start_fact_inventory`+作品档案入口+逐项采纳已接通；真实 Tauri
-`au14-fact-inventory-roundtrip` PASS（4 pending，选择性采纳后档案角色/规则/伏笔=1/1/0，
-未采纳角色与伏笔仍 pending，提案阶段零 production write）。**CP4c done（2026-07-24，
-finding 触发 A）**：`protagonist_undermaterialized` 的「发起盘点」绑定活跃报告条目并复用
-同一盘点 run；真实 Tauri `au14-finding-inventory-arc-loop` PASS（空档案 10 章→唯一 finding
-→采纳主角沈砚→再采纳第 11 章正文→弧光账首次出现沈砚，不倒灌历史），SC-AU14-A1 完整闭环，
-AU-14 当前 1/4。**CP4d done（2026-07-28）**：全书规划字段建议（OQ4 三类之二）——盘点对
-缺位规划字段产 `work_skeleton_suggestion`（结构化槽位循 narrative_role 先例，只建议
-缺位字段），逐项采纳=works 立项字段回写（mutation 留痕+revision 递增，不写记忆/档案
-对象），档案概览新增全书规划三行；SC-AU14-B1 扩展+A1 复验真实 Tauri PASS。至此 CP3
-收官守则对存量无骨架书有了补全入口（R6 正向链路）。**CP5a-e done（2026-07-28）**：
-工作假定字段位+生命周期策略（零新实体）/盘点主角暂定候选自动激活+采纳同名收束/
-【暂定】注入通道（标本重放双靶 PASS）/「暂定设定」区一键确认否决/SC-AU14-A2/A3
-真实 Tauri PASS。**用户拍板批（2026-07-29 已全落）**：①B1 暂定候选断言并入→
-**AU-14 4/4 全闭环**；②R7 提前收官+R8 假定超龄催办（标本重放四靶 PASS：真实
-「终局」标题在假想骨架下触发 R7）；③B9 元泄漏升采纳级（正文命中→S3 确认流）。
-**M4 节拍狗粮已跑完并审计（2026-07-29）**：**105 章 / 147,244 字 / 全章达标 / 导出 ✓**
-（超 M3 的 100 章/140k；审计见 `artifacts/novel-output/m4-dogfood/m4-audit-2026-07-29.md`）。
-**修复验证**：①T4 残余（judgment capability 未列 required）修复后 `run_failed` 全程 0
-（修复前 15 分钟 12 次），178 次落地仅 1 次误路由；②CP5b 暂定主角在真实长跑物化生效
-（characters 从 M3 的 0 变为「林浩/TENTATIVE/AI_ASSUMPTION/active/PROTAGONIST」）；
-③B9 元泄漏拦截真实开火 **15 次**（每次经作者显式确认才入库=拦截+主权语义）。
-**正文质量四维全面改善**：Q1 空短章 8→**0**；Q2 产品状态词入正文 有→**0**；
-Q3 章号自指 25→20（且全部经确认非静默）；Q4 重复段 0.24%→**0.05%**。
-**未闭环（诚实登记）**：盘点节拍 7 次全败于 harness 采纳点击（三次归因：文案漂移→
-候选组结构→disabled 按钮，均已修），**works 全书规划字段仍空 → R7 提前收官未上线**，
-收官味标题 3 个（12/25/75）未经规则检验；**题材漂移未拦住**（第 25 章起「星际」，
-末章「星核祭坛」，M3 Q5 病灶原样存活，拦它的正是未上线的骨架/收官守则链）。
-**短跑补证 done（2026-07-29，库 `tmp/dogfood-db-m4b`）**：VS-00G **治漂移全链在真实
-模型下走通**——盘点产 13 条提案 → 主角沈洛就地转正 ACCEPTED → **全书规划三字段回写**
-（300000/2/连载）→ **R7 提前收官对第 12 章「第一卷终局」开火**（进度 7%，处置
-revise_design）；R5/R6 因缺口补上而正确消失。短跑 12 章/18k 字全达标、重试全零。
-**短跑顺带抓出并修掉两个产品缺陷**：①候选组采纳文案无视 artifact 类型（规划建议误
-显示「保存到作品档案」）；②同名角色重复采纳堆重复档案行（分两层修：盘点 prompt 带
-已在档名单 + 采纳端同名升 require_confirmation 交作者裁决，**不按 name 静默 upsert**）。
-另加「大纲与结构」全书规划进度摘要行（口径与收官守则注入同源，43 §5.0.0 冻结）。
-**三件后续已全部收口（2026-07-29）**：①**R7 真实页面验收 done**——SC-AU13-D2 verified，
-并进既有 `au13-review-adjudication-roundtrip`（种子立 6 万字目标、只写第 1 章=进度 1%，
-但第 4 章计划已是「第一卷终局」；真实 Tauri 一轮通过，5 findings，driver 按可见文本
-parse 进度与章号、校 `chapter_plan:4` 证据、断言 correction intent 回对话流；顺带补了
-该场景一直缺的 manifest yml）。②**同名裁决/候选组文案并入 au14 场景 done**——不预置同名
-ACCEPTED 角色（会走 `:skipped_canon_present` 掐断暂定设定链），改为场景内自然产生：
-沈砚采纳后二次盘点，stub 照抄 M4 真实模型行为重提已在档角色；真实 Tauri PASS，
-accept_label=「采纳方案 A 为全书规划」、rows 1→2。③**Order 8 排查 done**（见上表 Order 8 行）。
-**顺带修一个新缺口**：确认卡说不清「为什么要我确认」——`decision_message` 改为按
-`reason_codes` 分派（同名点名档案里已有的是谁、元泄漏摆出命中原文），拦住了还得给
-作者裁决材料；该文案已由 au14 场景取得真实页面证据。
+**观察项（非队列）**：文学质感盲评（M6 书 vs M10c 书，内容侧）；D6 路由表填写（作者
+运行时自选，机制就绪零表）；下次狗粮观察=D6 UI 全链、B9 确认路径、Q4 重复段。
 
-**AU08 卷结构 slice done（Order 8 刀序①，2026-07-29 收口）**——
-`tasks/slices/AU08-volume-structured-planning.md`。**CP1 done（2026-07-29，拆雷）**：
-`chapter.seq` 此前按 `volume_id` 取 max，**只因恰好只有一卷才没出事**（m4 实测 105 章 /
-105 distinct seq / 1 卷）；一旦建第二卷，卷二首章 seq=1 与卷一首章撞号，而账本
-`accepted_summaries_by_seq/1`、阅读章列表、正文检索三处都跨全书按 `c.seq` 排序 →
-**静默乱序**（账本错位、R7 末 N 章窗取错）。已收为 work 级全局（书里章号本就是
-「第12章」而非「卷二第2章」），三条不变量测试反向验证确实会红（实测 `[1,1,1]`、
-`[1,1,7]`）。**CP2 done**：`WorkSkeleton.volume_directive/1`（planned_volumes>1 才发指令式分卷要求，
-CA01「字段在场≠守则生效」第二次重演）+ ChapterPlanParser 识别逐章 `所属卷：xxx` 标注 +
-`find_or_create_volume/3` 按 (work_id,title) 幂等建卷，无标注退化单卷。坑：标注若写成
-ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例钉住。
-**CP3 done**：StructurePanel 大纲 tab 多卷分组（单卷保持扁平）+ 探索面卷分布 +
-**真实 Tauri PASS**（`volume_headers=["第一卷·觉醒 · 5章","第二卷·裂变 · 7章"]`，
-故意 5/7 不等分防「按章数均分」猜中，driver 要求页面分组逐条等于模型输出的 `所属卷` 标注）。
-更正：ReadingMode 目录本就按卷渲染，先前说它扔掉分组是看漏。**AU08 slice done**。
+**排序论证**：止血先于哲学——真实作者在用、Q1 成本小时级、且 Q1a 同时治 M10c 盲写
+续写的连贯性缺陷；哲学先于机制刀——P/R 的判据源自 B 类补写，跳过它就会重演「补丁
+追缺陷」（Selection Rule 6 反补丁自检的本轮行使）；回收机制殿后但必做——A 类病根
+不是缺文档而是登记后无人收账，不建回收则 Q2/Q3 的新登记同样会烂掉。
 
-**AU08 顺带查出的两件已裁决并收口（2026-08-10）**：
-1. **`p1-chapter-plan-minimum` 红门转绿**。裁决：plot_outline 走 bounded AgentRun 认可为
-   当前产品形态（ADR-0023 计划驱动 + 规划两段式演进的自然结果，2026-06-29「仅 character
-   复合起 run」已被后续演进取代），产品不改；driver/verifier 验收语义照 AU08 同构迁移
-   （`judgment.decided.done` 键事件、父/子 turn 分层、`decision_id` 绑定工具执行、
-   `run_mode=bounded` 断言），真实 Tauri PASS（turn_id=turn_msn4geze_3:agent:4，
-   子 turn 形状即证）。
-2. **验收 harness .mjs 已纳入 ESLint 正确性检查**（`frontend/eslint.config.js` 对
-   `slice-verify/**/*.mjs` 加独立块：仅 recommended 正确性规则 + no-unused-vars，
-   globals=node+browser 双执行环境，不做风格检查）。首跑 21 错全清零：**又抓出一个同类
-   必崩门**——`driveUa01AgentInterruptCommand` 里 `steerFrameStart` 误植（DS03 b06f0015
-   起 `agent-interrupt-safe-point` / `agent-cancel-target-binding` 两门必 ReferenceError），
-   修复后 agent-interrupt-safe-point 真实 Tauri PASS；顺带清掉从未注册的死 driver
-   `driveUa01AgentBoundedRosterToCharacterDesignSeeded`（269 行）与散落死变量/丢 cause 的
-   rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
-   四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
-
-**新登记 D8 族：「存档」意图死循环**（2026-08-30 stage 真实使用分析，
-`docs/design/notes/2026-08-30-stage-session-archive-loop.md`）——作者五次要求
-「把大纲存档为作品设定」，judgment 语义理解全对但能力表无写入承接（D8a），每次误选
-只读 `work_archive_read`（D8b 命名诱导），run 静默完成不认账还引导复踏（D8c 谎报族
-新例）；16:02 产出的 world_building 待采纳候选全程无人引导采纳。~~修向 ①②③~~ 经作者批评「补丁式」重挖根因（报告 §5）：**根 1=作者内容不可物化**
-（候选唯二来源都是模型工具产物，作者亲手提供的内容永远进不了档案——作者主权倒挂）；
-**根 2=判断协议封闭世界**（动作枚举无「做不到」出口，execute 强制目录内必选，意图落
-在目录空白处必然硬选最近邻）；**根 3=与 D7 同根的缺口硬补反射**（数据缺口补默认值/
-能力缺口选最近邻，代价归作者）。二次深挖（报告 §6）：**病理=校验体系与价值体系错位**——全部机器防线（schema/enum/
-目录/白名单/I1I2I3/B9/D7 键校验）守的都是形式合法性，全部真实失败（D7/D8/M0/M2/D1/
-MBC）都住在语义层；「存档」标本里 reason 写「实际写入档案」与 capability 只读在同一
-响应里自相矛盾，而 reason 全链零校验只透传（已核验）——模型语义强结构弱，系统却把
-校验全押结构、把语义当废气。且作者意图被当一次性输入消费而非跨 turn 义务，五连击
-无状态可见。病理级修向：**P1 语义对账（reason×action 自洽守卫）/ P2 作者义务状态 /
-P3 产出对账闭环**；R1/R2/R3 为其实例化，①②③ 为止血。**三挖（报告 §7，按真实设计
-文档核对）**：落差分两类——A 类=哲学已成文实现断头且多为文档自我登记的差距
-（01§3.2 引导链/VS-00D G3G5G7/NEM-GAP-06 三态对账），病根=**差距登记后无回收机制**
-（项目给小说发明了伏笔账+R9 超期开火，没自反射到工程差距管理）；B 类=哲学盲区四条
-（作者只有否决权无供给权/会话内核只覆盖单 turn 无跨 turn 义务/意图用 AI 只走半程无
-判定对账/分权四行诗缺「结果对账」第五行）。修 A=补差距回收机制+按登记推进；修 B=
-先修哲学文档（00§2/32/README 原则/分权诗）再落 P1P2P3R1。待拍板。
-
-**队首 = B15 可观测性债：bounded run 下 `toolbox.execute.*` 丢 turn_id**（详见下方
-登记条）——两个 P1 场景 behavior 门长期哑火，是当前唯一有明确修法的在册产品债。
-其余在册：D1④ 立项引导（暂缓等数据）、B12 channel 串行、文学质感盲评（内容侧观察，
-与选型无关）。
-
-**～～模型定版拍板～～ 已撤回（2026-08-26 作者纠正）**：产品本就不绑模型（SU-01 设置页
-可切 + D6 按用途路由），「选哪个模型」是运行时选项不是设计决策；且本项目地板档原则
-明确「开发用本地小模型=刻意 forcing function 非设计基准，勿按最弱模型做设计判断」。
-M6-M10c 这批对照跑的正确产出是三条（见报告 §4g）：①**发现并修掉 D7**（对任何不总填
-可选字段的模型都会发作，与具体模型无关）；②**模型无关性的正面实证**（同一主链在
-gpt-oss MoE 与 qwen dense 的 3 量化×3 思考档下都跑通全书并成功盘点）；③开发期运行
-手册（狗粮周转 gpt-oss 30 分钟 / qwen-BF16 4 小时；BF16×xhigh 撞 900s 护栏不可用），
-按当次要验什么选，随时可换、不写死。
-
-**D7 T5 done（2026-08-26）**：M10 三跑校准——xhigh×BF16 撞产品 900s 护栏不可用
-（配置问题非 D7）；③硬失败版让 qwen 连续 run_failed（我方回归，已改软降级并提交
-fb6035e9）；M10c（BF16+none+完整 D7）全绿收官，D7 双修均验证有效。
-
-**新登记缺口 B15：bounded run 下 `toolbox.execute.*` 事件丢 turn_id**（可观测性债，
-2026-08-26 D7 回归排查挖出）——`LogEmit` 从 Logger metadata 取 turn_id，主链路迁进
-bounded AgentRun 后工具在 run server 进程执行、metadata 无该键。全仓产物印证：老产物
-`p1-100k-dogfood` 248/842 带，M4 狗粮（07-29）起全部 0，与 06-29 迁移时间线吻合。
-后果：`p1-chapter-expansion` / `p1-chapter-overwrite-confirm` 两个 P1 场景的 behavior
-门长期哑火（产品行为其实正确：本次 expansion 第 1 章 2 次续写累积 134→1224 字、
-intents 全 continuation、evidence 命中，只有 turn_id 门挂住）。**对照实验已排除 D7
-回归**（stash 掉 D7 同样超时）。修法：①run server 执行工具前灌 turn_id 进 Logger
-metadata（推荐）／②verifier 门改用 run_id（降证据强度，不推荐）。
-
-**～～队首 = 拍板：D7 续写意图破坏性默认修复～～（已拍板并落地 CP1）**（P1 产品缺陷，2026-08-26 作者质疑
-「qwen3.8 能到 Opus 4.6 水平不可能判不了续写」后挖出真根因，
-`docs/design/notes/2026-08-26-m6-gptoss-contrast.md` §4d/§4e）——**归因推翻**：
-qwen 推理全对（原始 prompt/返回逐条为证），只是**省略可选字段 `authoring_intent`**
-（gpt-oss 14 次全填 vs qwen 全程 1 次）；产品 `adoption_mode/1` 把缺失落
-`_ -> :overwrite`（覆盖作者已采纳正文），planner 白名单 `@writing_intent_values`
-又把 nil 视为合法放行——「填错」堵住了、「不填」没堵。M0（2026-07-19）踩过孪生坑
-（748→432 字数倒退）只补了半边。**MBC 判例再现**：为一个模型族建的默认把另一族逼进
-破坏性路径。四方案见 §4e，推荐 ①默认改安全侧（nil→append）+③字段升必填。
-**模型定版拍板顺延到 D7 修复后重评**（原建议全局直切 gpt-oss 的速度/稳定性依据仍在，
-但「qwen 判断力不行」的指控已撤销）。
-
-**M8/M9 变量穷举 done（2026-08-26）**：M8=Q8+medium（思考 2475 字符实证）、
-M9=BF16 满精度 54.74GB+none——两跑第 1 章续写均 **3/3 误判**（M7-none 同款），
-各自达 skip 阈后终止并如实登记部分数据。BF16 工程账：~9.9 tok/s（Q8 的 1/2.3）、
-`--estimate-only` 50.98 GiB；投机解码两模式均不可用（`-mtp` 无内建头 /
-`-simple`+外部 MTP SIGSEGV）；下载 ggml-org 单文件 53.8GB@19MB/s 约 50 分钟。
-其余候选：D1④ 立项引导（暂缓等 CP2 数据）；③channel 串行在 B12。
-
-**M7 公平对照狗粮 done（2026-08-26）**：qwen3.8-27B **Q8_0**（量化对齐）+
-`reasoning_effort=none`（运行形态对齐，347 调用全程实证在请求体）——12 章 16807 字
-（10 达标 2 skip）4h02m 收官；writer 中位 78.6s 零撞阀（速度问题解决）但**续写坐标
-判定系统性退化**：15 次「续写→覆盖确认」误判 + 3 次 skip（M6 全程 2 次），管线效率
-优势全数吐回；盘点节拍未触发（skip 章存在，数据缺口如实记）；元词 0（D1 修复跨模型
-站住）。结论=qwen 两形态均不胜任本产品 agentic 主链，gpt-oss 三维全胜且无项目偏袒
-（§3b 审计）。执行途中沉淀：GGUF variant 寻址判例/reasoning_effort 档位随模板变
-（low 在 GGUF 无效、none 通用）/env 求值谜团→runner 显式 config API 桥路
-（dogfood_run.sh+dogfood-runner.mjs）；B8 拒跑分支 unbound 修复。
-
-**M6 对照狗粮 done（2026-08-26，队首④取数动作）**：gpt-oss-120b 同刻度对照跑一次
-收官——12 章 18181 字 30 分 13 秒、201 调用全 200、provider_runs 全 purpose 全
-completed（writer 26/planner 76/evaluator 25/author_reasoning 51，purpose 同源修复后
-首跑归因可信）、writer 单调用中位 24.2s max 33.9s（qwen 中位 532s 撞阀 24% 的 1/22、
-零撞阀）、盘点节拍 1/1 成功 16 提案 6 角色主角陆沉舟建档骨架 3 字段回写（qwen 3/3
-败）、planner 零 retry（qwen 坏草稿 1/4）、「主角」元词泄漏 0（M5 41 处，D1 修复+盘点
-建档双因子）、chapter_mission 25 次零失败；runner 侧 2 次坐标回退+1 次 B9 拦截均显式
-处理非产品失败。M5 立项的 D4/D5 韧性层在 M6 下零触发=静默保险。证据
-`artifacts/novel-output/m6-gptoss-contrast/`，报告落 notes。
-
-**D6 按用途分模型路由 done（2026-08-25，
-`tasks/slices/D6-purpose-model-routing.md`，拍板=①+③、默认态仍全局单模型）**：
-Gateway 唯一模型决定点挂 purpose→model 表（provider config `purpose_models`，键白名单
-writer/planner/evaluator/fact_inventory，未知键忽略、表空零行为变化、显式 model 仍最高
-优先）+ `route_hint` 细化通道（盘点 purpose=:tool 共键，`Execution.with_route_hint`
-单独寻址，ProviderRun 冻结枚举零改动）；设置对话框「按用途指定模型」select 区（吃供应
-商模型列表+「跟随全局」默认，延续模型名不手输立场）；Tauri 偏好/启动重放/浏览器兜底
-全链带表。**顺带修既有真缺陷**：注入依赖 purpose 裸穿 Gateway（只有 fallback 构造带
-purpose，writer/evaluator 在 Gateway 层一直落默认 :conversation，M5 体温计 writer 归因
-实为投影器旁路）——flow funnel 统一 with_purpose 后归因与路由同源；gateway 入口日志补
-purpose/route_hint。真实 Tauri `d6-purpose-model-routing` PASS：writer 调用恰 1 次记录
-覆盖模型、planner×3/evaluator×1/author_reasoning×2 保持全局；设置区真实可见默认跟随
-全局。诚实边界：UI select→保存→路由全链需真实 LM Studio 双模型（狗粮/走查观察项）。
-
-**D5 盘点思考型适配 done（2026-08-25，
-`tasks/slices/D5-inventory-thinking-model-adaptation.md`）**：材料逐章混合（四栏摘要
-seq 对位优先、缺失章回退正文截断——考据反转：拍板「摘要优先」落地为逐章混合而非整书
-all-or-nothing，一章缺摘要不拖全书降级）+ 退化自动降批（减半至最小批 3、提案 item_id
-合并去重、`fact_inventory.batch_fallback.start` 留痕）+ 瞬态族单次重试
-（retryable:false 直退）；au14 真实 Tauri 回归 PASS + 门禁全绿。判例：全局 log_jsonl
-env 文件断言在全量套件被并发测试翻动＝flaky，事件留痕断言改确定性 provider 调用计数。
-退化→降批页面级自愈只能真实模型观察，记入下次狗粮观察项。
-
-**D4 计划起草瞬态重试 done（2026-08-25）**：provider 瞬态族（含超时，拍板 a）单次重试
-——叙事段独立额度、结构段与 M0 纠正重试共享单额度（两族互斥防重试链）；
-`plan_draft.retry.start`（stage/family）双族留痕供狗粮体温计归因；替身 D4PLANFAIL
-一次性注入（D3 瞬态判例复用）。真实 Tauri PASS + 门禁全绿。考据修正：D4 登记时的
-~1/4 坏草稿率实为三族，其二已由 M0 骨架与 0a78e895 覆盖，本刀补 provider 直抛最后
-一族（ADR-0023 CP0 重试半边实装，观察保真仍留 CP0）。
-
-**D3 摘要维护可靠性 done（2026-08-25）**：狗粮吃生产异步语义（env 覆盖链）+ 后台任务
-可观测（start/run error 留痕；顺手修 maintenance degrade 谎报分类——谎报族第三例）+
-读取侧惰性补做（仅异步模式、previous 单触发点、cap 2）；真实 Tauri
-`d3-summary-lazy-repair` PASS（断供→补做→摘要回流 prompt 全链 llm-calls 外证）+
-p1 采纳回归 PASS（CP1 组合遗漏「替身正文主角句」急救验证）。判例：瞬态故障注入必须
-一次性；触发点挂恰一次读。
-
-**D1 角色真空收口 done（2026-08-25，D2 并入）**：CP1=守则真空分支（取名指令替死锁令，
-仅显式 roster:[] 判真空、缺数据源维持原守则）+ B9 词表扩主角/反派/配角 + seed 具名化
-（附 CA04 G3 遗留断言校准——旧管道门禁链吞败判例实证）；CP2=伴生角色 seed 条件指导
-（模型可读条件零契约新增）+ 真实 Tauri 全环 PASS（真空守则→伴生卡采纳建档→次轮阵容
-进 prompt→守则双向切换→伴生零凑数；llm-calls prompt 级外证=替身落盘针）。
-MBC 判例落 VS-00G §2.2。（清单见
-`docs/design/notes/2026-08-25-m5-dogfood-observations.md` §3）——D1 角色真空→「主角」
-泄漏结构解 / D2 B9 词表扩叙事层元词 / D3 accept 同步摘要维护阻塞 channel（异步化）/
-D4 planner 重试（ADR-0023 CP0 实装，坏草稿率 ~1/4 章次实据）/ D5 盘点回路思考型适配 /
-D6 按 purpose 分模型（新刀）。G4/G5 携带缺口继续留登记表（CA03 §3.1）。
-
-**M5 节拍狗粮 done（2026-08-25）**：qwen3.8-27b 首跑收官——16 章 19339 有效字 14 章达标
-导出 ✓（8 次启动含 3 次标定失败；14/15 章思考重尾按设计跳过；扩章 +4 章模型自定规模）。
-观察清单全销账：chapter_mission 20/20 全成功全 model、planning_mission 3+1 降级、判断
-探索翼实测开火、carry 三分四大 empty 照妖 seed 真空（prior_summaries 仅首章 empty=真实
-主链摘要维护健康）、五账运转（情绪 6 DEVIATED/信息 14 REVEALED/审读 1 份）、盘点 3/3 败
-（思考型弱点）、writer 中位 532s 重尾撞阀率 24%。当夜修产品缺陷 3（Gateway 谎报模型名 /
-plan 值二次编码解套 / 超时未随模型复核）+ runner 九针（39496e28/0252536a/0a78e895/
-52b37c3e）；「主角」元词泄漏因果链作者现场抓到（→D1/D2）。报告与判例见 notes（d63ec9df）。
-未推送提交积压 16 个，推送等用户指令。
-
-**WR01c 写前推理层三期——slice done（2026-08-24，
-`tasks/slices/WR01c-mission-why-brief-and-planning-decision.md`）。**
-WR01c 收口一页话：两拍板（why 面板使命完整结构 / 规划使命照抄 WR01b 模板）→
-A 半：trace_summary 结构化使命 payload（statement+逐条+依据标签，author-safe）经既有
-`state_trace_refs` 持久，why 弹窗独立区块，replay 同源重建（**修掉 replay 加载成功后
-覆盖丢使命行的既有缺口**）；B 半：`works.planning_direction["planning_mission"]`
-（migration 字段阶梯）+ `PlanningMissionRepo` 四动作（I-M6 同款）+ channel
-`*_planning_mission` 三分支（ADR-0024 S9）+ plot flow 作者版 0 调用直取/暂定落库 +
-`get_toc` 顶层投影 + archive_read profile「当前规划使命」行（探索面同步律）+
-档案大纲 tab 顶部工作级裁决块。真实 Tauri `wr01c-planning-mission-decision`
-（模型暂定→档案改写→0 调用直取→why 区块可见→零写入）PASS + `wr01` 复跑 PASS；
-契约 VS-00E §16.10 / 43 §5.0.4 / 46 §9.2。
-
-
-
-**CA04 携带缺口收口——slice done（2026-08-24，`tasks/slices/CA04-carry-gap-closure.md`，
-VS-00C §3.5 I12「改门=改行为」流程首用）。**
-CA04 收口一页话：拍板 G1/G2/G3 修、G4/G5 缓 → G1=`WorkSkeleton.render_for_prose/2`
-（骨架事实+收官守则，**无分卷守则**——分卷是规划指令写章是噪声）+TES 按调用点分流；
-G2=既有 `creative_memory_sections` 原样开门给 plot（同段同源），plot flow+DPS 补
-`memory_reader` 透传；G3=登记表 character_roster 行加 world_building（读端口本就在，
-纯登记行）。真实 Tauri：新场景 `ca04-carry-gap-closure`（骨架 140000 字/2 卷+确认伏笔/
-风格记忆+主角 seed，三次真实调用各证新携带 carried——prose 带 work_skeleton、plot 带
-creative_facts/style_guide、world_building 带 character_roster——未拍板门原样+三产物
-tentative 零写入）PASS + `ca03` 按新门更新预期复跑 PASS。全量后端 0 failures + 前端 443 +
-I1/I2/I3 + xref/arch/credo 全绿。
-
-**CA03 携带层统一——slice done（2026-08-24，`tasks/slices/CA03-carry-selection-registry.md`）。**候选（不代拍板）：① M5 节拍狗粮（观察清单已累齐：别称
-sighting / 场级指导 / 伴生产物不凑数 / 两类使命 tool-call 稳定性与牵引 / 作者改写率 /
-carry 日志的 empty 告警面——狗粮须用户批准，模型 `qwen/qwen3.8-27b`，B8 预检）；
-② **携带缺口 G1-G5 逐条拍板**（CA03 §3.1：正文无骨架/规划无作品事实/world_building 无阵容/
-设计无进度态/manifest 只登记两能力——每补一处=改一条路径 prompt，独立小刀）；③ WR01 三期
-（why 面板完整简报、规划使命裁决——等 M5 观察）。
-CA03 收口一页话：用户拍板「先统一不改行为」→ `CarryRegistry` 14 行登记表（门唯一声明处，
-absence=manifest 门、dialogue_context=:all）→ TES 5 个纯开关门切登记表、target_structure/
-dialogue_context 上提装配层（bytes 不变）→ `context.carry.done` 三分日志（carried/gated/empty，
-gated 不冒充 empty）→ VS-00C §3.5 冻结（I10 单一门面 / I11 登记纪律 / I12 快照即行为）。
-真实 Tauri：新场景 PASS + wr01/wr02 复跑 PASS（行为回归干净）；1452 后端 + 442 前端 +
-I1/I2/I3 绿。首跑抓到 driver 预期错顺带发现观察面价值：seed 直插采纳层致 prior_summaries
-诚实 empty——carry 日志首次让摘要断链这类问题可被机器看见（M5 观察项 +1）。
-
-**WR02 规划前推理「本轮规划使命」——slice done（2026-08-24，
-`tasks/slices/WR02-planning-mission-pre-outline-reasoning.md`）。**
-WR02 收口一页话：沿用 WR01 三拍板先例 → `ChapterMissionService kind: :planning`（工具名
-`planning_mission`/锚点「规划前推理器」，值对象与 I-M1/I-M3/I-M4 复用）→ `ChapterMissionInputs`
-`mode: :planning`（新增「已规划待写的章」材料组）→ plot flow CP2b 机械步序第三步（无
-N-PLAN/D1）→ 使命段经 `CreativeRequest.planning_mission` 进规划 prompt 账面摘要段后（缺席
-逐字节不变）→ `planning_mission.derived.*` 日志 + `mission_derived` 事件 +
-`trace_summary.planning_mission_ref/statement`（why 面板「本轮规划使命：…」）。真实 Tauri
-PASS；1450 后端 + 441 前端 + I1/I2/I3 绿。
-**登记缺口**：规划使命不持久化、无作者裁决入口（等 M5 观察改写/否定率再定形态）。
-
-**WR01b 写前推理层二期——slice done（2026-08-24，
-`tasks/slices/WR01b-chapter-mission-author-decision.md`）。**
-候选（不代拍板）：① M5 节拍狗粮（刀①-④ + AU12 + NEM04 + R2 + WR01/WR01b 的长跑验证：
-别称 sighting、场级指导实效、伴生产物「不凑数」、本章使命在 qwen3.8-27b 下的 tool-call
-稳定性与对正文的实际牵引、**模型暂定使命被作者改写的频率**——狗粮须用户批准；默认模型名
-已对齐 `qwen/qwen3.8-27b`，跑前按 B8 预检）；② 规划（plot_outline）前推理；③ 携带层五通道
-统一选取策略（VS-00C AssemblyPolicy 语义扩展）。
-WR01b 收口一页话：三拍板（档案大纲 tab 逐章裁决 / 作者版直接用不再推 / 推理完成即存暂定）→
-`chapter_mission_status` 枚举 SSOT（TENTATIVE/CONFIRMED/AUTHOR_EDITED，作废=删键）→
-`ChapterPlanDirection.chapter_mission` 透传（重物化只补缺失方向并带回使命）→ `ChapterMissionRepo`
-零 migration → flow 作者版优先 0 调用、否则推导即落暂定（`persisted` 留痕）→ channel 三动作
-（ADR-0024 S8）→ 大纲 tab 使命块（徽标/三动作/就地编辑）→ `chapter_read` 可读 → why 面板一句
-使命。真实 Tauri PASS（暂定落库→作者改写→二次写作 0 调用直取作者版→零写入）；1450 后端 +
-440 前端 + I1/I2/I3 绿。
-**登记缺口**：①作者版在场时对话区无使命段（无模型原话，N-NARR）——若要提示应走状态行
-app copy；②确认/作废后面板靠重读 TOC 刷新，未做乐观更新。
-
-**WR01 写前推理层「本章使命」——slice done（2026-08-21，
-`tasks/slices/WR01-chapter-mission-pre-writing-reasoning.md`）。**
-WR01 收口一页话：三拍板（正文 run 新增模型步 / 本期不存不预确认 / 失败降级继续写）→
-`ChapterMissionInputs` 按坐标选十组材料逐条 `[ref]` 列名（不设阈值）→ `ChapterMissionService`
-一次 `chapter_mission` tool-call（坏结构重试 1，依据越界机械丢弃 I-M1，叙事 N-NARR 绑定）→
-flow 内模型步由模型排入计划、`prose_writing` 声明 D1 前置（一步预算除外）、预算 +1 步 +1 调用
-→ 使命进 `ProseExecutionBrief.chapter_context["mission"]` 渲染在章行后（`brief_source`
-`chapter_mission|chapter_mission_degraded`）→ `mission_derived` 事件进推理区 → trace/日志留痕。
-VS-00E §16 冻结；真实 Tauri PASS（计划顺序 / 依据 ⊆ 材料且越界丢弃 / 叙事可见 / 简报来源 /
-零写入）；1442 后端 + 439 前端 + I1/I2/I3 绿。
-**登记缺口**：①使命不持久化、作者无改写入口（第二期）；②推理区不显示事件标签（46 §9.5
-文档流化后仅段落），「本章使命」标签文案已备在 copy.ts 未露出；③`must_avoid` 只有在后续章
-计划带信息释放时才有材料（seed 场景为 0，符合不凑数）。
-
-**R2「自由创作只产两种 artifact」独立刀——slice done（2026-08-21，
-`tasks/slices/P1-prose-companion-artifacts.md`）。**
-R2 收口一页话：VS-02A §3.2 冻结「同一次 `prose_writing` 调用返回正文 + 0..N 个
-既有 seed（character/foreshadowing/world_rule/constraint）」→ contract 校验
-（仅四类/主伴 item_id 唯一/非 prose 工具带伴生即拒）→ adapter 分组 + assembler
-`assemble_all`（伴生组不继承章归属 provenance）→ TurnResult 多组 candidate_set
-零前端改动 → 逐项采纳沿既有落位。真实 Tauri `p1-prose-companion-artifacts` PASS
-（五组同轮 / 15 动作 / 采纳前零写入 / 选择性采纳余 3 组 pending）；I1 driver 扩到
-解析顶层 `items ++ companion_artifacts`。1429 后端+438 前端+I1/I2/I3 绿。
-**同日顺带**：`req` 0.5.17 两条安全公告（GHSA-655f-mp8p-96gv high /
-GHSA-px9f-whj3-246m moderate）→ `mix deps.update req` 升 0.7.3（传递带升 finch
-0.23 / plug 1.20.3 / plug_crypto / decimal，全套测试兜底，live streaming 路径未
-重验）；pnpm 在 nvm node 24.19.0 下按 24.14.1 同款 `corepack enable` 恢复。
-**登记缺口**：`constraint_seed` 候选卡头沿用「规则草稿」文案（`copy.ts` 已有
-`constraintTitle` 未分派，改动连带既有 driver 断言，等拉动）。
-
-**刀序④ information 账+design_ref——slice done（2026-08-11，
-`tasks/slices/VS00F-information-ledger.md`）。Order 8 四把刀全部落地。**
-刀④收口一页话：信息账正账双源建账（伏笔带 planned_reveal 预期归己/章计划信息，
-design_ref 全账首个真实写入）→ R9 仅超期开火+收官清单（无全局阈值）→
-prose/planning 注入（未回收伏笔+禁提前揭示，R4 事前预防）→ 回收=盘点模型提议+
-作者采纳收账（机械匹配与纯人工双否决后的定型）。真实 Tauri 全环
-`au14-foreshadow-resolution-roundtrip` PASS；payload 细则/状态枚举冻结进
-schemas（五本账首份）；1422 后端+437 前端+I1/I2/I3 绿。
-
-**遗留拍板项（不阻塞）**：reasonNeedle 疑丢断言；同名确认卡内嵌「并入既有行」；
-mix format 51 个历史漂移文件是否全量格式化（PR 时 CI 会红）；M5 狗粮观察项
-（别称 sighting 真实页面级/场级指导实效）。
-
-**刀序③场级 craft——slice done（2026-08-11，`tasks/slices/NEM04-scene-craft-planning.md`）**。
-刀③收口一页话：章计划逐场标注（`场次：名｜目标｜议程｜情绪`，AU08 所属卷同款先例）
-→ `plan_direction.scene_plans`（存储位按第四纪律阶梯改判：既有 map 字段承载零新列，
-设计态不进 production 行；scenes 表「场景 N」由续写按计划场次命名治理，存量不回填）
-→ `ProseExecutionBrief` 多场展开闭环（VS-00E「多场展开属后续」销账，
-`brief_source=chapter_plan_scene_plans` 留痕）→ 探索面 chapter_read 场次可读。
-真实 Tauri：简报场景 `scene_unit_count==2`+source 门 PASS，au08/p1 规划两门零回归；
-1408 后端+437 前端+I1/I2/I3 全绿。NEM-GAP-04 部分关闭（E25-E30 等拉动）。
-
-**刀序②角色主体+AU12 归并——slice done（CP1/CP2 2026-08-10，CP3 2026-08-11）**。
-`tasks/slices/AU12-character-identity-merge.md` 全档：**CP1 归并主链**（domain 纯
-计算+单 Multi+channel `merge_characters`+档案合并弹窗 43 §5.0.2；真实 Tauri PASS，
-m4b 同名标本 3→2→1 行、arc 归一、零 adoption 写入）；**CP2 输入面+别名后门**
-（盘点/character_design 两链贯通 role/aliases；known_characters 名单含别名+checker
-返回规范行，别名命中卡点名「『X』是『Y』的已登记别名」；au14 扩断言 PASS+两
-assumption 场景无回归）；**CP3 消费面**（别称 sighting 单测自 CP2 起成真链路证据、
-阵容注入行升级为「名（身份，别名：…）：摘要」、**别名拦截卡真实页面闭环**：au12
-场景扩尾段——盘点重提归并产生的别名→卡点名归属→拒绝→档案不变，一轮 PASS）。
-**登记缺口**：①别称 sighting 真实页面级=M5 狗粮观察项（fixture 不自发用别称，
-扭曲 fixture 违背狗粮纪律；长跑后查 arc 账 source_refs 是否含别称章）；②同名
-确认卡内嵌「并入既有行」选项（拍板遗留的后续 CP，等拉动）。
-刀序余项（等拉动）：③场级 craft ④information 账+design_ref。
-R2「自由创作只产两种 artifact」是另一把刀，不与本刀合并。
-CP5 剩余余项（等拉动）：触发 C、works 级假定、记忆类注入富化；CP2 R2；
-**新登记**：`tasks/slices/AU12-character-identity-merge.md`（同名/别名角色身份归并；
-本次只落拦截三层，已有重复行的合并/别名/真重名消歧未做）。
-百章书标本保留 `tmp/dogfood-db` 供重放开发。唯余小件：定期化 LongRunTask（A20 随需求）。
-
-两日完成索引（细节全在各 slice/notes，此处不复述）：VS-00F CP0→CP4c 全收口（AU-13 5/5，
-脉络/审读命名+面板+审读 run+三场景）｜CA01/CA02 CP1｜七问升格｜文案三层术语｜对话列宽
-修复｜狗粮前小修批（B8/B9/rail）｜call2 修复+重放取证。
 
 ---
-
-**M3 开工（2026-07-21）：VS-00F 五本账+三态对账 CP0——契约 Proposed rev2 待用户冻结**
-
-P1 已关闭（用户裁决），队首切 M3。CP0 首稿后按用户要求做了**全树先例排查**
-（三并行代理扫 142 份设计文档 + 本体抽查），rev2 重写契约：投影认领 VS-00C
-§3.0 `progress_state_packet` 既有槽（06 §5.0 continuity ledgers 投影行同义）、
-两 artifact 归 25 §8.1 维护家族并与 continuity_warning 切分、自动通过=系统
-发起 TENTATIVE→ACCEPTED（ADR-0019 INV-1）首次契约化 25 §9.3、revise_prose
-复用 VS-00E §8、dismiss 接 Experience Engine（33）、裁决面认领 ADR-0024
-入册、status 枚举 UPPER_SNAKE、质量门 vs 账本分工表首画（31 §6 五处重叠）、
-验收开 AU-13 家族；契约 §9 附"复用 vs 新造"先例映射总表。**开放问题 5 项
-待拍板**（契约 §8：信封 vs 分表 / CP1 选弧光 / 停滞阈值 / 裁决 UI 载体 /
-配套 ADR 切分），冻结前不编码。
-
----
-
-**M2 达标跑完成（2026-07-21）：101,421 字 / 75 章 / 5.28h / 导出 ✓，P1 字数目标首次在判断纪元达成；质量核对与残留收口待做**
-
-全新起跑（原断点库随机器重启被 macOS 清 TMPDIR 蒸发，已修：狗粮库迁
-`tmp/dogfood-db/`）。跑中即修两件：①模型重载上下文回落 8192 致 prose 截断
-（`lms load --context-length 32768` 恢复，B8 已登记预检钉）；②**新病灶
-clip_echo 头部截断**——扩章批章节摘要变长后 call1 叙事超 240 字符，头部截断
-剪掉尾部"单动作执行"结论，call2 只见意图复述回落到"登记"元指令误判 reply。
-体温计实锤：**112 次重试中 wrong_route_reply 占 97**，随章数递增（前 17 章
-0 次，18 章起几乎章章中招），8 章反复失败被跳过（低于 1000 字）。修复已
-实现（`clip_echo` 改头 120+尾 120 双端保留，未提交、未 live 验证——本跑用
-启动时旧构建）。**T4（capability 失明）全程零复发**（97 次全是 action 层
-reply 误判，无一 capability 错值）。
-
-**收口进展（2026-07-21 后半场）**：②clip_echo 已闭环便宜梯队（单测 8/8 +
-live 长摘要单场景 8/8 首调 execute+prose_writing，其中 3 次走截断路径全中；
-狗粮级指标按攒批清算搭下次节拍跑）；④四个语义提交已落盘（b6d01c56/
-f9e839ca/4034caf3/a011dde0），工作树干净；③郑果条目销（新库无此数据）。
-
-**①质量标准 4.3 审计结果（2026-07-21，机器全量扫+抽样，待用户裁决 P1 关闭）**：
-- 达标面：67/75 章过 4.3 六条（字数/场景/推进抽样正常）；"系统提示"13 处
-  均为剧情内世界观元素非泄漏；4.5 链路全程真实入口 ✓。
-- **Q1** 8 章空/短（跳章残留，均为 wrong_route_reply 反复失败章）。
-- **Q2** 产品状态词泄漏 ×2："待采纳草稿"织进正文（1 处带【待采纳草稿】
-  结构标签+"此段为…需后续审校"元评论）——4.3 硬违规。
-- **Q3** 正文章号自指 ×13（"第51章中恢复的…""那是第60章将要出现的…前兆"
-  ——含前指未来章）：writer 的章节坐标/计划上下文被模型当剧情事实写入。
-- **Q4** 精确重复段 ×3（3/1258=0.24%，轻微）。
-- **Q5**（4.4 维度）要角随扩章批漂移：凌渊 ch23 后消失、凌云 ch24-45 昙花、
-  沈逸 ch61+ 接管主线；题材尺度漂移（都市赛博修仙→星际歌剧）——**五本账
-  缺位的预言实证（07-19 复盘"第 30 章开始漂移"），M3 领域拉动证据**。
-- 修向登记（不顺手做）：Q2/Q3=writer prompt 加"不得引用章号/产品状态词"
-  约束 + 导出泄漏 machine check 进质量门；Q1=补写或接受由用户定；Q5=M3
-  五本账主任务。
-- **P1 关闭建议**：可关闭并把 Q1-Q5 带账进 M3（P1 目的=证明产品链路能产出
-  10 万字长篇，已证明；质量精修正是 M3 领域层任务）；或先做一轮"补章+泄漏
-  清理"再关。裁决权在用户。
-
----
-
-**T4 已收口（2026-07-21）：call2 目录失明根因修复 + 干净实例 A/B 实证，M2 解除阻塞可重启**
-
-T4 裁决（细节见 `tasks/slices/UA01-judgment-structured-call-reliability.md`
-"T4 收口"节）：两个候选假说双双出局——call2 prompt 全天恒定 ~800 token
-（"长上下文"不成立）；干净实例重放旧 prompt 误路由 0/10 命中完全复现
-（"服务端状态损坏"不成立）。真根因是 **T2b 极小化把目录撤出 call2 prompt**：
-enum 包在 anyOf 内层对模型不可见（对照：直挂 enum 的 action 全天合法），
-M2 全天 15 次首调 0 命中——前半天"正常"全靠带目录的重试网救回（8/9），
-21:46 JIT 换新实例后约束执行恢复，自造名被静默顶替成合法值绕过重试网。
-修复=目录六名+探索工具四名注入 call2 prompt（retry hint 实证措辞）+ 探针
-call2 首调体温计（`call2_first_try_rate`，堵 T1/T2c "重试遮首调"假绿）。
-A/B：判 execute 时 capability 命中 0/7 → **4/4**，推理链自造名 7/10 → **0/10**。
-残余登记：plan 判界方差在 runner 长复合措辞下的占比（观察项）、探针 call1
-目录陈旧、会话摘要同质重复注水（B 轨）；郑果孤立草稿 M2 重启前人工废弃。
-
-**M2 重启前置已满足**：live 探针三形态复跑通过（call2_first_try=1.0/
-retries=0，protocol=1.0，judgment 0.905/0.952/1.0 全过 0.85 阈值）。重启仍用
-`--resume`（上下文长度已排除嫌疑）；runner 章节请求措辞收短留 B7（可选）。
-狗粮长跑启动按重型验证门惯例仍需用户拍板。
-
----
-
-**T2 结构性收口完成（三形态 protocol=1.0/blocked=0）+ 缺陷九/十收口 + M2 重启（2026-07-20）**
-
-T2c 干净基线：修正挂钟阀门误用测试环境短超时后，bare/in_run/long_run 三形态
-protocol=1.0、form=1.0、blocked=0/21 完全一致——call2 结构化可靠性在长上下文
-下不再退化，T3 阈值门禁双形态达标，本 slice 结构性收口完成。
-
-途中发现并系统性收口的独立缺陷（非本次要修的目标，但同一批现场实测拉出）：
-**缺陷九**（无界生成）真根因是全仓仅 3 处的默认参数 funnel（`Gateway.execute/4`
-等）用裸 struct 绕过止血阀，非最初以为的 `InferenceParams.new/1`；落地三道
-防线——provider 级 max_tokens 配置化、模型无关的挂钟时长止血阀、内容退化检测
-（`degenerate_content?/1`）。**缺陷十**（"@"退化刷屏）首版误判为 gpt-oss-120b/
-LM Studio 结构性缺陷，用户当场指出两点反证后用 `lms unload/load` 重载模型
-验证为本 session 高强度压测造成的会话状态损坏，非结构性问题（教训见
-`tasks/slices/UA01-judgment-structured-call-reliability.md`）。场景验收复验
-顺带挖出 `explore_request.tool` 自造工具名（与 capability 同款病灶），已用
-enum+校验重试同款收口。质量门 `pacing` 确定性兜底指标（句数+零对白）选错代理
-信号已登记（`docs/design/quality/31-novel-quality-gates.md` §6.12 债务项 5），
-未实现。
-
-**M2 重启后暂停（Order 5，2026-07-20）**：`--chapters 0 --target-words 100000
---resume` 重启后遭遇 **T4 新病灶**（call2 的 `capability` 字段与同一次调用
-`reason` 自然语言矛盾，疑似强制工具调用语法约束解码阶段静默顶替模型自造的
-目录外能力名，非目录/结构校验能拦住）——同一长会话连续 4 次执行类判断 0
-命中 `prose_writing`，M2 重启后 51 分钟字数零增长。用户已决定停止 M2、登记
-病灶、切换新会话处理，**不要盲目重启 M2**，先读 `tasks/slices/
-UA01-judgment-structured-call-reliability.md` T4 节"接手摘要"。当前进度
-定格：16,816/100,000 字，12 章 DRAFTING + 5 章 PLANNED（13-17 待写）；工作区
-留有一张孤立"郑果"角色设定待采纳草稿（误路由产物），未清理。
-
-M2 首两跑实锤 call2 病灶随上下文长度递减（17 章形态下 capability=null 高频，
-缺陷八）——T2 触发条件（连续两跑异常）命中，按数据启动结构性收口：T2a 判断
-上下文预算化（章节段有界投影，P2-P4 本来必需）+ T2b call2 极小化 + T2c 长上下文
-探针变体测量。当前三跑带 null 重试钉继续当体温计。
-
-M0 五跑一日收口（2026-07-19/20）：判断纪元产品级长跑从"两章即崩"打到 **12 章
-17,319 字、11/12 章达标、导出零泄漏、resume 断点续跑实证**（仅第11章 918 字差 82）。
-狗粮揪出并即修即钉 **7 个场景桩体系无法暴露的缺陷**：①capability 自造名（enum 硬
-约束，live 21/21）②续写坐标自由文本→覆盖倒退（枚举语义+校验重试+runner 守卫，
-live 3/3）③采纳后僵尸候选（作者采纳即收束信号，T5 判断纪元形态闭环）④call2 协议
-指令误读判 reply（锚定+秒级快速失败）⑤共享 _build 撞车致 run 无声蒸发（狗粮独立
-build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加权跳章）⑦工具参数套娃
-信封致空计划（确定性解套，判断/起草双防护）。**残余登记**：runner 盲等帧层归因
-（取证已埋待复现）、误路由/坐标摆动残余率（快速失败已把代价压到秒级，根治探针化
-归 C 轨）、run 崩溃缺 terminate 兜底持久化（B 轨）。
-
-**M1 方向感首跑（六跑，2026-07-20）**：结构化种子后 10/10 章全达标（14,062 字、
-22 分钟、零跳章零 600s 空等）——M0 原始判据首次完整达成；全程 20 次写作简报
-**degraded=false 全绿**（章计划九字段进 writer，判断纪元首次方向在场写作）；
-体温计首份数据：retries 3（误路由 1 / run 失败 1 / 坐标摆动 1，全部秒级恢复）。
-
-历史推进记录不再堆在本节：CP 级记录见 `tasks/slices/UA01-judgment-driven-loop.md` §2a-2n，已闭环 slice 证据见各 `*-file-level-closure.md` 与 `artifacts/slice-verify/*/summary.json`。
 
 ## 2. Why This Focus
 
@@ -650,6 +69,23 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 ## 4. Queue
 
 三轨预算：**A 主线 ≥60% / B 债务 ≤25% / C 平台验证 ≤15%**。除非阻塞级 P0 bug，功能推进从队首开始。
+
+### 当前队列（2026-08-30 重构，Q0→Q4 顺序即优先级）
+
+| # | 轨 | 任务 | 状态 | 完成判据 |
+|---|---|---|---|---|
+| Q0 | B | B15 提交收口：TurnBinding 单点（9 flow frame 构造点）+ 防回归守卫测试已绿、`p1-chapter-expansion` 复活 PASS、门禁绿——只差 commit | **就绪** | commit 落盘；B 轨 B15 行销账 |
+| Q1a | A | D7-overwrite 不变量修复：A=喂前文条件从「intent∈{continuation,rewrite}」改「目标章已有已采纳正文即喂」（产品事实判别，治 M10c 盲写续写）；B=档案面板「生成正文草稿」按钮路径由产品显式带 rewrite（产品自己发起的动作不靠模型自述）→ 恢复 `overwrite-existing-prose-requires-confirmation` 不变量 | 方案已提案，**待拍板** | `p1-chapter-overwrite-confirm` 复活 PASS + `p1-chapter-expansion` 不回归 + 续写上下文事件（prior_prose_chars）在缺 intent 时仍出现 |
+| Q1b | A | D8 止血（症状钉，非收口）：①`work_archive_read` 能力描述补「不能保存/存档任何内容」+ 判例行（作者要求存档→有候选引导采纳/无候选选 world_building）；② reply 类存档追问必须带出待采纳候选（candidate_directions）。**归并 D1④ 立项引导** | **待拍板** | stage 存档场景不再死循环（新场景或手工复验）；病灶收口归 Q3 |
+| Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **待拍板** | 文档落地 + 后续 Q3 各 slice 的七问以其为判据源 |
+| Q3a | A | P1 语义对账最小版：judgment/plan 的 reason×action/capability 矛盾拦截（规则级起步）。**测量先于设计**：先跑历史 llm-calls 出矛盾率基线 | 依序 | 基线报告 + 拦截器单测 + D8 存档轮回放变拦截 |
+| Q3b | A | R2 能力缺口出口：决策协议结构化 capability_gap（缺什么+最近可行路径），P1 发现矛盾后的出口面 | 依序 | 协议/契约修订 + 真实 Tauri 场景（无承接意图→诚实缺口回复） |
+| Q3c | A | R1 作者内容物化：候选第二合法来源——以作者消息字节为源的待采纳候选（不经模型重写，I1 绑定作者消息），走既有采纳链 | 依序 | 「把我的大纲存档」全链真实 Tauri：作者内容→候选→采纳→档案 |
+| Q3d | A | P2 作者义务状态（先 ADR）→ P3 产出对账闭环（依赖 P2 义务对象） | 依序 | ADR Accepted + 同一诉求重复未满足在第二次即升级的真实场景 |
+| Q4 | B | 差距回收机制：设计差距（VS-00D G1-G7 / NEM-GAP / ADR enforced_by / B 轨台账）加账本语义——登记即挂账、超期即开火；轻量实现=扫描脚本+超期红名单进开工仪式。GAP-06 三态对账、B13 ADR 债在此复位 | 依序 | 差距表可机器扫描；超期项在开工仪式可见 |
+| 主线复位 | A | Q1-Q4 后回存量，按真实作者可用性重排：DS02 / UA01 流式卡片简化 / DS01 / 判断纪元 CP1 / Order 7 上下文刀 / AU09 召回 | 顺序**待拍板** | — |
+
+### 历史 Order 表（M0-M3 期，保留供追溯；全部 done/排查 done，细节见各 slice）
 
 | Order | 阶段 | 轨 | 任务 | 状态 | 完成判据 |
 |---:|---|---|---|---|---|
@@ -682,6 +118,8 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 | B13 | **ADR 实施/闭环与 traceability 债（2026-07-25 审计）**：当前 26 个 ADR 中可明确判定 8 个未完全闭环——产品/契约缺口 `ADR-0008/0016/0017/0019/0024/0025`，仍为 Proposed 的 `ADR-0022`，以及只剩真实样本人工盲评 I10 的 `ADR-0020`。本次“第一章字数太少了→已经确认了”Stage 现场不是 Provider 超时：两次判断调用均成功；run `run_mrz30t37_4lt` 收到 goal v2 后连续三次 `run_resumed → awaiting_author`，最终 `status=awaiting_author/phase=stopped` 且无 `active_behavior_ref`，归属 `ADR-0008` blocking clarification 与 `ADR-0024` S7 CP3。治理侧 `mix run scripts/adr_trace.exs` 当前报告 26/26 ADR 缺 `enforced_by`，且仍 exit 0，故“其余 18 个无明确核心阻塞”尚非机器认证结论。 | 不改变 VS-00G 唯一队首；S4/S7 与 blocking clarification 由 ADR-0024/UA-06 owner 收口，DS02/外部搜索翼/Projection/Replay/I10 各回原 owner；另行补 `enforced_by` 与把 `adr_trace` 从 soft warn 升为可阻断门禁，实施前先按 ADR→slice→代码→真实页面证据逐项定 owner |
 | B14 | ~~P0 awaiting_author 幽灵任务与失败气泡~~ **已销账（2026-07-28）**：DS03 全链收口——resume 门禁/liveness 真源/控制坞状态矩阵/steer 持久化/错误内联，三场景真实 Tauri PASS。残余（不阻塞）：S7 available_actions 载体归 ADR-0024 CP3；agent_run_state codegen 归 DS01；Pencil dock dead/awaiting 变体 frame 待补；非 judgment/prose flow 的 steer transcript 顺序对齐待其引入 steer 语义时做（细节见 slice 决策日志）。 | `DS03-awaiting-author-runtime-validity-and-recovery-surface.md` done / verified |
 
+| B15 | **bounded run 下 `toolbox.execute.*` 丢 turn_id**（2026-08-26 D7 排查挖出）：LogEmit 从 Logger metadata 取 turn_id，主链迁 bounded run 后工具执行进程无该键→两个 P1 场景 behavior 门长期哑火。修复=TurnBinding 单点（构造+绑定合一，9 flow frame 构造点全接）+ 防回归守卫测试；`p1-chapter-expansion` 复活 PASS、门禁绿 | **实现完成待提交（Q0）**；commit 后销账 |
+
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 
 ## 5. Selection Rule
@@ -694,6 +132,12 @@ build+库双隔离）⑥run 失败终局 runner 盲等（失败帧秒级化+加�
 6. **反补丁自检（2026-07-20 用户提醒固化）**：同类症状出现第二次即触发归并审视——问"这些是几个缺陷还是一个病的几种症状"；症状钉可以先打（防线），但病灶必须立独立收口项且**测量先于设计**；harness 重试把问题变"能跑"不等于病愈，重试率必须进体温计。
 
 ## 6. Decision Log
+
+- 2026-08-30 — **队列整体重构**（用户指令）：Current Focus 编年（约 490 行）按
+  NEXT 判例收编归 SSOT；队列重排为 Q0 收尾→Q1 作者止血→Q2 哲学补写→Q3 机制刀
+  （P1→R2→R1→P2→P3）→Q4 差距回收→主线复位待拍板。结构性判断：北极星 P1 已达成、
+  stage 有真实作者被 D8 拦住，主线从机器长跑转向真实作者可用性；排序论证见 §1。
+  D1④ 归并入 Q1b；GAP-06/B13 复位进 Q4；模型定版类议题终态=非决策（产品不绑模型）。
 
 | Date | Decision | Why |
 |---|---|---|
