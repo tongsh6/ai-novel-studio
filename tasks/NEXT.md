@@ -207,6 +207,13 @@ ASCII 冒号加空格会命中 `chapter_start_line?` 劈出假章，已加负例
    rethrow。**小缺口登记**：`driveAgenticLoopProseDeviationReplan` 的 `config.reasonNeedle`
    四处传入从未消费，疑似丢失的 replan 理由断言；未自行补强（会单方面收紧既有门），留拍板。
 
+**新登记 D8 族：「存档」意图死循环**（2026-08-30 stage 真实使用分析，
+`docs/design/notes/2026-08-30-stage-session-archive-loop.md`）——作者五次要求
+「把大纲存档为作品设定」，judgment 语义理解全对但能力表无写入承接（D8a），每次误选
+只读 `work_archive_read`（D8b 命名诱导），run 静默完成不认账还引导复踏（D8c 谎报族
+新例）；16:02 产出的 world_building 待采纳候选全程无人引导采纳。修向 ①prompt 澄清+
+判例 ②诚实反馈带候选 ③采纳引导能力，推荐 ①+② 起步，待拍板。
+
 **队首 = B15 可观测性债：bounded run 下 `toolbox.execute.*` 丢 turn_id**（详见下方
 登记条）——两个 P1 场景 behavior 门长期哑火，是当前唯一有明确修法的在册产品债。
 其余在册：D1④ 立项引导（暂缓等数据）、B12 channel 串行、文学质感盲评（内容侧观察，
