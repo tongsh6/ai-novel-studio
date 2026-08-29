@@ -8,6 +8,7 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
   turn 文案为 app 侧事实口径（readonly 先例）。异步于 turn 主链，失败诚实失败。
   """
 
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
@@ -292,7 +293,7 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
 
     %{
       schema_version: "3.0-draft",
-      turn_id: "#{run.parent_turn_ref}:agent:ledger_reconcile",
+      turn_id: TurnBinding.bind(run, "ledger_reconcile"),
       parent_turn_id: run.parent_turn_ref,
       phase: "completed",
       status: "completed",

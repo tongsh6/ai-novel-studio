@@ -74,7 +74,7 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 
 | # | 轨 | 任务 | 状态 | 完成判据 |
 |---|---|---|---|---|
-| Q0 | B | B15 提交收口：TurnBinding 单点（9 flow frame 构造点）+ 防回归守卫测试已绿、`p1-chapter-expansion` 复活 PASS、门禁绿——只差 commit | **就绪** | commit 落盘；B 轨 B15 行销账 |
+| Q0 | B | B15 提交收口：TurnBinding 单点（9 flow frame 构造点）+ 防回归守卫测试已绿、`p1-chapter-expansion` 复活 PASS、门禁绿 | **done（2026-08-30）** | ✓ commit 落盘；B15 销账 |
 | Q1a | A | D7-overwrite 不变量修复：A=喂前文条件从「intent∈{continuation,rewrite}」改「目标章已有已采纳正文即喂」（产品事实判别，治 M10c 盲写续写）；B=档案面板「生成正文草稿」按钮路径由产品显式带 rewrite（产品自己发起的动作不靠模型自述）→ 恢复 `overwrite-existing-prose-requires-confirmation` 不变量 | 方案已提案，**待拍板** | `p1-chapter-overwrite-confirm` 复活 PASS + `p1-chapter-expansion` 不回归 + 续写上下文事件（prior_prose_chars）在缺 intent 时仍出现 |
 | Q1b | A | D8 止血（症状钉，非收口）：①`work_archive_read` 能力描述补「不能保存/存档任何内容」+ 判例行（作者要求存档→有候选引导采纳/无候选选 world_building）；② reply 类存档追问必须带出待采纳候选（candidate_directions）。**归并 D1④ 立项引导** | **待拍板** | stage 存档场景不再死循环（新场景或手工复验）；病灶收口归 Q3 |
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **待拍板** | 文档落地 + 后续 Q3 各 slice 的七问以其为判据源 |
@@ -118,7 +118,7 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 | B13 | **ADR 实施/闭环与 traceability 债（2026-07-25 审计）**：当前 26 个 ADR 中可明确判定 8 个未完全闭环——产品/契约缺口 `ADR-0008/0016/0017/0019/0024/0025`，仍为 Proposed 的 `ADR-0022`，以及只剩真实样本人工盲评 I10 的 `ADR-0020`。本次“第一章字数太少了→已经确认了”Stage 现场不是 Provider 超时：两次判断调用均成功；run `run_mrz30t37_4lt` 收到 goal v2 后连续三次 `run_resumed → awaiting_author`，最终 `status=awaiting_author/phase=stopped` 且无 `active_behavior_ref`，归属 `ADR-0008` blocking clarification 与 `ADR-0024` S7 CP3。治理侧 `mix run scripts/adr_trace.exs` 当前报告 26/26 ADR 缺 `enforced_by`，且仍 exit 0，故“其余 18 个无明确核心阻塞”尚非机器认证结论。 | 不改变 VS-00G 唯一队首；S4/S7 与 blocking clarification 由 ADR-0024/UA-06 owner 收口，DS02/外部搜索翼/Projection/Replay/I10 各回原 owner；另行补 `enforced_by` 与把 `adr_trace` 从 soft warn 升为可阻断门禁，实施前先按 ADR→slice→代码→真实页面证据逐项定 owner |
 | B14 | ~~P0 awaiting_author 幽灵任务与失败气泡~~ **已销账（2026-07-28）**：DS03 全链收口——resume 门禁/liveness 真源/控制坞状态矩阵/steer 持久化/错误内联，三场景真实 Tauri PASS。残余（不阻塞）：S7 available_actions 载体归 ADR-0024 CP3；agent_run_state codegen 归 DS01；Pencil dock dead/awaiting 变体 frame 待补；非 judgment/prose flow 的 steer transcript 顺序对齐待其引入 steer 语义时做（细节见 slice 决策日志）。 | `DS03-awaiting-author-runtime-validity-and-recovery-surface.md` done / verified |
 
-| B15 | **bounded run 下 `toolbox.execute.*` 丢 turn_id**（2026-08-26 D7 排查挖出）：LogEmit 从 Logger metadata 取 turn_id，主链迁 bounded run 后工具执行进程无该键→两个 P1 场景 behavior 门长期哑火。修复=TurnBinding 单点（构造+绑定合一，9 flow frame 构造点全接）+ 防回归守卫测试；`p1-chapter-expansion` 复活 PASS、门禁绿 | **实现完成待提交（Q0）**；commit 后销账 |
+| B15 | **bounded run 下 `toolbox.execute.*` 丢 turn_id**（2026-08-26 D7 排查挖出）：LogEmit 从 Logger metadata 取 turn_id，主链迁 bounded run 后工具执行进程无该键→两个 P1 场景 behavior 门长期哑火。修复=TurnBinding 单点（构造+绑定合一，9 flow frame 构造点全接）+ 防回归守卫测试；`p1-chapter-expansion` 复活 PASS、门禁绿 | **已销账（2026-08-30，Q0）** |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 

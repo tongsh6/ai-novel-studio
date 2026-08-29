@@ -6,6 +6,7 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
   tentative artifacts, adoption actions, or production writes.
   """
 
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
@@ -587,7 +588,7 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
 
     %{
       schema_version: "3.0-draft",
-      turn_id: "#{run.parent_turn_ref}:agent:readonly_batch",
+      turn_id: TurnBinding.bind(run, "readonly_batch"),
       parent_turn_id: run.parent_turn_ref,
       phase: "completed",
       status: "completed",

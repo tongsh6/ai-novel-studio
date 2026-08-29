@@ -9,6 +9,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   逐个进待采纳区停 S1/S2。计划耗尽而目标未达先停等作者（真计划修订是 CP4b）。
   """
 
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.AgentTaskProfileRegistry
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
@@ -573,7 +574,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     %DialogueFrame{
       schema_version: "3.0-draft",
       frame_id: "frame_#{run.run_id}_#{sequence}",
-      turn_id: "#{run.parent_turn_ref}:agent:#{sequence}",
+      turn_id: TurnBinding.bind(run, sequence),
       workspace_id: run.work_id,
       primary: false,
       frame_type: :execution_candidate,

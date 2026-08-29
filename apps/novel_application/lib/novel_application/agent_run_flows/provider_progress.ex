@@ -4,6 +4,7 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
   author-safe AgentEvent records.
   """
 
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.Result, as: ProviderResult
@@ -550,7 +551,7 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
   defp turn_result(run, content, capabilities) do
     %{
       schema_version: "3.0-draft",
-      turn_id: "#{run.parent_turn_ref}:agent:provider_progress",
+      turn_id: TurnBinding.bind(run, "provider_progress"),
       parent_turn_id: run.parent_turn_ref,
       phase: "completed",
       status: "completed",
