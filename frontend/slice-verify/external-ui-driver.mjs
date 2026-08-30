@@ -4957,6 +4957,80 @@ async function driveCapabilityGapHonestReply(page) {
   };
 }
 
+async function driveQ3cAuthorContentMaterialization(page) {
+  const authorMessage =
+    "把这份大纲直接存档为作品设定：主角李衡在灵气枯竭的都市里靠账单推演天机，第一卷写他从记账学徒到执掌灵市。";
+  await page.locator(chatInputSelector).fill(authorMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const resultFrame = await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.adoption_state?.pending?.[0]?.artifact_type === "world_setting",
+    "No pending world_setting candidate frame was received",
+    120_000,
+  );
+  const turnResult = resultFrame.body;
+  const pending = turnResult.adoption_state.pending[0];
+  const item = pending.payload?.items?.[0] ?? {};
+
+  // 字节纯度（I1 第二合法来源）：body 精确等于作者消息、来源 ref 结构化
+  assert(item.body === authorMessage, "Pending item body does not equal author's message bytes");
+  assert(
+    typeof item.provider_call_ref === "string" &&
+      item.provider_call_ref.startsWith("author_input:"),
+    "Pending item provider_call_ref is not an author_input structured ref",
+  );
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "judgment.author_content_materialized.done" &&
+      record.artifact_type === "world_setting",
+    "author_content_materialized event was not emitted",
+    30_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  assert(
+    visibleText.includes("没有直接写入档案的能力"),
+    "Honest gap reply was not visible alongside the candidate",
+  );
+  assert(
+    visibleText.includes("李衡在灵气枯竭的都市里"),
+    "Author's original text was not visible in the pending candidate card",
+  );
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Turn claimed a production write before adoption",
+  );
+
+  // 作者采纳：写入大门仍然只有作者授权这一扇
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+
+  const adoptedFrame = await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.truthfulness?.artifact_adopted === true &&
+      (f.body?.adoption_state?.resolved ?? []).some(
+        (e) => e.artifact_id === pending.artifact_id,
+      ),
+    "Adoption resolved turn_result frame was not received",
+    120_000,
+  );
+  assert(adoptedFrame, "Author adoption did not resolve");
+
+  return {
+    slice_id: "q3c-author-content-materialization",
+    source_turn_id: turnResult.turn_id,
+    pending_artifact_id: pending.artifact_id,
+    author_bytes_intact: true,
+    adopted: true,
+    production_write_before_adoption: false,
+  };
+}
+
 async function driveNaturalExplorationNoSlotForm(page) {
   const beforeSourceFrameCount = frames.length;
   const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page);
@@ -29091,6 +29165,7 @@ const drivers = {
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
+  "q3c-author-content-materialization": driveQ3cAuthorContentMaterialization,
   "q3b-capability-gap-honest-reply": driveCapabilityGapHonestReply,
   "au02-natural-exploration-no-slot-form": driveNaturalExplorationNoSlotForm,
   "au02-candidate-continuation": driveCandidateContinuation,

@@ -80,7 +80,7 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **待拍板** | 文档落地 + 后续 Q3 各 slice 的七问以其为判据源 |
 | Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
 | Q3b | A | R2 能力缺口出口：frame_type 子型 capability_gap（reply 结构化子型，零新字段——缺口事实=frame_type、路径=candidate_directions；探索强转让位判例见 slice 档）；VS-00 两枚举表修订 + domain/协议/前端/替身全链 | **done（2026-08-31）** | ✓ `q3b-capability-gap-honest-reply` 真实 Tauri PASS（存档意图→诚实承认+路径候选+零写入）+ au02 回归 + 全门禁；slice 档 tasks/slices/Q3B-capability-gap-exit.md |
-| Q3c | A | R1 作者内容物化：候选第二合法来源——以作者消息字节为源的待采纳候选（不经模型重写，I1 绑定作者消息），走既有采纳链 | 依序 | 「把我的大纲存档」全链真实 Tauri：作者内容→候选→采纳→档案 |
+| Q3c | A | R1 作者内容物化：候选第二合法来源——作者消息字节机械物化为待采纳 world_setting 候选（不经模型重写；杂质由 edit-then-accept 主权修剪）；judgment 契约 author_content_registration 信号；**I1 不变量正式升级**（Provider ∨ 作者字节，规则+driver+case 同批登记非绕过） | **done（2026-08-31）** | ✓ `q3c-author-content-materialization` 真实 Tauri PASS（字节断言+物化事件+作者采纳全链）+ q3b/au02 兼容 + I1 4/4；slice 档 tasks/slices/Q3C-author-content-materialization.md |
 | Q3d | A | P2 作者义务状态（先 ADR）→ P3 产出对账闭环（依赖 P2 义务对象） | 依序 | ADR Accepted + 同一诉求重复未满足在第二次即升级的真实场景 |
 | Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/滞留（连续 3+ 快照未动=红名单须裁决）；快照台账 reports/gap-ledger/；开工仪式第 6.5 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版（2026-08-30）** | ✓ 可机器扫描+仪式接入；GAP-06/B13 已进红名单跟踪 |
 | 主线复位 | A | Q1-Q4 后回存量，按真实作者可用性重排：DS02 / UA01 流式卡片简化 / DS01 / 判断纪元 CP1 / Order 7 上下文刀 / AU09 召回 | 顺序**待拍板** | — |

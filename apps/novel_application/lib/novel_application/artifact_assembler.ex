@@ -53,6 +53,45 @@ defmodule NovelApplication.ArtifactAssembler do
   end
 
   @doc """
+  Q3c 作者内容物化：候选的第二合法来源——以作者消息字节为源机械构造待采纳候选。
+
+  字节纯度（I1 第二合法绑定，docs/engineering/scenario-invariants.md §I1 修订）：
+  body 精确等于作者消息全文字节（不经模型重写、不切分、不清洗——指令前缀等杂质
+  由作者用既有 edit-then-accept 链自行修剪）；title 为 body 的字符前缀（≤24 字，
+  机械派生）；rationale 为 nil；provider_call_ref/source_tool_result_ref 均为
+  `author_input:<turn_ref>` 结构化来源 ref。artifact_type 固定 world_setting
+  （既有采纳/记忆链，au09-adopt-setting-recall 已验收）。
+  """
+  @spec assemble_author_content(String.t(), String.t()) ::
+          {:ok, TentativeArtifactSet.t()} | {:error, map()}
+  def assemble_author_content(turn_ref, author_text)
+      when is_binary(turn_ref) and is_binary(author_text) do
+    body = String.trim(author_text)
+
+    if body == "" do
+      {:error, %{code: "empty_author_content", message: "author content is empty"}}
+    else
+      {:ok,
+       %TentativeArtifactSet{
+         artifact_set_id: NovelFoundation.ID.unique("as"),
+         artifact_type: :world_setting,
+         items: [
+           %{
+             item_id: "ai_#{turn_ref}",
+             title: String.slice(body, 0, 24),
+             body: body,
+             rationale: nil,
+             provider_call_ref: "author_input:#{turn_ref}"
+           }
+         ],
+         source_turn_ref: turn_ref,
+         source_tool_result_ref: "author_input:#{turn_ref}",
+         adoption_status: :tentative
+       }}
+    end
+  end
+
+  @doc """
   Assemble a creative ToolResult that may contain one primary artifact group
   plus prose companion groups. The primary group keeps chapter/revision
   provenance; companion seeds keep only the shared turn/tool source.

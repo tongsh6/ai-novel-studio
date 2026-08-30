@@ -1,0 +1,58 @@
+id: q3c-author-content-materialization
+title: 作者内容字节直达采纳链（存档诉求的正确终局）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q3c-author-content-materialization --surface tauri
+real_lmstudio_entrypoint: scripts/tauri_slice_verify.sh --real-lmstudio q3c-author-content-materialization
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/engineering/scenario-invariants.md
+  - docs/design/notes/2026-08-30-stage-session-archive-loop.md
+  - tasks/slices/Q3C-author-content-materialization.md
+
+invariants:
+  - author-content-bytes-reach-pending-candidate-unmodified
+  - adoption-gate-still-authors-only-write-path
+  - no-production-write-before-adoption
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 作者提供大纲原文并要求存档为作品设定（D8 五连击的正确终局形态）
+  - click: 发送
+  - observe: 待采纳 world_setting 候选出现，body 为作者原文字节；缺口回复承认无直接写入能力
+  - click: 采纳
+  - observe: 采纳完成回执（作者内容经作者授权进入档案）
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/q3c-author-content-materialization-tauri
+
+assertions:
+  ui:
+    - pending world_setting candidate card is visible with author's original text
+    - honest gap reply is visible (admits missing write capability)
+    - adoption action completes after author click
+  network:
+    - judgment.decided.done has frame_type capability_gap
+    - judgment.author_content_materialized.done is emitted with artifact_type world_setting
+    - adoption resolves only after author_action accept
+  data:
+    - pending item body equals author's message bytes exactly (I1 second legal source)
+    - item provider_call_ref uses author_input:<turn_id> structured ref
+    - production_write_performed is false before adoption
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

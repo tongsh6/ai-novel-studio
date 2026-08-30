@@ -139,6 +139,7 @@ export const nativeSliceIds = [
   "au01-garbage-json-recovery",
   "au01-frame-validation-friendly-error",
   "au01-turnresult-recorder-ui-consistency",
+  "q3c-author-content-materialization",
   "q3b-capability-gap-honest-reply",
   "au02-natural-exploration-no-slot-form",
   "au02-candidate-fallback-ui",
@@ -1641,6 +1642,15 @@ const sliceKeyEvents = {
     "work_session.show.done",
     "slice_verify.ui_state.done",
   ],
+  // Q3c 作者内容物化：判断链直答 + 作者字节候选 + 作者采纳。
+  "q3c-author-content-materialization": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "judgment.decided.done",
+    "judgment.author_content_materialized.done",
+    "channel.user_message.done",
+    "adoption.evaluate.done",
+  ],
   // Q3b 能力缺口出口：判断链直答（capability_gap 子型），零工具零采纳。
   "q3b-capability-gap-honest-reply": [
     "channel.user_message.start",
@@ -1996,6 +2006,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au01-turnresult-recorder-ui-consistency") {
     return findAu01TurnresultRecorderUiConsistencyEvidence(records);
+  }
+
+  if (sliceId === "q3c-author-content-materialization") {
+    return findQ3cAuthorContentEvidence(records);
   }
 
   if (sliceId === "q3b-capability-gap-honest-reply") {
@@ -2661,6 +2675,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
       evidence,
       options,
     );
+  }
+
+  if (sliceId === "q3c-author-content-materialization") {
+    return q3cAuthorContentBehavior(turnIds, turnRecords, records);
   }
 
   if (sliceId === "q3b-capability-gap-honest-reply") {
@@ -12515,6 +12533,80 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
     tool_name: uiState.tool_name,
     decision_type: uiState.decision_type,
     key_events: keyEvents,
+  };
+}
+
+// Q3c 作者内容物化：判定 capability_gap + 作者字节物化事件 + 作者采纳事件全在
+// app JSONL；采纳可发生在源 turn 关联的 author_action turn。
+function findQ3cAuthorContentEvidence(records) {
+  const sliceId = "q3c-author-content-materialization";
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn) {
+    const frame = turnRecords.find(
+      (record) =>
+        record.event === "judgment.decided.done" && record.frame_type === "capability_gap",
+    );
+    if (!frame) continue;
+
+    const materialized = turnRecords.find(
+      (record) =>
+        record.event === "judgment.author_content_materialized.done" &&
+        record.artifact_type === "world_setting",
+    );
+    if (!materialized) continue;
+
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || !hasRequiredCorrelationFields(start)) continue;
+
+    const adoption = records.find(
+      (record) =>
+        record.event === "adoption.evaluate.done" &&
+        String(record.turn_id ?? "").startsWith(turnId),
+    );
+    if (!adoption) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      source_turn_ref: turnId,
+      frame_type: frame.frame_type,
+      artifact_set_id: materialized.artifact_set_id,
+      adoption_decision_type: adoption.decision_type,
+    };
+  }
+
+  return null;
+}
+
+function q3cAuthorContentBehavior(turnIds, turnRecords, records) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.author_content_materialized.done")) {
+    return null;
+  }
+  if (hasEventPrefix(turnRecords, "toolbox.execute.")) return null;
+
+  const adoption = records.find(
+    (record) =>
+      record.event === "adoption.evaluate.done" &&
+      String(record.turn_id ?? "").startsWith(turnIds[0]),
+  );
+  if (!adoption) return null;
+
+  return {
+    slice_id: "q3c-author-content-materialization",
+    behavior: "author_content_bytes_materialize_as_candidate_then_author_adopts",
+    turn_ids: turnIds,
+    source_turn_ref: turnIds[0],
+    assertions: [
+      "judgment_returned_capability_gap_frame",
+      "author_content_materialized_as_world_setting_candidate",
+      "no_tool_execution_on_source_turn",
+      "adoption_resolved_by_author_action",
+    ],
   };
 }
 

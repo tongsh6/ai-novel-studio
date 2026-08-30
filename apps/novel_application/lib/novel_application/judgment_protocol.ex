@@ -42,6 +42,7 @@ defmodule NovelApplication.JudgmentProtocol do
           frame_type: String.t() | nil,
           dialogue_goal: String.t() | nil,
           reply_included: boolean(),
+          author_content_registration: boolean(),
           explore_request: %{tool: String.t(), query: String.t()} | nil,
           candidate_directions: [map()],
           candidate_directions_present: boolean(),
@@ -399,6 +400,9 @@ defmodule NovelApplication.JudgmentProtocol do
            # 探索意图原始信号：字段存在且非空（哪怕结构坏了）——坏结构不丢意图，
            # 由消费层降级为应用兜底候选（S2 韧性，旧 frame 兜底语义平移）。
            candidate_directions_present: candidate_directions_present?(arguments),
+           # Q3c：作者内容登记信号（模型判定，非关键字）——作者在消息里提供了
+           # 具体内容并要求登记进档案时为 true，应用层据此机械物化作者字节候选。
+           author_content_registration: map_get(arguments, :author_content_registration) == true,
            narrative: narrative,
            narrative_source: narrative_source,
            provider_call_count: 1 + request.attempt
@@ -651,6 +655,10 @@ defmodule NovelApplication.JudgmentProtocol do
             capability_gap——回复必须显式承认做不到什么，并给出最近可行路径（已有
             待采纳候选就引导作者采纳；没有就说明可先把内容整理成待采纳候选），此时
             用 candidate_directions 携带路径选项；其余普通回应属于 casual_reply。
+          - author_content_registration：作者在本条消息里**提供了具体创作内容**
+            （设定、大纲、规则等原文）并要求把它登记/保存进作品档案时为 true——
+            系统会把作者原文原样变成待采纳候选，由作者采纳后入档。作者只是要求
+            写入但消息里没有内容原文时为 false；其它情况省略或 false。
           - dialogue_goal：用一句简短中文概括作者本轮目标；不得写系统执行步骤或内部推理。
           - candidate_directions：仅当 action=reply 且你的回复是给作者 2-3 个可选创作方向时填写
             （每个方向 {title, pitch, tone_tags}）；其它情况为空数组。
@@ -677,6 +685,7 @@ defmodule NovelApplication.JudgmentProtocol do
               },
               dialogue_goal: %{anyOf: [%{type: "string"}, %{type: "null"}]},
               reply_included: %{type: "boolean"},
+              author_content_registration: %{type: "boolean"},
               reason: %{type: "string"},
               candidate_directions: %{
                 type: "array",

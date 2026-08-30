@@ -45,6 +45,11 @@ defmodule I1CausalDriver do
       name: "prose-fragment",
       topic: "古风武侠开篇正文",
       instruction: "请基于以下主题生成一段开篇正文。请把这串标识符原样嵌入到正文里至少一处："
+    },
+    # Q3c 作者内容物化：候选第二合法来源——作者消息字节直达候选（I1 修订分支）。
+    %{
+      name: "author-content-registration",
+      kind: :author_registration
     }
   ]
 
@@ -82,7 +87,7 @@ defmodule I1CausalDriver do
       case run_main_chain(input, provider_execution(result_fn)) do
         {:ok, turn_result} ->
           calls = Agent.get(trace_agent, & &1) |> Enum.reverse()
-          evaluate(c, nonce, turn_result, calls)
+          evaluate(c, nonce, text, turn_result, calls)
 
         {:error, reason} ->
           %{
@@ -158,6 +163,10 @@ defmodule I1CausalDriver do
     end
   end
 
+  defp compose_input(%{kind: :author_registration}, nonce) do
+    "把这份设定直接存档为作品设定：主角靠账单推演天机（标识符 #{nonce}），第一卷从记账学徒写到执掌灵市。"
+  end
+
   defp compose_input(c, nonce) do
     "#{c.instruction}#{nonce}。主题：#{c.topic}。要求标识符 #{nonce} 必须原样保留至少一处。"
   end
@@ -203,7 +212,7 @@ defmodule I1CausalDriver do
 
   # ── evaluate ──
 
-  defp evaluate(c, nonce, turn_result, calls) do
+  defp evaluate(c, nonce, author_text, turn_result, calls) do
     items = collect_items(turn_result)
 
     cond do
@@ -218,7 +227,7 @@ defmodule I1CausalDriver do
         }
 
       true ->
-        item_results = Enum.map(items, &judge_item(&1, calls))
+        item_results = Enum.map(items, &judge_item(&1, calls, author_text))
         failures = Enum.filter(item_results, &(&1.outcome == :fail))
 
         overall =
@@ -243,10 +252,51 @@ defmodule I1CausalDriver do
     end
   end
 
-  defp judge_item(item, calls) do
+  defp judge_item(item, calls, author_text) do
     call_ref = Map.get(item, :provider_call_ref)
 
     cond do
+      # Q3c 第二合法来源（I1 修订，docs/engineering/scenario-invariants.md §I1）：
+      # 作者源 item 的 body 必须精确等于作者消息字节、title 为 body 字符前缀、
+      # rationale 为 nil——伪造空间与 Provider 分支同样为零。
+      is_binary(call_ref) and String.starts_with?(call_ref, "author_input:") ->
+        expected = String.trim(author_text)
+
+        cond do
+          Map.get(item, :body) != expected ->
+            %{
+              item_id: Map.get(item, :item_id),
+              outcome: :fail,
+              reason: "author-source item body 与作者消息字节不相等",
+              item_title: Map.get(item, :title)
+            }
+
+          not String.starts_with?(expected, Map.get(item, :title) || "") ->
+            %{
+              item_id: Map.get(item, :item_id),
+              outcome: :fail,
+              reason: "author-source item title 不是 body 的字符前缀",
+              item_title: Map.get(item, :title)
+            }
+
+          not is_nil(Map.get(item, :rationale)) ->
+            %{
+              item_id: Map.get(item, :item_id),
+              outcome: :fail,
+              reason: "author-source item rationale 必须为 nil",
+              item_title: Map.get(item, :title)
+            }
+
+          true ->
+            %{
+              item_id: Map.get(item, :item_id),
+              outcome: :pass,
+              source: :author_input,
+              item_title: Map.get(item, :title),
+              reason: "author-source：body==作者消息字节、title 为前缀、rationale=nil 全部通过"
+            }
+        end
+
       is_nil(call_ref) ->
         %{
           item_id: Map.get(item, :item_id),

@@ -41,17 +41,26 @@
 
 **定义**：TurnResult 中每个 user-facing 创作 artifact 的每个 item 的内容字段（`:title` / `:body` / `:rationale` / `:content`），其字节序列必须 **精确等于** 同一 turn 内某次 Provider 调用响应中对应 item 的字段。
 
-**形式化**：
+**形式化**（2026-08-31 Q3c 修订：候选内容的合法绑定目标从「Provider 响应字节」
+扩为「Provider 响应字节 ∨ 作者消息字节」——作者内容物化是候选的第二合法来源，
+`tasks/slices/Q3C-author-content-materialization.md`。这是规则本体升级并正式登记，
+捕获目标不变：产品代码仍不得伪造/修补任何内容字节）：
 
 ```
 forall artifact in turn_result.tentative_artifacts:
   forall item in artifact.items:
-    exists provider_call in turn.provider_calls:
-      exists raw_item in parse_items(provider_call.raw_response):
-        item.item_id == raw_item.item_id
-        and item.title == raw_item.title
-        and item.body == raw_item.body
-        and item.rationale == raw_item.rationale
+    if item.provider_call_ref starts_with "author_input:":
+      # 第二合法来源：作者消息字节直达候选（不经模型重写）
+      item.body == trim(turn.author_input_text)
+      and item.title is a character-prefix of item.body
+      and item.rationale == nil
+    else:
+      exists provider_call in turn.provider_calls:
+        exists raw_item in parse_items(provider_call.raw_response):
+          item.item_id == raw_item.item_id
+          and item.title == raw_item.title
+          and item.body == raw_item.body
+          and item.rationale == raw_item.rationale
 ```
 
 **判定**：精确字节相等，0/1。
@@ -63,7 +72,8 @@ forall artifact in turn_result.tentative_artifacts:
 
 **实现要求**：
 - 每次 Provider 调用记录 `provider_call_id`、`prompt_hash`、`response_hash`、`raw_response`（持久化或哈希存档）
-- `TentativeArtifactSet.items` 中每个 item 携带 `provider_call_ref`
+- `TentativeArtifactSet.items` 中每个 item 携带 `provider_call_ref`；作者源 item
+  的 `provider_call_ref` 为 `author_input:<turn_id>`（结构化来源 ref）
 - TurnResult 与本 turn 的 provider_calls 集合一起持久化，验收脚本可读
 
 ### I2 · 输入差异（Input Variation）

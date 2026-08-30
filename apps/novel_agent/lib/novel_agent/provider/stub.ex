@@ -319,6 +319,12 @@ defmodule NovelAgent.Provider.Stub do
       |> then(fn args ->
         if capability, do: Map.put(args, "capability", capability), else: args
       end)
+      |> then(fn args ->
+        # Q3c：存档意图消息本身携带内容原文——注册信号置真（作者字节物化触发）。
+        if stub_archive_write?(text),
+          do: Map.put(args, "author_content_registration", true),
+          else: args
+      end)
       |> Map.merge(extra_args)
 
     Result.new(judgment_reason(action), nil,
@@ -353,6 +359,9 @@ defmodule NovelAgent.Provider.Stub do
     author_text = judgment_author_input(text)
 
     cond do
+      contains_any?(author_text, ["存档", "保存进档案", "写入档案", "登记进档案", "存进档案"]) ->
+        "capability_gap"
+
       contains_any?(author_text, ["协作方式", "创作流程", "下一步怎么合作"]) ->
         "meta_discussion"
 
@@ -416,9 +425,24 @@ defmodule NovelAgent.Provider.Stub do
     {["角色阵容", "现有角色", "已有角色"], [], {"execute", "character_design"}}
   ]
 
+  # Q3c：档案写入类措辞（与 slice_verify 替身、生产判别规则同语义）。
+  defp stub_archive_write?(text) do
+    author_text = text |> judgment_author_input() |> String.trim()
+    contains_any?(author_text, ["存档", "保存进档案", "写入档案", "登记进档案", "存进档案"])
+  end
+
   defp judgment_action(text) do
     author_text = text |> judgment_author_input() |> String.trim()
 
+    if stub_archive_write?(text) do
+      # Q3b/Q3c：存档意图无写入承接——诚实缺口回复（capability_gap 子型）。
+      {"reply", nil}
+    else
+      judgment_action_by_rules(author_text)
+    end
+  end
+
+  defp judgment_action_by_rules(author_text) do
     Enum.find_value(@judgment_rules, judgment_default(author_text), fn {first, second, route} ->
       if contains_any?(author_text, first) and
            (second == [] or contains_any?(author_text, second)),

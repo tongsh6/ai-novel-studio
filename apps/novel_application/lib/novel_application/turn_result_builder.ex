@@ -197,6 +197,20 @@ defmodule NovelApplication.TurnResultBuilder do
     })
   end
 
+  @doc """
+  Q3c 作者内容物化：作者源候选的公开挂载入口（reply 路径无 tool_result/decision，
+  不走 build_artifact_sets）。pending 条目、候选卡与 available_actions 全部复用
+  AU-09 逐项采纳组装——采纳契约零改动。
+  """
+  @spec attach_author_artifact(map(), TentativeArtifactSet.t()) :: map()
+  def attach_author_artifact(turn_result, %TentativeArtifactSet{} = artifact_set) do
+    actions = AvailableActionBuilder.artifact_actions(artifact_set)
+
+    turn_result
+    |> maybe_add_artifacts(artifact_set)
+    |> Map.update(:available_actions, actions, fn existing -> existing ++ actions end)
+  end
+
   defp maybe_add_artifacts(r, nil), do: r
 
   defp maybe_add_artifacts(r, as) do

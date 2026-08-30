@@ -694,6 +694,7 @@ defmodule NovelApplication.DialoguePlanningService do
       |> TurnResultBuilder.build(trace_summary, candidates)
       |> scope_judgment_turn_result(input, run)
       |> AgentFinalizer.attach_run_summary(judgment_run_summary(run, settle))
+      |> maybe_attach_author_content(judgment, input, run, turn_id)
 
     # DS03：steer 后（goal.version > 1）的再次 settle 只补 assistant entry——
     # 作者补充的 user beat 已由 steer 时刻的独立 interaction 落库（persist_author_steer），
@@ -729,6 +730,32 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp settle_state(:completed), do: "completed"
   defp settle_state(:awaiting_author), do: "awaiting_author"
+
+  # Q3c 作者内容物化（R1）：判断①置 author_content_registration=true（模型判定）
+  # 时，把作者消息字节机械物化为待采纳 world_setting 候选——写入大门（作者采纳）
+  # 不再只放模型的东西。构造失败（空文本）按缺口诚实律静默跳过（capability_gap
+  # 回复本身已引导路径），不伪造候选也不硬失败本轮 reply。
+  defp maybe_attach_author_content(turn_result, judgment, input, run, turn_id) do
+    if judgment[:author_content_registration] == true do
+      case NovelApplication.ArtifactAssembler.assemble_author_content(
+             turn_id,
+             effective_author_text(input, run)
+           ) do
+        {:ok, artifact_set} ->
+          LogEmit.emit(:judgment, :author_content_materialized, :done, %{
+            artifact_set_id: artifact_set.artifact_set_id,
+            artifact_type: to_string(artifact_set.artifact_type)
+          })
+
+          TurnResultBuilder.attach_author_artifact(turn_result, artifact_set)
+
+        {:error, _reason} ->
+          turn_result
+      end
+    else
+      turn_result
+    end
+  end
 
   defp effective_author_text(input, run) do
     goal_text = run.goal.text |> to_string() |> String.trim()

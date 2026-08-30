@@ -232,6 +232,53 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert path.title == "把这份内容整理为待采纳设定"
   end
 
+  test "Q3c 作者内容物化：注册信号把作者消息字节变成待采纳 world_setting 候选" do
+    author_text = "把这份大纲直接存档为作品设定：主角李衡靠账单推演天机，第一卷从记账学徒写到执掌灵市。"
+
+    provider_execution =
+      judgment_execution("reply", nil,
+        narrative: "我没有直接写入档案的能力；已把你的原文整理成待采纳候选，采纳后入档。",
+        reply_included: true,
+        frame_type: "capability_gap",
+        dialogue_goal: "把作者提供的内容登记进作品档案",
+        author_content_registration: true
+      )
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: author_text,
+                 workspace_id: "ws-acr",
+                 work_id: "work-acr",
+                 session_id: "session-acr",
+                 turn_id: "turn-acr"
+               },
+               nil,
+               provider_execution
+             )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    sink = fn _event -> :ok end
+    {_context_result, judgment_result} = drive_judgment(spec, run, sink)
+
+    turn_result = judgment_result.turn_result
+    assert turn_result.frame_summary.frame_type == :capability_gap
+
+    # 字节纯度：body 精确等于作者消息、title 是 body 字符前缀、来源 ref 结构化
+    assert [pending] = turn_result.adoption_state.pending
+    assert pending.artifact_type == :world_setting
+    assert pending.requires_adoption == true
+
+    item = pending.payload.items |> List.first()
+    assert item.body == author_text
+    assert String.starts_with?(item.body, item.title)
+    assert item.provider_call_ref == "author_input:turn-acr"
+    assert item.rationale == nil
+
+    # 采纳动作在场（AU-09 组装复用）；未采纳零写入由采纳链既有边界保证
+    assert Enum.any?(turn_result.available_actions, &(&1.action_type == "accept"))
+  end
+
   test "复合角色任务在 AgentRun 内路由到角色 profile" do
     {_spec, routed_run, _route_result} =
       assert_user_message_routes_to(
@@ -570,6 +617,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       |> maybe_put_list("candidate_directions", Keyword.get(opts, :candidate_directions))
       |> maybe_put_binary("frame_type", Keyword.get(opts, :frame_type))
       |> maybe_put_binary("dialogue_goal", Keyword.get(opts, :dialogue_goal))
+      |> maybe_put("author_content_registration", Keyword.get(opts, :author_content_registration))
 
     %Execution{
       result_fn: fn prompt ->

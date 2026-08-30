@@ -2207,28 +2207,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_decision_verdict_result(prompt) do
     {action, capability, exploratory} = judgment_verdict(prompt)
 
-    directions =
-      cond do
-        String.contains?(prompt, @malformed_candidates_marker) ->
-          # 坏候选结构（与旧帧路径同款诱导）：对象而非数组——消费层应降级兜底候选。
-          %{"title" => "", "pitch" => ""}
-
-        exploratory ->
-          candidate_directions(true, prompt)
-
-        # Q3b：缺口回复必带最近可行路径（结构化承载在 candidate_directions）。
-        archive_write_prompt?(prompt) ->
-          [
-            %{
-              "title" => "把这份内容整理为待采纳设定",
-              "pitch" => "我先把你提供的内容整理成待采纳的设定候选，你在候选卡上采纳后就会写入作品档案。",
-              "tone_tags" => ["登记路径"]
-            }
-          ]
-
-        true ->
-          []
-      end
+    directions = judgment_verdict_directions(exploratory, prompt)
 
     arguments =
       %{
@@ -2243,6 +2222,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         if directions in [[], nil],
           do: args,
           else: Map.put(args, "candidate_directions", directions)
+      end)
+      |> then(fn args ->
+        # Q3c：存档意图消息本身携带内容原文——注册信号置真（与生产判别规则同语义）。
+        if archive_write_prompt?(prompt),
+          do: Map.put(args, "author_content_registration", true),
+          else: args
       end)
       |> then(fn args ->
         case judgment_reply_frame(action, exploratory, prompt) do
@@ -2269,6 +2254,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         }
       ]
     )
+  end
+
+  # 判定候选构造（从 verdict_result 抽出降圈复杂度；语义原样）。
+  defp judgment_verdict_directions(exploratory, prompt) do
+    cond do
+      String.contains?(prompt, @malformed_candidates_marker) ->
+        # 坏候选结构（与旧帧路径同款诱导）：对象而非数组——消费层应降级兜底候选。
+        %{"title" => "", "pitch" => ""}
+
+      exploratory ->
+        candidate_directions(true, prompt)
+
+      # Q3b：缺口回复必带最近可行路径（结构化承载在 candidate_directions）。
+      archive_write_prompt?(prompt) ->
+        [
+          %{
+            "title" => "把这份内容整理为待采纳设定",
+            "pitch" => "我先把你提供的内容整理成待采纳的设定候选，你在候选卡上采纳后就会写入作品档案。",
+            "tone_tags" => ["登记路径"]
+          }
+        ]
+
+      true ->
+        []
+    end
   end
 
   defp judgment_narrative_text("reply", exploratory, prompt) do
