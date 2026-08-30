@@ -364,4 +364,5 @@ VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-read
 - `ADR-0016` 已经把 ProjectionHint UI 写入边界升级为 Accepted 决策。
 - `ADR-0017` 已经把 ReplayCase / ReplayReport 和 no-provider replay 升级为 Accepted 决策。
 - VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 具体 slice 文件已经创建，文档 blocker 已关闭。
+- `ADR-0027` 已起草作者义务状态（跨 turn 待满足义务，P2 病理级修向）为 **Proposed** 提案：LedgerEntry 第六账承载、作者开启/关闭授权边界、第二击升级机制；三个待拍板点列于文末，实现不得先于 Accepted。
 - 下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。
