@@ -1,6 +1,6 @@
 # D7 续写意图安全默认：缺失不再等于覆盖，写作步必须显式声明意图
 
-- 状态：CP1 done（2026-08-26）/ T5 待跑
+- 状态：done（2026-08-31，T4 两场景真实 Tauri PASS 收口）/ T5 狗粮复跑挂节拍
 - 类型：M5 产品债延伸（M6/M9 对照挖出的 P1 缺陷，
   `docs/design/notes/2026-08-26-m6-gptoss-contrast.md` §4d/§4e）
 - 启动日期：2026-08-26
@@ -36,7 +36,7 @@
 | T1 | adoption_mode 默认改安全侧（只有 rewrite 覆盖）+ 论证注释 | done | 附 M0/D7 双坑史 |
 | T2 | planner 键存在性校验（missing_authoring_intent）+ 值域校验保留 | done | 复用携带原因重试骨架 |
 | T3 | 单测：显式 null 放行 / 缺键触发重试；judgment flow fixture 校准 | done | planner 22/22、judgment 3/3 |
-| T4 | 门禁 + 两场景真实 Tauri 回归 | **部分闭环** | 门禁 ALL_GATES_TRULY_OK；两场景 `p1-chapter-expansion`/`p1-chapter-overwrite-confirm` 超时——**对照实验证明非 D7 回归**（stash 掉 D7 同样超时），根因=既有 verifier 迁移债（见 §4） |
+| T4 | 门禁 + 两场景真实 Tauri 回归 | **done（2026-08-31）** | 两场景 PASS。expansion=B15 TurnBinding 修复后 turn_id 门复活；overwrite-confirm 需两刀：①驱动语义校准（cycle2 改作者显式「推翻重写」消息——D7 后按钮重生成不再天然 overwrite，场景语义随契约升级）②产品真缺陷修复：判断②续行合成步丢写作坐标（见 §4 追记） |
 | T5 | M10 狗粮复跑（qwen BF16 + 拉满思考档）验证续写误判归零 | todo | 修复后重评模型定版 |
 
 ## 3. 决策日志
@@ -69,3 +69,13 @@
   独立小刀，登记进 NEXT。
 - **方法论**：本次先怀疑自己的改动、用 stash 对照实验证伪，而不是凭推理宣称
   「历史遗留」——延续本会话早前「只凭错误名归因是分析真空」的教训。
+- **追记（2026-08-31，T4 收口时的第三层真相）**：turn_id 债由 B15 TurnBinding 修复
+  后，expansion 立即 PASS，但 overwrite-confirm 仍 RC=1——证据链逐段对齐后锁定
+  **产品真缺陷**：`continue_after_judgment` 的合成重试步 `mechanical_prose_retry_step`
+  不携带写作坐标，作者的 rewrite 意图在一次质量偏离处理后蒸发（app-log 铁证：
+  `continuation_context.done authoring_intent=unspecified` 而计划步 intent=rewrite）
+  → 采纳按 D7 安全默认走 append → 覆盖确认卡从不出现。这是 D8 病理「意图被单次
+  消费、未作为义务保持」在 run 内的实例。修复=合成步从计划 prose 步继承四坐标
+  （intent/target_chapter/requested_chapter_raw/target_word_count），判断②只改
+  「怎么写」的指引、不改作者目标坐标；D2 flow 单测扩坐标保持断言（重试稿 pending
+  的 authoring_intent 必须仍为 rewrite）。

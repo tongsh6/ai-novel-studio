@@ -4,7 +4,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   and quality-review chain.
   """
 
-  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.AgentTaskProfileRegistry
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
@@ -12,6 +11,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
@@ -225,7 +225,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     step =
       case continue_mode do
         :retry_current when index < length(steps) -> Enum.at(steps, index)
-        _ -> mechanical_prose_retry_step(continuation)
+        _ -> mechanical_prose_retry_step(continuation, prose_plan_step(run.plan))
       end
 
     meta =
@@ -254,12 +254,21 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     mechanical_execute_decision(step, run, sequence, snapshot, meta)
   end
 
-  defp mechanical_prose_retry_step(continuation) do
+  # 判断②续行合成步只改「怎么写」的指引，不改作者的目标坐标——authoring_intent /
+  # target_chapter / requested_chapter_raw / target_word_count 从计划 prose 步继承。
+  # 实锤（p1-chapter-overwrite-confirm，2026-08-30）：合成步不带坐标时，作者的
+  # 重写意图在一次偏离处理后蒸发 → 采纳按 D7 安全默认走 append，覆盖确认卡从不出现。
+  # 这是「意图被单次消费、未作为义务保持」病理（D8）在 run 内的实例。
+  defp mechanical_prose_retry_step(continuation, prose_step) do
     %{
       step_id: "judgment_continue_prose",
       target_tool_ref: "prose_writing",
       description: "按判断②指引继续生成正文草稿：#{continuation.guidance}",
-      write_intent: :tentative
+      write_intent: :tentative,
+      authoring_intent: map_get(prose_step, :authoring_intent),
+      target_chapter: map_get(prose_step, :target_chapter),
+      requested_chapter_raw: map_get(prose_step, :requested_chapter_raw),
+      target_word_count: map_get(prose_step, :target_word_count)
     }
   end
 

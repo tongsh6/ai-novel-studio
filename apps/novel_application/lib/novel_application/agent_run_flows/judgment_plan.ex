@@ -9,13 +9,13 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   逐个进待采纳区停 S1/S2。计划耗尽而目标未达先停等作者（真计划修订是 CP4b）。
   """
 
-  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.AgentTaskProfileRegistry
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector

@@ -25,7 +25,7 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - generate_and_accept: chapter 1 prose
-  - generate_again: same chapter prose
+  - rewrite_request: author explicitly asks to overwrite-rewrite chapter 1 (推翻重写; D7 semantics — missing intent now appends safely, only explicit rewrite overwrites)
   - observe: overwrite confirmation required before write
   - click: 确认执行
   - open: 阅读模式

@@ -12657,8 +12657,28 @@ async function driveP1ChapterOverwriteConfirm(page) {
   await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
   await waitAdopted(artifact1.artifact_id);
 
-  // ── Cycle 2：再次生成并采纳第 1 章正文（覆盖已有 → 需确认）。
-  const cycle2 = await generatePendingDraft();
+  // ── Cycle 2：作者显式要求推翻重写第 1 章（D7/Q1a 语义校准 2026-08-30：缺省
+  // authoring_intent 不再默认覆盖——安全侧 append；覆盖确认不变量由**显式重写**
+  // 触发。stub 词表按「推翻/重写」判 rewrite → adoption_mode=overwrite → 确认卡）。
+  const rewriteMessage = "推翻重写第01章：底层灵气账单的正文，重新生成一版完整草稿。";
+  await page.locator(chatInputSelector).fill(rewriteMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const rewriteFrame = await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+      !seen.has(f.body.adoption_state.pending[0].artifact_id),
+    "No rewrite prose_fragment draft frame was received",
+    170_000,
+  );
+  const cycle2 = { artifact: rewriteFrame.body.adoption_state.pending[0] };
+  seen.add(cycle2.artifact.artifact_id);
+  await page
+    .getByRole("button", { name: acceptDraftButtonPattern })
+    .first()
+    .waitFor({ timeout: 10_000 });
   const artifact2 = cycle2.artifact;
   await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
 

@@ -4,12 +4,12 @@ defmodule NovelApplication.AgentRunFlows.CharacterEvolutionWithContext do
   existing character_evolution execution chain.
   """
 
-  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.AgentTaskProfileRegistry
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector

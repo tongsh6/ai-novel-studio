@@ -596,27 +596,27 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp accepted_chapter_titles(_context), do: []
 
-  # 只有续写/重写才把目标章已采纳正文喂给 prose_writing 衔接前文（28「基于前文」）。
-  # 写计划章首稿（intent=none 但归到某章）不注入前文：该章本就还没有正文。
-  # 同时记一条业务日志（observability，ADR-0018），让外部验收能证明前文确实进入续写上下文。
+  # Q1a（2026-08-30，D7 连带修正）：喂前文的判别从「模型报的 intent ∈ {continuation,
+  # rewrite}」改为**产品事实**——目标章已有已采纳正文就喂。原判别依赖模型自述字段，
+  # 而 qwen 族常省略该字段（M9/M10c 实锤：省略时不喂前文 → 续写盲写，时间线倒流、
+  # 动作重复）。产品事实判别对三种情况天然正确：首稿章无正文读出空自然不喂；续写/
+  # 重写章有正文必喂（重写也需看旧文）；且完全不依赖模型填字段。
+  # 业务日志保留（外部验收凭 prior_prose_chars 证明前文确实进入上下文）；intent 照实
+  # 记录（含缺失态），供对账。
   defp continuation_prior_prose(frame, action, resolved_chapter, reader)
        when is_function(reader, 2) and is_binary(resolved_chapter) and resolved_chapter != "" do
-    if action[:authoring_intent] in [:continuation, :rewrite] do
-      prose = safe_read_prose(reader, frame.workspace_id, resolved_chapter)
+    prose = safe_read_prose(reader, frame.workspace_id, resolved_chapter)
 
-      if prose != "" do
-        LogEmit.emit(:turn_execution, :continuation_context, :done, %{
-          turn_id: frame.turn_id,
-          authoring_intent: to_string(action[:authoring_intent]),
-          target_chapter: resolved_chapter,
-          prior_prose_chars: String.length(prose)
-        })
-      end
-
-      prose
-    else
-      ""
+    if prose != "" do
+      LogEmit.emit(:turn_execution, :continuation_context, :done, %{
+        turn_id: frame.turn_id,
+        authoring_intent: to_string(action[:authoring_intent] || "unspecified"),
+        target_chapter: resolved_chapter,
+        prior_prose_chars: String.length(prose)
+      })
     end
+
+    prose
   end
 
   defp continuation_prior_prose(_frame, _action, _resolved_chapter, _reader), do: ""

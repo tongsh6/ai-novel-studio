@@ -4,12 +4,12 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   producing a tentative character-design candidate.
   """
 
-  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.AgentTaskProfileRegistry
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService

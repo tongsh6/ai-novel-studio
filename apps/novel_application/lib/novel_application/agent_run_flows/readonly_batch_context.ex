@@ -6,11 +6,11 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
   tentative artifacts, adoption actions, or production writes.
   """
 
-  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.WorkArchiveService
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 

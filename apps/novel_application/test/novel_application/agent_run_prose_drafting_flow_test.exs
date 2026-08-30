@@ -499,6 +499,130 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert pending.target_chapter == "第01章：开端"
   end
 
+  # Q1a（2026-08-30，D7 连带修正）：喂前文判别改产品事实——目标章已有已采纳正文就喂，
+  # 不看模型报的 authoring_intent。M9/M10c 实锤：qwen 族常省略该字段，原判别下续写
+  # 盲写（前文不进上下文，时间线倒流、动作重复）。本例=模型省略 intent 但章有正文，
+  # 前文必须仍进 writer prompt；采纳侧安全默认 append（D7）由 pending 断言覆盖。
+  test "missing authoring_intent still injects prior prose when target chapter has accepted text" do
+    parent = self()
+    prior_prose = "他在第一夜数清了灵气账单上的每一笔亏空。"
+
+    intentless_next = fn prompt ->
+      p = prompt_text(prompt)
+
+      cond do
+        String.contains?(p, "/ artifact_created:") ->
+          NovelApplication.TestAgenticLoopFixtures.done_next("候选已生成，本轮目标满足。")
+
+        String.contains?(p, "prose_context /") ->
+          NovelApplication.TestAgenticLoopFixtures.continue_next(
+            "接着第01章往下写。",
+            "prose_writing",
+            write_intent: "tentative",
+            next_action_extra: %{"target_chapter" => "第01章：开端"}
+          )
+
+        true ->
+          NovelApplication.TestAgenticLoopFixtures.continue_next(
+            "读取写作上下文。",
+            "prose_context",
+            write_intent: "none"
+          )
+      end
+    end
+
+    writer = fn prompt ->
+      cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-noint-mission")}
+
+        plan_draft_prompt?(prompt) ->
+          # authoring_intent: nil = 显式 null（写新章合法态，D7 键存在性校验放行）；
+          # 本例验证前文注入不看该字段，只看目标章是否已有正文。
+          {:ok,
+           with_provider_call(
+             prose_plan_draft(prompt, authoring_intent: nil),
+             "pc-agent-prose-noint-planner"
+           )}
+
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(intentless_next.(prompt))
+           }}
+
+        true ->
+          send(parent, {:writer_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-agent-prose-noint-writer",
+             content:
+               Jason.encode!(%{
+                 items: [
+                   %{
+                     item_id: "agent-prose-noint-item",
+                     title: "第01章：开端",
+                     body: "他把亏空的名字一笔一笔誊到旧账页背面。",
+                     rationale: "续写候选。"
+                   }
+                 ],
+                 self_report: %{
+                   assumptions: [],
+                   intended_reader_effect: "压迫感",
+                   used_context_refs: ["prose_execution_brief"],
+                   risk_flags: []
+                 }
+               })
+           }}
+      end
+    end
+
+    evaluator = fn _prompt ->
+      {:ok,
+       %{
+         provider_call_ref: "pc-agent-prose-noint-eval",
+         content: Jason.encode!(%{"findings" => []})
+       }}
+    end
+
+    input = %{
+      text: "接着第01章：开端往下写一段正文。",
+      workspace_id: @work,
+      work_id: @work,
+      session_id: "session-agent-prose-noint",
+      turn_id: "turn-agent-prose-noint",
+      quality_provider_execution: %Execution{result_fn: evaluator},
+      chapter_prose_reader: fn _work_id, chapter ->
+        if chapter == "第01章：开端", do: prior_prose, else: ""
+      end,
+      chapter_summary_reader: %{},
+      character_reader: fn _work_id -> [] end
+    }
+
+    planned =
+      DialoguePlanningService.run_spec_for_profile(
+        :prose_drafting_with_quality,
+        input,
+        context(),
+        %Execution{result_fn: writer}
+      )
+
+    assert {:ok, _run_id} =
+             AgentRunService.start_bounded(planned.run_attrs,
+               next_step_planner: planned.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:writer_prompt, writer_prompt}, 2_000
+    assert writer_prompt =~ prior_prose, "intent 缺失但章有正文时前文必须进 writer prompt"
+
+    assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
+    assert [pending] = artifact_event.payload.turn_result.adoption_state.pending
+    assert pending.authoring_intent == nil
+  end
+
   test "planner native tool-call retry is charged to AgentRun provider budget" do
     parent = self()
     {:ok, planner_counter} = Agent.start_link(fn -> 0 end)
@@ -756,7 +880,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
 
         plan_draft_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-d2-plan")}
+          # 计划步带显式重写坐标：判断②续行的合成重试步必须继承坐标而非蒸发
+          # （p1-chapter-overwrite-confirm 实锤：坐标丢失 → 采纳 append 绕过覆盖确认）。
+          {:ok,
+           with_provider_call(
+             prose_plan_draft(prompt, authoring_intent: "rewrite"),
+             "pc-agent-prose-d2-plan"
+           )}
 
         continuation_narrative_prompt?(prompt) ->
           continuation_narrative("质量复核发现规则冲突，我会按意见修正后再交给你。")
@@ -853,6 +983,15 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     created_events = Enum.filter(events, fn {type, _event} -> type == :artifact_created end)
     assert length(created_events) == 2
+
+    # 写作坐标跨偏离保持：首稿（计划步直通）与改进稿（判断②合成重试步）的 pending
+    # artifact 都必须携带计划 prose 步的 authoring_intent——重试步丢坐标时此处为 nil，
+    # 采纳会按 D7 安全默认走 append，作者的覆盖确认卡从不出现。
+    for {_type, event} <- created_events,
+        pending <- event.payload.turn_result.adoption_state.pending do
+      assert pending.authoring_intent == :rewrite
+      assert pending.target_chapter == "第01章：开端"
+    end
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed

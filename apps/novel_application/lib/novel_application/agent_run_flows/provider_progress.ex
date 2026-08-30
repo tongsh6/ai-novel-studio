@@ -4,13 +4,13 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
   author-safe AgentEvent records.
   """
 
-  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 
   @profile_ref "provider_progress_v1"

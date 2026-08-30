@@ -8,10 +8,10 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
   turn 文案为 app 侧事实口径（readonly 先例）。异步于 turn 主链，失败诚实失败。
   """
 
-  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
+  alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.LedgerReconciliationService
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 

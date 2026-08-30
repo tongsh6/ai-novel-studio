@@ -1016,7 +1016,13 @@ defmodule NovelApplication.DialoguePlanningService do
     - prose_writing：写/续写章节正文（产出待采纳草稿）
     - plot_outline：规划章节大纲、卷纲、分章结构（产出待采纳大纲）
     - world_building：世界观、设定、伏笔、写作规则（产出待采纳设定）
-    - work_archive_read：只读查看作品档案（角色列表、结构、统计；不产出候选）
+    - work_archive_read：只读查看作品档案（角色列表、结构、统计；不产出候选，
+      **不能保存/存档/写入任何内容**——名字里的 archive 是「档案」不是「存档」动作）
+
+    判例（D8 止血，2026-08-30 stage 实锤）：作者要求「把 XX 存档/保存为设定/写入档案」时，
+    本系统的写入只有一条路=待采纳候选经作者采纳。若对话中已有待采纳候选，选直接回复并
+    明确引导作者去候选卡采纳；若还没有候选，选 world_building（或对应类型能力）把内容
+    整理为待采纳候选。**绝不选 work_archive_read**——它读不了愿望也存不了任何东西。
     """
     |> String.trim()
   end
