@@ -443,6 +443,12 @@ defmodule NovelApplication.DialoguePlanningService do
     "provider_progress" => :provider_progress
   }
 
+  # Q3a 语义对账只读集：由 dispatch 表编译期推导（profile=readonly_batch_context
+  # 的能力），SSOT 单点——新增只读能力自动进对账口径，不另立第二张表。
+  @judgment_readonly_capabilities (for {cap, :readonly_batch_context} <-
+                                         @judgment_capability_profiles,
+                                       do: cap)
+
   defp judgment_loop_next_step(run, sequence, snapshot, provider_execution, input) do
     state = judgment_stage_state(snapshot)
 
@@ -624,7 +630,10 @@ defmodule NovelApplication.DialoguePlanningService do
         judgment_context_block(context, author_text) <>
           exploration_sections(explorations, explore_open?),
       options:
-        [capabilities: @judgment_capabilities] ++
+        [
+          capabilities: @judgment_capabilities,
+          readonly_capabilities: @judgment_readonly_capabilities
+        ] ++
           if(explore_open?,
             do: [explore: true, explore_tools: ExplorationService.tool_names()],
             else: []

@@ -23,6 +23,8 @@ defmodule NovelApplication.JudgmentProtocol do
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.ProviderActivityProjector
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   @judgment_tool_name "judgment_decision"
   @base_actions ~w(reply execute plan await_author)
   @explore_action "explore"
@@ -261,7 +263,10 @@ defmodule NovelApplication.JudgmentProtocol do
          true <- action in actions(request.options),
          true <- capability_in_catalog?(action, arguments, request.options),
          true <- explore_tool_in_catalog?(action, arguments, request.options) do
-      build_judgment(arguments, action, provider_result, request)
+      case semantic_conflict(action, arguments, request.options) do
+        nil -> build_judgment(arguments, action, provider_result, request)
+        conflict -> retry_semantic_conflict(conflict, request)
+      end
     else
       _ -> retry_or_fail(provider_result, request)
     end
@@ -307,6 +312,74 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp explore_tool_in_catalog?(_action, _arguments, _options), do: true
+
+  # Q3a 语义对账（P1 最小版，2026-08-31）：reason 与所选能力做一致性对账——
+  # action=execute ∧ capability∈只读集 ∧ reason 含写入语义 = 自相矛盾。D8 存档
+  # 五连击实锤（notes/2026-08-30-stage-session-archive-loop.md）：模型 reason 全程
+  # 写对（「实际写入档案」「正式保存进作品档案」），动作却选了只读 work_archive_read，
+  # 只读快照空转冒充写入。基线（同文 §8，测量先于设计）：164 次历史判定命中 5、
+  # 全为真实事故、零误报。纪律定位：这是对判定的**对账兜底**，不是关键字主判
+  # （README 原则 12 语义对账）；主判仍归 AI。矛盾即携带矛盾说明重试一次（复用
+  # M0 结构纠正骨架层级）；重试仍矛盾按缺口诚实律走 S7 家族诚实失败——不硬执行
+  # 只读调用冒充写入，也不静默放行。
+  @write_intent_reason_re ~r/写入|保存|存档|落库|存入|登记进|写进/
+
+  defp semantic_conflict("execute", arguments, options) do
+    readonly = Keyword.get(options || [], :readonly_capabilities, [])
+    capability = nonblank(map_get(arguments, :capability))
+    reason = map_get(arguments, :reason) || ""
+
+    if capability in readonly and Regex.match?(@write_intent_reason_re, reason) do
+      %{capability: capability, reason_excerpt: String.slice(reason, 0, 120)}
+    end
+  end
+
+  defp semantic_conflict(_action, _arguments, _options), do: nil
+
+  defp retry_semantic_conflict(conflict, %{retry?: true} = request) do
+    # 观测（ADR-0018 观测族）：对账拦截是显著事实——stage 类事故（D8）复盘时
+    # 必须一眼可见「矛盾被拦、走了重试」，不靠 provider_call_count 反推。
+    LogEmit.emit(:judgment, :semantic_conflict, :done, %{
+      capability: conflict.capability,
+      outcome: "retry"
+    })
+
+    retry_prompt =
+      update_in(request.prompt, [:messages], fn [message | rest] ->
+        [
+          %{
+            message
+            | content:
+                message.content <>
+                  "\n\n## 语义对账：上次判定自相矛盾\n" <>
+                  "你上次判定 action=execute、capability=#{conflict.capability}" <>
+                  "（只读能力），但 reason 声称要写入（片段：#{conflict.reason_excerpt}）。" <>
+                  "只读能力不能写入、保存或存档任何内容。如果作者要的是把内容写进档案：" <>
+                  "已有待采纳候选时改判 reply 引导作者采纳；没有候选时改选能产出该内容" <>
+                  "候选的创作能力。请重新判定。"
+          }
+          | rest
+        ]
+      end)
+
+    request_decision(%{
+      request
+      | prompt: retry_prompt,
+        retry?: false,
+        attempt: request.attempt + 1
+    })
+  end
+
+  defp retry_semantic_conflict(conflict, _request) do
+    LogEmit.emit(:judgment, :semantic_conflict, :error, %{
+      capability: conflict.capability,
+      outcome: "still_conflicted_after_retry"
+    })
+
+    {:error,
+     {:judgment_semantic_conflict,
+      "capability=#{conflict.capability} reason=#{conflict.reason_excerpt}"}}
+  end
 
   defp build_judgment(arguments, action, provider_result, request) do
     case bind_narrative(arguments, request, provider_result) do

@@ -209,3 +209,10 @@ Agent 约束和取证；Orchestrator 裁决执行；作者保留创作主权」�
   「你的 reason 声称写入，但所选能力只读」）；重试仍矛盾→按缺口诚实律走 reply 降级
   （不硬执行只读调用冒充写入）；
 - 纪律定位：这是**对判定的对账兜底**，不是关键字主判——主判仍归 AI（README 原则 12）。
+
+**落地追记（2026-08-31）**：P1 最小版拦截器已按上述口径落地 `judgment_protocol`
+（`semantic_conflict` 检测 + 携带矛盾说明重试一次 + 仍矛盾走
+`{:error, {:judgment_semantic_conflict, _}}` 诚实失败；S7 作者文案与 run 失败家族
+消费分支同步补齐；LogEmit `judgment.semantic_conflict` 可观测）。单测含 D8 stage
+真实 reason 原话回放（写入档案/保存进作品档案形态）。R2 能力缺口出口（Q3b）承接
+矛盾之后的「作者要写入但目录无写入能力」结构化出路。

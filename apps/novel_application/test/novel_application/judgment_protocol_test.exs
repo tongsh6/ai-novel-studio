@@ -63,6 +63,40 @@ defmodule NovelApplication.JudgmentProtocolTest do
     })
   end
 
+  # call2 首轮返回 first_arguments、重试轮返回 retry_arguments；重试轮 prompt
+  # 回发测试进程供断言（矛盾提示确实注入）。
+  defp request_with_retry(first_arguments, retry_arguments, options) do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+    parent = self()
+
+    execution = %Execution{
+      result_fn: fn prompt ->
+        text = prompt_text(prompt)
+
+        if String.contains?(text, JudgmentProtocol.tool_name()) do
+          n = Agent.get_and_update(counter, fn n -> {n, n + 1} end)
+          if n > 0, do: send(parent, {:retry_prompt, text})
+          arguments = if n == 0, do: first_arguments, else: retry_arguments
+
+          {:ok,
+           %{
+             content: "",
+             tool_calls: [%{name: JudgmentProtocol.tool_name(), arguments: arguments}],
+             provider_output: provider_output("")
+           }}
+        else
+          {:ok, %{content: @narrative, provider_output: provider_output(@narrative)}}
+        end
+      end
+    }
+
+    JudgmentProtocol.request_judgment(execution, %{}, %{
+      author_text: "把我的大纲存档",
+      context_block: "（无上下文）",
+      options: options
+    })
+  end
+
   test "explore_request 归一：tool+query 齐全成立，任一缺失为 nil（不猜）" do
     assert {:ok, judgment} =
              request(
@@ -135,6 +169,81 @@ defmodule NovelApplication.JudgmentProtocolTest do
                "reason" => "go",
                "capability" => "text_generation"
              })
+  end
+
+  test "Q3a 语义对账（D8 存档五连击回归）：execute+只读能力+写入 reason 拦截重试，改正放行，仍矛盾诚实失败" do
+    opts = [
+      capabilities: ~w(world_building work_archive_read),
+      readonly_capabilities: ~w(work_archive_read)
+    ]
+
+    # D8 stage 真实 reason 原话形态：理解对（要写入）、动作反（选只读）→ 拦截并
+    # 携带矛盾说明重试；重试轮 provider 改判 reply → 放行。
+    assert {:ok, corrected} =
+             request_with_retry(
+               %{
+                 "action" => "execute",
+                 "capability" => "work_archive_read",
+                 "reason" => "把《诸天之上》完整大纲作为作品设定实际写入档案"
+               },
+               %{
+                 "action" => "reply",
+                 "reason" => "引导作者采纳待采纳候选",
+                 "frame_type" => "meta_discussion"
+               },
+               opts
+             )
+
+    assert corrected.action == "reply"
+    assert_received {:retry_prompt, retry_text}
+    assert retry_text =~ "语义对账"
+    assert retry_text =~ "work_archive_read"
+
+    # 重试仍矛盾 → S7 家族诚实失败（不放行只读调用冒充写入）
+    assert {:error, {:judgment_semantic_conflict, frag}} =
+             request(
+               %{
+                 "action" => "execute",
+                 "capability" => "work_archive_read",
+                 "reason" => "正式保存进作品档案"
+               },
+               opts
+             )
+
+    assert frag =~ "work_archive_read"
+
+    # 只读能力 + 只读措辞 reason → 不拦
+    assert {:ok, _} =
+             request(
+               %{
+                 "action" => "execute",
+                 "capability" => "work_archive_read",
+                 "reason" => "读取档案核对既有设定"
+               },
+               opts
+             )
+
+    # 可写能力 + 写入 reason → 不拦（能力本可写，写入正是本分）
+    assert {:ok, _} =
+             request(
+               %{
+                 "action" => "execute",
+                 "capability" => "world_building",
+                 "reason" => "把大纲保存为设定候选"
+               },
+               opts
+             )
+
+    # readonly 集未传 → 向后兼容不拦
+    assert {:ok, _} =
+             request(
+               %{
+                 "action" => "execute",
+                 "capability" => "work_archive_read",
+                 "reason" => "写入档案"
+               },
+               capabilities: ~w(work_archive_read)
+             )
   end
 
   test "call2 prompt 注入目录（T4 M2 误路由回归）：传目录时列出实名，未传保持旧措辞" do

@@ -485,6 +485,8 @@ defmodule NovelApplication.AgentRunServer do
   # 判断结构不可解析（ADR-0025 判断①call2 重试后仍坏）= provider 输出契约违约，
   # 与帧纪元 :frame_contract_invalid 同格——作者应得到"格式不符合契约，请重试"。
   defp provider_failure_reason?({:judgment_decision_unparseable, _fragment}), do: true
+  # Q3a：语义矛盾重试后仍矛盾 = 同族输出违约（缺口诚实律降级，不裸崩 run）。
+  defp provider_failure_reason?({:judgment_semantic_conflict, _fragment}), do: true
 
   defp provider_failure_reason?(reason),
     do: is_map(reason) and is_atom(Map.get(reason, :type))

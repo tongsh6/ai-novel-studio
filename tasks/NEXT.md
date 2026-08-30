@@ -78,7 +78,7 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 | Q1a | A | D7-overwrite 不变量修复（三刀实落，B 按钮显式 rewrite 未采——场景语义改为作者显式消息更合 D7 契约）：①喂前文改产品事实判别（目标章有已采纳正文即喂，治 M10c 盲写）②**判断②续行合成步继承计划步写作坐标**（真根因：rewrite 意图在偏离处理后蒸发→append 绕过覆盖确认；D8 病理 run 内实例，详 D7 slice 档 §4 追记）③驱动 cycle2 改作者显式「推翻重写」消息 | **done（2026-08-31）** | ✓ 全三条：overwrite-confirm PASS + expansion 不回归 + prior_prose_chars 缺 intent 仍出现（app-log 151 chars + flow 单测） |
 | Q1b | A | D8 止血（症状钉，非收口）：①`work_archive_read` 能力描述补「不能保存/存档任何内容」+ 判例行（作者要求存档→有候选引导采纳/无候选选 world_building）；② reply 类存档追问必须带出待采纳候选（candidate_directions）。**归并 D1④ 立项引导** | **落地（prompt 级，2026-08-30）** | 判例文案已进 capability 目录与判断协议；stage 存档复验=观察项（真实会话再现时核对）；病灶收口归 Q3 |
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **待拍板** | 文档落地 + 后续 Q3 各 slice 的七问以其为判据源 |
-| Q3a | A | P1 语义对账最小版：judgment/plan 的 reason×action/capability 矛盾拦截（规则级起步）。**测量先于设计**：先跑历史 llm-calls 出矛盾率基线 | 依序 | 基线报告 + 拦截器单测 + D8 存档轮回放变拦截 |
+| Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
 | Q3b | A | R2 能力缺口出口：决策协议结构化 capability_gap（缺什么+最近可行路径），P1 发现矛盾后的出口面 | 依序 | 协议/契约修订 + 真实 Tauri 场景（无承接意图→诚实缺口回复） |
 | Q3c | A | R1 作者内容物化：候选第二合法来源——以作者消息字节为源的待采纳候选（不经模型重写，I1 绑定作者消息），走既有采纳链 | 依序 | 「把我的大纲存档」全链真实 Tauri：作者内容→候选→采纳→档案 |
 | Q3d | A | P2 作者义务状态（先 ADR）→ P3 产出对账闭环（依赖 P2 义务对象） | 依序 | ADR Accepted + 同一诉求重复未满足在第二次即升级的真实场景 |

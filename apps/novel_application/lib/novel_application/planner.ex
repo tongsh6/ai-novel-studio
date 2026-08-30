@@ -83,6 +83,7 @@ defmodule NovelApplication.Planner do
   defp frame_error_reason_code(:json_parse_failed), do: :json_parse_failed
   defp frame_error_reason_code(:frame_contract_invalid), do: :json_parse_failed
   defp frame_error_reason_code({:judgment_decision_unparseable, _}), do: :json_parse_failed
+  defp frame_error_reason_code({:judgment_semantic_conflict, _}), do: :judgment_semantic_conflict
   defp frame_error_reason_code(%{type: :invalid_request}), do: :invalid_request
   defp frame_error_reason_code(%{type: :invalid_response}), do: :invalid_response
   defp frame_error_reason_code(%{type: :timeout}), do: :provider_timeout
@@ -91,6 +92,10 @@ defmodule NovelApplication.Planner do
 
   defp fallback_message(:json_parse_failed),
     do: "创作引擎返回的格式不符合工作台契约，请重试。"
+
+  # Q3a 语义对账降级文案（缺口诚实律）：矛盾重试后仍矛盾——诚实告知没有冒充写入。
+  defp fallback_message(:judgment_semantic_conflict),
+    do: "模型这次的判定自相矛盾（声称要写入，选的却是只读能力），已安全停止，没有把只读操作冒充成写入。请重试，或换个说法明确你要的结果。"
 
   defp fallback_message(:invalid_request),
     do: "创作引擎拒绝了这次请求：模型参数可能配置有误（如思考模式、推理强度）。这一轮没有创建待采纳内容，也没有写入作品事实。请在模型设置中检查参数后重试。"
