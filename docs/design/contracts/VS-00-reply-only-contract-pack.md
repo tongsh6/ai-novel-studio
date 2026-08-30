@@ -64,6 +64,7 @@ VS-00 的 `DialogueFrame` schema 只覆盖 reply-only 路径。它必须足够�
 | `creative_exploration` | 创作讨论、方向探索或头脑风格交流 |
 | `question_answer` | 回答作者关于作品、系统或写作过程的问题 |
 | `meta_discussion` | 关于工作台、流程或下一步协作方式的对话 |
+| `capability_gap` | 作者意图当前无能力承接时的诚实缺口回复（显式承认做不到什么 + candidate_directions 给最近可行路径；Q3b/R2，2026-08-31 修订） |
 
 `tool_need.reason_code` 在 VS-00 中只允许：
 
@@ -73,6 +74,7 @@ VS-00 的 `DialogueFrame` schema 只覆盖 reply-only 路径。它必须足够�
 | `exploratory_only` | 作者在探索方向，尚未要求系统执行 |
 | `insufficient_execution_target` | 还没有明确可执行目标，但不需要 durable clarification |
 | `user_requested_discussion` | 作者明确要求讨论而非执行 |
+| `capability_gap` | 作者目标明确但系统当前无能力承接（缺口诚实律；与 frame_type 同名值同批修订） |
 
 `execution_readiness` 在 VS-00 中只允许：
 

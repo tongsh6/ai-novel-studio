@@ -139,6 +139,7 @@ export const nativeSliceIds = [
   "au01-garbage-json-recovery",
   "au01-frame-validation-friendly-error",
   "au01-turnresult-recorder-ui-consistency",
+  "q3b-capability-gap-honest-reply",
   "au02-natural-exploration-no-slot-form",
   "au02-candidate-fallback-ui",
   "au02-candidate-continuation",
@@ -1640,6 +1641,13 @@ const sliceKeyEvents = {
     "work_session.show.done",
     "slice_verify.ui_state.done",
   ],
+  // Q3b 能力缺口出口：判断链直答（capability_gap 子型），零工具零采纳。
+  "q3b-capability-gap-honest-reply": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "judgment.decided.done",
+    "channel.user_message.done",
+  ],
   // ADR-0025 CP1 判断链：机械 context（带 turn 关联）取代 frame 管线。
   "au02-natural-exploration-no-slot-form": [
     "channel.user_message.start",
@@ -1988,6 +1996,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au01-turnresult-recorder-ui-consistency") {
     return findAu01TurnresultRecorderUiConsistencyEvidence(records);
+  }
+
+  if (sliceId === "q3b-capability-gap-honest-reply") {
+    return findCapabilityGapHonestReplyEvidence(records);
   }
 
   if (sliceId === "au02-natural-exploration-no-slot-form") {
@@ -2649,6 +2661,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
       evidence,
       options,
     );
+  }
+
+  if (sliceId === "q3b-capability-gap-honest-reply") {
+    return q3bCapabilityGapHonestReplyBehavior(turnIds, turnRecords);
   }
 
   if (sliceId === "au02-natural-exploration-no-slot-form") {
@@ -12499,6 +12515,88 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
     tool_name: uiState.tool_name,
     decision_type: uiState.decision_type,
     key_events: keyEvents,
+  };
+}
+
+// Q3b 能力缺口出口：无 ui_state 依赖——判断链事件 + capability_gap 判定 + 零工具/
+// 零采纳/零 author_action 全部取自 app JSONL 关联记录。
+function findCapabilityGapHonestReplyEvidence(records) {
+  const sliceId = "q3b-capability-gap-honest-reply";
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn) {
+    const frame = turnRecords.find(
+      (record) =>
+        record.event === "judgment.decided.done" &&
+        record.frame_type === "capability_gap" &&
+        Number(record.candidate_count ?? 0) > 0,
+    );
+    if (!frame) continue;
+
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) continue;
+    if (!hasRequiredCorrelationFields(start)) continue;
+
+    let allEventsPresent = true;
+    for (const event of keyEventsForSlice(sliceId)) {
+      if (
+        !turnRecords.some(
+          (record) => record.event === event && hasRequiredCorrelationFields(record),
+        )
+      ) {
+        allEventsPresent = false;
+        break;
+      }
+    }
+    if (!allEventsPresent) continue;
+
+    if (turnRecords.some((record) => record.event?.startsWith("toolbox.execute."))) continue;
+    if (turnRecords.some((record) => record.event?.startsWith("adoption.evaluate."))) continue;
+    if (turnRecords.some((record) => record.event?.startsWith("channel.author_action."))) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      source_turn_ref: turnId,
+      frame_type: frame.frame_type,
+      candidate_count: Number(frame.candidate_count),
+    };
+  }
+
+  return null;
+}
+
+function q3bCapabilityGapHonestReplyBehavior(turnIds, turnRecords) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "toolbox.execute.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+
+  const frame = turnRecords.find(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.frame_type === "capability_gap" &&
+      Number(record.candidate_count ?? 0) > 0,
+  );
+  if (!frame) return null;
+
+  return {
+    slice_id: "q3b-capability-gap-honest-reply",
+    behavior: "archive_write_request_gets_honest_capability_gap_reply_with_path",
+    turn_ids: turnIds,
+    source_turn_ref: turnIds[0],
+    assertions: [
+      "judgment_returned_capability_gap_frame",
+      "gap_reply_carried_nearest_path_candidates",
+      "micro_plan_not_requested",
+      "no_tool_execution",
+      "no_adoption_decision",
+      "no_author_action",
+    ],
   };
 }
 

@@ -28,7 +28,9 @@ defmodule NovelApplication.JudgmentProtocol do
   @judgment_tool_name "judgment_decision"
   @base_actions ~w(reply execute plan await_author)
   @explore_action "explore"
-  @reply_frame_types ~w(casual_reply creative_exploration question_answer meta_discussion)
+  # capability_gap（Q3b，D8 根 2）：作者意图当前无能力承接时的诚实缺口回复子型——
+  # 协议不再假设「目录永远覆盖意图」，给模型一个说「我做不到」的结构化出口。
+  @reply_frame_types ~w(casual_reply creative_exploration question_answer meta_discussion capability_gap)
 
   @continuation_tool_name "continuation_decision"
   @continuation_actions ~w(continue await_author)
@@ -641,10 +643,14 @@ defmodule NovelApplication.JudgmentProtocol do
           - execute 时 #{capability_help(opts)}；plan 及其它 action 的 capability 填 null#{explore_capability_note(opts)}。
           - reply_included：action=reply 且判断说明已包含给作者的回复正文时为 true。
           - frame_type：action=reply 或 await_author 时，从
-            casual_reply / creative_exploration / question_answer / meta_discussion 中选择；
-            其它 action 置 null。创作方向候选属于 creative_exploration；回答作者关于作品、
-            系统或写作过程的问题属于 question_answer；讨论工作台流程或下一步协作方式属于
-            meta_discussion；其余普通回应属于 casual_reply。
+            casual_reply / creative_exploration / question_answer / meta_discussion /
+            capability_gap 中选择；其它 action 置 null。创作方向候选属于
+            creative_exploration；回答作者关于作品、系统或写作过程的问题属于
+            question_answer；讨论工作台流程或下一步协作方式属于 meta_discussion；
+            作者要求的动作系统当前没有能力承接（如直接写入/导出/删除档案）时属于
+            capability_gap——回复必须显式承认做不到什么，并给出最近可行路径（已有
+            待采纳候选就引导作者采纳；没有就说明可先把内容整理成待采纳候选），此时
+            用 candidate_directions 携带路径选项；其余普通回应属于 casual_reply。
           - dialogue_goal：用一句简短中文概括作者本轮目标；不得写系统执行步骤或内部推理。
           - candidate_directions：仅当 action=reply 且你的回复是给作者 2-3 个可选创作方向时填写
             （每个方向 {title, pitch, tone_tags}）；其它情况为空数组。

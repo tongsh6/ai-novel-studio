@@ -313,6 +313,7 @@ export const WORKBENCH = {
     casualReply: "AI 回应",
     questionAnswer: "回答问题",
     metaDiscussion: "创作讨论",
+    capabilityGap: "能力缺口",
     confirmationAnswer: "确认回合",
     fallback: "本轮回应",
   },

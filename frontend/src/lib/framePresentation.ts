@@ -44,6 +44,10 @@ const FRAME_PRESENTATION_BY_TYPE: Record<string, { label: string; tone: FrameTon
     label: WORKBENCH.frameBadges.metaDiscussion,
     tone: "meta",
   },
+  capability_gap: {
+    label: WORKBENCH.frameBadges.capabilityGap,
+    tone: "reply",
+  },
   confirmation_answer: {
     label: WORKBENCH.frameBadges.confirmationAnswer,
     tone: "confirmation",

@@ -19,7 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
-| `D7-continuation-intent-safe-default.md` | **CP1 done（2026-08-26）/ 续写意图安全默认**：采纳分流「只有显式 rewrite 才覆盖」（原实现把模型省略 `authoring_intent` 当作覆盖作者已采纳正文）+ prose_writing 步键存在性校验（缺键即结构不合法重试）。M6/M9 对照挖出：qwen 推理正确但常省略该可选字段，gpt-oss 恒填故缺陷潜伏两月；M0（07-19）孪生坑只补了「填错」半边。 |
+| `D7-continuation-intent-safe-default.md` | **done（2026-08-31，T4 两场景 Tauri PASS）/ 续写意图安全默认**：采纳分流「只有显式 rewrite 才覆盖」（原实现把模型省略 `authoring_intent` 当作覆盖作者已采纳正文）+ prose_writing 步键存在性校验（缺键即结构不合法重试）。M6/M9 对照挖出：qwen 推理正确但常省略该可选字段，gpt-oss 恒填故缺陷潜伏两月；M0（07-19）孪生坑只补了「填错」半边。 |
 | `D6-purpose-model-routing.md` | **done（2026-08-25）/ 按用途分模型路由**：Gateway 唯一决定点 purpose→model 查表（白名单 writer/planner/evaluator/fact_inventory、route_hint 细化、表空零行为变化）+ 设置对话框按用途 select 区 + Tauri 偏好全链；顺带修注入依赖 purpose 裸穿 Gateway 的既有缺陷（归因与路由同源化）；真实 Tauri `d6-purpose-model-routing` PASS。填表与跨供应商另行拍板。 |
 | `D5-inventory-thinking-model-adaptation.md` | **done（2026-08-25）/ 盘点思考型适配**：材料逐章混合（四栏摘要 seq 对位优先、缺失章回退正文截断）+ 退化自动降批合并（减半至最小批 3、提案 item_id 去重、`batch_fallback` 留痕）+ 瞬态单次重试（retryable:false 排除）；au14 真实 Tauri 回归 PASS。退化→降批页面级自愈留待真实模型狗粮观察。 |
 | `D4-planner-transient-retry.md` | **done（2026-08-25）/ 计划起草瞬态重试**：provider 错误族（含超时）单次重试（叙事段独立额度、结构段与纠正共享）、`plan_draft.retry` 双族留痕；真实 Tauri `d4-planner-transient-retry` PASS（ADR-0023 CP0 重试半边实装）。 |
@@ -32,6 +32,7 @@
 | `WR01b-chapter-mission-author-decision.md` | **done（2026-08-24）/ 写前推理层二期**：本章使命落 `chapters.plan_direction["chapter_mission"]`（零新表，暂定/已确认/作者改写，作废=删键）；档案大纲 tab 逐章 确认/改写/作废（ADR-0024 S8）；作者版在场下次写作 0 调用直取；`chapter_read` 探索可达；why 面板「本章使命：…」。真实 Tauri `wr01-chapter-mission-author-decision` PASS。 |
 | `WR01-chapter-mission-pre-writing-reasoning.md` | **done（2026-08-21）/ 写前推理层首刀**：正文 run 新增模型步「本章使命」——机械选取携带状态（章计划×五本账×进度，逐条 `[ref]` 列名）+ 模型推导本章必须推进/不得做（依据 ref 机器核验，越界丢弃）→ 进执行简报与推理区（N-NARR 绑定）；本期不持久化、失败降级继续写。真实 Tauri `wr01-chapter-mission-before-prose` PASS；真实模型实效归 M5 狗粮观察。 |
 | `P1-prose-companion-artifacts.md` | **done（2026-08-21）/ R2 独立刀**：正文主循环同一次 `prose_writing` 调用产 `prose_fragment`，并可同轮产角色/伏笔/世界规则/约束四类既有 seed；全部保持 tentative、逐项采纳，复用既有多候选卡与档案落位。真实 Tauri `p1-prose-companion-artifacts` PASS（五组同轮 / 采纳前零写入 / 选择性采纳余 3 组 pending）；真实模型是否「不凑数」归 M5 狗粮观察。 |
+| `Q3B-capability-gap-exit.md` | **done（2026-08-31）/ D8 病灶收口第二刀（R2）**：判断协议给「做不到」一个结构化说法——frame_type 子型 `capability_gap`（零新字段：缺口事实=frame_type、缺什么=narrative/dialogue_goal、最近路径=candidate_directions）；VS-00 两枚举表修订；探索强转让位判例（路径候选≠探索候选）。真实 Tauri `q3b-capability-gap-honest-reply` PASS（存档意图→诚实承认+路径候选+零写入）。 |
 | `P1-prose-quality-evidence-and-scoped-revision.md` | **done / 用户定向插单闭环**：复用 VS-00E 质量主链，把句式形式统计降为候选召回，由独立 evaluator 区分机械重复与刻意修辞，并以章功能为参照独立判断章节叙事节奏；质量卡补原句、位置、判断理由、影响范围和置信度，`revise_from_findings` 默认局部修订。三章真实 Tauri 语义边界、局部修订 sibling 与同 run 控制坞均通过；真实模型文学准确度仍按 I10 人工盲评。 |
 | `VS-00G-fact-inventory-run.md` | **doing / CP4c done**：设定盘点运行链——作品档案主动入口与主角缺位 finding 均可启动同一 `fact_inventory_v1`，角色/规则/伏笔既有 seed tentative 提案、逐项采纳及下一章弧光起账已通过真实 Tauri；CP4 仍缺全书规划字段建议，CP5 暂定设定另续。 |
 | `VS-00F-five-ledgers-three-state.md` | **CP0-CP4a done / M3 主 slice**：五本账（E33-E37）对象化 + 三态对账——契约 Frozen + ADR-0026；五账全落，每步对 M2 75 章书重放 PASS；SC-AU13-A1 真实 Tauri PASS；余 CP4c 统一批（Ledgers 面板+裁决入口+显式发起，Pencil 先行）。 |

@@ -157,6 +157,7 @@
 | `p1-prose-quality-finding-roundtrip.yml` | 形式候选、修辞裁决与章节节奏真实页面往返 |
 | `p1-prose-revision-candidate.yml` | 质量发现后按问题重写为修订候选 |
 | `p1-word-count-audit.yml` | 阅读投影短章审计与 P1 进度 |
+| `q3b-capability-gap-honest-reply.yml` | 存档意图无承接时诚实缺口回复与登记路径 |
 | `su01-api-key-secret-redaction.yml` | API Key 配置流与 secret redaction |
 | `su01-local-secret-file-roundtrip.yml` | 真实 Tauri WebView 本地密钥文件写读与脱敏 |
 | `su01-lmstudio-disconnected-health.yml` | LM Studio 未启动时的模型断开态 |

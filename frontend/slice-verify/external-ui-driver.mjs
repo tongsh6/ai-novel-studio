@@ -4882,6 +4882,81 @@ function isCandidateSemanticallyRelevantToCyberCultivation(candidate) {
   return relevanceTerms.some((term) => text.includes(term));
 }
 
+async function driveCapabilityGapHonestReply(page) {
+  const beforeFrameCount = frames.length;
+  const gapMessage =
+    "把这份大纲直接存档为作品设定：主角李衡在灵气枯竭的都市里靠账单推演天机，第一卷写他从记账学徒到执掌灵市。";
+  await page.locator(chatInputSelector).fill(gapMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const resultFrame = await waitForFrame(
+    (f) => f.direction === "received" && f.event === "turn_result" && f.body?.turn_id,
+    "No turn_result frame was received for the capability gap turn",
+    120_000,
+  );
+  const turnResult = resultFrame.body;
+  const sourceMessage = latestSentUserMessage();
+  assert(sourceMessage, "No source user_message was captured for capability gap");
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.frame_type === "capability_gap" &&
+      Number(record.candidate_count ?? 0) > 0,
+    "Capability gap turn did not produce a capability_gap judgment with path candidates",
+    30_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const replyText = turnResult.assistant_message?.text ?? "";
+  const executionCardPattern = /确认执行|待确认的创作材料|保存为章节正文|工具执行|MicroPlan/i;
+
+  assert(
+    replyText.includes("没有直接写入档案的能力"),
+    "Gap reply did not honestly admit the missing write capability",
+  );
+  assert(visibleText.includes("没有直接写入档案的能力"), "Honest gap reply was not visible");
+  assert(
+    visibleText.includes("把这份内容整理为待采纳设定"),
+    "Nearest-path candidate card was not visible",
+  );
+  assert(!executionCardPattern.test(visibleText), "Execution or confirmation card was visible");
+  assert(
+    sourceMessage.body?.generate_micro_plan === false,
+    "Capability gap turn requested a micro plan",
+  );
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Capability gap turn claimed a production write",
+  );
+  assert(!turnResult.tool_result, "Capability gap turn produced a tool result");
+  assert(!turnResult.adoption_decision, "Capability gap turn produced an adoption decision");
+  const framesAfter = frames.slice(beforeFrameCount);
+  assert(
+    !framesAfter.some((frame) => frame.event === "author_action"),
+    "Capability gap turn sent an author_action",
+  );
+  assert(
+    !framesAfter.some((frame) => frame.event === "action_result"),
+    "Capability gap turn triggered an action_result",
+  );
+
+  return {
+    slice_id: "q3b-capability-gap-honest-reply",
+    source_turn_id: turnResult.turn_id,
+    frame_type: "capability_gap",
+    honest_gap_reply_visible: true,
+    nearest_path_candidate_visible: true,
+    execution_card_visible: false,
+    tool_result_present: false,
+    adoption_decision_present: false,
+    production_write_performed: false,
+    no_author_action_sent: true,
+    no_action_result_received: true,
+  };
+}
+
 async function driveNaturalExplorationNoSlotForm(page) {
   const beforeSourceFrameCount = frames.length;
   const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page);
@@ -29016,6 +29091,7 @@ const drivers = {
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
+  "q3b-capability-gap-honest-reply": driveCapabilityGapHonestReply,
   "au02-natural-exploration-no-slot-form": driveNaturalExplorationNoSlotForm,
   "au02-candidate-continuation": driveCandidateContinuation,
   "au02-candidate-multiturn-context": driveCandidateMultiturnContext,

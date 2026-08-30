@@ -246,6 +246,23 @@ defmodule NovelApplication.JudgmentProtocolTest do
              )
   end
 
+  test "Q3b capability_gap 是合法 reply 子型：frame_type 原样归一并携带路径候选" do
+    assert {:ok, judgment} =
+             request(%{
+               "action" => "reply",
+               "reason" => "author_intent_lacks_capability",
+               "frame_type" => "capability_gap",
+               "dialogue_goal" => "把作者提供的内容登记进作品档案",
+               "candidate_directions" => [
+                 %{"title" => "把这份内容整理为待采纳设定", "pitch" => "采纳后写入档案"}
+               ]
+             })
+
+    assert judgment.action == "reply"
+    assert judgment.frame_type == "capability_gap"
+    assert [%{"title" => "把这份内容整理为待采纳设定"} | _] = judgment.candidate_directions
+  end
+
   test "call2 prompt 注入目录（T4 M2 误路由回归）：传目录时列出实名，未传保持旧措辞" do
     # M2 实锤（2026-07-20）：目录只放 schema enum（anyOf 内层）对模型不可见，
     # 全天 15 次首调 0 命中（自造名/null/被约束解码顶替成任意合法值）；顶替值
@@ -290,7 +307,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert %{type: "string", enum: frame_types} =
              Enum.find(frame_type_schema.anyOf, &(&1[:type] == "string"))
 
-    assert frame_types == ~w(casual_reply creative_exploration question_answer meta_discussion)
+    assert frame_types ==
+             ~w(casual_reply creative_exploration question_answer meta_discussion capability_gap)
   end
 
   test "call2 回显双端保留（M2 达标跑缺陷回归）：长叙事保头尾，结论不被剪，短叙事原样" do

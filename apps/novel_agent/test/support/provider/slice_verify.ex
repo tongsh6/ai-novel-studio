@@ -1940,6 +1940,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       conversation_only_text?(normalized) ->
         judgment_verdict_for_profile("conversation_turn_v1", author_text, prompt)
 
+      # Q3b 能力缺口出口：作者要求把内容写入/存进档案——系统当前无直接写入能力，
+      # 判诚实缺口回复（capability_gap 子型），路径经 candidate_directions 给出。
+      archive_write_text?(normalized) ->
+        {"reply", nil, false}
+
       # CP4（ADR-0025 决策 2）：请求本身包含多个相互依赖的创作阶段 → 制定计划
       # （与生产判断 prompt 的判别规则同语义：单产物即单动作，多阶段才开计划）。
       multi_stage_plan_text?(normalized) ->
@@ -2211,6 +2216,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         exploratory ->
           candidate_directions(true, prompt)
 
+        # Q3b：缺口回复必带最近可行路径（结构化承载在 candidate_directions）。
+        archive_write_prompt?(prompt) ->
+          [
+            %{
+              "title" => "把这份内容整理为待采纳设定",
+              "pitch" => "我先把你提供的内容整理成待采纳的设定候选，你在候选卡上采纳后就会写入作品档案。",
+              "tone_tags" => ["登记路径"]
+            }
+          ]
+
         true ->
           []
       end
@@ -2257,6 +2272,27 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_narrative_text("reply", exploratory, prompt) do
+    if archive_write_prompt?(prompt) do
+      "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力，做不到这一步。" <>
+        "最近的路径是：我先把内容整理成待采纳的设定候选，你在候选卡上采纳后它才会进入档案。见下方路径选项。"
+    else
+      judgment_reply_body_narrative(exploratory, prompt)
+    end
+  end
+
+  defp judgment_narrative_text("execute", _exploratory, _prompt) do
+    "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
+  end
+
+  defp judgment_narrative_text("await_author", _exploratory, _prompt) do
+    "我理解你希望增加第一章的篇幅，但还需要你明确扩写方式；请补充具体方向后，我再继续。"
+  end
+
+  defp judgment_narrative_text(_action, _exploratory, _prompt) do
+    "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
+  end
+
+  defp judgment_reply_body_narrative(exploratory, prompt) do
     reply_body =
       if exploratory do
         "围绕你的方向我给出两个可选切入，见下方候选；你可以直接采纳或继续聊。"
@@ -2273,18 +2309,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     "你想直接和我讨论这个话题；当前信息足够，我直接回应你。\n\n" <> reply_body
   end
 
-  defp judgment_narrative_text("execute", _exploratory, _prompt) do
-    "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
-  end
-
-  defp judgment_narrative_text("await_author", _exploratory, _prompt) do
-    "我理解你希望增加第一章的篇幅，但还需要你明确扩写方式；请补充具体方向后，我再继续。"
-  end
-
-  defp judgment_narrative_text(_action, _exploratory, _prompt) do
-    "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
-  end
-
   defp judgment_reply_frame(action, _exploratory, prompt) when action != "reply",
     do: {nil, judgment_dialogue_goal(prompt)}
 
@@ -2293,6 +2317,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_reply_frame("reply", false, prompt) do
     cond do
+      archive_write_prompt?(prompt) ->
+        {"capability_gap", "把作者提供的内容登记进作品档案"}
+
       quality_diagnosis_prompt?(prompt) ->
         {"question_answer", "诊断章节胜利过轻削弱张力的原因"}
 
@@ -2316,6 +2343,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_reason_code("execute"), do: "single_capability_satisfies_request"
   defp judgment_reason_code("await_author"), do: "author_direction_required"
   defp judgment_reason_code(_action), do: "multi_step_dependencies_require_plan"
+
+  # Q3b：档案写入类措辞（与生产判断 prompt 的 capability_gap 判别规则同语义）。
+  defp archive_write_text?(normalized) do
+    contains_any?(normalized, ["存档", "保存进档案", "写入档案", "登记进档案", "存进档案"])
+  end
+
+  defp archive_write_prompt?(prompt) do
+    prompt |> judgment_author_input() |> String.downcase() |> archive_write_text?()
+  end
 
   # 与帧机器 exploratory_prompt? 同一 terms（判断循环下 S2 候选判定不收窄），
   # 外加候选类显式词；创作产出类输入已被路由规则表先行截获。

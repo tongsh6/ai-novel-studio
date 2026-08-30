@@ -879,10 +879,18 @@ defmodule NovelApplication.DialoguePlanningService do
   # 判断结构 → DialogueFrame 机械转换（非预制创作决策：全部字段来自模型判断输出）。
   defp judgment_frame(judgment, turn_id, ws_id, context) do
     frame_type =
-      if judgment_exploration?(judgment) do
-        :creative_exploration
-      else
-        reply_frame_type(judgment.frame_type)
+      cond do
+        # Q3b：capability_gap 的候选承载「最近可行路径」而非创作方向探索——
+        # 显式缺口判定优先，不被「有候选⇒探索帧」的旧强转覆写（q3b 场景实锤：
+        # 路径候选 1 条即被改判 creative_exploration，缺口事实在 frame 层蒸发）。
+        judgment.frame_type == "capability_gap" ->
+          :capability_gap
+
+        judgment_exploration?(judgment) ->
+          :creative_exploration
+
+        true ->
+          reply_frame_type(judgment.frame_type)
       end
 
     context_ref =
@@ -914,10 +922,13 @@ defmodule NovelApplication.DialoguePlanningService do
   defp reply_frame_type("creative_exploration"), do: :creative_exploration
   defp reply_frame_type("question_answer"), do: :question_answer
   defp reply_frame_type("meta_discussion"), do: :meta_discussion
+  defp reply_frame_type("capability_gap"), do: :capability_gap
   defp reply_frame_type(_), do: :casual_reply
 
   defp reply_reason_code(:creative_exploration), do: :exploratory_only
   defp reply_reason_code(:meta_discussion), do: :user_requested_discussion
+  # Q3b：缺口轮目标明确、只是无能力承接——不属「目标不明」，语义精确单列。
+  defp reply_reason_code(:capability_gap), do: :capability_gap
   defp reply_reason_code(_), do: :no_tool_needed
 
   # 候选随判断结构携带（S2 保全）：字节绑定 provider tool arguments（I1/I3 语义不变）。

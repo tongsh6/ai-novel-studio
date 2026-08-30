@@ -1,0 +1,58 @@
+id: q3b-capability-gap-honest-reply
+title: 存档意图无承接时诚实缺口回复与登记路径
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q3b-capability-gap-honest-reply --surface tauri
+real_lmstudio_entrypoint: scripts/tauri_slice_verify.sh --real-lmstudio q3b-capability-gap-honest-reply
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/contracts/VS-00-reply-only-contract-pack.md
+  - docs/design/notes/2026-08-30-stage-session-archive-loop.md
+  - tasks/slices/Q3B-capability-gap-exit.md
+
+invariants:
+  - capability-gap-produces-honest-reply-not-readonly-execute
+  - gap-reply-carries-nearest-path-candidates
+  - no-production-write
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 作者要求把提供的大纲直接存档为作品设定（D8 stage 五连击同型输入）
+  - click: 发送
+  - observe: 自然回复显式承认「没有直接写入档案的能力」并给出登记路径；路径候选卡可见
+  - do_not_see: execution card / confirmation card / adoption decision
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/q3b-capability-gap-honest-reply-tauri
+
+assertions:
+  ui:
+    - honest gap reply is visible (admits missing write capability)
+    - nearest-path candidate card is visible
+    - execution or confirmation card is not visible
+  network:
+    - source user_message uses generate_micro_plan false
+    - judgment.decided.done has frame_type capability_gap with candidate_count > 0
+    - author_action is not sent
+    - action_result is not received
+  data:
+    - no tool_result is emitted
+    - no adoption decision is emitted
+    - production_write_performed remains false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

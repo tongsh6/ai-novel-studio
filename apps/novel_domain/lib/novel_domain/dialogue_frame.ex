@@ -11,12 +11,14 @@ defmodule NovelDomain.DialogueFrame do
           | :execution_candidate
           | :question_answer
           | :meta_discussion
+          | :capability_gap
   @type reason_code ::
           :no_tool_needed
           | :tool_needed
           | :exploratory_only
           | :insufficient_execution_target
           | :user_requested_discussion
+          | :capability_gap
   @type execution_readiness :: :not_applicable | :not_ready | :ready
 
   @type t :: %__MODULE__{
@@ -56,14 +58,16 @@ defmodule NovelDomain.DialogueFrame do
     :creative_exploration,
     :execution_candidate,
     :question_answer,
-    :meta_discussion
+    :meta_discussion,
+    :capability_gap
   ]
   @allowed_reason_codes [
     :no_tool_needed,
     :tool_needed,
     :exploratory_only,
     :insufficient_execution_target,
-    :user_requested_discussion
+    :user_requested_discussion,
+    :capability_gap
   ]
   @allowed_execution_readiness [:not_applicable, :not_ready, :ready]
 

@@ -194,6 +194,44 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert first.adoption_status == :not_adopted
   end
 
+  test "Q3b capability_gap 帧不被候选强转为探索帧（路径候选≠探索候选）" do
+    narrative =
+      "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力。最近的路径是先整理成待采纳候选。"
+
+    provider_execution =
+      judgment_execution("reply", nil,
+        narrative: narrative,
+        reply_included: true,
+        frame_type: "capability_gap",
+        dialogue_goal: "把作者提供的内容登记进作品档案",
+        candidate_directions: [
+          %{"title" => "把这份内容整理为待采纳设定", "pitch" => "采纳后写入作品档案", "tone_tags" => ["登记路径"]}
+        ]
+      )
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "把这份大纲直接存档为作品设定",
+                 workspace_id: "ws-gap",
+                 work_id: "work-gap",
+                 session_id: "session-gap",
+                 turn_id: "turn-gap"
+               },
+               nil,
+               provider_execution
+             )
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+    sink = fn _event -> :ok end
+    {_context_result, judgment_result} = drive_judgment(spec, run, sink)
+
+    turn_result = judgment_result.turn_result
+    assert turn_result.frame_summary.frame_type == :capability_gap
+    assert [path] = turn_result.candidate_directions
+    assert path.title == "把这份内容整理为待采纳设定"
+  end
+
   test "复合角色任务在 AgentRun 内路由到角色 profile" do
     {_spec, routed_run, _route_result} =
       assert_user_message_routes_to(
