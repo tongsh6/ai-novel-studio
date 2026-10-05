@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-08-25
+> 最后更新：2026-10-05
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -10,38 +10,27 @@
 
 ## 1. Current Focus
 
-> 最后重构：2026-08-30（用户指令「综合任务队列，研究分析，梳理重构内容和顺序」；
-> 编年细节全部归 SSOT——slices README / notes / memory，本节只保留当前态与队列指针）
+> 当前态校准：2026-10-05；历史进度以提交、slice 任务清单和验收证据交叉核对。
 
-**当前态（一段话）**：M5-M10c 六轮狗粮/对照收官，产品债 D1-D7 七刀全落；模型结论两次
-推翻后定格为「产品不绑模型，qwen/gpt-oss 主链均可用，速度差属架构」（notes/08-26）。
-Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象→根因→病理→成文哲学对照）
-完成：**A 类=文档已自我登记的差距无回收机制；B 类=哲学盲区四条**（作者无供给权/会话
-内核无跨 turn 义务/判定无对账/分权诗缺结果对账行），报告 notes/2026-08-30。两件未收
-尾：B15 已实现已验证未提交；D7-overwrite 不变量修复（A+B 方案）已提案未做。
+**当前态**：P1 长篇主链已按登记豁免关闭，当前主线是 D8 暴露的真实作者可用性。
+Q0、Q1a、Q2、Q3a–Q3c 和 Q4 轻量机制已落地；Q1b 的真实 stage 存档复验仍属观察项。
+Q3b/Q3c 的既有真实 Tauri 证据使用确定性 provider，不能当作本次真实模型复验。
+**唯一队首是 Q3d 的 ADR-0027 决策评审**：草案仍为 Proposed，三项选择尚待用户确认，
+实现须在 Accepted 后开工。状态校准不替用户接受 ADR，不把历史验收当成本次运行结果。
 
-**结构性判断（本次重构的灵魂）**：北极星 P1（10 万字长跑）已达成；stage 上已有真实
-作者在创作并被 D8 拦住——**主线应从「机器长跑里程碑」转向「真实作者可用性」**。
-队列按此重排：先止血（作者正被坑）→ 再补哲学（B 类盲区是后续所有刀的判据源）→
-再落机制刀（P/R 按新哲学）→ 再建差距回收（防 A 类复发）→ 而后回 A 轨主线存量。
+**本次已实施 checkpoint（Q4 状态校准）**：纠正 NEXT/旅程/差距表的过期状态；检查器只从
+§4「当前队列」提取唯一 next，并要求对应 journey 行引用同一任务编号。完成后继续 Q3d
+决策评审；DS02、页面回归接入和工作台拆分仍是后续候选。完整扫描新发现 Phoenix 安全漏洞与前端依赖缺失，见 B16；修复涉及安装/升级，待本机策略要求的用户授权。
 
-**队列总览（顺序即优先级，详表见 §4）**：
-
-| 批 | 内容 | 状态 |
-|---|---|---|
-| Q0 收尾卫生 | B15 提交收口（expansion 场景已 PASS、门禁已绿，只差 commit） | 就绪 |
-| Q1 作者止血 | Q1a D7-overwrite 不变量修复（喂前文改产品事实判别 + 判断②合成步坐标继承 + 场景语义校准）；Q1b D8 止血①②（能力描述澄清+判例行、reply 诚实反馈带待采纳候选；**归并 D1④ 立项引导**——D8 即其实弹） | **done（2026-08-31）**：两场景 Tauri PASS；Q1b prompt 级已落、stage 复验挂观察 |
-| Q2 哲学补写 | B 类四条一次文档刀：00§2 补作者供给权、会话内核定义补跨 turn 义务、README 指导原则补「语义对账」与「缺口诚实律」（D7 fail-safe 判据一并入档）、VS-00D 分权诗补第五行（结果对账） | 待拍板 |
-| Q3 机制刀序列 | Q3a P1 语义对账最小版（规则级 reason×action 矛盾拦截；**测量先于设计**：先从历史 llm-calls 统计矛盾率基线）→ Q3b R2 能力缺口出口 → Q3c R1 作者内容物化（候选第二合法来源，I1 绑定作者消息）→ Q3d P2 作者义务状态（先 ADR）→ P3 产出对账（依赖 P2） | 依序待开 |
-| Q4 工程自反射 | 差距回收机制：G1-G7 / NEM-GAP / B 轨台账加 VS-00F 式账本语义（登记即挂账、超期即开火；轻量=脚本扫描+超期红名单进开工仪式）。GAP-06 三态对账在此复位 | 待拍板 |
-| 主线复位 | Q1-Q4 后回 A 轨存量，按「真实作者可用性」重排候选：DS02 adoption_status canonical 化（用户原则「不允许补丁式绕过成为终态」）、UA01 流式卡片简化（stage 体验反馈）、DS01 schema 闸门、判断纪元 CP1（ADR-0025）、Order 7 上下文组装刀一/刀二、AU09 方向召回 | 顺序待拍板 |
+**队列总览**：§4 当前队列表是唯一状态源；不再复制第二张易漂移的状态表。
+Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行标识。
 
 **观察项（非队列）**：文学质感盲评（M6 书 vs M10c 书，内容侧）；D6 路由表填写（作者
 运行时自选，机制就绪零表）；下次狗粮观察=D6 UI 全链、B9 确认路径、Q4 重复段。
 
 **排序论证**：止血先于哲学——真实作者在用、Q1 成本小时级、且 Q1a 同时治 M10c 盲写
 续写的连贯性缺陷；哲学先于机制刀——P/R 的判据源自 B 类补写，跳过它就会重演「补丁
-追缺陷」（Selection Rule 6 反补丁自检的本轮行使）；回收机制殿后但必做——A 类病根
+追缺陷」（Selection Rule 7 反补丁自检的本轮行使）；回收机制殿后但必做——A 类病根
 不是缺文档而是登记后无人收账，不建回收则 Q2/Q3 的新登记同样会烂掉。
 
 
@@ -51,41 +40,41 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 
 **北极星**：P1 = 作者在真实工作台用真实模型走"设定 → 章节规划 → 逐章产出 → 采纳 → 阅读 → 导出"写出 10 万字可读长篇（`docs/product/novel-output-milestones.md`）。
 
-**结构性倒挂（2026-07-19 统筹复盘，CP5 梳理触发）**：08 要素模型 37 项要素中真正物化的约 10 项，五本账（E33-E37，设计文档自认的护城河）、章级设计四件套、卷级蓝图、场级 craft 全部未建（NEM-GAP-01~07）。而近两周工时全部在机制层（判断循环/退役/探针）——机制层工作自我繁殖、永远有"正当的下一件事"；领域层不叫喊、缺了不红灯，只会让第 30 章开始漂移，而我们还没写到第 30 章。**底盘已跑到货物前面**：机制层今后只在被领域要素拉动时才动。
+**历史结构性倒挂（2026-07-19 统筹复盘，非当前实现盘点）**：08 要素模型 37 项要素中真正物化的约 10 项，五本账（E33-E37，设计文档自认的护城河）、章级设计四件套、卷级蓝图、场级 craft 全部未建（NEM-GAP-01~07）。而近两周工时全部在机制层（判断循环/退役/探针）——机制层工作自我繁殖、永远有"正当的下一件事"；领域层不叫喊、缺了不红灯，只会让第 30 章开始漂移，而我们还没写到第 30 章。**底盘已跑到货物前面**：机制层今后只在被领域要素拉动时才动。
 
 ## 3. Active Journey
 
 连续体验真源：`docs/product/user-journeys.md`（本节为当前活跃旅程的压缩视图）。
 
 ```text
-作者在真实 Tauri 工作台创作长篇
-→ 立作品设定与分卷/章节计划（设计态：E18-E22 结构化——M1）
-→ 逐章产出：判断循环按需探索作品事实（CP5 已闭环）→ 朝章计划方向写 → 采纳
-→ 摘要/账本随采纳更新（压缩层已建，四栏分维度——M1）
-→ 阅读投影、字数审计、导出
-→ 10 万字 P1 验收跑（M2）
+作者在真实工作台提出创作或存档诉求
+→ 判断与实际能力对账（Q3a 已实现）
+→ 能力不足时诚实说明并给出最近路径（Q3b 已有确定性 Tauri 证据）
+→ 作者原文可成为待采纳候选，作者采纳后入档（Q3c 已有确定性 Tauri 证据）
+→ 同一诉求再次未满足时，跨 turn 义务推动升级（Q3d / Journey C9，待 ADR 决策）
+→ 后续产出与义务完成对账（依赖 Q3d，尚未闭环）
 ```
 
 ## 4. Queue
 
 三轨预算：**A 主线 ≥60% / B 债务 ≤25% / C 平台验证 ≤15%**。除非阻塞级 P0 bug，功能推进从队首开始。
 
-### 当前队列（2026-08-30 重构，Q0→Q4 顺序即优先级）
+### 当前队列（2026-10-05 校准；唯一 next 为当前队首）
 
 | # | 轨 | 任务 | 状态 | 完成判据 |
 |---|---|---|---|---|
 | Q0 | B | B15 提交收口：TurnBinding 单点（9 flow frame 构造点）+ 防回归守卫测试已绿、`p1-chapter-expansion` 复活 PASS、门禁绿 | **done（2026-08-30）** | ✓ commit 落盘；B15 销账 |
 | Q1a | A | D7-overwrite 不变量修复（三刀实落，B 按钮显式 rewrite 未采——场景语义改为作者显式消息更合 D7 契约）：①喂前文改产品事实判别（目标章有已采纳正文即喂，治 M10c 盲写）②**判断②续行合成步继承计划步写作坐标**（真根因：rewrite 意图在偏离处理后蒸发→append 绕过覆盖确认；D8 病理 run 内实例，详 D7 slice 档 §4 追记）③驱动 cycle2 改作者显式「推翻重写」消息 | **done（2026-08-31）** | ✓ 全三条：overwrite-confirm PASS + expansion 不回归 + prior_prose_chars 缺 intent 仍出现（app-log 151 chars + flow 单测） |
 | Q1b | A | D8 止血（症状钉，非收口）：①`work_archive_read` 能力描述补「不能保存/存档任何内容」+ 判例行（作者要求存档→有候选引导采纳/无候选选 world_building）；② reply 类存档追问必须带出待采纳候选（candidate_directions）。**归并 D1④ 立项引导** | **落地（prompt 级，2026-08-30）** | 判例文案已进 capability 目录与判断协议；stage 存档复验=观察项（真实会话再现时核对）；病灶收口归 Q3 |
-| Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **待拍板** | 文档落地 + 后续 Q3 各 slice 的七问以其为判据源 |
+| Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **done（2026-08-30）** | 提交 `8b03a9db`；00 §2.1、README 原则 12/13、VS-00D 结果对账已入档 |
 | Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
 | Q3b | A | R2 能力缺口出口：frame_type 子型 capability_gap（reply 结构化子型，零新字段——缺口事实=frame_type、路径=candidate_directions；探索强转让位判例见 slice 档）；VS-00 两枚举表修订 + domain/协议/前端/替身全链 | **done（2026-08-31）** | ✓ `q3b-capability-gap-honest-reply` 真实 Tauri PASS（存档意图→诚实承认+路径候选+零写入）+ au02 回归 + 全门禁；slice 档 tasks/slices/Q3B-capability-gap-exit.md |
 | Q3c | A | R1 作者内容物化：候选第二合法来源——作者消息字节机械物化为待采纳 world_setting 候选（不经模型重写；杂质由 edit-then-accept 主权修剪）；judgment 契约 author_content_registration 信号；**I1 不变量正式升级**（Provider ∨ 作者字节，规则+driver+case 同批登记非绕过） | **done（2026-08-31）** | ✓ `q3c-author-content-materialization` 真实 Tauri PASS（字节断言+物化事件+作者采纳全链）+ q3b/au02 兼容 + I1 4/4；slice 档 tasks/slices/Q3C-author-content-materialization.md |
-| Q3d | A | P2 作者义务状态（先 ADR）→ P3 产出对账闭环（依赖 P2 义务对象） | **ADR-0027 已起草 Proposed（2026-08-31），三个待拍板点（承载对象/登记通道/验收靶）在 ADR 文末——实现等 Accepted** | ADR Accepted + 同一诉求重复未满足在第二次即升级的真实场景 |
-| Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/滞留（连续 3+ 快照未动=红名单须裁决）；快照台账 reports/gap-ledger/；开工仪式第 6.5 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版（2026-08-30）** | ✓ 可机器扫描+仪式接入；GAP-06/B13 已进红名单跟踪 |
+| Q3d | A | 作者义务状态 ADR-0027 决策评审；P2 实现与后续 P3 产出对账依赖该决策 | **next**（决策阶段；ADR 仍 Proposed） | 确认承载对象、登记通道、验收靶；Accepted 后建立实现 slice，证明同一诉求第二次未满足即升级；对应 Journey C9 |
+| Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6.5 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版（2026-08-30）；状态校准已实施，完整扫描仍红（2026-10-05）** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |
 | 主线复位 | A | Q1-Q4 后回存量，按真实作者可用性重排：DS02 / UA01 流式卡片简化 / DS01 / 判断纪元 CP1 / Order 7 上下文刀 / AU09 召回 | 顺序**待拍板** | — |
 
-### 历史 Order 表（M0-M3 期，保留供追溯；全部 done/排查 done，细节见各 slice）
+### 历史 Order 表（M0-M3 期，保留供追溯；不参与当前队首选择，未闭环后果仍由原 slice 负责）
 
 | Order | 阶段 | 轨 | 任务 | 状态 | 完成判据 |
 |---:|---|---|---|---|---|
@@ -97,7 +86,7 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 | 5 | M2 | A | P1 百章验收跑 + 质量标准 4.3 核对 + 导出 | **done**（2026-07-21 P1 关闭，用户裁决：101,421 字/75 章/导出 ✓，Q1-Q5 带账 M3，豁免注记见里程碑文档 P1 Done 节） | ✓ |
 | 8 | M3 | A | **结构化容器空转全表排查（2026-07-23 用户拍板，B11/地基真空泛化）**。根假设：规划层/维护层只产扁平结果、不产结构化事实 → 多个既有存储容器被空转/退化使用。已实证两例：**characters 空转**（角色只活正文，自由创作从不写档案→弧光账无主体）、**volumes 退化**（单一默认卷占位，planner 只产扁平章列表→章全挂'第一卷'，B11）。排查维度（像上下文组装全景矩阵）：每张业务表 ×（schema 字段丰富度 / 生产写入路径是否存在且写全字段 / 百章标本实测数据丰富度 / 消费侧是否读全）。候选嫌疑（初步待证）：scene（E23-E30 场级 craft 字段位 NEM-GAP-04）、chapter（plan_direction 九字段是否写全）、mutation/interaction 等。产出：表×使用深度矩阵 + 每个空转/退化归类到 NEM-GAP + 根因是否统一为'规划层不产结构化事实'。方法：schema+生产写入路径+标本实测三对照，只读不改。 | **排查 done（2026-07-29）**：`docs/design/notes/2026-07-29-container-utilization-survey.md`。25 表四维矩阵：2 张全库零行空转（workspaces/versions）、8 张退化（volumes/characters/scenes/mutations/interactions/memory_items/long_run_tasks/work_sessions）、ledger_entries 的 information 子账三库近零 + arc 在 m4 为 0。**根假设被推翻——根因不统一，是四把刀**：R1 规划层不产结构化事实（只解释 volumes/scenes/arc）、**R2 自由创作只产两种 artifact**（更大一块，memory_items.tags 只有 outline_draft/prose_fragment → mutations 类型恒一、memory type 11 枚举用 1 个；类型分派表本来是全的，10 个分支等不到输入）、R3 设计留位消费面未接线、R4 整表未接线。**证伪**：chapters.plan_direction 完全健康（105/105 九字段全填、键集零变体），GAP-03 关闭属实。**刀候选待拍板**：①卷结构（承重最高，解锁 TOC 分层+volume_id 归属+GAP-07）②角色主体（**必须连 AU12 归并一起做**——m4b 已证只补 roster 不做归并会把空转变噪声，4 条同名 arc 重复行）③场级 craft（GAP-04，数据已在提示词里只差落库）④information 账+design_ref。关键数字已独立抽验 | 空转/退化表全部揭露且归因 ✓；进"规划层结构化生产"刀的候选与顺序**待用户拍板** |
 | 7 | M3 | A | **上下文组装补全**（2026-07-21 两轮评估+全景矩阵，用户确认登记）。**刀一·写作/评估的事实链**：①L3b 确认记忆进写作（世界规则/伏笔/角色状态，VS-00C §3.1 设计留位未实现——防设定漂移与伏笔失忆最大单项）+ ⓑ风格/作者偏好进创作调用（23 设计断裂：STYLE_RULE/AUTHOR_PREFERENCE 仅探索可查，writer 事前无风格锚、style_fit 只能事后拦）+ ⓓ质量评估器事实输入（knowledge_boundary/timeline 门 🔴 的根因=evaluator 只有正文+brief 无事实）——同一注入基建。**刀二·规划的世界感**：②规划带最近章摘要窗 + ⓐ规划带角色阵容（AgenticPlanDraftPlanner 仅 chapter_titles，**M2 扩章批凭空发明凌云/沈墨/沈逸接管主角团的机制原因**）+ ⓒ卷结构投影（volumes 表零消费，NEM-GAP-07 消费面侧影）+ ③NEM-GAP-01 立项创作字段（premise/theme/main_goal 进常驻上下文，08 §8 序位4 处方；承诺账 design_ref 有真锚）——规划上下文一次补齐。**小件搭车**：④判断章节列表带 DRAFTING/PLANNED 状态（M2 实锤 17/12）+ ⓔ判断 call1 一行"对账报告待裁决"（裁决流程自然发生的前提）。设计裁决依据：06 §5.0 投影表早已定义完整投影集，实现只接了结构链（章/摘要/正文），事实链（记忆/风格/卷/报告）几乎全断——M2 病谱完全对应 | 待定序（建议刀一/刀二各一 slice，排 CP4b/c 前后） | 写作带事实与风格、规划带世界感、立项有命题、判断输入诚实 |
-| 6 | M3 | A | **五本账优先**（M2 暴露短板已裁决定序：Q5 要角/题材漂移=五本账 E33-E37 缺位直接实证）→ 三态对账（GAP-05/06）→ 卷级蓝图/CP6 外部翼 | **next**（五本账已 done；VS-00G CP4c finding 触发 A done，当前推进 CP4 全书规划字段建议） | 漂移类缺陷已有账可查、可拦截；当前按 Current Focus 继续补全回路 |
+| 6 | M3 | A | **五本账优先**（M2 暴露短板已裁决定序：Q5 要角/题材漂移=五本账 E33-E37 缺位直接实证）→ 三态对账（GAP-05/06）→ 卷级蓝图/CP6 外部翼 | **历史队首（已移交当前队列）**；五账与作者裁决入口已落地，长尾以 VS-00F/VS-00G 任务清单为准 | 漂移类缺陷已有账可查、可拦截；当前按 Current Focus 继续补全回路 |
 
 **B 轨债务台账（成批处理，单项超半天登记折返）**：
 
@@ -114,11 +103,13 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 | B10 | 上下文组装小件（2026-07-21 评估余项）：OmissionNote 覆盖不全（仅 prior_prose 裁剪留痕，摘要窗/roster/账面 cap 的取舍无省略记录）；判断 call1 加账面一行摘要（待议，call2 病灶史提醒判断 prompt 加东西须谨慎）；摘要质量门（四栏齐全有校验、内容质量无——摘要是账本/摘要窗/规划共同上游）；why-panel 上下文可解释面板（VS-00C CP2 延后件，随 CP4c 前端批） | 攒批或挂对应 A 轨项 |
 | B8 | LM Studio 上下文配置属重启易失运维状态（2026-07-21 实锤：机器重启后 JIT 默认 8192，17 章形态 prose prompt+输出撑爆窗口 `truncated=1` → provider_response_invalid 无限重试；旧 M2 第13章三次"JSON 解析失败"极可能同病）。已手工 `lms load --context-length 32768` 恢复；候选钉：狗粮预检校验在载模型 context 阈值 + `finish_reason=length` 时报"上下文不足"而非可重试 invalid | 候选钉挂 M2 完跑复盘一并定 |
 | B6 | `frontend/slice-verify/dogfood-runner.mjs` 判定架构债——文件里散落一堆各自手写的帧判定函数（事件名/字段字面量），契约理解不唯一、易与真实契约（`frontend/src/lib/socket.ts` 等）漂移（2026-07-20 `awaitingAuthor` 判错字段路径实锤）；已把 `adoptPendingDraft` 一处重构成"分类一次+穷尽分支"（`classifyChapterAttemptFrame`），其余判定点（`readToc`、settle/overwrite 确认等）仍是老写法，未同步重构 | 攒批一次做，理想情况下接入真实契约定义而非本文件自证 |
-| B12 | **AU10 工作台渲染稳定性与局部刷新隔离（2026-07-24 用户反馈）**：当前无整页 reload 证据；视觉“整体闪烁”初判为 `WorkspaceChat` 多状态联动 render、可变 key/条件渲染 remount、异步元素/输入区/档案几何变化与自动滚动叠加。四方案已登记：A 最小防闪烁、B 组件/状态边界、C TanStack Query server-state 收敛、D 显式工作台状态机。 | 详见 `AU10-workbench-render-stability.md`；先 CP0 外部测量，再默认 A→B，C/D 仅证据触发；P1 B 轨，不改变 VS-00G 唯一队首 |
-| B13 | **ADR 实施/闭环与 traceability 债（2026-07-25 审计）**：当前 26 个 ADR 中可明确判定 8 个未完全闭环——产品/契约缺口 `ADR-0008/0016/0017/0019/0024/0025`，仍为 Proposed 的 `ADR-0022`，以及只剩真实样本人工盲评 I10 的 `ADR-0020`。本次“第一章字数太少了→已经确认了”Stage 现场不是 Provider 超时：两次判断调用均成功；run `run_mrz30t37_4lt` 收到 goal v2 后连续三次 `run_resumed → awaiting_author`，最终 `status=awaiting_author/phase=stopped` 且无 `active_behavior_ref`，归属 `ADR-0008` blocking clarification 与 `ADR-0024` S7 CP3。治理侧 `mix run scripts/adr_trace.exs` 当前报告 26/26 ADR 缺 `enforced_by`，且仍 exit 0，故“其余 18 个无明确核心阻塞”尚非机器认证结论。 | 不改变 VS-00G 唯一队首；S4/S7 与 blocking clarification 由 ADR-0024/UA-06 owner 收口，DS02/外部搜索翼/Projection/Replay/I10 各回原 owner；另行补 `enforced_by` 与把 `adr_trace` 从 soft warn 升为可阻断门禁，实施前先按 ADR→slice→代码→真实页面证据逐项定 owner |
+| B12 | **AU10 工作台渲染稳定性与局部刷新隔离（2026-07-24 用户反馈）**：当前无整页 reload 证据；视觉“整体闪烁”初判为 `WorkspaceChat` 多状态联动 render、可变 key/条件渲染 remount、异步元素/输入区/档案几何变化与自动滚动叠加。四方案已登记：A 最小防闪烁、B 组件/状态边界、C TanStack Query server-state 收敛、D 显式工作台状态机。 | 详见 `AU10-workbench-render-stability.md`；先 CP0 外部测量，再默认 A→B，C/D 仅证据触发；P1 B 轨；当前队首以本文件 §4 当前队列为准 |
+| B13 | **ADR 实施/闭环与 traceability 债**：2026-07-25 的 26 份 ADR / 8 项未闭环是历史审计口径，不能直接作为当前完成率。2026-10-05 检查为 27 份 ADR（含 Proposed）均缺 `enforced_by`，脚本仍只告警并 exit 0；新增 ADR-0027 保持 Proposed。实现与验收状态须逐项对照 owner 与证据，不能以 Accepted 或脚本成功代替。 | 当前队首为 Q3d 决策；DS02、S4/S7、外部搜索翼、Projection、Replay、I10 仍回原 owner。后续补 `enforced_by` 并收紧门禁前，先逐项核验 ADR→slice→代码→真实页面证据；本次仅校准状态，未完成追溯修复 |
 | B14 | ~~P0 awaiting_author 幽灵任务与失败气泡~~ **已销账（2026-07-28）**：DS03 全链收口——resume 门禁/liveness 真源/控制坞状态矩阵/steer 持久化/错误内联，三场景真实 Tauri PASS。残余（不阻塞）：S7 available_actions 载体归 ADR-0024 CP3；agent_run_state codegen 归 DS01；Pencil dock dead/awaiting 变体 frame 待补；非 judgment/prose flow 的 steer transcript 顺序对齐待其引入 steer 语义时做（细节见 slice 决策日志）。 | `DS03-awaiting-author-runtime-validity-and-recovery-surface.md` done / verified |
 
 | B15 | **bounded run 下 `toolbox.execute.*` 丢 turn_id**（2026-08-26 D7 排查挖出）：LogEmit 从 Logger metadata 取 turn_id，主链迁 bounded run 后工具执行进程无该键→两个 P1 场景 behavior 门长期哑火。修复=TurnBinding 单点（构造+绑定合一，9 flow frame 构造点全接）+ 防回归守卫测试；`p1-chapter-expansion` 复活 PASS、门禁绿 | **已销账（2026-08-30，Q0）** |
+
+| B16 | **2026-10-05 开工扫描阻塞**：后端 Phoenix 锁定 1.8.7，`mix deps.audit` 报 GHSA-6983-jfq8-485w（high，Channel join 资源无上限）与 GHSA-63mc-hw7g-86rr（moderate，Presence）；官方修复版本 1.8.9。前端缺 tsc/eslint/vitest，三项检查明确失败而非跳过。 | 待用户授权项目依赖安装/升级：后端 Phoenix 最小安全补丁（1.8.9，审阅必要传递依赖变更），前端用已安装且与 CI 同代的 pnpm 10 按锁文件恢复；不升级全局工具、不改代理。之后复跑编译/测试/架构/不变量/前端检查与完整扫描；修复前不宣称全门禁绿，也不把 pending 改成 accepted_risk 放行。 |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 
@@ -129,13 +120,26 @@ Stage 真实作者使用暴露 D8「存档」死循环，三层挖掘（现象�
 3. **止损律**（2026-07-18 用户拍板）：语义重定义值得做；纯计数钉快钉；环境毛刺登记复验不深挖。
 4. **狗粮节拍**：M0 之后每 3-5 个周期强制一次 10 章级狗粮——产品级测量常态化，防"场景绿=进展"错觉。
 5. **周期收尾更新本文件**（Current Focus 一段话 + 队列状态位），历史叙事写 slice 文档不写这里。
-6.5 **差距回收仪式（2026-08-30，Q4/D8 A 类病根）**：开工先跑 `bash scripts/gap_ledger.sh`
+6. **差距回收仪式（2026-08-30，Q4/D8 A 类病根）**：开工先跑 `bash scripts/gap_ledger.sh`
    ——扫描 VS-00D G 表 / NEM-GAP 表 / B 轨台账，输出开放差距与滞留红名单（连续 3+ 次
-   快照未动）。滞留项必须裁决：推进 / 降级并登记理由 / 显式弃置——登记不是安慰，
+   快照仍开放，非无进展判定）。滞留项必须裁决：推进 / 降级并登记理由 / 显式弃置——登记不是安慰，
    挂账必须收账（VS-00F 伏笔账哲学自反射到工程）。快照台账 `reports/gap-ledger/`。
-6. **反补丁自检（2026-07-20 用户提醒固化）**：同类症状出现第二次即触发归并审视——问"这些是几个缺陷还是一个病的几种症状"；症状钉可以先打（防线），但病灶必须立独立收口项且**测量先于设计**；harness 重试把问题变"能跑"不等于病愈，重试率必须进体温计。
+7. **反补丁自检（2026-07-20 用户提醒固化）**：同类症状出现第二次即触发归并审视——问"这些是几个缺陷还是一个病的几种症状"；症状钉可以先打（防线），但病灶必须立独立收口项且**测量先于设计**；harness 重试把问题变"能跑"不等于病愈，重试率必须进体温计。
 
 ## 6. Decision Log
+
+- 2026-10-05 — **Q4 状态校准 checkpoint**（用户指令「开工」）：以既有提交和 slice
+  记录核对 Q0/Q1/Q2/Q3/Q4，移除历史队首对当前队列的影响；Q3d 决策评审为唯一 next，
+  对应 Journey C9，ADR-0027 保持 Proposed。五本账、三态对账与 message envelope 的
+  差距改为已落地部分和剩余范围，保留未闭环项，不凭文档修订销账。补差距目录索引。
+  工程验证：`node --test scripts/next_task_check.test.mjs`、`node scripts/next_task_check.mjs`、
+  `bash scripts/gap_ledger.sh`。8 项回归通过，旧 HEAD 文档被新检查器正确拒绝。
+  `bash scripts/ai_static_scan.sh --top 10` 完整执行：13 PASS / 6 FAIL / 0 SKIP，
+  Top N 共 7 项、触及文件 0 项；2 项历史 gitleaks（误报/接受风险）、1 项既有 Credo
+  暂缓项保留，Phoenix 漏洞与前端三项工具缺失仍 pending（B16），不改处置状态压绿。
+  编译/架构/I1/I2/I3/N-NARR/Sobelow/Semgrep/队列检查通过。扫描入口补本地工具预检，
+  缺工具返回失败，阻止当前环境 pnpm 自动补装；测试并入既有扫描入口。
+  产品页面验收：本 checkpoint 无生产改动，不新增产品 slice 完成声明。
 
 - 2026-08-30 — **队列整体重构**（用户指令）：Current Focus 编年（约 490 行）按
   NEXT 判例收编归 SSOT；队列重排为 Q0 收尾→Q1 作者止血→Q2 哲学补写→Q3 机制刀

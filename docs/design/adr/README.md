@@ -1,10 +1,13 @@
 # v3 ADR 目录
 
-> 状态：草案（2026-05-06）
+> 状态：ADR 治理索引；具体决策状态以各 ADR 正文为准（2026-10-05 校准）
 >
 > 角色：定义 v3 ADR 的编号、状态、模板、评审门槛和首批 ADR 顺序。本文是 `00c-state-and-contract-atlas.md` 之后、`tasks/slices/v3/DAG.md` 之前的决策治理入口；它不冻结任何具体 schema，也不授权代码实现。
 
 ---
+
+> 当前待决策：`ADR-0027-author-obligation-state-v3.md` 保持 **Proposed**，由 NEXT Q3d / Journey C9 进入评审；本次状态校准不代表 Accepted。
+> 2026-10-05 运行 `scripts/adr_trace.exs` 检出 27 份文件缺少 enforced_by（含 Proposed 文件）；该脚本当前仅告警，退出成功不证明决策已实现或验收闭环。处置继续归 NEXT B13。
 
 ## 1. 定位
 

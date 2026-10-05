@@ -392,15 +392,19 @@ AuthorInput
 
 ## 6. 当前差距
 
+> 2026-10-05 状态校准：以下仍是开放范围，但描述已区分现有实现与剩余缺口。
+> 依据：`tasks/slices/AU11-quality-diagnosis-message-envelope.md`、VS-00E 实现与 `tasks/NEXT.md`；
+> 既有 proof 为历史证据，本次文档校准不声明重新验收或自动关闭差距。
+
 | # | 差距 | 当前事实 | 完善方向 |
 |---|---|---|---|
-| G1 | 小说层未成为一等 contract | Planner prompt 只有“你是小说创作 AI”与粗规则 | 把小说第一性原则和要素索引纳入 Planner contract |
-| G2 | 当前作品层太薄 | DialogueContext 主要是 snapshot / conversation / memory / chapters | 按 VS-00C/08 补结构化章节、章摘要、前文、进度账 |
-| G3 | 本轮引导层字段不完整 | DialogueFrame 只有 coarse frame_type/tool_need/readiness | 先用 evidence/uncertainty 承载，后续 ADR 扩展 schema |
-| G4 | 创作执行 prompt 与 Planner 判断脱节 | CreativeProvider 只看 creative_brief/context_text | 让工具输入携带可追踪的引导判断与要素焦点 |
-| G5 | 要素选择不可解释 | 当前没有记录“为什么本轮看这些小说要素” | trace 中记录 element_focus / omitted_elements / rationale |
-| G6 | 质量门主要是设计文档，未进入本轮引导 | provider 只有正文风格要求 | 把质量门作为 Planner 诊断与 CreativeProvider 输出约束 |
-| G7 | AI message 层没有独立 contract | 当前 prompt/messages 多由调用点拼接 | 用 `AIMessageEnvelope` 统一三层 message block、缺失处理和 trace |
+| G1 | 小说层契约的全调用点覆盖未闭环 | AU11 质量诊断已有 `AIMessageEnvelope.novel_layer` 的原则、要素及质量门投影；不是只有角色 prompt。当前 builder 明确仍为过渡实现 | 核对判断/规划/创作调用点的统一来源与缺失策略，不能以 AU11 单场景代表完整覆盖 |
+| G2 | 当前作品层的事实与风格消费仍不完整 | 结构化章计划、摘要、前文及账面消费已有实现；`tasks/NEXT.md` Order 7 仍登记事实/风格输入和省略说明的剩余工作 | 按 Order 7 与具体 flow 实证补齐消费面，不重新建设已有结构链 |
+| G3 | 本轮引导字段的正式 schema 与场景覆盖未闭环 | AU11 已在过渡 envelope/trace 记录 guidance_mode、element_focus、risk 与缺失；不能仍视为只有 coarse frame_type | 保留 AU11 的 schema 冻结与 clarify/confirm 等剩余验收，按 ADR 扩展 |
+| G4 | 创作决策载体的完整语义投影未闭环 | `CreativeDecisionPacketBuilder` 已传递坐标、章方向、读者效果、作者输入及本章使命，并由 `ProseExecutionBriefBuilder` 消费；continuity/style_intent 等仍是后续 checkpoint | 对齐 VS-00E 的剩余输入维度与实际调用证据，不把已接通载体写成完全脱节 |
+| G5 | 要素选择解释尚未覆盖完整调用面 | AU11 质量诊断已有 selection_rationale、omitted_elements 与 element_focus；当前实现只证明该 checkpoint | 扩展真实任务中的要素选择与省略 trace，保留调用点级证据 |
+| G6 | 质量门的全链消费与效果验收未闭环 | AU11 有质量门投影，VS-00E 已有正文执行简报、评估与修订服务；不能再称只有风格要求 | 继续核对质量判断的事实输入、作者处置与长篇效果，不把机制存在等同于质量达标 |
+| G7 | message envelope 的统一契约与全调用点覆盖未闭环 | `NovelApplication.AIMessageEnvelope` 已有过渡 builder 与 AU11 最小真实页面 proof；独立冻结契约及所有调用点统一尚未由该 checkpoint 证明 | 依契约 call-site 矩阵补齐来源、MissingPolicy 与 TraceRequirements；AU11 局部 closed 不等于本项整体关闭 |
 
 ---
 

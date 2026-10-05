@@ -1,96 +1,128 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.resolve(scriptDir, "..");
+const scriptPath = fileURLToPath(import.meta.url);
+const rootDir = path.resolve(path.dirname(scriptPath), "..");
+const nextPath = "tasks/NEXT.md";
+const journeysPath = "docs/product/user-journeys.md";
 
-const files = {
-  next: "tasks/NEXT.md",
-  journeys: "docs/product/user-journeys.md",
-};
+// 只从当前队列表取队首；历史 Order、决策日志和正文里的 next 都不是可执行任务。
+export function validateTaskState(next, journeys) {
+  const failures = [];
+  for (const heading of [
+    "## 1. Current Focus", "## 3. Active Journey", "## 4. Queue",
+    "## 5. Selection Rule", "## 6. Decision Log",
+  ]) {
+    requireSection(next, nextPath, heading, failures);
+  }
+  for (const heading of ["## 1. 状态定义", "## 2. Journey A", "## 6. 使用规则"]) {
+    requireSection(journeys, journeysPath, heading, failures);
+  }
+  requireReference(next, nextPath, journeysPath, failures);
+  requireReference(next, nextPath, "docs/project-ledger.md", failures);
+  requireReference(journeys, journeysPath, nextPath, failures);
 
-const failures = [];
+  const current = section(section(next, "## 4. Queue"), "### 当前队列");
+  if (!current) {
+    failures.push(`${nextPath}: missing 当前队列 section inside ## 4. Queue`);
+  }
+  const rows = tableRows(current);
+  const header = rows.find((cells) => cells[0] === "#" && cells.includes("状态"));
+  const statusIndex = header?.indexOf("状态") ?? -1;
+  if (!header) failures.push(`${nextPath}: 当前队列 must have # and 状态 columns`);
 
-const next = readRequired(files.next);
-const journeys = readRequired(files.journeys);
-
-if (next) {
-  requireSection(next, files.next, "## 1. Current Focus");
-  requireSection(next, files.next, "## 3. Active Journey");
-  requireSection(next, files.next, "## 4. Queue");
-  requireSection(next, files.next, "## 5. Selection Rule");
-  requireSection(next, files.next, "## 6. Decision Log");
-
-  // 队列表列序（2026-07-19 三轨改版）：Order | 阶段 | 轨 | 任务 | 状态 | 完成判据。
-  // 状态在第 5 列，允许加粗与括注（如 "**next**（…）"）。
-  const nextTasks = [
-    ...next.matchAll(
-      /\|\s*\d+(?:\.\d+)?\s*\|([^|]*)\|[^|]*\|[^|]*\|\s*\*{0,2}next\*{0,2}(?:[^|]*)\|/g,
-    ),
-  ].map((match) => match[1].trim());
-
+  const tasks = rows.filter((cells) => cells !== header && !cells.every(isSeparator));
+  const ids = new Set();
+  for (const cells of tasks) {
+    if (header && cells.length !== header.length) {
+      failures.push(`${nextPath}: malformed 当前队列 row ${cells[0]}`);
+    }
+    if (ids.has(cells[0])) failures.push(`${nextPath}: duplicate 当前队列 id ${cells[0]}`);
+    ids.add(cells[0]);
+  }
+  const nextTasks = tasks.filter((cells) => isNext(cells[statusIndex]));
   if (nextTasks.length !== 1) {
     failures.push(
-      `${files.next}: expected exactly one Queue row with Status=next, found ${nextTasks.length}`,
+      `${nextPath}: expected exactly one 当前队列 row with Status=next, found ${nextTasks.length}`,
     );
   }
-
-  if (!next.includes("docs/product/user-journeys.md")) {
-    failures.push(`${files.next}: must reference docs/product/user-journeys.md`);
+  const journeyNext = tableRows(journeys).filter(
+    (cells) => /^[A-Z]\d+$/.test(cells[0]) && isNext(cells[4]),
+  );
+  if (journeyNext.length !== 1) {
+    failures.push(
+      `${journeysPath}: expected exactly one journey step with Status=next, found ${journeyNext.length}`,
+    );
   }
+  if (nextTasks.length === 1 && journeyNext.length === 1) {
+    const taskId = nextTasks[0][0];
+    const references = journeyNext[0].slice(1).join(" ").split(/[^A-Za-z0-9_-]+/);
+    if (!references.includes(taskId)) {
+      failures.push(`${journeysPath}: next journey row must reference current queue id ${taskId}`);
+    }
+  }
+  return failures;
+}
 
-  if (!next.includes("docs/project-ledger.md")) {
-    failures.push(`${files.next}: must mention docs/project-ledger.md update responsibility`);
+function section(text, heading) {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => matchesHeading(line, heading));
+  if (start === -1) return "";
+  const level = heading.match(/^#+/)[0].length;
+  const end = lines.findIndex((line, index) => {
+    const match = line.match(/^(#+) /);
+    return index > start && match && match[1].length <= level;
+  });
+  return lines.slice(start + 1, end === -1 ? undefined : end).join("\n");
+}
+
+function tableRows(text) {
+  return text.split("\n")
+    .filter((line) => /^\|.*\|\s*$/.test(line))
+    .map((line) => line.trim().slice(1, -1).split("|").map((cell) => cell.trim()));
+}
+
+function isSeparator(cell) {
+  return /^:?-+:?$/.test(cell);
+}
+
+function isNext(status = "") {
+  return /^next(?:$|\s|（|\()/.test(status.replace(/[*`]/g, "").trim());
+}
+
+function requireSection(text, filename, heading, failures) {
+  if (!text.split("\n").some((line) => matchesHeading(line, heading))) {
+    failures.push(`${filename}: missing section ${heading}`);
   }
 }
 
-if (journeys) {
-  requireSection(journeys, files.journeys, "## 1. 状态定义");
-  requireSection(journeys, files.journeys, "## 2. Journey A");
-  requireSection(journeys, files.journeys, "## 6. 使用规则");
+function matchesHeading(line, heading) {
+  return line === heading || [" ", "（", "："].some((suffix) => line.startsWith(heading + suffix));
+}
 
-  const journeyNextSteps = [...journeys.matchAll(/\|\s*[A-Z]\d+\s*\|[^\n]*\|\s*next\s*\|/g)];
-  if (journeyNextSteps.length < 1) {
-    failures.push(`${files.journeys}: expected at least one journey step with Status=next`);
-  }
+function requireReference(text, filename, reference, failures) {
+  if (!text.includes(reference)) failures.push(`${filename}: must reference ${reference}`);
+}
 
-  if (!journeys.includes("tasks/NEXT.md")) {
-    failures.push(`${files.journeys}: must reference tasks/NEXT.md`);
+function main() {
+  try {
+    const next = readFileSync(path.join(rootDir, nextPath), "utf8");
+    const journeys = readFileSync(path.join(rootDir, journeysPath), "utf8");
+    const failures = validateTaskState(next, journeys);
+    if (failures.length) {
+      console.error("next-task-check: failed");
+      for (const failure of failures) console.error(`- ${failure}`);
+      process.exitCode = 1;
+    } else {
+      console.log("next-task-check: ok");
+    }
+  } catch (error) {
+    console.error(`next-task-check: ${error.message}`);
+    process.exitCode = 1;
   }
 }
 
-if (next && journeys) {
-  const queueNext = next.match(/\|\s*1\s*\|\s*([^|\s]+)\s*\|\s*next\s*\|/)?.[1];
-  if (queueNext && !journeys.includes(queueNext)) {
-    failures.push(`${files.journeys}: must mention current NEXT queue head ${queueNext}`);
-  }
-}
-
-if (failures.length > 0) {
-  console.error("next-task-check: failed");
-  for (const failure of failures) {
-    console.error(`- ${failure}`);
-  }
-  process.exit(1);
-}
-
-console.log("next-task-check: ok");
-
-function readRequired(relativePath) {
-  const absolutePath = path.resolve(rootDir, relativePath);
-  if (!existsSync(absolutePath)) {
-    failures.push(`${relativePath}: missing`);
-    return null;
-  }
-
-  return readFileSync(absolutePath, "utf8");
-}
-
-function requireSection(content, relativePath, heading) {
-  if (!content.includes(heading)) {
-    failures.push(`${relativePath}: missing section ${heading}`);
-  }
-}
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) main();

@@ -45,5 +45,37 @@
     "planned_fix": "chapter-summary-parse-refactor",
     "handling": "2026-07-20 已有的 parse_sections 嵌套告警，不在 VS-00G CP4b-2 改动范围；当前函数有既有回归保护且不阻塞设定盘点，避免为清理无关 P2 扩大本 slice。",
     "recommendation": "下次修改 ChapterSummary 解析时抽取标签到 section 映射私有函数，并复跑 chapter_summary 单测。"
+  },
+  "mix-audit|mix-audit|||Hex dependency vulnerability scan failed": {
+    "status": "pending",
+    "owner": "codex",
+    "updated_at": "2026-10-05",
+    "planned_fix": "NEXT-B16",
+    "handling": "Phoenix 1.8.7 命中 GHSA-6983-jfq8-485w（high）与 GHSA-63mc-hw7g-86rr（moderate）；已核对 Phoenix 官方公告，1.8.9 修复。产品使用 WebSocket/Channel，生产默认 loopback 仅缩小可达面，不作为忽略理由。安装/升级按本机策略待用户授权；不将此项降级或接受风险。",
+    "recommendation": "授权后将后端 Phoenix 更新至最小安全补丁 1.8.9，审阅必要的锁文件变化，复跑编译、测试、架构、不变量和依赖审计。"
+  },
+  "frontend-typecheck|frontend-typecheck|||Frontend TypeScript typecheck failed": {
+    "status": "pending",
+    "owner": "codex",
+    "updated_at": "2026-10-05",
+    "planned_fix": "NEXT-B16",
+    "handling": "本地 frontend/node_modules/.bin/tsc 缺失；扫描前置检查返回 69，未把无法执行伪装为通过或跳过。项目依赖恢复按本机策略待用户授权。",
+    "recommendation": "授权后使用已安装的 pnpm 10 按 frontend/pnpm-lock.yaml 执行 frozen-lockfile 安装，不升级全局工具或前端锁定版本，然后复跑 typecheck/lint/test 和完整扫描。"
+  },
+  "frontend-lint|frontend-lint|||Frontend ESLint failed": {
+    "status": "pending",
+    "owner": "codex",
+    "updated_at": "2026-10-05",
+    "planned_fix": "NEXT-B16",
+    "handling": "本地 frontend/node_modules/.bin/eslint 缺失；扫描前置检查返回 69，未把无法执行伪装为通过或跳过。项目依赖恢复按本机策略待用户授权。",
+    "recommendation": "授权后使用已安装的 pnpm 10 按 frontend/pnpm-lock.yaml 执行 frozen-lockfile 安装，不升级全局工具或前端锁定版本，然后复跑 typecheck/lint/test 和完整扫描。"
+  },
+  "frontend-test|frontend-test|||Frontend unit tests failed": {
+    "status": "pending",
+    "owner": "codex",
+    "updated_at": "2026-10-05",
+    "planned_fix": "NEXT-B16",
+    "handling": "本地 frontend/node_modules/.bin/vitest 缺失；扫描前置检查返回 69，未把无法执行伪装为通过或跳过。项目依赖恢复按本机策略待用户授权。",
+    "recommendation": "授权后使用已安装的 pnpm 10 按 frontend/pnpm-lock.yaml 执行 frozen-lockfile 安装，不升级全局工具或前端锁定版本，然后复跑 typecheck/lint/test 和完整扫描。"
   }
 }

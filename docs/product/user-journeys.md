@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-06-18
+> 最后更新：2026-10-05（本次校准 Journey C 与当前队首；其他旅程保留历史证据口径）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,9 +182,9 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C8 质量诊断 message envelope。
+Current Breakpoint：C9 / Q3d 作者跨 turn 义务，当前先评审 ADR-0027（Proposed）。
 
-Next Proof：作者输入“这一章不够爽，主角赢得太轻了”后，真实工作台 trace/why 能重建小说层、当前作品层和本轮引导层，且不静默写入作品事实。
+Next Proof：ADR Accepted 后，由外部自动化在真实 Tauri 连续提出同一未满足诉求，证明第二次即承认未完成并给出可行路径；义务可查询，不能自行关闭或绕过采纳写入作品事实。当前尚无该场景的完成证据。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -195,7 +195,8 @@ Next Proof：作者输入“这一章不够爽，主角赢得太轻了”后，�
 | C5 | frame badge 区分自然回复和探索 | AU-02 / AU-10 | DialogueFrame / TurnResultViewModel | closed | Tauri automation | `au02-candidate-continuation` frame badge evidence | 还缺更多 frame 类型样例。 |
 | C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` | 已证明 selection / adoption 分离；后续转入 Journey F 安全门禁。 |
 | C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | checkpoint closed / 继续补矩阵 | Tauri automation + Application test | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；broken provider / garbage JSON tests | provider 不可用恢复、高风险 confirmation 取消等待与真实 provider timeout 已由真实工作台证明；缺乱码和更完整 UI 恢复验收。 |
-| C8 | 质量诊断请求组织三层 message | AU-11 / VS-00D / AU-07 | AIMessageEnvelope / DialogueFrame / TraceSummaryView | next | Documented task | `tasks/slices/AU11-quality-diagnosis-message-envelope.md` | 需要证明质量诊断 turn 的 NovelLayer / WorkState / TurnGuidance 可由 trace/why 重建，且不绕过 MicroPlan / Orchestrator / adoption 写入作品事实。 |
+| C8 | 质量诊断请求组织三层 message | AU-11 / VS-00D / AU-07 | AIMessageEnvelope / DialogueFrame / TraceSummaryView | closed | 历史 Tauri automation | `tasks/slices/AU11-quality-diagnosis-message-envelope.md`；`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json` | SC-AU11-01 最小 checkpoint 已闭环；完整调用点投影与 schema 冻结仍归 AU-11/VS-00D，不声明整个 AU-11 完成。 |
+| C9 | 作者重复提出尚未完成的诉求，系统承认并升级 | Q3d / ADR-0027 | 拟议作者义务状态 / Judgment / Trace | next | Proposed ADR | `docs/design/adr/ADR-0027-author-obligation-state-v3.md`；`tasks/NEXT.md` Q3d | 先决策承载对象、登记通道和验收靶；Q3a–Q3c 已有单轮防线，跨 turn 义务及后续产出对账尚未闭环。 |
 
 ---
 

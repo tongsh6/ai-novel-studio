@@ -31,7 +31,9 @@
 | `grep_workspace.sh` | 按 workspace 检索日志/证据辅助。 |
 | `lint_enum_literals.exs` | 枚举字面量 lint 辅助。 |
 | `macos_cgevent_local_secret_file_driver.swift` | macOS 本地 secret 文件 UI 驱动辅助。 |
-| `next_task_check.mjs` | `tasks/NEXT.md` 唯一 next 和队列完整性检查。 |
+| `next_task_check.mjs` | 只检查 NEXT 当前队列的唯一 next，核对任务编号与 next 旅程行；排除历史表。 |
+| `next_task_check.test.mjs` | 队列检查器反例回归；运行 `node --test scripts/next_task_check.test.mjs`，无需前端依赖。 |
+| `gap_ledger.sh` | 从既有差距表生成开放清单及跨次快照，落点见 `reports/gap-ledger/README.md`。 |
 | `quality_accept.sh` | quality acceptance 统一入口。 |
 | `quality_manifest_check.sh` | quality manifest 一致性检查。 |
 | `seed_au03_context_source_ui.exs` | AU-03 context source UI 验收 seed。 |

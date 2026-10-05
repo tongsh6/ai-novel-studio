@@ -186,14 +186,14 @@
 
 | 编号 | 缺口 | 涉及要素 | 现状 |
 |---|---|---|---|
-| NEM-GAP-01 | 主题 / 前提无建模位置 | E01 / E02 | ~~work 无"命题"字段~~ **部分关闭**（CA01：works 增 premise/theme/main_goal）；全书骨架（目标体量/连载形态）续批见 NEM-GAP-08 |
+| NEM-GAP-01 | 主题 / 前提已有字段，消费完整性待对账 | E01 / E02 | **部分关闭**：CA01 已增加 works.premise/theme/main_goal；常驻及规划上下文的完整消费仍按 `tasks/NEXT.md` Order 7 核对，体量/连载形态另见 NEM-GAP-08 |
 | NEM-GAP-02 | 核心设定引擎、成长体系、命名体系无对象 | E06 / E09 / E12 | 只能散落在 worldbuilding 文本里 |
 | NEM-GAP-03 | ~~章级设计无结构~~ **已关闭**（2026-07-20） | E18-E22 | 全链落地：ChapterPlanDirection 九字段（VS-00C CP4）→ plot_outline writer 结构化文法产出 → ChapterPlanParser 物化 → 执行简报场级投影（chapter_projection）→ 探索面 chapter_read 三态可读（CP5b）→ 种子结构化后场景/狗粮全程方向在场（p1-prose-execution-brief degraded=false + judgment-explore-chapter-plan 引用设计态字段 verified） |
-| NEM-GAP-04 | 场级 craft 无槽位 | E23-E30 | ~~scene 是空结构节点，无任何 craft 字段~~ **部分关闭**（NEM04 刀③ 2026-08-11：最小三槽「场景目标/出场人物议程/情绪」经章计划逐场标注落 `plan_direction.scene_plans`（慎重新增实体：既有 map 字段承载，设计态不进 production 行），`ProseExecutionBrief` 多场展开闭环、续写场景按计划场次名；E25-E30 其余要素槽等拉动） |
-| NEM-GAP-05 | "向前看"的五本账缺位 | E33-E37 | 弧光/冲突/信息/情绪曲线/承诺只有 main_outline 文本兜底 |
-| NEM-GAP-06 | 三态对账无一等机制 | 全部 | 25 有提炼方向，但"实现态 vs 设计态对账"未被表述为机制 |
+| NEM-GAP-04 | 场级 craft 已有最小三槽，其余要素待拉动 | E23-E30 | **部分关闭**（NEM04 刀③，2026-08-11）：场景目标/人物议程/情绪落入 `plan_direction.scene_plans`，`ProseExecutionBrief` 支持多场展开；E25-E30 其余槽位仍待真实创作动作拉动 |
+| NEM-GAP-05 | 五本账已物化，长期效果与长尾仍待收口 | E33-E37 | **部分关闭**：VS-00F CP1–CP3 已落五账对象、维护与探索读取，CP4a/CP4c 已接规划、脉络面板、作者裁决与修订入口；既有 Tauri 与重放证据见 `tasks/slices/VS-00F-five-ledgers-three-state.md`。长篇持续防漂移效果和该 slice 余项不能由本次校准替代验收 |
+| NEM-GAP-06 | 三态对账机制已建，定期化与反馈收编待完善 | 全部 | **部分关闭**：ADR-0026/VS-00F 已有报告物化、四处置及显式 `ledger_reconciliation_v1` 运行；剩余包括 LongRunTask 定期化关联、dismiss 向 Experience Engine 收编等，仍归 VS-00F 余项 |
 | NEM-GAP-07 | 卷级蓝图无结构**+ volumes 表退化使用** | E14-E17 | volume 无目标/编织/节奏字段（VS-00G 只落全书骨架消费面，卷级对象仍待"开新卷"动作提出）；**2026-07-23 核查实证：volumes 表退化为单一默认卷占位——唯一写入 AdoptionRepository.insert_volume 恒造"第一卷"（planner 只产扁平章列表无卷结构，章被迫全挂默认卷），百章标本 volumes=1/100 章全挂其下；与地基事实真空同源（规划层不产结构化卷/角色），活化需规划层改造 planner 产多卷** |
-| NEM-GAP-08 | 全书体量/连载形态无建模位 + 承重事实"该建未建"无检测回路 | E01/E08 + 全部 | ~~works 无目标体量、无收官守则、无"主角未物化"类负债检测~~ **VS-00G 冻结**（承重事实完备性与补全回路：manifest/缺席守则/设计负债规则族/设定盘点/工作假定/全书骨架；M3 狗粮地基事实真空实证） |
+| NEM-GAP-08 | 全书骨架与事实补全回路已有实现，假定长尾未闭环 | E01/E08 + 全部 | **部分关闭**：VS-00G 已有骨架字段建议与采纳回写、设定盘点、设计负债及工作假定；`tasks/slices/VS-00G-fact-inventory-run.md` 记录 CP4d/CP5a-d，并仍登记 CP5e 真实页面证明与触发 C/寿命催办/works 级假定等余项，不再仅以 Frozen 表示实现状态 |
 
 ---
 

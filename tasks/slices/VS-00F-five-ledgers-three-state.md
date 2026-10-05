@@ -1,6 +1,6 @@
 # VS-00F 五本账与三态对账（M3 主 slice）
 
-- 状态：**CP0 done / CP1 done（2026-07-21）**——契约 Frozen + ADR-0026 + 同批修订全落；弧光账后端全链 + M2 75 章书重放 PASS + 真实 Tauri `au13-arc-ledger-roundtrip` 首轮 PASS（SC-AU13-A1/A2 双验收）。下一步 CP2（承诺账+信息账+对账报告+裁决面）。
+- 状态：**CP0–CP3、CP4a、CP4c-1/2/3 已有完成记录**（2026-10-05 按本文件 CP 表校准入口）：五账对象、维护/探索、规划消费、脉络面板、显式审读和四处置入口已落地并有历史 Tauri 证据；剩余收起态 rail 计数、定期化 LongRunTask 关联及 dismiss 的 Experience Engine 收编等仍保留，未重跑页面验收。
 - 类型：Domain Ledger Slice（领域层，M3 阶段主任务）
 - 启动日期：2026-07-21
 - 所属契约：`docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md`

@@ -2,7 +2,7 @@
 # Q4 差距回收机制（2026-08-30，D8 三挖 A 类病根：差距登记后无人收账）。
 # 扫描三处差距登记表 → 输出开放差距清单，与上次快照对比出 新增/关闭/滞留。
 # 快照台账：reports/gap-ledger/latest.json（跨次处置台账，SSOT 规则）。
-# 开工仪式消费：tasks/NEXT.md §5 Selection Rule 第 7 条。
+# 开工仪式消费：tasks/NEXT.md §5 Selection Rule 第 6 条。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 - <<'PYEOF'
@@ -58,6 +58,6 @@ print(f"[gap-ledger] {today} 开放差距 {len(open_gaps)} 项（VS-00D {sum(1 f
 if added: print(f"[gap-ledger] 新增: {', '.join(added)}")
 if closed: print(f"[gap-ledger] 关闭: {', '.join(closed)}")
 if stale:
-    print(f"[gap-ledger] ⚠ 滞留（连续 {3}+ 次快照未动）——按 VS-00F 超期语义应裁决：推进 / 降级登记理由 / 显式弃置:")
+    print(f"[gap-ledger] ⚠ 复核（连续 {3}+ 次快照仍开放，不代表期间无进展）——应裁决：推进 / 降级登记理由 / 显式弃置:")
     for k,n in sorted(stale,key=lambda x:-x[1]): print(f"    {k} ×{n}  {open_gaps[k]}")
 PYEOF

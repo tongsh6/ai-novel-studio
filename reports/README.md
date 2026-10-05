@@ -7,3 +7,4 @@
 | 目录 | 内容 |
 |---|---|
 | `static-scan/` | 静态扫描基线与处置台账（`baseline.json` / `dispositions.json`，详见 `static-scan/README.md`） |
+| `gap-ledger/` | 差距回收快照；输入、计数口径及局限见 `gap-ledger/README.md`。 |
