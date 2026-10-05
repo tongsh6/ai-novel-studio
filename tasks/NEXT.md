@@ -20,7 +20,7 @@ Q3b/Q3c 的既有真实 Tauri 证据使用确定性 provider，不能当作本�
 
 **本次已实施 checkpoint（Q4 状态校准）**：纠正 NEXT/旅程/差距表的过期状态；检查器只从
 §4「当前队列」提取唯一 next，并要求对应 journey 行引用同一任务编号。完成后继续 Q3d
-决策评审；DS02、页面回归接入和工作台拆分仍是后续候选。完整扫描新发现 Phoenix 安全漏洞与前端依赖缺失，见 B16；修复涉及安装/升级，待本机策略要求的用户授权。
+决策评审；DS02、页面回归接入和工作台拆分仍是后续候选。B16 已获用户授权并完成后端 Phoenix 1.8.9 安全补丁与前端依赖恢复；完整扫描无阻断项，详见 §6 本次验证。
 
 **队列总览**：§4 当前队列表是唯一状态源；不再复制第二张易漂移的状态表。
 Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行标识。
@@ -71,7 +71,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | Q3b | A | R2 能力缺口出口：frame_type 子型 capability_gap（reply 结构化子型，零新字段——缺口事实=frame_type、路径=candidate_directions；探索强转让位判例见 slice 档）；VS-00 两枚举表修订 + domain/协议/前端/替身全链 | **done（2026-08-31）** | ✓ `q3b-capability-gap-honest-reply` 真实 Tauri PASS（存档意图→诚实承认+路径候选+零写入）+ au02 回归 + 全门禁；slice 档 tasks/slices/Q3B-capability-gap-exit.md |
 | Q3c | A | R1 作者内容物化：候选第二合法来源——作者消息字节机械物化为待采纳 world_setting 候选（不经模型重写；杂质由 edit-then-accept 主权修剪）；judgment 契约 author_content_registration 信号；**I1 不变量正式升级**（Provider ∨ 作者字节，规则+driver+case 同批登记非绕过） | **done（2026-08-31）** | ✓ `q3c-author-content-materialization` 真实 Tauri PASS（字节断言+物化事件+作者采纳全链）+ q3b/au02 兼容 + I1 4/4；slice 档 tasks/slices/Q3C-author-content-materialization.md |
 | Q3d | A | 作者义务状态 ADR-0027 决策评审；P2 实现与后续 P3 产出对账依赖该决策 | **next**（决策阶段；ADR 仍 Proposed） | 确认承载对象、登记通道、验收靶；Accepted 后建立实现 slice，证明同一诉求第二次未满足即升级；对应 Journey C9 |
-| Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6.5 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版（2026-08-30）；状态校准已实施，完整扫描仍红（2026-10-05）** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |
+| Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版与状态校准（2026-10-05）；B16 已解除新增扫描阻断** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |
 | 主线复位 | A | Q1-Q4 后回存量，按真实作者可用性重排：DS02 / UA01 流式卡片简化 / DS01 / 判断纪元 CP1 / Order 7 上下文刀 / AU09 召回 | 顺序**待拍板** | — |
 
 ### 历史 Order 表（M0-M3 期，保留供追溯；不参与当前队首选择，未闭环后果仍由原 slice 负责）
@@ -109,7 +109,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 | B15 | **bounded run 下 `toolbox.execute.*` 丢 turn_id**（2026-08-26 D7 排查挖出）：LogEmit 从 Logger metadata 取 turn_id，主链迁 bounded run 后工具执行进程无该键→两个 P1 场景 behavior 门长期哑火。修复=TurnBinding 单点（构造+绑定合一，9 flow frame 构造点全接）+ 防回归守卫测试；`p1-chapter-expansion` 复活 PASS、门禁绿 | **已销账（2026-08-30，Q0）** |
 
-| B16 | **2026-10-05 开工扫描阻塞**：后端 Phoenix 锁定 1.8.7，`mix deps.audit` 报 GHSA-6983-jfq8-485w（high，Channel join 资源无上限）与 GHSA-63mc-hw7g-86rr（moderate，Presence）；官方修复版本 1.8.9。前端缺 tsc/eslint/vitest，三项检查明确失败而非跳过。 | 待用户授权项目依赖安装/升级：后端 Phoenix 最小安全补丁（1.8.9，审阅必要传递依赖变更），前端用已安装且与 CI 同代的 pnpm 10 按锁文件恢复；不升级全局工具、不改代理。之后复跑编译/测试/架构/不变量/前端检查与完整扫描；修复前不宣称全门禁绿，也不把 pending 改成 accepted_risk 放行。 |
+| B16 | **Phoenix 安全补丁与前端依赖恢复**（2026-10-05）：后端 Phoenix 1.8.7 → 1.8.9，其他 Hex 锁项不变；以已安装 pnpm 10.33.0 执行 frozen-lockfile 恢复前端，package.json/前端锁文件未变；用户已明确授权。 | **已销账（2026-10-05）**：Hex 审计无漏洞；后端 1,492 / 前端 450 测试通过，四项不变量、架构、前端检查及工作台采纳场景通过；完整扫描 17 PASS / 2 既有 FAIL，3 项旧 finding 均有既有处置、0 blocking。桌面构建记录见 §6；ADR-0027 仍 Proposed，不因本次依赖授权变更状态。 |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 
@@ -127,6 +127,25 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 7. **反补丁自检（2026-07-20 用户提醒固化）**：同类症状出现第二次即触发归并审视——问"这些是几个缺陷还是一个病的几种症状"；症状钉可以先打（防线），但病灶必须立独立收口项且**测量先于设计**；harness 重试把问题变"能跑"不等于病愈，重试率必须进体温计。
 
 ## 6. Decision Log
+
+- 2026-10-05 — **B16 依赖修复闭环**（用户明确同意安装/升级）：`novel_web` 精确约束
+  Phoenix 1.8.9；恢复原传递依赖锁项后 `mix deps.get --check-locked` 通过，最终只变更
+  Phoenix 一个 Hex 锁项。前端使用已有 pnpm 10.33.0 按锁恢复 251 个依赖，不升级全局工具。
+  验证：`mix compile --warnings-as-errors`、`mix test`（1,492/0）、`mix deps.audit`；
+  `pnpm typecheck && pnpm lint && pnpm test`（450/0）、`pnpm build`、架构与前端审计、
+  I1/I2/I3/N-NARR 均通过；`bash scripts/ai_static_scan.sh --top 10` 返回 0：
+  17 PASS / 2 FAIL、3 findings、0 blocking，余项为历史 gitleaks 误报/已接受风险及
+  已暂缓的 ChapterSummary 嵌套问题，不把它们写成修复。
+  外部页面回归：`bash scripts/quality_accept.sh q3c-author-content-materialization --surface tauri`
+  通过（独立测试库/4857+5869 端口，确定性 provider；启动 Tauri，Playwright 操作同一真实工作台页面，
+  不是 native WebView 内部自动化），证明作者字节候选→采纳链路；不代表真实模型或所有 Tauri API 验收。
+  桌面构建：sidecar + `pnpm tauri build`；检查发现 overwrite 保留旧 release 目录，
+  将旧生成目录保存在 `artifacts/project-analysis/b16-sidecar-before-clean/` 后从干净目录重建，
+  sidecar 中仅 `phoenix-1.8.9`。证据：`artifacts/project-analysis/b16-*.log`、
+  `artifacts/slice-verify/q3c-author-content-materialization-tauri/summary.json`、
+  `artifacts/static-scan/{report.json,top10.md,disposition.md}`。
+  保留边界：24 条既有测试告警与一条测试收尾 SQLite owner 退出日志仍在（0 失败）；
+  Vite 大块警告仍在；安装包为本机 ad-hoc 签名，未做 Apple 公证。Q3d 继续等待 ADR 决策。
 
 - 2026-10-05 — **Q4 状态校准 checkpoint**（用户指令「开工」）：以既有提交和 slice
   记录核对 Q0/Q1/Q2/Q3/Q4，移除历史队首对当前队列的影响；Q3d 决策评审为唯一 next，

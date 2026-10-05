@@ -184,6 +184,8 @@ Longest Closed Prefix：C1-C6。
 
 Current Breakpoint：C9 / Q3d 作者跨 turn 义务，当前先评审 ADR-0027（Proposed）。
 
+环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
+
 Next Proof：ADR Accepted 后，由外部自动化在真实 Tauri 连续提出同一未满足诉求，证明第二次即承认未完成并给出可行路径；义务可查询，不能自行关闭或绕过采纳写入作品事实。当前尚无该场景的完成证据。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
