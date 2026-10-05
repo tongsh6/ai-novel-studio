@@ -4,8 +4,7 @@ defmodule NovelApplication do
   @moduledoc """
   Application 层根模块。v3 VS-00 阶段提供 DialogueGateway 作为对话入口。
 
-  依赖方向：novel_agent + novel_domain → novel_application
-  不依赖：novel_web / novel_persistence
+  依赖：novel_agent、novel_domain、novel_persistence；不依赖 novel_web。
   """
 
   alias NovelAgent.Provider.Gateway
@@ -100,6 +99,11 @@ defmodule NovelApplication do
   """
   def persistence_interaction_recorder do
     if inject_persistence?(), do: NovelPersistence.WorkspaceContext.interaction_recorder()
+  end
+
+  @doc "ADR-0027 消息处置存储入口；测试可显式注入同形回调。"
+  def persistence_interaction_lifecycle do
+    if inject_persistence?(), do: &NovelPersistence.InteractionLifecycle.call/2
   end
 
   @doc """

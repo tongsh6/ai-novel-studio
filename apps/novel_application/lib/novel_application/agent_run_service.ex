@@ -4,6 +4,7 @@ defmodule NovelApplication.AgentRunService do
   """
 
   alias NovelApplication.AgentRunServer
+  alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentRun
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog}
@@ -21,53 +22,80 @@ defmodule NovelApplication.AgentRunService do
       |> Map.put_new(:status, :running)
       |> Map.put_new(:phase, :executing)
 
-    with {:ok, next_step_planner} <- next_step_planner(opts),
-         {:ok, run} <- AgentRun.new(attrs),
-         {:ok, _pid} <-
-           DynamicSupervisor.start_child(
-             NovelApplication.AgentRunSupervisor,
-             {AgentRunServer,
-              [
-                run: run,
-                next_step_planner: next_step_planner,
-                event_sink: Keyword.get(opts, :event_sink)
-              ]}
-           ) do
-      {:ok, run.run_id}
-    end
+    start_requested_run(attrs, opts)
   end
 
   @spec start_durable(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def start_durable(attrs, opts \\ []) when is_map(attrs) do
-    attrs =
-      attrs
-      |> atomize_known()
-      |> put_durable_fact_scope()
+    attrs
+    |> atomize_known()
+    |> put_durable_fact_scope()
+    |> Map.put(:run_mode, :durable)
+    |> Map.put_new(:long_run_task_ref, Ecto.UUID.generate())
+    |> Map.put_new(:status, :running)
+    |> Map.put_new(:phase, :executing)
+    |> start_requested_run(opts)
+  end
 
-    with {:ok, task} <- LongRunTaskLog.create(long_run_task_attrs(attrs)),
-         attrs <-
-           attrs
-           |> Map.put(:run_mode, :durable)
-           |> Map.put(:long_run_task_ref, task.id)
-           |> Map.put_new(:status, :running)
-           |> Map.put_new(:phase, :executing),
-         {:ok, next_step_planner} <- next_step_planner(opts),
+  defp start_requested_run(attrs, opts) do
+    store = Keyword.get(opts, :interaction_store) || TurnInteractionService.store()
+
+    with {:ok, planner} <- next_step_planner(opts),
          {:ok, run} <- AgentRun.new(attrs),
+         {:ok, receipt} <-
+           TurnInteractionService.receive_input(
+             run,
+             store,
+             Keyword.get(opts, :interaction_input, %{})
+           ) do
+      if receipt.duplicate? do
+        reuse_received_run(receipt, opts)
+      else
+        start_received_run(run, attrs, planner, store, opts)
+      end
+    end
+  end
+
+  defp reuse_received_run(receipt, opts) do
+    if is_function(Keyword.get(opts, :event_sink), 1) do
+      attach_event_sink(receipt.run_id, Keyword.fetch!(opts, :event_sink))
+    end
+
+    {:ok, receipt.run_id}
+  end
+
+  defp start_received_run(run, attrs, planner, store, opts) do
+    with {:ok, run} <- attach_durable_task(run, attrs),
          {:ok, _pid} <-
            DynamicSupervisor.start_child(
              NovelApplication.AgentRunSupervisor,
              {AgentRunServer,
               [
                 run: run,
-                next_step_planner: next_step_planner,
-                event_sink: Keyword.get(opts, :event_sink)
+                next_step_planner: planner,
+                event_sink: Keyword.get(opts, :event_sink),
+                interaction_store: store
               ]}
            ) do
       {:ok, run.run_id}
     else
+      {:error, {:already_started, _pid}} ->
+        {:ok, run.run_id}
+
+      {:error, reason} ->
+        TurnInteractionService.record_status(%{run | status: :failed}, store)
+        {:error, reason}
+    end
+  end
+
+  defp attach_durable_task(%{run_mode: :durable} = run, attrs) do
+    case LongRunTaskLog.create_with_id(run.long_run_task_ref, long_run_task_attrs(attrs)) do
+      {:ok, task} -> {:ok, %{run | long_run_task_ref: task.id}}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp attach_durable_task(run, _attrs), do: {:ok, run}
 
   @spec recover_durable(String.t(), String.t(), keyword()) :: {:ok, [map()]}
   def recover_durable(work_id, session_id, opts \\ [])
@@ -165,7 +193,15 @@ defmodule NovelApplication.AgentRunService do
       |> Enum.flat_map(fn record ->
         with {:error, :not_found} <- lookup(record.id),
              {:ok, run} <- run_from_record(record) do
-          [%{run: run, remaining_steps: 0, current_task?: false, recovered?: false, runtime_live?: false}]
+          [
+            %{
+              run: run,
+              remaining_steps: 0,
+              current_task?: false,
+              recovered?: false,
+              runtime_live?: false
+            }
+          ]
         else
           _ -> []
         end
@@ -216,10 +252,11 @@ defmodule NovelApplication.AgentRunService do
 
   @doc """
   steer 是同步命令（DS03）：空文本拒绝，成功回执携带 run_id / parent_turn_ref /
-  goal_version，供 channel 把作者补充持久化为 session Interaction。
+  goal_version；作者补充在运行状态变更前已由统一入口持久化。
   """
   @spec steer(String.t(), String.t()) ::
-          {:ok, %{run_id: String.t(), parent_turn_ref: String.t() | nil, goal_version: pos_integer()}}
+          {:ok,
+           %{run_id: String.t(), parent_turn_ref: String.t() | nil, goal_version: pos_integer()}}
           | {:error, :not_found | :steer_requires_text | :not_steerable | :steer_timeout}
   def steer(run_id, text) when is_binary(text) do
     if String.trim(text) == "" do

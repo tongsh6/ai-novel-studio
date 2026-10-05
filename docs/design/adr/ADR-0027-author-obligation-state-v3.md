@@ -1,104 +1,90 @@
-# ADR-0027：作者义务状态 v3（跨 turn 待满足义务）
+# ADR-0027：消息处置、运行结果与跨轮来源关联 v3
 
-- 状态：**Proposed**（待用户拍板；实现不得先于 Accepted）
-- 日期：2026-08-31
-- 来源文档：
-  - `../notes/2026-08-30-stage-session-archive-loop.md`（§6 病理层 P2 定义、§7 成文哲学对照；D8 存档五连击标本）
-  - `../00-vision-and-engineering-roadmap.md`（§2.1 会话内核第 6 条：作者显式诉求=跨 turn 待满足义务——Q2 哲学补写已入档，本 ADR 是其机制化）
-  - `../README.md`（指导原则 12 语义对账 / 13 缺口诚实律）
-  - `../contracts/VS-00F-five-ledgers-three-state-contract-pack.md`（LedgerEntry 统一信封、分账状态机、两级对账节拍、I-L1–I-L4——本 ADR 拟复用的承重结构）
-  - `../08-novel-element-model.md`（E37 承诺账：OPEN→PROGRESSING→FULFILLED / BROKEN / RELEASED——义务状态机的同构参照）
-  - `ADR-0019`（采纳七态；I-L2 LOW 风险系统采纳通道是义务登记的合规入口）
-  - `ADR-0025`（判断①协议——义务清单的注入面与升级判定面）
-  - Q3a（d4443b57 语义对账拦截）/ Q3b（5fb452c6 缺口出口）/ Q3c（ff69e43d 作者内容物化）——P1/R2/R1 已落地，本 ADR 是 P2；P3（产出对账）依赖本 ADR 的义务对象
-- 影响范围：Domain（枚举/状态机）/ Persistence（账类扩展，预计零新表）/ Application（judgment 注入+登记+升级）/ Frontend（义务可见面，后置）
-- 相关不变量：拟新增 I-O1–I-O4（见下）；继承 VS-00F I-L1–I-L4
-- 首个证明 slice：待 Accepted 后建（判据：**同一诉求重复未满足在第二次即升级**的真实 Tauri 场景——五连击在第二击终结）
-- 取代：无
-- 取代者：无
+- 状态：**Accepted（2026-10-05）**
+- 原提案日期：2026-08-31；本次修订依据：用户核查 D8 根因后，确认先以现有对象建立「输入—处置—执行—结果」闭环并授权实施。
+- 原「LedgerEntry 第六账」方案未被接受，不由本 ADR 自动授权。
+- 实施入口：`tasks/slices/Q3D-message-outcome-roundtrip.md`；队列 `tasks/NEXT.md` Q3d。
+- 契约来源：VS-00B 上下文、ADR-0021 AgentRun、ADR-0019 采纳、Q3c 作者源候选、`06-memory-context-and-trace.md`。
 
----
+## 1. 经核查的根因
 
-## 背景
+D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨轮记忆。五次写入诉求误派只读，
+属于 Q3a/Q3b 已处理的能力边界问题。进一步核查发现：只读执行前后四组会话摘要逐字相同；
+只读 flow 的结果只进入运行审计和 Channel 广播，没有进入下一轮读取的 Interaction；
+判断上下文也没有完整消费待采纳/已采纳状态。现有 Q3c 场景只证明同条消息同时提供原文和
+存档指令，未证明先提供原文、下一轮再发出存档指令。
 
-D8 标本（2026-08-30 stage 真实作者）：作者五次要求「存档」，系统五次从零判定、
-五次以不同方式落空。病理层结论（notes §6）：**作者意图被当作一次性输入消费，
-而不是待满足的义务**。turn 是原子，turn 之间没有「未竟事项」；「同一诉求连续
-五次未被满足」是全场最显眼的信号，而系统没有任何状态能注意到它。run 内有
-goal，跨 turn 的作者目标不存在——这个产品是对话系统，还不是目标系统。
+依据：`notes/2026-08-30-stage-session-archive-loop.md`（历史分析）；
+`log/llm-calls/stage/2026-08-28.jsonl` 第 10/14、16/22、24/30、30/34 行；
+`DialoguePlanningService`、`ReadonlyBatchContext`、`WorkspaceContext` 当前实现。
+历史材料中的「每轮从零」「无任何跨轮状态」不作为本次实现前提。
 
-Q3a/Q3b/Q3c 已让单轮行为诚实（矛盾拦截、缺口出口、内容物化），但它们都是
-**turn 内**机制：作者的显式诉求仍然没有跨 turn 的存在形态。P2 补的就是这个：
-让「作者要什么」成为一等状态，直到作者确认满足才关闭。
+## 2. 决策
 
-## 决策范围（拟冻结三件事）
+### D1 消息与运行分别留痕，复用已有对象
 
-1. **义务对象与状态机**：作者显式诉求的承载对象、生命周期、终态语义；
-2. **登记与关闭的授权边界**：谁能开义务、谁能关义务（作者主权如何贯穿）；
-3. **升级机制**：同一义务重复未满足时系统的当班行为（第二击终结五连击）。
+- `Interaction` 保存作者原文及消息处置关联；`AgentRun` 保存一次运行的生命周期。
+- 已验证的 `user_message` 在返回成功 ack、启动模型执行前持久化；保存失败返回错误。
+- 接收身份由 workspace/session/turn 确定；同身份同输入重传复用已有 run，不再次调用模型；
+  同身份不同输入拒绝。作者原文不可被状态更新覆盖。
+- 处置元数据放在 `Interaction.content`：`agent_run_id` 与 `message_handling`
+  （复用 AgentRun status、processed_at、result_turn_refs）。处理完成不等于作品事实写入。
+- 执行中的 steer 输入同样保留原文与来源，不能用更新 goal.text 代替消息记录。
+- 不新增义务表或第六账。未来确有跨多个独立任务的长期目标生命周期需求时，另行评审。
 
-## 核心决策（拟）
+### D2 所有 flow 的结果经过统一记录边界
 
-### D1 承载对象：复用 LedgerEntry 信封，新增第六账「作者义务账」（author_obligation）
+- AgentRun 收到成功业务 TurnResult 后，先持久化 assistant Interaction，再广播给前端；不依赖
+  各 profile 自行决定是否记录对话。各 flow 仍负责其领域 trace。
+- 以 scope/turn/result 身份去重；相同结果重放不追加重复消息，更新同一结果的当前快照。
+- 失败、取消、等待作者保留输入及运行状态；结果写入失败不能发布成功产物。
+  若存储本身不可用，可以实时发送明确的“未能保存”失败通知，但不能声称该通知已可持久恢复。
+- 运行审计与会话记录职责分开，但通过 run/turn refs 关联；审计存在不替代会话记录。
 
-按「慎重新增实体」四步阶梯论证：
+### D3 判断消费真实处置和采纳状态
 
-| 阶梯 | 候选 | 判定 |
-|---|---|---|
-| ① 既有实体状态 | memory_items（AU09 治理记忆） | **否**：记忆是无终态的召回语义（validity window 是衰减不是履约）；义务需要「满足/撤回」终态与对账节拍。AU09-work-direction slice 已划清分界：方向=软约束长期召回，义务=有终态的待办追踪——两者不同物 |
-| ① 既有实体状态 | AgentRun.goal | **否**：run 级生命周期，run 完即散——正是病灶本身 |
-| ② 既有信封扩展 | **LedgerEntry 第六账** | **是（推荐）**：五本账是「向前看的进度维度」（VS-00F），作者义务恰是协作维度的向前看进度；E37 承诺账（叙事对读者的承诺）与义务（系统对作者的承诺）状态机同构；信封字段（source_refs/status/对账节拍/采纳边界/探索可达）四件承重全部现成，I-L1–I-L4 直接继承，零新表 |
-| ③ 新读取通道 | — | 随②自动获得（archive_read(ledgers) 探索面同步律） |
-| ④ 新建实体 | AuthorObligation 独立对象 | 语义最纯但违阶梯首选；仅当②在实现中撞出真实不变量破坏时回退至此（须回本 ADR 修订） |
+- `DialogueContext.interaction_state` 提供同作品同会话的有界作者消息、处理状态、近期结果、
+  待采纳及已解决候选；`open_behavior_summary` 同批进入判断输入。
+- 消息已处理、运行结束、候选已采纳分别表达。追问「完成了吗」必须依据结果和采纳事实，
+  不能只因 run completed 宣称已保存；只读结果仍明确无写入。
+- 待采纳候选在追问后仍待采纳，回复不会关闭它；只有现有作者动作改变采纳事实。
 
-- 状态机（同构 E37）：`OPEN →（重复未满足）REMINDED → SATISFIED`；
-  异常/终态：`WITHDRAWN`（作者撤回）、`SUPERSEDED`（被新义务显式替代）。
-- 账面语义遵守 VS-00F 铁律：**义务账是协作进度视图，不是事实本体**——不双写
-  作者原话（引用 interaction/turn ref），不承载创作内容。
+### D4 跨轮原文引用保持字节来源
 
-### D2 登记：judgment 结构化信号 + LOW 风险系统采纳通道
+- 判断协议增加可选 `author_content_source_ref`：引用当前输入或本次上下文列出的历史作者 turn。
+- 来源选择归模型，合法来源集合、作用域和字节复制由应用层校验；禁止按「上一条」关键词
+  在生产代码硬选来源，也不允许模型直接提供待保存正文来冒充作者原文。
+- 候选的 `source_turn_ref` 仍指当前生成/采纳动作所属 turn；原文来源单独由
+  `source_tool_result_ref` 和 item.provider_call_ref 的 `author_input:<原文 turn_ref>` 表达，
+  不能把历史原文 turn 当成本轮动作授权入口。先提供资料、后要求存档时，
+  body 取所引用作者消息原文。缺失、越界或不明确的来源诚实失败/追问，不回退保存指令本身。
+- 同一来源已有待采纳/已采纳候选时复用其状态，不重复生成同一份作者源候选。
 
-- 判断① call2 新增可选字段 `author_obligation`（模型判定非关键字，与
-  author_content_registration 同款模式）：作者提出**明确、可完成、尚无承接**的
-  诉求时携带 `{summary, kind}`；
-- 登记走 I-L2 已冻结的「系统发起 LOW 风险采纳」通道（完整 TENTATIVE→ACCEPTED，
-  ADR-0019 INV-1 合规）——义务登记是记账不是写事实，风险档位天然 LOW；
-- **关闭只有两条路**：作者显式确认满足（author_action / 判断①识别作者原话确认）
-  或作者撤回。系统完成产出只能把义务推进到「待作者确认」，不得自行关闭
-  （P3 产出对账在此挂接，本 ADR 不冻结 P3）。
+## 3. 不变量
 
-### D3 升级：义务清单注入判断上下文，第二击即诚实升级
+1. I-M1：成功接收必有持久消息；失败不能伪装为成功接收。
+2. I-M2：同一输入身份只启动一次运行；原文不可因重试、steer 或结果回填改变。
+3. I-M3：成功业务结果先入会话记录再发布；存储失败只发诚实错误通知；技术完成与作品入档分开判断。
+4. I-M4：来源与处理状态按作品/会话隔离；作者源候选逐字绑定实际被引用的消息。
+5. I-M5：待处理与采纳事实能进入下一轮判断；刷新恢复不丢输入和结果、不重复执行模型。
 
-- 判断① context_block 新增「开放义务」段（机械注入 OPEN/REMINDED 条目，
-  floor 档预算内截断）；
-- 判别规则（prompt 同源）：作者诉求命中既有 OPEN 义务时，不再从零判定——
-  显式承认「这是你第 N 次提出、尚未满足」，给出当前最近可行路径，义务态
-  推进 OPEN→REMINDED；
-- 升级是**上下文+判别规则**机制（模型语义判断），不是关键字硬拦截——延续
-  「主判归 AI、对账归规则」的分工（README 原则 12）。
+## 4. 验收与边界
 
-## 拟冻结不变量
+外部真实工作台多轮场景：输入原文→后续要求存档→生成引用原文的候选→刷新→追问
+未采纳状态→作者采纳→再次追问；另以只读回合证明运行结果进入下一轮上下文。
+局部测试覆盖记录失败、重传、输入冲突、失败/取消、非法来源与跨作品/会话隔离。
+完整命令、证据和实施状态见 Q3D slice；没有真实页面证明时不得标 done。
 
-1. **I-O1 义务只由作者开启与关闭**：登记源于作者显式诉求（judgment 信号引用
-   作者 turn）；SATISFIED/WITHDRAWN 只能由作者确认/撤回触发。
-2. **I-O2 重复即升级**：同一 OPEN 义务再次被作者提出时，本轮回复必须显式
-   承认未满足事实（不得从零装傻）——五连击在第二击终结。
-3. **I-O3 义务不是事实本体**：义务账条目只引用不复制作者内容；采纳边界与
-   五本账同（I-L2）。
-4. **I-O4 探索可达**：义务落地同一 CP 内 archive_read(ledgers) 可查（08 §8
-   探索面同步律）。
+本 ADR 不自动确认旧提案的作者义务账、通用语义履约判定或任意跨任务目标状态机。
+这些仍需真实需求与独立契约，不以本次消息闭环宣称完成。
 
-## 非目标
+## enforced_by
 
-- P3 产出对账闭环（execute 完成时回答「满足了哪个义务」）——依赖本 ADR 的
-  义务对象，独立 slice 冻结；
-- 义务的自动到期/超时开火（R9 式）——首版只做重复升级，不做时间维度；
-- 前端义务面板——首版义务经账本探索面与判断注入可见，独立 UI 后置。
-
-## 待拍板点
-
-1. D1 承载对象：**A 复用 LedgerEntry 第六账（推荐）** / B 新建 AuthorObligation 实体；
-2. D2 登记通道：**A 走 I-L2 LOW 风险系统采纳（推荐）** / B 义务登记也过作者
-   确认卡（更重，五连击场景会多一次点击）；
-3. 首个证明 slice 的验收靶：**A 新场景「同一存档诉求第二击升级」（推荐，
-   D8 标本直接复刻）** / B 并入既有 q3b/q3c 场景族扩展。
+- apps/novel_application/lib/novel_application/turn_interaction_service.ex
+- apps/novel_application/lib/novel_application/agent_run_service.ex
+- apps/novel_application/lib/novel_application/agent_run_server.ex
+- apps/novel_application/lib/novel_application/judgment_protocol.ex
+- apps/novel_persistence/lib/novel_persistence/interaction_lifecycle.ex
+- apps/novel_application/test/novel_application/turn_interaction_service_test.exs
+- apps/novel_persistence/test/novel_persistence/interaction_lifecycle_test.exs
+- quality/acceptance/scenarios/q3d-message-outcome-roundtrip.yml

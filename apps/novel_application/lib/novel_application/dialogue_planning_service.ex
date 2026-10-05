@@ -30,6 +30,7 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.ExplorationService
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TraceWriter
+  alias NovelApplication.TurnInteractionService
   alias NovelApplication.TurnResultBuilder
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentPlan, AgentStep}
   alias NovelDomain.{CandidateDirection, DialogueContext, DialogueFrame}
@@ -88,7 +89,8 @@ defmodule NovelApplication.DialoguePlanningService do
        run_spec_for_profile(
          :profile_routing,
          input
-         |> Map.put(:context_fetcher, context_fetcher),
+         |> Map.put(:context_fetcher, context_fetcher)
+         |> Map.put_new(:trigger, %{kind: "user_message"}),
          nil,
          provider_execution
        )}
@@ -155,6 +157,8 @@ defmodule NovelApplication.DialoguePlanningService do
       })
 
     %{
+      interaction_store: Map.get(input, :interaction_store),
+      interaction_input: Map.take(input, [:text, :candidate_selection]),
       route: :agent_run_start,
       run_id: run_id,
       run_attrs: attrs,
@@ -445,9 +449,9 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # Q3a 语义对账只读集：由 dispatch 表编译期推导（profile=readonly_batch_context
   # 的能力），SSOT 单点——新增只读能力自动进对账口径，不另立第二张表。
-  @judgment_readonly_capabilities (for {cap, :readonly_batch_context} <-
-                                         @judgment_capability_profiles,
-                                       do: cap)
+  @judgment_readonly_capabilities for {cap, :readonly_batch_context} <-
+                                        @judgment_capability_profiles,
+                                      do: cap
 
   defp judgment_loop_next_step(run, sequence, snapshot, provider_execution, input) do
     state = judgment_stage_state(snapshot)
@@ -626,13 +630,18 @@ defmodule NovelApplication.DialoguePlanningService do
 
     %{
       author_text: author_text,
+      author_content_context: TurnInteractionService.context_section(context.interaction_state),
       context_block:
         judgment_context_block(context, author_text) <>
           exploration_sections(explorations, explore_open?),
       options:
         [
           capabilities: @judgment_capabilities,
-          readonly_capabilities: @judgment_readonly_capabilities
+          readonly_capabilities: @judgment_readonly_capabilities,
+          author_content_sources:
+            context
+            |> TurnInteractionService.author_sources(TurnInteractionService.input_ref(run))
+            |> Enum.map(& &1.turn_ref)
         ] ++
           if(explore_open?,
             do: [explore: true, explore_tools: ExplorationService.tool_names()],
@@ -694,38 +703,31 @@ defmodule NovelApplication.DialoguePlanningService do
       |> TurnResultBuilder.build(trace_summary, candidates)
       |> scope_judgment_turn_result(input, run)
       |> AgentFinalizer.attach_run_summary(judgment_run_summary(run, settle))
-      |> maybe_attach_author_content(judgment, input, run, turn_id)
 
-    # DS03：steer 后（goal.version > 1）的再次 settle 只补 assistant entry——
-    # 作者补充的 user beat 已由 steer 时刻的独立 interaction 落库（persist_author_steer），
-    # 这里再写 user 会在 transcript 中重复同一句补充。
-    DialogueGateway.persist_turn_side_effects(
-      {:ok, turn_result, trace, candidates, context},
-      ws_id,
-      map_get(input, :session_id),
-      effective_author_text(input, run),
-      map_get(input, :trace_persister),
-      map_get(input, :memory_recorder),
-      %{
-        candidate_selection: map_get(input, :candidate_selection),
-        suppress_user_entry: run.goal.version > 1
-      }
-    )
+    with {:ok, turn_result} <-
+           maybe_attach_author_content(turn_result, judgment, input, run, context) do
+      DialogueGateway.persist_turn_trace(
+        {:ok, turn_result, trace, candidates, context},
+        ws_id,
+        map_get(input, :session_id),
+        map_get(input, :trace_persister)
+      )
 
-    {:ok,
-     %{
-       step: judgment_agent_step(run, sequence, "判断并生成本轮回应"),
-       observations: [
-         judgment_observation(run, sequence, judgment.narrative, "judgment:#{turn_id}", %{
-           stage: :judgment_decided,
-           action: judgment.action
-         })
-       ],
-       turn_result: turn_result,
-       stage_state: %{judgment_settled: settle_state(settle)},
-       provider_call_count: judgment.provider_call_count,
-       progress_signature: "#{run.run_id}:judgment:#{turn_id}"
-     }}
+      {:ok,
+       %{
+         step: judgment_agent_step(run, sequence, "判断并生成本轮回应"),
+         observations: [
+           judgment_observation(run, sequence, judgment.narrative, "judgment:#{turn_id}", %{
+             stage: :judgment_decided,
+             action: judgment.action
+           })
+         ],
+         turn_result: turn_result,
+         stage_state: %{judgment_settled: settle_state(settle)},
+         provider_call_count: judgment.provider_call_count,
+         progress_signature: "#{run.run_id}:judgment:#{turn_id}"
+       }}
+    end
   end
 
   defp settle_state(:completed), do: "completed"
@@ -733,27 +735,49 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # Q3c 作者内容物化（R1）：判断①置 author_content_registration=true（模型判定）
   # 时，把作者消息字节机械物化为待采纳 world_setting 候选——写入大门（作者采纳）
-  # 不再只放模型的东西。构造失败（空文本）按缺口诚实律静默跳过（capability_gap
-  # 回复本身已引导路径），不伪造候选也不硬失败本轮 reply。
-  defp maybe_attach_author_content(turn_result, judgment, input, run, turn_id) do
+  # 不再只放模型的东西。来源缺失或空文本诚实失败，不用存档指令替代历史原文。
+  defp maybe_attach_author_content(turn_result, judgment, input, run, context) do
     if judgment[:author_content_registration] == true do
-      case NovelApplication.ArtifactAssembler.assemble_author_content(
-             turn_id,
-             effective_author_text(input, run)
-           ) do
-        {:ok, artifact_set} ->
-          LogEmit.emit(:judgment, :author_content_materialized, :done, %{
-            artifact_set_id: artifact_set.artifact_set_id,
-            artifact_type: to_string(artifact_set.artifact_type)
-          })
+      current_ref = TurnInteractionService.input_ref(run)
 
-          TurnResultBuilder.attach_author_artifact(turn_result, artifact_set)
+      input_bytes =
+        if run.goal.version > 1, do: run.goal.text, else: map_get(input, :text) || run.goal.text
 
-        {:error, _reason} ->
-          turn_result
+      with {:ok, source_ref, text} <-
+             TurnInteractionService.source_text(
+               judgment[:author_content_source_ref],
+               TurnInteractionService.current_text(
+                 context,
+                 current_ref,
+                 input_bytes
+               ),
+               context,
+               current_ref
+             ) do
+        attach_author_source(turn_result, context, source_ref, text)
       end
     else
-      turn_result
+      {:ok, turn_result}
+    end
+  end
+
+  defp attach_author_source(turn_result, context, source_ref, text) do
+    if TurnInteractionService.materialized_source?(context, source_ref) do
+      {:ok, turn_result}
+    else
+      with {:ok, artifact_set} <-
+             NovelApplication.ArtifactAssembler.assemble_author_content(
+               turn_result.turn_id,
+               text,
+               source_ref
+             ) do
+        LogEmit.emit(:judgment, :author_content_materialized, :done, %{
+          artifact_set_id: artifact_set.artifact_set_id,
+          artifact_type: to_string(artifact_set.artifact_type)
+        })
+
+        {:ok, TurnResultBuilder.attach_author_artifact(turn_result, artifact_set)}
+      end
     end
   end
 
@@ -954,6 +978,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp reply_reason_code(:creative_exploration), do: :exploratory_only
   defp reply_reason_code(:meta_discussion), do: :user_requested_discussion
+
   # Q3b：缺口轮目标明确、只是无能力承接——不属「目标不明」，语义精确单列。
   defp reply_reason_code(:capability_gap), do: :capability_gap
   defp reply_reason_code(_), do: :no_tool_needed
@@ -997,6 +1022,8 @@ defmodule NovelApplication.DialoguePlanningService do
       judgment_work_section(context),
       judgment_chapters_section(context, author_text),
       judgment_conversation_section(context),
+      TurnInteractionService.context_section(context.interaction_state),
+      context.open_behavior_summary || "",
       judgment_capability_catalog()
     ]
     |> Enum.reject(&(&1 == ""))

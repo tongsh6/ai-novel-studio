@@ -182,11 +182,11 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C9 / Q3d 作者跨 turn 义务，当前先评审 ADR-0027（Proposed）。
+Current Breakpoint：C9 消息处置/结果关联已闭环；通用长期义务对象仍需独立契约。当前执行队首转 Journey F9 / DS02。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
-Next Proof：ADR Accepted 后，由外部自动化在真实 Tauri 连续提出同一未满足诉求，证明第二次即承认未完成并给出可行路径；义务可查询，不能自行关闭或绕过采纳写入作品事实。当前尚无该场景的完成证据。
+Current Proof：`q3d-message-outcome-roundtrip --surface tauri` 已证明只读结果回填、原文分轮引用、输入/结果刷新恢复、重复候选保护和真实采纳状态追问；使用确定性 provider。原 Q3c 同消息路径同时回归通过。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -198,7 +198,7 @@ Next Proof：ADR Accepted 后，由外部自动化在真实 Tauri 连续提出�
 | C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` | 已证明 selection / adoption 分离；后续转入 Journey F 安全门禁。 |
 | C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | checkpoint closed / 继续补矩阵 | Tauri automation + Application test | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；broken provider / garbage JSON tests | provider 不可用恢复、高风险 confirmation 取消等待与真实 provider timeout 已由真实工作台证明；缺乱码和更完整 UI 恢复验收。 |
 | C8 | 质量诊断请求组织三层 message | AU-11 / VS-00D / AU-07 | AIMessageEnvelope / DialogueFrame / TraceSummaryView | closed | 历史 Tauri automation | `tasks/slices/AU11-quality-diagnosis-message-envelope.md`；`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json` | SC-AU11-01 最小 checkpoint 已闭环；完整调用点投影与 schema 冻结仍归 AU-11/VS-00D，不声明整个 AU-11 完成。 |
-| C9 | 作者重复提出尚未完成的诉求，系统承认并升级 | Q3d / ADR-0027 | 拟议作者义务状态 / Judgment / Trace | next | Proposed ADR | `docs/design/adr/ADR-0027-author-obligation-state-v3.md`；`tasks/NEXT.md` Q3d | 先决策承载对象、登记通道和验收靶；Q3a–Q3c 已有单轮防线，跨 turn 义务及后续产出对账尚未闭环。 |
+| C9 | 输入可靠留存，下一轮知道执行和采纳结果，并可引用历史原文 | Q3d / ADR-0027 | Interaction / AgentRun / TurnResult / Adoption | closed | 外部真实页面 + 局部回归 | `tasks/slices/Q3D-message-outcome-roundtrip.md`；`artifacts/slice-verify/q3d-message-outcome-roundtrip-tauri/summary.json` | 消息处理与入档分别取证；确定性 provider，未宣称通用长期义务账或真实模型质量已完成。 |
 
 ---
 
@@ -306,6 +306,7 @@ Next Proof：后续 P1 章节计划和正文生产必须继续复用 adoption/ca
 | F6 | stale source 草稿不能采纳 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-stale-conflict-cross-work-freshness-tauri/summary.json`；`tasks/slices/AU05-stale-conflict-cross-work-freshness.md` | stale restored candidate 已证明真实工作台拒绝且不写 production fact；context version 和 revision freshness 仍缺。 |
 | F7 | cross-work 草稿不能采纳到当前作品 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-conflict-cross-work-recovery-tauri/summary.json`；`tasks/slices/AU05-conflict-cross-work-recovery.md` | cross-work candidate 已证明真实工作台 fail_with_recovery 且不写 production fact；完整 work-scoped adoption store 仍缺。 |
 | F8 | canon conflict 采纳恢复 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-canon-conflict-recovery-tauri/summary.json`；`tasks/slices/AU05-canon-conflict-recovery.md` | 结构化 canon conflict candidate 已证明真实工作台 fail_with_recovery 且不写 production fact；自动读取 canon/revision 计算冲突、覆盖确认、StateTrace 仍缺。 |
+| F9 | 采纳状态在领域、线格式与刷新恢复中一致 | DS02 / ADR-0019 / ADR-0024 | AdoptionStatus / TurnResult / transcript / schema | next | 已登记任务 | `tasks/slices/DS02-adoption-status-canonicalization.md`；`tasks/NEXT.md` DS02 | 撤销前端 z.string 放宽，统一 canonical 枚举并兼容历史消息；仍待实现与真实页面验收。 |
 | F9 | 采纳可回放且 AI 不谎报状态 | AU-05 / AU-07 | StateTrace / ReplayReport | checkpoint closed / P1 follow-up | Tauri automation + application test | `artifacts/slice-verify/au07-state-trace-adoption-replay-tauri/summary.json`；truthfulness/tool result tests | 采纳正文 action/projection 共用 StateTrace refs 已闭环；成功/失败文案矩阵、旧 turn replay UI 和完整 revision/canon store 仍待后续。 |
 
 ---

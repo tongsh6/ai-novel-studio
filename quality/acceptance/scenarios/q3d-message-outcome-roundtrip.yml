@@ -1,0 +1,44 @@
+id: q3d-message-outcome-roundtrip
+title: 消息处置、运行结果与跨轮作者原文关联
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q3d-message-outcome-roundtrip --surface tauri
+contract:
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - tasks/slices/Q3D-message-outcome-roundtrip.md
+invariants:
+  - received-input-survives-reload-without-duplication
+  - runtime-results-reach-next-judgment
+  - historical-author-source-is-byte-bound-and-scoped
+  - run-completion-does-not-imply-adoption
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - open: real workbench with Tauri running
+  - input: 只读批量读取后刷新并追问结果
+  - input: 提供带随机标识的原文，先记录不生成
+  - reload: 作者原文仅出现一次
+  - input: 下一轮要求保存上一条原文
+  - reload: 候选恢复且字节/来源不变
+  - input: 重复存档与进度追问，不创建重复候选、不谎报入档
+  - click: 作者采纳
+  - reload: 再次追问，回应依据实际采纳结果
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q3d-message-outcome-roundtrip-tauri
+assertions:
+  ui:
+    - 原文和读取结果刷新后可见
+    - 待采纳与已采纳回应有事实依据
+  network:
+    - 跨轮候选 body 等于历史作者消息，provider_call_ref 引用其 turn
+    - 未采纳前没有 production_write，重复请求无第二份候选
+    - 作者动作返回 resolved adoption
+  data:
+    - 接收与处理状态由 Interaction 保存，下一轮输入包含真实结果
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

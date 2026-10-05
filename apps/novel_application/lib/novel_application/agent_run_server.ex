@@ -1,9 +1,7 @@
 defmodule NovelApplication.AgentRunServer do
   @moduledoc """
-  Supervised bounded AgentRun process.
-
-  GenServer callbacks only update state and start supervised tasks. Step work is
-  executed in `NovelApplication.AgentStepTaskSupervisor`.
+  受监督的 AgentRun 进程。Provider/工具步骤运行于 AgentStepTaskSupervisor；
+  消息接收与结果发布边界同步保存 Interaction，防止 UI 成功但会话记录缺失。
   """
 
   use GenServer
@@ -13,6 +11,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentEventPublisher
   alias NovelApplication.AgentNarrativeSource
+  alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
@@ -57,6 +56,7 @@ defmodule NovelApplication.AgentRunServer do
             progress_signatures: MapSet.new(),
             final_turn_result: nil,
             event_sink: nil,
+            interaction_store: nil,
             provider_cancellation_token: nil
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -89,7 +89,8 @@ defmodule NovelApplication.AgentRunServer do
   def resume(server, timeout \\ 5_000), do: GenServer.call(server, {:command, :resume}, timeout)
 
   @spec steer(GenServer.server(), String.t(), timeout()) ::
-          {:ok, %{run_id: String.t(), parent_turn_ref: String.t() | nil, goal_version: pos_integer()}}
+          {:ok,
+           %{run_id: String.t(), parent_turn_ref: String.t() | nil, goal_version: pos_integer()}}
           | {:error, :not_steerable}
   def steer(server, text, timeout \\ 5_000),
     do: GenServer.call(server, {:command, {:steer, text}}, timeout)
@@ -106,6 +107,7 @@ defmodule NovelApplication.AgentRunServer do
       run: run,
       next_step_planner: Keyword.get(opts, :next_step_planner),
       event_sink: Keyword.get(opts, :event_sink),
+      interaction_store: Keyword.get(opts, :interaction_store) || TurnInteractionService.store(),
       provider_cancellation_token: provider_cancellation_token
     }
 
@@ -158,36 +160,36 @@ defmodule NovelApplication.AgentRunServer do
   # steer 是同步 call（DS03）：拒绝可见，且回执携带 run_id / parent_turn_ref /
   # goal_version，供调用方把作者补充持久化为 session Interaction（刷新可恢复）。
   def handle_call({:command, {:steer, text}}, _from, state) when is_binary(text) do
+    run = %{state.run | goal: %{state.run.goal | text: text, version: state.run.goal.version + 1}}
+
     if terminal?(state) do
       {:reply, {:error, :not_steerable}, state}
     else
-      resume_after_steer? =
-        state.run.status == :awaiting_author and is_nil(state.current_task_ref)
-
-      goal = %{state.run.goal | text: text, version: state.run.goal.version + 1}
-
-      state =
-        %{state | run: %{state.run | goal: goal}}
-        |> maybe_prepare_awaiting_author_steer(resume_after_steer?)
-        |> put_interrupt(:steer_requested)
-        |> emit(:plan_adjusted, "已收到新的创作方向。", ["steer_requested"])
-        |> maybe_resume_after_steer(resume_after_steer?)
-        |> persist_run_state()
-
-      reply =
-        {:ok,
-         %{
-           run_id: state.run.run_id,
-           parent_turn_ref: state.run.parent_turn_ref,
-           goal_version: state.run.goal.version
-         }}
-
-      if resume_after_steer? do
-        {:reply, reply, state, {:continue, :run_next_step}}
-      else
-        {:reply, reply, state}
+      case TurnInteractionService.record_steer(run, text, state.interaction_store) do
+        {:ok, _receipt} -> apply_author_steer(state, run)
+        {:error, reason} -> {:reply, {:error, reason}, state}
       end
     end
+  end
+
+  defp apply_author_steer(state, run) do
+    resume? = state.run.status == :awaiting_author and is_nil(state.current_task_ref)
+
+    state =
+      %{state | run: run}
+      |> maybe_prepare_awaiting_author_steer(resume?)
+      |> put_interrupt(:steer_requested)
+      |> emit(:plan_adjusted, "已收到新的创作方向。", ["steer_requested"])
+      |> maybe_resume_after_steer(resume?)
+      |> persist_run_state()
+
+    reply =
+      {:ok,
+       %{run_id: run.run_id, parent_turn_ref: run.parent_turn_ref, goal_version: run.goal.version}}
+
+    if resume?,
+      do: {:reply, reply, state, {:continue, :run_next_step}},
+      else: {:reply, reply, state}
   end
 
   @impl true
@@ -411,8 +413,6 @@ defmodule NovelApplication.AgentRunServer do
   defp step_ref(run_id, sequence), do: "step_#{run_id}_#{sequence}"
 
   defp handle_step_result(state, {:ok, result}) when is_map(result) do
-    step = Map.get(result, :step)
-    observations = Map.get(result, :observations, [])
     artifact_refs = Map.get(result, :artifact_refs, [])
     turn_result = Map.get(result, :turn_result)
 
@@ -428,6 +428,29 @@ defmodule NovelApplication.AgentRunServer do
       if no_progress_stopped?,
         do: {[], nil, nil},
         else: {artifact_refs, turn_result, Map.get(result, :loop_status)}
+
+    case TurnInteractionService.record_result(state.run, turn_result, state.interaction_store) do
+      :ok ->
+        apply_recorded_result(state, result, artifact_refs, turn_result, loop_status)
+
+      {:error, _reason} ->
+        settle_run_failed(state, :interaction_persistence_failed, [
+          "interaction_persistence_failed"
+        ])
+    end
+  end
+
+  defp handle_step_result(state, {:error, reason}) do
+    settle_run_failed(state, reason, ["step_failed" | failure_family_reason_codes(reason)])
+  end
+
+  defp handle_step_result(state, other) do
+    handle_step_result(state, {:error, {:unexpected_step_result, other}})
+  end
+
+  defp apply_recorded_result(state, result, artifact_refs, turn_result, loop_status) do
+    step = Map.get(result, :step)
+    observations = Map.get(result, :observations, [])
 
     state =
       state
@@ -448,14 +471,6 @@ defmodule NovelApplication.AgentRunServer do
     persist_run_state(state)
   end
 
-  defp handle_step_result(state, {:error, reason}) do
-    settle_run_failed(state, reason, ["step_failed" | failure_family_reason_codes(reason)])
-  end
-
-  defp handle_step_result(state, other) do
-    handle_step_result(state, {:error, {:unexpected_step_result, other}})
-  end
-
   # ── S7（ADR-0024 #121）：对话流中不允许存在「run 停了但没有下文」的终局 ──
   #
   # 失败终局统一收口：
@@ -472,6 +487,12 @@ defmodule NovelApplication.AgentRunServer do
 
     turn_result = safe_failure_turn_result(state.run, reason)
 
+    TurnInteractionService.record_result(
+      %{state.run | status: :failed},
+      turn_result,
+      state.interaction_store
+    )
+
     state
     |> put_run_status(:failed)
     |> maybe_store_final_turn_result(turn_result)
@@ -485,6 +506,7 @@ defmodule NovelApplication.AgentRunServer do
   # 判断结构不可解析（ADR-0025 判断①call2 重试后仍坏）= provider 输出契约违约，
   # 与帧纪元 :frame_contract_invalid 同格——作者应得到"格式不符合契约，请重试"。
   defp provider_failure_reason?({:judgment_decision_unparseable, _fragment}), do: true
+
   # Q3a：语义矛盾重试后仍矛盾 = 同族输出违约（缺口诚实律降级，不裸崩 run）。
   defp provider_failure_reason?({:judgment_semantic_conflict, _fragment}), do: true
 
@@ -530,6 +552,9 @@ defmodule NovelApplication.AgentRunServer do
       }
     }
   end
+
+  defp failure_fallback_message(:interaction_persistence_failed),
+    do: "本轮结果未能保存，已停止发布成功结果。请稍后重试。"
 
   defp failure_fallback_message(reason) do
     if provider_failure_reason?(reason) do
@@ -1044,6 +1069,8 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp persist_run_state(%{run: %AgentRun{} = run} = state) do
+    TurnInteractionService.record_status(run, state.interaction_store)
+
     persist_async(fn ->
       AgentRunLog.upsert_run(run_attrs(run))
       persist_events_snapshot(run, state.events)

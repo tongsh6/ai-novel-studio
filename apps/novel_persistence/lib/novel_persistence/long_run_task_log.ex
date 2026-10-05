@@ -20,6 +20,19 @@ defmodule NovelPersistence.LongRunTaskLog do
     |> Repo.insert()
   end
 
+  @doc "为已保留的运行引用创建实际任务；用于消息去重后、启动 durable run 前。"
+  def create_with_id(id, attrs) when is_binary(id) and is_map(attrs) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        %LongRunTask{id: id}
+        |> LongRunTask.changeset(attrs)
+        |> Repo.insert()
+
+      :error ->
+        {:error, :invalid_task_id}
+    end
+  end
+
   @doc "更新 task 的 status / phase / checkpoint_data。"
   @spec update(LongRunTask.t(), map()) :: {:ok, LongRunTask.t()} | {:error, Ecto.Changeset.t()}
   def update(%LongRunTask{} = task, attrs) when is_map(attrs) do

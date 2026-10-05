@@ -6,7 +6,7 @@
 
 ---
 
-> 当前待决策：`ADR-0027-author-obligation-state-v3.md` 保持 **Proposed**，由 NEXT Q3d / Journey C9 进入评审；本次状态校准不代表 Accepted。
+> 当前决策：`ADR-0027-author-obligation-state-v3.md` 于 2026-10-05 按用户确认修订为 **Accepted**：先闭合消息处置、运行结果与跨轮来源关联；原第六账提案未采纳。实施见 NEXT Q3d / Q3D slice。
 > 2026-10-05 运行 `scripts/adr_trace.exs` 检出 27 份文件缺少 enforced_by（含 Proposed 文件）；该脚本当前仅告警，退出成功不证明决策已实现或验收闭环。处置继续归 NEXT B13。
 
 ## 1. 定位
@@ -280,6 +280,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0023 | `ADR-0023-agentic-loop-plan-driven-execution-v3.md` | Accepted（适用域被 ADR-0025 收窄，机制沿用） | Agentic Loop 计划驱动执行与调用经济学：计划驱动机械推进（N-PLAN）、偏离信号族 D1-D7 触发 evaluate+replan 合并调用（修订 ADR-0022 决策 2 执行语义）、机械完成+候选预算 backstop、协议鲁棒性两级路线 | `notes/2026-07-04-agentic-loop-plan-driven-execution.md`, `contracts/UA-01`, `tasks/slices/UA01-bounded-run-single-candidate-termination.md`, ADR-0021/0022/0003/0004 | `agentic-loop-plan-replan-reasoning`（共享伞形）＋「无偏离直通」scenario；不变量 N-PLAN |
 | ADR-0025 | `ADR-0025-judgment-driven-interactive-loop-v3.md` | Accepted | 判断驱动交互循环：机械准备/模型判断①②/用户裁决三类节点、计划按需（是否制定计划由模型判断，N-PLAN 改写）、探索能力域两翼框架（内部检索 + 外部搜索带来源设定候选）、判断协议选型（B 回复内联主线）；收窄 ADR-0023 适用域（机制沿用） | `notes/2026-07-15-judgment-driven-interactive-loop.md`, `00` §2.3, ADR-0021/0022/0023/0024 | `UA01-judgment-driven-loop` CP1（对话循环）；CP5/CP6 探索两翼；N-PLAN driver 迁移 |
 | ADR-0026 | `ADR-0026-five-ledgers-three-state-reconciliation-v3.md` | Accepted | 五本账（E33-E37）对象化与三态对账：LedgerEntry 统一信封、两级对账节拍（增量自动通过=系统发起 TENTATIVE→ACCEPTED 首次契约化 25 §9.3 / 周期 `ledger_reconciliation_v1` 报告作者裁决）、处置四枚举挂接既有通道（VS-00E §8 修订 / 33 Experience / 32 §11 裁决持久化）、账面=进度视图非事实本体 | `contracts/VS-00F`（§9 先例映射）、`08` NEM-GAP-05/06、M2 达标跑 Q5 漂移实证、ADR-0010/0019/0021/0024/0025 | `VS-00F-five-ledgers-three-state` CP1（M2 75 章书重放）；不变量 I-L1–I-L4 |
+| ADR-0027 | `ADR-0027-author-obligation-state-v3.md` | Accepted（2026-10-05 修订） | 消息接收先记录、统一结果回填、跨轮作者来源与采纳事实分层；原第六账提案未采纳 | D8 原始日志复核、ADR-0019/0021、Q3c | `Q3D-message-outcome-roundtrip`；I-M1–I-M5；enforced_by 已列 |
 | ADR-0024 | `ADR-0024-decision-surface-registry-v3.md` | Accepted | 决策面注册表（S1-S7）与 ui_cards 信息通告边界：UI 决策契约中心从 card_type 集合改为决策面注册表、卡片命名与处置定案（10 卡→3 卡 + 废弃/Deferred）、S4 clarification / S7 awaiting_author 缺口填补方向、决策面 schema 进 codegen 闸门（N-SURF） | `notes/2026-07-15-dialogue-flow-decision-surface-review.md`, `07` §4, `contracts/VS-05` §4, ADR-0007/0008/0015 | `decision-surface` CP1（schema 闸门）→ CP2（clarification surface）→ CP3（awaiting_author TurnResult）；不变量 N-SURF |
 
 ---
@@ -367,5 +368,5 @@ VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-read
 - `ADR-0016` 已经把 ProjectionHint UI 写入边界升级为 Accepted 决策。
 - `ADR-0017` 已经把 ReplayCase / ReplayReport 和 no-provider replay 升级为 Accepted 决策。
 - VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 具体 slice 文件已经创建，文档 blocker 已关闭。
-- `ADR-0027` 已起草作者义务状态（跨 turn 待满足义务，P2 病理级修向）为 **Proposed** 提案：LedgerEntry 第六账承载、作者开启/关闭授权边界、第二击升级机制；三个待拍板点列于文末，实现不得先于 Accepted。
+- `ADR-0027` 已于 2026-10-05 按用户确认修订 Accepted：统一消息处置、结果持久化和跨轮原文关联；原第六账提案未采纳。Q3D 已有真实页面闭环，实施与验证见该 slice。
 - 下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。

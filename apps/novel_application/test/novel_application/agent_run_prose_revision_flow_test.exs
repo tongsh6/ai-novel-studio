@@ -76,9 +76,18 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       turn_id: source.turn_id,
       source_turn_result: source,
       action_input: action_input,
-      memory_recorder: fn workspace_id, entries ->
-        send(parent, {:recorded_revision_turn, workspace_id, entries})
-        :ok
+      interaction_store: fn
+        :result, attrs ->
+          send(
+            parent,
+            {:recorded_revision_turn, attrs.workspace_id,
+             [%{role: "assistant", content: %{turn_result: attrs.turn_result}}]}
+          )
+
+          {:ok, :recorded}
+
+        _operation, _attrs ->
+          {:ok, :recorded}
       end
     }
 
@@ -97,6 +106,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert {:ok, run_id} =
              AgentRunService.start_bounded(planned.run_attrs,
                next_step_planner: planned.next_step_planner,
+               interaction_store: planned.interaction_store,
                event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
              )
 

@@ -11,7 +11,6 @@ defmodule NovelWeb.WorkspaceChannel do
   require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelApplication.AgentRunService
-  alias NovelApplication.DialogueGateway
   alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TaskRunner
   alias NovelApplication.WorkSessionService
@@ -855,20 +854,10 @@ defmodule NovelWeb.WorkspaceChannel do
 
   # DS03：steer 被接受后把作者补充持久化为 session Interaction——作者输入不得
   # 只存在于 React state / AgentRun goal，刷新后必须能从 transcript 恢复。
-  defp dispatch_steer(socket, run_id, text) do
+  defp dispatch_steer(_socket, run_id, text) do
     case AgentRunService.steer(run_id, text) do
-      {:ok, steer_info} ->
-        work_id = socket.assigns[:work_id]
-        session_id = socket.assigns[:session_id]
-
-        if is_binary(work_id) and is_binary(session_id) do
-          DialogueGateway.persist_author_steer(work_id, session_id, steer_info, text)
-        end
-
-        :ok
-
-      error ->
-        error
+      {:ok, _steer_info} -> :ok
+      error -> error
     end
   end
 
@@ -2194,6 +2183,7 @@ defmodule NovelWeb.WorkspaceChannel do
         attrs =
           attrs
           |> Map.put(:run_mode, run_mode)
+          |> Map.put(:run_id, run_id)
           |> put_runtime_agent_refs(run_id)
 
         {:agent_run_started, run_id, attrs}
@@ -2209,7 +2199,9 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp agent_run_runtime_opts(%{} = spec) do
     [
-      next_step_planner: Map.get(spec, :next_step_planner)
+      next_step_planner: Map.get(spec, :next_step_planner),
+      interaction_store: Map.get(spec, :interaction_store),
+      interaction_input: Map.get(spec, :interaction_input, %{})
     ]
     |> Enum.reject(fn
       {:next_step_planner, nil} -> true

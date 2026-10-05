@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { randomUUID } from "node:crypto";
 import { Socket } from "phoenix";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -4955,6 +4956,74 @@ async function driveCapabilityGapHonestReply(page) {
     no_author_action_sent: true,
     no_action_result_received: true,
   };
+}
+
+// ADR-0027：所有动作由外部脚本通过真实页面执行，读取网络帧作为独立证据。
+async function driveQ3dMessageOutcomeRoundtrip(page) {
+  async function send(text) {
+    const before = frames.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const frame = await waitForNewFrame(before,
+      (f) => f.direction === "received" && f.event === "turn_result",
+      "新消息没有收到 TurnResult", 120_000);
+    return frame.body;
+  }
+  async function reload() {
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor();
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+  }
+
+  const readonly = await send("请执行只读批量，查看作品档案。");
+  assert(readonly.agent_run?.profile_ref === "readonly_batch_context_v1", "没有经过真实只读 flow");
+  assert(readonly.trace_summary?.production_write === false, "只读结果缺少明确的无写入证据");
+  assert((readonly.adoption_state?.pending ?? []).length === 0, "只读结果不应创建待采纳内容");
+  await reload();
+  assert((await page.locator("body").innerText()).includes(readonly.assistant_message.text), "刷新丢失只读结果");
+  const recalled = await send("读取结果回顾：刚才实际做了什么？");
+  assert(recalled.assistant_message.text.includes(readonly.assistant_message.text), "下一轮未消费实际读取结果");
+
+  const nonce = randomUUID().replaceAll("-", "");
+  const original = `先只记录这份资料，不要生成候选：主角李衡在灵气枯竭的都市里靠账单推演天机。来源标识${nonce}。`;
+  const received = await send(original);
+  const sourceRef = received.turn_id;
+  assert((received.adoption_state?.pending ?? []).length === 0, "资料输入不应直接创建候选");
+  await reload();
+  assert((await page.locator("body").innerText()).split(nonce).length - 1 === 1, "输入恢复丢失或重复");
+
+  const requested = await send("把上一条资料原文保存为作品设定。");
+  const pending = requested.adoption_state?.pending?.[0];
+  assert(pending, "历史原文没有成为待采纳候选");
+  const item = pending.payload?.items?.[0];
+  assert(item?.body === original, "跨轮物化没有保持作者原文字节");
+  assert(item?.provider_call_ref === `author_input:${sourceRef}`, "候选未绑定历史来源");
+  assert(requested.truthfulness?.production_write_performed === false, "未采纳时不应写入");
+  await reload();
+  assert((await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) > 0, "刷新丢失待采纳入口");
+
+  const duplicate = await send("把上一条资料原文保存为作品设定。");
+  assert((duplicate.adoption_state?.pending ?? []).length === 0, "重复请求创建了第二份候选");
+  const beforeAdoption = await send("资料处理进度怎么样？");
+  assert(beforeAdoption.assistant_message.text.includes("尚未采纳"), "把运行完成误判为已入档");
+
+  const before = frames.length;
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  await waitForNewFrame(before,
+    (f) => f.event === "turn_result" && f.body?.truthfulness?.artifact_adopted === true &&
+      (f.body?.adoption_state?.resolved ?? []).some((entry) => entry.artifact_id === pending.artifact_id),
+    "未收到作者采纳结果", 120_000);
+  await reload();
+  const afterDuplicate = await send("把上一条资料原文保存为作品设定。");
+  assert((afterDuplicate.adoption_state?.pending ?? []).length === 0, "已采纳来源被重复物化");
+  const afterAdoption = await send("资料处理进度怎么样？");
+  assert(afterAdoption.assistant_message.text.includes("已经采纳入档"), "下一轮未消费真实采纳结果");
+
+  return { slice_id: "q3d-message-outcome-roundtrip", source_turn_id: sourceRef,
+    materialization_turn_id: requested.turn_id, artifact_id: pending.artifact_id,
+    readonly_result_restored: true, readonly_result_recalled: true, author_input_restored_once: true,
+    historical_author_bytes_intact: true, duplicate_candidate_prevented: true,
+    pending_state_honest: true, adopted_state_recalled: true, nonce };
 }
 
 async function driveQ3cAuthorContentMaterialization(page) {
@@ -29165,6 +29234,7 @@ const drivers = {
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
+  "q3d-message-outcome-roundtrip": driveQ3dMessageOutcomeRoundtrip,
   "q3c-author-content-materialization": driveQ3cAuthorContentMaterialization,
   "q3b-capability-gap-honest-reply": driveCapabilityGapHonestReply,
   "au02-natural-exploration-no-slot-form": driveNaturalExplorationNoSlotForm,

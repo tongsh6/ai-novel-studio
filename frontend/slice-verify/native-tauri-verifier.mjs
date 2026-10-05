@@ -139,6 +139,7 @@ export const nativeSliceIds = [
   "au01-garbage-json-recovery",
   "au01-frame-validation-friendly-error",
   "au01-turnresult-recorder-ui-consistency",
+  "q3d-message-outcome-roundtrip",
   "q3c-author-content-materialization",
   "q3b-capability-gap-honest-reply",
   "au02-natural-exploration-no-slot-form",
@@ -1643,6 +1644,10 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   // Q3c 作者内容物化：判断链直答 + 作者字节候选 + 作者采纳。
+  "q3d-message-outcome-roundtrip": [
+    "channel.user_message.start", "context.assemble.done", "judgment.decided.done",
+    "judgment.author_content_materialized.done", "channel.user_message.done", "adoption.evaluate.done",
+  ],
   "q3c-author-content-materialization": [
     "channel.user_message.start",
     "context.assemble.done",
@@ -2008,8 +2013,8 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu01TurnresultRecorderUiConsistencyEvidence(records);
   }
 
-  if (sliceId === "q3c-author-content-materialization") {
-    return findQ3cAuthorContentEvidence(records);
+  if (["q3c-author-content-materialization", "q3d-message-outcome-roundtrip"].includes(sliceId)) {
+    return findQ3cAuthorContentEvidence(records, sliceId);
   }
 
   if (sliceId === "q3b-capability-gap-honest-reply") {
@@ -2677,8 +2682,8 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     );
   }
 
-  if (sliceId === "q3c-author-content-materialization") {
-    return q3cAuthorContentBehavior(turnIds, turnRecords, records);
+  if (["q3c-author-content-materialization", "q3d-message-outcome-roundtrip"].includes(sliceId)) {
+    return q3cAuthorContentBehavior(turnIds, turnRecords, records, sliceId);
   }
 
   if (sliceId === "q3b-capability-gap-honest-reply") {
@@ -12538,8 +12543,7 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
 
 // Q3c 作者内容物化：判定 capability_gap + 作者字节物化事件 + 作者采纳事件全在
 // app JSONL；采纳可发生在源 turn 关联的 author_action turn。
-function findQ3cAuthorContentEvidence(records) {
-  const sliceId = "q3c-author-content-materialization";
+function findQ3cAuthorContentEvidence(records, sliceId = "q3c-author-content-materialization") {
   const byTurn = groupByTurn(records);
 
   for (const [turnId, turnRecords] of byTurn) {
@@ -12580,7 +12584,7 @@ function findQ3cAuthorContentEvidence(records) {
   return null;
 }
 
-function q3cAuthorContentBehavior(turnIds, turnRecords, records) {
+function q3cAuthorContentBehavior(turnIds, turnRecords, records, sliceId = "q3c-author-content-materialization") {
   if (turnIds.length !== 1) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
@@ -12597,7 +12601,7 @@ function q3cAuthorContentBehavior(turnIds, turnRecords, records) {
   if (!adoption) return null;
 
   return {
-    slice_id: "q3c-author-content-materialization",
+    slice_id: sliceId,
     behavior: "author_content_bytes_materialize_as_candidate_then_author_adopts",
     turn_ids: turnIds,
     source_turn_ref: turnIds[0],

@@ -59,16 +59,18 @@ defmodule NovelApplication.ArtifactAssembler do
   body 精确等于作者消息全文字节（不经模型重写、不切分、不清洗——指令前缀等杂质
   由作者用既有 edit-then-accept 链自行修剪）；title 为 body 的字符前缀（≤24 字，
   机械派生）；rationale 为 nil；provider_call_ref/source_tool_result_ref 均为
-  `author_input:<turn_ref>` 结构化来源 ref。artifact_type 固定 world_setting
+  `author_input:<author_source_ref>` 结构化来源 ref（缺省为当前 turn）；候选的
+  source_turn_ref 指当前生成 turn，不能与历史原文来源混用。artifact_type 固定 world_setting
   （既有采纳/记忆链，au09-adopt-setting-recall 已验收）。
   """
-  @spec assemble_author_content(String.t(), String.t()) ::
+  @spec assemble_author_content(String.t(), String.t(), String.t() | nil) ::
           {:ok, TentativeArtifactSet.t()} | {:error, map()}
-  def assemble_author_content(turn_ref, author_text)
+  def assemble_author_content(turn_ref, author_text, author_source_ref \\ nil)
       when is_binary(turn_ref) and is_binary(author_text) do
-    body = String.trim(author_text)
+    author_source_ref = author_source_ref || turn_ref
+    body = author_text
 
-    if body == "" do
+    if String.trim(body) == "" do
       {:error, %{code: "empty_author_content", message: "author content is empty"}}
     else
       {:ok,
@@ -81,11 +83,11 @@ defmodule NovelApplication.ArtifactAssembler do
              title: String.slice(body, 0, 24),
              body: body,
              rationale: nil,
-             provider_call_ref: "author_input:#{turn_ref}"
+             provider_call_ref: "author_input:#{author_source_ref}"
            }
          ],
          source_turn_ref: turn_ref,
-         source_tool_result_ref: "author_input:#{turn_ref}",
+         source_tool_result_ref: "author_input:#{author_source_ref}",
          adoption_status: :tentative
        }}
     end

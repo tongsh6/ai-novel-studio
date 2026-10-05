@@ -63,6 +63,20 @@ defmodule NovelApplication.JudgmentProtocolTest do
     })
   end
 
+  test "历史原文引用只允许当前上下文来源" do
+    args = %{
+      "action" => "reply",
+      "reply_included" => true,
+      "frame_type" => "capability_gap",
+      "author_content_registration" => true,
+      "author_content_source_ref" => "previous-author-turn"
+    }
+
+    assert {:ok, judgment} = request(args, author_content_sources: ["previous-author-turn"])
+    assert judgment.author_content_source_ref == "previous-author-turn"
+    assert {:error, _} = request(args, author_content_sources: ["another-turn"])
+  end
+
   # call2 首轮返回 first_arguments、重试轮返回 retry_arguments；重试轮 prompt
   # 回发测试进程供断言（矛盾提示确实注入）。
   defp request_with_retry(first_arguments, retry_arguments, options) do

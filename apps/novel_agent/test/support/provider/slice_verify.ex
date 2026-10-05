@@ -1934,6 +1934,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     # 讨论保护先行（与生产判断 prompt 的判别规则、planner 的 explicit_discussion_only
     # 同语义）：作者显式说"先聊/只聊/不写"时不得进入创作能力，按直接回复处理。
     cond do
+      message_state_request?(prompt) ->
+        {"reply", nil, false}
+
       String.contains?(author_text, @awaiting_author_steer_marker) ->
         {"await_author", nil, false}
 
@@ -2243,6 +2246,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         end
       end)
 
+    arguments = message_state_arguments(arguments, prompt)
+
     reasoning = judgment_reason_code(action)
 
     Result.new(reasoning, usage_for(prompt, reasoning),
@@ -2282,11 +2287,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp judgment_narrative_text("reply", exploratory, prompt) do
-    if archive_write_prompt?(prompt) do
-      "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力，做不到这一步。" <>
-        "最近的路径是：我先把内容整理成待采纳的设定候选，你在候选卡上采纳后它才会进入档案。见下方路径选项。"
-    else
-      judgment_reply_body_narrative(exploratory, prompt)
+    cond do
+      message_state_request?(prompt) ->
+        message_state_narrative(prompt)
+
+      archive_write_prompt?(prompt) ->
+        "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力，做不到这一步。" <>
+          "最近的路径是：我先把内容整理成待采纳的设定候选，你在候选卡上采纳后它才会进入档案。见下方路径选项。"
+
+      true ->
+        judgment_reply_body_narrative(exploratory, prompt)
     end
   end
 
@@ -2300,6 +2310,71 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_narrative_text(_action, _exploratory, _prompt) do
     "这件事需要多个相互依赖的步骤；我会先制定一份可预览的计划再逐步推进。"
+  end
+
+  # 外部多轮场景的确定性提供者：从实际上下文选来源与状态，生产 provider 不含此逻辑。
+  defp message_state_request?(prompt) do
+    input = judgment_author_input(prompt)
+    contains_any?(input, ["先只记录这份资料", "上一条资料原文", "资料处理进度", "读取结果回顾"])
+  end
+
+  defp message_state_facts(prompt) do
+    prompt
+    |> String.split("\n")
+    |> Enum.find_value(%{}, fn line ->
+      case Jason.decode(String.trim(line)) do
+        {:ok, %{"author_inputs" => _} = facts} -> facts
+        _ -> nil
+      end
+    end)
+  end
+
+  defp message_state_arguments(arguments, prompt) do
+    if message_state_request?(prompt) do
+      source =
+        message_state_facts(prompt)
+        |> Map.get("author_inputs", [])
+        |> Enum.find(&String.starts_with?(&1["text"] || "", "先只记录这份资料"))
+
+      registration? = String.contains?(judgment_author_input(prompt), "上一条资料原文")
+
+      Map.merge(arguments, %{
+        "frame_type" => if(registration?, do: "capability_gap", else: "question_answer"),
+        "author_content_registration" => registration? and not is_nil(source),
+        "author_content_source_ref" =>
+          if(registration? and source, do: source["turn_ref"], else: nil)
+      })
+    else
+      arguments
+    end
+  end
+
+  defp message_state_narrative(prompt) do
+    input = judgment_author_input(prompt)
+    facts = message_state_facts(prompt)
+
+    cond do
+      String.contains?(input, "读取结果回顾") ->
+        case Enum.find(
+               Map.get(facts, "recent_results", []),
+               &String.contains?(&1["text"] || "", "项只读上下文读取")
+             ) do
+          nil -> "没有可核对的读取结果。"
+          result -> result["text"]
+        end
+
+      String.starts_with?(input, "先只记录这份资料") ->
+        "已收到这份资料原文，本轮只记录，不生成候选。"
+
+      Map.get(facts, "resolved_adoptions", []) != [] ->
+        "这份资料已经采纳入档，已有采纳结果可核对。"
+
+      Map.get(facts, "pending_adoptions", []) != [] ->
+        "这份资料尚未采纳，请在已有候选卡上采纳。运行结束不代表已经入档。"
+
+      true ->
+        "我会引用上一条资料的原文生成待采纳候选，作者采纳后才会入档。"
+    end
   end
 
   defp judgment_reply_body_narrative(exploratory, prompt) do

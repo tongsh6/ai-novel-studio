@@ -64,7 +64,8 @@ defmodule NovelPersistence.WorkspaceContext do
 
       {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text),
        fetch_behavior_summary(workspace_id, session_id),
-       titles_from_structured_chapters(structured_chapters), structured_chapters}
+       titles_from_structured_chapters(structured_chapters), structured_chapters,
+       NovelPersistence.InteractionLifecycle.context(workspace_id, session_id)}
     end
   end
 
@@ -468,8 +469,21 @@ defmodule NovelPersistence.WorkspaceContext do
   defp conversation_summary([]), do: nil
 
   defp conversation_summary(interactions) do
-    Enum.map_join(interactions, "\n", fn i -> "#{i.role}: #{interaction_text(i)}" end)
+    # 已接收但尚未处理的输入由本轮 author_text/interaction_state 承载，
+    # 不再作为一条旧对话重复喂给判断器。完整 transcript 仍保留该消息。
+    interactions
+    |> Enum.reject(&unprocessed_input?/1)
+    |> Enum.map_join("\n", fn i -> "#{i.role}: #{interaction_text(i)}" end)
+    |> blank_to_nil()
   end
+
+  defp unprocessed_input?(%Interaction{
+         role: "user",
+         content: %{"message_handling" => %{"processed_at" => nil}}
+       }),
+       do: true
+
+  defp unprocessed_input?(_entry), do: false
 
   defp datetime_to_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp datetime_to_iso8601(_), do: nil

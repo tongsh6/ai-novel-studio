@@ -15,7 +15,7 @@ defmodule NovelApplication.ContextAssembler do
   @doc """
   为给定 workspace 组装 DialogueContext。
 
-  fetcher 是一个函数，返回 5 元组（基础上下文）、6 元组（+章节标题）或 7 元组（+结构化章节条目）。
+  fetcher 返回基础上下文与章节数据；生产 8 元组追加消息处置投影，兼容原 5/6/7 元组。
   测试中可注入 stub fetcher。
   """
   # fetcher 可返回 5 元组（无章节，向后兼容既有 stub）、6 元组（末位为已采纳章节标题列表）
@@ -25,6 +25,8 @@ defmodule NovelApplication.ContextAssembler do
           | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()]}
           | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
              [map()]}
+          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
+             [map()], map()}
   @spec assemble(String.t(), (String.t() -> fetcher_return())) :: DialogueContext.t()
   def assemble(workspace_id, fetcher \\ &default_fetch/1) do
     assemble_for_input(workspace_id, nil, fetcher, [])
@@ -46,7 +48,8 @@ defmodule NovelApplication.ContextAssembler do
 
     # CP1（关 G10 / AU-03 SC-B3）：fetcher 异常/非 ok 时不让整轮崩溃，降级为**明确**空上下文
     # 并留痕（context.assemble.fallback），后续 Planner 在空上下文下诚实说明读不到，而不是编造。
-    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters} =
+    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters,
+     interaction_state} =
       safe_fetch(fetcher, workspace_id, author_text, session_id)
 
     refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary, session_id)
@@ -68,6 +71,7 @@ defmodule NovelApplication.ContextAssembler do
       conversation_summary: conv_summary,
       memory_summary: mem_summary,
       open_behavior_summary: behavior_summary,
+      interaction_state: interaction_state,
       current_chapters: chapters,
       structured_chapters: structured_chapters,
       context_refs: refs,
@@ -81,7 +85,7 @@ defmodule NovelApplication.ContextAssembler do
   defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
   # 明确空上下文（fetcher 失败时的降级形态）。
-  @empty_fetch {:ok, nil, nil, nil, nil, [], []}
+  @empty_fetch {:ok, nil, nil, nil, nil, [], [], %{}}
 
   # fetcher 异常或返回非 {:ok, ...} 时降级为明确空上下文 + 留痕，不让整轮崩溃（G10 / AU-03 SC-B3）。
   defp safe_fetch(fetcher, workspace_id, author_text, session_id) do
@@ -107,16 +111,24 @@ defmodule NovelApplication.ContextAssembler do
   end
 
   # fetcher 可返回 5 或 6 元组；统一补齐为带章节列表的 6 元组（缺省空列表）。非 ok 返回也降级为空。
+  defp normalize_fetch_result(
+         {:ok, snapshot, conv, mem, behavior, chapters, structured_chapters, state}
+       )
+       when is_map(state) do
+    {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
+    {:ok, snapshot, conv, mem, behavior, titles, entries, state}
+  end
+
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters, structured_chapters}) do
     {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
-    {:ok, snapshot, conv, mem, behavior, titles, entries}
+    {:ok, snapshot, conv, mem, behavior, titles, entries, %{}}
   end
 
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters}),
     do: normalize_six_tuple(snapshot, conv, mem, behavior, chapters)
 
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior}),
-    do: {:ok, snapshot, conv, mem, behavior, [], []}
+    do: {:ok, snapshot, conv, mem, behavior, [], [], %{}}
 
   defp normalize_fetch_result(_other), do: @empty_fetch
 
@@ -124,13 +136,13 @@ defmodule NovelApplication.ContextAssembler do
     cond do
       structured_chapter_list?(chapters) ->
         entries = normalize_structured_chapters(chapters)
-        {:ok, snapshot, conv, mem, behavior, titles_from_structured(entries), entries}
+        {:ok, snapshot, conv, mem, behavior, titles_from_structured(entries), entries, %{}}
 
       is_list(chapters) ->
-        {:ok, snapshot, conv, mem, behavior, normalize_chapters(chapters), []}
+        {:ok, snapshot, conv, mem, behavior, normalize_chapters(chapters), [], %{}}
 
       true ->
-        {:ok, snapshot, conv, mem, behavior, [], []}
+        {:ok, snapshot, conv, mem, behavior, [], [], %{}}
     end
   end
 

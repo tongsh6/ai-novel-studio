@@ -43,6 +43,7 @@ defmodule NovelApplication.JudgmentProtocol do
           dialogue_goal: String.t() | nil,
           reply_included: boolean(),
           author_content_registration: boolean(),
+          author_content_source_ref: String.t() | nil,
           explore_request: %{tool: String.t(), query: String.t()} | nil,
           candidate_directions: [map()],
           candidate_directions_present: boolean(),
@@ -265,7 +266,8 @@ defmodule NovelApplication.JudgmentProtocol do
          action when is_binary(action) <- map_get(arguments, :action),
          true <- action in actions(request.options),
          true <- capability_in_catalog?(action, arguments, request.options),
-         true <- explore_tool_in_catalog?(action, arguments, request.options) do
+         true <- explore_tool_in_catalog?(action, arguments, request.options),
+         true <- author_source_in_context?(arguments, request.options) do
       case semantic_conflict(action, arguments, request.options) do
         nil -> build_judgment(arguments, action, provider_result, request)
         conflict -> retry_semantic_conflict(conflict, request)
@@ -273,6 +275,11 @@ defmodule NovelApplication.JudgmentProtocol do
     else
       _ -> retry_or_fail(provider_result, request)
     end
+  end
+
+  defp author_source_in_context?(arguments, options) do
+    source = map_get(arguments, :author_content_source_ref)
+    source in [nil, "current" | Keyword.get(options || [], :author_content_sources, [])]
   end
 
   # M0 缺陷修复（2026-07-19 狗粮实锤）：live 模型在续写措辞下自造目录外能力名
@@ -403,6 +410,7 @@ defmodule NovelApplication.JudgmentProtocol do
            # Q3c：作者内容登记信号（模型判定，非关键字）——作者在消息里提供了
            # 具体内容并要求登记进档案时为 true，应用层据此机械物化作者字节候选。
            author_content_registration: map_get(arguments, :author_content_registration) == true,
+           author_content_source_ref: nonblank(map_get(arguments, :author_content_source_ref)),
            narrative: narrative,
            narrative_source: narrative_source,
            provider_call_count: 1 + request.attempt
@@ -634,6 +642,8 @@ defmodule NovelApplication.JudgmentProtocol do
           ## 你已输出的判断说明（超长截断，只作参照）
           #{clip_echo(narrative)}
 
+          #{Map.get(input, :author_content_context, "")}
+
           ## 结论→action 映射（按判断说明的结论逐条对照）
           - 判断说明结论是"单动作执行/生成正文/执行创作" → action=execute（capability 按目录填）。
           - 结论是"需要先检索/查证" → action=explore。
@@ -655,13 +665,16 @@ defmodule NovelApplication.JudgmentProtocol do
             capability_gap——回复必须显式承认做不到什么，并给出最近可行路径（已有
             待采纳候选就引导作者采纳；没有就说明可先把内容整理成待采纳候选），此时
             用 candidate_directions 携带路径选项；其余普通回应属于 casual_reply。
-          - author_content_registration：作者在本条消息里**提供了具体创作内容**
-            （设定、大纲、规则等原文）并要求把它登记/保存进作品档案时为 true——
-            系统会把作者原文原样变成待采纳候选，由作者采纳后入档。作者只是要求
-            写入但消息里没有内容原文时为 false；其它情况省略或 false。
+          - author_content_registration：作者要求把自己提供的具体创作原文登记为候选时为 true，
+            包括本条原文，或消息处置上下文明确列出的历史原文。此时选择 reply/capability_gap，
+            说明原文会成为待采纳候选；不得调用创作工具重写原文。已有同来源候选则引导采纳，
+            已采纳则据事实回应，不重复生成。来源不明确时 await_author 追问。
+          - author_content_source_ref：本条原文填 current；历史原文填已列出的 turn_ref，
+            不能填不存在或其他作品的编号。只说“存档”但原文在历史消息时，必须选择历史来源。
+            不登记原文时为 null。
           - dialogue_goal：用一句简短中文概括作者本轮目标；不得写系统执行步骤或内部推理。
-          - candidate_directions：仅当 action=reply 且你的回复是给作者 2-3 个可选创作方向时填写
-            （每个方向 {title, pitch, tone_tags}）；其它情况为空数组。
+          - candidate_directions：action=reply 时可携带创作方向或 capability_gap 的可行路径
+            （每项 {title, pitch, tone_tags}）；没有选项时为空数组。
           - explore_request：action=explore 时必填 {tool, query}——#{explore_tool_help(opts)}，
             query 按该工具的 query 说明填写；其它 action 置 null。
           - author_narrative：若你在上一步没有输出判断说明，在此补写一段作者可见原文。
@@ -686,6 +699,15 @@ defmodule NovelApplication.JudgmentProtocol do
               dialogue_goal: %{anyOf: [%{type: "string"}, %{type: "null"}]},
               reply_included: %{type: "boolean"},
               author_content_registration: %{type: "boolean"},
+              author_content_source_ref: %{
+                anyOf: [
+                  %{
+                    type: "string",
+                    enum: ["current" | Keyword.get(opts, :author_content_sources, [])]
+                  },
+                  %{type: "null"}
+                ]
+              },
               reason: %{type: "string"},
               candidate_directions: %{
                 type: "array",

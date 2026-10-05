@@ -1,11 +1,13 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-10-05（B16 依赖修复；下方初检及日期补充为历史记录，不代表同一时点状态）
+> 最后更新：2026-10-05（Q3d 消息闭环；下方初检及日期补充为历史记录，不代表同一时点状态）
 >
+> Q3d 当前结果：ADR-0027 经用户确认修订 Accepted，复用 Interaction/AgentRun/采纳事实，未引入第六账。输入先持久化再成功接收；统一记录各 flow 结果；历史原文来源与本轮动作归属分离；下一轮读取真实处理/采纳状态。q3d 多轮页面与 q3c 兼容回归通过，1506 后端/450 前端测试及四项不变量通过，完整扫描无新增阻断；具体证据与有界上下文、确定性 provider 等边界见 Q3D slice。
+> 当前唯一 next 为 DS02 / Journey F9；旧提案中的通用义务对象不作为已完成能力。
 > B16 当前结果：后端 Phoenix 已精确更新为 1.8.9，其他 Hex 锁项不变；用户授权以既有 pnpm 10.33.0 恢复前端锁定依赖。1,492 个后端测试、450 个前端测试、编译、架构、四项不变量和前端检查通过；完整静态扫描返回 0（17 PASS / 2 既有 FAIL，3 个已处置 finding，0 blocking）。台账四个原 pending 项已按实际结果记 fixed。
 > 外部真实工作台 `q3c-author-content-materialization --surface tauri` 通过，使用确定性 provider；Tauri 启动和 Playwright 页面驱动分别留证，不宣称直接操作 native WebView。sidecar 与桌面包已重建，清理旧生成目录后 sidecar 只含 Phoenix 1.8.9；无生产 app 行为改动。细节及限制见 `tasks/NEXT.md` §6 B16。
 > 当前推进入口：`tasks/NEXT.md`。已核对提交：Q0 `739b9b79`、Q1a `dcc0aa47`、Q2 `8b03a9db`、Q3a `d4443b57`、Q3b `5fb452c6`、Q3c `ff69e43d`、Q4 轻量机制 `d37409b4`。
-> 当前唯一 next 是 Q3d / Journey C9 的 ADR-0027 决策评审，ADR 保持 Proposed；实现及跨 turn 场景未闭环。
+> 历史队列校准时 next 为 Q3d 决策评审；后续用户根因核查与授权已改变该状态，以文首当前事实为准。
 > 2026-10-05 初检（B16 修复前）：1,492 个默认后端测试通过（排除 integration/real_llm），编译/架构/四项不变量通过；24 条测试告警、1 项 Credo 已登记问题和 27 份 ADR 缺 enforced_by 仍存在。前端依赖不完整，类型/lint/test/Tauri 构建及完整静态扫描未完成，不能宣称全门禁绿。
 > 本次治理 checkpoint 修正队首与旅程对照、差距描述和目录索引，不改生产代码，不将历史页面证据写成本次产品验收。
 > 2026-10-05 初次完整扫描（B16 修复前）：13 PASS / 6 FAIL / 0 SKIP，7 findings（触及文件 0）。Phoenix 1.8.7 命中两项公告，官方补丁为 1.8.9：[Channel DoS](https://github.com/phoenixframework/phoenix/security/advisories/GHSA-6983-jfq8-485w)、[Presence](https://github.com/phoenixframework/phoenix/security/advisories/GHSA-63mc-hw7g-86rr)。依赖升级及前端依赖恢复待授权，归 NEXT B16；三个既有 finding 沿用原处置，其余四项 pending，扫描保持失败。

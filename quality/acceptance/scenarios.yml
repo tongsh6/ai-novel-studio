@@ -1266,6 +1266,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/e2e-01-channel-action-security.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh e2e-01-channel-action-security --surface tauri
+  - id: q3d-message-outcome-roundtrip
+    title: "Q3D 消息处置与跨轮结果关联"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q3d-message-outcome-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh q3d-message-outcome-roundtrip --surface tauri
   - id: q3c-author-content-materialization
     title: "Q3c 作者内容字节直达采纳链"
     tier: nightly

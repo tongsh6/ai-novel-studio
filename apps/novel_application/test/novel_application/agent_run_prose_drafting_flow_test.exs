@@ -126,9 +126,18 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       work_id: @work,
       session_id: "session-agent-prose-flow",
       turn_id: "turn-agent-prose-flow",
-      memory_recorder: fn workspace_id, entries ->
-        send(parent, {:recorded_prose_turn, workspace_id, entries})
-        :ok
+      trigger: %{kind: "user_message"},
+      interaction_store: fn
+        :receive, attrs ->
+          send(parent, {:recorded_prose_input, attrs.text})
+          {:ok, %{run_id: attrs.run_id, duplicate?: false}}
+
+        :result, attrs ->
+          send(parent, {:recorded_prose_turn, attrs.workspace_id, attrs.turn_result})
+          {:ok, :recorded}
+
+        _operation, _attrs ->
+          {:ok, :recorded}
       end,
       quality_provider_execution: %Execution{result_fn: evaluator},
       chapter_prose_reader: fn _work_id, _chapter -> "" end,
@@ -154,6 +163,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert {:ok, run_id} =
              AgentRunService.start_bounded(planned.run_attrs,
                next_step_planner: planned.next_step_planner,
+               interaction_store: planned.interaction_store,
+               interaction_input: planned.interaction_input,
                event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
              )
 
@@ -226,11 +237,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:agent_event, :exploration_observed, observation_event}, 500
     assert observation_event.summary =~ "正文草稿"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
-    assert_receive {:recorded_prose_turn, @work, recorded_entries}, 500
-    assert Enum.map(recorded_entries, & &1.role) == ["user", "assistant"]
-
-    assert List.last(recorded_entries).content.turn_result.turn_id ==
-             artifact_event.payload.turn_result.turn_id
+    assert_receive {:recorded_prose_input, recorded_text}, 500
+    assert recorded_text == input.text
+    assert_receive {:recorded_prose_turn, @work, recorded_result}, 500
+    assert recorded_result.turn_id == artifact_event.payload.turn_result.turn_id
 
     assert_receive {:agent_event, :evaluation_made, prose_decision}, 500
     assert prose_decision.payload.loop_decision_type == :goal_satisfied
