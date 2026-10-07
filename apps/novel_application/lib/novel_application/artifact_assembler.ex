@@ -37,8 +37,7 @@ defmodule NovelApplication.ArtifactAssembler do
          target_chapter: normalize_target_chapter(Map.get(provenance, :target_chapter)),
          revision_base: normalize_target_chapter(Map.get(provenance, :revision_base)),
          revision_reason: normalize_target_chapter(Map.get(provenance, :revision_reason)),
-         quality_finding_refs: normalize_refs(Map.get(provenance, :quality_finding_refs)),
-         adoption_status: :tentative
+         quality_finding_refs: normalize_refs(Map.get(provenance, :quality_finding_refs))
        }}
     end
   end
@@ -87,8 +86,7 @@ defmodule NovelApplication.ArtifactAssembler do
            }
          ],
          source_turn_ref: turn_ref,
-         source_tool_result_ref: "author_input:#{author_source_ref}",
-         adoption_status: :tentative
+         source_tool_result_ref: "author_input:#{author_source_ref}"
        }}
     end
   end

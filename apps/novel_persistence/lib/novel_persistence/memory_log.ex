@@ -10,6 +10,11 @@ defmodule NovelPersistence.MemoryLog do
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Interaction
 
+  @legacy_adoption_statuses Map.new(
+                              NovelFoundation.Enums.AdoptionStatus.values(),
+                              &{String.downcase(&1), &1}
+                            )
+
   @doc "写入一条 interaction 到 DB。"
   @spec record(map()) :: {:ok, Interaction.t()} | {:error, Ecto.Changeset.t()}
   def record(attrs) when is_map(attrs) do
@@ -26,6 +31,7 @@ defmodule NovelPersistence.MemoryLog do
     |> order_by([i], desc: i.inserted_at)
     |> limit(^n)
     |> Repo.all()
+    |> Enum.map(&canonical_interaction/1)
   end
 
   @doc "查询 session 下完整 transcript，按写入顺序返回。"
@@ -35,6 +41,7 @@ defmodule NovelPersistence.MemoryLog do
     |> where([i], i.session_id == ^session_id)
     |> order_by([i], asc: i.inserted_at, asc: i.id)
     |> Repo.all()
+    |> Enum.map(&canonical_interaction/1)
   end
 
   @doc """
@@ -61,6 +68,7 @@ defmodule NovelPersistence.MemoryLog do
         rows
         |> Enum.take(page_limit)
         |> Enum.reverse()
+        |> Enum.map(&canonical_interaction/1)
 
       {:ok,
        %{
@@ -81,6 +89,36 @@ defmodule NovelPersistence.MemoryLog do
     |> where([i], i.workspace_id == ^workspace_id and i.retention_tier == ^from_tier)
     |> Repo.update_all(set: [retention_tier: to_tier])
   end
+
+  @doc """
+  DS02 历史 Interaction 的读取适配器，供 transcript 和上下文投影共同使用。
+
+  只归一 adoption_state 条目中已知的小写七态；不重写历史记录、正文、候选方向状态，
+  不接受 PENDING 等非契约值。未知值保留给消费端契约校验报告。
+  """
+  @spec canonical_interaction(Interaction.t()) :: Interaction.t()
+  def canonical_interaction(
+        %Interaction{content: %{"turn_result" => %{"adoption_state" => state}}} = interaction
+      )
+      when is_map(state) do
+    canonical = Map.new(state, &canonical_adoption_group/1)
+    put_in(interaction.content["turn_result"]["adoption_state"], canonical)
+  end
+
+  def canonical_interaction(interaction), do: interaction
+
+  defp canonical_adoption_group({key, entries})
+       when key in ["pending", "resolved"] and is_list(entries) do
+    {key, Enum.map(entries, &canonical_adoption_entry/1)}
+  end
+
+  defp canonical_adoption_group(other), do: other
+
+  defp canonical_adoption_entry(%{"adoption_status" => status} = entry) do
+    %{entry | "adoption_status" => Map.get(@legacy_adoption_statuses, status, status)}
+  end
+
+  defp canonical_adoption_entry(entry), do: entry
 
   defp transcript_page_query(session_id, nil) do
     {:ok, where(Interaction, [i], i.session_id == ^session_id)}

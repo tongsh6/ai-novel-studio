@@ -197,7 +197,7 @@ defmodule NovelApplication.FactInventoryRunTest do
 
     assert Enum.all?(
              turn_result.adoption_state.pending,
-             &(&1.adoption_status == :tentative)
+             &(&1.adoption_status == "TENTATIVE")
            )
 
     assert Enum.all?(

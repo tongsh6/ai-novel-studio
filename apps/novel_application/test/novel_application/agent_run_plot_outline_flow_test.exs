@@ -191,7 +191,7 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert turn_result.truthfulness.production_write_performed == false
     refute Map.has_key?(turn_result, :quality_review)
 
-    assert [%{adoption_status: :tentative, artifact_type: :outline_draft}] =
+    assert [%{adoption_status: "TENTATIVE", artifact_type: :outline_draft}] =
              turn_result.adoption_state.pending
 
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-agent-outline-writer"
@@ -222,7 +222,8 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
           {:error, :must_not_call_mission_model}
 
         plan_draft_prompt?(prompt) ->
-          {:ok, Map.put(plot_outline_plan_draft(), :provider_call_id, "pc-author-outline-planner")}
+          {:ok,
+           Map.put(plot_outline_plan_draft(), :provider_call_id, "pc-author-outline-planner")}
 
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,

@@ -115,9 +115,9 @@ describe("WorkspaceRuntimeState", () => {
     const state = deriveWorkspaceRuntimeState({
       adoptionState: {
         pending: [
-          { artifact_id: "artifact-1", adoption_status: "PENDING" },
-          { artifact_id: "artifact-2", adoption_status: "PENDING" },
-          { artifact_id: "artifact-1", adoption_status: "PENDING" },
+          { artifact_id: "artifact-1", adoption_status: "TENTATIVE" },
+          { artifact_id: "artifact-2", adoption_status: "TENTATIVE" },
+          { artifact_id: "artifact-1", adoption_status: "TENTATIVE" },
         ],
         resolved: [{ artifact_id: "artifact-2", adoption_status: "ACCEPTED" }],
       },
@@ -135,7 +135,7 @@ describe("WorkspaceRuntimeState", () => {
           { artifact_id: "accepted", adoption_status: "ACCEPTED" },
           { artifact_id: "discarded", adoption_status: "DISCARDED" },
           { artifact_id: "edited", adoption_status: "EDITED_ACCEPTED" },
-          { artifact_id: "pending", adoption_status: "PENDING" },
+          { artifact_id: "pending", adoption_status: "TENTATIVE" },
         ],
         resolved: [],
       },

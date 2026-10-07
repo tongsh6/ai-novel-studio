@@ -104,7 +104,7 @@ describe("TurnResultSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("接受非空 adoption_state.pending（线上小写 adoption_status + payload）", () => {
+  it("接受非空 adoption_state.pending（canonical adoption_status + payload）", () => {
     const payload = {
       ...minimalValid,
       adoption_state: {
@@ -112,7 +112,7 @@ describe("TurnResultSchema", () => {
           {
             artifact_id: "art_001",
             artifact_type: "character_seed",
-            adoption_status: "tentative",
+            adoption_status: "TENTATIVE",
             requires_adoption: true,
             payload: { items: [{ title: "林九" }] },
           },
@@ -132,7 +132,7 @@ describe("TurnResultSchema", () => {
           {
             artifact_id: "art_001",
             artifact_type: "character_seed",
-            adoption_status: "tentative",
+            adoption_status: "TENTATIVE",
             requires_adoption: true,
           },
         ],
@@ -140,6 +140,63 @@ describe("TurnResultSchema", () => {
       },
     });
     expect(result.success).toBe(false);
+  });
+
+  it.each(["pending", "resolved"])("%s 严格拒绝旧小写、未知和缺失状态", (group) => {
+    for (const adoption_status of ["tentative", "accepted", "PENDING", "UNKNOWN", "", undefined]) {
+      const result = TurnResultSchema.safeParse({
+        ...minimalValid,
+        adoption_state: {
+          pending: [],
+          resolved: [],
+          [group]: [
+            {
+              artifact_id: "artifact",
+              artifact_type: "character_seed",
+              adoption_status,
+              requires_adoption: true,
+              payload: {},
+            },
+          ],
+        },
+      });
+      expect(result.success, String(adoption_status)).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some(
+            (issue) => issue.path.join(".") === `adoption_state.${group}.0.adoption_status`,
+          ),
+        ).toBe(true);
+      }
+    }
+  });
+
+  it.each([
+    "TENTATIVE",
+    "ACCEPTED",
+    "EDITED_ACCEPTED",
+    "DISCARDED",
+    "SUPERSEDED",
+    "INVALIDATED",
+    "ARCHIVED",
+  ])("采纳枚举接受 canonical %s", (adoption_status) => {
+    expect(
+      TurnResultSchema.safeParse({
+        ...minimalValid,
+        adoption_state: {
+          pending: [],
+          resolved: [
+            {
+              artifact_id: "artifact",
+              artifact_type: "character_seed",
+              adoption_status,
+              requires_adoption: true,
+              payload: {},
+            },
+          ],
+        },
+      }).success,
+    ).toBe(true);
   });
 });
 

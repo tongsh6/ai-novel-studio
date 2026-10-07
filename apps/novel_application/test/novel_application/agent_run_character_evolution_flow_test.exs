@@ -126,7 +126,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert turn_result.truthfulness.production_write_performed == false
     refute Map.has_key?(turn_result, :quality_review)
 
-    assert [%{adoption_status: :tentative, artifact_type: :character_evolution_seed} = pending] =
+    assert [%{adoption_status: "TENTATIVE", artifact_type: :character_evolution_seed} = pending] =
              turn_result.adoption_state.pending
 
     [item] = pending.payload.items

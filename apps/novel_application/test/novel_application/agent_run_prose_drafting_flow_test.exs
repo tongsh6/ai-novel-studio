@@ -276,7 +276,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              :constraint_seed
            ]
 
-    assert Enum.all?(turn_result.adoption_state.pending, &(&1.adoption_status == :tentative))
+    assert Enum.all?(turn_result.adoption_state.pending, &(&1.adoption_status == "TENTATIVE"))
     assert length(turn_result.ui_cards) == 5
     assert Enum.all?(turn_result.ui_cards, &(&1.card_type == "candidate_set"))
     assert length(turn_result.available_actions) >= 15

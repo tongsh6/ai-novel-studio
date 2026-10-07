@@ -228,7 +228,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
           %{
             artifact_id: "as-au07-state-1",
             artifact_type: :prose_fragment,
-            adoption_status: :tentative,
+            adoption_status: "TENTATIVE",
             requires_adoption: true,
             source_tool_result_ref: "tool-result-au07-state",
             work_id: work.id,

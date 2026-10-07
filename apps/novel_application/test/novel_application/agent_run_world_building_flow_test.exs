@@ -119,7 +119,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert turn_result.truthfulness.artifact_adopted == false
     assert turn_result.truthfulness.production_write_performed == false
 
-    assert [%{adoption_status: :tentative, artifact_type: :foreshadowing_seed}] =
+    assert [%{adoption_status: "TENTATIVE", artifact_type: :foreshadowing_seed}] =
              turn_result.adoption_state.pending
 
     assert turn_result.trace_summary.writer_provider_call_ref == "pc-agent-world-writer"
@@ -210,7 +210,7 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert turn_result.truthfulness.artifact_adopted == false
     assert turn_result.truthfulness.production_write_performed == false
 
-    assert [%{adoption_status: :tentative, artifact_type: :style_rule_seed}] =
+    assert [%{adoption_status: "TENTATIVE", artifact_type: :style_rule_seed}] =
              turn_result.adoption_state.pending
 
     assert turn_result.trace_summary.writer_provider_call_ref ==

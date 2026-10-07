@@ -58,6 +58,8 @@
 
 ## 6. 决策日志
 
+- 2026-10-05：历史登记的 adoption_status string 放宽由 `DS02-adoption-status-canonicalization.md` 关闭。新值统一 canonical 七态，历史兼容仅在持久化读取边界；strict enum 的成功/漂移用例及真实页面恢复采纳回归通过。
+
 - 2026-07-15：slice 创建。范围锚定 ADR-0024 CP1；S4/S7 显式排除，避免 checkpoint 缩小 slice 范围的反模式（本文件即完整 CP1 范围，无隐藏后续）。
 - 2026-07-15：**发现真实契约漂移——adoption_status 大小写**。`artifact_adoption_entry.json` 的枚举是 30 §3.2 的大写 7 态（TENTATIVE...），线上 TurnResult 序列化的是小写 `:tentative`。为避免已知漂移刷屏掩盖新漂移，barrel 组合处放宽为 string 并登记于此；收敛（后端统一大小写或 schema 双轨）留待后续 checkpoint / ADR-0019 系修订。
 - 2026-07-15：`artifact_adoption_entry.json` 扩展 payload / source_turn_ref / source_tool_result_ref（线上真实字段进 SSOT），`NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry` Ecto 镜像同步——被 persistence 层 SchemaDriftTest 闸门抓出后补齐，双向闸门（JSON↔Ecto、JSON↔前端）自此对 adoption 条目同时生效。

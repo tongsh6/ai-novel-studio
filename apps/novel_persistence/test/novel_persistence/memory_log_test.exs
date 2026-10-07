@@ -2,11 +2,13 @@ defmodule NovelPersistence.MemoryLogTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryClass
   alias NovelFoundation.Enums.RetentionTier
   alias NovelFoundation.Enums.SourceType
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.WorkRepo
   alias NovelPersistence.WorkSessionRepo
 
@@ -30,6 +32,67 @@ defmodule NovelPersistence.MemoryLogTest do
     replayable: true,
     retrievable: true
   }
+
+  test "历史采纳状态在所有读取入口归一，正文、方向状态及原始记录保持不变" do
+    states = AdoptionStatus.values()
+    {:ok, work} = WorkRepo.create(%{"title" => "DS02 历史兼容"})
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+    entries = Enum.map(states, &%{adoption_status: String.downcase(&1)})
+
+    result = %{
+      adoption_state: %{pending: entries, resolved: entries},
+      candidate_directions: [%{adoption_status: "not_adopted"}],
+      assistant_message: %{text: "tentative 与 accepted 是原文，不得修改。"}
+    }
+
+    {:ok, stored} =
+      MemoryLog.record(
+        %{@valid_entry | workspace_id: work.id, content: %{turn_result: result}}
+        |> Map.put(:session_id, session.id)
+      )
+
+    [recent] = MemoryLog.recent(work.id)
+    [transcript] = MemoryLog.transcript(session.id)
+    {:ok, %{entries: [paged]}} = MemoryLog.transcript_page(session.id)
+
+    for interaction <- [recent, transcript, paged] do
+      canonical = interaction.content["turn_result"]
+      assert Enum.map(canonical["adoption_state"]["pending"], & &1["adoption_status"]) == states
+      assert Enum.map(canonical["adoption_state"]["resolved"], & &1["adoption_status"]) == states
+      assert canonical["candidate_directions"] == [%{"adoption_status" => "not_adopted"}]
+      assert canonical["assistant_message"]["text"] == result.assistant_message.text
+      assert MemoryLog.canonical_interaction(interaction) == interaction
+    end
+
+    raw = Repo.get!(Interaction, stored.id).content["turn_result"]
+    assert hd(raw["adoption_state"]["pending"])["adoption_status"] == "tentative"
+  end
+
+  test "历史读取不猜测未知状态、不补缺失字段，不触碰采纳条目的正文" do
+    entries = [
+      %{"adoption_status" => "PENDING"},
+      %{"adoption_status" => "Accepted"},
+      %{"adoption_status" => nil},
+      %{},
+      %{"adoption_status" => "TENTATIVE"},
+      %{"adoption_status" => "accepted", "payload" => %{"adoption_status" => "tentative"}}
+    ]
+
+    interaction = %Interaction{
+      content: %{
+        "turn_result" => %{"adoption_state" => %{"pending" => entries, "resolved" => []}}
+      }
+    }
+
+    normalized = MemoryLog.canonical_interaction(interaction)
+    actual = normalized.content["turn_result"]["adoption_state"]["pending"]
+    assert Enum.take(actual, 5) == Enum.take(entries, 5)
+
+    assert List.last(actual) == %{
+             "adoption_status" => "ACCEPTED",
+             "payload" => %{"adoption_status" => "tentative"}
+           }
+  end
 
   describe "record/1" do
     test "persists the full entry to interactions table" do

@@ -14,7 +14,7 @@ import { useAppStore } from "../store";
 const artifact: ArtifactEntry = {
   artifact_id: "tas-1",
   artifact_type: "character_seed",
-  adoption_status: "PENDING",
+  adoption_status: "TENTATIVE",
   requires_adoption: true,
   source_turn_ref: "turn-1",
   payload: {
@@ -26,7 +26,7 @@ const artifact: ArtifactEntry = {
 const outlineArtifact: ArtifactEntry = {
   artifact_id: "outline-1",
   artifact_type: "outline_draft",
-  adoption_status: "PENDING",
+  adoption_status: "TENTATIVE",
   requires_adoption: true,
   source_turn_ref: "turn-outline",
   payload: {

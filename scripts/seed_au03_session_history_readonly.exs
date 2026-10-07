@@ -60,7 +60,7 @@ entries = [
             %{
               artifact_id: "artifact_history_pending",
               artifact_type: "plot_direction",
-              adoption_status: "PENDING",
+              adoption_status: "TENTATIVE",
               requires_adoption: true,
               payload: %{title: "林瑶伏笔"}
             }

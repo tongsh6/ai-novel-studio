@@ -29,11 +29,8 @@ export { UiCardSchema, type UiCard } from "../generated/foundation/ui_card";
 // 历史冻结的 v2 schema 保留导出（ADR-0015 时代），现行线格式用 v3。
 export { TurnResultV2Schema, type TurnResultV2 } from "../generated/foundation/turn_result_v2";
 
-// 临时放宽（收口 slice：tasks/slices/DS02-adoption-status-canonicalization.md）：
-// 线上 adoption_status 序列化为小写（:tentative），与 artifact_adoption_entry.json
-// 的大写 7 态枚举（30 §3.2 canonical）分裂。DS02 将从领域层统一口径后撤销本行。
+// DS02：采纳状态直接消费 codegen 的七态枚举，历史兼容只在持久化读取边界处理。
 const TurnAdoptionEntrySchema = ArtifactAdoptionEntrySchema.extend({
-  adoption_status: z.string(),
   // TurnResult adoption_state 条目必含 payload（unit_pending_entry 注入）。
   payload: z.record(z.string(), z.unknown()),
 });

@@ -6,11 +6,13 @@ entrypoint: scripts/quality_accept.sh q3d-message-outcome-roundtrip --surface ta
 contract:
   - docs/design/adr/ADR-0027-author-obligation-state-v3.md
   - tasks/slices/Q3D-message-outcome-roundtrip.md
+  - tasks/slices/DS02-adoption-status-canonicalization.md
 invariants:
   - received-input-survives-reload-without-duplication
   - runtime-results-reach-next-judgment
   - historical-author-source-is-byte-bound-and-scoped
   - run-completion-does-not-imply-adoption
+  - canonical-adoption-status-survives-legacy-transcript-restore
 setup:
   seed: null
   provider: slice_verify
@@ -20,10 +22,12 @@ user_flow:
   - input: 提供带随机标识的原文，先记录不生成
   - reload: 作者原文仅出现一次
   - input: 下一轮要求保存上一条原文
-  - reload: 候选恢复且字节/来源不变
+  - fixture: 外部 harness 在隔离测试库把实际候选状态改为旧版 tentative
+  - reload: 候选恢复为 TENTATIVE 且字节/来源不变
   - input: 重复存档与进度追问，不创建重复候选、不谎报入档
   - click: 作者采纳
-  - reload: 再次追问，回应依据实际采纳结果
+  - fixture: 外部 harness 在隔离测试库把实际采纳回执改为旧版 accepted
+  - reload: 回执恢复为 ACCEPTED；再次追问依据实际采纳结果
 evidence:
   required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
   artifact_dir: artifacts/slice-verify/q3d-message-outcome-roundtrip-tauri
@@ -35,8 +39,10 @@ assertions:
     - 跨轮候选 body 等于历史作者消息，provider_call_ref 引用其 turn
     - 未采纳前没有 production_write，重复请求无第二份候选
     - 作者动作返回 resolved adoption
+    - 新写入状态与旧消息恢复均使用 canonical 七态
   data:
     - 接收与处理状态由 Interaction 保存，下一轮输入包含真实结果
+    - legacy-adoption-fixtures.jsonl 记录两次历史夹具，legacy-*-resume.json 记录真实恢复响应
 anti_hooks:
   product_acceptance_logic_added: false
   data_testid_required: false

@@ -165,7 +165,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     refute turn_result.truthfulness.artifact_adopted
     refute turn_result.truthfulness.production_write_performed
 
-    assert [%{adoption_status: :tentative, artifact_type: :prose_fragment}] =
+    assert [%{adoption_status: "TENTATIVE", artifact_type: :prose_fragment}] =
              turn_result.adoption_state.pending
   end
 

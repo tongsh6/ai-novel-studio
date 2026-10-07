@@ -5,6 +5,8 @@ defmodule NovelDomain.TentativeArtifactSet do
   规格见 docs/design/contracts/VS-02A-tentative-creative-artifact-contract-pack.md §2。
   """
 
+  @initial_adoption_status NovelDomain.AdoptionStatus.initial()
+
   @type artifact_type ::
           :character_seed
           | :character_evolution_seed
@@ -46,7 +48,7 @@ defmodule NovelDomain.TentativeArtifactSet do
           revision_base: String.t() | nil,
           revision_reason: String.t() | nil,
           quality_finding_refs: [String.t()],
-          adoption_status: :tentative
+          adoption_status: NovelFoundation.Enums.AdoptionStatus.t()
         }
 
   @enforce_keys [:artifact_set_id, :artifact_type, :source_turn_ref, :source_tool_result_ref]
@@ -62,12 +64,12 @@ defmodule NovelDomain.TentativeArtifactSet do
     revision_base: nil,
     revision_reason: nil,
     quality_finding_refs: [],
-    adoption_status: :tentative
+    adoption_status: @initial_adoption_status
   ]
 
   @doc "Whether this artifact set is still tentative (not adopted)."
   @spec tentative?(t()) :: boolean()
-  def tentative?(%__MODULE__{adoption_status: :tentative}), do: true
+  def tentative?(%__MODULE__{adoption_status: @initial_adoption_status}), do: true
   def tentative?(_), do: false
 
   @doc "Whether this artifact set was generated as a quality-finding revision of an earlier draft."
@@ -118,7 +120,10 @@ defmodule NovelDomain.TentativeArtifactSet do
   @per_candidate_types ~w(character_seed world_rule_seed foreshadowing_seed style_rule_seed constraint_seed work_skeleton_suggestion foreshadowing_resolution)a
 
   defp per_candidate_type?(type) when is_atom(type), do: type in @per_candidate_types
-  defp per_candidate_type?(type) when is_binary(type), do: String.to_existing_atom(type) in @per_candidate_types
+
+  defp per_candidate_type?(type) when is_binary(type),
+    do: String.to_existing_atom(type) in @per_candidate_types
+
   defp per_candidate_type?(_type), do: false
 
   defp item_field(item, key) when is_map(item),

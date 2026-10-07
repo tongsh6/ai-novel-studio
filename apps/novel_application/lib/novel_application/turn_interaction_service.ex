@@ -138,7 +138,7 @@ defmodule NovelApplication.TurnInteractionService do
       state
       |> Map.get(:resolved_adoptions, [])
       |> Enum.filter(fn entry ->
-        status = entry |> value(:adoption_status) |> to_string() |> String.upcase()
+        status = value(entry, :adoption_status)
         status in NovelDomain.AdoptionStatus.canon_statuses()
       end)
 

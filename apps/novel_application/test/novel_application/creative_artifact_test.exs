@@ -152,7 +152,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert character.authoring_intent == nil
       assert character.target_chapter == nil
       assert rule.artifact_type == :world_rule_seed
-      assert Enum.all?([prose, character, rule], &(&1.adoption_status == :tentative))
+      assert Enum.all?([prose, character, rule], &(&1.adoption_status == "TENTATIVE"))
       assert Enum.all?([prose, character, rule], &(&1.source_tool_result_ref == "tr-companions"))
     end
 
@@ -164,7 +164,7 @@ defmodule NovelApplication.CreativeArtifactTest do
                ArtifactAssembler.assemble(result, "turn-world")
 
       assert artifact_set.artifact_type == :world_setting
-      assert artifact_set.adoption_status == :tentative
+      assert artifact_set.adoption_status == "TENTATIVE"
       assert artifact_set.source_turn_ref == "turn-world"
     end
 
@@ -331,5 +331,4 @@ defmodule NovelApplication.CreativeArtifactTest do
       uncertainty: []
     }
   end
-
 end

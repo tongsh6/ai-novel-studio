@@ -92,7 +92,7 @@ defmodule NovelApplication.ChapterSummaryAdoptionHookTest do
           %{
             artifact_id: "as-1",
             artifact_type: artifact_type,
-            adoption_status: :tentative,
+            adoption_status: "TENTATIVE",
             requires_adoption: true,
             source_tool_result_ref: "tr-1",
             payload: payload

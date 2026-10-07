@@ -23,7 +23,7 @@ turn_result = %{
       %{
         artifact_id: "as_stage_startup_seed",
         artifact_type: "character_seed",
-        adoption_status: "tentative",
+        adoption_status: "TENTATIVE",
         requires_adoption: true,
         source_tool_result_ref: "tr_stage_startup_seed",
         payload: %{
@@ -41,7 +41,7 @@ turn_result = %{
       %{
         artifact_id: "as_stage_startup_resolved",
         artifact_type: "character_seed",
-        adoption_status: "tentative",
+        adoption_status: "TENTATIVE",
         requires_adoption: true,
         source_tool_result_ref: "tr_stage_startup_resolved",
         payload: %{

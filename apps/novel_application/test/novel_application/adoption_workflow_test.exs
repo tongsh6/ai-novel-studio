@@ -295,7 +295,9 @@ defmodule NovelApplication.AdoptionWorkflowTest do
           payload: %{title: "沈洛", content: "追查灵气账单的核心视角人物。"}
         })
 
-      writer = fn _attrs -> flunk("duplicate-name character must not persist before confirmation") end
+      writer = fn _attrs ->
+        flunk("duplicate-name character must not persist before confirmation")
+      end
 
       assert {:ok, action_result, turn_result} =
                AdoptionWorkflow.handle_adopt(
@@ -683,7 +685,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
               %{
                 artifact_id: "as-1",
                 artifact_type: :character_seed,
-                adoption_status: :tentative,
+                adoption_status: "TENTATIVE",
                 requires_adoption: true,
                 source_tool_result_ref: "tr-1",
                 payload: %{title: "角色方向", content: "主角更果断"}

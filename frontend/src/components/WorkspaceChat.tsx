@@ -178,18 +178,11 @@ export type AvailableAction = NonNullable<WireTurnResult["available_actions"]>[n
 
 export type CandidateDirection = CandidateDirectionContract;
 
-export interface ArtifactEntry {
-  artifact_id: string;
-  artifact_type: string;
-  adoption_status: string;
-  requires_adoption: boolean;
+// DS02：采纳条目和状态复用线契约，恢复关联只补充已有的来源字段。
+export type ArtifactEntry = NonNullable<WireTurnResult["adoption_state"]>["pending"][number] & {
   revision_base?: string | null;
   source_turn_ref?: string | null;
-  payload: {
-    title?: unknown;
-    [key: string]: unknown;
-  };
-}
+};
 
 export interface ChatMessage {
   role: "user" | "assistant";

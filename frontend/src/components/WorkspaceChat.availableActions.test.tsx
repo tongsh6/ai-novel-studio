@@ -152,7 +152,7 @@ const session = (overrides: Partial<WorkSessionDto>): WorkSessionDto => ({
 const proseArtifact = (overrides: Partial<ArtifactEntry> = {}): ArtifactEntry => ({
   artifact_id: "artifact-revision-1",
   artifact_type: "prose_fragment",
-  adoption_status: "tentative",
+  adoption_status: "TENTATIVE",
   requires_adoption: true,
   payload: { title: "修订草稿" },
   ...overrides,

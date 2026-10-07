@@ -73,7 +73,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         %{
           artifact_id: "as-adopt-1",
           artifact_type: :character_seed,
-          adoption_status: :tentative,
+          adoption_status: "TENTATIVE",
           requires_adoption: true,
           source_tool_result_ref: "tr-adopt-1",
           payload: %{title: "角色设定", content: "主角更果断"}
@@ -101,7 +101,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         %{
           artifact_id: "as-prose-original",
           artifact_type: :prose_fragment,
-          adoption_status: :tentative,
+          adoption_status: "TENTATIVE",
           requires_adoption: true,
           payload: %{
             items: [
@@ -1319,7 +1319,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
           %{
             artifact_id: "as-adopt-1",
             artifact_type: :character_seed,
-            adoption_status: :tentative,
+            adoption_status: "TENTATIVE",
             requires_adoption: true,
             source_tool_result_ref: "tr-adopt-1",
             work_id: "work-a",

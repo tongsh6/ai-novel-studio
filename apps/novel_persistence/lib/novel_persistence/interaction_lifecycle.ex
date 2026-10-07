@@ -59,6 +59,7 @@ defmodule NovelPersistence.InteractionLifecycle do
       |> order_by([i], desc: i.inserted_at, desc: i.id)
       |> limit(@history_limit)
       |> Repo.all()
+      |> Enum.map(&NovelPersistence.MemoryLog.canonical_interaction/1)
       |> project_context()
     else
       _ -> %{}

@@ -384,7 +384,7 @@ function normalizeArtifact(value: unknown): WorkspaceAdoptionArtifact | null {
 }
 
 function isResolvedAdoptionStatus(status: string | undefined): boolean {
-  return RESOLVED_ADOPTION_STATUSES.has(String(status ?? "").toUpperCase());
+  return RESOLVED_ADOPTION_STATUSES.has(status ?? "");
 }
 
 function normalizeString(value: unknown): string | null {

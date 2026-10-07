@@ -60,6 +60,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert length(state.run.completed_step_refs) == 2
     assert state.run.consumed_budget.steps == 2
     assert state.run.consumed_budget.tool_calls == 2
+
     # CP2b：机械计划 0 调用（付费伪计划已消灭），只剩 design writer 1 调用。
     assert state.run.consumed_budget.provider_calls == 1
 
@@ -71,7 +72,7 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert turn_result.tool_result.tool_name == "character_design"
     assert turn_result.truthfulness.artifact_adopted == false
     assert turn_result.truthfulness.production_write_performed == false
-    assert [%{adoption_status: :tentative}] = turn_result.adoption_state.pending
+    assert [%{adoption_status: "TENTATIVE"}] = turn_result.adoption_state.pending
   end
 
   test "steer updates the following character design step input" do

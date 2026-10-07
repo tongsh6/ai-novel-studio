@@ -235,7 +235,7 @@ defmodule NovelApplication.FactInventoryServiceTest do
              :foreshadowing_seed
            ]
 
-    assert Enum.all?(sets, &(&1.adoption_status == :tentative))
+    assert Enum.all?(sets, &(&1.adoption_status == "TENTATIVE"))
     assert Enum.all?(sets, &(&1.source_turn_ref == "turn-inventory"))
 
     [character_set | _] = sets

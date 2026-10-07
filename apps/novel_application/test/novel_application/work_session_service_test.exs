@@ -15,6 +15,48 @@ defmodule NovelApplication.WorkSessionServiceTest do
   end
 
   describe "resume/1" do
+    test "旧小写 transcript 经恢复、回看、分页和 Channel 授权恢复均输出 canonical 状态", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      result = %{
+        turn_id: "legacy-turn",
+        adoption_state: %{
+          pending: [
+            %{
+              artifact_id: "legacy-artifact",
+              artifact_type: "world_setting",
+              adoption_status: "tentative",
+              requires_adoption: true,
+              payload: %{title: "历史设定"}
+            }
+          ],
+          resolved: []
+        }
+      }
+
+      record(work.id, session.id, "legacy-turn", "assistant", "历史设定", result)
+
+      {:ok, resumed} = WorkSessionService.resume(work.id)
+      {:ok, shown} = WorkSessionService.show(work.id, session.id)
+      {:ok, paged} = WorkSessionService.transcript_page(work.id, session.id)
+      {:ok, channel} = WorkSessionService.restore_channel_turn_results(work.id, session.id)
+
+      for snapshot <- [resumed, shown, paged] do
+        assert [
+                 %{
+                   turn_result: %{
+                     "adoption_state" => %{"pending" => [%{"adoption_status" => "TENTATIVE"}]}
+                   }
+                 }
+               ] = snapshot.transcript
+      end
+
+      assert [%{adoption_status: "TENTATIVE"}] = resumed.pending_adoptions
+
+      assert [%{"adoption_state" => %{"pending" => [%{"adoption_status" => "TENTATIVE"}]}}] =
+               channel.turn_results
+    end
+
     test "creates and returns the last active session for a work", %{work: work} do
       assert {:ok, snapshot} = WorkSessionService.resume(work.id)
 
@@ -125,7 +167,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
             %{
               artifact_id: "artifact-1",
               artifact_type: "plot_direction",
-              adoption_status: "PENDING",
+              adoption_status: "TENTATIVE",
               requires_adoption: true,
               payload: %{title: "林瑶伏笔"}
             }
@@ -585,7 +627,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
             %{
               artifact_id: "artifact-1",
               artifact_type: "plot_direction",
-              adoption_status: "PENDING",
+              adoption_status: "TENTATIVE",
               requires_adoption: true,
               payload: %{title: "林瑶伏笔"}
             }

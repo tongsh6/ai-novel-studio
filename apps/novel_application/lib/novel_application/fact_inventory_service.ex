@@ -89,9 +89,17 @@ defmodule NovelApplication.FactInventoryService do
   defp normalize_known_characters(names) when is_list(names) do
     names
     |> Enum.map(fn
-      name when is_binary(name) -> String.trim(name)
-      %{} = character -> character |> Map.get(:name, Map.get(character, "name", "")) |> to_string() |> String.trim()
-      other -> other |> to_string() |> String.trim()
+      name when is_binary(name) ->
+        String.trim(name)
+
+      %{} = character ->
+        character
+        |> Map.get(:name, Map.get(character, "name", ""))
+        |> to_string()
+        |> String.trim()
+
+      other ->
+        other |> to_string() |> String.trim()
     end)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
@@ -106,7 +114,10 @@ defmodule NovelApplication.FactInventoryService do
     |> Enum.map(fn
       %{} = item ->
         ref = item |> Map.get(:ref, Map.get(item, "ref", "")) |> to_string() |> String.trim()
-        label = item |> Map.get(:label, Map.get(item, "label", "")) |> to_string() |> String.trim()
+
+        label =
+          item |> Map.get(:label, Map.get(item, "label", "")) |> to_string() |> String.trim()
+
         %{ref: ref, label: label}
 
       _other ->
@@ -202,8 +213,7 @@ defmodule NovelApplication.FactInventoryService do
         items: items,
         source_turn_ref: Map.fetch!(attrs, :source_turn_ref),
         source_tool_result_ref: Map.fetch!(attrs, :source_tool_result_ref),
-        context_refs: List.wrap(Map.get(attrs, :context_refs)),
-        adoption_status: :tentative
+        context_refs: List.wrap(Map.get(attrs, :context_refs))
       }
     end)
   end

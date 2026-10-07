@@ -44,7 +44,10 @@ defmodule NovelApplication.CharacterCandidatePerItemAdoptionTest do
 
     test "单候选角色集仍为集合级单一采纳动作（向后兼容）" do
       single = %{two_candidate_set() | items: [%{item_id: "only", title: "沈砚", body: "档案"}]}
-      accepts = AvailableActionBuilder.artifact_actions(single) |> Enum.filter(&(&1.action_type == "accept"))
+
+      accepts =
+        AvailableActionBuilder.artifact_actions(single)
+        |> Enum.filter(&(&1.action_type == "accept"))
 
       assert [%{target_ref: "as_chars"}] = accepts
     end
@@ -56,7 +59,7 @@ defmodule NovelApplication.CharacterCandidatePerItemAdoptionTest do
         %{
           artifact_id: artifact_id,
           artifact_type: :character_seed,
-          adoption_status: :tentative,
+          adoption_status: "TENTATIVE",
           requires_adoption: true,
           source_tool_result_ref: "tr_src",
           payload: %{items: [item], item_count: 1}

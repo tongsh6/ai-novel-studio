@@ -12,6 +12,26 @@ const validPayload = {
 };
 
 describe("validateTurnResultPayload", () => {
+  it.each(["tentative", "PENDING"])("线上状态 %s 触发带字段路径的漂移告警", (adoption_status) => {
+    const payload = {
+      ...validPayload,
+      adoption_state: {
+        pending: [
+          {
+            artifact_id: "artifact",
+            artifact_type: "character_seed",
+            adoption_status,
+            requires_adoption: true,
+            payload: {},
+          },
+        ],
+        resolved: [],
+      },
+    };
+    expect(validateTurnResultPayload(payload).map((issue) => issue.path)).toContain(
+      "adoption_state.pending.0.adoption_status",
+    );
+  });
   it("合法 payload 无 issue", () => {
     expect(validateTurnResultPayload(validPayload)).toEqual([]);
   });

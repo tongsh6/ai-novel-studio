@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import os from "node:os";
 
 const sliceId = process.argv[2];
 const baseUrl = process.env.SLICE_VERIFY_BASE_URL ?? "http://127.0.0.1:5769";
@@ -4958,7 +4959,38 @@ async function driveCapabilityGapHonestReply(page) {
   };
 }
 
-// ADR-0027：所有动作由外部脚本通过真实页面执行，读取网络帧作为独立证据。
+// DS02：仅外部 harness 把隔离测试库中的实际产物还原为旧版状态；恢复仍经真实页面入口。
+async function seedLegacyAdoptionStatus(turnId, artifactId, group, canonicalStatus) {
+  assert(process.env.SLICE_VERIFY_PROVIDER === "slice_verify", "历史夹具只允许确定性验收环境");
+  const partition = process.env.MIX_TEST_PARTITION ?? "";
+  assert(/^[\w-]*$/.test(partition), "测试分区名不能包含路径");
+  const dbPath = path.join(process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir(),
+    `ai_novel_studio_test${partition}.sqlite3`);
+  assert(fs.existsSync(dbPath), "历史夹具找不到已启动的隔离测试库");
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(dbPath, { timeout: 5000 });
+  try {
+    const rows = db.prepare("SELECT id, content FROM interactions WHERE turn_id = ? AND role = 'assistant'").all(turnId);
+    let changed = 0;
+    for (const row of rows) {
+      const content = JSON.parse(row.content);
+      const entry = content.turn_result?.adoption_state?.[group]?.find((item) => item.artifact_id === artifactId);
+      if (!entry) continue;
+      assert(entry.adoption_status === canonicalStatus, "新写入的状态不是 canonical");
+      entry.adoption_status = canonicalStatus.toLowerCase();
+      db.prepare("UPDATE interactions SET content = ? WHERE id = ?").run(JSON.stringify(content), row.id);
+      changed++;
+    }
+    assert(changed === 1, `历史夹具应精确修改一条消息，实际 ${changed}`);
+    fs.appendFileSync(path.join(artifactDir, "legacy-adoption-fixtures.jsonl"),
+      JSON.stringify({ turn_id: turnId, artifact_id: artifactId, group,
+        written_status: canonicalStatus.toLowerCase(), changed }) + "\n");
+  } finally {
+    db.close();
+  }
+}
+
+// ADR-0027 / DS02：所有作者动作由外部脚本通过真实页面执行，读取网络帧作为独立证据。
 async function driveQ3dMessageOutcomeRoundtrip(page) {
   async function send(text) {
     const before = frames.length;
@@ -4970,9 +5002,11 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
     return frame.body;
   }
   async function reload() {
+    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
     await page.reload({ waitUntil: "commit" });
     await page.locator(chatInputSelector).waitFor();
     await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+    return (await response).json();
   }
 
   const readonly = await send("请执行只读批量，查看作品档案。");
@@ -4995,11 +5029,17 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
   const requested = await send("把上一条资料原文保存为作品设定。");
   const pending = requested.adoption_state?.pending?.[0];
   assert(pending, "历史原文没有成为待采纳候选");
+  assert(pending.adoption_status === "TENTATIVE", "新候选未输出 canonical 状态");
   const item = pending.payload?.items?.[0];
   assert(item?.body === original, "跨轮物化没有保持作者原文字节");
   assert(item?.provider_call_ref === `author_input:${sourceRef}`, "候选未绑定历史来源");
   assert(requested.truthfulness?.production_write_performed === false, "未采纳时不应写入");
-  await reload();
+  await seedLegacyAdoptionStatus(requested.turn_id, pending.artifact_id, "pending", "TENTATIVE");
+  const pendingSnapshot = await reload();
+  const restoredPending = pendingSnapshot.pending_adoptions.find((entry) => entry.artifact_id === pending.artifact_id);
+  assert(restoredPending?.adoption_status === "TENTATIVE", "旧小写候选恢复未归一");
+  assert(restoredPending.payload.items[0].body === original, "历史状态转换改写了作者原文");
+  fs.writeFileSync(path.join(artifactDir, "legacy-pending-resume.json"), JSON.stringify(pendingSnapshot, null, 2));
   assert((await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) > 0, "刷新丢失待采纳入口");
 
   const duplicate = await send("把上一条资料原文保存为作品设定。");
@@ -5009,11 +5049,17 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
 
   const before = frames.length;
   await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
-  await waitForNewFrame(before,
+  const adoptedFrame = await waitForNewFrame(before,
     (f) => f.event === "turn_result" && f.body?.truthfulness?.artifact_adopted === true &&
       (f.body?.adoption_state?.resolved ?? []).some((entry) => entry.artifact_id === pending.artifact_id),
     "未收到作者采纳结果", 120_000);
-  await reload();
+  const adopted = adoptedFrame.body.adoption_state.resolved.find((entry) => entry.artifact_id === pending.artifact_id);
+  assert(adopted.adoption_status === "ACCEPTED", "采纳回执未输出 canonical 状态");
+  await seedLegacyAdoptionStatus(adoptedFrame.body.turn_id, pending.artifact_id, "resolved", "ACCEPTED");
+  const adoptedSnapshot = await reload();
+  assert(adoptedSnapshot.resolved_adoptions.some((entry) => entry.artifact_id === pending.artifact_id && entry.adoption_status === "ACCEPTED"), "历史采纳回执未归一");
+  assert(!adoptedSnapshot.pending_adoptions.some((entry) => entry.artifact_id === pending.artifact_id), "恢复后已采纳产物重入待采纳");
+  fs.writeFileSync(path.join(artifactDir, "legacy-adopted-resume.json"), JSON.stringify(adoptedSnapshot, null, 2));
   const afterDuplicate = await send("把上一条资料原文保存为作品设定。");
   assert((afterDuplicate.adoption_state?.pending ?? []).length === 0, "已采纳来源被重复物化");
   const afterAdoption = await send("资料处理进度怎么样？");
@@ -5023,7 +5069,8 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
     materialization_turn_id: requested.turn_id, artifact_id: pending.artifact_id,
     readonly_result_restored: true, readonly_result_recalled: true, author_input_restored_once: true,
     historical_author_bytes_intact: true, duplicate_candidate_prevented: true,
-    pending_state_honest: true, adopted_state_recalled: true, nonce };
+    pending_state_honest: true, adopted_state_recalled: true,
+    canonical_adoption_status: true, legacy_pending_restored: true, legacy_accepted_restored: true, nonce };
 }
 
 async function driveQ3cAuthorContentMaterialization(page) {
@@ -20773,7 +20820,7 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
   assert(turnResult.truthfulness?.artifact_adopted === false, "UA-01 artifact was auto-adopted");
   assert(
     pendingArtifact.requires_adoption === true &&
-      String(pendingArtifact.adoption_status ?? "") === "tentative",
+      String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
     "UA-01 character artifact was not a tentative adoption candidate",
   );
 
@@ -20874,7 +20921,7 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       pending_artifact_id: pendingArtifact.artifact_id,
       pending_artifact_type: pendingArtifact.artifact_type,
       pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
-      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
       no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
       no_production_write: turnResult.truthfulness?.production_write_performed === false,
       completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
@@ -21162,7 +21209,7 @@ async function driveAgentProseDraftingWithQuality(page) {
   assert(turnResult.truthfulness?.artifact_adopted === false, "Agent prose artifact was adopted");
   assert(
     pendingArtifact.requires_adoption === true &&
-      String(pendingArtifact.adoption_status ?? "") === "tentative",
+      String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
     "Agent prose artifact was not a tentative adoption candidate",
   );
   assert(!findingInDraftBody, "Agent prose quality finding leaked into the prose draft body");
@@ -21243,7 +21290,7 @@ async function driveAgentProseDraftingWithQuality(page) {
       pending_artifact_id: pendingArtifact.artifact_id,
       pending_artifact_type: pendingArtifact.artifact_type,
       pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
-      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
       no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
       no_production_write: turnResult.truthfulness?.production_write_performed === false,
       completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
@@ -21400,7 +21447,7 @@ async function driveP1ProseCompanionArtifacts(page) {
   assert(
     pending.every(
       (entry) =>
-        entry.requires_adoption === true && String(entry.adoption_status ?? "") === "tentative",
+        entry.requires_adoption === true && String(entry.adoption_status ?? "") === "TENTATIVE",
     ),
     "Primary or companion artifact bypassed the tentative boundary",
   );
@@ -21530,7 +21577,7 @@ async function driveP1ProseCompanionArtifacts(page) {
         ["accept", "discard", "edit_then_accept"].includes(action.action_type),
       ).length,
       all_tentative_before_action: pending.every(
-        (entry) => String(entry.adoption_status ?? "") === "tentative",
+        (entry) => String(entry.adoption_status ?? "") === "TENTATIVE",
       ),
       no_write_before_action: turnResult.truthfulness?.production_write_performed === false,
       no_adoption_before_action: turnResult.truthfulness?.artifact_adopted === false,
@@ -21742,7 +21789,7 @@ async function driveWr01ChapterMissionBeforeProse(page) {
       draft_pending: (turnResult.adoption_state?.pending ?? []).some(
         (entry) =>
           entry.artifact_type === "prose_fragment" &&
-          String(entry.adoption_status ?? "") === "tentative",
+          String(entry.adoption_status ?? "") === "TENTATIVE",
       ),
       no_write: turnResult.truthfulness?.production_write_performed === false,
       no_adoption: turnResult.truthfulness?.artifact_adopted === false,
@@ -22082,7 +22129,7 @@ async function driveWr02PlanningMissionBeforeOutline(page) {
       (frame.body?.adoption_state?.pending ?? []).some(
         (entry) =>
           entry.artifact_type === "outline_draft" &&
-          String(entry.adoption_status ?? "") === "tentative",
+          String(entry.adoption_status ?? "") === "TENTATIVE",
       ),
     "Plot outline did not return a pending outline_draft after the mission step",
     120_000,
@@ -22177,7 +22224,7 @@ async function driveCa03CarryRegistryObservability(page) {
         (frame.body?.adoption_state?.pending ?? []).some(
           (entry) =>
             entry.artifact_type === artifactType &&
-            String(entry.adoption_status ?? "") === "tentative",
+            String(entry.adoption_status ?? "") === "TENTATIVE",
         ),
       `No tentative ${artifactType} turn_result for ${toolName}`,
       120_000,
@@ -22353,7 +22400,7 @@ async function driveCa04CarryGapClosure(page) {
         frame.event === "turn_result" &&
         frame.body?.tool_result?.tool_name === toolName &&
         (frame.body?.adoption_state?.pending ?? []).some(
-          (entry) => String(entry.adoption_status ?? "") === "tentative",
+          (entry) => String(entry.adoption_status ?? "") === "TENTATIVE",
         ),
       `No tentative turn_result for ${toolName}`,
       120_000,
@@ -22521,7 +22568,7 @@ async function driveWr01cPlanningMissionDecision(page) {
         (frame.body?.adoption_state?.pending ?? []).some(
           (entry) =>
             entry.artifact_type === "outline_draft" &&
-            String(entry.adoption_status ?? "") === "tentative",
+            String(entry.adoption_status ?? "") === "TENTATIVE",
         ),
       `${label}: plot outline did not return a pending outline_draft`,
       120_000,
@@ -23087,7 +23134,7 @@ async function driveD6PurposeModelRouting(page) {
       (frame.body?.adoption_state?.pending ?? []).some(
         (entry) =>
           entry.artifact_type === "prose_fragment" &&
-          String(entry.adoption_status ?? "") === "tentative",
+          String(entry.adoption_status ?? "") === "TENTATIVE",
       ),
     "D6 run did not complete with a tentative prose_fragment",
     150_000,
@@ -23192,7 +23239,7 @@ async function driveD4PlannerTransientRetry(page) {
       (frame.body?.adoption_state?.pending ?? []).some(
         (entry) =>
           entry.artifact_type === "prose_fragment" &&
-          String(entry.adoption_status ?? "") === "tentative",
+          String(entry.adoption_status ?? "") === "TENTATIVE",
       ),
     "Run did not complete with a tentative prose_fragment after the retry",
     150_000,
@@ -25136,7 +25183,7 @@ async function driveAgentPlotOutlineWithContext(page) {
   );
   assert(
     pendingArtifact.requires_adoption === true &&
-      String(pendingArtifact.adoption_status ?? "") === "tentative",
+      String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
     "Plot outline artifact was not a tentative adoption candidate",
   );
 
@@ -25180,7 +25227,7 @@ async function driveAgentPlotOutlineWithContext(page) {
       pending_artifact_id: pendingArtifact.artifact_id,
       pending_artifact_type: pendingArtifact.artifact_type,
       pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
-      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
       no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
       no_production_write: turnResult.truthfulness?.production_write_performed === false,
       completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
@@ -25490,7 +25537,7 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
   );
   assert(
     pendingArtifact.requires_adoption === true &&
-      String(pendingArtifact.adoption_status ?? "") === "tentative",
+      String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
     "World building artifact was not a tentative adoption candidate",
   );
   assert(
@@ -25546,7 +25593,7 @@ async function driveAgentWorldBuildingWithContext(page, options = {}) {
       pending_artifact_type: pendingArtifact.artifact_type,
       expected_artifact_type: expectedArtifactType,
       pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
-      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
       pending_item_preserved_nonce:
         String(pendingItem.title ?? "").includes(nonce) ||
         String(pendingItem.body ?? "").includes(nonce) ||
@@ -26063,7 +26110,7 @@ async function driveAgentCharacterEvolutionWithContext(page) {
   );
   assert(
     pendingArtifact.requires_adoption === true &&
-      String(pendingArtifact.adoption_status ?? "") === "tentative",
+      String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
     "Character evolution artifact was not a tentative adoption candidate",
   );
   assert(
@@ -26119,7 +26166,7 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       pending_artifact_id: pendingArtifact.artifact_id,
       pending_artifact_type: pendingArtifact.artifact_type,
       pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
-      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "TENTATIVE",
       pending_memory_subtype: pendingItem.memory_subtype ?? null,
       pending_item_preserved_character:
         String(pendingItem.title ?? "").includes("林烬") ||

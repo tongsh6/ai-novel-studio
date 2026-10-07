@@ -59,7 +59,7 @@ defmodule NovelApplication.TurnResultArtifactSetsTest do
            ]
 
     assert length(result.available_actions) == 9
-    assert Enum.all?(result.adoption_state.pending, &(&1.adoption_status == :tentative))
+    assert Enum.all?(result.adoption_state.pending, &(&1.adoption_status == "TENTATIVE"))
     refute result.truthfulness.production_write_performed
     refute result.truthfulness.artifact_adopted
   end
@@ -71,7 +71,7 @@ defmodule NovelApplication.TurnResultArtifactSetsTest do
       items: items,
       source_turn_ref: "turn-inventory",
       source_tool_result_ref: "tr-inventory",
-      adoption_status: :tentative
+      adoption_status: "TENTATIVE"
     }
   end
 

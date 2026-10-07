@@ -15,6 +15,15 @@ defmodule NovelDomain.TentativeArtifactSetTest do
 
   defp item(id, title), do: %{item_id: id, title: title, body: "档案#{id}", rationale: nil}
 
+  test "新候选默认使用 canonical 初态，旧枚举不进入领域消费" do
+    artifact = set(:character_seed, [item("i1", "沈砚")])
+    assert artifact.adoption_status == NovelDomain.AdoptionStatus.initial()
+    assert NovelFoundation.Enums.AdoptionStatus.valid?(artifact.adoption_status)
+    assert TentativeArtifactSet.tentative?(artifact)
+    refute TentativeArtifactSet.tentative?(%{artifact | adoption_status: :tentative})
+    refute TentativeArtifactSet.tentative?(%{artifact | adoption_status: "ACCEPTED"})
+  end
+
   describe "adoptable_units/1（AU-09 角色候选逐项采纳）" do
     test "多候选 character_seed：每条候选成为独立采纳单元，artifact_id 各不相同" do
       units =
@@ -50,7 +59,9 @@ defmodule NovelDomain.TentativeArtifactSetTest do
 
     test "VS-00G CP4a：设定盘点 seed 家族各类型都逐项拆分（world_rule/foreshadowing/style/constraint）" do
       for type <- [:world_rule_seed, :foreshadowing_seed, :style_rule_seed, :constraint_seed] do
-        units = TentativeArtifactSet.adoptable_units(set(type, [item("i1", "甲"), item("i2", "乙")]))
+        units =
+          TentativeArtifactSet.adoptable_units(set(type, [item("i1", "甲"), item("i2", "乙")]))
+
         assert length(units) == 2, "#{type} 应逐项拆分"
         assert Enum.map(units, & &1.item_id) == ["i1", "i2"]
       end
@@ -60,7 +71,10 @@ defmodule NovelDomain.TentativeArtifactSetTest do
     test "VS-00G CP4d：work_skeleton_suggestion 逐字段独立采纳" do
       units =
         TentativeArtifactSet.adoptable_units(
-          set(:work_skeleton_suggestion, [item("skeleton_target_length", "目标体量"), item("skeleton_serial_form", "连载形态")])
+          set(:work_skeleton_suggestion, [
+            item("skeleton_target_length", "目标体量"),
+            item("skeleton_serial_form", "连载形态")
+          ])
         )
 
       assert length(units) == 2

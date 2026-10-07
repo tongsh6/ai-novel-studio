@@ -138,7 +138,7 @@ defmodule NovelPersistence.InteractionLifecycleTest do
     assert {:ok, _} = InteractionLifecycle.call(:result, Map.put(attrs, :turn_result, result))
     assert {:ok, _} = InteractionLifecycle.call(:status, %{attrs | status: :completed})
 
-    assert [_] =
+    assert [%{"adoption_status" => "TENTATIVE"}] =
              InteractionLifecycle.context(attrs.workspace_id, attrs.session_id).pending_adoptions
 
     resolved =
@@ -158,7 +158,9 @@ defmodule NovelPersistence.InteractionLifecycleTest do
 
     context = InteractionLifecycle.context(attrs.workspace_id, attrs.session_id)
     assert context.pending_adoptions == []
-    assert [%{"artifact_id" => "artifact-1"}] = context.resolved_adoptions
+
+    assert [%{"artifact_id" => "artifact-1", "adoption_status" => "ACCEPTED"}] =
+             context.resolved_adoptions
   end
 
   test "相同 turn 编号按作品和会话隔离", %{attrs: attrs} do
