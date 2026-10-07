@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-05（本次关闭 C10 的 Qwen 复验，队首转 C11；其他旅程保留历史证据口径）
+> 最后更新：2026-10-05（本次按业务反例重开 C9；C10 的 Qwen 正常路径证据保留；其他旅程保留历史证据口径）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,7 +182,7 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C9 消息处置/结果关联已闭环；通用长期义务对象仍需独立契约。F9 / DS02 已关闭；C10 / Q1b 当前 Qwen 复验已闭环；下一断点是 C11 / UA01-CALL2。
+Current Breakpoint：C9 正常路径已验证，但来源/动作互斥、完整待采纳状态与真实消息身份反例尚未收口；Q3d 重开为当前队首。F9 / DS02 与 C10 / Q1b 的既有证据保留限定范围；C11 性能为观察项。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
@@ -198,9 +198,9 @@ Current Proof：`q3d-message-outcome-roundtrip --surface tauri` 已证明只读�
 | C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` | 已证明 selection / adoption 分离；后续转入 Journey F 安全门禁。 |
 | C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | checkpoint closed / 继续补矩阵 | Tauri automation + Application test | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；broken provider / garbage JSON tests | provider 不可用恢复、高风险 confirmation 取消等待与真实 provider timeout 已由真实工作台证明；缺乱码和更完整 UI 恢复验收。 |
 | C8 | 质量诊断请求组织三层 message | AU-11 / VS-00D / AU-07 | AIMessageEnvelope / DialogueFrame / TraceSummaryView | closed | 历史 Tauri automation | `tasks/slices/AU11-quality-diagnosis-message-envelope.md`；`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json` | SC-AU11-01 最小 checkpoint 已闭环；完整调用点投影与 schema 冻结仍归 AU-11/VS-00D，不声明整个 AU-11 完成。 |
-| C9 | 输入可靠留存，下一轮知道执行和采纳结果，并可引用历史原文 | Q3d / ADR-0027 | Interaction / AgentRun / TurnResult / Adoption | closed | 外部真实页面 + 局部回归 | `tasks/slices/Q3D-message-outcome-roundtrip.md`；`artifacts/slice-verify/q3d-message-outcome-roundtrip-tauri/summary.json` | 消息处理与入档分别取证；确定性 provider，未宣称通用长期义务账或真实模型质量已完成。 |
+| C9 | 输入可靠留存，原文和待采纳对象可正确处理、恢复与重传 | Q3d / ADR-0027 | Interaction / AgentRun / TurnResult / Adoption | next（业务反例收口） | 两条外部真实页面负例 + 局部反例 + 实际网络帧 | `tasks/slices/Q3D-message-outcome-roundtrip.md`；`docs/design/notes/2026-10-08-agentic-business-scenario-audit.md` | BIZ-01 来源缺失、BIZ-02 操作互斥、BIZ-03 分页状态丢失已确认；BIZ-04 入口身份未接通，丢包矩阵待补；未修生产。 |
 | C10 | 真实模型理解历史资料、存档诉求与实际采纳结果 | Q1b / Q3d / DS02 | Interaction / Judgment / Adoption | closed（Qwen） | 真实模型 + 外部真实页面 | `tasks/slices/Q1B-live-archive-recheck.md`；`artifacts/slice-verify/q1b-live-archive-roundtrip-tauri-lmstudio/summary.json` | 四轮八次 HTTP 200，原文和实际采纳状态一致；DeepSeek 未复验，call2 延迟转 C11。 |
-| C11 | 在合理等待内得到与模型叙事一致的结构化判断 | UA01-CALL2 / ADR-0025 | JudgmentProtocol / ProviderRun / MBC | next | 实模慢调用证据，待量化 | `tasks/slices/UA01-judgment-structured-call-reliability.md`；`tasks/NEXT.md` UA01-CALL2 | Q1b 存档 call2 537 秒、13,646 reasoning tokens；先测延迟及叙事/动作一致性再裁决。 |
+| C11 | 在合理等待内得到与模型叙事一致的结构化判断 | UA01-CALL2 / ADR-0025 | JudgmentProtocol / ProviderRun / MBC | 观察项 | 实模慢调用证据，待量化 | `tasks/slices/UA01-judgment-structured-call-reliability.md`；`tasks/NEXT.md` UA01-CALL2 | Q1b 存档 call2 537 秒、13,646 reasoning tokens；用户要求优先修业务正确性；参数对照停止，性能后续再评估。 |
 
 ---
 

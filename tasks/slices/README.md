@@ -35,7 +35,7 @@
 | `Q3B-capability-gap-exit.md` | **done（2026-08-31）/ D8 病灶收口第二刀（R2）**：判断协议给「做不到」一个结构化说法——frame_type 子型 `capability_gap`（零新字段：缺口事实=frame_type、缺什么=narrative/dialogue_goal、最近路径=candidate_directions）；VS-00 两枚举表修订；探索强转让位判例（路径候选≠探索候选）。真实 Tauri `q3b-capability-gap-honest-reply` PASS（存档意图→诚实承认+路径候选+零写入）。 |
 | `Q3C-author-content-materialization.md` | **done（2026-08-31）/ D8 病灶收口第三刀（R1）**：候选的第二合法来源——作者消息字节机械物化为待采纳 world_setting 候选（不经模型重写；杂质由作者 edit-then-accept 主权修剪）；judgment 契约新增 author_content_registration 信号；**I1 不变量正式升级**（Provider 字节 ∨ 作者字节，规则+driver+新 case 同批登记）。真实 Tauri `q3c-author-content-materialization` PASS（字节断言+物化事件+作者采纳全链）。 |
 | `Q1B-live-archive-recheck.md` | **done（2026-10-08）**：Qwen 四轮八次真实调用通过原文存档/作者采纳/刷新追问；修复未登记来源字段误拦截，性能观察转 UA01-CALL2。 |
-| `Q3D-message-outcome-roundtrip.md` | **done（2026-10-05）**：修订 ADR-0027 后统一输入留存、运行结果回填、下一轮真实状态与历史原文引用；q3d/q3c 页面、构建、全量测试及扫描闭环通过，证据与边界见 slice；不新增第六账。 |
+| `Q3D-message-outcome-roundtrip.md` | **reopened / next（2026-10-08）**：短会话正常路径已验证；场景审计发现来源/动作互斥、分页待办、UI 消息身份缺口，按 BIZ-01–04 收口；不新增第六账。 |
 | `P1-prose-quality-evidence-and-scoped-revision.md` | **done / 用户定向插单闭环**：复用 VS-00E 质量主链，把句式形式统计降为候选召回，由独立 evaluator 区分机械重复与刻意修辞，并以章功能为参照独立判断章节叙事节奏；质量卡补原句、位置、判断理由、影响范围和置信度，`revise_from_findings` 默认局部修订。三章真实 Tauri 语义边界、局部修订 sibling 与同 run 控制坞均通过；真实模型文学准确度仍按 I10 人工盲评。 |
 | `VS-00G-fact-inventory-run.md` | **doing / CP4d、CP5a-d 已登记完成**：盘点、骨架字段建议与 works 回写、角色暂定机制已有实现；CP5e 页面证明及触发 C/寿命催办/works 级假定等仍按任务清单核对，不以旧 CP4c 描述覆盖后续进度。 |
 | `VS-00F-five-ledgers-three-state.md` | **五账及 CP4c 入口已落地 / 长尾保留**：CP0–CP3、CP4a、CP4c-1/2/3 有完成记录与历史重放/Tauri 证据；rail 计数、定期化关联和 Experience Engine 收编等仍按 slice 余项推进，不再写成待建 Ledgers 面板。 |
