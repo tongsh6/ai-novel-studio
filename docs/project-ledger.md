@@ -1,10 +1,11 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-10-05（Q3d 与 DS02 闭环；下方初检及日期补充为历史记录，不代表同一时点状态）
+> 最后更新：2026-10-05（Q3d、DS02 与 Q1b 当前 Qwen 复验闭环；下方初检及日期补充为历史记录，不代表同一时点状态）
 >
 > Q3d 当前结果：ADR-0027 经用户确认修订 Accepted，复用 Interaction/AgentRun/采纳事实，未引入第六账。输入先持久化再成功接收；统一记录各 flow 结果；历史原文来源与本轮动作归属分离；下一轮读取真实处理/采纳状态。q3d 多轮页面与 q3c 兼容回归通过，1506 后端/450 前端测试及四项不变量通过，完整扫描无新增阻断；具体证据与有界上下文、确定性 provider 等边界见 Q3D slice。
 > DS02 当前结果：候选初态与线格式采用 canonical 七态；历史 Interaction 只在读取边界兼容小写，前端恢复 codegen 枚举校验与告警，移除 ArtifactEntry 手写状态类型。q3d 历史 tentative/accepted 恢复及作者采纳、角色候选页面回归通过；1510 后端/461 前端测试、四项不变量及桌面构建通过。完整证据与扫描处置见 `tasks/slices/DS02-adoption-status-canonicalization.md`。
-> 当前唯一 next 为 Q1b / Journey C10：真实模型 D8 存档复验；旧提案中的通用义务对象不作为已完成能力。
+> Q1b 当前结果：修复原文登记未启用时无关来源字段误拦截；Qwen 四轮八次真实调用与真实页面通过原文存档、零提前写入、唯一已确认事实和刷新追问；首轮格式失败及主机休眠中断单独留证。1512 后端/461 前端/204 验收器、四项不变量及完整扫描通过，详见 Q1B slice。
+> 当前唯一 next 为 UA01-CALL2 / Journey C11：结构化判定性能与一致性测量（本轮存档 call2 537 秒）。旧提案中的通用义务对象不作为已完成能力。
 > B16 当前结果：后端 Phoenix 已精确更新为 1.8.9，其他 Hex 锁项不变；用户授权以既有 pnpm 10.33.0 恢复前端锁定依赖。1,492 个后端测试、450 个前端测试、编译、架构、四项不变量和前端检查通过；完整静态扫描返回 0（17 PASS / 2 既有 FAIL，3 个已处置 finding，0 blocking）。台账四个原 pending 项已按实际结果记 fixed。
 > 外部真实工作台 `q3c-author-content-materialization --surface tauri` 通过，使用确定性 provider；Tauri 启动和 Playwright 页面驱动分别留证，不宣称直接操作 native WebView。sidecar 与桌面包已重建，清理旧生成目录后 sidecar 只含 Phoenix 1.8.9；无生产 app 行为改动。细节及限制见 `tasks/NEXT.md` §6 B16。
 > 当前推进入口：`tasks/NEXT.md`。已核对提交：Q0 `739b9b79`、Q1a `dcc0aa47`、Q2 `8b03a9db`、Q3a `d4443b57`、Q3b `5fb452c6`、Q3c `ff69e43d`、Q4 轻量机制 `d37409b4`。

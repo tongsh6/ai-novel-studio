@@ -9,6 +9,42 @@ import {
   nativeSliceIds,
 } from "./native-tauri-verifier.mjs";
 
+// Q1b 的 UI 记录须与主链、每轮真实 provider 调用关联，不能只看成功旗标。
+describe("Q1b 真实模型存档证据", () => {
+  const slice = "q1b-live-archive-roundtrip";
+  const turnIds = ["source", "save", "before", "after"];
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_ids: turnIds,
+    source_turn_id: "source", materialization_turn_id: "save", artifact_id: "artifact",
+    author_bytes_intact: true, no_write_before_adoption: true,
+    canonical_state_restored: true, confirmed_fact_count: 1 };
+  const records = [ui, ...turnIds.map((turn_id) => ({ turn_id, event: "judgment.decided.done" })),
+    { turn_id: "save", event: "judgment.author_content_materialized.done" },
+    { turn_id: "save", event: "adoption.evaluate.done" }];
+  const llmRecords = turnIds.map((turn_id) => ({ turn_id, provider: "lmstudio",
+    request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" }, response: { status: 200 } }));
+
+  it("四轮主链和真实模型调用完整才通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence?.turn_ids).toEqual(turnIds);
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords })).not.toBeNull();
+  });
+
+  it("只有 UI 旗标或无关回合的采纳日志不能通过", () => {
+    expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
+    const unrelated = records.map((record) => record.event === "adoption.evaluate.done" ? { ...record, turn_id: "other:adoption" } : record);
+    expect(findNativeSliceEvidence(slice, unrelated)).toBeNull();
+    const similarPrefix = records.map((record) => record.event === "adoption.evaluate.done" ? { ...record, turn_id: "save-other:adoption" } : record);
+    expect(findNativeSliceEvidence(slice, similarPrefix)).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, turn_ids: null }])).toBeNull();
+  });
+
+  it("缺一轮真实调用或改用确定性替身不能通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords: llmRecords.slice(1) })).toBeNull();
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify", llmRecords })).toBeNull();
+  });
+});
+
 describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-04 confirmation idempotency UI", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");

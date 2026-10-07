@@ -1,0 +1,40 @@
+id: q1b-live-archive-roundtrip
+title: 真实模型跨轮作者原文存档与采纳状态复验
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q1b-live-archive-roundtrip --surface tauri
+contract:
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - tasks/slices/Q1B-live-archive-recheck.md
+invariants:
+  - author-original-bytes-and-source-preserved
+  - no-production-write-before-author-adoption
+  - adopted-fact-and-restored-state-agree
+setup:
+  seed: null
+  provider: lmstudio
+user_flow:
+  - input: 只记录带随机标识的作者资料，暂不生成或存档
+  - reload: 资料恢复后要求把上一条原文存档
+  - inspect: 唯一待采纳原文与跨轮来源绑定，采纳前无作品事实
+  - input: 追问是否已经存档，保存模型原话供语义核查
+  - click: 作者采纳
+  - reload: 已采纳候选不重入待采纳，真实事实为 CONFIRMED
+  - input: 再次追问是否保存，保存模型原话供语义核查
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json, llm_http]
+  artifact_dir: artifacts/slice-verify/q1b-live-archive-roundtrip-tauri-lmstudio
+assertions:
+  network:
+    - 四轮均有实际模型 HTTP 2xx 调用，不接受 slice_verify
+    - 待采纳 body 与作者原文字节相等，source ref 指向历史输入
+  data:
+    - 外部只读 SQLite 查询证明采纳前无事实、采纳后唯一 CONFIRMED 事实
+    - 刷新恢复与采纳回执状态相符
+  ui:
+    - 外部脚本从真实输入框和可见采纳按钮操作
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

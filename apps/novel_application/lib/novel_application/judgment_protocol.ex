@@ -278,8 +278,16 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp author_source_in_context?(arguments, options) do
-    source = map_get(arguments, :author_content_source_ref)
+    source = author_content_source(arguments)
     source in [nil, "current" | Keyword.get(options || [], :author_content_sources, [])]
+  end
+
+  # 来源只属于已启用的作者原文登记分支。未登记时忽略并清空该字段，避免无关字段
+  # 阻断普通回复；登记时仍按当前上下文白名单校验，不把模型占位文本转成合法来源。
+  defp author_content_source(arguments) do
+    if map_get(arguments, :author_content_registration) == true,
+      do: map_get(arguments, :author_content_source_ref),
+      else: nil
   end
 
   # M0 缺陷修复（2026-07-19 狗粮实锤）：live 模型在续写措辞下自造目录外能力名
@@ -410,7 +418,7 @@ defmodule NovelApplication.JudgmentProtocol do
            # Q3c：作者内容登记信号（模型判定，非关键字）——作者在消息里提供了
            # 具体内容并要求登记进档案时为 true，应用层据此机械物化作者字节候选。
            author_content_registration: map_get(arguments, :author_content_registration) == true,
-           author_content_source_ref: nonblank(map_get(arguments, :author_content_source_ref)),
+           author_content_source_ref: author_content_source(arguments),
            narrative: narrative,
            narrative_source: narrative_source,
            provider_call_count: 1 + request.attempt

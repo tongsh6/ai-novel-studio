@@ -139,6 +139,7 @@ export const nativeSliceIds = [
   "au01-garbage-json-recovery",
   "au01-frame-validation-friendly-error",
   "au01-turnresult-recorder-ui-consistency",
+  "q1b-live-archive-roundtrip",
   "q3d-message-outcome-roundtrip",
   "q3c-author-content-materialization",
   "q3b-capability-gap-honest-reply",
@@ -1644,6 +1645,7 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   // Q3c 作者内容物化：判断链直答 + 作者字节候选 + 作者采纳。
+  "q1b-live-archive-roundtrip": ["channel.user_message.start", "judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-message-outcome-roundtrip": [
     "channel.user_message.start", "context.assemble.done", "judgment.decided.done",
     "judgment.author_content_materialized.done", "channel.user_message.done", "adoption.evaluate.done",
@@ -1764,7 +1766,23 @@ export function findLmStudioEvidence(turnIds, records) {
   return findLiveProviderEvidence("lmstudio", turnIds, records);
 }
 
+function findQ1bLiveArchiveEvidence(records) {
+  const ui = records.find((record) => record.event === "slice_verify.ui_state.done" &&
+    record.slice_id === "q1b-live-archive-roundtrip");
+  if (!ui || ui.author_bytes_intact !== true || ui.no_write_before_adoption !== true ||
+    ui.canonical_state_restored !== true || ui.confirmed_fact_count !== 1) return null;
+  if (!Array.isArray(ui.turn_ids) || new Set(ui.turn_ids).size !== 4) return null;
+  if (!ui.turn_ids.includes(ui.source_turn_id) || !ui.turn_ids.includes(ui.materialization_turn_id)) return null;
+  if (!ui.turn_ids.every((turn) => records.some((r) => r.turn_id === turn && r.event === "judgment.decided.done"))) return null;
+  if (!records.some((r) => r.event === "judgment.author_content_materialized.done" && r.turn_id === ui.materialization_turn_id)) return null;
+  // 采纳日志绑定来源 turn；派生回执可以带后缀，但相似前缀的其它 turn 不算关联。
+  if (!records.some((r) => r.event === "adoption.evaluate.done" &&
+    (r.turn_id === ui.materialization_turn_id || String(r.turn_id ?? "").startsWith(`${ui.materialization_turn_id}:`)))) return null;
+  return { ...ui, turn_id: ui.materialization_turn_id };
+}
+
 export function findNativeSliceEvidence(sliceId, records) {
+  if (sliceId === "q1b-live-archive-roundtrip") return findQ1bLiveArchiveEvidence(records);
   if (sliceId === "workspace-runtime-state") {
     return findWorkspaceRuntimeStateEvidence(records);
   }
@@ -2476,6 +2494,15 @@ export function findNativeSliceEvidence(sliceId, records) {
 
 export function findSliceBehaviorEvidence(sliceId, records, evidence, options = {}) {
   if (!evidence) return null;
+
+  if (sliceId === "q1b-live-archive-roundtrip") {
+    if (!findQ1bLiveArchiveEvidence(records)) return null;
+    if (!findLiveProviderEvidence(options.provider, evidence.turn_ids, options.llmRecords ?? [])) return null;
+    return { behavior: "live_model_historical_author_content_adoption_roundtrip",
+      assertions: ["four_turns_used_real_provider", "historical_author_bytes_bound",
+        "no_production_fact_before_author_adoption", "one_confirmed_fact_after_adoption",
+        "canonical_state_survives_reload"], turn_ids: evidence.turn_ids };
+  }
 
   if (sliceId === "workspace-runtime-state") {
     return workspaceRuntimeStateBehavior(records, evidence, options);

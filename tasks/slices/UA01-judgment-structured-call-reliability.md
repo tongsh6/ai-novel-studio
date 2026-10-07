@@ -430,3 +430,16 @@ summary.json`（retry_thermometer 首次全量数据）。
 - **reason↔capability 语义一致性校验方向关闭**：根因已修，文本启发式易误伤，
   不再需要。
 - 郑果孤立草稿：M2 重启前在工作台人工废弃即可（不影响正文/章节数据）。
+
+
+## 2026-10-08 续接：UA01-CALL2 当前 Qwen 测量（next）
+
+- 拉动证据：Q1b / Journey C10 已用 Qwen 完成四轮真实存档，但存档轮 call2 用时
+  536,689ms；13,970 completion tokens 中 13,646 为 reasoning。call1 说明选择执行/整理能力，
+  call2 最终正确走作者原文登记，存在值得核查的叙事/结构不一致线索。
+- 证据入口：`tasks/slices/Q1B-live-archive-recheck.md` 与
+  `artifacts/slice-verify/q1b-live-archive-roundtrip-tauri-lmstudio/`。
+- 执行边界：复用本文件 T1/T2 的“测量先于设计”，先在当前已加载模型及当前协议上
+  量化代表性请求的 call2 延迟、推理 token、重试及叙事/结构一致性；模型参数和 prompt 变更
+  必须由测量证据拉动，不靠增加等待、放宽校验或替换模型宣布问题已解。
+- 当前仅登记下一项，尚未开始新基线测量或协议重构；历史 T1/T2/T4 结果继续保留其模型和日期范围。

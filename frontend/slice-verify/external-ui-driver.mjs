@@ -5073,6 +5073,105 @@ async function driveQ3dMessageOutcomeRoundtrip(page) {
     canonical_adoption_status: true, legacy_pending_restored: true, legacy_accepted_restored: true, nonce };
 }
 
+// Q1b：真实模型复验；只读取隔离库作为证据，不注入消息、结果或业务状态。
+async function driveQ1bLiveArchiveRoundtrip(page) {
+  assert(["lmstudio", "deepseek"].includes(process.env.SLICE_VERIFY_PROVIDER), "Q1b 必须使用真实模型");
+  const turnResults = [];
+  const nonce = randomUUID().replaceAll("-", "");
+  const original = `先只把下面这份资料记在本次对话中，暂时不要生成候选，也不要存档：主角沈砚在雨港经营旧书铺，能听见失落书页留下的声音。他要寻找失踪的姐姐，但每次追索都会遗忘一段童年记忆。资料校验标识：${nonce}。`;
+
+  async function send(text, phase) {
+    console.log(`[q1b] ${phase}: 发送真实作者消息`);
+    const before = frames.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    let healthTimer;
+    const frontendStopped = new Promise((_, reject) => {
+      healthTimer = setInterval(() => {
+        fetch(baseUrl, { signal: AbortSignal.timeout(5_000) })
+          .then((response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); })
+          .catch(() => reject(new Error(`${phase}: 验收前端服务已退出或不可达`)));
+      }, 10_000);
+    });
+    let result;
+    try {
+      result = (await Promise.race([waitForNewFrame(before,
+        (frame) => frame.direction === "received" && frame.event === "turn_result",
+        `${phase} 未返回 TurnResult`, 900_000), frontendStopped])).body;
+    } finally { clearInterval(healthTimer); }
+    turnResults.push({ phase, input: text, result });
+    fs.writeFileSync(path.join(artifactDir, "live-turn-results.json"), JSON.stringify(turnResults, null, 2));
+    await page.screenshot({ path: path.join(artifactDir, `${phase}.png`), fullPage: true });
+    assert(!["failed", "cancelled"].includes(result.status), `${phase} 返回失败状态`);
+    console.log(`[q1b] ${phase}: 已收到 ${result.turn_id}`);
+    return result;
+  }
+
+  async function reload() {
+    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor();
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+    return (await response).json();
+  }
+
+  async function facts() {
+    const dbDir = process.env.NOVEL_TEST_DB_DIR;
+    const partition = process.env.MIX_TEST_PARTITION;
+    assert(dbDir && partition && /^[\w-]+$/.test(partition), "Q1b 需要显式隔离测试库与分区");
+    const dbPath = path.join(dbDir, `ai_novel_studio_test${partition}.sqlite3`);
+    assert(fs.existsSync(dbPath), "隔离库不存在");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(dbPath, { readOnly: true, timeout: 5000 });
+    try {
+      return db.prepare("SELECT content, status, source_type FROM memory_items WHERE instr(content, ?) > 0").all(nonce);
+    } finally { db.close(); }
+  }
+
+  const source = await send(original, "01-source");
+  assert((source.adoption_state?.pending ?? []).length === 0, "记录阶段擅自生成候选");
+  await reload();
+  const saved = await send("把上一条资料原文存档为作品设定。", "02-save-request");
+  const pending = saved.adoption_state?.pending ?? [];
+  assert(pending.length === 1, "跨轮存档没有返回唯一待采纳原文");
+  const candidate = pending[0];
+  assert(candidate.adoption_status === "TENTATIVE", "候选状态不是 TENTATIVE");
+  assert(candidate.payload?.items?.[0]?.body === original, "候选改写或引用错作者原文");
+  assert(candidate.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "跨轮来源未绑定资料输入");
+  assert(saved.truthfulness?.production_write_performed === false, "存档请求未经采纳即宣称写入");
+  assert((await facts()).length === 0, "采纳前已有作品事实写入");
+  const pendingSnapshot = await reload();
+  assert(pendingSnapshot.pending_adoptions.some((entry) => entry.artifact_id === candidate.artifact_id), "刷新丢失候选");
+  const before = await send("现在已经存到作品档案里了吗？请按实际状态回答。", "03-before-adoption");
+  assert((before.adoption_state?.pending ?? []).length === 0, "状态追问重复生成候选");
+  assert((await facts()).length === 0, "状态追问越权写入作品事实");
+
+  const start = frames.length;
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  const adopted = (await waitForNewFrame(start,
+    (frame) => frame.event === "turn_result" && frame.body?.adoption_state?.resolved?.some(
+      (entry) => entry.artifact_id === candidate.artifact_id && entry.adoption_status === "ACCEPTED"),
+    "作者采纳没有成功回执", 120_000)).body;
+  const afterFacts = await facts();
+  assert(afterFacts.length === 1 && afterFacts[0].status === "CONFIRMED", "采纳后未形成唯一 CONFIRMED 作品事实");
+  assert(afterFacts[0].content.includes(original), "已入档事实未保留作者原文");
+  const adoptedSnapshot = await reload();
+  assert(!adoptedSnapshot.pending_adoptions.some((entry) => entry.artifact_id === candidate.artifact_id), "已采纳候选刷新后重新待采纳");
+  const after = await send("刚才那份资料现在保存了吗？作者还需要做什么？请依据实际结果回答。", "04-after-adoption");
+  assert((after.adoption_state?.pending ?? []).length === 0, "已采纳后的状态追问再次创建候选");
+  assert((await facts()).length === 1, "采纳结果追问重复写入作品事实");
+  fs.writeFileSync(path.join(artifactDir, "live-adoption-evidence.json"), JSON.stringify({
+    nonce, original, adopted, facts: afterFacts, pendingSnapshot, adoptedSnapshot,
+    before_reply: before.assistant_message?.text, after_reply: after.assistant_message?.text,
+  }, null, 2));
+  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-live-archive-roundtrip",
+    turn_ids: turnResults.map(({ result }) => result.turn_id), source_turn_id: source.turn_id,
+    materialization_turn_id: saved.turn_id, artifact_id: candidate.artifact_id,
+    author_bytes_intact: true, no_write_before_adoption: true, canonical_state_restored: true,
+    confirmed_fact_count: afterFacts.length, before_reply: before.assistant_message?.text,
+    after_reply: after.assistant_message?.text }];
+}
+
 async function driveQ3cAuthorContentMaterialization(page) {
   const authorMessage =
     "把这份大纲直接存档为作品设定：主角李衡在灵气枯竭的都市里靠账单推演天机，第一卷写他从记账学徒到执掌灵市。";
@@ -29281,6 +29380,7 @@ const drivers = {
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
+  "q1b-live-archive-roundtrip": driveQ1bLiveArchiveRoundtrip,
   "q3d-message-outcome-roundtrip": driveQ3dMessageOutcomeRoundtrip,
   "q3c-author-content-materialization": driveQ3cAuthorContentMaterialization,
   "q3b-capability-gap-honest-reply": driveCapabilityGapHonestReply,

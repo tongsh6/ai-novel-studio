@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-05（本次关闭 F9，队首转 Journey C10；其他旅程保留历史证据口径）
+> 最后更新：2026-10-05（本次关闭 C10 的 Qwen 复验，队首转 C11；其他旅程保留历史证据口径）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,7 +182,7 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C9 消息处置/结果关联已闭环；通用长期义务对象仍需独立契约。F9 / DS02 已关闭；当前队首为 C10 / Q1b 真实模型存档复验。
+Current Breakpoint：C9 消息处置/结果关联已闭环；通用长期义务对象仍需独立契约。F9 / DS02 已关闭；C10 / Q1b 当前 Qwen 复验已闭环；下一断点是 C11 / UA01-CALL2。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
@@ -199,7 +199,8 @@ Current Proof：`q3d-message-outcome-roundtrip --surface tauri` 已证明只读�
 | C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | checkpoint closed / 继续补矩阵 | Tauri automation + Application test | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；broken provider / garbage JSON tests | provider 不可用恢复、高风险 confirmation 取消等待与真实 provider timeout 已由真实工作台证明；缺乱码和更完整 UI 恢复验收。 |
 | C8 | 质量诊断请求组织三层 message | AU-11 / VS-00D / AU-07 | AIMessageEnvelope / DialogueFrame / TraceSummaryView | closed | 历史 Tauri automation | `tasks/slices/AU11-quality-diagnosis-message-envelope.md`；`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json` | SC-AU11-01 最小 checkpoint 已闭环；完整调用点投影与 schema 冻结仍归 AU-11/VS-00D，不声明整个 AU-11 完成。 |
 | C9 | 输入可靠留存，下一轮知道执行和采纳结果，并可引用历史原文 | Q3d / ADR-0027 | Interaction / AgentRun / TurnResult / Adoption | closed | 外部真实页面 + 局部回归 | `tasks/slices/Q3D-message-outcome-roundtrip.md`；`artifacts/slice-verify/q3d-message-outcome-roundtrip-tauri/summary.json` | 消息处理与入档分别取证；确定性 provider，未宣称通用长期义务账或真实模型质量已完成。 |
-| C10 | 真实模型理解历史资料、存档诉求与实际采纳结果 | Q1b / Q3d / DS02 | Interaction / Judgment / Adoption | next | 待真实模型复验 | `tasks/NEXT.md` Q1b；`tasks/slices/Q3D-message-outcome-roundtrip.md`；`tasks/slices/DS02-adoption-status-canonicalization.md` | 确定性链路已通过；下一步从真实工作台使用当前配置模型复验 D8 多轮存档，检查页面、来源、写入和追问是否一致。 |
+| C10 | 真实模型理解历史资料、存档诉求与实际采纳结果 | Q1b / Q3d / DS02 | Interaction / Judgment / Adoption | closed（Qwen） | 真实模型 + 外部真实页面 | `tasks/slices/Q1B-live-archive-recheck.md`；`artifacts/slice-verify/q1b-live-archive-roundtrip-tauri-lmstudio/summary.json` | 四轮八次 HTTP 200，原文和实际采纳状态一致；DeepSeek 未复验，call2 延迟转 C11。 |
+| C11 | 在合理等待内得到与模型叙事一致的结构化判断 | UA01-CALL2 / ADR-0025 | JudgmentProtocol / ProviderRun / MBC | next | 实模慢调用证据，待量化 | `tasks/slices/UA01-judgment-structured-call-reliability.md`；`tasks/NEXT.md` UA01-CALL2 | Q1b 存档 call2 537 秒、13,646 reasoning tokens；先测延迟及叙事/动作一致性再裁决。 |
 
 ---
 

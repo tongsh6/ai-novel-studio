@@ -77,6 +77,38 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:error, _} = request(args, author_content_sources: ["another-turn"])
   end
 
+  test "未启用原文登记时清空不参与决策的来源字段，不阻断普通回复" do
+    for source <- ["null", "another-work-turn", %{unexpected: true}],
+        registration <- [false, nil] do
+      args = %{
+        "action" => "reply",
+        "frame_type" => "meta_discussion",
+        "reply_included" => true,
+        "author_content_registration" => registration,
+        "author_content_source_ref" => source
+      }
+
+      assert {:ok, judgment} = request(args)
+      assert judgment.action == "reply"
+      refute judgment.author_content_registration
+      assert judgment.author_content_source_ref == nil
+      assert judgment.provider_call_count == 2
+    end
+  end
+
+  test "启用原文登记后占位字符串或错误类型仍是非法来源，重试不能放过" do
+    for source <- ["null", "", " ", %{unexpected: true}] do
+      assert {:error, {:judgment_decision_unparseable, _}} =
+               request(%{
+                 "action" => "reply",
+                 "frame_type" => "capability_gap",
+                 "reply_included" => true,
+                 "author_content_registration" => true,
+                 "author_content_source_ref" => source
+               })
+    end
+  end
+
   # call2 首轮返回 first_arguments、重试轮返回 retry_arguments；重试轮 prompt
   # 回发测试进程供断言（矛盾提示确实注入）。
   defp request_with_retry(first_arguments, retry_arguments, options) do
