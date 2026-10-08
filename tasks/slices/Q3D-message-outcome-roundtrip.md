@@ -71,7 +71,7 @@
 | 待收口 | 状态 | 完整验收后果 |
 |---|---|---|
 | BIZ-01 来源缺失不能保存指令；BIZ-02 原文登记与创作执行互斥 | done（2026-10-08） | 来源缺失/越界/矛盾组合须拒绝或澄清；正常当前/历史原文仍逐字进入候选；真实页面、trace、消息状态及采纳无回归 |
-| BIZ-03 待采纳状态独立于聊天分页与上下文预算 | todo | 20 轮后刷新仍有待办；80 条窗口外旧候选仍可查询；省略数真实，Agent 与 UI 消费同一完整业务事实 |
+| BIZ-03 待采纳状态独立于聊天分页与上下文预算 | done（2026-10-08） | 20 轮后刷新仍有待办；80 条窗口外旧候选仍可查询；省略数真实，Agent 与 UI 消费同一完整业务事实 |
 | BIZ-04 真实 UI 的发送身份与重传闭环 | todo | 稳定 ID 进入 wire；ack 丢失/断线/刷新重试不重复运行；已完成/已失败/无 runtime 返回真实回执状态 |
 
 审计阶段仅记录问题，未修复生产代码；参数测量停止。随后从 BIZ-01/02 开始实施，不能只改 prompt 或延长超时，
@@ -112,3 +112,53 @@ Exploration：没有新增要素类型，沿用 world_setting 候选和采纳后
   使用可控测试 provider 注入异常，不宣称本次重新完成真实 Qwen 语义质量复验。
 - 下一 checkpoint：BIZ-03 将完整待采纳事实与聊天分页/模型预算分离；随后 BIZ-04 入口发送身份与重传。
   Q3D / Journey C9 整体仍未闭环。
+
+
+### BIZ-03 开工 checkpoint（2026-10-08）
+
+- Contract：ADR-0027 D3/I-M5、既有 ArtifactAdoptionEntry/TurnResult；恢复快照增加
+  pending_adoption_turn_results，携带待办所属回合的真实 available_actions，不伪造授权动作。
+- Invariant：完整待办独立于 transcript 30 条及 context 80 条窗口；终态压过旧 pending；
+  作品/会话隔离，历史只读；模型摘要省略数量真实，采纳仍须作者动作。
+- Boundary：persistence 统一投影 → application 状态/恢复/探索 → web 快照 → Frontend 待办操作；
+  不改 novel_domain/novel_agent 生产运行机制，不新建表或义务账。
+- Consumer：WorkspaceChat 档案面板、Agent 下一轮判断及只读探索。
+- Proof：超过两个窗口的 pending/resolved、重复快照、隔离和只读测试；完整门禁与四不变量。
+- Acceptance Driver：q3d-long-session-adoption-state 从真实入口发消息、20 轮/80 条外刷新、
+  查询旧候选、作者采纳与终态恢复；外部脚本取证，产品验收感知逻辑为 no。
+- Exploration：在判断循环目录加入 session_adoptions，按当前 work/session 读取完整采纳投影，
+  支持关键词/对象引用与分页，不借模型上下文已展示的 12 条替代全部对象。
+
+BIZ-04 仍是下一 checkpoint，Q3D 整体不得标 done。
+
+
+#### BIZ-03 实施与验证结果
+
+- 完整采纳状态由 WorkSessionRepo 单点汇总，InteractionLifecycle 与 WorkSessionService 共用；
+  只读取携带采纳状态的回合，不扩大聊天分页。按 artifact 去重，resolved 压过旧 pending。
+- Agent 摘要提供真实总数/省略数，session_adoptions 在当前可信会话内按关键词、精确对象引用、
+  offset 分页查询；不会读取其它作品/会话，不会自动采纳或扩大作者原文白名单。
+- 恢复独立返回 pending_adoption_turn_results；前端通过统一线格式入口校验，并以 TanStack Query
+  按作品/会话缓存，复用真实 action_id。Pencil 原型 ATnmR 及 43 §3–4 已核对，无视觉结构变更。
+- 外部真实页面：`q3d-long-session-adoption-state` PASS。15 份作者原文候选，20 轮刷新及 45 轮
+  （90 条消息）外恢复均完整；聊天页仍只有 30 条、不夹带旧候选；Agent 报告 15/省略 3，
+  经探索找到最早候选。切到另一作品候选/操作凭据为零，切回后仍可直接在档案面板采纳。
+  再聊 45 轮，待办 14、原候选保持 ACCEPTED，唯一对应 CONFIRMED 作品事实。
+- 页面回归：`q3d-message-outcome-roundtrip`、`au03-session-history-readonly`、
+  `su02-pending-result-work-isolation` 全部 PASS。旧 history 驱动改为填非空文字再检查发送；
+  旧 SU02 夹具接回当前判断回复链，驱动等实际持久完成结果，不再把 Channel 接收 ack 当完成。
+  这些只修改外部驱动/test-support，不修改生产门禁，也未改四项不变量脚本。
+- 局部/全量：72 项定向、1,519 项后端、471 项前端测试通过；验收证据验证器 209 项通过。
+  编译零警告、xref 零环、架构边界、I3 3/3、I1 4/4、I2 三组两两不交、N-NARR 通过。
+- `bash scripts/build_sidecar.sh` 和 `bash scripts/frontend_audit.sh`（含 Tauri 构建）通过；
+  .app/.dmg 包含本次 sidecar，源包与 .app 内副本 SHA-256 一致。本机 ad-hoc 签名，未公证。
+- `bash scripts/ai_static_scan.sh --top 10`：17 PASS / 2 既有 FAIL，3 项旧处置，0 blocking、
+  touched finding=0。开发中发现的新别名排序和测试夹具复杂度问题均修复后复查。
+  剩余：Pencil fileToken 误报；另一开发线历史凭证 accepted_risk（所有者轮换/清理）；
+  ChapterSummary 嵌套 deferred（下次触及时重构）。未更改处置台账以豁免新增问题。
+- 证据：`artifacts/slice-verify/q3d-long-session-adoption-state-tauri/`（三次 resume、
+  work-isolation、confirmed-facts、截图、网络帧和主链日志）；`artifacts/project-analysis/biz3-*`；
+  `artifacts/static-scan/{top10.md,disposition.md,report.json}`。
+- 验收边界：Tauri 启动，外部 Playwright 操作实际 App/WorkspaceChat 页面；使用确定性 provider，
+  未直接驱动 native WebView，也未重新进行 Qwen 语义质量验收。
+- 下一 checkpoint 为 BIZ-04 稳定发送身份/断线重传/终态回执；Q3D / Journey C9 整体仍未闭环。

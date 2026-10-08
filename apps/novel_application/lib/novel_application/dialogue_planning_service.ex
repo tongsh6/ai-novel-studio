@@ -828,7 +828,7 @@ defmodule NovelApplication.DialoguePlanningService do
     log_judgment_decided(judgment, "judgment_explore", 0)
 
     observation =
-      case ExplorationService.run(work_id, tool, query) do
+      case ExplorationService.run(work_id, tool, query, run.session_id) do
         {:ok, observation} ->
           observation
 

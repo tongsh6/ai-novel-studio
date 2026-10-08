@@ -1274,6 +1274,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/q1b-live-archive-roundtrip.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh q1b-live-archive-roundtrip --surface tauri
+  - id: q3d-long-session-adoption-state
+    title: "Q3D 长会话完整待办与旧候选采纳"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q3d-long-session-adoption-state.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh q3d-long-session-adoption-state --surface tauri
   - id: q3d-author-registration-guards
     title: "Q3D 原文登记来源与操作边界"
     tier: nightly

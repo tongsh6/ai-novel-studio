@@ -172,3 +172,16 @@ Q1b 的四个真实 user_message 网络帧中，携带 turn_id 的为 0，携带
 错误响应只由 test/support 提供；Tauri 已启动，外部 Playwright 驱动实际 App/WorkspaceChat 页面，
 并非直接操作 native WebView。此证据验证 App 边界，不代表重新完成 Qwen 的自然语言质量验收。
 BIZ-03/04 仍未闭环，下一 checkpoint 为完整待采纳业务状态；实施与门禁记录见 Q3D slice。
+
+
+## 7. BIZ-03 完整业务状态修复追记（2026-10-08）
+
+待采纳/已解决候选现由持久化层同一投影汇总，独立于 UI 的 30 条聊天分页和 Agent 的 80 条
+近期消息窗口；同 artifact 去重、终态覆盖旧 pending。上下文仍只展示每类 12 项，但提供真实
+总数与省略数，超出部分可经 session_adoptions 工具按可信会话作用域检索/分页。
+
+页面恢复还必须携带候选所属回合的 available_actions：仅补候选列表会使旧卡片没有可用操作。
+新增 pending_adoption_turn_results，由 TanStack Query 按作品/会话缓存；前端复用原授权动作，
+不将旧候选回合塞回最近聊天页，不绕开后端采纳检查。
+
+完整验收 `q3d-long-session-adoption-state` 已通过：15 份候选、45 轮后查询采纳、再 45 轮终态恢复及作品隔离均成立；完整门禁见 Q3D slice。仍保留 BIZ-04 的真实发送身份与重传缺口。

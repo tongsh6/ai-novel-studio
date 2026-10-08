@@ -79,6 +79,8 @@ defmodule NovelApplication.TurnInteractionService do
       pending_adoptions: adoption_preview(state, :pending_adoptions),
       resolved_adoptions: adoption_preview(state, :resolved_adoptions),
       recent_results: Map.get(state, :recent_results, []),
+      pending_adoption_count: length(Map.get(state, :pending_adoptions, [])),
+      resolved_adoption_count: length(Map.get(state, :resolved_adoptions, [])),
       omitted_adoptions:
         max(length(Map.get(state, :pending_adoptions, [])) - @adoption_preview_limit, 0) +
           max(length(Map.get(state, :resolved_adoptions, [])) - @adoption_preview_limit, 0)
@@ -91,7 +93,8 @@ defmodule NovelApplication.TurnInteractionService do
     DISCARDED 等不表示入档。存档必须核对采纳/实际写入事实；pending
     仍须作者采纳。状态追问不应重开创作或反复要求作者重发同一指令。
     author_inputs 的原文预览可能截短，引用保存时系统会读取该 turn_ref 的完整原文。
-    存在 omitted_adoptions 时，不能因未展示某项就断言该项不存在。
+    存在 omitted_adoptions 时，不能因未展示某项就断言该项不存在；
+    可使用探索目录 session_adoptions 按关键词/对象引用查询完整状态，按 next_offset 翻页。
     引用编号只用于工具字段，禁止在作者可见叙事中输出内部编号。
     #{Jason.encode!(facts)}
     """

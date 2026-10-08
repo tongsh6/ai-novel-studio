@@ -2679,6 +2679,8 @@ async function driveAu03SessionHistoryReadonly(page) {
     { timeout: 10_000 },
   );
 
+  // 当前发送门禁要求非空输入；用真实文字验证恢复后可写，不要求空消息可发送。
+  await page.locator(chatInputSelector).fill("回到当前会话，继续聊灵源矿区，暂不生成候选。");
   const activeRestored = await page.evaluate(() => {
     const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
     const sendButton = [...document.querySelectorAll("button")].find(
@@ -5170,6 +5172,95 @@ async function driveQ1bLiveArchiveRoundtrip(page) {
     author_bytes_intact: true, no_write_before_adoption: true, canonical_state_restored: true,
     confirmed_fact_count: afterFacts.length, before_reply: before.assistant_message?.text,
     after_reply: after.assistant_message?.text }];
+}
+
+async function driveLongSessionAdoptionState(page) {
+  const nonce = `long-${randomUUID().slice(0, 8)}`;
+  const candidates = [];
+  const turns = [];
+  async function send(text) {
+    const start = frames.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const result = (await waitForNewFrame(start, (f) => f.direction === "received" && f.event === "turn_result", "长会话没有返回结果", 120_000)).body;
+    assert(result.status !== "failed", "长会话消息处理失败");
+    await waitForNewFrame(start, (f) => f.event === "agent_run_state" && f.body?.run_id === result.agent_run?.run_id && f.body?.status === "completed", "长会话运行未完成");
+    return result;
+  }
+  async function reload(label) {
+    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor();
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+    const snapshot = await (await response).json();
+    fs.writeFileSync(path.join(artifactDir, `${label}-resume.json`), JSON.stringify(snapshot, null, 2));
+    assert(snapshot.transcript.length === 30 && snapshot.transcript_page.has_more_before, "聊天分页被待办恢复改变");
+    return snapshot;
+  }
+  for (let n = 1; n <= 15; n++) {
+    const text = `把这份大纲直接存档为作品设定：${nonce}-${String(n).padStart(2, "0")}，雨港每天只在清晨开城门。`;
+    const result = await send(text);
+    const item = result.adoption_state?.pending?.[0];
+    assert(item?.payload?.items?.[0]?.body === text, "生成的候选不等于作者原文");
+    candidates.push(item);
+    turns.push(result.turn_id);
+  }
+  for (let n = 1; n <= 45; n++) {
+    await send(`本轮只聊写作心情，不生成候选，第 ${n} 次。`);
+    if (n === 20) {
+      const snapshot = await reload("after-20-turns");
+      assert(snapshot.pending_adoptions.length === 15, "20 轮后刷新丢失未采纳候选");
+    }
+  }
+  const snapshot = await reload("outside-80-interactions");
+  const pendingIds = snapshot.pending_adoptions.map((item) => item.artifact_id);
+  assert(candidates.every((item) => pendingIds.includes(item.artifact_id)) && pendingIds.length === 15, "80 条窗口外的完整待办缺失或重复");
+  assert(snapshot.pending_adoption_turn_results.length === 15, "旧候选缺少真实操作凭据");
+  assert(!snapshot.transcript.some((entry) => turns.includes(entry.turn_id)), "旧候选被偷偷塞回聊天分页");
+  const otherWork = await createWorkSeed({ title: `待办隔离-${nonce}` });
+  const otherResponse = page.waitForResponse((res) => res.url().endsWith(`/works/${otherWork.id}/sessions/resume`) && res.ok());
+  await refreshAndSelectWork(page, otherWork.title);
+  const otherSnapshot = await (await otherResponse).json();
+  await waitForVisibleWorkTitle(page, otherWork.title);
+  assert(otherSnapshot.pending_adoptions.length === 0 && otherSnapshot.pending_adoption_turn_results.length === 0, "待办或授权动作串入另一作品");
+  assert(!(await page.locator("body").innerText()).includes("雨港每天只在清晨开城门"), "旧候选内容串入另一作品");
+  const returnResponse = page.waitForResponse((res) => res.url().endsWith(`/works/${snapshot.work.id}/sessions/resume`) && res.ok());
+  await refreshAndSelectWork(page, snapshot.work.title);
+  const returnedSnapshot = await (await returnResponse).json();
+  assert(returnedSnapshot.pending_adoptions.length === 15, "切回原作品丢失完整待办");
+  fs.writeFileSync(path.join(artifactDir, "work-isolation.json"), JSON.stringify({ other: otherSnapshot, returned: returnedSnapshot }, null, 2));
+  const countReply = await send("请核对会话候选数量，只报告真实待采纳、已处置和摘要省略数量。");
+  assert(/待采纳 15 份/.test(countReply.assistant_message.text) && /摘要省略 3 份/.test(countReply.assistant_message.text), "Agent 摘要数量不是完整业务事实");
+  const queryReply = await send(`查一下当前会话待采纳的「${nonce}-01」，说明其内容与状态。`);
+  assert(queryReply.assistant_message.text.includes(nonce + "-01") && queryReply.assistant_message.text.includes("TENTATIVE"), "超出摘要预算的旧候选不能经探索找回");
+  await page.getByText(queryReply.assistant_message.text, { exact: true }).last().waitFor();
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: /经验规则/ }).click();
+  const card = page.locator('[class*="cardAccent"]').filter({ hasText: nonce + "-01" });
+  assert(await card.count() === 1, "档案中未找到唯一旧候选");
+  const accept = card.getByRole("button", { name: "启用规则", exact: true });
+  assert(await accept.isEnabled(), "旧候选采纳按钮不可用");
+  await page.screenshot({ path: path.join(artifactDir, "old-pending-action.png"), fullPage: true });
+  const start = frames.length;
+  await accept.click();
+  await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some((item) => item.artifact_id === candidates[0].artifact_id && item.adoption_status === "ACCEPTED"), "旧候选未能通过真实作者动作采纳");
+  await closeArchiveIfOpen(page);
+  for (let n = 46; n <= 90; n++) await send(`本轮只聊写作心情，不生成候选，第 ${n} 次。`);
+  const resolved = await reload("terminal-outside-80-interactions");
+  assert(resolved.pending_adoptions.length === 14 && !resolved.pending_adoptions.some((item) => item.artifact_id === candidates[0].artifact_id), "终态落到窗口外后旧候选复活");
+  assert(resolved.resolved_adoptions.some((item) => item.artifact_id === candidates[0].artifact_id && item.adoption_status === "ACCEPTED"), "完整终态事实丢失");
+  const { DatabaseSync } = await import("node:sqlite");
+  assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION ?? ""), "长会话验收需要隔离测试库");
+  const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
+  let facts;
+  try { facts = db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce); } finally { db.close(); }
+  assert(facts.length === 1 && facts[0].status === "CONFIRMED" && facts[0].content.includes(nonce + "-01"), "采纳事实不唯一或目标不正确");
+  fs.writeFileSync(path.join(artifactDir, "confirmed-facts.json"), JSON.stringify(facts, null, 2));
+  await page.screenshot({ path: path.join(artifactDir, "terminal-restored.png"), fullPage: true });
+  return [{ event: "slice_verify.ui_state.done", slice_id: "q3d-long-session-adoption-state", turn_id: turns[0], turn_ids: turns,
+    query_turn_id: queryReply.turn_id, count_turn_id: countReply.turn_id, pending_count_before: 15, pending_count_after: 14,
+    omitted_count: 3, queried_artifact_id: candidates[0].artifact_id, history_rounds_before: 45, history_rounds_after: 45,
+    transcript_stays_paged: true, work_scope_isolated: true, old_action_enabled: true, terminal_survives_window: true, confirmed_fact_count: facts.length }];
 }
 
 async function driveAuthorRegistrationGuards(page) {
@@ -17628,7 +17719,16 @@ async function driveSu02PendingResultWorkIsolation(page) {
     90_000,
   );
 
-  await sleep(500);
+  // channel.user_message.done 现在是接收回执，不能冒充 AgentRun 完成。
+  let storedResult = null;
+  for (let attempt = 0; attempt < 120 && !storedResult; attempt++) {
+    const response = await fetch(`${baseUrl}/api/works/${encodeURIComponent(sourceWork.id)}/sessions/resume`);
+    assert(response.ok, "Source work resume failed while waiting for its real result");
+    const snapshot = await response.json();
+    storedResult = snapshot.transcript.find((entry) => entry.turn_result?.turn_id === sourceStart.turn_id && entry.turn_result?.agent_run?.status === "completed")?.turn_result;
+    if (!storedResult) await sleep(250);
+  }
+  assert(storedResult?.assistant_message?.text?.includes(assistantText), "Slow fixture did not produce its completed source result");
   const targetVisibleAfterSourceDone = await page.locator("body").innerText();
   const sourceUserVisibleInTarget = targetVisibleAfterSourceDone.includes(message);
   const sourceAssistantVisibleInTarget = targetVisibleAfterSourceDone.includes(assistantText);
@@ -29459,6 +29559,7 @@ const drivers = {
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
   "q3d-author-registration-guards": driveAuthorRegistrationGuards,
+  "q3d-long-session-adoption-state": driveLongSessionAdoptionState,
   "q1b-live-archive-roundtrip": driveQ1bLiveArchiveRoundtrip,
   "q3d-message-outcome-roundtrip": driveQ3dMessageOutcomeRoundtrip,
   "q3c-author-content-materialization": driveQ3cAuthorContentMaterialization,

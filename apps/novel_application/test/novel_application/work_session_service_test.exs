@@ -184,6 +184,78 @@ defmodule NovelApplication.WorkSessionServiceTest do
                snapshot.pending_adoptions
     end
 
+    test "待办与真实操作凭据独立于 30/80 条窗口，终态不因加载旧页而复活", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      entry = %{
+        artifact_id: "old-item",
+        artifact_type: "world_setting",
+        adoption_status: "tentative",
+        payload: %{}
+      }
+
+      result = %{
+        turn_id: "old-source",
+        adoption_state: %{pending: [entry], resolved: []},
+        available_actions: [
+          %{
+            action_id: "old-accept",
+            action_type: "accept",
+            target_ref: "old-item",
+            enabled: true
+          }
+        ]
+      }
+
+      record(work.id, session.id, "old-source", "assistant", "旧候选", result)
+      for n <- 1..85, do: record(work.id, session.id, "chat-#{n}", "user", "后续对话", nil)
+
+      for {:ok, snapshot} <- [
+            WorkSessionService.resume(work.id),
+            WorkSessionService.show(work.id, session.id)
+          ] do
+        assert length(snapshot.transcript) == 30
+        refute Enum.any?(snapshot.transcript, &(&1.turn_id == "old-source"))
+
+        assert [
+                 %{
+                   artifact_id: "old-item",
+                   source_turn_ref: "old-source",
+                   adoption_status: "TENTATIVE"
+                 }
+               ] = snapshot.pending_adoptions
+
+        assert [
+                 %{
+                   "turn_id" => "old-source",
+                   "available_actions" => [%{"action_id" => "old-accept"}]
+                 }
+               ] = snapshot.pending_adoption_turn_results
+
+        state = NovelPersistence.InteractionLifecycle.context(work.id, session.id)
+
+        assert Enum.map(state.pending_adoptions, & &1["artifact_id"]) ==
+                 Enum.map(snapshot.pending_adoptions, & &1.artifact_id)
+      end
+
+      terminal = %{
+        turn_id: "resolve",
+        adoption_state: %{pending: [], resolved: [%{entry | adoption_status: "discarded"}]}
+      }
+
+      record(work.id, session.id, "resolve", "assistant", "已放弃", terminal)
+      # 旧快照重复落入较新消息，不可覆盖终态。
+      record(work.id, session.id, "stale", "assistant", "旧快照", result)
+      for n <- 86..170, do: record(work.id, session.id, "chat-#{n}", "user", "更晚对话", nil)
+      {:ok, snapshot} = WorkSessionService.resume(work.id)
+      assert snapshot.pending_adoptions == []
+      assert snapshot.pending_adoption_turn_results == []
+      assert [%{adoption_status: "DISCARDED"}] = snapshot.resolved_adoptions
+
+      assert NovelPersistence.InteractionLifecycle.context(work.id, session.id).pending_adoptions ==
+               []
+    end
+
     test "does not return pending adoption after it is resolved", %{work: work} do
       {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
@@ -644,6 +716,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert snapshot.read_only == true
       assert Enum.map(snapshot.transcript, & &1.text) == ["我想回收妹妹林瑶的伏笔", "可以这样设计"]
       assert snapshot.pending_adoptions == []
+      assert snapshot.pending_adoption_turn_results == []
     end
 
     test "keeps active session pending actions available", %{work: work} do

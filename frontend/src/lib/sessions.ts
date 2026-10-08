@@ -50,6 +50,7 @@ export interface WorkspaceResumeSnapshot {
   transcript: SessionTranscriptEntry[];
   transcript_page: SessionTranscriptPageInfo;
   pending_adoptions: Record<string, unknown>[];
+  pending_adoption_turn_results?: WireTurnResult[];
   resolved_adoptions: Record<string, unknown>[];
   resume_trace_refs: string[];
 }
@@ -61,6 +62,7 @@ export interface WorkspaceSessionSnapshot {
   transcript: SessionTranscriptEntry[];
   transcript_page: SessionTranscriptPageInfo;
   pending_adoptions: Record<string, unknown>[];
+  pending_adoption_turn_results?: WireTurnResult[];
   resolved_adoptions: Record<string, unknown>[];
   resume_trace_refs: string[];
 }
@@ -164,6 +166,18 @@ export function turnAgentRunActivityPath(
   turnId: string,
 ): string {
   return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/agent-run-activity`;
+}
+
+// Design: docs/design/adr/ADR-0027-author-obligation-state-v3.md D3
+// 待办操作凭据独立于聊天分页，仍经统一 TurnResult 契约入口校验。
+export function pendingAdoptionTurnResults(
+  snapshot: Pick<WorkspaceResumeSnapshot, "pending_adoption_turn_results">,
+): WireTurnResult[] {
+  return (snapshot.pending_adoption_turn_results ?? []).map(parseIncomingTurnResult);
+}
+
+export function pendingAdoptionQueryKey(workId: string | null, sessionId: string | null) {
+  return ["session-pending-adoption-turns", workId, sessionId] as const;
 }
 
 export async function resumeWorkspace(workId: string): Promise<WorkspaceResumeSnapshot> {

@@ -1,8 +1,11 @@
 // Design: docs/design/ui/41-workbench-layout.md §2 (3-zone workbench)
+// Design: docs/design/ui/43-structure-panel.md §3–4 (跨分页待采纳操作)
+// Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
 // Design: docs/design/ui/46-state-and-feedback.md §9 / §9.8 (AgentRun + action receipt)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl)
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -63,6 +66,8 @@ import {
 } from "../lib/works";
 import {
   resumeWorkspace,
+  pendingAdoptionTurnResults,
+  pendingAdoptionQueryKey,
   searchSessions,
   getSessionSnapshot,
   getSessionTranscriptPage,
@@ -1167,6 +1172,14 @@ export function WorkspaceChat() {
   const socketConnected = useAppStore((state) => state.socketConnected);
   const setSocketConnected = useAppStore((state) => state.setSocketConnected);
   const context = useAppStore((state) => state.context);
+  const queryClient = useQueryClient();
+  const { data: pendingAdoptionTurns = [] } = useQuery({
+    queryKey: pendingAdoptionQueryKey(context.workId, activeSessionId),
+    queryFn: async () =>
+      pendingAdoptionTurnResults(await getSessionSnapshot(context.workId!, activeSessionId!)),
+    enabled: Boolean(context.workId && activeSessionId && !readOnlySession),
+    staleTime: Infinity,
+  });
   const longRun = useAppStore((state) => state.longRun);
   const setContext = useAppStore((state) => state.setContext);
   const setChannel = useAppStore((state) => state.setChannel);
@@ -1505,6 +1518,10 @@ export function WorkspaceChat() {
       setActiveSessionId(sessionId);
       setSessions(snapshot.sessions);
       setTranscriptPage(snapshot.transcript_page);
+      queryClient.setQueryData(
+        pendingAdoptionQueryKey(snapshot.work.id, snapshot.active_session.id),
+        pendingAdoptionTurnResults(snapshot),
+      );
       setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
       setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
       setMessages(restoredMessages);
@@ -2438,7 +2455,8 @@ export function WorkspaceChat() {
 
     const turnResults = messages
       .map((msg) => msg.turnResult)
-      .filter((turnResult): turnResult is TurnResult => Boolean(turnResult));
+      .filter((turnResult): turnResult is TurnResult => Boolean(turnResult))
+      .concat(pendingAdoptionTurns as unknown as TurnResult[]);
 
     const candidateTurns = sourceTurnRef
       ? turnResults.filter((turnResult) => turnResult.turn_id === sourceTurnRef)
@@ -2547,6 +2565,10 @@ export function WorkspaceChat() {
       setActiveSessionId(snapshot.active_session.id);
       setSessions(snapshot.sessions);
       setTranscriptPage(snapshot.transcript_page);
+      queryClient.setQueryData(
+        pendingAdoptionQueryKey(snapshot.work.id, snapshot.active_session.id),
+        pendingAdoptionTurnResults(snapshot),
+      );
       setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
       setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
       setMessages(restoredMessages);
@@ -2643,6 +2665,12 @@ export function WorkspaceChat() {
           .reverse()
           .find((entry) => typeof entry.turn_id === "string" && entry.turn_id.trim().length > 0)
           ?.turn_id ?? null;
+      if (!shouldOpenReadOnly) {
+        queryClient.setQueryData(
+          pendingAdoptionQueryKey(snapshot.work.id, snapshot.session.id),
+          pendingAdoptionTurnResults(snapshot),
+        );
+      }
       setReadOnlySession(shouldOpenReadOnly ? snapshot.session : null);
       setReadOnlySourceTurnRef(shouldOpenReadOnly ? sourceTurnRef : null);
       setTranscriptPage(snapshot.transcript_page);

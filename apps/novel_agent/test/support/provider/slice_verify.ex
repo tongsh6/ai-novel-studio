@@ -2025,8 +2025,21 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       |> String.split("\n")
       |> cited_observation_line(term)
 
-    "我检索了正文中与「#{term}」相关的段落，依据如下：\n\n#{String.trim(cited_line)}\n\n" <>
-      "以上就是正文里关于「#{term}」的既有事实。"
+    if explore_tool_for(judgment_author_input(prompt)) == "session_adoptions" do
+      case Jason.decode(String.trim(cited_line)) do
+        {:ok, %{"items" => items}} ->
+          body =
+            Enum.map_join(items, "\n", &"#{&1["title"]}：#{&1["body_preview"]}（#{&1["status"]}）")
+
+          "我查询了当前会话的候选，依据如下：\n\n" <> body
+
+        _ ->
+          "查询没有返回可核对的候选，依据如下：未找到匹配项。"
+      end
+    else
+      "我检索了正文中与「#{term}」相关的段落，依据如下：\n\n#{String.trim(cited_line)}\n\n" <>
+        "以上就是正文里关于「#{term}」的既有事实。"
+    end
   end
 
   defp explore_quoted_term(author_text) do
@@ -2176,6 +2189,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # （按计划/大纲/要写什么）→ chapter_read；正文事实问句 → prose_search。
   defp explore_tool_for(author_text) do
     cond do
+      String.contains?(author_text, "会话待采纳") -> "session_adoptions"
       contains_any?(author_text, ["改写", "重写", "续写", "正文草稿"]) -> nil
       contains_any?(author_text, ["账面", "账本", "进度账", "脉络", "审读"]) -> "archive_read"
       contains_any?(author_text, ["按计划", "计划要写", "大纲里", "计划里"]) -> "chapter_read"
@@ -2319,7 +2333,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 外部多轮场景的确定性提供者：从实际上下文选来源与状态，生产 provider 不含此逻辑。
   defp message_state_request?(prompt) do
     input = judgment_author_input(prompt)
-    contains_any?(input, ["先只记录这份资料", "上一条资料原文", "资料处理进度", "读取结果回顾"])
+    contains_any?(input, ["先只记录这份资料", "上一条资料原文", "资料处理进度", "读取结果回顾", "会话候选数量"])
   end
 
   defp message_state_facts(prompt) do
@@ -2382,14 +2396,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     facts = message_state_facts(prompt)
 
     cond do
+      String.contains?(input, "会话候选数量") ->
+        "当前待采纳 #{facts["pending_adoption_count"]} 份，已处置 #{facts["resolved_adoption_count"]} 份，摘要省略 #{facts["omitted_adoptions"]} 份。"
+
       String.contains?(input, "读取结果回顾") ->
-        case Enum.find(
-               Map.get(facts, "recent_results", []),
-               &String.contains?(&1["text"] || "", "项只读上下文读取")
-             ) do
-          nil -> "没有可核对的读取结果。"
-          result -> result["text"]
-        end
+        readonly_result_narrative(facts)
 
       String.starts_with?(input, "先只记录这份资料") ->
         "已收到这份资料原文，本轮只记录，不生成候选。"
@@ -2405,13 +2416,23 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  defp readonly_result_narrative(facts) do
+    case Enum.find(
+           Map.get(facts, "recent_results", []),
+           &String.contains?(&1["text"] || "", "项只读上下文读取")
+         ) do
+      nil -> "没有可核对的读取结果。"
+      result -> result["text"]
+    end
+  end
+
   defp judgment_reply_body_narrative(exploratory, prompt) do
     reply_body =
       if exploratory do
         "围绕你的方向我给出两个可选切入，见下方候选；你可以直接采纳或继续聊。"
       else
         frame_message(
-          false,
+          slow_work_switch_prompt?(prompt),
           quality_diagnosis_prompt?(prompt),
           meta_discussion_prompt?(prompt),
           false,

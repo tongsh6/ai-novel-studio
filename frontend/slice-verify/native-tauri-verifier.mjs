@@ -141,6 +141,7 @@ export const nativeSliceIds = [
   "au01-turnresult-recorder-ui-consistency",
   "q1b-live-archive-roundtrip",
   "q3d-author-registration-guards",
+  "q3d-long-session-adoption-state",
   "q3d-message-outcome-roundtrip",
   "q3c-author-content-materialization",
   "q3b-capability-gap-honest-reply",
@@ -1647,6 +1648,7 @@ const sliceKeyEvents = {
   ],
   // Q3c 作者内容物化：判断链直答 + 作者字节候选 + 作者采纳。
   "q1b-live-archive-roundtrip": ["channel.user_message.start", "judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
+  "q3d-long-session-adoption-state": ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-author-registration-guards": ["judgment.author_content_validation.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-message-outcome-roundtrip": [
     "channel.user_message.start", "context.assemble.done", "judgment.decided.done",
@@ -2032,6 +2034,8 @@ export function findNativeSliceEvidence(sliceId, records) {
   if (sliceId === "au01-turnresult-recorder-ui-consistency") {
     return findAu01TurnresultRecorderUiConsistencyEvidence(records);
   }
+
+  if (sliceId === "q3d-long-session-adoption-state") return findLongSessionAdoptionEvidence(records);
 
   if (sliceId === "q3d-author-registration-guards") {
     return findAuthorRegistrationGuardsEvidence(records);
@@ -2717,6 +2721,15 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (["q3c-author-content-materialization", "q3d-message-outcome-roundtrip"].includes(sliceId)) {
     return q3cAuthorContentBehavior(turnIds, turnRecords, records, sliceId);
+  }
+
+  if (sliceId === "q3d-long-session-adoption-state") {
+    const verified = findLongSessionAdoptionEvidence(records);
+    if (!verified || hasErrorEvent(turnRecords)) return null;
+    return { slice_id: sliceId, turn_ids: verified.turn_ids,
+      behavior: "complete_adoption_state_survives_long_chat_and_old_candidate_remains_actionable",
+      assertions: ["pending_survives_transcript_and_context_windows", "omission_count_is_true",
+        "omitted_candidate_is_explorable", "old_candidate_uses_real_author_action", "resolved_candidate_never_reappears"] };
   }
 
   if (sliceId === "q3d-author-registration-guards") {
@@ -12586,6 +12599,22 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
 
 // Q3c 作者内容物化：判定 capability_gap + 作者字节物化事件 + 作者采纳事件全在
 // app JSONL；采纳可发生在源 turn 关联的 author_action turn。
+function findLongSessionAdoptionEvidence(records) {
+  const sliceId = "q3d-long-session-adoption-state";
+  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
+  if (!ui || !Array.isArray(ui.turn_ids) || new Set(ui.turn_ids).size !== 15 ||
+    !ui.turn_ids.includes(ui.turn_id) || !ui.query_turn_id || !ui.count_turn_id) return null;
+  if (ui.pending_count_before !== 15 || ui.pending_count_after !== 14 || ui.omitted_count !== 3 ||
+    ui.confirmed_fact_count !== 1 || ui.history_rounds_before < 45 || ui.history_rounds_after < 45) return null;
+  if (!["transcript_stays_paged", "work_scope_isolated", "old_action_enabled", "terminal_survives_window"].every((key) => ui[key] === true)) return null;
+  if (!ui.turn_ids.every((id) => records.some((r) => r.turn_id === id && r.event === "judgment.author_content_materialized.done"))) return null;
+  if (!records.some((r) => r.turn_id === ui.query_turn_id && r.event === "judgment.decided.done" && r.action === "explore")) return null;
+  if (!records.some((r) => r.turn_id === ui.count_turn_id && r.event === "judgment.decided.done" && r.action === "reply")) return null;
+  if (!records.some((r) => r.event === "adoption.evaluate.done" && (r.turn_id === ui.turn_id || String(r.turn_id ?? "").startsWith(`${ui.turn_id}:`)))) return null;
+  return { slice_id: sliceId, turn_id: ui.turn_id, turn_ids: [...ui.turn_ids, ui.query_turn_id, ui.count_turn_id],
+    pending_count_before: 15, pending_count_after: 14, omitted_count: 3 };
+}
+
 function findAuthorRegistrationGuardsEvidence(records) {
   const sliceId = "q3d-author-registration-guards";
   const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);

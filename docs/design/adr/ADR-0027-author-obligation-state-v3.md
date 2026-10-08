@@ -43,8 +43,18 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 
 ### D3 判断消费真实处置和采纳状态
 
-- `DialogueContext.interaction_state` 提供同作品同会话的有界作者消息、处理状态、近期结果、
-  待采纳及已解决候选；`open_behavior_summary` 同批进入判断输入。
+- `DialogueContext.interaction_state` 提供同作品同会话的有界作者消息、处理状态、近期结果，
+  以及独立于消息窗口的完整待采纳/已解决候选；`open_behavior_summary` 同批进入判断输入。
+- 采纳状态由 `WorkSessionRepo.adoption_state/2` 统一从持久记录投影，UI 恢复和 Agent 共用；
+  相同 artifact_id 去重，终态覆盖旧 pending。不能用最近 30 条聊天或 80 条上下文代替完整待办。
+  聊天分页继续独立运行。已退出/归档会话只能回看，不恢复可执行待办。
+- HTTP resume/show 除完整 pending/resolved 外，向活动会话提供 `pending_adoption_turn_results`：
+  待办所属回合的既有 TurnResult 和 available_actions，去除运行活动明细；前端按作品/会话在
+  TanStack Query 缓存，与实时结果共同查找真实授权动作，不伪造 action_ref，也不插回聊天分页。
+- 判断摘要只展示每类最多 12 项，同时提供真实总数和 omitted_adoptions；
+  `session_adoptions` 探索工具按当前运行的 work/session 读取同一完整投影，允许关键词、
+  artifact_ref 和 JSON `{query, offset}` 分页查询。session 不由模型指定；非活动或跨作品查询拒绝。
+  原文仍只由明确来源物化，查询待办不自动扩大作者原文白名单或执行采纳。
 - 消息已处理、运行结束、候选已采纳分别表达。追问「完成了吗」必须依据结果和采纳事实，
   不能只因 run completed 宣称已保存；只读结果仍明确无写入。
 - 待采纳候选在追问后仍待采纳，回复不会关闭它；只有现有作者动作改变采纳事实。
@@ -97,3 +107,8 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 - quality/acceptance/scenarios/q3d-message-outcome-roundtrip.yml
 
 - quality/acceptance/scenarios/q3d-author-registration-guards.yml
+
+- apps/novel_persistence/lib/novel_persistence/work_session_repo.ex
+- apps/novel_application/lib/novel_application/work_session_service.ex
+- apps/novel_application/lib/novel_application/exploration_service.ex
+- quality/acceptance/scenarios/q3d-long-session-adoption-state.yml

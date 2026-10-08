@@ -1,0 +1,40 @@
+id: q3d-long-session-adoption-state
+title: 长会话完整待办与旧候选采纳
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q3d-long-session-adoption-state --surface tauri
+contract:
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - tasks/slices/Q3D-message-outcome-roundtrip.md
+invariants:
+  - adoption-state-independent-of-chat-pagination
+  - terminal-state-overrides-stale-pending
+  - complete-state-shared-by-ui-and-agent
+  - omitted-candidate-remains-explorable
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - input: 从工作台逐条提供 15 份带随机标识的原文成为待采纳候选
+  - input: 继续聊天 20 轮并刷新，继续到 45 轮再次刷新
+  - switch: 切到另一作品应无候选及授权动作，切回原作品仍有全部候选
+  - input: 询问候选与摘要省略数量，查询最早的候选
+  - click: 在档案面板采纳最早的候选，无需展开历史聊天
+  - input: 再聊天 45 轮并刷新核对终态不复活
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q3d-long-session-adoption-state-tauri
+assertions:
+  ui:
+    - 最早的候选操作可用，采纳后待办从 15 减为 14
+  network:
+    - 聊天恢复仍为 30 条且不夹带旧候选回合
+    - 独立返回完整候选及真实 available_actions
+    - Agent 报告 15 份待办、摘要省略 3 份，并经探索查询原文
+  data:
+    - 80 条窗口外已采纳候选不复活，唯一正确 CONFIRMED 作品事实
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

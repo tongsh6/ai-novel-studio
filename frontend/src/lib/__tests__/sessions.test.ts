@@ -1,3 +1,4 @@
+import { pendingAdoptionTurnResults, pendingAdoptionQueryKey } from "../sessions";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -239,5 +240,34 @@ describe("session API helpers", () => {
     expect(shouldInsertWorkspaceWelcome(true, 0)).toBe(false);
     expect(shouldInsertWorkspaceWelcome(false, 1)).toBe(false);
     expect(shouldInsertWorkspaceWelcome(false, 0)).toBe(true);
+  });
+});
+
+describe("跨分页待采纳操作凭据", () => {
+  it("独立于 transcript 恢复并通过线格式校验，保留真实动作与来源", () => {
+    const result = {
+      turn_id: "old-source",
+      available_actions: [
+        { action_id: "old-action", target_ref: "old-artifact", action_type: "accept" },
+      ],
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const restored = pendingAdoptionTurnResults({
+      pending_adoption_turn_results: [result as never],
+    });
+    expect(restored[0]).toBe(result);
+    expect(restored[0].available_actions?.[0].action_id).toBe("old-action");
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    expect(pendingAdoptionTurnResults({})).toEqual([]);
+  });
+
+  it("不同作品及会话使用不同缓存身份", () => {
+    expect(pendingAdoptionQueryKey("work-a", "session-a")).not.toEqual(
+      pendingAdoptionQueryKey("work-b", "session-a"),
+    );
+    expect(pendingAdoptionQueryKey("work-a", "session-a")).not.toEqual(
+      pendingAdoptionQueryKey("work-a", "session-b"),
+    );
   });
 });

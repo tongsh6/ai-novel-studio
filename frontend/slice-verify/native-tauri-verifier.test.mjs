@@ -14315,3 +14315,30 @@ function au04LatestContextRebaseConfirmationRecords() {
     },
   ];
 }
+
+
+describe("Q3D 长会话待办证据", () => {
+  const slice = "q3d-long-session-adoption-state";
+  const ids = Array.from({ length: 15 }, (_, n) => `source-${n}`);
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: ids[0], turn_ids: ids,
+    query_turn_id: "query", count_turn_id: "count", pending_count_before: 15, pending_count_after: 14,
+    omitted_count: 3, confirmed_fact_count: 1, history_rounds_before: 45, history_rounds_after: 45,
+    transcript_stays_paged: true, work_scope_isolated: true, old_action_enabled: true, terminal_survives_window: true };
+  const records = [ui, ...ids.map((turn_id) => ({ turn_id, event: "judgment.author_content_materialized.done" })),
+    { turn_id: "query", event: "judgment.decided.done", action: "explore" },
+    { turn_id: "count", event: "judgment.decided.done", action: "reply" },
+    { turn_id: "source-0:adopt", event: "adoption.evaluate.done" }];
+  it("完整生成、查询与原回合采纳日志绑定才能通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence).not.toBeNull();
+    expect(findSliceBehaviorEvidence(slice, records, evidence)).not.toBeNull();
+    expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
+    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "query"))).toBeNull();
+  });
+  it("短会话、不可操作或无关采纳不能充当完整闭环", () => {
+    for (const change of [{ history_rounds_before: 20 }, { work_scope_isolated: false }, { old_action_enabled: false }, { omitted_count: 0 }, { terminal_survives_window: false }]) {
+      expect(findNativeSliceEvidence(slice, [{ ...ui, ...change }, ...records.slice(1)])).toBeNull();
+    }
+    expect(findNativeSliceEvidence(slice, records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "source-00:adopt" } : r))).toBeNull();
+  });
+});

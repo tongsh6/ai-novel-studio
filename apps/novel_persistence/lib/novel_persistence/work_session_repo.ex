@@ -8,7 +8,7 @@ defmodule NovelPersistence.WorkSessionRepo do
   alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.Repo
-  alias NovelPersistence.Schemas.WorkSession
+  alias NovelPersistence.Schemas.{Interaction, WorkSession}
 
   @archived_status StructureStatus.archived()
   @active_status "ACTIVE"
@@ -116,6 +116,57 @@ defmodule NovelPersistence.WorkSessionRepo do
   @spec transcript_page(String.t(), keyword()) :: {:ok, map()} | {:error, :cursor_not_found}
   def transcript_page(session_id, opts \\ []) when is_binary(session_id),
     do: MemoryLog.transcript_page(session_id, opts)
+
+  @doc "完整会话采纳投影；只读有采纳状态的回合，不受聊天分页或上下文窗口裁剪。"
+  def adoption_state(work_id, session_id) do
+    rows =
+      Interaction
+      |> where([i], i.workspace_id == ^work_id and i.session_id == ^session_id)
+      |> where([i], i.role == "assistant")
+      |> where(
+        [i],
+        fragment("json_array_length(?, '$.turn_result.adoption_state.pending') > 0", i.content) or
+          fragment("json_array_length(?, '$.turn_result.adoption_state.resolved') > 0", i.content)
+      )
+      |> order_by([i], desc: i.updated_at, desc: i.inserted_at, desc: i.id)
+      |> Repo.all()
+      |> Enum.map(&MemoryLog.canonical_interaction/1)
+
+    resolved = adoption_entries(rows, "resolved")
+    resolved_ids = MapSet.new(resolved, & &1["artifact_id"])
+
+    pending =
+      rows
+      |> adoption_entries("pending")
+      |> Enum.reject(&MapSet.member?(resolved_ids, &1["artifact_id"]))
+
+    source_turns = MapSet.new(pending, & &1["source_turn_ref"])
+
+    %{
+      pending_adoptions: pending,
+      resolved_adoptions: resolved,
+      pending_adoption_turn_results:
+        rows
+        |> Enum.map(& &1.content["turn_result"])
+        |> Enum.filter(&MapSet.member?(source_turns, &1["turn_id"]))
+        |> Enum.uniq_by(& &1["turn_id"])
+    }
+  end
+
+  defp adoption_entries(rows, key) do
+    rows
+    |> Enum.flat_map(fn row ->
+      result = row.content["turn_result"]
+
+      result
+      |> get_in(["adoption_state", key])
+      |> List.wrap()
+      |> Enum.map(
+        &Map.put(&1, "source_turn_ref", &1["source_turn_ref"] || result["turn_id"] || row.turn_id)
+      )
+    end)
+    |> Enum.uniq_by(& &1["artifact_id"])
+  end
 
   @doc "Touch last_opened_at for resume ordering."
   @spec touch(WorkSession.t()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}

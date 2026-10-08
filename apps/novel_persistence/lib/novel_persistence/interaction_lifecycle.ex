@@ -8,6 +8,7 @@ defmodule NovelPersistence.InteractionLifecycle do
 
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.{Interaction, WorkSession}
+  alias NovelPersistence.WorkSessionRepo
 
   @history_limit 80
   @author_limit 10
@@ -49,7 +50,7 @@ defmodule NovelPersistence.InteractionLifecycle do
     end)
   end
 
-  @doc "同作品、同活动会话的有界状态投影；原文只作为引用源，不由模型重建。"
+  @doc "同作品、同活动会话的状态投影；消息摘要有界，采纳状态完整。"
   def context(work_id, session_id) when is_binary(work_id) and is_binary(session_id) do
     with {:ok, _} <- Ecto.UUID.cast(session_id),
          %WorkSession{status: "ACTIVE"} <-
@@ -61,6 +62,12 @@ defmodule NovelPersistence.InteractionLifecycle do
       |> Repo.all()
       |> Enum.map(&NovelPersistence.MemoryLog.canonical_interaction/1)
       |> project_context()
+      |> Map.merge(
+        Map.take(WorkSessionRepo.adoption_state(work_id, session_id), [
+          :pending_adoptions,
+          :resolved_adoptions
+        ])
+      )
     else
       _ -> %{}
     end
@@ -171,13 +178,6 @@ defmodule NovelPersistence.InteractionLifecycle do
 
   defp project_context(entries) do
     results = Enum.filter(entries, &(&1.role == "assistant"))
-    resolved = adoption_entries(results, "resolved")
-    resolved_ids = MapSet.new(resolved, & &1["artifact_id"])
-
-    pending =
-      results
-      |> adoption_entries("pending")
-      |> Enum.reject(&MapSet.member?(resolved_ids, &1["artifact_id"]))
 
     %{
       author_inputs:
@@ -193,8 +193,6 @@ defmodule NovelPersistence.InteractionLifecycle do
             handling: entry.content["message_handling"] || %{}
           }
         end),
-      pending_adoptions: pending,
-      resolved_adoptions: resolved,
       recent_results: results |> Enum.take(@author_limit) |> Enum.map(&result_summary/1)
     }
   end
@@ -208,14 +206,6 @@ defmodule NovelPersistence.InteractionLifecycle do
       text: String.slice(entry.content["text"] || "", 0, 400),
       truthfulness: result["truthfulness"] || %{}
     }
-  end
-
-  defp adoption_entries(entries, key) do
-    entries
-    |> Enum.flat_map(fn entry ->
-      entry.content |> get_in(["turn_result", "adoption_state", key]) |> List.wrap()
-    end)
-    |> Enum.uniq_by(& &1["artifact_id"])
   end
 
   defp unwrap!({:ok, value}), do: value

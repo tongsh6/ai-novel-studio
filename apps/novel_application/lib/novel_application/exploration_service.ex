@@ -17,7 +17,7 @@ defmodule NovelApplication.ExplorationService do
 
   alias NovelApplication.{MemoryManagementService, ReadingProjectionService, WorkArchiveService}
   alias NovelDomain.ChapterPlanDirection
-  alias NovelPersistence.{ChapterSummaryRepo, ProseSearchRepo}
+  alias NovelPersistence.{ChapterSummaryRepo, ProseSearchRepo, WorkSessionRepo}
 
   @type observation :: %{
           tool: String.t(),
@@ -30,6 +30,7 @@ defmodule NovelApplication.ExplorationService do
   @archive_facets ~w(profile characters foreshadowing rules stats current_state relationships preferences ledgers)
   @summary_max_chars 1500
   @chapter_clip_chars 1200
+  @adoption_page_size 3
 
   @catalog [
     %{
@@ -47,6 +48,11 @@ defmodule NovelApplication.ExplorationService do
       query_help:
         "档案面之一：profile｜characters｜foreshadowing｜rules｜stats｜current_state｜relationships｜preferences",
       description: "读取作品档案（简介/角色/伏笔/规则/统计/当前状态/人物关系/作者偏好）"
+    },
+    %{
+      tool: "session_adoptions",
+      query_help: ~s(关键词或 artifact_ref；空串查全部；翻页用 JSON {"query":"关键词","offset":3}),
+      description: "查询当前会话完整待采纳/已处置候选，返回实际数量、来源和下一页，不受聊天窗口限制"
     },
     %{
       tool: "memory_recall",
@@ -86,6 +92,87 @@ defmodule NovelApplication.ExplorationService do
   end
 
   def run(_work_id, tool, _query), do: {:error, {:unknown_exploration_tool, tool}}
+
+  @doc "会话探索使用本轮可信 session 作用域，不接受模型指定其它会话。"
+  def run(work_id, "session_adoptions", query, session_id) when is_binary(session_id) do
+    with session when not is_nil(session) <- WorkSessionRepo.get_by_work(work_id, session_id),
+         "ACTIVE" <- session.status,
+         {:ok, search, offset} <- adoption_query(query) do
+      state = WorkSessionRepo.adoption_state(work_id, session_id)
+      all = state.pending_adoptions ++ state.resolved_adoptions
+      matches = matching_adoptions(all, search)
+      page = Enum.slice(matches, offset, @adoption_page_size)
+      next = offset + length(page)
+
+      summary = %{
+        pending_count: length(state.pending_adoptions),
+        resolved_count: length(state.resolved_adoptions),
+        matched_count: length(matches),
+        offset: offset,
+        next_offset: if(next < length(matches), do: next, else: nil),
+        items: Enum.map(page, &adoption_observation/1)
+      }
+
+      {:ok,
+       %{
+         tool: "session_adoptions",
+         query: query || "",
+         summary: Jason.encode!(summary),
+         refs: Enum.map(page, & &1["artifact_id"])
+       }}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :active_session_not_found}
+    end
+  end
+
+  def run(_work_id, "session_adoptions", _query, _session_id),
+    do: {:error, :active_session_not_found}
+
+  def run(work_id, tool, query, _session_id), do: run(work_id, tool, query)
+
+  defp adoption_query(query) do
+    text = String.trim(query || "")
+
+    if String.starts_with?(text, "{") do
+      case Jason.decode(text) do
+        {:ok, %{"query" => search, "offset" => offset}}
+        when is_binary(search) and is_integer(offset) and offset >= 0 ->
+          {:ok, search, offset}
+
+        _ ->
+          {:error, :invalid_adoption_query}
+      end
+    else
+      {:ok, text, 0}
+    end
+  end
+
+  defp matching_adoptions(entries, query) do
+    case Enum.find(entries, &(&1["artifact_id"] == query)) do
+      nil -> Enum.filter(entries, &adoption_matches?(&1, query))
+      entry -> [entry]
+    end
+  end
+
+  defp adoption_matches?(entry, query) do
+    String.contains?(String.downcase(Jason.encode!(entry)), String.downcase(query))
+  end
+
+  defp adoption_observation(entry) do
+    payload = entry["payload"] || %{}
+    item = List.first(payload["items"] || []) || %{}
+
+    %{
+      artifact_ref: entry["artifact_id"],
+      status: entry["adoption_status"],
+      artifact_type: entry["artifact_type"],
+      source_turn_ref: entry["source_turn_ref"],
+      source_ref: entry["source_tool_result_ref"] || item["provider_call_ref"],
+      title: String.slice(to_string(payload["summary"] || item["title"] || ""), 0, 100),
+      body_preview: String.slice(to_string(item["body"] || ""), 0, 200)
+    }
+  end
 
   # ── prose_search ──
 

@@ -23,6 +23,7 @@ defmodule NovelApplication.WorkSessionService do
       summaries_by_turn = agent_run_summary_by_turn(work_id, session.id, transcript)
       transcript_entries = Enum.map(transcript, &interaction_dto(&1, summaries_by_turn))
       turn_results = transcript_turn_results(transcript_entries)
+      adoptions = WorkSessionRepo.adoption_state(work_id, session.id)
 
       {:ok,
        %{
@@ -31,8 +32,10 @@ defmodule NovelApplication.WorkSessionService do
          sessions: Enum.map(WorkSessionRepo.list_by_work(work_id), &session_dto/1),
          transcript: transcript_entries,
          transcript_page: transcript_page_dto(transcript_page),
-         pending_adoptions: pending_adoptions(turn_results),
-         resolved_adoptions: resolved_adoptions(turn_results),
+         pending_adoptions: Enum.map(adoptions.pending_adoptions, &normalize_atom_keys/1),
+         pending_adoption_turn_results:
+           Enum.map(adoptions.pending_adoption_turn_results, &strip_agent_run_activity/1),
+         resolved_adoptions: Enum.map(adoptions.resolved_adoptions, &normalize_atom_keys/1),
          resume_trace_refs: resume_trace_refs(turn_results)
        }}
     else
@@ -53,6 +56,7 @@ defmodule NovelApplication.WorkSessionService do
       summaries_by_turn = agent_run_summary_by_turn(work_id, session.id, transcript)
       transcript_entries = Enum.map(transcript, &interaction_dto(&1, summaries_by_turn))
       turn_results = transcript_turn_results(transcript_entries)
+      adoptions = WorkSessionRepo.adoption_state(work_id, session.id)
       read_only? = session.status != "ACTIVE"
 
       {:ok,
@@ -62,8 +66,17 @@ defmodule NovelApplication.WorkSessionService do
          read_only: read_only?,
          transcript: transcript_entries,
          transcript_page: transcript_page_dto(transcript_page),
-         pending_adoptions: pending_adoptions_for_session(read_only?, turn_results),
-         resolved_adoptions: resolved_adoptions(turn_results),
+         pending_adoptions:
+           if(read_only?,
+             do: [],
+             else: Enum.map(adoptions.pending_adoptions, &normalize_atom_keys/1)
+           ),
+         pending_adoption_turn_results:
+           if(read_only?,
+             do: [],
+             else: Enum.map(adoptions.pending_adoption_turn_results, &strip_agent_run_activity/1)
+           ),
+         resolved_adoptions: Enum.map(adoptions.resolved_adoptions, &normalize_atom_keys/1),
          resume_trace_refs: resume_trace_refs(turn_results)
        }}
     else
@@ -274,34 +287,6 @@ defmodule NovelApplication.WorkSessionService do
     transcript
     |> Enum.map(& &1.turn_result)
     |> Enum.reject(&is_nil/1)
-  end
-
-  defp pending_adoptions(turn_results) do
-    resolved_ids =
-      turn_results |> resolved_adoptions() |> Enum.map(& &1.artifact_id) |> MapSet.new()
-
-    turn_results
-    |> Enum.flat_map(fn turn_result ->
-      turn_result
-      |> adoption_entries(:pending)
-      |> Enum.map(&Map.put(&1, :source_turn_ref, turn_id(turn_result)))
-    end)
-    |> Enum.reject(&MapSet.member?(resolved_ids, &1.artifact_id))
-  end
-
-  defp pending_adoptions_for_session(true, _turn_results), do: []
-  defp pending_adoptions_for_session(false, turn_results), do: pending_adoptions(turn_results)
-
-  defp resolved_adoptions(turn_results) do
-    turn_results
-    |> Enum.flat_map(&adoption_entries(&1, :resolved))
-  end
-
-  defp adoption_entries(turn_result, key) do
-    turn_result
-    |> get_in_any([:adoption_state, key])
-    |> List.wrap()
-    |> Enum.map(&normalize_atom_keys/1)
   end
 
   defp resume_trace_refs(turn_results) do

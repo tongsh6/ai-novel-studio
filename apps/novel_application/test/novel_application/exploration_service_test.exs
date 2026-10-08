@@ -19,11 +19,119 @@ defmodule NovelApplication.ExplorationServiceTest do
 
   test "catalog 与 prompt 段是同一真源" do
     names = ExplorationService.tool_names()
-    assert names == ~w(prose_search chapter_read archive_read memory_recall)
+    assert names == ~w(prose_search chapter_read archive_read session_adoptions memory_recall)
 
     section = ExplorationService.catalog_section()
     assert section =~ "## 探索目录"
     Enum.each(names, fn name -> assert section =~ name end)
+  end
+
+  test "会话候选查询覆盖被摘要省略的对象，分页稳定且拒绝跨作品/会话", do: verify_adoption_exploration()
+
+  defp verify_adoption_exploration do
+    {:ok, work} = WorkService.create(%{title: "完整待办"})
+    {:ok, session} = NovelPersistence.WorkSessionRepo.ensure_active_for_work(work.id)
+
+    for n <- 1..15 do
+      entry = %{
+        artifact_id: "item-#{n}",
+        artifact_type: "world_setting",
+        adoption_status: "TENTATIVE",
+        payload: %{items: [%{title: "第#{n}份资料", body: "原文-#{n}"}]}
+      }
+
+      {:ok, _} =
+        NovelPersistence.MemoryLog.record(%{
+          workspace_id: work.id,
+          session_id: session.id,
+          role: "assistant",
+          turn_id: "source-#{n}",
+          content: %{
+            text: "待采纳",
+            turn_result: %{
+              turn_id: "source-#{n}",
+              adoption_state: %{pending: [entry], resolved: []}
+            }
+          }
+        })
+    end
+
+    for n <- 1..85 do
+      {:ok, _} =
+        NovelPersistence.MemoryLog.record(%{
+          workspace_id: work.id,
+          session_id: session.id,
+          role: "user",
+          turn_id: "later-#{n}",
+          content: %{text: "闲聊"}
+        })
+    end
+
+    state = NovelPersistence.InteractionLifecycle.context(work.id, session.id)
+
+    facts =
+      state
+      |> NovelApplication.TurnInteractionService.context_section()
+      |> String.split("\n")
+      |> Enum.find_value(fn line ->
+        case Jason.decode(line) do
+          {:ok, %{"omitted_adoptions" => _} = data} -> data
+          _ -> nil
+        end
+      end)
+
+    assert facts["pending_adoption_count"] == 15
+    assert facts["omitted_adoptions"] == 3
+    assert length(facts["pending_adoptions"]) == 12
+    assert {:ok, first} = ExplorationService.run(work.id, "session_adoptions", "", session.id)
+    assert %{"matched_count" => 15, "next_offset" => 3} = Jason.decode!(first.summary)
+
+    refs =
+      for offset <- [0, 3, 6, 9, 12], reduce: [] do
+        acc ->
+          {:ok, page} =
+            ExplorationService.run(
+              work.id,
+              "session_adoptions",
+              Jason.encode!(%{query: "", offset: offset}),
+              session.id
+            )
+
+          acc ++ page.refs
+      end
+
+    assert length(Enum.uniq(refs)) == 15
+
+    assert {:ok, found} =
+             ExplorationService.run(work.id, "session_adoptions", "第1份资料", session.id)
+
+    assert found.refs == ["item-1"]
+    assert found.summary =~ "原文-1"
+
+    assert {:ok, by_ref} =
+             ExplorationService.run(work.id, "session_adoptions", "item-1", session.id)
+
+    assert by_ref.refs == ["item-1"]
+    {:ok, other} = WorkService.create(%{title: "其它作品"})
+
+    assert {:error, :active_session_not_found} =
+             ExplorationService.run(other.id, "session_adoptions", "", session.id)
+
+    assert {:error, :active_session_not_found} =
+             ExplorationService.run(work.id, "session_adoptions", "", nil)
+
+    assert {:error, :invalid_adoption_query} =
+             ExplorationService.run(
+               work.id,
+               "session_adoptions",
+               ~s({"query":"","offset":-1}),
+               session.id
+             )
+
+    {:ok, _} = NovelPersistence.WorkSessionRepo.create_active(%{work_id: work.id})
+
+    assert {:error, :active_session_not_found} =
+             ExplorationService.run(work.id, "session_adoptions", "", session.id)
   end
 
   test "prose_search：命中带章出处片段；未命中诚实说明" do
