@@ -322,7 +322,11 @@ defmodule NovelAgent.Provider.Stub do
       |> then(fn args ->
         # Q3c：存档意图消息本身携带内容原文——注册信号置真（作者字节物化触发）。
         if stub_archive_write?(text),
-          do: Map.put(args, "author_content_registration", true),
+          do:
+            Map.merge(args, %{
+              "author_content_registration" => true,
+              "author_content_source_ref" => "current"
+            }),
           else: args
       end)
       |> Map.merge(extra_args)

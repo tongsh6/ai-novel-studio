@@ -22,6 +22,7 @@ defmodule NovelApplication.JudgmentProtocol do
   alias NovelAgent.Provider.InferenceParams
   alias NovelApplication.AgentNarrativeSource
   alias NovelApplication.ProviderActivityProjector
+  alias NovelApplication.TurnInteractionService
 
   require NovelCommon.LogEmit, as: LogEmit
 
@@ -267,19 +268,25 @@ defmodule NovelApplication.JudgmentProtocol do
          true <- action in actions(request.options),
          true <- capability_in_catalog?(action, arguments, request.options),
          true <- explore_tool_in_catalog?(action, arguments, request.options),
-         true <- author_source_in_context?(arguments, request.options) do
+         :ok <- validate_author_registration(arguments, request.options) do
       case semantic_conflict(action, arguments, request.options) do
         nil -> build_judgment(arguments, action, provider_result, request)
         conflict -> retry_semantic_conflict(conflict, request)
       end
     else
-      _ -> retry_or_fail(provider_result, request)
+      {:error, {:author_content_registration_invalid, reason}} ->
+        retry_author_registration(reason, request)
+
+      _ ->
+        retry_or_fail(provider_result, request)
     end
   end
 
-  defp author_source_in_context?(arguments, options) do
-    source = author_content_source(arguments)
-    source in [nil, "current" | Keyword.get(options || [], :author_content_sources, [])]
+  defp validate_author_registration(arguments, options) do
+    TurnInteractionService.validate_author_registration(
+      arguments,
+      Keyword.get(options || [], :author_content_sources, [])
+    )
   end
 
   # 来源只属于已启用的作者原文登记分支。未登记时忽略并清空该字段，避免无关字段
@@ -499,6 +506,30 @@ defmodule NovelApplication.JudgmentProtocol do
       provider_result |> tool_calls() |> inspect() |> String.slice(0, 200)}}
   end
 
+  defp retry_author_registration(reason, request) do
+    LogEmit.emit(:judgment, :author_content_validation, :done, %{
+      reason_code: reason,
+      outcome: if(request.retry?, do: "retry", else: "rejected")
+    })
+
+    if request.retry? do
+      hint =
+        TurnInteractionService.author_registration_retry_hint(
+          reason,
+          Keyword.get(request.options || [], :author_content_sources, [])
+        )
+
+      prompt =
+        update_in(request.prompt, [:messages], fn [message | rest] ->
+          [%{message | content: message.content <> "\n\n## 原文登记未通过业务校验\n" <> hint} | rest]
+        end)
+
+      request_decision(%{request | prompt: prompt, retry?: false, attempt: request.attempt + 1})
+    else
+      {:error, {:author_content_registration_invalid, reason}}
+    end
+  end
+
   # ── prompt 构造（探针与生产共用同一真源） ──
 
   @doc "判断② call1 自由输出 prompt：观察叙事（作者可见，46§9.4 体裁）。"
@@ -605,6 +636,8 @@ defmodule NovelApplication.JudgmentProtocol do
 
           #{forms_section(input)}
 
+          #{TurnInteractionService.author_registration_rules()}
+
           ## 判别规则（容易混的边界）
           - 作者要你"做出一个创作产物"（设计一个角色、写一章、给一份大纲）→ 这是单动作执行，
             不是直接回复：不要用文字描述替代产出候选。
@@ -614,16 +647,13 @@ defmodule NovelApplication.JudgmentProtocol do
             按直接回复处理；如果回应要给作者多个可选方向，在说明里把方向讲清楚。
           - 作者询问作品当前状态或进度（写了多少章 / 写到哪了 / 下一章从哪开始）：按上面
             作品上下文直接回答，这是直接回复。
-          - 作者要求"存档/保存/写入档案"已讨论的内容：本系统写入只有一条路——待采纳候选
-            经作者采纳。已有待采纳候选时按直接回复，明确告诉作者去候选卡上采纳（说出候选
-            是什么）；还没有候选时按单动作执行产出对应候选。永远不要声称"已存档/已保存"，
-            也不要引导作者重复发出同一请求。
 
           ## 输出要求（会逐字实时显示给作者）
           - 用自然中文输出一段连贯的判断说明：先复述你理解的作者意图，再说明你选择的形态与理由。
           - 如果你的判断是"直接回复"：判断说明之后空一行，接着输出给作者的回复正文（在这同一次
             输出里完成）。回复里若要给作者几个可选方向，把每个方向讲清楚。
           - 其它形态：只输出判断说明，不要开始执行。
+          - 说明当前拟议路径，未获得执行结果或采纳事实前不宣称操作已经完成。
           - 不要标题、JSON、代码块或内部机器名。
           """
         }
@@ -652,12 +682,15 @@ defmodule NovelApplication.JudgmentProtocol do
 
           #{Map.get(input, :author_content_context, "")}
 
+          #{TurnInteractionService.author_registration_rules()}
+
           ## 结论→action 映射（按判断说明的结论逐条对照）
-          - 判断说明结论是"单动作执行/生成正文/执行创作" → action=execute（capability 按目录填）。
+          - 原文登记与采纳状态分支先按上方业务规则处理，不因说明中的形态词改为创作重写。
+          - 其余请求的判断说明结论是"单动作执行/生成正文/执行创作" → action=execute（capability 按目录填）。
           - 结论是"需要先检索/查证" → action=explore。
           - 结论是"需要多步计划" → action=plan。
-          - 结论是"直接文字回复即可满足作者" → 仅此一种情况 action=reply。
-          - 禁止因为"本次调用是登记/记录"而填 reply——登记是系统流程，不是对作者请求的处置。
+          - 原文登记，或直接文字回复即可满足作者 → action=reply。
+          - 结构化填槽本身不是业务操作，不能因为本次是在填写结构就把其它业务动作改为 reply。
 
           ## 输出格式
           - native tool call：必须调用 #{@judgment_tool_name}，把判断放入 tool arguments。
@@ -679,7 +712,7 @@ defmodule NovelApplication.JudgmentProtocol do
             已采纳则据事实回应，不重复生成。来源不明确时 await_author 追问。
           - author_content_source_ref：本条原文填 current；历史原文填已列出的 turn_ref，
             不能填不存在或其他作品的编号。只说“存档”但原文在历史消息时，必须选择历史来源。
-            不登记原文时为 null。
+            登记时必填明确来源；不登记原文时为 null。缺失来源不能默认为 current。
           - dialogue_goal：用一句简短中文概括作者本轮目标；不得写系统执行步骤或内部推理。
           - candidate_directions：action=reply 时可携带创作方向或 capability_gap 的可行路径
             （每项 {title, pitch, tone_tags}）；没有选项时为空数组。

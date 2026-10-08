@@ -140,6 +140,7 @@ export const nativeSliceIds = [
   "au01-frame-validation-friendly-error",
   "au01-turnresult-recorder-ui-consistency",
   "q1b-live-archive-roundtrip",
+  "q3d-author-registration-guards",
   "q3d-message-outcome-roundtrip",
   "q3c-author-content-materialization",
   "q3b-capability-gap-honest-reply",
@@ -1646,6 +1647,7 @@ const sliceKeyEvents = {
   ],
   // Q3c 作者内容物化：判断链直答 + 作者字节候选 + 作者采纳。
   "q1b-live-archive-roundtrip": ["channel.user_message.start", "judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
+  "q3d-author-registration-guards": ["judgment.author_content_validation.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-message-outcome-roundtrip": [
     "channel.user_message.start", "context.assemble.done", "judgment.decided.done",
     "judgment.author_content_materialized.done", "channel.user_message.done", "adoption.evaluate.done",
@@ -2029,6 +2031,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au01-turnresult-recorder-ui-consistency") {
     return findAu01TurnresultRecorderUiConsistencyEvidence(records);
+  }
+
+  if (sliceId === "q3d-author-registration-guards") {
+    return findAuthorRegistrationGuardsEvidence(records);
   }
 
   if (["q3c-author-content-materialization", "q3d-message-outcome-roundtrip"].includes(sliceId)) {
@@ -2711,6 +2717,16 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (["q3c-author-content-materialization", "q3d-message-outcome-roundtrip"].includes(sliceId)) {
     return q3cAuthorContentBehavior(turnIds, turnRecords, records, sliceId);
+  }
+
+  if (sliceId === "q3d-author-registration-guards") {
+    const verified = findAuthorRegistrationGuardsEvidence(records);
+    if (!verified || verified.turn_id !== evidence.turn_id) return null;
+    return { slice_id: sliceId, turn_ids: verified.turn_ids,
+      behavior: "invalid_registration_stops_before_dispatch_and_corrected_source_can_be_adopted",
+      assertions: ["missing_and_foreign_sources_rejected", "creative_execution_conflict_rejected",
+        "failed_inputs_and_results_survive_reload", "corrected_historical_bytes_preserved",
+        "only_author_adoption_writes_fact"] };
   }
 
   if (sliceId === "q3b-capability-gap-honest-reply") {
@@ -12570,6 +12586,38 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
 
 // Q3c 作者内容物化：判定 capability_gap + 作者字节物化事件 + 作者采纳事件全在
 // app JSONL；采纳可发生在源 turn 关联的 author_action turn。
+function findAuthorRegistrationGuardsEvidence(records) {
+  const sliceId = "q3d-author-registration-guards";
+  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
+  if (!ui || !Array.isArray(ui.failed_turns) || ui.failed_turns.length !== 3) return null;
+  if (!["historical_bytes_preserved", "source_binding_preserved", "failed_results_restored",
+    "no_write_before_adoption"].every((key) => ui[key] === true) || ui.confirmed_fact_count !== 1) return null;
+  const expected = ["source_required", "source_not_available", "operation_conflict"];
+  if (new Set(ui.failed_turns.map((r) => r.turn_id)).size !== 3 ||
+    !expected.every((code) => ui.failed_turns.some((r) => r.reason_code === code && r.status === "failed"))) return null;
+  for (const failed of ui.failed_turns) {
+    const logs = records.filter((r) => r.turn_id === failed.turn_id);
+    if (!["retry", "rejected"].every((outcome) => logs.some((r) =>
+      r.event === "judgment.author_content_validation.done" && r.outcome === outcome &&
+      r.reason_code === failed.reason_code))) return null;
+    if (logs.some((r) => r.event?.startsWith("toolbox.execute.") ||
+      ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"].includes(r.event))) return null;
+  }
+  if (!ui.turn_id || !ui.source_turn_id || ui.turn_id === ui.source_turn_id ||
+    ui.failed_turns.some((r) => [ui.turn_id, ui.source_turn_id].includes(r.turn_id))) return null;
+  const corrected = records.filter((r) => r.turn_id === ui.turn_id);
+  if (!["judgment.decided.done", "judgment.author_content_materialized.done"].every((event) =>
+    corrected.some((r) => r.event === event))) return null;
+  if (!corrected.some((r) => r.event === "judgment.author_content_validation.done" &&
+    r.reason_code === "source_required" && r.outcome === "retry")) return null;
+  if (hasErrorEvent(corrected) || hasEventPrefix(corrected, "toolbox.execute.") ||
+    corrected.some((r) => r.event === "judgment.author_content_validation.done" && r.outcome === "rejected")) return null;
+  if (!records.some((r) => r.event === "adoption.evaluate.done" &&
+    (r.turn_id === ui.turn_id || String(r.turn_id ?? "").startsWith(`${ui.turn_id}:`)))) return null;
+  return { slice_id: sliceId, turn_id: ui.turn_id, turn_ids: [ui.turn_id],
+    source_turn_ref: ui.source_turn_id, failed_turns: ui.failed_turns };
+}
+
 function findQ3cAuthorContentEvidence(records, sliceId = "q3c-author-content-materialization") {
   const byTurn = groupByTurn(records);
 

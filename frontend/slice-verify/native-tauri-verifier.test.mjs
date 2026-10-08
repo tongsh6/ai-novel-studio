@@ -45,6 +45,41 @@ describe("Q1b 真实模型存档证据", () => {
   });
 });
 
+describe("Q3D 原文登记边界证据", () => {
+  const slice = "q3d-author-registration-guards";
+  const failed = ["source_required", "source_not_available", "operation_conflict"].map((reason_code) =>
+    ({ turn_id: reason_code, reason_code, status: "failed" }));
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "save", source_turn_id: "source",
+    failed_turns: failed, historical_bytes_preserved: true, source_binding_preserved: true,
+    failed_results_restored: true, no_write_before_adoption: true, confirmed_fact_count: 1 };
+  const records = [ui, ...failed.flatMap((entry) => ["retry", "rejected"].map((outcome) =>
+    ({ ...entry, event: "judgment.author_content_validation.done", outcome }))),
+    { turn_id: "save", event: "judgment.author_content_validation.done", reason_code: "source_required", outcome: "retry" },
+    { turn_id: "save", event: "judgment.decided.done" },
+    { turn_id: "save", event: "judgment.author_content_materialized.done" },
+    { turn_id: "save:adopt", event: "adoption.evaluate.done" }];
+
+  it("三类拒绝及纠正采纳有逐轮主链证据才通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence?.failed_turns).toEqual(failed);
+    expect(findSliceBehaviorEvidence(slice, records, evidence)).not.toBeNull();
+    expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
+  });
+
+  it("缺少一种拒绝、刷新证据或误执行工具不能通过", () => {
+    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "operation_conflict"))).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, failed_results_restored: false }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "source_required", event: "toolbox.execute.start" }])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "operation_conflict", event: "judgment.author_content_materialized.done" }])).toBeNull();
+  });
+
+  it("其他回合的采纳或纠正失败不能替代恢复成功", () => {
+    const unrelated = records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "save-other:adopt" } : r);
+    expect(findNativeSliceEvidence(slice, unrelated)).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "save", event: "judgment.author_content_validation.done", outcome: "rejected" }])).toBeNull();
+  });
+});
+
 describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-04 confirmation idempotency UI", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");

@@ -118,8 +118,86 @@ defmodule NovelApplication.TurnInteractionService do
     |> Enum.find_value(fallback, fn entry -> if entry.turn_ref == current_ref, do: entry.text end)
   end
 
-  def source_text(nil, current_text, _context, current_turn),
-    do: {:ok, current_turn, current_text}
+  @doc "原文登记的联合前置条件；只有显式来源和保真分支可以进入物化。"
+  def validate_author_registration(judgment, sources) do
+    result =
+      case value(judgment, :author_content_registration) do
+        true -> validate_registration_fields(judgment, sources)
+        flag when flag in [nil, false] -> :ok
+        _ -> {:error, :invalid_signal}
+      end
+
+    case result do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:author_content_registration_invalid, reason}}
+    end
+  end
+
+  defp validate_registration_fields(judgment, sources) do
+    source = value(judgment, :author_content_source_ref)
+
+    cond do
+      value(judgment, :action) != "reply" or
+          value(judgment, :frame_type) != "capability_gap" ->
+        {:error, :operation_conflict}
+
+      is_nil(source) or source == "" ->
+        {:error, :source_required}
+
+      source not in ["current" | sources] ->
+        {:error, :source_not_available}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc "两阶段共用的业务规则；登记作者原文与生成新内容是不同操作。"
+  def author_registration_rules do
+    """
+    ## 原文登记与采纳规则（优先于一般形态映射）
+    - 作者要求保留自己提供的具体原文时，按原文登记处理：选择直接回复，明确原文将成为
+      待采纳的作品设定候选；应用按来源逐字复制，不调用创作能力重写，也不直接写入档案。
+    - 原文来源必须明确：本条资料与已列出的历史资料分别引用，不能把来源缺失猜成当前
+      保存指令。来源不明确时等待作者补充，不登记、不生成候选。
+    - 同一来源已有待采纳候选时，引导作者采纳；已经采纳时据实际事实回答，不重复生成。
+      状态追问不重开创作，运行完成不等于已保存，只有采纳/实际写入事实支持已入档的说法。
+    - 只有作者确实要求生成或改写新内容时，才选择创作执行；不能把原文登记转成创作重写。
+    """
+  end
+
+  def author_registration_retry_hint(reason, sources) do
+    detail =
+      case reason do
+        :operation_conflict ->
+          "author_content_registration=true 只能搭配 action=reply、frame_type=capability_gap。"
+
+        :source_required ->
+          "启用原文登记时 author_content_source_ref 必填，不能为 null 或缺失。"
+
+        :source_not_available ->
+          "原文来源不在本次上下文的合法来源集合内。"
+
+        :invalid_signal ->
+          "author_content_registration 必须是布尔值。"
+      end
+
+    detail <>
+      "来源只能填 #{Enum.join(["current" | sources], " / ")}；必须按作者意图修正，" <>
+      "不能把保留原文改成创作重写来绕过校验。来源不明确时 action=await_author，" <>
+      "author_content_registration=false，请求作者补充来源。"
+  end
+
+  @doc "业务校验失败后的作者安全说明，不暴露机器编号或模型原始载荷。"
+  def author_registration_failure_message(reason)
+      when reason in [:source_required, :source_not_available],
+      do: "这次未能确定要保存的原文来源，没有生成候选或写入档案。请明确指出要保存哪条资料，或重新提供原文。"
+
+  def author_registration_failure_message(_reason),
+    do: "这次原文登记的处理方式未通过校验，已停止，没有改写原文、生成候选或写入档案。请明确要保留哪份原文后再试。"
+
+  def source_text(nil, _current_text, _context, _current_turn),
+    do: {:error, {:author_content_registration_invalid, :source_required}}
 
   def source_text("current", current_text, _context, current_turn),
     do: {:ok, current_turn, current_text}
@@ -127,7 +205,7 @@ defmodule NovelApplication.TurnInteractionService do
   def source_text(ref, _current_text, context, current_turn) do
     case Enum.find(author_sources(context, current_turn), &(&1.turn_ref == ref)) do
       %{text: text} -> {:ok, ref, text}
-      _ -> {:error, :author_content_source_not_available}
+      _ -> {:error, {:author_content_registration_invalid, :source_not_available}}
     end
   end
 

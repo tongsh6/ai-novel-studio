@@ -70,9 +70,45 @@
 
 | 待收口 | 状态 | 完整验收后果 |
 |---|---|---|
-| BIZ-01 来源缺失不能保存指令；BIZ-02 原文登记与创作执行互斥 | next | 来源缺失/越界/矛盾组合须拒绝或澄清；正常当前/历史原文仍逐字进入候选；真实页面、trace、消息状态及采纳无回归 |
+| BIZ-01 来源缺失不能保存指令；BIZ-02 原文登记与创作执行互斥 | done（2026-10-08） | 来源缺失/越界/矛盾组合须拒绝或澄清；正常当前/历史原文仍逐字进入候选；真实页面、trace、消息状态及采纳无回归 |
 | BIZ-03 待采纳状态独立于聊天分页与上下文预算 | todo | 20 轮后刷新仍有待办；80 条窗口外旧候选仍可查询；省略数真实，Agent 与 UI 消费同一完整业务事实 |
 | BIZ-04 真实 UI 的发送身份与重传闭环 | todo | 稳定 ID 进入 wire；ack 丢失/断线/刷新重试不重复运行；已完成/已失败/无 runtime 返回真实回执状态 |
 
-本轮仅审计，未修复生产代码；参数测量停止。下次从 BIZ-01/02 开始，不能只改 prompt 或延长超时，
+审计阶段仅记录问题，未修复生产代码；参数测量停止。随后从 BIZ-01/02 开始实施，不能只改 prompt 或延长超时，
 也不能以单个守卫或局部测试替代本表的完整用户场景。
+
+
+### BIZ-01/02 实施 checkpoint（2026-10-08）
+
+本 checkpoint 属于上表完整 Q3D 业务收口，BIZ-03/04 保留为下一 checkpoint。
+Contract：ADR-0027 D4 的显式来源与操作组合；Invariant：原文字节、无隐式来源、无提前写入；
+Boundary：application 判断解析与派发、AgentRun 失败持久化；既有 provider 更新显式来源契约，
+错误注入只在 test/support，生产 UI/domain/persistence 不新增验收逻辑。
+Consumer：真实工作台失败反馈、刷新恢复及采纳；Proof：协议/编排/来源测试、全门禁、四项不变量；
+Acceptance Driver：新增 `q3d-author-registration-guards`，并回归 q3d/q3c 正常路径；
+Exploration：没有新增要素类型，沿用 world_setting 候选和采纳后的档案探索入口。
+实施结果：同一联合校验由解析与派发共同消费，显式来源方可物化；两阶段 prompt 共用规则。
+失败沿现有 AgentRun → Interaction → TurnResult 留痕，不新增状态枚举或生产验收逻辑。
+原有 Stub 与 test/support provider 补 `current` 来源以符合既有契约；故障注入仅在 test/support。
+
+验证记录：
+
+- 外部真实页面：`q3d-author-registration-guards`、`q3d-message-outcome-roundtrip`、
+  `q3c-author-content-materialization` 均 PASS（`bash scripts/quality_accept.sh <id> --surface tauri`）。
+  三类错误在一次纠正仍失败后安全停止；各输入 handling=failed/result_turn_refs 完整，
+  刷新无候选、作品事实为零；纠正场景保留历史原文字节及来源，作者采纳后唯一 CONFIRMED。
+  截图、帧、app JSONL、三份 `*-restored.json` 与 `adopted-restored.json` 在各自 artifacts 目录。
+- 局部/全量：48 项定向测试、1,517 项后端测试、467 项前端测试、207 项外部证据验证器测试通过。
+  `mix compile --warnings-as-errors`、xref cycles、arch_check、前端 typecheck/lint/test 均通过。
+- 未修改规则的 I3 3/3、I1 4/4、I2 三组两两不交、N-NARR 均通过；证据
+  `artifacts/project-analysis/biz12-run_*.log`。
+- `bash scripts/build_sidecar.sh`、`bash scripts/frontend_audit.sh`（含 Tauri 构建）通过，
+  .app/.dmg 已包含本批 sidecar；本机 ad-hoc 签名，未做 Apple 公证。
+- `bash scripts/ai_static_scan.sh --top 10`：首扫只新增过期任务清单阻断，最终清单刷新后复扫。
+  本批生产/测试文件无 finding；存量三项继续按长期台账处理：Pencil fileToken 误报、
+  另一开发线历史凭证 accepted_risk（所有者轮换/清理）、ChapterSummary 嵌套 deferred。
+  明细见 `artifacts/static-scan/top10.md`、`disposition.md`、`report.json`。
+- 边界：Tauri 已运行，外部 Playwright 驱动实际 App/WorkspaceChat 页面，不是 native WebView。
+  使用可控测试 provider 注入异常，不宣称本次重新完成真实 Qwen 语义质量复验。
+- 下一 checkpoint：BIZ-03 将完整待采纳事实与聊天分页/模型预算分离；随后 BIZ-04 入口发送身份与重传。
+  Q3D / Journey C9 整体仍未闭环。

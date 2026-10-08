@@ -2229,7 +2229,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       |> then(fn args ->
         # Q3c：存档意图消息本身携带内容原文——注册信号置真（与生产判别规则同语义）。
         if archive_write_prompt?(prompt),
-          do: Map.put(args, "author_content_registration", true),
+          do:
+            Map.merge(args, %{
+              "author_content_registration" => true,
+              "author_content_source_ref" => "current"
+            }),
           else: args
       end)
       |> then(fn args ->
@@ -2344,8 +2348,32 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         "author_content_source_ref" =>
           if(registration? and source, do: source["turn_ref"], else: nil)
       })
+      |> author_registration_boundary_arguments(prompt)
     else
       arguments
+    end
+  end
+
+  # 仅在 test/support 注入错误模型决定，供外部真实页面验证业务拒绝与纠正路径。
+  defp author_registration_boundary_arguments(arguments, prompt) do
+    input = judgment_author_input(prompt)
+
+    cond do
+      String.contains?(input, "来源缺失样例") ->
+        Map.put(arguments, "author_content_source_ref", nil)
+
+      String.contains?(input, "越界来源样例") ->
+        Map.put(arguments, "author_content_source_ref", "unavailable-author-source")
+
+      String.contains?(input, "矛盾动作样例") ->
+        Map.merge(arguments, %{"action" => "execute", "capability" => "world_building"})
+
+      String.contains?(input, "一次纠正样例") and
+          not String.contains?(prompt, "## 原文登记未通过业务校验") ->
+        Map.put(arguments, "author_content_source_ref", nil)
+
+      true ->
+        arguments
     end
   end
 

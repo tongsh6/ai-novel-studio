@@ -513,9 +513,15 @@ defmodule NovelApplication.AgentRunServer do
   defp provider_failure_reason?(reason),
     do: is_map(reason) and is_atom(Map.get(reason, :type))
 
+  defp failure_family_reason_codes({:author_content_registration_invalid, reason}),
+    do: ["author_content_registration_invalid", Atom.to_string(reason)]
+
   defp failure_family_reason_codes(reason) do
     if provider_failure_reason?(reason), do: ["provider_error"], else: []
   end
+
+  defp failure_author_summary({:author_content_registration_invalid, _}),
+    do: "原文登记未通过校验，本轮已安全停止。"
 
   defp failure_author_summary(reason) do
     if provider_failure_reason?(reason) do
@@ -555,6 +561,9 @@ defmodule NovelApplication.AgentRunServer do
 
   defp failure_fallback_message(:interaction_persistence_failed),
     do: "本轮结果未能保存，已停止发布成功结果。请稍后重试。"
+
+  defp failure_fallback_message({:author_content_registration_invalid, reason}),
+    do: TurnInteractionService.author_registration_failure_message(reason)
 
   defp failure_fallback_message(reason) do
     if provider_failure_reason?(reason) do

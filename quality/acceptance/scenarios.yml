@@ -1274,6 +1274,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/q1b-live-archive-roundtrip.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh q1b-live-archive-roundtrip --surface tauri
+  - id: q3d-author-registration-guards
+    title: "Q3D 原文登记来源与操作边界"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q3d-author-registration-guards.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh q3d-author-registration-guards --surface tauri
   - id: q3d-message-outcome-roundtrip
     title: "Q3D 消息处置与跨轮结果关联"
     tier: nightly

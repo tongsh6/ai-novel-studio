@@ -1,0 +1,44 @@
+id: q3d-author-registration-guards
+title: 原文登记来源与操作边界
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q3d-author-registration-guards --surface tauri
+contract:
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - tasks/slices/Q3D-message-outcome-roundtrip.md
+invariants:
+  - author-source-required-and-scoped
+  - registration-does-not-dispatch-creative-execution
+  - failed-input-and-result-survive-reload
+  - only-author-adoption-writes-facts
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - open: Tauri 运行中的真实工作台页面
+  - input: 提供带随机标识的原文，先记录不生成
+  - input: 分别请求保存，test/support provider 注入缺失来源、越界来源、矛盾动作
+  - reload: 每次失败状态恢复，无候选和采纳入口
+  - input: 再请求保存，provider 首次缺失来源、收到纠正提示后引用历史来源
+  - click: 作者采纳原文候选
+  - reload: 待办清除，只有一条已采纳事实
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q3d-author-registration-guards-tauri
+assertions:
+  ui:
+    - 失败说明可见，刷新后仍可继续发送
+    - 纠正后候选保留历史原文字节
+  network:
+    - 错误登记返回 failed 且无工具调用和写入
+    - 纠正后 provider_call_ref 绑定原文 turn
+    - 作者动作返回 ACCEPTED
+  data:
+    - 失败回填原输入及结果引用，并有对应拒绝日志
+    - 拒绝前没有创作派发或物化事件
+    - 采纳前零事实，采纳后唯一事实
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

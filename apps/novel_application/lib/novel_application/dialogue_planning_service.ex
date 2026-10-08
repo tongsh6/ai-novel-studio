@@ -608,7 +608,19 @@ defmodule NovelApplication.DialoguePlanningService do
       explorations = judgment_explorations(state)
       protocol_input = judgment_protocol_input(input, run, context, explorations)
 
-      case JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input) do
+      # 模型纠正与执行前检查共用业务规则；无效操作不能发布为已裁决并进入创作分支。
+      result =
+        with {:ok, judgment} <-
+               JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input),
+             :ok <-
+               TurnInteractionService.validate_author_registration(
+                 judgment,
+                 protocol_input.options[:author_content_sources]
+               ) do
+          {:ok, judgment}
+        end
+
+      case result do
         {:ok, %{action: "explore"} = judgment} ->
           emit_judgment_decided(snapshot, judgment)
           judgment_explore_result(judgment, run, sequence, input, context, snapshot, explorations)

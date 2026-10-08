@@ -132,6 +132,24 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert entry.content["agent_run_id"] == run.run_id
   end
 
+  test "业务信号必须是布尔值，未启用分支不消费来源字段" do
+    assert {:error, {:author_content_registration_invalid, :invalid_signal}} =
+             TurnInteractionService.validate_author_registration(
+               %{author_content_registration: "true"},
+               []
+             )
+
+    assert :ok =
+             TurnInteractionService.validate_author_registration(
+               %{
+                 action: "execute",
+                 author_content_registration: false,
+                 author_content_source_ref: "foreign"
+               },
+               []
+             )
+  end
+
   test "历史来源只从上下文白名单读取，物化不改原文字节" do
     raw = "  原文\n第二行  "
 
@@ -153,8 +171,14 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert {:ok, "source-1", ^raw} =
              TurnInteractionService.source_text("source-1", "请存档", context, "current-2")
 
-    assert {:error, :author_content_source_not_available} =
+    assert {:error, {:author_content_registration_invalid, :source_not_available}} =
              TurnInteractionService.source_text("foreign-source", "请存档", context, "current-2")
+
+    assert {:error, {:author_content_registration_invalid, :source_required}} =
+             TurnInteractionService.source_text(nil, "把上一条原文存档", context, "current-2")
+
+    assert {:ok, "current-2", ^raw} =
+             TurnInteractionService.source_text("current", raw, context, "current-2")
 
     assert {:ok, artifact} = ArtifactAssembler.assemble_author_content("source-1", raw)
     assert hd(artifact.items).body == raw

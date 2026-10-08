@@ -53,7 +53,12 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 
 - 判断协议增加可选 `author_content_source_ref`：引用当前输入或本次上下文列出的历史作者 turn。
   该字段仅在 `author_content_registration=true` 分支参与来源校验和消费；未启用登记时
-  归一为空来源，不得因未使用字段的占位值阻断普通回复。启用登记后的非法值仍拒绝。
+  归一为空来源，不得因未使用字段的占位值阻断普通回复。启用登记时来源必填：
+  本条原文显式填 `current`，历史原文填本次提供的 `turn_ref`；缺失值不得默认当前输入。
+- 原文登记仅允许 `action=reply`、`frame_type=capability_gap` 的保真物化路径，与
+  execute/plan/explore/await_author 互斥。来源不明确需要澄清时，关闭登记信号再等待作者。
+  两阶段判断共用业务规则；解析时给予一次明确纠正机会，执行派发前复核同一规则。
+  仍不合法则诚实失败，持久记录消息及失败结果，不派发创作工具、不生成候选、不入档。
 - 来源选择归模型，合法来源集合、作用域和字节复制由应用层校验；禁止按「上一条」关键词
   在生产代码硬选来源，也不允许模型直接提供待保存正文来冒充作者原文。
 - 候选的 `source_turn_ref` 仍指当前生成/采纳动作所属 turn；原文来源单独由
@@ -90,3 +95,5 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 - apps/novel_application/test/novel_application/turn_interaction_service_test.exs
 - apps/novel_persistence/test/novel_persistence/interaction_lifecycle_test.exs
 - quality/acceptance/scenarios/q3d-message-outcome-roundtrip.yml
+
+- quality/acceptance/scenarios/q3d-author-registration-guards.yml

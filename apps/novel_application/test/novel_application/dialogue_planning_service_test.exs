@@ -232,6 +232,39 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert path.title == "把这份内容整理为待采纳设定"
   end
 
+  test "原文登记缺来源或动作矛盾时不返回产物或创作 profile" do
+    for {action, capability, source, reason} <- [
+          {"reply", nil, nil, :source_required},
+          {"reply", nil, "foreign", :source_not_available},
+          {"execute", "world_building", "current", :operation_conflict}
+        ] do
+      execution =
+        judgment_execution(action, capability,
+          frame_type: "capability_gap",
+          author_content_registration: true,
+          author_content_source_ref: source
+        )
+
+      {:ok, spec} =
+        DialoguePlanningService.plan_agent_run(
+          %{
+            text: "把上一条原文保存为作品设定",
+            workspace_id: "ws-guard",
+            work_id: "work-guard",
+            session_id: "session-guard",
+            turn_id: "guard-#{reason}"
+          },
+          nil,
+          execution
+        )
+
+      {:ok, run} = AgentRun.new(spec.run_attrs)
+
+      assert {_context, {:error, {:author_content_registration_invalid, ^reason}}} =
+               drive_judgment_result(spec, run, fn _ -> :ok end)
+    end
+  end
+
   test "Q3c 作者内容物化：注册信号把作者消息字节变成待采纳 world_setting 候选" do
     author_text = "把这份大纲直接存档为作品设定：主角李衡靠账单推演天机，第一卷从记账学徒写到执掌灵市。"
 
@@ -241,7 +274,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         reply_included: true,
         frame_type: "capability_gap",
         dialogue_goal: "把作者提供的内容登记进作品档案",
-        author_content_registration: true
+        author_content_registration: true,
+        author_content_source_ref: "current"
       )
 
     assert {:ok, spec} =
@@ -563,6 +597,12 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
   # 驱动判断循环前两步：机械准备 context（0 调用）→ 判断①。
   defp drive_judgment(spec, run, sink) do
+    {context, result} = drive_judgment_result(spec, run, sink)
+    assert {:ok, judgment} = result
+    {context, judgment}
+  end
+
+  defp drive_judgment_result(spec, run, sink) do
     empty = %{stage_state: %{}, observations: [], events: [], stage_sink: sink}
 
     assert {:execute, context_step, context_decision, context_meta} =
@@ -585,9 +625,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     assert judgment_decision.target_tool_ref == "judgment"
     assert judgment_meta.provider_call_count == 0
-    assert {:ok, judgment_result} = judgment_step.(run, 2, snapshot)
-
-    {context_result, judgment_result}
+    {context_result, judgment_step.(run, 2, snapshot)}
   end
 
   defp capability_for_profile_ref("character_design_with_context_v1"), do: "character_design"
@@ -618,6 +656,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       |> maybe_put_binary("frame_type", Keyword.get(opts, :frame_type))
       |> maybe_put_binary("dialogue_goal", Keyword.get(opts, :dialogue_goal))
       |> maybe_put("author_content_registration", Keyword.get(opts, :author_content_registration))
+      |> maybe_put("author_content_source_ref", Keyword.get(opts, :author_content_source_ref))
 
     %Execution{
       result_fn: fn prompt ->

@@ -10,6 +10,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.JudgmentProtocol
+  alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.ProviderOutput
 
   @narrative "你想探索方向；我先给你两个候选切入。"
@@ -97,8 +98,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   end
 
   test "启用原文登记后占位字符串或错误类型仍是非法来源，重试不能放过" do
-    for source <- ["null", "", " ", %{unexpected: true}] do
-      assert {:error, {:judgment_decision_unparseable, _}} =
+    for source <- [nil, "null", "", " ", %{unexpected: true}] do
+      assert {:error, {:author_content_registration_invalid, _}} =
                request(%{
                  "action" => "reply",
                  "frame_type" => "capability_gap",
@@ -107,6 +108,79 @@ defmodule NovelApplication.JudgmentProtocolTest do
                  "author_content_source_ref" => source
                })
     end
+  end
+
+  test "原文登记与 execute/plan/explore/await_author 或其它回复形态互斥" do
+    base = %{
+      "action" => "reply",
+      "frame_type" => "capability_gap",
+      "author_content_registration" => true,
+      "author_content_source_ref" => "current"
+    }
+
+    for action <- ["execute", "plan", "explore", "await_author"] do
+      args =
+        Map.merge(base, %{
+          "action" => action,
+          "capability" => "world_building",
+          "explore_request" => %{"tool" => "archive_read", "query" => "rules"}
+        })
+
+      assert {:error, {:author_content_registration_invalid, :operation_conflict}} =
+               request(args,
+                 explore: true,
+                 explore_tools: ["archive_read"],
+                 capabilities: ["world_building"]
+               )
+    end
+
+    for frame <- [nil, "casual_reply", "question_answer"] do
+      assert {:error, {:author_content_registration_invalid, :operation_conflict}} =
+               request(Map.put(base, "frame_type", frame))
+    end
+  end
+
+  test "登记错误的纠正提示带具体约束，纠正后保留真实来源" do
+    good = %{
+      "action" => "reply",
+      "frame_type" => "capability_gap",
+      "author_content_registration" => true,
+      "author_content_source_ref" => "original"
+    }
+
+    missing = Map.delete(good, "author_content_source_ref")
+
+    assert {:ok, judgment} =
+             request_with_retry(missing, good, author_content_sources: ["original"])
+
+    assert judgment.author_content_source_ref == "original"
+    assert judgment.provider_call_count == 3
+    assert_receive {:retry_prompt, prompt}
+    assert prompt =~ "author_content_source_ref 必填"
+    assert prompt =~ "current / original"
+
+    conflict = Map.merge(good, %{"action" => "execute", "capability" => "world_building"})
+
+    assert {:ok, %{action: "reply"}} =
+             request_with_retry(conflict, good,
+               capabilities: ["world_building"],
+               author_content_sources: ["original"]
+             )
+
+    assert_receive {:retry_prompt, prompt}
+    assert prompt =~ "只能搭配 action=reply"
+  end
+
+  test "两阶段消费同一份原文登记/采纳业务规则，不把原文登记强制映射为创作执行" do
+    input = %{author_text: "保存我的原文", context_block: "", options: []}
+    rule = TurnInteractionService.author_registration_rules() |> String.trim()
+    narrative = JudgmentProtocol.narrative_prompt(input) |> prompt_text()
+    decision = JudgmentProtocol.decision_prompt(input, @narrative) |> prompt_text()
+    assert narrative =~ rule
+    assert decision =~ rule
+    refute narrative =~ "还没有候选时按单动作执行"
+    refute narrative =~ "永远不要声称"
+    refute decision =~ "仅此一种情况 action=reply"
   end
 
   # call2 首轮返回 first_arguments、重试轮返回 retry_arguments；重试轮 prompt
