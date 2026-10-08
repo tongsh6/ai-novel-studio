@@ -1,12 +1,12 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-10-05（业务审计重开 Q3d，DS02/Q1b 限定场景证据保留；下方初检及日期补充为历史记录，不代表同一时点状态）
+> 最后更新：2026-10-08（当前实模数据链通过，语义验收新增 BIZ-05；历史记录保留各自版本边界）
 >
-> Q3d 既有正常路径结果：ADR-0027 经用户确认修订 Accepted，复用 Interaction/AgentRun/采纳事实，未引入第六账。输入先持久化再成功接收；统一记录各 flow 结果；历史原文来源与本轮动作归属分离；下一轮读取真实处理/采纳状态。q3d 多轮页面与 q3c 兼容回归通过，1506 后端/450 前端测试及四项不变量通过，完整扫描无新增阻断；具体证据与有界上下文、确定性 provider 等边界见 Q3D slice。
+> Q3d 初轮正常路径证据（历史）：ADR-0027 经用户确认修订 Accepted，复用 Interaction/AgentRun/采纳事实，未引入第六账。输入先持久化再成功接收；统一记录各 flow 结果；历史原文来源与本轮动作归属分离；下一轮读取真实处理/采纳状态。q3d 多轮页面与 q3c 兼容回归通过，1506 后端/450 前端测试及四项不变量通过，完整扫描无新增阻断；具体证据与有界上下文、确定性 provider 等边界见 Q3D slice。
 > DS02 当前结果：候选初态与线格式采用 canonical 七态；历史 Interaction 只在读取边界兼容小写，前端恢复 codegen 枚举校验与告警，移除 ArtifactEntry 手写状态类型。q3d 历史 tentative/accepted 恢复及作者采纳、角色候选页面回归通过；1510 后端/461 前端测试、四项不变量及桌面构建通过。完整证据与扫描处置见 `tasks/slices/DS02-adoption-status-canonicalization.md`。
-> Q1b 当前结果：修复原文登记未启用时无关来源字段误拦截；Qwen 四轮八次真实调用与真实页面通过原文存档、零提前写入、唯一已确认事实和刷新追问；首轮格式失败及主机休眠中断单独留证。1512 后端/461 前端/204 验收器、四项不变量及完整扫描通过，详见 Q1B slice。
-> 2026-10-08 业务审计纠偏：短会话正常路径通过不代表完整业务闭环；已复现来源缺失保存指令、互斥决策被接受、分页导致待采纳丢失，并发现真实 UI 未传稳定消息身份。审计报告见 `docs/design/notes/2026-10-08-agentic-business-scenario-audit.md`。生产尚未修复。
-> 当前唯一 next 重开为 Q3d / Journey C9 的 BIZ-01–04 收口；模型耗时降为观察项，停止参数对照。原第六账未接受。
+> Q1b 当前结果（77bf8389）：Qwen 四回合九次 HTTP 200，原文、来源、采纳前零事实/采纳后唯一 CONFIRMED、刷新追问的数据断言通过。人工核对发现首轮仅记录仍出现方向卡，操作建议也被当创作方向；因此完整业务语义未通过，不能把脚本 PASS 当总体验收成功。见 Q1B slice。
+> 2026-10-08 业务审计进展：BIZ-01–04 已由 b0161af2、f81a4b0a、77bf8389 修复并完成故障/恢复矩阵；当前实模新增 BIZ-05，详见 §8.1 与 `docs/design/notes/2026-10-08-agentic-business-scenario-audit.md` §9。
+> 当前唯一 next 为 Q3d / Journey C9 的 BIZ-05：仅记录约束、创作方向与操作建议的产出/动作边界。性能保持观察项，不恢复参数对照。
 > B16 当前结果：后端 Phoenix 已精确更新为 1.8.9，其他 Hex 锁项不变；用户授权以既有 pnpm 10.33.0 恢复前端锁定依赖。1,492 个后端测试、450 个前端测试、编译、架构、四项不变量和前端检查通过；完整静态扫描返回 0（17 PASS / 2 既有 FAIL，3 个已处置 finding，0 blocking）。台账四个原 pending 项已按实际结果记 fixed。
 > 外部真实工作台 `q3c-author-content-materialization --surface tauri` 通过，使用确定性 provider；Tauri 启动和 Playwright 页面驱动分别留证，不宣称直接操作 native WebView。sidecar 与桌面包已重建，清理旧生成目录后 sidecar 只含 Phoenix 1.8.9；无生产 app 行为改动。细节及限制见 `tasks/NEXT.md` §6 B16。
 > 当前推进入口：`tasks/NEXT.md`。已核对提交：Q0 `739b9b79`、Q1a `dcc0aa47`、Q2 `8b03a9db`、Q3a `d4443b57`、Q3b `5fb452c6`、Q3c `ff69e43d`、Q4 轻量机制 `d37409b4`。
@@ -402,6 +402,12 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 
 > 来源：`walkthroughs/2026-05-09/REPORT.md` 与 `docs/design/acceptance/README.md` §缺口总览。
 > 任何"主链已 done"的判断必须先与本表对账。
+
+#### 当前实模回归新发现（2026-10-08）
+
+| ID | 问题 | 优先级 | 证据 / 当前状态 | 责任切片 |
+|---|---|---|---|---|
+| BIZ-05 | 仅记录仍产方向卡；采纳/修改/丢弃/只读查看等操作建议获得创作方向采用动作 | P2 | **未修复**。77bf8389 实模四轮的自动数据断言 PASS，但语义验收未通过；`01-source.png` / `02-save-request.png` 与 live-turn-results 证明 UI/动作错配，公开入口重放把“丢弃候选”接受为 work_direction；没有点击该分支写作品事实。证据 `artifacts/project-analysis/q1b-biz-semantic-review.json`、`q1b-biz-operation-direction-repro.json`；需同批加强外部页面断言并修生产语义，不以静态扫描或 pending=0 代替验收。 | `tasks/slices/Q3D-message-outcome-roundtrip.md` BIZ-05；Q1B 修后复验 |
 
 #### Walkthrough 跟踪（2026-05-09 走查 5 项）
 

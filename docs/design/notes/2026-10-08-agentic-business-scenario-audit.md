@@ -193,3 +193,38 @@ BIZ-03/04 仍未闭环，下一 checkpoint 为完整待采纳业务状态；实�
 状态和落盘结果。外部代理实际丢弃回执、断连、刷新和重启测试服务后，原输入与运行均不重复；
 引导版本保持 2。明确拒绝时原文留存且不会自动重试。Q3D 反例收口已完成，完整证据见 Q3D slice。
 下一步 Q1b 对当前 BIZ-01–04 版本进行真实模型语义回归，仍不进行超时参数优化。
+
+
+## 9. 当前版本实模复验：BIZ-05（P2，未修复）
+
+代码 77bf8389；Qwen 四回合九次真实调用，原文/采纳/刷新数据链通过，但整个业务语义验收未通过。
+证据与完整边界见 Q1B slice，不能把自动脚本 PASS 外推为所有输出都符合作者要求。
+
+| 场景 | 实际输出 | 问题 |
+|---|---|---|
+| 仅记录资料，暂不生成候选 | public narrative 声称不生成；call2 声明 meta_discussion 却给 3 个方向，App 改判 creative_exploration | 显式输出约束没有覆盖所有候选类型，程序把多余候选升级为探索，而非核对矛盾 |
+| 要求原文存档 | 真实 artifact 之外，采纳/修改/丢弃建议获得“设为后续方向”按钮 | 流程选项被错误授予创作方向选择动作 |
+| 采纳后查状态 | 正确回答已保存，但“只读查看作品档案”也成为方向候选 | 操作建议与创作内容方向仍混在同一载体 |
+
+已核实链路：
+
+1. JudgmentProtocol 对 capability_gap 明确要求用 candidate_directions 携带最近路径；普通回复也允许方向。
+2. DialoguePlanningService 的 judgment_exploratory?/judgment_reply_frame 根据候选非空强转帧；本轮原始
+   meta_discussion / question_answer 被转成 creative_exploration，候选的业务用途没有被区分。
+3. AvailableActionBuilder.candidate_actions 对任意非空候选列表发放 choose_candidate。
+4. DialogueGateway 将这些条目默认映射到 work_direction；局部重放真实载荷中的“丢弃候选”得到
+   “已将「丢弃候选」设为后续创作方向”，truthfulness.artifact_adopted=true，但 production_write=false。
+
+本轮没有点击错误按钮写作品事实，不能声称已经污染作品；确认的是错误的可用动作和接受语义。
+BIZ-01–04 的已完成证据仍有效；新增问题归 Q3D/BIZ-05，属于真实场景发现的新缺口。
+
+修复方向：先明确“本轮仅记录”“创作方向”“协作/操作建议”的契约边界，再联动判断输出、
+App 校验、available_actions 和 UI 消费。操作建议不得被当作创作方向采用，已有 artifact 的真实
+accept/discard/edit 动作应准确承接；不能仅改中文文案、匹配关键词或隐藏错误结果。
+同批补验收：首轮不允许 pending artifact 或 candidate_directions；状态/流程选项不得授予
+choose_candidate；正常创作方向的讨论/采用与真正 artifact 的采纳/放弃/修改仍需回归。
+登记轮发生一次 frame_type 纠正，现有守卫安全拦截后恢复；是否需要进一步解耦呈现分类与业务操作，
+应结合上述边界审视，不能借本次观测放宽来源/写入保护。
+
+证据：`artifacts/slice-verify/q1b-live-archive-roundtrip-tauri-lmstudio/01-source.png`、`02-save-request.png`、
+`live-turn-results.json`；`artifacts/project-analysis/q1b-biz-operation-direction-repro.json` 及可复跑脚本。

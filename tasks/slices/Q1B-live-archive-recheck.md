@@ -1,6 +1,7 @@
 # Q1b 真实模型多轮存档复验
 
-- 状态：next / regression（BIZ-01–04 修复后整批复验）；2026-10-08 原 LM Studio / qwen/qwen3.8-27b 证据保留。
+- 状态：回归已执行 / 语义未闭环（2026-10-08，代码 77bf8389）；数据断言通过，新增 BIZ-05 转 Q3D 当前队首。
+- 下方旧任务表、局部验证及八次调用属于修复前基线；本轮四回合九次调用与语义结论见文末。
 - 范围：NEXT Q1b / Journey C10；复验 D8 症状，消费已完成的 Q3d 与 DS02。
 - 前置：DS02 已提交 `864eebc1`；此前 1510 后端/461 前端、两场景、四项不变量及完整扫描通过。
 
@@ -40,7 +41,7 @@
 
 ## 恢复指引
 
-先读 NEXT；本轮 Qwen 证据已闭环，下一项为 UA01-CALL2 性能与叙事/结构一致性测量。需要复跑时运行 `scripts/quality_accept.sh q1b-live-archive-roundtrip --surface tauri`，
+先读 NEXT；以下实模记录属于此前版本，当前恢复点是文末 BIZ-01–04 后整批回归。性能测量已按用户要求停止。需要复跑时运行 `scripts/quality_accept.sh q1b-live-archive-roundtrip --surface tauri`，
 固定已有 pnpm 10.33.0，显式指定独立 NOVEL_TEST_DB_DIR / MIX_TEST_PARTITION；真实模型调用可能耗时，
 通过 live-turn-results.json 和 app/LLM 日志观察进展，不能降低断言或改为 fake provider 压绿。
 
@@ -57,7 +58,7 @@
 - 以上仅为局部及既有页面回归证据；Q1b 四轮真实模型场景以任务表和最终运行结果为准。
 
 
-## 最终实模证据与边界
+## 历史实模证据与边界（BIZ 修复前）
 
 `bash scripts/quality_accept.sh q1b-live-archive-roundtrip --surface tauri` 通过。
 使用已加载的 qwen/qwen3.8-27b，经 LM Studio 正常 provider 调用；四个真实作者回合共八次 HTTP 200，
@@ -78,7 +79,7 @@ CandidateDirection，未被当成新待采纳产物或作品事实。
 新增验收器最初只认可冒号派生形式，现按实际契约接受精确来源或其冒号派生，同时负例拒绝相似
 前缀的其他 turn。未修改四轮 UI、字节、真实 provider 或数据库断言来压绿，204 项验收器测试通过。
 
-### 本轮观察到的新断点
+### 历史观察（BIZ 修复前）
 
 存档轮 call2 耗时 **536,689ms**，消耗 13,970 completion tokens（其中 13,646 reasoning tokens），
 而真正结构输出仅约 324 tokens。四轮最终结构判定均正确，但延迟仍不适合顺畅创作。
@@ -101,3 +102,51 @@ call2 延迟、推理量和叙事/结构一致性，再决定协议或目的模�
 Q3D 的确定性业务反例与传输故障矩阵已闭环；当前队首回到本任务。
 沿用既有 q1b-live-archive-roundtrip 和当前模型，重点核对意图、历史原文、待采纳/已采纳事实
 与刷新恢复，不恢复参数/超时对照。原有实模证据只覆盖此前版本，不能替代这一批回归。
+
+
+### 当前运行（2026-10-08，代码 77bf8389）
+
+已只读确认 LM Studio 加载 qwen/qwen3.8-27b（MLX 4bit）。使用独立分区 q1b_biz_77bf、
+独立 4857/5869 端口、既有 pnpm 10.33.0 和原验收断言。仅外部证据等待窗使用 3600 秒，
+未修改产品超时或模型参数。命令周期内 caffeinate -i 防空闲休眠，不改变机器电源设置。
+旧实模证据备份至 `artifacts/slice-verify/q1b-live-archive-roundtrip-tauri-lmstudio-before-biz-77bf8389/`。
+本轮日志为 `artifacts/project-analysis/q1b-biz-live.log`；最终按下方数据与语义分别记录结果。
+
+
+### 本轮结果：数据断言通过，业务语义未通过
+
+- 实际模型：qwen/qwen3.8-27b，四个用户回合、九次 chat/completions HTTP 200；未切换模型、
+  未改推理参数、未注入结果或业务数据。`q1b-live-archive-roundtrip --surface tauri` 自动脚本 PASS。
+- 数据链：资料消息持久保存；原文登记候选 body 与历史消息逐字一致、来源绑定正确；
+  采纳前零作品事实，采纳后唯一 CONFIRMED；刷新恢复 canonical 状态；末轮未重复生成待采纳产物或写入作品事实。
+- 状态语义：采纳前明确“还没有……尚未被采纳”；采纳后明确“已经保存了……不需要再重复保存”。
+  两次回答与独立 SQLite 事实及 pending/resolved 一致。
+- 登记轮首次结构输出 source/action 正确，但 frame_type=meta_discussion 与登记约束冲突；
+  App 拒绝后一次纠正为 capability_gap，通过后才物化。这是受控重判，不能说九次结构输出全都合法。
+- **语义反例 1**：作者首轮明确“先只记录、暂不生成候选”；模型叙事也声称不生成，但结构响应
+  带三个 candidate_directions（转为设定候选、角色设计展开、雨港世界观搭建）。模型声明
+  meta_discussion，App 因候选非空强转 creative_exploration，真实页面出现三张方向卡。
+- **语义反例 2**：登记轮的采纳/修改/丢弃流程建议也成为方向卡，发放 choose_candidate。
+  局部公开入口重放“丢弃候选”返回 accepted 和“已将「丢弃候选」设为后续创作方向”，
+  没有执行真正的 discard。末轮的“只读查看作品档案”也被当作方向选项。
+- 自动脚本只断言 adoption_state.pending，没有检查首轮 candidate_directions/choose_candidate。
+  因此它的 PASS 只证明现有数据断言，**不能作为整个用户场景已通过的依据**。未改写 summary 压绿，
+  未修改生产代码；后续须与 BIZ-05 同批补齐外部页面负例与验收断言。
+- 证据：当前通用实模目录下 `01-source.png`、`02-save-request.png`、`live-turn-results.json`、
+  `live-adoption-evidence.json`、`summary.json`、真实请求/响应日志；补充
+  `artifacts/project-analysis/q1b-biz-semantic-review.json` 与 `q1b-biz-operation-direction-repro.{exs,json,log}`。
+  操作路径重放未点击真实 UI、未调用模型或写作品事实，只作为公开入口局部证据；完整专项页面仍待补。
+- 验收边界：Tauri 已启动，外部 Playwright 操作真实 App/WorkspaceChat 页面，未直接驱动 native WebView。
+  旧实模基线保留在 before-biz-77bf8389 备份目录。验收结束后 4857/5869 已释放，无新增 worktree。
+- 下一步：Q3D / BIZ-05，厘清仅记录约束、创作方向与操作建议的产出/动作边界；继续保护原文字节、
+  来源、采纳权限与状态恢复，不转回超时参数优化。
+
+### 本轮文档交付验证
+
+- `mix compile`、`node scripts/next_task_check.mjs`、`node scripts/task_done_check.mjs`、`git diff --check` 通过。
+- `bash scripts/ai_static_scan.sh --top 10`：17 PASS / 2 既有 FAIL，3 个已处置 finding，0 blocking，
+  本轮修改文件命中 0。未修改生产实现，因此本轮没有新增静态问题修复。
+- 剩余 Top 10 实为三项：Pencil fileToken 为 false_positive，继续保留扫描；其他开发线历史凭证为
+  accepted_risk，轮换/吊销与历史清理由凭证所有者处理；ChapterSummary 嵌套为 deferred，下一次触及
+  解析模块时抽取函数并复跑单测。详细处置见 `artifacts/static-scan/disposition.md`。
+- 扫描无阻断不等于业务语义通过；BIZ-05 仍未闭环，docs-only 交付 manifest 不替代场景验收结论。

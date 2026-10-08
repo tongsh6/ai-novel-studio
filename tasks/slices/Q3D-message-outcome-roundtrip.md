@@ -1,6 +1,6 @@
 # Q3D 消息处置与跨轮结果关联
 
-- 状态：done / verified（2026-10-08，BIZ-01–04）；确定性故障/恢复矩阵闭环，整批真实模型语义回归由 Q1b 承接。
+- 状态：reopened / next（2026-10-08，新增 BIZ-05）；BIZ-01–04 已闭环，本轮实模发现输出类型与动作语义错配。
 - §1–4 保留首轮实现记录；当前业务反例的完成证据见后续 BIZ checkpoint。
 - 完整契约：`docs/design/adr/ADR-0027-author-obligation-state-v3.md`（本次修订 Accepted）。
 - 原因：D8 的只读执行结果未进入会话上下文；待采纳对象未完整供判断消费；Q3c 未覆盖两轮原文引用。
@@ -216,3 +216,20 @@ BIZ-04 仍是下一 checkpoint，Q3D 整体不得标 done。
   对照、steer-delivery、rejected-retained、截图/帧/主链日志）；`artifacts/project-analysis/biz4-*`。
 - Q3D 的 BIZ-01–04 现已按 ADR-0027 的消息/运行/采纳分层契约闭环；不外推为通用作者义务机。
   此批使用确定性 provider 做故障注入，当前 Qwen 整批语义复验为 Q1b 下一项。
+
+
+### BIZ-05：仅记录约束、方向候选与操作建议（next，P2）
+
+Q1b 在 77bf8389 上跑完真实四轮；数据断言通过，完整业务语义未通过。首轮“不生成候选”仍产出
+三张方向卡；登记轮“采纳/修改/丢弃”获得 choose_candidate，公开入口把“丢弃候选”接受为
+后续创作方向。详见审计 notes §9、Q1B slice 与 project-ledger §8.1。
+
+下一 checkpoint 必须从现有 VS-00 / VS-05 / UI contract 的语义边界开始，说明七问后再编码：
+
+- 核对作者“仅记录”的约束与所有候选输出，不因候选非空静默改变回复语义。
+- 分离真正创作方向与流程建议；操作建议不能获得 choose_candidate/work_direction 后果。
+- 正确保留 artifact 的 accept/discard/edit；源、字节、采纳权限及状态不变量不放宽。
+- 外部真实页面补“仅记录无候选”“流程建议无方向采用”“正常创作方向仍可用”及恢复/旧数据矩阵。
+- 修复后加强 q1b 的候选方向断言，并重跑当前真实模型；不能继续只以 pending 为空宣称不生成候选。
+
+本轮只完成实模核查和缺口登记，未实施 BIZ-05；没有错误动作分支的完整页面点击证据。
