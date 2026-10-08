@@ -158,7 +158,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
     %{
       interaction_store: Map.get(input, :interaction_store),
-      interaction_input: Map.take(input, [:text, :candidate_selection]),
+      interaction_input: Map.take(input, [:text, :candidate_selection, :generate_micro_plan]),
       route: :agent_run_start,
       run_id: run_id,
       run_attrs: attrs,

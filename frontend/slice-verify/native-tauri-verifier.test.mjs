@@ -14342,3 +14342,31 @@ describe("Q3D 长会话待办证据", () => {
     expect(findNativeSliceEvidence(slice, records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "source-00:adopt" } : r))).toBeNull();
   });
 });
+
+
+describe("Q3D 消息投递恢复证据", () => {
+  const slice = "q3d-message-delivery-recovery";
+  const cases = [
+    { turn_id: "done", run_id: "run-done", method: "reload", receipt_status: "completed" },
+    { turn_id: "fail", run_id: "run-fail", method: "reload", receipt_status: "failed" },
+    { turn_id: "live", run_id: "run-live", method: "disconnect", receipt_status: "running" },
+    { turn_id: "dead", run_id: "run-dead", method: "restart", receipt_status: "running", runtime_live: false },
+  ].map((entry) => ({ ...entry, input_count: 1, run_count: 1 }));
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "done", cases,
+    fresh_message_id: "fresh", dropped_frame_count: 4, steer_submission_id: "steer-message", steer_run_id: "steer-run", steer_goal_version: 2, steer_retransmission_count: 2, steer_input_restored_once: true, assistant_replay_deduplicated: true, immutable_inputs: true, one_run_per_message: true, pending_deliveries_cleared: true, rejected_original_retained: true, rejected_not_retried: true };
+  const records = [ui, ...cases.flatMap((entry) => [0, 1].flatMap(() => [
+    { event: "channel.user_message.start", turn_id: entry.turn_id },
+    { event: "channel.user_message.done", turn_id: entry.turn_id, run_id: entry.run_id },
+  ]))];
+  it("四类故障均与重复接收但同运行的主链日志绑定才通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence).not.toBeNull();
+    expect(findSliceBehaviorEvidence(slice, records, evidence)).not.toBeNull();
+    expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
+  });
+  it("重复运行、虚假活进程或作者新发复用旧身份均不通过", () => {
+    expect(findNativeSliceEvidence(slice, [...records, { event: "channel.user_message.done", turn_id: "done", run_id: "another-run" }])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, fresh_message_id: "done" }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, cases: cases.map((c) => c.method === "restart" ? { ...c, runtime_live: true } : c) }, ...records.slice(1)])).toBeNull();
+  });
+});

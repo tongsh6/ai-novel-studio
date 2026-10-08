@@ -95,6 +95,9 @@ defmodule NovelApplication.AgentRunServer do
   def steer(server, text, timeout \\ 5_000),
     do: GenServer.call(server, {:command, {:steer, text}}, timeout)
 
+  def steer_submission(server, text, submission_id),
+    do: GenServer.call(server, {:command, {:steer, text, submission_id}})
+
   @spec state(GenServer.server(), timeout()) :: map()
   def state(server, timeout \\ 5_000), do: GenServer.call(server, :state, timeout)
 
@@ -159,15 +162,30 @@ defmodule NovelApplication.AgentRunServer do
 
   # steer 是同步 call（DS03）：拒绝可见，且回执携带 run_id / parent_turn_ref /
   # goal_version，供调用方把作者补充持久化为 session Interaction（刷新可恢复）。
-  def handle_call({:command, {:steer, text}}, _from, state) when is_binary(text) do
+  def handle_call({:command, {:steer, text}}, from, state) when is_binary(text),
+    do: handle_call({:command, {:steer, text, nil}}, from, state)
+
+  def handle_call({:command, {:steer, text, submission_id}}, _from, state) when is_binary(text) do
     run = %{state.run | goal: %{state.run.goal | text: text, version: state.run.goal.version + 1}}
 
     if terminal?(state) do
       {:reply, {:error, :not_steerable}, state}
     else
-      case TurnInteractionService.record_steer(run, text, state.interaction_store) do
-        {:ok, _receipt} -> apply_author_steer(state, run)
-        {:error, reason} -> {:reply, {:error, reason}, state}
+      case TurnInteractionService.record_steer(run, text, state.interaction_store, submission_id) do
+        {:ok, %{duplicate?: true} = receipt} ->
+          {:reply,
+           {:ok,
+            %{
+              run_id: run.run_id,
+              parent_turn_ref: run.parent_turn_ref,
+              goal_version: receipt.goal_version
+            }}, state}
+
+        {:ok, _receipt} ->
+          apply_author_steer(state, run)
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
       end
     end
   end

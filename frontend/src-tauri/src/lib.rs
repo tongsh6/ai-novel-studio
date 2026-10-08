@@ -148,6 +148,124 @@ fn write_preferences(app: &tauri::AppHandle, preferences: &Preferences) -> Resul
     std::fs::write(path, contents).map_err(|error| format!("failed to write preferences: {error}"))
 }
 
+// ADR-0027：不可变的待投递消息按作品/会话/身份独立保存，崩溃或刷新不丢原文。
+static OUTBOX_LOCK: Mutex<()> = Mutex::new(());
+
+fn submission_component(value: &str) -> Result<&str, String> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("invalid message scope or identity".into());
+    }
+    Ok(value)
+}
+
+fn submission_dir(
+    app: &tauri::AppHandle,
+    work_id: &str,
+    session_id: &str,
+) -> Result<PathBuf, String> {
+    Ok(profiled_config_dir(app)?
+        .join("message-outbox")
+        .join(submission_component(work_id)?)
+        .join(submission_component(session_id)?))
+}
+
+fn write_submission(dir: &Path, message: &serde_json::Value) -> Result<(), String> {
+    let turn_id = submission_component(message["turn_id"].as_str().ok_or("missing turn_id")?)?;
+    let path = dir.join(format!("{turn_id}.json"));
+    if path.exists() {
+        let mut previous: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        let mut proposed = message.clone();
+        for key in ["delivery_status", "rejection_reason"] {
+            previous
+                .as_object_mut()
+                .ok_or("invalid stored message")?
+                .remove(key);
+            proposed
+                .as_object_mut()
+                .ok_or("invalid message")?
+                .remove(key);
+        }
+        if previous != proposed {
+            return Err("message identity conflict".into());
+        }
+        if message["delivery_status"] != "rejected" {
+            return Ok(());
+        }
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let temporary = dir.join(format!("{turn_id}.tmp"));
+    let contents = serde_json::to_vec(message).map_err(|e| e.to_string())?;
+    std::fs::File::create(&temporary).map_err(|e| e.to_string())?;
+    restrict_secret_file_permissions(&temporary)?;
+    std::fs::write(&temporary, contents).map_err(|e| e.to_string())?;
+    std::fs::File::open(&temporary)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| e.to_string())?;
+    std::fs::rename(&temporary, &path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_user_message(app: tauri::AppHandle, message: serde_json::Value) -> Result<(), String> {
+    let _guard = OUTBOX_LOCK.lock().map_err(|e| e.to_string())?;
+    let work = message["work_id"].as_str().ok_or("missing work_id")?;
+    let session = message["session_id"].as_str().ok_or("missing session_id")?;
+    if message["text"]
+        .as_str()
+        .map_or(true, |text| text.trim().is_empty())
+    {
+        return Err("empty message".into());
+    }
+    write_submission(&submission_dir(&app, work, session)?, &message)
+}
+
+#[tauri::command]
+fn list_user_messages(
+    app: tauri::AppHandle,
+    work_id: String,
+    session_id: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let _guard = OUTBOX_LOCK.lock().map_err(|e| e.to_string())?;
+    let dir = submission_dir(&app, &work_id, &session_id)?;
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut messages = vec![];
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            messages.push(
+                serde_json::from_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?,
+            );
+        }
+    }
+    Ok(messages)
+}
+
+#[tauri::command]
+fn remove_user_message(
+    app: tauri::AppHandle,
+    work_id: String,
+    session_id: String,
+    turn_id: String,
+) -> Result<(), String> {
+    let _guard = OUTBOX_LOCK.lock().map_err(|e| e.to_string())?;
+    let path = submission_dir(&app, &work_id, &session_id)?
+        .join(format!("{}.json", submission_component(&turn_id)?));
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 fn get_last_opened_work_id(app: tauri::AppHandle) -> Result<Option<String>, String> {
     read_preferences(&app).map(|preferences| preferences.last_opened_work_id)
@@ -687,6 +805,38 @@ mod tests {
     }
 
     #[test]
+    fn pending_message_is_durable_immutable_and_scoped() {
+        let root = temp_secrets_path("message-outbox");
+        let dir = root.join("work-a").join("session-a");
+        let message = serde_json::json!({"turn_id":"message-1","work_id":"work-a","session_id":"session-a","text":"  原文\n不改写  "});
+        write_submission(&dir, &message).expect("write before send");
+        write_submission(&dir, &message).expect("same identity is idempotent");
+        let restored: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("message-1.json")).unwrap())
+                .unwrap();
+        assert_eq!(restored, message);
+        let mut rejected = message.clone();
+        rejected["delivery_status"] = serde_json::json!("rejected");
+        write_submission(&dir, &rejected).expect("keep rejected original");
+        write_submission(&dir, &message).expect("cannot clear rejection by retransmitting");
+        let retained: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("message-1.json")).unwrap())
+                .unwrap();
+        assert_eq!(retained["delivery_status"], "rejected");
+        assert!(!root
+            .join("work-b")
+            .join("session-a")
+            .join("message-1.json")
+            .exists());
+        let mut changed = message.clone();
+        changed["text"] = serde_json::json!("different");
+        assert!(write_submission(&dir, &changed).is_err());
+        assert!(submission_component("../other").is_err());
+        assert!(submission_component("a/b").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn validates_desktop_profile_names() {
         assert_eq!(
             normalize_desktop_profile(" stage-1 ").expect("profile should be valid"),
@@ -762,9 +912,15 @@ mod tests {
         write_provider_secrets_at(&path, &secrets).expect("write secrets");
 
         let loaded = read_provider_secrets_at(&path).expect("read secrets");
-        assert_eq!(loaded.api_keys.get("openai").map(String::as_str), Some("sk-api"));
         assert_eq!(
-            loaded.api_keys.get("openai_subscription").map(String::as_str),
+            loaded.api_keys.get("openai").map(String::as_str),
+            Some("sk-api")
+        );
+        assert_eq!(
+            loaded
+                .api_keys
+                .get("openai_subscription")
+                .map(String::as_str),
             Some("tok-sub")
         );
         assert!(provider_secret_present(&loaded, "openai"));
@@ -797,6 +953,9 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            save_user_message,
+            list_user_messages,
+            remove_user_message,
             get_last_opened_work_id,
             set_last_opened_work_id,
             get_assistant_display_name,

@@ -1,0 +1,42 @@
+id: q3d-message-delivery-recovery
+title: 消息重传身份与事实回执
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q3d-message-delivery-recovery --surface tauri
+contract:
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - docs/design/schemas/foundation/user_message_submission.json
+  - tasks/slices/Q3D-message-outcome-roundtrip.md
+invariants:
+  - one-run-per-message-identity
+  - original-text-survives-reload
+  - terminal-receipt-does-not-invent-running
+  - dead-runtime-is-not-automatically-restarted
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - input: 输入原文，外部 WebSocket 代理丢弃真实回执与结果
+  - reload: 自动重传原身份，返回已完成结果
+  - input: 触发失败，丢弃回执后刷新仍返回原失败
+  - disconnect: 慢调用中断连，重连复用同一运行
+  - input: 作者主动再次发送相同文本得到新身份
+  - input: 等待作者时发出引导，丢失命令回执后刷新，目标版本只推进一次
+  - restart: 慢调用中停止测试服务，重启后旧运行诚实显示失活
+  - reject: 外部破坏作用域使真实服务拒绝，刷新仍保留原文、不自动重试
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q3d-message-delivery-recovery-tauri
+assertions:
+  ui:
+    - 原输入不重复显示，结果和运行状态真实
+  network:
+    - 同消息重传 turn_id 不变，run_id 不变
+    - 完成与失败回执带出持久结果，失活回执 runtime_live 为 false
+  data:
+    - 每个消息身份仅一条用户输入和一个运行，原文不变
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

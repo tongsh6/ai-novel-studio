@@ -294,6 +294,7 @@ defmodule NovelWeb.WorkSessionsController do
       text: interaction.text,
       candidate_selection: interaction.candidate_selection,
       agent_run_id: Map.get(interaction, :agent_run_id),
+      submission_id: Map.get(interaction, :submission_id),
       turn_result: interaction.turn_result,
       inserted_at: iso(interaction.inserted_at)
     }

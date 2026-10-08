@@ -5174,6 +5174,176 @@ async function driveQ1bLiveArchiveRoundtrip(page) {
     after_reply: after.assistant_message?.text }];
 }
 
+const deliveryFault = { active: false, rejectNext: false, turnId: null, wire: [], sockets: [], dropped: [] };
+
+async function installDeliveryFaultProxy(page) {
+  await page.routeWebSocket(/\/socket\/websocket/, (client) => {
+    const server = client.connectToServer();
+    deliveryFault.sockets.push({ client, server });
+    const submissions = new Map();
+    client.onMessage((message) => {
+      const data = JSON.parse(String(message));
+      deliveryFault.wire.push({ direction: "sent", data });
+      if (data[3] === "user_message" || (data[3] === "agent_command" && data[4].command === "steer")) {
+        submissions.set(data[1], data[4].turn_id);
+        if (deliveryFault.active && !deliveryFault.turnId) deliveryFault.turnId = data[4].turn_id;
+      }
+      if (deliveryFault.rejectNext && data[3] === "user_message") {
+        deliveryFault.rejectNext = false;
+        const rejected = JSON.parse(String(message));
+        rejected[4].work_id = "external-wrong-work";
+        server.send(JSON.stringify(rejected));
+      } else server.send(message);
+    });
+    server.onMessage((message) => {
+      const data = JSON.parse(String(message));
+      const blocked = deliveryFault.active && (
+        (data[3] === "phx_reply" && submissions.get(data[1]) === deliveryFault.turnId) ||
+        ["agent_event", "agent_run_state", "turn_result"].includes(data[3]));
+      deliveryFault.wire.push({ direction: "received", data, dropped: blocked });
+      if (blocked) deliveryFault.dropped.push({ event: data[3], turn_id: deliveryFault.turnId });
+      else client.send(message);
+    });
+  });
+}
+
+async function driveMessageDeliveryRecovery(page) {
+  const nonce = `delivery-${randomUUID().slice(0, 8)}`;
+  const cases = [];
+  const service = createPhoenixServiceController();
+  async function database(turnId) {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
+    try {
+      const inputs = db.prepare("SELECT content, workspace_id, session_id FROM interactions WHERE role='user' AND turn_id=?").all(turnId);
+      const runs = db.prepare("SELECT id, status FROM agent_runs WHERE parent_turn_ref=?").all(turnId);
+      return { inputs, runs };
+    } finally { db.close(); }
+  }
+  async function waitUntil(fn, message) {
+    for (let n = 0; n < 240; n++) { const value = await fn(); if (value) return value; await sleep(250); }
+    throw new Error(message);
+  }
+  async function recover(text, expected, method) {
+    deliveryFault.turnId = null;
+    deliveryFault.active = true;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const turnId = await waitUntil(() => deliveryFault.turnId, "消息未携带稳定身份发送");
+    const before = await waitUntil(async () => {
+      const facts = await database(turnId);
+      return facts.runs[0]?.status === expected ? facts : null;
+    }, "原运行未到预期状态");
+    assert(before.inputs.length === 1 && before.runs.length === 1, "首次发送未形成唯一消息/运行");
+    if (method === "restart") await service.stopOriginal();
+    deliveryFault.active = false;
+    if (method === "reload") await page.reload({ waitUntil: "commit" });
+    if (method === "disconnect") {
+      await deliveryFault.sockets.at(-1).client.close({ code: 1012, reason: "external delivery interruption" });
+      await deliveryFault.sockets.at(-1).server.close().catch(() => {});
+    }
+    if (method === "restart") await service.restart();
+    await waitUntil(() => deliveryFault.wire.filter((f) => f.direction === "sent" && f.data[3] === "user_message" && f.data[4].turn_id === turnId).length >= 2, "重连/刷新未重传原消息身份");
+    const receipt = await waitUntil(() => deliveryFault.wire.findLast((f) => f.direction === "received" && !f.dropped && f.data[3] === "phx_reply" && f.data[4]?.response?.turn_id === turnId)?.data[4].response, "重传没有返回事实回执");
+    assert(receipt.run_id === before.runs[0].id, "重传启动了另一个运行");
+    if (method === "restart") {
+      assert(receipt.runtime_live === false, "已失活运行被回执伪装成活进程");
+      await page.getByRole("button", { name: /重新发起/ }).waitFor();
+    } else if (expected !== "running") {
+      assert(receipt.agent_run_state?.status === expected, "终态重传回执被改成运行中");
+      assert(receipt.turn_results.length > 0, "终态回执丢失已落盘结果");
+    }
+    if (method === "disconnect") await waitUntil(async () => (await database(turnId)).runs[0]?.status === "completed", "重连后原运行未完成");
+    await page.waitForFunction(() => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")), undefined, { timeout: 30_000 });
+    const after = await database(turnId);
+    assert(after.inputs.length === 1 && after.runs.length === 1, "重传产生重复输入或运行");
+    assert(JSON.parse(after.inputs[0].content).text === text, "重传改变作者原文");
+    assert(await page.getByText(text, { exact: true }).count() === 1, "恢复后原输入重复显示");
+    const proof = { turn_id: turnId, run_id: receipt.run_id, expected_status: expected,
+      runtime_live: receipt.runtime_live, receipt_status: receipt.agent_run_state?.status, method,
+      input_count: after.inputs.length, run_count: after.runs.length };
+    cases.push(proof);
+    fs.writeFileSync(path.join(artifactDir, `${method}-${expected}.json`), JSON.stringify({ before, after, receipt }, null, 2));
+    await page.screenshot({ path: path.join(artifactDir, `${method}-${expected}.png`), fullPage: true });
+    return proof;
+  }
+  try {
+    const text = `先只记录这份资料，不要生成候选：雨港清晨开门，${nonce}。`;
+    await recover(text, "completed", "reload");
+    await recover(`把上一条资料原文保存为作品设定。来源缺失样例，${nonce}。`, "failed", "reload");
+    await recover(`SU02SLOW${Date.now()}：请回一句收到，${nonce}。`, "running", "disconnect");
+    // 作者主动再发相同文字属于新请求，不按文字内容去重。
+    const sentCount = deliveryFault.wire.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const fresh = await waitUntil(() => deliveryFault.wire.slice(sentCount).find((f) => f.direction === "sent" && f.data[3] === "user_message")?.data[4], "作者新发送没有上 wire");
+    assert(fresh.turn_id !== cases[0].turn_id, "作者主动新发被当作旧消息重传");
+    await waitUntil(async () => (await database(fresh.turn_id)).runs[0]?.status === "completed", "新请求未独立完成");
+    await page.waitForFunction(() => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")));
+    // 引导也是用户输入：丢失命令回执后刷新，不得再次推进目标版本。
+    const awaitingStart = frames.length;
+    await page.locator(chatInputSelector).fill(`第一章字数太少了，UA01AWAITSTEER-${nonce}。`);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const awaiting = (await waitForNewFrame(awaitingStart, (f) => f.event === "agent_run_state" && f.body?.status === "awaiting_author", "未进入等待补充状态")).body;
+    await page.locator(agentRunSteerInputSelector).waitFor();
+    deliveryFault.active = true;
+    deliveryFault.turnId = null;
+    const steerText = `先只记录这份资料，不要生成候选：引导原文 ${nonce}。`;
+    await page.locator(agentRunSteerInputSelector).fill(steerText);
+    await page.getByRole("button", { name: /^发送调整$/ }).click();
+    const steerId = await waitUntil(() => deliveryFault.turnId, "引导未携带稳定身份");
+    const steerRoot = awaiting.parent_turn_ref;
+    await waitUntil(async () => (await database(steerRoot)).runs[0]?.status === "completed", "引导后的运行未完成");
+    deliveryFault.active = false;
+    await page.reload({ waitUntil: "commit" });
+    const steerReceipt = await waitUntil(() => deliveryFault.wire.findLast((f) => f.direction === "received" && !f.dropped && f.data[3] === "phx_reply" && f.data[4]?.response?.turn_id === steerId)?.data[4].response, "刷新后未核对原引导消息");
+    assert(steerReceipt.run_id === awaiting.run_id && steerReceipt.goal_version === 2 && steerReceipt.agent_run_state?.goal?.version === 2, "引导重传重复推进目标版本");
+    assert(steerReceipt.agent_run_state.status === "completed", "引导终态被改成运行中");
+    assert(await page.getByText(steerText, { exact: true }).count() === 1, "引导原文恢复后重复显示");
+    const restoredResponse = await fetch(`${baseUrl}/api/works/${steerReceipt.agent_run_state.work_id}/sessions/resume`);
+    const restoredConversation = await restoredResponse.json();
+    const assistantCounts = new Map();
+    for (const entry of restoredConversation.transcript.filter((entry) => entry.role === "assistant" && entry.text)) {
+      assistantCounts.set(entry.text, (assistantCounts.get(entry.text) ?? 0) + 1);
+    }
+    for (const [text, expectedCount] of assistantCounts) {
+      const matches = page.getByText(text, { exact: true });
+      let visible = 0;
+      for (let i = 0; i < await matches.count(); i++) if (await matches.nth(i).isVisible()) visible++;
+      assert(visible === expectedCount, `回复重放数量与持久记录不一致：${visible}/${expectedCount}`);
+    }
+    fs.writeFileSync(path.join(artifactDir, "steer-restored-snapshot.json"), JSON.stringify(restoredConversation, null, 2));
+    const steerRequests = deliveryFault.wire.filter((f) => f.direction === "sent" && f.data[3] === "agent_command" && f.data[4].turn_id === steerId);
+    assert(steerRequests.length >= 2, "没有实际重传引导命令");
+    fs.writeFileSync(path.join(artifactDir, "steer-delivery.json"), JSON.stringify({ requests: steerRequests, receipt: steerReceipt }, null, 2));
+    await page.waitForFunction(() => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")));
+    await recover(`SU02SLOW${Date.now()}：请回一句收到，进程中断 ${nonce}。`, "running", "restart");
+    // 外部破坏一次作用域，让真实服务拒绝；客户端应留存原文且停止自动投递。
+    deliveryFault.rejectNext = true;
+    const rejectedText = `拒绝后仍须保留的原文 ${nonce}。`;
+    const rejectedStart = deliveryFault.wire.length;
+    await page.locator(chatInputSelector).fill(rejectedText);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const rejectedId = await waitUntil(() => deliveryFault.wire.slice(rejectedStart).find((f) => f.direction === "sent" && f.data[3] === "user_message")?.data[4].turn_id, "拒绝场景未发送消息");
+    await page.waitForFunction((id) => Object.keys(localStorage).some((key) => key.endsWith(id) && JSON.parse(localStorage.getItem(key)).delivery_status === "rejected"), rejectedId);
+    await page.reload({ waitUntil: "commit" });
+    await page.getByText("有消息未被接受，原文已保留；系统不会自动重试这些消息，请修改后重新发送。", { exact: true }).waitFor();
+    assert(await page.getByText(rejectedText, { exact: true }).count() === 1, "明确拒绝的原文刷新后丢失或重复");
+    assert(deliveryFault.wire.filter((f) => f.direction === "sent" && f.data[3] === "user_message" && f.data[4].turn_id === rejectedId).length === 1, "被明确拒绝的消息被自动重试");
+    const rejectedFacts = await database(rejectedId);
+    assert(rejectedFacts.inputs.length === 0 && rejectedFacts.runs.length === 0, "作用域非法的消息进入了业务运行");
+    fs.writeFileSync(path.join(artifactDir, "rejected-retained.json"), JSON.stringify({ turn_id: rejectedId, facts: rejectedFacts }, null, 2));
+    fs.writeFileSync(path.join(artifactDir, "delivery-wire.json"), JSON.stringify(deliveryFault.wire, null, 2));
+    return [{ event: "slice_verify.ui_state.done", slice_id: "q3d-message-delivery-recovery",
+      turn_id: cases[0].turn_id, turn_ids: cases.map((c) => c.turn_id), cases,
+      dropped_frame_count: deliveryFault.dropped.length, fresh_message_id: fresh.turn_id,
+      immutable_inputs: true, one_run_per_message: true, pending_deliveries_cleared: true,
+      rejected_original_retained: true, rejected_not_retried: true,
+      steer_submission_id: steerId, steer_run_id: awaiting.run_id, steer_goal_version: steerReceipt.goal_version,
+      steer_retransmission_count: steerRequests.length, steer_input_restored_once: true, assistant_replay_deduplicated: true }];
+  } finally { await service.stopRestarted(); }
+}
+
 async function driveLongSessionAdoptionState(page) {
   const nonce = `long-${randomUUID().slice(0, 8)}`;
   const candidates = [];
@@ -29560,6 +29730,7 @@ const drivers = {
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
   "q3d-author-registration-guards": driveAuthorRegistrationGuards,
   "q3d-long-session-adoption-state": driveLongSessionAdoptionState,
+  "q3d-message-delivery-recovery": driveMessageDeliveryRecovery,
   "q1b-live-archive-roundtrip": driveQ1bLiveArchiveRoundtrip,
   "q3d-message-outcome-roundtrip": driveQ3dMessageOutcomeRoundtrip,
   "q3c-author-content-materialization": driveQ3cAuthorContentMaterialization,
@@ -29656,6 +29827,7 @@ if (!driver) {
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: viewportForSlice(sliceId) });
+if (sliceId === "q3d-message-delivery-recovery") await installDeliveryFaultProxy(page);
 
 page.on("websocket", (ws) => {
   ws.on("framesent", (event) => recordFrame("sent", event.payload));

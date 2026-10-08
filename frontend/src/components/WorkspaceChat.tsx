@@ -33,6 +33,13 @@ import {
   createSocket,
   joinWorkspace,
   sendMessage,
+  sendSteerMessage,
+  newUserMessageId,
+  pendingUserMessages,
+  transmitUserMessage,
+  acknowledgeUserMessage,
+  submissionIsSettled,
+  MessageDeliveryError,
   sendAuthorAction,
   getReviewReport,
   sendAgentCommand,
@@ -67,6 +74,7 @@ import {
 import {
   resumeWorkspace,
   pendingAdoptionTurnResults,
+  mergeResumedTranscript,
   pendingAdoptionQueryKey,
   searchSessions,
   getSessionSnapshot,
@@ -1169,6 +1177,10 @@ export function WorkspaceChat() {
   >({});
 
   // Connect to Zustand Global Store with selectors for stability
+  const handleTurnResultRef = useRef<(result: TurnResult) => void>(() => {});
+  useEffect(() => {
+    handleTurnResultRef.current = handleTurnResult;
+  });
   const socketConnected = useAppStore((state) => state.socketConnected);
   const setSocketConnected = useAppStore((state) => state.setSocketConnected);
   const context = useAppStore((state) => state.context);
@@ -1205,7 +1217,6 @@ export function WorkspaceChat() {
   const activeSessionIdRef = useRef<string | null>(null);
   const visibleTranscriptSessionIdRef = useRef<string | null>(null);
   const modelProviderModelsRequestRef = useRef(0);
-  const localMessageSeqRef = useRef(0);
 
   const refreshLlmHealth = useCallback(async () => {
     try {
@@ -1325,6 +1336,21 @@ export function WorkspaceChat() {
   }
 
   function handleTurnResult(result: TurnResult) {
+    if (
+      result.turn_id &&
+      typeof result.work_id === "string" &&
+      typeof result.session_id === "string" &&
+      result.agent_run &&
+      ["completed", "failed", "cancelled", "awaiting_author"].includes(
+        result.agent_run.status ?? "",
+      )
+    ) {
+      void acknowledgeUserMessage(
+        result.work_id,
+        result.session_id,
+        result.agent_run.parent_turn_ref ?? result.turn_id,
+      ).catch(console.warn);
+    }
     setMessages((prev) => upsertAssistantTurnResultMessage(prev, result));
     const resultAgentRunState = stateFromTurnResult(result);
     if (resultAgentRunState) {
@@ -1560,6 +1586,7 @@ export function WorkspaceChat() {
     channel.onError(markDisconnected);
     channel.onClose(markDisconnected);
 
+    let joinedOnce = false;
     channel
       .join()
       .receive("ok", (response: { work_id?: string; session_id?: string }) => {
@@ -1612,6 +1639,11 @@ export function WorkspaceChat() {
           previousWorkRef.current = previousWork;
         }
         currentWorkRef.current = { ...work, id: joinedWorkId, title: workTitle };
+        if (joinedSessionId) {
+          if (joinedOnce) void reconcileRejoinedSession(joinedWorkId, joinedSessionId, token);
+          void reconcilePendingMessages(channel, joinedWorkId, joinedSessionId, token);
+        }
+        joinedOnce = true;
       })
       .receive("error", () => {
         if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id }))
@@ -1675,6 +1707,78 @@ export function WorkspaceChat() {
         setLoading(false);
       }
     });
+  }
+
+  async function reconcileRejoinedSession(workId: string, sessionId: string, token: number) {
+    try {
+      const snapshot = await resumeWorkspace(workId);
+      if (
+        !isCurrentWorkConnection(activeConnectionRef.current, { token, workId }) ||
+        snapshot.active_session.id !== sessionId ||
+        visibleTranscriptSessionIdRef.current !== sessionId
+      )
+        return;
+      const restored = transcriptToMessages(snapshot.transcript) as ChatMessage[];
+      setMessages((prev) => mergeResumedTranscript(prev, restored));
+      setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
+      setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
+      queryClient.setQueryData(
+        pendingAdoptionQueryKey(workId, sessionId),
+        pendingAdoptionTurnResults(snapshot),
+      );
+    } catch {
+      /* 当前消息仍保留，下一次重连或刷新继续核对。 */
+    }
+  }
+
+  async function reconcilePendingMessages(
+    channel: Channel,
+    workId: string,
+    sessionId: string,
+    token: number,
+  ) {
+    const current = () => isCurrentWorkConnection(activeConnectionRef.current, { token, workId });
+    const visible = () => current() && visibleTranscriptSessionIdRef.current === sessionId;
+    try {
+      const pending = await pendingUserMessages(workId, sessionId);
+      for (const message of pending) {
+        if (!current()) return;
+        if (visible())
+          setMessages((prev) =>
+            prev.some(
+              (entry) =>
+                entry.turnId === message.turn_id || entry.clientMessageId === message.turn_id,
+            )
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    role: "user",
+                    text: message.text,
+                    turnId: message.turn_id,
+                    clientMessageId: message.turn_id,
+                  },
+                ],
+          );
+        if (message.delivery_status === "rejected") {
+          if (visible())
+            setMessages((prev) =>
+              prev.some((entry) => entry.text === WORKBENCH.sendRejectedRetained)
+                ? prev
+                : [...prev, { role: "assistant", text: WORKBENCH.sendRejectedRetained }],
+            );
+          continue;
+        }
+        const response = await transmitUserMessage(channel, message);
+        if (!current()) return;
+        rememberAgentRunAck(response, message.text, message.turn_id, { workId, sessionId });
+      }
+    } catch {
+      if (visible()) {
+        setLoading(false);
+        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendUnconfirmed }]);
+      }
+    }
   }
 
   useEffect(() => {
@@ -1865,38 +1969,48 @@ export function WorkspaceChat() {
       : null;
 
   const rememberAgentRunAck = useCallback(
-    (response: SendMessageResult, text: string, clientMessageId: string | null = null) => {
-      if (!response.run_id) return;
-
-      if (clientMessageId) {
-        setPendingAgentRunAnchors((prev) => removePendingAgentRunAnchor(prev, clientMessageId));
+    (
+      response: SendMessageResult,
+      _text: string,
+      clientMessageId: string | null = null,
+      scope = { workId: context.workId, sessionId: activeSessionId },
+    ) => {
+      if (
+        !response.run_id ||
+        activeConnectionRef.current.workId !== scope.workId ||
+        (visibleTranscriptSessionIdRef.current &&
+          visibleTranscriptSessionIdRef.current !== scope.sessionId)
+      )
+        return;
+      setPendingAgentRunAnchors((prev) =>
+        clientMessageId ? removePendingAgentRunAnchor(prev, clientMessageId) : prev,
+      );
+      setMessages((prev) =>
+        bindAgentRunAckToUserMessage(
+          prev,
+          { ...response, turn_id: response.source_turn_ref ?? response.turn_id },
+          clientMessageId,
+        ),
+      );
+      for (const result of response.turn_results ?? []) {
+        handleTurnResultRef.current(parseIncomingTurnResult(result));
       }
-
-      setMessages((prev) => bindAgentRunAckToUserMessage(prev, response, clientMessageId));
-
-      const acknowledgedState: AgentRunStateData = {
-        run_id: response.run_id,
-        run_mode: response.run_mode ?? "bounded",
-        status: "running",
-        phase: "executing",
-        long_run_task_ref: response.long_run_task_ref ?? null,
-        work_id: context.workId,
-        session_id: activeSessionId,
-        parent_turn_ref: response.turn_id ?? null,
-        profile_ref: response.profile_ref ?? null,
-        goal: response.goal ?? { text, version: 1 },
-        completed_step_refs: [],
-        pending_artifact_refs: [],
-        interrupt_state: { status: "none", requested_at: null },
-        current_task: true,
-        // ack 即服务端已接受启动——runtime 此刻在场（DS03 命令权限真源）。
-        runtime_live: true,
-      };
-
-      setAgentRunStates((prev) => ({
-        ...prev,
-        [response.run_id!]: mergeAgentRunRuntimeState(prev[response.run_id!], acknowledgedState),
-      }));
+      const acknowledgedState = response.agent_run_state;
+      if (acknowledgedState) {
+        setAgentRunStates((prev) => ({
+          ...prev,
+          [acknowledgedState.run_id]: mergeAgentRunRuntimeState(
+            prev[acknowledgedState.run_id],
+            acknowledgedState,
+          ),
+        }));
+      } else if (response.received) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: WORKBENCH.sendRuntimeUnavailable },
+        ]);
+      }
+      if (submissionIsSettled(response)) setLoading(false);
     },
     [activeSessionId, context.workId],
   );
@@ -1990,6 +2104,10 @@ export function WorkspaceChat() {
     if (!channelRef.current || !latestAgentRun) return;
     if (agentCommandInFlight) return;
 
+    if (command === "steer" && text) {
+      await handleSend(text);
+      return;
+    }
     const run = latestAgentRun;
     setAgentCommandInFlight(true);
     try {
@@ -2013,8 +2131,7 @@ export function WorkspaceChat() {
   }
 
   function nextLocalMessageId(): string {
-    localMessageSeqRef.current += 1;
-    return `local-message-${localMessageSeqRef.current}`;
+    return newUserMessageId();
   }
 
   async function handleSend(
@@ -2048,15 +2165,27 @@ export function WorkspaceChat() {
       setLoading(true);
       setAgentCommandInFlight(true);
       try {
-        await sendAgentCommand(channelRef.current, steerRun.run_id, "steer", text);
+        const response = await sendSteerMessage(
+          channelRef.current,
+          steerRun.run_id,
+          text,
+          context.workId!,
+          activeSessionId!,
+          clientMessageId,
+        );
+        rememberAgentRunAck(response, text, clientMessageId);
         setAgentCommandNotice(null);
       } catch (error) {
         // DS03：失败不追加 assistant 气泡；撤回乐观 user 消息并还原输入，
         // 失败原因内联在控制坞 system status。
-        setMessages((prev) =>
-          prev.filter((message) => message.clientMessageId !== clientMessageId),
-        );
-        setInputText(text);
+        if (error instanceof MessageDeliveryError && error.kind === "transport") {
+          setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendUnconfirmed }]);
+        } else {
+          setMessages((prev) =>
+            prev.filter((message) => message.clientMessageId !== clientMessageId),
+          );
+          setInputText(text);
+        }
         setLoading(false);
         noteAgentCommandFailure(steerRun, "steer", error);
       } finally {
@@ -2084,11 +2213,27 @@ export function WorkspaceChat() {
         behaviorId,
         activeSessionId,
         options.generateMicroPlan ?? false,
+        null,
+        clientMessageId,
       );
       rememberAgentRunAck(response, text, clientMessageId);
-    } catch {
+    } catch (error) {
+      if (activeConnectionRef.current.workId !== context.workId) return;
       setPendingAgentRunAnchors((prev) => removePendingAgentRunAnchor(prev, clientMessageId));
-      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
+      const uncertain = error instanceof MessageDeliveryError && error.kind === "transport";
+      const storage = error instanceof MessageDeliveryError && error.kind === "storage";
+      if (!uncertain) setInputText(text);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: uncertain
+            ? WORKBENCH.sendUnconfirmed
+            : storage
+              ? WORKBENCH.sendStorageFailure
+              : WORKBENCH.sendFailure,
+        },
+      ]);
       setLoading(false);
     }
   }
@@ -2119,6 +2264,7 @@ export function WorkspaceChat() {
         activeSessionId,
         false,
         candidateSelection,
+        clientMessageId,
       );
       setMessages((prev) =>
         prev.map((message) =>
@@ -2128,9 +2274,23 @@ export function WorkspaceChat() {
         ),
       );
       rememberAgentRunAck(response, text, clientMessageId);
-    } catch {
+    } catch (error) {
+      if (activeConnectionRef.current.workId !== context.workId) return;
       setPendingAgentRunAnchors((prev) => removePendingAgentRunAnchor(prev, clientMessageId));
-      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
+      const uncertain = error instanceof MessageDeliveryError && error.kind === "transport";
+      const storage = error instanceof MessageDeliveryError && error.kind === "storage";
+      if (!uncertain) setInputText(text);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: uncertain
+            ? WORKBENCH.sendUnconfirmed
+            : storage
+              ? WORKBENCH.sendStorageFailure
+              : WORKBENCH.sendFailure,
+        },
+      ]);
       setLoading(false);
     }
   };
@@ -3175,7 +3335,9 @@ export function WorkspaceChat() {
   );
   // DS03：已失活的历史任务不再计入顶栏「进行中任务」聚合。
   const activeAgentRunTaskLabel =
-    latestAgentRun && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status) && !latestAgentRunIsDead
+    latestAgentRun &&
+    !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status) &&
+    !latestAgentRunIsDead
       ? latestAgentRun.status === "paused"
         ? WORKBENCH.taskAgentRunPausedLabel
         : latestAgentRun.status === "awaiting_author"
@@ -3842,9 +4004,7 @@ export function WorkspaceChat() {
                               });
                             }}
                           >
-                            <option value="">
-                              {WORKBENCH.modelProviderPurposeFollowGlobal}
-                            </option>
+                            <option value="">{WORKBENCH.modelProviderPurposeFollowGlobal}</option>
                             {overrideMissingFromList && (
                               <option value={overrideValue}>{overrideValue}</option>
                             )}
@@ -4683,9 +4843,7 @@ export function WorkspaceChat() {
                       !socketConnected ||
                       isPanelOpen ||
                       isReadOnlySessionView ||
-                      (hasActiveAgentRun &&
-                        !latestAgentRunIsDead &&
-                        !canRouteMainInputToAgentSteer)
+                      (hasActiveAgentRun && !latestAgentRunIsDead && !canRouteMainInputToAgentSteer)
                     }
                   />
                   <button

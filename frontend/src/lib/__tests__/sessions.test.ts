@@ -1,3 +1,4 @@
+import { mergeResumedTranscript } from "../sessions";
 import { pendingAdoptionTurnResults, pendingAdoptionQueryKey } from "../sessions";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -270,4 +271,45 @@ describe("跨分页待采纳操作凭据", () => {
       pendingAdoptionQueryKey("work-a", "session-b"),
     );
   });
+});
+
+it("引导消息恢复时同时保留内部来源与客户端投递身份，避免重复气泡", () => {
+  const [message] = transcriptToMessages([
+    {
+      role: "user",
+      turn_id: "parent:steer:2",
+      submission_id: "message-stable",
+      text: "增加心理描写",
+      agent_run_id: "run-parent",
+      turn_result: null,
+    },
+  ]);
+  expect(message.turnId).toBe("parent:steer:2");
+  expect(message.clientMessageId).toBe("message-stable");
+  expect(message.agentRunId).toBe("run-parent");
+});
+
+it("重连恢复把旧回复插回引导之前，不追加到新消息之后", () => {
+  const original = { role: "user" as const, turnId: "parent", text: "请继续" };
+  const waiting = { role: "assistant" as const, turnId: "parent", text: "请补充" };
+  const steer = {
+    role: "user" as const,
+    turnId: "parent:steer:2",
+    clientMessageId: "steer-id",
+    text: "增加心理描写",
+  };
+  const result = { role: "assistant" as const, turnId: "parent", text: "已处理" };
+  const later = { role: "user" as const, turnId: "later", text: "新的问题" };
+  const merged = mergeResumedTranscript(
+    [original, steer, result, later],
+    [original, waiting, steer, result],
+  );
+  expect(merged.map((message) => message.text)).toEqual([
+    "请继续",
+    "请补充",
+    "增加心理描写",
+    "已处理",
+    "新的问题",
+  ]);
+  expect(mergeResumedTranscript(merged, [original, waiting, steer, result])).toEqual(merged);
 });

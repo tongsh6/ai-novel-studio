@@ -120,8 +120,7 @@ export const CARD = {
       chapter: "按所选问题修订整章",
     } as Record<string, string>,
     reviseSelected: (count: number, action: string) => `${action} · ${count} 项`,
-    reviseHint:
-      "将按所选问题的影响范围修订；局部问题只改命中句段。原稿保留，不会自动采纳。",
+    reviseHint: "将按所选问题的影响范围修订；局部问题只改命中句段。原稿保留，不会自动采纳。",
     revisionStartedButton: "修订稿生成已提交",
     revisionSubmittedSummary: (count: number) => `质量复核：${count} 项建议 · 修订任务已提交`,
     revisionSubmittedExpand: "展开查看",
@@ -299,6 +298,11 @@ export const WORKBENCH = {
   startupFailureLoadWork: "无法获取或创建作品：",
   startupFailureResumeSession: "无法恢复作品会话：",
   startupFailureJoinMismatch: "Channel 返回的作品/会话与启动上下文不一致：",
+  sendRejectedRetained: "有消息未被接受，原文已保留；系统不会自动重试这些消息，请修改后重新发送。",
+  sendStorageFailure: "未能在本机保留这条消息，尚未发送。原文已放回输入框，请稍后重试。",
+  sendUnconfirmed: "消息结果尚未确认，原文已保留；连接恢复或刷新后会继续核对，请勿重复发送。",
+  sendRuntimeUnavailable:
+    "这条消息已收到，但处理进程已不可用。本次没有重新启动任务；如需继续，请重新发起。",
   sendFailure: "发送失败，请重试。",
   candidatePanelTitle: "可讨论方向",
   candidateContinueLabel: "继续讨论",
@@ -508,7 +512,8 @@ export const WORKBENCH = {
   modelProviderSaving: "保存中",
   modelProviderRefreshModels: "刷新模型列表",
   modelProviderPurposeSection: "按用途指定模型",
-  modelProviderPurposeHint: "默认全部跟随上方全局模型；为某类工作单独指定后，仅该类调用改用所选模型。",
+  modelProviderPurposeHint:
+    "默认全部跟随上方全局模型；为某类工作单独指定后，仅该类调用改用所选模型。",
   modelProviderPurposeFollowGlobal: "跟随全局",
   modelProviderPurposeWriter: "正文写作",
   modelProviderPurposePlanner: "规划",
@@ -853,7 +858,8 @@ export const STRUCTURE_PANEL = {
       `当前 ${current.toLocaleString("zh-CN")} 字 · 目标体量未设定`,
     volumes: (current: number, planned: number) => `计划 ${planned} 卷 · 当前 ${current} 卷`,
     serialForm: (form: string) => form,
-    missingHint: "尚未设定全书规划；可在概览发起设定盘点或补立项，规划到位后系统才会按目标体量约束收官。",
+    missingHint:
+      "尚未设定全书规划；可在概览发起设定盘点或补立项，规划到位后系统才会按目标体量约束收官。",
   },
   acceptedChapterPlanSection: "已采纳章节计划",
   chapterCountUnit: "章",

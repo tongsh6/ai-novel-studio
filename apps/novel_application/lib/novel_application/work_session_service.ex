@@ -267,6 +267,7 @@ defmodule NovelApplication.WorkSessionService do
       text: text_from_content(interaction.content),
       candidate_selection: candidate_selection_from_content(interaction.content),
       agent_run_id: agent_run_id_from_content(interaction.content),
+      submission_id: interaction.content["submission_id"],
       turn_result: turn_result,
       inserted_at: interaction.inserted_at
     }

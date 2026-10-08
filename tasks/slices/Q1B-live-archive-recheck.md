@@ -1,6 +1,6 @@
 # Q1b 真实模型多轮存档复验
 
-- 状态：done / verified（2026-10-08，LM Studio / qwen/qwen3.8-27b）
+- 状态：next / regression（BIZ-01–04 修复后整批复验）；2026-10-08 原 LM Studio / qwen/qwen3.8-27b 证据保留。
 - 范围：NEXT Q1b / Journey C10；复验 D8 症状，消费已完成的 Q3d 与 DS02。
 - 前置：DS02 已提交 `864eebc1`；此前 1510 后端/461 前端、两场景、四项不变量及完整扫描通过。
 
@@ -94,3 +94,10 @@ call2 延迟、推理量和叙事/结构一致性，再决定协议或目的模�
 - .app 内 sidecar 与当前源归档 SHA256 相等；旧生成目录保存在 `artifacts/project-analysis/q1b-sidecar-before-clean/`。
 - 验收结束时 process_tree 有一次 setpgid warning，已核查 4857/5869 端口均释放，无遗留验收监听服务。
 - 所有依赖锁文件未变；仅使用既有 pnpm 10.33.0 与已安装工具。收尾 worktree 检查只有主工作区。
+
+
+## BIZ-01–04 后整批回归（2026-10-08）
+
+Q3D 的确定性业务反例与传输故障矩阵已闭环；当前队首回到本任务。
+沿用既有 q1b-live-archive-roundtrip 和当前模型，重点核对意图、历史原文、待采纳/已采纳事实
+与刷新恢复，不恢复参数/超时对照。原有实模证据只覆盖此前版本，不能替代这一批回归。

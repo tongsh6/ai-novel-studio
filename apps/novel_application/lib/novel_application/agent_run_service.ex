@@ -7,7 +7,7 @@ defmodule NovelApplication.AgentRunService do
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentRun
-  alias NovelPersistence.{AgentRunLog, LongRunTaskLog}
+  alias NovelPersistence.{AgentRunLog, InteractionLifecycle, LongRunTaskLog}
 
   @checkpoint_version 2
 
@@ -38,6 +38,17 @@ defmodule NovelApplication.AgentRunService do
   end
 
   defp start_requested_run(attrs, opts) do
+    # 同一输入的接收与启动不可被另一 Channel 的重传穿插。
+    lock =
+      {{__MODULE__, attrs[:workspace_id], attrs[:session_id], attrs[:parent_turn_ref]}, self()}
+
+    case :global.trans(lock, fn -> receive_and_start_run(attrs, opts) end) do
+      :aborted -> {:error, :message_start_unavailable}
+      result -> result
+    end
+  end
+
+  defp receive_and_start_run(attrs, opts) do
     store = Keyword.get(opts, :interaction_store) || TurnInteractionService.store()
 
     with {:ok, planner} <- next_step_planner(opts),
@@ -223,6 +234,113 @@ defmodule NovelApplication.AgentRunService do
 
       error ->
         error
+    end
+  end
+
+  @doc "已接受消息优先按原身份核对，不重新要求候选或会话仍可发起新操作。"
+  def received_user_run(input) do
+    if is_nil(TurnInteractionService.store()) or is_nil(input.session_id),
+      do: :new,
+      else: InteractionLifecycle.received_user_run(input)
+  end
+
+  @doc "用户消息的事实回执；运行不存在时不重建，不把持久的历史状态当成活 runtime。"
+  def message_receipt(run_id, work_id, session_id) do
+    state = receipt_runtime_state(run_id, work_id, session_id)
+
+    if is_nil(TurnInteractionService.store()) do
+      ephemeral_receipt(state)
+    else
+      with {:ok, input} <- InteractionLifecycle.receipt_input(work_id, session_id, run_id) do
+        {:ok,
+         %{
+           state: state,
+           input: input,
+           turn_results: InteractionLifecycle.receipt_results(work_id, session_id, run_id)
+         }}
+      end
+    end
+  end
+
+  defp ephemeral_receipt(%{run: run} = state) do
+    {:ok,
+     %{
+       state: state,
+       input: %{
+         turn_id: run.parent_turn_ref,
+         content: %{
+           "text" => run.goal.text,
+           "message_handling" => %{"status" => to_string(run.status)}
+         }
+       },
+       turn_results: []
+     }}
+  end
+
+  defp ephemeral_receipt(nil), do: {:error, :received_input_not_found}
+
+  @doc "引导输入使用独立投递身份；重复回执不再次推进 goal.version。"
+  def steer_submission(%{work_id: work, session_id: session, turn_id: id} = attrs) do
+    :global.trans({{__MODULE__, work, session, id}, self()}, fn -> do_steer_submission(attrs) end)
+  end
+
+  defp do_steer_submission(%{
+         work_id: work,
+         session_id: session,
+         run_id: run_id,
+         turn_id: id,
+         text: text
+       }) do
+    with true <- is_binary(text) and String.trim(text) != "",
+         :ok <- accept_steer_submission(work, session, run_id, id, text),
+         {:ok, receipt} <- message_receipt(run_id, work, session),
+         input when not is_nil(input) <- InteractionLifecycle.submission_input(work, session, id) do
+      {:ok, Map.put(receipt, :input, input)}
+    else
+      false -> {:error, :steer_requires_text}
+      nil -> {:error, :received_input_not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp accept_steer_submission(work, session, run_id, id, text) do
+    case InteractionLifecycle.submission_input(work, session, id) do
+      %{content: %{"agent_run_id" => ^run_id, "text" => ^text, "message_kind" => "steer"}} -> :ok
+      nil -> dispatch_new_steer_submission(work, session, run_id, id, text)
+      _ -> {:error, :input_identity_conflict}
+    end
+  end
+
+  defp dispatch_new_steer_submission(work, session, run_id, id, text) do
+    with {:ok, pid} <- lookup(run_id),
+         %{run: %{work_id: ^work, session_id: ^session}} <- AgentRunServer.state(pid),
+         {:ok, _} <- AgentRunServer.steer_submission(pid, text, id) do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :run_scope_mismatch}
+    end
+  end
+
+  defp receipt_runtime_state(run_id, work_id, session_id) do
+    case state(run_id) do
+      {:ok, %{run: %{work_id: ^work_id, session_id: ^session_id}} = live} ->
+        Map.put(live, :runtime_live?, true)
+
+      {:error, :not_found} ->
+        persisted_receipt_state(run_id, work_id, session_id, false)
+
+      _ ->
+        persisted_receipt_state(run_id, work_id, session_id, nil)
+    end
+  end
+
+  defp persisted_receipt_state(run_id, work_id, session_id, runtime_live) do
+    with %{work_id: ^work_id, session_id: ^session_id} = record <- AgentRunLog.get_run(run_id),
+         {:ok, run} <- run_from_record(record) do
+      %{run: run, runtime_live?: runtime_live, current_task?: false, remaining_steps: 0}
+    else
+      _ -> nil
     end
   end
 

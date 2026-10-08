@@ -118,6 +118,13 @@ defmodule NovelPersistence.InteractionLifecycleTest do
 
     assert Enum.map(MemoryLog.transcript(attrs.session_id), & &1.content["text"]) ==
              [attrs.text, "请补充。", "补充内容", "已回应补充内容。"]
+
+    assert [%{"assistant_message" => %{"text" => "已回应补充内容。"}}] =
+             InteractionLifecycle.receipt_results(
+               attrs.workspace_id,
+               attrs.session_id,
+               attrs.run_id
+             )
   end
 
   test "运行完成和追问不清除待采纳，作者采纳回执才改变投影", %{attrs: attrs} do

@@ -159,6 +159,7 @@
 | `p1-word-count-audit.yml` | 阅读投影短章审计与 P1 进度 |
 | `q3b-capability-gap-honest-reply.yml` | 存档意图无承接时诚实缺口回复与登记路径 |
 | `q1b-live-archive-roundtrip.yml` | 真实模型多轮原文存档、采纳前后事实与刷新追问；禁止确定性替身 |
+| `q3d-message-delivery-recovery.yml` | 外部丢回执、断线/刷新/重启后稳定身份与完成/失败/失活回执 |
 | `q3d-long-session-adoption-state.yml` | 15 份候选跨 20 轮及 80 条窗口恢复、预算外查询、旧候选采纳与终态恢复 |
 | `q3d-author-registration-guards.yml` | 原文来源缺失/越界/执行矛盾安全拒绝、刷新失败恢复、纠正后作者采纳 |
 | `q3d-message-outcome-roundtrip.yml` | 只读结果回填、跨轮原文、重复保护；DS02 旧小写采纳状态恢复与作者采纳 |

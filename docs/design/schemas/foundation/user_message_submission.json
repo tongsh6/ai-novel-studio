@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UserMessageSubmission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "turn_id",
+    "work_id",
+    "session_id",
+    "text",
+    "generate_micro_plan",
+    "created_at"
+  ],
+  "properties": {
+    "turn_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "work_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generate_micro_plan": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "behavior_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "candidate_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_turn_ref",
+        "candidate_ref"
+      ],
+      "properties": {
+        "source_turn_ref": {
+          "type": "string"
+        },
+        "candidate_set_ref": {
+          "type": "string"
+        },
+        "candidate_ref": {
+          "type": "string"
+        }
+      }
+    },
+    "command": {
+      "enum": [
+        "steer"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "delivery_status": {
+      "enum": [
+        "rejected"
+      ]
+    },
+    "rejection_reason": {
+      "type": "string"
+    }
+  }
+}

@@ -21,6 +21,197 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     :ok
   end
 
+  test "同一用户输入并发重传只启动一个运行，完成后回执不重新执行" do
+    enable_delivery_persistence()
+    attrs = delivery_run_attrs()
+    parent = self()
+
+    step = fn run, sequence ->
+      send(parent, {:delivery_step, run.run_id, self()})
+
+      receive do
+        :continue -> :ok
+      end
+
+      {:ok,
+       %{
+         step: step_struct(run.run_id, sequence, "delivery-step"),
+         turn_result: %{
+           turn_id: run.parent_turn_ref,
+           assistant_message: %{text: "已处理原文"},
+           status: "completed",
+           adoption_state: %{pending: [], resolved: []}
+         }
+       }}
+    end
+
+    opts = [next_step_planner: sequential_steps([step]), event_sink: event_sink(parent)]
+
+    tasks =
+      for _ <- 1..4,
+          do:
+            Task.async(fn ->
+              AgentRunService.start_bounded(Map.put(attrs, :run_id, unique_run_id()), opts)
+            end)
+
+    ids =
+      Enum.map(tasks, fn task ->
+        {:ok, id} = Task.await(task)
+        id
+      end)
+
+    assert [id] = Enum.uniq(ids)
+    assert_receive {:delivery_step, ^id, pid}
+    refute_receive {:delivery_step, _, _}
+
+    assert {:ok, %{state: %{runtime_live?: true, run: %{status: :running}}}} =
+             AgentRunService.message_receipt(id, attrs.work_id, attrs.session_id)
+
+    send(pid, :continue)
+    assert_receive {:agent_event, :run_completed, _}, 2000
+
+    assert {:ok, ^id} =
+             AgentRunService.start_bounded(Map.put(attrs, :run_id, unique_run_id()), opts)
+
+    assert {:ok, receipt} = AgentRunService.message_receipt(id, attrs.work_id, attrs.session_id)
+    assert receipt.state.run.status == :completed
+    assert [%{"assistant_message" => %{"text" => "已处理原文"}}] = receipt.turn_results
+    refute_receive {:delivery_step, _, _}
+
+    assert {:error, :input_identity_conflict} =
+             AgentRunService.start_bounded(
+               attrs,
+               Keyword.put(opts, :interaction_input, %{text: "覆盖原文"})
+             )
+
+    assert {:error, :input_identity_conflict} =
+             AgentRunService.start_bounded(
+               attrs,
+               Keyword.put(opts, :interaction_input, %{
+                 text: attrs.goal.text,
+                 generate_micro_plan: true
+               })
+             )
+
+    assert {:error, :received_input_not_found} =
+             AgentRunService.message_receipt(id, "other-work", attrs.session_id)
+  end
+
+  test "失败或进程失活后的重传只返回旧事实，不重建 bounded run" do
+    enable_delivery_persistence()
+
+    for outcome <- [:failed, :dead] do
+      attrs = delivery_run_attrs()
+      parent = self()
+
+      step = fn _run, _sequence ->
+        send(parent, {:delivery_started, self()})
+
+        if outcome == :dead do
+          receive do
+            :never -> :ok
+          end
+        end
+
+        {:error, :delivery_test_failure}
+      end
+
+      opts = [next_step_planner: sequential_steps([step]), event_sink: event_sink(parent)]
+      assert {:ok, id} = AgentRunService.start_bounded(attrs, opts)
+      assert_receive {:delivery_started, _}
+
+      if outcome == :failed do
+        assert_receive {:agent_event, :run_failed, _}, 2000
+      else
+        assert {:ok, %{run: %{status: :running}}} = AgentRunService.state(id)
+        [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, id)
+        DynamicSupervisor.terminate_child(NovelApplication.AgentRunSupervisor, pid)
+      end
+
+      assert {:ok, ^id} =
+               AgentRunService.start_bounded(Map.put(attrs, :run_id, unique_run_id()), opts)
+
+      assert {:ok, receipt} = AgentRunService.message_receipt(id, attrs.work_id, attrs.session_id)
+
+      if outcome == :failed,
+        do: assert(receipt.state.run.status == :failed),
+        else: assert(receipt.state.runtime_live? == false)
+
+      refute_receive {:delivery_started, _}
+    end
+  end
+
+  test "引导输入的并发重传只推进一次目标版本，失活后仍返回原引导回执" do
+    enable_delivery_persistence()
+    attrs = delivery_run_attrs()
+    parent = self()
+
+    step = fn _run, _sequence ->
+      send(parent, {:steer_delivery_waiting, self()})
+
+      receive do
+        :never -> :ok
+      end
+    end
+
+    {:ok, id} = AgentRunService.start_bounded(attrs, next_step_planner: sequential_steps([step]))
+    assert_receive {:steer_delivery_waiting, _}
+
+    submission = %{
+      work_id: attrs.work_id,
+      session_id: attrs.session_id,
+      run_id: id,
+      turn_id: "steer-submission-1",
+      text: "保留原结构，增加心理描写"
+    }
+
+    tasks = for _ <- 1..3, do: Task.async(fn -> AgentRunService.steer_submission(submission) end)
+
+    for task <- tasks do
+      assert {:ok, receipt} = Task.await(task)
+      assert receipt.input.content["goal_version"] == 2
+      assert receipt.input.content["submission_id"] == submission.turn_id
+      assert receipt.input.turn_id == "#{attrs.parent_turn_ref}:steer:2"
+    end
+
+    assert {:ok, %{run: %{goal: %{version: 2}}}} = AgentRunService.state(id)
+
+    assert {:error, :input_identity_conflict} =
+             AgentRunService.steer_submission(%{submission | text: "另一要求"})
+
+    [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, id)
+    DynamicSupervisor.terminate_child(NovelApplication.AgentRunSupervisor, pid)
+    assert {:ok, receipt} = AgentRunService.steer_submission(submission)
+    assert receipt.state.runtime_live? == false
+    assert receipt.input.content["goal_version"] == 2
+  end
+
+  defp enable_delivery_persistence do
+    prior = Application.get_env(:novel_web, :persistence, [])
+
+    Application.put_env(
+      :novel_web,
+      :persistence,
+      Keyword.put(prior, :inject_real_persistence, true)
+    )
+
+    on_exit(fn -> Application.put_env(:novel_web, :persistence, prior) end)
+  end
+
+  defp delivery_run_attrs do
+    {:ok, work} = NovelPersistence.WorkRepo.create(%{title: "消息投递"})
+    {:ok, session} = NovelPersistence.WorkSessionRepo.create(%{work_id: work.id})
+
+    base_run(unique_run_id())
+    |> Map.merge(%{
+      workspace_id: work.id,
+      work_id: work.id,
+      session_id: session.id,
+      parent_turn_ref: "message-#{unique_run_id()}",
+      trigger: %{kind: "user_message"}
+    })
+  end
+
   test "bounded runtime executes supervised step and emits author-safe events" do
     parent = self()
     run_id = unique_run_id()

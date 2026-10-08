@@ -79,10 +79,7 @@ export function qualityRevisionArtifactRole(
   turnResult: QualityRevisionTurnResultLike,
   artifact: QualityRevisionArtifactLike | null,
 ): "original" | "revision" | null {
-  if (
-    !artifact ||
-    !["prose_fragment", "scene_draft"].includes(artifact.artifact_type)
-  ) {
+  if (!artifact || !["prose_fragment", "scene_draft"].includes(artifact.artifact_type)) {
     return null;
   }
 
@@ -92,8 +89,7 @@ export function qualityRevisionArtifactRole(
   const revisionCardMatches = (turnResult.ui_cards ?? []).some((card) => {
     const artifactRefs = Array.isArray(card.artifact_refs) ? card.artifact_refs : [];
     return (
-      normalizedString(card.revision_of) !== null &&
-      artifactRefs.includes(artifact.artifact_id)
+      normalizedString(card.revision_of) !== null && artifactRefs.includes(artifact.artifact_id)
     );
   });
   if (revisionCardMatches) return "revision";
@@ -211,7 +207,7 @@ export function upsertAssistantTurnResultMessage<
     agentRunId: turnResultAgentRunId(turnResult),
     turnResult,
   } as Message;
-  const existingIndex = messages.findIndex(
+  const existingIndex = messages.findLastIndex(
     (message) => message.turnResult?.turn_id === turnResult.turn_id,
   );
   if (existingIndex >= 0) {

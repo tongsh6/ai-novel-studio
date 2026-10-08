@@ -15,17 +15,17 @@
 **当前态**：P1 长篇主链已按登记豁免关闭，当前主线是 D8 暴露的真实作者可用性。
 Q0、Q1a、Q2、Q3a–Q3c 和 Q4 轻量机制已落地；Q1b 已完成当前 Qwen 的真实模型存档复验，DeepSeek 未在本次复验。
 Q3b/Q3c 的既有真实 Tauri 证据使用确定性 provider，不能当作本次真实模型复验。
-Q3d 已实现消息/运行留痕并通过正常短会话；场景审计发现反例，详见 `tasks/slices/Q3D-message-outcome-roundtrip.md`。
+Q3d 已完成消息/运行留痕与 BIZ-01–04 反例修复，详见 `tasks/slices/Q3D-message-outcome-roundtrip.md`。
 DS02 已闭环：撤销前端 `adoption_status: z.string()` 放宽，新候选、历史恢复、采纳回执统一大写七态。
 Q1b / Journey C10 的 Qwen 四轮八次调用已通过原文存档、采纳和刷新追问。
-**唯一队首回到 Q3d 的业务反例收口**：用户要求从使用场景检查 agentic、App 交互和业务实现。
-审计已确认来源缺失保存指令、互斥操作被接受、长会话待采纳状态消失，并发现 UI 未传稳定消息身份。
+**唯一队首转到 Q1b 整批真实模型回归**：用户要求从使用场景检查 agentic、App 交互和业务实现。
+审计确认的来源缺失、互斥操作、长会话待办丢失和真实入口消息身份问题，均已在 BIZ-01–04 修复并通过真实页面故障/恢复矩阵。
 详见 `docs/design/notes/2026-10-08-agentic-business-scenario-audit.md` 与 Q3D slice 的 BIZ-01–04。
-短会话正常路径通过的证据保留，不能据此宣称完整业务闭环已关闭。性能作为观察项，参数对照已停止。
+Q3D 的已登记契约现已闭环；下一步重跑当前 Qwen 的原文存档、采纳与刷新追问，对整批改动核对模型语义。旧 Q1b 证据保留其版本范围。性能作为观察项，参数对照已停止。
 不引入第六账或通用义务机。
 
 **本次已实施 checkpoint（Q4 状态校准）**：纠正 NEXT/旅程/差距表的过期状态；检查器只从
-§4「当前队列」提取唯一 next，并要求对应 journey 行引用同一任务编号。Q3d 正常路径已验证、反例待收口；DS02 已关闭；当前按 BIZ-01–04 收口业务正确性，性能、页面回归接入和工作台拆分为后续候选。B16 已获用户授权并完成后端 Phoenix 1.8.9 安全补丁与前端依赖恢复；完整扫描无阻断项，详见 §6 本次验证。
+§4「当前队列」提取唯一 next，并要求对应 journey 行引用同一任务编号。Q3d 的 BIZ-01–04 反例已收口，DS02 已关闭；当前进入 Q1b 整批真实模型回归，性能、页面回归接入和工作台拆分保留后续候选。B16 已获用户授权并完成后端 Phoenix 1.8.9 安全补丁与前端依赖恢复；完整扫描无阻断项，详见 §6 本次验证。
 
 **队列总览**：§4 当前队列表是唯一状态源；不再复制第二张易漂移的状态表。
 Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行标识。
@@ -56,9 +56,9 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 → 判断与实际能力对账（Q3a 已实现）
 → 能力不足时诚实说明并给出最近路径（Q3b 已有确定性 Tauri 证据）
 → 作者原文可成为待采纳候选，作者采纳后入档（Q3c 已有确定性 Tauri 证据）
-→ 输入持久记录、历史来源与采纳事实（Q3d / Journey C9：正常路径通过，反例收口 next）
+→ 输入持久记录、历史来源与采纳事实（Q3d / Journey C9：BIZ-01–04 已闭环）
 → 采纳状态统一为 canonical 枚举，历史消息恢复同口径（DS02 / Journey F9，已闭环）
-→ 用当前 Qwen 复验 D8 存档链路（Q1b / Journey C10，已闭环）
+→ 用当前 Qwen 复验 D8 存档链路（Q1b / Journey C10：旧版已验证，本批回归 next）
 → 场景业务正确性收口后，再评估性能（UA01-CALL2 / Journey C11，观察项）
 → 更长期的跨任务目标与语义履约判定仍需独立契约
 ```
@@ -73,12 +73,12 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 |---|---|---|---|---|
 | Q0 | B | B15 提交收口：TurnBinding 单点（9 flow frame 构造点）+ 防回归守卫测试已绿、`p1-chapter-expansion` 复活 PASS、门禁绿 | **done（2026-08-30）** | ✓ commit 落盘；B15 销账 |
 | Q1a | A | D7-overwrite 不变量修复（三刀实落，B 按钮显式 rewrite 未采——场景语义改为作者显式消息更合 D7 契约）：①喂前文改产品事实判别（目标章有已采纳正文即喂，治 M10c 盲写）②**判断②续行合成步继承计划步写作坐标**（真根因：rewrite 意图在偏离处理后蒸发→append 绕过覆盖确认；D8 病理 run 内实例，详 D7 slice 档 §4 追记）③驱动 cycle2 改作者显式「推翻重写」消息 | **done（2026-08-31）** | ✓ 全三条：overwrite-confirm PASS + expansion 不回归 + prior_prose_chars 缺 intent 仍出现（app-log 151 chars + flow 单测） |
-| Q1b | A | D8 止血（症状钉，非收口）：①`work_archive_read` 能力描述补「不能保存/存档任何内容」+ 判例行（作者要求存档→有候选引导采纳/无候选选 world_building）；② reply 类存档追问必须带出待采纳候选（candidate_directions）。**归并 D1④ 立项引导** | **done（2026-10-08，Qwen）** | 四轮八次真实调用、原文字节和来源、零提前写入、唯一 CONFIRMED、刷新追问通过；修复非登记来源误拦截；见 Q1B slice / Journey C10 |
+| Q1b | A | BIZ-01–04 后真实模型多轮原文存档、采纳与刷新状态回归；沿用 Q1B slice 与现有外部 driver | **next（BIZ 修复后整批回归）** | 原四轮八次 Qwen 证据保留；须用当前 BIZ-01–04 版本重跑同一真实页面链路，核对意图/原文字节/采纳和刷新事实；见 Q1B slice / Journey C10 |
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **done（2026-08-30）** | 提交 `8b03a9db`；00 §2.1、README 原则 12/13、VS-00D 结果对账已入档 |
 | Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
 | Q3b | A | R2 能力缺口出口：frame_type 子型 capability_gap（reply 结构化子型，零新字段——缺口事实=frame_type、路径=candidate_directions；探索强转让位判例见 slice 档）；VS-00 两枚举表修订 + domain/协议/前端/替身全链 | **done（2026-08-31）** | ✓ `q3b-capability-gap-honest-reply` 真实 Tauri PASS（存档意图→诚实承认+路径候选+零写入）+ au02 回归 + 全门禁；slice 档 tasks/slices/Q3B-capability-gap-exit.md |
 | Q3c | A | R1 作者内容物化：候选第二合法来源——作者消息字节机械物化为待采纳 world_setting 候选（不经模型重写；杂质由 edit-then-accept 主权修剪）；judgment 契约 author_content_registration 信号；**I1 不变量正式升级**（Provider ∨ 作者字节，规则+driver+case 同批登记非绕过） | **done（2026-08-31）** | ✓ `q3c-author-content-materialization` 真实 Tauri PASS（字节断言+物化事件+作者采纳全链）+ q3b/au02 兼容 + I1 4/4；slice 档 tasks/slices/Q3C-author-content-materialization.md |
-| Q3d | A | 消息/原文登记/待采纳/真实入口重传的业务反例收口；见 Q3D slice 与审计报告 | **next（reopened，2026-10-08）** | BIZ-01/02/03 已收口；完整待办跨 90 条后续消息、预算外查询、作品隔离与旧候选采纳通过；下一 checkpoint 为 BIZ-04 入口身份/回执；Journey C9 |
+| Q3d | A | 消息/原文登记/待采纳/真实入口重传的业务反例收口；见 Q3D slice 与审计报告 | **done（2026-10-08，BIZ-01–04）** | 原文边界、完整待办、主消息/引导身份、故障重传与真实回执均通过；1,524 后端/478 前端/9 Rust 测试，桌面构建及静态扫描收口；Journey C9 |
 | DS02 | A | 采纳状态 canonical 化，撤销前端临时 string 放宽；见 `tasks/slices/DS02-adoption-status-canonicalization.md` | **done（2026-10-05）** | 领域/线格式/历史 transcript 统一大写七态；严格 schema 校验与告警恢复；q3d 历史状态真实页面和 roster 回归 PASS，1510 后端/461 前端测试；对应 Journey F9 |
 | UA01-CALL2 | A | 当前模型结构化判断性能观察；既有 UA01 可靠性专项 | **停止参数对照，转业务审计** | 用户明确以使用场景和 App/业务正确性为主线；未完成样本不作参数裁决，537 秒记录仅作旁证；对应 Journey C11 |
 | Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版与状态校准（2026-10-05）；B16 已解除新增扫描阻断** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |
@@ -114,7 +114,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | B8 | LM Studio 上下文配置属重启易失运维状态（2026-07-21 实锤：机器重启后 JIT 默认 8192，17 章形态 prose prompt+输出撑爆窗口 `truncated=1` → provider_response_invalid 无限重试；旧 M2 第13章三次"JSON 解析失败"极可能同病）。已手工 `lms load --context-length 32768` 恢复；候选钉：狗粮预检校验在载模型 context 阈值 + `finish_reason=length` 时报"上下文不足"而非可重试 invalid | 候选钉挂 M2 完跑复盘一并定 |
 | B6 | `frontend/slice-verify/dogfood-runner.mjs` 判定架构债——文件里散落一堆各自手写的帧判定函数（事件名/字段字面量），契约理解不唯一、易与真实契约（`frontend/src/lib/socket.ts` 等）漂移（2026-07-20 `awaitingAuthor` 判错字段路径实锤）；已把 `adoptPendingDraft` 一处重构成"分类一次+穷尽分支"（`classifyChapterAttemptFrame`），其余判定点（`readToc`、settle/overwrite 确认等）仍是老写法，未同步重构 | 攒批一次做，理想情况下接入真实契约定义而非本文件自证 |
 | B12 | **AU10 工作台渲染稳定性与局部刷新隔离（2026-07-24 用户反馈）**：当前无整页 reload 证据；视觉“整体闪烁”初判为 `WorkspaceChat` 多状态联动 render、可变 key/条件渲染 remount、异步元素/输入区/档案几何变化与自动滚动叠加。四方案已登记：A 最小防闪烁、B 组件/状态边界、C TanStack Query server-state 收敛、D 显式工作台状态机。 | 详见 `AU10-workbench-render-stability.md`；先 CP0 外部测量，再默认 A→B，C/D 仅证据触发；P1 B 轨；当前队首以本文件 §4 当前队列为准 |
-| B13 | **ADR 实施/闭环与 traceability 债**：2026-07-25 的 26 份 ADR / 8 项未闭环是历史审计口径，不能直接作为当前完成率。2026-10-05 检查为 初检 27 份 ADR 均缺 `enforced_by`；Q3d 本次已补 ADR-0027，其余 26 份仍缺，脚本仍只告警并 exit 0；ADR-0027 已按用户确认修订 Accepted。实现与验收状态须逐项对照 owner 与证据，不能以 Accepted 或脚本成功代替。 | 当前队首为 DS02；DS02、S4/S7、外部搜索翼、Projection、Replay、I10 仍回原 owner。后续补 `enforced_by` 并收紧门禁前，先逐项核验 ADR→slice→代码→真实页面证据；本次仅校准状态，未完成追溯修复 |
+| B13 | **ADR 实施/闭环与 traceability 债**：2026-07-25 的 26 份 ADR / 8 项未闭环是历史审计口径，不能直接作为当前完成率。2026-10-05 检查为 初检 27 份 ADR 均缺 `enforced_by`；Q3d 本次已补 ADR-0027，其余 26 份仍缺，脚本仍只告警并 exit 0；ADR-0027 已按用户确认修订 Accepted。实现与验收状态须逐项对照 owner 与证据，不能以 Accepted 或脚本成功代替。 | 当前队首以 §4 为准；DS02、S4/S7、外部搜索翼、Projection、Replay、I10 的完整状态仍回原 owner。后续补 `enforced_by` 并收紧门禁前，先逐项核验 ADR→slice→代码→真实页面证据；本次仅校准状态，未完成追溯修复 |
 | B14 | ~~P0 awaiting_author 幽灵任务与失败气泡~~ **已销账（2026-07-28）**：DS03 全链收口——resume 门禁/liveness 真源/控制坞状态矩阵/steer 持久化/错误内联，三场景真实 Tauri PASS。残余（不阻塞）：S7 available_actions 载体归 ADR-0024 CP3；agent_run_state codegen 归 DS01；Pencil dock dead/awaiting 变体 frame 待补；非 judgment/prose flow 的 steer transcript 顺序对齐待其引入 steer 语义时做（细节见 slice 决策日志）。 | `DS03-awaiting-author-runtime-validity-and-recovery-surface.md` done / verified |
 
 | B15 | **bounded run 下 `toolbox.execute.*` 丢 turn_id**（2026-08-26 D7 排查挖出）：LogEmit 从 Logger metadata 取 turn_id，主链迁 bounded run 后工具执行进程无该键→两个 P1 场景 behavior 门长期哑火。修复=TurnBinding 单点（构造+绑定合一，9 flow frame 构造点全接）+ 防回归守卫测试；`p1-chapter-expansion` 复活 PASS、门禁绿 | **已销账（2026-08-30，Q0）** |

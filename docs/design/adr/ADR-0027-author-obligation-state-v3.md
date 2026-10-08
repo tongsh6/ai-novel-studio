@@ -30,6 +30,21 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 - 处置元数据放在 `Interaction.content`：`agent_run_id` 与 `message_handling`
   （复用 AgentRun status、processed_at、result_turn_refs）。处理完成不等于作品事实写入。
 - 执行中的 steer 输入同样保留原文与来源，不能用更新 goal.text 代替消息记录。
+- 桌面 App 在发送前为一次输入生成不可变 `turn_id`，依 `user_message_submission.json` 保留原文、
+  作品/会话、候选引用及计划选项。Tauri 经原生命令原子写本地待投递文件，浏览器入口使用对应平台存储；
+  本机写入失败不得投递。记录保留至结果或终态/失活回执，重连与刷新复用原身份核对。
+  明确拒绝则保留原文并标记 rejected，后续恢复只展示、不自动投递；作者修改后发出新的请求。
+  作者主动再次发送或“重新发起任务”使用新身份，即使文字相同也不合并。
+- steer 也走相同本地待投递机制，回执确认后才删除其投递记录；重复引导不能再次推进 goal.version。
+  内部来源仍为 parent:steer:version，投递身份由 Interaction.content.submission_id 单独关联，
+  恢复同时携带两者，防止刷新后重复显示作者补充。重连还核对持久会话结果，覆盖已收到命令回执
+  但后续结果在断线期间完成的情况。历史只读页面不混入当前会话的待投递气泡。
+- 接收与启动按消息身份串行化；相同身份的原文、候选引用或计划选项不同则拒绝。
+  Channel 明确拒绝与当前连接不一致的 work/session，不能把旧消息挪到新作品执行。
+  已接受身份先核对原输入和旧回执，不重新要求候选仍可选，也不激活已成为历史的会话。
+- user_message 回执携带 `agent_run_state`、`runtime_live`、`message_status` 和持久 `turn_results`。
+  状态取自活 runtime 或原运行记录；前端不把任意 run_id 构造成 running。无进程的 bounded run
+  不从普通重传重建，保持真实历史状态并明确失活；无运行记录则诚实说明无法继续。
 - 不新增义务表或第六账。未来确有跨多个独立任务的长期目标生命周期需求时，另行评审。
 
 ### D2 所有 flow 的结果经过统一记录边界
@@ -112,3 +127,8 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 - apps/novel_application/lib/novel_application/work_session_service.ex
 - apps/novel_application/lib/novel_application/exploration_service.ex
 - quality/acceptance/scenarios/q3d-long-session-adoption-state.yml
+
+- frontend/src/lib/socket.ts
+- frontend/src-tauri/src/lib.rs
+- docs/design/schemas/foundation/user_message_submission.json
+- quality/acceptance/scenarios/q3d-message-delivery-recovery.yml

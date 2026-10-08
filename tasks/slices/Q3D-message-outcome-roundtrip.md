@@ -1,6 +1,7 @@
 # Q3D 消息处置与跨轮结果关联
 
-- 状态：reopened / next（2026-10-08）；既有短会话正常路径验证保留，业务反例与真实入口幂等仍未闭环。
+- 状态：done / verified（2026-10-08，BIZ-01–04）；确定性故障/恢复矩阵闭环，整批真实模型语义回归由 Q1b 承接。
+- §1–4 保留首轮实现记录；当前业务反例的完成证据见后续 BIZ checkpoint。
 - 完整契约：`docs/design/adr/ADR-0027-author-obligation-state-v3.md`（本次修订 Accepted）。
 - 原因：D8 的只读执行结果未进入会话上下文；待采纳对象未完整供判断消费；Q3c 未覆盖两轮原文引用。
 
@@ -72,7 +73,7 @@
 |---|---|---|
 | BIZ-01 来源缺失不能保存指令；BIZ-02 原文登记与创作执行互斥 | done（2026-10-08） | 来源缺失/越界/矛盾组合须拒绝或澄清；正常当前/历史原文仍逐字进入候选；真实页面、trace、消息状态及采纳无回归 |
 | BIZ-03 待采纳状态独立于聊天分页与上下文预算 | done（2026-10-08） | 20 轮后刷新仍有待办；80 条窗口外旧候选仍可查询；省略数真实，Agent 与 UI 消费同一完整业务事实 |
-| BIZ-04 真实 UI 的发送身份与重传闭环 | todo | 稳定 ID 进入 wire；ack 丢失/断线/刷新重试不重复运行；已完成/已失败/无 runtime 返回真实回执状态 |
+| BIZ-04 真实 UI 的发送身份与重传闭环 | done（2026-10-08） | 稳定 ID 进入 wire；ack 丢失/断线/刷新重试不重复运行；已完成/已失败/无 runtime 返回真实回执状态 |
 
 审计阶段仅记录问题，未修复生产代码；参数测量停止。随后从 BIZ-01/02 开始实施，不能只改 prompt 或延长超时，
 也不能以单个守卫或局部测试替代本表的完整用户场景。
@@ -162,3 +163,56 @@ BIZ-04 仍是下一 checkpoint，Q3D 整体不得标 done。
 - 验收边界：Tauri 启动，外部 Playwright 操作实际 App/WorkspaceChat 页面；使用确定性 provider，
   未直接驱动 native WebView，也未重新进行 Qwen 语义质量验收。
 - 下一 checkpoint 为 BIZ-04 稳定发送身份/断线重传/终态回执；Q3D / Journey C9 整体仍未闭环。
+
+
+### BIZ-04 开工 checkpoint（2026-10-08）
+
+- Contract：ADR-0027 D1/D2、user_message 的稳定 turn_id、AgentRun 实际状态回执；新增
+  user_message_submission schema 描述不可变的本地待投递记录，Tauri 使用本机文件存储。
+- Invariant：同 scope/身份/输入重传只运行一次；同身份不同输入拒绝；作者新发送另建身份；
+  先保留原文再投递；终态或已失活 runtime 不因 ack 被伪装为 running。
+- Boundary：Frontend/桌面持久待投递 → Channel → Application → Interaction/AgentRun；
+  不改创作能力、领域规则或采纳授权。接收与启动在同消息身份下串行化。
+- Consumer：真实工作台发送、候选继续、重连/刷新重传；回执携带实际运行状态和已落盘结果。
+- Proof：稳定 wire 身份、冲突/并发去重、完成/失败/失活回执、桌面存储恢复测试及完整门禁。
+- Acceptance Driver：外部真实页面驱动发送，代理层丢弃回执/结果、断连、刷新，检查一份输入、
+  一个运行、真实结果与状态；产品验收感知逻辑为 no。
+- Exploration：本地待投递记录仅承担传输可靠性，不是小说要素；沿用已有消息及采纳探索面。
+
+此 checkpoint 完成前，Q3D / Journey C9 保持未闭环。
+
+
+#### BIZ-04 实施与验证结果
+
+- 主消息、候选继续、阅读投影请求在发送前保留稳定 turn_id 与不可变原文；Tauri 使用原生命令，
+  按作品/会话/身份原子写受限文件。浏览器入口通过 env.ts 适配存储，未新增生产验收开关。
+- 本机保存失败不发送。回执不确定保留待核对消息；明确拒绝保留原文并标记 rejected，刷新只展示、
+  不再自动投递。作者主动新发相同文字另建身份；不是按文字相似度去重。
+- 后端按身份串行接收/启动，拒绝原文、候选引用、计划选项冲突及连接作用域不一致。已接受身份
+  优先读取旧回执，不重复候选校验或会话激活（已补 Channel 历史候选反例）。重复提交
+  返回原 run 的实际状态、runtime_live 和持久结果；状态读取不确定与确认失活分别表达。
+- steer 复用投递机制，并单独保存 submission_id 与内部 parent:steer:version 来源；重复引导
+  不再次推进目标版本。重连核对持久结果，当前会话补发不污染历史只读界面。
+- 外部真实页面 `q3d-message-delivery-recovery` PASS：代理实际丢弃 60 条回执/状态/结果帧；
+  completed/failed 刷新、running 断连与服务重启四类各只有一条原输入和一个 run；
+  活运行重连回执为 running/live，终态仍为 completed/failed，失活仍保留历史状态但 runtime_live=false。
+  引导回执丢失后刷新，原 run 的 goal.version=2，原引导只显示一次；再发相同文本创建新身份。
+  回执只投影各 turn 最新结果，前端更新最新回复并按历史邻接顺序补齐缺失记录；可见回复数量
+  与真实持久 transcript 对照，避免重复气泡和旧回复跑到对话末尾。
+  外部篡改一次作用域让真实服务拒绝后，原文刷新仍在、不自动重试，服务端输入/run 均为零。
+- 回归通过：q3d-long-session-adoption-state、q3d-author-registration-guards、
+  au02-candidate-continuation、agent-awaiting-author-steer-resume、au03-session-history-readonly。
+  均由真实 App/WorkspaceChat 入口驱动，Tauri 已启动；不声称直接驱动 native WebView。
+- 局部/全量：1,524 项后端、478 项前端、211 项证据验证器、9 项 Rust 测试通过。
+  I3 3/3、I1 4/4、I2 三组两两不交、N-NARR、编译零警告、xref 零环、架构边界通过。
+- `bash scripts/build_sidecar.sh` 与 `bash scripts/frontend_audit.sh`（含 Tauri 构建）通过，
+  最终桌面审计 27 PASS / 0 WARN / 0 FAIL；.app/.dmg 的 sidecar 与源包 SHA-256 一致。
+  本机 ad-hoc 签名，未做 Apple 公证。
+- 本批修复了回执函数复杂度、新浏览器存储位置告警和过期证据清单；统一扫描命令
+  `bash scripts/ai_static_scan.sh --top 10` 在最终清单刷新后复跑。存量三项仍按既有台账处理：
+  Pencil fileToken 误报；另一开发线历史凭证 accepted_risk（所有者轮换/清理）；
+  ChapterSummary 嵌套 deferred（下次触及时重构）。未调整台账掩盖新增问题。
+- 证据：`artifacts/slice-verify/q3d-message-delivery-recovery-tauri/`（delivery-wire、四类回执与 DB
+  对照、steer-delivery、rejected-retained、截图/帧/主链日志）；`artifacts/project-analysis/biz4-*`。
+- Q3D 的 BIZ-01–04 现已按 ADR-0027 的消息/运行/采纳分层契约闭环；不外推为通用作者义务机。
+  此批使用确定性 provider 做故障注入，当前 Qwen 整批语义复验为 Q1b 下一项。

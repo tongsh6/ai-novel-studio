@@ -201,26 +201,22 @@ defmodule NovelWeb.WorkspaceChannel do
     generate_plan = Map.get(msg, "generate_micro_plan", false)
     turn_id = Map.get(msg, "turn_id") || NovelFoundation.ID.unique("turn")
 
-    case validate_candidate_selection(socket, Map.get(msg, "candidate_selection")) do
+    case validate_submission_identity(msg, work_id, session_id, turn_id) do
+      :ok ->
+        route_user_submission(socket, %{
+          text: text,
+          ws_id: ws_id,
+          workspace_id: ws_id,
+          work_id: work_id,
+          session_id: session_id,
+          generate_plan: generate_plan,
+          generate_micro_plan: generate_plan,
+          turn_id: turn_id,
+          candidate_selection: Map.get(msg, "candidate_selection")
+        })
+
       {:error, reason} ->
-        {:reply, {:error, %{reason: reason}}, socket}
-
-      {:ok, candidate_selection} ->
-        case activate_author_session(work_id, session_id) do
-          {:ok, active_session_id} ->
-            handle_valid_user_message(socket, %{
-              text: text,
-              ws_id: ws_id,
-              work_id: work_id,
-              session_id: active_session_id,
-              generate_plan: generate_plan,
-              turn_id: turn_id,
-              candidate_selection: candidate_selection
-            })
-
-          {:error, reason} ->
-            {:reply, {:error, %{reason: error_reason(reason)}}, socket}
-        end
+        {:reply, {:error, %{reason: error_reason(reason)}}, socket}
     end
   end
 
@@ -428,6 +424,44 @@ defmodule NovelWeb.WorkspaceChannel do
 
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
+  end
+
+  def handle_in(
+        "agent_command",
+        %{"command" => "steer", "turn_id" => id, "run_id" => run_id} = payload,
+        socket
+      )
+      when is_binary(run_id) do
+    work = socket.assigns[:work_id]
+    session = socket.assigns[:session_id]
+
+    with :ok <- validate_submission_identity(payload, work, session, id),
+         {:ok, receipt} <-
+           AgentRunService.steer_submission(%{
+             work_id: work,
+             session_id: session,
+             run_id: run_id,
+             turn_id: id,
+             text: payload["text"]
+           }) do
+      runtime = if receipt.state, do: agent_run_state_payload(receipt.state, socket), else: nil
+
+      {:reply,
+       {:ok,
+        %{
+          received: true,
+          command: "steer",
+          run_id: run_id,
+          turn_id: id,
+          source_turn_ref: receipt.input.turn_id,
+          agent_run_state: runtime,
+          runtime_live: if(runtime, do: runtime.runtime_live, else: false),
+          turn_results: receipt.turn_results,
+          goal_version: receipt.input.content["goal_version"]
+        }}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
   end
 
   def handle_in("agent_command", %{"run_id" => run_id, "command" => command} = payload, socket) do
@@ -662,6 +696,7 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  defp error_reason(reason) when is_binary(reason), do: reason
   defp error_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_reason(reason), do: inspect(reason)
 
@@ -2103,6 +2138,28 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  defp route_user_submission(socket, params) do
+    case AgentRunService.received_user_run(params) do
+      {:ok, run_id} ->
+        handle_valid_user_message(socket, Map.put(params, :received_run_id, run_id))
+
+      :new ->
+        with {:ok, selection} <- validate_candidate_selection(socket, params.candidate_selection),
+             {:ok, session_id} <- activate_author_session(params.work_id, params.session_id) do
+          handle_valid_user_message(socket, %{
+            params
+            | candidate_selection: selection,
+              session_id: session_id
+          })
+        else
+          {:error, reason} -> {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+    end
+  end
+
   defp handle_valid_user_message(socket, params) do
     LogContext.put_turn(params.ws_id, params.work_id, params.turn_id, params.session_id)
 
@@ -2130,7 +2187,7 @@ defmodule NovelWeb.WorkspaceChannel do
     })
 
     result =
-      case plan_agent_run(input) do
+      case start_or_reuse_user_run(input, params[:received_run_id]) do
         {:agent_run_started, run_id, attrs} -> {:agent_run_started, run_id, attrs, socket}
         {:error, reason} -> {:error, reason, socket}
       end
@@ -2138,6 +2195,18 @@ defmodule NovelWeb.WorkspaceChannel do
     duration = System.monotonic_time(:millisecond) - t0
 
     reply_user_message_result(result, params.session_id, duration)
+  end
+
+  defp start_or_reuse_user_run(input, nil), do: plan_agent_run(input)
+
+  defp start_or_reuse_user_run(input, run_id) do
+    channel_pid = self()
+
+    AgentRunService.attach_event_sink(run_id, fn event ->
+      send(channel_pid, {:agent_event, event})
+    end)
+
+    {:agent_run_started, run_id, %{parent_turn_ref: input.turn_id, session_id: input.session_id}}
   end
 
   defp plan_agent_run(input) do
@@ -2224,28 +2293,27 @@ defmodule NovelWeb.WorkspaceChannel do
          session_id,
          duration
        ) do
-    socket = assign(socket, :active_agent_run_id, run_id)
+    case AgentRunService.message_receipt(
+           run_id,
+           socket.assigns.work_id,
+           Map.get(attrs, :session_id) || session_id
+         ) do
+      {:ok, receipt} ->
+        payload = message_receipt_payload(run_id, attrs, receipt, socket)
+        socket = receipt_active_run(socket, run_id, payload.agent_run_state)
 
-    LogEmit.emit(:channel, :user_message, :done, %{
-      duration_ms: duration,
-      session_id: session_id,
-      run_id: run_id,
-      run_mode: Map.get(attrs, :run_mode, :bounded)
-    })
+        LogEmit.emit(:channel, :user_message, :done, %{
+          duration_ms: duration,
+          session_id: session_id,
+          run_id: run_id,
+          run_mode: payload.run_mode
+        })
 
-    run_mode = run_mode_string(attrs)
+        {:reply, {:ok, payload}, socket}
 
-    {:reply,
-     {:ok,
-      %{
-        received: true,
-        run_id: run_id,
-        run_mode: run_mode,
-        long_run_task_ref: Map.get(attrs, :long_run_task_ref),
-        turn_id: Map.get(attrs, :parent_turn_ref),
-        profile_ref: Map.get(attrs, :profile_ref),
-        goal: Map.get(attrs, :goal)
-      }}, socket}
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
   end
 
   defp reply_user_message_result({:error, reason, socket}, _session_id, duration) do
@@ -2257,11 +2325,66 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:error, %{reason: reason_text(reason)}}, socket}
   end
 
+  defp message_receipt_payload(run_id, attrs, receipt, socket) do
+    runtime = if receipt.state, do: agent_run_state_payload(receipt.state, socket), else: nil
+
+    details =
+      if runtime do
+        Map.take(runtime, [:run_mode, :long_run_task_ref, :profile_ref, :goal])
+      else
+        %{
+          run_mode: run_mode_string(attrs),
+          goal: %{
+            text: receipt.input.content["text"],
+            version: receipt.input.content["goal_version"] || 1
+          }
+        }
+      end
+
+    Map.merge(details, %{
+      received: true,
+      run_id: run_id,
+      turn_id: receipt.input.content["submission_id"] || receipt.input.turn_id,
+      source_turn_ref: receipt.input.turn_id,
+      goal_version: receipt.input.content["goal_version"],
+      agent_run_state: runtime,
+      turn_results: receipt.turn_results,
+      runtime_live: Map.get(runtime || %{}, :runtime_live, false),
+      message_status: get_in(receipt.input.content, ["message_handling", "status"])
+    })
+  end
+
+  defp receipt_active_run(socket, run_id, %{runtime_live: true, status: status})
+       when status not in ["completed", "failed", "cancelled"],
+       do: assign(socket, :active_agent_run_id, run_id)
+
+  defp receipt_active_run(socket, run_id, _runtime) do
+    if socket.assigns[:active_agent_run_id] == run_id,
+      do: assign(socket, :active_agent_run_id, nil),
+      else: socket
+  end
+
   defp run_mode_string(attrs) do
     attrs
     |> Map.get(:run_mode, :bounded)
     |> normalize_run_mode()
     |> Atom.to_string()
+  end
+
+  defp validate_submission_identity(msg, work_id, session_id, turn_id) do
+    cond do
+      not is_binary(turn_id) or byte_size(turn_id) == 0 or byte_size(turn_id) > 128 ->
+        {:error, :invalid_message_identity}
+
+      Map.get(msg, "work_id") not in [nil, work_id] ->
+        {:error, :message_scope_mismatch}
+
+      Map.get(msg, "session_id") not in [nil, session_id] ->
+        {:error, :message_scope_mismatch}
+
+      true ->
+        :ok
+    end
   end
 
   defp validate_candidate_selection(_socket, nil), do: {:ok, nil}

@@ -142,6 +142,7 @@ export const nativeSliceIds = [
   "q1b-live-archive-roundtrip",
   "q3d-author-registration-guards",
   "q3d-long-session-adoption-state",
+  "q3d-message-delivery-recovery",
   "q3d-message-outcome-roundtrip",
   "q3c-author-content-materialization",
   "q3b-capability-gap-honest-reply",
@@ -1648,6 +1649,7 @@ const sliceKeyEvents = {
   ],
   // Q3c 作者内容物化：判断链直答 + 作者字节候选 + 作者采纳。
   "q1b-live-archive-roundtrip": ["channel.user_message.start", "judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
+  "q3d-message-delivery-recovery": ["channel.user_message.start", "channel.user_message.done"],
   "q3d-long-session-adoption-state": ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-author-registration-guards": ["judgment.author_content_validation.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-message-outcome-roundtrip": [
@@ -2034,6 +2036,8 @@ export function findNativeSliceEvidence(sliceId, records) {
   if (sliceId === "au01-turnresult-recorder-ui-consistency") {
     return findAu01TurnresultRecorderUiConsistencyEvidence(records);
   }
+
+  if (sliceId === "q3d-message-delivery-recovery") return findMessageDeliveryEvidence(records);
 
   if (sliceId === "q3d-long-session-adoption-state") return findLongSessionAdoptionEvidence(records);
 
@@ -2721,6 +2725,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (["q3c-author-content-materialization", "q3d-message-outcome-roundtrip"].includes(sliceId)) {
     return q3cAuthorContentBehavior(turnIds, turnRecords, records, sliceId);
+  }
+
+  if (sliceId === "q3d-message-delivery-recovery") {
+    const verified = findMessageDeliveryEvidence(records);
+    return verified ? { slice_id: sliceId, turn_ids: verified.turn_ids,
+      behavior: "stable_submission_retries_reuse_original_run_and_restore_truthful_receipt",
+      assertions: ["external_receipt_loss_injected", "reload_and_reconnect_keep_identity", "completed_and_failed_receipts_are_terminal",
+        "dead_runtime_is_not_restarted", "same_text_new_send_has_new_identity", "one_input_and_run_per_submission"] } : null;
   }
 
   if (sliceId === "q3d-long-session-adoption-state") {
@@ -12599,6 +12611,27 @@ function findAu12CorrectionIntentRoundtripEvidence(records) {
 
 // Q3c 作者内容物化：判定 capability_gap + 作者字节物化事件 + 作者采纳事件全在
 // app JSONL；采纳可发生在源 turn 关联的 author_action turn。
+function findMessageDeliveryEvidence(records) {
+  const sliceId = "q3d-message-delivery-recovery";
+  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
+  if (!ui || !Array.isArray(ui.cases) || ui.cases.length !== 4 || !(ui.dropped_frame_count > 0)) return null;
+  if (!ui.steer_submission_id || !ui.steer_run_id || ui.steer_goal_version !== 2 || ui.steer_retransmission_count < 2 || ui.steer_input_restored_once !== true || ui.assistant_replay_deduplicated !== true) return null;
+  if (!["immutable_inputs", "one_run_per_message", "pending_deliveries_cleared", "rejected_original_retained", "rejected_not_retried"].every((key) => ui[key] === true)) return null;
+  if (new Set(ui.cases.map((c) => c.turn_id)).size !== 4 || ui.cases.some((c) => c.turn_id === ui.fresh_message_id)) return null;
+  if (!ui.cases.some((c) => c.method === "reload" && c.receipt_status === "completed") ||
+      !ui.cases.some((c) => c.method === "reload" && c.receipt_status === "failed") ||
+      !ui.cases.some((c) => c.method === "disconnect") ||
+      !ui.cases.some((c) => c.method === "restart" && c.runtime_live === false)) return null;
+  for (const c of ui.cases) {
+    if (c.input_count !== 1 || c.run_count !== 1) return null;
+    const logs = records.filter((r) => r.turn_id === c.turn_id);
+    if (logs.filter((r) => r.event === "channel.user_message.start").length < 2) return null;
+    const accepted = logs.filter((r) => r.event === "channel.user_message.done");
+    if (accepted.length < 2 || accepted.some((r) => r.run_id !== c.run_id)) return null;
+  }
+  return { slice_id: sliceId, turn_id: ui.turn_id, turn_ids: ui.cases.map((c) => c.turn_id), cases: ui.cases };
+}
+
 function findLongSessionAdoptionEvidence(records) {
   const sliceId = "q3d-long-session-adoption-state";
   const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);

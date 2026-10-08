@@ -42,3 +42,9 @@ export const apiBaseUrl: string = configuredApiEndpoint ?? "";
 export const wsBaseUrl: string = isTauri
   ? (configuredWsEndpoint ?? DEFAULT_WS_HOST)
   : (configuredWsEndpoint ?? DEFAULT_WS_HOST);
+
+/** 浏览器入口的本地存储适配；桌面路径必须改用 Tauri 原生命令。 */
+export function browserStorage(): Storage {
+  if (isTauri) throw new Error("Browser storage is unavailable in desktop runtime");
+  return globalThis.localStorage;
+}

@@ -188,11 +188,7 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
 
     expect(
       upsertAssistantTurnResultMessage(messages, completedResult).map((message) => message.text),
-    ).toEqual([
-      "第一章字数太少了",
-      "直接扩写，保持情节不变",
-      "已按你的要求完成扩写。",
-    ]);
+    ).toEqual(["第一章字数太少了", "直接扩写，保持情节不变", "已按你的要求完成扩写。"]);
   });
 
   it("anchors a running AgentRun to the user message that received its fast ack", () => {
@@ -489,4 +485,26 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
 
     expect(mergeAgentRunRuntimeState(completedRun, delayedRunningState)).toEqual(completedRun);
   });
+});
+
+it("同回合存在历史与当前回复时，回执只更新最新回复，不复制引导结果", () => {
+  const waiting = {
+    turn_id: "parent",
+    assistant_message: { text: "请补充" },
+    agent_run: { run_id: "run", parent_turn_ref: "parent" },
+  };
+  const completed = { ...waiting, assistant_message: { text: "已处理" } };
+  const messages = [
+    { role: "user" as const, turnId: "parent", text: "请继续" },
+    { role: "assistant" as const, turnResult: waiting, text: "请补充" },
+    { role: "user" as const, agentRunId: "run", text: "补充方向" },
+    { role: "assistant" as const, turnResult: completed, text: "已处理" },
+  ];
+  const replayed = upsertAssistantTurnResultMessage(messages, completed);
+  expect(replayed.map((message) => message.text)).toEqual([
+    "请继续",
+    "请补充",
+    "补充方向",
+    "已处理",
+  ]);
 });

@@ -75,11 +75,64 @@ defmodule NovelPersistence.InteractionLifecycle do
 
   def context(_work_id, _session_id), do: %{}
 
+  @doc "按可信作品/会话和原运行身份读取已接收输入及其处置，不推断新的运行。"
+  def receipt_input(work_id, session_id, run_id) do
+    case receipt_rows(work_id, session_id, run_id, "user") do
+      [entry | _] -> {:ok, %{turn_id: entry.turn_id, content: entry.content}}
+      [] -> {:error, :received_input_not_found}
+    end
+  end
+
+  def submission_input(work_id, session_id, submission_id) do
+    case Repo.get(Interaction, identity(work_id, session_id, submission_id, "user", nil)) do
+      nil -> nil
+      entry -> %{turn_id: entry.turn_id, content: entry.content}
+    end
+  end
+
+  def received_user_run(attrs) do
+    case submission_input(attrs.workspace_id, attrs.session_id, attrs.turn_id) do
+      nil ->
+        :new
+
+      %{content: content} ->
+        if same_input?(content, attrs),
+          do: {:ok, content["agent_run_id"]},
+          else: {:error, :input_identity_conflict}
+    end
+  end
+
+  def receipt_results(work_id, session_id, run_id) do
+    receipt_rows(work_id, session_id, run_id, "assistant")
+    |> Enum.map(&NovelPersistence.MemoryLog.canonical_interaction/1)
+    |> Enum.map(& &1.content["turn_result"])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reverse()
+    |> Enum.uniq_by(& &1["turn_id"])
+    |> Enum.reverse()
+  end
+
+  defp receipt_rows(work_id, session_id, run_id, role) do
+    Interaction
+    |> where([i], i.workspace_id == ^work_id and i.role == ^role)
+    |> receipt_session(session_id)
+    |> where([i], fragment("json_extract(?, '$.agent_run_id')", i.content) == ^run_id)
+    |> order_by([i], asc: i.inserted_at, asc: i.id)
+    |> Repo.all()
+  end
+
+  defp receipt_session(query, nil), do: where(query, [i], is_nil(i.session_id))
+  defp receipt_session(query, session_id), do: where(query, [i], i.session_id == ^session_id)
+
   defp receive_input(attrs) do
     content = %{
       text: attrs.text,
       agent_run_id: attrs.run_id,
       candidate_selection: Map.get(attrs, :candidate_selection),
+      generate_micro_plan: Map.get(attrs, :generate_micro_plan, false),
+      submission_id: Map.get(attrs, :submission_id, attrs.turn_id),
+      message_kind: Map.get(attrs, :message_kind, "user_message"),
+      goal_version: Map.get(attrs, :goal_version, 1),
       message_handling: %{status: "created", processed_at: nil, result_turn_refs: []}
     }
 
@@ -92,15 +145,25 @@ defmodule NovelPersistence.InteractionLifecycle do
 
     stored = Repo.get!(Interaction, entry.id)
 
-    if stored.content["text"] != attrs.text or
-         stored.content["candidate_selection"] != jsonable(Map.get(attrs, :candidate_selection)) do
+    if not same_input?(stored.content, attrs) do
       Repo.rollback(:input_identity_conflict)
     end
 
     %{
       run_id: stored.content["agent_run_id"],
+      goal_version: stored.content["goal_version"] || 1,
+      source_turn_ref: stored.turn_id,
       duplicate?: not is_nil(existing) or stored.content["agent_run_id"] != attrs.run_id
     }
+  end
+
+  defp same_input?(content, attrs) do
+    content["text"] == attrs.text and
+      content["candidate_selection"] == jsonable(Map.get(attrs, :candidate_selection)) and
+      Map.get(content, "message_kind", "user_message") ==
+        Map.get(attrs, :message_kind, "user_message") and
+      Map.get(content, "generate_micro_plan", false) ==
+        Map.get(attrs, :generate_micro_plan, false)
   end
 
   defp entry(attrs, turn_ref, role, content) do
@@ -109,7 +172,7 @@ defmodule NovelPersistence.InteractionLifecycle do
         identity(
           attrs.workspace_id,
           attrs.session_id,
-          turn_ref,
+          if(role == "user", do: Map.get(attrs, :submission_id) || turn_ref, else: turn_ref),
           role,
           result_version(role, attrs)
         ),

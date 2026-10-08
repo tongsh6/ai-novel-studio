@@ -1,5 +1,10 @@
 import { Socket, Channel } from "phoenix";
-import { wsBaseUrl } from "./env";
+import { browserStorage, isTauri, wsBaseUrl } from "./env";
+import {
+  UserMessageSubmissionSchema,
+  type UserMessageSubmission,
+} from "../generated/foundation/user_message_submission";
+export type { UserMessageSubmission } from "../generated/foundation/user_message_submission";
 
 const DEFAULT_ENDPOINT: string = wsBaseUrl;
 export const LLM_TURN_TIMEOUT_MS = 300000;
@@ -44,6 +49,12 @@ export function ping(channel: Channel, payload: Record<string, unknown>): Promis
 
 export interface SendMessageResult {
   received: boolean;
+  agent_run_state?: AgentRunStateData | null;
+  runtime_live?: boolean | null;
+  message_status?: string;
+  source_turn_ref?: string;
+  goal_version?: number;
+  turn_results?: Record<string, unknown>[];
   run_id?: string;
   run_mode?: string;
   long_run_task_ref?: string | null;
@@ -52,7 +63,140 @@ export interface SendMessageResult {
   goal?: { text?: string; version?: number };
 }
 
-export function sendMessage(
+export class MessageDeliveryError extends Error {
+  readonly kind: "storage" | "transport" | "rejected";
+  constructor(kind: "storage" | "transport" | "rejected", message: string) {
+    super(message);
+    this.kind = kind;
+  }
+}
+
+const SUBMISSION_PREFIX = "ans.userMessage.";
+export function newUserMessageId(): string {
+  return `message_${crypto.randomUUID()}`;
+}
+
+function submissionKey(workId: string, sessionId: string, turnId: string): string {
+  return `${SUBMISSION_PREFIX}${workId}.${sessionId}.${turnId}`;
+}
+
+function immutableSubmission(message: UserMessageSubmission): string {
+  const payload = UserMessageSubmissionSchema.parse(message);
+  delete payload.delivery_status;
+  delete payload.rejection_reason;
+  return JSON.stringify(payload);
+}
+
+export async function saveUserMessage(message: UserMessageSubmission): Promise<void> {
+  try {
+    if (isTauri) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("save_user_message", { message });
+    } else {
+      const key = submissionKey(message.work_id, message.session_id, message.turn_id);
+      const existing = browserStorage().getItem(key);
+      if (
+        existing &&
+        immutableSubmission(UserMessageSubmissionSchema.parse(JSON.parse(existing))) !==
+          immutableSubmission(message)
+      ) {
+        throw new Error("message identity conflict");
+      }
+      if (!existing || message.delivery_status === "rejected") {
+        browserStorage().setItem(key, JSON.stringify(message));
+      }
+    }
+  } catch (error) {
+    throw new MessageDeliveryError("storage", String(error));
+  }
+}
+
+export async function pendingUserMessages(
+  workId: string,
+  sessionId: string,
+): Promise<UserMessageSubmission[]> {
+  let entries: unknown[];
+  if (isTauri) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    entries = await invoke<unknown[]>("list_user_messages", { workId, sessionId });
+  } else {
+    const prefix = submissionKey(workId, sessionId, "");
+    entries = [];
+    for (let n = 0; n < browserStorage().length; n++) {
+      const key = browserStorage().key(n);
+      if (key?.startsWith(prefix)) entries.push(JSON.parse(browserStorage().getItem(key)!));
+    }
+  }
+  return entries
+    .map((entry) => UserMessageSubmissionSchema.parse(entry))
+    .filter((entry) => entry.work_id === workId && entry.session_id === sessionId)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+export async function acknowledgeUserMessage(
+  workId: string,
+  sessionId: string,
+  turnId: string,
+): Promise<void> {
+  if (isTauri) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("remove_user_message", { workId, sessionId, turnId });
+  } else {
+    browserStorage().removeItem(submissionKey(workId, sessionId, turnId));
+  }
+}
+
+export function submissionIsSettled(response: SendMessageResult): boolean {
+  return (
+    response.runtime_live === false ||
+    ["completed", "failed", "cancelled", "awaiting_author", "paused"].includes(
+      response.agent_run_state?.status ?? "",
+    )
+  );
+}
+
+// 重传使用同一份不可变 submission。保留到结果/终态回执，覆盖 ack 已到但结果掉线的窗口。
+export function transmitUserMessage(
+  channel: Channel,
+  message: UserMessageSubmission,
+): Promise<SendMessageResult> {
+  if (message.delivery_status === "rejected") {
+    return Promise.reject(
+      new MessageDeliveryError("rejected", message.rejection_reason ?? "rejected"),
+    );
+  }
+  return new Promise((resolve, reject) => {
+    channel
+      .push(
+        message.command === "steer" ? "agent_command" : "user_message",
+        message,
+        message.command === "steer" ? undefined : LLM_TURN_TIMEOUT_MS,
+      )
+      .receive("ok", (response: SendMessageResult) => {
+        if (!response.received || response.turn_id !== message.turn_id) {
+          reject(new MessageDeliveryError("transport", "message receipt identity mismatch"));
+          return;
+        }
+        if (message.command === "steer" || submissionIsSettled(response)) {
+          void acknowledgeUserMessage(message.work_id, message.session_id, message.turn_id).catch(
+            console.warn,
+          );
+        }
+        resolve(response);
+      })
+      .receive("error", (error) => {
+        void saveUserMessage({
+          ...message,
+          delivery_status: "rejected",
+          rejection_reason: commandErrorReasonFromPayload(error),
+        }).catch(console.warn);
+        reject(new MessageDeliveryError("rejected", JSON.stringify(error)));
+      })
+      .receive("timeout", () => reject(new MessageDeliveryError("transport", "send timeout")));
+  });
+}
+
+export async function sendMessage(
   channel: Channel,
   text: string,
   workId?: string | null,
@@ -60,25 +204,42 @@ export function sendMessage(
   sessionId?: string | null,
   generateMicroPlan = false,
   candidateSelection?: CandidateSelectionPayload | null,
+  turnId = newUserMessageId(),
 ): Promise<SendMessageResult> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push(
-        "user_message",
-        {
-          text,
-          work_id: workId,
-          session_id: sessionId,
-          behavior_id: behaviorId,
-          generate_micro_plan: generateMicroPlan,
-          ...(candidateSelection ? { candidate_selection: candidateSelection } : {}),
-        },
-        LLM_TURN_TIMEOUT_MS,
-      )
-      .receive("ok", (response) => resolve(response as SendMessageResult))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("send timeout")));
+  const message = UserMessageSubmissionSchema.parse({
+    text,
+    work_id: workId,
+    session_id: sessionId,
+    turn_id: turnId,
+    behavior_id: behaviorId ?? null,
+    generate_micro_plan: generateMicroPlan,
+    created_at: new Date().toISOString(),
+    ...(candidateSelection ? { candidate_selection: candidateSelection } : {}),
   });
+  await saveUserMessage(message);
+  return transmitUserMessage(channel, message);
+}
+
+export async function sendSteerMessage(
+  channel: Channel,
+  runId: string,
+  text: string,
+  workId: string,
+  sessionId: string,
+  turnId: string,
+): Promise<SendMessageResult> {
+  const message = UserMessageSubmissionSchema.parse({
+    text,
+    work_id: workId,
+    session_id: sessionId,
+    turn_id: turnId,
+    command: "steer",
+    run_id: runId,
+    generate_micro_plan: false,
+    created_at: new Date().toISOString(),
+  });
+  await saveUserMessage(message);
+  return transmitUserMessage(channel, message);
 }
 
 export interface AgentEventData {
@@ -175,6 +336,14 @@ export class AgentCommandError extends Error {
 }
 
 export function agentCommandErrorReason(error: unknown): string {
+  if (error instanceof MessageDeliveryError) {
+    if (error.kind === "transport") return "timeout";
+    try {
+      return commandErrorReasonFromPayload(JSON.parse(error.message));
+    } catch {
+      return "unknown";
+    }
+  }
   return error instanceof AgentCommandError ? error.reason : "unknown";
 }
 
@@ -199,7 +368,9 @@ export function sendAgentCommand(
       .receive("ok", (response) =>
         resolve(response as { received: boolean; run_id: string; command: string }),
       )
-      .receive("error", (error) => reject(new AgentCommandError(commandErrorReasonFromPayload(error))))
+      .receive("error", (error) =>
+        reject(new AgentCommandError(commandErrorReasonFromPayload(error))),
+      )
       .receive("timeout", () => reject(new AgentCommandError("timeout")));
   });
 }

@@ -1,0 +1,4 @@
+import { z } from "zod"
+
+export const UserMessageSubmissionSchema = z.object({ "turn_id": z.string().regex(new RegExp("^[A-Za-z0-9_-]{1,128}$")), "work_id": z.string().regex(new RegExp("^[A-Za-z0-9_-]{1,128}$")), "session_id": z.string().regex(new RegExp("^[A-Za-z0-9_-]{1,128}$")), "text": z.string().min(1), "generate_micro_plan": z.boolean(), "created_at": z.string(), "behavior_id": z.union([z.string(), z.null()]).optional(), "candidate_selection": z.object({ "source_turn_ref": z.string(), "candidate_set_ref": z.string().optional(), "candidate_ref": z.string() }).strict().optional(), "command": z.literal("steer").optional(), "run_id": z.string().min(1).optional(), "delivery_status": z.literal("rejected").optional(), "rejection_reason": z.string().optional() }).strict()
+export type UserMessageSubmission = z.infer<typeof UserMessageSubmissionSchema>

@@ -3,6 +3,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
 
   import Phoenix.ChannelTest
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
@@ -29,6 +30,91 @@ defmodule NovelWeb.WorkspaceChannelTest do
     # default, the workspace id). Old clients still see {joined: true} +.
     assert reply.joined == true
     assert reply.work_id == "01HJX-test"
+  end
+
+  test "消息作用域不匹配或身份非法时拒绝，不挪到当前作品执行" do
+    {:ok, _, channel} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:identity-scope")
+
+    for {payload, reason} <- [
+          {%{"text" => "原文", "turn_id" => "stable-id", "work_id" => "other-work"},
+           "message_scope_mismatch"},
+          {%{"text" => "原文", "turn_id" => ""}, "invalid_message_identity"},
+          {%{"text" => "原文", "turn_id" => ["invalid"]}, "invalid_message_identity"}
+        ] do
+      ref = push(channel, "user_message", payload)
+      assert_reply(ref, :error, %{reason: ^reason})
+    end
+
+    refute_broadcast("agent_run_state", _, 50)
+  end
+
+  test "已接收候选继续的重传不重新校验消失的候选，也不激活历史会话" do
+    owner = Sandbox.start_owner!(NovelPersistence.Repo, shared: true)
+    prior = Application.get_env(:novel_web, :persistence, [])
+
+    Application.put_env(
+      :novel_web,
+      :persistence,
+      Keyword.put(prior, :inject_real_persistence, true)
+    )
+
+    on_exit(fn ->
+      Application.put_env(:novel_web, :persistence, prior)
+      Sandbox.stop_owner(owner)
+    end)
+
+    {:ok, work} = NovelApplication.WorkService.create(%{title: "重复回执"})
+    {:ok, old} = NovelApplication.WorkSessionService.create(work.id)
+
+    attrs = %{
+      workspace_id: work.id,
+      session_id: old.id,
+      turn_id: "accepted-before",
+      run_id: "past-run",
+      text: "继续旧候选",
+      candidate_selection: %{
+        "source_turn_ref" => "removed",
+        "candidate_ref" => "old",
+        "candidate_set_ref" => "candidate_set:removed"
+      }
+    }
+
+    {:ok, _} = NovelPersistence.InteractionLifecycle.call(:receive, attrs)
+    {:ok, current} = NovelApplication.WorkSessionService.create(work.id)
+
+    {:ok, _, channel} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        work_id: work.id,
+        session_id: old.id
+      })
+
+    ref =
+      push(channel, "user_message", %{
+        text: attrs.text,
+        turn_id: attrs.turn_id,
+        work_id: work.id,
+        session_id: old.id,
+        candidate_selection: attrs.candidate_selection
+      })
+
+    assert_reply(ref, :ok, %{received: true, run_id: "past-run", runtime_live: false})
+    {:ok, snapshot} = NovelApplication.WorkSessionService.resume(work.id)
+    assert snapshot.active_session.id == current.id
+
+    ref =
+      push(channel, "user_message", %{
+        text: "改变原文",
+        turn_id: attrs.turn_id,
+        work_id: work.id,
+        session_id: old.id
+      })
+
+    assert_reply(ref, :error, %{reason: "input_identity_conflict"})
   end
 
   test "ping -> pong" do

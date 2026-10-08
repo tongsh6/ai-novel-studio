@@ -21,6 +21,7 @@ export interface SessionTranscriptEntry {
   turn_id: string;
   role: "user" | "assistant" | "system";
   text: string;
+  submission_id?: string | null;
   candidate_selection?: CandidateSelectionPayload | null;
   // DS03：steer 作者补充恢复时携带来源 run，前端据此把消息锚回同一 AgentRun。
   agent_run_id?: string | null;
@@ -76,6 +77,7 @@ export interface WorkspaceSessionTranscriptPage {
 }
 
 export interface ChatMessageFromTranscript {
+  clientMessageId?: string;
   role: "user" | "assistant";
   text: string;
   turnId?: string | null;
@@ -280,11 +282,50 @@ export function transcriptToMessages(
       role: entry.role,
       text: entry.text,
       turnId: entry.turn_id,
+      ...(entry.submission_id ? { clientMessageId: entry.submission_id } : {}),
       ...(entry.candidate_selection ? { candidateSelection: entry.candidate_selection } : {}),
       ...(entry.agent_run_id ? { agentRunId: entry.agent_run_id } : {}),
       // 恢复的历史 turn_result 与 Channel 广播走同一契约校验入口（漂移告警、容错透传）。
       ...(entry.turn_result ? { turnResult: parseIncomingTurnResult(entry.turn_result) } : {}),
     }));
+}
+
+// 历史页是有序快照：缺失的旧消息插回相邻记录之间，不追加到当前对话末尾。
+export function mergeResumedTranscript<Message extends ChatMessageFromTranscript>(
+  current: Message[],
+  restored: Message[],
+): Message[] {
+  const same = (a: Message, b: Message) =>
+    a.role === b.role &&
+    ((a.role === "user" && a.clientMessageId && a.clientMessageId === b.clientMessageId) ||
+      ((a.turnResult?.turn_id ?? a.turnId) === (b.turnResult?.turn_id ?? b.turnId) &&
+        a.text === b.text));
+  const merged = [...current];
+  for (let i = 0; i < restored.length; i++) {
+    const message = restored[i];
+    const existing = merged.findIndex((entry) => same(entry, message));
+    if (existing >= 0) {
+      merged[existing] = { ...merged[existing], ...message };
+      continue;
+    }
+    const next = restored.slice(i + 1).find((entry) => merged.some((item) => same(entry, item)));
+    if (next) {
+      merged.splice(
+        merged.findIndex((entry) => same(entry, next)),
+        0,
+        message,
+      );
+    } else {
+      const previous = restored
+        .slice(0, i)
+        .findLast((entry) => merged.some((item) => same(entry, item)));
+      const position = previous
+        ? merged.findLastIndex((entry) => same(entry, previous)) + 1
+        : merged.length;
+      merged.splice(position, 0, message);
+    }
+  }
+  return merged;
 }
 
 export function shouldInsertWorkspaceWelcome(

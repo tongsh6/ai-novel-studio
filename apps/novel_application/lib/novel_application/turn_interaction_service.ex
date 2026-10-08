@@ -21,7 +21,8 @@ defmodule NovelApplication.TurnInteractionService do
         Map.merge(scope(run), %{
           turn_id: run.parent_turn_ref,
           text: Map.get(input, :text, run.goal.text),
-          candidate_selection: Map.get(input, :candidate_selection)
+          candidate_selection: Map.get(input, :candidate_selection),
+          generate_micro_plan: Map.get(input, :generate_micro_plan, false)
         })
       )
     else
@@ -29,12 +30,14 @@ defmodule NovelApplication.TurnInteractionService do
     end
   end
 
-  def record_steer(run, text, store) do
+  def record_steer(run, text, store, submission_id \\ nil) do
     call(
       store,
       :receive,
       Map.merge(scope(run), %{
         turn_id: "#{run.parent_turn_ref}:steer:#{run.goal.version}",
+        submission_id: submission_id || "#{run.parent_turn_ref}:steer:#{run.goal.version}",
+        message_kind: "steer",
         text: text
       })
     )
