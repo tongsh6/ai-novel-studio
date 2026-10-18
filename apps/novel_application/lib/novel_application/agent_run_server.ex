@@ -537,6 +537,9 @@ defmodule NovelApplication.AgentRunServer do
   defp failure_family_reason_codes({:judgment_output_conflict, reason}),
     do: ["judgment_output_conflict", Atom.to_string(reason)]
 
+  defp failure_family_reason_codes({:pending_artifact_execution_failed, _tool, _trace}),
+    do: ["pending_artifact_execution_failed"]
+
   defp failure_family_reason_codes(reason) do
     if provider_failure_reason?(reason), do: ["provider_error"], else: []
   end
@@ -553,6 +556,18 @@ defmodule NovelApplication.AgentRunServer do
     else
       "本轮运行执行失败，已安全停止。"
     end
+  end
+
+  defp safe_failure_turn_result(
+         %AgentRun{} = run,
+         {:pending_artifact_execution_failed, tool, trace}
+       ) do
+    run
+    |> safe_failure_turn_result({:pending_artifact_invalid, :revision_failed})
+    |> put_in([:truthfulness, :tool_called], true)
+    |> put_in([:truthfulness, :tool_name], tool)
+    |> put_in([:trace_summary, :trace_ref], trace)
+    |> put_in([:assistant_message, :text], "修订未能生成有效的新稿。你的输入已保留，本次没有改变原稿或写入作品事实，可以稍后重试。")
   end
 
   defp safe_failure_turn_result(%AgentRun{} = run, reason) do
@@ -591,6 +606,9 @@ defmodule NovelApplication.AgentRunServer do
 
   defp failure_fallback_message({:judgment_output_conflict, _}),
     do: "模型回复与本轮要求不一致，纠正后仍未通过校验。你的输入已保留；没有生成候选或写入作品事实，可以继续对话。"
+
+  defp failure_fallback_message({:pending_artifact_invalid, _}),
+    do: "这次候选处理未完成，目标可能已被处理或修订未成功。没有据此采纳或写入作品事实，请核对当前候选后继续。"
 
   defp failure_fallback_message(reason) do
     if provider_failure_reason?(reason) do
@@ -1028,6 +1046,10 @@ defmodule NovelApplication.AgentRunServer do
         :judgment_settled,
         "judgment_settled",
         :judgment_context,
+        :pending_artifact_request,
+        "pending_artifact_request",
+        :pending_artifact_tool,
+        "pending_artifact_tool",
         "judgment_context",
         :judgment_input,
         "judgment_input"

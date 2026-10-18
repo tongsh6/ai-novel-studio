@@ -1556,6 +1556,19 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     {brief, context} = creative_prompt_parts(prompt)
 
     cond do
+      String.starts_with?(brief, "修订下面已有候选") ->
+        original = context |> String.split("：\n", parts: 2) |> List.last()
+        body = String.replace(original, "沈砚", "林渡")
+
+        [
+          %{
+            item_id: "revision_#{:erlang.phash2(prompt)}",
+            title: "旧书铺修订稿",
+            body: body,
+            rationale: "按作者要求修改名字，原稿保留。"
+          }
+        ]
+
       # 章节计划（plot_outline -> outline_draft）确定性产出多章，让 plan-minimum 等 slice
       # 在离线 provider 下也能演练「生成结构化章节计划」。
       outline_plan_prompt?(prompt) ->
@@ -2265,7 +2278,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       end)
 
     arguments =
-      arguments |> message_state_arguments(prompt) |> candidate_semantics_arguments(prompt)
+      arguments
+      |> message_state_arguments(prompt)
+      |> candidate_semantics_arguments(prompt)
+      |> pending_lifecycle_arguments(prompt)
 
     reasoning = judgment_reason_code(action)
 
@@ -2367,7 +2383,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 外部多轮场景的确定性提供者：从实际上下文选来源与状态，生产 provider 不含此逻辑。
   defp message_state_request?(prompt) do
     input = judgment_author_input(prompt)
-    contains_any?(input, ["先只记录这份资料", "上一条资料原文", "资料处理进度", "读取结果回顾", "会话候选数量"])
+
+    contains_any?(input, [
+      "先只记录这份资料",
+      "上一条资料原文",
+      "资料处理进度",
+      "读取结果回顾",
+      "会话候选数量",
+      "请修改现有候选",
+      "请放弃原候选",
+      "请放弃修订稿",
+      "没说是哪份"
+    ])
   end
 
   defp message_state_facts(prompt) do
@@ -2388,7 +2415,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         |> Map.get("author_inputs", [])
         |> Enum.find(&String.starts_with?(&1["text"] || "", "先只记录这份资料"))
 
-      registration? = String.contains?(judgment_author_input(prompt), "上一条资料原文")
+      facts = message_state_facts(prompt)
+
+      existing? = materialized_message_source?(facts, source)
+
+      registration? = String.contains?(judgment_author_input(prompt), "上一条资料原文") and not existing?
 
       Map.merge(arguments, %{
         "frame_type" => if(registration?, do: "capability_gap", else: "question_answer"),
@@ -2401,6 +2432,68 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     else
       arguments
     end
+  end
+
+  defp materialized_message_source?(facts, source) do
+    is_map(source) and
+      Enum.any?(
+        (facts["pending_adoptions"] || []) ++ (facts["resolved_adoptions"] || []),
+        &(&1["source_ref"] == "author_input:#{source["turn_ref"]}" and
+            &1["status"] in ["TENTATIVE", "ACCEPTED", "EDITED_ACCEPTED"])
+      )
+  end
+
+  defp pending_lifecycle_arguments(arguments, prompt) do
+    input = judgment_author_input(prompt)
+    pending = message_state_facts(prompt)["pending_adoptions"] || []
+
+    operation = lifecycle_operation(input)
+    target = lifecycle_target(pending, input)
+
+    cond do
+      String.contains?(input, "没说是哪份") ->
+        Map.merge(arguments, %{
+          "action" => "await_author",
+          "frame_type" => "meta_discussion",
+          "candidate_directions" => []
+        })
+
+      operation ->
+        Map.merge(arguments, %{
+          "action" => "execute",
+          "capability" => operation,
+          "dialogue_goal" =>
+            if(operation == "revise_pending_artifact",
+              do: "把沈砚改成林渡，保留其余内容和校验标识，只生成修订候选。",
+              else: "放弃指定候选，不写入作品事实。"
+            ),
+          "frame_type" => nil,
+          "pending_artifact_ref" => target && target["artifact_ref"],
+          "author_content_registration" => false,
+          "record_only" => false,
+          "candidate_directions" => []
+        })
+
+      true ->
+        arguments
+    end
+  end
+
+  defp lifecycle_operation(input) do
+    cond do
+      String.contains?(input, "请修改现有候选") -> "revise_pending_artifact"
+      String.contains?(input, "请放弃原候选") -> "discard_pending_artifact"
+      String.contains?(input, "请放弃修订稿") -> "discard_pending_artifact"
+      true -> nil
+    end
+  end
+
+  defp lifecycle_target(pending, input) do
+    Enum.find(pending, fn entry ->
+      if String.starts_with?(input, "请放弃修订稿"),
+        do: entry["revision_of"] != nil,
+        else: entry["revision_of"] == nil and String.contains?(entry["body_preview"] || "", "沈砚")
+    end)
   end
 
   # 仅在 test/support 注入错误模型决定，供外部真实页面验证业务拒绝与纠正路径。
@@ -2430,24 +2523,52 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     input = judgment_author_input(prompt)
     facts = message_state_facts(prompt)
 
+    lifecycle_narrative(input, facts) ||
+      cond do
+        String.contains?(input, "会话候选数量") ->
+          "当前待采纳 #{facts["pending_adoption_count"]} 份，已处置 #{facts["resolved_adoption_count"]} 份，摘要省略 #{facts["omitted_adoptions"]} 份。"
+
+        String.contains?(input, "读取结果回顾") ->
+          readonly_result_narrative(facts)
+
+        String.starts_with?(input, "先只记录这份资料") ->
+          "已收到这份资料原文，本轮只记录，不生成候选。"
+
+        Enum.any?(
+          Map.get(facts, "resolved_adoptions", []),
+          &(&1["status"] in ["ACCEPTED", "EDITED_ACCEPTED"])
+        ) ->
+          "这份资料已经采纳入档，已有采纳结果可核对。"
+
+        Map.get(facts, "pending_adoptions", []) != [] ->
+          "这份资料尚未采纳，请在已有候选卡上采纳。运行结束不代表已经入档。"
+
+        true ->
+          "我会引用上一条资料的原文生成待采纳候选，作者采纳后才会入档。"
+      end
+  end
+
+  defp lifecycle_narrative(input, facts) do
     cond do
-      String.contains?(input, "会话候选数量") ->
-        "当前待采纳 #{facts["pending_adoption_count"]} 份，已处置 #{facts["resolved_adoption_count"]} 份，摘要省略 #{facts["omitted_adoptions"]} 份。"
+      String.contains?(input, "资料处理进度") ->
+        "待采纳 #{facts["pending_adoption_count"]} 份，已处置 #{facts["resolved_adoption_count"]} 份。" <>
+          Enum.map_join(
+            (facts["pending_adoptions"] || []) ++ (facts["resolved_adoptions"] || []),
+            "；",
+            &"#{&1["status"]}：#{&1["body_preview"]}"
+          )
 
-      String.contains?(input, "读取结果回顾") ->
-        readonly_result_narrative(facts)
+      String.contains?(input, "请修改现有候选") ->
+        "我会按要求生成独立修订候选，保留原稿，不自动入档。"
 
-      String.starts_with?(input, "先只记录这份资料") ->
-        "已收到这份资料原文，本轮只记录，不生成候选。"
+      String.contains?(input, "请放弃") ->
+        "我会放弃你指定的待采纳候选，不删除已保存的作品事实。"
 
-      Map.get(facts, "resolved_adoptions", []) != [] ->
-        "这份资料已经采纳入档，已有采纳结果可核对。"
-
-      Map.get(facts, "pending_adoptions", []) != [] ->
-        "这份资料尚未采纳，请在已有候选卡上采纳。运行结束不代表已经入档。"
+      String.contains?(input, "没说是哪份") ->
+        "请说明要修改哪份候选，当前不会执行修改。"
 
       true ->
-        "我会引用上一条资料的原文生成待采纳候选，作者采纳后才会入档。"
+        nil
     end
   end
 

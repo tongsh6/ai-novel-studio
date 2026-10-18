@@ -211,6 +211,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     必须在至少一个条目的 title/body/rationale 中原样保留。
     #{progress_state_section(request)}
     #{planning_mission_section(request)}
+    #{revision_section(request)}
     只返回 JSON 数组。
     """
   end
@@ -248,6 +249,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     重要：角色设计必须基于上下文中的作品背景、世界观、设定与现有角色，不要脱离本作凭空生成。如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留。
 
+    #{revision_section(request)}
     只返回 JSON 数组。
     """
   end
@@ -278,6 +280,25 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   # world_building：作品档案中的世界设定 / 伏笔 / 规则草稿。
   # 采纳后仍经 AU-09 memory governance；provider 只生成 tentative artifact。
+  defp build_prompt(%CreativeRequest{tool_name: "world_building", revision: revision} = request)
+       when is_binary(revision) and revision != "" do
+    """
+    你是小说设定修订助手。按作者要求编辑给定原稿，返回一个合法 JSON 数组，不附加额外文字。
+    这是已有内容的新版本，保留原稿结构和未要求修改的内容，不做新建设定的模板扩写。
+    每项包含 item_id（新标识符）、title（修订稿标题）、body（完整修订正文）、rationale（修改依据或 null）。
+    body 是可供作者采纳的正文，不要向其中添加修改说明、旧值/新值对照或保存状态说明。
+
+    capability：#{request.tool_name}
+    artifact_type：#{request.artifact_type}
+    用户创作简述：#{request.creative_brief}
+    上下文：#{request.context_text}
+
+    重要：仅执行当前修订要求，保留原稿中的信息与标识。返回条目不得冒充已保存事实。
+    #{revision_section(request)}
+    只返回 JSON 数组。
+    """
+  end
+
   defp build_prompt(%CreativeRequest{tool_name: "world_building"} = request) do
     guidance = world_building_guidance(request.artifact_type)
 

@@ -49,21 +49,28 @@ defmodule NovelApplication.AgentNarrativeSource do
   def from_provider_result(_provider_result, _narrative), do: {:error, :invalid_provider_result}
 
   @doc """
-  Binds an author narrative that arrived inside a native tool call's
-  `author_reasoning` argument (providers that emit empty assistant content
-  under forced tool_choice, e.g. LM Studio). The runtime ProviderOutput
-  content already carries the tool calls; the narrative bytes must equal the
-  `author_reasoning` field of the matching call.
+  绑定原生工具响应中的作者叙事（如强制 tool_choice 时 assistant content 为空）。
+  ProviderOutput 保留原始 tool calls，叙事必须与指定调用的指定字段逐字一致。
+  默认兼容 author_reasoning；判断协议显式使用 author_narrative，校验时沿同一字段回查。
   """
   @spec from_tool_call_narrative(map(), String.t(), String.t()) ::
           {:ok, source()} | {:error, term()}
-  def from_tool_call_narrative(provider_result, tool_name, narrative)
+  @spec from_tool_call_narrative(map(), String.t(), String.t(), atom() | String.t()) ::
+          {:ok, source()} | {:error, term()}
+  def from_tool_call_narrative(
+        provider_result,
+        tool_name,
+        narrative,
+        narrative_field \\ :author_reasoning
+      )
+
+  def from_tool_call_narrative(provider_result, tool_name, narrative, narrative_field)
       when is_map(provider_result) and is_binary(tool_name) and is_binary(narrative) do
     narrative = String.trim(narrative)
 
     with :ok <- require_narrative(narrative),
          {:ok, output} <- provider_output(provider_result),
-         {:ok, source_text} <- tool_narrative_text(output, tool_name),
+         {:ok, source_text} <- tool_narrative_text(output, tool_name, narrative_field),
          :ok <- narrative_matches_tool_source(source_text, narrative) do
       {:ok,
        %{
@@ -72,6 +79,7 @@ defmodule NovelApplication.AgentNarrativeSource do
          provider_call_ref: output.provider_call_ref,
          provider_output_ref: output.provider_run_ref,
          tool_call_name: tool_name,
+         tool_call_narrative_field: to_string(narrative_field),
          source_hash: sha256(source_text),
          source_byte_range: %{start: 0, length: byte_size(narrative)},
          narrative_hash: sha256(narrative)
@@ -79,7 +87,7 @@ defmodule NovelApplication.AgentNarrativeSource do
     end
   end
 
-  def from_tool_call_narrative(_provider_result, _tool_name, _narrative),
+  def from_tool_call_narrative(_provider_result, _tool_name, _narrative, _field),
     do: {:error, :invalid_provider_result}
 
   @source_types ["provider_output", "provider_output_tool_narrative"]
@@ -175,7 +183,11 @@ defmodule NovelApplication.AgentNarrativeSource do
     case map_get(source, :source_type) do
       "provider_output_tool_narrative" ->
         with {:ok, tool_name} <- required_string(source, :tool_call_name) do
-          tool_narrative_text(output, tool_name)
+          tool_narrative_text(
+            output,
+            tool_name,
+            map_get(source, :tool_call_narrative_field) || :author_reasoning
+          )
         end
 
       _ ->
@@ -183,27 +195,40 @@ defmodule NovelApplication.AgentNarrativeSource do
     end
   end
 
-  defp tool_narrative_text(%ProviderOutput{content: content}, tool_name) when is_map(content) do
+  defp tool_narrative_text(%ProviderOutput{content: content}, tool_name, narrative_field)
+       when is_map(content) and
+              narrative_field in [
+                :author_reasoning,
+                "author_reasoning",
+                :author_narrative,
+                "author_narrative"
+              ] do
     content
     |> map_get(:tool_calls)
     |> List.wrap()
     |> Enum.find(fn call -> is_map(call) and map_get(call, :name) == tool_name end)
     |> case do
       nil -> {:error, :tool_call_not_in_provider_output}
-      call -> tool_call_author_reasoning(map_get(call, :arguments))
+      call -> tool_call_narrative(map_get(call, :arguments), narrative_field)
     end
   end
 
-  defp tool_narrative_text(_output, _tool_name), do: {:error, :tool_narrative_text_required}
+  defp tool_narrative_text(_output, _tool_name, _field),
+    do: {:error, :tool_narrative_text_required}
 
-  defp tool_call_author_reasoning(args) when is_map(args) do
-    case map_get(args, :author_reasoning) do
+  defp tool_call_narrative(args, field) when is_map(args) do
+    key =
+      if field in [:author_narrative, "author_narrative"],
+        do: :author_narrative,
+        else: :author_reasoning
+
+    case map_get(args, key) do
       text when is_binary(text) and text != "" -> {:ok, String.trim(text)}
       _ -> {:error, :tool_narrative_text_required}
     end
   end
 
-  defp tool_call_author_reasoning(_args), do: {:error, :tool_narrative_text_required}
+  defp tool_call_narrative(_args, _field), do: {:error, :tool_narrative_text_required}
 
   defp narrative_matches_tool_source(source_text, narrative) do
     if source_text == narrative do

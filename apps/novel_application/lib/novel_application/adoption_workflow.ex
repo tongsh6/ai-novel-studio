@@ -59,8 +59,10 @@ defmodule NovelApplication.AdoptionWorkflow do
     # VS-04 §4.5「adoption failure 必须产生 TurnResult，不允许静默丢弃」。
     with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id),
          {:ok, work_context} <- validate_work_boundary(source_turn_result, artifact, params),
+         :ok <- check_current_pending(params, artifact_id),
          :ok <- check_revision_base(artifact, params) do
       candidate_set = candidate_set_from_artifact(source_turn_result, artifact)
+
       opts =
         adoption_decision_opts(
           work_context,
@@ -111,7 +113,10 @@ defmodule NovelApplication.AdoptionWorkflow do
     |> Map.put(:meta_leak_hits, artifact_meta_leak_hits(artifact))
     |> Map.put(:duplicate_character_name, duplicate_match && duplicate_match.proposed)
     |> Map.put(:duplicate_character_canonical, duplicate_match && duplicate_match.canonical)
-    |> Map.put(:duplicate_character_alias_hit, (duplicate_match && duplicate_match.alias_hit) == true)
+    |> Map.put(
+      :duplicate_character_alias_hit,
+      (duplicate_match && duplicate_match.alias_hit) == true
+    )
   end
 
   # 同名/别名角色（M4 实锤 + AU12 CP2 别名后门）：档案已有同名已确认角色、或提案
@@ -286,7 +291,8 @@ defmodule NovelApplication.AdoptionWorkflow do
   def handle_discard(source_turn_result, %{"artifact_id" => artifact_id} = params)
       when is_binary(artifact_id) do
     with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id),
-         {:ok, _work_context} <- validate_work_boundary(source_turn_result, artifact, params) do
+         {:ok, _work_context} <- validate_work_boundary(source_turn_result, artifact, params),
+         :ok <- check_current_pending(params, artifact_id) do
       {:ok, build_discard_action_result(artifact),
        build_discard_turn_result(source_turn_result, artifact)}
     end
@@ -332,7 +338,7 @@ defmodule NovelApplication.AdoptionWorkflow do
         {:error, "draft_id is required"}
 
       not has_edit_payload?(params) ->
-        {:error, "edited content or instruction is required"}
+        {:error, "edited_content is required; use candidate revision for instructions"}
 
       true ->
         handle_modify_draft_with_artifact(
@@ -344,12 +350,9 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
-  # edit_then_accept 接受两种编辑载荷：作者全文编辑（edited_content，替换）或
-  # 旧版修改要求（instruction，追加，向后兼容）。
-  defp has_edit_payload?(params) do
-    not is_nil(normalize_edit(Map.get(params, "edited_content"))) or
-      not is_nil(normalize_edit(Map.get(params, "instruction")))
-  end
+  # 修改后采纳只接收作者完成编辑的全文；修改指令必须走独立修订候选，不能拼进正文入档。
+  defp has_edit_payload?(params),
+    do: not is_nil(normalize_edit(Map.get(params, "edited_content")))
 
   defp normalize_edit(value) when is_binary(value) do
     case String.trim(value) do
@@ -359,6 +362,18 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   defp normalize_edit(_value), do: nil
+
+  defp check_current_pending(%{"work_id" => work, "session_id" => session}, artifact_id)
+       when is_binary(work) and is_binary(session) do
+    if NovelApplication.WorkSessionService.pending_artifact_available?(
+         work,
+         session,
+         artifact_id
+       ), do: :ok, else: {:error, "pending artifact is no longer available"}
+  end
+
+  # 未接持久作用域的内存调用保留原边界；真实 Channel 和对话操作必须传可信 work/session。
+  defp check_current_pending(_params, _artifact_id), do: :ok
 
   defp find_pending_artifact(source_turn_result, artifact_id) do
     pending =
@@ -375,6 +390,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp handle_modify_draft_with_artifact(source_turn_result, params, adoption_writer, artifact_id) do
     with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id),
          {:ok, work_context} <- validate_work_boundary(source_turn_result, artifact, params),
+         :ok <- check_current_pending(params, artifact_id),
          :ok <- check_revision_base(artifact, params),
          edited_artifact <- edited_artifact(artifact, params),
          candidate_set <- candidate_set_from_artifact(source_turn_result, edited_artifact),
@@ -384,7 +400,10 @@ defmodule NovelApplication.AdoptionWorkflow do
              %{"candidate_id" => artifact_id, "work_id" => work_context.work_id},
              nil,
              work_context
-             |> Map.put(:confirmation_satisfied, truthy?(Map.get(params, "confirmation_satisfied")))
+             |> Map.put(
+               :confirmation_satisfied,
+               truthy?(Map.get(params, "confirmation_satisfied"))
+             )
              |> Map.put(:meta_leak_hits, artifact_meta_leak_hits(edited_artifact))
            ),
          true <- AdoptionDecision.adopted?(decision),
@@ -1444,31 +1463,13 @@ defmodule NovelApplication.AdoptionWorkflow do
       Map.get(params, "content") || payload[:content] || payload["content"] ||
         artifact_summary(artifact)
 
-    edited = normalize_edit(Map.get(params, "edited_content"))
-    instruction = normalize_edit(Map.get(params, "instruction"))
-
-    # 作者全文编辑优先：直接替换正文（采纳/阅读投影/字数都以编辑后内容为准）。
-    # 否则回退到旧版「修改要求」追加语义，保持向后兼容。
-    {new_content, edit_instruction} =
-      if edited do
-        {edited, nil}
-      else
-        {edited_content(original_content, instruction), instruction}
-      end
-
     edited_payload =
       payload
-      |> Map.put(:content, new_content)
+      |> Map.put(:content, normalize_edit(Map.get(params, "edited_content")))
       |> Map.put(:original_content, original_content)
-      |> Map.put(:edit_instruction, edit_instruction)
+      |> Map.put(:edit_instruction, nil)
 
     put_artifact_field(artifact, :payload, edited_payload)
-  end
-
-  defp edited_content(original_content, instruction) do
-    [to_string(original_content), "修改要求：#{instruction}"]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
   end
 
   defp item_content(item) when is_map(item) do

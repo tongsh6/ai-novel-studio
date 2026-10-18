@@ -1,12 +1,12 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-10-18（BIZ-01–05 收口，Flash Next Q2 实模通过；新增 BIZ-06 引导风险待核查；历史记录保留各自版本边界）
+> 最后更新：2026-10-18（BIZ-01–05 收口，Flash Next Q2 实模通过；BIZ-06 已闭环，下一项 Q1c / D5 已采纳内容修订核查；历史记录保留各自版本边界）
 >
 > Q3d 初轮正常路径证据（历史）：ADR-0027 经用户确认修订 Accepted，复用 Interaction/AgentRun/采纳事实，未引入第六账。输入先持久化再成功接收；统一记录各 flow 结果；历史原文来源与本轮动作归属分离；下一轮读取真实处理/采纳状态。q3d 多轮页面与 q3c 兼容回归通过，1506 后端/450 前端测试及四项不变量通过，完整扫描无新增阻断；具体证据与有界上下文、确定性 provider 等边界见 Q3D slice。
 > DS02 当前结果：候选初态与线格式采用 canonical 七态；历史 Interaction 只在读取边界兼容小写，前端恢复 codegen 枚举校验与告警，移除 ArtifactEntry 手写状态类型。q3d 历史 tentative/accepted 恢复及作者采纳、角色候选页面回归通过；1510 后端/461 前端测试、四项不变量及桌面构建通过。完整证据与扫描处置见 `tasks/slices/DS02-adoption-status-canonicalization.md`。
 > Q1b 当前结果（2026-10-18）：Flash Next Q2 四回合九次 HTTP 200，BIZ-05 的仅记录与流程建议反例通过；原文字节/来源、采纳前零事实/采纳后唯一 CONFIRMED、刷新回答一致。登记结构触发一次业务纠正后合规物化。
 > 业务审计进展：BIZ-01–05 已修并完成真实页面正反例；本批 1,531 后端/480 前端/212 验收器测试、四项不变量及桌面构建通过。完整扫描 17 PASS / 2 既有 FAIL、0 blocking。详见 Q3D 与审计 notes §10。
-> 当前唯一 next 为 Q1b / Journey C10 的 BIZ-06：待采纳状态下仍有“重新登记”的引导建议，实际建议分支尚未提交，需核查已有候选的讨论/修改/放弃与新版本处理。性能保持观察项。
+> BIZ-06 已闭环：十轮 / 25 次实模调用证明数据与动作；最终四轮 / 9 次实模调用证明上下文指代、采纳和实际放弃回执。三个页面专项、1,545 后端/483 前端/216 验收器测试及最终门禁通过。唯一 next 为 Q1c / Journey D5，核查已采纳内容的修订/保留/替代，性能保持观察项。
 > B16 当前结果：后端 Phoenix 已精确更新为 1.8.9，其他 Hex 锁项不变；用户授权以既有 pnpm 10.33.0 恢复前端锁定依赖。1,492 个后端测试、450 个前端测试、编译、架构、四项不变量和前端检查通过；完整静态扫描返回 0（17 PASS / 2 既有 FAIL，3 个已处置 finding，0 blocking）。台账四个原 pending 项已按实际结果记 fixed。
 > 外部真实工作台 `q3c-author-content-materialization --surface tauri` 通过，使用确定性 provider；Tauri 启动和 Playwright 页面驱动分别留证，不宣称直接操作 native WebView。sidecar 与桌面包已重建，清理旧生成目录后 sidecar 只含 Phoenix 1.8.9；无生产 app 行为改动。细节及限制见 `tasks/NEXT.md` §6 B16。
 > 当前推进入口：`tasks/NEXT.md`。已核对提交：Q0 `739b9b79`、Q1a `dcc0aa47`、Q2 `8b03a9db`、Q3a `d4443b57`、Q3b `5fb452c6`、Q3c `ff69e43d`、Q4 轻量机制 `d37409b4`。
@@ -408,7 +408,7 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 | ID | 问题 | 优先级 | 证据 / 当前状态 | 责任切片 |
 |---|---|---|---|---|
 | BIZ-05 | 仅记录仍产方向卡；流程建议获得创作方向采用动作 | P2 | **fixed / verified（2026-10-18）**。协议约束、方向用途/动作、历史恢复已修；q3d-candidate-semantics 真实页面与四项兼容回归通过，Flash Next Q2 四轮九次调用确认反例消除。证据 `artifacts/slice-verify/q3d-candidate-semantics-tauri/`、`artifacts/project-analysis/biz5-semantic-review.json`；历史发现仍见审计 notes §9。 | Q3D / BIZ-05；Q1B 实模对照 |
-| BIZ-06 | 已有待采纳对象时，模型仍主动建议重新登记；需核对引导与真实处理路径 | P2 | **待场景核查**。Flash 实模第三轮正确回答未采纳，但额外建议重新登记；当前回合没有重复候选/写入，建议分支尚未实际提交。下一步验证现有候选的讨论、修改、放弃与新版本引用，不把风险写成已发生的数据污染。证据 `biz5-semantic-review.json`、实模 `03-before-adoption` 回复；审计 notes §11。 | Q1B / Journey C10 |
+| BIZ-06 | 已有候选的引导、修改/放弃及重新登记动作不一致 | P2 | **fixed / verified（2026-10-18）**。对话执行、原稿保留/新稿待采纳、版本来源去重、重新登记、编辑读取、过期编辑保护、目标交接和实际完成回执已修。三个页面专项通过；十轮实模数据链、最终四轮上下文/回执实模通过，版本边界见 Q1B。首次登记完整消息、失效目标和失败 trace 均有保护；下一场景为已采纳内容变更。 | Q1B / Journey C10 |
 
 #### Walkthrough 跟踪（2026-05-09 走查 5 项）
 

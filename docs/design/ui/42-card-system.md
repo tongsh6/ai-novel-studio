@@ -70,15 +70,20 @@ UI 场景中谈论的“确认卡”“候选卡”“恢复卡”等，必须�
 - `narrow_scope`：缩小范围。
 - `open_trace_summary`：查看解释摘要。
 
+草稿产物另消费 `07` §4 S2 已落地的 `accept` / `discard` / `edit_then_accept`，
+分别表达采纳、放弃、作者编辑全文后采纳。它们必须来自实际产物的 available_actions，
+不得映射为创作方向的 choose_candidate。对话中的修订/放弃按 ADR-0027 D5 绑定已有对象；
+修订产生独立待采纳版本，不能把“修改”解释为“修改后采纳”。
+
 动作的标签文案可以本地化为符合网文语境的中文（参考 `47-ui-copy-guidelines.md`），但底层的 API 调用和 `action_type` 必须遵循 Contract。
 
 历史或口语化说法必须映射到 canonical `action_type`：
 
 | 非 canonical 说法 | 必须改用 |
 | --- | --- |
-| `adopt` / `accept` / `edit_then_accept` | `choose_candidate` 或 `revise_candidate`；真正采纳由后端 adoption boundary 决定 |
+| `adopt`（口语“采纳草稿”） | 使用该产物实际提供的 `accept`；编辑全文后保存使用 `edit_then_accept`，均经过 adoption boundary |
 | `correct` | `revise_candidate` 或 `identify_revision_target` |
-| `abort` / `reject` | `cancel_behavior` |
+| `abort` / `reject` | 取消等待行为使用 `cancel_behavior`；放弃待采纳产物使用其实际 `discard` 动作，不混淆对象 |
 | `provide_info` / `answer` | `answer_clarification` |
 | `resume` / `branch` | 先使用 `continue_dialogue`、`retry_action` 或 `narrow_scope`，除非当前 contract 明确新增 action |
 

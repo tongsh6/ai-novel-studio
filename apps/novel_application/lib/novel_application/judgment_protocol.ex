@@ -44,6 +44,7 @@ defmodule NovelApplication.JudgmentProtocol do
           dialogue_goal: String.t() | nil,
           reply_included: boolean(),
           record_only: boolean(),
+          pending_artifact_ref: String.t() | nil,
           author_content_registration: boolean(),
           author_content_source_ref: String.t() | nil,
           explore_request: %{tool: String.t(), query: String.t()} | nil,
@@ -285,12 +286,21 @@ defmodule NovelApplication.JudgmentProtocol do
          true <- capability_in_catalog?(action, arguments, request.options),
          true <- explore_tool_in_catalog?(action, arguments, request.options),
          :ok <- validate_output_boundary(arguments, request),
+         :ok <-
+           NovelApplication.PendingArtifactWorkflow.validate(
+             arguments,
+             Keyword.get(request.options, :pending_artifact_targets, %{})
+           ),
+         :ok <- validate_registration_state(arguments, request.options),
          :ok <- validate_author_registration(arguments, request.options) do
       case semantic_conflict(action, arguments, request.options) do
         nil -> build_judgment(arguments, action, provider_result, request)
         conflict -> retry_semantic_conflict(conflict, request)
       end
     else
+      {:error, {:pending_artifact_invalid, reason}} ->
+        retry_pending_artifact(reason, request)
+
       {:error, {:judgment_output_conflict, reason}} ->
         retry_output_boundary(reason, request)
 
@@ -368,6 +378,44 @@ defmodule NovelApplication.JudgmentProtocol do
       arguments,
       Keyword.get(options || [], :author_content_sources, [])
     )
+  end
+
+  defp validate_registration_state(arguments, options) do
+    if map_get(arguments, :author_content_registration) == true and
+         map_get(arguments, :author_content_source_ref) in Keyword.get(
+           options,
+           :registered_sources,
+           []
+         ), do: {:error, {:author_content_registration_invalid, :already_materialized}}, else: :ok
+  end
+
+  defp retry_pending_artifact(reason, request) do
+    LogEmit.emit(:judgment, :pending_artifact_validation, :done, %{
+      reason_code: reason,
+      outcome: if(request.retry?, do: "retry", else: "rejected")
+    })
+
+    if request.retry? do
+      prompt =
+        update_in(request.prompt, [:messages], fn [message | rest] ->
+          [
+            %{
+              message
+              | content:
+                  message.content <>
+                    "\n\n已有候选操作未通过校验：目标必须来自当前 pending_artifact_ref 目录，且支持该操作。不能猜测、引用已处置对象或改成重新生成绕过；不明确时 await_author 请作者指明。必须在 author_narrative 提供与纠正后动作一致的新回复，不得沿用先前尚未执行的承诺。"
+            }
+            | rest
+          ]
+        end)
+
+      request
+      |> Map.merge(%{prompt: prompt, retry?: false, attempt: request.attempt + 1})
+      |> require_corrected_narrative()
+      |> request_decision()
+    else
+      {:error, {:pending_artifact_invalid, reason}}
+    end
   end
 
   # 来源只属于已启用的作者原文登记分支。未登记时忽略并清空该字段，避免无关字段
@@ -499,6 +547,7 @@ defmodule NovelApplication.JudgmentProtocol do
            dialogue_goal: nonblank(map_get(arguments, :dialogue_goal)),
            reply_included: map_get(arguments, :reply_included) == true,
            record_only: map_get(arguments, :record_only),
+           pending_artifact_ref: nonblank(map_get(arguments, :pending_artifact_ref)),
            explore_request: explore_request(arguments),
            candidate_directions: candidate_directions(arguments),
            # 探索意图原始信号：字段存在且非空（哪怕结构坏了）——坏结构不丢意图，
@@ -521,31 +570,34 @@ defmodule NovelApplication.JudgmentProtocol do
   # 叙事绑定：call1 content 优先（流式来源）；空 content 时降级 call2
   # arguments.author_narrative（thinking 系空 content 模型，方案 C 降级路径）。
   defp bind_narrative(arguments, request, provider_result) do
-    cond do
-      request.narrative != "" ->
-        case AgentNarrativeSource.from_provider_result(
+    if request.narrative != "" and request[:corrected_narrative] != true do
+      with {:ok, source} <-
+             AgentNarrativeSource.from_provider_result(
                request.narrative_result,
                request.narrative
              ) do
-          {:ok, source} -> {:ok, request.narrative, source}
-          {:error, reason} -> {:error, reason}
-        end
+        {:ok, request.narrative, source}
+      end
+    else
+      bind_tool_narrative(arguments, request, provider_result)
+    end
+  end
 
-      is_binary(map_get(arguments, :author_narrative)) and
-          String.trim(map_get(arguments, :author_narrative)) != "" ->
-        narrative = String.trim(map_get(arguments, :author_narrative))
-
-        case AgentNarrativeSource.from_tool_call_narrative(
-               provider_result,
-               @judgment_tool_name,
-               narrative
-             ) do
-          {:ok, source} -> {:ok, narrative, source}
-          {:error, reason} -> {:error, reason}
-        end
-
-      true ->
+  defp bind_tool_narrative(arguments, request, provider_result) do
+    case nonblank(map_get(arguments, :author_narrative)) do
+      nil ->
         {:error, :judgment_narrative_required}
+
+      narrative ->
+        with {:ok, source} <-
+               AgentNarrativeSource.from_tool_call_narrative(
+                 provider_result,
+                 request.prompt.tool_choice,
+                 narrative,
+                 :author_narrative
+               ) do
+          {:ok, narrative, source}
+        end
     end
   end
 
@@ -606,10 +658,26 @@ defmodule NovelApplication.JudgmentProtocol do
           [%{message | content: message.content <> "\n\n## 原文登记未通过业务校验\n" <> hint} | rest]
         end)
 
-      request_decision(%{request | prompt: prompt, retry?: false, attempt: request.attempt + 1})
+      request = %{request | prompt: prompt, retry?: false, attempt: request.attempt + 1}
+
+      request =
+        if reason == :already_materialized,
+          do: require_corrected_narrative(request),
+          else: request
+
+      request_decision(request)
     else
       {:error, {:author_content_registration_invalid, reason}}
     end
+  end
+
+  defp require_corrected_narrative(request) do
+    request
+    |> Map.put(:corrected_narrative, true)
+    |> update_in(
+      [:prompt, :tools, Access.at(0), :input_schema, :required],
+      &Enum.uniq(&1 ++ ["author_narrative"])
+    )
   end
 
   # ── prompt 构造（探针与生产共用同一真源） ──
@@ -803,6 +871,13 @@ defmodule NovelApplication.JudgmentProtocol do
             不能填不存在或其他作品的编号。只说“存档”但原文在历史消息时，必须选择历史来源。
             登记时必填明确来源；不登记原文时为 null。缺失来源不能默认为 current。
           - dialogue_goal：用一句简短中文概括作者本轮目标；不得写系统执行步骤或内部推理。
+            修改已有候选时须展开“刚才”等指代，写明具体修改内容，供执行工具消费；若缺少依据无法确定要求，await_author 请作者澄清，不能让执行器猜测。
+          - pending_artifact_ref：修改/放弃已有候选时，action=execute、capability 分别为
+            revise_pending_artifact / discard_pending_artifact，引用消息处置上下文中的真实 artifact_ref。
+            不可拿原文 turn_ref 当候选编号。目标不明确时 await_author，不能猜最新一份。
+            修订会产生独立待采纳版本并保留原稿，不自动保存；放弃不删除已采纳作品事实。
+            其它操作填 null。只使用消息处置或探索观察中列出的对象编号及其 available_operations；
+            摘要省略了目标时先用 session_adoptions 查询，不猜编号。
           - candidate_directions：仅 action=reply 且 frame_type=creative_exploration 时可携带
             小说内容的创作方向（每项 {title, pitch, tone_tags}）；其它情况必须为空数组。
             采纳、修改、丢弃、查看档案等操作不是创作方向；不要为了显示这些建议改判探索。
@@ -830,6 +905,7 @@ defmodule NovelApplication.JudgmentProtocol do
               dialogue_goal: %{anyOf: [%{type: "string"}, %{type: "null"}]},
               reply_included: %{type: "boolean"},
               record_only: %{type: "boolean"},
+              pending_artifact_ref: %{anyOf: [%{type: "string"}, %{type: "null"}]},
               author_content_registration: %{type: "boolean"},
               author_content_source_ref: %{
                 anyOf: [

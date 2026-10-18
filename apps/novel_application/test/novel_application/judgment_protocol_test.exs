@@ -80,6 +80,67 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:error, _} = request(args, author_content_sources: ["another-turn"])
   end
 
+  test "已有候选操作必须绑定当前可操作对象，纠正后才可执行" do
+    bad = %{
+      "action" => "execute",
+      "capability" => "revise_pending_artifact",
+      "pending_artifact_ref" => "foreign"
+    }
+
+    opts = [
+      capabilities: ["revise_pending_artifact"],
+      pending_artifact_targets: %{"actual" => ["revise_pending_artifact"]}
+    ]
+
+    assert {:error, {:pending_artifact_invalid, :target_not_available}} = request(bad, opts)
+
+    assert {:ok, %{pending_artifact_ref: "actual", provider_call_count: 3}} =
+             request_with_retry(
+               bad,
+               Map.merge(bad, %{
+                 "pending_artifact_ref" => "actual",
+                 "author_narrative" => "我会修订已确认的这份候选，原稿保留。"
+               }),
+               opts
+             )
+
+    clarified = %{"action" => "await_author", "author_narrative" => "请指明需要修改哪份候选。"}
+    assert {:ok, result} = request_with_retry(bad, clarified, opts)
+    assert result.action == "await_author"
+    assert result.narrative == clarified["author_narrative"]
+  end
+
+  test "同来源已有候选不重复登记，纠正回复必须来自新的模型输出" do
+    bad = %{
+      "action" => "reply",
+      # 实模同时给错呈现帧和重复登记信号；必须先按真实状态纠正，不能耗尽机会只修帧。
+      "frame_type" => "meta_discussion",
+      "author_content_registration" => true,
+      "author_content_source_ref" => "original"
+    }
+
+    opts = [author_content_sources: ["original"], registered_sources: ["original"]]
+
+    assert {:error, {:author_content_registration_invalid, :already_materialized}} =
+             request(bad, opts)
+
+    corrected = "这份资料已有待采纳候选，无需重新登记；可以说明修改要求或放弃现有候选。"
+
+    good =
+      Map.merge(bad, %{
+        "author_content_registration" => false,
+        "frame_type" => "question_answer",
+        "author_narrative" => corrected
+      })
+
+    assert {:ok, result} = request_with_retry(bad, good, opts)
+    assert result.narrative == corrected
+    assert result.narrative_source.source_type == "provider_output_tool_narrative"
+    refute result.author_content_registration
+    assert_receive {:retry_prompt, prompt}
+    assert prompt =~ "关闭 author_content_registration"
+  end
+
   test "仅记录约束拒绝任何方向、原文物化或执行，不能因候选非空改判探索" do
     base = %{"action" => "reply", "frame_type" => "meta_discussion", "record_only" => true}
     assert {:ok, %{record_only: true, candidate_directions: []}} = request(base)
@@ -284,7 +345,13 @@ defmodule NovelApplication.JudgmentProtocolTest do
            %{
              content: "",
              tool_calls: [%{name: JudgmentProtocol.tool_name(), arguments: arguments}],
-             provider_output: provider_output("")
+             provider_output: %{
+               provider_output("")
+               | content: %{
+                   text: "",
+                   tool_calls: [%{name: JudgmentProtocol.tool_name(), arguments: arguments}]
+                 }
+             }
            }}
         else
           {:ok, %{content: @narrative, provider_output: provider_output(@narrative)}}

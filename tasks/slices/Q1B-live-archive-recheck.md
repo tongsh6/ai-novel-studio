@@ -1,7 +1,7 @@
 # Q1b 真实模型多轮存档复验
 
-- 状态：BIZ-05 四轮实模对照已通过（2026-10-18）；next 为 BIZ-06 已有待采纳对象的引导与自然语言处理路径核查。
-- 下方旧任务表、局部验证及八次调用属于修复前基线；本轮四回合九次调用与语义结论见文末。
+- 状态：BIZ-06 已闭环（2026-10-18）。十轮实模证明数据/动作链，最后四轮实模证明上下文指代、显式采纳和真实完成回执；具体版本边界见文末。
+- 下方旧任务表和早期调用属于历史基线；BIZ-06 最终验证与保留限制见文末。
 - 范围：NEXT Q1b / Journey C10；复验 D8 症状，消费已完成的 Q3d 与 DS02。
 - 前置：DS02 已提交 `864eebc1`；此前 1510 后端/461 前端、两场景、四项不变量及完整扫描通过。
 
@@ -191,3 +191,125 @@ Q3D 的确定性业务反例与传输故障矩阵已闭环；当前队首回到�
 后续沿 AU-02 / AU-05 / AU-09 与 ADR-0027，核对“继续讨论 / 修改现有候选 / 放弃 /
 重新提出创作要求”如何引用同一对象、何时确实需要新版本，并验证 AI 的引导与真实可用动作一致。
 先从本次真实语义反例进入，不做超时参数优化，也不新增通用义务账。
+
+### BIZ-06 开工设计（2026-10-18，用户确认对话直接执行）
+
+- Contract：判断① execute 下增加 revise_pending_artifact / discard_pending_artifact，
+  pending_artifact_ref 必须引用当前作品/会话的实际待采纳对象。修订复用既有创作工具、
+  Orchestrator、TentativeArtifactSet.revision_base 与作者采纳；放弃复用 AdoptionWorkflow。
+- Invariant：原稿保留、新修订 tentative 且 Provider 字节绑定；放弃不写 canon；同来源
+  pending/accepted 不重复登记，全部放弃后可重新提出；不存在、已处置、跨会话对象不执行。
+  “修改”不等于“修改后采纳”，旧 instruction 不能被拼到正文后冒充已修改的内容。
+- Boundary：Application 判断、候选流程、状态读取与写回；既有 Agent 创作工具执行边界；
+  Web/Frontend 复用当前主入口和产物动作，不引入数据库实体、通用义务账或独立 UI 流程。
+- Consumer：WorkspaceChat 自然语言输入、真实修订候选卡、原有作者动作与刷新恢复。
+- Proof：协议及公开流程测试、对象绑定/歧义/失效、修订/放弃/重新登记、来源与刷新；
+  全量工程检查、I1/I2/I3/N-NARR、桌面构建与统一静态扫描。
+- Acceptance Driver：q1b-candidate-lifecycle 外部脚本通过真实页面操作上述全链，
+  同时保留实模语义复验。只在 test/support 注入故障，不新增产品验收钩子。
+- Exploration：修订元数据与实际内容同批投影到 interaction_state 和 session_adoptions；
+  已修改后保存的正文优先于历史 items，来源关系用于登记去重但不冒充 Provider 内容来源。
+
+### BIZ-06 实现与页面证据
+
+用户确认“AI 直接生成修订候选或执行放弃，修订仍需作者采纳”后，新增
+`PendingArtifactWorkflow`；判断绑定目标后独立执行，执行前复核当前活动会话、持久待办和预算。
+实际创作工具由目标类型选定，同批更新运行工具权限；下一步以实际工具通过 AgentRun 策略，
+执行端再次核对该权限，不能借 judgment 权限调用创作工具。
+修订复用既有创作工具和 Orchestrator，原稿保留，新稿保持 Provider 字节与待采纳状态；
+放弃复用现有动作检查和 AdoptionWorkflow，不写作品事实。不存在/历史/跨作品目标不能执行。
+
+修订的 registration_source_ref 仅关联登记来源，revision_of 指原稿；不替代实际内容来源。
+同来源还有待采纳或已采纳版本时禁止重复登记，全部放弃后允许新身份重新登记。
+已编辑后保存的正文进入状态摘要及探索面；模型纠正重复登记或无效目标时必须提供新的、
+可验证来源的回复，不能复用未执行的旧承诺。原生工具叙事明确绑定 author_narrative 或旧 author_reasoning 字段。
+
+删除旧 instruction 拼接入档逻辑，全文编辑才可“修改后保存”。持久待办检查阻止另一视图
+放弃后旧编辑复活候选；保存失败保留编辑全文与弹窗。没有修改依赖、超时或模型参数，
+没有生产验收开关、隐藏 DOM hook 或验收 Provider 注册。
+
+外部脚本均经实际 App/WorkspaceChat 输入/点击，启动 Tauri 后由 Playwright 操作相同真实页面；
+这些证据不等于直接驱动 native WebView。三个确定性场景已通过：
+
+| 场景 | 实际操作及结果 | 证据目录 |
+|---|---|---|
+| q1b-candidate-lifecycle | 十轮：登记/重复登记、修订、分别放弃原稿及修订稿、重新登记、编辑后采纳和刷新状态；仅显式采纳后有一条 CONFIRMED | `artifacts/slice-verify/q1b-candidate-lifecycle-tauri/` |
+| q1b-candidate-revision-adoption | 单独点击修订稿保存，实际保存模型修订全文，原稿仍待采纳 | `artifacts/slice-verify/q1b-candidate-revision-adoption-tauri/` |
+| q1b-candidate-stale-modal | 两个真实视图，放弃后旧编辑提交拒绝，编辑全文和错误提示保留，零事实写入 | `artifacts/slice-verify/q1b-candidate-stale-modal-tauri/` |
+
+实现入口：`apps/novel_application/lib/novel_application/pending_artifact_workflow.ex`；
+核心保护测试：`apps/novel_application/test/novel_application/pending_artifact_workflow_test.exs`、
+JudgmentProtocolTest、TurnInteractionServiceTest、AgentNarrativeSourceTest。
+外部驱动和证据判定仍在 `frontend/slice-verify/{external-ui-driver,native-tauri-verifier}.mjs`，
+三项 manifest 已登记 `quality/acceptance/scenarios/README.md`，可通过 quality_accept.sh 复跑。
+
+### BIZ-06 工程与实模复验状态
+
+- 后端 1,545 项、前端 483 项、证据验证器 216 项通过；编译零警告、无编译依赖环、架构检查通过。
+- I3/I1/I2/N-NARR 通过；sidecar 重建及 frontend_audit.sh 桌面构建 27 PASS / 0 WARN / 0 FAIL，产出 .app/.dmg。
+- `bash scripts/ai_static_scan.sh --top 10` 完整复扫 17 PASS / 2 既有 FAIL、3 findings、0 touched、0 blocking。首轮新增的函数嵌套/复杂度和 alias 顺序已修；验收器追加测试导致的 manifest 过期已重生成关闭，不登记豁免。
+- 剩余 Top 10 实为三项：Pencil fileToken 为 false_positive（继续保留扫描）；其他开发线历史凭证为 accepted_risk（原所有者负责轮换与历史处理）；ChapterSummary 嵌套为 deferred（下次触及解析器时处理）。见 `artifacts/static-scan/disposition.md`。
+- 两项真实页面兼容回归 `q3d-candidate-semantics`、`q3d-long-session-adoption-state` 通过；既有方向/产物动作和跨分页待办未退化。
+- 实模使用用户已确认的 qwen3.8-flash-next@q2_k；第一次在第三轮 Provider 调用超时，失败证据保留
+  `artifacts/project-analysis/biz6-first-live/`。第二次第三轮同时违反操作帧与重复登记条件，校验先纠正呈现帧、再因重复登记拒绝；
+  未多写候选或作品事实，但流程未通过。已将真实登记状态校验提前，一次纠正关闭重复登记并
+  由模型重写一致回复，未增加纠正次数；双重矛盾单测已覆盖，第二次证据保留 `artifacts/project-analysis/biz6-second-live/`。
+  第三次在第二轮遇到系统低电量休眠：pmset 记录 16:22:54 电量 1% Low Power Sleep，
+  16:32:23 接入交流电后唤醒；该次 Provider 超时不作业务语义结论。第三次证据在
+  `artifacts/project-analysis/biz6-third-live/`，电源日志 `biz6-power-events.log`。
+  第四次恢复供电后，在执行边界复核中发现修订步骤仍声明 judgment 而非实际创作工具；
+  主动停止旧版本运行并保留 `artifacts/project-analysis/biz6-fourth-live/`，不作通过样本。
+  已补齐实际工具权限及拒绝测试，完整生命周期和修订采纳页面重跑通过。
+  第五次通过了前三轮，修订工具与目标引用也正确，但新建设定模板把改名过程写进正文，
+  导致旧名字残留，原断言拒绝；证据保留 `artifacts/project-analysis/biz6-fifth-live/`。
+  现改为消费既有 CreativeRequest.revision：设定修订沿用原稿形态，角色/大纲同步接收修订要求；
+  修改过程放 rationale，不在应用端修补 Provider 字节。局部模板测试与修订采纳页面通过。
+  此次还发现被主动终止的旧 Node 验收驱动遗留并向共用日志写 stderr；已让 cleanup 回收
+  UI 驱动进程树，TERM 中断实测驱动与端口均释放。第五次 app/回合证据按 turn 关联，混入的旧 stderr 不作当前运行证据。
+  第六次完成前三轮；修订 Provider 输出已逐字等于原稿仅替换指定姓名的结果，原稿/修订稿各一份待采纳，
+  但页面在第四轮开始后离线，未收到后续事件。后端完成时间 17:09:35，公开只读快照与数据库备份保留在
+  `artifacts/project-analysis/biz6-sixth-live/`。同轮存在并行构建触发 Tauri 重建，不能把该样本作为页面通过证据。
+  补齐修订结果的 artifact_refs，让运行候选预算及 artifact_created 事件消费真实新产物；并明确原文登记为完整消息，
+  不得在模型回复中承诺自动去掉指令前缀。该说明偏差由第六次第二轮暴露，实际字节复制一直完整。
+  所有构建改为在实模之前串行完成；第七次独立复验，日志
+  `artifacts/project-analysis/biz6-live-final.log`，未改 provider timeout/模型参数，也未用重试掩盖失败。
+- 确定性页面通过只证明 App 边界；实模未完成前，Q1b / BIZ-06 保持未全部闭环。
+
+
+### 十轮实模结果与最后收口
+
+第七次独占运行完成十轮数据/动作验收：25 次真实 HTTP 200，全部为 Flash Next Q2；
+登记两次 operation_conflict、已有来源两次 already_materialized 均在一次纠正后合规，
+未放宽门禁。原文登记、版本去重、指名修订、分别放弃、重新登记、编辑后采纳与状态回答
+均符合实际持久数据。采纳前零事实，最终唯一 CONFIRMED 为“岑舟”编辑版，原稿和修订稿已放弃。
+证据在 `q1b-candidate-lifecycle-tauri-lmstudio/`，源文件哈希保留 `source-manifest.json`，
+机器核对记录 `artifacts/project-analysis/biz6-semantic-review.json`。
+
+这次脚本 PASS 只证明当时的数据和动作断言。人工语义复核发现，第五/七轮实际已经放弃，
+最终消息却复用了模型执行前“尚未完成”的判断。已删除该覆盖，成功结果沿用现有
+AdoptionWorkflow 的事实回执；模型判断仍保留在来源绑定的过程事件中，不编造模型完成回顾。
+主场景同批加强了完成回执断言，旧实模样本不外推为该新断言已通过。
+
+另补齐上下文交接：当前原话可能只有“按刚才的改”，判断已消解的 dialogue_goal 必须
+分别传入实际创作 brief，不能只把原话交给缺少历史上下文的执行器。单元测试以不含新名字的
+当前原话和包含具体改名目标的判断结果证明交接；不新增来源类型或绕过作者采纳。
+
+既有 `q1b-candidate-revision-adoption` 扩展为四轮：原文登记 → 只讨论改名（无执行）→
+引用上一轮要求生成修订 → 作者采纳新稿 → 对话放弃原稿并显示实际完成回执。
+确定性真实页面已通过；最终真实模型四轮九次 HTTP 200 也通过，未并行 Tauri 或构建。
+
+
+失败路径同批闭环：ToolTrace 在产物装配之前记录，模型/工具失败也保留可查 trace。
+最终失败结果明确工具已调用、未形成可采纳新稿，不改变原稿或作品事实；运行级测试覆盖
+该事实回执，不把失败调用伪装成未调用。该路径不增加自动重试或放宽预算。
+
+
+### BIZ-06 最终结论（2026-10-18）
+
+- **外部真实页面**：三个专项在最终代码上通过。修订采纳场景扩展到“只讨论 → 按上轮要求修订 → 点击采纳 → 明确放弃原稿”，原稿在作者处置前保留；双视图旧编辑拒绝且保留全文；主生命周期的两个放弃步骤均增加完成回执断言。
+- **真实模型**：十轮 / 25 次 HTTP 200 证明版本/来源/处置/重新登记/编辑后采纳的数据闭环；发现的最终回执缺陷随后修复。最终代码的四轮 / 9 次 HTTP 200 专项证明：当前原话不包含新名字，传给工具的 dialogue_goal 已明确“沈砚 → 林渡”；新稿字节来自真实 Provider，采纳前无事实，采纳后唯一 CONFIRMED，明确放弃原稿后 pending=0，页面显示“已放弃该待采纳内容”。两批都使用 qwen3.8-flash-next@q2_k，不把旧十轮样本冒充新增回执断言已通过。
+- **局部/工程**：后端 1,545 项、前端 483 项、证据验证器 216 项通过；编译零警告、xref/架构、I1/I2/I3/N-NARR、前端审计/设计追溯通过；最终 sidecar 与 .app/.dmg 已重建，包内 sidecar hash 与源归档一致。依赖及锁文件未改。
+- **静态闭环**：`bash scripts/ai_static_scan.sh --top 10` 为 17 PASS / 2 既有 FAIL、0 blocking。已修本次函数复杂度/嵌套、alias 顺序及过期 manifest；剩余三项及处置见前节和 `artifacts/static-scan/disposition.md`。
+- **证据**：`artifacts/project-analysis/biz6-context-semantic-review.json`、`biz6-semantic-review.json`；`artifacts/slice-verify/q1b-candidate-revision-adoption-tauri-lmstudio/` 含四轮记录、完整网络帧、采纳/放弃截图、模型日志及 source-manifest。
+- **边界**：Tauri 已启动，Playwright 驱动同一真实 App/WorkspaceChat 页面，不是 native WebView 内部驱动；实模样本为作品设定候选，不外推所有模型/长文类型。超时、低电量休眠、主动中断、模板失败和页面离线样本各自保留；未调产品超时或推理参数。原文登记仍是完整消息，剔除指令前缀需作者编辑或要求修订。
+- **下一场景**：第十轮提出了对已采纳编辑版“保留或替代”的选择，尚未实际执行。沿 Journey D5 / Q1c 核查已采纳内容的修订、覆盖确认、版本保留及后续上下文，不把提示当成已支持的能力。

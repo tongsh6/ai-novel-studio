@@ -247,6 +247,17 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
       }
     }
 
+    {:ok, _} =
+      NovelPersistence.MemoryLog.record(%{
+        workspace_id: work.id,
+        session_id: session_id,
+        turn_id: source_turn.turn_id,
+        role: "assistant",
+        content: %{text: "待采纳正文", turn_result: source_turn},
+        source_ref: source_turn.turn_id,
+        scope_ref: work.id
+      })
+
     socket = assign_server_turn(socket, source_turn)
 
     assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =

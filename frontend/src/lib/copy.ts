@@ -183,6 +183,7 @@ export const CARD = {
     editPlaceholder: "在此修改正文…",
     editConfirmLabel: "保存修改后的版本",
     editCancelLabel: "取消",
+    editFailureHint: "保存未完成，你的编辑内容已保留。请核对候选状态后再试，或复制内容后取消。",
     originalActionGroupTitle: "原稿候选",
     revisionActionGroupTitle: "修订稿候选",
     actionGroupHint: "建议编辑后保存或直接保存；放弃不会影响另一份候选",

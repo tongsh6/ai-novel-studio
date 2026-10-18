@@ -121,6 +121,7 @@ assistant 工作态 turn：
 2. 约束视觉表现：不能仅靠颜色区分状态（如红绿灯），必须附带文案。
 3. 长跑任务的卡片必须显式包含：进度、预算、当前风险及 Checkpoint 原因。
 4. 失败状态的处理必须给作者提供明确的下一步分类（重试/修正/废弃/求助）。
+5. 候选“修改后保存”失败时保留弹窗和作者编辑全文，弹窗内显式提示未保存；不得自动关闭或把旧对象替换为另一候选重试。另一视图已放弃/采纳目标时，旧操作由持久状态复核拒绝。
 
 ---
 
@@ -178,7 +179,7 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | 标签、chip、版本、进度、按钮、折叠入口 | app copy / event_type / status enum | 只表达结构，不写“模型发现/模型认为”的叙述句 |
 | 普通 provider run/call ref、chunk、token、phase | provider telemetry | 仅折叠在开发者详情，不进入作者主叙事；`author_reasoning` 的作者可见 planning prose delta 是唯一例外，legacy JSON tail 与 native tool-call arguments 都不得作为作者叙事 |
 
-判定标准：任何一句读起来像在描述模型正在想什么、发现了什么、为什么改计划、为什么完成的中文，必须来自 `author_narrative_delta` 或 `author_narrative`，并通过 N-NARR source binding / streamed-prefix 校验。`AgentEvent.summary`、`ProviderEvent.summary`、前端 copy 常量、legacy JSON tail 和 native tool-call arguments 都不能作为作者叙述来源。
+判定标准：任何一句读起来像在描述模型正在想什么、发现了什么、为什么改计划、为什么完成的中文，必须来自 `author_narrative_delta` 或 `author_narrative`，并通过 N-NARR source binding / streamed-prefix 校验。`AgentEvent.summary`、`ProviderEvent.summary`、前端 copy 常量、legacy JSON tail 和未绑定来源的 native tool-call arguments 都不能作为作者叙述来源。原生工具参数中的 `author_narrative` / `author_reasoning` 只有与实际 `ProviderOutput` 原字段逐字绑定并通过 hash / 字节范围校验后，才能以 `provider_output_tool_narrative` 作为叙事来源；不得把本地拼装参数当成模型输出。
 
 ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费同一 `plan_revised` 事件、`plan_version`、`reason_codes=agentic_deviation:*`、`evaluation_of_last` 和结构事件。D2 质量行动场景可在同一工作态中出现 pending candidate，但 AgentRun 状态必须仍显示等待作者；D4 gate deny/require_confirmation 只显示授权等待/受阻结构事实，不暗示 writer 已执行；D7 确定性缺口可短暂显示工具进度骨架，但没有 `tool_completed`、artifact 或写入事实时不得显示执行完成或候选产出。上述断言由外部 Tauri verifier 从真实页面和事件日志观察，不要求生产 UI 暴露验收专用 hook。
 

@@ -168,9 +168,13 @@ defmodule NovelApplication.ExplorationService do
       status: entry["adoption_status"],
       artifact_type: entry["artifact_type"],
       source_turn_ref: entry["source_turn_ref"],
-      source_ref: entry["source_tool_result_ref"] || item["provider_call_ref"],
+      source_ref: NovelApplication.TurnInteractionService.author_source_ref(entry),
+      content_source_ref: entry["source_tool_result_ref"],
       title: String.slice(to_string(payload["summary"] || item["title"] || ""), 0, 100),
-      body_preview: String.slice(to_string(item["body"] || ""), 0, 200)
+      body_preview:
+        String.slice(NovelApplication.TurnInteractionService.artifact_body(entry), 0, 600),
+      revision_of: payload["revision_of"],
+      available_operations: NovelApplication.PendingArtifactWorkflow.operations(entry)
     }
   end
 

@@ -275,6 +275,53 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     refute TurnInteractionService.materialized_source?(context, "source-1")
   end
 
+  test "登记计数沿版本来源汇总，已编辑正文与原文来源分别保留" do
+    original = %{
+      artifact_id: "a",
+      adoption_status: "DISCARDED",
+      payload: %{items: [%{body: "原文", provider_call_ref: "author_input:source"}]}
+    }
+
+    revision = %{
+      artifact_id: "b",
+      adoption_status: "TENTATIVE",
+      payload: %{
+        revision_of: "a",
+        registration_source_ref: "author_input:source",
+        items: [%{body: "模型修订", provider_call_ref: "pcall-revision"}]
+      }
+    }
+
+    edited = %{
+      artifact_id: "c",
+      adoption_status: "EDITED_ACCEPTED",
+      payload: %{
+        content: "作者最终编辑",
+        registration_source_ref: "author_input:source",
+        items: [%{body: "编辑前正文", provider_call_ref: "pcall-old"}]
+      }
+    }
+
+    state = %{
+      author_inputs: [%{turn_ref: "source", text: "原文"}],
+      pending_adoptions: [revision],
+      resolved_adoptions: [original, edited]
+    }
+
+    section = TurnInteractionService.context_section(state)
+    facts = section |> String.split("\n", trim: true) |> List.last() |> Jason.decode!()
+
+    assert hd(facts["author_inputs"])["registration"] == %{
+             "pending_count" => 1,
+             "accepted_count" => 1,
+             "discarded_count" => 1
+           }
+
+    assert TurnInteractionService.artifact_body(edited) == "作者最终编辑"
+    assert TurnInteractionService.author_source_ref(revision) == "author_input:source"
+    assert TurnInteractionService.registered_sources(%{interaction_state: state}) == ["source"]
+  end
+
   defp planner(parent, outcome) do
     fn run, seq, _snapshot ->
       {:ok, decision} =

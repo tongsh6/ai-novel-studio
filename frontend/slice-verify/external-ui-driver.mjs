@@ -43,7 +43,18 @@ function decodePhoenixFrame(payload) {
 
 function recordFrame(direction, payload) {
   const decoded = decodePhoenixFrame(payload);
-  if (decoded) frames.push({ direction, ...decoded });
+  if (decoded) {
+    frames.push({ direction, ...decoded });
+    if (["user_message", "turn_result"].includes(decoded.event)) {
+      recordLifecycleTransport("frame", { direction, event: decoded.event, turn_id: decoded.body?.turn_id });
+    }
+  }
+}
+
+function recordLifecycleTransport(kind, details = {}) {
+  if (!sliceId.startsWith("q1b-candidate-")) return;
+  fs.appendFileSync(path.join(artifactDir, "lifecycle-transport.jsonl"),
+    `${JSON.stringify({ at: new Date().toISOString(), kind, ...details })}\n`);
 }
 
 function assert(condition, message) {
@@ -5439,6 +5450,239 @@ async function driveLongSessionAdoptionState(page) {
     query_turn_id: queryReply.turn_id, count_turn_id: countReply.turn_id, pending_count_before: 15, pending_count_after: 14,
     omitted_count: 3, queried_artifact_id: candidates[0].artifact_id, history_rounds_before: 45, history_rounds_after: 45,
     transcript_stays_paged: true, work_scope_isolated: true, old_action_enabled: true, terminal_survives_window: true, confirmed_fact_count: facts.length }];
+}
+
+async function driveCandidateRevisionAdoption(page) {
+  const nonce = randomUUID().replaceAll("-", "");
+  const turns = [];
+  async function send(text) {
+    const start = frames.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message", "未发出作者消息");
+    const result = (await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.turn_id === sent.body.turn_id,
+      "未返回候选", 900_000)).body;
+    turns.push({ input: text, result });
+    fs.writeFileSync(path.join(artifactDir, "revision-adoption-turns.json"), JSON.stringify(turns, null, 2));
+    assert(result.status !== "failed", "候选处理失败");
+    await waitForNewFrame(start, (f) => f.event === "agent_run_state" && f.body?.run_id === result.agent_run?.run_id &&
+      f.body?.status === "completed", "候选运行未完成");
+    return result;
+  }
+  async function reload() {
+    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor();
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+    return (await response).json();
+  }
+  const original = `把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识${nonce}。`;
+  const source = await send(original);
+  const a = source.adoption_state.pending[0];
+  assert(a.payload.items[0].body === original && a.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "原文登记没有保持完整消息及其来源");
+  const discussion = await send("资料处理进度：我想把主角从沈砚改名林渡，其他内容和校验标识不变；现在只讨论，不要执行或生成候选。");
+  assert((discussion.adoption_state?.pending ?? []).length === 0 && (discussion.candidate_directions ?? []).length === 0, "只讨论仍生成了候选");
+  const discussedSnapshot = await reload();
+  assert(discussedSnapshot.pending_adoptions.length === 1 && discussedSnapshot.pending_adoptions[0].artifact_id === a.artifact_id &&
+    discussedSnapshot.pending_adoptions[0].payload.items[0].body === a.payload.items[0].body, "只讨论改变了原候选");
+  const revision = await send("请修改现有候选，按我刚才说的改名要求生成修订稿，不要保存。");
+  const b = revision.adoption_state.pending[0];
+  assert(b.artifact_id !== a.artifact_id && b.payload.revision_of === a.artifact_id, "修订未绑定原稿");
+  const body = b.payload.items.map((item) => item.body).join("\n");
+  assert(body.includes("林渡") && !body.includes("沈砚") && body.includes(nonce), "修订正文不正确");
+  const { DatabaseSync } = await import("node:sqlite");
+  assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION), "需要隔离库");
+  function facts() {
+    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
+    try { return db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce); }
+    finally { db.close(); }
+  }
+  assert(facts().length === 0, "修订已自动入档");
+  await page.screenshot({ path: path.join(artifactDir, "revision-before-adoption.png"), fullPage: true });
+  const start = frames.length;
+  await page.getByRole("button", { name: "保存到作品档案", exact: true }).last().click();
+  await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
+    (e) => e.artifact_id === b.artifact_id && e.adoption_status === "ACCEPTED"), "修订稿不能通过真实按钮采纳");
+  const action = frames.slice(start).find((f) => f.direction === "sent" && f.event === "author_action");
+  assert(action?.body?.action?.target_ref === b.artifact_id, "采纳指向了原稿");
+  const snapshot = await reload();
+  assert(snapshot.pending_adoptions.length === 1 && snapshot.pending_adoptions[0].artifact_id === a.artifact_id, "采纳修订稿错误处置原稿");
+  assert(snapshot.resolved_adoptions.some((e) => e.artifact_id === b.artifact_id && e.adoption_status === "ACCEPTED"), "修订采纳状态未恢复");
+  const saved = facts();
+  assert(saved.length === 1 && saved[0].status === "CONFIRMED" && saved[0].content.includes(body), "保存的不是模型修订全文");
+  await page.screenshot({ path: path.join(artifactDir, "revision-adopted.png"), fullPage: true });
+  const discarded = await send("请放弃原候选。");
+  assert(discarded.adoption_state?.resolved?.some((e) => e.artifact_id === a.artifact_id && e.adoption_status === "DISCARDED"), "未放弃指定原稿");
+  assert(discarded.assistant_message.text === "已放弃该待采纳内容。", "完成后仍复用执行前的判断，缺少真实处置回执");
+  await page.getByText(discarded.assistant_message.text, { exact: true }).last().waitFor();
+  const finalSnapshot = await reload();
+  assert(finalSnapshot.pending_adoptions.length === 0 && facts().length === 1, "放弃原稿改变了已采纳修订稿的事实");
+  await page.screenshot({ path: path.join(artifactDir, "discard-completed.png"), fullPage: true });
+  fs.writeFileSync(path.join(artifactDir, "revision-adoption-evidence.json"), JSON.stringify({ source, discussion, discussedSnapshot, revision, snapshot, discarded, finalSnapshot, saved }, null, 2));
+  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-candidate-revision-adoption", turn_id: revision.turn_id,
+    source_turn_id: source.turn_id, discussion_turn_id: discussion.turn_id, discard_turn_id: discarded.turn_id,
+    original_id: a.artifact_id, revised_id: b.artifact_id, discussion_only: true, contextual_revision: true,
+    discard_receipt_visible: true, no_write_before_adoption: true, original_pending_after_adoption: true, revised_bytes_saved: true,
+    accepted_state_restored: true, confirmed_fact_count: 1 }];
+}
+
+async function driveCandidateStaleModal(page) {
+  const nonce = randomUUID().replaceAll("-", "");
+  const start = frames.length;
+  await page.locator(chatInputSelector).fill(`把这份大纲直接存档为作品设定：主角沈砚经营旧书铺。校验标识${nonce}。`);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+  const source = (await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.pending?.length,
+    "没有产生待采纳原稿", 900_000)).body;
+  const target = source.adoption_state.pending[0].artifact_id;
+  await page.getByRole("button", { name: "修改后保存", exact: true }).first().click();
+  const edited = `这是仍未提交的编辑全文：沈砚改为岑舟。${nonce}`;
+  await page.getByRole("dialog").getByRole("textbox").fill(edited);
+  const otherContext = await page.context().browser().newContext({
+    storageState: await page.context().storageState(),
+  });
+  const other = await otherContext.newPage();
+  other.on("websocket", (ws) => {
+    ws.on("framesent", (event) => recordFrame("sent", event.payload));
+    ws.on("framereceived", (event) => recordFrame("received", event.payload));
+  });
+  await other.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await other.locator(chatInputSelector).waitFor();
+  await other.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+  const discardStart = frames.length;
+  await other.locator(chatInputSelector).fill("请放弃原候选。");
+  await other.getByRole("button", { name: /^发送$/ }).click();
+  const discarded = (await waitForNewFrame(discardStart, (f) => f.event === "turn_result" &&
+    f.body?.adoption_state?.resolved?.some((e) => e.artifact_id === target && e.adoption_status === "DISCARDED"),
+    "另一视图没有实际放弃目标", 900_000)).body;
+  await waitForNewFrame(discardStart, (f) => f.event === "agent_run_state" &&
+    f.body?.run_id === discarded.agent_run?.run_id && f.body?.status === "completed", "放弃运行未完成");
+  const submitStart = frames.length;
+  await page.getByRole("button", { name: "保存修改后的版本", exact: true }).click();
+  await waitForNewFrame(submitStart, (f) => f.event === "phx_reply" && f.body?.status === "error" &&
+    f.body?.response?.reason === "pending artifact is no longer available", "旧编辑未被持久状态拒绝");
+  assert(await page.getByRole("dialog").getByRole("textbox").inputValue() === edited, "失败后丢失编辑文本");
+  await page.getByRole("dialog").getByRole("alert").waitFor();
+  await page.screenshot({ path: path.join(artifactDir, "stale-edit-retained.png"), fullPage: true });
+  await otherContext.close();
+  const { DatabaseSync } = await import("node:sqlite");
+  assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION), "需要隔离库");
+  const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
+  try { assert(db.prepare("SELECT count(*) AS n FROM memory_items WHERE instr(content, ?) > 0").get(nonce).n === 0, "旧编辑复活并保存了已放弃材料"); }
+  finally { db.close(); }
+  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-candidate-stale-modal", turn_id: source.turn_id,
+    discard_turn_id: discarded.turn_id, target_ref: target, stale_edit_rejected: true,
+    editor_text_retained: true, error_visible: true, confirmed_fact_count: 0 }];
+}
+
+async function driveCandidateLifecycle(page) {
+  const nonce = randomUUID().replaceAll("-", "");
+  const original = `先只记录这份资料，不要生成候选：主角沈砚在雨港经营旧书铺，正在寻找失踪的姐姐。资料校验标识${nonce}。`;
+  const turns = [];
+  const operations = [];
+  async function send(text, phase) {
+    console.log(`[biz6] ${phase}`);
+    const start = frames.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message", "未发送作者消息");
+    const turnId = sent.body.turn_id;
+    const received = await waitForNewFrame(start, (f) => f.direction === "received" &&
+      ((f.event === "turn_result" && f.body?.turn_id === turnId) ||
+       (f.event === "phx_reply" && f.body?.response?.turn_results?.some((r) => r.turn_id === turnId))), "未返回候选处理结果", 900_000);
+    const result = received.event === "turn_result" ? received.body : received.body.response.turn_results.find((r) => r.turn_id === turnId);
+    turns.push({ phase, input: text, result });
+    fs.writeFileSync(path.join(artifactDir, "lifecycle-turns.json"), JSON.stringify(turns, null, 2));
+    assert(!["failed", "cancelled"].includes(result.status), `${phase} 失败`);
+    await waitForNewFrame(start, (f) => {
+      const state = f.event === "agent_run_state" ? f.body : f.body?.response?.agent_run_state;
+      return state?.run_id === result.agent_run?.run_id && ["completed", "awaiting_author"].includes(state.status);
+    }, "运行未收束", 30_000);
+    await page.screenshot({ path: path.join(artifactDir, `${phase}.png`), fullPage: true });
+    return result;
+  }
+  async function reload() {
+    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor();
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+    return (await response).json();
+  }
+  async function facts() {
+    assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(process.env.MIX_TEST_PARTITION), "需要隔离测试库");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
+    try { return db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce); }
+    finally { db.close(); }
+  }
+  function noNewCandidate(result) {
+    assert((result.adoption_state?.pending ?? []).length === 0, "重复登记或状态问答产生新候选");
+    assert((result.candidate_directions ?? []).length === 0, "流程被当作创作方向");
+  }
+  const source = await send(original, "01-source");
+  noNewCandidate(source);
+  const saved = await send("把上一条资料原文保存为作品设定。", "02-register");
+  const a = saved.adoption_state?.pending?.[0];
+  assert(a?.payload?.items?.[0]?.body === original, "登记未保持原文");
+  const duplicate = await send("把上一条资料原文重新登记为作品设定。", "03-repeat-pending");
+  noNewCandidate(duplicate);
+  assert((await reload()).pending_adoptions.length === 1, "已有来源重复物化");
+  const revised = await send("请修改现有候选，把沈砚改成林渡，其余内容和资料校验标识保留；生成修订候选，不要保存。", "04-revise");
+  const b = revised.adoption_state?.pending?.[0];
+  assert(b && b.artifact_id !== a.artifact_id && b.payload.revision_of === a.artifact_id, "修订未绑定原候选");
+  const revisedText = b.payload.items.map((item) => item.body).join("\n");
+  assert(revisedText.includes("林渡") && !revisedText.includes("沈砚") && revisedText.includes(nonce), "模型修订未执行作者修改或丢失资料标识");
+  assert(b.payload.items.every((i) => i.provider_call_ref && !i.provider_call_ref.startsWith("author_input:")), "修订冒充作者原文字节");
+  let snapshot = await reload();
+  assert(snapshot.pending_adoptions.length === 2, "修订没有保留原稿和新稿两份候选");
+  assert(snapshot.pending_adoptions.find((e) => e.artifact_id === a.artifact_id)?.payload.items[0].body === original, "修订覆盖了原稿");
+  assert((await facts()).length === 0, "仅要求修改就自动入档");
+  operations.push({ operation: "revise", turn_id: revised.turn_id, target_ref: a.artifact_id });
+
+  const discardedOriginal = await send("请放弃原候选，保留修订稿。", "05-discard-original");
+  assert(discardedOriginal.adoption_state?.resolved?.some((e) => e.artifact_id === a.artifact_id && e.adoption_status === "DISCARDED"), "放弃错对象或没有执行");
+  assert(discardedOriginal.assistant_message.text === "已放弃该待采纳内容。", "放弃完成回执与状态不一致");
+  operations.push({ operation: "discard", turn_id: discardedOriginal.turn_id, target_ref: a.artifact_id });
+  snapshot = await reload();
+  assert(snapshot.pending_adoptions.length === 1 && snapshot.pending_adoptions[0].artifact_id === b.artifact_id, "放弃原稿影响修订稿");
+  const lineageRepeat = await send("把上一条资料原文重新登记为作品设定。", "06-repeat-with-revision");
+  noNewCandidate(lineageRepeat);
+  assert((await reload()).pending_adoptions.length === 1, "存在修订稿时重复登记了祖先来源");
+  const discardedRevision = await send("请放弃修订稿。", "07-discard-revision");
+  assert(discardedRevision.adoption_state?.resolved?.some((e) => e.artifact_id === b.artifact_id && e.adoption_status === "DISCARDED"), "修订稿未被放弃");
+  assert(discardedRevision.assistant_message.text === "已放弃该待采纳内容。", "修订稿放弃完成回执与状态不一致");
+  operations.push({ operation: "discard", turn_id: discardedRevision.turn_id, target_ref: b.artifact_id });
+  assert((await reload()).pending_adoptions.length === 0 && (await facts()).length === 0, "放弃改变了作品事实或没有清空待办");
+
+  const registered = await send("把上一条资料原文重新登记为作品设定。", "08-register-after-discard");
+  const c = registered.adoption_state?.pending?.[0];
+  assert(c && ![a.artifact_id, b.artifact_id].includes(c.artifact_id), "全部放弃后未形成新候选身份");
+  assert(c.payload.items[0].body === original && c.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "重新登记丢失原文或来源");
+  const edited = original.replace("沈砚", "岑舟");
+  const actionStart = frames.length;
+  await page.getByRole("button", { name: "修改后保存", exact: true }).last().click();
+  await page.getByRole("dialog").getByRole("textbox").fill(edited);
+  await page.getByRole("button", { name: "保存修改后的版本", exact: true }).click();
+  await waitForNewFrame(actionStart, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
+    (e) => e.artifact_id === c.artifact_id && e.adoption_status === "EDITED_ACCEPTED"), "作者修改后采纳失败");
+  const sentAction = frames.slice(actionStart).find((f) => f.event === "author_action" && f.direction === "sent");
+  assert(sentAction?.body?.action?.target_ref === c.artifact_id && sentAction.body.action.payload.edited_content === edited, "全文编辑引用错误");
+  snapshot = await reload();
+  assert(snapshot.pending_adoptions.length === 0, "已采纳候选仍待处理");
+  const finalFacts = await facts();
+  assert(finalFacts.length === 1 && finalFacts[0].status === "CONFIRMED" && finalFacts[0].content.includes(edited), "保存的版本或事实数量不正确");
+  const status = await send("资料处理进度：保存的版本中主角叫什么？原文是否逐字保存？请依据实际已保存的内容回答。", "09-edited-state");
+  noNewCandidate(status);
+  assert(status.assistant_message.text.includes("岑舟"), "状态回答仍引用编辑前的旧正文");
+  const acceptedRepeat = await send("把上一条资料原文重新登记为作品设定。", "10-repeat-accepted");
+  noNewCandidate(acceptedRepeat);
+  assert((await facts()).length === 1 && (await reload()).pending_adoptions.length === 0, "已采纳后又重复生成或写入");
+  fs.writeFileSync(path.join(artifactDir, "lifecycle-evidence.json"), JSON.stringify({ nonce, original, edited,
+    source, original_id: a.artifact_id, revised_id: b.artifact_id, registered_id: c.artifact_id,
+    operations, finalFacts, snapshot }, null, 2));
+  return [{ event: "slice_verify.ui_state.done", slice_id: "q1b-candidate-lifecycle", turn_id: revised.turn_id,
+    turn_ids: turns.map((t) => t.result.turn_id), operations, adoption_turn_id: registered.turn_id,
+    original_preserved: true, revision_is_tentative: true, lineage_registration_guard: true, discard_receipts_match_state: true,
+    discarded_source_can_register: true, edited_state_restored: true, confirmed_fact_count: 1 }];
 }
 
 async function driveCandidateSemantics(page) {
@@ -29893,6 +30137,9 @@ const drivers = {
   "q3d-long-session-adoption-state": driveLongSessionAdoptionState,
   "q3d-message-delivery-recovery": driveMessageDeliveryRecovery,
   "q1b-live-archive-roundtrip": driveQ1bLiveArchiveRoundtrip,
+  "q1b-candidate-lifecycle": driveCandidateLifecycle,
+  "q1b-candidate-stale-modal": driveCandidateStaleModal,
+  "q1b-candidate-revision-adoption": driveCandidateRevisionAdoption,
   "q3d-message-outcome-roundtrip": driveQ3dMessageOutcomeRoundtrip,
   "q3c-author-content-materialization": driveQ3cAuthorContentMaterialization,
   "q3b-capability-gap-honest-reply": driveCapabilityGapHonestReply,
@@ -29991,9 +30238,18 @@ const page = await browser.newPage({ viewport: viewportForSlice(sliceId) });
 if (sliceId === "q3d-message-delivery-recovery") await installDeliveryFaultProxy(page);
 
 page.on("websocket", (ws) => {
+  const endpoint = new URL(ws.url());
+  const connection = { origin: endpoint.origin, pathname: endpoint.pathname };
+  recordLifecycleTransport("socket_open", connection);
   ws.on("framesent", (event) => recordFrame("sent", event.payload));
   ws.on("framereceived", (event) => recordFrame("received", event.payload));
+  ws.on("close", () => recordLifecycleTransport("socket_close", connection));
+  ws.on("socketerror", (error) => recordLifecycleTransport("socket_error", { ...connection, error }));
 });
+page.on("requestfailed", (request) => recordLifecycleTransport("request_failed", {
+  origin: new URL(request.url()).origin, pathname: new URL(request.url()).pathname, error: request.failure()?.errorText,
+}));
+page.on("pageerror", (error) => recordLifecycleTransport("page_error", { error: error.message }));
 
 try {
   await page.goto(baseUrl, { waitUntil: "commit", timeout: 30_000 });

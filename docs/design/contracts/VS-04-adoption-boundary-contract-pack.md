@@ -125,6 +125,19 @@ AdoptionDecision subset:
 4. confirmation satisfied 后仍要重新 gate。
 5. adoption failure 必须产生 TurnResult，不允许静默丢弃。
 
+### 4.1 BIZ-06 已有候选操作补充（2026-10-18）
+
+对话中明确修改/放弃的请求按 ADR-0027 D5 绑定实际 pending_artifact_ref。
+修改经既有工具生成新的 tentative，原稿保留；放弃只关闭目标候选，不写作品事实。
+新稿记录 revision_of 和独立的 registration_source_ref，Provider 内容来源不变。
+同来源还有待采纳或已采纳版本时不能重新登记；全部放弃后可创建新身份的候选。
+
+`edit_then_accept` / `modify_draft` 的保存分支要求作者编辑的完整 `edited_content`；
+只有修改要求而无完整正文时拒绝，不允许把修改要求附加到原文冒充修订结果。
+保存、编辑、放弃在执行前读取当前持久待办；目标已处置或会话已失活时拒绝旧动作。
+前端保存失败保留编辑全文与弹窗，只有真实 accepted 回执才关闭。页面验收见
+`q1b-candidate-lifecycle` 和 `q1b-candidate-stale-modal`。
+
 ---
 
 ## 5. ProjectionHint 最小 Schema 草案

@@ -1266,6 +1266,30 @@ scenarios:
     manifest: quality/acceptance/scenarios/e2e-01-channel-action-security.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh e2e-01-channel-action-security --surface tauri
+  - id: q1b-candidate-revision-adoption
+    title: "从讨论到指代修订、显式采纳与放弃原稿"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q1b-candidate-revision-adoption.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh q1b-candidate-revision-adoption --surface tauri
+  - id: q1b-candidate-stale-modal
+    title: "旧编辑窗口不能保存已被对话放弃的候选"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q1b-candidate-stale-modal.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh q1b-candidate-stale-modal --surface tauri
+  - id: q1b-candidate-lifecycle
+    title: "已有候选的对话修订、放弃与重新登记"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q1b-candidate-lifecycle.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh q1b-candidate-lifecycle --surface tauri
   - id: q1b-live-archive-roundtrip
     title: "Q1b 真实模型多轮存档复验"
     tier: nightly

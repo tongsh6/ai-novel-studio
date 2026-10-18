@@ -1,0 +1,40 @@
+id: q1b-candidate-revision-adoption
+title: 从讨论到指代修订、显式采纳与放弃原稿
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q1b-candidate-revision-adoption --surface tauri
+contract:
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - tasks/slices/Q1B-live-archive-recheck.md
+invariants:
+  - no-implicit-adoption-on-revision
+  - explicit-adoption-saves-revised-bytes-only
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - input: 登记原文为候选
+  - input: 先讨论改名，明确不执行或生成候选
+  - reload: 原候选未变，讨论输入已保留
+  - input: 按刚才讨论的要求修订，不重复名字，只生成候选
+  - observe: 原稿和修订稿并存，零作品事实
+  - click: 修订稿的保存到作品档案
+  - reload: 仅修订稿已采纳，原稿仍待处理
+  - input: 明确放弃原稿，核对完成回执与实际状态一致
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q1b-candidate-revision-adoption-tauri
+assertions:
+  ui:
+    - 讨论不改稿，指代要求可执行，修订稿经真实按钮采纳
+    - 原稿在采纳修订稿后仍待采纳，作者明确放弃后显示实际完成回执
+  network:
+    - accept 绑定修订稿 artifact_id，不指向原稿
+  data:
+    - 显式采纳前零事实，之后唯一 CONFIRMED 内容包含修订全文
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

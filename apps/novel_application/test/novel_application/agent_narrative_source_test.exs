@@ -60,6 +60,77 @@ defmodule NovelApplication.AgentNarrativeSourceTest do
              )
   end
 
+  test "原生判断叙事绑定具体字段，篡改字段或正文不能通过校验" do
+    text = "已有修订候选，不重复登记。"
+
+    output = %ProviderOutput{
+      provider_run_ref: "prun-native",
+      provider_call_ref: "pcall-native",
+      status: :ok,
+      content: %{
+        tool_calls: [
+          %{
+            name: "submit_judgment",
+            arguments: %{
+              author_narrative: text,
+              author_reasoning: "另一段文字"
+            }
+          }
+        ]
+      }
+    }
+
+    assert {:ok, source} =
+             AgentNarrativeSource.from_tool_call_narrative(
+               %{provider_output: output},
+               "submit_judgment",
+               text,
+               :author_narrative
+             )
+
+    assert source.tool_call_narrative_field == "author_narrative"
+    outputs = %{"prun-native" => output}
+    assert :ok = AgentNarrativeSource.verify(text, source, outputs)
+    assert {:error, _} = AgentNarrativeSource.verify(text <> "已保存", source, outputs)
+
+    assert {:error, _} =
+             AgentNarrativeSource.verify(
+               text,
+               %{source | tool_call_narrative_field: "author_reasoning"},
+               outputs
+             )
+
+    assert {:error, _} =
+             AgentNarrativeSource.verify(
+               text,
+               %{source | tool_call_narrative_field: "untrusted"},
+               outputs
+             )
+  end
+
+  test "旧原生叙事默认字段兼容原校验" do
+    text = "继续读取作品。"
+
+    output = %ProviderOutput{
+      provider_run_ref: "prun-legacy",
+      provider_call_ref: "pcall-legacy",
+      status: :ok,
+      content: %{tool_calls: [%{name: "submit_next_step", arguments: %{author_reasoning: text}}]}
+    }
+
+    assert {:ok, source} =
+             AgentNarrativeSource.from_tool_call_narrative(
+               %{provider_output: output},
+               "submit_next_step",
+               text
+             )
+
+    assert :ok =
+             AgentNarrativeSource.verify(text, Map.delete(source, :tool_call_narrative_field), %{
+               "prun-legacy" => output
+             })
+  end
+
   defp provider_output(content) do
     {:ok, output} =
       ProviderOutput.new(%{

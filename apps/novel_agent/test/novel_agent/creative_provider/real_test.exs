@@ -202,6 +202,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       )
 
     assert result.status == :ok
+
     assert Enum.map(result.companion_artifacts, & &1.artifact_type) == [
              :character_seed,
              :foreshadowing_seed,
@@ -280,6 +281,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "constraint_seed"
     assert prompt =~ "risk_flags"
     assert prompt =~ "body 内不得出现独立的结构/状态元标签"
+
     # D1 CP2：档案真空时要求为具名出场人物产出 character_seed（模型可读条件，零契约新增）
     assert prompt =~ "若上下文中没有「现有角色」章节"
     assert prompt =~ "必须为本段正文中每个具名"
@@ -328,6 +330,48 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "上下文："
     assert prompt =~ "重要："
     assert prompt =~ "原样保留"
+  end
+
+  test "设定修订沿用原稿形态，不复用新建设定的模板栏目" do
+    parent = self()
+
+    request = %{
+      @request
+      | tool_name: "world_building",
+        artifact_type: "world_setting",
+        context_text: "原稿保留原文结构。",
+        revision: "正文仅包含修订结果，修改依据放在 rationale。"
+    }
+
+    assert %{status: :ok} =
+             Real.generate(
+               request,
+               provider_execution(fn prompt ->
+                 send(parent, {:revision_prompt, prompt})
+                 {:ok, %{content: @good_json}}
+               end)
+             )
+
+    assert_received {:revision_prompt, prompt}
+    assert prompt =~ request.revision
+    assert prompt =~ request.context_text
+    refute prompt =~ "逐行包含：设定内容"
+    refute prompt =~ "待作者确认处"
+  end
+
+  test "角色和大纲同批消费已有的修订要求字段" do
+    for {tool, type} <- [{"character_design", "character_seed"}, {"plot_outline", :outline_draft}] do
+      request = %{@request | tool_name: tool, artifact_type: type, revision: "沿用原稿结构修订正文。"}
+
+      assert %{status: :ok} =
+               Real.generate(
+                 request,
+                 provider_execution(fn prompt ->
+                   assert prompt =~ request.revision
+                   {:ok, %{content: @good_json}}
+                 end)
+               )
+    end
   end
 
   test "world building prompt 按 foreshadowing_seed 输出伏笔结构 + 上下文 grounding + 保留三锚点" do

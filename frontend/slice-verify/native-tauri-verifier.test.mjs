@@ -46,6 +46,80 @@ describe("Q1b 真实模型存档证据", () => {
   });
 });
 
+describe("BIZ-06 候选生命周期证据", () => {
+  const slice = "q1b-candidate-lifecycle";
+  const turnIds = Array.from({ length: 10 }, (_, i) => `turn-${i}`);
+  const operations = [
+    { operation: "revise", turn_id: turnIds[3], target_ref: "original" },
+    { operation: "discard", turn_id: turnIds[4], target_ref: "original" },
+    { operation: "discard", turn_id: turnIds[6], target_ref: "revision" },
+  ];
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_ids: turnIds,
+    turn_id: turnIds[3], adoption_turn_id: turnIds[7], operations,
+    original_preserved: true, revision_is_tentative: true, lineage_registration_guard: true, discard_receipts_match_state: true,
+    discarded_source_can_register: true, edited_state_restored: true, confirmed_fact_count: 1 };
+  const records = [ui, ...turnIds.map((turn_id) => ({ turn_id, event: "judgment.decided.done" })),
+    ...operations.map((op) => ({ ...op, event: "pending_artifact.completed.done", production_write: false })),
+    { turn_id: turnIds[7], event: "adoption.evaluate.done" }];
+  it("十轮判断、目标动作和显式采纳必须逐项关联", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence?.turn_ids).toEqual(turnIds);
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify" })).not.toBeNull();
+    expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
+    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== turnIds[4]))).toBeNull();
+    expect(findNativeSliceEvidence(slice, records.map((r) => r.event === "pending_artifact.completed.done" ? { ...r, target_ref: "wrong" } : r))).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { turn_id: turnIds[9], outcome: "error" }])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, revision_is_tentative: false }, ...records.slice(1)])).toBeNull();
+  });
+  it("实模模式必须每轮都有真实调用证据", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    const llmRecords = turnIds.map((turn_id) => ({ turn_id, provider: "lmstudio",
+      request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" }, response: { status: 200 } }));
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords })).not.toBeNull();
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords: llmRecords.slice(1) })).toBeNull();
+  });
+});
+
+describe("BIZ-06 修订采纳证据", () => {
+  const slice = "q1b-candidate-revision-adoption";
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "revision", source_turn_id: "source",
+    discussion_turn_id: "discussion", discard_turn_id: "discard", discussion_only: true, contextual_revision: true, discard_receipt_visible: true,
+    original_id: "a", revised_id: "b", no_write_before_adoption: true, original_pending_after_adoption: true,
+    revised_bytes_saved: true, accepted_state_restored: true, confirmed_fact_count: 1 };
+  const records = [ui,
+    { event: "judgment.decided.done", turn_id: "discussion", action: "reply", candidate_count: 0 },
+    { event: "pending_artifact.completed.done", turn_id: "discard", target_ref: "a", operation: "discard", production_write: false },
+    { event: "pending_artifact.completed.done", turn_id: "revision", target_ref: "a", operation: "revise", production_write: false },
+    { event: "adoption.evaluate.done", turn_id: "revision" },
+    { event: "channel.author_action.done", turn_id: "revision", action_type: "accept" }];
+  it("必须证明采纳修订稿而非原稿，且原稿没有被自动处置", () => {
+    expect(findNativeSliceEvidence(slice, records)).not.toBeNull();
+    expect(findNativeSliceEvidence(slice, records.slice(0, -1))).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, original_pending_after_adoption: false }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "source" } : r))).toBeNull();
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio" })).toBeNull();
+    const llmRecords = evidence.turn_ids.map((turn_id) => ({ turn_id, provider: "lmstudio",
+      request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" }, response: { status: 200 } }));
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords })).not.toBeNull();
+  });
+});
+
+describe("BIZ-06 过期编辑证据", () => {
+  const slice = "q1b-candidate-stale-modal";
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "source",
+    discard_turn_id: "discard", target_ref: "original", stale_edit_rejected: true,
+    editor_text_retained: true, error_visible: true, confirmed_fact_count: 0 };
+  const records = [ui, { turn_id: "discard", event: "pending_artifact.completed.done", operation: "discard", target_ref: "original" },
+    { turn_id: "source", event: "channel.author_action.error", action_type: "edit_then_accept" }];
+  it("必须证明同一对象被放弃、旧保存拒绝和编辑保留，不能夹带采纳", () => {
+    expect(findNativeSliceEvidence(slice, records)).not.toBeNull();
+    expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { event: "adoption.evaluate.done", turn_id: "source" }])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, editor_text_retained: false }, ...records.slice(1)])).toBeNull();
+  });
+});
+
 describe("BIZ-05 候选语义证据", () => {
   const slice = "q3d-candidate-semantics";
   const failed = ["record_only_conflict", "candidate_purpose_conflict"].map((reason_code) => ({ turn_id: reason_code, reason_code }));

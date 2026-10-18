@@ -523,6 +523,29 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert turn_result.agent_run.profile_ref == "judgment_loop_v1"
   end
 
+  test "修订工具失败保留实际调用事实和可查 trace，不伪装成未调用" do
+    parent = self()
+    attrs = delivery_run_attrs()
+
+    step = fn _run, _sequence ->
+      {:error, {:pending_artifact_execution_failed, "world_building", "trace-revision-failed"}}
+    end
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(attrs,
+               next_step_planner: sequential_steps([step]),
+               event_sink: event_sink_with_payload(parent)
+             )
+
+    assert_receive {:agent_event, :run_failed, _, %{turn_result: result}}, 2000
+    assert result.truthfulness.tool_called
+    assert result.truthfulness.tool_name == "world_building"
+    refute result.truthfulness.production_write_performed
+    assert result.trace_summary.trace_ref == "trace-revision-failed"
+    assert result.assistant_message.text =~ "本次没有改变原稿"
+    assert {:ok, %{run: %{status: :failed}}} = AgentRunService.state(run_id)
+  end
+
   test "pause is cooperative and stops before next step" do
     parent = self()
     run_id = unique_run_id()

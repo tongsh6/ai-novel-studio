@@ -72,7 +72,7 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
   原文仍只由明确来源物化，查询待办不自动扩大作者原文白名单或执行采纳。
 - 消息已处理、运行结束、候选已采纳分别表达。追问「完成了吗」必须依据结果和采纳事实，
   不能只因 run completed 宣称已保存；只读结果仍明确无写入。
-- 待采纳候选在追问后仍待采纳，回复不会关闭它；只有现有作者动作改变采纳事实。
+- 待采纳候选在追问后仍待采纳，回复不会关闭它；作者的显式处置请求按 D5 执行。
 
 ### D4 跨轮原文引用保持字节来源
 
@@ -91,6 +91,38 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
   不能把历史原文 turn 当成本轮动作授权入口。先提供资料、后要求存档时，
   body 取所引用作者消息原文。缺失、越界或不明确的来源诚实失败/追问，不回退保存指令本身。
 - 同一来源已有待采纳/已采纳候选时复用其状态，不重复生成同一份作者源候选。
+
+### D5 已有候选的对话处置（2026-10-18，BIZ-06 用户确认）
+
+- 目标体验依据 `docs/design/00-vision-and-engineering-roadmap.md` §2.2–2.3 的 AI 引导式创作：作者可以直接说修改或
+  放弃，AI 识别目标并执行现有能力；不能把操作建议当作创作方向，也不能声称执行了尚未发生的动作。
+- 判断① `execute` 支持 `revise_pending_artifact` / `discard_pending_artifact`，
+  `pending_artifact_ref` 必须是当前作品、当前活动会话中实际 TENTATIVE 的 artifact_id。
+  目标不明确时等待作者澄清；无效引用允许一次模型纠正，仍无效则诚实失败，不猜最新对象。
+- 判断与执行分步；执行前重新读取持久状态，核对活动会话、实际目标和预算。
+  修订实际工具由目标类型决定，明确加入运行权限并作为下一步 target_tool_ref 通过策略，
+  执行端再次校验，不以 judgment 权限隐式调用创作工具。
+  修订复用 Orchestrator 与既有创作工具，以完整原稿及作者要求生成独立候选；
+  dialogue_goal 须消解历史指代，与当前作者原话分别传给执行工具，不能在交接时丢掉已理解的修改要求；
+  原稿不覆盖，修订稿仍待采纳，模型字节及 Provider 来源保持原样。修订能力不含采纳授权。
+  既有 CreativeRequest.revision 承接修订要求；设定修订沿用原稿形态，不套用新建模板添加栏目，
+  修改过程说明放 rationale，不混入可采纳正文；应用层不通过删改输出字节修正内容。
+- 放弃复用现有 discard 动作验证与 AdoptionWorkflow，记录本轮请求和源对象关系。
+  只改变候选处置状态，不写作品事实；已处置、跨作品或历史会话对象不得再次执行。
+  成功后沿用既有 AdoptionWorkflow 的事实回执，执行前的模型判断只保留在来源绑定的过程记录中，
+  不得用“尚未执行”的判断说明替换完成结果；该回执是结构事实，不是 app 编造的模型完成回顾。
+- 修订候选的 `revision_of` 指原稿，`registration_source_ref` 继承资料登记来源。
+  登记去重沿该关系检查 pending 与 ACCEPTED/EDITED_ACCEPTED；所有版本均放弃后才可重新登记。
+  这两个字段不充当内容来源，item.provider_call_ref 仍绑定本次真实模型输出。
+- `interaction_state` 和 `session_adoptions` 同批提供版本关系、可执行操作、实际正文预览；
+  作者消息附来源登记计数。作者“修改后保存”的全文优先于历史候选 items，不能据旧正文回答状态。
+- 解析纠正禁止重复登记时，必须由本次模型输出新的 `author_narrative`，不能沿用先前承诺。
+  原生工具叙事绑定具体字段和 Provider 字节，旧 author_reasoning 绑定继续兼容。
+- UI 的“修改后保存”只接受作者实际编辑的完整正文；instruction-only 请求不得被拼接后入档。
+  保存/编辑/放弃前检查持久待办，防止旧页面复活已处置候选。保存失败保留弹窗及作者编辑，
+  展示失败提示，不自动切换目标或清空内容。
+
+实施与外部验收归 `tasks/slices/Q1B-live-archive-recheck.md`，未扩大为任意已采纳事实的自动改写。
 
 ## 3. 不变量
 
@@ -132,3 +164,8 @@ D8 原始日志中的模型能引用先前存档诉求，并非完全没有跨�
 - frontend/src-tauri/src/lib.rs
 - docs/design/schemas/foundation/user_message_submission.json
 - quality/acceptance/scenarios/q3d-message-delivery-recovery.yml
+- apps/novel_application/lib/novel_application/pending_artifact_workflow.ex
+- apps/novel_application/test/novel_application/pending_artifact_workflow_test.exs
+- quality/acceptance/scenarios/q1b-candidate-lifecycle.yml
+- quality/acceptance/scenarios/q1b-candidate-stale-modal.yml
+- quality/acceptance/scenarios/q1b-candidate-revision-adoption.yml

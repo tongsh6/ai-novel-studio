@@ -1431,7 +1431,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                    "draft_id" => "as-adopt-1",
                    "artifact_type" => "character_seed",
                    "content" => "主角更果断",
-                   "instruction" => "增加保护同伴的动机",
+                   "edited_content" => "主角更果断，愿意冒险保护同伴。",
                    "source_turn_ref" => "turn-adopt-source"
                  },
                  socket
@@ -1483,7 +1483,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert Map.has_key?(socket.assigns.turn_results_by_id, socket.assigns.current_turn_id)
     end
 
-    test "modify_draft event resolves pending artifact as edited acceptance" do
+    test "modify_draft 全文编辑经采纳边界保存作者版本" do
       {:ok, _, socket} =
         UserSocket
         |> socket("user_id", %{})
@@ -1498,7 +1498,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                    "draft_id" => "as-adopt-1",
                    "artifact_type" => "character_seed",
                    "content" => "主角更果断",
-                   "instruction" => "增加保护同伴的动机",
+                   "edited_content" => "主角更果断，愿意冒险保护同伴。",
                    "source_turn_ref" => "turn-adopt-source"
                  },
                  socket

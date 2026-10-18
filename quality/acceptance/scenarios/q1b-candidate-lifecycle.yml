@@ -1,0 +1,45 @@
+id: q1b-candidate-lifecycle
+title: 已有候选的对话修订、放弃与重新登记
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q1b-candidate-lifecycle --surface tauri
+contract:
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - tasks/slices/Q1B-live-archive-recheck.md
+invariants:
+  - revision-preserves-original-and-provider-bytes
+  - no-implicit-adoption-on-revision
+  - discard-binds-pending-target-only
+  - registration-respects-lineage-and-terminal-state
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - input: 留存原文并登记；再次登记不得重复
+  - input: 指定修改名字，不保存，生成修订候选
+  - reload: 原稿与修订稿并存，均未入档
+  - input: 放弃原稿，保留修订稿；祖先来源不得重复登记
+  - input: 放弃修订稿；全部放弃后重新登记原文
+  - click: 修改后保存，编辑全文并确认
+  - reload: 核对已保存版本，再次登记不得重复
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q1b-candidate-lifecycle-tauri
+assertions:
+  ui:
+    - 原稿保留，修订稿可见且等待作者采纳
+    - 放弃精确对象后其按钮消失，另一份不受影响
+  network:
+    - 对话 execute 绑定真实 pending_artifact_ref
+    - 修订来源为 Provider，原文字节与作者来源独立保留
+    - 作者编辑后保存精确绑定新候选与 edited_content
+  data:
+    - 修改和放弃均为零作品事实写入
+    - 全部放弃后新候选身份仍绑定原文
+    - 最终只有一条 CONFIRMED 且内容为作者编辑版本
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

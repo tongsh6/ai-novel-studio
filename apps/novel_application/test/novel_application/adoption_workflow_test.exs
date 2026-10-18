@@ -592,45 +592,17 @@ defmodule NovelApplication.AdoptionWorkflowTest do
   end
 
   describe "handle_modify_draft/2" do
-    test "resolves a pending artifact as edited and accepted" do
-      assert {:ok, action_result, turn_result} =
-               AdoptionWorkflow.handle_modify_draft(source_turn_result(), %{
-                 "draft_id" => "as-1",
-                 "content" => "原始内容",
-                 "instruction" => "改得更果断"
-               })
+    test "修改指令不能拼入正文并冒充编辑后采纳" do
+      writer = fn _ -> flunk("仅指令不得进入写入") end
 
-      assert action_result.status == "accepted"
-      assert action_result.action_type == "modify_draft"
-      assert turn_result.parent_turn_id == "turn-source"
-      assert turn_result.adoption_state.pending == []
-
-      assert [
-               %{
-                 artifact_id: "as-1",
-                 adoption_status: "EDITED_ACCEPTED",
-                 requires_adoption: false,
-                 payload: payload
-               }
-             ] = turn_result.adoption_state.resolved
-
-      assert payload.content =~ "原始内容"
-      assert payload.content =~ "修改要求：改得更果断"
-      assert payload.edit_instruction == "改得更果断"
-      assert turn_result.truthfulness.artifact_adopted == true
-      assert turn_result.projection_refs == []
-    end
-
-    test "accepts restored JSON turn_result with string keys" do
-      assert {:ok, _action_result, turn_result} =
-               AdoptionWorkflow.handle_modify_draft(string_key_source_turn_result(), %{
-                 "draft_id" => "as-1",
-                 "content" => "原始内容",
-                 "instruction" => "改得更果断"
-               })
-
-      assert turn_result.parent_turn_id == "turn-source"
-      assert [%{adoption_status: "EDITED_ACCEPTED"}] = turn_result.adoption_state.resolved
+      for source <- [source_turn_result(), string_key_source_turn_result()] do
+        assert {:error, "edited_content is required; use candidate revision for instructions"} =
+                 AdoptionWorkflow.handle_modify_draft(
+                   source,
+                   %{"draft_id" => "as-1", "instruction" => "改得更果断"},
+                   writer
+                 )
+      end
     end
 
     test "author-edited full content replaces the draft (edit_then_accept)" do
@@ -656,7 +628,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
     end
 
     test "rejects when neither edited content nor instruction is provided" do
-      assert {:error, "edited content or instruction is required"} =
+      assert {:error, "edited_content is required; use candidate revision for instructions"} =
                AdoptionWorkflow.handle_modify_draft(source_turn_result(), %{"draft_id" => "as-1"})
     end
 
@@ -666,7 +638,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert {:error, "cross-work adoption rejected"} =
                AdoptionWorkflow.handle_modify_draft(source_turn, %{
                  "draft_id" => "as-1",
-                 "instruction" => "改得更果断",
+                 "edited_content" => "主角更果断。",
                  "work_id" => "work-b"
                })
     end

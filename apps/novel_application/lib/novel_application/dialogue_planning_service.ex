@@ -466,6 +466,9 @@ defmodule NovelApplication.DialoguePlanningService do
       judgment_context(state) == nil ->
         judgment_context_next_step(run, sequence, input)
 
+      state[:pending_artifact_request] != nil ->
+        pending_artifact_next_step(run, sequence, provider_execution, input, state)
+
       true ->
         judgment_next_step(run, sequence, provider_execution, input, state)
     end
@@ -643,13 +646,18 @@ defmodule NovelApplication.DialoguePlanningService do
 
     %{
       author_text: author_text,
-      author_content_context: TurnInteractionService.context_section(context.interaction_state),
+      author_content_context:
+        TurnInteractionService.context_section(context.interaction_state) <>
+          exploration_sections(explorations, false),
       context_block:
         judgment_context_block(context, author_text) <>
           exploration_sections(explorations, explore_open?),
       options:
         [
-          capabilities: @judgment_capabilities,
+          capabilities:
+            @judgment_capabilities ++ NovelApplication.PendingArtifactWorkflow.capabilities(),
+          pending_artifact_targets: NovelApplication.PendingArtifactWorkflow.targets(context),
+          registered_sources: TurnInteractionService.registered_sources(context),
           readonly_capabilities: @judgment_readonly_capabilities,
           author_content_sources:
             context
@@ -687,18 +695,88 @@ defmodule NovelApplication.DialoguePlanningService do
   defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, _context),
     do: judgment_switch_result(:judgment_plan, judgment, input, run, sequence)
 
-  defp dispatch_judgment(%{action: "execute"} = judgment, run, sequence, input, _context) do
-    case Map.fetch(@judgment_capability_profiles, judgment.capability || "") do
-      {:ok, profile} ->
-        judgment_switch_result(profile, judgment, input, run, sequence)
+  defp dispatch_judgment(%{action: "execute"} = judgment, run, sequence, input, context) do
+    if judgment.capability in NovelApplication.PendingArtifactWorkflow.capabilities() do
+      log_judgment_decided(judgment, :execution_candidate, 0)
+      tool = NovelApplication.PendingArtifactWorkflow.execution_tool(judgment, context)
 
-      :error ->
-        {:error, {:unknown_judgment_capability, judgment.capability}}
+      {:ok,
+       %{
+         step: judgment_agent_step(run, sequence, "已理解候选处理要求"),
+         observations: [
+           judgment_observation(
+             run,
+             sequence,
+             judgment.narrative,
+             "judgment:#{run.parent_turn_ref}",
+             %{stage: :judgment_decided}
+           )
+         ],
+         stage_state: %{pending_artifact_request: judgment, pending_artifact_tool: tool},
+         run_patch: %{
+           authority_scope:
+             Map.put(run.authority_scope, :allowed_tools, Enum.uniq(["judgment", tool]))
+         },
+         provider_call_count: judgment.provider_call_count,
+         progress_signature: "#{run.run_id}:pending:#{judgment.pending_artifact_ref}"
+       }}
+    else
+      case Map.fetch(@judgment_capability_profiles, judgment.capability || "") do
+        {:ok, profile} ->
+          judgment_switch_result(profile, judgment, input, run, sequence)
+
+        :error ->
+          {:error, {:unknown_judgment_capability, judgment.capability}}
+      end
     end
   end
 
   defp dispatch_judgment(judgment, _run, _sequence, _input, _context),
     do: {:error, {:unknown_judgment_action, judgment.action}}
+
+  defp pending_artifact_next_step(run, sequence, provider, input, state) do
+    with {:ok, decision} <-
+           judgment_mech_decision(run, sequence, state.pending_artifact_tool, "处理已绑定的候选。", [
+             "pending_artifact_operation"
+           ]) do
+      {:execute, pending_artifact_step(provider, input, state), decision,
+       %{provider_call_count: 0, suppress_plan_event: true}}
+    end
+  end
+
+  defp pending_artifact_step(provider, input, state) do
+    fn run, seq, snapshot ->
+      execution =
+        provider
+        |> Execution.with_purpose(:revision)
+        |> NovelApplication.ProviderActivityProjector.with_stage_sink(snapshot)
+
+      with {:ok, result} <-
+             NovelApplication.PendingArtifactWorkflow.run(
+               state.pending_artifact_request,
+               input,
+               run,
+               judgment_context(state),
+               execution
+             ) do
+        {:ok,
+         Map.merge(result, %{
+           step: judgment_agent_step(run, seq, "候选处理完成"),
+           observations: [
+             judgment_observation(run, seq, "候选处理结果已返回。", result.turn_result.turn_id, %{
+               operation: state.pending_artifact_request.capability
+             })
+           ],
+           stage_state: %{
+             pending_artifact_request: nil,
+             pending_artifact_tool: nil,
+             judgment_settled: "completed"
+           },
+           progress_signature: "#{run.run_id}:pending:completed"
+         })}
+      end
+    end
+  end
 
   # reply / await_author 终结：判断结构机械转换 DialogueFrame（frame 语义并入判断①），
   # 下游 Trace / TurnResultBuilder / 持久化副作用沿用零改动；正文=call1 输出（N-NARR 字节绑定）。
@@ -1097,6 +1175,8 @@ defmodule NovelApplication.DialoguePlanningService do
     - world_building：世界观、设定、伏笔、写作规则（产出待采纳设定）
     - work_archive_read：只读查看作品档案（角色列表、结构、统计；不产出候选，
       **不能保存/存档/写入任何内容**——名字里的 archive 是「档案」不是「存档」动作）
+    - revise_pending_artifact：按作者要求修订已有待采纳对象，生成独立候选；原稿保留、不自动采纳。必须填 pending_artifact_ref。
+    - discard_pending_artifact：执行作者明确要求的放弃，只改变已绑定候选状态、不删除作品事实。必须填 pending_artifact_ref。
 
     判例（D8 止血，2026-08-30 stage 实锤）：作者要求「把 XX 存档/保存为设定/写入档案」时，
     本系统的写入只有一条路=待采纳候选经作者采纳。若对话中已有待采纳候选，选直接回复并

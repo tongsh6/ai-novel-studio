@@ -41,8 +41,8 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     # WR02（VS-00E §16.9）：planning_mission 为已渲染的「本轮规划使命」文本
     # （规划前推理结论，进 provider message），仅 plot_outline 路径非空。默认 nil 不变。
     planning_mission: nil,
-    # VS-00E CP3：revision 为已渲染的“按质量发现重写”要求文本（进 provider message），
-    # 追加在三锚点之后，仅 revise_from_findings 路径非空。默认 nil 时 prose prompt 不变。
+    # VS-00E CP3 / BIZ-06：revision 为应用层渲染的修订要求（进 provider message），
+    # 支持质量发现重写和已有候选修订。默认 nil 保持原有新建内容路径。
     revision: nil,
     provider_hints: %{}
   ]

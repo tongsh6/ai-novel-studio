@@ -157,6 +157,18 @@ defmodule NovelApplication.WorkSessionService do
     end
   end
 
+  @doc "执行作者动作前核对持久待办，不能用旧页面/旧 socket 的 pending 快照复活已处置对象。"
+  def pending_artifact_available?(work_id, session_id, artifact_id) do
+    case WorkSessionRepo.get_by_work(work_id, session_id) do
+      %WorkSession{status: "ACTIVE"} ->
+        WorkSessionRepo.adoption_state(work_id, session_id).pending_adoptions
+        |> Enum.any?(&(&1["artifact_id"] == artifact_id))
+
+      _ ->
+        false
+    end
+  end
+
   @doc "Search sessions in one work."
   @spec search(String.t(), String.t()) :: [map()]
   def search(work_id, query) do

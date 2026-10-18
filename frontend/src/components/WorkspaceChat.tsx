@@ -2,7 +2,7 @@
 // Design: docs/design/ui/43-structure-panel.md §3–4 (跨分页待采纳操作)
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
-// Design: docs/design/ui/46-state-and-feedback.md §9 / §9.8 (AgentRun + action receipt)
+// Design: docs/design/ui/46-state-and-feedback.md §6 / §9 / §9.8 (候选编辑失败、AgentRun 与动作回执)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl)
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1146,6 +1146,7 @@ export function WorkspaceChat() {
     turnResult: TurnResult;
     action: AvailableAction;
     text: string;
+    failed?: boolean;
   } | null>(null);
   const [discardDialog, setDiscardDialog] = useState<{
     turnResult: TurnResult;
@@ -2375,10 +2376,14 @@ export function WorkspaceChat() {
     if (trimmed === "") return;
     setEditSubmitting(true);
     try {
-      await handleAvailableAction(editDialog.turnResult, editDialog.action, {
+      const result = await handleAvailableAction(editDialog.turnResult, editDialog.action, {
         edited_content: trimmed,
       });
-      setEditDialog(null);
+      if (result?.action_status === "accepted") {
+        setEditDialog(null);
+      } else {
+        setEditDialog((current) => (current ? { ...current, failed: true } : current));
+      }
     } finally {
       setEditSubmitting(false);
     }
@@ -4654,9 +4659,16 @@ export function WorkspaceChat() {
                   placeholder={CARD.tentativeArtifact.editPlaceholder}
                   disabled={editSubmitting}
                   onChange={(event) =>
-                    setEditDialog((prev) => (prev ? { ...prev, text: event.target.value } : prev))
+                    setEditDialog((prev) =>
+                      prev ? { ...prev, text: event.target.value, failed: false } : prev,
+                    )
                   }
                 />
+                {editDialog?.failed && (
+                  <div className={styles.dialogError} role="alert">
+                    {CARD.tentativeArtifact.editFailureHint}
+                  </div>
+                )}
                 <div className={styles.dialogActions}>
                   <button
                     className={styles.btnSecondary}

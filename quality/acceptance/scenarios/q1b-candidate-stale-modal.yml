@@ -1,0 +1,36 @@
+id: q1b-candidate-stale-modal
+title: 旧编辑窗口不能保存已被对话放弃的候选
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q1b-candidate-stale-modal --surface tauri
+contract:
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/ui/46-state-and-feedback.md
+  - tasks/slices/Q1B-live-archive-recheck.md
+invariants:
+  - resolved-candidate-cannot-be-resurrected-by-stale-action
+  - failed-save-retains-author-edits
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - input: 原文登记为待采纳材料
+  - click: 修改后保存，编辑全文但暂不提交
+  - open: 另一真实工作台视图，输入放弃该候选
+  - click: 原窗口提交旧编辑
+  - observe: 保存失败，编辑全文与弹窗保留，零作品事实写入
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q1b-candidate-stale-modal-tauri
+assertions:
+  ui:
+    - 旧编辑被拒绝时，正文仍在弹窗且失败提示可见
+  network:
+    - 对话放弃精确绑定原目标，旧编辑请求得到持久状态拒绝
+  data:
+    - 被放弃的候选没有复活，没有作品事实写入
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
