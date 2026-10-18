@@ -458,6 +458,7 @@ defmodule NNarrDriver do
         "action" => "reply",
         "capability" => nil,
         "reply_included" => true,
+        "record_only" => false,
         "reason" => "context_sufficient_for_direct_reply",
         "candidate_directions" => []
       }

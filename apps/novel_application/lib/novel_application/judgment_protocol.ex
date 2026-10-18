@@ -43,6 +43,7 @@ defmodule NovelApplication.JudgmentProtocol do
           frame_type: String.t() | nil,
           dialogue_goal: String.t() | nil,
           reply_included: boolean(),
+          record_only: boolean(),
           author_content_registration: boolean(),
           author_content_source_ref: String.t() | nil,
           explore_request: %{tool: String.t(), query: String.t()} | nil,
@@ -263,22 +264,102 @@ defmodule NovelApplication.JudgmentProtocol do
           do: normalize_arguments(map_get(call, :arguments))
       end)
 
+    # 纠正调用不能放宽同一输入已经识别的约束，借改字段名称放行原有矛盾。
+    request =
+      request
+      |> Map.put(
+        :record_only,
+        request[:record_only] == true or map_get(arguments, :record_only) == true
+      )
+      |> Map.put(
+        :directions_forbidden,
+        request[:directions_forbidden] == true or
+          (candidate_directions_present?(arguments) and
+             (map_get(arguments, :action) != "reply" or
+                map_get(arguments, :frame_type) != "creative_exploration"))
+      )
+
     with %{} = arguments <- arguments,
          action when is_binary(action) <- map_get(arguments, :action),
          true <- action in actions(request.options),
          true <- capability_in_catalog?(action, arguments, request.options),
          true <- explore_tool_in_catalog?(action, arguments, request.options),
+         :ok <- validate_output_boundary(arguments, request),
          :ok <- validate_author_registration(arguments, request.options) do
       case semantic_conflict(action, arguments, request.options) do
         nil -> build_judgment(arguments, action, provider_result, request)
         conflict -> retry_semantic_conflict(conflict, request)
       end
     else
+      {:error, {:judgment_output_conflict, reason}} ->
+        retry_output_boundary(reason, request)
+
       {:error, {:author_content_registration_invalid, reason}} ->
         retry_author_registration(reason, request)
 
       _ ->
         retry_or_fail(provider_result, request)
+    end
+  end
+
+  @doc "校验模型理解的本轮约束与产出是否一致；不从作者文本做关键词路由。"
+  @spec validate_output_boundary(map(), map()) :: :ok | {:error, term()}
+  def validate_output_boundary(arguments, constraints \\ %{}) do
+    record_only = map_get(arguments, :record_only)
+
+    cond do
+      not is_boolean(record_only) ->
+        {:error, {:judgment_output_conflict, :record_only_required}}
+
+      constraints[:record_only] == true and not record_only ->
+        {:error, {:judgment_output_conflict, :record_only_conflict}}
+
+      record_only and not record_only_reply?(arguments) ->
+        {:error, {:judgment_output_conflict, :record_only_conflict}}
+
+      candidate_directions_present?(arguments) and not direction_reply?(arguments, constraints) ->
+        {:error, {:judgment_output_conflict, :candidate_purpose_conflict}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp record_only_reply?(arguments) do
+    map_get(arguments, :action) == "reply" and
+      map_get(arguments, :frame_type) != "creative_exploration" and
+      not candidate_directions_present?(arguments) and
+      map_get(arguments, :author_content_registration) != true
+  end
+
+  defp direction_reply?(arguments, constraints) do
+    constraints[:directions_forbidden] != true and map_get(arguments, :action) == "reply" and
+      map_get(arguments, :frame_type) == "creative_exploration"
+  end
+
+  defp retry_output_boundary(reason, request) do
+    LogEmit.emit(:judgment, :output_validation, :done, %{
+      reason_code: reason,
+      outcome: if(request.retry?, do: "retry", else: "rejected")
+    })
+
+    if request.retry? do
+      hint = """
+      上次判断违反本轮输出边界：#{reason}。
+      重新核对作者原话和已输出叙事。record_only 必须是布尔值：仅收下资料、暂不展开时为 true。
+      record_only=true 只能 reply、非 creative_exploration、candidate_directions=[]、author_content_registration=false。
+      candidate_directions 只用于 reply/creative_exploration 的小说创作方向；不得装入采纳、修改、丢弃、查看等流程建议。
+      流程建议留在给作者的回复中，实际操作沿现有产物按钮承接。不得仅更改 frame_type 或 record_only 来放行矛盾产出。
+      """
+
+      prompt =
+        update_in(request.prompt, [:messages], fn [message | rest] ->
+          [%{message | content: message.content <> "\n\n## 本轮输出边界未通过校验\n" <> hint} | rest]
+        end)
+
+      request_decision(%{request | prompt: prompt, retry?: false, attempt: request.attempt + 1})
+    else
+      {:error, {:judgment_output_conflict, reason}}
     end
   end
 
@@ -417,6 +498,7 @@ defmodule NovelApplication.JudgmentProtocol do
            frame_type: reply_frame_type(arguments),
            dialogue_goal: nonblank(map_get(arguments, :dialogue_goal)),
            reply_included: map_get(arguments, :reply_included) == true,
+           record_only: map_get(arguments, :record_only),
            explore_request: explore_request(arguments),
            candidate_directions: candidate_directions(arguments),
            # 探索意图原始信号：字段存在且非空（哪怕结构坏了）——坏结构不丢意图，
@@ -639,6 +721,10 @@ defmodule NovelApplication.JudgmentProtocol do
           #{TurnInteractionService.author_registration_rules()}
 
           ## 判别规则（容易混的边界）
+          - 作者本轮仅交付资料、要求先收下而不要展开或生成候选时，只确认收到；不要追加方向、
+            创作建议或操作菜单。约束仅限本轮，后续明确要求展开时仍应主动协助创作。
+          - 创作方向是人物、冲突、叙事、世界观等内容上的取舍；采纳、修改、丢弃、查看等是
+            协作流程。需要引导时自然说明可行路径；已有候选的实际处理沿候选卡按钮进行。
           - 作者要你"做出一个创作产物"（设计一个角色、写一章、给一份大纲）→ 这是单动作执行，
             不是直接回复：不要用文字描述替代产出候选。
           - 单动作执行 vs 制定计划：作者点名的是**一个**产物，即使做它需要参考现有内容，也算
@@ -697,6 +783,9 @@ defmodule NovelApplication.JudgmentProtocol do
           - action：#{actions_help(opts)}。
           - execute 时 #{capability_help(opts)}；plan 及其它 action 的 capability 填 null#{explore_capability_note(opts)}。
           - reply_included：action=reply 且判断说明已包含给作者的回复正文时为 true。
+          - record_only：本轮作者只要求收下资料、不展开、不产生任何候选时为 true；
+            此时只能 reply，选择非探索帧、candidate_directions=[]、author_content_registration=false。
+            普通讨论、状态追问或后续明确要求生成/登记时为 false；“不要正文”不等于禁止讨论创作方向。
           - frame_type：action=reply 或 await_author 时，从
             casual_reply / creative_exploration / question_answer / meta_discussion /
             capability_gap 中选择；其它 action 置 null。创作方向候选属于
@@ -705,7 +794,7 @@ defmodule NovelApplication.JudgmentProtocol do
             作者要求的动作系统当前没有能力承接（如直接写入/导出/删除档案）时属于
             capability_gap——回复必须显式承认做不到什么，并给出最近可行路径（已有
             待采纳候选就引导作者采纳；没有就说明可先把内容整理成待采纳候选），此时
-            用 candidate_directions 携带路径选项；其余普通回应属于 casual_reply。
+            由回复叙事说明路径，candidate_directions 留空；其余普通回应属于 casual_reply。
           - author_content_registration：作者要求把自己提供的具体创作原文登记为候选时为 true，
             包括本条原文，或消息处置上下文明确列出的历史原文。此时选择 reply/capability_gap，
             说明原文会成为待采纳候选；不得调用创作工具重写原文。已有同来源候选则引导采纳，
@@ -714,8 +803,9 @@ defmodule NovelApplication.JudgmentProtocol do
             不能填不存在或其他作品的编号。只说“存档”但原文在历史消息时，必须选择历史来源。
             登记时必填明确来源；不登记原文时为 null。缺失来源不能默认为 current。
           - dialogue_goal：用一句简短中文概括作者本轮目标；不得写系统执行步骤或内部推理。
-          - candidate_directions：action=reply 时可携带创作方向或 capability_gap 的可行路径
-            （每项 {title, pitch, tone_tags}）；没有选项时为空数组。
+          - candidate_directions：仅 action=reply 且 frame_type=creative_exploration 时可携带
+            小说内容的创作方向（每项 {title, pitch, tone_tags}）；其它情况必须为空数组。
+            采纳、修改、丢弃、查看档案等操作不是创作方向；不要为了显示这些建议改判探索。
           - explore_request：action=explore 时必填 {tool, query}——#{explore_tool_help(opts)}，
             query 按该工具的 query 说明填写；其它 action 置 null。
           - author_narrative：若你在上一步没有输出判断说明，在此补写一段作者可见原文。
@@ -739,6 +829,7 @@ defmodule NovelApplication.JudgmentProtocol do
               },
               dialogue_goal: %{anyOf: [%{type: "string"}, %{type: "null"}]},
               reply_included: %{type: "boolean"},
+              record_only: %{type: "boolean"},
               author_content_registration: %{type: "boolean"},
               author_content_source_ref: %{
                 anyOf: [
@@ -783,7 +874,14 @@ defmodule NovelApplication.JudgmentProtocol do
             # 都压不住（都不改变"可以不填"这个结构事实），execute 判定越界后
             # 重试仍缺 → run_failed 风暴。列入 required 后模型必须给出该键；
             # schema 本身允许 null（anyOf 含 null），plan/reply 显式填 null 不受影响。
-            required: ["action", "reason", "frame_type", "dialogue_goal", "capability"]
+            required: [
+              "action",
+              "reason",
+              "frame_type",
+              "dialogue_goal",
+              "capability",
+              "record_only"
+            ]
           }
         }
       ],
@@ -992,7 +1090,7 @@ defmodule NovelApplication.JudgmentProtocol do
   defp nonblank(_value), do: nil
 
   defp map_get(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+    do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   defp map_get(_map, _key), do: nil
 end

@@ -50,6 +50,19 @@ Required semantics:
 
 候选方向是创作讨论材料，不是系统事实。
 
+2026-10-18 BIZ-05 语义收口：`candidate_directions` 只承载人物、冲突、叙事、世界观等
+创作方向，且来源帧必须是 `creative_exploration`。保存、采纳、修改、丢弃、查看档案等
+流程建议由模型回复说明，已有产物动作由真实 artifact 的 available_actions 承接；不能用
+流程建议生成 work_direction。AI 仍可在作者未禁止展开时主动提出有价值的创作方向。
+
+判断①的 `record_only` 是模型从本轮作者要求理解出的约束，不由关键词匹配决定。
+为 true 时仅允许 reply、非探索帧、空方向、author_content_registration=false；不执行、
+不制定计划、不物化候选。矛盾输出携带具体原因纠正一次，仍矛盾则诚实失败并保留作者输入。
+这只是本轮约束，后续作者明确要求展开/存档时重新判断，不构成永久禁令。
+
+新 CandidateDirection 线格式带 `kind=creative_direction`；历史无 kind 的候选保留内容，
+不推断其用途、不恢复 choose_candidate 权限，可通过继续对话重新明确。旧持久内容不改写。
+
 | 字段 / 语义 | 要求 |
 |---|---|
 | `direction_id` | 可被 TurnResult 和 trace 引用 |

@@ -313,6 +313,7 @@ defmodule NovelAgent.Provider.Stub do
         "action" => action,
         "reason" => judgment_reason(action),
         "reply_included" => action == "reply",
+        "record_only" => false,
         "frame_type" => stub_reply_frame_type(action, text),
         "dialogue_goal" => stub_dialogue_goal(text)
       }

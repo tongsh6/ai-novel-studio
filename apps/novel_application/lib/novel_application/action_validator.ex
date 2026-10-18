@@ -15,10 +15,19 @@ defmodule NovelApplication.ActionValidator do
          :ok <- check_not_stale(input, source_turn_result),
          {:ok, action} <- available_action(input, source_turn_result),
          :ok <- check_scoped_refs(input, action),
+         :ok <- check_candidate_purpose(input, source_turn_result),
          :ok <- check_not_expired(action, opts) do
       check_not_disabled(action)
     end
   end
+
+  defp check_candidate_purpose(%{action_type: "choose_candidate"} = input, source) do
+    if NovelApplication.AvailableActionBuilder.creative_candidate?(source, input.candidate_ref),
+      do: :ok,
+      else: {:error, "candidate purpose is not a verified creative direction"}
+  end
+
+  defp check_candidate_purpose(_input, _source), do: :ok
 
   defp check_required(input) do
     if input.action_id && input.action_type && input.source_turn_ref do

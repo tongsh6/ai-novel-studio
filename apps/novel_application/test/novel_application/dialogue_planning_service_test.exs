@@ -163,6 +163,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       judgment_execution("reply", nil,
         narrative: narrative,
         reply_included: true,
+        frame_type: "creative_exploration",
         candidate_directions: [
           %{"title" => "底层账单切入", "pitch" => "从灵气欠费的日常压迫感开场", "tone_tags" => ["压抑"]},
           %{"title" => "矿区追击切入", "pitch" => "从一场短促追击直接进入冲突", "tone_tags" => ["紧张"]}
@@ -194,7 +195,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert first.adoption_status == :not_adopted
   end
 
-  test "Q3b capability_gap 帧不被候选强转为探索帧（路径候选≠探索候选）" do
+  test "能力缺口的最近路径保留在叙事中，不生成方向卡或方向动作" do
     narrative =
       "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力。最近的路径是先整理成待采纳候选。"
 
@@ -204,9 +205,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         reply_included: true,
         frame_type: "capability_gap",
         dialogue_goal: "把作者提供的内容登记进作品档案",
-        candidate_directions: [
-          %{"title" => "把这份内容整理为待采纳设定", "pitch" => "采纳后写入作品档案", "tone_tags" => ["登记路径"]}
-        ]
+        candidate_directions: []
       )
 
     assert {:ok, spec} =
@@ -228,8 +227,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     turn_result = judgment_result.turn_result
     assert turn_result.frame_summary.frame_type == :capability_gap
-    assert [path] = turn_result.candidate_directions
-    assert path.title == "把这份内容整理为待采纳设定"
+    assert Map.get(turn_result, :candidate_directions, []) == []
+    assert turn_result.available_actions == []
+    assert turn_result.assistant_message.text == narrative
   end
 
   test "原文登记缺来源或动作矛盾时不返回产物或创作 profile" do
@@ -667,7 +667,12 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
             {:ok,
              %{
                content: "",
-               tool_calls: [%{"name" => "judgment_decision", "arguments" => arguments}],
+               tool_calls: [
+                 %{
+                   "name" => "judgment_decision",
+                   "arguments" => Map.put_new(arguments, "record_only", false)
+                 }
+               ],
                provider_output: judgment_provider_output("pcall-judgment-decision", "")
              }}
 

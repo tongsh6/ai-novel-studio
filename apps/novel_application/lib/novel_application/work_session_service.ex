@@ -297,7 +297,8 @@ defmodule NovelApplication.WorkSessionService do
   end
 
   defp turn_result_from_content(content) when is_map(content) do
-    content["turn_result"] || content[:turn_result]
+    (content["turn_result"] || content[:turn_result])
+    |> NovelApplication.AvailableActionBuilder.revalidate_candidate_actions()
   end
 
   defp attach_agent_run_summary(turn_result, summaries_by_turn)

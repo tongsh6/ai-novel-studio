@@ -201,6 +201,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
       send(test_pid, {:prompt, prompt_text})
       structural? = NovelAgent.Provider.tool_call_prompt?(prompt)
       explored? = String.contains?(prompt_text, "## 探索观察")
+
       # call2 不带 context 段：靠叙事回声（决策 prompt 内嵌 call1 叙事）分辨轮次
       echoed_citation? = String.contains?(prompt_text, "依据如下")
 
@@ -247,15 +248,22 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
              %{
                content: narrative,
                tool_calls: [],
-               provider_output: provider_output("pcall-narr-#{System.unique_integer([:positive])}", narrative)
+               provider_output:
+                 provider_output("pcall-narr-#{System.unique_integer([:positive])}", narrative)
              }}
 
           {:decision, arguments} ->
             {:ok,
              %{
                content: "",
-               tool_calls: [%{"name" => "judgment_decision", "arguments" => arguments}],
-               provider_output: provider_output("pcall-dec-#{System.unique_integer([:positive])}", "")
+               tool_calls: [
+                 %{
+                   "name" => "judgment_decision",
+                   "arguments" => Map.put_new(arguments, "record_only", false)
+                 }
+               ],
+               provider_output:
+                 provider_output("pcall-dec-#{System.unique_integer([:positive])}", "")
              }}
         end
       end

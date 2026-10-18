@@ -1,6 +1,6 @@
 # Q1b 真实模型多轮存档复验
 
-- 状态：回归已执行 / 语义未闭环（2026-10-08，代码 77bf8389）；数据断言通过，新增 BIZ-05 转 Q3D 当前队首。
+- 状态：BIZ-05 四轮实模对照已通过（2026-10-18）；next 为 BIZ-06 已有待采纳对象的引导与自然语言处理路径核查。
 - 下方旧任务表、局部验证及八次调用属于修复前基线；本轮四回合九次调用与语义结论见文末。
 - 范围：NEXT Q1b / Journey C10；复验 D8 症状，消费已完成的 Q3d 与 DS02。
 - 前置：DS02 已提交 `864eebc1`；此前 1510 后端/461 前端、两场景、四项不变量及完整扫描通过。
@@ -150,3 +150,44 @@ Q3D 的确定性业务反例与传输故障矩阵已闭环；当前队首回到�
   accepted_risk，轮换/吊销与历史清理由凭证所有者处理；ChapterSummary 嵌套为 deferred，下一次触及
   解析模块时抽取函数并复跑单测。详细处置见 `artifacts/static-scan/disposition.md`。
 - 扫描无阻断不等于业务语义通过；BIZ-05 仍未闭环，docs-only 交付 manifest 不替代场景验收结论。
+
+## BIZ-05 后实模复验（2026-10-18）
+
+外部脚本补齐了首轮 candidate_directions/choose_candidate/页面方向入口均为空的断言，
+登记轮也必须没有流程方向或 choose_candidate；保留原文字节、来源、采纳前零写入、
+采纳后唯一 CONFIRMED、刷新恢复与四轮真实 provider 证据要求。没有降低原断言。
+
+本机模型状态与运行边界：
+
+- 开始时已加载 qwen/qwen3.6-35b-a3b。首轮叙事 HTTP 200，结构调用 300,005ms 超时；
+  同参数重试的叙事仍成功，结构调用随后 HTTP 400 terminated。只读模型状态确认加载模型
+  已换为 qwen3.8-flash-next@q2_k，不能将中断样本作为 BIZ-05 语义结论。
+- 用户明确确认当前 Flash Next Q2 稳定、授权继续，随后以该模型重跑。外部等待窗 3600 秒，
+  原有 provider timeout、推理参数、逐轮 UI 断言不变；独立分区 biz5_flash、端口 4957/5969。
+- 原 2026-10-08 样本备份为 `q1b-live-archive-roundtrip-tauri-lmstudio-before-biz5-486ce367/`；
+  两个 Qwen 3.6 未完成样本分别保留为 `*-biz5-qwen36-timeout/`、`*-biz5-qwen36-terminated/`。
+- 当前运行日志：`artifacts/project-analysis/biz5-live-flash.log`；证据仍落现有通用实模目录。
+  四轮已完成；详见下方最终结果。
+
+### Flash Next Q2 最终结果与边界
+
+- 四回合、九次 HTTP 200，模型均为 qwen3.8-flash-next@q2_k。原文登记的首个结构判断
+  触发一次 operation_conflict 纠正，合规后才物化；不是九次结构判定初次均合法。
+- 首轮 meta_discussion 且方向/产物/动作均为空；登记轮 capability_gap，只有一份原文候选
+  及 accept/discard/edit_then_accept；采纳前后两次 question_answer 均无方向或新候选。
+- 候选正文与历史原文字节一致、来源精确绑定；采纳前零事实，采纳后唯一 CONFIRMED；
+  刷新后待办清除，末轮明确已保存且不需要额外入档操作。BIZ-05 两项反例均通过。
+- 外部脚本 PASS 已与四轮回复、帧、截图及持久化结果交叉核对。证据：通用实模目录的
+  summary.json / live-turn-results.json / live-adoption-evidence.json / 四张截图，以及
+  `artifacts/project-analysis/biz5-semantic-review.json`。Tauri 已启动，Playwright 驱动真实页面，
+  未直接驱动 native WebView；只覆盖本次模型与场景。
+
+### 下一项 BIZ-06：已有候选的引导与处理（待场景核查，P2）
+
+第三轮正确回答“尚未采纳”，但又主动建议“重新登记一条新的待采纳候选”。第四轮正确
+回答已保存；当前四轮没有重复候选或写入，尚未提交第三轮提出的“重新登记”指令，不能
+声称该分支已经发生重复写入或已经验证安全。
+
+后续沿 AU-02 / AU-05 / AU-09 与 ADR-0027，核对“继续讨论 / 修改现有候选 / 放弃 /
+重新提出创作要求”如何引用同一对象、何时确实需要新版本，并验证 AI 的引导与真实可用动作一致。
+先从本次真实语义反例进入，不做超时参数优化，也不新增通用义务账。

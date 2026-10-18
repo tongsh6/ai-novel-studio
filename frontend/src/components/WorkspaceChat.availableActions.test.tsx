@@ -114,6 +114,7 @@ function findInputByPlaceholder(node: ReactNode, placeholder: string): TestEleme
 }
 
 const candidate = (directionId = "dir-1"): CandidateDirection => ({
+  kind: "creative_direction",
   direction_id: directionId,
   title: "赛博公司垄断流",
   pitch: "底层散修对抗大厂灵气垄断。",

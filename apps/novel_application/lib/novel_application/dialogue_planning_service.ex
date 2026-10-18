@@ -612,6 +612,7 @@ defmodule NovelApplication.DialoguePlanningService do
       result =
         with {:ok, judgment} <-
                JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input),
+             :ok <- JudgmentProtocol.validate_output_boundary(judgment),
              :ok <-
                TurnInteractionService.validate_author_registration(
                  judgment,
@@ -935,26 +936,13 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
-  # 探索意图：有效候选或"意图给候选但结构坏了"都算（坏结构由兜底候选降级承接）。
+  # 只有模型明确选择创作探索才可产方向；不能由候选存在反推作者意图。
   defp judgment_exploration?(judgment),
-    do: judgment.candidate_directions != [] or judgment[:candidate_directions_present] == true
+    do: judgment.frame_type == "creative_exploration" and judgment[:record_only] != true
 
   # 判断结构 → DialogueFrame 机械转换（非预制创作决策：全部字段来自模型判断输出）。
   defp judgment_frame(judgment, turn_id, ws_id, context) do
-    frame_type =
-      cond do
-        # Q3b：capability_gap 的候选承载「最近可行路径」而非创作方向探索——
-        # 显式缺口判定优先，不被「有候选⇒探索帧」的旧强转覆写（q3b 场景实锤：
-        # 路径候选 1 条即被改判 creative_exploration，缺口事实在 frame 层蒸发）。
-        judgment.frame_type == "capability_gap" ->
-          :capability_gap
-
-        judgment_exploration?(judgment) ->
-          :creative_exploration
-
-        true ->
-          reply_frame_type(judgment.frame_type)
-      end
+    frame_type = reply_frame_type(judgment.frame_type)
 
     context_ref =
       case context do
@@ -977,7 +965,12 @@ defmodule NovelApplication.DialoguePlanningService do
       tool_need: %{needs_tool: false, reason_code: reply_reason_code(frame_type)},
       execution_readiness: :not_applicable,
       author_visible_draft: %{message: judgment.narrative},
-      evidence_summary: %{judgment: true, action: judgment.action, context_used: context != nil},
+      evidence_summary: %{
+        judgment: true,
+        action: judgment.action,
+        record_only: judgment.record_only,
+        context_used: context != nil
+      },
       uncertainty: []
     }
   end
@@ -1125,6 +1118,7 @@ defmodule NovelApplication.DialoguePlanningService do
         capability: judgment.capability,
         reason: judgment.reason,
         candidate_count: length(judgment.candidate_directions),
+        record_only: judgment.record_only,
         author_narrative: judgment.narrative,
         author_narrative_source: judgment.narrative_source
       },

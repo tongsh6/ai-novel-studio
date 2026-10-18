@@ -16,6 +16,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   @narrative "你想探索方向；我先给你两个候选切入。"
 
   defp fake_execution(decision_arguments) do
+    decision_arguments = Map.put_new(decision_arguments, "record_only", false)
+
     %Execution{
       result_fn: fn prompt ->
         text = prompt_text(prompt)
@@ -76,6 +78,85 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:ok, judgment} = request(args, author_content_sources: ["previous-author-turn"])
     assert judgment.author_content_source_ref == "previous-author-turn"
     assert {:error, _} = request(args, author_content_sources: ["another-turn"])
+  end
+
+  test "仅记录约束拒绝任何方向、原文物化或执行，不能因候选非空改判探索" do
+    base = %{"action" => "reply", "frame_type" => "meta_discussion", "record_only" => true}
+    assert {:ok, %{record_only: true, candidate_directions: []}} = request(base)
+
+    conflicts = [
+      %{"candidate_directions" => [%{"title" => "角色展开", "pitch" => "展开角色背景"}]},
+      %{"frame_type" => "creative_exploration"},
+      %{"author_content_registration" => true, "author_content_source_ref" => "current"},
+      %{"action" => "execute", "capability" => "world_building"},
+      %{"action" => "plan"},
+      %{"action" => "await_author"}
+    ]
+
+    for conflict <- conflicts do
+      assert {:error, {:judgment_output_conflict, :record_only_conflict}} =
+               request(Map.merge(base, conflict))
+    end
+  end
+
+  test "流程建议不能通过普通或缺口帧获得方向动作，纠正后不改写模型叙事" do
+    for frame <- ["capability_gap", "question_answer", "meta_discussion", nil] do
+      bad = %{
+        "action" => "reply",
+        "frame_type" => frame,
+        "candidate_directions" => [%{"title" => "丢弃候选", "pitch" => "放弃这份资料"}]
+      }
+
+      assert {:error, {:judgment_output_conflict, :candidate_purpose_conflict}} = request(bad)
+      good = Map.put(bad, "candidate_directions", [])
+      assert {:ok, result} = request_with_retry(bad, good, [])
+      assert result.candidate_directions == []
+      assert result.frame_type == frame
+      assert result.narrative == @narrative
+      assert result.provider_call_count == 3
+      assert_receive {:retry_prompt, prompt}
+      assert prompt =~ "不得仅更改 frame_type 或 record_only"
+    end
+  end
+
+  test "record_only 必须明确判断，缺字段或非布尔值不能默认成允许产出" do
+    for value <- [nil, "false", 0] do
+      assert {:error, {:judgment_output_conflict, :record_only_required}} =
+               request(%{"action" => "reply", "record_only" => value})
+    end
+
+    assert {:error, {:judgment_output_conflict, :record_only_required}} =
+             JudgmentProtocol.validate_output_boundary(%{action: "reply"})
+  end
+
+  test "作者后续主动展开不受上一轮仅记录约束，正常创作方向仍可输出" do
+    args = %{
+      "action" => "reply",
+      "frame_type" => "creative_exploration",
+      "record_only" => false,
+      "candidate_directions" => [%{"title" => "记忆交易", "pitch" => "主角用童年记忆换取姐姐线索"}]
+    }
+
+    assert {:ok, %{candidate_directions: [_], frame_type: "creative_exploration"}} = request(args)
+  end
+
+  test "重试不能通过放宽 record_only 或改帧类别让原有矛盾候选过关" do
+    candidates = [%{"title" => "丢弃候选", "pitch" => "放弃资料"}]
+
+    bad = %{
+      "action" => "reply",
+      "record_only" => true,
+      "frame_type" => "creative_exploration",
+      "candidate_directions" => candidates
+    }
+
+    assert {:error, {:judgment_output_conflict, :record_only_conflict}} =
+             request_with_retry(bad, Map.put(bad, "record_only", false), [])
+
+    bad = Map.merge(bad, %{"record_only" => false, "frame_type" => "capability_gap"})
+
+    assert {:error, {:judgment_output_conflict, :candidate_purpose_conflict}} =
+             request_with_retry(bad, Map.put(bad, "frame_type", "creative_exploration"), [])
   end
 
   test "未启用原文登记时清空不参与决策的来源字段，不阻断普通回复" do
@@ -197,6 +278,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
           n = Agent.get_and_update(counter, fn n -> {n, n + 1} end)
           if n > 0, do: send(parent, {:retry_prompt, text})
           arguments = if n == 0, do: first_arguments, else: retry_arguments
+          arguments = Map.put_new(arguments, "record_only", false)
 
           {:ok,
            %{
@@ -366,21 +448,19 @@ defmodule NovelApplication.JudgmentProtocolTest do
              )
   end
 
-  test "Q3b capability_gap 是合法 reply 子型：frame_type 原样归一并携带路径候选" do
+  test "capability_gap 保留诚实缺口回复，流程建议不得成为创作方向" do
     assert {:ok, judgment} =
              request(%{
                "action" => "reply",
                "reason" => "author_intent_lacks_capability",
                "frame_type" => "capability_gap",
                "dialogue_goal" => "把作者提供的内容登记进作品档案",
-               "candidate_directions" => [
-                 %{"title" => "把这份内容整理为待采纳设定", "pitch" => "采纳后写入档案"}
-               ]
+               "candidate_directions" => []
              })
 
     assert judgment.action == "reply"
     assert judgment.frame_type == "capability_gap"
-    assert [%{"title" => "把这份内容整理为待采纳设定"} | _] = judgment.candidate_directions
+    assert judgment.candidate_directions == []
   end
 
   test "call2 prompt 注入目录（T4 M2 误路由回归）：传目录时列出实名，未传保持旧措辞" do
@@ -514,6 +594,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     {:ok, judgment} =
       request(%{
         "action" => "reply",
+        "frame_type" => "creative_exploration",
         "reply_included" => true,
         "candidate_directions" => [
           %{"title" => "矛盾切入", "pitch" => "从冲突进入", "tone_tags" => ["冲突"]}
@@ -529,6 +610,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     {:ok, judgment} =
       request(%{
         "action" => "reply",
+        "frame_type" => "creative_exploration",
         "reply_included" => true,
         "candidate_directions" => %{"title" => "", "pitch" => ""}
       })

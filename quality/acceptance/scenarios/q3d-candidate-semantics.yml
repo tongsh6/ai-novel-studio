@@ -1,0 +1,44 @@
+id: q3d-candidate-semantics
+title: 仅记录约束与创作方向动作语义
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh q3d-candidate-semantics --surface tauri
+contract:
+  - docs/design/contracts/VS-00A-creative-exploration-contract-pack.md
+  - docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md
+  - tasks/slices/Q3D-message-outcome-roundtrip.md
+invariants:
+  - record-only-never-produces-candidates
+  - workflow-guidance-is-not-work-direction
+  - legacy-ambiguous-candidates-have-no-adoption-authority
+  - author-directed-creative-exploration-remains-available
+setup:
+  seed: null
+  provider: slice_verify
+user_flow:
+  - input: 先收下资料不展开，test/support 注入一次矛盾并纠正
+  - input: 注入持续仅记录矛盾、流程建议矛盾，失败后刷新恢复
+  - input: 引用历史原文存档，流程建议纠正后只产原文候选
+  - click: 对真实产物分别放弃、修改后保存、保存
+  - reload: 外部 harness 在隔离库模拟历史无用途标记的方向，内容仍可读而旧动作撤销
+  - input: 作者明确要求创作探索
+  - click: 正常方向继续讨论、设为后续方向
+  - reload: 状态恢复，数据库事实与作者操作一致
+evidence:
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/q3d-candidate-semantics-tauri
+assertions:
+  ui:
+    - 仅记录不出现方向按钮，流程回复只有真实产物操作
+    - 旧讨论内容保留，合法新方向仍可讨论和选择
+  network:
+    - 持续矛盾返回 failed 且无候选或工具调用
+    - 放弃修改保存的 author_action 类型与产物引用精确匹配
+  data:
+    - 采纳前零事实，放弃无写入，修改和保存后恰有两条 CONFIRMED
+    - 原文字节与来源正确，失败结果和输入刷新可恢复
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

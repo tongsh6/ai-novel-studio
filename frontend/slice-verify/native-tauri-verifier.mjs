@@ -140,6 +140,7 @@ export const nativeSliceIds = [
   "au01-frame-validation-friendly-error",
   "au01-turnresult-recorder-ui-consistency",
   "q1b-live-archive-roundtrip",
+  "q3d-candidate-semantics",
   "q3d-author-registration-guards",
   "q3d-long-session-adoption-state",
   "q3d-message-delivery-recovery",
@@ -1651,6 +1652,7 @@ const sliceKeyEvents = {
   "q1b-live-archive-roundtrip": ["channel.user_message.start", "judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-message-delivery-recovery": ["channel.user_message.start", "channel.user_message.done"],
   "q3d-long-session-adoption-state": ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
+  "q3d-candidate-semantics": ["judgment.output_validation.done", "judgment.decided.done", "adoption.evaluate.done"],
   "q3d-author-registration-guards": ["judgment.author_content_validation.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-message-outcome-roundtrip": [
     "channel.user_message.start", "context.assemble.done", "judgment.decided.done",
@@ -1776,6 +1778,7 @@ function findQ1bLiveArchiveEvidence(records) {
   const ui = records.find((record) => record.event === "slice_verify.ui_state.done" &&
     record.slice_id === "q1b-live-archive-roundtrip");
   if (!ui || ui.author_bytes_intact !== true || ui.no_write_before_adoption !== true ||
+    ui.record_only_has_no_candidates !== true || ui.workflow_has_no_direction_actions !== true ||
     ui.canonical_state_restored !== true || ui.confirmed_fact_count !== 1) return null;
   if (!Array.isArray(ui.turn_ids) || new Set(ui.turn_ids).size !== 4) return null;
   if (!ui.turn_ids.includes(ui.source_turn_id) || !ui.turn_ids.includes(ui.materialization_turn_id)) return null;
@@ -2040,6 +2043,8 @@ export function findNativeSliceEvidence(sliceId, records) {
   if (sliceId === "q3d-message-delivery-recovery") return findMessageDeliveryEvidence(records);
 
   if (sliceId === "q3d-long-session-adoption-state") return findLongSessionAdoptionEvidence(records);
+
+  if (sliceId === "q3d-candidate-semantics") return findCandidateSemanticsEvidence(records);
 
   if (sliceId === "q3d-author-registration-guards") {
     return findAuthorRegistrationGuardsEvidence(records);
@@ -2742,6 +2747,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
       behavior: "complete_adoption_state_survives_long_chat_and_old_candidate_remains_actionable",
       assertions: ["pending_survives_transcript_and_context_windows", "omission_count_is_true",
         "omitted_candidate_is_explorable", "old_candidate_uses_real_author_action", "resolved_candidate_never_reappears"] };
+  }
+
+  if (sliceId === "q3d-candidate-semantics") {
+    const verified = findCandidateSemanticsEvidence(records);
+    if (!verified) return null;
+    return { ...verified, behavior: "author_constraint_and_candidate_purpose_match_actions",
+      assertions: ["record_only_has_no_candidates", "workflow_never_becomes_work_direction",
+        "legacy_actions_revoked", "creative_discussion_and_choice_work", "real_artifact_actions_preserved"] };
   }
 
   if (sliceId === "q3d-author-registration-guards") {
@@ -12648,6 +12661,42 @@ function findLongSessionAdoptionEvidence(records) {
     pending_count_before: 15, pending_count_after: 14, omitted_count: 3 };
 }
 
+function findCandidateSemanticsEvidence(records) {
+  const sliceId = "q3d-candidate-semantics";
+  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
+  if (!ui || !["legacy_actions_revoked", "legacy_content_preserved", "record_only_has_no_candidates",
+    "workflow_has_no_direction_actions", "failed_results_restored"].every((key) => ui[key] === true)) return null;
+  if (ui.confirmed_fact_count !== 2 || ui.failed_turns?.length !== 2) return null;
+  if (!["record_only_conflict", "candidate_purpose_conflict"].every((reason) => ui.failed_turns.some((f) => f.reason_code === reason))) return null;
+  for (const failed of ui.failed_turns) {
+    const logs = records.filter((r) => r.turn_id === failed.turn_id);
+    if (!["retry", "rejected"].every((outcome) => logs.some((r) => r.event === "judgment.output_validation.done" &&
+      r.reason_code === failed.reason_code && r.outcome === outcome))) return null;
+    if (logs.some((r) => r.event?.startsWith("toolbox.execute.") ||
+      ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"].includes(r.event))) return null;
+  }
+  for (const [turn, reason] of [[ui.source_turn_id, "record_only_conflict"], [ui.turn_id, "candidate_purpose_conflict"]]) {
+    if (!records.some((r) => r.turn_id === turn && r.event === "judgment.output_validation.done" && r.outcome === "retry" && r.reason_code === reason)) return null;
+    if (!records.some((r) => r.turn_id === turn && r.event === "judgment.decided.done" && r.candidate_count === 0)) return null;
+  }
+  if (!ui.creative_turn_id || !ui.discussed_turn_id || !ui.chosen_turn_id) return null;
+  if (!records.some((r) => r.turn_id === ui.creative_turn_id && r.event === "judgment.decided.done" &&
+    r.frame_type === "creative_exploration" && Number(r.candidate_count) > 0)) return null;
+  if (!records.some((r) => r.turn_id === ui.discussed_turn_id && r.event === "judgment.decided.done")) return null;
+  if (!records.some((r) => [ui.creative_turn_id, ui.discussed_turn_id].includes(r.turn_id) &&
+    r.event === "channel.author_action.done" && r.action_type === "choose_candidate")) return null;
+  if (ui.artifact_actions?.length !== 3 || !["accept", "discard", "edit_then_accept"].every((type) => ui.artifact_actions.some((a) => a.type === type))) return null;
+  for (const action of ui.artifact_actions) {
+    if (!records.some((r) => r.event === "channel.author_action.done" && r.action_type === action.type &&
+      r.turn_id === action.source_turn_id)) return null;
+    if (action.type !== "discard" && !records.some((r) => r.event === "adoption.evaluate.done" &&
+      (r.turn_id === action.source_turn_id || String(r.turn_id ?? "").startsWith(`${action.source_turn_id}:`)))) return null;
+  }
+  return { slice_id: sliceId, turn_id: ui.turn_id,
+    turn_ids: [...new Set([ui.source_turn_id, ui.turn_id, ui.creative_turn_id, ui.discussed_turn_id,
+      ...ui.artifact_actions.map((a) => a.source_turn_id)])], source_turn_ref: ui.source_turn_id };
+}
+
 function findAuthorRegistrationGuardsEvidence(records) {
   const sliceId = "q3d-author-registration-guards";
   const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === sliceId);
@@ -12762,7 +12811,7 @@ function findCapabilityGapHonestReplyEvidence(records) {
       (record) =>
         record.event === "judgment.decided.done" &&
         record.frame_type === "capability_gap" &&
-        Number(record.candidate_count ?? 0) > 0,
+        Number(record.candidate_count ?? 0) === 0,
     );
     if (!frame) continue;
 
@@ -12813,7 +12862,7 @@ function q3bCapabilityGapHonestReplyBehavior(turnIds, turnRecords) {
     (record) =>
       record.event === "judgment.decided.done" &&
       record.frame_type === "capability_gap" &&
-      Number(record.candidate_count ?? 0) > 0,
+      Number(record.candidate_count ?? 0) === 0,
   );
   if (!frame) return null;
 
@@ -12824,7 +12873,7 @@ function q3bCapabilityGapHonestReplyBehavior(turnIds, turnRecords) {
     source_turn_ref: turnIds[0],
     assertions: [
       "judgment_returned_capability_gap_frame",
-      "gap_reply_carried_nearest_path_candidates",
+      "gap_reply_kept_workflow_guidance_out_of_creative_candidates",
       "micro_plan_not_requested",
       "no_tool_execution",
       "no_adoption_decision",

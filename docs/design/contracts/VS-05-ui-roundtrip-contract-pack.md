@@ -124,6 +124,16 @@ TentativeArtifactSet
 
 本节冻结时的 card type 最小集合已被 `adr/ADR-0024-decision-surface-registry-v3.md`（Proposed）修订：UI 决策契约中心改为决策面注册表（见 `07` §4.1），ui_cards 收缩为信息通告 lane，现行集合为 `candidate_set` / `confirmation_card` / `result_card`（`confirmation_request` 文档侧更名，其余原集合成员处置见 ADR-0024 决策 3）。本节 Rules 1-5 与 §4.1 的 creative card correction 全部保留并被 ADR-0024 强化。历史冻结内容不改写，仅由本小节指向当前有效契约。
 
+### 4.3 BIZ-05 候选用途与历史恢复（2026-10-18）
+
+`choose_candidate` 只授权 `creative_exploration` 来源帧且 `kind=creative_direction` 的
+CandidateDirection。流程建议沿模型回复说明；产物的 accept/discard/edit_then_accept
+仍指向真实 artifact，不创建同名 work_direction。协议层拒绝用途与回复形态的矛盾，
+不通过候选非空强转探索帧；授予动作、服务端提交校验、历史恢复和前端消费同守此边界。
+
+历史候选缺少 kind 时保留原内容供回看/讨论，但撤销旧 choose_candidate 权限；不通过
+文案猜测用途，也不改写历史持久记录。作者可用自然对话重新提出方向，由当前协议产出新候选。
+
 ---
 
 ## 5. TraceSummaryView Redaction Policy

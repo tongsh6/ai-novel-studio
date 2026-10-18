@@ -221,6 +221,8 @@ defmodule NovelApplication.ActionRoundtripTest do
 
       source = %{
         "turn_id" => "turn-1",
+        "frame_summary" => %{"frame_type" => "creative_exploration"},
+        "candidate_directions" => [%{"direction_id" => "dir-1", "kind" => "creative_direction"}],
         "available_actions" => [
           %{
             "action_id" => "choose_candidate:dir-1",
@@ -330,6 +332,7 @@ defmodule NovelApplication.ActionRoundtripTest do
     @candidate_source %{
       turn_id: "turn-candidates-1",
       frame_ref: "frame-candidates-1",
+      frame_summary: %{frame_type: :creative_exploration},
       work_id: "work-1",
       available_actions: [
         %{
@@ -344,6 +347,7 @@ defmodule NovelApplication.ActionRoundtripTest do
       candidate_directions: [
         %{
           direction_id: "dir-1",
+          kind: "creative_direction",
           title: "高风险主线覆盖",
           pitch: "直接覆盖既有主线设定",
           tone_tags: ["主线"],
@@ -581,6 +585,32 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert "work_id_mismatch" in ack.adoption_decision.reason_codes
       assert turn_result.truthfulness.candidate_adopted == false
       assert turn_result.truthfulness.production_write_performed == false
+    end
+
+    test "旧流程建议和非创作帧即使带已存动作也不能被采用为创作方向" do
+      input = %AuthorActionInput{
+        input_id: "legacy-operation",
+        source_turn_ref: "turn-candidates-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        target_ref: "dir-1",
+        candidate_set_ref: "candidate_set:turn-candidates-1",
+        candidate_ref: "dir-1"
+      }
+
+      legacy =
+        update_in(
+          @candidate_source,
+          [:candidate_directions, Access.at(0)],
+          &Map.delete(&1, :kind)
+        )
+
+      workflow = put_in(@candidate_source, [:frame_summary, :frame_type], :capability_gap)
+
+      for source <- [legacy, workflow, Jason.decode!(Jason.encode!(legacy))] do
+        assert {:error, "candidate purpose is not a verified creative direction"} =
+                 DialogueGateway.handle_action(input, source)
+      end
     end
 
     test "canon conflict candidate adoption fails with recovery" do

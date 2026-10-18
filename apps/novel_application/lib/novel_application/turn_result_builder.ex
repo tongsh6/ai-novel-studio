@@ -29,6 +29,8 @@ defmodule NovelApplication.TurnResultBuilder do
         artifact_set \\ nil,
         behavior \\ nil
       ) do
+    candidates = if frame.frame_type == :creative_exploration, do: candidates, else: []
+
     result = %{
       schema_version: "3.0-draft",
       turn_id: frame.turn_id,
@@ -501,6 +503,7 @@ defmodule NovelApplication.TurnResultBuilder do
     Enum.map(candidates, fn c ->
       %{
         direction_id: c.direction_id,
+        kind: "creative_direction",
         title: c.title,
         pitch: c.pitch,
         tone_tags: c.tone_tags,

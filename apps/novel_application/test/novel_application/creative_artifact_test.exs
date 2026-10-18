@@ -250,7 +250,7 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
 
     test "choose_candidate action is selection intent only, not adoption" do
-      frame = frame("turn-candidate")
+      frame = %{frame("turn-candidate") | frame_type: :creative_exploration}
 
       candidate = %NovelDomain.CandidateDirection{
         direction_id: "dir-1",

@@ -13,6 +13,11 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["creative_direction"],
+      "description": "新产出的方向必须声明创作用途；历史条目缺失时只读保留，不恢复方向采用权限。"
+    },
     "direction_id": {
       "type": "string",
       "minLength": 1,

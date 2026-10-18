@@ -1290,6 +1290,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/q3d-long-session-adoption-state.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh q3d-long-session-adoption-state --surface tauri
+  - id: q3d-candidate-semantics
+    title: "Q3D 仅记录与创作方向动作语义"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q3d-candidate-semantics.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh q3d-candidate-semantics --surface tauri
   - id: q3d-author-registration-guards
     title: "Q3D 原文登记来源与操作边界"
     tier: nightly

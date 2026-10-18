@@ -24,7 +24,7 @@ defmodule NovelApplication.AvailableActionBuilder do
   def candidate_actions(nil, _candidates), do: []
   def candidate_actions(_frame, []), do: []
 
-  def candidate_actions(%DialogueFrame{} = frame, candidates) do
+  def candidate_actions(%DialogueFrame{frame_type: :creative_exploration} = frame, candidates) do
     candidate_set_ref = "candidate_set:#{frame.turn_id}"
 
     Enum.map(candidates, fn candidate ->
@@ -42,6 +42,47 @@ defmodule NovelApplication.AvailableActionBuilder do
       }
     end)
   end
+
+  def candidate_actions(_frame, _candidates), do: []
+
+  @doc "方向动作只接受用途明确的创作方向，不由旧卡片文案推断业务类型。"
+  @spec creative_candidate?(map(), String.t() | nil) :: boolean()
+  def creative_candidate?(result, candidate_ref) do
+    frame_type = result |> field(:frame_summary) |> field(:frame_type)
+
+    frame_type in [:creative_exploration, "creative_exploration"] and
+      Enum.any?(field(result, :candidate_directions) || [], fn candidate ->
+        field(candidate, :direction_id) == candidate_ref and
+          field(candidate, :kind) in [:creative_direction, "creative_direction"]
+      end)
+  end
+
+  @doc "读取历史结果时撤销用途不明确的方向动作，保留原讨论内容与其它动作。"
+  @spec revalidate_candidate_actions(map() | nil) :: map() | nil
+  def revalidate_candidate_actions(nil), do: nil
+
+  def revalidate_candidate_actions(result) do
+    key =
+      if Map.has_key?(result, :available_actions),
+        do: :available_actions,
+        else: "available_actions"
+
+    if Map.has_key?(result, key) do
+      Map.update!(result, key, fn actions ->
+        Enum.reject(actions || [], &invalid_candidate_action?(&1, result))
+      end)
+    else
+      result
+    end
+  end
+
+  defp invalid_candidate_action?(action, result) do
+    field(action, :action_type) == "choose_candidate" and
+      not creative_candidate?(result, field(action, :candidate_ref))
+  end
+
+  defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp field(_, _), do: nil
 
   @spec artifact_actions(TentativeArtifactSet.t() | nil) :: [map()]
   def artifact_actions(nil), do: []

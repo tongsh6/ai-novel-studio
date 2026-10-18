@@ -131,6 +131,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
   @candidate_turn_result %{
     turn_id: "turn-candidates-1",
     frame_ref: "frame-candidates-1",
+    frame_summary: %{frame_type: :creative_exploration},
     available_actions: [
       %{
         action_id: "choose_candidate:dir-1",
@@ -145,6 +146,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
     candidate_directions: [
       %{
         direction_id: "dir-1",
+        kind: "creative_direction",
         title: "赛博公司垄断流",
         pitch: "底层散修对抗大厂灵气垄断",
         tone_tags: ["反叛"],

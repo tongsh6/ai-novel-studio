@@ -2146,7 +2146,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         %{
           "id" => "call_judgment_decision",
           "name" => "judgment_decision",
-          "arguments" => arguments
+          "arguments" => Map.put_new(arguments, "record_only", false)
         }
       ]
     )
@@ -2215,7 +2215,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         %{
           "id" => "call_judgment_decision",
           "name" => "judgment_decision",
-          "arguments" => arguments
+          "arguments" => Map.put_new(arguments, "record_only", false)
         }
       ]
     )
@@ -2264,7 +2264,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         end
       end)
 
-    arguments = message_state_arguments(arguments, prompt)
+    arguments =
+      arguments |> message_state_arguments(prompt) |> candidate_semantics_arguments(prompt)
 
     reasoning = judgment_reason_code(action)
 
@@ -2273,10 +2274,53 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         %{
           "id" => "call_judgment_decision",
           "name" => "judgment_decision",
-          "arguments" => arguments
+          "arguments" => Map.put_new(arguments, "record_only", false)
         }
       ]
     )
+  end
+
+  # BIZ-05 外部页面故障注入：模型理解与输出冲突，覆盖一次纠正及持续拒绝。
+  defp candidate_semantics_arguments(arguments, prompt) do
+    input = judgment_author_input(prompt)
+    corrected? = String.contains?(prompt, "## 本轮输出边界未通过校验")
+
+    cond do
+      String.contains?(input, "仅记录纠正样例") ->
+        args =
+          Map.merge(arguments, %{
+            "action" => "reply",
+            "record_only" => true,
+            "frame_type" => "meta_discussion",
+            "author_content_registration" => false,
+            "candidate_directions" => []
+          })
+
+        if corrected?,
+          do: args,
+          else:
+            Map.put(args, "candidate_directions", [%{"title" => "角色展开", "pitch" => "展开旧书铺主人"}])
+
+      String.contains?(input, "仅记录持续矛盾样例") ->
+        Map.merge(arguments, %{
+          "action" => "reply",
+          "record_only" => true,
+          "frame_type" => "creative_exploration",
+          "candidate_directions" => [%{"title" => "角色展开", "pitch" => "不应擅自展开"}]
+        })
+
+      String.contains?(input, "流程建议持续矛盾样例") or
+          (String.contains?(input, "流程建议纠正样例") and not corrected?) ->
+        Map.merge(arguments, %{
+          "action" => "reply",
+          "record_only" => false,
+          "frame_type" => "capability_gap",
+          "candidate_directions" => [%{"title" => "丢弃候选", "pitch" => "放弃这份资料"}]
+        })
+
+      true ->
+        arguments
+    end
   end
 
   # 判定候选构造（从 verdict_result 抽出降圈复杂度；语义原样）。
@@ -2288,16 +2332,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       exploratory ->
         candidate_directions(true, prompt)
-
-      # Q3b：缺口回复必带最近可行路径（结构化承载在 candidate_directions）。
-      archive_write_prompt?(prompt) ->
-        [
-          %{
-            "title" => "把这份内容整理为待采纳设定",
-            "pitch" => "我先把你提供的内容整理成待采纳的设定候选，你在候选卡上采纳后就会写入作品档案。",
-            "tone_tags" => ["登记路径"]
-          }
-        ]
 
       true ->
         []
@@ -2311,7 +2345,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       archive_write_prompt?(prompt) ->
         "你要把这份内容直接写入作品档案；我现在没有直接写入档案的能力，做不到这一步。" <>
-          "最近的路径是：我先把内容整理成待采纳的设定候选，你在候选卡上采纳后它才会进入档案。见下方路径选项。"
+          "最近的路径是：我先把内容整理成待采纳的设定候选，你在候选卡上采纳后它才会进入档案。"
 
       true ->
         judgment_reply_body_narrative(exploratory, prompt)
@@ -2359,6 +2393,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       Map.merge(arguments, %{
         "frame_type" => if(registration?, do: "capability_gap", else: "question_answer"),
         "author_content_registration" => registration? and not is_nil(source),
+        "record_only" => String.starts_with?(judgment_author_input(prompt), "先只记录这份资料"),
         "author_content_source_ref" =>
           if(registration? and source, do: source["turn_ref"], else: nil)
       })

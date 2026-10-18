@@ -16,6 +16,7 @@ describe("Q1b 真实模型存档证据", () => {
   const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_ids: turnIds,
     source_turn_id: "source", materialization_turn_id: "save", artifact_id: "artifact",
     author_bytes_intact: true, no_write_before_adoption: true,
+    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true,
     canonical_state_restored: true, confirmed_fact_count: 1 };
   const records = [ui, ...turnIds.map((turn_id) => ({ turn_id, event: "judgment.decided.done" })),
     { turn_id: "save", event: "judgment.author_content_materialized.done" },
@@ -42,6 +43,39 @@ describe("Q1b 真实模型存档证据", () => {
     const evidence = findNativeSliceEvidence(slice, records);
     expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio", llmRecords: llmRecords.slice(1) })).toBeNull();
     expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify", llmRecords })).toBeNull();
+  });
+});
+
+describe("BIZ-05 候选语义证据", () => {
+  const slice = "q3d-candidate-semantics";
+  const failed = ["record_only_conflict", "candidate_purpose_conflict"].map((reason_code) => ({ turn_id: reason_code, reason_code }));
+  const actions = ["discard", "edit_then_accept", "accept"].map((type) => ({ type, source_turn_id: type }));
+  const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "save", source_turn_id: "source",
+    failed_turns: failed, creative_turn_id: "creative", discussed_turn_id: "discuss", chosen_turn_id: "chosen",
+    artifact_actions: actions, legacy_actions_revoked: true, legacy_content_preserved: true,
+    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true, failed_results_restored: true,
+    confirmed_fact_count: 2 };
+  const records = [ui,
+    ...failed.flatMap((f) => ["retry", "rejected"].map((outcome) => ({ ...f, outcome, event: "judgment.output_validation.done" }))),
+    ...[["source", "record_only_conflict"], ["save", "candidate_purpose_conflict"]].flatMap(([turn_id, reason_code]) => [
+      { turn_id, reason_code, outcome: "retry", event: "judgment.output_validation.done" },
+      { turn_id, candidate_count: 0, event: "judgment.decided.done" },
+    ]),
+    { turn_id: "creative", frame_type: "creative_exploration", candidate_count: 2, event: "judgment.decided.done" },
+    { turn_id: "discuss", event: "judgment.decided.done" },
+    { turn_id: "discuss", event: "channel.author_action.done", action_type: "choose_candidate" },
+    ...actions.map((a) => ({ turn_id: a.source_turn_id, event: "channel.author_action.done", action_type: a.type })),
+    ...actions.map((a) => ({ turn_id: a.source_turn_id, event: "adoption.evaluate.done" })),
+  ];
+  it("必须同时证明负例受控、正例可用和真实产物操作", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence).not.toBeNull();
+    expect(findSliceBehaviorEvidence(slice, records, evidence)).not.toBeNull();
+    expect(findNativeSliceEvidence(slice, [ui])).toBeNull();
+    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "creative"))).toBeNull();
+    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "discard"))).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { turn_id: failed[0].turn_id, event: "toolbox.execute.start" }])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, legacy_actions_revoked: false }, ...records.slice(1)])).toBeNull();
   });
 });
 

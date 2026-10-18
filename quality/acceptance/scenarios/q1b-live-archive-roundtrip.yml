@@ -32,6 +32,7 @@ assertions:
     - 外部只读 SQLite 查询证明采纳前无事实、采纳后唯一 CONFIRMED 事实
     - 刷新恢复与采纳回执状态相符
   ui:
+    - 仅记录时没有方向卡或方向采用入口，存档流程建议不成为创作方向
     - 外部脚本从真实输入框和可见采纳按钮操作
 anti_hooks:
   product_acceptance_logic_added: false

@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-10-08
+> 最后更新：2026-10-18
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -10,22 +10,22 @@
 
 ## 1. Current Focus
 
-> 当前态校准：2026-10-08；历史进度以提交、slice 任务清单和验收证据交叉核对。
+> 当前态校准：2026-10-18；历史进度以提交、slice 任务清单和验收证据交叉核对。
 
-**当前态**：P1 长篇主链已按登记豁免关闭，当前主线是 D8 暴露的真实作者可用性。
-Q0、Q1a、Q2、Q3a–Q3c 和 Q4 轻量机制已落地；Q1b 已执行当前 Qwen 实模复验，数据断言通过、业务语义未闭环；DeepSeek 未复验。
-Q3b/Q3c 的既有真实 Tauri 证据使用确定性 provider，不能当作本次真实模型复验。
-Q3d 已完成消息/运行留痕与 BIZ-01–04 反例修复，详见 `tasks/slices/Q3D-message-outcome-roundtrip.md`。
-DS02 已闭环：撤销前端 `adoption_status: z.string()` 放宽，新候选、历史恢复、采纳回执统一大写七态。
-Q1b / Journey C10 本轮四回合九次调用通过原文存档、采纳和刷新数据断言，但首轮额外方向与操作错配仍待修。
-**唯一队首转到 Q3d / BIZ-05 语义边界收口**：用户要求从使用场景检查 agentic、App 交互和业务实现。
-审计确认的来源缺失、互斥操作、长会话待办丢失和真实入口消息身份问题，均已在 BIZ-01–04 修复并通过真实页面故障/恢复矩阵。
-详见 `docs/design/notes/2026-10-08-agentic-business-scenario-audit.md` 与 Q3D slice 的 BIZ-01–04。
-Q1b 已在当前版本跑完四轮九次真实调用：数据链通过，完整业务语义未通过。首轮仅记录仍有方向卡，操作建议也被授予创作方向动作；详见审计 notes §9。BIZ-01–04 证据保留，新增 BIZ-05 为当前队首。性能作为观察项，参数对照已停止。
-不引入第六账或通用义务机。
+**当前态**：P1 长篇主链已按登记豁免关闭，主线仍是 D8 暴露的真实作者可用性。
+Q0、Q1a、Q2、Q3a–Q3d、DS02 和 Q4 轻量机制已落地；Q3d 的 BIZ-01–05 已收口。
+2026-10-18 BIZ-05 修复仅记录约束、创作方向用途与动作授权，历史内容保留但不恢复用途不明的旧方向权限。
+真实页面专项与四项兼容回归通过；Flash Next Q2 四回合九次 HTTP 200，原文、来源、采纳前后事实及刷新回答一致。
+确定性页面故障矩阵和实模分别留证，不混用；本轮未复验 DeepSeek。
 
-**本次已实施 checkpoint（Q4 状态校准）**：纠正 NEXT/旅程/差距表的过期状态；检查器只从
-§4「当前队列」提取唯一 next，并要求对应 journey 行引用同一任务编号。Q3d 的 BIZ-01–04 反例已收口，DS02 已关闭；当前进入 Q3d/BIZ-05 语义边界修复，性能、页面回归接入和工作台拆分保留后续候选。B16 已获用户授权并完成后端 Phoenix 1.8.9 安全补丁与前端依赖恢复；完整扫描无阻断项，详见 §6 本次验证。
+**唯一队首为 Q1b / BIZ-06 已有候选的引导与处理核查**：实模第三轮仍主动建议重新登记已有待采纳资料。
+当前回合未重复生成或写入，但建议分支尚未实际执行；下一步从真实作者的讨论、修改、放弃与新版本场景核查。
+这承接用户要求的 agentic、App 和业务正确性，以及 `00` §2.2–2.3 的 AI 引导式创作愿景。
+详见 `docs/design/notes/2026-10-08-agentic-business-scenario-audit.md` §10–11、Q3D 与 Q1B slice。
+性能仍为观察项；不恢复参数对照，不引入第六账或通用义务机。
+
+**本轮验证**：后端 1,531 项、前端 480 项、证据验证器 212 项通过；I1/I2/I3/N-NARR、编译、架构与桌面构建通过。
+完整静态扫描 17 PASS / 2 既有 FAIL、三项已处置、0 blocking。只证明本轮已测范围，不代表所有模型引导都正确。
 
 **队列总览**：§4 当前队列表是唯一状态源；不再复制第二张易漂移的状态表。
 Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行标识。
@@ -56,9 +56,9 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 → 判断与实际能力对账（Q3a 已实现）
 → 能力不足时诚实说明并给出最近路径（Q3b 已有确定性 Tauri 证据）
 → 作者原文可成为待采纳候选，作者采纳后入档（Q3c 已有确定性 Tauri 证据）
-→ 输入持久记录、历史来源与采纳事实（Q3d / Journey C9：BIZ-01–04 已闭环）
+→ 输入留存、来源、采纳及候选动作语义（Q3d / Journey C9：BIZ-01–05 已闭环）
 → 采纳状态统一为 canonical 枚举，历史消息恢复同口径（DS02 / Journey F9，已闭环）
-→ 用当前 Qwen 复验 D8 存档链路（Q1b / Journey C10：本批数据已验证，语义待 BIZ-05）
+→ 用真实模型核对状态与下一步引导（Q1b / Journey C10：BIZ-05 已验，新增 BIZ-06 next）
 → 场景业务正确性收口后，再评估性能（UA01-CALL2 / Journey C11，观察项）
 → 更长期的跨任务目标与语义履约判定仍需独立契约
 ```
@@ -73,12 +73,12 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 |---|---|---|---|---|
 | Q0 | B | B15 提交收口：TurnBinding 单点（9 flow frame 构造点）+ 防回归守卫测试已绿、`p1-chapter-expansion` 复活 PASS、门禁绿 | **done（2026-08-30）** | ✓ commit 落盘；B15 销账 |
 | Q1a | A | D7-overwrite 不变量修复（三刀实落，B 按钮显式 rewrite 未采——场景语义改为作者显式消息更合 D7 契约）：①喂前文改产品事实判别（目标章有已采纳正文即喂，治 M10c 盲写）②**判断②续行合成步继承计划步写作坐标**（真根因：rewrite 意图在偏离处理后蒸发→append 绕过覆盖确认；D8 病理 run 内实例，详 D7 slice 档 §4 追记）③驱动 cycle2 改作者显式「推翻重写」消息 | **done（2026-08-31）** | ✓ 全三条：overwrite-confirm PASS + expansion 不回归 + prior_prose_chars 缺 intent 仍出现（app-log 151 chars + flow 单测） |
-| Q1b | A | 当前版本真实模型多轮原文存档、采纳与刷新状态回归 | **证据完成，语义未闭环** | 四轮九次 HTTP 200；原文/采纳/刷新数据通过，新增候选类型与动作语义反例；修 BIZ-05 后再验；Journey C10 |
+| Q1b | A | BIZ-06：已有待采纳对象的引导、自然语言修改/放弃与新版本路径核查 | **next（实模新发现）** | BIZ-05 四轮九次 Flash Next Q2 调用通过；第三轮额外建议重新登记，尚未操作该分支；先验证实际后果及引导与动作的一致性；Journey C10 |
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **done（2026-08-30）** | 提交 `8b03a9db`；00 §2.1、README 原则 12/13、VS-00D 结果对账已入档 |
 | Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
 | Q3b | A | R2 能力缺口出口：frame_type 子型 capability_gap（reply 结构化子型，零新字段——缺口事实=frame_type、路径=candidate_directions；探索强转让位判例见 slice 档）；VS-00 两枚举表修订 + domain/协议/前端/替身全链 | **done（2026-08-31）** | ✓ `q3b-capability-gap-honest-reply` 真实 Tauri PASS（存档意图→诚实承认+路径候选+零写入）+ au02 回归 + 全门禁；slice 档 tasks/slices/Q3B-capability-gap-exit.md |
 | Q3c | A | R1 作者内容物化：候选第二合法来源——作者消息字节机械物化为待采纳 world_setting 候选（不经模型重写；杂质由 edit-then-accept 主权修剪）；judgment 契约 author_content_registration 信号；**I1 不变量正式升级**（Provider ∨ 作者字节，规则+driver+case 同批登记非绕过） | **done（2026-08-31）** | ✓ `q3c-author-content-materialization` 真实 Tauri PASS（字节断言+物化事件+作者采纳全链）+ q3b/au02 兼容 + I1 4/4；slice 档 tasks/slices/Q3C-author-content-materialization.md |
-| Q3d | A | 消息与业务输出对齐；当前为 BIZ-05 仅记录约束、创作方向与操作建议 | **next（新增实模反例）** | BIZ-01–04 已闭环；补齐候选类型、动作授予与用户约束，再做真实页面和实模回归；Journey C9 |
+| Q3d | A | 消息与业务输出对齐：BIZ-01–05 | **done（2026-10-18）** | 消息身份/来源/完整待办与仅记录/候选用途闭环；真实页面正反例及 Flash Next Q2 实模通过；Journey C9 |
 | DS02 | A | 采纳状态 canonical 化，撤销前端临时 string 放宽；见 `tasks/slices/DS02-adoption-status-canonicalization.md` | **done（2026-10-05）** | 领域/线格式/历史 transcript 统一大写七态；严格 schema 校验与告警恢复；q3d 历史状态真实页面和 roster 回归 PASS，1510 后端/461 前端测试；对应 Journey F9 |
 | UA01-CALL2 | A | 当前模型结构化判断性能观察；既有 UA01 可靠性专项 | **停止参数对照，转业务审计** | 用户明确以使用场景和 App/业务正确性为主线；未完成样本不作参数裁决，537 秒记录仅作旁证；对应 Journey C11 |
 | Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版与状态校准（2026-10-05）；B16 已解除新增扫描阻断** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |

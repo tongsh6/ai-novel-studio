@@ -534,12 +534,18 @@ defmodule NovelApplication.AgentRunServer do
   defp failure_family_reason_codes({:author_content_registration_invalid, reason}),
     do: ["author_content_registration_invalid", Atom.to_string(reason)]
 
+  defp failure_family_reason_codes({:judgment_output_conflict, reason}),
+    do: ["judgment_output_conflict", Atom.to_string(reason)]
+
   defp failure_family_reason_codes(reason) do
     if provider_failure_reason?(reason), do: ["provider_error"], else: []
   end
 
   defp failure_author_summary({:author_content_registration_invalid, _}),
     do: "原文登记未通过校验，本轮已安全停止。"
+
+  defp failure_author_summary({:judgment_output_conflict, _}),
+    do: "回复与本轮要求不一致，已停止生成候选。"
 
   defp failure_author_summary(reason) do
     if provider_failure_reason?(reason) do
@@ -582,6 +588,9 @@ defmodule NovelApplication.AgentRunServer do
 
   defp failure_fallback_message({:author_content_registration_invalid, reason}),
     do: TurnInteractionService.author_registration_failure_message(reason)
+
+  defp failure_fallback_message({:judgment_output_conflict, _}),
+    do: "模型回复与本轮要求不一致，纠正后仍未通过校验。你的输入已保留；没有生成候选或写入作品事实，可以继续对话。"
 
   defp failure_fallback_message(reason) do
     if provider_failure_reason?(reason) do

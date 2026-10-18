@@ -162,6 +162,7 @@
 | `q3d-message-delivery-recovery.yml` | 外部丢回执、断线/刷新/重启后稳定身份与完成/失败/失活回执 |
 | `q3d-long-session-adoption-state.yml` | 15 份候选跨 20 轮及 80 条窗口恢复、预算外查询、旧候选采纳与终态恢复 |
 | `q3d-author-registration-guards.yml` | 原文来源缺失/越界/执行矛盾安全拒绝、刷新失败恢复、纠正后作者采纳 |
+| `q3d-candidate-semantics.yml` | 仅记录与流程建议矛盾校验、旧方向权限撤销、正常创作讨论与产物三类操作 |
 | `q3d-message-outcome-roundtrip.yml` | 只读结果回填、跨轮原文、重复保护；DS02 旧小写采纳状态恢复与作者采纳 |
 | `q3c-author-content-materialization.yml` | 作者内容字节直达待采纳候选并经作者采纳入档 |
 | `su01-api-key-secret-redaction.yml` | API Key 配置流与 secret redaction |

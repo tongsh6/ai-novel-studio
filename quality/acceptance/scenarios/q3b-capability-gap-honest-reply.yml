@@ -13,7 +13,7 @@ contract:
 
 invariants:
   - capability-gap-produces-honest-reply-not-readonly-execute
-  - gap-reply-carries-nearest-path-candidates
+  - gap-reply-explains-nearest-path-without-direction-actions
   - no-production-write
 
 setup:
@@ -24,7 +24,7 @@ user_flow:
   - open: real Tauri workbench
   - input: 作者要求把提供的大纲直接存档为作品设定（D8 stage 五连击同型输入）
   - click: 发送
-  - observe: 自然回复显式承认「没有直接写入档案的能力」并给出登记路径；路径候选卡可见
+  - observe: 自然回复显式承认「没有直接写入档案的能力」并给出登记路径；路径由回复叙事说明，不产生创作方向卡
   - do_not_see: execution card / confirmation card / adoption decision
 
 evidence:
@@ -39,11 +39,11 @@ evidence:
 assertions:
   ui:
     - honest gap reply is visible (admits missing write capability)
-    - nearest-path candidate card is visible
+    - nearest-path guidance is visible in the reply; no choose_candidate action
     - execution or confirmation card is not visible
   network:
     - source user_message uses generate_micro_plan false
-    - judgment.decided.done has frame_type capability_gap with candidate_count > 0
+    - judgment.decided.done has frame_type capability_gap with candidate_count = 0
     - author_action is not sent
     - action_result is not received
   data:

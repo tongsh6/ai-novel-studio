@@ -15,6 +15,37 @@ defmodule NovelApplication.WorkSessionServiceTest do
   end
 
   describe "resume/1" do
+    test "旧方向内容仍可读，但用途不明的旧方向动作在所有恢复入口撤销", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      legacy = %{
+        turn_id: "legacy-direction",
+        frame_summary: %{frame_type: "creative_exploration"},
+        candidate_directions: [%{direction_id: "old", title: "丢弃候选", pitch: "放弃本次资料"}],
+        available_actions: [
+          %{action_id: "choose:old", action_type: "choose_candidate", candidate_ref: "old"},
+          %{action_id: "discard:artifact", action_type: "discard", target_ref: "artifact"}
+        ]
+      }
+
+      record(work.id, session.id, "legacy-direction", "assistant", "历史回复", legacy)
+      {:ok, resumed} = WorkSessionService.resume(work.id)
+      {:ok, shown} = WorkSessionService.show(work.id, session.id)
+      {:ok, paged} = WorkSessionService.transcript_page(work.id, session.id)
+      {:ok, channel} = WorkSessionService.restore_channel_turn_results(work.id, session.id)
+
+      for result <-
+            Enum.map([resumed, shown, paged], &hd(&1.transcript).turn_result) ++
+              channel.turn_results do
+        assert [%{"title" => "丢弃候选"}] = result["candidate_directions"]
+        assert [%{"action_type" => "discard"}] = result["available_actions"]
+      end
+
+      # 仅重新投影权限，持久原文与旧回执留作审计证据。
+      [stored] = WorkSessionRepo.transcript(session.id)
+      assert length(stored.content["turn_result"]["available_actions"]) == 2
+    end
+
     test "旧小写 transcript 经恢复、回看、分页和 Channel 授权恢复均输出 canonical 状态", %{work: work} do
       {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 

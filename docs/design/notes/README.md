@@ -8,7 +8,7 @@
 
 ## 文档
 
-- `2026-10-08-agentic-business-scenario-audit.md` — 从作者资料、存档、待采纳、长会话和重传审计 Agentic/App 业务闭环；含真实页面反例与局部复现，修复待实施。
+- `2026-10-08-agentic-business-scenario-audit.md` — 作者资料、存档、待采纳、长会话与重传的 Agentic/App 审计；BIZ-01–05 已修并验收，新增 BIZ-06 引导风险待场景核查。
 
 - `2026-08-30-stage-session-archive-loop.md` — Stage 真实使用分析：「存档」意图五连击死循环（judgment 语义理解全对但能力表无写入承接→误选只读 work_archive_read→静默失败+引导复踏；D8a 能力真空/D8b 命名诱导/D8c 谎报族新例；历史 trace 撞号与 DeepSeek 400 两族确认已修）。修向 ①prompt 澄清+判例 ②诚实反馈带候选 ③采纳引导能力。**不授权实现**。
 - `2026-08-26-m6-gptoss-contrast.md` — M6/M7 对照狗粮总报告（gpt-oss-120b vs qwen3.8-27b 两形态，同任务同刻度）：M6=gpt-oss 30 分钟全绿收官；§3b 归因（公榜 qwen 智力碾压 vs 实测反差=量化不对称+运行形态；产码零模型名分支）；M7=Q8+关思考公平对照（writer 78.6s 可用但续写坐标判定系统性退化 15 次误判、4h02m、2 章 skip、盘点未触发）；终版建议=全局直切 gpt-oss（零表），qwen 残余价值待两书文学盲评。**不授权实现**。

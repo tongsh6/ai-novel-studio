@@ -4907,8 +4907,8 @@ async function driveCapabilityGapHonestReply(page) {
       record.event === "judgment.decided.done" &&
       record.turn_id === turnResult.turn_id &&
       record.frame_type === "capability_gap" &&
-      Number(record.candidate_count ?? 0) > 0,
-    "Capability gap turn did not produce a capability_gap judgment with path candidates",
+      Number(record.candidate_count ?? 0) === 0,
+    "Capability gap turn did not produce a capability_gap judgment without creative candidates",
     30_000,
   );
 
@@ -4922,8 +4922,8 @@ async function driveCapabilityGapHonestReply(page) {
   );
   assert(visibleText.includes("没有直接写入档案的能力"), "Honest gap reply was not visible");
   assert(
-    visibleText.includes("把这份内容整理为待采纳设定"),
-    "Nearest-path candidate card was not visible",
+    visibleText.includes("最近的路径是"),
+    "Nearest-path guidance was not visible in the reply",
   );
   assert(!executionCardPattern.test(visibleText), "Execution or confirmation card was visible");
   assert(
@@ -4934,6 +4934,8 @@ async function driveCapabilityGapHonestReply(page) {
     turnResult.truthfulness?.production_write_performed === false,
     "Capability gap turn claimed a production write",
   );
+  assert((turnResult.candidate_directions ?? []).length === 0, "Workflow guidance became a creative direction");
+  assert(!(turnResult.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "Workflow guidance received a direction action");
   assert(!turnResult.tool_result, "Capability gap turn produced a tool result");
   assert(!turnResult.adoption_decision, "Capability gap turn produced an adoption decision");
   const framesAfter = frames.slice(beforeFrameCount);
@@ -4951,7 +4953,7 @@ async function driveCapabilityGapHonestReply(page) {
     source_turn_id: turnResult.turn_id,
     frame_type: "capability_gap",
     honest_gap_reply_visible: true,
-    nearest_path_candidate_visible: true,
+    nearest_path_guidance_visible: true,
     execution_card_visible: false,
     tool_result_present: false,
     adoption_decision_present: false,
@@ -5132,9 +5134,14 @@ async function driveQ1bLiveArchiveRoundtrip(page) {
 
   const source = await send(original, "01-source");
   assert((source.adoption_state?.pending ?? []).length === 0, "记录阶段擅自生成候选");
+  assert((source.candidate_directions ?? []).length === 0, "仅记录阶段仍生成了创作方向");
+  assert(!(source.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "仅记录阶段仍授予方向动作");
+  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "仅记录页面仍出现方向采用入口");
   await reload();
   const saved = await send("把上一条资料原文存档为作品设定。", "02-save-request");
   const pending = saved.adoption_state?.pending ?? [];
+  assert((saved.candidate_directions ?? []).length === 0, "存档操作建议被装入创作方向");
+  assert(!(saved.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "存档流程建议仍获得方向动作");
   assert(pending.length === 1, "跨轮存档没有返回唯一待采纳原文");
   const candidate = pending[0];
   assert(candidate.adoption_status === "TENTATIVE", "候选状态不是 TENTATIVE");
@@ -5170,6 +5177,7 @@ async function driveQ1bLiveArchiveRoundtrip(page) {
     turn_ids: turnResults.map(({ result }) => result.turn_id), source_turn_id: source.turn_id,
     materialization_turn_id: saved.turn_id, artifact_id: candidate.artifact_id,
     author_bytes_intact: true, no_write_before_adoption: true, canonical_state_restored: true,
+    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true,
     confirmed_fact_count: afterFacts.length, before_reply: before.assistant_message?.text,
     after_reply: after.assistant_message?.text }];
 }
@@ -5431,6 +5439,158 @@ async function driveLongSessionAdoptionState(page) {
     query_turn_id: queryReply.turn_id, count_turn_id: countReply.turn_id, pending_count_before: 15, pending_count_after: 14,
     omitted_count: 3, queried_artifact_id: candidates[0].artifact_id, history_rounds_before: 45, history_rounds_after: 45,
     transcript_stays_paged: true, work_scope_isolated: true, old_action_enabled: true, terminal_survives_window: true, confirmed_fact_count: facts.length }];
+}
+
+async function driveCandidateSemantics(page) {
+  const nonce = randomUUID().replaceAll("-", "");
+  const results = [];
+  const failed = [];
+  const artifactActions = [];
+  const original = `先只记录这份资料，不要生成候选：沈砚在雨港旧书铺寻找姐姐。原文标识${nonce}。仅记录纠正样例。`;
+  async function send(text) {
+    const start = frames.length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(start, (f) => f.direction === "sent" && f.event === "user_message", "页面未发出输入");
+    const turnId = sent.body.turn_id;
+    const frame = await waitForNewFrame(start, (f) => f.direction === "received" &&
+      ((f.event === "turn_result" && f.body?.turn_id === turnId) ||
+       (f.event === "phx_reply" && f.body?.response?.turn_results?.some((r) => r.turn_id === turnId))),
+      "候选语义场景未收到结果", 120_000);
+    const result = frame.event === "turn_result" ? frame.body : frame.body.response.turn_results.find((r) => r.turn_id === turnId);
+    await waitForNewFrame(start, (f) => {
+      const state = f.event === "agent_run_state" ? f.body : f.body?.response?.agent_run_state;
+      return state?.run_id === result.agent_run?.run_id && ["completed", "failed", "awaiting_author"].includes(state?.status);
+    },
+      "候选语义场景运行尚未收束");
+    await page.getByText(result.assistant_message.text, { exact: true }).last().waitFor();
+    results.push({ input: text, result });
+    fs.writeFileSync(path.join(artifactDir, "semantic-turns.json"), JSON.stringify(results, null, 2));
+    return result;
+  }
+  async function reload() {
+    const response = page.waitForResponse((res) => res.url().endsWith("/sessions/resume") && res.ok());
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor();
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText));
+    return (await response).json();
+  }
+  function noDirections(result) {
+    assert((result.candidate_directions ?? []).length === 0, "仅记录/流程回复仍产方向");
+    assert(!(result.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "错误授予方向动作");
+    assert(!result.truthfulness?.production_write_performed, "未经作者操作写入事实");
+  }
+  async function database(callback) {
+    assert(process.env.SLICE_VERIFY_PROVIDER === "slice_verify", "历史夹具仅用于隔离替身场景");
+    const partition = process.env.MIX_TEST_PARTITION;
+    assert(process.env.NOVEL_TEST_DB_DIR && /^[\w-]+$/.test(partition), "必须使用隔离库");
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${partition}.sqlite3`), { timeout: 5000 });
+    try { return callback(db); } finally { db.close(); }
+  }
+  async function facts() {
+    return database((db) => db.prepare("SELECT content, status FROM memory_items WHERE instr(content, ?) > 0").all(nonce));
+  }
+  const source = await send(original);
+  noDirections(source);
+  assert(source.status !== "failed" && (source.adoption_state?.pending ?? []).length === 0, "仅记录纠正失败或物化候选");
+  await reload();
+  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "刷新恢复了错误方向动作");
+  await page.screenshot({ path: path.join(artifactDir, "record-only.png"), fullPage: true });
+
+  for (const [text, reason] of [["这轮仍只收下资料。仅记录持续矛盾样例。", "record_only_conflict"],
+    ["资料处理进度：流程建议持续矛盾样例。", "candidate_purpose_conflict"]]) {
+    const result = await send(text);
+    noDirections(result);
+    assert(result.status === "failed", "持续矛盾未停止");
+    assert((result.adoption_state?.pending ?? []).length === 0, "持续矛盾生成产物");
+    const snapshot = await reload();
+    assert(snapshot.transcript.some((e) => e.text === text), "失败后丢失作者输入");
+    assert(snapshot.transcript.some((e) => e.turn_result?.turn_id === result.turn_id && e.turn_result.status === "failed"), "失败结果未恢复");
+    failed.push({ turn_id: result.turn_id, reason_code: reason });
+  }
+  const saved = await send("把上一条资料原文保存为作品设定。流程建议纠正样例。");
+  noDirections(saved);
+  const pending = saved.adoption_state?.pending?.[0];
+  assert(pending?.payload?.items?.[0]?.body === original, "流程纠正改写原文");
+  assert(pending.payload.items[0].provider_call_ref === `author_input:${source.turn_id}`, "原文来源错误");
+  assert((await facts()).length === 0, "采纳前写入了事实");
+  await reload();
+  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "流程建议仍可设为方向");
+  await page.screenshot({ path: path.join(artifactDir, "workflow-actions.png"), fullPage: true });
+
+  async function resolveArtifact(result, type, label, status, edited) {
+    const item = result.adoption_state.pending[0];
+    const start = frames.length;
+    await page.getByRole("button", { name: label, exact: true }).first().click();
+    if (edited) {
+      await page.getByRole("dialog").getByRole("textbox").fill(edited);
+      await page.getByRole("button", { name: "保存修改后的版本", exact: true }).click();
+    }
+    await waitForNewFrame(start, (f) => f.event === "turn_result" && f.body?.adoption_state?.resolved?.some(
+      (entry) => entry.artifact_id === item.artifact_id && entry.adoption_status === status), "真实产物操作未产生正确结果");
+    const sent = frames.slice(start).find((f) => f.direction === "sent" && f.event === "author_action");
+    assert(sent?.body?.action?.action_type === type && sent.body.action.target_ref === item.artifact_id, "按钮未调用真实产物动作");
+    artifactActions.push({ type, source_turn_id: result.turn_id, artifact_id: item.artifact_id, status });
+    const snapshot = await reload();
+    assert(!snapshot.pending_adoptions.some((e) => e.artifact_id === item.artifact_id), "处置后仍在待办");
+  }
+  await resolveArtifact(saved, "discard", "不保存", "DISCARDED");
+  assert((await facts()).length === 0, "放弃操作写入事实");
+  const edit = await send(`把这份大纲直接存档为作品设定：主角守护雨港旧书铺。修改标识${nonce}。`);
+  noDirections(edit);
+  const edited = `沈砚为寻找姐姐离开旧书铺。作者修订${nonce}。`;
+  await resolveArtifact(edit, "edit_then_accept", "修改后保存", "EDITED_ACCEPTED", edited);
+  assert((await facts()).some((f) => f.content.includes(edited)), "修改后保存未写作者修改内容");
+  const accept = await send(`把这份大纲直接存档为作品设定：雨港每天午夜停潮。采纳标识${nonce}。`);
+  noDirections(accept);
+  await resolveArtifact(accept, "accept", "保存到作品档案", "ACCEPTED");
+
+  // 用实际持久结果模拟旧版无用途标记的流程卡；产品不识别夹具。
+  const legacySource = await send("我想写一个赛博修仙方向，给我几个候选。");
+  assert(legacySource.candidate_directions?.every((c) => c.kind === "creative_direction"), "新方向缺用途标记");
+  await database((db) => {
+    const rows = db.prepare("SELECT id, content FROM interactions WHERE turn_id = ? AND role = 'assistant'").all(legacySource.turn_id);
+    assert(rows.length === 1, "历史夹具必须精确命中一条结果");
+    const content = JSON.parse(rows[0].content);
+    content.turn_result.candidate_directions.forEach((c) => { delete c.kind; c.title = "丢弃候选"; c.pitch = "历史流程建议"; });
+    db.prepare("UPDATE interactions SET content = ? WHERE id = ?").run(JSON.stringify(content), rows[0].id);
+  });
+  const legacySnapshot = await reload();
+  const legacy = legacySnapshot.transcript.find((e) => e.turn_result?.turn_id === legacySource.turn_id)?.turn_result;
+  assert(legacy?.candidate_directions?.[0]?.title === "丢弃候选", "旧内容未保留");
+  assert(!(legacy.available_actions ?? []).some((a) => a.action_type === "choose_candidate"), "服务端恢复旧错误动作");
+  assert(await page.getByRole("button", { name: "设为后续方向", exact: true }).count() === 0, "页面恢复旧错误动作");
+  await page.getByText("历史流程建议", { exact: true }).first().waitFor();
+  await page.screenshot({ path: path.join(artifactDir, "legacy-readonly.png"), fullPage: true });
+
+  const creative = await send("我想写一个赛博修仙方向，重新给我几个创作候选。");
+  assert(creative.frame_summary?.frame_type === "creative_exploration" && creative.candidate_directions.length > 0, "正常创作探索被压制");
+  await reload();
+  const discussStart = frames.length;
+  await page.getByText("可讨论方向", { exact: true }).last().locator("..")
+    .getByRole("button", { name: "继续讨论", exact: true }).first().click();
+  const discussed = (await waitForNewFrame(discussStart, (f) => f.event === "turn_result", "创作方向不能继续讨论")).body;
+  const discussion = frames.slice(discussStart).find((f) => f.event === "user_message" && f.direction === "sent");
+  assert(discussion?.body?.candidate_selection?.source_turn_ref === creative.turn_id, "讨论未绑定真实方向");
+  assert(!discussed.truthfulness?.production_write_performed, "继续讨论写入事实");
+  assert((discussed.adoption_state?.pending ?? []).length === 0, "继续讨论擅自生成产物");
+  await page.getByText("展开", { exact: true }).last().click();
+  const choiceStart = frames.length;
+  await page.getByRole("button", { name: "设为后续方向", exact: true }).last().click();
+  const chosen = (await waitForNewFrame(choiceStart, (f) => f.event === "turn_result" && f.body?.truthfulness?.candidate_selected, "合法方向选择未成功")).body;
+  assert(chosen.truthfulness.candidate_adopted && !chosen.truthfulness.production_write_performed, "方向选择后果错误");
+  await reload();
+  const finalFacts = await facts();
+  assert(finalFacts.length === 2 && finalFacts.every((f) => f.status === "CONFIRMED"), "三类产物操作的事实后果不正确");
+  await page.screenshot({ path: path.join(artifactDir, "creative-and-adoption.png"), fullPage: true });
+  fs.writeFileSync(path.join(artifactDir, "semantic-evidence.json"), JSON.stringify({ failed, artifactActions, legacySnapshot, finalFacts }, null, 2));
+  return [{ event: "slice_verify.ui_state.done", slice_id: "q3d-candidate-semantics",
+    turn_id: saved.turn_id, source_turn_id: source.turn_id, failed_turns: failed,
+    creative_turn_id: creative.turn_id, discussed_turn_id: discussed.turn_id, chosen_turn_id: chosen.turn_id,
+    artifact_actions: artifactActions, legacy_actions_revoked: true, legacy_content_preserved: true,
+    record_only_has_no_candidates: true, workflow_has_no_direction_actions: true,
+    failed_results_restored: true, confirmed_fact_count: finalFacts.length }];
 }
 
 async function driveAuthorRegistrationGuards(page) {
@@ -29729,6 +29889,7 @@ const drivers = {
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
   "q3d-author-registration-guards": driveAuthorRegistrationGuards,
+  "q3d-candidate-semantics": driveCandidateSemantics,
   "q3d-long-session-adoption-state": driveLongSessionAdoptionState,
   "q3d-message-delivery-recovery": driveMessageDeliveryRecovery,
   "q1b-live-archive-roundtrip": driveQ1bLiveArchiveRoundtrip,

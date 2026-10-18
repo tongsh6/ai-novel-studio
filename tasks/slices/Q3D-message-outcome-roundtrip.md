@@ -1,6 +1,6 @@
 # Q3D 消息处置与跨轮结果关联
 
-- 状态：reopened / next（2026-10-08，新增 BIZ-05）；BIZ-01–04 已闭环，本轮实模发现输出类型与动作语义错配。
+- 状态：done / verified（BIZ-01–05，2026-10-18）；BIZ-05 真实页面专项和 Flash Next Q2 四轮实模对照通过。新增引导风险 BIZ-06 归 Q1B。
 - §1–4 保留首轮实现记录；当前业务反例的完成证据见后续 BIZ checkpoint。
 - 完整契约：`docs/design/adr/ADR-0027-author-obligation-state-v3.md`（本次修订 Accepted）。
 - 原因：D8 的只读执行结果未进入会话上下文；待采纳对象未完整供判断消费；Q3c 未覆盖两轮原文引用。
@@ -218,7 +218,7 @@ BIZ-04 仍是下一 checkpoint，Q3D 整体不得标 done。
   此批使用确定性 provider 做故障注入，当前 Qwen 整批语义复验为 Q1b 下一项。
 
 
-### BIZ-05：仅记录约束、方向候选与操作建议（next，P2）
+### BIZ-05：仅记录约束、方向候选与操作建议（已修复，P2）
 
 Q1b 在 77bf8389 上跑完真实四轮；数据断言通过，完整业务语义未通过。首轮“不生成候选”仍产出
 三张方向卡；登记轮“采纳/修改/丢弃”获得 choose_candidate，公开入口把“丢弃候选”接受为
@@ -233,3 +233,56 @@ Q1b 在 77bf8389 上跑完真实四轮；数据断言通过，完整业务语义
 - 修复后加强 q1b 的候选方向断言，并重跑当前真实模型；不能继续只以 pending 为空宣称不生成候选。
 
 本轮只完成实模核查和缺口登记，未实施 BIZ-05；没有错误动作分支的完整页面点击证据。
+
+> 上段为 2026-10-08 发现时状态；2026-10-18 的实施与验收见下文。
+
+#### BIZ-05 开工（2026-10-18）
+
+- 产品目标：消费 `00-vision-and-engineering-roadmap.md` §2.2–2.3。AI 是主动创作伙伴，
+  工作台是后台工具箱；尊重作者暂缓展开的节奏，同时保留模糊想法的探索、讨论与方向选择。
+  禁止把修复退化为关键词路由、强制操作表单或删除一切候选。
+- Contract：ADR-0025 的判断①新增本轮 `record_only` 约束；VS-00A 的 CandidateDirection
+  只表示创作方向，流程建议回到模型叙事；VS-05 的动作必须与候选用途相符。
+  新输出用 `kind=creative_direction` 明确用途；历史缺少用途的条目保留为可读讨论材料，
+  不自动升级为可采用方向。由新一轮自然对话重新确认创作方向。
+- Invariant：record_only=true 时只能 reply，不能给方向、登记原文、执行或计划；
+  非创作帧不产方向；只有用途明确的创作方向可提交 choose_candidate。原文、来源、采纳不变量不变。
+- Boundary：Application 判断、TurnResult、恢复/动作边界与 Frontend 消费；不改数据库、
+  Provider runtime 和执行编排权限；既有内置 Stub 仅同步协议必填字段，故障注入只在 test/support。
+- Consumer：Channel 与 App/WorkspaceChat，以及刷新后的 session transcript。
+- Proof：协议矛盾纠正/失败、候选动作授权、历史恢复测试；后端/前端全量检查，I1/I2/I3、
+  N-NARR、完整静态扫描与桌面构建。
+- Acceptance Driver：扩展现有外部 harness，新增 q3d-candidate-semantics 场景；
+  经真实输入、方向讨论/选择、原文采纳/修改/放弃与刷新，留截图/帧/日志/DB；
+  加强 q1b 实模断言并复跑。产品验收感知逻辑为 no。
+- Exploration：不新增要素物化；合法方向仍进入现有讨论上下文，原文候选仍由消息/采纳上下文可达。
+
+#### BIZ-05 实施与验证（2026-10-18）
+
+- 判断协议要求模型显式给出 record_only；与行动、登记、方向矛盾时纠正一次，仍矛盾安全停止。
+  重试不得放宽同一输入已识别的仅记录约束，也不得仅改帧类别放行原有流程候选。
+- 移除候选非空强转探索帧；共用原文规则明确区分“留在对话中”与“登记进作品档案”。
+  创作方向仍能由模型主动提出；仅记录不变成跨轮永久禁令，也不以关键词替代模型判断。
+- 新方向带 kind=creative_direction；动作授予、提交校验、会话恢复及前端消费一致检查用途。
+  历史无用途标记的条目保持内容可读/可继续讨论，旧 choose_candidate 不再恢复；数据库原记录不改写。
+- `q3d-candidate-semantics --surface tauri` 通过：仅记录一次纠正无候选；两类持续矛盾
+  保留输入/失败结果且无产出；流程建议纠正后引用原文字节；真实点击 discard / edit_then_accept /
+  accept 得到各自状态，放弃零写入、后两者恰有两条 CONFIRMED；旧流程卡刷新无方向采用；
+  正常创作方向刷新后可继续讨论并设置后续方向，讨论/方向选择不写作品事实。
+- 页面兼容回归：q3b-capability-gap-honest-reply、q3d-author-registration-guards、
+  au02-candidate-fallback-ui、q3d-message-outcome-roundtrip 通过。均启动 Tauri、由外部
+  Playwright 驱动真实 App/WorkspaceChat；不宣称直接驱动 native WebView，不以确定性 provider 代替实模。
+- 后端 1,531 项、前端 480 项、证据验证器 212 项通过；I3/I1/I2、N-NARR 通过。
+  N-NARR 替身仅补新增必填 record_only=false，来源字节/hash/stream 断言未改变。
+- 编译零警告、xref 无环、架构边界通过。sidecar 与桌面 .app/.dmg 重建通过；桌面审计 27 PASS。
+- 静态扫描闭环：已修本轮新增复杂度/嵌套告警，以及 N-NARR 旧夹具缺协议字段的阻断；
+  `bash scripts/ai_static_scan.sh --top 10` 复跑 17 PASS / 2 既有 FAIL、0 blocking。
+  剩余三项：Pencil fileToken 误报；历史凭证 accepted_risk（由所有者轮换/清理）；
+  ChapterSummary 嵌套 deferred（下次触及解析时重构）。没有改台账掩盖新增问题。
+- 实模：原当前加载的 Qwen 3.6 首次结构调用超时，重试中模型被切换并返回 terminated。
+  用户确认当前 Flash Next Q2 稳定后，按原参数跑完四轮九次 HTTP 200；仅记录无候选、
+  原文登记无方向动作、采纳前后事实及回复一致。BIZ-05 两项反例关闭；状态回复中额外提出
+  “重新登记”的引导风险另列 BIZ-06，不把本次通过外推为全部模型引导正确。详见 Q1B slice。
+- 证据：`artifacts/slice-verify/q3d-candidate-semantics-tauri/` 与
+  `artifacts/project-analysis/biz5-*`。首次页面脚本遗漏收束等待与回执恢复、误用讨论折叠后的定位，
+  修复外部 driver 后重跑；未添加产品验收开关、隐藏 hook 或绕过真实页面。
