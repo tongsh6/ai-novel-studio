@@ -1841,7 +1841,7 @@ defmodule NovelApplication.AgentRunServer do
       {:reply, {:error, :step_selection_invalid}, state}
     else
       selected = expand_selected_steps(remaining, selected)
-      remaining_steps = remaining_steps_after(plan_steps, selected)
+      remaining_steps = remaining_steps_after(remaining, selected)
 
       apply_selection_recovery(
         state,
@@ -1933,8 +1933,12 @@ defmodule NovelApplication.AgentRunServer do
          selected <- selected_step_with_dependencies(plan_steps, step),
          true <- selected != [] do
       selected_ids = MapSet.new(selected, &plan_step_ref/1)
-      selected_steps = Enum.filter(plan_steps, &MapSet.member?(selected_ids, plan_step_ref(&1)))
-      remaining_steps = remaining_steps_after(plan_steps, selected_steps)
+      remaining_scope = Enum.drop(plan_steps, execution)
+
+      selected_steps =
+        Enum.filter(remaining_scope, &MapSet.member?(selected_ids, plan_step_ref(&1)))
+
+      remaining_steps = remaining_steps_after(remaining_scope, selected_steps)
       plan = put_plan_steps(state.run.plan, selected_steps)
 
       consumed = %{state.run.consumed_budget | execution_steps: 0}
