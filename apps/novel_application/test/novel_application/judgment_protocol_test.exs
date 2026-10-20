@@ -742,4 +742,30 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert invalid.frame_type == nil
     assert invalid.dialogue_goal == nil
   end
+
+  test "continuation call1 with tool_choice none has no tool tendency" do
+    input = %{
+      goal_text: "写第01章正文草稿",
+      deviation_summary: "工具 prose_writing 执行失败（timeout）",
+      observation_block: "两次写作调用均失败，未产出草稿。"
+    }
+
+    call1 = JudgmentProtocol.continuation_narrative_prompt(input)
+    call2 = JudgmentProtocol.continuation_decision_prompt(input, "我看到了超时。")
+
+    assert call1.tools == call2.tools
+    assert call1.tool_choice == "none"
+
+    assert {:ok, result} =
+             NovelAgent.Test.Provider.SliceVerify.complete(
+               %NovelAgent.Test.Provider.SliceVerify{},
+               nil,
+               call1,
+               NovelAgent.Provider.InferenceParams.new()
+             )
+
+    assert result.tool_calls == []
+    refute result.content =~ "continuation_decision"
+    refute result.content =~ "\"action\""
+  end
 end

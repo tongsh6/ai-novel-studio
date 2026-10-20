@@ -143,8 +143,14 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 | Kimi（Moonshot） | 自动 context cache（另有显式 cache API） | 待核实 | 无 | `usage.cached_tokens` | — | **待核实** |
 | 智谱 GLM | 部分模型自动缓存 | 待核实 | 无 | `prompt_tokens_details.cached_tokens` | — | **待核实** |
 | MiniMax（海外 / 国内） | 待核实 | 待核实 | 无 | 待核实 | — | **待核实** |
-| LM Studio（llama.cpp） | 推理槽位 KV 前缀复用 | 无门槛；逐 token | 无 | `usage` 大概率无缓存字段 → 以 TTFT 为代理（§6.2） | 单模型；并行预测 = 1；固定 context length（非 JIT 默认 8192，B8 先例）；关闭空闲驱逐 | **待核实** usage 字段 |
+| LM Studio（llama.cpp） | 推理槽位 KV 前缀复用 | 无门槛；逐 token | 无 | `usage.prompt_tokens` / `completion_tokens` / `total_tokens` / `completion_tokens_details.reasoning_tokens`；**无 `cached_tokens`** → 以 adapter 首 delta 的 `ttft_ms` 为代理（§6.2） | 实测：`qwen3.8-flash-next@q2_k`，context 262144，parallel **3**，TTL 空（未关闭空闲驱逐）。与“并行预测=1”前提不一致；live 命中测量须单会话并记录冲掉风险 | **已核实（2026-10-21，usage 字段）**；TTFT live 基线未跑 |
 | Stub / SliceVerify | 无 | — | 无 | — | — | 不适用 |
+
+> CP-AB 实测补充（2026-10-21）：LM Studio `/v1/chat/completions` 原始 usage 为
+> `{prompt_tokens:55, completion_tokens:8, total_tokens:63, completion_tokens_details:{reasoning_tokens:8}}`，
+> 无缓存字段；运行侧 `lms ps` 显示 `qwen3.8-flash-next@q2_k` / context 262144 /
+> parallel 3 / TTL 空。OpenAI / DeepSeek / Anthropic / Gemini / Kimi / 智谱 / MiniMax
+> 在本次 shell 无凭据，保持“待核实”，不编造。TTFT live 基线未跑。
 
 跨厂商共同前提（适用于上表所有行）：
 
