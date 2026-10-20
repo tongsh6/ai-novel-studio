@@ -203,6 +203,7 @@ defmodule NovelWeb.WorkspaceChannel do
     work_id = socket.assigns[:work_id] || ws_id
     session_id = socket.assigns[:session_id] || Map.get(msg, "session_id")
     generate_plan = Map.get(msg, "generate_micro_plan", false)
+    author_limits = Map.get(msg, "author_limits")
     turn_id = Map.get(msg, "turn_id") || NovelFoundation.ID.unique("turn")
 
     case validate_submission_identity(msg, work_id, session_id, turn_id) do
@@ -216,7 +217,8 @@ defmodule NovelWeb.WorkspaceChannel do
           generate_plan: generate_plan,
           generate_micro_plan: generate_plan,
           turn_id: turn_id,
-          candidate_selection: Map.get(msg, "candidate_selection")
+          candidate_selection: Map.get(msg, "candidate_selection"),
+          author_limits: author_limits
         })
 
       {:error, reason} ->
@@ -2258,7 +2260,8 @@ defmodule NovelWeb.WorkspaceChannel do
       session_id: params.session_id,
       turn_id: params.turn_id,
       generate_micro_plan: params.generate_plan,
-      candidate_selection: params.candidate_selection
+      candidate_selection: params.candidate_selection,
+      author_limits: Map.get(params, :author_limits)
     }
 
     t0 = System.monotonic_time(:millisecond)

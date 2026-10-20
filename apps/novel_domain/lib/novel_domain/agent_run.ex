@@ -34,11 +34,12 @@ defmodule NovelDomain.AgentRun do
           optional(:quality_finding_refs) => [String.t()]
         }
   @type budget :: %{
-          max_steps: pos_integer(),
-          max_tool_calls: non_neg_integer(),
-          max_provider_calls: non_neg_integer(),
-          max_replans: non_neg_integer(),
-          max_pending_artifacts: non_neg_integer()
+          required(:max_steps) => pos_integer(),
+          required(:max_tool_calls) => non_neg_integer(),
+          required(:max_provider_calls) => non_neg_integer(),
+          required(:max_replans) => non_neg_integer(),
+          required(:max_pending_artifacts) => non_neg_integer(),
+          optional(:author_max_steps) => pos_integer()
         }
   @type consumed_budget :: %{
           steps: non_neg_integer(),
@@ -396,13 +397,18 @@ defmodule NovelDomain.AgentRun do
   defp normalize_profile_selection(_selection), do: nil
 
   defp normalize_budget(budget) when is_map(budget) do
-    %{
+    normalized = %{
       max_steps: positive_int(value(budget, :max_steps), 5),
       max_tool_calls: non_negative_int(value(budget, :max_tool_calls), 4),
       max_provider_calls: non_negative_int(value(budget, :max_provider_calls), 3),
       max_replans: non_negative_int(value(budget, :max_replans), 1),
       max_pending_artifacts: non_negative_int(value(budget, :max_pending_artifacts), 3)
     }
+
+    case value(budget, :author_max_steps) do
+      steps when is_integer(steps) and steps > 0 -> Map.put(normalized, :author_max_steps, steps)
+      _ -> normalized
+    end
   end
 
   defp normalize_budget(_),

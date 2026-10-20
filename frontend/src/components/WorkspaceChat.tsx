@@ -1137,6 +1137,7 @@ async function resolveInitialWorkBootstrap(): Promise<InitialWorkBootstrap> {
 export function WorkspaceChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
+  const [authorStepLimit, setAuthorStepLimit] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   // CP4c rail：审读报告待处置数（TENTATIVE 报告的未处置偏离项；无报告为 0）
@@ -2282,7 +2283,9 @@ export function WorkspaceChat() {
         options.generateMicroPlan ?? false,
         null,
         clientMessageId,
+        authorStepLimit ? { max_steps: 1 } : null,
       );
+      if (authorStepLimit) setAuthorStepLimit(false);
       rememberAgentRunAck(response, text, clientMessageId);
     } catch (error) {
       if (activeConnectionRef.current.workId !== context.workId) return;
@@ -4938,6 +4941,18 @@ export function WorkspaceChat() {
                       (hasActiveAgentRun && !latestAgentRunIsDead && !canRouteMainInputToAgentSteer)
                     }
                   />
+                  {!hasActiveAgentRun && (
+                    <button
+                      type="button"
+                      className={styles.btnSecondary}
+                      aria-pressed={authorStepLimit}
+                      onClick={() => setAuthorStepLimit((value) => !value)}
+                    >
+                      {authorStepLimit
+                        ? WORKBENCH.authorStepLimitOn
+                        : WORKBENCH.authorStepLimit}
+                    </button>
+                  )}
                   <button
                     className={styles.sendBtn}
                     type="button"

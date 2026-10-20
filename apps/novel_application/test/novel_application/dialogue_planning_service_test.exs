@@ -490,12 +490,32 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert spec.run_attrs.parent_turn_ref == "turn-q"
   end
 
-  test "one-step budget 收窄显式 profile 的 bounded run budget" do
+  test "legacy 最多一步 text no longer caps budget without structured author_limits" do
     spec =
       DialoguePlanningService.run_spec_for_profile(
         :character_design_with_context,
         %{
           text: "先看看现有角色阵容，然后设计一个反派，最多一步",
+          workspace_id: "ws-budget",
+          work_id: "work-budget",
+          session_id: "session-budget",
+          turn_id: "turn-budget-legacy-text"
+        },
+        nil,
+        fn _ -> {:ok, %{content: "[]"}} end
+      )
+
+    assert spec.run_attrs.budget.max_steps > 1
+    refute Map.has_key?(spec.run_attrs.budget, :author_max_steps)
+  end
+
+  test "one-step budget 收窄显式 profile 的 bounded run budget" do
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :character_design_with_context,
+        %{
+          text: "先看看现有角色阵容，然后设计一个反派",
+          author_limits: %{max_steps: 1},
           workspace_id: "ws-budget",
           work_id: "work-budget",
           session_id: "session-budget",
@@ -506,7 +526,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       )
 
     assert spec.run_attrs.budget.max_steps == 1
-    assert spec.run_attrs.budget.max_tool_calls == 1
+    assert spec.run_attrs.budget.author_max_steps == 1
   end
 
   test "空文本被拒绝，不走非 agent 回退" do

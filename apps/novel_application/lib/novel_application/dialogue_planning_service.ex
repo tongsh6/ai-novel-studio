@@ -1686,15 +1686,35 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp run_budget(text, profile, _input) do
-    plan_overhead_budget(run_budget(text, profile))
+  defp run_budget(text, profile, input) do
+    text
+    |> run_budget(profile)
+    |> plan_overhead_budget()
+    |> apply_author_limit(input)
+  end
+
+  defp apply_author_limit(budget, input) do
+    case map_get(input, :author_limits) do
+      %{max_steps: steps} when is_integer(steps) and steps > 0 ->
+        budget
+        |> Map.put(:author_max_steps, steps)
+        |> Map.put(:max_steps, min(budget.max_steps, steps))
+
+      %{"max_steps" => steps} when is_integer(steps) and steps > 0 ->
+        budget
+        |> Map.put(:author_max_steps, steps)
+        |> Map.put(:max_steps, min(budget.max_steps, steps))
+
+      _ ->
+        budget
+    end
   end
 
   # 判断②续行余量（ADR-0025 CP3）：起草两段式多 1 次 reasoning 调用；模型计划修订
   # 已被判断②取代——每次续行 = 判断②两段 2 + 续行重产出步（占 1 步 1 工具、prose
   # 双调用上界 2），三维各按 max_replans 补足 backstop 余量（上限是兜底不是配额）。
-  # 作者显式"最多一步"预算（max_steps: 1 指纹）是硬约束：停等后无续行，不加余量，
-  # 只补起草 reasoning。
+  # 旧的 max_steps: 1 指纹分支保留为防御性代码，但不再由文本触发；
+  # 结构化作者预算在 run_budget/3 之后通过 author_max_steps 进入。
   defp plan_overhead_budget(%{max_steps: 1} = base) do
     %{base | max_provider_calls: base.max_provider_calls + 1}
   end
@@ -1943,20 +1963,9 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:ledger_reconciliation), do: @ledger_reconciliation_allowed_tools
   defp allowed_tools(:fact_inventory), do: @fact_inventory_allowed_tools
 
-  defp one_step_budget?(text) do
-    normalized = normalize_text(text)
-
-    contains_any?(normalized, [
-      "最多一步",
-      "只执行一步",
-      "预算一步",
-      "仅执行一步",
-      "最多 1 步",
-      "只执行 1 步",
-      "max one step",
-      "one step only"
-    ])
-  end
+  # 旧的字面预算短语兼容已移除。作者步数约束必须通过结构化
+  # UserMessageSubmission.author_limits 进入，不再解析自然语言。
+  defp one_step_budget?(_text), do: false
 
   defp durable_request?(text) do
     text

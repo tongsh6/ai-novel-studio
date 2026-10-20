@@ -1736,10 +1736,15 @@ defmodule NovelApplication.AgentRunServer do
     do: "已按你的授权执行接下来 #{count} 步。"
 
   defp author_limits_for_run(%AgentRun{} = run) do
-    if budget_author_override?(run.budget) do
-      %{}
-    else
-      AgentRunBudget.author_limits(run.goal.text)
+    cond do
+      budget_author_override?(run.budget) ->
+        %{}
+
+      steps = budget_value(run.budget, :author_max_steps, nil) ->
+        if is_integer(steps) and steps > 0, do: %{max_steps: steps}, else: %{}
+
+      true ->
+        %{}
     end
   end
 

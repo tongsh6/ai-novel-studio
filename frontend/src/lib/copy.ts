@@ -432,6 +432,8 @@ export const WORKBENCH = {
   agentRunAwaitingInputHint: "等待你的补充：输入具体方向后发送，任务才会继续。",
   agentRunBudgetShortfallHint: "预算不足：请选择恢复动作，或终止任务。",
   agentRunBudgetShortfallPlaceholder: "预算不足：请使用恢复动作或终止任务",
+  authorStepLimit: "本次只做一步",
+  authorStepLimitOn: "已设为只做一步",
   agentRunBudgetNextStep: "只执行下一步",
   agentRunBudgetNextSteps: (count: number) => `接下来 ${count} 步`,
   agentRunBudgetRemainingPlan: "允许执行剩余计划",

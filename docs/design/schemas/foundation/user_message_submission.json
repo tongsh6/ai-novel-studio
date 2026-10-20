@@ -75,6 +75,16 @@
     },
     "rejection_reason": {
       "type": "string"
+    },
+    "author_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_steps": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
     }
   }
 }

@@ -205,6 +205,7 @@ export async function sendMessage(
   generateMicroPlan = false,
   candidateSelection?: CandidateSelectionPayload | null,
   turnId = newUserMessageId(),
+  authorLimits: { max_steps: number } | null = null,
 ): Promise<SendMessageResult> {
   const message = UserMessageSubmissionSchema.parse({
     text,
@@ -215,6 +216,7 @@ export async function sendMessage(
     generate_micro_plan: generateMicroPlan,
     created_at: new Date().toISOString(),
     ...(candidateSelection ? { candidate_selection: candidateSelection } : {}),
+    ...(authorLimits ? { author_limits: authorLimits } : {}),
   });
   await saveUserMessage(message);
   return transmitUserMessage(channel, message);

@@ -24762,9 +24762,10 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
   await configureExternalRunProviderRuntime();
 
   const sliceId = "agentic-loop-budget-deviation-replan";
-  const message = "设计角色、大纲和正文改写计划，最多一步，测试预算余量不足";
+  const message = "设计角色、大纲和正文改写计划，测试预算余量不足";
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.getByRole("button", { name: "本次只做一步", exact: true }).click();
   const frameStart = frames.length;
   const logStart = readAppLogRecords().length;
 

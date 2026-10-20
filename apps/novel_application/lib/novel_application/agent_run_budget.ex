@@ -81,18 +81,6 @@ defmodule NovelApplication.AgentRunBudget do
     }
   end
 
-  @doc "作者显式预算约束；目前只识别“最多一步”族。"
-  @spec author_limits(String.t() | nil) :: author_limits()
-  def author_limits(goal_text) when is_binary(goal_text) do
-    if String.contains?(String.downcase(goal_text), "最多一步") do
-      %{max_steps: 1}
-    else
-      %{}
-    end
-  end
-
-  def author_limits(_goal_text), do: %{}
-
   @doc """
   Expand an existing run budget to fit the drafted plan.
 
@@ -124,7 +112,7 @@ defmodule NovelApplication.AgentRunBudget do
   provider calls); `:remaining_plan` authorizes enough worst-case cost for all
   plan steps. Both are absolute-hard-cap checked and leave `max_replans`
   unchanged. The returned budget carries an override marker so a later plan
-  patch does not re-apply an older "最多一步" text limit.
+  patch does not re-apply an older author step cap.
   """
   @spec authorized_expand(map(), map(), [map()], :next_step | :remaining_plan) ::
           {:ok, map()} | {:error, :hard_cap_reached | :invalid_recovery_mode}

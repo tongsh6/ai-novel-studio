@@ -1730,7 +1730,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       DialoguePlanningService.run_spec_for_profile(
         :character_design_with_context,
         %{
-          text: "先看看现有角色阵容，然后设计一个反派，最多一步",
+          text: "先看看现有角色阵容，然后设计一个反派",
+          author_limits: %{max_steps: 1},
           workspace_id: "ws-budget",
           work_id: "work-budget",
           session_id: "session-budget",
@@ -1765,7 +1766,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       DialoguePlanningService.run_spec_for_profile(
         :character_design_with_context,
         %{
-          text: "先看看现有角色阵容，然后设计一个反派，最多一步",
+          text: "先看看现有角色阵容，然后设计一个反派",
+          author_limits: %{max_steps: 1},
           workspace_id: "ws-budget",
           work_id: "work-budget",
           session_id: "session-budget",
