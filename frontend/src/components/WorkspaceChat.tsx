@@ -1993,6 +1993,8 @@ export function WorkspaceChat() {
   const canResumeAgentRun = latestAgentRun?.status === "paused" && latestAgentRunIsLive;
   const awaitingAuthorInputRequired =
     latestAgentRun?.status === "awaiting_author" && !latestAgentRunIsDead;
+  const budgetShortfallAwaiting =
+    awaitingAuthorInputRequired && awaitingAuthorBudgetShortfall(latestAgentRunEvents);
   const canCancelAgentRun =
     latestAgentRun !== null &&
     latestAgentRunIsLive &&
@@ -2012,12 +2014,15 @@ export function WorkspaceChat() {
     },
   );
   const hasPendingAgentRunAnchor = Object.keys(pendingAgentRunAnchors).length > 0;
-  const canRouteMainInputToAgentSteer = shouldRouteInputToAgentSteer({
-    latestAgentRun,
-    pendingAnswerBehaviorId: pendingAnswerBid,
-  });
+  const canRouteMainInputToAgentSteer =
+    !budgetShortfallAwaiting &&
+    shouldRouteInputToAgentSteer({
+      latestAgentRun,
+      pendingAnswerBehaviorId: pendingAnswerBid,
+    });
   const hasSteerInput = inputText.trim().length > 0;
   const canSubmitMainInput =
+    !budgetShortfallAwaiting &&
     hasSteerInput &&
     socketConnected &&
     !isPanelOpen &&
@@ -4912,15 +4917,15 @@ export function WorkspaceChat() {
                     onChange={(e) => setInputText(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={
-                      canRouteMainInputToAgentSteer
-                        ? awaitingAuthorInputRequired
-                          ? awaitingAuthorBudgetShortfall(latestAgentRunEvents)
-                            ? WORKBENCH.agentRunBudgetShortfallPlaceholder
-                            : WORKBENCH.agentRunAwaitingInputPlaceholder
-                          : WORKBENCH.agentRunMainInputSteerPlaceholder
-                        : hasActiveAgentRun && !latestAgentRunIsDead
-                          ? WORKBENCH.agentRunMainInputUnavailablePlaceholder
-                          : WORKBENCH.inputPlaceholder
+                      budgetShortfallAwaiting
+                        ? WORKBENCH.agentRunBudgetShortfallPlaceholder
+                        : canRouteMainInputToAgentSteer
+                          ? awaitingAuthorInputRequired
+                            ? WORKBENCH.agentRunAwaitingInputPlaceholder
+                            : WORKBENCH.agentRunMainInputSteerPlaceholder
+                          : hasActiveAgentRun && !latestAgentRunIsDead
+                            ? WORKBENCH.agentRunMainInputUnavailablePlaceholder
+                            : WORKBENCH.inputPlaceholder
                     }
                     disabled={
                       !socketConnected ||
