@@ -150,6 +150,11 @@ defmodule NovelApplication.AgentRunBudget do
     {:ok, {count + 1, count + 1, count * 2 + 1}}
   end
 
+  defp recovery_delta(_plan_steps, {:single_step, count})
+       when is_integer(count) and count > 0 do
+    {:ok, {2, 1, 2}}
+  end
+
   defp recovery_delta(plan_steps, :remaining_plan) do
     count = length(plan_steps)
     {:ok, {count + 1, count + 1, count * 2 + 1}}
@@ -172,6 +177,7 @@ defmodule NovelApplication.AgentRunBudget do
   end
 
   defp recovery_mode_label({:steps, count}), do: "steps:#{count}"
+  defp recovery_mode_label({:single_step, count}), do: "single_step:#{count}"
   defp recovery_mode_label(mode), do: Atom.to_string(mode)
 
   defp within_hard_caps?(budget) do

@@ -216,6 +216,10 @@ defmodule NovelApplication.AgentRunServer do
       not AgentRun.budget_exhausted?(state.run) ->
         {:reply, {:error, :budget_not_exhausted}, state}
 
+      match?({:single_step, _}, mode) ->
+        {:single_step, index} = mode
+        single_step_recovery(state, index)
+
       true ->
         plan_steps = plan_steps_from_plan(state.run.plan)
 
@@ -1665,9 +1669,12 @@ defmodule NovelApplication.AgentRunServer do
 
     extra_counts = if pending > 2, do: Enum.to_list(2..min(3, pending - 1)), else: []
 
+    single_step_counts = if pending > 1, do: Enum.to_list(2..min(3, pending)), else: []
+
     modes =
       [:next_step] ++
         Enum.map(extra_counts, &{:steps, &1}) ++
+        Enum.map(single_step_counts, &{:single_step, &1}) ++
         if(pending > 1, do: [:remaining_plan], else: [])
 
     modes
@@ -1702,6 +1709,95 @@ defmodule NovelApplication.AgentRunServer do
     }
   end
 
+  defp single_step_recovery(state, index) do
+    plan_steps = plan_steps_from_plan(state.run.plan)
+    execution = AgentRun.execution_steps(state.run)
+    start = execution + index - 1
+
+    with step when is_map(step) <- Enum.at(plan_steps, start),
+         selected <- selected_step_with_dependencies(plan_steps, step),
+         true <- selected != [] do
+      selected_ids = MapSet.new(selected, &plan_step_ref/1)
+      selected_steps = Enum.filter(plan_steps, &MapSet.member?(selected_ids, plan_step_ref(&1)))
+      plan = put_plan_steps(state.run.plan, selected_steps)
+
+      consumed = %{state.run.consumed_budget | execution_steps: 0}
+
+      case AgentRunBudget.authorized_expand(
+             state.run.budget,
+             consumed,
+             selected_steps,
+             :remaining_plan
+           ) do
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+
+        {:ok, budget} ->
+          state =
+            %{
+              state
+              | run: %{
+                  state.run
+                  | plan: plan,
+                    plan_version: state.run.plan_version + 1,
+                    budget: budget,
+                    consumed_budget: consumed
+                },
+                stage_state: Map.put(state.stage_state, :agent_plan_cursor, 0),
+                final_turn_result: nil
+            }
+            |> clear_interrupt()
+            |> put_run_status(:running)
+            |> put_run_phase(:executing)
+            |> emit(
+              :budget_expanded,
+              "已按你的授权只执行第 #{index} 步。",
+              ["author_budget_expanded", "single_step", "step_index_#{index}"],
+              [],
+              %{budget: budget, mode: "single_step", step_count: length(selected_steps)}
+            )
+            |> persist_run_state()
+
+          {:reply,
+           {:ok,
+            %{
+              run_id: state.run.run_id,
+              mode: "single_step",
+              step_count: length(selected_steps),
+              status: "running",
+              budget: budget
+            }}, state, {:continue, :run_next_step}}
+      end
+    else
+      _ -> {:reply, {:error, :step_index_out_of_range}, state}
+    end
+  end
+
+  defp selected_step_with_dependencies(plan_steps, step) do
+    wanted = MapSet.new([plan_step_ref(step)])
+
+    expand_dependencies(plan_steps, wanted)
+    |> Enum.map(fn ref -> Enum.find(plan_steps, &(plan_step_ref(&1) == ref)) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp expand_dependencies(plan_steps, wanted) do
+    next =
+      plan_steps
+      |> Enum.filter(&MapSet.member?(wanted, plan_step_ref(&1)))
+      |> Enum.flat_map(fn step -> List.wrap(map_value(step, :depends_on)) end)
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+
+    expanded = Enum.reduce(next, wanted, &MapSet.put(&2, &1))
+
+    if MapSet.size(expanded) == MapSet.size(wanted),
+      do: expanded,
+      else: expand_dependencies(plan_steps, expanded)
+  end
+
+  defp put_plan_steps(plan, steps) when is_map(plan), do: Map.put(plan, :steps, steps)
+
   defp recovery_action_names(:next_step), do: {"next_step", "agentRunBudget.next_step"}
 
   defp recovery_action_names(:remaining_plan),
@@ -1711,22 +1807,34 @@ defmodule NovelApplication.AgentRunServer do
     {"next_steps_#{count}", "agentRunBudget.next_steps"}
   end
 
+  defp recovery_action_names({:single_step, count}) do
+    {"single_step_#{count}", "agentRunBudget.single_step"}
+  end
+
   defp valid_recovery_mode?(:next_step), do: true
   defp valid_recovery_mode?(:remaining_plan), do: true
   defp valid_recovery_mode?({:steps, count}), do: is_integer(count) and count > 0
+  defp valid_recovery_mode?({:single_step, count}), do: is_integer(count) and count > 0
   defp valid_recovery_mode?(_mode), do: false
 
   defp recovery_step_count({:steps, count}), do: count
+  defp recovery_step_count({:single_step, _count}), do: 1
   defp recovery_step_count(:next_step), do: 1
   defp recovery_step_count(:remaining_plan), do: nil
 
   defp recovery_mode_label({:steps, count}), do: "steps:#{count}"
+  defp recovery_mode_label({:single_step, count}), do: "single_step:#{count}"
   defp recovery_mode_label(mode), do: Atom.to_string(mode)
 
   defp recovery_mode_payload({:steps, count}), do: %{mode: "steps", step_count: count}
+  defp recovery_mode_payload({:single_step, _count}), do: %{mode: "single_step", step_count: 1}
   defp recovery_mode_payload(mode), do: %{mode: Atom.to_string(mode)}
 
   defp recovery_mode_reason_codes({:steps, count}), do: ["steps", "step_count_#{count}"]
+
+  defp recovery_mode_reason_codes({:single_step, count}),
+    do: ["single_step", "step_index_#{count}"]
+
   defp recovery_mode_reason_codes(mode), do: [Atom.to_string(mode)]
 
   defp budget_expanded_summary(:next_step), do: "已按你的授权再执行一步。"
@@ -1734,6 +1842,9 @@ defmodule NovelApplication.AgentRunServer do
 
   defp budget_expanded_summary({:steps, count}),
     do: "已按你的授权执行接下来 #{count} 步。"
+
+  defp budget_expanded_summary({:single_step, count}),
+    do: "已按你的授权只执行第 #{count} 步。"
 
   defp author_limits_for_run(%AgentRun{} = run) do
     cond do

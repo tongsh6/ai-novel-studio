@@ -1259,7 +1259,7 @@ describe("native Tauri slice verifier", () => {
         awaiting_turn_result_status: "awaiting_author",
         awaiting_turn_result_action_types: [
           "agent_run_budget_next_step",
-          "agent_run_budget_next_steps_2",
+          "agent_run_budget_single_step_2",
           "agent_run_budget_remaining_plan",
         ],
         consumed_steps_before_action: 4,
@@ -1270,10 +1270,10 @@ describe("native Tauri slice verifier", () => {
         pre_action_completed_turn_result_arrived: false,
         pre_action_tool_started_event_count: 0,
         budget_expanded_event_count: 1,
-        budget_expanded_mode: "steps",
-        budget_expanded_step_count: 2,
+        budget_expanded_mode: "single_step",
+        budget_expanded_step_count: 1,
         post_action_run_status: "running",
-        post_action_max_steps: 4,
+        post_action_max_steps: 2,
         log_sync_turn_count: 0,
         log_toolbox_execute_count: 0,
       },
@@ -1291,10 +1291,10 @@ describe("native Tauri slice verifier", () => {
       execution_steps_before_action: 1,
       consumed_tool_calls_before_action: 1,
       budget_expanded_event_count: 1,
-      budget_expanded_mode: "steps",
-      budget_expanded_step_count: 2,
+      budget_expanded_mode: "single_step",
+      budget_expanded_step_count: 1,
       post_action_run_status: "running",
-      post_action_max_steps: 4,
+      post_action_max_steps: 2,
     });
     expect(evidence.awaiting_reason_codes).toEqual(
       expect.arrayContaining(["plan_budget_shortfall"]),
@@ -1302,7 +1302,7 @@ describe("native Tauri slice verifier", () => {
     expect(evidence.awaiting_turn_result_action_types).toEqual(
       expect.arrayContaining([
         "agent_run_budget_next_step",
-        "agent_run_budget_next_steps_2",
+        "agent_run_budget_single_step_2",
         "agent_run_budget_remaining_plan",
       ]),
     );
@@ -1314,7 +1314,7 @@ describe("native Tauri slice verifier", () => {
       assertions: expect.arrayContaining([
         "d5_budget_shortfall_is_author_visible_with_plan_budget_shortfall",
         "awaiting_turn_result_carries_available_actions",
-        "author_two_step_action_expands_budget_and_resumes_same_run",
+        "author_arbitrary_step_action_expands_budget_and_resumes_same_run",
         "no_plan_revised_before_author_action",
       ]),
     });

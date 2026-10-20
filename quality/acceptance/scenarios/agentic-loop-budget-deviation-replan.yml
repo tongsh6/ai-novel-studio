@@ -28,9 +28,9 @@ user_flow:
   - wait_for: bounded AgentRun fast ack
   - wait_for: plan_drafted with more than one plan step
   - wait_for: one plan step executes, then awaiting_author with plan_budget_shortfall
-  - wait_for: TurnResult status awaiting_author with next-step, next-two-steps, and remaining-plan choices
-  - click: "接下来 2 步"
-  - wait_for: budget_expanded with mode steps, step_count 2, same run status running
+  - wait_for: TurnResult status awaiting_author with next-step, arbitrary-step, and remaining-plan choices
+  - click: "只执行第 2 步"
+  - wait_for: budget_expanded with mode single_step, step_count 1, same run status running
   - verify: no plan_revised and no completed TurnResult before the author action
 
 evidence:
@@ -46,10 +46,10 @@ assertions:
     - parent user_message receives bounded run_id before terminal awaiting_author state
     - plan_drafted plan_steps has length > 1
     - awaiting_author reason_codes include budget_exhausted and plan_budget_shortfall
-    - awaiting TurnResult carries agent_run_budget_next_step, agent_run_budget_next_steps_2, and agent_run_budget_remaining_plan
+    - awaiting TurnResult carries agent_run_budget_next_step, agent_run_budget_single_step_2, agent_run_budget_single_step_3, and agent_run_budget_remaining_plan
     - execution_steps_before_action is 1 while total planning+execution steps is higher
-    - clicking next-two steps emits budget_expanded mode=steps with step_count=2
-    - same run state reaches running with max_steps >= 4 after the action
+    - clicking execute-step-2 emits budget_expanded mode=single_step with step_count=1
+    - same run state reaches running with max_steps >= 2 after the action
     - no plan_revised event is emitted before the author action
   data:
     - channel logs bounded run ack and never logs sync_turn fallback

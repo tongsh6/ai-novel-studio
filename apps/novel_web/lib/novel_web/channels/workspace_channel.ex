@@ -1211,6 +1211,14 @@ defmodule NovelWeb.WorkspaceChannel do
     handle_author_budget_action(socket, action_input, source_turn_result)
   end
 
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: "agent_run_budget_single_step_" <> _} = action_input,
+         source_turn_result
+       ) do
+    handle_author_budget_action(socket, action_input, source_turn_result)
+  end
+
   # CP4c（VS-00F §3.3 / AU-13）：审读报告逐项裁决。面板发起的作者动作，不依赖
   # turn available_actions（报告是档案对象非 turn 产物）；幂等由 author_action
   # receipt 机制承接。revise_* 返回 follow_up——前端据此回对话流发起修订意图
@@ -1515,6 +1523,13 @@ defmodule NovelWeb.WorkspaceChannel do
   defp budget_recovery_mode("agent_run_budget_next_steps_" <> count) do
     case Integer.parse(count) do
       {value, ""} when value > 0 -> {:steps, value}
+      _ -> :invalid_recovery_mode
+    end
+  end
+
+  defp budget_recovery_mode("agent_run_budget_single_step_" <> count) do
+    case Integer.parse(count) do
+      {value, ""} when value > 0 -> {:single_step, value}
       _ -> :invalid_recovery_mode
     end
   end

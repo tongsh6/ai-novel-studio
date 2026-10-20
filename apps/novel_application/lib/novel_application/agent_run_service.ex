@@ -434,6 +434,7 @@ defmodule NovelApplication.AgentRunService do
   defp valid_recovery_mode?(:next_step), do: true
   defp valid_recovery_mode?(:remaining_plan), do: true
   defp valid_recovery_mode?({:steps, count}), do: is_integer(count) and count > 0
+  defp valid_recovery_mode?({:single_step, count}), do: is_integer(count) and count > 0
   defp valid_recovery_mode?(_mode), do: false
 
   @doc """

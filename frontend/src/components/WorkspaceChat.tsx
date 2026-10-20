@@ -2496,6 +2496,9 @@ export function WorkspaceChat() {
     const nextStepsMatch = /^agent_run_budget_next_steps_(\d+)$/.exec(action.action_type);
     if (nextStepsMatch) return WORKBENCH.agentRunBudgetNextSteps(Number(nextStepsMatch[1]));
 
+    const singleStepMatch = /^agent_run_budget_single_step_(\d+)$/.exec(action.action_type);
+    if (singleStepMatch) return WORKBENCH.agentRunBudgetSingleStep(Number(singleStepMatch[1]));
+
     if (action.action_type === "agent_run_budget_remaining_plan")
       return WORKBENCH.agentRunBudgetRemainingPlan;
     if (action.action_type === "confirm_before_execute") return WORKBENCH.actionConfirm;
