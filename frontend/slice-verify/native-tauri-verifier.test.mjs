@@ -1272,6 +1272,8 @@ describe("native Tauri slice verifier", () => {
         budget_expanded_event_count: 1,
         budget_expanded_mode: "selected_steps",
         budget_expanded_step_count: 2,
+        scope_checkpoint_arrived: true,
+        scope_checkpoint_action_types: ["agent_run_budget_next_step"],
         post_action_run_status: "running",
         post_action_max_steps: 3,
         log_sync_turn_count: 0,
@@ -1293,6 +1295,7 @@ describe("native Tauri slice verifier", () => {
       budget_expanded_event_count: 1,
       budget_expanded_mode: "selected_steps",
       budget_expanded_step_count: 2,
+      scope_checkpoint_arrived: true,
       post_action_run_status: "running",
       post_action_max_steps: 3,
     });

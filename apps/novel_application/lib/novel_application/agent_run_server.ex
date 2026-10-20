@@ -213,7 +213,7 @@ defmodule NovelApplication.AgentRunServer do
       state.run.status != :awaiting_author ->
         {:reply, {:error, :not_awaiting_author}, state}
 
-      not AgentRun.budget_exhausted?(state.run) ->
+      not AgentRun.budget_exhausted?(state.run) and not scope_checkpoint?(state) ->
         {:reply, {:error, :budget_not_exhausted}, state}
 
       match?({:selected_steps, _}, mode) ->
@@ -540,23 +540,35 @@ defmodule NovelApplication.AgentRunServer do
     step = Map.get(result, :step)
     observations = Map.get(result, :observations, [])
 
-    state =
+    common =
       state
       |> apply_run_patch(Map.get(result, :run_patch))
       |> maybe_mark_step_completed(step)
       |> add_consumed_budget(result)
       |> add_observations(observations)
-      |> maybe_store_final_turn_result(turn_result)
       |> add_pending_artifacts(artifact_refs)
       |> persist_step_result(step, observations)
       |> emit_observations(observations)
-      |> maybe_emit_artifact_created(artifact_refs, turn_result)
-      |> maybe_emit_turn_result(artifact_refs, turn_result)
-      |> maybe_emit_loop_decision(Map.get(result, :loop_decision))
-      |> maybe_apply_loop_status(loop_status, Map.get(result, :loop_decision))
-      |> maybe_stop_budget_exhausted()
 
-    persist_run_state(state)
+    if selection_scope_checkpoint?(state, loop_status, turn_result) do
+      state =
+        common
+        |> settle_selection_checkpoint(selection_scope(state))
+        |> persist_run_state()
+
+      state
+    else
+      state =
+        common
+        |> maybe_store_final_turn_result(turn_result)
+        |> maybe_emit_artifact_created(artifact_refs, turn_result)
+        |> maybe_emit_turn_result(artifact_refs, turn_result)
+        |> maybe_emit_loop_decision(Map.get(result, :loop_decision))
+        |> maybe_apply_loop_status(loop_status, Map.get(result, :loop_decision))
+        |> maybe_stop_budget_exhausted()
+
+      persist_run_state(state)
+    end
   end
 
   # ── S7（ADR-0024 #121）：对话流中不允许存在「run 停了但没有下文」的终局 ──
@@ -1627,6 +1639,76 @@ defmodule NovelApplication.AgentRunServer do
     end)
   end
 
+  defp selection_scope(state) do
+    case Map.get(state.stage_state, :selection_scope) do
+      %{remaining_steps: remaining} when is_list(remaining) and remaining != [] ->
+        %{remaining_steps: remaining}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp selection_scope_checkpoint?(state, loop_status, turn_result) do
+    selection_scope(state) != nil and
+      (loop_status == :completed or turn_result_status(turn_result) == "completed")
+  end
+
+  defp turn_result_status(result) when is_map(result) do
+    result[:status] || result["status"]
+  end
+
+  defp turn_result_status(_result), do: nil
+
+  defp settle_selection_checkpoint(state, %{remaining_steps: remaining}) do
+    plan = put_plan_steps(state.run.plan, remaining)
+    consumed = %{state.run.consumed_budget | execution_steps: 0}
+
+    run = %{
+      state.run
+      | plan: plan,
+        plan_version: state.run.plan_version + 1,
+        consumed_budget: consumed
+    }
+
+    summary =
+      "已执行选中的步骤。\n" <>
+        remaining_steps_section(
+          remaining_step_lines(
+            %{run | consumed_budget: %{consumed | execution_steps: 0}},
+            remaining
+          )
+        )
+
+    turn_result = budget_shortfall_turn_result(%{run | status: :awaiting_author}, summary)
+
+    _ =
+      TurnInteractionService.record_result(
+        %{run | status: :awaiting_author},
+        turn_result,
+        state.interaction_store
+      )
+
+    state =
+      %{
+        state
+        | run: run,
+          stage_state:
+            state.stage_state
+            |> Map.delete(:selection_scope)
+            |> Map.put(:scope_checkpoint, true)
+            |> Map.put(:agent_plan_cursor, 0),
+          final_turn_result: turn_result
+      }
+      |> put_run_status(:awaiting_author)
+      |> put_run_phase(:stopped)
+      |> emit(:awaiting_author, summary, ["scope_checkpoint", "plan_budget_shortfall"], [], %{
+        turn_result: turn_result
+      })
+
+    state
+  end
+
   # S7（ADR-0024）：预算缺口不是「run 停了但没有下文」。同一 await 事件携带
   # 作者决策面 TurnResult；动作只做显式预算授权，不自动扩预算，不绕过绝对硬上限。
   defp settle_budget_shortfall(state, summary, reason_codes) do
@@ -1759,7 +1841,15 @@ defmodule NovelApplication.AgentRunServer do
       {:reply, {:error, :step_selection_invalid}, state}
     else
       selected = expand_selected_steps(remaining, selected)
-      apply_selection_recovery(state, selected, "selected_steps", length(selected))
+      remaining_steps = remaining_steps_after(plan_steps, selected)
+
+      apply_selection_recovery(
+        state,
+        selected,
+        remaining_steps,
+        "selected_steps",
+        length(selected)
+      )
     end
   end
 
@@ -1774,7 +1864,12 @@ defmodule NovelApplication.AgentRunServer do
     |> Enum.filter(&MapSet.member?(expanded, plan_step_ref(&1)))
   end
 
-  defp apply_selection_recovery(state, selected_steps, mode, step_count) do
+  defp remaining_steps_after(plan_steps, selected_steps) do
+    selected = MapSet.new(selected_steps, &plan_step_ref/1)
+    Enum.reject(plan_steps, &MapSet.member?(selected, plan_step_ref(&1)))
+  end
+
+  defp apply_selection_recovery(state, selected_steps, remaining_steps, mode, step_count) do
     plan = put_plan_steps(state.run.plan, selected_steps)
     consumed = %{state.run.consumed_budget | execution_steps: 0}
 
@@ -1798,7 +1893,11 @@ defmodule NovelApplication.AgentRunServer do
                   budget: budget,
                   consumed_budget: consumed
               },
-              stage_state: Map.put(state.stage_state, :agent_plan_cursor, 0),
+              stage_state:
+                state.stage_state
+                |> Map.put(:agent_plan_cursor, 0)
+                |> Map.put(:scope_checkpoint, false)
+                |> Map.put(:selection_scope, %{remaining_steps: remaining_steps}),
               final_turn_result: nil
           }
           |> clear_interrupt()
@@ -1835,6 +1934,7 @@ defmodule NovelApplication.AgentRunServer do
          true <- selected != [] do
       selected_ids = MapSet.new(selected, &plan_step_ref/1)
       selected_steps = Enum.filter(plan_steps, &MapSet.member?(selected_ids, plan_step_ref(&1)))
+      remaining_steps = remaining_steps_after(plan_steps, selected_steps)
       plan = put_plan_steps(state.run.plan, selected_steps)
 
       consumed = %{state.run.consumed_budget | execution_steps: 0}
@@ -1859,7 +1959,10 @@ defmodule NovelApplication.AgentRunServer do
                     budget: budget,
                     consumed_budget: consumed
                 },
-                stage_state: Map.put(state.stage_state, :agent_plan_cursor, 0),
+                stage_state:
+                  state.stage_state
+                  |> Map.put(:agent_plan_cursor, 0)
+                  |> Map.put(:selection_scope, %{remaining_steps: remaining_steps}),
                 final_turn_result: nil
             }
             |> clear_interrupt()
@@ -1982,6 +2085,8 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp budget_author_override?(_budget), do: false
+
+  defp scope_checkpoint?(state), do: Map.get(state.stage_state, :scope_checkpoint) == true
 
   defp execute_step_fun(step_fun, run, sequence, snapshot) when is_function(step_fun, 3),
     do: step_fun.(run, sequence, snapshot)

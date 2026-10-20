@@ -24951,6 +24951,18 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     30_000,
   );
 
+  const checkpoint = await waitForNewFrame(
+    frames.indexOf(budgetExpanded) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.status === "awaiting_author" &&
+      String(frame.body?.assistant_message?.text ?? "").includes("已执行选中的步骤"),
+    "D5 selected-step scope did not restore the remaining plan checkpoint",
+    60_000,
+  );
+
   await sleep(500);
   const framesAfterAction = frames.slice(frames.indexOf(budgetExpanded));
   const logsAfterAction = readAppLogRecords().slice(logStart);
@@ -24988,6 +25000,10 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       budget_expanded_event_count: 1,
       budget_expanded_mode: budgetExpanded.body?.payload?.mode ?? null,
       budget_expanded_step_count: budgetExpanded.body?.payload?.step_count ?? null,
+      scope_checkpoint_arrived: true,
+      scope_checkpoint_action_types: (checkpoint.body?.available_actions ?? []).map(
+        (action) => action.action_type,
+      ),
       post_action_run_status: runningState.body?.status,
       post_action_max_steps: runningState.body?.budget?.max_steps,
       post_action_consumed_steps: runningState.body?.consumed_budget?.steps,
