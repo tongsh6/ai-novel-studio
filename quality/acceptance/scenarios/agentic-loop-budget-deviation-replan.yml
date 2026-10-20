@@ -33,6 +33,8 @@ user_flow:
   - click: "执行选中的 2 步"
   - wait_for: budget_expanded with mode selected_steps, step_count 2, same run status running
   - wait_for: restored remaining-plan checkpoint TurnResult after selected steps complete
+  - click: "保存到大纲" on the checkpoint artifact
+  - wait_for: accept action result accepted
   - verify: no plan_revised and no completed TurnResult before the author action
 
 evidence:
@@ -54,6 +56,7 @@ assertions:
     - same run state reaches running with max_steps >= 3 after the action
     - selected scope completion restores remaining plan and emits a new awaiting_author checkpoint
     - checkpoint includes pending adopted artifacts and their accept/discard actions
+    - checkpoint artifact can be accepted through the real UI
     - no plan_revised event is emitted before the author action
   data:
     - channel logs bounded run ack and never logs sync_turn fallback

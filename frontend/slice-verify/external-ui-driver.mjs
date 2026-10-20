@@ -24963,6 +24963,21 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     60_000,
   );
 
+  const acceptButton = page.getByRole("button", { name: "保存到大纲", exact: true }).first();
+  await acceptButton.waitFor({ state: "visible", timeout: 10_000 });
+  await acceptButton.click();
+
+  const acceptResult = await waitForNewFrame(
+    frames.indexOf(checkpoint) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      ["accept", "adopt"].includes(frame.body?.action_type) &&
+      ["accepted", "applied"].includes(frame.body?.status),
+    "checkpoint artifact adoption did not publish an accept action result",
+    30_000,
+  );
+
   await sleep(500);
   const framesAfterAction = frames.slice(frames.indexOf(budgetExpanded));
   const logsAfterAction = readAppLogRecords().slice(logStart);
@@ -25003,6 +25018,8 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       scope_checkpoint_arrived: true,
       scope_checkpoint_adoption_pending_count: (checkpoint.body?.adoption_state?.pending ?? [])
         .length,
+      checkpoint_accept_action_status: acceptResult.body?.status,
+      checkpoint_accept_action_type: acceptResult.body?.action_type,
       scope_checkpoint_action_types: (checkpoint.body?.available_actions ?? []).map(
         (action) => action.action_type,
       ),

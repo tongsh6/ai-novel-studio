@@ -1274,6 +1274,8 @@ describe("native Tauri slice verifier", () => {
         budget_expanded_step_count: 2,
         scope_checkpoint_arrived: true,
         scope_checkpoint_adoption_pending_count: 1,
+        checkpoint_accept_action_type: "adopt",
+        checkpoint_accept_action_status: "accepted",
         scope_checkpoint_action_types: [
           "agent_run_budget_next_step",
           "accept",
@@ -1303,6 +1305,8 @@ describe("native Tauri slice verifier", () => {
       budget_expanded_step_count: 2,
       scope_checkpoint_arrived: true,
       scope_checkpoint_adoption_pending_count: 1,
+      checkpoint_accept_action_type: "adopt",
+      checkpoint_accept_action_status: "accepted",
       post_action_run_status: "running",
       post_action_max_steps: 3,
     });
