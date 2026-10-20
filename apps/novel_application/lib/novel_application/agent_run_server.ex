@@ -225,42 +225,46 @@ defmodule NovelApplication.AgentRunServer do
         single_step_recovery(state, index)
 
       true ->
-        plan_steps = plan_steps_from_plan(state.run.plan)
+        expand_standard_recovery(state, mode)
+    end
+  end
 
-        case AgentRunBudget.authorized_expand(
-               state.run.budget,
-               state.run.consumed_budget,
-               plan_steps,
-               mode
-             ) do
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
+  defp expand_standard_recovery(state, mode) do
+    plan_steps = plan_steps_from_plan(state.run.plan)
 
-          {:ok, budget} ->
-            state =
-              %{state | run: %{state.run | budget: budget}, final_turn_result: nil}
-              |> clear_interrupt()
-              |> put_run_status(:running)
-              |> put_run_phase(:executing)
-              |> emit(
-                :budget_expanded,
-                budget_expanded_summary(mode),
-                ["author_budget_expanded" | recovery_mode_reason_codes(mode)],
-                [],
-                Map.merge(%{budget: budget}, recovery_mode_payload(mode))
-              )
-              |> persist_run_state()
+    case AgentRunBudget.authorized_expand(
+           state.run.budget,
+           state.run.consumed_budget,
+           plan_steps,
+           mode
+         ) do
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
 
-            {:reply,
-             {:ok,
-              %{
-                run_id: state.run.run_id,
-                mode: recovery_mode_label(mode),
-                step_count: recovery_step_count(mode),
-                status: "running",
-                budget: budget
-              }}, state, {:continue, :run_next_step}}
-        end
+      {:ok, budget} ->
+        state =
+          %{state | run: %{state.run | budget: budget}, final_turn_result: nil}
+          |> clear_interrupt()
+          |> put_run_status(:running)
+          |> put_run_phase(:executing)
+          |> emit(
+            :budget_expanded,
+            budget_expanded_summary(mode),
+            ["author_budget_expanded" | recovery_mode_reason_codes(mode)],
+            [],
+            Map.merge(%{budget: budget}, recovery_mode_payload(mode))
+          )
+          |> persist_run_state()
+
+        {:reply,
+         {:ok,
+          %{
+            run_id: state.run.run_id,
+            mode: recovery_mode_label(mode),
+            step_count: recovery_step_count(mode),
+            status: "running",
+            budget: budget
+          }}, state, {:continue, :run_next_step}}
     end
   end
 
