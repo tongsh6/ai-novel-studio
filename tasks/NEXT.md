@@ -131,8 +131,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 | B17 | **awaiting_author writer timeout 出口**（DS03 post-closure，2026-10-21 用户定向插单）：prose writer 连续 timeout 后，assistant 活动行显示真实失败原因，控制坞提供「先写第一场（500 字）」scoped steer；不新增裸 continue、不改 AgentRun 主架构。 | **局部测试绿（2026-10-21）**：后端 1,572 / 前端 487；`compile --warnings-as-errors`、xref、arch_check 通过；真实页面/真实模型短验收待跑（不复用旧长跑）。 |
 | B18 | **D4 high-risk prose gate 失效**（CP-AB 复跑实锤，2026-10-21）：`mechanical_prose_retry_step` 未继承原 prose 步 `risk_hint`，第一次 gate 拦截后 retry 合成步以默认 low 绕过确认。 | **已修（2026-10-21）**：续行合成步继承 `risk_hint`；`slice_verify` 对 Orchestrator gate/tool failure 优先判 await；`agentic-loop-gate-deviation-replan` 真实 Tauri 复跑 PASS（awaiting_author + D4 + writer 未派发）。 |
-| B19 | **D5 budget deviation scenario drift**（2026-10-21）：`agentic-loop-budget-deviation-replan` 未产预期 provider-sourced `plan_revised`；根因升级为 B20（预算写死）。 | **并入 B20**；CP-AB 不以此场景为通过证据。 |
-| B20 | **动态 AgentRun 预算**（`tasks/slices/UA01-dynamic-agent-run-budget.md`）：计划派生执行预算 + 规划/执行分账 + 作者“最多一步”约束 + 绝对硬上限；不改 prompt/provider，不简单调大常量。 | **CP0/CP1/CP2 done；CP4 design done（2026-10-21，待实现）**：纯策略 9/9；运行时按计划扩容、作者 cap、预算缺口诚实停等（`plan_budget_shortfall`）；CP3 作者可见扩大预算、CP4 driver/verifier 重做待办；优先于 CP-AB 收口。 |
+| B19 | **D5 budget deviation scenario drift**（2026-10-21）：`agentic-loop-budget-deviation-replan` 未产预期 provider-sourced `plan_revised`；根因升级为 B20（预算写死）。 | **并入 B20**；shortfall 场景已 PASS，但 D5 `plan_revised` 可收缩路径仍由 CP4b 覆盖，CP-AB 不以本场景为 D5 证据。 |
+| B20 | **动态 AgentRun 预算**（`tasks/slices/UA01-dynamic-agent-run-budget.md`）：计划派生执行预算 + 规划/执行分账 + 作者“最多一步”约束 + 绝对硬上限；不改 prompt/provider，不简单调大常量。 | **CP0/CP1/CP2 done；CP4 shortfall PASS（2026-10-21）**：纯策略 9/9；真实 Tauri 4 步计划 + 作者 `max_steps=1` → `plan_budget_shortfall` 停等，0 tool / 0 replan / 无 final TurnResult；CP3 作者可见扩大预算、CP4b D5 可收缩 `plan_revised` 路径仍 gap；优先于 CP-AB 收口。 |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 

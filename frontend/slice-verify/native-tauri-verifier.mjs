@@ -6320,22 +6320,16 @@ function findAgenticLoopBudgetDeviationReplanEvidence(records) {
       record.plain_input_sent_from_real_workbench === true &&
       record.parent_fast_ack_before_terminal === true &&
       record.run_mode === "bounded" &&
-      record.profile_ref === "conversation_turn_v1" &&
-      boolValue(record.plan_revised_visible) === true &&
-      Number(record.plan_revised_event_count ?? 0) >= 1 &&
-      (record.plan_revised_reason_codes ?? []).includes("agentic_deviation:D5") &&
-      Number(record.plan_revised_plan_version ?? 0) === 2 &&
-      boolValue(record.plan_revised_evaluation_plan_holds) === false &&
-      record.plan_revised_author_narrative_source_type === "provider_output" &&
-      String(record.plan_revised_revision_reason ?? "").includes("剩余 step 预算不足") &&
-      record.context_result_visible === true &&
-      record.awaiting_event_type === "awaiting_author" &&
+      record.profile_ref === "judgment_plan_v1" &&
+      Number(record.plan_drafted_event_count ?? 0) >= 1 &&
+      Number(record.plan_step_count ?? 0) > 1 &&
+      Number(record.plan_revised_event_count ?? -1) === 0 &&
+      (record.awaiting_reason_codes ?? []).includes("plan_budget_shortfall") &&
       record.terminal_status === "awaiting_author" &&
-      Number(record.consumed_steps ?? 0) === 1 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 2 &&
-      Number(record.consumed_replans ?? 0) === 1 &&
+      Number(record.consumed_replans ?? -1) === 0 &&
       boolValue(record.final_turn_result_arrived) === false &&
+      Number(record.tool_started_event_count ?? -1) === 0 &&
       Number(record.log_sync_turn_count ?? -1) === 0 &&
       Number(record.log_toolbox_execute_count ?? -1) === 0,
   );
@@ -6360,12 +6354,12 @@ function findAgenticLoopBudgetDeviationReplanEvidence(records) {
     parent_turn_id: parentTurnId,
     run_id: runId,
     profile_ref: uiState.profile_ref,
+    plan_step_count: Number(uiState.plan_step_count ?? 0),
+    awaiting_reason_codes: uiState.awaiting_reason_codes ?? [],
     consumed_steps: Number(uiState.consumed_steps ?? 0),
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
     consumed_replans: Number(uiState.consumed_replans ?? 0),
-    plan_revised_plan_version: Number(uiState.plan_revised_plan_version ?? 0),
-    plan_revised_revision_reason: String(uiState.plan_revised_revision_reason ?? ""),
     key_events: keyEvents,
   };
 }
@@ -6380,45 +6374,38 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
       record.run_id === evidence.run_id,
   );
   if (!uiState) return null;
-  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.profile_ref !== "judgment_plan_v1") return null;
   if (uiState.parent_fast_ack_before_terminal !== true) return null;
-  if (boolValue(uiState.plan_revised_visible) !== true) return null;
-  if (Number(uiState.plan_revised_event_count ?? 0) < 1) return null;
-  if (!(uiState.plan_revised_reason_codes ?? []).includes("agentic_deviation:D5")) return null;
-  if (Number(uiState.plan_revised_plan_version ?? 0) !== 2) return null;
-  if (boolValue(uiState.plan_revised_evaluation_plan_holds) !== false) return null;
-  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
-  if (!String(uiState.plan_revised_revision_reason ?? "").includes("剩余 step 预算不足")) {
-    return null;
-  }
-  if (uiState.context_result_visible !== true) return null;
+  if (Number(uiState.plan_drafted_event_count ?? 0) < 1) return null;
+  if (Number(uiState.plan_step_count ?? 0) <= 1) return null;
+  if (Number(uiState.plan_revised_event_count ?? -1) !== 0) return null;
+  if (!(uiState.awaiting_reason_codes ?? []).includes("plan_budget_shortfall")) return null;
   if (uiState.terminal_status !== "awaiting_author") return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 1) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
   if (boolValue(uiState.final_turn_result_arrived) !== false) return null;
+  if (Number(uiState.tool_started_event_count ?? -1) !== 0) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? -1) !== 0) return null;
 
   return {
     slice_id: "agentic-loop-budget-deviation-replan",
-    behavior: "budget_shortfall_triggers_provider_sourced_replan_before_awaiting_author",
+    behavior: "budget_shortfall_stops_awaiting_author_before_dispatch",
     turn_ids: turnIds,
     parent_turn_id: evidence.parent_turn_id,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
+    plan_step_count: evidence.plan_step_count,
+    awaiting_reason_codes: evidence.awaiting_reason_codes,
     consumed_steps: evidence.consumed_steps,
     consumed_tool_calls: evidence.consumed_tool_calls,
     consumed_provider_calls: evidence.consumed_provider_calls,
     consumed_replans: evidence.consumed_replans,
-    plan_revised_plan_version: evidence.plan_revised_plan_version,
-    plan_revised_revision_reason: evidence.plan_revised_revision_reason,
     assertions: [
       "real_tauri_input_expressed_budget_limit_in_user_visible_language",
-      "d5_budget_shortfall_promoted_to_provider_sourced_plan_revised",
-      "runtime_consumed_one_replan_budget",
-      "run_waited_for_author_without_final_turn_or_tool_execution",
+      "d5_budget_shortfall_is_author_visible_without_plan_revised",
+      "no_writer_or_tool_dispatch_after_budget_shortfall",
+      "run_waited_for_author_without_final_turn",
       "channel_did_not_use_dialogue_fallback_main_chain",
     ],
   };

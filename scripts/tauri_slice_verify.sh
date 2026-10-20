@@ -972,7 +972,7 @@ native_action_description() {
       echo "send a D6 conversation AgentRun from the real workbench -> verify AgentPlan draft and revision structures are carried by provider-native tool calls"
       ;;
     agentic-loop-budget-deviation-replan)
-      echo "send a budget-limited conversation AgentRun from the real workbench -> verify D5 budget shortfall triggers provider-sourced plan_revised before awaiting author"
+      echo "send a budget-limited conversation AgentRun from the real workbench -> verify D5 budget shortfall stops at awaiting_author with plan_budget_shortfall and no plan_revised"
       ;;
     agentic-loop-tool-failure-replan)
       echo "send a prose AgentRun whose writer provider fails -> verify D1 tool failure triggers provider-sourced plan_revised before awaiting author"

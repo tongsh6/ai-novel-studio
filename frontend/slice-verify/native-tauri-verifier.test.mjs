@@ -1233,7 +1233,7 @@ describe("native Tauri slice verifier", () => {
     ).toBeNull();
   });
 
-  it("requires D5 budget deviation plan revision evidence before awaiting author", () => {
+  it("requires D5 budget shortfall evidence before awaiting author", () => {
     const records = [
       {
         event: "channel.user_message.done",
@@ -1250,77 +1250,74 @@ describe("native Tauri slice verifier", () => {
         plain_input_sent_from_real_workbench: true,
         parent_fast_ack_before_terminal: true,
         run_mode: "bounded",
-        profile_ref: "conversation_turn_v1",
-        plan_revised_visible: true,
-        plan_revised_event_count: 1,
-        plan_revised_reason_codes: [
-          "agent_plan_revised",
-          "conversation_plan_drafted",
-          "agentic_deviation",
-          "agentic_deviation:D5",
-        ],
-        plan_revised_target_tool_ref: "context_assemble",
-        plan_revised_plan_version: 2,
-        plan_revised_revision_reason: "D5 偏离信号：剩余 step 预算不足以走完当前计划。",
-        plan_revised_evaluation_plan_holds: false,
-        plan_revised_author_narrative_source_type: "provider_output",
-        context_result_visible: true,
-        awaiting_event_type: "awaiting_author",
+        profile_ref: "judgment_plan_v1",
+        plan_drafted_event_count: 1,
+        plan_step_count: 4,
+        plan_revised_event_count: 0,
+        awaiting_reason_codes: ["budget_exhausted", "plan_budget_shortfall"],
         terminal_status: "awaiting_author",
-        consumed_steps: 1,
+        consumed_steps: 3,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 2,
-        consumed_replans: 1,
+        consumed_provider_calls: 4,
+        consumed_replans: 0,
         final_turn_result_arrived: false,
+        tool_started_event_count: 0,
         log_sync_turn_count: 0,
         log_toolbox_execute_count: 0,
       },
     ];
 
     const evidence = findNativeSliceEvidence("agentic-loop-budget-deviation-replan", records);
-    expect(evidence).toEqual({
+    expect(evidence).toMatchObject({
       slice_id: "agentic-loop-budget-deviation-replan",
       turn_id: "turn-d5",
       turn_ids: ["turn-d5"],
       parent_turn_id: "turn-d5",
       run_id: "run-d5",
-      profile_ref: "conversation_turn_v1",
-      consumed_steps: 1,
+      profile_ref: "judgment_plan_v1",
+      plan_step_count: 4,
       consumed_tool_calls: 0,
-      consumed_provider_calls: 2,
-      consumed_replans: 1,
-      plan_revised_plan_version: 2,
-      plan_revised_revision_reason: "D5 偏离信号：剩余 step 预算不足以走完当前计划。",
-      key_events: keyEventsForSlice("agentic-loop-budget-deviation-replan"),
     });
+    expect(evidence.awaiting_reason_codes).toEqual(
+      expect.arrayContaining(["plan_budget_shortfall"]),
+    );
     expect(
       findSliceBehaviorEvidence("agentic-loop-budget-deviation-replan", records, evidence),
     ).toMatchObject({
       slice_id: "agentic-loop-budget-deviation-replan",
-      behavior: "budget_shortfall_triggers_provider_sourced_replan_before_awaiting_author",
+      behavior: "budget_shortfall_stops_awaiting_author_before_dispatch",
       assertions: expect.arrayContaining([
-        "d5_budget_shortfall_promoted_to_provider_sourced_plan_revised",
-        "runtime_consumed_one_replan_budget",
-        "run_waited_for_author_without_final_turn_or_tool_execution",
+        "d5_budget_shortfall_is_author_visible_without_plan_revised",
+        "no_writer_or_tool_dispatch_after_budget_shortfall",
+        "run_waited_for_author_without_final_turn",
       ]),
     });
 
-    const wrongProviderBudgetRecords = records.map((record) =>
-      record.event === "slice_verify.ui_state.done"
-        ? { ...record, consumed_provider_calls: 3 }
-        : record,
-    );
-    expect(
-      findNativeSliceEvidence("agentic-loop-budget-deviation-replan", wrongProviderBudgetRecords),
-    ).toBeNull();
-
     const missingD5Records = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, plan_revised_reason_codes: ["agent_plan_revised"] }
+        ? { ...record, awaiting_reason_codes: ["budget_exhausted"] }
         : record,
     );
     expect(
       findNativeSliceEvidence("agentic-loop-budget-deviation-replan", missingD5Records),
+    ).toBeNull();
+
+    const toolDispatchRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, tool_started_event_count: 1 }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agentic-loop-budget-deviation-replan", toolDispatchRecords),
+    ).toBeNull();
+
+    const planRevisedRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, plan_revised_event_count: 1 }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agentic-loop-budget-deviation-replan", planRevisedRecords),
     ).toBeNull();
   });
 

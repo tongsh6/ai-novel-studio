@@ -59,7 +59,7 @@
 | `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 计划耗尽后触发 provider-sourced `plan_revised` 并继续完成对话 |
 | `agentic-loop-no-deviation-direct.yml` | ADR-0023 无偏离直通路径只消费起草计划且不触发重规划 |
 | `agent-plan-native-tool-calling-protocol.yml` | ADR-0023 CP4 证明 AgentPlan draft/revision 结构来自 provider-native tool calls，activity telemetry 只暴露 count/name |
-| `agentic-loop-budget-deviation-replan.yml` | ADR-0023 D5 预算余量不足触发 provider-sourced `plan_revised` 并消耗 replan budget |
+| `agentic-loop-budget-deviation-replan.yml` | ADR-0023 D5 预算缺口先发出 `plan_budget_shortfall` 停等作者，不自动扩预算、不派发工具或伪完成 |
 | `agentic-loop-tool-failure-replan.yml` | ADR-0023 D1 工具失败触发 provider-sourced `plan_revised` 并消耗 replan budget |
 | `agentic-loop-quality-deviation-replan.yml` | ADR-0023 D2 质量行动项触发 provider-sourced `plan_revised` 并消耗 replan budget |
 | `agentic-loop-gate-deviation-replan.yml` | ADR-0023 D4 Orchestrator gate deny 触发 provider-sourced `plan_revised` 且不绕过 gate |

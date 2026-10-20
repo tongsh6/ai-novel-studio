@@ -1,5 +1,5 @@
 id: agentic-loop-budget-deviation-replan
-title: ADR-0023 D5 预算余量不足时先修订计划
+title: ADR-0023 D5 预算缺口先诚实停等作者
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agentic-loop-budget-deviation-replan --surface tauri
@@ -10,9 +10,9 @@ contract:
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - d5-budget-shortfall-triggers-provider-sourced-replan
-  - replan-budget-is-counted
-  - planner-does-not-approve-tool-execution
+  - d5-budget-shortfall-stops-before-dispatch
+  - budget-shortfall-is-author-visible
+  - no-auto-budget-expansion-or-bypass
   - no-acceptance-hook-in-production
 
 setup:
@@ -20,12 +20,11 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - send: plain conversation input expressing "先聊方向 / 不写正文 / 最多一步"
+  - send: plain conversation input "设计角色、大纲和正文改写计划，最多一步，测试预算余量不足"
   - wait_for: bounded AgentRun fast ack
-  - wait_for: provider-sourced plan_revised with reason code agentic_deviation:D5
-  - wait_for: first revised context step completes
-  - wait_for: run stops at awaiting_author after consuming one replan budget
-  - verify: no tool call, no final TurnResult, no sync_turn fallback
+  - wait_for: plan_drafted with more than one plan step
+  - wait_for: awaiting_author with reason code plan_budget_shortfall
+  - verify: no plan_revised, no tool call, no final TurnResult, no sync_turn fallback
 
 evidence:
   required:
@@ -38,9 +37,10 @@ evidence:
 assertions:
   network:
     - parent user_message receives bounded run_id before terminal awaiting_author state
-    - plan_revised carries plan_version=2, evaluation_of_last.plan_holds=false, and provider_output narrative source
-    - plan_revised reason_codes include agentic_deviation:D5
-    - final agent_run_state records status=awaiting_author, steps=1, tool_calls=0, provider_calls=2, replans=1
+    - plan_drafted plan_steps has length > 1
+    - awaiting_author reason_codes include budget_exhausted and plan_budget_shortfall
+    - no plan_revised event is emitted for the budget-limited run
+    - final agent_run_state records status=awaiting_author, consumed_tool_calls=0, consumed_replans=0
   data:
     - channel logs bounded run ack and never logs sync_turn fallback
     - no toolbox.execute event is emitted

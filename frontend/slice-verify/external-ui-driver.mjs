@@ -24762,7 +24762,7 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
   await configureExternalRunProviderRuntime();
 
   const sliceId = "agentic-loop-budget-deviation-replan";
-  const message = "只聊方向，最多一步，测试预算余量不足";
+  const message = "设计角色、大纲和正文改写计划，最多一步，测试预算余量不足";
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   const frameStart = frames.length;
@@ -24770,17 +24770,6 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
-  await page.waitForFunction(
-    () => {
-      const text = document.body.innerText;
-      return (
-        text.includes("创作执行") &&
-        (text.includes("准备中") || text.includes("进行中") || text.includes("正在启动创作执行"))
-      );
-    },
-    {},
-    { timeout: 3_000 },
-  );
 
   const sentFrame = await waitForNewFrame(
     frameStart,
@@ -24788,7 +24777,7 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       frame.direction === "sent" &&
       frame.event === "user_message" &&
       String(frame.body?.text ?? "") === message,
-    "D5 budget deviation request was not sent from the real workbench input",
+    "D5 budget shortfall request was not sent from the real workbench input",
     30_000,
   );
 
@@ -24806,7 +24795,7 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
         response.run_id !== ""
       );
     },
-    "D5 budget deviation did not fast-ack with bounded run_id",
+    "D5 budget shortfall did not fast-ack with bounded run_id",
     30_000,
   );
   const runId = ackFrame.body.response.run_id;
@@ -24818,81 +24807,84 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "run_started",
-    "D5 budget deviation did not broadcast run_started",
+    "D5 budget shortfall did not broadcast run_started",
     30_000,
   );
 
-  const planRevisedFrame = await waitForNewFrame(
+  const planDrafted = await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_revised" &&
-      Number(frame.body?.payload?.plan_version ?? 0) === 2 &&
-      frame.body?.payload?.evaluation_of_last?.plan_holds === false &&
-      (frame.body?.reason_codes ?? []).includes("agentic_deviation:D5") &&
-      String(frame.body?.payload?.plan_revision?.revision_reason ?? "").includes(
-        "剩余 step 预算不足",
-      ) &&
-      frame.body?.payload?.author_narrative_source?.source_type === "provider_output",
-    "D5 budget deviation did not publish provider-sourced plan_revised",
-    30_000,
+      frame.body?.event_type === "plan_drafted",
+    "D5 budget shortfall did not draft a plan",
+    60_000,
   );
 
-  const contextResultFrame = await waitForNewFrame(
-    frames.indexOf(planRevisedFrame) + 1,
+  const planSteps = Array.isArray(planDrafted.body?.payload?.plan_steps)
+    ? planDrafted.body.payload.plan_steps
+    : [];
+  assert(planSteps.length > 1, `D5 plan must need multiple steps, got ${planSteps.length}`);
+
+  const awaiting = await waitForNewFrame(
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
-      frame.body?.event_type === "goal_understood" &&
-      String(frame.body?.summary ?? "").includes("已组装当前作品上下文"),
-    "D5 budget deviation did not execute the first revised plan step",
-    30_000,
+      frame.body?.event_type === "awaiting_author" &&
+      (frame.body?.reason_codes ?? []).includes("plan_budget_shortfall"),
+    "D5 budget shortfall did not stop awaiting author with plan_budget_shortfall",
+    60_000,
   );
 
-  const awaitingFrame = await waitForNewFrame(
-    frames.indexOf(contextResultFrame) + 1,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "awaiting_author",
-    "D5 budget deviation did not stop awaiting author after replan budget was consumed",
-    30_000,
-  );
-
-  const awaitingStateFrame = await waitForNewFrame(
+  const awaitingState = await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
-      frame.body?.status === "awaiting_author" &&
-      frame.body?.profile_ref === "conversation_turn_v1" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.replans ?? 0) === 1,
-    "D5 budget deviation did not broadcast awaiting_author state with consumed replan",
+      frame.body?.status === "awaiting_author",
+    "D5 budget shortfall did not broadcast awaiting_author state",
     30_000,
   );
 
   await sleep(750);
+  const framesAfter = frames.slice(frameStart);
   const logsAfter = readAppLogRecords().slice(logStart);
   const parentUserMessageLog = logsAfter.find(
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
-  const finalTurnResultArrived = frames
-    .slice(frameStart)
-    .some(
-      (frame) =>
-        frame.direction === "received" &&
-        frame.event === "turn_result" &&
-        frame.body?.agent_run?.run_id === runId,
-    );
-  assert(!finalTurnResultArrived, "D5 budget deviation emitted a final TurnResult");
+  const finalTurnResultArrived = framesAfter.some(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId,
+  );
+  assert(!finalTurnResultArrived, "D5 budget shortfall emitted a final TurnResult");
 
-  const visibleText = await page.locator("body").innerText();
+  const toolStartedEventCount = framesAfter.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "tool_started",
+  ).length;
+  assert(toolStartedEventCount === 0, "D5 budget shortfall dispatched a tool");
+
+  const planRevisedEventCount = framesAfter.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_revised",
+  ).length;
+  assert(
+    planRevisedEventCount === 0,
+    "D5 budget shortfall revised the plan instead of stopping for the author",
+  );
+
   const uiState = await commonUiState(
     page,
     { turn_id: parentUserMessageLog?.turn_id ?? "" },
@@ -24906,29 +24898,21 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       parent_turn_id: parentUserMessageLog?.turn_id,
       run_id: runId,
       run_mode: ackFrame.body.response.run_mode,
-      profile_ref: awaitingStateFrame.body?.profile_ref,
+      profile_ref: awaitingState.body?.profile_ref,
       plain_input_sent_from_real_workbench: true,
-      parent_fast_ack_before_terminal: frames.indexOf(ackFrame) < frames.indexOf(awaitingFrame),
-      plan_revised_visible: true,
-      plan_revised_event_count: 1,
-      plan_revised_reason_codes: planRevisedFrame.body?.reason_codes ?? [],
-      plan_revised_target_tool_ref: planRevisedFrame.body?.payload?.target_tool_ref ?? null,
-      plan_revised_plan_version: planRevisedFrame.body?.payload?.plan_version ?? null,
-      plan_revised_revision_reason:
-        planRevisedFrame.body?.payload?.plan_revision?.revision_reason ?? "",
-      plan_revised_evaluation_plan_holds:
-        planRevisedFrame.body?.payload?.evaluation_of_last?.plan_holds,
-      plan_revised_author_narrative_source_type:
-        planRevisedFrame.body?.payload?.author_narrative_source?.source_type,
-      context_result_visible: contextResultFrame.body?.event_type === "goal_understood",
-      awaiting_event_type: awaitingFrame.body?.event_type,
-      awaiting_reason_codes: awaitingFrame.body?.reason_codes ?? [],
-      terminal_status: awaitingStateFrame.body?.status,
-      consumed_steps: awaitingStateFrame.body?.consumed_budget?.steps,
-      consumed_tool_calls: awaitingStateFrame.body?.consumed_budget?.tool_calls,
-      consumed_provider_calls: awaitingStateFrame.body?.consumed_budget?.provider_calls,
-      consumed_replans: awaitingStateFrame.body?.consumed_budget?.replans,
+      parent_fast_ack_before_terminal: frames.indexOf(ackFrame) < frames.indexOf(awaiting),
+      plan_drafted_event_count: 1,
+      plan_step_count: planSteps.length,
+      plan_revised_event_count: planRevisedEventCount,
+      awaiting_event_type: "awaiting_author",
+      awaiting_reason_codes: awaiting.body?.reason_codes ?? [],
+      terminal_status: awaitingState.body?.status,
+      consumed_steps: awaitingState.body?.consumed_budget?.steps,
+      consumed_tool_calls: awaitingState.body?.consumed_budget?.tool_calls,
+      consumed_provider_calls: awaitingState.body?.consumed_budget?.provider_calls,
+      consumed_replans: awaitingState.body?.consumed_budget?.replans,
       final_turn_result_arrived: finalTurnResultArrived,
+      tool_started_event_count: toolStartedEventCount,
       log_sync_turn_count: logsAfter.filter(
         (record) =>
           record.event === "channel.user_message.done" &&
@@ -24937,10 +24921,6 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       log_toolbox_execute_count: logsAfter.filter(
         (record) => record.event === "toolbox.execute.done",
       ).length,
-      ui_agentic_loop_plan_visible:
-        visibleText.includes("计划") &&
-        (visibleText.includes("重规划") || visibleText.includes("修订")),
-      ui_awaiting_author_visible: visibleText.includes("等待你确认"),
       user_message_text: sentFrame.body?.text,
     },
   ];

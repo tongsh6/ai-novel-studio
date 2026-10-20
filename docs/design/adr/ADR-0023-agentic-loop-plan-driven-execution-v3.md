@@ -303,7 +303,7 @@ writer 生成 sibling tentative revision draft。真实 Tauri `p1-prose-revision
 | D2 质量行动 | `artifacts/slice-verify/agentic-loop-quality-deviation-replan-tauri/summary.json` | 2 steps / 1 tool / 5 provider calls / 1 replan；质量 `confirm` 可产出 pending candidate TurnResult，但 `AgentRun` summary 必须仍是 `awaiting_author`。 |
 | D3 作者 steer | `artifacts/slice-verify/agent-natural-language-steer-tauri/summary.json` | 主输入 steer 命中同一 active run，消耗 1 次 replan budget，且不创建第二个作者 turn/run。 |
 | D4 gate deny / require_confirmation | `artifacts/slice-verify/agentic-loop-gate-deviation-replan-tauri/summary.json` | 2 steps / 0 tool / 3 provider calls / 1 replan；`gate_decision_type=require_confirmation`、`gate_first_blocking_gate=authority`，writer provider 未 dispatch。 |
-| D5 预算不足 | `artifacts/slice-verify/agentic-loop-budget-deviation-replan-tauri/summary.json` | 1 step / 0 tool / 2 provider calls / 1 replan；剩余 step 预算不足触发 replan，无 final TurnResult 或 tool execution。 |
+| D5 预算不足 | `artifacts/slice-verify/agentic-loop-budget-deviation-replan-tauri/summary.json` | **B20 后当前口径**：4 步计划 + 作者 `max_steps=1` → `plan_budget_shortfall` 停等；3 steps / 0 tool / 4 provider calls / 0 replan；无 `plan_revised`、final TurnResult 或 tool execution。D5 `plan_revised`（仍有预算余量且计划可收缩）当前无 fresh scenario，CP4b gap。 |
 | D7 确定性缺口 | `artifacts/slice-verify/agentic-loop-deterministic-gap-replan-tauri/summary.json` | 2 steps / 0 tool / 3 provider calls / 1 replan；允许 UI transient `tool_started` progress，但 `tool_completed_event_count=0` 且 `log_toolbox_execute_count=0`，writer/toolbox 未执行。 |
 
 实现检查点（2026-07-05，CP4 AgentPlan 原生 tool calling 协议闭环）：`AgenticPlanDraftPlanner`
