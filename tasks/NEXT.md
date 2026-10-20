@@ -6,6 +6,13 @@
 >
 > **仪式（硬约束）**：每个工作周期开工先读本文件队首；收尾必须更新本文件。跑偏的根因就是这条仪式中断（2026-07-19 统筹复盘）。
 
+**Goal G-B20+AB（2026-10-21，自动推进）**：关闭 B20 动态 AgentRun 预算与作者步骤控制闭环；同时完成 CP-AB 的收口审计与状态决定。CP-AB 不得在冻结纪律未满足时标 Frozen。
+
+完成判据：
+
+- B20：结构化作者一步约束 → 规划/执行分账 → 单步/多选/剩余步骤 → 选中 scope 执行 → 剩余计划 checkpoint → checkpoint 草稿可采纳 → 真实 Tauri PASS。
+- CP-AB：重跑前缀度量、核对冻结纪律、记录厂商凭据边界、明确 D5 legacy 口径，并给出 `Proposed` / `Frozen` 的可辩护决定；若冻结条件不足，关闭 active 工作并把触发条件写清，不伪造 Frozen。
+
 ---
 
 ## 1. Current Focus
@@ -80,7 +87,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | Q1a | A | D7-overwrite 不变量修复（三刀实落，B 按钮显式 rewrite 未采——场景语义改为作者显式消息更合 D7 契约）：①喂前文改产品事实判别（目标章有已采纳正文即喂，治 M10c 盲写）②**判断②续行合成步继承计划步写作坐标**（真根因：rewrite 意图在偏离处理后蒸发→append 绕过覆盖确认；D8 病理 run 内实例，详 D7 slice 档 §4 追记）③驱动 cycle2 改作者显式「推翻重写」消息 | **done（2026-08-31）** | ✓ 全三条：overwrite-confirm PASS + expansion 不回归 + prior_prose_chars 缺 intent 仍出现（app-log 151 chars + flow 单测） |
 | Q1b | A | BIZ-06：已有候选的对话修订/放弃、重新登记与编辑状态 | **done（2026-10-18）** | 三项页面专项、十轮实模数据链及最终四轮上下文/回执实模通过；Journey C10 |
 | Q1c | A | 已采纳内容的修订、保留/替代与后续上下文核查（`tasks/slices/Q1C-adopted-content-revision.md`，CP1–CP4/CP5 done） | **done（2026-10-21）** | 正式 browser 场景 PASS + 四条拒绝矩阵 + follow-up 新值；详见 slice §4B |
-| T6-AB | A | UA01 T6 CP-AB：prompt 前缀稳定性观测 + 首个实证（`contracts/VS-00I` §9：离线前缀共享度量、全厂商 TTFT、矩阵待核实回填、调用对工具恒定、续行 call1/call2 重排；顺带收口 VS-00H P1 activity 投影 `system_identity_ref`） | **next（2026-10-21；A1/A2/B3/B1/B2 完成；MBC stub 1.0、LM Studio TTFT 1365ms；au02 + gate deviation PASS，budget deviation 仍有既有 drift；继续厂商凭据与 CP-AB 收口）** | 度量对续行调用对给出"改前≈L0 / 改后 call2≈call1 全长"；I-CACHE-2 绿；MBC 不退化且 call1 无工具调用倾向；各可达厂商 `cached_tokens` / TTFT 基线落 `artifacts/`；activity API 可见 `system_identity_ref` |
+| T6-AB | A | UA01 T6 CP-AB：prompt 前缀稳定性观测 + 首个实证（`contracts/VS-00I` §9） | **closed with boundary（2026-10-21，Goal G-B20+AB）**：A1/A2/B1/B2/B3 + MBC stub 完成；前缀 780/1940 (0.4021) 未达“call2≈call1 全长”；厂商 shell 凭据全 unset；VS-00I 保持 Proposed。恢复条件：提供厂商凭据 + 进入 CP-D/CP-C，或显式缩减契约范围。 | 冻结条件未满足，不标 Frozen；I-CACHE-2 绿；LM Studio TTFT 1365ms；D5 legacy 已 superseded |
+| AB-RESUME | A | CP-AB 恢复前置：至少一个目标厂商凭据 + CP-D/CP-C/CP-E（`contracts/VS-00I` §13） | **next**（blocked：当前厂商 shell 凭据全部 unset；需作者提供至少一个目标厂商 key 或显式缩减契约范围） | 凭据可用后完成 CP-D/CP-C/CP-E，并重新判断 VS-00I 是否满足 Frozen |
 | T7 | A | 系统身份消息层（`docs/design/contracts/VS-00H-system-identity-message-contract-pack.md`；`tasks/slices/UA01-agentic-loop-prompt-hardening.md` T7） | **done（CP1–CP3 实现完成；live vendor cache / developer UI 后置）** | CP1 身份模块 + Gateway 唯一注入 + ProviderRun `system_identity_ref`；CP2 去 18 处产品自称 + I-SYS-2 守卫；CP3 `cached_tokens` 可见。Proof：gateway focused tests + 全量 `mix test` + 一条既有 slice_verify 场景 + I1/I2/I3 |
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **done（2026-08-30）** | 提交 `8b03a9db`；00 §2.1、README 原则 12/13、VS-00D 结果对账已入档 |
 | Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
@@ -132,7 +140,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | B17 | **awaiting_author writer timeout 出口**（DS03 post-closure，2026-10-21 用户定向插单）：prose writer 连续 timeout 后，assistant 活动行显示真实失败原因，控制坞提供「先写第一场（500 字）」scoped steer；不新增裸 continue、不改 AgentRun 主架构。 | **局部测试绿（2026-10-21）**：后端 1,572 / 前端 487；`compile --warnings-as-errors`、xref、arch_check 通过；真实页面/真实模型短验收待跑（不复用旧长跑）。 |
 | B18 | **D4 high-risk prose gate 失效**（CP-AB 复跑实锤，2026-10-21）：`mechanical_prose_retry_step` 未继承原 prose 步 `risk_hint`，第一次 gate 拦截后 retry 合成步以默认 low 绕过确认。 | **已修（2026-10-21）**：续行合成步继承 `risk_hint`；`slice_verify` 对 Orchestrator gate/tool failure 优先判 await；`agentic-loop-gate-deviation-replan` 真实 Tauri 复跑 PASS（awaiting_author + D4 + writer 未派发）。 |
 | B19 | **D5 budget deviation scenario drift**（2026-10-21）：`agentic-loop-budget-deviation-replan` 未产预期 provider-sourced `plan_revised`；根因升级为 B20（预算写死）。 | **并入 B20**；shortfall TurnResult + 作者恢复动作已 PASS。CP4b 调查确认旧 conversation D5 `plan_revised` 路径已删除、当前不可达；CP-AB 不以本场景为 D5 证据。 |
-| B20 | **动态 AgentRun 预算**（`tasks/slices/UA01-dynamic-agent-run-budget.md`）：计划派生执行预算 + 规划/执行分账 + 作者步骤选择 + 绝对硬上限；作者一步约束走结构化 author_limits，不再解析“最多一步”文本；不改 prompt/provider，不简单调大常量。 | **CP0-CP4 + CP2c done（2026-10-21）**：纯策略 13/13、runtime 49/0；`execution_steps` 只随 AgentPlan cursor 增长，规划开销不占执行步；shortfall TurnResult 支持 checkbox 多选并保留“下一步 / 单步 / 剩余全部”；真实 Tauri PASS（输入区“本次只做一步”发送 author_limits，不靠文本口令）（总账 3 步、执行 1 步、0 tool，勾选 2 步 → `budget_expanded` selected_steps/2 + running/max_steps=3；选中步骤完成后恢复剩余计划 checkpoint）；**CP4b legacy 不可达**。下一步：真正“缩小计划/任意勾选重规划”动作；优先于 CP-AB 收口。 |
+| B20 | **动态 AgentRun 预算**（`tasks/slices/UA01-dynamic-agent-run-budget.md`）：计划派生执行预算 + 规划/执行分账 + 作者步骤选择 + 绝对硬上限；作者一步约束走结构化 author_limits，不再解析“最多一步”文本。 | **done（2026-10-21，Goal G-B20）**：CP0-CP4 + CP2c + Phase 3a/3b/3c 完成；真实 Tauri 覆盖 author_limits、selected_steps/2、剩余计划 checkpoint、checkpoint 草稿采纳；CP4b legacy `plan_revised` superseded。 |
 
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 
@@ -156,6 +164,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
   current fact / follow-up 新值均成立。新增歧义、stale、跨作品拒绝测试与 discard
   矩阵；persistence 层增加 revision target 的 stale/cross-work 事务 guard。诚实边界：
   Q1c-specific 证据为 browser surface；AU-05/AU-09 Tauri 回归场景漂移未计入通过证据。
+  2026-10-21 — **Goal G-B20+AB 收口**：B20 完成；CP-AB 重新度量仍为 continuation `780/1940 (0.4021)`、conversation `525/6686 (0.0785)`，冻结纪律“call2 共享前缀 ≈ call1 全长”未满足；厂商 shell 凭据全部 unset，只有 LM Studio 单次 TTFT 基线；D5 legacy 已 superseded。决定：CP-AB active 工作关闭，VS-00I 保持 Proposed，不伪造 Frozen；恢复条件为厂商凭据 + CP-D/CP-C，或显式缩减契约范围。
+
   队列在 Q1c/VS-00H/DS03 分别提交后转 T6-AB。
 
 - 2026-10-21 — **DS03 post-closure：writer timeout 出口**（用户定向插单）。stage 实跑

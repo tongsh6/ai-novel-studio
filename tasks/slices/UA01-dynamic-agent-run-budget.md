@@ -1,6 +1,6 @@
 # UA01 动态 AgentRun 预算：计划派生 + 硬上限
 
-- 状态：**active / CP2c 执行步分账 + CP3 N-step 选择 PASS（2026-10-21）；CP4b legacy 不可达**
+- 状态：**done（2026-10-21，Goal G-B20）**；CP4b legacy `plan_revised` superseded
 - 类型：AgentRun Runtime / Execution Authority / Budget Policy Slice
 - 来源：B18/B19 排查；`agentic-loop-budget-deviation-replan` 失败；用户拍板“核心是预算写死”
 - 父决策：ADR-0023（计划驱动执行 / D5 预算偏离）、VS-01（执行授权）、ADR-0027（作者义务）
@@ -78,7 +78,7 @@ AgentRun 启动
 | CP2 | 运行时接线：plan 后派生执行预算；规划/执行分账；D5 语义 | **CP2a/CP2b-1/CP2b-2 done**；**CP2c done（2026-10-21）**：`execution_steps` 从 `stage_state.agent_plan_cursor` 同步，规划/判断不计执行步；计划 patch 预留 1 个收束 token；pure 13/13、runtime 49/0 | **done** |
 | CP3 | 作者约束与预算可见性 | **done（2026-10-21）**：输入区提供“本次只做一步”结构化 `author_limits`，不再解析文本口令；shortfall TurnResult 列出剩余步骤，支持 checkbox 多选与下一步/单步/剩余全部动作 | **done** |
 | CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS：规划 3 步、执行 1 步后 shortfall；作者勾选 2 步 → `budget_expanded` selected_steps/2，同一 run running，max_steps=3；选中步骤完成后恢复剩余计划并再次 `awaiting_author` | **multi-select PASS（2026-10-21）** |
-| CP4b | D5 `plan_revised` 余量可收缩路径 | 调查结果：该路径属于已删除的 conversation flow；当前 D5 只在 prose continuation 中，且 plan-derived budget + “只做一步”约束下不存在“仍有剩余但不足”的可达情形 | **blocked / superseded（2026-10-21）** |
+| CP4b | D5 `plan_revised` 余量可收缩路径 | 调查结果：该路径属于已删除的 conversation flow；当前 D5 只在 prose continuation 中，且 plan-derived budget + “只做一步”约束下不存在“仍有剩余但不足”的可达情形 | **superseded（2026-10-21，Goal G-B20 关闭）** |
 
 ### 4.1 CP2b-2 最小设计（待确认后动代码）
 
@@ -189,3 +189,14 @@ TAURI_SLICE_VERIFY_TIMEOUT_SECONDS=90 \
 - B20 优先于 CP-AB 收口：D5 场景是 CP-AB 的 deviation 证据之一，预算写死会让该证据长期失真。
 - B20 不修 CP-AB 的 prompt/前缀；只修预算派生与 D5 语义。
 - B18/D4 已修；B19/D5 由本 slice 收口。
+
+## 8. 完成判据（Goal G-B20，2026-10-21）
+
+- [x] 作者“本次只做一步”走结构化 `author_limits`，文本口令不生效；
+- [x] `execution_steps` 只随 AgentPlan cursor 增长，规划开销不占执行步；
+- [x] 预算不足 TurnResult 提供下一步 / 单步 / 多选 / 剩余全部；
+- [x] 选中 scope 执行后恢复未执行剩余计划；
+- [x] checkpoint 重新投影 pending artifacts，并可通过真实 UI 采纳；
+- [x] 真实 Tauri `agentic-loop-budget-deviation-replan` PASS；
+- [x] 全量后端、前端、native verifier、静态扫描闭环；
+- [x] CP4b legacy `plan_revised` 明确 superseded，不再作为 B20 完成条件。

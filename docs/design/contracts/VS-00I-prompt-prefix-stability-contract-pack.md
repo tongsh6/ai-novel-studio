@@ -262,3 +262,14 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 - `08` §9.1 `cached_tokens`、§17 trace：TTFT 与命中数是 §17.1 "latency / usage" 的细化。
 - `UA01-agentic-loop-prompt-hardening.md` T6：承重入口，原"prompt 静态段前置（KV cache 友好）"一句展开为本文 CP-AB → D → C → E。
 - `tasks/NEXT.md` B4 / B8：B4 是 live 厂商矩阵的凭据门控（§6.2 基线依赖）；B8 是本地推理上下文配置的运维先例（§5 LM Studio 行运行侧前提）。
+
+---
+
+## 13. CP-AB 收口决定（2026-10-21，Goal G-B20+AB）
+
+- 状态保持 **Proposed**；CP-AB active 工作关闭。
+- 重新度量：continuation `780/1940 (0.4021)`、conversation `525/6686 (0.0785)`；未达到“call2 共享前缀 ≈ call1 全长”的冻结纪律。
+- 厂商 shell 凭据全部 unset；当前只有 LM Studio 单次短流式 TTFT=1365ms，不具备全厂商 live 基线。
+- D5 `plan_revised` 场景已判定 legacy/superseded，不能作为 CP-AB 冻结证据。
+- **恢复条件**：提供至少目标厂商凭据并完成 CP-D/CP-C/CP-E，或由作者显式缩减契约范围并重新定义冻结判据。
+- 在此之前，不再以 CP-AB 名义改 prompt；不得把局部度量、stub MBC 或单一 LM Studio TTFT 冒充全量 Frozen。
