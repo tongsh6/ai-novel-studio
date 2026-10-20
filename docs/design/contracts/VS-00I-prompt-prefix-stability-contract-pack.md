@@ -143,7 +143,7 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 | Kimi（Moonshot） | 自动 context cache（另有显式 cache API） | 待核实 | 无 | `usage.cached_tokens` | — | **待核实** |
 | 智谱 GLM | 部分模型自动缓存 | 待核实 | 无 | `prompt_tokens_details.cached_tokens` | — | **待核实** |
 | MiniMax（海外 / 国内） | 待核实 | 待核实 | 无 | 待核实 | — | **待核实** |
-| LM Studio（llama.cpp） | 推理槽位 KV 前缀复用 | 无门槛；逐 token | 无 | `usage.prompt_tokens` / `completion_tokens` / `total_tokens` / `completion_tokens_details.reasoning_tokens`；**无 `cached_tokens`** → 以 adapter 首 delta 的 `ttft_ms` 为代理（§6.2） | 实测：`qwen3.8-flash-next@q2_k`，context 262144，parallel **3**，TTL 空（未关闭空闲驱逐）。与“并行预测=1”前提不一致；live 命中测量须单会话并记录冲掉风险 | **已核实（2026-10-21，usage 字段）**；TTFT live 基线未跑 |
+| LM Studio（llama.cpp） | 推理槽位 KV 前缀复用 | 无门槛；逐 token | 无 | `usage.prompt_tokens` / `completion_tokens` / `total_tokens` / `completion_tokens_details.reasoning_tokens`；**无 `cached_tokens`** → 以 adapter 首 delta 的 `ttft_ms` 为代理（§6.2） | 实测：`qwen3.8-flash-next@q2_k`，context 262144，parallel **3**，TTL 空（未关闭空闲驱逐）。与“并行预测=1”前提不一致；live 命中测量须单会话并记录冲掉风险 | **已核实（2026-10-21）**：usage 无 cache 字段；短流式调用 TTFT=1365ms / latency=1366ms（token 计数为 0，流式 usage 未返回）。 |
 | Stub / SliceVerify | 无 | — | 无 | — | — | 不适用 |
 
 > CP-AB 实测补充（2026-10-21）：LM Studio `/v1/chat/completions` 原始 usage 为
@@ -247,10 +247,10 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 | B2 续行重排 | `continuation_common_prefix/0`（角色句 + 两种续行方式）为 call1/call2 共同前缀；未改规则语义 |
 | B3 VS-00H P1 | `ProviderRunLog.usage_summary/2` 投影 `system_identity_ref`；activity API 可见 version/hash，不泄漏身份原文 |
 | MBC | `tool_call_compliance.exs stub` pass_rate=1.0（2/2）；call1 `tool_choice:none` focused 测试 `tool_calls == []` |
-| A3/A4 | LM Studio 实测 usage 无 `cached_tokens`（prompt/completion/total + reasoning_tokens）；runtime `qwen3.8-flash-next@q2_k` / context 262144 / parallel 3 / TTL 空；其他厂商 shell 无凭据，保持待核实 |
+| A3/A4 | LM Studio 实测 usage 无 `cached_tokens`（prompt/completion/total + reasoning_tokens）；runtime `qwen3.8-flash-next@q2_k` / context 262144 / parallel 3 / TTL 空；短流式 TTFT=1365ms（token 计数 0，流式 usage 未返回）；其他厂商 shell 无凭据，保持待核实 |
 | 门禁 | 后端 1,577/0；compile/xref/arch PASS；前端未改动 |
 
-**未 Frozen 的原因**：续行 call_pair 的共享前缀虽显著提升（0.3108 → 0.4021），但仍未达到本文冻结纪律要求的“call2 共享前缀 ≈ call1 全长”；且 A3 多厂商 live 基线、LM Studio TTFT live 基线、CP-AB 规定的两条 slice_verify 场景尚未完成。状态保持 Proposed，不把局部实证冒充全量冻结。
+**未 Frozen 的原因**：续行 call_pair 的共享前缀虽显著提升（0.3108 → 0.4021），但仍未达到本文冻结纪律要求的“call2 共享前缀 ≈ call1 全长”；A3 多厂商 live 基线仍缺凭据；LM Studio 只有一次短流式 TTFT 基线（1365ms），未做同调用对/缓存命中；CP-AB 规定的 deviation `slice_verify` 场景因既有 scenario/fixture 漂移未通过（`au02-candidate-continuation` PASS）。状态保持 Proposed，不把局部实证冒充全量冻结。
 
 ---
 
