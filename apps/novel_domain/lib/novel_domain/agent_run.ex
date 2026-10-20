@@ -42,6 +42,7 @@ defmodule NovelDomain.AgentRun do
         }
   @type consumed_budget :: %{
           steps: non_neg_integer(),
+          execution_steps: non_neg_integer(),
           tool_calls: non_neg_integer(),
           provider_calls: non_neg_integer(),
           replans: non_neg_integer()
@@ -108,7 +109,13 @@ defmodule NovelDomain.AgentRun do
       max_replans: 1,
       max_pending_artifacts: 3
     },
-    consumed_budget: %{steps: 0, tool_calls: 0, provider_calls: 0, replans: 0},
+    consumed_budget: %{
+      steps: 0,
+      execution_steps: 0,
+      tool_calls: 0,
+      provider_calls: 0,
+      replans: 0
+    },
     interrupt_state: %{status: :none, requested_at: nil},
     pending_artifact_refs: []
   ]
@@ -140,10 +147,25 @@ defmodule NovelDomain.AgentRun do
 
   @spec budget_exhausted?(t()) :: boolean()
   def budget_exhausted?(%__MODULE__{} = run) do
-    run.consumed_budget.steps >= run.budget.max_steps or
+    execution_steps(run) >= run.budget.max_steps or
       run.consumed_budget.tool_calls >= run.budget.max_tool_calls or
       run.consumed_budget.provider_calls >= run.budget.max_provider_calls or
       run.consumed_budget.replans > run.budget.max_replans
+  end
+
+  @doc "已执行的 AgentPlan 步数；规划/判断开销不计入。"
+  @spec execution_steps(t()) :: non_neg_integer()
+  def execution_steps(%__MODULE__{consumed_budget: consumed}) do
+    case value(consumed, :execution_steps) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> non_negative_int(value(consumed, :steps), 0)
+    end
+  end
+
+  @doc "仅按执行步计算的剩余步预算。"
+  @spec remaining_steps(t()) :: non_neg_integer()
+  def remaining_steps(%__MODULE__{} = run) do
+    max(non_negative_int(value(run.budget, :max_steps), 0) - execution_steps(run), 0)
   end
 
   @spec pending_artifact_budget_reached?(t()) :: boolean()
@@ -196,7 +218,7 @@ defmodule NovelDomain.AgentRun do
     )
     |> Map.update(
       :consumed_budget,
-      %{steps: 0, tool_calls: 0, provider_calls: 0, replans: 0},
+      %{steps: 0, execution_steps: 0, tool_calls: 0, provider_calls: 0, replans: 0},
       &normalize_consumed/1
     )
     |> Map.update(:interrupt_state, %{status: :none, requested_at: nil}, &normalize_interrupt/1)
@@ -393,15 +415,25 @@ defmodule NovelDomain.AgentRun do
     }
 
   defp normalize_consumed(consumed) when is_map(consumed) do
+    steps = non_negative_int(value(consumed, :steps), 0)
+
+    execution_steps =
+      case value(consumed, :execution_steps) do
+        value when is_integer(value) and value >= 0 -> value
+        _ -> steps
+      end
+
     %{
-      steps: non_negative_int(value(consumed, :steps), 0),
+      steps: steps,
+      execution_steps: execution_steps,
       tool_calls: non_negative_int(value(consumed, :tool_calls), 0),
       provider_calls: non_negative_int(value(consumed, :provider_calls), 0),
       replans: non_negative_int(value(consumed, :replans), 0)
     }
   end
 
-  defp normalize_consumed(_), do: %{steps: 0, tool_calls: 0, provider_calls: 0, replans: 0}
+  defp normalize_consumed(_),
+    do: %{steps: 0, execution_steps: 0, tool_calls: 0, provider_calls: 0, replans: 0}
 
   defp normalize_interrupt(state) when is_map(state) do
     %{

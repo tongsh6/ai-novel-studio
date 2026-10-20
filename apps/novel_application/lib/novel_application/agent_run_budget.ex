@@ -131,7 +131,7 @@ defmodule NovelApplication.AgentRunBudget do
   def authorized_expand(existing, consumed, plan_steps, mode)
       when is_map(existing) and is_map(consumed) and is_list(plan_steps) do
     with {:ok, {step_delta, tool_delta, provider_delta}} <- recovery_delta(plan_steps, mode) do
-      steps = consumed_value(consumed, :steps)
+      steps = execution_steps_value(consumed)
       tools = consumed_value(consumed, :tool_calls)
       providers = consumed_value(consumed, :provider_calls)
 
@@ -142,7 +142,7 @@ defmodule NovelApplication.AgentRunBudget do
           max(map_get(existing, :max_provider_calls) || 0, providers + provider_delta),
         max_replans: map_get(existing, :max_replans) || @default_hard_caps.max_replans,
         author_budget_override: true,
-        author_budget_override_mode: mode
+        author_budget_override_mode: recovery_mode_label(mode)
       }
 
       if within_hard_caps?(target) do
@@ -154,11 +154,17 @@ defmodule NovelApplication.AgentRunBudget do
   end
 
   defp recovery_delta([], _mode), do: {:error, :invalid_recovery_mode}
-  defp recovery_delta(_plan_steps, :next_step), do: {:ok, {1, 1, 2}}
+  # step delta 额外 +1：执行完选中步骤后还要一次收束/完成判断。
+  defp recovery_delta(_plan_steps, :next_step), do: {:ok, {2, 2, 3}}
+
+  defp recovery_delta(_plan_steps, {:steps, count})
+       when is_integer(count) and count > 0 do
+    {:ok, {count + 1, count + 1, count * 2 + 1}}
+  end
 
   defp recovery_delta(plan_steps, :remaining_plan) do
     count = length(plan_steps)
-    {:ok, {count, count, count * 2}}
+    {:ok, {count + 1, count + 1, count * 2 + 1}}
   end
 
   defp recovery_delta(_plan_steps, _mode), do: {:error, :invalid_recovery_mode}
@@ -169,6 +175,16 @@ defmodule NovelApplication.AgentRunBudget do
       _ -> 0
     end
   end
+
+  defp execution_steps_value(map) do
+    case map_get(map, :execution_steps) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> consumed_value(map, :steps)
+    end
+  end
+
+  defp recovery_mode_label({:steps, count}), do: "steps:#{count}"
+  defp recovery_mode_label(mode), do: Atom.to_string(mode)
 
   defp within_hard_caps?(budget) do
     budget.max_steps <= @default_hard_caps.max_steps and

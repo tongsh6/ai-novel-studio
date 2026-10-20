@@ -126,7 +126,13 @@ defmodule NovelApplication.AgenticDeviationSignal do
   # 下一步在派发前就已注定失败。这里按 flow 声明的 step_preconditions 在执行前
   # 检出，走 replan 通道给模型一次改道机会，而不是执行期硬 run_failed
   # （ADR-0023 D1：「替代现状直接 run_failed」）。
-  defp step_precondition_deviation(%AgentRun{} = run, stage_state, plan_steps, cursor, preconditions)
+  defp step_precondition_deviation(
+         %AgentRun{} = run,
+         stage_state,
+         plan_steps,
+         cursor,
+         preconditions
+       )
        when is_list(plan_steps) and is_integer(cursor) and is_map(preconditions) and
               preconditions != %{} do
     with step when is_map(step) <- Enum.at(plan_steps, cursor),
@@ -201,8 +207,7 @@ defmodule NovelApplication.AgenticDeviationSignal do
 
   defp budget_deviation(_run, _plan_steps, _cursor), do: nil
 
-  defp remaining_steps(%AgentRun{budget: budget, consumed_budget: consumed}),
-    do: remaining(budget, consumed, :max_steps, :steps)
+  defp remaining_steps(%AgentRun{} = run), do: AgentRun.remaining_steps(run)
 
   defp remaining_tool_calls(%AgentRun{budget: budget, consumed_budget: consumed}),
     do: remaining(budget, consumed, :max_tool_calls, :tool_calls)

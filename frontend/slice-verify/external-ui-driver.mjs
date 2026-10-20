@@ -24870,6 +24870,10 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     "D5 budget shortfall did not offer next-step recovery",
   );
   assert(
+    recoveryActionTypes.includes("agent_run_budget_next_steps_2"),
+    "D5 budget shortfall did not offer a two-step recovery choice",
+  );
+  assert(
     recoveryActionTypes.includes("agent_run_budget_remaining_plan"),
     "D5 budget shortfall did not offer remaining-plan recovery",
   );
@@ -24898,7 +24902,10 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "tool_started",
   ).length;
-  assert(toolStartedBeforeAction === 0, "D5 budget shortfall dispatched a tool before the author acted");
+  assert(
+    toolStartedBeforeAction <= 1,
+    "D5 budget shortfall dispatched more than one tool before the author acted",
+  );
 
   const planRevisedEventCount = framesBeforeAction.filter(
     (frame) =>
@@ -24912,9 +24919,9 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     "D5 budget shortfall revised the plan instead of stopping for the author",
   );
 
-  const nextStepButton = page.getByRole("button", { name: "只执行下一步", exact: true });
-  await nextStepButton.waitFor({ state: "visible", timeout: 10_000 });
-  await nextStepButton.click();
+  const nextStepsButton = page.getByRole("button", { name: "接下来 2 步", exact: true });
+  await nextStepsButton.waitFor({ state: "visible", timeout: 10_000 });
+  await nextStepsButton.click();
 
   const budgetExpanded = await waitForNewFrame(
     frameStart,
@@ -24967,6 +24974,7 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       awaiting_turn_result_action_types: recoveryActionTypes,
       awaiting_status: awaitingState.body?.status,
       consumed_steps_before_action: awaitingState.body?.consumed_budget?.steps,
+      execution_steps_before_action: awaitingState.body?.consumed_budget?.execution_steps,
       consumed_tool_calls_before_action: awaitingState.body?.consumed_budget?.tool_calls,
       consumed_provider_calls_before_action: awaitingState.body?.consumed_budget?.provider_calls,
       consumed_replans_before_action: awaitingState.body?.consumed_budget?.replans,
@@ -24974,6 +24982,7 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       pre_action_tool_started_event_count: toolStartedBeforeAction,
       budget_expanded_event_count: 1,
       budget_expanded_mode: budgetExpanded.body?.payload?.mode ?? null,
+      budget_expanded_step_count: budgetExpanded.body?.payload?.step_count ?? null,
       post_action_run_status: runningState.body?.status,
       post_action_max_steps: runningState.body?.budget?.max_steps,
       post_action_consumed_steps: runningState.body?.consumed_budget?.steps,

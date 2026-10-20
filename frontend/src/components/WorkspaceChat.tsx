@@ -2489,6 +2489,10 @@ export function WorkspaceChat() {
   const actionLabel = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.action_type === "agent_run_budget_next_step")
       return WORKBENCH.agentRunBudgetNextStep;
+
+    const nextStepsMatch = /^agent_run_budget_next_steps_(\d+)$/.exec(action.action_type);
+    if (nextStepsMatch) return WORKBENCH.agentRunBudgetNextSteps(Number(nextStepsMatch[1]));
+
     if (action.action_type === "agent_run_budget_remaining_plan")
       return WORKBENCH.agentRunBudgetRemainingPlan;
     if (action.action_type === "confirm_before_execute") return WORKBENCH.actionConfirm;

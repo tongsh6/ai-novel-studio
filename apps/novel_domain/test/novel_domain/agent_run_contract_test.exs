@@ -55,6 +55,59 @@ defmodule NovelDomain.AgentRunContractTest do
     assert run.authority_scope.profile_selection.matched_terms == ["角色阵容", "设计", "反派"]
   end
 
+  test "execution steps exclude planning and legacy runs fall back safely" do
+    base = %{
+      run_id: "run_execution_steps",
+      workspace_id: "ws_1",
+      work_id: "work_1",
+      session_id: "sess_1",
+      parent_turn_ref: "turn_1",
+      origin_frame_ref: "frame_1",
+      profile_ref: "character_design_with_context_v1",
+      goal: %{text: "分账测试", version: 1},
+      authority_scope: %{
+        production_write: false,
+        allowed_tools: ["character_roster", "character_design"]
+      },
+      budget: %{
+        max_steps: 2,
+        max_tool_calls: 4,
+        max_provider_calls: 3,
+        max_replans: 1,
+        max_pending_artifacts: 1
+      }
+    }
+
+    assert {:ok, run} =
+             AgentRun.new(
+               Map.put(base, :consumed_budget, %{
+                 steps: 5,
+                 execution_steps: 1,
+                 tool_calls: 0,
+                 provider_calls: 0,
+                 replans: 0
+               })
+             )
+
+    assert AgentRun.execution_steps(run) == 1
+    assert AgentRun.remaining_steps(run) == 1
+    refute AgentRun.budget_exhausted?(run)
+
+    assert {:ok, legacy_run} =
+             AgentRun.new(
+               Map.put(base, :consumed_budget, %{
+                 steps: 5,
+                 tool_calls: 0,
+                 provider_calls: 0,
+                 replans: 0
+               })
+             )
+
+    assert AgentRun.execution_steps(legacy_run) == 5
+    assert AgentRun.remaining_steps(legacy_run) == 0
+    assert AgentRun.budget_exhausted?(legacy_run)
+  end
+
   test "AgentRun normalizes a persisted author-action trigger without inventing fields" do
     assert {:ok, run} =
              AgentRun.new(%{

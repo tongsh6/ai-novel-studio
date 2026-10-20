@@ -1,6 +1,6 @@
 # UA01 动态 AgentRun 预算：计划派生 + 硬上限
 
-- 状态：**active / CP4 recovery scenario PASS；CP4b 判定为 legacy 不可达（2026-10-21）**
+- 状态：**active / CP2c 执行步分账 + CP3 N-step 选择 PASS（2026-10-21）；CP4b legacy 不可达**
 - 类型：AgentRun Runtime / Execution Authority / Budget Policy Slice
 - 来源：B18/B19 排查；`agentic-loop-budget-deviation-replan` 失败；用户拍板“核心是预算写死”
 - 父决策：ADR-0023（计划驱动执行 / D5 预算偏离）、VS-01（执行授权）、ADR-0027（作者义务）
@@ -75,9 +75,9 @@ AgentRun 启动
 |---|---|---|---|
 | CP0 | 本设计 + 七问 + 现有预算/成本盘点 | 文档；B18/B19 证据引用 | **done（2026-10-21）** |
 | CP1 | 纯 `AgentRunBudget` 模块 + 成本模型 + 单测 | `agent_run_budget_test.exs` 6/6：4/7 步、硬上限、最多一步、执行开销、prose 双 provider 成本 | **done（2026-10-21）** |
-| CP2 | 运行时接线：plan 后派生执行预算；规划/执行分账；D5 语义 | **CP2a done**：`patch_plan_map` 按计划扩容；**CP2b-1 done**：作者“最多一步”进入 `author_limits` 并 cap `max_steps`；**CP2b-2 done**：预算耗尽时不再通用硬停，发出 `plan_budget_shortfall` + “计划 N 步 / 剩余 M 步”的作者可见停等，不调用 provider/tool。pure 9/9、runtime 44/0 | **done（2026-10-21）** |
-| CP3 | 作者约束与预算可见性 | **done（2026-10-21）**：shortfall TurnResult 携带 `agent_run_budget_next_step` / `agent_run_budget_remaining_plan`；动作显式扩预算、受绝对硬上限、同一 run 恢复；runtime 48/0、真实 Tauri PASS | **done** |
-| CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS（预算缺口恢复）；作者动作扩预算并恢复同一 run；硬上限/无绕预算反例 | **recovery PASS（2026-10-21）** |
+| CP2 | 运行时接线：plan 后派生执行预算；规划/执行分账；D5 语义 | **CP2a/CP2b-1/CP2b-2 done**；**CP2c done（2026-10-21）**：`execution_steps` 从 `stage_state.agent_plan_cursor` 同步，规划/判断不计执行步；计划 patch 预留 1 个收束 token；pure 13/13、runtime 49/0 | **done** |
+| CP3 | 作者约束与预算可见性 | **done（2026-10-21）**：shortfall TurnResult 列出剩余步骤，并携带“下一步 / 接下来 2 步 / 剩余全部”选择；动作显式扩预算、受绝对硬上限、同一 run 恢复 | **done** |
+| CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS：规划 3 步、执行 1 步后 shortfall；作者选“接下来 2 步” → `budget_expanded` steps/2，同一 run running，max_steps=4 | **N-step PASS（2026-10-21）** |
 | CP4b | D5 `plan_revised` 余量可收缩路径 | 调查结果：该路径属于已删除的 conversation flow；当前 D5 只在 prose continuation 中，且 plan-derived budget + “最多一步” cap 下不存在“仍有剩余但不足”的可达情形 | **blocked / superseded（2026-10-21）** |
 
 ### 4.1 CP2b-2 最小设计（待确认后动代码）
@@ -114,13 +114,15 @@ AgentRun 启动
 ```text
 plan_budget_shortfall
 → TurnResult(status=awaiting_author)
-   ├─ agent_run_budget_next_step      “只执行下一步”
-   └─ agent_run_budget_remaining_plan “允许执行剩余计划”
+   ├─ agent_run_budget_next_step        “只执行下一步”
+   ├─ agent_run_budget_next_steps_2     “接下来 2 步”
+   └─ agent_run_budget_remaining_plan   “允许执行剩余计划”
 → 作者点击其中一个（author_action）
 → 服务端校验 run scope + awaiting_author
 → AgentRunBudget.authorized_expand/4
-   ├─ next_step: consumed + 1 步 / +1 tool / +2 provider
-   └─ remaining_plan: consumed + 计划步数 / 对应 tool/provider 最坏成本
+   ├─ next_step: execution_steps + 1 执行步 + 1 收束 token
+   ├─ next_steps_N: execution_steps + N 执行步 + 1 收束 token
+   └─ remaining_plan: execution_steps + 计划步数 + 1 收束 token
 → 绝对硬上限检查（50 步 / 50 tool / 100 provider）
 → 同一 run 恢复；budget_expanded 事件 + agent_run_state
 ```
@@ -129,6 +131,8 @@ plan_budget_shortfall
 - 服务端校验 `work_id` / `session_id` / `run_id` 一致，且 run 必须处于 `awaiting_author`。
 - 硬上限不足时不提供该动作；不自动扩预算，不自动 replan。
 - 扩预算后写 `author_budget_override` 标记；后续计划 patch 不得再用旧“最多一步”文本把预算压回 1。
+- `execution_steps` 只随 `stage_state.agent_plan_cursor` 增长；判断/计划起草不占执行步。
+- 计划 patch 为收束判断预留 1 个 step/tool/provider token；它不占 execution_steps，但避免执行完后因预算检查无法收束。
 - `budget_expanded` 是新的 author-visible AgentEvent 类型，触发 agent_run_state 快照。
 
 ### 4.3 CP4 证据（2026-10-21）
@@ -141,10 +145,10 @@ TAURI_SLICE_VERIFY_TIMEOUT_SECONDS=90 \
 
 真实 Tauri PASS：
 
-- `plan_drafted` 4 步，作者 `max_steps=1` cap 后 `awaiting_author`；
-- TurnResult status `awaiting_author`，actions 含 `agent_run_budget_next_step`、`agent_run_budget_remaining_plan`；
-- 动作前：`consumed_steps=3`、`consumed_tool_calls=0`、`consumed_provider_calls=4`、`consumed_replans=0`、无 `plan_revised`、无 completed TurnResult、无 tool dispatch；
-- 点击“只执行下一步”：`budget_expanded` mode `next_step`，同一 run 状态 `running`，`max_steps=4`。
+- `plan_drafted` 4 步，作者 `max_steps=1` cap 后先执行 1 个执行步，再 `awaiting_author`；
+- TurnResult status `awaiting_author`，actions 含 `agent_run_budget_next_step`、`agent_run_budget_next_steps_2`、`agent_run_budget_remaining_plan`；
+- 动作前：`consumed_steps=3`（规划+执行总账）、`execution_steps=1`、`consumed_tool_calls=0`、`consumed_replans=0`、无 `plan_revised`、无 completed TurnResult、无 tool dispatch；
+- 点击“接下来 2 步”：`budget_expanded` mode `steps` / `step_count=2`，同一 run 状态 `running`，`max_steps=4`。
 
 **CP4b 调查结论（2026-10-21）**：不能诚实补出“D5 `plan_revised` 余量可收缩”场景。
 

@@ -399,10 +399,17 @@ defmodule NovelApplication.AgentRunService do
           String.t(),
           String.t(),
           String.t(),
-          :next_step | :remaining_plan
+          :next_step | :remaining_plan | {:steps, pos_integer()}
         ) :: {:ok, map()} | {:error, term()}
-  def author_budget_action(run_id, work_id, session_id, mode)
-      when mode in [:next_step, :remaining_plan] do
+  def author_budget_action(run_id, work_id, session_id, mode) do
+    if valid_recovery_mode?(mode) do
+      do_author_budget_action(run_id, work_id, session_id, mode)
+    else
+      {:error, :invalid_recovery_mode}
+    end
+  end
+
+  defp do_author_budget_action(run_id, work_id, session_id, mode) do
     case lookup(run_id) do
       {:ok, pid} ->
         case AgentRunServer.state(pid) do
@@ -423,6 +430,11 @@ defmodule NovelApplication.AgentRunService do
     :exit, {:timeout, _call} -> {:error, :budget_action_timeout}
     :exit, reason -> {:error, {:budget_action_call_exit, reason}}
   end
+
+  defp valid_recovery_mode?(:next_step), do: true
+  defp valid_recovery_mode?(:remaining_plan), do: true
+  defp valid_recovery_mode?({:steps, count}), do: is_integer(count) and count > 0
+  defp valid_recovery_mode?(_mode), do: false
 
   @doc """
   作者已在采纳边界处理了本 run 的某个候选（accept 采纳）——通知 run 观察该作者

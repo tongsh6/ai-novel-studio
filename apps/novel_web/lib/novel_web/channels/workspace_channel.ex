@@ -1198,36 +1198,15 @@ defmodule NovelWeb.WorkspaceChannel do
          source_turn_result
        )
        when action_type in @agent_run_budget_action_types do
-    source_turn_result = scope_source_turn_result(socket, source_turn_result)
+    handle_author_budget_action(socket, action_input, source_turn_result)
+  end
 
-    with :ok <- NovelApplication.ActionValidator.validate(action_input, source_turn_result),
-         {:ok, run_id} <- budget_recovery_run_id(action_input, source_turn_result),
-         {:ok, result} <-
-           AgentRunService.author_budget_action(
-             run_id,
-             socket.assigns[:work_id],
-             socket.assigns[:session_id],
-             budget_recovery_mode(action_type)
-           ) do
-      result = Map.put(result, :status, "running")
-      socket = remember_action_result(socket, action_input, result)
-      broadcast!(socket, "action_result", result)
-      log_author_action_done(socket, action_input, result)
-      {:reply, {:ok, %{received: true, action_status: "running", run_id: run_id}}, socket}
-    else
-      {:error, reason} ->
-        LogEmit.emit(:channel, :author_action, :error, %{
-          work_id: socket.assigns[:work_id],
-          session_id: socket.assigns[:session_id],
-          turn_id: action_input.source_turn_ref,
-          action_id: action_input.action_id,
-          action_type: action_input.action_type,
-          reason_code: :agent_run_budget_action_rejected,
-          outcome_detail: error_reason(reason)
-        })
-
-        {:reply, {:error, %{reason: error_reason(reason)}}, socket}
-    end
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: "agent_run_budget_next_steps_" <> _} = action_input,
+         source_turn_result
+       ) do
+    handle_author_budget_action(socket, action_input, source_turn_result)
   end
 
   # CP4c（VS-00F §3.3 / AU-13）：审读报告逐项裁决。面板发起的作者动作，不依赖
@@ -1475,6 +1454,39 @@ defmodule NovelWeb.WorkspaceChannel do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
   end
 
+  defp handle_author_budget_action(socket, action_input, source_turn_result) do
+    source_turn_result = scope_source_turn_result(socket, source_turn_result)
+
+    with :ok <- NovelApplication.ActionValidator.validate(action_input, source_turn_result),
+         {:ok, run_id} <- budget_recovery_run_id(action_input, source_turn_result),
+         {:ok, result} <-
+           AgentRunService.author_budget_action(
+             run_id,
+             socket.assigns[:work_id],
+             socket.assigns[:session_id],
+             budget_recovery_mode(action_input.action_type)
+           ) do
+      result = Map.put(result, :status, "running")
+      socket = remember_action_result(socket, action_input, result)
+      broadcast!(socket, "action_result", result)
+      log_author_action_done(socket, action_input, result)
+      {:reply, {:ok, %{received: true, action_status: "running", run_id: run_id}}, socket}
+    else
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :agent_run_budget_action_rejected,
+          outcome_detail: error_reason(reason)
+        })
+
+        {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+    end
+  end
+
   defp budget_recovery_run_id(
          %AuthorActionInput{target_ref: run_id},
          source_turn_result
@@ -1497,6 +1509,13 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp budget_recovery_mode("agent_run_budget_next_step"), do: :next_step
   defp budget_recovery_mode("agent_run_budget_remaining_plan"), do: :remaining_plan
+
+  defp budget_recovery_mode("agent_run_budget_next_steps_" <> count) do
+    case Integer.parse(count) do
+      {value, ""} when value > 0 -> {:steps, value}
+      _ -> :invalid_recovery_mode
+    end
+  end
 
   defp merge_payload_field(payload, key, default \\ "") do
     to_string(payload[to_string(key)] || payload[key] || default)

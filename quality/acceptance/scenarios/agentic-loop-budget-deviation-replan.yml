@@ -1,5 +1,5 @@
 id: agentic-loop-budget-deviation-replan
-title: ADR-0023 D5 预算缺口恢复动作
+title: ADR-0023 D5 预算缺口步骤选择
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agentic-loop-budget-deviation-replan --surface tauri
@@ -11,9 +11,10 @@ contract:
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - d5-budget-shortfall-stops-before-dispatch
-  - budget-shortfall-turn-result-carries-author-actions
-  - author-can-explicitly-expand-budget-within-hard-caps
+  - d5-budget-shortfall-stops-before-extra-dispatch
+  - planning-overhead-does-not-consume-execution-steps
+  - budget-shortfall-turn-result-carries-step-choices
+  - author-can-select-next-n-steps-within-hard-caps
   - no-auto-budget-expansion-or-bypass
   - no-acceptance-hook-in-production
 
@@ -25,11 +26,11 @@ user_flow:
   - send: plain conversation input "设计角色、大纲和正文改写计划，最多一步，测试预算余量不足"
   - wait_for: bounded AgentRun fast ack
   - wait_for: plan_drafted with more than one plan step
-  - wait_for: awaiting_author with reason code plan_budget_shortfall
-  - wait_for: TurnResult status awaiting_author with both budget recovery actions
-  - click: "只执行下一步"
-  - wait_for: budget_expanded with mode next_step, same run status running
-  - verify: no plan_revised before the author action, no completed TurnResult before the author action
+  - wait_for: one plan step executes, then awaiting_author with plan_budget_shortfall
+  - wait_for: TurnResult status awaiting_author with next-step, next-two-steps, and remaining-plan choices
+  - click: "接下来 2 步"
+  - wait_for: budget_expanded with mode steps, step_count 2, same run status running
+  - verify: no plan_revised and no completed TurnResult before the author action
 
 evidence:
   required:
@@ -44,8 +45,9 @@ assertions:
     - parent user_message receives bounded run_id before terminal awaiting_author state
     - plan_drafted plan_steps has length > 1
     - awaiting_author reason_codes include budget_exhausted and plan_budget_shortfall
-    - awaiting TurnResult carries agent_run_budget_next_step and agent_run_budget_remaining_plan
-    - clicking next-step emits budget_expanded mode=next_step for the same run_id
+    - awaiting TurnResult carries agent_run_budget_next_step, agent_run_budget_next_steps_2, and agent_run_budget_remaining_plan
+    - execution_steps_before_action is 1 while total planning+execution steps is higher
+    - clicking next-two steps emits budget_expanded mode=steps with step_count=2
     - same run state reaches running with max_steps >= 4 after the action
     - no plan_revised event is emitted before the author action
   data:

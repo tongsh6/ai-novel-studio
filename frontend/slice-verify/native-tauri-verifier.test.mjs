@@ -1233,7 +1233,7 @@ describe("native Tauri slice verifier", () => {
     ).toBeNull();
   });
 
-  it("requires D5 budget shortfall recovery actions and same-run resume", () => {
+  it("requires D5 budget shortfall step choices and same-run resume", () => {
     const records = [
       {
         event: "channel.user_message.done",
@@ -1259,16 +1259,19 @@ describe("native Tauri slice verifier", () => {
         awaiting_turn_result_status: "awaiting_author",
         awaiting_turn_result_action_types: [
           "agent_run_budget_next_step",
+          "agent_run_budget_next_steps_2",
           "agent_run_budget_remaining_plan",
         ],
-        consumed_steps_before_action: 3,
-        consumed_tool_calls_before_action: 0,
+        consumed_steps_before_action: 4,
+        execution_steps_before_action: 1,
+        consumed_tool_calls_before_action: 1,
         consumed_provider_calls_before_action: 4,
         consumed_replans_before_action: 0,
         pre_action_completed_turn_result_arrived: false,
         pre_action_tool_started_event_count: 0,
         budget_expanded_event_count: 1,
-        budget_expanded_mode: "next_step",
+        budget_expanded_mode: "steps",
+        budget_expanded_step_count: 2,
         post_action_run_status: "running",
         post_action_max_steps: 4,
         log_sync_turn_count: 0,
@@ -1285,9 +1288,11 @@ describe("native Tauri slice verifier", () => {
       run_id: "run-d5",
       profile_ref: "judgment_plan_v1",
       plan_step_count: 4,
-      consumed_tool_calls_before_action: 0,
+      execution_steps_before_action: 1,
+      consumed_tool_calls_before_action: 1,
       budget_expanded_event_count: 1,
-      budget_expanded_mode: "next_step",
+      budget_expanded_mode: "steps",
+      budget_expanded_step_count: 2,
       post_action_run_status: "running",
       post_action_max_steps: 4,
     });
@@ -1297,6 +1302,7 @@ describe("native Tauri slice verifier", () => {
     expect(evidence.awaiting_turn_result_action_types).toEqual(
       expect.arrayContaining([
         "agent_run_budget_next_step",
+        "agent_run_budget_next_steps_2",
         "agent_run_budget_remaining_plan",
       ]),
     );
@@ -1308,7 +1314,7 @@ describe("native Tauri slice verifier", () => {
       assertions: expect.arrayContaining([
         "d5_budget_shortfall_is_author_visible_with_plan_budget_shortfall",
         "awaiting_turn_result_carries_available_actions",
-        "author_next_step_action_expands_budget_and_resumes_same_run",
+        "author_two_step_action_expands_budget_and_resumes_same_run",
         "no_plan_revised_before_author_action",
       ]),
     });
@@ -1324,7 +1330,13 @@ describe("native Tauri slice verifier", () => {
 
     const actionMissingRecords = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, awaiting_turn_result_action_types: ["agent_run_budget_next_step"] }
+        ? {
+            ...record,
+            awaiting_turn_result_action_types: [
+              "agent_run_budget_next_step",
+              "agent_run_budget_remaining_plan",
+            ],
+          }
         : record,
     );
     expect(

@@ -121,12 +121,38 @@ defmodule NovelApplication.AgentRunBudgetTest do
     assert {:ok, budget} =
              AgentRunBudget.authorized_expand(existing, consumed, plan, :next_step)
 
-    assert budget.max_steps == 4
-    assert budget.max_tool_calls == 1
-    assert budget.max_provider_calls == 6
+    assert budget.max_steps == 5
+    assert budget.max_tool_calls == 2
+    assert budget.max_provider_calls == 7
     assert budget.max_replans == 1
     assert budget.author_budget_override == true
-    assert budget.author_budget_override_mode == :next_step
+    assert budget.author_budget_override_mode == "next_step"
+  end
+
+  test "authorized N-step recovery counts execution steps, not planning overhead" do
+    existing = %{max_steps: 1, max_tool_calls: 0, max_provider_calls: 0, max_replans: 1}
+
+    consumed = %{
+      steps: 3,
+      execution_steps: 1,
+      tool_calls: 0,
+      provider_calls: 4
+    }
+
+    plan = [
+      step("context_assemble", "explore"),
+      step("plot_outline", "act"),
+      step("prose_writing", "act"),
+      step("character_evolution", "act")
+    ]
+
+    assert {:ok, budget} =
+             AgentRunBudget.authorized_expand(existing, consumed, plan, {:steps, 2})
+
+    assert budget.max_steps == 4
+    assert budget.max_tool_calls == 3
+    assert budget.max_provider_calls == 9
+    assert budget.author_budget_override_mode == "steps:2"
   end
 
   test "authorized remaining-plan recovery fits the full plan after consumed planning" do
@@ -143,9 +169,9 @@ defmodule NovelApplication.AgentRunBudgetTest do
     assert {:ok, budget} =
              AgentRunBudget.authorized_expand(existing, consumed, plan, :remaining_plan)
 
-    assert budget.max_steps == 7
-    assert budget.max_tool_calls == 4
-    assert budget.max_provider_calls == 12
+    assert budget.max_steps == 8
+    assert budget.max_tool_calls == 5
+    assert budget.max_provider_calls == 13
     assert budget.author_budget_override == true
   end
 

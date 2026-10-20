@@ -101,7 +101,7 @@ defmodule NovelApplication.AgentRunServer do
 
   @spec author_budget_action(
           GenServer.server(),
-          :next_step | :remaining_plan,
+          :next_step | :remaining_plan | {:steps, pos_integer()},
           timeout()
         ) ::
           {:ok, map()}
@@ -205,9 +205,11 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
-  def handle_call({:author_budget_action, mode}, _from, state)
-      when mode in [:next_step, :remaining_plan] do
+  def handle_call({:author_budget_action, mode}, _from, state) do
     cond do
+      not valid_recovery_mode?(mode) ->
+        {:reply, {:error, :invalid_recovery_mode}, state}
+
       state.run.status != :awaiting_author ->
         {:reply, {:error, :not_awaiting_author}, state}
 
@@ -235,9 +237,9 @@ defmodule NovelApplication.AgentRunServer do
               |> emit(
                 :budget_expanded,
                 budget_expanded_summary(mode),
-                ["author_budget_expanded", Atom.to_string(mode)],
+                ["author_budget_expanded" | recovery_mode_reason_codes(mode)],
                 [],
-                %{budget: budget, mode: mode}
+                Map.merge(%{budget: budget}, recovery_mode_payload(mode))
               )
               |> persist_run_state()
 
@@ -245,7 +247,8 @@ defmodule NovelApplication.AgentRunServer do
              {:ok,
               %{
                 run_id: state.run.run_id,
-                mode: mode,
+                mode: recovery_mode_label(mode),
+                step_count: recovery_step_count(mode),
                 status: "running",
                 budget: budget
               }}, state, {:continue, :run_next_step}}
@@ -495,6 +498,7 @@ defmodule NovelApplication.AgentRunServer do
     state =
       state
       |> merge_stage_state(Map.get(result, :stage_state))
+      |> sync_execution_steps()
       |> apply_superseded_artifacts(result)
       |> apply_progress_signature(Map.get(result, :progress_signature))
 
@@ -770,7 +774,10 @@ defmodule NovelApplication.AgentRunServer do
         plan_version: plan_version_from_patch(patch) || run.plan_version,
         budget:
           AgentRunBudget.expand(run.budget, plan_steps_from_plan(plan),
-            author_limits: author_limits_for_run(run)
+            author_limits: author_limits_for_run(run),
+            # 计划执行完还需要一次收束/完成判断，它不计 execution_steps，
+            # 但 runtime 在调用 planner 前会看 max_steps，因此预留 1 个收束 token。
+            execution_overhead: %{steps: 1, tool_calls: 1, provider_calls: 1}
           )
     }
   end
@@ -836,6 +843,37 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp maybe_mark_step_completed(state, _step), do: state
+
+  # CP2c：执行步预算只由 AgentPlan cursor 推进，不含判断/计划起草。
+  defp sync_execution_steps(state) do
+    current = AgentRun.execution_steps(state.run)
+    cursor = plan_execution_cursor(state.stage_state)
+
+    if cursor > current do
+      consumed = state.run.consumed_budget
+      %{state | run: %{state.run | consumed_budget: %{consumed | execution_steps: cursor}}}
+    else
+      state
+    end
+  end
+
+  defp plan_execution_cursor(stage_state) when is_map(stage_state) do
+    case Map.get(stage_state, :agent_plan_cursor) || Map.get(stage_state, "agent_plan_cursor") do
+      value when is_integer(value) and value >= 0 ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {cursor, ""} when cursor >= 0 -> cursor
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp plan_execution_cursor(_stage_state), do: 0
 
   defp add_consumed_budget(state, result) when is_map(result) do
     consumed = state.run.consumed_budget
@@ -1527,14 +1565,7 @@ defmodule NovelApplication.AgentRunServer do
     }
   end
 
-  defp remaining_steps(%AgentRun{
-         budget: %{max_steps: max_steps},
-         consumed_budget: %{steps: steps}
-       })
-       when is_integer(max_steps) and is_integer(steps),
-       do: max(max_steps - steps, 0)
-
-  defp remaining_steps(_run), do: 0
+  defp remaining_steps(%AgentRun{} = run), do: AgentRun.remaining_steps(run)
 
   defp budget_exhausted_outcome(run) do
     plan_steps = plan_steps_from_plan(run.plan)
@@ -1542,9 +1573,37 @@ defmodule NovelApplication.AgentRunServer do
     if plan_steps == [] do
       {"AgentRun 已达到预算上限。", ["budget_exhausted"]}
     else
-      {"AgentRun 预算不足：计划 #{length(plan_steps)} 步，剩余 #{remaining_steps(run)} 步；请选择恢复动作，或终止任务。",
-       ["budget_exhausted", "plan_budget_shortfall"]}
+      remaining_lines = remaining_step_lines(run, plan_steps)
+
+      summary =
+        "AgentRun 预算不足：计划 #{length(plan_steps)} 步，执行预算剩余 #{remaining_steps(run)} 步。" <>
+          remaining_steps_section(remaining_lines) <>
+          "请选择接下来执行几步，或终止任务。"
+
+      {summary, ["budget_exhausted", "plan_budget_shortfall"]}
     end
+  end
+
+  defp remaining_steps_section([]), do: ""
+
+  defp remaining_steps_section(lines) do
+    "\n接下来可选步骤：\n" <> Enum.join(lines, "\n") <> "\n"
+  end
+
+  defp remaining_step_lines(run, plan_steps) do
+    start = min(AgentRun.execution_steps(run), length(plan_steps))
+
+    plan_steps
+    |> Enum.drop(start)
+    |> Enum.take(5)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {step, index} ->
+      description =
+        map_value(step, :description) || map_value(step, :step_id) ||
+          map_value(step, :step_ref) || "下一步"
+
+      "#{index}. #{description}"
+    end)
   end
 
   # S7（ADR-0024）：预算缺口不是「run 停了但没有下文」。同一 await 事件携带
@@ -1602,7 +1661,17 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp budget_recovery_actions(run, plan_steps) do
-    [:next_step, :remaining_plan]
+    pending = max(length(plan_steps) - AgentRun.execution_steps(run), 0)
+
+    extra_counts = if pending > 2, do: Enum.to_list(2..min(3, pending - 1)), else: []
+
+    modes =
+      [:next_step] ++
+        Enum.map(extra_counts, &{:steps, &1}) ++
+        if(pending > 1, do: [:remaining_plan], else: [])
+
+    modes
+    |> Enum.uniq()
     |> Enum.flat_map(fn mode ->
       case AgentRunBudget.authorized_expand(
              run.budget,
@@ -1617,13 +1686,13 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp budget_recovery_action(run, mode) do
-    suffix = Atom.to_string(mode)
+    {suffix, label_key} = recovery_action_names(mode)
     key = "agent_run_budget_#{suffix}"
 
     %{
       action_id: "#{key}:#{run.run_id}:#{run.consumed_budget.steps}",
       action_type: key,
-      label_key: "agentRunBudget.#{suffix}",
+      label_key: label_key,
       source_turn_ref: run.parent_turn_ref,
       target_ref: run.run_id,
       enabled: true,
@@ -1633,8 +1702,38 @@ defmodule NovelApplication.AgentRunServer do
     }
   end
 
+  defp recovery_action_names(:next_step), do: {"next_step", "agentRunBudget.next_step"}
+
+  defp recovery_action_names(:remaining_plan),
+    do: {"remaining_plan", "agentRunBudget.remaining_plan"}
+
+  defp recovery_action_names({:steps, count}) do
+    {"next_steps_#{count}", "agentRunBudget.next_steps"}
+  end
+
+  defp valid_recovery_mode?(:next_step), do: true
+  defp valid_recovery_mode?(:remaining_plan), do: true
+  defp valid_recovery_mode?({:steps, count}), do: is_integer(count) and count > 0
+  defp valid_recovery_mode?(_mode), do: false
+
+  defp recovery_step_count({:steps, count}), do: count
+  defp recovery_step_count(:next_step), do: 1
+  defp recovery_step_count(:remaining_plan), do: nil
+
+  defp recovery_mode_label({:steps, count}), do: "steps:#{count}"
+  defp recovery_mode_label(mode), do: Atom.to_string(mode)
+
+  defp recovery_mode_payload({:steps, count}), do: %{mode: "steps", step_count: count}
+  defp recovery_mode_payload(mode), do: %{mode: Atom.to_string(mode)}
+
+  defp recovery_mode_reason_codes({:steps, count}), do: ["steps", "step_count_#{count}"]
+  defp recovery_mode_reason_codes(mode), do: [Atom.to_string(mode)]
+
   defp budget_expanded_summary(:next_step), do: "已按你的授权再执行一步。"
   defp budget_expanded_summary(:remaining_plan), do: "已按你的授权执行当前计划的剩余步骤。"
+
+  defp budget_expanded_summary({:steps, count}),
+    do: "已按你的授权执行接下来 #{count} 步。"
 
   defp author_limits_for_run(%AgentRun{} = run) do
     if budget_author_override?(run.budget) do
@@ -1978,18 +2077,12 @@ defmodule NovelApplication.AgentRunServer do
 
   defp active_plan_step_index(_run, [], _stage), do: nil
 
-  defp active_plan_step_index(
-         %AgentRun{consumed_budget: %{steps: steps}},
-         plan_steps,
-         :plan_drafted
-       )
-       when is_integer(steps) do
-    min(steps, length(plan_steps) - 1)
+  defp active_plan_step_index(%AgentRun{} = run, plan_steps, :plan_drafted) do
+    min(AgentRun.execution_steps(run), length(plan_steps) - 1)
   end
 
-  defp active_plan_step_index(%AgentRun{consumed_budget: %{steps: steps}}, plan_steps, _stage)
-       when is_integer(steps) do
-    min(max(steps - 1, 0), length(plan_steps) - 1)
+  defp active_plan_step_index(%AgentRun{} = run, plan_steps, _stage) do
+    min(max(AgentRun.execution_steps(run) - 1, 0), length(plan_steps) - 1)
   end
 
   defp active_plan_step_index(_run, _plan_steps, _stage), do: 0

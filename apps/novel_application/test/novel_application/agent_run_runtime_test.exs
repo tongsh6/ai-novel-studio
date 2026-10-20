@@ -1792,7 +1792,10 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       end)
 
     assert "agent_run_budget_next_step" in action_types
-    assert "agent_run_budget_remaining_plan" in action_types
+
+    assert {:ok, %{run: budget_run}} = AgentRunService.state(run_id)
+    assert budget_run.consumed_budget.execution_steps == 1
+    assert budget_run.consumed_budget.steps >= budget_run.consumed_budget.execution_steps
 
     assert {:ok, %{run_id: ^run_id, status: "running"}} =
              AgentRunService.author_budget_action(
@@ -1805,38 +1808,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event_full, :budget_expanded, expanded}, 1_000
     assert to_string(expanded.payload.mode) == "next_step"
 
-    assert_receive {:agent_event_full, :awaiting_author, second_awaiting}, 5_000
-    assert second_awaiting.reason_codes == ["budget_exhausted", "plan_budget_shortfall"]
-
-    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
-    assert run.status == :awaiting_author
-    assert run.budget.author_budget_override == true
-    assert run.budget.max_steps >= 2
-    assert run.consumed_budget.steps >= 2
-
-    second_turn_result = second_awaiting.payload.turn_result
-
-    second_action_types =
-      Enum.map(second_turn_result.available_actions, fn action ->
-        Map.get(action, :action_type) || Map.get(action, "action_type")
-      end)
-
-    assert "agent_run_budget_remaining_plan" in second_action_types
-
-    assert {:ok, %{run_id: ^run_id, status: "running"}} =
-             AgentRunService.author_budget_action(
-               run_id,
-               "work-budget",
-               "session-budget",
-               :remaining_plan
-             )
-
-    assert_receive {:agent_event_full, :budget_expanded, remaining_expanded}, 1_000
-    assert to_string(remaining_expanded.payload.mode) == "remaining_plan"
     assert_receive {:agent_event_full, :run_completed, _}, 5_000
 
     assert {:ok, %{run: completed_run}} = AgentRunService.state(run_id)
     assert completed_run.status == :completed
+    assert completed_run.budget.author_budget_override == true
+    assert completed_run.budget.max_steps >= 2
   end
 
   test "character design runs mechanical plan without draft calls or plan events" do
@@ -2539,6 +2516,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     fn run, sequence, snapshot ->
       step_fun
       |> execute_test_step(run, sequence, snapshot)
+      |> mark_test_plan_cursor(sequence)
       |> maybe_complete_test_step(sequence, step_count)
     end
   end
@@ -2548,6 +2526,18 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   defp execute_test_step(step_fun, run, sequence, _snapshot) when is_function(step_fun, 2),
     do: step_fun.(run, sequence)
+
+  defp mark_test_plan_cursor({:ok, result}, sequence) when is_map(result) do
+    stage_state =
+      result
+      |> Map.get(:stage_state, %{})
+      |> Kernel.||(%{})
+      |> Map.put(:agent_plan_cursor, sequence)
+
+    {:ok, Map.put(result, :stage_state, stage_state)}
+  end
+
+  defp mark_test_plan_cursor(result, _sequence), do: result
 
   defp maybe_complete_test_step({:ok, result}, sequence, step_count)
        when is_map(result) and sequence >= step_count,

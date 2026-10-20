@@ -433,6 +433,7 @@ export const WORKBENCH = {
   agentRunBudgetShortfallHint: "预算不足：请选择恢复动作，或终止任务。",
   agentRunBudgetShortfallPlaceholder: "预算不足：请使用恢复动作或终止任务",
   agentRunBudgetNextStep: "只执行下一步",
+  agentRunBudgetNextSteps: (count: number) => `接下来 ${count} 步`,
   agentRunBudgetRemainingPlan: "允许执行剩余计划",
   // 正文写作连续超时后的恢复出口：仍走非空 steer，不新增裸继续命令。
   agentRunWriterTimeoutHint: "正文写作调用超时。可以先缩小范围重试：只写当前章第一场，500 字以内。",
