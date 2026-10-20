@@ -380,11 +380,13 @@ defmodule NovelApplication.AgentRunServer do
         {:noreply, state}
 
       AgentRun.budget_exhausted?(state.run) ->
+        {summary, reason_codes} = budget_exhausted_outcome(state.run)
+
         state =
           state
           |> put_run_status(:awaiting_author)
           |> put_run_phase(:stopped)
-          |> emit(:awaiting_author, "AgentRun 已达到预算上限。", ["budget_exhausted"])
+          |> emit(:awaiting_author, summary, reason_codes)
           |> persist_run_state()
 
         {:noreply, state}
@@ -661,10 +663,12 @@ defmodule NovelApplication.AgentRunServer do
         state
 
       AgentRun.budget_exhausted?(state.run) ->
+        {summary, reason_codes} = budget_exhausted_outcome(state.run)
+
         state
         |> put_run_status(:awaiting_author)
         |> put_run_phase(:stopped)
-        |> emit(:awaiting_author, "AgentRun 已达到预算上限。", ["budget_exhausted"])
+        |> emit(:awaiting_author, summary, reason_codes)
 
       true ->
         state
@@ -1479,6 +1483,17 @@ defmodule NovelApplication.AgentRunServer do
        do: max(max_steps - steps, 0)
 
   defp remaining_steps(_run), do: 0
+
+  defp budget_exhausted_outcome(run) do
+    plan_steps = plan_steps_from_plan(run.plan)
+
+    if plan_steps == [] do
+      {"AgentRun 已达到预算上限。", ["budget_exhausted"]}
+    else
+      {"AgentRun 预算不足：计划 #{length(plan_steps)} 步，剩余 #{remaining_steps(run)} 步；等待作者决定收缩范围或扩大预算。",
+       ["budget_exhausted", "plan_budget_shortfall"]}
+    end
+  end
 
   defp execute_step_fun(step_fun, run, sequence, snapshot) when is_function(step_fun, 3),
     do: step_fun.(run, sequence, snapshot)

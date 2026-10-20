@@ -1748,7 +1748,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                event_sink: event_sink(parent)
              )
 
-    assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
+    assert_receive {:agent_event, :awaiting_author, summary}, 500
+    assert summary =~ "预算不足"
+    assert summary =~ "计划 2 步"
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :awaiting_author
