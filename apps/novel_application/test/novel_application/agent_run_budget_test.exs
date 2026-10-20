@@ -100,6 +100,19 @@ defmodule NovelApplication.AgentRunBudgetTest do
     assert capped.max_tool_calls == 10
   end
 
+  test "author limits detect 最多一步 and cap expanded budget" do
+    assert AgentRunBudget.author_limits("请写一章，最多一步") == %{max_steps: 1}
+    assert AgentRunBudget.author_limits("请写一章") == %{}
+
+    plan = for index <- 1..7, do: step("context_assemble", "explore", %{step_id: "ctx_#{index}"})
+    existing = %{max_steps: 6, max_tool_calls: 5, max_provider_calls: 12, max_replans: 1}
+
+    expanded =
+      AgentRunBudget.expand(existing, plan, author_limits: %{max_steps: 1})
+
+    assert expanded.max_steps == 1
+  end
+
   test "prose_writing costs one tool and two provider calls" do
     result = AgentRunBudget.for_plan([step("prose_writing", "act")])
 

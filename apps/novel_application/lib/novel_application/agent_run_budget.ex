@@ -81,15 +81,28 @@ defmodule NovelApplication.AgentRunBudget do
     }
   end
 
-  @doc """
-  Expand an existing run budget to fit the drafted plan without shrinking it.
+  @doc "作者显式预算约束；目前只识别“最多一步”族。"
+  @spec author_limits(String.t() | nil) :: author_limits()
+  def author_limits(goal_text) when is_binary(goal_text) do
+    if String.contains?(String.downcase(goal_text), "最多一步") do
+      %{max_steps: 1}
+    else
+      %{}
+    end
+  end
 
-  Used by the runtime after plan draft. Absolute hard caps still apply; author
-  limits / D5 semantics are layered in CP2/CP3.
+  def author_limits(_goal_text), do: %{}
+
+  @doc """
+  Expand an existing run budget to fit the drafted plan.
+
+  Author max_steps is a hard cap and may shrink the effective step budget; the
+  runtime must surface the resulting shortfall instead of silently expanding.
   """
   @spec expand(map(), [map()], keyword()) :: map()
   def expand(existing, plan_steps, opts \\ []) when is_map(existing) and is_list(plan_steps) do
     result = for_plan(plan_steps, opts)
+    author_limits = Keyword.get(opts, :author_limits, %{})
 
     existing
     |> Map.put(:max_steps, max(Map.get(existing, :max_steps, 0), result.budget.max_steps))
@@ -101,6 +114,17 @@ defmodule NovelApplication.AgentRunBudget do
       :max_provider_calls,
       max(Map.get(existing, :max_provider_calls, 0), result.budget.max_provider_calls)
     )
+    |> apply_author_step_cap(author_limits)
+  end
+
+  defp apply_author_step_cap(budget, author_limits) do
+    case map_get(author_limits, :max_steps) do
+      value when is_integer(value) and value > 0 ->
+        %{budget | max_steps: min(budget.max_steps, value)}
+
+      _ ->
+        budget
+    end
   end
 
   defp apply_author_limits(budget, author_limits) do

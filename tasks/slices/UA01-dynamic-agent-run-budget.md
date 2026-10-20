@@ -75,7 +75,7 @@ AgentRun 启动
 |---|---|---|---|
 | CP0 | 本设计 + 七问 + 现有预算/成本盘点 | 文档；B18/B19 证据引用 | **done（2026-10-21）** |
 | CP1 | 纯 `AgentRunBudget` 模块 + 成本模型 + 单测 | `agent_run_budget_test.exs` 6/6：4/7 步、硬上限、最多一步、执行开销、prose 双 provider 成本 | **done（2026-10-21）** |
-| CP2 | 运行时接线：plan 后派生执行预算；规划/执行分账；D5 语义 | **CP2a done（2026-10-21）**：`AgentRunServer.patch_plan_map` 用 `AgentRunBudget.expand/3` 按计划扩容，不缩小既有预算；runtime/prose 46/0。规划/执行分账与 D5 语义仍待 CP2b | **partial** |
+| CP2 | 运行时接线：plan 后派生执行预算；规划/执行分账；D5 语义 | **CP2a done（2026-10-21）**：`patch_plan_map` 按计划扩容；**CP2b-1 done**：作者“最多一步”进入 `author_limits` 并 cap `max_steps`；pure 9/9、runtime 44/0。规划/执行分账与 D5 优先级仍待 CP2b-2 | **partial** |
 | CP3 | 作者约束与预算可见性 | “最多一步”生效；预算不足时真实差异文案；可选扩大预算动作 | todo |
 | CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS；硬上限/无绕预算反例 | todo |
 
