@@ -11,6 +11,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.SystemIdentity
   alias NovelAgent.Provider.Usage
 
   @slow_work_switch_delay_ms 2_500
@@ -3824,12 +3825,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp prompt_text(prompt) when is_map(prompt) do
     prompt
     |> NovelAgent.Provider.normalize_messages()
+    |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
     |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
   end
 
   defp prompt_text(prompt) when is_list(prompt) do
     prompt
     |> NovelAgent.Provider.normalize_messages()
+    |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
     |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
   end
 end

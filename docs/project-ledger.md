@@ -1,6 +1,8 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-10-18（BIZ-01–05 收口，Flash Next Q2 实模通过；BIZ-06 已闭环，下一项 Q1c / D5 已采纳内容修订核查；历史记录保留各自版本边界）
+> 最后更新：2026-10-21（VS-00H / T7 系统身份消息层 CP1–CP3 实现完成；Q1c CP1–CP3 已收口、CP4/CP5 部分闭环，仍为唯一 next；历史记录保留各自版本边界）
+>
+> 2026-10-21 VS-00H / T7 当前结果：`NovelAgent.Provider.SystemIdentity` 成为身份文本唯一真源；`Gateway.execute/4` 注入且幂等；ProviderRun metadata 落 `system_identity_ref`（不落原文）；18 处调用点去产品自称 + I-SYS-2 守卫；`Usage.cached_tokens` 与 Anthropic `cache_control` 落地。后端全量 1,570/0、前端 484/0、I1/I2/I3/N-NARR 绿、MBC stub 1.0、`slice_verify au02-candidate-continuation` 浏览器 + Tauri PASS，测试库实测 ProviderRun identity ref。诚实边界：真实 vendor cache hit、live MBC、developer UI 展示未测，见 `docs/design/contracts/VS-00H-system-identity-message-contract-pack.md` §11.1。Q1c 恢复为唯一 next。
 >
 > Q3d 初轮正常路径证据（历史）：ADR-0027 经用户确认修订 Accepted，复用 Interaction/AgentRun/采纳事实，未引入第六账。输入先持久化再成功接收；统一记录各 flow 结果；历史原文来源与本轮动作归属分离；下一轮读取真实处理/采纳状态。q3d 多轮页面与 q3c 兼容回归通过，1506 后端/450 前端测试及四项不变量通过，完整扫描无新增阻断；具体证据与有界上下文、确定性 provider 等边界见 Q3D slice。
 > DS02 当前结果：候选初态与线格式采用 canonical 七态；历史 Interaction 只在读取边界兼容小写，前端恢复 codegen 枚举校验与告警，移除 ArtifactEntry 手写状态类型。q3d 历史 tentative/accepted 恢复及作者采纳、角色候选页面回归通过；1510 后端/461 前端测试、四项不变量及桌面构建通过。完整证据与扫描处置见 `tasks/slices/DS02-adoption-status-canonicalization.md`。

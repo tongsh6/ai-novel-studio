@@ -48,7 +48,7 @@ defmodule NovelApplication.Planner do
       end
 
     """
-    你是一个小说创作 AI。下面是你完成一个创作工具调用后的结果。
+    本次你承担创作助手的角色。下面是你完成一个创作工具调用后的结果。
 
     ## 工具执行结果
     - 工具: #{tool_result.tool_name}

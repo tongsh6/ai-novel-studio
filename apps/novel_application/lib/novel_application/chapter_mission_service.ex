@@ -98,7 +98,7 @@ defmodule NovelApplication.ChapterMissionService do
 
   defp intro_line(:prose) do
     """
-    你是长篇小说写作台的#{prompt_anchor(:prose)}。正文尚未开始写，请只根据下面列出的材料，
+    本次你承担#{prompt_anchor(:prose)}的角色。正文尚未开始写，请只根据下面列出的材料，
     推导「本章使命」：这一章现在必须推进什么、不得做什么。
     """
     |> String.trim()
@@ -106,7 +106,7 @@ defmodule NovelApplication.ChapterMissionService do
 
   defp intro_line(:planning) do
     """
-    你是长篇小说写作台的#{prompt_anchor(:planning)}。下一批章节大纲尚未起草，请只根据下面
+    本次你承担#{prompt_anchor(:planning)}的角色。下一批章节大纲尚未起草，请只根据下面
     列出的材料，推导「本轮规划使命」：接下来要规划的章节必须安排什么、不得安排什么。
     """
     |> String.trim()

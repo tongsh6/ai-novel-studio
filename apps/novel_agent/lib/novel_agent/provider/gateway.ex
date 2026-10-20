@@ -27,6 +27,7 @@ defmodule NovelAgent.Provider.Gateway do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
+  alias NovelAgent.Provider.SystemIdentity
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.Contracts.ProviderRun
@@ -190,12 +191,16 @@ defmodule NovelAgent.Provider.Gateway do
   @spec execute(Provider.prompt(), String.t() | nil, InferenceParams.t(), keyword()) ::
           execution_result()
   def execute(prompt, model \\ nil, params \\ InferenceParams.new(), opts \\ []) do
+    {prompt, system_identity_ref} = SystemIdentity.inject(prompt)
+
     provider_name = Keyword.get(opts, :provider, default_provider())
+
     model_name =
       model ||
         Keyword.get(opts, :model) ||
         purpose_route_model(provider_name, opts) ||
         default_model(provider_name)
+
     provider_call_ref = Keyword.get(opts, :provider_call_ref) || provider_call_ref()
     provider_run_id = Keyword.get(opts, :provider_run_id) || provider_run_id()
     purpose = Keyword.get(opts, :purpose, :conversation)
@@ -220,7 +225,8 @@ defmodule NovelAgent.Provider.Gateway do
         purpose: purpose,
         owner_refs: owner_refs,
         event_sink: event_sink,
-        cancellation_token: cancellation_token
+        cancellation_token: cancellation_token,
+        system_identity_ref: system_identity_ref
       })
 
     emit_provider_execution_result(provider_name, model_name, execution, started)

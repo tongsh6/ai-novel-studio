@@ -148,7 +148,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   defp build_prompt(%QualityEvaluationRequest{} = request) do
     """
-    你是小说正文质量评审助手。请只读地评审下面这段正文是否实现其写作目标，严格按 JSON
+    本次你承担小说正文质量评审助手的角色。请只读地评审下面这段正文是否实现其写作目标，严格按 JSON
     对象返回，不要附加任何额外文字，不要重写正文。
 
     顶层对象必须包含 "findings"：JSON 数组，每个元素是一个发现项（只列真实存在的问题，

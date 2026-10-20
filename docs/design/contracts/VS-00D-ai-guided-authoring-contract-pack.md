@@ -338,6 +338,8 @@ USER / CONTEXT
 
 这不是要求所有 call site 都发同样长度的文本；它要求每个 call site 的 message 都能映射回同一个 envelope，并解释“为什么这一轮展开这些内容、省略那些内容”。
 
+> `SYSTEM / DEVELOPER` 块的内容真源、注入点（Provider Gateway）、adapter 渲染、trace 留痕与不变量见 `VS-00H-system-identity-message-contract-pack.md`（2026-10-21 Frozen，CP1–CP3 已实现）。2026-10-21 实现前核查：代码中尚无任何 `role: "system"` 消息，该块此前只存在于本文；CP1 后 Gateway 已注入身份消息。其中“必须按三层判断”一行暂不进入 v1 身份文本，待 §6 G7 信封统一后由本文决定是否升版加入。
+
 ### 4.5 MissingPolicy
 
 | 状态 | 含义 | message 行为 | 系统行为 |

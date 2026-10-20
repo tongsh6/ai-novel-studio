@@ -695,7 +695,7 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          你是小说创作系统的创作判断器。当前创作执行出现了需要你判断的情况，你要观察现状并决定续行方式，向作者说明。
+          本次你承担创作判断器的角色。当前创作执行出现了需要你判断的情况，你要观察现状并决定续行方式，向作者说明。
 
           ## 本轮创作目标
           #{Map.fetch!(input, :goal_text)}
@@ -735,7 +735,7 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          你是小说创作系统的创作判断器。你刚才已向作者输出了观察说明（如下）。现在把续行判断结构化。
+          本次你承担创作判断器的角色。你刚才已向作者输出了观察说明（如下）。现在把续行判断结构化。
 
           ## 本轮创作目标
           #{Map.fetch!(input, :goal_text)}
@@ -782,7 +782,7 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          你是小说创作系统的创作判断器。作者刚发来一条输入，你要判断本轮的形态并向作者说明。
+          本次你承担创作判断器的角色。作者刚发来一条输入，你要判断本轮的形态并向作者说明。
 
           #{Map.fetch!(input, :context_block)}
 
@@ -830,7 +830,7 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          你是小说创作系统的创作判断器。你刚才已向作者输出了判断说明（如下）。本次调用：把判断说明中的
+          本次你承担创作判断器的角色。你刚才已向作者输出了判断说明（如下）。本次调用：把判断说明中的
           裁决结论填进结构化字段。action 填的是【系统接下来对作者请求做什么】，不是你本次调用在做什么。
 
           ## 作者输入

@@ -138,7 +138,7 @@ defmodule NovelAgent.CreativeProvider.Real do
   # 人物草案等）仍返回多个候选供作者择一。
   defp build_prompt(%CreativeRequest{tool_name: "prose_writing"} = request) do
     """
-    你是小说正文写作助手。请严格按 JSON 对象格式返回，不要附加任何额外文字。
+    本次你承担小说正文写作助手的角色。请严格按 JSON 对象格式返回，不要附加任何额外文字。
 
     顶层对象必须包含：
     - "items"：JSON 数组，且恰好包含一个连贯正文条目
@@ -183,7 +183,7 @@ defmodule NovelAgent.CreativeProvider.Real do
          %CreativeRequest{tool_name: "plot_outline", artifact_type: :outline_draft} = request
        ) do
     """
-    你是长篇小说章计划助手。请严格按 JSON 数组格式返回多个章节条目，不要附加任何额外文字。
+    本次你承担章计划助手的角色。请严格按 JSON 数组格式返回多个章节条目，不要附加任何额外文字。
 
     每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -220,7 +220,7 @@ defmodule NovelAgent.CreativeProvider.Real do
   # schema 是开放框架（I-g）：覆盖核心骨架维度，并据作品信息推断补充作品专属维度，不被固定字段表封死。
   defp build_prompt(%CreativeRequest{tool_name: "character_design"} = request) do
     """
-    你是小说角色设计助手。请基于作品上下文为作者设计贴合本作的角色，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+    本次你承担小说角色设计助手的角色。请基于作品上下文为作者设计贴合本作的角色，并严格按 JSON 数组格式返回，不要附加任何额外文字。
 
     数组包含 1 个（必要时至多 2 个取向明显不同的）角色设计候选，每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -258,7 +258,7 @@ defmodule NovelAgent.CreativeProvider.Real do
   # 不是创建新角色，也不改主档案底座；采纳后写角色记忆（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）。
   defp build_prompt(%CreativeRequest{tool_name: "character_evolution"} = request) do
     """
-    你是小说角色连续性助手。作者要记录一个已有角色随剧情发生的**演化事件**（成长/转变、当前状态变化、或与其他角色的关系变化），不是创建新角色。请基于作品上下文与现有角色，生成 1 条可采纳的角色演化记忆草稿，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+    本次你承担小说角色连续性助手的角色。作者要记录一个已有角色随剧情发生的**演化事件**（成长/转变、当前状态变化、或与其他角色的关系变化），不是创建新角色。请基于作品上下文与现有角色，生成 1 条可采纳的角色演化记忆草稿，并严格按 JSON 数组格式返回，不要附加任何额外文字。
 
     条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -283,7 +283,7 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp build_prompt(%CreativeRequest{tool_name: "world_building", revision: revision} = request)
        when is_binary(revision) and revision != "" do
     """
-    你是小说设定修订助手。按作者要求编辑给定原稿，返回一个合法 JSON 数组，不附加额外文字。
+    本次你承担小说设定修订助手的角色。按作者要求编辑给定原稿，返回一个合法 JSON 数组，不附加额外文字。
     这是已有内容的新版本，保留原稿结构和未要求修改的内容，不做新建设定的模板扩写。
     每项包含 item_id（新标识符）、title（修订稿标题）、body（完整修订正文）、rationale（修改依据或 null）。
     body 是可供作者采纳的正文，不要向其中添加修改说明、旧值/新值对照或保存状态说明。
@@ -303,7 +303,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     guidance = world_building_guidance(request.artifact_type)
 
     """
-    你是小说设定与连续性设计助手。请基于作品上下文为作者生成可采纳的#{guidance.label}，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+    本次你承担小说设定与连续性设计助手的角色。请基于作品上下文为作者生成可采纳的#{guidance.label}，并严格按 JSON 数组格式返回，不要附加任何额外文字。
 
     本次草稿类型：#{request.artifact_type}
 
@@ -327,7 +327,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp build_prompt(%CreativeRequest{} = request) do
     """
-    你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+    本次你承担创作助手的角色。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
 
     每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）

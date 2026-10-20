@@ -27,7 +27,8 @@ defmodule NovelAgent.Provider.AdapterExecution do
           required(:purpose) => ProviderRun.purpose(),
           required(:owner_refs) => map(),
           optional(:cancellation_token) => CancellationToken.t() | nil,
-          optional(:event_sink) => (execution_result() -> term()) | nil
+          optional(:event_sink) => (execution_result() -> term()) | nil,
+          optional(:system_identity_ref) => map() | nil
         }
 
   @type execution_success :: %{
@@ -288,10 +289,19 @@ defmodule NovelAgent.Provider.AdapterExecution do
         provider_id: to_string(ctx.provider_name),
         model: ctx.model_name,
         status: status,
-        owner_refs: ctx.owner_refs
+        owner_refs: ctx.owner_refs,
+        metadata: identity_metadata(ctx)
       })
 
     run
+  end
+
+  # VS-00H §4：ProviderRun 事实只携带身份引用（version + content_hash），不落原文。
+  defp identity_metadata(ctx) do
+    case Map.get(ctx, :system_identity_ref) do
+      %{} = ref -> %{system_identity_ref: ref}
+      _ -> %{}
+    end
   end
 
   defp success_events!(ctx, %Result{} = result, initial_count) do

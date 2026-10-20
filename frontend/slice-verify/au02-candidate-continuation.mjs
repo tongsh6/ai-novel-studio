@@ -46,14 +46,14 @@ try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await page
-    .getByText(/^服务: 已连接/)
+    .getByText(/服务: 已连接|同步已连接/)
     .first()
     .waitFor({ timeout: 30_000 });
 
   await page.locator(chatInputSelector).fill("我想写一个赛博修仙方向");
   await page.getByRole("button", { name: /^发送$/ }).click();
   await page
-    .getByRole("button", { name: /继续聊这个方向/ })
+    .getByRole("button", { name: /继续讨论|继续聊这个方向/ })
     .first()
     .waitFor({
       timeout: 30_000,
@@ -62,17 +62,20 @@ try {
   await frameBadge.waitFor({ timeout: 10_000 });
   const frameBadgeLabel = (await frameBadge.innerText()).trim();
 
-  const firstTurnResult = frames.find(
-    (frame) => frame.direction === "received" && frame.event === "turn_result",
-  )?.body;
-  const firstCandidate = page.getByRole("button", { name: /继续聊这个方向/ }).first();
+  await page.waitForTimeout(800);
+
+  const firstTurnResult = frames
+    .filter((frame) => frame.direction === "received" && frame.event === "turn_result")
+    .map((frame) => frame.body)
+    .find((body) => (body?.candidate_directions ?? []).length > 0);
+  const firstCandidate = page.getByRole("button", { name: /继续讨论|继续聊这个方向/ }).first();
   const candidateRef = firstTurnResult?.candidate_directions?.[0]?.direction_id;
   await firstCandidate.click();
 
   await page.waitForFunction(
     () => {
       const text = document.body.innerText;
-      return text.includes("继续聊") && text.includes("这个方向");
+      return text.includes("继续讨论") || (text.includes("继续聊") && text.includes("这个方向"));
     },
     { timeout: 10_000 },
   );

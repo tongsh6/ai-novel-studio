@@ -42,6 +42,34 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert {:error, error} = Anthropic.complete(state, nil, "prompt", %InferenceParams{})
       assert error.type == :timeout
     end
+
+    test "marks a long system prompt with Anthropic cache_control" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:anthropic_body, body})
+        {:error, :http_error, 401, "Unauthorized"}
+      end
+
+      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock, log_fn: nil}
+      long_system = String.duplicate("规则", 2100)
+
+      prompt = [
+        %{role: "system", content: long_system},
+        %{role: "user", content: "hi"}
+      ]
+
+      assert {:error, _error} = Anthropic.complete(state, nil, prompt, %InferenceParams{})
+      assert_receive {:anthropic_body, body}
+
+      assert [
+               %{
+                 type: "text",
+                 text: ^long_system,
+                 cache_control: %{type: "ephemeral"}
+               }
+             ] = body.system
+    end
   end
 
   describe "execute/5" do

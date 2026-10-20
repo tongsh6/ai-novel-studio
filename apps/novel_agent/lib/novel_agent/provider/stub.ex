@@ -27,6 +27,7 @@ defmodule NovelAgent.Provider.Stub do
 
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.SystemIdentity
 
   defstruct []
 
@@ -1390,6 +1391,7 @@ defmodule NovelAgent.Provider.Stub do
   defp prompt_text(prompt) when is_list(prompt) or is_map(prompt) do
     prompt
     |> NovelAgent.Provider.normalize_messages()
+    |> Enum.reject(&(&1.role == "system" and &1.content == SystemIdentity.content()))
     |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
   end
 end

@@ -230,6 +230,8 @@ adapter 负责把 provider-neutral messages 转成供应商所需格式。
 
 系统其他层不得直接依赖某个供应商的 message 结构。
 
+> `system` role 的首个承重消费者是系统身份消息：内容真源、Gateway 唯一注入点、各 adapter 对 `system` role 的渲染责任矩阵、trace 只落引用不落原文、`cached_tokens`（§9.1）的落地分期，见 `docs/design/contracts/VS-00H-system-identity-message-contract-pack.md`。
+
 ---
 
 ## 7. ProviderResult Contract

@@ -34,7 +34,8 @@ ADR-0023 CP4 后，loop 的模型调用收敛为五类：profile 路由（strict
 | T3 | 修订协议改「app 保留前缀＋模型只产尾部」 | P1 | tool schema 改 revised_tail＋可选废弃列表；app 按 step_id 确定性合并；contract pack 同步；消除 cursor 错位风险并省 token。 |
 | T4 | 修订 prompt 观察保真移植 | P1 | 把 CP0 的紧凑 structured_payload 渲染（含 finding gate/severity/summary）移植进修订 prompt，字符预算随 AssemblyPolicy 档位。 |
 | T5 | PlanStep.description 溯源哈希＋N-NARR driver 计划面板断言 | P1 | 持久化 per-description（或 arguments 整体）哈希进 `author_narrative_source` 同款 provenance；driver 补计划面板字节断言；不把 description 重新归类为结构（与 ADR-0022 冲突）。 |
-| T6 | 一致性打包 | P2 | 路由迁 native tool call＋一次重试；step_catalog 收敛 AgentTaskProfileRegistry 单源；success_criteria 决定消费（参与步骤完成核对/D 系信号）或 schema 降级可选；`evaluation_of_last` app 盖章语义注记进 contract pack；prompt 静态段前置（KV cache 友好）；I3 回显指令作用域收窄评估。 |
+| T6 | 一致性打包 + **前缀稳定性（`contracts/VS-00I`）** | P2 → 前缀部分 **P1** | 原项：路由迁 native tool call＋一次重试；step_catalog 收敛 AgentTaskProfileRegistry 单源；success_criteria 决定消费或 schema 降级可选；`evaluation_of_last` app 盖章语义注记进 contract pack；I3 回显指令作用域收窄评估。**前缀稳定性**（原"prompt 静态段前置"一句展开，依赖 T7 已完成的 L0）：按 VS-00I 五层模型 L0–L4 对各调用点重排与分块，只改排序不改语义；**L4 置尾与调用对工具恒定为硬规则**（2026-10-21 拍板）；厂商无关，adapter 只做断点 / 字段映射。分期 **CP-AB**（离线前缀共享度量 + 全厂商 TTFT + §5 矩阵待核实回填 + live 基线 + 工具恒定 + 续行调用对重排作首个对照 + 顺带修 VS-00H P1 activity 投影）→ CP-D 起草 / 修订 → CP-C 判断 call1 重排（**MBC A/B 硬门禁，失败即登记例外**）→ CP-E 厂商断点与基线复测 + I-CACHE-1 升 CI 阻断。**排期：Q1c 收口后首位、任何再碰 prompt 的工作之前。** VS-00I 待 CP-AB 实证后再 Frozen。 |
+| T7 | 系统身份消息层（`contracts/VS-00H`） | P1 | **CP1–CP3 实现完成（2026-10-21）**。VS-00D §4.4 SYSTEM 块首次落地：身份文本唯一真源模块 + `Gateway.execute/4` 唯一注入（幂等、首位、不设 opt-out）+ ProviderRun 事实携带 `system_identity_ref`（不落原文）；CP2 去 18 处调用点产品自称 + I-SYS-2 静态守卫；CP3 `Usage.cached_tokens` + adapter 映射 + Anthropic `cache_control`。Boundary：CP1 只改 `novel_agent`；CP2 仅改 application/agent 调用点文本；web/frontend/persistence schema 不动。Proof：gateway focused tests + 全量 `mix test` + 一条既有 slice_verify 场景复跑（Stub 捕获帧或 developer activity API 中 `system_identity_ref`）+ I1/I2/I3。分期与风险见 VS-00H §8/§9。 |
 
 ## 4. 验收
 
@@ -44,8 +45,19 @@ ADR-0023 CP4 后，loop 的模型调用收敛为五类：profile 路由（strict
 - [ ] T4：D2 场景复跑（修订 prompt 含 finding 明细断言可经 developer 视图/trace 验证）
 - [ ] T5：N-NARR driver 扩展后 `run_n_narr.exs` PASS 含计划面板断言
 - [ ] T6：逐项 focused tests；路由重试有单测
-- [ ] 全量门禁：`mix compile --warnings-as-errors`、`mix test`、xref、arch_check、I1/I2/I3、N-NARR、静态扫描
+- [ ] T6 CP-AB：`run_icache_prefix.exs` 对续行调用对给出"改前≈L0 / 改后 call2≈call1 全长"可区分数字；I-CACHE-2 绿；MBC 不退化且 call1 在 `tool_choice: none` 下无工具调用倾向；TTFT 进 ProviderRun；VS-00I §5 矩阵"待核实"项回填；有凭据厂商各一条 `cached_tokens` / TTFT 基线落 `artifacts/`；activity API 可见 `system_identity_ref`（VS-00H P1 收口）
+- [ ] T6 CP-D：起草 / 修订跨 run 共享前缀覆盖 L1；`run_id` 移出或置尾；N-PLAN 绿
+- [ ] T6 CP-C：判断 call1 连续两轮共享前缀覆盖 L0–L2；**MBC A/B pass_rate 不降**；I1/I2/I3 绿；失败则该调用点登记例外并保留现顺序
+- [ ] T6 CP-E：Anthropic live 一次 `cache_read_input_tokens > 0`；各厂商基线相对 CP-AB 有可解释改善；I-CACHE-1 登记进 `scenario-invariants.md` 升 CI 阻断；VS-00I 改 Frozen
+- [x] T7 CP1：gateway focused tests（I-SYS-1 首位唯一 / 幂等 / Stub 兼容）＋全量 `mix test` 爆点逐条显式处理＋一条既有 slice_verify 对话场景复跑出 `system_identity_ref`＋I1/I2/I3
+- [x] T7 CP2：18 处调用点产品自称清零＋I-SYS-2 静态守卫绿＋既有 MBC 探针 pass_rate 不退化（stub 1.0；live MBC 未测，见 VS-00H §11.1）
+- [x] T7 CP3：`cached_tokens` 进 ProviderRun 与开发者视图；judgment call1/call2 前缀共享有实测数据（真实 vendor cache hit 未测，见 VS-00H §11.1）
+- [x] 全量门禁：`mix compile --warnings-as-errors`、`mix test`、xref、arch_check、I1/I2/I3、N-NARR、静态扫描
 
 ## 5. 决策记录
 
+- 2026-10-21 — **T6 前缀稳定性三项拍板 + 排期**（用户确认）：① L4 置尾为硬规则，前移须先有该调用点 MBC A/B 数据；L4 不再新增静态段，新增静态内容默认进 L1。② 调用对工具恒定默认开启，CP-AB 数据只决定是否按 adapter 回退；MBC 须专门断言 call1 在 `tool_choice: none` 下无工具调用倾向。③ CP-A 与 CP-B 合并为 CP-AB（度量无"改后"样本不可信；A 单独落是"只建工具不消费"的禁止形态），顺序 AB → D → C → E，C 带明确失败路径。附带：VS-00H 评审 P1（activity 投影 `system_identity_ref`）并入 CP-AB；I-CACHE-1 先报告、CP-C 后升 CI 阻断；VS-00I 待 CP-AB 实证后再 Frozen；身份文本保持 v1 不与 T6 捆绑。**排期：不插队 Q1c，CP-AB 排 Q1c 收口后首位、任何再碰 prompt 的工作之前。**
+- 2026-10-21 — **T6 前缀稳定性契约落档（设计先行，不开工）**：T7 落地后实测身份 171 字符之后立即分叉——跨调用点分叉于角色句、同调用点跨轮分叉于首个动态字段（判断 context_block 把静态能力目录排在会话摘要之后；起草第 2 行即 run_id）、调用对分叉于工具集差异（call1 无 tools / call2 有）。契约 `contracts/VS-00I`：五层稳定度 L0–L4（厂商无关）、六段骨架映射与冲突裁决（⑤⑥置尾不动，有判例的位置要求优先于缓存）、调用对工具恒定、逐调用点映射表、十厂商适配矩阵、离线前缀共享度量为主 proof。用户明确：目标不只 LM Studio，厂商差异只进矩阵。顺序 A → B → D → C → E，判断 call1 重排放最后且以 MBC A/B 为硬门禁。队首不变。
+- 2026-10-21 — **T7 CP1–CP3 实现完成**：`NovelAgent.Provider.SystemIdentity` 成为身份文本唯一真源；`Gateway.execute/4` 注入且幂等；ProviderRun metadata 携带 `system_identity_ref`（不落原文）；18 处调用点去产品自称 + I-SYS-2 守卫；`Usage.cached_tokens` 与 Anthropic `cache_control` 落地。证据：`system_identity_test.exs`、gateway I-SYS-1/幂等/共享前缀、全量 `mix test` 1570/0、`slice_verify au02-candidate-continuation` PASS + 测试库 ProviderRun ref、I1/I2/I3 全绿、MBC stub 1.0。诚实边界：真实 vendor cache hit 未测；`system_identity_ref` 的开发者 UI 展示未做。
+- 2026-10-21 — 登记 T7 系统身份消息层：用户指出全 app 与 LLM 交互缺统一产品身份前提；代码核查证实零 `role: "system"`、18 处调用点三种产品自称、VS-00D §4.4 SYSTEM 块从未落地。契约落 `contracts/VS-00H`（Proposed）。关键裁决：注入点选 Gateway 而非 application 层（judgment_protocol 6 处 `[message | rest]` 首消息假设 + novel_agent 内部调用点可达性）；身份文本禁含输出格式/语言/角色名；trace 只落 `system_identity_ref` 不落原文（`system_prompt` 已是敏感键）；缓存是顺带收益不是动机，先让 `cached_tokens` 可测再谈前缀优化。T6 "静态段前置"改为依赖 T7。本次只落文档，不改代码，不改队首（Q1c 仍为唯一 next）。
 - 2026-07-05 — 六方向由 prompt review 产出并登记；T1 为正确性回归（CP4 迁移丢失意图规则），优先于其余项。T2 与 ADR-0023 审计的「live provider tool calling 未验证」缺口合并为同一次经批准的 live 验证，不单独触发重型验证。

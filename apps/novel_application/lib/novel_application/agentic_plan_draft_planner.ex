@@ -168,19 +168,25 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       {:ok, %{content: content} = provider_result} ->
         provider_result
         |> parse_tool_call_result(ctx.tool_name)
-        |> build_or_retry_plan(Map.merge(ctx, %{content: content, provider_result: provider_result}))
+        |> build_or_retry_plan(
+          Map.merge(ctx, %{content: content, provider_result: provider_result})
+        )
 
       {:ok, %{"content" => content} = provider_result} ->
         provider_result
         |> parse_tool_call_result(ctx.tool_name)
-        |> build_or_retry_plan(Map.merge(ctx, %{content: content, provider_result: provider_result}))
+        |> build_or_retry_plan(
+          Map.merge(ctx, %{content: content, provider_result: provider_result})
+        )
 
       {:ok, content} when is_binary(content) ->
         provider_result = %{content: content, tool_calls: []}
 
         provider_result
         |> parse_tool_call_result(ctx.tool_name)
-        |> build_or_retry_plan(Map.merge(ctx, %{content: content, provider_result: provider_result}))
+        |> build_or_retry_plan(
+          Map.merge(ctx, %{content: content, provider_result: provider_result})
+        )
 
       {:error, reason} ->
         provider_retry_or_error(reason, ctx)
@@ -611,7 +617,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
         %{
           role: "user",
           content: """
-          你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
+          本次你承担 AgentRun 计划起草器的角色。你只起草本次运行的可见 AgentPlan，不批准执行。
 
           #{draft_context_block(run, snapshot, chapter_titles)}
 
@@ -638,7 +644,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     tool_prompt(
       @draft_tool_name,
       """
-      你是小说创作系统的 AgentRun 计划起草器。你只起草本次运行的可见 AgentPlan，不批准执行。
+      本次你承担 AgentRun 计划起草器的角色。你只起草本次运行的可见 AgentPlan，不批准执行。
 
       #{draft_context_block(run, snapshot, chapter_titles)}
 
@@ -662,7 +668,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
         %{
           role: "user",
           content: """
-          你是小说创作系统的 AgentRun 计划修订器。你只修订本次运行的可见 AgentPlan，不批准执行。
+          本次你承担 AgentRun 计划修订器的角色。你只修订本次运行的可见 AgentPlan，不批准执行。
 
           #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
 
@@ -692,7 +698,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     tool_prompt(
       @revision_tool_name,
       """
-      你是小说创作系统的 AgentRun 计划修订器。你只修订本次运行的可见 AgentPlan，不批准执行。
+      本次你承担 AgentRun 计划修订器的角色。你只修订本次运行的可见 AgentPlan，不批准执行。
 
       #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
 
@@ -894,7 +900,9 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     with plan when is_binary(plan) <- map_get(args, :plan),
          {:ok, %{} = decoded} <- Jason.decode(plan),
          steps when is_list(steps) <- map_get(decoded, :steps) do
-      if Map.has_key?(args, "plan"), do: Map.put(args, "plan", decoded), else: Map.put(args, :plan, decoded)
+      if Map.has_key?(args, "plan"),
+        do: Map.put(args, "plan", decoded),
+        else: Map.put(args, :plan, decoded)
     else
       _ -> args
     end

@@ -237,7 +237,7 @@ defmodule NovelApplication.FactInventoryService do
         unresolved_foreshadows \\ []
       ) do
     """
-    你是小说设定盘点助手。下面是一部作品前 #{chapter_count} 章的正文摘录。请从正文中反向提炼出
+    本次你承担小说设定盘点助手的角色。下面是一部作品前 #{chapter_count} 章的正文摘录。请从正文中反向提炼出
     作品"事实上已经存在"的设定，整理成结构化提案供作者采纳登记。
     #{known_characters_section(known_characters)}#{unresolved_foreshadows_section(unresolved_foreshadows)}
     要求：

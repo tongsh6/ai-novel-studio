@@ -52,7 +52,9 @@ defmodule NovelAgent.Provider.Anthropic do
     start_time = System.monotonic_time(:millisecond)
     {system_prompt, messages} = anthropic_messages(prompt)
     body = %{model: state.model, max_tokens: 4096, messages: messages}
-    body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+
+    body =
+      if system_prompt, do: Map.put(body, :system, anthropic_system(system_prompt)), else: body
 
     body =
       body
@@ -89,7 +91,10 @@ defmodule NovelAgent.Provider.Anthropic do
     else
       {system_prompt, messages} = anthropic_messages(prompt)
       body = %{model: state.model, max_tokens: 4096, messages: messages, stream: true}
-      body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+
+      body =
+        if system_prompt, do: Map.put(body, :system, anthropic_system(system_prompt)), else: body
+
       body = HTTP.apply_params(body, params)
       url = Path.join(@api_base, "messages")
 
@@ -109,6 +114,19 @@ defmodule NovelAgent.Provider.Anthropic do
       |> UpstreamError.to_error_tuple()
 
     AdapterExecution.materialize_result({:error, error}, ctx)
+  end
+
+  # CP3：Anthropic 需要显式 cache_control 才启用 prompt cache；最小可缓存长度
+  # 以 token 计（通常 ≥1024），这里保守用 4096 字符近似，避免给过短 system
+  # 块打标；达不到阈值时保持字符串，不伪造缓存标记。
+  @cacheable_system_min_chars 4096
+
+  defp anthropic_system(system_prompt) when is_binary(system_prompt) do
+    if String.length(system_prompt) >= @cacheable_system_min_chars do
+      [%{type: "text", text: system_prompt, cache_control: %{type: "ephemeral"}}]
+    else
+      system_prompt
+    end
   end
 
   defp anthropic_messages(prompt) do

@@ -4,6 +4,7 @@ defmodule NovelAgent.Provider.GatewayTest do
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.RuntimeConfig
+  alias NovelAgent.Provider.SystemIdentity
   alias NovelCommon.Contracts.ProviderEvent
 
   defmodule ExecuteOnlyProvider do
@@ -16,7 +17,14 @@ defmodule NovelAgent.Provider.GatewayTest do
 
     @impl true
     def execute(_state, _model, prompt, _params, ctx) do
-      AdapterExecution.materialize_result({:ok, Result.new("adapter execute: #{prompt}")}, ctx)
+      content =
+        prompt
+        |> NovelAgent.Provider.normalize_messages()
+        |> Enum.reject(&(&1.role == "system"))
+        |> List.last()
+        |> Map.get(:content)
+
+      AdapterExecution.materialize_result({:ok, Result.new("adapter execute: #{content}")}, ctx)
     end
 
     @impl true
@@ -31,13 +39,38 @@ defmodule NovelAgent.Provider.GatewayTest do
     def name, do: "execute_only_provider"
   end
 
+  defmodule CapturingProvider do
+    @behaviour NovelAgent.Provider
+
+    alias NovelAgent.Provider.AdapterExecution
+    alias NovelAgent.Provider.Result
+
+    defstruct []
+
+    @impl true
+    def execute(_state, _model, prompt, _params, ctx) do
+      send(self(), {:captured_prompt, prompt})
+      AdapterExecution.materialize_result({:ok, Result.new("captured")}, ctx)
+    end
+
+    @impl true
+    def complete(_state, _model, _prompt, _params), do: raise("use execute/5")
+
+    @impl true
+    def health_check(_state), do: :ok
+
+    @impl true
+    def name, do: "capturing"
+  end
+
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
     RuntimeConfig.reset()
 
-    Application.put_env(:novel_agent, :extra_providers,
-      slice_verify: NovelAgent.Test.Provider.SliceVerify
-    )
+    Application.put_env(:novel_agent, :extra_providers, %{
+      slice_verify: NovelAgent.Test.Provider.SliceVerify,
+      capturing: CapturingProvider
+    })
 
     on_exit(fn ->
       RuntimeConfig.reset()
@@ -65,6 +98,64 @@ defmodule NovelAgent.Provider.GatewayTest do
 
       for vendor <- [:openai, :openai_subscription, :minimax, :minimax_cn, :zhipu, :kimi, :gemini] do
         assert vendor in providers
+      end
+    end
+  end
+
+  describe "system identity injection (VS-00H)" do
+    test "注入且仅注入一条 system 身份消息，并把引用写进 ProviderRun" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :capturing)
+
+      try do
+        assert {:ok, %{provider_run: run}} = Gateway.execute("hello")
+
+        assert_receive {:captured_prompt, [system, %{role: "user", content: "hello"}]}
+        assert system.role == "system"
+        assert system.content == SystemIdentity.content()
+        assert SystemIdentity.identity_message?(system)
+
+        assert run.metadata[:system_identity_ref] == SystemIdentity.identity_ref()
+      after
+        Application.put_env(:novel_agent, :provider, old)
+      end
+    end
+
+    test "连续两次调用共享同一身份前缀（call1/call2 形态）" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :capturing)
+
+      try do
+        assert {:ok, _} = Gateway.execute("判断叙事 call1")
+        assert {:ok, _} = Gateway.execute("判断结构 call2")
+
+        assert_receive {:captured_prompt, first}
+        assert_receive {:captured_prompt, second}
+
+        [first_system | _] = first
+        [second_system | _] = second
+
+        assert first_system.content == SystemIdentity.content()
+        assert second_system.content == SystemIdentity.content()
+        assert first_system.metadata == second_system.metadata
+      after
+        Application.put_env(:novel_agent, :provider, old)
+      end
+    end
+
+    test "已有身份标记的 prompt 不重复注入" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :capturing)
+
+      [system | _] = elem(SystemIdentity.inject("hello"), 0)
+      prompt = [system, %{role: "user", content: "hello"}]
+
+      try do
+        assert {:ok, _} = Gateway.execute(prompt)
+        assert_receive {:captured_prompt, ^prompt}
+        assert Enum.count(prompt, &SystemIdentity.identity_message?/1) == 1
+      after
+        Application.put_env(:novel_agent, :provider, old)
       end
     end
   end
@@ -827,7 +918,13 @@ defmodule NovelAgent.Provider.GatewayTest do
         assert_receive {:deepseek_body, body}
         assert body.model == "deepseek-v4-flash"
         assert body.stream == true
-        assert body.messages == [%{role: "user", content: "hello"}]
+
+        assert [
+                 %{role: "system", content: system_content},
+                 %{role: "user", content: "hello"}
+               ] = body.messages
+
+        assert system_content == SystemIdentity.content()
       after
         Application.put_env(:novel_agent, :provider, old_provider)
         Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)

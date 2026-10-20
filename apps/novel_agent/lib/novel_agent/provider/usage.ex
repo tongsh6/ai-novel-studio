@@ -8,30 +8,40 @@ defmodule NovelAgent.Provider.Usage do
   """
 
   @derive Jason.Encoder
-  defstruct [:input_tokens, :output_tokens, :model, :latency_ms]
+  defstruct [:input_tokens, :output_tokens, :model, :latency_ms, :cached_tokens]
 
   @type t :: %__MODULE__{
           input_tokens: non_neg_integer(),
           output_tokens: non_neg_integer(),
           model: String.t() | nil,
-          latency_ms: non_neg_integer()
+          latency_ms: non_neg_integer(),
+          cached_tokens: non_neg_integer() | nil
         }
 
   @doc "创建一个 Usage 记录。所有构造最终收敛到这里。"
-  @spec new(non_neg_integer(), non_neg_integer(), String.t() | nil, non_neg_integer()) :: t()
-  def new(input_tokens, output_tokens, model, latency_ms) do
+  @spec new(
+          non_neg_integer(),
+          non_neg_integer(),
+          String.t() | nil,
+          non_neg_integer(),
+          non_neg_integer() | nil
+        ) :: t()
+  def new(input_tokens, output_tokens, model, latency_ms, cached_tokens \\ nil) do
     %__MODULE__{
       input_tokens: input_tokens,
       output_tokens: output_tokens,
       model: model,
-      latency_ms: latency_ms
+      latency_ms: latency_ms,
+      cached_tokens: cached_tokens
     }
   end
 
   @doc """
   从 OpenAI 兼容响应体构造（`usage.prompt_tokens` / `usage.completion_tokens`）。
 
-  LM Studio / DeepSeek / OpenAI 兼容矩阵共用此入口。
+  LM Studio / DeepSeek / OpenAI 兼容矩阵共用此入口。缓存命中优先读
+  `prompt_tokens_details.cached_tokens`（OpenAI / LM Studio），兼容
+  `prompt_cache_hit_tokens`（DeepSeek）。
   """
   @spec from_openai_response(map(), String.t() | nil, non_neg_integer()) :: t()
   def from_openai_response(resp_body, fallback_model, latency_ms) when is_map(resp_body) do
@@ -41,7 +51,10 @@ defmodule NovelAgent.Provider.Usage do
       usage["prompt_tokens"] || 0,
       usage["completion_tokens"] || 0,
       resp_body["model"] || fallback_model,
-      latency_ms
+      latency_ms,
+      usage["prompt_tokens_details"]["cached_tokens"] ||
+        usage["prompt_cache_hit_tokens"] ||
+        usage["cached_tokens"]
     )
   end
 
@@ -54,7 +67,8 @@ defmodule NovelAgent.Provider.Usage do
       usage["input_tokens"] || 0,
       usage["output_tokens"] || 0,
       resp_body["model"] || fallback_model,
-      latency_ms
+      latency_ms,
+      usage["cache_read_input_tokens"]
     )
   end
 
