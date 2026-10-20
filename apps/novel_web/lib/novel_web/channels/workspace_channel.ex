@@ -25,7 +25,8 @@ defmodule NovelWeb.WorkspaceChannel do
   ]
   @agent_run_budget_action_types [
     "agent_run_budget_next_step",
-    "agent_run_budget_remaining_plan"
+    "agent_run_budget_remaining_plan",
+    "agent_run_budget_selected_steps"
   ]
   @agent_run_state_snapshot_timeout 5_000
 
@@ -1474,7 +1475,7 @@ defmodule NovelWeb.WorkspaceChannel do
              run_id,
              socket.assigns[:work_id],
              socket.assigns[:session_id],
-             budget_recovery_mode(action_input.action_type)
+             budget_recovery_mode(action_input)
            ) do
       result = Map.put(result, :status, "running")
       socket = remember_action_result(socket, action_input, result)
@@ -1517,17 +1518,33 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp budget_source_run_id(_source_turn_result), do: nil
 
-  defp budget_recovery_mode("agent_run_budget_next_step"), do: :next_step
-  defp budget_recovery_mode("agent_run_budget_remaining_plan"), do: :remaining_plan
+  defp budget_recovery_mode(%AuthorActionInput{action_type: "agent_run_budget_next_step"}),
+    do: :next_step
 
-  defp budget_recovery_mode("agent_run_budget_next_steps_" <> count) do
+  defp budget_recovery_mode(%AuthorActionInput{action_type: "agent_run_budget_remaining_plan"}),
+    do: :remaining_plan
+
+  defp budget_recovery_mode(%AuthorActionInput{
+         action_type: "agent_run_budget_selected_steps",
+         payload: payload
+       }) do
+    refs = (payload || %{})["step_refs"] || (payload || %{})[:step_refs]
+    refs = if is_list(refs), do: Enum.map(refs, &to_string/1), else: []
+    if refs == [], do: {:error, :step_selection_invalid}, else: {:selected_steps, refs}
+  end
+
+  defp budget_recovery_mode(%AuthorActionInput{
+         action_type: "agent_run_budget_next_steps_" <> count
+       }) do
     case Integer.parse(count) do
       {value, ""} when value > 0 -> {:steps, value}
       _ -> :invalid_recovery_mode
     end
   end
 
-  defp budget_recovery_mode("agent_run_budget_single_step_" <> count) do
+  defp budget_recovery_mode(%AuthorActionInput{
+         action_type: "agent_run_budget_single_step_" <> count
+       }) do
     case Integer.parse(count) do
       {value, ""} when value > 0 -> {:single_step, value}
       _ -> :invalid_recovery_mode

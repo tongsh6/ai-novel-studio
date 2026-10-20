@@ -24871,8 +24871,8 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     "D5 budget shortfall did not offer next-step recovery",
   );
   assert(
-    recoveryActionTypes.includes("agent_run_budget_single_step_2"),
-    "D5 budget shortfall did not offer an arbitrary-step choice",
+    recoveryActionTypes.includes("agent_run_budget_selected_steps"),
+    "D5 budget shortfall did not offer multi-step selection",
   );
   assert(
     recoveryActionTypes.includes("agent_run_budget_remaining_plan"),
@@ -24920,9 +24920,13 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     "D5 budget shortfall revised the plan instead of stopping for the author",
   );
 
-  const singleStepButton = page.getByRole("button", { name: "只执行第 2 步", exact: true });
-  await singleStepButton.waitFor({ state: "visible", timeout: 10_000 });
-  await singleStepButton.click();
+  const checkboxes = page.getByRole("checkbox");
+  await checkboxes.nth(0).check();
+  await checkboxes.nth(1).check();
+
+  const selectedStepsButton = page.getByRole("button", { name: "执行选中的 2 步", exact: true });
+  await selectedStepsButton.waitFor({ state: "visible", timeout: 10_000 });
+  await selectedStepsButton.click();
 
   const budgetExpanded = await waitForNewFrame(
     frameStart,
@@ -24941,7 +24945,7 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       frame.direction === "received" &&
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
-      Number(frame.body?.budget?.max_steps ?? 0) >= 2 &&
+      Number(frame.body?.budget?.max_steps ?? 0) >= 3 &&
       ["running", "completed", "awaiting_author"].includes(frame.body?.status),
     "D5 budget recovery did not resume the same run after author action",
     30_000,

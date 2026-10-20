@@ -189,6 +189,23 @@ export type QualityFindingView = QualityReview["findings"][number];
 export type AvailableAction = NonNullable<WireTurnResult["available_actions"]>[number] &
   AvailableActionLike;
 
+type PlanStepSelectionItem = {
+  step_ref: string;
+  description: string;
+};
+
+function planStepSelection(turnResult: TurnResult): PlanStepSelectionItem[] {
+  const raw = (turnResult as TurnResult & { plan_step_selection?: unknown }).plan_step_selection;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is PlanStepSelectionItem =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as { step_ref?: unknown }).step_ref === "string" &&
+      typeof (item as { description?: unknown }).description === "string",
+  );
+}
+
 export type CandidateDirection = CandidateDirectionContract;
 
 // DS02：采纳条目和状态复用线契约，恢复关联只补充已有的来源字段。
@@ -1138,6 +1155,7 @@ export function WorkspaceChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
   const [authorStepLimit, setAuthorStepLimit] = useState(false);
+  const [selectedPlanSteps, setSelectedPlanSteps] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   // CP4c rail：审读报告待处置数（TENTATIVE 报告的未处置偏离项；无报告为 0）
@@ -2665,7 +2683,9 @@ export function WorkspaceChat() {
       runtimeState.adoption.pendingArtifactIds,
       activeBehaviorId,
       // 逐候选采纳动作已渲染进候选卡片内部，不再进底部动作行。
-    ).filter((action) => !isPerItemAdoptionAction(action));
+    )
+      .filter((action) => !isPerItemAdoptionAction(action))
+      .filter((action) => action.action_type !== "agent_run_budget_selected_steps");
 
   const actionTitle = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.disabled_reason) return action.disabled_reason;
@@ -4514,6 +4534,59 @@ export function WorkspaceChat() {
                           }}
                         />
                       )}
+
+                    {!isReadOnlySessionView &&
+                      msg.turnResult &&
+                      planStepSelection(msg.turnResult).length > 0 &&
+                      (() => {
+                        const turnResult = msg.turnResult;
+                        const steps = planStepSelection(turnResult);
+                        const action = (turnResult.available_actions ?? []).find(
+                          (candidate) =>
+                            candidate.action_type === "agent_run_budget_selected_steps",
+                        );
+                        if (!action) return null;
+                        const selected = selectedPlanSteps[turnResult.turn_id] ?? [];
+                        const toggle = (stepRef: string) => {
+                          setSelectedPlanSteps((prev) => {
+                            const current = prev[turnResult.turn_id] ?? [];
+                            const next = current.includes(stepRef)
+                              ? current.filter((ref) => ref !== stepRef)
+                              : [...current, stepRef];
+                            return { ...prev, [turnResult.turn_id]: next };
+                          });
+                        };
+                        return (
+                          <div className={styles.cardActions}>
+                            <div>
+                              <div>{WORKBENCH.planStepSelectionTitle}</div>
+                              <div>{WORKBENCH.planStepSelectionHint}</div>
+                              {steps.map((step, index) => (
+                                <label key={step.step_ref}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selected.includes(step.step_ref)}
+                                    onChange={() => toggle(step.step_ref)}
+                                  />
+                                  {` ${index + 1}. ${step.description}`}
+                                </label>
+                              ))}
+                              <button
+                                type="button"
+                                className={styles.btnSecondary}
+                                disabled={selected.length === 0 || loading || !socketConnected}
+                                onClick={() => {
+                                  void handleAvailableAction(turnResult, action, {
+                                    step_refs: selected,
+                                  });
+                                }}
+                              >
+                                {WORKBENCH.planStepSelectionExecute(selected.length)}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                     {!isReadOnlySessionView &&
                       msg.turnResult &&

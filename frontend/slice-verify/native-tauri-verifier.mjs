@@ -6329,7 +6329,7 @@ function findAgenticLoopBudgetDeviationReplanEvidence(records) {
       record.awaiting_turn_result_status === "awaiting_author" &&
       (record.awaiting_turn_result_action_types ?? []).includes("agent_run_budget_next_step") &&
       (record.awaiting_turn_result_action_types ?? []).includes(
-        "agent_run_budget_single_step_2",
+        "agent_run_budget_selected_steps",
       ) &&
       (record.awaiting_turn_result_action_types ?? []).includes(
         "agent_run_budget_remaining_plan",
@@ -6340,10 +6340,10 @@ function findAgenticLoopBudgetDeviationReplanEvidence(records) {
       boolValue(record.pre_action_completed_turn_result_arrived) === false &&
       Number(record.pre_action_tool_started_event_count ?? -1) === 0 &&
       Number(record.budget_expanded_event_count ?? 0) >= 1 &&
-      record.budget_expanded_mode === "single_step" &&
-      Number(record.budget_expanded_step_count ?? 0) === 1 &&
+      record.budget_expanded_mode === "selected_steps" &&
+      Number(record.budget_expanded_step_count ?? 0) === 2 &&
       ["running", "completed", "awaiting_author"].includes(record.post_action_run_status) &&
-      Number(record.post_action_max_steps ?? 0) >= 2 &&
+      Number(record.post_action_max_steps ?? 0) >= 3 &&
       Number(record.log_sync_turn_count ?? -1) === 0 &&
       Number(record.log_toolbox_execute_count ?? -1) === 0,
   );
@@ -6416,7 +6416,7 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
     return null;
   if (
     !(uiState.awaiting_turn_result_action_types ?? []).includes(
-      "agent_run_budget_single_step_2",
+      "agent_run_budget_selected_steps",
     )
   )
     return null;
@@ -6432,11 +6432,11 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
   if (boolValue(uiState.pre_action_completed_turn_result_arrived) !== false) return null;
   if (Number(uiState.pre_action_tool_started_event_count ?? -1) !== 0) return null;
   if (Number(uiState.budget_expanded_event_count ?? 0) < 1) return null;
-  if (uiState.budget_expanded_mode !== "single_step") return null;
-  if (Number(uiState.budget_expanded_step_count ?? 0) !== 1) return null;
+  if (uiState.budget_expanded_mode !== "selected_steps") return null;
+  if (Number(uiState.budget_expanded_step_count ?? 0) !== 2) return null;
   if (!["running", "completed", "awaiting_author"].includes(uiState.post_action_run_status))
     return null;
-  if (Number(uiState.post_action_max_steps ?? 0) < 2) return null;
+  if (Number(uiState.post_action_max_steps ?? 0) < 3) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? -1) !== 0) return null;
 
@@ -6469,7 +6469,7 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
       "real_tauri_input_expressed_budget_limit_in_user_visible_language",
       "d5_budget_shortfall_is_author_visible_with_plan_budget_shortfall",
       "awaiting_turn_result_carries_available_actions",
-      "author_arbitrary_step_action_expands_budget_and_resumes_same_run",
+      "author_multi_step_selection_expands_budget_and_resumes_same_run",
       "no_plan_revised_before_author_action",
       "channel_did_not_use_dialogue_fallback_main_chain",
     ],

@@ -216,6 +216,10 @@ defmodule NovelApplication.AgentRunServer do
       not AgentRun.budget_exhausted?(state.run) ->
         {:reply, {:error, :budget_not_exhausted}, state}
 
+      match?({:selected_steps, _}, mode) ->
+        {:selected_steps, refs} = mode
+        selected_steps_recovery(state, refs)
+
       match?({:single_step, _}, mode) ->
         {:single_step, index} = mode
         single_step_recovery(state, index)
@@ -1594,6 +1598,19 @@ defmodule NovelApplication.AgentRunServer do
     "\n接下来可选步骤：\n" <> Enum.join(lines, "\n") <> "\n"
   end
 
+  defp remaining_step_options(run, plan_steps) do
+    start = min(AgentRun.execution_steps(run), length(plan_steps))
+
+    plan_steps
+    |> Enum.drop(start)
+    |> Enum.map(fn step ->
+      %{
+        step_ref: plan_step_ref(step),
+        description: map_value(step, :description) || plan_step_ref(step)
+      }
+    end)
+  end
+
   defp remaining_step_lines(run, plan_steps) do
     start = min(AgentRun.execution_steps(run), length(plan_steps))
 
@@ -1640,6 +1657,7 @@ defmodule NovelApplication.AgentRunServer do
       phase: "awaiting_author",
       status: "awaiting_author",
       next_action: "author_budget_recovery",
+      plan_step_selection: remaining_step_options(run, plan_steps),
       available_actions: budget_recovery_actions(run, plan_steps),
       trace_summary: %{
         decision_type: :plan_budget_shortfall,
@@ -1677,19 +1695,38 @@ defmodule NovelApplication.AgentRunServer do
         Enum.map(single_step_counts, &{:single_step, &1}) ++
         if(pending > 1, do: [:remaining_plan], else: [])
 
-    modes
-    |> Enum.uniq()
-    |> Enum.flat_map(fn mode ->
-      case AgentRunBudget.authorized_expand(
-             run.budget,
-             run.consumed_budget,
-             plan_steps,
-             mode
-           ) do
-        {:ok, _budget} -> [budget_recovery_action(run, mode)]
-        {:error, _reason} -> []
-      end
-    end)
+    selection_actions = if pending > 1, do: [budget_selection_action(run)], else: []
+
+    expansion_actions =
+      modes
+      |> Enum.uniq()
+      |> Enum.flat_map(fn mode ->
+        case AgentRunBudget.authorized_expand(
+               run.budget,
+               run.consumed_budget,
+               plan_steps,
+               mode
+             ) do
+          {:ok, _budget} -> [budget_recovery_action(run, mode)]
+          {:error, _reason} -> []
+        end
+      end)
+
+    selection_actions ++ expansion_actions
+  end
+
+  defp budget_selection_action(run) do
+    %{
+      action_id: "agent_run_budget_selected_steps:#{run.run_id}:#{run.consumed_budget.steps}",
+      action_type: "agent_run_budget_selected_steps",
+      label_key: "agentRunBudget.selected_steps",
+      source_turn_ref: run.parent_turn_ref,
+      target_ref: run.run_id,
+      enabled: true,
+      idempotency_key:
+        "idem:#{run.parent_turn_ref}:agent_run_budget_selected_steps:#{run.run_id}:#{run.consumed_budget.steps}",
+      trace_ref: "decision_trace:#{run.parent_turn_ref}"
+    }
   end
 
   defp budget_recovery_action(run, mode) do
@@ -1707,6 +1744,85 @@ defmodule NovelApplication.AgentRunServer do
         "idem:#{run.parent_turn_ref}:#{key}:#{run.run_id}:#{run.consumed_budget.steps}",
       trace_ref: "decision_trace:#{run.parent_turn_ref}"
     }
+  end
+
+  defp selected_steps_recovery(state, refs) when is_list(refs) do
+    plan_steps = plan_steps_from_plan(state.run.plan)
+    execution = AgentRun.execution_steps(state.run)
+    remaining = Enum.drop(plan_steps, execution)
+    wanted = MapSet.new(Enum.map(refs, &to_string/1))
+    selected = Enum.filter(remaining, &MapSet.member?(wanted, plan_step_ref(&1)))
+
+    selected_refs = MapSet.new(Enum.map(selected, &plan_step_ref/1))
+
+    if selected == [] or MapSet.size(wanted) != MapSet.size(selected_refs) do
+      {:reply, {:error, :step_selection_invalid}, state}
+    else
+      selected = expand_selected_steps(remaining, selected)
+      apply_selection_recovery(state, selected, "selected_steps", length(selected))
+    end
+  end
+
+  defp selected_steps_recovery(state, _refs),
+    do: {:reply, {:error, :step_selection_invalid}, state}
+
+  defp expand_selected_steps(plan_steps, selected) do
+    wanted = MapSet.new(selected, &plan_step_ref/1)
+    expanded = expand_dependencies(plan_steps, wanted)
+
+    plan_steps
+    |> Enum.filter(&MapSet.member?(expanded, plan_step_ref(&1)))
+  end
+
+  defp apply_selection_recovery(state, selected_steps, mode, step_count) do
+    plan = put_plan_steps(state.run.plan, selected_steps)
+    consumed = %{state.run.consumed_budget | execution_steps: 0}
+
+    case AgentRunBudget.authorized_expand(
+           state.run.budget,
+           consumed,
+           selected_steps,
+           :remaining_plan
+         ) do
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+
+      {:ok, budget} ->
+        state =
+          %{
+            state
+            | run: %{
+                state.run
+                | plan: plan,
+                  plan_version: state.run.plan_version + 1,
+                  budget: budget,
+                  consumed_budget: consumed
+              },
+              stage_state: Map.put(state.stage_state, :agent_plan_cursor, 0),
+              final_turn_result: nil
+          }
+          |> clear_interrupt()
+          |> put_run_status(:running)
+          |> put_run_phase(:executing)
+          |> emit(
+            :budget_expanded,
+            "已按你的授权执行选中的 #{step_count} 个步骤。",
+            ["author_budget_expanded", mode],
+            [],
+            %{budget: budget, mode: mode, step_count: step_count}
+          )
+          |> persist_run_state()
+
+        {:reply,
+         {:ok,
+          %{
+            run_id: state.run.run_id,
+            mode: mode,
+            step_count: step_count,
+            status: "running",
+            budget: budget
+          }}, state, {:continue, :run_next_step}}
+    end
   end
 
   defp single_step_recovery(state, index) do
@@ -1815,6 +1931,7 @@ defmodule NovelApplication.AgentRunServer do
   defp valid_recovery_mode?(:remaining_plan), do: true
   defp valid_recovery_mode?({:steps, count}), do: is_integer(count) and count > 0
   defp valid_recovery_mode?({:single_step, count}), do: is_integer(count) and count > 0
+  defp valid_recovery_mode?({:selected_steps, refs}), do: is_list(refs) and refs != []
   defp valid_recovery_mode?(_mode), do: false
 
   defp recovery_step_count({:steps, count}), do: count

@@ -322,7 +322,7 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-plan-native-tool-calling-protocol --surface tauri
   - id: agentic-loop-budget-deviation-replan
-    title: "ADR-0023 D5 预算缺口步骤选择"
+    title: "ADR-0023 D5 预算缺口步骤多选"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agentic-loop-budget-deviation-replan.yml

@@ -437,6 +437,10 @@ export const WORKBENCH = {
   agentRunBudgetNextStep: "只执行下一步",
   agentRunBudgetNextSteps: (count: number) => `接下来 ${count} 步`,
   agentRunBudgetSingleStep: (index: number) => `只执行第 ${index} 步`,
+  agentRunBudgetSelectedSteps: "执行选中的步骤",
+  planStepSelectionTitle: "选择要执行的步骤",
+  planStepSelectionHint: "未选中的步骤本次跳过。",
+  planStepSelectionExecute: (count: number) => `执行选中的 ${count} 步`,
   agentRunBudgetRemainingPlan: "允许执行剩余计划",
   // 正文写作连续超时后的恢复出口：仍走非空 steer，不新增裸继续命令。
   agentRunWriterTimeoutHint: "正文写作调用超时。可以先缩小范围重试：只写当前章第一场，500 字以内。",
