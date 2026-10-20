@@ -89,6 +89,14 @@ defmodule NovelAgent.Provider.Anthropic do
     if NovelAgent.Provider.tool_call_prompt?(prompt) do
       execute_tool_call(state, prompt, params, ctx)
     else
+      ctx =
+        if NovelAgent.Provider.tool_choice(prompt) == "none" and
+             NovelAgent.Provider.tool_specs(prompt) != [] do
+          Map.put(ctx, :tool_constancy, :degraded)
+        else
+          ctx
+        end
+
       {system_prompt, messages} = anthropic_messages(prompt)
       body = %{model: state.model, max_tokens: 4096, messages: messages, stream: true}
 

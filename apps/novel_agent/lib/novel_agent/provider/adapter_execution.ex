@@ -290,7 +290,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
         model: ctx.model_name,
         status: status,
         owner_refs: ctx.owner_refs,
-        metadata: identity_metadata(ctx)
+        metadata: run_metadata(ctx)
       })
 
     run
@@ -301,6 +301,15 @@ defmodule NovelAgent.Provider.AdapterExecution do
     case Map.get(ctx, :system_identity_ref) do
       %{} = ref -> %{system_identity_ref: ref}
       _ -> %{}
+    end
+  end
+
+  defp run_metadata(ctx) do
+    metadata = identity_metadata(ctx)
+
+    case Map.get(ctx, :tool_constancy) do
+      :degraded -> Map.put(metadata, :tool_constancy, :degraded)
+      _ -> metadata
     end
   end
 

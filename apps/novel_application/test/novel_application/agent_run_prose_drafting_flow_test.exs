@@ -1229,10 +1229,10 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
   # CP3a 判断②两段式（偏离信号 → 观察 + 续行，替代模型计划修订）。
   defp continuation_narrative_prompt?(prompt),
-    do: prompt_contains?(prompt, "你的两种续行方式")
+    do: prompt_contains?(prompt, "当前创作执行出现了需要你判断的情况")
 
   defp continuation_decision_prompt?(prompt),
-    do: prompt_contains?(prompt, "continuation_decision")
+    do: prompt_contains?(prompt, "现在把续行判断结构化")
 
   defp continuation_narrative(text) do
     {:ok,

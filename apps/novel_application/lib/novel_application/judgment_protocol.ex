@@ -695,7 +695,9 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          本次你承担创作判断器的角色。当前创作执行出现了需要你判断的情况，你要观察现状并决定续行方式，向作者说明。
+          #{continuation_common_prefix()}
+
+          当前创作执行出现了需要你判断的情况，你要观察现状并决定续行方式，向作者说明。
 
           ## 本轮创作目标
           #{Map.fetch!(input, :goal_text)}
@@ -705,10 +707,6 @@ defmodule NovelApplication.JudgmentProtocol do
 
           ## 当前产出观察
           #{Map.get(input, :observation_block) || "（暂无产出观察）"}
-
-          ## 你的两种续行方式
-          - 继续执行：情况可以由你在下一次执行中修正（比如按质量意见改进产出）。
-          - 停下来等作者：情况需要作者裁决（前提缺失、方向分歧、风险超出你能处理的范围）。
 
           ## 判别规则（容易摇摆的边界）
           - 质量复核给出了可执行的修改意见 → 继续执行（按意见修正重新产出）。
@@ -723,7 +721,9 @@ defmodule NovelApplication.JudgmentProtocol do
           - 只输出观察说明；不要开始执行，不要标题、JSON、代码块或内部机器名。
           """
         }
-      ]
+      ],
+      tools: continuation_tools(),
+      tool_choice: "none"
     }
   end
 
@@ -735,7 +735,9 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          本次你承担创作判断器的角色。你刚才已向作者输出了观察说明（如下）。现在把续行判断结构化。
+          #{continuation_common_prefix()}
+
+          你刚才已向作者输出了观察说明（如下）。现在把续行判断结构化。
 
           ## 本轮创作目标
           #{Map.fetch!(input, :goal_text)}
@@ -754,24 +756,38 @@ defmodule NovelApplication.JudgmentProtocol do
           """
         }
       ],
-      tools: [
-        %{
-          name: @continuation_tool_name,
-          description: "Structure the continuation judgment for the creative loop.",
-          input_schema: %{
-            type: "object",
-            properties: %{
-              action: %{type: "string", enum: @continuation_actions},
-              guidance: %{anyOf: [%{type: "string"}, %{type: "null"}]},
-              reason: %{type: "string"},
-              author_narrative: %{anyOf: [%{type: "string"}, %{type: "null"}]}
-            },
-            required: ["action", "reason"]
-          }
-        }
-      ],
+      tools: continuation_tools(),
       tool_choice: @continuation_tool_name
     }
+  end
+
+  defp continuation_common_prefix do
+    """
+    本次你承担创作判断器的角色。
+
+    ## 你的两种续行方式
+    - 继续执行：情况可以由你在下一次执行中修正（比如按质量意见改进产出）。
+    - 停下来等作者：情况需要作者裁决（前提缺失、方向分歧、风险超出你能处理的范围）。
+    """
+  end
+
+  defp continuation_tools do
+    [
+      %{
+        name: @continuation_tool_name,
+        description: "Structure the continuation judgment for the creative loop.",
+        input_schema: %{
+          type: "object",
+          properties: %{
+            action: %{type: "string", enum: @continuation_actions},
+            guidance: %{anyOf: [%{type: "string"}, %{type: "null"}]},
+            reason: %{type: "string"},
+            author_narrative: %{anyOf: [%{type: "string"}, %{type: "null"}]}
+          },
+          required: ["action", "reason"]
+        }
+      }
+    ]
   end
 
   @doc "call1 自由输出 prompt：判断叙事 + 直接回复内联（46§9.4 意图段体裁）。"
@@ -816,7 +832,9 @@ defmodule NovelApplication.JudgmentProtocol do
           - 不要标题、JSON、代码块或内部机器名。
           """
         }
-      ]
+      ],
+      tools: Map.fetch!(decision_prompt(input, ""), :tools),
+      tool_choice: "none"
     }
   end
 

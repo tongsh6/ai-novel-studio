@@ -7,6 +7,23 @@ defmodule NovelAgent.ProviderTest do
   # 采样退化——HTTP 200 正常返回，content 却是单字符刷满 1999 次。这不是任何
   # max_tokens 上限能挡住的失控生成（预算再大也只是刷更多同一字符），是内容
   # 有效性问题，判定与"内容为空"同一优先级、跨 adapter 共享同一实现。
+  describe "tool_choice: none" do
+    test "is not tool-call mode and keeps tools only for capable adapters" do
+      prompt = %{
+        messages: [%{role: "user", content: "观察"}],
+        tools: [%{name: "continuation_decision", input_schema: %{type: "object"}}],
+        tool_choice: "none"
+      }
+
+      refute Provider.tool_call_prompt?(prompt)
+      assert Provider.put_openai_tools(%{}, prompt).tool_choice == "none"
+      assert Provider.put_anthropic_tools(%{}, prompt) == %{}
+
+      named = %{prompt | tool_choice: "continuation_decision"}
+      assert Provider.tool_call_prompt?(named)
+    end
+  end
+
   describe "degenerate_content?/1" do
     test "flags single-character repeated content past the length floor" do
       assert Provider.degenerate_content?(String.duplicate("@", 1999))

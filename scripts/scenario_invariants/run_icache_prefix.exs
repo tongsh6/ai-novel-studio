@@ -75,6 +75,7 @@ defmodule ICachePrefixDriver do
 
       markdown = render_markdown(rows)
       File.write!("artifacts/scenario-invariants/icache.md", markdown)
+
       unless File.exists?("artifacts/scenario-invariants/icache-before.md") do
         File.write!("artifacts/scenario-invariants/icache-before.md", markdown)
       end
@@ -84,7 +85,7 @@ defmodule ICachePrefixDriver do
         Jason.encode!(rows, pretty: true)
       )
 
-      IO.puts("\nI-CACHE prefix sharing (CP-AB before):")
+      IO.puts("\nI-CACHE prefix sharing (CP-AB measurement):")
       Enum.each(rows, fn row -> IO.puts(format_row(row)) end)
     after
       restore.()
@@ -92,8 +93,13 @@ defmodule ICachePrefixDriver do
   end
 
   defp pair(call_site, call1, call2) do
-    first = capture(call1, call_site <> "-call1")
-    second = capture(call2, call_site <> "-call2")
+    {first, first_tools} = capture(call1, call_site <> "-call1")
+    {second, second_tools} = capture(call2, call_site <> "-call2")
+
+    if first_tools != second_tools do
+      raise "I-CACHE-2 violation at #{call_site}: call1/call2 tools differ"
+    end
+
     shared = shared_prefix_bytes(first, second)
     total = min(byte_size(first), byte_size(second))
 
@@ -102,7 +108,8 @@ defmodule ICachePrefixDriver do
       pair_kind: "call_pair",
       shared_prefix_bytes: shared,
       total_bytes: total,
-      ratio: if(total == 0, do: 0.0, else: Float.round(shared / total, 4))
+      ratio: if(total == 0, do: 0.0, else: Float.round(shared / total, 4)),
+      tools_equal: true
     }
   end
 
@@ -110,7 +117,8 @@ defmodule ICachePrefixDriver do
     assert_ok(Gateway.execute(prompt, "capture-model", purpose: :planner), label)
 
     receive do
-      {:icache_prompt, captured, _params} -> serialize(captured)
+      {:icache_prompt, captured, _params} ->
+        {serialize(captured), canonical(Map.get(captured, :tools, []))}
     after
       5_000 -> raise "capture provider did not receive #{label}"
     end
@@ -140,7 +148,9 @@ defmodule ICachePrefixDriver do
       end) <> "}"
   end
 
-  defp canonical(list) when is_list(list), do: "[" <> Enum.map_join(list, ",", &canonical/1) <> "]"
+  defp canonical(list) when is_list(list),
+    do: "[" <> Enum.map_join(list, ",", &canonical/1) <> "]"
+
   defp canonical(value), do: Jason.encode!(value)
 
   defp shared_prefix_bytes(left, right) do
@@ -153,7 +163,7 @@ defmodule ICachePrefixDriver do
 
   defp render_markdown(rows) do
     lines = [
-      "# I-CACHE prefix sharing (VS-00I §6.1)",
+      "# I-CACHE prefix sharing (VS-00I §6.1 measurement)",
       "",
       "Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}",
       "Provider: test-only capture at Gateway boundary (identity injected)",
