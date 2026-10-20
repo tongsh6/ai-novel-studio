@@ -77,7 +77,7 @@ AgentRun 启动
 | CP1 | 纯 `AgentRunBudget` 模块 + 成本模型 + 单测 | `agent_run_budget_test.exs` 6/6：4/7 步、硬上限、最多一步、执行开销、prose 双 provider 成本 | **done（2026-10-21）** |
 | CP2 | 运行时接线：plan 后派生执行预算；规划/执行分账；D5 语义 | **CP2a done**：`patch_plan_map` 按计划扩容；**CP2b-1 done**：作者“最多一步”进入 `author_limits` 并 cap `max_steps`；**CP2b-2 done**：预算耗尽时不再通用硬停，发出 `plan_budget_shortfall` + “计划 N 步 / 剩余 M 步”的作者可见停等，不调用 provider/tool。pure 9/9、runtime 44/0 | **done（2026-10-21）** |
 | CP3 | 作者约束与预算可见性 | “最多一步”生效；预算不足时真实差异文案；可选扩大预算动作 | todo |
-| CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS；硬上限/无绕预算反例 | todo |
+| CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS；硬上限/无绕预算反例 | **design done（2026-10-21，待实现）** |
 
 ### 4.1 CP2b-2 最小设计（待确认后动代码）
 
@@ -105,6 +105,36 @@ AgentRun 启动
 **为什么不是直接调大或自动 replan**：作者约束/硬上限是主权边界；自动扩预算会绕过作者，自动 replan 可能在 0 剩余预算下仍执行。
 
 **待确认**：是否接受“预算缺口先诚实停等，扩大预算由作者动作”作为 CP2b-2 的语义。
+
+### 4.2 CP4 场景重做设计（待实现）
+
+`agentic-loop-budget-deviation-replan` 改为验证当前产品语义：
+
+```text
+多阶段请求 + 作者“最多一步”
+→ judgment_plan 起草 N 步计划
+→ AgentRunBudget 派生后由作者 max_steps=1 cap
+→ 预算不足
+→ awaiting_author + plan_budget_shortfall
+→ 不出现 plan_revised（除非收缩后计划能装进剩余预算）
+→ writer/tool 未派发
+```
+
+Driver 改动：
+
+- 消息：`设计角色、大纲和正文改写计划，最多一步，测试预算余量不足`
+- 等待 `plan_drafted`，断言 `plan_step_count > 1`
+- 等待 `awaiting_author`，reason codes 含 `plan_budget_shortfall`
+- 断言 `consumed_tool_calls=0`、无 `turn_result`、无 `tool_started`
+- 不再等待 `context_result` / `plan_revised`
+
+Verifier 改动：
+
+- `profile_ref=conversation_turn_v1`
+- `budget_shortfall_event_count>=1`
+- `awaiting_reason_codes` 含 `plan_budget_shortfall`
+- `plan_revised_event_count` 允许为 0
+- `log_toolbox_execute_count=0`、`final_turn_result_arrived=false`
 
 ## 5. 明确不做
 
