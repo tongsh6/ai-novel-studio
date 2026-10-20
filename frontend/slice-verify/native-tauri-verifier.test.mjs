@@ -1357,9 +1357,9 @@ describe("native Tauri slice verifier", () => {
       {
         signal: "D4",
         mode: "await",
-        steps: 4,
+        steps: 5,
         toolCalls: 0,
-        providerCalls: 6,
+        providerCalls: 7,
         gateDecisionType: "require_confirmation",
         gateFirstBlockingGate: "authority",
         behavior: "gate_deny_settles_awaiting_author_after_judgment_continuation",
