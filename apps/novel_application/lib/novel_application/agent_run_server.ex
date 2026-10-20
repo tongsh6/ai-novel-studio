@@ -711,7 +711,8 @@ defmodule NovelApplication.AgentRunServer do
       run
       | plan: plan,
         plan_ref: plan_ref_from_patch(patch) || run.plan_ref,
-        plan_version: plan_version_from_patch(patch) || run.plan_version
+        plan_version: plan_version_from_patch(patch) || run.plan_version,
+        budget: NovelApplication.AgentRunBudget.expand(run.budget, plan_steps_from_plan(plan))
     }
   end
 

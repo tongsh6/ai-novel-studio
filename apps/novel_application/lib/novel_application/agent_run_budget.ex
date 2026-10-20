@@ -81,6 +81,28 @@ defmodule NovelApplication.AgentRunBudget do
     }
   end
 
+  @doc """
+  Expand an existing run budget to fit the drafted plan without shrinking it.
+
+  Used by the runtime after plan draft. Absolute hard caps still apply; author
+  limits / D5 semantics are layered in CP2/CP3.
+  """
+  @spec expand(map(), [map()], keyword()) :: map()
+  def expand(existing, plan_steps, opts \\ []) when is_map(existing) and is_list(plan_steps) do
+    result = for_plan(plan_steps, opts)
+
+    existing
+    |> Map.put(:max_steps, max(Map.get(existing, :max_steps, 0), result.budget.max_steps))
+    |> Map.put(
+      :max_tool_calls,
+      max(Map.get(existing, :max_tool_calls, 0), result.budget.max_tool_calls)
+    )
+    |> Map.put(
+      :max_provider_calls,
+      max(Map.get(existing, :max_provider_calls, 0), result.budget.max_provider_calls)
+    )
+  end
+
   defp apply_author_limits(budget, author_limits) do
     case map_get(author_limits, :max_steps) do
       value when is_integer(value) and value > 0 ->

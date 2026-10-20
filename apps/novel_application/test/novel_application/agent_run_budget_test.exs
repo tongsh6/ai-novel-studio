@@ -74,6 +74,32 @@ defmodule NovelApplication.AgentRunBudgetTest do
     assert result.budget.max_steps == 2
   end
 
+  test "expand/3 grows an existing run budget to fit a larger plan" do
+    existing = %{max_steps: 6, max_tool_calls: 5, max_provider_calls: 12, max_replans: 1}
+    plan = for index <- 1..7, do: step("context_assemble", "explore", %{step_id: "ctx_#{index}"})
+
+    expanded = AgentRunBudget.expand(existing, plan)
+
+    assert expanded.max_steps == 7
+    assert expanded.max_tool_calls == 7
+    assert expanded.max_replans == 1
+  end
+
+  test "expand/3 never shrinks existing budget and respects hard caps" do
+    existing = %{max_steps: 10, max_tool_calls: 10, max_provider_calls: 10, max_replans: 1}
+    plan = [step("context_assemble", "explore")]
+
+    assert AgentRunBudget.expand(existing, plan).max_steps == 10
+
+    capped =
+      AgentRunBudget.expand(existing, plan,
+        hard_caps: %{max_steps: 6, max_tool_calls: 5, max_provider_calls: 12}
+      )
+
+    assert capped.max_steps == 10
+    assert capped.max_tool_calls == 10
+  end
+
   test "prose_writing costs one tool and two provider calls" do
     result = AgentRunBudget.for_plan([step("prose_writing", "act")])
 
