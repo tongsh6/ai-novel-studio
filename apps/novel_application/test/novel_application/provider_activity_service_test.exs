@@ -57,10 +57,17 @@ defmodule NovelApplication.ProviderActivityServiceTest do
                status: "ok",
                output_type: "text",
                usage: %{"total_tokens" => 21, "cached_tokens" => 7, "ttft_ms" => 9},
+               system_identity_ref: %{
+                 "version" => "sys-identity-v1",
+                 "content_hash" => "hash-test"
+               },
                events: [event],
                output: output
              }
            ] = activity.provider_runs
+
+    refute inspect(activity.provider_runs) =~
+             String.slice(NovelAgent.Provider.SystemIdentity.content(), 0, 24)
 
     assert event.event_type == "final_output"
     assert event.visibility == "author"
@@ -195,7 +202,13 @@ defmodule NovelApplication.ProviderActivityServiceTest do
         execution_mode: :event_stream,
         status: :completed,
         provider_id: "slice_verify",
-        model: "stub-model"
+        model: "stub-model",
+        metadata: %{
+          "system_identity_ref" => %{
+            "version" => "sys-identity-v1",
+            "content_hash" => "hash-test"
+          }
+        }
       })
 
     {:ok, provider_event} =

@@ -235,5 +235,5 @@ CP1 是最小承重步：它已经穿过 调用点 → gateway → adapter → p
 
 - 真实 vendor prompt cache 命中率矩阵（需 live 凭据与 ≥1024 token 前缀；本地 LM Studio 的 KV 前缀复用也未做真实命中测量）。
 - CP2 的 live MBC 探针（本轮只跑 stub；live 需模型运行且不作为结构门禁）。
-- `system_identity_ref` 在开发者 UI 的显式展示（当前已进 ProviderRun metadata / activity usage 数据，UI 可后续消费）。
+- `system_identity_ref` 在开发者 UI 的显式展示：CP-AB B3 已把它投影进 activity usage summary；开发者 UI 的显式展示仍未做。
 - 身份文本 v2 / 三层结构行：等 VS-00D G7 信封统一后再评估。

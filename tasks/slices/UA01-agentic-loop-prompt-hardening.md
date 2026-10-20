@@ -56,6 +56,7 @@ ADR-0023 CP4 后，loop 的模型调用收敛为五类：profile 路由（strict
 
 ## 5. 决策记录
 
+- 2026-10-21 — **T6 CP-AB B3（VS-00H P1）**：`ProviderRunLog.usage_summary/2` 投影 `system_identity_ref`（从 run metadata 读，nil 省略）；activity API 测试断言 version/hash 可见且身份原文不进 payload。开发者 UI 显式展示仍未做。
 - 2026-10-21 — **T6 CP-AB A2 TTFT**：`Usage.ttft_ms` 落地；OpenAI-compatible / Anthropic stream 在首个 text/tool delta 记录，非流式响应构造器以 `latency_ms` 回填；`Usage.to_map` 随 ProviderOutput 持久化并进入 activity usage。测试：`usage_test`、OpenAI/Anthropic stream 首 delta、`provider_activity_service_test`。未做真实厂商 live 基线（A3）。
 - 2026-10-21 — **T6 CP-AB A1 基线**：新增 `scripts/scenario_invariants/run_icache_prefix.exs`，在 Gateway 边界捕获 identity 注入后的 structured prompt，用生产 `JudgmentProtocol` call1/call2 prompt builders 度量。改前数字：
   - `continuation call_pair: 523/1683 (0.3108)`

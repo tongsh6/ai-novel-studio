@@ -265,12 +265,19 @@ defmodule NovelPersistence.ProviderRunLog do
       output_type: output_type(output),
       content_length: output_content_length(output),
       usage: output_usage(output),
+      system_identity_ref: identity_ref(run.metadata),
       provider_id: run.provider_id,
       model: run.model
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp identity_ref(metadata) when is_map(metadata) do
+    Map.get(metadata, "system_identity_ref") || Map.get(metadata, :system_identity_ref)
+  end
+
+  defp identity_ref(_metadata), do: nil
 
   defp event_summary(%ProviderEventRecord{} = event) do
     %{
