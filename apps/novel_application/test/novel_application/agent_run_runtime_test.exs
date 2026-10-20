@@ -1758,6 +1758,87 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute_receive {:agent_event, :artifact_created, _}, 80
   end
 
+  test "budget shortfall exposes author recovery actions and next-step authorization resumes one step" do
+    parent = self()
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :character_design_with_context,
+        %{
+          text: "先看看现有角色阵容，然后设计一个反派，最多一步",
+          workspace_id: "ws-budget",
+          work_id: "work-budget",
+          session_id: "session-budget",
+          turn_id: "turn-budget-recovery"
+        },
+        nil,
+        fixed_json_provider([single_item("budget-recovery-antagonist")])
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:agent_event_full, :awaiting_author, awaiting}, 1_000
+    turn_result = awaiting.payload.turn_result
+
+    assert to_string(turn_result.status) == "awaiting_author"
+
+    action_types =
+      Enum.map(turn_result.available_actions, fn action ->
+        Map.get(action, :action_type) || Map.get(action, "action_type")
+      end)
+
+    assert "agent_run_budget_next_step" in action_types
+    assert "agent_run_budget_remaining_plan" in action_types
+
+    assert {:ok, %{run_id: ^run_id, status: "running"}} =
+             AgentRunService.author_budget_action(
+               run_id,
+               "work-budget",
+               "session-budget",
+               :next_step
+             )
+
+    assert_receive {:agent_event_full, :budget_expanded, expanded}, 1_000
+    assert to_string(expanded.payload.mode) == "next_step"
+
+    assert_receive {:agent_event_full, :awaiting_author, second_awaiting}, 5_000
+    assert second_awaiting.reason_codes == ["budget_exhausted", "plan_budget_shortfall"]
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+    assert run.budget.author_budget_override == true
+    assert run.budget.max_steps >= 2
+    assert run.consumed_budget.steps >= 2
+
+    second_turn_result = second_awaiting.payload.turn_result
+
+    second_action_types =
+      Enum.map(second_turn_result.available_actions, fn action ->
+        Map.get(action, :action_type) || Map.get(action, "action_type")
+      end)
+
+    assert "agent_run_budget_remaining_plan" in second_action_types
+
+    assert {:ok, %{run_id: ^run_id, status: "running"}} =
+             AgentRunService.author_budget_action(
+               run_id,
+               "work-budget",
+               "session-budget",
+               :remaining_plan
+             )
+
+    assert_receive {:agent_event_full, :budget_expanded, remaining_expanded}, 1_000
+    assert to_string(remaining_expanded.payload.mode) == "remaining_plan"
+    assert_receive {:agent_event_full, :run_completed, _}, 5_000
+
+    assert {:ok, %{run: completed_run}} = AgentRunService.state(run_id)
+    assert completed_run.status == :completed
+  end
+
   test "character design runs mechanical plan without draft calls or plan events" do
     parent = self()
 

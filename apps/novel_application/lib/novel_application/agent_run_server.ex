@@ -11,6 +11,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentEventPublisher
   alias NovelApplication.AgentNarrativeSource
+  alias NovelApplication.AgentRunBudget
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentNextStepDecision
@@ -97,6 +98,20 @@ defmodule NovelApplication.AgentRunServer do
 
   def steer_submission(server, text, submission_id),
     do: GenServer.call(server, {:command, {:steer, text, submission_id}})
+
+  @spec author_budget_action(
+          GenServer.server(),
+          :next_step | :remaining_plan,
+          timeout()
+        ) ::
+          {:ok, map()}
+          | {:error,
+             :not_awaiting_author
+             | :budget_not_exhausted
+             | :hard_cap_reached
+             | :invalid_recovery_mode}
+  def author_budget_action(server, mode, timeout \\ 5_000),
+    do: GenServer.call(server, {:author_budget_action, mode}, timeout)
 
   @spec state(GenServer.server(), timeout()) :: map()
   def state(server, timeout \\ 5_000), do: GenServer.call(server, :state, timeout)
@@ -187,6 +202,54 @@ defmodule NovelApplication.AgentRunServer do
         {:error, reason} ->
           {:reply, {:error, reason}, state}
       end
+    end
+  end
+
+  def handle_call({:author_budget_action, mode}, _from, state)
+      when mode in [:next_step, :remaining_plan] do
+    cond do
+      state.run.status != :awaiting_author ->
+        {:reply, {:error, :not_awaiting_author}, state}
+
+      not AgentRun.budget_exhausted?(state.run) ->
+        {:reply, {:error, :budget_not_exhausted}, state}
+
+      true ->
+        plan_steps = plan_steps_from_plan(state.run.plan)
+
+        case AgentRunBudget.authorized_expand(
+               state.run.budget,
+               state.run.consumed_budget,
+               plan_steps,
+               mode
+             ) do
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+
+          {:ok, budget} ->
+            state =
+              %{state | run: %{state.run | budget: budget}, final_turn_result: nil}
+              |> clear_interrupt()
+              |> put_run_status(:running)
+              |> put_run_phase(:executing)
+              |> emit(
+                :budget_expanded,
+                budget_expanded_summary(mode),
+                ["author_budget_expanded", Atom.to_string(mode)],
+                [],
+                %{budget: budget, mode: mode}
+              )
+              |> persist_run_state()
+
+            {:reply,
+             {:ok,
+              %{
+                run_id: state.run.run_id,
+                mode: mode,
+                status: "running",
+                budget: budget
+              }}, state, {:continue, :run_next_step}}
+        end
     end
   end
 
@@ -381,15 +444,8 @@ defmodule NovelApplication.AgentRunServer do
 
       AgentRun.budget_exhausted?(state.run) ->
         {summary, reason_codes} = budget_exhausted_outcome(state.run)
-
-        state =
-          state
-          |> put_run_status(:awaiting_author)
-          |> put_run_phase(:stopped)
-          |> emit(:awaiting_author, summary, reason_codes)
-          |> persist_run_state()
-
-        {:noreply, state}
+        state = settle_budget_shortfall(state, summary, reason_codes)
+        {:noreply, persist_run_state(state)}
 
       is_function(state.next_step_planner, 3) ->
         start_dynamic_next_step(state)
@@ -664,11 +720,7 @@ defmodule NovelApplication.AgentRunServer do
 
       AgentRun.budget_exhausted?(state.run) ->
         {summary, reason_codes} = budget_exhausted_outcome(state.run)
-
-        state
-        |> put_run_status(:awaiting_author)
-        |> put_run_phase(:stopped)
-        |> emit(:awaiting_author, summary, reason_codes)
+        settle_budget_shortfall(state, summary, reason_codes)
 
       true ->
         state
@@ -717,8 +769,8 @@ defmodule NovelApplication.AgentRunServer do
         plan_ref: plan_ref_from_patch(patch) || run.plan_ref,
         plan_version: plan_version_from_patch(patch) || run.plan_version,
         budget:
-          NovelApplication.AgentRunBudget.expand(run.budget, plan_steps_from_plan(plan),
-            author_limits: NovelApplication.AgentRunBudget.author_limits(run.goal.text)
+          AgentRunBudget.expand(run.budget, plan_steps_from_plan(plan),
+            author_limits: author_limits_for_run(run)
           )
     }
   end
@@ -1490,10 +1542,114 @@ defmodule NovelApplication.AgentRunServer do
     if plan_steps == [] do
       {"AgentRun 已达到预算上限。", ["budget_exhausted"]}
     else
-      {"AgentRun 预算不足：计划 #{length(plan_steps)} 步，剩余 #{remaining_steps(run)} 步；等待作者决定收缩范围或扩大预算。",
+      {"AgentRun 预算不足：计划 #{length(plan_steps)} 步，剩余 #{remaining_steps(run)} 步；请选择恢复动作，或终止任务。",
        ["budget_exhausted", "plan_budget_shortfall"]}
     end
   end
+
+  # S7（ADR-0024）：预算缺口不是「run 停了但没有下文」。同一 await 事件携带
+  # 作者决策面 TurnResult；动作只做显式预算授权，不自动扩预算，不绕过绝对硬上限。
+  defp settle_budget_shortfall(state, summary, reason_codes) do
+    turn_result = budget_shortfall_turn_result(state.run, summary)
+
+    _ =
+      TurnInteractionService.record_result(
+        %{state.run | status: :awaiting_author},
+        turn_result,
+        state.interaction_store
+      )
+
+    state
+    |> put_run_status(:awaiting_author)
+    |> put_run_phase(:stopped)
+    |> maybe_store_final_turn_result(turn_result)
+    |> emit(:awaiting_author, summary, reason_codes, [], %{turn_result: turn_result})
+  end
+
+  defp budget_shortfall_turn_result(%AgentRun{} = run, summary) do
+    plan_steps = plan_steps_from_plan(run.plan)
+
+    %{
+      schema_version: "3.0-draft",
+      turn_id: run.parent_turn_ref,
+      assistant_message: %{text: summary},
+      ui_cards: [],
+      phase: "awaiting_author",
+      status: "awaiting_author",
+      next_action: "author_budget_recovery",
+      available_actions: budget_recovery_actions(run, plan_steps),
+      trace_summary: %{
+        decision_type: :plan_budget_shortfall,
+        plan_step_count: length(plan_steps),
+        remaining_steps: remaining_steps(run)
+      },
+      truthfulness: %{
+        tool_called: false,
+        artifact_adopted: false,
+        production_write_performed: false
+      },
+      agent_run: %{
+        run_id: run.run_id,
+        run_mode: run.run_mode,
+        status: :awaiting_author,
+        phase: :stopped,
+        parent_turn_ref: run.parent_turn_ref,
+        profile_ref: run.profile_ref,
+        trigger: run.trigger,
+        long_run_task_ref: run.long_run_task_ref
+      }
+    }
+  end
+
+  defp budget_recovery_actions(run, plan_steps) do
+    [:next_step, :remaining_plan]
+    |> Enum.flat_map(fn mode ->
+      case AgentRunBudget.authorized_expand(
+             run.budget,
+             run.consumed_budget,
+             plan_steps,
+             mode
+           ) do
+        {:ok, _budget} -> [budget_recovery_action(run, mode)]
+        {:error, _reason} -> []
+      end
+    end)
+  end
+
+  defp budget_recovery_action(run, mode) do
+    suffix = Atom.to_string(mode)
+    key = "agent_run_budget_#{suffix}"
+
+    %{
+      action_id: "#{key}:#{run.run_id}:#{run.consumed_budget.steps}",
+      action_type: key,
+      label_key: "agentRunBudget.#{suffix}",
+      source_turn_ref: run.parent_turn_ref,
+      target_ref: run.run_id,
+      enabled: true,
+      idempotency_key:
+        "idem:#{run.parent_turn_ref}:#{key}:#{run.run_id}:#{run.consumed_budget.steps}",
+      trace_ref: "decision_trace:#{run.parent_turn_ref}"
+    }
+  end
+
+  defp budget_expanded_summary(:next_step), do: "已按你的授权再执行一步。"
+  defp budget_expanded_summary(:remaining_plan), do: "已按你的授权执行当前计划的剩余步骤。"
+
+  defp author_limits_for_run(%AgentRun{} = run) do
+    if budget_author_override?(run.budget) do
+      %{}
+    else
+      AgentRunBudget.author_limits(run.goal.text)
+    end
+  end
+
+  defp budget_author_override?(budget) when is_map(budget) do
+    Map.get(budget, :author_budget_override) == true or
+      Map.get(budget, "author_budget_override") == true
+  end
+
+  defp budget_author_override?(_budget), do: false
 
   defp execute_step_fun(step_fun, run, sequence, snapshot) when is_function(step_fun, 3),
     do: step_fun.(run, sequence, snapshot)

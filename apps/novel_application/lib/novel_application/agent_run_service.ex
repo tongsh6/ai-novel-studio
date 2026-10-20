@@ -391,6 +391,40 @@ defmodule NovelApplication.AgentRunService do
   end
 
   @doc """
+  作者显式选择预算恢复动作：只执行下一步，或授权执行剩余计划。
+  仅 live、同 work/session、处于 awaiting_author 的 run 可执行；动作本身只扩预算，
+  不绕过绝对硬上限，也不自动重规划。
+  """
+  @spec author_budget_action(
+          String.t(),
+          String.t(),
+          String.t(),
+          :next_step | :remaining_plan
+        ) :: {:ok, map()} | {:error, term()}
+  def author_budget_action(run_id, work_id, session_id, mode)
+      when mode in [:next_step, :remaining_plan] do
+    case lookup(run_id) do
+      {:ok, pid} ->
+        case AgentRunServer.state(pid) do
+          %{run: %{work_id: ^work_id, session_id: ^session_id}} ->
+            AgentRunServer.author_budget_action(pid, mode)
+
+          %{run: _run} ->
+            {:error, :run_scope_mismatch}
+
+          _ ->
+            {:error, :not_found}
+        end
+
+      error ->
+        error
+    end
+  catch
+    :exit, {:timeout, _call} -> {:error, :budget_action_timeout}
+    :exit, reason -> {:error, {:budget_action_call_exit, reason}}
+  end
+
+  @doc """
   作者已在采纳边界处理了本 run 的某个候选（accept 采纳）——通知 run 观察该作者
   决定（M0 缺陷修复 2026-07-19：单候选改进循环以作者采纳为收束信号，不再对已被
   作者拿走的候选继续改进/产未请求的第二候选）。非 pending 引用为无害 no-op。

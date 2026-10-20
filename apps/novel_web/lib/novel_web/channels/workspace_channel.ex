@@ -23,6 +23,10 @@ defmodule NovelWeb.WorkspaceChannel do
     "reject_or_cancel_confirmation",
     "cancel_pending_behavior"
   ]
+  @agent_run_budget_action_types [
+    "agent_run_budget_next_step",
+    "agent_run_budget_remaining_plan"
+  ]
   @agent_run_state_snapshot_timeout 5_000
 
   @impl true
@@ -762,6 +766,7 @@ defmodule NovelWeb.WorkspaceChannel do
       :interrupt_requested,
       :run_paused,
       :run_resumed,
+      :budget_expanded,
       :run_cancelled,
       :run_failed,
       :run_completed,
@@ -1185,6 +1190,46 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  # B20 CP3：预算缺口决策面。动作来自 awaiting_author TurnResult 的
+  # available_actions；只对同一 run 做显式预算授权，不自动扩预算。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: action_type} = action_input,
+         source_turn_result
+       )
+       when action_type in @agent_run_budget_action_types do
+    source_turn_result = scope_source_turn_result(socket, source_turn_result)
+
+    with :ok <- NovelApplication.ActionValidator.validate(action_input, source_turn_result),
+         {:ok, run_id} <- budget_recovery_run_id(action_input, source_turn_result),
+         {:ok, result} <-
+           AgentRunService.author_budget_action(
+             run_id,
+             socket.assigns[:work_id],
+             socket.assigns[:session_id],
+             budget_recovery_mode(action_type)
+           ) do
+      result = Map.put(result, :status, "running")
+      socket = remember_action_result(socket, action_input, result)
+      broadcast!(socket, "action_result", result)
+      log_author_action_done(socket, action_input, result)
+      {:reply, {:ok, %{received: true, action_status: "running", run_id: run_id}}, socket}
+    else
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :agent_run_budget_action_rejected,
+          outcome_detail: error_reason(reason)
+        })
+
+        {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+    end
+  end
+
   # CP4c（VS-00F §3.3 / AU-13）：审读报告逐项裁决。面板发起的作者动作，不依赖
   # turn available_actions（报告是档案对象非 turn 产物）；幂等由 author_action
   # receipt 机制承接。revise_* 返回 follow_up——前端据此回对话流发起修订意图
@@ -1429,6 +1474,29 @@ defmodule NovelWeb.WorkspaceChannel do
   defp handle_author_action(socket, action_input, source_turn_result) do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
   end
+
+  defp budget_recovery_run_id(
+         %AuthorActionInput{target_ref: run_id},
+         source_turn_result
+       ) do
+    if is_binary(run_id) and run_id == budget_source_run_id(source_turn_result) do
+      {:ok, run_id}
+    else
+      {:error, :run_scope_mismatch}
+    end
+  end
+
+  defp budget_source_run_id(source_turn_result) when is_map(source_turn_result) do
+    case Map.get(source_turn_result, :agent_run) || Map.get(source_turn_result, "agent_run") do
+      run when is_map(run) -> Map.get(run, :run_id) || Map.get(run, "run_id")
+      _ -> nil
+    end
+  end
+
+  defp budget_source_run_id(_source_turn_result), do: nil
+
+  defp budget_recovery_mode("agent_run_budget_next_step"), do: :next_step
+  defp budget_recovery_mode("agent_run_budget_remaining_plan"), do: :remaining_plan
 
   defp merge_payload_field(payload, key, default \\ "") do
     to_string(payload[to_string(key)] || payload[key] || default)

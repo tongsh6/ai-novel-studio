@@ -972,7 +972,7 @@ native_action_description() {
       echo "send a D6 conversation AgentRun from the real workbench -> verify AgentPlan draft and revision structures are carried by provider-native tool calls"
       ;;
     agentic-loop-budget-deviation-replan)
-      echo "send a budget-limited conversation AgentRun from the real workbench -> verify D5 budget shortfall stops at awaiting_author with plan_budget_shortfall and no plan_revised"
+      echo "send a budget-limited conversation AgentRun from the real workbench -> verify D5 shortfall TurnResult offers author recovery actions, and next-step authorization expands budget and resumes the same run"
       ;;
     agentic-loop-tool-failure-replan)
       echo "send a prose AgentRun whose writer provider fails -> verify D1 tool failure triggers provider-sourced plan_revised before awaiting author"
@@ -1980,6 +1980,14 @@ wait_for_url "$API_URL/health" "Phoenix"
 cd "$PROJECT_ROOT/frontend"
 setup_isolated_macos_keychain
 start_tauri_app "$ARTIFACT_DIR/tauri.log"
+
+# D5 预算恢复是本地确定性链路：driver 自身已等待完整事件链，证据落盘后
+# 通常首轮即可命中。单 slice 收紧轮询窗，避免失败场景再挂 360s。
+case "$SLICE_ID" in
+  agentic-loop-budget-deviation-replan)
+    TAURI_WAIT_SECONDS="${TAURI_SLICE_VERIFY_TIMEOUT_SECONDS:-90}"
+    ;;
+esac
 
 cat <<EOF
 [tauri-slice-verify] Native window is starting.

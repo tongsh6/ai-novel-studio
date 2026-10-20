@@ -113,6 +113,54 @@ defmodule NovelApplication.AgentRunBudgetTest do
     assert expanded.max_steps == 1
   end
 
+  test "authorized next-step recovery adds one step and marks the override" do
+    existing = %{max_steps: 1, max_tool_calls: 0, max_provider_calls: 0, max_replans: 1}
+    consumed = %{steps: 3, tool_calls: 0, provider_calls: 4}
+    plan = [step("context_assemble", "explore"), step("prose_writing", "act")]
+
+    assert {:ok, budget} =
+             AgentRunBudget.authorized_expand(existing, consumed, plan, :next_step)
+
+    assert budget.max_steps == 4
+    assert budget.max_tool_calls == 1
+    assert budget.max_provider_calls == 6
+    assert budget.max_replans == 1
+    assert budget.author_budget_override == true
+    assert budget.author_budget_override_mode == :next_step
+  end
+
+  test "authorized remaining-plan recovery fits the full plan after consumed planning" do
+    existing = %{max_steps: 1, max_tool_calls: 0, max_provider_calls: 0, max_replans: 1}
+    consumed = %{steps: 3, tool_calls: 0, provider_calls: 4}
+
+    plan = [
+      step("context_assemble", "explore"),
+      step("plot_outline", "act"),
+      step("prose_writing", "act"),
+      step("character_evolution", "act")
+    ]
+
+    assert {:ok, budget} =
+             AgentRunBudget.authorized_expand(existing, consumed, plan, :remaining_plan)
+
+    assert budget.max_steps == 7
+    assert budget.max_tool_calls == 4
+    assert budget.max_provider_calls == 12
+    assert budget.author_budget_override == true
+  end
+
+  test "authorized recovery rejects plans beyond absolute hard caps" do
+    existing = %{max_steps: 1, max_tool_calls: 0, max_provider_calls: 0, max_replans: 1}
+    consumed = %{steps: 0, tool_calls: 0, provider_calls: 0}
+    plan = for index <- 1..51, do: step("context_assemble", "explore", %{step_id: "s#{index}"})
+
+    assert {:error, :hard_cap_reached} =
+             AgentRunBudget.authorized_expand(existing, consumed, plan, :remaining_plan)
+
+    assert {:error, :invalid_recovery_mode} =
+             AgentRunBudget.authorized_expand(existing, consumed, [], :next_step)
+  end
+
   test "prose_writing costs one tool and two provider calls" do
     result = AgentRunBudget.for_plan([step("prose_writing", "act")])
 

@@ -430,6 +430,10 @@ export const WORKBENCH = {
   agentRunSteerSend: "发送调整",
   // DS03 状态矩阵：awaiting_author 必须提交具体补充，不提供裸「继续」。
   agentRunAwaitingInputHint: "等待你的补充：输入具体方向后发送，任务才会继续。",
+  agentRunBudgetShortfallHint: "预算不足：请选择恢复动作，或终止任务。",
+  agentRunBudgetShortfallPlaceholder: "预算不足：请使用恢复动作或终止任务",
+  agentRunBudgetNextStep: "只执行下一步",
+  agentRunBudgetRemainingPlan: "允许执行剩余计划",
   // 正文写作连续超时后的恢复出口：仍走非空 steer，不新增裸继续命令。
   agentRunWriterTimeoutHint: "正文写作调用超时。可以先缩小范围重试：只写当前章第一场，500 字以内。",
   agentRunWriterTimeoutRetry: "先写第一场（500 字）",

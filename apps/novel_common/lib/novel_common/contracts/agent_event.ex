@@ -30,6 +30,7 @@ defmodule NovelCommon.Contracts.AgentEvent do
           | :run_pausing
           | :run_paused
           | :awaiting_author
+          | :budget_expanded
           | :checkpoint_created
           | :run_resumed
           | :run_completed
@@ -77,6 +78,7 @@ defmodule NovelCommon.Contracts.AgentEvent do
     :run_pausing,
     :run_paused,
     :awaiting_author,
+    :budget_expanded,
     :checkpoint_created,
     :run_resumed,
     :run_completed,

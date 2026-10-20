@@ -24850,30 +24850,57 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     30_000,
   );
 
-  await sleep(750);
-  const framesAfter = frames.slice(frameStart);
-  const logsAfter = readAppLogRecords().slice(logStart);
-  const parentUserMessageLog = logsAfter.find(
-    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
-  );
-  const finalTurnResultArrived = framesAfter.some(
+  await sleep(500);
+  const awaitingTurnResult = await waitForNewFrame(
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      frame.body?.agent_run?.run_id === runId,
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.status === "awaiting_author",
+    "D5 budget shortfall did not broadcast an awaiting_author TurnResult",
+    30_000,
   );
-  assert(!finalTurnResultArrived, "D5 budget shortfall emitted a final TurnResult");
 
-  const toolStartedEventCount = framesAfter.filter(
+  const recoveryActionTypes = (awaitingTurnResult.body?.available_actions ?? []).map(
+    (action) => action.action_type,
+  );
+  assert(
+    recoveryActionTypes.includes("agent_run_budget_next_step"),
+    "D5 budget shortfall did not offer next-step recovery",
+  );
+  assert(
+    recoveryActionTypes.includes("agent_run_budget_remaining_plan"),
+    "D5 budget shortfall did not offer remaining-plan recovery",
+  );
+
+  const framesBeforeAction = frames.slice(frameStart);
+  const logsBeforeAction = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsBeforeAction.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const completedTurnResultBeforeAction = framesBeforeAction.some(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.status === "completed",
+  );
+  assert(
+    !completedTurnResultBeforeAction,
+    "D5 budget shortfall emitted a completed TurnResult before the author acted",
+  );
+
+  const toolStartedBeforeAction = framesBeforeAction.filter(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "tool_started",
   ).length;
-  assert(toolStartedEventCount === 0, "D5 budget shortfall dispatched a tool");
+  assert(toolStartedBeforeAction === 0, "D5 budget shortfall dispatched a tool before the author acted");
 
-  const planRevisedEventCount = framesAfter.filter(
+  const planRevisedEventCount = framesBeforeAction.filter(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
@@ -24885,6 +24912,36 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
     "D5 budget shortfall revised the plan instead of stopping for the author",
   );
 
+  const nextStepButton = page.getByRole("button", { name: "只执行下一步", exact: true });
+  await nextStepButton.waitFor({ state: "visible", timeout: 10_000 });
+  await nextStepButton.click();
+
+  const budgetExpanded = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "budget_expanded",
+    "D5 budget recovery did not broadcast budget_expanded after author action",
+    30_000,
+  );
+
+  const runningState = await waitForNewFrame(
+    frames.indexOf(budgetExpanded) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      Number(frame.body?.budget?.max_steps ?? 0) >= 4 &&
+      ["running", "completed", "awaiting_author"].includes(frame.body?.status),
+    "D5 budget recovery did not resume the same run after author action",
+    30_000,
+  );
+
+  await sleep(500);
+  const framesAfterAction = frames.slice(frames.indexOf(budgetExpanded));
+  const logsAfterAction = readAppLogRecords().slice(logStart);
   const uiState = await commonUiState(
     page,
     { turn_id: parentUserMessageLog?.turn_id ?? "" },
@@ -24906,19 +24963,33 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       plan_revised_event_count: planRevisedEventCount,
       awaiting_event_type: "awaiting_author",
       awaiting_reason_codes: awaiting.body?.reason_codes ?? [],
-      terminal_status: awaitingState.body?.status,
-      consumed_steps: awaitingState.body?.consumed_budget?.steps,
-      consumed_tool_calls: awaitingState.body?.consumed_budget?.tool_calls,
-      consumed_provider_calls: awaitingState.body?.consumed_budget?.provider_calls,
-      consumed_replans: awaitingState.body?.consumed_budget?.replans,
-      final_turn_result_arrived: finalTurnResultArrived,
-      tool_started_event_count: toolStartedEventCount,
-      log_sync_turn_count: logsAfter.filter(
+      awaiting_turn_result_status: awaitingTurnResult.body?.status,
+      awaiting_turn_result_action_types: recoveryActionTypes,
+      awaiting_status: awaitingState.body?.status,
+      consumed_steps_before_action: awaitingState.body?.consumed_budget?.steps,
+      consumed_tool_calls_before_action: awaitingState.body?.consumed_budget?.tool_calls,
+      consumed_provider_calls_before_action: awaitingState.body?.consumed_budget?.provider_calls,
+      consumed_replans_before_action: awaitingState.body?.consumed_budget?.replans,
+      pre_action_completed_turn_result_arrived: completedTurnResultBeforeAction,
+      pre_action_tool_started_event_count: toolStartedBeforeAction,
+      budget_expanded_event_count: 1,
+      budget_expanded_mode: budgetExpanded.body?.payload?.mode ?? null,
+      post_action_run_status: runningState.body?.status,
+      post_action_max_steps: runningState.body?.budget?.max_steps,
+      post_action_consumed_steps: runningState.body?.consumed_budget?.steps,
+      post_action_tool_started_event_count: framesAfterAction.filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_event" &&
+          frame.body?.run_ref === runId &&
+          frame.body?.event_type === "tool_started",
+      ).length,
+      log_sync_turn_count: logsAfterAction.filter(
         (record) =>
           record.event === "channel.user_message.done" &&
           String(record.run_mode ?? "") === "sync_turn",
       ).length,
-      log_toolbox_execute_count: logsAfter.filter(
+      log_toolbox_execute_count: logsBeforeAction.filter(
         (record) => record.event === "toolbox.execute.done",
       ).length,
       user_message_text: sentFrame.body?.text,

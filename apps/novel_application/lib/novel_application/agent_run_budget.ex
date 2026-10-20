@@ -117,6 +117,65 @@ defmodule NovelApplication.AgentRunBudget do
     |> apply_author_step_cap(author_limits)
   end
 
+  @doc """
+  Expand a run budget after an explicit author recovery action.
+
+  `:next_step` authorizes one more execution step (one tool call, at most two
+  provider calls); `:remaining_plan` authorizes enough worst-case cost for all
+  plan steps. Both are absolute-hard-cap checked and leave `max_replans`
+  unchanged. The returned budget carries an override marker so a later plan
+  patch does not re-apply an older "最多一步" text limit.
+  """
+  @spec authorized_expand(map(), map(), [map()], :next_step | :remaining_plan) ::
+          {:ok, map()} | {:error, :hard_cap_reached | :invalid_recovery_mode}
+  def authorized_expand(existing, consumed, plan_steps, mode)
+      when is_map(existing) and is_map(consumed) and is_list(plan_steps) do
+    with {:ok, {step_delta, tool_delta, provider_delta}} <- recovery_delta(plan_steps, mode) do
+      steps = consumed_value(consumed, :steps)
+      tools = consumed_value(consumed, :tool_calls)
+      providers = consumed_value(consumed, :provider_calls)
+
+      target = %{
+        max_steps: max(map_get(existing, :max_steps) || 0, steps + step_delta),
+        max_tool_calls: max(map_get(existing, :max_tool_calls) || 0, tools + tool_delta),
+        max_provider_calls:
+          max(map_get(existing, :max_provider_calls) || 0, providers + provider_delta),
+        max_replans: map_get(existing, :max_replans) || @default_hard_caps.max_replans,
+        author_budget_override: true,
+        author_budget_override_mode: mode
+      }
+
+      if within_hard_caps?(target) do
+        {:ok, Map.merge(existing, target)}
+      else
+        {:error, :hard_cap_reached}
+      end
+    end
+  end
+
+  defp recovery_delta([], _mode), do: {:error, :invalid_recovery_mode}
+  defp recovery_delta(_plan_steps, :next_step), do: {:ok, {1, 1, 2}}
+
+  defp recovery_delta(plan_steps, :remaining_plan) do
+    count = length(plan_steps)
+    {:ok, {count, count, count * 2}}
+  end
+
+  defp recovery_delta(_plan_steps, _mode), do: {:error, :invalid_recovery_mode}
+
+  defp consumed_value(map, key) do
+    case map_get(map, key) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> 0
+    end
+  end
+
+  defp within_hard_caps?(budget) do
+    budget.max_steps <= @default_hard_caps.max_steps and
+      budget.max_tool_calls <= @default_hard_caps.max_tool_calls and
+      budget.max_provider_calls <= @default_hard_caps.max_provider_calls
+  end
+
   defp apply_author_step_cap(budget, author_limits) do
     case map_get(author_limits, :max_steps) do
       value when is_integer(value) and value > 0 ->

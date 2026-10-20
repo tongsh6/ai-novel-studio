@@ -589,6 +589,11 @@ function awaitingAuthorWriterTimeout(events: AgentEventData[]): boolean {
   return Array.isArray(reasons) && reasons.includes("writer_timeout");
 }
 
+function awaitingAuthorBudgetShortfall(events: AgentEventData[]): boolean {
+  const reasons = latestAwaitingAuthorEvent(events)?.reason_codes;
+  return Array.isArray(reasons) && reasons.includes("plan_budget_shortfall");
+}
+
 function awaitingAuthorActivityText(events: AgentEventData[]): string {
   return latestAwaitingAuthorEvent(events)?.summary.trim() || WORKBENCH.agentRunAwaitingActivity;
 }
@@ -880,6 +885,7 @@ export function AgentRunControlDock({
   const runtimeDead = runtimeAuthority === "dead";
   const runtimeUnknown = runtimeAuthority === "unknown";
   const writerTimeoutAwaiting = awaitingInput && awaitingAuthorWriterTimeout(events);
+  const budgetShortfallAwaiting = awaitingInput && awaitingAuthorBudgetShortfall(events);
   const writerTimeoutRetryDisabled = runtimeAuthority !== "live" || commandInFlight;
   const isExpiredBounded = runtimeDead && run.run_mode !== "durable";
   const isDeadDurableCheckpoint = runtimeDead && run.run_mode === "durable";
@@ -967,9 +973,11 @@ export function AgentRunControlDock({
         ) : isDeadDurableCheckpoint ? null : awaitingInput ? (
           <>
             <span className={styles.agentRunDockAwaitingHint}>
-              {writerTimeoutAwaiting
-                ? WORKBENCH.agentRunWriterTimeoutHint
-                : WORKBENCH.agentRunAwaitingInputHint}
+              {budgetShortfallAwaiting
+                ? WORKBENCH.agentRunBudgetShortfallHint
+                : writerTimeoutAwaiting
+                  ? WORKBENCH.agentRunWriterTimeoutHint
+                  : WORKBENCH.agentRunAwaitingInputHint}
             </span>
             {writerTimeoutAwaiting && onWriterTimeoutRetry && (
               <button
@@ -2474,6 +2482,10 @@ export function WorkspaceChat() {
   };
 
   const actionLabel = (turnResult: TurnResult, action: AvailableActionLike) => {
+    if (action.action_type === "agent_run_budget_next_step")
+      return WORKBENCH.agentRunBudgetNextStep;
+    if (action.action_type === "agent_run_budget_remaining_plan")
+      return WORKBENCH.agentRunBudgetRemainingPlan;
     if (action.action_type === "confirm_before_execute") return WORKBENCH.actionConfirm;
     if (action.action_type === "reject_or_cancel_confirmation") return WORKBENCH.actionReject;
     if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
@@ -4902,7 +4914,9 @@ export function WorkspaceChat() {
                     placeholder={
                       canRouteMainInputToAgentSteer
                         ? awaitingAuthorInputRequired
-                          ? WORKBENCH.agentRunAwaitingInputPlaceholder
+                          ? awaitingAuthorBudgetShortfall(latestAgentRunEvents)
+                            ? WORKBENCH.agentRunBudgetShortfallPlaceholder
+                            : WORKBENCH.agentRunAwaitingInputPlaceholder
                           : WORKBENCH.agentRunMainInputSteerPlaceholder
                         : hasActiveAgentRun && !latestAgentRunIsDead
                           ? WORKBENCH.agentRunMainInputUnavailablePlaceholder

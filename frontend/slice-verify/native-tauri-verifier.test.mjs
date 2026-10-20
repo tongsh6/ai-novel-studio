@@ -1233,7 +1233,7 @@ describe("native Tauri slice verifier", () => {
     ).toBeNull();
   });
 
-  it("requires D5 budget shortfall evidence before awaiting author", () => {
+  it("requires D5 budget shortfall recovery actions and same-run resume", () => {
     const records = [
       {
         event: "channel.user_message.done",
@@ -1255,13 +1255,22 @@ describe("native Tauri slice verifier", () => {
         plan_step_count: 4,
         plan_revised_event_count: 0,
         awaiting_reason_codes: ["budget_exhausted", "plan_budget_shortfall"],
-        terminal_status: "awaiting_author",
-        consumed_steps: 3,
-        consumed_tool_calls: 0,
-        consumed_provider_calls: 4,
-        consumed_replans: 0,
-        final_turn_result_arrived: false,
-        tool_started_event_count: 0,
+        awaiting_status: "awaiting_author",
+        awaiting_turn_result_status: "awaiting_author",
+        awaiting_turn_result_action_types: [
+          "agent_run_budget_next_step",
+          "agent_run_budget_remaining_plan",
+        ],
+        consumed_steps_before_action: 3,
+        consumed_tool_calls_before_action: 0,
+        consumed_provider_calls_before_action: 4,
+        consumed_replans_before_action: 0,
+        pre_action_completed_turn_result_arrived: false,
+        pre_action_tool_started_event_count: 0,
+        budget_expanded_event_count: 1,
+        budget_expanded_mode: "next_step",
+        post_action_run_status: "running",
+        post_action_max_steps: 4,
         log_sync_turn_count: 0,
         log_toolbox_execute_count: 0,
       },
@@ -1276,20 +1285,31 @@ describe("native Tauri slice verifier", () => {
       run_id: "run-d5",
       profile_ref: "judgment_plan_v1",
       plan_step_count: 4,
-      consumed_tool_calls: 0,
+      consumed_tool_calls_before_action: 0,
+      budget_expanded_event_count: 1,
+      budget_expanded_mode: "next_step",
+      post_action_run_status: "running",
+      post_action_max_steps: 4,
     });
     expect(evidence.awaiting_reason_codes).toEqual(
       expect.arrayContaining(["plan_budget_shortfall"]),
+    );
+    expect(evidence.awaiting_turn_result_action_types).toEqual(
+      expect.arrayContaining([
+        "agent_run_budget_next_step",
+        "agent_run_budget_remaining_plan",
+      ]),
     );
     expect(
       findSliceBehaviorEvidence("agentic-loop-budget-deviation-replan", records, evidence),
     ).toMatchObject({
       slice_id: "agentic-loop-budget-deviation-replan",
-      behavior: "budget_shortfall_stops_awaiting_author_before_dispatch",
+      behavior: "budget_shortfall_offers_author_recovery_and_resumes",
       assertions: expect.arrayContaining([
-        "d5_budget_shortfall_is_author_visible_without_plan_revised",
-        "no_writer_or_tool_dispatch_after_budget_shortfall",
-        "run_waited_for_author_without_final_turn",
+        "d5_budget_shortfall_is_author_visible_with_plan_budget_shortfall",
+        "awaiting_turn_result_carries_available_actions",
+        "author_next_step_action_expands_budget_and_resumes_same_run",
+        "no_plan_revised_before_author_action",
       ]),
     });
 
@@ -1302,9 +1322,18 @@ describe("native Tauri slice verifier", () => {
       findNativeSliceEvidence("agentic-loop-budget-deviation-replan", missingD5Records),
     ).toBeNull();
 
+    const actionMissingRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, awaiting_turn_result_action_types: ["agent_run_budget_next_step"] }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agentic-loop-budget-deviation-replan", actionMissingRecords),
+    ).toBeNull();
+
     const toolDispatchRecords = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? { ...record, tool_started_event_count: 1 }
+        ? { ...record, pre_action_tool_started_event_count: 1 }
         : record,
     );
     expect(
@@ -1318,6 +1347,15 @@ describe("native Tauri slice verifier", () => {
     );
     expect(
       findNativeSliceEvidence("agentic-loop-budget-deviation-replan", planRevisedRecords),
+    ).toBeNull();
+
+    const noResumeRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, budget_expanded_event_count: 0, post_action_run_status: null }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agentic-loop-budget-deviation-replan", noResumeRecords),
     ).toBeNull();
   });
 
