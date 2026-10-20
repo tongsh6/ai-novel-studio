@@ -56,6 +56,10 @@ ADR-0023 CP4 后，loop 的模型调用收敛为五类：profile 路由（strict
 
 ## 5. 决策记录
 
+- 2026-10-21 — **T6 CP-AB A1 基线**：新增 `scripts/scenario_invariants/run_icache_prefix.exs`，在 Gateway 边界捕获 identity 注入后的 structured prompt，用生产 `JudgmentProtocol` call1/call2 prompt builders 度量。改前数字：
+  - `continuation call_pair: 523/1683 (0.3108)`
+  - `conversation call_pair: 525/5282 (0.0994)`
+  报告：`artifacts/scenario-invariants/icache-before.md`、`icache.md`。诚实边界：本步只覆盖两处判断调用点的 prompt builder → Gateway 帧，尚未驱动完整 AgentRun 偏离链；A2 TTFT、B1 工具恒定、B2 续行重排、B3 activity 投影、A3/A4 厂商/运行侧核实均未开工；本步无阈值断言（I-CACHE-1 按计划 CP-C 后升 CI 阻断）。
 - 2026-10-21 — **T6 前缀稳定性三项拍板 + 排期**（用户确认）：① L4 置尾为硬规则，前移须先有该调用点 MBC A/B 数据；L4 不再新增静态段，新增静态内容默认进 L1。② 调用对工具恒定默认开启，CP-AB 数据只决定是否按 adapter 回退；MBC 须专门断言 call1 在 `tool_choice: none` 下无工具调用倾向。③ CP-A 与 CP-B 合并为 CP-AB（度量无"改后"样本不可信；A 单独落是"只建工具不消费"的禁止形态），顺序 AB → D → C → E，C 带明确失败路径。附带：VS-00H 评审 P1（activity 投影 `system_identity_ref`）并入 CP-AB；I-CACHE-1 先报告、CP-C 后升 CI 阻断；VS-00I 待 CP-AB 实证后再 Frozen；身份文本保持 v1 不与 T6 捆绑。**排期：不插队 Q1c，CP-AB 排 Q1c 收口后首位、任何再碰 prompt 的工作之前。**
 - 2026-10-21 — **T6 前缀稳定性契约落档（设计先行，不开工）**：T7 落地后实测身份 171 字符之后立即分叉——跨调用点分叉于角色句、同调用点跨轮分叉于首个动态字段（判断 context_block 把静态能力目录排在会话摘要之后；起草第 2 行即 run_id）、调用对分叉于工具集差异（call1 无 tools / call2 有）。契约 `contracts/VS-00I`：五层稳定度 L0–L4（厂商无关）、六段骨架映射与冲突裁决（⑤⑥置尾不动，有判例的位置要求优先于缓存）、调用对工具恒定、逐调用点映射表、十厂商适配矩阵、离线前缀共享度量为主 proof。用户明确：目标不只 LM Studio，厂商差异只进矩阵。顺序 A → B → D → C → E，判断 call1 重排放最后且以 MBC A/B 为硬门禁。队首不变。
 - 2026-10-21 — **T7 CP1–CP3 实现完成**：`NovelAgent.Provider.SystemIdentity` 成为身份文本唯一真源；`Gateway.execute/4` 注入且幂等；ProviderRun metadata 携带 `system_identity_ref`（不落原文）；18 处调用点去产品自称 + I-SYS-2 守卫；`Usage.cached_tokens` 与 Anthropic `cache_control` 落地。证据：`system_identity_test.exs`、gateway I-SYS-1/幂等/共享前缀、全量 `mix test` 1570/0、`slice_verify au02-candidate-continuation` PASS + 测试库 ProviderRun ref、I1/I2/I3 全绿、MBC stub 1.0。诚实边界：真实 vendor cache hit 未测；`system_identity_ref` 的开发者 UI 展示未做。
