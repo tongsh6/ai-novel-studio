@@ -1,6 +1,6 @@
 # UA01 动态 AgentRun 预算：计划派生 + 硬上限
 
-- 状态：**active / CP4 recovery scenario PASS（2026-10-21）**
+- 状态：**active / CP4 recovery scenario PASS；CP4b 判定为 legacy 不可达（2026-10-21）**
 - 类型：AgentRun Runtime / Execution Authority / Budget Policy Slice
 - 来源：B18/B19 排查；`agentic-loop-budget-deviation-replan` 失败；用户拍板“核心是预算写死”
 - 父决策：ADR-0023（计划驱动执行 / D5 预算偏离）、VS-01（执行授权）、ADR-0027（作者义务）
@@ -78,7 +78,7 @@ AgentRun 启动
 | CP2 | 运行时接线：plan 后派生执行预算；规划/执行分账；D5 语义 | **CP2a done**：`patch_plan_map` 按计划扩容；**CP2b-1 done**：作者“最多一步”进入 `author_limits` 并 cap `max_steps`；**CP2b-2 done**：预算耗尽时不再通用硬停，发出 `plan_budget_shortfall` + “计划 N 步 / 剩余 M 步”的作者可见停等，不调用 provider/tool。pure 9/9、runtime 44/0 | **done（2026-10-21）** |
 | CP3 | 作者约束与预算可见性 | **done（2026-10-21）**：shortfall TurnResult 携带 `agent_run_budget_next_step` / `agent_run_budget_remaining_plan`；动作显式扩预算、受绝对硬上限、同一 run 恢复；runtime 48/0、真实 Tauri PASS | **done** |
 | CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS（预算缺口恢复）；作者动作扩预算并恢复同一 run；硬上限/无绕预算反例 | **recovery PASS（2026-10-21）** |
-| CP4b | D5 `plan_revised` 余量可收缩路径 | 仍有 provider/tool 预算且计划可收缩时触发 D5；当前场景不覆盖 | **gap** |
+| CP4b | D5 `plan_revised` 余量可收缩路径 | 调查结果：该路径属于已删除的 conversation flow；当前 D5 只在 prose continuation 中，且 plan-derived budget + “最多一步” cap 下不存在“仍有剩余但不足”的可达情形 | **blocked / superseded（2026-10-21）** |
 
 ### 4.1 CP2b-2 最小设计（待确认后动代码）
 
@@ -146,7 +146,17 @@ TAURI_SLICE_VERIFY_TIMEOUT_SECONDS=90 \
 - 动作前：`consumed_steps=3`、`consumed_tool_calls=0`、`consumed_provider_calls=4`、`consumed_replans=0`、无 `plan_revised`、无 completed TurnResult、无 tool dispatch；
 - 点击“只执行下一步”：`budget_expanded` mode `next_step`，同一 run 状态 `running`，`max_steps=4`。
 
-**未覆盖**：`agent_run_budget_remaining_plan` 已作为可选动作暴露但本轮未点击；D5 `plan_revised`（仍有预算余量且计划可收缩）仍由 CP4b 覆盖，不能把本场景写成 D5 `plan_revised` 证据。
+**CP4b 调查结论（2026-10-21）**：不能诚实补出“D5 `plan_revised` 余量可收缩”场景。
+
+- `AgenticDeviationSignal` 的 D5 只被 `prose_drafting_with_quality` 引用；旧 conversation D5 路径已在帧纪元重构中删除。
+- `AgentRunServer.run_next_step` 在调用 planner 之前先检查 `AgentRun.budget_exhausted?`，conversation 预算耗尽不会进入 D5。
+- 计划预算现在按计划派生；作者“最多一步”会留下 0 步剩余，正常计划不会出现“仍有剩余但不足以走完”的可达情形。
+- `max_steps` 仍按总 `consumed_budget.steps` 计算，规划/执行分账未真正落地；这也是“最多一步”看起来永远不够的根因。
+
+**因此 CP4b 不应通过构造伪计划或伪 `plan_revised` 来收口。** 下一步应二选一：
+
+1. 先做规划/执行分账（CP2c），让“最多一步”只限制执行步，再评估 D5；
+2. 或直接做真正的“缩小计划/重规划”作者动作，替代 legacy D5 `plan_revised`。
 
 ## 5. 明确不做
 
