@@ -140,6 +140,8 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert result.usage.input_tokens == 7
       assert result.usage.output_tokens == 2
       assert result.usage.model == "claude-sonnet-4-6"
+      assert is_integer(result.usage.ttft_ms)
+      assert result.usage.ttft_ms >= 0
       assert output.content.text == "你好"
 
       assert_receive {:stream_request, url, body, opts}

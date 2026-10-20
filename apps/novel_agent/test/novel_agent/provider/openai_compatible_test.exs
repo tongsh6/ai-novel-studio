@@ -169,6 +169,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       assert result.content == "你好"
       assert result.usage.input_tokens == 5
       assert result.usage.output_tokens == 2
+      assert is_integer(result.usage.ttft_ms)
+      assert result.usage.ttft_ms >= 0
       assert output.content.text == "你好"
 
       assert_receive {:stream_request, url, body, opts}

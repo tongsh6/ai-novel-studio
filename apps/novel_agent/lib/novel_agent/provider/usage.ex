@@ -8,14 +8,15 @@ defmodule NovelAgent.Provider.Usage do
   """
 
   @derive Jason.Encoder
-  defstruct [:input_tokens, :output_tokens, :model, :latency_ms, :cached_tokens]
+  defstruct [:input_tokens, :output_tokens, :model, :latency_ms, :cached_tokens, :ttft_ms]
 
   @type t :: %__MODULE__{
           input_tokens: non_neg_integer(),
           output_tokens: non_neg_integer(),
           model: String.t() | nil,
           latency_ms: non_neg_integer(),
-          cached_tokens: non_neg_integer() | nil
+          cached_tokens: non_neg_integer() | nil,
+          ttft_ms: non_neg_integer() | nil
         }
 
   @doc "创建一个 Usage 记录。所有构造最终收敛到这里。"
@@ -24,17 +25,24 @@ defmodule NovelAgent.Provider.Usage do
           non_neg_integer(),
           String.t() | nil,
           non_neg_integer(),
+          non_neg_integer() | nil,
           non_neg_integer() | nil
         ) :: t()
-  def new(input_tokens, output_tokens, model, latency_ms, cached_tokens \\ nil) do
+  def new(input_tokens, output_tokens, model, latency_ms, cached_tokens \\ nil, ttft_ms \\ nil) do
     %__MODULE__{
       input_tokens: input_tokens,
       output_tokens: output_tokens,
       model: model,
       latency_ms: latency_ms,
-      cached_tokens: cached_tokens
+      cached_tokens: cached_tokens,
+      ttft_ms: ttft_ms
     }
   end
+
+  @doc "补写首 token 延迟；流式路径在首个 delta 到达时设置。"
+  @spec put_ttft(t(), non_neg_integer() | nil) :: t()
+  def put_ttft(%__MODULE__{} = usage, nil), do: usage
+  def put_ttft(%__MODULE__{} = usage, ttft_ms), do: %{usage | ttft_ms: ttft_ms}
 
   @doc """
   从 OpenAI 兼容响应体构造（`usage.prompt_tokens` / `usage.completion_tokens`）。
@@ -54,7 +62,8 @@ defmodule NovelAgent.Provider.Usage do
       latency_ms,
       usage["prompt_tokens_details"]["cached_tokens"] ||
         usage["prompt_cache_hit_tokens"] ||
-        usage["cached_tokens"]
+        usage["cached_tokens"],
+      latency_ms
     )
   end
 
@@ -68,7 +77,8 @@ defmodule NovelAgent.Provider.Usage do
       usage["output_tokens"] || 0,
       resp_body["model"] || fallback_model,
       latency_ms,
-      usage["cache_read_input_tokens"]
+      usage["cache_read_input_tokens"],
+      latency_ms
     )
   end
 

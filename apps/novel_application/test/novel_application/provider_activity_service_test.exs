@@ -56,7 +56,7 @@ defmodule NovelApplication.ProviderActivityServiceTest do
                purpose: "conversation",
                status: "ok",
                output_type: "text",
-               usage: %{"total_tokens" => 21, "cached_tokens" => 7},
+               usage: %{"total_tokens" => 21, "cached_tokens" => 7, "ttft_ms" => 9},
                events: [event],
                output: output
              }
@@ -217,7 +217,7 @@ defmodule NovelApplication.ProviderActivityServiceTest do
         status: :ok,
         output_type: :text,
         content: %{text: "raw model output must not leak"},
-        usage: %{total_tokens: 21, cached_tokens: 7},
+        usage: %{total_tokens: 21, cached_tokens: 7, ttft_ms: 9},
         refs: ["pcall-query"]
       })
 

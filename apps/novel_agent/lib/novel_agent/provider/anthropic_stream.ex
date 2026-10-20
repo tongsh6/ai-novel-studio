@@ -52,6 +52,8 @@ defmodule NovelAgent.Provider.AnthropicStream do
           author_narrative_open?: true,
           usage: nil,
           model: Map.get(state, :model),
+          started: started,
+          ttft_ms: nil,
           parse_error?: false,
           provider_error: nil,
           deadline_exceeded?: false
@@ -218,7 +220,16 @@ defmodule NovelAgent.Provider.AnthropicStream do
   end
 
   defp consume_decoded(acc, ctx, %{"type" => "content_block_delta"} = decoded) do
-    append_delta(acc, ctx, text_delta(decoded))
+    acc
+    |> mark_ttft()
+    |> append_delta(ctx, text_delta(decoded))
+  end
+
+  defp consume_decoded(acc, _ctx, %{
+         "type" => "content_block_start",
+         "content_block" => %{"type" => "tool_use"}
+       }) do
+    mark_ttft(acc)
   end
 
   defp consume_decoded(acc, _ctx, %{"type" => "message_delta"} = decoded) do
@@ -250,6 +261,14 @@ defmodule NovelAgent.Provider.AnthropicStream do
   defp text_delta(%{"delta" => %{"text" => text}}) when is_binary(text), do: text
   defp text_delta(_decoded), do: ""
 
+  defp mark_ttft(acc) do
+    if acc.ttft_ms == nil do
+      %{acc | ttft_ms: System.monotonic_time(:millisecond) - acc.started}
+    else
+      acc
+    end
+  end
+
   defp append_delta(acc, _ctx, ""), do: acc
 
   defp append_delta(acc, ctx, content) do
@@ -277,7 +296,8 @@ defmodule NovelAgent.Provider.AnthropicStream do
         next_sequence: acc.next_sequence + 1,
         chunk_index: chunk_index,
         accumulated_content_length: accumulated,
-        author_narrative_open?: author_open?
+        author_narrative_open?: author_open?,
+        ttft_ms: acc.ttft_ms || System.monotonic_time(:millisecond) - acc.started
     }
   end
 
@@ -326,7 +346,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
   end
 
   defp provider_result(acc, {:ok, status, _body}, duration) when status in 200..299 do
-    usage = usage_from_stream(acc.usage, acc.model, duration)
+    usage = usage_from_stream(acc.usage, acc.model, duration) |> Usage.put_ttft(acc.ttft_ms)
     content = acc.content |> Enum.reverse() |> Enum.join()
 
     cond do

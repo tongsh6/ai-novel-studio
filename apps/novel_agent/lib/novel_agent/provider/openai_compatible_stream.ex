@@ -61,6 +61,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
           author_narrative_open?: true,
           usage: nil,
           model: Map.get(state, :model),
+          started: started,
+          ttft_ms: nil,
           parse_error?: false,
           deadline_exceeded?: false
         }
@@ -194,6 +196,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
           {:ok, decoded} when is_map(decoded) ->
             acc
             |> update_usage(decoded)
+            |> mark_ttft(decoded)
             |> append_delta(ctx, delta_content(decoded))
 
           _ ->
@@ -243,6 +246,23 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
 
   defp delta_content(_decoded), do: ""
 
+  defp mark_ttft(acc, decoded) do
+    if acc.ttft_ms == nil and (delta_content(decoded) != "" or tool_call_delta?(decoded)) do
+      %{acc | ttft_ms: System.monotonic_time(:millisecond) - acc.started}
+    else
+      acc
+    end
+  end
+
+  defp tool_call_delta?(%{"choices" => choices}) when is_list(choices) do
+    Enum.any?(choices, fn
+      %{"delta" => %{"tool_calls" => calls}} -> is_list(calls) and calls != []
+      _ -> false
+    end)
+  end
+
+  defp tool_call_delta?(_decoded), do: false
+
   defp choice_delta(%{"delta" => %{"content" => content}}) when is_binary(content), do: content
   defp choice_delta(%{"message" => %{"content" => content}}) when is_binary(content), do: content
   defp choice_delta(_choice), do: ""
@@ -274,7 +294,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
         next_sequence: acc.next_sequence + 1,
         chunk_index: chunk_index,
         accumulated_content_length: accumulated,
-        author_narrative_open?: author_open?
+        author_narrative_open?: author_open?,
+        ttft_ms: acc.ttft_ms || System.monotonic_time(:millisecond) - acc.started
     }
   end
 
@@ -320,13 +341,13 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
 
         AdapterExecution.materialize_result(provider_result.result, ctx,
           initial_events: all_events,
-        emit: :terminal
-      )
+          emit: :terminal
+        )
     end
   end
 
   defp provider_result(meta, acc, {:ok, status, _body}, duration) when status in 200..299 do
-    usage = usage_from_stream(acc.usage, acc.model, duration)
+    usage = usage_from_stream(acc.usage, acc.model, duration) |> Usage.put_ttft(acc.ttft_ms)
     content = acc.content |> Enum.reverse() |> Enum.join()
 
     cond do

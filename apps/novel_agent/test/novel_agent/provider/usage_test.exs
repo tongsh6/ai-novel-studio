@@ -62,7 +62,15 @@ defmodule NovelAgent.Provider.UsageTest do
     assert usage.cached_tokens == 8
   end
 
-  test "to_map carries cached_tokens for ProviderRun / developer activity" do
-    assert %{cached_tokens: 3} = Usage.new(1, 2, "m", 3, 3) |> Usage.to_map()
+  test "to_map carries cached_tokens and ttft_ms for ProviderRun / developer activity" do
+    usage = Usage.new(1, 2, "m", 3, 3, 1)
+    assert %{cached_tokens: 3, ttft_ms: 1} = Usage.to_map(usage)
+    assert Usage.put_ttft(usage, 2).ttft_ms == 2
+    assert Usage.put_ttft(usage, nil).ttft_ms == 1
+  end
+
+  test "non-stream response constructors use latency as TTFT" do
+    assert Usage.from_openai_response(%{"usage" => %{}}, "m", 20).ttft_ms == 20
+    assert Usage.from_anthropic_response(%{"usage" => %{}}, "m", 21).ttft_ms == 21
   end
 end

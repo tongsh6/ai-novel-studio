@@ -336,6 +336,7 @@ usage 计量是 provider abstraction 的核心职责之一。
 - `completion_tokens`
 - `total_tokens`
 - `cached_tokens`（可空）
+- `ttft_ms`（可空；流式首 delta 墙钟，非流式 = `wall_time_ms`）
 - `estimated_cost`
 - `provider_billed_cost`（可空）
 - `wall_time_ms`
