@@ -40,6 +40,7 @@ const STATUS_CLASS: Record<string, string> = {
   CONFIRMED: styles.statusConfirmed,
   STABILIZED: styles.statusStabilized,
   CONFLICTED: styles.statusConflicted,
+  SUPERSEDED: styles.statusDeprecated,
   DEPRECATED: styles.statusDeprecated,
   ARCHIVED: styles.statusArchived,
 };
@@ -122,6 +123,14 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <div>来源类型: {item.source_type}</div>
           </div>
         </section>
+
+        {(item.superseded_by_ref || item.supersedes_ref) && (
+          <section className={styles.section}>
+            <label>{MEMORY.revisionRelationTitle}</label>
+            {item.superseded_by_ref && <p className={styles.hint}>{MEMORY.supersededByNewer}</p>}
+            {item.supersedes_ref && <p className={styles.hint}>{MEMORY.supersedesOlder}</p>}
+          </section>
+        )}
 
         {item.valid_from && (
           <section className={styles.section}>

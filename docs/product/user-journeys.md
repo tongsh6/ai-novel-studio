@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-18（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 为下一场景核查；历史证据保留版本边界）
+> 最后更新：2026-10-21（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；下一项为 T6-AB prompt 前缀稳定性；历史证据保留版本边界）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,7 +182,7 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；下一项为 D5 / Q1c 已采纳内容修订核查。C11 性能仍为观察项。
+Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；D5 / Q1c 已采纳内容修订已收口（正式 browser 场景 + 拒绝矩阵）。下一项为 T6-AB prompt 前缀稳定性。C11 性能仍为观察项。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
@@ -220,7 +220,7 @@ Longest Closed Prefix：D1-D3 是最小闭环；D7 的 P1 10 万字主链 checkp
 
 Current Breakpoint：Journey D 当前支撑切面 VS-00C CP5 已闭环。P1 10 万字主链已证明系统能长跑；“写第 N 章首稿”的上下文质量前置现包括 CP2 实现态摘要窗口、CP3 目标章计划摘要和卷内位置、CP4 结构化方向层、CP5 ReaderEffectBrief 与非权威 self_report。AU09 archive memory roundtrip CP2、memory management workbench entry、memory trace roundtrip、validity window recall、cross-work memory isolation 与 session memory layering 已闭环，当前执行队列已转向 AU11 的质量诊断 message envelope。
 
-Next Proof：Q1c / D5 先核查已采纳内容的变更，沿真实作者“保留还是替换现有版本”的选择验证动作后果；既有 P1/质量链证据保留其历史范围。
+Next Proof：T6-AB / VS-00I 先完成 prompt 前缀共享度量、TTFT、工具集恒定与续行调用对重排的首个实证；Q1c / D5 的历史证据保留在 `tasks/slices/Q1C-adopted-content-revision.md` §4B。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -228,7 +228,7 @@ Next Proof：Q1c / D5 先核查已采纳内容的变更，沿真实作者“保�
 | D2 | AI 生成小说材料但默认只是草稿 | AU-05 | ToolResult / TentativeArtifactSet | closed | Tauri automation | `artifacts/slice-verify/au05-adoption-boundary-tauri/summary.json` | 完整 StateTrace 仍不足。 |
 | D3 | 采纳章节片段后能阅读 | AU-08 | AdoptionDecision / ProjectionHint | closed | Tauri automation | `artifacts/slice-verify/au08-adoption-reading-projection-tauri/summary.json` | 真实卷章归属/合并仍缺。 |
 | D4 | 立项 -> 世界观/角色/大纲/章节/场景的连续规划 | AU-02 / AU-09 | MicroPlan / ToolRequest / DialogueContext | gap | Document only | v2 lifecycle 设计、v3 acceptance 分散覆盖 | 缺统一生命周期入口和分阶段 proof。 |
-| D5 | 修订已采纳内容，保留 provenance 和冲突恢复 | Q1c / AU-05 / AU-08 | AdoptionDecision / DecisionTrace | next（场景核查） | 既有契约与待执行分支 | `tasks/NEXT.md` Q1c；Q1B 实模第十轮 | 先核查已保存编辑版的保留/替代是否命中真实对象、需何种覆盖确认，以及旧版本、投影和后续上下文；未把建议等同于实际已支持。 |
+| D5 | 修订已采纳内容，保留 provenance 和冲突恢复 | Q1c / AU-05 / AU-08 | AdoptionDecision / DecisionTrace | closed（2026-10-21） | Browser scenario + application/persistence tests | `quality/acceptance/scenarios/q1c-adopted-content-revision.yml`；`artifacts/slice-verify/q1c-adopted-content-revision/summary.json`；`tasks/slices/Q1C-adopted-content-revision.md` §4B | 正式场景证明 revision_of 命中、覆盖确认、旧版 SUPERSEDED/新版 CONFIRMED、follow-up 读新值；歧义/stale/跨作品/放弃由确定性测试覆盖。原生 Tauri Q1c 场景未跑。 |
 | D6 | 内容质量门禁参与采纳或修订 | AU-05 / AU-09 | ToolResult / OrchestratorDecision / TraceSummaryView | gap | Document only | v2 quality gates 已设计，v3 首批只接最小质量证明 | 缺质量 finding 到 UI/proof 的产品链。 |
 | D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | closed | Tauri automation | `artifacts/novel-output/p1-100k-dogfood/`；`artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；`artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | P1 长篇主链已达成；VS-00C 上下文质量 CP、AU09 archive memory roundtrip CP2、AU09 memory management entry、AU09 memory trace roundtrip、AU09 validity window recall、AU09 cross-work memory isolation 和 AU09/AU03 session memory layering 均已闭环，当前队首转向 AU11 quality diagnosis message envelope。 |
 | D8 | P1 单章正文草稿生成 | AU-02 / AU-05 / AU-10 | MicroPlan / ToolRequest / ToolResult / TentativeArtifactSet | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation` | 真实工作台基于已采纳章节计划生成 `prose_fragment` 待采纳正文草稿；未采纳正文不进入 ReadingMode。单章 1000 字下限仍待后续扩写 / 字数统计 checkpoint。 |

@@ -15,6 +15,8 @@ export interface MemoryItem {
   status: string;
   source_type: string;
   source_id?: string;
+  supersedes_ref?: string | null;
+  superseded_by_ref?: string | null;
   reference_count: number;
   weight: number;
   confidence: number;

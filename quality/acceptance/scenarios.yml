@@ -1298,6 +1298,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/q1b-live-archive-roundtrip.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh q1b-live-archive-roundtrip --surface tauri
+  - id: q1c-adopted-content-revision
+    title: "Q1c 已采纳内容修订、覆盖确认与后续上下文"
+    tier: nightly
+    surface: browser
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/q1c-adopted-content-revision.yml
+    driver: frontend/slice-verify/q1c-adopted-content-revision.mjs
+    entrypoint: scripts/quality_accept.sh q1c-adopted-content-revision --surface browser
   - id: q3d-message-delivery-recovery
     title: "Q3D 消息重传身份与事实回执"
     tier: nightly

@@ -22,7 +22,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   alias NovelDomain.{AuthorActionInput, DialogueFrame, MicroPlan, OrchestratorDecision}
   require NovelCommon.LogEmit, as: LogEmit
 
-  @capabilities ~w(revise_pending_artifact discard_pending_artifact)
+  @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
+  @adopted_capabilities ~w(revise_adopted_content)
+  @capabilities @pending_capabilities ++ @adopted_capabilities
+  @adopted_revision_types ~w(world_setting world_rule_seed style_rule_seed constraint_seed prose_fragment)
   @revision_tools %{
     "prose_fragment" => "prose_writing",
     "outline_draft" => "plot_outline",
@@ -36,10 +39,20 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   def capabilities, do: @capabilities
 
   def operations(entry) do
-    if to_string(field(entry, :adoption_status)) == "TENTATIVE" do
-      if revision_tool(entry), do: @capabilities, else: ["discard_pending_artifact"]
-    else
-      []
+    status = to_string(field(entry, :adoption_status))
+
+    cond do
+      status == "TENTATIVE" ->
+        if revision_tool(entry), do: @pending_capabilities, else: ["discard_pending_artifact"]
+
+      status in NovelDomain.AdoptionStatus.canon_statuses() ->
+        if to_string(field(entry, :artifact_type)) in @adopted_revision_types and
+             revision_tool(entry),
+           do: ["revise_adopted_content"],
+           else: []
+
+      true ->
+        []
     end
   end
 
@@ -49,21 +62,43 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     |> Map.new(&{field(&1, :artifact_id), operations(&1)})
   end
 
+  @doc "已采纳内容目标目录（Q1c）；与 pending 目录分开，避免模型把已采纳对象当候选。"
+  def accepted_targets(context) do
+    context.interaction_state
+    |> Map.get(:resolved_adoptions, [])
+    |> Enum.filter(
+      &(to_string(field(&1, :adoption_status)) in NovelDomain.AdoptionStatus.canon_statuses())
+    )
+    |> Map.new(&{field(&1, :artifact_id), operations(&1)})
+    |> Enum.reject(fn {_ref, operations} -> operations == [] end)
+    |> Map.new()
+  end
+
   @doc "由实际目标类型选择执行工具，不能把创作调用藏在 judgment 的权限之下。"
   def execution_tool(judgment, context) do
-    if judgment.capability == "revise_pending_artifact" do
-      context.interaction_state
-      |> Map.get(:pending_adoptions, [])
-      |> Enum.find(&(field(&1, :artifact_id) == judgment.pending_artifact_ref))
-      |> revision_tool()
-    else
-      "judgment"
+    case field(judgment, :capability) do
+      "revise_pending_artifact" ->
+        context.interaction_state
+        |> Map.get(:pending_adoptions, [])
+        |> Enum.find(&(field(&1, :artifact_id) == field(judgment, :pending_artifact_ref)))
+        |> revision_tool()
+
+      "revise_adopted_content" ->
+        context.interaction_state
+        |> Map.get(:resolved_adoptions, [])
+        |> Enum.find(&(field(&1, :artifact_id) == field(judgment, :adopted_content_ref)))
+        |> revision_tool()
+
+      _ ->
+        "judgment"
     end
   end
 
   def validate(judgment, targets) do
     if field(judgment, :action) == "execute" and field(judgment, :capability) in @capabilities do
-      ref = field(judgment, :pending_artifact_ref)
+      ref =
+        field(judgment, :pending_artifact_ref) ||
+          field(judgment, :adopted_content_ref)
 
       if field(judgment, :capability) in Map.get(targets || %{}, ref, []),
         do: :ok,
@@ -80,16 +115,19 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     with {:ok, snapshot} <-
            WorkSessionService.show(run.work_id || run.workspace_id, run.session_id),
          false <- snapshot.read_only,
-         {:ok, source, entry} <- source(snapshot, judgment.pending_artifact_ref),
-         true <- judgment.capability in operations(entry),
-         :ok <- check_authority(run, judgment.capability, entry),
-         :ok <- check_budget(run, judgment.capability) do
-      case judgment.capability do
+         {:ok, source, entry} <- source_for(judgment, snapshot),
+         true <- field(judgment, :capability) in operations(entry),
+         :ok <- check_authority(run, field(judgment, :capability), entry),
+         :ok <- check_budget(run, field(judgment, :capability)) do
+      case field(judgment, :capability) do
         "discard_pending_artifact" ->
           discard(judgment, source, entry, input, run, context)
 
         "revise_pending_artifact" ->
           revise(judgment, source, entry, input, run, context, provider)
+
+        "revise_adopted_content" ->
+          revise_adopted(judgment, source, entry, input, run, context, provider)
       end
     else
       {:error, {:pending_artifact_invalid, _} = reason} -> {:error, reason}
@@ -97,9 +135,17 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
+  defp source_for(judgment, snapshot) do
+    case field(judgment, :capability) do
+      "revise_adopted_content" -> source_adopted(snapshot, field(judgment, :adopted_content_ref))
+      _ -> source(snapshot, field(judgment, :pending_artifact_ref))
+    end
+  end
+
   defp check_authority(_run, "discard_pending_artifact", _entry), do: :ok
 
-  defp check_authority(run, "revise_pending_artifact", entry) do
+  defp check_authority(run, capability, entry)
+       when capability in ["revise_pending_artifact", "revise_adopted_content"] do
     tools = field(field(run, :authority_scope), :allowed_tools) || []
 
     if revision_tool(entry) in tools,
@@ -109,7 +155,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   defp check_budget(_run, "discard_pending_artifact"), do: :ok
 
-  defp check_budget(run, "revise_pending_artifact") do
+  defp check_budget(run, capability)
+       when capability in ["revise_pending_artifact", "revise_adopted_content"] do
     budget = field(run, :budget) || %{}
     consumed = field(run, :consumed_budget) || %{}
 
@@ -137,6 +184,29 @@ defmodule NovelApplication.PendingArtifactWorkflow do
          current_work_id: snapshot.work.id,
          session_id: snapshot.session.id
        }), entry}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  # Q1c：已采纳目标没有 pending turn result，直接从 resolved projection 取。
+  # source.turn_id 只用于 trace provenance，用 accepted:<artifact_id> 明确表示
+  # 这是已决事实，而不是某个 pending 回合。
+  defp source_adopted(snapshot, ref) do
+    entry =
+      Enum.find(snapshot.resolved_adoptions, fn entry ->
+        field(entry, :artifact_id) == ref and
+          to_string(field(entry, :adoption_status)) in NovelDomain.AdoptionStatus.canon_statuses()
+      end)
+
+    if entry do
+      {:ok,
+       %{
+         turn_id: "accepted:#{ref}",
+         work_id: snapshot.work.id,
+         current_work_id: snapshot.work.id,
+         session_id: snapshot.session.id
+       }, entry}
     else
       {:error, :not_found}
     end
@@ -275,6 +345,128 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         )
       end)
     end)
+  end
+
+  # Q1c：修订已采纳内容。候选保留 revision_of / supersedes_ref 两个 ref：
+  # revision_of 指被修订的 accepted artifact，supersedes_ref 指被替代的
+  # accepted state（memory / draft）。采纳边界据此要求覆盖确认并在写入时退场旧版。
+  defp revise_adopted(judgment, _source, entry, input, run, context, provider) do
+    ref = field(entry, :artifact_id)
+    tool = revision_tool(entry)
+    frame = frame(judgment, input, run, :execution_candidate, ref)
+
+    plan = %MicroPlan{
+      plan_id: "plan_#{frame.turn_id}",
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_goal: frame.dialogue_goal,
+      risk_hint: :low,
+      proposed_actions: [
+        %{
+          action_type: :capability_invocation,
+          target_ref: tool,
+          write_intent: :tentative,
+          risk_hint: :low
+        }
+      ],
+      stop_after_next_action: true
+    }
+
+    {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
+
+    if is_binary(tool) and not OrchestratorDecision.blocks_execution?(decision) do
+      request = request_adopted(frame, plan, decision, entry, tool, run.goal.text)
+      result = AuthorizedToolExecutor.execute(request, provider)
+
+      {trace, summary} =
+        TraceWriter.record_with_tool(
+          frame,
+          plan,
+          decision,
+          request,
+          result,
+          %{turn_id: frame.turn_id},
+          context
+        )
+
+      case ArtifactAssembler.assemble(result, frame.turn_id, %{
+             revision_base: ref,
+             revision_reason: run.goal.text,
+             authoring_intent: nil,
+             target_chapter: nil
+           }) do
+        {:ok, artifact} ->
+          turn_result =
+            TurnResultBuilder.build(frame, summary, [], decision, result, artifact, behavior)
+            |> link_adopted_revision(entry)
+
+          finish(turn_result, trace, context, input, run, "revise_adopted", ref, 1)
+
+        {:error, _reason} ->
+          failed_revision(trace, context, input, run, tool)
+      end
+    else
+      {:error, {:pending_artifact_invalid, :revision_not_allowed}}
+    end
+  end
+
+  defp link_adopted_revision(result, source) do
+    supersedes_ref =
+      if memory_backed_revision_type?(source), do: field(source, :adopted_state_ref), else: nil
+
+    case get_in(result, [:adoption_state, :pending]) do
+      entries when is_list(entries) ->
+        update_in(result, [:adoption_state, :pending], fn _ ->
+          Enum.map(entries, &put_adopted_revision(&1, source, supersedes_ref))
+        end)
+
+      _ ->
+        result
+    end
+  end
+
+  defp put_adopted_revision(entry, source, supersedes_ref) do
+    put_in(
+      entry,
+      [:payload],
+      Map.merge(entry.payload, %{
+        revision_of: field(source, :artifact_id),
+        supersedes_ref: supersedes_ref,
+        revision_target_status: "ACCEPTED"
+      })
+    )
+  end
+
+  defp memory_backed_revision_type?(entry) do
+    to_string(field(entry, :artifact_type)) in ~w(world_setting world_rule_seed style_rule_seed constraint_seed)
+  end
+
+  defp request_adopted(frame, plan, decision, entry, tool, author_text) do
+    registry = CapabilityRegistry.get(tool)
+
+    %ToolRequest{
+      tool_request_id: NovelFoundation.ID.unique("tq_revision_adopted"),
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_ref: decision.decision_id,
+      tool_name: tool,
+      tool_version: registry.tool_version,
+      input: %{
+        "creative_brief" =>
+          "修订下面已采纳的作品内容，按作者要求输出完整的新版本，未提及的内容保持一致；这是待采纳的修订候选，不是直接覆盖。作者原话：#{author_text}\n本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：#{frame.dialogue_goal.summary}",
+        "context_text" =>
+          "原已采纳内容（当前作品事实；新候选未采纳前仍以它为准）：\n#{TurnInteractionService.artifact_body(entry)}",
+        "revision" =>
+          "本轮修订已采纳内容。生成独立 tentative 候选，沿用原稿文体、结构和信息范围，只改作者要求的部分；不要套用新建模板增加栏目、待定占位或无关设定。body 只放完整的新版本，不添加修改过程、旧值与新值对照、执行或保存状态说明；修改依据放在 rationale。",
+        "artifact_type" => to_string(field(entry, :artifact_type))
+      },
+      read_scope_grants: registry.read_scopes,
+      write_scope_grants: [],
+      idempotency_key: "#{frame.turn_id}:revise_adopted:#{field(entry, :artifact_id)}",
+      trace_policy: %{level: "standard"},
+      created_at: DateTime.utc_now()
+    }
   end
 
   defp failed_revision(trace, context, input, run, tool) do

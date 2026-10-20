@@ -208,6 +208,63 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                )
     end
 
+    test "adopted revision requires overwrite confirmation and persists supersedes_ref" do
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :world_setting,
+          payload: %{
+            title: "岑舟年龄修订稿",
+            items: [
+              %{
+                item_id: "p1",
+                title: "岑舟年龄修订稿",
+                body: "岑舟今年三十岁，是青云宗宗主。",
+                rationale: nil
+              }
+            ],
+            revision_of: "as-old",
+            supersedes_ref: "memory-old",
+            revision_target_status: "ACCEPTED"
+          }
+        })
+
+      writer = fn attrs ->
+        assert attrs.supersedes_ref == "memory-old"
+        assert attrs.revision_of == "as-old"
+
+        {:ok,
+         %{
+           mutation_id: "m1",
+           mutation_status: "APPLIED",
+           memory_item_id: "memory-new",
+           memory_status: "CONFIRMED",
+           superseded_ref: "memory-old",
+           source_revision_ref: "mutation:m1",
+           reading_projection: nil
+         }}
+      end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{"artifact_id" => "as-1"}, writer)
+
+      assert action_result.status == "needs_confirmation"
+      assert action_result.decision.decision_type == :require_confirmation
+      assert "overwrite_existing_canon" in action_result.decision.reason_codes
+      assert turn_result.truthfulness.production_write_performed == false
+
+      assert {:ok, confirmed_action, confirmed_turn} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "confirmation_satisfied" => true},
+                 writer
+               )
+
+      assert confirmed_action.status == "accepted"
+      assert confirmed_action.decision.decision_type == :adopt_tentative
+      assert confirmed_action.persistence.superseded_ref == "memory-old"
+      assert confirmed_turn.truthfulness.production_write_performed == true
+    end
+
     # B9 元泄漏升采纳级（M3 审计：25 处泄漏经 advisory warn 存活）：正文候选含
     # 元泄漏（产品状态词/章号自指/结构标签）→ 采纳升 require_confirmation，
     # 不再静默写入正文；作者显式确认后仍可采纳（主权保留）。

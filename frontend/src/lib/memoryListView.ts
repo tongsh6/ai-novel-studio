@@ -6,7 +6,7 @@ import type { MemoryItem } from "./memoryApi";
 
 export type MemoryStatusTone = "confirmed" | "stabilized" | "draft" | "conflicted" | "terminal";
 
-const TERMINAL_STATUSES = new Set(["DEPRECATED", "ARCHIVED"]);
+const TERMINAL_STATUSES = new Set(["SUPERSEDED", "DEPRECATED", "ARCHIVED"]);
 
 export function memoryTypeLabel(type: string): string {
   return MEMORY.typeLabels[type] ?? type;
@@ -35,6 +35,7 @@ export function memoryStatusTone(status: string): MemoryStatusTone {
       return "conflicted";
     case "DEPRECATED":
     case "ARCHIVED":
+    case "SUPERSEDED":
       return "terminal";
     case "DRAFT":
     default:

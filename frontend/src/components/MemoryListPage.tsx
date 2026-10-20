@@ -20,7 +20,16 @@ import styles from "./MemoryListPage.module.css";
 
 const MEMORY_TYPES = ["", ...Object.keys(MEMORY.typeLabels)];
 const SCOPES = ["", "GLOBAL", "WORK", "VOLUME", "ARC", "CHAPTER", "SESSION"];
-const STATUSES = ["", "DRAFT", "CONFIRMED", "STABILIZED", "CONFLICTED", "DEPRECATED", "ARCHIVED"];
+const STATUSES = [
+  "",
+  "DRAFT",
+  "CONFIRMED",
+  "STABILIZED",
+  "CONFLICTED",
+  "SUPERSEDED",
+  "DEPRECATED",
+  "ARCHIVED",
+];
 
 const STATUS_TONE_CLASS: Record<MemoryStatusTone, string> = {
   confirmed: styles.statusConfirmed,

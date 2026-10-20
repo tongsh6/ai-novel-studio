@@ -109,7 +109,11 @@ defmodule NovelApplication.AdoptionWorkflow do
 
     work_context
     |> Map.put(:confirmation_satisfied, truthy?(Map.get(params, "confirmation_satisfied")))
-    |> Map.put(:overwrite, overwrite_existing?(overwrite_reader, work_context.work_id, artifact))
+    |> Map.put(
+      :overwrite,
+      overwrite_existing?(overwrite_reader, work_context.work_id, artifact) or
+        adopted_revision?(artifact)
+    )
     |> Map.put(:meta_leak_hits, artifact_meta_leak_hits(artifact))
     |> Map.put(:duplicate_character_name, duplicate_match && duplicate_match.proposed)
     |> Map.put(:duplicate_character_canonical, duplicate_match && duplicate_match.canonical)
@@ -174,6 +178,12 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   defp overwrite_existing?(_reader, _work_id, _artifact), do: false
+
+  # Q1c：修订已采纳设定的候选必须走覆盖确认，即使目标不是正文。
+  defp adopted_revision?(artifact) do
+    not is_nil(artifact_revision_of(artifact)) and
+      not is_nil(artifact_supersedes_ref(artifact))
+  end
 
   defp reading_projection_artifact_type?(type)
        when type in [:prose_fragment, "prose_fragment", :scene_draft, "scene_draft"],
@@ -528,6 +538,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       skeleton_field: artifact_skeleton_slot(artifact, :skeleton_field),
       skeleton_value: artifact_skeleton_slot(artifact, :skeleton_value),
       mode: adoption_mode(artifact),
+      revision_of: artifact_revision_of(artifact),
+      supersedes_ref: artifact_supersedes_ref(artifact),
       decision_id: decision.adoption_decision_id
     }
 
@@ -992,6 +1004,9 @@ defmodule NovelApplication.AdoptionWorkflow do
       "meta_leak_detected" in reason_codes ->
         meta_leak_confirmation_message(artifact)
 
+      "overwrite_existing_canon" in reason_codes ->
+        adopted_revision_confirmation_message(artifact)
+
       true ->
         "这段草稿需要你进一步确认对象和影响后才能采纳；当前未写入正文或作品事实。"
     end
@@ -1039,6 +1054,20 @@ defmodule NovelApplication.AdoptionWorkflow do
 
     "这段草稿里出现了#{hit_part}——属于产品用语或章节自指，采纳后会原样进入正文，" <>
       "读者也会看到。确认后仍按原文保存；当前未写入正文。"
+  end
+
+  # Q1c：修订已采纳内容时，确认卡必须说清「替代哪一版、旧版是否保留」。
+  defp adopted_revision_confirmation_message(artifact) do
+    title =
+      artifact
+      |> adoption_chapter_title()
+      |> to_string()
+      |> String.trim()
+
+    label = if title == "", do: "当前已采纳版本", else: "「#{title}」的当前已采纳版本"
+
+    "这份修订稿会替代#{label}。旧版本会保留为历史版本（SUPERSEDED），不会删除；" <>
+      "确认后才会写入新版本，当前未改变作品事实。"
   end
 
   defp build_edited_turn_result(
@@ -1431,6 +1460,21 @@ defmodule NovelApplication.AdoptionWorkflow do
       is_list(items) -> items_to_content(items, artifact)
       true -> artifact_summary(artifact)
     end
+  end
+
+  # Q1c：修订候选的 provenance。revision_of 指向被修订的 accepted artifact；
+  # supersedes_ref 指向被替代的 accepted state（memory / draft）。两者都可为空。
+  defp artifact_revision_of(artifact) do
+    artifact_field(artifact, :revision_of) || artifact_payload_field(artifact, :revision_of)
+  end
+
+  defp artifact_supersedes_ref(artifact) do
+    artifact_field(artifact, :supersedes_ref) || artifact_payload_field(artifact, :supersedes_ref)
+  end
+
+  defp artifact_payload_field(artifact, key) do
+    payload = artifact_field(artifact, :payload) || %{}
+    Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
   end
 
   # 正文类（prose_fragment/scene_draft）：正文 = 各 item 的 body 本身。不要把 item title

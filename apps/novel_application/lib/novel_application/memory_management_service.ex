@@ -333,6 +333,8 @@ defmodule NovelApplication.MemoryManagementService do
       status: item.status,
       source_type: item.source_type,
       source_id: item.source_id,
+      supersedes_ref: item.supersedes_ref,
+      superseded_by_ref: item.superseded_by_ref,
       reference_count: item.reference_count,
       weight: decimal_to_float(item.weight),
       confidence: decimal_to_float(item.confidence),

@@ -14,6 +14,7 @@ describe("memoryListView（记忆列表语义映射）", () => {
     expect(memoryTypeLabel("CURRENT_STATE")).toBe("当前状态");
     expect(memoryTypeLabel("UNKNOWN_TYPE")).toBe("UNKNOWN_TYPE");
     expect(memoryStatusLabel("DEPRECATED")).toBe("已弃用");
+    expect(memoryStatusLabel("SUPERSEDED")).toBe("已被新版替代");
     expect(memoryStatusLabel("WAT")).toBe("WAT");
     expect(memoryScopeLabel("WORK")).toBe("整部作品");
     expect(memoryScopeLabel("XYZ")).toBe("XYZ");
@@ -24,12 +25,14 @@ describe("memoryListView（记忆列表语义映射）", () => {
     expect(memoryStatusTone("STABILIZED")).toBe("stabilized");
     expect(memoryStatusTone("CONFLICTED")).toBe("conflicted");
     expect(memoryStatusTone("DEPRECATED")).toBe("terminal");
+    expect(memoryStatusTone("SUPERSEDED")).toBe("terminal");
     expect(memoryStatusTone("ARCHIVED")).toBe("terminal");
     expect(memoryStatusTone("DRAFT")).toBe("draft");
     expect(memoryStatusTone("anything-else")).toBe("draft");
   });
 
-  it("识别终态记忆（弃用/归档）", () => {
+  it("识别终态记忆（被替代/弃用/归档）", () => {
+    expect(isTerminalMemory("SUPERSEDED")).toBe(true);
     expect(isTerminalMemory("DEPRECATED")).toBe(true);
     expect(isTerminalMemory("ARCHIVED")).toBe(true);
     expect(isTerminalMemory("CONFIRMED")).toBe(false);

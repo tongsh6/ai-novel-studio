@@ -1112,6 +1112,9 @@ export const MEMORY = {
   traceLoading: "追溯加载中...",
   traceEmpty: "暂无引用或治理记录",
   traceNoReason: "未记录说明",
+  revisionRelationTitle: "版本关系",
+  supersededByNewer: "已被新版替代",
+  supersedesOlder: "替代了旧版",
   traceSceneLabels: {
     memory_lifecycle: "治理动作",
     memory_lifecycle_blocked: "治理阻止",
@@ -1160,6 +1163,7 @@ export const MEMORY = {
     CONFIRMED: "已确认",
     STABILIZED: "已稳定",
     CONFLICTED: "有冲突",
+    SUPERSEDED: "已被新版替代",
     DEPRECATED: "已弃用",
     ARCHIVED: "已归档",
   } as Record<string, string>,

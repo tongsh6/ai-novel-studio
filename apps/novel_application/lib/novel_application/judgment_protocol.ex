@@ -45,6 +45,7 @@ defmodule NovelApplication.JudgmentProtocol do
           reply_included: boolean(),
           record_only: boolean(),
           pending_artifact_ref: String.t() | nil,
+          adopted_content_ref: String.t() | nil,
           author_content_registration: boolean(),
           author_content_source_ref: String.t() | nil,
           explore_request: %{tool: String.t(), query: String.t()} | nil,
@@ -289,7 +290,10 @@ defmodule NovelApplication.JudgmentProtocol do
          :ok <-
            NovelApplication.PendingArtifactWorkflow.validate(
              arguments,
-             Keyword.get(request.options, :pending_artifact_targets, %{})
+             Map.merge(
+               Keyword.get(request.options, :pending_artifact_targets, %{}),
+               Keyword.get(request.options, :adopted_content_targets, %{})
+             )
            ),
          :ok <- validate_registration_state(arguments, request.options),
          :ok <- validate_author_registration(arguments, request.options) do
@@ -548,6 +552,7 @@ defmodule NovelApplication.JudgmentProtocol do
            reply_included: map_get(arguments, :reply_included) == true,
            record_only: map_get(arguments, :record_only),
            pending_artifact_ref: nonblank(map_get(arguments, :pending_artifact_ref)),
+           adopted_content_ref: nonblank(map_get(arguments, :adopted_content_ref)),
            explore_request: explore_request(arguments),
            candidate_directions: candidate_directions(arguments),
            # 探索意图原始信号：字段存在且非空（哪怕结构坏了）——坏结构不丢意图，
@@ -878,6 +883,11 @@ defmodule NovelApplication.JudgmentProtocol do
             修订会产生独立待采纳版本并保留原稿，不自动保存；放弃不删除已采纳作品事实。
             其它操作填 null。只使用消息处置或探索观察中列出的对象编号及其 available_operations；
             摘要省略了目标时先用 session_adoptions 查询，不猜编号。
+          - adopted_content_ref：修订已采纳内容时，action=execute、capability=revise_adopted_content，
+            引用 resolved 中真实 ACCEPTED/EDITED_ACCEPTED 的 artifact_ref。会生成独立修订候选，
+            作者确认后才替代旧版；不要用新建候选绕过，也不要直接改档案。目标不明确时 await_author，
+            不能猜；其它操作填 null。只使用 resolved 中列出的对象编号及其 available_operations。
+            不得声称系统没有修订能力，也不得引导作者使用档案里不存在的“修改后保存”。
           - candidate_directions：仅 action=reply 且 frame_type=creative_exploration 时可携带
             小说内容的创作方向（每项 {title, pitch, tone_tags}）；其它情况必须为空数组。
             采纳、修改、丢弃、查看档案等操作不是创作方向；不要为了显示这些建议改判探索。
@@ -906,6 +916,7 @@ defmodule NovelApplication.JudgmentProtocol do
               reply_included: %{type: "boolean"},
               record_only: %{type: "boolean"},
               pending_artifact_ref: %{anyOf: [%{type: "string"}, %{type: "null"}]},
+              adopted_content_ref: %{anyOf: [%{type: "string"}, %{type: "null"}]},
               author_content_registration: %{type: "boolean"},
               author_content_source_ref: %{
                 anyOf: [

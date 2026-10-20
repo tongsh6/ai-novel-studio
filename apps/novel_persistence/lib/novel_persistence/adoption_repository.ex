@@ -57,6 +57,9 @@ defmodule NovelPersistence.AdoptionRepository do
     |> Multi.run(:memory_item, fn repo, %{mutation: mutation} ->
       maybe_persist_memory_item(repo, attrs, mutation.id)
     end)
+    |> Multi.run(:revision_supersede, fn repo, %{memory_item: memory_item} ->
+      maybe_supersede_revision_target(repo, attrs, memory_item)
+    end)
     |> Multi.run(:character, fn repo, %{mutation: mutation} ->
       maybe_persist_character(repo, attrs, mutation.id)
     end)
@@ -78,12 +81,20 @@ defmodule NovelPersistence.AdoptionRepository do
        %{
          mutation: mutation,
          memory_item: memory_item,
+         revision_supersede: revision_supersede,
          character: character,
          work_planning: work_planning,
          reading_projection: reading_projection
        }} ->
         {:ok,
-         build_persist_result(mutation, memory_item, character, work_planning, reading_projection)}
+         build_persist_result(
+           mutation,
+           memory_item,
+           character,
+           work_planning,
+           reading_projection,
+           revision_supersede
+         )}
 
       {:error, _step, reason, _changes} ->
         {:error, reason}
@@ -93,7 +104,14 @@ defmodule NovelPersistence.AdoptionRepository do
   # 采纳产物按层落地：character_seed → Character 主档案（不写记忆）；
   # work_skeleton_suggestion → works 立项规划字段回写（VS-00G CP4d，不写记忆）；
   # 其它 → confirmed memory。
-  defp build_persist_result(mutation, memory_item, character, work_planning, reading_projection) do
+  defp build_persist_result(
+         mutation,
+         memory_item,
+         character,
+         work_planning,
+         reading_projection,
+         revision_supersede
+       ) do
     %{
       mutation_id: mutation.id,
       mutation_status: mutation.status,
@@ -101,6 +119,7 @@ defmodule NovelPersistence.AdoptionRepository do
       reading_projection: reading_projection
     }
     |> put_memory_item(memory_item)
+    |> put_supersede(revision_supersede)
     |> put_character(character)
     |> put_work_planning(work_planning)
   end
@@ -111,6 +130,12 @@ defmodule NovelPersistence.AdoptionRepository do
     result
     |> Map.put(:memory_item_id, memory_item.id)
     |> Map.put(:memory_status, memory_item.status)
+  end
+
+  defp put_supersede(result, nil), do: result
+
+  defp put_supersede(result, %MemoryItem{} = superseded) do
+    Map.put(result, :superseded_ref, superseded.id)
   end
 
   defp put_character(result, nil), do: result
@@ -142,6 +167,44 @@ defmodule NovelPersistence.AdoptionRepository do
       %MemoryItem{}
       |> MemoryItem.changeset(memory_item_attrs(attrs, mutation_id))
       |> repo.insert()
+    end
+  end
+
+  # Q1c：采纳修订候选时，旧版本在同一事务内退场。旧条必须已存在且属于同一作品；
+  # 只走 supersede_changeset（允许 locked canon 被一次新采纳决策替代），不改内容。
+  defp maybe_supersede_revision_target(_repo, _attrs, nil), do: {:ok, nil}
+
+  defp maybe_supersede_revision_target(repo, attrs, %MemoryItem{} = new_item) do
+    case Map.get(attrs, :supersedes_ref) do
+      nil ->
+        {:ok, nil}
+
+      ref ->
+        case repo.get(MemoryItem, ref) do
+          nil ->
+            {:error, :revision_target_not_found}
+
+          %MemoryItem{} = old_item ->
+            supersede_revision_target(repo, new_item, old_item)
+        end
+    end
+  end
+
+  defp supersede_revision_target(repo, new_item, old_item) do
+    cond do
+      old_item.work_id != new_item.work_id ->
+        {:error, :revision_target_cross_work}
+
+      to_string(old_item.status) not in [MemoryStatus.confirmed(), MemoryStatus.stabilized()] ->
+        {:error, :revision_target_stale}
+
+      true ->
+        old_item
+        |> MemoryItem.supersede_changeset(%{
+          status: MemoryStatus.superseded(),
+          superseded_by_ref: new_item.id
+        })
+        |> repo.update()
     end
   end
 
@@ -302,6 +365,7 @@ defmodule NovelPersistence.AdoptionRepository do
       status: MemoryStatus.confirmed(),
       source_type: MemorySourceType.author_confirmed(),
       source_id: mutation_id,
+      supersedes_ref: Map.get(attrs, :supersedes_ref),
       weight: Decimal.new("0.8000"),
       confidence: Decimal.new("0.9000"),
       source_confidence: Decimal.new("1.0000"),

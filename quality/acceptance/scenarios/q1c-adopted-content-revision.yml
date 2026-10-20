@@ -1,0 +1,78 @@
+id: q1c-adopted-content-revision
+title: 已采纳内容修订、覆盖确认与后续上下文
+tier: nightly
+surface: browser
+runner: slice_verify
+default_provider: slice_verify
+entrypoint: scripts/quality_accept.sh q1c-adopted-content-revision --surface browser
+
+contract:
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/adr/ADR-0019-adoption-status-transition-v3.md
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md
+  - docs/design/06-memory-context-and-trace.md
+  - tasks/slices/Q1C-adopted-content-revision.md
+
+invariants:
+  - I-Q1C-1 已采纳 canon 只能由一次新的采纳决策改变，不能由对话文本或 UI 直接覆盖。
+  - I-Q1C-2 旧版本必须保留且可追溯（SUPERSEDED + 双向 revision link），不能删除或静默覆盖。
+  - I-Q1C-3 覆盖已采纳内容必须经过 confirmation + 重新 gate；确认前零写入。
+  - I-Q1C-4 目标不明确、stale、跨作品、目标已处置时拒绝或澄清，不猜目标、不写入。
+  - I-Q1C-5 档案、阅读投影、后续创作上下文只消费当前 accepted 版本；旧版本只在 history / trace / replay 可见。
+  - I-Q1C-6 TurnResult 文案必须区分已生成修订候选 / 待确认 / 已替代 / 已放弃，不能把候选说成已入档。
+
+setup:
+  provider: slice_verify
+  seed: null
+  artifact_dir: artifacts/slice-verify/q1c-adopted-content-revision
+  prerequisites:
+    - 使用隔离 test DB；不注册验收 provider 到 production runtime。
+    - 产品代码不得读取 slice id、验收 env、URL query、localStorage 或隐藏 DOM metadata。
+
+user_flow:
+  - open: real browser workbench
+  - send: 把作者原文登记为作品设定
+  - click: 保存到作品档案
+  - send: 请把已保存设定里岑舟的年龄从二十五岁改成三十岁
+  - verify: 修订候选携带 revision_of 并命中 accepted 目标
+  - click: 替代已保存版本
+  - confirm: 覆盖确认
+  - verify: 旧版本 SUPERSEDED，新版本 CONFIRMED，只有一条当前事实
+  - send: 岑舟今年多少岁？请依据当前已保存的作品设定回答
+  - verify: 回答使用新版本，旧版本只作为历史出现
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - audit-report.json
+    - summary.json
+  artifact_dir: artifacts/slice-verify/q1c-adopted-content-revision
+
+assertions:
+  ui:
+    - 修订候选卡显示旧/新版本与替代确认
+    - 覆盖确认只出现一次，确认前没有生产写入
+    - 后续追问回答当前版本，不把旧版本说成当前事实
+  network:
+    - 修订候选 payload 携带 revision_of = accepted artifact_ref
+    - 修订候选 payload 携带 supersedes_ref = accepted state_ref
+    - 采纳动作携带 confirmation_satisfied=true
+  data:
+    - exactly_one_confirmed_fact
+    - old_version_status=SUPERSEDED
+    - new_version_status=CONFIRMED
+    - followup_memory_context_is_new=true
+    - no assistant claim of adoption before confirmation
+  rejection_matrix:
+    - ambiguity: accepted target missing -> target_not_available, no writer call, zero write
+    - stale: target already SUPERSEDED -> revision_target_stale, transaction rollback, one current fact
+    - cross-work: supersedes_ref belongs to another work -> revision_target_cross_work, zero write
+    - discard: revision candidate discarded -> old version remains current, zero write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

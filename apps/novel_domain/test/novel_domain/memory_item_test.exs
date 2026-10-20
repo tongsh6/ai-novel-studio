@@ -161,6 +161,46 @@ defmodule NovelDomain.MemoryItemTest do
     end
   end
 
+  describe "supersede/2 and mark_supersedes/2" do
+    test "old version becomes SUPERSEDED and links to the new version" do
+      item =
+        MemoryItem.new(
+          "m1",
+          "w1",
+          "岑舟二十五岁",
+          MemoryType.world_rule(),
+          MemoryScope.global(),
+          MemorySourceType.author_confirmed()
+        )
+        |> MemoryItem.lock()
+
+      superseded = MemoryItem.supersede(item, "m2")
+
+      assert superseded.status == MemoryStatus.superseded()
+      assert superseded.superseded_by_ref == "m2"
+      assert superseded.locked == false
+      assert superseded.recallable == false
+      assert superseded.content == "岑舟二十五岁"
+    end
+
+    test "new version links back to the version it supersedes" do
+      item =
+        MemoryItem.new(
+          "m2",
+          "w1",
+          "岑舟三十岁",
+          MemoryType.world_rule(),
+          MemoryScope.global(),
+          MemorySourceType.author_confirmed()
+        )
+
+      linked = MemoryItem.mark_supersedes(item, "m1")
+
+      assert linked.supersedes_ref == "m1"
+      assert linked.status == MemoryStatus.draft()
+    end
+  end
+
   describe "update_weight/2" do
     test "updates weight" do
       item =
@@ -357,6 +397,21 @@ defmodule NovelDomain.MemoryItemTest do
              )
 
       assert MemoryItem.status_transition_allowed?(
+               MemoryStatus.confirmed(),
+               MemoryStatus.superseded()
+             )
+
+      assert MemoryItem.status_transition_allowed?(
+               MemoryStatus.stabilized(),
+               MemoryStatus.superseded()
+             )
+
+      assert MemoryItem.status_transition_allowed?(
+               MemoryStatus.superseded(),
+               MemoryStatus.archived()
+             )
+
+      assert MemoryItem.status_transition_allowed?(
                MemoryStatus.deprecated(),
                MemoryStatus.archived()
              )
@@ -366,6 +421,16 @@ defmodule NovelDomain.MemoryItemTest do
       refute MemoryItem.status_transition_allowed?(
                MemoryStatus.draft(),
                MemoryStatus.stabilized()
+             )
+
+      refute MemoryItem.status_transition_allowed?(
+               MemoryStatus.draft(),
+               MemoryStatus.superseded()
+             )
+
+      refute MemoryItem.status_transition_allowed?(
+               MemoryStatus.superseded(),
+               MemoryStatus.confirmed()
              )
 
       refute MemoryItem.status_transition_allowed?(
@@ -382,12 +447,18 @@ defmodule NovelDomain.MemoryItemTest do
 
   describe "status_transition_side_effects/1" do
     test "identifies terminal statuses" do
+      assert MemoryItem.terminal_status?(MemoryStatus.superseded())
       assert MemoryItem.terminal_status?(MemoryStatus.deprecated())
       assert MemoryItem.terminal_status?(MemoryStatus.archived())
       refute MemoryItem.terminal_status?(MemoryStatus.confirmed())
     end
 
     test "terminal statuses clear recall and lock authority" do
+      assert MemoryItem.status_transition_side_effects(MemoryStatus.superseded()) == %{
+               locked: false,
+               recallable: false
+             }
+
       assert MemoryItem.status_transition_side_effects(MemoryStatus.deprecated()) == %{
                locked: false,
                recallable: false

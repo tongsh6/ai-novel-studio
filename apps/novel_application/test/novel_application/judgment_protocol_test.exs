@@ -110,6 +110,31 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert result.narrative == clarified["author_narrative"]
   end
 
+  test "已采纳内容修订必须绑定当前 accepted 目标" do
+    bad = %{
+      "action" => "execute",
+      "capability" => "revise_adopted_content",
+      "adopted_content_ref" => "foreign"
+    }
+
+    opts = [
+      capabilities: ["revise_adopted_content"],
+      adopted_content_targets: %{"accepted" => ["revise_adopted_content"]}
+    ]
+
+    assert {:error, {:pending_artifact_invalid, :target_not_available}} = request(bad, opts)
+
+    assert {:ok, %{adopted_content_ref: "accepted", provider_call_count: 3}} =
+             request_with_retry(
+               bad,
+               Map.merge(bad, %{
+                 "adopted_content_ref" => "accepted",
+                 "author_narrative" => "我会生成修订候选，确认后才替代旧版。"
+               }),
+               opts
+             )
+  end
+
   test "同来源已有候选不重复登记，纠正回复必须来自新的模型输出" do
     bad = %{
       "action" => "reply",

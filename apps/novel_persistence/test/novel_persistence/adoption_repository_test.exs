@@ -5,6 +5,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
 
   alias NovelDomain.ProseWordCount
   alias NovelFoundation.Enums.AdoptionStatus
+  alias NovelFoundation.Enums.MemoryScope
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
@@ -62,6 +63,157 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert %{volumes: []} = ReadingProjectionRepo.toc(work_id)
     end
 
+    test "supersedes the previous accepted memory when adopting a revision" do
+      work_id = Ecto.UUID.generate()
+
+      {:ok, old_item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: Ecto.UUID.generate(),
+          work_id: work_id,
+          content: "岑舟二十五岁",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.confirmed(),
+          locked: true
+        })
+        |> Repo.insert()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-revision",
+                 artifact_id: "as-adopt-revision",
+                 artifact_type: :world_setting,
+                 base_revision: 1,
+                 content: "岑舟三十岁",
+                 summary: "岑舟年龄修订稿",
+                 revision_of: "as-old",
+                 supersedes_ref: old_item.id
+               })
+
+      assert persisted.memory_status == MemoryStatus.confirmed()
+      assert persisted.superseded_ref == old_item.id
+
+      new_item = Repo.get!(MemoryItem, persisted.memory_item_id)
+      assert new_item.supersedes_ref == old_item.id
+      assert new_item.status == MemoryStatus.confirmed()
+
+      old_item = Repo.get!(MemoryItem, old_item.id)
+      assert old_item.status == MemoryStatus.superseded()
+      assert old_item.superseded_by_ref == new_item.id
+      assert old_item.recallable == false
+      assert old_item.locked == false
+    end
+
+    test "rejects a stale revision target without creating a second confirmed fact" do
+      work_id = Ecto.UUID.generate()
+
+      {:ok, old_item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: Ecto.UUID.generate(),
+          work_id: work_id,
+          content: "岑舟二十五岁",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.confirmed(),
+          locked: true
+        })
+        |> Repo.insert()
+
+      assert {:ok, first_revision} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-revision-1",
+                 artifact_id: "as-adopt-revision-1",
+                 artifact_type: :world_setting,
+                 base_revision: 1,
+                 content: "岑舟三十岁",
+                 summary: "岑舟年龄修订稿一",
+                 revision_of: "as-old",
+                 supersedes_ref: old_item.id
+               })
+
+      assert {:error, :revision_target_stale} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-revision-2",
+                 artifact_id: "as-adopt-revision-2",
+                 artifact_type: :world_setting,
+                 base_revision: 1,
+                 content: "岑舟三十一岁",
+                 summary: "岑舟年龄修订稿二",
+                 revision_of: "as-old",
+                 supersedes_ref: old_item.id
+               })
+
+      assert Repo.get!(MemoryItem, old_item.id).status == MemoryStatus.superseded()
+
+      assert Repo.aggregate(
+               from(m in MemoryItem,
+                 where: m.work_id == ^work_id and m.status == ^MemoryStatus.confirmed()
+               ),
+               :count,
+               :id
+             ) == 1
+
+      assert Repo.get!(MemoryItem, first_revision.memory_item_id).status ==
+               MemoryStatus.confirmed()
+
+      refute Repo.exists?(
+               from(m in MemoryItem,
+                 where: m.work_id == ^work_id and m.content == "岑舟三十一岁"
+               )
+             )
+    end
+
+    test "rejects a cross-work revision target without writing" do
+      source_work_id = Ecto.UUID.generate()
+      target_work_id = Ecto.UUID.generate()
+
+      {:ok, old_item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: Ecto.UUID.generate(),
+          work_id: source_work_id,
+          content: "岑舟二十五岁",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.confirmed(),
+          locked: true
+        })
+        |> Repo.insert()
+
+      assert {:error, :revision_target_cross_work} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: target_work_id,
+                 source_turn_ref: "turn-adopt-cross-work",
+                 artifact_id: "as-adopt-cross-work",
+                 artifact_type: :world_setting,
+                 base_revision: 1,
+                 content: "岑舟三十岁",
+                 summary: "跨作品修订稿",
+                 revision_of: "as-old",
+                 supersedes_ref: old_item.id
+               })
+
+      assert Repo.get!(MemoryItem, old_item.id).status == MemoryStatus.confirmed()
+
+      refute Repo.exists?(
+               from(m in MemoryItem,
+                 where: m.work_id == ^target_work_id and m.content == "岑舟三十岁"
+               )
+             )
+    end
+
     test "adopts character_seed into Character dossier (主档案层)，不写记忆" do
       work_id = Ecto.UUID.generate()
 
@@ -80,7 +232,13 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert persisted.mutation_status == "APPLIED"
       # I-b 创建不写记忆：无 memory_item，只落 Character 主档案。
       refute Map.has_key?(persisted, :memory_item_id)
-      assert Repo.aggregate(MemoryItem, :count, :id) == 0
+
+      assert Repo.aggregate(
+               from(m in MemoryItem, where: m.work_id == ^work_id),
+               :count,
+               :id
+             ) == 0
+
       assert persisted.reading_projection == nil
 
       character = Repo.get!(Character, persisted.character_id)
@@ -396,7 +554,9 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
 
       # 幂等：重复采纳成功且账面不变
       assert {:ok, _} = resolve.("turn-fr-2", "as-fr-2")
-      assert [%{status: "REVEALED"}] = NovelPersistence.LedgerRepository.list(work_id, "information")
+
+      assert [%{status: "REVEALED"}] =
+               NovelPersistence.LedgerRepository.list(work_id, "information")
 
       # 目标不存在诚实拒绝
       assert {:error, :resolution_target_not_found} =

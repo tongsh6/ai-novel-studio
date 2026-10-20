@@ -6,10 +6,18 @@ defmodule NovelFoundation.Enums.MemoryStatus do
 
   05-memory-retention-and-retrieval.md §6 记忆状态设计
 
-  记忆状态枚举。定义记忆的生命周期状态——从草稿到确认、稳定、冲突、废弃、归档。注意：LOCKED 不是 status，使用独立 locked 字段表示。冻结于 05-memory-retention-and-retrieval.md §6。
+  记忆状态枚举。定义记忆的生命周期状态——从草稿到确认、稳定、冲突、被新版替代、废弃、归档。注意：LOCKED 不是 status，使用独立 locked 字段表示。冻结于 05-memory-retention-and-retrieval.md §6；SUPERSEDED 由 Q1c 已采纳内容修订契约补充。
   """
 
-  @values ["DRAFT", "CONFIRMED", "STABILIZED", "CONFLICTED", "DEPRECATED", "ARCHIVED"]
+  @values [
+    "DRAFT",
+    "CONFIRMED",
+    "STABILIZED",
+    "CONFLICTED",
+    "SUPERSEDED",
+    "DEPRECATED",
+    "ARCHIVED"
+  ]
 
   @type t :: String.t()
 
@@ -26,6 +34,7 @@ defmodule NovelFoundation.Enums.MemoryStatus do
   def confirmed, do: "CONFIRMED"
   def stabilized, do: "STABILIZED"
   def conflicted, do: "CONFLICTED"
+  def superseded, do: "SUPERSEDED"
   def deprecated, do: "DEPRECATED"
   def archived, do: "ARCHIVED"
 end

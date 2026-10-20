@@ -58,6 +58,8 @@ defmodule NovelPersistence.Schemas.MemoryItem do
     field(:tags, {:array, :string})
 
     field(:source_id, Ecto.UUID)
+    field(:supersedes_ref, Ecto.UUID)
+    field(:superseded_by_ref, Ecto.UUID)
     field(:last_referenced_at, :utc_datetime_usec)
 
     timestamps(type: :utc_datetime_usec)
@@ -93,6 +95,8 @@ defmodule NovelPersistence.Schemas.MemoryItem do
       :version,
       :tags,
       :source_id,
+      :supersedes_ref,
+      :superseded_by_ref,
       :last_referenced_at
     ])
     |> validate_required(@required_fields)
@@ -134,6 +138,8 @@ defmodule NovelPersistence.Schemas.MemoryItem do
       :expire_condition,
       :tags,
       :source_id,
+      :supersedes_ref,
+      :superseded_by_ref,
       :last_referenced_at
     ])
     |> validate_inclusion(:type, MemoryType.values())
@@ -151,6 +157,29 @@ defmodule NovelPersistence.Schemas.MemoryItem do
     |> prevent_locked_terminal_transition()
     |> apply_status_transition_side_effects()
     |> prevent_locked_core_rewrite()
+  end
+
+  @doc """
+  治理性 supersede changeset：由一次新的采纳决策替代已锁定 canon。
+
+  与普通 update_changeset 的区别：普通更新禁止 locked item 进入 terminal 状态；
+  supersede 是作者通过采纳边界做出的显式替代，允许旧版退出并把锁定/召回副作用
+  一次落下。只允许把 status 设为 SUPERSEDED，且必须带 superseded_by_ref。
+  """
+  def supersede_changeset(struct, attrs) do
+    struct
+    |> cast(attrs, [:status, :superseded_by_ref])
+    |> validate_required([:superseded_by_ref])
+    |> validate_inclusion(:status, MemoryStatus.values())
+    |> validate_change(:status, fn :status, status ->
+      if status == MemoryStatus.superseded() do
+        []
+      else
+        [status: "supersede status must be SUPERSEDED"]
+      end
+    end)
+    |> validate_status_transition()
+    |> apply_status_transition_side_effects()
   end
 
   defp validate_status_transition(%Ecto.Changeset{data: %{status: current_status}} = changeset) do

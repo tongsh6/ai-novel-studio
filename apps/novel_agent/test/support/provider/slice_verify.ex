@@ -1569,6 +1569,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           }
         ]
 
+      # Q1c：已采纳设定的修订候选。只替换作者点名的年龄，保留原文其余字节与 nonce；
+      # revision_of / supersedes_ref 由 application 绑定，provider 不伪造链字段。
+      String.starts_with?(brief, "修订下面已采纳的作品内容") ->
+        original = context |> String.split("：\n", parts: 2) |> List.last()
+
+        [
+          %{
+            item_id: "adopted_revision_#{:erlang.phash2(prompt)}",
+            title: "岑舟与青云宗 · 年龄修订稿",
+            body: String.replace(original, "二十五岁", "三十岁"),
+            rationale: "按作者要求把岑舟年龄从二十五岁改为三十岁，其他内容保持不变。"
+          }
+        ]
+
       # 章节计划（plot_outline -> outline_draft）确定性产出多章，让 plan-minimum 等 slice
       # 在离线 provider 下也能演练「生成结构化章节计划」。
       outline_plan_prompt?(prompt) ->
@@ -1947,6 +1961,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     # 讨论保护先行（与生产判断 prompt 的判别规则、planner 的 explicit_discussion_only
     # 同语义）：作者显式说"先聊/只聊/不写"时不得进入创作能力，按直接回复处理。
     cond do
+      adopted_revision_request?(prompt) ->
+        {"execute", "revise_adopted_content", false}
+
       message_state_request?(prompt) ->
         {"reply", nil, false}
 
@@ -2282,6 +2299,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       |> message_state_arguments(prompt)
       |> candidate_semantics_arguments(prompt)
       |> pending_lifecycle_arguments(prompt)
+      |> adopted_revision_arguments(prompt)
 
     reasoning = judgment_reason_code(action)
 
@@ -2356,6 +2374,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp judgment_narrative_text("reply", exploratory, prompt) do
     cond do
+      String.contains?(judgment_author_input(prompt), "岑舟今年多少岁") ->
+        if String.contains?(prompt, "三十岁") do
+          "根据当前已保存的作品设定，岑舟今年三十岁。二十五岁是已被替代的历史版本。"
+        else
+          "我当前没有读到已保存的岑舟年龄。"
+        end
+
       message_state_request?(prompt) ->
         message_state_narrative(prompt)
 
@@ -2368,8 +2393,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp judgment_narrative_text("execute", _exploratory, _prompt) do
-    "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
+  defp judgment_narrative_text("execute", _exploratory, prompt) do
+    if adopted_revision_request?(prompt) do
+      "我会生成一份修订候选，保留旧版本；你确认替代后新版本才成为当前作品事实。"
+    else
+      "你要的是一个明确的创作动作，一步就能完成；我准备直接执行，产出待采纳候选。"
+    end
   end
 
   defp judgment_narrative_text("await_author", _exploratory, _prompt) do
@@ -2494,6 +2523,61 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         do: entry["revision_of"] != nil,
         else: entry["revision_of"] == nil and String.contains?(entry["body_preview"] || "", "沈砚")
     end)
+  end
+
+  # Q1c 已采纳设定修订：判断 prompt 在「已采纳可修订对象」段落列出真实 accepted ref。
+  # 这里只消费目录，不猜目标；目标缺失时保持原 verdict（生产会走 await/拒绝路径）。
+  defp adopted_revision_arguments(arguments, prompt) do
+    ref = accepted_revision_ref(prompt)
+
+    if adopted_revision_request?(prompt) do
+      Map.merge(arguments, %{
+        "action" => "execute",
+        "capability" => "revise_adopted_content",
+        "adopted_content_ref" => ref,
+        "pending_artifact_ref" => nil,
+        "frame_type" => nil,
+        "dialogue_goal" => "把已保存设定中岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。",
+        "candidate_directions" => [],
+        "author_content_registration" => false,
+        "record_only" => false
+      })
+    else
+      arguments
+    end
+  end
+
+  defp adopted_revision_request?(prompt) do
+    input = judgment_author_input(prompt)
+
+    accepted_revision_ref(prompt) != nil and String.contains?(input, "已保存") and
+      contains_any?(input, ["年龄", "改成", "修订"])
+  end
+
+  # call1 带「已采纳可修订对象」目录；call2 只带消息处置 JSON。两处都必须能取到
+  # 真实 accepted ref，不能靠猜最新一条。
+  defp accepted_revision_ref(prompt) do
+    case Regex.run(
+           ~r/##\s*已采纳可修订对象[^\n]*\n\s*-\s*([^：\n]+)：revise_adopted_content/u,
+           prompt
+         ) do
+      [_, ref] -> String.trim(ref)
+      _ -> accepted_revision_ref_from_facts(prompt)
+    end
+  end
+
+  defp accepted_revision_ref_from_facts(prompt) do
+    prompt
+    |> message_state_facts()
+    |> Map.get("resolved_adoptions", [])
+    |> Enum.find(fn entry ->
+      entry["status"] in ["ACCEPTED", "EDITED_ACCEPTED"] and
+        "revise_adopted_content" in (entry["available_operations"] || [])
+    end)
+    |> case do
+      nil -> nil
+      entry -> entry["artifact_ref"]
+    end
   end
 
   # 仅在 test/support 注入错误模型决定，供外部真实页面验证业务拒绝与纠正路径。
@@ -2636,7 +2720,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # Q3b：档案写入类措辞（与生产判断 prompt 的 capability_gap 判别规则同语义）。
   defp archive_write_text?(normalized) do
-    contains_any?(normalized, ["存档", "保存进档案", "写入档案", "登记进档案", "存进档案"])
+    contains_any?(normalized, [
+      "存档",
+      "保存进档案",
+      "写入档案",
+      "登记进档案",
+      "存进档案",
+      "登记为作品设定"
+    ])
   end
 
   defp archive_write_prompt?(prompt) do
@@ -3242,7 +3333,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> current_user_message()
     |> case do
       nil -> author_input_text_from_prompt(prompt_text(prompt))
-      text -> text
+      text -> author_input_text_from_prompt(text)
     end
   end
 

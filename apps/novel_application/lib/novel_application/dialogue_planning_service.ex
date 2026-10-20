@@ -516,6 +516,23 @@ defmodule NovelApplication.DialoguePlanningService do
     catalog <> observations
   end
 
+  # Q1c：把 accepted 目标 ref 明确摆到判断上下文里，避免模型在 resolved 列表里猜
+  # 或把“没有待采纳候选”误判成“没有修订能力”。
+  defp adopted_content_targets_section(context) do
+    targets = NovelApplication.PendingArtifactWorkflow.accepted_targets(context)
+
+    if map_size(targets) == 0 do
+      ""
+    else
+      lines =
+        Enum.map_join(targets, "\n", fn {ref, operations} ->
+          "- #{ref}：#{Enum.join(operations, " / ")}"
+        end)
+
+      "\n\n## 已采纳可修订对象（只用于 revise_adopted_content）\n#{lines}"
+    end
+  end
+
   defp judgment_terminal(run, sequence, kind, summary) do
     decision =
       judgment_mech_decision(run, sequence, "judgment_settle", summary, [
@@ -651,12 +668,15 @@ defmodule NovelApplication.DialoguePlanningService do
           exploration_sections(explorations, false),
       context_block:
         judgment_context_block(context, author_text) <>
-          exploration_sections(explorations, explore_open?),
+          exploration_sections(explorations, explore_open?) <>
+          adopted_content_targets_section(context),
       options:
         [
           capabilities:
             @judgment_capabilities ++ NovelApplication.PendingArtifactWorkflow.capabilities(),
           pending_artifact_targets: NovelApplication.PendingArtifactWorkflow.targets(context),
+          adopted_content_targets:
+            NovelApplication.PendingArtifactWorkflow.accepted_targets(context),
           registered_sources: TurnInteractionService.registered_sources(context),
           readonly_capabilities: @judgment_readonly_capabilities,
           author_content_sources:
@@ -718,7 +738,8 @@ defmodule NovelApplication.DialoguePlanningService do
              Map.put(run.authority_scope, :allowed_tools, Enum.uniq(["judgment", tool]))
          },
          provider_call_count: judgment.provider_call_count,
-         progress_signature: "#{run.run_id}:pending:#{judgment.pending_artifact_ref}"
+         progress_signature:
+           "#{run.run_id}:pending:#{judgment.pending_artifact_ref || judgment.adopted_content_ref}"
        }}
     else
       case Map.fetch(@judgment_capability_profiles, judgment.capability || "") do

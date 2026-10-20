@@ -4,6 +4,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   alias NovelAgent.Provider.Execution
 
   alias NovelApplication.{
+    AdoptionWorkflow,
     ArtifactAssembler,
     PendingArtifactWorkflow,
     TurnInteractionService,
@@ -123,6 +124,180 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     {:ok, snapshot} = WorkSessionService.show(c.work.id, c.session.id)
     assert length(snapshot.pending_adoptions) == 2
     assert snapshot.resolved_adoptions == []
+  end
+
+  test "ambiguous adopted revision target is rejected without write", c do
+    judgment = %{
+      capability: "revise_adopted_content",
+      adopted_content_ref: nil,
+      pending_artifact_ref: nil,
+      dialogue_goal: "改一下那个设定",
+      narrative: "请说明要修改哪条已保存设定，我不会猜目标。"
+    }
+
+    provider = %Execution{
+      result_fn: fn _prompt -> flunk("ambiguous target must not call the writer") end
+    }
+
+    assert {:error, {:pending_artifact_invalid, :target_not_available}} =
+             PendingArtifactWorkflow.run(judgment, %{}, c.run, c.context, provider)
+
+    {:ok, snapshot} = WorkSessionService.show(c.work.id, c.session.id)
+    assert [entry] = snapshot.pending_adoptions
+    assert entry.artifact_id == c.target
+    assert snapshot.resolved_adoptions == []
+  end
+
+  test "修订已采纳内容生成 sibling 候选并绑定 revision_of / supersedes_ref", c do
+    parent = self()
+
+    {:ok, accepted_artifact} =
+      ArtifactAssembler.assemble_author_content(
+        "accepted-source",
+        "岑舟今年二十五岁，是青云宗宗主。",
+        "original"
+      )
+
+    accepted_frame = %DialogueFrame{
+      schema_version: "3.0-draft",
+      frame_id: "frame-accepted",
+      turn_id: "accepted-source",
+      workspace_id: c.work.id,
+      primary: true,
+      frame_type: :capability_gap,
+      source_refs: %{author_input_ref: "accepted-source"},
+      dialogue_goal: %{summary: "保存设定"},
+      tool_need: %{needs_tool: false, reason_code: :capability_gap},
+      execution_readiness: :not_applicable,
+      author_visible_draft: %{message: "设定待采纳"},
+      evidence_summary: %{},
+      uncertainty: []
+    }
+
+    accepted_source =
+      TurnResultBuilder.build(accepted_frame, %{})
+      |> TurnResultBuilder.attach_author_artifact(accepted_artifact)
+
+    record(c.work.id, c.session.id, accepted_source)
+
+    writer = fn attrs ->
+      assert attrs.artifact_type == :world_setting
+      assert attrs.supersedes_ref == nil
+
+      {:ok,
+       %{
+         mutation_id: "mutation-accepted",
+         mutation_status: "APPLIED",
+         memory_item_id: "memory-old",
+         memory_status: "CONFIRMED",
+         source_revision_ref: "mutation:mutation-accepted",
+         reading_projection: nil
+       }}
+    end
+
+    assert {:ok, _action, adopted} =
+             AdoptionWorkflow.handle_adopt(
+               accepted_source,
+               %{"artifact_id" => accepted_artifact.artifact_set_id, "work_id" => c.work.id},
+               writer
+             )
+
+    record(c.work.id, c.session.id, adopted)
+    {:ok, snapshot} = WorkSessionService.show(c.work.id, c.session.id)
+
+    accepted =
+      Enum.find(
+        snapshot.resolved_adoptions,
+        &(&1.artifact_id == accepted_artifact.artifact_set_id)
+      )
+
+    assert accepted.adoption_status == "ACCEPTED"
+    assert accepted.adopted_state_ref == "memory-old"
+
+    judgment = %{
+      capability: "revise_adopted_content",
+      adopted_content_ref: accepted.artifact_id,
+      pending_artifact_ref: nil,
+      dialogue_goal: "把岑舟的年龄从二十五岁改成三十岁，其余保持不变。",
+      narrative: "我会生成一份修订候选，你确认后才替代旧版。"
+    }
+
+    run = %{
+      c.run
+      | authority_scope: %{production_write: false, allowed_tools: ["world_building"]},
+        goal: %{text: "把年龄改成三十岁，其他不变。", version: 1}
+    }
+
+    revised_body = "岑舟今年三十岁，是青云宗宗主。"
+
+    provider = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:adopted_revision_prompt, prompt})
+
+        text =
+          Jason.encode!([%{item_id: "new-item", title: "岑舟", body: revised_body, rationale: nil}])
+
+        {:ok,
+         %NovelAgent.Provider.Result{
+           content: text,
+           provider_call_ref: "pcall-adopted-new",
+           provider_output: %ProviderOutput{
+             provider_run_ref: "prun-adopted-new",
+             provider_call_ref: "pcall-adopted-new",
+             status: :ok,
+             content: %{text: text}
+           }
+         }}
+      end
+    }
+
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+
+    assert_received {:adopted_revision_prompt, prompt}
+    assert prompt =~ "岑舟今年二十五岁"
+    assert prompt =~ "把年龄改成三十岁"
+    assert prompt =~ "待采纳的修订候选"
+
+    [revised] = result.turn_result.adoption_state.pending
+    assert revised.artifact_id != accepted.artifact_id
+    assert revised.payload.revision_of == accepted.artifact_id
+    assert revised.payload.supersedes_ref == "memory-old"
+    assert revised.payload.revision_target_status == "ACCEPTED"
+
+    assert [%{body: ^revised_body, provider_call_ref: "pcall-adopted-new"}] =
+             revised.payload.items
+
+    refute result.turn_result.truthfulness.production_write_performed
+
+    # Q1c discard matrix: 放弃修订候选后旧 accepted 仍是当前事实，零生产写入。
+    record(c.work.id, c.session.id, result.turn_result)
+
+    discard_judgment = %{
+      capability: "discard_pending_artifact",
+      pending_artifact_ref: revised.artifact_id,
+      dialogue_goal: "放弃这次修订",
+      narrative: "我会放弃修订候选，旧版本仍是当前事实。"
+    }
+
+    assert {:ok, discarded} =
+             PendingArtifactWorkflow.run(discard_judgment, %{}, run, c.context, nil)
+
+    assert [%{artifact_id: discarded_ref, adoption_status: "DISCARDED"}] =
+             discarded.turn_result.adoption_state.resolved
+
+    assert discarded_ref == revised.artifact_id
+    refute discarded.turn_result.truthfulness.production_write_performed
+    record(c.work.id, c.session.id, discarded.turn_result)
+
+    {:ok, snapshot} = WorkSessionService.show(c.work.id, c.session.id)
+
+    assert Enum.any?(
+             snapshot.resolved_adoptions,
+             &(&1.artifact_id == accepted.artifact_id and &1.adoption_status == "ACCEPTED")
+           )
+
+    refute Enum.any?(snapshot.pending_adoptions, &(&1.artifact_id == revised.artifact_id))
   end
 
   test "放弃实际目标，刷新读取终态，原文可重新提出；重复放弃被拒绝", c do

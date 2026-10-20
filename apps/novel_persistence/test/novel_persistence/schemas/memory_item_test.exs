@@ -151,6 +151,105 @@ defmodule NovelPersistence.Schemas.MemoryItemTest do
       assert updated.summary == "更新摘要"
     end
 
+    test "persists revision links and supersedes the old version" do
+      old_id = ID.uuid()
+
+      {:ok, old_item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: old_id,
+          work_id: ID.uuid(),
+          content: "岑舟二十五岁",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.confirmed()
+        })
+        |> Repo.insert()
+
+      {:ok, new_item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: old_item.work_id,
+          content: "岑舟三十岁",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.confirmed(),
+          supersedes_ref: old_item.id
+        })
+        |> Repo.insert()
+
+      assert new_item.supersedes_ref == old_item.id
+
+      {:ok, superseded} =
+        old_item
+        |> MemoryItem.update_changeset(%{
+          status: MemoryStatus.superseded(),
+          superseded_by_ref: new_item.id
+        })
+        |> Repo.update()
+
+      assert superseded.status == MemoryStatus.superseded()
+      assert superseded.superseded_by_ref == new_item.id
+      assert superseded.recallable == false
+      assert superseded.locked == false
+    end
+
+    test "supersede_changeset replaces a locked confirmed item" do
+      {:ok, old_item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "岑舟二十五岁",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.confirmed(),
+          locked: true
+        })
+        |> Repo.insert()
+
+      new_id = ID.uuid()
+
+      {:ok, superseded} =
+        old_item
+        |> MemoryItem.supersede_changeset(%{
+          status: MemoryStatus.superseded(),
+          superseded_by_ref: new_id
+        })
+        |> Repo.update()
+
+      assert superseded.status == MemoryStatus.superseded()
+      assert superseded.superseded_by_ref == new_id
+      assert superseded.locked == false
+      assert superseded.recallable == false
+      assert superseded.content == "岑舟二十五岁"
+    end
+
+    test "supersede_changeset rejects non-superseded status" do
+      cs =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "岑舟二十五岁",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.confirmed()
+        })
+        |> MemoryItem.supersede_changeset(%{
+          status: MemoryStatus.deprecated(),
+          superseded_by_ref: ID.uuid()
+        })
+
+      refute cs.valid?
+      assert {"supersede status must be SUPERSEDED", _} = Keyword.fetch!(cs.errors, :status)
+    end
+
     test "rejects core fact rewrites while locked" do
       {:ok, item} =
         %MemoryItem{}
@@ -284,6 +383,29 @@ defmodule NovelPersistence.Schemas.MemoryItemTest do
       refute cs.valid?
 
       assert {"invalid memory status transition from DEPRECATED to CONFIRMED", _} =
+               Keyword.fetch!(cs.errors, :status)
+    end
+
+    test "rejects resurrecting a superseded memory status" do
+      {:ok, item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "已被新版替代的设定",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.superseded(),
+          recallable: false
+        })
+        |> Repo.insert()
+
+      cs = MemoryItem.update_changeset(item, %{status: MemoryStatus.confirmed()})
+
+      refute cs.valid?
+
+      assert {"invalid memory status transition from SUPERSEDED to CONFIRMED", _} =
                Keyword.fetch!(cs.errors, :status)
     end
 

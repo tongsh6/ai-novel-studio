@@ -16,7 +16,11 @@ defmodule NovelDomain.MemoryItem do
   @default_confidence 0.5
   @default_source_confidence 0.5
   @locked_protected_fields [:content, :summary, :type, :scope]
-  @terminal_statuses [MemoryStatus.deprecated(), MemoryStatus.archived()]
+  @terminal_statuses [
+    MemoryStatus.superseded(),
+    MemoryStatus.deprecated(),
+    MemoryStatus.archived()
+  ]
   @status_transitions %{
     MemoryStatus.draft() => [
       MemoryStatus.confirmed(),
@@ -27,19 +31,23 @@ defmodule NovelDomain.MemoryItem do
     MemoryStatus.confirmed() => [
       MemoryStatus.stabilized(),
       MemoryStatus.conflicted(),
+      MemoryStatus.superseded(),
       MemoryStatus.deprecated(),
       MemoryStatus.archived()
     ],
     MemoryStatus.stabilized() => [
       MemoryStatus.conflicted(),
+      MemoryStatus.superseded(),
       MemoryStatus.deprecated(),
       MemoryStatus.archived()
     ],
     MemoryStatus.conflicted() => [
       MemoryStatus.confirmed(),
+      MemoryStatus.superseded(),
       MemoryStatus.deprecated(),
       MemoryStatus.archived()
     ],
+    MemoryStatus.superseded() => [MemoryStatus.archived()],
     MemoryStatus.deprecated() => [MemoryStatus.archived()],
     MemoryStatus.archived() => []
   }
@@ -69,6 +77,8 @@ defmodule NovelDomain.MemoryItem do
     :expire_condition,
     :version,
     :tags,
+    :supersedes_ref,
+    :superseded_by_ref,
     :last_referenced_at,
     :created_at,
     :updated_at
@@ -99,6 +109,8 @@ defmodule NovelDomain.MemoryItem do
           expire_condition: String.t() | nil,
           version: integer(),
           tags: [String.t()] | nil,
+          supersedes_ref: String.t() | nil,
+          superseded_by_ref: String.t() | nil,
           last_referenced_at: DateTime.t() | nil,
           created_at: DateTime.t(),
           updated_at: DateTime.t()
@@ -174,6 +186,30 @@ defmodule NovelDomain.MemoryItem do
         recallable: false,
         updated_at: next_updated_at(item)
     }
+  end
+
+  @doc """
+  将记忆标记为 SUPERSEDED，并记录替代它的新版本。
+
+  与 DEPRECATED 的区别：DEPRECATED 是作者废弃；SUPERSEDED 是被一次新的采纳
+  决策替代。内容保留、退出普通召回，链字段让档案/回放能回答“被哪一版替代”。
+  """
+  @spec supersede(t(), String.t()) :: t()
+  def supersede(%__MODULE__{} = item, superseded_by_ref) when is_binary(superseded_by_ref) do
+    %__MODULE__{
+      item
+      | status: MemoryStatus.superseded(),
+        superseded_by_ref: superseded_by_ref,
+        locked: false,
+        recallable: false,
+        updated_at: next_updated_at(item)
+    }
+  end
+
+  @doc "在新版本上记录它替代的旧版本。"
+  @spec mark_supersedes(t(), String.t()) :: t()
+  def mark_supersedes(%__MODULE__{} = item, supersedes_ref) when is_binary(supersedes_ref) do
+    %__MODULE__{item | supersedes_ref: supersedes_ref, updated_at: next_updated_at(item)}
   end
 
   @doc "将记忆标记为 ARCHIVED 并设为不可召回。"

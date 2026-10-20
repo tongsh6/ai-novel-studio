@@ -21,9 +21,11 @@ Q0、Q1a、Q2、Q3a–Q3d、DS02 和 Q4 轻量机制已落地；Q3d 的 BIZ-01�
 **BIZ-06 已闭环**：对话可直接修订/放弃已有候选；新稿待作者采纳，原稿保留；版本来源去重、重新登记、编辑状态与过期编辑保护均有真实页面证据。
 Flash Next Q2 十轮 / 25 次调用证明数据与动作；最终四轮 / 9 次调用补证上下文指代及真实完成回执。两批版本边界与失败样本分别留证。
 
-**唯一队首为 Q1c / Journey D5 已采纳内容修订核查**：第十轮提出了“保留或替代已保存编辑版”的后续选择，但该分支尚未执行。
-先从作者修改已采纳设定的场景核对真实能力、覆盖确认、版本保留与后续创作上下文；不把新建候选误称为替换既有事实。
-这承接 `00` §2.2–2.3 的创作伙伴愿景及既有 D5 缺口；继续以业务正确性为主，不恢复超时参数对照，也不引入通用义务账。
+**Q1c / Journey D5 已采纳内容修订已收口（2026-10-21）**：正式 `q1c-adopted-content-revision`
+browser 场景 PASS，覆盖来源采纳 → 修订候选命中 accepted 目标 → 覆盖确认 → 旧版
+`SUPERSEDED` / 新版 `CONFIRMED` → 追问读新值；四条拒绝矩阵由确定性测试覆盖。
+当前队列待三组工作分别提交后，唯一队首转为 T6-AB。诚实边界：Q1c-specific 证据是
+browser surface，原生 Tauri Q1c 场景未跑；AU-05/AU-09 Tauri 回归漂移另行维护。
 
 **本轮验证**：后端 1,545 项、前端 483 项、证据验证器 216 项；三个页面专项及两项兼容回归通过。
 I1/I2/I3/N-NARR、编译、架构、桌面构建通过；完整扫描 17 PASS / 2 既有 FAIL、三项已处置、0 blocking。
@@ -77,7 +79,9 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | Q0 | B | B15 提交收口：TurnBinding 单点（9 flow frame 构造点）+ 防回归守卫测试已绿、`p1-chapter-expansion` 复活 PASS、门禁绿 | **done（2026-08-30）** | ✓ commit 落盘；B15 销账 |
 | Q1a | A | D7-overwrite 不变量修复（三刀实落，B 按钮显式 rewrite 未采——场景语义改为作者显式消息更合 D7 契约）：①喂前文改产品事实判别（目标章有已采纳正文即喂，治 M10c 盲写）②**判断②续行合成步继承计划步写作坐标**（真根因：rewrite 意图在偏离处理后蒸发→append 绕过覆盖确认；D8 病理 run 内实例，详 D7 slice 档 §4 追记）③驱动 cycle2 改作者显式「推翻重写」消息 | **done（2026-08-31）** | ✓ 全三条：overwrite-confirm PASS + expansion 不回归 + prior_prose_chars 缺 intent 仍出现（app-log 151 chars + flow 单测） |
 | Q1b | A | BIZ-06：已有候选的对话修订/放弃、重新登记与编辑状态 | **done（2026-10-18）** | 三项页面专项、十轮实模数据链及最终四轮上下文/回执实模通过；Journey C10 |
-| Q1c | A | 已采纳内容的修订、保留/替代与后续上下文核查 | **next** | 承接既有 Journey D5 缺口；先核查作者已保存设定的修改是否真正命中原对象、经过覆盖确认并保持版本/投影/上下文一致，不预设已支持或已损坏 |
+| Q1c | A | 已采纳内容的修订、保留/替代与后续上下文核查（`tasks/slices/Q1C-adopted-content-revision.md`，CP1–CP4/CP5 done） | **done（2026-10-21）** | 正式 browser 场景 PASS + 四条拒绝矩阵 + follow-up 新值；详见 slice §4B |
+| T6-AB | A | UA01 T6 CP-AB：prompt 前缀稳定性观测 + 首个实证（`contracts/VS-00I` §9：离线前缀共享度量、全厂商 TTFT、矩阵待核实回填、调用对工具恒定、续行 call1/call2 重排；顺带收口 VS-00H P1 activity 投影 `system_identity_ref`） | **next（2026-10-21；待 Q1c/VS-00H/DS03 分别提交、工作树干净后开工）** | 度量对续行调用对给出"改前≈L0 / 改后 call2≈call1 全长"；I-CACHE-2 绿；MBC 不退化且 call1 无工具调用倾向；各可达厂商 `cached_tokens` / TTFT 基线落 `artifacts/`；activity API 可见 `system_identity_ref` |
+| T7 | A | 系统身份消息层（`docs/design/contracts/VS-00H-system-identity-message-contract-pack.md`；`tasks/slices/UA01-agentic-loop-prompt-hardening.md` T7） | **done（CP1–CP3 实现完成；live vendor cache / developer UI 后置）** | CP1 身份模块 + Gateway 唯一注入 + ProviderRun `system_identity_ref`；CP2 去 18 处产品自称 + I-SYS-2 守卫；CP3 `cached_tokens` 可见。Proof：gateway focused tests + 全量 `mix test` + 一条既有 slice_verify 场景 + I1/I2/I3 |
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **done（2026-08-30）** | 提交 `8b03a9db`；00 §2.1、README 原则 12/13、VS-00D 结果对账已入档 |
 | Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
 | Q3b | A | R2 能力缺口出口：frame_type 子型 capability_gap（reply 结构化子型，零新字段——缺口事实=frame_type、路径=candidate_directions；探索强转让位判例见 slice 档）；VS-00 两枚举表修订 + domain/协议/前端/替身全链 | **done（2026-08-31）** | ✓ `q3b-capability-gap-honest-reply` 真实 Tauri PASS（存档意图→诚实承认+路径候选+零写入）+ au02 回归 + 全门禁；slice 档 tasks/slices/Q3B-capability-gap-exit.md |
@@ -141,6 +145,61 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 7. **反补丁自检（2026-07-20 用户提醒固化）**：同类症状出现第二次即触发归并审视——问"这些是几个缺陷还是一个病的几种症状"；症状钉可以先打（防线），但病灶必须立独立收口项且**测量先于设计**；harness 重试把问题变"能跑"不等于病愈，重试率必须进体温计。
 
 ## 6. Decision Log
+
+- 2026-10-21 — **Q1c 收口**。正式 `q1c-adopted-content-revision` browser 场景
+  （slice_verify）PASS，三轮回合约 4.3s；旧版 `SUPERSEDED` / 新版 `CONFIRMED` / 单一
+  current fact / follow-up 新值均成立。新增歧义、stale、跨作品拒绝测试与 discard
+  矩阵；persistence 层增加 revision target 的 stale/cross-work 事务 guard。诚实边界：
+  Q1c-specific 证据为 browser surface；AU-05/AU-09 Tauri 回归场景漂移未计入通过证据。
+  队列在 Q1c/VS-00H/DS03 分别提交后转 T6-AB。
+
+- 2026-10-21 — **DS03 post-closure：writer timeout 出口**（用户定向插单）。stage 实跑
+  证明 `prose_writing` timeout×2 后通用 awaiting 文案隐藏真实原因，且 replan 的“分段”
+  没有落到执行器。最小修复：保留 provider error `type`、prose flow 输出 timeout-
+  specific summary/reason codes、assistant 活动行显示最近 awaiting 事件 summary、
+  控制坞提供「先写第一场（500 字）」非空 steer。没有新增裸 continue/命令/状态；
+  真实页面短验收留待下一次，不以局部测试冒充闭环。队首仍为 Q1c。
+
+- 2026-10-21 — **T6 前缀稳定性三项拍板 + 排期**（用户确认建议）：L4 置尾为硬规则；调用对工具恒定
+  默认开启、数据只决定按 adapter 回退；CP-A/B 合并为 CP-AB（度量须有"改后"样本），顺序
+  AB → D → C（MBC A/B 硬门禁，失败登记例外）→ E。VS-00H 评审 P1 并入 CP-AB；I-CACHE-1
+  CP-C 后升 CI 阻断；VS-00I 实证后再 Frozen；身份 v1 不捆绑。**排期：不插队，CP-AB 排 Q1c
+  收口后首位、任何再碰 prompt 的工作之前。** 详见 UA01 slice 决策记录。
+
+- 2026-10-21 — **登记 T6 前缀稳定性契约 `VS-00I`（设计先行，不开工）**：T7 身份层落地后实测，
+  171 字符身份之后请求立即分叉（跨调用点于角色句、跨轮于首个动态字段、调用对于工具集差异），
+  可复用前缀≈0。契约定五层稳定度 L0–L4（厂商无关）、与六段骨架的映射（⑤⑥置尾不动，判例优先于
+  缓存）、调用对工具恒定、逐调用点映射、十厂商适配矩阵（待核实项不写成已知）、离线前缀共享度量
+  为主 proof。用户明确目标不只 LM Studio。顺序 CP-A 观测 → B → D → C（MBC A/B 硬门禁）→ E。
+  本次只落文档与可达链（contracts README / VS-00H §7 / notes 07-22 / UA01 T6），不改代码；
+  队首不变，Q1c 仍为唯一 next。
+
+- 2026-10-21 — **登记系统身份消息层（设计先行，不开工）**：用户指出 app 与 LLM 交互缺统一产品身份前提。
+  代码核查：零 `role: "system"`、18 处调用点三种产品自称、VS-00D §4.4 SYSTEM 块从未落地、
+  `Usage` 无缓存命中字段。契约落 `docs/design/contracts/VS-00H-system-identity-message-contract-pack.md`
+  （Proposed），承重入口 `UA01-agentic-loop-prompt-hardening` T7（CP1 Gateway 注入 → CP2 调用点
+  去自称 → CP3 `cached_tokens` 可测）。本次只落文档与可达链（contracts README / VS-00D / 08 /
+  notes 07-22 指针），不改代码；队首不变，Q1c 仍为唯一 next，T7 待主线复位时定序。
+
+- 2026-10-21 — **Q1c 收口（用户指令“先停止跑，收口当前成果”）**：A1 已落
+  `SUPERSEDED` + 双向 revision link，`revise_adopted_content`/覆盖确认/旧版退场/记忆 UI
+  已实现；后端 1555、前端 484、架构/前端审计/设计追溯全绿。真实页面结构链路通过 2 次，
+  但最后一次 follow-up 轮被中断，最终 summary 未落盘，正式场景与四条拒绝矩阵未注册，
+  故 CP4/CP5 只标部分闭环，不写 done。教训：结构验收不得用真实模型反复跑全链；下一
+  步先优化 harness（确定性 provider + seed + `reasoning_effort=none` + 单轮 180s 上限），
+  再补一次短的真实模型语义验收。
+
+- 2026-10-21 — **用户插单 T7 系统身份消息层**：VS-00H 已完成 CP0 文档（Proposed），
+  用户明确“做这个”。队列切为 T7 `next`、Q1c `paused`（Q1c 代码/门禁已收口，CP4/CP5
+  部分闭环保留）。CP1 边界只改 `novel_agent`（身份模块、Gateway 注入、ProviderRun ref），
+  不改调用点文本；CP2/CP3 随后。真实模型不作为结构验收门禁。
+
+- 2026-10-21 — **T7 实现收口**：CP1 身份模块 + Gateway 注入 + ProviderRun ref；CP2
+  18 处调用点去产品自称 + I-SYS-2 守卫；CP3 `cached_tokens` + Anthropic `cache_control`
+  + 连续调用共享前缀。后端全量 1570/0、I1/I2/I3 绿、MBC stub 1.0、`slice_verify
+  au02-candidate-continuation` PASS 且测试库 ProviderRun metadata 实测 identity ref。
+  诚实边界：真实 vendor cache hit、live MBC、`system_identity_ref` 开发者 UI 展示未做，
+  登记在 VS-00H §11.1。Q1c 恢复为唯一 next。
 
 - 2026-10-08 — **按用户要求转向业务正确性**：停止参数/耗时对照，撤出未采用探针代码并保留证据。
   两条真实页面负例分别复现缺失来源保存指令、持续对话后待采纳恢复丢失；局部反例证实
