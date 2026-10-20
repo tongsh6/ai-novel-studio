@@ -79,6 +79,33 @@ AgentRun 启动
 | CP3 | 作者约束与预算可见性 | “最多一步”生效；预算不足时真实差异文案；可选扩大预算动作 | todo |
 | CP4 | 重做 D5 场景 + 真实 Tauri | `agentic-loop-budget-deviation-replan` PASS；硬上限/无绕预算反例 | todo |
 
+### 4.1 CP2b-2 最小设计（待确认后动代码）
+
+**问题**：`AgentRunServer.run_next_step` 在 `AgentRun.budget_exhausted?` 时先硬停，D5/作者裁决没有入口。
+
+**约束**：
+
+- 不绕过硬上限；不在预算耗尽后再执行工具；
+- 不在预算耗尽后无界调用 provider；
+- 作者“最多一步”与硬上限是作者决策点，不自动扩预算。
+
+**推荐方案（安全优先）**：
+
+1. 预算耗尽时先算“计划 pending vs 剩余”，若存在缺口：
+   - 发 `awaiting_author`，reason codes 增加 `plan_budget_shortfall`；
+   - summary 说明真实差异：“计划 N 步 / 剩余 M 步”；
+   - 不调用 planner/provider，不执行工具。
+2. 只有 **provider/tool 预算仍有余量且 plan 还有 pending** 时，才允许一次 D5 探测：
+   - D5 → 判断②；
+   - `continue` 仅允许在收缩后的计划能装进剩余预算时执行；
+   - 装不进 → 仍走作者裁决，不自动扩预算。
+3. “扩大预算”作为作者动作（CP3），不在 CP2b-2 自动发生。
+4. D5 场景改为断言“真实预算缺口 → awaiting_author + shortfall + writer 未派发”；`plan_revised` 只在收缩计划可执行时断言。
+
+**为什么不是直接调大或自动 replan**：作者约束/硬上限是主权边界；自动扩预算会绕过作者，自动 replan 可能在 0 剩余预算下仍执行。
+
+**待确认**：是否接受“预算缺口先诚实停等，扩大预算由作者动作”作为 CP2b-2 的语义。
+
 ## 5. 明确不做
 
 - 不把 profile 预算常量简单调大。
