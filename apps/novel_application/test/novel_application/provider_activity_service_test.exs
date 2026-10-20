@@ -2,7 +2,7 @@ defmodule NovelApplication.ProviderActivityServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, SystemIdentity}
   alias NovelApplication.{ProviderActivityProjector, ProviderActivityService, WorkService}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
   alias NovelDomain.AgentRun
@@ -66,8 +66,7 @@ defmodule NovelApplication.ProviderActivityServiceTest do
              }
            ] = activity.provider_runs
 
-    refute inspect(activity.provider_runs) =~
-             String.slice(NovelAgent.Provider.SystemIdentity.content(), 0, 24)
+    refute inspect(activity.provider_runs) =~ String.slice(SystemIdentity.content(), 0, 24)
 
     assert event.event_type == "final_output"
     assert event.visibility == "author"

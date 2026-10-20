@@ -8,7 +8,8 @@ defmodule NovelApplication.JudgmentProtocolTest do
   """
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.{Execution, InferenceParams}
+  alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.ProviderOutput
@@ -757,11 +758,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert call1.tool_choice == "none"
 
     assert {:ok, result} =
-             NovelAgent.Test.Provider.SliceVerify.complete(
-               %NovelAgent.Test.Provider.SliceVerify{},
+             SliceVerify.complete(
+               %SliceVerify{},
                nil,
                call1,
-               NovelAgent.Provider.InferenceParams.new()
+               InferenceParams.new()
              )
 
     assert result.tool_calls == []
