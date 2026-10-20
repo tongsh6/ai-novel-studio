@@ -236,7 +236,25 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 ---
 
-## 11. 与现有文档关系
+## 11. 实现证据（2026-10-21，CP-AB）
+
+| 项 | 证据 |
+|---|---|
+| A1 离线度量 | `scripts/scenario_invariants/run_icache_prefix.exs`；改前 continuation `523/1683 (0.3108)`、conversation `525/5282 (0.0994)`；改后 continuation `780/1940 (0.4021)`、conversation `525/6686 (0.0785)`；报告 `artifacts/scenario-invariants/icache-before.md` / `icache.md` |
+| I-CACHE-2 | 同一调用对 call1/call2 tools canonical JSON 字节相等；脚本内断言通过 |
+| A2 TTFT | `Usage.ttft_ms`；OpenAI-compatible/Anthropic stream 首 text/tool delta；非流式回填 latency；ProviderOutput/activity usage 透传；单测通过 |
+| B1 工具恒定 | call1 携带与 call2 相同 tools + `tool_choice: "none"`；OpenAI 透传；Anthropic 省略 tools 并标 `tool_constancy: :degraded`；Stub/SliceVerify 尊重 none |
+| B2 续行重排 | `continuation_common_prefix/0`（角色句 + 两种续行方式）为 call1/call2 共同前缀；未改规则语义 |
+| B3 VS-00H P1 | `ProviderRunLog.usage_summary/2` 投影 `system_identity_ref`；activity API 可见 version/hash，不泄漏身份原文 |
+| MBC | `tool_call_compliance.exs stub` pass_rate=1.0（2/2）；call1 `tool_choice:none` focused 测试 `tool_calls == []` |
+| A3/A4 | LM Studio 实测 usage 无 `cached_tokens`（prompt/completion/total + reasoning_tokens）；runtime `qwen3.8-flash-next@q2_k` / context 262144 / parallel 3 / TTL 空；其他厂商 shell 无凭据，保持待核实 |
+| 门禁 | 后端 1,577/0；compile/xref/arch PASS；前端未改动 |
+
+**未 Frozen 的原因**：续行 call_pair 的共享前缀虽显著提升（0.3108 → 0.4021），但仍未达到本文冻结纪律要求的“call2 共享前缀 ≈ call1 全长”；且 A3 多厂商 live 基线、LM Studio TTFT live 基线、CP-AB 规定的两条 slice_verify 场景尚未完成。状态保持 Proposed，不把局部实证冒充全量冻结。
+
+---
+
+## 12. 与现有文档关系
 
 - `VS-00H`：L0 的真源；§7 "缓存是顺带打开的门"在本文展开为可执行契约。
 - `notes/2026-07-22` §2.1：六段骨架是内容契约，本文是排序契约；§2.2 映射、§2.3 裁决。
