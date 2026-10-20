@@ -570,6 +570,29 @@ function agenticLoopStatusTone(run: AgentRunStateData | null): AgenticLoopPhaseS
   return "active";
 }
 
+function latestAwaitingAuthorEvent(events: AgentEventData[]): AgentEventData | null {
+  return (
+    [...events]
+      .reverse()
+      .find(
+        (event) =>
+          event.event_type === "awaiting_author" &&
+          event.visibility === "author" &&
+          typeof event.summary === "string" &&
+          event.summary.trim() !== "",
+      ) ?? null
+  );
+}
+
+function awaitingAuthorWriterTimeout(events: AgentEventData[]): boolean {
+  const reasons = latestAwaitingAuthorEvent(events)?.reason_codes;
+  return Array.isArray(reasons) && reasons.includes("writer_timeout");
+}
+
+function awaitingAuthorActivityText(events: AgentEventData[]): string {
+  return latestAwaitingAuthorEvent(events)?.summary.trim() || WORKBENCH.agentRunAwaitingActivity;
+}
+
 // 46§9.4 进度行：待采纳草稿正文总字数（纯计数骨架词；无产物返回 null 不显示）。
 function pendingDraftCharCount(turnResult: TurnResult | undefined): number | null {
   const pending = turnResult?.adoption_state?.pending ?? [];
@@ -673,7 +696,7 @@ export function AgentRunDialogueFlow({
         ? WORKBENCH.qualityRevisionPausedActivity
         : WORKBENCH.agentRunPausedActivity
       : runIsAwaitingAuthor
-        ? WORKBENCH.agentRunAwaitingActivity
+        ? awaitingAuthorActivityText(events)
         : isQualityRevisionRun
           ? WORKBENCH.qualityRevisionActivity
           : activityKind === "reading"
@@ -806,6 +829,7 @@ interface AgentRunControlDockProps {
   onCommand: (command: AgentCommand) => void;
   onRequestCancel: () => void;
   onRestartTask: () => void;
+  onWriterTimeoutRetry?: () => void;
 }
 
 export function AgentRunControlDock({
@@ -822,6 +846,7 @@ export function AgentRunControlDock({
   onCommand,
   onRequestCancel,
   onRestartTask,
+  onWriterTimeoutRetry,
 }: AgentRunControlDockProps) {
   const reasoningFlow = agentRunReasoningFlow(events);
   const totalStepCount = Math.max(
@@ -854,6 +879,8 @@ export function AgentRunControlDock({
   const isCancelling = run.status === "cancelling";
   const runtimeDead = runtimeAuthority === "dead";
   const runtimeUnknown = runtimeAuthority === "unknown";
+  const writerTimeoutAwaiting = awaitingInput && awaitingAuthorWriterTimeout(events);
+  const writerTimeoutRetryDisabled = runtimeAuthority !== "live" || commandInFlight;
   const isExpiredBounded = runtimeDead && run.run_mode !== "durable";
   const isDeadDurableCheckpoint = runtimeDead && run.run_mode === "durable";
   const primaryCommand: AgentCommand = canResume ? "resume" : "pause";
@@ -940,8 +967,24 @@ export function AgentRunControlDock({
         ) : isDeadDurableCheckpoint ? null : awaitingInput ? (
           <>
             <span className={styles.agentRunDockAwaitingHint}>
-              {WORKBENCH.agentRunAwaitingInputHint}
+              {writerTimeoutAwaiting
+                ? WORKBENCH.agentRunWriterTimeoutHint
+                : WORKBENCH.agentRunAwaitingInputHint}
             </span>
+            {writerTimeoutAwaiting && onWriterTimeoutRetry && (
+              <button
+                type="button"
+                className={[
+                  styles.agentRunDockPrimaryAction,
+                  styles.agentRunDockPrimaryActionEmphasis,
+                ].join(" ")}
+                disabled={writerTimeoutRetryDisabled}
+                onClick={onWriterTimeoutRetry}
+              >
+                <RotateCcw size={15} aria-hidden="true" />
+                <span>{WORKBENCH.agentRunWriterTimeoutRetry}</span>
+              </button>
+            )}
             <button
               type="button"
               className={styles.agentRunDockTerminateAction}
@@ -1919,8 +1962,18 @@ export function WorkspaceChat() {
   const agentRunIdsRenderedInTurns = new Set(
     messages.map((msg) => turnResultAgentRunId(msg.turnResult)).filter((runId) => runId !== null),
   );
+  const latestAgentRunRestoredEvents = latestAgentRun
+    ? messages.flatMap((message) =>
+        turnResultAgentRunId(message.turnResult) === latestAgentRun.run_id
+          ? agentRunEventsFromTurnResult(message.turnResult)
+          : [],
+      )
+    : [];
   const latestAgentRunEvents = latestAgentRun
-    ? agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id)
+    ? mergeAgentRunEvents(
+        latestAgentRunRestoredEvents,
+        agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id),
+      )
     : [];
   // DS03 状态矩阵：命令权限唯一真源是服务端 agent_run_state 的 runtime_live；
   // 历史 TurnResult 快照（authority=unknown）与已失活 runtime（dead）都不授予
@@ -4809,6 +4862,10 @@ export function WorkspaceChat() {
                     }}
                     onRequestCancel={() => setAgentRunTerminateDialogOpen(true)}
                     onRestartTask={handleRestartDeadAgentRunTask}
+                    onWriterTimeoutRetry={() => {
+                      if (!latestAgentRunIsLive) return;
+                      void handleAgentCommand("steer", WORKBENCH.agentRunWriterTimeoutRetryPrompt);
+                    }}
                   />
                 )}
                 <div

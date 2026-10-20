@@ -129,6 +129,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 | B16 | **Phoenix 安全补丁与前端依赖恢复**（2026-10-05）：后端 Phoenix 1.8.7 → 1.8.9，其他 Hex 锁项不变；以已安装 pnpm 10.33.0 执行 frozen-lockfile 恢复前端，package.json/前端锁文件未变；用户已明确授权。 | **已销账（2026-10-05）**：Hex 审计无漏洞；后端 1,492 / 前端 450 测试通过，四项不变量、架构、前端检查及工作台采纳场景通过；完整扫描 17 PASS / 2 既有 FAIL，3 项旧 finding 均有既有处置、0 blocking。桌面构建记录见 §6；ADR-0027 仍 Proposed，不因本次依赖授权变更状态。 |
 
+| B17 | **awaiting_author writer timeout 出口**（DS03 post-closure，2026-10-21 用户定向插单）：prose writer 连续 timeout 后，assistant 活动行显示真实失败原因，控制坞提供「先写第一场（500 字）」scoped steer；不新增裸 continue、不改 AgentRun 主架构。 | **局部测试绿（2026-10-21）**：后端 1,572 / 前端 487；`compile --warnings-as-errors`、xref、arch_check 通过；真实页面/真实模型短验收待跑（不复用旧长跑）。 |
+
 **C 轨（被 A 轨拉动才做）**：explore 方向质量 live MBC 探针；记忆类面场景级验收；harness/探针体系自发扩建一律禁止。
 
 ## 5. Selection Rule

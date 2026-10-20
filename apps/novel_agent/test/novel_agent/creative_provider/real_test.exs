@@ -84,6 +84,19 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert [%{code: "provider_response_invalid"} | _] = result.errors
   end
 
+  test "preserves the provider error type on creative failures" do
+    result =
+      Real.generate(
+        @request,
+        provider_execution(fn _prompt ->
+          {:error, %{type: :timeout, message: "LM Studio 请求超时"}}
+        end)
+      )
+
+    assert result.status == :error
+    assert [%{code: "provider_error", type: :timeout}] = result.errors
+  end
+
   test "valid JSON passes through without retry" do
     {:ok, agent} = Agent.start_link(fn -> 0 end)
 

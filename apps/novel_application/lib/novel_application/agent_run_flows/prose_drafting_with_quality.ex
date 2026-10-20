@@ -157,7 +157,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     if replan_available?(run) do
       continuation_judgment(run, sequence, snapshot, spec, deviation, :retry_current)
     else
-      mechanical_await_author_decision(run, sequence)
+      mechanical_await_author_decision(run, sequence, snapshot)
     end
   end
 
@@ -173,7 +173,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
       continuation_judgment(run, sequence, snapshot, spec, deviation, :append_prose)
     else
-      mechanical_await_author_decision(run, sequence)
+      mechanical_await_author_decision(run, sequence, snapshot)
     end
   end
 
@@ -273,7 +273,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   end
 
   defp continuation_await_decision(run, sequence, snapshot, deviation, continuation) do
-    with {:ok, decision, await_meta} <- mechanical_await_author_decision(run, sequence) do
+    with {:ok, decision, await_meta} <-
+           mechanical_await_author_decision(run, sequence, snapshot) do
       decision = %{
         decision
         | summary: continuation.narrative,
@@ -383,18 +384,23 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
-  defp mechanical_await_author_decision(run, sequence) do
+  # 2026-10-21 狗粮：prose_writing 连续 timeout 后计划耗尽，原来的通用
+  # “计划步骤已走完”让作者无法判断是模型慢、预算还是内容问题。作者可见
+  # summary 必须带上真实失败类别；reason_codes 供控制坞给出缩小范围重试动作。
+  defp mechanical_await_author_decision(run, sequence, snapshot) do
+    {summary, reason_codes, observation_refs} = await_author_reason(snapshot)
+
     AgentNextStepDecision.new(%{
       decision_id: "and_#{run.run_id}_#{sequence}_plan_exhausted",
       run_ref: run.run_id,
       sequence: sequence,
       decision_type: :await_author,
-      summary: "计划步骤已走完，但正文候选尚未生成，等待作者确认下一步。",
+      summary: summary,
       target_tool_ref: nil,
       write_intent: :none,
       risk_hint: :medium,
-      reason_codes: ["plan_exhausted_without_completion"],
-      observation_refs: [],
+      reason_codes: reason_codes,
+      observation_refs: observation_refs,
       evaluation_of_last: %{
         advanced: false,
         plan_holds: false,
@@ -407,6 +413,59 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       error -> error
     end
   end
+
+  defp await_author_reason(snapshot) do
+    case writer_timeout_observations(snapshot) do
+      [] ->
+        {"计划步骤已走完，但正文候选尚未生成，等待作者确认下一步。", ["plan_exhausted_without_completion"], []}
+
+      observations ->
+        count = length(observations)
+
+        summary =
+          "正文写作调用超时（#{count} 次），未生成草稿。建议先只写当前章第一场、缩小单次范围，或检查写作模型后重试。"
+
+        {summary,
+         [
+           "plan_exhausted_without_completion",
+           "writer_timeout",
+           "writer_timeout_retry_recommended"
+         ], Enum.map(observations, & &1.observation_id)}
+    end
+  end
+
+  defp writer_timeout_observations(snapshot) when is_map(snapshot) do
+    snapshot
+    |> Map.get(:observations, [])
+    |> case do
+      observations when is_list(observations) -> observations
+      _ -> []
+    end
+    |> Enum.filter(&writer_timeout_observation?/1)
+  end
+
+  defp writer_timeout_observations(_snapshot), do: []
+
+  defp writer_timeout_observation?(%AgentObservation{structured_payload: payload}) do
+    map_get(payload, :tool_name) == "prose_writing" and
+      map_get(payload, :agentic_deviation_signal) in ["D1", :D1] and
+      timeout_errors?(map_get(payload, :errors))
+  end
+
+  defp writer_timeout_observation?(_observation), do: false
+
+  defp timeout_errors?(errors) when is_list(errors) do
+    Enum.any?(errors, &timeout_error?/1)
+  end
+
+  defp timeout_errors?(_errors), do: false
+
+  defp timeout_error?(error) when is_map(error) do
+    map_get(error, :type) in [:timeout, "timeout"]
+  end
+
+  defp timeout_error?(error) when is_binary(error), do: String.downcase(error) == "timeout"
+  defp timeout_error?(_error), do: false
 
   defp write_intent_for(_step, "prose_writing"), do: :tentative
   defp write_intent_for(step, _target), do: map_get(step, :write_intent) || :none

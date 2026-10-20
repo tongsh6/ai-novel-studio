@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { AgentRunStateData } from "../lib/socket";
+import type { AgentEventData, AgentRunStateData } from "../lib/socket";
 import { AgentRunControlDock, AgentRunDialogueFlow } from "./WorkspaceChat";
 
 function runState(status: string, overrides: Partial<AgentRunStateData> = {}): AgentRunStateData {
@@ -16,6 +16,21 @@ function runState(status: string, overrides: Partial<AgentRunStateData> = {}): A
     completed_step_refs: ["step-1"],
     pending_artifact_refs: [],
     ...overrides,
+  };
+}
+
+function awaitingEvent(
+  summary: string,
+  reasonCodes: string[] = ["plan_exhausted_without_completion"],
+): AgentEventData {
+  return {
+    event_id: "evt-awaiting-author",
+    run_ref: "run-control-dock",
+    sequence: 9,
+    event_type: "awaiting_author",
+    visibility: "author",
+    summary,
+    reason_codes: reasonCodes,
   };
 }
 
@@ -31,12 +46,14 @@ function renderDock(
     commandInFlight?: boolean;
     noticeText?: string | null;
     runOverrides?: Partial<AgentRunStateData>;
+    events?: AgentEventData[];
+    onWriterTimeoutRetry?: () => void;
   } = {},
 ): string {
   return renderToStaticMarkup(
     React.createElement(AgentRunControlDock, {
       run: runState(status, options.runOverrides ?? {}),
-      events: [],
+      events: options.events ?? [],
       canPause: options.canPause ?? false,
       canResume: options.canResume ?? false,
       canCancel: options.canCancel ?? true,
@@ -48,6 +65,7 @@ function renderDock(
       onCommand: () => undefined,
       onRequestCancel: () => undefined,
       onRestartTask: () => undefined,
+      onWriterTimeoutRetry: options.onWriterTimeoutRetry,
     }),
   );
 }
@@ -101,6 +119,38 @@ describe("AgentRun fixed control dock", () => {
     expect(html).not.toContain("<span>暂停</span>");
   });
 
+  it("offers a scoped retry when the awaiting reason is a writer timeout", () => {
+    const html = renderDock("awaiting_author", {
+      awaitingInput: true,
+      events: [
+        awaitingEvent(
+          "正文写作调用超时（2 次），未生成草稿。建议先只写当前章第一场、缩小单次范围，或检查写作模型后重试。",
+          [
+            "plan_exhausted_without_completion",
+            "writer_timeout",
+            "writer_timeout_retry_recommended",
+          ],
+        ),
+      ],
+      onWriterTimeoutRetry: () => undefined,
+    });
+
+    expect(html).toContain("正文写作调用超时。可以先缩小范围重试");
+    expect(html).toContain("<span>先写第一场（500 字）</span>");
+    expect(html).toContain("<span>终止任务</span>");
+  });
+
+  it("keeps the generic awaiting hint when the reason is not a writer timeout", () => {
+    const html = renderDock("awaiting_author", {
+      awaitingInput: true,
+      events: [awaitingEvent("计划步骤已走完，等待作者确认下一步。")],
+      onWriterTimeoutRetry: () => undefined,
+    });
+
+    expect(html).toContain("等待你的补充：输入具体方向后发送，任务才会继续。");
+    expect(html).not.toContain("先写第一场（500 字）");
+  });
+
   // DS03 状态矩阵：dead bounded 明示失效，唯一动作是重新发起；不发 agent_command。
   it("demotes a dead bounded run to an expired surface with restart only", () => {
     const html = renderDock("awaiting_author", {
@@ -152,6 +202,23 @@ describe("AgentRun fixed control dock", () => {
 });
 
 describe("AgentRun dialogue activity", () => {
+  it("surfaces the concrete awaiting author reason instead of a generic message", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(AgentRunDialogueFlow, {
+        run: runState("awaiting_author"),
+        events: [
+          awaitingEvent(
+            "正文写作调用超时（2 次），未生成草稿。建议先只写当前章第一场、缩小单次范围，或检查写作模型后重试。",
+            ["writer_timeout"],
+          ),
+        ],
+      }),
+    );
+
+    expect(html).toContain("正文写作调用超时（2 次），未生成草稿。");
+    expect(html).not.toContain("任务正在等待你的确认。");
+  });
+
   it("turns a paused quality revision into a static semantic activity", () => {
     const html = renderToStaticMarkup(
       React.createElement(AgentRunDialogueFlow, {

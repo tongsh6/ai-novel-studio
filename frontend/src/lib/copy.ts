@@ -430,6 +430,11 @@ export const WORKBENCH = {
   agentRunSteerSend: "发送调整",
   // DS03 状态矩阵：awaiting_author 必须提交具体补充，不提供裸「继续」。
   agentRunAwaitingInputHint: "等待你的补充：输入具体方向后发送，任务才会继续。",
+  // 正文写作连续超时后的恢复出口：仍走非空 steer，不新增裸继续命令。
+  agentRunWriterTimeoutHint: "正文写作调用超时。可以先缩小范围重试：只写当前章第一场，500 字以内。",
+  agentRunWriterTimeoutRetry: "先写第一场（500 字）",
+  agentRunWriterTimeoutRetryPrompt:
+    "缩小范围重试：先只写当前章的第一个场景，500 字以内；写完就停，不要一次写完整章，等我确认后再继续下一个场景。",
   agentRunAuthorityUnknownDetail: "正在确认任务状态…",
   agentRunExpiredTitle: "原任务已失效",
   agentRunExpiredDetail: "后台运行已结束，历史记录仍可查看。可重新发起任务继续。",

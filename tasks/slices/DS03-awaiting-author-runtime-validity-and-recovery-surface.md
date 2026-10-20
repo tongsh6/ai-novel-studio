@@ -161,8 +161,65 @@ Stage SQLite 与事件记录对账：
 - [x] `bash scripts/check_design_trace.sh`
 - [x] `bash scripts/ai_static_scan.sh --top 10`（本 slice 触碰项全处置：persist_author_steer 圈复杂度已重构；gitleaks 两项为既有 false_positive/accepted_risk 台账）
 
+## 8.1 Post-closure P1：writer timeout 真实原因与缩小范围出口（2026-10-21）
+
+**现场**：stage run `run_mvh2srw4_3nk` 的 `prose_writing` writer 连续两次
+`timeout`（`prun_mvh30f7q_3zo`、`prun_mvh37pwa_4wd`）。第一次失败后判断②把计划改成
+“拆 3-4 个场景、逐段生成再合并”，但执行器仍只发一次全章 writer 调用，第二次同样
+超时；计划耗尽后进入 `awaiting_author`，事件 summary 却是通用的“计划步骤已走完，
+但正文候选尚未生成”。作者只看到“任务正在等待你的确认”和自由输入框；“好 开始”
+恢复后没有新增有界步骤，于是再次停等。
+
+**增量七问**：
+
+- **Contract**：沿用 DS03 §5.1 的 `awaiting_author` 非空补充恢复路径；不新增
+  agent command、状态或 schema。
+- **Invariant**：`awaiting_author` 不得授予裸 resume；作者可见原因不得抹掉真实失败
+  类别；快捷恢复动作必须仍是一次非空 steer。
+- **Boundary**：`novel_agent` 保留 creative provider 错误的机器可读 `type`；
+  `novel_application` 的 prose flow 生成 timeout-specific summary/reason codes；
+  `frontend` 活动行 + 控制坞 + copy。AgentRun 主架构、persistence、schema 不动。
+- **Consumer**：真实 `WorkspaceChat` 的 assistant 活动行与固定控制坞。
+- **Proof**：后端 prose flow timeout×2 用例、creative provider error type 用例、
+  前端控制坞/活动行静态渲染用例、全量后端/前端门禁。真实页面复跑本轮未执行。
+- **Acceptance Driver**：沿用真实工作台外部自动化入口；本轮只有确定性局部验证，
+  产品代码不新增验收感知逻辑。
+- **Exploration**：不适用；本 checkpoint 不物化小说要素。
+
+**实现**：
+
+1. `CreativeProvider.Real` 在 tool result error 中保留 provider 错误的 `type`
+   （例如 `:timeout`），上层不再从 `inspect` 文本猜失败类别。
+2. `ProseDraftingWithQuality.mechanical_await_author_decision/3` 读取 snapshot
+   observations；若存在 `prose_writing` D1 timeout，则作者可见 summary 改为
+   “正文写作调用超时（N 次）……”，reason codes 增加 `writer_timeout` /
+   `writer_timeout_retry_recommended`，并带 observation refs。
+3. assistant 活动行优先显示最近一次 author-visible `awaiting_author` 事件 summary；
+   历史 TurnResult 事件与 live 事件合并，刷新后仍可恢复真实原因。
+4. 控制坞在 `writer_timeout` 且 runtime live 时显示「先写第一场（500 字）」，
+   通过既有非空 steer 提交“只写当前章第一个场景、500 字以内、写完停下”的有界请求；
+   dead/unknown 不启用。没有裸“继续”。
+
+**验证**：
+
+- 后端 1,572 tests / 0 failures；前端 487 tests / 0 failures；`mix compile
+  --warnings-as-errors`、xref、arch_check 通过。
+- 新增用例：`agent_run_prose_drafting_flow_test.exs` 的 writer timeout×2 停等；
+  `real_test.exs` 的 provider error type；`WorkspaceChat.agentRunControlDock.test.tsx`
+  的 timeout 控制坞按钮与活动行真实 summary。
+- **未闭环**：真实 Tauri/真实模型页面复跑未执行（用户已停止长跑）；本 checkpoint
+  只能证明确定性选择/渲染链路，不能证明真实 stage 页面在重启后显示新文案与按钮。
+  下一次短验收应使用 `SLICE_VERIFY_PROVIDER=slice_verify` 或短真实模型，断言
+  `awaiting_author` 事件 summary、`writer_timeout` reason code 和快捷 steer 后的
+  同一 run 恢复。
+
 ## 9. 决策日志
 
+- 2026-10-21 — **post-closure P1：writer timeout 出口**。stage 实跑证明 writer
+  timeout×2 后通用 awaiting 文案让作者无法判断原因；replan 文字承诺分段但执行器仍
+  单次全章调用。用户拍板先修 UX 出口：保留真实失败类别、assistant 活动行显示
+  timeout summary、控制坞提供「先写第一场（500 字）」scoped steer。明确不改
+  AgentRun 主架构、不自动重试 writer；真实页面复跑留待下一次短验收。
 - 2026-07-25 — 根据真实用户截图和 Stage DB/AgentEvent 对账登记为独立 P0 slice。
   不回退 `UA01-natural-language-steering` 已完成的 live steer checkpoint；本 slice 专门关闭
   runtime validity、S7 recovery surface、steer persistence 与错误展示边界。

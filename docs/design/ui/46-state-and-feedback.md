@@ -379,6 +379,21 @@ run/command/reason 去重，成功后清除），不得追加为 assistant 气�
 该 run 本地降为 dead。command pending 期间所有提交按钮禁用（防连击）。dead run 不再
 计入顶栏“进行中任务”聚合，主输入框恢复普通消息语义。
 
+#### 9.7.2 Writer timeout 恢复出口（2026-10-21 DS03 post-closure）
+
+当 `awaiting_author` 的真实原因是正文 writer 连续超时（事件 reason code
+`writer_timeout`）时：
+
+1. assistant 工作回合的活动行必须显示最近一次 `awaiting_author` 事件的 author-safe
+   summary（例如“正文写作调用超时（2 次），未生成草稿……”），不得用通用
+   “任务正在等待你的确认”覆盖真实失败类别。
+2. 控制坞在原有补充引导之外，提供一个明确的缩小范围动作「先写第一场（500 字）」。
+   该动作仍提交非空 steer（“先只写当前章第一个场景，500 字以内，写完停下”），
+   不新增裸 resume/continue 命令，也不绕过 `awaiting_author` 的输入必填门禁。
+3. 该动作只在 runtime live 时可用；dead / unknown 仍按 §9.7.1 状态矩阵处理。
+4. 该动作不改变 AgentRun 主架构，也不自动重试 writer；它只是把作者从“不知道该输入
+   什么”推进到一个有界、可编辑的下一步。
+
 ### 9.8 作者动作触发的单一工作回合（2026-07-24 用户拍板）
 
 质量卡等决策面发起 `author_action` 后，不得同时出现“卡片内无限 loading”“游离的泛化

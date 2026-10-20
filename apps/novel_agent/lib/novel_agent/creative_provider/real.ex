@@ -85,7 +85,7 @@ defmodule NovelAgent.CreativeProvider.Real do
         parse_or_retry(content, nil, prompt, result_fn, retry?)
 
       {:error, error} ->
-        provider_error("provider_error", inspect(error))
+        provider_error("provider_error", inspect(error), provider_error_type(error))
 
       other ->
         provider_error(
@@ -503,10 +503,21 @@ defmodule NovelAgent.CreativeProvider.Real do
     |> String.replace(~r/```\s*$/, "")
   end
 
-  defp provider_error(code, message) do
+  defp provider_error(code, message, type \\ nil) do
+    error = %{code: code, message: message}
+    error = if is_nil(type), do: error, else: Map.put(error, :type, type)
+
     %CreativeProviderResult{
       status: :error,
-      errors: [%{code: code, message: message}]
+      errors: [error]
     }
   end
+
+  # 保留 provider 错误的机器可读类别（如 :timeout）。message 仍是 inspect 文本，
+  # 但上层偏离/停等决策不应从文本里猜失败类别。
+  defp provider_error_type(%{type: type}), do: type
+  defp provider_error_type(%{"type" => type}), do: type
+  defp provider_error_type(%{reason: reason}), do: reason
+  defp provider_error_type(%{"reason" => reason}), do: reason
+  defp provider_error_type(_error), do: nil
 end

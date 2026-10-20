@@ -881,6 +881,61 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.consumed_budget.provider_calls == 7
   end
 
+  test "writer timeout exhaustion surfaces a scoped retry reason" do
+    parent = self()
+
+    writer = fn prompt ->
+      cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-prose-timeout-mission")}
+
+        plan_draft_prompt?(prompt) ->
+          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-timeout-plan")}
+
+        continuation_narrative_prompt?(prompt) ->
+          continuation_narrative("写作模型连续超时，我先停下来，等你确认后再继续。")
+
+        continuation_decision_prompt?(prompt) ->
+          continuation_decision("continue", "先拆场景，逐段写，缩小单次输出。")
+
+        true ->
+          send(parent, {:writer_prompt, prompt})
+          {:error, %{type: :timeout, message: "fixture writer timeout"}}
+      end
+    end
+
+    evaluator = fn _prompt -> flunk("writer timeout must not call quality evaluator") end
+
+    run_id =
+      start_prose_run!(
+        %{
+          text: "写第01章正文草稿，但 writer provider 连续超时。",
+          session_id: "session-agent-prose-timeout",
+          turn_id: "turn-agent-prose-timeout",
+          quality_provider_execution: %Execution{result_fn: evaluator}
+        },
+        writer,
+        parent
+      )
+
+    events = collect_agent_events_until(:awaiting_author, 2_000)
+    assert_receive {:writer_prompt, _prompt}, 500
+    assert_receive {:writer_prompt, _prompt}, 500
+
+    awaiting = find_event!(events, :awaiting_author)
+    assert awaiting.summary =~ "正文写作调用超时（2 次）"
+    assert awaiting.summary =~ "未生成草稿"
+    assert "writer_timeout" in awaiting.reason_codes
+    assert "writer_timeout_retry_recommended" in awaiting.reason_codes
+    assert "plan_exhausted_without_completion" in awaiting.reason_codes
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :awaiting_author
+    # 判断② continue 消耗一次 replan；第二次 writer 失败后进入机械停等。
+    assert state.run.consumed_budget.replans == 1
+    assert state.run.consumed_budget.tool_calls == 2
+  end
+
   test "D2 actionable quality finding revises plan before waiting for author" do
     parent = self()
 
