@@ -25001,6 +25001,8 @@ async function driveAgenticLoopBudgetDeviationReplan(page) {
       budget_expanded_mode: budgetExpanded.body?.payload?.mode ?? null,
       budget_expanded_step_count: budgetExpanded.body?.payload?.step_count ?? null,
       scope_checkpoint_arrived: true,
+      scope_checkpoint_adoption_pending_count: (checkpoint.body?.adoption_state?.pending ?? [])
+        .length,
       scope_checkpoint_action_types: (checkpoint.body?.available_actions ?? []).map(
         (action) => action.action_type,
       ),

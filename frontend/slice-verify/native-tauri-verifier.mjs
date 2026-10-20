@@ -6343,6 +6343,8 @@ function findAgenticLoopBudgetDeviationReplanEvidence(records) {
       record.budget_expanded_mode === "selected_steps" &&
       Number(record.budget_expanded_step_count ?? 0) === 2 &&
       boolValue(record.scope_checkpoint_arrived) === true &&
+      Number(record.scope_checkpoint_adoption_pending_count ?? 0) >= 1 &&
+      (record.scope_checkpoint_action_types ?? []).includes("accept") &&
       ["running", "completed", "awaiting_author"].includes(record.post_action_run_status) &&
       Number(record.post_action_max_steps ?? 0) >= 3 &&
       Number(record.log_sync_turn_count ?? -1) === 0 &&
@@ -6386,6 +6388,9 @@ function findAgenticLoopBudgetDeviationReplanEvidence(records) {
     budget_expanded_step_count: Number(uiState.budget_expanded_step_count ?? 0),
     scope_checkpoint_arrived: boolValue(uiState.scope_checkpoint_arrived),
     scope_checkpoint_action_types: uiState.scope_checkpoint_action_types ?? [],
+    scope_checkpoint_adoption_pending_count: Number(
+      uiState.scope_checkpoint_adoption_pending_count ?? 0,
+    ),
     pre_action_tool_started_event_count: Number(
       uiState.pre_action_tool_started_event_count ?? -1,
     ),
@@ -6438,6 +6443,8 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
   if (uiState.budget_expanded_mode !== "selected_steps") return null;
   if (Number(uiState.budget_expanded_step_count ?? 0) !== 2) return null;
   if (boolValue(uiState.scope_checkpoint_arrived) !== true) return null;
+  if (Number(uiState.scope_checkpoint_adoption_pending_count ?? 0) < 1) return null;
+  if (!(uiState.scope_checkpoint_action_types ?? []).includes("accept")) return null;
   if (!["running", "completed", "awaiting_author"].includes(uiState.post_action_run_status))
     return null;
   if (Number(uiState.post_action_max_steps ?? 0) < 3) return null;
@@ -6466,6 +6473,7 @@ function agenticLoopBudgetDeviationReplanBehavior(turnIds, _turnRecords, records
     budget_expanded_step_count: evidence.budget_expanded_step_count,
     scope_checkpoint_arrived: evidence.scope_checkpoint_arrived,
     scope_checkpoint_action_types: evidence.scope_checkpoint_action_types,
+    scope_checkpoint_adoption_pending_count: evidence.scope_checkpoint_adoption_pending_count,
     pre_action_tool_started_event_count: evidence.pre_action_tool_started_event_count,
     log_sync_turn_count: evidence.log_sync_turn_count,
     log_toolbox_execute_count: evidence.log_toolbox_execute_count,

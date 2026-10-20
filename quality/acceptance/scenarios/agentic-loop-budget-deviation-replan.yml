@@ -53,6 +53,7 @@ assertions:
     - checking two steps and clicking execute emits budget_expanded mode=selected_steps with step_count=2
     - same run state reaches running with max_steps >= 3 after the action
     - selected scope completion restores remaining plan and emits a new awaiting_author checkpoint
+    - checkpoint includes pending adopted artifacts and their accept/discard actions
     - no plan_revised event is emitted before the author action
   data:
     - channel logs bounded run ack and never logs sync_turn fallback

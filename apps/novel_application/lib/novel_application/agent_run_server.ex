@@ -547,6 +547,7 @@ defmodule NovelApplication.AgentRunServer do
       |> add_consumed_budget(result)
       |> add_observations(observations)
       |> add_pending_artifacts(artifact_refs)
+      |> collect_selection_artifact_result(turn_result)
       |> persist_step_result(step, observations)
       |> emit_observations(observations)
 
@@ -1639,6 +1640,24 @@ defmodule NovelApplication.AgentRunServer do
     end)
   end
 
+  defp collect_selection_artifact_result(state, turn_result) when is_map(turn_result) do
+    pending = get_in(turn_result, [:adoption_state, :pending]) || []
+
+    if selection_scope(state) && pending != [] do
+      results = Map.get(state.stage_state, :selection_artifact_results, [])
+
+      %{
+        state
+        | stage_state:
+            Map.put(state.stage_state, :selection_artifact_results, results ++ [turn_result])
+      }
+    else
+      state
+    end
+  end
+
+  defp collect_selection_artifact_result(state, _turn_result), do: state
+
   defp selection_scope(state) do
     case Map.get(state.stage_state, :selection_scope) do
       %{remaining_steps: remaining} when is_list(remaining) and remaining != [] ->
@@ -1681,6 +1700,8 @@ defmodule NovelApplication.AgentRunServer do
         )
 
     turn_result = budget_shortfall_turn_result(%{run | status: :awaiting_author}, summary)
+    artifact_results = Map.get(state.stage_state, :selection_artifact_results, [])
+    turn_result = merge_checkpoint_artifacts(turn_result, artifact_results, run.parent_turn_ref)
 
     _ =
       TurnInteractionService.record_result(
@@ -1696,6 +1717,7 @@ defmodule NovelApplication.AgentRunServer do
           stage_state:
             state.stage_state
             |> Map.delete(:selection_scope)
+            |> Map.delete(:selection_artifact_results)
             |> Map.put(:scope_checkpoint, true)
             |> Map.put(:agent_plan_cursor, 0),
           final_turn_result: turn_result
@@ -1707,6 +1729,45 @@ defmodule NovelApplication.AgentRunServer do
       })
 
     state
+  end
+
+  defp merge_checkpoint_artifacts(turn_result, [], _parent_turn_ref), do: turn_result
+
+  defp merge_checkpoint_artifacts(turn_result, artifact_results, parent_turn_ref) do
+    pending =
+      Enum.flat_map(artifact_results, fn result ->
+        get_in(result, [:adoption_state, :pending]) || []
+      end)
+
+    cards = Enum.flat_map(artifact_results, fn result -> Map.get(result, :ui_cards, []) end)
+
+    actions =
+      artifact_results
+      |> Enum.flat_map(fn result -> Map.get(result, :available_actions, []) end)
+      |> Enum.filter(&(Map.get(&1, :action_type) in ["accept", "discard", "edit_then_accept"]))
+      |> Enum.map(fn action ->
+        action
+        |> Map.put(:source_turn_ref, parent_turn_ref)
+        |> Map.put(
+          :idempotency_key,
+          "idem:#{parent_turn_ref}:#{Map.get(action, :action_type)}:#{Map.get(action, :target_ref)}"
+        )
+      end)
+
+    message =
+      if pending == [] do
+        turn_result.assistant_message.text
+      else
+        turn_result.assistant_message.text <> "\n选中步骤已生成待采纳草稿，请审阅。"
+      end
+
+    turn_result
+    |> Map.put(:assistant_message, %{text: message})
+    |> Map.put(:ui_cards, turn_result.ui_cards ++ cards)
+    |> Map.put(:adoption_state, %{pending: pending, resolved: []})
+    |> Map.update(:available_actions, actions, fn existing ->
+      (existing ++ actions) |> Enum.uniq_by(& &1.action_id)
+    end)
   end
 
   # S7（ADR-0024）：预算缺口不是「run 停了但没有下文」。同一 await 事件携带
