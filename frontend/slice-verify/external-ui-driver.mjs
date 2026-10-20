@@ -25274,8 +25274,8 @@ async function driveAgenticLoopGateDeviationReplan(page) {
     reasonNeedle: "Orchestrator 未允许执行",
     message: "写下一章正文草稿，高风险，确认后再执行",
     mode: "await",
-    // 判断入场 2 + 起草 2 + 判断② 2 = 6（writer 未派发）。
-    expected: { steps: 4, toolCalls: 0, providerCalls: 6 },
+    // 判断入场 2 + 起草 2 + 门禁失败步 1 + 判断② 2 = 7（writer 未派发）。
+    expected: { steps: 5, toolCalls: 0, providerCalls: 7 },
   });
 }
 

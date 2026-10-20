@@ -416,11 +416,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           String.contains?(text, "计划步骤已走完") ->
             {"continue", "补足正文产出步，按原目标继续生成草稿。"}
 
+          # 工具故障 / 门禁 / 缺章等：裁决权在作者。必须优先于泛化的
+          # “质量复核”字样——D4 门禁 summary 也可能带计划步描述里的质量复核。
+          String.contains?(text, "Orchestrator 未允许执行") or
+              String.contains?(text, "工具 prose_writing 执行失败") ->
+            {"await_author", ""}
+
           # 质量复核 finding 可由指引修正 → 改进闭环（中间稿将被替代）。
           String.contains?(text, "质量复核") ->
             {"continue", "按质量意见修正后重新产出草稿。"}
 
-          # 工具故障 / 门禁 / 缺章等：裁决权在作者。
           true ->
             {"await_author", ""}
         end

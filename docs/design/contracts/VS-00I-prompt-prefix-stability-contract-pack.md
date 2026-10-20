@@ -248,9 +248,9 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 | B3 VS-00H P1 | `ProviderRunLog.usage_summary/2` 投影 `system_identity_ref`；activity API 可见 version/hash，不泄漏身份原文 |
 | MBC | `tool_call_compliance.exs stub` pass_rate=1.0（2/2）；call1 `tool_choice:none` focused 测试 `tool_calls == []` |
 | A3/A4 | LM Studio 实测 usage 无 `cached_tokens`（prompt/completion/total + reasoning_tokens）；runtime `qwen3.8-flash-next@q2_k` / context 262144 / parallel 3 / TTL 空；短流式 TTFT=1365ms（token 计数 0，流式 usage 未返回）；其他厂商 shell 无凭据，保持待核实 |
-| 门禁 | 后端 1,577/0；compile/xref/arch PASS；前端未改动 |
+| 门禁 | 后端 1,577/0；compile/xref/arch PASS；前端未改动；`agentic-loop-gate-deviation-replan` 真实 Tauri PASS |
 
-**未 Frozen 的原因**：续行 call_pair 的共享前缀虽显著提升（0.3108 → 0.4021），但仍未达到本文冻结纪律要求的“call2 共享前缀 ≈ call1 全长”；A3 多厂商 live 基线仍缺凭据；LM Studio 只有一次短流式 TTFT 基线（1365ms），未做同调用对/缓存命中；CP-AB 规定的 deviation `slice_verify` 场景因既有 scenario/fixture 漂移未通过（`au02-candidate-continuation` PASS）。状态保持 Proposed，不把局部实证冒充全量冻结。
+**未 Frozen 的原因**：续行 call_pair 的共享前缀虽显著提升（0.3108 → 0.4021），但仍未达到本文冻结纪律要求的“call2 共享前缀 ≈ call1 全长”；A3 多厂商 live 基线仍缺凭据；LM Studio 只有一次短流式 TTFT 基线（1365ms），未做同调用对/缓存命中；`au02-candidate-continuation` 与 `agentic-loop-gate-deviation-replan` 均已 PASS，D5 budget deviation 场景仍有既有 drift。状态保持 Proposed，不把局部实证冒充全量冻结。
 
 ---
 

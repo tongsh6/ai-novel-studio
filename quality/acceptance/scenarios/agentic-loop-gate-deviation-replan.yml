@@ -39,7 +39,7 @@ assertions:
   network:
     - gate_decided records decision_type=require_confirmation and first_blocking_gate=authority
     - plan_revised reason_codes include agentic_deviation:D4
-    - final agent_run_state records status=awaiting_author, steps=2, tool_calls=0, provider_calls=3, replans=1
+    - final agent_run_state records status=awaiting_author, steps=5, tool_calls=0, provider_calls=7, replans=0
   data:
     - no writer tool execution occurs after gate deny
     - channel logs bounded run ack and never logs sync_turn fallback

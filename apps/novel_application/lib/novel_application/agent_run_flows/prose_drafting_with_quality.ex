@@ -265,6 +265,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       target_tool_ref: "prose_writing",
       description: "按判断②指引继续生成正文草稿：#{continuation.guidance}",
       write_intent: :tentative,
+      # D4 安全边界：续行合成步必须继承原 prose 步的风险等级；否则高风险重写
+      # 在第一次 gate 被拦后，retry 合成步会以默认 low 绕过确认。
+      risk_hint: map_get(prose_step, :risk_hint) || :low,
       authoring_intent: map_get(prose_step, :authoring_intent),
       target_chapter: map_get(prose_step, :target_chapter),
       requested_chapter_raw: map_get(prose_step, :requested_chapter_raw),

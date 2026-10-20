@@ -6457,9 +6457,9 @@ const AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS = {
   "agentic-loop-gate-deviation-replan": {
     signal: "D4",
     mode: "await",
-    steps: 4,
+    steps: 5,
     toolCalls: 0,
-    providerCalls: 6,
+    providerCalls: 7,
     gateDecisionType: "require_confirmation",
     gateFirstBlockingGate: "authority",
     maxToolStartedEvents: 0,
