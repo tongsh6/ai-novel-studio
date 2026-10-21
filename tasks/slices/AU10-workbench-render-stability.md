@@ -1,6 +1,6 @@
 # AU10 工作台渲染稳定性与局部刷新隔离
 
-- 状态：doing / CP0（2026-10-21 作者选 4 启动；先测量后改代码）
+- 状态：**done（2026-10-21）**：CP0 测量 → CP1 修复 → CP5 真实 Tauri PASS；CP2/CP3/CP4 conditional 未触发
 - 类型：AU-10 前端体验稳定性 Slice
 - 优先级：P1 体验债务（B 轨）
 - 登记日期：2026-07-24
@@ -76,7 +76,7 @@
 | CP2 | 落地方案 B | 小批拆出组件和状态 hooks；每批保持 UI/Channel contract 不变，并用 render 边界测试证明无关区域不跟随更新 | not-triggered（CP0/CP1 证据未出现父组件级连锁 render；按需再启动） |
 | CP3 | 评估并按需落地方案 C | 先选一个高收益 server-state 纵切（优先档案或会话恢复）；迁移前后请求次数、空白窗口和错误降级有对照；无收益则记录“不启动” | conditional |
 | CP4 | 评估并按需落地方案 D | 只有非法状态组合/竞态证据达到启动条件时冻结状态图与迁移计划；否则记录“不启动” | conditional |
-| CP5 | 场景化闭环 | `au10-workbench-render-stability` 外部驱动真实 Tauri 页面通过，产出截图/视频/几何与网络证据；全量前端门禁和 AI 静态扫描闭环 | **next（browser driver 已就绪，迁 Tauri surface）** |
+| CP5 | 场景化闭环 | `au10-workbench-render-stability` 外部驱动真实 Tauri 页面通过，产出截图/视频/几何与网络证据；全量前端门禁和 AI 静态扫描闭环 | **done（2026-10-21 真实 Tauri PASS）** |
 
 ### CP0 基线协议（2026-10-21 冻结，先于 CP1）
 
@@ -139,6 +139,19 @@
 
 **诚实边界**：本轮只验证 browser surface；CP1 的“真实 Tauri 复验”并入 CP5（同一 driver 迁到 Tauri surface 后再判 PASS）。CP0 的 2 个 detached 节点是占位叙事→最终内容的替换，按设计信息记录，不作为 remount 失败。
 
+### CP5 结果（2026-10-21，真实 Tauri）
+
+- **入口**：`bash scripts/tauri_slice_verify.sh au10-workbench-render-stability`；启动真实 Phoenix + Vite + Tauri 原生窗口，外部 Playwright driver 在真实工作台入口操作（输入→发送→AgentRun、打开/关闭档案、创建第二部作品并发送、真实作品菜单切回），**产品代码零验收 hook**。
+- **Tauri 证据**：`artifacts/slice-verify/au10-workbench-render-stability-tauri/summary.json`，`surface=tauri`，provider=`slice_verify`，two real turn ids（两个作品各一条真实 turn），behavior=`real_workbench_render_stability_and_atomic_work_switch`。
+- **测量结果**（同 CP0 阈值，driver 内断言 + native verifier 复验）：
+  - 3 场景（send-agentrun / archive-expand / work-switch），每场景 ~255–307 帧；
+  - `render_blank_frames=0`、`render_same_text_remounts=0`、`render_scroll_jumps=0`；
+  - `render_max_region_delta=0`、`render_max_rail_delta=0`（composer 121px 预留生效）；
+  - `work_switch_atomic=true`（两个有内容作品间切换无空白帧）；
+  - 截图 `au10-workbench-render-stability-external-ui.png` + `ui-state.json` + `app-log.json`。
+- **诚实边界**：按本仓库既有 Tauri harness 口径，外部 Playwright 驱动 Vite 入口 DOM，同时由 Tauri 原生 app/JSONL 关联证明 native surface；不是 WebView 内部 CDP 驱动。该口径与 AU10 matrix/recovery 系列一致。CP1 browser 与 CP5 Tauri 证据分开保留。
+- **门禁**：CP1 已过 typecheck/lint/test 492、frontend_audit 27、design_trace 16；本 CP 只改外部 harness/verifier/文档，复跑静态扫描与 task_done 证据。
+
 ## 5. 验收场景
 
 1. **冷启动 / 会话恢复**：工作台从启动到 READY 期间不出现“已有内容 → 空白 → 内容恢复”的往返；loading/error 语义诚实，主布局几何稳定。
@@ -164,6 +177,7 @@ CP0 必须为“几何稳定”冻结阈值和采样方法；在此之前不得�
 - 与 `UA01-agentic-loop-streaming-reasoning-card-simplification.md`、`AU12-archive-concurrent-model-run-read-snapshot.md` 复用已有场景与 last-known 原则，避免建立第二套 runner 或 snapshot 语义。
 
 - 2026-10-21 — **CP1 完成（browser surface）**：稳定 key（`messageRenderKey`）、切作品 last-known/原子提交、composer 121px 稳定几何；CP0 driver 复跑 0 violations/0 errors（s2 81px → 0，s6 blank 2 → 0）。指标口径修正记录：same-text remount 才算 remount；占位→最终内容、作品切换内容替换为 detached/info。CP2 未触发（无父组件级连锁 render 证据）；CP3/CP4 conditional 不启动。产品滚动 effect 未改（CP0 scroll jump 是发送点击的正常回底，指标已补 pointer 意图）。Tauri 复验并入 CP5；`task_done` UI evidence 仍待 CP5。
+- 2026-10-21 — **CP5 完成（真实 Tauri PASS）**：`bash scripts/tauri_slice_verify.sh au10-workbench-render-stability` 通过，summary `surface=tauri`、two real turns、3 场景 0 blank/0 remount/0 scroll jump/0 region/rail delta、work_switch_atomic=true；外部 driver 复用同一测量口径，产品无验收 hook。CP2/CP3/CP4 conditional 均未触发。AU10 slice 收口；task_done UI evidence 待复跑。
 ## 8. 决策记录
 
 - 2026-10-21 — **CP0 基线完成（browser surface）**：CP0 driver 落地并跑通 6 场景；基线 `verdict=baseline-violations-recorded`，7 条违例（s2：detached 3 / scroll jump 1 / 三处高度 81px；s6：blank 2 / detached 3），s1/s3/s4/s5 阈值内。确认归因 #2/#4 与 #1/#3 在真实页面成立；CP1 按这些数字修（composer 稳定几何、切作品 last-known 原子提交、消息稳定 key、滚动触发收窄），不改后端/契约。证据 `artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}`。

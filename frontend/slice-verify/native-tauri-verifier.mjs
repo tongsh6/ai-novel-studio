@@ -128,6 +128,7 @@ export const nativeSliceIds = [
   "au10-workbench-recovery-provider-timeout",
   "au10-workbench-recovery-reconnect",
   "au10-workbench-recovery-cancel-waiting",
+  "au10-workbench-render-stability",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "e2e-01-downgrade-real-page",
@@ -1532,6 +1533,11 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au10-workbench-render-stability": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au07-behavior-trace-terminal-replay": [
     "channel.user_message.done",
     "channel.author_action.start",
@@ -1988,6 +1994,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au10-workbench-recovery-cancel-waiting") {
     return findAu10WorkbenchRecoveryCancelWaitingEvidence(records);
+  }
+
+  if (sliceId === "au10-workbench-render-stability") {
+    return findAu10WorkbenchRenderStabilityEvidence(records);
   }
 
   if (sliceId === "au07-behavior-trace-terminal-replay") {
@@ -2742,6 +2752,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-workbench-recovery-cancel-waiting") {
     return au10WorkbenchRecoveryCancelWaitingBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au10-workbench-render-stability") {
+    return au10WorkbenchRenderStabilityBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-behavior-trace-terminal-replay") {
@@ -12294,6 +12308,45 @@ function findAu10WorkbenchMatrixLayoutEvidence(records) {
   };
 }
 
+function findAu10WorkbenchRenderStabilityEvidence(records) {
+  const sliceId = "au10-workbench-render-stability";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Array.isArray(record.render_metrics),
+  );
+  if (!uiState) return null;
+  if (!uiState.turn_id) return null;
+  if (!Array.isArray(uiState.turn_ids) || uiState.turn_ids.length < 2) return null;
+  if (Number(uiState.render_scene_count ?? 0) < 3) return null;
+  if (Number(uiState.render_blank_frames ?? -1) !== 0) return null;
+  if (Number(uiState.render_same_text_remounts ?? -1) !== 0) return null;
+  if (Number(uiState.render_scroll_jumps ?? -1) !== 0) return null;
+  if (Number(uiState.render_max_region_delta ?? 99) > 2) return null;
+  if (Number(uiState.render_max_rail_delta ?? 99) > 2) return null;
+  if (uiState.work_switch_atomic !== true) return null;
+
+  const scenes = uiState.render_metrics;
+  for (const scene of scenes) {
+    if (!scene || typeof scene.scene !== "string") return null;
+    if (Number(scene.blank_frames ?? -1) !== 0) return null;
+    if (Number(scene.max_chat_height_delta ?? 99) > 2) return null;
+    if (Number(scene.max_input_height_delta ?? 99) > 2) return null;
+    if (Number(scene.max_rail_height_delta ?? 99) > 2) return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: uiState.turn_ids,
+    work_switch_from_title: uiState.work_switch_from_title,
+    render_scene_count: Number(uiState.render_scene_count),
+    render_metrics: scenes,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
 function findAu10WorkbenchRecoveryTaskstateEvidence(records) {
   const sliceId = "au10-workbench-recovery-taskstate";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -18317,6 +18370,50 @@ function au10WorkbenchMatrixLayoutBehavior(_turnIds, _turnRecords, records, evid
       "prose_draft_accept_used_adoption_boundary",
       "reading_projection_loaded_adopted_prose_and_word_counts",
       "task_status_baseline_visible_in_first_viewport",
+    ],
+  };
+}
+
+function au10WorkbenchRenderStabilityBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au10-workbench-render-stability" &&
+      Array.isArray(record.render_metrics),
+  );
+  if (!uiState) return null;
+  if (Number(uiState.render_blank_frames ?? -1) !== 0) return null;
+  if (Number(uiState.render_same_text_remounts ?? -1) !== 0) return null;
+  if (Number(uiState.render_scroll_jumps ?? -1) !== 0) return null;
+  if (Number(uiState.render_max_region_delta ?? 99) > 2) return null;
+  if (Number(uiState.render_max_rail_delta ?? 99) > 2) return null;
+  if (uiState.work_switch_atomic !== true) return null;
+
+  const scenes = (uiState.render_metrics ?? []).map((scene) => scene.scene);
+  for (const required of ["send-agentrun", "archive-expand", "work-switch"]) {
+    if (!scenes.includes(required)) return null;
+  }
+
+  return {
+    slice_id: "au10-workbench-render-stability",
+    behavior: "real_workbench_render_stability_and_atomic_work_switch",
+    turn_ids: evidence.turn_ids,
+    render_scene_count: uiState.render_scene_count,
+    render_scene_names: scenes,
+    render_blank_frames: uiState.render_blank_frames,
+    render_same_text_remounts: uiState.render_same_text_remounts,
+    render_scroll_jumps: uiState.render_scroll_jumps,
+    render_max_region_delta: uiState.render_max_region_delta,
+    render_max_rail_delta: uiState.render_max_rail_delta,
+    work_switch_atomic: uiState.work_switch_atomic,
+    assertions: [
+      "author_sent_real_turn_and_assistant_text_arrived",
+      "no_message_remount_on_late_agentrun_binding",
+      "no_blank_frames_or_non_user_scroll_jumps_during_agentrun",
+      "composer_rail_geometry_stayed_stable_across_agentrun_control_dock",
+      "archive_expand_did_not_shift_chat_or_composer_geometry",
+      "work_switch_between_two_content_bearing_works_had_no_blank_frame",
+      "no_product_acceptance_hooks_or_autorun_logic",
     ],
   };
 }

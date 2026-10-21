@@ -1329,6 +1329,7 @@ function viewportForSlice(id) {
   if (
     [
       "au10-workbench-matrix-layout",
+      "au10-workbench-render-stability",
       "p1-prose-revision-candidate",
       "quality-revision-action-run-anchoring",
       "agent-revision-orchestrator-boundary",
@@ -30378,6 +30379,295 @@ async function driveAgentNoProgressStop(page) {
   ];
 }
 
+
+// AU10 CP5：真实 Tauri 场景下的外部渲染稳定性测量（rAF/MutationObserver，无产品 hook）。
+// 由 external-ui-driver 在真实入口页面上驱动：发送/AgentRun、档案展开、作品切换；
+// Tauri 原生进程与 app JSONL 由 tauri_slice_verify.sh 关联，ui-state 记录进入 native verifier。
+async function installAu10RenderObserver(page) {
+  await page.evaluate(() => {
+    const state = {
+      samples: [],
+      marks: [],
+      nodeEvents: [],
+      userScrollTouchedAt: 0,
+    };
+    const mark = (name) => state.marks.push({ name, at: performance.now() });
+    const messageNodes = () =>
+      Array.from(
+        document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]'),
+      ).filter((node) => (node.innerText ?? "").trim().length > 0);
+    const ids = new WeakMap();
+    let seq = 0;
+    const idOf = (node) => {
+      if (!ids.has(node)) ids.set(node, (seq += 1));
+      return ids.get(node);
+    };
+    const rect = (element) => {
+      if (!element) return null;
+      const bounds = element.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height };
+    };
+    let previous = new Map();
+    const sample = () => {
+      const chat = document.querySelector('[class*="chatArea"]');
+      const input = document.querySelector('[class*="inputArea"]');
+      const rail = document.querySelector('[class*="composerRail"]');
+      const nodes = messageNodes();
+      const entries = nodes.map((node) => ({
+        id: idOf(node),
+        text: (node.innerText ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+      }));
+      const next = new Map(entries.map((entry) => [entry.id, entry]));
+      const texts = new Set(entries.map((entry) => entry.text));
+      let detached = 0;
+      let remounts = 0;
+      for (const [id, entry] of previous.entries()) {
+        if (next.has(id)) continue;
+        detached += 1;
+        if (texts.has(entry.text)) remounts += 1;
+        if (state.nodeEvents.length < 200) {
+          state.nodeEvents.push({
+            at: performance.now(),
+            kind: remounts > 0 ? "remount" : "detached",
+            text: entry.text,
+          });
+        }
+      }
+      previous = next;
+      state.samples.push({
+        at: performance.now(),
+        messageCount: nodes.length,
+        detached,
+        remounts,
+        chatHeight: chat ? rect(chat).height : null,
+        inputHeight: input ? rect(input).height : null,
+        railHeight: rail ? rect(rail).height : null,
+        scrollTop: chat ? chat.scrollTop : null,
+        touchedAt: state.userScrollTouchedAt,
+      });
+      if (state.samples.length > 20_000) state.samples.shift();
+      requestAnimationFrame(sample);
+    };
+    const touch = () => {
+      state.userScrollTouchedAt = performance.now();
+    };
+    window.addEventListener("wheel", touch, { passive: true });
+    window.addEventListener("touchmove", touch, { passive: true });
+    window.addEventListener("pointerdown", touch, { passive: true });
+    window.addEventListener("click", touch, true);
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(event.key)) {
+        touch();
+      }
+    });
+    window.__au10TauriRender = { state, mark };
+    requestAnimationFrame(sample);
+  });
+}
+
+async function markAu10RenderScene(page, name) {
+  await page.evaluate((sceneName) => window.__au10TauriRender?.mark(sceneName), name);
+}
+
+async function readAu10RenderScene(page, name) {
+  return await page.evaluate((sceneName) => {
+    const state = window.__au10TauriRender?.state;
+    if (!state) return null;
+    const start = state.marks.find((entry) => entry.name === `${sceneName}:start`)?.at ?? -Infinity;
+    const end = state.marks.find((entry) => entry.name === `${sceneName}:end`)?.at ?? Infinity;
+    const within = (at) => at >= start && at <= end;
+    const samples = state.samples.filter((entry) => within(entry.at));
+    const events = state.nodeEvents.filter((entry) => within(entry.at));
+    const maxDelta = (key) => {
+      let max = 0;
+      for (let index = 1; index < samples.length; index += 1) {
+        const before = samples[index - 1][key];
+        const after = samples[index][key];
+        if (before == null || after == null) continue;
+        max = Math.max(max, Math.abs(after - before));
+      }
+      return Number(max.toFixed(2));
+    };
+    let blankFrames = 0;
+    for (let index = 1; index < samples.length; index += 1) {
+      if (samples[index - 1].messageCount > 0 && samples[index].messageCount === 0) {
+        blankFrames += 1;
+      }
+    }
+    let scrollJumpsWithoutInput = 0;
+    for (let index = 1; index < samples.length; index += 1) {
+      const before = samples[index - 1];
+      const after = samples[index];
+      const recentUserInput =
+        after.touchedAt > 0 && after.at - after.touchedAt < 1_500;
+      if (recentUserInput) continue;
+      if (before.scrollTop == null || after.scrollTop == null) continue;
+      if (Math.abs(after.scrollTop - before.scrollTop) > 4) scrollJumpsWithoutInput += 1;
+    }
+    return {
+      scene: sceneName,
+      sample_count: samples.length,
+      blank_frames: blankFrames,
+      same_text_remounts: samples.reduce((sum, entry) => sum + (entry.remounts ?? 0), 0),
+      detached_events: events.length,
+      scroll_jumps_without_input: scrollJumpsWithoutInput,
+      max_chat_height_delta: maxDelta("chatHeight"),
+      max_input_height_delta: maxDelta("inputHeight"),
+      max_rail_height_delta: maxDelta("railHeight"),
+    };
+  }, name);
+}
+
+function assertAu10RenderScene(scene, metrics, { skipRemount = false } = {}) {
+  assert(metrics, `AU10 ${scene}: render metrics unavailable`);
+  assert(metrics.sample_count > 20, `AU10 ${scene}: too few render samples (${metrics.sample_count})`);
+  assert(metrics.blank_frames === 0, `AU10 ${scene}: blank message frames=${metrics.blank_frames}`);
+  if (!skipRemount) {
+    assert(
+      metrics.same_text_remounts === 0,
+      `AU10 ${scene}: same-text message remounts=${metrics.same_text_remounts}`,
+    );
+  }
+  assert(
+    metrics.scroll_jumps_without_input === 0,
+    `AU10 ${scene}: non-user scroll jumps=${metrics.scroll_jumps_without_input}`,
+  );
+  for (const key of ["max_chat_height_delta", "max_input_height_delta", "max_rail_height_delta"]) {
+    assert(metrics[key] <= 2, `AU10 ${scene}: ${key}=${metrics[key]}px > 2px`);
+  }
+}
+
+async function driveAu10WorkbenchRenderStability(page) {
+  await installAu10RenderObserver(page);
+
+  const initialTitle = ((await workTitle(page).textContent()) ?? "").replace(/\s+/g, " ").trim();
+  assert(initialTitle.length > 0, "AU10: initial work title is not visible");
+  const scenes = [];
+
+  async function runScene(name, action, options = {}) {
+    await markAu10RenderScene(page, `${name}:start`);
+    await action();
+    await page.waitForTimeout(1_200);
+    await markAu10RenderScene(page, `${name}:end`);
+    const metrics = await readAu10RenderScene(page, name);
+    assertAu10RenderScene(name, metrics, options);
+    scenes.push(metrics);
+    return metrics;
+  }
+
+  const turnResults = {};
+
+  await runScene("send-agentrun", async () => {
+    const sentBefore = frames.length;
+    await page.locator(chatInputSelector).fill("我想写一个赛博修仙方向");
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const turnFrame = await waitForNewFrame(
+      sentBefore,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.assistant_message != null,
+      "AU10: no turn_result received during send/AgentRun scene",
+      120_000,
+    );
+    turnResults.first = turnFrame.body;
+    await page.waitForTimeout(800);
+  });
+
+  await runScene("archive-expand", async () => {
+    await page.getByRole("button", { name: "打开档案" }).first().click();
+    await page.getByText("作品档案").first().waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(800);
+    const closeArchive = page.getByRole("button", { name: "关闭档案" });
+    if (await closeArchive.isVisible().catch(() => false)) {
+      await closeArchive.click();
+    }
+    await page.waitForTimeout(400);
+  });
+
+  const previousWorkId =
+    latestChannelJoinReply()?.body?.response?.work_id ??
+    latestSentUserMessage()?.body?.work_id ??
+    null;
+  await createWorkFromMenu(page, previousWorkId);
+  await page.waitForFunction(
+    (selector) => {
+      const input = document.querySelector(selector);
+      return input instanceof HTMLInputElement && !input.disabled;
+    },
+    chatInputSelector,
+    { timeout: 30_000 },
+  );
+  const secondSentBefore = frames.length;
+  await page.locator(chatInputSelector).fill("第二部作品里写一个测试方向");
+  await page.getByRole("button", { name: /^发送$/ }).click();
+  const secondTurnFrame = await waitForNewFrame(
+    secondSentBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message != null,
+    "AU10: second work turn_result missing",
+    120_000,
+  );
+  turnResults.second = secondTurnFrame.body;
+  await page.waitForTimeout(800);
+
+  const switchMetrics = await runScene(
+    "work-switch",
+    async () => {
+      await openWorkMenu(page);
+      await clickWorkMenuItemByExactTitle(page, initialTitle);
+      await page.waitForFunction(
+        (expected) => {
+          const titleButton = document.querySelector('button[title="作品"]');
+          return (titleButton?.textContent ?? "").includes(expected);
+        },
+        initialTitle,
+        { timeout: 15_000 },
+      );
+      await page.waitForTimeout(800);
+    },
+    { skipRemount: true },
+  );
+
+  const turnIds = [turnResults.first?.turn_id, turnResults.second?.turn_id].filter(Boolean);
+  assert(turnIds.length === 2, "AU10: expected two real turn ids across two works");
+
+  const blankFrames = scenes.reduce((sum, scene) => sum + scene.blank_frames, 0);
+  // 作品切换按设计整体替换两边的消息内容；同文本复现不是 remount 失败线。
+  const remounts = scenes
+    .filter((scene) => scene.scene !== "work-switch")
+    .reduce((sum, scene) => sum + scene.same_text_remounts, 0);
+  const scrollJumps = scenes.reduce((sum, scene) => sum + scene.scroll_jumps_without_input, 0);
+  const maxRegionDelta = Math.max(
+    ...scenes.map((scene) =>
+      Math.max(scene.max_chat_height_delta, scene.max_input_height_delta),
+    ),
+  );
+  const maxRailDelta = Math.max(...scenes.map((scene) => scene.max_rail_height_delta));
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: turnResults.first.turn_id,
+      turn_ids: turnIds,
+      work_id: latestSentUserMessage()?.body?.work_id,
+      render_scene_count: scenes.length,
+      render_blank_frames: blankFrames,
+      render_same_text_remounts: remounts,
+      render_scroll_jumps: scrollJumps,
+      render_max_region_delta: maxRegionDelta,
+      render_max_rail_delta: maxRailDelta,
+      work_switch_atomic: switchMetrics.blank_frames === 0,
+      work_switch_from_title: initialTitle,
+      render_metrics: scenes,
+      outcome: "done",
+    },
+  ];
+}
+
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
@@ -30469,6 +30759,7 @@ const drivers = {
   "au10-workbench-recovery-provider-timeout": driveAu10WorkbenchRecoveryProviderTimeout,
   "au10-workbench-recovery-reconnect": driveAu10WorkbenchRecoveryReconnect,
   "au10-workbench-recovery-cancel-waiting": driveAu10WorkbenchRecoveryCancelWaiting,
+  "au10-workbench-render-stability": driveAu10WorkbenchRenderStability,
   "au07-behavior-trace-terminal-replay": driveAu07BehaviorTraceTerminalReplay,
   "au12-work-profile-overview": driveAu12WorkProfileOverview,
   "au12-correction-intent-roundtrip": driveAu12CorrectionIntentRoundtrip,

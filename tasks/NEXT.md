@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-10-18
+> 最后更新：2026-10-21
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -98,7 +98,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | DS02 | A | 采纳状态 canonical 化，撤销前端临时 string 放宽；见 `tasks/slices/DS02-adoption-status-canonicalization.md` | **done（2026-10-05）** | 领域/线格式/历史 transcript 统一大写七态；严格 schema 校验与告警恢复；q3d 历史状态真实页面和 roster 回归 PASS，1510 后端/461 前端测试；对应 Journey F9 |
 | UA01-CALL2 | A | 当前模型结构化判断性能观察；既有 UA01 可靠性专项 | **停止参数对照，转业务审计** | 用户明确以使用场景和 App/业务正确性为主线；未完成样本不作参数裁决，537 秒记录仅作旁证；对应 Journey C11 |
 | Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版与状态校准（2026-10-05）；B16 已解除新增扫描阻断** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |
-| AU10-RENDER-STABILITY | B | AU10 工作台渲染稳定性与局部刷新隔离（体验债；作者选 4）：CP0 测量 → CP1 最小防闪烁 → CP5 真实页面复验；CP2 未触发、CP3/4 conditional 不启动；UA01 流式/卡片 CP3 验证债另行挂账 | **next**（CP1 done browser：0 violations；CP5 Tauri 闭环待做） | CP1 已修稳定 key/切作品 last-known/原子提交/composer 121px 几何；browser driver 复跑 0 violations/0 errors（s2 81px→0，s6 blank 2→0）；门禁 typecheck/lint/test 492、audit 27、design trace 16 绿；**CP5 真实 Tauri PASS 与 task_done UI evidence 待补** |
+| AU10-RENDER-STABILITY | B | AU10 工作台渲染稳定性与局部刷新隔离（体验债；作者选 4）：CP0 测量 → CP1 最小防闪烁 → CP5 真实页面复验；CP2 未触发、CP3/4 conditional 不启动；UA01 流式/卡片 CP3 验证债另行挂账 | **done（2026-10-21）** | CP0 browser baseline 7 违例 → CP1 修复后 0 violations/0 errors（s2 81px→0，s6 blank 2→0）→ CP5 真实 Tauri PASS：3 场景 0 blank/0 remount/0 scroll jump/0 region/rail delta、work_switch_atomic=true；证据 `artifacts/slice-verify/au10-workbench-render-stability-tauri/summary.json`；门禁 492 前端测试、audit 27、design trace 16 绿。 |
+| MAINLINE-RESET | A | 主线复位：AU10 收口后回到主队列选择下一项（从 B11/B17/B18 等候选清单拍板；先跑 gap_ledger 仪式） | **next**（等待作者从候选清单拍板；无队列挂靠不开工） | 明确下一项 id、轨、slice/验收口径并写入队列；不预先开工 |
 
 ### 历史 Order 表（M0-M3 期，保留供追溯；不参与当前队首选择，未闭环后果仍由原 slice 负责）
 
@@ -158,6 +159,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 7. **反补丁自检（2026-07-20 用户提醒固化）**：同类症状出现第二次即触发归并审视——问"这些是几个缺陷还是一个病的几种症状"；症状钉可以先打（防线），但病灶必须立独立收口项且**测量先于设计**；harness 重试把问题变"能跑"不等于病愈，重试率必须进体温计。
 
 - 2026-10-21 — **AU10 CP1 完成（browser surface）**：稳定消息 key（`messageRenderKey`，clientMessageId 优先）、切作品 last-known + 快照原子提交、composer rail 121px 稳定几何；同 driver 复跑 `verdict=baseline-within-threshold`（0 violations/0 errors，s2 三处 81px→0，s6 blank 2→0）。CP2 未触发；CP3/4 conditional 不启动；产品滚动 effect 未改（CP0 scroll jump 属发送点击正常回底，driver 已补 pointer 意图）。门禁 typecheck/lint/test 492、frontend_audit 27、design_trace 16 全绿。**CP5 Tauri 复验与 task_done UI evidence 仍未闭环**。
+- 2026-10-21 — **AU10 收口（CP5 Tauri PASS）**：`tauri_slice_verify au10-workbench-render-stability` 通过，summary `surface=tauri`、two real turns、3 场景 0 blank/0 remount/0 scroll jump/0 region/rail delta、work_switch_atomic=true。CP2/CP3/CP4 conditional 未触发。AU10 行改 done；队首切 `MAINLINE-RESET`，等待作者从候选清单拍板下一项（无队列挂靠不开工）。
 ## 6. Decision Log
 
 - 2026-10-21 — **AU10 CP0 基线完成（browser surface）**：外部 Playwright driver 跑通 6 场景，基线 7 条违例：s2 发送/AgentRun（detached=3、无输入滚动跳变=1、chat/input/composer 高度单帧变化 81px）、s6 作品切换（blank=2、detached=3）；s1/s3/s4/s5 阈值内。结论：归因 #2（切换先清空）/#4（composer 条件渲染）与 #1/#3 在真实页面成立；CP1 按数字修，不改后端/契约。证据 `artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}`。

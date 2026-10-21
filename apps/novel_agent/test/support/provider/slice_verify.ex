@@ -411,24 +411,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp continuation_result(prompt, text) do
     if NovelAgent.Provider.tool_call_prompt?(prompt) do
-      {action, guidance} =
-        cond do
-          String.contains?(text, "计划步骤已走完") ->
-            {"continue", "补足正文产出步，按原目标继续生成草稿。"}
-
-          # 工具故障 / 门禁 / 缺章等：裁决权在作者。必须优先于泛化的
-          # “质量复核”字样——D4 门禁 summary 也可能带计划步描述里的质量复核。
-          String.contains?(text, "Orchestrator 未允许执行") or
-              String.contains?(text, "工具 prose_writing 执行失败") ->
-            {"await_author", ""}
-
-          # 质量复核 finding 可由指引修正 → 改进闭环（中间稿将被替代）。
-          String.contains?(text, "质量复核") ->
-            {"continue", "按质量意见修正后重新产出草稿。"}
-
-          true ->
-            {"await_author", ""}
-        end
+      {action, guidance} = continuation_decision(text)
 
       arguments = %{
         "action" => action,
@@ -440,19 +423,40 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         tool_calls: [%{"name" => "continuation_decision", "arguments" => arguments}]
       )
     else
-      narrative =
-        cond do
-          String.contains?(text, "计划步骤已走完") ->
-            "计划走完但正文还没有产出，我会补上产出步继续完成这轮草稿。"
+      Result.new(continuation_narrative(text))
+    end
+  end
 
-          String.contains?(text, "质量复核") ->
-            "质量复核提出了需要处理的意见，我会按意见修正后重新交付这轮草稿。"
+  defp continuation_decision(text) do
+    cond do
+      String.contains?(text, "计划步骤已走完") ->
+        {"continue", "补足正文产出步，按原目标继续生成草稿。"}
 
-          true ->
-            "这个情况需要你裁决，我先停下来，草稿与说明都保留在这轮记录里。"
-        end
+      # 工具故障 / 门禁 / 缺章等：裁决权在作者。必须优先于泛化的
+      # “质量复核”字样——D4 门禁 summary 也可能带计划步描述里的质量复核。
+      String.contains?(text, "Orchestrator 未允许执行") or
+          String.contains?(text, "工具 prose_writing 执行失败") ->
+        {"await_author", ""}
 
-      Result.new(narrative)
+      # 质量复核 finding 可由指引修正 → 改进闭环（中间稿将被替代）。
+      String.contains?(text, "质量复核") ->
+        {"continue", "按质量意见修正后重新产出草稿。"}
+
+      true ->
+        {"await_author", ""}
+    end
+  end
+
+  defp continuation_narrative(text) do
+    cond do
+      String.contains?(text, "计划步骤已走完") ->
+        "计划走完但正文还没有产出，我会补上产出步继续完成这轮草稿。"
+
+      String.contains?(text, "质量复核") ->
+        "质量复核提出了需要处理的意见，我会按意见修正后重新交付这轮草稿。"
+
+      true ->
+        "这个情况需要你裁决，我先停下来，草稿与说明都保留在这轮记录里。"
     end
   end
 
