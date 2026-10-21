@@ -1,6 +1,6 @@
 # B11A-volume-blueprint：卷结构与卷级蓝图（大周期）
 
-**状态**：**doing（2026-10-22，CP0 + CP1 + CP2 + CP4-lite 已落地，门禁全绿，且该链真实 Tauri `au08-volume-structured-planning` PASS；CP3 开新卷动作、CP5 卷级收束/负债、CP4 完整消费面 queued）**。ADR-0028 已 Accepted。作者拍板主线顺序 B13a → B11③ → B11①，本 slice 即 B11①。**未写 done**：开新卷动作（CP3）、卷级收束/负债规则（CP5）、CP4 完整消费面与真实页面验收仍未闭环（见 §2b 诚实边界与 ADR-0028 enforcement_gaps）。
+**状态**：**doing（2026-10-22，CP0 + CP1 + CP2 + CP4（含完整消费面）已落地，门禁全绿，真实 Tauri `au08-volume-structured-planning` 两轮扩展 PASS；CP3 开新卷动作、CP5 卷级收束/负债规则 queued）**。ADR-0028 已 Accepted。作者拍板主线顺序 B13a → B11③ → B11①，本 slice 即 B11①。**未写 done**：开新卷动作（CP3）、卷级收束/负债规则（CP5）、CP4 完整消费面与真实页面验收仍未闭环（见 §2b 诚实边界与 ADR-0028 enforcement_gaps）。
 **来源**：`docs/design/08-novel-element-model.md` §8 序位 6 / §6.2 NEM-GAP-07；`tasks/NEXT.md` B11 台账；契约 `docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md`；ADR `docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md`。
 **前置**：`tasks/slices/AU08-volume-structured-planning.md`（done：卷容器/逐章卷归属/目录分层）与 `tasks/slices/B11C-scene-craft-completion.md`（场级 craft；与卷块共用 parser 单趟抽取纪律）。
 
@@ -35,7 +35,7 @@
 | **CP1** | `volumes.blueprint` map 列 migration + `Volume` schema/domain `VolumeBlueprint`（归一/渲染/三态白名单）+ 卷状态修复（规划物化 PLANNED / 正文规范单卷 COMPLETED）+ `upsert_volume_blueprint` 采纳写入 + `reading_projection` 暴露 blueprint | domain/persistence 单测；无蓝图 TOC 字节等价；全量后端回归 | **done（2026-10-22）** |
 | **CP2** | 卷蓝图行产出指令（经 `WorkSkeleton.volume_directive`）+ `ChapterPlanParser.parse_with_volumes/1`（先于章块，防假章）+ 物化 + 改名去重 | parser 单测（卷块/无卷块/混排/ASCII 冒号负例/续行丢弃）；物化单测（幂等/改名不重复建卷/单卷退化）；采纳回归 | **done（2026-10-22）** |
 | **CP3** | 开新卷动作形态 A：判断意图 + `volume_scope`（机械上下文给当前卷数与末章位置）+ planner 产下一卷蓝图/首批章计划 + 采纳落卷 | 单测（意图判定/作用域绑定）；真实页面「开第二卷」→候选→采纳 | queued |
-| **CP4** | 卷蓝图消费面：档案卷头只读块（**CP4-lite done，真实页面可见已 PASS**）；planner「当前卷蓝图+进度」注入；`chapter_mission_inputs` 卷坐标；探索面当前卷；`WritingCoordinate.volume_ref`；修工作台「未定卷」假坐标；`design_ref` 形状 | 单测（在场/缺席逐字节）；组件测试；真实页面可见 | **CP4-lite done（2026-10-22，au08 Tauri PASS）；余项 queued** |
+| **CP4** | 卷蓝图消费面（全部）：档案卷头只读块；planner/prose「当前卷蓝图+本卷进度」注入（carry 登记门）；`chapter_mission_inputs` 卷坐标；探索面 `chapter_read` 所属卷+卷蓝图；`WritingCoordinate.volume_ref`（JSONL 可证据）；`design_ref` 形状 helper | 单测（在场/缺席逐字节）+ 真实 Tauri writer prompt/坐标证据 | **done（2026-10-22，au08 Tauri 两轮扩展 PASS）** |
 | **CP5** | 卷级收束守则（全书优先）+ 计划卷数/事实卷数负债规则 + 真实页面验收（扩 au08 场景） | 域单测 + 真实 Tauri PASS + I1/I2/I3 | queued（与 CP4 同批验收） |
 
 **依赖**：CP0 →（CP1+CP2 同批）→ CP3 → CP4 → CP5。CP1+CP2 不单独算 done；CP4+CP5 必须真实页面闭环。
@@ -58,7 +58,17 @@
 - 真实 `get_toc` 回复帧两卷各带 blueprint：`status=CONFIRMED`、`source_ref=artifact:<本次采纳 artifact_id>`、goal/climaxes/buffers 与规划行一致；卷章归属不变（5/7、合计 12）；既有卷分组/阅读目录/采纳边界断言零回归；behavior 14 条断言全过。
 - 诚实边界：本 harness 无 persistence snapshot 通道，持久化证据=真实 `get_toc` 回复帧（后端从 `volumes.blueprint` 投影 + source_ref 精确绑定本次采纳 artifact），非原始 DB dump；blueprint 无新增专用日志事件，required-events 表未改；桩对其它 `planned_volumes>1` 场景（au13/au14/ca04）也会带蓝图（无 blueprint 断言，后续顺手回归留意）。
 
-**诚实边界（未闭环，不得写 done）**：CP3 开新卷动作无代码；CP5 卷级收束/负债规则无代码；CP4 完整消费面（planner 注入/坐标/探索面/design_ref）未接线；卷蓝图编辑/作者裁决 UI 未做；重采纳时若蓝图改名而逐章 `所属卷` 仍用旧名会按标题落成另一个卷（契约字面：章标注定章挂哪卷，未加模糊匹配）；其它多卷场景（au13/au14/ca04）未回归 blueprint 兼容（桩已会产蓝图行，断言未加）。
+**CP4 完整消费面（done，2026-10-22）**：
+- 真实链路：`WorkspaceContext` structured chapter additive 卷键（volume_id/volume_seq/volume_title/volume_blueprint）+ `ContextAssembler` 白名单透传 → `DialogueContext.structured_chapters`；
+- 上下文：`WorkSkeleton.volume_blueprint_section/3` 渲染「## 当前卷蓝图（设计态）/卷/本卷进度/E14-E17 行」；`CarryRegistry` 登记 `:current_volume_blueprint`（prose_writing/plot_outline 门控）；`TurnExecutionService` 解析当前卷（写作用目标章所在卷、规划取章序最大者）+ 段注入在 work_skeleton 之后 + `emit_carry` 三分日志；无卷/无蓝图空段（退化等价）；
+- 坐标：`WritingCoordinate.volume_ref` + derive 归一 + build_coordinate 接线 + `turn_execution.writing_coordinate.done` JSONL additive `volume_ref`；
+- 写前推理：`ChapterMissionInputs` 可选 `:volume`/自推导 + `volume:blueprint` item + prompt 组标签（无卷字节等价）；
+- 探索面：`chapter_read` 计划行追加「所属卷/当前卷蓝图」摘要（缺蓝图不渲染）；
+- `VolumeBlueprint.design_ref/1` + `summary_lines/1`（design_ref 只定形状、不接五笔账）。
+
+**CP4 真实页面验收（done，2026-10-22，真实 Tauri 第二轮扩展）**：`au08` 在既有规划/采纳/阅读流程后追加真实正文草稿 turn——阅读返回工作台→档案大纲按可见卷表头+章标题定位第一卷章卡「生成正文草稿」→真实 `prose_writing`/`prose_fragment` pending + 草稿卡可见；**writer prompt（llm-calls 外部证据）恰 1 条含「## 当前卷蓝图（设计态）」段**，命中卷标题/本卷进度「已写 0 / 共 5 章」/目标冲突/高潮章/支线启动/- 目标章，段仅 1 份、不串第二卷目标冲突、蓝图不进草稿正文；`turn_execution.writing_coordinate.done` 的 `volume_ref` 精确等于 get_toc 第一卷 id（authoring_mode=first_draft、matched_chapter=第01章：觉醒）；既有 14 条断言零回归、behavior 18 条。证据 `artifacts/slice-verify/au08-volume-structured-planning-tauri/summary.json` + 截图 `au08-volume-structured-planning-prose-volume-context.png`。
+
+**诚实边界（未闭环，不得写 done）**：CP3 开新卷动作无代码；CP5 卷级收束/负债规则无代码；卷蓝图编辑/作者裁决 UI 与工作台「当前卷」硬编码未做（CP4 只接线坐标与上下文，未改 UI 假坐标）；`VolumeBlueprint.design_ref/1` 只给形状，未接五本账写入；探索面所属卷/蓝图行按 I-VOL-4 门控在「卷有蓝图」；profile 面未加（无稳定当前卷事实）；重采纳时若蓝图改名而逐章 `所属卷` 仍用旧名会按标题落成另一个卷（契约字面：章标注定章挂哪卷，未加模糊匹配）；其它多卷场景（au13/au14/ca04）未回归 blueprint 兼容（桩已会产蓝图行，断言未加）。
 
 ## 3. 明确不做（YAGNI / 登记）
 
@@ -89,3 +99,4 @@
 - 2026-10-22 — CP0 落档：VS-00J Frozen；ADR-0028 Proposed（Accepted 前不授权 CP1 代码——B13a 之后 ADR 门禁要求 Accepted 才有 enforced_by，本 ADR 在 CP1 落地后同批转 Accepted 并补真实引用）；发现并登记「21/34 引用的 ADR-0004 冻结 volume→arc」为失效引用，按"卷结构无 ADR 背书"处理（ADR-0028 补齐），同步修正引用。
 - 2026-10-22 — **CP1+CP2+CP4-lite 落地（作者"做 B11①"开工授权即 ADR 接受）**：ADR-0028 由 Proposed 转 Accepted（按 VS-00F「开工授权按建议默认拍板、可翻案」先例；`## enforced_by` 引用本轮真实实现，CP3/CP5/真实页面验收列 `## enforcement_gaps`）。后端 1,683/0 + I1/I2/I3/N-NARR/I-CACHE-1 绿；前端 508/0 + audit/design trace 绿；adr_trace 27/27（236 refs/0 pending）。真实页面验收（扩 au08）延后到下一 checkpoint：2026-10-22 另一并发 DSH 会话正在改 `frontend/slice-verify/*`、`scripts/tauri_slice_verify.sh`、`quality/acceptance/*`，不能安全合并/复跑 Tauri；按场景化验收红线**不拿单测冒充真实页面 PASS**。
 - 2026-10-22 — **B11A CP1+CP2+CP4-lite 真实页面验收 PASS**：扩展既有 `au08-volume-structured-planning`（不新建场景），外部 Playwright 驱动真实 Tauri 工作台：规划产 2 条卷蓝图行 → 采纳 → 重开档案逐卷可见只读卷蓝图块（目标冲突/支线启动/高潮与新要素，两卷内容不同、位置在卷头后章卡片前）→ 真实 `get_toc` 帧两卷 blueprint `CONFIRMED` 且 `source_ref` 精确绑定本次采纳 artifact、章归属不变；既有卷分组/阅读目录断言零回归。命令与证据见 §2b「真实页面验收」。未做仍为 CP3（开新卷动作）、CP5（卷级收束/负债规则）、CP4 完整消费面。
+- 2026-10-22 — **CP4 完整消费面 + 真实页面验收 PASS**：卷蓝图经 structured_chapters additive 键 + ContextAssembler 透传进入 `DialogueContext`，以 `:current_volume_blueprint` carry 通道进入 prose/plot_outline 上下文（work_skeleton 之后），`WritingCoordinate.volume_ref` 与 `chapter_mission_inputs :volume`/`chapter_read` 同步消费；`VolumeBlueprint.design_ref/1` 只定形状。真实 Tauri au08 第二轮扩展 PASS：真实正文草稿 turn 的 writer prompt 恰一份卷蓝图段（7/7 片段、不串卷、不进草稿正文），`writing_coordinate.done.volume_ref` 精确等于 TOC 第一卷 id；既有断言零回归。诚实边界见上。CP3（开新卷动作）与 CP5（卷级收束/负债规则）仍 queued。
