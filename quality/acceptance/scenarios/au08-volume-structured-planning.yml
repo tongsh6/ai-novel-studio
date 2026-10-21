@@ -39,6 +39,7 @@ user_flow:
   - click: 生成正文草稿（第一卷下某章）
   - wait_for: 真实 prose turn 完成且待保存正文草稿卡可见（B11A CP4）
   - see: writer prompt 携带「当前卷蓝图（设计态）」段（llm-calls 外部证据）
+  - see: writer prompt 在该段之后以空行携带卷级收束守则（默认分支：本卷内可小收束、不得写全书终局；B11A CP5）
 
 evidence:
   required:
@@ -72,6 +73,7 @@ assertions:
     - get_toc volumes carry blueprint; per-volume chapter membership equals the adopted plan assignment (volume blueprint does not change chapter ownership)
     - writer prompt carries 当前卷蓝图（设计态）section exactly once with the current volume title, progress line, goal conflict and climax chapter; the other volume's goal is absent
     - turn_execution.writing_coordinate.done binds volume_ref to the current (volume-1) id from get_toc
+    - writer prompt carries the volume closure directive after the current-volume blueprint section, blank-line separated and exactly once (default branch: 本卷为「第一卷·觉醒」…允许在本卷内做小收束…不得写全书终局/大结局/完结章), without faking the 85%-book-progress full-book priority branch
     - design-state volume blueprint never leaks into the tentative prose draft body
 
 anti_hooks:

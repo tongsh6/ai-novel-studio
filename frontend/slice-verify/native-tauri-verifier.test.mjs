@@ -9099,6 +9099,18 @@ describe("native Tauri slice verifier", () => {
       writer_prompt_volume_blueprint_section_count: 1,
       writer_prompt_foreign_volume_goal_absent: true,
       volume_blueprint_in_draft_body: false,
+      // B11A CP5：卷级收束守则默认分支进入 writer prompt（卷蓝图段之后、空行分隔、仅 1 次）。
+      volume_closure_in_writer_prompt: true,
+      volume_closure_prompt_fragments: [
+        "本卷为「第一卷·觉醒」",
+        "允许在本卷内做小收束",
+        "不得写全书终局/大结局/完结章",
+      ],
+      volume_closure_occurrence_count: 1,
+      volume_closure_after_volume_blueprint: true,
+      volume_closure_blank_line_separated: true,
+      writer_prompt_other_volume_stage_absent: true,
+      volume_closure_in_draft_body: false,
       coordinate_volume_ref: "volume-au08-1",
       coordinate_volume_ref_matches_toc_volume: true,
       coordinate_volume_ref_source: "app_jsonl",
@@ -9194,6 +9206,13 @@ describe("native Tauri slice verifier", () => {
       ],
       coordinate_volume_ref: "volume-au08-1",
       current_volume_id: "volume-au08-1",
+      // B11A CP5：卷级收束守则证据透传进 behavior。
+      volume_closure_prompt_fragments: [
+        "本卷为「第一卷·觉醒」",
+        "允许在本卷内做小收束",
+        "不得写全书终局/大结局/完结章",
+      ],
+      volume_closure_occurrence_count: 1,
       assertions: [
         "real_archive_outline_start_planning_clicked",
         "micro_plan_requested_from_real_workbench",
@@ -9213,6 +9232,7 @@ describe("native Tauri slice verifier", () => {
         "prose_writer_prompt_carried_current_volume_blueprint",
         "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
         "writing_coordinate_volume_ref_bound_to_current_volume",
+        "prose_writer_prompt_carried_volume_closure_directive",
       ],
     });
   });
@@ -9261,6 +9281,28 @@ describe("native Tauri slice verifier", () => {
       uiStateOverrides: {
         coordinate_volume_ref: "volume-au08-other",
         coordinate_volume_ref_matches_toc_volume: false,
+      },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP5 evidence when the volume closure directive is missing", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        volume_closure_in_writer_prompt: false,
+        volume_closure_prompt_fragments: [],
+      },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP5 evidence when the closure directive is not after the blueprint section", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        volume_closure_after_volume_blueprint: false,
+        volume_closure_blank_line_separated: false,
       },
     });
 
@@ -13135,6 +13177,12 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
     "支线启动：旧友重逢",
     "- 目标章：第01章：觉醒",
   ];
+  // B11A CP5：卷级收束守则默认分支（0/5 章、全书进度极低）实际渲染文本。
+  const volumeClosurePromptFragments = [
+    "本卷为「第一卷·觉醒」",
+    "允许在本卷内做小收束",
+    "不得写全书终局/大结局/完结章",
+  ];
 
   return [
     {
@@ -13387,6 +13435,14 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       coordinate_volume_ref_matches_toc_volume: true,
       coordinate_volume_ref_source: "app_jsonl",
       current_volume_id: volumeOneId,
+      // B11A CP5：卷级收束守则默认分支跟在卷蓝图段之后（空行分隔、仅 1 次）。
+      volume_closure_in_writer_prompt: true,
+      volume_closure_prompt_fragments: volumeClosurePromptFragments,
+      volume_closure_occurrence_count: 1,
+      volume_closure_after_volume_blueprint: true,
+      volume_closure_blank_line_separated: true,
+      writer_prompt_other_volume_stage_absent: true,
+      volume_closure_in_draft_body: false,
       ...uiStateOverrides,
     },
   ];

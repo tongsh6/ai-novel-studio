@@ -14278,7 +14278,16 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
       String(record.prose_parent_turn_id ?? "") !== "" &&
       String(record.coordinate_volume_ref ?? "") !== "" &&
       record.coordinate_volume_ref_matches_toc_volume === true &&
-      record.coordinate_volume_ref_source === "app_jsonl",
+      record.coordinate_volume_ref_source === "app_jsonl" &&
+      // B11A CP5：卷级收束守则（默认分支）进入 writer prompt，跟在当前卷蓝图段之后。
+      record.volume_closure_in_writer_prompt === true &&
+      Array.isArray(record.volume_closure_prompt_fragments) &&
+      record.volume_closure_prompt_fragments.length >= 3 &&
+      record.volume_closure_occurrence_count === 1 &&
+      record.volume_closure_after_volume_blueprint === true &&
+      record.volume_closure_blank_line_separated === true &&
+      record.writer_prompt_other_volume_stage_absent === true &&
+      record.volume_closure_in_draft_body === false,
   );
   if (!uiState) return null;
 
@@ -14432,6 +14441,29 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
   if (uiState.writer_prompt_volume_blueprint_section_count !== 1) return null;
   if (uiState.writer_prompt_foreign_volume_goal_absent !== true) return null;
   if (uiState.volume_blueprint_in_draft_body === true) return null;
+
+  // B11A CP5（VS-00J §9② / I-VOL-7）：卷级收束守则默认分支必须出现在 writer prompt，
+  // 且跟在当前卷蓝图段之后、空行分隔、仅 1 次；显式含「不得写全书终局」。书进度未达
+  // 85% 时不伪造「全书优先」被触发的证据（只断言默认分支与显式的全书终局禁令）。
+  const volumeClosureFragments = stringArray(uiState.volume_closure_prompt_fragments);
+  if (!volumeClosureFragments || volumeClosureFragments.length < 3) return null;
+  const requiredVolumeClosureFragments = [
+    `本卷为「${planVolumeTitles[0]}」`,
+    "允许在本卷内做小收束",
+    "不得写全书终局/大结局/完结章",
+  ];
+  if (
+    !requiredVolumeClosureFragments.every((fragment) =>
+      volumeClosureFragments.some((value) => value.includes(fragment)),
+    )
+  ) {
+    return null;
+  }
+  if (uiState.volume_closure_occurrence_count !== 1) return null;
+  if (uiState.volume_closure_after_volume_blueprint !== true) return null;
+  if (uiState.volume_closure_blank_line_separated !== true) return null;
+  if (uiState.writer_prompt_other_volume_stage_absent !== true) return null;
+  if (uiState.volume_closure_in_draft_body === true) return null;
 
   // 写作坐标：独立复核 app JSONL 的 additive volume_ref = get_toc 当前（第一卷）卷 id，
   // 不单信 driver 的布尔结论。
@@ -14588,6 +14620,14 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
     writer_prompt_volume_blueprint_section_count: 1,
     writer_prompt_foreign_volume_goal_absent: true,
     volume_blueprint_in_draft_body: false,
+    // B11A CP5：卷级收束守则（默认分支）进入 writer prompt，空行附在卷蓝图段之后。
+    volume_closure_in_writer_prompt: true,
+    volume_closure_prompt_fragments: volumeClosureFragments,
+    volume_closure_occurrence_count: 1,
+    volume_closure_after_volume_blueprint: true,
+    volume_closure_blank_line_separated: true,
+    writer_prompt_other_volume_stage_absent: true,
+    volume_closure_in_draft_body: false,
     coordinate_volume_ref: coordinateVolumeRef,
     coordinate_volume_ref_matches_toc_volume: true,
     coordinate_volume_ref_source: "app_jsonl",
@@ -15231,6 +15271,16 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
   if (String(evidence.coordinate_volume_ref) !== String(evidence.current_volume_id ?? "")) {
     return null;
   }
+  // B11A CP5：卷级收束守则默认分支进入 writer prompt（跟在卷蓝图段之后、空行分隔、
+  // 仅 1 次、显式含「不得写全书终局」），且不伪造书进度 85% 的全书优先触发。
+  if (evidence.volume_closure_in_writer_prompt !== true) return null;
+  const closureFragments = evidence.volume_closure_prompt_fragments;
+  if (!Array.isArray(closureFragments) || closureFragments.length < 3) return null;
+  if (evidence.volume_closure_occurrence_count !== 1) return null;
+  if (evidence.volume_closure_after_volume_blueprint !== true) return null;
+  if (evidence.volume_closure_blank_line_separated !== true) return null;
+  if (evidence.writer_prompt_other_volume_stage_absent !== true) return null;
+  if (evidence.volume_closure_in_draft_body === true) return null;
 
   return {
     slice_id: "au08-volume-structured-planning",
@@ -15244,6 +15294,8 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
     prose_turn_id: evidence.prose_turn_id,
     prose_chapter_title: evidence.prose_chapter_title,
     volume_blueprint_prompt_fragments: writerPromptFragments,
+    volume_closure_prompt_fragments: closureFragments,
+    volume_closure_occurrence_count: evidence.volume_closure_occurrence_count,
     coordinate_volume_ref: evidence.coordinate_volume_ref,
     current_volume_id: evidence.current_volume_id,
     assertions: [
@@ -15265,6 +15317,7 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
       "prose_writer_prompt_carried_current_volume_blueprint",
       "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
       "writing_coordinate_volume_ref_bound_to_current_volume",
+      "prose_writer_prompt_carried_volume_closure_directive",
     ],
   };
 }

@@ -7689,9 +7689,73 @@ async function driveAu08VolumeStructuredPlanning(page) {
       otherGoal: planBlueprints[1].goal_conflict,
     })}`,
   );
+
+  // B11A CP5（VS-00J §9② / I-VOL-7 全书优先）：卷级收束守则以空行附在「当前卷蓝图」段后。
+  // au08 第 01 章写作时本卷 0/5 章、全书进度远未到收束阈值 → 命中默认分支；以下断言文本
+  // 取自本次真实 writer prompt（llm-calls 原始字节）核对后的实际渲染，不按猜测写死。
+  const volumeClosureDirective =
+    `本卷为「${proseVolumeTitle}」：允许在本卷内做小收束（解决本卷主冲突/回收本卷支线），` +
+    "但不得写全书终局/大结局/完结章；收束后把新冲突留给后续卷。";
+  const expectedVolumeClosureFragments = [
+    `本卷为「${proseVolumeTitle}」`,
+    "允许在本卷内做小收束",
+    "不得写全书终局/大结局/完结章",
+  ];
+  const visibleVolumeClosureFragments = expectedVolumeClosureFragments.filter((fragment) =>
+    writerPrompt.includes(fragment),
+  );
+  const volumeBlueprintIndex = writerPrompt.indexOf(volumeBlueprintSectionHeader);
+  const volumeClosureIndex = writerPrompt.indexOf(expectedVolumeClosureFragments[0]);
+  const volumeClosureOccurrenceCount = countOccurrences(
+    writerPrompt,
+    expectedVolumeClosureFragments[0],
+  );
+  const volumeClosureAfterVolumeBlueprint =
+    volumeBlueprintIndex >= 0 && volumeClosureIndex > volumeBlueprintIndex;
+  const volumeClosureBlankLineSeparated =
+    volumeClosureIndex >= 2 &&
+    writerPrompt.slice(volumeClosureIndex - 2, volumeClosureIndex) === "\n\n";
+  // 默认分支语义（0/5 章、全书进度极低）：不得出现「已写完/接近收束」分支；书进度未达
+  // 85% 时不伪造「全书优先」被触发，只断言默认分支文本显式含「不得写全书终局」。
+  const writerPromptOtherVolumeStageAbsent =
+    !writerPrompt.includes("本卷计划章已写完") && !writerPrompt.includes("本卷接近收束");
+  const volumeClosureFragmentsHit =
+    visibleVolumeClosureFragments.length === expectedVolumeClosureFragments.length;
+  const volumeClosureFullTextVisible = writerPrompt.includes(volumeClosureDirective);
+  assert(
+    volumeClosureFragmentsHit,
+    `Writer prompt did not carry the volume closure directive fragments: ${JSON.stringify({
+      expectedVolumeClosureFragments,
+      visibleVolumeClosureFragments,
+    })}`,
+  );
+  assert(
+    volumeClosureAfterVolumeBlueprint,
+    `Volume closure directive did not follow the current-volume blueprint section: ${JSON.stringify(
+      { volumeBlueprintIndex, volumeClosureIndex },
+    )}`,
+  );
+  assert(
+    volumeClosureOccurrenceCount === 1,
+    `Volume closure directive appeared ${volumeClosureOccurrenceCount} times in the writer prompt`,
+  );
+  assert(
+    volumeClosureBlankLineSeparated,
+    `Volume closure directive was not blank-line separated from the blueprint section: ${JSON.stringify(
+      { preceding: writerPrompt.slice(Math.max(0, volumeClosureIndex - 4), volumeClosureIndex) },
+    )}`,
+  );
+  assert(
+    writerPromptOtherVolumeStageAbsent,
+    "Volume closure directive used a non-default stage branch for a 0/5-chapter volume",
+  );
   assert(
     !proseDraftBody.includes("当前卷蓝图"),
     "Design-state volume blueprint leaked into the tentative prose draft body",
+  );
+  assert(
+    !proseDraftBody.includes("本卷为「") && !proseDraftBody.includes("不得写全书终局"),
+    "Design-state volume closure directive leaked into the tentative prose draft body",
   );
 
   const sentMessage = latestSentUserMessage();
@@ -7759,6 +7823,24 @@ async function driveAu08VolumeStructuredPlanning(page) {
       writer_prompt_volume_label_count: writerPromptVolumeLabelCount,
       writer_prompt_foreign_volume_goal_absent: writerPromptForeignVolumeGoalAbsent,
       volume_blueprint_in_draft_body: proseDraftBody.includes("当前卷蓝图"),
+      // B11A CP5：卷级收束守则（默认分支）以空行附在「当前卷蓝图」段后，仅 1 次；
+      // 默认分支文本显式含「不得写全书终局」；不伪造书进度达 85% 的全书优先触发证据。
+      volume_closure_in_writer_prompt:
+        volumeClosureFragmentsHit &&
+        volumeClosureAfterVolumeBlueprint &&
+        volumeClosureOccurrenceCount === 1 &&
+        volumeClosureBlankLineSeparated &&
+        writerPromptOtherVolumeStageAbsent,
+      volume_closure_prompt_fragments: visibleVolumeClosureFragments,
+      volume_closure_expected_fragments: expectedVolumeClosureFragments,
+      volume_closure_directive: volumeClosureDirective,
+      volume_closure_full_text_visible: volumeClosureFullTextVisible,
+      volume_closure_occurrence_count: volumeClosureOccurrenceCount,
+      volume_closure_after_volume_blueprint: volumeClosureAfterVolumeBlueprint,
+      volume_closure_blank_line_separated: volumeClosureBlankLineSeparated,
+      writer_prompt_other_volume_stage_absent: writerPromptOtherVolumeStageAbsent,
+      volume_closure_in_draft_body:
+        proseDraftBody.includes("本卷为「") || proseDraftBody.includes("不得写全书终局"),
       coordinate_volume_ref: coordinateVolumeRef,
       coordinate_volume_ref_matches_toc_volume: coordinateVolumeRefMatchesTocVolume,
       coordinate_volume_ref_source: coordinateVolumeRefSource,
