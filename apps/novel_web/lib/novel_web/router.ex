@@ -16,6 +16,7 @@ defmodule NovelWeb.Router do
 
     get("/provider/health", ProviderController, :health)
     get("/provider/options", ProviderController, :options)
+    get("/provider/local-models", ProviderController, :local_models)
     post("/provider/models", ProviderController, :models)
     put("/provider/config", ProviderController, :configure)
     post("/provider/test", ProviderController, :test)

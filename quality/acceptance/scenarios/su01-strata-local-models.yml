@@ -1,0 +1,95 @@
+id: su01-strata-local-models
+title: 本机 Strata 模型发现与选中端点原子绑定（browser 真实工作台）
+tier: pr-smoke
+surface: browser
+runner: slice_verify
+# 底层执行等价于 `bash scripts/slice_verify.sh su01-strata-local-models`；
+# 登记为 quality_accept 入口以符合 browser/slice_verify 的 runner 路由与
+# quality_manifest_check 对 entrypoint 必须带 `--surface browser` 的机器约束。
+entrypoint: scripts/quality_accept.sh su01-strata-local-models --surface browser
+
+contract:
+  - tasks/slices/SU01-strata-local-models.md
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/foundation/08-provider-abstraction.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-list-comes-from-backend-registry
+  - local-model-list-comes-from-local-strata-profile-config-and-real-endpoint-probe
+  - running-only-means-the-profile-v1-models-endpoint-is-reachable
+  - selecting-local-profile-binds-model-and-endpoint-atomically
+  - local-discovery-empty-falls-back-to-existing-realtime-model-list
+  - saving-provider-config-switches-the-runtime-provider
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+  fixtures:
+    - file: tmp/test-strata-install/strata-q2_0.json
+      content: '{"model_name":"qwen3.8-flash-next-q2_0","port":18081,"host":"127.0.0.1"}'
+      stand_in: local OpenAI-compatible GET /v1/models on http://127.0.0.1:18081/v1
+    - file: tmp/test-strata-install/strata-iq3_s.json
+      content: '{"model_name":"qwen3.8-flash-next-iq3_s","port":18082,"host":"127.0.0.1"}'
+      stand_in: local OpenAI-compatible GET /v1/models on http://127.0.0.1:18082/v1
+  notes:
+    - The test backend boots from scripts/slice_verify_server.exs with config/test.exs models_dir = repo tmp/test-strata-install, so the fixtures written by the spec are the real product discovery input.
+    - The two stand-in engines are started by the spec only; they are not registered into any product app/runtime.
+
+user_flow:
+  - open: "real browser workbench and wait for the visible 服务: 已连接 state"
+  - open: model settings by clicking the visible top-bar model status button
+  - select: Strata provider from the backend-registry-driven provider dropdown
+  - observe: the model dropdown lists the two local Strata profiles qwen3.8-flash-next-q2_0 and qwen3.8-flash-next-iq3_s
+  - observe: both model option labels contain the visible 运行中 suffix
+  - select: qwen3.8-flash-next-iq3_s from the visible model dropdown
+  - observe: the endpoint input turns into http://127.0.0.1:18082/v1 in the same action
+  - test: click the visible 测试连接 button and see 连接可用。
+  - save: click 保存并切换, the dialog closes
+  - observe: /api/provider/options reports current_provider=strata with model qwen3.8-flash-next-iq3_s and endpoint http://127.0.0.1:18082/v1
+  - observe: the top-bar model status button exposes Strata and qwen3.8-flash-next-iq3_s
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - summary_json
+  additional:
+    - ui_state
+    - local_models_json
+    - backend_log
+  artifact_dir: artifacts/slice-verify/su01-strata-local-models
+
+assertions:
+  ui:
+    - the real 模型供应商 dialog opens from the visible top-bar model status button
+    - the provider dropdown lists strata as rendered from the backend provider registry
+    - after selecting Strata the model dropdown shows both local profile ids
+    - both local model option labels contain the visible 运行中 status
+    - selecting qwen3.8-flash-next-iq3_s changes the endpoint input to http://127.0.0.1:18082/v1
+    - clicking 测试连接 shows 连接可用。
+    - clicking 保存并切换 closes the dialog
+    - the top-bar model status button visible text/title contains Strata and qwen3.8-flash-next-iq3_s
+  network:
+    - the real workbench issues GET /api/provider/local-models?provider=strata and receives 200 ok=true provider=strata
+    - the discovery response contains both local profiles with running=true and matching endpoint/host/port/config
+    - after save GET /api/provider/options reports current_provider=strata and the current provider model/endpoint are qwen3.8-flash-next-iq3_s / http://127.0.0.1:18082/v1
+  data:
+    - artifacts/slice-verify/su01-strata-local-models contains local-models.json, ui-state.json, ui-frames.json, summary.json and screenshots
+    - ui-state.json records the per-assertion outcome, model option labels, bound endpoint, saved provider options and top-bar semantics
+    - fixtures under tmp/test-strata-install and the two stand-in servers are cleaned up at the end of the run
+
+known_limits:
+  - This scenario uses two loopback OpenAI-compatible stand-ins (only GET /v1/models); running=true only proves that the profile /v1/models endpoint is reachable, not that a real Strata engine has healthy weights or produces replies.
+  - Discovery is sourced from the local Strata install directory strata-*.json profiles; the spec writes fixtures into repo tmp/test-strata-install/ because config/test.exs injects that models_dir. Real user install directories, custom install dirs and the NOVEL_STRATA_MODELS_DIR override are not exercised by this page scenario.
+  - This scenario deliberately sends no chat turn, so it does not prove the next real creative turn uses the newly saved profile; that chain is covered by su01-provider-strata-local (nightly/live Tauri) plus provider adapter tests.
+  - Only the current machine's loopback behavior is covered; Windows path rules and remote Strata endpoints are out of scope.
+  - Stand-in ports 18081/18082 are fixed by the profile fixtures; when a port is already taken the spec fails fast with the bind reason instead of picking another port.
+  - Like every slice_verify browser scenario it needs the Node/Playwright/Vite/Elixir test toolchain from scripts/slice_verify.sh.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

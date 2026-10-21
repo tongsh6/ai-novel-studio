@@ -77,5 +77,12 @@
     "planned_fix": "NEXT-B16",
     "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
     "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
+  },
+  "task-done-manifest|task-done-manifest|test_touched=2026-10-21T16|30|Task completion manifest and UI evidence check": {
+    "status": "deferred",
+    "owner": "lead",
+    "updated_at": "2026-10-21",
+    "handling": "SU01-STRATA-LOCAL-MODELS 触及 frontend/src（UI）：scripts/task_done_check.mjs 要求 UI 证据必须来自 surface=tauri 的 summary，而本 slice 现有外部自动化证据是 browser 真实工作台（`bash scripts/slice_verify.sh su01-strata-local-models`，26/26 断言 PASS，artifacts/slice-verify/su01-strata-local-models/summary.json）；native Tauri surface 场景（tauri_slice_verify driver + native verifier + scenario 注册）尚未实现，因此无法在不伪造 Tauri 证据的前提下生成 fresh manifest。",
+    "recommendation": "下一 checkpoint 在 scripts/tauri_slice_verify.sh 与 frontend/slice-verify/{external-ui-driver,native-tauri-verifier}.mjs 注册 su01-strata-local-models（driver 复用原 spec 的 18081/18082 替身与 tmp/test-strata-install 夹具，native verifier 以 slice_verify.ui_state.done 断言本机 profile 发现/运行中/端点原子绑定），再跑 `bash scripts/task_done.sh --slice su01-strata-local-models` 生成 Tauri UI evidence manifest 并重跑静态扫描；在此之前不得用 browser summary 冒充 Tauri 证据、不得手写 manifest。"
   }
 }

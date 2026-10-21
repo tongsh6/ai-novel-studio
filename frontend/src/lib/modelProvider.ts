@@ -69,6 +69,27 @@ export interface ProviderModelsResponse {
   detail?: string;
 }
 
+// Contract: tasks/slices/SU01-strata-local-models.md §1 / §4
+// 本机已安装的 Strata profile（一进程一模型）：endpoint 是该 profile 的真实端口，
+// 选中它时模型名与端点必须一起生效，避免「模型是 IQ3_S、端点仍是 8081」的半切换。
+export interface ProviderLocalModelOption {
+  id: string;
+  label: string;
+  endpoint: string;
+  host: string;
+  port: number | null;
+  running: boolean;
+  config: string | null;
+}
+
+export interface ProviderLocalModelsResponse {
+  ok: boolean;
+  provider: ProviderId;
+  models: ProviderLocalModelOption[];
+  message?: string;
+  detail?: string;
+}
+
 export const PURPOSE_ROUTE_KEYS = ["writer", "planner", "evaluator", "fact_inventory"] as const;
 
 export type PurposeRouteKey = (typeof PURPOSE_ROUTE_KEYS)[number];
@@ -129,8 +150,16 @@ export interface ModelProviderRuntimeState {
 const SETTINGS_STORAGE_KEY = "ans.modelProviderSettings";
 const PROVIDER_OPTIONS_PATH = "/api/provider/options";
 const PROVIDER_MODELS_PATH = "/api/provider/models";
+const PROVIDER_LOCAL_MODELS_PATH = "/api/provider/local-models";
 const PROVIDER_CONFIG_PATH = "/api/provider/config";
 const PROVIDER_TEST_PATH = "/api/provider/test";
+
+const LOOPBACK_PROVIDER_HOSTS: ReadonlySet<string> = new Set([
+  "127.0.0.1",
+  "localhost",
+  "::1",
+  "[::1]",
+]);
 
 const inMemoryApiKeys: Partial<Record<ProviderId, string>> = {};
 
@@ -174,6 +203,23 @@ export async function listProviderModels(
 
   const body = normalizeProviderModels((await res.json()) as ProviderModelsResponse);
   if (!res.ok) throw new Error(body.message || `listProviderModels failed: HTTP ${res.status}`);
+  return body;
+}
+
+// Contract: tasks/slices/SU01-strata-local-models.md §4
+// 本机已安装模型发现只读后端 registry/发现结果；前端不预制模型名、不猜端口。
+export async function listProviderLocalModels(
+  provider: ProviderId,
+): Promise<ProviderLocalModelsResponse> {
+  const res = await fetch(
+    url(`${PROVIDER_LOCAL_MODELS_PATH}?provider=${encodeURIComponent(provider)}`),
+  );
+
+  const raw = (await res.json().catch(() => ({}))) as Partial<ProviderLocalModelsResponse>;
+  const body = normalizeProviderLocalModels(raw, provider);
+  if (!res.ok) {
+    throw new Error(body.message || `listProviderLocalModels failed: HTTP ${res.status}`);
+  }
   return body;
 }
 
@@ -338,6 +384,21 @@ export function isValidProviderEndpoint(endpoint: string): boolean {
   }
 }
 
+// Contract: tasks/slices/SU01-strata-local-models.md §4
+// 只有本机回环端点才代表「这台机器上的 Strata」；远端端点必须继续走既有实时列表。
+export function isLoopbackProviderEndpoint(endpoint: string): boolean {
+  const normalized = normalizeOptionalText(endpoint);
+  if (!normalized) return false;
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    return LOOPBACK_PROVIDER_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function toBackendPayload(input: ProviderConfigInput): Record<string, unknown> {
   return {
     provider: input.provider,
@@ -387,6 +448,45 @@ function normalizeProviderModels(raw: ProviderModelsResponse): ProviderModelsRes
             id,
             label: normalizeOptionalText(model.label) ?? id,
             owned_by: normalizeOptionalText(model.owned_by),
+          },
+        ];
+      })
+      .filter((model, index, all) => all.findIndex((item) => item.id === model.id) === index),
+    message: normalizeOptionalText(raw.message) ?? undefined,
+    detail: normalizeOptionalText(raw.detail) ?? undefined,
+  };
+}
+
+function normalizeProviderLocalModels(
+  raw: Partial<ProviderLocalModelsResponse>,
+  fallbackProvider: ProviderId,
+): ProviderLocalModelsResponse {
+  return {
+    ok: Boolean(raw.ok),
+    provider: normalizeProviderId(raw.provider) ?? fallbackProvider,
+    models: (Array.isArray(raw.models) ? raw.models : [])
+      .flatMap((model) => {
+        const id = normalizeOptionalText(model.id);
+        const endpoint = normalizeOptionalText(model.endpoint);
+        if (!id || !endpoint) return [];
+
+        const port =
+          typeof model.port === "number" &&
+          Number.isInteger(model.port) &&
+          model.port >= 1 &&
+          model.port <= 65535
+            ? model.port
+            : null;
+
+        return [
+          {
+            id,
+            label: normalizeOptionalText(model.label) ?? id,
+            endpoint,
+            host: normalizeOptionalText(model.host) ?? "127.0.0.1",
+            port,
+            running: Boolean(model.running),
+            config: normalizeOptionalText(model.config),
           },
         ];
       })

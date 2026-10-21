@@ -549,6 +549,12 @@ export const WORKBENCH = {
   modelProviderTestFailureDetail: (detail: string) => `连接不可用：${detail}`,
   modelProviderModelsLoadFailure: "模型列表加载失败。",
   modelProviderModelsLoadFailureDetail: (detail: string) => `模型列表加载失败：${detail}`,
+  modelProviderLocalModelsHint: "已列出本机 Strata 安装的模型；选择后模型与端点会一起切换。",
+  modelProviderLocalModelRunning: "运行中",
+  modelProviderLocalModelNotRunning: "未运行",
+  modelProviderLocalModelNotRunningHint:
+    "该模型当前未运行，请先启动对应的 Strata 引擎；也可以先保存配置，稍后启动。",
+  modelProviderLocalModelsLoadFailure: "本机模型发现失败，已回退到实时模型列表。",
   syncStatusLabel: (label: string) => `同步${label}`,
   archiveRailTitle: "作品档案",
   archiveRailOpen: "打开档案",

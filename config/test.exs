@@ -54,6 +54,26 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer(),
   timeout: System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "5000") |> String.to_integer()
 
+# Strata 测试配置：与 config.exs 同源写全（Elixir 对同一模块配置是整块替换而非深合并，
+# 只写 models_dir 会把 endpoint/model/thinking/max_tokens 一并丢掉）。
+# models_dir 固定到项目 tmp 目录：mix test 不依赖开发机真实 Strata 安装目录（否则结果
+# 随机器漂移）；该目录由外部场景 spec 写入夹具，单测仍显式注入临时目录，不读这里。
+# 本机模型发现目录优先级见 NovelAgent.Provider.Strata.LocalModels。
+config :novel_agent, NovelAgent.Provider.Strata,
+  api_key: System.get_env("NOVEL_STRATA_API_KEY"),
+  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:8081/v1"),
+  model: System.get_env("NOVEL_STRATA_MODEL", "qwen3.8-flash-next-q2_0"),
+  thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
+  timeout:
+    System.get_env(
+      "NOVEL_STRATA_TIMEOUT_MS",
+      System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000")
+    )
+    |> String.to_integer(),
+  max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer(),
+  models_dir: Path.expand("../tmp/test-strata-install", __DIR__)
+
 config :novel_application, sync_memory_reference_log: true
 config :novel_application, sync_chapter_summary_maintenance: true
 

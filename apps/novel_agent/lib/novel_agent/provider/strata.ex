@@ -20,6 +20,13 @@ defmodule NovelAgent.Provider.Strata do
   与 LM Studio 不同，Strata 是 keyless 但仍支持 `/models` 真实探活：
   `health_check/1` 会 GET `/models` 验证服务可达，而不是只看本地配置。
 
+  ## 本机模型发现
+
+  strata-engine 一进程一模型，单端点 `/v1/models` 只能看到当前引擎自己的模型。
+  `local_models/0,1` 读本机 Strata 安装目录里的 `strata-*.json` profile 配置并对每个
+  profile 端点探活，列出本机已安装的全部 Strata 模型（实现与目录优先级见
+  `NovelAgent.Provider.Strata.LocalModels`）。
+
   ## 思考控制
 
   Qwen3.8 的思考开关走**请求级顶层 `reasoning_effort`**（`"none"` 关闭思考，
@@ -40,4 +47,16 @@ defmodule NovelAgent.Provider.Strata do
     supports_thinking: true,
     api_key_required: false,
     thinking_style: :reasoning_effort
+
+  alias NovelAgent.Provider.Strata.LocalModels
+
+  @doc """
+  列出本机 Strata 安装目录里的 profile 模型并探活（SU01 本机模型发现）。
+
+  目录优先级（opts > `NOVEL_STRATA_MODELS_DIR` > 应用配置 > 平台默认）与探活/容错
+  语义见 `NovelAgent.Provider.Strata.LocalModels`：探活失败只标 `running: false`，
+  目录/配置错误返回 `[]`，绝不 raise。
+  """
+  @spec local_models(keyword()) :: [LocalModels.model()]
+  def local_models(opts \\ []), do: LocalModels.list(opts)
 end

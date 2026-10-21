@@ -69,6 +69,33 @@ defmodule NovelWeb.ProviderController do
     end
   end
 
+  @doc """
+  GET /api/provider/local-models — 列出 provider 的本机已安装模型（当前为 Strata profile）。
+
+  只读本机 profile 配置并探活，不落库、不改运行时 provider（与 POST /api/provider/models
+  同语义）。未知/缺失 provider 与既有 provider 端点同口径返回 422。
+  """
+  def local_models(conn, params) do
+    case NovelApplication.provider_local_models(params) do
+      {:ok, %{provider: provider, models: models}} ->
+        json(conn, %{
+          ok: true,
+          provider: provider,
+          models: Enum.map(models, &encode_local_model/1)
+        })
+
+      {:error, error} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{
+          ok: false,
+          models: [],
+          message: Map.get(error, :message, "本机模型列表加载失败"),
+          detail: Map.get(error, :type, "unknown")
+        })
+    end
+  end
+
   @doc "POST /api/provider/test — 测试传入配置，不改变当前运行时 provider"
   def test(conn, params) do
     case NovelApplication.test_provider(params) do
@@ -124,6 +151,18 @@ defmodule NovelWeb.ProviderController do
       id: model.id,
       label: model.label,
       owned_by: model.owned_by
+    }
+  end
+
+  defp encode_local_model(model) do
+    %{
+      id: model.id,
+      label: model.label,
+      endpoint: model.endpoint,
+      host: model.host,
+      port: model.port,
+      running: model.running,
+      config: model.config
     }
   end
 end

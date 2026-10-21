@@ -120,7 +120,9 @@ import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
 import {
   PURPOSE_ROUTE_KEYS,
   getStoredProviderApiKey,
+  isLoopbackProviderEndpoint,
   isValidProviderEndpoint,
+  listProviderLocalModels,
   listProviderModels,
   loadAndSyncModelProviderState,
   providerDisplayName,
@@ -128,6 +130,7 @@ import {
   saveAndApplyModelProviderConfig,
   testProviderConnection,
   type ModelProviderRuntimeState,
+  type ProviderLocalModelOption,
   type ProviderModelOption,
   type ProviderId,
 } from "../lib/modelProvider";
@@ -273,6 +276,19 @@ interface ModelProviderDraft {
   thinking: "enabled" | "disabled";
   reasoningEffort: ReasoningEffort;
   purposeModels: Record<string, string>;
+}
+
+// 下拉选项统一形状：本机发现条目带「运行中/未运行」后缀，实时列表条目保持原 label。
+interface ModelProviderModelChoice {
+  id: string;
+  label: string;
+}
+
+function localModelChoiceLabel(model: ProviderLocalModelOption): string {
+  const status = model.running
+    ? WORKBENCH.modelProviderLocalModelRunning
+    : WORKBENCH.modelProviderLocalModelNotRunning;
+  return `${model.label} · ${status}`;
 }
 
 export interface WorkspaceCandidatePanelProps {
@@ -1185,6 +1201,13 @@ export function WorkspaceChat() {
   const [modelProviderModels, setModelProviderModels] = useState<ProviderModelOption[]>([]);
   const [modelProviderModelsLoading, setModelProviderModelsLoading] = useState(false);
   const [modelProviderModelsMessage, setModelProviderModelsMessage] = useState<string | null>(null);
+  const [modelProviderLocalModels, setModelProviderLocalModels] = useState<
+    ProviderLocalModelOption[]
+  >([]);
+  const [modelProviderLocalModelsLoading, setModelProviderLocalModelsLoading] = useState(false);
+  const [modelProviderLocalModelsMessage, setModelProviderLocalModelsMessage] = useState<
+    string | null
+  >(null);
   const [pendingAnswerBid, setPendingAnswerBid] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
@@ -3264,6 +3287,9 @@ export function WorkspaceChat() {
     modelProviderModelsRequestRef.current = requestId;
     setModelProviderModels([]);
     setModelProviderModelsMessage(null);
+    setModelProviderLocalModels([]);
+    setModelProviderLocalModelsMessage(null);
+    setModelProviderLocalModelsLoading(false);
 
     if (!state || draft.provider === "stub") {
       setModelProviderModelsLoading(false);
@@ -3279,28 +3305,74 @@ export function WorkspaceChat() {
       return;
     }
 
+    // Contract: tasks/slices/SU01-strata-local-models.md §4
+    // Strata + 本机回环端点：实时列表和本机已安装 profile 并行请求；发现非空时
+    // 用本机 profile 渲染（选中时端点一起切换），发现为空/远端端点完全回退既有实时列表。
+    const discoversLocalModels =
+      draft.provider === "strata" && isLoopbackProviderEndpoint(draft.endpoint);
+
     setModelProviderModelsLoading(true);
+    setModelProviderLocalModelsLoading(discoversLocalModels);
 
     try {
-      const result = await listProviderModels({
+      const apiKey = await modelProviderApiKeyForSubmit(draft);
+      const liveRequest = listProviderModels({
         provider: draft.provider,
         endpoint: draft.endpoint,
-        apiKey: await modelProviderApiKeyForSubmit(draft),
+        apiKey,
         clearApiKey: draft.clearApiKey,
       });
+      const localRequest = discoversLocalModels
+        ? listProviderLocalModels(draft.provider)
+        : Promise.resolve(null);
+      const [liveResult, localResult] = await Promise.allSettled([liveRequest, localRequest]);
 
       if (modelProviderModelsRequestRef.current !== requestId) return;
 
-      setModelProviderModels(result.models);
-      setModelProviderModelsMessage(
-        result.ok ? null : result.message || WORKBENCH.modelProviderModelsLoadFailure,
-      );
+      const localModels =
+        localResult.status === "fulfilled" && localResult.value?.ok ? localResult.value.models : [];
 
-      if (result.models.length > 0) {
+      if (localModels.length > 0) {
+        setModelProviderLocalModels(localModels);
+        setModelProviderModels([]);
+        // 本机发现已给出可用模型；实时列表的失败文案不再展示，避免「已发现模型 / 无法连接」并存。
+        setModelProviderModelsMessage(null);
+        setModelProviderLocalModelsMessage(null);
         setModelProviderDraft((prev) => {
           if (prev.provider !== draft.provider) return prev;
-          if (result.models.some((model) => model.id === prev.model)) return prev;
-          return { ...prev, model: result.models[0]?.id ?? prev.model };
+          const selected = localModels.find((model) => model.id === prev.model) ?? localModels[0];
+          if (!selected) return prev;
+          if (prev.model === selected.id && prev.endpoint === selected.endpoint) return prev;
+          // profile 的模型名与端点绑定的端口必须同一动作生效。
+          return { ...prev, model: selected.id, endpoint: selected.endpoint };
+        });
+        return;
+      }
+
+      const liveDetail = liveResult.status === "rejected" ? errorDetail(liveResult.reason) : null;
+      const liveMessage =
+        liveResult.status === "fulfilled"
+          ? liveResult.value.ok
+            ? null
+            : liveResult.value.message || WORKBENCH.modelProviderModelsLoadFailure
+          : liveDetail
+            ? WORKBENCH.modelProviderModelsLoadFailureDetail(liveDetail)
+            : WORKBENCH.modelProviderModelsLoadFailure;
+
+      setModelProviderModels(liveResult.status === "fulfilled" ? liveResult.value.models : []);
+      setModelProviderModelsMessage(liveMessage);
+      setModelProviderLocalModelsMessage(
+        discoversLocalModels && localResult.status === "rejected"
+          ? WORKBENCH.modelProviderLocalModelsLoadFailure
+          : null,
+      );
+
+      if (liveResult.status === "fulfilled" && liveResult.value.models.length > 0) {
+        const liveModels = liveResult.value.models;
+        setModelProviderDraft((prev) => {
+          if (prev.provider !== draft.provider) return prev;
+          if (liveModels.some((model) => model.id === prev.model)) return prev;
+          return { ...prev, model: liveModels[0]?.id ?? prev.model };
         });
       }
     } catch (error) {
@@ -3308,14 +3380,19 @@ export function WorkspaceChat() {
 
       const detail = errorDetail(error);
       setModelProviderModels([]);
+      setModelProviderLocalModels([]);
       setModelProviderModelsMessage(
         detail
           ? WORKBENCH.modelProviderModelsLoadFailureDetail(detail)
           : WORKBENCH.modelProviderModelsLoadFailure,
       );
+      setModelProviderLocalModelsMessage(
+        discoversLocalModels ? WORKBENCH.modelProviderLocalModelsLoadFailure : null,
+      );
     } finally {
       if (modelProviderModelsRequestRef.current === requestId) {
         setModelProviderModelsLoading(false);
+        setModelProviderLocalModelsLoading(false);
       }
     }
   };
@@ -3492,14 +3569,25 @@ export function WorkspaceChat() {
     modelProviderDraft,
     modelProviderState,
   );
+  // 本机发现非空时模型下拉、按用途下拉与保存禁用条件共用同一可用集合。
+  const modelProviderAvailableModels: ModelProviderModelChoice[] =
+    modelProviderLocalModels.length > 0
+      ? modelProviderLocalModels.map((model) => ({
+          id: model.id,
+          label: localModelChoiceLabel(model),
+        }))
+      : modelProviderModels.map((model) => ({ id: model.id, label: model.label }));
+  const modelProviderModelsBusy = modelProviderModelsLoading || modelProviderLocalModelsLoading;
+  const selectedLocalModel =
+    modelProviderLocalModels.find((model) => model.id === modelProviderDraft.model) ?? null;
   const modelProviderSaveDisabled =
     !modelProviderState ||
     modelProviderSaving ||
     modelProviderTesting ||
-    modelProviderModelsLoading ||
+    modelProviderModelsBusy ||
     modelProviderEndpointInvalid ||
     (modelProviderRequiresModel &&
-      (modelProviderDraft.model.trim() === "" || modelProviderModels.length === 0));
+      (modelProviderDraft.model.trim() === "" || modelProviderAvailableModels.length === 0));
 
   return (
     <div className={styles.workbench}>
@@ -3882,6 +3970,8 @@ export function WorkspaceChat() {
                           onChange={(event) => {
                             setModelProviderModels([]);
                             setModelProviderModelsMessage(null);
+                            setModelProviderLocalModels([]);
+                            setModelProviderLocalModelsMessage(null);
                             setModelProviderMessage(null);
                             setModelProviderDraft((prev) => ({
                               ...prev,
@@ -3926,6 +4016,8 @@ export function WorkspaceChat() {
                           onChange={(event) => {
                             setModelProviderModels([]);
                             setModelProviderModelsMessage(null);
+                            setModelProviderLocalModels([]);
+                            setModelProviderLocalModelsMessage(null);
                             setModelProviderDraft((prev) => ({
                               ...prev,
                               apiKey: event.target.value,
@@ -3948,6 +4040,8 @@ export function WorkspaceChat() {
                               onChange={(event) => {
                                 setModelProviderModels([]);
                                 setModelProviderModelsMessage(null);
+                                setModelProviderLocalModels([]);
+                                setModelProviderLocalModelsMessage(null);
                                 setModelProviderDraft((prev) => ({
                                   ...prev,
                                   apiKey: "",
@@ -3973,22 +4067,31 @@ export function WorkspaceChat() {
                         disabled={
                           modelProviderSaving ||
                           modelProviderTesting ||
-                          modelProviderModelsLoading ||
-                          modelProviderModels.length === 0
+                          modelProviderModelsBusy ||
+                          modelProviderAvailableModels.length === 0
                         }
-                        onChange={(event) =>
-                          setModelProviderDraft((prev) => ({ ...prev, model: event.target.value }))
-                        }
+                        onChange={(event) => {
+                          const modelId = event.target.value;
+                          const localProfile = modelProviderLocalModels.find(
+                            (model) => model.id === modelId,
+                          );
+                          setModelProviderDraft((prev) =>
+                            localProfile
+                              ? // 本机 profile：模型与端点同一次 setState 原子更新。
+                                { ...prev, model: localProfile.id, endpoint: localProfile.endpoint }
+                              : { ...prev, model: modelId },
+                          );
+                        }}
                       >
-                        {modelProviderModels.length > 0 ? (
-                          modelProviderModels.map((model) => (
+                        {modelProviderAvailableModels.length > 0 ? (
+                          modelProviderAvailableModels.map((model) => (
                             <option key={model.id} value={model.id}>
                               {model.label}
                             </option>
                           ))
                         ) : (
                           <option value={modelProviderDraft.model}>
-                            {modelProviderModelsLoading
+                            {modelProviderModelsBusy
                               ? WORKBENCH.modelProviderModelsLoading
                               : modelProviderDraft.model || WORKBENCH.modelProviderNoModels}
                           </option>
@@ -4002,7 +4105,7 @@ export function WorkspaceChat() {
                         disabled={
                           modelProviderSaving ||
                           modelProviderTesting ||
-                          modelProviderModelsLoading ||
+                          modelProviderModelsBusy ||
                           modelProviderEndpointInvalid
                         }
                         onClick={() => {
@@ -4014,6 +4117,19 @@ export function WorkspaceChat() {
                     </div>
                     {modelProviderModelsMessage && (
                       <div className={styles.dialogHint}>{modelProviderModelsMessage}</div>
+                    )}
+                    {modelProviderLocalModels.length > 0 && (
+                      <div className={styles.dialogHint}>
+                        {WORKBENCH.modelProviderLocalModelsHint}
+                      </div>
+                    )}
+                    {modelProviderLocalModelsMessage && modelProviderModels.length > 0 && (
+                      <div className={styles.dialogHint}>{modelProviderLocalModelsMessage}</div>
+                    )}
+                    {selectedLocalModel && !selectedLocalModel.running && (
+                      <div className={styles.dialogHint}>
+                        {WORKBENCH.modelProviderLocalModelNotRunningHint}
+                      </div>
                     )}
 
                     {draftProviderOption?.supports_thinking && (
@@ -4079,7 +4195,7 @@ export function WorkspaceChat() {
                       const overrideValue = modelProviderDraft.purposeModels[purposeKey] ?? "";
                       const overrideMissingFromList =
                         overrideValue !== "" &&
-                        !modelProviderModels.some((model) => model.id === overrideValue);
+                        !modelProviderAvailableModels.some((model) => model.id === overrideValue);
 
                       return (
                         <div key={purposeKey}>
@@ -4096,8 +4212,8 @@ export function WorkspaceChat() {
                             disabled={
                               modelProviderSaving ||
                               modelProviderTesting ||
-                              modelProviderModelsLoading ||
-                              (modelProviderModels.length === 0 && overrideValue === "")
+                              modelProviderModelsBusy ||
+                              (modelProviderAvailableModels.length === 0 && overrideValue === "")
                             }
                             onChange={(event) => {
                               const model = event.target.value;
@@ -4116,7 +4232,7 @@ export function WorkspaceChat() {
                             {overrideMissingFromList && (
                               <option value={overrideValue}>{overrideValue}</option>
                             )}
-                            {modelProviderModels.map((model) => (
+                            {modelProviderAvailableModels.map((model) => (
                               <option key={model.id} value={model.id}>
                                 {model.label}
                               </option>

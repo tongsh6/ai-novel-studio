@@ -410,6 +410,23 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
+  @doc """
+  返回 provider 的「本机已安装模型」列表（当前仅 Strata 支持本机发现）。
+
+  与 `provider_models/1` 的实时 API 列表不同，本机发现读产品配置目录中的 profile
+  配置并做端点探活：只有声明 `local_models/1` 或 `local_models/0` 的 adapter 才调用
+  发现，其它 provider 返回空列表；未知/缺失 provider 走既有 unknown provider 错误
+  口径。不改变当前运行时选择，不返回 secret。
+  """
+  @spec provider_local_models(provider_config()) ::
+          {:ok, %{provider: atom(), models: [map()]}} | {:error, map()}
+  def provider_local_models(attrs) when is_map(attrs) do
+    with {:ok, provider} <- fetch_provider(attrs),
+         {:ok, module} <- fetch_module(provider) do
+      provider_local_models(provider, module)
+    end
+  end
+
   # ---- private ----
 
   defp provider_models(provider, module, attrs) do
@@ -434,6 +451,24 @@ defmodule NovelAgent.Provider.Gateway do
        error: normalize_error(error),
        message: error_message(error, "模型列表加载失败")
      }}
+  end
+
+  # 本机发现只对声明 local_models/1 或 local_models/0 的 adapter 生效；其余 provider
+  # （云 API、stub 等）没有本机概念，诚实返回空列表而不是伪造条目。
+  defp provider_local_models(provider, module) do
+    models =
+      cond do
+        Code.ensure_loaded?(module) and function_exported?(module, :local_models, 1) ->
+          module.local_models([])
+
+        Code.ensure_loaded?(module) and function_exported?(module, :local_models, 0) ->
+          module.local_models()
+
+        true ->
+          []
+      end
+
+    {:ok, %{provider: provider, models: normalize_local_model_options(models)}}
   end
 
   defp execute_provider(provider_name, model, prompt, params, ctx) do
@@ -806,6 +841,44 @@ defmodule NovelAgent.Provider.Gateway do
   end
 
   defp normalize_model_option(_model), do: []
+
+  # 本机发现条目归一：只保留 UI 合同里的非 secret 本地元数据字段；坏条目跳过，
+  # 同 id 去重（adapter 已排序，这里保持其顺序）。
+  defp normalize_local_model_options(models) when is_list(models) do
+    models
+    |> Enum.flat_map(&normalize_local_model_option/1)
+    |> Enum.uniq_by(& &1.id)
+  end
+
+  defp normalize_local_model_options(_models), do: []
+
+  defp normalize_local_model_option(model) when is_map(model) do
+    id = normalize_optional_value(Map.get(model, :id) || Map.get(model, "id"))
+
+    if is_binary(id) do
+      [
+        %{
+          id: id,
+          label: normalize_model_label(Map.get(model, :label) || Map.get(model, "label"), id),
+          endpoint:
+            normalize_optional_value(Map.get(model, :endpoint) || Map.get(model, "endpoint")),
+          host: normalize_optional_value(Map.get(model, :host) || Map.get(model, "host")),
+          port: normalize_local_model_port(Map.get(model, :port) || Map.get(model, "port")),
+          running: Map.get(model, :running) == true or Map.get(model, "running") == true,
+          config: normalize_optional_value(Map.get(model, :config) || Map.get(model, "config"))
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp normalize_local_model_option(_model), do: []
+
+  defp normalize_local_model_port(port) when is_integer(port) and port >= 1 and port <= 65_535,
+    do: port
+
+  defp normalize_local_model_port(_port), do: nil
 
   defp normalize_model_label(label, fallback) when is_binary(label) do
     trimmed = String.trim(label)

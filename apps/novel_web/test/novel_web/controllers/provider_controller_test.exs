@@ -173,6 +173,113 @@ defmodule NovelWeb.ProviderControllerTest do
     end
   end
 
+  describe "GET /api/provider/local-models" do
+    test "lists discovered local Strata profiles without changing runtime provider" do
+      old_strata = Application.get_env(:novel_agent, NovelAgent.Provider.Strata)
+      old_env_dir = System.get_env("NOVEL_STRATA_MODELS_DIR")
+      System.delete_env("NOVEL_STRATA_MODELS_DIR")
+
+      dir =
+        Path.join(
+          System.tmp_dir!(),
+          "provider_controller_local_models_#{System.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(dir)
+
+      on_exit(fn ->
+        File.rm_rf(dir)
+
+        if old_env_dir do
+          System.put_env("NOVEL_STRATA_MODELS_DIR", old_env_dir)
+        else
+          System.delete_env("NOVEL_STRATA_MODELS_DIR")
+        end
+
+        Application.put_env(:novel_agent, NovelAgent.Provider.Strata, old_strata)
+      end)
+
+      File.write!(
+        Path.join(dir, "strata-q2_0.json"),
+        Jason.encode!(%{
+          "model_name" => "qwen3.8-flash-next-q2_0",
+          "host" => "127.0.0.1",
+          "port" => 1
+        })
+      )
+
+      File.write!(
+        Path.join(dir, "strata-iq3_s.json"),
+        Jason.encode!(%{"model_name" => "qwen3.8-flash-next-iq3_s", "port" => 2})
+      )
+
+      Application.put_env(
+        :novel_agent,
+        NovelAgent.Provider.Strata,
+        Keyword.put(old_strata || [], :models_dir, dir)
+      )
+
+      conn = get(build_conn(), "/api/provider/local-models?provider=strata")
+      body = json_response(conn, 200)
+
+      assert body["ok"] == true
+      assert body["provider"] == "strata"
+
+      assert body["models"] == [
+               %{
+                 "id" => "qwen3.8-flash-next-iq3_s",
+                 "label" => "qwen3.8-flash-next-iq3_s",
+                 "endpoint" => "http://127.0.0.1:2/v1",
+                 "host" => "127.0.0.1",
+                 "port" => 2,
+                 "running" => false,
+                 "config" => "strata-iq3_s.json"
+               },
+               %{
+                 "id" => "qwen3.8-flash-next-q2_0",
+                 "label" => "qwen3.8-flash-next-q2_0",
+                 "endpoint" => "http://127.0.0.1:1/v1",
+                 "host" => "127.0.0.1",
+                 "port" => 1,
+                 "running" => false,
+                 "config" => "strata-q2_0.json"
+               }
+             ]
+
+      # 只读发现：不改变当前运行时选择。
+      assert RuntimeConfig.current_provider() in [nil, :stub]
+    end
+
+    test "returns empty models for providers without local discovery" do
+      conn = get(build_conn(), "/api/provider/local-models?provider=lmstudio")
+      body = json_response(conn, 200)
+
+      assert body == %{"ok" => true, "provider" => "lmstudio", "models" => []}
+    end
+
+    test "returns 422 for an unknown provider" do
+      conn = get(build_conn(), "/api/provider/local-models?provider=nope")
+      body = json_response(conn, 422)
+
+      assert body["ok"] == false
+      assert body["models"] == []
+      assert body["message"] == "unknown provider: nope"
+      assert body["detail"] == "invalid_provider"
+    end
+
+    test "returns 422 when the provider is missing" do
+      conn = get(build_conn(), "/api/provider/local-models")
+      body = json_response(conn, 422)
+
+      assert body["ok"] == false
+      assert body["models"] == []
+
+      # 与既有 provider 端点同口径：fetch_provider 对缺失 provider 报 unknown provider 错误。
+      assert body["message"] == "unknown provider: "
+      assert body["detail"] == "invalid_provider"
+    end
+  end
+
   describe "POST /api/provider/test" do
     test "tests provider config without saving it" do
       conn =
