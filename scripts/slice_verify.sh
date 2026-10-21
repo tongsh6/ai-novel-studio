@@ -31,7 +31,6 @@ Available slice ids:
   au02-candidate-continuation
   au10-micro-plan-entry
   au10-workbench-render-stability
-  su01-strata-local-models
   vs10-observability-spine
 EOF
 }

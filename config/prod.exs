@@ -49,12 +49,13 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
   timeout: lmstudio_timeout_ms
 
-# Strata 本地推理（strata-engine）：本机 127.0.0.1:8081，无 Key 也可用。此处与
-# config.exs 同源写全，避免整块替换丢失 thinking/max_tokens/api_key（见 dev.exs 注释）。
+# Strata App 统一推理后台：本机 127.0.0.1:47831/v1，无 Key 也可用；模型由 App 管理
+# （不设 model 时请求不带 model）。此处与 config.exs 同源写全，避免整块替换丢失
+# thinking/max_tokens/api_key（见 dev.exs 注释）。
 config :novel_agent, NovelAgent.Provider.Strata,
   api_key: System.get_env("NOVEL_STRATA_API_KEY"),
-  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:8081/v1"),
-  model: System.get_env("NOVEL_STRATA_MODEL", "qwen3.8-flash-next-q2_0"),
+  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:47831/v1"),
+  model: System.get_env("NOVEL_STRATA_MODEL"),
   thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
   reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
   timeout: strata_timeout_ms,

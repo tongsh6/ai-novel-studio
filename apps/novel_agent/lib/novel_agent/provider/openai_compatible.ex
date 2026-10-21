@@ -91,7 +91,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       @type t :: %__MODULE__{
               api_key: String.t() | nil,
               endpoint: String.t(),
-              model: String.t(),
+              model: String.t() | nil,
               timeout: pos_integer(),
               max_tokens: pos_integer() | nil,
               http_fn: (String.t(), map(), keyword() -> HTTP.http_result()) | nil,
@@ -304,17 +304,25 @@ defmodule NovelAgent.Provider.OpenAICompatible do
 
   defp request_body(state, prompt, params, stream?) do
     %{
-      model: state.model,
       messages: NovelAgent.Provider.normalize_messages(prompt),
       stream: stream?,
       # 缺陷九跟进：provider 自己的安全上限先垫底，params.max_tokens 非 nil
       # 时 apply_params 覆盖——见 InferenceParams moduledoc。
       max_tokens: state.max_tokens
     }
+    # 2026-10-22：Strata 统一推理后台由 App 管理当前模型。未配置/未选择模型时
+    # 不发送 model 字段，让本地统一后台路由到它当前已加载的模型；既有托管
+    # vendor 的 model 恒非空，行为不变。
+    |> maybe_put_model(state.model)
     |> HTTP.apply_params(params)
     |> maybe_json_mode(state.json_mode, prompt)
     |> NovelAgent.Provider.put_openai_tools(prompt)
   end
+
+  defp maybe_put_model(body, model) when is_binary(model) and model != "",
+    do: Map.put(body, :model, model)
+
+  defp maybe_put_model(body, _model), do: body
 
   defp models_url(endpoint) do
     endpoint
@@ -484,10 +492,19 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   defp models_from_openai_list(_body), do: []
 
   defp model_from_openai_entry(%{"id" => id} = model) when is_binary(id) and id != "" do
-    [%{id: id, label: id, owned_by: normalize_owned_by(model["owned_by"])}]
+    [%{id: id, label: model_label(id, model), owned_by: normalize_owned_by(model["owned_by"])}]
   end
 
   defp model_from_openai_entry(_entry), do: []
+
+  # OpenAI 兼容 /models 的标准字段只有 id；本地统一后台（Strata App）额外回传
+  # meta.label（“Qwen3.8-Flash-Next IQ3_S”）。有可读 label 时用于设置页展示，
+  # 否则回退 id（既有 vendor 行为不变）。
+  defp model_label(_id, %{"meta" => %{"label" => label}})
+       when is_binary(label) and label != "",
+       do: label
+
+  defp model_label(id, _model), do: id
 
   defp normalize_owned_by(owner) when is_binary(owner) and owner != "", do: owner
   defp normalize_owned_by(_owner), do: nil

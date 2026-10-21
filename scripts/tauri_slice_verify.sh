@@ -297,12 +297,11 @@ Real DeepSeek mode:
   log with HTTP 2xx. It requires NOVEL_DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.
 
 Real Strata mode (nightly / live, not deterministic CI):
-  --provider strata uses NovelAgent.Provider.Strata, the local Strata
-  (strata-engine) OpenAI-compatible service, default http://127.0.0.1:8081/v1
-  with the qwen3.8-flash-next-q2_0 model and no API key. The Strata app must
-  already be running on this machine. The scenario verifies the real
-  POST /v1/chat/completions log with HTTP 2xx under
-  artifacts/slice-verify/<slice-id>-tauri-strata/llm-calls/.
+  --provider strata uses NovelAgent.Provider.Strata, the single Strata-App-managed
+  inference backend at http://127.0.0.1:47831/v1 (one unified endpoint, models are
+  managed by the Strata app) and no API key. The Strata app must already be running
+  on this machine. The scenario verifies the real POST /v1/chat/completions log with
+  HTTP 2xx under artifacts/slice-verify/<slice-id>-tauri-strata/llm-calls/.
 EOF
 }
 
@@ -389,12 +388,12 @@ if [[ "$SLICE_VERIFY_PROVIDER" == "deepseek" && -z "${NOVEL_DEEPSEEK_API_KEY:-}$
   exit 65
 fi
 
-# Strata 是本机 live 服务而不是 CI 替身：启动 Tauri 前先确认它真的在跑，
-# 否则失败会埋在页面错误里，无法区分“基础设施没起”和“产品链路坏了”。
+# Strata App 管理的统一推理后台是本机 live 服务而不是 CI 替身：启动 Tauri 前先确认
+# 统一入口真的在跑，否则失败会埋在页面错误里，无法区分“基础设施没起”和“产品链路坏了”。
 if [[ "$SLICE_VERIFY_PROVIDER" == "strata" ]]; then
-  STRATA_ENDPOINT="${NOVEL_STRATA_ENDPOINT:-http://127.0.0.1:8081/v1}"
+  STRATA_ENDPOINT="${NOVEL_STRATA_ENDPOINT:-http://127.0.0.1:47831/v1}"
   if ! curl -s --max-time 3 "${STRATA_ENDPOINT%/}/models" >/dev/null 2>&1; then
-    echo "Strata live verification requires the Strata app running at ${STRATA_ENDPOINT} (GET /models unreachable)" >&2
+    echo "Strata live verification requires the Strata App unified backend at ${STRATA_ENDPOINT} (GET /models unreachable)" >&2
     exit 65
   fi
 fi
@@ -719,7 +718,7 @@ native_action_description() {
       echo "open model settings from real workbench -> verify OpenAI/Minimax/Zhipu/Kimi/Gemini come from the backend registry -> confirm the OpenAI subscription auth hint -> enter a fake OpenAI key -> failing test connection keeps runtime unchanged -> save -> verify provider options redact the secret and distinguish both OpenAI auth methods"
       ;;
     su01-provider-strata-local)
-      echo "open model settings from real workbench -> select the local Strata provider from the backend registry -> assert the default endpoint http://127.0.0.1:8081/v1 -> refresh the real local Strata model list and select qwen3.8-flash-next-q2_0 -> test connection -> save and switch -> verify the top bar shows Strata and the model -> send one chat message -> verify a real Strata turn_result and POST /v1/chat/completions 2xx"
+      echo "open model settings from real workbench -> select the Strata provider from the backend registry -> verify the single Strata-App-managed unified endpoint http://127.0.0.1:47831/v1 and that no per-profile endpoint input exists -> refresh the real unified /v1/models list and select the Strata-App-managed model -> test connection -> save and switch -> verify the top bar shows Strata and the model -> send one chat message -> verify a real Strata turn_result and POST /v1/chat/completions 2xx"
       ;;
     su01-local-secret-file-roundtrip)
       echo "drive the real Tauri WebView with macOS CGEvent -> select DeepSeek -> save a fake API key -> verify provider-secrets.json 0600 storage, restart readback, and redaction without product hooks"

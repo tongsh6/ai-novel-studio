@@ -5,9 +5,7 @@ import {
   configureProvider,
   getProviderSecretStorageStatus,
   getProviderOptions,
-  isLoopbackProviderEndpoint,
   isValidProviderEndpoint,
-  listProviderLocalModels,
   listProviderModels,
   saveAndApplyModelProviderConfig,
   testProviderConnection,
@@ -223,12 +221,12 @@ describe("model provider API client", () => {
                 id: "strata",
                 label: "Strata",
                 current: true,
-                model: "strata-local",
-                endpoint: "http://127.0.0.1:8081/v1",
+                model: "iq3_s",
+                endpoint: "http://127.0.0.1:47831/v1",
                 requires_api_key: false,
                 supports_api_key: true,
-                supports_endpoint: true,
-                supports_thinking: false,
+                supports_endpoint: false,
+                supports_thinking: true,
                 api_key_configured: false,
               },
             ],
@@ -242,8 +240,8 @@ describe("model provider API client", () => {
         {
           id: "strata",
           label: "Strata",
-          model: "strata-local",
-          endpoint: "http://127.0.0.1:8081/v1",
+          model: "iq3_s",
+          endpoint: "http://127.0.0.1:47831/v1",
           requires_api_key: false,
           supports_api_key: true,
         },
@@ -435,184 +433,5 @@ describe("model provider API client", () => {
 
     expect(store.get("ans.modelProviderSettings")).toContain('"api_key_configured":false');
     expect(bodies[1]).toMatchObject({ api_key: null, clear_api_key: true });
-  });
-});
-
-// Contract: tasks/slices/SU01-strata-local-models.md §4（本机 Strata 模型发现）
-describe("provider local model discovery", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
-
-  it("requests local models from the provider discovery endpoint", async () => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            ok: true,
-            provider: "strata",
-            models: [
-              {
-                id: "qwen3.8-flash-next-iq3_s",
-                label: "qwen3.8-flash-next-iq3_s",
-                endpoint: "http://127.0.0.1:8082/v1",
-                host: "127.0.0.1",
-                port: 8082,
-                running: false,
-                config: "strata-iq3_s.json",
-              },
-            ],
-          }),
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await listProviderLocalModels("strata");
-
-    expect(result).toMatchObject({
-      ok: true,
-      provider: "strata",
-      models: [
-        {
-          id: "qwen3.8-flash-next-iq3_s",
-          endpoint: "http://127.0.0.1:8082/v1",
-          port: 8082,
-          running: false,
-          config: "strata-iq3_s.json",
-        },
-      ],
-    });
-
-    const requestUrl = fetchMock.mock.calls[0]?.[0];
-    if (typeof requestUrl !== "string") throw new Error("expected request URL string");
-    expect(requestUrl).toContain("/api/provider/local-models?provider=strata");
-    expect(fetchMock.mock.calls[0]?.[1]).toBeUndefined();
-  });
-
-  it("normalizes local model entries and drops unusable or duplicate profiles", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            ok: true,
-            provider: "strata",
-            models: [
-              {
-                id: "qwen3.8-flash-next-iq3_s",
-                label: "qwen3.8-flash-next-iq3_s",
-                endpoint: "http://127.0.0.1:8082/v1",
-                host: "127.0.0.1",
-                port: 8082,
-                running: true,
-                config: "strata-iq3_s.json",
-              },
-              {
-                id: "qwen3.8-flash-next-iq3_s",
-                label: "duplicate profile",
-                endpoint: "http://127.0.0.1:9999/v1",
-                host: "127.0.0.1",
-                port: 9999,
-                running: false,
-                config: "duplicate.json",
-              },
-              {
-                id: "  ",
-                label: "missing id",
-                endpoint: "http://127.0.0.1:8080/v1",
-              },
-              {
-                id: "missing-endpoint",
-                label: "missing endpoint",
-                endpoint: "   ",
-              },
-              {
-                id: " qwen3.8-flash-next-q2_0 ",
-                label: "",
-                endpoint: " http://127.0.0.1:8081/v1 ",
-                host: "",
-                port: 70000,
-                running: false,
-                config: "  ",
-              },
-            ],
-          }),
-      }),
-    );
-
-    const result = await listProviderLocalModels("strata");
-
-    expect(result.models).toHaveLength(2);
-    expect(result.models[0]).toMatchObject({
-      id: "qwen3.8-flash-next-iq3_s",
-      label: "qwen3.8-flash-next-iq3_s",
-      endpoint: "http://127.0.0.1:8082/v1",
-      port: 8082,
-      running: true,
-      config: "strata-iq3_s.json",
-    });
-    expect(result.models[1]).toEqual({
-      id: "qwen3.8-flash-next-q2_0",
-      label: "qwen3.8-flash-next-q2_0",
-      endpoint: "http://127.0.0.1:8081/v1",
-      host: "127.0.0.1",
-      port: null,
-      running: false,
-      config: null,
-    });
-  });
-
-  it("surfaces the backend discovery failure message", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 422,
-        json: () =>
-          Promise.resolve({
-            ok: false,
-            provider: "missing",
-            models: [],
-            message: "unknown provider",
-            detail: 'provider "missing" is not registered',
-          }),
-      }),
-    );
-
-    await expect(listProviderLocalModels("strata")).rejects.toThrow("unknown provider");
-  });
-
-  it("falls back to an HTTP status message when discovery has no message", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        json: () => Promise.resolve({}),
-      }),
-    );
-
-    await expect(listProviderLocalModels("strata")).rejects.toThrow(
-      "listProviderLocalModels failed: HTTP 500",
-    );
-  });
-
-  it("recognizes only loopback provider endpoints", () => {
-    expect(isLoopbackProviderEndpoint("http://127.0.0.1:8081/v1")).toBe(true);
-    expect(isLoopbackProviderEndpoint("http://localhost:8082/v1")).toBe(true);
-    expect(isLoopbackProviderEndpoint("https://LOCALHOST/v1")).toBe(true);
-    expect(isLoopbackProviderEndpoint("http://[::1]:8082/v1")).toBe(true);
-
-    expect(isLoopbackProviderEndpoint("")).toBe(false);
-    expect(isLoopbackProviderEndpoint("   ")).toBe(false);
-    expect(isLoopbackProviderEndpoint("https://api.deepseek.com")).toBe(false);
-    expect(isLoopbackProviderEndpoint("http://192.168.1.9:8081/v1")).toBe(false);
-    expect(isLoopbackProviderEndpoint("http://127.0.0.1.example.com/v1")).toBe(false);
-    expect(isLoopbackProviderEndpoint("localhost:8081/v1")).toBe(false);
-    expect(isLoopbackProviderEndpoint("ftp://127.0.0.1/v1")).toBe(false);
-    expect(isLoopbackProviderEndpoint("not a url")).toBe(false);
   });
 });

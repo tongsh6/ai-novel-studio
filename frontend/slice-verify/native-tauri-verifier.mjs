@@ -10033,8 +10033,14 @@ function findSu01ProviderStrataLocalEvidence(records) {
       record.slice_id === sliceId &&
       record.provider_selected === "strata" &&
       record.provider_label === "Strata" &&
-      record.endpoint_default === "http://127.0.0.1:8081/v1" &&
-      record.strata_model_selected === "qwen3.8-flash-next-q2_0" &&
+      // 2026-10-22 方案修正：唯一连接目标是 Strata App 管理的统一推理后台。
+      record.endpoint_default === "http://127.0.0.1:47831/v1" &&
+      record.endpoint_input_hidden === true &&
+      record.provider_options_endpoint_fixed === true &&
+      typeof record.strata_model_selected === "string" &&
+      record.strata_model_selected.length > 0 &&
+      Array.isArray(record.listed_model_ids) &&
+      record.listed_model_ids.includes(record.strata_model_selected) &&
       record.connection_test_passed === true &&
       record.live_provider === "strata" &&
       record.assistant_reply_non_empty === true &&
@@ -23074,10 +23080,11 @@ function su01ProviderStrataLocalBehavior(records, evidence, options) {
     model_after_switch: evidence.model_after_switch,
     assertions: [
       "strata_provider_came_from_backend_registry",
-      "default_endpoint_is_local_strata_127_0_0_1_8081",
-      "model_list_came_from_live_local_strata_models_endpoint",
-      "qwen3_8_flash_next_q2_0_was_selected_in_the_visible_dialog",
-      "test_connection_succeeded_against_live_local_strata",
+      "single_unified_strata_app_backend_endpoint_is_127_0_0_1_47831",
+      "model_settings_has_no_per_profile_endpoint_input",
+      "model_list_came_from_live_unified_strata_backend_models_endpoint",
+      "strata_app_managed_model_was_selected_in_the_visible_dialog",
+      "test_connection_succeeded_against_live_unified_strata_backend",
       "save_switched_runtime_provider_to_strata",
       "top_bar_model_button_showed_strata_and_current_model",
       "post_save_turn_used_strata_provider_in_gateway_log",

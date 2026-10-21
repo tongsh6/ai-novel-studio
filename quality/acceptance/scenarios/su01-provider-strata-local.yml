@@ -1,5 +1,5 @@
 id: su01-provider-strata-local
-title: 本地 Strata provider 真实页面闭环（registry → 模型列表 → 连接 → 保存切换 → 真实 turn）
+title: Strata App 统一推理后台 provider 真实页面闭环（registry → 统一端点 → 模型列表 → 连接 → 保存切换 → 真实 turn）
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh su01-provider-strata-local --surface tauri --provider strata
@@ -12,8 +12,9 @@ contract:
 
 invariants:
   - strata-provider-comes-from-backend-registry
-  - strata-default-endpoint-is-local-127-0-0-1-8081
-  - strata-model-list-comes-from-live-local-strata
+  - strata-connects-only-to-the-single-strata-app-managed-backend-127-0-0-1-47831
+  - strata-model-settings-has-no-per-profile-endpoint-input
+  - strata-model-list-comes-from-the-live-strata-app-managed-backend
   - strata-api-key-is-optional-not-required
   - strata-thinking-is-disabled-by-default-through-top-level-reasoning-effort
   - saving-provider-switch-affects-the-next-real-turn
@@ -27,9 +28,9 @@ setup:
 user_flow:
   - open: real workbench model settings from the visible top-bar model status button
   - select: Strata provider from the backend-driven provider dropdown
-  - observe: the endpoint input defaults to http://127.0.0.1:8081/v1
-  - refresh: the model list from the live local Strata /v1/models endpoint
-  - select: qwen3.8-flash-next-q2_0 from the visible model dropdown
+  - observe: there is no per-profile endpoint input; provider options expose the single unified backend endpoint http://127.0.0.1:47831/v1
+  - refresh: the model list from the live Strata-App-managed backend /v1/models endpoint
+  - select: the model currently served by the Strata App from the visible model dropdown
   - test: click the visible 测试连接 button and see 连接可用。
   - save: click 保存并切换, the dialog closes and the top bar shows Strata with the current model
   - send: one short chat message from the real workbench composer
@@ -47,22 +48,24 @@ evidence:
 assertions:
   ui:
     - Strata appears in the provider dropdown rendered from the backend provider registry
-    - the endpoint input defaults to http://127.0.0.1:8081/v1
-    - refreshing the model list shows qwen3.8-flash-next-q2_0 and it can be selected
-    - test connection shows 连接可用。 against the live local Strata service
+    - the model settings dialog has no per-profile endpoint input for Strata
+    - provider options expose the single unified backend endpoint http://127.0.0.1:47831/v1 and supports_endpoint=false
+    - refreshing the model list shows the model currently served by the Strata App and it can be selected
+    - test connection shows 连接可用。 against the live Strata App unified backend
     - after save the top-bar model button shows Strata and the current model
     - the assistant reply for the sent chat message is visible in the workbench
   network:
-    - provider options reports current_provider=strata with label Strata and the default endpoint/model
+    - provider options reports current_provider=strata with label Strata and the unified endpoint/model
     - provider options reports requires_api_key=false and supports_api_key=true
-    - provider_gateway.complete.done for the correlated turn reports provider=strata
+    - provider_gateway.complete.done for the correlated turn reports provider=strata with the selected model
   data:
     - the LLM call log contains POST /v1/chat/completions with HTTP 2xx for the correlated turn
     - ui_state records turn_id, live_provider=strata, connection_test_passed=true and assistant_reply_non_empty=true
 
 known_limits:
-  - This is a nightly/live scenario, not a deterministic CI scenario: it requires the Strata desktop app to be running on the same machine at http://127.0.0.1:8081 with the qwen3.8-flash-next-q2_0 model loaded. tauri_slice_verify.sh fails fast when that endpoint is unreachable.
-  - It does not prove remote/cloud Strata behavior or a key-protected Strata instance; the default local service is keyless and the optional serving.apiKey Bearer path is covered by provider adapter tests, not by this live page scenario.
+  - This is a nightly/live scenario, not a deterministic CI scenario: it requires the Strata App to be running on the same machine with its unified OpenAI-compatible backend at http://127.0.0.1:47831/v1. tauri_slice_verify.sh fails fast when that endpoint is unreachable.
+  - The model served by the Strata App is managed outside this product; the scenario selects whatever model the unified backend currently reports rather than pinning a model name.
+  - It does not prove remote/cloud Strata behavior or a key-protected Strata backend; the default local unified backend is keyless and the optional Bearer path is covered by provider adapter tests, not by this live page scenario.
   - It does not prove the model reply quality; it only proves the reply is a non-empty, visible assistant message produced by a real Strata turn.
   - Like every nightly Tauri scenario, it needs the local Tauri dev toolchain and a working macOS/Linux desktop automation environment.
 

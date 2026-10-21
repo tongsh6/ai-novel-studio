@@ -151,7 +151,7 @@
 | `p1-chapter-word-count-target.yml` | 作者目标字数进入正文生成链路 |
 | `p1-export-minimum.yml` | 阅读投影导出全书 Markdown |
 | `p1-plan-incremental.yml` | 增量章节规划追加新章且不改旧章 |
-| `p1-prose-execution-brief.yml` | 正文生成携带场级执行简述（B11C 2026-10-22 扩展：档案大纲场次计划只读可见 + 简报 `causal_spine`/`information_delta`/`dialogue_intent`/`sensory_anchor` 覆盖 + writer prompt 外证） |
+| `p1-prose-execution-brief.yml` | 正文生成携带场级执行简述 |
 | `p1-prose-quality-adoption-boundary.yml` | 质量修订候选采纳边界 |
 | `p1-prose-quality-evaluator-degrade.yml` | 质量评估降级诚实提示 |
 | `p1-prose-quality-finding-roundtrip.yml` | 形式候选、修辞裁决与章节节奏真实页面往返 |
@@ -175,10 +175,9 @@
 | `su01-provider-endpoint-validation.yml` | 供应商 endpoint URL 校验 |
 | `su01-provider-health-model.yml` | 供应商健康状态与模型徽标 |
 | `su01-provider-model-list-success.yml` | 供应商实时模型列表成功矩阵 |
-| `su01-provider-strata-local.yml` | 本地 Strata provider 真实页面闭环（registry/端点/模型列表/连接/保存切换/真实 turn） |
+| `su01-provider-strata-local.yml` | Strata App 统一推理后台 provider 真实页面闭环（registry/统一端点/模型列表/连接/保存切换/真实 turn） |
 | `su01-provider-test-failure-ui.yml` | 模型测试连接失败反馈与恢复 |
 | `su01-provider-vendor-matrix.yml` | 供应商矩阵扩展（OpenAI/Minimax/智谱/Kimi/Gemini）与认证方式区分 |
-| `su01-strata-local-models.yml` | 本机 Strata 安装模型发现与选中端点原子绑定（browser 真实工作台，替身 /v1/models） |
 | `su02-artifact-projection-trace-isolation.yml` | 作品间 artifact / projection / trace 隔离 |
 | `su02-empty-start-unnamed-work.yml` | 空工作区自动启动未命名作品 |
 | `su02-work-lifecycle-management.yml` | 作品生命周期命名新增、改名与安全移出 |

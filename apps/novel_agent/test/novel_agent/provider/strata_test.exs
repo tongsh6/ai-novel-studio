@@ -4,8 +4,8 @@ defmodule NovelAgent.Provider.StrataTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Strata
 
-  @endpoint "http://127.0.0.1:8081/v1"
-  @model "qwen3.8-flash-next-q2_0"
+  @endpoint "http://127.0.0.1:47831/v1"
+  @model "iq3_s"
 
   describe "identity and defaults" do
     test "reports strata vendor identity and exposes the provider contract" do
@@ -16,12 +16,14 @@ defmodule NovelAgent.Provider.StrataTest do
       assert function_exported?(Strata, :list_models, 1)
     end
 
-    test "from_config/1 defaults to the local Strata endpoint/model with thinking disabled" do
+    test "from_config/1 defaults to the unified Strata App endpoint and follows the app-managed model" do
       state = Strata.from_config([])
 
       assert %Strata{} = state
       assert state.endpoint == @endpoint
-      assert state.model == @model
+
+      # 统一后台由 Strata App 管理当前模型；未显式配置模型时不发 model 字段。
+      assert state.model == nil
       assert state.timeout > 0
       assert state.max_tokens == 16_000
       # 默认关思考：thinking 归一为 :disabled，reasoning_effort 未配置。
@@ -50,12 +52,13 @@ defmodule NovelAgent.Provider.StrataTest do
       assert state.timeout == 1234
     end
 
-    test "from_config/0 builds a usable local state from application config" do
+    test "from_config/0 builds a usable unified state from application config" do
       state = Strata.from_config()
 
       assert %Strata{} = state
-      assert is_binary(state.endpoint) and state.endpoint != ""
-      assert is_binary(state.model) and state.model != ""
+      assert is_binary(state.endpoint) and String.starts_with?(state.endpoint, "http")
+      # 模型跟随 Strata App：未显式配置时为 nil（请求体不带 model）。
+      assert state.model == nil or is_binary(state.model)
       assert is_integer(state.timeout) and state.timeout > 0
     end
   end
@@ -98,6 +101,21 @@ defmodule NovelAgent.Provider.StrataTest do
 
       assert_receive {:request, _url, _body, opts}
       assert {"authorization", "Bearer sk-strata-secret"} in Keyword.fetch!(opts, :headers)
+    end
+
+    test "unconfigured model is omitted so Strata App routes to its loaded model" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+        {:ok, 200, success_body("ok")}
+      end
+
+      state = base_state(model: nil, http_fn: mock)
+
+      assert {:ok, _result} = Strata.complete(state, nil, "prompt", %InferenceParams{})
+      assert_receive {:request_body, body}
+      refute Map.has_key?(body, :model)
     end
   end
 
@@ -223,6 +241,32 @@ defmodule NovelAgent.Provider.StrataTest do
       assert_receive {:models_request, url, opts}
       assert url == @endpoint <> "/models"
       assert Keyword.fetch!(opts, :headers) == []
+    end
+
+    test "uses the unified backend's meta.label for the visible model label" do
+      get = fn _url, _opts ->
+        {:ok, 200,
+         %{
+           "data" => [
+             %{
+               "id" => "iq3_s",
+               "owned_by" => "strata",
+               "meta" => %{
+                 "instanceId" => "instance-1",
+                 "label" => "Qwen3.8-Flash-Next IQ3_S",
+                 "aliases" => ["qwen3.8-flash-next-iq3_s", "iq3_s"]
+               }
+             }
+           ]
+         }}
+      end
+
+      state = base_state(get_fn: get)
+
+      assert {:ok, [model]} = Strata.list_models(state)
+      assert model.id == "iq3_s"
+      assert model.label == "Qwen3.8-Flash-Next IQ3_S"
+      assert model.owned_by == "strata"
     end
   end
 

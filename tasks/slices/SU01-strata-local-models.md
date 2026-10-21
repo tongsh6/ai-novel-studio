@@ -1,10 +1,21 @@
 # SU01 Strata 本机模型发现 / 模型列表列出本机 Strata 已安装模型
 
-- 状态：**browser 面 closed（2026-10-21，真实工作台 26/26 断言 PASS）；native Tauri 面未闭环（后续 checkpoint，见 §7/§9）**
+> **SUPERSEDED（2026-10-22）**：作者方案修正——「只一套由 Strata App 管理的推理后台，统一连接
+> `http://127.0.0.1:47831/v1`」。本 slice 的 per-profile 发现（读 `strata-*.json`、逐引擎端口
+> `/v1/models` 探活、设置页 profile 列表与模型-端点原子绑定）整体被取代，以下实现已移除：
+> `NovelAgent.Provider.Strata.LocalModels`、`Strata.local_models/0,1`、
+> `Gateway.provider_local_models/1`、Application 代理、`GET /api/provider/local-models`、
+> 前端 `listProviderLocalModels`/`isLoopbackProviderEndpoint`/profile 列表 UI 与 copy、
+> browser driver `su01-strata-local-models` + scenario manifest。当前口径见
+> `tasks/slices/SU01-strata-local-provider.md` §10 与 `docs/design/acceptance/system/SU-01-model-provider.md`
+> 2026-10-22 方案修正段。本文保留为历史记录（当时的 browser 验收 26/26 PASS 是真实历史证据，
+> 不再代表当前产品行为）。
+
+- 状态：**SUPERSEDED（2026-10-22，由 Strata App 统一推理后台方案取代）；历史：browser 面 closed（2026-10-21，真实工作台 26/26 断言 PASS）；native Tauri 面未闭环**
 - 类型：System Slice（Provider Runtime）+ UI Contract Slice + Acceptance Infrastructure
 - 来源：作者 2026-10-21 真实使用反馈——模型设置里 Strata 模型列表只有一个（`qwen3.8-flash-next-q2_0`）且「无法连接 Strata」，而本机实际有正在运行的 `IQ3_S`（8082）与 q2_0（8081）两个 Strata profile；作者拍板「加本机 Strata 模型发现」。
 - 所属验收：`docs/design/acceptance/system/SU-01-model-provider.md`
-- 关联既有 slice：`tasks/slices/SU01-strata-local-provider.md`（2026-10-21 的 Strata provider 接入）
+- 关联既有 slice：`tasks/slices/SU01-strata-local-provider.md`（2026-10-21 的 Strata provider 接入；2026-10-22 方案修正见其 §10）
 
 ## 0. 问题事实（2026-10-21 排查）
 

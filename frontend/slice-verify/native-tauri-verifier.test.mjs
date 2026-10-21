@@ -14557,8 +14557,10 @@ describe("SU01 本地 Strata provider 证据", () => {
     socket_connected: true,
     provider_selected: "strata",
     provider_label: "Strata",
-    endpoint_default: "http://127.0.0.1:8081/v1",
-    strata_model_selected: "qwen3.8-flash-next-q2_0",
+    endpoint_default: "http://127.0.0.1:47831/v1",
+    endpoint_input_hidden: true,
+    provider_options_endpoint_fixed: true,
+    strata_model_selected: "iq3_s",
     connection_test_passed: true,
     live_provider: "strata",
     assistant_reply_non_empty: true,
@@ -14568,7 +14570,7 @@ describe("SU01 本地 Strata provider 证据", () => {
     provider_options_current_provider: "strata",
     provider_switch_saved: true,
     no_acceptance_hooks: true,
-    listed_model_ids: ["qwen3.8-flash-next-q2_0"],
+    listed_model_ids: ["iq3_s"],
     message_text: "请用一句话回复：Strata 已连接。",
   };
   const turnEvents = keyEventsForSlice(slice).filter((event) => event !== "channel.join.done");
@@ -14576,11 +14578,11 @@ describe("SU01 本地 Strata provider 证据", () => {
     { event: "channel.join.done", work_id: workId },
     ui,
     ...turnEvents.map((event) => ({ event, turn_id: turnId })),
-    { event: "provider_gateway.complete.done", turn_id: turnId, provider: "strata", model: "qwen3.8-flash-next-q2_0" },
+    { event: "provider_gateway.complete.done", turn_id: turnId, provider: "strata", model: "iq3_s" },
   ];
   const llmRecords = [
     { turn_id: turnId, provider: "strata",
-      request: { method: "POST", url: "http://127.0.0.1:8081/v1/chat/completions" },
+      request: { method: "POST", url: "http://127.0.0.1:47831/v1/chat/completions" },
       response: { status: 200 } },
   ];
 
@@ -14604,6 +14606,12 @@ describe("SU01 本地 Strata provider 证据", () => {
     expect(findNativeSliceEvidence(slice, otherProvider)).toBeNull();
     expect(findNativeSliceEvidence(slice, [{ ...ui, connection_test_passed: false }, ...records.slice(1)])).toBeNull();
     expect(findNativeSliceEvidence(slice, [{ ...ui, endpoint_default: "http://localhost:1234/v1" }, ...records.slice(1)])).toBeNull();
+    // 2026-10-22 方案修正：per-profile 旧端点 / 端点输入框重新出现 / 模型不在实时列表
+    // 都不允许通过——统一后台端点与 App 管理模型必须同源。
+    expect(findNativeSliceEvidence(slice, [{ ...ui, endpoint_default: "http://127.0.0.1:8081/v1" }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, endpoint_input_hidden: false }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, provider_options_endpoint_fixed: false }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, listed_model_ids: [] }, ...records.slice(1)])).toBeNull();
     expect(findNativeSliceEvidence(slice, [{ ...ui, assistant_reply_non_empty: false }, ...records.slice(1)])).toBeNull();
   });
 });

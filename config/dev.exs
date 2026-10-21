@@ -36,10 +36,10 @@ anthropic_timeout_ms =
 deepseek_timeout_ms =
   System.get_env("NOVEL_DEEPSEEK_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
-# 本地默认 provider：Strata（strata-engine）Q2_0 本地服务（127.0.0.1:8081）。
-# 可经 NOVEL_PROVIDER_DEFAULT 覆盖（如 lmstudio / deepseek）；模型/端点仍由各
-# provider 配置的 NOVEL_* env 覆盖。选 strata 的原因：本地推理默认走 Strata 的
-# Q2 服务，LM Studio 配置保留为可切换 fallback（不删除）。
+# 本地默认 provider：Strata App 管理的统一推理后台（唯一一套，127.0.0.1:47831/v1）。
+# 可经 NOVEL_PROVIDER_DEFAULT 覆盖（如 lmstudio / deepseek）；模型由 Strata App
+# 管理，端点/思考仍由各 provider 配置的 NOVEL_* env 覆盖。LM Studio 配置保留为
+# 可切换 fallback（不删除）。
 config :novel_agent, :provider,
   default:
     System.get_env("NOVEL_PROVIDER_DEFAULT", "strata")
@@ -56,14 +56,15 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer(),
   timeout: lmstudio_timeout_ms
 
-# Strata 本地推理（strata-engine）：默认 127.0.0.1:8081，无 Key 也可用，思考默认关。
+# Strata App 统一推理后台：默认 127.0.0.1:47831/v1，无 Key 也可用，思考默认关。
+# 模型由 App 管理（未设 NOVEL_STRATA_MODEL 时请求不带 model）；端点不在设置页配置。
 # Elixir 对同一模块配置是整块替换而非深合并，这里必须与 config.exs 同源写全
 # （端点/模型/思考/max_tokens/timeout 都从 env 读），否则只是显式设 timeout 也会
 # 把其余 key 一并丢掉（M4 狗粮实锤的同类病灶，见 config/test.exs LM Studio 注释）。
 config :novel_agent, NovelAgent.Provider.Strata,
   api_key: System.get_env("NOVEL_STRATA_API_KEY"),
-  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:8081/v1"),
-  model: System.get_env("NOVEL_STRATA_MODEL", "qwen3.8-flash-next-q2_0"),
+  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:47831/v1"),
+  model: System.get_env("NOVEL_STRATA_MODEL"),
   thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
   reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
   timeout: strata_timeout_ms,

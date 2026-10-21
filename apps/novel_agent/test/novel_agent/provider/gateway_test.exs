@@ -64,59 +64,13 @@ defmodule NovelAgent.Provider.GatewayTest do
     def name, do: "capturing"
   end
 
-  # SU01：声明 local_models/0 的测试 adapter，用于验证 Gateway 对发现条目的归一化
-  # （只有声明发现能力的 adapter 才被调用；未知字段/坏条目被丢弃）。
-  defmodule LocalModelsProvider do
-    @behaviour NovelAgent.Provider
-
-    alias NovelAgent.Provider.Result
-
-    defstruct []
-
-    def local_models do
-      [
-        %{
-          id: "m-b",
-          label: "Model B",
-          endpoint: "http://127.0.0.1:9001/v1",
-          host: "127.0.0.1",
-          port: 9001,
-          running: true,
-          config: "strata-b.json",
-          secret: "must-not-leak"
-        },
-        %{
-          "id" => "m-a",
-          "label" => "Model A",
-          "endpoint" => "http://127.0.0.1:9002/v1",
-          "host" => "127.0.0.1",
-          "port" => 9002,
-          "running" => false,
-          "config" => "strata-a.json"
-        },
-        %{id: "m-a", label: "duplicate"},
-        %{label: "no id"}
-      ]
-    end
-
-    @impl true
-    def complete(_state, _model, _prompt, _params), do: {:ok, Result.new("local models")}
-
-    @impl true
-    def health_check(_state), do: :ok
-
-    @impl true
-    def name, do: "local_models"
-  end
-
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
     RuntimeConfig.reset()
 
     Application.put_env(:novel_agent, :extra_providers, %{
       slice_verify: NovelAgent.Test.Provider.SliceVerify,
-      capturing: CapturingProvider,
-      local_models: LocalModelsProvider
+      capturing: CapturingProvider
     })
 
     on_exit(fn ->
@@ -290,12 +244,12 @@ defmodule NovelAgent.Provider.GatewayTest do
       end
     end
 
-    test "exposes Strata as a keyless-capable local provider without leaking secrets" do
+    test "exposes Strata as the single keyless Strata-App-managed backend" do
       old_strata = Application.get_env(:novel_agent, Strata)
 
       Application.put_env(:novel_agent, Strata,
-        endpoint: "http://127.0.0.1:8081/v1",
-        model: "qwen3.8-flash-next-q2_0"
+        endpoint: "http://127.0.0.1:47831/v1",
+        model: nil
       )
 
       try do
@@ -304,12 +258,15 @@ defmodule NovelAgent.Provider.GatewayTest do
         assert strata.label == "Strata"
         assert strata.requires_api_key == false
         assert strata.supports_api_key == true
-        assert strata.supports_endpoint == true
+
+        # 2026-10-22 方案修正：产品只连 Strata App 统一推理后台，端点不在设置页配置。
+        assert strata.supports_endpoint == false
         assert strata.supports_thinking == true
         assert strata.supports_streaming == true
         assert strata.supports_cancellation == true
-        assert strata.model == "qwen3.8-flash-next-q2_0"
-        assert strata.endpoint == "http://127.0.0.1:8081/v1"
+        # 模型由 Strata App 管理：未显式选择时不下发模型。
+        assert strata.model == nil
+        assert strata.endpoint == "http://127.0.0.1:47831/v1"
         assert is_boolean(strata.api_key_configured)
         refute Map.has_key?(strata, :api_key)
       after
@@ -319,6 +276,26 @@ defmodule NovelAgent.Provider.GatewayTest do
           Application.delete_env(:novel_agent, Strata)
         end
       end
+    end
+
+    test "ignores a caller-supplied endpoint for the unified Strata backend" do
+      configured_endpoint =
+        Application.get_env(:novel_agent, Strata, [])
+        |> Keyword.get(:endpoint, "http://127.0.0.1:47831/v1")
+
+      assert {:ok, %{provider: :strata}} =
+               Gateway.configure_provider(%{
+                 provider: "strata",
+                 endpoint: "http://127.0.0.1:8081/v1",
+                 model: "iq3_s"
+               })
+
+      # 旧版按 profile 保存的 8081 端点不得穿透运行时配置；运行时保持配置的
+      # Strata App 统一入口。
+      assert RuntimeConfig.provider_config(:strata)[:endpoint] == configured_endpoint
+
+      strata = Enum.find(Gateway.provider_options().providers, &(&1.id == :strata))
+      assert strata.endpoint == configured_endpoint
     end
 
     test "distinguishes OpenAI api_key vs subscription and never leaks their keys" do
@@ -745,109 +722,6 @@ defmodule NovelAgent.Provider.GatewayTest do
       after
         Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, old_lmstudio)
       end
-    end
-  end
-
-  describe "provider_local_models/1" do
-    test "discovers local Strata profiles from the configured models directory" do
-      old_strata = Application.get_env(:novel_agent, Strata)
-      old_env_dir = System.get_env("NOVEL_STRATA_MODELS_DIR")
-      System.delete_env("NOVEL_STRATA_MODELS_DIR")
-
-      dir =
-        Path.join(
-          System.tmp_dir!(),
-          "gateway_local_models_#{System.unique_integer([:positive, :monotonic])}"
-        )
-
-      File.mkdir_p!(dir)
-
-      on_exit(fn ->
-        File.rm_rf(dir)
-
-        if old_env_dir do
-          System.put_env("NOVEL_STRATA_MODELS_DIR", old_env_dir)
-        else
-          System.delete_env("NOVEL_STRATA_MODELS_DIR")
-        end
-
-        if old_strata do
-          Application.put_env(:novel_agent, Strata, old_strata)
-        else
-          Application.delete_env(:novel_agent, Strata)
-        end
-      end)
-
-      File.write!(
-        Path.join(dir, "strata-a.json"),
-        Jason.encode!(%{"model_name" => "m-a", "port" => 1})
-      )
-
-      File.write!(
-        Path.join(dir, "strata-b.json"),
-        Jason.encode!(%{"model_name" => "m-b", "port" => 2})
-      )
-
-      Application.put_env(
-        :novel_agent,
-        Strata,
-        Keyword.put(old_strata || [], :models_dir, dir)
-      )
-
-      assert {:ok, %{provider: :strata, models: models}} =
-               Gateway.provider_local_models(%{"provider" => "strata"})
-
-      # 端口无人监听：探活失败只标 running=false，不发明模型。
-      assert Enum.map(models, &{&1.id, &1.running}) == [{"m-a", false}, {"m-b", false}]
-
-      assert Enum.all?(models, fn model ->
-               Map.keys(model) |> Enum.sort() ==
-                 [:config, :endpoint, :host, :id, :label, :port, :running]
-             end)
-
-      assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
-    end
-
-    test "returns empty models for providers without local discovery" do
-      assert {:ok, %{provider: :lmstudio, models: []}} =
-               Gateway.provider_local_models(%{"provider" => "lmstudio"})
-    end
-
-    test "normalizes provider entries and drops malformed ones" do
-      assert {:ok, %{provider: :local_models, models: models}} =
-               Gateway.provider_local_models(%{"provider" => "local_models"})
-
-      assert models == [
-               %{
-                 id: "m-b",
-                 label: "Model B",
-                 endpoint: "http://127.0.0.1:9001/v1",
-                 host: "127.0.0.1",
-                 port: 9001,
-                 running: true,
-                 config: "strata-b.json"
-               },
-               %{
-                 id: "m-a",
-                 label: "Model A",
-                 endpoint: "http://127.0.0.1:9002/v1",
-                 host: "127.0.0.1",
-                 port: 9002,
-                 running: false,
-                 config: "strata-a.json"
-               }
-             ]
-
-      refute inspect(models) =~ "must-not-leak"
-    end
-
-    test "unknown or missing provider follows the existing error contract" do
-      assert {:error, %{type: :invalid_provider, message: "unknown provider: nope"}} =
-               Gateway.provider_local_models(%{"provider" => "nope"})
-
-      # 缺失 provider 与既有 provider 端点同口径（fetch_provider 的 unknown provider 错误）。
-      assert {:error, %{type: :invalid_provider, message: "unknown provider: "}} =
-               Gateway.provider_local_models(%{})
     end
   end
 

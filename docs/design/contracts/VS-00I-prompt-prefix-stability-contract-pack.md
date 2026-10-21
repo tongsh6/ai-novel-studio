@@ -294,7 +294,7 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 诚实边界：Anthropic live `cache_read_input_tokens > 0` **未做**——shell 与桌面 secret 均无 Anthropic 凭据；Anthropic 断点策略需要把 prompt 切成 message content blocks（L1 末 / L2 末），当前 prompt 是单一 user message，分块契约未实现，不伪造。Gemini / Kimi / 智谱 / MiniMax / OpenAI 同样无凭据，保持未核实。
 
-**Frozen 后边界（2026-10-21）**：Anthropic live `cache_read_input_tokens > 0` 与断点分块、Gemini / Kimi / 智谱 / MiniMax / OpenAI 的凭据与 live 基线仍缺，按 §14 作为冻结后 adapter 增量，不阻塞本契约；本地默认 provider 已指向 Strata Q2（8081），Q2 live 复测在服务切换后补，不改变已冻结的判据与排序。
+**Frozen 后边界（2026-10-21）**：Anthropic live `cache_read_input_tokens > 0` 与断点分块、Gemini / Kimi / 智谱 / MiniMax / OpenAI 的凭据与 live 基线仍缺，按 §14 作为冻结后 adapter 增量，不阻塞本契约；本地默认 provider 已指向 Strata Q2（8081），Q2 live 复测在服务切换后补，不改变已冻结的判据与排序。**2026-10-22 口径注记**：本地 Strata 已改为只连 Strata App 统一推理后台 `http://127.0.0.1:47831/v1`（per-profile 8081/8082 方案 superseded）；本契约 8081/8082 记录保留为当时测量证据，不改变已冻结判据。
 
 ---
 

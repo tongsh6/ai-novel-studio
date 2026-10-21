@@ -81,16 +81,6 @@ defmodule NovelApplication do
   end
 
   @doc """
-  列出 provider 的本机已安装模型（当前仅 Strata 支持 profile 发现），不落库、
-  不改变当前运行时选择。
-  """
-  @spec provider_local_models(map()) ::
-          {:ok, %{provider: atom(), models: [map()]}} | {:error, map()}
-  def provider_local_models(attrs) when is_map(attrs) do
-    Gateway.provider_local_models(attrs)
-  end
-
-  @doc """
   返回 context_fetcher 用于注入 DialogueGateway。启用真实持久化时返回 DB fetcher。
   """
   def persistence_fetcher do

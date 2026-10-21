@@ -17788,8 +17788,8 @@ function assistantReplyVisibleNeedle(text) {
 async function driveSu01ProviderStrataLocal(page) {
   const provider = "strata";
   const providerLabel = "Strata";
-  const defaultEndpoint = "http://127.0.0.1:8081/v1";
-  const expectedModel = "qwen3.8-flash-next-q2_0";
+  // 2026-10-22 方案修正：产品只连 Strata App 管理的统一推理后台（唯一一套）。
+  const unifiedEndpoint = "http://127.0.0.1:47831/v1";
   const message = "请用一句话回复：Strata 已连接。";
 
   const joined = await waitForAppLogRecord(
@@ -17809,28 +17809,39 @@ async function driveSu01ProviderStrataLocal(page) {
   await page.locator("#model-provider-select").selectOption(provider);
   const providerSelected = await page.locator("#model-provider-select").inputValue();
 
-  // 2) 端点默认值必须来自后端 descriptor（本机 Strata 127.0.0.1:8081/v1）。
-  const endpointInput = page.locator("#model-provider-endpoint-input");
-  await endpointInput.waitFor({ timeout: 10_000 });
+  // 2) 统一后台端点由后端 descriptor 固定（supports_endpoint=false）：设置页不提供
+  //    端点输入框，端点契约只能经公开 provider options 读取。
+  const endpointInputCount = await page.locator("#model-provider-endpoint-input").count();
+  const optionsAfterSelectResponse = await fetch(`${baseUrl}/api/provider/options`);
+  assert(
+    optionsAfterSelectResponse.ok,
+    `Provider options failed after selecting Strata: ${optionsAfterSelectResponse.status}`,
+  );
+  const optionsAfterSelect = await optionsAfterSelectResponse.json();
+  const strataOptionAfterSelect = (optionsAfterSelect.providers ?? []).find(
+    (option) => option.id === provider,
+  );
   const providerOptionLabel = providerOptionLabels[providerSelected] ?? "";
-  const endpointDefault = await endpointInput.inputValue();
+  const endpointDefault = strataOptionAfterSelect?.endpoint ?? null;
 
-  // 3) 刷新模型列表 = 真实请求本机 Strata /v1/models；选中加载到的模型。
+  // 3) 刷新模型列表 = 真实请求 Strata App 统一后台 /v1/models；选中它当前提供的模型。
+  //    模型由 Strata App 管理，驱动不硬编码模型名。
   const refreshButton = page.getByRole("button", { name: "刷新模型列表" });
   await refreshButton.waitFor({ timeout: 10_000 });
   await refreshButton.click();
   await page.waitForFunction(
-    (modelId) =>
+    () =>
       Array.from(
         document.querySelectorAll("#model-provider-model-input option"),
         (option) => option.value,
-      ).includes(modelId),
-    expectedModel,
+      ).some((value) => value !== ""),
+    undefined,
     { timeout: 60_000 },
   );
   const listedModelIds = await page
     .locator("#model-provider-model-input option")
     .evaluateAll((nodes) => nodes.map((node) => node.value));
+  const expectedModel = listedModelIds.find((modelId) => modelId !== "") ?? "";
   await page.locator("#model-provider-model-input").selectOption(expectedModel);
   const modelSelected = await page.locator("#model-provider-model-input").inputValue();
 
@@ -17911,11 +17922,23 @@ async function driveSu01ProviderStrataLocal(page) {
     `Provider dropdown label for strata was ${providerOptionLabel}`,
   );
   assert(
-    endpointDefault === defaultEndpoint,
-    `Strata endpoint default was ${endpointDefault}, expected ${defaultEndpoint}`,
+    endpointDefault === unifiedEndpoint,
+    `Strata unified backend endpoint was ${endpointDefault}, expected ${unifiedEndpoint}`,
   );
+  assert(
+    endpointInputCount === 0,
+    "Model settings dialog must not offer a per-profile endpoint input for the unified Strata backend",
+  );
+  assert(
+    strataOptionAfterSelect?.supports_endpoint === false,
+    "Strata provider options must declare the fixed unified backend endpoint",
+  );
+  assert(expectedModel !== "", "Strata App unified backend returned no loadable model");
   assert(listedModelIds.includes(expectedModel), `Strata model list did not include ${expectedModel}`);
-  assert(modelSelected === expectedModel, "Strata model was not selected in the model settings dialog");
+  assert(
+    modelSelected === expectedModel,
+    "Strata model was not selected in the model settings dialog",
+  );
   assert(connectionTestPassed, "Strata test connection did not show 连接可用。");
   assert(
     providerOptions.current_provider === provider,
@@ -17923,8 +17946,8 @@ async function driveSu01ProviderStrataLocal(page) {
   );
   assert(
     strataOption?.label === providerLabel &&
-      strataOption?.endpoint === defaultEndpoint &&
-      strataOption?.model === expectedModel,
+      strataOption?.endpoint === unifiedEndpoint &&
+      strataOption?.model === modelSelected,
     "Provider options did not expose the Strata label/endpoint/model contract",
   );
   assert(
@@ -17932,8 +17955,8 @@ async function driveSu01ProviderStrataLocal(page) {
     "Strata provider options did not declare optional API key semantics",
   );
   assert(
-    topBarText.includes(providerLabel) && topBarText.includes(expectedModel),
-    "Top bar model button did not show Strata and qwen3.8-flash-next-q2_0",
+    topBarText.includes(providerLabel) && topBarText.includes(modelSelected),
+    `Top bar model button did not show Strata and the selected model (${modelSelected})`,
   );
   assert(assistantText.length > 0, "Strata turn_result did not include a non-empty assistant reply");
   assert(assistantReplyVisible, "Strata assistant reply was not visible in the real workbench");
@@ -17951,8 +17974,11 @@ async function driveSu01ProviderStrataLocal(page) {
       provider_selected: provider,
       provider_label: providerLabel,
       provider_option_label: providerOptionLabel,
-      endpoint_default: defaultEndpoint,
-      strata_model_selected: expectedModel,
+      endpoint_default: unifiedEndpoint,
+      endpoint_input_hidden: endpointInputCount === 0,
+      provider_options_supports_endpoint: strataOption?.supports_endpoint === true,
+      provider_options_endpoint_fixed: strataOption?.supports_endpoint === false,
+      strata_model_selected: modelSelected,
       listed_model_ids: listedModelIds,
       connection_test_passed: true,
       live_provider: provider,
@@ -17969,7 +17995,7 @@ async function driveSu01ProviderStrataLocal(page) {
       provider_options_supports_api_key: strataOption?.supports_api_key === true,
       provider_options_supports_thinking: strataOption?.supports_thinking === true,
       top_bar_contains_provider_label: topBarText.includes(providerLabel),
-      top_bar_contains_model: topBarText.includes(expectedModel),
+      top_bar_contains_model: topBarText.includes(modelSelected),
       model_provider_button_text: modelButtonText,
       model_provider_button_title: modelButtonTitle,
       message_text: message,

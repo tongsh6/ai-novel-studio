@@ -49,21 +49,13 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su01-provider-vendor-matrix --surface tauri
   - id: su01-provider-strata-local
-    title: "本地 Strata provider 真实页面闭环（registry → 模型列表 → 连接 → 保存切换 → 真实 turn）"
+    title: "Strata App 统一推理后台 provider 真实页面闭环（registry → 统一端点 → 模型列表 → 连接 → 保存切换 → 真实 turn）"
     tier: nightly
     surface: tauri
     default_provider: strata
     manifest: quality/acceptance/scenarios/su01-provider-strata-local.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su01-provider-strata-local --surface tauri --provider strata
-  - id: su01-strata-local-models
-    title: "本机 Strata 模型发现与选中端点原子绑定（browser 真实工作台）"
-    tier: pr-smoke
-    surface: browser
-    runner: slice_verify
-    manifest: quality/acceptance/scenarios/su01-strata-local-models.yml
-    driver: frontend/slice-verify/su01-strata-local-models.mjs
-    entrypoint: scripts/quality_accept.sh su01-strata-local-models --surface browser
   - id: su01-local-secret-file-roundtrip
     title: "真实 Tauri WebView 本地密钥文件写读与脱敏"
     tier: nightly

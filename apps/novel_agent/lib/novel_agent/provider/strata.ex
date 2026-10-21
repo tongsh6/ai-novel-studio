@@ -1,31 +1,33 @@
 defmodule NovelAgent.Provider.Strata do
   @moduledoc """
-  Strata 本地推理 provider adapter。
+  Strata 本地推理 provider adapter（Strata App 统一推理后台）。
 
-  [Strata](https://strata.ai)（strata-engine）在桌面端提供 OpenAI 兼容的本地
-  推理服务：默认监听 `http://127.0.0.1:8081/v1`，经 `/chat/completions` 暴露
-  流式/非流式生成、tool calls 与顶层 `reasoning_effort`，经 `/models` 暴露当前
-  已加载模型。默认模型为 `qwen3.8-flash-next-q2_0`（随 Strata 应用加载的模型
-  可经 `NOVEL_STRATA_MODEL` 覆盖）。
+  [Strata App](https://strata.ai) 负责本机推理引擎的启动、模型加载/切换与卸载，
+  并对外提供一个**统一的 OpenAI 兼容入口**：`http://127.0.0.1:47831/v1`。本
+  adapter 只连接这一个入口，不解析 Strata 安装目录 profile、不扫描端口、不管理
+  引擎生命周期——模型由 Strata App 决定，接口经 `/models` 暴露当前已加载模型
+  （`id` + `meta.label` + `aliases`）。
+
+  产品只保留这一套 Strata 推理后台连接（用户 2026-10-22 方案修正）：端点不再由
+  作者在设置页逐 profile 配置（Gateway descriptor `supports_endpoint: false`），
+  需要换地址时由部署侧用 `NOVEL_STRATA_ENDPOINT` 覆盖。
+
+  ## 模型
+
+  `NOVEL_STRATA_MODEL` 未配置时 adapter **不向请求体发送 `model` 字段**，由 Strata
+  App 把请求路由到当前已加载模型（统一后台的 `/models` 是真实模型来源）；设置页
+  刷新模型列表后由作者选择并保存显式模型 id（`iq3_s` 等）。Strata App 之后若切换
+  了加载模型，作者重新刷新/选择即可；陈旧模型 id 会被统一后端的
+  `400 Choose a loaded model ID.` 如实拒绝，不静默改写。
 
   ## 认证
 
-  Strata 的 serving API key 是**可选项**：本地回环服务默认无鉴权，也可在 Strata
-  设置里配置 `serving.apiKey`。因此本 adapter 声明 `api_key_required: false`：
-
-  - 配置了 `NOVEL_STRATA_API_KEY`（或运行时 provider 配置 api_key）→ 请求带
-    `Authorization: Bearer <key>`；
-  - 未配置 → 不发 Authorization 头，直接请求本地服务。
+  Strata App 的统一入口默认无鉴权；如部署侧配置了访问 Key，可经
+  `NOVEL_STRATA_API_KEY`（或运行时 provider 配置 api_key）携带
+  `Authorization: Bearer <key>`。因此本 adapter 声明 `api_key_required: false`。
 
   与 LM Studio 不同，Strata 是 keyless 但仍支持 `/models` 真实探活：
-  `health_check/1` 会 GET `/models` 验证服务可达，而不是只看本地配置。
-
-  ## 本机模型发现
-
-  strata-engine 一进程一模型，单端点 `/v1/models` 只能看到当前引擎自己的模型。
-  `local_models/0,1` 读本机 Strata 安装目录里的 `strata-*.json` profile 配置并对每个
-  profile 端点探活，列出本机已安装的全部 Strata 模型（实现与目录优先级见
-  `NovelAgent.Provider.Strata.LocalModels`）。
+  `health_check/1` 会 GET `/models` 验证统一后台可达，而不是只看本地配置。
 
   ## 思考控制
 
@@ -35,28 +37,26 @@ defmodule NovelAgent.Provider.Strata do
   情况下都不向 body 发送 `thinking` 字段。作者关思考（默认）→ 发 `"none"`。
 
   tool 调用沿用 OpenAI 兼容协议原样透传：`tools` + 具名 `tool_choice` 对象，
-  不做 LM Studio 式的 `"required"` 降级（Strata 接受具名对象）。
+  不做 LM Studio 式的 `"required"` 降级（统一后台接受具名对象）。
   """
 
   use NovelAgent.Provider.OpenAICompatible,
     vendor: "strata",
     label: "Strata",
-    default_endpoint: "http://127.0.0.1:8081/v1",
-    default_model: "qwen3.8-flash-next-q2_0",
+    default_endpoint: "http://127.0.0.1:47831/v1",
+    # 统一后台默认跟随 Strata App 当前已加载模型（请求体不带 model）。
+    default_model: nil,
     env_key: "NOVEL_STRATA_API_KEY",
     supports_thinking: true,
     api_key_required: false,
     thinking_style: :reasoning_effort
 
-  alias NovelAgent.Provider.Strata.LocalModels
-
   @doc """
-  列出本机 Strata 安装目录里的 profile 模型并探活（SU01 本机模型发现）。
+  Strata App 统一推理后台的 OpenAI 兼容 base URL。
 
-  目录优先级（opts > `NOVEL_STRATA_MODELS_DIR` > 应用配置 > 平台默认）与探活/容错
-  语义见 `NovelAgent.Provider.Strata.LocalModels`：探活失败只标 `running: false`，
-  目录/配置错误返回 `[]`，绝不 raise。
+  产品侧唯一连接入口；远端/测试可用 `NOVEL_STRATA_ENDPOINT` 覆盖（见
+  `NovelAgent.Provider.Strata.from_config/1`）。
   """
-  @spec local_models(keyword()) :: [LocalModels.model()]
-  def local_models(opts \\ []), do: LocalModels.list(opts)
+  @spec unified_base_url() :: String.t()
+  def unified_base_url, do: "http://127.0.0.1:47831/v1"
 end

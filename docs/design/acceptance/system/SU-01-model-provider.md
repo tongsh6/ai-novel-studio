@@ -1,6 +1,6 @@
 # SU-01 切换模型供应商
 
-> 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 DeepSeek / Anthropic / 本地 LM Studio / 本地 Strata / 测试 Stub 等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
+> 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 DeepSeek / Anthropic / 本地 LM Studio / 本地 Strata（Strata App 统一推理后台）/ 测试 Stub 等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
 >
 > 场景化验收口径：本文按完整功能蓝图验收“模型供应商管理”，不把已有健康检查误判为完整供应商切换。
 >
@@ -34,9 +34,13 @@
 
 > 2026-08-25 对账结论（D6 按用途分模型，`tasks/slices/D6-purpose-model-routing.md`）：provider config 契约扩展可选 `purpose_models` 表（键白名单 `writer/planner/evaluator/fact_inventory`，值为该 provider 的模型名；未知键/空值忽略）。`Gateway.execute` 在唯一模型决定点按 `route_hint || purpose` 查当前 provider 的表，命中即用覆盖模型，否则严格跟随全局默认——默认态（表空）行为零变化，符合「当前实现目标仍是全局一个模型」拍板。盘点调用经 `Execution.with_route_hint(:fact_inventory)` 细化寻址（purpose=:tool 与其他工具共键，不动 ProviderRun 冻结枚举）。模型设置对话框新增「按用途指定模型」区：每用途一个 select，选项来自供应商模型列表加「跟随全局」默认——延续「模型名不由作者手输」立场。Tauri 偏好（`ModelProviderPreference.purpose_models`）与启动重放链、浏览器兜底同步扩展。真实 Tauri `d6-purpose-model-routing` 证明：公开 config API 注入 writer 覆盖后，真实工作台正文请求的 writer gateway 调用如实记录覆盖模型、同 turn 其余调用保持全局模型、设置区真实可见且默认「跟随全局」。已知边界：stub 无模型列表，UI 内 select→保存→路由全链需真实 LM Studio 双模型，登记为狗粮/走查观察项；跨供应商路由（purpose→provider）未实现、未承诺。
 
-> 2026-10-21 对账结论（本地 Strata 本机模型发现，`SU01-STRATA-LOCAL-MODELS`）：作者真实使用反馈——模型设置里 Strata 模型列表只有一个 `qwen3.8-flash-next-q2_0` 且显示「无法连接 Strata」，而本机实际有正在使用的 IQ3_S（8082）与 q2_0（8081）两个 profile。根因：模型下拉只渲染当前端点 `GET /v1/models`；请求失败时把已保存模型当唯一占位；strata-engine 一进程一模型，单端点天然只能返回自己。新增能力：`NovelAgent.Provider.Strata.LocalModels` 从本机 Strata 安装目录 `strata-*.json` profile 解析 `model_name/host/port`，对每个 profile 的 `/v1/models` 真实探活得到 `running`（目录优先级 opts > `NOVEL_STRATA_MODELS_DIR` > 应用配置 > 平台默认），经 `Gateway.provider_local_models/1` → `GET /api/provider/local-models?provider=strata` 暴露；前端 Dialog 在 Strata + 回环端点时列出本机已安装 profile（`运行中`/`未运行`），选中 profile 时**模型与端点原子绑定**，发现为空/远端端点完全回退既有实时列表（其它 provider 零变化）。**验收**：backend 全量 `mix test` 1,633/0 + 前端 497/0 + `frontend_audit`/`design_trace`；外部自动化 browser 真实工作台 `bash scripts/slice_verify.sh su01-strata-local-models` PASS（26/26 断言；两个本机 OpenAI 兼容替身 18081/18082 + `tmp/test-strata-install` 夹具；证据 `artifacts/slice-verify/su01-strata-local-models/summary.json`）；本机真实数据 `Strata.local_models()` 解析出 iq3_s/8082 与 q2_0/8081（当时引擎未运行，`running=false` 为诚实结果）。**诚实边界**：`running` 只证明 profile `/models` 可达，不证明引擎权重/推理质量；native Tauri surface 场景、真实引擎换 profile 后的真实 turn 未在本 slice 断言（登记后续 checkpoint）；浏览器场景使用替身 `/v1/models`，不代表真实 Strata live。sub-slice 记录见 `tasks/slices/SU01-strata-local-models.md`。
+> 2026-10-21 对账结论（新增本地 Strata provider，历史）：后端新增 `NovelAgent.Provider.Strata` 并注册进 Gateway registry（id `strata`、label `Strata`、`requires_api_key=false`、`supports_api_key/thinking/streaming/cancellation=true`）。当时按 per-profile 方案接入本机 strata-engine 服务 `http://127.0.0.1:8081/v1`、默认模型 `qwen3.8-flash-next-q2_0`；该 per-profile 方案已被 2026-10-22 方案修正取代（见下段）。本地回环服务默认无鉴权；思考控制走请求级顶层 `reasoning_effort`（关闭思考发 `"none"`，默认关闭），不向 body 发送 `thinking` 对象；`health_check/1` 对本地服务做真实 `GET /models` 探活。前端模型设置 Dialog 仍完全由后端 registry 渲染，真实页面因此自然出现「Strata」选项，产品代码没有为验收新增任何识别逻辑。**验收入口**：`bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local`（或 `bash scripts/quality_accept.sh su01-provider-strata-local --surface tauri`，scenario 已声明 `default_provider: strata`），证据路径 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/`。2026-10-21 已由外部 Playwright driver 在真实 Tauri 工作台实跑 PASS（turn_id `message_91839ede-6d46-4abe-b4a0-dd13c5b234fc`；同 turn 2 次真实 `POST /v1/chat/completions` 均 HTTP 200）。sub-slice 记录见 `tasks/slices/SU01-strata-local-provider.md`。
 >
-> 2026-10-21 对账结论（新增本地 Strata provider）：后端新增 `NovelAgent.Provider.Strata` 并注册进 Gateway registry（id `strata`、label `Strata`、`requires_api_key=false`、`supports_api_key/endpoint/thinking/streaming/cancellation=true`）。默认接入本机 Strata（strata-engine）OpenAI 兼容服务 `http://127.0.0.1:8081/v1`，默认模型 `qwen3.8-flash-next-q2_0`；本地回环服务默认无鉴权，也支持在 Strata 设置里配置 `serving.apiKey`（配置即携带 `Authorization: Bearer`，无 Key 也发请求）。思考控制走请求级顶层 `reasoning_effort`（关闭思考发 `"none"`，默认关闭），不向 body 发送 `thinking` 对象；`health_check/1` 对本地服务做真实 `GET /models` 探活。前端模型设置 Dialog 仍完全由后端 registry 渲染，真实页面因此自然出现「Strata」选项，产品代码没有为验收新增任何识别逻辑。**验收入口**：`bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local`（或 `bash scripts/quality_accept.sh su01-provider-strata-local --surface tauri`，scenario 已声明 `default_provider: strata`），证据路径 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/`（`summary.json`、`app-log.json`、`strata-log.json`、`ui-state.json`、截图）。**诚实边界**：该 scenario tier=nightly/live，不是 CI 确定性场景——必须本机 Strata 应用运行在 `127.0.0.1:8081` 且已加载 `qwen3.8-flash-next-q2_0`，`tauri_slice_verify.sh` 在启动前会先探测 `/models` 并在不可达时快速失败；**2026-10-21 已由外部 Playwright driver 在真实 Tauri 工作台实跑 PASS**（turn_id `message_91839ede-6d46-4abe-b4a0-dd13c5b234fc`；同 turn 2 次真实 `POST /v1/chat/completions` 均 HTTP 200；模型列表来自真实 `/v1/models`；连接测试、保存切换、assistant 可见回复均被 verifier 断言）。可选 Key（Strata `serving.apiKey`）的 Bearer 分支由 adapter 单测覆盖，本次 live 页面只证明默认 keyless 路径。sub-slice 记录见 `tasks/slices/SU01-strata-local-provider.md`。
+> 2026-10-22 方案修正（Strata App 统一推理后台，当前口径）：用户明确「只一套由 Strata App 管理的推理后台，统一连接 `http://127.0.0.1:47831/v1`」。产品不再按安装目录 profile/端口逐套发现与绑定（2026-10-21 的 `Strata.LocalModels` profile 发现 / `GET /api/provider/local-models` / 设置页 profile 列表与模型-端点原子绑定一并移除，`SU01-strata-local-models` slice 保留为历史并标注 superseded）。当前实现：
+> - 端点：唯一固定入口 `http://127.0.0.1:47831/v1`；Gateway descriptor `supports_endpoint=false`，设置页不提供端点输入框；旧版保存的 per-profile 端点在 config 归一化时被忽略；`NOVEL_STRATA_ENDPOINT` 仅作部署侧覆盖。
+> - 模型：由 Strata App 管理。统一后台 `GET /v1/models` 返回当前已加载模型（`id` + `meta.label` + `aliases`）；模型设置页刷新后从真实列表选择并保存显式模型 id。未显式配置模型时（如 dev 默认 provider 直接调用），adapter 请求体**不带 `model` 字段**，由 App 路由到当前已加载模型；usage 回传真实模型名。
+> - 验收：`bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local`（真实 Tauri，nightly/live；需 Strata App 统一后台在 47831 运行）。scenario 不写死模型名，选择统一后台当前报告的模型；证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`。
+> - 诚实边界：该场景是 nightly/live，不是 CI 确定性 gate；可选 Bearer 路径由 adapter 单测覆盖，不做 live key 场景冒充。
 
 ---
 
@@ -48,11 +52,10 @@
 | 看当前供应商和模型 | 显示 provider 名称、模型名和连接状态 |
 | 切换到另一个供应商 | 下一轮对话使用新供应商，历史消息不丢 |
 | 配置 API Key | Key 安全保存，不明文进入项目仓库 |
-| 配置模型和端点 | 每个供应商可以独立设置 endpoint；模型从供应商实时列表选择 |
+| 配置模型和端点 | 可配置端点的供应商可独立设置 endpoint；Strata 固定连接 Strata App 统一推理后台（设置页无端点输入）；模型从供应商实时列表选择 |
 | 测试连接 | 点击后立即得到成功/失败反馈 |
 | 本地使用 LM Studio | 默认指向 `http://localhost:1234/v1`，未启动时提示明确 |
-| 本地使用 Strata | 默认指向 `http://127.0.0.1:8081/v1`，默认模型 `qwen3.8-flash-next-q2_0`；默认无 Key、可选 Key；思考经请求级顶层 `reasoning_effort` 控制且默认关闭 |
-| 看到并使用本机全部 Strata 模型 | Strata + 本机回环端点时，模型下拉列出本机 Strata 安装目录中的所有 profile（如 q2_0/8081、IQ3_S/8082），标注 `运行中`/`未运行`；选中某 profile 时模型名与端点一起切换；未运行时提示先启动对应引擎 |
+| 本地使用 Strata | 固定指向 Strata App 统一推理后台 `http://127.0.0.1:47831/v1`；模型由 Strata App 管理，设置页刷新 `/v1/models` 后从当前模型中选择；默认无 Key、可选 Key；思考经请求级顶层 `reasoning_effort` 控制且默认关闭 |
 
 明确不覆盖：
 
@@ -70,7 +73,6 @@
 | SU-I2 | provider 选择必须经 application / agent gateway，不由 UI 直接调用 provider | SC-SU01-B1/C1：前端只提交配置或选择，实际调用仍走 Gateway |
 | SU-I3 | API Key / endpoint 不应写入 git 管理的项目文件 | SC-SU01-B2/B3：非 secret 偏好进入 Tauri app data `preferences.json`，API Key 进入同 profile 的 `provider-secrets.json`（unix 0600，本机明文），并且不回传 options、不进 UI/日志/项目文件 |
 | SU-I4 | 切换供应商不破坏已有对话和作品上下文 | SC-SU01-C2：历史消息保留，新 turn 使用新 provider |
-| SU-I5 | Strata 本机模型列表只来自「本机 profile 配置 + 真实端点探活」，不猜测/不伪造；选中 profile 时 model 与 endpoint 必须同一动作生效 | SC-SU01-B5：`GET /api/provider/local-models?provider=strata` 返回的 profile 与 `strata-*.json` 一致；`running` 来自真实 `/models` 探活；browser driver 断言选中 IQ3_S 后端点同步变为该 profile 端口；发现为空/远端端点回退既有实时列表 |
 
 ---
 
@@ -82,11 +84,8 @@
 | `apps/novel_application/lib/novel_application.ex` | `provider_health/options/models/configure/test` 均经 Application 层代理 | `novel_web` 不直接依赖 `novel_agent` |
 | `apps/novel_agent/lib/novel_agent/provider/runtime_config.ex` | 保存当前进程的 provider 选择与运行时配置 | 持久化归桌面 shell，不落项目仓库 |
 | `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 `stub/lmstudio/anthropic/deepseek`，支持 registry、实时模型列表、health、运行时切换和连接测试；`clear_api_key` 不复用旧 runtime key | 后端最小切换闭环已实现并有单元/控制器测试 |
-| `apps/novel_agent/lib/novel_agent/provider/strata.ex` | 本地 Strata provider adapter：OpenAI 兼容 `/chat/completions`、`/models`、真实 health 探活、可选 Bearer Key、思考走顶层 `reasoning_effort`（默认 `"none"`，不发 thinking 对象） | 后端 registry 单源；前端模型设置 Dialog 自动出现「Strata」 |
-| `apps/novel_agent/lib/novel_agent/provider/strata/local_models.ex` | 本机 Strata 模型发现：解析安装目录 `strata-*.json`（model_name/host/port），对每个 profile `GET /models` 短超时探活；目录优先级 opts > `NOVEL_STRATA_MODELS_DIR` > 应用配置 > 平台默认；并发/去重/running 优先排序/全链错误隔离 | 回答「本机装了哪些 Strata 模型、哪些在运行」；一个端点一模型的限制由列表侧补齐 |
-| `apps/novel_web/lib/novel_web/controllers/provider_controller.ex` | 新增 `GET /api/provider/local-models?provider=strata`：200 `{ok, provider, models:[{id,label,endpoint,host,port,running,config}]}`；未知/缺失 provider 422；只读、不改运行时 provider、不含 secret | 设置 Dialog 的本机模型发现合同（Controller 测试覆盖） |
-| `frontend/src/lib/modelProvider.ts` | 集中封装 provider options/models/config/test、新增 `listProviderLocalModels` / `isLoopbackProviderEndpoint`（本机 Strata profile 发现客户端与回环判定）、Tauri 偏好、本地密钥文件同步、浏览器 fallback | 前端只调用后端 API，不直接调用 provider；本机发现仅对 Strata + 回环端点启用 |
-| `frontend/src/components/WorkspaceChat.tsx` | 模型设置 Dialog：Strata + 回环端点时并行请求本机发现并用 profile 列表渲染（运行中/未运行）、选中时 model+endpoint 原子绑定、发现为空回退实时列表；按用途模型下拉与保存条件共用同一可用集合 | 作者可在真实工作台看到并切换本机 Strata profile；`su01-strata-local-models` browser 场景覆盖 |
+| `apps/novel_agent/lib/novel_agent/provider/strata.ex` | Strata App 统一推理后台 provider adapter：固定 OpenAI 兼容入口 `http://127.0.0.1:47831/v1`、`/chat/completions`、`/models`、真实 health 探活、可选 Bearer Key；模型由 App 管理，未配置模型时请求不带 `model`；思考走顶层 `reasoning_effort`（默认 `"none"`，不发 thinking 对象） | 后端 registry 单源；前端模型设置 Dialog 自动出现「Strata」，模型列表来自统一后台实时 `/v1/models` |
+| `frontend/src/lib/modelProvider.ts` | 集中封装 provider options/models/config/test、Tauri 偏好、本地密钥文件同步、浏览器 fallback | 前端只调用后端 API，不直接调用 provider |
 | `frontend/src-tauri/src/lib.rs` | 非 secret provider 偏好写 profile-scoped app config，API Key 写同目录的 profile-scoped `provider-secrets.json`（unix 0600）；保存 payload 支持前端 camelCase | dev/stage/slice verification 的 provider 选择与密钥互相隔离；所有桌面平台一致用本地受限文件，不再依赖 macOS Keychain |
 | `frontend/src/components/WorkspaceChat.tsx` | 顶栏“模型设置”入口，支持选择 provider、endpoint、API Key、刷新/选择供应商实时模型、DeepSeek thinking/reasoning effort、测试连接、保存切换 | 作者可在真实工作台发起模型切换；`su01-model-provider-switching` 已覆盖 Stub 切换主路径 |
 | `apps/novel_web/test/novel_web/controllers/provider_controller_test.exs` | 覆盖 options/models/config/test 和 secret 不泄漏 | 后端 Web 合同已测试 |
@@ -171,7 +170,7 @@
 | 用户视角 | 我可以把 LM Studio endpoint 指向本地 `localhost:1234/v1` 或自定义端点，并从供应商当前可用模型中选择 |
 | 期望结果 | 每个 provider 有独立 endpoint；模型列表来自供应商实时 API，不手输、不前端写死；非法 URL 有校验 |
 | 当前证据 | `POST /api/provider/models` 经 Gateway 调 DeepSeek `/models`、Anthropic `/v1/models`、LM Studio `/v1/models`；设置弹窗在 endpoint/API Key 之后刷新并选择模型；真实 provider 未加载到模型列表时禁用保存 |
-| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求；`su01-provider-model-list-success` 已证明 DeepSeek / Anthropic / LM Studio 三类 provider 模型列表成功返回后可在 Dialog 中选择；`su01-provider-vendor-matrix` 已把矩阵扩展到 OpenAI（API Key/订阅）、Minimax、智谱、Kimi、Gemini，并证明新供应商来自后端 registry、可配 endpoint、经本地 OpenAI 兼容 `/models` 选模型、test-fail 不切换 runtime、保存后脱敏；`su01-provider-strata-local`（nightly/live）已于 2026-10-21 实跑 PASS，覆盖本地 Strata 从后端 registry 出现 → 默认端点 `http://127.0.0.1:8081/v1` → 真实 `/v1/models` 选 `qwen3.8-flash-next-q2_0` → 连接测试 → 保存切换 → 真实 turn 的 `POST /v1/chat/completions` 2×HTTP 200（证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`；需本机 Strata 运行） |
+| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求；`su01-provider-model-list-success` 已证明 DeepSeek / Anthropic / LM Studio 三类 provider 模型列表成功返回后可在 Dialog 中选择；`su01-provider-vendor-matrix` 已把矩阵扩展到 OpenAI（API Key/订阅）、Minimax、智谱、Kimi、Gemini，并证明新供应商来自后端 registry、可配 endpoint、经本地 OpenAI 兼容 `/models` 选模型、test-fail 不切换 runtime、保存后脱敏；`su01-provider-strata-local`（nightly/live）已于 **2026-10-22 按统一后台方案实跑 PASS**：Strata 从后端 registry 出现 → 设置页无 per-profile 端点输入、provider options 固定 `http://127.0.0.1:47831/v1`（supports_endpoint=false）→ 真实统一后台 `/v1/models` 列表选当前模型 `iq3_s` → 连接测试 → 保存切换 → 真实 turn 的 `POST /v1/chat/completions` 2×HTTP 200（turn `message_f68a2fbf-c01a-442e-9a8c-fef64d703895`；证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`；需本机 Strata App 统一后台运行） |
 | 当前状态 | 部分实现 |
 | 缺口类型 | 补 live vendor / 云端真实失败矩阵；OpenAI 订阅 OAuth 登录传输 |
 | 优先级 | P1 |
@@ -186,22 +185,6 @@
 | 当前证据补充 | `su01-model-provider-switching` 覆盖成功；`su01-provider-endpoint-validation` 覆盖非法输入阻断；`su01-provider-test-failure-ui` 覆盖不可达 endpoint 失败、草稿保留、无 turn/runtime 副作用和恢复成功 |
 | 当前状态 | 已验收 |
 | 缺口类型 | live vendor / 云端供应商真实错误矩阵归入 B3 后续 |
-| 优先级 | P1 |
-
-#### SC-SU01-B5 — 看到本机全部 Strata 模型并切换 profile
-
-| 字段 | 内容 |
-|---|---|
-| 用户视角 | 我在本机装了多个 Strata 模型（q2_0 在 8081、IQ3_S 在 8082），设置里能一次看到它们、看到哪个在运行，并选中要用的那个 |
-| 前置条件 | 本机 Strata 安装目录存在 `strata-*.json` profile；对应引擎可运行/已运行 |
-| 触发 | 打开模型设置 → 供应商选 Strata → 模型下拉 |
-| 期望结果 | 模型下拉列出本机全部 profile（label + `运行中`/`未运行`）；选中某 profile 后端点输入同步变为该 profile 的端口；测试连接/保存使用该 profile；发现为空或远端端点时回退既有实时模型列表 |
-| 不变量 | SU-I5 |
-| 边界 | frontend Dialog → `GET /api/provider/local-models?provider=strata` → Application → Gateway → `Strata.LocalModels` → 本机 profile 配置 + 每个 profile 的真实 `/models` 探活 |
-| 真实消费者 | WorkspaceChat 模型设置 Dialog |
-| 当前证据 | `NovelAgent.Provider.Strata.LocalModels` + `Gateway.provider_local_models/1` + `GET /api/provider/local-models`；`strata_local_models_test.exs`（解析/坏配置/探活/去重排序/目录缺失/probe 隔离/目录优先级）、Gateway/Controller 测试；本机真实数据 `Strata.local_models()` 解析出 `qwen3.8-flash-next-iq3_s`(8082) 与 `qwen3.8-flash-next-q2_0`(8081)；外部自动化 browser 真实工作台 `bash scripts/slice_verify.sh su01-strata-local-models` PASS（26/26 断言：两个 profile 可见且带 `运行中`、选中 IQ3_S 后端点变 18082、连接测试「连接可用。」、保存后 options/health/顶栏一致；证据 `artifacts/slice-verify/su01-strata-local-models/summary.json`） |
-| 当前状态 | browser 面已验收；native Tauri surface 未闭环 |
-| 缺口类型 | 补真实 Tauri surface 场景（driver + native verifier + scenario 注册）；真实引擎换 profile 后的真实 turn |
 | 优先级 | P1 |
 
 ### 场景组 C：切换后的行为
@@ -285,7 +268,6 @@
 | SU01-GAP-06 | endpoint/model UI 缺失 | 已补：模型设置 Dialog 支持 endpoint，并通过供应商实时模型列表选择 model；保存失败的 Tauri payload 命名根因已修；非法 endpoint 校验已由 `su01-provider-endpoint-validation` 证明；模型列表成功矩阵已由 `su01-provider-model-list-success` 证明；测试连接失败反馈和恢复已由 `su01-provider-test-failure-ui` 证明 | 补 live vendor / 云端供应商真实错误矩阵 | P1 |
 | SU01-GAP-07 | 切换后 trace/log 不标 provider | 已补：`provider_gateway.complete.start/done/error` 记录 provider/model/duration/error，不含 prompt/secret | 保持 Gateway 日志测试和 `su01-model-provider-switching` 验收 | P1 |
 | SU01-GAP-08 | 缺完整模型切换 Tauri driver | 已补：`su01-model-provider-switching` 覆盖设置、测试连接、保存、下一轮调用和对话保留；`su01-provider-test-failure-ui` 覆盖测试连接失败和恢复 | 后续扩展 live vendor / 多平台矩阵 | P1 |
-| SU01-GAP-09 | 单端点实时模型列表无法表达本机多个 Strata profile | 已补（browser 面）：`Strata.LocalModels` 本机发现 + `GET /api/provider/local-models` + Dialog profile 列表（运行中/未运行）+ 模型与端点原子绑定；browser 真实工作台 `su01-strata-local-models` PASS | 后续补 native Tauri surface 场景与真实引擎换 profile 后真实 turn；自定义本机安装目录仍经 env/配置覆盖 | P1 |
 
 ---
 
@@ -334,8 +316,8 @@ SU-01 完整版必须同时满足：
 | 13 | 已完成：统一 local-file secret 产品口径 | Tauri capability command 报告 `available=true/kind=local_file`；所有桌面平台使用同一 profile-scoped local secret file，不再有 unsupported UI 分支 | Rust/TypeScript 局部测试；local-file Tauri 真实页面验收 |
 | 14 | 已完成：测试连接失败反馈与恢复 | 不可达 LM Studio endpoint -> 测试连接失败文案 -> Dialog/草稿保留 -> 修正 endpoint 后测试成功，且不创建 turn 或切换 runtime | `su01-provider-test-failure-ui` |
 | 15 | 后续：live vendor / 平台回归矩阵 | live vendor 错误、云端供应商账号/权限失败、Windows/Linux local-file 回归页面证据 | 需要真实账号策略、远端 runner 结果或真实页面 driver；不阻塞 SU-01 二轮退出 |
-| 16 | 已完成：本地 Strata live provider 真实页面闭环 | `su01-provider-strata-local` 外部 Tauri driver（registry→端点→真实模型列表→连接→保存切换→真实 turn）+ 本机 Strata live 证据 | `bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local` PASS（2026-10-21，turn `message_91839ede-6d46-4abe-b4a0-dd13c5b234fc`，同 turn 2×HTTP 200；证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`） |
-| 17 | 已完成（browser 面）：本地 Strata 本机模型发现与 profile 切换 | `Strata.LocalModels` + `GET /api/provider/local-models` + Dialog profile 列表（运行中/未运行）+ 模型/端点原子绑定 | `bash scripts/slice_verify.sh su01-strata-local-models` PASS（2026-10-21，26/26 断言；证据 `artifacts/slice-verify/su01-strata-local-models/summary.json`）；native Tauri surface 与真实引擎换 profile 后真实 turn 为后续 checkpoint |
+| 16 | 已完成：本地 Strata provider 真实页面闭环（2026-10-21 首次 PASS） | `su01-provider-strata-local` 外部 Tauri driver（registry→端点→真实模型列表→连接→保存切换→真实 turn）+ 本机 Strata live 证据 | 历史证据：`artifacts/slice-verify/.../summary.json`（2026-10-21 turn `message_91839ede-...`；已被 2026-10-22 统一后台口径取代） |
+| 17 | 已完成：Strata App 统一推理后台方案修正（2026-10-22） | 唯一连接入口 `http://127.0.0.1:47831/v1`；descriptor `supports_endpoint=false`（设置页无端点输入，旧 per-profile 端点被忽略）；模型由 App 管理（未配置模型时请求不带 `model`，刷新 `/v1/models` 后显式选择）；移除 `LocalModels`/`local-models` API/前端 profile 列表 | `bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local` PASS（2026-10-22，turn `message_f68a2fbf-c01a-442e-9a8c-fef64d703895`，模型 `iq3_s`，同 turn 2×HTTP 200；证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`） |
 
 ---
 
@@ -356,20 +338,12 @@ bash scripts/tauri_slice_verify.sh su01-api-key-secret-redaction
 bash scripts/tauri_slice_verify.sh su01-provider-vendor-matrix
 bash scripts/tauri_slice_verify.sh su01-local-secret-file-roundtrip
 
-# 本地 Strata live 场景（nightly/live，非 CI 确定性；需本机 Strata app 运行在
-# http://127.0.0.1:8081 并已加载 qwen3.8-flash-next-q2_0；脚本启动前会探测 /models）
+# Strata App 统一推理后台场景（nightly/live，非 CI 确定性；需 Strata App 统一后台
+# 运行在 http://127.0.0.1:47831/v1；模型由 App 管理，场景选择后台当前报告的模型；
+# 脚本启动前会探测 /models；默认端口被占用时用 PHOENIX_PORT/VITE_DEV_PORT 官方 env 绕开）
 bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local
 bash scripts/quality_accept.sh su01-provider-strata-local --surface tauri
 # 证据：artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json
-
-# 本机 Strata 模型发现（browser 真实工作台；spec 自起 18081/18082 OpenAI 兼容替身 +
-# 写 tmp/test-strata-install 夹具，不注册进产品 runtime）
-bash scripts/slice_verify.sh su01-strata-local-models
-bash scripts/quality_accept.sh su01-strata-local-models --surface browser
-# 证据：artifacts/slice-verify/su01-strata-local-models/summary.json
-
-# 本机真实 Strata 安装目录发现（不启动引擎；running=false 表示当前未运行）
-mix run -e 'IO.inspect(NovelAgent.Provider.Strata.local_models())'
 
 # 本地手动验证：需 Phoenix/Tauri 服务运行
 curl http://localhost:4657/api/provider/health

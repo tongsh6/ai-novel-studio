@@ -1,6 +1,6 @@
 # SU01 Strata Local Provider / 本地 Strata provider 真实页面验收基建
 
-- 状态：**closed（2026-10-21）**——后端 `Provider.Strata` / 前端 ProviderId / Rust provider id 白名单 / 验收基建 / 文档均已交付；真实 Tauri 场景实跑 PASS（`--provider strata su01-provider-strata-local`，同 turn 真实 `POST /v1/chat/completions` 2×HTTP 200）
+- 状态：**closed（2026-10-21 首版；2026-10-22 方案修正为 Strata App 统一推理后台并重新实跑 PASS）**——后端 `Provider.Strata` / 前端 ProviderId / Rust provider id 白名单 / 验收基建 / 文档均已交付；当前口径见 §10。
 - 类型：System Slice（Provider Runtime）+ Acceptance Infrastructure + UI Contract Slice
 - 启动日期：2026-10-21
 - 来源：用户定向插单「新增本地 strata provider」
@@ -139,3 +139,50 @@ cd frontend/src-tauri && cargo test accepts_local_provider_ids_and_rejects_unkno
 ## 9. 试行反馈
 
 - 本 slice 的验收基建严格位于脚本/外部 harness；如果后续要把 Strata 纳入 release gate，必须另立 runner 策略（自托管 Strata 服务或固定 fixture），不能把 nightly/live 场景直接提升为确定性 CI gate。
+
+## 10. 2026-10-22 方案修正（当前口径，作者指令）
+
+作者指令：「修改方案 只一套由 Strata App 管理的推理后台统一连接 `http://127.0.0.1:47831/v1`」。
+此前 2026-10-21 的 per-profile 接入（8081/8082 引擎端口、`Strata.LocalModels` 按安装目录
+`strata-*.json` 发现 profile、设置页列出 profile 并在选中时把模型与端点原子绑定）已被
+本方案取代；对应 `tasks/slices/SU01-strata-local-models.md` 标记 **superseded**，其
+`LocalModels` 模块、`GET /api/provider/local-models`、前端 profile 列表与 browser 场景
+已移除。
+
+### 当前实现（SSOT）
+
+- **Contract**：`NovelAgent.Provider.Strata` 只连接 Strata App 管理的唯一统一推理后台
+  `http://127.0.0.1:47831/v1`；Gateway descriptor `supports_endpoint=false`，设置页不提供
+  端点输入框；旧版保存的 per-profile 端点在 Gateway `normalize_provider_config/2` 中被忽略，
+  `NOVEL_STRATA_ENDPOINT` 仅作部署侧覆盖。
+- **模型**：由 Strata App 管理。统一后台 `GET /v1/models` 返回当前已加载模型
+  （`id` + `meta.label` + `aliases`）；设置页刷新后从真实列表选择并保存显式模型 id。
+  `NOVEL_STRATA_MODEL` 未配置时 adapter 请求体不带 `model` 字段，由 App 路由到当前模型；
+  `usage.model` 取响应真实模型名。模型切换在 App 侧完成后，产品侧重新刷新/选择即可；
+  陈旧模型 id 由统一后台 `400 Choose a loaded model ID.` 如实拒绝。
+- **Invariant**：只存在一套 Strata 推理后台连接；端点/模型列表必须来自 App 统一后台真实
+  数据；前端不写死模型；产品代码无验收感知。
+- **Boundary**：`apps/novel_agent`（adapter/Gateway/macro）、config、验收 scripts/driver/
+  verifier/scenario、SU-01 与 slice 文档；不改 domain/persistence 主链。
+- **Consumer**：真实 Tauri 工作台模型设置 Dialog → `/api/provider/{options,models,test,config}`
+  → Gateway → `Provider.Strata` → Strata App 统一后台。
+- **Acceptance Driver**：`frontend/slice-verify/external-ui-driver.mjs` 的
+  `driveSu01ProviderStrataLocal` + `scripts/tauri_slice_verify.sh --provider strata`。
+- **Exploration**：不适用（provider transport 修正，不物化创作要素）。
+
+### 验证（2026-10-22）
+
+- 真实 Strata App 统一后台 live 探活：`health_check` → `:ok`；流式 `Gateway.execute`
+  无模型配置时真实返回 `"ok"`（usage model `iq3_s`）；真实 tool-call 返回
+  `judgment_decision`；`/v1/models` 返回 `iq3_s` + `meta.label`。
+- 真实 Tauri 场景 PASS：
+  `bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local`
+  （默认端口被用户 stage 占用，使用脚本官方 env `PHOENIX_PORT=4661 VITE_DEV_PORT=5771`）→
+  turn `message_f68a2fbf-c01a-442e-9a8c-fef64d703895`，provider options 固定端点
+  `http://127.0.0.1:47831/v1`、`supports_endpoint=false`、设置页无端点输入、模型列表
+  来自真实 `/v1/models` 并选中 `iq3_s`、连接测试通过、保存切换后真实 turn
+  `live_provider.request_count=3 / status_codes=[200]`、assistant 回复可见。
+  证据：`artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`。
+- 诚实边界：该场景仍是 nightly/live（依赖 Strata App 在 47831 运行），不是 CI 确定性
+  gate；可选 Bearer 路径只由 adapter 单测覆盖；模型名不写死，随 App 当前加载模型变化。
+
