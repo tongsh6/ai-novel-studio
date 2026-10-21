@@ -207,14 +207,29 @@ Stage SQLite 与事件记录对账：
 - 新增用例：`agent_run_prose_drafting_flow_test.exs` 的 writer timeout×2 停等；
   `real_test.exs` 的 provider error type；`WorkspaceChat.agentRunControlDock.test.tsx`
   的 timeout 控制坞按钮与活动行真实 summary。
-- **未闭环**：真实 Tauri/真实模型页面复跑未执行（用户已停止长跑）；本 checkpoint
-  只能证明确定性选择/渲染链路，不能证明真实 stage 页面在重启后显示新文案与按钮。
-  下一次短验收应使用 `SLICE_VERIFY_PROVIDER=slice_verify` 或短真实模型，断言
-  `awaiting_author` 事件 summary、`writer_timeout` reason code 和快捷 steer 后的
-  同一 run 恢复。
+- **真实 Tauri 复验（2026-10-21，已闭环）**：`bash scripts/tauri_slice_verify.sh b17-writer-timeout-steer`
+  PASS。真实工作台从已采纳章节计划点「生成正文草稿」→ 测试替身在
+  `SLICE_VERIFY_WRITER_TIMEOUT=1` 下让 writer 连续 timeout×2 → `awaiting_author`
+  事件 summary 为真实“正文写作调用超时（2 次）…”且带 `writer_timeout` /
+  `writer_timeout_retry_recommended` → 控制坞显示「先写第一场（500 字）」→
+  点击后发送非空 steer（同一 run）→ 同一 run 恢复并生成 pending
+  `prose_fragment`。证据：`artifacts/slice-verify/b17-writer-timeout-steer-tauri/summary.json`
+  （`surface=tauri`、same `run_id`、awaiting summary/reason codes、steer 文本、
+  recovered status=completed、prose artifact id）。
+- **复验发现并修复的闭环缺口**：真实 Tauri 首跑证明「scoped steer 只显示/发送还不够」——
+  writer timeout 已耗尽 replan 预算，steer 后同一 run 会再次机械停等。修复：
+  `AgentRunServer` 仅在最近一次 `awaiting_author` 原因确含 `writer_timeout` 时，为作者
+  显式 scoped steer 追加一次有界重试预算（max_replans +1、max_provider_calls +3、
+  max_tool_calls +1）；不自动重试、不新建 run。新增后端回归
+  `agent_run_prose_drafting_flow_test.exs`：timeout→ awaiting → steer → same run
+  `run_completed` + 1 pending prose。
 
 ## 9. 决策日志
 
+- 2026-10-21 — **B17 真实 Tauri 闭环与恢复预算修复**：`b17-writer-timeout-steer` 真实 Tauri PASS；
+  首跑发现 scoped steer 因 replan 预算耗尽无法恢复同一 run，补“仅 writer_timeout 的
+  作者显式 steer 获得一次有界重试预算”+ 后端回归。证据见 §8.1；不再存在“局部测试绿、
+  真实页面未跑”的缺口。
 - 2026-10-21 — **post-closure P1：writer timeout 出口**。stage 实跑证明 writer
   timeout×2 后通用 awaiting 文案让作者无法判断原因；replan 文字承诺分段但执行器仍
   单次全章调用。用户拍板先修 UX 出口：保留真实失败类别、assistant 活动行显示

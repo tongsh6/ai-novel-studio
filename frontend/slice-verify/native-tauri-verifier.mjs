@@ -129,6 +129,7 @@ export const nativeSliceIds = [
   "au10-workbench-recovery-reconnect",
   "au10-workbench-recovery-cancel-waiting",
   "au10-workbench-render-stability",
+  "b17-writer-timeout-steer",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "e2e-01-downgrade-real-page",
@@ -1538,6 +1539,11 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "b17-writer-timeout-steer": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au07-behavior-trace-terminal-replay": [
     "channel.user_message.done",
     "channel.author_action.start",
@@ -1998,6 +2004,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au10-workbench-render-stability") {
     return findAu10WorkbenchRenderStabilityEvidence(records);
+  }
+
+  if (sliceId === "b17-writer-timeout-steer") {
+    return findB17WriterTimeoutSteerEvidence(records);
   }
 
   if (sliceId === "au07-behavior-trace-terminal-replay") {
@@ -2756,6 +2766,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-workbench-render-stability") {
     return au10WorkbenchRenderStabilityBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "b17-writer-timeout-steer") {
+    return b17WriterTimeoutSteerBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-behavior-trace-terminal-replay") {
@@ -12308,6 +12322,51 @@ function findAu10WorkbenchMatrixLayoutEvidence(records) {
   };
 }
 
+function findB17WriterTimeoutSteerEvidence(records) {
+  const sliceId = "b17-writer-timeout-steer";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      typeof record.awaiting_summary === "string",
+  );
+  if (!uiState) return null;
+  if (!uiState.turn_id || !uiState.run_id) return null;
+  if (!uiState.awaiting_summary.includes("正文写作调用超时")) return null;
+  if (!uiState.awaiting_summary.includes("未生成草稿")) return null;
+  const reasonCodes = uiState.awaiting_reason_codes ?? [];
+  for (const required of ["writer_timeout", "writer_timeout_retry_recommended"]) {
+    if (!reasonCodes.includes(required)) return null;
+  }
+  if (uiState.retry_button_visible !== true || uiState.retry_button_enabled !== true) return null;
+  if (uiState.scoped_retry_hint_visible !== true) return null;
+  if (uiState.generic_awaiting_copy_visible !== false) return null;
+  if (typeof uiState.steer_command_text !== "string" || uiState.steer_command_text.trim() === "") {
+    return null;
+  }
+  if (uiState.steer_same_run !== true) return null;
+  if (uiState.recovered_run_id !== uiState.run_id) return null;
+  if (uiState.recovered_status !== "completed") return null;
+  if (uiState.prose_pending !== true || !uiState.prose_artifact_id) return null;
+
+  const turnIds = (uiState.turn_ids ?? [uiState.turn_id]).filter(Boolean);
+  if (turnIds.length < 2) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: turnIds,
+    run_id: uiState.run_id,
+    awaiting_summary: uiState.awaiting_summary,
+    awaiting_reason_codes: reasonCodes,
+    steer_command_text: uiState.steer_command_text,
+    recovered_run_id: uiState.recovered_run_id,
+    recovered_status: uiState.recovered_status,
+    prose_artifact_id: uiState.prose_artifact_id,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
 function findAu10WorkbenchRenderStabilityEvidence(records) {
   const sliceId = "au10-workbench-render-stability";
   const uiState = records.find(
@@ -18370,6 +18429,43 @@ function au10WorkbenchMatrixLayoutBehavior(_turnIds, _turnRecords, records, evid
       "prose_draft_accept_used_adoption_boundary",
       "reading_projection_loaded_adopted_prose_and_word_counts",
       "task_status_baseline_visible_in_first_viewport",
+    ],
+  };
+}
+
+function b17WriterTimeoutSteerBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "b17-writer-timeout-steer" &&
+      record.awaiting_summary === evidence.awaiting_summary,
+  );
+  if (!uiState) return null;
+  if (uiState.retry_button_visible !== true || uiState.retry_button_enabled !== true) return null;
+  if (uiState.steer_same_run !== true) return null;
+  if (uiState.recovered_run_id !== evidence.run_id) return null;
+  if (uiState.recovered_status !== "completed") return null;
+  if (uiState.prose_pending !== true) return null;
+
+  return {
+    slice_id: "b17-writer-timeout-steer",
+    behavior: "writer_timeout_reason_surface_and_scoped_steer_same_run_recovery",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    awaiting_summary: evidence.awaiting_summary,
+    awaiting_reason_codes: evidence.awaiting_reason_codes,
+    steer_command_text: evidence.steer_command_text,
+    recovered_run_id: evidence.recovered_run_id,
+    recovered_status: evidence.recovered_status,
+    prose_artifact_id: evidence.prose_artifact_id,
+    assertions: [
+      "real_workbench_sent_chapter_draft_turn",
+      "writer_timeout_two_times_surfaced_real_reason_in_awaiting_author",
+      "activity_line_shows_timeout_summary_not_generic_waiting_copy",
+      "control_dock_offers_scoped_retry_only_on_live_runtime",
+      "scoped_retry_sent_non_empty_steer_on_same_run",
+      "steer_recovered_same_run_to_completed_with_pending_prose",
+      "no_bare_resume_and_no_product_acceptance_hooks",
     ],
   };
 }

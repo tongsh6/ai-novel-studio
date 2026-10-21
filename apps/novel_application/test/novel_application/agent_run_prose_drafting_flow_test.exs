@@ -936,6 +936,97 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.consumed_budget.tool_calls == 2
   end
 
+  test "scoped writer-timeout steer grants one bounded retry and recovers the same run" do
+    parent = self()
+
+    writer = fn prompt ->
+      cond do
+        mission_prompt?(prompt) ->
+          {:ok, with_provider_call(mission_result(), "pc-agent-b17-mission")}
+
+        plan_draft_prompt?(prompt) ->
+          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-b17-plan")}
+
+        continuation_narrative_prompt?(prompt) ->
+          continuation_narrative("写作调用失败了，我先拆成场景、缩小单次输出。")
+
+        continuation_decision_prompt?(prompt) ->
+          continuation_decision("continue", "先拆成场景，缩小单次范围后再生成。")
+
+        prompt_contains?(prompt, "先只写当前章的第一个场景") ->
+          send(parent, {:scoped_writer_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-agent-b17-scoped-writer",
+             content:
+               Jason.encode!(%{
+                 items: [
+                   %{
+                     item_id: "b17-scoped-prose",
+                     title: "第01章：底层灵气账单（第一场）",
+                     body: "陆沉舟把账单摊在桌面上，蓝灰的余额在灯下一点点暗下去。",
+                     rationale: "按作者缩小范围后的第一场生成。"
+                   }
+                 ],
+                 companion_artifacts: [],
+                 self_report: %{
+                   assumptions: [],
+                   intended_reader_effect: "压迫感",
+                   used_context_refs: ["prose_execution_brief"],
+                   risk_flags: []
+                 }
+               })
+           }}
+
+        true ->
+          send(parent, {:writer_prompt, prompt})
+          {:error, %{type: :timeout, message: "fixture writer timeout"}}
+      end
+    end
+
+    evaluator = fn _prompt ->
+      {:ok,
+       %{
+         provider_call_ref: "pc-agent-b17-evaluator",
+         content: Jason.encode!(%{"findings" => []})
+       }}
+    end
+
+    run_id =
+      start_prose_run!(
+        %{
+          text: "写第01章正文草稿，但 writer provider 连续超时。",
+          session_id: "session-agent-b17-scoped-retry",
+          turn_id: "turn-agent-b17-scoped-retry",
+          quality_provider_execution: %Execution{result_fn: evaluator}
+        },
+        writer,
+        parent
+      )
+
+    events = collect_agent_events_until(:awaiting_author, 3_000)
+    awaiting = find_event!(events, :awaiting_author)
+    assert "writer_timeout" in awaiting.reason_codes
+    assert "writer_timeout_retry_recommended" in awaiting.reason_codes
+
+    assert {:ok, _receipt} =
+             AgentRunService.steer(
+               run_id,
+               "缩小范围重试：先只写当前章的第一个场景，500 字以内；写完就停，等我确认后再继续下一个场景。"
+             )
+
+    recovery_events = collect_agent_events_until(:run_completed, 5_000)
+    assert find_event!(recovery_events, :run_completed)
+    assert_receive {:scoped_writer_prompt, scoped_prompt}, 1_000
+    assert scoped_prompt =~ "先只写当前章的第一个场景"
+
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.status == :completed
+    assert state.run.run_id == run_id
+    assert length(state.run.pending_artifact_refs) == 1
+  end
+
   test "D2 actionable quality finding revises plan before waiting for author" do
     parent = self()
 

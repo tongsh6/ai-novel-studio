@@ -1330,6 +1330,7 @@ function viewportForSlice(id) {
     [
       "au10-workbench-matrix-layout",
       "au10-workbench-render-stability",
+      "b17-writer-timeout-steer",
       "p1-prose-revision-candidate",
       "quality-revision-action-run-anchoring",
       "agent-revision-orchestrator-boundary",
@@ -30668,6 +30669,174 @@ async function driveAu10WorkbenchRenderStability(page) {
   ];
 }
 
+
+// B17：writer 连续超时后的真实原因与「先写第一场（500 字）」scoped steer。
+// 依赖 harness 只为该 slice 注入 SLICE_VERIFY_WRITER_TIMEOUT=1 的测试替身行为；
+// 产品代码零验收感知，driver 只发送真实作者消息、点击真实按钮并读网络帧/可见文本。
+async function driveB17WriterTimeoutSteer(page) {
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes("第01章：底层灵气账单"),
+    { timeout: 15_000 },
+  );
+
+  const frameStart = frames.length;
+  await page.getByRole("button", { name: "生成正文草稿" }).first().click();
+
+  const draftMessageFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("第01章：底层灵气账单") &&
+      String(frame.body?.text ?? "").includes("正文草稿"),
+    "B17: real workbench did not send the chapter draft user_message",
+    30_000,
+  );
+
+  const awaitingStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.status === "awaiting_author",
+    "B17: run did not broadcast awaiting_author state",
+    120_000,
+  );
+  const runId = awaitingStateFrame.body.run_id;
+  const awaitingReasonCodes = awaitingStateFrame.body.reason_codes ?? [];
+
+  const awaitingEventFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "awaiting_author" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("writer_timeout"),
+    "B17: awaiting_author event did not carry writer_timeout reason",
+    30_000,
+  );
+  const awaitingSummary = String(awaitingEventFrame.body?.summary ?? "");
+  assert(
+    awaitingSummary.includes("正文写作调用超时") && awaitingSummary.includes("未生成草稿"),
+    `B17: awaiting summary did not expose the real writer timeout: ${awaitingSummary}`,
+  );
+  assert(
+    awaitingEventFrame.body?.reason_codes?.includes("writer_timeout_retry_recommended"),
+    "B17: awaiting event did not carry writer_timeout_retry_recommended",
+  );
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("正文写作调用超时"),
+    { timeout: 15_000 },
+  );
+  const retryButton = page.getByRole("button", { name: "先写第一场（500 字）" });
+  await retryButton.waitFor({ state: "visible", timeout: 15_000 });
+  assert(await retryButton.isEnabled(), "B17: writer timeout retry button is disabled while runtime live");
+  const visibleBeforeRetry = await page.locator("body").innerText();
+  assert(
+    visibleBeforeRetry.includes("可以先缩小范围重试"),
+    "B17: control dock did not show the scoped retry hint",
+  );
+  assert(
+    !visibleBeforeRetry.includes("任务正在等待你的确认"),
+    "B17: generic awaiting copy still overrides the real writer timeout reason",
+  );
+
+  const steerStart = frames.length;
+  await retryButton.click();
+
+  const commandFrame = await waitForNewFrame(
+    steerStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === "steer" &&
+      String(frame.body?.text ?? "").includes("先只写当前章的第一个场景"),
+    "B17: scoped retry did not send a non-empty steer on the same run",
+    30_000,
+  );
+  const steerText = String(commandFrame.body?.text ?? "");
+
+  await waitForNewFrame(
+    frames.indexOf(commandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.run_id === runId &&
+      frame.body?.response?.received === true,
+    "B17: scoped retry steer was not accepted on the same run",
+    30_000,
+  );
+
+  const recoveredTurnFrame = await waitForNewFrame(
+    frames.indexOf(commandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.status === "completed",
+    "B17: scoped retry did not recover the same run to completion",
+    120_000,
+  );
+  const recoveredTurn = recoveredTurnFrame.body;
+  const pendingProse = (recoveredTurn.adoption_state?.pending ?? []).find(
+    (entry) => entry.artifact_type === "prose_fragment",
+  );
+  assert(pendingProse, "B17: recovered run did not produce a pending prose_fragment");
+  assert(
+    recoveredTurn.agent_run?.run_id === runId,
+    "B17: recovery silently started a different run",
+  );
+
+  await page.getByRole("button", { name: "保存为章节正文" }).waitFor({
+    state: "visible",
+    timeout: 15_000,
+  });
+
+  const visibleAfterRetry = await page.locator("body").innerText();
+  assert(
+    !visibleAfterRetry.includes("正文写作调用超时"),
+    "B17: writer timeout hint remained after the scoped retry completed",
+  );
+
+  const uiState = await commonUiState(page, recoveredTurn, latestSentUserMessage());
+  return [
+    {
+      ...uiState,
+      slice_id: sliceId,
+      turn_id: recoveredTurn.turn_id,
+      turn_ids: [draftMessageFrame.body?.turn_id, recoveredTurn.turn_id].filter(Boolean),
+      work_id: draftMessageFrame.body?.work_id,
+      run_id: runId,
+      awaiting_summary: awaitingSummary,
+      awaiting_reason_codes: awaitingEventFrame.body?.reason_codes ?? awaitingReasonCodes,
+      retry_button_visible: true,
+      retry_button_enabled: true,
+      scoped_retry_hint_visible: true,
+      generic_awaiting_copy_visible: false,
+      steer_command_text: steerText,
+      steer_same_run: true,
+      recovered_turn_id: recoveredTurn.turn_id,
+      recovered_run_id: recoveredTurn.agent_run?.run_id,
+      recovered_status: recoveredTurn.agent_run?.status,
+      prose_artifact_id: pendingProse.artifact_id,
+      prose_pending: true,
+      pending_artifact_count: recoveredTurn.adoption_state?.pending?.length ?? 0,
+      user_message_text: draftMessageFrame.body?.text,
+      outcome: "done",
+    },
+  ];
+}
+
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
@@ -30760,6 +30929,7 @@ const drivers = {
   "au10-workbench-recovery-reconnect": driveAu10WorkbenchRecoveryReconnect,
   "au10-workbench-recovery-cancel-waiting": driveAu10WorkbenchRecoveryCancelWaiting,
   "au10-workbench-render-stability": driveAu10WorkbenchRenderStability,
+  "b17-writer-timeout-steer": driveB17WriterTimeoutSteer,
   "au07-behavior-trace-terminal-replay": driveAu07BehaviorTraceTerminalReplay,
   "au12-work-profile-overview": driveAu12WorkProfileOverview,
   "au12-correction-intent-roundtrip": driveAu12CorrectionIntentRoundtrip,

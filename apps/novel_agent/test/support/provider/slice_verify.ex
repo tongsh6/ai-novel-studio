@@ -30,6 +30,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @tool_failure_marker "AU04FAILTOOL"
   @provider_failure_marker "UA01PROVIDERFAIL"
   @awaiting_author_steer_marker "UA01AWAITSTEER"
+  # B17 真实页面短验收：仅测试替身读取 harness env，令正文 writer 连续超时；
+  # 作者点「先写第一场（500 字）」后 steer prompt 含缩小范围措辞，替身恢复成功。
+  @writer_timeout_env "SLICE_VERIFY_WRITER_TIMEOUT"
 
   defstruct []
 
@@ -47,7 +50,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     with :ok <- maybe_fail_provider_execution_prompt(prompt_text),
          :ok <- maybe_fail_tool_failure_prompt(prompt_text),
-         :ok <- maybe_fail_summary_prompt(prompt_text) do
+         :ok <- maybe_fail_summary_prompt(prompt_text),
+         :ok <- maybe_fail_writer_timeout_prompt(prompt_text) do
       maybe_fail_plan_draft_prompt(prompt_text)
     end
     |> case do
@@ -406,26 +410,63 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 判断②（ADR-0025 CP3a）：观察 + 续行两段式——计划耗尽（D6 语义）判 continue
   # 补产出步；其余偏离（质量/门禁/缺章/工具故障）裁决权在作者，判 await_author。
+  defp maybe_fail_writer_timeout_prompt(prompt_text) do
+    if System.get_env(@writer_timeout_env) == "1" and prose_fragment_prompt?(prompt_text) and
+         not writer_timeout_retry_prompt?(prompt_text) do
+      {:error, %{type: :timeout, message: "fixture writer timeout"}}
+    else
+      :ok
+    end
+  end
+
+  defp writer_timeout_retry_prompt?(text) do
+    String.contains?(text, "先只写当前章的第一个场景") or
+      String.contains?(text, "500 字以内；写完就停")
+  end
+
   defp continuation_prompt?(text),
     do: String.contains?(text, "你的两种续行方式") or String.contains?(text, "continuation_decision")
 
   defp continuation_result(prompt, text) do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
-      {action, guidance} = continuation_decision(text)
+    cond do
+      # B17 fixture：首次 writer timeout 后判断②必须走“继续执行（拆场景重试）”，
+      # 才能复现真实 stage 的第二次失败→计划耗尽→机械停等；不是产品分支。
+      writer_timeout_fixture?() and NovelAgent.Provider.tool_call_prompt?(prompt) ->
+        Result.new("continuation_continue", nil,
+          tool_calls: [
+            %{
+              "name" => "continuation_decision",
+              "arguments" => %{
+                "action" => "continue",
+                "guidance" => "先拆成场景，缩小单次范围后再生成。",
+                "reason" => "continuation_continue"
+              }
+            }
+          ]
+        )
 
-      arguments = %{
-        "action" => action,
-        "guidance" => guidance,
-        "reason" => "continuation_#{action}"
-      }
+      writer_timeout_fixture?() ->
+        Result.new("写作调用失败了，我先拆成场景、缩小单次输出，再继续生成。")
 
-      Result.new("continuation_#{action}", nil,
-        tool_calls: [%{"name" => "continuation_decision", "arguments" => arguments}]
-      )
-    else
-      Result.new(continuation_narrative(text))
+      NovelAgent.Provider.tool_call_prompt?(prompt) ->
+        {action, guidance} = continuation_decision(text)
+
+        arguments = %{
+          "action" => action,
+          "guidance" => guidance,
+          "reason" => "continuation_#{action}"
+        }
+
+        Result.new("continuation_#{action}", nil,
+          tool_calls: [%{"name" => "continuation_decision", "arguments" => arguments}]
+        )
+
+      true ->
+        Result.new(continuation_narrative(text))
     end
   end
+
+  defp writer_timeout_fixture?, do: System.get_env(@writer_timeout_env) == "1"
 
   defp continuation_decision(text) do
     cond do

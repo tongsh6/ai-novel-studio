@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-21（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；作者选 4，下一项 = MAINLINE-RESET（AU10 已收口，等待作者拍板主线下一项）；历史证据保留版本边界）
+> 最后更新：2026-10-21（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；作者选 4，下一项 = MAINLINE-RESET（AU10 + B17 已收口，等待作者拍板主线下一项）；历史证据保留版本边界）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,7 +182,7 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；D5 / Q1c 已采纳内容修订已收口（正式 browser 场景 + 拒绝矩阵）。AB-RESUME 已收口、VS-00I 已 Frozen；Q2/Anthropic 等冻结后增量挂账。当前队首 = MAINLINE-RESET（AU10 已收口；等待作者从候选清单拍板）。C11 性能仍为观察项。
+Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；D5 / Q1c 已采纳内容修订已收口（正式 browser 场景 + 拒绝矩阵）。AB-RESUME 已收口、VS-00I 已 Frozen；Q2/Anthropic 等冻结后增量挂账。当前队首 = MAINLINE-RESET（AU10 + B17 已收口；等待作者从候选清单拍板）。C11 性能仍为观察项。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
@@ -438,7 +438,8 @@ Next Proof：Journey J 后续是完整异步 LongRunner streaming 和恢复后�
 | J10 | 断线、超时、取消等待和恢复后继续操作 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | checkpoint closed / LongRunner deferred | Tauri automation | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-provider-timeout` | CP1 已证明 provider failure recovery；CP2 已证明服务断开/重启后的 WebSocket rejoin 与下一轮继续；CP3A 已证明取消等待 no-write 关闭与下一轮继续；CP3B 已证明真实 provider timeout no-write fallback 与下一轮继续。完整异步 LongRunner 待真实生产消费者出现后再补；stale/disabled/idempotency UI 仍待更深矩阵。 |
 | J11 | Prompt 前缀稳定性观测与首个实证（已收口） | AB-RESUME / VS-00I | ProviderRun / Prompt / TTFT | closed | VS-00I 已 Frozen（§14 选项 1，call2 覆盖 L0–L2 + I-CACHE-1 + DeepSeek/Strata live）；CP-AB/CP-D/CP-C/CP-E 完成；Q2/Anthropic 增量挂账不占队首 | `tasks/NEXT.md` MAINLINE-RESET / AB-RESUME；`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md` §14 | 作者从主线复位候选拍板下一项后替换本行；冻结后增量任一触发可重开单项。 |
 | J12 | 工作台渲染稳定性与局部刷新隔离（AU-10 体验债） | AU10-RENDER-STABILITY / AU-10 | WorkspaceChat render/remount/layout | **done（2026-10-21）** | CP0 browser 7 违例 → CP1 browser 0 violations/0 errors → CP5 真实 Tauri PASS（3 场景 0 blank/remount/scroll/delta，work_switch_atomic=true）；证据 `artifacts/slice-verify/au10-workbench-render-stability-tauri/summary.json` | `tasks/NEXT.md` AU10-RENDER-STABILITY；`tasks/slices/AU10-workbench-render-stability.md` | CP2/CP3/CP4 conditional 未触发；AU10 已收口。 |
-| J13 | 主线复位候选选择 | MAINLINE-RESET | tasks/NEXT 队列 | next（等待作者拍板） | AU10 收口后回到主线候选（B11/B17/B18 等），先跑 gap_ledger 仪式 | `tasks/NEXT.md` MAINLINE-RESET | 明确下一项 id/轨/验收口径；无队列挂靠不开工。 |
+| J13 | 主线复位候选选择 | MAINLINE-RESET | tasks/NEXT 队列 | next（等待作者拍板；B17 已收口） | AU10 收口后先做 B17 真实 Tauri 验收，再回主线候选（B11/B18 等）；gap_ledger 已跑 | `tasks/NEXT.md` MAINLINE-RESET | 明确下一项 id/轨/验收口径；无队列挂靠不开工。 |
+| J14 | writer timeout 后作者可见恢复出口 | B17-WRITER-TIMEOUT / DS03 | 工作台活动行 + 固定控制坞 | **done（2026-10-21，真实 Tauri PASS）** | timeout summary/reason codes 可见；scoped steer 同一 run 恢复完成并生成 pending prose；证据 `artifacts/slice-verify/b17-writer-timeout-steer-tauri/summary.json` | `tasks/slices/DS03-awaiting-author-runtime-validity-and-recovery-surface.md` §8.1 | 首跑发现并修复 replan 预算耗尽缺口；无裸 resume/无自动重试。 |
 
 ---
 

@@ -270,6 +270,7 @@ defmodule NovelApplication.AgentRunServer do
 
   defp apply_author_steer(state, run) do
     resume? = state.run.status == :awaiting_author and is_nil(state.current_task_ref)
+    run = maybe_grant_writer_timeout_retry(run, state.events)
 
     state =
       %{state | run: run}
@@ -1162,6 +1163,44 @@ defmodule NovelApplication.AgentRunServer do
   # 重新进入判断，而不是继续消费上一次的 settled/context/checkpoint；goal.version
   # 已变化，旧 progress signature 也不能把新目标误判为重复空转。已完成 steps、
   # observations 与 pending artifacts 保留，符合 steer 的 Observation 保留语义。
+  # B17：writer 连续超时导致计划耗尽后，作者点「先写第一场（500 字）」的 scoped
+  # steer 必须能让同一 run 重新走一次有界判断/产出；否则继续按旧预算重放
+  # “计划耗尽”只会再次停等。这里只在最近一次 awaiting 事件确为 writer_timeout 时
+  # 追加一次 replan 预算，且由作者显式操作触发，不自动重试、不新建 run。
+  defp maybe_grant_writer_timeout_retry(%AgentRun{} = run, events) when is_list(events) do
+    latest_awaiting =
+      events
+      |> Enum.reverse()
+      |> Enum.find(&(&1.event_type == :awaiting_author))
+
+    reason_codes = if latest_awaiting, do: latest_awaiting.reason_codes || [], else: []
+
+    if "writer_timeout" in reason_codes do
+      # 一次 scoped retry 的真实开销：重新判断/修订 + 1 次 writer + 1 次质量复核 +
+      # 1 次工具槽；按实测消耗留出一次判断/复核余量，避免重试成功前再次撞预算。
+      budget =
+        run.budget
+        |> bump_budget(:max_replans, 1)
+        |> bump_budget(:max_provider_calls, 3)
+        |> bump_budget(:max_tool_calls, 1)
+
+      %{run | budget: budget}
+    else
+      run
+    end
+  end
+
+  defp maybe_grant_writer_timeout_retry(run, _events), do: run
+
+  defp bump_budget(budget, key, delta) when is_map(budget) do
+    Map.update(budget, key, delta, fn
+      value when is_integer(value) and value >= 0 -> value + delta
+      _ -> delta
+    end)
+  end
+
+  defp bump_budget(budget, _key, _delta), do: budget
+
   defp maybe_prepare_awaiting_author_steer(state, true) do
     stage_state =
       state.stage_state
