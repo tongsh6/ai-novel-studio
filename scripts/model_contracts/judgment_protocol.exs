@@ -16,12 +16,15 @@
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
 #   MODEL_CONTRACT_MIN_PASS_RATE  判断准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）
+#   MODEL_CONTRACT_CONTEXT_SHAPES 逗号分隔的上下文形态（默认 bare,in_run,long_run；
+#                                 加入 production 时经生产 judgment_context_block 构造，
+#                                 VS-00I CP-C 的前缀重排 A/B 用它）
 #   NOVEL_DEEPSEEK_API_KEY / DEEPSEEK_API_KEY  deepseek 凭据（缺失 → exit 65）
 # 退出码：0 通过；1 低于阈值；65 凭据/环境阻塞（全部试验均为连接/凭据类失败）。
 
 alias NovelAgent.Provider.{DeepSeek, Execution}
-alias NovelApplication.ExplorationService
-alias NovelApplication.JudgmentProtocol
+alias NovelApplication.{DialoguePlanningService, ExplorationService, JudgmentProtocol}
+alias NovelDomain.DialogueContext
 
 defmodule ModelContracts.JudgmentProtocol do
   @blocked_error_markers [
@@ -100,11 +103,12 @@ defmodule ModelContracts.JudgmentProtocol do
         System.halt(65)
 
       {:ok, variants} ->
-        # T1（call2 病灶收口）：每个 provider 变体 × 两种上下文形态——bare（探针
+        # T1（call2 病灶收口）：每个 provider 变体 × 多种上下文形态——bare（探针
         # 裸上下文）与 in_run（生产 prompt 同形：会话摘要 + 全章列表 + 采纳事实）。
         # 症状率差 = 上下文负载对 call2 退化的贡献基线。
+        # production 形态由生产 `judgment_context_block/2` 构造，用于 VS-00I CP-C 重排 A/B。
         results =
-          for variant <- variants, context_shape <- [:bare, :in_run, :long_run] do
+          for variant <- variants, context_shape <- env_context_shapes() do
             shaped = Map.put(variant, :context_shape, context_shape)
             cases = Enum.map(@battery, &run_case(shaped, &1, runs))
             %{variant: "#{variant.name}/#{context_shape}", cases: cases}
@@ -187,7 +191,8 @@ defmodule ModelContracts.JudgmentProtocol do
 
     input = %{
       author_text: battery_case.text,
-      context_block: probe_context_block(Map.get(variant, :context_shape, :bare)),
+      context_block:
+        probe_context_block(Map.get(variant, :context_shape, :bare), battery_case.text),
       options: [
         explore: true,
         capabilities:
@@ -268,7 +273,8 @@ defmodule ModelContracts.JudgmentProtocol do
         {:fail, "invalid_action:#{inspect(action) |> String.slice(0, 60)}"}
 
       action not in battery_case.expected ->
-        {:fail, "judgment_mismatch:expected=#{Enum.join(battery_case.expected, "|")} got=#{action}"}
+        {:fail,
+         "judgment_mismatch:expected=#{Enum.join(battery_case.expected, "|")} got=#{action}"}
 
       battery_case.reply_case and map_get(decision, :reply_included) != true ->
         {:fail, "reply_flag_wrong"}
@@ -301,9 +307,36 @@ defmodule ModelContracts.JudgmentProtocol do
 
   # ── 探针固定上下文（含检索能力目录，explore: true 开放五选一） ──
 
+  # production 形态：不拼镜像文本，直接调用生产 `judgment_context_block/2`。
+  # VS-00I CP-C 的 MBC A/B 必须测生产 prompt 的真实段落顺序，否则重排不在样本内。
+  defp probe_context_block(:production, author_text) do
+    titles = production_chapter_titles()
+
+    context = %DialogueContext{
+      workspace_id: "ws_probe_production",
+      current_work_snapshot: %{
+        title: "P1 单章正文草稿验证作品",
+        revision: 1,
+        core_selling_point: "从已采纳章节计划生成待采纳正文草稿",
+        genre: "赛博修仙",
+        target_reader: "关注长篇主链闭环的作者",
+        tone_preference: "克制、紧张、具象"
+      },
+      conversation_summary:
+        "作者按章节计划逐章推进正文：上一轮为第01章生成了正文草稿并已采纳（约 1,288 字），" <>
+          "再上一轮采纳了章节计划（12 章）。作者的采纳节奏很快，通常草稿生成后立即确认保存。",
+      interaction_state: %{},
+      current_chapters: titles,
+      structured_chapters: Enum.map(titles, &%{title: &1, has_prose: true}),
+      assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    DialoguePlanningService.judgment_context_block(context, author_text)
+  end
+
   # in_run 形态：镜像 M0 狗粮生产 prompt 的实际负载（judgment_context_block 渲染
   # 形态——作品上下文 + 12 章全列表 + 会话摘要含近轮采纳事实 + 能力目录）。
-  defp probe_context_block(:in_run) do
+  defp probe_context_block(:in_run, _author_text) do
     """
     ## 当前作品上下文
     - title: P1 单章正文草稿验证作品
@@ -331,15 +364,13 @@ defmodule ModelContracts.JudgmentProtocol do
     ## 会话摘要
     作者按章节计划逐章推进正文：上一轮为第01章生成了正文草稿并已采纳（约 1,288 字），
     再上一轮采纳了章节计划（12 章）。作者的采纳节奏很快，通常草稿生成后立即确认保存。
-
-    #{capability_catalog_section()}
     """
     |> String.trim()
   end
 
   # long_run 形态：30 章作品经 T2a 预算投影后的真实 prompt 形貌（首章 + 最近 6 章
   # + 折叠说明行）——call2 可靠性随上下文长度递减的回归钉（M2 实证形态）。
-  defp probe_context_block(:long_run) do
+  defp probe_context_block(:long_run, _author_text) do
     """
     ## 当前作品上下文
     - title: 长跑形态探针作品
@@ -360,13 +391,11 @@ defmodule ModelContracts.JudgmentProtocol do
     ## 会话摘要
     作者按章节计划连载推进，最近数轮均为"生成下一章正文草稿并采纳"；上一轮采纳了
     第30章草稿（约 1,400 字）。作者节奏稳定，通常草稿生成后立即确认保存。
-
-    #{capability_catalog_section()}
     """
     |> String.trim()
   end
 
-  defp probe_context_block(_bare) do
+  defp probe_context_block(_bare, _author_text) do
     """
     ## 当前作品
     - 标题：星潮之下（赛博修仙）
@@ -376,22 +405,25 @@ defmodule ModelContracts.JudgmentProtocol do
       - 第03章：黑市调频师（仅计划，无正文）
     - 已确认角色：林烬（主角，灵气稽查官）、周衡（配角，黑市调频师）
     - 注意：以上只是结构摘要；各章正文细节、伏笔明细不在本段内，需要时必须先检索。
-
-    #{capability_catalog_section()}
     """
     |> String.trim()
   end
 
-  defp capability_catalog_section do
-    """
-    ## 可用能力（判断"单动作执行"或"制定计划"时的目标集）
-    - character_design：设计新角色（产出待采纳候选）
-    - prose_writing：写/续写章节正文（产出待采纳草稿）
-    - plot_outline：规划章节大纲
-    - world_building：设计世界观设定
-    - search_work_facts：检索作品事实（正文细节、伏笔、时间线；只读）
-    """
-    |> String.trim()
+  defp production_chapter_titles do
+    [
+      "第01章：底层灵气账单",
+      "第02章：旧服务器里的残诀",
+      "第03章：黑市调频师",
+      "第04章：巡检队的诱捕",
+      "第05章：霓虹地牢试炼",
+      "第06章：中层执行者的裂缝",
+      "第07章：断网之城",
+      "第08章：核心模块的代价",
+      "第09章：伪仙直播夜",
+      "第10章：反向筑基协议",
+      "第11章：天台上的背叛",
+      "第12章：第一卷终局：灵气回流"
+    ]
   end
 
   # ── 汇总 ──
@@ -507,6 +539,25 @@ defmodule ModelContracts.JudgmentProtocol do
     case System.get_env(name) do
       nil -> default
       value -> String.to_float(value)
+    end
+  end
+
+  defp env_context_shapes do
+    case System.get_env("MODEL_CONTRACT_CONTEXT_SHAPES") do
+      nil ->
+        [:bare, :in_run, :long_run]
+
+      value ->
+        value
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.map(fn
+          "bare" -> :bare
+          "in_run" -> :in_run
+          "long_run" -> :long_run
+          "production" -> :production
+          other -> raise "未知 MODEL_CONTRACT_CONTEXT_SHAPES: #{inspect(other)}"
+        end)
     end
   end
 end

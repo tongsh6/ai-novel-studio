@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-21（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；下一项为 AB-RESUME（CP-AB 恢复前置，等待厂商凭据）；历史证据保留版本边界）
+> 最后更新：2026-10-21（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；AB-RESUME 的 CP-D/CP-C/CP-E-local-DeepSeek 已推进，VS-00I 冻结待作者裁决；历史证据保留版本边界）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,7 +182,7 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；D5 / Q1c 已采纳内容修订已收口（正式 browser 场景 + 拒绝矩阵）。下一项为 AB-RESUME（CP-AB 恢复前置，等待厂商凭据）。C11 性能仍为观察项。
+Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；D5 / Q1c 已采纳内容修订已收口（正式 browser 场景 + 拒绝矩阵）。AB-RESUME 的 CP-D/CP-C 与 CP-E local/DeepSeek 部分已完成（VS-00I 仍待冻结裁决）；剩余边界是 Anthropic live 凭据。C11 性能仍为观察项。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
@@ -220,7 +220,7 @@ Longest Closed Prefix：D1-D3 是最小闭环；D7 的 P1 10 万字主链 checkp
 
 Current Breakpoint：Journey D 当前支撑切面 VS-00C CP5 已闭环。P1 10 万字主链已证明系统能长跑；“写第 N 章首稿”的上下文质量前置现包括 CP2 实现态摘要窗口、CP3 目标章计划摘要和卷内位置、CP4 结构化方向层、CP5 ReaderEffectBrief 与非权威 self_report。AU09 archive memory roundtrip CP2、memory management workbench entry、memory trace roundtrip、validity window recall、cross-work memory isolation 与 session memory layering 已闭环，当前执行队列已转向 AU11 的质量诊断 message envelope。
 
-Next Proof：CP-AB 已以 Proposed 边界收口（前缀 0.4021、厂商凭据缺失）；AB-RESUME 需先获得至少一个目标厂商凭据，再推进 CP-D/CP-C/CP-E。Q1c / D5 历史证据保留在 `tasks/slices/Q1C-adopted-content-revision.md` §4B。
+Next Proof：CP-AB 以 Proposed 边界收口后，CP-D/CP-C 已完成、CP-E 在 local/DeepSeek 范围完成（DeepSeek live cache hit + LM TTFT 代理、I-CACHE-1 升 CI）；Anthropic live 与 VS-00I 冻结判据（§9 “call2≈call1 全长” 与 L4 置尾冲突）待作者裁决。Q1c / D5 历史证据保留在 `tasks/slices/Q1C-adopted-content-revision.md` §4B。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -436,7 +436,7 @@ Next Proof：Journey J 后续是完整异步 LongRunner streaming 和恢复后�
 | J8 | AU-10 baseline matrix 与 1280×800 layout | AU-10 / AU-01 / AU-02 / AU-05 / AU-07 / AU-08 | TurnResultViewModel / AvailableAction / TraceSummaryView / AdoptionDecision / ProjectionHint | checkpoint closed | Tauri automation | `artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout` | 已覆盖普通聊天 no-MicroPlan、why、候选授权 action、正文草稿采纳、Reading Projection、task status 首屏基线和 1280×800 无横向溢出；不覆盖长任务和断线/超时恢复。 |
 | J9 | task_state 生命周期可见性 | AU-10 | TurnResultViewModel / task_state | checkpoint closed | Tauri automation + Channel test | `artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-taskstate`；`workspace_channel_task_state_test.exs` | 真实“导出全书”动作覆盖 RUNNING/CHECKPOINT/COMPLETED UI，FAILED 由 Channel 回归覆盖；完整异步 LongRunner streaming 未覆盖。 |
 | J10 | 断线、超时、取消等待和恢复后继续操作 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | checkpoint closed / LongRunner deferred | Tauri automation | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-provider-timeout` | CP1 已证明 provider failure recovery；CP2 已证明服务断开/重启后的 WebSocket rejoin 与下一轮继续；CP3A 已证明取消等待 no-write 关闭与下一轮继续；CP3B 已证明真实 provider timeout no-write fallback 与下一轮继续。完整异步 LongRunner 待真实生产消费者出现后再补；stale/disabled/idempotency UI 仍待更深矩阵。 |
-| J11 | Prompt 前缀稳定性观测与首个实证 | AB-RESUME / VS-00I | ProviderRun / Prompt / TTFT | next（blocked：厂商凭据） | CP-AB 已以 Proposed 边界收口；恢复需凭据 | `tasks/NEXT.md` AB-RESUME；`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md` §13 | 提供至少一个目标厂商 key 后推进 CP-D/CP-C/CP-E；或显式缩减契约范围。 |
+| J11 | Prompt 前缀稳定性观测与首个实证 | AB-RESUME / VS-00I | ProviderRun / Prompt / TTFT | next（blocked：Anthropic 凭据 + VS-00I 冻结判据裁决） | CP-AB/CP-D/CP-C 完成；CP-E local/DeepSeek live 完成；I-CACHE-1 升 CI；剩余 Anthropic live/断点与 §14 冻结提案 | `tasks/NEXT.md` AB-RESUME；`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md` §14 | 提供 Anthropic key 后补 live/断点；作者裁决 §14 二选一后改 Frozen 或维持 Proposed。 |
 
 ---
 

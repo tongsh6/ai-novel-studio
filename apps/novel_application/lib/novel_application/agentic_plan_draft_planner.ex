@@ -539,28 +539,45 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp plan_step_targets(_profile_ref), do: nil
 
-  defp draft_context_block(%AgentRun{} = run, snapshot, chapter_titles) do
-    """
-    ## 当前 AgentRun
-    - run_id: #{run.run_id}
-    - profile_ref: #{run.profile_ref}
-    - goal_version: #{run.goal.version}
-    - author_goal: #{run.goal.text}
-    - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
-    - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
-    - stage_state_keys: #{stage_state_keys(snapshot)}
-    #{accepted_chapters_section(chapter_titles, run.goal.text)}
-    ## 计划要求
-    - 计划必须是当前作者目标的 per-run 动态计划，不要复述固定模板。
-    - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
-    - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
-    - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
-    - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
-    - 只起草计划，不声称已经执行，不输出工具结果。
-    - 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。
-    """
-    |> String.trim()
+  # VS-00I CP-D：prompt 按 L0–L4 稳定度排序（只重排，不删段、不改措辞语义）。
+  # L1 = 角色句之后的调用点常量（profile 参数、计划要求、能力目录）；L2 = 作品章节；
+  # L3 = 本轮目标 / 版本 / run_id / 阶段状态；L4 = 输出契约置尾（见各 prompt 构造器）。
+  @doc false
+  @spec draft_context_block(AgentRun.t(), map(), [String.t()]) :: String.t()
+  def draft_context_block(%AgentRun{} = run, snapshot, chapter_titles) do
+    [
+      """
+      ## 调用点参数（本调用点恒定）
+      - profile_ref: #{run.profile_ref}
+      - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
+      - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
+      """,
+      """
+      ## 计划要求
+      - 计划必须是当前作者目标的 per-run 动态计划，不要复述固定模板。
+      - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
+      - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
+      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+      - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
+      - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
+      - 只起草计划，不声称已经执行，不输出工具结果。
+      - 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。
+      """,
+      """
+      ## 可用能力说明
+      #{step_catalog(run.profile_ref)}
+      """,
+      String.trim(accepted_chapters_section(chapter_titles, run.goal.text)),
+      """
+      ## 本轮目标
+      - author_goal: #{run.goal.text}
+      - goal_version: #{run.goal.version}
+      - stage_state_keys: #{stage_state_keys(snapshot)}
+      - run_id: #{run.run_id}
+      """
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map_join("\n\n", &String.trim/1)
   end
 
   # 与旧 Planner accepted_chapters_section 同一契约措辞：target_chapter 只能是列表全名。
@@ -576,42 +593,61 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       "\n"
   end
 
-  defp revision_context_block(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
-    """
-    ## 当前 AgentRun
-    - run_id: #{run.run_id}
-    - profile_ref: #{run.profile_ref}
-    - current_plan_version: #{run.plan_version || 1}
-    - next_plan_version: #{next_plan_version(run)}
-    - author_goal: #{run.goal.text}
-    - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
-    - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
-    - stage_state_keys: #{stage_state_keys(snapshot)}
-    #{accepted_chapters_section(chapter_titles, run.goal.text)}
-    ## 修订触发原因
-    #{revision_reason}
-
-    ## 当前计划
-    #{current_plan_json(run)}
-
-    ## 最近观察
-    #{observation_lines(snapshot)}
-
-    ## 修订要求
-    - 输出完整修订后计划；已经完成的前缀步骤应保留，未完成步骤应追加或替换为当前目标仍需要的步骤。
-    - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
-    - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-    - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
-    - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
-    - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
-    - 只修订计划，不声称已经执行，不输出工具结果。
-    - 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。
-    """
-    |> String.trim()
+  @doc false
+  @spec revision_context_block(AgentRun.t(), map(), [String.t()], String.t()) :: String.t()
+  def revision_context_block(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
+    [
+      """
+      ## 修订要求
+      - 输出完整修订后计划；已经完成的前缀步骤应保留，未完成步骤应追加或替换为当前目标仍需要的步骤。
+      - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
+      - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
+      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+      - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
+      - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
+      - 只修订计划，不声称已经执行，不输出工具结果。
+      - 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。
+      """,
+      """
+      ## 调用点参数（本调用点恒定）
+      - profile_ref: #{run.profile_ref}
+      - plan_step_targets: #{Enum.join(allowed_targets(run), ", ")}
+      - internal_observation_steps: #{Enum.join(internal_observation_steps(run.profile_ref), ", ")}
+      """,
+      """
+      ## 可用能力说明
+      #{step_catalog(run.profile_ref)}
+      """,
+      String.trim(accepted_chapters_section(chapter_titles, run.goal.text)),
+      """
+      ## 本轮目标
+      - author_goal: #{run.goal.text}
+      - current_plan_version: #{run.plan_version || 1}
+      - next_plan_version: #{next_plan_version(run)}
+      - stage_state_keys: #{stage_state_keys(snapshot)}
+      - run_id: #{run.run_id}
+      """,
+      """
+      ## 修订触发原因
+      #{revision_reason}
+      """,
+      """
+      ## 当前计划
+      #{current_plan_json(run)}
+      """,
+      """
+      ## 最近观察
+      #{observation_lines(snapshot)}
+      """
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map_join("\n\n", &String.trim/1)
   end
 
   # 两段式第一段：自由输出 reasoning，无 tools——content 可流式逐字显示给作者。
-  defp draft_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
+  @doc false
+  @spec draft_reasoning_prompt(AgentRun.t(), map(), [String.t()]) :: map()
+  def draft_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
     %{
       messages: [
         %{
@@ -630,9 +666,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
             禁止出现内部能力名、下划线标识符或英文机器名（如 context_assemble、strategy_gate）。
           - 这段话会逐字实时显示给作者：直接输出说明正文，不要标题、JSON、代码块或机器 ref。
           - 只说明计划，不声称已经执行，不输出工具结果，不要调用任何工具。
-
-          ## 可用能力说明
-          #{step_catalog(run.profile_ref)}
           """
         }
       ]
@@ -640,7 +673,9 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   # 两段式第二段：强制 native tool call，把第一段 reasoning 结构化为 AgentPlan。
-  defp draft_structure_prompt(%AgentRun{} = run, snapshot, chapter_titles, reasoning_text) do
+  @doc false
+  @spec draft_structure_prompt(AgentRun.t(), map(), [String.t()], String.t() | nil) :: map()
+  def draft_structure_prompt(%AgentRun{} = run, snapshot, chapter_titles, reasoning_text) do
     tool_prompt(
       @draft_tool_name,
       """
@@ -655,14 +690,13 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       - native tool call：必须调用 #{@draft_tool_name}，把上方 reasoning 对应的完整计划结构放入 tool arguments。
       - arguments 必须包含 author_reasoning 字段：填与上方 reasoning 一致的作者可见原文；reasoning 缺失时自己补写。
       - 除 author_reasoning 与步骤 description 外，不要把其它叙事字段放入 tool arguments。
-
-      ## 可用能力说明
-      #{step_catalog(run.profile_ref)}
       """
     )
   end
 
-  defp revision_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
+  @doc false
+  @spec revision_reasoning_prompt(AgentRun.t(), map(), [String.t()], String.t()) :: map()
+  def revision_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
     %{
       messages: [
         %{
@@ -679,22 +713,22 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
             3) 影响范围：修订后接下来只会做什么、不会碰什么。
           - 这段话会逐字实时显示给作者：直接输出说明正文，不要标题、JSON、代码块或机器 ref。
           - 只说明修订，不声称已经执行，不输出工具结果，不要调用任何工具。
-
-          ## 可用能力说明
-          #{step_catalog(run.profile_ref)}
           """
         }
       ]
     }
   end
 
-  defp revision_structure_prompt(
-         %AgentRun{} = run,
-         snapshot,
-         chapter_titles,
-         revision_reason,
-         reasoning_text
-       ) do
+  @doc false
+  @spec revision_structure_prompt(AgentRun.t(), map(), [String.t()], String.t(), String.t() | nil) ::
+          map()
+  def revision_structure_prompt(
+        %AgentRun{} = run,
+        snapshot,
+        chapter_titles,
+        revision_reason,
+        reasoning_text
+      ) do
     tool_prompt(
       @revision_tool_name,
       """
@@ -709,9 +743,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       - native tool call：必须调用 #{@revision_tool_name}，把上方 reasoning 对应的完整修订后计划结构放入 tool arguments。
       - arguments 必须包含 author_reasoning 字段：填与上方 reasoning 一致的作者可见原文；reasoning 缺失时自己补写。
       - 除 author_reasoning 与步骤 description 外，不要把其它叙事字段放入 tool arguments。
-
-      ## 可用能力说明
-      #{step_catalog(run.profile_ref)}
       """
     )
   end

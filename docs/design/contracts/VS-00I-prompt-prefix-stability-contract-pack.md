@@ -1,6 +1,6 @@
 # VS-00I Prompt Prefix Stability Contract Pack（Prompt 前缀稳定性契约）
 
-> 状态：Proposed（2026-10-21）。本文定义"每次 provider 请求从头开始的字节恒定前缀"的分层模型、各调用点映射、adapter 责任、度量与分期。不授权代码实现；实现经 `tasks/slices/UA01-agentic-loop-prompt-hardening.md` T6 推进。
+> 状态：Proposed（2026-10-21）。本文定义"每次 provider 请求从头开始的字节恒定前缀"的分层模型、各调用点映射、adapter 责任、度量与分期。不授权代码实现；实现经 `tasks/slices/UA01-agentic-loop-prompt-hardening.md` T6 推进。**2026-10-21 进展**：CP-AB / CP-D / CP-C 完成；CP-E 在 local/DeepSeek 范围完成（Anthropic live 与断点 blocked）；冻结判据修订提案见 §14，待作者裁决。
 >
 > 角色：`VS-00H` 解决了"前缀第一段是什么"（系统身份）；本文解决"身份之后怎么排"。它是 `notes/2026-07-22-prompt-as-function-of-state.md` §2.1 六段骨架在**排序维度**上的补充——六段骨架回答"prompt 里要有哪些段、约束放哪"，本文回答"这些段按稳定度如何排才能被 provider 缓存复用"。两者冲突时，六段骨架中有判例支撑的位置要求优先（§2.3）。
 >
@@ -137,13 +137,13 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 | Provider | 缓存机制 | 门槛 / 粒度 | adapter 动作 | 命中观测字段 | 运行侧前提 | 核实状态 |
 |---|---|---|---|---|---|---|
 | OpenAI / OpenAI Subscription | 自动前缀缓存 | ≥1024 token，128 粒度；TTL 约 5–10 分钟 | 无 | `usage.prompt_tokens_details.cached_tokens` | — | 字段已接；live 基线待跑 |
-| DeepSeek | 自动前缀缓存（磁盘 KV） | 64 token 块；TTL 以小时计 | 无 | `usage.prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` | — | 字段已接；live 基线待跑 |
+| DeepSeek | 自动前缀缓存（磁盘 KV） | 64 token 块；TTL 以小时计 | 无 | `usage.prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` | — | **已核实（2026-10-21，CP-E）**：`deepseek-v4-pro`、生产判断 call1 prompt（10,046 bytes / 2,057 input tokens）连续两次，`cached_tokens=2048`（2048/2057 ≈ 99.6%），TTFT 3755→3319ms（`prompt_prefix_live.exs`，报告 `artifacts/model-contracts/prefix-live/deepseek.md`）。 |
 | Anthropic | **显式** `cache_control` 断点 | ≥1024 token（Haiku 2048）；最多 4 断点；顺序 tools → system → messages；TTL 5 分钟 / 1 小时 | 断点打在 **L1 末** 与 **L2 末**（messages 内），system 不打；撤销或闲置现 `anthropic_system/1` 的 4096 字符阈值分支 | `usage.cache_read_input_tokens` / `cache_creation_input_tokens` | — | 字段已接；断点策略未实现 |
 | Gemini（OpenAI 兼容层） | 2.5 系列隐式缓存 + 显式 cache API | Flash ≥1024 / Pro ≥2048 token | 无（隐式） | 兼容层是否映射到 `prompt_tokens_details.cached_tokens` | — | **待核实** |
 | Kimi（Moonshot） | 自动 context cache（另有显式 cache API） | 待核实 | 无 | `usage.cached_tokens` | — | **待核实** |
 | 智谱 GLM | 部分模型自动缓存 | 待核实 | 无 | `prompt_tokens_details.cached_tokens` | — | **待核实** |
 | MiniMax（海外 / 国内） | 待核实 | 待核实 | 无 | 待核实 | — | **待核实** |
-| LM Studio（llama.cpp） | 推理槽位 KV 前缀复用 | 无门槛；逐 token | 无 | `usage.prompt_tokens` / `completion_tokens` / `total_tokens` / `completion_tokens_details.reasoning_tokens`；**无 `cached_tokens`** → 以 adapter 首 delta 的 `ttft_ms` 为代理（§6.2） | 实测：`qwen3.8-flash-next@q2_k`，context 262144，parallel **3**，TTL 空（未关闭空闲驱逐）。与“并行预测=1”前提不一致；live 命中测量须单会话并记录冲掉风险 | **已核实（2026-10-21）**：usage 无 cache 字段；短流式调用 TTFT=1365ms / latency=1366ms（token 计数为 0，流式 usage 未返回）。 |
+| LM Studio（llama.cpp） | 推理槽位 KV 前缀复用 | 无门槛；逐 token | 无 | `usage.prompt_tokens` / `completion_tokens` / `total_tokens` / `completion_tokens_details.reasoning_tokens`；**无 `cached_tokens`** → 以 adapter 首 delta 的 `ttft_ms` 为代理（§6.2） | 实测：`qwen3.8-flash-next@q2_k`，context 262144，parallel **3**，TTL 空（未关闭空闲驱逐）。与“并行预测=1”前提不一致；live 命中测量须单会话并记录冲掉风险 | **已核实（2026-10-21，CP-E）**：生产判断 call1 prompt（10,046 bytes）连续两次，TTFT 195,350ms → 6,619ms（run1 含模型冷加载，run2 同 slot 前缀复用代理）；usage 仍无 cache 字段、流式 token 计数 0。报告 `artifacts/model-contracts/prefix-live/lmstudio.md`。 |
 | Stub / SliceVerify | 无 | — | 无 | — | — | 不适用 |
 
 > CP-AB 实测补充（2026-10-21）：LM Studio `/v1/chat/completions` 原始 usage 为
@@ -250,7 +250,49 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 | A3/A4 | LM Studio 实测 usage 无 `cached_tokens`（prompt/completion/total + reasoning_tokens）；runtime `qwen3.8-flash-next@q2_k` / context 262144 / parallel 3 / TTL 空；短流式 TTFT=1365ms（token 计数 0，流式 usage 未返回）；其他厂商 shell 无凭据，保持待核实 |
 | 门禁 | 后端 1,577/0；compile/xref/arch PASS；前端未改动；`agentic-loop-gate-deviation-replan` 真实 Tauri PASS |
 
-**未 Frozen 的原因**：续行 call_pair 的共享前缀虽显著提升（0.3108 → 0.4021），但仍未达到本文冻结纪律要求的“call2 共享前缀 ≈ call1 全长”；A3 多厂商 live 基线仍缺凭据；LM Studio 只有一次短流式 TTFT 基线（1365ms），未做同调用对/缓存命中；`au02-candidate-continuation` 与 `agentic-loop-gate-deviation-replan` 均已 PASS，D5 budget deviation 场景仍有既有 drift。状态保持 Proposed，不把局部实证冒充全量冻结。
+### 11.1 CP-D 实现证据（2026-10-21）
+
+| 项 | 证据 |
+|---|---|
+| 重排范围 | `AgenticPlanDraftPlanner` 起草/修订（`draft_context_block` / `revision_context_block` 与四条 prompt 构造器）、`ChapterMissionService.mission_prompt`；只改排序，不删段、不改措辞 |
+| L1 前置 | 调用点常量参数（`profile_ref` / `plan_step_targets` / `internal_observation_steps`）、计划/修订要求、能力目录；`run_id` 从首字段移至 L3 尾部 |
+| 前缀度量（跨 run） | `run_icache_prefix.exs` 新增 `cross_run`：draft_reasoning `2675/3654 (0.7321)`、draft_structure `2675/4911 (0.5447)`、revision_reasoning `2753/4028 (0.6835)`、revision_structure `2753/5571 (0.4942)`、chapter_mission `1270/2782 (0.4565)`；每条均覆盖 L1/L2 边界（boundary 2634 / 2712 / 1160），`enforce=true` 硬断言 |
+| N-PLAN | planner / mission / prose-drafting flow / plot-outline flow focused tests 全绿；计划语义、schema、校验未动 |
+| 回归钉 | 3 条 prompt 段落顺序测试（起草、修订、章节使命）钉住 L1 → L2 → L3 → L4 |
+| 报告 | `artifacts/scenario-invariants/icache-cp-d.md` / `.json` |
+
+诚实边界：公开 prompt 构造器（`@doc false`）是 CP-D 同批补的，改前旧排序没有同口径数字；本 CP 以“公共前缀 ≥ L1 边界”的绝对位置断言证明覆盖，未伪造改前数字。CP-C 前的判断连续两轮基线（`1107/10022 (0.1105)`，能力目录未覆盖）另存 `icache-cp-c-before.md`。
+
+### 11.2 CP-C 实现证据（2026-10-21）
+
+| 项 | 证据 |
+|---|---|
+| 重排范围 | `JudgmentProtocol` call1/call2 共享 L1 公共前缀（角色句 + 能力目录；目录从 `context_block` 末尾迁入 L1）；`DialoguePlanningService.judgment_context_block/2` 只承载 L2/L3；章节段拆为稳定列表（L2，不消费作者输入）+ 作者点名章（L3 补充） |
+| 连续两轮共享前缀（L0–L2） | `judgment_consecutive` `1107/10022 (0.1105, covered=false)` → `2543/10051 (0.2530, covered=true, boundary=2505)`；`enforce=true` 硬断言 |
+| 调用对共享前缀（L0–L2） | `conversation` call_pair `525/6686 (0.0785)` → `2059/8175 (0.2519)`；新增 `judgment_call_pair_prod`（production 上下文、含 4 章）`3927/10052 (0.3907)`，`boundary=3925`、`covered=true`、`enforce=true`——call2 共享前缀覆盖 call1 全部 L0–L2（止于 L3 分叉），L4 按 §2.3 硬规则置尾、不参与共享前缀 |
+| MBC A/B（pass_rate 不降） | 7 用例 × 1 run、production 上下文形态：stub / LM Studio `qwen3.8-flash-next@q2_k` / DeepSeek `deepseek-v4-pro` 改前改后均 protocol=1.0、form=1.0、judgment=1.0，call2 首调 1.0、0 重试 |
+| 继承不变量 | I1 4/4、I2 3 pairs disjoint、I3 3+3、N-NARR PASS；全量 `mix test` 623+126/0 |
+| 回归钉 | 2 条单测（call1/call2 共享 L1+L2 字节前缀；章节拆段与连续两轮 L2 恒定） |
+| 报告 | `artifacts/scenario-invariants/icache-cp-c.md`、`artifacts/model-contracts/{stub,lmstudio,deepseek}/judgment-protocol-cp-c-{before,after}.json` |
+
+诚实边界：MBC 电池在三个 provider 上均为 7/7（天花板效应），本轮只能证明“不退化”，不是灵敏度测试；失败路径未触发，无调用点例外登记。
+
+### 11.3 CP-E 实现证据（2026-10-21，local/DeepSeek 范围）
+
+> 作者 2026-10-21 明确本阶段 scope：`CP-D → CP-C → CP-E（local/DeepSeek）`。
+
+| 项 | 证据 |
+|---|---|
+| DeepSeek live 缓存命中 | `deepseek-v4-pro`，生产判断 call1 prompt（10,046 bytes / 2,057 input tokens）连续两次：`cached_tokens=2048`（2048/2057 ≈ 99.6%），TTFT 3755→3319ms；`artifacts/model-contracts/prefix-live/deepseek.md` |
+| LM Studio TTFT 代理 | `qwen3.8-flash-next@q2_k`，同一 prompt 连续两次：TTFT 195,350ms → 6,619ms（run1 含模型冷加载，run2 单会话同 slot 前缀复用；无 cache 字段，token 计数 0）；`artifacts/model-contracts/prefix-live/lmstudio.md` |
+| 调用对可缓存前缀覆盖 | `judgment_call_pair_prod` `3927/10052`，boundary=3925、`covered=true`、enforce：call2 共享前缀覆盖 call1 全部 L0–L2（L4 按 §2.3 置尾、不参与） |
+| I-CACHE-1 登记与门禁 | `docs/engineering/scenario-invariants.md` §8；`.github/workflows/ci.yml` 新增 step；`scripts/ai_static_scan.sh` 新增 `scenario-invariants-i-cache` check；driver `run_icache_prefix.exs` 的 enforce 行覆盖判断连续两轮、判断 call_pair L0–L2、起草/修订/章节使命 cross_run |
+| 验收驱动 | `bash scripts/slice_verify.sh au02-candidate-continuation` PASS（真实页面 + 前后端主链；产品代码零验收感知） |
+| 门禁 | `mix compile --warnings-as-errors`、全量 `mix test` 0 failures、xref 无环、arch PASS、I1/I2/I3/N-NARR 绿 |
+
+诚实边界：Anthropic live `cache_read_input_tokens > 0` **未做**——shell 与桌面 secret 均无 Anthropic 凭据；Anthropic 断点策略需要把 prompt 切成 message content blocks（L1 末 / L2 末），当前 prompt 是单一 user message，分块契约未实现，不伪造。Gemini / Kimi / 智谱 / MiniMax / OpenAI 同样无凭据，保持未核实。
+
+**未 Frozen 的原因**：见 §14——§9 冻结纪律「call2 共享前缀 ≈ call1 全长」与 §2.3「L4 置尾是硬规则」结构上不可同时满足；Anthropic live/断点与多厂商凭据仍缺。本轮不把 local/DeepSeek 证据冒充全量冻结。状态保持 Proposed，待作者裁决 §14 提案。
 
 ---
 
@@ -273,3 +315,20 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 - D5 `plan_revised` 场景已判定 legacy/superseded，不能作为 CP-AB 冻结证据。
 - **恢复条件**：提供至少目标厂商凭据并完成 CP-D/CP-C/CP-E，或由作者显式缩减契约范围并重新定义冻结判据。
 - 在此之前，不再以 CP-AB 名义改 prompt；不得把局部度量、stub MBC 或单一 LM Studio TTFT 冒充全量 Frozen。
+
+---
+
+## 14. CP-D/C/E 执行结果与冻结判据修订提案（2026-10-21，待作者裁决）
+
+**执行结果**：CP-D、CP-C 完成；CP-E 在作者指定的 local/DeepSeek 范围完成（证据见 §11.1–§11.3、§5 矩阵、§8 I-CACHE-1 登记）。
+
+**结构性冲突**：§9 冻结纪律要求「call2 共享前缀 ≈ call1 全长」，但 §2.3 裁决 L4（判别规则、输出契约）必须置尾——call1 的 L4 段按硬规则不可能进入共享前缀。实测 call2 已覆盖 call1 的**全部可缓存前缀**（L0–L2，`judgment_call_pair_prod` `3927/10052`，boundary=3925、covered=true）；剩余约 6.1k 字节正是 L4 输出契约，设计上不应共享。
+
+**冻结提案（二选一，需作者拍板）**：
+
+1. **修订冻结纪律**为「call2 共享前缀覆盖 call1 的 L0–L2 全长（L4 置尾除外）」+ 已迁移调用点 I-CACHE-1 全绿 + 至少一个可达厂商 live 命中证据（DeepSeek `cached_tokens 2048/2057`、LM Studio TTFT 代理已具备）→ 可将本文改 Frozen；Anthropic 断点/后续厂商按 adapter 增量补齐，不阻塞冻结。
+2. **保持原文**「≈ call1 全长」并永远保持 Proposed（结构上不可达，除非推翻 §2.3 的 L4 置尾裁决——那需要新的判界 A/B 证据）。
+
+**当前处置**：状态保持 **Proposed**；不以“接近”自证 Frozen。若作者选 1，本轮证据已足够支撑改 Frozen；若选 2，则 CP-E 剩余项转为 Anthropic 凭据 + L4 前移的 MBC A/B 数据。
+
+**未完成边界（两手都不掩盖）**：Anthropic live `cache_read_input_tokens > 0` 未做（无凭据）；Anthropic 断点需把单一 user message 切成 L1 末/L2 末 content blocks，分块契约未实现；Gemini / Kimi / 智谱 / MiniMax / OpenAI 仍无凭据、未核实。

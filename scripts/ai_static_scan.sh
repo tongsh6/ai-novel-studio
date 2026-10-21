@@ -165,6 +165,9 @@ run_check "scenario-invariants-i2" "Scenario invariants — I2 input variation" 
 run_check "scenario-invariants-n-narr" "Scenario invariants — N-NARR narrative source binding" "correctness" "critical" \
   "MIX_ENV=test mix run scripts/scenario_invariants/run_n_narr.exs"
 
+run_check "scenario-invariants-i-cache" "Scenario invariants — I-CACHE-1 prompt prefix sharing" "correctness" "critical" \
+  "MIX_ENV=test mix run scripts/scenario_invariants/run_icache_prefix.exs"
+
 if has_mix_task "sobelow"; then
   run_check "sobelow" "Sobelow Phoenix security scan" "security" "high" \
     "mix sobelow --exit --format json"

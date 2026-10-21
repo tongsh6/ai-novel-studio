@@ -74,7 +74,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   test "empty assistant content falls back to author_reasoning tool argument with tool-narrative source binding" do
     execution = %Execution{result_fn: fn _prompt -> {:ok, provider_result("")} end}
 
-    assert {:ok, plan, meta} = AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+    assert {:ok, plan, meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
 
     assert length(plan.steps) == 2
     assert meta.summary == @narrative
@@ -118,14 +119,14 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         # 第二段：强制 tool call，content 系统性为空（LM Studio 形态）
         {:ok, provider_result("")}
       else
-        {:ok,
-         %{content: @narrative, tool_calls: [], provider_output: reasoning_output}}
+        {:ok, %{content: @narrative, tool_calls: [], provider_output: reasoning_output}}
       end
     end
 
     execution = %Execution{result_fn: result_fn}
 
-    assert {:ok, plan, meta} = AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+    assert {:ok, plan, meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
 
     assert_received {:prompt, first_prompt}
     assert_received {:prompt, second_prompt}
@@ -453,7 +454,9 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     result = %{content: "", tool_calls: tool_calls, provider_output: output}
     execution = %Execution{result_fn: fn _prompt -> {:ok, result} end}
 
-    assert {:ok, plan, _meta} = AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+    assert {:ok, plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+
     assert [step] = plan.steps
     step
   end
@@ -514,7 +517,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         if n == 1 do
           {:error, %{type: :timeout, message: "transient"}}
         else
-          {:ok, act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
+          {:ok,
+           act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
         end
       else
         {:ok, reasoning_provider_result()}
@@ -556,7 +560,10 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         {:ok, act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
       else
         n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
-        if n == 1, do: {:error, %{type: :provider_error, message: "empty"}}, else: {:ok, reasoning_provider_result()}
+
+        if n == 1,
+          do: {:error, %{type: :provider_error, message: "empty"}},
+          else: {:ok, reasoning_provider_result()}
       end
     end
 
@@ -722,5 +729,61 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     assert {:error, :reasoning_text_required} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
+  end
+
+  # VS-00I CP-D：L1 静态段在前、L2 作品章节居中、L3 本轮动态在后、L4 输出契约置尾。
+  # 防止后续改动把 run_id / goal / 章节等易变字段重新插回共享前缀。
+  test "VS-00I CP-D 起草 prompt 顺序：L1 → L2 → L3，输出要求置尾" do
+    prompt =
+      AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, ["第01章：开端"])
+
+    text = prompt.messages |> hd() |> Map.fetch!(:content)
+
+    assert_ordered(text, [
+      "## 计划要求",
+      "## 可用能力说明",
+      "## 作品章节",
+      "## 本轮目标",
+      "## 输出要求"
+    ])
+
+    refute text =~ "## 当前 AgentRun"
+  end
+
+  test "VS-00I CP-D 修订 prompt 顺序：修订要求与能力说明前置，动态计划在后" do
+    prompt =
+      AgenticPlanDraftPlanner.revision_structure_prompt(
+        probe_run(),
+        %{},
+        ["第01章：开端"],
+        "质量复核要求补足步骤",
+        "先补步骤再继续。"
+      )
+
+    text = prompt.messages |> hd() |> Map.fetch!(:content)
+
+    assert_ordered(text, [
+      "## 修订要求",
+      "## 可用能力说明",
+      "## 作品章节",
+      "## 本轮目标",
+      "## 修订触发原因",
+      "## 当前计划",
+      "## 最近观察",
+      "## 输出格式"
+    ])
+  end
+
+  defp assert_ordered(text, markers) do
+    offsets =
+      Enum.map(markers, fn marker ->
+        case :binary.match(text, marker) do
+          {offset, _} -> offset
+          :nomatch -> flunk("prompt 缺少段落: #{inspect(marker)}")
+        end
+      end)
+
+    assert offsets == Enum.sort(offsets),
+           "prompt 段落顺序不符: #{inspect(markers)}"
   end
 end

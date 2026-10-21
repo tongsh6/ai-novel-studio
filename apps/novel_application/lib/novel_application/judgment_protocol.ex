@@ -790,6 +790,33 @@ defmodule NovelApplication.JudgmentProtocol do
     ]
   end
 
+  # VS-00I CP-C：判断 call1/call2 的 L1 公共前缀（角色句 + 能力目录）。
+  # 两段调用共享这一字节前缀，且 context_block（L2/L3）紧随其后，使调用对与
+  # 连续两轮的缓存前缀覆盖 L0–L2。目录文本是 D8 判例载体，原样从
+  # DialoguePlanningService 迁入（只换位置，不改措辞）。
+  defp judgment_l1_prefix do
+    """
+    本次你承担创作判断器的角色。
+
+    ## 可用能力（判断"单动作执行"或"制定计划"时的目标集）
+    - character_design：设计新角色/反派（产出待采纳候选）
+    - character_evolution：更新角色当前状态、关系变化（产出待采纳演化记录）
+    - prose_writing：写/续写章节正文（产出待采纳草稿）
+    - plot_outline：规划章节大纲、卷纲、分章结构（产出待采纳大纲）
+    - world_building：世界观、设定、伏笔、写作规则（产出待采纳设定）
+    - work_archive_read：只读查看作品档案（角色列表、结构、统计；不产出候选，
+      **不能保存/存档/写入任何内容**——名字里的 archive 是「档案」不是「存档」动作）
+    - revise_pending_artifact：按作者要求修订已有待采纳对象，生成独立候选；原稿保留、不自动采纳。必须填 pending_artifact_ref。
+    - discard_pending_artifact：执行作者明确要求的放弃，只改变已绑定候选状态、不删除作品事实。必须填 pending_artifact_ref。
+
+    判例（D8 止血，2026-08-30 stage 实锤）：作者要求「把 XX 存档/保存为设定/写入档案」时，
+    本系统的写入只有一条路=待采纳候选经作者采纳。若对话中已有待采纳候选，选直接回复并
+    明确引导作者去候选卡采纳；若还没有候选，选 world_building（或对应类型能力）把内容
+    整理为待采纳候选。**绝不选 work_archive_read**——它读不了愿望也存不了任何东西。
+    """
+    |> String.trim()
+  end
+
   @doc "call1 自由输出 prompt：判断叙事 + 直接回复内联（46§9.4 意图段体裁）。"
   @spec narrative_prompt(map()) :: map()
   def narrative_prompt(input) do
@@ -798,9 +825,11 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          本次你承担创作判断器的角色。作者刚发来一条输入，你要判断本轮的形态并向作者说明。
+          #{judgment_l1_prefix()}
 
           #{Map.fetch!(input, :context_block)}
+
+          作者刚发来一条输入，你要判断本轮的形态并向作者说明。
 
           ## 作者输入
           #{Map.fetch!(input, :author_text)}
@@ -848,7 +877,11 @@ defmodule NovelApplication.JudgmentProtocol do
         %{
           role: "user",
           content: """
-          本次你承担创作判断器的角色。你刚才已向作者输出了判断说明（如下）。本次调用：把判断说明中的
+          #{judgment_l1_prefix()}
+
+          #{Map.get(input, :context_block, "")}
+
+          你刚才已向作者输出了判断说明（如下）。本次调用：把判断说明中的
           裁决结论填进结构化字段。action 填的是【系统接下来对作者请求做什么】，不是你本次调用在做什么。
 
           ## 作者输入

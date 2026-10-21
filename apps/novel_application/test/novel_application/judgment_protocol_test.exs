@@ -769,4 +769,87 @@ defmodule NovelApplication.JudgmentProtocolTest do
     refute result.content =~ "continuation_decision"
     refute result.content =~ "\"action\""
   end
+
+  # VS-00I CP-C：判断 call1/call2 共享 L1（角色句 + 能力目录）与 L2（作品/章节）
+  # 字节前缀；能力目录从 context_block 末尾前移到 L1。
+  test "VS-00I CP-C：call1/call2 共享 L1+L2 字节前缀，能力目录前置" do
+    context_block = """
+    ## 当前作品上下文
+    - title: 前缀样书
+    - genre: 赛博修仙
+
+    ## 章节列表（共 1 章：已写 1 章，计划中 0 章）
+    - 第01章：底层灵气账单
+    """
+
+    input = %{
+      author_text: "接着第01章往下写",
+      context_block: context_block,
+      options: []
+    }
+
+    call1 = JudgmentProtocol.narrative_prompt(input) |> prompt_text()
+    call2 = JudgmentProtocol.decision_prompt(input, "本轮判为单动作执行。") |> prompt_text()
+
+    catalog = "## 可用能力（判断"
+    assert {catalog_pos, _} = :binary.match(call1, catalog)
+    assert :binary.match(call2, catalog) != :nomatch
+
+    {work_pos, _} = :binary.match(call1, "## 当前作品上下文")
+    assert catalog_pos < work_pos
+
+    {context_pos, _} = :binary.match(call1, context_block)
+    context_end = context_pos + byte_size(context_block)
+
+    assert common_prefix_bytes(call1, call2) >= context_end
+  end
+
+  # VS-00I CP-C：章节段拆分——稳定列表（L2）不消费作者输入，作者点名章在 L3
+  # 单独补充；连续两轮的 L2 因此字节恒定。
+  test "VS-00I CP-C：章节目录拆稳定列表与作者点名补充（连续两轮 L2 稳定）" do
+    titles =
+      Enum.map(1..30, fn i ->
+        n = String.pad_leading(Integer.to_string(i), 2, "0")
+        "第#{n}章：进程 #{i}"
+      end)
+
+    context = %NovelDomain.DialogueContext{
+      workspace_id: "ws_cp_c",
+      current_work_snapshot: %{"title" => "样书"},
+      conversation_summary: "作者正在推进连载。",
+      interaction_state: %{},
+      current_chapters: titles,
+      structured_chapters: Enum.map(titles, &%{title: &1, has_prose: true})
+    }
+
+    block_a =
+      NovelApplication.DialoguePlanningService.judgment_context_block(
+        context,
+        "把第15章写紧凑"
+      )
+
+    block_b =
+      NovelApplication.DialoguePlanningService.judgment_context_block(
+        context,
+        "把第16章写紧凑"
+      )
+
+    # L1 能力目录由 JudgmentProtocol 公共前缀承载，不再混进 context_block（L2/L3）。
+    refute block_a =~ "## 可用能力（判断"
+
+    assert block_a =~ "## 作者点名章"
+    assert block_a =~ "第15章：进程 15"
+    assert block_b =~ "第16章：进程 16"
+
+    {boundary, _} = :binary.match(block_a, "## 作者点名章")
+    assert common_prefix_bytes(block_a, block_b) >= boundary
+  end
+
+  defp common_prefix_bytes(left, right) do
+    left
+    |> :binary.bin_to_list()
+    |> Enum.zip(:binary.bin_to_list(right))
+    |> Enum.take_while(fn {a, b} -> a == b end)
+    |> length()
+  end
 end

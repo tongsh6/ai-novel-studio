@@ -1120,15 +1120,20 @@ defmodule NovelApplication.DialoguePlanningService do
     |> Map.put_new(:session_id, map_get(input, :session_id) || run.session_id)
   end
 
-  # 判断①的作品上下文段（机械准备渲染）+ CP1 能力目录（不含检索，explore 由 CP5 打开）。
-  defp judgment_context_block(context, author_text) do
+  # 判断①的 L2/L3 上下文段（机械准备渲染）。L1（角色句 + 能力目录）由
+  # `JudgmentProtocol` 的公共前缀统一产出，使 call1/call2 与连续两轮共享 L0–L1；
+  # 章节段拆为 L2 稳定列表（不消费作者输入）与 L3 作者点名补充。
+  # 探针与生产共用同一真源（MBC 的上下文必须是被测代码真实产出的字节）。
+  @doc false
+  @spec judgment_context_block(NovelDomain.DialogueContext.t(), String.t()) :: String.t()
+  def judgment_context_block(context, author_text) do
     [
       judgment_work_section(context),
-      judgment_chapters_section(context, author_text),
+      judgment_stable_chapters_section(context),
+      judgment_named_chapters_section(context, author_text),
       judgment_conversation_section(context),
       TurnInteractionService.context_section(context.interaction_state),
-      context.open_behavior_summary || "",
-      judgment_capability_catalog()
+      context.open_behavior_summary || ""
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n\n")
@@ -1146,28 +1151,61 @@ defmodule NovelApplication.DialoguePlanningService do
   defp judgment_work_section(_context),
     do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
 
-  # T2a（call2 病灶结构性收口）：章节段有界投影——超限时首章+最近 N+作者点名章。
+  # T2a（call2 病灶结构性收口）：章节段有界投影——超限时首章+最近 N。
+  # CP-C（VS-00I §4）：稳定列表不消费作者输入（L2）；作者点名章在 L3 单独补充，
+  # 保证连续两轮的 L0–L2 字节恒定；target_chapter 精确复制契约两段都适用。
   # Order 7-④（M2 实锤：标头"已写章节共17章"实际12章有正文）：标头区分已写/
   # 计划中，未写正文的章标注「（计划中）」——判断器对写作进度的认知不再被计划章污染。
-  defp judgment_chapters_section(
-         %DialogueContext{current_chapters: [_ | _] = chapters} = context,
-         author_text
+  defp judgment_stable_chapters_section(
+         %DialogueContext{current_chapters: [_ | _] = chapters} = context
        ) do
-    {listed, omitted} = ChapterListBudget.project(chapters, author_text)
+    {listed, omitted} = ChapterListBudget.project(chapters, nil)
     planned = planned_chapter_titles(context)
     written_count = length(chapters) - MapSet.size(planned)
 
-    annotated =
-      Enum.map(listed, fn title ->
-        if MapSet.member?(planned, title), do: "#{title}（计划中）", else: title
-      end)
+    annotated = annotate_planned_chapters(listed, planned)
 
     "## 章节列表（共 #{length(chapters)} 章：已写 #{written_count} 章，计划中 #{MapSet.size(planned)} 章）\n" <>
       ChapterListBudget.render_lines(annotated, omitted, length(chapters)) <>
-      "\n（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内。）"
+      "\n（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
   end
 
-  defp judgment_chapters_section(_context, _author_text), do: ""
+  defp judgment_stable_chapters_section(_context), do: ""
+
+  defp judgment_named_chapters_section(
+         %DialogueContext{current_chapters: [_ | _] = chapters} = context,
+         author_text
+       ) do
+    {listed, _omitted} = ChapterListBudget.project(chapters, nil)
+    stable = MapSet.new(listed)
+    planned = planned_chapter_titles(context)
+
+    supplement =
+      chapters
+      |> ChapterListBudget.named_chapter_titles(author_text)
+      |> Enum.reject(&MapSet.member?(stable, &1))
+
+    case supplement do
+      [] ->
+        ""
+
+      titles ->
+        annotated = annotate_planned_chapters(titles, planned)
+
+        "## 作者点名章（本轮请求涉及；target_chapter 从此段或「章节列表」精确复制全名）\n" <>
+          Enum.map_join(annotated, "\n", &"- #{&1}")
+    end
+  end
+
+  defp judgment_named_chapters_section(_context, _author_text), do: ""
+
+  defp annotate_planned_chapters(titles, planned) do
+    Enum.map(titles, &annotate_planned_chapter(&1, planned))
+  end
+
+  defp annotate_planned_chapter(title, planned) do
+    if MapSet.member?(planned, title), do: "#{title}（计划中）", else: title
+  end
 
   defp planned_chapter_titles(%DialogueContext{structured_chapters: structured})
        when is_list(structured) do
@@ -1185,27 +1223,6 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp judgment_conversation_section(_context), do: ""
-
-  defp judgment_capability_catalog do
-    """
-    ## 可用能力（判断"单动作执行"或"制定计划"时的目标集）
-    - character_design：设计新角色/反派（产出待采纳候选）
-    - character_evolution：更新角色当前状态、关系变化（产出待采纳演化记录）
-    - prose_writing：写/续写章节正文（产出待采纳草稿）
-    - plot_outline：规划章节大纲、卷纲、分章结构（产出待采纳大纲）
-    - world_building：世界观、设定、伏笔、写作规则（产出待采纳设定）
-    - work_archive_read：只读查看作品档案（角色列表、结构、统计；不产出候选，
-      **不能保存/存档/写入任何内容**——名字里的 archive 是「档案」不是「存档」动作）
-    - revise_pending_artifact：按作者要求修订已有待采纳对象，生成独立候选；原稿保留、不自动采纳。必须填 pending_artifact_ref。
-    - discard_pending_artifact：执行作者明确要求的放弃，只改变已绑定候选状态、不删除作品事实。必须填 pending_artifact_ref。
-
-    判例（D8 止血，2026-08-30 stage 实锤）：作者要求「把 XX 存档/保存为设定/写入档案」时，
-    本系统的写入只有一条路=待采纳候选经作者采纳。若对话中已有待采纳候选，选直接回复并
-    明确引导作者去候选卡采纳；若还没有候选，选 world_building（或对应类型能力）把内容
-    整理为待采纳候选。**绝不选 work_archive_read**——它读不了愿望也存不了任何东西。
-    """
-    |> String.trim()
-  end
 
   defp emit_judgment_decided(snapshot, judgment) do
     emit_judgment_stage(

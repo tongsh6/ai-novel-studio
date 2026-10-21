@@ -35,9 +35,7 @@ defmodule NovelApplication.ChapterListBudget do
     named = named_chapter_titles(titles, author_text)
 
     keep =
-      MapSet.new(
-        Enum.take(titles, 1) ++ Enum.take(titles, -@recent_count) ++ named
-      )
+      MapSet.new(Enum.take(titles, 1) ++ Enum.take(titles, -@recent_count) ++ named)
 
     listed = Enum.filter(titles, &MapSet.member?(keep, &1))
     {listed, length(titles) - length(listed)}
@@ -58,9 +56,11 @@ defmodule NovelApplication.ChapterListBudget do
 
   # 作者点名章匹配：正文里出现的 第N章/第N卷 序号词（阿拉伯/全角/中文数字），
   # 命中标题即保留。确定性文本匹配，不做语义猜测。
-  defp named_chapter_titles(_titles, nil), do: []
+  @doc false
+  @spec named_chapter_titles([String.t()], String.t() | nil) :: [String.t()]
+  def named_chapter_titles(_titles, nil), do: []
 
-  defp named_chapter_titles(titles, author_text) when is_binary(author_text) do
+  def named_chapter_titles(titles, author_text) when is_binary(author_text) do
     tokens =
       ~r/第[\s]*[0-9０-９一二三四五六七八九十百零两]+[\s]*[章卷回]/u
       |> Regex.scan(author_text)
@@ -74,5 +74,5 @@ defmodule NovelApplication.ChapterListBudget do
     end)
   end
 
-  defp named_chapter_titles(_titles, _author_text), do: []
+  def named_chapter_titles(_titles, _author_text), do: []
 end

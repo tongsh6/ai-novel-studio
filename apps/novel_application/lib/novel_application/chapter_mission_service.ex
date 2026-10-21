@@ -76,12 +76,13 @@ defmodule NovelApplication.ChapterMissionService do
     content = """
     #{intro_line(kind)}
 
+    要求：
+    #{requirement_lines(kind)}
+
     材料（每条以 [ref] 开头，方括号内的 ref 是唯一可引用的依据标识）：
 
     #{material}
     #{author_line}
-    要求：
-    #{requirement_lines(kind)}
     - author_reasoning：对作者说的一段话（第一人称，120 字以内）：核清了什么、判断是什么、
       只动哪里。
     - 不要写正文；不要发明材料里没有的事实；不要引用材料之外的 ref。

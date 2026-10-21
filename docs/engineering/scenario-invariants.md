@@ -4,7 +4,8 @@
 >
 > 与 [scenario-acceptance.md](./scenario-acceptance.md) 的关系：
 > scenario-acceptance.md 定义"什么不许做"（红线、允许项、driver 写法）；
-> 本文档定义"怎么用机器证明红线没被踩"——三条 0/1 不变量，作为 CI 强制规则。
+> 本文档定义"怎么用机器证明红线没被踩"——三条 0/1 不变量，作为 CI 强制规则；
+> 另登记契约级不变量 I-CACHE-1（prompt 前缀共享，见 §8）。
 
 ---
 
@@ -175,6 +176,7 @@ scripts/scenario_invariants/
 ├── run_i2_variation.exs     # I2 差异化输入检查
 ├── run_i3_nonce.exs         # I3 种子贯通检查
 ├── run_n_narr.exs           # N-NARR 作者过程叙事来源绑定检查
+├── run_icache_prefix.exs    # I-CACHE-1 prompt 前缀共享检查（§8）
 └── run_all.sh               # 集成入口
 ```
 
@@ -186,6 +188,7 @@ artifacts/scenario-invariants/
 ├── i2.{md,json}
 ├── i3.{md,json}
 ├── n_narr.{md,json}
+├── icache.{md,json}
 └── summary.md
 ```
 
@@ -213,6 +216,7 @@ artifacts/scenario-invariants/
 - `bash scripts/scenario_invariants/run_all.sh` 接入 `scripts/ai_static_scan.sh`
 - pre-commit hook 跑 I3（最快，秒级）
 - CI 跑 I1+I2+I3 全量
+- I-CACHE-1（§8）由 `run_icache_prefix.exs` 在 CI 与静态扫描中强制，失败即阻断
 - 禁止用 `--no-verify`、`@scenario-invariant-disable` 注释或类似手段绕过
 - 唯一豁免：在 `docs/engineering/scenario-invariants-exceptions.md` 显式登记，登记需 PR 审核
 
@@ -237,3 +241,57 @@ artifacts/scenario-invariants/
 | 不得在产品代码持有作品内容资产 | I1 字节透传 + I2 输入差异 |
 
 每条红线都有对应的运行时可观察判定。
+
+---
+
+## 8. I-CACHE-1 · prompt 前缀共享（契约级不变量）
+
+> 真源：`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md` §7。
+> 本不变量与 I1/I2/I3 不同族：它不守护"内容来源"，而守护"已迁移调用点的 prompt
+> 稳定度分层真实生效"。不依赖任何厂商凭据，纯字节比较，0/1 判定。
+
+### 8.1 定义
+
+对每个**已迁移**调用点，生产 prompt 构造器产出的请求字节必须满足：
+
+```
+call_pair     : 同一调用对 call1/call2 的共享前缀 ≥ L0–L1 末（工具集字节恒定另由 I-CACHE-2 断言）
+cross_run     : 同一调用点跨两次 run 的共享前缀 ≥ L1 末，且覆盖 L2（作品章节等作品级事实）
+consecutive   : 同一调用点连续两轮的共享前缀 ≥ L2 末（L0–L2 字节恒定）
+```
+
+判定方式：`run_icache_prefix.exs` 在真实 Gateway 边界（含 L0 身份注入）捕获请求，
+按 VS-00I §6.1 固定序列化计算 `shared_prefix_bytes`，并与该调用点的 L1/L2 边界
+（marker 偏移）和必含静态段尾部逐字节比较。**无阈值、无调参空间**：边界与必含段
+取自被测 prompt 自身；覆盖失败即 0，覆盖成功即 1。
+
+### 8.2 覆盖范围（按迁移 checkpoint 增量扩大）
+
+| 调用点 | pair_kind | 迁移 checkpoint | enforce |
+|---|---|---|---|
+| 续行判断 call1/call2 | call_pair | CP-AB | I-CACHE-2（工具字节相等）+ 记录共享前缀 |
+| 判断 call1 连续两轮 | consecutive | CP-C | I-CACHE-1 |
+| 起草/修订（reasoning + structure） | cross_run | CP-D | I-CACHE-1 |
+| 章节使命 | cross_run | CP-D | I-CACHE-1 |
+
+未迁移调用点不在 I-CACHE-1 阻断范围（把未迁移调用点标红没有信息量）；新增迁移
+必须同批把对应行 `enforce` 打开，禁止先迁移后补。
+
+### 8.3 报告与失败格式
+
+- 报告：`artifacts/scenario-invariants/icache.{md,json}`（每行 call_site / pair_kind /
+  shared_prefix_bytes / total_bytes / ratio / boundary_bytes / required_covered）
+- 失败时脚本以非 0 退出并给出：
+  ```
+  I-CACHE-1 coverage violation:
+    judgment_consecutive: shared=1107 boundary=1069/... 
+  ```
+  修复方向唯一：按 VS-00I §4 行把 L1/L2 静态段前移，禁止改 marker、禁止删静态段、
+  禁止用厂商适配层差异解释字节前缀差异。
+
+### 8.4 强制力与例外
+
+- CI：`.github/workflows/ci.yml` 的 scenario invariants 步骤中与 I1/I2/I3 同批运行
+- 静态扫描：`scripts/ai_static_scan.sh` 的 `scenario-invariants-i-cache` 检查
+- pre-commit 不跑（秒级成本可接受，但避免阻塞每次本地提交；以 CI 为准）
+- 豁免：同 §5.3，仅 `docs/engineering/scenario-invariants-exceptions.md` 显式登记

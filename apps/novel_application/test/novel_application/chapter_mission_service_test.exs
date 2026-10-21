@@ -179,4 +179,31 @@ defmodule NovelApplication.ChapterMissionServiceTest do
     assert {:error, _reason, %{provider_call_count: 1}} =
              ChapterMissionService.derive(inputs(), failing)
   end
+
+  # VS-00I CP-D：推导要求（L1）前置、材料（L2）居中、作者请求（L3）与输出契约（L4）置尾。
+  test "VS-00I CP-D 章节使命 prompt 顺序：要求 → 材料 → 作者请求 → 输出契约" do
+    prompt = ChapterMissionService.mission_prompt(inputs(), "把这一章写得更紧凑", :prose)
+    text = prompt.messages |> hd() |> Map.fetch!(:content)
+
+    assert_ordered(text, [
+      "要求：",
+      "材料（每条以 [ref] 开头",
+      "作者本轮请求：",
+      "author_reasoning",
+      "调用 chapter_mission 工具"
+    ])
+  end
+
+  defp assert_ordered(text, markers) do
+    offsets =
+      Enum.map(markers, fn marker ->
+        case :binary.match(text, marker) do
+          {offset, _} -> offset
+          :nomatch -> flunk("prompt 缺少段落: #{inspect(marker)}")
+        end
+      end)
+
+    assert offsets == Enum.sort(offsets),
+           "prompt 段落顺序不符: #{inspect(markers)}"
+  end
 end
