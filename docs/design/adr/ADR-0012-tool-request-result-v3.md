@@ -107,3 +107,18 @@ v2 中已有 provider 调用、repository 调用或 service 结果可以迁移�
 - VS-06 再冻结 replay report 与 trace summary 的完整可见性。
 
 ---
+
+## enforced_by
+
+- apps/novel_common/lib/novel_common/contracts/tool_request.ex
+- apps/novel_common/lib/novel_common/contracts/tool_result.ex
+- apps/novel_common/lib/novel_common/contracts/tool_output_contract.ex
+- apps/novel_agent/lib/novel_agent/toolbox.ex
+- apps/novel_agent/lib/novel_agent/authorized_tool_executor.ex
+- apps/novel_application/lib/novel_application/turn_execution_service.ex
+- apps/novel_application/test/novel_application/tool_provenance_test.exs
+- quality/acceptance/scenarios/au07-tooltrace-registry-redacted-io.yml
+
+## enforcement_gaps
+
+- Toolbox 不按 registry 的 `output_contract_ref` 统一校验 ToolResult.output；目前只有 creative adapter/provider 走 `ToolOutputContract`，text_analysis / character_roster 等只读工具无 output contract 校验。

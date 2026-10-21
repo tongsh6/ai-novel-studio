@@ -1,13 +1,20 @@
 defmodule AdrTrace do
   @moduledoc """
-  ADR ↔ 实装 traceability 双向校验。
+  ADR ↔ 实装 traceability **门禁**（B13a）。
 
-  正向：每个 Accepted ADR 应有 `enforced_by` frontmatter，列出落实该 ADR 的
-  代码文件 / 模块。脚本检查这些引用是否存在。
+  正向：每个 Accepted ADR 必须有 `## enforced_by` 段，列出落实该决策的
+  代码文件 / 测试 / 验收场景 / schema / 前端文件。脚本逐条检查引用存在。
 
-  反向：扫描 apps/ 下模块的 @moduledoc，收集 ADR 引用，与 ADR 目录比对。
+  失败条件（exit 1）：
+  - Accepted ADR 缺少 `## enforced_by` 段；
+  - `## enforced_by` 段没有任何有效引用；
+  - 引用路径不存在。
 
-  Phase 1：只做正向校验（ADR → 代码）。
+  非 Accepted ADR（Proposed / Superseded / Deferred）不参与本门禁——
+  未冻结的决策不能被要求实装。
+
+  `enforced_by` 内允许 `- pending: <说明>` 行申明已知缺口（不计入引用）；
+  缺口解释也可写在 `## enforcement_gaps` 段（自由文本，不解析）。
   """
 
   @adr_dir "docs/design/adr"
@@ -21,35 +28,63 @@ defmodule AdrTrace do
       System.halt(1)
     end
 
-    results =
-      adr_files
-      |> Enum.map(&check_adr/1)
-      |> Enum.reject(&is_nil/1)
+    results = Enum.map(adr_files, &check_adr/1)
+    accepted_results = Enum.filter(results, &(&1.status == :accepted))
+    skipped_results = Enum.reject(results, &(&1.status == :accepted))
 
-    missing = Enum.filter(results, &(elem(&1, 0) == :missing_enforced_by))
-    broken = Enum.filter(results, &(elem(&1, 0) == :broken_ref))
+    missing = Enum.filter(accepted_results, &(&1.verdict == :missing_enforced_by))
+    empty = Enum.filter(accepted_results, &(&1.verdict == :empty_enforced_by))
+    broken = Enum.filter(accepted_results, &(&1.verdict == :broken_ref))
+
+    with_enforced = Enum.count(accepted_results, &(&1.verdict == :ok))
+    total_refs = accepted_results |> Enum.map(&length(&1.refs)) |> Enum.sum()
+    pending_refs = accepted_results |> Enum.map(&length(&1.pending_refs)) |> Enum.sum()
 
     cond do
       missing != [] ->
-        IO.puts("⚠️  ADR traceability: #{length(missing)} ADR(s) missing enforced_by frontmatter")
-        Enum.each(missing, fn {_, adr, _} -> IO.puts("  - #{adr}") end)
+        report("❌", "Accepted ADR(s) missing ## enforced_by", missing)
         IO.puts("")
+        IO.puts("每个 Accepted ADR 必须用 `## enforced_by` 列出真正落实它的代码/测试/验收文件。")
+        System.halt(1)
+
+      empty != [] ->
+        report("❌", "Accepted ADR(s) with empty ## enforced_by", empty)
+
+        IO.puts(
+          "`## enforced_by` 至少需要一条存在的引用；已知缺口请用 `- pending: ...` 或 `## enforcement_gaps` 申明。"
+        )
+
+        System.halt(1)
 
       broken != [] ->
-        IO.puts("⚠️  ADR traceability: #{length(broken)} ADR(s) with broken code references")
-        Enum.each(broken, fn {_, adr, refs} ->
-          IO.puts("  - #{adr}: #{inspect(refs)}")
-        end)
-        IO.puts("")
+        report("❌", "ADR(s) with broken enforced_by references", broken)
+        IO.puts("引用的文件/目录不存在：要么补实现，要么修正或降级为 `- pending: ...`。")
+        System.halt(1)
 
       true ->
-        total = length(adr_files)
-        with_enforced = Enum.count(results, &(elem(&1, 0) == :ok))
-        IO.puts("✅ ADR traceability: #{with_enforced}/#{total} ADR(s) with enforced_by references")
-    end
+        IO.puts(
+          "✅ ADR traceability: #{with_enforced}/#{length(accepted_results)} Accepted ADR(s) with valid enforced_by " <>
+            "(#{total_refs} refs, #{pending_refs} pending)"
+        )
 
-    # Non-zero exit if violations exist (soft for Phase 1 — warn only)
-    if missing == [] and broken == [], do: System.halt(0), else: System.halt(0)
+        if skipped_results != [] do
+          names = skipped_results |> Enum.map(& &1.adr) |> Enum.join(", ")
+          IO.puts("ℹ️  Skipped non-Accepted ADR(s): #{names}")
+        end
+
+        System.halt(0)
+    end
+  end
+
+  defp report(marker, title, results) do
+    IO.puts("#{marker} ADR traceability: #{title}")
+
+    Enum.each(results, fn result ->
+      case result.verdict do
+        :broken_ref -> IO.puts("  - #{result.adr}: #{inspect(result.broken)}")
+        _ -> IO.puts("  - #{result.adr}")
+      end
+    end)
   end
 
   defp list_adr_files do
@@ -61,126 +96,150 @@ defmodule AdrTrace do
   defp check_adr(path) do
     content = File.read!(path)
     adr_name = Path.basename(path, ".md")
+    status = extract_status(content)
 
-    case extract_enforced_by(content) do
-      nil ->
-        {:missing_enforced_by, adr_name, []}
+    if status == :accepted do
+      case extract_enforced_by(content) do
+        :missing ->
+          %{adr: adr_name, status: status, verdict: :missing_enforced_by, refs: [], pending_refs: []}
 
-      refs when is_list(refs) ->
-        broken = Enum.reject(refs, &ref_exists?/1)
+        {:ok, refs, pending_refs} ->
+          broken = Enum.reject(refs, &ref_exists?/1)
 
-        if broken != [],
-          do: {:broken_ref, adr_name, broken},
-          else: {:ok, adr_name, refs}
+          %{
+            adr: adr_name,
+            status: status,
+            verdict: classify(refs, broken),
+            refs: refs,
+            pending_refs: pending_refs,
+            broken: broken
+          }
+      end
+    else
+      %{adr: adr_name, status: status, verdict: :skipped, refs: [], pending_refs: []}
     end
   end
 
-  # Extract enforced_by from YAML-style frontmatter or markdown section
-  defp extract_enforced_by(content) do
-    # Try YAML frontmatter: enforced_by: [...]
-    yaml_match = Regex.run(~r/enforced_by:\s*\[(.+?)\]/, content)
+  defp classify([], _broken), do: :empty_enforced_by
+  defp classify(_refs, []), do: :ok
+  defp classify(_refs, _broken), do: :broken_ref
 
-    case yaml_match do
-      [_, list_str] ->
-        list_str
-        |> String.split(~r/,\s*/)
-        |> Enum.map(&String.trim(&1, ~s("' )))
-        |> Enum.reject(&(&1 == ""))
+  # ----- status -----
+
+  defp extract_status(content) do
+    case Regex.run(~r/^-\s*状态[:：]\s*(.+)$/mu, content) do
+      [_, raw] ->
+        normalized =
+          raw
+          |> String.replace("*", "")
+          |> String.split(~r/[（(]/u, parts: 2)
+          |> hd()
+          |> String.trim()
+
+        cond do
+          String.starts_with?(normalized, "Accepted") -> :accepted
+          String.starts_with?(normalized, "Proposed") -> :proposed
+          String.starts_with?(normalized, "Superseded") -> :superseded
+          String.starts_with?(normalized, "Deferred") -> :deferred
+          true -> :unknown
+        end
 
       nil ->
-        # Try markdown list: ## enforced_by or ### enforced_by
-        section_match = Regex.run(~r/\#{2,3}\s+enforced_by\n((?:\s*-.*\n?)+)/i, content)
+        :unknown
+    end
+  end
 
-        case section_match do
-          [_, section] ->
-            section
-            |> String.split("\n")
-            |> Enum.map(&String.trim(&1, " -"))
-            |> Enum.reject(&(&1 == ""))
-            |> Enum.map(&clean_ref/1)
-            |> Enum.reject(&(&1 == ""))
+  # ----- enforced_by extraction -----
+
+  defp extract_enforced_by(content) do
+    case Regex.run(~r/^##\s+enforced_by\s*$\n(.*?)(?=^##\s|\z)/ms, content) do
+      [_, section] ->
+        {refs, pending_refs} = parse_enforced_by_section(section)
+
+        if refs == [] and pending_refs == [],
+          do: :missing,
+          else: {:ok, Enum.uniq(refs), pending_refs}
+
+      nil ->
+        :missing
+    end
+  end
+
+  defp parse_enforced_by_section(section) do
+    section
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(&String.starts_with?(&1, ["- ", "* "]))
+    |> Enum.map(&String.replace(&1, ~r/^[-*]\s+/, ""))
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(fn entry -> String.trim(entry, "`") end)
+    |> Enum.reduce({[], []}, fn entry, {refs, pending} ->
+      case extract_ref(entry) do
+        nil -> {refs, [entry | pending]}
+        ref -> {[ref | refs], pending}
+      end
+    end)
+    |> then(fn {refs, pending} -> {Enum.reverse(refs), Enum.reverse(pending)} end)
+  end
+
+  defp extract_ref(entry) do
+    cond do
+      # Mix task whitelist: "mix codegen.enums"
+      String.starts_with?(entry, "mix ") ->
+        entry
+
+      true ->
+        # Backtick extraction: `apps/foo/bar.ex`
+        case Regex.run(~r/`([^`]+)`/, entry) do
+          [_, ref] ->
+            ref
 
           nil ->
-            nil
+            # First whitespace-delimited token that looks like a path/module
+            entry
+            |> String.split(~r/\s+/, trim: true)
+            |> Enum.find(nil, fn token ->
+              String.contains?(token, "/") or
+                String.match?(token, ~r/^[A-Z][A-Za-z0-9_.]+$/)
+            end)
         end
     end
   end
 
-  # Strip backticks, leading list markers, and trailing descriptions.
-  # Returns empty string for pending/placeholder entries.
-  defp clean_ref(ref) do
-    if String.contains?(ref, "pending") or String.contains?(ref, "待实现") or
-         String.contains?(ref, "尚未实现") do
-      ""
-    else
-      extract_module_ref(ref)
-    end
-  end
+  # ----- reference existence -----
 
-  defp extract_module_ref(ref) do
-    # Remove leading "- " or "* "
-    trimmed = String.replace(ref, ~r/^[-*]\s+/, "")
-
-    # Try backtick extraction first: `ModuleName` → ModuleName
-    case Regex.run(~r/`([^`]+)`/, trimmed) do
-      [_, module_name] ->
-        module_name
-
-      nil ->
-        # No backticks: take the first whitespace-delimited token
-        # that looks like a module/path (contains . or /)
-        trimmed
-        |> String.split(~r/\s+/, trim: true)
-        |> Enum.find("", fn token ->
-          String.contains?(token, ".") or String.contains?(token, "/")
-        end)
-    end
-  end
-
-  # Check if a code reference exists. Refs can be:
-  # - "apps/novel_foundation/lib/novel_foundation/enums/status.ex"
-  # - "NovelFoundation.Enums.Status"
-  # - "frontend/src-tauri/" (directory)
   defp ref_exists?(ref) do
     cond do
-      # Directory paths (e.g., frontend/src-tauri/)
-      String.ends_with?(ref, "/") ->
-        File.exists?(ref)
-
-      # File paths (e.g., apps/.../file.ex, docs/.../file.json)
-      String.starts_with?(ref, "apps/") or String.starts_with?(ref, "docs/") or
-        String.starts_with?(ref, "scripts/") or String.starts_with?(ref, "frontend/") ->
-        File.exists?(ref)
-
-      # Mix tasks (e.g., mix codegen.enums)
       String.starts_with?(ref, "mix ") ->
         true
 
-      # Module namespace without specific module (e.g., NovelFoundation.Enums)
-      # Check if the directory exists
-      String.match?(ref, ~r/^[A-Z][A-Za-z.]+\.[A-Z]/) ->
-        # Module name → snake_case file path
-        underscored = Macro.underscore(ref)
-        file_path = "apps/*/lib/#{underscored}.ex"
+      # Directory paths end with "/"
+      String.ends_with?(ref, "/") ->
+        File.exists?(ref)
 
-        if Path.wildcard(file_path) != [] do
-          true
-        else
-          # Maybe it's a submodule defined inside parent module's file
-          # e.g., NovelAgent.IntentRegistry.SlotSchema is in intent_registry.ex
-          parent = ref |> String.split(".") |> Enum.drop(-1) |> Enum.join(".")
-          parent_path = "apps/*/lib/#{Macro.underscore(parent)}.ex"
-          Path.wildcard(parent_path) != []
-        end
+      # Any concrete repository-relative path
+      String.contains?(ref, "/") ->
+        File.exists?(ref)
 
-      # Module namespace (e.g., NovelFoundation.Enums — check directory for any .ex files)
-      String.match?(ref, ~r/^[A-Z][A-Za-z.]+$/) ->
-        underscored = Macro.underscore(ref)
-        dir_glob = "apps/*/lib/#{underscored}/*.ex"
-        Path.wildcard(dir_glob) != []
+      # Module name → snake_case file path (may live inside parent module file)
+      String.match?(ref, ~r/^[A-Z][A-Za-z0-9_.]*$/) ->
+        module_exists?(ref)
 
       true ->
         false
+    end
+  end
+
+  defp module_exists?(module_name) do
+    underscored = Macro.underscore(module_name)
+
+    if Path.wildcard("apps/*/lib/#{underscored}.ex") != [] do
+      true
+    else
+      parent = module_name |> String.split(".") |> Enum.drop(-1) |> Enum.join(".")
+      parent_path = "apps/*/lib/#{Macro.underscore(parent)}.ex"
+      Path.wildcard(parent_path) != []
     end
   end
 end

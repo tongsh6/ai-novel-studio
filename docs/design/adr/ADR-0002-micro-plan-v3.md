@@ -373,3 +373,20 @@ v3 不继承 v2 Router-first 拓扑，也不把 v2 intent routing 结果直接�
 5. `tasks/slices/v3/VS-01-micro-plan-downgrade-confirmation.md` 已关闭 VS-01 文档 blocker。
 6. 后续全量 schema 草案再冻结 `MicroPlan` 字段全集和完整 action 枚举。
 7. 用户明确批准进入代码后，再为 VS-01 创建 implementation plan / contract test：MicroPlan 不含授权语义，多步 plan 默认不会被全量执行。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/micro_plan.ex
+- apps/novel_application/lib/novel_application/planner_boundary.ex
+- apps/novel_application/lib/novel_application/gate_order.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_domain/test/novel_domain/micro_plan_test.exs
+- apps/novel_application/test/novel_application/execution_authority_test.exs
+- quality/acceptance/scenarios/au10-micro-plan-entry.yml
+
+## enforcement_gaps
+
+- `MicroPlan` 现在主要由 `agent_run_flows` 从 `AgentNextStepDecision` 机械构造，原 `form_micro_plan` 的 Planner 直接产出路径已退役；"Planner 建议 envelope"的语义载体发生变化。
+- "一个 primary `DialogueFrame` 进入 Orchestrator 前最多产生一个 primary `MicroPlan`"未在代码中强制：AgentRun 每个 step 可对同一 `origin_frame_ref` 生成新的 `mp_<run>_<seq>` 并分别 re-gate。
+- `state_changes_requested`、`requires_confirmation_hint`、`fallback_strategy` 在 struct 中保留，但当前主链没有消费这些字段的 gate 或 replay 逻辑；`check_forbidden/1` 也只扫描 goal / proposed_actions / state_changes，不扫描 required_capabilities 与 fallback。

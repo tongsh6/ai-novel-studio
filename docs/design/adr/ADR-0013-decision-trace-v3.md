@@ -104,3 +104,14 @@ v2 的日志和调试输出只能作为附属材料，不能作为 v3 DecisionTr
 - 后续 persistence 设计再决定 trace store 形态。
 
 ---
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/decision_trace.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_application/lib/novel_application/dialogue_gateway.ex
+- apps/novel_persistence/lib/novel_persistence/trace_repository.ex
+- apps/novel_application/lib/novel_application/replay_service.ex
+- apps/novel_application/test/novel_application/trace_writer_test.exs
+- apps/novel_persistence/test/novel_persistence/trace_repository_test.exs
+- quality/acceptance/scenarios/e2e-01-readonly-tool-trace.yml

@@ -84,3 +84,19 @@ v2 状态名可作为迁移材料，但不直接继承。
 - VS-06 冻结 trace summary 对状态变化的展示。
 
 ---
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/turn_result_builder.ex
+- apps/novel_application/lib/novel_application/dialogue_gateway.ex
+- apps/novel_application/lib/novel_application/adoption_workflow.ex
+- docs/design/schemas/foundation/turn_result_v3.json
+- apps/novel_application/test/novel_application/action_roundtrip_test.exs
+- apps/novel_application/test/novel_application/adoption_workflow_test.exs
+- apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
+- quality/acceptance/scenarios/au06-single-active-confirmation.yml
+
+## enforcement_gaps
+
+- `TurnResultBuilder.build_phase/2` 只产出 `completed` / `awaiting_author` / `cancelled` / `failed`，未产出 VS-03 §2 冻结的 `dialogue` phase；自然对话被表示为 `completed`。
+- `build_status/3` 只产出 `conversational` / `needs_clarification` / `needs_confirmation` / `cancelled` / `failed`，未产出 `failed_recoverable`；失败路径以 `failed` 表达。

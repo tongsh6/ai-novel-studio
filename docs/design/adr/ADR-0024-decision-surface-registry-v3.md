@@ -208,3 +208,20 @@ DS03（`tasks/slices/DS03-awaiting-author-runtime-validity-and-recovery-surface.
 
 S7 注册表行的 available_actions 载体与 `agent_run_state` schema codegen 仍属
 CP3 / DS01 范围，本修订不据此关闭 S7。
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/turn_result_builder.ex
+- apps/novel_application/test/novel_application/decision_surface_card_contract_test.exs
+- docs/design/schemas/foundation/ui_card.json
+- docs/design/schemas/foundation/turn_result_v3.json
+- frontend/src/lib/schemas.ts
+- frontend/src/lib/turnResultWire.ts
+- frontend/src/components/UICards.tsx
+- quality/acceptance/scenarios/wr01-chapter-mission-author-decision.yml
+
+## enforcement_gaps
+
+- S4 显式澄清面未落地：仍靠 `behavior_state` + `answer_clarification` 动作与「下一条消息即回答」的隐式路径，注册表 CP2 缺口未关闭。
+- S7 的 `available_actions` 恢复面按本 ADR 修订仍未关闭（DS03 只冻结运行时有效性与错误呈现，不关闭 S7 注册表行）。
+- `capability_notice` 仍为 Deferred；`schema_version` 仍接受 `"3.0-draft"`，semver 收敛未做。

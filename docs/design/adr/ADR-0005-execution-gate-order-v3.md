@@ -437,3 +437,19 @@ v3 不继承 v2 Router-first handler 顺序。
 5. 后续 ADR-0008 / ADR-0009 冻结 Behavior compatibility gate 与 confirmation binding 的字段。
 6. 后续 ADR-0010 冻结 Write / adoption boundary gate 的 production write 条件。
 7. 后续 ADR-0013 冻结 GateResult 如何进入 DecisionTrace 和 replay report。
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/gate_order.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_application/lib/novel_application/turn_execution_service.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_application/test/novel_application/execution_authority_test.exs
+- quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml
+- quality/acceptance/scenarios/agent-step-regate.yml
+
+## enforcement_gaps
+
+- `GateOrder.evaluate/2` 只实装 correlation、envelope_validation、action_scope、authority、budget、write_boundary、trace_readiness、turn_result_compat 八项；behavior compatibility 由 Channel current_turn guard 兜底，slot/contract validation 分散在 `ActionValidator` / `MissingPolicyResult`，toolbox availability 由 `allow_tool_dispatch?` 的 `CapabilityRegistry.dispatchable?` 旁路检查，policy 无独立 gate。
+- budget、trace_readiness、turn_result_compat 当前是恒返回 `:pass` 的占位实现；correlation 只检查 refs 存在，没有幂等 replay / 输入一致性校验。
+- 没有独立 `GateResult` 结构与逐 gate trace 写入；决策只保留 `first_blocking_gate` 和 reason string，gate order version 未记录。

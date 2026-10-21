@@ -357,3 +357,19 @@ v3 不继承 v2 Router-first 执行拓扑。
 4. `tasks/slices/v3/VS-01-micro-plan-downgrade-confirmation.md` 已关闭 VS-01 文档 blocker。
 5. 后续 schema 草案中补 `PlannerOutput Boundary` 的完整 validation error code。
 6. 用户明确批准进入代码后，再为 VS-01 创建 implementation plan / contract test：Planner 越权语义被拒绝，Planner 建议和 Orchestrator 裁决差异进入 trace。
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/planner_boundary.ex
+- apps/novel_domain/lib/novel_domain/micro_plan.ex
+- apps/novel_domain/lib/novel_domain/dialogue_frame.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_application/test/novel_application/execution_authority_test.exs
+- apps/novel_application/test/novel_application/dialogue_gateway_test.exs
+- quality/acceptance/scenarios/agent-step-regate.yml
+
+## enforcement_gaps
+
+- `PlannerBoundary.validate/2` 只校验 frame_ref 一致、`MicroPlan` forbidden 词和 `stop_after_next_action`；不校验 required_capabilities 是否在 registry、state_changes 是否只是候选，也不拦截 ADR 列出的全部越权语义族。
+- `PlannerBoundary.validate/2` 不校验 `DialogueFrame` 的 forbidden 语义（`DialogueFrame.validate/1` 未在主链调用），judgment narrative 中的 `approved` 等词可直接进入 TurnResult；`MicroPlan.check_forbidden/1` 也缺少 `tool_request_id`、`state_adopted`、`available_action` 等语义。
+- 当前 Planner 输出已改为 JudgmentProtocol 的 judgment 结构，PlannerOutput Boundary 的 forbidden 词扫描依赖应用层构造后的 frame/plan 黑名单，而不是对 judgment 原结构做统一 semantic validation。

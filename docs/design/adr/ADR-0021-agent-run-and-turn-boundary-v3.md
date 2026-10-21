@@ -110,3 +110,14 @@ UI 订阅 author-safe `AgentEvent` 和 `AgentRunState`，发送 `agent_command`�
 - UA-CP4：正文 Profile 迁移并复用 VS-00E（修订四步 profile 已实现并有 fresh Tauri summary；正文草稿已从旧四步 workflow 继续纯化为 next-step planner loop，fresh Tauri summary 已通过）。
 - UA-CP5：durable AgentRun + LongRunTask 真实消费者。
 - UA-CP6：streaming / provider cancel / read-only batch。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/agent_run.ex
+- apps/novel_common/lib/novel_common/contracts/agent_event.ex
+- apps/novel_application/lib/novel_application/agent_run_server.ex
+- apps/novel_application/lib/novel_application/agent_run_service.ex
+- apps/novel_web/lib/novel_web/channels/workspace_channel.ex
+- apps/novel_application/test/novel_application/agent_run_runtime_test.exs
+- quality/acceptance/scenarios/ua01-agent-bounded-roster-to-character-design.yml
+- quality/acceptance/scenarios/agent-step-regate.yml

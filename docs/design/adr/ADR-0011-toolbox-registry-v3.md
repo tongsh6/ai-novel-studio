@@ -105,3 +105,18 @@ v2 的工具或 service 命名可作为迁移材料，但不能直接成为 v3 r
 - 在 replay / redaction slice 中细化 registry snapshot 的可见性。
 
 ---
+
+## enforced_by
+
+- apps/novel_common/lib/novel_common/capability_registry.ex
+- apps/novel_common/lib/novel_common/contracts/capability_registry_entry.ex
+- apps/novel_application/lib/novel_application/capability_registry.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_agent/lib/novel_agent/toolbox.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_application/test/novel_application/tool_provenance_test.exs
+- quality/acceptance/scenarios/au07-tooltrace-registry-redacted-io.yml
+
+## enforcement_gaps
+
+- registry 中没有 deprecated 条目，「deprecated 不能被新 decision 正常选择」仅由 `dispatchable?/1` 对非 active/experimental 的通用分支保证，缺该状态的专项测试与验收场景。

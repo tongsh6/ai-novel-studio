@@ -92,3 +92,18 @@ v2 中前端依据接口返回局部字段自行刷新或写状态的逻辑，�
 - VS-06 冻结 projection hint trace summary。
 
 ---
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/adoption_boundary.ex
+- apps/novel_application/lib/novel_application/adoption_workflow.ex
+- apps/novel_persistence/lib/novel_persistence/reading_projection_repo.ex
+- frontend/src/components/WorkspaceChat.tsx
+- frontend/src/components/ReadingMode.tsx
+- apps/novel_application/test/novel_application/adoption_boundary_test.exs
+- quality/acceptance/scenarios/au07-state-trace-adoption-replay.yml
+- quality/acceptance/scenarios/au08-reading-readonly-no-write.yml
+
+## enforcement_gaps
+
+- 契约对象 `NovelDomain.ProjectionHint` 无任何调用者；现行 hint 是 AdoptionBoundary/AdoptionWorkflow 产出的裸 map + `TurnResult.projection_refs`。`turn_result_v3.json` 的 projection_refs 未声明 `projection_hint_id` / `reason` / `source_state_trace_ref`（运行时由 AdoptionWorkflow 补 source_state_trace_ref）。

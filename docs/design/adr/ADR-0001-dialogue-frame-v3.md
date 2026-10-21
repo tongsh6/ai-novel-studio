@@ -308,3 +308,19 @@ v3 不继承 v2 Router-first 拓扑。
 5. `tasks/slices/v3/VS-00-reply-only-dialogue-frame-turn-result-trace.md` 已关闭 VS-00 文档 blocker。
 6. 后续全量 schema 草案再冻结 `DialogueFrame` 字段全集和完整 `frame_type` 枚举。
 7. 用户明确批准进入代码后，再为 VS-00 创建 implementation plan / contract test：每个 turn 必有 frame，reply-only 也可回放。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/dialogue_frame.ex
+- apps/novel_application/lib/novel_application/dialogue_planning_service.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_application/lib/novel_application/turn_result_builder.ex
+- apps/novel_domain/test/novel_domain/dialogue_frame_test.exs
+- apps/novel_application/test/novel_application/dialogue_gateway_test.exs
+- quality/acceptance/scenarios/au01-ordinary-chat-two-turn-roundtrip.yml
+- quality/acceptance/scenarios/gap-wt04-non-exploration-frame-badges.yml
+
+## enforcement_gaps
+
+- `DialogueFrame` 现在由判断①结构机械转换产生（`dialogue_planning_service` 的 `judgment_frame/4`），原 `form_frame` provider 管线已退役；"由 Dialogue Planner 生成"的实现载体已迁移到 ADR-0025 的判断协议。
+- `DialogueFrame.validate/1` 只在测试中调用，主链由应用侧构造已知合法结构代替 envelope 校验；`author_visible_draft` 的 forbidden 词扫描只覆盖 `approved` / `ready_to_execute` / `production_write_allowed` 三项，不是完整语义族。

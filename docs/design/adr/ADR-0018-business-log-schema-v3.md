@@ -150,3 +150,18 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 - VS-10 落地后回写本 ADR 的"首个证明 slice"为 done。
 - 远程聚合 / 采样 / PII 上云时另发 ADR。
 - 指标聚合（如 P95 latency）若需要，另发 ADR-0019 metrics。
+
+## enforced_by
+
+- apps/novel_common/lib/novel_common/log_emit.ex
+- apps/novel_common/lib/novel_common/log_context.ex
+- apps/novel_common/lib/novel_common/llm_log.ex
+- apps/novel_web/lib/novel_web/channels/workspace_channel.ex
+- apps/novel_common/test/novel_common/log_context_test.exs
+- apps/novel_web/test/novel_web/channels/workspace_channel_logging_test.exs
+- quality/acceptance/scenarios/vs10-observability-spine.yml
+- scripts/grep_turn.sh
+
+## enforcement_gaps
+
+- §6 噪声约束（单 turn 业务日志 ≤30 行、常规路径不得 warning）没有自动校验或验收断言，目前仅为人工约定。

@@ -83,3 +83,19 @@ v2 的 slot waiting、confirmation modal 或 retry state 需要迁移为 Behavio
 - VS-06 扩展 BehaviorTrace 和 replay explanation。
 
 ---
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/behavior_state.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_application/lib/novel_application/dialogue_gateway.ex
+- apps/novel_application/lib/novel_application/adoption_workflow.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_domain/test/novel_domain/behavior_state_test.exs
+- apps/novel_application/test/novel_application/behavior_lifecycle_test.exs
+- quality/acceptance/scenarios/au06-single-active-confirmation.yml
+
+## enforcement_gaps
+
+- cancel / reject 路径的 `BehaviorState` 关闭不经过 `OrchestratorDecision`：`DialogueGateway.cancel_waiting_behavior_state/3` 直接构造终态，与 ADR-0008 "只能由 OrchestratorDecision 打开、更新或关闭"不一致。
+- "同一 workstream 最多一个 primary author-blocking behavior"没有在 BehaviorState/Orchestrator 层显式 supersede 旧 behavior；当前依赖 Channel 的 current_turn guard 和前端 `activeBehaviorId` 门控，旧 behavior 只留在历史 TurnResult 中。

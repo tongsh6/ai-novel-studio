@@ -85,3 +85,20 @@ VS-03 证明 stale / duplicate confirmation 不产生新执行，cancel action �
 - VS-04 冻结 candidate selection / adoption 相关 actions。
 
 ---
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/available_action_builder.ex
+- apps/novel_application/lib/novel_application/action_validator.ex
+- apps/novel_application/lib/novel_application/action_idempotency_service.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_domain/lib/novel_domain/behavior_state.ex
+- docs/design/schemas/foundation/turn_result_v3.json
+- apps/novel_application/test/novel_application/action_roundtrip_test.exs
+- quality/acceptance/scenarios/au06-single-active-confirmation.yml
+
+## enforcement_gaps
+
+- VS-03 冻结的 `continue_dialogue`、`retry_action`、`narrow_scope`、`no_further_action` 没有生产者；当前只产出 clarification/confirmation 的 answer/cancel、candidate 选择和 artifact 采纳动作。
+- `TurnResult.primary_next_action` 未实装（线格式只有 `available_actions`）；ADR-0007 的 "primary next step" 由 `behavior_state.active.required_next_action` 间接表达。
+- `ExecutionOrchestrator.behavior_actions/4` 生成的确认/澄清动作不带 `trace_ref`，与契约包要求的 AvailableAction `trace_ref` 必填不一致。

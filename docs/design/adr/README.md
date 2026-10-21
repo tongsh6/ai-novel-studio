@@ -7,7 +7,7 @@
 ---
 
 > 当前决策：`ADR-0027-author-obligation-state-v3.md` 于 2026-10-05 按用户确认修订为 **Accepted**：先闭合消息处置、运行结果与跨轮来源关联；原第六账提案未采纳。实施见 NEXT Q3d / Q3D slice。
-> 2026-10-05 运行 `scripts/adr_trace.exs` 检出 27 份文件缺少 enforced_by（含 Proposed 文件）；该脚本当前仅告警，退出成功不证明决策已实现或验收闭环。处置继续归 NEXT B13。
+> **2026-10-22 B13a 门禁落地**：`scripts/adr_trace.exs` 已从“软告警”收紧为硬门禁（`exit 1`），Accepted ADR 必须有 `## enforced_by` 实装证据清单，引用路径必须存在；未实装部分写入 `## enforcement_gaps`。26 份 Accepted ADR 已完成首轮 enforced_by 补齐（Proposed 的 ADR-0022 不参与门禁）。该门禁只证明“决策 → 代码/测试/验收文件”的引用可追溯，不证明实现语义正确或真实页面已闭环。
 
 ## 1. 定位
 
@@ -133,6 +133,7 @@ ADR-0005-execution-gate-order-v3.md
 4. Superseded 必须写明替代 ADR 编号。
 5. Deferred 必须写明暂缓原因和重新触发条件。
 6. ADR 历史不删除，只改状态并追加说明。
+7. Accepted ADR 必须有 `## enforced_by` 段，逐条列出真正落实该决策的仓库内路径（实现/测试/验收场景/schema/前端契约文件）；由 `scripts/adr_trace.exs` 在 CI 硬门禁校验（缺失、空清单、坏引用均 `exit 1`）。未实装或未验收的部分必须写入 `## enforcement_gaps`，不得用不存在的路径冒充实装。
 
 ---
 
@@ -233,6 +234,18 @@ ADR-0005-execution-gate-order-v3.md
 - 需要创建的 schema
 - 需要进入的 slice
 - 仍需 Deferred 的问题
+
+## enforced_by
+
+（Accepted ADR 必填；仓库根相对路径，独立成行，由 `scripts/adr_trace.exs` 校验存在）
+
+- apps/<app>/lib/<path>.ex
+- apps/<app>/test/<path>_test.exs
+- quality/acceptance/scenarios/<scenario>.yml
+
+## enforcement_gaps
+
+（可选；决策中尚未实装/尚未验收的具体部分，诚实登记，不参与门禁解析）
 ```
 
 ---
@@ -330,6 +343,7 @@ ADR 从 Proposed 进入 Accepted，必须满足：
 6. 明确 UI / trace / replay 的影响，或说明不涉及。
 7. 明确后续测试或 proof 方向。
 8. 没有未解释的临时空白项或开放项。
+9. 落笔 `## enforced_by` 实装证据清单（可为部分实装，未实装部分同时写 `## enforcement_gaps`），且 `mix run scripts/adr_trace.exs` 通过。
 
 Accepted ADR 可以仍然保留 Deferred 问题，但这些问题不能影响当前冻结范围。
 
@@ -343,6 +357,7 @@ Accepted ADR 可以仍然保留 Deferred 问题，但这些问题不能影响当
 4. 如果实现反馈改变 Accepted ADR，必须新增 ADR 替代，不直接改写历史。
 5. 如果某条 ADR 被 Deferred，必须说明重新触发条件。
 6. 如果一个垂直切面需要未列入 §8 的 ADR，先更新 `00c` 和本文，再写 slice DAG。
+7. 实现/验收发生变化时同步更新对应 ADR 的 `## enforced_by` / `## enforcement_gaps`；不得为了让门禁变绿而列入不存在或不相关的路径。
 
 ---
 

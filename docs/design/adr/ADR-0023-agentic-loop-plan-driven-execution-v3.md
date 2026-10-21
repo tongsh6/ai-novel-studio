@@ -336,3 +336,18 @@ draft/revision fallback。
 - Deferred disposition（2026-07-05）：地板模型下计划质量不在本 ADR 内追加生产兜底或固定步骤 fallback；当前以 schema 校验、一次重试、D1-D7 偏离信号、预算/no-progress 终止兜底，不把地板档质量冒充为产品质量基准。若后续要做模型质量分层或强模型路由，需另立 eval/backlog。
 - Deferred disposition（2026-07-05）：opt-in 步级/收束 narration 默认关闭且本 ADR 不实现；未来若需要，必须是显式产品设置或独立 ADR/slice，并继续满足 N-NARR source binding，不得由 app copy 或验收 hook 伪造。
 - 修订注记（2026-07-05，用户拍板，见 `tasks/slices/UA01-agentic-loop-streaming-reasoning-card-simplification.md`）：CP4 强制 native tool call 使规划调用期间 assistant content 无字节可流，作者面对长时间零反馈后计划卡片突然出现，构成体验回归。用户拍板计划起草/修订改为**两段式调用**：第一段自由输出（无 tools）流式产出作者可见 reasoning（`author_narrative_delta` 可流），第二段强制 native tool call 产计划结构（prompt 内嵌第一段 reasoning）。规划调用成本 ×2 是**明知与本 ADR 调用经济学冲突后的体验优先决策**；叙事优先绑定第一段 content，arguments.author_reasoning 降级为空 content 回退通道。N-PLAN、D1-D7、机械推进语义不变。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/agent_plan.ex
+- apps/novel_application/lib/novel_application/agentic_plan_draft_planner.ex
+- apps/novel_application/lib/novel_application/agentic_deviation_signal.ex
+- apps/novel_application/lib/novel_application/agent_run_server.ex
+- apps/novel_application/test/novel_application/agentic_deviation_signal_test.exs
+- quality/acceptance/scenarios/agentic-loop-tool-failure-replan.yml
+- quality/acceptance/scenarios/agent-plan-native-tool-calling-protocol.yml
+- quality/acceptance/scenarios/agent-plot-outline-with-context.yml
+
+## enforcement_gaps
+
+- `agentic-loop-plan-replan-reasoning` 与 `agentic-loop-no-deviation-direct` 的 manifest 仍写旧 `conversation_turn_v1` 计划路径（4 步/3 调用）；ADR-0025 CP1 后普通对话走判断循环，D6 由判断②续行承接，当前只能证明机制沿用，不能证明 manifest 描述的旧对话计划直通/修订路径。ADR-0023 正文中的 D6 `plan_revised` 口径也与当前实现不一致。

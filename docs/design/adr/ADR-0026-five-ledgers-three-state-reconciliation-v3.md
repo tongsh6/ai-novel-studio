@@ -61,3 +61,19 @@ M2 达标跑（101,421 字/75 章）实证了 07-19 复盘的预言：要角随�
 - 正向：漂移从静默累积变为账面可查、报告可拦；面板/探索/写作上下文三个消费面共享同一账源；M2 类缺陷（Q5）获得机器化暴露路径。
 - 代价：采纳链路多一个异步维护 hook；每 10-20 章一次批量对账 run 的算力；五账逐 CP 落地期间账面覆盖不全（诚实标注，不伪造账本存在——06 §5.0 缺失处理）。
 - 同批文档修订（本 ADR 生效即执行）：25 §5/§8.1 扩员与切分注记、ADR-0018 §3 module 白名单加 `ledger`、00c §4/§6/§7/§9 回填、ui/43 §5 第 9 模块注记、schemas 登记、acceptance AU-13 立档。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/ledger_entry.ex
+- apps/novel_domain/lib/novel_domain/ledger_reconciliation.ex
+- apps/novel_persistence/lib/novel_persistence/ledger_repository.ex
+- apps/novel_application/lib/novel_application/ledger_maintenance.ex
+- apps/novel_application/lib/novel_application/ledger_reconciliation_service.ex
+- apps/novel_application/lib/novel_application/ledger_adjudication_service.ex
+- apps/novel_application/test/novel_application/ledger_maintenance_test.exs
+- quality/acceptance/scenarios/au13-review-adjudication-roundtrip.yml
+
+## enforcement_gaps
+
+- VS-00F 余项未闭环：脉络面板收起态 rail 待处置计数、定期化 `ledger_reconciliation_v1` 的 LongRunTask 关联未落地。
+- dismiss 仍写 `ledger.dismiss.done` 结构化证据日志，尚未收编进 Experience Engine。

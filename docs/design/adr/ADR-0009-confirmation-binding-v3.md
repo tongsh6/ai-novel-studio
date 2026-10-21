@@ -85,3 +85,19 @@ v2 的确认按钮需要迁移为 AvailableAction + ConfirmationBinding。
 - VS-06 冻结 replay explanation。
 
 ---
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/confirmation_binding.ex
+- apps/novel_domain/lib/novel_domain/micro_plan.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_application/lib/novel_application/gate_order.ex
+- apps/novel_application/lib/novel_application/dialogue_gateway.ex
+- apps/novel_domain/test/novel_domain/confirmation_binding_test.exs
+- apps/novel_application/test/novel_application/action_roundtrip_test.exs
+- quality/acceptance/scenarios/au04-confirm-before-execute.yml
+
+## enforcement_gaps
+
+- `ConfirmationBinding.build/1` 未把契约包要求的 `idempotency_key` / `trace_ref` 设为必填；两者缺失时仍能构造 binding（gateway 当前会传入，但 domain 层未守门）。
+- `ConfirmationBinding.build/1` 只校验字段齐全和 answer_type，不校验 `behavior_ref` 指向的 behavior 仍处 open、target 与 open confirmation 一致；"绑定 open confirmation"依赖 `ActionValidator` 的 available_action 匹配，而非 binding 自身。

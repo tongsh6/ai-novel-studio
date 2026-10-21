@@ -65,3 +65,18 @@ I10 真实质量收益必须经人工盲评验证；fixture / 自动化不得声
 - writer 与 evaluator 各占一次 provider 调用：成本与延迟翻倍（风险，CP2 评估）。
 - 小模型 evaluator 存在误报；故文学类默认 WARN/ADOPTION_REVIEW，不硬阻断。
 - replay 需持久化 brief/finding/call refs 才能重建。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/quality_finding.ex
+- apps/novel_application/lib/novel_application/prose_quality_service.ex
+- apps/novel_application/lib/novel_application/prose_quality_policy.ex
+- apps/novel_application/lib/novel_application/prose_revision_service.ex
+- apps/novel_application/test/novel_application/prose_quality_service_test.exs
+- quality/acceptance/scenarios/p1-prose-quality-finding-roundtrip.yml
+- quality/acceptance/scenarios/p1-prose-quality-evaluator-degrade.yml
+- quality/acceptance/scenarios/p1-prose-revision-candidate.yml
+
+## enforcement_gaps
+
+- I10 人工盲评未归档：contract pack 指定的 `p1-prose-quality-real-provider-sample` 不在 `quality/acceptance/scenarios/` 中；现有 fixture 与自动化只证明 finding、降级与 sibling 修订机制，不证明「文学质量已提升」。

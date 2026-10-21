@@ -14,7 +14,7 @@
 
 | 文件 | 角色 |
 |---|---|
-| `adr_trace.exs` | ADR 引用追踪辅助脚本。 |
+| `adr_trace.exs` | **ADR 追溯硬门禁（B13a）**：校验每个 Accepted ADR 的 `## enforced_by` 实装证据清单存在且引用路径有效；缺失/空清单/坏引用 exit 1。Proposed/Superseded/Deferred 不参与门禁。CI `backend` job 已强制运行。 |
 | `ai_static_scan.sh` | AI 静态扫描统一入口。 |
 | `ai_static_scan_report.mjs` | 静态扫描报告生成器。 |
 | `arch_check.exs` | Umbrella 架构边界检查。 |

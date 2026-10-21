@@ -171,3 +171,19 @@ awaiting_author 不灭 run、预算与 no-progress backstop 原样。
 - 前置验证：MBC 探针——方案 B 内联协议、"是否开计划"判断质量（CP1 开工条件）。
 - Deferred：judgment 事件命名、探索授权粒度与 query 脱敏、SearchProvider 选型、
   循环场景进度行表达、awaiting_author 续行语义（开放问题 1-7，见来源 note §8）。
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/judgment_protocol.ex
+- apps/novel_application/lib/novel_application/dialogue_planning_service.ex
+- apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex
+- apps/novel_application/lib/novel_application/exploration_service.ex
+- apps/novel_agent/lib/novel_agent/agent_task_profile_registry.ex
+- apps/novel_application/test/novel_application/judgment_protocol_test.exs
+- apps/novel_application/test/novel_application/agent_run_judgment_plan_flow_test.exs
+- quality/acceptance/scenarios/wr02-planning-mission-before-outline.yml
+
+## enforcement_gaps
+
+- CP6 外部探索翼未实现：`SearchProvider`、`web_search`、带来源出处的 tentative 设定候选与网络出站授权边界均无代码（slice 标 todo）。
+- CP1 简单对话判断循环的验收 manifest 未迁移：`agent-conversation-turn` 仍断言旧 `conversation_turn_v1` 计划链（4 步/3 调用），与 `judgment_loop_v1`（2 步/2 调用）不一致；本 ADR 目前只能由 `wr02` 证明「判断①选 plan」支路。

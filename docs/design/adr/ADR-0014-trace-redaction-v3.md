@@ -83,3 +83,13 @@ v2 debug log 或 provider transcript 不能直接迁移为 UI trace panel。
 - 后续安全 ADR 可扩展敏感信息分类。
 
 ---
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/trace_redactor.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_application/lib/novel_application/replay_service.ex
+- frontend/src/lib/traceSummaryView.ts
+- apps/novel_application/test/novel_application/trace_redactor_test.exs
+- frontend/src/lib/__tests__/traceSummaryView.test.ts
+- quality/acceptance/scenarios/au07-trace-why-entry.yml

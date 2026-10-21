@@ -108,3 +108,18 @@ artifact 产出即 `TENTATIVE`（VS-02A / ADR-0010）。
 ## 后续工作
 
 - 在 `artifact_adoption_entry` changeset + `novel_domain` 增 `adoption_transition_allowed?/2` enforcement 与测试。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/adoption_status.ex
+- apps/novel_domain/lib/novel_domain/chapter_summary.ex
+- apps/novel_persistence/lib/novel_persistence/schemas/foundation/artifact_adoption_entry.ex
+- apps/novel_domain/test/novel_domain/adoption_status_test.exs
+- apps/novel_domain/test/novel_domain/chapter_summary_test.exs
+- apps/novel_persistence/test/novel_persistence/schemas/foundation/artifact_adoption_entry_test.exs
+- quality/acceptance/scenarios/q1c-adopted-content-revision.yml
+
+## enforcement_gaps
+
+- `AdoptionRepository` 直接以 ACCEPTED / SUPERSEDED 写 Draft / MemoryItem / LedgerEntry，未调用 `transition_allowed?/2`；`ArtifactAdoptionEntry` 的转换校验只被 TurnResult embedded schema 引用，而该 schema 目前无生产写入调用者。矩阵在生产路径上仅 ChapterSummary 的 accept/supersede 生效。
+- 复活 / un-archive（DISCARDED/SUPERSEDED/INVALIDATED/ARCHIVED → TENTATIVE）只有矩阵与单元测试，无生产写入入口和验收场景。

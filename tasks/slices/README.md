@@ -19,6 +19,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `B11C-scene-craft-completion.md` | **next / doing（2026-10-22，B11③ 首个产品价值刀）**：场级 craft 设计全集落地——在 NEM04 最小三槽之上补 VS-00E 已冻结的 `causal_spine` / `information_delta` / `dialogue_intent` / `sensory_anchor`（parser 子槽 → `plan_direction.scene_plans` → `ProseExecutionBrief` → writer prompt → 探索面/写前推理），并把场次计划在档案「大纲与结构」只读可见。CP1 后端结构 + CP2 档案可见/真实 Tauri `p1-prose-execution-brief` 扩展验收；E28/E29/E30 仍挂 NEM-GAP-04 余项。 |
 | `D7-continuation-intent-safe-default.md` | **done（2026-08-31，T4 两场景 Tauri PASS）/ 续写意图安全默认**：采纳分流「只有显式 rewrite 才覆盖」（原实现把模型省略 `authoring_intent` 当作覆盖作者已采纳正文）+ prose_writing 步键存在性校验（缺键即结构不合法重试）。M6/M9 对照挖出：qwen 推理正确但常省略该可选字段，gpt-oss 恒填故缺陷潜伏两月；M0（07-19）孪生坑只补了「填错」半边。 |
 | `D6-purpose-model-routing.md` | **done（2026-08-25）/ 按用途分模型路由**：Gateway 唯一决定点 purpose→model 查表（白名单 writer/planner/evaluator/fact_inventory、route_hint 细化、表空零行为变化）+ 设置对话框按用途 select 区 + Tauri 偏好全链；顺带修注入依赖 purpose 裸穿 Gateway 的既有缺陷（归因与路由同源化）；真实 Tauri `d6-purpose-model-routing` PASS。填表与跨供应商另行拍板。 |
 | `D5-inventory-thinking-model-adaptation.md` | **done（2026-08-25）/ 盘点思考型适配**：材料逐章混合（四栏摘要 seq 对位优先、缺失章回退正文截断）+ 退化自动降批合并（减半至最小批 3、提案 item_id 去重、`batch_fallback` 留痕）+ 瞬态单次重试（retryable:false 排除）；au14 真实 Tauri 回归 PASS。退化→降批页面级自愈留待真实模型狗粮观察。 |

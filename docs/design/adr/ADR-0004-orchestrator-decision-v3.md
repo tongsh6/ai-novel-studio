@@ -435,3 +435,19 @@ v3 不继承 v2 Router-first 执行拓扑，也不把 v2 handler 结果直接升
 6. 用户明确批准进入代码后，再为 VS-01 创建 implementation plan / contract test：decision 降级 / confirmation，再进入 ToolRequest 闭环。
 7. 后续 ADR-0008 / ADR-0009 冻结 behavior lifecycle 与 confirmation binding 如何引用 decision。
 8. 后续 ADR-0013 冻结 DecisionTrace 如何记录 decision、gate summary 和 redaction。
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/orchestrator_decision.ex
+- apps/novel_application/lib/novel_application/execution_orchestrator.ex
+- apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_application/lib/novel_application/turn_result_builder.ex
+- apps/novel_domain/test/novel_domain/orchestrator_decision_test.exs
+- apps/novel_application/test/novel_application/execution_authority_test.exs
+- quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml
+
+## enforcement_gaps
+
+- reply-only 主链不构造 `OrchestratorDecision`：`dialogue_planning_service` 的判断回复直接 `TraceWriter.record/3` 并 `TurnResultBuilder.build/3`（decision=nil），只有 trace 侧记 `decision_type=:reply_only`；ADR 决策 #1/#2 的"每个 turn 有 decision"未实装。
+- `OrchestratorDecision` 缺 `tool_requests` / `state_transitions` 字段；`decision_status` 实际只产生 `:decided`，`decision_type` 未覆盖 `reply_only` / `allow_bounded_read_batch` / `cancel_or_close`。
+- `decision_trace_ref` 在所有 `ExecutionOrchestrator` builder 中保持 nil，decision 与 DecisionTrace 的稳定引用未闭合。

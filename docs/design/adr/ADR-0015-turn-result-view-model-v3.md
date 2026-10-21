@@ -91,3 +91,18 @@ v2 的前端状态拼装需要迁移为消费 TurnResultViewModel，而不是按
 - 实现阶段再将本文 contract 转为 schema / API payload。
 
 ---
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/turn_result_builder.ex
+- apps/novel_application/lib/novel_application/action_validator.ex
+- apps/novel_web/lib/novel_web/channels/workspace_channel.ex
+- frontend/src/components/WorkspaceChat.tsx
+- frontend/src/lib/schemas.ts
+- docs/design/schemas/foundation/turn_result_v3.json
+- apps/novel_application/test/novel_application/action_roundtrip_test.exs
+- quality/acceptance/scenarios/e2e-01-channel-action-security.yml
+
+## enforcement_gaps
+
+- ADR 冻结的 `TurnResultViewModel` 在代码中没有同名模块/类型；现行主消费 envelope 是 `TurnResult` v3（`schema_version: "3.0-draft"`），语义承接 ADR-0015 但契约名不一致。

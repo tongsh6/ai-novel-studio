@@ -96,3 +96,14 @@ v2 的 debug logs 可以作为参考材料，但不能替代 ReplayReport。
 - 后续可增加 LLM-assisted explanation，但必须标记为非 structural replay。
 
 ---
+
+## enforced_by
+
+- apps/novel_domain/lib/novel_domain/replay_report.ex
+- apps/novel_application/lib/novel_application/replay_service.ex
+- apps/novel_application/lib/novel_application/trace_replay_service.ex
+- apps/novel_web/lib/novel_web/controllers/trace_replay_controller.ex
+- apps/novel_application/test/novel_application/replay_service_test.exs
+- apps/novel_web/test/novel_web/controllers/trace_replay_controller_test.exs
+- quality/acceptance/scenarios/e2e-01-replay-report.yml
+- quality/acceptance/scenarios/au07-partial-replay-ui.yml

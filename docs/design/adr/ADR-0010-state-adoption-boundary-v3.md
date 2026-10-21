@@ -105,3 +105,18 @@ v2 中“选择卡片后立即更新状态”的路径需要迁移为 AuthorActi
 - VS-06 冻结 adoption trace summary 和 replay explanation。
 
 ---
+
+## enforced_by
+
+- apps/novel_application/lib/novel_application/adoption_boundary.ex
+- apps/novel_application/lib/novel_application/adoption_workflow.ex
+- apps/novel_domain/lib/novel_domain/adoption_decision.ex
+- apps/novel_domain/lib/novel_domain/candidate_set.ex
+- apps/novel_persistence/lib/novel_persistence/adoption_repository.ex
+- apps/novel_application/test/novel_application/adoption_boundary_test.exs
+- apps/novel_application/test/novel_application/adoption_workflow_test.exs
+- quality/acceptance/scenarios/au02-unadopted-candidate-no-reading-fact.yml
+
+## enforcement_gaps
+
+- 持久化 writer 返回 error 时 `AdoptionWorkflow` 直接回 `{:error, reason}`，channel 仅回 error 帧、不产 TurnResult；规则 4「adoption failure 必须产生 TurnResult」目前只覆盖决策层拒绝/需确认路径。
