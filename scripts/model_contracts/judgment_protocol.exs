@@ -12,7 +12,7 @@
 # 调用穿真实 Gateway/ProviderExecution 运行时（Execution.dependency(provider:)），秒级、不写库。
 #
 # 用法：
-#   PHX_SERVER=false mix run scripts/model_contracts/judgment_protocol.exs [stub|lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/judgment_protocol.exs [stub|lmstudio|strata|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
 #   MODEL_CONTRACT_MIN_PASS_RATE  判断准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）
@@ -124,6 +124,9 @@ defmodule ModelContracts.JudgmentProtocol do
   defp variants("stub"), do: {:ok, [%{name: "default", provider: :stub, config: []}]}
   defp variants("lmstudio"), do: {:ok, [%{name: "default", provider: :lmstudio, config: []}]}
 
+  defp variants("strata"),
+    do: {:ok, [%{name: "default", provider: :strata, config: [timeout: 240_000]}]}
+
   defp variants("deepseek") do
     key = System.get_env("NOVEL_DEEPSEEK_API_KEY") || System.get_env("DEEPSEEK_API_KEY")
 
@@ -141,7 +144,7 @@ defmodule ModelContracts.JudgmentProtocol do
     end
   end
 
-  defp variants(other), do: {:error, "未知 provider: #{other}（支持 stub|lmstudio|deepseek）"}
+  defp variants(other), do: {:error, "未知 provider: #{other}（支持 stub|lmstudio|strata|deepseek）"}
 
   @provider_config_modules %{deepseek: DeepSeek}
 

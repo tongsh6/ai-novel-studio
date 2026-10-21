@@ -144,6 +144,7 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 | 智谱 GLM | 部分模型自动缓存 | 待核实 | 无 | `prompt_tokens_details.cached_tokens` | — | **待核实** |
 | MiniMax（海外 / 国内） | 待核实 | 待核实 | 无 | 待核实 | — | **待核实** |
 | LM Studio（llama.cpp） | 推理槽位 KV 前缀复用 | 无门槛；逐 token | 无 | `usage.prompt_tokens` / `completion_tokens` / `total_tokens` / `completion_tokens_details.reasoning_tokens`；**无 `cached_tokens`** → 以 adapter 首 delta 的 `ttft_ms` 为代理（§6.2） | 实测：`qwen3.8-flash-next@q2_k`，context 262144，parallel **3**，TTL 空（未关闭空闲驱逐）。与“并行预测=1”前提不一致；live 命中测量须单会话并记录冲掉风险 | **已核实（2026-10-21，CP-E）**：生产判断 call1 prompt（10,046 bytes）连续两次，TTFT 195,350ms → 6,619ms（run1 含模型冷加载，run2 同 slot 前缀复用代理）；usage 仍无 cache 字段、流式 token 计数 0。报告 `artifacts/model-contracts/prefix-live/lmstudio.md`。 |
+| Strata（strata-engine，本地 OpenAI 兼容） | 引擎侧 KV / expert cache（待核实） | 待核实（本地 Q2 profile，context 262144） | 无（thinking → 顶层 `reasoning_effort: "none"`） | `usage.input_tokens` / `output_tokens`（实测回传）；`cached` 字段待核实 | 127.0.0.1:8081，`qwen3.8-flash-next-q2_0`；本地单机 Q2 与 IQ3 profile 不可同时常驻（128GB 机器实测 IQ3 引擎 RSS 60.9GB + Q2 模型 69GB） | **2026-10-21 起 dev 默认 provider**（`NOVEL_PROVIDER_DEFAULT=strata`）；Q2 服务 8081 当前未启动，live 基线待跑。IQ3 profile（8082）adapter 冒烟：input 2132 / output 89 / TTFT 1944ms（仅通路验证，不作冻结证据） |
 | Stub / SliceVerify | 无 | — | 无 | — | — | 不适用 |
 
 > CP-AB 实测补充（2026-10-21）：LM Studio `/v1/chat/completions` 原始 usage 为

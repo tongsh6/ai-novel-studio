@@ -8,7 +8,7 @@
 #      （continue）/ 工具连续故障（await_author）/ 前提缺失需作者裁决（await_author）。
 #
 # 用法：
-#   PHX_SERVER=false mix run scripts/model_contracts/continuation_judgment.exs [stub|lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/continuation_judgment.exs [stub|lmstudio|strata|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
 #   MODEL_CONTRACT_MIN_PASS_RATE  方向准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）
@@ -34,8 +34,7 @@ defmodule ModelContracts.ContinuationJudgment do
     %{
       id: "quality_fixable",
       goal_text: "写第01章正文草稿并通过质量复核。",
-      deviation_summary:
-        "D2 偏离信号：质量复核要求行动：confirm——正文包含违反既有规则且可以按意见修正的设定描写（无代价复活未交代代价）。",
+      deviation_summary: "D2 偏离信号：质量复核要求行动：confirm——正文包含违反既有规则且可以按意见修正的设定描写（无代价复活未交代代价）。",
       observation_block: "已生成初稿约 900 字；质量复核给出一条 confirm 意见：补上复活的代价交代。",
       expected: ["continue"]
     },
@@ -89,18 +88,27 @@ defmodule ModelContracts.ContinuationJudgment do
   defp variants("lmstudio"),
     do: {:ok, [%{name: "default", provider: :lmstudio, config: [timeout: 120_000]}]}
 
+  defp variants("strata"),
+    do: {:ok, [%{name: "default", provider: :strata, config: [timeout: 240_000]}]}
+
   defp variants("deepseek") do
     key = System.get_env("NOVEL_DEEPSEEK_API_KEY") || System.get_env("DEEPSEEK_API_KEY")
 
     if is_binary(key) and key != "" do
       {:ok,
-       [%{name: "thinking_disabled", provider: :deepseek, config: [api_key: key, thinking: :disabled]}]}
+       [
+         %{
+           name: "thinking_disabled",
+           provider: :deepseek,
+           config: [api_key: key, thinking: :disabled]
+         }
+       ]}
     else
       {:error, "deepseek 凭据缺失（NOVEL_DEEPSEEK_API_KEY / DEEPSEEK_API_KEY），登记为阻塞"}
     end
   end
 
-  defp variants(other), do: {:error, "未知 provider: #{other}（支持 stub|lmstudio|deepseek）"}
+  defp variants(other), do: {:error, "未知 provider: #{other}（支持 stub|lmstudio|strata|deepseek）"}
 
   @provider_config_modules %{deepseek: DeepSeek, lmstudio: LMStudio}
 
@@ -203,10 +211,15 @@ defmodule ModelContracts.ContinuationJudgment do
   end
 
   defp report(summary, threshold) do
-    all_blocked? = Enum.all?(summary.variants, fn variant -> variant.blocked == variant.trials end)
+    all_blocked? =
+      Enum.all?(summary.variants, fn variant -> variant.blocked == variant.trials end)
 
     if all_blocked? do
-      IO.puts(:stderr, "[mbc/continuation-judgment] all trials blocked (connectivity/credentials)")
+      IO.puts(
+        :stderr,
+        "[mbc/continuation-judgment] all trials blocked (connectivity/credentials)"
+      )
+
       System.halt(65)
     end
 

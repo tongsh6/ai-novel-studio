@@ -7,7 +7,7 @@
 #     调用应出现断崖式下降（同 slot KV 前缀复用；单会话前提见 VS-00I §5）。
 #
 # 用法：
-#   PHX_SERVER=false mix run scripts/model_contracts/prompt_prefix_live.exs [lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/prompt_prefix_live.exs [lmstudio|strata|deepseek]
 #
 # 环境变量：
 #   PREFIX_PROBE_RUNS                 连续请求次数（默认 2）
@@ -97,17 +97,22 @@ defmodule ModelContracts.PromptPrefixLive do
   end
 
   defp prepare("lmstudio"), do: :ok
-  defp prepare(other), do: {:error, "未知 provider: #{other}（支持 lmstudio|deepseek）"}
+  defp prepare("strata"), do: :ok
+  defp prepare(other), do: {:error, "未知 provider: #{other}（支持 lmstudio|strata|deepseek）"}
 
   # Gateway/Provider 层用 atom 选 adapter；argv 是字符串，显式映射避免 to_atom 扩散。
   defp provider_atom("deepseek"), do: :deepseek
   defp provider_atom("lmstudio"), do: :lmstudio
+  defp provider_atom("strata"), do: :strata
 
   defp configured_model("deepseek"),
     do: Application.get_env(:novel_agent, DeepSeek, [])[:model]
 
   defp configured_model("lmstudio"),
     do: Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio, [])[:model]
+
+  defp configured_model("strata"),
+    do: Application.get_env(:novel_agent, NovelAgent.Provider.Strata, [])[:model]
 
   # ── 生产 prompt（判断 call1；L0 由 Gateway 身份注入） ──
 
@@ -141,9 +146,7 @@ defmodule ModelContracts.PromptPrefixLive do
   defp run_once(provider, prompt, index) do
     started = System.monotonic_time(:millisecond)
 
-    case Gateway.execute(prompt, nil, InferenceParams.new(),
-           provider: provider_atom(provider)
-         ) do
+    case Gateway.execute(prompt, nil, InferenceParams.new(), provider: provider_atom(provider)) do
       {:ok, %{result: %{usage: usage}}} ->
         %{
           run: index,
@@ -158,7 +161,10 @@ defmodule ModelContracts.PromptPrefixLive do
   end
 
   defp usage_map(nil), do: %{}
-  defp usage_map(%NovelAgent.Provider.Usage{} = usage), do: NovelAgent.Provider.Usage.to_map(usage)
+
+  defp usage_map(%NovelAgent.Provider.Usage{} = usage),
+    do: NovelAgent.Provider.Usage.to_map(usage)
+
   defp usage_map(map) when is_map(map), do: map
 
   # ── 报告 ──

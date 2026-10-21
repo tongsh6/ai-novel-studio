@@ -36,7 +36,14 @@ anthropic_timeout_ms =
 deepseek_timeout_ms =
   System.get_env("NOVEL_DEEPSEEK_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
-config :novel_agent, :provider, default: :lmstudio
+# 本地默认 provider：Strata（strata-engine）Q2_0 本地服务（127.0.0.1:8081）。
+# 可经 NOVEL_PROVIDER_DEFAULT 覆盖（如 lmstudio / deepseek）；模型/端点仍由各
+# provider 配置的 NOVEL_* env 覆盖。选 strata 的原因：本地推理默认走 Strata 的
+# Q2 服务，LM Studio 配置保留为可切换 fallback（不删除）。
+config :novel_agent, :provider,
+  default:
+    System.get_env("NOVEL_PROVIDER_DEFAULT", "strata")
+    |> String.to_atom()
 
 # 本地推理默认模型与端点必须可被 env 覆盖：MBC 探针 / 狗粮 / slice_verify 都经
 # `mix run` 走 dev 配置，硬编码会让脚本显式传入的 NOVEL_LMSTUDIO_MODEL 失效，

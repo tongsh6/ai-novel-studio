@@ -9,7 +9,7 @@
 # 因 CP4 证据全部来自 stub）。本探针让该类 provider×模式组合问题在 nightly 暴露。
 #
 # 用法：
-#   PHX_SERVER=false mix run scripts/model_contracts/tool_call_compliance.exs [stub|lmstudio|deepseek]
+#   PHX_SERVER=false mix run scripts/model_contracts/tool_call_compliance.exs [stub|lmstudio|strata|deepseek]
 # 环境变量：
 #   MODEL_CONTRACT_RUNS           每变体试验次数（默认 3）
 #   MODEL_CONTRACT_MIN_PASS_RATE  通过率阈值（默认 1.0）
@@ -58,6 +58,9 @@ defmodule ModelContracts.ToolCallCompliance do
   defp variants("lmstudio"),
     do: {:ok, [%{name: "default", provider: :lmstudio, config: []}]}
 
+  defp variants("strata"),
+    do: {:ok, [%{name: "default", provider: :strata, config: []}]}
+
   defp variants("deepseek") do
     key = System.get_env("NOVEL_DEEPSEEK_API_KEY") || System.get_env("DEEPSEEK_API_KEY")
 
@@ -81,7 +84,7 @@ defmodule ModelContracts.ToolCallCompliance do
     end
   end
 
-  defp variants(other), do: {:error, "未知 provider: #{other}（支持 stub|lmstudio|deepseek）"}
+  defp variants(other), do: {:error, "未知 provider: #{other}（支持 stub|lmstudio|strata|deepseek）"}
 
   @provider_config_modules %{deepseek: DeepSeek}
 
