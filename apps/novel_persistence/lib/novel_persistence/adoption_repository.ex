@@ -47,6 +47,11 @@ defmodule NovelPersistence.AdoptionRepository do
     &persist/1
   end
 
+  # dialyzer 误报（call_without_opaque）：Ecto.Multi.new/0 返回的 %Ecto.Multi{} 里
+  # MapSet.internal/0 是 opaque，同一函数内立即交给 Multi.insert/4 时 dialyzer 判
+  # 「call without expected opaque term」；Ecto.Multi 本身不是 opaque，运行时无问题。
+  # 只对本函数关闭 opacity 检查，不放宽全模块/全仓。
+  @dialyzer {:no_opaque, [persist: 1]}
   @spec persist(map()) :: {:ok, map()} | {:error, term()}
   def persist(attrs) when is_map(attrs) do
     mutation_attrs = mutation_attrs(attrs)
@@ -523,17 +528,27 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   # :overwrite —— 复用同章同 title 场景（章身份=场景身份）。
-  # :append —— 续写：同章新建场景（seq+1）累积；场景名优先用该章计划的场次名
-  # （plan_direction.scene_plans，NEM04 刀③），计划没排到这一场时保持「场景 N」。
-  # 存量占位行不回填（拍板③）。
+  # :append —— 续写：同章新建场景（seq+1）累积。
+  # B21：首次 append（seq=1）落的是「整章正文」，场身份=章，不回填计划第 1 场名——否则
+  # 阅读模式把整章正文挂在假的「第 1 场」标题下。占位「场景 1」由阅读端
+  # isGeneratedScenePlaceholder 隐藏（D7 后 authoring_intent=nil 走 append，首次采纳必然命中）。
+  # 第二次起（seq>=2）沿用 NEM04 刀③：优先用该章计划的场次名；计划没排到这一场时保持
+  # 「场景 N」。存量占位行不回填（拍板③）。
   defp resolve_scene(repo, work_id, chapter, chapter_title, :overwrite) do
     find_or_create_scene(repo, work_id, chapter.id, chapter_title)
   end
 
   defp resolve_scene(repo, work_id, chapter, _chapter_title, :append) do
     seq = next_scene_seq(repo, chapter.id)
-    title = planned_scene_title(chapter, seq) || "场景 #{seq}"
+    title = append_scene_title(chapter, seq)
     insert_scene(repo, %{work_id: work_id, chapter_id: chapter.id, title: title, seq: seq})
+  end
+
+  # 首次 append = 整章正文（章身份=场身份），计划第 1 场是设计态切分，不能拿来命名这行正文。
+  defp append_scene_title(_chapter, 1), do: "场景 1"
+
+  defp append_scene_title(chapter, seq) do
+    planned_scene_title(chapter, seq) || "场景 #{seq}"
   end
 
   defp planned_scene_title(chapter, seq) do

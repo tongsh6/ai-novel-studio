@@ -8594,6 +8594,7 @@ describe("native Tauri slice verifier", () => {
       turn_id: "turn-draft",
       turn_ids: ["turn-draft"],
       draft_turn_id: "turn-draft",
+      context_turn_id: "turn-draft",
       artifact_id: "artifact-prose-1",
       artifact_type: "prose_fragment",
       chapter_title: "第01章：底层灵气账单",
@@ -8606,6 +8607,7 @@ describe("native Tauri slice verifier", () => {
       slice_id: "p1-chapter-draft-generation",
       behavior: "chapter_draft_generated_from_adopted_plan_without_reading_projection",
       turn_ids: ["turn-draft"],
+      context_turn_id: "turn-draft",
       artifact_id: "artifact-prose-1",
       artifact_type: "prose_fragment",
       chapter_title: "第01章：底层灵气账单",
@@ -8614,14 +8616,60 @@ describe("native Tauri slice verifier", () => {
         "real_archive_outline_chapter_plan_rendered",
         "chapter_draft_requested_from_visible_chapter_action",
         "micro_plan_requested_from_real_workbench",
+        "judgment_decided_before_prose_execution",
         "prose_writing_generated_prose_fragment",
         "prose_fragment_remained_pending_for_author_adoption",
         "reading_mode_checked_before_adoption",
         "unadopted_prose_fragment_did_not_materialize_reading_projection",
         "no_adoption_event_was_sent",
-        "deterministic_provider_form_frame_and_micro_plan_called",
+        "deterministic_provider_judgment_called",
       ],
     });
+  });
+
+  // D18：agent 子 run 纪元下同一草稿请求的事件被拆到基 turn（入口 start / judgment /
+  // message.done）与 agent turn（context 组装 / 工具执行）。只按 draft_turn_id 精确过滤会
+  // 判失败；finder/behavior 必须按 base/agent 因果链取证。
+  it("accepts P1 chapter draft generation when agent sub-run splits events across base and agent turns", () => {
+    const records = p1ChapterDraftGenerationAgentEraRecords();
+    const evidence = findNativeSliceEvidence("p1-chapter-draft-generation", records);
+
+    expect(evidence).toMatchObject({
+      slice_id: "p1-chapter-draft-generation",
+      turn_ids: ["turn-d18", "turn-d18:agent:5"],
+      draft_turn_id: "turn-d18:agent:5",
+      context_turn_id: "turn-d18:agent:5",
+      artifact_id: "artifact-prose-1",
+      chapter_count: 12,
+    });
+
+    expect(
+      findSliceBehaviorEvidence("p1-chapter-draft-generation", records, evidence),
+    ).toMatchObject({
+      slice_id: "p1-chapter-draft-generation",
+      behavior: "chapter_draft_generated_from_adopted_plan_without_reading_projection",
+      turn_ids: ["turn-d18", "turn-d18:agent:5"],
+      context_turn_id: "turn-d18:agent:5",
+      assertions: expect.arrayContaining([
+        "judgment_decided_before_prose_execution",
+        "deterministic_provider_judgment_called",
+      ]),
+    });
+
+    // 反例：去掉基 turn 的 judgment 决策就不能通过（防止只靠工具执行冒充判断纪元证据）。
+    const withoutJudgment = records.filter((record) => record.event !== "judgment.decided.done");
+    const evidenceWithoutJudgment = findNativeSliceEvidence(
+      "p1-chapter-draft-generation",
+      withoutJudgment,
+    );
+    expect(evidenceWithoutJudgment).not.toBeNull();
+    expect(
+      findSliceBehaviorEvidence(
+        "p1-chapter-draft-generation",
+        withoutJudgment,
+        evidenceWithoutJudgment,
+      ),
+    ).toBeNull();
   });
 
   it("accepts AU-07 state trace adoption replay only when adoption and projection share state trace", () => {
@@ -13864,6 +13912,8 @@ function p1ChapterDraftGenerationRecords(turnId) {
       has_memory: true,
       context_refs_count: 1,
     },
+    // 旧 planner 形态事件保留：该 fixture 也被 VS-00C CP3（旧 planner 断言）复用；
+    // 判断纪元（D18）草稿场景只额外消费 judgment.decided.done。
     {
       event: "planner.form_frame.done",
       turn_id: turnId,
@@ -13880,6 +13930,15 @@ function p1ChapterDraftGenerationRecords(turnId) {
       work_id: "work-p1",
       session_id: "session-p1",
       duration_ms: 9,
+      outcome: "ok",
+    },
+    {
+      event: "judgment.decided.done",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 11,
       outcome: "ok",
     },
     {
@@ -13935,6 +13994,57 @@ function p1ChapterDraftGenerationRecords(turnId) {
       adopt_event_sent: false,
       user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
     },
+  ];
+}
+
+// D18：判断纪元 + agent 子 run 拆分形态（与真实 app JSONL 同构）——入口 start / judgment /
+// message.done 在基 turn，context 组装与工具执行在 agent turn。
+function p1ChapterDraftGenerationAgentEraRecords() {
+  const baseTurnId = "turn-d18";
+  const agentTurnId = "turn-d18:agent:5";
+  const base = (extra) => ({
+    workspace_id: "work-p1",
+    work_id: "work-p1",
+    session_id: "session-p1",
+    duration_ms: 1,
+    outcome: "ok",
+    ...extra,
+  });
+
+  return [
+    base({ event: "channel.user_message.start", turn_id: baseTurnId, generate_micro_plan: true }),
+    base({ event: "judgment.decided.done", turn_id: baseTurnId }),
+    base({ event: "context.assemble.done", turn_id: agentTurnId, context_refs_count: 2 }),
+    base({
+      event: "toolbox.execute.done",
+      turn_id: agentTurnId,
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    }),
+    base({ event: "channel.user_message.done", turn_id: baseTurnId }),
+    base({
+      event: "channel.get_toc.done",
+      turn_id: baseTurnId,
+      chapter_count: 12,
+      total_word_count: 0,
+    }),
+    base({
+      event: "slice_verify.ui_state.done",
+      turn_id: agentTurnId,
+      slice_id: "p1-chapter-draft-generation",
+      draft_turn_id: agentTurnId,
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      draft_generated: true,
+      draft_pending: true,
+      draft_body_chars: 128,
+      draft_card_visible: true,
+      reading_plan_visible_before_adoption: true,
+      unadopted_draft_visible_in_reading: false,
+      adopt_event_sent: false,
+      user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+    }),
   ];
 }
 
@@ -15390,5 +15500,83 @@ describe("SU01 本地 Strata provider 证据", () => {
     expect(findNativeSliceEvidence(slice, [{ ...ui, provider_options_endpoint_fixed: false }, ...records.slice(1)])).toBeNull();
     expect(findNativeSliceEvidence(slice, [{ ...ui, listed_model_ids: [] }, ...records.slice(1)])).toBeNull();
     expect(findNativeSliceEvidence(slice, [{ ...ui, assistant_reply_non_empty: false }, ...records.slice(1)])).toBeNull();
+  });
+});
+
+// B21：多场计划下首次 append 落的是整章正文，场身份=章。场景行标题来自真实
+// get_chapter_content 回帧（DB 读端口），阅读区场标题来自真实 DOM；任一处把计划
+// 第 1 场名/生成占位渲染成假场标题都必须拒绝。
+describe("B21 多场计划首次 append 场名证据", () => {
+  const slice = "p1-chapter-adoption-reading";
+  const turnId = "turn-b21";
+  const workId = "work-b21";
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: turnId,
+    draft_turn_id: turnId,
+    adopt_turn_id: `${turnId}-adopt`,
+    work_id: workId,
+    artifact_id: "artifact-b21",
+    artifact_type: "prose_fragment",
+    chapter_title: "第01章：底层灵气账单",
+    accept_event_sent: true,
+    accept_button_cleared_after_adoption: true,
+    artifact_adopted: true,
+    reading_mode_populated_after_adoption: true,
+    word_count_matches_adopted_prose: true,
+    projection_refresh_status: "STALE",
+    projection_stale_banner_visible: true,
+    projection_refresh_button_visible: true,
+    total_word_count: 120,
+    chapter_word_count: 120,
+    expected_word_count: 120,
+    user_message_text: "生成第01章正文草稿",
+    planned_scene_titles: ["对账", "夜巡"],
+    reading_scene_row_titles: ["场景 1"],
+    reading_scene_headings: [],
+    first_append_scene_placeholder: true,
+    planned_scene_title_used_as_scene_row_title: false,
+    planned_scene_title_rendered_as_fake_heading: false,
+  };
+  const chainRecords = [
+    { event: "channel.user_message.start", turn_id: turnId, generate_micro_plan: true },
+    { event: "toolbox.execute.done", turn_id: turnId, tool_name: "prose_writing", tool_outcome: "succeeded" },
+    { event: "channel.author_action.done", turn_id: turnId, action_type: "accept", action_status: "accepted" },
+    { event: "channel.get_toc.done", work_id: workId, chapter_count: 1 },
+    { event: "channel.get_chapter_content.done", work_id: workId, content_chars: 120 },
+  ];
+  const records = [ui, ...chainRecords];
+
+  it("占位场景行与计划场名脱钩才通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence).not.toBeNull();
+    expect(evidence.planned_scene_titles).toEqual(["对账", "夜巡"]);
+    expect(evidence.reading_scene_row_titles).toEqual(["场景 1"]);
+    expect(evidence.reading_scene_headings).toEqual([]);
+    expect(findSliceBehaviorEvidence(slice, records, evidence)).not.toBeNull();
+  });
+
+  it("计划第 1 场名冒充场景行标题或渲染成假标题均拒绝", () => {
+    const fakeRowTitle = {
+      ...ui,
+      reading_scene_row_titles: ["对账"],
+      first_append_scene_placeholder: false,
+      planned_scene_title_used_as_scene_row_title: true,
+    };
+    expect(findNativeSliceEvidence(slice, [fakeRowTitle, ...chainRecords])).toBeNull();
+
+    const fakePlannedHeading = {
+      ...ui,
+      reading_scene_headings: ["对账"],
+      planned_scene_title_rendered_as_fake_heading: true,
+    };
+    expect(findNativeSliceEvidence(slice, [fakePlannedHeading, ...chainRecords])).toBeNull();
+
+    const fakePlaceholderHeading = { ...ui, reading_scene_headings: ["场景 1"] };
+    expect(findNativeSliceEvidence(slice, [fakePlaceholderHeading, ...chainRecords])).toBeNull();
+
+    const withoutPlannedScenes = { ...ui, planned_scene_titles: [] };
+    expect(findNativeSliceEvidence(slice, [withoutPlannedScenes, ...chainRecords])).toBeNull();
   });
 });

@@ -997,6 +997,118 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert titles == ["第01章：黑市对账夜", "夜巡"]
     end
 
+    # B21：D7 之后（2026-08-26）authoring_intent=nil / 缺省、以及新章首次写入都走
+    # :append。首次 append（seq=1）落的是「整章正文」，场身份=章，不能回填计划第 1 场名，
+    # 否则阅读模式把整章正文挂在假的「第 1 场」标题下。占位「场景 1」由阅读端
+    # readingProjection.isGeneratedScenePlaceholder 隐藏。
+    test "首次 append（多场计划）不回填计划场名，整章正文保持「场景 1」占位" do
+      work_id = Ecto.UUID.generate()
+
+      adopt_scene_plan(work_id, """
+      第01章：黑市对账夜: 沈洛潜入黑市。
+      场次：对账｜目标：核对暗扣｜情绪：压抑
+      场次：夜巡｜目标：躲过巡检｜情绪：紧绷
+      """)
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-first-append",
+                 artifact_id: "as-first-append",
+                 artifact_type: :prose_fragment,
+                 content: "整章正文第一段。",
+                 summary: "第01章：黑市对账夜",
+                 mode: :append
+               })
+
+      assert scene_titles(work_id) == ["场景 1"]
+
+      assert {:ok, %{scenes: [scene]}} = chapter_content_for(work_id, "第01章：黑市对账夜")
+      assert scene.title == "场景 1"
+      assert scene.content == "整章正文第一段。"
+    end
+
+    test "首次 append（单场计划）同样不回填计划场名" do
+      work_id = Ecto.UUID.generate()
+
+      adopt_scene_plan(work_id, """
+      第01章：黑市对账夜: 沈洛潜入黑市。
+      场次：夜账｜目标：核对暗扣｜情绪：压抑
+      """)
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-first-append-single",
+                 artifact_id: "as-first-append-single",
+                 artifact_type: :prose_fragment,
+                 content: "单场计划的整章正文。",
+                 summary: "第01章：黑市对账夜",
+                 mode: :append
+               })
+
+      assert scene_titles(work_id) == ["场景 1"]
+    end
+
+    test "首次 append（无场次计划）保持「场景 1」占位（存量占位行为不变）" do
+      work_id = Ecto.UUID.generate()
+
+      adopt_scene_plan(work_id, """
+      第01章：黑市对账夜: 沈洛潜入黑市。
+      """)
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-first-append-no-plan",
+                 artifact_id: "as-first-append-no-plan",
+                 artifact_type: :prose_fragment,
+                 content: "没有场次计划的整章正文。",
+                 summary: "第01章：黑市对账夜",
+                 mode: :append
+               })
+
+      assert scene_titles(work_id) == ["场景 1"]
+    end
+
+    # B21 修复只切首次 append；第二次 append 的 NEM04 刀③语义不得回归：seq=2 仍吃
+    # 计划第 2 场名「夜巡」，而不是「场景 2」。
+    test "首次 append 不回填计划场名的同时，第二次 append 仍用计划第 2 场名（NEM04 不回归）" do
+      work_id = Ecto.UUID.generate()
+
+      adopt_scene_plan(work_id, """
+      第01章：黑市对账夜: 沈洛潜入黑市。
+      场次：对账｜目标：核对暗扣｜情绪：压抑
+      场次：夜巡｜目标：躲过巡检｜情绪：紧绷
+      """)
+
+      for {turn, artifact, content} <- [
+            {"turn-first", "as-first", "整章正文第一段。"},
+            {"turn-second", "as-second", "夜巡续写段正文。"}
+          ] do
+        assert {:ok, _} =
+                 AdoptionRepository.persist(%{
+                   actor_ref: "author",
+                   work_id: work_id,
+                   source_turn_ref: turn,
+                   artifact_id: artifact,
+                   artifact_type: :prose_fragment,
+                   content: content,
+                   summary: "第01章：黑市对账夜",
+                   mode: :append
+                 })
+      end
+
+      assert scene_titles(work_id) == ["场景 1", "夜巡"]
+
+      assert {:ok, %{scenes: [first, second]}} = chapter_content_for(work_id, "第01章：黑市对账夜")
+      assert first.content == "整章正文第一段。"
+      assert second.content == "夜巡续写段正文。"
+    end
+
     test "重写（默认 overwrite）仍 supersede 旧场景，不累积" do
       work_id = Ecto.UUID.generate()
 
@@ -1551,6 +1663,28 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                content: String.trim(content),
                summary: "分卷蓝图计划"
              })
+  end
+
+  # B21：带场次计划的一章计划（内容由调用方给），供首次/第二次 append 场景命名测试。
+  defp adopt_scene_plan(work_id, content) do
+    assert {:ok, _} =
+             AdoptionRepository.persist(%{
+               actor_ref: "author",
+               work_id: work_id,
+               source_turn_ref: "turn-scene-plan",
+               artifact_id: "as-scene-plan",
+               artifact_type: :outline_draft,
+               content: String.trim(content),
+               summary: "一章场次计划"
+             })
+  end
+
+  defp scene_titles(work_id) do
+    Scene
+    |> where([s], s.work_id == ^work_id)
+    |> order_by([s], asc: s.seq)
+    |> select([s], s.title)
+    |> Repo.all()
   end
 
   defp chapter_seqs(work_id) do

@@ -14880,19 +14880,33 @@ function findP1ChapterDraftGenerationEvidence(records) {
 
   const draftTurnId = String(uiState.draft_turn_id ?? "");
   if (!draftTurnId) return null;
+  if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
 
-  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
-  const start = draftRecords.find(
+  // 判断纪元（D18 漂移修复）：草稿卡由 agent 子 run 产出（turn_X:agent:N），对话入口
+  // channel.user_message.start / channel.user_message.done 记录在基 turn（turn_X），
+  // context 组装按 agent 链落点（见 contextAssembleTurnIdForDraftTurn/2），工具执行在
+  // agent turn。只按 uiState.draft_turn_id 精确过滤会把这三段拆到不同 turn 上，agent
+  // 纪元下必然找不到——与 p1-chapter-adoption-reading finder 的 base/agent 链拆法一致。
+  const baseTurnId = draftTurnId.split(":")[0];
+  const chainRecords = records.filter(
+    (record) => record.turn_id === draftTurnId || record.turn_id === baseTurnId,
+  );
+
+  const start = chainRecords.find(
     (record) =>
       record.event === "channel.user_message.start" && record.generate_micro_plan === true,
   );
   if (!start) return null;
-  if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
 
-  const contextDone = draftRecords.find((record) => record.event === "context.assemble.done");
+  const contextTurnId = contextAssembleTurnIdForDraftTurn(records, draftTurnId);
+  if (!contextTurnId) return null;
+
+  const contextDone = records.find(
+    (record) => record.turn_id === contextTurnId && record.event === "context.assemble.done",
+  );
   if (!contextDone || Number(contextDone.context_refs_count ?? 0) < 1) return null;
 
-  const generatedByTool = draftRecords.some(
+  const generatedByTool = chainRecords.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
@@ -14900,7 +14914,7 @@ function findP1ChapterDraftGenerationEvidence(records) {
   );
   if (!generatedByTool) return null;
 
-  const done = draftRecords.find((record) => record.event === "channel.user_message.done");
+  const done = chainRecords.find((record) => record.event === "channel.user_message.done");
   if (!done) return null;
 
   // 采纳的章节计划已成正式目录：阅读 toc 显示计划全章（>=10），但还没有已采纳正文（全书 0 字）。
@@ -14916,8 +14930,9 @@ function findP1ChapterDraftGenerationEvidence(records) {
   return {
     slice_id: sliceId,
     turn_id: draftTurnId,
-    turn_ids: [draftTurnId],
+    turn_ids: [...new Set([baseTurnId, draftTurnId])],
     draft_turn_id: draftTurnId,
+    context_turn_id: contextTurnId,
     artifact_id: uiState.artifact_id,
     artifact_type: uiState.artifact_type,
     chapter_title: uiState.chapter_title,
@@ -15606,17 +15621,26 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
 }
 
 function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidence, options) {
-  if (turnIds.length !== 1) return null;
-  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "planner.form_micro_plan.done")) {
-    return null;
-  }
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  // 判断纪元（D18 漂移修复）：evidence.turn_ids 是基 turn + agent 子 run 的因果链；
+  // 入口 start 在基 turn、judgment 在基 turn、工具执行在 agent turn，逐项按链上任一 turn
+  // 命中（与 p1ChapterAdoptionReadingBehavior 同口径），不再要求单一 turn 包办全部事件。
+  const chainTurnIds = evidence.turn_ids ?? [evidence.draft_turn_id];
+  if (chainTurnIds.length < 1 || chainTurnIds.length > 2) return null;
+  const baseTurnId = String(evidence.draft_turn_id ?? "").split(":")[0];
+
+  const authorEntryOk = chainTurnIds.some((turnId) =>
+    turnsHaveGenerateMicroPlan([turnId], turnRecords, true),
+  );
+  if (!authorEntryOk) return null;
+  if (!contextAssembleTurnIdForDraftTurn(records, evidence.draft_turn_id)) return null;
+  if (!turnsHaveEvent([baseTurnId], turnRecords, "judgment.decided.done")) return null;
+
+  const toolboxOk = chainTurnIds.some((turnId) =>
+    turnsHaveEvent([turnId], turnRecords, "toolbox.execute.done"),
+  );
+  if (!toolboxOk) return null;
   if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
-  if (!lmstudioHasSteps(options, [evidence.draft_turn_id], ["form_frame", "form_micro_plan"])) {
-    return null;
-  }
+  if (!lmstudioHasSteps(options, [baseTurnId], ["judgment"])) return null;
 
   const uiState = records.find(
     (record) =>
@@ -15640,6 +15664,7 @@ function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidenc
     slice_id: "p1-chapter-draft-generation",
     behavior: "chapter_draft_generated_from_adopted_plan_without_reading_projection",
     turn_ids: turnIds,
+    context_turn_id: evidence.context_turn_id,
     artifact_id: evidence.artifact_id,
     artifact_type: evidence.artifact_type,
     chapter_title: evidence.chapter_title,
@@ -15648,14 +15673,15 @@ function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidenc
       "real_archive_outline_chapter_plan_rendered",
       "chapter_draft_requested_from_visible_chapter_action",
       "micro_plan_requested_from_real_workbench",
+      "judgment_decided_before_prose_execution",
       "prose_writing_generated_prose_fragment",
       "prose_fragment_remained_pending_for_author_adoption",
       "reading_mode_checked_before_adoption",
       "unadopted_prose_fragment_did_not_materialize_reading_projection",
       "no_adoption_event_was_sent",
       options.provider === "lmstudio"
-        ? "lmstudio_form_frame_and_micro_plan_called"
-        : "deterministic_provider_form_frame_and_micro_plan_called",
+        ? "lmstudio_judgment_called"
+        : "deterministic_provider_judgment_called",
     ],
   };
 }
@@ -15762,6 +15788,34 @@ function findP1ChapterAdoptionReadingEvidence(
   );
   if (!chapterRead) return null;
 
+  // B21：首次 append 的整章正文不能被计划第 1 场名冒充。场景行标题来自真实
+  // get_chapter_content 回帧（DB 读端口），阅读区场标题来自真实渲染 DOM；两者都必须与
+  // 计划场名脱钩，且阅读区不得出现假的「第 1 场」标题。仅 B21 场景的种子带多场计划，
+  // 复用本 finder 的其它场景保持原断言口径。
+  if (sliceId === "p1-chapter-adoption-reading") {
+    const plannedSceneTitles = Array.isArray(uiState.planned_scene_titles)
+      ? uiState.planned_scene_titles
+      : [];
+    if (plannedSceneTitles.length !== 2) return null;
+
+    const sceneRowTitles = Array.isArray(uiState.reading_scene_row_titles)
+      ? uiState.reading_scene_row_titles
+      : [];
+    if (sceneRowTitles.length !== 1) return null;
+    if (sceneRowTitles[0] !== "场景 1") return null;
+    if (plannedSceneTitles.includes(sceneRowTitles[0])) return null;
+
+    if (uiState.first_append_scene_placeholder !== true) return null;
+    if (uiState.planned_scene_title_used_as_scene_row_title === true) return null;
+    if (uiState.planned_scene_title_rendered_as_fake_heading === true) return null;
+
+    const sceneHeadings = Array.isArray(uiState.reading_scene_headings)
+      ? uiState.reading_scene_headings
+      : null;
+    if (!sceneHeadings || sceneHeadings.length !== 0) return null;
+    if (sceneHeadings.some((heading) => plannedSceneTitles.includes(heading))) return null;
+  }
+
   return {
     slice_id: sliceId,
     turn_id: draftTurnId,
@@ -15779,6 +15833,20 @@ function findP1ChapterAdoptionReadingEvidence(
     projection_refresh_status: uiState.projection_refresh_status,
     projection_stale_banner_visible: uiState.projection_stale_banner_visible,
     projection_refresh_button_visible: uiState.projection_refresh_button_visible,
+    // B21 场名证据只属于本场景；复用本 finder 的其它场景保持既有证据形状。
+    ...(sliceId === "p1-chapter-adoption-reading"
+      ? {
+          planned_scene_titles: Array.isArray(uiState.planned_scene_titles)
+            ? uiState.planned_scene_titles
+            : [],
+          reading_scene_row_titles: Array.isArray(uiState.reading_scene_row_titles)
+            ? uiState.reading_scene_row_titles
+            : [],
+          reading_scene_headings: Array.isArray(uiState.reading_scene_headings)
+            ? uiState.reading_scene_headings
+            : [],
+        }
+      : {}),
     key_events: keyEvents,
   };
 }
@@ -18971,6 +19039,27 @@ function p1ChapterAdoptionReadingBehavior(
     return null;
   }
 
+  // B21：多场计划下首次 append 的整章正文必须落「场景 1」占位，且计划第 1 场名既不能
+  // 成为场景行标题，也不能在阅读区渲染成假场标题。仅本场景强制（其它场景复用同一
+  // 行为函数，保持既有断言口径）。
+  const b21SceneNaming = sliceId === "p1-chapter-adoption-reading";
+  if (b21SceneNaming) {
+    const plannedSceneTitles = Array.isArray(evidence.planned_scene_titles)
+      ? evidence.planned_scene_titles
+      : [];
+    const sceneRowTitles = Array.isArray(evidence.reading_scene_row_titles)
+      ? evidence.reading_scene_row_titles
+      : [];
+    const sceneHeadings = Array.isArray(evidence.reading_scene_headings)
+      ? evidence.reading_scene_headings
+      : null;
+    if (plannedSceneTitles.length !== 2) return null;
+    if (sceneRowTitles.length !== 1 || sceneRowTitles[0] !== "场景 1") return null;
+    if (plannedSceneTitles.includes(sceneRowTitles[0])) return null;
+    if (!sceneHeadings || sceneHeadings.length !== 0) return null;
+    if (sceneHeadings.some((heading) => plannedSceneTitles.includes(heading))) return null;
+  }
+
   return {
     slice_id: sliceId,
     behavior: "adopted_prose_materializes_reading_projection_with_effective_word_counts",
@@ -18982,6 +19071,13 @@ function p1ChapterAdoptionReadingBehavior(
     chapter_word_count: Number(uiState.chapter_word_count ?? 0),
     expected_word_count: Number(uiState.expected_word_count ?? 0),
     content_chars: evidence.content_chars,
+    ...(b21SceneNaming
+      ? {
+          planned_scene_titles: evidence.planned_scene_titles,
+          reading_scene_row_titles: evidence.reading_scene_row_titles,
+          reading_scene_headings: evidence.reading_scene_headings,
+        }
+      : {}),
     assertions: [
       "chapter_draft_generated_from_adopted_plan",
       "author_clicked_accept_from_real_workbench",
@@ -18995,6 +19091,13 @@ function p1ChapterAdoptionReadingBehavior(
       "projection_ref_emitted_with_stale_refresh_status",
       "reading_mode_stale_projection_banner_visible",
       "reading_mode_refresh_button_visible",
+      ...(b21SceneNaming
+        ? [
+            "first_append_whole_chapter_keeps_generated_scene_placeholder",
+            "planned_first_scene_title_not_used_as_scene_row_title",
+            "planned_scene_title_not_rendered_as_fake_reading_heading",
+          ]
+        : []),
     ],
   };
 }

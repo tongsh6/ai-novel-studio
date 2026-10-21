@@ -1027,7 +1027,7 @@ native_action_description() {
       echo "create an existing character, then send a character evolution request from the real workbench -> verify bounded AgentRun fast ack, character_evolution_with_context_v1 profile, re-gated character_evolution execution, and tentative character_evolution_seed without production write"
       ;;
     p1-chapter-adoption-reading)
-      echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click accept -> open reading mode -> verify chapter prose and effective word counts (book total + chapter) match the visible adopted prose"
+      echo "seed a two-scene chapter-1 plan -> generate chapter 1 prose draft -> click accept -> open reading mode -> verify chapter prose and effective word counts (book total + chapter) match the visible adopted prose, and the planned first scene title is never used as the whole-chapter scene row title or rendered as a fake reading heading"
       ;;
     au07-state-trace-adoption-replay)
       echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click accept through adoption boundary -> verify adoption/projection carry replayable StateTrace refs"
@@ -1995,7 +1995,11 @@ case "$SLICE_ID" in
 esac
 
 if [[ -n "$SEED_SCRIPT" ]]; then
-  MIX_ENV=test mix run "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
+  # B21：只有「多场计划首次 append 场名」场景需要在共用种子上追加第01章的场次计划行；
+  # 其它共用该种子的场景保持原计划字节，避免影响既有断言口径。
+  MIX_ENV=test \
+    P1_SCENE_PLAN_SEED="$([[ "$SLICE_ID" == "p1-chapter-adoption-reading" ]] && echo 1 || echo 0)" \
+    mix run "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
 else
   echo "[tauri-slice-verify] seed: none" >"$ARTIFACT_DIR/seed.log"
 fi

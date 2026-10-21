@@ -8948,6 +8948,91 @@ async function driveP1ChapterAdoptionReading(page) {
   const totalWords = parseBookTotalWords(visibleText);
   const chapterWords = parseChapterWords(visibleText);
 
+  // B21：首次 append 的整章正文不能被计划第 1 场名冒充。外部证据取三处真实数据：
+  // 1) get_toc 回帧里的 plan_direction.scene_plans（真实 Channel → DB 投影）；
+  // 2) get_chapter_content 回帧里的 scenes[].title（真实 DB 场景行）；
+  // 3) 阅读区章级容器里真实渲染的场标题（h3，用户可见）。
+  const tocReplies = frames.filter((frame) => {
+    const response = frame.body?.response ?? frame.payload?.response ?? frame.body;
+    return frame.direction === "received" && Array.isArray(response?.volumes);
+  });
+  const lastTocReply = tocReplies[tocReplies.length - 1] ?? null;
+  const readingToc = lastTocReply
+    ? (lastTocReply.body?.response ?? lastTocReply.payload?.response ?? lastTocReply.body)
+    : null;
+  const firstChapterTitle = "第01章：底层灵气账单";
+  const firstChapter = (readingToc?.volumes ?? [])
+    .flatMap((volume) => volume.chapters ?? [])
+    .find((chapter) => chapter.title === firstChapterTitle);
+  const plannedSceneTitles = Array.isArray(firstChapter?.plan_direction?.scene_plans)
+    ? firstChapter.plan_direction.scene_plans
+        .map((plan) => String(plan?.title ?? "").trim())
+        .filter(Boolean)
+    : [];
+
+  // 阅读模式会为目录里每一章各读一次 get_chapter_content（含空章），必须取目标章的回帧，
+  // 不能取最后一帧（最后往往是空章 scenes: []）。
+  const chapterContentResponses = frames
+    .filter((frame) => frame.direction === "received")
+    .map((frame) => frame.body?.response ?? frame.payload?.response ?? frame.body)
+    .filter((response) => Array.isArray(response?.scenes));
+  const readingChapterContent =
+    chapterContentResponses.find(
+      (response) => String(response?.title ?? "").trim() === firstChapterTitle,
+    ) ??
+    chapterContentResponses.find((response) => (response?.scenes ?? []).length > 0) ??
+    null;
+  const readingSceneRowTitles = (readingChapterContent?.scenes ?? [])
+    .map((scene) => String(scene?.title ?? "").trim())
+    .filter(Boolean);
+
+  const readingSceneHeadings = await page.evaluate(() => {
+    const firstChapterTitle = "第01章：底层灵气账单";
+    const heading = [...document.querySelectorAll("h1")].find((el) =>
+      (el.textContent ?? "").includes(firstChapterTitle),
+    );
+    const chapterSection = heading?.parentElement;
+    if (!chapterSection) return [];
+    return [...chapterSection.querySelectorAll("h3")]
+      .map((el) => (el.textContent ?? "").trim())
+      .filter(Boolean);
+  });
+
+  const plannedSceneTitleRenderedAsFakeHeading = readingSceneHeadings.some(
+    (heading) =>
+      plannedSceneTitles.includes(heading) ||
+      /^(?:场景\s*)?[0-9]+$/u.test(heading) ||
+      /^第\s*[0-9]+\s*场$/u.test(heading),
+  );
+  const firstAppendScenePlaceholder = readingSceneRowTitles[0] === "场景 1";
+  const plannedSceneTitleUsedAsSceneRowTitle =
+    plannedSceneTitles.length > 0 && plannedSceneTitles.includes(readingSceneRowTitles[0]);
+
+  // 只有 B21 场景的种子带多场计划；复用本函数的其它场景（字数审计、章节扩写等）
+  // 保持既有断言口径，不做场名断言。
+  if (sliceId === "p1-chapter-adoption-reading") {
+    assert(
+      plannedSceneTitles.length === 2,
+      `B21 seed did not materialize the two planned scenes: ${JSON.stringify(plannedSceneTitles)}`,
+    );
+    assert(
+      readingSceneRowTitles.length === 1,
+      `B21 first append should materialize exactly one scene row, got ${JSON.stringify(readingSceneRowTitles)}`,
+    );
+    assert(
+      firstAppendScenePlaceholder,
+      `B21 first append scene row title should stay the generated placeholder, got ${JSON.stringify(readingSceneRowTitles)}`,
+    );
+    assert(
+      !plannedSceneTitleUsedAsSceneRowTitle,
+      `B21 planned scene title leaked into the scene row title: ${JSON.stringify(readingSceneRowTitles)}`,
+    );
+    assert(
+      !plannedSceneTitleRenderedAsFakeHeading,
+      `B21 planned/placeholder scene title rendered as a fake reading heading: ${JSON.stringify(readingSceneHeadings)}`,
+    );
+  }
+
   // 取阅读区真实渲染的正文段落（叶子 div，排除「本章有效字数」元信息行），
   // 用与后端同口径计算有效字数，验证"显示的字数 == 读者实际看到的正文字数"。
   const renderedProse = await page.evaluate(() => {
@@ -9032,6 +9117,12 @@ async function driveP1ChapterAdoptionReading(page) {
       expected_word_count: visibleProseWords,
       word_count_matches_adopted_prose:
         chapterWords === visibleProseWords && totalWords === chapterWords,
+      planned_scene_titles: plannedSceneTitles,
+      reading_scene_row_titles: readingSceneRowTitles,
+      reading_scene_headings: readingSceneHeadings,
+      first_append_scene_placeholder: firstAppendScenePlaceholder,
+      planned_scene_title_used_as_scene_row_title: plannedSceneTitleUsedAsSceneRowTitle,
+      planned_scene_title_rendered_as_fake_heading: plannedSceneTitleRenderedAsFakeHeading,
       user_message_text: sentMessage?.body?.text,
     },
   ];

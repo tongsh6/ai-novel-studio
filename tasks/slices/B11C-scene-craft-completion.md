@@ -1,6 +1,6 @@
 # B11C-scene-craft-completion：场级执行结构补全（VS-00E 设计全集）与档案场次可见
 
-**状态**：**done（2026-10-22，CP1+CP2 全落，真实 Tauri `p1-prose-execution-brief` PASS）**；作者拍板 B11③（主线顺序 B13a → B11③ → B11①，2026-10-22）。CP3（首次 append 场名误标）已登记为下一 checkpoint（B21），不在本 slice 声称闭环。
+**状态**：**done（2026-10-22，CP1+CP2 全落，真实 Tauri `p1-prose-execution-brief` PASS）**；作者拍板 B11③（主线顺序 B13a → B11③ → B11①，2026-10-22）。CP3（首次 append 场名误标）已转正为独立 slice **B21** 并同日闭环（`tasks/slices/B21-first-append-scene-naming.md`，真实 Tauri `p1-chapter-adoption-reading` PASS），本 slice 主体仍按 CP1+CP2 口径。
 **来源**：`docs/design/08-novel-element-model.md` E23–E30 / NEM-GAP-04；`docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md` §1 `scene_units` 设计全集；Order 8 刀③ `tasks/slices/NEM04-scene-craft-planning.md`（已 done，最小三槽）。
 
 ## 0. 现状核查：为什么不是重做 NEM04
@@ -135,7 +135,7 @@
 
 **诚实边界**：
 - 本 slice 交付的是「章级 draft + 场级执行简述 + 场级计划可见」，**不是多场正文**；阅读链仍按章级 draft 投影（多场正文/场级质量归 B11D/后续）。
-- 首次 append 场名误标（B21）为既有缺陷，本 slice 未修（登记 CP3 候选）。
+- 首次 append 场名误标（B21）为既有缺陷，本 slice 未修；已转正为 `B21-first-append-scene-naming.md`（2026-10-22 done，真实 Tauri `p1-chapter-adoption-reading` PASS）。
 - 真实规划模型是否稳定产出新子槽没有新证据（seed 手写证明链路；真实模型样本归狗粮观察）；UI 对无 `scene_plans` 的存量章一整块不渲染（诚实缺席，NEM04 不回填拍板仍有效）。
 - `quality_manifest_check` 整命令仍因两个 HEAD 既有未登记 browser driver exit 1（本次改动前即存在）；本 slice 扩的是既有已注册 `p1-prose-execution-brief` 场景，未新增未登记 driver。
 
@@ -146,7 +146,7 @@
 - 场次计划作者编辑/增删改：本 slice 只读可见；
 - 阅读模式场级 UI 变化：阅读链不动；
 - 存量「场景 N」回填：NEM04 拍板③仍有效；
-- **CP3（下一 checkpoint，登记未做）**：多场计划首次 append 的场名误标——D7 后 `authoring_intent=nil` 走 `:append`，首次 append `seq=1` 会把整章正文命名为 `scene_plans[0].title`，阅读模式因此把整章挂到"第 1 场"（真实 m5 数据：3 场计划只落 1 个 scene 行）。修复方向：首次 append 不回填计划场名（保持占位、阅读端隐藏），或引入 artifact 场作用域；需单测 + 采纳→阅读真实页面断言；
+- **CP3（已转正并闭环 B21，2026-10-22）**：多场计划首次 append 的场名误标——D7 后 `authoring_intent=nil` 走 `:append`，首次 append `seq=1` 会把整章正文命名为 `scene_plans[0].title`，阅读模式因此把整章挂到"第 1 场"（真实 m5 数据：3 场计划只落 1 个 scene 行）。修复=首次 append 不回填计划场名（保持占位、阅读端隐藏），第二次 append NEM04 语义不变；单测 + 真实 Tauri `p1-chapter-adoption-reading` 断言已闭环，详见 `B21-first-append-scene-naming.md`；
 - **质量场粒度（B11D 候选）**：`QualityFinding` scope 只有 local/paragraph/chapter，`brief_field_refs` 未在质量卡展示，作者无法按场修订；
 - **E28/E29/E30**：动作编排/内心戏/场间过渡无契约 key，继续挂 NEM-GAP-04。
 

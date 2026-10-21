@@ -1,7 +1,86 @@
 import { describe, expect, it } from "vitest";
 
-import { formatWordCount, normalizeReadingToc } from "../readingProjection";
-import type { TocData } from "../socket";
+import {
+  formatWordCount,
+  normalizeChapterContentTitle,
+  normalizeReadingToc,
+} from "../readingProjection";
+import type { ChapterContent, TocData } from "../socket";
+
+describe("normalizeChapterContentTitle scene titles (B21)", () => {
+  // B21：首次 append 的整章正文落「场景 N」占位（后端不再回填计划第 1 场名），阅读端必须
+  // 隐藏这类生成占位标题，否则整章正文会挂到假的「第 1 场」标题下。
+  it("hides generated scene placeholders without dropping the prose", () => {
+    const chapterContent: ChapterContent = {
+      title: "第01章：底层灵气账单",
+      scenes: [
+        { title: "场景 1", content: "整章正文第一段。" },
+        { title: "第 1 场", content: "第二条占位。" },
+        { title: "场景一", content: "第三条占位。" },
+        { title: "1", content: "第四条占位。" },
+      ],
+    };
+
+    const readable = normalizeChapterContentTitle(chapterContent);
+
+    expect(readable.scenes.map((scene) => scene.title)).toEqual(["", "", "", ""]);
+    expect(readable.scenes.map((scene) => scene.content)).toEqual([
+      "整章正文第一段。",
+      "第二条占位。",
+      "第三条占位。",
+      "第四条占位。",
+    ]);
+    expect(readable.title).toBe("第01章：底层灵气账单");
+  });
+
+  // NEM04 不回归：第二次 append 吃到的真实计划场次名是产品语义，必须继续可见。
+  it("keeps real planned scene titles", () => {
+    const chapterContent: ChapterContent = {
+      title: "第01章：底层灵气账单",
+      scenes: [
+        { title: "场景 1", content: "整章正文第一段。" },
+        { title: "夜巡", content: "夜巡续写段正文。" },
+      ],
+    };
+
+    const readable = normalizeChapterContentTitle(chapterContent);
+
+    expect(readable.scenes.map((scene) => scene.title)).toEqual(["", "夜巡"]);
+  });
+
+  it("maps chapter-identity scene titles to the selected chapter title", () => {
+    const chapterContent: ChapterContent = {
+      title: "已采纳内容",
+      scenes: [{ title: "第01章：底层灵气账单", content: "正文。" }],
+    };
+
+    const readable = normalizeChapterContentTitle(chapterContent, {
+      id: "c1",
+      title: "第01章：底层灵气账单",
+      seq: 1,
+      wordCount: 120,
+      status: "ok",
+    });
+
+    expect(readable.title).toBe("第01章：底层灵气账单");
+    expect(readable.scenes[0].title).toBe("第01章：底层灵气账单");
+  });
+
+  it("hides internal projection ids and empty scene titles", () => {
+    const chapterContent: ChapterContent = {
+      title: "as_42",
+      scenes: [
+        { title: "as_42", content: "正文一。" },
+        { title: "   ", content: "正文二。" },
+      ],
+    };
+
+    const readable = normalizeChapterContentTitle(chapterContent);
+
+    expect(readable.title).toBe("已采纳片段");
+    expect(readable.scenes.map((scene) => scene.title)).toEqual(["", ""]);
+  });
+});
 
 describe("normalizeReadingToc word counts", () => {
   it("surfaces per-chapter and total effective word counts", () => {

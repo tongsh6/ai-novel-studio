@@ -18,6 +18,9 @@ invariants:
   - reading-projection-uses-current-work-id
   - displayed-word-count-derived-from-visible-prose
   - projection-ref-stale-status-is-visible
+  # B21：多场计划下首次 append 落的是整章正文，场身份=章——计划第 1 场名不得成为
+  # 场景行标题，也不得在阅读区渲染成假的「第 1 场」标题。
+  - first-append-whole-chapter-scene-title-is-placeholder
 
 setup:
   seed: scripts/seed_p1_chapter_draft_generation.exs
@@ -48,15 +51,19 @@ assertions:
     - reading mode shows adopted chapter prose
     - total and chapter effective word counts are visible
     - stale projection banner and refresh button are visible after projection_ref STALE
+    - planned first scene title and generated scene placeholder are not rendered as fake reading headings
   network:
     - author_action accept is sent from the real workbench
     - accepted turn_result contains resolved adoption state
     - get_toc and get_chapter_content return current work projection data
+    - get_toc exposes the two planned scenes of chapter 1
+    - get_chapter_content scene row title stays the generated placeholder
   data:
     - artifact_adopted is true
     - production_write_performed is true
     - reading projection contains accepted prose only
     - displayed word count equals effective count of visible adopted prose
+    - first append scene row title is the generated placeholder, not the planned first scene title
 
 anti_hooks:
   product_acceptance_logic_added: false

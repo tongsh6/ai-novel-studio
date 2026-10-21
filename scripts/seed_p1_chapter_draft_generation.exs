@@ -1,6 +1,19 @@
 alias NovelApplication.{WorkService, WorkSessionService}
 alias NovelPersistence.AdoptionRepository
 
+# B21：p1-chapter-adoption-reading 需要「第01章有多场计划」才能覆盖首次 append 场名误标；
+# 本种子被多个 P1/其他场景共用，为不影响它们的断言口径，仅在显式开关下追加场次计划行
+# （tauri_slice_verify.sh 只对该场景打开）。沿用 B11C 的「场次：场名｜目标：…」单行格式。
+scene_plan_lines =
+  if System.get_env("P1_SCENE_PLAN_SEED") == "1" do
+    [
+      "场次：对账｜目标：核对灵气账单暗抽明细｜情绪：压抑",
+      "场次：夜巡｜目标：避开巡检车接近出气口｜情绪：紧绷"
+    ]
+  else
+    []
+  end
+
 chapter_lines = [
   "第01章：底层灵气账单: 陆沉舟在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。",
   "章功能定位：推进章",
@@ -11,7 +24,8 @@ chapter_lines = [
   "情绪定位：压抑中透出第一丝反抗",
   "章首拉力：停灵倒计时逼近的紧迫感",
   "章尾断章：账单上浮现出不属于任何条目的扣费记录",
-  "字数与场次：约1200字，两场（对账/夜巡）",
+  ["字数与场次：约1200字，两场（对账/夜巡）" | scene_plan_lines]
+  |> Enum.join("\n"),
   "第02章：旧服务器里的残诀: 陆沉舟从废弃服务器中找到残缺功法，并第一次突破底层限制。",
   "章功能定位：推进章",
   "情节推进：陆沉舟潜入废弃机房，从旧服务器中找到残缺功法，第一次突破底层限制",
