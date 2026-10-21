@@ -62,7 +62,12 @@ defmodule NovelFoundation.UpstreamError do
   def retryable?(:content_filter), do: false
   def retryable?(:parse), do: false
 
-  @doc "转换为上层可消费的 error map。"
+  @doc """
+  转换为上层可消费的 error map。
+
+  `details` 原样透传（B22）：只允许放结构性诊断（超时类别、时长、字数、chunk 数
+  等），不得放 prompt/CoT/secret；应用层据此生成作者安全文案与 reason code。
+  """
   @spec to_error_tuple(t()) :: {:error, map()}
   def to_error_tuple(%__MODULE__{} = error) do
     {:error,
@@ -70,7 +75,8 @@ defmodule NovelFoundation.UpstreamError do
        type: error.type,
        message: error.message,
        provider: error.provider,
-       retryable: error.retryable
+       retryable: error.retryable,
+       details: error.details
      }}
   end
 end

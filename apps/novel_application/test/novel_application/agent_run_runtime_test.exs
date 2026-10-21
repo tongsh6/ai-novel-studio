@@ -523,6 +523,50 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert turn_result.agent_run.profile_ref == "judgment_loop_v1"
   end
 
+  test "provider generation timeout settles with structural reason code and author-safe fallback" do
+    parent = self()
+
+    execution = %Execution{
+      purpose: :conversation,
+      execute_fn: fn _prompt -> provider_activity_timeout_result(:stream_interrupted) end
+    }
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :profile_routing,
+        %{
+          text: "长调用输出中断也必须作者安全",
+          workspace_id: "ws-timeout-error",
+          work_id: "work-timeout-error",
+          session_id: "session-timeout-error",
+          turn_id: "turn-timeout-error"
+        },
+        nil,
+        execution
+      )
+
+    assert {:ok, _run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:run_failed, 1_000)
+    failed = List.last(events)
+
+    # B22：超时按"哪一层没有进展"给出可检索 reason code；摘要用结构事实。
+    assert failed.summary =~ "中途中断"
+    assert "provider_error" in failed.reason_codes
+    assert "provider_timeout_stream_interrupted" in failed.reason_codes
+    refute inspect(events) =~ "raw provider timeout payload"
+
+    turn_result = failed.payload.turn_result
+    assert turn_result.assistant_message.text =~ "中途中断"
+    assert turn_result.assistant_message.text =~ "没有创建待采纳内容"
+    refute turn_result.assistant_message.text =~ "raw provider timeout payload"
+    assert turn_result.phase == "failed"
+  end
+
   test "修订工具失败保留实际调用事实和可查 trace，不伪装成未调用" do
     parent = self()
     attrs = delivery_run_attrs()
@@ -2121,6 +2165,73 @@ defmodule NovelApplication.AgentRunRuntimeTest do
        events: [started_event, error_event],
        output: output,
        error: %{type: :provider_error, message: raw_failure}
+     }}
+  end
+
+  defp provider_activity_timeout_result(kind) do
+    raw_failure = "raw provider timeout payload must not be projected"
+
+    details = %{
+      timeout_kind: kind,
+      response_timeout_ms: 600_000,
+      deadline_ms: nil,
+      duration_ms: 600_000,
+      ttft_ms: if(kind == :connection_stall, do: nil, else: 2_000),
+      output_chars: if(kind == :connection_stall, do: 0, else: 1_200),
+      output_chunks: 3,
+      wire_chunks: 9
+    }
+
+    {:ok, provider_run} =
+      ProviderRun.new(%{
+        provider_run_id: "prun-conversation-timeout",
+        provider_call_ref: "pcall-conversation-timeout",
+        purpose: :conversation,
+        execution_mode: :event_stream,
+        status: :failed,
+        provider_id: "stub",
+        model: "stub-model"
+      })
+
+    {:ok, started_event} =
+      ProviderEvent.new(%{
+        event_id: "pevt-conversation-timeout-started",
+        provider_run_ref: "prun-conversation-timeout",
+        sequence: 1,
+        event_type: :started,
+        summary: "provider started",
+        refs: ["pcall-conversation-timeout"],
+        payload: %{provider: "stub"}
+      })
+
+    {:ok, error_event} =
+      ProviderEvent.new(%{
+        event_id: "pevt-conversation-timeout",
+        provider_run_ref: "prun-conversation-timeout",
+        sequence: 2,
+        event_type: :error,
+        visibility: :developer,
+        summary: "provider timed out",
+        refs: ["pcall-conversation-timeout"],
+        payload: %{message: raw_failure, timeout_kind: kind}
+      })
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun-conversation-timeout",
+        provider_call_ref: "pcall-conversation-timeout",
+        status: :error,
+        output_type: :empty,
+        error: %{type: :timeout, message: raw_failure, details: details},
+        refs: ["pcall-conversation-timeout"]
+      })
+
+    {:error,
+     %{
+       provider_run: provider_run,
+       events: [started_event, error_event],
+       output: output,
+       error: %{type: :timeout, message: raw_failure, retryable: true, details: details}
      }}
   end
 

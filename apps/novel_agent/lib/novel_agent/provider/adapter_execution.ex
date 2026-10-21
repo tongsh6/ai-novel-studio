@@ -12,6 +12,7 @@ defmodule NovelAgent.Provider.AdapterExecution do
   alias NovelAgent.Provider.CancellationToken
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.TimeoutPolicy
   alias NovelAgent.Provider.Usage
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.Contracts.ProviderOutput
@@ -28,7 +29,8 @@ defmodule NovelAgent.Provider.AdapterExecution do
           required(:owner_refs) => map(),
           optional(:cancellation_token) => CancellationToken.t() | nil,
           optional(:event_sink) => (execution_result() -> term()) | nil,
-          optional(:system_identity_ref) => map() | nil
+          optional(:system_identity_ref) => map() | nil,
+          optional(:timeout_policy) => TimeoutPolicy.t() | nil
         }
 
   @type execution_success :: %{
@@ -46,6 +48,67 @@ defmodule NovelAgent.Provider.AdapterExecution do
         }
 
   @type execution_result :: {:ok, execution_success()} | {:error, execution_error()}
+
+  @doc """
+  本次 provider 调用的存活时限策略（Gateway 唯一注入点）。
+
+  直接调用 adapter 的测试/旧路径可能没有 policy，此时各 helper 回退到 adapter
+  自己的 legacy `state.timeout`，行为与 B22 之前一致。
+  """
+  @spec timeout_policy(context() | map() | nil) :: TimeoutPolicy.t() | nil
+  def timeout_policy(ctx) when is_map(ctx) do
+    case Map.get(ctx, :timeout_policy) do
+      %TimeoutPolicy{} = policy -> policy
+      _ -> nil
+    end
+  end
+
+  def timeout_policy(_ctx), do: nil
+
+  @doc "流式请求的最长 wire 静默窗口（无数据才触发，不承担总时长）。"
+  @spec response_timeout(context() | map() | nil, pos_integer() | nil) :: pos_integer()
+  def response_timeout(ctx, fallback) do
+    case timeout_policy(ctx) do
+      %TimeoutPolicy{response_ms: ms} when is_integer(ms) and ms > 0 -> ms
+      _ -> effective_fallback(fallback, 300_000)
+    end
+  end
+
+  @doc "非流式请求等待完整响应的上限（无中间进展可观测）。"
+  @spec non_stream_timeout(context() | map() | nil, pos_integer() | nil) :: pos_integer()
+  def non_stream_timeout(ctx, fallback) do
+    case timeout_policy(ctx) do
+      %TimeoutPolicy{non_stream_ms: ms} when is_integer(ms) and ms > 0 -> ms
+      _ -> effective_fallback(fallback, 300_000)
+    end
+  end
+
+  @doc "可选总时长兜底；nil = 不启用（默认）。"
+  @spec deadline_timeout(context() | map() | nil) :: pos_integer() | nil
+  def deadline_timeout(ctx) do
+    case timeout_policy(ctx) do
+      %TimeoutPolicy{deadline_ms: ms} when is_integer(ms) and ms > 0 -> ms
+      _ -> nil
+    end
+  end
+
+  @doc "连接超时（与模型速度无关的物理常量）。"
+  @spec connect_timeout(context() | map() | nil, pos_integer() | nil) :: pos_integer()
+  def connect_timeout(ctx, fallback) do
+    case timeout_policy(ctx) do
+      %TimeoutPolicy{connect_ms: ms} when is_integer(ms) and ms > 0 -> ms
+      _ -> effective_fallback(fallback, 15_000)
+    end
+  end
+
+  @doc "健康检查 / 模型列表探测的短超时。"
+  @spec probe_timeout(pos_integer() | nil) :: pos_integer()
+  def probe_timeout(fallback), do: TimeoutPolicy.probe_timeout(fallback)
+
+  defp effective_fallback(fallback, _default) when is_integer(fallback) and fallback > 0,
+    do: fallback
+
+  defp effective_fallback(_fallback, default), do: default
 
   @spec execute(
           module(),

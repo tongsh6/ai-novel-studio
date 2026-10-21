@@ -3,6 +3,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
 
   alias NovelAgent.Provider.Anthropic
   alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Provider.TimeoutPolicy
 
   describe "name/0" do
     test "returns anthropic identifier" do
@@ -207,6 +208,58 @@ defmodule NovelAgent.Provider.AnthropicTest do
       assert message =~ "Anthropic API: busy"
       assert Enum.any?(events, &(&1.event_type == :error))
     end
+
+    test "B22: non-stream tool calls use the non-stream wait window" do
+      test_pid = self()
+
+      mock = fn _url, _body, opts ->
+        send(test_pid, {:http_opts, opts})
+
+        {:ok, 200,
+         %{
+           "content" => [%{"type" => "text", "text" => "判断完成"}],
+           "usage" => %{"input_tokens" => 5, "output_tokens" => 2}
+         }}
+      end
+
+      state = %Anthropic{
+        api_key: "sk-ant-secret",
+        model: "claude-sonnet-4-6",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      prompt = %{
+        messages: [%{role: "user", content: "判断"}],
+        tools: [
+          %{name: "judgment_decision", description: "decision", input_schema: %{type: "object"}}
+        ],
+        tool_choice: "judgment_decision"
+      }
+
+      policy = %TimeoutPolicy{
+        provider: :anthropic,
+        profile: :hosted,
+        connect_ms: 15_000,
+        response_ms: 300_000,
+        non_stream_ms: 1_234_000,
+        deadline_ms: nil
+      }
+
+      assert {:ok, _result} =
+               Anthropic.execute(
+                 state,
+                 nil,
+                 prompt,
+                 %InferenceParams{},
+                 provider_ctx(timeout_policy: policy)
+               )
+
+      assert_receive {:http_opts, opts}
+      assert Keyword.fetch!(opts, :receive_timeout) == 1_234_000
+      assert Keyword.fetch!(opts, :connect_timeout) == 15_000
+    end
   end
 
   describe "behaviour conformance" do
@@ -218,15 +271,18 @@ defmodule NovelAgent.Provider.AnthropicTest do
     end
   end
 
-  defp provider_ctx do
-    %{
-      provider_name: :anthropic,
-      model_name: "claude-sonnet-4-6",
-      provider_call_ref: "pcall_anthropic_test",
-      provider_run_id: "prun_anthropic_test",
-      purpose: :conversation,
-      owner_refs: %{}
-    }
+  defp provider_ctx(overrides \\ []) do
+    Map.merge(
+      %{
+        provider_name: :anthropic,
+        model_name: "claude-sonnet-4-6",
+        provider_call_ref: "pcall_anthropic_test",
+        provider_run_id: "prun_anthropic_test",
+        purpose: :conversation,
+        owner_refs: %{}
+      },
+      Map.new(overrides)
+    )
   end
 
   defp anthropic_sse(event, payload) do

@@ -24,12 +24,6 @@ config :dialyxir,
 # 默认使用 LM Studio 本地推理。LLM 不可用时直接报错，不做降级
 llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_integer()
 
-lmstudio_timeout_ms =
-  System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
-
-strata_timeout_ms =
-  System.get_env("NOVEL_STRATA_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
-
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
@@ -53,21 +47,21 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen3.8-flash-next@q2_k"),
   reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
-  max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer(),
-  timeout: lmstudio_timeout_ms
+  max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer()
+
+# 本地存活时限由 TimeoutPolicy 解析（无总时长杀灭，见 config.exs 注释）。
 
 # Strata App 统一推理后台：默认 127.0.0.1:47831/v1，无 Key 也可用，思考默认关。
 # 模型由 App 管理（未设 NOVEL_STRATA_MODEL 时请求不带 model）；端点不在设置页配置。
 # Elixir 对同一模块配置是整块替换而非深合并，这里必须与 config.exs 同源写全
-# （端点/模型/思考/max_tokens/timeout 都从 env 读），否则只是显式设 timeout 也会
-# 把其余 key 一并丢掉（M4 狗粮实锤的同类病灶，见 config/test.exs LM Studio 注释）。
+# （端点/模型/思考/max_tokens 都从 env 读）。本地存活时限由 TimeoutPolicy 统一解析，
+# 不在 provider 配置里写总时长（B22，见 config.exs 注释）。
 config :novel_agent, NovelAgent.Provider.Strata,
   api_key: System.get_env("NOVEL_STRATA_API_KEY"),
   endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:47831/v1"),
   model: System.get_env("NOVEL_STRATA_MODEL"),
   thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
   reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
-  timeout: strata_timeout_ms,
   max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
 # 可选：Anthropic Claude API（需设置 ANTHROPIC_API_KEY 环境变量）

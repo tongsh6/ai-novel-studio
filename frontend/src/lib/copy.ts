@@ -479,6 +479,24 @@ export const WORKBENCH = {
   agentRunPreparingEvent: "正在启动创作执行…",
   agentRunUserFacingName: "这次创作请求",
   agentRunStartedSummary: "我已开始处理这次创作请求。",
+  // 46 §9.5（第 4 条）执行中标识必须全程连续：等待时长只报真实墙钟（run_started 起算），
+  // 不做合成进度或百分比。
+  agentRunElapsedLabel: (seconds: number) => {
+    const totalSeconds = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const remainingSeconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return minutes > 0 ? `已运行 ${hours} 小时 ${minutes} 分` : `已运行 ${hours} 小时`;
+    }
+    if (minutes > 0) {
+      return remainingSeconds > 0
+        ? `已运行 ${minutes} 分 ${remainingSeconds} 秒`
+        : `已运行 ${minutes} 分`;
+    }
+    return `已运行 ${remainingSeconds} 秒`;
+  },
   agentRunCompletedSummary: "这次创作请求已完成。",
   agentRunResumedSummary: "这次创作请求已恢复。",
   agentRunCancellingSummary: "正在终止这次创作任务。",

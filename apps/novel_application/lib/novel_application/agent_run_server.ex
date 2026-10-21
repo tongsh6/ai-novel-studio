@@ -628,6 +628,12 @@ defmodule NovelApplication.AgentRunServer do
   defp failure_family_reason_codes({:pending_artifact_execution_failed, _tool, _trace}),
     do: ["pending_artifact_execution_failed"]
 
+  # B22：超时按"哪一层没有进展"给出可检索的原因码（作者安全：只用结构类别）。
+  defp failure_family_reason_codes(%{type: :timeout, details: %{timeout_kind: kind}})
+       when kind in [:connection_stall, :stream_interrupted, :deadline] do
+    ["provider_error", "provider_timeout_#{kind}"]
+  end
+
   defp failure_family_reason_codes(reason) do
     if provider_failure_reason?(reason), do: ["provider_error"], else: []
   end
@@ -637,6 +643,23 @@ defmodule NovelApplication.AgentRunServer do
 
   defp failure_author_summary({:judgment_output_conflict, _}),
     do: "回复与本轮要求不一致，已停止生成候选。"
+
+  # B22：作者可见摘要只讲结构性事实（无进展类别/字数），不携带 provider 原始载荷。
+  defp failure_author_summary(%{type: :timeout, details: %{timeout_kind: :connection_stall}}) do
+    "模型在限定的等待时间内没有任何输出（可能仍在排队或预填充），本轮运行已安全停止。"
+  end
+
+  defp failure_author_summary(%{
+         type: :timeout,
+         details: %{timeout_kind: :stream_interrupted, output_chars: chars}
+       })
+       when is_integer(chars) do
+    "模型输出中途中断（已生成 #{chars} 字），本轮运行已安全停止。"
+  end
+
+  defp failure_author_summary(%{type: :timeout, details: %{timeout_kind: :deadline}}) do
+    "模型调用超过部署侧配置的总时长上限，本轮运行已安全停止。"
+  end
 
   defp failure_author_summary(reason) do
     if provider_failure_reason?(reason) do

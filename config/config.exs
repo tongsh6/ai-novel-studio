@@ -37,13 +37,12 @@ config :logger, :default_formatter,
 
 # ── Provider 通用配置 ──────────────────────────
 # 各环境可通过 import_config "#{config_env()}.exs" 覆盖。
+#
+# B22（2026-10-22 作者拍板）：本地模型单次调用可能合法运行 10–60 分钟，**不再给
+# 本地 provider 配置总时长 `timeout`**；存活判定由 NovelAgent.Provider.TimeoutPolicy
+# 统一解析（流式 = 最长 wire 静默窗口；总时长兜底默认关闭）。云端 provider 的
+# legacy `timeout` 仍作为静默窗口/非流式等待的兜底保留，但不再承担本地总时长杀灭。
 llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_integer()
-
-lmstudio_timeout_ms =
-  System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
-
-strata_timeout_ms =
-  System.get_env("NOVEL_STRATA_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
@@ -57,10 +56,11 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.8-27b"),
   reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
-  timeout: lmstudio_timeout_ms,
-  # 缺陷九（2026-07-20）：无界生成止血阀，本地可换模型场景风险最高——换模型/
-  # 换量化后应按 scripts/probe_run.sh 实测复核这个数字是否仍然够用（不是"从此
-  # 一劳永逸"）。见 NovelAgent.Provider.InferenceParams moduledoc。
+  # 存活时限见 TimeoutPolicy：本地 profile 默认"15 分钟无 wire 数据"才判挂死、
+  # 无总时长杀灭；可用 NOVEL_LMSTUDIO_RESPONSE_TIMEOUT_MS /
+  # NOVEL_LMSTUDIO_NON_STREAM_TIMEOUT_MS / NOVEL_LMSTUDIO_DEADLINE_TIMEOUT_MS 覆盖。
+  # 缺陷九（2026-07-20）：无界生成由 max_tokens 预算兜住，换模型/量化后按
+  # scripts/probe_run.sh 实测复核这个数字（见 InferenceParams moduledoc）。
   max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer()
 
 # Strata —— Strata App 管理的本机统一推理后台（唯一一套，2026-10-22 方案修正）：
@@ -75,7 +75,7 @@ config :novel_agent, NovelAgent.Provider.Strata,
   model: System.get_env("NOVEL_STRATA_MODEL"),
   thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
   reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
-  timeout: strata_timeout_ms,
+  # 存活时限见 TimeoutPolicy（本地 profile，无总时长杀灭）。
   max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
 config :novel_agent, NovelAgent.Provider.Anthropic,

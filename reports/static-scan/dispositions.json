@@ -77,5 +77,13 @@
     "planned_fix": "NEXT-B16",
     "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
     "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
+  },
+  "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_domain/lib/novel_domain/work_skeleton.ex|166|CyclomaticComplexity": {
+    "status": "deferred",
+    "owner": "B11A-owner-session",
+    "updated_at": "2026-10-22",
+    "planned_fix": "B11A-CP4/CP5-owner",
+    "handling": "2026-10-22 B22 集成批扫描命中该 finding。work_skeleton.ex 的 +79 行改动与 B22 无关，是并发 B11A 会话的在途未提交工作（tasks/NEXT B11A row / working tree）。B22 集成批不接管他人在途代码，避免与并发会话互相覆盖。",
+    "recommendation": "由 B11A owner 在提交前拆分该函数的卷蓝图段落构造（或显式登记 deferred），提交后复跑扫描；若同一指纹在 B11A 提交后仍出现，则由当前 slice owner 处理。"
   }
 }

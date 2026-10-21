@@ -59,6 +59,26 @@ defmodule NovelFoundation.UpstreamErrorTest do
       assert map.message == "timed out"
       assert map.provider == "lmstudio"
       assert map.retryable == true
+      assert map.details == %{}
+    end
+
+    test "propagates structural details for author-safe timeout classification (B22)" do
+      details = %{
+        timeout_kind: :stream_interrupted,
+        response_timeout_ms: 900_000,
+        deadline_ms: nil,
+        duration_ms: 900_000,
+        ttft_ms: 2_000,
+        output_chars: 1_200,
+        output_chunks: 3,
+        wire_chunks: 9
+      }
+
+      err = UpstreamError.new(:timeout, "output stalled", "strata", details)
+
+      assert {:error, map} = UpstreamError.to_error_tuple(err)
+      assert map.type == :timeout
+      assert map.details == details
     end
   end
 end

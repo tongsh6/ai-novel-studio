@@ -32,13 +32,12 @@ defmodule NovelAgent.Provider.AnthropicStream do
     initial_events = AdapterExecution.initial_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
-    # 与 OpenAICompatibleStream 同一道纵深防御（缺陷九跟进，2026-07-20）：
-    # receive_timeout 对流式请求只挡"两个 chunk 之间的间隔"，挡不住模型持续
-    # 吐字符但就是停不下来。这里补总时长判定，与各 provider 自己的 max_tokens
-    # 无关——挂钟是唯一不随模型换代改变含义的尺子。Anthropic 托管模型失控概率
-    # 远低于本地开权重模型，但止血阀是系统不变量，不因单个 provider 风险低就
-    # 例外。
-    deadline_ms = Map.get(state, :timeout) || 300_000
+    # B22（2026-10-22 作者拍板）：只要模型还在稳定出字就不杀。旧实现用
+    # `state.timeout` 做总挂钟杀灭（缺陷九止血阀），对合法长调用会误杀；现在
+    # 流式只保留"最长 wire 静默窗口"，总时长兜底默认关闭，失控由 max_tokens 兜住。
+    # 与 OpenAICompatibleStream 同构，见该模块 execute_uncancelled 注释。
+    deadline_ms = AdapterExecution.deadline_timeout(ctx)
+    response_ms = AdapterExecution.response_timeout(ctx, Map.get(state, :timeout) || 300_000)
 
     {:ok, acc} =
       Agent.start_link(fn ->
@@ -48,6 +47,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
           events: [],
           next_sequence: length(initial_events) + 1,
           chunk_index: 0,
+          wire_chunks: 0,
           accumulated_content_length: 0,
           author_narrative_open?: true,
           usage: nil,
@@ -83,6 +83,8 @@ defmodule NovelAgent.Provider.AnthropicStream do
       duration: duration,
       url: url,
       body: body,
+      response_ms: response_ms,
+      deadline_ms: deadline_ms,
       cancelled?: AdapterExecution.cancelled?(ctx)
     })
   end
@@ -106,7 +108,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
       AdapterExecution.cancelled?(ctx) ->
         :halt
 
-      System.monotonic_time(:millisecond) - started > deadline_ms ->
+      deadline_exceeded?(started, deadline_ms) ->
         Agent.update(acc, &Map.put(&1, :deadline_exceeded?, true))
         :halt
 
@@ -121,7 +123,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
       AdapterExecution.cancelled?(ctx) ->
         :halt
 
-      System.monotonic_time(:millisecond) - started > deadline_ms ->
+      deadline_exceeded?(started, deadline_ms) ->
         Agent.update(acc, &Map.put(&1, :deadline_exceeded?, true))
         :halt
 
@@ -129,6 +131,15 @@ defmodule NovelAgent.Provider.AnthropicStream do
         :cont
     end
   end
+
+  # 总时长兜底默认关闭（nil）；只有部署侧显式配置 deadline 才杀。
+  defp deadline_exceeded?(_started, nil), do: false
+
+  defp deadline_exceeded?(started, deadline_ms)
+       when is_integer(deadline_ms) and deadline_ms > 0,
+       do: System.monotonic_time(:millisecond) - started > deadline_ms
+
+  defp deadline_exceeded?(_started, _deadline_ms), do: false
 
   defp consume_wire_chunk(ctx, acc, chunk) when is_binary(chunk) do
     buffer =
@@ -140,6 +151,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
     acc =
       acc
       |> Map.put(:buffer, rest)
+      |> Map.update!(:wire_chunks, &(&1 + 1))
 
     Enum.reduce(frames, acc, &consume_frame(ctx, &2, &1))
   end
@@ -311,9 +323,12 @@ defmodule NovelAgent.Provider.AnthropicStream do
          duration: duration,
          url: url,
          body: body,
+         response_ms: response_ms,
+         deadline_ms: deadline_ms,
          cancelled?: cancelled?
        }) do
     all_events = initial_events ++ Enum.reverse(acc.events)
+    timeouts = %{response_ms: response_ms, deadline_ms: deadline_ms}
 
     cond do
       cancelled? ->
@@ -323,8 +338,8 @@ defmodule NovelAgent.Provider.AnthropicStream do
         )
 
       Map.get(acc, :deadline_exceeded?, false) ->
-        provider_result =
-          error_result(:timeout, "Anthropic API 生成超过挂钟时长上限", 0, %{}, duration)
+        # 只有部署侧显式配置总时长兜底时才会走到这里（默认关闭，见 TimeoutPolicy）。
+        provider_result = timeout_error(acc, :deadline, duration, timeouts)
 
         log_stream_result(state, url, body, provider_result, started)
 
@@ -334,7 +349,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
         )
 
       true ->
-        provider_result = provider_result(acc, request_result, duration)
+        provider_result = provider_result(acc, request_result, duration, timeouts)
 
         log_stream_result(state, url, body, provider_result, started)
 
@@ -345,7 +360,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
     end
   end
 
-  defp provider_result(acc, {:ok, status, _body}, duration) when status in 200..299 do
+  defp provider_result(acc, {:ok, status, _body}, duration, _timeouts) when status in 200..299 do
     usage = usage_from_stream(acc.usage, acc.model, duration) |> Usage.put_ttft(acc.ttft_ms)
     content = acc.content |> Enum.reverse() |> Enum.join()
 
@@ -380,11 +395,16 @@ defmodule NovelAgent.Provider.AnthropicStream do
     end
   end
 
-  defp provider_result(_acc, {:error, :http_error, status, message}, duration) do
+  defp provider_result(_acc, {:error, :http_error, status, message}, duration, _timeouts) do
     error_result(http_error_type(status), "Anthropic API: #{message}", status, %{}, duration)
   end
 
-  defp provider_result(_acc, {:error, reason, _status, message}, duration) do
+  # 流式"超时"只来自 wire 静默窗口；总时长兜底走 deadline 分支。
+  defp provider_result(acc, {:error, :timeout, _status, _message}, duration, timeouts) do
+    timeout_error(acc, timeout_kind(acc), duration, timeouts)
+  end
+
+  defp provider_result(_acc, {:error, reason, _status, message}, duration, _timeouts) do
     error_result(
       connection_error_type(reason),
       connection_error_message(reason, message),
@@ -394,7 +414,7 @@ defmodule NovelAgent.Provider.AnthropicStream do
     )
   end
 
-  defp provider_result(_acc, other, duration) do
+  defp provider_result(_acc, other, duration, _timeouts) do
     error_result(
       :provider_internal,
       "unexpected event stream result: #{inspect(other)}",
@@ -404,16 +424,65 @@ defmodule NovelAgent.Provider.AnthropicStream do
     )
   end
 
+  # ── B22 timeout diagnostics ─────────────────
+
+  defp timeout_error(acc, kind, duration, timeouts) do
+    details = diagnostics(acc, kind, duration, timeouts)
+    message = timeout_message(acc, kind, timeouts)
+
+    error_result(:timeout, message, 0, details, duration, details)
+  end
+
+  defp timeout_kind(acc) do
+    if acc.ttft_ms == nil and acc.accumulated_content_length == 0,
+      do: :connection_stall,
+      else: :stream_interrupted
+  end
+
+  defp timeout_message(acc, :deadline, timeouts),
+    do:
+      "Anthropic API 生成超过配置的总时长兜底 #{format_duration(timeouts.deadline_ms)}（已产出 #{acc.accumulated_content_length} 字）"
+
+  defp timeout_message(_acc, :connection_stall, timeouts),
+    do: "Anthropic API 在 #{format_duration(timeouts.response_ms)} 内没有返回任何生成内容（可能仍在排队、预填充或思考）"
+
+  defp timeout_message(acc, :stream_interrupted, timeouts),
+    do:
+      "Anthropic API 输出中断：已生成 #{acc.accumulated_content_length} 字后 #{format_duration(timeouts.response_ms)} 无新内容"
+
+  defp timeout_message(_acc, _kind, _timeouts), do: "Anthropic API 请求超时"
+
+  defp diagnostics(acc, kind, duration, timeouts) do
+    %{
+      timeout_kind: kind,
+      response_timeout_ms: timeouts.response_ms,
+      deadline_ms: timeouts.deadline_ms,
+      duration_ms: duration,
+      ttft_ms: acc.ttft_ms,
+      output_chars: acc.accumulated_content_length,
+      output_chunks: acc.chunk_index,
+      wire_chunks: Map.get(acc, :wire_chunks, 0)
+    }
+  end
+
+  defp format_duration(ms) when is_integer(ms) and ms >= 60_000,
+    do: "#{div(ms, 60_000)} 分钟"
+
+  defp format_duration(ms) when is_integer(ms) and ms >= 1_000, do: "#{div(ms, 1_000)} 秒"
+
+  defp format_duration(ms) when is_integer(ms) and ms > 0, do: "#{ms} 毫秒"
+  defp format_duration(_ms), do: "未知时长"
+
   defp provider_error_result(error, status, usage, duration) do
     type = error["type"] || "provider_error"
     message = error["message"] || inspect(error)
     error_result(provider_error_type(type), "Anthropic API: #{message}", status, usage, duration)
   end
 
-  defp error_result(type, message, status, usage, duration) do
+  defp error_result(type, message, status, usage, duration, details \\ %{}) do
     {:error, error} =
       type
-      |> UpstreamError.new(message, "anthropic")
+      |> UpstreamError.new(message, "anthropic", details)
       |> UpstreamError.to_error_tuple()
 
     %{

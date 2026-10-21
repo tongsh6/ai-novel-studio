@@ -409,6 +409,8 @@ provider 层可以给出建议，但最终是否 retry 由：
 
 共同决定。
 
+> B22：超时类错误的 `timeout_kind` 结构诊断、三层存活时限与作者安全文案规则见 §25。
+
 ---
 
 ## 11. Retryability Contract
@@ -739,4 +741,116 @@ provider 之后，建议继续：
 1. `09-observability-and-audit.md`
 
 因为 usage、trace、raw_ref、error class 都已经定了，接下来最自然的是把观测与审计的统一 contract 补齐。
+
+---
+
+## 25. Timeout, Liveness and Budget Policy (B22)
+
+> 状态：B22 方向冻结（2026-10-22 作者拍板「只要还在稳定出字就不杀」）；本节数值是 bootstrap 默认值（可经 env/配置覆盖），按模型实测的自适应校准归 B22 CP4。本节替代「单一 `timeout` = 单次调用总挂钟上限」的旧口径；§9 usage、§10 provider error、§11 retryability 的既有语义不变，本节只在超时路径上新增结构化诊断与作者可见的等待事实。
+
+### 25.1 为什么默认不再用「总挂钟」杀灭
+
+本产品允许单次模型调用合法运行 10–60 分钟，整条任务链可能跑数小时。作者侧 2026-10-22 真机观测（本地推理后端，B22 立项依据）显示：
+
+- TTFT 27s–195s（排队、预填充、思考都可能计入），吞吐 26–66 tok/s，成功调用最长达 ~695s；
+- 旧实现把单个 `timeout`（默认 300s）当作总挂钟上限，已实测误杀 3 次仍在稳定出字的健康调用。
+
+因此冻结原则：**只要模型还在稳定出字就不杀**。总时长不承担默认控制；「该停不停」由 token 预算兜住（§25.4），「是否还活着」由「多久没有 wire data」承担（§25.2）。
+
+### 25.2 三层时钟 + 可选总时长兜底
+
+| 时钟 | 语义 | 默认 | 由谁执行 |
+|---|---|---|---|
+| `connect_ms` | TCP/TLS 连接建立 | 15_000 | Req `connect_options` |
+| `response_ms` | 流式请求两次 wire data 之间的最长静默（等首包 / 等下一块） | local 900_000；hosted = legacy `timeout`（默认 300_000） | Req `receive_timeout`（流式） |
+| `non_stream_ms` | 非流式请求（工具调用等无中间进展可观测）等待完整响应 | local 1_800_000；hosted = legacy `timeout`（默认 300_000） | Req `receive_timeout`（非流式） |
+| `deadline_ms` | 可选总挂钟兜底；`nil` = 不启用（默认） | `nil` | 流式 adapter 应用层判定 |
+
+- `response_ms` 是「多久没数据算挂死」的异常检测窗口，不是业务时限：只要还有任何 wire data（正文 delta、思考 delta、keepalive 等）到达，窗口就重新计时，调用继续。流式首字节之前的排队 / 预填充 / 思考都在这同一个窗口内等待。
+- `non_stream_ms` 单独存在，因为非流式请求没有可观测的中间进展，无法像流式那样把「无数据」与「无进展」分开。
+- `deadline_ms` 默认关闭，只用于部署侧强制限流或测试；未显式配置时不存在（不杀）。
+- 健康检查 / 模型列表等轻量探测使用固定短窗（15s 上限；legacy 值更短时尊重 legacy），避免 UI 被长 timeout 拖住。
+- 非流式工具调用路径（OpenAI 兼容 / LM Studio / DeepSeek / Anthropic）统一使用 `non_stream_ms`；Anthropic 的 tool-call 经 `do_complete/4` 接收 policy 注入的等待窗口。response 与 non_stream 两个窗口都不能兼任「单次调用总时长」。
+
+### 25.3 Profile、解析顺序与配置旋钮
+
+Profile：`local` = `:lmstudio` / `:strata`（同一套本机推理后端）；`hosted` = 其余所有 provider。
+
+解析优先级（`NovelAgent.Provider.TimeoutPolicy.resolve/2` 是唯一真源）：
+
+`response_ms` / `non_stream_ms`：
+
+1. provider 配置显式 `response_timeout:` / `non_stream_timeout:`
+2. env `NOVEL_<PROVIDER>_RESPONSE_TIMEOUT_MS` / `NOVEL_<PROVIDER>_NON_STREAM_TIMEOUT_MS`
+3. profile 组 env：local 用 `NOVEL_LOCAL_RESPONSE_TIMEOUT_MS` / `NOVEL_LOCAL_NON_STREAM_TIMEOUT_MS`；hosted 用 `NOVEL_HOSTED_RESPONSE_TIMEOUT_MS` / `NOVEL_HOSTED_NON_STREAM_TIMEOUT_MS`
+4. legacy env `NOVEL_<PROVIDER>_TIMEOUT_MS`（B22 前是单次调用总时长；现在同时作为 response / non_stream 兜底）
+5. provider 配置 legacy `timeout:`
+6. profile 默认（local 900_000 / 1_800_000；hosted 300_000 / 300_000）
+
+`deadline_ms`（只有显式配置才启用）：
+
+1. provider 配置 `deadline_timeout:`
+2. env `NOVEL_<PROVIDER>_DEADLINE_TIMEOUT_MS`
+3. profile 组 env `NOVEL_LOCAL_DEADLINE_TIMEOUT_MS` / `NOVEL_HOSTED_DEADLINE_TIMEOUT_MS`
+4. 全都没有 → `nil`（关闭）；`0` / `"off"` / `"disabled"` 也视为关闭
+
+`connect_ms`：provider 配置 `connect_timeout:` > env `NOVEL_<PROVIDER>_CONNECT_TIMEOUT_MS` > 15_000。`<PROVIDER>` 为 provider atom 的大写形式（`LMSTUDIO`、`STRATA`、`ANTHROPIC`、`DEEPSEEK`、`OPENAI` 等）。
+
+配置落点与行为变化：
+
+- `config/config.exs` / `config/dev.exs` / `config/prod.exs`：本地 provider（LM Studio / Strata）不再配置总时长 `timeout`；hosted provider 保留 legacy `timeout`（默认 300_000），只作为 response / non_stream 窗口兜底，不再承担总时长杀灭。
+- 行为变化点：hosted provider 的 legacy `timeout` 过去兼作流式总挂钟（约 300s 必杀），现在只决定「多久没数据算挂死」；单次调用总时长默认不再有上界。
+- 唯一注入点：`NovelAgent.Provider.Gateway.execute/4` 的 `resolve_timeout_policy/2` 解析后写入 execution context（`ctx.timeout_policy`）；adapter 侧只经 `NovelAgent.Provider.AdapterExecution` 的 `timeout_policy/1`、`response_timeout/2`、`non_stream_timeout/2`、`deadline_timeout/1`、`connect_timeout/2`、`probe_timeout/1` 消费，不自行读 env。
+- 兼容：直接调用 adapter 的测试 / 旧路径没有 policy 时回退 legacy `state.timeout`，行为与 B22 前一致；生产主链走 `Gateway.execute/4`，不依赖该回退。
+- §5.1 抽象的 `timeout_ms` 单值字段与 §13.1 的 `default_timeout_ms` 不再有「总时长」语义：前者由本节 response / non_stream 两层承载，后者只是描述字段，不参与解析。
+
+### 25.4 token 预算与 run 级预算边界
+
+- 「该停不停」由 provider 配置层的 `max_tokens` 兜住（`config/config.exs` 的 `max_tokens`、`NovelAgent.Provider.InferenceParams` 的 caller 覆盖；本地默认 32000）。B22 不改变 token 预算语义，也不重新引入跨 provider 的通用字面量默认值。
+- 单调用不设总挂钟后，数小时任务链的 **run 级预算 / checkpoint / 后台化 / 通知** 仍是未实现缺口，不由本节假装解决；运行预算归 `tasks/slices/UA01-dynamic-agent-run-budget.md` 与 `NovelApplication.AgentRunBudget`（现有实现不属于 B22 范围）。
+
+### 25.5 超时错误契约：结构诊断 + 作者安全文案
+
+超时仍走 §10 的标准 provider error（`error_class = TIMEOUT`；`NovelFoundation.UpstreamError.retryable?(:timeout) = true`）。B22 在错误 `details` 上增加结构诊断，`UpstreamError.to_error_tuple/1` 原样透传 `details` 到调用方 error map：
+
+| `timeout_kind` | 含义 |
+|---|---|
+| `:connection_stall` | 一次生成内容都没出现就遇到 wire 静默：排队、预填充、静默思考、连接停摆 |
+| `:stream_interrupted` | 已经产出过生成内容后遇到 wire 静默（流中断） |
+| `:deadline` | 仅当部署侧显式启用 `deadline_ms` 且总挂钟到达时 |
+
+`details` 至少携带：`response_timeout_ms`、`deadline_ms`、`duration_ms`、`ttft_ms`、`output_chars`、`output_chunks`、`wire_chunks`（`OpenAICompatibleStream` / `AnthropicStream` 的 `diagnostics` 分支）。`details` 只允许结构事实，不得包含 prompt、CoT / thinking 原文或任何 secret。
+
+作者可见文本只能由 `timeout_kind` + 数字派生，绝不透传 provider 原始 message（N-NARR / `docs/design/ui/47-ui-copy-guidelines.md` 文案红线）：
+
+- 应用层 `NovelApplication.Planner.provider_failure_fallback_message/1`：`connection_stall` →「没有返回任何生成内容（可能仍在排队、预填充或思考）…」；`stream_interrupted` →「输出中途中断…」；`deadline` →「超过部署侧配置的总时长上限…」；无 details 的旧错误保留通用超时文案。
+- AgentRun 失败终局：`AgentRunServer.failure_family_reason_codes/1` 给出可检索原因码 `provider_error` + `provider_timeout_connection_stall` / `provider_timeout_stream_interrupted` / `provider_timeout_deadline`；`failure_author_summary/1` 只用结构类别与字数（例如「模型输出中途中断（已生成 N 字）…」）作为 `run_failed` 摘要。
+- 所有失败终局仍返回安全兜底 TurnResult（「没有创建待采纳内容，也没有写入作品事实」），作者在对话流中始终有下文；diagnostics 只经 adapter 日志钩子（llm-calls JSONL）与业务日志消费。
+
+### 25.6 重试策略
+
+- provider 层只给 hint（`:timeout` 的 `retryable` 为 `true`）；B22 不新增自动重试。
+- 理由：10–60 分钟的本地调用若自动重试，成本翻倍且不解决排队 / 预填充慢的根因；误杀场景下正确的恢复是作者可见的失败 + 显式重发。
+- 既有例外保持不变、不属于本策略新增：D4 计划起草的 provider 错误族单次瞬态重试（`tasks/slices/D4-planner-transient-retry.md`，`plan_draft.retry` 留痕）；作者显式操作触发的 `writer_timeout` scoped retry（`AgentRunServer` 的 `maybe_grant_writer_timeout_retry/2`）。run 级恢复仍以作者显式操作为准。
+- 若未来要加有界自动重试，前置条件是 run 级时间 / 预算与可归因的重试上限，而不是在单调用层重新叠加挂钟。
+
+### 25.7 作者可见性：真实等待时长
+
+进行中的 AgentRun 在工作台显示真实墙钟等待（「已运行 N 分 M 秒」/「已运行 N 小时 M 分」），让慢模型不再看起来像卡死：
+
+- 锚点 = 最新一条作者可见 `run_started` 事件的 `emitted_at`；没有时回退最早事件的 `emitted_at`；两者都没有则不显示，绝不用前端渲染时刻造起点。
+- 5 秒门槛避免短任务闪烁；每秒 tick；只在 `created / running / pausing / cancelling` 显示，终态 / `awaiting_author` 不显示。
+- 它只报已发生的时间，不是合成进度、不是百分比，也不替代 provider 事件与推理流（`docs/design/ui/46-state-and-feedback.md` §9.5 第 4 条「执行中标识必须全程连续」）。
+- 实现：`frontend/src/components/WorkspaceChat.tsx`（`useAgentRunElapsedSeconds`）与 `frontend/src/lib/copy.ts`（`WORKBENCH.agentRunElapsedLabel`）。
+
+### 25.8 诚实边界（未实现，不得当成已解决）
+
+1. **只有心跳没有 token 的流不会被默认杀灭**：`response_ms` 只认 wire data；如果后端持续发 keepalive / 框架字节但不再产 token，尚无语义级 stall watchdog，调用会一直延续。
+2. **没有按 `(provider, model, thinking)` 的自适应校准**：900s 是保守 bootstrap（实测 TTFT 最大 195s），不是按模型 p99 测量出的值；过紧的 response 窗口仍可能在极慢预填充上误杀。
+3. **单机并发仍可能隐形排队**：多个调用同时打同一个本地推理后端时，请求可能在服务端排队，`response_ms` 在这段时间照常消耗。
+4. **部分输出不可挽救**：`stream_interrupted` 只报告已产出字数，不把 partial content 变成待采纳草稿 / tentative artifact。
+5. **没有自动重试**（§25.6）。
+6. **数小时任务链的 checkpoint / 后台化 / 通知未实现**（§25.4）。
+7. **真实页面验收未闭环**：慢但持续出字的流在真实 Tauri 工作台上的场景化验收仍待 B22 CP4，不拿单测冒充。
+8. **诊断字段尚无真实调用抽样证据**：`timeout_kind` / ttft / chars / chunks 等 details 由单测覆盖，尚未在真实超时事件上抽样核对 llm-calls JSONL 与业务日志（B22 CP4 一并取证）。
 

@@ -83,7 +83,12 @@ defmodule NovelAgent.Provider.LMStudio do
     else
       body = request_body(state, prompt, params, true)
       url = Path.join(endpoint, "chat/completions")
-      request_opts = [receive_timeout: state.timeout]
+
+      # B22：流式只设"最长静默窗口"；总时长兜底默认关闭（见 TimeoutPolicy）。
+      request_opts = [
+        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+      ]
 
       OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
     end
@@ -217,7 +222,10 @@ defmodule NovelAgent.Provider.LMStudio do
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
     result =
-      case post.(url, body, receive_timeout: state.timeout) do
+      case post.(url, body,
+             receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
+             connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+           ) do
         {:ok, status, resp_body} when status in 200..299 ->
           handle_success(state, resp_body, start_time)
 
@@ -251,7 +259,7 @@ defmodule NovelAgent.Provider.LMStudio do
     url = Path.join(endpoint, "models")
     get = get || (&HTTP.get/2)
 
-    case get.(url, receive_timeout: timeout || 5_000) do
+    case get.(url, receive_timeout: AdapterExecution.probe_timeout(timeout)) do
       {:ok, status, _body} when status in 200..299 -> :ok
       {:error, reason, _status, msg} -> {:error, health_error(reason, msg)}
     end
@@ -266,7 +274,7 @@ defmodule NovelAgent.Provider.LMStudio do
     url = Path.join(endpoint, "models")
     get = get || (&HTTP.get/2)
 
-    case get.(url, receive_timeout: timeout || 15_000) do
+    case get.(url, receive_timeout: AdapterExecution.probe_timeout(timeout)) do
       {:ok, _status, body} ->
         {:ok, models_from_openai_list(body)}
 

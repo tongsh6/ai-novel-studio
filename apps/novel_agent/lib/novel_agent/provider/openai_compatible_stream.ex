@@ -37,17 +37,16 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     initial_events = AdapterExecution.initial_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
-    # 缺陷九跟进（2026-07-20）：真正模型无关的止血阀是挂钟时长，不是 token 数——
-    # token 上限（InferenceParams.max_tokens）是某个具体模型推理链 verbosity 的
-    # 现测值，换模型就要重测；而"这次调用花了多久"对任何模型都是同一把尺子。
-    # state.timeout 本来就是各 provider 自己配置的超时（NOVEL_LMSTUDIO_TIMEOUT_MS
-    # 等 env），调用方配它时的本意是"总时长上限"，但 Req 对流式请求的
-    # receive_timeout 语义是"两个 chunk 之间的最大间隔"，模型只要还在稳定吐字符
-    # 就永远不会触发——这正是失控生成能在无 token 上限时跑到 183065 token/53
-    # 分钟却不报错的另一半原因。这里在应用层补上真正的总时长判定，与
-    # max_tokens 互为纵深防御：一个挡"模型该停不停"，一个挡"不管为什么、这次
-    # 调用就是拖太久了"。
-    deadline_ms = Map.get(state, :timeout) || 300_000
+    # B22（2026-10-22 作者拍板）：只要模型还在稳定出字就不杀。
+    #
+    # 旧实现用 `state.timeout` 做总挂钟杀灭（缺陷九止血阀，2026-07-20），在
+    # "本机模型慢、思考型调用可合法跑 10–60 分钟"的场景下会误杀健康长调用
+    # （实测 300s 挂钟已误杀 3 次）。现在：
+    #   * 流式请求的 `receive_timeout` 只承担"最长 wire 静默窗口"（有数据就续命）；
+    #   * 总时长兜底默认关闭，只有部署侧显式配置 deadline 才启用；
+    #   * "该停不停"由 provider 的 max_tokens 预算兜住，不再靠挂钟。
+    deadline_ms = AdapterExecution.deadline_timeout(ctx)
+    response_ms = AdapterExecution.response_timeout(ctx, Map.get(state, :timeout) || 300_000)
 
     {:ok, acc} =
       Agent.start_link(fn ->
@@ -57,6 +56,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
           events: [],
           next_sequence: length(initial_events) + 1,
           chunk_index: 0,
+          wire_chunks: 0,
           accumulated_content_length: 0,
           author_narrative_open?: true,
           usage: nil,
@@ -92,6 +92,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
       duration: duration,
       url: url,
       body: body,
+      response_ms: response_ms,
+      deadline_ms: deadline_ms,
       cancelled?: AdapterExecution.cancelled?(ctx)
     })
   end
@@ -115,7 +117,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
       AdapterExecution.cancelled?(ctx) ->
         :halt
 
-      System.monotonic_time(:millisecond) - started > deadline_ms ->
+      deadline_exceeded?(started, deadline_ms) ->
         Agent.update(acc, &Map.put(&1, :deadline_exceeded?, true))
         :halt
 
@@ -130,7 +132,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
       AdapterExecution.cancelled?(ctx) ->
         :halt
 
-      System.monotonic_time(:millisecond) - started > deadline_ms ->
+      deadline_exceeded?(started, deadline_ms) ->
         Agent.update(acc, &Map.put(&1, :deadline_exceeded?, true))
         :halt
 
@@ -138,6 +140,15 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
         :cont
     end
   end
+
+  # 总时长兜底默认关闭（nil）；只有部署侧显式配置 deadline 才杀。
+  defp deadline_exceeded?(_started, nil), do: false
+
+  defp deadline_exceeded?(started, deadline_ms)
+       when is_integer(deadline_ms) and deadline_ms > 0,
+       do: System.monotonic_time(:millisecond) - started > deadline_ms
+
+  defp deadline_exceeded?(_started, _deadline_ms), do: false
 
   defp consume_wire_chunk(ctx, acc, chunk) when is_binary(chunk) do
     buffer =
@@ -149,6 +160,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     acc =
       acc
       |> Map.put(:buffer, rest)
+      |> Map.update!(:wire_chunks, &(&1 + 1))
 
     Enum.reduce(frames, acc, &consume_frame(ctx, &2, &1))
   end
@@ -310,9 +322,12 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
          duration: duration,
          url: url,
          body: body,
+         response_ms: response_ms,
+         deadline_ms: deadline_ms,
          cancelled?: cancelled?
        }) do
     all_events = initial_events ++ Enum.reverse(acc.events)
+    timeouts = %{response_ms: response_ms, deadline_ms: deadline_ms}
 
     cond do
       cancelled? ->
@@ -322,10 +337,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
         )
 
       Map.get(acc, :deadline_exceeded?, false) ->
-        # 挂钟止血阀触发（见 execute_uncancelled 注释）：不当作用户取消处理——
-        # 归类为可重试的 :timeout，复用既有 provider 错误契约，上层无需新增分支。
-        provider_result =
-          error_result(meta, :timeout, "#{meta.label} 生成超过挂钟时长上限", 0, %{}, duration)
+        # 只有部署侧显式配置总时长兜底时才会走到这里（默认关闭，见 TimeoutPolicy）。
+        provider_result = timeout_error(meta, acc, :deadline, duration, timeouts)
 
         log_stream_result(meta, state, url, body, provider_result, started)
 
@@ -335,7 +348,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
         )
 
       true ->
-        provider_result = provider_result(meta, acc, request_result, duration)
+        provider_result = provider_result(meta, acc, request_result, duration, timeouts)
 
         log_stream_result(meta, state, url, body, provider_result, started)
 
@@ -346,7 +359,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     end
   end
 
-  defp provider_result(meta, acc, {:ok, status, _body}, duration) when status in 200..299 do
+  defp provider_result(meta, acc, {:ok, status, _body}, duration, _timeouts)
+       when status in 200..299 do
     usage = usage_from_stream(acc.usage, acc.model, duration) |> Usage.put_ttft(acc.ttft_ms)
     content = acc.content |> Enum.reverse() |> Enum.join()
 
@@ -379,7 +393,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     end
   end
 
-  defp provider_result(meta, _acc, {:error, :http_error, status, message}, duration) do
+  defp provider_result(meta, _acc, {:error, :http_error, status, message}, duration, _timeouts) do
     error_result(
       meta,
       http_error_type(status),
@@ -390,7 +404,13 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     )
   end
 
-  defp provider_result(meta, _acc, {:error, reason, _status, message}, duration) do
+  # 流式请求的"超时"只可能来自 wire 静默窗口（Req receive_timeout）；总时长兜底
+  # 走上面的 deadline 分支。诊断必须区分"从未出字"与"出字后中断"。
+  defp provider_result(meta, acc, {:error, :timeout, _status, _message}, duration, timeouts) do
+    timeout_error(meta, acc, timeout_kind(acc), duration, timeouts)
+  end
+
+  defp provider_result(meta, _acc, {:error, reason, _status, message}, duration, _timeouts) do
     error_result(
       meta,
       connection_error_type(reason),
@@ -401,7 +421,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     )
   end
 
-  defp provider_result(meta, _acc, other, duration) do
+  defp provider_result(meta, _acc, other, duration, _timeouts) do
     error_result(
       meta,
       :provider_internal,
@@ -412,10 +432,62 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     )
   end
 
-  defp error_result(meta, type, message, status, usage, duration) do
+  # ── B22 timeout diagnostics ─────────────────
+
+  defp timeout_error(meta, acc, kind, duration, timeouts) do
+    details = diagnostics(acc, kind, duration, timeouts)
+    message = timeout_message(meta, acc, kind, timeouts)
+
+    # usage 字段在这里只承载诊断（供 llm-calls JSONL / 业务日志），不是计费用量。
+    error_result(meta, :timeout, message, 0, details, duration, details)
+  end
+
+  # 区分两种"没有进展"：一次都没出过生成内容（排队/预填充/静默思考），
+  # 还是出过内容之后 wire 静默（流中断）。作者文案与 reason code 都依赖这个分类。
+  defp timeout_kind(acc) do
+    if acc.ttft_ms == nil and acc.accumulated_content_length == 0,
+      do: :connection_stall,
+      else: :stream_interrupted
+  end
+
+  defp timeout_message(meta, acc, :deadline, timeouts),
+    do:
+      "#{meta.label} 生成超过配置的总时长兜底 #{format_duration(timeouts.deadline_ms)}（已产出 #{acc.accumulated_content_length} 字）"
+
+  defp timeout_message(meta, _acc, :connection_stall, timeouts),
+    do: "#{meta.label} 在 #{format_duration(timeouts.response_ms)} 内没有返回任何生成内容（可能仍在排队、预填充或思考）"
+
+  defp timeout_message(meta, acc, :stream_interrupted, timeouts),
+    do:
+      "#{meta.label} 输出中断：已生成 #{acc.accumulated_content_length} 字后 #{format_duration(timeouts.response_ms)} 无新内容"
+
+  defp timeout_message(meta, _acc, _kind, _timeouts), do: "#{meta.label} 请求超时"
+
+  defp diagnostics(acc, kind, duration, timeouts) do
+    %{
+      timeout_kind: kind,
+      response_timeout_ms: timeouts.response_ms,
+      deadline_ms: timeouts.deadline_ms,
+      duration_ms: duration,
+      ttft_ms: acc.ttft_ms,
+      output_chars: acc.accumulated_content_length,
+      output_chunks: acc.chunk_index,
+      wire_chunks: Map.get(acc, :wire_chunks, 0)
+    }
+  end
+
+  defp format_duration(ms) when is_integer(ms) and ms >= 60_000,
+    do: "#{div(ms, 60_000)} 分钟"
+
+  defp format_duration(ms) when is_integer(ms) and ms >= 1_000, do: "#{div(ms, 1_000)} 秒"
+
+  defp format_duration(ms) when is_integer(ms) and ms > 0, do: "#{ms} 毫秒"
+  defp format_duration(_ms), do: "未知时长"
+
+  defp error_result(meta, type, message, status, usage, duration, details \\ %{}) do
     {:error, error} =
       type
-      |> UpstreamError.new(message, meta.vendor)
+      |> UpstreamError.new(message, meta.vendor, details)
       |> UpstreamError.to_error_tuple()
 
     %{

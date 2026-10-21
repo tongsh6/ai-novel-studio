@@ -3,6 +3,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.LMStudio
+  alias NovelAgent.Provider.TimeoutPolicy
   alias NovelAgent.Provider.Usage
 
   describe "name/0" do
@@ -423,6 +424,198 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert length(chunk_events) == 2
       refute Enum.any?(chunk_events, &Map.has_key?(&1.payload, :content))
     end
+
+    test "B22: keeps a slow-but-progressing stream alive past the legacy timeout" do
+      test_pid = self()
+
+      eventsource = fn _url, _body, opts, on_data ->
+        send(test_pid, {:stream_opts, opts})
+
+        # 三段输出之间有真实停顿，总耗时 > state.timeout（10ms），但旧实现会把它
+        # 当"总时长超时"误杀；B22 只按"无数据静默窗口"判定，数据在流动就不杀。
+        for content <- ["一", "二", "三"] do
+          Process.sleep(15)
+          on_data.(sse_delta(content, "local-model"))
+        end
+
+        {:ok, 200, ""}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "local-model",
+        timeout: 10,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
+      policy = liveness_policy(response_ms: 600_000, non_stream_ms: 1_800_000, deadline_ms: nil)
+
+      assert {:ok, %{result: result}} =
+               LMStudio.execute(
+                 state,
+                 nil,
+                 "prompt",
+                 %InferenceParams{},
+                 provider_ctx(timeout_policy: policy)
+               )
+
+      assert result.content == "一二三"
+      assert_receive {:stream_opts, opts}
+      assert Keyword.fetch!(opts, :receive_timeout) == 600_000
+      assert Keyword.fetch!(opts, :connect_timeout) == 15_000
+    end
+
+    test "B22: wire silence after output is classified as stream_interrupted with diagnostics" do
+      eventsource = fn _url, _body, _opts, on_data ->
+        on_data.(sse_delta("已有输出", "local-model"))
+        {:error, :timeout, 0, "stream went silent"}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "local-model",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
+      policy = liveness_policy(response_ms: 600_000)
+
+      assert {:error, %{error: error}} =
+               LMStudio.execute(
+                 state,
+                 nil,
+                 "prompt",
+                 %InferenceParams{},
+                 provider_ctx(timeout_policy: policy)
+               )
+
+      assert error.type == :timeout
+      assert error.details.timeout_kind == :stream_interrupted
+      assert error.details.response_timeout_ms == 600_000
+      assert is_integer(error.details.ttft_ms)
+      assert error.details.output_chars > 0
+      assert error.details.duration_ms >= 0
+    end
+
+    test "B22: silence before any output is classified as connection_stall" do
+      eventsource = fn _url, _body, _opts, _on_data ->
+        {:error, :timeout, 0, "no first byte"}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "local-model",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
+      policy = liveness_policy(response_ms: 900_000)
+
+      assert {:error, %{error: error}} =
+               LMStudio.execute(
+                 state,
+                 nil,
+                 "prompt",
+                 %InferenceParams{},
+                 provider_ctx(timeout_policy: policy)
+               )
+
+      assert error.type == :timeout
+      assert error.details.timeout_kind == :connection_stall
+      assert error.details.output_chars == 0
+      assert error.details.ttft_ms == nil
+    end
+
+    test "B22: optional deadline still kills when deployment explicitly enables it" do
+      eventsource = fn _url, _body, _opts, on_data ->
+        Process.sleep(25)
+        on_data.(sse_delta("迟到", "local-model"))
+        {:ok, 200, ""}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "local-model",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
+      policy = liveness_policy(response_ms: 600_000, deadline_ms: 10)
+
+      assert {:error, %{error: error}} =
+               LMStudio.execute(
+                 state,
+                 nil,
+                 "prompt",
+                 %InferenceParams{},
+                 provider_ctx(timeout_policy: policy)
+               )
+
+      assert error.type == :timeout
+      assert error.details.timeout_kind == :deadline
+      assert error.details.deadline_ms == 10
+    end
+
+    test "B22: non-stream tool calls use the non-stream wait window" do
+      test_pid = self()
+
+      mock = fn _url, _body, opts ->
+        send(test_pid, {:http_opts, opts})
+
+        {:ok, 200,
+         %{
+           "choices" => [
+             %{
+               "message" => %{
+                 "content" => "判断完成",
+                 "tool_calls" => [
+                   %{
+                     "id" => "t1",
+                     "function" => %{"name" => "judgment_decision", "arguments" => "{}"}
+                   }
+                 ]
+               }
+             }
+           ],
+           "usage" => %{}
+         }}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "local-model",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      prompt = %{
+        messages: [%{role: "user", content: "判断"}],
+        tools: [
+          %{name: "judgment_decision", description: "decision", input_schema: %{type: "object"}}
+        ],
+        tool_choice: "judgment_decision"
+      }
+
+      policy = liveness_policy(response_ms: 600_000, non_stream_ms: 1_234_000)
+
+      assert {:ok, _result} =
+               LMStudio.execute(
+                 state,
+                 nil,
+                 prompt,
+                 %InferenceParams{},
+                 provider_ctx(timeout_policy: policy)
+               )
+
+      assert_receive {:http_opts, opts}
+      assert Keyword.fetch!(opts, :receive_timeout) == 1_234_000
+      assert Keyword.fetch!(opts, :connect_timeout) == 15_000
+    end
   end
 
   describe "health_check/1" do
@@ -447,15 +640,32 @@ defmodule NovelAgent.Provider.LMStudioTest do
     end
   end
 
-  defp provider_ctx do
-    %{
-      provider_name: :lmstudio,
-      model_name: "local-model",
-      provider_call_ref: "pcall_lmstudio_stream_test",
-      provider_run_id: "prun_lmstudio_stream_test",
-      purpose: :conversation,
-      owner_refs: %{}
-    }
+  defp provider_ctx(overrides \\ []) do
+    Map.merge(
+      %{
+        provider_name: :lmstudio,
+        model_name: "local-model",
+        provider_call_ref: "pcall_lmstudio_stream_test",
+        provider_run_id: "prun_lmstudio_stream_test",
+        purpose: :conversation,
+        owner_refs: %{}
+      },
+      Map.new(overrides)
+    )
+  end
+
+  defp liveness_policy(overrides) do
+    struct(
+      %TimeoutPolicy{
+        provider: :lmstudio,
+        profile: :local,
+        connect_ms: 15_000,
+        response_ms: 900_000,
+        non_stream_ms: 1_800_000,
+        deadline_ms: nil
+      },
+      overrides
+    )
   end
 
   defp sse_delta(content, model, usage \\ nil) do

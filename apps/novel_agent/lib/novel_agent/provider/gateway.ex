@@ -28,6 +28,7 @@ defmodule NovelAgent.Provider.Gateway do
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
   alias NovelAgent.Provider.SystemIdentity
+  alias NovelAgent.Provider.TimeoutPolicy
   alias NovelCommon.Contracts.ProviderEvent
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.Contracts.ProviderRun
@@ -442,6 +443,10 @@ defmodule NovelAgent.Provider.Gateway do
     case Map.fetch(provider_modules(), provider_name) do
       {:ok, module} ->
         state = build_state(provider_name, module)
+
+        # B22：存活时限策略由 Gateway 单点解析并注入 ctx；adapter 只消费，不再用
+        # 单个 legacy `timeout` 兼任"总时长"和"静默窗口"（见 TimeoutPolicy）。
+        ctx = Map.put(ctx, :timeout_policy, resolve_timeout_policy(provider_name, module))
         execute_adapter(module, state, model, prompt, params, ctx)
 
       :error ->
@@ -460,6 +465,12 @@ defmodule NovelAgent.Provider.Gateway do
     else
       AdapterExecution.execute(module, state, model, prompt, params, ctx)
     end
+  end
+
+  # B22 唯一解析点：provider 配置里的 legacy `timeout` 只作为静默窗口/非流式等待
+  # 的兜底，不再兼任总时长；总时长兜底默认关闭（见 TimeoutPolicy moduledoc）。
+  defp resolve_timeout_policy(provider_name, module) do
+    TimeoutPolicy.resolve(provider_name, merged_config(provider_name, module, [], []))
   end
 
   defp provider_run_id, do: NovelFoundation.ID.unique("prun")

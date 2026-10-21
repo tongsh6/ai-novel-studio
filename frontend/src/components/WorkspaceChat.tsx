@@ -525,6 +525,10 @@ const STARTUP_MAX_ATTEMPTS = 30;
 const STARTUP_RETRY_MS = 1000;
 const TERMINAL_AGENT_RUN_STATUSES = new Set(["completed", "cancelled", "failed"]);
 const MOTION_AGENT_RUN_STATUSES = new Set(["created", "running", "pausing", "cancelling"]);
+// 46 §9.5（第 4 条）执行中标识必须全程连续：慢模型下用真实墙钟时长证明"仍在执行"。
+// 5 秒内不显示，避免短任务闪烁；只报已发生的时间，不做合成进度/百分比。
+const AGENT_RUN_ELAPSED_MIN_SECONDS = 5;
+const AGENT_RUN_ELAPSED_TICK_MS = 1000;
 
 function turnResultAgentRunId(turnResult: TurnResult | undefined): string | null {
   const runId = turnResult?.agent_run?.run_id;
@@ -581,6 +585,56 @@ function mergeAgentRunEvents(restored: AgentEventData[], live: AgentEventData[])
 }
 
 type AgenticLoopPhaseStatus = "pending" | "active" | "done";
+
+// 46 §9.5（第 4 条）：等待时长锚点只能来自作者可见的真实运行事实。
+// 锚点 = 最新一条作者可见 run_started 事件的 emitted_at（重连/恢复可能重放 run_started，
+// 取最新一条避免把恢复前的旧起点抬出来）；没有 run_started 时回退到最早事件的
+// emitted_at；两者都没有（事件未带时间戳）则不显示，绝不用前端渲染时刻造起点。
+function agentEventEmittedAtMs(event: AgentEventData): number | null {
+  const emittedAt = event.emitted_at;
+  if (typeof emittedAt !== "string" || emittedAt.trim() === "") return null;
+
+  const parsed = Date.parse(emittedAt);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function agentRunElapsedAnchorMs(events: AgentEventData[]): number | null {
+  let earliestEventMs: number | null = null;
+  let latestAuthorRunStartedMs: number | null = null;
+
+  for (const event of events) {
+    const emittedAtMs = agentEventEmittedAtMs(event);
+    if (emittedAtMs === null) continue;
+    if (earliestEventMs === null || emittedAtMs < earliestEventMs) earliestEventMs = emittedAtMs;
+    if (event.event_type !== "run_started" || event.visibility !== "author") continue;
+    if (latestAuthorRunStartedMs === null || emittedAtMs > latestAuthorRunStartedMs) {
+      latestAuthorRunStartedMs = emittedAtMs;
+    }
+  }
+
+  return latestAuthorRunStartedMs ?? earliestEventMs;
+}
+
+// 每秒重算一次墙钟差；非进行中状态（终态/暂停/等待作者）不渲染、不挂定时器。
+function useAgentRunElapsedSeconds(
+  status: string | undefined,
+  events: AgentEventData[],
+): number | null {
+  const anchorMs = agentRunElapsedAnchorMs(events);
+  const eligible = status !== undefined && MOTION_AGENT_RUN_STATUSES.has(status);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!eligible || anchorMs === null) return;
+    const timer = setInterval(() => setNowMs(Date.now()), AGENT_RUN_ELAPSED_TICK_MS);
+    return () => clearInterval(timer);
+  }, [eligible, anchorMs]);
+
+  if (!eligible || anchorMs === null) return null;
+
+  const elapsedSeconds = Math.floor((nowMs - anchorMs) / 1000);
+  return elapsedSeconds >= AGENT_RUN_ELAPSED_MIN_SECONDS ? elapsedSeconds : null;
+}
 
 function agenticLoopStatusTone(run: AgentRunStateData | null): AgenticLoopPhaseStatus {
   if (run !== null && TERMINAL_AGENT_RUN_STATUSES.has(run.status)) return "done";
@@ -660,6 +714,7 @@ export function AgentRunDialogueFlow({
   draftCharCount = null,
   assistantMessageText,
 }: AgentRunDialogueFlowProps) {
+  const elapsedSeconds = useAgentRunElapsedSeconds(run?.status, events);
   const reasoningFlow = agentRunReasoningFlow(events);
   const visibleNarrativeEvents = omitNarrativesRepeatedInAssistantMessage(
     reasoningFlow.narrativeEvents,
@@ -736,7 +791,14 @@ export function AgentRunDialogueFlow({
   const showDialogueStatusMeta = showStatusMeta && (preparing || runIsTerminal);
   const activityHasMotion = run === null || MOTION_AGENT_RUN_STATUSES.has(run.status);
 
-  if (visibleNarrativeEvents.length === 0 && !activityText && !showDialogueStatusMeta) return null;
+  if (
+    visibleNarrativeEvents.length === 0 &&
+    !activityText &&
+    !showDialogueStatusMeta &&
+    elapsedSeconds === null
+  ) {
+    return null;
+  }
 
   // 46§9.5 文档流化（2026-07-15 用户拍板）：移除卡片容器（轨道线/面板）与常驻
   // 计划 checklist——计划顺序由模型意图开场段唯一表达，修订由 plan_revised 叙事
@@ -774,6 +836,13 @@ export function AgentRunDialogueFlow({
             <Loader2 className={styles.spinnerIcon} size={13} aria-hidden="true" />
           )}
           <span>{activityText}</span>
+        </div>
+      )}
+
+      {/* 46 §9.5（第 4 条）：进行中时长只报真实墙钟事实；5 秒内不显示，非进行中状态不渲染。 */}
+      {elapsedSeconds !== null && (
+        <div className={styles.agenticLoopActivityLineStatic}>
+          {WORKBENCH.agentRunElapsedLabel(elapsedSeconds)}
         </div>
       )}
 

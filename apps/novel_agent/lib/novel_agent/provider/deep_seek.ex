@@ -107,7 +107,13 @@ defmodule NovelAgent.Provider.DeepSeek do
 
       url = endpoint_url(state.endpoint)
       headers = [{"authorization", "Bearer #{key}"}]
-      request_opts = [headers: headers, receive_timeout: state.timeout]
+
+      # B22：流式只设"最长静默窗口"；总时长兜底默认关闭（见 TimeoutPolicy）。
+      request_opts = [
+        headers: headers,
+        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+      ]
 
       OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
     end
@@ -189,7 +195,11 @@ defmodule NovelAgent.Provider.DeepSeek do
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
     result =
-      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
+      case post.(url, body,
+             headers: headers,
+             receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
+             connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+           ) do
         {:ok, status, resp_body} when status in 200..299 ->
           handle_success(state, resp_body, start_time)
 
@@ -291,7 +301,10 @@ defmodule NovelAgent.Provider.DeepSeek do
     get = state.get_fn || (&HTTP.get/2)
     headers = [{"authorization", "Bearer #{key}"}]
 
-    case get.(url, headers: headers, receive_timeout: state.timeout || 15_000) do
+    case get.(url,
+           headers: headers,
+           receive_timeout: AdapterExecution.probe_timeout(state.timeout)
+         ) do
       {:ok, _status, body} ->
         {:ok, models_from_openai_list(body)}
 

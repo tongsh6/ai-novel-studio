@@ -47,8 +47,15 @@ defmodule NovelAgent.Provider.Anthropic do
   @api_version "2023-06-01"
 
   @impl true
-  def complete(%__MODULE__{} = state, _model, prompt, params)
-      when is_binary(prompt) or is_list(prompt) or is_map(prompt) do
+  def complete(%__MODULE__{} = state, _model, prompt, params) do
+    do_complete(state, prompt, params,
+      receive_timeout: state.timeout,
+      connect_timeout: AdapterExecution.connect_timeout(nil, 15_000)
+    )
+  end
+
+  defp do_complete(%__MODULE__{} = state, prompt, params, http_opts)
+       when is_binary(prompt) or is_list(prompt) or is_map(prompt) do
     start_time = System.monotonic_time(:millisecond)
     {system_prompt, messages} = anthropic_messages(prompt)
     body = %{model: state.model, max_tokens: 4096, messages: messages}
@@ -67,7 +74,7 @@ defmodule NovelAgent.Provider.Anthropic do
     post = state.http_fn || (&HTTP.post/3)
 
     result =
-      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
+      case post.(url, body, Keyword.merge([headers: headers], http_opts)) do
         {:ok, status, resp_body} when status in 200..299 ->
           handle_success(state, resp_body, start_time)
 
@@ -108,7 +115,8 @@ defmodule NovelAgent.Provider.Anthropic do
 
       request_opts = [
         headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
-        receive_timeout: state.timeout
+        receive_timeout: AdapterExecution.response_timeout(ctx, state.timeout),
+        connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
       ]
 
       AnthropicStream.execute(state, url, body, request_opts, ctx)
@@ -165,8 +173,14 @@ defmodule NovelAgent.Provider.Anthropic do
     initial_events = AdapterExecution.initial_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)
 
+    # 非流式工具调用没有中间进展可观测，等待窗口用 non_stream_ms（B22）。
     state
-    |> complete(nil, prompt, params)
+    |> do_complete(
+      prompt,
+      params,
+      receive_timeout: AdapterExecution.non_stream_timeout(ctx, state.timeout),
+      connect_timeout: AdapterExecution.connect_timeout(ctx, 15_000)
+    )
     |> AdapterExecution.materialize_result(ctx, initial_events: initial_events, emit: :terminal)
   end
 
@@ -249,7 +263,10 @@ defmodule NovelAgent.Provider.Anthropic do
     get = state.get_fn || (&HTTP.get/2)
     headers = [{"x-api-key", key}, {"anthropic-version", @api_version}]
 
-    case get.(url, headers: headers, receive_timeout: state.timeout || 15_000) do
+    case get.(url,
+           headers: headers,
+           receive_timeout: AdapterExecution.probe_timeout(state.timeout)
+         ) do
       {:ok, _status, body} ->
         {:ok, models_from_anthropic_list(body)}
 

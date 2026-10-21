@@ -86,6 +86,13 @@ defmodule NovelApplication.Planner do
   defp frame_error_reason_code({:judgment_semantic_conflict, _}), do: :judgment_semantic_conflict
   defp frame_error_reason_code(%{type: :invalid_request}), do: :invalid_request
   defp frame_error_reason_code(%{type: :invalid_response}), do: :invalid_response
+
+  # B22：超时按"哪一层没有进展"分类（见 Provider.TimeoutPolicy / 流式 adapter），
+  # 作者文案只使用结构性类别 + 时长/字数，绝不透传 provider 原始 message。
+  defp frame_error_reason_code(%{type: :timeout, details: %{timeout_kind: kind}})
+       when kind in [:connection_stall, :stream_interrupted, :deadline],
+       do: {:provider_timeout, kind}
+
   defp frame_error_reason_code(%{type: :timeout}), do: :provider_timeout
   defp frame_error_reason_code(%{type: :connection_refused}), do: :provider_unavailable
   defp frame_error_reason_code(_), do: :provider_error
@@ -101,6 +108,15 @@ defmodule NovelApplication.Planner do
     do: "创作引擎拒绝了这次请求：模型参数可能配置有误（如思考模式、推理强度）。这一轮没有创建待采纳内容，也没有写入作品事实。请在模型设置中检查参数后重试。"
 
   defp fallback_message(:invalid_response), do: "创作引擎返回内容为空，请重试。"
+
+  defp fallback_message({:provider_timeout, :connection_stall}),
+    do: "模型在限定的等待时间内没有返回任何生成内容（本机模型可能仍在排队、预填充或思考）。这一轮没有创建待采纳内容，也没有写入作品事实。你可以稍后重试，或继续对话。"
+
+  defp fallback_message({:provider_timeout, :stream_interrupted}),
+    do: "模型的生成输出中途中断（已经产出的内容没有达到可交付状态）。这一轮没有创建待采纳内容，也没有写入作品事实。你可以稍后重试，或继续对话。"
+
+  defp fallback_message({:provider_timeout, :deadline}),
+    do: "模型调用超过了部署侧配置的总时长上限。这一轮没有创建待采纳内容，也没有写入作品事实。你可以稍后重试，或继续对话。"
 
   defp fallback_message(:provider_timeout),
     do: "创作引擎响应超时。这一轮没有创建待采纳内容，也没有写入作品事实。你可以稍后重试，或继续对话。"

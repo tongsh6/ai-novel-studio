@@ -21,13 +21,11 @@ config :novel_common,
 config :logger, level: :info
 
 # Provider Gateway — 生产/预发布环境
+#
+# B22（2026-10-22 作者拍板）：本地 provider 不再配置总时长 timeout；存活判定由
+# NovelAgent.Provider.TimeoutPolicy 统一解析（流式 = 最长 wire 静默窗口，总时长
+# 兜底默认关闭）。云端 legacy timeout 仅作静默窗口/非流式等待兜底。
 llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_integer()
-
-lmstudio_timeout_ms =
-  System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
-
-strata_timeout_ms =
-  System.get_env("NOVEL_STRATA_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
@@ -47,18 +45,19 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.8-27b"),
   reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
-  timeout: lmstudio_timeout_ms
+  max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer()
+
+# 本地存活时限见 TimeoutPolicy（无总时长杀灭）。
 
 # Strata App 统一推理后台：本机 127.0.0.1:47831/v1，无 Key 也可用；模型由 App 管理
 # （不设 model 时请求不带 model）。此处与 config.exs 同源写全，避免整块替换丢失
-# thinking/max_tokens/api_key（见 dev.exs 注释）。
+# thinking/max_tokens/api_key。本地存活时限由 TimeoutPolicy 统一解析（B22）。
 config :novel_agent, NovelAgent.Provider.Strata,
   api_key: System.get_env("NOVEL_STRATA_API_KEY"),
   endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:47831/v1"),
   model: System.get_env("NOVEL_STRATA_MODEL"),
   thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
   reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
-  timeout: strata_timeout_ms,
   max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
 config :novel_agent, NovelAgent.Provider.DeepSeek,
