@@ -98,7 +98,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | DS02 | A | 采纳状态 canonical 化，撤销前端临时 string 放宽；见 `tasks/slices/DS02-adoption-status-canonicalization.md` | **done（2026-10-05）** | 领域/线格式/历史 transcript 统一大写七态；严格 schema 校验与告警恢复；q3d 历史状态真实页面和 roster 回归 PASS，1510 后端/461 前端测试；对应 Journey F9 |
 | UA01-CALL2 | A | 当前模型结构化判断性能观察；既有 UA01 可靠性专项 | **停止参数对照，转业务审计** | 用户明确以使用场景和 App/业务正确性为主线；未完成样本不作参数裁决，537 秒记录仅作旁证；对应 Journey C11 |
 | Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版与状态校准（2026-10-05）；B16 已解除新增扫描阻断** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |
-| MAINLINE-RESET | A | 主线复位：从存量按真实作者可用性拍板下一项（候选：Order 7 刀一·写作/评估事实链 / CA01 planner 事实注入 / AU09 创作方向召回 / AU10 渲染稳定性 / UA01 流式卡片收尾） | **next**（等待作者拍板；本行即当前队首，选定后替换为具体 slice 并同步旅程） | — |
+| AU10-RENDER-STABILITY | B | AU10 工作台渲染稳定性与局部刷新隔离（体验债；作者选 4）：CP0 测量 → CP1 最小防闪烁 → CP2 边界拆分 → CP5 真实页面复验；UA01 流式/卡片 CP3 验证债另行挂账、不混做 | **next**（CP0 进行中：先冻结刷新类型/几何基线，再改代码） | CP0 四场景几何/截图基线 + 归因；CP1 稳定 key/last-known/几何/滚动修复 + 一次真实页面复验；CP5 `au10-workbench-render-stability` PASS |
 
 ### 历史 Order 表（M0-M3 期，保留供追溯；不参与当前队首选择，未闭环后果仍由原 slice 负责）
 
@@ -159,6 +159,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 ## 6. Decision Log
 
+- 2026-10-21 — **作者选 4（体验债）→ 下一项 AU10 渲染稳定性**：从「主线复位」候选拍板 `AU10-RENDER-STABILITY`（B 轨 P1 体验债）。UA01 流式/卡片 CP3 的外部 driver/verifier 迁移与批量 Tauri 复跑属验证债，单独挂账、不与 AU10 混做（避免无产品改动的验证批次占主线）。开工顺序按 slice §4：CP0 先测刷新类型/几何基线并冻结阈值，禁止以“看起来更顺滑”作为 passed；不改后端/契约。
 - 2026-10-21 — **AB-RESUME 收口（作者决定停止 A/B）**：VS-00I 已于同日按作者裁决 §14 选项 1 Frozen；作者明确不再跑 A/B。AB-RESUME 剩余增量（Strata Q2 live 复测 / Anthropic live+断点 / 其余厂商凭据）全部挂为冻结后增量，不阻塞、不占队首；已有 local/DeepSeek + Strata IQ3 临时 profile 证据与 I-CACHE-1 CI。队首切回「主线复位」，等待作者从候选清单拍板下一项；无队列挂靠不开工（§5 Selection Rule 第 2 条）。
 - 2026-10-21 — **新增本地 Strata provider**（用户定向插单「添加 strata provider」）。
   本机 Strata（strata-engine）OpenAI 兼容服务 `http://127.0.0.1:8081/v1` 正在运行、

@@ -1,6 +1,6 @@
 # AU10 工作台渲染稳定性与局部刷新隔离
 
-- 状态：registered / 未开工
+- 状态：doing / CP0（2026-10-21 作者选 4 启动；先测量后改代码）
 - 类型：AU-10 前端体验稳定性 Slice
 - 优先级：P1 体验债务（B 轨）
 - 登记日期：2026-07-24
@@ -71,12 +71,37 @@
 
 | CP | 目标 | 交付物 | 状态 |
 |---|---|---|---|
-| CP0 | 建立刷新类型与视觉抖动基线 | 区分 React render、DOM remount、layout / paint、真实页面 reload；记录四个真实场景的连续截图/几何轨迹、触发 state 和当前阈值；复核当前 dirty checkout，避免以过期行号开工 | todo |
+| CP0 | 建立刷新类型与视觉抖动基线 | 区分 React render、DOM remount、layout / paint、真实页面 reload；记录四个真实场景的连续截图/几何轨迹、触发 state 和当前阈值；复核当前 dirty checkout，避免以过期行号开工 | **doing（2026-10-21：协议+归因已冻结，采样待跑）** |
 | CP1 | 落地方案 A | 稳定 key、last-known/bootstrap、稳定输入区/面板几何、滚动锚定；对应组件测试与一次真实 Tauri 复验 | todo |
 | CP2 | 落地方案 B | 小批拆出组件和状态 hooks；每批保持 UI/Channel contract 不变，并用 render 边界测试证明无关区域不跟随更新 | todo |
 | CP3 | 评估并按需落地方案 C | 先选一个高收益 server-state 纵切（优先档案或会话恢复）；迁移前后请求次数、空白窗口和错误降级有对照；无收益则记录“不启动” | conditional |
 | CP4 | 评估并按需落地方案 D | 只有非法状态组合/竞态证据达到启动条件时冻结状态图与迁移计划；否则记录“不启动” | conditional |
 | CP5 | 场景化闭环 | `au10-workbench-render-stability` 外部驱动真实 Tauri 页面通过，产出截图/视频/几何与网络证据；全量前端门禁和 AI 静态扫描闭环 | todo |
+
+### CP0 基线协议（2026-10-21 冻结，先于 CP1）
+
+**采样方式（外部，不改产品）**：Playwright/Tauri 外部驱动真实入口；在 harness 侧 `page.evaluate` 注入 `MutationObserver + ResizeObserver + requestAnimationFrame` 采样（只存在于外部 driver，不写入产品代码、不加 `data-*`）；每场景记录 ≥2s 连续帧、关键区域 `getBoundingClientRect`、document 级 reload 计数、消息 DOM 节点身份（节点引用/WeakSet）、`scrollTop` 轨迹；状态切换点截图留证。
+
+| 场景 | 触发 | 指标 | 冻结阈值 |
+|---|---|---|---|
+| 冷启动 / 会话恢复 | 启动到 READY、打开已有会话 | 首次非空后消息区清空帧数；主布局区域逐帧位移/累计 CLS；document reload | 0；≤2px/帧且累计 CLS ≤ 0.1；0 |
+| 发送消息 / AgentRun 切换 | 提交消息、运行控制区出现与结束 | 既有消息节点是否被 remove/重建；composer 区间高度变化；非用户触发 `scrollTop` 位移 | 0 remount；≤2px；≤4px（且仅在 pinned 跟随新内容时允许） |
+| 作品档案展开 / 刷新 | 展开侧栏、刷新档案数据 | archive rail 宽高逐帧变化；主区内容空白帧；loading 横幅出现时机 | ≤2px/帧；0；仅真实 in-flight |
+| 作品切换 / 重连 | 切作品、断线重连 | 旧内容到新内容是否原子提交（标题与消息同帧）；空白帧；document reload | 0 混搭窗口；0；0 |
+
+**失败线（任一即 CP0 FAIL，CP1 前先定位）**：document reload > 0；既有内容消失后的空白帧 > 0；既有消息节点 remount > 0；非用户触发 `scrollTop` 位移 > 4px；关键区域单帧位移 > 2px 或累计 CLS > 0.1。
+
+**当前代码归因（2026-10-21 复核当前 clean HEAD）**：
+
+| # | 位置 | 现象 | CP1 处置 |
+|---|---|---|---|
+| 1 | `WorkspaceChat.tsx:4305-4308` `messageKey` 含 `messageAgentRunId` | AgentRun 延迟绑定/恢复时 key 变化 → 整条消息 remount | 稳定 key 只取稳定消息身份 |
+| 2 | `WorkspaceChat.tsx:1549-1625` `resetWorkScopedRuntime` + `openWork` | 切换作品立即 `setMessages([])`，且先改 context 标题 | 保留 last-known，快照到达后原子提交 |
+| 3 | `WorkspaceChat.tsx:1899-1933` `useLayoutEffect` deps 含 `loading/agentEvents/agentRunStates` | pinned 时任意运行态更新都 `scrollTop = scrollHeight` | 收窄到“新内容增长 + pinned”触发 |
+| 4 | `WorkspaceChat.tsx:4929-4975` composer 条件渲染 | AgentRun 控制区/普通输入区高度不同，聊天视口重算 | 预留稳定几何（预留高度/等高容器） |
+| 5 | `StructurePanel.tsx:1038-1055` archive banner + `hasArchiveSnapshot` | 展开/刷新分段读取时横幅与内容几何变化 | 先由采样确认；last-known 或等高 skeleton |
+
+**CP0 当前状态**：基线协议与代码归因已冻结；真实页面采样尚未执行（需外部浏览器/Tauri 驱动运行）。在采样结果前不写 passed，不以主观“更顺滑”代替证据。
 
 ## 5. 验收场景
 
@@ -104,5 +129,6 @@ CP0 必须为“几何稳定”冻结阈值和采样方法；在此之前不得�
 
 ## 8. 决策记录
 
+- 2026-10-21 — 作者从「主线复位」候选选 4（体验债），启动本 slice 的 CP0。UA01 流式/卡片 CP3 的外部驱动/verifier 迁移与批量 Tauri 复跑属验证债，另行挂账不混做。CP0 协议/阈值/代码归因已冻结；真实页面采样待执行，采样结果前不写 passed、不进 CP1。
 - 2026-07-24 — 登记四种方案。默认顺序为 A 最小稳定化、B 状态边界；C Query 化与 D 状态机必须由 CP0/CP2 证据触发。
 - 2026-07-24 — 本次只登记任务，不修改前端生产代码，不改变当前 VS-00G 唯一队首。
