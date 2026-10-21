@@ -224,7 +224,7 @@ v2 采用 additive-first。
 
 ### 4.4 volume / arc
 
-> ADR-0004 已冻结 `volume -> arc`：volume 是 canonical middle-structure parent，arc 是 volume-local story-planning unit。
+> `contracts/VS-00J`（2026-10-22 Frozen）已冻结 `volume -> arc` 与 E14-E17 最小结构化槽（`volumes.blueprint` 键集合、卷身份、卷块产出、开新卷动作）；ADR-0028 为该冻结的决策记录（Proposed）。下方「适合结构化」候选字段中，与 VS-00J 重叠者以 VS-00J 为准；未重叠项仍属设计候选、不是契约。
 
 承载中观结构。
 

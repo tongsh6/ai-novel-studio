@@ -261,7 +261,7 @@ work
 
 二者不要求每个项目都同时强依赖，但模型上都应留位置。
 
-ADR-0004 冻结二者关系：`volume` 是 canonical middle-structure parent，`arc` 是 volume-local story-planning unit；单个 `arc` 不跨 `volume`。
+ADR-0028 / `contracts/VS-00J` 冻结二者关系：`volume` 是 canonical middle-structure parent，`arc` 是 volume-local story-planning unit；单个 `arc` 不跨 `volume`（arc 层仍无对象，NEM-GAP-02 余项）。注：旧引用「ADR-0004」为失效引用（ADR-0004 实为 OrchestratorDecision v3），已按 B11A CP0 修正。
 
 ### 6.5 `chapter`
 
@@ -407,7 +407,7 @@ draft 是源文本对象，不等于最终阅读投影。
 
 ### 10.2 volume / arc 级归属
 
-> ADR-0004 已冻结中观结构归属：`volume -> arc -> chapter`。`chapter` 必须有 `volume_id`，默认有 `arc_id`；早期 planning 可显式标记 `arc_unassigned`。
+> ADR-0028 / `contracts/VS-00J` 冻结中观结构归属：`volume -> arc -> chapter`；`chapter` 必须有 `volume_id`（已强制），`arc_id` 属 arc 层（仍无对象）。卷级蓝图（E14-E17）最小槽与卷身份见 VS-00J。
 
 归属于中观结构的对象：
 
@@ -884,7 +884,7 @@ long-run 本质上就是围绕这些对象推进。
 以下只定边界，不定最终实现：
 
 1. 每个对象的最终字段全集
-2. volume / arc 的完整字段 schema（关系已由 ADR-0004 冻结）
+2. volume / arc 的完整字段 schema（**卷级蓝图最小槽已由 VS-00J 冻结**，完整字段/arc 仍未冻结）
 3. relationship / item / ability 的最终精度
 4. summary 对象是单独表还是统一 summary 机制
 
