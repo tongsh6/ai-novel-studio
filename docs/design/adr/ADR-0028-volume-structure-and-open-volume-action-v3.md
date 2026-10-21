@@ -1,6 +1,6 @@
 # ADR-0028：卷结构与开新卷动作 v3
 
-- 状态：**Accepted（2026-10-22，作者「做 B11① 卷结构（大周期）」开工授权；CP1+CP2+CP4-lite 已落地，CP3/CP5 与真实页面验收在 enforcement_gaps 诚实登记）**
+- 状态：**Accepted（2026-10-22，作者「做 B11① 卷结构（大周期）」开工授权；CP0–CP5 全落，真实 Tauri `au08-volume-structured-planning` 三轮扩展 PASS；长尾缺口在 enforcement_gaps 诚实登记）**
 - 日期：2026-10-22
 - 来源文档：
   - `../contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md`（本 ADR 的契约载体，已按作者开工授权 Frozen）
@@ -119,7 +119,7 @@ B11 台账、08 §8 序位 6、VS-00G 非目标共同约定：卷级蓝图随"�
 
 ## 后续工作
 
-- 本 ADR 已转 Accepted（2026-10-22）；`## enforced_by` 引用 CP1+CP2+CP4-lite 真实文件，CP3/CP5 与真实页面验收列 `## enforcement_gaps`。
+- 本 ADR 已转 Accepted（2026-10-22）；CP0–CP5 全部落地并有真实 Tauri au08 三轮扩展证据；`## enforced_by` 引用各 CP 真实文件，长尾缺口列 `## enforcement_gaps`。
 - B11A CP1+CP2（同批）→ CP3 → CP4+CP5；每 CP 更新 `tasks/NEXT.md` 与 slice 档。
 - CP5 收尾时同步 `08` NEM-GAP-07 状态、`21`/`34` 的"暂不冻结"注记、`VS-00F` design_ref 卷蓝图形状。
 
@@ -155,10 +155,24 @@ B11 台账、08 §8 序位 6、VS-00G 非目标共同约定：卷级蓝图随"�
 - apps/novel_domain/test/novel_domain/work_skeleton_test.exs
 - apps/novel_application/test/novel_application/b11a_cp5_volume_debt_scan_test.exs
 
+- apps/novel_domain/lib/novel_domain/volume_scope.ex
+- apps/novel_domain/test/novel_domain/volume_scope_test.exs
+- apps/novel_web/lib/novel_web/channels/workspace_channel.ex
+- apps/novel_web/test/novel_web/channels/workspace_channel_plan_next_volume_test.exs
+- apps/novel_application/lib/novel_application/dialogue_planning_service.ex
+- apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex
+- apps/novel_application/lib/novel_application/agent_run_flows/plot_outline_with_context.ex
+- apps/novel_application/test/novel_application/b11a_cp3_volume_scope_test.exs
+- frontend/src/lib/socket.ts
+- frontend/src/components/StructurePanel.tsx
+- frontend/src/lib/__tests__/planNextVolume.test.ts
+
 ## enforcement_gaps
 
-- **开新卷创作动作（CP3）未实现**：判断循环的 `volume_scope` 作用域、只产下一卷蓝图的规划作用域、候选→采纳路径均无代码；当前只能通过全书 plot_outline 批量产卷蓝图。
-- **卷级收束与负债规则（CP5）已实现（2026-10-22）**：`WorkSkeleton.volume_closure_directive/3`（全书优先、卷级三档）+ `LedgerReconciliation` R10/R11 + `scan` 接线；真实 Tauri au08 writer prompt 已证默认分支与禁终局措辞。**R10/R11 finding 的真实触发验收未做**（需不匹配作品，登记后续场景）。
-- **CP4 完整消费面已实现（2026-10-22）**：planner/prose 当前卷蓝图注入（carry 门控）、`chapter_mission_inputs` 卷坐标、探索面 `chapter_read` 卷蓝图、`WritingCoordinate.volume_ref` 接线、`design_ref=volume_blueprint:<id>` 形状 helper 均已落地并由真实 Tauri au08 writer prompt/坐标证据证明；`design_ref` 只定形状、不接五本账写入（VS-00J §4 item6 原文）。
-- **真实页面验收**：CP1+CP2+CP4-lite 链已由扩 `au08-volume-structured-planning` 真实 Tauri PASS 证明（2026-10-22：规划 2 条卷蓝图行→采纳→档案逐卷可见→`get_toc` 两卷 blueprint CONFIRMED/source_ref 绑定本次采纳 artifact、章归属不变）；CP3/CP5 与 CP4 完整消费面仍无真实页面证据。
+- **R10/R11 负债规则的 finding 真实触发验收未做**：两条 design_debt 规则已实现并接入对账 scan、域/服务集成测试覆盖、au08 无 false positive，但「计划卷数≠实际卷数 / 多卷缺蓝图」作品中的 finding 真实页面触发与作者处置路径未跑（需专门场景，登记后续）。
+- **`VolumeBlueprint.design_ref/1` 只给形状**：`volume_blueprint:<id>` 未实际写入五本账 `design_ref`（VS-00J §4 item6 原文：本包只定形状，不接线）。
+- **卷蓝图编辑/作者裁决 UI 未做**：当前只能经 outline_draft 采纳整卷蓝图，无逐卷蓝图编辑/作废入口；工作台「当前卷」仍硬编码占位，未接真实写作坐标。
+- **开新卷形态 A 为最小入口**：`plan_next_volume` 机械 scope + 既有采纳管道；45 §4.2 的完整新卷方向候选流/独立确认卡未做（VS-00J §9① 翻案条件未触发）。
+- **`next_seq` 采用 max(seq)+1**：VS-00J §2.2 append-only 口径；数据连续时等于「卷数+1」，异常 seq 下避免与既有卷冲突。
+- **其它多卷场景回归未做**：au13/au14/ca04 等 `planned_volumes>1` 场景的 blueprint 增量兼容未断言（stub 已会产蓝图行，prompt 层 additive）。
 - `lint_enum_literals` 为 HEAD 既有红（34 violations / 18 文件），与本 ADR 实现无关，未在本次修复。

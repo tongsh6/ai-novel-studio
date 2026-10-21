@@ -90,7 +90,7 @@
 | `au07-tooltrace-registry-redacted-io.yml` | ToolTrace registry snapshot 与 redacted I/O |
 | `au07-state-trace-adoption-replay.yml` | 采纳与阅读投影携带可回放 StateTrace |
 | `au07-trace-why-entry.yml` | 工作台为什么入口与 author-safe trace 摘要 |
-| `au08-volume-structured-planning.yml` | 分卷规划物化为多卷目录（档案大纲与阅读目录按卷分层；B11A 2026-10-22 两轮扩展：规划产出卷蓝图行→档案逐卷只读可见卷蓝图→get_toc 两卷 blueprint CONFIRMED/source_ref 绑定采纳 artifact、章归属不变→真实正文草稿 turn 的 writer prompt 恰一份「当前卷蓝图（设计态）」段（不串卷/不进草稿）且 writing_coordinate volume_ref == TOC 当前卷 id→CP5 卷级收束守则段（全书优先措辞）位于卷蓝图段后空行分隔仅 1 次、非默认分支不出现） |
+| `au08-volume-structured-planning.yml` | 分卷规划物化为多卷目录（档案大纲与阅读目录按卷分层；B11A 2026-10-22 两轮扩展：规划产出卷蓝图行→档案逐卷只读可见卷蓝图→get_toc 两卷 blueprint CONFIRMED/source_ref 绑定采纳 artifact、章归属不变→真实正文草稿 turn 的 writer prompt 恰一份「当前卷蓝图（设计态）」段（不串卷/不进草稿）且 writing_coordinate volume_ref == TOC 当前卷 id→CP5 卷级收束守则段（全书优先措辞）位于卷蓝图段后空行分隔仅 1 次、非默认分支不出现→CP3 档案「规划下一卷」真实按钮→机械 scope（next_seq=3/next_chapter_seq=13）→scoped 候选仅第三卷蓝图+3 章→采纳→三卷 TOC 5/7/3、章 seq 1..15、前两卷不变、planner prompt 机械范围段 5/5 且旧全书卷数指令 0 次） |
 | `au08-reading-return-context.yml` | 阅读返回工作台后保持同一 work/session 上下文 |
 | `au08-reading-readonly-no-write.yml` | 阅读模式查看、导出和返回保持只读 |
 | `au09-adopt-setting-recall.yml` | 档案伏笔规则采纳为可召回设定 |

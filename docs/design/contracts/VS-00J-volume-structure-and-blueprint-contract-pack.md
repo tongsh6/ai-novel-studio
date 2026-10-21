@@ -1,6 +1,6 @@
 # VS-00J 卷结构与卷级蓝图 Contract Pack
 
-> 状态：**Frozen（2026-10-22，作者"做 B11① 卷结构（大周期）"开工授权；§9 四项开放决策按建议默认拍板，可在对应 CP 内凭证据/作者裁决翻案）**
+> 状态：**Frozen（2026-10-22，作者"做 B11① 卷结构（大周期）"开工授权；§9 四项开放决策按建议默认拍板，可在对应 CP 内凭证据/作者裁决翻案）**；**CP0–CP5 已全部落地（2026-10-22），真实 Tauri au08 三轮扩展 PASS；长尾缺口见 ADR-0028 `## enforcement_gaps`**
 >
 > 授权来源：`docs/design/08-novel-element-model.md` §8 序位 6「卷级蓝图随『开新卷』创作动作提出时冻结」——作者 2026-10-22 拍板主线顺序 B13a → B11③ → B11①，B11① 即该创作动作的提出；`tasks/NEXT.md` B11 台账（volumes 表退化使用）；`tasks/slices/AU08-volume-structured-planning.md`（卷容器/逐章卷归属/目录分层已交付，本包只补卷级蓝图与动作，不重做）。
 >
@@ -182,6 +182,7 @@ CP1+CP2 不单独算 done（"只建字段/只加解析"是 AGENTS.md 禁止的�
 
 ## 10. 变更记录
 
+- 2026-10-22 — **CP3 开新卷动作落地（形态 A）**：`plan_next_volume` Channel（服务端机械读 TOC → `VolumeScope`，不靠模型/前端猜 scope）+ scope 透传进 planner prompt（「本轮规划范围（机械给定，不得改）」段、scope 版分卷指令、carry `planning_scope`）+ 档案「规划下一卷」入口；真实 Tauri au08 第三阶段 PASS（scoped 候选只产第三卷蓝图+3 章→采纳→三卷 TOC 5/7/3、第三卷 CONFIRMED/source_ref 绑定、章 seq 1..15、前两卷不变、planner prompt 机械范围 5/5 片段且旧全书卷数指令 0 次）。**CP0–CP5 至此全落。**
 - 2026-10-22 — **CP5 卷级收束与负债规则落地**：`WorkSkeleton.volume_closure_directive/3`（全书收束优先；本卷写完/接近收束（卷级阈值 0.8）/一般卷三档）在 CP4 卷蓝图段后注入 writer/planner；`LedgerReconciliation` R10（计划卷数 vs 事实卷数）/R11（多卷缺蓝图）接入 `scan`（最小只读 volumes 端口，缺席/读失败不阻断）；真实 Tauri au08 第三轮扩展 PASS（writer prompt 默认分支收束段）。R10/R11 finding 真实触发验收待补。
 - 2026-10-22 — **CP4 完整消费面落地**：structured_chapters 卷键 + ContextAssembler 透传；`WorkSkeleton.volume_blueprint_section/3` 注入 planner/prose 上下文（carry 登记门）；`WritingCoordinate.volume_ref`；`ChapterMissionInputs` 卷材料；`chapter_read` 探索面；`VolumeBlueprint.design_ref/1` 形状（不接五笔账）。真实 Tauri au08 扩展 PASS：writer prompt 恰一份卷蓝图段、坐标 volume_ref == TOC 当前卷 id。
 - 2026-10-22 — **CP1+CP2+CP4-lite 落地**：`volumes.blueprint` map 列 + enum codegen；`VolumeBlueprint` 归一/渲染；`ChapterPlanParser.parse_with_volumes/1`（卷蓝图行先于章块抽取、单行、按 `(work_id,seq)` 物化、改名不重复建卷）；`WorkSkeleton.volume_directive/1` 多卷时增补卷蓝图行指令；`insert_volume` 状态修复（计划物化 PLANNED / 正文规范单卷 COMPLETED）；TOC 卷节点暴露 blueprint；档案大纲卷蓝图只读可见。CP3（开新卷动作）、CP5（卷级收束/负债规则）、CP4 完整消费面与真实页面验收仍未做，见 ADR-0028 enforcement_gaps。
