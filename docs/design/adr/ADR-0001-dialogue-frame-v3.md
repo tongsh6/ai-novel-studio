@@ -297,6 +297,8 @@ v3 不继承 v2 Router-first 拓扑。
 
 迁移时不能把 `Router` 改名为 `DialoguePlanner` 后继续保留原职责。
 
+- 2026-07-19 起，`DialogueFrame` 由 ADR-0025 判断协议机械转换产生（`dialogue_planning_service.judgment_frame/4`），原 `form_frame` provider 管线随判断纪元退役（commit `c4509c86`）；决策语义（每个作者 turn 有 primary DialogueFrame）未变，仅实现载体迁移。
+
 ---
 
 ## 后续工作
@@ -322,5 +324,11 @@ v3 不继承 v2 Router-first 拓扑。
 
 ## enforcement_gaps
 
-- `DialogueFrame` 现在由判断①结构机械转换产生（`dialogue_planning_service` 的 `judgment_frame/4`），原 `form_frame` provider 管线已退役；"由 Dialogue Planner 生成"的实现载体已迁移到 ADR-0025 的判断协议。
-- `DialogueFrame.validate/1` 只在测试中调用，主链由应用侧构造已知合法结构代替 envelope 校验；`author_visible_draft` 的 forbidden 词扫描只覆盖 `approved` / `ready_to_execute` / `production_write_allowed` 三项，不是完整语义族。
+- B13b 裁决（2026-10-22，修复-独立 slice `PLANNER-SEMANTIC-BOUNDARY`）：`DialogueFrame.validate/1` 未在主链调用，主链（`dialogue_planning_service.judgment_frame/4`、agent-run step frame）由构造已知合法结构代替 envelope 校验；judgment narrative/reason 无 forbidden 语义扫描即进 `author_visible_draft`，`author_visible_draft` 仅按 ADR-0001 #5 三项扫描；完整语义族拦截与真实页面断言由该 slice 统一收敛（与 ADR-0003 gaps 同根）。
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 弃置（DELETE，实现载体迁移，非未实装缺口）：原 gap「`DialogueFrame` 由判断①结构机械转换产生…原 `form_frame` provider 管线已退役」——决策语义（每 turn 有 primary DialogueFrame）已由 ADR-0025 判断协议落实，退役证据：`planner.ex:1-8`、commit `c4509c86`；迁移注记已写入本文「迁移与兼容」。
+- 改写（修复-独立 slice `PLANNER-SEMANTIC-BOUNDARY`）：原 gap「`DialogueFrame.validate/1` 只在测试中调用…」已在上方 gap 条目按裁决改写。

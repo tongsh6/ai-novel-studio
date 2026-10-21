@@ -222,6 +222,9 @@ CP3 / DS01 范围，本修订不据此关闭 S7。
 
 ## enforcement_gaps
 
-- S4 显式澄清面未落地：仍靠 `behavior_state` + `answer_clarification` 动作与「下一条消息即回答」的隐式路径，注册表 CP2 缺口未关闭。
-- S7 的 `available_actions` 恢复面按本 ADR 修订仍未关闭（DS03 只冻结运行时有效性与错误呈现，不关闭 S7 注册表行）。
-- `capability_notice` 仍为 Deferred；`schema_version` 仍接受 `"3.0-draft"`，semver 收敛未做。
+- 【B13b 裁决（2026-10-22）：降级】S4 语义已由判断循环承接：生产链无 `require_clarification` 决策产出者——`execution_orchestrator.ex:325-331` 的 gate→decision 映射不含它，`:118-126` 只对 require_confirmation 开 behavior，故 `behavior_type=:clarification`+`answer_clarification`（`:131-175`）不可达；唯一残留在前端“下一条消息即回答”auto-track（`WorkspaceChat.tsx:1507-1516`），DS03 的“等待你的补充”控制坞（`agent-awaiting-author-input-required`）是事实上的澄清回收面。S4 行状态改为“语义由判断循环 await_author/explore 承接，显式 clarification BehaviorState 无生产 producer、不属 v1 冻结范围”；触发=若实测判断①把需作者澄清误判为 explore/direct_reply 可复现，或产品要求选项化澄清面，则开 `DS04-clarification-surface`（单一决策面+N-SURF；真实 Tauri：模糊输入→显式澄清问题+绑定动作→回答后主链继续）。
+- 【B13b 裁决（2026-10-22）：伪缺口需修正（缩窄保留）】S7 预算缺口路径已闭环：`agent_run_server.ex:1842-1893` 的 `settle_budget_shortfall`→`budget_shortfall_turn_result`（`:1859-1888`，`:1871` `available_actions: budget_recovery_actions/2`）在 B20 CP3（`f8f62fe5`，2026-10-21）后产出带恢复动作的 awaiting TurnResult，真实 Tauri `agentic-loop-budget-deviation-replan`（2026-10-21 summary，断言 `awaiting_turn_result_carries_available_actions`）已证明。剩余未闭环：非预算 await（`:756-766` agent_loop await、`:946-958` no_progress）只 emit 事件、无 TurnResult；`agent_run_state` 恢复动作族无 schema/codegen 载体。触发=下一处非预算 await 进入作者可见场景或 DS01 重启恢复面 codegen 时，按 `budget_shortfall_turn_result/2` 同型 envelope 统一 `settle_*`，并在 `agent-awaiting-author-*` 场景断言 TurnResult.available_actions 含 resume/steer 绑定。
+
+### B13b 裁决（2026-10-22）
+
+- DELETE（弃置）`capability_notice` 仍为 Deferred / `schema_version` 仍接受 `"3.0-draft"`：两项均为本 ADR 决策 3 与决策 5 登记在案的 Deferred 项（见「决策 3」`capability_notice` Deferred、「决策 5」`schema_version` 收敛策略与「后续工作」Deferred 列表），不属于未实装 enforcement gap，按 ADR README §10“Accepted ADR 可以保留 Deferred 问题”处置；原 gap 行删除，保留本注记以便追溯。若未来 `capability_notice` 出现真实消费者或 schema 正式冻结（semver 收敛），在对应 ADR/slice 处理并回写本 ADR。S4/S7 两条的裁决见上方逐条改写（降级/伪缺口需修正，均含 2026-10-22 裁决标记）。

@@ -185,5 +185,5 @@ awaiting_author 不灭 run、预算与 no-progress backstop 原样。
 
 ## enforcement_gaps
 
-- CP6 外部探索翼未实现：`SearchProvider`、`web_search`、带来源出处的 tentative 设定候选与网络出站授权边界均无代码（slice 标 todo）。
-- CP1 简单对话判断循环的验收 manifest 未迁移：`agent-conversation-turn` 仍断言旧 `conversation_turn_v1` 计划链（4 步/3 调用），与 `judgment_loop_v1`（2 步/2 调用）不一致；本 ADR 目前只能由 `wr02` 证明「判断①选 plan」支路。
+- 【B13b 裁决（2026-10-22）：修复-独立 slice（等触发）】CP6 外部探索翼仍未实现：`SearchProvider`/`web_search`/带来源 out 的 tentative 设定候选/网络出站授权边界均无代码（全仓 grep 0；内部翼 `exploration_service.ex` 已落地），slice CP6 标 todo。触发=作者真实需要现实知识资料（历史/科学/设定考据）进入创作判断且内部翼 explore 未命中率可观测/被反馈时，开 `UA01-CP6-external-exploration`（Contract=ADR-0025 §3 外部翼+SearchProvider contract；Invariant=只产带来源 tentative 候选、未采纳不进 canon、query 全进 trace、网络出站显式授权；Acceptance Driver=真实 Tauri：现实资料问题→搜索活动行→带来源候选→采纳进 canon）；开工前须作者先拍板网络出站授权粒度与来源可信度边界。
+- 【B13b 裁决（2026-10-22）：修复-本批】conversation manifest 未迁移为真（`agent-conversation-turn.yml:32/35/54/56/58/59` 仍写 conversation_turn_v1 计划链 4/3；driver/verifier/artifact 已迁 judgment_loop_v1 2/2，见 `native-tauri-verifier.mjs:6038-6180`、`agent-conversation-turn-tauri-lmstudio/summary.json` 2026-07-20），本批重写该 manifest。原“只能由 wr02 证明判断①选 plan 支路”不成立：`judgment-plan-multi-step` 已有真实 Tauri 证据（`artifacts/slice-verify/judgment-plan-multi-step-tauri/summary.json` 2026-07-19，judgment_plan_v1、4 步、3 产物；verifier `:6324-6392`），但未注册 `quality/acceptance/scenarios.yml`、只在 `tauri_slice_verify.sh:306-330` UA01 alias 白名单 → 本批补注册（新增 manifest + scenarios.yml 条目），使 CP1 reply/plan 两支路均为可复跑质量场景。

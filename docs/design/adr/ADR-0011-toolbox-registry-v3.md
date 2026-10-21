@@ -119,4 +119,10 @@ v2 的工具或 service 命名可作为迁移材料，但不能直接成为 v3 r
 
 ## enforcement_gaps
 
-- registry 中没有 deprecated 条目，「deprecated 不能被新 decision 正常选择」仅由 `dispatchable?/1` 对非 active/experimental 的通用分支保证，缺该状态的专项测试与验收场景。
+（当前没有未裁决的 enforcement gap；原 gap 的裁决与后续动作见下。）
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「registry 无 deprecated 条目，缺专项测试与验收场景」——修复方案已定（`capability_registry.ex` 仿 `disabled_tool` 增 `deprecated_tool`（`:deprecated`）固定件 + `tool_provenance_test.exs` 两条断言）；验收场景不适用（deprecated 工具不在 planner 工具目录、无产品路径可选，写场景会制造假验收）。转下批 B 轨候选。

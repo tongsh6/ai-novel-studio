@@ -450,6 +450,6 @@ v3 不继承 v2 Router-first handler 顺序。
 
 ## enforcement_gaps
 
-- `GateOrder.evaluate/2` 只实装 correlation、envelope_validation、action_scope、authority、budget、write_boundary、trace_readiness、turn_result_compat 八项；behavior compatibility 由 Channel current_turn guard 兜底，slot/contract validation 分散在 `ActionValidator` / `MissingPolicyResult`，toolbox availability 由 `allow_tool_dispatch?` 的 `CapabilityRegistry.dispatchable?` 旁路检查，policy 无独立 gate。
-- budget、trace_readiness、turn_result_compat 当前是恒返回 `:pass` 的占位实现；correlation 只检查 refs 存在，没有幂等 replay / 输入一致性校验。
-- 没有独立 `GateResult` 结构与逐 gate trace 写入；决策只保留 `first_blocking_gate` 和 reason string，gate order version 未记录。
+- B13b 裁决（2026-10-22，修复-独立 slice `GATE-ORDER-CLOSURE`）：`GateOrder.evaluate/2` 只实装 correlation、envelope_validation、action_scope、authority、budget、write_boundary、trace_readiness、turn_result_compat 八项（`gate_order.ex:25-34`）；behavior compatibility 由 Channel current_turn guard 兜底（`workspace_channel.ex:21-25,2861-2870`），slot/contract validation 分散在 `ActionValidator`/`MissingPolicyResult`（`action_validator.ex:13-21,108-130`；`turn_execution_service.ex:88-91`），toolbox availability 由 `allow_tool_dispatch?` 旁路（`execution_orchestrator.ex:230-258`），policy 无独立 gate。该 slice 按 ADR-0005 补齐并给真实页面 gate 序列证据。
+- B13b 裁决（2026-10-22，修复-独立 slice `GATE-ORDER-CLOSURE`）：budget、trace_readiness、turn_result_compat 当前恒返 `:pass`（`gate_order.ex:94-97,119-128`）；correlation 只查 refs 存在（`:52-58`），无幂等 replay/输入一致性（幂等目前由 Channel/`ActionIdempotencyService`+receipt 承担，`au04-confirm-idempotency-ui` 有真实页面历史证据）。该 slice 接线真实 budget/幂等 lineage 与 trace_readiness 判定。
+- B13b 裁决（2026-10-22，修复-独立 slice `GATE-ORDER-CLOSURE`）：无独立 `GateResult` 结构与逐 gate trace 写入（`gate_order.ex:16-22` 仅轻量 type），决策只保留 `first_blocking_gate` 与 reason string（`execution_orchestrator.ex:326`），gate order version 未记录（全仓 0 命中）。该 slice CP1 引入 GateResult/version 并写入 DecisionTrace，扩 `e2e-01-downgrade-real-page`/`agent-step-regate` 断言。

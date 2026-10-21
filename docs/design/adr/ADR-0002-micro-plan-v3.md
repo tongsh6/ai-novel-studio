@@ -362,6 +362,8 @@ v3 不继承 v2 Router-first 拓扑，也不把 v2 intent routing 结果直接�
 
 迁移时不能把旧 Router handler 输出改名为 `MicroPlan` 后继续直接执行。
 
+- 判断纪元后（commit `c4509c86`，2026-07-19），`MicroPlan` 由 `agent_run_flows` 从 `AgentNextStepDecision` 机械构造（`plan_from_decision/3` 等），原 `form_micro_plan` Planner 直产路径退役；「Planner 建议 envelope」语义未变。
+
 ---
 
 ## 后续工作
@@ -387,6 +389,12 @@ v3 不继承 v2 Router-first 拓扑，也不把 v2 intent routing 结果直接�
 
 ## enforcement_gaps
 
-- `MicroPlan` 现在主要由 `agent_run_flows` 从 `AgentNextStepDecision` 机械构造，原 `form_micro_plan` 的 Planner 直接产出路径已退役；"Planner 建议 envelope"的语义载体发生变化。
-- "一个 primary `DialogueFrame` 进入 Orchestrator 前最多产生一个 primary `MicroPlan`"未在代码中强制：AgentRun 每个 step 可对同一 `origin_frame_ref` 生成新的 `mp_<run>_<seq>` 并分别 re-gate。
-- `state_changes_requested`、`requires_confirmation_hint`、`fallback_strategy` 在 struct 中保留，但当前主链没有消费这些字段的 gate 或 replay 逻辑；`check_forbidden/1` 也只扫描 goal / proposed_actions / state_changes，不扫描 required_capabilities 与 fallback。
+- B13b 裁决（2026-10-22，伪缺口修正）：ADR-0002 #3 要求 `MicroPlan.frame_ref` 引用 primary `DialogueFrame`，但 agent-run step plan 实际引用 `primary: false` 的 step frame（`judgment_plan.ex:428,575-594`），`primary` 字段全仓无消费者；「一个 primary frame 至多一个 primary MicroPlan」规则因 step frame 非 primary 而无执行载体（step plan 按 `mp_<run>_<seq>` 逐 step 新建并各自 re-gate）。待作者裁决 primary 语义（见 B13b 汇总「需要作者裁决的问题」）后按 slice 收敛。
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 弃置（DELETE，实现载体迁移，非未实装缺口）：原 gap「`MicroPlan` 主要由 `agent_run_flows` 从 `AgentNextStepDecision` 机械构造…」——判断纪元后由 `plan_from_decision/3` 机械构造（`judgment_plan.ex:845-874` 等），退役证据：`planner.ex:1-8`、commit `c4509c86`；迁移注记已写入本文「迁移与兼容」。
+- 伪缺口修正：原 gap「一个 primary `DialogueFrame` 至多一个 primary `MicroPlan`…」登记不准确（AgentRun step plan 的 `frame_ref` 在 decide 前已覆盖为 `primary: false` 的 step frame）；已在上方 gap 条目给出修正文本，`primary` 语义待作者裁决（见 B13b 汇总「需要作者裁决的问题」）。
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`state_changes_requested`/`requires_confirmation_hint`/`fallback_strategy` 未消费且 `check_forbidden/1` 扫描面不足」——扫描面扩展方案已定（`micro_plan.ex:112-114` `inspect_plan/1` 纳入 `required_capabilities`/`fallback_strategy`，配 `micro_plan_test.exs` 断言）；三字段未消费属 ADR-0002 决策 #7 的 hint 语义，不构成缺口。因本批只做对账裁决与文档/门禁面落地，该代码修复转下批 B 轨候选。

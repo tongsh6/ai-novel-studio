@@ -79,4 +79,4 @@ I10 真实质量收益必须经人工盲评验证；fixture / 自动化不得声
 
 ## enforcement_gaps
 
-- I10 人工盲评未归档：contract pack 指定的 `p1-prose-quality-real-provider-sample` 不在 `quality/acceptance/scenarios/` 中；现有 fixture 与自动化只证明 finding、降级与 sibling 修订机制，不证明「文学质量已提升」。
+- 【B13b 裁决（2026-10-22）：修复-独立 slice（人工盲评，AI 不可自证）】I10 人工盲评仍未归档：contract pack 指定的 `p1-prose-quality-real-provider-sample`（`docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md:248`）不在 `quality/acceptance/scenarios/`；现有 p1-prose-quality-* 全部 `provider: slice_verify`（确定性 fixture），不能证明文学质量提升。触发=进入真实 provider 质量调优/对外声称质量提升前；slice `P1-prose-quality-real-provider-sample`（Contract=VS-00E pack:248+I10；Invariant=fixture/自动化不得冒充质量收益、盲评材料可追溯且不自动改稿；Acceptance Driver=真实 provider 采样产出候选对，人工盲评打分归档 `walkthroughs/<date>/REPORT.md`，场景只收集材料不自称通过）。

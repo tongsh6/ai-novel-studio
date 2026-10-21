@@ -99,6 +99,13 @@ VS-03 证明 stale / duplicate confirmation 不产生新执行，cancel action �
 
 ## enforcement_gaps
 
-- VS-03 冻结的 `continue_dialogue`、`retry_action`、`narrow_scope`、`no_further_action` 没有生产者；当前只产出 clarification/confirmation 的 answer/cancel、candidate 选择和 artifact 采纳动作。
-- `TurnResult.primary_next_action` 未实装（线格式只有 `available_actions`）；ADR-0007 的 "primary next step" 由 `behavior_state.active.required_next_action` 间接表达。
-- `ExecutionOrchestrator.behavior_actions/4` 生成的确认/澄清动作不带 `trace_ref`，与契约包要求的 AvailableAction `trace_ref` 必填不一致。
+- B13b 裁决（2026-10-22，降级：收窄 ADR 冻结动作集）：实际生产者只有 `answer_clarification`/`confirm_before_execute`/`reject_or_cancel_confirmation`/`cancel_pending_behavior`（`execution_orchestrator.ex:203-220`）及 candidate/artifact 动作；`retry_action`/`narrow_scope` 的恢复面由 DS03 的 AgentRun 控制坞承载（2026-07-28 真实 Tauri 三场景 PASS），`continue_dialogue`/`no_further_action` 无生产者、无 UI 消费者。ADR-0007 应缩窄冻结集，或为 canonical recovery action 另开 slice。
+- B13b 裁决（2026-10-22，降级：字段退役）：线格式只有 `available_actions`（`turn_result_v3.json:56`），`primary_next_action` 全仓无生产者/消费者；schema 遗留 optional `next_action`（`:35`）也无生产者。primary next step 由 `behavior_state.active.required_next_action` 表达（`execution_orchestrator.ex:189`）；ADR-0007 Contract 影响与 draft VS-05 §2 的 `primary_next_action` 必填应退役（§11.4：走新增 ADR）。
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 降级（收窄冻结动作集，改写见上方 gap）：`continue_dialogue`/`retry_action`/`narrow_scope`/`no_further_action` 无生产者，恢复面由 DS03 AgentRun 控制坞承载。后续动作：按 ADR README §11.4 另立新 ADR 收窄动作集（本批不新建 ADR）。
+- 降级（字段退役，改写见上方 gap）：`primary_next_action` 未实装。后续动作：按 ADR README §11.4 另立新 ADR 退役该字段，并同步 draft VS-05 §2（本批不新建 ADR）。
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`behavior_actions/4` 生成动作不带 `trace_ref`」——修复方案已定（`execution_orchestrator.ex:203-220` 增 `turn_id` 入参并给 4 个动作加 `trace_ref: "decision_trace:#{turn_id}"`，配断言）；转下批 B 轨候选。

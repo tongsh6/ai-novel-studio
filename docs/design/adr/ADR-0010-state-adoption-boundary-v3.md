@@ -119,4 +119,10 @@ v2 中“选择卡片后立即更新状态”的路径需要迁移为 AuthorActi
 
 ## enforcement_gaps
 
-- 持久化 writer 返回 error 时 `AdoptionWorkflow` 直接回 `{:error, reason}`，channel 仅回 error 帧、不产 TurnResult；规则 4「adoption failure 必须产生 TurnResult」目前只覆盖决策层拒绝/需确认路径。
+（当前没有未裁决的 enforcement gap；原 gap 的裁决与后续动作见下。）
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码；Lead 裁决 Q6：不在本批实现）：原 gap「持久化 writer 返回 error 时不产 TurnResult」——修复方案已定（`adoption_workflow.ex:202-232` persist error 分支构造 failed TurnResult（`status: "failed_recoverable"`）+ failure action_result，返回 `{:ok, action_result, turn_result}`；`workspace_channel.ex:2187-2221` 现有 ok 分支即广播；配注入 writer error 单测）；转下批 B 轨候选。

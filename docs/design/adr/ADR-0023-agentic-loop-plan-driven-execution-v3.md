@@ -350,4 +350,4 @@ draft/revision fallback。
 
 ## enforcement_gaps
 
-- `agentic-loop-plan-replan-reasoning` 与 `agentic-loop-no-deviation-direct` 的 manifest 仍写旧 `conversation_turn_v1` 计划路径（4 步/3 调用）；ADR-0025 CP1 后普通对话走判断循环，D6 由判断②续行承接，当前只能证明机制沿用，不能证明 manifest 描述的旧对话计划直通/修订路径。ADR-0023 正文中的 D6 `plan_revised` 口径也与当前实现不一致。
+- 【B13b 裁决（2026-10-22）：伪缺口需修正 + 修复-本批】真漂移在 acceptance manifest、不在 driver/verifier：`agent-conversation-turn.yml:32/35/54/56/58/59`、`agentic-loop-plan-replan-reasoning.yml:22/27-30/48-51`、`agentic-loop-no-deviation-direct.yml:40/43` 仍断言旧 conversation_turn_v1 计划链（4 步/3 调用），而 driver/verifier 已迁判断纪元（`external-ui-driver.mjs:25638/26080-26160/26166-26172`；`native-tauri-verifier.mjs:6038-6180` 断言 judgment_loop_v1 2 步/2 调用、`:6394-6483` 断言 prose 短计划+判断②续行、`:6321-6342` no-deviation 复用 reply 链）；同族 `agent-plan-native-tool-calling-protocol.yml` 与 D1/D2/D4/D7 四个 manifest 同样未迁。本批以 verifier/最新 summary 为准重写上述 8 个 manifest（并同步 `quality/acceptance/scenarios.yml:311-331` title）；ADR-0023 `:145`、`:167-178` 检查点段落加“历史检查点（判断纪元前）”注记；D6 机制（耗尽补足）仍成立，但 conversation 计划直通/修订路径已删除，不得用伪场景补证据。

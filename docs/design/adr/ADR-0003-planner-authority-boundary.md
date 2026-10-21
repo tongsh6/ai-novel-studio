@@ -370,6 +370,6 @@ v3 不继承 v2 Router-first 执行拓扑。
 
 ## enforcement_gaps
 
-- `PlannerBoundary.validate/2` 只校验 frame_ref 一致、`MicroPlan` forbidden 词和 `stop_after_next_action`；不校验 required_capabilities 是否在 registry、state_changes 是否只是候选，也不拦截 ADR 列出的全部越权语义族。
-- `PlannerBoundary.validate/2` 不校验 `DialogueFrame` 的 forbidden 语义（`DialogueFrame.validate/1` 未在主链调用），judgment narrative 中的 `approved` 等词可直接进入 TurnResult；`MicroPlan.check_forbidden/1` 也缺少 `tool_request_id`、`state_adopted`、`available_action` 等语义。
-- 当前 Planner 输出已改为 JudgmentProtocol 的 judgment 结构，PlannerOutput Boundary 的 forbidden 词扫描依赖应用层构造后的 frame/plan 黑名单，而不是对 judgment 原结构做统一 semantic validation。
+- B13b 裁决（2026-10-22，修复-独立 slice `PLANNER-SEMANTIC-BOUNDARY`）：`PlannerBoundary.validate/2` 只校验 frame_ref 一致、`MicroPlan` forbidden 词与 `stop_after_next_action`（`planner_boundary.ex:17-38`），不校验 required_capabilities 是否在 registry、state_changes 是否只是候选，也不拦截 ADR 列出的全部越权语义族；该 slice 在应用边界统一补齐（含 registry 校验与 13 词语义族），并扩真实页面断言。
+- B13b 裁决（2026-10-22，修复-独立 slice `PLANNER-SEMANTIC-BOUNDARY`）：主链未调用 `DialogueFrame.validate/1`，judgment narrative 中 `approved` 等语义可直接进入 TurnResult（`dialogue_planning_service.ex:1043-1074` → `turn_result_builder.ex:38`）；`MicroPlan.check_forbidden/1` 清单（`micro_plan.ex:77-95`）缺 `tool_request_id`、`state_adopted`、`available_action`。该 slice 统一三层语义校验并补真实页面降级断言（扩 `au01-frame-validation-friendly-error`/`agent-step-regate`）。
+- B13b 裁决（2026-10-22，修复-独立 slice `PLANNER-SEMANTIC-BOUNDARY`）：判断纪元后 Planner 输出为 JudgmentProtocol 的 judgment 结构，但 `validate_output_boundary/2`（`judgment_protocol.ex:320-340`）只校验 record_only/候选方向一致性，forbidden 词扫描仍依赖构造后的 frame/plan 黑名单，未对 judgment 原结构做统一 semantic validation；该 slice 在 `parse_decision`/`build_judgment` 路径补统一语义边界。

@@ -75,5 +75,5 @@ M2 达标跑（101,421 字/75 章）实证了 07-19 复盘的预言：要角随�
 
 ## enforcement_gaps
 
-- VS-00F 余项未闭环：脉络面板收起态 rail 待处置计数、定期化 `ledger_reconciliation_v1` 的 LongRunTask 关联未落地。
-- dismiss 仍写 `ledger.dismiss.done` 结构化证据日志，尚未收编进 Experience Engine。
+- 【B13b 裁决（2026-10-22）：伪缺口需修正（rail 已实现、LongRunTask 保留）】收起态 rail 待处置计数已实现：`WorkspaceChat.tsx:1231-1235` state + `:5138-5151` 渲染 + `copy.ts:575` 文案（commit `dab0bc97`，2026-07-22），VS-00F slice 自身余项文本也需同步；剩余缺口=该计数无真实页面验收断言（au13 driver/verifier 未断言收起态 rail），本批给 `au13-review-adjudication-roundtrip` 增加 rail 断言并复跑。定期化 `ledger_reconciliation_v1` 的 LongRunTask 关联确未落地（`ledger_maintenance.ex:318-330` 仅章数节拍；`agent_run_flows/ledger_reconciliation.ex` 无 LongRunTask；contract VS-00F:116 要求按 ADR-0021 A20），保留 gap：触发=定期化对账需要 durable/长跑（超出 bounded 预算或跨重启）时接线，验收=restart 后同一 LongRunTask 恢复且不重复派发。
+- 【B13b 裁决（2026-10-22）：修复-独立 slice（等 Experience Engine 触发）】属实：`ledger_adjudication_service.ex:163-172` 的 dismiss 只写 `ledger.dismiss.done` 结构化日志并返回 `{:ok, :applied}`；33 Experience Engine 当前无运行时（全仓 grep `experience_evidence|ExperienceEngine` = 0；VS-00F slice 记载“Engine 落地时收编本日志族”）。保留 gap，触发=33 Experience Engine 出现运行时（experience_evidence 采集/聚合/review）时，把 `ledger.dismiss.done` 收编为 experience_evidence 输入并保留为审计镜像；验收=au13 场景断言 dismiss 产生 experience evidence（而非仅日志），同步修正 manifest invariant `dismiss-lands-in-structured-experience-evidence` 的当前名不副实。

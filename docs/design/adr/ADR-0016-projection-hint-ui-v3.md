@@ -106,4 +106,4 @@ v2 中前端依据接口返回局部字段自行刷新或写状态的逻辑，�
 
 ## enforcement_gaps
 
-- 契约对象 `NovelDomain.ProjectionHint` 无任何调用者；现行 hint 是 AdoptionBoundary/AdoptionWorkflow 产出的裸 map + `TurnResult.projection_refs`。`turn_result_v3.json` 的 projection_refs 未声明 `projection_hint_id` / `reason` / `source_state_trace_ref`（运行时由 AdoptionWorkflow 补 source_state_trace_ref）。
+- 【B13b 裁决（2026-10-22）：修复-本批（schema 声明）+ 降级（struct 不接线）】`NovelDomain.ProjectionHint` 无调用者，运行期 hint 为 AdoptionBoundary 裸 map（`apps/novel_application/lib/novel_application/adoption_boundary.ex:349-358`）与 AdoptionWorkflow 的 `TurnResult.projection_refs`（`adoption_workflow.ex:1153-1180`，运行时补 `projection_hint_id`/`reason`/`source_state_trace_ref`）；域 struct 保留为设计类型参考、不接线。本批给 `docs/design/schemas/foundation/turn_result_v3.json:202-213` 的 projection_refs items 补上述三字段声明并 `pnpm codegen:schemas`；`dialogue_gateway.ex:527/609` 的候选路径 `projection_hints` 同步登记为同一投影提示族（前端当前无消费）。

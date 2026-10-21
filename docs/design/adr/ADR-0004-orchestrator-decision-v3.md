@@ -448,6 +448,13 @@ v3 不继承 v2 Router-first 执行拓扑，也不把 v2 handler 结果直接升
 
 ## enforcement_gaps
 
-- reply-only 主链不构造 `OrchestratorDecision`：`dialogue_planning_service` 的判断回复直接 `TraceWriter.record/3` 并 `TurnResultBuilder.build/3`（decision=nil），只有 trace 侧记 `decision_type=:reply_only`；ADR 决策 #1/#2 的"每个 turn 有 decision"未实装。
-- `OrchestratorDecision` 缺 `tool_requests` / `state_transitions` 字段；`decision_status` 实际只产生 `:decided`，`decision_type` 未覆盖 `reply_only` / `allow_bounded_read_batch` / `cancel_or_close`。
-- `decision_trace_ref` 在所有 `ExecutionOrchestrator` builder 中保持 nil，decision 与 DecisionTrace 的稳定引用未闭合。
+- B13b 裁决（2026-10-22，降级为文档化偏差）：reply-only 主链不构造 `OrchestratorDecision`（`dialogue_planning_service.ex:804-830`），由 `DecisionTrace`（`decision_type=:reply_only` + `no_tool/no_behavior/no_write_reason`，`trace_writer.ex:20-50,368-370`）承担决策解释；ADR-0004 决策 #1/#2「每个 turn 有 decision」与实现不一致，应新增 ADR 收窄（不得直接改写历史决策）。
+- B13b 裁决（2026-10-22，降级为文档化偏差）：`OrchestratorDecision` 只保留 `approved_actions/rejected_actions/downgraded_actions` 等字段（`orchestrator_decision.ex:49-64`），`tool_requests`/`state_transitions` 的事实载体是 `approved_actions` + TurnResult `tool_result`/`state_delta`；同步裁决架构下 `decision_status` 只有 `:decided`；`reply_only` 由 trace 承载、`allow_bounded_read_batch` 由 AgentRunPolicy 承载、`cancel_or_close` 由行为关闭 slice（`BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY`）落地。建议新增 ADR 收窄枚举，勿扩无用字段。
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 降级（文档化偏差，改写见上方 gap）：reply-only 主链不构造 `OrchestratorDecision`，由 `DecisionTrace` 承担决策解释。后续动作：按 ADR README §11.4 另立新 ADR 收窄原决策 #1/#2（本批不新建 ADR）。
+- 降级（文档化偏差，改写见上方 gap）：`OrchestratorDecision` 字段/status/type 子集。后续动作：按 ADR README §11.4 另立新 ADR 收窄决策 #5/#6（本批不新建 ADR）。
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`decision_trace_ref` 在所有 `ExecutionOrchestrator` builder 中保持 nil」——修复方案已定（trace 写入后回填 `decision_trace_ref: trace.trace_id`：`turn_execution_service.ex:274-311`、`pending_artifact_workflow.ex:307-325,387-405`、`turn_result_builder.ex:177-184`，配断言）；转下批 B 轨候选。

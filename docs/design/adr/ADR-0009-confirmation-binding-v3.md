@@ -99,5 +99,11 @@ v2 的确认按钮需要迁移为 AvailableAction + ConfirmationBinding。
 
 ## enforcement_gaps
 
-- `ConfirmationBinding.build/1` 未把契约包要求的 `idempotency_key` / `trace_ref` 设为必填；两者缺失时仍能构造 binding（gateway 当前会传入，但 domain 层未守门）。
-- `ConfirmationBinding.build/1` 只校验字段齐全和 answer_type，不校验 `behavior_ref` 指向的 behavior 仍处 open、target 与 open confirmation 一致；"绑定 open confirmation"依赖 `ActionValidator` 的 available_action 匹配，而非 binding 自身。
+- B13b 裁决（2026-10-22，降级：由上游守门）：`ConfirmationBinding.build/1` 保持纯结构校验（`confirmation_binding.ex:52-73`）；open confirmation/target 绑定由 `ActionValidator` 精确 scoped-ref 匹配（`action_validator.ex:108-130`）+ Channel current-turn guard（`workspace_channel.ex:21-25,2861-2870`）保证，gateway 只从服务端授权 action 构造 binding（`dialogue_gateway.ex:671-698`）。若 VS-03 §5 冻结，则需在 binding/gateway 层补显式校验（并入策略关闭 slice）。
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 降级（由上游守门，改写见上方 gap）：binding 自身不校验 open/target。后续动作：若 VS-03 §5 冻结，按 ADR README §11.4 新增 ADR 收窄或另开 slice（本批不新建 ADR）。
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`idempotency_key`/`trace_ref` 未设为必填」——修复方案已定（`confirmation_binding.ex:52-73` 两字段改用 `require_field`，更新 domain 测试 fixtures；gateway 已恒传，生产路径不受影响）；转下批 B 轨候选。

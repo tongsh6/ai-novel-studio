@@ -98,5 +98,11 @@ v2 状态名可作为迁移材料，但不直接继承。
 
 ## enforcement_gaps
 
-- `TurnResultBuilder.build_phase/2` 只产出 `completed` / `awaiting_author` / `cancelled` / `failed`，未产出 VS-03 §2 冻结的 `dialogue` phase；自然对话被表示为 `completed`。
-- `build_status/3` 只产出 `conversational` / `needs_clarification` / `needs_confirmation` / `cancelled` / `failed`，未产出 `failed_recoverable`；失败路径以 `failed` 表达。
+（当前没有未裁决的 enforcement gap；原 gap 的裁决与后续动作见下。）
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`build_phase/2` 未产出 `dialogue` phase」——修复方案已定（`turn_result_builder.ex:99-101` 前插 `build_phase(nil, nil) -> "dialogue"`，tool 成功仍 completed；更新 3 处 reply-path 断言）；转下批 B 轨候选。
+- 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`build_status/3` 未产出 `failed_recoverable`」——修复方案已定（builder 增 `:fail_with_recovery` 分支；`agent_run_server.ex:692` status→`failed_recoverable`，phase 仍 failed；更新 `agent_run_runtime_test.exs:516` 断言）；转下批 B 轨候选。

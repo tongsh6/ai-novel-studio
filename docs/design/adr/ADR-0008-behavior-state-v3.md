@@ -97,5 +97,5 @@ v2 的 slot waiting、confirmation modal 或 retry state 需要迁移为 Behavio
 
 ## enforcement_gaps
 
-- cancel / reject 路径的 `BehaviorState` 关闭不经过 `OrchestratorDecision`：`DialogueGateway.cancel_waiting_behavior_state/3` 直接构造终态，与 ADR-0008 "只能由 OrchestratorDecision 打开、更新或关闭"不一致。
-- "同一 workstream 最多一个 primary author-blocking behavior"没有在 BehaviorState/Orchestrator 层显式 supersede 旧 behavior；当前依赖 Channel 的 current_turn guard 和前端 `activeBehaviorId` 门控，旧 behavior 只留在历史 TurnResult 中。
+- B13b 裁决（2026-10-22，修复-独立 slice `BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY`）：cancel/reject 路径的 `BehaviorState` 关闭不经 `OrchestratorDecision`（`dialogue_gateway.ex:312,364-460` 直接构造 `lifecycle_status: :cancelled`）；该规则原文在 VS-03 §4 规则4（contract pack 仍 draft，且 ADR-0008 正文未冻结关闭权，原 gap 引用需修正）。slice 以 `cancel_or_close` decision + behavior trace ref 收敛，并扩 `au10-workbench-recovery-cancel-waiting` 真实页面断言；前置：作者裁决 VS-03 是否冻结（见 B13b 汇总「需要作者裁决的问题」）。
+- B13b 裁决（2026-10-22，修复-独立 slice `BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY`）：同一 workstream 至多一个 primary author-blocking behavior 的保证当前只在 Channel current-turn guard（`workspace_channel.ex:2861-2870`）与前端 `activeBehaviorId` 门控（`workbenchActions.ts:54-64`、`WorkspaceChat.tsx:2740-2756`），BehaviorState 的 `:superseded` 从未被赋值（全仓仅 `behavior_state.ex:74` 读取）；slice CP2 增加显式 supersede + history 断言，扩 `au06-single-active-confirmation`。

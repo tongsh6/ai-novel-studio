@@ -164,4 +164,4 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 
 ## enforcement_gaps
 
-- §6 噪声约束（单 turn 业务日志 ≤30 行、常规路径不得 warning）没有自动校验或验收断言，目前仅为人工约定。
+- 【B13b 裁决（2026-10-22）：修复-本批】§6 噪声约束仍无自动校验/验收断言（`scripts/grep_turn.sh` 仅展示；`vs10-observability-spine` manifest 无行数/级别断言；生产 lib 当前 0 处 `Logger.warning` 但无防回归门禁）。本批：(1) 新增 `scripts/check_log_noise.sh` 静态扫生产 lib 的 warning 级日志并挂 CI；(2) 在已绿 Tauri 场景 verifier 读 app-log.json 断言单 turn 业务日志 ≤30 行、正常路径无 error/warning 事件；(3) 更新对应 manifest data 断言并复跑生成 summary 证据。落地后本 gap 删除。

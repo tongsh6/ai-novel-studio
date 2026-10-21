@@ -169,10 +169,12 @@ B11 台账、08 §8 序位 6、VS-00G 非目标共同约定：卷级蓝图随"�
 
 ## enforcement_gaps
 
-- **R10/R11 负债规则的 finding 真实触发验收未做**：两条 design_debt 规则已实现并接入对账 scan、域/服务集成测试覆盖、au08 无 false positive，但「计划卷数≠实际卷数 / 多卷缺蓝图」作品中的 finding 真实页面触发与作者处置路径未跑（需专门场景，登记后续）。
-- **`VolumeBlueprint.design_ref/1` 只给形状**：`volume_blueprint:<id>` 未实际写入五本账 `design_ref`（VS-00J §4 item6 原文：本包只定形状，不接线）。
-- **卷蓝图编辑/作者裁决 UI 未做**：当前只能经 outline_draft 采纳整卷蓝图，无逐卷蓝图编辑/作废入口；工作台「当前卷」仍硬编码占位，未接真实写作坐标。
-- **开新卷形态 A 为最小入口**：`plan_next_volume` 机械 scope + 既有采纳管道；45 §4.2 的完整新卷方向候选流/独立确认卡未做（VS-00J §9① 翻案条件未触发）。
-- **`next_seq` 采用 max(seq)+1**：VS-00J §2.2 append-only 口径；数据连续时等于「卷数+1」，异常 seq 下避免与既有卷冲突。
-- **其它多卷场景回归未做**：au13/au14/ca04 等 `planned_volumes>1` 场景的 blueprint 增量兼容未断言（stub 已会产蓝图行，prompt 层 additive）。
-- `lint_enum_literals` 为 HEAD 既有红（34 violations / 18 文件），与本 ADR 实现无关，未在本次修复。
+> B13b 对账裁决（2026-10-22）：7 条原缺口逐项裁决——2 条降级（契约明示延后/已拍板形态裁剪）、2 条关闭（伪缺口/随基线清账）、1 条转独立 slice（工作台当前卷）、1 条正触发验收转独立 slice、1 条随本批场景修复改写；裁决台账见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`。
+
+- **R10/R11 finding 真实触发验收未做，且 R10 已使两个既有场景断言漂移**（B13b 裁决：正触发验收=修复-独立 slice；既有场景修复=修复-本批）：R10/R11 已实现并接入对账 scan（`apps/novel_domain/lib/novel_domain/ledger_reconciliation.ex` R10/R11、`apps/novel_application/lib/novel_application/ledger_reconciliation_service.ex`），但域/服务测试之外无「计划卷数≠事实卷数 / 多卷缺蓝图」作品的真实页面正触发与作者处置证据；且 `au13-review-adjudication-roundtrip`（seed planned_volumes=3、事实 1 卷 → finding 5→6）与 `au14-finding-inventory-arc-loop`（seed planned_volumes=4 → finding 1→2）的既有断言被 R10 打破（证据停在 2026-07-28/29 前，未复跑）。下一步：本批先修两场景 seed 并复跑；正触发验收归独立 slice（扩既有审读场景或新增 volume-debt 场景，断言 finding 文案/source_refs/proposed_disposition 与处置后报告清空）。
+- **`VolumeBlueprint.design_ref/1` 只给形状**：`volume_blueprint:<id>` 未实际写入五本账 `design_ref`（VS-00J §4 item6 原文：本包只定形状，不接线）。— B13b 裁决（2026-10-22）：**降级**——契约明文延后项，非 enforcement 失败；接线归后续 R2/承诺账 slice（`ledger_reconciliation.ex` 已注明 R2 依赖 design_ref 数据基础），不阻塞本 ADR。
+- **工作台「当前卷」仍硬编码占位**（B13b 裁决：修复-独立 slice；卷蓝图编辑/作废 UI 属 VS-00J §1 非目标，从缺口移出）：`frontend/src/components/WorkspaceChat.tsx` 写死 `volumeTitle: "未定卷"` 并直接渲染，与 ADR「UI 影响」承诺的「由真实写作坐标驱动」不符；后端坐标已真实（`turn_execution_service.ex` build_coordinate 带 volume_ref，au08 真实页面已证 volume_ref 绑定 TOC 卷 id）但前端未消费。下一步：独立前端 slice 接当前卷（数据源/语义待作者裁决），配 au08 真实页面断言；卷蓝图作者编辑/作废入口维持非目标（enum `AUTHOR_EDITED` 仅留位）。
+- **开新卷形态 A 为最小入口**：`plan_next_volume` 机械 scope + 既有采纳管道；45 §4.2 的完整新卷方向候选流/独立确认卡未做。— B13b 裁决（2026-10-22）：**降级**——形态 A 为 VS-00J §9① 已拍板默认（真实页面 au08 第三阶段 PASS），45 §4.2 属已冻结的产品形态裁剪，非实现缺陷；保留为产品 backlog，翻案条件=真实作者反馈需要独立卷管理入口，届时按 ADR 修订开独立 slice。
+- **其它多卷场景回归未做，已量化为具体断言漂移**（B13b 裁决：修复-本批 + 修复-独立 slice）：R10 接入后 `au13-review-adjudication-roundtrip` 与 `au14-finding-inventory-arc-loop` 各多一条 `volume_plan_mismatch`（见上条）；ca04 仅受 blueprint 行 additive 影响（最后证据 2026-08-24 未复跑）；au08 已有三轮蓝图证据。下一步：本批修 seed 并复跑 au13/au14；blueprint 增量回归断言与 R10/R11 正反两面固化归独立 slice。
+- **`next_seq` 采用 max(seq)+1**：与 VS-00J §2.2 append-only 口径逐字一致——B13b 裁决（2026-10-22）：**伪缺口，已从 gaps 移出**（保留为实现注记）。
+

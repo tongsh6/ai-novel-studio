@@ -105,4 +105,4 @@ v2 的前端状态拼装需要迁移为消费 TurnResultViewModel，而不是按
 
 ## enforcement_gaps
 
-- ADR 冻结的 `TurnResultViewModel` 在代码中没有同名模块/类型；现行主消费 envelope 是 `TurnResult` v3（`schema_version: "3.0-draft"`），语义承接 ADR-0015 但契约名不一致。
+- 【B13b 裁决（2026-10-22）：降级（文档化偏差）】`TurnResultViewModel` 是 ADR-0015/VS-05/07 的设计期名称；UA-01 后代码 canonical envelope 为 `TurnResult` v3（`schema_version: "3.0-draft"`；`apps/novel_application/lib/novel_application/turn_result_builder.ex:35`、`docs/design/schemas/foundation/turn_result_v3.json:5/28`），字段命名迁移为 phase/status/next_action；语义承接成立，不新建同名模块（YAGNI）。若未来恢复独立 ViewModel 边界，另立 ADR 并同步 VS-05/07。

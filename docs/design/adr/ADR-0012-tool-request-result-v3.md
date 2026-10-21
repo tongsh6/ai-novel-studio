@@ -121,4 +121,10 @@ v2 中已有 provider 调用、repository 调用或 service 结果可以迁移�
 
 ## enforcement_gaps
 
-- Toolbox 不按 registry 的 `output_contract_ref` 统一校验 ToolResult.output；目前只有 creative adapter/provider 走 `ToolOutputContract`，text_analysis / character_roster 等只读工具无 output contract 校验。
+- B13b 裁决（2026-10-22，降级：契约缺失不可校验）：Toolbox 只校验 registry/dispatchable/grants（`toolbox.ex:31-55`）；`ToolOutputContract` 仅覆盖 creative 路径（`creative_tool_adapter.ex:107-112` 等）；`text_analysis`/`character_roster` 的 `output_contract_ref`（`capability_registry.ex:45,60`）没有冻结 schema 文件，adapter 返回内部 typed map（`text_analysis_adapter.ex:21-26`、`character_roster_adapter.ex:18-23`）。规则 4 应收窄为「creative/作者可见 artifact 工具必须校验；内部只读工具由 adapter typed output 保证」；若要统一校验，须先冻结两个 output schema 再开 slice（见 B13b 汇总「需要作者裁决的问题」）。
+
+### B13b 裁决（2026-10-22）
+
+> 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
+
+- 降级（契约缺失不可校验，改写见上方 gap）：只读工具无 output contract schema。后续动作：按 ADR README §11.4 另立新 ADR 收窄规则 4（creative/作者可见 artifact 工具必须校验；内部只读工具由 adapter typed output 保证；本批不新建 ADR）；若统一校验须先冻结两个 output schema 再开 slice。
