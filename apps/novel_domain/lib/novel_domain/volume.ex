@@ -7,13 +7,17 @@ defmodule NovelDomain.Volume do
   """
 
   alias NovelDomain.Types
+  alias NovelDomain.VolumeBlueprint
 
+  # blueprint（B11A CP1）：卷级蓝图设计态 map（volumes.blueprint），nil=未立蓝图。
+  # 与 chapters.plan_direction 同款——既有 map 列承载，零新业务列。
   defstruct [
     :id,
     :work_ref,
     :title,
     :seq,
     :status,
+    :blueprint,
     :created_at,
     :updated_at
   ]
@@ -24,6 +28,7 @@ defmodule NovelDomain.Volume do
           title: String.t(),
           seq: pos_integer(),
           status: Types.volume_status(),
+          blueprint: VolumeBlueprint.t() | nil,
           created_at: DateTime.t(),
           updated_at: DateTime.t()
         }
@@ -62,6 +67,20 @@ defmodule NovelDomain.Volume do
   @spec update_seq(t(), pos_integer()) :: t()
   def update_seq(%__MODULE__{} = volume, seq) when is_integer(seq) and seq > 0 do
     %__MODULE__{volume | seq: seq, updated_at: next_updated_at(volume)}
+  end
+
+  @doc """
+  设置卷级蓝图（设计态）；`nil`/无有效槽 → 清空为未立蓝图。
+
+  只做归一与赋值，不触碰 status（卷行状态由结构动作推动，VS-00J §2.3）。
+  """
+  @spec put_blueprint(t(), map() | nil) :: t()
+  def put_blueprint(%__MODULE__{} = volume, blueprint) do
+    %__MODULE__{
+      volume
+      | blueprint: VolumeBlueprint.to_storage(blueprint),
+        updated_at: next_updated_at(volume)
+    }
   end
 
   defp next_updated_at(%__MODULE__{updated_at: updated_at}) do

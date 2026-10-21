@@ -958,6 +958,40 @@ export const STRUCTURE_PANEL = {
     } as Record<string, string>,
     partsLine: (parts: string[]) => parts.join("；"),
   },
+  // B11A CP4-lite（43 §5.0.6 / VS-00J §2.1）：大纲与结构 tab 卷蓝图只读块。数据来自
+  // `get_toc.volumes[].blueprint`（volumes.blueprint map 列）；只读展示，不新增
+  // author_action。缺字段整行不渲染，无可显示内容的 blueprint 整块不渲染。
+  volumeBlueprint: {
+    heading: "卷蓝图",
+    // 三态徽标口径与本章使命/规划使命一致；未知状态不显示（不暴露内部枚举）。
+    statusLabels: {
+      TENTATIVE: "【暂定】",
+      CONFIRMED: "【已确认】",
+      AUTHOR_EDITED: "【作者改写】",
+    } as Record<string, string>,
+    // 六个可见行标签（含全角冒号）；支线/高潮与节奏/新要素三组各自合并为一行。
+    fieldLabels: {
+      goal_conflict: "目标冲突：",
+      arc_stage: "弧光阶段：",
+      map_boundary: "地图边界：",
+      subplots: "支线：",
+      pacing: "高潮与节奏：",
+      new_elements: "新要素：",
+    } as Record<string, string>,
+    // 组内子槽标签（含全角冒号）：按「子槽：值」内联，缺子槽不拼空洞。
+    partLabels: {
+      subplots_start: "启动：",
+      subplots_advance: "推进：",
+      subplots_close: "收束：",
+      climaxes: "高潮章：",
+      payoff_density: "爽点密度：",
+      buffers: "缓冲章：",
+      new_characters: "新人物：",
+      new_settings: "新设定：",
+      new_maps: "新地图：",
+    } as Record<string, string>,
+    partsLine: (parts: string[]) => parts.join("；"),
+  },
   outlineEmptyWithWork: "用于把当前作品整理成卷纲和章纲。点击后会在对话区生成规划请求。",
   outlineEmptyNoWork: "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。",
   startPlanning: "规划卷章结构",

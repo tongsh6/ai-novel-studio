@@ -268,11 +268,13 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
   defp volumes_by_id(_work_id, []), do: []
 
+  # 目录卷节点暴露卷级蓝图（B11A CP1 / VS-00J §4 消费面）：`blueprint` 为 nil 时前端
+  # 只读块不渲染（I-VOL-4 退化等价）；蓝图是设计态，不改章归属与字数事实。
   defp volumes_by_id(work_id, volume_ids) do
     Volume
     |> where([v], v.work_id == ^work_id and v.id in ^volume_ids)
     |> order_by([v], asc: v.seq)
-    |> select([v], %{id: v.id, title: v.title, seq: v.seq})
+    |> select([v], %{id: v.id, title: v.title, seq: v.seq, blueprint: v.blueprint})
     |> Repo.all()
   end
 

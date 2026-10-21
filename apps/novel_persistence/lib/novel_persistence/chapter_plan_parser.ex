@@ -15,6 +15,7 @@ defmodule NovelPersistence.ChapterPlanParser do
   """
 
   alias NovelDomain.ChapterPlanDirection
+  alias NovelDomain.VolumeBlueprint
 
   @direction_label_groups [
     chapter_role: ["章功能定位", "功能定位", "章功能"],
@@ -44,6 +45,7 @@ defmodule NovelPersistence.ChapterPlanParser do
   # B11C CP1：子槽词表扩到 VS-00E §1 scene_units 已冻结的场级结构全集（因果/信息差/
   # 对白/感官）；全部可选，旧标注无新子槽时解析结果逐字节不变。
   @scene_labels ["场次", "场景"]
+
   @scene_slot_labels %{
     "目标" => "goal",
     "场景目标" => "goal",
@@ -67,6 +69,18 @@ defmodule NovelPersistence.ChapterPlanParser do
     "时空感官" => "sensory"
   }
 
+  # B11A CP2（VS-00J §3.1）：plot_outline 卷蓝图行——每卷一行，`｜` 分隔子槽：
+  # `卷蓝图：第一卷｜序号：1｜目标冲突：…｜支线启动：…｜…`。抽取必须先于章块解析：
+  # 卷块标题若写成 ASCII 冒号加空格（`卷蓝图: 第二卷: 裂变`）会命中 chapter_start_line?
+  # 的 `contains?(": ")`，不先抽离就劈出假章（`第二卷：裂变` 已知雷）。子槽标签词表
+  # 复用 `NovelDomain.VolumeBlueprint.slot_key/1`（与渲染/存储白名单同源，不各写一份）。
+  @volume_blueprint_labels ["卷蓝图"]
+  @volume_seq_label "序号"
+  @volume_blueprint_separator ~r/[｜|]/u
+  # 单行解析纪律：模型把长行折断时续行以｜开头——续行直接丢弃（既不入蓝图，也不参与
+  # 章块解析；`|支线启动: x` 同样会劈假章/污染正文）。
+  @volume_blueprint_continuation ~r/^[｜|]/u
+
   @type chapter :: %{
           seq: pos_integer(),
           title: String.t(),
@@ -75,25 +89,157 @@ defmodule NovelPersistence.ChapterPlanParser do
           volume_title: String.t() | nil
         }
 
+  @typedoc "卷蓝图块：卷身份 (title, seq) 与设计槽归一 map（无设计槽时为空 map）。"
+  @type volume_blueprint :: %{
+          seq: pos_integer(),
+          title: String.t(),
+          blueprint: map()
+        }
+
   @doc "解析章节计划文本为有序章节条目（seq 从 1 起）。空标题行被丢弃。"
   @spec parse(String.t() | nil) :: [chapter()]
-  def parse(content) when is_binary(content) do
-    content
-    |> lines()
-    |> chapter_blocks()
-    |> Enum.map(&parse_block/1)
-    |> Enum.reject(&(&1.title == ""))
-    |> Enum.with_index(1)
-    |> Enum.map(fn {chapter, seq} -> %{chapter | seq: seq} end)
+  def parse(content), do: parse_with_volumes(content).chapters
+
+  @doc """
+  解析章节计划文本，同时抽取卷蓝图行（B11A CP2 / VS-00J §3.1）。
+
+  返回 `%{chapters: [chapter()], volume_blueprints: [volume_blueprint()]}`：
+
+  - 卷蓝图行先于章块抽取（防假章），`序号` 缺省时按出现顺序 1..n，标题必填否则整行丢弃；
+  - 无卷蓝图行时 `volume_blueprints: []`，章节与仅 `parse/1` 时逐字节一致（I-VOL-4）。
+  """
+  @spec parse_with_volumes(String.t() | nil) :: %{
+          chapters: [chapter()],
+          volume_blueprints: [volume_blueprint()]
+        }
+  def parse_with_volumes(content) when is_binary(content) do
+    {chapter_lines, volume_blueprints} =
+      content
+      |> lines()
+      |> extract_volume_blueprints()
+
+    %{
+      chapters:
+        chapter_lines
+        |> chapter_blocks()
+        |> Enum.map(&parse_block/1)
+        |> Enum.reject(&(&1.title == ""))
+        |> Enum.with_index(1)
+        |> Enum.map(fn {chapter, seq} -> %{chapter | seq: seq} end),
+      volume_blueprints: volume_blueprints
+    }
   end
 
-  def parse(_content), do: []
+  def parse_with_volumes(_content), do: %{chapters: [], volume_blueprints: []}
 
   defp lines(content) do
     content
     |> String.split("\n")
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
+  end
+
+  # ── 卷蓝图行抽取（B11A CP2 / VS-00J §3.1）──────────────────────────────
+  # 单趟纪律：卷蓝图行 → 场次行 → 章块（见 parse_block 内 extract_scene_plans）。
+  # 卷蓝图行先抽离，剩余行才参与章块判定；续行丢弃（单行解析）。
+  defp extract_volume_blueprints(lines) do
+    {blueprint_lines, chapter_lines} = Enum.split_with(lines, &volume_blueprint_label_line?/1)
+
+    {Enum.reject(chapter_lines, &volume_blueprint_continuation_line?/1),
+     parse_volume_blueprint_lines(blueprint_lines)}
+  end
+
+  defp volume_blueprint_label_line?(line) do
+    case split_label(line) do
+      {:ok, label, _value} -> normalize_direction_label(label) in @volume_blueprint_labels
+      :error -> false
+    end
+  end
+
+  defp volume_blueprint_continuation_line?(line),
+    do: Regex.match?(@volume_blueprint_continuation, line)
+
+  defp parse_volume_blueprint_lines(lines) do
+    lines
+    |> Enum.map(&parse_volume_blueprint_line/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {blueprint, position} -> %{blueprint | seq: blueprint.seq || position} end)
+  end
+
+  # `卷蓝图：卷标题｜序号：N｜目标冲突：…｜…`；标题必填（空标题整行丢弃）。
+  defp parse_volume_blueprint_line(line) do
+    case split_label(line) do
+      {:ok, _label, value} ->
+        [title_part | slot_parts] = String.split(value, @volume_blueprint_separator)
+        title = String.trim(title_part)
+
+        if title == "" do
+          nil
+        else
+          {seq, slot_parts} = extract_volume_seq(slot_parts)
+
+          %{seq: seq, title: title, blueprint: volume_blueprint_slots(slot_parts)}
+        end
+
+      :error ->
+        nil
+    end
+  end
+
+  # `序号` 是卷身份的一部分（(work_id, seq)），不进蓝图 map；缺省/非法时回落行序。
+  defp extract_volume_seq(slot_parts) do
+    {seq, rest} =
+      Enum.reduce(slot_parts, {nil, []}, fn part, {seq, rest} ->
+        case split_label(part) do
+          {:ok, label, value} ->
+            if normalize_direction_label(label) == @volume_seq_label do
+              {positive_integer(value), rest}
+            else
+              {seq, [part | rest]}
+            end
+
+          :error ->
+            {seq, [part | rest]}
+        end
+      end)
+
+    {seq, Enum.reverse(rest)}
+  end
+
+  # 子槽键口径与存储白名单同源（VolumeBlueprint.slot_key/1）；未知标签/空值丢弃。
+  defp volume_blueprint_slots(parts) do
+    parts
+    |> Enum.reduce(%{}, fn part, acc ->
+      with {:ok, label, value} <- split_label(part),
+           key when is_binary(key) <-
+             VolumeBlueprint.slot_key(normalize_direction_label(label)),
+           trimmed when trimmed != "" <- String.trim(value) do
+        Map.put(acc, key, trimmed)
+      else
+        _ -> acc
+      end
+    end)
+    |> VolumeBlueprint.to_storage()
+    |> Kernel.||(%{})
+  end
+
+  defp positive_integer(value) do
+    case value |> normalize_digits() |> String.trim() |> Integer.parse() do
+      {int, ""} when int > 0 -> int
+      _ -> nil
+    end
+  end
+
+  # 全角数字（０-９）→ ASCII：模型偶发全角输出，序号按缺失回落行序而非报错。
+  defp normalize_digits(value) do
+    value
+    |> String.to_charlist()
+    |> Enum.map(fn
+      digit when digit in 0xFF10..0xFF19 -> digit - 0xFF10 + ?0
+      other -> other
+    end)
+    |> List.to_string()
   end
 
   defp chapter_blocks(lines) do
@@ -266,8 +412,12 @@ defmodule NovelPersistence.ChapterPlanParser do
 
   # 场次行也必须算 label 行——写成 ASCII `场次: 对账` 会命中 `contains?(": ")`，
   # 不拦就当场劈出假章（AU08 卷标注同款雷）。
+  # 卷蓝图行同样算 label 行（与场次/卷标注同款防护）：即使某一行走不到先抽取，
+  # ASCII 冒号写法也绝不能被当成章起始行。
   defp label_line?(line),
-    do: direction_label_line?(line) or volume_label_line?(line) or scene_label_line?(line)
+    do:
+      direction_label_line?(line) or volume_label_line?(line) or scene_label_line?(line) or
+        volume_blueprint_label_line?(line)
 
   defp direction_field(label) do
     label

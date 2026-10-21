@@ -7,6 +7,8 @@
 ---
 
 > 当前决策：`ADR-0027-author-obligation-state-v3.md` 于 2026-10-05 按用户确认修订为 **Accepted**：先闭合消息处置、运行结果与跨轮来源关联；原第六账提案未采纳。实施见 NEXT Q3d / Q3D slice。
+> **2026-10-22 ADR-0028 Accepted（B11① 卷结构）**：作者「做 B11①（大周期）」开工授权按 VS-00F 先例拍板；CP1/CP2/CP4-lite（volumes.blueprint 存储与 domain、卷蓝图行产出/解析/物化、TOC 暴露、档案只读可见）已落地，`## enforced_by` 引用本轮真实文件；开新卷动作（CP3）、卷级收束/负债规则（CP5）、CP4 完整消费面与真实页面验收在 `## enforcement_gaps` 诚实登记，不得据此声称缺口关闭。
+>
 > **2026-10-22 B13a 门禁落地**：`scripts/adr_trace.exs` 已从“软告警”收紧为硬门禁（`exit 1`），Accepted ADR 必须有 `## enforced_by` 实装证据清单，引用路径必须存在；未实装部分写入 `## enforcement_gaps`。26 份 Accepted ADR 已完成首轮 enforced_by 补齐（Proposed 的 ADR-0022 不参与门禁）。该门禁只证明“决策 → 代码/测试/验收文件”的引用可追溯，不证明实现语义正确或真实页面已闭环。
 
 ## 1. 定位
@@ -295,7 +297,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0026 | `ADR-0026-five-ledgers-three-state-reconciliation-v3.md` | Accepted | 五本账（E33-E37）对象化与三态对账：LedgerEntry 统一信封、两级对账节拍（增量自动通过=系统发起 TENTATIVE→ACCEPTED 首次契约化 25 §9.3 / 周期 `ledger_reconciliation_v1` 报告作者裁决）、处置四枚举挂接既有通道（VS-00E §8 修订 / 33 Experience / 32 §11 裁决持久化）、账面=进度视图非事实本体 | `contracts/VS-00F`（§9 先例映射）、`08` NEM-GAP-05/06、M2 达标跑 Q5 漂移实证、ADR-0010/0019/0021/0024/0025 | `VS-00F-five-ledgers-three-state` CP1（M2 75 章书重放）；不变量 I-L1–I-L4 |
 | ADR-0027 | `ADR-0027-author-obligation-state-v3.md` | Accepted（2026-10-05 修订） | 消息接收先记录、统一结果回填、跨轮作者来源与采纳事实分层；原第六账提案未采纳 | D8 原始日志复核、ADR-0019/0021、Q3c | `Q3D-message-outcome-roundtrip`；I-M1–I-M5；enforced_by 已列 |
 | ADR-0024 | `ADR-0024-decision-surface-registry-v3.md` | Accepted | 决策面注册表（S1-S7）与 ui_cards 信息通告边界：UI 决策契约中心从 card_type 集合改为决策面注册表、卡片命名与处置定案（10 卡→3 卡 + 废弃/Deferred）、S4 clarification / S7 awaiting_author 缺口填补方向、决策面 schema 进 codegen 闸门（N-SURF） | `notes/2026-07-15-dialogue-flow-decision-surface-review.md`, `07` §4, `contracts/VS-05` §4, ADR-0007/0008/0015 | `decision-surface` CP1（schema 闸门）→ CP2（clarification surface）→ CP3（awaiting_author TurnResult）；不变量 N-SURF |
-| ADR-0028 | `ADR-0028-volume-structure-and-open-volume-action-v3.md` | Proposed（2026-10-22 起草，待作者确认） | 卷结构与开新卷动作：卷是 canonical middle-structure unit（arc 仍无对象）/ 卷级蓝图 E14-E17 存 `volumes.blueprint` map 列 / 卷身份 `(work_id,seq)` 与改名不重复建卷 / plot_outline 卷蓝图块 + 既有采纳管道 / 开新卷动作形态 A / 卷级收束优先级 / 意图与事实分离 | `contracts/VS-00J`（Frozen）、`08` §8 序位 6、`21`/`34`、NEM-GAP-07 | `tasks/slices/B11A-volume-blueprint.md` CP1-CP5；Accepted 前不授权代码 |
+| ADR-0028 | `ADR-0028-volume-structure-and-open-volume-action-v3.md` | Accepted（2026-10-22，CP1+CP2+CP4-lite 落地；CP3/CP5 与真实页面验收列 enforcement_gaps） | 卷结构与开新卷动作：卷是 canonical middle-structure unit（arc 仍无对象）/ 卷级蓝图 E14-E17 存 `volumes.blueprint` map 列 / 卷身份 `(work_id,seq)` 与改名不重复建卷 / plot_outline 卷蓝图块 + 既有采纳管道 / 开新卷动作形态 A / 卷级收束优先级 / 意图与事实分离 | `contracts/VS-00J`（Frozen）、`08` §8 序位 6、`21`/`34`、NEM-GAP-07 | `tasks/slices/B11A-volume-blueprint.md` CP1-CP5；Accepted 前不授权代码 |
 
 ---
 

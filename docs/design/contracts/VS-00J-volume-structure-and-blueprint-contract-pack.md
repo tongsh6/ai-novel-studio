@@ -182,4 +182,5 @@ CP1+CP2 不单独算 done（"只建字段/只加解析"是 AGENTS.md 禁止的�
 
 ## 10. 变更记录
 
+- 2026-10-22 — **CP1+CP2+CP4-lite 落地**：`volumes.blueprint` map 列 + enum codegen；`VolumeBlueprint` 归一/渲染；`ChapterPlanParser.parse_with_volumes/1`（卷蓝图行先于章块抽取、单行、按 `(work_id,seq)` 物化、改名不重复建卷）；`WorkSkeleton.volume_directive/1` 多卷时增补卷蓝图行指令；`insert_volume` 状态修复（计划物化 PLANNED / 正文规范单卷 COMPLETED）；TOC 卷节点暴露 blueprint；档案大纲卷蓝图只读可见。CP3（开新卷动作）、CP5（卷级收束/负债规则）、CP4 完整消费面与真实页面验收仍未做，见 ADR-0028 enforcement_gaps。
 - 2026-10-22 — 初版 Frozen（CP0）：作者开工授权按 §9 默认拍板；E14-E17 最小槽冻结；卷身份/章引用/状态修复/收紧优先级/退化等价等 8 条不变量；CP0-CP5 路线。来源为 B11 侦察（2026-10-22，证据见 slice 档 §0）。

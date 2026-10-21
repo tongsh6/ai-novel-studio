@@ -599,10 +599,32 @@ export interface TocChapter {
   } | null;
 }
 
+// B11A（VS-00J §2.1）：卷级蓝图随 TOC 卷节点暴露（volumes.blueprint map 列，nil/缺失 =
+// 未立蓝图）。全部内容字段均可不出现；缺字段 = 键不存在，前端不得补空串/占位。
+// status/source_ref 是元数据（三态 + 采纳来源），消费面按需只读展示。
+export interface VolumeBlueprintDto {
+  status?: string;
+  source_ref?: string;
+  goal_conflict?: string;
+  arc_stage?: string;
+  map_boundary?: string;
+  subplots_start?: string;
+  subplots_advance?: string;
+  subplots_close?: string;
+  climaxes?: string;
+  payoff_density?: string;
+  buffers?: string;
+  new_characters?: string;
+  new_settings?: string;
+  new_maps?: string;
+}
+
 export interface TocVolume {
   id: string;
   title: string;
   seq: number;
+  // B11A CP4-lite（43 §5.0.6）：设计态卷蓝图；nil/缺失时档案大纲卷蓝图块整块不渲染。
+  blueprint?: VolumeBlueprintDto | null;
   chapters: TocChapter[];
 }
 

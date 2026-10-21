@@ -2,6 +2,7 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
   use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.AdoptionStatus
+  alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.ChapterSummary
@@ -99,6 +100,60 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
       # 第一场最新版「他终于慢慢醒来过来」9 字 + 第二场「世界安静」4 字 = 13
       assert chapter_words == 13
       assert total == 13
+    end
+  end
+
+  # B11A CP1（VS-00J §4）：TOC 卷节点暴露卷级蓝图；无蓝图卷 blueprint=nil，
+  # 章归属/字数/目录结构不变（I-VOL-4 退化等价）。
+  describe "toc/1 卷级蓝图暴露 (B11A CP1)" do
+    test "有蓝图的卷节点带 string-keyed map；无蓝图卷为 nil 且其余字段不变" do
+      work_id = Ecto.UUID.generate()
+
+      %{volume: legacy_volume, chapter: legacy_chapter} =
+        insert_reading_chain(work_id, "第一卷", "第一章", "醒来。", :accepted)
+
+      blueprint = %{
+        "goal_conflict" => "夺回矿脉",
+        "arc_stage" => "由忍到争",
+        "status" => "CONFIRMED",
+        "source_ref" => "artifact:as-bp-1"
+      }
+
+      blueprint_volume =
+        %Volume{}
+        |> Volume.changeset(%{
+          work_id: work_id,
+          title: "第二卷·裂变",
+          seq: 2,
+          status: StructureStatus.planned(),
+          blueprint: blueprint
+        })
+        |> Repo.insert!()
+
+      insert_chapter(work_id, blueprint_volume.id, "第二章", 2)
+
+      assert %{volumes: [vol1, vol2], total_word_count: total} =
+               ReadingProjectionRepo.toc(work_id)
+
+      # 无蓝图卷：blueprint 键为 nil，其余字段与蓝图引入前形状一致。
+      assert vol1.id == legacy_volume.id
+      assert vol1.title == "第一卷"
+      assert vol1.seq == 1
+      assert vol1.blueprint == nil
+      assert Enum.map(vol1.chapters, & &1.id) == [legacy_chapter.id]
+
+      assert Map.delete(vol1, :blueprint) == %{
+               id: legacy_volume.id,
+               title: "第一卷",
+               seq: 1,
+               chapters: vol1.chapters
+             }
+
+      # 有蓝图卷：string-keyed map 原样暴露（前端只读消费），设计态不改章事实。
+      assert vol2.id == blueprint_volume.id
+      assert vol2.blueprint == blueprint
+      assert Enum.map(vol2.chapters, &{&1.title, &1.word_count}) == [{"第二章", 0}]
+      assert total == 2
     end
   end
 

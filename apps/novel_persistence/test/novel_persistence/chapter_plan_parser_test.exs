@@ -258,4 +258,194 @@ defmodule NovelPersistence.ChapterPlanParserTest do
       refute Map.has_key?(direction, "opposition")
     end
   end
+
+  # B11A CP2（VS-00J §3.1）：plot_outline 卷蓝图行。产 `%{chapters, volume_blueprints}`；
+  # 卷蓝图行先于章块抽取（防假章），`序号` 缺省按行序，标题必填，单行解析（续行丢弃）。
+  describe "卷蓝图块 (B11A CP2)" do
+    test "逐卷解析出 seq/title/blueprint（规范 string 键），章解析结果不变" do
+      content = """
+      卷蓝图：第一卷·觉醒｜序号：1｜目标冲突：夺回矿脉｜弧光阶段：由忍到争｜支线启动：妹妹病危
+      卷蓝图：第二卷·裂变｜序号：2｜目标冲突：掀翻旧秩序｜新地图：北境
+      第01章：起: 甲。
+      所属卷：第一卷·觉醒
+      第02章：承: 乙。
+      所属卷：第二卷·裂变
+      """
+
+      assert %{volume_blueprints: blueprints, chapters: chapters} =
+               ChapterPlanParser.parse_with_volumes(content)
+
+      assert blueprints == [
+               %{
+                 seq: 1,
+                 title: "第一卷·觉醒",
+                 blueprint: %{
+                   "goal_conflict" => "夺回矿脉",
+                   "arc_stage" => "由忍到争",
+                   "subplots_start" => "妹妹病危"
+                 }
+               },
+               %{
+                 seq: 2,
+                 title: "第二卷·裂变",
+                 blueprint: %{
+                   "goal_conflict" => "掀翻旧秩序",
+                   "new_maps" => "北境"
+                 }
+               }
+             ]
+
+      assert Enum.map(chapters, & &1.title) == ["第01章：起", "第02章：承"]
+      assert Enum.map(chapters, & &1.volume_title) == ["第一卷·觉醒", "第二卷·裂变"]
+      # 同一份文本 parse/1 与 parse_with_volumes/1 的 chapters 逐字节一致。
+      assert chapters == ChapterPlanParser.parse(content)
+    end
+
+    test "序号缺省按出现顺序 1..n；显式序号优先；全角数字/非法序号回落行序" do
+      assert %{volume_blueprints: blueprints} =
+               ChapterPlanParser.parse_with_volumes("""
+               卷蓝图：第一卷｜目标冲突：甲
+               卷蓝图：第二卷｜序号：５｜目标冲突：乙
+               卷蓝图：第三卷｜序号：末｜目标冲突：丙
+               """)
+
+      assert Enum.map(blueprints, &{&1.seq, &1.title}) == [
+               {1, "第一卷"},
+               {5, "第二卷"},
+               {3, "第三卷"}
+             ]
+
+      assert Enum.map(blueprints, & &1.blueprint["goal_conflict"]) == ["甲", "乙", "丙"]
+    end
+
+    test "标题必填：空标题整行丢弃（不产蓝图、也不劈假章）" do
+      assert %{volume_blueprints: blueprints, chapters: chapters} =
+               ChapterPlanParser.parse_with_volumes("""
+               卷蓝图：｜序号：1｜目标冲突：无标题应丢弃
+               第01章：起: 甲。
+               """)
+
+      assert blueprints == []
+      assert [%{title: "第01章：起"}] = chapters
+    end
+
+    test "子槽标签口径唯一：未知标签/空值丢弃，重复标签后者覆盖" do
+      assert %{volume_blueprints: [%{blueprint: blueprint}]} =
+               ChapterPlanParser.parse_with_volumes("""
+               卷蓝图：第一卷｜序号：1｜目标冲突：甲｜目标冲突：乙｜气氛：闷｜支线启动：｜新设定：暗账
+               """)
+
+      assert blueprint == %{"goal_conflict" => "乙", "new_settings" => "暗账"}
+    end
+
+    test "无卷蓝图行：volume_blueprints 为空且 chapters 逐字节等价（I-VOL-4 负例）" do
+      legacy = """
+      第01章：黑市对账夜: 沈洛潜入黑市。
+      情节推进：追查暗扣流向
+      场次：对账｜目标：核对暗扣｜情绪：压抑
+      所属卷：第一卷·觉醒
+      第02章：夜巡: 沈洛夜巡。
+      场次: 夜巡｜目标：躲过巡检
+      字数与场次：约1200字，两场
+      """
+
+      assert %{volume_blueprints: [], chapters: chapters} =
+               ChapterPlanParser.parse_with_volumes(legacy)
+
+      assert chapters == ChapterPlanParser.parse(legacy)
+
+      # 显式对照首章解析结果，确保旧路径（方向/场次/卷标注/摘要）零变化。
+      assert [
+               %{
+                 title: "第01章：黑市对账夜",
+                 summary: "沈洛潜入黑市。",
+                 volume_title: "第一卷·觉醒",
+                 plan_direction: %{
+                   "plot_progress" => "追查暗扣流向",
+                   "scene_plans" => [
+                     %{"title" => "对账", "goal" => "核对暗扣", "emotion" => "压抑"}
+                   ]
+                 }
+               },
+               %{title: "第02章：夜巡"}
+             ] = chapters
+    end
+
+    test "ASCII 冒号卷蓝图行不劈假章（`第二卷：裂变` 已知雷）" do
+      # 卷块标题若含 ASCII 冒号，不先抽离就命中 chapter_start_line? 的 contains?(": ")。
+      content = """
+      卷蓝图: 第二卷: 裂变｜序号: 2｜目标冲突：掀翻旧秩序
+      第03章：转: 丙。
+      """
+
+      assert %{volume_blueprints: [blueprint], chapters: chapters} =
+               ChapterPlanParser.parse_with_volumes(content)
+
+      assert blueprint == %{seq: 2, title: "第二卷: 裂变", blueprint: %{"goal_conflict" => "掀翻旧秩序"}}
+      assert [%{title: "第03章：转"}] = chapters
+      refute Enum.any?(chapters, &(&1.title in ["卷蓝图", "第二卷", "第二卷: 裂变"]))
+      # parse/1 委托 parse_with_volumes，同样不劈假章。
+      assert ChapterPlanParser.parse(content) == chapters
+    end
+
+    test "单行解析：卷蓝图长行折断的｜续行被丢弃（不入蓝图、不劈假章）" do
+      content = """
+      卷蓝图：第一卷｜序号：1｜目标冲突：夺回矿脉
+      ｜支线启动：妹妹病危
+      |支线推进: 暗账曝光
+      第01章：起: 甲。
+      """
+
+      assert %{volume_blueprints: [blueprint], chapters: chapters} =
+               ChapterPlanParser.parse_with_volumes(content)
+
+      assert blueprint.blueprint == %{"goal_conflict" => "夺回矿脉"}
+      assert [%{title: "第01章：起", summary: "甲。"}] = chapters
+    end
+
+    test "与场次/所属卷/方向行混排：卷蓝图行位置无关，三者互不污染" do
+      content = """
+      第01章：黑市对账夜: 沈洛潜入黑市。
+      情节推进：追查暗扣流向
+      场次：对账｜目标：核对暗扣
+      所属卷：第一卷·觉醒
+      卷蓝图：第一卷·觉醒｜序号：1｜目标冲突：夺回矿脉
+      第02章：夜巡: 沈洛夜巡。
+      场次：夜巡｜目标：躲过巡检
+      所属卷：第二卷·裂变
+      卷蓝图：第二卷·裂变｜序号：2｜目标冲突：掀翻旧秩序
+      """
+
+      assert %{volume_blueprints: blueprints, chapters: chapters} =
+               ChapterPlanParser.parse_with_volumes(content)
+
+      assert Enum.map(blueprints, &{&1.seq, &1.title}) == [
+               {1, "第一卷·觉醒"},
+               {2, "第二卷·裂变"}
+             ]
+
+      assert [
+               %{
+                 title: "第01章：黑市对账夜",
+                 volume_title: "第一卷·觉醒",
+                 plan_direction: %{
+                   "plot_progress" => "追查暗扣流向",
+                   "scene_plans" => [%{"title" => "对账", "goal" => "核对暗扣"}]
+                 }
+               },
+               %{title: "第02章：夜巡", volume_title: "第二卷·裂变"}
+             ] = chapters
+
+      refute Enum.any?(chapters, &(&1.title =~ "卷蓝图"))
+    end
+
+    test "非字符串/空内容 → 空结果" do
+      assert ChapterPlanParser.parse_with_volumes(nil) == %{
+               chapters: [],
+               volume_blueprints: []
+             }
+
+      assert ChapterPlanParser.parse(nil) == []
+    end
+  end
 end

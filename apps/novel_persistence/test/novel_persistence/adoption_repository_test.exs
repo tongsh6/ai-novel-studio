@@ -10,6 +10,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.StructureStatus
+  alias NovelFoundation.Enums.VolumeBlueprintStatus
   alias NovelPersistence.AdoptionRepository
   alias NovelPersistence.MutationLog
   alias NovelPersistence.ReadingProjectionRepo
@@ -1250,6 +1251,306 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert {"第一卷", ["第01章：起"]} in titles
       assert {"第二卷", ["第02章：承"]} in titles
     end
+  end
+
+  # B11A CP1+CP2（VS-00J §2.2/§2.3/§3.1）：卷蓝图随 outline_draft 采纳物化。
+  # 卷身份 = (work_id, seq)（改名不重复建卷）；规划物化卷 status=PLANNED；采纳补
+  # status=CONFIRMED + source_ref；existing 行不改 status；无蓝图路径逐字节等价。
+  describe "卷蓝图物化 (B11A CP1+CP2)" do
+    test "多卷蓝图：按 seq 建卷、blueprint 补 CONFIRMED+source_ref、物化卷 status=PLANNED" do
+      work_id = Ecto.UUID.generate()
+
+      content = """
+      卷蓝图：第一卷·觉醒｜序号：1｜目标冲突：夺回矿脉｜弧光阶段：由忍到争｜高潮章：对账夜
+      卷蓝图：第二卷·裂变｜序号：2｜目标冲突：掀翻旧秩序｜新地图：北境
+      第01章：起: 甲。
+      所属卷：第一卷·觉醒
+      第02章：承: 乙。
+      所属卷：第二卷·裂变
+      """
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-bp-1",
+                 artifact_id: "as-bp-1",
+                 artifact_type: :outline_draft,
+                 content: String.trim(content),
+                 summary: "分卷蓝图计划"
+               })
+
+      volumes =
+        Volume
+        |> where([v], v.work_id == ^work_id)
+        |> order_by([v], asc: v.seq)
+        |> Repo.all()
+
+      assert Enum.map(volumes, &{&1.seq, &1.title, &1.status}) == [
+               {1, "第一卷·觉醒", StructureStatus.planned()},
+               {2, "第二卷·裂变", StructureStatus.planned()}
+             ]
+
+      assert Enum.at(volumes, 0).blueprint == %{
+               "goal_conflict" => "夺回矿脉",
+               "arc_stage" => "由忍到争",
+               "climaxes" => "对账夜",
+               "status" => VolumeBlueprintStatus.confirmed(),
+               "source_ref" => "artifact:as-bp-1"
+             }
+
+      assert Enum.at(volumes, 1).blueprint == %{
+               "goal_conflict" => "掀翻旧秩序",
+               "new_maps" => "北境",
+               "status" => VolumeBlueprintStatus.confirmed(),
+               "source_ref" => "artifact:as-bp-1"
+             }
+
+      # 逐章「所属卷」继续决定章归属（蓝图定"卷是什么"，章标注定"章挂哪卷"）。
+      assert %{volumes: [vol1, vol2]} = ReadingProjectionRepo.toc(work_id)
+      assert vol1.title == "第一卷·觉醒"
+      assert vol2.title == "第二卷·裂变"
+      assert Enum.map(vol1.chapters, & &1.title) == ["第01章：起"]
+      assert Enum.map(vol2.chapters, & &1.title) == ["第02章：承"]
+      assert chapter_seqs(work_id) == [1, 2]
+    end
+
+    test "幂等重采纳 + 改名：同 seq 只更新 title/blueprint，不新建重复卷（I-VOL-3）" do
+      work_id = Ecto.UUID.generate()
+
+      adopt_blueprint_outline(work_id, "as-bp-old", """
+      卷蓝图：第一卷·觉醒｜序号：1｜目标冲突：夺回矿脉
+      第01章：起: 甲。
+      所属卷：第一卷·觉醒
+      """)
+
+      # 采纳新大纲即作者授权改名：卷蓝图与逐章所属卷同批改名（模型口径一致）。
+      adopt_blueprint_outline(work_id, "as-bp-new", """
+      卷蓝图：第一卷·新生｜序号：1｜目标冲突：夺回矿脉与旧账｜支线收束：妹妹病危
+      第01章：起: 甲。
+      所属卷：第一卷·新生
+      """)
+
+      assert Repo.aggregate(where(Volume, [v], v.work_id == ^work_id), :count) == 1
+
+      volume =
+        Volume
+        |> where([v], v.work_id == ^work_id)
+        |> Repo.one()
+
+      # 采纳新大纲即作者授权改名：title 更新，但卷行身份仍是 (work_id, seq)。
+      assert {volume.seq, volume.title} == {1, "第一卷·新生"}
+
+      assert volume.blueprint == %{
+               "goal_conflict" => "夺回矿脉与旧账",
+               "subplots_close" => "妹妹病危",
+               "status" => VolumeBlueprintStatus.confirmed(),
+               "source_ref" => "artifact:as-bp-new"
+             }
+
+      # 幂等重采纳：章不重复建，卷不重复建。
+      assert Repo.aggregate(where(Chapter, [c], c.work_id == ^work_id), :count) == 1
+    end
+
+    test "三次重采纳同一蓝图：行数/内容稳定（幂等，无变化不写库）" do
+      work_id = Ecto.UUID.generate()
+      content = "卷蓝图：第一卷｜序号：1｜目标冲突：夺回矿脉\n第01章：起: 甲。"
+
+      adopt_blueprint_outline(work_id, "as-bp-1", content)
+      [first] = Repo.all(where(Volume, [v], v.work_id == ^work_id))
+
+      adopt_blueprint_outline(work_id, "as-bp-1", content)
+
+      volumes = Repo.all(where(Volume, [v], v.work_id == ^work_id))
+      assert length(volumes) == 1
+      [second] = volumes
+      assert second.blueprint == first.blueprint
+      assert second.title == first.title
+      assert chapter_seqs(work_id) == [1]
+    end
+
+    test "existing 行不改 status：正文先采纳建 COMPLETED 规范单卷，蓝图采纳只补 blueprint" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, %{reading_projection: projection}} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-prose-first",
+                 artifact_id: "as-prose-first",
+                 artifact_type: :prose_fragment,
+                 content: "他终于醒来。",
+                 summary: "第一章"
+               })
+
+      [prose_volume] = Repo.all(where(Volume, [v], v.work_id == ^work_id))
+      assert prose_volume.id == projection.volume_id
+      assert prose_volume.status == StructureStatus.completed()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-outline-after-prose",
+                 artifact_id: "as-outline-after-prose",
+                 artifact_type: :outline_draft,
+                 content: "卷蓝图：第一卷｜序号：1｜目标冲突：夺回矿脉\n第01章：起: 甲。",
+                 summary: "卷蓝图计划"
+               })
+
+      [after_adoption] = Repo.all(where(Volume, [v], v.work_id == ^work_id))
+      assert after_adoption.id == prose_volume.id
+      # 存量/已采纳卷行状态不被规划物化推回 PLANNED。
+      assert after_adoption.status == StructureStatus.completed()
+      assert after_adoption.blueprint["goal_conflict"] == "夺回矿脉"
+    end
+
+    test "正文采纳无卷信息自动建的规范单卷保持 COMPLETED（正文路径等价）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-prose-status",
+                 artifact_id: "as-prose-status",
+                 artifact_type: :prose_fragment,
+                 content: "他终于醒来。",
+                 summary: "第一章"
+               })
+
+      [volume] = Repo.all(where(Volume, [v], v.work_id == ^work_id))
+      assert volume.title == "第一卷"
+      assert volume.status == StructureStatus.completed()
+      assert volume.blueprint == nil
+    end
+
+    test "计划物化无蓝图无卷标注：章结果一致，规范单卷 status=PLANNED（单卷退化）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-plan-planned",
+                 artifact_id: "as-plan-planned",
+                 artifact_type: :outline_draft,
+                 content: "第01章：起: 甲。\n第02章：承: 乙。",
+                 summary: "无卷计划"
+               })
+
+      [volume] = Repo.all(where(Volume, [v], v.work_id == ^work_id))
+
+      assert {volume.title, volume.seq, volume.status} ==
+               {"第一卷", 1, StructureStatus.planned()}
+
+      assert volume.blueprint == nil
+      assert chapter_seqs(work_id) == [1, 2]
+    end
+
+    test "只写卷名/序号、无设计槽的蓝图块：建卷但不伪造 provenance 蓝图" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-bp-empty",
+                 artifact_id: "as-bp-empty",
+                 artifact_type: :outline_draft,
+                 content: "卷蓝图：第一卷｜序号：1\n第01章：起: 甲。",
+                 summary: "空蓝图计划"
+               })
+
+      [volume] = Repo.all(where(Volume, [v], v.work_id == ^work_id))
+      assert volume.title == "第一卷"
+      assert volume.blueprint == nil
+      assert %{volumes: [%{blueprint: nil}]} = ReadingProjectionRepo.toc(work_id)
+    end
+
+    test "TOC 卷节点暴露 blueprint；无蓝图卷 blueprint 为 nil，其余字段与既有形状一致" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-prose-toc",
+                 artifact_id: "as-prose-toc",
+                 artifact_type: :prose_fragment,
+                 content: "他终于醒来。",
+                 summary: "第一章"
+               })
+
+      assert %{volumes: [volume]} = ReadingProjectionRepo.toc(work_id)
+      assert volume.blueprint == nil
+
+      # 无蓝图时其余卷节点字段与蓝图引入前一致（只多一个 nil 的 blueprint 键）。
+      assert Map.delete(volume, :blueprint) == %{
+               id: volume.id,
+               title: "第一卷",
+               seq: 1,
+               chapters: volume.chapters
+             }
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-bp-toc",
+                 artifact_id: "as-bp-toc",
+                 artifact_type: :outline_draft,
+                 content: "卷蓝图：第一卷｜序号：1｜目标冲突：夺回矿脉\n第02章：承: 乙。",
+                 summary: "蓝图计划"
+               })
+
+      assert %{volumes: [volume]} = ReadingProjectionRepo.toc(work_id)
+      assert volume.blueprint["goal_conflict"] == "夺回矿脉"
+      assert volume.blueprint["status"] == VolumeBlueprintStatus.confirmed()
+      assert volume.blueprint["source_ref"] == "artifact:as-bp-toc"
+    end
+
+    test "蓝图行与场次/所属卷行混排：章方向与场次不受蓝图行污染" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-bp-mixed",
+                 artifact_id: "as-bp-mixed",
+                 artifact_type: :outline_draft,
+                 content: """
+                 卷蓝图：第一卷·觉醒｜序号：1｜目标冲突：夺回矿脉
+                 第01章：黑市对账夜: 沈洛潜入黑市。
+                 情节推进：追查暗扣流向
+                 场次：对账｜目标：核对暗扣
+                 所属卷：第一卷·觉醒
+                 """,
+                 summary: "混排计划"
+               })
+
+      assert %{volumes: [%{chapters: [chapter]}]} = ReadingProjectionRepo.toc(work_id)
+
+      assert chapter.plan_direction["plot_progress"] == "追查暗扣流向"
+
+      assert chapter.plan_direction["scene_plans"] == [
+               %{"title" => "对账", "goal" => "核对暗扣"}
+             ]
+    end
+  end
+
+  defp adopt_blueprint_outline(work_id, artifact_id, content) do
+    assert {:ok, _} =
+             AdoptionRepository.persist(%{
+               actor_ref: "author",
+               work_id: work_id,
+               source_turn_ref: "turn-#{artifact_id}",
+               artifact_id: artifact_id,
+               artifact_type: :outline_draft,
+               content: String.trim(content),
+               summary: "分卷蓝图计划"
+             })
   end
 
   defp chapter_seqs(work_id) do

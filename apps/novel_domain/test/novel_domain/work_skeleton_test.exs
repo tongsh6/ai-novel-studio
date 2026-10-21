@@ -11,7 +11,9 @@ defmodule NovelDomain.WorkSkeletonTest do
   end
 
   test "有 target_length：渲染骨架事实+进度+距目标尚远的禁终局守则" do
-    text = WorkSkeleton.render(%{target_length: 140_000, planned_volumes: 5, serial_form: "连载"}, 30)
+    text =
+      WorkSkeleton.render(%{target_length: 140_000, planned_volumes: 5, serial_form: "连载"}, 30)
+
     assert text =~ "全书规划"
     assert text =~ "目标体量：约 140000 字"
     assert text =~ "预计卷数：5"
@@ -76,6 +78,62 @@ defmodule NovelDomain.WorkSkeletonTest do
       assert WorkSkeleton.volume_directive(%{planned_volumes: 0}) == ""
       assert WorkSkeleton.volume_directive(%{planned_volumes: nil}) == ""
       assert WorkSkeleton.volume_directive(%{}) == ""
+    end
+
+    # B11A CP2（VS-00J §3.1）：卷蓝图行格式说明。必须与 ChapterPlanParser.parse_with_volumes/1
+    # 的标签口径逐字一致，且明确单行（parser 只做单行解析，续行丢弃）。
+    test "多卷 → 增补卷蓝图行指令，标签与 parser 口径一致且要求单行" do
+      text = WorkSkeleton.render(%{target_length: 140_000, planned_volumes: 3}, 10)
+
+      assert text =~ "卷蓝图要求"
+      assert text =~ "卷蓝图：卷标题｜序号：N"
+      assert text =~ "必须单行"
+      assert text =~ "子槽用｜分隔"
+      # 全部 12 个设计槽标签都在指令里（parser 只认这些标签）。
+      for label <- [
+            "目标冲突",
+            "弧光阶段",
+            "地图边界",
+            "支线启动",
+            "支线推进",
+            "支线收束",
+            "高潮章",
+            "爽点密度",
+            "缓冲章",
+            "新人物",
+            "新设定",
+            "新地图"
+          ] do
+        assert text =~ label, "卷蓝图指令缺少 #{label} 标签"
+      end
+
+      # 章引用口径：只允许章标题（VS-00J §2.1 冻结）。
+      assert text =~ "只写章标题"
+      assert text =~ "不写章号"
+    end
+
+    test "单卷/未立卷数 → 不发卷蓝图指令（无卷可蓝，逐字节等价 I-VOL-4）" do
+      for snapshot <- [
+            %{target_length: 140_000, planned_volumes: 1},
+            %{target_length: 140_000}
+          ] do
+        refute WorkSkeleton.volume_directive(snapshot) =~ "卷蓝图"
+        refute WorkSkeleton.render(snapshot, 10) =~ "卷蓝图"
+      end
+    end
+
+    test "卷蓝图指令与既有分卷指令并存，既有「分卷规划要求」前缀不被改写" do
+      directive = WorkSkeleton.volume_directive(%{planned_volumes: 2})
+      assert directive =~ "分卷规划要求：全书分 2 卷"
+      assert directive =~ "所属卷：卷标题"
+      assert directive =~ "卷蓝图要求"
+    end
+
+    test "正文向渲染不含卷蓝图指令（规划指令，写章时是噪声）" do
+      text = WorkSkeleton.render_for_prose(%{target_length: 140_000, planned_volumes: 3}, 10)
+      assert text =~ "目标体量"
+      refute text =~ "卷蓝图"
+      refute text =~ "所属卷"
     end
   end
 end

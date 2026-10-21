@@ -15,6 +15,7 @@ defmodule NovelPersistence.AdoptionRepository do
   import Ecto.Query
 
   alias NovelDomain.ChapterPlanDirection
+  alias NovelDomain.VolumeBlueprint
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryScope
   alias NovelFoundation.Enums.MemorySourceType
@@ -24,6 +25,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelFoundation.Enums.ProvisionalSource
   alias NovelFoundation.Enums.SourceType
   alias NovelFoundation.Enums.StructureStatus
+  alias NovelFoundation.Enums.VolumeBlueprintStatus
   alias NovelFoundation.ID
   alias NovelPersistence.ChapterPlanParser
   alias NovelPersistence.Repo
@@ -582,9 +584,16 @@ defmodule NovelPersistence.AdoptionRepository do
   # 采纳章节计划（outline）→ 物化 accepted 卷/章结构（v3 AU-08：目录来源是已采纳的卷/章结构；
   # AU08-I1 只有已采纳作品事实进投影；SC-AU08-B2 允许章在目录里但还没有已采纳正文）。
   # 章以 status=PLANNED 落地，正文采纳时由 mark_chapter_drafted 翻成 DRAFTING。
+  # B11A CP2：卷蓝图行先物化卷（卷身份 (work_id, seq) / 规划物化卷 status=PLANNED），
+  # 再逐章物化（章标注的所属卷命中已建蓝图卷则复用）。
   defp maybe_materialize_chapter_structure(repo, attrs) do
     if outline_artifact?(Map.get(attrs, :artifact_type)) do
-      materialize_chapter_structure(repo, Map.fetch!(attrs, :work_id), Map.get(attrs, :content))
+      materialize_chapter_structure(
+        repo,
+        Map.fetch!(attrs, :work_id),
+        Map.get(attrs, :content),
+        Map.get(attrs, :artifact_id)
+      )
     else
       {:ok, 0}
     end
@@ -592,15 +601,101 @@ defmodule NovelPersistence.AdoptionRepository do
 
   # AU08 CP2：计划章按各自标注的所属卷物化。无标注（单卷书或旧计划）→ 全部落规范卷，
   # 与 CP2 之前逐字节等价。卷按 (work_id, title) 幂等复用，同名不重复建卷。
-  defp materialize_chapter_structure(repo, work_id, content) do
-    content
-    |> ChapterPlanParser.parse()
-    |> reduce_planned_chapters(repo, work_id)
+  defp materialize_chapter_structure(repo, work_id, content, artifact_id) do
+    %{chapters: chapters, volume_blueprints: volume_blueprints} =
+      ChapterPlanParser.parse_with_volumes(content)
+
+    with {:ok, _volumes} <-
+           materialize_volume_blueprints(repo, work_id, volume_blueprints, artifact_id) do
+      reduce_planned_chapters(chapters, repo, work_id)
+    end
   end
+
+  # 卷蓝图物化（VS-00J §3.1）：采纳=作者对卷纲的定稿授权，逐卷按 (work_id, seq)
+  # upsert—不存在则按给定 seq 插入（规划物化 → PLANNED），已存在只在 title/blueprint
+  # 变化时更新（改名不新建重复卷；existing 行 status 不动）。
+  defp materialize_volume_blueprints(_repo, _work_id, [], _artifact_id), do: {:ok, []}
+
+  defp materialize_volume_blueprints(repo, work_id, volume_blueprints, artifact_id) do
+    Enum.reduce_while(volume_blueprints, {:ok, []}, fn blueprint, {:ok, acc} ->
+      case upsert_volume_blueprint(repo, work_id, blueprint, artifact_id) do
+        {:ok, volume} -> {:cont, {:ok, [volume | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, volumes} -> {:ok, Enum.reverse(volumes)}
+      error -> error
+    end
+  end
+
+  defp upsert_volume_blueprint(
+         repo,
+         work_id,
+         %{seq: seq, title: title, blueprint: blueprint},
+         artifact_id
+       ) do
+    blueprint = confirmed_blueprint(blueprint, artifact_id)
+
+    Volume
+    |> where([v], v.work_id == ^work_id and v.seq == ^seq)
+    |> limit(1)
+    |> repo.one()
+    |> case do
+      nil ->
+        insert_volume(repo, %{
+          work_id: work_id,
+          title: title,
+          seq: seq,
+          status: StructureStatus.planned(),
+          blueprint: blueprint
+        })
+
+      %Volume{} = existing ->
+        changes =
+          %{}
+          |> maybe_put_changed(:title, existing.title, title)
+          |> maybe_put_changed(:blueprint, existing.blueprint, blueprint)
+
+        if changes == %{} do
+          {:ok, existing}
+        else
+          existing |> Volume.changeset(changes) |> repo.update()
+        end
+    end
+  end
+
+  # 采纳即定稿（VS-00J §3.1，不新增确认门）：补三态 CONFIRMED 与来源引用
+  # `artifact:<artifact_id>`；无设计槽（只写了卷名/序号）不伪造 provenance 占位蓝图。
+  defp confirmed_blueprint(blueprint, artifact_id) do
+    normalized = VolumeBlueprint.to_storage(blueprint)
+
+    if VolumeBlueprint.empty?(normalized) do
+      nil
+    else
+      normalized
+      |> VolumeBlueprint.put_status(VolumeBlueprintStatus.confirmed())
+      |> VolumeBlueprint.merge(source_ref(artifact_id))
+    end
+  end
+
+  defp source_ref(artifact_id) when is_binary(artifact_id) and artifact_id != "",
+    do: %{"source_ref" => "artifact:#{artifact_id}"}
+
+  defp source_ref(_artifact_id), do: nil
+
+  defp maybe_put_changed(changes, _field, same, same), do: changes
+  defp maybe_put_changed(changes, field, _existing, value), do: Map.put(changes, field, value)
 
   defp reduce_planned_chapters(chapters, repo, work_id) do
     Enum.reduce_while(chapters, {:ok, 0}, fn chapter, {:ok, n} ->
-      with {:ok, volume} <- find_or_create_volume(repo, work_id, chapter[:volume_title]),
+      with {:ok, volume} <-
+             find_or_create_volume(
+               repo,
+               work_id,
+               chapter[:volume_title],
+               StructureStatus.planned()
+             ),
            :ok <- ensure_planned_chapter(repo, work_id, volume.id, chapter) do
         {:cont, {:ok, n + 1}}
       else
@@ -902,9 +997,17 @@ defmodule NovelPersistence.AdoptionRepository do
   # 当前作品的规范卷：复用已存在的（计划物化或历史采纳建的）首个卷；无则建默认卷。
   # AU08 CP2 起，计划章可标注所属卷（`所属卷：xxx`）：给了卷标题就按 (work_id, title)
   # 幂等取用/新建，没给就仍落规范卷（单卷书与旧计划逐字节等价）。
-  defp find_or_create_volume(repo, work_id, volume_title \\ nil)
+  # B11A CP1 卷状态修复（VS-00J §2.3）：**新建**卷的状态由调用方给——规划物化
+  # （卷蓝图/章计划）写 PLANNED，正文采纳在无卷信息时自动建的规范单卷保持 COMPLETED
+  # （存量/单卷逐字节等价）；已存在的卷不改状态（不把历史事实打回/推高）。
+  defp find_or_create_volume(
+         repo,
+         work_id,
+         volume_title \\ nil,
+         insert_status \\ StructureStatus.completed()
+       )
 
-  defp find_or_create_volume(repo, work_id, volume_title)
+  defp find_or_create_volume(repo, work_id, volume_title, insert_status)
        when is_binary(volume_title) and volume_title != "" do
     title = String.trim(volume_title)
 
@@ -917,7 +1020,8 @@ defmodule NovelPersistence.AdoptionRepository do
         insert_volume(repo, %{
           work_id: work_id,
           title: title,
-          seq: next_volume_seq(repo, work_id)
+          seq: next_volume_seq(repo, work_id),
+          status: insert_status
         })
 
       volume ->
@@ -925,7 +1029,7 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
-  defp find_or_create_volume(repo, work_id, _volume_title) do
+  defp find_or_create_volume(repo, work_id, _volume_title, insert_status) do
     Volume
     |> where([v], v.work_id == ^work_id)
     |> order_by([v], asc: v.seq)
@@ -936,7 +1040,8 @@ defmodule NovelPersistence.AdoptionRepository do
         insert_volume(repo, %{
           work_id: work_id,
           title: @default_volume_title,
-          seq: next_volume_seq(repo, work_id)
+          seq: next_volume_seq(repo, work_id),
+          status: insert_status
         })
 
       volume ->
@@ -1016,9 +1121,10 @@ defmodule NovelPersistence.AdoptionRepository do
     (Volume |> where([v], v.work_id == ^work_id) |> repo.aggregate(:max, :seq) || 0) + 1
   end
 
+  # 卷状态不再恒写 COMPLETED（B11A CP1 / VS-00J §2.3）：状态由调用方按路径显式给。
   defp insert_volume(repo, attrs) do
     %Volume{}
-    |> Volume.changeset(Map.put_new(attrs, :status, StructureStatus.completed()))
+    |> Volume.changeset(attrs)
     |> repo.insert()
   end
 

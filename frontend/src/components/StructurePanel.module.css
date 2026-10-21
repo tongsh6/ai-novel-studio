@@ -129,6 +129,43 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* B11A CP4-lite（43 §5.0.6）：大纲 tab 卷蓝图只读块（get_toc.volumes[].blueprint）。
+   视觉层级低于章卡片：不做卡片边框/底色，只用左侧细线 + 次要色，位于卷头之后、
+   该卷章列表之前。 */
+.volumeBlueprintBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0 4px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--border);
+}
+
+.volumeBlueprintHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+
+.volumeBlueprintStatus {
+  color: var(--foreground-secondary);
+}
+
+.volumeBlueprintRow {
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.volumeBlueprintRowLabel {
+  color: var(--foreground-secondary);
+}
+
 .cardAccent {
   padding: 16px;
   border: 1px solid var(--accent);

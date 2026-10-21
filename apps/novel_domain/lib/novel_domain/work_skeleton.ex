@@ -91,6 +91,11 @@ defmodule NovelDomain.WorkSkeleton do
   落进单一默认卷（B11 / NEM-GAP-07）。字段在场 ≠ 守则生效，故此处给出**指令式**分卷要求
   与精确到行的输出格式（`ChapterPlanParser` 的解析口径）。
 
+  B11A CP2（VS-00J §3.1）：同一守则增补**卷蓝图行**格式说明——多卷时每卷另起一行写
+  卷级蓝图（E14-E17 最小结构化槽），行格式与 `ChapterPlanParser.parse_with_volumes/1`
+  的解析口径逐字一致，且必须单行（parser 只做单行解析，续行丢弃）。单卷书不发卷蓝图
+  指令（无卷可蓝，逐章标注与蓝图行都是噪声；I-VOL-4 退化等价）。
+
   单卷（或未立卷数）不发指令——单卷书逐章标注是噪声。
   """
   @spec volume_directive(snapshot()) :: String.t()
@@ -99,7 +104,8 @@ defmodule NovelDomain.WorkSkeleton do
       n when is_integer(n) and n > 1 ->
         "分卷规划要求：全书分 #{n} 卷，每章必须在结构化方向中另起一行标注所属卷，" <>
           "格式为「所属卷：卷标题」（例：所属卷：第一卷）；同卷各章连续排列，" <>
-          "卷标题在全书内保持一致，不要为同一卷起两个名字。"
+          "卷标题在全书内保持一致，不要为同一卷起两个名字。\n" <>
+          volume_blueprint_directive()
 
       _ ->
         ""
@@ -107,6 +113,16 @@ defmodule NovelDomain.WorkSkeleton do
   end
 
   def volume_directive(_snapshot), do: ""
+
+  # 卷蓝图行格式：与 parser 的标签词表同源（`NovelDomain.VolumeBlueprint` 设计槽），
+  # 单行、｜分隔。高潮章/缓冲章按 VS-00J §2.1 只允许章标题引用（章号是 work 级全局派生值）。
+  defp volume_blueprint_directive do
+    "卷蓝图要求：每卷另写一行卷蓝图（必须单行、子槽用｜分隔），" <>
+      "格式为「卷蓝图：卷标题｜序号：N｜目标冲突：…｜弧光阶段：…｜地图边界：…｜" <>
+      "支线启动：…｜支线推进：…｜支线收束：…｜高潮章：…｜爽点密度：…｜缓冲章：…｜" <>
+      "新人物：…｜新设定：…｜新地图：…」，序号从 1 起；" <>
+      "没有把握的子槽可省略，但标签不要改写；高潮章/缓冲章只写章标题、不写章号。"
+  end
 
   @doc "收官守则文本：距目标体量尚远 → 指令式禁终局；接近 → 可安排收束。"
   @spec closure_directive(float()) :: String.t()

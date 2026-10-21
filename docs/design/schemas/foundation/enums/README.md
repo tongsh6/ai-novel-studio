@@ -31,3 +31,4 @@
 | [structure_status.json](structure_status.json) | StructureStatus 枚举真源 |
 | [task_phase.json](task_phase.json) | TaskPhase 枚举真源 |
 | [turn_phase.json](turn_phase.json) | TurnPhase 枚举真源 |
+| [volume_blueprint_status.json](volume_blueprint_status.json) | VolumeBlueprintStatus 枚举真源（卷级蓝图三态，VS-00J §2.1 / ADR-0028） |

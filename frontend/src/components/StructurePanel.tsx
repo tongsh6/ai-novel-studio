@@ -1,4 +1,4 @@
-// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1，角色归并见 §5.0.2，本章使命见 §5.0.3，本轮规划使命见 §5.0.4，场次计划见 §5.0.5）
+// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1，角色归并见 §5.0.2，本章使命见 §5.0.3，本轮规划使命见 §5.0.4，场次计划见 §5.0.5，卷蓝图见 §5.0.6）
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 // Prototype: novel-studio.pen → 43§5-9-threads-panel (uyZGw)
 import * as Dialog from "@radix-ui/react-dialog";
@@ -19,6 +19,7 @@ import {
   reviewFindingDispositionLabel,
 } from "../lib/reviewFindingActions";
 import { toScenePlansView } from "../lib/scenePlanView";
+import { toVolumeBlueprintView } from "../lib/volumeBlueprintView";
 import { useAppStore } from "../lib/store";
 import {
   getToc,
@@ -37,6 +38,7 @@ import {
 } from "../lib/socket";
 import type {
   TocData,
+  TocVolume,
   CharacterData,
   MemoryItemData,
   WorkStats,
@@ -695,6 +697,31 @@ export function StructurePanel({
     );
   };
 
+  // B11A CP4-lite（43 §5.0.6 / VS-00J §2.1）：卷头下只读展示卷蓝图（目标冲突/弧光阶段/
+  // 地图边界/支线/高潮与节奏/新要素）。数据已在 get_toc.volumes[].blueprint 里，不新增
+  // 网络请求；只读，不新增 author_action；无 blueprint 的卷整块不渲染（诚实缺席）。
+  const renderVolumeBlueprint = (vol: TocVolume | undefined) => {
+    const view = toVolumeBlueprintView(vol?.blueprint);
+    if (!view) return null;
+
+    return (
+      <div className={styles.volumeBlueprintBlock}>
+        <div className={styles.volumeBlueprintHeader}>
+          <span>{view.heading}</span>
+          {view.statusLabel && (
+            <span className={styles.volumeBlueprintStatus}>{view.statusLabel}</span>
+          )}
+        </div>
+        {view.rows.map((row) => (
+          <div className={styles.volumeBlueprintRow} key={row.key}>
+            <span className={styles.volumeBlueprintRowLabel}>{row.label}</span>
+            {row.value}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   // AU12（43 §5.0.2）：档案侧角色身份归并——同名是同一人/别名/改名还是真重名
   // 只能由作者裁决；当前选中行是被并入方（source），弹窗里选保留行（target）。
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
@@ -1343,17 +1370,23 @@ export function StructurePanel({
                     {` · ${planChapters.length}${STRUCTURE_PANEL.chapterCountUnit}`}
                   </span>
                 </div>
-                {showVolumeGrouping
-                  ? planVolumes.map((vol) => (
-                      <div key={vol.id}>
-                        <div className={styles.volumeHeader}>
-                          {vol.title}
-                          {` · ${vol.chapters.length}${STRUCTURE_PANEL.chapterCountUnit}`}
-                        </div>
-                        {vol.chapters.map(renderPlanChapter)}
+                {showVolumeGrouping ? (
+                  planVolumes.map((vol) => (
+                    <div key={vol.id}>
+                      <div className={styles.volumeHeader}>
+                        {vol.title}
+                        {` · ${vol.chapters.length}${STRUCTURE_PANEL.chapterCountUnit}`}
                       </div>
-                    ))
-                  : planChapters.map(renderPlanChapter)}
+                      {renderVolumeBlueprint(vol)}
+                      {vol.chapters.map(renderPlanChapter)}
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    {renderVolumeBlueprint(planVolumes[0])}
+                    {planChapters.map(renderPlanChapter)}
+                  </>
+                )}
               </div>
             ) : pendingByTab.outline.length === 0 ? (
               <EmptyState
