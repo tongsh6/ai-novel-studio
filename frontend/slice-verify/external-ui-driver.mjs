@@ -7758,6 +7758,501 @@ async function driveAu08VolumeStructuredPlanning(page) {
     "Design-state volume closure directive leaked into the tentative prose draft body",
   );
 
+  // B11A CP3（VS-00J §3.2 形态 A）：第三阶段——档案大纲「后续卷规划 → 规划下一卷」真实动作。
+  // 服务端机械推导 volume_scope（只规划下一卷、章号全局续排）；候选/采纳走既有管道；
+  // 按钮只用用户可见文案定位，不新增 data-testid / 自动触发。
+  const planNextVolumeFrameStart = frames.length;
+
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    ({ headers, sectionTitle, buttonLabel }) => {
+      const text = document.body.innerText;
+      return (
+        headers.every((header) => text.includes(header)) &&
+        text.includes("已采纳章节计划") &&
+        text.includes(sectionTitle) &&
+        [...document.querySelectorAll("button")].some(
+          (element) => (element.textContent ?? "").trim() === buttonLabel,
+        )
+      );
+    },
+    { headers: volumeHeaders, sectionTitle: "后续卷规划", buttonLabel: "规划下一卷" },
+    { timeout: 15_000 },
+  );
+
+  // 位置口径（档案面板 DOM 顺序）：后续卷规划区在全书规划摘要之后、已采纳章节计划之前。
+  // 注意不能用 body.innerText 的全局字符序号：工作台对话区里 CP4 prose 的 user_message
+  // 文案还包含「已采纳章节计划」字样，会先于右侧档案面板出现。这里锚定档案面板区块元素。
+  const planNextVolumeLayout = await page.evaluate(() => {
+    const leafText = (element) => (element.textContent ?? "").trim();
+    const sectionBlockFor = (label) => {
+      const title = [...document.querySelectorAll("span")].find(
+        (element) => element.children.length === 0 && leafText(element) === label,
+      );
+      const header = title?.closest("div");
+      return header?.parentElement ?? null;
+    };
+
+    const targetBlock = sectionBlockFor("后续卷规划");
+    const skeletonBlock = sectionBlockFor("全书规划");
+    const planTitle = [...document.querySelectorAll("span")].find(
+      (element) =>
+        element.children.length === 0 && leafText(element).startsWith("已采纳章节计划"),
+    );
+    const planBlock = planTitle?.closest("div")?.parentElement ?? null;
+    if (!targetBlock || !skeletonBlock || !planBlock) {
+      return {
+        found: false,
+        has_target: Boolean(targetBlock),
+        has_skeleton: Boolean(skeletonBlock),
+        has_plan: Boolean(planBlock),
+      };
+    }
+
+    const follows = (first, second) =>
+      Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+    return {
+      found: true,
+      after_skeleton_summary: follows(skeletonBlock, targetBlock),
+      before_adopted_plan: follows(targetBlock, planBlock),
+    };
+  });
+  assert(
+    planNextVolumeLayout.found &&
+      planNextVolumeLayout.after_skeleton_summary &&
+      planNextVolumeLayout.before_adopted_plan,
+    `Archive outline did not render 后续卷规划 between the skeleton summary and the adopted chapter plan: ${JSON.stringify(
+      planNextVolumeLayout,
+    )}`,
+  );
+
+  const planNextVolumeButton = page.getByRole("button", { name: "规划下一卷" });
+  await planNextVolumeButton.waitFor({ state: "visible", timeout: 10_000 });
+  await planNextVolumeButton.click();
+
+  // 只等本阶段新增的帧，避免误读第一阶段 12 章规划帧。
+  const waitForNewFrame = async (predicate, message, timeoutMs = 60_000) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const match = frames.slice(planNextVolumeFrameStart).find(predicate);
+      if (match) return match;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(message);
+  };
+
+  const planNextVolumeFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "plan_next_volume" &&
+      String(frame.body?.work_id ?? "") === String(workId),
+    "Real workbench did not push plan_next_volume for the current work",
+    30_000,
+  );
+
+  const planNextVolumeReplyFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      Number(frame.body?.response?.volume_scope?.next_seq ?? 0) === 3,
+    "No ok plan_next_volume reply carrying the mechanical volume scope (next_seq=3) was received",
+    60_000,
+  );
+  const planNextVolumeReply = planNextVolumeReplyFrame.body.response ?? {};
+  const planNextVolumeScope = planNextVolumeReply.volume_scope ?? {};
+  const planNextVolumeTurnId = String(planNextVolumeReply.turn_id ?? "");
+  assert(planNextVolumeTurnId, "plan_next_volume reply did not carry turn_id");
+
+  const scopedOutlineFrame = await waitForNewFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "plot_outline" &&
+      frame.body?.tool_result?.output?.artifact_type === "outline_draft" &&
+      Number(frame.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) === 3,
+    "No scoped outline_draft turn_result (one volume + 3 opening chapters) was received",
+    240_000,
+  );
+  const scopedTurnResult = scopedOutlineFrame.body;
+  const scopedPendingArtifact = scopedTurnResult.adoption_state.pending[0];
+  const scopedItems = scopedPendingArtifact.payload?.items ?? [];
+  const scopedChapterCount = Number(
+    scopedPendingArtifact.payload?.chapter_count ?? scopedItems.length,
+  );
+  const scopedBlueprintLines = scopedItems
+    .flatMap((item) => String(item?.body ?? "").split("\n"))
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("卷蓝图："));
+  const scopedChapterTitles = scopedItems.map((item) => String(item?.title ?? "").trim());
+  const scopedChapterSeqs = scopedItems.map((item) => {
+    const match = String(item?.title ?? "").match(/^第\s*(\d+)\s*章/u);
+    return match ? Number(match[1]) : null;
+  });
+  const scopedVolumeAssignments = scopedItems.map((item) => {
+    const match = String(item?.body ?? "").match(/所属卷[:：]\s*(.+)/u);
+    return match ? match[1].trim() : null;
+  });
+  const scopedVolumeTitle = "第三卷·归墟";
+  assert(
+    scopedChapterCount === 3 && scopedItems.length === 3,
+    `Scoped outline did not carry exactly three opening chapters: ${JSON.stringify({
+      scopedChapterCount,
+      itemCount: scopedItems.length,
+    })}`,
+  );
+  assert(
+    scopedBlueprintLines.length === 1 &&
+      scopedBlueprintLines[0].startsWith(`卷蓝图：${scopedVolumeTitle}｜序号：3｜`),
+    `Scoped outline did not carry exactly one next-volume blueprint line: ${JSON.stringify(
+      scopedBlueprintLines,
+    )}`,
+  );
+  assert(
+    JSON.stringify(scopedChapterSeqs) === JSON.stringify([13, 14, 15]),
+    `Scoped outline chapter numbers were not the global continuation 13..15: ${JSON.stringify(
+      scopedChapterSeqs,
+    )}`,
+  );
+  assert(
+    scopedVolumeAssignments.length === 3 &&
+      scopedVolumeAssignments.every((title) => title === scopedVolumeTitle),
+    `Scoped outline chapters were not all assigned to ${scopedVolumeTitle}: ${JSON.stringify(
+      scopedVolumeAssignments,
+    )}`,
+  );
+  const scopedBlueprint = parsePlanBlueprintLine(scopedBlueprintLines[0]);
+  assert(
+    scopedBlueprint.title === scopedVolumeTitle && scopedBlueprint.seq === 3,
+    `Scoped blueprint line identity did not match the next volume: ${JSON.stringify(
+      scopedBlueprint,
+    )}`,
+  );
+
+  await page.waitForFunction(
+    (chapterTitle) => {
+      const text = document.body.innerText;
+      return /待确认的创作材料|大纲草稿/.test(text) && text.includes(chapterTitle);
+    },
+    scopedChapterTitles[0],
+    { timeout: 20_000 },
+  );
+
+  // 采纳 scoped 候选：档案待保存区同时挂着第二阶段的正文草稿（同为「保存到大纲」按钮），
+  // 故按 scoped 章节标题 + 按钮共同锚定候选卡（用户可见文本，无 data-testid），不点错卡。
+  const scopedCandidateCard = page
+    .locator("div")
+    .filter({ hasText: scopedChapterTitles[0] })
+    .filter({ has: page.getByRole("button", { name: "保存到大纲" }) })
+    .last();
+  await scopedCandidateCard.waitFor({ state: "visible", timeout: 20_000 });
+  const scopedAcceptButton = scopedCandidateCard.getByRole("button", { name: "保存到大纲" });
+  await scopedAcceptButton.waitFor({ state: "visible", timeout: 10_000 });
+  await scopedAcceptButton.click();
+
+  const scopedAcceptFrame = await waitForNewFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === scopedPendingArtifact.artifact_id,
+    "Real workbench did not send accept author_action for the scoped next-volume plan",
+    60_000,
+  );
+  const scopedActionResultFrame = await waitForNewFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "accepted" &&
+      frame.body?.artifact_id === scopedPendingArtifact.artifact_id,
+    "No accepted action_result was received for the scoped next-volume plan",
+    120_000,
+  );
+  const scopedAdoptionFrame = await waitForNewFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === scopedPendingArtifact.artifact_id,
+      ),
+    "No accepted adoption turn_result was received for the scoped next-volume plan",
+    120_000,
+  );
+  const scopedAdoptionTurnResult = scopedAdoptionFrame.body;
+
+  // 重开档案大纲：三卷分层（面板可能已被采纳动作关闭）。
+  let finalArchivePanelOpen = false;
+  for (let attempt = 0; attempt < 10 && !finalArchivePanelOpen; attempt += 1) {
+    finalArchivePanelOpen = await page
+      .getByRole("tab", { name: "大纲与结构" })
+      .isVisible()
+      .catch(() => false);
+    if (!finalArchivePanelOpen) await sleep(200);
+  }
+  if (!finalArchivePanelOpen) {
+    await page.getByRole("button", { name: "打开档案" }).first().click();
+  }
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+
+  const expectedThirdVolumeHeader = `${scopedVolumeTitle} · 3章`;
+  await page.waitForFunction(
+    ({ headers }) => {
+      const text = document.body.innerText;
+      return headers.every((header) => text.includes(header));
+    },
+    { headers: [...volumeHeaders, expectedThirdVolumeHeader] },
+    { timeout: 20_000 },
+  );
+
+  // 从「已采纳章节计划」区块按组读取三卷（与第一阶段同一可见 DOM 口径）。
+  const finalOutlineGroups = await page.evaluate(() => {
+    const header = [...document.querySelectorAll("span")].find((element) =>
+      (element.textContent ?? "").trim().startsWith("已采纳章节计划"),
+    );
+    const section = header?.closest("div")?.parentElement;
+    if (!section) return null;
+
+    return [...section.children].slice(1).map((group) => {
+      const lines = (group.innerText ?? "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const chapterStartIndex = lines.findIndex((line) => /^第\s*\d+\s*章/.test(line));
+      const blueprintIndex = lines.findIndex((line) => line.includes("卷蓝图"));
+      return {
+        header: lines[0] ?? "",
+        chapter_titles: lines.slice(1).filter((line) => /^第\s*\d+\s*章/.test(line)),
+        blueprint_lines:
+          blueprintIndex >= 0
+            ? lines.slice(blueprintIndex, chapterStartIndex >= 0 ? chapterStartIndex : lines.length)
+            : [],
+      };
+    });
+  });
+  assert(Array.isArray(finalOutlineGroups), "Archive outline did not render three volumes");
+  const threeVolumeHeaders = finalOutlineGroups.map((group) => group.header);
+  const threeVolumeChapterTitles = finalOutlineGroups.map((group) => group.chapter_titles);
+  const expectedThreeVolumeHeaders = [...volumeHeaders, expectedThirdVolumeHeader];
+  assert(
+    JSON.stringify(threeVolumeHeaders) === JSON.stringify(expectedThreeVolumeHeaders),
+    `Archive outline did not render the three expected volume headers: ${JSON.stringify({
+      threeVolumeHeaders,
+      expectedThreeVolumeHeaders,
+    })}`,
+  );
+  assert(
+    JSON.stringify(threeVolumeChapterTitles[0]) === JSON.stringify(planChapterTitlesByVolume[0]) &&
+      JSON.stringify(threeVolumeChapterTitles[1]) ===
+        JSON.stringify(planChapterTitlesByVolume[1]) &&
+      JSON.stringify(threeVolumeChapterTitles[2]) === JSON.stringify(scopedChapterTitles),
+    `Archive outline chapter membership changed after the next-volume adoption: ${JSON.stringify({
+      threeVolumeChapterTitles,
+      firstPlan: planChapterTitlesByVolume,
+      scopedChapterTitles,
+    })}`,
+  );
+  const thirdVolumeBlueprintText = (finalOutlineGroups[2]?.blueprint_lines ?? []).join("\n");
+  assert(
+    thirdVolumeBlueprintText.includes("卷蓝图") &&
+      thirdVolumeBlueprintText.includes(`目标冲突：${scopedBlueprint.goal_conflict}`) &&
+      thirdVolumeBlueprintText.includes(`高潮章：${scopedBlueprint.climaxes}`),
+    `Archive outline did not render the third volume read-only blueprint: ${JSON.stringify({
+      thirdVolumeBlueprintText,
+      scopedBlueprint,
+    })}`,
+  );
+
+  // 截图证据：把档案面板滚到第三卷表头（三卷目录 + 第三卷卷蓝图/章卡可见），
+  // 面板内部滚动不会进入 fullPage 截图，必须先 scrollIntoView。
+  await page
+    .getByText(expectedThirdVolumeHeader, { exact: true })
+    .first()
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, "au08-volume-structured-planning-plan-next-volume.png"),
+    fullPage: true,
+  });
+
+  // 三卷 TOC 投影帧（DB 投影）：卷/章归属/blueprint 全部来自后端 get_toc。
+  const threeVolumeTocFrame = await waitForFrame(
+    (frame) => {
+      const response = frame.body?.response ?? frame.payload?.response ?? frame.body;
+      return (
+        frame.direction === "received" &&
+        Array.isArray(response?.volumes) &&
+        response.volumes.length === 3
+      );
+    },
+    "get_toc projection frame did not carry three volumes after the next-volume adoption",
+    30_000,
+  );
+  const threeVolumeResponse =
+    threeVolumeTocFrame.body?.response ??
+    threeVolumeTocFrame.payload?.response ??
+    threeVolumeTocFrame.body;
+  const threeVolumeToc = (threeVolumeResponse?.volumes ?? []).map((volume) => {
+    const blueprint =
+      volume?.blueprint && typeof volume.blueprint === "object" ? volume.blueprint : {};
+    return {
+      id: String(volume?.id ?? ""),
+      title: String(volume?.title ?? ""),
+      seq: Number(volume?.seq ?? 0),
+      chapter_titles: (volume?.chapters ?? []).map((chapter) => String(chapter?.title ?? "")),
+      chapter_seqs: (volume?.chapters ?? []).map((chapter) => Number(chapter?.seq ?? 0)),
+      blueprint: {
+        has_blueprint: Object.keys(blueprint).length > 0,
+        status: String(blueprint.status ?? ""),
+        source_ref: String(blueprint.source_ref ?? ""),
+        goal_conflict: String(blueprint.goal_conflict ?? ""),
+        climaxes: String(blueprint.climaxes ?? ""),
+        buffers: String(blueprint.buffers ?? ""),
+      },
+    };
+  });
+  const expectedVolumeTitles = [...planVolumeTitles, scopedVolumeTitle];
+  assert(
+    threeVolumeToc.length === 3 &&
+      threeVolumeToc.every(
+        (volume, index) =>
+          volume.title === expectedVolumeTitles[index] && volume.seq === index + 1,
+      ),
+    `get_toc projection did not carry the three expected volumes in order: ${JSON.stringify(
+      threeVolumeToc.map((volume) => ({ title: volume.title, seq: volume.seq })),
+    )}`,
+  );
+  const chapterSeqContinuity = threeVolumeToc.flatMap((volume) => volume.chapter_seqs);
+  assert(
+    JSON.stringify(chapterSeqContinuity) ===
+      JSON.stringify(Array.from({ length: 15 }, (_unused, index) => index + 1)),
+    `Chapter seqs were not the global continuation 1..15 across three volumes: ${JSON.stringify(
+      chapterSeqContinuity,
+    )}`,
+  );
+  const scopedTocVolume = threeVolumeToc[2];
+  assert(
+    scopedTocVolume.blueprint.has_blueprint &&
+      scopedTocVolume.blueprint.status === "CONFIRMED" &&
+      scopedTocVolume.blueprint.source_ref ===
+        `artifact:${scopedPendingArtifact.artifact_id}` &&
+      scopedTocVolume.blueprint.goal_conflict === scopedBlueprint.goal_conflict,
+    `The third volume TOC node did not carry the adopted confirmed blueprint: ${JSON.stringify({
+      scopedTocVolume,
+      scopedArtifactId: scopedPendingArtifact.artifact_id,
+      scopedBlueprint,
+    })}`,
+  );
+  assert(
+    JSON.stringify(scopedTocVolume.chapter_titles) === JSON.stringify(scopedChapterTitles),
+    `The third volume TOC chapters did not match the adopted scoped plan: ${JSON.stringify({
+      toc: scopedTocVolume.chapter_titles,
+      planned: scopedChapterTitles,
+    })}`,
+  );
+  const previousVolumesUnchanged =
+    threeVolumeToc[0].blueprint.source_ref === expectedBlueprintSourceRef &&
+    threeVolumeToc[1].blueprint.source_ref === expectedBlueprintSourceRef &&
+    threeVolumeToc[0].blueprint.goal_conflict === planBlueprints[0].goal_conflict &&
+    threeVolumeToc[1].blueprint.goal_conflict === planBlueprints[1].goal_conflict &&
+    JSON.stringify(threeVolumeToc[0].chapter_titles) ===
+      JSON.stringify(planChapterTitlesByVolume[0]) &&
+    JSON.stringify(threeVolumeToc[1].chapter_titles) ===
+      JSON.stringify(planChapterTitlesByVolume[1]);
+  assert(
+    previousVolumesUnchanged,
+    `The first two volumes changed after the next-volume adoption: ${JSON.stringify(
+      threeVolumeToc.slice(0, 2),
+    )}`,
+  );
+
+  // 阅读目录：三卷头同序（既有两卷 + 新增第三卷）。
+  await clickVisibleReadingModeButton(page);
+  await page.waitForFunction(
+    (titles) =>
+      document.body.innerText.includes("阅读模式") &&
+      titles.every((title) => document.body.innerText.includes(title)) &&
+      !document.body.innerText.includes("暂无已采纳的章节内容"),
+    [planVolumeTitles[0], planVolumeTitles[1], scopedVolumeTitle],
+    { timeout: 20_000 },
+  );
+  const readingTocHeadersAfterThird = await page.evaluate(() => {
+    const title = [...document.querySelectorAll("div")].find(
+      (element) => element.children.length === 0 && (element.textContent ?? "").trim() === "目录",
+    );
+    const list = title?.nextElementSibling;
+    if (!list) return [];
+
+    return [...list.children].map((group) =>
+      ((group.firstElementChild?.textContent ?? "").trim()),
+    );
+  });
+  const readingTocThreeVolumes =
+    JSON.stringify(readingTocHeadersAfterThird) === JSON.stringify(expectedVolumeTitles);
+  assert(
+    readingTocThreeVolumes,
+    `Reading mode TOC did not show the three volume headers in order: ${JSON.stringify(
+      readingTocHeadersAfterThird,
+    )}`,
+  );
+
+  // planner prompt 外部证据（llm-calls）：机械范围段只出现 1 次，旧「全书分 N 卷」指令不再出现。
+  let scopedPlannerPrompt = null;
+  for (let attempt = 0; attempt < 40 && !scopedPlannerPrompt; attempt += 1) {
+    scopedPlannerPrompt = readPromptTexts().find((prompt) =>
+      prompt.includes("## 本轮规划范围（机械给定，不得改）"),
+    );
+    if (!scopedPlannerPrompt) await sleep(200);
+  }
+  assert(
+    scopedPlannerPrompt,
+    "Planner prompt did not carry the mechanical planning scope section",
+  );
+  const planningScopePromptCount = readPromptTexts().filter((prompt) =>
+    prompt.includes("## 本轮规划范围（机械给定，不得改）"),
+  ).length;
+  const expectedPlanningScopeFragments = [
+    "## 本轮规划范围（机械给定，不得改）",
+    "本轮只规划下一卷：第 3 卷",
+    "当前已有 2 卷",
+    "下一章号从 13 开始",
+    "不要重规划已有卷/已有章",
+  ];
+  const visiblePlanningScopeFragments = expectedPlanningScopeFragments.filter((fragment) =>
+    scopedPlannerPrompt.includes(fragment),
+  );
+  const planningScopeOldDirectiveAbsent = !scopedPlannerPrompt.includes("全书分 2 卷");
+  assert(
+    visiblePlanningScopeFragments.length === expectedPlanningScopeFragments.length,
+    `Planner prompt did not carry the mechanical planning scope fragments: ${JSON.stringify({
+      expectedPlanningScopeFragments,
+      visiblePlanningScopeFragments,
+    })}`,
+  );
+  assert(
+    planningScopePromptCount === 1,
+    `Mechanical planning scope section appeared in ${planningScopePromptCount} prompts (expected 1)`,
+  );
+  assert(
+    planningScopeOldDirectiveAbsent,
+    "Planner prompt still carried the old book-level volume directive (全书分 2 卷)",
+  );
+
+  // 外部留痕：channel.plan_next_volume.done additive scope 字段（服务端机械推导）。
+  const planNextVolumeLogRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.plan_next_volume.done" &&
+      Number(record.next_seq ?? 0) === 3 &&
+      Number(record.current_volume_seq ?? 0) === 2 &&
+      Number(record.next_chapter_seq ?? 0) === 13 &&
+      Number(record.volume_count ?? 0) === 2 &&
+      Number(record.chapter_count ?? 0) === 12,
+    "No channel.plan_next_volume.done app log carrying the mechanical volume scope",
+    30_000,
+  );
+
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, generationTurnResult, sentMessage);
 
@@ -7846,6 +8341,54 @@ async function driveAu08VolumeStructuredPlanning(page) {
       coordinate_volume_ref_source: coordinateVolumeRefSource,
       current_volume_id: currentVolumeId,
       prose_volume_context_screenshot: true,
+      // B11A CP3：档案「规划下一卷」真实动作 → 机械 scope → scoped 候选（1 卷蓝图 + 3 章）
+      // → 采纳 → TOC 三卷、章号全局续排；planner prompt 带机械范围段。
+      plan_next_volume_sent: true,
+      plan_next_volume_payload: planNextVolumeFrame.body,
+      plan_next_volume_scope: planNextVolumeScope,
+      plan_next_volume_turn_id: planNextVolumeTurnId,
+      plan_next_volume_run_id: String(planNextVolumeReply.run_id ?? ""),
+      plan_next_volume_layout: planNextVolumeLayout,
+      plan_next_volume_log: {
+        next_seq: Number(planNextVolumeLogRecord.next_seq ?? 0),
+        current_volume_seq: Number(planNextVolumeLogRecord.current_volume_seq ?? 0),
+        next_chapter_seq: Number(planNextVolumeLogRecord.next_chapter_seq ?? 0),
+        volume_count: Number(planNextVolumeLogRecord.volume_count ?? 0),
+        chapter_count: Number(planNextVolumeLogRecord.chapter_count ?? 0),
+      },
+      scoped_outline_turn_id: scopedTurnResult.turn_id,
+      scoped_outline_parent_turn_id: planNextVolumeTurnId,
+      scoped_outline_adoption_turn_id: scopedAdoptionTurnResult.turn_id,
+      scoped_outline_artifact_id: scopedPendingArtifact.artifact_id,
+      scoped_outline_chapter_count: scopedChapterCount,
+      scoped_outline_volume_blueprint_lines: scopedBlueprintLines,
+      scoped_outline_blueprint: scopedBlueprint,
+      scoped_outline_chapter_titles: scopedChapterTitles,
+      scoped_outline_chapter_seqs: scopedChapterSeqs,
+      scoped_outline_volume_assignments: scopedVolumeAssignments,
+      scoped_outline_adopted: true,
+      scoped_accept_payload: scopedAcceptFrame.body,
+      scoped_action_result_status: scopedActionResultFrame.body.status,
+      three_volume_headers: threeVolumeHeaders,
+      three_volume_chapter_counts: finalOutlineGroups.map(
+        (group) => group.chapter_titles.length,
+      ),
+      three_volume_chapter_titles: threeVolumeChapterTitles,
+      three_volume_toc_blueprints: threeVolumeToc,
+      third_volume_blueprint: scopedTocVolume.blueprint,
+      previous_volumes_unchanged: previousVolumesUnchanged,
+      chapter_seq_continuity: chapterSeqContinuity,
+      reading_toc_volume_headers_after_third_volume: readingTocHeadersAfterThird,
+      reading_toc_three_volumes: readingTocThreeVolumes,
+      planning_scope_in_planner_prompt:
+        visiblePlanningScopeFragments.length === expectedPlanningScopeFragments.length &&
+        planningScopePromptCount === 1 &&
+        planningScopeOldDirectiveAbsent,
+      planning_scope_expected_fragments: expectedPlanningScopeFragments,
+      planning_scope_prompt_fragments: visiblePlanningScopeFragments,
+      planning_scope_prompt_count: planningScopePromptCount,
+      planning_scope_old_book_volume_directive_absent: planningScopeOldDirectiveAbsent,
+      plan_next_volume_screenshot: true,
     },
   ];
 }

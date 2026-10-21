@@ -436,6 +436,9 @@ const sliceKeyEvents = {
     "adoption.evaluate.done",
     "channel.author_action.done",
     "channel.get_toc.done",
+    // B11A CP3：开新卷动作真实 Channel 留痕（机械 scope 字段在本事件上）。
+    "channel.plan_next_volume.start",
+    "channel.plan_next_volume.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-draft-generation": [
@@ -14287,7 +14290,41 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
       record.volume_closure_after_volume_blueprint === true &&
       record.volume_closure_blank_line_separated === true &&
       record.writer_prompt_other_volume_stage_absent === true &&
-      record.volume_closure_in_draft_body === false,
+      record.volume_closure_in_draft_body === false &&
+      // B11A CP3：档案「规划下一卷」真实动作 → 机械 scope → scoped 候选 → 三卷 TOC。
+      record.plan_next_volume_sent === true &&
+      record.plan_next_volume_scope &&
+      record.plan_next_volume_scope.next_seq === 3 &&
+      record.plan_next_volume_scope.next_chapter_seq === 13 &&
+      String(record.plan_next_volume_turn_id ?? "") !== "" &&
+      record.plan_next_volume_layout &&
+      record.plan_next_volume_layout.after_skeleton_summary === true &&
+      record.plan_next_volume_layout.before_adopted_plan === true &&
+      String(record.scoped_outline_turn_id ?? "") !== "" &&
+      String(record.scoped_outline_artifact_id ?? "") !== "" &&
+      record.scoped_outline_chapter_count === 3 &&
+      Array.isArray(record.scoped_outline_volume_blueprint_lines) &&
+      record.scoped_outline_volume_blueprint_lines.length === 1 &&
+      Array.isArray(record.scoped_outline_chapter_titles) &&
+      record.scoped_outline_chapter_titles.length === 3 &&
+      Array.isArray(record.scoped_outline_chapter_seqs) &&
+      record.scoped_outline_chapter_seqs.length === 3 &&
+      Array.isArray(record.scoped_outline_volume_assignments) &&
+      record.scoped_outline_volume_assignments.length === 3 &&
+      record.scoped_outline_adopted === true &&
+      Array.isArray(record.three_volume_headers) &&
+      record.three_volume_headers.length === 3 &&
+      Array.isArray(record.three_volume_toc_blueprints) &&
+      record.three_volume_toc_blueprints.length === 3 &&
+      Array.isArray(record.chapter_seq_continuity) &&
+      record.chapter_seq_continuity.length === 15 &&
+      Array.isArray(record.reading_toc_volume_headers_after_third_volume) &&
+      record.reading_toc_volume_headers_after_third_volume.length === 3 &&
+      record.planning_scope_in_planner_prompt === true &&
+      Array.isArray(record.planning_scope_prompt_fragments) &&
+      record.planning_scope_prompt_fragments.length >= 5 &&
+      record.planning_scope_prompt_count === 1 &&
+      record.planning_scope_old_book_volume_directive_absent === true,
   );
   if (!uiState) return null;
 
@@ -14465,6 +14502,131 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
   if (uiState.writer_prompt_other_volume_stage_absent !== true) return null;
   if (uiState.volume_closure_in_draft_body === true) return null;
 
+  // B11A CP3（VS-00J §3.2 形态 A / ADR-0028）：档案「规划下一卷」→ 机械 scope → scoped 规划
+  // （1 条下一卷卷蓝图行 + 3 章开篇）→ 采纳 → TOC 三卷、章号全局续排；旧全书卷数指令不再出现。
+  const planNextVolumeScope = uiState.plan_next_volume_scope ?? {};
+  if (planNextVolumeScope.next_seq !== 3) return null;
+  if (planNextVolumeScope.next_chapter_seq !== 13) return null;
+  if (planNextVolumeScope.current_volume_seq !== 2) return null;
+  if (planNextVolumeScope.current_volume_title !== planVolumeTitles[1]) return null;
+  if (planNextVolumeScope.existing_volume_count !== 2) return null;
+  if (planNextVolumeScope.existing_chapter_count !== 12) return null;
+
+  // app JSONL 独立复核服务端机械 scope（channel.plan_next_volume.done additive 字段）。
+  const planNextVolumeLog = records.find(
+    (record) =>
+      record.event === "channel.plan_next_volume.done" &&
+      record.next_seq === 3 &&
+      record.current_volume_seq === 2 &&
+      record.next_chapter_seq === 13 &&
+      record.volume_count === 2 &&
+      record.chapter_count === 12,
+  );
+  if (!planNextVolumeLog) return null;
+
+  const scopedVolumeTitle = "第三卷·归墟";
+  const scopedBlueprintLines = stringArray(uiState.scoped_outline_volume_blueprint_lines);
+  if (!scopedBlueprintLines || scopedBlueprintLines.length !== 1) return null;
+  if (!scopedBlueprintLines[0].startsWith(`卷蓝图：${scopedVolumeTitle}｜序号：3｜`)) return null;
+  const scopedChapterTitles = stringArray(uiState.scoped_outline_chapter_titles);
+  if (!scopedChapterTitles || scopedChapterTitles.length !== 3) return null;
+  const scopedChapterSeqs = Array.isArray(uiState.scoped_outline_chapter_seqs)
+    ? uiState.scoped_outline_chapter_seqs.map(Number)
+    : null;
+  if (!scopedChapterSeqs || JSON.stringify(scopedChapterSeqs) !== JSON.stringify([13, 14, 15])) {
+    return null;
+  }
+  const scopedAssignments = stringArray(uiState.scoped_outline_volume_assignments);
+  if (!scopedAssignments || scopedAssignments.length !== 3) return null;
+  if (scopedAssignments.some((title) => title !== scopedVolumeTitle)) return null;
+
+  // 三卷 TOC 投影：第三卷 CONFIRMED / source_ref 绑定本次采纳 artifact；章号 1..15 全局连续；
+  // 前两卷 blueprint 与章归属不变（新增卷不重排已有卷/章）。
+  const threeVolumeToc = Array.isArray(uiState.three_volume_toc_blueprints)
+    ? uiState.three_volume_toc_blueprints
+    : null;
+  if (!threeVolumeToc || threeVolumeToc.length !== 3) return null;
+  const chainSequences = Array.isArray(uiState.chapter_seq_continuity)
+    ? uiState.chapter_seq_continuity.map(Number)
+    : null;
+  if (
+    !chainSequences ||
+    JSON.stringify(chainSequences) !==
+      JSON.stringify(Array.from({ length: 15 }, (_unused, index) => index + 1))
+  ) {
+    return null;
+  }
+  const expectedVolumeTitles = [...planVolumeTitles, scopedVolumeTitle];
+  if (
+    threeVolumeToc.some(
+      (volume, index) =>
+        volume?.title !== expectedVolumeTitles[index] || volume?.seq !== index + 1,
+    )
+  ) {
+    return null;
+  }
+  const scopedTocVolume = threeVolumeToc[2];
+  const scopedTocBlueprint = scopedTocVolume?.blueprint;
+  if (!scopedTocBlueprint || typeof scopedTocBlueprint !== "object") return null;
+  if (scopedTocBlueprint.has_blueprint !== true) return null;
+  if (scopedTocBlueprint.status !== "CONFIRMED") return null;
+  if (
+    scopedTocBlueprint.source_ref !==
+    `artifact:${String(uiState.scoped_outline_artifact_id ?? "")}`
+  ) {
+    return null;
+  }
+  if (!String(scopedTocBlueprint.goal_conflict ?? "").trim()) return null;
+  if (
+    JSON.stringify((scopedTocVolume.chapter_seqs ?? []).map(Number)) !==
+    JSON.stringify([13, 14, 15])
+  ) {
+    return null;
+  }
+  if (
+    JSON.stringify(scopedTocVolume.chapter_titles ?? []) !== JSON.stringify(scopedChapterTitles)
+  ) {
+    return null;
+  }
+  if (uiState.previous_volumes_unchanged !== true) return null;
+  const threeVolumeHeaders = stringArray(uiState.three_volume_headers);
+  if (!threeVolumeHeaders || threeVolumeHeaders.length !== 3) return null;
+  if (threeVolumeHeaders[0] !== volumeHeaders[0] || threeVolumeHeaders[1] !== volumeHeaders[1]) {
+    return null;
+  }
+  if (threeVolumeHeaders[2] !== `${scopedVolumeTitle} · 3章`) return null;
+  const readingTocHeadersAfterThird = stringArray(
+    uiState.reading_toc_volume_headers_after_third_volume,
+  );
+  if (!readingTocHeadersAfterThird || readingTocHeadersAfterThird.length !== 3) return null;
+  if (
+    readingTocHeadersAfterThird[0] !== planVolumeTitles[0] ||
+    readingTocHeadersAfterThird[1] !== planVolumeTitles[1] ||
+    readingTocHeadersAfterThird[2] !== scopedVolumeTitle
+  ) {
+    return null;
+  }
+
+  // planner prompt（llm-calls 外部证据）：机械范围段仅 1 次、关键片段命中、旧全书卷数指令不再出现。
+  const planningScopeFragments = stringArray(uiState.planning_scope_prompt_fragments);
+  if (!planningScopeFragments || planningScopeFragments.length < 5) return null;
+  const requiredPlanningScopeFragments = [
+    "## 本轮规划范围（机械给定，不得改）",
+    "本轮只规划下一卷：第 3 卷",
+    "当前已有 2 卷",
+    "下一章号从 13 开始",
+    "不要重规划已有卷/已有章",
+  ];
+  if (
+    !requiredPlanningScopeFragments.every((fragment) =>
+      planningScopeFragments.some((value) => value.includes(fragment)),
+    )
+  ) {
+    return null;
+  }
+  if (uiState.planning_scope_prompt_count !== 1) return null;
+  if (uiState.planning_scope_old_book_volume_directive_absent !== true) return null;
+
   // 写作坐标：独立复核 app JSONL 的 additive volume_ref = get_toc 当前（第一卷）卷 id，
   // 不单信 driver 的布尔结论。
   const tocVolumeIds = (uiState.toc_volume_blueprints ?? []).map((volume) =>
@@ -14571,7 +14733,20 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
     turn_id: generationTurnId,
     // 规划 turn（父+执行子 turn）与 CP4 prose turn（父+执行子 turn）都进证据范围，
     // app-log.json 因此包含两个真实 turn 的关键事件。
-    turn_ids: [...new Set([parentTurnId, generationTurnId, proseParentTurnId, proseTurnId])],
+    // 规划 turn、CP4 prose turn、CP3 scoped 开新卷 turn（父+执行子+采纳）都进证据范围。
+    turn_ids: [
+      ...new Set(
+        [
+          parentTurnId,
+          generationTurnId,
+          proseParentTurnId,
+          proseTurnId,
+          String(uiState.scoped_outline_parent_turn_id ?? ""),
+          String(uiState.scoped_outline_turn_id ?? ""),
+          String(uiState.scoped_outline_adoption_turn_id ?? ""),
+        ].filter((turnId) => turnId !== ""),
+      ),
+    ],
     generation_turn_id: generationTurnId,
     parent_turn_id: parentTurnId,
     adoption_turn_id: adoptionTurnId,
@@ -14632,6 +14807,54 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
     coordinate_volume_ref_matches_toc_volume: true,
     coordinate_volume_ref_source: "app_jsonl",
     current_volume_id: tocVolumeIds[0],
+    // B11A CP3：开新卷动作（机械 scope + scoped 候选 + 三卷 TOC + planner 范围段）。
+    plan_next_volume_sent: true,
+    plan_next_volume_scope: planNextVolumeScope,
+    plan_next_volume_turn_id: String(uiState.plan_next_volume_turn_id ?? ""),
+    plan_next_volume_run_id: String(uiState.plan_next_volume_run_id ?? ""),
+    plan_next_volume_layout: uiState.plan_next_volume_layout,
+    plan_next_volume_log: {
+      next_seq: Number(planNextVolumeLog.next_seq ?? 0),
+      current_volume_seq: Number(planNextVolumeLog.current_volume_seq ?? 0),
+      next_chapter_seq: Number(planNextVolumeLog.next_chapter_seq ?? 0),
+      volume_count: Number(planNextVolumeLog.volume_count ?? 0),
+      chapter_count: Number(planNextVolumeLog.chapter_count ?? 0),
+    },
+    scoped_outline_turn_id: String(uiState.scoped_outline_turn_id ?? ""),
+    scoped_outline_parent_turn_id: String(uiState.scoped_outline_parent_turn_id ?? ""),
+    scoped_outline_adoption_turn_id: String(uiState.scoped_outline_adoption_turn_id ?? ""),
+    scoped_outline_artifact_id: String(uiState.scoped_outline_artifact_id ?? ""),
+    scoped_outline_chapter_count: 3,
+    scoped_outline_volume_blueprint_lines: scopedBlueprintLines,
+    scoped_outline_blueprint: uiState.scoped_outline_blueprint ?? null,
+    scoped_outline_chapter_titles: scopedChapterTitles,
+    scoped_outline_chapter_seqs: scopedChapterSeqs,
+    scoped_outline_volume_assignments: scopedAssignments,
+    scoped_outline_adopted: true,
+    three_volume_headers: threeVolumeHeaders,
+    three_volume_chapter_counts: (uiState.three_volume_chapter_counts ?? []).map(Number),
+    three_volume_chapter_titles: uiState.three_volume_chapter_titles ?? [],
+    three_volume_toc_blueprints: threeVolumeToc.map((volume) => ({
+      id: String(volume?.id ?? ""),
+      title: String(volume?.title ?? ""),
+      seq: Number(volume?.seq ?? 0),
+      chapter_count: (volume?.chapter_titles ?? []).length,
+      blueprint: {
+        has_blueprint: volume?.blueprint?.has_blueprint === true,
+        status: String(volume?.blueprint?.status ?? ""),
+        source_ref: String(volume?.blueprint?.source_ref ?? ""),
+        goal_conflict: String(volume?.blueprint?.goal_conflict ?? ""),
+      },
+    })),
+    third_volume_blueprint: scopedTocBlueprint,
+    previous_volumes_unchanged: true,
+    chapter_seq_continuity: chainSequences,
+    reading_toc_volume_headers_after_third_volume: readingTocHeadersAfterThird,
+    reading_toc_three_volumes: true,
+    planning_scope_in_planner_prompt: true,
+    planning_scope_prompt_fragments: planningScopeFragments,
+    planning_scope_prompt_count: 1,
+    planning_scope_old_book_volume_directive_absent: true,
     key_events: keyEvents,
   };
 }
@@ -15282,6 +15505,56 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
   if (evidence.writer_prompt_other_volume_stage_absent !== true) return null;
   if (evidence.volume_closure_in_draft_body === true) return null;
 
+  // B11A CP3：档案「规划下一卷」真实动作 → 机械 scope → scoped 规划（1 卷蓝图 + 3 章）
+  // → 采纳 → 三卷 TOC；planner prompt 带机械范围段且旧全书卷数指令不再出现。
+  const planNextVolumeLog = records.find(
+    (record) =>
+      record.event === "channel.plan_next_volume.done" &&
+      record.next_seq === 3 &&
+      record.current_volume_seq === 2 &&
+      record.next_chapter_seq === 13 &&
+      record.volume_count === 2 &&
+      record.chapter_count === 12,
+  );
+  if (!planNextVolumeLog) return null;
+  if (evidence.plan_next_volume_sent !== true) return null;
+  if (!evidence.plan_next_volume_scope || evidence.plan_next_volume_scope.next_seq !== 3) {
+    return null;
+  }
+  if (evidence.plan_next_volume_scope.next_chapter_seq !== 13) return null;
+  if (evidence.scoped_outline_adopted !== true) return null;
+  const scopedBlueprintLines = evidence.scoped_outline_volume_blueprint_lines;
+  if (!Array.isArray(scopedBlueprintLines) || scopedBlueprintLines.length !== 1) return null;
+  const scopedChapterTitles = evidence.scoped_outline_chapter_titles;
+  if (!Array.isArray(scopedChapterTitles) || scopedChapterTitles.length !== 3) return null;
+  if (
+    JSON.stringify(evidence.scoped_outline_chapter_seqs ?? []) !==
+    JSON.stringify([13, 14, 15])
+  ) {
+    return null;
+  }
+  const threeVolumeHeaders = evidence.three_volume_headers;
+  if (!Array.isArray(threeVolumeHeaders) || threeVolumeHeaders.length !== 3) return null;
+  if (evidence.previous_volumes_unchanged !== true) return null;
+  if (evidence.planning_scope_in_planner_prompt !== true) return null;
+  if (evidence.planning_scope_prompt_count !== 1) return null;
+  if (evidence.planning_scope_old_book_volume_directive_absent !== true) return null;
+  // scoped turn 的真实留痕按 turn_id 绑定（工具执行 + 采纳授权都在本次 scoped 执行 turn 上）。
+  if (evidence.scoped_outline_turn_id) {
+    if (
+      !turnsHaveEvent([evidence.scoped_outline_turn_id], turnRecords, "toolbox.execute.done")
+    ) {
+      return null;
+    }
+    if (
+      !turnsHaveEvent([evidence.scoped_outline_turn_id], turnRecords, "channel.author_action.done")
+    ) {
+      return null;
+    }
+  } else {
+    return null;
+  }
+
   return {
     slice_id: "au08-volume-structured-planning",
     behavior: "chapter_plan_materialized_into_declared_volumes_and_read_by_volume",
@@ -15298,6 +15571,13 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
     volume_closure_occurrence_count: evidence.volume_closure_occurrence_count,
     coordinate_volume_ref: evidence.coordinate_volume_ref,
     current_volume_id: evidence.current_volume_id,
+    plan_next_volume_scope: evidence.plan_next_volume_scope,
+    scoped_outline_volume_blueprint_lines: scopedBlueprintLines,
+    scoped_outline_chapter_titles: scopedChapterTitles,
+    scoped_outline_chapter_seqs: evidence.scoped_outline_chapter_seqs,
+    three_volume_headers: threeVolumeHeaders,
+    three_volume_chapter_counts: evidence.three_volume_chapter_counts,
+    planning_scope_prompt_fragments: evidence.planning_scope_prompt_fragments,
     assertions: [
       "real_archive_outline_start_planning_clicked",
       "micro_plan_requested_from_real_workbench",
@@ -15318,6 +15598,9 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
       "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
       "writing_coordinate_volume_ref_bound_to_current_volume",
       "prose_writer_prompt_carried_volume_closure_directive",
+      "archive_plan_next_volume_action_scoped_to_next_volume",
+      "scoped_volume_blueprint_and_opening_chapters_materialized",
+      "planner_prompt_carried_mechanical_volume_scope",
     ],
   };
 }

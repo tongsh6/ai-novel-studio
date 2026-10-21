@@ -40,6 +40,15 @@ user_flow:
   - wait_for: 真实 prose turn 完成且待保存正文草稿卡可见（B11A CP4）
   - see: writer prompt 携带「当前卷蓝图（设计态）」段（llm-calls 外部证据）
   - see: writer prompt 在该段之后以空行携带卷级收束守则（默认分支：本卷内可小收束、不得写全书终局；B11A CP5）
+  - reopen: archive outline
+  - see: 「后续卷规划」区块与「规划下一卷」按钮（位于全书规划摘要之后、已采纳章节计划之前）
+  - click: 规划下一卷
+  - wait_for: scoped 章节计划候选（1 条「卷蓝图：第三卷·归墟｜序号：3｜…」行 + 第13/14/15 章，逐章「所属卷：第三卷·归墟」）
+  - click: 保存到大纲
+  - reopen: archive outline
+  - wait_for: 三个卷表头（第一卷 · 5章 / 第二卷 · 7章 / 第三卷 · 归墟 · 3章）
+  - click: 阅读
+  - wait_for: 阅读目录出现三个卷头（B11A CP3）
 
 evidence:
   required:
@@ -58,12 +67,17 @@ assertions:
     - volume blueprint block shows 目标冲突/支线：启动：/高潮与节奏：/新要素： rows, per-volume distinct
     - reading mode TOC renders the same two volume headers in the same order
     - archive outline starts a real prose draft for a chapter under volume 1 and the tentative draft card is visible
+    - archive outline renders 后续卷规划 / 规划下一卷 between the skeleton summary and the adopted chapter plan, and after the action it renders three volume headers (5/7/3 chapters)
+    - archive outline renders the third volume read-only blueprint (卷蓝图/目标冲突/高潮章) after its volume header, before its chapter cards; reading mode TOC shows the three volume headers in order
   network:
     - user_message sent with micro plan
     - plot_outline outline_draft turn_result received with per-chapter volume assignment and two per-volume blueprint lines
     - author_action accept sent and accepted
     - get_toc reply carries two volumes, each volume node carrying the adopted blueprint
     - prose turn user_message sent with micro plan and prose_writing prose_fragment turn_result received
+    - plan_next_volume channel push sent with work_id and ok reply carries turn_id + mechanical volume_scope (next_seq=3, next_chapter_seq=13, current_volume_title=第二卷·裂变)
+    - scoped plot_outline outline_draft turn_result received with exactly one third-volume blueprint line and three opening chapters (第13/14/15章)
+    - get_toc reply after the next-volume adoption carries three volumes with global chapter seq continuity 1..15
   data:
     - judgment selected the plot_outline capability and the turn ran as a bounded run
     - toolbox.execute.done for plot_outline is bound to the executing turn by decision_id
@@ -75,6 +89,10 @@ assertions:
     - turn_execution.writing_coordinate.done binds volume_ref to the current (volume-1) id from get_toc
     - writer prompt carries the volume closure directive after the current-volume blueprint section, blank-line separated and exactly once (default branch: 本卷为「第一卷·觉醒」…允许在本卷内做小收束…不得写全书终局/大结局/完结章), without faking the 85%-book-progress full-book priority branch
     - design-state volume blueprint never leaks into the tentative prose draft body
+    - channel.plan_next_volume.done records the mechanical scope (next_seq=3, current_volume_seq=2, next_chapter_seq=13, volume_count=2, chapter_count=12)
+    - scoped candidate carries exactly one volume blueprint line (第三卷·归墟, 序号 3) and three chapters assigned to 第三卷·归墟 with global chapter seqs 13/14/15
+    - after adoption the third volume exists with blueprint status=CONFIRMED and source_ref=artifact:<scoped adopted artifact id>, three chapters seq 13/14/15, while the first two volumes' blueprints/chapter membership stay unchanged
+    - planner prompt carries the mechanical 本轮规划范围（机械给定，不得改）section exactly once (本轮只规划下一卷：第 3 卷 / 当前已有 2 卷 / 下一章号从 13 开始 / 不要重规划已有卷/已有章) and no longer carries the old book-level 全书分 2 卷 directive
 
 anti_hooks:
   product_acceptance_logic_added: false

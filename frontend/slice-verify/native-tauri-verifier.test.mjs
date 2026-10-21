@@ -8997,12 +8997,15 @@ describe("native Tauri slice verifier", () => {
     expect(evidence).toEqual({
       slice_id: "au08-volume-structured-planning",
       turn_id: "turn-au08:agent:4",
-      // 规划 turn（父+执行子）与 CP4 prose turn（父+执行子）都进证据范围。
+      // 规划 turn、CP4 prose turn、CP3 scoped 开新卷 turn（父+执行子+采纳）都进证据范围。
       turn_ids: [
         "turn-au08",
         "turn-au08:agent:4",
         "turn-au08-prose",
         "turn-au08-prose:agent:5",
+        "turn-au08-next-volume",
+        "turn-au08-next-volume:agent:6",
+        "turn-au08-next-volume-adopt",
       ],
       generation_turn_id: "turn-au08:agent:4",
       parent_turn_id: "turn-au08",
@@ -9115,6 +9118,107 @@ describe("native Tauri slice verifier", () => {
       coordinate_volume_ref_matches_toc_volume: true,
       coordinate_volume_ref_source: "app_jsonl",
       current_volume_id: "volume-au08-1",
+      // B11A CP3：档案「规划下一卷」机械 scope → scoped 候选 → 三卷 TOC + planner 范围段。
+      plan_next_volume_sent: true,
+      plan_next_volume_scope: {
+        next_seq: 3,
+        current_volume_seq: 2,
+        current_volume_title: "第二卷·裂变",
+        next_chapter_seq: 13,
+        existing_volume_count: 2,
+        existing_chapter_count: 12,
+      },
+      plan_next_volume_turn_id: "turn-au08-next-volume",
+      plan_next_volume_run_id: "run-au08-next-volume",
+      plan_next_volume_layout: {
+        section_index: 1,
+        after_skeleton_summary: true,
+        before_adopted_plan: true,
+      },
+      plan_next_volume_log: {
+        next_seq: 3,
+        current_volume_seq: 2,
+        next_chapter_seq: 13,
+        volume_count: 2,
+        chapter_count: 12,
+      },
+      scoped_outline_turn_id: "turn-au08-next-volume:agent:6",
+      scoped_outline_parent_turn_id: "turn-au08-next-volume",
+      scoped_outline_adoption_turn_id: "turn-au08-next-volume-adopt",
+      scoped_outline_artifact_id: "artifact-outline-au08-next",
+      scoped_outline_chapter_count: 3,
+      scoped_outline_volume_blueprint_lines: [au08ScopedBlueprintLine()],
+      scoped_outline_blueprint: au08ScopedBlueprint(),
+      scoped_outline_chapter_titles: au08ScopedChapterTitles(),
+      scoped_outline_chapter_seqs: [13, 14, 15],
+      scoped_outline_volume_assignments: [
+        "第三卷·归墟",
+        "第三卷·归墟",
+        "第三卷·归墟",
+      ],
+      scoped_outline_adopted: true,
+      three_volume_headers: [
+        "第一卷·觉醒 · 5章",
+        "第二卷·裂变 · 7章",
+        "第三卷·归墟 · 3章",
+      ],
+      three_volume_chapter_counts: [5, 7, 3],
+      three_volume_chapter_titles: [
+        au08VolumeOneChapters(),
+        au08VolumeTwoChapters(),
+        au08ScopedChapterTitles(),
+      ],
+      three_volume_toc_blueprints: [
+        {
+          id: "volume-au08-1",
+          title: "第一卷·觉醒",
+          seq: 1,
+          chapter_count: 5,
+          blueprint: {
+            has_blueprint: true,
+            status: "CONFIRMED",
+            source_ref: "artifact:artifact-outline-au08",
+            goal_conflict: "查清灵气账单被篡改的第一条线索",
+          },
+        },
+        {
+          id: "volume-au08-2",
+          title: "第二卷·裂变",
+          seq: 2,
+          chapter_count: 7,
+          blueprint: {
+            has_blueprint: true,
+            status: "CONFIRMED",
+            source_ref: "artifact:artifact-outline-au08",
+            goal_conflict: "在频段封锁前夺回被抽走的城市灵气",
+          },
+        },
+        {
+          id: "volume-au08-3",
+          title: "第三卷·归墟",
+          seq: 3,
+          chapter_count: 3,
+          blueprint: {
+            has_blueprint: true,
+            status: "CONFIRMED",
+            source_ref: "artifact:artifact-outline-au08-next",
+            goal_conflict: "解决第二卷留下的频段裂痕",
+          },
+        },
+      ],
+      third_volume_blueprint: au08ThirdVolumeBlueprint(),
+      previous_volumes_unchanged: true,
+      chapter_seq_continuity: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      reading_toc_volume_headers_after_third_volume: [
+        "第一卷·觉醒",
+        "第二卷·裂变",
+        "第三卷·归墟",
+      ],
+      reading_toc_three_volumes: true,
+      planning_scope_in_planner_prompt: true,
+      planning_scope_prompt_fragments: au08PlanningScopePromptFragments(),
+      planning_scope_prompt_count: 1,
+      planning_scope_old_book_volume_directive_absent: true,
       key_events: keyEventsForSlice("au08-volume-structured-planning"),
     });
 
@@ -9130,6 +9234,9 @@ describe("native Tauri slice verifier", () => {
         "turn-au08:agent:4",
         "turn-au08-prose",
         "turn-au08-prose:agent:5",
+        "turn-au08-next-volume",
+        "turn-au08-next-volume:agent:6",
+        "turn-au08-next-volume-adopt",
       ],
       chapter_count: 12,
       volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章"],
@@ -9213,6 +9320,25 @@ describe("native Tauri slice verifier", () => {
         "不得写全书终局/大结局/完结章",
       ],
       volume_closure_occurrence_count: 1,
+      // B11A CP3：开新卷动作证据透传进 behavior。
+      plan_next_volume_scope: {
+        next_seq: 3,
+        current_volume_seq: 2,
+        current_volume_title: "第二卷·裂变",
+        next_chapter_seq: 13,
+        existing_volume_count: 2,
+        existing_chapter_count: 12,
+      },
+      scoped_outline_volume_blueprint_lines: [au08ScopedBlueprintLine()],
+      scoped_outline_chapter_titles: au08ScopedChapterTitles(),
+      scoped_outline_chapter_seqs: [13, 14, 15],
+      three_volume_headers: [
+        "第一卷·觉醒 · 5章",
+        "第二卷·裂变 · 7章",
+        "第三卷·归墟 · 3章",
+      ],
+      three_volume_chapter_counts: [5, 7, 3],
+      planning_scope_prompt_fragments: au08PlanningScopePromptFragments(),
       assertions: [
         "real_archive_outline_start_planning_clicked",
         "micro_plan_requested_from_real_workbench",
@@ -9233,6 +9359,9 @@ describe("native Tauri slice verifier", () => {
         "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
         "writing_coordinate_volume_ref_bound_to_current_volume",
         "prose_writer_prompt_carried_volume_closure_directive",
+        "archive_plan_next_volume_action_scoped_to_next_volume",
+        "scoped_volume_blueprint_and_opening_chapters_materialized",
+        "planner_prompt_carried_mechanical_volume_scope",
       ],
     });
   });
@@ -9305,6 +9434,46 @@ describe("native Tauri slice verifier", () => {
         volume_closure_blank_line_separated: false,
       },
     });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP3 evidence when the plan-next-volume action is missing", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        plan_next_volume_sent: false,
+        plan_next_volume_scope: {},
+      },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP3 evidence when scoped chapters break the global chapter seq", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        scoped_outline_chapter_seqs: [13, 14, 16],
+      },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP3 evidence when the planner prompt still carries the book-level volume directive", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        planning_scope_old_book_volume_directive_absent: false,
+        planning_scope_prompt_count: 2,
+      },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP3 evidence when the plan_next_volume app log is missing", () => {
+    const records = au08VolumeStructuredPlanningRecords().filter(
+      (record) => record.event !== "channel.plan_next_volume.done",
+    );
 
     expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
   });
@@ -13154,6 +13323,62 @@ function au08VolumeTwoChapters() {
   ];
 }
 
+// B11A CP3：开新卷动作 scoped 规划的确定性 fixture（第三卷卷蓝图行 + 3 开篇章）。
+function au08ScopedVolumeTitle() {
+  return "第三卷·归墟";
+}
+
+function au08ScopedChapterTitles() {
+  return ["第13章：觉醒", "第14章：试炼", "第15章：盟约"];
+}
+
+function au08ScopedVolumeGoal() {
+  return "解决第二卷留下的频段裂痕";
+}
+
+function au08ScopedBlueprintLine() {
+  return (
+    "卷蓝图：第三卷·归墟｜序号：3｜目标冲突：解决第二卷留下的频段裂痕｜" +
+    "弧光阶段：从对抗者变成规则制定者｜地图边界：归墟中枢与废都上层｜" +
+    "支线启动：旧盟友求援｜支线推进：中枢权限争夺｜支线收束：第二卷债务清偿｜" +
+    "高潮章：第15章：盟约｜爽点密度：三章一次升级｜缓冲章：第14章：试炼｜" +
+    "新人物：归墟中枢守护者｜新设定：频段契约｜新地图：归墟中枢"
+  );
+}
+
+function au08ScopedBlueprint() {
+  return {
+    title: au08ScopedVolumeTitle(),
+    seq: 3,
+    goal_conflict: au08ScopedVolumeGoal(),
+    subplots_start: "旧盟友求援",
+    climaxes: "第15章：盟约",
+    buffers: "第14章：试炼",
+    new_characters: "归墟中枢守护者",
+  };
+}
+
+function au08ThirdVolumeBlueprint() {
+  return {
+    has_blueprint: true,
+    status: "CONFIRMED",
+    source_ref: "artifact:artifact-outline-au08-next",
+    goal_conflict: au08ScopedVolumeGoal(),
+    climaxes: "第15章：盟约",
+    buffers: "第14章：试炼",
+  };
+}
+
+function au08PlanningScopePromptFragments() {
+  return [
+    "## 本轮规划范围（机械给定，不得改）",
+    "本轮只规划下一卷：第 3 卷",
+    "当前已有 2 卷",
+    "下一章号从 13 开始",
+    "不要重规划已有卷/已有章",
+  ];
+}
+
 function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrides = {} } = {}) {
   // 规划走 bounded AgentRun：channel 级留痕落父 turn，工具执行/采纳落 `:agent:N` 子 turn，
   // toolbox.execute.done 不带 turn_id，只能靠 decision_id 与执行子 turn 绑定。
@@ -13183,6 +13408,18 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
     "允许在本卷内做小收束",
     "不得写全书终局/大结局/完结章",
   ];
+  // B11A CP3：档案「规划下一卷」机械 scope + scoped 规划 turn（父/执行子/采纳）与三卷 TOC。
+  const scopedParentTurnId = "turn-au08-next-volume";
+  const scopedTurnId = "turn-au08-next-volume:agent:6";
+  const scopedAdoptionTurnId = "turn-au08-next-volume-adopt";
+  const scopedArtifactId = "artifact-outline-au08-next";
+  const volumeThreeId = "volume-au08-3";
+  const scopedVolumeTitle = au08ScopedVolumeTitle();
+  const scopedChapterTitles = au08ScopedChapterTitles();
+  const scopedBlueprintLine = au08ScopedBlueprintLine();
+  const scopedBlueprint = au08ScopedBlueprint();
+  const thirdVolumeBlueprint = au08ThirdVolumeBlueprint();
+  const planningScopePromptFragments = au08PlanningScopePromptFragments();
 
   return [
     {
@@ -13318,6 +13555,39 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       volume_ref: volumeOneId,
       missing_severity: "ok",
     },
+    // B11A CP3：作者点「规划下一卷」→ 服务端机械 scope 留痕 + scoped 规划 turn 的真实事件。
+    {
+      event: "channel.plan_next_volume.start",
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "start",
+    },
+    {
+      event: "channel.plan_next_volume.done",
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "ok",
+      next_seq: 3,
+      current_volume_seq: 2,
+      next_chapter_seq: 13,
+      volume_count: 2,
+      chapter_count: 12,
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: scopedTurnId,
+      outcome: "ok",
+      tool_name: "plot_outline",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: scopedTurnId,
+      work_id: workId,
+      session_id: "session-au08",
+      action_type: "accept",
+      action_status: "accepted",
+    },
     {
       event: "slice_verify.ui_state.done",
       turn_id: generationTurnId,
@@ -13443,6 +13713,109 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       volume_closure_blank_line_separated: true,
       writer_prompt_other_volume_stage_absent: true,
       volume_closure_in_draft_body: false,
+      // B11A CP3：档案「规划下一卷」→ 机械 scope → scoped 候选（1 卷蓝图 + 3 章）→ 三卷 TOC。
+      plan_next_volume_sent: true,
+      plan_next_volume_payload: { work_id: workId },
+      plan_next_volume_scope: {
+        next_seq: 3,
+        current_volume_seq: 2,
+        current_volume_title: "第二卷·裂变",
+        next_chapter_seq: 13,
+        existing_volume_count: 2,
+        existing_chapter_count: 12,
+      },
+      plan_next_volume_turn_id: scopedParentTurnId,
+      plan_next_volume_run_id: "run-au08-next-volume",
+      plan_next_volume_layout: {
+        section_index: 1,
+        after_skeleton_summary: true,
+        before_adopted_plan: true,
+      },
+      scoped_outline_turn_id: scopedTurnId,
+      scoped_outline_parent_turn_id: scopedParentTurnId,
+      scoped_outline_adoption_turn_id: scopedAdoptionTurnId,
+      scoped_outline_artifact_id: scopedArtifactId,
+      scoped_outline_chapter_count: 3,
+      scoped_outline_volume_blueprint_lines: [scopedBlueprintLine],
+      scoped_outline_blueprint: scopedBlueprint,
+      scoped_outline_chapter_titles: scopedChapterTitles,
+      scoped_outline_chapter_seqs: [13, 14, 15],
+      scoped_outline_volume_assignments: [
+        scopedVolumeTitle,
+        scopedVolumeTitle,
+        scopedVolumeTitle,
+      ],
+      scoped_outline_adopted: true,
+      scoped_accept_payload: { action: { action_type: "accept" } },
+      scoped_action_result_status: "accepted",
+      three_volume_headers: [
+        "第一卷·觉醒 · 5章",
+        "第二卷·裂变 · 7章",
+        "第三卷·归墟 · 3章",
+      ],
+      three_volume_chapter_counts: [5, 7, 3],
+      three_volume_chapter_titles: [
+        au08VolumeOneChapters(),
+        au08VolumeTwoChapters(),
+        scopedChapterTitles,
+      ],
+      three_volume_toc_blueprints: [
+        {
+          id: volumeOneId,
+          title: "第一卷·觉醒",
+          seq: 1,
+          chapter_titles: au08VolumeOneChapters(),
+          chapter_seqs: [1, 2, 3, 4, 5],
+          blueprint: {
+            has_blueprint: true,
+            status: "CONFIRMED",
+            source_ref: "artifact:artifact-outline-au08",
+            goal_conflict: volumeOneGoal,
+            climaxes: "第05章：暗流",
+            buffers: "第03章：盟约",
+          },
+        },
+        {
+          id: volumeTwoId,
+          title: "第二卷·裂变",
+          seq: 2,
+          chapter_titles: au08VolumeTwoChapters(),
+          chapter_seqs: [6, 7, 8, 9, 10, 11, 12],
+          blueprint: {
+            has_blueprint: true,
+            status: "CONFIRMED",
+            source_ref: "artifact:artifact-outline-au08",
+            goal_conflict: "在频段封锁前夺回被抽走的城市灵气",
+            climaxes: "第12章：新生",
+            buffers: "第09章：抉择",
+          },
+        },
+        {
+          id: volumeThreeId,
+          title: scopedVolumeTitle,
+          seq: 3,
+          chapter_titles: scopedChapterTitles,
+          chapter_seqs: [13, 14, 15],
+          blueprint: thirdVolumeBlueprint,
+        },
+      ],
+      third_volume_blueprint: thirdVolumeBlueprint,
+      previous_volumes_unchanged: true,
+      chapter_seq_continuity: [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      ],
+      reading_toc_volume_headers_after_third_volume: [
+        "第一卷·觉醒",
+        "第二卷·裂变",
+        scopedVolumeTitle,
+      ],
+      reading_toc_three_volumes: true,
+      planning_scope_in_planner_prompt: true,
+      planning_scope_expected_fragments: planningScopePromptFragments,
+      planning_scope_prompt_fragments: planningScopePromptFragments,
+      planning_scope_prompt_count: 1,
+      planning_scope_old_book_volume_directive_absent: true,
+      plan_next_volume_screenshot: true,
       ...uiStateOverrides,
     },
   ];
