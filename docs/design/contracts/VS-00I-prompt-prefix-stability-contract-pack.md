@@ -1,6 +1,6 @@
 # VS-00I Prompt Prefix Stability Contract Pack（Prompt 前缀稳定性契约）
 
-> 状态：Proposed（2026-10-21）。本文定义"每次 provider 请求从头开始的字节恒定前缀"的分层模型、各调用点映射、adapter 责任、度量与分期。不授权代码实现；实现经 `tasks/slices/UA01-agentic-loop-prompt-hardening.md` T6 推进。**2026-10-21 进展**：CP-AB / CP-D / CP-C 完成；CP-E 在 local/DeepSeek 范围完成（Anthropic live 与断点 blocked）；冻结判据修订提案见 §14，待作者裁决。
+> 状态：**Frozen（2026-10-21，作者裁决 §14 选项 1）**。本文定义"每次 provider 请求从头开始的字节恒定前缀"的分层模型、各调用点映射、adapter 责任、度量与分期。不授权代码实现；实现经 `tasks/slices/UA01-agentic-loop-prompt-hardening.md` T6 推进。**2026-10-21 进展**：CP-AB / CP-D / CP-C 完成；CP-E 在 local/DeepSeek 范围完成（含 Strata 临时 IQ3 profile）；冻结判据按 §14 选项 1 修订并生效。Anthropic live/断点、其余厂商凭据与 Strata Q2 live 复测为**冻结后 adapter 增量**，不阻塞本契约。
 >
 > 角色：`VS-00H` 解决了"前缀第一段是什么"（系统身份）；本文解决"身份之后怎么排"。它是 `notes/2026-07-22-prompt-as-function-of-state.md` §2.1 六段骨架在**排序维度**上的补充——六段骨架回答"prompt 里要有哪些段、约束放哪"，本文回答"这些段按稳定度如何排才能被 provider 缓存复用"。两者冲突时，六段骨架中有判例支撑的位置要求优先（§2.3）。
 >
@@ -219,7 +219,7 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 **排期**：不插队 Q1c；CP-AB 排在 Q1c 收口之后、任何再碰 prompt 的工作之前——度量工具越晚建，之后每次 prompt 改动都是未度量的前缀回归风险。前缀部分优先级因此为 P1。
 
-**冻结纪律**：本文在 CP-AB 于真实调用对上证明"call2 共享前缀 ≈ call1 全长"之后才改 Frozen，沿用 VS-00H 实现完再冻结的先例。身份文本保持 v1，不与本文任何 CP 捆绑。
+**冻结纪律（2026-10-21 作者裁决 §14 选项 1 修订，原「≈ call1 全长」表述作废）**：以下三条同时成立才改 Frozen——① 已迁移调用点的 call2 共享前缀覆盖 call1 的 **L0–L2 全长**（L4 按 §2.3 置尾、不参与共享前缀）；② 已迁移调用点 I-CACHE-1 全绿（driver enforce 行 + CI/静态扫描阻断）；③ 至少一个可达厂商有 live 命中证据。沿用 VS-00H 实现完再冻结的先例；Anthropic live/断点与其余厂商按 adapter 增量补齐，不阻塞冻结。身份文本保持 v1，不与本文任何 CP 捆绑。
 
 ---
 
@@ -294,7 +294,7 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 诚实边界：Anthropic live `cache_read_input_tokens > 0` **未做**——shell 与桌面 secret 均无 Anthropic 凭据；Anthropic 断点策略需要把 prompt 切成 message content blocks（L1 末 / L2 末），当前 prompt 是单一 user message，分块契约未实现，不伪造。Gemini / Kimi / 智谱 / MiniMax / OpenAI 同样无凭据，保持未核实。
 
-**未 Frozen 的原因**：见 §14——§9 冻结纪律「call2 共享前缀 ≈ call1 全长」与 §2.3「L4 置尾是硬规则」结构上不可同时满足；Anthropic live/断点与多厂商凭据仍缺。本轮不把 local/DeepSeek 证据冒充全量冻结。状态保持 Proposed，待作者裁决 §14 提案。
+**Frozen 后边界（2026-10-21）**：Anthropic live `cache_read_input_tokens > 0` 与断点分块、Gemini / Kimi / 智谱 / MiniMax / OpenAI 的凭据与 live 基线仍缺，按 §14 作为冻结后 adapter 增量，不阻塞本契约；本地默认 provider 已指向 Strata Q2（8081），Q2 live 复测在服务切换后补，不改变已冻结的判据与排序。
 
 ---
 
@@ -311,7 +311,7 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 ## 13. CP-AB 收口决定（2026-10-21，Goal G-B20+AB）
 
-- 状态保持 **Proposed**；CP-AB active 工作关闭。
+- 状态保持 **Proposed**（该状态已于 2026-10-21 由 §14 作者裁决改为 **Frozen**）；CP-AB active 工作关闭。
 - 重新度量：continuation `780/1940 (0.4021)`、conversation `525/6686 (0.0785)`；未达到“call2 共享前缀 ≈ call1 全长”的冻结纪律。
 - 厂商 shell 凭据全部 unset；当前只有 LM Studio 单次短流式 TTFT=1365ms，不具备全厂商 live 基线。
 - D5 `plan_revised` 场景已判定 legacy/superseded，不能作为 CP-AB 冻结证据。
@@ -320,7 +320,7 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 ---
 
-## 14. CP-D/C/E 执行结果与冻结判据修订提案（2026-10-21，待作者裁决）
+## 14. CP-D/C/E 执行结果与冻结裁决（2026-10-21，作者选 1 → Frozen）
 
 **执行结果**：CP-D、CP-C 完成；CP-E 在作者指定的 local/DeepSeek 范围完成（证据见 §11.1–§11.3、§5 矩阵、§8 I-CACHE-1 登记）。
 
@@ -328,9 +328,17 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 **冻结提案（二选一，需作者拍板）**：
 
-1. **修订冻结纪律**为「call2 共享前缀覆盖 call1 的 L0–L2 全长（L4 置尾除外）」+ 已迁移调用点 I-CACHE-1 全绿 + 至少一个可达厂商 live 命中证据（DeepSeek `cached_tokens 2048/2057`、LM Studio TTFT 代理已具备）→ 可将本文改 Frozen；Anthropic 断点/后续厂商按 adapter 增量补齐，不阻塞冻结。
+1. **（已选）修订冻结纪律**为「call2 共享前缀覆盖 call1 的 L0–L2 全长（L4 置尾除外）」+ 已迁移调用点 I-CACHE-1 全绿 + 至少一个可达厂商 live 命中证据（DeepSeek `cached_tokens 2048/2057`、Strata IQ3 临时 profile `2125/2132`、LM Studio TTFT 代理）→ 可将本文改 Frozen；Anthropic 断点/后续厂商按 adapter 增量补齐，不阻塞冻结。
 2. **保持原文**「≈ call1 全长」并永远保持 Proposed（结构上不可达，除非推翻 §2.3 的 L4 置尾裁决——那需要新的判界 A/B 证据）。
 
-**当前处置**：状态保持 **Proposed**；不以“接近”自证 Frozen。若作者选 1，本轮证据已足够支撑改 Frozen；若选 2，则 CP-E 剩余项转为 Anthropic 凭据 + L4 前移的 MBC A/B 数据。
+**作者裁决（2026-10-21）**：选 **1**。本文自本日起状态 **Frozen**；§9 冻结纪律已按方案 1 修订，原「≈ call1 全长」表述作废。
+
+**冻结生效核对（方案 1 三条件，2026-10-21）**：
+
+- [x] **call2 覆盖 call1 的 L0–L2 全长**：`judgment_call_pair_prod` `3927/10052`，boundary=3925、`covered=true`、`enforce=true`（L4 按 §2.3 置尾、不参与）。
+- [x] **已迁移调用点 I-CACHE-1 全绿**：`run_icache_prefix.exs` 的 1 条 consecutive + 5 条 cross_run + 1 条 call_pair enforce 全过；已接入 CI step 与 `ai_static_scan.sh` critical check。
+- [x] **至少一个可达厂商 live 命中**：DeepSeek `deepseek-v4-pro` `cached_tokens=2048/2057 (99.6%)`；Strata IQ3 临时 profile `cached_tokens=2125/2132 (99.7%)`、TTFT 2059→65ms。
+
+**冻结后边界（不阻塞契约，按增量推进）**：①Anthropic live `cache_read_input_tokens>0` 与断点分块（需 message content blocks 契约）；②其余厂商凭据/live 基线；③Strata Q2（8081）服务切换后的同口径 live 复测；④桌面 stage profile 的 provider 持久选择切换与 dogfood/stage 的 strata 支持。冻结后不得以「某厂商未覆盖」为由回退 L0–L4 排序或放开 L4 置尾；L4 前移仍须先有该调用点 MBC A/B 判界数据（§2.3）。
 
 **未完成边界（两手都不掩盖）**：Anthropic live `cache_read_input_tokens > 0` 未做（无凭据）；Anthropic 断点需把单一 user message 切成 L1 末/L2 末 content blocks，分块契约未实现；Gemini / Kimi / 智谱 / MiniMax / OpenAI 仍无凭据、未核实。
