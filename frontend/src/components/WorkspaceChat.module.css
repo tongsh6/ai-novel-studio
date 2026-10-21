@@ -1387,6 +1387,13 @@
 .composerRail {
   width: min(var(--conversation-content-width), 100%);
   margin: 0 auto;
+  /* AU10 CP1：普通输入区（40px）与 active AgentRun 控制坞（121px）切换时，
+     预留控制坞高度并把输入行钉在底部，避免每轮 run 出现时聊天视口跳 81px。
+     空闲态多出的 81px 作为输入区上方稳定留白，不承载业务内容。 */
+  min-height: 121px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
 .standardComposer {

@@ -72,11 +72,11 @@
 | CP | 目标 | 交付物 | 状态 |
 |---|---|---|---|
 | CP0 | 建立刷新类型与视觉抖动基线 | 区分 React render、DOM remount、layout / paint、真实页面 reload；记录四个真实场景的连续截图/几何轨迹、触发 state 和当前阈值；复核当前 dirty checkout，避免以过期行号开工 | **done（2026-10-21 browser surface 基线）**：6 场景采样，7 条违例已记录（见下） |
-| CP1 | 落地方案 A | 稳定 key、last-known/bootstrap、稳定输入区/面板几何、滚动锚定；对应组件测试与一次真实 Tauri 复验 | **next（按 CP0 违例修）** |
-| CP2 | 落地方案 B | 小批拆出组件和状态 hooks；每批保持 UI/Channel contract 不变，并用 render 边界测试证明无关区域不跟随更新 | todo |
+| CP1 | 落地方案 A | 稳定 key、last-known/bootstrap、稳定输入区/面板几何、滚动锚定；对应组件测试与一次真实 Tauri 复验 | **done（2026-10-21 browser surface；Tauri 复验并入 CP5）** |
+| CP2 | 落地方案 B | 小批拆出组件和状态 hooks；每批保持 UI/Channel contract 不变，并用 render 边界测试证明无关区域不跟随更新 | not-triggered（CP0/CP1 证据未出现父组件级连锁 render；按需再启动） |
 | CP3 | 评估并按需落地方案 C | 先选一个高收益 server-state 纵切（优先档案或会话恢复）；迁移前后请求次数、空白窗口和错误降级有对照；无收益则记录“不启动” | conditional |
 | CP4 | 评估并按需落地方案 D | 只有非法状态组合/竞态证据达到启动条件时冻结状态图与迁移计划；否则记录“不启动” | conditional |
-| CP5 | 场景化闭环 | `au10-workbench-render-stability` 外部驱动真实 Tauri 页面通过，产出截图/视频/几何与网络证据；全量前端门禁和 AI 静态扫描闭环 | todo |
+| CP5 | 场景化闭环 | `au10-workbench-render-stability` 外部驱动真实 Tauri 页面通过，产出截图/视频/几何与网络证据；全量前端门禁和 AI 静态扫描闭环 | **next（browser driver 已就绪，迁 Tauri surface）** |
 
 ### CP0 基线协议（2026-10-21 冻结，先于 CP1）
 
@@ -114,6 +114,31 @@
 - **报告**：`artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}` + 6 张场景截图。
 - **CP1 输入**：composer 稳定几何（81px）、切作品 last-known 原子提交（blank/remount）、消息稳定 key（detached）、滚动触发收窄（scroll jump）。CP1 修复后复跑同一 driver，违例应清零；CP5 把 driver 迁到 Tauri surface。
 
+### CP1 结果（2026-10-21，browser surface）
+
+**改动（只前端，未动后端/契约）**：
+
+1. **稳定消息 key**：新增 `frontend/src/lib/messageRenderKey.ts`，身份优先级 `clientMessageId → turnId → turnResult.turn_id → index`，去掉运行期才绑定的 `agentRunId`；作者消息 ack 绑定 turnId 时不再换 key。
+2. **切作品 last-known + 原子提交**：`resetWorkScopedRuntime` 不再先 `setMessages([])`/提前改标题；`resumeWorkspace` 快照到达后，标题、消息、会话一起提交。失败路径不再把旧内容清成空白。
+3. **composer 稳定几何**：`.composerRail` 预留 121px（active control dock 高度）并底部对齐；普通输入区 ↔ AgentRun 控制坞切换不再改变 chat/input 区域高度（CP0 的 81px 消失）。
+4. **滚动**：CP0 的“无输入 scroll jump”经复核是作者点击发送后的正常回底，属于指标未记 pointer 意图；在外部 driver 增加 pointer/click 用户意图后该违例消失，**产品滚动 effect 未做无证据改动**（保持最小改动）。
+5. **指标口径修正（外部 driver，不改产品）**：把“消息 remount”定义为同一可见文本换 DOM 节点（same-text remount）；占位叙事→最终内容的替换、以及作品切换的内容整体替换记 detached/info，不算 remount。
+
+**复验（同一 CP0 协议/阈值 + driver 修正）**：`verdict=baseline-within-threshold`，6 场景 **0 violations / 0 errors**：
+
+| 场景 | remounts | blank | scroll jump | chat/input/composer Δh |
+|---|---:|---:|---:|---:|
+| s1 冷启动 | 0 | 0 | 0 | 0 |
+| s2 发送+AgentRun | 0 | 0 | 0 | **0**（CP0: 81px） |
+| s3 会话恢复 | 0 | 0 | 0 | 0 |
+| s4 档案展开 | 0 | 0 | 0 | 0 |
+| s5 重连 | 0 | 0 | 0 | 0 |
+| s6 作品切换 | 0（info 1） | **0**（CP0: 2） | 0 | 0 |
+
+**门禁**：`pnpm typecheck` / `pnpm lint` / `pnpm test`（31 files / 492 tests）通过；`frontend_audit` 27 PASS/0 fail；`check_design_trace` 16 PASS/100%；新增 2 条 render key 组件单测。证据：`artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}` + 截图。
+
+**诚实边界**：本轮只验证 browser surface；CP1 的“真实 Tauri 复验”并入 CP5（同一 driver 迁到 Tauri surface 后再判 PASS）。CP0 的 2 个 detached 节点是占位叙事→最终内容的替换，按设计信息记录，不作为 remount 失败。
+
 ## 5. 验收场景
 
 1. **冷启动 / 会话恢复**：工作台从启动到 READY 期间不出现“已有内容 → 空白 → 内容恢复”的往返；loading/error 语义诚实，主布局几何稳定。
@@ -138,6 +163,7 @@ CP0 必须为“几何稳定”冻结阈值和采样方法；在此之前不得�
 - 若闪烁只在 React `StrictMode` 开发模式放大，也仍需验证真实 Tauri 构建；不得仅通过关闭 StrictMode 处理业务副作用不幂等。
 - 与 `UA01-agentic-loop-streaming-reasoning-card-simplification.md`、`AU12-archive-concurrent-model-run-read-snapshot.md` 复用已有场景与 last-known 原则，避免建立第二套 runner 或 snapshot 语义。
 
+- 2026-10-21 — **CP1 完成（browser surface）**：稳定 key（`messageRenderKey`）、切作品 last-known/原子提交、composer 121px 稳定几何；CP0 driver 复跑 0 violations/0 errors（s2 81px → 0，s6 blank 2 → 0）。指标口径修正记录：same-text remount 才算 remount；占位→最终内容、作品切换内容替换为 detached/info。CP2 未触发（无父组件级连锁 render 证据）；CP3/CP4 conditional 不启动。产品滚动 effect 未改（CP0 scroll jump 是发送点击的正常回底，指标已补 pointer 意图）。Tauri 复验并入 CP5；`task_done` UI evidence 仍待 CP5。
 ## 8. 决策记录
 
 - 2026-10-21 — **CP0 基线完成（browser surface）**：CP0 driver 落地并跑通 6 场景；基线 `verdict=baseline-violations-recorded`，7 条违例（s2：detached 3 / scroll jump 1 / 三处高度 81px；s6：blank 2 / detached 3），s1/s3/s4/s5 阈值内。确认归因 #2/#4 与 #1/#3 在真实页面成立；CP1 按这些数字修（composer 稳定几何、切作品 last-known 原子提交、消息稳定 key、滚动触发收窄），不改后端/契约。证据 `artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}`。

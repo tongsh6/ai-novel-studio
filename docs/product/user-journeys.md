@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-21（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；作者选 4，下一项 = AU10 渲染稳定性（CP0 baseline 已录，CP1 进行中）；历史证据保留版本边界）
+> 最后更新：2026-10-21（C9 / BIZ-01–05 收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；作者选 4，下一项 = AU10 渲染稳定性（CP1 browser 已验证，CP5 Tauri 待闭环）；历史证据保留版本边界）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,7 +182,7 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；D5 / Q1c 已采纳内容修订已收口（正式 browser 场景 + 拒绝矩阵）。AB-RESUME 已收口、VS-00I 已 Frozen；Q2/Anthropic 等冻结后增量挂账。当前队首 = AU10 渲染稳定性（体验债；CP0 基线已录，CP1 修复中）。C11 性能仍为观察项。
+Current Breakpoint：C9 / BIZ-01–05 已闭环。Flash Next Q2 实模确认本批状态/动作正确；BIZ-06 对话修订/放弃、版本登记边界及回执已由页面专项和实模验证；D5 / Q1c 已采纳内容修订已收口（正式 browser 场景 + 拒绝矩阵）。AB-RESUME 已收口、VS-00I 已 Frozen；Q2/Anthropic 等冻结后增量挂账。当前队首 = AU10 渲染稳定性（体验债；CP1 browser 已验证，CP5 Tauri 待闭环）。C11 性能仍为观察项。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
@@ -220,7 +220,7 @@ Longest Closed Prefix：D1-D3 是最小闭环；D7 的 P1 10 万字主链 checkp
 
 Current Breakpoint：Journey D 当前支撑切面 VS-00C CP5 已闭环。P1 10 万字主链已证明系统能长跑；“写第 N 章首稿”的上下文质量前置现包括 CP2 实现态摘要窗口、CP3 目标章计划摘要和卷内位置、CP4 结构化方向层、CP5 ReaderEffectBrief 与非权威 self_report。AU09 archive memory roundtrip CP2、memory management workbench entry、memory trace roundtrip、validity window recall、cross-work memory isolation 与 session memory layering 已闭环，当前执行队列已转向 AU11 的质量诊断 message envelope。
 
-Next Proof：VS-00I 已按作者裁决 §14 选项 1 **Frozen**（call2 覆盖 call1 L0–L2 `3927/10052` + I-CACHE-1 全绿 + DeepSeek/Strata live 命中）；AB-RESUME 已收口，Strata Q2 live 复测与 Anthropic live/断点挂为冻结后增量。当前 next = `AU10-RENDER-STABILITY`（体验债），CP0 browser baseline 已录 7 条违例并进 CP1；UA01 CP3 验证债另挂。Q1c / D5 历史证据保留在 `tasks/slices/Q1C-adopted-content-revision.md` §4B。
+Next Proof：VS-00I 已按作者裁决 §14 选项 1 **Frozen**（call2 覆盖 call1 L0–L2 `3927/10052` + I-CACHE-1 全绿 + DeepSeek/Strata live 命中）；AB-RESUME 已收口，Strata Q2 live 复测与 Anthropic live/断点挂为冻结后增量。当前 next = `AU10-RENDER-STABILITY`（体验债），CP1 browser 复验 0 violations，CP5 Tauri 待闭环；UA01 CP3 验证债另挂。Q1c / D5 历史证据保留在 `tasks/slices/Q1C-adopted-content-revision.md` §4B。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -437,7 +437,7 @@ Next Proof：Journey J 后续是完整异步 LongRunner streaming 和恢复后�
 | J9 | task_state 生命周期可见性 | AU-10 | TurnResultViewModel / task_state | checkpoint closed | Tauri automation + Channel test | `artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-taskstate`；`workspace_channel_task_state_test.exs` | 真实“导出全书”动作覆盖 RUNNING/CHECKPOINT/COMPLETED UI，FAILED 由 Channel 回归覆盖；完整异步 LongRunner streaming 未覆盖。 |
 | J10 | 断线、超时、取消等待和恢复后继续操作 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | checkpoint closed / LongRunner deferred | Tauri automation | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-provider-timeout` | CP1 已证明 provider failure recovery；CP2 已证明服务断开/重启后的 WebSocket rejoin 与下一轮继续；CP3A 已证明取消等待 no-write 关闭与下一轮继续；CP3B 已证明真实 provider timeout no-write fallback 与下一轮继续。完整异步 LongRunner 待真实生产消费者出现后再补；stale/disabled/idempotency UI 仍待更深矩阵。 |
 | J11 | Prompt 前缀稳定性观测与首个实证（已收口） | AB-RESUME / VS-00I | ProviderRun / Prompt / TTFT | closed | VS-00I 已 Frozen（§14 选项 1，call2 覆盖 L0–L2 + I-CACHE-1 + DeepSeek/Strata live）；CP-AB/CP-D/CP-C/CP-E 完成；Q2/Anthropic 增量挂账不占队首 | `tasks/NEXT.md` MAINLINE-RESET / AB-RESUME；`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md` §14 | 作者从主线复位候选拍板下一项后替换本行；冻结后增量任一触发可重开单项。 |
-| J12 | 工作台渲染稳定性与局部刷新隔离（AU-10 体验债） | AU10-RENDER-STABILITY / AU-10 | WorkspaceChat render/remount/layout | next（CP0 done，CP1 修复中） | browser baseline 已录（s2 高度 81px/detached 3/scroll 1；s6 blank 2/detached 3） | `tasks/NEXT.md` AU10-RENDER-STABILITY；`tasks/slices/AU10-workbench-render-stability.md` CP0 结果 | CP1 修复后同 driver 违例清零；CP5 外部驱动真实 Tauri 页面 PASS。 |
+| J12 | 工作台渲染稳定性与局部刷新隔离（AU-10 体验债） | AU10-RENDER-STABILITY / AU-10 | WorkspaceChat render/remount/layout | next（CP1 browser done，CP5 Tauri 待闭环） | browser driver `verdict=baseline-within-threshold`：6 场景 0 violations/0 errors（s2 81px→0，s6 blank 2→0）；typecheck/lint/test 492、audit 27、design_trace 16 绿 | `tasks/NEXT.md` AU10-RENDER-STABILITY；`artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}` | CP5 把同一 driver 迁到真实 Tauri 页面 PASS 并补 task_done UI evidence；未过前不标 slice done。 |
 
 ---
 

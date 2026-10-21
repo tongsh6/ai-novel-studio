@@ -142,6 +142,7 @@ import {
 } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
+import { messageRenderKey } from "../lib/messageRenderKey";
 import {
   agentRunRuntimeAuthority,
   assistantMessageTextForAgentRun,
@@ -1545,7 +1546,7 @@ export function WorkspaceChat() {
     setSocketConnected(false);
   }
 
-  function resetWorkScopedRuntime(work: WorkDto) {
+  function resetWorkScopedRuntime() {
     setLoading(false);
     setPendingAnswerBid(null);
     setActiveSessionId(null);
@@ -1562,7 +1563,8 @@ export function WorkspaceChat() {
     setTranscriptRestored(false);
     setRevisionSubmittingTurnId(null);
     resumeRestoredTranscriptRef.current = false;
-    setMessages([]);
+    // AU10 CP1：切换作品时保留 last-known 消息与标题，等 resume 快照到达后
+    // 与等量运行时状态一起原子提交；避免「旧内容 → 空白 → 回填」和标题/消息混搭。
     setAgentRunStates({});
     setAgentEvents([]);
     setAgentRunActivityLoading({});
@@ -1571,15 +1573,6 @@ export function WorkspaceChat() {
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
     setAssistantNameError(null);
-    setContext({
-      workId: work.id,
-      workTitle: work.title,
-      assistantDisplayName: DEFAULT_ASSISTANT_DISPLAY_NAME,
-      volumeId: null,
-      volumeTitle: "未定卷",
-      chapterId: null,
-      chapterTitle: null,
-    });
     useAppStore.getState().setProjectionStatus(null);
     useAppStore.getState().setPendingBuildAction(null);
   }
@@ -1591,7 +1584,7 @@ export function WorkspaceChat() {
     activeConnectionRef.current = { token, workId: work.id };
     setWorkSwitchingId(work.id);
     closeWorkspaceConnection();
-    resetWorkScopedRuntime(work);
+    resetWorkScopedRuntime();
 
     let workTitle = work.title;
     let sessionId: string | null = null;
@@ -1607,11 +1600,21 @@ export function WorkspaceChat() {
       activeAssistantDisplayName = displayName;
       setAssistantDisplayNameState(displayName);
       setAssistantNameDraft(displayName === DEFAULT_ASSISTANT_DISPLAY_NAME ? "" : displayName);
-      setContext({ assistantDisplayName: displayName });
 
       const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       sessionId = snapshot.active_session.id;
       workTitle = snapshot.work.title || workTitle;
+      // AU10 CP1：标题与消息同批提交（React 自动批处理），切换过程中不再出现
+      // 新标题 + 旧消息 / 空白消息区。
+      setContext({
+        workId: snapshot.work.id,
+        workTitle,
+        assistantDisplayName: displayName,
+        volumeId: null,
+        volumeTitle: "未定卷",
+        chapterId: null,
+        chapterTitle: null,
+      });
       setActiveSessionId(sessionId);
       setSessions(snapshot.sessions);
       setTranscriptPage(snapshot.transcript_page);
@@ -4300,9 +4303,7 @@ export function WorkspaceChat() {
                     agentEvents.filter((event) => event.run_ref === messageAgentRunId),
                   )
                 : [];
-              const messageIdentity =
-                msg.turnResult?.turn_id ?? msg.turnId ?? msg.clientMessageId ?? String(i);
-              const messageKey = `${msg.role}:${messageIdentity}:${messageAgentRunId ?? msg.agentRunId ?? "none"}`;
+              const messageKey = messageRenderKey(msg, i);
 
               return (
                 <Fragment key={messageKey}>
