@@ -46,6 +46,9 @@ defmodule NovelApplication.CarryRegistry do
     %{id: :style_guide, state: :realized, actions: ["prose_writing", "plot_outline"]},
     # CA04 G1：写章也带全书进度与收官守则（正文向渲染不含分卷守则）。
     %{id: :work_skeleton, state: :design, actions: ["prose_writing", "plot_outline"]},
+    # B11A CP3：开新卷动作的机械规划范围（仅 plot_outline；设计态、不写作品事实。
+    # 由服务端机械读 TOC 推导，不让模型/前端猜）。
+    %{id: :planning_scope, state: :design, actions: ["plot_outline"]},
     # B11A CP4：规划/写作都带「当前卷蓝图（设计态）」——卷级目标的裁定参照，
     # 只读设计态、不写作品事实（VS-00J §4 消费面 2/3；ADR-0028）。
     %{

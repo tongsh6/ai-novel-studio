@@ -1895,6 +1895,66 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 章节计划生成具备增量感知（与真实 LLM 行为对称）：上下文里已有 N 章时，
   # 新计划从第 N+1 章接续编号（标题不与既有章相撞 → 采纳物化按 title 幂等追加）。
   defp outline_chapter_items(brief, context) do
+    case scoped_planning_scope(context) do
+      nil -> unscoped_outline_chapter_items(brief, context)
+      scope -> scoped_outline_chapter_items(brief, context, scope)
+    end
+  end
+
+  # B11A CP3：开新卷动作的 scope-aware 产出——真实 context_text 里出现产品
+  # 「本轮规划范围（机械给定，不得改）」段时，本轮只产下一卷：一条卷蓝图行 + 该卷
+  # 开篇 3 章（章号从 scope 的下一章号起、逐章标注所属卷）。无该段时走既有全量产出，
+  # 与今天逐字节等价。桩只认真实产品 prompt 文本，不认 slice id / env。
+  defp scoped_planning_scope(context) do
+    text = to_string(context)
+
+    with true <- String.contains?(text, "本轮规划范围（机械给定，不得改）"),
+         [_, next_seq_digits] <- Regex.run(~r/本轮只规划下一卷：第\s*(\d+)\s*卷/u, text),
+         [_, next_chapter_digits] <- Regex.run(~r/下一章号从\s*(\d+)\s*开始/u, text),
+         {next_seq, ""} <- Integer.parse(next_seq_digits),
+         {next_chapter, ""} <- Integer.parse(next_chapter_digits),
+         true <- next_seq > 0 and next_chapter > 0 do
+      %{
+        next_seq: next_seq,
+        next_chapter_seq: next_chapter,
+        volume_title: volume_title(next_seq - 1)
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp scoped_outline_chapter_items(brief, context, scope) do
+    fingerprint =
+      [brief, context]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+      |> :erlang.phash2()
+      |> Integer.to_string(36)
+
+    chapters =
+      @outline_chapter_themes
+      |> Enum.take(3)
+      |> Enum.with_index()
+      |> Enum.map(fn {theme, index} ->
+        n = scope.next_chapter_seq + index
+        seq = n |> Integer.to_string() |> String.pad_leading(2, "0")
+
+        %{
+          item_id: "slice_outline_#{fingerprint}_#{n}",
+          title: "第#{seq}章：#{theme}",
+          body: outline_chapter_body(theme, n, scope.volume_title),
+          rationale: nil
+        }
+      end)
+
+    chapter_titles = Enum.map(chapters, & &1.title)
+    blueprint_line = volume_blueprint_line(scope.volume_title, scope.next_seq, chapter_titles)
+
+    append_volume_blueprint_lines(chapters, [blueprint_line])
+  end
+
+  defp unscoped_outline_chapter_items(brief, context) do
     fingerprint =
       [brief, context]
       |> Enum.reject(&(&1 == ""))
@@ -2940,6 +3000,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp profile_route_rules do
     [
+      # B11A CP3：开新卷动作（plan_next_volume）由服务端生成的真实作者文本——
+      # 「请规划下一卷（第N卷）的卷蓝图与该卷开篇章节大纲。」→ 必定进入章节大纲 profile。
+      # 只认产品文本，不认 slice id / 环境变量。
+      {:contains, ["规划下一卷", "下一卷的卷蓝图"],
+       {"plot_outline_with_context_v1", "模型选择章节大纲工作流。",
+        ["model_profile_selected", "plot_outline_text_match"]}},
       {:contains, ["只读批量", "批量读取", "read-only batch", "readonly batch"],
        {"readonly_batch_context_v1", "模型选择只读批量上下文工作流。",
         ["model_profile_selected", "readonly_batch_text_match"]}},

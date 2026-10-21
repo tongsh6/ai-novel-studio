@@ -227,6 +227,36 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  # B11A CP3（VS-00J §3.2 形态 A）：开新卷动作——服务端机械读 TOC 推导 volume_scope，
+  # 复用既有 user_message AgentRun 提交路径（不新增 artifact 类型/卡型/写路径）。
+  # 作者动作只触发「规划下一卷」；采纳仍走既有候选/采纳/物化链路。
+  @impl true
+  def handle_in("plan_next_volume", payload, socket) when is_map(payload) do
+    t0 = System.monotonic_time(:millisecond)
+    requested_work_id = Map.get(payload, "work_id") || socket.assigns[:work_id]
+
+    LogEmit.emit(:channel, :plan_next_volume, :start, %{work_id: requested_work_id})
+
+    with {:ok, work_id} <- plan_next_volume_work_id(requested_work_id),
+         {:ok, scope} <- plan_next_volume_scope(work_id) do
+      submit_next_volume_plan(socket, work_id, scope, t0)
+    else
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :plan_next_volume, :error, %{
+          duration_ms: duration,
+          reason_code: reason
+        })
+
+        {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("plan_next_volume", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_payload"}}, socket}
+  end
+
   @impl true
   def handle_in("author_action", %{"action" => action_params}, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
@@ -2259,6 +2289,85 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  defp submit_next_volume_plan(socket, work_id, scope, t0) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    session_id = socket.assigns[:session_id]
+    turn_id = NovelFoundation.ID.unique("turn")
+
+    params = %{
+      text: "请规划下一卷（第#{scope.next_seq}卷）的卷蓝图与该卷开篇章节大纲。",
+      ws_id: ws_id,
+      workspace_id: ws_id,
+      work_id: work_id,
+      session_id: session_id,
+      generate_plan: true,
+      generate_micro_plan: true,
+      turn_id: turn_id,
+      candidate_selection: nil,
+      author_limits: nil,
+      volume_scope: scope
+    }
+
+    case route_user_submission(socket, params) do
+      {:reply, {:ok, reply_payload}, socket} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(
+          :channel,
+          :plan_next_volume,
+          :done,
+          Map.merge(%{duration_ms: duration}, volume_scope_log_fields(scope))
+        )
+
+        {:reply,
+         {:ok,
+          reply_payload
+          |> Map.put(:volume_scope, scope)
+          |> Map.put_new_lazy(:turn_id, fn -> turn_id end)}, socket}
+
+      {:reply, {:error, %{reason: reason}}, socket} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :plan_next_volume, :error, %{
+          duration_ms: duration,
+          reason_code: :agent_run_not_allowed
+        })
+
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  # work_id 必须指向真实存在的作品（payload 显式优先，其次 socket 当前作品）。
+  defp plan_next_volume_work_id(work_id) when is_binary(work_id) do
+    if valid_uuid?(work_id) do
+      case NovelApplication.WorkService.get(work_id) do
+        %{id: id} -> {:ok, id}
+        _ -> {:error, :invalid_work}
+      end
+    else
+      {:error, :invalid_work}
+    end
+  end
+
+  defp plan_next_volume_work_id(_work_id), do: {:error, :invalid_work}
+
+  defp plan_next_volume_scope(work_id) do
+    work_id
+    |> NovelApplication.ReadingProjectionService.toc()
+    |> NovelDomain.VolumeScope.from_toc()
+  end
+
+  # 只落机械字段，不落 scope 全文（observability 口径同其它 channel 事件）。
+  defp volume_scope_log_fields(scope) do
+    %{
+      next_seq: scope.next_seq,
+      current_volume_seq: scope.current_volume_seq,
+      next_chapter_seq: scope.next_chapter_seq,
+      volume_count: scope.existing_volume_count,
+      chapter_count: scope.existing_chapter_count
+    }
+  end
+
   defp route_user_submission(socket, params) do
     case AgentRunService.received_user_run(params) do
       {:ok, run_id} ->
@@ -2293,7 +2402,9 @@ defmodule NovelWeb.WorkspaceChannel do
       turn_id: params.turn_id,
       generate_micro_plan: params.generate_plan,
       candidate_selection: params.candidate_selection,
-      author_limits: Map.get(params, :author_limits)
+      author_limits: Map.get(params, :author_limits),
+      # B11A CP3：开新卷动作的机械规划范围（普通 user_message 无此键 → nil）。
+      volume_scope: Map.get(params, :volume_scope)
     }
 
     t0 = System.monotonic_time(:millisecond)

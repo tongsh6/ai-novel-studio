@@ -12,6 +12,7 @@ defmodule NovelDomain.WorkSkeleton do
   """
 
   alias NovelDomain.VolumeBlueprint
+  alias NovelDomain.VolumeScope
 
   @avg_chapter_length 1400
   @closure_threshold 0.85
@@ -30,7 +31,19 @@ defmodule NovelDomain.WorkSkeleton do
   不在此伪造骨架）。有则渲染骨架事实+进度+收官守则（距目标尚远时指令式禁终局）。
   """
   @spec render(snapshot(), non_neg_integer()) :: String.t()
-  def render(snapshot, written_chapters) when is_map(snapshot) and is_integer(written_chapters) do
+  def render(snapshot, written_chapters), do: render(snapshot, written_chapters, nil)
+
+  @doc """
+  渲染全书骨架段 + 收官守则；`volume_scope` 非 nil 时用**本轮规划范围**版分卷指令替换
+  既有「全书分 planned_volumes 卷」指令（B11A CP3 开新卷动作：本轮只规划下一卷，
+  避免与全书卷数指令冲突）。
+
+  `volume_scope` 由 `NovelDomain.VolumeScope` 机械推导并 `normalize/1`；nil/非法 →
+  与 `render/2` **逐字节一致**（既有行为不变）。
+  """
+  @spec render(snapshot(), non_neg_integer(), map() | nil) :: String.t()
+  def render(snapshot, written_chapters, volume_scope)
+      when is_map(snapshot) and is_integer(written_chapters) do
     case target_length(snapshot) do
       nil ->
         ""
@@ -50,7 +63,7 @@ defmodule NovelDomain.WorkSkeleton do
           |> Enum.join("\n")
 
         directives =
-          [closure_directive(progress), volume_directive(snapshot)]
+          [closure_directive(progress), volume_directive_for(snapshot, volume_scope)]
           |> Enum.reject(&(&1 == ""))
           |> Enum.join("\n")
 
@@ -58,7 +71,7 @@ defmodule NovelDomain.WorkSkeleton do
     end
   end
 
-  def render(_snapshot, _written), do: ""
+  def render(_snapshot, _written, _volume_scope), do: ""
 
   @doc """
   正文向渲染（CA04 G1）：骨架事实 + 收官守则，**不含分卷守则**（「逐章标注所属卷」是
@@ -120,6 +133,27 @@ defmodule NovelDomain.WorkSkeleton do
   end
 
   def volume_directive(_snapshot), do: ""
+
+  # B11A CP3：开新卷动作（形态 A）的 scope-aware 分卷指令——替换全书卷数版指令，
+  # 让模型只规划机械给定的下一卷（不让模型/前端猜范围）。scope nil/非法 → 回退既有指令。
+  defp volume_directive_for(snapshot, nil), do: volume_directive(snapshot)
+
+  defp volume_directive_for(snapshot, volume_scope) do
+    case VolumeScope.normalize(volume_scope) do
+      nil -> volume_directive(snapshot)
+      scope -> scoped_volume_directive(scope)
+    end
+  end
+
+  defp scoped_volume_directive(scope) do
+    "分卷规划要求（本轮范围受限）：本轮只规划第 #{scope.next_seq} 卷" <>
+      "（当前已有 #{scope.existing_volume_count} 卷，当前卷《#{scope.current_volume_title}》）；" <>
+      "每章标注所属卷：本轮新卷卷标题（必须与本轮卷蓝图行标题一致，不得沿用当前卷标题）；" <>
+      "卷蓝图行序号 #{scope.next_seq}；下一章号从 #{scope.next_chapter_seq} 开始；" <>
+      "不要重规划已有卷/已有章。\n" <>
+      "卷蓝图要求：为本轮新卷产出一条单行「卷蓝图：卷标题｜序号：#{scope.next_seq}｜…」" <>
+      "（子槽用｜分隔、标签与既有口径一致；没有把握的子槽可省略，但标签不要改写）。"
+  end
 
   # 卷蓝图行格式：与 parser 的标签词表同源（`NovelDomain.VolumeBlueprint` 设计槽），
   # 单行、｜分隔。高潮章/缓冲章按 VS-00J §2.1 只允许章标题引用（章号是 work 级全局派生值）。

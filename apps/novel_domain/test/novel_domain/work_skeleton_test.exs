@@ -306,4 +306,75 @@ defmodule NovelDomain.WorkSkeletonTest do
       end
     end
   end
+
+  # B11A CP3（VS-00J §3.2 形态 A）：开新卷动作 —— scope-aware 全书规划段。
+  # 本轮只规划下一卷时，用 scope 版分卷指令替换既有「全书分 N 卷」指令（避免冲突）；
+  # 无 scope / 非法 scope 时与既有 render/2 逐字节一致。
+  describe "render/3 scope-aware (B11A CP3)" do
+    @scope %{
+      next_seq: 3,
+      current_volume_seq: 2,
+      current_volume_title: "第二卷·裂变",
+      next_chapter_seq: 8,
+      existing_volume_count: 2,
+      existing_chapter_count: 7
+    }
+
+    test "nil scope 与 render/2 逐字节等价（既有行为不变）" do
+      snapshot = %{target_length: 140_000, planned_volumes: 3, serial_form: "连载"}
+
+      assert WorkSkeleton.render(snapshot, 10, nil) == WorkSkeleton.render(snapshot, 10)
+    end
+
+    test "非法 scope（空 map/缺字段）回落既有指令，字节等价" do
+      snapshot = %{target_length: 140_000, planned_volumes: 3}
+
+      assert WorkSkeleton.render(snapshot, 10, %{}) == WorkSkeleton.render(snapshot, 10)
+
+      assert WorkSkeleton.render(snapshot, 10, %{next_seq: 0}) ==
+               WorkSkeleton.render(snapshot, 10)
+    end
+
+    test "合法 scope 替换全书卷数版分卷指令（不冲突）" do
+      snapshot = %{target_length: 140_000, planned_volumes: 3}
+      text = WorkSkeleton.render(snapshot, 10, @scope)
+
+      assert text =~ "本轮只规划第 3 卷"
+      assert text =~ "每章标注所属卷："
+      assert text =~ "卷蓝图行序号 3"
+      assert text =~ "下一章号从 8 开始"
+      assert text =~ "不要重规划已有卷/已有章"
+
+      # 与 scope 冲突的全书卷数指令不再出现（全书卷数事实行仍在 facts 里）。
+      refute text =~ "全书分 3 卷"
+      refute text =~ "卷标题在全书内保持一致"
+      # 骨架事实与收官守则保留（scope 只替换分卷指令）。
+      assert text =~ "目标体量：约 140000 字"
+      assert text =~ "不得规划终局"
+    end
+
+    test "scope 指令含本轮卷蓝图行格式（序号=next_seq）与所属卷一致性要求" do
+      text = WorkSkeleton.render(%{target_length: 140_000}, 1, @scope)
+
+      assert text =~ "「卷蓝图：卷标题｜序号：3｜…」"
+      assert text =~ "必须与本轮卷蓝图行标题一致"
+    end
+
+    test "单卷书显式开新卷：scope 存在仍发本轮范围指令（不被 planned_volumes<=1 抑制）" do
+      text = WorkSkeleton.render(%{target_length: 140_000, planned_volumes: 1}, 3, @scope)
+
+      assert text =~ "本轮只规划第 3 卷"
+      refute text =~ "全书分 1 卷"
+    end
+
+    test "骨架未立（无 target_length）→ \"\"（scope 段由执行层单独注入，不凭空造骨架）" do
+      assert WorkSkeleton.render(%{}, 1, @scope) == ""
+    end
+
+    test "render_for_prose 不含分卷/scope 指令（规划指令不进正文向）" do
+      text = WorkSkeleton.render_for_prose(%{target_length: 140_000, planned_volumes: 3}, 10)
+      refute text =~ "本轮只规划"
+      refute text =~ "分卷规划要求"
+    end
+  end
 end

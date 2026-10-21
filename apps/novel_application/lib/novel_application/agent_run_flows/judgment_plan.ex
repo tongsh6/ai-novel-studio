@@ -485,7 +485,9 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         ledger_reader:
           Map.get(spec, :ledger_reader) || NovelApplication.persistence_ledger_reader(),
         memory_reader:
-          Map.get(spec, :memory_reader) || NovelApplication.persistence_memory_reader()
+          Map.get(spec, :memory_reader) || NovelApplication.persistence_memory_reader(),
+        # B11A CP3：开新卷动作的机械规划范围（无 scope 时 nil，prompt 逐字节不变）。
+        volume_scope: Map.get(spec, :volume_scope)
       })
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
@@ -601,7 +603,8 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         goal: "组装当前作品上下文",
         observation_refs: [context_observation_id(run, sequence)],
         state_snapshot_ref: state_snapshot_ref(run, sequence, "judgment_plan_context"),
-        idempotency_key: "#{run.run_id}:#{sequence}:judgment_plan_context:goal_v#{run.goal.version}"
+        idempotency_key:
+          "#{run.run_id}:#{sequence}:judgment_plan_context:goal_v#{run.goal.version}"
       })
 
     step

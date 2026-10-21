@@ -378,4 +378,134 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       assembly_policy: AssemblyPolicy.for_tier(:floor)
     }
   end
+
+  # B11A CP3（VS-00J §3.2 形态 A）：run 级 volume_scope 经 DialoguePlanningService →
+  # plot_outline flow → TurnExecutionService 进入规划 prompt；scope 版分卷指令替换全书卷数指令。
+  test "开新卷动作：volume_scope 经 flow 进入 plot_outline prompt（scope 段 + scope 分卷指令）" do
+    parent = self()
+
+    result_fn = fn prompt ->
+      cond do
+        prompt_contains?(prompt, "规划前推理器") ->
+          {:ok,
+           %{
+             provider_call_id: "pc-scope-mission",
+             content: "本轮只规划下一卷的开篇章节。",
+             tool_calls: [
+               %{
+                 "name" => "planning_mission",
+                 "arguments" => %{
+                   "author_reasoning" => "本轮只规划下一卷的开篇章节。",
+                   "statement" => "本轮只规划下一卷的开篇章节。",
+                   "must_advance" => [],
+                   "must_avoid" => [],
+                   "confidence" => 0.9
+                 }
+               }
+             ]
+           }}
+
+        plan_draft_prompt?(prompt) ->
+          {:ok, Map.put(plot_outline_plan_draft(), :provider_call_id, "pc-scope-planner")}
+
+        prompt_contains?(prompt, "AgentRun 下一步规划器") ->
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
+
+        true ->
+          send(parent, {:scope_writer_prompt, prompt})
+
+          {:ok,
+           %{
+             provider_call_id: "pc-scope-writer",
+             content:
+               Jason.encode!([
+                 %{
+                   "item_id" => "outline-chapter-08",
+                   "title" => "第08章：归墟",
+                   "body" => "下一卷开篇：旧秩序裂开第一道口子。",
+                   "rationale" => "开启下一卷。"
+                 }
+               ])
+           }}
+      end
+    end
+
+    scope = %{
+      next_seq: 3,
+      current_volume_seq: 2,
+      current_volume_title: "第二卷·裂变",
+      next_chapter_seq: 8,
+      existing_volume_count: 2,
+      existing_chapter_count: 7
+    }
+
+    input = %{
+      text: "请规划下一卷（第3卷）的卷蓝图与该卷开篇章节大纲。",
+      workspace_id: @work,
+      work_id: @work,
+      session_id: "session-scope-flow",
+      turn_id: "turn-scope-flow",
+      volume_scope: scope,
+      ledger_reader: fn _work_id -> [] end,
+      written_progress_reader: fn _work_id -> %{chapter_seq: 7, volume_seq: 2} end,
+      character_reader: fn _work_id -> [] end,
+      planning_mission_reader: fn _work_id -> nil end,
+      planning_mission_writer: fn _work_id, mission_map -> {:ok, :stored, mission_map} end
+    }
+
+    planned =
+      DialoguePlanningService.run_spec_for_profile(
+        :plot_outline_with_context,
+        input,
+        scope_context(),
+        %Execution{result_fn: result_fn}
+      )
+
+    assert {:ok, _run_id} =
+             AgentRunService.start_bounded(planned.run_attrs,
+               next_step_planner: planned.next_step_planner,
+               event_sink: fn _event -> :ok end
+             )
+
+    assert_receive {:scope_writer_prompt, writer_prompt}, 2_000
+    text = prompt_text(writer_prompt)
+
+    assert text =~ "## 本轮规划范围（机械给定，不得改）"
+    assert text =~ "本轮只规划下一卷：第 3 卷"
+    assert text =~ "当前已有 2 卷"
+    assert text =~ "当前卷《第二卷·裂变》"
+    assert text =~ "下一章号从 8 开始"
+    assert text =~ "不要重规划已有卷/已有章"
+    # 分卷指令也换成 scope 版，旧「全书分 3 卷」不得再出现。
+    assert text =~ "本轮只规划第 3 卷"
+    refute text =~ "全书分 3 卷"
+
+    # 顺序：全书规划段在前、本轮规划范围段紧随其后。
+    assert :binary.match(text, "## 全书规划（连载参照）") != :nomatch
+    assert :binary.match(text, "## 本轮规划范围") != :nomatch
+
+    assert :binary.match(text, "## 全书规划（连载参照）") |> elem(0) <
+             :binary.match(text, "## 本轮规划范围") |> elem(0)
+  end
+
+  defp scope_context do
+    %DialogueContext{
+      workspace_id: @work,
+      current_work_snapshot: %{target_length: 140_000, planned_volumes: 3},
+      current_chapters: ["第01章：开局设定"],
+      structured_chapters: [
+        %{
+          title: "第01章：开局设定",
+          seq: 1,
+          summary: "矿区旧债与主角压力已经建立。",
+          has_prose: true
+        }
+      ],
+      assembly_policy: AssemblyPolicy.for_tier(:floor)
+    }
+  end
 end

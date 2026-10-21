@@ -336,7 +336,17 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
          ) do
       {:ok, mission, meta} ->
         persisted = persist_tentative_planning_mission(spec, run, mission)
-        planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot, persisted)
+
+        planning_mission_success(
+          run,
+          sequence,
+          turn_id,
+          inputs,
+          mission,
+          meta,
+          snapshot,
+          persisted
+        )
 
       {:error, reason, meta} ->
         planning_mission_failure(run, sequence, turn_id, inputs, reason, meta)
@@ -480,7 +490,16 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
 
   defp safe_read(_reader, _work_id, default), do: default
 
-  defp planning_mission_success(run, sequence, turn_id, inputs, mission, meta, snapshot, persisted) do
+  defp planning_mission_success(
+         run,
+         sequence,
+         turn_id,
+         inputs,
+         mission,
+         meta,
+         snapshot,
+         persisted
+       ) do
     mission_ref = ChapterMission.ref(mission) || "mission:#{turn_id}"
 
     counts = %{
@@ -675,7 +694,9 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         author_input: %{text: author_input_text(run, plan, observations)},
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
-        planning_mission: Map.get(stage_state(snapshot), :planning_mission)
+        planning_mission: Map.get(stage_state(snapshot), :planning_mission),
+        # B11A CP3：开新卷动作的机械规划范围（无 scope 时 nil，prompt 逐字节不变）。
+        volume_scope: Map.get(spec, :volume_scope)
       }
       |> Map.merge(reader_deps(spec))
       |> TurnExecutionService.execute()

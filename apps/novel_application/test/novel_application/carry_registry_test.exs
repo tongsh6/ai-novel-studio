@@ -92,4 +92,29 @@ defmodule NovelApplication.CarryRegistryTest do
              {:current_volume_blueprint, "## 当前卷蓝图（设计态）"}
            ]).gated == ~w(current_volume_blueprint)
   end
+
+  # B11A CP3（VS-00J §3.2）：开新卷动作的机械规划范围——只服务 plot_outline。
+  test "planning_scope：仅 plot_outline 放行、其它能力 gated；装配位置在 work_skeleton 之后" do
+    assert CarryRegistry.carries?(:planning_scope, "plot_outline")
+    refute CarryRegistry.carries?(:planning_scope, "prose_writing")
+    refute CarryRegistry.carries?(:planning_scope, "world_building")
+
+    ids = CarryRegistry.ids()
+    position = fn id -> Enum.find_index(ids, &(&1 == id)) end
+    assert position.(:work_skeleton) < position.(:planning_scope)
+    assert position.(:planning_scope) < position.(:current_volume_blueprint)
+
+    report =
+      CarryRegistry.carry_report("plot_outline", [
+        {:work_skeleton, "## 全书规划"},
+        {:planning_scope, "## 本轮规划范围（机械给定，不得改）\n- 本轮只规划下一卷：第 3 卷"},
+        {:current_volume_blueprint, ""}
+      ])
+
+    assert report.carried == ~w(work_skeleton planning_scope)
+    assert report.empty == ~w(current_volume_blueprint)
+
+    gated = CarryRegistry.carry_report("prose_writing", [{:planning_scope, "x"}])
+    assert gated.gated == ~w(planning_scope)
+  end
 end

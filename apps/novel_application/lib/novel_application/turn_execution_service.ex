@@ -152,7 +152,11 @@ defmodule NovelApplication.TurnExecutionService do
     # VS-00G CP3：规划期全书骨架注入 + 收官守则（仅 plot_outline）。直接对着 M3 收官
     # 循环下药——扩章批不再自带终局章（骨架事实+当前进度+指令式禁终局，决策点邻近）。
     # 无 target_length（骨架未立）时空段（R6 负债规则催办，不在此伪造骨架）。
-    work_skeleton = work_skeleton_section(action, input[:context])
+    # B11A CP3（VS-00J §3.2 形态 A）：开新卷动作的机械规划范围——仅 plot_outline 且
+    # scope 合法时出现在 prompt；无 scope → 段为空（既有 prompt 逐字节不变）。
+    volume_scope = planning_volume_scope(action, input)
+    work_skeleton = work_skeleton_section(action, input[:context], volume_scope)
+    volume_scope_section = NovelDomain.VolumeScope.render_section(volume_scope)
 
     # B11A CP4（VS-00J §4 消费面 2）：当前卷蓝图设计态段（prose/plot 共用，carry 登记门控）。
     # 无卷/无蓝图 → ""（I-VOL-4 字节等价）；紧随全书骨架之后注入，决策点邻近。
@@ -201,6 +205,7 @@ defmodule NovelApplication.TurnExecutionService do
       {:creative_facts, creative_facts},
       {:style_guide, style_guide},
       {:work_skeleton, work_skeleton},
+      {:planning_scope, volume_scope_section},
       {:current_volume_blueprint, current_volume_blueprint},
       {:absence_directives, absence_directives},
       {:progress_state, progress_state},
@@ -232,6 +237,7 @@ defmodule NovelApplication.TurnExecutionService do
           style_guide: style_guide,
           absence_directives: absence_directives,
           work_skeleton: work_skeleton,
+          volume_scope: volume_scope_section,
           current_volume_blueprint: current_volume_blueprint,
           planning_mission: planning_mission_text
         }
@@ -421,6 +427,7 @@ defmodule NovelApplication.TurnExecutionService do
         sections.creative_facts,
         sections.style_guide,
         sections.work_skeleton,
+        sections.volume_scope,
         sections.current_volume_blueprint,
         sections.absence_directives,
         sections.dialogue_context
@@ -918,7 +925,7 @@ defmodule NovelApplication.TurnExecutionService do
   # VS-00G CP3：规划期全书骨架段+收官守则（仅 plot_outline）。已写章数用当前章列表长度
   # 近似（含计划章，作规模信号）；无 target_length 时空段（诚实缺席，R6 负债催办）。
   # CA04 G1：正文与规划共用骨架事实与收官守则口径；正文向不含分卷守则（规划指令）。
-  defp work_skeleton_section(action, context) do
+  defp work_skeleton_section(action, context, volume_scope) do
     if CarryRegistry.carries?(:work_skeleton, capability_name(action)) do
       snapshot = work_skeleton_snapshot(context)
       written = work_skeleton_written_count(context)
@@ -926,10 +933,20 @@ defmodule NovelApplication.TurnExecutionService do
       if prose_writing_action?(action) do
         NovelDomain.WorkSkeleton.render_for_prose(snapshot, written)
       else
-        NovelDomain.WorkSkeleton.render(snapshot, written)
+        NovelDomain.WorkSkeleton.render(snapshot, written, volume_scope)
       end
     else
       ""
+    end
+  end
+
+  # B11A CP3：本轮规划范围只在 plot_outline 动作上生效（judgment/其它步骤即使 carry 了
+  # 同一 run 的 scope 也不注入），scope 非法/nil → nil（走既有分卷指令）。
+  defp planning_volume_scope(action, input) do
+    if plot_outline_action?(action) do
+      input
+      |> Map.get(:volume_scope, Map.get(input, "volume_scope"))
+      |> NovelDomain.VolumeScope.normalize()
     end
   end
 
