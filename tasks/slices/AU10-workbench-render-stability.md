@@ -71,8 +71,8 @@
 
 | CP | 目标 | 交付物 | 状态 |
 |---|---|---|---|
-| CP0 | 建立刷新类型与视觉抖动基线 | 区分 React render、DOM remount、layout / paint、真实页面 reload；记录四个真实场景的连续截图/几何轨迹、触发 state 和当前阈值；复核当前 dirty checkout，避免以过期行号开工 | **doing（2026-10-21：协议+归因已冻结，采样待跑）** |
-| CP1 | 落地方案 A | 稳定 key、last-known/bootstrap、稳定输入区/面板几何、滚动锚定；对应组件测试与一次真实 Tauri 复验 | todo |
+| CP0 | 建立刷新类型与视觉抖动基线 | 区分 React render、DOM remount、layout / paint、真实页面 reload；记录四个真实场景的连续截图/几何轨迹、触发 state 和当前阈值；复核当前 dirty checkout，避免以过期行号开工 | **done（2026-10-21 browser surface 基线）**：6 场景采样，7 条违例已记录（见下） |
+| CP1 | 落地方案 A | 稳定 key、last-known/bootstrap、稳定输入区/面板几何、滚动锚定；对应组件测试与一次真实 Tauri 复验 | **next（按 CP0 违例修）** |
 | CP2 | 落地方案 B | 小批拆出组件和状态 hooks；每批保持 UI/Channel contract 不变，并用 render 边界测试证明无关区域不跟随更新 | todo |
 | CP3 | 评估并按需落地方案 C | 先选一个高收益 server-state 纵切（优先档案或会话恢复）；迁移前后请求次数、空白窗口和错误降级有对照；无收益则记录“不启动” | conditional |
 | CP4 | 评估并按需落地方案 D | 只有非法状态组合/竞态证据达到启动条件时冻结状态图与迁移计划；否则记录“不启动” | conditional |
@@ -103,6 +103,17 @@
 
 **CP0 当前状态**：基线协议与代码归因已冻结；真实页面采样尚未执行（需外部浏览器/Tauri 驱动运行）。在采样结果前不写 passed，不以主观“更顺滑”代替证据。
 
+### CP0 基线结果（2026-10-21，browser surface）
+
+- **Driver**：`frontend/slice-verify/au10-workbench-render-stability.mjs`（外部 Playwright 注入 `requestAnimationFrame + MutationObserver + PerformanceObserver`；不改产品代码/不加验收 hook）。经 `bash scripts/slice_verify.sh au10-workbench-render-stability` 跑通。
+- **场景/采样**：s1 冷启动、s2 发送消息+AgentRun、s3 会话恢复（reload）、s4 档案展开、s5 断线重连、s6 作品切换（真实菜单新建第二部作品后切回）；每场景 sampling 421–686 帧。
+- **结果**（`verdict=baseline-violations-recorded`，基线违例是预期发现，不是 passed）：
+  - s1 / s3 / s4 / s5：全部指标在冻结阈值内（CLS ≤ 0.0001；无空白帧/remount/无输入滚动跳变）。
+  - **s2 发送/AgentRun**：`detachedNodeEvents=3`、无输入 `scrollJumps=1`、`chat/input/composer` 单帧高度变化均 **81px** → 归因 #1（消息 key 可变）/ #3（滚动 deps 过宽）/ #4（composer 条件渲染）在真实页面成立。
+  - **s6 作品切换**：`blankFrames=2`、`detachedNodeEvents=3` → 归因 #2（先清空消息再回填 + 标题提前切换）在真实页面成立。
+- **报告**：`artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}` + 6 张场景截图。
+- **CP1 输入**：composer 稳定几何（81px）、切作品 last-known 原子提交（blank/remount）、消息稳定 key（detached）、滚动触发收窄（scroll jump）。CP1 修复后复跑同一 driver，违例应清零；CP5 把 driver 迁到 Tauri surface。
+
 ## 5. 验收场景
 
 1. **冷启动 / 会话恢复**：工作台从启动到 READY 期间不出现“已有内容 → 空白 → 内容恢复”的往返；loading/error 语义诚实，主布局几何稳定。
@@ -129,6 +140,7 @@ CP0 必须为“几何稳定”冻结阈值和采样方法；在此之前不得�
 
 ## 8. 决策记录
 
+- 2026-10-21 — **CP0 基线完成（browser surface）**：CP0 driver 落地并跑通 6 场景；基线 `verdict=baseline-violations-recorded`，7 条违例（s2：detached 3 / scroll jump 1 / 三处高度 81px；s6：blank 2 / detached 3），s1/s3/s4/s5 阈值内。确认归因 #2/#4 与 #1/#3 在真实页面成立；CP1 按这些数字修（composer 稳定几何、切作品 last-known 原子提交、消息稳定 key、滚动触发收窄），不改后端/契约。证据 `artifacts/slice-verify/au10-workbench-render-stability/render-baseline.{md,json}`。
 - 2026-10-21 — 作者从「主线复位」候选选 4（体验债），启动本 slice 的 CP0。UA01 流式/卡片 CP3 的外部驱动/verifier 迁移与批量 Tauri 复跑属验证债，另行挂账不混做。CP0 协议/阈值/代码归因已冻结；真实页面采样待执行，采样结果前不写 passed、不进 CP1。
 - 2026-07-24 — 登记四种方案。默认顺序为 A 最小稳定化、B 状态边界；C Query 化与 D 状态机必须由 CP0/CP2 证据触发。
 - 2026-07-24 — 本次只登记任务，不修改前端生产代码，不改变当前 VS-00G 唯一队首。
