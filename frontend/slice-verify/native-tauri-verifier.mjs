@@ -14263,7 +14263,22 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
       Array.isArray(record.volume_blueprint_per_volume) &&
       record.volume_blueprint_per_volume.length === 2 &&
       Array.isArray(record.toc_volume_blueprints) &&
-      record.toc_volume_blueprints.length === 2,
+      record.toc_volume_blueprints.length === 2 &&
+      // B11A CP4：另一个真实 prose turn 证明当前卷蓝图进入 writer prompt（llm-calls 外部
+      // 证据）且写作坐标 volume_ref 绑定当前卷（app JSONL 外部证据）。
+      record.volume_blueprint_in_writer_prompt === true &&
+      Array.isArray(record.volume_blueprint_prompt_fragments) &&
+      record.volume_blueprint_prompt_fragments.length >= 4 &&
+      record.writer_prompt_current_volume_title === true &&
+      record.writer_prompt_volume_blueprint_section_count === 1 &&
+      record.writer_prompt_foreign_volume_goal_absent === true &&
+      record.volume_blueprint_in_draft_body === false &&
+      record.prose_draft_pending === true &&
+      String(record.prose_turn_id ?? "") !== "" &&
+      String(record.prose_parent_turn_id ?? "") !== "" &&
+      String(record.coordinate_volume_ref ?? "") !== "" &&
+      record.coordinate_volume_ref_matches_toc_volume === true &&
+      record.coordinate_volume_ref_source === "app_jsonl",
   );
   if (!uiState) return null;
 
@@ -14388,6 +14403,86 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
   if (tocVolumeBlueprints[0].goal_conflict === tocVolumeBlueprints[1].goal_conflict) return null;
   if (tocVolumeBlueprints[0].source_ref !== tocVolumeBlueprints[1].source_ref) return null;
 
+  // B11A CP4（VS-00J §4 消费面 2/6）：真实 prose turn 的 writer prompt 带「当前卷蓝图」
+  // 段（设计态），写作坐标 volume_ref 绑定该章所属卷；两卷蓝图不串段、不写进正文。
+  const proseTurnId = String(uiState.prose_turn_id ?? "");
+  const proseParentTurnId = String(uiState.prose_parent_turn_id ?? "");
+  const proseChapterTitle = String(uiState.prose_turn_chapter_title ?? "");
+  if (!proseTurnId || !proseParentTurnId || !proseChapterTitle) return null;
+  // 目标章必须属于第一卷（章归属由采纳计划给出）。
+  if (!(planChapterTitlesByVolume[0] ?? []).includes(proseChapterTitle)) return null;
+
+  const writerPromptFragments = stringArray(uiState.volume_blueprint_prompt_fragments);
+  if (!writerPromptFragments || writerPromptFragments.length < 4) return null;
+  const requiredWriterPromptFragments = [
+    "## 当前卷蓝图（设计态）",
+    "- 卷：",
+    "- 本卷进度：",
+    "目标冲突：",
+    "高潮章：",
+  ];
+  if (
+    !requiredWriterPromptFragments.every((fragment) =>
+      writerPromptFragments.some((value) => value.includes(fragment)),
+    )
+  ) {
+    return null;
+  }
+  if (uiState.writer_prompt_current_volume_title !== true) return null;
+  if (uiState.writer_prompt_volume_blueprint_section_count !== 1) return null;
+  if (uiState.writer_prompt_foreign_volume_goal_absent !== true) return null;
+  if (uiState.volume_blueprint_in_draft_body === true) return null;
+
+  // 写作坐标：独立复核 app JSONL 的 additive volume_ref = get_toc 当前（第一卷）卷 id，
+  // 不单信 driver 的布尔结论。
+  const tocVolumeIds = (uiState.toc_volume_blueprints ?? []).map((volume) =>
+    String(volume?.id ?? ""),
+  );
+  if (tocVolumeIds.length !== 2 || !tocVolumeIds[0]) return null;
+  const coordinateVolumeRef = String(uiState.coordinate_volume_ref ?? "");
+  if (!coordinateVolumeRef) return null;
+  if (coordinateVolumeRef !== tocVolumeIds[0]) return null;
+  if (uiState.coordinate_volume_ref_matches_toc_volume !== true) return null;
+  if (uiState.coordinate_volume_ref_source !== "app_jsonl") return null;
+
+  const proseTurnPrefix = `${proseParentTurnId}:agent:`;
+  const belongsToProseTurn = (record) =>
+    record.turn_id === proseTurnId ||
+    record.turn_id === proseParentTurnId ||
+    (typeof record.turn_id === "string" && record.turn_id.startsWith(proseTurnPrefix));
+
+  const coordinateRecord = records.find(
+    (record) =>
+      record.event === "turn_execution.writing_coordinate.done" &&
+      record.authoring_mode === "first_draft" &&
+      belongsToProseTurn(record),
+  );
+  if (!coordinateRecord) return null;
+  if (String(coordinateRecord.volume_ref ?? "") !== coordinateVolumeRef) return null;
+
+  const proseToolExecuted = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded" &&
+      belongsToProseTurn(record),
+  );
+  if (!proseToolExecuted) return null;
+  const proseMessageStarted = records.some(
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.turn_id === proseParentTurnId &&
+      record.generate_micro_plan === true &&
+      String(uiState.prose_user_message_text ?? "").includes(proseChapterTitle) &&
+      String(uiState.prose_user_message_text ?? "").includes("正文草稿"),
+  );
+  if (!proseMessageStarted) return null;
+  const proseRunCompleted = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === proseParentTurnId,
+  );
+  if (!proseRunCompleted) return null;
+
   const generationTurnId = String(uiState.generation_turn_id ?? "");
   const adoptionTurnId = String(uiState.adoption_turn_id ?? "");
   // 规划走 bounded AgentRun：channel 级留痕在父 turn，工具执行/采纳在 `:agent:N` 子 turn。
@@ -14442,7 +14537,9 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
   return {
     slice_id: sliceId,
     turn_id: generationTurnId,
-    turn_ids: [parentTurnId, generationTurnId],
+    // 规划 turn（父+执行子 turn）与 CP4 prose turn（父+执行子 turn）都进证据范围，
+    // app-log.json 因此包含两个真实 turn 的关键事件。
+    turn_ids: [...new Set([parentTurnId, generationTurnId, proseParentTurnId, proseTurnId])],
     generation_turn_id: generationTurnId,
     parent_turn_id: parentTurnId,
     adoption_turn_id: adoptionTurnId,
@@ -14474,12 +14571,27 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
       climaxes: volume.climaxes,
       buffers: volume.buffers,
       chapter_count: volume.chapter_titles.length,
+      id: volume.id,
     })),
     toc_volume_blueprint_count: tocVolumeBlueprints.filter((volume) => volume.has_blueprint)
       .length,
     toc_volume_blueprint_confirmed_count: tocVolumeBlueprints.filter(
       (volume) => volume.status === "CONFIRMED",
     ).length,
+    // B11A CP4：当前卷蓝图进入 writer prompt + 写作坐标 volume_ref（真实 prose turn）。
+    prose_turn_id: proseTurnId,
+    prose_parent_turn_id: proseParentTurnId,
+    prose_chapter_title: proseChapterTitle,
+    prose_volume_title: String(uiState.prose_turn_volume_title ?? ""),
+    volume_blueprint_in_writer_prompt: true,
+    volume_blueprint_prompt_fragments: writerPromptFragments,
+    writer_prompt_volume_blueprint_section_count: 1,
+    writer_prompt_foreign_volume_goal_absent: true,
+    volume_blueprint_in_draft_body: false,
+    coordinate_volume_ref: coordinateVolumeRef,
+    coordinate_volume_ref_matches_toc_volume: true,
+    coordinate_volume_ref_source: "app_jsonl",
+    current_volume_id: tocVolumeIds[0],
     key_events: keyEvents,
   };
 }
@@ -15099,6 +15211,27 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
   }
   if (tocBlueprints[0].goal_conflict === tocBlueprints[1].goal_conflict) return null;
 
+  // B11A CP4：真实 prose turn——writer prompt 携带当前卷蓝图段，写作坐标 volume_ref
+  // 绑定该章所属卷（两条都是外部证据：llm-calls 与 app JSONL）。
+  if (!evidence.prose_turn_id || !evidence.prose_parent_turn_id) return null;
+  if (!turnsHaveGenerateMicroPlan([evidence.prose_parent_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.prose_parent_turn_id], turnRecords, "channel.user_message.done")) {
+    return null;
+  }
+  if (!turnsHaveEvent([evidence.prose_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  if (evidence.volume_blueprint_in_writer_prompt !== true) return null;
+  const writerPromptFragments = evidence.volume_blueprint_prompt_fragments;
+  if (!Array.isArray(writerPromptFragments) || writerPromptFragments.length < 4) return null;
+  if (evidence.writer_prompt_volume_blueprint_section_count !== 1) return null;
+  if (evidence.writer_prompt_foreign_volume_goal_absent !== true) return null;
+  if (evidence.volume_blueprint_in_draft_body === true) return null;
+  if (evidence.coordinate_volume_ref_source !== "app_jsonl") return null;
+  if (!String(evidence.coordinate_volume_ref ?? "")) return null;
+  if (evidence.coordinate_volume_ref_matches_toc_volume !== true) return null;
+  if (String(evidence.coordinate_volume_ref) !== String(evidence.current_volume_id ?? "")) {
+    return null;
+  }
+
   return {
     slice_id: "au08-volume-structured-planning",
     behavior: "chapter_plan_materialized_into_declared_volumes_and_read_by_volume",
@@ -15108,6 +15241,11 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
     volume_chapter_counts: evidence.volume_chapter_counts,
     volume_blueprint_per_volume: blueprintPerVolume,
     toc_volume_blueprints: tocBlueprints,
+    prose_turn_id: evidence.prose_turn_id,
+    prose_chapter_title: evidence.prose_chapter_title,
+    volume_blueprint_prompt_fragments: writerPromptFragments,
+    coordinate_volume_ref: evidence.coordinate_volume_ref,
+    current_volume_id: evidence.current_volume_id,
     assertions: [
       "real_archive_outline_start_planning_clicked",
       "micro_plan_requested_from_real_workbench",
@@ -15123,6 +15261,10 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
       "toc_projection_returned_two_volumes",
       "toc_projection_volumes_carry_confirmed_blueprint_with_artifact_source_ref",
       "adopted_blueprints_are_per_volume_distinct",
+      "real_archive_outline_started_prose_draft_for_volume_one_chapter",
+      "prose_writer_prompt_carried_current_volume_blueprint",
+      "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
+      "writing_coordinate_volume_ref_bound_to_current_volume",
     ],
   };
 }

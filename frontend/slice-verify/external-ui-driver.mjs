@@ -7415,6 +7415,8 @@ async function driveAu08VolumeStructuredPlanning(page) {
     const blueprint =
       volume?.blueprint && typeof volume.blueprint === "object" ? volume.blueprint : {};
     return {
+      // B11A CP4：卷 id 用于与 prose turn 的写作坐标 volume_ref 对账（真实投影 id）。
+      id: String(volume?.id ?? ""),
       title: String(volume?.title ?? ""),
       seq: Number(volume?.seq ?? 0),
       has_blueprint: Object.keys(blueprint).length > 0,
@@ -7463,6 +7465,235 @@ async function driveAu08VolumeStructuredPlanning(page) {
     "Outline adoption unexpectedly materialized a reading projection",
   );
 
+  // B11A CP4（VS-00J §4 消费面 2/6）：另一个真实 prose turn——退出阅读模式、打开档案大纲，
+  // 点第一卷下目标章的「生成正文草稿」（可见卷表头/章标题定位，无专用入口/自动触发），
+  // 证明「当前卷蓝图（设计态）」进入正文 writer prompt、写作坐标 volume_ref 绑定当前卷。
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  // 面板状态跨阅读模式保留：若档案仍开着（大纲与结构 tab 可见）就不再点「打开档案」。
+  let archivePanelOpen = false;
+  for (let attempt = 0; attempt < 10 && !archivePanelOpen; attempt += 1) {
+    archivePanelOpen = await page
+      .getByRole("tab", { name: "大纲与结构" })
+      .isVisible()
+      .catch(() => false);
+    if (!archivePanelOpen) await sleep(200);
+  }
+  if (!archivePanelOpen) {
+    await page.getByRole("button", { name: "打开档案" }).first().click();
+  }
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+
+  const proseChapterTitle = planChapterTitlesByVolume[0][0];
+  const proseVolumeTitle = planVolumeTitles[0];
+  const proseVolumeChapterCount = planChapterTitlesByVolume[0].length;
+  await page.waitForFunction(
+    ({ volumeHeader, chapterTitle }) => {
+      const text = document.body.innerText;
+      return (
+        text.includes("已采纳章节计划") &&
+        text.includes(volumeHeader) &&
+        text.includes(chapterTitle)
+      );
+    },
+    { volumeHeader: volumeHeaders[0], chapterTitle: proseChapterTitle },
+    { timeout: 15_000 },
+  );
+
+  // 按可见卷表头锁定第一卷分组、再从该组内可见章标题的卡片找「生成正文草稿」按钮；
+  // 返回按钮在全部同名按钮中的序号，点击仍走 Playwright 角色（只用可见文本+role，
+  // 不新增 data-testid）。
+  const proseDraftButtonIndex = await page.evaluate(
+    ({ volumeHeaderText, chapterTitle }) => {
+      const header = [...document.querySelectorAll("div")].find(
+        (element) =>
+          element.children.length === 0 &&
+          (element.textContent ?? "").trim() === volumeHeaderText,
+      );
+      const group = header?.parentElement;
+      if (!group) return -1;
+
+      const titleElement = [...group.querySelectorAll("span")].find(
+        (element) => (element.textContent ?? "").trim() === chapterTitle,
+      );
+      const card = titleElement?.parentElement;
+      const button = card
+        ? [...card.querySelectorAll("button")].find(
+            (element) => (element.textContent ?? "").trim() === "生成正文草稿",
+          )
+        : null;
+      if (!button) return -1;
+
+      const allDraftButtons = [...document.querySelectorAll("button")].filter(
+        (element) => (element.textContent ?? "").trim() === "生成正文草稿",
+      );
+      return allDraftButtons.indexOf(button);
+    },
+    { volumeHeaderText: volumeHeaders[0], chapterTitle: proseChapterTitle },
+  );
+  assert(
+    proseDraftButtonIndex >= 0,
+    `Archive outline did not expose a draft action for ${proseChapterTitle} under ${volumeHeaders[0]}`,
+  );
+  await page.getByRole("button", { name: "生成正文草稿" }).nth(proseDraftButtonIndex).click();
+
+  const proseMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes(proseChapterTitle) &&
+      String(frame.body?.text ?? "").includes("正文草稿"),
+    "Real workbench did not send the prose draft user_message for the volume-1 chapter",
+    60_000,
+  );
+
+  const proseTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result websocket frame was received for the volume-context turn",
+    240_000,
+  );
+  const proseTurnResult = proseTurnFrame.body;
+  const proseTurnId = String(proseTurnResult.turn_id ?? "");
+  assert(proseTurnId, "Prose turn_result did not carry a turn_id");
+  const proseParentTurnId = proseTurnId.split(":agent:")[0];
+  const prosePendingArtifact = proseTurnResult.adoption_state.pending[0];
+  const proseDraftBody = String(prosePendingArtifact.payload?.items?.[0]?.body ?? "");
+
+  await page.waitForFunction(
+    ({ chapterTitle }) => {
+      const text = document.body.innerText;
+      return (
+        /待确认的创作材料|待保存章节草稿|章节正文草稿/.test(text) && text.includes(chapterTitle)
+      );
+    },
+    { chapterTitle: proseChapterTitle },
+    { timeout: 20_000 },
+  );
+  const proseCardText = await page.locator("body").innerText();
+  const proseDraftCardVisible =
+    /待确认的创作材料|待保存章节草稿|章节正文草稿/.test(proseCardText) &&
+    proseCardText.includes(proseChapterTitle);
+
+  await page.screenshot({
+    path: path.join(artifactDir, "au08-volume-structured-planning-prose-volume-context.png"),
+    fullPage: true,
+  });
+
+  // 写作坐标：真实 app JSONL 的 turn_execution.writing_coordinate.done additive volume_ref
+  // 必须绑定当前卷（章属于第一卷）。日志不可见时不伪造通过，而是如实标 not_available。
+  const readCoordinateRecord = async () => {
+    try {
+      return await waitForAppLogRecord(
+        (record) =>
+          record.event === "turn_execution.writing_coordinate.done" &&
+          record.turn_id === proseTurnId &&
+          record.authoring_mode === "first_draft",
+        "No turn_execution.writing_coordinate.done app log for the prose turn",
+        5_000,
+      );
+    } catch {
+      return null;
+    }
+  };
+  const coordinateRecord = await readCoordinateRecord();
+  const coordinateVolumeRefSource = coordinateRecord ? "app_jsonl" : "not_available";
+  const currentVolumeId = String(tocVolumeBlueprints[0]?.id ?? "");
+  const coordinateVolumeRef =
+    coordinateRecord && typeof coordinateRecord.volume_ref === "string"
+      ? coordinateRecord.volume_ref
+      : null;
+  const coordinateVolumeRefMatchesTocVolume =
+    Boolean(coordinateVolumeRef) && coordinateVolumeRef === currentVolumeId;
+  if (coordinateVolumeRefSource === "app_jsonl") {
+    assert(
+      Boolean(coordinateVolumeRef),
+      `Writing coordinate did not bind a volume_ref for the prose turn: ${JSON.stringify({
+        proseTurnId,
+        coordinate: coordinateRecord,
+      })}`,
+    );
+    assert(
+      coordinateVolumeRefMatchesTocVolume,
+      `Writing coordinate volume_ref did not point at the current volume from get_toc: ${JSON.stringify(
+        { coordinateVolumeRef, currentVolumeId, proseVolumeTitle },
+      )}`,
+    );
+  }
+
+  // writer prompt 外部证据：test-support 桩把真实收到的 prompt 落 llm-calls（产品零验收感知）。
+  const readPromptTexts = () =>
+    readLlmCallRecords()
+      .map((record) => String(record?.prompt ?? ""))
+      .filter((prompt) => prompt !== "");
+
+  let writerPrompt = null;
+  for (let attempt = 0; attempt < 40 && !writerPrompt; attempt += 1) {
+    writerPrompt = readPromptTexts().find(
+      (prompt) =>
+        prompt.includes("## 当前卷蓝图（设计态）") &&
+        prompt.includes("artifact_type：prose_fragment") &&
+        prompt.includes(proseChapterTitle),
+    );
+    if (!writerPrompt) await sleep(200);
+  }
+  assert(writerPrompt, "Writer prompt did not carry the current volume blueprint section");
+
+  const countOccurrences = (text, needle) => text.split(needle).length - 1;
+  const volumeBlueprintSectionHeader = "## 当前卷蓝图（设计态）";
+  const writerPromptVolumeSectionCount = countOccurrences(
+    writerPrompt,
+    volumeBlueprintSectionHeader,
+  );
+  const writerPromptVolumeLabelCount = countOccurrences(writerPrompt, "所属卷");
+  const expectedWriterPromptFragments = [
+    volumeBlueprintSectionHeader,
+    `- 卷：${proseVolumeTitle}`,
+    `- 本卷进度：已写 0 / 共 ${proseVolumeChapterCount} 章`,
+    `目标冲突：${planBlueprints[0].goal_conflict}`,
+    `高潮章：${planBlueprints[0].climaxes}`,
+    `支线启动：${planBlueprints[0].subplots_start}`,
+    `- 目标章：${proseChapterTitle}`,
+  ];
+  const visibleWriterPromptFragments = expectedWriterPromptFragments.filter((fragment) =>
+    writerPrompt.includes(fragment),
+  );
+  const writerPromptForeignVolumeGoalAbsent = !writerPrompt.includes(
+    `目标冲突：${planBlueprints[1].goal_conflict}`,
+  );
+  const writerPromptCurrentVolumeTitle = writerPrompt.includes(`- 卷：${proseVolumeTitle}`);
+  const volumeBlueprintSectionOnlyOnce = writerPromptVolumeSectionCount === 1;
+  assert(
+    visibleWriterPromptFragments.length === expectedWriterPromptFragments.length,
+    `Writer prompt did not carry the current volume blueprint fragments: ${JSON.stringify({
+      expectedWriterPromptFragments,
+      visibleWriterPromptFragments,
+    })}`,
+  );
+  assert(
+    volumeBlueprintSectionOnlyOnce && writerPromptVolumeLabelCount <= 1,
+    `Writer prompt duplicated the volume section/label: ${JSON.stringify({
+      writerPromptVolumeSectionCount,
+      writerPromptVolumeLabelCount,
+    })}`,
+  );
+  assert(
+    writerPromptForeignVolumeGoalAbsent,
+    `Writer prompt leaked the other volume's blueprint goal: ${JSON.stringify({
+      otherGoal: planBlueprints[1].goal_conflict,
+    })}`,
+  );
+  assert(
+    !proseDraftBody.includes("当前卷蓝图"),
+    "Design-state volume blueprint leaked into the tentative prose draft body",
+  );
+
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, generationTurnResult, sentMessage);
 
@@ -7507,6 +7738,32 @@ async function driveAu08VolumeStructuredPlanning(page) {
       adopt_payload: acceptActionFrame.body,
       action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
       user_message_text: planMessageFrame.body?.text,
+      // B11A CP4：另一个真实 prose turn——当前卷蓝图进入 writer prompt + 坐标 volume_ref。
+      prose_turn_id: proseTurnId,
+      prose_parent_turn_id: proseParentTurnId,
+      prose_turn_chapter_title: proseChapterTitle,
+      prose_turn_volume_title: proseVolumeTitle,
+      prose_turn_artifact_id: prosePendingArtifact.artifact_id,
+      prose_user_message_text: proseMessageFrame.body?.text,
+      prose_draft_pending: true,
+      prose_draft_card_visible: proseDraftCardVisible,
+      prose_draft_body_chars: proseDraftBody.length,
+      volume_blueprint_in_writer_prompt:
+        visibleWriterPromptFragments.length === expectedWriterPromptFragments.length &&
+        volumeBlueprintSectionOnlyOnce &&
+        writerPromptForeignVolumeGoalAbsent,
+      volume_blueprint_prompt_fragments: visibleWriterPromptFragments,
+      writer_prompt_expected_volume_fragments: expectedWriterPromptFragments,
+      writer_prompt_current_volume_title: writerPromptCurrentVolumeTitle,
+      writer_prompt_volume_blueprint_section_count: writerPromptVolumeSectionCount,
+      writer_prompt_volume_label_count: writerPromptVolumeLabelCount,
+      writer_prompt_foreign_volume_goal_absent: writerPromptForeignVolumeGoalAbsent,
+      volume_blueprint_in_draft_body: proseDraftBody.includes("当前卷蓝图"),
+      coordinate_volume_ref: coordinateVolumeRef,
+      coordinate_volume_ref_matches_toc_volume: coordinateVolumeRefMatchesTocVolume,
+      coordinate_volume_ref_source: coordinateVolumeRefSource,
+      current_volume_id: currentVolumeId,
+      prose_volume_context_screenshot: true,
     },
   ];
 }

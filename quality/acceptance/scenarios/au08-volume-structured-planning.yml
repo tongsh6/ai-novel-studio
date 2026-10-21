@@ -16,6 +16,7 @@ invariants:
   - chapter-plan-materializes-into-declared-volumes
   - adoption-boundary-authorized-only
   - volume-blueprint-confirmed-only-through-adoption
+  - current-volume-blueprint-is-design-state-context
 
 setup:
   seed: scripts/seed_au08_volume_planning.exs
@@ -33,6 +34,11 @@ user_flow:
   - wait_for: 每个卷表头之后、章卡片之前只读显示本卷「卷蓝图」块（目标冲突/支线/高潮与节奏/新要素）
   - click: 阅读
   - wait_for: 阅读目录出现两个卷头
+  - click: 返回工作台
+  - reopen: archive outline
+  - click: 生成正文草稿（第一卷下某章）
+  - wait_for: 真实 prose turn 完成且待保存正文草稿卡可见（B11A CP4）
+  - see: writer prompt 携带「当前卷蓝图（设计态）」段（llm-calls 外部证据）
 
 evidence:
   required:
@@ -50,11 +56,13 @@ assertions:
     - archive outline renders a read-only volume blueprint block between each volume header and its chapter cards
     - volume blueprint block shows 目标冲突/支线：启动：/高潮与节奏：/新要素： rows, per-volume distinct
     - reading mode TOC renders the same two volume headers in the same order
+    - archive outline starts a real prose draft for a chapter under volume 1 and the tentative draft card is visible
   network:
     - user_message sent with micro plan
     - plot_outline outline_draft turn_result received with per-chapter volume assignment and two per-volume blueprint lines
     - author_action accept sent and accepted
     - get_toc reply carries two volumes, each volume node carrying the adopted blueprint
+    - prose turn user_message sent with micro plan and prose_writing prose_fragment turn_result received
   data:
     - judgment selected the plot_outline capability and the turn ran as a bounded run
     - toolbox.execute.done for plot_outline is bound to the executing turn by decision_id
@@ -62,6 +70,9 @@ assertions:
     - outline adoption did not materialize a reading projection
     - adopted volumes carry blueprint with status=CONFIRMED and source_ref=artifact:<adopted artifact id>, two volumes with distinct blueprint content
     - get_toc volumes carry blueprint; per-volume chapter membership equals the adopted plan assignment (volume blueprint does not change chapter ownership)
+    - writer prompt carries 当前卷蓝图（设计态）section exactly once with the current volume title, progress line, goal conflict and climax chapter; the other volume's goal is absent
+    - turn_execution.writing_coordinate.done binds volume_ref to the current (volume-1) id from get_toc
+    - design-state volume blueprint never leaks into the tentative prose draft body
 
 anti_hooks:
   product_acceptance_logic_added: false

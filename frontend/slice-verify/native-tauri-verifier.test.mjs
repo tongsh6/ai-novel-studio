@@ -8997,7 +8997,13 @@ describe("native Tauri slice verifier", () => {
     expect(evidence).toEqual({
       slice_id: "au08-volume-structured-planning",
       turn_id: "turn-au08:agent:4",
-      turn_ids: ["turn-au08", "turn-au08:agent:4"],
+      // 规划 turn（父+执行子）与 CP4 prose turn（父+执行子）都进证据范围。
+      turn_ids: [
+        "turn-au08",
+        "turn-au08:agent:4",
+        "turn-au08-prose",
+        "turn-au08-prose:agent:5",
+      ],
       generation_turn_id: "turn-au08:agent:4",
       parent_turn_id: "turn-au08",
       adoption_turn_id: "turn-au08-adopt",
@@ -9049,6 +9055,7 @@ describe("native Tauri slice verifier", () => {
       volume_blueprint_count: 2,
       toc_volume_blueprints: [
         {
+          id: "volume-au08-1",
           title: "第一卷·觉醒",
           seq: 1,
           has_blueprint: true,
@@ -9060,6 +9067,7 @@ describe("native Tauri slice verifier", () => {
           chapter_count: 5,
         },
         {
+          id: "volume-au08-2",
           title: "第二卷·裂变",
           seq: 2,
           has_blueprint: true,
@@ -9073,6 +9081,28 @@ describe("native Tauri slice verifier", () => {
       ],
       toc_volume_blueprint_count: 2,
       toc_volume_blueprint_confirmed_count: 2,
+      // B11A CP4：当前卷蓝图进入 writer prompt + 写作坐标 volume_ref（真实 prose turn）。
+      prose_turn_id: "turn-au08-prose:agent:5",
+      prose_parent_turn_id: "turn-au08-prose",
+      prose_chapter_title: "第01章：觉醒",
+      prose_volume_title: "第一卷·觉醒",
+      volume_blueprint_in_writer_prompt: true,
+      volume_blueprint_prompt_fragments: [
+        "## 当前卷蓝图（设计态）",
+        "- 卷：第一卷·觉醒",
+        "- 本卷进度：已写 0 / 共 5 章",
+        "目标冲突：查清灵气账单被篡改的第一条线索",
+        "高潮章：第05章：暗流",
+        "支线启动：旧友重逢",
+        "- 目标章：第01章：觉醒",
+      ],
+      writer_prompt_volume_blueprint_section_count: 1,
+      writer_prompt_foreign_volume_goal_absent: true,
+      volume_blueprint_in_draft_body: false,
+      coordinate_volume_ref: "volume-au08-1",
+      coordinate_volume_ref_matches_toc_volume: true,
+      coordinate_volume_ref_source: "app_jsonl",
+      current_volume_id: "volume-au08-1",
       key_events: keyEventsForSlice("au08-volume-structured-planning"),
     });
 
@@ -9083,7 +9113,12 @@ describe("native Tauri slice verifier", () => {
     ).toEqual({
       slice_id: "au08-volume-structured-planning",
       behavior: "chapter_plan_materialized_into_declared_volumes_and_read_by_volume",
-      turn_ids: ["turn-au08", "turn-au08:agent:4"],
+      turn_ids: [
+        "turn-au08",
+        "turn-au08:agent:4",
+        "turn-au08-prose",
+        "turn-au08-prose:agent:5",
+      ],
       chapter_count: 12,
       volume_headers: ["第一卷·觉醒 · 5章", "第二卷·裂变 · 7章"],
       volume_chapter_counts: [5, 7],
@@ -9121,6 +9156,7 @@ describe("native Tauri slice verifier", () => {
       ],
       toc_volume_blueprints: [
         {
+          id: "volume-au08-1",
           title: "第一卷·觉醒",
           seq: 1,
           has_blueprint: true,
@@ -9132,6 +9168,7 @@ describe("native Tauri slice verifier", () => {
           chapter_count: 5,
         },
         {
+          id: "volume-au08-2",
           title: "第二卷·裂变",
           seq: 2,
           has_blueprint: true,
@@ -9143,6 +9180,20 @@ describe("native Tauri slice verifier", () => {
           chapter_count: 7,
         },
       ],
+      // B11A CP4：prose turn 的外部证据字段透传进 behavior。
+      prose_turn_id: "turn-au08-prose:agent:5",
+      prose_chapter_title: "第01章：觉醒",
+      volume_blueprint_prompt_fragments: [
+        "## 当前卷蓝图（设计态）",
+        "- 卷：第一卷·觉醒",
+        "- 本卷进度：已写 0 / 共 5 章",
+        "目标冲突：查清灵气账单被篡改的第一条线索",
+        "高潮章：第05章：暗流",
+        "支线启动：旧友重逢",
+        "- 目标章：第01章：觉醒",
+      ],
+      coordinate_volume_ref: "volume-au08-1",
+      current_volume_id: "volume-au08-1",
       assertions: [
         "real_archive_outline_start_planning_clicked",
         "micro_plan_requested_from_real_workbench",
@@ -9158,6 +9209,10 @@ describe("native Tauri slice verifier", () => {
         "toc_projection_returned_two_volumes",
         "toc_projection_volumes_carry_confirmed_blueprint_with_artifact_source_ref",
         "adopted_blueprints_are_per_volume_distinct",
+        "real_archive_outline_started_prose_draft_for_volume_one_chapter",
+        "prose_writer_prompt_carried_current_volume_blueprint",
+        "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
+        "writing_coordinate_volume_ref_bound_to_current_volume",
       ],
     });
   });
@@ -9185,6 +9240,28 @@ describe("native Tauri slice verifier", () => {
 
     const records = au08VolumeStructuredPlanningRecords({
       uiStateOverrides: { chapter_titles_by_volume: [swappedOne, swappedTwo] },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP4 evidence when the writer prompt missed the current volume blueprint", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        volume_blueprint_in_writer_prompt: false,
+        volume_blueprint_prompt_fragments: [],
+      },
+    });
+
+    expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
+  });
+
+  it("rejects AU-08 CP4 evidence when writing coordinate binds another volume", () => {
+    const records = au08VolumeStructuredPlanningRecords({
+      uiStateOverrides: {
+        coordinate_volume_ref: "volume-au08-other",
+        coordinate_volume_ref_matches_toc_volume: false,
+      },
     });
 
     expect(findNativeSliceEvidence("au08-volume-structured-planning", records)).toBeNull();
@@ -13043,6 +13120,21 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
   const adoptionTurnId = "turn-au08-adopt";
   const decisionId = "decision-au08";
   const workId = "work-au08";
+  // B11A CP4：另一个真实 prose turn（父 turn + 执行子 turn）与 get_toc 当前卷 id。
+  const proseParentTurnId = "turn-au08-prose";
+  const proseTurnId = "turn-au08-prose:agent:5";
+  const volumeOneId = "volume-au08-1";
+  const volumeTwoId = "volume-au08-2";
+  const volumeOneGoal = "查清灵气账单被篡改的第一条线索";
+  const proseWriterPromptFragments = [
+    "## 当前卷蓝图（设计态）",
+    "- 卷：第一卷·觉醒",
+    "- 本卷进度：已写 0 / 共 5 章",
+    `目标冲突：${volumeOneGoal}`,
+    "高潮章：第05章：暗流",
+    "支线启动：旧友重逢",
+    "- 目标章：第01章：觉醒",
+  ];
 
   return [
     {
@@ -13137,6 +13229,47 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       total_word_count: 0,
       ...tocOverrides,
     },
+    // B11A CP4：作者在档案大纲点第一卷章卡的「生成正文草稿」→ 真实 prose turn。
+    {
+      event: "channel.user_message.start",
+      turn_id: proseParentTurnId,
+      workspace_id: workId,
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "start",
+      generate_micro_plan: true,
+      message_preview: "请根据已采纳章节计划生成第01章：觉醒正文草稿，保持为待采纳草稿。",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: proseParentTurnId,
+      workspace_id: workId,
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "ok",
+      run_mode: "bounded",
+      run_id: "run-au08-prose",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: proseTurnId,
+      outcome: "ok",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "turn_execution.writing_coordinate.done",
+      turn_id: proseTurnId,
+      workspace_id: workId,
+      work_id: workId,
+      session_id: "session-au08",
+      outcome: "ok",
+      authoring_mode: "first_draft",
+      requested_chapter: "第01章",
+      matched_chapter: "第01章：觉醒",
+      volume_ref: volumeOneId,
+      missing_severity: "ok",
+    },
     {
       event: "slice_verify.ui_state.done",
       turn_id: generationTurnId,
@@ -13209,6 +13342,7 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       volume_blueprint_count: 2,
       toc_volume_blueprints: [
         {
+          id: volumeOneId,
           title: "第一卷·觉醒",
           seq: 1,
           has_blueprint: true,
@@ -13220,6 +13354,7 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
           chapter_titles: au08VolumeOneChapters(),
         },
         {
+          id: volumeTwoId,
           title: "第二卷·裂变",
           seq: 2,
           has_blueprint: true,
@@ -13233,6 +13368,25 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       ],
       toc_volume_blueprint_count: 2,
       toc_volume_blueprint_confirmed_count: 2,
+      // B11A CP4：writer prompt 带当前卷蓝图段 + 写作坐标 volume_ref 绑定当前卷。
+      prose_turn_id: proseTurnId,
+      prose_parent_turn_id: proseParentTurnId,
+      prose_turn_chapter_title: "第01章：觉醒",
+      prose_turn_volume_title: "第一卷·觉醒",
+      prose_user_message_text:
+        "请根据已采纳章节计划生成第01章：觉醒正文草稿，保持为待采纳草稿。",
+      prose_draft_pending: true,
+      prose_draft_card_visible: true,
+      volume_blueprint_in_writer_prompt: true,
+      volume_blueprint_prompt_fragments: proseWriterPromptFragments,
+      writer_prompt_current_volume_title: true,
+      writer_prompt_volume_blueprint_section_count: 1,
+      writer_prompt_foreign_volume_goal_absent: true,
+      volume_blueprint_in_draft_body: false,
+      coordinate_volume_ref: volumeOneId,
+      coordinate_volume_ref_matches_toc_volume: true,
+      coordinate_volume_ref_source: "app_jsonl",
+      current_volume_id: volumeOneId,
       ...uiStateOverrides,
     },
   ];
