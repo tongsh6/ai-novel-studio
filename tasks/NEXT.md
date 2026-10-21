@@ -79,7 +79,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 三轨预算：**A 主线 ≥60% / B 债务 ≤25% / C 平台验证 ≤15%**。除非阻塞级 P0 bug，功能推进从队首开始。
 
-### 当前队列（2026-10-08 校准；唯一 next 为当前队首）
+### 当前队列（2026-10-21 校准；唯一 next 为当前队首）
 
 | # | 轨 | 任务 | 状态 | 完成判据 |
 |---|---|---|---|---|
@@ -88,7 +88,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | Q1b | A | BIZ-06：已有候选的对话修订/放弃、重新登记与编辑状态 | **done（2026-10-18）** | 三项页面专项、十轮实模数据链及最终四轮上下文/回执实模通过；Journey C10 |
 | Q1c | A | 已采纳内容的修订、保留/替代与后续上下文核查（`tasks/slices/Q1C-adopted-content-revision.md`，CP1–CP4/CP5 done） | **done（2026-10-21）** | 正式 browser 场景 PASS + 四条拒绝矩阵 + follow-up 新值；详见 slice §4B |
 | T6-AB | A | UA01 T6 CP-AB：prompt 前缀稳定性观测 + 首个实证（`contracts/VS-00I` §9） | **done + Frozen（2026-10-21，作者裁决 §14 选项 1）**：CP-AB / CP-D / CP-C / CP-E(local/DeepSeek+Strata 临时 IQ3) 完成；VS-00I 已改 **Frozen**，冻结纪律修订为「call2 覆盖 call1 的 L0–L2 全长（L4 置尾除外）」。证据：`judgment_call_pair_prod 3927/10052`（boundary 3925，enforce）、I-CACHE-1 全绿、DeepSeek live `cached_tokens=2048/2057`、Strata IQ3 临时 `2125/2132`。**冻结后增量**：Anthropic live/断点、其余厂商凭据、Strata Q2（8081）live 复测、桌面 provider 持久选择与 dogfood/stage strata 支持。 | 已迁移调用点 I-CACHE-1 全绿；MBC A/B stub/LM/DeepSeek 均 7/7 不退化；I1/I2/I3/N-NARR 绿；`slice_verify au02-candidate-continuation` PASS |
-| AB-RESUME | A | CP-AB 恢复收尾：Strata Q2 live 复测 + Anthropic 凭据/live（`contracts/VS-00I` §14 冻结后增量） | **next**（blocked：①Strata Q2 服务（127.0.0.1:8081）未启动，本地默认已切 `strata`/`qwen3.8-flash-next-q2_0`；IQ3 临时 profile（8082）已录 MBC 7/7、tool-call 2/2、prefix cached 2125/2132 / TTFT 2059→65ms，Q2 启动后同口径复测；②无 Anthropic 凭据，`cache_read_input_tokens>0` 与断点分块未做。**VS-00I 已 Frozen，不再是阻塞项**）。已完成：CP-D/CP-C + CP-E local/DeepSeek + I-CACHE-1 CI。 | 启动 Q2 后复跑 `probe_run.sh ... strata` + `prompt_prefix_live.exs strata` 落档；Anthropic 凭据到位后补 live/断点即收口 |
+| AB-RESUME | A | CP-AB 恢复收尾（`contracts/VS-00I` §14 冻结后增量） | **done-with-deferred（2026-10-21，作者决定停止 A/B）**：VS-00I 已 Frozen 且不再是阻塞项；按作者指示不再跑 A/B，剩余增量全部挂账、不占队首：①Strata Q2（8081）live 复测（服务启动后）②Anthropic live/断点分块 ③其余厂商凭据/live。已有证据：CP-D/CP-C + CP-E local/DeepSeek + Strata IQ3 临时 profile + I-CACHE-1 CI。 | 任一幅增量触发条件到位可重开单项；不阻塞新任务开工 |
 | T7 | A | 系统身份消息层（`docs/design/contracts/VS-00H-system-identity-message-contract-pack.md`；`tasks/slices/UA01-agentic-loop-prompt-hardening.md` T7） | **done（CP1–CP3 实现完成；live vendor cache / developer UI 后置）** | CP1 身份模块 + Gateway 唯一注入 + ProviderRun `system_identity_ref`；CP2 去 18 处产品自称 + I-SYS-2 守卫；CP3 `cached_tokens` 可见。Proof：gateway focused tests + 全量 `mix test` + 一条既有 slice_verify 场景 + I1/I2/I3 |
 | Q2 | A | 哲学补写（B 类盲区四条，一次文档刀）：00§2 作者供给权 / 会话内核跨 turn 义务 / README 原则补语义对账+缺口诚实律（含 D7 fail-safe 判据）/ VS-00D 分权诗第五行（结果对账） | **done（2026-08-30）** | 提交 `8b03a9db`；00 §2.1、README 原则 12/13、VS-00D 结果对账已入档 |
 | Q3a | A | P1 语义对账最小版：judgment 的 reason×capability 矛盾拦截（execute∧只读集∧写词，规则级对账兜底非主判；矛盾带说明重试一次，仍矛盾走 judgment_semantic_conflict 诚实失败+S7 作者文案；只读集由 dispatch 表编译期推导 SSOT） | **done（2026-08-31）** | ✓ 基线（notes §8：164/5/0 误报）+ 拦截器单测 11/11（含 D8 stage 原话回放）+ LogEmit 可观测 |
@@ -98,7 +98,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | DS02 | A | 采纳状态 canonical 化，撤销前端临时 string 放宽；见 `tasks/slices/DS02-adoption-status-canonicalization.md` | **done（2026-10-05）** | 领域/线格式/历史 transcript 统一大写七态；严格 schema 校验与告警恢复；q3d 历史状态真实页面和 roster 回归 PASS，1510 后端/461 前端测试；对应 Journey F9 |
 | UA01-CALL2 | A | 当前模型结构化判断性能观察；既有 UA01 可靠性专项 | **停止参数对照，转业务审计** | 用户明确以使用场景和 App/业务正确性为主线；未完成样本不作参数裁决，537 秒记录仅作旁证；对应 Journey C11 |
 | Q4 | B | 差距回收机制（轻量版）：`scripts/gap_ledger.sh` 扫描三处差距表→开放清单+新增/关闭/复核（连续 3+ 快照仍开放，不等同于无进展）；快照台账 reports/gap-ledger/；开工仪式第 6 条接入。首扫=26 项开放（G 7/NEM 7/B 轨 12）。ADR enforced_by 精确超期归后续增强 | **done 轻量版与状态校准（2026-10-05）；B16 已解除新增扫描阻断** | 轻量机制提交 `d37409b4`；本 checkpoint 修复当前队首/旅程检查并校准差距描述，验证见 §6；不代表所有差距已销账 |
-| 主线复位 | A | Q1-Q4 后回存量，按真实作者可用性重排：DS02 / UA01 流式卡片简化 / DS01 / 判断纪元 CP1 / Order 7 上下文刀 / AU09 召回 | 顺序**待拍板** | — |
+| MAINLINE-RESET | A | 主线复位：从存量按真实作者可用性拍板下一项（候选：Order 7 刀一·写作/评估事实链 / CA01 planner 事实注入 / AU09 创作方向召回 / AU10 渲染稳定性 / UA01 流式卡片收尾） | **next**（等待作者拍板；本行即当前队首，选定后替换为具体 slice 并同步旅程） | — |
 
 ### 历史 Order 表（M0-M3 期，保留供追溯；不参与当前队首选择，未闭环后果仍由原 slice 负责）
 
@@ -159,6 +159,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 ## 6. Decision Log
 
+- 2026-10-21 — **AB-RESUME 收口（作者决定停止 A/B）**：VS-00I 已于同日按作者裁决 §14 选项 1 Frozen；作者明确不再跑 A/B。AB-RESUME 剩余增量（Strata Q2 live 复测 / Anthropic live+断点 / 其余厂商凭据）全部挂为冻结后增量，不阻塞、不占队首；已有 local/DeepSeek + Strata IQ3 临时 profile 证据与 I-CACHE-1 CI。队首切回「主线复位」，等待作者从候选清单拍板下一项；无队列挂靠不开工（§5 Selection Rule 第 2 条）。
 - 2026-10-21 — **新增本地 Strata provider**（用户定向插单「添加 strata provider」）。
   本机 Strata（strata-engine）OpenAI 兼容服务 `http://127.0.0.1:8081/v1` 正在运行、
   加载 `qwen3.8-flash-next-q2_0`。实现：新增 `NovelAgent.Provider.Strata`（keyless
