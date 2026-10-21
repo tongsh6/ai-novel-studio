@@ -16,6 +16,11 @@ defmodule NovelDomain.WorkSkeleton do
   @avg_chapter_length 1400
   @closure_threshold 0.85
 
+  # B11A CP5（VS-00J §4 item5 / §9 决策②）：卷级收束阈值——本卷计划章写入比例达到该值即
+  # 提示接近收束。策略化估算（非狗粮标定），调整只经 Experience 回路 policy proposal
+  # （与全书阈值同款纪律，I-L4 确定性不受影响）。
+  @volume_closure_threshold 0.8
+
   @type snapshot :: %{optional(atom()) => any()}
 
   @doc """
@@ -136,6 +141,99 @@ defmodule NovelDomain.WorkSkeleton do
       "写作规划要求：已接近目标体量，可开始安排收束章，但仍需回收未兑现的伏笔与承诺。"
     end
   end
+
+  @doc """
+  卷级收束守则（B11A CP5 / VS-00J §4 item5 + §9 决策②）：全书收束守则优先（I-VOL-7）。
+
+  - `volume_info`：`%{volume_title, written, total}`（可 nil / 缺卷标题 → `""`）；
+  - `book_progress_percent`：全书进度百分比（0..100；nil=骨架未立/不可算，按「未知」处理，
+    不抑制卷级守则）；
+  - 全书进度 ≥ 全书收束阈值（#{round(@closure_threshold * 100)}%）→ `""`——全书层守则已覆盖，
+    卷级不重复、不矛盾；
+  - 本卷计划章已写完（written ≥ total > 0）→ 可确认本卷收束并转入下一卷（全书终局仍由
+    全书进度守则裁决）；
+  - 本卷写入比例 ≥ 卷级阈值（#{round(@volume_closure_threshold * 100)}%）→ 接近收束，优先回收
+    本卷支线与小高潮，不得写全书终局；
+  - 否则 → 允许本卷内小收束（解决本卷主冲突/回收支线），但不得写全书终局。
+
+  纯函数、确定性、无 I/O。`opts` 为策略覆盖（测试/policy proposal 用）：
+  `:book_closure_percent`（默认 #{round(@closure_threshold * 100)}）、`:volume_closure_threshold`
+  （默认 #{@volume_closure_threshold}）；不传则用冻结默认口径。
+  """
+  @spec volume_closure_directive(map() | nil, number() | nil, keyword()) :: String.t()
+  def volume_closure_directive(volume_info, book_progress_percent, opts \\ [])
+
+  def volume_closure_directive(volume_info, book_progress_percent, opts)
+      when is_map(volume_info) and is_list(opts) do
+    title = normalize_title(info_value(volume_info, :volume_title))
+
+    cond do
+      title == "" ->
+        ""
+
+      book_closure?(book_progress_percent, opts) ->
+        ""
+
+      true ->
+        volume_stage_directive(
+          title,
+          info_value(volume_info, :written),
+          info_value(volume_info, :total),
+          opts
+        )
+    end
+  end
+
+  def volume_closure_directive(_volume_info, _book_progress_percent, _opts), do: ""
+
+  # 全书收束守则优先（I-VOL-7）：全书进度达阈值时卷级不再重复/矛盾。
+  defp book_closure?(book_progress_percent, opts) do
+    threshold = Keyword.get(opts, :book_closure_percent, @closure_threshold * 100)
+
+    is_number(book_progress_percent) and is_number(threshold) and
+      book_progress_percent >= threshold
+  end
+
+  defp volume_stage_directive(title, written, total, opts) do
+    case volume_closure_stage(written, total, opts) do
+      :complete -> volume_complete_directive()
+      :near -> volume_near_closure_directive()
+      :open -> volume_small_closure_directive(title)
+    end
+  end
+
+  defp volume_closure_stage(written, total, opts) do
+    cond do
+      not positive_integer?(total) -> :open
+      not is_integer(written) -> :open
+      written >= total -> :complete
+      written / total >= volume_closure_threshold(opts) -> :near
+      true -> :open
+    end
+  end
+
+  defp positive_integer?(value), do: is_integer(value) and value > 0
+
+  defp volume_closure_threshold(opts),
+    do: Keyword.get(opts, :volume_closure_threshold, @volume_closure_threshold)
+
+  defp volume_complete_directive do
+    "本卷计划章已写完：可确认本卷收束并转入下一卷；全书终局仍以全书进度守则为准。"
+  end
+
+  defp volume_near_closure_directive do
+    "本卷接近收束：接下来优先回收本卷支线与小高潮；不得写全书终局/大结局/完结章。"
+  end
+
+  defp volume_small_closure_directive(title) do
+    "本卷为「#{title}」：允许在本卷内做小收束（解决本卷主冲突/回收本卷支线），" <>
+      "但不得写全书终局/大结局/完结章；收束后把新冲突留给后续卷。"
+  end
+
+  defp info_value(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+
+  defp normalize_title(value) when is_binary(value), do: String.trim(value)
+  defp normalize_title(_value), do: ""
 
   @doc "策略化参数（供 application/负债规则共用一致口径）。"
   @spec avg_chapter_length() :: pos_integer()

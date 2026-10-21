@@ -77,9 +77,10 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
     ]
   end
 
-  defp context(structured_chapters) do
+  defp context(structured_chapters, snapshot \\ nil) do
     %DialogueContext{
       workspace_id: @work,
+      current_work_snapshot: snapshot,
       current_chapters: Enum.map(structured_chapters, & &1.title),
       structured_chapters: structured_chapters,
       assembly_policy: AssemblyPolicy.for_tier(:floor)
@@ -310,6 +311,81 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
     end
   end
 
+  # ── ② 卷级收束守则（B11A CP5）：只在卷有设计态蓝图时附在 CP4 段之后 ──
+
+  describe "卷级收束守则 (B11A CP5)" do
+    @cp4_section "## 当前卷蓝图（设计态）\n- 卷：第二卷·裂变\n- 本卷进度：已写 0 / 共 2 章\n目标冲突：夺回矿脉\n弧光阶段：由忍到争\n高潮章：对账夜\n新地图：北境"
+
+    test "全书进度尚远 + 卷有蓝图 → CP4 段后空行追加默认卷级收束守则" do
+      prompt =
+        run("prose_writing", context(structured_chapters(), %{target_length: 14_000}), %{
+          target_chapter: "第03章：转"
+        })
+
+      assert prompt =~ @cp4_section
+
+      assert prompt =~
+               @cp4_section <>
+                 "\n\n本卷为「第二卷·裂变」：允许在本卷内做小收束（解决本卷主冲突/回收本卷支线），" <>
+                 "但不得写全书终局/大结局/完结章；收束后把新冲突留给后续卷。"
+    end
+
+    test "本卷写入比例 >= 80% → 接近收束守则（优先回收本卷支线/小高潮）" do
+      prompt =
+        run("prose_writing", context(near_closure_structure(), %{target_length: 28_000}), %{
+          target_chapter: "第07章：合"
+        })
+
+      assert prompt =~ "本卷接近收束：接下来优先回收本卷支线与小高潮"
+    end
+
+    test "本卷计划章已写完 → 收束并转入下一卷（全书终局仍看全书守则）" do
+      prompt =
+        run("prose_writing", context(completed_volume_structure(), %{target_length: 14_000}), %{
+          target_chapter: "第04章：合"
+        })
+
+      assert prompt =~ "本卷计划章已写完：可确认本卷收束并转入下一卷"
+      assert prompt =~ "全书终局仍以全书进度守则为准"
+    end
+
+    test "全书进度达阈值（>=85%）→ 不注入卷级守则（全书优先 I-VOL-7），CP4 段逐字节不变" do
+      prompt =
+        run("prose_writing", context(structured_chapters(), %{target_length: 1_400}), %{
+          target_chapter: "第03章：转"
+        })
+
+      assert prompt =~ @cp4_section
+      refute prompt =~ "本卷计划章已写完"
+      refute prompt =~ "本卷接近收束"
+      refute prompt =~ "本卷为「"
+      # 空指令 = 不追加任何字节：蓝图段后直接接下一 section 的分隔空行。
+      assert prompt =~ @cp4_section <> "\n\n"
+    end
+
+    test "无设计态蓝图的卷 → 不注入卷级收束（I-VOL-4 退化等价）" do
+      prompt =
+        run("prose_writing", context(structured_chapters(), %{target_length: 14_000}), %{
+          target_chapter: "第01章：起"
+        })
+
+      refute prompt =~ "当前卷蓝图"
+      refute prompt =~ "本卷计划章已写完"
+      refute prompt =~ "本卷接近收束"
+      refute prompt =~ "本卷为「"
+    end
+
+    test "未登记能力 → carry 门挡住（蓝图段与卷级守则都不出现）" do
+      prompt =
+        run("world_building", context(structured_chapters(), %{target_length: 14_000}), %{
+          target_chapter: "第03章：转"
+        })
+
+      refute prompt =~ "当前卷蓝图"
+      refute prompt =~ "本卷为「"
+    end
+  end
+
   # ── helpers ─────────────────────────────────────────
 
   defp run(target_ref, context, action_overrides) do
@@ -338,6 +414,56 @@ defmodule NovelApplication.B11ACp4VolumeBlueprintContextTest do
       })
 
     agent |> Agent.get(& &1) |> Enum.join("\n\n")
+  end
+
+  # 卷蓝图近收束结构：第二卷 5 章 4 章已有正文（4/5 = 80%）。
+  defp near_closure_structure do
+    volume_one = [
+      %{
+        title: "第01章：起",
+        seq: 1,
+        summary: "甲",
+        has_prose: true,
+        volume_id: "vol-1",
+        volume_seq: 1,
+        volume_title: "第一卷·觉醒",
+        volume_blueprint: nil
+      },
+      %{
+        title: "第02章：承",
+        seq: 2,
+        summary: "乙",
+        has_prose: true,
+        volume_id: "vol-1",
+        volume_seq: 1,
+        volume_title: "第一卷·觉醒",
+        volume_blueprint: nil
+      }
+    ]
+
+    volume_two =
+      for seq <- 3..7 do
+        %{
+          title: "第0#{seq}章：卷二中",
+          seq: seq,
+          summary: "丙",
+          has_prose: seq <= 6,
+          volume_id: "vol-2",
+          volume_seq: 2,
+          volume_title: "第二卷·裂变",
+          volume_blueprint: @blueprint
+        }
+      end
+
+    volume_one ++ volume_two
+  end
+
+  # 卷蓝图已写完结构：第二卷 2 章均有正文（2/2）。
+  defp completed_volume_structure do
+    Enum.map(structured_chapters(), fn
+      %{volume_seq: 2} = chapter -> Map.put(chapter, :has_prose, true)
+      chapter -> chapter
+    end)
   end
 
   defp frame do

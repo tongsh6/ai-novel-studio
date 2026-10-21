@@ -322,4 +322,84 @@ defmodule NovelDomain.LedgerReconciliationTest do
       assert LedgerReconciliation.unresolved_foreshadowing_endgame_finding([], 90, 70) == nil
     end
   end
+
+  # B11A CP5（VS-00J §4 item5 / §9 决策④）：卷结构设计负债规则——意图/事实分离，
+  # 只产偏离项提示（不静默改写、不阻断写作）。
+  describe "R10/R11 卷结构设计负债 (B11A CP5)" do
+    test "R10 计划卷数/事实卷数：nil/<=0/相等 → nil；不一致 → design_debt finding" do
+      assert LedgerReconciliation.volume_plan_mismatch_finding(nil, 2) == nil
+      assert LedgerReconciliation.volume_plan_mismatch_finding(0, 2) == nil
+      assert LedgerReconciliation.volume_plan_mismatch_finding(-1, 2) == nil
+      assert LedgerReconciliation.volume_plan_mismatch_finding(2, 2) == nil
+      # 非整数意图/非法事实 → 不判
+      assert LedgerReconciliation.volume_plan_mismatch_finding(2.0, 2) == nil
+      assert LedgerReconciliation.volume_plan_mismatch_finding(2, nil) == nil
+
+      finding = LedgerReconciliation.volume_plan_mismatch_finding(2, 3)
+      assert finding.rule == "volume_plan_mismatch"
+      assert finding.ledger == "design_debt"
+      assert finding.severity == "warn"
+      assert finding.entry_ref == nil
+      assert finding.signal =~ "立项计划 2 卷，实际已建 3 卷"
+      assert finding.signal =~ "事实优先"
+      assert finding.source_refs == ["work:planned_volumes=2", "volumes:actual=3"]
+      assert finding.proposed_disposition == "revise_design"
+
+      # 事实少于意图同样提示（不静默补齐任一方）
+      assert LedgerReconciliation.volume_plan_mismatch_finding(3, 2).source_refs ==
+               ["work:planned_volumes=3", "volumes:actual=2"]
+    end
+
+    test "R11 多卷缺蓝图：单卷不判；多卷逐卷一条；全有蓝图 → []" do
+      blueprint = %{"goal_conflict" => "夺回矿脉"}
+
+      assert LedgerReconciliation.volume_blueprint_missing_finding([]) == []
+
+      assert LedgerReconciliation.volume_blueprint_missing_finding([
+               %{title: "第一卷", blueprint: nil}
+             ]) == []
+
+      all_present = [
+        %{title: "第一卷", blueprint: blueprint},
+        %{title: "第二卷", blueprint: %{"arc_stage" => "由忍到争"}}
+      ]
+
+      assert LedgerReconciliation.volume_blueprint_missing_finding(all_present) == []
+
+      findings =
+        LedgerReconciliation.volume_blueprint_missing_finding([
+          %{title: "第一卷", blueprint: blueprint},
+          %{title: "第二卷", blueprint: nil},
+          %{title: "第三卷", blueprint: %{}}
+        ])
+
+      assert length(findings) == 2
+
+      assert Enum.map(findings, & &1.rule) == [
+               "volume_blueprint_missing",
+               "volume_blueprint_missing"
+             ]
+
+      assert Enum.map(findings, & &1.source_refs) == [["volume:第二卷"], ["volume:第三卷"]]
+      assert hd(findings).ledger == "design_debt"
+      assert hd(findings).severity == "warn"
+      assert hd(findings).signal =~ "卷「第二卷」尚无设计态卷蓝图"
+      assert hd(findings).proposed_disposition == "revise_design"
+    end
+
+    test "R11 只有采纳元数据的蓝图视为缺（无 E14-E17 设计槽）；字符串键 volume map 兼容" do
+      findings =
+        LedgerReconciliation.volume_blueprint_missing_finding([
+          %{
+            "title" => "第一卷",
+            "blueprint" => %{"status" => "CONFIRMED", "source_ref" => "artifact:x"}
+          },
+          %{title: "第二卷", blueprint: %{"goal_conflict" => "甲"}}
+        ])
+
+      assert [%{source_refs: ["volume:第一卷"]}] = findings
+      assert LedgerReconciliation.volume_blueprint_missing_finding(nil) == []
+      assert LedgerReconciliation.volume_blueprint_missing_finding(%{}) == []
+    end
+  end
 end

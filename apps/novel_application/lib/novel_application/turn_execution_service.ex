@@ -1031,22 +1031,61 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  # B11A CP4（VS-00J §4 消费面 2）：当前卷蓝图段。只走 carry 登记表门（唯一门），
-  # 无卷/无蓝图时返回 ""（I-VOL-4：不改变既有 prompt 字节）。
+  # B11A CP4（VS-00J §4 消费面 2）/ CP5（§4 item5）：当前卷蓝图段 + 卷级收束守则。
+  # 只走 carry 登记表门（唯一门）；无卷/无蓝图时返回 ""（I-VOL-4：不改变既有 prompt 字节）。
+  # CP5 裁决：卷级收束只在卷有设计态蓝图时注入——无蓝图时与 CP4 输出逐字节一致；
+  # 全书收束守则优先（I-VOL-7），故全书进度达阈值时卷级文本为空（不重复/不矛盾）。
   defp current_volume_blueprint_section(action, context, resolved_chapter) do
     if CarryRegistry.carries?(:current_volume_blueprint, capability_name(action)) do
       case current_volume_context(context, resolved_chapter) do
-        %{volume_title: title, volume_blueprint: blueprint, written: written, total: total} ->
-          NovelDomain.WorkSkeleton.volume_blueprint_section(title, blueprint, %{
-            written: written,
-            total: total
-          })
+        %{
+          volume_title: title,
+          volume_blueprint: blueprint,
+          written: written,
+          total: total
+        } = volume ->
+          blueprint_section =
+            NovelDomain.WorkSkeleton.volume_blueprint_section(title, blueprint, %{
+              written: written,
+              total: total
+            })
+
+          append_volume_closure(blueprint_section, context, volume)
 
         nil ->
           ""
       end
     else
       ""
+    end
+  end
+
+  # 卷级收束守则追加（B11A CP5）：同一段内、空行分隔；空指令逐字节返回 CP4 原段。
+  defp append_volume_closure("", _context, _volume), do: ""
+
+  defp append_volume_closure(section, context, volume) do
+    directive =
+      NovelDomain.WorkSkeleton.volume_closure_directive(
+        %{
+          volume_title: Map.get(volume, :volume_title),
+          written: Map.get(volume, :written),
+          total: Map.get(volume, :total)
+        },
+        book_progress_percent(context)
+      )
+
+    if directive == "", do: section, else: section <> "\n\n" <> directive
+  end
+
+  # 全书进度百分比：复用既有 `WorkSkeleton.progress/2` 口径（target_length + 已写章数估算），
+  # 不另造阈值/公式；骨架未立（无 target_length）→ nil（卷级守则按「未知」处理，不抑制）。
+  defp book_progress_percent(context) do
+    snapshot = work_skeleton_snapshot(context)
+    written = work_skeleton_written_count(context)
+
+    case NovelDomain.WorkSkeleton.progress(snapshot, written) do
+      %{percent: percent} -> percent
+      nil -> nil
     end
   end
 

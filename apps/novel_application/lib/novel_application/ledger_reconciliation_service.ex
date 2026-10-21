@@ -14,12 +14,18 @@ defmodule NovelApplication.LedgerReconciliationService do
   alias NovelCommon.LogEmit
   alias NovelDomain.LedgerReconciliation
 
-  @typedoc "端口：账面全量 / 按章序摘要 / 角色阵容（锚点排除人名用）。"
+  @typedoc """
+  端口：账面全量 / 按章序摘要 / 角色阵容（锚点排除人名用）。
+
+  可选端口（缺席/读失败时对应规则诚实跳过，旧 deps 兼容）：`profile`（骨架/计划卷数）、
+  `volumes`（TOC 卷节点：[%{title, seq, blueprint}]，B11A CP5 卷结构负债规则用）。
+  """
   @type deps :: %{
           required(:entries) => (String.t() -> [map()]),
           required(:summaries) => (String.t() -> [{non_neg_integer(), String.t()}]),
           required(:roster) => (String.t() -> [map()]),
-          optional(:profile) => (String.t() -> map())
+          optional(:profile) => (String.t() -> map()),
+          optional(:volumes) => (String.t() -> [map()])
         }
 
   @spec scan(String.t(), deps()) :: {:ok, %{findings: [map()], counts: map()}}
@@ -28,6 +34,7 @@ defmodule NovelApplication.LedgerReconciliationService do
     summaries = deps.summaries.(work_id)
     roster = deps.roster.(work_id)
     roster_names = roster |> Enum.map(& &1[:name]) |> Enum.filter(&is_binary/1)
+
     # profile 读失败（如标本旧 schema 无骨架列）时安全降级为空——R6 不触发，其余规则不受影响。
     profile =
       if deps[:profile] do
@@ -46,9 +53,12 @@ defmodule NovelApplication.LedgerReconciliationService do
 
     findings =
       LedgerReconciliation.arc_stalled_findings(arc_entries) ++
-        List.wrap(LedgerReconciliation.genre_promise_finding(promise_entry, summaries, roster_names)) ++
+        List.wrap(
+          LedgerReconciliation.genre_promise_finding(promise_entry, summaries, roster_names)
+        ) ++
         Enum.map(leaked_entries, &leak_finding/1) ++
         design_debt_findings(roster, summaries, profile) ++
+        volume_debt_findings(work_id, deps, profile) ++
         premature_finale_findings(work_id, deps, profile) ++
         assumption_overdue_findings(work_id, deps) ++
         foreshadowing_findings(work_id, entries, deps, profile)
@@ -121,9 +131,21 @@ defmodule NovelApplication.LedgerReconciliationService do
       assumptions: &NovelPersistence.AssumptionRepo.list_assumption_characters/1,
       summary_count_since: &NovelPersistence.LedgerRepository.accepted_summary_count_since/2,
       # VS00F 刀④ R9（可选读端口；缺席时伏笔超期规则诚实跳过）
-      written_progress: &NovelPersistence.LedgerRepository.written_progress/1
+      written_progress: &NovelPersistence.LedgerRepository.written_progress/1,
+      # B11A CP5：卷结构读端口（TOC 卷节点 title/seq/blueprint；卷数/蓝图负债规则用）
+      volumes: &volumes_port/1
     }
   end
+
+  # B11A CP5（VS-00J §2.1/§9 决策④）：卷结构读端口——复用阅读投影 TOC 卷节点
+  # （title/seq/blueprint），不新建平行读路径。读失败由调用侧诚实跳过。
+  defp volumes_port(work_id) when is_binary(work_id) do
+    work_id
+    |> NovelPersistence.ReadingProjectionRepo.toc()
+    |> Map.get(:volumes, [])
+  end
+
+  defp volumes_port(_work_id), do: []
 
   @doc "报告仓储生产端口。"
   @spec persistence_report_repo() :: map()
@@ -158,6 +180,27 @@ defmodule NovelApplication.LedgerReconciliationService do
       )
     ]
     |> Enum.reject(&is_nil/1)
+  end
+
+  # B11A CP5（VS-00J §4 item5 / §9 决策④）：卷结构设计负债——计划卷数/事实卷数不一致 +
+  # 多卷缺卷蓝图。读端口缺席/读失败 → 诚实跳过（不阻断 scan，旧 deps 兼容）。
+  defp volume_debt_findings(work_id, deps, profile) do
+    case deps[:volumes] do
+      reader when is_function(reader, 1) ->
+        try do
+          volumes = List.wrap(reader.(work_id))
+          planned_volumes = profile[:planned_volumes] || profile["planned_volumes"]
+
+          List.wrap(
+            LedgerReconciliation.volume_plan_mismatch_finding(planned_volumes, length(volumes))
+          ) ++ LedgerReconciliation.volume_blueprint_missing_finding(volumes)
+        rescue
+          _error -> []
+        end
+
+      _ ->
+        []
+    end
   end
 
   # R7 提前收官（VS-00G，M3 收官循环检测层）：目标体量已立且读端口在场才判定；

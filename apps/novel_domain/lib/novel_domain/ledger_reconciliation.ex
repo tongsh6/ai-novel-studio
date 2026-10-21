@@ -17,6 +17,8 @@ defmodule NovelDomain.LedgerReconciliation do
   R2（无设计接管）需 design_ref 数据基础（章计划回填），CP2b 落地。
   """
 
+  alias NovelDomain.VolumeBlueprint
+
   @early_window 5
   @early_min_count 3
   @max_doc_freq 0.5
@@ -217,6 +219,94 @@ defmodule NovelDomain.LedgerReconciliation do
   end
 
   def skeleton_missing_finding(_target, _count, _threshold), do: nil
+
+  @doc """
+  R10：计划卷数 / 事实卷数不一致（B11A CP5；VS-00J §9 决策④）。
+
+  意图（`works.planned_volumes`）与事实（`volumes` 行数）分离：不一致时**不静默改写
+  任一方**、不阻断写作，只产「设计负债」偏离项提示修订/补齐（事实优先）。
+
+  `planned_volumes`：立项计划卷数（nil/<=0=未立规划，不判）；`actual_volumes`：实际卷数。
+  """
+  @spec volume_plan_mismatch_finding(integer() | nil, non_neg_integer()) :: finding() | nil
+  def volume_plan_mismatch_finding(planned_volumes, actual_volumes)
+      when is_integer(actual_volumes) and actual_volumes >= 0 do
+    cond do
+      not is_integer(planned_volumes) or planned_volumes <= 0 ->
+        nil
+
+      planned_volumes == actual_volumes ->
+        nil
+
+      true ->
+        %{
+          rule: "volume_plan_mismatch",
+          ledger: "design_debt",
+          severity: "warn",
+          entry_ref: nil,
+          signal:
+            "立项计划 #{planned_volumes} 卷，实际已建 #{actual_volumes} 卷——意图与事实不一致" <>
+              "（事实优先，不静默改写任一方）；建议修订立项卷数或补齐卷结构，不阻断写作。",
+          source_refs: [
+            "work:planned_volumes=#{planned_volumes}",
+            "volumes:actual=#{actual_volumes}"
+          ],
+          proposed_disposition: "revise_design"
+        }
+    end
+  end
+
+  def volume_plan_mismatch_finding(_planned_volumes, _actual_volumes), do: nil
+
+  @doc """
+  R11：多卷作品缺卷级蓝图（B11A CP5；VS-00J §2.1/§4）。
+
+  仅多卷（`length > 1`）逐卷检查 `blueprint`：nil/空设计槽 → 每卷一条设计负债。
+  单卷不判（单卷书无分卷蓝图需求，退化等价）；全有蓝图 → `[]`。
+  """
+  @spec volume_blueprint_missing_finding([map()]) :: [finding()]
+  def volume_blueprint_missing_finding(volumes) when is_list(volumes) do
+    if length(volumes) > 1 do
+      volumes
+      |> Enum.filter(&volume_blueprint_missing?/1)
+      |> Enum.map(&volume_blueprint_missing_item/1)
+    else
+      []
+    end
+  end
+
+  def volume_blueprint_missing_finding(_volumes), do: []
+
+  defp volume_blueprint_missing?(volume) do
+    volume
+    |> chapter_field(:blueprint)
+    |> VolumeBlueprint.empty?()
+  end
+
+  defp volume_blueprint_missing_item(volume) do
+    title = volume |> chapter_field(:title) |> volume_title()
+
+    %{
+      rule: "volume_blueprint_missing",
+      ledger: "design_debt",
+      severity: "warn",
+      entry_ref: nil,
+      signal:
+        "卷「#{title}」尚无设计态卷蓝图（目标冲突/支线/高潮/新要素未立）——多卷作品建议补齐" <>
+          "该卷蓝图，否则规划与写作缺少卷级目标参照；不阻断写作。",
+      source_refs: ["volume:#{title}"],
+      proposed_disposition: "revise_design"
+    }
+  end
+
+  defp volume_title(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "未命名卷"
+      title -> title
+    end
+  end
+
+  defp volume_title(_value), do: "未命名卷"
 
   @finale_markers ~w(终局 大结局 完结 收官 落幕)
 

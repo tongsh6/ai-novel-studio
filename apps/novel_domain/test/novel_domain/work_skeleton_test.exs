@@ -213,4 +213,97 @@ defmodule NovelDomain.WorkSkeletonTest do
                "- 卷：第三卷·归墟"
     end
   end
+
+  # B11A CP5（VS-00J §4 item5 / §9 决策②）：卷级收束守则——全书守则优先（I-VOL-7）。
+  describe "volume_closure_directive/3 (B11A CP5)" do
+    @complete "本卷计划章已写完：可确认本卷收束并转入下一卷；全书终局仍以全书进度守则为准。"
+    @near "本卷接近收束：接下来优先回收本卷支线与小高潮；不得写全书终局/大结局/完结章。"
+
+    @small "本卷为「第二卷·裂变」：允许在本卷内做小收束（解决本卷主冲突/回收本卷支线），" <>
+             "但不得写全书终局/大结局/完结章；收束后把新冲突留给后续卷。"
+
+    defp volume(written, total),
+      do: %{volume_title: "第二卷·裂变", written: written, total: total}
+
+    test "无卷信息/无卷标题 → 空串（不注入卷级守则）" do
+      assert WorkSkeleton.volume_closure_directive(nil, 10) == ""
+      assert WorkSkeleton.volume_closure_directive(%{}, 10) == ""
+      assert WorkSkeleton.volume_closure_directive(%{written: 1, total: 2}, 10) == ""
+      assert WorkSkeleton.volume_closure_directive(%{volume_title: "   "}, 10) == ""
+      assert WorkSkeleton.volume_closure_directive("bad", 10) == ""
+    end
+
+    test "全书进度达全书收束阈值（>=85%）→ 空串：全书层守则已覆盖，不重复/不矛盾" do
+      for percent <- [85, 85.0, 99, 100, 130] do
+        assert WorkSkeleton.volume_closure_directive(volume(5, 5), percent) == ""
+        assert WorkSkeleton.volume_closure_directive(volume(1, 5), percent) == ""
+      end
+
+      assert WorkSkeleton.volume_closure_directive(volume(1, 5), 84.9) == @small
+    end
+
+    test "本卷计划章已写完（written >= total > 0）→ 收束并转入下一卷，全书终局仍看全书守则" do
+      assert WorkSkeleton.volume_closure_directive(volume(5, 5), 10) == @complete
+      # 计划外追加章（written > total）同样按「计划章已写完」处理
+      assert WorkSkeleton.volume_closure_directive(volume(7, 5), 10) == @complete
+    end
+
+    test "本卷写入比例 >= 卷级阈值（80%）→ 接近收束" do
+      assert WorkSkeleton.volume_closure_directive(volume(4, 5), 10) == @near
+      assert WorkSkeleton.volume_closure_directive(volume(8, 10), 10) == @near
+      # 80% 以下回落默认分支（3/4 = 75%）
+      assert WorkSkeleton.volume_closure_directive(volume(3, 4), 10) ==
+               "本卷为「第二卷·裂变」：允许在本卷内做小收束（解决本卷主冲突/回收本卷支线），" <>
+                 "但不得写全书终局/大结局/完结章；收束后把新冲突留给后续卷。"
+    end
+
+    test "默认分支：允许本卷内小收束，不得写全书终局" do
+      assert WorkSkeleton.volume_closure_directive(volume(1, 5), 10) == @small
+      assert WorkSkeleton.volume_closure_directive(volume(0, 5), 0) == @small
+    end
+
+    test "边界：0/0 章、缺 written/total → 默认分支（无比例可算，不伪造完成/接近）" do
+      assert WorkSkeleton.volume_closure_directive(volume(0, 0), 10) == @small
+      assert WorkSkeleton.volume_closure_directive(%{volume_title: "第二卷·裂变"}, 10) == @small
+      assert WorkSkeleton.volume_closure_directive(volume(nil, 5), 10) == @small
+      assert WorkSkeleton.volume_closure_directive(volume(3, nil), 10) == @small
+    end
+
+    test "book_progress_percent nil/非数值 → 按「未知」处理，不抑制卷级守则" do
+      assert WorkSkeleton.volume_closure_directive(volume(1, 5), nil) == @small
+      assert WorkSkeleton.volume_closure_directive(volume(1, 5), "close") == @small
+    end
+
+    test "字符串键 volume_info 兼容（与 atom 键同口径）" do
+      assert WorkSkeleton.volume_closure_directive(
+               %{"volume_title" => "第三卷·归墟", "written" => 5, "total" => 5},
+               10
+             ) == @complete
+
+      assert WorkSkeleton.volume_closure_directive(
+               %{"volume_title" => "第三卷·归墟", "written" => 1, "total" => 5},
+               10
+             ) =~ "本卷为「第三卷·归墟」"
+    end
+
+    test "opts 策略覆盖：全书收束阈值与卷级收束阈值可按 policy proposal 调整" do
+      # 全书阈值 50%：60% 视为接近全书收束 → 抑制卷级守则
+      assert WorkSkeleton.volume_closure_directive(volume(1, 5), 60, book_closure_percent: 50) ==
+               ""
+
+      # 卷级阈值 0.5：3/5=60% 视为接近收束（默认 0.8 下是默认分支）
+      assert WorkSkeleton.volume_closure_directive(volume(3, 5), 10,
+               volume_closure_threshold: 0.5
+             ) ==
+               @near
+
+      assert WorkSkeleton.volume_closure_directive(volume(3, 5), 10) == @small
+    end
+
+    test "纯函数确定性：同输入同输出" do
+      for _ <- 1..3 do
+        assert WorkSkeleton.volume_closure_directive(volume(4, 5), 30) == @near
+      end
+    end
+  end
 end
