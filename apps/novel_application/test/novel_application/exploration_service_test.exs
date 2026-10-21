@@ -182,7 +182,21 @@ defmodule NovelApplication.ExplorationServiceTest do
         "emotion" => "压抑中带爆发",
         "ending_hook" => "灵气账单上浮现出陌生的扣费条目",
         "scene_plans" => [
-          %{"title" => "对账", "goal" => "确认暗扣", "agendas" => "主角要证据", "emotion" => "压抑"},
+          %{
+            "title" => "对账",
+            "goal" => "确认暗扣",
+            "agendas" => "主角要证据",
+            "emotion" => "压抑",
+            "opposition" => "摊主拖延",
+            "turn" => "残页暴露",
+            "consequence" => "暗扣坐实",
+            "reader_learns" => "公司抽走频段",
+            "protagonist_learns" => "账单编号",
+            "remains_hidden" => "幕后主使",
+            "surface_topic" => "对账寒暄",
+            "hidden_conflict" => "互相试探",
+            "sensory" => "潮湿霉味、风扇噪音"
+          },
           %{"title" => "夜巡"}
         ],
         "chapter_mission" => %{
@@ -211,7 +225,9 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert observation.summary =~ "情节推进：主角发现灵气带宽被公司暗中抽走"
     assert observation.summary =~ "章尾断章：灵气账单上浮现出陌生的扣费条目"
     # NEM04 刀③探索面同步律：规划落库的逐场三槽在判断循环内可读。
-    assert observation.summary =~ "场次计划：对账（目标：确认暗扣；议程：主角要证据；情绪：压抑） / 夜巡"
+    # B11C CP1：VS-00E §1 场级结构子槽同批可读（缺子槽不渲染）。
+    assert observation.summary =~
+             "场次计划：对账（目标：确认暗扣；议程：主角要证据；情绪：压抑；阻力：摊主拖延；转折：残页暴露；后果：暗扣坐实；读者得知：公司抽走频段；主角得知：账单编号；仍隐藏：幕后主使；对白表面：对账寒暄；潜台词：互相试探；感官：潮湿霉味、风扇噪音） / 夜巡"
 
     # WR01b 探索面同步律：落章计划的本章使命与裁决状态在判断循环内可读。
     assert observation.summary =~ "本章使命：本章必须让暗扣被确认。（作者改写）；必须推进：确认暗扣；不得：不揭示幕后"

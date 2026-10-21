@@ -1375,8 +1375,15 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  defp prose_execution_brief(_frame, _action, _context, _resolved_chapter, _author_text, _mission),
-    do: nil
+  defp prose_execution_brief(
+         _frame,
+         _action,
+         _context,
+         _resolved_chapter,
+         _author_text,
+         _mission
+       ),
+       do: nil
 
   defp chapter_mission_ref(mission), do: ChapterMission.ref(mission)
 
@@ -1394,8 +1401,11 @@ defmodule NovelApplication.TurnExecutionService do
   # 「这一章按什么使命写的」。降级/缺席为 nil。
   defp chapter_mission_statement(mission) do
     case ChapterMission.from_map(mission) do
-      %ChapterMission{degraded: false, statement: statement} when is_binary(statement) -> statement
-      _ -> nil
+      %ChapterMission{degraded: false, statement: statement} when is_binary(statement) ->
+        statement
+
+      _ ->
+        nil
     end
   end
 
@@ -1467,6 +1477,9 @@ defmodule NovelApplication.TurnExecutionService do
       turn_id: frame.turn_id,
       brief_ref: ProseExecutionBrief.ref(brief),
       scene_unit_count: length(brief.scene_units),
+      # B11C CP1 §3.6：实际出现的场级结构字段名（规范顺序），供真实页面验收与线上
+      # 排障读取；不记录正文、不构成验收钩子（产品侧设计态可观测）。
+      scene_field_coverage: ProseExecutionBrief.field_coverage(brief),
       degraded: meta.degraded,
       brief_source: meta.source,
       chapter_mission_ref: mission_ref
@@ -1955,9 +1968,13 @@ defmodule NovelApplication.TurnExecutionService do
     |> Map.update(:ui_cards, Map.get(candidate_result, :ui_cards, []), fn cards ->
       cards ++ Map.get(candidate_result, :ui_cards, [])
     end)
-    |> Map.update(:available_actions, Map.get(candidate_result, :available_actions, []), fn actions ->
-      actions ++ Map.get(candidate_result, :available_actions, [])
-    end)
+    |> Map.update(
+      :available_actions,
+      Map.get(candidate_result, :available_actions, []),
+      fn actions ->
+        actions ++ Map.get(candidate_result, :available_actions, [])
+      end
+    )
   end
 
   # artifact provenance：authoring_intent 来自 plan；target_chapter 用应用层解析后的归章

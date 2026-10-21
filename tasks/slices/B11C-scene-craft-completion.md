@@ -1,6 +1,6 @@
 # B11C-scene-craft-completion：场级执行结构补全（VS-00E 设计全集）与档案场次可见
 
-**状态**：**doing（2026-10-22 开工）**；作者拍板 B11③（主线顺序 B13a → B11③ → B11①，2026-10-22）。
+**状态**：**done（2026-10-22，CP1+CP2 全落，真实 Tauri `p1-prose-execution-brief` PASS）**；作者拍板 B11③（主线顺序 B13a → B11③ → B11①，2026-10-22）。CP3（首次 append 场名误标）已登记为下一 checkpoint（B21），不在本 slice 声称闭环。
 **来源**：`docs/design/08-novel-element-model.md` E23–E30 / NEM-GAP-04；`docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md` §1 `scene_units` 设计全集；Order 8 刀③ `tasks/slices/NEM04-scene-craft-planning.md`（已 done，最小三槽）。
 
 ## 0. 现状核查：为什么不是重做 NEM04
@@ -60,19 +60,16 @@
 ### 3.1 逐场标注格式（向后兼容扩展）
 
 ```text
-场次：对账｜目标：核对暗扣并确认被抽走的频段｜议程：沈洛要证据、摊主要脱身｜情绪：压抑｜
-      阻力：摊主拖延并暗中报信｜转折：账单残页暴露抽签记录｜后果：暗扣被坐实、打草惊蛇｜
-      读者得知：公司抽走频段｜主角得知：账单上有内部编号｜仍隐藏：幕后主使｜
-      对白表面：对账寒暄｜潜台词：互相试探底线｜感官：潮湿霉味、风扇噪音
+场次：对账｜目标：核对暗扣并确认被抽走的频段｜议程：沈洛要证据、摊主要脱身｜情绪：压抑｜阻力：摊主拖延并暗中报信｜转折：账单残页暴露抽签记录｜后果：暗扣被坐实、打草惊蛇｜读者得知：公司抽走频段｜主角得知：账单上有内部编号｜仍隐藏：幕后主使｜对白表面：对账寒暄｜潜台词：互相试探底线｜感官：潮湿霉味、风扇噪音
 ```
 
-- 仍**每场一行**、`｜` 分隔子槽；`场次/场景` 起始；无子槽容忍；`title` 必填否则整行丢弃。
+- **必须单行一条（硬约束）**：parser 是行级解析，续行会被静默丢弃；prompt/seed/示例一律单行。`场次/场景` 起始；`｜` 分隔子槽；无子槽容忍；`title` 必填否则整行丢弃。
 - 词表（`@scene_slot_labels`）：`阻力|冲突`→`opposition`、`转折`→`turn`、`后果`→`consequence`、`读者得知|读者知道`→`reader_learns`、`主角得知`→`protagonist_learns`、`仍隐藏|隐藏`→`remains_hidden`、`对白表面`→`surface_topic`、`潜台词`→`hidden_conflict`、`感官|时空感官`→`sensory`；既有 `目标/议程/情绪` 不变。
 - 单行过长风险：prompt 只要求“按叙事需要给出（没把握可省略）”，并说明子槽可任选；不做强制。
 
 ### 3.2 Domain 归一
 
-`ChapterPlanDirection.normalize_scene_plan/1` 白名单扩到全部 12 键（title + 既有 3 + 新增 8）；空值丢弃；title 必填。存储格式不变（string-keyed map list，`plan_direction` map 列）。
+`ChapterPlanDirection.normalize_scene_plan/1` 白名单扩到全部 **13 键**（title + 既有 3 + 新增 9：opposition/turn/consequence/reader_learns/protagonist_learns/remains_hidden/surface_topic/hidden_conflict/sensory）；空值丢弃；title 必填。存储格式不变（string-keyed map list，`plan_direction` map 列）。子槽渲染词表收敛为 `ChapterPlanDirection.scene_slot_lines/1`（探索面与写前推理共用，CP1 实施记录）。
 
 ### 3.3 简报映射（`ProseExecutionBriefBuilder`）
 
@@ -113,16 +110,34 @@
 
 ### 3.6 可观测（trace 摘要，非验收钩子）
 
-`prose_execution_brief.built` 事件在既有 `scene_unit_count/brief_source` 之外补 `scene_field_coverage`（如 `["target_change","character_agendas","emotion_transition","causal_spine","information_delta","dialogue_intent","sensory_anchor"]` 中实际出现的字段名数组），供真实页面验收与线上排障读取；不记录正文。
+`prose_execution_brief.built` 事件在既有 `scene_unit_count/brief_source` 之外补 `scene_field_coverage`（**并集去重 + VS-00E §1 契约字段顺序**：`target_change, causal_spine, character_agendas, information_delta, emotion_transition, dialogue_intent, sensory_anchor` 中实际出现的字段名数组），供真实页面验收与线上排障读取；不记录正文/`unit_id`。验收断言用「包含」而非严格全序。
 
 ## 4. CP 拆分
 
 | CP | 内容 | Proof |
 |---|---|---|
-| **CP1** 解析/归一/简报/渲染/探索面 | parser 词表 + direction 白名单 + builder 映射 + brief 渲染（sensory/direct dialogue）+ exploration/chapter_mission_inputs 场次文本 + trace coverage + 单测 | 后端聚焦测试 + 全量回归（无新标注旧计划零差异） |
-| **CP2** 档案可见 + 真实页面验收 | `socket.ts` 类型 + `StructurePanel` 渲染 + `copy.ts` + 43 §5.0.5 + 种子扩新子槽 + `p1-prose-execution-brief` driver/verifier/场景断言扩展 | `tauri_slice_verify.sh p1-prose-execution-brief` 真实 Tauri PASS；前端 typecheck/lint/test |
+| **CP1** 解析/归一/简报/渲染/探索面 | parser 词表 + direction 白名单 + builder 映射 + brief 渲染（sensory/direct dialogue）+ exploration/chapter_mission_inputs 场次文本 + trace coverage + 单测 | 后端聚焦测试 + 全量回归（无新标注旧计划零差异） | **done（2026-10-22）** |
+| **CP2** 档案可见 + 真实页面验收 | `socket.ts` 类型 + `StructurePanel` 渲染 + `copy.ts` + 43 §5.0.5 + 种子扩新子槽 + `p1-prose-execution-brief` driver/verifier/场景断言扩展 | `tauri_slice_verify.sh p1-prose-execution-brief` 真实 Tauri PASS；前端 typecheck/lint/test | **done（2026-10-22，真实 Tauri PASS）** |
 
 **最小实现步不缩范围**：CP1 单独交付不算 slice done——必须 CP2 真实页面看到场次计划 + 简报新字段进入写作链路。
+
+## 4b. 交付结果（2026-10-22）
+
+**CP1 后端（done）**：`@scene_slot_labels` 扩 8 组词表；`ChapterPlanDirection` 白名单 13 键 + 共用渲染纯函数 `scene_slot_lines/1`；`ProseExecutionBrief` 补感官锚点行/direct 对白/缺字段不拼空洞 + `field_coverage/1`；builder 把 `opposition/turn/consequence → causal_spine`、信息差、对白意图、感官锚点确定性映射（缺省不写键）；`chapter_read` 与 `ChapterMissionInputs` 同批渲染新槽；plot_outline prompt 扩新子槽（保三锚点）；`prose_execution_brief.built.done` 增 `scene_field_coverage`（并集去重 + VS-00E §1 顺序，不含正文）。测试：parser/direction/brief/builder/exploration/mission_inputs/real prompt/trace 全补；全量 `mix test` **1,651/0**、compile --warnings-as-errors、xref 无环、arch 通过、I1/I2/I3/N-NARR/I-CACHE-1 绿。
+
+**CP2 前端 + 验收（done）**：`ScenePlanDto`/`TocChapter.plan_direction.scene_plans` 类型；`scenePlanView.ts` 纯函数（缺字段不造行、无数据返回 null）+ 8 单测；`StructurePanel` 章卡片（本章使命块后）只读「场次计划（N 场）」块（目标/议程/情绪/因果/信息差/对白/感官；组内只渲染存在子槽；无 author_action/data-testid/新请求）；`copy.ts` 集中文案；`43-structure-panel.md` §5.0.5。前端 **32 files / 505 tests**、audit 27、design trace 16 绿。
+
+**真实页面验收（外部自动化，真实 Tauri）**：`PHOENIX_PORT=4656 VITE_DEV_PORT=5770 bash scripts/tauri_slice_verify.sh p1-prose-execution-brief` → **exit 0 / passed**（默认端口被用户 `scripts/stage.sh` 占用，改用脚本官方支持 env 端口；未杀用户进程）。证据 `artifacts/slice-verify/p1-prose-execution-brief-tauri/summary.json`：
+- 档案大纲可见「场次计划（2 场）」「1. 对账」「2. 夜巡」及 9/9 新子槽行内片段（阻力/转折/后果/读者得知/主角得知/仍隐藏/表面谈/暗里争/感官）；第二场刻意缺 6 槽 → UI 未伪造空行；
+- `scene_unit_count=2`、`brief_source=chapter_plan_scene_plans`、`degraded=false`、`scene_field_coverage` 含全部 4 个新字段（按包含断言，不锁全序）；writer prompt（llm-calls 外证）含 `场：对账`/`场：夜巡` 与因果/信息变化/对话意图/感官锚点；
+- draft 仍 tentative、无 adopt 事件、正文不含执行简述；`has_plan_direction=true`；产品代码新增验收感知逻辑 **no**。
+证据截图：`artifacts/slice-verify/p1-prose-execution-brief-tauri/p1-prose-execution-brief-scene-plan.png`。
+
+**诚实边界**：
+- 本 slice 交付的是「章级 draft + 场级执行简述 + 场级计划可见」，**不是多场正文**；阅读链仍按章级 draft 投影（多场正文/场级质量归 B11D/后续）。
+- 首次 append 场名误标（B21）为既有缺陷，本 slice 未修（登记 CP3 候选）。
+- 真实规划模型是否稳定产出新子槽没有新证据（seed 手写证明链路；真实模型样本归狗粮观察）；UI 对无 `scene_plans` 的存量章一整块不渲染（诚实缺席，NEM04 不回填拍板仍有效）。
+- `quality_manifest_check` 整命令仍因两个 HEAD 既有未登记 browser driver exit 1（本次改动前即存在）；本 slice 扩的是既有已注册 `p1-prose-execution-brief` 场景，未新增未登记 driver。
 
 ## 5. 明确不做（YAGNI / 诚实登记）
 
@@ -130,7 +145,10 @@
 - `scenes` 表加 craft 列：NEM04 §3.1 存储位裁决仍有效（设计态不进 production 行）；本 slice 不重开；
 - 场次计划作者编辑/增删改：本 slice 只读可见；
 - 阅读模式场级 UI 变化：阅读链不动；
-- 存量「场景 N」回填：NEM04 拍板③仍有效。
+- 存量「场景 N」回填：NEM04 拍板③仍有效；
+- **CP3（下一 checkpoint，登记未做）**：多场计划首次 append 的场名误标——D7 后 `authoring_intent=nil` 走 `:append`，首次 append `seq=1` 会把整章正文命名为 `scene_plans[0].title`，阅读模式因此把整章挂到"第 1 场"（真实 m5 数据：3 场计划只落 1 个 scene 行）。修复方向：首次 append 不回填计划场名（保持占位、阅读端隐藏），或引入 artifact 场作用域；需单测 + 采纳→阅读真实页面断言；
+- **质量场粒度（B11D 候选）**：`QualityFinding` scope 只有 local/paragraph/chapter，`brief_field_refs` 未在质量卡展示，作者无法按场修订；
+- **E28/E29/E30**：动作编排/内心戏/场间过渡无契约 key，继续挂 NEM-GAP-04。
 
 ## 6. 风险
 

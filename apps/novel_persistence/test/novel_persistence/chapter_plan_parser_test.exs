@@ -180,4 +180,82 @@ defmodule NovelPersistence.ChapterPlanParserTest do
                """)
     end
   end
+
+  # B11C CP1：场次子槽词表扩到 VS-00E §1 scene_units 已冻结的场级结构全集。
+  # 全部可选；无新子槽的旧场次行解析结果逐字节不变（存量 NEM04 计划零影响）。
+  describe "场级结构子槽 (B11C CP1)" do
+    test "因果/信息差/对白/感官子槽逐项解析" do
+      assert [%{plan_direction: direction}] =
+               ChapterPlanParser.parse("""
+               第01章：黑市对账夜: 沈洛潜入黑市。
+               场次：对账｜目标：核对暗扣｜议程：沈洛要证据｜情绪：压抑｜阻力：摊主拖延｜转折：残页暴露｜后果：打草惊蛇｜读者得知：公司抽走频段｜主角得知：账单有内部编号｜仍隐藏：幕后主使｜对白表面：对账寒暄｜潜台词：互相试探｜感官：潮湿霉味、风扇噪音
+               """)
+
+      assert direction["scene_plans"] == [
+               %{
+                 "title" => "对账",
+                 "goal" => "核对暗扣",
+                 "agendas" => "沈洛要证据",
+                 "emotion" => "压抑",
+                 "opposition" => "摊主拖延",
+                 "turn" => "残页暴露",
+                 "consequence" => "打草惊蛇",
+                 "reader_learns" => "公司抽走频段",
+                 "protagonist_learns" => "账单有内部编号",
+                 "remains_hidden" => "幕后主使",
+                 "surface_topic" => "对账寒暄",
+                 "hidden_conflict" => "互相试探",
+                 "sensory" => "潮湿霉味、风扇噪音"
+               }
+             ]
+    end
+
+    test "别名词一一映射到规范键；词表外子槽被忽略" do
+      assert [%{plan_direction: direction}] =
+               ChapterPlanParser.parse("""
+               第01章：夜巡: 沈洛夜巡。
+               场次：夜巡｜冲突：巡检逼近｜读者知道：有人跟踪｜隐藏：真正名单｜时空感官：冷雨、铁锈味｜气氛：闷热
+               """)
+
+      assert direction["scene_plans"] == [
+               %{
+                 "title" => "夜巡",
+                 "opposition" => "巡检逼近",
+                 "reader_learns" => "有人跟踪",
+                 "remains_hidden" => "真正名单",
+                 "sensory" => "冷雨、铁锈味"
+               }
+             ]
+    end
+
+    test "无新子槽的旧场次行解析结果不变（增量键不出现）" do
+      assert [%{plan_direction: direction}] =
+               ChapterPlanParser.parse("""
+               第01章：黑市对账夜: 沈洛潜入黑市。
+               场次：对账｜目标：核对暗扣｜议程：沈洛要证据、摊主要脱身｜情绪：压抑
+               """)
+
+      assert direction["scene_plans"] == [
+               %{
+                 "title" => "对账",
+                 "goal" => "核对暗扣",
+                 "agendas" => "沈洛要证据、摊主要脱身",
+                 "emotion" => "压抑"
+               }
+             ]
+    end
+
+    test "新子槽不污染章级方向与摘要；无标题行仍整行丢弃" do
+      assert [%{summary: summary, plan_direction: direction}] =
+               ChapterPlanParser.parse("""
+               第01章：起: 甲。
+               场次：｜阻力：无标题应丢弃
+               场次：对账｜感官：潮湿霉味
+               """)
+
+      assert summary == "甲。"
+      assert direction["scene_plans"] == [%{"title" => "对账", "sensory" => "潮湿霉味"}]
+      refute Map.has_key?(direction, "opposition")
+    end
+  end
 end

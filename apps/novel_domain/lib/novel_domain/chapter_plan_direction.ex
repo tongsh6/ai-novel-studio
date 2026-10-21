@@ -18,7 +18,11 @@ defmodule NovelDomain.ChapterPlanDirection do
     :word_count_and_scenes
   ]
 
-  @typedoc "场级计划最小三槽（NEM04 刀③）：title 必填，goal/agendas/emotion 可缺省。"
+  @typedoc """
+  场级计划（NEM04 刀③ + B11C CP1）：title 必填；goal/agendas/emotion 与
+  VS-00E §1 场级结构子槽（opposition/turn/consequence/reader_learns/protagonist_learns/
+  remains_hidden/surface_topic/hidden_conflict/sensory）可缺省。
+  """
   @type scene_plan :: %{required(String.t()) => String.t()}
 
   @type t :: %__MODULE__{
@@ -183,6 +187,40 @@ defmodule NovelDomain.ChapterPlanDirection do
   defp pair(_label, value) when value in [nil, ""], do: ""
   defp pair(label, value), do: "#{label}=#{value}"
 
+  # B11C CP1：逐场计划子槽的渲染词表（探索面 `chapter_read` 与写前推理
+  # `ChapterMissionInputs` 共用，避免两处各写一份标签）。
+  @scene_slot_labels [
+    {"目标", "goal"},
+    {"议程", "agendas"},
+    {"情绪", "emotion"},
+    {"阻力", "opposition"},
+    {"转折", "turn"},
+    {"后果", "consequence"},
+    {"读者得知", "reader_learns"},
+    {"主角得知", "protagonist_learns"},
+    {"仍隐藏", "remains_hidden"},
+    {"对白表面", "surface_topic"},
+    {"潜台词", "hidden_conflict"},
+    {"感官", "sensory"}
+  ]
+
+  @doc """
+  逐场计划渲染为有序 `标签：值` 列表（缺槽不出现，不补占位）。
+
+  只做展示口径归一，不改变 `scene_plans` 的存储结构（B11C CP1 探索面同步律）。
+  """
+  @spec scene_slot_lines(map() | nil) :: [String.t()]
+  def scene_slot_lines(plan) when is_map(plan) do
+    Enum.flat_map(@scene_slot_labels, fn {label, key} ->
+      case clean(plan[key]) do
+        nil -> []
+        value -> ["#{label}：#{value}"]
+      end
+    end)
+  end
+
+  def scene_slot_lines(_plan), do: []
+
   defp put_scene_plans(map, []), do: map
   defp put_scene_plans(map, plans), do: Map.put(map, "scene_plans", plans)
 
@@ -203,16 +241,32 @@ defmodule NovelDomain.ChapterPlanDirection do
 
   defp normalize_scene_plans(_), do: []
 
+  # B11C CP1：白名单扩到 VS-00E §1 场级结构全集（title + 3 既有 + 8 新增）；
+  # 空值丢弃、title 必填。无新子槽的旧计划归一结果与 NEM04 逐字节等价。
+  @scene_plan_slots [
+    {:goal, "goal"},
+    {:agendas, "agendas"},
+    {:emotion, "emotion"},
+    {:opposition, "opposition"},
+    {:turn, "turn"},
+    {:consequence, "consequence"},
+    {:reader_learns, "reader_learns"},
+    {:protagonist_learns, "protagonist_learns"},
+    {:remains_hidden, "remains_hidden"},
+    {:surface_topic, "surface_topic"},
+    {:hidden_conflict, "hidden_conflict"},
+    {:sensory, "sensory"}
+  ]
+
   defp normalize_scene_plan(plan) when is_map(plan) do
     title = plan |> get_any([:title, "title"]) |> clean()
 
     if is_nil(title) do
       nil
     else
-      %{"title" => title}
-      |> put_scene_slot(:goal, "goal", plan)
-      |> put_scene_slot(:agendas, "agendas", plan)
-      |> put_scene_slot(:emotion, "emotion", plan)
+      Enum.reduce(@scene_plan_slots, %{"title" => title}, fn {atom_key, string_key}, acc ->
+        put_scene_slot(acc, atom_key, string_key, plan)
+      end)
     end
   end
 

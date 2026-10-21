@@ -566,6 +566,25 @@ export interface ChapterMissionDto {
   source?: string;
 }
 
+// B11C（VS-00E §1 / slice §3.1-3.2）：章计划逐场场级结构，与既有三槽同居
+// `plan_direction.scene_plans`（设计态 map 数据，零 migration）。`title` 必填，
+// 其余场级槽均可缺席；缺字段 = 键不存在，前端不得补空串/占位。
+export interface ScenePlanDto {
+  title: string;
+  goal?: string;
+  agendas?: string;
+  emotion?: string;
+  opposition?: string;
+  turn?: string;
+  consequence?: string;
+  reader_learns?: string;
+  protagonist_learns?: string;
+  remains_hidden?: string;
+  surface_topic?: string;
+  hidden_conflict?: string;
+  sensory?: string;
+}
+
 export interface TocChapter {
   id: string;
   title: string;
@@ -573,7 +592,11 @@ export interface TocChapter {
   word_count?: number;
   audit_status?: ChapterAuditStatus;
   summary?: string | null;
-  plan_direction?: { chapter_mission?: ChapterMissionDto | null } | null;
+  plan_direction?: {
+    chapter_mission?: ChapterMissionDto | null;
+    // NEM04 落库、B11C CP2 只读展示（43 §5.0.5）；无场次标注时键不存在。
+    scene_plans?: ScenePlanDto[];
+  } | null;
 }
 
 export interface TocVolume {

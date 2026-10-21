@@ -85,12 +85,96 @@ defmodule NovelApplication.ProseExecutionBriefBuilderTest do
     assert second["scene_title"] == "夜巡"
     assert second["emotion_transition"]["end"] == "紧张"
     refute Map.has_key?(second, "character_agendas")
+    # B11C CP1：缺新子槽时四组场级结构键不存在（不伪造）。
+    refute Map.has_key?(second, "causal_spine")
+    refute Map.has_key?(second, "information_delta")
+    refute Map.has_key?(second, "dialogue_intent")
+    refute Map.has_key?(second, "sensory_anchor")
 
     # prompt 渲染带场名与议程原文（writer 可读性）。
     section = NovelDomain.ProseExecutionBrief.to_prompt_section(brief)
     assert section =~ "scene_1（planned_scene）场：对账"
     assert section =~ "人物议程：沈洛要证据、摊主要脱身"
     assert section =~ "场：夜巡"
+  end
+
+  # B11C CP1：规划子槽确定性投影进 VS-00E §1 场级结构——只从规划字节映射，
+  # 缺省不写键、不做模型二次生成。
+  test "maps planned scene craft slots into causal/info/dialogue/sensory structures" do
+    direction =
+      ChapterPlanDirection.from_storage(%{
+        "emotion" => "紧张",
+        "scene_plans" => [
+          %{
+            "title" => "对账",
+            "goal" => "核对暗扣",
+            "agendas" => "沈洛要证据、摊主要脱身",
+            "emotion" => "压抑",
+            "opposition" => "摊主拖延并暗中报信",
+            "turn" => "账单残页暴露抽签记录",
+            "consequence" => "暗扣被坐实、打草惊蛇",
+            "reader_learns" => "公司抽走频段",
+            "protagonist_learns" => "账单上有内部编号",
+            "remains_hidden" => "幕后主使",
+            "surface_topic" => "对账寒暄",
+            "hidden_conflict" => "互相试探底线",
+            "sensory" => "潮湿霉味、风扇噪音"
+          },
+          %{
+            "title" => "夜巡",
+            "goal" => "带走残页",
+            "surface_topic" => "巡检寒暄",
+            "sensory" => "冷雨"
+          }
+        ]
+      })
+
+    {brief, meta} =
+      build(%{
+        chapter_direction: direction,
+        chapter: %{"title" => "第01章", "summary" => "x"},
+        author_input: "写第一章",
+        source_turn_ref: "turn-1"
+      })
+
+    refute meta.degraded
+    assert [first, second] = brief.scene_units
+
+    # causal_spine 不产 goal（目标只进 target_change，避免 prompt 重复）
+    assert first["causal_spine"] == %{
+             "opposition_or_dilemma" => "摊主拖延并暗中报信",
+             "turn" => "账单残页暴露抽签记录",
+             "consequence" => "暗扣被坐实、打草惊蛇"
+           }
+
+    assert first["information_delta"] == %{
+             "reader_learns" => "公司抽走频段",
+             "protagonist_learns" => "账单上有内部编号",
+             "remains_hidden" => "幕后主使"
+           }
+
+    assert first["dialogue_intent"] == %{
+             "mode" => "subtext",
+             "surface_topic" => "对账寒暄",
+             "hidden_conflict" => "互相试探底线"
+           }
+
+    # 感官字符串按 、，,；; 切分；单值也成一项。
+    assert first["sensory_anchor"] == ["潮湿霉味", "风扇噪音"]
+
+    # 只有表面话题 → direct；没有潜台词时不写 mode=subtext，也不补空洞。
+    assert second["dialogue_intent"] == %{"mode" => "direct", "surface_topic" => "巡检寒暄"}
+    assert second["sensory_anchor"] == ["冷雨"]
+    refute Map.has_key?(second, "causal_spine")
+    refute Map.has_key?(second, "information_delta")
+
+    # 简报渲染：四组结构都进入 writer prompt。
+    section = NovelDomain.ProseExecutionBrief.to_prompt_section(brief)
+    assert section =~ "因果：阻力：摊主拖延并暗中报信；转折：账单残页暴露抽签记录；后果：暗扣被坐实、打草惊蛇"
+    assert section =~ "信息变化：读者得知：公司抽走频段"
+    assert section =~ "对话意图：潜台词：表面谈对账寒暄，暗里争互相试探底线"
+    assert section =~ "感官锚点：潮湿霉味、风扇噪音"
+    assert section =~ "对话意图：表面谈巡检寒暄"
   end
 
   test "degrades to minimal brief from plan summary when no structured direction" do

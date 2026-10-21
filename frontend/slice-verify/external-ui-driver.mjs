@@ -20428,6 +20428,10 @@ async function driveE2E01ChannelActionSecurity(page) {
 // （ProseExecutionBriefV1）确定性投影自章方向、进入正文生成链路与 trace，且不写作品事实。
 // 外部证据：app 日志 context.structure.done(has_plan_direction) + prose_execution_brief.built
 // (degraded=false, brief_ref, scene_unit_count)；wire trace_summary 软记录。
+//
+// B11C CP2：先核对档案「大纲与结构」里只读可见的「场次计划」块（场名 + 场级结构子槽），
+// 再走既有生成正文草稿流程；writer prompt 的场级执行简述段（llm-calls）作为新字段真的
+// 进入写作链路的外部证据。全部证据为用户可见文本 / app JSONL / prompt 留痕，产品零验收感知。
 async function driveP1ProseExecutionBrief(page) {
   const targetChapterTitle = "第02章：旧服务器里的残诀";
 
@@ -20440,6 +20444,94 @@ async function driveP1ProseExecutionBrief(page) {
     targetChapterTitle,
     { timeout: 10_000 },
   );
+
+  // B11C CP2：档案「大纲与结构」章卡片只读可见场次计划块——两场、场名按行序编号，
+  // 每场只显示存在字段（第二场刻意缺省部分子槽，块里不补空行）。
+  await page.waitForFunction(
+    (targetTitle) => {
+      const text = document.body.innerText;
+      return (
+        text.includes(targetTitle) &&
+        text.includes("场次计划（2 场）") &&
+        text.includes("1. 对账") &&
+        text.includes("2. 夜巡")
+      );
+    },
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const outlineText = await page.locator("body").innerText();
+  assert(
+    outlineText.includes("场次计划（2 场）"),
+    "Archive outline did not render the two-scene plan heading",
+  );
+  const scenePlanTitles = ["1. 对账", "2. 夜巡"].filter((title) => outlineText.includes(title));
+  assert(
+    scenePlanTitles.length === 2,
+    `Archive outline did not render both planned scenes by sequence: ${JSON.stringify({
+      scenePlanTitles,
+    })}`,
+  );
+  // 新子槽在用户可见文本里以「子槽：值」内联出现（不新增 data-testid；label 来自 copy.ts）。
+  const expectedScenePlanFragments = [
+    "阻力：巡检提前到场并切断电源",
+    "转折：日志残页暴露抽签记录",
+    "后果：暗扣被坐实、打草惊蛇",
+    "读者得知：公司抽走频段",
+    "主角得知：日志上有内部编号",
+    "仍隐藏：幕后主使",
+    "表面谈：对账寒暄",
+    "暗里争：互相试探底线",
+    "感官：潮湿霉味、风扇噪音",
+  ];
+  const visibleScenePlanFragments = expectedScenePlanFragments.filter((fragment) =>
+    outlineText.includes(fragment),
+  );
+  assert(
+    visibleScenePlanFragments.length >= 4,
+    `Archive outline scene plan block did not surface the new field rows: ${JSON.stringify({
+      visibleScenePlanFragments,
+    })}`,
+  );
+  // 第二场缺省子槽不伪造：块里不应出现第二场的阻力/议程行；用「场名附近文本」弱断言，
+  // 只要求可见块整体至少展示 4 个新字段行（上面已断言）且第二场只出现存在字段。
+  assert(
+    ["因果：", "信息差：", "对白：", "感官："].every((label) => outlineText.includes(label)),
+    "Archive outline scene plan block did not render the grouped field labels",
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "p1-prose-execution-brief-scene-plan.png"),
+    fullPage: true,
+  });
+
+  // B11C CP2：writer prompt 级外部证据（test-support 替身把收到的 prompt 落 llm-calls；
+  // 产品零验收感知）。证明场次计划子槽真的进入正文写作链路，而不只是档案展示。
+  const readWriterPrompts = () => {
+    const dir = path.join(artifactDir, "llm-calls");
+    if (!fs.existsSync(dir)) return [];
+    return fs
+      .readdirSync(dir)
+      .filter((name) => name.endsWith(".jsonl"))
+      .sort()
+      .flatMap((name) =>
+        fs
+          .readFileSync(path.join(dir, name), "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .flatMap((line) => {
+            const start = line.indexOf("{");
+            if (start < 0) return [];
+            try {
+              const record = JSON.parse(line.slice(start));
+              return typeof record.prompt === "string" ? [record.prompt] : [];
+            } catch {
+              return [];
+            }
+          }),
+      );
+  };
 
   const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
   assert(
@@ -20505,6 +20597,52 @@ async function driveP1ProseExecutionBrief(page) {
     (briefRecord.brief_source ?? []).includes("chapter_plan_scene_plans"),
     `Execution brief did not source from planned scenes: ${JSON.stringify(briefRecord)}`,
   );
+  // B11C CP1 §3.6：trace 记录实际出现的场级结构字段名——四个新字段必须由规划字节
+  // 确定性投影出来（缺省不写键，不伪造）。
+  const expectedSceneFieldCoverage = [
+    "causal_spine",
+    "information_delta",
+    "dialogue_intent",
+    "sensory_anchor",
+  ];
+  const sceneFieldCoverage = Array.isArray(briefRecord.scene_field_coverage)
+    ? briefRecord.scene_field_coverage
+    : [];
+  assert(
+    expectedSceneFieldCoverage.every((field) => sceneFieldCoverage.includes(field)),
+    `Execution brief scene_field_coverage missing new scene fields: ${JSON.stringify({
+      scene_field_coverage: sceneFieldCoverage,
+    })}`,
+  );
+
+  // B11C CP2：writer prompt 的场级执行简述段带场次名与新子槽值——新字段进入写作链路。
+  let writerPrompt = readWriterPrompts().find((prompt) => prompt.includes("## 场级执行简述"));
+  for (let attempt = 0; attempt < 25 && !writerPrompt; attempt += 1) {
+    await sleep(200);
+    writerPrompt = readWriterPrompts().find((prompt) => prompt.includes("## 场级执行简述"));
+  }
+  assert(writerPrompt, "Writer prompt did not carry the rendered scene execution brief");
+  const promptSceneTitles = ["场：对账", "场：夜巡"].filter((title) =>
+    writerPrompt.includes(title),
+  );
+  // scene_units 至少一场带 scene_title（场次名来自规划字节，不是验收脚本注入）。
+  assert(
+    promptSceneTitles.length >= 1,
+    "Rendered brief scene units did not carry any planned scene_title in the writer prompt",
+  );
+  const promptCoverageMarkers = {
+    causal_spine: "阻力：巡检提前到场并切断电源",
+    information_delta: "读者得知：公司抽走频段",
+    dialogue_intent: "暗里争互相试探底线",
+    sensory_anchor: "感官锚点：潮湿霉味、风扇噪音",
+  };
+  const promptCoverage = Object.entries(promptCoverageMarkers)
+    .filter(([, marker]) => writerPrompt.includes(marker))
+    .map(([field]) => field);
+  assert(
+    promptCoverage.length === Object.keys(promptCoverageMarkers).length,
+    `Writer prompt brief section missing new scene fields: ${JSON.stringify({ promptCoverage })}`,
+  );
 
   await page.waitForFunction(
     (targetTitle) =>
@@ -20543,6 +20681,15 @@ async function driveP1ProseExecutionBrief(page) {
       trace_prose_execution_brief_ref:
         draftTurnResult?.trace_summary?.prose_execution_brief_ref ?? null,
       has_plan_direction_context: true,
+      // B11C CP2：档案只读场次计划可见 + brief 新字段覆盖/writer prompt 证据。
+      scene_plans_visible: true,
+      scene_plan_heading: "场次计划（2 场）",
+      scene_plan_titles: scenePlanTitles,
+      scene_plan_visible_fragments: visibleScenePlanFragments,
+      execution_brief_scene_field_coverage: sceneFieldCoverage,
+      execution_brief_scene_titles: promptSceneTitles,
+      brief_prompt_rendered: true,
+      brief_prompt_coverage: promptCoverage,
       brief_in_draft_body: draftBody.includes("场级执行简述"),
       adopt_event_sent: frames.some(
         (frame) => frame.direction === "sent" && frame.event === "adopt",

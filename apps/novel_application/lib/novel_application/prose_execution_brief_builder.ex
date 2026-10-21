@@ -62,6 +62,8 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
 
   # 规划落库的逐场计划（NEM04 刀③，VS-00E「多场展开」就此闭环）：每个场次
   # 一个单元，目标/议程/情绪直达 writer；场缺情绪时回退章级情绪定位。
+  # B11C CP1：把规划里 VS-00E §1 已冻结的场级结构（因果脊/信息差/对白意图/感官锚点）
+  # 确定性投影进 scene unit——只从规划字节投影，缺子槽不写键、不生成模型内容。
   defp scene_units(
          %ChapterPlanDirection{scene_plans: [_ | _] = plans} = direction,
          _chapter,
@@ -80,9 +82,13 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
               nil -> %{}
               goal -> %{"type" => "planned_scene", "description" => goal}
             end,
+          "causal_spine" => causal_spine(plan),
           "character_agendas" => clean(plan["agendas"]),
+          "information_delta" => information_delta(plan),
           "emotion_transition" =>
-            drop_blank(%{"end" => clean(plan["emotion"]) || clean(direction.emotion)})
+            drop_blank(%{"end" => clean(plan["emotion"]) || clean(direction.emotion)}),
+          "dialogue_intent" => dialogue_intent(plan),
+          "sensory_anchor" => sensory_anchor(plan["sensory"])
         }
         |> drop_empty_values()
       end)
@@ -131,6 +137,59 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
 
     {[unit], true, ["plan_summary_or_author_input"]}
   end
+
+  # ── 规划子槽 → VS-00E §1 场级结构（确定性投影，缺省不写键） ──
+
+  # causal_spine 不带 goal：`目标` 已进 target_change，避免 prompt 重复（slice §3.3）。
+  defp causal_spine(plan) do
+    drop_blank(%{
+      "opposition_or_dilemma" => clean(plan["opposition"]),
+      "turn" => clean(plan["turn"]),
+      "consequence" => clean(plan["consequence"])
+    })
+  end
+
+  defp information_delta(plan) do
+    drop_blank(%{
+      "reader_learns" => clean(plan["reader_learns"]),
+      "protagonist_learns" => clean(plan["protagonist_learns"]),
+      "remains_hidden" => clean(plan["remains_hidden"])
+    })
+  end
+
+  # 有潜台词 → subtext；只有表面话题 → direct。两者皆无 → 不写键（不伪造对白意图）。
+  defp dialogue_intent(plan) do
+    surface = clean(plan["surface_topic"])
+    hidden = clean(plan["hidden_conflict"])
+
+    case {surface, hidden} do
+      {nil, nil} ->
+        %{}
+
+      {_surface, nil} ->
+        %{"mode" => "direct", "surface_topic" => surface}
+
+      {_surface, _hidden} ->
+        drop_blank(%{
+          "mode" => "subtext",
+          "surface_topic" => surface,
+          "hidden_conflict" => hidden
+        })
+    end
+  end
+
+  # 感官字符串按「、，,；;」切分为锚点数组；单值也成一项。空值不写键。
+  defp sensory_anchor(text) when is_binary(text) do
+    anchors =
+      text
+      |> String.split(~r/[、，,；;]/u)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if anchors == [], do: nil, else: anchors
+  end
+
+  defp sensory_anchor(_text), do: nil
 
   defp chapter_context(direction, reader_effect) do
     %{

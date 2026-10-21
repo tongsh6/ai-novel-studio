@@ -182,14 +182,10 @@ defmodule NovelDomain.ChapterMissionInputs do
       direction.scene_plans
       |> Enum.with_index(1)
       |> Enum.map(fn {plan, index} ->
+        # B11C CP1：场级结构子槽同批进写前推理材料（探索面同步律）；词表与探索面共用。
         text =
-          [
-            plan["title"],
-            plan["goal"] && "目标：#{plan["goal"]}",
-            plan["agendas"] && "议程：#{plan["agendas"]}",
-            plan["emotion"] && "情绪：#{plan["emotion"]}"
-          ]
-          |> Enum.reject(&(&1 in [nil, false]))
+          [plan["title"] | ChapterPlanDirection.scene_slot_lines(plan)]
+          |> Enum.reject(&(&1 in [nil, false, ""]))
           |> Enum.join("｜")
 
         item("plan:#{seq}:scene:#{index}", :plan, "场次#{index}：#{text}")

@@ -549,12 +549,6 @@ export const WORKBENCH = {
   modelProviderTestFailureDetail: (detail: string) => `连接不可用：${detail}`,
   modelProviderModelsLoadFailure: "模型列表加载失败。",
   modelProviderModelsLoadFailureDetail: (detail: string) => `模型列表加载失败：${detail}`,
-  modelProviderLocalModelsHint: "已列出本机 Strata 安装的模型；选择后模型与端点会一起切换。",
-  modelProviderLocalModelRunning: "运行中",
-  modelProviderLocalModelNotRunning: "未运行",
-  modelProviderLocalModelNotRunningHint:
-    "该模型当前未运行，请先启动对应的 Strata 引擎；也可以先保存配置，稍后启动。",
-  modelProviderLocalModelsLoadFailure: "本机模型发现失败，已回退到实时模型列表。",
   syncStatusLabel: (label: string) => `同步${label}`,
   archiveRailTitle: "作品档案",
   archiveRailOpen: "打开档案",
@@ -935,6 +929,35 @@ export const STRUCTURE_PANEL = {
   chapterPendingBadge: "待补足",
   chapterWrittenPrefix: "已写",
   chapterWordsUnit: "字",
+  // B11C（43 §5.0.5）：大纲与结构 tab 逐章「场次计划」只读块。数据来自 `get_toc`
+  // 章节投影 `plan_direction.scene_plans`（NEM04 三槽 + B11C 八槽）；只读展示，
+  // 不新增 author_action。缺字段整行不渲染，无场次计划的章整块不渲染。
+  scenePlans: {
+    heading: (count: number) => `场次计划（${count} 场）`,
+    sceneTitle: (seq: number, title: string) => `${seq}. ${title}`,
+    // 基础三槽与组行标签（含全角冒号，与章节使命块的标签口径一致）。
+    fieldLabels: {
+      goal: "目标：",
+      agendas: "议程：",
+      emotion: "情绪：",
+      causal: "因果：",
+      information: "信息差：",
+      dialogue: "对白：",
+      sensory: "感官：",
+    } as Record<string, string>,
+    // 组内子槽标签（含全角冒号）：因果 / 信息差 / 对白三组按「子槽：值」内联。
+    partLabels: {
+      opposition: "阻力：",
+      turn: "转折：",
+      consequence: "后果：",
+      reader_learns: "读者得知：",
+      protagonist_learns: "主角得知：",
+      remains_hidden: "仍隐藏：",
+      surface_topic: "表面谈：",
+      hidden_conflict: "暗里争：",
+    } as Record<string, string>,
+    partsLine: (parts: string[]) => parts.join("；"),
+  },
   outlineEmptyWithWork: "用于把当前作品整理成卷纲和章纲。点击后会在对话区生成规划请求。",
   outlineEmptyNoWork: "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。",
   startPlanning: "规划卷章结构",

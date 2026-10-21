@@ -1,4 +1,4 @@
-// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1，角色归并见 §5.0.2）
+// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1，角色归并见 §5.0.2，本章使命见 §5.0.3，本轮规划使命见 §5.0.4，场次计划见 §5.0.5）
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 // Prototype: novel-studio.pen → 43§5-9-threads-panel (uyZGw)
 import * as Dialog from "@radix-ui/react-dialog";
@@ -18,6 +18,7 @@ import {
   isFindingFactInventoryAction,
   reviewFindingDispositionLabel,
 } from "../lib/reviewFindingActions";
+import { toScenePlansView } from "../lib/scenePlanView";
 import { useAppStore } from "../lib/store";
 import {
   getToc,
@@ -669,6 +670,31 @@ export function StructurePanel({
     );
   };
 
+  // B11C（43 §5.0.5）：本章使命块之后只读展示「场次计划」，用于写前核对这一章分几场、
+  // 每场发生什么、信息怎么放。数据已在 get_toc.plan_direction.scene_plans 里，不新增
+  // 网络请求；只读，不新增 author_action；无场次计划的章整块不渲染（诚实缺席）。
+  const renderScenePlans = (ch: TocChapter) => {
+    const view = toScenePlansView(ch.plan_direction?.scene_plans);
+    if (!view) return null;
+
+    return (
+      <div className={styles.scenePlansBlock}>
+        <div className={styles.scenePlansHeader}>{view.heading}</div>
+        {view.items.map((scene) => (
+          <div className={styles.scenePlanItem} key={scene.key}>
+            <div className={styles.scenePlanTitle}>{scene.title}</div>
+            {scene.rows.map((row) => (
+              <div className={styles.scenePlanRow} key={row.key}>
+                <span className={styles.scenePlanRowLabel}>{row.label}</span>
+                {row.value}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   // AU12（43 §5.0.2）：档案侧角色身份归并——同名是同一人/别名/改名还是真重名
   // 只能由作者裁决；当前选中行是被并入方（source），弹窗里选保留行（target）。
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
@@ -857,6 +883,7 @@ export function StructurePanel({
       </div>
       {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
       {renderChapterMission(ch)}
+      {renderScenePlans(ch)}
       <div className={styles.cardActions}>
         <button
           className={styles.btnGhost}

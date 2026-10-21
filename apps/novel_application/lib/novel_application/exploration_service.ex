@@ -274,18 +274,12 @@ defmodule NovelApplication.ExplorationService do
   end
 
   # 场次计划（NEM04 刀③，探索面同步律）：规划落库的逐场三槽在判断循环内可读。
+  # B11C CP1：VS-00E §1 场级结构子槽（因果/信息差/对白/感官）同批可读；缺子槽不渲染。
   defp scene_plans_text([]), do: nil
 
   defp scene_plans_text(plans) when is_list(plans) do
     Enum.map_join(plans, " / ", fn plan ->
-      slots =
-        [
-          plan["goal"] && "目标：#{plan["goal"]}",
-          plan["agendas"] && "议程：#{plan["agendas"]}",
-          plan["emotion"] && "情绪：#{plan["emotion"]}"
-        ]
-        |> Enum.reject(&is_nil/1)
-        |> Enum.join("；")
+      slots = plan |> ChapterPlanDirection.scene_slot_lines() |> Enum.join("；")
 
       if slots == "", do: plan["title"], else: "#{plan["title"]}（#{slots}）"
     end)

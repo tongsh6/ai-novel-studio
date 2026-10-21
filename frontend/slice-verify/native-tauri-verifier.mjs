@@ -3657,6 +3657,14 @@ function findP1ProseExecutionBriefEvidence(records) {
   const sliceId = "p1-prose-execution-brief";
   const keyEvents = keyEventsForSlice(sliceId);
   const targetChapterTitle = "第02章：旧服务器里的残诀";
+  // B11C CP1 §3.6：四个新场级结构字段必须由规划字节确定性投影进 brief
+  // （缺字段不写键，不伪造覆盖）。
+  const requiredSceneFieldCoverage = [
+    "causal_spine",
+    "information_delta",
+    "dialogue_intent",
+    "sensory_anchor",
+  ];
 
   const uiState = records.find(
     (record) =>
@@ -3670,7 +3678,17 @@ function findP1ProseExecutionBriefEvidence(records) {
       record.execution_brief_ref.startsWith("brief:") &&
       record.brief_in_draft_body === false &&
       record.adopt_event_sent === false &&
-      record.chapter_title === targetChapterTitle,
+      record.chapter_title === targetChapterTitle &&
+      // B11C CP2：档案「大纲与结构」只读场次计划可见（两场按序、新子槽行内文本），
+      // 且 writer prompt 里 brief 场次单元带 scene_title（llm-calls 外部证据）。
+      record.scene_plans_visible === true &&
+      Array.isArray(record.scene_plan_titles) &&
+      record.scene_plan_titles.length === 2 &&
+      Array.isArray(record.scene_plan_visible_fragments) &&
+      record.scene_plan_visible_fragments.length >= 4 &&
+      Array.isArray(record.execution_brief_scene_titles) &&
+      record.execution_brief_scene_titles.length >= 1 &&
+      record.brief_prompt_rendered === true,
   );
   if (!uiState) return null;
 
@@ -3707,7 +3725,10 @@ function findP1ProseExecutionBriefEvidence(records) {
       record.brief_ref.startsWith("brief:") &&
       // NEM04 刀③：种子带两条场次标注 → 简报按规划逐场展开。
       Number(record.scene_unit_count ?? 0) === 2 &&
-      (record.brief_source ?? []).includes("chapter_plan_scene_plans"),
+      (record.brief_source ?? []).includes("chapter_plan_scene_plans") &&
+      // B11C CP1：新场级结构字段实际覆盖（规划字节确定性投影）。
+      Array.isArray(record.scene_field_coverage) &&
+      requiredSceneFieldCoverage.every((field) => record.scene_field_coverage.includes(field)),
   );
   if (!briefBuilt) return null;
 
@@ -3730,6 +3751,13 @@ function findP1ProseExecutionBriefEvidence(records) {
     brief_ref: briefBuilt.brief_ref,
     scene_unit_count: Number(briefBuilt.scene_unit_count ?? 0),
     has_plan_direction: structure.has_plan_direction,
+    // B11C CP2：场次计划只读可见 + 简报新字段覆盖 + writer prompt 场次名证据。
+    scene_plan_visible: uiState.scene_plans_visible,
+    scene_plan_titles: uiState.scene_plan_titles,
+    scene_plan_visible_fragments: uiState.scene_plan_visible_fragments,
+    scene_field_coverage: briefBuilt.scene_field_coverage,
+    scene_titles_in_writer_prompt: uiState.execution_brief_scene_titles,
+    brief_prompt_coverage: uiState.brief_prompt_coverage,
     key_events: keyEvents,
   };
 }
@@ -3841,13 +3869,38 @@ function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, 
   if (uiState.adopt_event_sent !== false) return null;
   if (uiState.execution_brief_degraded !== false) return null;
   if (uiState.brief_in_draft_body !== false) return null;
+  // B11C CP2：档案只读场次计划可见（两场按序、至少 4 个新子槽行内片段），且 writer
+  // prompt 的 brief 场次单元带 scene_title（llm-calls 外部证据，非验收钩子）。
+  if (uiState.scene_plans_visible !== true) return null;
+  if (!Array.isArray(uiState.scene_plan_titles) || uiState.scene_plan_titles.length !== 2) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.scene_plan_visible_fragments) ||
+    uiState.scene_plan_visible_fragments.length < 4
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.execution_brief_scene_titles) ||
+    uiState.execution_brief_scene_titles.length < 1
+  ) {
+    return null;
+  }
+  if (uiState.brief_prompt_rendered !== true) return null;
 
   const briefBuilt = turnRecords.find(
     (record) =>
       record.event === "prose_execution_brief.built.done" &&
       record.degraded === false &&
       typeof record.brief_ref === "string" &&
-      record.brief_ref.startsWith("brief:"),
+      record.brief_ref.startsWith("brief:") &&
+      Number(record.scene_unit_count ?? 0) === 2 &&
+      (record.brief_source ?? []).includes("chapter_plan_scene_plans") &&
+      // B11C CP1 §3.6：四个新场级结构字段实际出现在 brief 覆盖里（包含，不做全序断言）。
+      ["causal_spine", "information_delta", "dialogue_intent", "sensory_anchor"].every((field) =>
+        (record.scene_field_coverage ?? []).includes(field),
+      ),
   );
   if (!briefBuilt) return null;
 
@@ -3867,11 +3920,21 @@ function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, 
     chapter_title: evidence.chapter_title,
     brief_ref: briefBuilt.brief_ref,
     scene_unit_count: Number(briefBuilt.scene_unit_count ?? 0),
+    scene_plan_visible: true,
+    scene_plan_titles: uiState.scene_plan_titles,
+    scene_plan_visible_fragments: uiState.scene_plan_visible_fragments,
+    scene_field_coverage: briefBuilt.scene_field_coverage,
+    scene_titles_in_writer_prompt: uiState.execution_brief_scene_titles,
+    brief_prompt_coverage: uiState.brief_prompt_coverage,
     assertions: [
       "real_archive_outline_chapter_2_draft_action_clicked",
+      "archive_outline_shows_scene_plan_block_with_two_named_scenes",
+      "scene_plan_new_slots_visible_in_archive_outline",
       "micro_plan_requested_from_real_workbench",
       "structured_chapter_direction_read_has_plan_direction",
       "scene_execution_brief_built_non_degraded_with_stable_ref",
+      "scene_field_coverage_includes_causal_information_dialogue_sensory",
+      "writer_prompt_carries_scene_title_and_new_scene_fields",
       "execution_brief_entered_prose_request_and_trace",
       "execution_brief_not_written_as_production_fact",
       "prose_writing_generated_pending_draft_without_adoption",

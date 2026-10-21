@@ -41,6 +41,8 @@ defmodule NovelPersistence.ChapterPlanParser do
 
   # NEM04 刀③：场级计划逐场标注（`场次：标题｜目标：…｜议程：…｜情绪：…`）。
   # 子槽用｜分隔（避开方向解析的；切分）；标题必填，缺则整行丢弃；行序即场次 seq。
+  # B11C CP1：子槽词表扩到 VS-00E §1 scene_units 已冻结的场级结构全集（因果/信息差/
+  # 对白/感官）；全部可选，旧标注无新子槽时解析结果逐字节不变。
   @scene_labels ["场次", "场景"]
   @scene_slot_labels %{
     "目标" => "goal",
@@ -49,7 +51,20 @@ defmodule NovelPersistence.ChapterPlanParser do
     "人物议程" => "agendas",
     "出场人物议程" => "agendas",
     "情绪" => "emotion",
-    "情绪定位" => "emotion"
+    "情绪定位" => "emotion",
+    "阻力" => "opposition",
+    "冲突" => "opposition",
+    "转折" => "turn",
+    "后果" => "consequence",
+    "读者得知" => "reader_learns",
+    "读者知道" => "reader_learns",
+    "主角得知" => "protagonist_learns",
+    "仍隐藏" => "remains_hidden",
+    "隐藏" => "remains_hidden",
+    "对白表面" => "surface_topic",
+    "潜台词" => "hidden_conflict",
+    "感官" => "sensory",
+    "时空感官" => "sensory"
   }
 
   @type chapter :: %{

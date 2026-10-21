@@ -25,7 +25,20 @@ defmodule NovelDomain.ChapterMissionInputsTest do
         "information_release" => "旧账牌编号的兑现地点",
         "emotion" => "紧张",
         "scene_plans" => [
-          %{"title" => "巷口对峙", "goal" => "甩开巡检", "emotion" => "压迫"}
+          %{
+            "title" => "巷口对峙",
+            "goal" => "甩开巡检",
+            "emotion" => "压迫",
+            "opposition" => "巡检封巷",
+            "turn" => "底单被撕走一角",
+            "consequence" => "只能绕道撤离",
+            "reader_learns" => "巡检已锁定黑市",
+            "protagonist_learns" => "巡检手里有底单",
+            "remains_hidden" => "谁泄露了行踪",
+            "surface_topic" => "盘查身份",
+            "hidden_conflict" => "互相试探底牌",
+            "sensory" => "冷雨、铁锈味"
+          }
         ]
       }
     }
@@ -126,6 +139,10 @@ defmodule NovelDomain.ChapterMissionInputsTest do
     # STALLED 弧光排在 ON_TRACK 之前
     assert :binary.match(text, "char_1") < :binary.match(text, "char_2")
     assert ChapterMissionInputs.label(inputs, "plan:3:chapter_role") == "章功能定位：推进章"
+
+    # B11C CP1：场级结构子槽同批进写前推理材料（探索面同步律）；缺子槽不补位。
+    assert text =~
+             "[plan:3:scene:1] 场次1：巷口对峙｜目标：甩开巡检｜情绪：压迫｜阻力：巡检封巷｜转折：底单被撕走一角｜后果：只能绕道撤离｜读者得知：巡检已锁定黑市｜主角得知：巡检手里有底单｜仍隐藏：谁泄露了行踪｜对白表面：盘查身份｜潜台词：互相试探底牌｜感官：冷雨、铁锈味"
   end
 
   test "目标章未定且无账面时只带章头，诚实为空材料" do

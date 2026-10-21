@@ -1,5 +1,5 @@
 id: p1-prose-execution-brief
-title: 场级执行简述进入正文生成链路（VS-00E CP1）
+title: 场级执行简述进入正文生成链路（VS-00E CP1 + B11C CP2 场次计划可见）
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh p1-prose-execution-brief --surface tauri
@@ -20,6 +20,7 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - open: archive outline (大纲与结构)
+  - see: archive outline shows scene plan (B11C) — 场次计划（2 场）with 1. 对账 / 2. 夜巡 and new field rows
   - click: 生成正文草稿 for chapter 02 (carries structured plan_direction)
   - wait_for: tentative prose draft visible
 
@@ -34,13 +35,17 @@ evidence:
 assertions:
   ui:
     - chapter 2 draft action visible
+    - archive outline shows scene plan block「场次计划（2 场）」with numbered scene titles 1. 对账 / 2. 夜巡 (B11C)
+    - scene plan new slots visible in archive outline (阻力/转折/读者得知/仍隐藏/表面谈/暗里争/感官)
     - tentative prose draft visible (not adopted)
   network:
     - user_message sent with generate_micro_plan
     - prose_writing prose_fragment turn_result received
   data:
     - structured chapter direction read (context.structure.done has_plan_direction=true)
-    - prose_execution_brief.built emitted, degraded=false, stable brief_ref, scene_unit_count>=1
+    - prose_execution_brief.built emitted, degraded=false, stable brief_ref, scene_unit_count=2
+    - prose_execution_brief.built scene_field_coverage includes causal_spine/information_delta/dialogue_intent/sensory_anchor
+    - writer prompt carries rendered scene execution brief with scene_title and new scene fields (llm-calls)
     - execution brief not written as production fact (draft stays tentative, brief absent from draft body)
 
 anti_hooks:

@@ -37,6 +37,11 @@ defmodule NovelDomain.ProseExecutionBrief do
                       character_agendas information_delta emotion_transition dialogue_intent
                       sensory_anchor degraded degraded_reason)a
 
+  # trace 摘要（B11C CP1 §3.6）：只报实际出现的场级结构字段名，规范顺序、不含正文与
+  # 内部 id。供真实页面验收与线上排障读取（非验收钩子）。
+  @coverage_fields ~w(target_change causal_spine character_agendas information_delta
+                      emotion_transition dialogue_intent sensory_anchor)
+
   @doc """
   从 map 构造并清洗。string / atom 键皆可。
 
@@ -88,6 +93,33 @@ defmodule NovelDomain.ProseExecutionBrief do
   @spec ref(t() | nil) :: String.t() | nil
   def ref(%__MODULE__{brief_id: id}) when is_binary(id) and id != "", do: "brief:#{id}"
   def ref(_), do: nil
+
+  @doc """
+  trace 摘要用：逐场单元里**实际出现的场级结构字段名**（`target_change` / `causal_spine` /
+  `character_agendas` / `information_delta` / `emotion_transition` / `dialogue_intent` /
+  `sensory_anchor`），规范顺序去重。缺省字段不出现（不伪造覆盖），不暴露正文与内部 id。
+  """
+  @spec field_coverage(t() | nil) :: [String.t()]
+  def field_coverage(nil), do: []
+
+  def field_coverage(%__MODULE__{scene_units: scene_units}) do
+    Enum.filter(@coverage_fields, fn field ->
+      Enum.any?(scene_units, &present_field?(&1, field))
+    end)
+  end
+
+  defp present_field?(%{} = unit, field) do
+    case Map.fetch(unit, field) do
+      {:ok, nil} -> false
+      {:ok, ""} -> false
+      {:ok, []} -> false
+      {:ok, %{} = value} -> map_size(value) > 0
+      {:ok, _value} -> true
+      :error -> false
+    end
+  end
+
+  defp present_field?(_unit, _field), do: false
 
   @doc """
   渲染为 provider message 可见的结构化文本段（中文，可追踪）。
@@ -203,7 +235,8 @@ defmodule NovelDomain.ProseExecutionBrief do
         agendas_line(unit["character_agendas"]),
         info_line(unit["information_delta"]),
         emotion_line(unit["emotion_transition"]),
-        dialogue_line(unit["dialogue_intent"])
+        dialogue_line(unit["dialogue_intent"]),
+        sensory_line(unit["sensory_anchor"])
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -276,11 +309,40 @@ defmodule NovelDomain.ProseExecutionBrief do
 
   defp emotion_line(_), do: nil
 
+  # B11C CP1：subtext 只渲染存在的字段（缺字段不拼空洞句式）；direct 模式只渲染
+  # 表面话题（潜台词仅按场景类型条件启用，VS-00E §1）。
   defp dialogue_line(%{"mode" => "subtext"} = d) do
-    sub("对话意图", "潜台词：表面谈#{d["surface_topic"]}，暗里争#{d["hidden_conflict"]}")
+    case dialogue_parts(d) do
+      [] -> nil
+      parts -> sub("对话意图", "潜台词：" <> Enum.join(parts, "，"))
+    end
+  end
+
+  defp dialogue_line(%{"mode" => "direct"} = d) do
+    case clean(d["surface_topic"]) do
+      nil -> nil
+      surface -> sub("对话意图", "表面谈#{surface}")
+    end
   end
 
   defp dialogue_line(_), do: nil
+
+  defp dialogue_parts(d) do
+    surface = clean(d["surface_topic"])
+    hidden = clean(d["hidden_conflict"])
+
+    [surface && "表面谈#{surface}", hidden && "暗里争#{hidden}"]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # 感官锚点（B11C CP1）：契约形状是数组；数组缺失/为空时整行不出现，不伪造。
+  defp sensory_line(anchors) when is_list(anchors) do
+    text = anchors |> Enum.map(&clean/1) |> Enum.reject(&is_nil/1) |> Enum.join("、")
+    sub("感官锚点", text)
+  end
+
+  defp sensory_line(text) when is_binary(text), do: sub("感官锚点", clean(text))
+  defp sensory_line(_), do: nil
 
   defp sub(label, value) when is_binary(value) and value != "", do: "  · #{label}：#{value}"
   defp sub(_label, _value), do: nil

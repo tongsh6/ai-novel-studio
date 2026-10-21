@@ -660,3 +660,44 @@
   resize: vertical;
 }
 
+/* B11C（43 §5.0.5）：大纲 tab 逐章「场次计划」只读块（数据来自 get_toc
+   plan_direction.scene_plans；只读展示，不新增 author_action）。 */
+.scenePlansBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--surface);
+}
+
+.scenePlansHeader {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.scenePlanItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scenePlanTitle {
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.scenePlanRow {
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.scenePlanRowLabel {
+  color: var(--foreground-secondary);
+}

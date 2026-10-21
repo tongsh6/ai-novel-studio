@@ -305,6 +305,45 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "重要："
   end
 
+  # B11C CP1：章计划 prompt 的逐场格式说明扩到 VS-00E §1 场级结构子槽（全部可选、
+  # 没把握可省略），且保留 stub/slice_verify 解析的三锚点。
+  test "plot outline prompt 说明场级结构可选子槽且保留三锚点" do
+    {:ok, agent} = Agent.start_link(fn -> nil end)
+
+    result_fn = fn prompt ->
+      Agent.update(agent, fn _ -> prompt end)
+      {:ok, %{content: @good_json}}
+    end
+
+    request = %{@request | tool_name: "plot_outline", artifact_type: :outline_draft}
+
+    assert %{status: :ok} = Real.generate(request, provider_execution(result_fn))
+
+    prompt = Agent.get(agent, & &1)
+    refute is_nil(prompt)
+
+    # 既有最小三槽仍在
+    assert prompt =~ "场次：场名｜目标："
+    assert prompt =~ "议程："
+    assert prompt =~ "情绪："
+    # 新增子槽全部出现在格式说明中，且标明可选/可省略
+    assert prompt =~ "阻力："
+    assert prompt =~ "转折："
+    assert prompt =~ "后果："
+    assert prompt =~ "读者得知："
+    assert prompt =~ "主角得知："
+    assert prompt =~ "仍隐藏："
+    assert prompt =~ "对白表面："
+    assert prompt =~ "潜台词："
+    assert prompt =~ "感官："
+    assert prompt =~ "没把握可省略"
+
+    # 三锚点保留（stub/slice_verify 依赖）
+    assert prompt =~ "用户创作简述："
+    assert prompt =~ "上下文："
+    assert prompt =~ "重要："
+  end
+
   test "character design prompt 走专用分支：骨架维度 + 开放框架 + 上下文 grounding + 保留三锚点" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 

@@ -151,7 +151,7 @@
 | `p1-chapter-word-count-target.yml` | 作者目标字数进入正文生成链路 |
 | `p1-export-minimum.yml` | 阅读投影导出全书 Markdown |
 | `p1-plan-incremental.yml` | 增量章节规划追加新章且不改旧章 |
-| `p1-prose-execution-brief.yml` | 正文生成携带场级执行简述 |
+| `p1-prose-execution-brief.yml` | 正文生成携带场级执行简述（B11C 2026-10-22 扩展：档案大纲场次计划只读可见 + 简报 `causal_spine`/`information_delta`/`dialogue_intent`/`sensory_anchor` 覆盖 + writer prompt 外证） |
 | `p1-prose-quality-adoption-boundary.yml` | 质量修订候选采纳边界 |
 | `p1-prose-quality-evaluator-degrade.yml` | 质量评估降级诚实提示 |
 | `p1-prose-quality-finding-roundtrip.yml` | 形式候选、修辞裁决与章节节奏真实页面往返 |
