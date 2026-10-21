@@ -35,10 +35,15 @@ deepseek_timeout_ms =
 
 config :novel_agent, :provider, default: :lmstudio
 
+# 本地推理默认模型与端点必须可被 env 覆盖：MBC 探针 / 狗粮 / slice_verify 都经
+# `mix run` 走 dev 配置，硬编码会让脚本显式传入的 NOVEL_LMSTUDIO_MODEL 失效，
+# 请求落到未加载的模型（2026-10-21 实锤：探针实际加载 qwen/qwen3.8-27b 而非
+# 本地已用的 qwen3.8-flash-next@q2_k）。默认值与当前本地 LM Studio 运行模型对齐。
 config :novel_agent, NovelAgent.Provider.LMStudio,
-  endpoint: "http://localhost:1234/v1",
-  model: "qwen/qwen3.8-27b",
+  endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
+  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen3.8-flash-next@q2_k"),
   reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
+  max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer(),
   timeout: lmstudio_timeout_ms
 
 # 可选：Anthropic Claude API（需设置 ANTHROPIC_API_KEY 环境变量）
