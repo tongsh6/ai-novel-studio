@@ -167,7 +167,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     if replan_available?(run) do
       deviation = %{
         signal: "plan_exhausted",
-        ref: "plan_exhausted_v#{run.plan_version || 1}",
+        ref: "plan_exhausted_v#{run.plan_version}",
         summary: @plan_exhausted_replan_reason
       }
 
@@ -299,8 +299,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
-  defp attach_deviation_meta(meta, nil, _snapshot), do: meta
-
   defp attach_deviation_meta(meta, deviation, snapshot) do
     reason_codes = AgenticDeviationSignal.reason_codes(deviation)
 
@@ -323,8 +321,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       _ -> 0
     end
   end
-
-  defp plan_cursor(_snapshot), do: 0
 
   defp plan_steps(plan) when is_map(plan) do
     case Map.get(plan, :steps) || Map.get(plan, "steps") do
@@ -447,8 +443,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     |> Enum.filter(&writer_timeout_observation?/1)
   end
 
-  defp writer_timeout_observations(_snapshot), do: []
-
   defp writer_timeout_observation?(%AgentObservation{structured_payload: payload}) do
     map_get(payload, :tool_name) == "prose_writing" and
       map_get(payload, :agentic_deviation_signal) in ["D1", :D1] and
@@ -509,8 +503,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       _ -> default
     end
   end
-
-  defp budget_value(_map, _key, default), do: default
 
   defp meta_reason_codes(meta), do: meta |> map_get(:reason_codes) |> string_list()
 
@@ -1028,7 +1020,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   # 判断②续行修正指引（CP3b）：continue 决策携带的 guidance 必须传导到执行 brief
   # ——模型的修正指引要到达写作调用，改进稿才真正"按意见修正"。
   defp continuation_guidance(%{reason_codes: codes} = decision) do
-    if is_list(codes) and "judgment_continue" in codes do
+    # reason_codes 在 AgentNextStepDecision 契约里恒为列表，is_list/1 恒真（dialyzer 不可达分支）。
+    if "judgment_continue" in codes do
       case decision.evaluation_of_last do
         %{new_constraint: guidance} when is_binary(guidance) and guidance != "" -> guidance
         _ -> nil
@@ -1037,8 +1030,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       nil
     end
   end
-
-  defp continuation_guidance(_decision), do: nil
 
   defp reader_dep(spec, key, fallback), do: Map.get(spec, key) || fallback.()
 
@@ -1235,8 +1226,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     is_binary(text) and String.contains?(text, "没有找到") and tool_called != true
   end
 
-  defp deterministic_gap_turn_result?(_turn_result), do: false
-
   defp deviation_result(run, sequence, signal, summary, source_ref, payload, opts) do
     step = Keyword.fetch!(opts, :step)
     tool_call_count = Keyword.get(opts, :tool_call_count, 0)
@@ -1272,7 +1261,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         source_ref: source_ref,
         summary: summary,
         structured_payload:
-          Map.merge(payload || %{}, %{
+          Map.merge(payload, %{
             agentic_deviation_signal: signal,
             deterministic_gap: signal == "D7"
           }),
@@ -1384,7 +1373,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       frame_type: :execution_candidate,
       source_refs: %{
         author_input_ref: run.parent_turn_ref,
-        agent_run_ref: run.run_id
+        dialogue_context_ref: nil
       },
       dialogue_goal: %{summary: summary},
       tool_need: %{needs_tool: true, reason_code: :tool_needed},
@@ -1670,8 +1659,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       length(context.structured_chapters || []) +
       length(context.context_refs || [])
   end
-
-  defp context_ref_count(_context), do: 0
 
   defp progress_signature(turn_result) do
     tool_result = Map.get(turn_result, :tool_result) || %{}

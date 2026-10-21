@@ -184,19 +184,23 @@ defmodule NovelPersistence.MemoryRecallRepo do
 
     graphemes = String.graphemes(normalized)
 
-    cond do
-      length(graphemes) >= 2 ->
-        graphemes
-        |> Enum.chunk_every(2, 1, :discard)
-        |> Enum.map(&Enum.join/1)
-        |> MapSet.new()
+    # 只在单一构造点建 MapSet：多个分支各自返回 MapSet 时，空集的具体内部表示
+    # 会与 `:sets.set()` 不透明类型取并集，触发 dialyzer call_without_opaque 误报。
+    entries =
+      cond do
+        length(graphemes) >= 2 ->
+          graphemes
+          |> Enum.chunk_every(2, 1, :discard)
+          |> Enum.map(&Enum.join/1)
 
-      normalized == "" ->
-        MapSet.new()
+        normalized == "" ->
+          []
 
-      true ->
-        MapSet.new([normalized])
-    end
+        true ->
+          [normalized]
+      end
+
+    MapSet.new(entries)
   end
 
   defp decimal_to_float(%Decimal{} = decimal), do: Decimal.to_float(decimal)

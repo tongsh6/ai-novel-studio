@@ -30,6 +30,8 @@ defmodule NovelPersistence.Schemas.ProviderRunRecord do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [:id, :provider_call_ref, :purpose, :execution_mode, :status]
   @optional_fields [
     :agent_run_id,

@@ -65,6 +65,8 @@ defmodule NovelPersistence.Schemas.MemoryItem do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @doc """
   创建 changeset。用于新建记忆记录。
   """

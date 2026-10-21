@@ -27,7 +27,11 @@ defmodule NovelApplication.ProseQualityPolicyTest do
   end
 
   test "confirm outranks adoption_review/warn" do
-    assert ProseQualityPolicy.decide([finding(:warn), finding(:adoption_review), finding(:confirm)]).action ==
+    assert ProseQualityPolicy.decide([
+             finding(:warn),
+             finding(:adoption_review),
+             finding(:confirm)
+           ]).action ==
              :confirm
   end
 

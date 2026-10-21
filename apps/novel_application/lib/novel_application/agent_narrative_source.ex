@@ -20,7 +20,9 @@ defmodule NovelApplication.AgentNarrativeSource do
             required(:start) => non_neg_integer(),
             required(:length) => non_neg_integer()
           },
-          required(:narrative_hash) => String.t()
+          required(:narrative_hash) => String.t(),
+          # tool-call 叙事绑定额外携带定位字段（tool_call_name / narrative_field）。
+          optional(atom()) => term()
         }
 
   @spec from_provider_result(map(), String.t()) :: {:ok, source()} | {:error, term()}

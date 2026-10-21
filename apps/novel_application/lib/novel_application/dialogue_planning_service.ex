@@ -300,13 +300,9 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
-  defp plan_id(plan) when is_map(plan), do: Map.get(plan, :plan_id) || Map.get(plan, "plan_id")
-  defp plan_id(_plan), do: nil
+  defp plan_id(plan), do: Map.get(plan, :plan_id) || Map.get(plan, "plan_id")
 
-  defp plan_version(plan) when is_map(plan),
-    do: Map.get(plan, :version) || Map.get(plan, "version") || 1
-
-  defp plan_version(_plan), do: 1
+  defp plan_version(plan), do: Map.get(plan, :version) || Map.get(plan, "version") || 1
 
   defp plan_step(step_id, kind, description, success_criteria) do
     %{
@@ -581,7 +577,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
       emit_judgment_stage(snapshot, :goal_understood, "已组装当前作品上下文。", ["context_assembled"], %{
         stage: :context_assembled,
-        context_ref_count: length(context.context_refs || [])
+        context_ref_count: length(context.context_refs)
       })
 
       {:ok,
@@ -1040,14 +1036,10 @@ defmodule NovelApplication.DialoguePlanningService do
     do: judgment.frame_type == "creative_exploration" and judgment[:record_only] != true
 
   # 判断结构 → DialogueFrame 机械转换（非预制创作决策：全部字段来自模型判断输出）。
-  defp judgment_frame(judgment, turn_id, ws_id, context) do
+  defp judgment_frame(judgment, turn_id, ws_id, %DialogueContext{} = context) do
     frame_type = reply_frame_type(judgment.frame_type)
 
-    context_ref =
-      case context do
-        %DialogueContext{workspace_id: id} when is_binary(id) -> "context:#{id}"
-        _ -> nil
-      end
+    context_ref = "context:#{context.workspace_id}"
 
     %DialogueFrame{
       schema_version: "3.0-draft",
@@ -1068,7 +1060,7 @@ defmodule NovelApplication.DialoguePlanningService do
         judgment: true,
         action: judgment.action,
         record_only: judgment.record_only,
-        context_used: context != nil
+        context_used: true
       },
       uncertainty: []
     }
@@ -1161,11 +1153,11 @@ defmodule NovelApplication.DialoguePlanningService do
        ) do
     {listed, omitted} = ChapterListBudget.project(chapters, nil)
     planned = planned_chapter_titles(context)
-    written_count = length(chapters) - MapSet.size(planned)
+    written_count = length(chapters) - map_size(planned)
 
     annotated = annotate_planned_chapters(listed, planned)
 
-    "## 章节列表（共 #{length(chapters)} 章：已写 #{written_count} 章，计划中 #{MapSet.size(planned)} 章）\n" <>
+    "## 章节列表（共 #{length(chapters)} 章：已写 #{written_count} 章，计划中 #{map_size(planned)} 章）\n" <>
       ChapterListBudget.render_lines(annotated, omitted, length(chapters)) <>
       "\n（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
   end
@@ -1177,13 +1169,13 @@ defmodule NovelApplication.DialoguePlanningService do
          author_text
        ) do
     {listed, _omitted} = ChapterListBudget.project(chapters, nil)
-    stable = MapSet.new(listed)
+    stable = Map.new(listed, &{&1, true})
     planned = planned_chapter_titles(context)
 
     supplement =
       chapters
       |> ChapterListBudget.named_chapter_titles(author_text)
-      |> Enum.reject(&MapSet.member?(stable, &1))
+      |> Enum.reject(&Map.has_key?(stable, &1))
 
     case supplement do
       [] ->
@@ -1199,23 +1191,26 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp judgment_named_chapters_section(_context, _author_text), do: ""
 
+  @spec annotate_planned_chapters([String.t()], map()) :: [String.t()]
   defp annotate_planned_chapters(titles, planned) do
     Enum.map(titles, &annotate_planned_chapter(&1, planned))
   end
 
+  @spec annotate_planned_chapter(String.t(), map()) :: String.t()
   defp annotate_planned_chapter(title, planned) do
-    if MapSet.member?(planned, title), do: "#{title}（计划中）", else: title
+    if Map.has_key?(planned, title), do: "#{title}（计划中）", else: title
   end
 
+  @spec planned_chapter_titles(DialogueContext.t()) :: map()
   defp planned_chapter_titles(%DialogueContext{structured_chapters: structured})
        when is_list(structured) do
     structured
     |> Enum.reject(&Map.get(&1, :has_prose, false))
     |> Enum.map(& &1.title)
-    |> MapSet.new()
+    |> Map.new(&{&1, true})
   end
 
-  defp planned_chapter_titles(_context), do: MapSet.new()
+  defp planned_chapter_titles(_context), do: %{}
 
   defp judgment_conversation_section(%DialogueContext{conversation_summary: summary})
        when is_binary(summary) and summary != "" do

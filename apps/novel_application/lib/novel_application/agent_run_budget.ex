@@ -114,7 +114,15 @@ defmodule NovelApplication.AgentRunBudget do
   unchanged. The returned budget carries an override marker so a later plan
   patch does not re-apply an older author step cap.
   """
-  @spec authorized_expand(map(), map(), [map()], :next_step | :remaining_plan) ::
+  @spec authorized_expand(
+          map(),
+          map(),
+          [map()],
+          :next_step
+          | :remaining_plan
+          | {:steps, pos_integer()}
+          | {:single_step, pos_integer()}
+        ) ::
           {:ok, map()} | {:error, :hard_cap_reached | :invalid_recovery_mode}
   def authorized_expand(existing, consumed, plan_steps, mode)
       when is_map(existing) and is_map(consumed) and is_list(plan_steps) do

@@ -10,13 +10,38 @@ defmodule NovelApplication.ProgressStateProjectionTest do
   defp entries do
     [
       %{ledger: "arc", subject_label: "凌渊", status: "STALLED", payload: %{"last_seen_seq" => 25}},
-      %{ledger: "arc", subject_label: "林浩", status: "ON_TRACK", payload: %{"last_seen_seq" => 75}},
-      %{ledger: "conflict", subject_ref: "main", subject_label: "主线", status: "ACTIVE",
-        payload: %{"last_advanced_seq" => 74}},
-      %{ledger: "promise", subject_ref: "genre", subject_label: "类型承诺：赛博修仙", status: "OPEN",
-        payload: %{}},
-      %{ledger: "emotion_curve", subject_label: "第5章·情绪", status: "DEVIATED", payload: %{"seq" => 5}},
-      %{ledger: "emotion_curve", subject_label: "第6章·情绪", status: "MATCHED", payload: %{"seq" => 6}}
+      %{
+        ledger: "arc",
+        subject_label: "林浩",
+        status: "ON_TRACK",
+        payload: %{"last_seen_seq" => 75}
+      },
+      %{
+        ledger: "conflict",
+        subject_ref: "main",
+        subject_label: "主线",
+        status: "ACTIVE",
+        payload: %{"last_advanced_seq" => 74}
+      },
+      %{
+        ledger: "promise",
+        subject_ref: "genre",
+        subject_label: "类型承诺：赛博修仙",
+        status: "OPEN",
+        payload: %{}
+      },
+      %{
+        ledger: "emotion_curve",
+        subject_label: "第5章·情绪",
+        status: "DEVIATED",
+        payload: %{"seq" => 5}
+      },
+      %{
+        ledger: "emotion_curve",
+        subject_label: "第6章·情绪",
+        status: "MATCHED",
+        payload: %{"seq" => 6}
+      }
     ]
   end
 

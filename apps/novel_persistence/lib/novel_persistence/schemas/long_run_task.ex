@@ -66,6 +66,8 @@ defmodule NovelPersistence.Schemas.LongRunTask do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [:workspace_id, :task_type, :status, :phase]
   @optional_fields [
     :goal,

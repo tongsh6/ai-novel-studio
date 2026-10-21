@@ -317,11 +317,12 @@ defmodule NovelApplication.AIMessageEnvelope do
         types -> "来源：" <> Enum.join(types, "、")
       end
 
+    # work_state_layer.chapter_summary 只有两态（已产摘要的非空列表 / 显式 missing），
+    # 类型即契约：两 clause 全覆盖，不再保留第三态兜底。
     chapter =
       case chapter_summary do
         [_ | _] -> "有章节摘要"
         %{status: :missing} -> "缺章节摘要"
-        _ -> "章节状态有限"
       end
 
     sources <> "；" <> chapter

@@ -168,7 +168,8 @@ defmodule NovelPersistence.CharacterMergeRepoTest do
     assert {:error, :source_not_mergeable} =
              CharacterMergeRepo.merge(work.id, to_string(tentative.id), to_string(target.id))
 
-    assert {:ok, _} = CharacterMergeRepo.merge(work.id, to_string(source.id), to_string(target.id))
+    assert {:ok, _} =
+             CharacterMergeRepo.merge(work.id, to_string(source.id), to_string(target.id))
 
     # 已 SUPERSEDED 的行不能再作为 source 或 target
     assert {:error, :source_not_mergeable} =

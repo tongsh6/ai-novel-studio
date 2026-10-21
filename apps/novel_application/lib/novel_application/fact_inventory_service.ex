@@ -436,12 +436,10 @@ defmodule NovelApplication.FactInventoryService do
 
   defp proposal_bucket(_raw), do: {:error, :invalid_inventory_item}
 
-  defp provider_call_ref(result) when is_map(result) do
+  defp provider_call_ref(result) do
     Map.get(result, :provider_call_ref) || Map.get(result, "provider_call_ref") ||
       Map.get(result, :provider_call_id) || Map.get(result, "provider_call_id")
   end
-
-  defp provider_call_ref(_result), do: nil
 
   defp maybe_put_provider_call_ref(item, ref) when is_binary(ref),
     do: Map.put(item, :provider_call_ref, ref)

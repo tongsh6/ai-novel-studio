@@ -234,10 +234,8 @@ defmodule NovelApplication.MemoryManagementService do
   defp maybe_write_blocked_lifecycle_trace(_action, _item, _changeset), do: :ok
 
   defp write_reference_trace(attrs) do
-    case MemoryReferenceLog.write(attrs) do
-      {:ok, _record} -> :ok
-      _ -> :ok
-    end
+    _ = MemoryReferenceLog.write(attrs)
+    :ok
   end
 
   defp lifecycle_reason(action, before_item, item) do

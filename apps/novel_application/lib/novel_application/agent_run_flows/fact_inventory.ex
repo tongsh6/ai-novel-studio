@@ -390,7 +390,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
       workspace_id: run.work_id,
       primary: false,
       frame_type: :execution_candidate,
-      source_refs: %{author_input_ref: run.parent_turn_ref, agent_run_ref: run.run_id},
+      source_refs: %{author_input_ref: run.parent_turn_ref, dialogue_context_ref: nil},
       dialogue_goal: %{summary: "从作品材料整理设定盘点提案"},
       tool_need: %{needs_tool: true, reason_code: :tool_needed},
       execution_readiness: :ready,

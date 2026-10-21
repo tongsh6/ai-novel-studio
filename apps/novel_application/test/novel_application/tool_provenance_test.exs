@@ -521,5 +521,4 @@ defmodule NovelApplication.ToolProvenanceTest do
       }
     end
   end
-
 end

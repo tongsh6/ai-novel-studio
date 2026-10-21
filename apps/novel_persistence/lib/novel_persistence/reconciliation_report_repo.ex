@@ -77,7 +77,9 @@ defmodule NovelPersistence.ReconciliationReportRepo do
   def update_findings(work_id, report_id, findings) when is_list(findings) do
     with {:ok, uuid} <- Ecto.UUID.cast(report_id),
          %ReconciliationReport{} = report <-
-           Repo.one(from(r in ReconciliationReport, where: r.id == ^uuid and r.work_id == ^work_id)) do
+           Repo.one(
+             from(r in ReconciliationReport, where: r.id == ^uuid and r.work_id == ^work_id)
+           ) do
       all_dispositioned? =
         findings != [] and
           Enum.all?(findings, fn f -> (f["disposition"] || f[:disposition]) not in [nil, ""] end)
@@ -104,7 +106,8 @@ defmodule NovelPersistence.ReconciliationReportRepo do
     %{
       id: to_string(report.id),
       work_id: report.work_id,
-      findings: Map.get(report.findings || %{}, "items") || Map.get(report.findings || %{}, :items) || [],
+      findings:
+        Map.get(report.findings || %{}, "items") || Map.get(report.findings || %{}, :items) || [],
       finding_count: report.finding_count,
       scanned_at_seq: report.scanned_at_seq,
       adoption_status: report.adoption_status,

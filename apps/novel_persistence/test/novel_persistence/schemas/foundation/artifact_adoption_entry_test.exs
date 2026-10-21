@@ -35,7 +35,9 @@ defmodule NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntryTest do
       from = %ArtifactAdoptionEntry{adoption_status: :SUPERSEDED}
       cs = changeset(from, "ACCEPTED")
       refute cs.valid?
-      assert {"illegal adoption transition SUPERSEDED -> ACCEPTED", _} = cs.errors[:adoption_status]
+
+      assert {"illegal adoption transition SUPERSEDED -> ACCEPTED", _} =
+               cs.errors[:adoption_status]
     end
 
     test "非法转换被拒（TENTATIVE → ARCHIVED）" do

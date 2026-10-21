@@ -20,11 +20,6 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
-  defp context_fetcher_or_default(nil),
-    do: NovelApplication.persistence_fetcher() || (&empty_context/1)
-
-  defp context_fetcher_or_default(fetcher), do: fetcher
-
   def persist_turn_trace(result, ws_id, session_id, trace_persister) do
     maybe_persist_trace(
       result,
@@ -754,7 +749,7 @@ defmodule NovelApplication.DialogueGateway do
     ContextAssembler.assemble_for_input(
       work_id,
       nil,
-      context_fetcher_or_default(nil),
+      NovelApplication.persistence_fetcher() || (&empty_context/1),
       session_id: session_id,
       assembly_policy: NovelApplication.current_assembly_policy()
     )
@@ -763,10 +758,8 @@ defmodule NovelApplication.DialogueGateway do
   defp confirmation_binding_id(%AuthorActionInput{input_id: input_id}) when is_binary(input_id),
     do: "cb_#{input_id}"
 
-  defp confirmation_binding_id(_), do: nil
-
   defp confirmation_rebased_state_snapshot_ref(action_input, source_turn_result, context) do
-    snapshot = context && context.current_work_snapshot
+    snapshot = context.current_work_snapshot
 
     ([
        "state_snapshot",
@@ -852,7 +845,10 @@ defmodule NovelApplication.DialogueGateway do
       workspace_id: source_work_id(tr),
       primary: true,
       frame_type: :confirmation_answer,
-      source_refs: %{},
+      source_refs: %{
+        author_input_ref: "author_input:#{map_field(tr, :turn_id) || "recovered_turn"}",
+        dialogue_context_ref: nil
+      },
       dialogue_goal: %{summary: "作者确认执行"},
       tool_need: %{needs_tool: true, reason_code: :no_tool_needed},
       execution_readiness: :ready,

@@ -301,8 +301,9 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp validate_risk_hint(errors, risk) when risk in @risk_hints, do: errors
   defp validate_risk_hint(errors, _risk), do: ["risk_hint is invalid" | errors]
 
-  defp validate_authoring_intent(errors, intent) when is_nil(intent) or intent in @authoring_intents,
-    do: errors
+  defp validate_authoring_intent(errors, intent)
+       when is_nil(intent) or intent in @authoring_intents,
+       do: errors
 
   defp validate_authoring_intent(errors, _intent), do: ["authoring_intent is invalid" | errors]
 

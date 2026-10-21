@@ -389,7 +389,6 @@ defmodule NovelApplication.TurnResultBuilder do
       |> Enum.take(3)
       |> Enum.map_join("；", &item_title/1)
       |> case do
-        nil -> ""
         "" -> ""
         text -> "预览：#{String.slice(text, 0, 120)}"
       end

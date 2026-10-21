@@ -488,8 +488,6 @@ defmodule NovelAgent.CreativeProvider.Real do
       Map.get(result, :provider_call_id) || Map.get(result, "provider_call_id")
   end
 
-  defp provider_call_ref(_), do: nil
-
   defp put_provider_call_ref(items, nil), do: items
 
   defp put_provider_call_ref(items, provider_call_ref) do

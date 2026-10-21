@@ -289,11 +289,19 @@ if (!fs.existsSync(indexPath)) {
 
   const verifyDir = path.join(projectRoot, "frontend/slice-verify");
   if (fs.existsSync(verifyDir)) {
+    // 这些 .mjs 不是独立的产品验收 driver，不应要求单独注册 scenario：
+    // - external-ui-driver / native-tauri-verifier：所有 slice 共用的 driver/verifier 主体；
+    // - q1c-adopted-content-revision-audit：Q1c 正式入口
+    //   q1c-adopted-content-revision.mjs 直接 import 的审计实现（同一场景，非第二个场景）；
+    // - au10-workbench-render-stability：AU10 CP0 浏览器测量脚本（记录渲染基线数字，
+    //   不是用户场景验收；AU10 的真实页面验收走 Tauri 场景）。
     const ignored = new Set([
       "external-ui-driver.mjs",
       "native-tauri-verifier.mjs",
       "native-tauri-verifier.test.mjs",
       "TEMPLATE.external-ui-driver.mjs",
+      "q1c-adopted-content-revision-audit.mjs",
+      "au10-workbench-render-stability.mjs",
     ]);
 
     for (const fileName of fs.readdirSync(verifyDir)) {

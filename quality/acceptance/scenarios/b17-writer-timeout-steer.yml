@@ -1,0 +1,55 @@
+id: b17-writer-timeout-steer
+title: writer timeout 真实原因呈现与 scoped steer 同 run 恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b17-writer-timeout-steer --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/DS03-awaiting-author-runtime-validity-and-recovery-surface.md
+
+invariants:
+  - writer-timeout-surfaces-real-reason
+  - control-dock-offers-scoped-retry
+  - non-empty-steer-recovers-same-run
+  - no-bare-continue-or-new-architecture
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 通过真实入口生成正文草稿
+  - wait_for: writer provider 连续 timeout 两次后显示真实 timeout 摘要与 reason codes
+  - click: 控制坞「先写第一场（500 字）」scoped retry
+  - verify: 非空 steer 在同一 run 恢复 completed 并产出 pending prose
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b17-writer-timeout-steer-tauri
+
+assertions:
+  ui:
+    - 助手活动行显示真实 timeout 摘要，不显示裸 continue
+    - 控制坞提供 scoped retry 动作
+  network:
+    - awaiting_author TurnResult 携带 writer_timeout reason codes
+  data:
+    - awaiting_reason_codes 含 writer_timeout
+    - recovered_status=completed
+    - prose_artifact_id 非空
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

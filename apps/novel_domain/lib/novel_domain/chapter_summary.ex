@@ -107,18 +107,7 @@ defmodule NovelDomain.ChapterSummary do
     sections =
       text
       |> String.split("【", trim: true)
-      |> Enum.reduce(%{}, fn chunk, acc ->
-        case String.split(chunk, "】", parts: 2) do
-          [label, body] ->
-            case Map.get(by_label, String.trim(label)) do
-              nil -> acc
-              key -> put_section(acc, key, String.trim(body))
-            end
-
-          _ ->
-            acc
-        end
-      end)
+      |> Enum.reduce(%{}, &parse_chunk(&1, &2, by_label))
 
     case {map_size(sections), String.trim(text)} do
       {0, ""} -> %{}
@@ -128,6 +117,15 @@ defmodule NovelDomain.ChapterSummary do
   end
 
   def parse_sections(_text), do: %{}
+
+  defp parse_chunk(chunk, acc, by_label) do
+    with [label, body] <- String.split(chunk, "】", parts: 2),
+         key when not is_nil(key) <- Map.get(by_label, String.trim(label)) do
+      put_section(acc, key, String.trim(body))
+    else
+      _ -> acc
+    end
+  end
 
   defp put_section(acc, _key, ""), do: acc
   defp put_section(acc, _key, "（无）"), do: acc

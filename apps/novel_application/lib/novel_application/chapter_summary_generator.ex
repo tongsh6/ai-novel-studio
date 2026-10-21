@@ -31,14 +31,12 @@ defmodule NovelApplication.ChapterSummaryGenerator do
     end
   end
 
+  # Provider execution 的完成形态只有 `{:ok, %Result{}}` / `{:error, map()}`
+  # （Execution.complete/2 契约）；旧兼容的裸文本/未知形态分支已死，不再保留。
   defp handle_completion({:ok, %{content: text}}, prose) when is_binary(text),
     do: {:ok, parse_sections(text, prose)}
 
-  defp handle_completion({:ok, text}, prose) when is_binary(text),
-    do: {:ok, parse_sections(text, prose)}
-
   defp handle_completion({:error, reason}, _prose), do: {:error, reason}
-  defp handle_completion(other, _prose), do: {:error, {:unexpected_provider_result, other}}
 
   defp build_prompt(prose) do
     labels = ChapterSummary.section_labels()

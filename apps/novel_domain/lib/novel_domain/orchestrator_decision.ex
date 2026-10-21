@@ -35,7 +35,7 @@ defmodule NovelDomain.OrchestratorDecision do
           first_blocking_gate: String.t() | nil,
           reason_codes: [String.t()],
           turn_result_policy: %{truthfulness_constraints: [String.t()]},
-          decision_trace_ref: String.t()
+          decision_trace_ref: String.t() | nil
         }
 
   @enforce_keys [

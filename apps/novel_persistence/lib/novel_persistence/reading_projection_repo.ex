@@ -30,6 +30,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
             work_id: String.t(),
             total_word_count: non_neg_integer(),
             audit: ProseAudit.work_audit(),
+            planning_direction: map() | nil,
             volumes: [map()]
           }
   def toc(work_id) when is_binary(work_id) do
@@ -81,6 +82,10 @@ defmodule NovelPersistence.ReadingProjectionRepo do
     |> where([w], w.id == ^work_id)
     |> select([w], w.planning_direction)
     |> Repo.one()
+    |> case do
+      direction when is_map(direction) -> direction
+      _ -> nil
+    end
   end
 
   # 给每章附上审计状态（empty/short/ok），供阅读消费者标记短章/空章。
@@ -278,7 +283,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
     |> Repo.all()
   end
 
-  defp volume_with_chapters(volume, chapters) do
+  defp volume_with_chapters(%{} = volume, chapters) do
     volume_chapters =
       chapters
       |> Enum.filter(&(&1.volume_id == volume.id))

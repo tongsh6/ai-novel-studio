@@ -10,7 +10,17 @@ defmodule AiNovelStudio.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      dialyzer: dialyzer(),
       releases: releases()
+    ]
+  end
+
+  # 各 app 的 `lib/mix/tasks/*.ex` 里会调用 `Mix.*` API，但默认 PLT 不包含 :mix
+  # 应用，导致 dialyzer 把 `Mix.Task.run/1` 等报成 unknown_function，并因拿不到
+  # `Mix.Task` behaviour 信息报 callback_info_missing。把 :mix 应用加入 PLT 修复。
+  defp dialyzer do
+    [
+      plt_add_apps: [:mix]
     ]
   end
 

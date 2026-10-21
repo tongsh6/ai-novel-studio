@@ -7,6 +7,7 @@ defmodule NovelApplication.AgentRunService do
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentRun
+  alias NovelFoundation.Enums.{Status, TaskPhase}
   alias NovelPersistence.{AgentRunLog, InteractionLifecycle, LongRunTaskLog}
 
   @checkpoint_version 2
@@ -492,8 +493,8 @@ defmodule NovelApplication.AgentRunService do
     %{
       workspace_id: required(attrs, :work_id),
       task_type: "agent_run",
-      status: "READY",
-      phase: "PLANNED",
+      status: Status.ready(),
+      phase: TaskPhase.planned(),
       goal: get_in_goal(attrs, :text) || required(attrs, :run_id),
       scope_ref: required(attrs, :work_id),
       created_by: "agent_run",
@@ -742,8 +743,8 @@ defmodule NovelApplication.AgentRunService do
 
     {:ok, task} =
       LongRunTaskLog.update(task, %{
-        status: "PAUSED",
-        phase: "CHECKPOINT",
+        status: Status.paused(),
+        phase: TaskPhase.checkpoint(),
         checkpoint_data:
           Map.merge(task.checkpoint_data || %{}, %{
             "stale_resume" => true,

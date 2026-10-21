@@ -48,8 +48,5 @@ defmodule NovelApplication.ChapterMissionDecisionService do
 
   defp normalize_lines(_), do: []
 
-  defp field(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
-
-  defp field(_map, _key), do: nil
+  defp field(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end

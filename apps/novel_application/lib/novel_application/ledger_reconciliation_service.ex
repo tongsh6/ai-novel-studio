@@ -25,7 +25,14 @@ defmodule NovelApplication.LedgerReconciliationService do
           required(:summaries) => (String.t() -> [{non_neg_integer(), String.t()}]),
           required(:roster) => (String.t() -> [map()]),
           optional(:profile) => (String.t() -> map()),
-          optional(:volumes) => (String.t() -> [map()])
+          optional(:volumes) => (String.t() -> [map()]),
+          # VS-00G / VS00F 刀④ / B11A CP5 可选读端口（缺席或读失败时对应规则诚实跳过）：
+          optional(:stats) => (String.t() -> map()),
+          optional(:chapter_index) => (String.t() -> map()),
+          optional(:assumptions) => (String.t() -> [map()]),
+          optional(:summary_count_since) => (String.t(), term() -> non_neg_integer()),
+          optional(:written_progress) => (String.t() -> map()),
+          optional(atom()) => any()
         }
 
   @spec scan(String.t(), deps()) :: {:ok, %{findings: [map()], counts: map()}}

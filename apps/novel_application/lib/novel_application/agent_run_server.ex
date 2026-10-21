@@ -19,6 +19,7 @@ defmodule NovelApplication.AgentRunServer do
   alias NovelDomain.AgentRun
   alias NovelDomain.AgentRunPolicy
   alias NovelDomain.AgentStep
+  alias NovelFoundation.Enums.{Status, TaskPhase}
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog}
 
   @checkpoint_version 2
@@ -44,6 +45,14 @@ defmodule NovelApplication.AgentRunServer do
           | {:error, term()}
   @type next_step_planner ::
           (AgentRun.t(), pos_integer(), step_snapshot() -> next_step_result())
+
+  @typedoc "作者预算恢复动作（`author_budget_action` 入参；外部动作串归一化后的内部形态）。"
+  @type recovery_mode ::
+          :next_step
+          | :remaining_plan
+          | {:steps, pos_integer()}
+          | {:single_step, pos_integer()}
+          | {:selected_steps, [String.t()]}
 
   defstruct run: nil,
             next_step_planner: nil,
@@ -99,11 +108,7 @@ defmodule NovelApplication.AgentRunServer do
   def steer_submission(server, text, submission_id),
     do: GenServer.call(server, {:command, {:steer, text, submission_id}})
 
-  @spec author_budget_action(
-          GenServer.server(),
-          :next_step | :remaining_plan | {:steps, pos_integer()},
-          timeout()
-        ) ::
+  @spec author_budget_action(GenServer.server(), recovery_mode(), timeout()) ::
           {:ok, map()}
           | {:error,
              :not_awaiting_author
@@ -112,6 +117,25 @@ defmodule NovelApplication.AgentRunServer do
              | :invalid_recovery_mode}
   def author_budget_action(server, mode, timeout \\ 5_000),
     do: GenServer.call(server, {:author_budget_action, mode}, timeout)
+
+  @doc false
+  # 外部动作模式 → 内部 recovery_mode()；非法值收敛为 :invalid_recovery_mode。
+  # 公开（非 defp）是因为 dialyzer 只在 public contract 上引用 spec：handle_call 的
+  # GenServer 消息参数类型为 term()，经此归一化后才能让 tuple 分支按真实域参与分析。
+  @spec normalize_recovery_mode(term()) :: recovery_mode() | :invalid_recovery_mode
+  def normalize_recovery_mode(:next_step), do: :next_step
+  def normalize_recovery_mode(:remaining_plan), do: :remaining_plan
+
+  def normalize_recovery_mode({:steps, count}) when is_integer(count) and count > 0,
+    do: {:steps, count}
+
+  def normalize_recovery_mode({:single_step, count}) when is_integer(count) and count > 0,
+    do: {:single_step, count}
+
+  def normalize_recovery_mode({:selected_steps, refs}) when is_list(refs) and refs != [],
+    do: {:selected_steps, refs}
+
+  def normalize_recovery_mode(_mode), do: :invalid_recovery_mode
 
   @spec state(GenServer.server(), timeout()) :: map()
   def state(server, timeout \\ 5_000), do: GenServer.call(server, :state, timeout)
@@ -205,9 +229,11 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
-  def handle_call({:author_budget_action, mode}, _from, state) do
+  def handle_call({:author_budget_action, raw_mode}, _from, state) do
+    mode = normalize_recovery_mode(raw_mode)
+
     cond do
-      not valid_recovery_mode?(mode) ->
+      mode == :invalid_recovery_mode ->
         {:reply, {:error, :invalid_recovery_mode}, state}
 
       state.run.status != :awaiting_author ->
@@ -1014,8 +1040,6 @@ defmodule NovelApplication.AgentRunServer do
     |> AgentNarrativeSource.provider_output_source?()
   end
 
-  defp provider_output_payload?(_payload), do: false
-
   defp next_replan_version(%AgentRun{} = run, payload) do
     payload_version =
       positive_int(Map.get(payload, :plan_version) || Map.get(payload, "plan_version"))
@@ -1092,8 +1116,6 @@ defmodule NovelApplication.AgentRunServer do
         state
     end
   end
-
-  defp apply_superseded_artifacts(state, _result), do: state
 
   defp maybe_emit_artifact_created(state, [_ | _] = refs, turn_result) when is_map(turn_result) do
     emit(
@@ -1426,14 +1448,14 @@ defmodule NovelApplication.AgentRunServer do
     }
   end
 
-  defp long_run_status_phase(:completed), do: {"DONE", "COMPLETED"}
-  defp long_run_status_phase(:cancelled), do: {"CANCELLED", "CANCELLED"}
-  defp long_run_status_phase(:failed), do: {"ERROR", "FAILED"}
+  defp long_run_status_phase(:completed), do: {Status.done(), TaskPhase.completed()}
+  defp long_run_status_phase(:cancelled), do: {Status.cancelled(), TaskPhase.cancelled()}
+  defp long_run_status_phase(:failed), do: {Status.error(), TaskPhase.failed()}
 
   defp long_run_status_phase(status) when status in [:paused, :awaiting_author],
-    do: {"PAUSED", "CHECKPOINT"}
+    do: {Status.paused(), TaskPhase.checkpoint()}
 
-  defp long_run_status_phase(_status), do: {"RUNNING", "RUNNING"}
+  defp long_run_status_phase(_status), do: {Status.running(), TaskPhase.running()}
 
   defp long_run_completed_at(status) when status in [:completed, :cancelled, :failed],
     do: DateTime.utc_now()
@@ -1894,34 +1916,47 @@ defmodule NovelApplication.AgentRunServer do
   defp budget_recovery_actions(run, plan_steps) do
     pending = max(length(plan_steps) - AgentRun.execution_steps(run), 0)
 
-    extra_counts = if pending > 2, do: Enum.to_list(2..min(3, pending - 1)), else: []
-
-    single_step_counts = if pending > 1, do: Enum.to_list(2..min(3, pending)), else: []
-
-    modes =
-      [:next_step] ++
-        Enum.map(extra_counts, &{:steps, &1}) ++
-        Enum.map(single_step_counts, &{:single_step, &1}) ++
-        if(pending > 1, do: [:remaining_plan], else: [])
-
     selection_actions = if pending > 1, do: [budget_selection_action(run)], else: []
 
     expansion_actions =
-      modes
+      pending
+      |> budget_modes()
       |> Enum.uniq()
-      |> Enum.flat_map(fn mode ->
-        case AgentRunBudget.authorized_expand(
-               run.budget,
-               run.consumed_budget,
-               plan_steps,
-               mode
-             ) do
-          {:ok, _budget} -> [budget_recovery_action(run, mode)]
-          {:error, _reason} -> []
-        end
-      end)
+      |> Enum.flat_map(&authorized_recovery_action(run, plan_steps, &1))
 
     selection_actions ++ expansion_actions
+  end
+
+  # 显式整数分档（不用 min/range 推导），否则 dialyzer 会把 modes 元素类型收窄成
+  # 仅 atom，误判 tuple 模式分支不可达；分档口径与 §agentRunBudget 动作契约一致。
+  defp budget_modes(pending) do
+    [:next_step] ++
+      Enum.map(steps_count_modes(pending), &{:steps, &1}) ++
+      Enum.map(single_step_count_modes(pending), &{:single_step, &1}) ++
+      if(pending > 1, do: [:remaining_plan], else: [])
+  end
+
+  defp steps_count_modes(pending) do
+    cond do
+      pending > 3 -> [2, 3]
+      pending == 3 -> [2]
+      true -> []
+    end
+  end
+
+  defp single_step_count_modes(pending) do
+    cond do
+      pending > 2 -> [2, 3]
+      pending > 1 -> [2]
+      true -> []
+    end
+  end
+
+  defp authorized_recovery_action(run, plan_steps, mode) do
+    case AgentRunBudget.authorized_expand(run.budget, run.consumed_budget, plan_steps, mode) do
+      {:ok, _budget} -> [budget_recovery_action(run, mode)]
+      {:error, _reason} -> []
+    end
   end
 
   defp budget_selection_action(run) do
@@ -1979,9 +2014,6 @@ defmodule NovelApplication.AgentRunServer do
       )
     end
   end
-
-  defp selected_steps_recovery(state, _refs),
-    do: {:reply, {:error, :step_selection_invalid}, state}
 
   defp expand_selected_steps(plan_steps, selected) do
     wanted = MapSet.new(selected, &plan_step_ref/1)
@@ -2160,13 +2192,6 @@ defmodule NovelApplication.AgentRunServer do
   defp recovery_action_names({:single_step, count}) do
     {"single_step_#{count}", "agentRunBudget.single_step"}
   end
-
-  defp valid_recovery_mode?(:next_step), do: true
-  defp valid_recovery_mode?(:remaining_plan), do: true
-  defp valid_recovery_mode?({:steps, count}), do: is_integer(count) and count > 0
-  defp valid_recovery_mode?({:single_step, count}), do: is_integer(count) and count > 0
-  defp valid_recovery_mode?({:selected_steps, refs}), do: is_list(refs) and refs != []
-  defp valid_recovery_mode?(_mode), do: false
 
   defp recovery_step_count({:steps, count}), do: count
   defp recovery_step_count({:single_step, _count}), do: 1
@@ -2553,8 +2578,6 @@ defmodule NovelApplication.AgentRunServer do
   defp active_plan_step_index(%AgentRun{} = run, plan_steps, _stage) do
     min(max(AgentRun.execution_steps(run) - 1, 0), length(plan_steps) - 1)
   end
-
-  defp active_plan_step_index(_run, _plan_steps, _stage), do: 0
 
   defp step_status(index, active_index, :plan_drafted) do
     cond do

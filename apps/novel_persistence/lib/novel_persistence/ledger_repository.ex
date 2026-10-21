@@ -91,7 +91,10 @@ defmodule NovelPersistence.LedgerRepository do
   机械进度口径（VS00F 刀④ R9）：最大非计划章 seq 及其所在卷 seq；
   无已写章为 0/0（与伏笔建账的 planted_at_seq 同口径）。
   """
-  @spec written_progress(String.t()) :: %{chapter_seq: non_neg_integer(), volume_seq: non_neg_integer()}
+  @spec written_progress(String.t()) :: %{
+          chapter_seq: non_neg_integer(),
+          volume_seq: non_neg_integer()
+        }
   def written_progress(work_id) when is_binary(work_id) do
     case Ecto.UUID.cast(work_id) do
       {:ok, uuid} ->

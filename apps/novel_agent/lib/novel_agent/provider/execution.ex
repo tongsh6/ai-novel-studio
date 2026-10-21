@@ -27,7 +27,13 @@ defmodule NovelAgent.Provider.Execution do
 
   @type execution_result :: Gateway.execution_result()
   @type result :: {:ok, Result.t()} | {:error, map()}
-  @type result_fun :: (Provider.prompt() -> result())
+
+  # 注入 result_fn 的兼容返回契约：生产路径（dependency/1 构造）返回统一 result()；
+  # 测试替身与兼容旧 adapter 注入的 result_fn 还可能返回裸 content map、纯文本等形态，
+  # 由 synthesize_execution_result/2 在统一 provider execution 收口时归一化。此处按
+  # 真实注入边界声明，避免消费方把兼容分支误判为死代码/不可达 guard。
+  @type raw_result :: {:ok, term()} | {:error, term()}
+  @type result_fun :: (Provider.prompt() -> raw_result())
   @type execute_fun :: (Provider.prompt() -> execution_result())
 
   @type t :: %__MODULE__{

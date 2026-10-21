@@ -34,7 +34,7 @@ defmodule NovelApplication.AgenticDeviationSignal do
       budget_deviation(run, plan_steps, cursor)
     ]
     |> Enum.reject(&is_nil/1)
-    |> Enum.find(fn deviation -> not MapSet.member?(handled, deviation.ref) end)
+    |> Enum.find(fn deviation -> not Map.has_key?(handled, deviation.ref) end)
   end
 
   @spec revision_reason(signal()) :: String.t()
@@ -52,8 +52,8 @@ defmodule NovelApplication.AgenticDeviationSignal do
     refs =
       stage_state
       |> handled_refs()
-      |> MapSet.put(ref)
-      |> MapSet.to_list()
+      |> Map.put(ref, true)
+      |> Map.keys()
       |> Enum.sort()
 
     %{agentic_deviation_handled_refs: refs}
@@ -251,6 +251,9 @@ defmodule NovelApplication.AgenticDeviationSignal do
 
   defp stage_state(_snapshot), do: %{}
 
+  # refs 集合用普通 map（ref => true）而非 MapSet：OTP28 的 MapSet opaque 类型在
+  # 跨函数/模式边界会触发 dialyzer call_without_opaque 误报，map 语义等价且更稳。
+  @spec handled_refs(map()) :: %{optional(String.t()) => true}
   defp handled_refs(stage_state) when is_map(stage_state) do
     stage_state
     |> map_get(:agentic_deviation_handled_refs)
@@ -259,10 +262,10 @@ defmodule NovelApplication.AgenticDeviationSignal do
       _ -> []
     end
     |> Enum.map(&to_string/1)
-    |> MapSet.new()
+    |> Map.new(&{&1, true})
   end
 
-  defp handled_refs(_stage_state), do: MapSet.new()
+  defp handled_refs(_stage_state), do: %{}
 
   defp int_value(map, key, default) when is_map(map) do
     case map_get(map, key) do
@@ -270,8 +273,6 @@ defmodule NovelApplication.AgenticDeviationSignal do
       _ -> default
     end
   end
-
-  defp int_value(_map, _key, default), do: default
 
   defp string_value(value) when is_binary(value), do: String.trim(value)
   defp string_value(value) when is_atom(value), do: Atom.to_string(value)

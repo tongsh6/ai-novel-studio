@@ -253,8 +253,6 @@ defmodule NovelPersistence.WorkspaceContext do
     |> Enum.flat_map(&Map.get(&1, :chapters, []))
   end
 
-  defp chapter_entries(_workspace_id), do: []
-
   defp fetch_conversation_summary(workspace_id) do
     limit = recent_conversation_interaction_limit()
 

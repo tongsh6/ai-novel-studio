@@ -162,7 +162,9 @@ defmodule NovelApplication.CharacterRosterContextTest do
   # 角色，撞名/撞设定在生成端预防。原「不注入」预期随门变更翻转（该败例曾被旧管道
   # 门禁链吞掉，2026-08-25 真退出码链首抓）。
   test "world_building 注入现有角色（CA04 G3 放行）" do
-    prompts = run("world_building", roster([%{name: "沈砚", narrative_role: "PROTAGONIST", summary: "x"}]))
+    prompts =
+      run("world_building", roster([%{name: "沈砚", narrative_role: "PROTAGONIST", summary: "x"}]))
+
     assert prompts =~ "## 现有角色"
     assert prompts =~ "沈砚"
   end

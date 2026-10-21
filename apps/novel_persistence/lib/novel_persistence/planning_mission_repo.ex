@@ -136,11 +136,22 @@ defmodule NovelPersistence.PlanningMissionRepo do
         {:error, :work_not_found}
 
       %Work{} = work ->
-        case current_mission(work) do
-          nil -> {:error, :mission_not_found}
-          %{"status" => "TENTATIVE"} = mission -> {:ok, work, mission}
-          _other -> {:error, :mission_not_tentative}
-        end
+        resolve_tentative_mission(work)
+    end
+  end
+
+  defp resolve_tentative_mission(%Work{} = work) do
+    case current_mission(work) do
+      nil ->
+        {:error, :mission_not_found}
+
+      %{"status" => status} = mission ->
+        if status == ChapterMissionStatus.tentative(),
+          do: {:ok, work, mission},
+          else: {:error, :mission_not_tentative}
+
+      _other ->
+        {:error, :mission_not_tentative}
     end
   end
 

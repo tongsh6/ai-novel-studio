@@ -1,0 +1,56 @@
+id: judgment-explore-internal
+title: 判断循环内部探索翼：已采纳正文事实检索与出处引用
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh judgment-explore-internal --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00B-dialogue-context-grounding-contract-pack.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/UA01-judgment-driven-loop.md
+
+invariants:
+  - judgment-decision-precedes-exploration-on-same-turn
+  - exploration-reads-adopted-prose-readonly
+  - reply-cites-source-chapter-without-fabricating-facts
+  - no-production-write-during-exploration-turn
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - click: 生成正文草稿
+  - click: 保存为章节正文
+  - send: 在对话中提出一个只能从已采纳正文回答的事实问题
+  - verify: 判断循环决定 explore，内部检索已采纳正文并给出带出处章节的回答
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/judgment-explore-internal-tauri
+
+assertions:
+  ui:
+    - 判断探索步骤在运行反馈中可见
+    - 回复引用真实章节出处，不编造未采纳事实
+  network:
+    - explore 判断与回复发生在同一真实 turn
+    - 内部检索为只读，不经 toolbox 写路径
+  data:
+    - judgment_explore_count=1
+    - exploration turn 无 production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

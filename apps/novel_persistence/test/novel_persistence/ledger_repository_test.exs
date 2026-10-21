@@ -70,7 +70,11 @@ defmodule NovelPersistence.LedgerRepositoryTest do
 
     assert {:ok, second} =
              LedgerRepository.upsert(
-               arc_attrs(work_id, %{status: "STALLED", payload: %{"last_seen_seq" => 3}, revision: 2})
+               arc_attrs(work_id, %{
+                 status: "STALLED",
+                 payload: %{"last_seen_seq" => 3},
+                 revision: 2
+               })
              )
 
     assert second.id == first.id
@@ -83,9 +87,7 @@ defmodule NovelPersistence.LedgerRepositoryTest do
     {:ok, _} = LedgerRepository.upsert(arc_attrs(work_id))
 
     {:ok, _} =
-      LedgerRepository.upsert(
-        arc_attrs(work_id, %{subject_ref: "char-2", subject_label: "林浩"})
-      )
+      LedgerRepository.upsert(arc_attrs(work_id, %{subject_ref: "char-2", subject_label: "林浩"}))
 
     {:ok, _} = LedgerRepository.upsert(arc_attrs(ID.uuid(), %{subject_ref: "char-x"}))
 

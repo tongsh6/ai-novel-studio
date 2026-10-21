@@ -131,11 +131,22 @@ defmodule NovelPersistence.ChapterMissionRepo do
         {:error, :chapter_not_found}
 
       %Chapter{} = chapter ->
-        case current_mission(chapter) do
-          nil -> {:error, :mission_not_found}
-          %{"status" => status} = mission when status == "TENTATIVE" -> {:ok, chapter, mission}
-          _other -> {:error, :mission_not_tentative}
-        end
+        resolve_tentative_mission(chapter)
+    end
+  end
+
+  defp resolve_tentative_mission(%Chapter{} = chapter) do
+    case current_mission(chapter) do
+      nil ->
+        {:error, :mission_not_found}
+
+      %{"status" => status} = mission ->
+        if status == ChapterMissionStatus.tentative(),
+          do: {:ok, chapter, mission},
+          else: {:error, :mission_not_tentative}
+
+      _other ->
+        {:error, :mission_not_tentative}
     end
   end
 

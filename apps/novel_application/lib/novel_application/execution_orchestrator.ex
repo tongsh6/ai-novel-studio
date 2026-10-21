@@ -17,6 +17,46 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   @author_action_ttl_seconds 900
 
+  # gate → decision_type 翻译表（ADR-0005 gate 顺序是开放集合：新增 gate 走保守
+  # require_confirmation，保留 policy 等历史映射供后续 slice 复用）。
+  @gate_decision_types %{
+    action_scope: :downgrade_to_dialogue,
+    authority: :require_confirmation,
+    write_boundary: :require_confirmation,
+    policy: :reject,
+    envelope_validation: :fail_with_recovery,
+    correlation: :fail_with_recovery
+  }
+  @default_gate_decision_type :require_confirmation
+
+  # decision_type → TurnResult 真实性约束。
+  @truthfulness_constraints %{
+    downgrade_to_dialogue: ["no_action_executed", "downgraded_to_conversation"],
+    require_confirmation: ["no_action_executed", "author_confirmation_required"],
+    require_clarification: ["no_action_executed", "author_clarification_required"],
+    reject: ["no_action_executed", "blocked_by_policy"],
+    fail_with_recovery: ["no_action_executed", "system_recovery_needed"]
+  }
+  @default_truthfulness_constraints ["no_action_executed"]
+
+  @behavior_next_actions %{
+    clarification: "answer_clarification",
+    confirmation: "confirm_before_execute"
+  }
+  @default_behavior_next_action "continue_dialogue"
+
+  # {action_id 前缀, action_type, idempotency_key 前缀}
+  @behavior_action_templates %{
+    clarification: [
+      {"act_answer_", "answer_clarification", "clarify_"},
+      {"act_cancel_", "cancel_pending_behavior", "cancel_"}
+    ],
+    confirmation: [
+      {"act_confirm_", "confirm_before_execute", "confirm_"},
+      {"act_reject_", "reject_or_cancel_confirmation", "reject_"}
+    ]
+  }
+
   @doc """
   裁决 MicroPlan。返回 {decision, behavior}。
 
@@ -153,60 +193,29 @@ defmodule NovelApplication.ExecutionOrchestrator do
     }
   end
 
-  defp behavior_next_action(:clarification), do: "answer_clarification"
-  defp behavior_next_action(:confirmation), do: "confirm_before_execute"
-  defp behavior_next_action(_), do: "continue_dialogue"
+  defp behavior_next_action(behavior_type),
+    do: Map.get(@behavior_next_actions, behavior_type, @default_behavior_next_action)
 
   # behavior_ref 必须指向 behavior 自身（ADR-0009 / VS-03），前端按
   # action.behavior_ref == behavior_state.active.behavior_id 门控确认动作显隐。
-  # action_id / idempotency_key 仍以 decision_id 为键（一次决定一组动作）。
-  defp behavior_actions(:clarification, d_id, behavior_id, target) do
+  # action_id / idempotency_key 仍以 decision_id 为键（一次决定一组动作）；
+  # 未知 behavior_type 走空动作集（与 GateOrder 未知 gate 的保守降级同构）。
+  defp behavior_actions(behavior_type, d_id, behavior_id, target) do
     expires_at = author_action_expires_at()
 
-    [
+    @behavior_action_templates
+    |> Map.get(behavior_type, [])
+    |> Enum.map(fn {action_id_prefix, action_type, idempotency_key_prefix} ->
       %{
-        action_id: "act_answer_#{d_id}",
-        action_type: "answer_clarification",
+        action_id: "#{action_id_prefix}#{d_id}",
+        action_type: action_type,
         behavior_ref: behavior_id,
         target_ref: target,
-        idempotency_key: "clarify_#{d_id}",
-        expires_at: expires_at
-      },
-      %{
-        action_id: "act_cancel_#{d_id}",
-        action_type: "cancel_pending_behavior",
-        behavior_ref: behavior_id,
-        target_ref: target,
-        idempotency_key: "cancel_#{d_id}",
+        idempotency_key: "#{idempotency_key_prefix}#{d_id}",
         expires_at: expires_at
       }
-    ]
+    end)
   end
-
-  defp behavior_actions(:confirmation, d_id, behavior_id, target) do
-    expires_at = author_action_expires_at()
-
-    [
-      %{
-        action_id: "act_confirm_#{d_id}",
-        action_type: "confirm_before_execute",
-        behavior_ref: behavior_id,
-        target_ref: target,
-        idempotency_key: "confirm_#{d_id}",
-        expires_at: expires_at
-      },
-      %{
-        action_id: "act_reject_#{d_id}",
-        action_type: "reject_or_cancel_confirmation",
-        behavior_ref: behavior_id,
-        target_ref: target,
-        idempotency_key: "reject_#{d_id}",
-        expires_at: expires_at
-      }
-    ]
-  end
-
-  defp behavior_actions(_, _, _, _), do: []
 
   defp author_action_expires_at do
     DateTime.utc_now()
@@ -322,36 +331,29 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   # ── helpers ───────────────────────────────────
 
-  defp gate_to_decision_type(:action_scope), do: :downgrade_to_dialogue
-  defp gate_to_decision_type(:authority), do: :require_confirmation
-  defp gate_to_decision_type(:write_boundary), do: :require_confirmation
-  defp gate_to_decision_type(:policy), do: :reject
-  defp gate_to_decision_type(:envelope_validation), do: :fail_with_recovery
-  defp gate_to_decision_type(:correlation), do: :fail_with_recovery
-  defp gate_to_decision_type(_), do: :require_confirmation
+  defp gate_to_decision_type(gate_name),
+    do: Map.get(@gate_decision_types, gate_name, @default_gate_decision_type)
 
-  defp truthfulness_constraints_for(:downgrade_to_dialogue),
-    do: ["no_action_executed", "downgraded_to_conversation"]
-
-  defp truthfulness_constraints_for(:require_confirmation),
-    do: ["no_action_executed", "author_confirmation_required"]
-
-  defp truthfulness_constraints_for(:require_clarification),
-    do: ["no_action_executed", "author_clarification_required"]
-
-  defp truthfulness_constraints_for(:reject),
-    do: ["no_action_executed", "blocked_by_policy"]
-
-  defp truthfulness_constraints_for(:fail_with_recovery),
-    do: ["no_action_executed", "system_recovery_needed"]
-
-  defp truthfulness_constraints_for(_), do: ["no_action_executed"]
+  defp truthfulness_constraints_for(decision_type),
+    do: Map.get(@truthfulness_constraints, decision_type, @default_truthfulness_constraints)
 
   defp action_refs(actions) do
-    Enum.map(actions, fn a ->
-      %{action_id: a[:action_id], action_type: a[:action_type], summary: a[:summary]}
+    Enum.map(actions, fn action ->
+      %{
+        action_id: action_ref_text(action[:action_id]),
+        action_type: action_ref_action_type(action[:action_type]),
+        summary: action_ref_text(action[:summary])
+      }
     end)
   end
+
+  # action_ref 的字段类型是 String.t()/atom()：proposed_action map 在恢复/降级路径上
+  # 可能缺键（历史 TurnResult），这里做类型收敛，避免用 any() 拼接 struct 字段。
+  defp action_ref_text(value) when is_binary(value), do: value
+  defp action_ref_text(_value), do: ""
+
+  defp action_ref_action_type(value) when is_atom(value), do: value
+  defp action_ref_action_type(_value), do: :unknown
 
   defp author_action_for(type, reason) do
     %{action_type: type, summary: reason, source: :orchestrator_decision}

@@ -30,17 +30,13 @@ defmodule NovelDomain.LedgerEntryTest do
   # VS00F 刀④：回收是语义判断——机械层不判，落账只经作者裁决（HIDDEN→REVEALED 边）。
   test "information 裁决转移边：HIDDEN/LEAKED 可裁决为 REVEALED，其余目标拒绝" do
     {:ok, hidden} =
-      LedgerEntry.new(
-        arc_attrs(%{ledger: "information", status: "HIDDEN", subject_kind: "fact"})
-      )
+      LedgerEntry.new(arc_attrs(%{ledger: "information", status: "HIDDEN", subject_kind: "fact"}))
 
     assert {:ok, revealed} = LedgerEntry.adjudicate(hidden, "REVEALED", "作者判已回收")
     assert revealed.status == "REVEALED"
 
     {:ok, leaked} =
-      LedgerEntry.new(
-        arc_attrs(%{ledger: "information", status: "LEAKED", subject_kind: "fact"})
-      )
+      LedgerEntry.new(arc_attrs(%{ledger: "information", status: "LEAKED", subject_kind: "fact"}))
 
     assert {:ok, _} = LedgerEntry.adjudicate(leaked, "REVEALED", nil)
     assert {:error, _} = LedgerEntry.adjudicate(hidden, "PARTIALLY_REVEALED", nil)
@@ -102,7 +98,14 @@ defmodule NovelDomain.LedgerEntryTest do
 
   test "arc_recompute_stall：超阈值 STALLED、条件解除回 ON_TRACK、非机械态不动（I-L4 确定性）" do
     {:ok, entry} = LedgerEntry.new(arc_attrs())
-    seen = LedgerEntry.arc_sighted(entry, %{chapter_ref: "ch-3", chapter_seq: 3, source_ref: "s", presence_note: nil})
+
+    seen =
+      LedgerEntry.arc_sighted(entry, %{
+        chapter_ref: "ch-3",
+        chapter_seq: 3,
+        source_ref: "s",
+        presence_note: nil
+      })
 
     # 3 + 8 阈值：第 11 章仍在窗口内，第 12 章越界
     assert :unchanged = LedgerEntry.arc_recompute_stall(seen, 11, 8)

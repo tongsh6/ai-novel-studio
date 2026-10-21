@@ -1,0 +1,54 @@
+id: judgment-explore-chapter-plan
+title: 判断循环内部探索翼：设计态章节计划检索与出处引用
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh judgment-explore-chapter-plan --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00B-dialogue-context-grounding-contract-pack.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/UA01-judgment-driven-loop.md
+
+invariants:
+  - judgment-decision-precedes-exploration-on-same-turn
+  - chapter-plan-read-is-design-state-only
+  - reply-cites-plan-content-and-chapter
+  - no-production-write-during-exploration-turn
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - send: 询问某章计划要写什么（该章只有设计态计划、无正文）
+  - verify: 判断循环决定 explore，chapter_read 读取设计态计划，回复引用计划内容与章名
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/judgment-explore-chapter-plan-tauri
+
+assertions:
+  ui:
+    - 回复引用设计态计划内容，不把计划说成已写正文
+    - 运行反馈可见判断探索步骤
+  network:
+    - explore 判断与回复发生在同一真实 turn
+    - chapter_read 为只读设计态检索
+  data:
+    - judgment_explore_count=1
+    - 无 production write，且回复不伪造已采纳事实
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

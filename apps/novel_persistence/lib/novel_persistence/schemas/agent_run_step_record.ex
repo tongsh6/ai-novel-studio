@@ -31,6 +31,8 @@ defmodule NovelPersistence.Schemas.AgentRunStepRecord do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [:id, :run_id, :sequence, :status, :goal, :idempotency_key]
   @optional_fields [
     :micro_plan,

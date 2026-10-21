@@ -500,6 +500,9 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
     """
   end
 
+  # 兼容分支：生产 dependency/1 返回 %ProviderResult{}，测试替身/旧 adapter 注入的
+  # raw result_fn 还可能返回裸 content map 或纯文本（见 NovelAgent.Provider.Execution
+  # 的 raw_result 契约），这里按注入边界保留兼容形态。
   defp provider_content(%ProviderResult{content: content}) when is_binary(content), do: content
   defp provider_content(%{content: content}) when is_binary(content), do: content
   defp provider_content(%{"content" => content}) when is_binary(content), do: content

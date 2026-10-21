@@ -26,6 +26,8 @@ defmodule NovelPersistence.Schemas.AuthorActionReceipt do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [
     :work_id,
     :session_id,

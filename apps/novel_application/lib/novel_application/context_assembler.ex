@@ -334,7 +334,6 @@ defmodule NovelApplication.ContextAssembler do
   defp summarize_context(_value, :conversation), do: "近期对话"
   defp summarize_context(_value, :session_transcript), do: "当前会话记录"
   defp summarize_context(_value, :behavior), do: "当前待处理动作"
-  defp summarize_context(_value, _type), do: "安全上下文摘要"
 
   defp current_work_context_parts(value) do
     [
@@ -429,8 +428,6 @@ defmodule NovelApplication.ContextAssembler do
   defp unnamed_work_title?(title) do
     title in ["未命名作品", "Unnamed Work", "Untitled", "untitled"]
   end
-
-  defp normalize_summary(nil), do: nil
 
   defp normalize_summary(value) do
     value

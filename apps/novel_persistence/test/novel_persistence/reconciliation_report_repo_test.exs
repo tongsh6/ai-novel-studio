@@ -7,7 +7,9 @@ defmodule NovelPersistence.ReconciliationReportRepoTest do
   defp attrs(work_id, n) do
     %{
       work_id: work_id,
-      findings: %{"items" => [%{"rule" => "arc_stalled", "signal" => "样例#{n}", "severity" => "warn"}]},
+      findings: %{
+        "items" => [%{"rule" => "arc_stalled", "signal" => "样例#{n}", "severity" => "warn"}]
+      },
       finding_count: 1,
       scanned_at_seq: n
     }

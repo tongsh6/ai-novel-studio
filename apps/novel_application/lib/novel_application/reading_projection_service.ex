@@ -12,7 +12,9 @@ defmodule NovelApplication.ReadingProjectionService do
           work_id: String.t(),
           total_word_count: non_neg_integer(),
           audit: map(),
-          volumes: [map()]
+          volumes: [map()],
+          # 阅读投影实际附带卷方向线索（repo 返回；web 直接透传消费）。
+          planning_direction: map() | nil
         }
   @type chapter_content :: %{
           id: String.t(),

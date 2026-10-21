@@ -63,7 +63,7 @@ defmodule NovelPersistence.ChapterSummaryRepo do
       {:ok, work_uuid} ->
         summarized =
           from(s in ChapterSummary,
-            where: s.work_id == ^work_id and s.status == "ACCEPTED",
+            where: s.work_id == ^work_id and s.status == ^AdoptionStatus.accepted(),
             select: s.chapter_id
           )
           |> Repo.all()
@@ -73,7 +73,7 @@ defmodule NovelPersistence.ChapterSummaryRepo do
           join: sc in NovelPersistence.Schemas.Scene,
           on: sc.chapter_id == c.id,
           join: d in NovelPersistence.Schemas.Draft,
-          on: d.scene_id == sc.id and d.status == "ACCEPTED",
+          on: d.scene_id == sc.id and d.status == ^AdoptionStatus.accepted(),
           where: c.work_id == ^work_uuid,
           order_by: [asc: c.seq, asc: sc.seq],
           select: {c.id, c.title, d.content}

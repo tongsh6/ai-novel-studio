@@ -7,6 +7,7 @@ defmodule NovelApplication.TurnInteractionService do
   require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelApplication.DialogueGateway
+  alias NovelFoundation.Enums.AdoptionStatus, as: Status
 
   @author_preview_chars 600
   @adoption_preview_limit 12
@@ -131,7 +132,7 @@ defmodule NovelApplication.TurnInteractionService do
             value(entry, :adoption_status) in NovelDomain.AdoptionStatus.canon_statuses() ->
               :accepted_count
 
-            value(entry, :adoption_status) == "DISCARDED" ->
+            value(entry, :adoption_status) == Status.discarded() ->
               :discarded_count
 
             true ->

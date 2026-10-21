@@ -176,7 +176,10 @@ defmodule NovelPersistence.ProseSearchRepo do
       {start, _len} ->
         from = max(start - @like_excerpt_chars, 0)
         prefix = if from > 0, do: "…", else: ""
-        window = binary_part(content, from, min(byte_size(content) - from, @like_excerpt_chars * 3))
+
+        window =
+          binary_part(content, from, min(byte_size(content) - from, @like_excerpt_chars * 3))
+
         prefix <> sanitize_utf8(window) <> "…"
 
       :nomatch ->

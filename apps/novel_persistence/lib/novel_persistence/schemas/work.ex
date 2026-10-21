@@ -29,10 +29,12 @@ defmodule NovelPersistence.Schemas.Work do
     field(:premise, :string)
     field(:theme, :string)
     field(:main_goal, :string)
+
     # NEM-GAP-08（VS-00G CP3）：全书骨架——目标体量/预计卷数/连载形态（34 §4.1）
     field(:target_length, :integer)
     field(:planned_volumes, :integer)
     field(:serial_form, :string)
+
     # WR01c：规划使命持久位（map，键 "planning_mission"，与 chapters.plan_direction 同构）
     field(:planning_direction, :map)
     field(:adopted_at, :utc_datetime_usec)
@@ -40,6 +42,8 @@ defmodule NovelPersistence.Schemas.Work do
 
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 
   @doc false
   def changeset(work, attrs) do
@@ -50,8 +54,13 @@ defmodule NovelPersistence.Schemas.Work do
       :status,
       :core_selling_point,
       :target_reader,
-      :tone_preference, :premise, :theme, :main_goal,
-      :target_length, :planned_volumes, :serial_form,
+      :tone_preference,
+      :premise,
+      :theme,
+      :main_goal,
+      :target_length,
+      :planned_volumes,
+      :serial_form,
       :planning_direction,
       :adopted_at,
       :revision

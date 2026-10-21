@@ -38,8 +38,25 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelDomain.QualityFinding
   alias NovelDomain.ReaderEffectBrief
   alias NovelDomain.WritingCoordinate
+  alias NovelFoundation.Enums.ArcLedgerStatus
 
   @creative_tools ~w(world_building character_design character_evolution plot_outline prose_writing)
+  @arc_on_track ArcLedgerStatus.on_track()
+  @arc_stalled ArcLedgerStatus.stalled()
+  @arc_drifted ArcLedgerStatus.drifted()
+  @arc_resumed ArcLedgerStatus.resumed()
+  @arc_completed ArcLedgerStatus.completed()
+  @arc_retired ArcLedgerStatus.retired()
+
+  # 质量策略动作 → TurnResult 质量状态标签（全部 evaluator 动作枚举；未知值保守 passed）。
+  @quality_status_labels %{
+    proceed: "passed",
+    proceed_with_warning: "warnings",
+    adoption_review: "adoption_review",
+    confirm: "adoption_review",
+    block: "blocked",
+    quality_review_unavailable: "unavailable"
+  }
 
   @type execution_input :: %{
           required(:frame) => DialogueFrame.t(),
@@ -57,7 +74,11 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:ledger_reader) => function() | nil,
           optional(:memory_reader) => function() | nil,
           optional(:source_turn_ref) => String.t(),
-          optional(:idempotency_suffix) => String.t()
+          optional(:idempotency_suffix) => String.t(),
+          # flows 侧写前/规划前推理与开新卷 range 随 turn 传入（实现读取，缺席即诚实降级）。
+          optional(:chapter_mission) => map() | nil,
+          optional(:planning_mission) => map() | nil,
+          optional(:volume_scope) => map() | nil
         }
 
   @spec execute(execution_input()) :: {map(), NovelDomain.DecisionTrace.t()}
@@ -1302,12 +1323,12 @@ defmodule NovelApplication.TurnExecutionService do
     "- #{entry.subject_label}：#{status_label(entry.status)}，#{seen_text}"
   end
 
-  defp status_label("ON_TRACK"), do: "弧光推进中"
-  defp status_label("STALLED"), do: "已多章未出场"
-  defp status_label("DRIFTED"), do: "已确认偏离设计"
-  defp status_label("RESUMED"), do: "裁决后回归"
-  defp status_label("COMPLETED"), do: "弧光已完成"
-  defp status_label("RETIRED"), do: "已退场"
+  defp status_label(@arc_on_track), do: "弧光推进中"
+  defp status_label(@arc_stalled), do: "已多章未出场"
+  defp status_label(@arc_drifted), do: "已确认偏离设计"
+  defp status_label(@arc_resumed), do: "裁决后回归"
+  defp status_label(@arc_completed), do: "弧光已完成"
+  defp status_label(@arc_retired), do: "已退场"
   defp status_label(other), do: other
 
   # I-c（AU09 角色主档案）：从 Character 主档案读现有角色，注入创作/角色设计上下文。
@@ -1681,7 +1702,7 @@ defmodule NovelApplication.TurnExecutionService do
        ) do
     if prose_writing_action?(action) do
       ctx = %{
-        source_ref: List.first(tool_result.artifact_refs || []),
+        source_ref: List.first(tool_result.artifact_refs),
         source_turn_ref: frame.turn_id,
         source_type: :prose_fragment
       }
@@ -1883,13 +1904,7 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  defp quality_status(:proceed), do: "passed"
-  defp quality_status(:proceed_with_warning), do: "warnings"
-  defp quality_status(:adoption_review), do: "adoption_review"
-  defp quality_status(:confirm), do: "adoption_review"
-  defp quality_status(:block), do: "blocked"
-  defp quality_status(:quality_review_unavailable), do: "unavailable"
-  defp quality_status(_action), do: "passed"
+  defp quality_status(action), do: Map.get(@quality_status_labels, action, "passed")
 
   defp quality_policy_action(%{policy: %{action: action}}), do: Atom.to_string(action)
   defp quality_policy_action(_quality), do: nil
@@ -2157,7 +2172,7 @@ defmodule NovelApplication.TurnExecutionService do
   defp provenance(%MicroPlan{proposed_actions: [action | _]}, resolved_chapter)
        when is_map(action) do
     target =
-      if is_binary(resolved_chapter) and resolved_chapter != "",
+      if resolved_chapter != "",
         do: resolved_chapter,
         else: Map.get(action, :target_chapter)
 

@@ -39,12 +39,22 @@ defmodule NovelPersistence.CharacterMergeRepo do
     end
   end
 
+  # dialyzer 误报（OTP 28 对不透明类型的 call_without_opaque）：Ecto.Multi 是不透明
+  # 类型，Multi.new/0 的返回值直接管道喂给 Multi.update/3 会被判类型不匹配。Ecto 自身
+  # 也用 `@dialyzer :no_opaque` 关闭同类告警（deps/ecto/lib/ecto/repo/transaction.ex）。
+  @dialyzer {:no_opaque, run_merge: 4}
   defp run_merge(work_id, source, target, plan) do
     Multi.new()
-    |> Multi.update(:target, Character.changeset(target, %{name: plan.name, aliases: plan.aliases}))
+    |> Multi.update(
+      :target,
+      Character.changeset(target, %{name: plan.name, aliases: plan.aliases})
+    )
     |> Multi.update(
       :source,
-      Character.changeset(source, %{status: AdoptionStatus.superseded(), provisional_active: false})
+      Character.changeset(source, %{
+        status: AdoptionStatus.superseded(),
+        provisional_active: false
+      })
     )
     |> Multi.run(:arc, fn repo, %{target: merged_target} ->
       reconcile_arc(repo, work_id, source.id, merged_target)

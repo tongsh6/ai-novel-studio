@@ -450,8 +450,6 @@ defmodule NovelAgent.Provider.AnthropicStream do
     do:
       "Anthropic API 输出中断：已生成 #{acc.accumulated_content_length} 字后 #{format_duration(timeouts.response_ms)} 无新内容"
 
-  defp timeout_message(_acc, _kind, _timeouts), do: "Anthropic API 请求超时"
-
   defp diagnostics(acc, kind, duration, timeouts) do
     %{
       timeout_kind: kind,

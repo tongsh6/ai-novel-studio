@@ -19,16 +19,31 @@ defmodule NovelDomain.CapabilityFactManifest do
           absence_directive: atom() | nil
         }
   @type snapshot :: %{optional(:roster) => [map()], optional(atom()) => any()}
-  @type missing :: %{element: atom(), element_ref: String.t(), tier: tier(), absence_directive: atom() | nil}
+  @type missing :: %{
+          element: atom(),
+          element_ref: String.t(),
+          tier: tier(),
+          absence_directive: atom() | nil
+        }
 
   # 能力 → 承重事实清单。absence_directive=nil 表示该事实缺席只记录不注入守则（契约：
   # required 缺席且有守则才注入；recommended 缺席只记录）。
   @manifest %{
     "prose_writing" => [
-      %{element: :protagonist, element_ref: "E07", tier: :required, absence_directive: :protagonist_missing}
+      %{
+        element: :protagonist,
+        element_ref: "E07",
+        tier: :required,
+        absence_directive: :protagonist_missing
+      }
     ],
     "plot_outline" => [
-      %{element: :protagonist, element_ref: "E07", tier: :required, absence_directive: :protagonist_missing}
+      %{
+        element: :protagonist,
+        element_ref: "E07",
+        tier: :required,
+        absence_directive: :protagonist_missing
+      }
     ]
   }
 

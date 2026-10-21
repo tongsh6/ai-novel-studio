@@ -302,28 +302,28 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh d6-purpose-model-routing --surface tauri
   - id: agent-conversation-turn
-    title: "普通对话输入统一进入 AgentRun"
+    title: "普通对话输入统一进入 AgentRun（判断纪元 reply 直通）"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agent-conversation-turn.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-conversation-turn --surface tauri
   - id: agentic-loop-plan-replan-reasoning
-    title: "ADR-0023 D6 计划耗尽后修订计划再继续执行"
+    title: "ADR-0023 D6 计划耗尽后修订计划再继续执行（判断纪元 prose 基座）"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agentic-loop-plan-replan-reasoning.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agentic-loop-plan-replan-reasoning --surface tauri
   - id: agentic-loop-no-deviation-direct
-    title: "ADR-0023 无偏离直通路径不触发重规划"
+    title: "判断纪元无偏离直通（判断① reply，无 replan）"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agentic-loop-no-deviation-direct.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agentic-loop-no-deviation-direct --surface tauri
   - id: agent-plan-native-tool-calling-protocol
-    title: "ADR-0023 CP4 AgentPlan 原生 tool calling 协议"
+    title: "ADR-0023 CP4 AgentPlan 原生 tool calling 协议（判断纪元 prose 基座）"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agent-plan-native-tool-calling-protocol.yml
@@ -337,28 +337,28 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agentic-loop-budget-deviation-replan --surface tauri
   - id: agentic-loop-tool-failure-replan
-    title: "ADR-0023 D1 工具失败时先修订计划"
+    title: "ADR-0023 D1 工具失败后判断②续行停等作者"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agentic-loop-tool-failure-replan.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agentic-loop-tool-failure-replan --surface tauri
   - id: agentic-loop-quality-deviation-replan
-    title: "ADR-0023 D2 质量行动项触发计划修订"
+    title: "ADR-0023 D2 质量发现驱动判断②改进闭环"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agentic-loop-quality-deviation-replan.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agentic-loop-quality-deviation-replan --surface tauri
   - id: agentic-loop-gate-deviation-replan
-    title: "ADR-0023 D4 Orchestrator gate deny 时先修订计划"
+    title: "ADR-0023 D4 Orchestrator gate deny 后判断②续行停等作者"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agentic-loop-gate-deviation-replan.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agentic-loop-gate-deviation-replan --surface tauri
   - id: agentic-loop-deterministic-gap-replan
-    title: "ADR-0023 D7 确定性缺口触发计划修订"
+    title: "ADR-0023 D7 确定性缺口后判断②续行停等作者"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agentic-loop-deterministic-gap-replan.yml
@@ -1379,3 +1379,47 @@ scenarios:
     manifest: quality/acceptance/scenarios/dogfood-runner.yml
     driver: frontend/slice-verify/dogfood-runner.mjs
     entrypoint: scripts/dogfood_run.sh --provider lmstudio
+  - id: judgment-explore-internal
+    title: "判断循环内部探索翼：已采纳正文事实检索与出处引用"
+    tier: nightly
+    surface: tauri
+    status: blocked
+    blocked_reason: "最近一次真实页面记录（2026-07-20）只有失败截图、无 summary.json；登记为 blocked，待真实 Tauri 复跑取得 PASS 证据后再改 active。"
+    manifest: quality/acceptance/scenarios/judgment-explore-internal.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh judgment-explore-internal --surface tauri
+  - id: judgment-explore-chapter-plan
+    title: "判断循环内部探索翼：设计态章节计划检索与出处引用"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/judgment-explore-chapter-plan.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh judgment-explore-chapter-plan --surface tauri
+  - id: au13-arc-ledger-roundtrip
+    title: "弧光账自动更新、探索引用与后续正文投影"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au13-arc-ledger-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au13-arc-ledger-roundtrip --surface tauri
+  - id: au13-revise-prose-sibling
+    title: "全书审读 revise_prose 处置产出 sibling 修订候选且原稿保留"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au13-revise-prose-sibling.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au13-revise-prose-sibling --surface tauri
+  - id: au10-workbench-render-stability
+    title: "工作台渲染稳定性与作品切换原子性"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au10-workbench-render-stability.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au10-workbench-render-stability --surface tauri
+  - id: b17-writer-timeout-steer
+    title: "writer timeout 真实原因呈现与 scoped steer 同 run 恢复"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b17-writer-timeout-steer.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b17-writer-timeout-steer --surface tauri

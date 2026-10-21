@@ -34,10 +34,13 @@ defmodule NovelApplication.LedgerMaintenance do
           required(:roster) => (String.t() -> [map()]),
           required(:chapter_index) => (String.t() -> map()),
           optional(:profile) => (String.t() -> map()),
+          # VS-00F CP2b 节拍端口：达到章数节拍时全量对账并物化报告（失败容忍由端口内部承担）。
+          optional(:reconcile) => (String.t(), non_neg_integer() -> term()),
           required(:repo) => %{
             required(:list) => (String.t() -> [map()]),
             required(:upsert) => (map() -> {:ok, map()} | {:error, term()})
-          }
+          },
+          optional(atom()) => any()
         }
 
   @spec run(input(), deps()) :: {:ok, map()} | {:degraded, term()}
@@ -185,7 +188,11 @@ defmodule NovelApplication.LedgerMaintenance do
 
   defp recompute_stalls(repo, work_id, current_seq) do
     threshold =
-      Application.get_env(:novel_application, :arc_stall_threshold_chapters, @default_stall_threshold)
+      Application.get_env(
+        :novel_application,
+        :arc_stall_threshold_chapters,
+        @default_stall_threshold
+      )
 
     repo.list.(work_id)
     |> Enum.filter(&(&1.ledger == "arc"))
@@ -289,7 +296,11 @@ defmodule NovelApplication.LedgerMaintenance do
 
   defp recompute_conflict_dormancy(repo, work_id, current_seq) do
     threshold =
-      Application.get_env(:novel_application, :arc_stall_threshold_chapters, @default_stall_threshold)
+      Application.get_env(
+        :novel_application,
+        :arc_stall_threshold_chapters,
+        @default_stall_threshold
+      )
 
     repo.list.(work_id)
     |> Enum.filter(&(&1.ledger == "conflict"))
@@ -308,7 +319,11 @@ defmodule NovelApplication.LedgerMaintenance do
 
   defp maybe_reconcile(deps, work_id, current_seq) do
     cadence =
-      Application.get_env(:novel_application, :ledger_reconcile_cadence_chapters, @default_reconcile_cadence)
+      Application.get_env(
+        :novel_application,
+        :ledger_reconcile_cadence_chapters,
+        @default_reconcile_cadence
+      )
 
     reconcile = Map.get(deps, :reconcile)
 

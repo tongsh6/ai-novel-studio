@@ -27,6 +27,8 @@ defmodule NovelPersistence.Schemas.ProviderOutputRecord do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [:provider_run_id, :provider_call_ref, :status, :output_type]
   @optional_fields [
     :agent_run_id,

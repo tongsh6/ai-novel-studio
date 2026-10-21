@@ -381,8 +381,6 @@ defmodule NovelPersistence.ChapterPlanParser do
     |> ChapterPlanDirection.new()
   end
 
-  defp parse_direction(_text), do: nil
-
   defp put_direction_field(line, acc) do
     case split_label(line) do
       {:ok, label, value} ->
@@ -446,8 +444,6 @@ defmodule NovelPersistence.ChapterPlanParser do
       trimmed -> trimmed
     end
   end
-
-  defp blank_to_nil(_value), do: nil
 
   defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 end

@@ -139,12 +139,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       {:ok, %{content: content} = provider_result} ->
         {:ok, nonblank(content), provider_result}
 
-      {:ok, %{"content" => content} = provider_result} ->
-        {:ok, nonblank(content), provider_result}
-
-      {:ok, content} when is_binary(content) ->
-        {:ok, nonblank(content), %{content: content}}
-
       {:error, reason} when retry? ->
         emit_plan_retry(:reasoning, :provider_error, reason)
         request_reasoning(prompt, result_fn, false)
@@ -306,7 +300,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     AgentPlan.new(%{
       plan_id: run.plan_ref || "ap_#{run.run_id}",
       run_ref: run.run_id,
-      version: run.plan_version || 1,
+      version: run.plan_version,
       goal_version: run.goal.version,
       steps: steps
     })
@@ -1020,7 +1014,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   defp original_prompt_text(%{messages: [%{content: content} | _]}), do: content
-  defp original_prompt_text(%{"messages" => [%{"content" => content} | _]}), do: content
   defp original_prompt_text(other), do: inspect(other)
 
   defp narrative_source(provider_result, summary, :content, _tool_name) do

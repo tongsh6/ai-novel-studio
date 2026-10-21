@@ -26,6 +26,8 @@ defmodule NovelPersistence.Schemas.ChapterSummary do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [:work_id, :chapter_id, :status, :summary_text]
   @optional_fields [:source_ref, :revision_base]
 

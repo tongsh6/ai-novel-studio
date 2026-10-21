@@ -29,6 +29,10 @@ defmodule NovelPersistence.WorkSessionRepo do
 
   @doc "Create a new active session and mark existing active sessions in the same work as exited."
   @spec create_active(map()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t() | term()}
+  # dialyzer 误报（OTP 28 对不透明类型的 call_without_opaque）：Ecto.Multi 是不透明
+  # 类型，Multi.new/0 的返回值直接管道喂给 Multi.update_all/4 会被判类型不匹配。
+  # Ecto 自身也用 `@dialyzer :no_opaque` 关闭同类告警（deps/ecto/lib/ecto/repo/transaction.ex）。
+  @dialyzer {:no_opaque, create_active: 1}
   def create_active(attrs) when is_map(attrs) do
     attrs =
       attrs
@@ -213,6 +217,8 @@ defmodule NovelPersistence.WorkSessionRepo do
     |> where([s], s.id != ^keep_session_id)
   end
 
+  # 同上：keep_only_active/1 的 Ecto.Multi 管道是 dialyzer 对不透明类型的误报。
+  @dialyzer {:no_opaque, keep_only_active: 1}
   defp keep_only_active(%WorkSession{} = session) do
     now = DateTime.utc_now()
 

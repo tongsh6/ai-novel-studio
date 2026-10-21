@@ -83,7 +83,12 @@ defmodule NovelPersistence.ProseSearchRepoTest do
 
     chapter =
       %Chapter{}
-      |> Chapter.changeset(%{work_id: work_id, volume_id: volume.id, title: chapter_title, seq: seq})
+      |> Chapter.changeset(%{
+        work_id: work_id,
+        volume_id: volume.id,
+        title: chapter_title,
+        seq: seq
+      })
       |> Repo.insert!()
 
     scene =

@@ -27,6 +27,7 @@ defmodule NovelPersistence.Schemas.Character do
     field(:narrative_role, :string)
     field(:summary, :string)
     field(:status, :string, default: AdoptionStatus.tentative())
+
     # VS-00G §2.3 工作假定（零新实体）：既有 tentative 态 + 来源/暂用两标注位。
     # provisional_source=AI_ASSUMPTION（AI 假定，非作者候选）；provisional_active=true
     # 表示正被带【暂定】标注注入。生命周期复用既有 AdoptionStatus 状态机。
@@ -35,6 +36,8 @@ defmodule NovelPersistence.Schemas.Character do
 
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 
   def changeset(character, attrs) do
     character

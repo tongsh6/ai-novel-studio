@@ -35,7 +35,7 @@ defmodule NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry do
     field(:revision_base, :string)
     field(:supersedes_artifact_id, :string)
     # DS01 CP1：TurnResult adoption_state 条目携带的作者可见内容与产出溯源
-    #（docs/design/schemas/foundation/artifact_adoption_entry.json 同步扩展）。
+    # （docs/design/schemas/foundation/artifact_adoption_entry.json 同步扩展）。
     field(:payload, :map)
     field(:source_turn_ref, :string)
     field(:source_tool_result_ref, :string)

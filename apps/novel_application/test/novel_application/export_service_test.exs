@@ -132,7 +132,9 @@ defmodule NovelApplication.ExportServiceTest do
     })
     |> Repo.insert!()
 
-    custom_dir = Path.join(System.tmp_dir!(), "export_service_test_#{System.unique_integer([:positive])}")
+    custom_dir =
+      Path.join(System.tmp_dir!(), "export_service_test_#{System.unique_integer([:positive])}")
+
     File.mkdir_p!(custom_dir)
 
     assert {:ok, result} =

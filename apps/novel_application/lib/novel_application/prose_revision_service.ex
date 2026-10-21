@@ -290,8 +290,8 @@ defmodule NovelApplication.ProseRevisionService do
       primary: true,
       frame_type: :execution_candidate,
       source_refs: %{
-        author_action_ref: action_input.action_id,
-        source_turn_ref: field(source_turn_result, :turn_id) || action_input.source_turn_ref
+        author_input_ref: action_input.input_id,
+        dialogue_context_ref: nil
       },
       dialogue_goal: %{summary: "按质量发现重写正文草稿"},
       tool_need: %{needs_tool: true, reason_code: :tool_needed},

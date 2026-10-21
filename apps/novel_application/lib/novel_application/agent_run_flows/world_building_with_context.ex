@@ -437,7 +437,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
       frame_type: :execution_candidate,
       source_refs: %{
         author_input_ref: run.parent_turn_ref,
-        agent_run_ref: run.run_id
+        dialogue_context_ref: nil
       },
       dialogue_goal: %{summary: summary},
       tool_need: %{needs_tool: true, reason_code: :tool_needed},
@@ -736,8 +736,6 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
       length(context.structured_chapters || []) +
       length(context.context_refs || [])
   end
-
-  defp context_ref_count(_context), do: 0
 
   defp progress_signature(turn_result) do
     tool_result = Map.get(turn_result, :tool_result) || %{}

@@ -79,7 +79,11 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     # 第 12 章只有林浩出场；12 - 3 = 9 > 8 → 凌渊 STALLED
     assert {:ok, %{stalled: 1}} =
              LedgerMaintenance.run(
-               %{work_id: "w", chapter_id: "ch-12", summary_text: summary_with_characters("林浩独自行动。")},
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-12",
+                 summary_text: summary_with_characters("林浩独自行动。")
+               },
                deps(agent)
              )
 
@@ -203,11 +207,18 @@ defmodule NovelApplication.LedgerMaintenanceTest do
     {:ok, agent} = Agent.start_link(fn -> %{} end)
 
     assert {:degraded, _} =
-             LedgerMaintenance.run(%{work_id: "w", chapter_id: "ch-1", summary_text: ""}, deps(agent))
+             LedgerMaintenance.run(
+               %{work_id: "w", chapter_id: "ch-1", summary_text: ""},
+               deps(agent)
+             )
 
     assert {:degraded, _} =
              LedgerMaintenance.run(
-               %{work_id: "w", chapter_id: "ch-404", summary_text: summary_with_characters("凌渊。")},
+               %{
+                 work_id: "w",
+                 chapter_id: "ch-404",
+                 summary_text: summary_with_characters("凌渊。")
+               },
                deps(agent)
              )
 

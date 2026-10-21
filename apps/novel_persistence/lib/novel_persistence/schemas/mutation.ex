@@ -35,6 +35,8 @@ defmodule NovelPersistence.Schemas.Mutation do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [
     :actor_ref,
     :source_turn_ref,

@@ -55,15 +55,15 @@
 | `d3-summary-lazy-repair.yml` | 摘要异步失败不阻采纳→读取侧惰性补做→补做摘要回流后续写作 prompt（D3） |
 | `d4-planner-transient-retry.yml` | 计划起草首调瞬态失败→单次原样重试成功→retry 事件留痕、run 正常完成（D4） |
 | `d6-purpose-model-routing.yml` | 按用途分模型：writer 覆盖仅命中写作调用、其余跟随全局、按用途设置区真实可见（D6） |
-| `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun，并在 46§9 推理区实时显示多段 `author_narrative_delta` |
-| `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 计划耗尽后触发 provider-sourced `plan_revised` 并继续完成对话 |
-| `agentic-loop-no-deviation-direct.yml` | ADR-0023 无偏离直通路径只消费起草计划且不触发重规划 |
-| `agent-plan-native-tool-calling-protocol.yml` | ADR-0023 CP4 证明 AgentPlan draft/revision 结构来自 provider-native tool calls，activity telemetry 只暴露 count/name |
+| `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun（判断纪元 reply 直通；机械准备 1 步 + 判断① 2 调用） |
+| `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 短计划耗尽后判断②续行修订计划并继续完成（判断纪元 prose 基座） |
+| `agentic-loop-no-deviation-direct.yml` | 判断纪元无偏离直通：判断① reply、2 步/2 调用、不消费 replan |
+| `agent-plan-native-tool-calling-protocol.yml` | ADR-0023 CP4 AgentPlan 原生 tool calling（判断纪元 prose 基座 + activity API + native names） |
 | `agentic-loop-budget-deviation-replan.yml` | ADR-0023 D5 预算缺口 TurnResult 携带步骤选择；规划开销不计执行步，作者可勾选多个步骤，执行后恢复剩余计划并再次停等 |
-| `agentic-loop-tool-failure-replan.yml` | ADR-0023 D1 工具失败触发 provider-sourced `plan_revised` 并消耗 replan budget |
-| `agentic-loop-quality-deviation-replan.yml` | ADR-0023 D2 质量行动项触发 provider-sourced `plan_revised` 并消耗 replan budget |
-| `agentic-loop-gate-deviation-replan.yml` | ADR-0023 D4 Orchestrator gate deny 触发 provider-sourced `plan_revised` 且不绕过 gate |
-| `agentic-loop-deterministic-gap-replan.yml` | ADR-0023 D7 确定性缺口触发 provider-sourced `plan_revised` 且不派发 writer provider |
+| `agentic-loop-tool-failure-replan.yml` | ADR-0023 D1 工具失败后判断②续行停等作者（await 模式，无最终 TurnResult） |
+| `agentic-loop-quality-deviation-replan.yml` | ADR-0023 D2 质量发现驱动判断②改进闭环（plan_revised→artifact_superseded→completed） |
+| `agentic-loop-gate-deviation-replan.yml` | ADR-0023 D4 Orchestrator gate deny 后判断②续行停等作者（writer 未派发） |
+| `agentic-loop-deterministic-gap-replan.yml` | ADR-0023 D7 确定性缺口后判断②续行停等作者（missing policy 阻断 writer） |
 | `agent-plot-outline-with-context.yml` | AgentRun 章节大纲 Profile 生成待采纳大纲草稿 |
 | `agent-world-building-with-context.yml` | AgentRun 世界设定 Profile 生成待采纳伏笔草稿 |
 | `agent-world-building-style-rule-with-context.yml` | AgentRun 世界设定 Profile 生成待采纳写作规则草稿 |
@@ -190,3 +190,9 @@
 | `vs00c-cp5-reader-effect-brief.yml` | VS-00C CP5 读者效果与自报告 |
 | `vs00c-cp0-missing-chapter-block.yml` | VS-00C CP0 缺失目标章阻断写作 |
 | `vs10-observability-spine.yml` | 浏览器可观测性主链 |
+| `judgment-explore-internal.yml` | 判断探索：已采纳正文事实检索与出处引用（待复跑，blocked） |
+| `judgment-explore-chapter-plan.yml` | 判断探索：设计态章节计划检索与出处引用 |
+| `au13-arc-ledger-roundtrip.yml` | 弧光账自动更新、探索引用与后续正文投影 |
+| `au13-revise-prose-sibling.yml` | 全书审读 revise_prose 处置产出 sibling 修订候选、原稿保留 |
+| `au10-workbench-render-stability.yml` | 工作台渲染稳定性与作品切换原子性 |
+| `b17-writer-timeout-steer.yml` | writer timeout 真实原因呈现与 scoped steer 同 run 恢复 |

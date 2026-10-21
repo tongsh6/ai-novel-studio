@@ -75,6 +75,7 @@ defmodule NovelApplication.AIMessageEnvelopeTest do
              }
 
       assert envelope.work_state_layer.context_refs == []
+
       assert envelope.work_state_layer.character_state == %{
                status: :missing,
                reason: "no_character_state"
@@ -98,6 +99,7 @@ defmodule NovelApplication.AIMessageEnvelopeTest do
         )
 
       assert envelope.turn_guidance_layer.guidance_mode == :quality
+
       assert envelope.work_state_layer.chapter_summary == %{
                status: :missing,
                reason: "no_chapter_summary"

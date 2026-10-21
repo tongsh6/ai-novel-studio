@@ -1,0 +1,55 @@
+id: au10-workbench-render-stability
+title: 工作台渲染稳定性与作品切换原子性
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au10-workbench-render-stability --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU10-workbench-render-stability.md
+
+invariants:
+  - no-blank-frames-on-real-turns
+  - no-same-text-remounts
+  - no-non-user-scroll-jumps
+  - stable-chat-input-composer-geometry
+  - work-switch-atomic
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: 通过真实输入发送普通 turn
+  - click: 打开并关闭档案
+  - click: 新建第二部作品并发送 turn
+  - click: 通过真实作品菜单切回第一部作品
+  - verify: 无 blank 帧、无消息 remount、无非用户滚动跳变，chat/input/composer 几何稳定
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au10-workbench-render-stability-tauri
+
+assertions:
+  ui:
+    - 三个真实场景（发送/档案展开/作品切换）无整块闪烁
+    - 作品切换原子完成，无中间空态
+  network:
+    - 真实 turn 经 Channel 完成并广播
+  data:
+    - render_blank_frames=0
+    - render_same_text_remounts=0
+    - render_scroll_jumps=0
+    - work_switch_atomic=true
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -23,6 +23,8 @@ defmodule NovelPersistence.Schemas.AgentEventRecord do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [:id, :run_id, :sequence, :event_type, :visibility, :summary]
   @optional_fields [:step_id, :reason_codes, :refs, :payload]
 

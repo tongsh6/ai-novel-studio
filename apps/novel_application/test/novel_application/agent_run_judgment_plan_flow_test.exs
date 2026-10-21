@@ -21,7 +21,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
       if plan_draft_prompt?(text) do
         send(parent, :plan_draft_called)
 
-          {:ok,
+        {:ok,
          %{
            content: "先读取上下文，再完成大纲与正文两步产出。",
            provider_call_id: "pc-jp-plan",
@@ -42,11 +42,10 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
              }
            ]
          }}
-
       else
         send(parent, {:tool_prompt, text})
 
-          {:ok,
+        {:ok,
          %{
            provider_call_id: "pc-jp-tool",
            content:
@@ -108,6 +107,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert length(state.run.pending_artifact_refs) == 2
     assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 2
+
     # 起草 2（reasoning+结构）+ 两个 act 步各 1 = 4（runtime 直连，无判断①入场）。
     assert state.run.consumed_budget.provider_calls == 4
   end

@@ -274,16 +274,12 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
-  defp chapter_id_from_persisted(_persisted), do: nil
-
   defp revision_base_from_persisted(persisted) when is_map(persisted) do
     case Map.get(persisted, :reading_projection) do
       %{source_revision_ref: ref} when is_binary(ref) -> ref
       _ -> Map.get(persisted, :source_revision_ref)
     end
   end
-
-  defp revision_base_from_persisted(_persisted), do: nil
 
   defp artifact_risk_hint(artifact) do
     case artifact_field(artifact, :risk_hint) do
@@ -812,15 +808,12 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp terminal_resolution_status(:resolved), do: "resolved"
   defp terminal_resolution_status(:cancelled), do: "cancelled"
-  defp terminal_resolution_status(_), do: "closed"
 
   defp terminal_action_type(:resolved, params),
     do: map_field(params, :action_type) || "confirm_before_execute"
 
   defp terminal_action_type(:cancelled, params),
     do: map_field(params, :action_type) || "reject_or_cancel_confirmation"
-
-  defp terminal_action_type(_status, params), do: map_field(params, :action_type)
 
   defp adoption_decision_ref(%AdoptionDecision{} = decision), do: decision.adoption_decision_id
   defp adoption_decision_ref(_), do: nil
@@ -995,7 +988,7 @@ defmodule NovelApplication.AdoptionWorkflow do
          artifact,
          decision_opts
        ) do
-    reason_codes = decision.reason_codes || []
+    reason_codes = decision.reason_codes
 
     cond do
       "duplicate_character_name" in reason_codes ->
@@ -1222,8 +1215,6 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp persisted?(persisted) when is_map(persisted),
     do: persisted_value(persisted, :persisted) == true
 
-  defp persisted?(_persisted), do: false
-
   defp primary_state_trace_ref([ref | _]), do: map_field(ref, :state_trace_ref)
   defp primary_state_trace_ref(_), do: nil
 
@@ -1262,8 +1253,6 @@ defmodule NovelApplication.AdoptionWorkflow do
     |> Enum.reject(&blank?/1)
   end
 
-  defp projection_hint_refs(_hints), do: []
-
   defp reading_projection_ref(%{} = reading_projection) do
     cond do
       persisted_value(reading_projection, :draft_id) ->
@@ -1288,9 +1277,6 @@ defmodule NovelApplication.AdoptionWorkflow do
       persisted_value(persisted, :memory_item_id) ||
       decision.adopted_state_ref
   end
-
-  defp adopted_state_ref(_persisted, %AdoptionDecision{} = decision),
-    do: decision.adopted_state_ref
 
   defp persisted_value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, to_string(key))

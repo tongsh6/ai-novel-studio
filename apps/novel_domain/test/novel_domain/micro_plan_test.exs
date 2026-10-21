@@ -59,6 +59,7 @@ defmodule NovelDomain.MicroPlanTest do
       assert restored.turn_id == "turn-1"
       assert restored.frame_ref == "frame-1"
       assert restored.plan_goal == %{summary: "重写第一章"}
+
       # gate 消费的关键枚举必须恢复为 atom（high_risk?/production_candidate_count）。
       assert restored.risk_hint == :high
       assert MicroPlan.high_risk?(restored)
@@ -84,6 +85,7 @@ defmodule NovelDomain.MicroPlanTest do
 
       assert restored.risk_hint == :low
       assert [action] = restored.proposed_actions
+
       # 未知 action_type → clarification_request（不可执行）；未知 write_intent → none（不写）。
       assert action.action_type == :clarification_request
       assert action.write_intent == :none

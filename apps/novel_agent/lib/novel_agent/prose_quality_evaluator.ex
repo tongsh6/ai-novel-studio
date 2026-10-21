@@ -144,8 +144,6 @@ defmodule NovelAgent.ProseQualityEvaluator do
     Map.get(result, :provider_call_ref) || Map.get(result, "provider_call_ref")
   end
 
-  defp provider_call_ref(_result), do: nil
-
   defp build_prompt(%QualityEvaluationRequest{} = request) do
     """
     本次你承担小说正文质量评审助手的角色。请只读地评审下面这段正文是否实现其写作目标，严格按 JSON

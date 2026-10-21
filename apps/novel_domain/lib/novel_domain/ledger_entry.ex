@@ -222,9 +222,15 @@ defmodule NovelDomain.LedgerEntry do
   @spec emotion_status(String.t() | nil, String.t() | nil) :: String.t()
   def emotion_status(intended, realized) do
     cond do
-      intended in [nil, ""] or realized in [nil, ""] -> "UNPLANNED"
-      emotion_bigrams(intended) |> MapSet.intersection(emotion_bigrams(realized)) |> MapSet.size() > 0 -> "MATCHED"
-      true -> "DEVIATED"
+      intended in [nil, ""] or realized in [nil, ""] ->
+        "UNPLANNED"
+
+      emotion_bigrams(intended) |> MapSet.intersection(emotion_bigrams(realized)) |> MapSet.size() >
+          0 ->
+        "MATCHED"
+
+      true ->
+        "DEVIATED"
     end
   end
 

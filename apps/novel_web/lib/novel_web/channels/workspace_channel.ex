@@ -283,7 +283,10 @@ defmodule NovelWeb.WorkspaceChannel do
       behavior_ref: action_params["behavior_ref"],
       candidate_set_ref: action_params["candidate_set_ref"],
       candidate_ref: action_params["candidate_ref"],
-      payload: Map.get(action_params, "payload", %{}),
+      # 客户端 payload 可能是显式 null；在边界统一收敛为 map，保证 AuthorActionInput
+      # 的 payload: map() 契约成立，下游 handler 无需重复 nil 兜底（dialyzer 上那些
+      # `payload || %{}` 是永不成功的 nil 比较）。
+      payload: Map.get(action_params, "payload") || %{},
       idempotency_key: action_params["idempotency_key"]
     }
 
@@ -787,8 +790,6 @@ defmodule NovelWeb.WorkspaceChannel do
     _kind, _reason -> :ok
   end
 
-  defp request_agent_run_state_snapshot(_run_ref), do: :ok
-
   defp agent_event_needs_state_snapshot?(%AgentEvent{event_type: event_type}) do
     event_type in [
       :run_started,
@@ -1259,7 +1260,7 @@ defmodule NovelWeb.WorkspaceChannel do
          %AuthorActionInput{action_type: "adjudicate_finding"} = action_input,
          _source_turn_result
        ) do
-    payload = action_input.payload || %{}
+    payload = action_input.payload
 
     input = %{
       work_id: socket.assigns[:work_id],
@@ -1359,7 +1360,7 @@ defmodule NovelWeb.WorkspaceChannel do
          %AuthorActionInput{action_type: "start_fact_inventory"} = action_input,
          _source_turn_result
        ) do
-    payload = action_input.payload || %{}
+    payload = action_input.payload
 
     case prepare_fact_inventory_trigger(socket, payload) do
       {:ok, trigger} ->
@@ -1425,7 +1426,7 @@ defmodule NovelWeb.WorkspaceChannel do
        )
        when action_type in ["confirm_assumption", "discard_assumption"] do
     work_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || ""
-    payload = action_input.payload || %{}
+    payload = action_input.payload
     character_ref = to_string(payload["character_ref"] || payload[:character_ref] || "")
 
     action_type
@@ -1446,7 +1447,7 @@ defmodule NovelWeb.WorkspaceChannel do
               "discard_chapter_mission"
             ] do
     work_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || ""
-    payload = action_input.payload || %{}
+    payload = action_input.payload
     chapter_ref = merge_payload_field(payload, :chapter_ref)
 
     action_type
@@ -1466,7 +1467,7 @@ defmodule NovelWeb.WorkspaceChannel do
               "discard_planning_mission"
             ] do
     work_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || ""
-    payload = action_input.payload || %{}
+    payload = action_input.payload
 
     action_type
     |> planning_mission_decision(work_id, payload)
@@ -1481,7 +1482,7 @@ defmodule NovelWeb.WorkspaceChannel do
          _source_turn_result
        ) do
     work_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || ""
-    payload = action_input.payload || %{}
+    payload = action_input.payload
     source_ref = merge_payload_field(payload, :source_ref)
     target_ref = merge_payload_field(payload, :target_ref)
     keep_name = merge_payload_field(payload, :keep_name, "target")
@@ -1558,7 +1559,7 @@ defmodule NovelWeb.WorkspaceChannel do
          action_type: "agent_run_budget_selected_steps",
          payload: payload
        }) do
-    refs = (payload || %{})["step_refs"] || (payload || %{})[:step_refs]
+    refs = payload["step_refs"] || payload[:step_refs]
     refs = if is_list(refs), do: Enum.map(refs, &to_string/1), else: []
     if refs == [], do: {:error, :step_selection_invalid}, else: {:selected_steps, refs}
   end
@@ -2100,7 +2101,7 @@ defmodule NovelWeb.WorkspaceChannel do
        when type in ["accept", "edit_then_accept"] do
     run_id = socket.assigns[:active_agent_run_id]
 
-    if is_binary(run_id) and action_result.status in [:accepted, "accepted"] and
+    if is_binary(run_id) and action_result.status == "accepted" and
          is_binary(action_input.target_ref) do
       _ = AgentRunService.notify_artifact_resolved(run_id, action_input.target_ref)
     end
@@ -2113,8 +2114,6 @@ defmodule NovelWeb.WorkspaceChannel do
   defp action_payload(%AuthorActionInput{payload: payload}, key) when is_map(payload) do
     Map.get(payload, key) || Map.get(payload, to_string(key))
   end
-
-  defp action_payload(_action_input, _key), do: nil
 
   defp log_author_action_done(socket, action_input, result) do
     LogEmit.emit(:channel, :author_action, :done, %{
@@ -2456,9 +2455,6 @@ defmodule NovelWeb.WorkspaceChannel do
       {:ok, %{decision: %{decision_type: :allow_agent_run}, run_attrs: attrs} = spec} ->
         start_agent_run(attrs, spec)
 
-      {:ok, _planned} ->
-        {:error, :agent_run_not_allowed}
-
       {:error, reason} ->
         {:error, reason}
     end
@@ -2693,14 +2689,12 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp scope_source_turn_result(_socket, source_turn_result), do: source_turn_result
 
-  defp scope_turn_result(socket, turn_result) when is_map(turn_result) do
+  defp scope_turn_result(socket, turn_result) do
     turn_result
     |> Map.put_new(:workspace_id, socket.assigns[:workspace_id])
     |> Map.put_new(:work_id, socket.assigns[:work_id])
     |> Map.put_new(:session_id, socket.assigns[:session_id])
   end
-
-  defp scope_turn_result(_socket, turn_result), do: turn_result
 
   defp record_action_turn_result(socket, %{turn_id: turn_id} = turn_result)
        when is_binary(turn_id) do

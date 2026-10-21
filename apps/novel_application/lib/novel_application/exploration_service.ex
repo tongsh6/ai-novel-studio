@@ -18,6 +18,7 @@ defmodule NovelApplication.ExplorationService do
   alias NovelApplication.{MemoryManagementService, ReadingProjectionService, WorkArchiveService}
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.VolumeBlueprint
+  alias NovelFoundation.Enums.ChapterMissionStatus
   alias NovelPersistence.{ChapterSummaryRepo, ProseSearchRepo, WorkSessionRepo}
 
   @type observation :: %{
@@ -32,6 +33,8 @@ defmodule NovelApplication.ExplorationService do
   @summary_max_chars 1500
   @chapter_clip_chars 1200
   @adoption_page_size 3
+  @chapter_mission_confirmed ChapterMissionStatus.confirmed()
+  @chapter_mission_author_edited ChapterMissionStatus.author_edited()
 
   @catalog [
     %{
@@ -332,8 +335,6 @@ defmodule NovelApplication.ExplorationService do
     end)
   end
 
-  defp scene_plans_text(_plans), do: nil
-
   # 本章使命（WR01b，探索面同步律）：落章计划的使命与裁决状态在判断循环内可读。
   defp chapter_mission_text(nil), do: nil
 
@@ -352,8 +353,8 @@ defmodule NovelApplication.ExplorationService do
     end
   end
 
-  defp mission_status_label("CONFIRMED"), do: "作者已确认"
-  defp mission_status_label("AUTHOR_EDITED"), do: "作者改写"
+  defp mission_status_label(@chapter_mission_confirmed), do: "作者已确认"
+  defp mission_status_label(@chapter_mission_author_edited), do: "作者改写"
   defp mission_status_label(_), do: "暂定"
 
   # 实现态压缩层（chapter_summaries 治理摘要；CP5b 探索补面 B）。
@@ -424,8 +425,8 @@ defmodule NovelApplication.ExplorationService do
       statement when is_binary(statement) and statement != "" ->
         status =
           case mission["status"] do
-            "CONFIRMED" -> "已确认"
-            "AUTHOR_EDITED" -> "作者改写"
+            @chapter_mission_confirmed -> "已确认"
+            @chapter_mission_author_edited -> "作者改写"
             _ -> "暂定"
           end
 

@@ -1,18 +1,20 @@
 id: agentic-loop-gate-deviation-replan
-title: ADR-0023 D4 Orchestrator gate deny 时先修订计划
+title: ADR-0023 D4 Orchestrator gate deny 后判断②续行停等作者
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agentic-loop-gate-deviation-replan --surface tauri
 
 contract:
   - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - d4-gate-deny-triggers-provider-sourced-replan
+  - d4-gate-deny-observed-by-judgment-continuation
   - orchestrator-gate-is-not-bypassed
-  - planner-does-not-approve-tool-execution
+  - writer-provider-not-dispatched-after-gate-deny
+  - await-mode-does-not-consume-replan-budget
   - no-acceptance-hook-in-production
 
 setup:
@@ -20,12 +22,12 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - send: high-risk prose request
-  - wait_for: bounded AgentRun fast ack
-  - wait_for: gate_decided require_confirmation from Orchestrator
-  - wait_for: provider-sourced plan_revised with reason code agentic_deviation:D4
-  - wait_for: run stops at awaiting_author after consuming one replan budget
-  - verify: writer provider was not dispatched after gate deny
+  - send: 高风险正文请求 "写下一章正文草稿，高风险，确认后再执行"
+  - wait_for: bounded AgentRun fast ack（profile_ref=prose_drafting_with_quality_v1）
+  - wait_for: gate_decided 记录 decision_type=require_confirmation、first_blocking_gate=authority
+  - wait_for: awaiting_author 事件，reason_codes 含 judgment_continuation 与 agentic_deviation:D4
+  - verify: writer provider 未派发（无 tool_started / 工具执行）
+  - verify: agent_run_state 记录 status=awaiting_author、steps=5、tool_calls=0、provider_calls=7、replans=0，且无最终 TurnResult
 
 evidence:
   required:
@@ -36,14 +38,18 @@ evidence:
   artifact_dir: artifacts/slice-verify/agentic-loop-gate-deviation-replan-tauri
 
 assertions:
+  ui:
+    - 作者发送后立即出现 AI 工作态骨架，最终停在 awaiting_author 停等状态
+    - gate 拒绝后作者可见运行反馈中不出现最终回复
   network:
-    - gate_decided records decision_type=require_confirmation and first_blocking_gate=authority
-    - plan_revised reason_codes include agentic_deviation:D4
-    - final agent_run_state records status=awaiting_author, steps=5, tool_calls=0, provider_calls=7, replans=0
+    - gate_decided 记录 decision_type=require_confirmation 与 first_blocking_gate=authority
+    - awaiting_author reason_codes 含 judgment_continuation 与 agentic_deviation:D4
+    - agent_run_state 记录 profile_ref=prose_drafting_with_quality_v1、status=awaiting_author、steps=5、tool_calls=0、provider_calls=7、replans=0
+    - 无最终 TurnResult 广播
   data:
-    - no writer tool execution occurs after gate deny
-    - channel logs bounded run ack and never logs sync_turn fallback
-    - no final TurnResult is emitted
+    - gate deny 后 writer provider 未被派发（无工具执行）
+    - Orchestrator gate 未被绕过
+    - channel 记录 bounded ack，且 log_sync_turn_count=0
 
 anti_hooks:
   product_acceptance_logic_added: false

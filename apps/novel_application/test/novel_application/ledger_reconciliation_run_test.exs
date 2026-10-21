@@ -87,6 +87,7 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
+
     # 机械审读恰一次；规则判定不经模型（provider 调用仅计划起草两段式 ×2，ADR-0023）
     assert Agent.get(counter, & &1) == 1
     assert run.consumed_budget.provider_calls == 2

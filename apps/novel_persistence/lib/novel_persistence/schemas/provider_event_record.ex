@@ -24,6 +24,8 @@ defmodule NovelPersistence.Schemas.ProviderEventRecord do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   @required_fields [
     :id,
     :provider_run_id,

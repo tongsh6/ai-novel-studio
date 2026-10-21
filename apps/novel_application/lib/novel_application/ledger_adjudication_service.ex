@@ -21,8 +21,10 @@ defmodule NovelApplication.LedgerAdjudicationService do
 
   alias NovelCommon.LogEmit
   alias NovelDomain.LedgerEntry
+  alias NovelFoundation.Enums.AdoptionStatus
 
   @dispositions ~w(revise_design revise_prose accept_drift dismiss)
+  @tentative_adoption_status AdoptionStatus.tentative()
 
   @type input :: %{
           required(:work_id) => String.t(),
@@ -116,7 +118,7 @@ defmodule NovelApplication.LedgerAdjudicationService do
 
   defp validate_finding_input(_input), do: {:error, :missing_finding_input}
 
-  defp ensure_adjudicable(%{adoption_status: "TENTATIVE"}), do: :ok
+  defp ensure_adjudicable(%{adoption_status: @tentative_adoption_status}), do: :ok
   defp ensure_adjudicable(%{adoption_status: status}), do: {:error, {:report_not_active, status}}
 
   defp fetch_finding(report, index) do
@@ -178,6 +180,7 @@ defmodule NovelApplication.LedgerAdjudicationService do
   defp accept_drift_target(%{ledger: "arc", status: "STALLED"}), do: "DRIFTED"
   defp accept_drift_target(%{ledger: "promise", status: "OPEN"}), do: "BROKEN"
   defp accept_drift_target(%{ledger: "promise", status: "PROGRESSING"}), do: "BROKEN"
+
   # VS00F 刀④ R9：作者对超期伏笔选「接受走向」= 判已回收/不再追踪，账面收束。
   defp accept_drift_target(%{ledger: "information", status: "HIDDEN"}), do: "REVEALED"
   defp accept_drift_target(_entry), do: nil

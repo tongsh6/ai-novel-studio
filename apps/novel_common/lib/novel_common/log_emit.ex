@@ -246,8 +246,6 @@ defmodule NovelCommon.LogEmit do
     Map.drop(fields, @reserved_keys)
   end
 
-  defp maybe_put_from_meta(map, _key, nil), do: map
-
   defp maybe_put_from_meta(map, key, metadata) do
     case Keyword.fetch(metadata, key) do
       {:ok, nil} -> map

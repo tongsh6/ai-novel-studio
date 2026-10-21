@@ -495,41 +495,29 @@ defmodule NovelAgent.Provider.AdapterExecution do
   end
 
   defp emit_materialized_events(ctx, execution_result, :all, _initial_count) do
-    execution_result
-    |> execution_facts()
-    |> case do
-      nil ->
-        :ok
+    facts = execution_facts(execution_result)
 
-      facts ->
-        emit_event_batch(
-          ctx,
-          facts.events,
-          facts.provider_run.status,
-          Map.get(facts, :output),
-          Map.get(facts, :error)
-        )
-    end
+    emit_event_batch(
+      ctx,
+      facts.events,
+      facts.provider_run.status,
+      Map.get(facts, :output),
+      Map.get(facts, :error)
+    )
 
     execution_result
   end
 
   defp emit_materialized_events(ctx, execution_result, :terminal, initial_count) do
-    execution_result
-    |> execution_facts()
-    |> case do
-      nil ->
-        :ok
+    facts = execution_facts(execution_result)
 
-      facts ->
-        emit_event_batch(
-          ctx,
-          Enum.drop(facts.events, initial_count),
-          facts.provider_run.status,
-          Map.get(facts, :output),
-          Map.get(facts, :error)
-        )
-    end
+    emit_event_batch(
+      ctx,
+      Enum.drop(facts.events, initial_count),
+      facts.provider_run.status,
+      Map.get(facts, :output),
+      Map.get(facts, :error)
+    )
 
     execution_result
   end
@@ -539,7 +527,6 @@ defmodule NovelAgent.Provider.AdapterExecution do
 
   defp execution_facts({:ok, facts}) when is_map(facts), do: facts
   defp execution_facts({:error, facts}) when is_map(facts), do: facts
-  defp execution_facts(_), do: nil
 
   defp emit_event_batch(ctx, events, status, output, error)
 
@@ -707,7 +694,6 @@ defmodule NovelAgent.Provider.AdapterExecution do
 
   defp normalize_cancel_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp normalize_cancel_reason(reason) when is_binary(reason), do: reason
-  defp normalize_cancel_reason(_reason), do: "author_cancelled"
 
   defp normalize_error_map(error) when is_map(error), do: error
   defp normalize_error_map(error), do: %{message: inspect(error), type: :provider_error}

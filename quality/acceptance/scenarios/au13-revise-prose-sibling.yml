@@ -1,0 +1,56 @@
+id: au13-revise-prose-sibling
+title: 全书审读 revise_prose 处置产出 sibling 修订候选且原稿保留
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au13-revise-prose-sibling --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/design/adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/VS-00F-five-ledgers-three-state.md
+
+invariants:
+  - revision-candidate-is-tentative-sibling
+  - original-accepted-prose-preserved
+  - revision-not-auto-adopted
+  - reading-projection-still-shows-original
+
+setup:
+  seed: scripts/seed_au13_revise_prose.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案并启动全书审读
+  - click: 对 finding 选择 revise_prose 处置
+  - confirm: 高风险修订确认
+  - verify: 产出 tentative sibling 修订候选，原已采纳正文保留，阅读投影仍是原稿
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au13-revise-prose-sibling-tauri
+
+assertions:
+  ui:
+    - 修订候选以待采纳状态出现，不自动入档
+    - 阅读模式仍显示原已采纳正文
+  network:
+    - revise_prose 处置经确认后产生 sibling 候选
+    - 原稿未被 supersede
+  data:
+    - candidate_pending_not_adopted=true
+    - original_preserved=true
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

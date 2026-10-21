@@ -266,7 +266,7 @@ defmodule NovelAgent.Provider.Gateway do
           "[提供者网关] #{default_provider()} 调用失败：#{get_in(error, [:message]) || inspect(error)}"
         )
 
-        {:error, if(is_map(error), do: error, else: %{message: inspect(error)})}
+        {:error, error}
     end
   end
 

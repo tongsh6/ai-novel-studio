@@ -14,7 +14,9 @@ defmodule NovelApplication.AssumptionService do
           name: String.t(),
           summary: String.t() | nil,
           narrative_role: String.t() | nil,
-          provisional_active: boolean()
+          provisional_active: boolean(),
+          # 采纳态（TENTATIVE/ACCEPTED/DISCARDED）：web 确认/否决回执与日志消费。
+          status: String.t() | nil
         }
 
   @spec list(String.t()) :: [assumption_dto()]

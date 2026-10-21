@@ -48,6 +48,26 @@ defmodule LintEnumLiterals do
     "apps/novel_web/lib/novel_web/channels/workspace_channel.ex"
   ]
 
+  # 精确到 (文件, 值) 的豁免：这些字面量命中的不是被守护枚举，而是同名 token。
+  # 只豁免该文件中的该值，同一文件其它枚举值仍受检查；每条附理由，避免整文件豁免。
+  @value_exemptions [
+    # OpenAI 兼容 /v1/models 响应的 JSON 字段名 "meta"，非 memory_class 枚举值。
+    {"apps/novel_agent/lib/novel_agent/provider/openai_compatible.ex", "meta"},
+    # turn id 前缀 ID.unique("turn")，非 source_type 枚举值。
+    {"apps/novel_application/lib/novel_application/dialogue_gateway.ex", "turn"},
+    {"apps/novel_application/lib/novel_application/dialogue_planning_service.ex", "turn"},
+    # 章计划场次子槽 key（"转折"/"turn"），非 source_type 枚举值。
+    {"apps/novel_domain/lib/novel_domain/chapter_plan_direction.ex", "turn"},
+    {"apps/novel_persistence/lib/novel_persistence/chapter_plan_parser.ex", "turn"},
+    # trace/event ref 的命名空间前缀（同函数还有 revision_base/tool_result 前缀），非 source_type 枚举值。
+    {"apps/novel_application/lib/novel_application/agent_run_flows/prose_revision_from_findings.ex",
+     "artifact"},
+    # 伏笔账（promise）状态 OPEN，非 behavior_status 枚举值。
+    {"apps/novel_application/lib/novel_application/ledger_adjudication_service.ex", "OPEN"},
+    {"apps/novel_application/lib/novel_application/ledger_maintenance.ex", "OPEN"},
+    {"apps/novel_domain/lib/novel_domain/ledger_entry.ex", "OPEN"}
+  ]
+
   def run do
     forbidden = collect_forbidden_values()
     files = Path.wildcard("apps/novel_*/lib/**/*.ex")
@@ -86,6 +106,12 @@ defmodule LintEnumLiterals do
     Enum.any?(@exempt_paths, &String.contains?(path, &1))
   end
 
+  defp value_exempt?(file, value) do
+    Enum.any?(@value_exemptions, fn {exempt_file, exempt_value} ->
+      file == exempt_file and value == exempt_value
+    end)
+  end
+
   defp scan(file, forbidden) do
     content = File.read!(file)
     lines = String.split(content, "\n")
@@ -102,7 +128,9 @@ defmodule LintEnumLiterals do
     if String.match?(line, ~r/^\s*#/) do
       []
     else
-      Enum.flat_map(forbidden, fn value ->
+      forbidden
+      |> Enum.reject(&value_exempt?(file, &1))
+      |> Enum.flat_map(fn value ->
         if String.contains?(line, ~s("#{value}")) do
           [
             "#{file}:#{lineno}: forbidden literal \"#{value}\" — use Enums.*.#{String.downcase(value)}()"

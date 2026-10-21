@@ -17,7 +17,7 @@ defmodule NovelTest.ProviderHelpers do
   创建 LM Studio 的 result_fn，供 Planner 等模块注入使用。
   读取系统配置的 model/endpoint，可 override。
   """
-  @spec lmstudio_result_fn(String.t(), String.t(), pos_integer()) :: function()
+  @spec lmstudio_result_fn(String.t() | nil, String.t() | nil, pos_integer()) :: function()
   def lmstudio_result_fn(endpoint \\ nil, model \\ nil, timeout \\ 60_000) do
     base = LMStudio.from_config()
 
@@ -32,15 +32,20 @@ defmodule NovelTest.ProviderHelpers do
       case LMStudio.complete(state, nil, prompt, %InferenceParams{}) do
         {:ok, %Result{content: content}} -> {:ok, %{content: content}}
         {:error, error} when is_map(error) -> {:error, error}
-        {:error, reason} -> {:error, %{message: inspect(reason)}}
       end
     end
   end
 
+  # 测试替身的 result_fn 返回形态由调用方自定（无需严格满足 Execution.result_fun/0），
+  # 因此这里用「只约束 result_fn 字段」的部分 struct type，既精确表达返回值，也避免
+  # @spec 直接内联 %Execution{}（Credo.Check.Warning.SpecWithStruct）。
+  @type execution_with_custom_result ::
+          %Execution{result_fn: (String.t() -> any())}
+
   @doc """
   Wraps a deterministic completion callback as a provider execution dependency for tests.
   """
-  @spec provider_execution(function()) :: Execution.t()
+  @spec provider_execution((String.t() -> any())) :: execution_with_custom_result()
   def provider_execution(result_fn) when is_function(result_fn, 1),
     do: %Execution{result_fn: result_fn}
 
@@ -50,7 +55,7 @@ defmodule NovelTest.ProviderHelpers do
   @doc """
   检查 LM Studio 是否可用。使用 GET /v1/models 轻量探测，不发起推理。
   """
-  @spec lmstudio_available?(String.t(), pos_integer()) :: boolean()
+  @spec lmstudio_available?(String.t() | nil, pos_integer()) :: boolean()
   def lmstudio_available?(endpoint \\ nil, timeout \\ 5_000) do
     ep = endpoint || LMStudio.from_config().endpoint
     url = Path.join(ep, "models")

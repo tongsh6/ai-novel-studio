@@ -24,8 +24,7 @@ defmodule NovelApplication.TraceSummaryRef do
 
   def from_trace_summary(_), do: nil
 
-  defp get_in_any(map, keys) when is_map(map), do: do_get_in_any(map, keys)
-  defp get_in_any(_, _), do: nil
+  defp get_in_any(map, keys), do: do_get_in_any(map, keys)
 
   defp do_get_in_any(value, []), do: value
 

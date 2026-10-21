@@ -367,7 +367,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
       frame_type: :execution_candidate,
       source_refs: %{
         author_input_ref: run.parent_turn_ref,
-        agent_run_ref: run.run_id
+        dialogue_context_ref: nil
       },
       dialogue_goal: %{summary: summary},
       tool_need: %{needs_tool: true, reason_code: :tool_needed},

@@ -20,6 +20,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   alias NovelCommon.Contracts.ToolRequest
   alias NovelDomain.{AuthorActionInput, DialogueFrame, MicroPlan, OrchestratorDecision}
+  alias NovelFoundation.Enums.AdoptionStatus, as: Status
   require NovelCommon.LogEmit, as: LogEmit
 
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
@@ -42,7 +43,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     status = to_string(field(entry, :adoption_status))
 
     cond do
-      status == "TENTATIVE" ->
+      status == Status.tentative() ->
         if revision_tool(entry), do: @pending_capabilities, else: ["discard_pending_artifact"]
 
       status in NovelDomain.AdoptionStatus.canon_statuses() ->
@@ -285,7 +286,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       risk_hint: :low,
       proposed_actions: [
         %{
+          action_id: "act_revise_#{frame.turn_id}",
           action_type: :capability_invocation,
+          summary: "按作者要求修订已有候选",
           target_ref: tool,
           write_intent: :tentative,
           risk_hint: :low
@@ -363,7 +366,11 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       risk_hint: :low,
       proposed_actions: [
         %{
+          # 注意：action_id 会被 MicroPlan.check_forbidden/1 的 inspect 扫描，禁用词表含
+          # "adopted"；用 accepted 命名（本动作修订的是已采纳内容）。
+          action_id: "act_revise_accepted_#{frame.turn_id}",
           action_type: :capability_invocation,
+          summary: "按作者要求修订已采纳内容",
           target_ref: tool,
           write_intent: :tentative,
           risk_hint: :low
@@ -432,7 +439,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       Map.merge(entry.payload, %{
         revision_of: field(source, :artifact_id),
         supersedes_ref: supersedes_ref,
-        revision_target_status: "ACCEPTED"
+        revision_target_status: Status.accepted()
       })
     )
   end
@@ -520,11 +527,14 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       workspace_id: run.workspace_id,
       primary: true,
       frame_type: type,
-      source_refs: %{author_input_ref: TurnInteractionService.input_ref(run), artifact_ref: ref},
+      source_refs: %{
+        author_input_ref: TurnInteractionService.input_ref(run),
+        dialogue_context_ref: nil
+      },
       dialogue_goal: %{summary: judgment.dialogue_goal || "处理已有候选"},
       tool_need: %{
         needs_tool: type == :execution_candidate,
-        reason_code: :user_requested_operation
+        reason_code: if(type == :execution_candidate, do: :tool_needed, else: :no_tool_needed)
       },
       execution_readiness: :ready,
       author_visible_draft: %{message: judgment.narrative},

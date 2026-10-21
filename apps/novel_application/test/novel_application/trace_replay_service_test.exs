@@ -101,7 +101,10 @@ defmodule NovelApplication.TraceReplayServiceTest do
     assert summary.chapter_mission_ref == "mission:cm_1"
     assert summary.chapter_mission_statement == "本章必须让账牌兑现。"
     assert summary.chapter_mission["status"] == "TENTATIVE"
-    assert [%{"text" => "账牌兑现", "basis_label" => "第02章计划"}] = summary.chapter_mission["must_advance"]
+
+    assert [%{"text" => "账牌兑现", "basis_label" => "第02章计划"}] =
+             summary.chapter_mission["must_advance"]
+
     refute Map.has_key?(summary.chapter_mission, "kind")
 
     assert summary.planning_mission_ref == "mission:cm_2"

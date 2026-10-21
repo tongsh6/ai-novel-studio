@@ -66,9 +66,7 @@ defmodule NovelPersistence.AssumptionRepoTest do
     work = create_work()
 
     assert {:ok, %Character{} = character} =
-             AssumptionRepo.materialize_character(
-               attrs(work, %{role: "底层调查者", aliases: ["砚哥"]})
-             )
+             AssumptionRepo.materialize_character(attrs(work, %{role: "底层调查者", aliases: ["砚哥"]}))
 
     assert character.role == "底层调查者"
     assert character.aliases == ["砚哥"]
@@ -102,7 +100,10 @@ defmodule NovelPersistence.AssumptionRepoTest do
 
   test "空名与非法 work_id 诚实拒绝/降级" do
     work = create_work()
-    assert {:error, :assumption_name_missing} = AssumptionRepo.materialize_character(attrs(work, %{name: "  "}))
+
+    assert {:error, :assumption_name_missing} =
+             AssumptionRepo.materialize_character(attrs(work, %{name: "  "}))
+
     assert AssumptionRepo.list_assumption_characters("not-a-uuid") == []
   end
 end

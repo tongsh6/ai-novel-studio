@@ -9,6 +9,7 @@ defmodule NovelDomain.DialogueFrame do
           :casual_reply
           | :creative_exploration
           | :execution_candidate
+          | :confirmation_answer
           | :question_answer
           | :meta_discussion
           | :capability_gap

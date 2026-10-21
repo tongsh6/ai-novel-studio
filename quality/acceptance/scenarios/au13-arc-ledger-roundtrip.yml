@@ -1,0 +1,57 @@
+id: au13-arc-ledger-roundtrip
+title: 弧光账自动更新、探索引用与后续正文投影
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au13-arc-ledger-roundtrip --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md
+  - docs/design/acceptance/author/AU-13-ledgers-and-reconciliation.md
+  - docs/design/adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/VS-00F-five-ledgers-three-state.md
+
+invariants:
+  - adopted-prose-updates-arc-ledger-with-roster-hit
+  - ledger-question-explores-archive-read-only
+  - reply-cites-real-arc-entry
+  - progress-state-projection-carried-into-next-prose-request
+
+setup:
+  seed: scripts/seed_au13_arc_ledger.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 生成正文草稿并保存为章节正文
+  - wait_for: 弧光账自动更新事件 ledger.update.done
+  - send: 在对话中询问弧光账现状
+  - verify: 判断探索 archive_read(ledgers) 并引用真实弧光条目
+  - send: 请求第 2 章正文
+  - verify: 第 2 章写作上下文携带 progress_state 投影
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au13-arc-ledger-roundtrip-tauri
+
+assertions:
+  ui:
+    - 对话回复引用真实弧光账条目
+    - 弧光账更新后作者可见状态与条目一致
+  network:
+    - 采纳后触发 arc ledger 更新且命中名册角色
+    - 账本查询走 archive_read 只读检索
+  data:
+    - ledger_update_sighted>=1
+    - progress_state 投影进入下一次 prose 请求
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

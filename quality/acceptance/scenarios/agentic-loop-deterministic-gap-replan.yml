@@ -1,18 +1,20 @@
 id: agentic-loop-deterministic-gap-replan
-title: ADR-0023 D7 确定性缺口触发计划修订
+title: ADR-0023 D7 确定性缺口后判断②续行停等作者
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agentic-loop-deterministic-gap-replan --surface tauri
 
 contract:
   - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - d7-deterministic-gap-triggers-provider-sourced-replan
+  - d7-deterministic-gap-observed-by-judgment-continuation
   - missing-policy-blocks-writer-dispatch
-  - planner-does-not-approve-tool-execution
+  - no-tool-completed-events
+  - await-mode-does-not-consume-replan-budget
   - no-acceptance-hook-in-production
 
 setup:
@@ -20,11 +22,12 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - send: prose continuation request for a missing named chapter
-  - wait_for: bounded AgentRun fast ack
-  - wait_for: missing policy blocks writer dispatch
-  - wait_for: provider-sourced plan_revised with reason code agentic_deviation:D7
-  - wait_for: run stops at awaiting_author after consuming one replan budget
+  - send: 正文续写请求 "续写第99章正文"（缺章确定性缺口）
+  - wait_for: bounded AgentRun fast ack（profile_ref=prose_drafting_with_quality_v1）
+  - wait_for: missing policy 阻断 writer 派发
+  - wait_for: awaiting_author 事件，reason_codes 含 judgment_continuation 与 agentic_deviation:D7
+  - verify: agent_run_state 记录 status=awaiting_author、steps=4、tool_calls=0、provider_calls=6、replans=0
+  - verify: tool_completed 事件数为 0 且 toolbox execute 日志数为 0，无最终 TurnResult
 
 evidence:
   required:
@@ -35,15 +38,17 @@ evidence:
   artifact_dir: artifacts/slice-verify/agentic-loop-deterministic-gap-replan-tauri
 
 assertions:
+  ui:
+    - 作者发送后立即出现 AI 工作态骨架，最终停在 awaiting_author 停等状态
+    - 确定性缺口阻断执行后作者可见运行反馈中不出现最终回复
   network:
-    - plan_revised carries plan_version=2, evaluation_of_last.plan_holds=false, and provider_output narrative source
-    - plan_revised reason_codes include agentic_deviation:D7
-    - final agent_run_state records status=awaiting_author, steps=2, tool_calls=0, provider_calls=3, replans=1
+    - awaiting_author reason_codes 含 judgment_continuation 与 agentic_deviation:D7
+    - agent_run_state 记录 profile_ref=prose_drafting_with_quality_v1、status=awaiting_author、steps=4、tool_calls=0、provider_calls=6、replans=0
+    - 无最终 TurnResult 广播
   data:
-    - writer provider is not dispatched after missing policy block
-    - tool_completed event count is zero and toolbox execute log count is zero
-    - channel logs bounded run ack and never logs sync_turn fallback
-    - no final TurnResult is emitted
+    - missing policy 阻断 writer provider 派发
+    - tool_completed 事件数为 0 且 toolbox execute 日志数为 0
+    - channel 记录 bounded ack，且 log_sync_turn_count=0
 
 anti_hooks:
   product_acceptance_logic_added: false

@@ -1,19 +1,20 @@
 id: agentic-loop-no-deviation-direct
-title: ADR-0023 no-deviation direct path
+title: 判断纪元无偏离直通（判断① reply，无 replan）
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agentic-loop-no-deviation-direct --surface tauri
 
 contract:
   - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/design/ui/46-state-and-feedback.md
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - normal-path-uses-one-model-drafted-agent-plan
-  - no-deviation-direct-path-does-not-replan
-  - planner-does-not-approve-tool-execution
+  - normal-path-goes-through-judgment-loop-without-replan
+  - direct-path-does-not-consume-replan-budget
+  - judgment-does-not-approve-tool-execution
   - no-acceptance-hook-in-production
 
 setup:
@@ -22,10 +23,10 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: plain conversation input without any deviation fixture marker
-  - wait_for: bounded AgentRun fast ack
-  - wait_for: model-drafted AgentPlan containing context_assemble, dialogue_frame, strategy_gate, response_finalize
-  - wait_for: context/frame/strategy/finalize execution evidence
-  - wait_for: completed no-tool TurnResult and completed AgentRun state
+  - wait_for: bounded AgentRun fast ack（profile_ref=judgment_loop_v1）
+  - wait_for: 机械准备 1 步 + 判断①两段式（2 provider calls）完成，judgment_action=reply
+  - wait_for: completed no-tool TurnResult 与 completed AgentRun state
+  - verify: 直通路径不消费 replan 预算、不调用工具、不写入
 
 evidence:
   required:
@@ -36,14 +37,18 @@ evidence:
   artifact_dir: artifacts/slice-verify/agentic-loop-no-deviation-direct-tauri
 
 assertions:
+  ui:
+    - AI 工作态骨架立即出现，AgentRun 面板 completed
+    - 判断步与内联回复在作者面可见
   network:
-    - initial model-drafted AgentPlan has four planned steps
-    - no plan_revised event is emitted
-    - consumed_replans is 0
-    - consumed_provider_calls is 3
+    - parent user_message 在最终 TurnResult 前收到 bounded run_id
+    - agent_run_state：profile_ref=judgment_loop_v1、consumed_steps=2、provider_calls=2、consumed_replans=0、tool_calls=0
+    - 无 plan_revised 事件
+    - 最终 TurnResult 携带同一 run_id
   data:
-    - completed run has 4 steps, 0 tool calls, and no production write
-    - channel does not fall back to sync_turn
+    - channel 记录 bounded ack，不 fallback 到 sync_turn
+    - 无 toolbox.execute 事件
+    - truthfulness 报告 tool_called=false、artifact_adopted=false、production_write_performed=false
 
 anti_hooks:
   product_acceptance_logic_added: false

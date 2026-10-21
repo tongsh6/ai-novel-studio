@@ -1,18 +1,20 @@
 id: agentic-loop-quality-deviation-replan
-title: ADR-0023 D2 质量行动项触发计划修订
+title: ADR-0023 D2 质量发现驱动判断②改进闭环
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agentic-loop-quality-deviation-replan --surface tauri
 
 contract:
   - docs/design/adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - d2-quality-action-triggers-provider-sourced-replan
-  - quality-finding-contract-fields-required
-  - replan-budget-is-counted
+  - d2-quality-finding-judged-continue-with-guidance
+  - intermediate-draft-superseded-by-improved-draft
+  - improved-draft-completes-without-author-intervention
+  - improved-draft-remains-pending-not-auto-adopted
   - no-acceptance-hook-in-production
 
 setup:
@@ -20,12 +22,13 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - send: prose request that produces a high confidence rule conflict quality finding
-  - wait_for: bounded AgentRun fast ack
-  - wait_for: artifact_created and quality_review observation
-  - wait_for: pending candidate TurnResult whose AgentRun summary is awaiting_author
-  - wait_for: provider-sourced plan_revised with reason code agentic_deviation:D2
-  - wait_for: run stops at awaiting_author after consuming one replan budget
+  - send: 正文创作请求 "写下一章正文草稿，主角无需代价复活，违反既有规则"（高置信规则冲突质量发现）
+  - wait_for: bounded AgentRun fast ack（profile_ref=prose_drafting_with_quality_v1）
+  - wait_for: artifact_created 与 quality_review 观察
+  - wait_for: 判断②续行以 provider-sourced plan_revised 发布（reason_codes 含 agentic_deviation:D2）
+  - wait_for: artifact_superseded（中间稿被改进稿替代）
+  - wait_for: run_completed；最终 TurnResult 为 completed 且恰 1 条 improved pending 候选
+  - verify: agent_run_state completed，steps=5、tool_calls=2、provider_calls=10、replans=1
 
 evidence:
   required:
@@ -36,15 +39,18 @@ evidence:
   artifact_dir: artifacts/slice-verify/agentic-loop-quality-deviation-replan-tauri
 
 assertions:
+  ui:
+    - 作者发送后立即出现 AI 工作态骨架，最终 AgentRun 面板 completed
+    - 质量审阅与改进闭环在作者可见运行反馈中可读
   network:
-    - plan_revised carries plan_version=2, evaluation_of_last.plan_holds=false, and provider_output narrative source
-    - plan_revised reason_codes include agentic_deviation:D2
-    - final agent_run_state records status=awaiting_author, steps=2, tool_calls=1, provider_calls=5, replans=1
+    - plan_revised reason_codes 含 agentic_deviation:D2，且 author_narrative_source.source_type=provider_output
+    - artifact_superseded 事件 refs 非空（中间稿被改进稿替代）
+    - run_completed；agent_run_state 记录 profile_ref=prose_drafting_with_quality_v1、status=completed、steps=5、tool_calls=2、provider_calls=10、replans=1
+    - 最终 TurnResult 为 completed 且 pending 恰 1（改进稿）
   data:
-    - quality finding includes required quality_gate_ref and validator_ref fields
-    - candidate TurnResult exposes pending adoption and quality confirm policy evidence
-    - channel logs bounded run ack and never logs sync_turn fallback
-    - no completed AgentRun TurnResult is emitted after the quality deviation replan
+    - 质量发现经判断②续行转化为改进导向，无需作者介入即完成改进闭环
+    - 改进稿保持 pending，不自动采纳、不写作品事实（truthfulness artifact_adopted=false、production_write_performed=false）
+    - channel 记录 bounded ack，且 log_sync_turn_count=0
 
 anti_hooks:
   product_acceptance_logic_added: false

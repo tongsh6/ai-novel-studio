@@ -64,6 +64,13 @@ defmodule NovelPersistence.WorkArchiveRepoCreativeFactsTest do
     assert Enum.map(facts.world_rules, & &1.content) == ["稳定规则"]
 
     empty = WorkArchiveRepo.creative_facts(Ecto.UUID.generate())
-    assert empty == %{foreshadowing: [], world_rules: [], current_states: [], relationships: [], style: []}
+
+    assert empty == %{
+             foreshadowing: [],
+             world_rules: [],
+             current_states: [],
+             relationships: [],
+             style: []
+           }
   end
 end
