@@ -1133,6 +1133,20 @@ export const STRUCTURE_PANEL = {
     actionFailed: "并入失败，角色状态可能已变化，请刷新后重试",
     noTargets: "没有可并入的其他角色",
   },
+  // B11A CP3（43 §5.0.7 / VS-00J §3.2 形态 A）：开新卷动作入口文案。入口仅在已有已采纳
+  // 卷结构（get_toc.volumes 非空）时渲染；只触发规划、不改事实，规划范围由服务端机械推导。
+  // 失败按服务端 reason 映射为诚实文案，未知 reason 收敛到通用失败（不暴露内部原因码）。
+  planNextVolume: {
+    sectionTitle: "后续卷规划",
+    label: "规划下一卷",
+    loadingLabel: "正在规划下一卷…",
+    hint: "按当前卷结构机械推导本轮规划范围（只规划下一卷，不重规划已有卷章）；方向候选进入对话区，采纳前不改动档案。",
+    actionFailed: "规划下一卷失败，请重试。",
+    failureReasons: {
+      no_volume_to_extend: "当前没有可接续的卷结构，先完成卷章规划后再规划下一卷。",
+      invalid_work: "作品状态不可用，无法规划下一卷；请刷新后重试。",
+    } as Record<string, string>,
+  },
 } as const;
 
 // ============================================================

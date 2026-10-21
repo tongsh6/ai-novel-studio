@@ -257,6 +257,13 @@
   padding: 4px 8px;
 }
 
+/* B11A CP3（43 §5.0.7）：开新卷动作入口按钮——沿用次要按钮风格；loading 时禁用并降
+   透明度，避免重复触发。 */
+.planNextVolumeButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .cardItem {
   padding: 16px;
   border: 1px solid var(--border-subtle);

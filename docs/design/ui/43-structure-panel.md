@@ -238,6 +238,34 @@ work 级 payload 无 ref）。改写为就地三 textarea 编辑，语义与 §5
   归一与分组抽为 `frontend/src/lib/volumeBlueprintView.ts` 纯函数并单测。
 - 原型：`novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)`（沿用展开态档案面板）。
 
+### 5.0.7 规划下一卷（CP3 开新卷动作入口，2026-10-22）
+
+「大纲与结构」tab 提供真实产品入口「规划下一卷」——把 VS-00J §3.2 形态 A 的开新卷动作
+接进档案，让作者在已有卷结构上发起下一卷规划，而不是回到对话区手写指令：
+
+- **位置与可见条件**：大纲 tab，全书规划进度摘要（§5.0.0）之后、「已采纳章节计划」卷列表
+  之前；**仅当 `get_toc.volumes` 非空**（至少一卷已采纳结构）时渲染。无卷时仍由既有空态
+  「规划卷章结构」承担引导，不显示本入口（避免无对象可接续的空动作）。
+- **动作语义**：点击 push Channel 事件 `plan_next_volume`（payload `{work_id}`），由服务端
+  **机械推导** `volume_scope`（`next_seq`=卷数+1、末卷、`next_chapter_seq`=全书章 seq+1 等）
+  并复用既有 user_message/AgentRun 规划链，只产下一卷卷蓝图与该卷开篇章计划。前端不猜范围、
+  不本地拼装；本入口只触发规划，**不改任何事实**——候选经既有对话区/采纳管道确认后才写入
+  档案（ADR-0019 INV-1 / VS-00J I-VOL-5）。
+- **loading 与防重复**：触发中按钮 disabled 且文案切为「正在规划下一卷…」；成功只表示
+  服务端已受理并启动 AgentRun，按钮恢复，turn 结果经既有 agent 事件流进入工作台/候选卡，
+  面板不新增 turn 状态机；成功后复用既有 TOC 读端口刷新一次（不新增请求通道）。
+- **失败诚实显示**：reply 的 `reason`（如 `:no_volume_to_extend` / `:invalid_work`）映射为
+  按钮旁的中文诚实说明；未知 reason 收敛为通用失败文案，不把内部原因码暴露给作者。
+- **与 45 §4.2 新卷流程的关系**：45 §4.2 的完整流程（先给 2-3 个推进方向候选，再经
+  Confirmation Card 收束）中，本 CP 只落地**形态 A 的最小入口**：一个动作触发 +
+  `volume_scope` 机械作用域，方向候选/确认/采纳全部沿用既有采纳管道，不做独立卷管理页、
+  不新增 artifact 类型或卡型；后续若真实作者反馈需要独立入口，按 ADR 修订（VS-00J §9①）。
+- **文案与实现**：文案集中在 `frontend/src/lib/copy.ts` 的
+  `STRUCTURE_PANEL.planNextVolume.*`（区块标题/按钮/loading/hint/失败原因映射）；Channel
+  helper 为 `frontend/src/lib/socket.ts` 的 `planNextVolume`（单测
+  `frontend/src/lib/__tests__/planNextVolume.test.ts`）。
+- 原型：`novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)`（沿用展开态档案面板）。
+
 ### 5.1 Experience 模块边界
 
 | 对象 | 面板呈现 | 可操作性 |

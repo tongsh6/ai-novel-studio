@@ -1,4 +1,4 @@
-// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1，角色归并见 §5.0.2，本章使命见 §5.0.3，本轮规划使命见 §5.0.4，场次计划见 §5.0.5，卷蓝图见 §5.0.6）
+// Design: docs/design/ui/43-structure-panel.md §5（模块 9「脉络」见 §5.0.1，角色归并见 §5.0.2，本章使命见 §5.0.3，本轮规划使命见 §5.0.4，场次计划见 §5.0.5，卷蓝图见 §5.0.6，规划下一卷见 §5.0.7）
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 // Prototype: novel-studio.pen → 43§5-9-threads-panel (uyZGw)
 import * as Dialog from "@radix-ui/react-dialog";
@@ -31,6 +31,7 @@ import {
   getAssumptions,
   getLedgerThreads,
   getReviewReport,
+  planNextVolume,
   sendAuthorAction,
   type AssumptionDto,
   type ChapterMissionDto,
@@ -85,6 +86,16 @@ function payloadText(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return fallback;
+}
+
+// B11A CP3（43 §5.0.7）：开新卷动作失败按服务端 reason 映射诚实文案；未知 reason 收敛到
+// 通用失败（不把内部原因码直接暴露给作者）。兼容 atom 形态（带前导冒号）。
+function planNextVolumeErrorText(message: string): string {
+  const reason = message.trim().replace(/^:/, "");
+  return (
+    STRUCTURE_PANEL.planNextVolume.failureReasons[reason] ??
+    STRUCTURE_PANEL.planNextVolume.actionFailed
+  );
 }
 
 // CP4c「脉络」：五账进度态渲染（进度+跳转，不复制对象列表——ui43 §5.0.1 整合红线）
@@ -322,6 +333,10 @@ export function StructurePanel({
   // VS-00G CP5d：「暂定设定」区（AI 工作假定的可见裁决面，OQ7）。
   const [assumptions, setAssumptions] = useState<AssumptionDto[]>([]);
   const [assumptionActionError, setAssumptionActionError] = useState<string | null>(null);
+  // B11A CP3（43 §5.0.7）：开新卷动作入口的 loading/失败态（成功走既有 agent 事件流，
+  // 面板不新增 turn 状态机，故只有防重复与诚实失败两个本地态）。
+  const [planNextVolumeBusy, setPlanNextVolumeBusy] = useState(false);
+  const [planNextVolumeError, setPlanNextVolumeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!onReviewPendingChange) return;
@@ -372,6 +387,29 @@ export function StructurePanel({
     void getToc(channel, context.workId)
       .then((data) => setToc(data))
       .catch(() => {});
+  };
+
+  // B11A CP3（43 §5.0.7 / VS-00J §3.2 形态 A）：开新卷动作入口——只触发规划，不写事实。
+  // 规划范围（volume_scope）由服务端机械推导，前端不猜。成功只表示服务端已受理并启动
+  // AgentRun：方向候选经既有 agent 事件流/采纳管道落地，面板不新增 turn 状态机。
+  const startNextVolumePlanning = () => {
+    if (!channel || !context.workId || planNextVolumeBusy) return;
+    const workId = context.workId;
+    setPlanNextVolumeBusy(true);
+    setPlanNextVolumeError(null);
+
+    void planNextVolume(channel, workId)
+      .then(() => {
+        // 成功复用既有 TOC 读端口刷新一次（不新增请求通道）；规划候选采纳后，
+        // pendingAdoptions 依赖会按既有路径再次重读 TOC。
+        refreshToc();
+      })
+      .catch((error: unknown) => {
+        setPlanNextVolumeError(
+          planNextVolumeErrorText(error instanceof Error ? error.message : ""),
+        );
+      })
+      .finally(() => setPlanNextVolumeBusy(false));
   };
 
   const startMissionEdit = (ch: TocChapter, mission: ChapterMissionDto) => {
@@ -1360,6 +1398,31 @@ export function StructurePanel({
                   <span className={styles.secTitle}>{STRUCTURE_PANEL.skeletonProgress.label}</span>
                 </div>
                 <div className={styles.detailHint}>{skeletonProgressLine}</div>
+              </div>
+            )}
+            {/* B11A CP3（43 §5.0.7 / VS-00J §3.2 形态 A）：开新卷动作入口——仅当已有
+                已采纳卷结构时出现；只触发规划，范围由服务端机械推导，候选仍走既有对话区/
+                采纳管道，不在这里直接写档案。 */}
+            {planVolumes.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>
+                    {STRUCTURE_PANEL.planNextVolume.sectionTitle}
+                  </span>
+                  <button
+                    className={`${styles.btnSecondary} ${styles.planNextVolumeButton}`}
+                    disabled={planNextVolumeBusy}
+                    onClick={startNextVolumePlanning}
+                  >
+                    {planNextVolumeBusy
+                      ? STRUCTURE_PANEL.planNextVolume.loadingLabel
+                      : STRUCTURE_PANEL.planNextVolume.label}
+                  </button>
+                </div>
+                <div className={styles.detailHint}>{STRUCTURE_PANEL.planNextVolume.hint}</div>
+                {planNextVolumeError && (
+                  <div className={styles.footerActionError}>{planNextVolumeError}</div>
+                )}
               </div>
             )}
             {planChapters.length > 0 ? (

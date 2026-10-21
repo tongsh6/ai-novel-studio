@@ -646,6 +646,38 @@ export function getToc(channel: Channel, workId: string): Promise<TocData> {
   });
 }
 
+// B11A CP3（VS-00J §3.2 形态 A / 43 §5.0.7）：开新卷动作的作用域摘要。范围由服务端
+// 机械推导（next_seq=卷数+1、current=末卷、next_chapter_seq=全书章 seq+1），前端不猜；
+// 字段全部可选容错，缺失不影响「已受理」判定。
+export interface VolumeScopeSummary {
+  next_seq?: number;
+  current_volume_seq?: number;
+  current_volume_title?: string;
+  next_chapter_seq?: number;
+  existing_volume_count?: number;
+  existing_chapter_count?: number;
+}
+
+export interface PlanNextVolumeResult {
+  turn_id?: string;
+  volume_scope?: VolumeScopeSummary;
+}
+
+// 触发「规划下一卷」开新卷动作（形态 A：复用既有 user_message/规划/候选/采纳管道，
+// 不新增 artifact 类型）。成功只表示服务端已受理并启动 AgentRun；方向候选经既有 agent
+// 事件流进入工作台，采纳前不改动档案。失败按服务端 reason 拒绝，供 UI 映射成诚实文案。
+export function planNextVolume(channel: Channel, workId: string): Promise<PlanNextVolumeResult> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("plan_next_volume", { work_id: workId })
+      .receive("ok", (response) => resolve(response as PlanNextVolumeResult))
+      .receive("error", (error) =>
+        reject(new Error(String((error as { reason?: string })?.reason ?? error))),
+      )
+      .receive("timeout", () => reject(new Error("plan_next_volume timeout")));
+  });
+}
+
 export interface ExportResult {
   path: string;
   format: string;
