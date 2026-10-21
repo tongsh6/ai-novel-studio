@@ -39,12 +39,12 @@
     "recommendation": "继续保留 gitleaks 扫描。若 Pencil 后续生成新的 token 字段或位置导致新 fingerprint，需要重新按 .pen/Pencil MCP 语义复核；若确认是外部可用凭证，再由凭证所有者轮换并通过 Pencil 源文件流程清除。"
   },
   "credo|Credo.Check.Refactor.Nesting|apps/novel_domain/lib/novel_domain/chapter_summary.ex|113|Nesting": {
-    "status": "deferred",
-    "owner": "codex",
-    "updated_at": "2026-07-23",
-    "planned_fix": "chapter-summary-parse-refactor",
-    "handling": "2026-07-20 已有的 parse_sections 嵌套告警，不在 VS-00G CP4b-2 改动范围；当前函数有既有回归保护且不阻塞设定盘点，避免为清理无关 P2 扩大本 slice。",
-    "recommendation": "下次修改 ChapterSummary 解析时抽取标签到 section 映射私有函数，并复跑 chapter_summary 单测。"
+    "status": "fixed",
+    "owner": "lead",
+    "updated_at": "2026-10-22",
+    "planned_fix": "B13b/baseline-gates-cleanup",
+    "handling": "2026-10-22 工程基线清账：chapter_summary.ex 的 parse_sections 抽 parse_chunk/3 helper 降嵌套（行为不变，parse/渲染往返单测覆盖）；mix credo --strict 全仓 0 issue。B13b 对账：该 finding 源于历史 P2，不属于任何 ADR enforcement gap。",
+    "recommendation": "保留 credo strict 门禁；若同类 Nesting 再次命中，按「先测后拆 helper」处理，不新增 deferred。"
   },
   "mix-audit|mix-audit|||Hex dependency vulnerability scan failed": {
     "status": "fixed",
