@@ -7099,6 +7099,69 @@ async function driveAu08VolumeStructuredPlanning(page) {
     `Chapter plan did not carry two volume assignments: ${planVolumeTitles.join("/") || "(none)"}`,
   );
 
+  // B11A CP2：规划产出带卷蓝图行（模型输出的「卷蓝图：卷标题｜序号：N｜…」行），
+  // 作为 UI 只读卷蓝图块的因果基准——页面上可见的槽值必须来自这里，不是 UI 自造。
+  const planBlueprintLines = planItems
+    .flatMap((item) => String(item?.body ?? "").split("\n"))
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("卷蓝图："));
+  assert(
+    planBlueprintLines.length === 2,
+    `Chapter plan did not carry two volume blueprint lines: ${JSON.stringify(planBlueprintLines)}`,
+  );
+
+  const parsePlanBlueprintLine = (line) => {
+    const [titlePart, ...slotParts] = line.replace(/^卷蓝图：/, "").split("｜");
+    const slots = {};
+    for (const slotPart of slotParts) {
+      const separator = slotPart.indexOf("：");
+      if (separator < 0) continue;
+      slots[slotPart.slice(0, separator).trim()] = slotPart.slice(separator + 1).trim();
+    }
+    return {
+      title: titlePart.trim(),
+      seq: Number(slots["序号"] ?? 0),
+      goal_conflict: slots["目标冲突"] ?? "",
+      subplots_start: slots["支线启动"] ?? "",
+      climaxes: slots["高潮章"] ?? "",
+      buffers: slots["缓冲章"] ?? "",
+      new_characters: slots["新人物"] ?? "",
+    };
+  };
+  const planBlueprints = planBlueprintLines.map(parsePlanBlueprintLine);
+  assert(
+    JSON.stringify(planBlueprints.map((blueprint) => blueprint.title)) ===
+      JSON.stringify(planVolumeTitles),
+    `Planned volume blueprints did not match the planned volume assignment order: ${JSON.stringify({
+      blueprintTitles: planBlueprints.map((blueprint) => blueprint.title),
+      planVolumeTitles,
+    })}`,
+  );
+  // VS-00J §2.1 引用口径：卷蓝图提到章时只写章标题，且必须落在本卷章集合内。
+  for (const [index, blueprint] of planBlueprints.entries()) {
+    const volumeChapterTitles = planChapterTitlesByVolume[index] ?? [];
+    assert(
+      volumeChapterTitles.includes(blueprint.climaxes) &&
+        volumeChapterTitles.includes(blueprint.buffers),
+      `Volume blueprint ${index + 1} must reference chapter titles inside its own volume: ${JSON.stringify({
+        blueprint,
+        volumeChapterTitles,
+      })}`,
+    );
+  }
+
+  const blueprintFragmentsForVolume = (index) => {
+    const blueprint = planBlueprints[index];
+    return [
+      "卷蓝图",
+      `目标冲突：${blueprint.goal_conflict}`,
+      `支线：启动：${blueprint.subplots_start}`,
+      "高潮与节奏：",
+      `新要素：新人物：${blueprint.new_characters}`,
+    ];
+  };
+  const expectedVolumeBlueprintFragments = blueprintFragmentsForVolume(0);
+
   await page.waitForFunction(
     () => {
       return (
@@ -7158,6 +7221,14 @@ async function driveAu08VolumeStructuredPlanning(page) {
     { timeout: 15_000 },
   );
 
+  // B11A CP4-lite（VS-00J §4 消费面 / 43 §5.0.6）：卷蓝图只读块在卷头之后、章卡片
+  // 之前可见。只用用户可见文本断言，不新增 data-testid / 验收专用 DOM hook。
+  await page.waitForFunction(
+    (fragments) => fragments.every((fragment) => document.body.innerText.includes(fragment)),
+    expectedVolumeBlueprintFragments,
+    { timeout: 15_000 },
+  );
+
   // 从「已采纳章节计划」区块读用户看到的分组：每组首行是卷表头（卷名 · N章），
   // 其后是该卷下渲染的章条目。用区块锚定，避免误读对话区里的候选卡文本。
   const outlineGroups = await page.evaluate(() => {
@@ -7172,9 +7243,20 @@ async function driveAu08VolumeStructuredPlanning(page) {
         .split("\n")
         .map((line) => line.trim())
         .filter(Boolean);
+      const chapterStartIndex = lines.findIndex((line) => /^第\s*\d+\s*章/.test(line));
+      const blueprintIndex = lines.findIndex((line) => line.includes("卷蓝图"));
       return {
         header: lines[0] ?? "",
         chapter_titles: lines.slice(1).filter((line) => /^第\s*\d+\s*章/.test(line)),
+        // B11A CP4-lite：卷蓝图块必须在卷头之后、本卷第一张章卡片之前（DOM 可见顺序）。
+        blueprint_visible: blueprintIndex >= 0,
+        blueprint_after_header: blueprintIndex > 0,
+        blueprint_before_first_chapter:
+          blueprintIndex > 0 && (chapterStartIndex < 0 || blueprintIndex < chapterStartIndex),
+        blueprint_lines:
+          blueprintIndex >= 0
+            ? lines.slice(blueprintIndex, chapterStartIndex >= 0 ? chapterStartIndex : lines.length)
+            : [],
       };
     });
   });
@@ -7210,6 +7292,59 @@ async function driveAu08VolumeStructuredPlanning(page) {
       planned: planChapterTitlesByVolume,
     })}`,
   );
+
+  // B11A CP4-lite：每卷卷头之后、章卡片之前渲染本卷蓝图；可见槽值来自规划卷蓝图行。
+  const volumeBlueprintPerVolume = outlineGroups.map((group, index) => {
+    const blueprint = planBlueprints[index];
+    const blueprintText = group.blueprint_lines.join("\n");
+    const expectedFragments = blueprintFragmentsForVolume(index);
+    return {
+      volume_title: planVolumeTitles[index],
+      has_blueprint: group.blueprint_visible === true,
+      after_volume_header: group.blueprint_after_header === true,
+      before_chapter_cards: group.blueprint_before_first_chapter === true,
+      goal_conflict: blueprint.goal_conflict,
+      goal_conflict_visible: blueprintText.includes(`目标冲突：${blueprint.goal_conflict}`),
+      fragments: expectedFragments.filter((fragment) => blueprintText.includes(fragment)),
+    };
+  });
+  const volumeBlueprintBeforeChapters = volumeBlueprintPerVolume.every(
+    (perVolume, index) =>
+      perVolume.has_blueprint &&
+      perVolume.after_volume_header &&
+      perVolume.before_chapter_cards &&
+      perVolume.goal_conflict_visible &&
+      perVolume.fragments.length === blueprintFragmentsForVolume(index).length,
+  );
+  assert(
+    volumeBlueprintBeforeChapters,
+    `Archive outline did not render each volume's blueprint between the volume header and its chapter cards: ${JSON.stringify(volumeBlueprintPerVolume)}`,
+  );
+  // 两卷蓝图内容不同，且各自只显示本卷槽值（不串卷）——规划里两卷蓝图行本就不同。
+  const volumeBlueprintContentsDiffer =
+    planBlueprints[0].goal_conflict !== planBlueprints[1].goal_conflict &&
+    !volumeBlueprintPerVolume[0].fragments.includes(
+      `目标冲突：${planBlueprints[1].goal_conflict}`,
+    ) &&
+    !volumeBlueprintPerVolume[1].fragments.includes(`目标冲突：${planBlueprints[0].goal_conflict}`);
+  assert(
+    volumeBlueprintContentsDiffer,
+    `Archive outline volume blueprints were not per-volume distinct: ${JSON.stringify(volumeBlueprintPerVolume)}`,
+  );
+  const visibleVolumeBlueprintFragments = expectedVolumeBlueprintFragments.filter((fragment) =>
+    outlineVisibleText.includes(fragment),
+  );
+  assert(
+    visibleVolumeBlueprintFragments.length >= 4,
+    `Archive outline did not surface the requested volume blueprint fragments: ${JSON.stringify({
+      visibleVolumeBlueprintFragments,
+    })}`,
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "au08-volume-structured-planning-volume-blueprint.png"),
+    fullPage: true,
+  });
 
   // 阅读模式：目录侧边栏同样按卷分层（作者读书时看到的层级）。
   const beforeReadingLogCount = readAppLogRecords().length;
@@ -7271,6 +7406,58 @@ async function driveAu08VolumeStructuredPlanning(page) {
     tocFrameVolumeCount === 2,
     `get_toc projection frame did not carry two volumes: ${tocFrameVolumeCount}`,
   );
+
+  // B11A CP1/CP2：get_toc 卷节点带 blueprint（投影来自 DB volumes.blueprint，不是前端
+  // 拼装）。采纳即定稿：status=CONFIRMED、source_ref=artifact:<采纳 artifact>，两卷
+  // 内容不同；章归属仍与规划逐章「所属卷」逐条一致（卷蓝图不改变章归属）。
+  const tocVolumes = Array.isArray(tocResponse?.volumes) ? tocResponse.volumes : [];
+  const tocVolumeBlueprints = tocVolumes.map((volume) => {
+    const blueprint =
+      volume?.blueprint && typeof volume.blueprint === "object" ? volume.blueprint : {};
+    return {
+      title: String(volume?.title ?? ""),
+      seq: Number(volume?.seq ?? 0),
+      has_blueprint: Object.keys(blueprint).length > 0,
+      status: String(blueprint.status ?? ""),
+      source_ref: String(blueprint.source_ref ?? ""),
+      goal_conflict: String(blueprint.goal_conflict ?? ""),
+      climaxes: String(blueprint.climaxes ?? ""),
+      buffers: String(blueprint.buffers ?? ""),
+      chapter_titles: (volume?.chapters ?? []).map((chapter) => String(chapter?.title ?? "")),
+    };
+  });
+  const expectedBlueprintSourceRef = `artifact:${pendingArtifact.artifact_id}`;
+  const tocVolumesCarryConfirmedBlueprint =
+    tocVolumeBlueprints.length === 2 &&
+    tocVolumeBlueprints.every(
+      (volume, index) =>
+        volume.title === planVolumeTitles[index] &&
+        volume.has_blueprint &&
+        volume.status === "CONFIRMED" &&
+        volume.source_ref === expectedBlueprintSourceRef &&
+        volume.goal_conflict === planBlueprints[index].goal_conflict &&
+        volume.climaxes === planBlueprints[index].climaxes &&
+        volume.buffers === planBlueprints[index].buffers &&
+        JSON.stringify(volume.chapter_titles) ===
+          JSON.stringify(planChapterTitlesByVolume[index] ?? []),
+    );
+  assert(
+    tocVolumesCarryConfirmedBlueprint,
+    `get_toc projection volumes did not carry the adopted confirmed blueprint with unchanged chapter membership: ${JSON.stringify(
+      {
+        tocVolumeBlueprints,
+        expectedBlueprintSourceRef,
+        planBlueprints,
+        planChapterTitlesByVolume,
+      },
+    )}`,
+  );
+  assert(
+    tocVolumeBlueprints[0]?.goal_conflict !== tocVolumeBlueprints[1]?.goal_conflict,
+    `get_toc projection returned identical goal_conflict for both volumes: ${JSON.stringify(
+      tocVolumeBlueprints,
+    )}`,
+  );
   assert(
     actionResultFrame.body?.persistence?.reading_projection == null,
     "Outline adoption unexpectedly materialized a reading projection",
@@ -7305,6 +7492,15 @@ async function driveAu08VolumeStructuredPlanning(page) {
       reading_toc_grouped_by_volume: readingTocGroupedByVolume,
       toc_volume_count: Number(tocRecord.volume_count ?? 0),
       toc_frame_volume_count: tocFrameVolumeCount,
+      // B11A CP4-lite：档案卷蓝图只读可见 + get_toc 卷节点 blueprint（真实投影证据）。
+      volume_blueprint_visible: visibleVolumeBlueprintFragments.length >= 4,
+      volume_blueprint_fragments: visibleVolumeBlueprintFragments,
+      volume_blueprint_per_volume: volumeBlueprintPerVolume,
+      volume_blueprint_before_chapter_cards: volumeBlueprintBeforeChapters,
+      volume_blueprint_plan: planBlueprints,
+      toc_volume_blueprints: tocVolumeBlueprints,
+      toc_volume_blueprint_count: tocVolumeBlueprints.filter((volume) => volume.has_blueprint)
+        .length,
       reading_projection_materialized: Boolean(
         actionResultFrame.body?.persistence?.reading_projection,
       ),

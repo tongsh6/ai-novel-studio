@@ -1603,6 +1603,36 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 分卷卷名：仅在真实规划 prompt 里出现分卷要求时按顺序取用（见 outline_volume_assignments/2）。
   @outline_volume_titles ["第一卷·觉醒", "第二卷·裂变", "第三卷·归墟", "第四卷·长夜"]
 
+  # B11A CP2：卷蓝图行的确定性设计槽内容（VS-00J §2.1）。只由桩在真实 prompt 的
+  # 「卷蓝图要求」文本出现时取用，两卷内容不同；高潮章/缓冲章在取值时替换为该卷内
+  # 真实章标题（见 volume_blueprint_slots/2）——桩不产章号引用。
+  @outline_volume_blueprint_slots [
+    %{
+      goal_conflict: "查清灵气账单被篡改的第一条线索",
+      arc_stage: "从旁观者变成愿意下场的调查者",
+      map_boundary: "下城区的旧灯街与地下账房",
+      subplots_start: "旧友重逢",
+      subplots_advance: "账房线人交易",
+      subplots_close: "灯街守夜人倒戈",
+      payoff_density: "每两章一次当面交锋",
+      new_characters: "灯街守夜人",
+      new_settings: "灵气配额账本",
+      new_maps: "地下账房"
+    },
+    %{
+      goal_conflict: "在频段封锁前夺回被抽走的城市灵气",
+      arc_stage: "从被追捕的证人变成公开对抗的发起者",
+      map_boundary: "贯穿全城的中继塔与废弃调度站",
+      subplots_start: "官方调查组内部线人",
+      subplots_advance: "中继塔潜入行动",
+      subplots_close: "旧灯街盟友的债务清偿",
+      payoff_density: "卷末连续三章升级",
+      new_characters: "调度站退役工程师",
+      new_settings: "灵气频段契约",
+      new_maps: "废弃调度站"
+    }
+  ]
+
   defp creative_items_response(prompt) do
     {brief, context} = creative_prompt_parts(prompt)
 
@@ -1888,6 +1918,105 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         rationale: nil
       }
     end)
+    |> append_volume_blueprint_lines(outline_volume_blueprint_lines(context, start))
+  end
+
+  # 卷蓝图行必须落在 content 的独立行上：`items_to_content/2` 把 item 渲染为
+  # `title: body` 再按行交给 `ChapterPlanParser`。塞进 title 同行会被当成章标题的
+  # 一部分而解析不到；若把行放在 body **最前面**，则 `title: \n卷蓝图…` 会让首行
+  # 止于 `title:`（ASCII 冒号后无内容），章标题被解析成「第01章：觉醒:」带尾冒号。
+  # 因此把行追加到第一个 item body 末尾：解析器先抽离卷蓝图行再解析章块，章标题/
+  # 章正文/逐章卷归属全部不受影响。
+  defp append_volume_blueprint_lines(items, []), do: items
+
+  defp append_volume_blueprint_lines([first | rest], lines) do
+    [%{first | body: first.body <> "\n" <> Enum.join(lines, "\n")} | rest]
+  end
+
+  # B11A CP2（VS-00J §3.1）：只在**真实规划 prompt 里出现卷蓝图要求**时产出卷蓝图行。
+  # 该要求由 `NovelDomain.WorkSkeleton.volume_directive/1` 多卷时渲染，只有作品立了
+  # `planned_volumes > 1` 才出现在上下文段。桩只认这段真实产品文本，不认 slice
+  # id / 环境变量：没有要求就不产蓝图行，单卷/旧路径逐字节等价（I-VOL-4）。
+  defp outline_volume_blueprint_lines(context, start) do
+    context = to_string(context)
+
+    with true <- String.contains?(context, "卷蓝图要求"),
+         volume_count when is_integer(volume_count) and volume_count > 1 <-
+           requested_volume_count(context) do
+      volume_count
+      |> outline_volume_chapter_titles(start)
+      |> Enum.with_index()
+      |> Enum.map(fn {chapter_titles, index} ->
+        volume_blueprint_line(volume_title(index), index + 1, chapter_titles)
+      end)
+    else
+      _ -> []
+    end
+  end
+
+  # 每卷在本次规划批次里的真实章标题（与卷分组同源：volume_chunk_sizes/2），供
+  # 卷蓝图的高潮章/缓冲章只写章标题（VS-00J §2.1 引用口径）。
+  defp outline_volume_chapter_titles(volume_count, start) do
+    chapter_titles =
+      @outline_chapter_themes
+      |> Enum.with_index()
+      |> Enum.map(fn {theme, index} ->
+        n = start + index
+        "第#{n |> Integer.to_string() |> String.pad_leading(2, "0")}章：#{theme}"
+      end)
+
+    volume_chunk_sizes(length(chapter_titles), volume_count)
+    |> Enum.map_reduce(chapter_titles, fn size, rest ->
+      {Enum.take(rest, size), Enum.drop(rest, size)}
+    end)
+    |> elem(0)
+  end
+
+  defp volume_blueprint_line(title, seq, chapter_titles) do
+    slots = volume_blueprint_slots(seq, chapter_titles)
+
+    [
+      {"目标冲突", slots.goal_conflict},
+      {"弧光阶段", slots.arc_stage},
+      {"地图边界", slots.map_boundary},
+      {"支线启动", slots.subplots_start},
+      {"支线推进", slots.subplots_advance},
+      {"支线收束", slots.subplots_close},
+      {"高潮章", slots.climaxes},
+      {"爽点密度", slots.payoff_density},
+      {"缓冲章", slots.buffers},
+      {"新人物", slots.new_characters},
+      {"新设定", slots.new_settings},
+      {"新地图", slots.new_maps}
+    ]
+    |> Enum.map_join("｜", fn {label, value} -> "#{label}：#{value}" end)
+    |> then(&"卷蓝图：#{title}｜序号：#{seq}｜#{&1}")
+  end
+
+  defp volume_blueprint_slots(seq, chapter_titles) do
+    content =
+      Enum.at(@outline_volume_blueprint_slots, seq - 1, default_volume_blueprint_slots(seq))
+
+    content
+    |> Map.put(:climaxes, List.last(chapter_titles) || "待定")
+    |> Map.put(:buffers, Enum.at(chapter_titles, div(length(chapter_titles), 2)) || "待定")
+  end
+
+  # 第 3 卷及以后的规划（其它场景的 planned_volumes > 2）也要每卷一行蓝图；
+  # 内容诚实派生自序号，不伪造具体情节。
+  defp default_volume_blueprint_slots(seq) do
+    %{
+      goal_conflict: "推进第#{seq}卷的核心冲突",
+      arc_stage: "人物弧光进入第#{seq}阶段",
+      map_boundary: "第#{seq}卷舞台",
+      subplots_start: "第#{seq}卷新支线",
+      subplots_advance: "第#{seq}卷主线推进",
+      subplots_close: "第#{seq}卷旧支线收束",
+      payoff_density: "每三章一个爽点",
+      new_characters: "第#{seq}卷新角色",
+      new_settings: "第#{seq}卷新设定",
+      new_maps: "第#{seq}卷新地图"
+    }
   end
 
   # 场次逐场标注（NEM04 刀③）：真实 prompt 已要求逐场计划，桩按同格式产两场，

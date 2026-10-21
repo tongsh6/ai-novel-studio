@@ -14255,7 +14255,15 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
       record.reading_projection_materialized === false &&
       Array.isArray(record.volume_headers) &&
       // 分卷书的核心断言：两个卷表头，不是单卷扁平列表。
-      record.volume_headers.length === 2,
+      record.volume_headers.length === 2 &&
+      // B11A CP4-lite：档案卷蓝图只读可见（多卷卷头之后、章卡片之前）+ TOC 卷节点 blueprint。
+      record.volume_blueprint_visible === true &&
+      Array.isArray(record.volume_blueprint_fragments) &&
+      record.volume_blueprint_fragments.length >= 4 &&
+      Array.isArray(record.volume_blueprint_per_volume) &&
+      record.volume_blueprint_per_volume.length === 2 &&
+      Array.isArray(record.toc_volume_blueprints) &&
+      record.toc_volume_blueprints.length === 2,
   );
   if (!uiState) return null;
 
@@ -14306,6 +14314,79 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
   if (chapterTitlesByVolume[0].some((title) => chapterTitlesByVolume[1].includes(title))) {
     return null;
   }
+
+  // B11A CP4-lite：档案卷蓝图只读块——多卷时每卷卷头之后、章卡片之前可见，
+  // 可见槽值来自规划卷蓝图行（因果绑定，不是 UI 自造）。
+  const volumeBlueprintFragments = stringArray(uiState.volume_blueprint_fragments);
+  if (!volumeBlueprintFragments || volumeBlueprintFragments.length < 4) return null;
+  const requiredBlueprintFragments = [
+    "卷蓝图",
+    "目标冲突：",
+    "支线：启动：",
+    "高潮与节奏：",
+    "新要素：",
+  ];
+  if (
+    !requiredBlueprintFragments.every((fragment) =>
+      volumeBlueprintFragments.some((value) => value.includes(fragment)),
+    )
+  ) {
+    return null;
+  }
+  const volumeBlueprintPerVolume = Array.isArray(uiState.volume_blueprint_per_volume)
+    ? uiState.volume_blueprint_per_volume
+    : null;
+  if (!volumeBlueprintPerVolume || volumeBlueprintPerVolume.length !== 2) return null;
+  for (let index = 0; index < 2; index += 1) {
+    const perVolume = volumeBlueprintPerVolume[index];
+    if (!perVolume || typeof perVolume !== "object") return null;
+    if (perVolume.volume_title !== planVolumeTitles[index]) return null;
+    if (perVolume.has_blueprint !== true) return null;
+    if (perVolume.after_volume_header !== true) return null;
+    if (perVolume.before_chapter_cards !== true) return null;
+    if (perVolume.goal_conflict_visible !== true) return null;
+    const fragments = stringArray(perVolume.fragments);
+    if (!fragments || fragments.length < 4) return null;
+  }
+  // 两卷蓝图内容不同（每卷只显示本卷槽值，不串卷）。
+  if (volumeBlueprintPerVolume[0].goal_conflict === volumeBlueprintPerVolume[1].goal_conflict) {
+    return null;
+  }
+
+  // B11A CP1/CP2：get_toc 卷节点带 blueprint（真实投影来自 DB volumes.blueprint）：
+  // 采纳即定稿 CONFIRMED、来源 artifact:<采纳 artifact>，两卷内容不同；章归属逐条不变。
+  const tocVolumeBlueprints = Array.isArray(uiState.toc_volume_blueprints)
+    ? uiState.toc_volume_blueprints
+    : null;
+  if (!tocVolumeBlueprints || tocVolumeBlueprints.length !== 2) return null;
+  for (let index = 0; index < 2; index += 1) {
+    const volume = tocVolumeBlueprints[index];
+    if (!volume || typeof volume !== "object") return null;
+    if (volume.title !== planVolumeTitles[index]) return null;
+    if (volume.has_blueprint !== true) return null;
+    if (volume.status !== "CONFIRMED") return null;
+    if (!String(volume.source_ref ?? "").startsWith("artifact:")) return null;
+    if (!String(volume.goal_conflict ?? "").trim()) return null;
+    if (!String(volume.climaxes ?? "").trim() || !String(volume.buffers ?? "").trim()) {
+      return null;
+    }
+    // 卷蓝图只引用本卷章标题（VS-00J §2.1），且不改变章归属。
+    const tocChapterTitles = stringArray(volume.chapter_titles);
+    if (!tocChapterTitles) return null;
+    const renderedChapterTitles = chapterTitlesByVolume[index];
+    if (tocChapterTitles.length !== renderedChapterTitles.length) return null;
+    if (tocChapterTitles.some((title, position) => title !== renderedChapterTitles[position])) {
+      return null;
+    }
+    if (
+      !renderedChapterTitles.includes(String(volume.climaxes)) ||
+      !renderedChapterTitles.includes(String(volume.buffers))
+    ) {
+      return null;
+    }
+  }
+  if (tocVolumeBlueprints[0].goal_conflict === tocVolumeBlueprints[1].goal_conflict) return null;
+  if (tocVolumeBlueprints[0].source_ref !== tocVolumeBlueprints[1].source_ref) return null;
 
   const generationTurnId = String(uiState.generation_turn_id ?? "");
   const adoptionTurnId = String(uiState.adoption_turn_id ?? "");
@@ -14371,6 +14452,34 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
     volume_chapter_counts: volumeChapterCounts,
     chapter_titles_by_volume: chapterTitlesByVolume,
     reading_toc_volume_headers: readingTocVolumeHeaders,
+    // B11A：档案卷蓝图可见证据 + get_toc 卷节点 blueprint（CONFIRMED/source_ref/章归属）。
+    volume_blueprint_fragments: volumeBlueprintFragments,
+    volume_blueprint_per_volume: volumeBlueprintPerVolume.map((perVolume) => ({
+      volume_title: perVolume.volume_title,
+      has_blueprint: perVolume.has_blueprint,
+      after_volume_header: perVolume.after_volume_header,
+      before_chapter_cards: perVolume.before_chapter_cards,
+      goal_conflict_visible: perVolume.goal_conflict_visible,
+      goal_conflict: perVolume.goal_conflict,
+      fragments: perVolume.fragments,
+    })),
+    volume_blueprint_count: volumeBlueprintPerVolume.length,
+    toc_volume_blueprints: tocVolumeBlueprints.map((volume) => ({
+      title: volume.title,
+      seq: volume.seq,
+      has_blueprint: volume.has_blueprint,
+      status: volume.status,
+      source_ref: volume.source_ref,
+      goal_conflict: volume.goal_conflict,
+      climaxes: volume.climaxes,
+      buffers: volume.buffers,
+      chapter_count: volume.chapter_titles.length,
+    })),
+    toc_volume_blueprint_count: tocVolumeBlueprints.filter((volume) => volume.has_blueprint)
+      .length,
+    toc_volume_blueprint_confirmed_count: tocVolumeBlueprints.filter(
+      (volume) => volume.status === "CONFIRMED",
+    ).length,
     key_events: keyEvents,
   };
 }
@@ -14955,6 +15064,41 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
   if (Number(uiState.toc_volume_count ?? 0) !== 2) return null;
   if (Number(uiState.toc_frame_volume_count ?? 0) !== 2) return null;
 
+  // B11A CP4-lite：档案卷蓝图只读可见（每卷卷头之后、章卡片之前），可见槽值来自规划。
+  if (uiState.volume_blueprint_visible !== true) return null;
+  const blueprintPerVolume = evidence.volume_blueprint_per_volume;
+  if (!Array.isArray(blueprintPerVolume) || blueprintPerVolume.length !== 2) return null;
+  if (
+    blueprintPerVolume.some(
+      (volume) =>
+        volume.has_blueprint !== true ||
+        volume.after_volume_header !== true ||
+        volume.before_chapter_cards !== true ||
+        volume.goal_conflict_visible !== true,
+    )
+  ) {
+    return null;
+  }
+  if (blueprintPerVolume[0].goal_conflict === blueprintPerVolume[1].goal_conflict) return null;
+
+  // B11A CP1/CP2：get_toc 卷节点 blueprint 采纳即定稿（CONFIRMED + artifact: 来源），
+  // 两卷蓝图不同，章归属仍与采纳计划逐条一致。
+  const tocBlueprints = evidence.toc_volume_blueprints;
+  if (!Array.isArray(tocBlueprints) || tocBlueprints.length !== 2) return null;
+  if (evidence.toc_volume_blueprint_count !== 2) return null;
+  if (evidence.toc_volume_blueprint_confirmed_count !== 2) return null;
+  if (
+    tocBlueprints.some(
+      (volume) =>
+        volume.has_blueprint !== true ||
+        volume.status !== "CONFIRMED" ||
+        !String(volume.source_ref ?? "").startsWith("artifact:"),
+    )
+  ) {
+    return null;
+  }
+  if (tocBlueprints[0].goal_conflict === tocBlueprints[1].goal_conflict) return null;
+
   return {
     slice_id: "au08-volume-structured-planning",
     behavior: "chapter_plan_materialized_into_declared_volumes_and_read_by_volume",
@@ -14962,17 +15106,23 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
     chapter_count: Number(uiState.chapter_count ?? 0),
     volume_headers: evidence.volume_headers,
     volume_chapter_counts: evidence.volume_chapter_counts,
+    volume_blueprint_per_volume: blueprintPerVolume,
+    toc_volume_blueprints: tocBlueprints,
     assertions: [
       "real_archive_outline_start_planning_clicked",
       "micro_plan_requested_from_real_workbench",
       "plot_outline_capability_selected_by_judgment_and_run_bounded",
       "plot_outline_generated_outline_draft_with_per_chapter_volume_assignment",
+      "outline_draft_carried_per_volume_blueprint_lines",
       "outline_draft_adopted_through_adoption_boundary",
       "plan_materialized_into_multiple_volumes",
       "archive_outline_rendered_two_volume_headers_with_chapter_counts",
       "volume_chapter_membership_matches_adopted_plan_assignment",
+      "archive_outline_rendered_volume_blueprint_after_volume_header_before_chapter_cards",
       "reading_toc_grouped_by_volume",
       "toc_projection_returned_two_volumes",
+      "toc_projection_volumes_carry_confirmed_blueprint_with_artifact_source_ref",
+      "adopted_blueprints_are_per_volume_distinct",
     ],
   };
 }

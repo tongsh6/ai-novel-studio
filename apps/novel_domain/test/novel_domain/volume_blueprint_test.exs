@@ -2,8 +2,8 @@ defmodule NovelDomain.VolumeBlueprintTest do
   @moduledoc "B11A CP1：卷级蓝图 domain 归一/渲染/三态（VS-00J §2.1，纯函数）。"
   use ExUnit.Case, async: true
 
-  alias NovelFoundation.Enums.VolumeBlueprintStatus
   alias NovelDomain.VolumeBlueprint
+  alias NovelFoundation.Enums.VolumeBlueprintStatus
 
   describe "new/1 归一" do
     test "字符串键：trim 后保留，空值丢弃" do

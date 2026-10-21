@@ -189,22 +189,22 @@ defmodule NovelPersistence.ChapterPlanParser do
 
   # `序号` 是卷身份的一部分（(work_id, seq)），不进蓝图 map；缺省/非法时回落行序。
   defp extract_volume_seq(slot_parts) do
-    {seq, rest} =
-      Enum.reduce(slot_parts, {nil, []}, fn part, {seq, rest} ->
-        case split_label(part) do
-          {:ok, label, value} ->
-            if normalize_direction_label(label) == @volume_seq_label do
-              {positive_integer(value), rest}
-            else
-              {seq, [part | rest]}
-            end
-
-          :error ->
-            {seq, [part | rest]}
-        end
-      end)
-
+    {seq, rest} = Enum.reduce(slot_parts, {nil, []}, &extract_volume_seq_part/2)
     {seq, Enum.reverse(rest)}
+  end
+
+  defp extract_volume_seq_part(part, {seq, rest}) do
+    case split_label(part) do
+      {:ok, label, value} ->
+        if normalize_direction_label(label) == @volume_seq_label do
+          {positive_integer(value), rest}
+        else
+          {seq, [part | rest]}
+        end
+
+      :error ->
+        {seq, [part | rest]}
+    end
   end
 
   # 子槽键口径与存储白名单同源（VolumeBlueprint.slot_key/1）；未知标签/空值丢弃。

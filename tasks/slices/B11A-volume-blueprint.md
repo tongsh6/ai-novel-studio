@@ -1,6 +1,6 @@
 # B11A-volume-blueprint：卷结构与卷级蓝图（大周期）
 
-**状态**：**doing（2026-10-22，CP0 + CP1 + CP2 + CP4-lite 已落地并门禁全绿；CP3/CP5 + 真实页面验收 queued）**。ADR-0028 已 Accepted。作者拍板主线顺序 B13a → B11③ → B11①，本 slice 即 B11①。**未写 done**：开新卷动作（CP3）、卷级收束/负债规则（CP5）、CP4 完整消费面与真实页面验收仍未闭环（见 §2b 诚实边界与 ADR-0028 enforcement_gaps）。
+**状态**：**doing（2026-10-22，CP0 + CP1 + CP2 + CP4-lite 已落地，门禁全绿，且该链真实 Tauri `au08-volume-structured-planning` PASS；CP3 开新卷动作、CP5 卷级收束/负债、CP4 完整消费面 queued）**。ADR-0028 已 Accepted。作者拍板主线顺序 B13a → B11③ → B11①，本 slice 即 B11①。**未写 done**：开新卷动作（CP3）、卷级收束/负债规则（CP5）、CP4 完整消费面与真实页面验收仍未闭环（见 §2b 诚实边界与 ADR-0028 enforcement_gaps）。
 **来源**：`docs/design/08-novel-element-model.md` §8 序位 6 / §6.2 NEM-GAP-07；`tasks/NEXT.md` B11 台账；契约 `docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md`；ADR `docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md`。
 **前置**：`tasks/slices/AU08-volume-structured-planning.md`（done：卷容器/逐章卷归属/目录分层）与 `tasks/slices/B11C-scene-craft-completion.md`（场级 craft；与卷块共用 parser 单趟抽取纪律）。
 
@@ -35,7 +35,7 @@
 | **CP1** | `volumes.blueprint` map 列 migration + `Volume` schema/domain `VolumeBlueprint`（归一/渲染/三态白名单）+ 卷状态修复（规划物化 PLANNED / 正文规范单卷 COMPLETED）+ `upsert_volume_blueprint` 采纳写入 + `reading_projection` 暴露 blueprint | domain/persistence 单测；无蓝图 TOC 字节等价；全量后端回归 | **done（2026-10-22）** |
 | **CP2** | 卷蓝图行产出指令（经 `WorkSkeleton.volume_directive`）+ `ChapterPlanParser.parse_with_volumes/1`（先于章块，防假章）+ 物化 + 改名去重 | parser 单测（卷块/无卷块/混排/ASCII 冒号负例/续行丢弃）；物化单测（幂等/改名不重复建卷/单卷退化）；采纳回归 | **done（2026-10-22）** |
 | **CP3** | 开新卷动作形态 A：判断意图 + `volume_scope`（机械上下文给当前卷数与末章位置）+ planner 产下一卷蓝图/首批章计划 + 采纳落卷 | 单测（意图判定/作用域绑定）；真实页面「开第二卷」→候选→采纳 | queued |
-| **CP4** | 卷蓝图消费面：档案卷头只读块（**CP4-lite done**）；planner「当前卷蓝图+进度」注入；`chapter_mission_inputs` 卷坐标；探索面当前卷；`WritingCoordinate.volume_ref`；修工作台「未定卷」假坐标；`design_ref` 形状 | 单测（在场/缺席逐字节）；组件测试；真实页面可见 | **CP4-lite done（2026-10-22）；余项 queued** |
+| **CP4** | 卷蓝图消费面：档案卷头只读块（**CP4-lite done，真实页面可见已 PASS**）；planner「当前卷蓝图+进度」注入；`chapter_mission_inputs` 卷坐标；探索面当前卷；`WritingCoordinate.volume_ref`；修工作台「未定卷」假坐标；`design_ref` 形状 | 单测（在场/缺席逐字节）；组件测试；真实页面可见 | **CP4-lite done（2026-10-22，au08 Tauri PASS）；余项 queued** |
 | **CP5** | 卷级收束守则（全书优先）+ 计划卷数/事实卷数负债规则 + 真实页面验收（扩 au08 场景） | 域单测 + 真实 Tauri PASS + I1/I2/I3 | queued（与 CP4 同批验收） |
 
 **依赖**：CP0 →（CP1+CP2 同批）→ CP3 → CP4 → CP5。CP1+CP2 不单独算 done；CP4+CP5 必须真实页面闭环。
@@ -52,13 +52,13 @@
 
 **验证（全部实跑）**：后端全量 **1,683 tests / 0 failures**（CP1+CP2 新增 45）、dev/test `compile --warnings-as-errors`、`mix format --check-formatted`、`mix codegen.enums --check`、xref 无环、arch_check 通过、I1/I2/I3/N-NARR/I-CACHE-1 绿；前端 **33 files / 508 tests**、audit 27/0/0、design trace 16/0/0；`adr_trace` **27/27 Accepted（236 refs / 0 pending）**。
 
-**真实页面验收计划（下一 checkpoint，2026-10-22 因并发会话占用 driver/verifier/scenario 文件而延后）**：
-1. 扩 `au08-volume-structured-planning`（不新建场景）：slice_verify stub 在真实 prompt 文本要求下产出两卷「卷蓝图」行（目标冲突/支线/高潮/新要素），驱动真实 Tauri「规划卷章结构→保存到大纲→重开档案」；
-2. driver 用用户可见文本断言「卷蓝图」「目标冲突：」「支线：启动：」「高潮与节奏：」「新要素：」在该卷章卡片之前出现（多卷），无 blueprint 的卷不出现；截图留证；
-3. verifier 断言采纳后 persistence 快照 `volumes` 两行各带 blueprint（CONFIRMED + source_ref）、TOC 卷节点带 blueprint、章归属不变；I1/I2/I3 绿；证据 `artifacts/slice-verify/au08-volume-structured-planning-tauri/summary.json`；
-4. 失败暴露产品 bug 先修再复跑，**不得用单测/browser 绿灯冒充 Tauri PASS**。
+**真实页面验收（done，2026-10-22，真实 Tauri）**：扩既有 `au08-volume-structured-planning`（不新建场景），`PHOENIX_PORT=4656 VITE_DEV_PORT=5770 bash scripts/tauri_slice_verify.sh au08-volume-structured-planning` → **exit 0 / passed**（默认 5769 被用户 stage 占用，用脚本官方 env 端口；未杀用户进程）。证据 `artifacts/slice-verify/au08-volume-structured-planning-tauri/summary.json`：
+- 规划 turn_result pending payload 带**2 条独立卷蓝图 content 行**（顺序=规划卷序；高潮/缓冲章只引用本卷真实章标题），桩只认真实产品 prompt 文本「卷蓝图要求」（负例：无该文本 → 0 条蓝图）；
+- 档案「大纲与结构」重开后逐卷可见只读「卷蓝图」块：`目标冲突：查清灵气账单被篡改的第一条线索` / `支线：启动：旧友重逢` / `高潮与节奏：` / `新要素：新人物：灯街守夜人`（第二卷内容不同；逐卷 DOM 行序 = 卷头之后、章卡片之前；两卷不串卷）；截图 `au08-volume-structured-planning-volume-blueprint.png`；
+- 真实 `get_toc` 回复帧两卷各带 blueprint：`status=CONFIRMED`、`source_ref=artifact:<本次采纳 artifact_id>`、goal/climaxes/buffers 与规划行一致；卷章归属不变（5/7、合计 12）；既有卷分组/阅读目录/采纳边界断言零回归；behavior 14 条断言全过。
+- 诚实边界：本 harness 无 persistence snapshot 通道，持久化证据=真实 `get_toc` 回复帧（后端从 `volumes.blueprint` 投影 + source_ref 精确绑定本次采纳 artifact），非原始 DB dump；blueprint 无新增专用日志事件，required-events 表未改；桩对其它 `planned_volumes>1` 场景（au13/au14/ca04）也会带蓝图（无 blueprint 断言，后续顺手回归留意）。
 
-**诚实边界（未闭环，不得写 done）**：CP3 开新卷动作无代码；CP5 卷级收束/负债规则无代码；CP4 完整消费面（planner 注入/坐标/探索面/design_ref）未接线；真实页面验收未跑；卷蓝图编辑/作者裁决 UI 未做；重采纳时若蓝图改名而逐章 `所属卷` 仍用旧名会按标题落成另一个卷（契约字面：章标注定章挂哪卷，未加模糊匹配）。
+**诚实边界（未闭环，不得写 done）**：CP3 开新卷动作无代码；CP5 卷级收束/负债规则无代码；CP4 完整消费面（planner 注入/坐标/探索面/design_ref）未接线；卷蓝图编辑/作者裁决 UI 未做；重采纳时若蓝图改名而逐章 `所属卷` 仍用旧名会按标题落成另一个卷（契约字面：章标注定章挂哪卷，未加模糊匹配）；其它多卷场景（au13/au14/ca04）未回归 blueprint 兼容（桩已会产蓝图行，断言未加）。
 
 ## 3. 明确不做（YAGNI / 登记）
 
@@ -88,3 +88,4 @@
 - 2026-10-22 — 作者拍板主线顺序 B13a → B11③ → B11①，B11① 开工即 08 §8 序位 6 的"开新卷创作动作提出"触发条件。CP0 按作者开工授权与 VS-00F 先例（"开工授权按建议默认拍板、可在 CP 内翻案"）冻结 VS-00J；四项开放决策取建议默认（VS-00J §9）。
 - 2026-10-22 — CP0 落档：VS-00J Frozen；ADR-0028 Proposed（Accepted 前不授权 CP1 代码——B13a 之后 ADR 门禁要求 Accepted 才有 enforced_by，本 ADR 在 CP1 落地后同批转 Accepted 并补真实引用）；发现并登记「21/34 引用的 ADR-0004 冻结 volume→arc」为失效引用，按"卷结构无 ADR 背书"处理（ADR-0028 补齐），同步修正引用。
 - 2026-10-22 — **CP1+CP2+CP4-lite 落地（作者"做 B11①"开工授权即 ADR 接受）**：ADR-0028 由 Proposed 转 Accepted（按 VS-00F「开工授权按建议默认拍板、可翻案」先例；`## enforced_by` 引用本轮真实实现，CP3/CP5/真实页面验收列 `## enforcement_gaps`）。后端 1,683/0 + I1/I2/I3/N-NARR/I-CACHE-1 绿；前端 508/0 + audit/design trace 绿；adr_trace 27/27（236 refs/0 pending）。真实页面验收（扩 au08）延后到下一 checkpoint：2026-10-22 另一并发 DSH 会话正在改 `frontend/slice-verify/*`、`scripts/tauri_slice_verify.sh`、`quality/acceptance/*`，不能安全合并/复跑 Tauri；按场景化验收红线**不拿单测冒充真实页面 PASS**。
+- 2026-10-22 — **B11A CP1+CP2+CP4-lite 真实页面验收 PASS**：扩展既有 `au08-volume-structured-planning`（不新建场景），外部 Playwright 驱动真实 Tauri 工作台：规划产 2 条卷蓝图行 → 采纳 → 重开档案逐卷可见只读卷蓝图块（目标冲突/支线启动/高潮与新要素，两卷内容不同、位置在卷头后章卡片前）→ 真实 `get_toc` 帧两卷 blueprint `CONFIRMED` 且 `source_ref` 精确绑定本次采纳 artifact、章归属不变；既有卷分组/阅读目录断言零回归。命令与证据见 §2b「真实页面验收」。未做仍为 CP3（开新卷动作）、CP5（卷级收束/负债规则）、CP4 完整消费面。

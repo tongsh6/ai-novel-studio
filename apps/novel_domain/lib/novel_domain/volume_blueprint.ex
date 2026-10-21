@@ -175,17 +175,18 @@ defmodule NovelDomain.VolumeBlueprint do
   @spec render_lines(t() | map() | nil) :: [String.t()]
   def render_lines(value) do
     case new(value) do
-      nil ->
-        []
+      nil -> []
+      blueprint -> design_lines(blueprint)
+    end
+  end
 
-      blueprint ->
-        @design_slots
-        |> Enum.flat_map(fn {_atom, key, label} ->
-          case Map.get(blueprint, key) do
-            nil -> []
-            text -> ["#{label}：#{text}"]
-          end
-        end)
+  defp design_lines(blueprint),
+    do: Enum.flat_map(@design_slots, &design_slot_line(&1, blueprint))
+
+  defp design_slot_line({_atom, key, label}, blueprint) do
+    case Map.get(blueprint, key) do
+      nil -> []
+      text -> ["#{label}：#{text}"]
     end
   end
 
