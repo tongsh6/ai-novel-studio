@@ -36,6 +36,7 @@ defmodule NovelAgent.Provider.Gateway do
   @provider_modules %{
     stub: Provider.Stub,
     lmstudio: Provider.LMStudio,
+    strata: Provider.Strata,
     anthropic: Provider.Anthropic,
     deepseek: Provider.DeepSeek,
     openai: Provider.OpenAI,
@@ -64,6 +65,17 @@ defmodule NovelAgent.Provider.Gateway do
       supports_endpoint: true,
       # M6 对照（2026-08-26）：qwen3.8 族请求级 reasoning_effort 实证有效，
       # 思考控制对 LM Studio 放开（作者关思考→adapter 发 "none"）。
+      supports_thinking: true,
+      supports_streaming: true,
+      supports_cancellation: true
+    },
+    # 本地 Strata（strata-engine）：默认无 Key，也支持在 Strata 设置里配置
+    # serving.apiKey；思考控制走请求级顶层 reasoning_effort（"none" 关思考）。
+    strata: %{
+      label: "Strata",
+      requires_api_key: false,
+      supports_api_key: true,
+      supports_endpoint: true,
       supports_thinking: true,
       supports_streaming: true,
       supports_cancellation: true

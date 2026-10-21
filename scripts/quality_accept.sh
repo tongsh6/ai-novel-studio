@@ -21,6 +21,8 @@ Usage:
   bash scripts/quality_accept.sh <scenario-id> --provider slice_verify
   bash scripts/quality_accept.sh <scenario-id> --provider lmstudio
   bash scripts/quality_accept.sh <scenario-id> --provider deepseek
+  bash scripts/quality_accept.sh <scenario-id> --provider strata
+  bash scripts/quality_accept.sh su01-provider-strata-local --surface tauri
   bash scripts/quality_accept.sh e2e-01-full-chain --provider lmstudio
   bash scripts/quality_accept.sh --tier pr-smoke
   bash scripts/quality_accept.sh --tier nightly --surface tauri

@@ -159,6 +159,22 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 ## 6. Decision Log
 
+- 2026-10-21 — **新增本地 Strata provider**（用户定向插单「添加 strata provider」）。
+  本机 Strata（strata-engine）OpenAI 兼容服务 `http://127.0.0.1:8081/v1` 正在运行、
+  加载 `qwen3.8-flash-next-q2_0`。实现：新增 `NovelAgent.Provider.Strata`（keyless
+  可选 Bearer、默认 `thinking: disabled` → 顶层 `reasoning_effort:"none"`、具名
+  `tool_choice` 不降级）；`OpenAICompatible` 宏增加 `api_key_required`/`thinking_style`
+  两个默认不变的参数（既有 6 vendor 零回归）；Gateway registry/descriptor、config
+  env 可覆盖、AssemblyPolicy `strata: :floor`；前端 ProviderId 与 Rust provider id
+  白名单登记（Dialog 仍由后端 registry 渲染，产品无验收感知）。验收：后端
+  `mix compile --warnings-as-errors`、全量 `mix test` 1,616/0、xref/arch/静态扫描与
+  I1/I2/I3 通过；真实 Strata 探活 health :ok + 流式 content + 真实 tool_call；真实
+  Tauri `--provider strata su01-provider-strata-local` PASS（turn
+  `message_91839ede-6d46-4abe-b4a0-dd13c5b234fc`，同 turn 2×`POST /v1/chat/completions`
+  HTTP 200，证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`）。
+  诚实边界：live 场景依赖本机 Strata 与固定模型名，非 CI 确定性；可选 `serving.apiKey`
+  只由 adapter 单测覆盖，未跑 live key 路径。slice：`tasks/slices/SU01-strata-local-provider.md`。
+
 - 2026-10-21 — **Q1c 收口**。正式 `q1c-adopted-content-revision` browser 场景
   （slice_verify）PASS，三轮回合约 4.3s；旧版 `SUPERSEDED` / 新版 `CONFIRMED` / 单一
   current fact / follow-up 新值均成立。新增歧义、stale、跨作品拒绝测试与 discard

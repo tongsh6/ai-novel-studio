@@ -93,6 +93,7 @@ export const nativeSliceIds = [
   "su01-provider-test-failure-ui",
   "su01-api-key-secret-redaction",
   "su01-provider-vendor-matrix",
+  "su01-provider-strata-local",
   "su01-local-secret-file-roundtrip",
   "su01-model-provider-switching",
   "stage-startup-context-contract",
@@ -318,6 +319,14 @@ const sliceKeyEvents = {
   "su01-provider-test-failure-ui": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-api-key-secret-redaction": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-provider-vendor-matrix": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-provider-strata-local": [
+    "channel.join.done",
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "su01-local-secret-file-roundtrip": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
@@ -1746,7 +1755,7 @@ export function keyEventsForSlice(sliceId) {
 }
 
 export function findLiveProviderEvidence(provider, turnIds, records) {
-  if (!["lmstudio", "deepseek"].includes(provider)) return null;
+  if (!["lmstudio", "deepseek", "strata"].includes(provider)) return null;
 
   const requiredTurnIds = new Set(turnIds.filter(Boolean));
   if (requiredTurnIds.size === 0) return null;
@@ -1855,6 +1864,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "su01-provider-vendor-matrix") {
     return findSu01ProviderVendorMatrixEvidence(records);
+  }
+
+  if (sliceId === "su01-provider-strata-local") {
+    return findSu01ProviderStrataLocalEvidence(records);
   }
 
   if (sliceId === "su01-local-secret-file-roundtrip") {
@@ -2614,6 +2627,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "su01-provider-vendor-matrix") {
     return su01ProviderVendorMatrixBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-provider-strata-local") {
+    return su01ProviderStrataLocalBehavior(records, evidence, options);
   }
 
   if (sliceId === "su01-local-secret-file-roundtrip") {
@@ -9908,6 +9925,80 @@ function findSu01ProviderVendorMatrixEvidence(records) {
       provider_selected: uiState.provider_selected,
       model_selected: uiState.model_selected,
       listed_vendor_ids: uiState.listed_vendor_ids,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ProviderStrataLocalEvidence(records) {
+  const sliceId = "su01-provider-strata-local";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.provider_selected === "strata" &&
+      record.provider_label === "Strata" &&
+      record.endpoint_default === "http://127.0.0.1:8081/v1" &&
+      record.strata_model_selected === "qwen3.8-flash-next-q2_0" &&
+      record.connection_test_passed === true &&
+      record.live_provider === "strata" &&
+      record.assistant_reply_non_empty === true &&
+      record.turn_id &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const turnRecords = byTurn.get(uiState.turn_id) ?? [];
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.assistant_reply_visible !== true) continue;
+    if (uiState.top_bar_contains_provider_label !== true) continue;
+    if (uiState.top_bar_contains_model !== true) continue;
+    if (uiState.provider_options_current_provider !== "strata") continue;
+    if (uiState.provider_switch_saved !== true) continue;
+    if (uiState.no_acceptance_hooks !== true) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      event === "channel.join.done" ? true : turnRecords.some((record) => record.event === event),
+    );
+    if (!hasAllEvents) continue;
+
+    const providerDone = turnRecords.find(
+      (record) =>
+        record.event === "provider_gateway.complete.done" &&
+        record.provider === "strata" &&
+        typeof record.model === "string" &&
+        record.model.length > 0,
+    );
+    if (!providerDone) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: uiState.turn_id,
+      turn_ids: [uiState.turn_id],
+      work_id: uiState.work_id,
+      provider_selected: uiState.provider_selected,
+      provider_label: uiState.provider_label,
+      endpoint_default: uiState.endpoint_default,
+      strata_model_selected: uiState.strata_model_selected,
+      connection_test_passed: uiState.connection_test_passed,
+      live_provider: uiState.live_provider,
+      assistant_reply_non_empty: uiState.assistant_reply_non_empty,
+      assistant_reply_visible: uiState.assistant_reply_visible,
+      top_bar_contains_provider_label: uiState.top_bar_contains_provider_label,
+      top_bar_contains_model: uiState.top_bar_contains_model,
+      listed_model_ids: uiState.listed_model_ids,
+      provider_after_switch: providerDone.provider,
+      model_after_switch: providerDone.model,
+      message_text: uiState.message_text,
       key_events: keyEvents,
     };
   }
@@ -22694,6 +22785,49 @@ function su01ProviderVendorMatrixBehavior(records, evidence, _options) {
       "openai_api_key_and_subscription_are_distinct_entries",
       "provider_options_marked_api_key_configured_without_returning_secret",
       "visible_ui_browser_settings_business_logs_and_backend_logs_did_not_expose_api_key",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ProviderStrataLocalBehavior(records, evidence, options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  // 本 slice 是 live 本地 provider 验收：必须用 --provider strata 跑，且 LLM HTTP
+  // 日志里同一 turn 有真实 POST /v1/chat/completions 2xx，才允许通过。
+  if (options.provider !== "strata") return null;
+  if (!findLiveProviderEvidence("strata", evidence.turn_ids, options.llmRecords ?? [])) return null;
+
+  const turnRecords = records.filter((record) => evidence.turn_ids.includes(record.turn_id));
+  const providerDone = turnRecords.find(
+    (record) => record.event === "provider_gateway.complete.done" && record.provider === "strata",
+  );
+  if (!providerDone) return null;
+
+  return {
+    slice_id: "su01-provider-strata-local",
+    behavior: "local_strata_provider_registry_model_connection_and_real_turn",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    provider_selected: evidence.provider_selected,
+    provider_label: evidence.provider_label,
+    endpoint_default: evidence.endpoint_default,
+    strata_model_selected: evidence.strata_model_selected,
+    connection_test_passed: evidence.connection_test_passed,
+    live_provider: evidence.live_provider,
+    provider_after_switch: evidence.provider_after_switch,
+    model_after_switch: evidence.model_after_switch,
+    assertions: [
+      "strata_provider_came_from_backend_registry",
+      "default_endpoint_is_local_strata_127_0_0_1_8081",
+      "model_list_came_from_live_local_strata_models_endpoint",
+      "qwen3_8_flash_next_q2_0_was_selected_in_the_visible_dialog",
+      "test_connection_succeeded_against_live_local_strata",
+      "save_switched_runtime_provider_to_strata",
+      "top_bar_model_button_showed_strata_and_current_model",
+      "post_save_turn_used_strata_provider_in_gateway_log",
+      "assistant_reply_was_non_empty_and_visible_in_real_workbench",
+      "llm_http_log_has_post_v1_chat_completions_2xx_for_the_correlated_turn",
+      "product_code_added_no_acceptance_hooks",
       "no_error_events",
     ],
   };

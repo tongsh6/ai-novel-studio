@@ -208,6 +208,47 @@ describe("model provider API client", () => {
     expect(options.providers.map((option) => option.id)).toEqual([...matrix]);
   });
 
+  it("keeps the local strata provider from the backend registry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            current_provider: "strata",
+            providers: [
+              {
+                id: "strata",
+                label: "Strata",
+                current: true,
+                model: "strata-local",
+                endpoint: "http://127.0.0.1:8081/v1",
+                requires_api_key: false,
+                supports_api_key: true,
+                supports_endpoint: true,
+                supports_thinking: false,
+                api_key_configured: false,
+              },
+            ],
+          }),
+      }),
+    );
+
+    await expect(getProviderOptions()).resolves.toMatchObject({
+      current_provider: "strata",
+      providers: [
+        {
+          id: "strata",
+          label: "Strata",
+          model: "strata-local",
+          endpoint: "http://127.0.0.1:8081/v1",
+          requires_api_key: false,
+          supports_api_key: true,
+        },
+      ],
+    });
+  });
+
   it("sends provider config to the backend using the runtime contract", async () => {
     const bodies: Record<string, unknown>[] = [];
     vi.stubGlobal(

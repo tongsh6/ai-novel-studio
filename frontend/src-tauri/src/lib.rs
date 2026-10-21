@@ -92,9 +92,10 @@ struct ModelProviderSecretStorageStatus {
 const MAX_ASSISTANT_DISPLAY_NAME_LENGTH: usize = 20;
 const MAX_PROVIDER_FIELD_LENGTH: usize = 200;
 const MAX_DESKTOP_PROFILE_LENGTH: usize = 40;
-const MODEL_PROVIDER_IDS: [&str; 11] = [
+const MODEL_PROVIDER_IDS: [&str; 12] = [
     "stub",
     "lmstudio",
+    "strata",
     "anthropic",
     "deepseek",
     "openai",
@@ -898,6 +899,19 @@ mod tests {
         }
 
         assert!(normalize_provider_id("not-a-vendor".to_string()).is_err());
+    }
+
+    #[test]
+    fn accepts_local_provider_ids_and_rejects_unknown() {
+        for provider in ["lmstudio", "strata"] {
+            assert_eq!(
+                normalize_provider_id(provider.to_string())
+                    .expect("local provider should be allowed"),
+                provider
+            );
+        }
+
+        assert!(normalize_provider_id("not-a-provider".to_string()).is_err());
     }
 
     #[test]

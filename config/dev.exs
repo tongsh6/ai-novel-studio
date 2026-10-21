@@ -27,6 +27,9 @@ llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_i
 lmstudio_timeout_ms =
   System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
+strata_timeout_ms =
+  System.get_env("NOVEL_STRATA_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
@@ -45,6 +48,19 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
   max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer(),
   timeout: lmstudio_timeout_ms
+
+# Strata 本地推理（strata-engine）：默认 127.0.0.1:8081，无 Key 也可用，思考默认关。
+# Elixir 对同一模块配置是整块替换而非深合并，这里必须与 config.exs 同源写全
+# （端点/模型/思考/max_tokens/timeout 都从 env 读），否则只是显式设 timeout 也会
+# 把其余 key 一并丢掉（M4 狗粮实锤的同类病灶，见 config/test.exs LM Studio 注释）。
+config :novel_agent, NovelAgent.Provider.Strata,
+  api_key: System.get_env("NOVEL_STRATA_API_KEY"),
+  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:8081/v1"),
+  model: System.get_env("NOVEL_STRATA_MODEL", "qwen3.8-flash-next-q2_0"),
+  thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
+  timeout: strata_timeout_ms,
+  max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
 # 可选：Anthropic Claude API（需设置 ANTHROPIC_API_KEY 环境变量）
 # 切换到云端 provider 时，只需修改 :provider → default: :anthropic

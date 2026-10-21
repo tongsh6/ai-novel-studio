@@ -4,6 +4,7 @@ defmodule NovelAgent.Provider.GatewayTest do
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.RuntimeConfig
+  alias NovelAgent.Provider.Strata
   alias NovelAgent.Provider.SystemIdentity
   alias NovelCommon.Contracts.ProviderEvent
 
@@ -89,6 +90,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       assert :stub in providers
       assert :slice_verify in providers
       assert :lmstudio in providers
+      assert :strata in providers
       assert :anthropic in providers
       assert :deepseek in providers
     end
@@ -239,6 +241,37 @@ defmodule NovelAgent.Provider.GatewayTest do
         assert slice_verify.supports_endpoint == false
       after
         Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+
+    test "exposes Strata as a keyless-capable local provider without leaking secrets" do
+      old_strata = Application.get_env(:novel_agent, Strata)
+
+      Application.put_env(:novel_agent, Strata,
+        endpoint: "http://127.0.0.1:8081/v1",
+        model: "qwen3.8-flash-next-q2_0"
+      )
+
+      try do
+        strata = Enum.find(Gateway.provider_options().providers, &(&1.id == :strata))
+
+        assert strata.label == "Strata"
+        assert strata.requires_api_key == false
+        assert strata.supports_api_key == true
+        assert strata.supports_endpoint == true
+        assert strata.supports_thinking == true
+        assert strata.supports_streaming == true
+        assert strata.supports_cancellation == true
+        assert strata.model == "qwen3.8-flash-next-q2_0"
+        assert strata.endpoint == "http://127.0.0.1:8081/v1"
+        assert is_boolean(strata.api_key_configured)
+        refute Map.has_key?(strata, :api_key)
+      after
+        if old_strata do
+          Application.put_env(:novel_agent, Strata, old_strata)
+        else
+          Application.delete_env(:novel_agent, Strata)
+        end
       end
     end
 

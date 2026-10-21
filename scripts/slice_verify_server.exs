@@ -117,6 +117,7 @@ runtime_provider_config =
   case provider do
     :lmstudio -> Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio, [])
     :deepseek -> Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek, [])
+    :strata -> Application.get_env(:novel_agent, NovelAgent.Provider.Strata, [])
     _provider -> []
   end
 

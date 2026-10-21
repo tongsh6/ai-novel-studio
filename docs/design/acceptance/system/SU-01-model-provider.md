@@ -1,6 +1,6 @@
 # SU-01 切换模型供应商
 
-> 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 DeepSeek / Anthropic / 本地 LM Studio / 测试 Stub 等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
+> 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 DeepSeek / Anthropic / 本地 LM Studio / 本地 Strata / 测试 Stub 等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
 >
 > 场景化验收口径：本文按完整功能蓝图验收“模型供应商管理”，不把已有健康检查误判为完整供应商切换。
 >
@@ -34,6 +34,8 @@
 
 > 2026-08-25 对账结论（D6 按用途分模型，`tasks/slices/D6-purpose-model-routing.md`）：provider config 契约扩展可选 `purpose_models` 表（键白名单 `writer/planner/evaluator/fact_inventory`，值为该 provider 的模型名；未知键/空值忽略）。`Gateway.execute` 在唯一模型决定点按 `route_hint || purpose` 查当前 provider 的表，命中即用覆盖模型，否则严格跟随全局默认——默认态（表空）行为零变化，符合「当前实现目标仍是全局一个模型」拍板。盘点调用经 `Execution.with_route_hint(:fact_inventory)` 细化寻址（purpose=:tool 与其他工具共键，不动 ProviderRun 冻结枚举）。模型设置对话框新增「按用途指定模型」区：每用途一个 select，选项来自供应商模型列表加「跟随全局」默认——延续「模型名不由作者手输」立场。Tauri 偏好（`ModelProviderPreference.purpose_models`）与启动重放链、浏览器兜底同步扩展。真实 Tauri `d6-purpose-model-routing` 证明：公开 config API 注入 writer 覆盖后，真实工作台正文请求的 writer gateway 调用如实记录覆盖模型、同 turn 其余调用保持全局模型、设置区真实可见且默认「跟随全局」。已知边界：stub 无模型列表，UI 内 select→保存→路由全链需真实 LM Studio 双模型，登记为狗粮/走查观察项；跨供应商路由（purpose→provider）未实现、未承诺。
 
+> 2026-10-21 对账结论（新增本地 Strata provider）：后端新增 `NovelAgent.Provider.Strata` 并注册进 Gateway registry（id `strata`、label `Strata`、`requires_api_key=false`、`supports_api_key/endpoint/thinking/streaming/cancellation=true`）。默认接入本机 Strata（strata-engine）OpenAI 兼容服务 `http://127.0.0.1:8081/v1`，默认模型 `qwen3.8-flash-next-q2_0`；本地回环服务默认无鉴权，也支持在 Strata 设置里配置 `serving.apiKey`（配置即携带 `Authorization: Bearer`，无 Key 也发请求）。思考控制走请求级顶层 `reasoning_effort`（关闭思考发 `"none"`，默认关闭），不向 body 发送 `thinking` 对象；`health_check/1` 对本地服务做真实 `GET /models` 探活。前端模型设置 Dialog 仍完全由后端 registry 渲染，真实页面因此自然出现「Strata」选项，产品代码没有为验收新增任何识别逻辑。**验收入口**：`bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local`（或 `bash scripts/quality_accept.sh su01-provider-strata-local --surface tauri`，scenario 已声明 `default_provider: strata`），证据路径 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/`（`summary.json`、`app-log.json`、`strata-log.json`、`ui-state.json`、截图）。**诚实边界**：该 scenario tier=nightly/live，不是 CI 确定性场景——必须本机 Strata 应用运行在 `127.0.0.1:8081` 且已加载 `qwen3.8-flash-next-q2_0`，`tauri_slice_verify.sh` 在启动前会先探测 `/models` 并在不可达时快速失败；**2026-10-21 已由外部 Playwright driver 在真实 Tauri 工作台实跑 PASS**（turn_id `message_91839ede-6d46-4abe-b4a0-dd13c5b234fc`；同 turn 2 次真实 `POST /v1/chat/completions` 均 HTTP 200；模型列表来自真实 `/v1/models`；连接测试、保存切换、assistant 可见回复均被 verifier 断言）。可选 Key（Strata `serving.apiKey`）的 Bearer 分支由 adapter 单测覆盖，本次 live 页面只证明默认 keyless 路径。sub-slice 记录见 `tasks/slices/SU01-strata-local-provider.md`。
+
 ---
 
 ## 1. 我能做什么
@@ -47,6 +49,7 @@
 | 配置模型和端点 | 每个供应商可以独立设置 endpoint；模型从供应商实时列表选择 |
 | 测试连接 | 点击后立即得到成功/失败反馈 |
 | 本地使用 LM Studio | 默认指向 `http://localhost:1234/v1`，未启动时提示明确 |
+| 本地使用 Strata | 默认指向 `http://127.0.0.1:8081/v1`，默认模型 `qwen3.8-flash-next-q2_0`；默认无 Key、可选 Key；思考经请求级顶层 `reasoning_effort` 控制且默认关闭 |
 
 明确不覆盖：
 
@@ -75,6 +78,7 @@
 | `apps/novel_application/lib/novel_application.ex` | `provider_health/options/models/configure/test` 均经 Application 层代理 | `novel_web` 不直接依赖 `novel_agent` |
 | `apps/novel_agent/lib/novel_agent/provider/runtime_config.ex` | 保存当前进程的 provider 选择与运行时配置 | 持久化归桌面 shell，不落项目仓库 |
 | `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 `stub/lmstudio/anthropic/deepseek`，支持 registry、实时模型列表、health、运行时切换和连接测试；`clear_api_key` 不复用旧 runtime key | 后端最小切换闭环已实现并有单元/控制器测试 |
+| `apps/novel_agent/lib/novel_agent/provider/strata.ex` | 本地 Strata provider adapter：OpenAI 兼容 `/chat/completions`、`/models`、真实 health 探活、可选 Bearer Key、思考走顶层 `reasoning_effort`（默认 `"none"`，不发 thinking 对象） | 后端 registry 单源；前端模型设置 Dialog 自动出现「Strata」 |
 | `frontend/src/lib/modelProvider.ts` | 集中封装 provider options/models/config/test、Tauri 偏好、本地密钥文件同步、浏览器 fallback | 前端只调用后端 API，不直接调用 provider |
 | `frontend/src-tauri/src/lib.rs` | 非 secret provider 偏好写 profile-scoped app config，API Key 写同目录的 profile-scoped `provider-secrets.json`（unix 0600）；保存 payload 支持前端 camelCase | dev/stage/slice verification 的 provider 选择与密钥互相隔离；所有桌面平台一致用本地受限文件，不再依赖 macOS Keychain |
 | `frontend/src/components/WorkspaceChat.tsx` | 顶栏“模型设置”入口，支持选择 provider、endpoint、API Key、刷新/选择供应商实时模型、DeepSeek thinking/reasoning effort、测试连接、保存切换 | 作者可在真实工作台发起模型切换；`su01-model-provider-switching` 已覆盖 Stub 切换主路径 |
@@ -160,7 +164,7 @@
 | 用户视角 | 我可以把 LM Studio endpoint 指向本地 `localhost:1234/v1` 或自定义端点，并从供应商当前可用模型中选择 |
 | 期望结果 | 每个 provider 有独立 endpoint；模型列表来自供应商实时 API，不手输、不前端写死；非法 URL 有校验 |
 | 当前证据 | `POST /api/provider/models` 经 Gateway 调 DeepSeek `/models`、Anthropic `/v1/models`、LM Studio `/v1/models`；设置弹窗在 endpoint/API Key 之后刷新并选择模型；真实 provider 未加载到模型列表时禁用保存 |
-| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求；`su01-provider-model-list-success` 已证明 DeepSeek / Anthropic / LM Studio 三类 provider 模型列表成功返回后可在 Dialog 中选择；`su01-provider-vendor-matrix` 已把矩阵扩展到 OpenAI（API Key/订阅）、Minimax、智谱、Kimi、Gemini，并证明新供应商来自后端 registry、可配 endpoint、经本地 OpenAI 兼容 `/models` 选模型、test-fail 不切换 runtime、保存后脱敏 |
+| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求；`su01-provider-model-list-success` 已证明 DeepSeek / Anthropic / LM Studio 三类 provider 模型列表成功返回后可在 Dialog 中选择；`su01-provider-vendor-matrix` 已把矩阵扩展到 OpenAI（API Key/订阅）、Minimax、智谱、Kimi、Gemini，并证明新供应商来自后端 registry、可配 endpoint、经本地 OpenAI 兼容 `/models` 选模型、test-fail 不切换 runtime、保存后脱敏；`su01-provider-strata-local`（nightly/live）已于 2026-10-21 实跑 PASS，覆盖本地 Strata 从后端 registry 出现 → 默认端点 `http://127.0.0.1:8081/v1` → 真实 `/v1/models` 选 `qwen3.8-flash-next-q2_0` → 连接测试 → 保存切换 → 真实 turn 的 `POST /v1/chat/completions` 2×HTTP 200（证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`；需本机 Strata 运行） |
 | 当前状态 | 部分实现 |
 | 缺口类型 | 补 live vendor / 云端真实失败矩阵；OpenAI 订阅 OAuth 登录传输 |
 | 优先级 | P1 |
@@ -306,6 +310,7 @@ SU-01 完整版必须同时满足：
 | 13 | 已完成：统一 local-file secret 产品口径 | Tauri capability command 报告 `available=true/kind=local_file`；所有桌面平台使用同一 profile-scoped local secret file，不再有 unsupported UI 分支 | Rust/TypeScript 局部测试；local-file Tauri 真实页面验收 |
 | 14 | 已完成：测试连接失败反馈与恢复 | 不可达 LM Studio endpoint -> 测试连接失败文案 -> Dialog/草稿保留 -> 修正 endpoint 后测试成功，且不创建 turn 或切换 runtime | `su01-provider-test-failure-ui` |
 | 15 | 后续：live vendor / 平台回归矩阵 | live vendor 错误、云端供应商账号/权限失败、Windows/Linux local-file 回归页面证据 | 需要真实账号策略、远端 runner 结果或真实页面 driver；不阻塞 SU-01 二轮退出 |
+| 16 | 已完成：本地 Strata live provider 真实页面闭环 | `su01-provider-strata-local` 外部 Tauri driver（registry→端点→真实模型列表→连接→保存切换→真实 turn）+ 本机 Strata live 证据 | `bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local` PASS（2026-10-21，turn `message_91839ede-6d46-4abe-b4a0-dd13c5b234fc`，同 turn 2×HTTP 200；证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`） |
 
 ---
 
@@ -325,6 +330,12 @@ bash scripts/tauri_slice_verify.sh su01-provider-test-failure-ui
 bash scripts/tauri_slice_verify.sh su01-api-key-secret-redaction
 bash scripts/tauri_slice_verify.sh su01-provider-vendor-matrix
 bash scripts/tauri_slice_verify.sh su01-local-secret-file-roundtrip
+
+# 本地 Strata live 场景（nightly/live，非 CI 确定性；需本机 Strata app 运行在
+# http://127.0.0.1:8081 并已加载 qwen3.8-flash-next-q2_0；脚本启动前会探测 /models）
+bash scripts/tauri_slice_verify.sh --provider strata su01-provider-strata-local
+bash scripts/quality_accept.sh su01-provider-strata-local --surface tauri
+# 证据：artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json
 
 # 本地手动验证：需 Phoenix/Tauri 服务运行
 curl http://localhost:4657/api/provider/health

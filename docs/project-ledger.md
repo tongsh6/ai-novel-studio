@@ -1,6 +1,8 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-10-21（VS-00H / T7 系统身份消息层 CP1–CP3 实现完成；Q1c CP1–CP3 已收口、CP4/CP5 部分闭环，仍为唯一 next；历史记录保留各自版本边界）
+> 最后更新：2026-10-21（本地 Strata provider 闭环；VS-00H / T7 系统身份消息层 CP1–CP3 实现完成；Q1c CP1–CP3 已收口、CP4/CP5 部分闭环，仍为唯一 next；历史记录保留各自版本边界）
+>
+> 2026-10-21 本地 Strata provider（用户定向插单「添加 strata provider」）：新增 `NovelAgent.Provider.Strata`（本机 strata-engine OpenAI 兼容 `http://127.0.0.1:8081/v1`，默认模型 `qwen3.8-flash-next-q2_0`，默认无 Key/可选 Bearer，思考走顶层 `reasoning_effort` 默认 `"none"`，具名 `tool_choice` 不降级）；`OpenAICompatible` 宏增加 `api_key_required`/`thinking_style` 默认不变参数（既有 6 vendor 零回归）；Gateway registry/descriptor + config env + AssemblyPolicy `strata: :floor`；前端 ProviderId 与 Rust provider id 白名单登记，模型设置 Dialog 仍由后端 registry 渲染（产品零验收感知）。验证：后端全量 `mix test` 1,616/0、`compile --warnings-as-errors`、xref/arch、I1/I2/I3、静态扫描；真实 Strata 探活 health :ok + 流式 content + 真实 tool_call；真实 Tauri `--provider strata su01-provider-strata-local` PASS（turn `message_91839ede-6d46-4abe-b4a0-dd13c5b234fc`，同 turn 2×`POST /v1/chat/completions` HTTP 200；证据 `artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`）。诚实边界：live 场景依赖本机 Strata 与固定模型名，非 CI 确定性；可选 `serving.apiKey` 的 live 路径未跑（adapter 单测覆盖）。详见 `tasks/slices/SU01-strata-local-provider.md` 与 `docs/design/acceptance/system/SU-01-model-provider.md`。
 >
 > 2026-10-21 VS-00H / T7 当前结果：`NovelAgent.Provider.SystemIdentity` 成为身份文本唯一真源；`Gateway.execute/4` 注入且幂等；ProviderRun metadata 落 `system_identity_ref`（不落原文）；18 处调用点去产品自称 + I-SYS-2 守卫；`Usage.cached_tokens` 与 Anthropic `cache_control` 落地。后端全量 1,570/0、前端 484/0、I1/I2/I3/N-NARR 绿、MBC stub 1.0、`slice_verify au02-candidate-continuation` 浏览器 + Tauri PASS，测试库实测 ProviderRun identity ref。诚实边界：真实 vendor cache hit、live MBC、developer UI 展示未测，见 `docs/design/contracts/VS-00H-system-identity-message-contract-pack.md` §11.1。Q1c 恢复为唯一 next。
 >

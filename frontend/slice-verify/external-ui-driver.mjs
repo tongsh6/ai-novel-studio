@@ -17731,6 +17731,251 @@ async function driveSu01ProviderVendorMatrix(page) {
   }
 }
 
+// 顶栏模型入口把健康状态当可见文本，把 provider/model 放在 title 里；两者都是
+// 真实作者可见语义，外部 driver 只读它们，不依赖验收专用选择器。
+async function openModelProviderSettings(page) {
+  const byName = page.getByRole("button", {
+    name: /模型设置|模型已连接|模型未连接|模型检测中|Stub|LM Studio|DeepSeek|Strata/,
+  });
+  // 徽标层级/文案收束时可见文本可能只剩连接状态；title 仍带 provider/model，
+  // 作为同一产品语义的兜底入口，避免 driver 依赖某一版文案细节。
+  const trigger =
+    (await byName.count()) > 0
+      ? byName.first()
+      : page
+          .locator(
+            'button[title*="当前模型"], button[title*="模型未连接"], button[title*="请检查当前模型供应商配置"]',
+          )
+          .first();
+  await trigger.waitFor({ state: "visible", timeout: 20_000 });
+  await trigger.click();
+  await page
+    .getByRole("dialog", { name: "模型供应商" })
+    .waitFor({ state: "visible", timeout: 15_000 });
+  return trigger;
+}
+
+function modelProviderBadge(page) {
+  return page
+    .getByRole("button", { name: /模型已连接|模型未连接|模型检测中/ })
+    .first();
+}
+
+function assistantReplyText(turnResult) {
+  const message = turnResult?.assistant_message;
+  if (typeof message === "string") return message.trim();
+  return String(message?.text ?? "").trim();
+}
+
+function assistantReplyVisibleNeedle(text) {
+  const normalized = String(text ?? "").trim();
+  if (!normalized) return "";
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  const candidate = lines[0] ?? normalized;
+  // 页面按纯文本渲染回复；若单行内含 Markdown 标记，退化为最长连续可见片段。
+  if (!/[#*_`>[\]()]/.test(candidate)) return candidate;
+  const runs = candidate.match(/[\p{Script=Han}A-Za-z0-9，。！？、；：]{6,}/gu) ?? [];
+  runs.sort((left, right) => right.length - left.length);
+  return runs[0] ?? candidate.slice(0, 16);
+}
+
+async function driveSu01ProviderStrataLocal(page) {
+  const provider = "strata";
+  const providerLabel = "Strata";
+  const defaultEndpoint = "http://127.0.0.1:8081/v1";
+  const expectedModel = "qwen3.8-flash-next-q2_0";
+  const message = "请用一句话回复：Strata 已连接。";
+
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not join a work before verifying the local Strata provider",
+    30_000,
+  );
+
+  // 1) 从真实工作台打开模型设置；供应商下拉由后端 registry 渲染。
+  await openModelProviderSettings(page);
+  const providerOptionLabels = await page
+    .locator("#model-provider-select option")
+    .evaluateAll((nodes) =>
+      Object.fromEntries(nodes.map((node) => [node.value, (node.textContent ?? "").trim()])),
+    );
+  const strataListed = Boolean(providerOptionLabels[provider]);
+  await page.locator("#model-provider-select").selectOption(provider);
+  const providerSelected = await page.locator("#model-provider-select").inputValue();
+
+  // 2) 端点默认值必须来自后端 descriptor（本机 Strata 127.0.0.1:8081/v1）。
+  const endpointInput = page.locator("#model-provider-endpoint-input");
+  await endpointInput.waitFor({ timeout: 10_000 });
+  const providerOptionLabel = providerOptionLabels[providerSelected] ?? "";
+  const endpointDefault = await endpointInput.inputValue();
+
+  // 3) 刷新模型列表 = 真实请求本机 Strata /v1/models；选中加载到的模型。
+  const refreshButton = page.getByRole("button", { name: "刷新模型列表" });
+  await refreshButton.waitFor({ timeout: 10_000 });
+  await refreshButton.click();
+  await page.waitForFunction(
+    (modelId) =>
+      Array.from(
+        document.querySelectorAll("#model-provider-model-input option"),
+        (option) => option.value,
+      ).includes(modelId),
+    expectedModel,
+    { timeout: 60_000 },
+  );
+  const listedModelIds = await page
+    .locator("#model-provider-model-input option")
+    .evaluateAll((nodes) => nodes.map((node) => node.value));
+  await page.locator("#model-provider-model-input").selectOption(expectedModel);
+  const modelSelected = await page.locator("#model-provider-model-input").inputValue();
+
+  // 4) 测试连接：真实探测本机 Strata。
+  await page.getByRole("button", { name: "测试连接" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("连接可用。"), {
+    timeout: 60_000,
+  });
+  const connectionTestPassed = (await page.locator("body").innerText()).includes("连接可用。");
+
+  // 5) 保存并切换：Dialog 关闭，顶栏模型按钮显示 Strata + 当前模型。
+  const providerOptionsBeforeSaveResponse = await fetch(`${baseUrl}/api/provider/options`);
+  assert(
+    providerOptionsBeforeSaveResponse.ok,
+    `Provider options failed before saving Strata: ${providerOptionsBeforeSaveResponse.status}`,
+  );
+  const providerOptionsBeforeSave = await providerOptionsBeforeSaveResponse.json();
+  const runtimeProviderBeforeSave = providerOptionsBeforeSave.current_provider;
+  await page.getByRole("button", { name: "保存并切换" }).click();
+  await page
+    .getByRole("dialog", { name: "模型供应商" })
+    .waitFor({ state: "detached", timeout: 15_000 });
+
+  const providerOptionsResponse = await fetch(`${baseUrl}/api/provider/options`);
+  assert(
+    providerOptionsResponse.ok,
+    `Provider options failed after saving Strata: ${providerOptionsResponse.status}`,
+  );
+  const providerOptions = await providerOptionsResponse.json();
+  const strataOption = (providerOptions.providers ?? []).find((option) => option.id === provider);
+
+  const badge = modelProviderBadge(page);
+  await page.waitForFunction(
+    ({ label, model }) => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const target = buttons.find((button) =>
+        /模型已连接|模型未连接|模型检测中/.test(button.textContent ?? ""),
+      );
+      const text = `${target?.textContent ?? ""} ${target?.getAttribute("title") ?? ""}`;
+      return text.includes(label) && text.includes(model);
+    },
+    { label: providerLabel, model: expectedModel },
+    { timeout: 30_000 },
+  );
+  const modelButtonText = (await badge.textContent())?.trim() ?? "";
+  const modelButtonTitle = (await badge.getAttribute("title")) ?? "";
+  const topBarText = `${modelButtonText} ${modelButtonTitle}`;
+
+  // 6) 真实聊天 turn：等待 provider 回复，并断言回复在页面可见。
+  const frameCountBeforeSend = frames.length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const turnFrame = await waitForNewFrame(
+    frameCountBeforeSend,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      assistantReplyText(frame.body).length > 0,
+    "No turn_result frame with a non-empty assistant reply after the Strata chat message",
+    180_000,
+  );
+  const turnResult = turnFrame.body;
+  const assistantText = assistantReplyText(turnResult);
+  const visibleNeedle = assistantReplyVisibleNeedle(assistantText);
+  await page.waitForFunction((needle) => document.body.innerText.includes(needle), visibleNeedle, {
+    timeout: 30_000,
+  });
+  const visibleText = await page.locator("body").innerText();
+  const assistantReplyVisible = visibleText.includes(visibleNeedle);
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+
+  assert(strataListed, "Provider dropdown did not list the backend-registered strata provider");
+  assert(providerSelected === provider, "Strata was not selected in the model settings dialog");
+  assert(
+    providerOptionLabel === providerLabel,
+    `Provider dropdown label for strata was ${providerOptionLabel}`,
+  );
+  assert(
+    endpointDefault === defaultEndpoint,
+    `Strata endpoint default was ${endpointDefault}, expected ${defaultEndpoint}`,
+  );
+  assert(listedModelIds.includes(expectedModel), `Strata model list did not include ${expectedModel}`);
+  assert(modelSelected === expectedModel, "Strata model was not selected in the model settings dialog");
+  assert(connectionTestPassed, "Strata test connection did not show 连接可用。");
+  assert(
+    providerOptions.current_provider === provider,
+    "Saving did not switch the runtime provider to strata",
+  );
+  assert(
+    strataOption?.label === providerLabel &&
+      strataOption?.endpoint === defaultEndpoint &&
+      strataOption?.model === expectedModel,
+    "Provider options did not expose the Strata label/endpoint/model contract",
+  );
+  assert(
+    strataOption?.requires_api_key === false && strataOption?.supports_api_key === true,
+    "Strata provider options did not declare optional API key semantics",
+  );
+  assert(
+    topBarText.includes(providerLabel) && topBarText.includes(expectedModel),
+    "Top bar model button did not show Strata and qwen3.8-flash-next-q2_0",
+  );
+  assert(assistantText.length > 0, "Strata turn_result did not include a non-empty assistant reply");
+  assert(assistantReplyVisible, "Strata assistant reply was not visible in the real workbench");
+  assert(sentMessage, "No user_message websocket frame was sent for the Strata turn");
+  assert(visibleText.includes(message), "Real UI did not retain the Strata chat user message");
+  assert(
+    uiState.work_id === joined.work_id,
+    "Strata chat turn was not sent to the workbench channel that joined the work",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      provider_selected: provider,
+      provider_label: providerLabel,
+      provider_option_label: providerOptionLabel,
+      endpoint_default: defaultEndpoint,
+      strata_model_selected: expectedModel,
+      listed_model_ids: listedModelIds,
+      connection_test_passed: true,
+      live_provider: provider,
+      assistant_reply_non_empty: assistantText.length > 0,
+      assistant_reply_visible: assistantReplyVisible,
+      assistant_reply_text: assistantText.slice(0, 500),
+      provider_options_current_provider: providerOptions.current_provider,
+      provider_options_current_provider_before_save: runtimeProviderBeforeSave,
+      provider_switch_saved: providerOptions.current_provider === provider,
+      provider_options_label: strataOption?.label ?? null,
+      provider_options_model: strataOption?.model ?? null,
+      provider_options_endpoint: strataOption?.endpoint ?? null,
+      provider_options_requires_api_key: strataOption?.requires_api_key === true,
+      provider_options_supports_api_key: strataOption?.supports_api_key === true,
+      provider_options_supports_thinking: strataOption?.supports_thinking === true,
+      top_bar_contains_provider_label: topBarText.includes(providerLabel),
+      top_bar_contains_model: topBarText.includes(expectedModel),
+      model_provider_button_text: modelButtonText,
+      model_provider_button_title: modelButtonTitle,
+      message_text: message,
+      no_acceptance_hooks: true,
+    },
+  ];
+}
+
 async function driveSu02WorkSwitching(page) {
   const nonce = `SU02-${Date.now()}`;
   const sourceWork = await createWorkSeed({ title: `SU02甲作品-${nonce}` });
@@ -30203,6 +30448,7 @@ const drivers = {
   "su01-provider-test-failure-ui": driveSu01ProviderTestFailureUi,
   "su01-api-key-secret-redaction": driveSu01ApiKeySecretRedaction,
   "su01-provider-vendor-matrix": driveSu01ProviderVendorMatrix,
+  "su01-provider-strata-local": driveSu01ProviderStrataLocal,
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "su02-work-switching": driveSu02WorkSwitching,
   "su02-artifact-projection-trace-isolation": driveSu02ArtifactProjectionTraceIsolation,

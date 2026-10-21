@@ -42,6 +42,9 @@ llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_i
 lmstudio_timeout_ms =
   System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
+strata_timeout_ms =
+  System.get_env("NOVEL_STRATA_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
@@ -59,6 +62,18 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   # 换量化后应按 scripts/probe_run.sh 实测复核这个数字是否仍然够用（不是"从此
   # 一劳永逸"）。见 NovelAgent.Provider.InferenceParams moduledoc。
   max_tokens: System.get_env("NOVEL_LMSTUDIO_MAX_TOKENS", "32000") |> String.to_integer()
+
+# Strata —— 本机本地推理（strata-engine）的 OpenAI 兼容服务：默认 127.0.0.1:8081，
+# serving.apiKey 可选（无 Key 也可用）。思考控制走请求级顶层 reasoning_effort，
+# thinking 默认 disabled → adapter 发 "none" 关思考；显式 effort 经 env 透传。
+config :novel_agent, NovelAgent.Provider.Strata,
+  api_key: System.get_env("NOVEL_STRATA_API_KEY"),
+  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:8081/v1"),
+  model: System.get_env("NOVEL_STRATA_MODEL", "qwen3.8-flash-next-q2_0"),
+  thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
+  timeout: strata_timeout_ms,
+  max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
 config :novel_agent, NovelAgent.Provider.Anthropic,
   api_key: System.get_env("NOVEL_ANTHROPIC_API_KEY"),

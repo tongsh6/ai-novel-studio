@@ -12,7 +12,7 @@ defmodule NovelDomain.AssemblyPolicyTest do
 
   describe "for_provider/1 按 provider 解析档位" do
     test "本地小窗口 / 确定性替身 → 地板档 2000" do
-      for prov <- [:lmstudio, :stub, :slice_verify, "slice_verify"] do
+      for prov <- [:lmstudio, :strata, :stub, :slice_verify, "slice_verify", "strata"] do
         assert AssemblyPolicy.for_provider(prov).excerpt_budget_chars == 2000
       end
     end

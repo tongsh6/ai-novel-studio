@@ -14539,3 +14539,71 @@ describe("Q3D 消息投递恢复证据", () => {
     expect(findNativeSliceEvidence(slice, [{ ...ui, cases: cases.map((c) => c.method === "restart" ? { ...c, runtime_live: true } : c) }, ...records.slice(1)])).toBeNull();
   });
 });
+
+
+// SU01 本地 Strata provider：registry/端点/真实模型列表/连接/真实 turn/LLM HTTP 日志
+// 必须同源绑定；命令日志或 UI 文案不能替代 live provider 的 HTTP 2xx 证据。
+describe("SU01 本地 Strata provider 证据", () => {
+  const slice = "su01-provider-strata-local";
+  const turnId = "turn-strata";
+  const workId = "work-strata";
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: turnId,
+    work_id: workId,
+    context_work_id: workId,
+    session_id: "session-strata",
+    socket_connected: true,
+    provider_selected: "strata",
+    provider_label: "Strata",
+    endpoint_default: "http://127.0.0.1:8081/v1",
+    strata_model_selected: "qwen3.8-flash-next-q2_0",
+    connection_test_passed: true,
+    live_provider: "strata",
+    assistant_reply_non_empty: true,
+    assistant_reply_visible: true,
+    top_bar_contains_provider_label: true,
+    top_bar_contains_model: true,
+    provider_options_current_provider: "strata",
+    provider_switch_saved: true,
+    no_acceptance_hooks: true,
+    listed_model_ids: ["qwen3.8-flash-next-q2_0"],
+    message_text: "请用一句话回复：Strata 已连接。",
+  };
+  const turnEvents = keyEventsForSlice(slice).filter((event) => event !== "channel.join.done");
+  const records = [
+    { event: "channel.join.done", work_id: workId },
+    ui,
+    ...turnEvents.map((event) => ({ event, turn_id: turnId })),
+    { event: "provider_gateway.complete.done", turn_id: turnId, provider: "strata", model: "qwen3.8-flash-next-q2_0" },
+  ];
+  const llmRecords = [
+    { turn_id: turnId, provider: "strata",
+      request: { method: "POST", url: "http://127.0.0.1:8081/v1/chat/completions" },
+      response: { status: 200 } },
+  ];
+
+  it("registry/端点/模型/连接/真实 turn/HTTP 2xx 全齐才通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence).not.toBeNull();
+    expect(evidence.live_provider).toBe("strata");
+    expect(findLiveProviderEvidence("strata", [turnId], llmRecords)).not.toBeNull();
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "strata", llmRecords })).not.toBeNull();
+  });
+
+  it("缺 live HTTP 证据、未用 --provider strata 或 gateway 未走 strata 均不通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "strata", llmRecords: [] })).toBeNull();
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "slice_verify", llmRecords })).toBeNull();
+    const withoutGateway = records.filter((record) => record.event !== "provider_gateway.complete.done");
+    expect(findNativeSliceEvidence(slice, withoutGateway)).toBeNull();
+    const otherProvider = records.map((record) =>
+      record.event === "provider_gateway.complete.done" ? { ...record, provider: "lmstudio" } : record,
+    );
+    expect(findNativeSliceEvidence(slice, otherProvider)).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, connection_test_passed: false }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, endpoint_default: "http://localhost:1234/v1" }, ...records.slice(1)])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [{ ...ui, assistant_reply_non_empty: false }, ...records.slice(1)])).toBeNull();
+  });
+});

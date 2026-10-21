@@ -40,6 +40,7 @@ defmodule NovelDomain.AssemblyPolicy do
   # provider → 档位。地板档：本地小窗口与确定性替身；大窗口档：云端大模型。
   @provider_tier %{
     lmstudio: :floor,
+    strata: :floor,
     stub: :floor,
     slice_verify: :floor,
     deepseek: :large,

@@ -175,7 +175,9 @@
 | `su01-provider-endpoint-validation.yml` | 供应商 endpoint URL 校验 |
 | `su01-provider-health-model.yml` | 供应商健康状态与模型徽标 |
 | `su01-provider-model-list-success.yml` | 供应商实时模型列表成功矩阵 |
+| `su01-provider-strata-local.yml` | 本地 Strata provider 真实页面闭环（registry/端点/模型列表/连接/保存切换/真实 turn） |
 | `su01-provider-test-failure-ui.yml` | 模型测试连接失败反馈与恢复 |
+| `su01-provider-vendor-matrix.yml` | 供应商矩阵扩展（OpenAI/Minimax/智谱/Kimi/Gemini）与认证方式区分 |
 | `su02-artifact-projection-trace-isolation.yml` | 作品间 artifact / projection / trace 隔离 |
 | `su02-empty-start-unnamed-work.yml` | 空工作区自动启动未命名作品 |
 | `su02-work-lifecycle-management.yml` | 作品生命周期命名新增、改名与安全移出 |

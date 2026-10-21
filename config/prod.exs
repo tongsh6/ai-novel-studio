@@ -26,6 +26,9 @@ llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_i
 lmstudio_timeout_ms =
   System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
+strata_timeout_ms =
+  System.get_env("NOVEL_STRATA_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
@@ -45,6 +48,17 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.8-27b"),
   reasoning_effort: System.get_env("NOVEL_LMSTUDIO_REASONING_EFFORT"),
   timeout: lmstudio_timeout_ms
+
+# Strata 本地推理（strata-engine）：本机 127.0.0.1:8081，无 Key 也可用。此处与
+# config.exs 同源写全，避免整块替换丢失 thinking/max_tokens/api_key（见 dev.exs 注释）。
+config :novel_agent, NovelAgent.Provider.Strata,
+  api_key: System.get_env("NOVEL_STRATA_API_KEY"),
+  endpoint: System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:8081/v1"),
+  model: System.get_env("NOVEL_STRATA_MODEL", "qwen3.8-flash-next-q2_0"),
+  thinking: System.get_env("NOVEL_STRATA_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_STRATA_REASONING_EFFORT"),
+  timeout: strata_timeout_ms,
+  max_tokens: System.get_env("NOVEL_STRATA_MAX_TOKENS", "32000") |> String.to_integer()
 
 config :novel_agent, NovelAgent.Provider.DeepSeek,
   api_key: System.get_env("NOVEL_DEEPSEEK_API_KEY"),

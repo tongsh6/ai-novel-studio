@@ -8,7 +8,15 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   list_models/from_config`，只声明自己的 vendor 名、展示标签、默认 endpoint/model 与可选能力。
 
   DeepSeek / LMStudio / Anthropic 保留各自独立 adapter（历史实现 + 各自 thinking/鉴权差异），
-  不在本基类范围内；本基类只服务新增的 OpenAI 兼容供应商矩阵，避免 6 份近重复 adapter。
+  不在本基类范围内；本基类只服务新增的 OpenAI 兼容供应商矩阵，避免 N 份近重复 adapter。
+
+  vendor 之间仍有两处真实差异需要参数化，而不是靠复制 adapter 解决：
+
+    - **鉴权**：托管 API 矩阵必须带 Key；本地 Strata 服务允许无 Key（可选 Key），
+      对应 `:api_key_required` 选项（默认 true，保持托管矩阵行为不变）。
+    - **思考控制**：多数 vendor 用 `thinking` 对象；本地 Strata/Qwen3.8 用请求级
+      顶层 `reasoning_effort`（`"none"` 关思考），对应 `:thinking_style` 选项
+      （默认 `:thinking_object`）。
 
   注意：OpenAI 订阅（subscription）认证方式以独立 vendor id 接入，结构上与 API Key 区分
   （独立 secret、独立 endpoint、独立 redaction）；其真实 OAuth 登录与 ChatGPT backend 传输
@@ -26,7 +34,9 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   @type meta :: %{
           vendor: String.t(),
           label: String.t(),
-          supports_thinking: boolean()
+          supports_thinking: boolean(),
+          api_key_required: boolean(),
+          thinking_style: :thinking_object | :reasoning_effort
         }
 
   @doc """
@@ -40,6 +50,12 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     - `:default_model`（必填）— 未配置或未实时拉取时的兜底模型
     - `:env_key`（可选）— 从环境变量回退读取 API Key
     - `:supports_thinking`（可选，默认 false）— 是否透传 thinking/reasoning_effort
+    - `:api_key_required`（可选，默认 true）— Key 是否必填。false 时无 Key 也发请求
+      （headers 为 `[]`，配置了 Key 仍带 Bearer），且 `health_check/1` 改为真实
+      GET `/models` 网络探测
+    - `:thinking_style`（可选，默认 `:thinking_object`）— 思考控制协议：
+      `:thinking_object` 发送 `thinking` 对象；`:reasoning_effort` 发送顶层
+      `reasoning_effort`（`"none"` 关思考），绝不发 `thinking` 字段
   """
   defmacro __using__(opts) do
     quote bind_quoted: [opts: opts] do
@@ -54,6 +70,8 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       @oac_default_model Keyword.fetch!(opts, :default_model)
       @oac_env_key Keyword.get(opts, :env_key)
       @oac_supports_thinking Keyword.get(opts, :supports_thinking, false)
+      @oac_api_key_required Keyword.get(opts, :api_key_required, true)
+      @oac_thinking_style Keyword.get(opts, :thinking_style, :thinking_object)
 
       defstruct [
         :api_key,
@@ -129,7 +147,13 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       end
 
       defp oac_meta do
-        %{vendor: @oac_vendor, label: @oac_label, supports_thinking: @oac_supports_thinking}
+        %{
+          vendor: @oac_vendor,
+          label: @oac_label,
+          supports_thinking: @oac_supports_thinking,
+          api_key_required: @oac_api_key_required,
+          thinking_style: @oac_thinking_style
+        }
       end
     end
   end
@@ -139,104 +163,126 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   @doc false
   @spec complete(meta(), struct(), String.t() | nil, term(), term()) ::
           {:ok, Result.t()} | {:error, map()}
-  def complete(meta, %{api_key: key} = state, _model, prompt, params)
-      when is_binary(key) and key != "" do
-    start_time = System.monotonic_time(:millisecond)
+  def complete(meta, %{api_key: key} = state, _model, prompt, params) do
+    case auth_headers(meta, key) do
+      {:ok, headers} ->
+        start_time = System.monotonic_time(:millisecond)
 
-    body =
-      state
-      |> request_body(prompt, params, false)
-      |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
+        body =
+          state
+          |> request_body(prompt, params, false)
+          |> maybe_thinking(meta, state)
 
-    url = endpoint_url(state.endpoint)
-    headers = [{"authorization", "Bearer #{key}"}]
-    post = state.http_fn || (&HTTP.post/3)
+        url = endpoint_url(state.endpoint)
+        post = state.http_fn || (&HTTP.post/3)
 
-    result =
-      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
-        {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(meta, state, resp_body, start_time)
+        result =
+          case post.(url, body, headers: headers, receive_timeout: state.timeout) do
+            {:ok, status, resp_body} when status in 200..299 ->
+              handle_success(meta, state, resp_body, start_time)
 
-        {:error, :http_error, status, message} ->
-          handle_http_error(meta, status, message, start_time)
+            {:error, :http_error, status, message} ->
+              handle_http_error(meta, status, message, start_time)
 
-        {:error, reason, _status, message} ->
-          handle_connection_error(meta, reason, message, start_time)
-      end
+            {:error, reason, _status, message} ->
+              handle_connection_error(meta, reason, message, start_time)
+          end
 
-    if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
-    strip_attrs(result)
-  end
+        if log = state.log_fn, do: log.(meta.vendor, url, body, result, start_time)
+        strip_attrs(result)
 
-  def complete(meta, _state, _model, _prompt, _params) do
-    err = UpstreamError.new(:auth, "#{meta.label} API key 未配置", meta.vendor)
-    UpstreamError.to_error_tuple(err)
+      {:error, :auth_required} ->
+        missing_key_error(meta)
+    end
   end
 
   @doc false
   @spec execute(meta(), struct(), String.t() | nil, term(), term(), AdapterExecution.context()) ::
           AdapterExecution.execution_result()
   def execute(meta, %{api_key: key} = state, _model, prompt, params, ctx)
-      when (is_binary(prompt) or is_list(prompt) or is_map(prompt)) and is_binary(key) and
-             key != "" do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
-      execute_tool_call(meta, state, key, prompt, params, ctx)
-    else
-      body =
-        state
-        |> request_body(prompt, params, true)
-        |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
+      when is_binary(prompt) or is_list(prompt) or is_map(prompt) do
+    case auth_headers(meta, key) do
+      {:ok, headers} ->
+        if NovelAgent.Provider.tool_call_prompt?(prompt) do
+          execute_tool_call(meta, state, headers, prompt, params, ctx)
+        else
+          body =
+            state
+            |> request_body(prompt, params, true)
+            |> maybe_thinking(meta, state)
 
-      url = endpoint_url(state.endpoint)
-      headers = [{"authorization", "Bearer #{key}"}]
-      request_opts = [headers: headers, receive_timeout: state.timeout]
+          url = endpoint_url(state.endpoint)
+          request_opts = [headers: headers, receive_timeout: state.timeout]
 
-      OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
+          OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
+        end
+
+      {:error, :auth_required} ->
+        missing_key_error(meta)
+        |> AdapterExecution.materialize_result(ctx)
     end
   end
 
   def execute(meta, _state, _model, _prompt, _params, ctx) do
-    err = UpstreamError.new(:auth, "#{meta.label} API key 未配置", meta.vendor)
-
-    err
-    |> UpstreamError.to_error_tuple()
+    missing_key_error(meta)
     |> AdapterExecution.materialize_result(ctx)
   end
 
   @doc false
   @spec health_check(meta(), struct()) :: :ok | {:error, map()}
-  def health_check(_meta, %{api_key: key}) when is_binary(key) and key != "", do: :ok
+  def health_check(meta, %{api_key: key} = state) do
+    cond do
+      # 本地 keyless provider 只看本地配置无法证明服务可用（Strata 无 Key 也能
+      # 启动失败/未加载模型），必须做一次真实 GET /models 探测。
+      not meta.api_key_required ->
+        case list_models(meta, state) do
+          {:ok, _models} -> :ok
+          {:error, error} -> {:error, error}
+        end
 
-  def health_check(meta, _state),
-    do: {:error, %{message: "#{meta.label} API key 未配置", type: :unauthorized}}
+      is_binary(key) and key != "" ->
+        :ok
 
-  @doc false
-  @spec list_models(meta(), struct()) :: {:ok, [map()]} | {:error, map()}
-  def list_models(meta, %{api_key: key} = state) when is_binary(key) and key != "" do
-    url = models_url(state.endpoint)
-    get = state.get_fn || (&HTTP.get/2)
-    headers = [{"authorization", "Bearer #{key}"}]
-
-    case get.(url, headers: headers, receive_timeout: state.timeout || 15_000) do
-      {:ok, _status, body} ->
-        {:ok, models_from_openai_list(body)}
-
-      {:error, :http_error, status, message} ->
-        {:error, %{message: "#{meta.label}: #{message}", type: http_error_type(status)}}
-
-      {:error, :connection_refused, _status, _message} ->
-        {:error, %{message: "无法连接 #{meta.label}", type: :connection_refused}}
-
-      {:error, :timeout, _status, _message} ->
-        {:error, %{message: "#{meta.label} 请求超时", type: :timeout}}
-
-      {:error, reason, _status, message} ->
-        {:error, %{message: message, type: reason}}
+      true ->
+        {:error, %{message: "#{meta.label} API key 未配置", type: :unauthorized}}
     end
   end
 
-  def list_models(meta, _state),
-    do: {:error, %{message: "#{meta.label} API key 未配置", type: :unauthorized}}
+  @doc false
+  @spec list_models(meta(), struct()) :: {:ok, [map()]} | {:error, map()}
+  def list_models(meta, %{api_key: key} = state) do
+    case auth_headers(meta, key) do
+      {:ok, headers} ->
+        fetch_models(meta, state, headers)
+
+      {:error, :auth_required} ->
+        {:error, %{message: "#{meta.label} API key 未配置", type: :unauthorized}}
+    end
+  end
+
+  defp fetch_models(meta, state, headers) do
+    url = models_url(state.endpoint)
+    get = state.get_fn || (&HTTP.get/2)
+
+    get.(url, headers: headers, receive_timeout: state.timeout || 15_000)
+    |> models_result(meta)
+  end
+
+  # Credo CyclomaticComplexity（2026-10-21 静态扫描 P2，触达文件必清）：错误族映射
+  # 从 list_models 抽出，保持分支数与 `GET /models` 结果形态一一对应。
+  defp models_result({:ok, _status, body}, _meta), do: {:ok, models_from_openai_list(body)}
+
+  defp models_result({:error, :http_error, status, message}, meta),
+    do: {:error, %{message: "#{meta.label}: #{message}", type: http_error_type(status)}}
+
+  defp models_result({:error, :connection_refused, _status, _message}, meta),
+    do: {:error, %{message: "无法连接 #{meta.label}", type: :connection_refused}}
+
+  defp models_result({:error, :timeout, _status, _message}, meta),
+    do: {:error, %{message: "#{meta.label} 请求超时", type: :timeout}}
+
+  defp models_result({:error, reason, _status, message}, _meta),
+    do: {:error, %{message: message, type: reason}}
 
   @doc false
   @spec env(String.t() | nil) :: String.t() | nil
@@ -287,33 +333,70 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   defp maybe_json_mode(body, _enabled, _prompt), do: body
 
   # 仅 supports_thinking 的供应商透传；其余供应商不发送 thinking 字段，避免被拒绝。
-  defp maybe_thinking(body, false, _thinking, _effort), do: body
+  defp maybe_thinking(body, false, _style, _thinking, _effort), do: body
 
-  defp maybe_thinking(body, true, :enabled, effort) when is_binary(effort) and effort != "" do
+  # :reasoning_effort 风格（本地 Strata / Qwen3.8）：思考开关走请求级顶层
+  # reasoning_effort——"none" 完全关思考，显式 effort 透传，绝不发 thinking 对象。
+  defp maybe_thinking(body, true, :reasoning_effort, :disabled, _effort),
+    do: Map.put(body, :reasoning_effort, "none")
+
+  defp maybe_thinking(body, true, :reasoning_effort, :enabled, effort)
+       when is_binary(effort) and effort != "",
+       do: Map.put(body, :reasoning_effort, effort)
+
+  defp maybe_thinking(body, true, :reasoning_effort, _thinking, _effort), do: body
+
+  # :thinking_object 风格（既有托管 API 矩阵）：保持三段行为不变。
+  defp maybe_thinking(body, true, _style, :enabled, effort)
+       when is_binary(effort) and effort != "" do
     body
     |> Map.put(:thinking, %{type: "enabled"})
     |> Map.put(:reasoning_effort, effort)
   end
 
-  defp maybe_thinking(body, true, :enabled, _effort),
+  defp maybe_thinking(body, true, _style, :enabled, _effort),
     do: Map.put(body, :thinking, %{type: "enabled"})
 
-  defp maybe_thinking(body, true, _thinking, _effort),
+  defp maybe_thinking(body, true, _style, _thinking, _effort),
     do: Map.put(body, :thinking, %{type: "disabled"})
+
+  defp maybe_thinking(body, meta, state),
+    do:
+      maybe_thinking(
+        body,
+        meta.supports_thinking,
+        meta.thinking_style,
+        state.thinking,
+        state.reasoning_effort
+      )
+
+  # key 必填：缺失即 auth 错误，绝不发 HTTP；keyless（本地 Strata）：无 Key 也
+  # 允许请求（headers 为 []），配置了 Key 仍按 Bearer 发送。
+  defp auth_headers(meta, key) do
+    cond do
+      is_binary(key) and key != "" -> {:ok, [{"authorization", "Bearer #{key}"}]}
+      meta.api_key_required -> {:error, :auth_required}
+      true -> {:ok, []}
+    end
+  end
+
+  defp missing_key_error(meta) do
+    err = UpstreamError.new(:auth, "#{meta.label} API key 未配置", meta.vendor)
+    UpstreamError.to_error_tuple(err)
+  end
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
-  defp execute_tool_call(meta, state, key, prompt, params, ctx) do
+  defp execute_tool_call(meta, state, headers, prompt, params, ctx) do
     start_time = System.monotonic_time(:millisecond)
 
     body =
       state
       |> request_body(prompt, params, false)
-      |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
+      |> maybe_thinking(meta, state)
 
     url = endpoint_url(state.endpoint)
-    headers = [{"authorization", "Bearer #{key}"}]
     post = state.http_fn || (&HTTP.post/3)
     initial_events = AdapterExecution.initial_events(ctx)
     AdapterExecution.emit_events(ctx, initial_events, :running)

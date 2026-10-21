@@ -1,0 +1,73 @@
+id: su01-provider-strata-local
+title: 本地 Strata provider 真实页面闭环（registry → 模型列表 → 连接 → 保存切换 → 真实 turn）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-provider-strata-local --surface tauri --provider strata
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/foundation/08-provider-abstraction.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - strata-provider-comes-from-backend-registry
+  - strata-default-endpoint-is-local-127-0-0-1-8081
+  - strata-model-list-comes-from-live-local-strata
+  - strata-api-key-is-optional-not-required
+  - strata-thinking-is-disabled-by-default-through-top-level-reasoning-effort
+  - saving-provider-switch-affects-the-next-real-turn
+  - live-provider-evidence-cannot-be-faked-by-command-log
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: strata
+
+user_flow:
+  - open: real workbench model settings from the visible top-bar model status button
+  - select: Strata provider from the backend-driven provider dropdown
+  - observe: the endpoint input defaults to http://127.0.0.1:8081/v1
+  - refresh: the model list from the live local Strata /v1/models endpoint
+  - select: qwen3.8-flash-next-q2_0 from the visible model dropdown
+  - test: click the visible 测试连接 button and see 连接可用。
+  - save: click 保存并切换, the dialog closes and the top bar shows Strata with the current model
+  - send: one short chat message from the real workbench composer
+  - observe: the assistant reply is visible and the correlated turn was handled by the strata provider
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - llm_calls_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-provider-strata-local-tauri-strata
+
+assertions:
+  ui:
+    - Strata appears in the provider dropdown rendered from the backend provider registry
+    - the endpoint input defaults to http://127.0.0.1:8081/v1
+    - refreshing the model list shows qwen3.8-flash-next-q2_0 and it can be selected
+    - test connection shows 连接可用。 against the live local Strata service
+    - after save the top-bar model button shows Strata and the current model
+    - the assistant reply for the sent chat message is visible in the workbench
+  network:
+    - provider options reports current_provider=strata with label Strata and the default endpoint/model
+    - provider options reports requires_api_key=false and supports_api_key=true
+    - provider_gateway.complete.done for the correlated turn reports provider=strata
+  data:
+    - the LLM call log contains POST /v1/chat/completions with HTTP 2xx for the correlated turn
+    - ui_state records turn_id, live_provider=strata, connection_test_passed=true and assistant_reply_non_empty=true
+
+known_limits:
+  - This is a nightly/live scenario, not a deterministic CI scenario: it requires the Strata desktop app to be running on the same machine at http://127.0.0.1:8081 with the qwen3.8-flash-next-q2_0 model loaded. tauri_slice_verify.sh fails fast when that endpoint is unreachable.
+  - It does not prove remote/cloud Strata behavior or a key-protected Strata instance; the default local service is keyless and the optional serving.apiKey Bearer path is covered by provider adapter tests, not by this live page scenario.
+  - It does not prove the model reply quality; it only proves the reply is a non-empty, visible assistant message produced by a real Strata turn.
+  - Like every nightly Tauri scenario, it needs the local Tauri dev toolchain and a working macOS/Linux desktop automation environment.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
