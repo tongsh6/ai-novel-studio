@@ -76,7 +76,8 @@ defmodule NovelApplication.TurnExecutionService do
       )
 
     # CP0：固化写作坐标并评估缺失策略。hard missing（作者点名但 planner 匹配不到的章）→ 不调 provider。
-    coordinate = build_coordinate(frame, action, input)
+    # B11A CP4：坐标同批带当前卷 ref（卷蓝图消费面 6 的坐标侧）。
+    coordinate = build_coordinate(frame, action, input, resolved_chapter)
     missing = MissingPolicyResult.evaluate(coordinate)
     emit_coordinate(frame, coordinate, missing)
 
@@ -153,6 +154,11 @@ defmodule NovelApplication.TurnExecutionService do
     # 无 target_length（骨架未立）时空段（R6 负债规则催办，不在此伪造骨架）。
     work_skeleton = work_skeleton_section(action, input[:context])
 
+    # B11A CP4（VS-00J §4 消费面 2）：当前卷蓝图设计态段（prose/plot 共用，carry 登记门控）。
+    # 无卷/无蓝图 → ""（I-VOL-4 字节等价）；紧随全书骨架之后注入，决策点邻近。
+    current_volume_blueprint =
+      current_volume_blueprint_section(action, input[:context], resolved_chapter)
+
     maybe_emit_target_word_count(frame, action)
 
     # VS-00E CP1：把章级方向展开为场级执行简述，渲染进 provider 请求并记入 trace。
@@ -195,6 +201,7 @@ defmodule NovelApplication.TurnExecutionService do
       {:creative_facts, creative_facts},
       {:style_guide, style_guide},
       {:work_skeleton, work_skeleton},
+      {:current_volume_blueprint, current_volume_blueprint},
       {:absence_directives, absence_directives},
       {:progress_state, progress_state},
       {:execution_brief, execution_brief_text},
@@ -225,6 +232,7 @@ defmodule NovelApplication.TurnExecutionService do
           style_guide: style_guide,
           absence_directives: absence_directives,
           work_skeleton: work_skeleton,
+          current_volume_blueprint: current_volume_blueprint,
           planning_mission: planning_mission_text
         }
       )
@@ -299,13 +307,15 @@ defmodule NovelApplication.TurnExecutionService do
   # requested_chapter = 作者点名原文（planner requested_chapter_raw）；
   # matched_chapter = planner 精确匹配到列表的章（planner target_chapter，回退前）。
   # 二者据此判定"点名了找不到的章"，不受 resolve_target_chapter 的回退掩盖。
-  defp build_coordinate(frame, action, input) do
+  defp build_coordinate(frame, action, input, resolved_chapter) do
     WritingCoordinate.derive(%{
       capability: action[:target_ref] || action[:capability_name],
       authoring_intent: action[:authoring_intent],
       requested_chapter: action[:requested_chapter_raw],
       matched_chapter: action[:target_chapter],
       work_ref: frame.workspace_id,
+      # B11A CP4：当前卷 id（与「当前卷蓝图」段同源解析；无卷信息 → nil）。
+      volume_ref: current_volume_ref(input[:context], resolved_chapter),
       source_turn_ref: input[:source_turn_ref]
     })
   end
@@ -317,6 +327,8 @@ defmodule NovelApplication.TurnExecutionService do
       authoring_mode: to_string(coordinate.authoring_mode),
       requested_chapter: coordinate.requested_chapter,
       matched_chapter: coordinate.matched_chapter,
+      # B11A CP4：卷坐标 additive 字段——nil 也显式输出 null（外部证据可判「本轮无卷」）。
+      volume_ref: coordinate.volume_ref,
       missing_severity: to_string(missing.severity)
     })
   end
@@ -409,6 +421,7 @@ defmodule NovelApplication.TurnExecutionService do
         sections.creative_facts,
         sections.style_guide,
         sections.work_skeleton,
+        sections.current_volume_blueprint,
         sections.absence_directives,
         sections.dialogue_context
       ]
@@ -931,6 +944,111 @@ defmodule NovelApplication.TurnExecutionService do
        do: length(chapters)
 
   defp work_skeleton_written_count(_context), do: 0
+
+  # B11A CP4（VS-00J §4 消费面 2/3）：当前卷解析——写作轮用目标章所在卷；规划轮用
+  # structured_chapters 中章序最大者的卷（即"接下来要写的那一卷"）。返回
+  # %{volume_id, volume_seq, volume_title, volume_blueprint, written, total}；无卷信息 → nil。
+  # 纯函数（无 I/O）：卷信息由 workspace_context 的 structured chapter additive keys 提供。
+  # `@doc false` 公开供复用/单测（同 resolve_target_chapter 先例），不属于稳定对外契约。
+  @doc false
+  @spec current_volume_context(DialogueContext.t() | nil, String.t() | nil) ::
+          %{
+            volume_id: String.t() | nil,
+            volume_seq: pos_integer() | nil,
+            volume_title: String.t(),
+            volume_blueprint: map() | nil,
+            written: non_neg_integer(),
+            total: non_neg_integer()
+          }
+          | nil
+  def current_volume_context(%DialogueContext{} = context, resolved_chapter) do
+    chapters = context.structured_chapters || []
+    current = current_volume_chapter(chapters, resolved_chapter)
+
+    cond do
+      is_nil(current) ->
+        nil
+
+      not valid_volume_title?(Map.get(current, :volume_title)) ->
+        nil
+
+      true ->
+        volume_chapters = Enum.filter(chapters, &same_volume?(&1, current))
+
+        %{
+          volume_id: Map.get(current, :volume_id),
+          volume_seq: Map.get(current, :volume_seq),
+          volume_title: Map.get(current, :volume_title),
+          volume_blueprint: Map.get(current, :volume_blueprint),
+          written: Enum.count(volume_chapters, &(Map.get(&1, :has_prose) == true)),
+          total: length(volume_chapters)
+        }
+    end
+  end
+
+  def current_volume_context(_context, _resolved_chapter), do: nil
+
+  defp current_volume_chapter(chapters, resolved_chapter)
+       when is_list(chapters) and is_binary(resolved_chapter) and resolved_chapter != "" do
+    case Enum.find(chapters, &(Map.get(&1, :title) == resolved_chapter)) do
+      %{volume_title: title} = chapter when is_binary(title) and title != "" ->
+        chapter
+
+      _ ->
+        latest_volume_chapter(chapters)
+    end
+  end
+
+  defp current_volume_chapter(chapters, _resolved_chapter) when is_list(chapters),
+    do: latest_volume_chapter(chapters)
+
+  defp current_volume_chapter(_chapters, _resolved_chapter), do: nil
+
+  # 章序最大者（列表本已按卷/章顺序，仍显式取 max(seq) 防上游乱序）。
+  defp latest_volume_chapter([]), do: nil
+
+  defp latest_volume_chapter(chapters) do
+    Enum.max_by(chapters, fn chapter -> Map.get(chapter, :seq) || 0 end)
+  end
+
+  defp same_volume?(chapter, current) do
+    case Map.get(current, :volume_id) do
+      volume_id when is_binary(volume_id) ->
+        Map.get(chapter, :volume_id) == volume_id
+
+      _ ->
+        Map.get(chapter, :volume_seq) == Map.get(current, :volume_seq) and
+          Map.get(chapter, :volume_title) == Map.get(current, :volume_title)
+    end
+  end
+
+  defp valid_volume_title?(title), do: is_binary(title) and String.trim(title) != ""
+
+  defp current_volume_ref(context, resolved_chapter) do
+    case current_volume_context(context, resolved_chapter) do
+      %{volume_id: volume_id} -> volume_id
+      nil -> nil
+    end
+  end
+
+  # B11A CP4（VS-00J §4 消费面 2）：当前卷蓝图段。只走 carry 登记表门（唯一门），
+  # 无卷/无蓝图时返回 ""（I-VOL-4：不改变既有 prompt 字节）。
+  defp current_volume_blueprint_section(action, context, resolved_chapter) do
+    if CarryRegistry.carries?(:current_volume_blueprint, capability_name(action)) do
+      case current_volume_context(context, resolved_chapter) do
+        %{volume_title: title, volume_blueprint: blueprint, written: written, total: total} ->
+          NovelDomain.WorkSkeleton.volume_blueprint_section(title, blueprint, %{
+            written: written,
+            total: total
+          })
+
+        nil ->
+          ""
+      end
+    else
+      ""
+    end
+  end
 
   @doc false
   def prose_progress_text(entries) do

@@ -15,6 +15,7 @@ defmodule NovelDomain.WritingCoordinate do
 
   @type t :: %__MODULE__{
           work_ref: String.t() | nil,
+          volume_ref: String.t() | nil,
           authoring_mode: authoring_mode(),
           target_unit: target_unit(),
           requested_chapter: String.t(),
@@ -24,6 +25,7 @@ defmodule NovelDomain.WritingCoordinate do
         }
 
   defstruct work_ref: nil,
+            volume_ref: nil,
             authoring_mode: :none,
             target_unit: nil,
             requested_chapter: "",
@@ -42,6 +44,8 @@ defmodule NovelDomain.WritingCoordinate do
   - `:matched_chapter`：planner 精确匹配到作品章节列表的目标章（来自 `target_chapter`，
     未匹配上时为空）——`requested_chapter` 非空但 `matched_chapter` 为空即"点名了找不到的章"
   - `:work_ref` / `:source_turn_ref` / `:source_input_ref`：可选
+  - `:volume_ref`：当前卷 id（B11A CP4；由应用层从写作坐标的当前卷解析给，
+    非空 binary trim 后写入，缺省/空 → nil = 未定卷）
   """
   @spec derive(map()) :: t()
   def derive(attrs) when is_map(attrs) do
@@ -49,6 +53,7 @@ defmodule NovelDomain.WritingCoordinate do
 
     %__MODULE__{
       work_ref: attrs[:work_ref],
+      volume_ref: normalize_optional(attrs[:volume_ref]),
       authoring_mode: mode,
       target_unit: target_unit(mode),
       requested_chapter: normalize(attrs[:requested_chapter]),
@@ -73,4 +78,13 @@ defmodule NovelDomain.WritingCoordinate do
 
   defp normalize(value) when is_binary(value), do: String.trim(value)
   defp normalize(_value), do: ""
+
+  defp normalize_optional(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional(_value), do: nil
 end

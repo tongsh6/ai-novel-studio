@@ -19,6 +19,7 @@ defmodule NovelDomain.ChapterMissionInputs do
   """
 
   alias NovelDomain.ChapterPlanDirection
+  alias NovelDomain.VolumeBlueprint
   alias NovelDomain.WorkSkeleton
 
   @type item :: %{ref: String.t(), group: atom(), text: String.t()}
@@ -58,6 +59,9 @@ defmodule NovelDomain.ChapterMissionInputs do
   - `written_chapters`：已写章数（骨架进度口径）
   - `roster`：`[%{name, narrative_role, role}]`
   - `previous_summary`：上一章实现态摘要文本（可 nil）
+  - `volume`：当前卷上下文 `%{volume_title, blueprint, written, total}`（可 nil；B11A CP4）。
+    未显式给时从 `chapter` / `planned_chapters` 的 additive 卷键（volume_title /
+    volume_blueprint）推导；无蓝图时不出 item，items 与 prompt 逐字节不变（I-VOL-4）。
   """
   @spec build(map()) :: t()
   def build(attrs) when is_map(attrs) do
@@ -67,10 +71,17 @@ defmodule NovelDomain.ChapterMissionInputs do
     progress = normalize_progress(Map.get(attrs, :written_progress))
 
     {foreshadow_items, undated} = foreshadow_items(entries, progress)
+    planned_chapters = Map.get(attrs, :planned_chapters)
+
+    volume =
+      normalize_volume(Map.get(attrs, :volume)) ||
+        volume_from_chapter(Map.get(attrs, :chapter)) ||
+        volume_from_planned_chapters(planned_chapters)
 
     items =
       plan_items(chapter) ++
-        planned_chapter_items(Map.get(attrs, :planned_chapters)) ++
+        volume_items(volume) ++
+        planned_chapter_items(planned_chapters) ++
         previous_summary_items(chapter, Map.get(attrs, :previous_summary)) ++
         foreshadow_items ++
         secrecy_items(entries, chapter) ++
@@ -121,6 +132,7 @@ defmodule NovelDomain.ChapterMissionInputs do
   def to_prompt_section(%__MODULE__{} = inputs) do
     groups = [
       {:plan, "本章计划（设计态）"},
+      {:volume, "当前卷蓝图（设计态）"},
       {:planned, "已规划待写的章（设计态）"},
       {:previous_summary, "上一章实际写到哪（实现态摘要）"},
       {:foreshadow, "未回收伏笔（进度态，按预期临近）"},
@@ -155,6 +167,61 @@ defmodule NovelDomain.ChapterMissionInputs do
     [header | sections]
     |> Enum.reject(&blank?/1)
     |> Enum.join("\n\n")
+  end
+
+  # ── 卷蓝图（B11A CP4 / VS-00J §4 消费面 3）─────────
+
+  # 当前卷材料。只有设计态蓝图非空才产 item；无卷/无蓝图 → 不出现（诚实缺席，
+  # 与未引入卷蓝图时 items/prompt 逐字节等价）。
+  defp volume_items(nil), do: []
+
+  defp volume_items(%{blueprint: blueprint}) do
+    text = blueprint |> VolumeBlueprint.summary_lines() |> Enum.join("；")
+
+    if text == "", do: [], else: [item("volume:blueprint", :volume, text)]
+  end
+
+  defp normalize_volume(%{} = volume) do
+    blueprint = volume |> map_value(:blueprint) |> VolumeBlueprint.to_storage()
+
+    if VolumeBlueprint.empty?(blueprint) do
+      nil
+    else
+      %{
+        volume_title: volume |> map_value(:volume_title) |> to_optional_string(),
+        blueprint: blueprint,
+        written: map_value(volume, :written),
+        total: map_value(volume, :total)
+      }
+    end
+  end
+
+  defp normalize_volume(_volume), do: nil
+
+  # 未显式给 :volume 时，从结构化章条目的 additive 卷键推导（真实链路默认路径：
+  # workspace_context → ContextAssembler 透传卷信息，调用点零改动）。
+  defp volume_from_chapter(%{} = chapter) do
+    chapter
+    |> chapter_volume_attrs()
+    |> normalize_volume()
+  end
+
+  defp volume_from_chapter(_chapter), do: nil
+
+  defp volume_from_planned_chapters(chapters) when is_list(chapters) do
+    case chapters |> Enum.map(&normalize_planned_chapter/1) |> Enum.reject(&is_nil/1) do
+      [] -> nil
+      planned -> planned |> Enum.max_by(& &1.seq) |> Map.get(:raw, %{}) |> volume_from_chapter()
+    end
+  end
+
+  defp volume_from_planned_chapters(_chapters), do: nil
+
+  defp chapter_volume_attrs(%{} = chapter) do
+    %{
+      volume_title: map_value(chapter, :volume_title),
+      blueprint: map_value(chapter, :volume_blueprint)
+    }
   end
 
   # ── 选取 ────────────────────────────────────────────
@@ -222,7 +289,7 @@ defmodule NovelDomain.ChapterMissionInputs do
     title = map_value(chapter, :title)
 
     if is_integer(seq) and is_binary(title) and title != "" do
-      %{seq: seq, title: title, summary: map_value(chapter, :summary)}
+      %{seq: seq, title: title, summary: map_value(chapter, :summary), raw: chapter}
     end
   end
 

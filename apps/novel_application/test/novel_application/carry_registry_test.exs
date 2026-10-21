@@ -64,4 +64,32 @@ defmodule NovelApplication.CarryRegistryTest do
     # CA04 G2：规划带作品事实
     assert planning.carried == ~w(creative_facts planning_mission)
   end
+
+  # B11A CP4（VS-00J §4 消费面 2）：卷蓝图设计态携带——规划/写作共用，登记表是唯一门。
+  test "current_volume_blueprint：prose/plot 放行、其它能力 gated；三分报告自然覆盖" do
+    assert CarryRegistry.carries?(:current_volume_blueprint, "prose_writing")
+    assert CarryRegistry.carries?(:current_volume_blueprint, "plot_outline")
+    refute CarryRegistry.carries?(:current_volume_blueprint, "world_building")
+    refute CarryRegistry.carries?(:current_volume_blueprint, "character_design")
+
+    # 装配顺序参照：紧随 work_skeleton，先于 absence_directives。
+    ids = CarryRegistry.ids()
+    position = fn id -> Enum.find_index(ids, &(&1 == id)) end
+    assert position.(:work_skeleton) < position.(:current_volume_blueprint)
+    assert position.(:current_volume_blueprint) < position.(:absence_directives)
+
+    report =
+      CarryRegistry.carry_report("prose_writing", [
+        {:work_skeleton, "## 全书规划"},
+        {:current_volume_blueprint, "## 当前卷蓝图（设计态）\n- 卷：第一卷"},
+        {:absence_directives, ""}
+      ])
+
+    assert report.carried == ~w(work_skeleton current_volume_blueprint)
+    assert report.empty == ~w(absence_directives)
+
+    assert CarryRegistry.carry_report("world_building", [
+             {:current_volume_blueprint, "## 当前卷蓝图（设计态）"}
+           ]).gated == ~w(current_volume_blueprint)
+  end
 end

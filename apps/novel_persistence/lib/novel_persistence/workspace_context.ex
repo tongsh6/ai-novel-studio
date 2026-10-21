@@ -8,6 +8,7 @@ defmodule NovelPersistence.WorkspaceContext do
 
   import Ecto.Query, only: [from: 2]
 
+  alias NovelDomain.VolumeBlueprint
   alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.ChapterSummaryRepo
   alias NovelPersistence.MemoryLog
@@ -121,18 +122,29 @@ defmodule NovelPersistence.WorkspaceContext do
 
   # VS-00C CP3：结构化章节条目（按卷/章顺序），供 prose_writing L2 注入目标章计划摘要与卷内位置。
   # 复用阅读投影 TOC：结构章即使尚无正文也会出现，has_prose 用 word_count 判断。
+  # B11A CP4（VS-00J §4 消费面 2/3/4）：条目保留所属卷信息（卷身份/标题/设计态蓝图），
+  # 供 planner/prose 的「当前卷蓝图」段、写作坐标 volume_ref、使命输入与探索面消费。
+  # 全部为 additive keys（既有消费者按 title/seq/... 读取不受影响）；无卷/无蓝图时
+  # 对应值为 nil，一切渲染与今天逐字节等价（I-VOL-4）。
   defp fetch_structured_chapters(workspace_id) when is_binary(workspace_id) do
     workspace_id
     |> ReadingProjectionRepo.toc()
     |> Map.get(:volumes, [])
-    |> Enum.flat_map(&Map.get(&1, :chapters, []))
-    |> Enum.map(&structured_chapter_entry/1)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(&structured_chapter_entries/1)
   end
 
   defp fetch_structured_chapters(_workspace_id), do: []
 
-  defp structured_chapter_entry(chapter) when is_map(chapter) do
+  defp structured_chapter_entries(volume) when is_map(volume) do
+    volume
+    |> Map.get(:chapters, [])
+    |> Enum.map(&structured_chapter_entry(&1, volume))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp structured_chapter_entries(_volume), do: []
+
+  defp structured_chapter_entry(chapter, volume) when is_map(chapter) and is_map(volume) do
     title = chapter |> Map.get(:title) |> normalize_title()
 
     if title == "" do
@@ -143,12 +155,16 @@ defmodule NovelPersistence.WorkspaceContext do
         seq: Map.get(chapter, :seq),
         summary: chapter |> Map.get(:summary) |> normalize_title(),
         plan_direction: Map.get(chapter, :plan_direction),
-        has_prose: Map.get(chapter, :word_count, 0) > 0
+        has_prose: Map.get(chapter, :word_count, 0) > 0,
+        volume_id: Map.get(volume, :id),
+        volume_seq: Map.get(volume, :seq),
+        volume_title: volume |> Map.get(:title) |> normalize_blank(),
+        volume_blueprint: volume |> Map.get(:blueprint) |> VolumeBlueprint.to_storage()
       }
     end
   end
 
-  defp structured_chapter_entry(_chapter), do: nil
+  defp structured_chapter_entry(_chapter, _volume), do: nil
 
   defp titles_from_structured_chapters(chapters), do: Enum.map(chapters, & &1.title)
 

@@ -46,6 +46,13 @@ defmodule NovelApplication.CarryRegistry do
     %{id: :style_guide, state: :realized, actions: ["prose_writing", "plot_outline"]},
     # CA04 G1：写章也带全书进度与收官守则（正文向渲染不含分卷守则）。
     %{id: :work_skeleton, state: :design, actions: ["prose_writing", "plot_outline"]},
+    # B11A CP4：规划/写作都带「当前卷蓝图（设计态）」——卷级目标的裁定参照，
+    # 只读设计态、不写作品事实（VS-00J §4 消费面 2/3；ADR-0028）。
+    %{
+      id: :current_volume_blueprint,
+      state: :design,
+      actions: ["prose_writing", "plot_outline"]
+    },
     %{id: :absence_directives, state: :presence, actions: :manifest},
     %{id: :progress_state, state: :progress, actions: ["prose_writing", "plot_outline"]},
     %{id: :execution_brief, state: :design, actions: ["prose_writing"]},

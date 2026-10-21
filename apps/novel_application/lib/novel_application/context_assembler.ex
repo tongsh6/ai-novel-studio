@@ -11,6 +11,7 @@ defmodule NovelApplication.ContextAssembler do
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DialogueContext
+  alias NovelDomain.VolumeBlueprint
 
   @doc """
   为给定 workspace 组装 DialogueContext。
@@ -178,6 +179,9 @@ defmodule NovelApplication.ContextAssembler do
 
   defp normalize_structured_chapters(_), do: []
 
+  # B11A CP4（VS-00J §4）：卷信息 additive 透传——卷身份/标题/设计态蓝图随结构化章条目
+  # 进 DialogueContext，供 planner/prose 的「当前卷蓝图」、写作坐标 volume_ref、使命输入与
+  # 探索面消费。只做白名单归一，不渲染/不拼接文本；无卷信息时值为 nil（既有断言不变）。
   defp normalize_structured_chapter(chapter) when is_map(chapter) do
     title = chapter |> get_any([:title, "title"]) |> normalize_text()
 
@@ -195,7 +199,15 @@ defmodule NovelApplication.ContextAssembler do
         has_prose:
           chapter
           |> get_any([:has_prose, "has_prose", :word_count, "word_count"])
-          |> normalize_has_prose()
+          |> normalize_has_prose(),
+        volume_id: chapter |> get_any([:volume_id, "volume_id"]) |> normalize_optional_text(),
+        volume_seq: chapter |> get_any([:volume_seq, "volume_seq"]) |> normalize_integer(),
+        volume_title:
+          chapter |> get_any([:volume_title, "volume_title"]) |> normalize_optional_text(),
+        volume_blueprint:
+          chapter
+          |> get_any([:volume_blueprint, "volume_blueprint"])
+          |> normalize_volume_blueprint()
       }
     end
   end
@@ -214,6 +226,17 @@ defmodule NovelApplication.ContextAssembler do
 
   defp normalize_text(value) when is_binary(value), do: String.trim(value)
   defp normalize_text(_), do: ""
+
+  defp normalize_optional_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp normalize_optional_text(_value), do: nil
+
+  defp normalize_volume_blueprint(value), do: VolumeBlueprint.to_storage(value)
 
   defp normalize_integer(value) when is_integer(value), do: value
 

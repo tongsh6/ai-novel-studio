@@ -353,6 +353,80 @@ defmodule NovelPersistence.WorkspaceContextTest do
                fetcher.(work.id, "现在还有等待态吗？", session.id)
     end
 
+    # B11A CP4（VS-00J §4 消费面 2/3/4）：结构化章条目保留所属卷 additive keys。
+    test "structured chapters carry volume identity/title/blueprint" do
+      {:ok, work} = WorkRepo.create(%{title: "卷蓝图上下文"})
+
+      content = """
+      卷蓝图：第一卷·觉醒｜序号：1｜目标冲突：夺回矿脉｜弧光阶段：由忍到争
+      卷蓝图：第二卷·裂变｜序号：2｜目标冲突：掀翻旧秩序｜新地图：北境
+      第01章：起: 甲。
+      所属卷：第一卷·觉醒
+      第02章：承: 乙。
+      所属卷：第二卷·裂变
+      """
+
+      {:ok, _} =
+        AdoptionRepository.persist(%{
+          actor_ref: "author",
+          work_id: work.id,
+          source_turn_ref: "turn-bp-context",
+          artifact_id: "as-bp-context",
+          artifact_type: :outline_draft,
+          base_revision: 1,
+          content: String.trim(content),
+          summary: "分卷蓝图计划"
+        })
+
+      fetcher = WorkspaceContext.context_fetcher()
+
+      assert {:ok, _snapshot, _summary, _mem, _behavior, ["第01章：起", "第02章：承"], [first, second]} =
+               fetcher.(work.id)
+
+      assert is_binary(first.volume_id)
+      assert first.volume_seq == 1
+      assert first.volume_title == "第一卷·觉醒"
+      assert first.volume_blueprint["goal_conflict"] == "夺回矿脉"
+      assert first.volume_blueprint["arc_stage"] == "由忍到争"
+      assert first.volume_blueprint["status"] == "CONFIRMED"
+      assert first.volume_blueprint["source_ref"] == "artifact:as-bp-context"
+
+      assert second.volume_seq == 2
+      assert second.volume_title == "第二卷·裂变"
+      assert second.volume_blueprint["new_maps"] == "北境"
+      assert second.volume_id != first.volume_id
+
+      # 既有字段不变（additive keys 不改变既有消费者的读取口径）。
+      assert {first.title, first.seq, first.summary, first.has_prose} ==
+               {"第01章：起", 1, "甲。", false}
+    end
+
+    test "structured chapters keep nil blueprint when volume has no blueprint (I-VOL-4)" do
+      {:ok, work} = WorkRepo.create(%{title: "无蓝图上下文"})
+
+      {:ok, _} =
+        AdoptionRepository.persist(%{
+          actor_ref: "author",
+          work_id: work.id,
+          source_turn_ref: "turn-no-bp",
+          artifact_id: "as-no-bp",
+          artifact_type: :prose_fragment,
+          base_revision: 1,
+          content: "林澈摸黑钻进矿道。",
+          summary: "第01章：底层灵气账单"
+        })
+
+      fetcher = WorkspaceContext.context_fetcher()
+
+      assert {:ok, _snapshot, _summary, _mem, _behavior, ["第01章：底层灵气账单"], [chapter]} =
+               fetcher.(work.id)
+
+      assert is_binary(chapter.volume_id)
+      assert chapter.volume_title == "第一卷"
+      assert chapter.volume_blueprint == nil
+      assert chapter.has_prose == true
+    end
+
     test "workspace fallback excludes active behavior from archived sessions" do
       {:ok, work} = WorkRepo.create(%{title: "归档行为过滤"})
 

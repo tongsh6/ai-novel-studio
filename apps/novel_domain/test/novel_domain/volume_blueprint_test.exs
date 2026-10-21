@@ -193,4 +193,84 @@ defmodule NovelDomain.VolumeBlueprintTest do
     assert VolumeBlueprint.keys() == VolumeBlueprint.design_keys() ++ ["status", "source_ref"]
     assert length(VolumeBlueprint.design_keys()) == 12
   end
+
+  # B11A CP4（VS-00J §4 消费面 6）：design_ref 只冻结形状，不接线五本账。
+  describe "design_ref/1" do
+    test "卷 id → volume_blueprint:<id>；空/非字符串/无 id map → nil" do
+      assert VolumeBlueprint.design_ref("vol-1") == "volume_blueprint:vol-1"
+      assert VolumeBlueprint.design_ref("  vol-2  ") == "volume_blueprint:vol-2"
+      assert VolumeBlueprint.design_ref(%{id: "vol-3"}) == "volume_blueprint:vol-3"
+      assert VolumeBlueprint.design_ref(%{"id" => "vol-4"}) == "volume_blueprint:vol-4"
+      assert VolumeBlueprint.design_ref(nil) == nil
+      assert VolumeBlueprint.design_ref("") == nil
+      assert VolumeBlueprint.design_ref("   ") == nil
+      assert VolumeBlueprint.design_ref(%{title: "第一卷"}) == nil
+      assert VolumeBlueprint.design_ref(123) == nil
+    end
+  end
+
+  # B11A CP4：代表性摘要行——上下文/探索面共用的 bounded 视图（不塞全部长文本）。
+  describe "summary_lines/1" do
+    test "完整蓝图归并为 5 组（目标冲突/弧光阶段/支线/高潮与节奏/新要素）" do
+      blueprint = %{
+        "goal_conflict" => "夺回矿脉",
+        "arc_stage" => "由忍到争",
+        "map_boundary" => "北境矿脉",
+        "subplots_start" => "妹妹病危",
+        "subplots_advance" => "暗账曝光",
+        "subplots_close" => "旧账牌兑现",
+        "climaxes" => "对账夜",
+        "payoff_density" => "每两章一爽点",
+        "buffers" => "过渡章",
+        "new_characters" => "周燃",
+        "new_settings" => "灵气配额制",
+        "new_maps" => "北境",
+        "status" => "CONFIRMED",
+        "source_ref" => "artifact:as-1"
+      }
+
+      assert VolumeBlueprint.summary_lines(blueprint) == [
+               "目标冲突：夺回矿脉",
+               "弧光阶段：由忍到争",
+               "支线（启动：妹妹病危、推进：暗账曝光、收束：旧账牌兑现）",
+               "高潮与节奏（高潮章：对账夜、爽点密度：每两章一爽点、缓冲章：过渡章）",
+               "新要素（新人物：周燃、新设定：灵气配额制、新地图：北境）"
+             ]
+    end
+
+    test "部分蓝图：缺组不渲染，不补占位" do
+      assert VolumeBlueprint.summary_lines(%{
+               "goal_conflict" => "夺回矿脉",
+               "new_maps" => "北境"
+             }) == ["目标冲突：夺回矿脉", "新要素（新地图：北境）"]
+
+      assert VolumeBlueprint.summary_lines(%{"subplots_advance" => "暗账曝光"}) == [
+               "支线（推进：暗账曝光）"
+             ]
+    end
+
+    test "无设计槽/空值 → []（只有 status/source_ref 不算蓝图）" do
+      assert VolumeBlueprint.summary_lines(nil) == []
+      assert VolumeBlueprint.summary_lines(%{}) == []
+      assert VolumeBlueprint.summary_lines(%{"status" => "CONFIRMED", "source_ref" => "x"}) == []
+      assert VolumeBlueprint.summary_lines(%{"goal_conflict" => "  "}) == []
+    end
+
+    test "与 render_lines/1 同源：每组都是 render_lines 标签的子集" do
+      blueprint = Map.new(VolumeBlueprint.design_keys(), &{&1, "值-#{&1}"})
+      rendered = VolumeBlueprint.render_lines(blueprint)
+      summary = VolumeBlueprint.summary_lines(blueprint)
+
+      for line <- summary do
+        label = line |> String.split("：") |> hd() |> String.split("（") |> hd()
+
+        assert Enum.any?(rendered, &String.starts_with?(&1, label <> "：")) or
+                 Enum.any?(
+                   rendered,
+                   &String.starts_with?(&1, String.replace(label, "与节奏", "") <> "：")
+                 ) or
+                 label in ["支线", "高潮与节奏", "新要素"]
+      end
+    end
+  end
 end

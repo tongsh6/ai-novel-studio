@@ -11,6 +11,8 @@ defmodule NovelDomain.WorkSkeleton do
   阶梯推导，非狗粮标定）；进度只作粗略信号，守则不依赖精确 P%。
   """
 
+  alias NovelDomain.VolumeBlueprint
+
   @avg_chapter_length 1400
   @closure_threshold 0.85
 
@@ -141,6 +143,53 @@ defmodule NovelDomain.WorkSkeleton do
 
   @spec closure_threshold() :: float()
   def closure_threshold, do: @closure_threshold
+
+  @doc """
+  当前卷蓝图段（B11A CP4 / VS-00J §4 消费面 2/3）：把设计态卷级蓝图注入创作/规划 prompt。
+
+  - 无卷标题或无 E14-E17 设计槽 → `""`（诚实缺席；与未引入卷蓝图时逐字节等价，I-VOL-4）；
+  - `progress` = `%{written: n, total: n}`（可 nil / 缺键）——能算时渲染本卷进度行；
+  - 与 `render_for_prose/2` 独立：卷蓝图是规划/写作共用的设计态参照，不属于全书骨架。
+  """
+  @spec volume_blueprint_section(String.t() | nil, map() | nil, map() | nil) :: String.t()
+  def volume_blueprint_section(volume_title, blueprint, progress \\ nil)
+
+  def volume_blueprint_section(volume_title, blueprint, progress)
+      when is_binary(volume_title) and is_map(blueprint) do
+    title = String.trim(volume_title)
+    blueprint_lines = VolumeBlueprint.render_lines(blueprint)
+
+    if title == "" or blueprint_lines == [] do
+      ""
+    else
+      header =
+        [
+          "## 当前卷蓝图（设计态）",
+          "- 卷：#{title}",
+          volume_progress_line(progress)
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n")
+
+      header <> "\n" <> Enum.join(blueprint_lines, "\n")
+    end
+  end
+
+  def volume_blueprint_section(_volume_title, _blueprint, _progress), do: ""
+
+  defp volume_progress_line(progress) when is_map(progress) do
+    written = progress_value(progress, :written)
+    total = progress_value(progress, :total)
+
+    if is_integer(written) and is_integer(total) and total > 0 do
+      "- 本卷进度：已写 #{written} / 共 #{total} 章"
+    end
+  end
+
+  defp volume_progress_line(_progress), do: nil
+
+  defp progress_value(progress, key),
+    do: Map.get(progress, key, Map.get(progress, Atom.to_string(key)))
 
   @doc """
   进度口径（WR01 写前推理复用，与 `render/2` 同源）：骨架未立返回 nil。

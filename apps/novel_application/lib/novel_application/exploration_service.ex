@@ -17,6 +17,7 @@ defmodule NovelApplication.ExplorationService do
 
   alias NovelApplication.{MemoryManagementService, ReadingProjectionService, WorkArchiveService}
   alias NovelDomain.ChapterPlanDirection
+  alias NovelDomain.VolumeBlueprint
   alias NovelPersistence.{ChapterSummaryRepo, ProseSearchRepo, WorkSessionRepo}
 
   @type observation :: %{
@@ -225,8 +226,10 @@ defmodule NovelApplication.ExplorationService do
          )}
 
       chapter ->
+        volume = chapter_volume(volumes, chapter)
+
         sections =
-          [chapter_plan_section(chapter), chapter_summary_section(work_id, chapter)] ++
+          [chapter_plan_section(chapter, volume), chapter_summary_section(work_id, chapter)] ++
             chapter_prose_sections(work_id, chapter)
 
         {:ok,
@@ -241,7 +244,9 @@ defmodule NovelApplication.ExplorationService do
 
   # 设计态（E18-E22 结构化计划；ADR-0025 CP5b 探索补面 A）：无结构化计划时
   # 回退 chapters.summary（大纲采纳的单行方向），两者皆无则诚实说明。
-  defp chapter_plan_section(chapter) do
+  # B11A CP4（VS-00J §4 消费面 4 / 08 §8 探索面同步律）：所属卷与当前卷蓝图摘要
+  # 同批可读；卷无设计态蓝图时整段不渲染（I-VOL-4：与今天逐字节一致）。
+  defp chapter_plan_section(chapter, volume) do
     plan = ChapterPlanDirection.from_storage(Map.get(chapter, :plan_direction))
 
     rendered =
@@ -270,8 +275,50 @@ defmodule NovelApplication.ExplorationService do
           |> Enum.map_join("；", fn {label, value} -> "#{label}：#{value}" end)
       end
 
-    "【计划】#{rendered}"
+    "【计划】#{append_volume_text(rendered, volume)}"
   end
+
+  # 本章所属卷（按 TOC 卷节点反查：章的 volume_id / 章 id 归组）。
+  defp chapter_volume(volumes, chapter) do
+    Enum.find(volumes, fn volume ->
+      Enum.any?(Map.get(volume, :chapters, []), &(&1.id == Map.get(chapter, :id)))
+    end)
+  end
+
+  defp append_volume_text(rendered, volume) do
+    case volume_blueprint_text(volume) do
+      "" -> rendered
+      text -> rendered <> "；" <> text
+    end
+  end
+
+  defp volume_blueprint_text(nil), do: ""
+
+  defp volume_blueprint_text(volume) do
+    blueprint = volume |> Map.get(:blueprint) |> VolumeBlueprint.to_storage()
+
+    if VolumeBlueprint.empty?(blueprint) do
+      ""
+    else
+      summary = blueprint |> VolumeBlueprint.summary_lines() |> Enum.join("；")
+
+      [
+        volume_title_text(Map.get(volume, :title)),
+        if(summary == "", do: nil, else: "当前卷蓝图：#{summary}")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("；")
+    end
+  end
+
+  defp volume_title_text(title) when is_binary(title) do
+    case String.trim(title) do
+      "" -> nil
+      trimmed -> "所属卷：#{trimmed}"
+    end
+  end
+
+  defp volume_title_text(_title), do: nil
 
   # 场次计划（NEM04 刀③，探索面同步律）：规划落库的逐场三槽在判断循环内可读。
   # B11C CP1：VS-00E §1 场级结构子槽（因果/信息差/对白/感官）同批可读；缺子槽不渲染。

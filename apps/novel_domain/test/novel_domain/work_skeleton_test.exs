@@ -136,4 +136,81 @@ defmodule NovelDomain.WorkSkeletonTest do
       refute text =~ "所属卷"
     end
   end
+
+  # B11A CP4（VS-00J §4 消费面 2/3）：当前卷蓝图段——设计态卷级蓝图进创作/规划 prompt。
+  # 无卷标题/无设计槽 → ""（I-VOL-4 退化等价）；status/source_ref 是采纳元数据不渲染。
+  describe "volume_blueprint_section/3 (B11A CP4)" do
+    @blueprint %{
+      "goal_conflict" => "夺回矿脉",
+      "arc_stage" => "由忍到争",
+      "subplots_start" => "妹妹病危",
+      "climaxes" => "对账夜",
+      "new_maps" => "北境",
+      "status" => "CONFIRMED",
+      "source_ref" => "artifact:as-1"
+    }
+
+    test "无蓝图/空蓝图/无卷标题 → 空串（与未引入卷蓝图时逐字节等价）" do
+      assert WorkSkeleton.volume_blueprint_section("第二卷·裂变", nil, nil) == ""
+      assert WorkSkeleton.volume_blueprint_section("第二卷·裂变", %{}, nil) == ""
+      assert WorkSkeleton.volume_blueprint_section(nil, @blueprint, nil) == ""
+      assert WorkSkeleton.volume_blueprint_section("", @blueprint, nil) == ""
+      assert WorkSkeleton.volume_blueprint_section("   ", @blueprint, nil) == ""
+      # 只有采纳元数据、无 E14-E17 设计槽 → 不算立蓝图。
+      assert WorkSkeleton.volume_blueprint_section("第二卷", %{"status" => "CONFIRMED"}, nil) == ""
+    end
+
+    test "完整蓝图 + progress：确定性段（header/卷/进度/render_lines 行；元数据不渲染）" do
+      assert WorkSkeleton.volume_blueprint_section("第二卷·裂变", @blueprint, %{written: 2, total: 7}) ==
+               """
+               ## 当前卷蓝图（设计态）
+               - 卷：第二卷·裂变
+               - 本卷进度：已写 2 / 共 7 章
+               目标冲突：夺回矿脉
+               弧光阶段：由忍到争
+               支线启动：妹妹病危
+               高潮章：对账夜
+               新地图：北境
+               """
+               |> String.trim_trailing()
+    end
+
+    test "部分蓝图：缺槽不渲染、不补占位" do
+      section = WorkSkeleton.volume_blueprint_section("第一卷", %{"goal_conflict" => "掀翻旧秩序"})
+      assert section == "## 当前卷蓝图（设计态）\n- 卷：第一卷\n目标冲突：掀翻旧秩序"
+      refute section =~ "弧光阶段"
+      refute section =~ "本卷进度"
+    end
+
+    test "progress 缺省/缺键/total 0 → 不渲染进度行（能算时才算）" do
+      for progress <- [
+            nil,
+            %{},
+            %{written: 2},
+            %{total: 3},
+            %{written: 0, total: 0},
+            %{written: "2", total: "3"}
+          ] do
+        section =
+          WorkSkeleton.volume_blueprint_section("第一卷", %{"goal_conflict" => "甲"}, progress)
+
+        refute section =~ "本卷进度"
+      end
+    end
+
+    test "progress 字符串 key 兼容；written=0 也渲染" do
+      section =
+        WorkSkeleton.volume_blueprint_section("第一卷", %{"goal_conflict" => "甲"}, %{
+          "written" => 0,
+          "total" => 5
+        })
+
+      assert section =~ "- 本卷进度：已写 0 / 共 5 章"
+    end
+
+    test "卷标题两侧空白归一" do
+      assert WorkSkeleton.volume_blueprint_section("  第三卷·归墟  ", %{"goal_conflict" => "甲"}) =~
+               "- 卷：第三卷·归墟"
+    end
+  end
 end

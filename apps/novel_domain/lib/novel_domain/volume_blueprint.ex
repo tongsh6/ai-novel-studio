@@ -183,6 +183,85 @@ defmodule NovelDomain.VolumeBlueprint do
   defp design_lines(blueprint),
     do: Enum.flat_map(@design_slots, &design_slot_line(&1, blueprint))
 
+  @doc """
+  卷蓝图 `design_ref` 形状（VS-00J §4 消费面 6）：`volume_blueprint:<volume_id>`；
+  无卷 id → nil。
+
+  本模块只冻结形状（供后续 R2/承诺账引用），**不接线**到五本账（B11A CP4 边界：
+  只提供 helper，不新增静默写路径）。
+  """
+  @spec design_ref(String.t() | map() | nil) :: String.t() | nil
+  def design_ref(volume_id) when is_binary(volume_id) do
+    case String.trim(volume_id) do
+      "" -> nil
+      id -> "volume_blueprint:#{id}"
+    end
+  end
+
+  def design_ref(%{} = volume) do
+    case volume |> get_any([:id, "id"]) |> clean() do
+      nil -> nil
+      id -> "volume_blueprint:#{id}"
+    end
+  end
+
+  def design_ref(_volume), do: nil
+
+  @doc """
+  代表性摘要行：把 E14-E17 设计槽归并为 5 组（目标冲突 / 弧光阶段 / 支线 /
+  高潮与节奏 / 新要素），供「当前卷蓝图摘要」类上下文使用（bounded，不塞全部长文本）。
+
+  缺组不渲染、不补占位；无设计槽 → `[]`。与 `render_lines/1` 同源（同一白名单/标签）。
+  """
+  @spec summary_lines(t() | map() | nil) :: [String.t()]
+  def summary_lines(value) do
+    case new(value) do
+      nil ->
+        []
+
+      blueprint ->
+        [
+          summary_line(blueprint, "目标冲突", "goal_conflict"),
+          summary_line(blueprint, "弧光阶段", "arc_stage"),
+          summary_group_line(blueprint, "支线", [
+            {"subplots_start", "启动"},
+            {"subplots_advance", "推进"},
+            {"subplots_close", "收束"}
+          ]),
+          summary_group_line(blueprint, "高潮与节奏", [
+            {"climaxes", "高潮章"},
+            {"payoff_density", "爽点密度"},
+            {"buffers", "缓冲章"}
+          ]),
+          summary_group_line(blueprint, "新要素", [
+            {"new_characters", "新人物"},
+            {"new_settings", "新设定"},
+            {"new_maps", "新地图"}
+          ])
+        ]
+        |> Enum.reject(&is_nil/1)
+    end
+  end
+
+  defp summary_line(blueprint, label, key) do
+    case Map.get(blueprint, key) do
+      nil -> nil
+      text -> "#{label}：#{text}"
+    end
+  end
+
+  defp summary_group_line(blueprint, label, pairs) do
+    parts =
+      Enum.flat_map(pairs, fn {key, item_label} ->
+        case Map.get(blueprint, key) do
+          nil -> []
+          text -> ["#{item_label}：#{text}"]
+        end
+      end)
+
+    if parts == [], do: nil, else: "#{label}（#{Enum.join(parts, "、")}）"
+  end
+
   defp design_slot_line({_atom, key, label}, blueprint) do
     case Map.get(blueprint, key) do
       nil -> []

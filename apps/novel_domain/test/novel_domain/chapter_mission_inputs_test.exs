@@ -171,4 +171,144 @@ defmodule NovelDomain.ChapterMissionInputsTest do
     assert text =~ "[plan:2:summary] 计划摘要：旧账兑现"
     assert text =~ "伏笔 X（预期第2章回收，本章到期）"
   end
+
+  # B11A CP4（VS-00J §4 消费面 3）：当前卷蓝图进写前推理材料（设计态，只读）。
+  # 无卷/无蓝图时 items 与 prompt 逐字节等价（I-VOL-4）。
+  describe "当前卷蓝图 (B11A CP4)" do
+    @volume_blueprint %{
+      "goal_conflict" => "夺回矿脉",
+      "arc_stage" => "由忍到争",
+      "climaxes" => "对账夜",
+      "new_maps" => "北境",
+      "status" => "CONFIRMED",
+      "source_ref" => "artifact:as-bp-1"
+    }
+
+    @volume_text "目标冲突：夺回矿脉；弧光阶段：由忍到争；高潮与节奏（高潮章：对账夜）；新要素（新地图：北境）"
+
+    test "显式 :volume：产 volume:blueprint item，prompt 增「当前卷蓝图（设计态）」组" do
+      inputs =
+        ChapterMissionInputs.build(%{
+          chapter: %{seq: 2, title: "第02章：旧账兑现", summary: "旧账兑现"},
+          entries: [],
+          volume: %{
+            volume_title: "第二卷·裂变",
+            blueprint: @volume_blueprint,
+            written: 1,
+            total: 4
+          }
+        })
+
+      assert MapSet.member?(ChapterMissionInputs.refs(inputs), "volume:blueprint")
+      assert ChapterMissionInputs.label(inputs, "volume:blueprint") == @volume_text
+
+      text = ChapterMissionInputs.to_prompt_section(inputs)
+      assert text =~ "### 当前卷蓝图（设计态）"
+      assert text =~ "[volume:blueprint] #{@volume_text}"
+    end
+
+    test "未显式给 :volume：从结构化章条目的 additive 卷键推导（真实链路默认路径）" do
+      inputs =
+        ChapterMissionInputs.build(%{
+          chapter: %{
+            seq: 2,
+            title: "第02章：旧账兑现",
+            summary: "旧账兑现",
+            volume_id: "vol-2",
+            volume_seq: 2,
+            volume_title: "第二卷·裂变",
+            volume_blueprint: @volume_blueprint
+          },
+          entries: []
+        })
+
+      assert ChapterMissionInputs.label(inputs, "volume:blueprint") == @volume_text
+    end
+
+    test "planning：从 planned_chapters 中章序最大者的卷推导（接下来要写的那一卷）" do
+      inputs =
+        ChapterMissionInputs.build(%{
+          mode: :planning,
+          chapter: nil,
+          planned_chapters: [
+            %{
+              seq: 3,
+              title: "第03章：起",
+              summary: "起",
+              volume_title: "第一卷·觉醒",
+              volume_blueprint: %{"goal_conflict" => "旧卷冲突"}
+            },
+            %{
+              seq: 4,
+              title: "第04章：承",
+              summary: "承",
+              volume_title: "第二卷·裂变",
+              volume_blueprint: @volume_blueprint
+            }
+          ],
+          entries: []
+        })
+
+      assert ChapterMissionInputs.label(inputs, "volume:blueprint") == @volume_text
+    end
+
+    test "显式 :volume 优先于章条目推导；蓝图只含元数据 → 不产 item" do
+      explicit =
+        ChapterMissionInputs.build(%{
+          chapter: %{
+            seq: 1,
+            title: "第01章",
+            volume_title: "旧卷",
+            volume_blueprint: %{"goal_conflict" => "旧卷冲突"}
+          },
+          entries: [],
+          volume: %{volume_title: "新卷", blueprint: @volume_blueprint, written: 0, total: 2}
+        })
+
+      assert ChapterMissionInputs.label(explicit, "volume:blueprint") == @volume_text
+
+      metadata_only =
+        ChapterMissionInputs.build(%{
+          chapter: %{
+            seq: 1,
+            title: "第01章",
+            volume_title: "第一卷",
+            volume_blueprint: %{"status" => "CONFIRMED", "source_ref" => "artifact:as-1"}
+          },
+          entries: []
+        })
+
+      refute MapSet.member?(ChapterMissionInputs.refs(metadata_only), "volume:blueprint")
+    end
+
+    test "无卷/无蓝图：items 与 prompt 与未引入卷蓝图时逐字节等价（I-VOL-4）" do
+      baseline =
+        ChapterMissionInputs.build(%{
+          chapter: %{seq: 2, title: "第02章", summary: "旧账兑现"},
+          entries: []
+        })
+
+      with_empty_volume =
+        ChapterMissionInputs.build(%{
+          chapter: %{
+            seq: 2,
+            title: "第02章",
+            summary: "旧账兑现",
+            volume_id: "vol-1",
+            volume_seq: 1,
+            volume_title: "第一卷",
+            volume_blueprint: nil
+          },
+          entries: []
+        })
+
+      assert with_empty_volume.items == baseline.items
+
+      assert ChapterMissionInputs.to_prompt_section(with_empty_volume) ==
+               ChapterMissionInputs.to_prompt_section(baseline)
+
+      refute MapSet.member?(ChapterMissionInputs.refs(baseline), "volume:blueprint")
+      refute ChapterMissionInputs.to_prompt_section(baseline) =~ "当前卷蓝图"
+    end
+  end
 end

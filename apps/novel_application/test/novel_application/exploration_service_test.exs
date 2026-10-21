@@ -330,6 +330,69 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert multi_miss.summary =~ "第二卷·裂变：第02章：承"
   end
 
+  # B11A CP4（VS-00J §4 消费面 4 / 08 §8 探索面同步律）：章计划渲染同批暴露所属卷与
+  # 当前卷蓝图摘要；卷无设计态蓝图时整段不渲染（I-VOL-4 与今天逐字节一致）。
+  test "chapter_read：所属卷与当前卷蓝图摘要同批可读；无蓝图卷不渲染" do
+    {:ok, work} = WorkService.create(%{"title" => "卷蓝图探索"})
+
+    first_volume =
+      %Volume{}
+      |> Volume.changeset(%{work_id: work.id, title: "第一卷·觉醒", seq: 1})
+      |> Repo.insert!()
+
+    blueprint = %{
+      "goal_conflict" => "夺回矿脉",
+      "arc_stage" => "由忍到争",
+      "climaxes" => "对账夜",
+      "new_maps" => "北境",
+      "status" => "CONFIRMED",
+      "source_ref" => "artifact:as-1"
+    }
+
+    second_volume =
+      %Volume{}
+      |> Volume.changeset(%{
+        work_id: work.id,
+        title: "第二卷·裂变",
+        seq: 2,
+        status: "PLANNED",
+        blueprint: blueprint
+      })
+      |> Repo.insert!()
+
+    %Chapter{}
+    |> Chapter.changeset(%{
+      work_id: work.id,
+      volume_id: first_volume.id,
+      title: "第01章：起",
+      seq: 1
+    })
+    |> Repo.insert!()
+
+    %Chapter{}
+    |> Chapter.changeset(%{
+      work_id: work.id,
+      volume_id: second_volume.id,
+      title: "第02章：承",
+      seq: 2
+    })
+    |> Repo.insert!()
+
+    # 无蓝图卷：既有探索输出逐字节不变（不渲染所属卷/蓝图摘要）。
+    assert {:ok, first} = ExplorationService.run(work.id, "chapter_read", "第01章")
+    refute first.summary =~ "当前卷蓝图"
+    refute first.summary =~ "所属卷"
+
+    assert {:ok, second} = ExplorationService.run(work.id, "chapter_read", "第02章")
+    assert second.summary =~ "所属卷：第二卷·裂变"
+
+    assert second.summary =~
+             "当前卷蓝图：目标冲突：夺回矿脉；弧光阶段：由忍到争；高潮与节奏（高潮章：对账夜）；新要素（新地图：北境）"
+
+    # 设计态元数据不进探索观察（不伪造作品事实/不泄露内部 ref）。
+    refute second.summary =~ "artifact:as-1"
+  end
+
   defp seed_work_with_two_volumes do
     {:ok, work} = WorkService.create(%{"title" => "分卷书"})
 

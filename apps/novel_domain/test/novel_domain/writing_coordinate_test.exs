@@ -60,4 +60,25 @@ defmodule NovelDomain.WritingCoordinateTest do
       assert c.matched_chapter == ""
     end
   end
+
+  # B11A CP4（VS-00J §4 消费面 6 的坐标侧）：坐标同批带当前卷 ref（nil=未定卷）。
+  describe "volume_ref (B11A CP4)" do
+    test "传入卷 id：trim 后写入 volume_ref" do
+      c =
+        WritingCoordinate.derive(%{
+          capability: "prose_writing",
+          authoring_intent: :none,
+          volume_ref: "  vol-1  "
+        })
+
+      assert c.volume_ref == "vol-1"
+    end
+
+    test "缺省/空串/非字符串 → nil（未定卷，不伪造）" do
+      for volume_ref <- [nil, "", "   ", 123, %{id: "vol-1"}] do
+        c = WritingCoordinate.derive(%{capability: "prose_writing", volume_ref: volume_ref})
+        assert c.volume_ref == nil
+      end
+    end
+  end
 end
