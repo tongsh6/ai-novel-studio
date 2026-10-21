@@ -3989,11 +3989,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # VS-00F CP1（AU-13）：真实模型带「现有角色」roster 上下文时会让角色出场（M2 达标
   # 跑实证）；确定性正文复刻该行为——取 roster 首个角色名织入首句，令写后摘要人物栏
   # 与弧光账提炼有真实姓名可命中。无 roster 时为空（不虚构角色）。
+  # D1/D2 词表扩后正文不得含叙事层元词（「主角/反派/配角」），否则所有 prose 采纳场景
+  # 会被质量门禁切到质量复核分支；此处原「向主角确认了暗号」即 CP1 组合遗漏，改为具名/
+  # 中性表述（与 opening_body 里「主角停在巷口」→「他停在巷口」的修法同源）。
   defp roster_presence_sentence(context) do
     case Regex.run(~r/## 现有角色[^\n]*\n- ([^（：\n]+)/u, to_string(context)) do
       [_, name] ->
         trimmed = String.trim(name)
-        if trimmed == "", do: "", else: "#{trimmed}先一步候在巷口，压低声音向主角确认了暗号。"
+        if trimmed == "", do: "", else: "#{trimmed}先一步候在巷口，压低声音与来人对了暗号。"
 
       _ ->
         ""

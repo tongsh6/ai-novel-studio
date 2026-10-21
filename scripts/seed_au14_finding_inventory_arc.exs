@@ -34,7 +34,10 @@ chapter_lines =
     "target_reader" => "先写后整理设定的长篇作者",
     "tone_preference" => "克制、紧张、具象",
     "target_length" => 120_000,
-    "planned_volumes" => 4,
+    # 事实卷数=1（10 章正文采纳只建规范单卷）。计划卷数必须与事实一致，否则 R10
+    # 「卷规划不一致」负债 finding 会额外进审读报告，打破 finding_count===1 断言
+    # （B13b-C D2 修复）。
+    "planned_volumes" => 1,
     "serial_form" => "SERIALIZED"
   })
 

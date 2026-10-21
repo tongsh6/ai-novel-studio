@@ -81,7 +81,10 @@ seed_chapter_one_prose =
     "target_reader" => "关注长篇连续性的作者",
     "tone_preference" => "克制、紧张、具象",
     "target_length" => 60_000,
-    "planned_volumes" => 3,
+    # 事实卷数=1（章计划无「所属卷」标注 → 章计划采纳只建规范单卷）。计划卷数必须与
+    # 事实一致，否则 R10「卷规划不一致」负债 finding 会额外进审读报告，打破本场景
+    # 「发现 5 处偏离」/finding_count=5 断言（B13b-C D1 修复）。
+    "planned_volumes" => 1,
     "serial_form" => "SERIALIZED"
   })
 
