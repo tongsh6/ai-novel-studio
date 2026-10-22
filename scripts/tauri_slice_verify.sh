@@ -161,6 +161,7 @@ Implemented external UI driver slice ids:
   agent-bounded-roster-to-character-design
   agent-step-regate
   agent-no-multistep-plan-bypass
+  judgment-plan-multi-step
   agent-event-author-safe
   agent-channel-fast-ack
   agent-interrupt-safe-point
@@ -875,6 +876,9 @@ native_action_description() {
       ;;
     agent-no-multistep-plan-bypass)
       echo "run the UA-01 bounded scene and verify the parent AgentRun is not executed as a multi-tool batch"
+      ;;
+    judgment-plan-multi-step)
+      echo "send a complex cross-capability author request from the real workbench -> verify judgment decides plan, the model drafts a >=3-step plan spanning >=2 creative capabilities, steps execute through orchestrator gates, and the run completes with multiple pending artifacts awaiting author adoption"
       ;;
     agent-event-author-safe)
       echo "run the UA-01 bounded scene and verify agent_event payloads expose author-safe summaries/refs only"
@@ -1846,6 +1850,9 @@ case "$SLICE_ID" in
     ;;
   ua01-agent-bounded-roster-to-character-design)
     SEED_SCRIPT=""
+    ;;
+  judgment-plan-multi-step)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   agent-bounded-roster-to-character-design | \
     agent-step-regate | \

@@ -146,7 +146,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
 
     assert is_binary(run_id)
 
-    assert_broadcast("turn_result", %{turn_id: ^turn_id, phase: "completed"}, @agent_run_timeout)
+    assert_broadcast("turn_result", %{turn_id: ^turn_id, phase: "dialogue"}, @agent_run_timeout)
     assert_agent_run_stopped(run_id)
   end
 
@@ -176,7 +176,7 @@ defmodule NovelWeb.WorkspaceChannelTest do
     assert_broadcast(
       "turn_result",
       %{
-        phase: "completed",
+        phase: "dialogue",
         turn_id: ^turn_id,
         assistant_message: %{text: _}
       },

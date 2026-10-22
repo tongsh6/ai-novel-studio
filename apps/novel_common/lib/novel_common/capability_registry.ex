@@ -168,6 +168,24 @@ defmodule NovelCommon.CapabilityRegistry do
         provider_dependency: :none,
         supports_retry: false,
         supports_cancellation: false
+      },
+      # ADR-0011 #1：deprecated fixture——保留可列举/可查询，但与 disabled 一样
+      # 不可分发（dispatchable? 仅 active/experimental）；Toolbox 返回
+      # tool_not_dispatchable（同一保守降级族，不新增分支）。
+      "deprecated_tool" => %CapabilityRegistryEntry{
+        tool_name: "deprecated_tool",
+        tool_version: "0.9.0",
+        tool_layer: :debug,
+        input_contract_ref: "deprecated_input_v1",
+        output_contract_ref: "deprecated_output_v1",
+        read_scopes: [],
+        write_scopes: [],
+        risk_class: :low,
+        status: :deprecated,
+        trace_level: :minimal,
+        provider_dependency: :none,
+        supports_retry: false,
+        supports_cancellation: false
       }
     }
   end

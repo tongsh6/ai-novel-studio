@@ -91,6 +91,9 @@ defmodule NovelApplication.TurnResultBuilder do
 
   # ── phase / status ────────────────────────────
 
+  # ADR-0006 #1：无 behavior、无工具调用的回复轮 phase = dialogue（不是 completed）；
+  # 工具成功仍 completed、失败仍 failed。
+  defp build_phase(nil, nil), do: "dialogue"
   defp build_phase(nil, %ToolResult{status: :failed}), do: "failed"
   defp build_phase(nil, _tool_result), do: "completed"
   defp build_phase(%BehaviorState{lifecycle_status: :open}, _), do: "awaiting_author"
@@ -180,9 +183,16 @@ defmodule NovelApplication.TurnResultBuilder do
       decision_type: d.decision_type,
       decision_status: d.decision_status,
       first_blocking_gate: d.first_blocking_gate,
-      required_author_action: d.required_author_action
+      required_author_action: d.required_author_action,
+      # ADR-0004 #3：决策 trace 闭合——turn_result 引用本轮 DecisionTrace。
+      decision_trace_ref: d.decision_trace_ref
     })
   end
+
+  defp maybe_put_orchestrator_decision(result, decision) when is_map(decision),
+    do: Map.put(result, :orchestrator_decision, decision)
+
+  defp maybe_put_orchestrator_decision(result, _decision), do: result
 
   defp maybe_add_tool_result(r, nil), do: r
 
@@ -287,7 +297,9 @@ defmodule NovelApplication.TurnResultBuilder do
       }
     }
 
-    maybe_add_artifacts(base, artifact_set)
+    base
+    |> maybe_put_orchestrator_decision(opts[:orchestrator_decision])
+    |> maybe_add_artifacts(artifact_set)
   end
 
   defp artifact_card_title(%TentativeArtifactSet{} = as) do

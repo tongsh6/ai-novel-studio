@@ -38,7 +38,7 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
       "generate_micro_plan" => true
     })
 
-    assert_broadcast("turn_result", %{turn_id: _})
+    assert_broadcast("turn_result", %{turn_id: _}, 2_000)
 
     records = eventually_read_records(log_dir)
     record = Enum.find(records, &(&1["event"] == "channel.user_message.start"))

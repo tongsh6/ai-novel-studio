@@ -194,6 +194,7 @@
 | `judgment-explore-internal.yml` | 判断探索：已采纳正文事实检索与出处引用（待复跑，blocked） |
 | `judgment-explore-chapter-plan.yml` | 判断探索：设计态章节计划检索与出处引用 |
 | `judgment-explore-chapter-full-read.yml` | 判断探索：长章按 chapter_ref 分页完整读取 + 续读 footer 逐字复用 + 末页事实引用（B24 CP3） |
+| `judgment-plan-multi-step.yml` | 判断①判复杂 → 模型自产多能力计划 → 多产物停待采纳（ADR-0025 CP4；B13b BB-12 注册） |
 | `au13-arc-ledger-roundtrip.yml` | 弧光账自动更新、探索引用与后续正文投影 |
 | `au13-revise-prose-sibling.yml` | 全书审读 revise_prose 处置产出 sibling 修订候选、原稿保留 |
 | `au10-workbench-render-stability.yml` | 工作台渲染稳定性与作品切换原子性 |

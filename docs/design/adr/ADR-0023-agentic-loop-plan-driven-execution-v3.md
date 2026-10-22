@@ -157,6 +157,8 @@ profile routing 之后、第一个 step 之前，目标 profile 的 planner 做*
 | CP3 | 全 profile 迁移＋机械完成态＋46§9 计划面板消费＋验收口径全量迁移（各 scenario provider_calls 断言、stub 计划应答改造、锚点同步） |
 | CP4 | AgentPlan 原生 tool calling 协议迁移（`agent-plan-native-tool-calling-protocol` 真实 Tauri 已通过；生产 AgentPlan draft/revision 不保留 JSON-tail fallback） |
 
+> **历史检查点注记（2026-10-23，B13b/D14 收口）**：以下 `实现检查点（2026-07-04/07-05…）` 段落是**判断纪元之前**的计划驱动 v3 形态证据，其中 `conversation_turn_v1` 与 `prose_drafting_with_quality_v1` 的「计划起草 → 机械推进 / D6 修订 → 继续」路径已随 ADR-0025 判断纪元（2026-07-19 起）退役：当前主链由判断①/判断②循环 + 判断内 explore/plan/execute 承担，上述 conversation 计划直通/修订路径不再可达。历史检查点保留原样供追溯，**不得**作为当前实现或验收口径引用；当前判断纪元证据见 ADR-0025 与 `tasks/slices/UA01-judgment-driven-loop.md`、`tasks/slices/B24-*` 等 slice 档。
+
 实现检查点（2026-07-04）：CP0 已先行落到现有 observation-led next-step planner 上，内容仅限协议鲁棒性与观察保真：
 `AgenticNextStepPlanner` 对坏 JSON tail / 协议字段错误 / profile 工具边界错误携带失败片段重试一次，
 retry 后的 provider call count 进入 AgentRun consumed budget；prompt 只携带最近观察的 author-safe summary

@@ -104,6 +104,25 @@ describe("TurnResultSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("接受投影运行时 3 字段（BB-9：projection_hint_id/reason/source_state_trace_ref）", () => {
+    const payload = {
+      ...minimalValid,
+      projection_refs: [
+        {
+          projection_type: "reading_projection_toc",
+          projection_id: "proj_002",
+          source_revision_refs: ["rev_2"],
+          refresh_status: "STALE",
+          projection_hint_id: "hint_001",
+          reason: "adoption_refresh",
+          source_state_trace_ref: "state_trace:turn_2",
+        },
+      ],
+    };
+    const result = TurnResultSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+
   it("接受非空 adoption_state.pending（canonical adoption_status + payload）", () => {
     const payload = {
       ...minimalValid,

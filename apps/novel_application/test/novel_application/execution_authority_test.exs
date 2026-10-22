@@ -279,7 +279,9 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
       assert Enum.all?(behavior.available_actions, fn action ->
                {:ok, _expires_at, _offset} = DateTime.from_iso8601(action.expires_at)
-               action.action_type in ["confirm_before_execute", "reject_or_cancel_confirmation"]
+
+               action.trace_ref == "decision_trace:#{frame.turn_id}" and
+                 action.action_type in ["confirm_before_execute", "reject_or_cancel_confirmation"]
              end)
     end
 
@@ -314,7 +316,8 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           answer_type: :confirm,
           idempotency_key: "ik-1",
           rebased_state_snapshot_ref: "state_snapshot:work-1:turn-1:plan-1",
-          gate_result_refs: ["gate_result:turn-1:plan-1:confirm"]
+          gate_result_refs: ["gate_result:turn-1:plan-1:confirm"],
+          trace_ref: "decision_trace:turn-1"
         })
 
       {decision, behavior} =
@@ -352,8 +355,10 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: "prose_writing",
           author_input_ref: "in-1",
           answer_type: :reject,
+          idempotency_key: "ik-2",
           rebased_state_snapshot_ref: "state_snapshot:work-1:turn-1:plan-1",
-          gate_result_refs: ["gate_result:turn-1:plan-1:reject"]
+          gate_result_refs: ["gate_result:turn-1:plan-1:reject"],
+          trace_ref: "decision_trace:turn-1"
         })
 
       {decision, _behavior} =
@@ -388,8 +393,10 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: "prose_writing",
           author_input_ref: "in-1",
           answer_type: :confirm,
+          idempotency_key: "ik-3",
           rebased_state_snapshot_ref: "state_snapshot:work-1:turn-1:plan-1",
-          gate_result_refs: ["gate_result:turn-1:plan-1:confirm"]
+          gate_result_refs: ["gate_result:turn-1:plan-1:confirm"],
+          trace_ref: "decision_trace:turn-1"
         })
 
       {decision, _behavior} =

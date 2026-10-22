@@ -502,6 +502,10 @@ describe("native Tauri slice verifier", () => {
         "审读报告发现「全书进度约 1%，但近期章计划已出现终局/收官定位（第 4 章）——距目标体量尚远…」，我选择修订设定：…",
       premature_finale_turn_id: "turn-finale",
       review_rules: { arc_stalled: 4, premature_finale: 1 },
+      // B13b BB-11：rail 待处置计数与真实报告同源、全处置后消失。
+      rail_review_pending_after_report: 5,
+      rail_review_pending_after_disposition: null,
+      rail_review_pending_matches_report: true,
     };
     const records = [
       {
@@ -531,11 +535,14 @@ describe("native Tauri slice verifier", () => {
       premature_finale_chapter_seq: 4,
       premature_finale_progress_percent: 1,
       review_rules: { arc_stalled: 4, premature_finale: 1 },
+      rail_review_pending_after_report: 5,
+      rail_review_pending_after_disposition: null,
       key_events: keyEventsForSlice(sliceId),
     });
     expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toEqual({
       slice_id: sliceId,
       adjudication_roundtrip: true,
+      rail_review_pending_count_visible_then_cleared: true,
       dispositions: ["accept_drift", "dismiss", "revise_design", "revise_prose"],
       dismiss_evidence: true,
       correction_intents_via_user_message: true,

@@ -56,7 +56,11 @@ defmodule NovelDomain.ConfirmationBinding do
          {:ok, answer_type} <- require_answer_type(attrs),
          {:ok, rebased_state_snapshot_ref} <-
            require_field(attrs, :rebased_state_snapshot_ref, "rebased_state_snapshot_ref"),
-         {:ok, gate_result_refs} <- require_gate_result_refs(attrs) do
+         {:ok, gate_result_refs} <- require_gate_result_refs(attrs),
+         # ADR-0009 #1：binding 是「一次确认动作」的幂等与可追溯载体——
+         # idempotency_key 与 trace_ref 必填（服务端下发的 action / trace 恒提供）。
+         {:ok, idempotency_key} <- require_field(attrs, :idempotency_key, "idempotency_key"),
+         {:ok, trace_ref} <- require_field(attrs, :trace_ref, "trace_ref") do
       {:ok,
        %__MODULE__{
          binding_id: field(attrs, :binding_id) || generate_id(),
@@ -64,10 +68,10 @@ defmodule NovelDomain.ConfirmationBinding do
          target_ref: target_ref,
          author_input_ref: author_input_ref,
          answer_type: answer_type,
-         idempotency_key: field(attrs, :idempotency_key),
+         idempotency_key: idempotency_key,
          rebased_state_snapshot_ref: rebased_state_snapshot_ref,
          gate_result_refs: gate_result_refs,
-         trace_ref: field(attrs, :trace_ref)
+         trace_ref: trace_ref
        }}
     end
   end

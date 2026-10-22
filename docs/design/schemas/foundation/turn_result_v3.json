@@ -208,7 +208,10 @@
           "projection_type": { "type": "string" },
           "projection_id": { "type": "string" },
           "source_revision_refs": { "type": "array", "items": { "type": "string" } },
-          "refresh_status": { "type": ["string", "null"] }
+          "refresh_status": { "type": ["string", "null"] },
+          "projection_hint_id": { "type": ["string", "null"] },
+          "reason": { "type": ["string", "null"] },
+          "source_state_trace_ref": { "type": ["string", "null"] }
         }
       }
     },

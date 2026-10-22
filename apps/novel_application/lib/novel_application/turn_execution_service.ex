@@ -312,6 +312,10 @@ defmodule NovelApplication.TurnExecutionService do
         input[:context]
       )
 
+    # ADR-0004 #3：决策 trace 闭合——trace 记录后把本轮 trace ref 回填到决策，
+    # 使 TurnResult.orchestrator_decision 可追溯到实际 DecisionTrace。
+    decision = %{decision | decision_trace_ref: trace.trace_id}
+
     assistant_message = narrate(tool_result, artifact_set, provider_execution)
 
     turn_result =

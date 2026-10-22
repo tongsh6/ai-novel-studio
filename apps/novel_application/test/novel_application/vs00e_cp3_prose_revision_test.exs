@@ -78,6 +78,10 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     # 6. 修订动作必须有真实 OrchestratorDecision / ToolRequest trace，replay 不重调 provider
     assert revision_turn.trace_summary.decision_type == "revise_from_findings"
     assert revision_turn.trace_summary.orchestrator_decision == :allow_tool
+    # ADR-0004 #3：决策 trace 闭合——TurnResult 决策引用与 trace_summary 同源。
+    assert revision_turn.orchestrator_decision.decision_trace_ref ==
+             revision_turn.trace_summary.trace_ref
+
     assert String.starts_with?(revision_turn.trace_summary.decision_ref, "decision_")
     assert String.starts_with?(revision_turn.trace_summary.tool_request_id, "tq_rev_")
     assert String.starts_with?(revision_turn.trace_summary.tool_result_id, "tr_")

@@ -25,6 +25,37 @@ defmodule NovelDomain.MicroPlanTest do
     ]
   }
 
+  describe "check_forbidden/1（ADR-0002 #3：扫描面覆盖模型可控字段）" do
+    test "goal/actions/state_changes 命中 forbidden 语义" do
+      assert {:error, ["approved"]} =
+               MicroPlan.check_forbidden(%{@plan | plan_goal: %{summary: "approved by model"}})
+
+      assert :ok = MicroPlan.check_forbidden(@plan)
+    end
+
+    test "required_capabilities 携带 forbidden 语义也拦截（不再只扫前三字段）" do
+      plan = %{@plan | required_capabilities: ["prose_writing", "gate_passed"]}
+
+      assert {:error, ["gate_passed"]} = MicroPlan.check_forbidden(plan)
+    end
+
+    test "fallback_strategy 携带 forbidden 语义也拦截" do
+      plan = %{
+        @plan
+        | fallback_strategy: %{downgrade_message: "execution_approved，直接执行"}
+      }
+
+      assert {:error, terms} = MicroPlan.check_forbidden(plan)
+      assert "execution_approved" in terms
+    end
+
+    test "默认 fallback / 空 required_capabilities 不误报" do
+      plan = %{@plan | plan_goal: %{summary: "重写第一章"}, required_capabilities: []}
+
+      assert :ok = MicroPlan.check_forbidden(plan)
+    end
+  end
+
   describe "from_map/1（确认 re-gate 载体反序列化，ADR-0009）" do
     test "struct 原样透传，nil 返回 nil" do
       assert MicroPlan.from_map(@plan) == @plan

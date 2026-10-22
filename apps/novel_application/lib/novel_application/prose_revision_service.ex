@@ -138,11 +138,15 @@ defmodule NovelApplication.ProseRevisionService do
       artifact_set = execution.artifact_set
       emit_revised(source_turn_result, action_input, artifact_set, findings)
 
+      trace_summary = revision_trace_summary(source_turn_result, action_input, execution)
+
       turn_result =
         TurnResultBuilder.revision_turn_result(
           field(source_turn_result, :turn_id) || action_input.source_turn_ref,
           artifact_set,
-          trace_summary: revision_trace_summary(source_turn_result, action_input, execution)
+          trace_summary: trace_summary,
+          # ADR-0004 #3：修订轮也把决策 trace ref 闭合到本轮 trace。
+          orchestrator_decision: revision_orchestrator_decision(execution.decision, trace_summary)
         )
 
       {:ok,
@@ -519,6 +523,17 @@ defmodule NovelApplication.ProseRevisionService do
       idempotency_key: action_input.idempotency_key,
       target_ref: action_input.target_ref,
       revision_artifact_ref: artifact_set.artifact_set_id
+    }
+  end
+
+  defp revision_orchestrator_decision(%OrchestratorDecision{} = decision, trace_summary) do
+    %{
+      decision_id: decision.decision_id,
+      decision_type: decision.decision_type,
+      decision_status: decision.decision_status,
+      first_blocking_gate: decision.first_blocking_gate,
+      required_author_action: decision.required_author_action,
+      decision_trace_ref: Map.get(trace_summary, :trace_ref)
     }
   end
 

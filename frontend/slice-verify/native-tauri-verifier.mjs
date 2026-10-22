@@ -17189,6 +17189,11 @@ function findAu13ReviewAdjudicationEvidence(records) {
       Number(record.adjudicated_count ?? 0) >= 5 &&
       record.dismiss_evidence_logged === true &&
       record.report_fully_dispositioned === true &&
+      // B13b BB-11（ADR-0026-g1）：rail 待处置计数与真实报告同源。
+      Number(record.rail_review_pending_after_report ?? -1) ===
+        Number(record.review_finding_count ?? -2) &&
+      record.rail_review_pending_matches_report === true &&
+      record.rail_review_pending_after_disposition === null &&
       record.premature_finale_visible === true &&
       Number(record.premature_finale_chapter_seq ?? 0) > 0 &&
       Number(record.review_rules?.premature_finale ?? 0) >= 1,
@@ -17227,6 +17232,8 @@ function findAu13ReviewAdjudicationEvidence(records) {
     premature_finale_chapter_seq: Number(uiState.premature_finale_chapter_seq ?? 0),
     premature_finale_progress_percent: Number(uiState.premature_finale_progress_percent ?? 0),
     review_rules: uiState.review_rules ?? {},
+    rail_review_pending_after_report: Number(uiState.rail_review_pending_after_report ?? 0),
+    rail_review_pending_after_disposition: uiState.rail_review_pending_after_disposition ?? null,
     key_events: keyEventsForSlice(sliceId),
   };
 }
@@ -17259,9 +17266,16 @@ function au13ReviewAdjudicationBehavior(_turnIds, _turnRecords, records, evidenc
     Number(evidence.review_rules?.premature_finale ?? 0) >= 1;
   if (!finaleReported) return null;
 
+  // BB-11：rail 待处置计数在报告生成后可见、全处置后消失。
+  if (Number(uiState.rail_review_pending_after_report ?? 0) !== evidence.review_finding_count) {
+    return null;
+  }
+  if (uiState.rail_review_pending_after_disposition != null) return null;
+
   return {
     slice_id: evidence.slice_id,
     adjudication_roundtrip: true,
+    rail_review_pending_count_visible_then_cleared: true,
     dispositions: evidence.dispositions,
     dismiss_evidence: true,
     correction_intents_via_user_message: true,

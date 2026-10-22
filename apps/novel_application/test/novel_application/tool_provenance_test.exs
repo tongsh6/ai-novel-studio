@@ -20,6 +20,7 @@ defmodule NovelApplication.ToolProvenanceTest do
       assert "text_analysis" in tools
       assert "character_roster" in tools
       assert "disabled_tool" in tools
+      assert "deprecated_tool" in tools
       refute ("creative_" <> "generation") in tools
     end
 
@@ -41,6 +42,13 @@ defmodule NovelApplication.ToolProvenanceTest do
 
     test "dispatchable? returns false for disabled tools" do
       refute CapabilityRegistry.dispatchable?("disabled_tool")
+    end
+
+    test "deprecated fixture 可列举/可查询但不可分发（ADR-0011 #1）" do
+      entry = CapabilityRegistry.get("deprecated_tool")
+      assert %CapabilityRegistryEntry{} = entry
+      assert entry.status == :deprecated
+      refute CapabilityRegistry.dispatchable?("deprecated_tool")
     end
 
     test "dispatchable? returns false for unknown tools" do
@@ -119,6 +127,26 @@ defmodule NovelApplication.ToolProvenanceTest do
         decision_ref: "d",
         tool_name: "disabled_tool",
         tool_version: "1",
+        input: %{},
+        read_scope_grants: [],
+        write_scope_grants: [],
+        idempotency_key: "idem",
+        created_at: DateTime.utc_now()
+      }
+
+      result = Toolbox.execute(req)
+      assert result.status == :failed
+      assert Enum.any?(result.errors, &(&1.code == "tool_not_dispatchable"))
+    end
+
+    test "rejects deprecated tool（ADR-0011 #1：deprecated 与 disabled 同保守降级）" do
+      req = %ToolRequest{
+        tool_request_id: "tq-deprecated",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_ref: "d",
+        tool_name: "deprecated_tool",
+        tool_version: "0.9.0",
         input: %{},
         read_scope_grants: [],
         write_scope_grants: [],

@@ -187,7 +187,8 @@ defmodule NovelApplication.ExecutionOrchestrator do
       plan_ref: plan.plan_id,
       target_ref: target,
       required_next_action: behavior_next_action(behavior_type),
-      available_actions: behavior_actions(behavior_type, decision_id, behavior_id, target),
+      available_actions:
+        behavior_actions(behavior_type, decision_id, behavior_id, target, frame.turn_id),
       prompt_contract: %{question: reason},
       constraints: %{risk: plan.risk_hint}
     }
@@ -200,7 +201,9 @@ defmodule NovelApplication.ExecutionOrchestrator do
   # action.behavior_ref == behavior_state.active.behavior_id 门控确认动作显隐。
   # action_id / idempotency_key 仍以 decision_id 为键（一次决定一组动作）；
   # 未知 behavior_type 走空动作集（与 GateOrder 未知 gate 的保守降级同构）。
-  defp behavior_actions(behavior_type, d_id, behavior_id, target) do
+  # ADR-0007 #3：动作必须携带可追溯 ref——与 candidate 动作同一约定
+  # （`decision_trace:<turn_id>`），前端/trace 据此把作者动作关联回本轮决策。
+  defp behavior_actions(behavior_type, d_id, behavior_id, target, turn_id) do
     expires_at = author_action_expires_at()
 
     @behavior_action_templates
@@ -212,6 +215,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
         behavior_ref: behavior_id,
         target_ref: target,
         idempotency_key: "#{idempotency_key_prefix}#{d_id}",
+        trace_ref: "decision_trace:#{turn_id}",
         expires_at: expires_at
       }
     end)

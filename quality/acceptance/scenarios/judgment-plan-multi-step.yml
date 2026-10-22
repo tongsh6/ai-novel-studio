@@ -1,0 +1,51 @@
+id: judgment-plan-multi-step
+title: 判断①判「复杂」→ 模型自产多能力计划 → 多产物停待采纳
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh judgment-plan-multi-step --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - complex-request-judged-as-plan
+  - model-drafted-plan-spans-multiple-capabilities
+  - each-plan-step-passes-orchestrator-gate
+  - multiple-artifacts-stop-pending-author-adoption
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: one complex request that needs several dependent creative products (foreshadow review, outline adjustment, chapter rewrite, character archive update)
+  - wait_for: judgment_decided plan, plan_drafted with model-authored steps spanning multiple creative capabilities
+  - verify: run completes with multiple pending artifacts and no auto adoption
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/judgment-plan-multi-step-tauri
+
+assertions:
+  ui:
+    - 真实工作台可见判断与 run 完成反馈
+  network:
+    - judgment_decided → plan_drafted（模型自产 ≥3 步、≥2 个 act 能力）→ run_completed
+    - 多个 artifact_created 事件与 pending_artifact_refs 同步
+  data:
+    - profile_ref=judgment_plan_v1
+    - model_plan_step_count >= 3 且 distinct act targets >= 2
+    - pending_artifact_count >= 2；无自动采纳/production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

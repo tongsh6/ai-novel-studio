@@ -13,7 +13,8 @@ defmodule NovelDomain.ConfirmationBindingTest do
                  "answer_type" => "confirm",
                  "idempotency_key" => "idem-1",
                  "rebased_state_snapshot_ref" => "state_snapshot:work-1:turn-1",
-                 "gate_result_refs" => ["gate_result:turn-1:confirm"]
+                 "gate_result_refs" => ["gate_result:turn-1:confirm"],
+                 "trace_ref" => "decision_trace:turn-1"
                })
 
       assert binding.behavior_ref == "bh-1"
@@ -68,6 +69,32 @@ defmodule NovelDomain.ConfirmationBindingTest do
                })
     end
 
+    test "rejects a binding without idempotency_key（ADR-0009 #1 必填）" do
+      assert {:error, "confirmation binding requires idempotency_key"} =
+               ConfirmationBinding.build(%{
+                 "behavior_ref" => "bh-1",
+                 "target_ref" => "as-1",
+                 "author_input_ref" => "in-1",
+                 "answer_type" => "confirm",
+                 "rebased_state_snapshot_ref" => "state_snapshot:work-1:turn-1",
+                 "gate_result_refs" => ["gate_result:turn-1:confirm"],
+                 "trace_ref" => "decision_trace:turn-1"
+               })
+    end
+
+    test "rejects a binding without trace_ref（ADR-0009 #1 必填）" do
+      assert {:error, "confirmation binding requires trace_ref"} =
+               ConfirmationBinding.build(%{
+                 "behavior_ref" => "bh-1",
+                 "target_ref" => "as-1",
+                 "author_input_ref" => "in-1",
+                 "answer_type" => "confirm",
+                 "idempotency_key" => "idem-1",
+                 "rebased_state_snapshot_ref" => "state_snapshot:work-1:turn-1",
+                 "gate_result_refs" => ["gate_result:turn-1:confirm"]
+               })
+    end
+
     test "reject answer is not a confirm" do
       assert {:ok, binding} =
                ConfirmationBinding.build(%{
@@ -75,8 +102,10 @@ defmodule NovelDomain.ConfirmationBindingTest do
                  "target_ref" => "as-1",
                  "author_input_ref" => "in-1",
                  "answer_type" => "reject",
+                 "idempotency_key" => "idem-2",
                  "rebased_state_snapshot_ref" => "state_snapshot:work-1:turn-1",
-                 "gate_result_refs" => ["gate_result:turn-1:confirm"]
+                 "gate_result_refs" => ["gate_result:turn-1:confirm"],
+                 "trace_ref" => "decision_trace:turn-1"
                })
 
       refute ConfirmationBinding.confirm?(binding)

@@ -440,7 +440,7 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J8 | AU-10 baseline matrix 与 1280×800 layout | AU-10 / AU-01 / AU-02 / AU-05 / AU-07 / AU-08 | TurnResultViewModel / AvailableAction / TraceSummaryView / AdoptionDecision / ProjectionHint | checkpoint closed | Tauri automation | `artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout` | 已覆盖普通聊天 no-MicroPlan、why、候选授权 action、正文草稿采纳、Reading Projection、task status 首屏基线和 1280×800 无横向溢出；不覆盖长任务和断线/超时恢复。 |
 | J9 | task_state 生命周期可见性 | AU-10 | TurnResultViewModel / task_state | checkpoint closed | Tauri automation + Channel test | `artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-taskstate`；`workspace_channel_task_state_test.exs` | 真实“导出全书”动作覆盖 RUNNING/CHECKPOINT/COMPLETED UI，FAILED 由 Channel 回归覆盖；完整异步 LongRunner streaming 未覆盖。 |
 | J10 | 断线、超时、取消等待和恢复后继续操作 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | checkpoint closed / LongRunner deferred | Tauri automation | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-provider-timeout` | CP1 已证明 provider failure recovery；CP2 已证明服务断开/重启后的 WebSocket rejoin 与下一轮继续；CP3A 已证明取消等待 no-write 关闭与下一轮继续；CP3B 已证明真实 provider timeout no-write fallback 与下一轮继续。完整异步 LongRunner 待真实生产消费者出现后再补；stale/disabled/idempotency UI 仍待更深矩阵。 |
-| J11 | Prompt 前缀稳定性观测与首个实证（已收口） | AB-RESUME / VS-00I | ProviderRun / Prompt / TTFT | closed | VS-00I 已 Frozen（§14 选项 1，call2 覆盖 L0–L2 + I-CACHE-1 + DeepSeek/Strata live）；CP-AB/CP-D/CP-C/CP-E 完成；Q2/Anthropic 增量挂账不占队首 | `tasks/NEXT.md` MAINLINE-RESET / AB-RESUME；`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md` §14 | 作者从主线复位候选拍板下一项后替换本行；冻结后增量任一触发可重开单项。 |
+| J11 | Prompt 前缀稳定性观测与首个实证（已收口） | AB-RESUME / VS-00I | ProviderRun / Prompt / TTFT | closed | VS-00I 已 Frozen（§14 选项 1，call2 覆盖 L0–L2 + I-CACHE-1 + DeepSeek/Strata live）；CP-AB/CP-D/CP-C/CP-E 完成；Q2/Anthropic 增量挂账不占队首 | `tasks/NEXT.md` MAINLINE-RESET / AB-RESUME；`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md` §14 | 2026-10-23 作者已重开通道增量：真实调用对基线与 adapter 局部修复、Strata Tauri 回归完成；完整缓存缺口见 VS-00I §15 / UA01 §6，不改变原冻结边界。 |
 | J12 | 工作台渲染稳定性与局部刷新隔离（AU-10 体验债） | AU10-RENDER-STABILITY / AU-10 | WorkspaceChat render/remount/layout | **done（2026-10-21）** | CP0 browser 7 违例 → CP1 browser 0 violations/0 errors → CP5 真实 Tauri PASS（3 场景 0 blank/remount/scroll/delta，work_switch_atomic=true）；证据 `artifacts/slice-verify/au10-workbench-render-stability-tauri/summary.json` | `tasks/NEXT.md` AU10-RENDER-STABILITY；`tasks/slices/AU10-workbench-render-stability.md` | CP2/CP3/CP4 conditional 未触发；AU10 已收口。 |
 | J13 | gap ledger 台账对账与主线复位选择 | GAP-LEDGER-RECONCILE → MAINLINE-RESET | tasks/NEXT 队列 | **done（2026-10-22）** | 关闭 B12/B18/B19 残留（gap ledger 28→25，B轨14→11）；B13 核验：27 份 ADR（26 Accepted/1 Proposed）；AU10+B17+SU01 插单均已收口；2026-10-22 作者拍板 B13a → B11③ → B11① | `tasks/NEXT.md` MAINLINE-RESET；`reports/gap-ledger/latest.json` | 主线顺序已入档，转 B11C。 |
 | J14 | writer timeout 后作者可见恢复出口 | B17-WRITER-TIMEOUT / DS03 | 工作台活动行 + 固定控制坞 | **done（2026-10-21，真实 Tauri PASS）** | timeout summary/reason codes 可见；scoped steer 同一 run 恢复完成并生成 pending prose；证据 `artifacts/slice-verify/b17-writer-timeout-steer-tauri/summary.json` | `tasks/slices/DS03-awaiting-author-runtime-validity-and-recovery-surface.md` §8.1 | 首跑发现并修复 replan 预算耗尽缺口；无裸 resume/无自动重试。 |
@@ -451,7 +451,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J19 | 基线清账 + B21 + B13b 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | **superseded（2026-10-22 晚间作者定向 B23 插单；主选择项转入 J20）** | 2026-10-22 工程基线清账（门禁全绿）、B21 首次 append 场名误标（真实 Tauri PASS）、B13b 22 份 ADR/47 条 gaps 全部裁决落档；不预先开工 | `tasks/NEXT.md` MAINLINE-RESET-3；`tasks/slices/B13B-adr-enforcement-reconciliation.md`；`reports/gap-ledger/latest.json` | 候选：B13b 转出的 11 个独立 slice（工作台当前卷 UI、R10/R11 正触发验收等）、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7；等待作者拍板。 |
 | J20 | 停等作者时「为什么停、怎么继续」可见（B23） | B23-AWAITING-AUTHOR-REASON / DS03 / 46§9 | AgentRun awaiting_author summary / ProviderActivity 补水键 / control dock / copy | **done（2026-10-23，新场景 + 五回归真实 Tauri PASS）** | CP1 补水按 run 命中 + standalone run 刷新补水；CP2 回复/补充文案族；CP3 计划耗尽结构事实；CP4 首次 join 惰性收口 failed + 过期坞；CP5 新场景 `agent-plan-exhausted-awaiting-reason` PASS（理由可见→刷新仍可见→回复语义→同 run 恢复 completed）；回归 awaiting×2 / dead-run / writer-timeout / no-progress PASS；证据 `artifacts/slice-verify/agent-plan-exhausted-awaiting-reason-tauri/summary.json`、`agent-dead-bounded-run-expiry-tauri/summary.json` | `tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`；`tasks/NEXT.md` B23 行；后端 1,816/0、前端 562/0、credo/dialyzer/format/enum/arch/xref/adr_trace/quality manifest 全绿；I1/I2/I3/N-NARR/I-CACHE-1 全绿；静态扫描 0 blocking | 判断循环「先问再做」调参、全只读计划规划层约束、run 级预算归 UA01/后续；reload 交付核对重传同 turn_id 属 server 幂等语义。 |
 | J21 | B23 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | **closed（2026-10-23 作者定向选择 B24）** | B23 已完成（新场景 + 五回归真实 Tauri PASS），队首恢复主线复位；作者随后定向「方案 A 开一个 slice」= B24 探索面全章可读 | `tasks/NEXT.md` MAINLINE-RESET-3（已转 deferred）；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 | 选择已入档；B24 完成后 MAINLINE-RESET-3 恢复，候选清单不变（B13b 转出 11 项、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7）。 |
-| J22 | 架构与契约债按 ADR 证据逐项闭环（B13b 转出的 B 轨小修批） | B13B-FOLLOWUP / B13b | ADR enforcement / domain+application 边界 / 验收注册 | **next（2026-10-23，B23-FOLLOWUP 收口后开档）** | 单测 + 定向真实 Tauri（计划） | `tasks/NEXT.md` B13B-FOLLOWUP 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.2 | 安全小修先做（BB-1/2/3/5/6/8/9 + D14 文档）；需产品拍板/口径裁决项诚实挂账（BB-4 failed_recoverable 边界、BB-7 Q5 持久化失败 TurnResult、BB-10 日志噪声口径）；验收同步项（BB-11 rail 断言、BB-12 场景注册+真实 Tauri）串行跑；门禁全绿收口 |
+| J22 | 架构与契约债按 ADR 证据逐项闭环（B13b 转出的 B 轨小修批） | B13B-FOLLOWUP / B13b | ADR enforcement / domain+application 边界 / 验收注册 | **closed（2026-10-23，10/13 落地 + 3 项作者拍板延后）** | 单测 + 两组真实 Tauri | `tasks/slices/B13B-adr-enforcement-reconciliation.md` §11；`artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/summary.json`；`artifacts/slice-verify/judgment-plan-multi-step-tauri/summary.json` | BB-1/2/3/5/6/8/9/11/12 + D14 已落；真实 Tauri：au13 rail「审读待处置 5」同源可见且全处置后消失、judgment-plan-multi-step 注册并 PASS；⏸ BB-4 `failed_recoverable` 边界 / BB-7 Q5 持久化失败 TurnResult / BB-10 日志噪声口径需作者拍板（§11.3） |
+| J23 | 下一次主线选择与队列复位（B13B-FOLLOWUP 收口后） | MAINLINE-RESET-3 | tasks/NEXT 队列 | **next（2026-10-23，等待作者拍板下一项）** | 决策记录 | `tasks/NEXT.md` MAINLINE-RESET-3 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.1/§7 | 作者从候选清单拍板下一项：优先建议 WORKBENCH-CURRENT-VOLUME（小、用户可见，需定「当前卷」语义）或 R10/R11 正触发真实页面验收（纯验收债）；机制类 slice 无当前领域拉动按 Selection Rule 1 缓；DECISION 入 NEXT §6 与本文对应行 |
 
 ---
 
@@ -473,10 +474,10 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 当前推进锁定：
 
 ```text
-Current Focus: B 轨债务（B13B-FOLLOWUP 12 项小修）；B24 与 B23-FOLLOWUP 均已收口
-Current Journey: Journey J（J22 ADR/契约债闭环）；Journey C 的 C12/C13 已闭环
-Current Breakpoint: J22 / B13B-FOLLOWUP；主线候选取自 MAINLINE-RESET-3（deferred）
-Next Task: B13B-FOLLOWUP
+Current Focus: 下一次主线选择与队列复位（MAINLINE-RESET-3，等待作者拍板）
+Current Journey: Journey J（J23 主线选择）；J22 ADR/契约债闭环已收口
+Current Breakpoint: J23 / MAINLINE-RESET-3；队列仅剩该选择项
+Next Task: MAINLINE-RESET-3
 ```
 
 ---
@@ -503,18 +504,18 @@ Next Task: B13B-FOLLOWUP
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: B 轨债务（B13B-FOLLOWUP）；B24 全章可读与 B23-FOLLOWUP no-progress 校准均收口
-Active Journey: Journey J（J22 ADR/契约债闭环）
-Queue head: B13B-FOLLOWUP
+Current Focus: 下一次主线选择（MAINLINE-RESET-3）；B24 / B23-FOLLOWUP / B13B-FOLLOWUP 均已收口
+Active Journey: Journey J（J23 主线选择）
+Queue head: MAINLINE-RESET-3
 ```
 
 本文对应位置：
 
 ```text
 Journey C / 自然创作对话与探索
-Step: J22 / B13B-FOLLOWUP（next 2026-10-23）
-Status: next（B23-FOLLOWUP 收口后开档；B24 / B23-FOLLOWUP 均已 closed）
-Gap / Next: B13b 转出的 12 项 B 轨小修按「安全小修 → 验收同步 → 需拍板挂账」推进；产品行为变更项（failed_recoverable 边界、Q5 持久化失败 TurnResult、日志噪声口径）诚实挂账并转独立 slice/作者裁决；MAINLINE-RESET-3 仍 deferred。
+Step: J23 / MAINLINE-RESET-3（next 2026-10-23，等待作者拍板）
+Status: next（B13B-FOLLOWUP 收口后；队列仅剩该选择项）
+Gap / Next: 作者从 B13b §4.1/§7 候选拍板下一项（建议 WORKBENCH-CURRENT-VOLUME 或 R10/R11 正触发验收）；BB-4/BB-7/BB-10 三项需作者拍板后转独立 slice；拍板结果写入 NEXT §6 与本文对应行。
 ```
 
 选择规则：

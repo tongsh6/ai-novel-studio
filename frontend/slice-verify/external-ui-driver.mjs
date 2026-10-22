@@ -14333,6 +14333,41 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
     `Premature-finale finding must fire below the progress threshold, got ${finaleProgressPercent}%`,
   );
 
+  // B13b BB-11（ADR-0026-g1）：rail 待处置计数与真实报告同源。
+  // 计数由 join / turn_result 后 getReviewReport 刷新；报告刚物化时可能尚未拉取，
+  // 外部驱动按真实用户路径刷新页面（reload → 重新 join → 再开档案）后断言。
+  const railPendingMatch = async () => {
+    const text = await page.locator("body").innerText();
+    const match = text.match(/审读待处置\s*(\d+)/);
+    return match ? Number(match[1]) : null;
+  };
+
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await openThreadsTab();
+  await page.waitForFunction(() => document.body.innerText.includes("审读报告"), {
+    timeout: 15_000,
+  });
+
+  // rail 计数 chip 只在档案面板关闭（收纳态）时渲染：关闭档案后断言。
+  await closeArchiveIfOpen(page);
+  let railPendingAfterReport = null;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    railPendingAfterReport = await railPendingMatch();
+    if (railPendingAfterReport !== null) break;
+    await sleep(250);
+  }
+  assert(
+    railPendingAfterReport === Number(reportRecord.finding_count ?? 0),
+    `Archive rail pending-review count ${railPendingAfterReport} != report finding_count ${reportRecord.finding_count}`,
+  );
+
+  // 处置前重开档案（后续处置在当前报告上继续）。
+  await openThreadsTab();
+  await page.waitForFunction(() => document.body.innerText.includes("审读报告"), {
+    timeout: 15_000,
+  });
+
   // 4a. 凌渊 → 接受走向（面板内即时已处置，账面裁决态转移）
   await findingCard("凌渊").getByRole("button", { name: "接受走向", exact: true }).click();
   await page.waitForFunction(() => document.body.innerText.includes("已处置"), {
@@ -14421,6 +14456,19 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
     timeout: 10_000,
   });
 
+  // 全部处置后 rail 待处置计数必须消失（页面不再渲染「审读待处置 N」）。
+  // 同样先关闭档案面板，让收纳态 rail 重新渲染。
+  await closeArchiveIfOpen(page);
+  let railPendingAfterDisposition = await railPendingMatch();
+  for (let attempt = 0; attempt < 20 && railPendingAfterDisposition !== null; attempt += 1) {
+    await sleep(250);
+    railPendingAfterDisposition = await railPendingMatch();
+  }
+  assert(
+    railPendingAfterDisposition === null,
+    `Archive rail still shows pending-review count after full disposition: ${railPendingAfterDisposition}`,
+  );
+
   const adjudicateRecords = readAppLogRecords().filter(
     (record) => record.event === "ledger.adjudicate.done",
   );
@@ -14448,6 +14496,9 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
       premature_finale_intent_text: String(finaleIntentFrame.body?.text ?? ""),
       premature_finale_turn_id: String(finaleTurnFrame.body?.turn_id ?? ""),
       review_rules: reviewRules,
+      rail_review_pending_after_report: railPendingAfterReport,
+      rail_review_pending_after_disposition: railPendingAfterDisposition,
+      rail_review_pending_matches_report: railPendingAfterReport === Number(reportRecord.finding_count ?? 0),
     },
   ];
 }

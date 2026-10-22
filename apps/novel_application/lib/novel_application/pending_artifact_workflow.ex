@@ -314,6 +314,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           context
         )
 
+      # ADR-0004 #3：决策 trace 闭合（修订路径）。
+      decision = %{decision | decision_trace_ref: trace.trace_id}
+
       case ArtifactAssembler.assemble(result, frame.turn_id, %{
              revision_base: ref,
              revision_reason: run.goal.text,
@@ -395,6 +398,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           %{turn_id: frame.turn_id},
           context
         )
+
+      # ADR-0004 #3：决策 trace 闭合（已采纳内容修订路径）。
+      decision = %{decision | decision_trace_ref: trace.trace_id}
 
       case ArtifactAssembler.assemble(result, frame.turn_id, %{
              revision_base: ref,

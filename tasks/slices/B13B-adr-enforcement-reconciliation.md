@@ -59,10 +59,10 @@
 |---|---|---|
 | ✅ 已落地 | B-ADR-0023（8 份 manifest 文本迁移） | 8/8 迁移完成（Lead 3 + task-12 5）；D1 场景仍需复跑取 summary（见 §6 D6/D9） |
 | ✅ 已落地 | C-G6（R10 多卷场景） | seed 修正 + au13 复跑 PASS（02:48）+ au14 复跑 PASS（02:51，经 D10 夹具修复后）；blueprint 增量回归断言转独立 slice（§4.1 #10） |
-| ◐ 部分落地 | B-ADR-0025-CP1（conversation manifest 迁移 + judgment-plan 支路注册） | manifest 已迁 ✅；`judgment-plan-multi-step` 质量场景注册**未落地**（§4.2 BB-12 / §6 D12） |
-| ❌ 未落地（**8 条本批可修代码项转下批 B 轨（本批未落地代码）**） | A 组 8 项：ADR-0002#3（`micro_plan.inspect_plan` 扫描面）、0004#3（`decision_trace_ref`）、0006#1（`dialogue` phase）、0006#2（`failed_recoverable`）、0007#3（AvailableAction `trace_ref`）、0009#1（binding 必填字段）、0010#1（采纳持久化失败 TurnResult）、0011#1（deprecated fixture+测试） | 组 A 按 Lead 指令先落 ADR 文本，代码修复**转下批 B 轨**；各 ADR `### B13b 裁决` 小节已标注「本批未落地代码」+ 精确 file:line；下批任务单见 §4.2 BB-1..BB-8 |
-| ❌ 未落地 | B-ADR-0016（projection_refs schema 声明 + codegen）、B-ADR-0018（日志噪声门禁 `check_log_noise.sh` + 单 turn ≤30 断言） | 组 B 只落 ADR 文本；apply-b.md §4 已登记遗留；下批任务单见 §4.2 BB-9/BB-10 |
-| ❌ 未落地（非修复-本批，随 26-g1 伪缺口保留） | B-ADR-0026-g1 的 rail 计数真实页面断言 | rail 计数代码已实现（2026-07-22），缺验收断言；见 §4.2 BB-11 |
+| ✅ 已落地（B13B-FOLLOWUP 2026-10-23） | B-ADR-0025-CP1（conversation manifest 迁移 + judgment-plan 支路注册） | manifest 已迁 ✅；`judgment-plan-multi-step` 质量场景已注册（manifest + scenarios.yml + README）并真实 Tauri PASS（§11 / BB-12） |
+| ✅ 已落地 6 / ⏸ 延后 2（B13B-FOLLOWUP 2026-10-23） | A 组 8 项：ADR-0002#3（`micro_plan.inspect_plan` 扫描面）、0004#3（`decision_trace_ref`）、0006#1（`dialogue` phase）、0006#2（`failed_recoverable`）、0007#3（AvailableAction `trace_ref`）、0009#1（binding 必填字段）、0010#1（采纳持久化失败 TurnResult）、0011#1（deprecated fixture+测试） | BB-1/2/3/5/6/8 已落地（§11，含测试）；**BB-4 `failed_recoverable` 语义边界需作者拍板**、**BB-7 采纳持久化失败 TurnResult（Q5 产品行为）需作者拍板**——诚实延后，见 §11.3 |
+| ✅ 已落地 1 / ⏸ 延后 1（B13B-FOLLOWUP 2026-10-23） | B-ADR-0016（projection_refs schema 声明 + codegen）、B-ADR-0018（日志噪声门禁 `check_log_noise.sh` + 单 turn ≤30 断言） | BB-9 已落地（schema 3 字段 + codegen + 前端 schema 测试）；**BB-10 日志噪声口径与现有已绿场景实测（p1 单 turn 53 行 > ADR 30 行）冲突，需作者/质量口径裁决**——诚实延后，见 §11.3 |
+| ✅ 已落地（B13B-FOLLOWUP 2026-10-23） | B-ADR-0026-g1 的 rail 计数真实页面断言 | au13 真实 Tauri PASS：报告生成后关闭档案 rail 显示「审读待处置 5」（= report finding_count），全部处置后 chip 消失；见 §11.2 / BB-11 |
 | ◐ 按 Lead 复跑关闭（不属于上述 13 项，参考项） | C-G7（lint_enum_literals） | ADR gap 已删除；34→0 由 Lead 基线清账口径（**本汇总未复跑**）；最终以 `mix run scripts/lint_enum_literals.exs` 0 违例确认 |
 
 ### 1.4 五个关键结论
@@ -274,9 +274,9 @@
 | D9 | 最近失败/无 summary 场景 | `au05-adoption-safety-freshness`（2026-10-21 失败无 summary）；`agentic-loop-tool-failure-replan`（2026-10-21 04:01 失败无 summary）；`p1-chapter-draft-generation`（D18，已修并真实复跑 PASS）；`judgment-explore-internal`（2026-07-20 仅失败截图，登记 `status: blocked`）；`agent-conversation-turn` 的 `-tauri` 非 lmstudio 目录 2026-07-20 端口冲突失败（lmstudio 目录有 summary） | **证据缺口** | 各自复跑后补 summary；judgment-explore-internal 待复跑后改 active |
 | D10 | **质量门禁叙事层元词规则 vs 旧 driver 期望**（Lead 命名 D10） | 触发源：`prose_quality_validators.ex:57` `@meta_label_patterns` 于 2026-08-25（`5ea79995`）加入 `主角/反派/配角`；prose body 命中即产 quality finding，采纳 UI 切质量复核卡，而 2026-07-24 的旧 driver 直接点「保存为章节正文」→ 超时。本次实锤 `au14-finding-inventory-arc-loop`；夹具 `slice_verify.ex` `roster_presence_sentence` 1 行修复（「向主角确认了暗号」→「与来人对了暗号」）后 au14 复跑 PASS | **已修复（夹具 1 行）** | ✅ task-10；长期建议：全量 prose 采纳场景做「容忍质量复核分支」机械对照/统一语义（§7 Q15、acceptance-drift.md §6） |
 | D11 | `vs10-observability-spine` 过期 | 最后 artifact 2026-07-01（帧纪元）；driver 仍以 `planner.form_frame.done` 等为 key events → 当前不可信 | **过期/需复跑** | 迁判断纪元 key events 后复跑；与 ADR-0018 噪声断言可同批 |
-| D12 | `judgment-plan-multi-step` 有真实证据但未注册 quality 场景 | evidence `judgment-plan-multi-step-tauri/summary.json` 2026-07-19（judgment_plan_v1、4 步、3 产物）；仅 `tauri_slice_verify.sh` UA01 alias 白名单，`quality_accept.sh` 不可达 | **场景注册债（未修）** | §4.2 BB-12：补 manifest + scenarios.yml 条目 |
+| D12 | `judgment-plan-multi-step` 有真实证据但未注册 quality 场景 | evidence `judgment-plan-multi-step-tauri/summary.json` 2026-07-19（judgment_plan_v1、4 步、3 产物）；仅 `tauri_slice_verify.sh` UA01 alias 白名单，`quality_accept.sh` 不可达 | **已修复（B13B-FOLLOWUP，2026-10-23）** | manifest + scenarios.yml + README 已登记；真实 Tauri PASS（`profile_ref=judgment_plan_v1`、≥3 步、≥2 act 能力、≥2 pending artifacts；证据 `artifacts/slice-verify/judgment-plan-multi-step-tauri/summary.json`） |
 | D13 | 新登记 6 个 Tauri 场景的证据时效 | 登记 ✅（5 active + judgment-explore-internal blocked）；证据日期：judgment-explore-chapter-plan 2026-07-20、au13-arc 2026-07-22、au13-revise 2026-07-22、au10 2026-10-21、b17 2026-10-21 | **已登记；建议 current-HEAD 复跑** | 逐场景 `quality_accept.sh <id> --surface tauri` 复跑（nightly 排期） |
-| D14 | ADR-0023 正文 CP 检查点历史注记未加 | ADR-0023 `:145`、`:167-178` 仍写前判断纪元 `conversation_turn_v1` 检查点；apply-b.md 只改了 gap 行，正文注记未落 | **ADR 文档债（未修）** | 补「历史检查点（判断纪元前）」注记，或按 §7 Q10 与 ADR 收窄一起处理 |
+| D14 | ADR-0023 正文 CP 检查点历史注记未加 | ADR-0023 检查点段落仍写前判断纪元 `conversation_turn_v1` 检查点 | **已修复（B13B-FOLLOWUP，2026-10-23）** | 在「实现检查点」段前加「历史检查点注记（判断纪元前）」：明确 conversation 计划直通/修订路径已随 ADR-0025 退役，不得作为当前口径引用 |
 | D15 | ADR README / ADR-0028 状态行 | README 首段 + §8.3 已修 ✅；ADR-0028 gaps 已按组 C 裁决改写 ✅ | **已修复** | 关闭 |
 | D16 | 2 个 browser driver 未登记（HEAD 红） | `scripts/quality_manifest_check.sh` ignored + 注释已修 ✅；本汇总实跑 0 WARN | **已修复** | 关闭 |
 | D17 | 6 个 Tauri 场景无 manifest（WARN） | 6 份 manifest + scenarios.yml + README 已登记 ✅；checker 0 WARN | **已修复** | 关闭 |
@@ -348,6 +348,8 @@
 
 ---
 
+- **2026-10-23 B13B-FOLLOWUP 落地**：§4.2 的 13 个候选动作中 10 项完成（BB-1/2/3/5/6/8/9/11/12 + D14），3 项需作者拍板诚实延后（BB-4 failed_recoverable 语义边界 / BB-7 Q5 持久化失败 TurnResult / BB-10 日志噪声口径）；BB-11/BB-12 补齐两个验收注册债并真实 Tauri PASS（au13 rail 待处置计数、judgment-plan-multi-step）；NEXT 枚举漏列 BB-11 的口径不一致已按 §4.2 修正。详见 §11。
+
 ## 10. 后续承接：B13 整体关闭建议
 
 **建议：满足下列 4 个条件后，B13 可整体关闭；否则保留 B13 但缩窄为「ADR 缺口台账维护」。**
@@ -370,6 +372,42 @@
 6. 作者裁决落地：按 §7 逐条拍板；新增 1-2 份「收窄 ADR」承载 Q1/Q2 结论。
 
 ---
+
+## 11. B13B-FOLLOWUP 落地记录（2026-10-23）
+
+> 承接 §4.2 下批 B 轨小修批次。口径修正：§4.2 实际 13 个候选动作（NEXT 行枚举漏了 BB-11）；本批 **10 项完成、3 项诚实延后（需作者拍板）**。
+
+### 11.1 已落地（代码/文档 + 测试）
+
+| # | 落地内容 | 测试/证据 |
+|---|---|---|
+| BB-1 | `MicroPlan.check_forbidden` 扫描面纳入 `required_capabilities` / `fallback_strategy`（ADR-0002 #3） | `micro_plan_test.exs` +4（两字段命中拦截、默认 fallback/空能力不误报） |
+| BB-2 | `OrchestratorDecision.decision_trace_ref` 闭合：主 prose / 修订 / 已采纳修订路径在 trace 记录后回填 trace id；TurnResultBuilder 映射该字段（ADR-0004 #3） | `vs00e_cp3` 断言 `turn_result.orchestrator_decision.decision_trace_ref == turn_result.trace_summary.trace_ref` |
+| BB-3 | TurnPhase `dialogue`：无 behavior、无工具调用的回复轮 phase = dialogue（ADR-0006 #1） | 3 处 reply-path 断言更新 + web channel 测试 |
+| BB-5 | behavior `available_actions` 4 动作补 `trace_ref = decision_trace:<turn_id>`（ADR-0007 #3） | `behavior_lifecycle_test` / `execution_authority_test` 断言 |
+| BB-6 | `ConfirmationBinding.build` 必填 `idempotency_key` + `trace_ref`（ADR-0009 #1） | domain fixtures 更新 + 2 负向用例；gateway 恒提供两字段 |
+| BB-8 | capability registry 新增 `deprecated_tool` fixture（status :deprecated；不可分发、Toolbox `tool_not_dispatchable`）（ADR-0011 #1） | `tool_provenance_test.exs` +3；不写验收场景（无产品路径） |
+| BB-9 | `turn_result_v3.json` projection_refs items 增 `projection_hint_id` / `reason` / `source_state_trace_ref` + `pnpm codegen:schemas`（ADR-0016） | 前端 `schemas.test.ts` +1（运行时 3 字段接受）；codegen 产物入档（含既有 memory_status/volume_blueprint_status 漂移同步） |
+| D14 | ADR-0023 加「历史检查点注记（判断纪元前）」 | doc only |
+| BB-11 | au13 driver/verifier/manifest 增档案 rail 待处置计数断言（ADR-0026-g1） | 真实 Tauri `au13-review-adjudication-roundtrip` PASS：报告生成后关闭档案 rail 显示「审读待处置 5」（= finding_count），全部处置后 chip 消失；证据 `artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/summary.json` |
+| BB-12 | `judgment-plan-multi-step` 质量场景注册（manifest + `scenarios.yml` + README + tauri seed/list/echo） | 真实 Tauri PASS：`profile_ref=judgment_plan_v1`、模型自产 ≥3 步、≥2 act 能力、run completed + ≥2 pending artifacts；证据 `artifacts/slice-verify/judgment-plan-multi-step-tauri/summary.json` |
+
+### 11.2 关键实现说明（不改变产品语义的边界）
+
+- BB-3 只改「无 behavior/无 tool 的回复轮」phase；工具轮仍 completed、失败仍 failed——schema `phase` 为 string（无 enum），前端生产无 phase 消费。
+- BB-2 的 `decision_trace_ref` 是线格式 additive 字段（`orchestrator_decision` 原形状 + 新键）；修订路径此前完全无 `orchestrator_decision`，本次补齐 map 形状与 trace 引用，不改变采纳/写入语义。
+- BB-6 收紧后，历史持久化 action 若缺 `idempotency_key`/`trace_ref` 会在 confirm 时显式报错（不再静默）；服务端下发的 available_actions 恒带两字段。
+- BB-11 的 rail chip 只在档案面板**关闭（收纳态）**渲染；driver 按真实用户路径 reload → join → 关闭档案后断言（外部自动化，无产品 hook）。
+
+### 11.3 诚实延后（需作者拍板，不冒充完成）
+
+| # | 项 | 延后原因 | 触发/后续 |
+|---|---|---|---|
+| BB-4 | TurnStatus `failed_recoverable`（ADR-0006 #2） | 语义边界需拍板：是否**所有** run failure 都算 recoverable（ADR 文本倾向“全部”）？改动会打红 4 个既有验收场景断言（q3d-candidate-semantics / q3d-author-registration-guards / au04-confirmation-tool-failure-recovery / q3d failed_turns），需同步 driver/verifier/manifest 并真实 Tauri 复跑 ×4 | 作者裁决后开独立小 slice；本批不动 |
+| BB-7 | 采纳持久化失败 TurnResult（ADR-0010 #1 / Q5） | 产品行为改变（错误路径从 error 帧变为 failed TurnResult 消息），Q5 待作者拍板；持久化 writer 失败无法在真实页面注入，验收只能到单测/channel 层 | 作者裁决后实施 |
+| BB-10 | 日志噪声门禁（ADR-0018 §6） | 口径冲突：ADR 要求「单 turn ≤30 行/无 error·warning」，但已绿场景实测 p1-chapter-adoption-reading 单 turn 53 行（父+子 66 行）、app-log 无 level 字段；需先定义 turn 范围/阈值/场景选择，属质量口径裁决 | 作者/质量口径裁决后实现脚本 + 场景断言 |
+
+**其它诚实边界**：BB-2/BB-5/BB-6/BB-9 触碰 TurnResult 线格式/确认绑定，已跑 I1/I2/I3/N-NARR/I-CACHE-1 与后端全量；`failed_recoverable` 未落地意味着「run failure 的 recoverable 语义」仍与 ADR 文本存在已知差距（已在 ADR-0006 enforcement_gaps 保留）。
 
 ## 附 A：22 份 ADR / 47 条 gap 落点速查
 

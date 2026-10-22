@@ -183,7 +183,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       assert_broadcast(
         "turn_result",
-        %{turn_id: ^turn_id, phase: "completed"},
+        %{turn_id: ^turn_id, phase: "dialogue"},
         @agent_run_timeout
       )
 
@@ -246,7 +246,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert result.turn_id != nil
       assert result.frame_ref != nil
       assert result.assistant_message.text != ""
-      assert result.phase in ["completed", "awaiting_author"]
+      assert result.phase in ["dialogue", "completed", "awaiting_author"]
       assert result.status in ["conversational", "needs_clarification", "needs_confirmation"]
       assert_agent_run_stopped(run_id)
     end

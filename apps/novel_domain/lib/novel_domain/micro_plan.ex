@@ -109,8 +109,18 @@ defmodule NovelDomain.MicroPlan do
     end
   end
 
+  # ADR-0002 #3：forbidden 语义扫描面覆盖全部模型可控字段——除 goal/actions/
+  # state_changes 外，required_capabilities 与 fallback_strategy 也由模型填写，
+  # 同样不得携带「已批准」类判定语。
   defp inspect_plan(plan) do
-    "#{inspect(plan.plan_goal)} #{inspect(plan.proposed_actions)} #{inspect(plan.state_changes_requested)}"
+    [
+      inspect(plan.plan_goal),
+      inspect(plan.proposed_actions),
+      inspect(plan.state_changes_requested),
+      inspect(plan.required_capabilities),
+      inspect(plan.fallback_strategy)
+    ]
+    |> Enum.join(" ")
   end
 
   @doc """

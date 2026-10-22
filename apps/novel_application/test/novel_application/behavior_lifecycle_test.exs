@@ -137,6 +137,12 @@ defmodule NovelApplication.BehaviorLifecycleTest do
                behavior.available_actions,
                &(&1.action_type == "reject_or_cancel_confirmation")
              )
+
+      # ADR-0007 #3：动作带可追溯 ref（与 candidate 动作同约定 decision_trace:<turn>）。
+      assert Enum.all?(
+               behavior.available_actions,
+               &(&1.trace_ref == "decision_trace:#{frame.turn_id}")
+             )
     end
 
     test "downgrade does not open behavior" do
