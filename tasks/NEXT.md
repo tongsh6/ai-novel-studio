@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-10-23（B23 停等理由与出口可见收口：新场景 + 五回归真实 Tauri PASS）
+> 最后更新：2026-10-23（B24 探索面全章可读开档：chapter_read 分段预算 + 续读 slice 登记）
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -24,6 +24,16 @@
 - CP4 死 run 一次性收口：启动期把 runtime 已死的非终态 bounded run 置 `failed(runtime_lost_on_restart)` 并记 developer 事件；不再每次 join 重复广播。
 - CP5 真实页面闭环：新场景 `agent-plan-exhausted-awaiting-reason` 真实 Tauri PASS（理由可见 → 刷新仍可见 → 输入框为回复语义 → 打字补充恢复同一 run）+ 既有 awaiting/dead-run/writer-timeout 回归 PASS。
 - 门禁：compile -Werror、后端全量、xref/arch、前端 typecheck/lint/test/audit/design trace、static scan、I1/I2/I3。
+
+**Goal G-B24（2026-10-23，作者定向插单，方案 A 开档）**：修 stage 实锤的「判断循环探索面读不完一章」——作者要求「审核第一章重复」，AI 两次拿到同一份被截断观察后只能诚实回复「可见正文被截断，不能完整核对全章重复」。侦察判定为三层叠加：观察整条 1500 预算被【计划】937 挤占（正文只剩 216/4398 有效字）+ 无续读语法 + 探索回合硬上限 2。方向：冻结 `chapter_read` 观察 v2（正文优先分段预算 + JSON offset 续读 + 进度语义），不放宽回合/不做确定性重复审计。
+
+完成判据：
+
+- CP0 契约冻结：`tasks/slices/B24-exploration-chapter-full-read.md` §1.1——query 语法（纯章节名 / JSON `{"chapter","offset"}`）、分段预算（【计划】≤500 /【摘要】≤400 / 正文单页 6000 / 整条 ≤7200）、续读页与 footer、短章一次全文、参数/越界诚实观察；既有 `@max_explore_rounds 2` 不变（单轮最多 2 页/12k 字符）。
+- CP1 读取侧：`ExplorationService.chapter_read` 实现 v2 + 单测矩阵（短章一页全文、两页覆盖无重叠无缺口、段落边界/硬切、offset 越界/末尾/非法、计划/摘要再长正文仍 ≥6000、纯章节名兼容、只读零写）。
+- CP2 循环侧：探索目录/计划步目录续读提示；explore progress signature 去序列号（同页重复命中 no-progress，合法续读不误停）；call2 观察重复渲染修复；flow 测试（page1→page2→回复引用末页独有事实；重复页停等）。
+- CP3 真实页面：新场景 `judgment-explore-chapter-full-read` 真实 Tauri PASS（外部 driver 从真实工作台输入作者式审核请求 → 两页探索 → 回复引用末页事实 → 零写入；summary/截图/WS 帧/app JSONL 入 `artifacts/slice-verify/`）+ `judgment-explore-chapter-plan` / `p1-chapter-adoption-reading` 回归 PASS。
+- CP4 门禁：compile -Werror、后端全量、format/credo/dialyzer/xref/arch/adr_trace/quality manifest、I1/I2/I3/N-NARR/I-CACHE-1、前端 verifier 测试、静态扫描 0 blocking；slice/NEXT/ledger/journey 收口，超长章/多章/档位化 gap 诚实登记。
 
 ---
 
@@ -59,6 +69,8 @@ browser surface，原生 Tauri Q1c 场景未跑；AU-05/AU-09 Tauri 回归漂移
 
 **2026-10-22 晚间 B23 开工（作者定向插单）**：作者在 stage 观察到「交互总是停下，页面显示『任务正在等待你的确认。』，却没有任何可确认的动作」。只读侦察（stage 库 + app JSONL）证明是五项叠加：F1 兜底文案；F2 activity 补水拿持久 TurnResult 的**子 turn** id 查 `parent_turn_ref` 导致 0 run / 0 事件；F3 transcript 回灌剥事件只能靠补水；F4 三条停等路径（模型 `await_author` / 计划耗尽 / no_progress）只有纯事件无出口，文案叫「确认」实际动作是打字补充；F5 重启后死 bounded run 每次 join 被重复广播（当日 `channel.agent_run_expired.done` 259 次）。B23 按四条不变量（理由不丢 / 出口与文案一致 / 耗尽不机械 / 死 run 一次性收口）+ CP5 真实页面场景推进；三项待拍板已按建议默认拍板（前端 `parent_turn_ref ?? turn_id` 优先 + 后端子 turn 兼容兜底；CP3 只做 summary 结构化不新增 `available_actions`；CP4 终态 `failed(runtime_lost_on_restart)`）。不改 DS03 命令矩阵、不改判断 prompt、零 migration。
 
+**2026-10-23 凌晨 B24 开档（作者定向插单「方案 A 开一个 slice」）**：作者真实 session（turn `message_ce1b5c9f-3d15-4cc7-8b49-ff8b22f585e4` / run `run_mvjquwek_9`）要求「审核第一章内容，我发现有重复的」，AI 两次 `chapter_read` 拿到同一份 1505 字符观察（【计划】937 +【摘要】331 +【正文】216，全章 4,398 有效字）后，因探索回合硬上限 2 被迫回复「可见正文被截断，不能完整核对全章重复」。只读侦察（stage 库 `agent_events` + `log/app/stage/2026-10-23.jsonl` + `log/llm-calls`）确认为三层叠加：观察整条 1500 预算被设计态材料挤占（CP5b 起【计划/摘要】并入同一条观察但未重分预算，NEM04/WR01b/B11C/B11A 持续加料）、无 offset 续读语法（第二次观察逐字节相同）、探索回合 2；LLM 调用 `input_tokens` 9,295→21,900 证明窗口不是瓶颈。B24 冻结 `chapter_read` 观察 v2（【计划】≤500 /【摘要】≤400 / 正文单页 6000、短章一次全文；JSON `{"chapter","offset"}` 续读 + `next_offset`；progress signature 修复让真重复命中 no-progress；call2 观察重复渲染顺带修），CP3 新真实 Tauri 场景 `judgment-explore-chapter-full-read`；不放宽回合硬上限、不改持久化 schema、不做确定性重复审计（方案 B 归 `P1-word-count-audit` checkpoint B）。slice 档：`tasks/slices/B24-exploration-chapter-full-read.md`（CP0 契约冻结；CP1+ 待开工）。
+
 
 **队列总览**：§4 当前队列表是唯一状态源；不再复制第二张易漂移的状态表。
 Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行标识。
@@ -93,6 +105,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 → 采纳状态统一为 canonical 枚举，历史消息恢复同口径（DS02 / Journey F9，已闭环）
 → 已有候选的修订、放弃、重新登记与事实回复（Q1b / Journey C10：BIZ-06 已闭环）
 → 已采纳内容的修订与后续创作上下文（Q1c / Journey D5：next，先核查真实后果）
+→ 判断循环探索面读到全章（B24 / Journey C12：next，chapter_read 分段预算 + 续读）
 → 场景业务正确性收口后，再评估性能（UA01-CALL2 / Journey C11，观察项）
 → 更长期的跨任务目标与语义履约判定仍需独立契约
 ```
@@ -101,7 +114,7 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 
 三轨预算：**A 主线 ≥60% / B 债务 ≤25% / C 平台验证 ≤15%**。除非阻塞级 P0 bug，功能推进从队首开始。
 
-### 当前队列（2026-10-22 校准；唯一 next 为当前队首）
+### 当前队列（2026-10-23 校准；唯一 next 为当前队首）
 
 | # | 轨 | 任务 | 状态 | 完成判据 |
 |---|---|---|---|---|
@@ -135,7 +148,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | B21-FIRST-APPEND-SCENE-NAMING | A | B21：多场计划首次 append 场名误标（B11C CP3；作者可见错误：D7 后 authoring_intent=nil 走 append，首次 append seq=1 把整章正文命名成 `scene_plans[0].title`，阅读端把整章挂在假的「第 1 场」下） | **done（2026-10-22，真实 Tauri PASS）** | 修复：首次 append 固定「场景 1」占位（不回填计划场名），第二次起保持 NEM04 场名语义、overwrite 不变；单测后端 4 + 前端 4；真实 Tauri `p1-chapter-adoption-reading` PASS：`planned_scene_titles=["对账","夜巡"]`、`reading_scene_row_titles=["场景 1"]`、`reading_scene_headings=[]`、字数 134/134/134（证据 `artifacts/slice-verify/p1-chapter-adoption-reading-tauri/summary.json`）；真实模型复核（2026-10-22 23:35）：`--provider strata`（iq3_s）真实 Tauri PASS，8 次真实请求/1700 字真模型正文，B21 断言同样成立；顺带修复 D19 验收 harness 真实-provider 假设（产品零改动）。诚实边界：只修命名，不做 artifact 场作用域/多场正文（B11D 后续）；`tasks/slices/B21-first-append-scene-naming.md` §7c |
 | B13B-ADR-ENFORCEMENT-RECONCILE | B | B13b：22 份 Accepted ADR 的 47 条 `## enforcement_gaps` 逐条 ADR→slice→代码→真实页面证据对账与裁决（修复/降级/弃置）+ ADR 文本落地 + 质量门禁/验收漂移专项 | **done（2026-10-22）** | 47/47 裁决（修复-本批 13 / 独立 slice 16 / 降级 10 / 弃置 3 / 伪缺口 4 / 随基线关闭 1）；47/47 APPLY 入场（`adr_trace 27/27`）；「修复-本批」中 2 项已落地、1 项部分、10 项需产品行为转下批 B 轨/独立 slice（诚实未落地）；转出 11 个候选 slice + 12 项 B 轨小修 + 15 条待作者裁决；场景漂移清单 D1–D18（其中 au13/au14 已真实 Tauri PASS、8 份 manifest 已迁移）；交付 `tasks/slices/B13B-adr-enforcement-reconciliation.md` |
 | B23-AWAITING-AUTHOR-REASON | B | 停等作者时「为什么停、怎么继续」必须可见（2026-10-22 作者 stage 定向插单）：CP1 activity 补水按 run 命中（前端 `parent_turn_ref ?? turn_id` + 后端子 turn 兼容，不新增线格式）；CP2 停等文案族改「回复/补充」并按有无 `available_actions` 区分出口；CP3 计划耗尽 summary 含结构事实（步数/缺口/建议下一步骨架词，零 provider 原文）；CP4 启动期死 bounded run 一次性收口 `failed(runtime_lost_on_restart)`；CP5 新真实 Tauri 场景 `agent-plan-exhausted-awaiting-reason`（`tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`） | **done（2026-10-23，新场景 + 五回归真实 Tauri PASS）** | 四条不变量 + CP5 真实页面场景 PASS；既有 awaiting/dead-run/writer-timeout 回归不退化；DS03 命令矩阵/prompt/线格式零改动；I1/I2/I3 与全门禁绿 |
-| MAINLINE-RESET-3 | A | 下一次主线选择：从 B13b 转出的 11 个候选 slice（工作台「当前卷」UI、R10/R11 正触发验收、ADR 二阶段 code 修复等）、12 项 B 轨小修、B11D（质量场粒度/多场正文）、E28-E30、VS-00D G1–G7、其他作者插单中拍板 | **next（2026-10-22 深夜起等待作者拍板；B23 已收口，恢复队首）** | 明确下一项 id、轨、slice/验收口径并写入队列；不预先开工；候选清单与三问见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 |
+| MAINLINE-RESET-3 | A | 下一次主线选择：从 B13b 转出的 11 个候选 slice（工作台「当前卷」UI、R10/R11 正触发验收、ADR 二阶段 code 修复等）、12 项 B 轨小修、B11D（质量场粒度/多场正文）、E28-E30、VS-00D G1–G7、其他作者插单中拍板 | **deferred（2026-10-23 作者定向插单 B24；B24 完成后恢复）** | 明确下一项 id、轨、slice/验收口径并写入队列；候选清单与三问见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 |
+| B24-EXPLORATION-CHAPTER-FULL-READ | B | 探索面全章可读：`chapter_read` 分段预算 + JSON offset 续读（作者定向方案 A；2026-10-23 stage 实锤「AI 只能看到第一章开头/摘要/部分正文，无法核对全章重复」）。CP0 契约冻结（`tasks/slices/B24-exploration-chapter-full-read.md` §1.1）；CP1 读取侧 v2（【计划】≤500 /【摘要】≤400 / 正文单页 6000 + `next_offset`/范围/footer + 参数诚实）；CP2 循环侧（目录续读提示、explore progress signature 去 sequence、call2 观察重复渲染修复）；CP3 新真实 Tauri 场景 `judgment-explore-chapter-full-read` + `judgment-explore-chapter-plan`/`p1-chapter-adoption-reading` 回归；CP4 全门禁与收口 | **next（2026-10-23 作者定向开档；CP0 done，CP1+ 待开工）** | CP1 单测矩阵（页覆盖/正文优先 ≥6000/续读/兼容/只读）；CP2 flow 测试（page1→page2 续读不误停、重复页命中 no-progress、回复引用末页独有事实）；CP3 外部自动化驱动真实 Tauri PASS（两页探索、末页事实可见、零写入）；CP4 全门禁 + I1/I2/I3/N-NARR/I-CACHE-1 + 静态扫描 0 blocking；超长章（>12k）/3 章以上批量/档位化 gap 诚实登记 |
 
 ### 历史 Order 表（M0-M3 期，保留供追溯；不参与当前队首选择，未闭环后果仍由原 slice 负责）
 
@@ -205,6 +219,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 - 2026-10-21 — **B17 收口（真实 Tauri PASS）**：`tauri_slice_verify b17-writer-timeout-steer` PASS，真实工作台 writer timeout×2 后显示 author-safe summary + reason codes，控制坞「先写第一场（500 字）」发送非空 steer，同一 run 恢复并生成 pending prose。首跑发现 scoped steer 因 replan 预算耗尽再次停等；修复为“仅 writer_timeout 的作者显式 steer 追加一次有界重试预算”，新增后端回归。队首恢复 `MAINLINE-RESET` 等待作者拍板。
 - 2026-10-21 — **GAP-LEDGER-RECONCILE**：作者同意先做台账对账再进主线。关闭 B12/B18/B19 的 gap ledger 残留（均已 done，但旧行无 done 标记被扫描器当开放）；B13 核验：27 份 ADR（26 Accepted / 1 Proposed），`adr_trace` 26 份缺 `enforced_by`（仅 ADR-0027 有），脚本软退出 0；B13 保持开放并拆 B13a/B13b。队首 `GAP-LEDGER-RECONCILE`，完成后回 `MAINLINE-RESET`。
 ## 6. Decision Log
+
+- 2026-10-23 — **B24 登记并开档（作者定向「方案 A 开一个 slice」：探索面全章可读）**。触发：作者真实 session（turn `message_ce1b5c9f-3d15-4cc7-8b49-ff8b22f585e4` / run `run_mvjquwek_9`）要求审核第一章重复，AI 两次探索拿到同一份被截断观察（1505 字符：计划 937 + 摘要 331 + 正文 216 / 全章有效字 4,398）后，被探索回合硬上限 2 收束，只能诚实回复「可见正文被截断，不能完整核对全章重复」。只读侦察（stage 库 `agent_events`、`log/app/stage/2026-10-23.jsonl`、`log/llm-calls`）确认三层叠加：①观察整条 1500 预算被【计划】【摘要】挤占（CP5b 起并入同一条观察未重分预算，NEM04/WR01b/B11C/B11A 持续加料；【计划】937=62%）；②无 offset 续读语法，第二次观察与第一次逐字节相同；③`@max_explore_rounds 2` 耗尽后探索目录关闭。LLM 调用 `input_tokens` 9,295→21,900 证明窗口不是瓶颈；同仓库质量评估/修订/阅读投影本就有全文路径，缺的是判断循环只读探索面的读取合同。决策（按 VS-00F 先例，开工授权即按建议默认拍板、可翻案）：①`chapter_read` 观察 v2 分段预算 = 【计划】≤500 /【摘要】≤400 / 正文单页 6000 / 整条 ≤7200，短章一次全文；②query 支持 JSON `{"chapter","offset"}` 续读（对齐 `session_adoptions` 翻页先例），观察返回范围/总数/`next_offset`/续读 footer；③**不放宽** `@max_explore_rounds 2`（单轮最多 2 页/12k 字符），超长章与 3 章以上批量登记 gap；④explore progress signature 去 sequence，让同页重复命中既有 no-progress、合法续读不误停；⑤顺带修 call2 观察重复渲染。**不做**：确定性重复段/重复章检测（方案 B 归 `P1-word-count-audit` checkpoint B）、判断上下文直接注入全章（方案 C）、provider 自适应观察预算（档位化 gap）。边界：不改持久化 schema、不改产品 UI、不改其它探索工具预算、不改判断「先问再做」prompt。slice 档 `tasks/slices/B24-exploration-chapter-full-read.md`（CP0 契约冻结 done；CP1–CP4 todo）；队首切 B24，MAINLINE-RESET-3 转 deferred。
 
 - 2026-10-23 — **B23 收口：停等作者时「为什么停、怎么继续」必须可见（作者定向插单，F1–F5 四项叠加）**。CP1 理由不丢：前端 activity 补水键 `agent_run.parent_turn_ref ?? turn_id` + 后端 `fetch_turn_activity` 子 turn（`:agent:N`）剥后缀兜底；另补「纯只读计划耗尽停等不产 TurnResult」的 standalone run run 级 activity events 刷新补水（A 方案前端，不新增 rejoin 重播事件语义）。CP2 出口与文案一致：停等文案族 6 条 + `awaiting_author_requires_input` 改「回复/补充」；控制坞保持「预算→请选择 / writer timeout→专门 hint / 其余→回复」；driver/verifier/yml 断言同步。CP3 计划耗尽 summary 结构事实：`计划共 N 步，已完成 M 步；目标产出尚未完成（…）；已核对：模型 plan description 原话（≤3 条）；下一步：骨架建议`，五骨架词字面出现、零 provider 原文；prose 非 writer_timeout 同口径、writer_timeout 文案零回归；no_progress summary 同步「回复」语义。CP4 死 run 一次性收口：方案由 boot sweep 调整为**首次 join 惰性收口**（`AgentRunLog.mark_runtime_lost/2` 单条条件 UPDATE → failed + failure_ref=runtime_lost_on_restart；本次 join 返回 failed 快照广播一次；developer 双通道留痕 AgentEvent+LogEmit；第二 join 零重复；durable 零触碰）；前端补「终态 dead bounded run 仍渲染过期坞 + 重新发起」，保证首帧失活信号可见。CP5 真实页面闭环：新场景 `agent-plan-exhausted-awaiting-reason` 真实 Tauri PASS（judgment_plan 全只读计划耗尽→awaiting_author 结构化理由可见→刷新仍可见→回复语义 hint/placeholder→作者补充以 agent_command steer 同 run 恢复 completed，无第二作者回合/第二 run）。**验证**：后端 1,816/0、前端 562/0（36 files）、compile -Werror/format/enum lint/credo --strict 0/dialyzer 0/xref 无环/arch/adr_trace 27/27/quality manifest passed；前端 audit 27/design trace 16；I1/I2/I3/N-NARR/I-CACHE-1 全绿；真实 Tauri 新场景 + 五回归 PASS；静态扫描 0 blocking（gitleaks 2 条既有 disposition 保留）。**诚实边界**：判断循环「先问再做」调参、全只读计划的规划层起草约束、run 级预算/checkpoint 仍归 UA01/后续；验收发现 reload 时前端交付核对会重传未确认原作者消息（同 turn_id、server 幂等），driver 已按 distinct turn_id 口径断言。队首恢复 MAINLINE-RESET-3（等待作者拍板下一项）。
 
