@@ -350,6 +350,8 @@
 
 - **2026-10-23 B13B-FOLLOWUP 落地**：§4.2 的 13 个候选动作中 10 项完成（BB-1/2/3/5/6/8/9/11/12 + D14），3 项需作者拍板诚实延后（BB-4 failed_recoverable 语义边界 / BB-7 Q5 持久化失败 TurnResult / BB-10 日志噪声口径）；BB-11/BB-12 补齐两个验收注册债并真实 Tauri PASS（au13 rail 待处置计数、judgment-plan-multi-step）；NEXT 枚举漏列 BB-11 的口径不一致已按 §4.2 修正。详见 §11。
 
+- **2026-10-23 B13B 延后 3 项作者拍板（只定方案，下一轮执行）**：BB-4 采用方案 A 全量统一 `failed_recoverable`（纯线格式语义，不新增 recovery action/UI 恢复卡；phase 仍 failed、run/action_result status 不变）；BB-7 与 BB-4 同批闭合（persist failure 产 failed action_result + failed_recoverable TurnResult，闭 VS-04 规则 5）；BB-10 采用方案 A 口径修订+全闭环（ADR §6 改 45/60 + 统计口径、ADR §4/LogEmit 补 level、静态脚本+CI、verifier 断言；依据 300 turn 实测）。执行计划见 §11.3；入口 `tasks/NEXT.md` `B13B-DEFERRED-CLOSURE`。
+
 ## 10. 后续承接：B13 整体关闭建议
 
 **建议：满足下列 4 个条件后，B13 可整体关闭；否则保留 B13 但缩窄为「ADR 缺口台账维护」。**
@@ -375,7 +377,7 @@
 
 ## 11. B13B-FOLLOWUP 落地记录（2026-10-23）
 
-> 承接 §4.2 下批 B 轨小修批次。口径修正：§4.2 实际 13 个候选动作（NEXT 行枚举漏了 BB-11）；本批 **10 项完成、3 项诚实延后（需作者拍板）**。
+> 承接 §4.2 下批 B 轨小修批次。口径修正：§4.2 实际 13 个候选动作（NEXT 行枚举漏了 BB-11）；本批 **10 项完成、3 项已由作者拍板（2026-10-23）并转入下一轮执行**（见 §11.3）。
 
 ### 11.1 已落地（代码/文档 + 测试）
 
@@ -399,13 +401,17 @@
 - BB-6 收紧后，历史持久化 action 若缺 `idempotency_key`/`trace_ref` 会在 confirm 时显式报错（不再静默）；服务端下发的 available_actions 恒带两字段。
 - BB-11 的 rail chip 只在档案面板**关闭（收纳态）**渲染；driver 按真实用户路径 reload → join → 关闭档案后断言（外部自动化，无产品 hook）。
 
-### 11.3 诚实延后（需作者拍板，不冒充完成）
+### 11.3 已拍板待执行（作者裁决 2026-10-23：三项全部按推荐方案执行，下一轮落地）
 
-| # | 项 | 延后原因 | 触发/后续 |
+> 决策证据：`tasks/NEXT.md` §6 Decision Log 与 `docs/project-ledger.md`。执行入口：`tasks/NEXT.md` 队首任务 `B13B-DEFERRED-CLOSURE`。**本批只拍板、不写代码**（作者指令「只定方案，下一轮再执行」）。
+
+| # | 项 | 拍板结论 | 下一轮执行范围（checkpoint 摘要） |
 |---|---|---|---|
-| BB-4 | TurnStatus `failed_recoverable`（ADR-0006 #2） | 语义边界需拍板：是否**所有** run failure 都算 recoverable（ADR 文本倾向“全部”）？改动会打红 4 个既有验收场景断言（q3d-candidate-semantics / q3d-author-registration-guards / au04-confirmation-tool-failure-recovery / q3d failed_turns），需同步 driver/verifier/manifest 并真实 Tauri 复跑 ×4 | 作者裁决后开独立小 slice；本批不动 |
-| BB-7 | 采纳持久化失败 TurnResult（ADR-0010 #1 / Q5） | 产品行为改变（错误路径从 error 帧变为 failed TurnResult 消息），Q5 待作者拍板；持久化 writer 失败无法在真实页面注入，验收只能到单测/channel 层 | 作者裁决后实施 |
-| BB-10 | 日志噪声门禁（ADR-0018 §6） | 口径冲突：ADR 要求「单 turn ≤30 行/无 error·warning」，但已绿场景实测 p1-chapter-adoption-reading 单 turn 53 行（父+子 66 行）、app-log 无 level 字段；需先定义 turn 范围/阈值/场景选择，属质量口径裁决 | 作者/质量口径裁决后实现脚本 + 场景断言 |
+| BB-4 | TurnStatus `failed_recoverable`（ADR-0006 #2） | **方案 A：全量统一**——所有 `fail_with_recovery` 决策 + 所有 run 失败兜底 TurnResult → `status="failed_recoverable"`（`phase` 仍 `failed`、run 级 status 仍 `failed`、action_result.status 仍 `failed`）；**不新增 recovery action/UI 恢复卡**（沿用 B13b 7-1 降级：恢复面=DS03 控制坞；07 恢复卡为独立 UI 债） | CP1：`turn_result_builder.build_status`/`agent_run_server.safe_failure_turn_result`/`adoption_workflow.decision_status(:fail_with_recovery)` 三生产者统一 + builder/runtime 单测；CP3：driver 断言更新（q3d-candidate-semantics / q3d-author-registration-guards / au04-confirmation-tool-failure-recovery）+ 真实 Tauri 复跑 3-5 场景 |
+| BB-7 | 采纳持久化失败 TurnResult（ADR-0010 #1 / VS-04 规则 5） | **方案 A：与 BB-4 同批闭合**——persist writer error → 失败 `action_result`（`status="failed"`、`persistence.persisted=false`、`reason_code=adoption_persistence_failed`）+ `failed_recoverable` TurnResult（`phase="failed"`、说明「采纳未保存、原候选保留、可重试」）→ 返回 `{:ok,...}` 走既有广播；结构性/无效 action 仍 `{:error}`（保持现有边界） | CP2：`adoption_workflow` persist error 分支 + 注入 `adoption_writer = fn _ -> {:error, :boom} end` 单测 + Channel/workflow 回归；无真实页面注入路径（ADR 允许单测/Channel 证据）；前端零改动（广播已有） |
+| BB-10 | 日志噪声门禁（ADR-0018 §6/§4） | **方案 A：口径修订 + 机器化全闭环**——ADR §6 改「正常路径 ≤45 行/失败恢复路径 ≤60 行」+ 明确统计口径（base turn 聚合父+agent step；排除 UI 读取 `channel.get_*`、join/work_session/slice_verify 与伪 turn）；ADR §4 补 `level` 字段；`LogEmit` additive 补 `level`（start/done→info、error→error）；新增 `scripts/check_log_noise.sh`（生产 lib `Logger.warning` allowlist=17 处 provider 适配器，新增需豁免）+ CI；verifier 加通用断言（正常路径 0 error 级 + 行数预算），2-3 个已绿场景落 manifest data 断言并复跑 | CP4：LogEmit level + 单测；ADR-0018 §4/§6 文本修订；`scripts/check_log_noise.sh` + `.github/workflows/ci.yml` + scripts/README 注册（注意并行会话在途修改，需串行）；verifier 通用 per-base-turn 计数 + 正常路径 0 error 断言；2-3 个已绿 Tauri 场景复跑取证据 |
+
+**统计口径的数据依据（BB-10 阈值）**：扫 300 个真实 Tauri turn 的 app-log（排除 UI 读取/生命周期），业务事件/base turn = p50 7、p90 21、p95 28、p99 37；正常路径 max 42、失败恢复路径 max 56；现有 17 处 `Logger.warning` 全在 provider 适配器 unknown-error 分支。故 45/60 可在不误伤已绿复杂流（p1 导出 38、judgment-plan-multi-step 42、b17 失败路径 56）的前提下拦住「明显翻倍」回归。
 
 **其它诚实边界**：BB-2/BB-5/BB-6/BB-9 触碰 TurnResult 线格式/确认绑定，已跑 I1/I2/I3/N-NARR/I-CACHE-1 与后端全量；`failed_recoverable` 未落地意味着「run failure 的 recoverable 语义」仍与 ADR 文本存在已知差距（已在 ADR-0006 enforcement_gaps 保留）。
 

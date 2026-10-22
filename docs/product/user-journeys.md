@@ -453,7 +453,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J21 | B23 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | **closed（2026-10-23 作者定向选择 B24）** | B23 已完成（新场景 + 五回归真实 Tauri PASS），队首恢复主线复位；作者随后定向「方案 A 开一个 slice」= B24 探索面全章可读 | `tasks/NEXT.md` MAINLINE-RESET-3（已转 deferred）；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 | 选择已入档；B24 完成后 MAINLINE-RESET-3 恢复，候选清单不变（B13b 转出 11 项、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7）。 |
 | J22 | 架构与契约债按 ADR 证据逐项闭环（B13b 转出的 B 轨小修批） | B13B-FOLLOWUP / B13b | ADR enforcement / domain+application 边界 / 验收注册 | **closed（2026-10-23，10/13 落地 + 3 项作者拍板延后）** | 单测 + 两组真实 Tauri | `tasks/slices/B13B-adr-enforcement-reconciliation.md` §11；`artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/summary.json`；`artifacts/slice-verify/judgment-plan-multi-step-tauri/summary.json` | BB-1/2/3/5/6/8/9/11/12 + D14 已落；真实 Tauri：au13 rail「审读待处置 5」同源可见且全处置后消失、judgment-plan-multi-step 注册并 PASS；⏸ BB-4 `failed_recoverable` 边界 / BB-7 Q5 持久化失败 TurnResult / BB-10 日志噪声口径需作者拍板（§11.3） |
 | J23 | 下一次主线选择与队列复位（B13B-FOLLOWUP 收口后） | MAINLINE-RESET-3 | tasks/NEXT 队列 | **closed（2026-10-23，作者裁决：本轮到此为止）** | 决策记录 | `tasks/NEXT.md` MAINLINE-RESET-3 / NEXT-AUTHOR-DIRECTED 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.1/§7/§11 | 复位完成、不新开项；候选清单保留（B13b §4.1 11 项 + 延后 BB-4/BB-7/BB-10 + B11D/E28-E30/VS-00D G1–G7）；下一项等作者另行指示（`NEXT-AUTHOR-DIRECTED` 为队首，AI 不得自行替换） |
-| J24 | 等待作者指定下一项（本轮队列已清空） | NEXT-AUTHOR-DIRECTED | tasks/NEXT 队列 | **next（2026-10-23，等待作者另行指示）** | — | `tasks/NEXT.md` NEXT-AUTHOR-DIRECTED 行；`docs/project-ledger.md` 本轮收口段 | 无自动开工项；收到作者新指示后按 tasks/README 开工仪式登记新 slice（七问）→ gap ledger → 落地 → 更新 NEXT/journeys/ledger；作者已明确本轮收口，AI 不自行续排任务 |
+| J24 | 等待作者指定下一项（本轮队列已清空） | NEXT-AUTHOR-DIRECTED | tasks/NEXT 队列 | **closed（2026-10-23，作者已给出下一项指示）** | — | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.3 | 作者拍板 B13b 延后 3 项（BB-4/BB-7/BB-10 均方案 A），指令「只定方案，下一轮再执行」；队首转 `B13B-DEFERRED-CLOSURE`（next） |
+| J25 | 执行 B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板） | B13B-DEFERRED-CLOSURE / B13b | TurnStatus / Adoption 持久化失败 / 日志噪声门禁 | **next（2026-10-23 已拍板，下一轮执行）** | 单测 + 定向真实 Tauri（计划） | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.3 | CP1 BB-4 三生产者统一 `failed_recoverable`（纯线格式语义，不新增 recovery action）；CP2 BB-7 persist error → failed action_result + failed_recoverable TurnResult（闭 VS-04 规则 5）+ 注入 writer error 单测；CP3 失败路径真实 Tauri 复跑（q3d-candidate-semantics / q3d-author-registration-guards / au04-confirmation-tool-failure-recovery，必要时 au05）；CP4 BB-10 ADR §6 改 45/60 + §4/LogEmit 补 level + check_log_noise.sh + CI + verifier 通用断言 + 2-3 已绿场景复跑；CP5 全门禁与台账收口 |
 
 ---
 
@@ -475,10 +476,10 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 当前推进锁定：
 
 ```text
-Current Focus: 本轮队列收口（作者裁决：到此为止，下一项另行指示）
-Current Journey: Journey J（J24 等待作者指定下一项）；J22/J23 已收口
-Current Breakpoint: J24 / NEXT-AUTHOR-DIRECTED；无自动开工项
-Next Task: NEXT-AUTHOR-DIRECTED
+Current Focus: B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板，下一轮执行）
+Current Journey: Journey J（J25 B13b 延后项收口）；J22/J24 已收口
+Current Breakpoint: J25 / B13B-DEFERRED-CLOSURE；已拍板待执行
+Next Task: B13B-DEFERRED-CLOSURE
 ```
 
 ---
@@ -505,18 +506,18 @@ Next Task: NEXT-AUTHOR-DIRECTED
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: 本轮队列收口（作者裁决：到此为止）；B24 / B23-FOLLOWUP / B13B-FOLLOWUP 均已收口
-Active Journey: Journey J（J24 等待作者指定下一项）
-Queue head: NEXT-AUTHOR-DIRECTED
+Current Focus: B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板，下一轮执行）
+Active Journey: Journey J（J25 B13b 延后项收口）
+Queue head: B13B-DEFERRED-CLOSURE
 ```
 
 本文对应位置：
 
 ```text
 Journey C / 自然创作对话与探索
-Step: J24 / NEXT-AUTHOR-DIRECTED（next 2026-10-23，等待作者另行指示）
-Status: next（作者裁决本轮到此为止；队列已清空、无自动开工项）
-Gap / Next: 收到作者新指示后按 tasks/README 开工仪式登记新 slice（七问）→ gap_ledger → 落地 → 更新 NEXT/journeys/ledger；B13B 延后三项（BB-4/BB-7/BB-10）保持挂账待裁决；候选清单（B13b §4.1 11 项 + B11D/E28-E30/VS-00D G1–G7）供作者下一次拍板。
+Step: J25 / B13B-DEFERRED-CLOSURE（next 2026-10-23，已拍板待执行）
+Status: next（作者拍板 BB-4/BB-7/BB-10 均方案 A；指令「只定方案，下一轮再执行」）
+Gap / Next: 下一轮按 CP1–CP5 执行：BB-4 全量统一 failed_recoverable（纯线格式语义）→ BB-7 persist failure TurnResult（闭 VS-04 规则 5）→ 失败路径真实 Tauri 复跑 → BB-10 日志噪声门禁全闭环（ADR §6 45/60 + level + 静态脚本/CI + verifier）→ 全门禁与台账收口；详见 B13b §11.3。
 ```
 
 选择规则：
