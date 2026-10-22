@@ -213,6 +213,21 @@ append）→ 阅读模式。
   - 门禁：前端 `pnpm lint && pnpm test` = 544/0（543 + 1 条 D18 用例）；锁/端口/进程已清理，
     default test DB 由脚本 cleanup reset。
 
+### 7c. 真实 provider（本机 Strata App `iq3_s`）验收（2026-10-22 23:35，Lead 执行）
+
+在确定性 PASS 之外，按要求补一次**真实模型**端到端验收（不是替身 provider）：
+
+```
+PHOENIX_PORT=4656 VITE_DEV_PORT=5770 \
+  bash scripts/tauri_slice_verify.sh --provider strata p1-chapter-adoption-reading
+```
+→ **exit 0 / passed**（证据 `artifacts/slice-verify/p1-chapter-adoption-reading-tauri-strata/summary.json`）：
+- 真实 provider 外证：`strata-log.json` + `llm-calls/2026-10-22.jsonl` 共 **8 次真实请求**，模型 `iq3_s`，输入 18,767 / 输出 5,606 tokens（真实 TTFT/latency）；app JSONL 有 `provider_gateway.complete.done` ×8、`prose_quality.evaluated.done`、`quality_policy.decided.done`。
+- 真模型生成正文 ~1,700 有效字；B21 断言全过：`planned_scene_titles=["对账","夜巡"]`、`reading_scene_row_titles=["场景 1"]`、`reading_scene_headings=[]`、`total/chapter/expected_word_count=1700/1700/1700`；阅读页截图 `p1-chapter-adoption-reading-external-ui.png`（正文直接位于章标题下，无假「第 1 场」标题）。
+- 真实模型路径暴露并修复了**验收 harness 假设**（产品代码零改动）：① 同轮产出 companion 候选（角色/规则）时，正文不一定是 `pending[0]` → 按 `artifact_type=prose_fragment` 定位；② 质量复核存在时正文采纳按钮是「保存原稿」而非「保存为章节正文」→ 按正文语义按钮优先点击；③ 采纳后只要求正文候选的保存按钮消失（其它 companion 候选允许仍待处理）。
+- 回归：同 driver 改动后确定性 `p1-chapter-adoption-reading` 复跑 **PASS**（`artifacts/slice-verify/p1-chapter-adoption-reading-tauri/summary.json`）。
+- 诚实边界：真实 provider 验收依赖本机 Strata App 在 47831 运行，属 nightly/live 证据、非 CI 确定性；只证明链路与用户可见行为，不评价文学质量（盲评另列）。
+
 ## 8. 决策日志
 
 - 2026-10-22 — **为何用 `seq == 1` 判定首次 append，而不是查「章内是否已有正文」**：

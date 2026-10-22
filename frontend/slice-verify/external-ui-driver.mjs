@@ -8862,24 +8862,29 @@ async function driveP1ChapterAdoptionReading(page) {
   await page.getByRole("button", { name: "生成正文草稿" }).first().click();
 
   // 真实 LM Studio 生成整章正文可能较慢，给足窗口（确定性 provider 会立即命中）。
+  // 真实模型可能同轮产出 companion 候选（角色/规则），正文不保证是 pending[0]：
+  // 用「含 prose_fragment 待采纳」匹配，并按 artifact_type 取出正文候选。
   const draftTurnFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
-      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+      Array.isArray(frame.body?.adoption_state?.pending) &&
+      frame.body.adoption_state.pending.some((entry) => entry.artifact_type === "prose_fragment"),
     "No P1 chapter draft prose_fragment turn_result websocket frame was received",
     170_000,
   );
   const draftTurnResult = draftTurnFrame.body;
-  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+  const pendingArtifact = draftTurnResult.adoption_state.pending.find(
+    (entry) => entry.artifact_type === "prose_fragment",
+  );
 
   await page.waitForFunction(
     () => {
       return (
         /待确认的创作材料|正文草稿/.test(document.body.innerText) &&
         [...document.querySelectorAll("button")].some((btn) =>
-          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+          /确认创建|保存为章节正文|保存原稿|保存到大纲|保存到作品档案|保存到作品/.test(
             (btn.textContent ?? "").trim(),
           ),
         )
@@ -8889,7 +8894,18 @@ async function driveP1ChapterAdoptionReading(page) {
   );
 
   // 作者点击保存正文草稿（accept author_action → 采纳边界 → 持久化）。
-  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  // 真实模型同轮可能还有角色/规则候选，它们的按钮是「保存到作品档案」，不能按
+  // `.first()` 抢点；正文候选在质量复核存在时按钮文案为「保存原稿」，否则为
+  // 「保存为章节正文」——按正文语义按钮优先，最后才回退通用 pattern。
+  const saveOriginalButton = page.getByRole("button", { name: /^保存原稿$/ });
+  const saveProseButton = page.getByRole("button", { name: /^保存为章节正文$/ });
+  if ((await saveOriginalButton.count()) > 0) {
+    await saveOriginalButton.first().click();
+  } else if ((await saveProseButton.count()) > 0) {
+    await saveProseButton.first().click();
+  } else {
+    await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  }
 
   const acceptActionFrame = await waitForFrame(
     (frame) =>
@@ -8915,18 +8931,17 @@ async function driveP1ChapterAdoptionReading(page) {
   const adoptTurnResult = adoptTurnFrame.body;
 
   // 采纳后旧草稿卡的保存按钮必须消失，否则作者会重复点击、重复提交同一动作。
+  // 真实 provider 同轮可能仍有 companion 候选（角色/规则）待采纳，它们的按钮不属于
+  // 本轮正文；这里只要求「正文候选的采纳按钮」消失（确定性路径即全部消失）。
   await page.waitForFunction(
-    () => {
-      return ![...document.querySelectorAll("button")].some((btn) =>
-        /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
-          (btn.textContent ?? "").trim(),
-        ),
-      );
-    },
+    () =>
+      ![...document.querySelectorAll("button")].some((btn) =>
+        /^(?:保存为章节正文|保存原稿)$/.test((btn.textContent ?? "").trim()),
+      ),
     { timeout: 10_000 },
   );
   const acceptButtonCleared =
-    (await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) === 0;
+    (await page.getByRole("button", { name: /^(?:保存为章节正文|保存原稿)$/ }).count()) === 0;
 
   // 进入阅读模式：采纳后的正文应进入投影，并显示有效字数。
   // 必须等到「本章有效字数」也渲染再快照：TOC（全书字数）与章节正文/章字数来自两次异步
