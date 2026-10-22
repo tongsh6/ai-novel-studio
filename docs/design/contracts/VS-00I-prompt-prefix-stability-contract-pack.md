@@ -342,3 +342,61 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 **冻结后边界（不阻塞契约，按增量推进）**：①Anthropic live `cache_read_input_tokens>0` 与断点分块（需 message content blocks 契约）；②其余厂商凭据/live 基线；③Strata Q2（8081）服务切换后的同口径 live 复测；④桌面 stage profile 的 provider 持久选择切换与 dogfood/stage 的 strata 支持。冻结后不得以「某厂商未覆盖」为由回退 L0–L4 排序或放开 L4 置尾；L4 前移仍须先有该调用点 MBC A/B 判界数据（§2.3）。
 
 **未完成边界（两手都不掩盖）**：Anthropic live `cache_read_input_tokens > 0` 未做（无凭据）；Anthropic 断点需把单一 user message 切成 L1 末/L2 末 content blocks，分块契约未实现；Gemini / Kimi / 智谱 / MiniMax / OpenAI 仍无凭据、未核实。
+
+
+## 15. 冻结后增量：真实调用对与通道边界（2026-10-23）
+
+作者授权：先补真实调用对探针并运行现有可用 Provider，再依证据修 adapter；各 Provider
+差异只进入自己的适配通道，不改全局配置或升级工具。本节补充验证边界，不改变 L0–L4
+排序、L4 置尾及系统身份文本。
+
+### 15.1 应用前缀稳定是必要条件，不等于服务端已命中
+
+原 `prompt_prefix_live.exs` 重复发送同一份 call1；该结果仅证明同请求复测，不能证明
+生产 call1（自然语言、tool_choice=none）→call2（实际说明经生产截断后、具名强制工具）
+之间的缓存复用。I-CACHE-1/2 仍是应用层结构不变量，不代表供应商模板后的 token 前缀。
+新的探针调用 `JudgmentProtocol.request_judgment` + `Execution` + `Gateway`，留存原生
+HTTP/SSE、实际模型、端点、工具哈希和 ProviderRun facts。长说明绑定消费生产
+`decision_prompt` 的既有截断规则，不复制该规则。缺字段为 unobservable，明确 0 为 miss，
+正数为 hit；重试不得隐藏成首调成功，非流式总耗时不冒充 TTFT。
+
+### 15.2 当前实测与修复
+
+证据：`artifacts/model-contracts/prefix-live/verified-20261023/summary.{json,md}`；
+逐请求原文为同目录 `deepseek-wire.json`、`strata-wire.json`。全部为脚本虚构样书，未读实际作品。
+
+| 通道 | 实际调用对（3 组） | 独立同请求对照 | 处置 |
+|---|---|---|---|
+| DeepSeek / deepseek-v4-pro | 协议均通过；call2 每次 384 tokens 命中 | 第二次 2048/2142 | 保持现有请求协议；首批首对 0、后续部分命中，不能要求首次相邻请求必命中；未证明 L0–L2 全覆盖 |
+| Strata / iq3_s，App 0.2.1 + engine 0.1.47 Metal | 协议均通过；call2 每次 0 | 第二次 2138/2145 | `none` 在服务端删除工具造成模板前缀分叉；仅本 adapter 标记 tool_constancy=degraded，保持禁用工具语义 |
+| LM Studio | 未运行推理 | 未运行 | 仅 embedding 已加载；原 /v1/models 包含下载目录，探针在自己的 LM 通道另查 /api/v1/models.loaded_instances，不自动加载模型 |
+| Anthropic 及其余云通道 | 缺凭据，blocked | 未运行 | 不以 stub 替代、不声称 live 已验证 |
+
+通道修复：Anthropic 官方支持 `{type: none}`，原本「不支持 none」的假设撤销；原生
+工具映射移入 `Anthropic`，流式 call1 保留工具列表、维持禁止调用，移除错误的降级标记。
+只完成协议测试，没有 Anthropic live 缓存证据；既有显式缓存断点/内容分块缺口仍开放。
+共同计量修复：`Usage` 的非流式构造器令 `ttft_ms=nil`，`latency_ms` 保留真实总耗时；
+流式仍由首 delta 时间填入 TTFT。OpenAI 兼容共享层仅开放 adapter execute 覆盖入口，
+不含 Strata vendor 判断；其他通道有隔离回归测试。
+
+### 15.3 运行方式与未闭环边界
+
+`PREFIX_PROBE_PROFILE_DIR` 显式指定已有桌面 profile，设置与凭据仅装入当前 BEAM 的
+RuntimeConfig，不写文件。运行 `bash scripts/probe_run.sh scripts/model_contracts/prompt_prefix_live.exs all 1`；
+`PREFIX_PROBE_MODE=inventory` 仅盘点，`pair` 仅首个调用对，默认运行完整四组。
+`PREFIX_PROBE_LABEL` 为报告标签。索引与自测见 `scripts/model_contracts/README.md`。
+
+探针未清空用户缓存，不保证冷启动；首组先于同请求复测，改变稳定前缀的负对照仍可能命中
+更早的共享工具/身份缓存，不能强求归零。首批 Strata 对照被其他客户端插入影响，保留原始
+报告，仅用 verified 批作当前基线。DeepSeek 规则见
+[官方上下文缓存文档](https://api-docs.deepseek.com/guides/kv_cache/)，其公共前缀需物化后才可命中且为 best-effort。
+
+真实 Tauri 回归：`su01-provider-strata-local`，独立端口 14657/15769，通过真实工作台
+设置→模型列表→连接测试→发送→可见回复，同 turn 两次 HTTP 200；证据
+`artifacts/slice-verify/su01-provider-strata-local-tauri-strata/summary.json`，turn
+`message_a4c200c1-70f2-4a68-8c7d-cd4c506efea1`。这是产品入口回归，不能冒充缓存修复成功。
+
+后续 checkpoint：Strata 提供在禁止工具调用时保留模板工具前缀的协议支持，再验证请求级
+稳定前缀提示；多会话缓存/RAM 检测由 Strata 处理，单独开启 parking 不能修前缀分叉。
+通用稳定边界元数据等待首个可实际消费且有证据收益的 adapter 再引入，本批不提前扩张
+公共业务接口。Anthropic 显式断点/原生 none live、其他通道凭据与 LM 已加载模型基线继续挂账。

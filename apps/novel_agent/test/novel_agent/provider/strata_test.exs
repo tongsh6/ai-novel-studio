@@ -271,6 +271,33 @@ defmodule NovelAgent.Provider.StrataTest do
   end
 
   describe "execute/5 (streaming)" do
+    test "none 仍禁止工具调用，并如实标记远端工具前缀降级" do
+      test_pid = self()
+
+      eventsource = fn _url, body, _opts, on_data ->
+        send(test_pid, {:none_body, body})
+        on_data.(sse_delta("判断说明", @model, %{"prompt_tokens_details" => %{"cached_tokens" => 0}}))
+        {:ok, 200, ""}
+      end
+
+      prompt = %{
+        messages: [%{role: "user", content: "判断"}],
+        tools: [%{name: "decision", input_schema: %{type: "object"}}],
+        tool_choice: "none"
+      }
+
+      state = base_state(eventsource_fn: eventsource)
+
+      assert {:ok, %{provider_run: run, result: result}} =
+               Strata.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+
+      assert run.metadata.tool_constancy == :degraded
+      assert result.usage.cached_tokens == 0
+      assert_receive {:none_body, body}
+      assert body.tool_choice == "none"
+      assert length(body.tools) == 1
+    end
+
     test "streams SSE chunks through provider execution facts keyless" do
       test_pid = self()
 
@@ -375,7 +402,7 @@ defmodule NovelAgent.Provider.StrataTest do
     end
   end
 
-  defp base_state(overrides \\ []) do
+  defp base_state(overrides) do
     struct!(
       Strata,
       Keyword.merge(

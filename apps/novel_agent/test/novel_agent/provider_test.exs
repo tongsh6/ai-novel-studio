@@ -17,7 +17,6 @@ defmodule NovelAgent.ProviderTest do
 
       refute Provider.tool_call_prompt?(prompt)
       assert Provider.put_openai_tools(%{}, prompt).tool_choice == "none"
-      assert Provider.put_anthropic_tools(%{}, prompt) == %{}
 
       named = %{prompt | tool_choice: "continuation_decision"}
       assert Provider.tool_call_prompt?(named)

@@ -66,7 +66,7 @@ defmodule NovelAgent.Provider.Anthropic do
     body =
       body
       |> HTTP.apply_params(params)
-      |> NovelAgent.Provider.put_anthropic_tools(prompt)
+      |> put_tools(prompt)
 
     url = Path.join(@api_base, "messages")
     headers = [{"x-api-key", state.api_key}, {"anthropic-version", @api_version}]
@@ -96,21 +96,13 @@ defmodule NovelAgent.Provider.Anthropic do
     if NovelAgent.Provider.tool_call_prompt?(prompt) do
       execute_tool_call(state, prompt, params, ctx)
     else
-      ctx =
-        if NovelAgent.Provider.tool_choice(prompt) == "none" and
-             NovelAgent.Provider.tool_specs(prompt) != [] do
-          Map.put(ctx, :tool_constancy, :degraded)
-        else
-          ctx
-        end
-
       {system_prompt, messages} = anthropic_messages(prompt)
       body = %{model: state.model, max_tokens: 4096, messages: messages, stream: true}
 
       body =
         if system_prompt, do: Map.put(body, :system, anthropic_system(system_prompt)), else: body
 
-      body = HTTP.apply_params(body, params)
+      body = body |> HTTP.apply_params(params) |> put_tools(prompt)
       url = Path.join(@api_base, "messages")
 
       request_opts = [
@@ -130,6 +122,27 @@ defmodule NovelAgent.Provider.Anthropic do
       |> UpstreamError.to_error_tuple()
 
     AdapterExecution.materialize_result({:error, error}, ctx)
+  end
+
+  # Anthropic 原生支持 {type: none}：禁用调用时仍保留工具定义。
+  # https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+  # 映射仅在本通道内；不能把 OpenAI 的字符串 none 直接发送到 Messages API。
+  defp put_tools(body, prompt) do
+    case NovelAgent.Provider.tool_specs(prompt) do
+      [] ->
+        body
+
+      tools ->
+        body = Map.put(body, :tools, tools)
+
+        case NovelAgent.Provider.tool_choice(prompt) do
+          nil -> body
+          "none" -> Map.put(body, :tool_choice, %{type: "none"})
+          "auto" -> Map.put(body, :tool_choice, %{type: "auto"})
+          "required" -> Map.put(body, :tool_choice, %{type: "any"})
+          name -> Map.put(body, :tool_choice, %{type: "tool", name: name})
+        end
+    end
   end
 
   # CP3：Anthropic 需要显式 cache_control 才启用 prompt cache；最小可缓存长度

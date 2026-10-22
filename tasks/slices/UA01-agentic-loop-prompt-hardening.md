@@ -76,3 +76,47 @@ ADR-0023 CP4 后，loop 的模型调用收敛为五类：profile 路由（strict
 - 2026-07-05 — 六方向由 prompt review 产出并登记；T1 为正确性回归（CP4 迁移丢失意图规则），优先于其余项。T2 与 ADR-0023 审计的「live provider tool calling 未验证」缺口合并为同一次经批准的 live 验证，不单独触发重型验证。
 
 - 2026-10-21 — **CP-AB 以 Proposed 边界关闭（Goal G-B20+AB）**：重新度量 continuation `780/1940 (0.4021)`、conversation `525/6686 (0.0785)`；厂商凭据 unset；D5 legacy superseded。VS-00I 不 Frozen；恢复条件见契约 §13。不再以 CP-AB 名义继续 prompt 改动。
+
+
+## 6. T6 冻结后真实调用对增量（2026-10-23）
+
+来源：作者本轮直接授权；完整契约/证据与后续缺口见 `VS-00I` §15。
+
+| checkpoint | 状态 | 证据 / 边界 |
+|---|---|---|
+| 生产调用对探针、通道盘点、原始 HTTP/SSE 与自测 | done | `scripts/model_contracts/README.md`；5 条探针自测；真实 call1 说明经生产截断规则进入 call2，重试不掩盖 |
+| 现有可用 Provider 基线 | done | verified-20261023：DeepSeek 三组 call2 均 384；Strata 三组 call2 均 0，同请求 2138/2145；LM 未加载、其余缺凭据均 blocked |
+| 证据驱动 adapter 小修 | 局部完成 | Anthropic 原生 none 保留 tools、Strata 自有 execute 标记降级、非流式 TTFT 改未知；无公共业务层 Strata 特判 |
+| 真实入口回归 | done | `su01-provider-strata-local` 真实 Tauri PASS，turn `message_a4c200c1-70f2-4a68-8c7d-cd4c506efea1`；不代表 Strata 缓存已修好 |
+| 完整厂商缓存覆盖 | 未闭环 | Strata 服务端前缀/parking、Anthropic live 与断点分块、其余云端凭据、LM 已加载模型基线，见 VS-00I §15.3 |
+
+开工七问：Contract=VS-00I/Provider execution/Usage；Invariant=工具选择语义、叙事绑定、
+真实 usage、不混淆未知与零；Boundary=novel_agent 与脚本（novel_application 仅消费生产构造器，
+无产品改动）；Consumer=生产判断两次调用及开发者 ProviderRun；Proof=探针/Provider 测试、全量后端、
+xref/arch、I1/I2/I3/N-NARR/I-CACHE、静态扫描；Acceptance Driver=既有外部 Tauri driver，
+产品验收感知=no；Exploration=不适用，本增量不物化小说要素。
+
+安全边界：仅脚本内虚构样书发送到已有 Provider；既有桌面凭据只读装入当前 BEAM，
+不写全局配置、不升级工具、不自动加载/切换本地模型。首次外部基线被自动审批以潜在作品
+外发为由拒绝；生成 fixture-audit.json 证明无实际作品/会话后经复核允许。所有前序异常报告
+保留，当前结论仅引用 verified 批。
+
+
+### 最终验证与并行工作区边界
+
+- 当前 HEAD（`bb977f52`）+ 仅本次 Provider/探针文件的隔离快照：`mix test` **1836/0**。
+  快照基线与逐文件 SHA256：`artifacts/model-contracts/provider-cache-snapshot.json`；
+  全量日志：`artifacts/model-contracts/provider-cache-snapshot-test.log`。
+- 共享工作区首轮：**1844 tests / 1 failure**，来自另一个并行改动中的
+  `NovelDomain.ConfirmationBindingTest`「reject answer is not a confirm」：domain 新增
+  idempotency_key/trace_ref 必填，旧 reject 用例未补齐。该改动不属于本任务，未修改或掩盖；
+  日志 `artifacts/model-contracts/provider-cache-full-test.log`。已有 unused 测试 helper 警告保留。
+  随后并行任务以 `a1fc6ae8` 提交补齐 reject 用例，本任务未修改其代码；最新共享工作区
+  全量 **1844/0**，日志 `artifacts/model-contracts/provider-cache-current-final-test.log`。
+- `mix compile --warnings-as-errors`、xref 无环、arch、quality manifest、探针 5/0，
+  I1/I2/I3/N-NARR/I-CACHE 均有独立日志。`pnpm typecheck` / `pnpm lint` 通过，未改前端产品代码。
+- 最后真实 Tauri 复验 PASS（当前 summary turn 为上述 a4c200c1）；中间一次页面初始化超时，
+  未改产品重跑恢复，失败日志保留在 `artifacts/model-contracts/provider-cache-tauri-timeout/`。
+- 统一扫描命令 `bash scripts/ai_static_scan.sh --top 10`；首跑 manifest 过期，最终经
+  `task_done.sh` 重新生成收尾证据后复跑，结果以 `artifacts/static-scan/{report.json,top10.md,disposition.md}`
+  为准；两条既有 gitleaks disposition 不改，不修无关历史/不绕过门禁。

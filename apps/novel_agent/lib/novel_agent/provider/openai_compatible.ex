@@ -117,6 +117,9 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       def execute(state, model, prompt, params, ctx),
         do: OpenAICompatible.execute(oac_meta(), state, model, prompt, params, ctx)
 
+      # 协议差异由具体 adapter 覆盖；共享传输不判断 vendor 名称。
+      defoverridable execute: 5
+
       @impl true
       def health_check(state), do: OpenAICompatible.health_check(oac_meta(), state)
 

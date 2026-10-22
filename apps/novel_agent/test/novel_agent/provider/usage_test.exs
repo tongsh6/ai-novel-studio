@@ -69,8 +69,23 @@ defmodule NovelAgent.Provider.UsageTest do
     assert Usage.put_ttft(usage, nil).ttft_ms == 1
   end
 
-  test "non-stream response constructors use latency as TTFT" do
-    assert Usage.from_openai_response(%{"usage" => %{}}, "m", 20).ttft_ms == 20
-    assert Usage.from_anthropic_response(%{"usage" => %{}}, "m", 21).ttft_ms == 21
+  test "非流式只知道总耗时，首 token 时间保持未知" do
+    openai = Usage.from_openai_response(%{"usage" => %{}}, "m", 20)
+    anthropic = Usage.from_anthropic_response(%{"usage" => %{}}, "m", 21)
+    assert openai.latency_ms == 20
+    assert anthropic.latency_ms == 21
+    assert openai.ttft_ms == nil
+    assert anthropic.ttft_ms == nil
+    assert Usage.put_ttft(openai, 7).ttft_ms == 7
+  end
+
+  test "未返回缓存统计与明确未命中保持可区分" do
+    assert Usage.from_openai_response(%{"usage" => %{}}, "m", 20).cached_tokens == nil
+
+    assert Usage.from_openai_response(
+             %{"usage" => %{"prompt_tokens_details" => %{"cached_tokens" => 0}}},
+             "m",
+             20
+           ).cached_tokens == 0
   end
 end

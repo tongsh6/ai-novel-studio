@@ -131,6 +131,40 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
   end
 
   describe "execute/5" do
+    test "共享传输不向其他通道写入 Strata 工具降级状态" do
+      test_pid = self()
+
+      eventsource = fn _url, body, _opts, on_data ->
+        send(test_pid, {:none_request, body})
+        on_data.(sse_delta("判断", "gpt-4o-mini"))
+        {:ok, 200, ""}
+      end
+
+      state = %OpenAI{
+        api_key: "test-key",
+        endpoint: "https://api.openai.com/v1",
+        model: "gpt-4o-mini",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
+      prompt = %{
+        messages: [%{role: "user", content: "判断"}],
+        tools: [%{name: "decision", input_schema: %{type: "object"}}],
+        tool_choice: "none"
+      }
+
+      assert {:ok, %{provider_run: run}} =
+               OpenAI.execute(state, nil, prompt, %InferenceParams{}, provider_ctx(:openai))
+
+      refute Map.has_key?(run.metadata, :tool_constancy)
+      assert_receive {:none_request, body}
+      assert body.tool_choice == "none"
+      assert length(body.tools) == 1
+      refute Map.has_key?(body, :strata_prefix)
+    end
+
     test "streams OpenAI-compatible SSE chunks through provider execution facts" do
       test_pid = self()
 

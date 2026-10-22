@@ -74,6 +74,75 @@ defmodule NovelAgent.Provider.AnthropicTest do
   end
 
   describe "execute/5" do
+    test "call1 与 call2 保留同一工具集，分别映射原生 none 与具名强制调用" do
+      test_pid = self()
+
+      eventsource = fn _url, body, _opts, on_data ->
+        send(test_pid, {:call1_body, body})
+
+        on_data.(
+          anthropic_sse("content_block_delta", %{
+            "type" => "content_block_delta",
+            "index" => 0,
+            "delta" => %{"type" => "text_delta", "text" => "判断说明"}
+          })
+        )
+
+        {:ok, 200, ""}
+      end
+
+      http = fn _url, body, _opts ->
+        send(test_pid, {:call2_body, body})
+
+        {:ok, 200,
+         %{
+           "content" => [
+             %{
+               "type" => "tool_use",
+               "id" => "tool-1",
+               "name" => "judgment_decision",
+               "input" => %{"action" => "reply"}
+             }
+           ]
+         }}
+      end
+
+      state = %Anthropic{
+        api_key: "test-key",
+        model: "claude-sonnet-4-6",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        http_fn: http,
+        log_fn: nil
+      }
+
+      prompt = %{
+        messages: [%{role: "user", content: "判断"}],
+        tools: [%{name: "judgment_decision", description: "判断", input_schema: %{type: "object"}}],
+        tool_choice: "none"
+      }
+
+      assert {:ok, %{provider_run: run}} =
+               Anthropic.execute(state, nil, prompt, %InferenceParams{}, provider_ctx())
+
+      refute Map.has_key?(run.metadata, :tool_constancy)
+
+      assert {:ok, _} =
+               Anthropic.execute(
+                 state,
+                 nil,
+                 %{prompt | tool_choice: "judgment_decision"},
+                 %InferenceParams{},
+                 provider_ctx()
+               )
+
+      assert_receive {:call1_body, first}
+      assert_receive {:call2_body, second}
+      assert first.tools == second.tools
+      assert first.tool_choice == %{type: "none"}
+      assert second.tool_choice == %{type: "tool", name: "judgment_decision"}
+    end
+
     test "streams Anthropic SSE chunks through provider execution facts" do
       test_pid = self()
 

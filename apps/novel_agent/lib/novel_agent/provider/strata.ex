@@ -51,6 +51,21 @@ defmodule NovelAgent.Provider.Strata do
     api_key_required: false,
     thinking_style: :reasoning_effort
 
+  @impl true
+  def execute(state, model, prompt, params, ctx) do
+    # 当前 Strata 服务在 none 时先移除 tools 再渲染模板（0.1.47 Metal 实测）。
+    # 保持禁用工具的请求语义，仅如实标注工具前缀降级，不伪造缓存或改成 auto。
+    ctx =
+      if NovelAgent.Provider.tool_choice(prompt) == "none" and
+           NovelAgent.Provider.tool_specs(prompt) != [] do
+        Map.put(ctx, :tool_constancy, :degraded)
+      else
+        ctx
+      end
+
+    super(state, model, prompt, params, ctx)
+  end
+
   @doc """
   Strata App 统一推理后台的 OpenAI 兼容 base URL。
 

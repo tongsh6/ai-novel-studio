@@ -62,8 +62,7 @@ defmodule NovelAgent.Provider.Usage do
       latency_ms,
       usage["prompt_tokens_details"]["cached_tokens"] ||
         usage["prompt_cache_hit_tokens"] ||
-        usage["cached_tokens"],
-      latency_ms
+        usage["cached_tokens"]
     )
   end
 
@@ -77,8 +76,7 @@ defmodule NovelAgent.Provider.Usage do
       usage["output_tokens"] || 0,
       resp_body["model"] || fallback_model,
       latency_ms,
-      usage["cache_read_input_tokens"],
-      latency_ms
+      usage["cache_read_input_tokens"]
     )
   end
 

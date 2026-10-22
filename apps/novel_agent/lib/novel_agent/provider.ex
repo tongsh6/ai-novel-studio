@@ -146,21 +146,6 @@ defmodule NovelAgent.Provider do
     |> maybe_put(:tool_choice, openai_tool_choice(tool_choice(prompt)))
   end
 
-  @spec put_anthropic_tools(map(), prompt()) :: map()
-  def put_anthropic_tools(body, prompt) when is_map(body) do
-    # Anthropic 没有 tool_choice: none；关闭工具的唯一可靠方式是省略 tools。
-    # B1 的 call1 仍携带与 call2 相同的 tools 供离线度量，adapter 层在此降级。
-    if tool_choice(prompt) == "none" do
-      body
-    else
-      tools = Enum.map(tool_specs(prompt), &anthropic_tool_spec/1)
-
-      body
-      |> maybe_put(:tools, tools)
-      |> maybe_put(:tool_choice, anthropic_tool_choice(tool_choice(prompt)))
-    end
-  end
-
   @spec extract_openai_tool_calls(map()) :: [tool_call()]
   def extract_openai_tool_calls(%{"tool_calls" => calls}) when is_list(calls) do
     Enum.flat_map(calls, &openai_tool_call/1)
@@ -237,24 +222,11 @@ defmodule NovelAgent.Provider do
     }
   end
 
-  defp anthropic_tool_spec(%{name: name, description: description, input_schema: schema}) do
-    %{
-      name: name,
-      description: description,
-      input_schema: schema
-    }
-  end
-
   defp openai_tool_choice(nil), do: nil
   defp openai_tool_choice(value) when value in ["none", "auto", "required"], do: value
 
   defp openai_tool_choice(name),
     do: %{type: "function", function: %{name: name}}
-
-  defp anthropic_tool_choice(nil), do: nil
-  defp anthropic_tool_choice("required"), do: %{type: "any"}
-  defp anthropic_tool_choice("auto"), do: %{type: "auto"}
-  defp anthropic_tool_choice(name), do: %{type: "tool", name: name}
 
   defp openai_tool_call(%{"id" => id, "function" => %{"name" => name, "arguments" => args}})
        when is_binary(name) do
