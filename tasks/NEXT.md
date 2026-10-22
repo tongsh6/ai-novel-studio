@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-10-22
+> 最后更新：2026-10-22（晚间：B23 停等理由与出口可见 — 登记并开工）
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 >
@@ -13,6 +13,17 @@
 - 工程基线清账：仓级门禁从红转绿——`mix format` / enum literal lint / `mix credo --strict` / `mix dialyzer` / `quality_manifest_check` / 静态扫描 0 blocking / 判断纪元 manifest 与场景注册漂移清账 / 既有被静默打坏的 nightly 场景复跑恢复 PASS。
 - B21：首次 append 场名误标修复（不回填计划场名、阅读端不显示假场标题）+ 单测 + 外部自动化驱动真实 Tauri 采纳→阅读断言 PASS。
 - B13b：22 份 ADR / 47 条 `enforcement_gaps` 逐条 ADR→slice→代码→真实页面证据对账与裁决（修复/降级/弃置），裁决落档 + ADR 文本落地；本轮可安全落地项执行，需要产品行为的修复转独立 slice/B 轨并诚实挂账。
+
+**Goal G-B23（2026-10-22 晚间，作者定向插单）**：修 stage 实锤的「交互总是停下，页面只显示『任务正在等待你的确认。』，却没有任何可确认的动作」。侦察判定为 F1–F5 五项叠加（兜底文案 / 补水链路丢理由 / transcript 剥事件 / 停等无出口 / 死 run 重复广播），拆为四条不变量：理由不丢、出口与文案一致、耗尽不机械、死 run 一次性收口。
+
+完成判据：
+
+- CP1 理由不丢：activity 补水按 run 命中（前端 `parent_turn_ref ?? turn_id` 优先 + 后端按子 turn 兼容兜底，不新增线格式字段）；刷新/重进后作者能看到真实停等 summary。
+- CP2 出口与文案一致：停等文案族改为「等待回复/补充」并按有无 `available_actions` 区分提示；driver/yml 断言同步；不触碰 `*.prompt` 动作指令。
+- CP3 计划耗尽不再只给机械句：`JudgmentPlan` 耗尽 summary 含已完成步数/缺口/建议下一步骨架词，零 provider 原文（N-NARR）；不新增 `available_actions` 载体。
+- CP4 死 run 一次性收口：启动期把 runtime 已死的非终态 bounded run 置 `failed(runtime_lost_on_restart)` 并记 developer 事件；不再每次 join 重复广播。
+- CP5 真实页面闭环：新场景 `agent-plan-exhausted-awaiting-reason` 真实 Tauri PASS（理由可见 → 刷新仍可见 → 输入框为回复语义 → 打字补充恢复同一 run）+ 既有 awaiting/dead-run/writer-timeout 回归 PASS。
+- 门禁：compile -Werror、后端全量、xref/arch、前端 typecheck/lint/test/audit/design trace、static scan、I1/I2/I3。
 
 ---
 
@@ -43,6 +54,9 @@ browser surface，原生 Tauri Q1c 场景未跑；AU-05/AU-09 Tauri 回归漂移
 
 **本轮验证（2026-10-22 基线清账 + B21 + B13b）**：后端全量 **1,806/0**、前端 **544/0**、verifier self-test 绿；compile -Werror / format / enum literal lint / `credo --strict` / `dialyzer` 0 / xref 无环 / arch / adr_trace 27/27 / quality manifest 0 WARN 全绿；I1·I2·I3·N-NARR·I-CACHE-1 全绿；真实 Tauri 四场景 PASS（`p1-chapter-adoption-reading` 确定性 + **真实 Strata iq3_s**、`au13-review-adjudication-roundtrip`、`au14-finding-inventory-arc-loop`）；静态扫描 0 blocking（gitleaks 2 条既有 disposition 保留）。
 详见 `tasks/slices/B21-first-append-scene-naming.md`、`tasks/slices/B13B-adr-enforcement-reconciliation.md`、`docs/project-ledger.md`。
+
+**2026-10-22 晚间 B23 开工（作者定向插单）**：作者在 stage 观察到「交互总是停下，页面显示『任务正在等待你的确认。』，却没有任何可确认的动作」。只读侦察（stage 库 + app JSONL）证明是五项叠加：F1 兜底文案；F2 activity 补水拿持久 TurnResult 的**子 turn** id 查 `parent_turn_ref` 导致 0 run / 0 事件；F3 transcript 回灌剥事件只能靠补水；F4 三条停等路径（模型 `await_author` / 计划耗尽 / no_progress）只有纯事件无出口，文案叫「确认」实际动作是打字补充；F5 重启后死 bounded run 每次 join 被重复广播（当日 `channel.agent_run_expired.done` 259 次）。B23 按四条不变量（理由不丢 / 出口与文案一致 / 耗尽不机械 / 死 run 一次性收口）+ CP5 真实页面场景推进；三项待拍板已按建议默认拍板（前端 `parent_turn_ref ?? turn_id` 优先 + 后端子 turn 兼容兜底；CP3 只做 summary 结构化不新增 `available_actions`；CP4 终态 `failed(runtime_lost_on_restart)`）。不改 DS03 命令矩阵、不改判断 prompt、零 migration。
+
 
 **队列总览**：§4 当前队列表是唯一状态源；不再复制第二张易漂移的状态表。
 Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行标识。
@@ -118,7 +132,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 | BASELINE-GATES-CLEANUP | B | 工程基线清账（门禁全绿）：`mix format` 全仓、enum literal lint 34→0（9 条已审撞名精确豁免）、`credo --strict` 3→0、`mix dialyzer` 369→0（按 app 并行根因修 + 类型真相补丁 + 死代码清理；0 新增静默）、`quality_manifest_check` 2 driver 归类 + 6 真实 Tauri 场景登记（0 WARN）、8 份判断纪元 manifest 迁移、ADR README/ADR-0028 文档漂移修正 | **done（2026-10-22）** | 全部门禁绿：compile -Werror/format/enum/credo/dialyzer 0/xref/arch/adr_trace 27/27/quality manifest 0 WARN/后端全量测试/前端 543+audit 27+design trace 16/I1/I2/I3/N-NARR/I-CACHE-1/静态扫描 0 blocking；证据与数字见 §6 决策日志 |
 | B21-FIRST-APPEND-SCENE-NAMING | A | B21：多场计划首次 append 场名误标（B11C CP3；作者可见错误：D7 后 authoring_intent=nil 走 append，首次 append seq=1 把整章正文命名成 `scene_plans[0].title`，阅读端把整章挂在假的「第 1 场」下） | **done（2026-10-22，真实 Tauri PASS）** | 修复：首次 append 固定「场景 1」占位（不回填计划场名），第二次起保持 NEM04 场名语义、overwrite 不变；单测后端 4 + 前端 4；真实 Tauri `p1-chapter-adoption-reading` PASS：`planned_scene_titles=["对账","夜巡"]`、`reading_scene_row_titles=["场景 1"]`、`reading_scene_headings=[]`、字数 134/134/134（证据 `artifacts/slice-verify/p1-chapter-adoption-reading-tauri/summary.json`）；真实模型复核（2026-10-22 23:35）：`--provider strata`（iq3_s）真实 Tauri PASS，8 次真实请求/1700 字真模型正文，B21 断言同样成立；顺带修复 D19 验收 harness 真实-provider 假设（产品零改动）。诚实边界：只修命名，不做 artifact 场作用域/多场正文（B11D 后续）；`tasks/slices/B21-first-append-scene-naming.md` §7c |
 | B13B-ADR-ENFORCEMENT-RECONCILE | B | B13b：22 份 Accepted ADR 的 47 条 `## enforcement_gaps` 逐条 ADR→slice→代码→真实页面证据对账与裁决（修复/降级/弃置）+ ADR 文本落地 + 质量门禁/验收漂移专项 | **done（2026-10-22）** | 47/47 裁决（修复-本批 13 / 独立 slice 16 / 降级 10 / 弃置 3 / 伪缺口 4 / 随基线关闭 1）；47/47 APPLY 入场（`adr_trace 27/27`）；「修复-本批」中 2 项已落地、1 项部分、10 项需产品行为转下批 B 轨/独立 slice（诚实未落地）；转出 11 个候选 slice + 12 项 B 轨小修 + 15 条待作者裁决；场景漂移清单 D1–D18（其中 au13/au14 已真实 Tauri PASS、8 份 manifest 已迁移）；交付 `tasks/slices/B13B-adr-enforcement-reconciliation.md` |
-| MAINLINE-RESET-3 | A | 下一次主线选择：从 B13b 转出的 11 个候选 slice（工作台「当前卷」UI、R10/R11 正触发验收、ADR 二阶段 code 修复等）、12 项 B 轨小修、B11D（质量场粒度/多场正文）、E28-E30、VS-00D G1–G7、其他作者插单中拍板 | **next（等待作者拍板；无队列挂靠不开工）** | 明确下一项 id、轨、slice/验收口径并写入队列；不预先开工；候选清单与三问见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 |
+| B23-AWAITING-AUTHOR-REASON | B | 停等作者时「为什么停、怎么继续」必须可见（2026-10-22 作者 stage 定向插单）：CP1 activity 补水按 run 命中（前端 `parent_turn_ref ?? turn_id` + 后端子 turn 兼容，不新增线格式）；CP2 停等文案族改「回复/补充」并按有无 `available_actions` 区分出口；CP3 计划耗尽 summary 含结构事实（步数/缺口/建议下一步骨架词，零 provider 原文）；CP4 启动期死 bounded run 一次性收口 `failed(runtime_lost_on_restart)`；CP5 新真实 Tauri 场景 `agent-plan-exhausted-awaiting-reason`（`tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`） | **next（2026-10-22 晚间作者定向插单，开工中）** | 四条不变量 + CP5 真实页面场景 PASS；既有 awaiting/dead-run/writer-timeout 回归不退化；DS03 命令矩阵/prompt/线格式零改动；I1/I2/I3 与全门禁绿 |
+| MAINLINE-RESET-3 | A | 下一次主线选择：从 B13b 转出的 11 个候选 slice（工作台「当前卷」UI、R10/R11 正触发验收、ADR 二阶段 code 修复等）、12 项 B 轨小修、B11D（质量场粒度/多场正文）、E28-E30、VS-00D G1–G7、其他作者插单中拍板 | **deferred（2026-10-22 晚间作者定向 B23 插单；B23 收口后恢复）** | 明确下一项 id、轨、slice/验收口径并写入队列；不预先开工；候选清单与三问见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 |
 
 ### 历史 Order 表（M0-M3 期，保留供追溯；不参与当前队首选择，未闭环后果仍由原 slice 负责）
 
@@ -186,6 +201,8 @@ Q0→Q1→Q2→Q3→Q4 是历史组织顺序，当前队首由唯一 `next` 行�
 - 2026-10-21 — **B17 收口（真实 Tauri PASS）**：`tauri_slice_verify b17-writer-timeout-steer` PASS，真实工作台 writer timeout×2 后显示 author-safe summary + reason codes，控制坞「先写第一场（500 字）」发送非空 steer，同一 run 恢复并生成 pending prose。首跑发现 scoped steer 因 replan 预算耗尽再次停等；修复为“仅 writer_timeout 的作者显式 steer 追加一次有界重试预算”，新增后端回归。队首恢复 `MAINLINE-RESET` 等待作者拍板。
 - 2026-10-21 — **GAP-LEDGER-RECONCILE**：作者同意先做台账对账再进主线。关闭 B12/B18/B19 的 gap ledger 残留（均已 done，但旧行无 done 标记被扫描器当开放）；B13 核验：27 份 ADR（26 Accepted / 1 Proposed），`adr_trace` 26 份缺 `enforced_by`（仅 ADR-0027 有），脚本软退出 0；B13 保持开放并拆 B13a/B13b。队首 `GAP-LEDGER-RECONCILE`，完成后回 `MAINLINE-RESET`。
 ## 6. Decision Log
+
+- 2026-10-22 — **B23 登记并开工（作者定向插单：停等作者时「为什么停、怎么继续」必须可见）**。触发：作者在 stage 观察到「交互总是停下，页面显示『任务正在等待你的确认。』，却没有任何可确认的动作」。只读侦察（stage 库 + `log/app/stage/2026-10-22.jsonl`）证明是五项叠加而非单点：F1 `agentRunAwaitingActivity` 兜底文案；F2 持久 TurnResult 的 `turn_id` 是子 turn（`message_…:agent:6`），而活动补水按 `AgentRunLog.list_by_parent_turn` 查 `parent_turn_ref`（父消息 id）→ 0 run / 0 事件；F3 transcript 回灌剥离 `agent_run.events`，F2 失败即无理由；F4 模型 `await_author` / `plan_exhausted_without_completion` / `no_progress` 三条停等只有纯事件无 `available_actions`，文案却叫「确认」而实际动作是打字补充；F5 重启后非终态 bounded run 每次 join 被 `list_dead_bounded` 重复广播（当日 `channel.agent_run_expired.done` 259 次）。决策（按 VS-00F 先例开工授权默认拍板）：①CP1 双保险——前端补水键优先 `agent_run.parent_turn_ref ?? turn_id`，后端 `fetch_turn_activity` 对子 turn 做兼容兜底（剥 `:agent:N` 后缀 / 按 run_id），都不新增线格式字段；②CP3 只把计划耗尽 summary 结构化（已完成步数 / 缺口 / 建议下一步骨架词，零 provider 原文），不新增 S7 `available_actions` 载体；③CP4 终态取 `failed` + `failure_ref=runtime_lost_on_restart`（与 S7 失败终局语义一致），只碰 `run_mode == bounded`。诚实边界：判断循环「先问再做」调参、全只读计划的规划层约束、run 级预算另归 UA01 / 后续 slice，不在 B23。
 
 - 2026-10-22 — **工程基线清账 + B21 + B13b 收口（作者定向：先基线清账+B21，随后 B13b）**。**基线清账**：全仓 `mix format`（33 文件）；enum literal lint 34→0（真枚举改 `NovelFoundation.Enums.*`，9 条同名 token 以 `(file,value)` 精确豁免并在脚本注释理由：JSON key "meta"、ID 前缀 "turn"、场次子槽 key "turn"、promise 状态 "OPEN"、ref 命名空间前缀 "artifact"）；`mix credo --strict` 3→0；`mix dialyzer` 369→0（按 app 并行根因修：闭 map 类型对齐消 135 条级联假死、schema 补 `@type t` 消 71 条 unknown_type、类型真相补丁 8 处、dialyzer 证明不可达死代码清理、`plt_add_apps: [:mix]`；0 条新增静默，3 条 `{:no_opaque, fun}` 均有中文注释）；`quality_manifest_check` 2 个非场景 driver 归类 ignored + 6 个真实 Tauri 场景登记 + 8 份判断纪元 manifest 文本迁移（0 WARN）；ADR README / ADR-0028 文档漂移修正。**验收漂移**：B11A CP5 的 R10 静默打坏 `au13-review-adjudication-roundtrip`（finding 5→6）与 `au14-finding-inventory-arc-loop`（1→2，另暴露质量词表 vs 旧 driver 的 D10 夹具遗漏）——修 seed 与 test/support 夹具后两场景真实 Tauri 复跑 PASS；`p1-chapter-draft-generation` verifier 判断纪元漂移另记 D18。**B21**：首次 append 固定「场景 1」占位、不回填计划场名（第二次 append 保持 NEM04、overwrite 不变），后端 4 + 前端 4 单测，真实 Tauri `p1-chapter-adoption-reading` PASS（planned_scene_titles=["对账","夜巡"] / reading_scene_row_titles=["场景 1"] / 假标题 [] / 字数 134/134/134）；只修命名，artifact 场作用域与多场正文归 B11D。**B13b**：22 份 Accepted ADR/47 条 enforcement_gaps 全部裁决（修复-本批 13 / 独立 slice 16 / 降级 10 / 弃置 3 / 伪缺口 4 / 随基线关闭 1），47/47 APPLY 入场（`adr_trace 27/27`，255 refs），「修复-本批」中 10 项需产品行为、本批未落地代码并诚实转下批 B 轨/11 个独立 slice（`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7）；场景/断言漂移清单 D1–D19 落档，其中 D1/D2/D10/D8/D15/D16/D17 已修，D3–D6 已迁移待复跑，其余为未清债。**门禁终态**：compile -Werror / format / enum lint / credo / dialyzer / xref / arch / adr_trace 27/27 / quality manifest 0 WARN / 后端全量 / 前端 543+audit 27+design trace 16 / I1·I2·I3·N-NARR·I-CACHE-1 / 静态扫描 0 blocking（gitleaks 2 条既有 disposition 保留）。**诚实边界**：B13b 的「修复-本批」10 项代码、11 个独立 slice、12 项 B 轨小修均未在本批落地；`judgment-explore-internal` 场景先以 blocked 登记待复跑；D1/D3/D6/D9/D11-D14/D18 等验收债见 B13b 文档 §6。
 
