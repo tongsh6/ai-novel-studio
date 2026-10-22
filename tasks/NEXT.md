@@ -6,6 +6,8 @@
 >
 > **仪式（硬约束）**：每个工作周期开工先读本文件队首；收尾必须更新本文件。跑偏的根因就是这条仪式中断（2026-07-19 统筹复盘）。
 
+> ⚠️ **并行会话通知（2026-10-23 01:09 CST，commit `d817f67e`）**：B24 章节身份契约已从「标题寻址」修订为 **`chapter_ref = "chapter:<chapters.id>"` 唯一寻址**（详见 `tasks/slices/B24-exploration-chapter-full-read.md` §1.1(a) / §6 / §7）。工作区当前存在 6 个未提交的旧契约实现文件（`exploration_service.ex` + 两个测试 + `dialogue_planning_service.ex` / `judgment_plan.ex` / `agentic_plan_draft_planner.ex`），**勿在旧契约上继续开发或提交**；请先停止并对齐 ref 契约（章节索引暴露 `chapter_ref`、歧义列候选、按 ref 分页）或回滚该实现。写入/采纳链 title 身份统一归 follow-up slice（候选 B25），不在 B24 内。
+
 **Goal G-BASELINE+B21+B13b（2026-10-22，作者定向）**：先做「工程基线清账 + B21（短、立即消除用户可见错误 + 门禁全绿）」，随后 B13b。
 
 完成判据：

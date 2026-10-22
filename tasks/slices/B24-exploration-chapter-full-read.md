@@ -1,5 +1,7 @@
 # B24-探索面全章可读：chapter_read 分段预算 + 续读
 
+> ⚠️ **契约变更通知（2026-10-23 01:09 CST，commit `d817f67e`）**：本 slice 的章节身份已从「按标题寻址」修订为 **`chapter_ref = "chapter:<chapters.id>"` 唯一寻址**（见 §1.1(a)）。若你正在实现旧契约（JSON `{"chapter":...}`、`find_chapter` first-match、标题身份测试），**请先停止并重读 §1.1 / §6 / §7**；旧实现不得提交。写入/采纳链 title 身份统一归 follow-up（候选 B25），不在本 slice 范围。
+
 **状态**：**registered（2026-10-23 作者定向开档；CP0 契约冻结 = 本文档 §1.1，CP1+ 待开工）**。
 **来源**：2026-10-23 00:17 stage 真实会话（turn `message_ce1b5c9f-3d15-4cc7-8b49-ff8b22f585e4` / run `run_mvjquwek_9`）中，作者要求「审核第一章内容，我发现有重复的」，AI 回复「当前我能看到第一章的开头、摘要和部分正文，但可见正文被截断，不能完整核对全章重复」。作者判定这是产品侧读取路径缺口，定向「方案 A 开一个 slice」。
 **关联既有 slice**：`UA01-judgment-driven-loop.md`（CP5a/CP5b 探索内部翼：工具目录、观察渲染、回合硬上限 2、clip 1500 的来源）；`UA01-agentic-loop-prompt-hardening.md`（判断 prompt 资产 / VS-00I 前缀稳定性，本 slice 改动目录与观察文本须复跑 I-CACHE-1）；`B23-awaiting-author-reason-and-exit-surface.md`（同 stage 诊断先例；不改变其停等/出口语义）；`P1-word-count-audit.md`（**方案 B** 确定性重复段/重复章检测归其 checkpoint B，本 slice 明确不做，只解读取能力）。
