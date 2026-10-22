@@ -144,6 +144,8 @@ import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
 import { messageRenderKey } from "../lib/messageRenderKey";
 import {
+  agentRunActivityQueryTurn,
+  agentRunDockRenderMode,
   agentRunRuntimeAuthority,
   assistantMessageTextForAgentRun,
   bindAgentRunAckToUserMessage,
@@ -152,9 +154,11 @@ import {
   type AgentRunRuntimeAuthority,
   qualityRevisionArtifactRole,
   selectAgentRunActivitySummary,
+  shouldHydrateStandaloneAgentRun,
   shouldRenderAnchoredAgentRunStatus,
   shouldRenderStandaloneAgentRunStatus,
   shouldRenderUserAgentRunPlaceholder,
+  standaloneAgentRunActivityTurn,
   upsertAssistantTurnResultMessage,
 } from "../lib/agentRunAnchoring";
 import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
@@ -1313,6 +1317,12 @@ export function WorkspaceChat() {
     {},
   );
   const [agentRunActivityLoaded, setAgentRunActivityLoaded] = useState<Record<string, boolean>>({});
+  // B23 CP1 补口：无 TurnResult 的 standalone 运行组（如 judgment_plan 纯只读计划
+  // 耗尽停等）从持久化 activity 补来的 author-safe 事件，按 run_id 缓存，供
+  // latestAgentRunEvents 使用（不改写 transcript 消息）。
+  const [standaloneAgentRunActivityEvents, setStandaloneAgentRunActivityEvents] = useState<
+    Record<string, AgentEventData[]>
+  >({});
   const [pendingAgentRunAnchors, setPendingAgentRunAnchors] = useState<
     Record<string, PendingAgentRunAnchor>
   >({});
@@ -1403,6 +1413,11 @@ export function WorkspaceChat() {
     return `${turnId}:${runId}`;
   }
 
+  // run 级幂等键（独立 key 空间，避免与 turn_result 补水键冲突）。
+  function standaloneAgentRunActivityKey(runId: string): string {
+    return `agent-run:${runId}`;
+  }
+
   function agentRunActivityAgentRun(
     activity: { agent_runs?: Record<string, unknown>[] },
     runId: string | null,
@@ -1419,6 +1434,16 @@ export function WorkspaceChat() {
     const agentRun = agentRunActivityAgentRun(activity, runId);
     const events = agentRun?.events;
     return Array.isArray(events) ? events.filter(isAgentEventData) : [];
+  }
+
+  // B23 CP1 补口：运行组事件源 = 该 run 的持久化补水事件 + live agent_event 帧。
+  // 无 TurnResult 的 standalone 运行组（如 judgment_plan 纯只读计划耗尽、停等）靠前者
+  // 在刷新后保住作者可见理由；有 TurnResult 的运行组通常补水为空，行为零变化。
+  function agentRunActivityEventsFor(runId: string): AgentEventData[] {
+    return mergeAgentRunEvents(
+      standaloneAgentRunActivityEvents[runId] ?? [],
+      agentEvents.filter((event) => event.run_ref === runId),
+    );
   }
 
   function agentRunActivityProviderRuns(
@@ -1439,13 +1464,14 @@ export function WorkspaceChat() {
     const sessionId = activeSessionIdRef.current;
     const connection = activeConnectionRef.current;
     const key = agentRunActivityKey(result);
-    if (!workId || workId === "lobby" || !sessionId || !result.turn_id || !key) return;
+    const queryTurn = agentRunActivityQueryTurn(result);
+    if (!workId || workId === "lobby" || !sessionId || !queryTurn || !key) return;
     if (agentRunActivityLoaded[key] || agentRunActivityLoading[key]) return;
 
     setAgentRunActivityLoading((prev) => ({ ...prev, [key]: true }));
 
     try {
-      const activity = await getTurnAgentRunActivity(workId, sessionId, result.turn_id);
+      const activity = await getTurnAgentRunActivity(workId, sessionId, queryTurn);
       if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
 
       const runId = turnResultAgentRunId(result);
@@ -1638,6 +1664,7 @@ export function WorkspaceChat() {
     setAgentEvents([]);
     setAgentRunActivityLoading({});
     setAgentRunActivityLoaded({});
+    setStandaloneAgentRunActivityEvents({});
     setPendingAgentRunAnchors({});
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
@@ -2068,12 +2095,62 @@ export function WorkspaceChat() {
           : [],
       )
     : [];
+  // B23 CP1 补口：无 TurnResult 的 standalone 运行组没有 restored events；其事件源
+  // 来自持久化 activity 补水 + live 帧（按 event_id 去重合并）。
   const latestAgentRunEvents = latestAgentRun
     ? mergeAgentRunEvents(
         latestAgentRunRestoredEvents,
-        agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id),
+        agentRunActivityEventsFor(latestAgentRun.run_id),
       )
     : [];
+
+  // B23 CP1 补口（刷新后理由不丢）：judgment_plan 纯只读计划耗尽、停在 awaiting_author
+  // 时不产 TurnResult。刷新后 transcript 没有任何消息可触发 turn_result 补水路径，
+  // join 只恢复 agent_run_state（events 为空）→ 活动行回落兜底句。这里对
+  // 「有 run 状态、但 transcript 无同 run TurnResult」的 standalone 运行组，按
+  // run.parent_turn_ref 调 activity 接口补 author-safe events；run 级 loaded/loading
+  // 幂等、迟到响应校验 connection/session scope、失败静默（supplementary detail）。
+  useEffect(() => {
+    // 异步调度避免在 effect 内同步 setState；内部通过 run 级 loaded/loading 幂等。
+    const timer = window.setTimeout(() => {
+      const run = latestAgentRun;
+      if (!run || isReadOnlySessionView) return;
+      if (!shouldHydrateStandaloneAgentRun(run, messages)) return;
+
+      const workId = context.workId;
+      const sessionId = activeSessionIdRef.current;
+      const queryTurn = standaloneAgentRunActivityTurn(run);
+      const connection = activeConnectionRef.current;
+      if (!workId || workId === "lobby" || !sessionId || !queryTurn) return;
+
+      const key = standaloneAgentRunActivityKey(run.run_id);
+      if (agentRunActivityLoaded[key] || agentRunActivityLoading[key]) return;
+
+      setAgentRunActivityLoading((prev) => ({ ...prev, [key]: true }));
+
+      void getTurnAgentRunActivity(workId, sessionId, queryTurn)
+        .then((activity) => {
+          if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
+          if (activeSessionIdRef.current !== sessionId) return;
+          const events = agentRunActivityEvents(activity, run.run_id);
+          setStandaloneAgentRunActivityEvents((prev) => ({
+            ...prev,
+            [run.run_id]: mergeAgentRunEvents(prev[run.run_id] ?? [], events),
+          }));
+          setAgentRunActivityLoaded((prev) => ({ ...prev, [key]: true }));
+        })
+        .catch(() => {
+          // supplementary author-safe detail：失败静默，下一次 reload / join 再补。
+        })
+        .finally(() => {
+          setAgentRunActivityLoading((prev) => ({ ...prev, [key]: false }));
+        });
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // loaded/loading map 只是请求幂等守卫：不放进依赖，避免失败/迟到响应后
+    // 守卫状态变化触发立即重试（下一次 reload/join 或消息变化时再补）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestAgentRun, messages, isReadOnlySessionView, context.workId]);
   // DS03 状态矩阵：命令权限唯一真源是服务端 agent_run_state 的 runtime_live；
   // 历史 TurnResult 快照（authority=unknown）与已失活 runtime（dead）都不授予
   // 实时命令。paused 才可 resume；awaiting_author 只能提交非空补充。
@@ -2093,6 +2170,12 @@ export function WorkspaceChat() {
     !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   const hasActiveAgentRun =
     latestAgentRun !== null && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
+  // B23 CP4：CP4 收口后首 join 广播 failed + runtime_live=false。failed 属终态，
+  // hasActiveAgentRun 为 false；若不单独保留过期坞，作者会失去「原任务已失效 /
+  // 重新发起任务」出口。durable 走检查点口径，不进入过期坞。
+  const agentRunDockMode = agentRunDockRenderMode(latestAgentRun, hasActiveAgentRun);
+  const renderActiveAgentRunDock = agentRunDockMode === "active";
+  const renderExpiredBoundedDock = agentRunDockMode === "expired";
   const latestAgentRunHasMessageAnchor =
     latestAgentRun !== null &&
     messages.some((message) => messageAnchorsAgentRun(message, latestAgentRun));
@@ -2278,11 +2361,12 @@ export function WorkspaceChat() {
     }
   }
 
-  // DS03：dead bounded run 的恢复路径是重新发起新任务——预填原任务目标，
-  // 作者确认后走普通 user_message 起新 run；不向旧 run 发送任何 agent_command。
-  function handleRestartDeadAgentRunTask() {
-    if (!latestAgentRun) return;
-    const goalText = typeof latestAgentRun.goal?.text === "string" ? latestAgentRun.goal.text : "";
+  // DS03/CP4：dead bounded run 的恢复路径是重新发起新任务——预填该 dead run 的原任务
+  // 目标，作者确认后走普通 user_message 起新 run；不向旧 run 发送任何 agent_command。
+  // 显式传入目标 run（而非依赖终态过滤后的 latestAgentRun），保证 prefill 绑定这个 run。
+  function handleRestartDeadAgentRunTask(run: AgentRunStateData | null) {
+    if (!run) return;
+    const goalText = typeof run.goal?.text === "string" ? run.goal.text : "";
     setInputText((current) => (current.trim() !== "" ? current : goalText));
     setAgentCommandNotice(null);
     mainInputRef.current?.focus();
@@ -3570,6 +3654,34 @@ export function WorkspaceChat() {
     (modelProviderRequiresModel &&
       (modelProviderDraft.model.trim() === "" || modelProviderModels.length === 0));
 
+  // B23 CP4：控制坞元素单点——活动 run 与失活 bounded run 复用同一元素。失活 bounded
+  // run（含已收口为 failed 的终态）只渲染过期分支：过期说明 + 唯一「重新发起任务」，
+  // restart 显式绑定该 run，prefill 不会被新 run 或终态过滤影响。
+  const agentRunDock =
+    latestAgentRun === null ? null : (
+      <AgentRunControlDock
+        run={latestAgentRun}
+        events={latestAgentRunEvents}
+        canPause={canPauseAgentRun}
+        canResume={canResumeAgentRun}
+        canCancel={canCancelAgentRun}
+        runtimeAuthority={latestAgentRunAuthority}
+        awaitingInput={awaitingAuthorInputRequired}
+        commandInFlight={agentCommandInFlight}
+        noticeText={agentCommandNoticeText}
+        hasSteerInput={hasSteerInput}
+        onCommand={(command) => {
+          void handleAgentCommand(command);
+        }}
+        onRequestCancel={() => setAgentRunTerminateDialogOpen(true)}
+        onRestartTask={() => handleRestartDeadAgentRunTask(latestAgentRun)}
+        onWriterTimeoutRetry={() => {
+          if (!latestAgentRunIsLive) return;
+          void handleAgentCommand("steer", WORKBENCH.agentRunWriterTimeoutRetryPrompt);
+        }}
+      />
+    );
+
   return (
     <div className={styles.workbench}>
       {/* 顶部上下文栏 (Top Context Bar) */}
@@ -4345,10 +4457,10 @@ export function WorkspaceChat() {
                 hasPendingAnchor: pendingAgentRunAnchor !== null,
               });
               const anchoredAgentRunEvents = anchoredAgentRun
-                ? agentEvents.filter((event) => event.run_ref === anchoredAgentRun.run_id)
+                ? agentRunActivityEventsFor(anchoredAgentRun.run_id)
                 : [];
               const actionTriggeredAgentRunEvents = actionTriggeredAgentRun
-                ? agentEvents.filter((event) => event.run_ref === actionTriggeredAgentRun.run_id)
+                ? agentRunActivityEventsFor(actionTriggeredAgentRun.run_id)
                 : [];
               const actionTriggeredRunHasResult =
                 actionTriggeredAgentRun !== null &&
@@ -4369,7 +4481,7 @@ export function WorkspaceChat() {
               const messageAgentRunEvents = messageAgentRunId
                 ? mergeAgentRunEvents(
                     agentRunEventsFromTurnResult(msg.turnResult),
-                    agentEvents.filter((event) => event.run_ref === messageAgentRunId),
+                    agentRunActivityEventsFor(messageAgentRunId),
                   )
                 : [];
               const messageKey = messageRenderKey(msg, i);
@@ -4998,6 +5110,12 @@ export function WorkspaceChat() {
           {/* 输入区域 (Input Area) */}
           <div className={styles.inputArea}>
             <div className={styles.composerRail}>
+              {/* B23 CP4：失活 bounded run 即使已被收口为终态（failed）也保留过期坞：
+                  「原任务已失效 + 重新发起任务」是唯一出口。它位于普通 composer 之上，
+                  不给 composer 套「调整当前任务」语义（死 run 不能 steer）。 */}
+              {!isReadOnlySessionView && renderExpiredBoundedDock && agentRunDock && (
+                <div className={styles.agentRunWorkspace}>{agentRunDock}</div>
+              )}
               <div
                 className={
                   !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
@@ -5015,29 +5133,7 @@ export function WorkspaceChat() {
                     : undefined
                 }
               >
-                {!isReadOnlySessionView && hasActiveAgentRun && latestAgentRun && (
-                  <AgentRunControlDock
-                    run={latestAgentRun}
-                    events={latestAgentRunEvents}
-                    canPause={canPauseAgentRun}
-                    canResume={canResumeAgentRun}
-                    canCancel={canCancelAgentRun}
-                    runtimeAuthority={latestAgentRunAuthority}
-                    awaitingInput={awaitingAuthorInputRequired}
-                    commandInFlight={agentCommandInFlight}
-                    noticeText={agentCommandNoticeText}
-                    hasSteerInput={hasSteerInput}
-                    onCommand={(command) => {
-                      void handleAgentCommand(command);
-                    }}
-                    onRequestCancel={() => setAgentRunTerminateDialogOpen(true)}
-                    onRestartTask={handleRestartDeadAgentRunTask}
-                    onWriterTimeoutRetry={() => {
-                      if (!latestAgentRunIsLive) return;
-                      void handleAgentCommand("steer", WORKBENCH.agentRunWriterTimeoutRetryPrompt);
-                    }}
-                  />
-                )}
+                {!isReadOnlySessionView && renderActiveAgentRunDock && agentRunDock}
                 <div
                   className={
                     !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
@@ -5094,9 +5190,7 @@ export function WorkspaceChat() {
                       aria-pressed={authorStepLimit}
                       onClick={() => setAuthorStepLimit((value) => !value)}
                     >
-                      {authorStepLimit
-                        ? WORKBENCH.authorStepLimitOn
-                        : WORKBENCH.authorStepLimit}
+                      {authorStepLimit ? WORKBENCH.authorStepLimitOn : WORKBENCH.authorStepLimit}
                     </button>
                   )}
                   <button

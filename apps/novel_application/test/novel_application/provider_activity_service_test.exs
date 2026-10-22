@@ -74,6 +74,45 @@ defmodule NovelApplication.ProviderActivityServiceTest do
     refute inspect(output) =~ "raw model output must not leak"
   end
 
+  # B23 CP1：judgment_plan / judgment_loop 把 TurnResult 持久化为子 turn
+  # （`<parent>:agent:<sequence>`），而 AgentRun.parent_turn_ref 是父消息 id。
+  # 刷新后按持久 TurnResult 的 turn_id 补水时，必须回退到父 id 才能命中同一 run
+  # （否则 awaiting_author 理由丢失，前端回落到兜底句）。
+  test "resolves a child agent turn id to the parent message turn's run", %{
+    work: work,
+    session: session
+  } do
+    parent_turn_id = "message_parent_turn_b23"
+    child_turn_id = "#{parent_turn_id}:agent:6"
+    seed_provider_activity!(work.id, session.id, parent_turn_id, "run-parent-turn-b23")
+
+    assert {:ok, activity} =
+             ProviderActivityService.fetch_turn_activity(work.id, session.id, child_turn_id)
+
+    assert activity.turn_id == child_turn_id
+
+    assert [
+             %{
+               run_id: "run-parent-turn-b23",
+               parent_turn_ref: ^parent_turn_id,
+               events: [agent_event]
+             }
+           ] = activity.agent_runs
+
+    assert agent_event.summary == "模型调用已完成。"
+    refute Map.has_key?(agent_event.payload, "raw_prompt")
+    refute Map.has_key?(agent_event.payload, "turn_result")
+    assert activity.totals.provider_run_count == 1
+  end
+
+  test "keeps an unknown plain turn id empty instead of failing", %{work: work, session: session} do
+    assert {:ok, activity} =
+             ProviderActivityService.fetch_turn_activity(work.id, session.id, "turn-without-run")
+
+    assert activity.agent_runs == []
+    assert activity.provider_runs == []
+  end
+
   test "rejects a session from another work", %{work: work} do
     {:ok, other_work} = WorkService.create(%{title: "其他作品"})
     {:ok, other_session} = WorkSessionRepo.create(%{work_id: other_work.id, title: "其他会话"})

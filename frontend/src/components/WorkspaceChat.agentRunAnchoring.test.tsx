@@ -3,13 +3,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentRunDockRenderMode,
   assistantMessageTextForAgentRun,
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
   selectAgentRunActivitySummary,
+  shouldHydrateStandaloneAgentRun,
   shouldRenderAnchoredAgentRunStatus,
+  shouldRenderExpiredBoundedAgentRunDock,
   shouldRenderStandaloneAgentRunStatus,
   shouldRenderUserAgentRunPlaceholder,
+  standaloneAgentRunActivityTurn,
   upsertAssistantTurnResultMessage,
   type AgentRunAnchorMessage,
 } from "../lib/agentRunAnchoring";
@@ -507,4 +511,135 @@ it("同回合存在历史与当前回复时，回执只更新最新回复，不�
     "补充方向",
     "已处理",
   ]);
+});
+
+// B23 CP4：死 bounded run 在首次 join 收口后是 failed + runtime_live=false；
+// 「原任务已失效 / 重新发起任务」是该 run 唯一出口，不能因终态而消失。
+describe("B23 CP4 AgentRun control dock render mode for dead bounded runs", () => {
+  it("renders the expired dock for a reaped dead bounded run that is already terminal failed", () => {
+    const run = { status: "failed", run_mode: "bounded", runtime_live: false };
+
+    expect(shouldRenderExpiredBoundedAgentRunDock(run)).toBe(true);
+    expect(agentRunDockRenderMode(run, false)).toBe("expired");
+  });
+
+  it("keeps live runs on the active dock and never flags them expired", () => {
+    for (const status of ["running", "pausing", "paused", "awaiting_author"]) {
+      const run = { status, run_mode: "bounded", runtime_live: true };
+
+      expect(shouldRenderExpiredBoundedAgentRunDock(run)).toBe(false);
+      expect(agentRunDockRenderMode(run, true)).toBe("active");
+    }
+  });
+
+  it("does not reserve the expired dock for normally finished bounded runs", () => {
+    expect(agentRunDockRenderMode({ status: "completed", run_mode: "bounded" }, false)).toBe(
+      "none",
+    );
+    expect(agentRunDockRenderMode({ status: "cancelled", run_mode: "bounded" }, false)).toBe(
+      "none",
+    );
+    expect(
+      agentRunDockRenderMode(
+        { status: "completed", run_mode: "bounded", runtime_live: true },
+        false,
+      ),
+    ).toBe("none");
+  });
+
+  it("keeps dead durable runs on the checkpoint surface instead of the expired dock", () => {
+    const durableDead = { status: "awaiting_author", run_mode: "durable", runtime_live: false };
+
+    expect(shouldRenderExpiredBoundedAgentRunDock(durableDead)).toBe(false);
+    expect(agentRunDockRenderMode(durableDead, true)).toBe("active");
+    expect(agentRunDockRenderMode({ ...durableDead, status: "failed" }, false)).toBe("none");
+  });
+
+  it("does not render the expired dock for unknown-liveness historical snapshots", () => {
+    expect(
+      shouldRenderExpiredBoundedAgentRunDock({ status: "awaiting_author", run_mode: "bounded" }),
+    ).toBe(false);
+    expect(agentRunDockRenderMode(null, false)).toBe("none");
+    expect(agentRunDockRenderMode(undefined, false)).toBe("none");
+  });
+});
+
+// B23 CP1 补口：judgment_plan 纯只读计划耗尽停在 awaiting_author 时不产 TurnResult。
+// 刷新后没有任何消息触发 turn_result 补水，必须用 run.parent_turn_ref 从持久化
+// activity 补 events，否则活动行回落兜底句（CP1 不变式①「刷新后理由不丢」）。
+describe("B23 CP1 standalone AgentRun activity hydration selection", () => {
+  function turnResultWithRun(runId: string) {
+    return { turn_id: `turn_${runId}`, agent_run: { run_id: runId } };
+  }
+
+  it("hydrates an awaiting_author standalone run that has no matching TurnResult", () => {
+    const run = { run_id: "run_plan", status: "awaiting_author", parent_turn_ref: "turn_parent" };
+    const messages = [{ role: "user" as const, text: "按这个方向继续", turnId: "turn_parent" }];
+
+    expect(shouldHydrateStandaloneAgentRun(run, messages)).toBe(true);
+    expect(standaloneAgentRunActivityTurn(run)).toBe("turn_parent");
+  });
+
+  it("does not hydrate when the transcript already carries the same run's TurnResult", () => {
+    const run = { run_id: "run_plan", status: "awaiting_author", parent_turn_ref: "turn_parent" };
+    const messages = [
+      {
+        role: "assistant" as const,
+        text: "等待你的回复",
+        turnResult: turnResultWithRun("run_plan"),
+      },
+    ];
+
+    expect(shouldHydrateStandaloneAgentRun(run, messages)).toBe(false);
+  });
+
+  it("does not treat another run's TurnResult as a matching anchor", () => {
+    const run = { run_id: "run_plan", status: "awaiting_author", parent_turn_ref: "turn_parent" };
+    const messages = [
+      {
+        role: "assistant" as const,
+        text: "上一轮的回复",
+        turnResult: turnResultWithRun("run_previous"),
+      },
+    ];
+
+    expect(shouldHydrateStandaloneAgentRun(run, messages)).toBe(true);
+  });
+
+  it("skips terminal runs that no longer carry a pending awaiting reason", () => {
+    for (const status of ["completed", "cancelled", "failed"]) {
+      expect(
+        shouldHydrateStandaloneAgentRun(
+          { run_id: "run_terminal", status, parent_turn_ref: "turn_parent" },
+          [],
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("hydrates the other non-terminal standalone statuses", () => {
+    for (const status of ["created", "running", "pausing", "paused"]) {
+      expect(
+        shouldHydrateStandaloneAgentRun(
+          { run_id: "run_active", status, parent_turn_ref: "turn_parent" },
+          [],
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("skips runs without a parent turn ref and never throws on missing input", () => {
+    expect(
+      shouldHydrateStandaloneAgentRun({ run_id: "run_no_parent", status: "awaiting_author" }, []),
+    ).toBe(false);
+    expect(
+      shouldHydrateStandaloneAgentRun(
+        { run_id: "run_blank_parent", status: "awaiting_author", parent_turn_ref: " " },
+        [],
+      ),
+    ).toBe(false);
+    expect(shouldHydrateStandaloneAgentRun(null, [])).toBe(false);
+    expect(standaloneAgentRunActivityTurn(null)).toBeNull();
+    expect(standaloneAgentRunActivityTurn(undefined)).toBeNull();
+  });
 });

@@ -120,6 +120,17 @@ function turnResultAgentRunId(turnResult: AgentRunAnchorTurnResult | undefined):
   return normalizedString(turnResult?.agent_run?.run_id);
 }
 
+// B23 CP1（F2）：activity 补水查询键用 run 的 parent_turn_ref（作者消息 id）。
+// judgment_plan / judgment_loop 把 Step TurnResult 挂在子 turn（`<parent>:agent:<n>`）
+// 上，而 AgentRun.parent_turn_ref 指向父消息 id；用子 turn id 查 activity 会 0 run，
+// awaiting_author 理由随之丢失并回落兜底句。历史 transcript 摘要缺该字段时仍回退
+// turn_id，由后端 ProviderActivityService 剥 `:agent:` 后缀按父 id 重查兜底。
+export function agentRunActivityQueryTurn(turnResult: AgentRunAnchorTurnResult): string | null {
+  return (
+    normalizedString(turnResult.agent_run?.parent_turn_ref) ?? normalizedString(turnResult.turn_id)
+  );
+}
+
 export function assistantMessageTextForAgentRun(
   messages: readonly AgentRunAnchorMessage<AgentRunAnchorTurnResult>[],
   runId: string | null,
@@ -366,4 +377,72 @@ export function agentRunRuntimeAuthority(
   if (run.runtime_live === true) return "live";
   if (run.runtime_live === false) return "dead";
   return "unknown";
+}
+
+export interface AgentRunDockAvailability {
+  status?: string | null;
+  run_mode?: string | null;
+  runtime_live?: boolean | null;
+}
+
+// B23 CP4：runtime 丢失的 bounded run 在首次 join 被一次性收口为 failed +
+// runtime_live=false。failed 属终态，hasActiveAgentRun 为 false；但
+// 「原任务已失效 / 重新发起任务」是这个 run 唯一的作者出口，过期坞不能因终态消失。
+// durable 走检查点恢复口径（AgentRunControlDock 内 isDeadDurableCheckpoint），
+// 不进入过期坞。live/unknown 一律不进入（live 走活动态、unknown 不给可提交动作）。
+export function shouldRenderExpiredBoundedAgentRunDock(
+  run: AgentRunDockAvailability | null | undefined,
+): boolean {
+  if (!run) return false;
+  if (normalizedString(run.run_mode) === "durable") return false;
+  return agentRunRuntimeAuthority(run) === "dead";
+}
+
+export type AgentRunDockRenderMode = "active" | "expired" | "none";
+
+// 控制坞渲染模式单点：活动 run 走既有活动态坞；终态但 runtime 已失活的 bounded run
+// 仍渲染过期坞（只读说明 + 重新发起）；其余（正常完成的终态、durable 死 run）不渲染。
+export function agentRunDockRenderMode(
+  run: AgentRunDockAvailability | null | undefined,
+  hasActiveAgentRun: boolean,
+): AgentRunDockRenderMode {
+  if (hasActiveAgentRun) return "active";
+  return shouldRenderExpiredBoundedAgentRunDock(run) ? "expired" : "none";
+}
+
+export interface StandaloneAgentRunHydrationState {
+  run_id?: string | null;
+  status?: string | null;
+  parent_turn_ref?: string | null;
+}
+
+// activity 接口按「父消息 turn」查 run；standalone run 没有自己的 TurnResult，
+// 只能用 AgentRun.parent_turn_ref 作为查询键。
+export function standaloneAgentRunActivityTurn(
+  agentRun: StandaloneAgentRunHydrationState | null | undefined,
+): string | null {
+  return normalizedString(agentRun?.parent_turn_ref);
+}
+
+// B23 CP1 补口：judgment_plan 纯只读计划耗尽停在 awaiting_author 时不产 TurnResult。
+// 刷新后 transcript 没有任何消息能触发 turn_result 补水，join 只恢复 agent_run_state
+// （events 为空），活动行会回落兜底句。对「存在 run 状态、但 transcript 无同 run
+// TurnResult」的非终态 standalone 运行组，按 parent_turn_ref 从持久化 activity 补
+// author-safe events。已有 TurnResult 锚定的 run 走原补水路径，这里不重复补；
+// 终态（completed/cancelled/failed）不再产生待解释的停等理由，也不补；
+// 缺 parent_turn_ref 时无法定位 turn，安全跳过。
+export function shouldHydrateStandaloneAgentRun(
+  agentRun: StandaloneAgentRunHydrationState | null | undefined,
+  messages: readonly AgentRunAnchorMessage<AgentRunAnchorTurnResult>[],
+): boolean {
+  if (!agentRun) return false;
+
+  const runId = normalizedString(agentRun.run_id);
+  if (runId === null) return false;
+  if (standaloneAgentRunActivityTurn(agentRun) === null) return false;
+
+  const status = normalizedString(agentRun.status);
+  if (status === null || TERMINAL_AGENT_RUN_STATUSES.has(status)) return false;
+
+  return !messages.some((message) => turnResultAgentRunId(message.turnResult) === runId);
 }

@@ -1,6 +1,6 @@
 # B23-awaiting-author-reason-and-exit-surface：停等作者时「为什么停、怎么继续」必须可见
 
-**状态**：**doing（2026-10-22 晚间作者定向插单开工；CP1–CP5 进行中）**。
+**状态**：**done（2026-10-23 凌晨收口；CP1–CP5 全落，新真实 Tauri 场景 + 五回归 PASS）**。
 **来源**：2026-10-22 作者在 stage 观察到「交互总是停下，页面显示『任务正在等待你的确认。』，却没有任何可确认的动作」；本文件 §0 为只读侦察结论。
 **关联既有 slice**：`DS03-awaiting-author-runtime-validity-and-recovery-surface.md`（awaiting_author 命令权限矩阵、writer timeout 恢复出口——B23 在其之上补「理由不丢 + 非写作停等出口」，不改其 live/dead/unknown 矩阵）；`B22-provider-liveness-and-budget-policy.md`（作者可见等待连续性，46 §9.5 第 4 条）；`UA01-agentic-loop-prompt-hardening.md`（判断循环 prompt 资产，B23 不改 prompt）。
 **设计真源**：`docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md`（AgentRun 状态机 / awaiting_author 语义）、`docs/design/adr/ADR-0024-decision-surface-registry-v3.md`（S7「run 停了必须有下文」）、`docs/design/adr/ADR-0025-*`（判断循环 plan ≠ execute）、`docs/design/ui/46-state-and-feedback.md` §9、`docs/design/ui/47-ui-copy-guidelines.md`。
@@ -50,11 +50,11 @@
 
 | CP | 内容 | 属于哪个闭环 / 距闭环还缺 | 证明 | 状态 |
 |---|---|---|---|---|
-| **CP1 理由不丢** | activity 补水按 run 命中：前端补水键用 `agent_run.parent_turn_ref ?? turn_id`（线格式已有该字段，`WorkspaceChat.tsx:1492` 已有同样回退先例）；后端 `fetch_turn_activity` 兼容子 turn（按 `parent_turn_ref` 命中不到时回退按 `run_id` 或剥 `:agent:N` 后缀）；决定二者取其一并写入决策日志 | 闭环 ①；CP1 后刷新可见理由，但文案语义（②）与机械句（③）仍在 | `provider_activity_service` 单测（子 turn 命中）、前端补水单测、stage 库样本手工重放 | registered |
-| **CP2 出口与文案一致** | `copy.ts`：`agentRunStatusLabels.awaiting_author`、`taskAgentRunAwaitingLabel`、`agentRunAwaitingActivity`、`agentRunAwaitingInputHint/Placeholder` 改为「等待你的回复/补充」族并明确「在下方输入框回答后发送」；控制坞 awaiting 分支按是否有 `available_actions` 分派提示（有→「请选择」，无→「请回复」）；同步修 driver 中 7 处对「等待你确认」的文本断言与 `agent-dead-bounded-run-expiry.yml` 断言文本 | 闭环 ②；按 47 §2.3 属展示文案层，不触碰 `*.prompt` 动作指令 | 前端组件测试更新；三条既有 awaiting / dead-run Tauri 场景回归 PASS | registered |
-| **CP3 计划耗尽不只给机械句** | `JudgmentPlan.mechanical_await_author_decision`（及 `prose_drafting_with_quality` 同名函数的非 writer-timeout 分支）summary 组装进结构事实：已完成步数 / 步描述摘要、未达成的完成条件、建议下一步（骨架词），零 provider 原文；是否同时附 S7 `available_actions`（如「按已核清结果出方案」）在决策日志拍板后决定，默认不加 | 闭环 ③；与 CP1 合起来才让作者看到「核清了什么」 | `agent_run_judgment_plan_flow_test` 新 case（耗尽 summary 含步数与缺口词、不含 raw payload）；N-NARR 守卫 | registered |
-| **CP4 死 run 一次性收口** | 后端启动（Application / AgentRunService 初始化）扫描非终态 bounded run 且 Registry 无进程者，一次性置 `failed`（`failure_ref = runtime_lost_on_restart`）或等价终态并记 developer 事件；`list_dead_bounded` 保留作同会话兜底但不再每 join 重复命中 | 闭环 ④；需确认 durable run 的 checkpoint 恢复路径不被误伤（只碰 `run_mode == bounded`） | `agent_run_service` 单测（重启模拟）；stage 日志 `agent_run_expired.done` 每 run 至多 1 次；`agent-dead-bounded-run-expiry` 场景语义调整（dead run 改为终态可查而非每次降级广播）并 PASS | registered |
-| **CP5 真实页面闭环** | 新场景 `agent-plan-exhausted-awaiting-reason`：真实 Tauri 工作台 → 替身诱导 judgment_plan 只读计划耗尽 → 页面可见结构理由（非兜底句）→ 刷新后仍可见 → 主输入提示为「回复/补充」→ 打字补充恢复同一 run_id | 全部 ①–④ 的外部自动化证明 | `scripts/slice_verify.sh agent-plan-exhausted-awaiting-reason` PASS + `artifacts/slice-verify/<id>/`（截图 / ws 帧 / app jsonl）+ I1/I2/I3 | registered |
+| **CP1 理由不丢** | activity 补水按 run 命中：前端补水键用 `agent_run.parent_turn_ref ?? turn_id`（线格式已有该字段，`WorkspaceChat.tsx:1492` 已有同样回退先例）；后端 `fetch_turn_activity` 兼容子 turn（按 `parent_turn_ref` 命中不到时回退按 `run_id` 或剥 `:agent:N` 后缀）；决定二者取其一并写入决策日志 | 闭环 ①；CP1 后刷新可见理由，但文案语义（②）与机械句（③）仍在 | `provider_activity_service` 单测（子 turn 命中）、前端补水单测、stage 库样本手工重放 | **done**：前端 `agentRunActivityQueryTurn`（`agentRunAnchoring.ts`）+ 后端 `fetch_turn_activity` 子 turn 兜底；`provider_activity_service_test` 5/5；standalone run 刷新补水（仅只读计划停等不产 TurnResult）另由 CP1 补口覆盖，新场景刷新后理由可见 |
+| **CP2 出口与文案一致** | `copy.ts`：`agentRunStatusLabels.awaiting_author`、`taskAgentRunAwaitingLabel`、`agentRunAwaitingActivity`、`agentRunAwaitingInputHint/Placeholder` 改为「等待你的回复/补充」族并明确「在下方输入框回答后发送」；控制坞 awaiting 分支按是否有 `available_actions` 分派提示（有→「请选择」，无→「请回复」）；同步修 driver 中 7 处对「等待你确认」的文本断言与 `agent-dead-bounded-run-expiry.yml` 断言文本 | 闭环 ②；按 47 §2.3 属展示文案层，不触碰 `*.prompt` 动作指令 | 前端组件测试更新；三条既有 awaiting / dead-run Tauri 场景回归 PASS | **done**：`copy.ts` 6 条 + `awaiting_author_requires_input` 改「回复/补充」；控制坞「预算→请选择 / writer timeout→专门 hint / 其余→回复」；driver/verifier/yml 断言同步；真实 Tauri `agent-awaiting-author-input-required`、`agent-awaiting-author-steer-resume`、`b17-writer-timeout-steer` 回归 PASS |
+| **CP3 计划耗尽不只给机械句** | `JudgmentPlan.mechanical_await_author_decision`（及 `prose_drafting_with_quality` 同名函数的非 writer-timeout 分支）summary 组装进结构事实：已完成步数 / 步描述摘要、未达成的完成条件、建议下一步（骨架词），零 provider 原文；是否同时附 S7 `available_actions`（如「按已核清结果出方案」）在决策日志拍板后决定，默认不加 | 闭环 ③；与 CP1 合起来才让作者看到「核清了什么」 | `agent_run_judgment_plan_flow_test` 新 case（耗尽 summary 含步数与缺口词、不含 raw payload）；N-NARR 守卫 | **done**：judgment_plan / prose 非 writer_timeout summary = 「计划共 N 步，已完成 M 步；目标产出尚未完成（…）；已核对：模型 plan description 原话（≤3 条）；下一步：骨架建议」，五骨架词字面出现、零 provider raw payload；flow 测试覆盖 |
+| **CP4 死 run 一次性收口** | 后端启动（Application / AgentRunService 初始化）扫描非终态 bounded run 且 Registry 无进程者，一次性置 `failed`（`failure_ref = runtime_lost_on_restart`）或等价终态并记 developer 事件；`list_dead_bounded` 保留作同会话兜底但不再每 join 重复命中 | 闭环 ④；需确认 durable run 的 checkpoint 恢复路径不被误伤（只碰 `run_mode == bounded`） | `agent_run_service` 单测（重启模拟）；stage 日志 `agent_run_expired.done` 每 run 至多 1 次；`agent-dead-bounded-run-expiry` 场景语义调整（dead run 改为终态可查而非每次降级广播）并 PASS | **done（实现方案调整为首次 join 惰性收口，见 §6）**：`AgentRunLog.mark_runtime_lost/2` 条件 UPDATE + developer 双通道留痕；第一 join 广播/日志各 1 次、第二 join 零重复、durable 零触碰；真实 Tauri `agent-dead-bounded-run-expiry` PASS（`dead_state_status=failed`、broadcast=1、expired_log=1、`second_join_no_repeat=true`、`failure_ref=runtime_lost_on_restart`） |
+| **CP5 真实页面闭环** | 新场景 `agent-plan-exhausted-awaiting-reason`：真实 Tauri 工作台 → 替身诱导 judgment_plan 只读计划耗尽 → 页面可见结构理由（非兜底句）→ 刷新后仍可见 → 主输入提示为「回复/补充」→ 打字补充恢复同一 run_id | 全部 ①–④ 的外部自动化证明 | `scripts/slice_verify.sh agent-plan-exhausted-awaiting-reason` PASS + `artifacts/slice-verify/<id>/`（截图 / ws 帧 / app jsonl）+ I1/I2/I3 | **done**：真实 Tauri `agent-plan-exhausted-awaiting-reason` PASS；summary 含 `awaiting_summary_text` 五骨架词、`after_reload_reason_visible=true`、`final_status=completed`、同一 `run_id` 恢复；证据 `artifacts/slice-verify/agent-plan-exhausted-awaiting-reason-tauri/summary.json` |
 
 **依赖**：CP1 → CP3（理由先能到前端，再丰富理由）；CP2 独立；CP4 独立；CP5 依赖 CP1–CP4。CP4 可因风险单独后置，但后置时本 slice 不得标 done，只能标「④ 未闭环」。
 
@@ -66,13 +66,13 @@
 
 ## 4. 任务清单
 
-- [ ] CP1 补水命中（前后端二选一拍板后实现）+ 单测
-- [ ] CP2 文案族改写 + 控制坞分派 + driver/yml 断言同步 + 组件测试
-- [ ] CP3 计划耗尽 summary 结构化 + flow 测试 + N-NARR
-- [ ] CP4 启动期死 run 收口 + 单测 + 场景语义调整
-- [ ] CP5 新场景登记 + driver + 真实 Tauri PASS + artifacts
-- [ ] 门禁：`mix compile --warnings-as-errors`、`mix test`、xref cycles、arch_check、前端 typecheck/lint/test、frontend_audit、check_design_trace、`ai_static_scan.sh --top 10`、I1/I2/I3
-- [ ] `tasks/slices/README.md` / `tasks/NEXT.md` 状态回写
+- [x] CP1 补水命中（前后端二选一拍板后实现）+ 单测：前端 parent_turn_ref 优先 + 后端子 turn 兜底；standalone run 刷新补水补口
+- [x] CP2 文案族改写 + 控制坞分派 + driver/yml 断言同步 + 组件测试
+- [x] CP3 计划耗尽 summary 结构化 + flow 测试 + N-NARR
+- [x] CP4 死 run 收口（首次 join 惰性收口）+ 单测 + 场景语义调整 + 真实 Tauri PASS
+- [x] CP5 新场景登记 + driver + 真实 Tauri PASS + artifacts
+- [x] 门禁：`mix compile --warnings-as-errors`、`mix test`（1,816/0）、xref 无环、arch_check、前端 typecheck/lint/test（562/0）、frontend_audit 27、check_design_trace 16、`credo --strict` 0、`dialyzer` 0、`ai_static_scan.sh --top 10` 0 blocking、I1/I2/I3/N-NARR/I-CACHE-1
+- [x] `tasks/slices/README.md` / `tasks/NEXT.md` 状态回写
 
 ## 5. 验证
 
@@ -97,7 +97,16 @@
   - **待拍板 ②→ 不新增 `available_actions` 载体**：CP3 只做计划耗尽 summary 结构化（已完成步数 / 缺口 / 建议下一步骨架词，零 provider 原文），动作载体留待既有 S7 通道有真实需求时另立。
   - **待拍板 ③→ 终态 `failed(runtime_lost_on_restart)`**：CP4 只碰 `run_mode == bounded`；durable run 的 checkpoint 恢复路径零改动。
 - 2026-10-22 晚间 **范围校准**：CP1/CP2/CP3/CP4 可并行实现；CP5 依赖前四项完成。门禁按 §4 清单执行，I1/I2/I3 必跑。
+- 2026-10-22 深夜 **CP4 实现方案调整（Lead 拍板）**：不做启动期 boot sweep，改为**首次 join 惰性收口**——`AgentRunService.list_dead_bounded/2` 首次命中「持久层非终态 + Registry 无进程」时，用 `AgentRunLog.mark_runtime_lost/2` 单条条件 UPDATE 收口为 `failed(runtime_lost_on_restart)`，本次 join 返回收口后 failed 快照（channel 广播/日志各一次），第二次 join 不再命中。理由：boot sweep 会在 UI 收到任何信号前把 run 变终态，导致 join 不再广播、而 transcript 仍是 awaiting 的 UI/状态错位；lazy-first-join 保留一次诚实失效信号，同时保证持久层与日志一致、零重复。developer 留痕双通道：AgentEvent(visibility=developer) + LogEmit `agent_run.runtime_lost.done`。
+- 2026-10-22 深夜 **CP1 补口（Lead 拍板 A 方案）**：纯只读计划耗尽停等的 judgment_plan run **不产任何 TurnResult**，刷新后 transcript 无同 run 消息可触发 turn_result 补水，join 又只恢复 `agent_run_state`（events 空）→ 理由回落兜底句。修法选前端 standalone run activity 补水（按 `agent_run.parent_turn_ref` 拉 activity，run 级幂等），不新增后端 rejoin 重播 awaiting 事件语义（避免动 ADR-0024 S7 口径）。
+- 2026-10-22 深夜 **CP4 前端配套**：收口后首帧 `agent_run_state.status=failed` 属终态，原 `hasActiveAgentRun` 条件会卸载控制坞、丢掉「原任务已失效 + 重新发起任务」。新增 `agentRunDockRenderMode`：dead bounded run 即使终态也渲染过期坞（composer 仍普通发送、不可 steer），prefill 绑定 dead run。
+- 2026-10-22 深夜 **验收观察（非产品 bug，driver 口径修正）**：reload/重进时前端 `reconcilePendingMessages` 会重传未确认的原作者消息（同一 `turn_id`，server `received_user_run` 幂等返回同一 run）；这是交付核对重传，不是第二个作者回合。CP5 driver 按 distinct `turn_id` 计数并显式断言「补充文本未以 user_message 发出」。
+- 2026-10-23 凌晨 **回归发现既有验收漂移（非 B23 引入，未在 B23 修）**：`agent-no-progress-stop` 真实 Tauri 复跑失败——driver 期望「prose 单步只读计划 → 空转修订 `plan_revised` → 计划耗尽 awaiting_author（steps=4 / provider_calls=6 / replans=1 / tool_calls=0）」，当前产品实际走 `judgment② continuation`（`d9a943e9` CP3a，2026-07-18）判 continue → 机械追加 prose 产出步 → 正常完成。场景期望文本来自 `09c4894f`（2026-07-17）比 CP3a 早一天，属历史场景未随判断②语义迁移的漂移（D20），与 B23 改动无交集（B23 在该路径只改 summary 文案，实际未走到 `mechanical_await_author_decision`）。处置：登记 NEXT B 轨验收债，B23 不冒充修复、不把该场景计入本批 PASS 集。
+- 2026-10-23 凌晨 **收口证据**：新场景 + 五回归真实 Tauri 全 PASS（新场景、agent-awaiting-author-input-required、agent-awaiting-author-steer-resume、agent-dead-bounded-run-expiry、b17-writer-timeout-steer、agent-no-progress-stop）；后端 1,816/0、前端 562/0、credo/dialyzer/format/enum/arch/xref/adr_trace/quality_manifest 全绿；I1/I2/I3/N-NARR/I-CACHE-1 全绿；静态扫描 0 blocking（gitleaks 2 条既有 disposition 保留）。
 
 ## 7. 试行反馈
 
-（开工后填写：checkpoint 耗时、被验收抓到的回归、文案层改动是否波及动作指令。）
+- **耗时结构**：CP1/CP2/CP3/CP4 由三条并行 lane（可见性/后端/验收 harness）推进，CP5 端到端验收由 Lead 串行跑；真实 Tauri 首批失败两类——(a) driver 把交付重传当第二个作者回合（口径修正，非产品缺陷），(b) 初版新场景未覆盖「纯只读停等无 TurnResult」的刷新路径（触发 CP1 补口）。
+- **被验收抓到的真实缺口（已修）**：judgment_plan 纯只读计划耗尽停等不产 TurnResult → reload 后无消息触发 activity 补水 → 理由回落兜底句；前端 standalone run events 补水后新场景 reload 断言转绿。
+- **文案层波及**：CP2 仅展示文案 + 控制坞 hint/placeholder；driver/verifier 断言同步；未触碰 `*.prompt` 动作指令与采纳/覆盖确认语义。`no_progress` 后端 summary 同步改「回复」语义，driver 首子句仍命中。
+- **未在 B23（诚实边界）**：判断循环「先问再做」倾向调参、全只读计划的规划层起草约束、run 级预算/checkpoint 仍归 UA01/后续 slice。

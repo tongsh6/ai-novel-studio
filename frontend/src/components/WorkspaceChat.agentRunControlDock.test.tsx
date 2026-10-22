@@ -112,8 +112,8 @@ describe("AgentRun fixed control dock", () => {
   it("replaces bare resume with an input-required hint while awaiting the author", () => {
     const html = renderDock("awaiting_author", { awaitingInput: true, canCancel: true });
 
-    expect(html).toContain("等待你确认 · 创作执行");
-    expect(html).toContain("等待你的补充：输入具体方向后发送，任务才会继续。");
+    expect(html).toContain("等待你回复 · 创作执行");
+    expect(html).toContain("等待你的回复：在下方输入框补充方向后发送，任务才会继续。");
     expect(html).toContain("<span>终止任务</span>");
     expect(html).not.toContain("<span>继续</span>");
     expect(html).not.toContain("<span>暂停</span>");
@@ -140,14 +140,26 @@ describe("AgentRun fixed control dock", () => {
     expect(html).toContain("<span>终止任务</span>");
   });
 
-  it("keeps the generic awaiting hint when the reason is not a writer timeout", () => {
+  // CP2：有可恢复动作的预算缺口是「选择」而不是「打字回复」——提示必须分派到预算文案。
+  it("switches the awaiting hint to budget choice guidance when recovery actions exist", () => {
     const html = renderDock("awaiting_author", {
       awaitingInput: true,
-      events: [awaitingEvent("计划步骤已走完，等待作者确认下一步。")],
+      events: [awaitingEvent("预算不足，请选择恢复动作。", ["plan_budget_shortfall"])],
       onWriterTimeoutRetry: () => undefined,
     });
 
-    expect(html).toContain("等待你的补充：输入具体方向后发送，任务才会继续。");
+    expect(html).toContain("预算不足：请选择恢复动作，或终止任务。");
+    expect(html).not.toContain("等待你的回复：在下方输入框补充方向后发送，任务才会继续。");
+  });
+
+  it("keeps the generic awaiting hint when the reason is not a writer timeout", () => {
+    const html = renderDock("awaiting_author", {
+      awaitingInput: true,
+      events: [awaitingEvent("计划步骤已走完，等待作者补充下一步方向。")],
+      onWriterTimeoutRetry: () => undefined,
+    });
+
+    expect(html).toContain("等待你的回复：在下方输入框补充方向后发送，任务才会继续。");
     expect(html).not.toContain("先写第一场（500 字）");
   });
 
@@ -157,6 +169,21 @@ describe("AgentRun fixed control dock", () => {
       runtimeAuthority: "dead",
       canCancel: false,
     });
+
+    expect(html).toContain("原任务已失效");
+    expect(html).toContain("后台运行已结束，历史记录仍可查看。可重新发起任务继续。");
+    expect(html).toContain("<span>重新发起任务</span>");
+    expect(html).not.toContain("<span>继续</span>");
+    expect(html).not.toContain("<span>暂停</span>");
+    expect(html).not.toContain("<span>终止任务</span>");
+    expect(html).not.toContain("data-animated");
+  });
+
+  // B23 CP4：首次 join 收口后 dead bounded run 已是终态 failed。此时 WorkspaceChat
+  // 仍渲染过期坞（纯函数 agentRunDockRenderMode 决定），坞本身必须保持：只读过期说明
+  // + 唯一「重新发起任务」，绝不出现 继续/暂停/终止任务。
+  it("keeps only the expired restart surface when the dead bounded run is terminal failed", () => {
+    const html = renderDock("failed", { runtimeAuthority: "dead", canCancel: false });
 
     expect(html).toContain("原任务已失效");
     expect(html).toContain("后台运行已结束，历史记录仍可查看。可重新发起任务继续。");
@@ -216,6 +243,20 @@ describe("AgentRun dialogue activity", () => {
     );
 
     expect(html).toContain("正文写作调用超时（2 次），未生成草稿。");
+    expect(html).not.toContain("任务正在等待你的回复或补充。");
+  });
+
+  // B23 F1/CP2：真正兜底只在后端没给 author-visible summary 时出现，且文案必须
+  // 与页面上唯一可做的动作（打字回复/补充）一致——不再说「确认」。
+  it("falls back to the reply-or-supplement sentence when no awaiting reason is visible", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(AgentRunDialogueFlow, {
+        run: runState("awaiting_author"),
+        events: [],
+      }),
+    );
+
+    expect(html).toContain("任务正在等待你的回复或补充。");
     expect(html).not.toContain("任务正在等待你的确认。");
   });
 

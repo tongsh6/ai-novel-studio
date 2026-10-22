@@ -1418,7 +1418,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert_receive {:step_started, 1}
     assert_receive {:step_started, 2}
-    assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者确认。"}, 500
+    assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者回复。"}, 500
     refute_receive {:agent_event, :run_completed, _}, 80
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
@@ -1471,6 +1471,121 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, %{run: completed_run}} = AgentRunService.state(run_id)
     assert completed_run.run_id == run_id
     assert completed_run.status == :completed
+  end
+
+  # B23 CP5：plan_exhausted_without_completion 停等后，作者显式 steer 必须在同一
+  # run 内追加一次有界 replan/provider/tool 预算（同 writer_timeout 做法），
+  # 让作者给出方向后能真正重试一次；不新建 run、不自动重试。
+  test "author steer after plan-exhausted awaiting grants one bounded retry budget (B23 CP5)" do
+    parent = self()
+    run_id = unique_run_id()
+
+    planner = fn run, sequence, _snapshot ->
+      if run.goal.version == 1 do
+        {:ok, decision} =
+          AgentNextStepDecision.new(%{
+            decision_id: "and_#{run.run_id}_#{sequence}_plan_exhausted",
+            run_ref: run.run_id,
+            sequence: sequence,
+            decision_type: :await_author,
+            summary: "计划步骤已走完，但目标产出尚未完成。",
+            reason_codes: ["plan_exhausted_without_completion"]
+          })
+
+        {:await_author, decision, %{provider_call_count: 0}}
+      else
+        send(parent, {:retry_observed, run.run_id, run.budget})
+        {:complete, test_complete_decision(run, sequence), %{provider_call_count: 0}}
+      end
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:agent_event_full, :awaiting_author, awaiting_event}, 500
+    assert "plan_exhausted_without_completion" in awaiting_event.reason_codes
+
+    assert {:ok, %{run: awaiting_run}} =
+             wait_for(fn ->
+               case AgentRunService.state(run_id) do
+                 {:ok, %{run: %{status: :awaiting_author}}} = state -> state
+                 _other -> nil
+               end
+             end)
+
+    assert {:ok, _receipt} =
+             AgentRunService.steer(run_id, "按已核对结果先出方案：直接产出角色设计候选。")
+
+    # grant 留痕：LogEmit app JSONL + developer AgentEvent（budget_expanded）。
+    assert_receive {:agent_event_full, :budget_expanded, grant_event}, 500
+    assert "steer_budget_granted" in grant_event.reason_codes
+    assert grant_event.visibility == :developer
+
+    assert_receive {:retry_observed, ^run_id, retry_budget}, 500
+
+    assert retry_budget.max_replans == awaiting_run.budget.max_replans + 1
+    assert retry_budget.max_provider_calls == awaiting_run.budget.max_provider_calls + 3
+    assert retry_budget.max_tool_calls == awaiting_run.budget.max_tool_calls + 1
+
+    assert_receive {:agent_event_full, :run_completed, _event}, 500
+
+    assert {:ok, %{run: completed_run}} = AgentRunService.state(run_id)
+    assert completed_run.run_id == run_id
+    assert completed_run.status == :completed
+  end
+
+  # B23 CP5 边界：只有最近一次 awaiting 理由含 plan_exhausted_without_completion 才
+  # 追加重试预算；其它停等理由（如通用 await_author）的作者 steer 不改变预算。
+  test "author steer without plan-exhausted reason does not grant retry budget (B23 CP5)" do
+    parent = self()
+    run_id = unique_run_id()
+
+    planner = fn run, sequence, _snapshot ->
+      if run.goal.version == 1 do
+        {:ok, decision} =
+          AgentNextStepDecision.new(%{
+            decision_id: "and_#{run.run_id}_#{sequence}_await_author",
+            run_ref: run.run_id,
+            sequence: sequence,
+            decision_type: :await_author,
+            summary: "请补充具体方向。",
+            reason_codes: ["test_await_author"]
+          })
+
+        {:await_author, decision, %{provider_call_count: 0}}
+      else
+        send(parent, {:budget_after_plain_steer, run.budget})
+        {:complete, test_complete_decision(run, sequence), %{provider_call_count: 0}}
+      end
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:agent_event_full, :awaiting_author, _}, 500
+
+    assert {:ok, %{run: awaiting_run}} =
+             wait_for(fn ->
+               case AgentRunService.state(run_id) do
+                 {:ok, %{run: %{status: :awaiting_author}}} = state -> state
+                 _other -> nil
+               end
+             end)
+
+    assert {:ok, _receipt} = AgentRunService.steer(run_id, "补充方向：先梳理线索。")
+
+    assert_receive {:budget_after_plain_steer, budget}, 500
+    assert budget.max_replans == awaiting_run.budget.max_replans
+    assert budget.max_provider_calls == awaiting_run.budget.max_provider_calls
+    assert budget.max_tool_calls == awaiting_run.budget.max_tool_calls
+
+    assert_receive {:agent_event_full, :run_completed, _}, 500
   end
 
   test "steer updates run goal without pretending to complete the active step" do

@@ -33,6 +33,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # B17 真实页面短验收：仅测试替身读取 harness env，令正文 writer 连续超时；
   # 作者点「先写第一场（500 字）」后 steer prompt 含缩小范围措辞，替身恢复成功。
   @writer_timeout_env "SLICE_VERIFY_WRITER_TIMEOUT"
+  # B23 CP5 真实页面场景：仅测试替身读取 harness env，令判断循环判 plan、计划起草与
+  # 首轮修订都只排只读步（无产出步）→ replan 预算耗尽后机械停等
+  # `plan_exhausted_without_completion`；作者 steer 文本带「按已核对结果先出方案」
+  # 时修订返回带产出步的正常计划，使同一 run 恢复完成。仅依据 env + prompt 文本，
+  # 不识别 slice id；env 关闭时既有替身行为逐字节不变。
+  @plan_exhaust_env "SLICE_VERIFY_PLAN_EXHAUST"
+  @plan_exhaust_marker "UA01PLANEXHAUST"
+  @plan_exhaust_steer_marker "按已核对结果先出方案"
 
   defstruct []
 
@@ -468,6 +476,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp writer_timeout_fixture?, do: System.get_env(@writer_timeout_env) == "1"
 
+  defp plan_exhaust_fixture?, do: System.get_env(@plan_exhaust_env) == "1"
+
   defp continuation_decision(text) do
     cond do
       String.contains?(text, "计划步骤已走完") ->
@@ -852,18 +862,41 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp agent_plan_revision_packet(prompt) do
-    if agent_plan_profile_ref(prompt) == "prose_drafting_with_quality_v1" and
-         String.contains?(prompt, "UA01NOPROGRESS") do
-      prose_no_progress_agent_plan_packet(:revision)
+    profile_ref = agent_plan_profile_ref(prompt)
+
+    cond do
+      plan_exhaust_revision?(profile_ref, prompt) ->
+        plan_exhaust_revision_packet(prompt)
+
+      profile_ref == "prose_drafting_with_quality_v1" and
+          String.contains?(prompt, "UA01NOPROGRESS") ->
+        prose_no_progress_agent_plan_packet(:revision)
+
+      true ->
+        prompt
+        |> String.replace("UA01D6REPLAN", "")
+        |> agent_plan_draft_packet()
+        |> Map.update!(:reasoning, &String.replace(&1, "起草", "修订"))
+        |> Map.update!(:reason_codes, fn codes ->
+          ["agent_plan_revised" | Enum.reject(codes, &(&1 == "agent_plan_drafted"))]
+          |> Enum.uniq()
+        end)
+    end
+  end
+
+  # B23 CP5 fixture：判断循环计划修订的两个确定性样本（同一 env+marker 门的两种
+  # 形态）——首轮修订仍全只读；作者 steer（目标里带补充标记）后保留只读前缀并
+  # 追加产出步，让 cursor 从 3 继续到产出步并真正完成（仍是同一 run）。
+  defp plan_exhaust_revision?(profile_ref, prompt) do
+    profile_ref == "judgment_plan_v1" and plan_exhaust_fixture?() and
+      String.contains?(prompt, @plan_exhaust_marker)
+  end
+
+  defp plan_exhaust_revision_packet(prompt) do
+    if String.contains?(prompt, @plan_exhaust_steer_marker) do
+      plan_exhaust_resume_packet()
     else
-      prompt
-      |> String.replace("UA01D6REPLAN", "")
-      |> agent_plan_draft_packet()
-      |> Map.update!(:reasoning, &String.replace(&1, "起草", "修订"))
-      |> Map.update!(:reason_codes, fn codes ->
-        ["agent_plan_revised" | Enum.reject(codes, &(&1 == "agent_plan_drafted"))]
-        |> Enum.uniq()
-      end)
+      plan_exhaust_readonly_packet(:revision)
     end
   end
 
@@ -871,6 +904,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     profile_ref = agent_plan_profile_ref(prompt)
 
     cond do
+      # B23 CP5 fixture：判断①判 plan 后的首次计划起草只排只读步（无产出步）。
+      profile_ref == "judgment_plan_v1" and plan_exhaust_fixture?() and
+          String.contains?(prompt, @plan_exhaust_marker) ->
+        plan_exhaust_readonly_packet(:draft)
+
       profile_ref == "prose_drafting_with_quality_v1" and
           String.contains?(prompt, "UA01D6REPLAN") ->
         prose_d6_agent_plan_packet()
@@ -882,6 +920,75 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       true ->
         agent_plan_draft_packet_for_profile(profile_ref, prompt)
     end
+  end
+
+  # B23 CP5：只读计划（context_assemble + 2 个探索步，无产出步）。计划走完后
+  # completion_ready? 为假 → 修订一次（仍只读）→ 修订预算耗尽 → 机械停等作者。
+  defp plan_exhaust_readonly_packet(stage) do
+    {reasoning, reason_codes} =
+      case stage do
+        :draft ->
+          {"先把第01章正文、章节大纲与主角状态相关的材料读一遍，核对清楚再决定产出。",
+           ["agent_plan_drafted", "judgment_plan_drafted"]}
+
+        :revision ->
+          {"上一轮只完成只读核对，目标产出还未生成；我再核对一遍目标章节的材料，避免在信息不足时产出。",
+           ["agent_plan_revised", "judgment_plan_drafted"]}
+      end
+
+    %{
+      reasoning: reasoning,
+      steps: [
+        plan_step("context_assemble", "explore", "读取当前作品上下文与第01章正文线索。", [
+          "context_observation_created"
+        ]),
+        exploration_plan_step(
+          "prose_search",
+          "检索第01章正文的既有内容。",
+          "第01章"
+        ),
+        exploration_plan_step(
+          "chapter_read",
+          "读取第01章的设计计划、摘要与正文。",
+          "第01章"
+        )
+      ],
+      reason_codes: reason_codes
+    }
+  end
+
+  # B23 CP5：作者 steer 后的修订计划——保留已完成的 3 个只读前缀步（cursor=3 已
+  # 越过），追加 1 个产出步（plot_outline）让同一 run 继续并完成；不重新读取、不
+  # 新建 run、不自动采纳。
+  defp plan_exhaust_resume_packet do
+    %{
+      reasoning: "按已核对结果先出方案：保留已完成的只读核对，追加章节大纲产出步。",
+      steps: [
+        plan_step("context_assemble", "explore", "读取当前作品上下文与第01章正文线索。", [
+          "context_observation_created"
+        ]),
+        exploration_plan_step(
+          "prose_search",
+          "检索第01章正文的既有内容。",
+          "第01章"
+        ),
+        exploration_plan_step(
+          "chapter_read",
+          "读取第01章的设计计划、摘要与正文。",
+          "第01章"
+        ),
+        plan_step("plot_outline", "act", "按已核对结果先出章节大纲方案。", [
+          "tentative_outline_draft_created"
+        ])
+      ],
+      reason_codes: ["agent_plan_revised", "judgment_plan_drafted"]
+    }
+  end
+
+  defp exploration_plan_step(target_tool_ref, description, query) do
+    target_tool_ref
+    |> plan_step("explore", description, ["exploration_observation_created"])
+    |> Map.put(:exploration_query, query)
   end
 
   # 无进展空转（真实弱模型失败形态的确定性复刻）：起草只排"读上下文"一步；计划走完
@@ -2175,7 +2282,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp profile_routing_response(prompt) do
     author_text = author_input_text_from_profile_route_prompt(prompt)
     normalized = String.downcase(author_text)
-    {profile_ref, summary, reason_codes} = profile_route_match(normalized)
+
+    # B23 CP5 fixture：profile routing 步骤若存在，env 开启且作者请求带标记时直接
+    # 选跨能力计划工作流（judgment_plan_v1）；否则走既有规则表。仅依据 env + prompt
+    # 文本，不识别 slice id。
+    {profile_ref, summary, reason_codes} =
+      if plan_exhaust_fixture?() and String.contains?(prompt, @plan_exhaust_marker) do
+        {"judgment_plan_v1", "模型选择跨能力计划工作流。",
+         ["model_profile_selected", "judgment_plan_text_match"]}
+      else
+        profile_route_match(normalized)
+      end
 
     profile_route_response(profile_ref, summary, reason_codes, author_text)
   end
@@ -2210,6 +2327,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(author_text, @awaiting_author_steer_marker) ->
         {"await_author", nil, false}
 
+      # B23 CP5 fixture：仅 test-support env 开启且作者请求带标记时，判断①判 plan
+      # → judgment_plan_v1（全只读计划起草/修订由下方 packet 分支给出）。
+      plan_exhaust_plan_verdict?(prompt) ->
+        {"plan", nil, false}
+
       conversation_only_text?(normalized) ->
         judgment_verdict_for_profile("conversation_turn_v1", author_text, prompt)
 
@@ -2227,6 +2349,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         {ref, _summary, _reason_codes} = profile_route_match(normalized)
         judgment_verdict_for_profile(ref, author_text, prompt)
     end
+  end
+
+  # B23 CP5 fixture：env 开启 + 作者请求带标记时判断①判 plan；env 关闭零行为变化。
+  defp plan_exhaust_plan_verdict?(prompt) do
+    plan_exhaust_fixture?() and String.contains?(prompt, @plan_exhaust_marker)
   end
 
   # 多阶段判定：命中 ≥2 个不同创作能力域即视为多阶段复合请求。

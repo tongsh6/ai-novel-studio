@@ -504,6 +504,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-no-progress-stop.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-no-progress-stop --surface tauri
+  - id: agent-plan-exhausted-awaiting-reason
+    title: "判断循环只读计划耗尽停等：结构理由可见、刷新不丢、回复语义、补充恢复同一 run（B23 CP5）"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-plan-exhausted-awaiting-reason.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-plan-exhausted-awaiting-reason --surface tauri
   - id: agent-archive-read-during-run
     title: "AgentRun 运行中作品档案仍可读取"
     tier: nightly

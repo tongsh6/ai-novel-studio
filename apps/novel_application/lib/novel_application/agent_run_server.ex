@@ -296,10 +296,11 @@ defmodule NovelApplication.AgentRunServer do
 
   defp apply_author_steer(state, run) do
     resume? = state.run.status == :awaiting_author and is_nil(state.current_task_ref)
-    run = maybe_grant_writer_timeout_retry(run, state.events)
+    {run, grant} = maybe_grant_writer_timeout_retry(run, state.events)
 
     state =
       %{state | run: run}
+      |> maybe_emit_steer_budget_grant(grant)
       |> maybe_prepare_awaiting_author_steer(resume?)
       |> put_interrupt(:steer_requested)
       |> emit(:plan_adjusted, "已收到新的创作方向。", ["steer_requested"])
@@ -313,6 +314,28 @@ defmodule NovelApplication.AgentRunServer do
     if resume?,
       do: {:reply, reply, state, {:continue, :run_next_step}},
       else: {:reply, reply, state}
+  end
+
+  # B23 CP5：steer 预算追加同步一条 developer AgentEvent（visibility 非 author，
+  # 不进作者活动轨迹），与 LogEmit `agent_run.steer_budget_granted.done` 同源，
+  # 持久层可按 run_id 查证「作者补充后同一 run 获得一次有界重试预算」。
+  defp maybe_emit_steer_budget_grant(state, nil), do: state
+
+  defp maybe_emit_steer_budget_grant(state, grant) do
+    emit(
+      state,
+      :budget_expanded,
+      :developer,
+      "作者补充后为停等 run 追加一次有界重试预算。",
+      ["steer_budget_granted", grant.retry_reason],
+      [],
+      %{
+        retry_reason: grant.retry_reason,
+        reason_codes: grant.reason_codes,
+        added: grant.added,
+        budget: grant.budget
+      }
+    )
   end
 
   @impl true
@@ -975,7 +998,7 @@ defmodule NovelApplication.AgentRunServer do
       state
       |> put_run_status(:awaiting_author)
       |> put_run_phase(:stopped)
-      |> emit(:awaiting_author, "AgentRun 未取得新进展，已停止等待作者确认。", [
+      |> emit(:awaiting_author, "AgentRun 未取得新进展，已停止等待作者回复。", [
         "no_progress"
       ])
       |> persist_run_state()
@@ -1212,30 +1235,60 @@ defmodule NovelApplication.AgentRunServer do
   # steer 必须能让同一 run 重新走一次有界判断/产出；否则继续按旧预算重放
   # “计划耗尽”只会再次停等。这里只在最近一次 awaiting 事件确为 writer_timeout 时
   # 追加一次 replan 预算，且由作者显式操作触发，不自动重试、不新建 run。
+  # B23 CP5：计划耗尽停等（plan_exhausted_without_completion，无 writer_timeout）
+  # 同样会让同一 run 的下一步判断立刻撞回同一停等点。作者显式给出方向后，在同一
+  # run 内追加一次有界 replan/provider/tool 预算（同 writer_timeout 做法），使补充
+  # 后能真正重试一次；仍不自动重试、不新建 run。grant 留结构化业务日志，供外部
+  # 验收用 app JSONL 证明「作者补充后同一 run 获得重试预算」。
   defp maybe_grant_writer_timeout_retry(%AgentRun{} = run, events) when is_list(events) do
-    latest_awaiting =
-      events
-      |> Enum.reverse()
-      |> Enum.find(&(&1.event_type == :awaiting_author))
+    reason_codes = latest_awaiting_reason_codes(events)
 
-    reason_codes = if latest_awaiting, do: latest_awaiting.reason_codes || [], else: []
+    case retry_grant_reason(reason_codes) do
+      nil ->
+        {run, nil}
 
-    if "writer_timeout" in reason_codes do
-      # 一次 scoped retry 的真实开销：重新判断/修订 + 1 次 writer + 1 次质量复核 +
-      # 1 次工具槽；按实测消耗留出一次判断/复核余量，避免重试成功前再次撞预算。
-      budget =
-        run.budget
-        |> bump_budget(:max_replans, 1)
-        |> bump_budget(:max_provider_calls, 3)
-        |> bump_budget(:max_tool_calls, 1)
+      retry_reason ->
+        # 一次 scoped retry 的真实开销：重新判断/修订 + 1 次 writer + 1 次质量复核 +
+        # 1 次工具槽；按实测消耗留出一次判断/复核余量，避免重试成功前再次撞预算。
+        added = %{max_replans: 1, max_provider_calls: 3, max_tool_calls: 1}
 
-      %{run | budget: budget}
-    else
-      run
+        budget =
+          run.budget
+          |> bump_budget(:max_replans, added.max_replans)
+          |> bump_budget(:max_provider_calls, added.max_provider_calls)
+          |> bump_budget(:max_tool_calls, added.max_tool_calls)
+
+        LogEmit.emit(:agent_run, :steer_budget_granted, :done, %{
+          run_id: run.run_id,
+          retry_reason: retry_reason,
+          reason_codes: reason_codes,
+          added: added,
+          budget: budget
+        })
+
+        {%{run | budget: budget},
+         %{retry_reason: retry_reason, reason_codes: reason_codes, added: added, budget: budget}}
     end
   end
 
-  defp maybe_grant_writer_timeout_retry(run, _events), do: run
+  defp maybe_grant_writer_timeout_retry(run, _events), do: {run, nil}
+
+  defp latest_awaiting_reason_codes(events) when is_list(events) do
+    case Enum.reverse(events) |> Enum.find(&(&1.event_type == :awaiting_author)) do
+      nil -> []
+      event -> event.reason_codes || []
+    end
+  end
+
+  defp retry_grant_reason(reason_codes) when is_list(reason_codes) do
+    cond do
+      "writer_timeout" in reason_codes -> "writer_timeout"
+      "plan_exhausted_without_completion" in reason_codes -> "plan_exhausted_without_completion"
+      true -> nil
+    end
+  end
+
+  defp retry_grant_reason(_reason_codes), do: nil
 
   defp bump_budget(budget, key, delta) when is_map(budget) do
     Map.update(budget, key, delta, fn

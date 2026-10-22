@@ -936,6 +936,80 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.consumed_budget.tool_calls == 2
   end
 
+  # B23 CP3：非 writer_timeout 的计划耗尽也必须给结构理由（步数/已核对/缺口/下一步），
+  # 不只剩机械句；writer_timeout 分支的可诊断文案由上一个 case 钉住不回归。
+  test "plan exhaustion without writer timeout surfaces structural author reasons (B23 CP3)" do
+    parent = self()
+    raw_sentinel = "RAW-PROSE-CP3-#{System.unique_integer([:positive])}"
+
+    writer = fn prompt ->
+      if plan_draft_prompt?(prompt) do
+        {:ok,
+         with_provider_call(
+           NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
+             "先读取正文写作上下文（#{raw_sentinel}-draft）。",
+             [
+               NovelApplication.TestAgenticLoopFixtures.plan_step(
+                 "read_prose_context",
+                 "context_assemble",
+                 "读取正文写作上下文"
+               )
+             ]
+           ),
+           "pc-b23-prose-plan"
+         )}
+      else
+        flunk("unexpected provider call in prose CP3 fixture: #{prompt_text(prompt)}")
+      end
+    end
+
+    planned =
+      DialoguePlanningService.run_spec_for_profile(
+        :prose_drafting_with_quality,
+        %{
+          text: "先只读取正文写作上下文，这次先不写正文。",
+          workspace_id: @work,
+          work_id: @work,
+          session_id: "session-b23-prose-cp3",
+          turn_id: "turn-b23-prose-cp3",
+          chapter_prose_reader: fn _work_id, _chapter -> "" end,
+          chapter_summary_reader: %{},
+          character_reader: fn _work_id -> [] end
+        },
+        context(),
+        %Execution{result_fn: writer}
+      )
+
+    # replan 预算已耗尽 → 直接命中非 writer_timeout 的机械停等分支。
+    run_attrs = Map.update!(planned.run_attrs, :budget, &Map.put(&1, :max_replans, 0))
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(run_attrs,
+               next_step_planner: planned.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:agent_event, :plan_drafted, _}, 500
+    assert_receive {:agent_event, :awaiting_author, awaiting}, 2_000
+
+    assert "plan_exhausted_without_completion" in awaiting.reason_codes
+    refute "writer_timeout" in awaiting.reason_codes
+
+    summary = awaiting.summary
+    assert summary =~ "计划共 1 步，已完成 1 步"
+    assert summary =~ "目标产出尚未完成"
+    assert summary =~ "已核对："
+    assert summary =~ "下一步："
+    assert summary =~ "读取正文写作上下文"
+    assert summary =~ "计划中没有正文写作产出步"
+    refute summary =~ raw_sentinel
+    refute summary =~ "assistant_message"
+    refute summary =~ "raw_prompt"
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+  end
+
   test "scoped writer-timeout steer grants one bounded retry and recovers the same run" do
     parent = self()
 

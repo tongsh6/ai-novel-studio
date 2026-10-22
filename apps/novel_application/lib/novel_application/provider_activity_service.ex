@@ -9,14 +9,23 @@ defmodule NovelApplication.ProviderActivityService do
   alias NovelApplication.WorkService
   alias NovelPersistence.{AgentRunLog, ProviderRunLog, WorkSessionRepo}
 
-  @doc "Fetch persisted ProviderRun activity for one author turn."
+  @doc """
+  Fetch persisted ProviderRun activity for one author turn.
+
+  `turn_id` may be an AgentRun step turn (``"<parent_turn_ref>:agent:<sequence>"``,
+  e.g. judgment_plan / judgment_loop step results) rather than the author message
+  turn the run was started for. When the direct `parent_turn_ref` lookup returns no
+  run, the child-turn suffix is stripped and the parent message id is retried so
+  author-visible activity (including awaiting_author reasons) survives reload
+  hydration (B23 F2). Scope and author-safe filtering are unchanged.
+  """
   @spec fetch_turn_activity(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :session_not_found}
   def fetch_turn_activity(work_id, session_id, turn_id)
       when is_binary(work_id) and is_binary(session_id) and is_binary(turn_id) do
     with work when not is_nil(work) <- WorkService.get(work_id),
          session when not is_nil(session) <- WorkSessionRepo.get_by_work(work_id, session_id) do
-      agent_runs = AgentRunLog.list_by_parent_turn(work.id, session.id, turn_id)
+      agent_runs = list_agent_runs_for_turn(work.id, session.id, turn_id)
 
       events_by_run =
         agent_runs |> Enum.map(& &1.id) |> AgentRunLog.list_author_events_by_run_ids()
@@ -39,6 +48,32 @@ defmodule NovelApplication.ProviderActivityService do
         else
           {:error, :session_not_found}
         end
+    end
+  end
+
+  # AgentRun.parent_turn_ref always points at the author message turn, while
+  # judgment_plan / judgment_loop persist their step TurnResults under child
+  # turns (``"<parent>:agent:<sequence>"``). A child turn therefore has no run
+  # of its own; strip the marker and retry with the parent message id. The
+  # parent id still goes through the same work/session-scoped query, so
+  # cross-work/session reads stay impossible.
+  defp list_agent_runs_for_turn(work_id, session_id, turn_id) do
+    case AgentRunLog.list_by_parent_turn(work_id, session_id, turn_id) do
+      [] ->
+        case parent_turn_ref(turn_id) do
+          nil -> []
+          parent_turn_ref -> AgentRunLog.list_by_parent_turn(work_id, session_id, parent_turn_ref)
+        end
+
+      runs ->
+        runs
+    end
+  end
+
+  defp parent_turn_ref(turn_id) do
+    case String.split(turn_id, ":agent:", parts: 2) do
+      [parent, suffix] when parent != "" and suffix != "" -> parent
+      _ -> nil
     end
   end
 

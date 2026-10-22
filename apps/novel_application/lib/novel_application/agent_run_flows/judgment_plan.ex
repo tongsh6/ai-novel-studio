@@ -36,6 +36,20 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   @exploration_step_targets ~w(prose_search chapter_read archive_read memory_recall)
   @capability_step_targets ~w(character_roster character_design character_evolution plot_outline world_building prose_writing)
 
+  # B23 CP3：计划耗尽停等的作者可见 summary 只由结构骨架词 + 模型计划里的
+  # step description 组成（限量），不引入 provider raw prompt / assistant payload。
+  @capability_output_labels %{
+    "character_roster" => "角色阵容",
+    "character_design" => "角色设计",
+    "character_evolution" => "角色演化",
+    "plot_outline" => "章节大纲",
+    "world_building" => "世界设定",
+    "prose_writing" => "正文草稿"
+  }
+  @checked_step_targets [@context_step_target | @exploration_step_targets]
+  @checked_description_limit 3
+  @checked_description_max_chars 60
+
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
 
@@ -130,7 +144,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         execute_from_revised_plan(run, sequence, snapshot, revised_plan, revision_meta)
       end
     else
-      mechanical_await_author_decision(run, sequence)
+      mechanical_await_author_decision(run, sequence, snapshot)
     end
   end
 
@@ -155,7 +169,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       |> Enum.at(index)
       |> mechanical_execute_decision(revised_run, sequence, snapshot, meta)
     else
-      mechanical_await_author_decision(run, sequence)
+      mechanical_await_author_decision(run, sequence, snapshot)
     end
   end
 
@@ -247,13 +261,17 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
     end
   end
 
-  defp mechanical_await_author_decision(run, sequence) do
+  # B23 CP3（S7 不退化）：计划耗尽停等不能只留一句机械句。作者可见 summary 必须
+  # 带结构事实——计划步数、已完成步数、已核对步骤（模型 plan description 原文，
+  # 限量）、缺口（目标产出未完成）与建议下一步骨架词。只读 run.plan / snapshot
+  # 状态，零 provider raw prompt / assistant_message 载荷（N-NARR）。
+  defp mechanical_await_author_decision(run, sequence, snapshot) do
     AgentNextStepDecision.new(%{
       decision_id: "and_#{run.run_id}_#{sequence}_plan_exhausted",
       run_ref: run.run_id,
       sequence: sequence,
       decision_type: :await_author,
-      summary: "计划步骤已走完，但目标产出尚未完成，等待作者确认下一步。",
+      summary: plan_exhausted_summary(run, snapshot),
       target_tool_ref: nil,
       write_intent: :none,
       risk_hint: :medium,
@@ -270,6 +288,117 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       {:ok, decision} -> {:ok, decision, %{provider_call_count: 0}}
       error -> error
     end
+  end
+
+  defp plan_exhausted_summary(run, snapshot) do
+    steps = plan_steps(run.plan)
+    total = length(steps)
+    completed = min(plan_cursor(snapshot), total)
+    checked_steps = steps |> Enum.take(completed) |> Enum.filter(&checked_step?/1)
+
+    [
+      "计划共 #{total} 步，已完成 #{completed} 步",
+      "目标产出尚未完成（#{completion_gap(steps, completed)}）",
+      checked_steps_section(checked_steps),
+      "下一步：#{next_step_suggestion(steps, completed)}"
+    ]
+    |> Enum.join("；")
+    |> Kernel.<>("。")
+  end
+
+  defp checked_step?(step), do: map_get(step, :target_tool_ref) in @checked_step_targets
+
+  defp checked_steps_section(steps) do
+    count = length(steps)
+    descriptions = steps |> Enum.map(&step_description/1) |> Enum.reject(&is_nil/1)
+    shown = Enum.take(descriptions, @checked_description_limit)
+
+    case shown do
+      [] ->
+        "已核对 #{count} 步"
+
+      shown ->
+        suffix = if length(descriptions) > length(shown), do: " 等 #{count} 步", else: ""
+        "已核对：#{Enum.join(shown, "；")}#{suffix}"
+    end
+  end
+
+  defp step_description(step) do
+    case map_get(step, :description) do
+      description when is_binary(description) ->
+        description
+        |> String.replace(~r/\s+/u, " ")
+        |> String.trim()
+        |> String.trim_trailing("。")
+        |> limit_description()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp limit_description(""), do: nil
+
+  defp limit_description(description) do
+    if String.length(description) > @checked_description_max_chars do
+      String.slice(description, 0, @checked_description_max_chars) <> "…"
+    else
+      description
+    end
+  end
+
+  defp completion_gap(steps, completed) do
+    planned_outputs = capability_outputs(steps)
+
+    unexecuted_outputs =
+      steps |> Enum.with_index() |> Enum.drop(completed) |> capability_outputs()
+
+    cond do
+      planned_outputs == [] ->
+        "计划中没有产出步——缺角色设定/章节大纲/正文草稿等目标产出"
+
+      unexecuted_outputs != [] ->
+        "计划中的#{Enum.join(unexecuted_outputs, "、")}步骤尚未执行"
+
+      true ->
+        "已执行的#{Enum.join(planned_outputs, "、")}步骤尚未生成可采纳候选"
+    end
+  end
+
+  defp next_step_suggestion(steps, completed) do
+    planned_outputs = capability_outputs(steps)
+
+    unexecuted_outputs =
+      steps |> Enum.with_index() |> Enum.drop(completed) |> capability_outputs()
+
+    cond do
+      planned_outputs == [] ->
+        "先给出要产出的目标与范围（目标章节、角色/大纲/正文），再继续"
+
+      unexecuted_outputs != [] ->
+        "确认是否继续执行#{Enum.join(unexecuted_outputs, "、")}步骤，或调整计划后重试"
+
+      true ->
+        "说明希望如何调整产出（范围/写法）后重试，或检查写作模型"
+    end
+  end
+
+  defp capability_outputs(step_entries) when is_list(step_entries) do
+    step_entries
+    |> Enum.map(fn
+      {step, _index} -> step
+      step -> step
+    end)
+    |> Enum.flat_map(&capability_output/1)
+    |> Enum.uniq()
+  end
+
+  defp capability_output(step) do
+    target = map_get(step, :target_tool_ref)
+
+    if target in @capability_step_targets,
+      do: [Map.get(@capability_output_labels, target)],
+      else: []
   end
 
   defp write_intent_for(_step, target)

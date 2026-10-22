@@ -36,6 +36,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   # WR01 写前推理步：模型排入计划的 flow 内模型步（1 调用），产出 stage_state.chapter_mission。
   @mission_step_target "chapter_mission"
   @plan_exhausted_replan_reason "计划步骤已走完，但正文候选尚未生成。"
+  # B23 CP3：计划耗尽停等的作者可见 summary 只由结构骨架词 + 模型计划里的 step
+  # description 组成（限量），不引入 provider raw prompt / assistant payload。
+  @checked_step_targets [@context_step_target, @mission_step_target]
+  @checked_description_limit 3
+  @checked_description_max_chars 60
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
@@ -386,8 +391,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   # 2026-10-21 狗粮：prose_writing 连续 timeout 后计划耗尽，原来的通用
   # “计划步骤已走完”让作者无法判断是模型慢、预算还是内容问题。作者可见
   # summary 必须带上真实失败类别；reason_codes 供控制坞给出缩小范围重试动作。
+  # B23 CP3：非 writer_timeout 分支不再只给机械句——补计划步数 / 已核对步骤
+  # description（模型计划原文，限量）/ 正文产出缺口 / 建议下一步骨架词；
+  # writer_timeout 分支保持原有可诊断文案不变。
   defp mechanical_await_author_decision(run, sequence, snapshot) do
-    {summary, reason_codes, observation_refs} = await_author_reason(snapshot)
+    {summary, reason_codes, observation_refs} = await_author_reason(run, snapshot)
 
     AgentNextStepDecision.new(%{
       decision_id: "and_#{run.run_id}_#{sequence}_plan_exhausted",
@@ -413,10 +421,10 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
-  defp await_author_reason(snapshot) do
+  defp await_author_reason(run, snapshot) do
     case writer_timeout_observations(snapshot) do
       [] ->
-        {"计划步骤已走完，但正文候选尚未生成，等待作者确认下一步。", ["plan_exhausted_without_completion"], []}
+        {plan_exhausted_summary(run, snapshot), ["plan_exhausted_without_completion"], []}
 
       observations ->
         count = length(observations)
@@ -432,6 +440,99 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
          ], Enum.map(observations, & &1.observation_id)}
     end
   end
+
+  defp plan_exhausted_summary(run, snapshot) do
+    steps = plan_steps(run.plan)
+    total = length(steps)
+    completed = min(plan_cursor(snapshot), total)
+    checked_steps = steps |> Enum.take(completed) |> Enum.filter(&checked_step?/1)
+    unexecuted_prose? = steps |> Enum.with_index() |> Enum.drop(completed) |> prose_step?()
+
+    [
+      "计划共 #{total} 步，已完成 #{completed} 步",
+      "目标产出尚未完成（#{completion_gap(steps, completed)}）",
+      checked_steps_section(checked_steps),
+      "下一步：#{next_step_suggestion(steps, unexecuted_prose?)}"
+    ]
+    |> Enum.join("；")
+    |> Kernel.<>("。")
+  end
+
+  defp checked_step?(step), do: map_get(step, :target_tool_ref) in @checked_step_targets
+
+  defp checked_steps_section(steps) do
+    count = length(steps)
+    descriptions = steps |> Enum.map(&step_description/1) |> Enum.reject(&is_nil/1)
+    shown = Enum.take(descriptions, @checked_description_limit)
+
+    case shown do
+      [] ->
+        "已核对 #{count} 步"
+
+      shown ->
+        suffix = if length(descriptions) > length(shown), do: " 等 #{count} 步", else: ""
+        "已核对：#{Enum.join(shown, "；")}#{suffix}"
+    end
+  end
+
+  defp step_description(step) do
+    case map_get(step, :description) do
+      description when is_binary(description) ->
+        description
+        |> String.replace(~r/\s+/u, " ")
+        |> String.trim()
+        |> String.trim_trailing("。")
+        |> limit_description()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp limit_description(""), do: nil
+
+  defp limit_description(description) do
+    if String.length(description) > @checked_description_max_chars do
+      String.slice(description, 0, @checked_description_max_chars) <> "…"
+    else
+      description
+    end
+  end
+
+  defp completion_gap(steps, completed) do
+    cond do
+      not prose_step?(steps) ->
+        "计划中没有正文写作产出步"
+
+      steps |> Enum.with_index() |> Enum.drop(completed) |> prose_step?() ->
+        "计划中的正文写作步骤尚未执行"
+
+      true ->
+        "正文写作步骤已执行但未生成可采纳草稿"
+    end
+  end
+
+  defp next_step_suggestion(steps, unexecuted_prose?) do
+    cond do
+      not prose_step?(steps) ->
+        "先给出要写的目标章节与范围，再继续"
+
+      unexecuted_prose? ->
+        "确认是否继续执行正文写作步骤，或调整计划后重试"
+
+      true ->
+        "说明希望怎么调整正文范围/写法后重试，或检查写作模型"
+    end
+  end
+
+  defp prose_step?(steps) when is_list(steps) do
+    Enum.any?(steps, fn
+      {step, _index} -> prose_step?(step)
+      step -> prose_step?(step)
+    end)
+  end
+
+  defp prose_step?(step), do: map_get(step, :target_tool_ref) == "prose_writing"
 
   defp writer_timeout_observations(snapshot) when is_map(snapshot) do
     snapshot

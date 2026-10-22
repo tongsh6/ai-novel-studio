@@ -28,6 +28,7 @@
 | `agent-dead-bounded-run-expiry.yml` | 后端重启后失活 bounded run 诚实降级为「原任务已失效」，只能预填 goal 重新发起新 run（DS03） |
 | `agent-loop-budget-limit.yml` | AgentRun 受作者预算限制停止等待作者 |
 | `agent-no-progress-stop.yml` | AgentRun 重复无进展时停止等待作者 |
+| `agent-plan-exhausted-awaiting-reason.yml` | 判断循环只读计划耗尽停等：页面可见结构理由（计划/已完成/目标产出尚未完成/已核对/下一步）、刷新不丢、回复语义、补充后同一 run 恢复完成（B23 CP5） |
 | `agent-archive-read-during-run.yml` | AgentRun 运行中作品档案仍可读取 |
 | `agent-tentative-boundary.yml` | Agent 产物保持 tentative，不自动采纳或写主档案 |
 | `agent-revision-orchestrator-boundary.yml` | 修订候选动作重新经过 Orchestrator 后再执行 |

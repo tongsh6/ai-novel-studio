@@ -15,7 +15,7 @@ const artifactDir =
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 // DS03 状态矩阵拆分：running 期为「引导」占位，awaiting_author 期为「必填补充」占位。
 const agentRunSteerInputSelector =
-  'input[placeholder="输入调整方向，引导当前任务…"], input[placeholder="输入具体补充后发送，任务将按新方向继续…"]';
+  'input[placeholder="输入调整方向，引导当前任务…"], input[placeholder="在下方输入框回复或补充，发送后任务继续…"], input[placeholder="输入具体补充后发送，任务将按新方向继续…"]';
 const acceptDraftButtonPattern = /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/;
 const readingModeButtonPattern = /\[阅读模式\]|阅读/;
 
@@ -28900,7 +28900,7 @@ async function driveAgentDurableResumeLongRunTask(page) {
 
   const textBeforeRestart = await page.locator("body").innerText();
   assert(textBeforeRestart.includes("可恢复长任务"), "Durable AgentRun label was not visible");
-  assert(textBeforeRestart.includes("等待你确认"), "Durable checkpoint status was not visible");
+  assert(textBeforeRestart.includes("等待你回复"), "Durable checkpoint status was not visible");
 
   const service = createPhoenixServiceController();
   const recoverFrameStart = frames.length;
@@ -28963,10 +28963,10 @@ async function driveAgentDurableResumeLongRunTask(page) {
     );
 
     // Order 62 CP3 语义迁移：工作详情已移除；恢复语义由运行组 chip（已恢复检查点 +
-    // 任务引用）与状态标签（等待你确认）判定。
+    // 任务引用）与状态标签（等待你回复）判定。
     await page.waitForFunction(
       (expected) => expected.every((value) => document.body.innerText.includes(value)),
-      ["创作执行", "已恢复检查点", "等待你确认", longRunTaskRef],
+      ["创作执行", "已恢复检查点", "等待你回复", longRunTaskRef],
       { timeout: 30_000 },
     );
 
@@ -29010,7 +29010,7 @@ async function driveAgentDurableResumeLongRunTask(page) {
           recoveredStateFrame.body?.completed_step_refs?.length ?? 0,
         repeated_toolbox_after_recovery_count: toolboxAfterRecovery.length,
         stale_resume_visible:
-          visibleText.includes("已恢复检查点") && visibleText.includes("等待你确认"),
+          visibleText.includes("已恢复检查点") && visibleText.includes("等待你回复"),
         long_run_task_ref_visible: visibleText.includes(longRunTaskRef),
         service_restarted_externally: restarted,
         user_message_text: sentFrame.body?.text,
@@ -30183,7 +30183,7 @@ async function driveAgentSteerReplan(page, options = {}) {
       return (
         text.includes("创作执行") &&
         (text.includes("进行中") ||
-          text.includes("等待你确认") ||
+          text.includes("等待你回复") ||
           text.includes("正在启动创作执行"))
       );
     },
@@ -30659,8 +30659,9 @@ async function driveAgentAwaitingAuthorInputRequired(page) {
   const nonce = `DS03-AWAIT-INPUT-${Date.now().toString(36)}`;
   const awaitingPrompt =
     "我理解你希望增加第一章的篇幅，但还需要你明确扩写方式；请补充具体方向后，我再继续。";
-  const awaitingInputHint = "等待你的补充：输入具体方向后发送，任务才会继续。";
-  const awaitingInputSelector = 'input[placeholder="输入具体补充后发送，任务将按新方向继续…"]';
+  const awaitingInputHint = "等待你的回复：在下方输入框补充方向后发送，任务才会继续。";
+  const awaitingInputSelector =
+    'input[placeholder="在下方输入框回复或补充，发送后任务继续…"], input[placeholder="输入具体补充后发送，任务将按新方向继续…"]';
   const failureBubbleText = "操作失败，请重试。";
   const initialText = `第一章字数太少了，标记UA01AWAITSTEER-${nonce}。`;
   const steerText =
@@ -31172,7 +31173,7 @@ async function driveAgentDeadBoundedRunExpiry(page) {
   const expiredTitle = "原任务已失效";
   const expiredDetail = "后台运行已结束，历史记录仍可查看。可重新发起任务继续。";
   const failureBubbleText = "操作失败，请重试。";
-  const awaitingBadgeText = "1 个任务等待确认";
+  const awaitingBadgeText = "1 个任务等待回复";
   const work = await createWorkSeed({
     title: `DS03 Dead Bounded Run Expiry ${nonce}`,
     genre: "悬疑",
@@ -31244,38 +31245,64 @@ async function driveAgentDeadBoundedRunExpiry(page) {
     30_000,
   );
 
+  // CP4（B23）：首个 join 通常是页面 socket 在 backend 恢复后的自动 rejoin
+  // （phoenix client 重连退避 10ms→…），该 join 一次性把失活 bounded run 收口为
+  // failed 并广播唯一一次 runtime_live=false 快照；之后显式 reload 是第二次 join，
+  // 不得再重复广播。因此基线必须在 stop 之前取，且过期坞断言放在 reload 之前
+  // （第二次 join 不应再依赖重复广播恢复 dead 状态）。
+  const restartFrameStart = frames.length;
+  const restartLogStart = readAppLogRecords().length;
   const service = createPhoenixServiceController();
   try {
     await service.stopOriginal();
     await service.restart();
 
-    const reloadFrameStart = frames.length;
-    const reloadLogStart = readAppLogRecords().length;
-    await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
-    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
-    await page.waitForFunction(
-      () => /服务: 已连接|同步已连接/.test(document.body.innerText),
-      null,
-      { timeout: 60_000 },
-    );
+    // 首个 join：优先等待页面 socket 自动 rejoin；若该页面没有自动重连（可见性等
+    // 环境差异），按场景本义显式 reload 制造首个 join，CP4 语义不变——首个 join 仍
+    // 应只广播一次 dead 快照并收口持久层。
+    const deadStatePredicate = (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.runtime_live === false;
+    let firstJoinMode = "auto_rejoin";
+    let deadStateFrame;
+
+    try {
+      deadStateFrame = await waitForNewFrame(
+        restartFrameStart,
+        deadStatePredicate,
+        "Backend restart did not broadcast the dead bounded AgentRun snapshot",
+        60_000,
+      );
+    } catch {
+      firstJoinMode = "explicit_reload_fallback";
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+      await page.waitForFunction(
+        () => /服务: 已连接|同步已连接/.test(document.body.innerText),
+        null,
+        { timeout: 60_000 },
+      );
+      deadStateFrame = await waitForNewFrame(
+        restartFrameStart,
+        deadStatePredicate,
+        "Backend restart did not broadcast the dead bounded AgentRun snapshot after the fallback reload",
+        120_000,
+      );
+    }
 
     await waitForNewAppLogRecord(
-      reloadLogStart,
+      restartLogStart,
       (record) => record.event === "channel.agent_run_expired.done" && record.run_id === runId,
       "Channel did not log the expired bounded AgentRun after backend restart",
       60_000,
     );
-
-    const deadStateFrame = await waitForNewFrame(
-      reloadFrameStart,
-      (frame) =>
-        frame.direction === "received" &&
-        frame.event === "agent_run_state" &&
-        frame.body?.run_id === runId &&
-        frame.body?.runtime_live === false,
-      "Backend restart did not broadcast the dead bounded AgentRun snapshot",
-      60_000,
-    );
+    const firstExpiredLogRecord = readAppLogRecords()
+      .slice(restartLogStart)
+      .find(
+        (record) => record.event === "channel.agent_run_expired.done" && record.run_id === runId,
+      );
+    const deadStateStatus = deadStateFrame.body?.status ?? firstExpiredLogRecord?.status ?? null;
     const goalText = String(deadStateFrame.body?.goal?.text ?? "");
     assert(
       goalText.includes(nonce),
@@ -31300,7 +31327,7 @@ async function driveAgentDeadBoundedRunExpiry(page) {
     assert(pauseCount === 0, "Dead bounded run still exposed a 暂停 action");
     assert(terminateCount === 0, "Dead bounded run still exposed a 终止任务 action");
     assert(!failureBubbleVisible, "Dead bounded run degrade showed 操作失败，请重试。");
-    assert(!awaitingBadgeVisible, "Dead bounded run still counted into 1 个任务等待确认");
+    assert(!awaitingBadgeVisible, "Dead bounded run still counted into 1 个任务等待回复");
 
     await restartButton.click();
     await page.waitForFunction(
@@ -31359,7 +31386,7 @@ async function driveAgentDeadBoundedRunExpiry(page) {
     assert(newRunId !== runId, "Restarted task reused the dead run_id instead of a new AgentRun");
 
     const agentCommandsToDeadRun = frames
-      .slice(reloadFrameStart)
+      .slice(restartFrameStart)
       .filter(
         (frame) =>
           frame.direction === "sent" &&
@@ -31369,6 +31396,93 @@ async function driveAgentDeadBoundedRunExpiry(page) {
     assert(
       agentCommandsToDeadRun.length === 0,
       "An agent_command was still sent to the dead run_id after reload",
+    );
+
+    // CP4：第二次 join（显式 reload）不得重复广播 dead 快照，也不得再写一条
+    // channel.agent_run_expired.done；持久层收口状态由 app JSONL 取证。
+    const secondJoinFrameStart = frames.length;
+    const secondJoinLogStart = readAppLogRecords().length;
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.waitForFunction(
+      () => /服务: 已连接|同步已连接/.test(document.body.innerText),
+      null,
+      { timeout: 60_000 },
+    );
+    await waitForNewAppLogRecord(
+      secondJoinLogStart,
+      (record) => record.event === "channel.join.done" && record.work_id === workId,
+      "Second join did not happen after the explicit reload",
+      60_000,
+    );
+    // 让第二次 join 触发的广播/日志全部落定，再统计「是否重复」。
+    await sleep(1_500);
+
+    const secondJoinDeadStateFrames = frames
+      .slice(secondJoinFrameStart)
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_run_state" &&
+          frame.body?.run_id === runId &&
+          frame.body?.runtime_live === false,
+      );
+    const secondJoinExpiredLogs = readAppLogRecords()
+      .slice(secondJoinLogStart)
+      .filter(
+        (record) => record.event === "channel.agent_run_expired.done" && record.run_id === runId,
+      );
+    const secondJoinAgentCommandsToDeadRun = frames
+      .slice(secondJoinFrameStart)
+      .filter(
+        (frame) =>
+          frame.direction === "sent" &&
+          frame.event === "agent_command" &&
+          frame.body?.run_id === runId,
+      );
+    assert(
+      secondJoinDeadStateFrames.length === 0,
+      `Second join rebroadcast the dead AgentRun snapshot (${secondJoinDeadStateFrames.length} frames)`,
+    );
+    assert(
+      secondJoinExpiredLogs.length === 0,
+      `Second join logged channel.agent_run_expired.done again (${secondJoinExpiredLogs.length} records)`,
+    );
+    assert(
+      secondJoinAgentCommandsToDeadRun.length === 0,
+      "An agent_command targeted the dead run_id after the second join",
+    );
+
+    const deadStateBroadcastCount = frames.filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.runtime_live === false,
+    ).length;
+    const expiredLogCount = readAppLogRecords().filter(
+      (record) => record.event === "channel.agent_run_expired.done" && record.run_id === runId,
+    ).length;
+    const secondJoinNoRepeat =
+      secondJoinDeadStateFrames.length === 0 && secondJoinExpiredLogs.length === 0;
+    const deadRunFailureRefRecord = readAppLogRecords().find(
+      (record) =>
+        record.run_id === runId &&
+        JSON.stringify(record).includes("runtime_lost_on_restart"),
+    );
+    const deadRunFailureRef = deadRunFailureRefRecord
+      ? (deadRunFailureRefRecord.failure_ref ?? "runtime_lost_on_restart")
+      : null;
+    assert(
+      deadStateBroadcastCount === 1,
+      `Dead AgentRun snapshot was broadcast ${deadStateBroadcastCount} times (expected exactly 1)`,
+    );
+    assert(
+      expiredLogCount === 1,
+      `channel.agent_run_expired.done was logged ${expiredLogCount} times (expected exactly 1)`,
+    );
+    assert(
+      deadStateStatus === "failed",
+      `Dead AgentRun snapshot status is ${deadStateStatus}, expected failed (CP4 lazy close)`,
     );
 
     const logsAfter = readAppLogRecords().slice(logStart);
@@ -31394,6 +31508,14 @@ async function driveAgentDeadBoundedRunExpiry(page) {
         run_mode: ackFrame.body.response.run_mode,
         dead_state_runtime_live: deadStateFrame.body?.runtime_live,
         dead_state_recovered: deadStateFrame.body?.recovered,
+        dead_state_status: deadStateStatus,
+        first_join_mode: firstJoinMode,
+        dead_state_broadcast_count: deadStateBroadcastCount,
+        expired_log_count: expiredLogCount,
+        second_join_no_repeat: secondJoinNoRepeat,
+        second_join_dead_state_frame_count: secondJoinDeadStateFrames.length,
+        second_join_expired_log_count: secondJoinExpiredLogs.length,
+        dead_run_failure_ref: deadRunFailureRef,
         dead_goal_text: goalText,
         expired_title_visible: deadVisibleText.includes(expiredTitle),
         expired_detail_visible: deadVisibleText.includes(expiredDetail),
@@ -31415,6 +31537,512 @@ async function driveAgentDeadBoundedRunExpiry(page) {
   } finally {
     await service.stopRestarted();
   }
+}
+
+// ── B23 CP5：计划耗尽停等必须给出结构化理由、刷新不丢、回复语义正确、补充后同 run 恢复 ──
+
+// 停等理由取 body 内「叶子元素」中包含全部骨架词的最深文本——活动行/推理段可能都会
+// 出现同一批词，取叶子节点保证拿到作者可见原文而不是整页拼接文本。
+async function visibleAwaitingReasonText(page, structuralWords) {
+  return await page.evaluate((words) => {
+    const containsAll = (text) => words.every((word) => text.includes(word));
+    const leaves = Array.from(document.body.querySelectorAll("*")).filter(
+      (element) => element.children.length === 0 && containsAll(element.textContent ?? ""),
+    );
+    const hit = leaves.at(-1);
+    return hit ? hit.textContent.trim() : "";
+  }, structuralWords);
+}
+
+async function waitForVisibleAwaitingReason(page, structuralWords, label, timeoutMs = 60_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const text = await visibleAwaitingReasonText(page, structuralWords);
+    if (text !== "") return text;
+    await sleep(250);
+  }
+
+  const bodyText = await page.locator("body").innerText();
+  throw new Error(
+    `${label}: structural awaiting reason not visible in page text: ${bodyText.slice(-600)}`,
+  );
+}
+
+async function visibleChatInputPlaceholder(page) {
+  return await page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll("input")).filter(
+      (candidate) => candidate.offsetParent !== null,
+    );
+    // 优先主输入候选（普通/引导/必填补充三种真实产品 placeholder），
+    // 避免把阅读搜索等次要输入误当成主输入。
+    const knownPlaceholders = [
+      "输入你的想法、问题或指令...",
+      "输入调整方向，引导当前任务…",
+      "在下方输入框回复或补充，发送后任务继续…",
+      "输入具体补充后发送，任务将按新方向继续…",
+    ];
+    const mainInput = candidates.find((candidate) =>
+      knownPlaceholders.includes(candidate.getAttribute("placeholder")),
+    );
+    return (mainInput ?? candidates[0])?.getAttribute("placeholder") ?? "";
+  });
+}
+
+async function waitForVisibleText(page, expected, label, timeoutMs = 30_000) {
+  try {
+    await page.waitForFunction(
+      (text) => document.body.innerText.includes(text),
+      expected,
+      { timeout: timeoutMs },
+    );
+  } catch {
+    const bodyText = await page.locator("body").innerText();
+    throw new Error(
+      `${label}: expected visible text not found: ${expected}; page tail: ${bodyText.slice(-600)}`,
+    );
+  }
+}
+
+async function driveAgentPlanExhaustedAwaitingReason(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01PLANEXHAUST-${Date.now().toString(36)}`;
+  // 一条自然语言跨能力请求：读正文（prose）+ 调整大纲（plot_outline）+ 更新主角状态
+  // （character_evolution）。标记只用于 test-support 替身触发，不参与产品语义。
+  const initialText = `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${nonce}`;
+  const steerText =
+    `按已核对结果先出方案，继续推进：先给出章节大纲草案，保留你对已读正文的核对结论，${nonce}`;
+  const structuralWords = ["计划", "已完成", "目标产出尚未完成", "已核对", "下一步"];
+  const fallbackCopy = "任务正在等待你的回复或补充。";
+  const awaitingHint = "等待你的回复：在下方输入框补充方向后发送，任务才会继续。";
+  const awaitingPlaceholder = "在下方输入框回复或补充，发送后任务继续…";
+  // judgment_plan_v1 的只读目标集：context_assemble + 计划内检索步（无产出步）。
+  const readonlyTargets = [
+    "context_assemble",
+    "character_roster",
+    "prose_search",
+    "chapter_read",
+    "archive_read",
+    "memory_recall",
+  ];
+  const failureBubbleText = "操作失败，请重试。";
+  const screenshotPaths = {};
+
+  const work = await createWorkSeed({
+    title: `B23 Plan Exhausted Awaiting Reason ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: "验证判断循环只读计划耗尽后作者能看到结构化停等理由并补充恢复",
+    target_reader: "需要在任务停等时理解原因并补充方向的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the B23 plan-exhausted work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(initialText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "B23 plan-exhausted scenario did not send the cross-capability request",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "B23 plan-exhausted scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const judgmentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "judgment_decided",
+    "B23 plan-exhausted scenario did not broadcast judgment_decided",
+    60_000,
+  );
+  assert(
+    judgmentFrame.body?.payload?.action === "plan",
+    `judgment did not route the cross-capability request into a plan (action=${judgmentFrame.body?.payload?.action})`,
+  );
+
+  // 模型自产计划必须是「全只读」——这由 test-support 替身在 env 开启时按 prompt 文本
+  // 确定性给出，产品 runtime 不识别 slice/非验收语义。
+  const planDraftedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_drafted" &&
+      Array.isArray(frame.body?.payload?.plan_steps) &&
+      frame.body.payload.plan_steps.length > 0,
+    "B23 plan-exhausted scenario did not broadcast the drafted plan",
+    60_000,
+  );
+  const draftedPlanTargets = planDraftedFrame.body.payload.plan_steps.map(
+    (step) => step?.target_tool_ref,
+  );
+  const readonlyPlanOnly = draftedPlanTargets.every((target) => readonlyTargets.includes(target));
+  assert(
+    readonlyPlanOnly,
+    `drafted plan was not all-read-only (targets=${draftedPlanTargets.join(",")})`,
+  );
+
+  const awaitingEventFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "awaiting_author" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("plan_exhausted_without_completion"),
+    "B23 plan-exhausted scenario did not stop awaiting the author after the replan budget was exhausted",
+    180_000,
+  );
+
+  const awaitingStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "awaiting_author",
+    "B23 plan-exhausted scenario did not broadcast the awaiting_author run state",
+    60_000,
+  );
+  assert(
+    awaitingStateFrame.body?.profile_ref === "judgment_plan_v1",
+    `awaiting run was not executing judgment_plan_v1 (profile_ref=${awaitingStateFrame.body?.profile_ref})`,
+  );
+
+  // ① 页面可见结构化理由（不是兜底句、不是 provider 原文）。
+  const awaitingSummaryText = await waitForVisibleAwaitingReason(
+    page,
+    structuralWords,
+    "B23 plan-exhausted awaiting reason",
+    60_000,
+  );
+  const awaitingVisibleText = await page.locator("body").innerText();
+  const fallbackCopyAbsent = !awaitingVisibleText.includes(fallbackCopy);
+  assert(fallbackCopyAbsent, "awaiting_author page still showed the fallback copy sentence");
+  assert(
+    structuralWords.every((word) => awaitingSummaryText.includes(word)),
+    `awaiting summary did not carry all structural skeleton words: ${awaitingSummaryText}`,
+  );
+  for (const rawMarker of ["assistant_message", "provider_error", "raw_prompt", '{"']) {
+    assert(
+      !awaitingSummaryText.includes(rawMarker),
+      `awaiting summary exposed raw provider payload marker ${rawMarker}: ${awaitingSummaryText}`,
+    );
+  }
+  assert(
+    !awaitingVisibleText.includes(failureBubbleText),
+    "awaiting_author page showed the failure bubble 操作失败，请重试。",
+  );
+  // 页面活动行必须逐字呈现后端广播的停等理由（不是前端拼装/兜底句）。
+  const awaitingBroadcastSummary = normalizeVisibleText(awaitingEventFrame.body?.summary);
+  assert(
+    normalizeVisibleText(awaitingSummaryText) === awaitingBroadcastSummary,
+    `awaiting reason on page does not match the broadcast summary: page=${awaitingSummaryText}`,
+  );
+
+  // ② CP2：控制坞/主输入必须是「回复/补充」语义，而不是「确认」。
+  await waitForVisibleText(page, awaitingHint, "B23 awaiting_author required-input hint");
+  const awaitingPlaceholderBeforeReload = await visibleChatInputPlaceholder(page);
+  assert(
+    awaitingPlaceholderBeforeReload === awaitingPlaceholder,
+    `awaiting_author main input placeholder is not the canonical reply copy: ${awaitingPlaceholderBeforeReload}`,
+  );
+  screenshotPaths.awaitingReason = path.join(artifactDir, `${sliceId}-awaiting-reason.png`);
+  await page.screenshot({ path: screenshotPaths.awaitingReason, fullPage: true });
+
+  // ③ CP1：刷新后理由仍可见。纯只读耗尽停等不产 TurnResult，前端以 standalone 运行组
+  // events 补水恢复理由；这里只按可见文本断言，不依赖新的网络帧/后端字段。
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.waitForFunction(
+    () => /服务: 已连接|同步已连接/.test(document.body.innerText),
+    null,
+    { timeout: 60_000 },
+  );
+  const reloadedSummaryText = await waitForVisibleAwaitingReason(
+    page,
+    structuralWords,
+    "B23 plan-exhausted awaiting reason after reload",
+    60_000,
+  );
+  const reloadedVisibleText = await page.locator("body").innerText();
+  const afterReloadReasonVisible = structuralWords.every((word) =>
+    reloadedSummaryText.includes(word),
+  );
+  const reloadedFallbackAbsent = !reloadedVisibleText.includes(fallbackCopy);
+  assert(afterReloadReasonVisible, "structural awaiting reason disappeared after reload");
+  assert(reloadedFallbackAbsent, "awaiting_author fallback copy returned after reload");
+  assert(
+    normalizeVisibleText(reloadedSummaryText) === awaitingBroadcastSummary,
+    `reloaded awaiting reason does not match the persisted broadcast summary: ${reloadedSummaryText}`,
+  );
+  const reloadedPlaceholder = await visibleChatInputPlaceholder(page);
+  const placeholderReplySemantics = reloadedPlaceholder.includes("回复或补充");
+  const awaitingHintReplySemantics = reloadedVisibleText.includes(awaitingHint);
+  assert(
+    placeholderReplySemantics,
+    `awaiting_author placeholder after reload is not reply semantics: ${reloadedPlaceholder}`,
+  );
+  assert(
+    awaitingHintReplySemantics,
+    "awaiting_author required-input hint (reply semantics) is not visible after reload",
+  );
+  screenshotPaths.afterReload = path.join(artifactDir, `${sliceId}-after-reload.png`);
+  await page.screenshot({ path: screenshotPaths.afterReload, fullPage: true });
+
+  // ④ 作者用同一主输入补充并发送 → 同一 run 恢复完成，不新建 run/user_message。
+  const steerFrameStart = frames.length;
+  await page.locator(agentRunSteerInputSelector).fill(steerText);
+  await page.getByRole("button", { name: /^发送调整$/ }).click();
+
+  const commandFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === "steer" &&
+      frame.body?.text === steerText,
+    "B23 plan-exhausted steer was not sent as agent_command bound to the awaiting run",
+    30_000,
+  );
+
+  const commandAckFrame = await waitForNewFrame(
+    frames.indexOf(commandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.run_id === runId &&
+      frame.body?.response?.command === "steer",
+    "B23 plan-exhausted steer did not ack for the same run_id",
+    30_000,
+  );
+
+  const planAdjustedFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_adjusted",
+    "B23 plan-exhausted steer did not broadcast plan_adjusted",
+    60_000,
+  );
+
+  const runResumedFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_resumed" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("resume_after_steer"),
+    "B23 plan-exhausted steer did not resume the same AgentRun",
+    60_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed",
+    "B23 plan-exhausted resumed AgentRun did not complete",
+    240_000,
+  );
+
+  const finalTurnResultFrame = await waitForNewFrame(
+    steerFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.status === "completed",
+    "B23 plan-exhausted resumed AgentRun did not broadcast its final TurnResult",
+    60_000,
+  );
+  screenshotPaths.resumedCompleted = path.join(artifactDir, `${sliceId}-resumed-completed.png`);
+  await page.screenshot({ path: screenshotPaths.resumedCompleted, fullPage: true });
+
+  await sleep(750);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const steerBudgetGrantLog = readAppLogRecords().find(
+    (record) =>
+      record.run_id === runId &&
+      JSON.stringify(record).includes("steer_budget_granted"),
+  );
+
+  const runIdsSeen = new Set(
+    frames
+      .slice(frameStart)
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_run_state" &&
+          typeof frame.body?.run_id === "string",
+      )
+      .map((frame) => frame.body.run_id),
+  );
+  const userMessageFramesForRequest = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "").includes(nonce),
+    );
+  // 交付核对重传（delivery reconciliation）会以同一个 turn_id 重发未确认的原始
+  // 作者消息（server 端 `received_user_run` 幂等，同 turn / 同 run）。CP5 要证的是
+  // 「补充没有变成第二次作者回合/第二个 run」，因此按 distinct turn_id 计数，并
+  // 显式断言补充文本没有被当作 user_message 发出。
+  const userMessageTurnIds = new Set(
+    userMessageFramesForRequest
+      .map((frame) => frame.body?.turn_id)
+      .filter((turnId) => typeof turnId === "string" && turnId !== ""),
+  );
+  const steerSentAsUserMessage = userMessageFramesForRequest.some((frame) =>
+    String(frame.body?.text ?? "").includes("按已核对结果先出方案"),
+  );
+  const noNewRun = runIdsSeen.size === 1 && runIdsSeen.has(runId);
+  assert(
+    noNewRun,
+    `steering created or referenced another AgentRun: ${[...runIdsSeen].join(",")}`,
+  );
+  assert(
+    userMessageTurnIds.size === 1,
+    `steering produced a second author turn instead of agent_command (turns=${[...userMessageTurnIds].join(",")})`,
+  );
+  assert(
+    !steerSentAsUserMessage,
+    "the author supplement was sent as a plain user_message instead of agent_command steer",
+  );
+  assert(
+    commandAckFrame.body?.response?.run_id === runId,
+    "steer ack was not bound to the same run_id",
+  );
+
+  const turnIds = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId,
+    )
+    .map((frame) => frame.body?.turn_id)
+    .filter((turnId) => typeof turnId === "string");
+  const parentTurnId = parentUserMessageLog?.turn_id ?? null;
+  const resumedVisibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentTurnId ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: sliceId,
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: work.title,
+      parent_turn_id: parentTurnId,
+      turn_ids: Array.from(new Set([parentTurnId, ...turnIds].filter(Boolean))),
+      run_id: runId,
+      resumed_run_id: completedStateFrame.body?.run_id ?? null,
+      run_mode: ackFrame.body.response.run_mode,
+      judgment_action: judgmentFrame.body?.payload?.action,
+      plan_drafted_targets: draftedPlanTargets,
+      readonly_plan_only: readonlyPlanOnly,
+      awaiting_reason_codes: awaitingEventFrame.body?.reason_codes ?? [],
+      awaiting_event_summary: awaitingEventFrame.body?.summary ?? null,
+      awaiting_reason_matches_broadcast:
+        normalizeVisibleText(awaitingSummaryText) === awaitingBroadcastSummary,
+      reloaded_reason_matches_broadcast:
+        normalizeVisibleText(reloadedSummaryText) === awaitingBroadcastSummary,
+      awaiting_summary_text: awaitingSummaryText,
+      awaited_summary_visible: awaitingSummaryText !== "",
+      fallback_copy_absent: fallbackCopyAbsent,
+      structural_summary_visible: structuralWords.every((word) =>
+        awaitingVisibleText.includes(word),
+      ),
+      after_reload_reason_visible: afterReloadReasonVisible,
+      reloaded_awaiting_summary_text: reloadedSummaryText,
+      awaiting_hint_reply_semantics: awaitingHintReplySemantics,
+      placeholder_reply_semantics: placeholderReplySemantics,
+      awaiting_placeholder_text: reloadedPlaceholder,
+      awaiting_placeholder_before_reload: awaitingPlaceholderBeforeReload,
+      generic_awaiting_copy_visible:
+        awaitingVisibleText.includes(fallbackCopy) || reloadedVisibleText.includes(fallbackCopy),
+      steer_text: steerText,
+      steer_sent: true,
+      steer_command_bound_to_active_run: commandFrame.body?.run_id === runId,
+      steer_ack_same_run: commandAckFrame.body?.response?.run_id === runId,
+      plan_adjusted_event_type: planAdjustedFrame.body?.event_type,
+      run_resumed_event_type: runResumedFrame.body?.event_type,
+      run_resumed_reason_codes: runResumedFrame.body?.reason_codes ?? [],
+      steer_budget_granted: Boolean(steerBudgetGrantLog),
+      resume_same_run:
+        completedStateFrame.body?.run_id === runId &&
+        (runResumedFrame.body?.reason_codes ?? []).includes("resume_after_steer"),
+      final_status: completedStateFrame.body?.status,
+      final_turn_result_id: finalTurnResultFrame.body?.turn_id,
+      no_new_run: noNewRun,
+      user_message_count: userMessageTurnIds.size,
+      user_message_frame_count: userMessageFramesForRequest.length,
+      steer_sent_as_user_message: steerSentAsUserMessage,
+      resumed_visible_text_sample: resumedVisibleText.slice(0, 240),
+      screenshot_awaiting_reason: screenshotPaths.awaitingReason,
+      screenshot_after_reload: screenshotPaths.afterReload,
+      screenshot_resumed_completed: screenshotPaths.resumedCompleted,
+      evidence_ui_frames: path.join(artifactDir, "ui-frames.json"),
+      evidence_ui_state: path.join(artifactDir, "ui-state.json"),
+      evidence_app_jsonl: path.join(artifactDir, "app-log", `${localDateString()}.jsonl`),
+      outcome: "done",
+    },
+  ];
 }
 
 async function driveAgentLoopBudgetLimit(page) {
@@ -31558,7 +32186,7 @@ async function driveAgentLoopBudgetLimit(page) {
       remaining_steps: awaitingState.body?.remaining_steps,
       character_design_executed: characterDesignExecuted,
       final_turn_result_arrived: finalTurnResultArrived,
-      budget_stop_visible: visibleText.includes("预算上限") || visibleText.includes("等待你确认"),
+      budget_stop_visible: visibleText.includes("预算上限") || visibleText.includes("等待你回复"),
       user_message_text: sentFrame.body?.text,
     },
   ];
@@ -31731,7 +32359,7 @@ async function driveAgentNoProgressStop(page) {
       character_design_executed: anyToolExecuted,
       final_turn_result_arrived: finalTurnResultArrived,
       no_progress_stop_visible:
-        visibleText.includes("未取得新进展") || visibleText.includes("等待你确认"),
+        visibleText.includes("未取得新进展") || visibleText.includes("等待你回复"),
       user_message_text: sentFrame.body?.text,
     },
   ];
@@ -32102,7 +32730,7 @@ async function driveB17WriterTimeoutSteer(page) {
     "B17: control dock did not show the scoped retry hint",
   );
   assert(
-    !visibleBeforeRetry.includes("任务正在等待你的确认"),
+    !visibleBeforeRetry.includes("任务正在等待你的回复或补充"),
     "B17: generic awaiting copy still overrides the real writer timeout reason",
   );
 
@@ -32247,6 +32875,7 @@ const drivers = {
   "agent-awaiting-author-input-required": driveAgentAwaitingAuthorInputRequired,
   "agent-bounded-refresh-live-resume": driveAgentBoundedRefreshLiveResume,
   "agent-dead-bounded-run-expiry": driveAgentDeadBoundedRunExpiry,
+  "agent-plan-exhausted-awaiting-reason": driveAgentPlanExhaustedAwaitingReason,
   "agent-loop-budget-limit": driveAgentLoopBudgetLimit,
   "agent-no-progress-stop": driveAgentNoProgressStop,
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,

@@ -26,7 +26,7 @@ user_flow:
   - open: real Tauri workbench
   - send: an ambiguous request that requires an expansion direction
   - wait_for: awaiting_author state, TurnResult, and the required-input control dock
-  - verify: no bare 继续 action, the required-input hint, the awaiting placeholder, and a disabled empty 发送调整
+  - verify: no bare 继续 action, the reply-semantics required-input hint, the reply/补充 placeholder, and a disabled empty 发送调整
   - send: a concrete expansion direction through "发送调整"
   - wait_for: plan_adjusted and run_resumed (resume_after_steer) for the same run_id
   - wait_for: completed state and the final TurnResult for the same run_id
@@ -44,7 +44,9 @@ evidence:
 assertions:
   ui:
     - awaiting_author dock shows the required-input hint instead of a bare 继续 action
-    - main input carries the awaiting placeholder 输入具体补充后发送，任务将按新方向继续…
+    - the required-input hint reads 等待你的回复：在下方输入框补充方向后发送，任务才会继续。
+    - main input carries the awaiting placeholder 在下方输入框回复或补充，发送后任务继续…
+    - the awaiting status label reads 等待你回复 and the badge reads 1 个任务等待回复
     - empty input keeps the 发送调整 action disabled
     - reloaded transcript shows the steer message exactly once and no 操作失败，请重试。
   network:

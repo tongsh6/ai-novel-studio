@@ -173,6 +173,7 @@ Implemented external UI driver slice ids:
   agent-dead-bounded-run-expiry
   agent-loop-budget-limit
   agent-no-progress-stop
+  agent-plan-exhausted-awaiting-reason
   agent-archive-read-during-run
   agent-tentative-boundary
   agent-revision-orchestrator-boundary
@@ -323,6 +324,7 @@ is_ua01_acceptance_alias() {
       agent-dead-bounded-run-expiry | \
       agent-loop-budget-limit | \
       agent-no-progress-stop | \
+      agent-plan-exhausted-awaiting-reason | \
       agent-archive-read-during-run | \
       agent-tentative-boundary | \
       agent-revision-orchestrator-boundary | \
@@ -908,6 +910,9 @@ native_action_description() {
       ;;
     agent-no-progress-stop)
       echo "send a repeated roster-read AgentRun request -> verify two readonly roster steps then awaiting_author no_progress without provider or character_design call"
+      ;;
+    agent-plan-exhausted-awaiting-reason)
+      echo "send a complex cross-capability request -> verify judgment_plan_v1 drafts an all-read-only plan, exhausts the replan budget into awaiting_author with a structural reason (plan/completed/unmet goal/checked steps/next step) -> reload keeps the reason -> reply-semantics hint/placeholder -> author supplement steers the same run to completion without a new run"
       ;;
     agent-archive-read-during-run)
       echo "send a slow bounded AgentRun from the real workbench -> open the work archive before final TurnResult -> verify the archive snapshot remains readable and read-only"
@@ -1786,6 +1791,7 @@ case "$SLICE_ID" in
     agent-dead-bounded-run-expiry | \
     agent-loop-budget-limit | \
     agent-no-progress-stop | \
+    agent-plan-exhausted-awaiting-reason | \
     agent-archive-read-during-run | \
     agent-work-isolation | \
     agent-tentative-boundary | \
@@ -2020,6 +2026,7 @@ MIX_ENV=test \
   SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" || "$SLICE_ID" == "su01-local-secret-file-roundtrip" ]] && echo 1 || echo 0)" \
   SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" || "$SLICE_ID" == "su01-provider-test-failure-ui" ]] && echo 1 || echo 0)" \
   SLICE_VERIFY_WRITER_TIMEOUT="$([[ "$SLICE_ID" == "b17-writer-timeout-steer" ]] && echo 1 || echo 0)" \
+  SLICE_VERIFY_PLAN_EXHAUST="$([[ "$SLICE_ID" == "agent-plan-exhausted-awaiting-reason" ]] && echo 1 || echo 0)" \
   NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
   AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &

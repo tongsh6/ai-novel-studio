@@ -3,6 +3,8 @@ defmodule NovelApplication.AgentRunService do
   Public application entrypoint for bounded AgentRun runtime.
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelApplication.AgentRunServer
   alias NovelApplication.TurnInteractionService
   alias NovelCommon.Contracts.AgentEvent
@@ -11,6 +13,7 @@ defmodule NovelApplication.AgentRunService do
   alias NovelPersistence.{AgentRunLog, InteractionLifecycle, LongRunTaskLog}
 
   @checkpoint_version 2
+  @runtime_lost_failure_ref "runtime_lost_on_restart"
 
   @type step_fun :: AgentRunServer.step_fun()
   @type next_step_planner :: AgentRunServer.next_step_planner()
@@ -192,9 +195,14 @@ defmodule NovelApplication.AgentRunService do
   end
 
   @doc """
-  列出 join 时已失活的 bounded run（DS03）：持久层仍是非终态、但 runtime Registry
-  已无进程。bounded 无 checkpoint replay 契约，不重建进程，只产出只读快照供
-  channel 以 runtime_live: false 明示失效——历史 TurnResult 不得再授予命令权限。
+  B23 CP4：首次 join 的惰性死 run 收口。持久层仍是非终态、但 runtime Registry
+  已无进程的 bounded run，在同一 run 上一次性收口为 `failed`
+  （`failure_ref = "runtime_lost_on_restart"`），保留历史记录可查；本次 join 仍
+  返回失效快照（`runtime_live: false`、收口后状态），channel 据此诚实广播一次。
+  bounded 无 checkpoint replay 契约，不重建进程。
+
+  第二次 join 时该 run 已是终态，不再命中、不再广播。durable run 不在
+  `AgentRunLog.list_active_bounded/2` 的查询范围内，恢复路径零改动。
   """
   @spec list_dead_bounded(String.t(), String.t()) :: {:ok, [map()]}
   def list_dead_bounded(work_id, session_id)
@@ -202,28 +210,84 @@ defmodule NovelApplication.AgentRunService do
     states =
       work_id
       |> AgentRunLog.list_active_bounded(session_id)
-      |> Enum.flat_map(fn record ->
-        with {:error, :not_found} <- lookup(record.id),
-             {:ok, run} <- run_from_record(record) do
-          [
-            %{
-              run: run,
-              remaining_steps: 0,
-              current_task?: false,
-              recovered?: false,
-              runtime_live?: false
-            }
-          ]
-        else
-          _ -> []
-        end
-      end)
+      |> Enum.flat_map(&reap_dead_bounded/1)
 
     {:ok, states}
   rescue
     _error -> {:ok, []}
   catch
     _kind, _reason -> {:ok, []}
+  end
+
+  # 条件更新保证并发 join 至多一方收口成功：成功方产生失效快照与留痕，
+  # 其余方看到 :already_terminal 后不再重复广播。
+  defp reap_dead_bounded(record) do
+    with {:error, :not_found} <- lookup(record.id),
+         {:ok, closed_record} <-
+           AgentRunLog.mark_runtime_lost(record.id, @runtime_lost_failure_ref),
+         {:ok, run} <- run_from_record(closed_record) do
+      emit_runtime_lost_trace(closed_record, record.status)
+
+      [
+        %{
+          run: run,
+          remaining_steps: 0,
+          current_task?: false,
+          recovered?: false,
+          runtime_live?: false
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  # developer 留痕走既有两条通道（二者都保留）：
+  # ① AgentEvent visibility: :developer——持久层可查、进 run 事件序列，但不进作者
+  #    活动轨迹（author_visible? == false）；
+  # ② LogEmit app JSONL `agent_run.runtime_lost.done`——外部验收/grep 可检索。
+  # payload 只放结构事实（run_id / previous_status / failure_ref / run_mode），
+  # 不含 provider 原文。
+  defp emit_runtime_lost_trace(record, previous_status) do
+    payload = %{
+      run_id: record.id,
+      previous_status: previous_status,
+      failure_ref: @runtime_lost_failure_ref,
+      run_mode: record.run_mode,
+      status: record.status,
+      work_id: record.work_id,
+      session_id: record.session_id
+    }
+
+    sequence = next_event_sequence(record.id)
+
+    with {:ok, event} <-
+           AgentEvent.new(%{
+             event_id: "evt_#{record.id}_runtime_lost_#{sequence}",
+             run_ref: record.id,
+             step_ref: record.current_step_ref,
+             sequence: sequence,
+             event_type: :run_failed,
+             visibility: :developer,
+             summary: "后端重启后 runtime 已不存在，bounded run 已收口为 failed（历史记录保留可查）。",
+             reason_codes: ["runtime_lost_on_restart", "agent_run_runtime_lost"],
+             refs: [record.id],
+             payload: payload,
+             emitted_at: DateTime.utc_now()
+           }) do
+      _ = AgentRunLog.insert_event(event_attrs(event))
+    end
+
+    LogEmit.emit(:agent_run, :runtime_lost, :done, payload)
+
+    :ok
+  end
+
+  defp next_event_sequence(run_id) do
+    run_id
+    |> AgentRunLog.list_events()
+    |> Enum.reduce(0, fn event, acc -> max(acc, event.sequence || 0) end)
+    |> Kernel.+(1)
   end
 
   @spec attach_event_sink(String.t(), function() | nil) :: :ok | {:error, :not_found}

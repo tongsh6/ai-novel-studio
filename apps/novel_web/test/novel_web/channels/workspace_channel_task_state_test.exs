@@ -344,9 +344,11 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     )
   end
 
-  # DS03：bounded runtime 已死时，join 必须广播 runtime_live: false 的只读快照
-  # 明示失效；历史非终态记录不得授予实时命令权限（resume 一律 not_found）。
-  test "join broadcasts runtime_live false for dead bounded runs and refuses commands" do
+  # DS03 + B23 CP4：bounded runtime 已死时，首次 join 必须**一次性收口**为
+  # failed(runtime_lost_on_restart) 并广播 runtime_live: false 的只读快照明示失效；
+  # 第二次 join 不再命中/重复广播；历史记录不得授予实时命令权限（resume 一律
+  # not_found）。bounded 无 checkpoint replay 契约，不重建进程。
+  test "join reaps a dead bounded run once, broadcasts runtime_live false, and refuses commands" do
     {:ok, work} = WorkService.create(%{"title" => "失活任务作品"})
     {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
     run_id = "run-dead-bounded-#{System.unique_integer([:positive, :monotonic])}"
@@ -399,12 +401,32 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
       %{
         run_id: ^run_id,
         run_mode: "bounded",
-        status: "awaiting_author",
+        status: "failed",
         recovered: false,
         runtime_live: false
       },
       1_000
     )
+
+    # CP4 收口后持久层与 UI 一致：failed + failure_ref 可查。
+    reaped = AgentRunLog.get_run(run_id)
+    assert reaped.status == "failed"
+    assert reaped.failure_ref == "runtime_lost_on_restart"
+
+    # 收口是幂等的：第二次 join 不再返回该 run，也不重复广播。
+    {:ok, _, _second_socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    refute_receive %Phoenix.Socket.Broadcast{
+                     event: "agent_run_state",
+                     payload: %{run_id: ^run_id}
+                   },
+                   300
 
     ref = push(socket, "agent_command", %{"run_id" => run_id, "command" => "resume"})
     assert_reply(ref, :error, %{reason: "not_found"})

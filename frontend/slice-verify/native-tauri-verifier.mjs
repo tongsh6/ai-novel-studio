@@ -265,6 +265,7 @@ export const nativeSliceIds = [
   "au12-profile-read-failure-degrade",
   "au12-correction-intent-roundtrip",
   "vs10-observability-spine",
+  "agent-plan-exhausted-awaiting-reason",
 ];
 
 const sliceKeyEvents = {
@@ -1547,6 +1548,13 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // B23：判断循环计划耗尽停等——首个 turn 进 awaiting_author，作者 steer 后同一 run 恢复。
+  "agent-plan-exhausted-awaiting-reason": [
+    "channel.join.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au07-behavior-trace-terminal-replay": [
     "channel.user_message.done",
     "channel.author_action.start",
@@ -2011,6 +2019,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "b17-writer-timeout-steer") {
     return findB17WriterTimeoutSteerEvidence(records);
+  }
+
+  if (sliceId === "agent-plan-exhausted-awaiting-reason") {
+    return findB23PlanExhaustedAwaitingReasonEvidence(records);
   }
 
   if (sliceId === "au07-behavior-trace-terminal-replay") {
@@ -2773,6 +2785,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "b17-writer-timeout-steer") {
     return b17WriterTimeoutSteerBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "agent-plan-exhausted-awaiting-reason") {
+    return b23PlanExhaustedAwaitingReasonBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-behavior-trace-terminal-replay") {
@@ -9278,7 +9294,11 @@ function findDs03DeadBoundedRunExpiryEvidence(records) {
       record.new_run_id !== "" &&
       record.new_run_id !== record.run_id &&
       record.new_run_differs_from_dead_run === true &&
-      record.no_agent_command_to_dead_run === true,
+      record.no_agent_command_to_dead_run === true &&
+      Number(record.dead_state_broadcast_count ?? -1) === 1 &&
+      Number(record.expired_log_count ?? -1) === 1 &&
+      record.second_join_no_repeat === true &&
+      record.dead_state_status === "failed",
   );
   if (!uiState) return null;
 
@@ -9294,10 +9314,10 @@ function findDs03DeadBoundedRunExpiryEvidence(records) {
   );
   if (!parentAck) return null;
 
-  const expiredLogged = records.some(
+  const expiredLogCount = records.filter(
     (record) => record.event === "channel.agent_run_expired.done" && record.run_id === runId,
-  );
-  if (!expiredLogged) return null;
+  ).length;
+  if (expiredLogCount !== 1) return null;
 
   return {
     slice_id: sliceId,
@@ -9307,6 +9327,12 @@ function findDs03DeadBoundedRunExpiryEvidence(records) {
     run_id: runId,
     new_run_id: uiState.new_run_id,
     dead_state_runtime_live: boolValue(uiState.dead_state_runtime_live),
+    dead_state_status: uiState.dead_state_status,
+    dead_state_broadcast_count: Number(uiState.dead_state_broadcast_count),
+    expired_log_count: Number(uiState.expired_log_count),
+    expired_log_count_in_app_log: expiredLogCount,
+    second_join_no_repeat: uiState.second_join_no_repeat === true,
+    dead_run_failure_ref: uiState.dead_run_failure_ref ?? null,
     key_events: keyEvents,
   };
 }
@@ -9333,6 +9359,10 @@ function ds03DeadBoundedRunExpiryBehavior(turnIds, records, evidence) {
   if (uiState.send_label_is_normal_send !== true) return null;
   if (uiState.new_run_differs_from_dead_run !== true) return null;
   if (uiState.no_agent_command_to_dead_run !== true) return null;
+  if (Number(uiState.dead_state_broadcast_count ?? -1) !== 1) return null;
+  if (Number(uiState.expired_log_count ?? -1) !== 1) return null;
+  if (uiState.second_join_no_repeat !== true) return null;
+  if (uiState.dead_state_status !== "failed") return null;
 
   return {
     slice_id: sliceId,
@@ -9351,6 +9381,9 @@ function ds03DeadBoundedRunExpiryBehavior(turnIds, records, evidence) {
       "composer_fell_back_to_the_plain_send_action",
       "restart_went_through_a_plain_user_message_into_a_new_run_id",
       "no_agent_command_targeted_the_dead_run_after_reload",
+      "dead_run_was_persisted_as_failed_terminal_state_on_first_reaping",
+      "dead_run_expiry_broadcast_and_log_happened_exactly_once",
+      "second_join_did_not_rebroadcast_the_reaped_dead_run",
     ],
   };
 }
@@ -12391,6 +12424,109 @@ function findAu10WorkbenchMatrixLayoutEvidence(records) {
     viewport_height: uiState.viewport_height,
     matrix_phases: uiState.matrix_phases,
     key_events: keyEvents,
+  };
+}
+
+// ── B23：计划耗尽停等时理由不丢、出口与文案一致、同一 run 可恢复 ──
+function findB23PlanExhaustedAwaitingReasonEvidence(records) {
+  const sliceId = "agent-plan-exhausted-awaiting-reason";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      typeof record.run_id === "string" &&
+      record.run_id !== "" &&
+      Array.isArray(record.awaiting_reason_codes) &&
+      record.awaiting_reason_codes.includes("plan_exhausted_without_completion") &&
+      typeof record.awaiting_summary_text === "string" &&
+      record.awaiting_summary_text.includes("计划") &&
+      record.awaiting_summary_text.includes("已完成") &&
+      record.awaiting_summary_text.includes("目标产出尚未完成") &&
+      record.awaiting_summary_text.includes("已核对") &&
+      record.awaiting_summary_text.includes("下一步") &&
+      record.fallback_copy_absent === true &&
+      record.structural_summary_visible === true &&
+      record.after_reload_reason_visible === true &&
+      record.awaiting_hint_reply_semantics === true &&
+      record.placeholder_reply_semantics === true &&
+      record.steer_sent === true &&
+      record.resume_same_run === true &&
+      record.no_new_run === true &&
+      record.final_status === "completed",
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  const turnIds = (uiState.turn_ids ?? [parentTurnId]).filter(Boolean);
+  if (!turnIds.includes(parentTurnId)) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: turnIds,
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    resumed_run_id: uiState.resumed_run_id ?? runId,
+    awaiting_reason_codes: uiState.awaiting_reason_codes,
+    awaiting_summary_text: uiState.awaiting_summary_text,
+    after_reload_reason_visible: true,
+    steer_text: uiState.steer_text ?? null,
+    final_status: uiState.final_status,
+    key_events: keyEvents,
+  };
+}
+
+function b23PlanExhaustedAwaitingReasonBehavior(records, evidence, _options) {
+  const sliceId = "agent-plan-exhausted-awaiting-reason";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.fallback_copy_absent !== true) return null;
+  if (uiState.structural_summary_visible !== true) return null;
+  if (uiState.after_reload_reason_visible !== true) return null;
+  if (uiState.awaiting_hint_reply_semantics !== true) return null;
+  if (uiState.placeholder_reply_semantics !== true) return null;
+  if (uiState.generic_awaiting_copy_visible === true) return null;
+  if (uiState.steer_sent !== true) return null;
+  if (uiState.resume_same_run !== true) return null;
+  if (uiState.no_new_run !== true) return null;
+  if (uiState.final_status !== "completed") return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "plan_exhausted_awaiting_reason_visible_and_author_reply_resumes_same_run",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    resumed_run_id: evidence.resumed_run_id,
+    awaiting_reason_codes: evidence.awaiting_reason_codes,
+    awaiting_summary_text: evidence.awaiting_summary_text,
+    assertions: [
+      "judgment_plan_exhausted_bounded_run_stopped_at_awaiting_author",
+      "author_visible_activity_line_showed_structural_reason_not_generic_waiting_copy",
+      "reason_carried_completed_step_facts_and_next_step_skeleton_words",
+      "reason_remained_visible_after_page_reload",
+      "control_dock_and_main_input_used_reply_or_supplement_semantics",
+      "author_reply_was_sent_as_explicit_steer_not_second_user_message",
+      "same_run_resumed_and_completed_without_a_new_agent_run",
+      "no_provider_raw_payload_appeared_in_the_visible_reason",
+    ],
   };
 }
 

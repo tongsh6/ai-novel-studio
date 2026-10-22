@@ -422,7 +422,7 @@ Longest Closed Prefix：J1-J5 是最小真实入口闭环；J8 是 AU-10 baselin
 
 Current Breakpoint：J10/AU10-workbench-recovery-disconnect-timeout CP3B 已闭环，2026-10-22 晚间作者定向 B23（停等作者理由与出口可见）已登记并开工，当前队首回到 Journey J。`WorkspaceChat` 已是唯一生产工作台入口，`au10-workbench-matrix-layout` 已覆盖 1280×800 baseline，`AU10-workbench-recovery-taskstate` 已覆盖真实导出动作的 task_state 可见生命周期，`au10-workbench-recovery-disconnect-timeout` CP1 已覆盖 provider failure 后 no-write、loading 清除和恢复后继续下一轮；CP2 已覆盖后端服务断开/重启后的同步离线、输入禁用、自动 rejoin 与下一轮继续；CP3A 已覆盖高风险工具 confirmation 取消等待后的 cancelled action_result / TurnResult、no-write、按钮清除和下一轮继续；CP3B 已覆盖真实 provider receive timeout 后 no-write fallback、loading 清除和恢复后继续下一轮。完整异步 LongRunner 因缺真实生产消费者延后。
 
-Next Proof：2026-10-22 晚间 B23 = 停等作者时理由与出口可见（作者 stage 定向插单）：CP1 activity 补水按 run 命中 → CP2 文案族「回复/补充」并使用真实出口 → CP3 计划耗尽 summary 结构事实 → CP4 启动期死 bounded run 一次性收口 → CP5 新真实 Tauri `agent-plan-exhausted-awaiting-reason`（理由可见→刷新仍可见→输入框回复语义→打字补充恢复同一 run）。
+Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhausted-awaiting-reason` PASS：结构化停等理由可见→刷新仍可见→回复语义→同一 run 补充恢复 completed；`agent-dead-bounded-run-expiry` 证明死 bounded run 首 join 一次性收口 failed 且第二 join 零重复）。除 B23 外，Journey J 后续是完整异步 LongRunner streaming 和恢复后继续操作的一条综合 walkthrough，但必须先出现真实批量生成/推演消费者；短期队首恢复 `MAINLINE-RESET-3` 等待作者拍板。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -445,7 +445,8 @@ Next Proof：2026-10-22 晚间 B23 = 停等作者时理由与出口可见（作�
 | J17 | 卷结构与卷级蓝图（B11① 大周期） | B11A-VOLUME-BLUEPRINT / VS-00J / ADR-0028 | volumes.blueprint / plot_outline 卷蓝图块 / 开新卷 plan_next_volume / 卷级收束 | **done（2026-10-22，真实 Tauri au08 三轮扩展 PASS）** | CP0–CP5 全落：E14-E17 蓝图结构化与采纳物化、卷身份/状态修复、TOC/档案可见、planner/prose/坐标/探索面消费、卷级收束守则、R10/R11 负债规则、开新卷机械 scope→scoped 候选→采纳→三卷 TOC 5/7/3（章 seq 1..15、前两卷不变）；证据 `artifacts/slice-verify/au08-volume-structured-planning-tauri/summary.json` | `tasks/slices/B11A-volume-blueprint.md`；`docs/design/contracts/VS-00J-...`；`bash scripts/tauri_slice_verify.sh au08-volume-structured-planning`；`mix run scripts/adr_trace.exs` | 长尾（R10/R11 真实触发、design_ref 接线、卷蓝图编辑/工作台当前卷 UI、45 §4.2 完整流）登记 ADR-0028 gaps；NEM-GAP-07 关闭、B11 销账。 |
 | J18 | 三项收口后的主线复位选择 | MAINLINE-RESET-2 | tasks/NEXT 队列 | **done（2026-10-22，作者拍板本批顺序）** | B13a ADR 追溯门禁、B11③ 场级 craft、B11① 卷结构（CP0–CP5）均已完成并有真实页面/门禁证据；作者拍板本批 = 工程基线清账 + B21 → B13b（见 J19） | `tasks/NEXT.md` MAINLINE-RESET-2；`reports/gap-ledger/latest.json` | 选择入档；B13b 转出的候选与 B 轨项见 J19。 |
 | J19 | 基线清账 + B21 + B13b 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | **superseded（2026-10-22 晚间作者定向 B23 插单；主选择项转入 J20）** | 2026-10-22 工程基线清账（门禁全绿）、B21 首次 append 场名误标（真实 Tauri PASS）、B13b 22 份 ADR/47 条 gaps 全部裁决落档；不预先开工 | `tasks/NEXT.md` MAINLINE-RESET-3；`tasks/slices/B13B-adr-enforcement-reconciliation.md`；`reports/gap-ledger/latest.json` | 候选：B13b 转出的 11 个独立 slice（工作台当前卷 UI、R10/R11 正触发验收等）、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7；等待作者拍板。 |
-| J20 | 停等作者时「为什么停、怎么继续」可见（B23） | B23-AWAITING-AUTHOR-REASON / DS03 / 46§9 | AgentRun awaiting_author summary / ProviderActivity 补水键 / control dock / copy | next（2026-10-22 晚间作者定向插单，开工中） | 侦察 F1–F5 五项叠加（兜底文案 / 子 turn 补水 0 命中 / 回灌剥事件 / 停等无出口 / 死 run 重复广播）；四条不变量 + CP5 真实页面场景，见 slice | `tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`；`tasks/NEXT.md` B23-AWAITING-AUTHOR-REASON；`bash scripts/slice_verify.sh agent-plan-exhausted-awaiting-reason` | 三项待拍板已默认拍板；plan 耗尽结构事实 / 死 run 收口 / 真实页面场景待闭环。 |
+| J20 | 停等作者时「为什么停、怎么继续」可见（B23） | B23-AWAITING-AUTHOR-REASON / DS03 / 46§9 | AgentRun awaiting_author summary / ProviderActivity 补水键 / control dock / copy | **done（2026-10-23，新场景 + 五回归真实 Tauri PASS）** | CP1 补水按 run 命中 + standalone run 刷新补水；CP2 回复/补充文案族；CP3 计划耗尽结构事实；CP4 首次 join 惰性收口 failed + 过期坞；CP5 新场景 `agent-plan-exhausted-awaiting-reason` PASS（理由可见→刷新仍可见→回复语义→同 run 恢复 completed）；回归 awaiting×2 / dead-run / writer-timeout / no-progress PASS；证据 `artifacts/slice-verify/agent-plan-exhausted-awaiting-reason-tauri/summary.json`、`agent-dead-bounded-run-expiry-tauri/summary.json` | `tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`；`tasks/NEXT.md` B23 行；后端 1,816/0、前端 562/0、credo/dialyzer/format/enum/arch/xref/adr_trace/quality manifest 全绿；I1/I2/I3/N-NARR/I-CACHE-1 全绿；静态扫描 0 blocking | 判断循环「先问再做」调参、全只读计划规划层约束、run 级预算归 UA01/后续；reload 交付核对重传同 turn_id 属 server 幂等语义。 |
+| J21 | B23 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | next（2026-10-23 起等待作者拍板） | B23 已完成（新场景 + 五回归真实 Tauri PASS），队首恢复主线复位；候选见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 与 NEXT 队列 | `tasks/NEXT.md` MAINLINE-RESET-3；`reports/gap-ledger/latest.json` | 等待作者明确下一项 id/轨/slice/验收口径；不预先开工。 |
 
 ---
 
@@ -497,18 +498,18 @@ Next Task: AU10-file-level-audit
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: B23 停等作者理由与出口可见（2026-10-22 作者定向插单，开工中）
+Current Focus: B23 收口后的下一项主线选择（等待作者拍板；无队列挂靠不开工）
 Active Journey: Journey J（工作台体验）
-Queue head: B23-AWAITING-AUTHOR-REASON
+Queue head: MAINLINE-RESET-3
 ```
 
 本文对应位置：
 
 ```text
 Journey J / 工作台体验
-Step: J20 / B23-AWAITING-AUTHOR-REASON
-Status: next（2026-10-22 晚间作者定向插单，开工中）
-Gap / Next: F1 兜底文案 / F2 子 turn 补水 0 命中 / F3 回灌剥事件 / F4 停等无出口且文案错位 / F5 死 run 重复广播；CP1–CP5 见 `tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`。
+Step: J21 / MAINLINE-RESET-3
+Status: next（2026-10-23 起等待作者拍板）
+Gap / Next: B23 已收口（J20 done，新场景 + 五回归真实 Tauri PASS）；下一项从 B13b 转出候选、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7 等清单中拍板。
 ```
 
 选择规则：

@@ -174,6 +174,47 @@ defmodule NovelPersistence.AgentRunLog do
     |> Repo.all()
   end
 
+  @doc """
+  B23 CP4：首次 join 的惰性收口——把仍非终态、且运行时已无进程的 bounded run
+  一次性置为 `failed`（`failure_ref` 标记原因），保留历史记录可查。
+
+  条件更新在单条 SQL 内完成（status 仍在非终态才更新），因此并发 join 至多一方
+  得到 `{:ok, record}` 并负责本次失效广播；其余方得到 `:already_terminal`，不得
+  重复广播。零 migration：复用既有 status/phase/failure_ref/completed_at 列。
+  """
+  @spec mark_runtime_lost(String.t(), String.t()) ::
+          {:ok, AgentRunRecord.t()} | {:error, :not_found | :already_terminal}
+  def mark_runtime_lost(run_id, failure_ref)
+      when is_binary(run_id) and is_binary(failure_ref) do
+    now = DateTime.utc_now()
+
+    query =
+      from(r in AgentRunRecord,
+        where:
+          r.id == ^run_id and r.run_mode == "bounded" and
+            r.status not in ["completed", "cancelled", "failed"],
+        update: [
+          set: [
+            status: "failed",
+            phase: "stopped",
+            failure_ref: ^failure_ref,
+            completed_at: ^now,
+            updated_at: ^now
+          ]
+        ]
+      )
+
+    case Repo.update_all(query, []) do
+      {1, _} ->
+        {:ok, Repo.get!(AgentRunRecord, run_id)}
+
+      {0, _} ->
+        if Repo.get(AgentRunRecord, run_id) == nil,
+          do: {:error, :not_found},
+          else: {:error, :already_terminal}
+    end
+  end
+
   defp normalize_ids(ids) do
     ids
     |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))

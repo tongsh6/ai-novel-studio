@@ -266,6 +266,54 @@ defmodule NovelPersistence.AgentRunLogTest do
     assert [%{id: ^active_id}] = AgentRunLog.list_active_durable_by_work("work-active")
   end
 
+  # B23 CP4：首次 join 惰性收口写函数——只碰非终态 bounded run，条件更新幂等。
+  test "marks a non-terminal bounded run runtime-lost exactly once" do
+    run_id = "run-runtime-lost-#{System.unique_integer([:positive, :monotonic])}"
+
+    assert {:ok, _run} =
+             AgentRunLog.upsert_run(
+               run_attrs(run_id, %{status: "awaiting_author", phase: "stopped"})
+             )
+
+    assert {:ok, closed} =
+             AgentRunLog.mark_runtime_lost(run_id, "runtime_lost_on_restart")
+
+    assert closed.status == "failed"
+    assert closed.phase == "stopped"
+    assert closed.failure_ref == "runtime_lost_on_restart"
+    assert %DateTime{} = closed.completed_at
+
+    # 第二次（并发 join 的落败方）不再是 winner，不得重复广播。
+    assert {:error, :already_terminal} =
+             AgentRunLog.mark_runtime_lost(run_id, "runtime_lost_on_restart")
+  end
+
+  test "mark_runtime_lost never closes durable runs or unknown ids" do
+    durable_id = "run-runtime-lost-durable-#{System.unique_integer([:positive, :monotonic])}"
+
+    assert {:ok, _run} =
+             AgentRunLog.upsert_run(
+               run_attrs(durable_id, %{
+                 run_mode: "durable",
+                 status: "awaiting_author",
+                 long_run_task_ref: "task-runtime-lost"
+               })
+             )
+
+    assert {:error, :already_terminal} =
+             AgentRunLog.mark_runtime_lost(durable_id, "runtime_lost_on_restart")
+
+    unchanged = AgentRunLog.get_run(durable_id)
+    assert unchanged.status == "awaiting_author"
+    assert unchanged.failure_ref == nil
+
+    assert {:error, :not_found} =
+             AgentRunLog.mark_runtime_lost(
+               "run-runtime-lost-missing-#{System.unique_integer([:positive, :monotonic])}",
+               "runtime_lost_on_restart"
+             )
+  end
+
   defp run_attrs(run_id, overrides) do
     %{
       id: run_id,

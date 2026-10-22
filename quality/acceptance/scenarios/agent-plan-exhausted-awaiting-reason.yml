@@ -1,0 +1,77 @@
+id: agent-plan-exhausted-awaiting-reason
+title: 判断循环只读计划耗尽停等：结构理由可见、刷新不丢、回复语义、补充恢复同一 run（B23 CP5）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-plan-exhausted-awaiting-reason --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/adr/ADR-0025-agentic-loop-plan-approval.md
+  - docs/design/ui/46-state-and-feedback.md
+  - docs/design/ui/47-ui-copy-guidelines.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - awaiting-author-reason-visible-and-not-fallback
+  - plan-exhaustion-surfaces-structural-facts
+  - awaiting-reason-survives-reload
+  - awaiting-input-copy-matches-exit-semantics
+  - awaiting-input-steer-resumes-same-run
+  - plan-exhaustion-steer-keeps-bounded-retry-same-run
+  - no-provider-raw-payload-in-author-copy
+
+setup:
+  seed: none
+  provider: slice_verify
+  plan_exhaust_fixture: true
+  awaiting_marker: UA01PLANEXHAUST
+  test_support_env:
+    SLICE_VERIFY_PLAN_EXHAUST: "1"
+
+user_flow:
+  - open: real Tauri workbench
+  - send: a complex cross-capability request (read chapter 01 prose, then adjust the chapter outline, then update the protagonist state)
+  - wait_for: judgment_plan_v1 with an all-read-only model plan (no artifact-producing step)
+  - wait_for: awaiting_author with reason code plan_exhausted_without_completion after the replan budget is exhausted
+  - verify: the page shows structural awaiting facts (plan steps, completed steps, unmet output goal, checked steps, suggested next step) and not the fallback sentence
+  - verify: the control dock hint is reply semantics and the main input placeholder asks the author to reply or add direction
+  - reload: the workbench page
+  - verify: the same structural awaiting reason is still visible (CP1 hydration) without any new broadcast
+  - send: a concrete supplement through the awaiting main input (reply semantics)
+  - wait_for: plan_adjusted and run_resumed (resume_after_steer) for the same run_id
+  - wait_for: completed state and the final TurnResult for the same run_id
+  - verify: no second user_message and no second AgentRun were created by the supplement
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-plan-exhausted-awaiting-reason-tauri
+
+assertions:
+  ui:
+    - awaiting reason text (page visible) contains the structural skeleton 计划 / 已完成 / 目标产出尚未完成 / 已核对 / 下一步
+    - the fallback sentence 任务正在等待你的回复或补充。 is not shown as the awaiting reason
+    - the control dock hint reads 等待你的回复：在下方输入框补充方向后发送，任务才会继续。
+    - the awaiting main input placeholder reads 在下方输入框回复或补充，发送后任务继续…
+    - the structural reason remains visible after a page reload
+    - no 操作失败，请重试。 failure bubble is shown while awaiting or after reload
+  network:
+    - judgment_decided carries action=plan and the drafted plan steps are all read-only targets
+    - awaiting_author carries reason code plan_exhausted_without_completion for the run
+    - the supplement is sent as agent_command steer bound to the awaiting run_id (not a second user_message)
+    - plan_adjusted and run_resumed (resume_after_steer) are broadcast for the same run_id
+    - the same run_id reaches completed with its final TurnResult
+  data:
+    - the awaiting reason only contains structural words plus the model plan step descriptions (no raw prompt / assistant_message / provider payload)
+    - the supplement is persisted as one author interaction and no second AgentRun is created
+    - the awaiting reason is restored after reload by scoped AgentRun activity hydration (no provider recall)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

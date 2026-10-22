@@ -332,6 +332,122 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert length(state.run.pending_artifact_refs) == 1
   end
 
+  test "plan exhaustion surfaces structural author reasons without provider raw payload (B23 CP3)" do
+    parent = self()
+    raw_sentinel = "RAW-JP-CP3-#{System.unique_integer([:positive])}"
+
+    result_fn = fn prompt ->
+      text = prompt_text(prompt)
+
+      cond do
+        revision_prompt?(text) ->
+          send(parent, :plan_revision_called)
+
+          {:ok,
+           %{
+             content: "修订后仍需核对上下文，#{raw_sentinel}-revision。",
+             provider_call_id: "pc-b23-cp3-revise",
+             tool_calls: [
+               %{
+                 "name" => "agent_plan_revision",
+                 "arguments" => %{
+                   "plan" => %{
+                     "steps" => [
+                       plan_step("r1", "context_assemble", "explore", "复核目标章节上下文。")
+                     ]
+                   },
+                   "reason_codes" => ["agent_plan_revised"],
+                   "confidence" => 1.0
+                 }
+               }
+             ]
+           }}
+
+        plan_draft_prompt?(text) ->
+          {:ok,
+           %{
+             content: "先只读核对，必要时再修订计划，#{raw_sentinel}-draft。",
+             provider_call_id: "pc-b23-cp3-plan",
+             tool_calls: [
+               %{
+                 "name" => "agent_plan_draft",
+                 "arguments" => %{
+                   "plan" => %{
+                     "steps" => [
+                       plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
+                       plan_step("s2", "context_assemble", "explore", "复核目标章节上下文。")
+                     ]
+                   },
+                   "reason_codes" => ["agent_plan_drafted", "judgment_plan_drafted"],
+                   "confidence" => 1.0
+                 }
+               }
+             ]
+           }}
+
+        plan_draft_reasoning_prompt?(text) ->
+          {:ok,
+           %{
+             content: "先只读核对，必要时再修订计划，#{raw_sentinel}-draft。",
+             provider_call_id: "pc-b23-cp3-plan-reasoning"
+           }}
+
+        true ->
+          flunk("unexpected provider call in plan-exhausted CP3 fixture: #{text}")
+      end
+    end
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :judgment_plan,
+        %{
+          text: "先梳理前两章伏笔再重写第02章结尾，但这次只做只读核对。",
+          workspace_id: "ws-jp-cp3",
+          work_id: "work-jp-cp3",
+          session_id: "session-jp-cp3",
+          turn_id: "turn-jp-cp3",
+          chapter_prose_reader: fn _work_id, _chapter -> "" end,
+          chapter_summary_reader: %{},
+          character_reader: fn _work_id -> [] end
+        },
+        nil,
+        %Execution{result_fn: result_fn}
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:agent_event, :plan_drafted, _}, 500
+    assert_receive :plan_revision_called, 2_000
+    assert_receive {:agent_event, :awaiting_author, awaiting}, 2_000
+
+    assert "plan_exhausted_without_completion" in awaiting.reason_codes
+
+    summary = awaiting.summary
+    # 五个骨架事实（外部 driver 按同一字面断言页面可见文本）。
+    assert summary =~ "计划共 2 步，已完成 2 步"
+    assert summary =~ "目标产出尚未完成"
+    assert summary =~ "已核对："
+    assert summary =~ "下一步："
+    # 已核对步骤用模型 plan description 原话（限量），不是机械句。
+    assert summary =~ "读取当前作品上下文"
+    assert summary =~ "复核目标章节上下文"
+    # 缺口：计划里没有产出步。
+    assert summary =~ "计划中没有产出步"
+
+    # 零 provider 原文：只有 app 结构词 + plan description；不含模型正文/占位载荷。
+    refute summary =~ raw_sentinel
+    refute summary =~ "assistant_message"
+    refute summary =~ "raw_prompt"
+    refute summary =~ "{"
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+  end
+
   defp await_exploration_stage_event do
     receive do
       {:agent_event, :exploration_observed, %{payload: %{tool: _}} = event} -> event
@@ -362,6 +478,9 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   end
 
   defp plan_draft_prompt?(text), do: String.contains?(text, "agent_plan_draft")
+
+  # 起草两段式第一段（自由 reasoning）不含工具 schema 名，按角色锚点识别。
+  defp plan_draft_reasoning_prompt?(text), do: String.contains?(text, "计划起草器")
 
   defp revision_prompt?(text), do: String.contains?(text, "计划修订器")
 

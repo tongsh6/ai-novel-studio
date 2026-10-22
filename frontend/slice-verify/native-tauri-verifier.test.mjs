@@ -205,6 +205,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("agent-awaiting-author-input-required");
     expect(nativeSliceIds).toContain("agent-bounded-refresh-live-resume");
     expect(nativeSliceIds).toContain("agent-dead-bounded-run-expiry");
+    expect(nativeSliceIds).toContain("agent-plan-exhausted-awaiting-reason");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
@@ -1798,6 +1799,10 @@ describe("native Tauri slice verifier", () => {
         new_run_id: "run-restarted",
         new_run_differs_from_dead_run: true,
         no_agent_command_to_dead_run: true,
+        dead_state_status: "failed",
+        dead_state_broadcast_count: 1,
+        expired_log_count: 1,
+        second_join_no_repeat: true,
       },
     ];
 
@@ -1817,8 +1822,31 @@ describe("native Tauri slice verifier", () => {
         "backend_restart_broadcast_runtime_live_false_for_the_dead_run",
         "no_resume_pause_or_terminate_action_remained_for_the_dead_run",
         "no_agent_command_targeted_the_dead_run_after_reload",
+        "dead_run_expiry_broadcast_and_log_happened_exactly_once",
       ]),
     });
+
+    const repeatedExpiryRecords = [
+      ...records,
+      {
+        event: "channel.agent_run_expired.done",
+        run_id: "run-dead",
+        run_mode: "bounded",
+        runtime_live: false,
+      },
+    ];
+    expect(
+      findNativeSliceEvidence("agent-dead-bounded-run-expiry", repeatedExpiryRecords),
+    ).toBeNull();
+
+    const repeatedBroadcastRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, second_join_no_repeat: false }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-dead-bounded-run-expiry", repeatedBroadcastRecords),
+    ).toBeNull();
 
     const commandToDeadRunRecords = records.map((record) =>
       record.event === "slice_verify.ui_state.done"
@@ -1827,6 +1855,85 @@ describe("native Tauri slice verifier", () => {
     );
     expect(
       findNativeSliceEvidence("agent-dead-bounded-run-expiry", commandToDeadRunRecords),
+    ).toBeNull();
+  });
+
+  it("accepts B23 plan-exhausted awaiting reason evidence only when the reason survives reload and a reply resumes the same run", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-plan-exhausted",
+        run_id: "run-plan-exhausted",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-plan-exhausted-awaiting-reason",
+        work_id: "work-1",
+        workspace_id: "work-1",
+        session_id: "session-1",
+        parent_turn_id: "turn-plan-exhausted",
+        turn_ids: ["turn-plan-exhausted"],
+        run_id: "run-plan-exhausted",
+        run_mode: "bounded",
+        awaiting_reason_codes: ["plan_exhausted_without_completion"],
+        awaiting_summary_text:
+          "计划共 3 步，已完成 3 步；目标产出尚未完成（缺少待采纳产出）。已核对：读取当前作品上下文与伏笔线索。下一步：请补充具体方向，或让我按已核对结果重新规划产出步骤。",
+        fallback_copy_absent: true,
+        structural_summary_visible: true,
+        after_reload_reason_visible: true,
+        awaiting_hint_reply_semantics: true,
+        placeholder_reply_semantics: true,
+        generic_awaiting_copy_visible: false,
+        steer_sent: true,
+        steer_text: "按已核对结果先出方案 UA01PLANEXHAUST-nonce",
+        resume_same_run: true,
+        no_new_run: true,
+        final_status: "completed",
+        resumed_run_id: "run-plan-exhausted",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-plan-exhausted-awaiting-reason", records);
+    expect(evidence).toMatchObject({
+      run_id: "run-plan-exhausted",
+      turn_id: "turn-plan-exhausted",
+      final_status: "completed",
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-plan-exhausted-awaiting-reason", records, evidence),
+    ).toMatchObject({
+      behavior: "plan_exhausted_awaiting_reason_visible_and_author_reply_resumes_same_run",
+      assertions: expect.arrayContaining([
+        "author_visible_activity_line_showed_structural_reason_not_generic_waiting_copy",
+        "reason_remained_visible_after_page_reload",
+        "same_run_resumed_and_completed_without_a_new_agent_run",
+      ]),
+    });
+
+    const withoutReloadProof = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, after_reload_reason_visible: false }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-plan-exhausted-awaiting-reason", withoutReloadProof),
+    ).toBeNull();
+
+    const withFallbackCopy = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, awaiting_summary_text: "任务正在等待你的回复或补充。" }
+        : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-plan-exhausted-awaiting-reason", withFallbackCopy),
+    ).toBeNull();
+
+    const withNewRun = records.map((record) =>
+      record.event === "slice_verify.ui_state.done" ? { ...record, no_new_run: false } : record,
+    );
+    expect(
+      findNativeSliceEvidence("agent-plan-exhausted-awaiting-reason", withNewRun),
     ).toBeNull();
   });
 
