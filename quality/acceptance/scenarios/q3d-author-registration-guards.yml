@@ -37,6 +37,7 @@ assertions:
     - 失败回填原输入及结果引用，并有对应拒绝日志
     - 拒绝前没有创作派发或物化事件
     - 采纳前零事实，采纳后唯一事实
+    - app log 噪声门禁（ADR-0018 §6）：失败恢复路径 base turn 行数 ≤60；正常路径 0 error 级（summary.log_noise）
 anti_hooks:
   product_acceptance_logic_added: false
   data_testid_required: false

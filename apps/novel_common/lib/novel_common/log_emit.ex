@@ -79,6 +79,10 @@ defmodule NovelCommon.LogEmit do
       event: event,
       outcome: Map.get(fields, :outcome, outcome_for(phase)),
       duration_ms: Map.get(fields, :duration_ms, 0),
+      # ADR-0018 §4（B13b BB-10，2026-10-23）：JSONL 每行带 level——start/done 为
+      # info、error 相为 error；日志噪声门禁（verifier 通用断言 / check_log_noise.sh）
+      # 据此判定「正常路径 0 error 级」。additive 字段，不改既有事件与文案。
+      level: level_for(phase),
       timestamp: DateTime.utc_now()
     }
 
@@ -240,7 +244,12 @@ defmodule NovelCommon.LogEmit do
   defp outcome_for(:done), do: "ok"
   defp outcome_for(:error), do: "error"
 
-  @reserved_keys [:event, :outcome, :duration_ms, :timestamp]
+  # ADR-0018 §4（B13b BB-10）：level 由 phase 唯一决定——error 相才是 error 级；
+  # start/done 一律 info，常规路径不产 warning/error（§6 噪声约束）。
+  defp level_for(:error), do: "error"
+  defp level_for(_phase), do: "info"
+
+  @reserved_keys [:event, :outcome, :duration_ms, :level, :timestamp]
 
   defp strip_reserved(fields) do
     Map.drop(fields, @reserved_keys)

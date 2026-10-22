@@ -117,7 +117,10 @@ defmodule NovelApplication.TurnInteractionServiceTest do
     assert_receive {:event, :run_failed}, 2000
     assert [user, assistant] = MemoryLog.transcript(attrs.session_id)
     assert user.content["text"] == attrs.goal.text
-    assert assistant.content["turn_result"]["status"] == "failed"
+
+    # B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult = failed_recoverable（phase 仍 failed）。
+    assert assistant.content["turn_result"]["status"] == "failed_recoverable"
+    assert assistant.content["turn_result"]["phase"] == "failed"
   end
 
   test "作者动作结果不伪造输入，steer 作为独立来源保留", %{attrs: attrs, store: store} do

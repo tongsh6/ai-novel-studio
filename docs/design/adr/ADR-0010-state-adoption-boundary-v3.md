@@ -126,3 +126,17 @@ v2 中“选择卡片后立即更新状态”的路径需要迁移为 AuthorActi
 > 依据 B13b 对账裁决（汇总见 `tasks/slices/B13B-adr-enforcement-reconciliation.md`）。本小节记录原 gap 的裁决痕迹，避免静默删除或静默降级；被 DELETE 的条目不回填历史文件内容，其原文摘要与证据保留在 B13b 汇总的逐条裁决台账中。
 
 - 修复-本批转下批 B 轨（DELETE，本批未落地代码；Lead 裁决 Q6：不在本批实现）：原 gap「持久化 writer 返回 error 时不产 TurnResult」——修复方案已定（`adoption_workflow.ex:202-232` persist error 分支构造 failed TurnResult（`status: "failed_recoverable"`）+ failure action_result，返回 `{:ok, action_result, turn_result}`；`workspace_channel.ex:2187-2221` 现有 ok 分支即广播；配注入 writer error 单测）；转下批 B 轨候选。
+
+### B13B-DEFERRED-CLOSURE 落地（2026-10-23，作者拍板方案 A，与 ADR-0006 BB-4 同批）
+
+- ✅ **关闭**「持久化 writer 返回 error 时不产 TurnResult」（VS-04 规则 5 / ADR-0010 #1）：
+  `AdoptionWorkflow.finalize_adoption/7` 的 persist error 分支不再返回 `{:error, reason}`，而是产出
+  **失败 action_result**（`status="failed"`、`persistence.persisted=false`、
+  `persistence.reason_code="adoption_persistence_failed"`）+ **`failed_recoverable` TurnResult**
+  （`phase="failed"`、作者可见文案「未保存/原候选保留/作品事实未修改」），返回
+  `{:ok, action_result, turn_result}` 走既有 Channel 广播；原始持久化异常只进 developer 日志。
+- 边界：结构性/无效 action 仍 `{:error}`；既有 action receipt 幂等语义不变（同 key 重复点击回放失败
+  action_result，不产生第二次写入尝试）。
+- 证据：`adoption_workflow_test.exs` 注入 `fn _ -> {:error, :disk_full} end` 单测（断言失败回执 +
+  `failed_recoverable` TurnResult + author-safe 无原始错误文本）；Channel 广播回归。
+- 执行记录与门禁见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.4。

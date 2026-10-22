@@ -5748,11 +5748,12 @@ async function driveCandidateSemantics(page) {
     ["资料处理进度：流程建议持续矛盾样例。", "candidate_purpose_conflict"]]) {
     const result = await send(text);
     noDirections(result);
-    assert(result.status === "failed", "持续矛盾未停止");
+    // B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult = failed_recoverable；run 级 status 仍 failed。
+    assert(result.status === "failed_recoverable", "持续矛盾未停止");
     assert((result.adoption_state?.pending ?? []).length === 0, "持续矛盾生成产物");
     const snapshot = await reload();
     assert(snapshot.transcript.some((e) => e.text === text), "失败后丢失作者输入");
-    assert(snapshot.transcript.some((e) => e.turn_result?.turn_id === result.turn_id && e.turn_result.status === "failed"), "失败结果未恢复");
+    assert(snapshot.transcript.some((e) => e.turn_result?.turn_id === result.turn_id && e.turn_result.status === "failed_recoverable"), "失败结果未恢复");
     failed.push({ turn_id: result.turn_id, reason_code: reason });
   }
   const saved = await send("把上一条资料原文保存为作品设定。流程建议纠正样例。");
@@ -5876,7 +5877,8 @@ async function driveAuthorRegistrationGuards(page) {
   for (const [label, code] of [["来源缺失样例", "source_required"], ["矛盾动作样例", "operation_conflict"], ["越界来源样例", "source_not_available"]]) {
     const start = frames.length;
     const result = await send(`把上一条资料原文保存为作品设定。${label}。`);
-    assert(result.status === "failed", `${label} 没有安全停止`);
+    // B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult = failed_recoverable。
+    assert(result.status === "failed_recoverable", `${label} 没有安全停止`);
     assert((result.adoption_state?.pending ?? []).length === 0, `${label} 产生了候选`);
     assert(result.truthfulness?.production_write_performed === false && result.truthfulness?.tool_called === false,
       `${label} 越过了无创作调用/无写入边界`);
@@ -5887,7 +5889,7 @@ async function driveAuthorRegistrationGuards(page) {
     assert(stored.inputs.length === 1 && stored.inputs[0].message_handling?.status === "failed" &&
       stored.inputs[0].message_handling.result_turn_refs.includes(result.turn_id), "失败没有回填到原输入");
     const snapshot = await reload();
-    assert(snapshot.transcript.some((entry) => entry.turn_result?.turn_id === result.turn_id && entry.turn_result?.status === "failed"), "刷新丢失失败结果");
+    assert(snapshot.transcript.some((entry) => entry.turn_result?.turn_id === result.turn_id && entry.turn_result?.status === "failed_recoverable"), "刷新丢失失败结果");
     assert(snapshot.pending_adoptions.length === 0, "失败恢复出了候选");
     await page.getByText(result.assistant_message.text, { exact: true }).last().waitFor();
     fs.writeFileSync(path.join(artifactDir, `${code}-restored.json`), JSON.stringify({ stored, snapshot }, null, 2));
@@ -5895,7 +5897,7 @@ async function driveAuthorRegistrationGuards(page) {
     const logs = readAppLogRecords().filter((r) => r.turn_id === result.turn_id);
     assert(logs.some((r) => r.event === "judgment.author_content_validation.done" && r.reason_code === code && r.outcome === "rejected"), "缺少业务拒绝留痕");
     assert(!logs.some((r) => r.event?.startsWith("toolbox.execute.")), "拒绝前派发了创作工具");
-    failedTurns.push({ turn_id: result.turn_id, reason_code: code, status: "failed" });
+    failedTurns.push({ turn_id: result.turn_id, reason_code: code, status: "failed_recoverable" });
     await page.screenshot({ path: path.join(artifactDir, `${code}.png`), fullPage: true });
   }
   const corrected = await send("把上一条资料原文保存为作品设定。一次纠正样例。");
@@ -6734,7 +6736,7 @@ async function driveConflictCrossWorkRecovery(page) {
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.parent_turn_id === "turn_au05_cross_work_candidate_seed" &&
-      frame.body?.status === "failed" &&
+      frame.body?.status === "failed_recoverable" &&
       frame.body?.adoption_decision?.decision_type === "fail_with_recovery",
     "No cross-work candidate recovery failure turn_result websocket frame was received",
   );
@@ -6835,7 +6837,7 @@ async function driveCanonConflictRecovery(page) {
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.parent_turn_id === "turn_au05_canon_conflict_candidate_seed" &&
-      frame.body?.status === "failed" &&
+      frame.body?.status === "failed_recoverable" &&
       frame.body?.adoption_decision?.decision_type === "fail_with_recovery",
     "No canon-conflict candidate recovery failure turn_result websocket frame was received",
   );

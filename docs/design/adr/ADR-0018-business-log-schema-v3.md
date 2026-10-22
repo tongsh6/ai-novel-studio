@@ -90,6 +90,7 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
   ```json
   {"timestamp":"2026-05-11T15:30:00.123Z","level":"info","event":"planner.form_frame.done","workspace_id":"ws-1","turn_id":"turn_1","frame_id":"frame_1","duration_ms":482,"outcome":"ok"}
   ```
+  `level` 为必填行字段（B13b BB-10 落地，2026-10-23）：由 phase 唯一决定——`start` / `done` → `info`，`error` → `error`；caller 字段不得覆盖。噪声门禁（§6）据此判定「正常路径 0 error 级」。
 - 文件 backend 由 `runtime.exs` 控制，测试态关闭以保持快速。
 
 ### 5. 与 LLMLog / DecisionTrace 的关系
@@ -105,8 +106,18 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 ### 6. 性能与噪声约束
 
 - INFO 日志的写入开销在桌面单机场景可忽略。
-- 单 turn 业务日志不超过 30 行（约 8 个步骤 × 平均 3-4 phase）。
-- 失败路径允许 `error` 级；常规路径不允许 `warning`（warning 留给真正需要关注的异常）。
+- **行数预算（2026-10-23 B13b BB-10 修订，作者拍板方案 A，取代原「单 turn ≤30 行」）**：
+  统计口径 = **base turn** 聚合——用户 turn 的 `turn_id` 与其派生的 AgentRun step turn
+  （`<turn_id>:agent:N`）的全部业务日志行；排除 UI 读取（`channel.get_*`）、join /
+  work_session / slice_verify / 伪 turn 等非业务行。**正常路径 ≤45 行，失败恢复路径 ≤60 行**。
+  依据：300 个真实 turn 实测 p50=7 / p90=21 / p95=28 / p99=37；正常路径 max=42、
+  失败恢复路径 max=56（p1 导出 38、judgment-plan-multi-step 42、b17 失败路径 56）。
+- **级别约束**：失败路径允许 `error` 级；**正常路径不允许 warning/error 级**（warning 留给
+  真正需要关注的异常）。机器化闭环：
+  - 静态检查 `scripts/check_log_noise.sh`（CI）扫生产 lib 的 `Logger.warning`；allowlist
+    为既有 17 处 provider 适配器 unknown-error 分支，新增须显式豁免并说明理由。
+  - Tauri verifier 通用断言按 base turn 计数：正常路径 0 error 级 + 行数 ≤45；失败恢复
+    路径行数 ≤60；结果写入 `summary.json` 的 `log_noise` 供场景 manifest 断言引用。
 
 ## 非目标
 
@@ -156,12 +167,41 @@ LLMLog 与 DecisionTrace 不能替代业务日志：
 - apps/novel_common/lib/novel_common/log_emit.ex
 - apps/novel_common/lib/novel_common/log_context.ex
 - apps/novel_common/lib/novel_common/llm_log.ex
-- apps/novel_web/lib/novel_web/channels/workspace_channel.ex
+- apps/novel_common/test/novel_common/log_emit_test.exs
 - apps/novel_common/test/novel_common/log_context_test.exs
+- apps/novel_web/lib/novel_web/channels/workspace_channel.ex
 - apps/novel_web/test/novel_web/channels/workspace_channel_logging_test.exs
+- scripts/check_log_noise.sh
+- scripts/tauri_slice_verify.sh
+- frontend/slice-verify/native-tauri-verifier.mjs
+- frontend/slice-verify/native-tauri-verifier.test.mjs
 - quality/acceptance/scenarios/vs10-observability-spine.yml
+- quality/acceptance/scenarios/p1-chapter-adoption-reading.yml
+- quality/acceptance/scenarios/judgment-explore-chapter-plan.yml
+- quality/acceptance/scenarios/q3d-author-registration-guards.yml
 - scripts/grep_turn.sh
 
 ## enforcement_gaps
 
-- 【B13b 裁决（2026-10-22）：修复-本批】§6 噪声约束仍无自动校验/验收断言（`scripts/grep_turn.sh` 仅展示；`vs10-observability-spine` manifest 无行数/级别断言；生产 lib 当前 0 处 `Logger.warning` 但无防回归门禁）。本批：(1) 新增 `scripts/check_log_noise.sh` 静态扫生产 lib 的 warning 级日志并挂 CI；(2) 在已绿 Tauri 场景 verifier 读 app-log.json 断言单 turn 业务日志 ≤30 行、正常路径无 error/warning 事件；(3) 更新对应 manifest data 断言并复跑生成 summary 证据。落地后本 gap 删除。
+（当前没有未裁决的 enforcement gap；原 gap 的裁决与后续动作见下。）
+
+### B13b 裁决（2026-10-22）
+
+- 【修复-本批】§6 噪声约束仍无自动校验/验收断言（`scripts/grep_turn.sh` 仅展示；`vs10-observability-spine` manifest 无行数/级别断言；生产 lib 当前 0 处 `Logger.warning` 但无防回归门禁）。本批：(1) 新增 `scripts/check_log_noise.sh` 静态扫生产 lib 的 warning 级日志并挂 CI；(2) 在已绿 Tauri 场景 verifier 读 app-log.json 断言单 turn 业务日志 ≤30 行、正常路径无 error/warning 事件；(3) 更新对应 manifest data 断言并复跑生成 summary 证据。落地后本 gap 删除。
+
+### B13B-DEFERRED-CLOSURE 落地（2026-10-23，作者拍板方案 A）
+
+- ✅ **关闭** §6 噪声约束无机器门禁的 gap（口径按 300 turn 实测修订）：
+  - §6 行数预算改为 **正常路径 ≤45 行 / 失败恢复路径 ≤60 行**，并冻结 base turn 聚合口径
+    （父 turn + `<turn>:agent:N` step turn；排除 UI 读取/join/work_session/slice_verify/伪 turn）。
+  - §4 JSONL 行新增必填 `level`（`start`/`done`→`info`、`error`→`error`），`LogEmit` additive 落地。
+  - 静态门禁 `scripts/check_log_noise.sh`：生产 lib `Logger.warning` allowlist 17 处
+    （provider 适配器 unknown-error 分支），新增 warning exit 1；CI `backend` job 已登记。
+  - Tauri verifier 通用断言 `evaluateAppLogNoise`（`frontend/slice-verify/native-tauri-verifier.mjs`）：
+    正常路径 0 error 级 + ≤45 行、失败恢复路径 ≤60 行；`summary.json.log_noise` 落证据；
+    未归属 turn 的 error 记录（既有 `agent_run.run_failed` 缺 turn_id 观测缺口）使整场景按
+    失败恢复路径兜底，不误伤真实失败场景。
+  - 单测：`apps/novel_common/test/novel_common/log_emit_test.exs` + verifier 噪声断言用例。
+  - 执行记录与真实场景复跑见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.4。
+  - 诚实边界：`agent_run.run_failed` 的 app-log 记录仍缺 `turn_id`（既有观测缺口，不属本批；
+    噪声门禁用整场景兜底规避误判），登记为后续可观测性债。

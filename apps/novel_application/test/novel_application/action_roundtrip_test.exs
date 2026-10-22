@@ -646,7 +646,9 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert ack.adoption_decision.decision_type == :fail_with_recovery
       assert "canon_conflict_detected" in ack.adoption_decision.reason_codes
       assert "conflict_recovery_required" in ack.adoption_decision.reason_codes
-      assert turn_result.status == "failed"
+      # B13b BB-4（ADR-0006 #2）：fail_with_recovery = 失败但可恢复；phase 仍 failed。
+      assert turn_result.status == "failed_recoverable"
+      assert turn_result.phase == "failed"
       assert turn_result.truthfulness.candidate_selected == true
       assert turn_result.truthfulness.candidate_adopted == false
       assert turn_result.truthfulness.production_write_performed == false

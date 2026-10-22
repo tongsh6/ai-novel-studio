@@ -1820,6 +1820,116 @@ export function findLmStudioEvidence(turnIds, records) {
   return findLiveProviderEvidence("lmstudio", turnIds, records);
 }
 
+// ADR-0018 §6（B13b BB-10，2026-10-23 作者拍板方案 A）：业务日志噪声的运行时
+// 通用断言。统计口径 = base turn 聚合（用户 turn 的 turn_id 及其派生 AgentRun
+// step turn `<turn_id>:agent:N`），排除 UI 读取 / join / work_session / slice_verify
+// 等非业务行。正常路径：≤45 行且 0 error 级；失败恢复路径：≤60 行（允许 error 级）。
+// 结果写入 summary.json 的 log_noise，供场景 manifest data 断言引用。
+const APP_LOG_NORMAL_MAX_LINES = 45;
+const APP_LOG_FAILURE_MAX_LINES = 60;
+
+const APP_LOG_EXCLUDED_EVENT_PREFIXES = [
+  "slice_verify.",
+  "channel.get_",
+  "channel.join",
+  "channel.session_",
+  "work_session.",
+];
+
+export function evaluateAppLogNoise(records, evidence, options = {}) {
+  const normalMaxLines = options.normalMaxLines ?? APP_LOG_NORMAL_MAX_LINES;
+  const failureMaxLines = options.failureMaxLines ?? APP_LOG_FAILURE_MAX_LINES;
+
+  // 除 evidence.turn_ids / turn_id 外，失败恢复场景把 failed_turns 也纳入
+  // base turn 统计（否则只统计成功纠正轮，失败路径的行数预算会漏检）。
+  const failedTurnIds = Array.isArray(evidence?.failed_turns)
+    ? evidence.failed_turns.map((turn) => turn?.turn_id)
+    : [];
+
+  const baseTurnIds = [
+    ...new Set(
+      [...(evidence?.turn_ids ?? []), evidence?.turn_id, ...failedTurnIds]
+        .filter(Boolean)
+        .map((turnId) => String(turnId).split(":agent:")[0]),
+    ),
+  ];
+
+  // 既有观测缺口：run 失败兜底日志（agent_run.run_failed）在 bounded run 进程里
+  // 没有 turn_id metadata，错误记录无法归属到 base turn。这种情况下无法逐 turn
+  // 判定「正常路径」，整场景按失败恢复路径预算（≤60）兜底，并放弃 0 error 断言——
+  // 宁可放宽也不把真实失败场景误判成噪声违规。
+  const untaggedErrorRecordPresent = records.some(
+    (record) => !record?.turn_id && isErrorLevelAppLogRecord(record),
+  );
+
+  const turns = [];
+  const violations = [];
+
+  for (const baseTurnId of baseTurnIds) {
+    const turnRecords = records.filter((record) => belongsToBaseTurn(record, baseTurnId));
+    const counted = turnRecords.filter((record) => !excludedAppLogNoiseRecord(record));
+    const failureRecoveryPath =
+      untaggedErrorRecordPresent || counted.some(isFailurePathAppLogRecord);
+    const errorLevelCount = counted.filter(isErrorLevelAppLogRecord).length;
+    const lineCount = counted.length;
+    const maxLines = failureRecoveryPath ? failureMaxLines : normalMaxLines;
+    const turnViolations = [];
+
+    if (lineCount > maxLines) turnViolations.push(`lines=${lineCount}>${maxLines}`);
+    if (!failureRecoveryPath && errorLevelCount > 0) {
+      turnViolations.push(`normal_path_error_level=${errorLevelCount}`);
+    }
+
+    if (turnViolations.length > 0) {
+      violations.push({ turn_id: baseTurnId, violations: turnViolations });
+    }
+
+    turns.push({
+      turn_id: baseTurnId,
+      line_count: lineCount,
+      error_level_count: errorLevelCount,
+      failure_recovery_path: failureRecoveryPath,
+      max_lines: maxLines,
+    });
+  }
+
+  return {
+    ok: violations.length === 0,
+    normal_max_lines: normalMaxLines,
+    failure_max_lines: failureMaxLines,
+    turns,
+    violations,
+  };
+}
+
+function belongsToBaseTurn(record, baseTurnId) {
+  const turnId = String(record?.turn_id ?? "");
+  return turnId === baseTurnId || turnId.startsWith(`${baseTurnId}:`);
+}
+
+function excludedAppLogNoiseRecord(record) {
+  const event = String(record?.event ?? "");
+  return APP_LOG_EXCLUDED_EVENT_PREFIXES.some((prefix) => event.startsWith(prefix));
+}
+
+function isFailurePathAppLogRecord(record) {
+  const event = String(record?.event ?? "");
+  return (
+    event === "agent_run.run_failed" ||
+    event === "agent_run.run_failed.error" ||
+    event.endsWith(".error") ||
+    String(record?.outcome ?? "") === "error"
+  );
+}
+
+function isErrorLevelAppLogRecord(record) {
+  return (
+    String(record?.level ?? "") === "error" ||
+    String(record?.outcome ?? "") === "error" ||
+    String(record?.event ?? "").endsWith(".error")
+  );
+}
+
 function findQ1bLiveArchiveEvidence(records) {
   const ui = records.find((record) => record.event === "slice_verify.ui_state.done" &&
     record.slice_id === "q1b-live-archive-roundtrip");
@@ -13298,7 +13408,7 @@ function findAuthorRegistrationGuardsEvidence(records) {
     "no_write_before_adoption"].every((key) => ui[key] === true) || ui.confirmed_fact_count !== 1) return null;
   const expected = ["source_required", "source_not_available", "operation_conflict"];
   if (new Set(ui.failed_turns.map((r) => r.turn_id)).size !== 3 ||
-    !expected.every((code) => ui.failed_turns.some((r) => r.reason_code === code && r.status === "failed"))) return null;
+    !expected.every((code) => ui.failed_turns.some((r) => r.reason_code === code && r.status === "failed_recoverable"))) return null;
   for (const failed of ui.failed_turns) {
     const logs = records.filter((r) => r.turn_id === failed.turn_id);
     if (!["retry", "rejected"].every((outcome) => logs.some((r) =>

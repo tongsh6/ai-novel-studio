@@ -46,6 +46,7 @@ assertions:
   data:
     - judgment_explore_count=1
     - 无 production write，且回复不伪造已采纳事实
+    - app log 噪声门禁（ADR-0018 §6）：正常路径 base turn 行数 ≤45 且 0 error 级（summary.log_noise）
 
 anti_hooks:
   product_acceptance_logic_added: false

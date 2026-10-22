@@ -737,7 +737,10 @@ defmodule NovelApplication.AgentRunServer do
       assistant_message: %{text: failure_fallback_message(reason)},
       ui_cards: [],
       phase: "failed",
-      status: "failed",
+      # ADR-0006 #2（B13b BB-4，2026-10-23 作者拍板方案 A）：run 失败兜底 TurnResult
+      # 是「失败但可恢复」（作者可重试/继续对话）；phase 仍 failed、run 级 status
+      # 仍 :failed——重试是新一轮 run，不是恢复同一 run。
+      status: "failed_recoverable",
       trace_summary: %{
         decision_type: :run_failed,
         no_write_reason: "run failed before producing any adoptable output"

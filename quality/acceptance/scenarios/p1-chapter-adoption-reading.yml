@@ -64,6 +64,7 @@ assertions:
     - reading projection contains accepted prose only
     - displayed word count equals effective count of visible adopted prose
     - first append scene row title is the generated placeholder, not the planned first scene title
+    - app log 噪声门禁（ADR-0018 §6）：正常路径 base turn 行数 ≤45 且 0 error 级（summary.log_noise）
 
 anti_hooks:
   product_acceptance_logic_added: false

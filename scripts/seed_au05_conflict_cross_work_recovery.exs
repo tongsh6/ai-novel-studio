@@ -41,6 +41,8 @@ turn_result = %{
       direction_id: "dir_au05_cross_work_1",
       title: "外部作品主线移植",
       pitch: "把另一部作品的赛博悬疑主线直接移植到当前东方奇幻作品。",
+      # Q3D 候选用途契约（2026-10）：无 kind 的候选不再授予采纳动作——验收夹具补用途标记。
+      kind: "creative_direction",
       tone_tags: ["跨作品", "不应采纳"],
       risk_hint: "low",
       work_id: foreign_work.id,

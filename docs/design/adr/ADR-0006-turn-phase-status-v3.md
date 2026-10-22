@@ -106,3 +106,14 @@ v2 状态名可作为迁移材料，但不直接继承。
 
 - 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`build_phase/2` 未产出 `dialogue` phase」——修复方案已定（`turn_result_builder.ex:99-101` 前插 `build_phase(nil, nil) -> "dialogue"`，tool 成功仍 completed；更新 3 处 reply-path 断言）；转下批 B 轨候选。
 - 修复-本批转下批 B 轨（DELETE，本批未落地代码）：原 gap「`build_status/3` 未产出 `failed_recoverable`」——修复方案已定（builder 增 `:fail_with_recovery` 分支；`agent_run_server.ex:692` status→`failed_recoverable`，phase 仍 failed；更新 `agent_run_runtime_test.exs:516` 断言）；转下批 B 轨候选。
+
+### B13B-DEFERRED-CLOSURE 落地（2026-10-23，作者拍板方案 A）
+
+- ✅ **关闭**「`build_status/3` 未产出 `failed_recoverable`」：`TurnResultBuilder.build_phase/3` / `build_status/3` 对
+  `%OrchestratorDecision{decision_type: :fail_with_recovery}` 产出 `phase="failed"` / `status="failed_recoverable"`；
+  `AgentRunServer.safe_failure_turn_result/2`（所有 run 失败兜底）`status → failed_recoverable`（run 级 status 仍 `:failed`、phase 仍 failed）；
+  `AdoptionWorkflow.decision_status/1` 与 `DialogueGateway.candidate_status/1` 的 `:fail_with_recovery` 决策同步为 `failed_recoverable`
+  （`action_result.status` 仍 `failed`——动作回执与 TurnResult 语义分层）。
+- 证据：单测 `apps/novel_application/test/novel_application/turn_result_builder_test.exs`；更新
+  `action_roundtrip_test` / `agent_run_runtime_test` / `turn_interaction_service_test` / `workspace_channel_v3_test` 断言；
+  驱动/verifier 断言随 `failed_recoverable` 更新；真实 Tauri 复跑记录见 `tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.4。

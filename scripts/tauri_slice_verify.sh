@@ -1363,6 +1363,7 @@ verify_native_slice() {
 import fs from "node:fs";
 import path from "node:path";
 import {
+  evaluateAppLogNoise,
   findLiveProviderEvidence,
   findLmStudioEvidence,
   findNativeSliceEvidence,
@@ -1506,6 +1507,21 @@ if (evidence) {
     process.exit(1);
   }
 
+  // ADR-0018 §6（B13b BB-10）：业务日志噪声通用断言——正常路径 0 error 级 + 行数
+  // 预算；失败恢复路径 ≤60 行。统计口径见 native-tauri-verifier.mjs
+  // evaluateAppLogNoise；结果进 summary.json 供 manifest data 断言引用。
+  const logNoise = evaluateAppLogNoise(records, evidence);
+  fs.writeFileSync(
+    path.join(artifactDir, "log-noise.json"),
+    JSON.stringify(logNoise, null, 2),
+  );
+  if (!logNoise.ok) {
+    console.error(
+      `[tauri-slice-verify] log noise gate failed: ${JSON.stringify(logNoise.violations)}`,
+    );
+    process.exit(1);
+  }
+
   fs.writeFileSync(
     path.join(artifactDir, "summary.json"),
     JSON.stringify(
@@ -1515,6 +1531,7 @@ if (evidence) {
         behavior: behaviorEvidence,
         live_provider: liveProviderEvidence,
         lmstudio: lmstudioEvidence,
+        log_noise: logNoise,
         surface: "tauri",
       },
       null,

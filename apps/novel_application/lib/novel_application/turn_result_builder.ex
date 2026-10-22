@@ -42,7 +42,7 @@ defmodule NovelApplication.TurnResultBuilder do
         dialogue_goal: frame.dialogue_goal.summary
       },
       trace_summary: trace_summary,
-      phase: build_phase(behavior, tool_result),
+      phase: build_phase(behavior, decision, tool_result),
       status: build_status(behavior, decision, tool_result),
       available_actions:
         AvailableActionBuilder.build(
@@ -93,16 +93,30 @@ defmodule NovelApplication.TurnResultBuilder do
 
   # ADR-0006 #1：无 behavior、无工具调用的回复轮 phase = dialogue（不是 completed）；
   # 工具成功仍 completed、失败仍 failed。
-  defp build_phase(nil, nil), do: "dialogue"
-  defp build_phase(nil, %ToolResult{status: :failed}), do: "failed"
-  defp build_phase(nil, _tool_result), do: "completed"
-  defp build_phase(%BehaviorState{lifecycle_status: :open}, _), do: "awaiting_author"
-  defp build_phase(%BehaviorState{lifecycle_status: :awaiting_author}, _), do: "awaiting_author"
-  defp build_phase(%BehaviorState{lifecycle_status: :resolving}, _), do: "completed"
-  defp build_phase(%BehaviorState{lifecycle_status: :resolved}, _), do: "completed"
-  defp build_phase(%BehaviorState{lifecycle_status: :cancelled}, _), do: "cancelled"
-  defp build_phase(%BehaviorState{lifecycle_status: :failed}, _), do: "failed"
-  defp build_phase(_, _), do: "completed"
+  # ADR-0006 #2（B13b BB-4，2026-10-23 作者拍板方案 A）：fail_with_recovery 决策是
+  # 「失败但可恢复」——phase 仍 failed，status 用 failed_recoverable（区别于不可恢复
+  # 的 failed）。恢复面=既有对话流与控制坞，不新增 recovery action/UI 卡。
+  defp build_phase(_behavior, %OrchestratorDecision{decision_type: :fail_with_recovery}, _),
+    do: "failed"
+
+  defp build_phase(nil, _decision, nil), do: "dialogue"
+  defp build_phase(nil, _decision, %ToolResult{status: :failed}), do: "failed"
+  defp build_phase(nil, _decision, _tool_result), do: "completed"
+  defp build_phase(%BehaviorState{lifecycle_status: :open}, _, _), do: "awaiting_author"
+
+  defp build_phase(%BehaviorState{lifecycle_status: :awaiting_author}, _, _),
+    do: "awaiting_author"
+
+  defp build_phase(%BehaviorState{lifecycle_status: :resolving}, _, _), do: "completed"
+  defp build_phase(%BehaviorState{lifecycle_status: :resolved}, _, _), do: "completed"
+  defp build_phase(%BehaviorState{lifecycle_status: :cancelled}, _, _), do: "cancelled"
+  defp build_phase(%BehaviorState{lifecycle_status: :failed}, _, _), do: "failed"
+  defp build_phase(_, _, _), do: "completed"
+
+  # ADR-0006 #2（B13b BB-4）：fail_with_recovery 决策 → failed_recoverable。
+  # 判定先于工具失败分支——恢复语义由决策给出，不由 tool_result 形状推断。
+  defp build_status(_behavior, %OrchestratorDecision{decision_type: :fail_with_recovery}, _),
+    do: "failed_recoverable"
 
   defp build_status(nil, _decision, %ToolResult{status: :failed}), do: "failed"
   defp build_status(nil, _decision, _tool_result), do: "conversational"

@@ -80,6 +80,43 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert turn_result.truthfulness.state_persisted == true
     end
 
+    test "persistence failure yields failed action_result and failed_recoverable turn_result (B13b BB-7)" do
+      source_turn = source_turn_result()
+      writer = fn _attrs -> {:error, :disk_full} end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer
+               )
+
+      # VS-04 规则 5：adoption failure 必须产生 TurnResult，不允许静默丢弃。
+      assert action_result.status == "failed"
+      assert action_result.action_type == "adopt"
+
+      assert action_result.persistence == %{
+               persisted: false,
+               persistence_status: "failed",
+               reason_code: "adoption_persistence_failed"
+             }
+
+      assert turn_result.phase == "failed"
+      assert turn_result.status == "failed_recoverable"
+      assert turn_result.parent_turn_id == "turn-source"
+      assert turn_result.assistant_message.text =~ "原候选仍保留"
+      assert turn_result.trace_summary.decision_type == "adopt_persistence_failed"
+      assert "adoption_persistence_failed" in turn_result.trace_summary.reason_codes
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+      assert turn_result.truthfulness.state_persisted == false
+      assert turn_result.projection_refs == []
+
+      # author-safe：原始持久化错误只进 developer 日志，不进任何作者可见载荷。
+      refute inspect(action_result) =~ "disk_full"
+      refute inspect(turn_result) =~ "disk_full"
+    end
+
     test "uses character_id as adopted state ref for character_seed persistence" do
       source_turn = source_turn_result()
 

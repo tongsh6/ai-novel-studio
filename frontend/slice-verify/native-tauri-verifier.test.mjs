@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  evaluateAppLogNoise,
   findLiveProviderEvidence,
   findLmStudioEvidence,
   findNativeSliceEvidence,
@@ -155,8 +156,9 @@ describe("BIZ-05 候选语义证据", () => {
 
 describe("Q3D 原文登记边界证据", () => {
   const slice = "q3d-author-registration-guards";
+  // B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult status = failed_recoverable。
   const failed = ["source_required", "source_not_available", "operation_conflict"].map((reason_code) =>
-    ({ turn_id: reason_code, reason_code, status: "failed" }));
+    ({ turn_id: reason_code, reason_code, status: "failed_recoverable" }));
   const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "save", source_turn_id: "source",
     failed_turns: failed, historical_bytes_preserved: true, source_binding_preserved: true,
     failed_results_restored: true, no_write_before_adoption: true, confirmed_fact_count: 1 };
@@ -16011,5 +16013,104 @@ describe("B24 全章分页读取证据（chapter_ref 唯一寻址 + 续读）", 
     // 探索回合出现 production write / 工具 dispatch → 不通过。
     const wrote = [...baseRecords, { event: "toolbox.execute.done", turn_id: turnId }];
     expect(behaviorOf(wrote)).toBeNull();
+  });
+});
+
+// ADR-0018 §6（B13b BB-10）：业务日志噪声通用断言——base turn 聚合口径。
+describe("业务日志噪声通用断言（ADR-0018 §6）", () => {
+  const evidence = { turn_id: "turn-log", turn_ids: ["turn-log"] };
+  const normalTurnRecords = [
+    { turn_id: "turn-log", event: "channel.user_message.done", level: "info", outcome: "ok" },
+    { turn_id: "turn-log:agent:1", event: "context.assemble.done", level: "info", outcome: "ok" },
+    // UI 读取不算业务行（即使落在同一 turn）。
+    { turn_id: "turn-log", event: "channel.get_toc.done", level: "info", outcome: "ok" },
+  ];
+
+  it("正常路径：base turn 聚合、排除 UI 读取、0 error 级即通过", () => {
+    const result = evaluateAppLogNoise(normalTurnRecords, evidence);
+    expect(result.ok).toBe(true);
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].line_count).toBe(2);
+    expect(result.turns[0].failure_recovery_path).toBe(false);
+  });
+
+  it("正常路径出现 error 级即失败", () => {
+    const records = [
+      ...normalTurnRecords,
+      { turn_id: "turn-log:agent:2", event: "toolbox.execute.error", level: "error", outcome: "error" },
+    ];
+    // 注意：出现 .error 事件会把该 base turn 归为失败恢复路径；要测「正常路径
+    // 混入 error 级」，用 outcome=error 但事件名非失败族（如 done 相带 error 结果）。
+    const result = evaluateAppLogNoise(
+      [...normalTurnRecords, { turn_id: "turn-log", event: "judgment.decided.done", level: "error", outcome: "ok" }],
+      evidence,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.violations[0].violations.join(",")).toContain("normal_path_error_level=1");
+
+    const failure = evaluateAppLogNoise(records, evidence);
+    expect(failure.ok).toBe(true);
+    expect(failure.turns[0].failure_recovery_path).toBe(true);
+  });
+
+  it("正常路径超过 45 行预算即失败", () => {
+    const records = Array.from({ length: 46 }, (_, index) => ({
+      turn_id: "turn-log",
+      event: `module.step_${index}.done`,
+      level: "info",
+      outcome: "ok",
+    }));
+    const result = evaluateAppLogNoise(records, evidence);
+    expect(result.ok).toBe(false);
+    expect(result.violations[0].violations.join(",")).toContain("lines=46>45");
+  });
+
+  it("失败恢复路径允许 error 级但不超过 60 行", () => {
+    const failureRecords = [
+      { turn_id: "turn-log", event: "agent_run.run_failed.error", level: "error", outcome: "error" },
+      ...Array.from({ length: 59 }, (_, index) => ({
+        turn_id: "turn-log",
+        event: `module.step_${index}.done`,
+        level: "info",
+        outcome: "ok",
+      })),
+    ];
+    const ok = evaluateAppLogNoise(failureRecords, evidence);
+    expect(ok.ok).toBe(true);
+    expect(ok.turns[0].failure_recovery_path).toBe(true);
+    expect(ok.turns[0].max_lines).toBe(60);
+
+    const overflow = evaluateAppLogNoise(
+      [...failureRecords, { turn_id: "turn-log", event: "module.extra.done", level: "info", outcome: "ok" }],
+      evidence,
+    );
+    expect(overflow.ok).toBe(false);
+    expect(overflow.violations[0].violations.join(",")).toContain("lines=61>60");
+  });
+
+  it("存在未归属 turn 的 error 记录时整场景按失败恢复路径兜底", () => {
+    const records = [
+      ...normalTurnRecords,
+      { event: "agent_run.run_failed.error", level: "error", outcome: "error" },
+    ];
+    const result = evaluateAppLogNoise(records, evidence);
+    expect(result.ok).toBe(true);
+    expect(result.turns[0].failure_recovery_path).toBe(true);
+    expect(result.turns[0].max_lines).toBe(60);
+  });
+
+  it("多个 evidence turn 分别按 base turn 计数（agent step 后缀归并）", () => {
+    const multi = { turn_ids: ["turn-a", "turn-b"] };
+    const records = [
+      { turn_id: "turn-a", event: "module.a.done", level: "info", outcome: "ok" },
+      { turn_id: "turn-a:agent:3", event: "module.a.step.done", level: "info", outcome: "ok" },
+      { turn_id: "turn-b", event: "module.b.done", level: "info", outcome: "ok" },
+    ];
+    const result = evaluateAppLogNoise(records, multi);
+    expect(result.ok).toBe(true);
+    expect(result.turns.map((turn) => [turn.turn_id, turn.line_count])).toEqual([
+      ["turn-a", 2],
+      ["turn-b", 1],
+    ]);
   });
 });

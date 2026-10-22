@@ -533,7 +533,12 @@ defmodule NovelApplication.DialogueGateway do
     do: "needs_confirmation"
 
   defp candidate_status(%AdoptionDecision{decision_type: :reject}), do: "cancelled"
-  defp candidate_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
+
+  # B13b BB-4（2026-10-23 作者拍板方案 A）：fail_with_recovery 决策 = 失败但可恢复
+  # （phase 仍 failed，action_result.status 仍 failed）。
+  defp candidate_status(%AdoptionDecision{decision_type: :fail_with_recovery}),
+    do: "failed_recoverable"
+
   defp candidate_status(_decision), do: "conversational"
 
   defp candidate_decision_message(%AdoptionDecision{decision_type: :adopt_tentative}, title) do

@@ -283,6 +283,8 @@
 | D18 | **验收 verifier 判断纪元漂移：`p1-chapter-draft-generation` finder/behavior 未迁 base/agent 链与 judgment 事件**（B21 复跑发现） | HEAD 既有：finder 用 `draft_turn_id`（`:agent:N`）精确过滤，要求基 turn 的 `channel.user_message.start/done` 与 agent turn 的 `toolbox.execute.done` 同 turn；behavior 仍断言已退役 `planner.form_frame/form_micro_plan.done`。同文件 `p1-chapter-adoption-reading` finder 已在 `c4509c86` 拆链，draft-generation 漏迁 → 该 nightly 在 HEAD 即红。修复：`native-tauri-verifier.mjs` finder 拆基/agent 因果链（context 用 `contextAssembleTurnIdForDraftTurn/2` 解析）、behavior 迁 judgment 事件、self-test 新增 1 条锁定用例；真实 Tauri 二次复跑 2026-10-22 **PASS**（`turn_ids=[基 turn, :agent:5]`、`context_turn_id=:agent:3`、behavior 10 条含 `judgment_decided_before_prose_execution`）；前端 544/0。同族残留（verifier KEY_EVENTS 旧事件文本、`p1-prose-execution-brief` 的 lmstudio 旧期望、旧行为函数负向断言）未修，见下批 B 轨 | **已修复（verifier 层）** | ✅ B21 补充；同族残留转下批 B 轨（§4.2 追加） |
 | D19 | **真实 provider 模式下验收 driver 假设缺口（B21 场景真跑实锤，2026-10-22 23:04 → 当日修复）** | 首次真跑（`--provider strata`，iq3_s）暴露：真实模型一次产出 3 个待采纳候选（prose + character_seed + world_rule_seed）并触发质量复核卡，driver 假设「单 pending artifact + 无质量复核分支/正文按钮恒为保存为章节正文」→ `.first()` 点中 character_seed、等待 prose target 超时（真实采纳本身成功，属 harness 假设而非产品回归）。**修复（2026-10-22，Lead，产品零改动）**：driver 按 `artifact_type=prose_fragment` 定位正文候选；采纳按钮按正文语义优先（质量复核时「保存原稿」→ 否则「保存为章节正文」→ 兜底通用 pattern）；采纳后只要求正文候选按钮消失。**真实 Strata `iq3_s` 复跑 PASS**（8 次真实请求、18,767/5,606 tokens、1700 字真模型正文；`planned_scene_titles=["对账","夜巡"]`、scene 行 `["场景 1"]`、假标题 `[]`）；确定性场景复跑零回归 PASS | **已修复（验收 harness 层）** | ✅ 证据 `artifacts/slice-verify/p1-chapter-adoption-reading-tauri-strata/summary.json`；真实 provider 验收仍属 nightly/live（依赖本机 Strata App），非 CI 确定性 |
 
+| D21 | **`au04-confirmation-tool-failure-recovery` 判断纪元后场景漂移（B13B-DEFERRED-CLOSURE CP3 复跑发现，2026-10-23）** | HEAD 既有：driver 期待「高风险重写请求 → `needs_confirmation` turn_result → 确认后工具失败」，但判断纪元（ADR-0025）下该输入走判断 execute=prose_writing → 质量复核偏离 D4 → `awaiting_author`，全程无 confirmation TurnResult（首断言 200s 超时）。与 B13B 改动无因果：BB-4 只改 `fail_with_recovery`/run 失败的 status 映射，不涉及 `needs_confirmation` 产生路径；复跑 frames/app-log 无 fail_with_recovery 决策。 | **未修复（既有漂移）** | 不纳入本批证据；需产品/验收口径裁决：判断纪元如何确定性产 turn-time `requires_confirmation`，或 driver 改走 adoption overwrite 确认路径。转后续场景维护 |
+
 ### 6.1 判断纪元证据口径（组 A 的总体结论，适用于所有 ADR）
 
 组 A 对 12 份 ADR 的 `enforced_by` 场景逐条核对后确认：全部已在 `scenarios.yml` 注册，但**除 au01/gap-wt04/au02-unadopted/agentic-loop/DS03 等外，其余 artifact 均早于判断纪元（2026-07-16）**，不能作为「当前 HEAD 真实页面已闭环」的证据；且 11 份 manifest 引用已退役事件（D7）。这是 B13b 对 ADR→真实页面链路的总体裁决：**「有历史验收 / 当前未复跑」是常态，不是个别缺口**。
@@ -414,6 +416,60 @@
 **统计口径的数据依据（BB-10 阈值）**：扫 300 个真实 Tauri turn 的 app-log（排除 UI 读取/生命周期），业务事件/base turn = p50 7、p90 21、p95 28、p99 37；正常路径 max 42、失败恢复路径 max 56；现有 17 处 `Logger.warning` 全在 provider 适配器 unknown-error 分支。故 45/60 可在不误伤已绿复杂流（p1 导出 38、judgment-plan-multi-step 42、b17 失败路径 56）的前提下拦住「明显翻倍」回归。
 
 **其它诚实边界**：BB-2/BB-5/BB-6/BB-9 触碰 TurnResult 线格式/确认绑定，已跑 I1/I2/I3/N-NARR/I-CACHE-1 与后端全量；`failed_recoverable` 未落地意味着「run failure 的 recoverable 语义」仍与 ADR 文本存在已知差距（已在 ADR-0006 enforcement_gaps 保留）。
+
+### 11.4 B13B-DEFERRED-CLOSURE 执行记录（2026-10-23，作者拍板方案 A/方案 A/方案 A）
+
+> 执行入口 `tasks/NEXT.md` `B13B-DEFERRED-CLOSURE`。本批落地 BB-4 / BB-7 / BB-10，并顺带修复 au05 两场景的既有验收夹具漂移（Q3D `kind` 契约落地后旧 seed 未迁移）。
+
+#### BB-4 `failed_recoverable` 全量统一（方案 A）
+
+| 生产者 | 文件 | 变更 |
+|---|---|---|
+| TurnResultBuilder | `turn_result_builder.ex` | `build_phase/3` 对 `%OrchestratorDecision{decision_type: :fail_with_recovery}` → `phase="failed"`；`build_status/3` → `status="failed_recoverable"`。工具失败但决策放行仍是 `failed`（工具失败 ≠ fail_with_recovery） |
+| AgentRunServer | `agent_run_server.ex` `safe_failure_turn_result/2` | 所有 run 失败兜底 TurnResult `status → failed_recoverable`；`phase` 仍 `failed`、run 级 status 仍 `:failed` |
+| AdoptionWorkflow | `adoption_workflow.ex` `decision_status/1` | `:fail_with_recovery` → `failed_recoverable`；`phase` 仍 `failed`、`action_result.status` 仍 `failed` |
+| DialogueGateway | `dialogue_gateway.ex` `candidate_status/1` | 同上（候选方向 fail_with_recovery）；`candidate_action_status` 仍 `failed` |
+
+测试与断言：新增 `turn_result_builder_test.exs`（3 例）；更新 `action_roundtrip_test` / `agent_run_runtime_test` / `turn_interaction_service_test` / `workspace_channel_v3_test`；外部驱动与 verifier 同步（`q3d-candidate-semantics` live+restored、`q3d-author-registration-guards` failed_turns/restored、`au05-conflict-cross-work-recovery` / `au05-canon-conflict-recovery` 的 turn_result；action_result 仍 `failed`）。`au04-confirmation-tool-failure-recovery` 的确认后工具失败 TurnResult 仍 `failed`，断言不变（该用例是 tool failure，不是 fail_with_recovery 决策）。
+
+#### BB-7 采纳持久化失败 TurnResult（方案 A，与 BB-4 同批）
+
+- `AdoptionWorkflow.finalize_adoption/7` persist error 分支：失败 action_result（`status="failed"`、`persistence.persisted=false`、`persistence.reason_code="adoption_persistence_failed"`）+ `failed_recoverable` TurnResult（`phase="failed"`；作者文案「采纳未保存：作品档案写入失败，原候选仍保留为待采纳，作品事实没有被修改」；trace `decision_type=adopt_persistence_failed`）→ `{:ok, action_result, turn_result}` 走既有 Channel `action_result`/`turn_result` 广播；原始持久化异常只进 developer `LogEmit`（author-safe）。
+- 单测 `adoption_workflow_test.exs`：注入 `fn _ -> {:error, :disk_full} end`，断言失败回执 + failed_recoverable TurnResult + 作者可见载荷不含原始错误文本；Channel 既有 `{:ok, action_result, turn_result}` 广播路径回归（`workspace_channel_v3_test` 全绿）。VS-04 规则 5 闭合（ADR-0010 enforcement_gaps 有落地注记）。
+- **诚实边界**：同 key 重复点击仍受既有 action receipt 幂等约束（回放失败回执、不产生第二次写入尝试）；恢复路径 = 重新发起采纳/Run，不在本批改幂等语义。ADR 允许单测/Channel 证据，无真实页面注入路径。
+
+#### BB-10 日志噪声门禁（方案 A，口径修订 + 全闭环）
+
+- ADR-0018 §4：JSONL 行新增必填 `level`（start/done→`info`、error 相→`error`，caller 不可覆盖）；§6：预算改「正常路径 ≤45 行 / 失败恢复路径 ≤60 行」并冻结 base turn 聚合口径（父 turn + `<turn>:agent:N`；排除 `channel.get_*`/join/work_session/slice_verify/伪 turn）。
+- `LogEmit` additive `level`；单测 `apps/novel_common/test/novel_common/log_emit_test.exs`（level 映射 + turn 关联键 + 保留字段不可覆盖）。
+- 静态门禁：`scripts/check_log_noise.sh`（生产 lib `Logger.warning` allowlist 17 处 = provider 适配器 unknown-error 分支；实测 17/17；新增 exit 1）；CI `backend` job 与 `scripts/README.md` 已登记。
+- 运行时通用断言：verifier `evaluateAppLogNoise`（base turn 聚合/排除 UI 读取/正常路径 0 error 级/45–60 行预算/失败恢复路径允许 error；未归属 turn 的 error 记录使整场景按失败恢复路径兜底）；`tauri_slice_verify.sh` 写 `summary.json.log_noise` + `log-noise.json`，违规 exit 1；verifier 单测 +6（合计 240）。
+- 场景 manifest data 断言：`p1-chapter-adoption-reading`、`judgment-explore-chapter-plan`（正常路径）、`q3d-author-registration-guards`（失败恢复路径）。
+- **诚实边界**：`agent_run.run_failed` 的 app-log 记录仍缺 `turn_id`（既有可观测性缺口，不属本批；噪声门禁用整场景失败恢复路径兜底规避误判），登记为后续可观测性债。
+
+#### 真实 Tauri 复跑（隔离库 `NOVEL_TEST_DB_DIR=/tmp/b13b-verify-db` + `MIX_TEST_PARTITION=_b13b`，端口 14661/15773；证据 `artifacts/slice-verify/<scenario>-tauri/summary.json`）
+
+| 场景 | 结果 | 噪声证据（summary.log_noise） |
+|---|---|---|
+| `q3d-author-registration-guards` | ✅ PASS | 4 base turns（纠正+3 失败）12–17 行、0 error（失败路径兜底 ≤60） |
+| `q3d-candidate-semantics` | ✅ PASS | 见 summary（失败路径兜底） |
+| `au05-conflict-cross-work-recovery` | ✅ PASS | 失败恢复路径 4 行含 1 error、≤60 |
+| `au05-canon-conflict-recovery` | ✅ PASS | 失败恢复路径 4 行含 1 error、≤60 |
+| `p1-chapter-adoption-reading` | ✅ PASS | 正常路径 38 行、0 error（与 300-turn baseline 的 p1 38 一致） |
+| `judgment-explore-chapter-plan` | ✅ PASS | 正常路径 14 行、0 error |
+| `au04-confirmation-tool-failure-recovery` | ❌ 未通过（**既有场景漂移 D21**，非本批引入） | — |
+
+#### 既有验收夹具漂移修复（顺带，产品零改动）
+
+- `scripts/seed_au05_conflict_cross_work_recovery.exs` / `scripts/seed_au05_canon_conflict_recovery.exs`：候选方向补 `kind: "creative_direction"`。根因 = Q3D 候选用途契约（无 `kind` 不授予采纳动作）落地后旧 seed 未迁移，两场景首跑即因按钮不出现超时；修复后真实 Tauri PASS。不新增产品验收感知逻辑。
+
+#### 门禁
+
+- 后端：`mix test` **1,849 tests / 0 failures**（7 个 app 分档）；`mix compile --warnings-as-errors` ✓；`mix format --check-formatted` ✓；`mix run scripts/lint_enum_literals.exs` clean；`mix credo --strict` 0 issue；`mix dialyzer` 0 errors；`mix xref graph --format cycles --label compile-connected --fail-above 0` 无环；`mix run scripts/arch_check.exs` 通过；`mix run scripts/adr_trace.exs` **27/27（262 refs, 0 pending）**。
+- 不变量：I3 3/3 + Layer-A 3/3、I1 4/4、I2 3 pairs disjoint、N-NARR PASS、I-CACHE-1 全行 `enforced=true`。
+- 前端：`pnpm typecheck` ✓、`pnpm lint` ✓、`pnpm test` **573 tests / 36 files 0 failures**（含 verifier 240）；`bash scripts/frontend_audit.sh` 27 PASS / 0 WARN / 0 FAIL；`bash scripts/check_design_trace.sh` 16 PASS / 0 WARN / 0 FAIL。
+- 质量体系：`bash scripts/quality_manifest_check.sh` passed；`bash scripts/check_log_noise.sh` passed（17/17）。
+- 静态扫描：`bash scripts/ai_static_scan.sh --top 10` → 收尾 task_done manifest 生成后复跑，0 blocking（两条既有 gitleaks disposition 保留，见 `artifacts/static-scan/`）。
 
 ## 附 A：22 份 ADR / 47 条 gap 落点速查
 

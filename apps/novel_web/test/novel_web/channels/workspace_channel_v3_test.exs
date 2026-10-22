@@ -886,7 +886,9 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       assert_broadcast("turn_result", result)
       assert result.parent_turn_id == "turn-candidates-1"
-      assert result.status == "failed"
+      # B13b BB-4（ADR-0006 #2）：fail_with_recovery = 失败但可恢复；phase 仍 failed。
+      assert result.status == "failed_recoverable"
+      assert result.phase == "failed"
       assert result.truthfulness.candidate_selected == true
       assert result.truthfulness.candidate_adopted == false
       assert result.truthfulness.production_write_performed == false
@@ -945,7 +947,9 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       assert_broadcast("turn_result", result)
       assert result.parent_turn_id == "turn-candidates-1"
-      assert result.status == "failed"
+      # B13b BB-4（ADR-0006 #2）：fail_with_recovery = 失败但可恢复；phase 仍 failed。
+      assert result.status == "failed_recoverable"
+      assert result.phase == "failed"
       assert result.truthfulness.candidate_selected == true
       assert result.truthfulness.candidate_adopted == false
       assert result.truthfulness.production_write_performed == false

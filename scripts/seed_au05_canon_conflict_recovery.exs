@@ -32,6 +32,8 @@ turn_result = %{
       direction_id: "dir_au05_canon_conflict_1",
       title: "年龄设定覆盖",
       pitch: "把已确认十七岁的林烬直接改成三十二岁，覆盖当前 canon。",
+      # Q3D 候选用途契约（2026-10）：无 kind 的候选不再授予采纳动作——验收夹具补用途标记。
+      kind: "creative_direction",
       tone_tags: ["canon 冲突", "不应采纳"],
       risk_hint: "low",
       adoption_target_ref: "canon:role:lin-jin:age",

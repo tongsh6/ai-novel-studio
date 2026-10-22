@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-23（B24 探索面全章可读收口：chapter_read 分段预算 + `chapter_ref` 续读；C12 closed。此前：B23 停等理由与出口可见收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；历史证据保留版本边界）
+> 最后更新：2026-10-23（B13B-DEFERRED-CLOSURE 收口：BB-4 `failed_recoverable` / BB-7 采纳持久化失败 TurnResult / BB-10 日志噪声门禁；J25 closed。此前：B24 探索面全章可读收口：chapter_read 分段预算 + `chapter_ref` 续读；C12 closed。此前：B23 停等理由与出口可见收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；历史证据保留版本边界）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -454,7 +454,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J22 | 架构与契约债按 ADR 证据逐项闭环（B13b 转出的 B 轨小修批） | B13B-FOLLOWUP / B13b | ADR enforcement / domain+application 边界 / 验收注册 | **closed（2026-10-23，10/13 落地 + 3 项作者拍板延后）** | 单测 + 两组真实 Tauri | `tasks/slices/B13B-adr-enforcement-reconciliation.md` §11；`artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/summary.json`；`artifacts/slice-verify/judgment-plan-multi-step-tauri/summary.json` | BB-1/2/3/5/6/8/9/11/12 + D14 已落；真实 Tauri：au13 rail「审读待处置 5」同源可见且全处置后消失、judgment-plan-multi-step 注册并 PASS；⏸ BB-4 `failed_recoverable` 边界 / BB-7 Q5 持久化失败 TurnResult / BB-10 日志噪声口径需作者拍板（§11.3） |
 | J23 | 下一次主线选择与队列复位（B13B-FOLLOWUP 收口后） | MAINLINE-RESET-3 | tasks/NEXT 队列 | **closed（2026-10-23，作者裁决：本轮到此为止）** | 决策记录 | `tasks/NEXT.md` MAINLINE-RESET-3 / NEXT-AUTHOR-DIRECTED 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.1/§7/§11 | 复位完成、不新开项；候选清单保留（B13b §4.1 11 项 + 延后 BB-4/BB-7/BB-10 + B11D/E28-E30/VS-00D G1–G7）；下一项等作者另行指示（`NEXT-AUTHOR-DIRECTED` 为队首，AI 不得自行替换） |
 | J24 | 等待作者指定下一项（本轮队列已清空） | NEXT-AUTHOR-DIRECTED | tasks/NEXT 队列 | **closed（2026-10-23，作者已给出下一项指示）** | — | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.3 | 作者拍板 B13b 延后 3 项（BB-4/BB-7/BB-10 均方案 A），指令「只定方案，下一轮再执行」；队首转 `B13B-DEFERRED-CLOSURE`（next） |
-| J25 | 执行 B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板） | B13B-DEFERRED-CLOSURE / B13b | TurnStatus / Adoption 持久化失败 / 日志噪声门禁 | **next（2026-10-23 已拍板，下一轮执行）** | 单测 + 定向真实 Tauri（计划） | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.3 | CP1 BB-4 三生产者统一 `failed_recoverable`（纯线格式语义，不新增 recovery action）；CP2 BB-7 persist error → failed action_result + failed_recoverable TurnResult（闭 VS-04 规则 5）+ 注入 writer error 单测；CP3 失败路径真实 Tauri 复跑（q3d-candidate-semantics / q3d-author-registration-guards / au04-confirmation-tool-failure-recovery，必要时 au05）；CP4 BB-10 ADR §6 改 45/60 + §4/LogEmit 补 level + check_log_noise.sh + CI + verifier 通用断言 + 2-3 已绿场景复跑；CP5 全门禁与台账收口 |
+| J25 | 执行 B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板） | B13B-DEFERRED-CLOSURE / B13b | TurnStatus / Adoption 持久化失败 / 日志噪声门禁 | **closed（2026-10-23，CP1–CP5 全落；真实 Tauri 六场景 PASS + au04 既有漂移 D21 诚实登记）** | 单测 + 真实 Tauri（隔离库/分区） | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.4；`artifacts/slice-verify/{q3d-author-registration-guards,q3d-candidate-semantics,au05-conflict-cross-work-recovery,au05-canon-conflict-recovery,p1-chapter-adoption-reading,judgment-explore-chapter-plan}-tauri/summary.json` | BB-4：`TurnResultBuilder`/`AgentRunServer.safe_failure_turn_result`/`AdoptionWorkflow.decision_status`/`DialogueGateway.candidate_status` → `failed_recoverable`（phase 仍 failed、run/action_result status 不变）；BB-7：persist error → 失败 action_result + failed_recoverable TurnResult + `{:ok,...}` 广播（VS-04 规则 5）；BB-10：ADR-0018 §4 `level` + §6 45/60 口径 + `scripts/check_log_noise.sh`（17/17）+ CI + verifier `evaluateAppLogNoise`（正常路径 0 error；p1 38 行 / judgment-explore 14 行）+ 3 份 manifest data 断言；au05 两场景 seed 补 `kind` 夹具漂移；au04 未通过=既有判断纪元漂移 D21（非本批引入） |
+| J26 | Provider 存活策略真实页面闭环（慢但持续出字不被杀） | B22-CP4-SLOW-STREAM / B22 | Provider TimeoutPolicy / 流式 wire 静默 / 作者可见运行时长 | **next（2026-10-23，队列顺序推进）** | 真实 Tauri 慢流场景（计划） | `tasks/NEXT.md` B22-CP4-SLOW-STREAM 行；`tasks/slices/B22-provider-liveness-and-budget-policy.md` CP4；`docs/design/08-provider-abstraction.md` §25 | B22 CP1–CP3 已落；CP4 待补：test/support 慢但持续出字的流式替身（间隔超过 legacy 总超时）→ 新真实 Tauri 场景 `p1-provider-slow-stream-liveness`（不因总挂钟被杀、运行时长可见、最终产物正常）→ 既有 `p1-prose-execution-brief` 回归 → 收口 |
 
 ---
 
@@ -515,9 +516,9 @@ Queue head: B13B-DEFERRED-CLOSURE
 
 ```text
 Journey C / 自然创作对话与探索
-Step: J25 / B13B-DEFERRED-CLOSURE（next 2026-10-23，已拍板待执行）
-Status: next（作者拍板 BB-4/BB-7/BB-10 均方案 A；指令「只定方案，下一轮再执行」）
-Gap / Next: 下一轮按 CP1–CP5 执行：BB-4 全量统一 failed_recoverable（纯线格式语义）→ BB-7 persist failure TurnResult（闭 VS-04 规则 5）→ 失败路径真实 Tauri 复跑 → BB-10 日志噪声门禁全闭环（ADR §6 45/60 + level + 静态脚本/CI + verifier）→ 全门禁与台账收口；详见 B13b §11.3。
+Step: J26 / B22-CP4-SLOW-STREAM（next 2026-10-23，队列顺序推进）
+Status: next（B13B-DEFERRED-CLOSURE 已 closed；B22 CP4 慢流真实页面验收未闭环）
+Gap / Next: 补「慢但持续出字不被杀」的真实页面证据：test/support 慢流替身 → 真实 Tauri `p1-provider-slow-stream-liveness`（运行中不被总挂钟杀、作者可见已运行时长、最终产出候选）→ 既有 p1-prose-execution-brief 回归 → 收口；详见 `tasks/slices/B22-provider-liveness-and-budget-policy.md` CP4。
 ```
 
 选择规则：

@@ -511,7 +511,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert turn_result.assistant_message.text =~ "无法连接到创作引擎"
     assert turn_result.assistant_message.text =~ "没有创建待采纳内容"
     assert turn_result.phase == "failed"
-    assert turn_result.status == "failed"
+
+    # B13b BB-4（ADR-0006 #2）：run 失败兜底 = failed_recoverable；run 级 status 仍 :failed。
+    assert turn_result.status == "failed_recoverable"
 
     assert turn_result.truthfulness == %{
              tool_called: false,

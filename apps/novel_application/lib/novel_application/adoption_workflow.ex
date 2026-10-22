@@ -16,6 +16,8 @@ defmodule NovelApplication.AdoptionWorkflow do
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MutationStatus
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   @spec handle_adopt(
           map() | nil,
           map(),
@@ -223,7 +225,18 @@ defmodule NovelApplication.AdoptionWorkflow do
            build_turn_result(source_turn_result, decision, artifact, persisted, params)}
 
         {:error, reason} ->
-          {:error, reason}
+          # BB-7（VS-04 规则 5 / ADR-0010 #1，2026-10-23 作者拍板方案 A）：采纳
+          # 持久化失败不允许静默丢弃——产出失败 action_result + failed_recoverable
+          # TurnResult，走既有 action_result/turn_result 广播；原候选保持 pending，
+          # 作品事实未被修改。原始错误只进 developer 日志（author-safe）。
+          LogEmit.emit(:adoption, :persist, :error, %{
+            reason_code: :adoption_persistence_failed,
+            artifact_id: artifact_field(artifact, :artifact_id),
+            outcome_detail: inspect(reason) |> String.slice(0, 300)
+          })
+
+          {:ok, build_failed_action_result(decision, artifact),
+           build_persistence_failure_turn_result(source_turn_result, decision, artifact)}
       end
     else
       {:ok, build_decision_action_result(decision, artifact),
@@ -575,6 +588,69 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp decision_action_status(%AdoptionDecision{decision_type: :reject}), do: "rejected"
   defp decision_action_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
   defp decision_action_status(_decision), do: "rejected"
+
+  # BB-7：持久化失败 = 失败 action_result（status 仍 failed，ADR 口径）+ 可恢复
+  # TurnResult。作者可见文案只说结构事实（未保存/候选保留/作品事实未改），
+  # 不带持久化异常原文。
+  defp build_failed_action_result(%AdoptionDecision{} = decision, artifact) do
+    %{
+      action_id: "adopt:#{artifact_field(artifact, :artifact_id)}",
+      action_type: "adopt",
+      status: "failed",
+      artifact_id: artifact_field(artifact, :artifact_id),
+      artifact_type: artifact_field(artifact, :artifact_type),
+      decision: decision_payload(decision),
+      persistence: %{
+        persisted: false,
+        persistence_status: "failed",
+        reason_code: "adoption_persistence_failed"
+      }
+    }
+  end
+
+  defp build_persistence_failure_turn_result(
+         source_turn_result,
+         %AdoptionDecision{} = decision,
+         artifact
+       ) do
+    source_turn_id = turn_id(source_turn_result)
+    artifact_id = artifact_field(artifact, :artifact_id)
+    reason_codes = ["adoption_persistence_failed", "author_action_retryable"]
+
+    %{
+      schema_version: "3.0-draft",
+      turn_id: NovelFoundation.ID.unique("turn_adopt"),
+      parent_turn_id: source_turn_id,
+      assistant_message: %{
+        text: "这次采纳没有保存成功：作品档案写入失败，原候选仍保留为待采纳，作品事实没有被修改。"
+      },
+      ui_cards: [],
+      trace_summary: %{
+        decision_type: "adopt_persistence_failed",
+        reason_codes: reason_codes,
+        source_turn_ref: source_turn_id,
+        artifact_ref: "artifact:#{artifact_id}",
+        decision_trace_ref: decision.decision_trace_ref,
+        state_trace_ref: nil
+      },
+      phase: "failed",
+      status: "failed_recoverable",
+      available_actions: [],
+      projection_refs: [],
+      adoption_decision: decision_payload(decision),
+      truthfulness: %{
+        tool_called: false,
+        artifact_adopted: false,
+        production_write_performed: false,
+        state_persisted: false,
+        mutation_ref: nil,
+        adopted_state_ref: nil,
+        durable_behavior_opened: false,
+        decision_type: :adopt_persistence_failed,
+        reason_codes: reason_codes
+      }
+    }
+  end
 
   defp build_cancel_confirmation_action_result(artifact) do
     %{
@@ -977,7 +1053,12 @@ defmodule NovelApplication.AdoptionWorkflow do
     do: "needs_confirmation"
 
   defp decision_status(%AdoptionDecision{decision_type: :reject}), do: "cancelled"
-  defp decision_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
+
+  # B13b BB-4（2026-10-23 作者拍板方案 A）：fail_with_recovery 决策 = 失败但可恢复
+  # （phase 仍 failed，action_result.status 仍 failed）。
+  defp decision_status(%AdoptionDecision{decision_type: :fail_with_recovery}),
+    do: "failed_recoverable"
+
   defp decision_status(_decision), do: "conversational"
 
   # 确认卡必须说清「为什么要我确认」：拦截住了但不给裁决材料，等于把判断推给作者

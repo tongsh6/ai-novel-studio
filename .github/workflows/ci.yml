@@ -56,6 +56,9 @@ jobs:
       - name: ADR traceability
         run: mix run scripts/adr_trace.exs
 
+      - name: Business log noise gate (ADR-0018 §6)
+        run: bash scripts/check_log_noise.sh
+
       - name: Format check
         run: mix format --check-formatted
 
