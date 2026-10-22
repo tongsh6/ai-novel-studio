@@ -16114,3 +16114,66 @@ describe("业务日志噪声通用断言（ADR-0018 §6）", () => {
     ]);
   });
 });
+
+// B22 CP4：慢而持续出字的 provider 流不被总挂钟误杀（真实 LMStudio adapter + 慢流替身）。
+describe("B22 慢流存活证据", () => {
+  const slice = "agent-provider-slow-stream-liveness";
+  const turnId = "turn-slow-stream";
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    provider: "lmstudio",
+    turn_status: "conversational",
+    duration_ms: 9_500,
+    elapsed_visible_at_ms: 5_200,
+    elapsed_visible_during_run: true,
+    author_visible_narrative_used: true,
+    streaming_request_count: 1,
+    tool_request_count: 1,
+    streamed_ms: 8_400,
+    stream_chunk_count: 12,
+    provider_done_count: 2,
+    provider_error_count: 0,
+    provider_timeout_count: 0,
+    loading_cleared_after_turn: true,
+    input_enabled_after_turn: true,
+    no_production_write: true,
+    slow_prompt_sent: true,
+  };
+  const records = [
+    ui,
+    { event: "channel.user_message.start", turn_id: turnId },
+    { event: "provider_gateway.complete.start", turn_id: turnId, provider: "lmstudio" },
+    { event: "provider_gateway.complete.done", turn_id: turnId, provider: "lmstudio" },
+    { event: "channel.user_message.done", turn_id: turnId },
+  ];
+
+  it("慢流持续出字 + 真实等待可见 + 无 timeout 才通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence?.turn_id).toBe(turnId);
+    expect(evidence?.streamed_ms).toBe(8_400);
+    expect(findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio" })).not.toBeNull();
+  });
+
+  it("timeout 误杀 / 流太短 / 等待时长未出现 / 写入事实都不能通过", () => {
+    const timeout = records.map((r) =>
+      r.event === "provider_gateway.complete.done" ? { ...r, event: "provider_gateway.complete.error", reason_code: "timeout" } : r,
+    );
+    expect(findNativeSliceEvidence(slice, timeout)).toBeNull();
+
+    const short = records.map((r) => (r.event === "slice_verify.ui_state.done" ? { ...r, streamed_ms: 2_000 } : r));
+    expect(findNativeSliceEvidence(slice, short)).toBeNull();
+
+    const noElapsed = records.map((r) =>
+      r.event === "slice_verify.ui_state.done" ? { ...r, elapsed_visible_during_run: false } : r,
+    );
+    expect(findNativeSliceEvidence(slice, noElapsed)).toBeNull();
+
+    const wrote = records.map((r) =>
+      r.event === "slice_verify.ui_state.done" ? { ...r, no_production_write: false } : r,
+    );
+    expect(findNativeSliceEvidence(slice, wrote)).toBeNull();
+  });
+});

@@ -1,0 +1,61 @@
+id: agent-provider-slow-stream-liveness
+title: 慢而持续出字的 provider 流不被误杀且作者可见真实等待
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-provider-slow-stream-liveness --surface tauri
+
+contract:
+  - docs/design/foundation/08-provider-abstraction.md §25
+  - tasks/slices/B22-provider-liveness-and-budget-policy.md
+  - docs/engineering/scenario-acceptance.md
+  - docs/engineering/scenario-invariants.md
+
+invariants:
+  - slow-but-continuously-streaming-provider-call-is-not-killed-by-total-wall-clock
+  - legacy-timeout-is-a-wire-silence-window-not-a-total-deadline
+  - author-visible-elapsed-time-is-real-wall-clock-after-five-second-threshold
+  - no-provider-timeout-or-error-turn-result-on-live-slow-stream
+  - normal-reply-turn-result-uses-streamed-author-visible-narrative
+  - no-product-acceptance-hooks
+
+setup:
+  provider: lmstudio
+  fixture: 外部 driver 启动本地 OpenAI 兼容慢流替身（700ms/块、约 8.4s 总时长、判断结构调用非流式即返）
+
+user_flow:
+  - open: real Tauri workbench
+  - configure: 通过产品 provider runtime API 把 LM Studio 指向本地慢流替身（模型 slow-stream-model）
+  - type: 普通对话消息（含随机 nonce）
+  - observe: 慢流持续出字期间作者可见「已运行 N 秒」（5s 门槛后），run 不结束
+  - observe: 慢流结束后收到正常 reply TurnResult（非失败/非 timeout），输入框可用
+  - verify: provider_gateway.complete.done 存在且无 complete.error / timeout 记录
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-provider-slow-stream-liveness-tauri
+
+assertions:
+  ui:
+    - 慢流期间出现作者可见真实等待时长「已运行 N 秒/分」
+    - 慢流结束后 loading 清除、输入框可用
+    - 回复正文来自慢流叙事（作者可见 provider 字节）
+  network:
+    - 真实 LM Studio adapter 对慢流替身发出流式请求并持续收到 SSE 数据（≥6s 总时长）
+    - 判断结构调用（无流式）一次成功
+    - 无 provider_gateway.complete.error、无 timeout 原因码
+  data:
+    - turn_result status 为 conversational/completed（非 failed/failed_recoverable/cancelled）
+    - provider_call 成功计数 ≥1、错误计数 0、timeout 计数 0
+    - truthfulness.production_write_performed 非 true（普通回复不写作品事实）
+    - app log 噪声门禁：正常路径 0 error 级且 base turn ≤45 行（summary.log_noise）
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

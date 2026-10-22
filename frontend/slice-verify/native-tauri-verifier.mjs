@@ -126,6 +126,7 @@ export const nativeSliceIds = [
   "au10-workbench-recovery-taskstate",
   "au10-workbench-recovery-disconnect-timeout",
   "au10-workbench-recovery-provider-timeout",
+  "agent-provider-slow-stream-liveness",
   "au10-workbench-recovery-reconnect",
   "au10-workbench-recovery-cancel-waiting",
   "au10-workbench-render-stability",
@@ -1534,6 +1535,13 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "agent-provider-slow-stream-liveness": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au10-workbench-recovery-reconnect": [
     "channel.join.done",
     "channel.user_message.done",
@@ -2121,6 +2129,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au10-workbench-recovery-provider-timeout") {
     return findAu10WorkbenchRecoveryProviderTimeoutEvidence(records);
+  }
+
+  if (sliceId === "agent-provider-slow-stream-liveness") {
+    return findAgentProviderSlowStreamLivenessEvidence(records);
   }
 
   if (sliceId === "au10-workbench-recovery-reconnect") {
@@ -2891,6 +2903,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-workbench-recovery-provider-timeout") {
     return au10WorkbenchRecoveryProviderTimeoutBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "agent-provider-slow-stream-liveness") {
+    return agentProviderSlowStreamLivenessBehavior(records, evidence, options);
   }
 
   if (sliceId === "au10-workbench-recovery-reconnect") {
@@ -12838,6 +12854,73 @@ function findAu10WorkbenchRecoveryDisconnectTimeoutEvidence(records) {
   };
 }
 
+function findAgentProviderSlowStreamLivenessEvidence(records) {
+  const sliceId = "agent-provider-slow-stream-liveness";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.turn_id,
+  );
+  if (!uiState) return null;
+
+  // B22 CP4：慢而持续出字 → 不误杀；5s 门槛后真实墙钟可见；最终正常 reply。
+  const requiredTrue = [
+    "elapsed_visible_during_run",
+    "author_visible_narrative_used",
+    "loading_cleared_after_turn",
+    "input_enabled_after_turn",
+    "no_production_write",
+    "slow_prompt_sent",
+  ];
+  if (!requiredTrue.every((key) => uiState[key] === true)) return null;
+  if (!["conversational", "completed"].includes(String(uiState.turn_status ?? ""))) return null;
+  if (Number(uiState.streaming_request_count ?? 0) < 1) return null;
+  if (Number(uiState.tool_request_count ?? 0) < 1) return null;
+  if (Number(uiState.streamed_ms ?? 0) < 6000) return null;
+  if (Number(uiState.stream_chunk_count ?? 0) < 8) return null;
+  if (Number(uiState.provider_done_count ?? 0) < 1) return null;
+  if (Number(uiState.provider_error_count ?? -1) !== 0) return null;
+  if (Number(uiState.provider_timeout_count ?? -1) !== 0) return null;
+
+  const turnRecords = records.filter((record) => record.turn_id === uiState.turn_id);
+  if (!turnRecords.some((record) => record.event === "channel.user_message.start")) return null;
+  if (!turnRecords.some((record) => record.event === "channel.user_message.done")) return null;
+  if (
+    !turnRecords.some(
+      (record) =>
+        record.event === "provider_gateway.complete.start" && record.provider === "lmstudio",
+    )
+  ) {
+    return null;
+  }
+  if (
+    !turnRecords.some(
+      (record) =>
+        record.event === "provider_gateway.complete.done" && record.provider === "lmstudio",
+    )
+  ) {
+    return null;
+  }
+  if (turnRecords.some((record) => record.event === "provider_gateway.complete.error")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: [uiState.turn_id],
+    provider: uiState.provider,
+    turn_status: String(uiState.turn_status ?? ""),
+    duration_ms: Number(uiState.duration_ms ?? 0),
+    elapsed_visible_at_ms: Number(uiState.elapsed_visible_at_ms ?? 0),
+    streamed_ms: Number(uiState.streamed_ms ?? 0),
+    stream_chunk_count: Number(uiState.stream_chunk_count ?? 0),
+    streaming_request_count: Number(uiState.streaming_request_count ?? 0),
+    tool_request_count: Number(uiState.tool_request_count ?? 0),
+    provider_done_count: Number(uiState.provider_done_count ?? 0),
+    provider_timeout_count: Number(uiState.provider_timeout_count ?? 0),
+  };
+}
+
 function findAu10WorkbenchRecoveryProviderTimeoutEvidence(records) {
   const sliceId = "au10-workbench-recovery-provider-timeout";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -20012,6 +20095,38 @@ function au10WorkbenchRecoveryDisconnectTimeoutBehavior(records, evidence, _opti
       "input_remained_available_after_failure",
       "author_sent_following_message_without_refresh",
       "following_turn_completed_after_provider_recovery",
+    ],
+  };
+}
+
+function agentProviderSlowStreamLivenessBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-provider-slow-stream-liveness" &&
+      record.turn_id === evidence.turn_id,
+  );
+  if (!uiState) return null;
+  if (Number(uiState.duration_ms ?? 0) < 6000) return null;
+  if (Number(uiState.streamed_ms ?? 0) < 6000) return null;
+  if (Number(uiState.provider_timeout_count ?? -1) !== 0) return null;
+
+  return {
+    slice_id: "agent-provider-slow-stream-liveness",
+    behavior: "slow_but_continuously_emitting_provider_stream_survives_and_shows_real_elapsed_time",
+    turn_ids: evidence.turn_ids,
+    provider: evidence.provider,
+    duration_ms: evidence.duration_ms,
+    streamed_ms: evidence.streamed_ms,
+    stream_chunk_count: evidence.stream_chunk_count,
+    provider_timeout_count: evidence.provider_timeout_count,
+    assertions: [
+      "slow_stream_emitted_wire_data_continuously_for_more_than_six_seconds",
+      "legacy_timeout_window_did_not_kill_slow_but_live_stream",
+      "no_provider_timeout_or_error_turn_result",
+      "author_visible_elapsed_time_appeared_only_after_five_second_threshold",
+      "final_reply_used_streamed_author_visible_narrative",
+      "loading_cleared_and_input_recovered_after_slow_turn",
     ],
   };
 }

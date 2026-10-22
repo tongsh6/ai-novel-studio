@@ -539,6 +539,13 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 - **顺带夹具漂移修复**：`seed_au05_conflict_cross_work_recovery.exs` / `seed_au05_canon_conflict_recovery.exs` 候选方向补 `kind:"creative_direction"`（Q3D 候选用途契约后旧 seed 未迁移导致按钮不出现）；产品零改动。
 - **门禁**：后端 1,849/0、前端 573/0（含 verifier 240）、`mix compile --warnings-as-errors`、format、enum lint、`credo --strict` 0、`dialyzer` 0、xref 无环、arch、`adr_trace` 27/27（262 refs）、quality manifest passed、I1/I2/I3/N-NARR/I-CACHE-1、audit 27 / design trace 16、静态扫描见收尾 manifest。证据与执行记录：`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.4。
 
+#### B22-CP4 慢流真实页面存活验收（2026-10-23）
+
+- 新真实 Tauri 场景 `agent-provider-slow-stream-liveness`（manifest + `scenarios.yml` + external-ui-driver + native-tauri-verifier + tauri echo 注册）：外部 Playwright driver 启动本地 OpenAI 兼容慢流替身（仅验收 harness，不进生产 runtime）——每 700ms 一块 SSE 正文、约 7s 持续出字；判断结构调用（tools + forced tool_choice）走非流式立即返回合法 `judgment_decision`。driver 经**产品 provider runtime API** 把 LM Studio 指向替身，后端注入 `NOVEL_LMSTUDIO_TIMEOUT_MS=3000`——B22 后 legacy timeout 仅作 **wire 静默窗口**，不再是总挂钟。
+- 结果：真实 Tauri **PASS**。证据 `artifacts/slice-verify/agent-provider-slow-stream-liveness-tauri/summary.json`：`duration_ms≈7.6s`、`streamed_ms=7000`、`stream_chunk_count=10`、`streaming_request_count=1`、`tool_request_count=1`、`provider_done_count=2`、`provider_timeout_count=0`、`elapsed_visible_at_ms≈5.2s`（5s 门槛后作者可见「已运行」）、turn status `conversational`、`no_production_write=true`、log noise 正常路径 9 行 / 0 error。证伪能力：旧「legacy timeout = 总挂钟」语义若复活会在 3s 处误杀（场景断言 elapsed≥4s、duration≥6s、无 timeout）。
+- **自适应校准决策**：明确保留 local bootstrap（response 900s / non-stream 1800s / deadline nil），不按 `(provider, model, thinking)` p99 收紧——校准需多模型多思考档系统性采样（C 轨平台验证 ≤15%），且收紧窗口有误杀真实慢预填风险；登记为 C 轨观察项，不冒充已校准。
+- 文档：`tasks/slices/B22-provider-liveness-and-budget-policy.md` 状态 done（§2d 记录 + §2c 诚实边界更新）；NEXT B22 行/B 轨台账、journeys J26 收口；`tasks/slices/README.md` 同步。
+
 ---
 
 ## 9. 维护规则

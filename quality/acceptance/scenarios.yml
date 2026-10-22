@@ -1444,3 +1444,10 @@ scenarios:
     manifest: quality/acceptance/scenarios/b17-writer-timeout-steer.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh b17-writer-timeout-steer --surface tauri
+  - id: agent-provider-slow-stream-liveness
+    title: "慢而持续出字的 provider 流不被误杀且作者可见真实等待"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-provider-slow-stream-liveness.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-provider-slow-stream-liveness --surface tauri

@@ -884,6 +884,199 @@ async function startHangingOpenAiServer() {
   };
 }
 
+// B22 CP4：慢但持续出字的 OpenAI 兼容替身（本地 HTTP，仅验收 harness 使用，不进生产 runtime）。
+// 目的：让真实 LM Studio adapter 的 SSE 流以 ~700ms/块持续 ~8.4s 出字；
+// 后端以 NOVEL_LMSTUDIO_TIMEOUT_MS=3000 注入 legacy timeout（B22 后它只作为
+// wire 静默窗口，不是总挂钟）——若仍按旧语义当总时长杀灭，会在 3s 处失败。
+// 判断结构调用（tools + forced tool_choice）走非流式，立即返回 valid judgment_decision。
+const SLOW_STREAM_CHUNK_DELAY_MS = 700;
+const SLOW_STREAM_TOTAL_CHUNKS = 12;
+const SLOW_STREAM_NARRATIVE =
+  "我理解你想就这个创作问题聊一聊；这一轮只需要用文字回应，不需要调用任何创作工具。";
+
+async function startSlowStreamingJudgmentServer() {
+  const sockets = new Set();
+  const stats = {
+    streaming_requests: 0,
+    tool_requests: 0,
+    streamed_ms: 0,
+    chunk_count: 0,
+  };
+
+  const server = http.createServer(async (request, response) => {
+    try {
+      if (request.method === "GET") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            object: "list",
+            data: [{ id: "slow-stream-model", object: "model", owned_by: "harness" }],
+          }),
+        );
+        return;
+      }
+
+      if (request.method !== "POST") {
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "not found" }));
+        return;
+      }
+
+      const raw = await readHttpRequestBody(request);
+      let body = {};
+
+      try {
+        body = JSON.parse(raw || "{}");
+      } catch {
+        body = {};
+      }
+
+      const tools = Array.isArray(body.tools) ? body.tools : [];
+      const toolChoice = body.tool_choice;
+      const forcedTool = toolChoice !== null && typeof toolChoice === "object";
+      const wantsTool =
+        tools.length > 0 &&
+        (forcedTool || (typeof toolChoice === "string" && toolChoice !== "none"));
+
+      if (wantsTool) {
+        stats.tool_requests += 1;
+        const argumentsPayload = {
+          action: "reply",
+          capability: null,
+          frame_type: "casual_reply",
+          dialogue_goal: "直接文字回应作者的普通对话",
+          reply_included: true,
+          record_only: false,
+          reason: "作者只是普通对话，直接文字回复即可。",
+        };
+
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            id: "chatcmpl-slow-tool",
+            object: "chat.completion",
+            model: "slow-stream-model",
+            choices: [
+              {
+                index: 0,
+                finish_reason: "tool_calls",
+                message: {
+                  role: "assistant",
+                  content: "",
+                  tool_calls: [
+                    {
+                      id: "call_judgment_slow",
+                      type: "function",
+                      function: {
+                        name: "judgment_decision",
+                        arguments: JSON.stringify(argumentsPayload),
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+          }),
+        );
+        return;
+      }
+
+      // 慢流叙事：每块之间 700ms 静默，但持续有 wire data。
+      stats.streaming_requests += 1;
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      response.flushHeaders?.();
+
+      const chunks = splitSlowStreamNarrative(SLOW_STREAM_NARRATIVE, SLOW_STREAM_TOTAL_CHUNKS);
+
+      for (const chunk of chunks) {
+        await sleep(SLOW_STREAM_CHUNK_DELAY_MS);
+        stats.streamed_ms += SLOW_STREAM_CHUNK_DELAY_MS;
+        stats.chunk_count += 1;
+        response.write(
+          `data: ${JSON.stringify({
+            id: "chatcmpl-slow-stream",
+            object: "chat.completion.chunk",
+            model: "slow-stream-model",
+            choices: [{ index: 0, delta: { content: chunk } }],
+          })}\n\n`,
+        );
+      }
+
+      response.write(
+        `data: ${JSON.stringify({
+          id: "chatcmpl-slow-stream",
+          object: "chat.completion.chunk",
+          model: "slow-stream-model",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+        })}\n\n`,
+      );
+      response.write("data: [DONE]\n\n");
+      response.end();
+    } catch (error) {
+      try {
+        response.writeHead(500, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: String(error) }));
+      } catch {
+        // response 已断开时忽略。
+      }
+    }
+  });
+
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  assert(address && typeof address === "object", "Slow stream fixture server did not bind a port");
+
+  return {
+    endpoint: `http://127.0.0.1:${address.port}/v1`,
+    stats,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
+
+function splitSlowStreamNarrative(narrative, count) {
+  const characters = Array.from(narrative);
+  const size = Math.max(1, Math.ceil(characters.length / count));
+  const chunks = [];
+
+  for (let index = 0; index < characters.length; index += size) {
+    chunks.push(characters.slice(index, index + size).join(""));
+  }
+
+  return chunks;
+}
+
+function readHttpRequestBody(request) {
+  return new Promise((resolve, reject) => {
+    let payload = "";
+    request.on("data", (chunk) => {
+      payload += chunk;
+    });
+    request.on("end", () => resolve(payload));
+    request.on("error", reject);
+  });
+}
+
 function serviceStatus(page) {
   return page.getByText(/^服务:|^同步/).first();
 }
@@ -18293,6 +18486,145 @@ async function driveAu10WorkbenchRecoveryProviderTimeout(page) {
   }
 }
 
+// B22 CP4：慢流存活真实页面验收。外部 driver 配置产品 provider runtime 指向本地慢流
+// 替身（真实 LM Studio adapter / Gateway / TimeoutPolicy 全链），随后发送普通对话：
+// 慢而持续出字必须不被杀、作者可见真实等待时长、最终回到正常 reply TurnResult。
+async function driveAgentProviderSlowStreamLiveness(page) {
+  const fixture = await startSlowStreamingJudgmentServer();
+
+  try {
+    await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+      timeout: 30_000,
+    });
+
+    await configureProviderRuntime({
+      provider: "lmstudio",
+      model: "slow-stream-model",
+      endpoint: fixture.endpoint,
+    });
+
+    const nonce = `B22-SLOW-${Date.now()}`;
+    const message = `请围绕 ${nonce} 用一句话回应我。`;
+    const frameStart = frames.length;
+    const startedAt = Date.now();
+
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: "发送" }).click();
+
+    // 5s 门槛后的真实墙钟「已运行 N 秒」必须在 run 未结束时出现。
+    await page.waitForFunction(() => /已运行\s*\d+\s*(秒|分|小时)/.test(document.body.innerText), {
+      timeout: 20_000,
+    });
+    const elapsedVisibleAtMs = Date.now() - startedAt;
+    const visibleDuringStream = await page.locator("body").innerText();
+
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        Boolean(frame.body?.turn_id),
+      "慢流回合没有返回 turn_result",
+      120_000,
+    );
+    const result = turnFrame.body;
+    const durationMs = Date.now() - startedAt;
+    const turnLogRecords = readAppLogRecords().filter(
+      (record) => record.turn_id === result.turn_id,
+    );
+    const providerDoneRecords = turnLogRecords.filter(
+      (record) => record.event === "provider_gateway.complete.done" && record.provider === "lmstudio",
+    );
+    const providerErrorRecords = turnLogRecords.filter(
+      (record) => record.event === "provider_gateway.complete.error",
+    );
+    const providerTimeoutRecords = turnLogRecords.filter(
+      (record) => record.event === "provider_gateway.complete.error" && record.reason_code === "timeout",
+    );
+
+    await page.waitForFunction(() => !document.body.innerText.includes("思考中..."), {
+      timeout: 15_000,
+    });
+    const visibleAfter = await page.locator("body").innerText();
+    const inputEnabled = await page.locator(chatInputSelector).isEnabled();
+
+    assert(durationMs >= 6_000, `慢流回合耗时过短，无法覆盖慢流存活语义: ${durationMs}ms`);
+    assert(elapsedVisibleAtMs >= 4_000, `等待时长出现过早，未覆盖 5s 门槛: ${elapsedVisibleAtMs}ms`);
+    assert(!["failed", "failed_recoverable", "cancelled"].includes(result.status), "慢流被误杀/失败");
+    assert(
+      String(result.assistant_message?.text ?? "").includes("这一轮只需要用文字回应"),
+      "作者回复未使用慢流叙事",
+    );
+    assert(visibleDuringStream.includes("已运行"), "慢流期间未显示真实等待时长");
+    assert(inputEnabled, "慢流结束后输入框不可用");
+    assert(!visibleAfter.includes("思考中..."), "慢流结束后 loading 未清除");
+    assert(fixture.stats.streaming_requests >= 1, "没有发出流式请求");
+    assert(fixture.stats.tool_requests >= 1, "判断结构调用没有发出");
+    assert(fixture.stats.streamed_ms >= 6_000, `慢流总时长不足: ${fixture.stats.streamed_ms}ms`);
+    assert(fixture.stats.chunk_count >= 8, `慢流块数不足: ${fixture.stats.chunk_count}`);
+    assert(providerDoneRecords.length >= 1, "慢流 provider 成功日志缺失");
+    assert(providerErrorRecords.length === 0, "慢流回合出现 provider 错误");
+    assert(providerTimeoutRecords.length === 0, "慢流回合出现 timeout 误杀");
+    assert(result.truthfulness?.production_write_performed !== true, "普通回复写入作品事实");
+
+    await page.screenshot({
+      path: path.join(artifactDir, "slow-stream-liveness.png"),
+      fullPage: true,
+    });
+
+    fs.writeFileSync(
+      path.join(artifactDir, "slow-stream-liveness.json"),
+      JSON.stringify(
+        {
+          fixture_stats: fixture.stats,
+          duration_ms: durationMs,
+          elapsed_visible_at_ms: elapsedVisibleAtMs,
+          provider_done_count: providerDoneRecords.length,
+          provider_error_count: providerErrorRecords.length,
+          provider_timeout_count: providerTimeoutRecords.length,
+          turn_result: result,
+        },
+        null,
+        2,
+      ),
+    );
+
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-provider-slow-stream-liveness",
+        turn_id: result.turn_id,
+        turn_ids: [result.turn_id],
+        provider: "lmstudio",
+        turn_status: result.status,
+        duration_ms: durationMs,
+        elapsed_visible_at_ms: elapsedVisibleAtMs,
+        elapsed_visible_during_run:
+          visibleDuringStream.includes("已运行") && elapsedVisibleAtMs >= 4_000,
+        author_visible_narrative_used: String(result.assistant_message?.text ?? "").includes(
+          "这一轮只需要用文字回应",
+        ),
+        streaming_request_count: fixture.stats.streaming_requests,
+        tool_request_count: fixture.stats.tool_requests,
+        streamed_ms: fixture.stats.streamed_ms,
+        stream_chunk_count: fixture.stats.chunk_count,
+        provider_done_count: providerDoneRecords.length,
+        provider_error_count: providerErrorRecords.length,
+        provider_timeout_count: providerTimeoutRecords.length,
+        loading_cleared_after_turn: !visibleAfter.includes("思考中..."),
+        input_enabled_after_turn: inputEnabled,
+        no_production_write: result.truthfulness?.production_write_performed !== true,
+        slow_prompt_sent: String(latestSentUserMessage()?.body?.text ?? "").includes(nonce),
+        duration_ms_total: 0,
+      },
+    ];
+  } finally {
+    await fixture.close();
+  }
+}
+
 async function driveAu10WorkbenchRecoveryReconnect(page) {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
@@ -33309,6 +33641,7 @@ const drivers = {
   "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
   "au10-workbench-recovery-disconnect-timeout": driveAu10WorkbenchRecoveryDisconnectTimeout,
   "au10-workbench-recovery-provider-timeout": driveAu10WorkbenchRecoveryProviderTimeout,
+  "agent-provider-slow-stream-liveness": driveAgentProviderSlowStreamLiveness,
   "au10-workbench-recovery-reconnect": driveAu10WorkbenchRecoveryReconnect,
   "au10-workbench-recovery-cancel-waiting": driveAu10WorkbenchRecoveryCancelWaiting,
   "au10-workbench-render-stability": driveAu10WorkbenchRenderStability,
