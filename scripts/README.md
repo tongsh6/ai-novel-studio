@@ -24,6 +24,7 @@
 | `check_design_trace.sh` | 前端组件设计追溯检查。 |
 | `check_log_noise.sh` | **业务日志噪声静态门禁（B13b BB-10 / ADR-0018 §6）**：扫生产 lib 的 `Logger.warning`，只允许既有 17 处 provider 适配器 unknown-error 分支（allowlist 显式登记）；新增 warning exit 1。CI `backend` job 强制运行；运行时 per-base-turn 行数/error 级断言由 Tauri verifier `log_noise` 通用断言承担。 |
 | `chapter_identity_audit.exs` | **B25 CP0 章节身份历史数据审计（只读）**：扫 chapters 的重复 `(work_id,title)` / 重复 `(work_id,seq)` / 空 title，输出 `artifacts/chapter-identity/audit.{md,json}`；不修复、不静默合并，修复动作由 B25 CP3 显式执行。 |
+| `chapter_identity_repair.exs` | **B25 CP3 章节身份历史数据显式修复**：默认只读报告重复 `(work_id,title)` / `(work_id,seq)` / 空 title；`--fix-dup-seq` 显式重排重复 seq（每 work 1..n、保持相对顺序、事务、永不合并/删除/改 title）。修复后再执行唯一索引迁移；回滚 `mix ecto.rollback`。 |
 | `dev.sh` | 本地开发启动入口。 |
 | `dogfood_run.sh` | 狗粮运行入口。 |
 | `probe_run.sh` | 模型契约探针统一入口（端口/构建隔离、原始日志 tee、并发预警——历史事故的机械化）。 |

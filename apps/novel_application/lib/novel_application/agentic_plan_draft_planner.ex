@@ -393,6 +393,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       risk_hint: risk_hint(step),
       authoring_intent: nonblank(map_get(step, :authoring_intent)),
       target_chapter: nonblank(map_get(step, :target_chapter)),
+      # B25 CP2b：模型从「作品章节」索引逐字复制的 chapter_ref；同名章场景据此确定性归章。
+      target_chapter_ref: normalize_chapter_ref(map_get(step, :target_chapter_ref)),
       requested_chapter_raw: nonblank(map_get(step, :requested_chapter_raw)),
       target_word_count: normalize_target_word_count(map_get(step, :target_word_count)),
       exploration_query: nonblank(map_get(step, :exploration_query))
@@ -412,6 +414,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       risk_hint: :low,
       authoring_intent: nil,
       target_chapter: nil,
+      target_chapter_ref: nil,
       requested_chapter_raw: nil,
       target_word_count: nil,
       exploration_query: nil
@@ -610,7 +613,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       - 计划必须是当前作者目标的 per-run 动态计划，不要复述固定模板。
       - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
       - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，并**逐字复制该条索引里的 chapter_ref 填入 target_chapter_ref**（同名章必须靠 ref 区分；列表中没有对应章或无法确定时两者都填 null）。
       - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
       - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
       - 只起草计划，不声称已经执行，不输出工具结果。
@@ -678,7 +681,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       - 输出完整修订后计划；已经完成的前缀步骤应保留，未完成步骤应追加或替换为当前目标仍需要的步骤。
       - 每个 PlanStep 必须有 target_tool_ref，且只能来自 plan_step_targets；不在该列表中的能力（即使作品允许使用）不能作为独立 PlanStep。
       - 能力目录中的「依赖」声明是硬约束：被依赖的步骤必须出现在计划中，且排在使用它的步骤之前，不可省略。
-      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，列表中没有对应章或无法确定时填 null。
+      - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，并**逐字复制该条索引里的 chapter_ref 填入 target_chapter_ref**（同名章必须靠 ref 区分；列表中没有对应章或无法确定时两者都填 null）。
       - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
       - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
       - 只修订计划，不声称已经执行，不输出工具结果。
@@ -1088,6 +1091,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
                     ]
                   },
                   target_chapter: %{anyOf: [%{type: "string"}, %{type: "null"}]},
+                  target_chapter_ref: %{anyOf: [%{type: "string"}, %{type: "null"}]},
                   requested_chapter_raw: %{anyOf: [%{type: "string"}, %{type: "null"}]},
                   target_word_count: %{anyOf: [%{type: "integer"}, %{type: "null"}]},
                   exploration_query: %{anyOf: [%{type: "string"}, %{type: "null"}]}
@@ -1225,6 +1229,22 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   defp string_list(_values), do: []
+
+  # B25 CP2b：只接受 `chapter:<uuid>`；模型复制错/留空 → nil（回退 title 唯一语义）。
+  defp normalize_chapter_ref(value) when is_binary(value) do
+    case String.trim(value) do
+      "chapter:" <> uuid = ref ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, _} -> ref
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_chapter_ref(_value), do: nil
 
   defp nonblank(nil), do: nil
 

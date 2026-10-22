@@ -393,37 +393,34 @@ defmodule NovelApplication.ExplorationServiceTest do
     refute foreign.summary =~ "【正文】第"
   end
 
-  test "chapter_read v2：chapter_seq 只在 work 内唯一命中时可用，重复 seq 返回歧义候选" do
+  test "chapter_read v2：chapter_seq 是 work 内唯一序号（CP3 唯一索引），唯一命中可读" do
     prose = long_prose(400)
-    {work_id, first_id} = seed_work_with_chapter("第一卷章", prose, seq: 1)
+    {work_id, chapter_id} = seed_work_with_chapter("唯一序号章", prose, seq: 2)
 
-    # 第二个卷、同 seq=1（(volume_id, seq) 索引允许跨卷同 seq）
-    {^work_id, second_id} =
-      seed_work_with_chapter("第二卷章", prose, work_id: work_id, seq: 1, new_volume: true)
+    # B25 CP3（I-CH-3）：seq 在 work 内唯一由 DB 唯一索引兜底（迁移 20261023000001）——
+    # 跨卷同 seq 已不可能存在；防御性歧义分支保留在读取服务里（历史迁移前只读场景）。
+    volume = Volume |> Repo.all() |> Enum.find(&(&1.work_id == work_id))
 
-    assert {:ok, ambiguous} =
-             ExplorationService.run(
-               work_id,
-               "chapter_read",
-               Jason.encode!(%{chapter_seq: 1, offset: 0})
-             )
+    assert {:error, changeset} =
+             %Chapter{}
+             |> Chapter.changeset(%{
+               work_id: work_id,
+               volume_id: volume.id,
+               title: "撞号章",
+               seq: 2
+             })
+             |> Repo.insert()
 
-    assert ambiguous.summary =~ "存在歧义"
-    assert ambiguous.summary =~ "chapter:#{first_id}"
-    assert ambiguous.summary =~ "chapter:#{second_id}"
-    assert Enum.sort(ambiguous.refs) == Enum.sort(["chapter:#{first_id}", "chapter:#{second_id}"])
-
-    # 唯一 seq 仍可用（新作品 seq=3）
-    {other_work, other_id} = seed_work_with_chapter("唯一序号章", prose, seq: 3)
+    assert Keyword.has_key?(changeset.errors, :seq)
 
     assert {:ok, by_seq} =
              ExplorationService.run(
-               other_work,
+               work_id,
                "chapter_read",
-               Jason.encode!(%{chapter_seq: 3, offset: 0})
+               Jason.encode!(%{chapter_seq: 2, offset: 0})
              )
 
-    assert by_seq.refs == ["chapter:#{other_id}"]
+    assert by_seq.refs == ["chapter:#{chapter_id}"]
   end
 
   test "chapter_read v2：重复标题歧义即错误并列候选 ref（禁止 first-match）" do

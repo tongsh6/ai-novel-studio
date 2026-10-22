@@ -275,6 +275,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       risk_hint: map_get(prose_step, :risk_hint) || :low,
       authoring_intent: map_get(prose_step, :authoring_intent),
       target_chapter: map_get(prose_step, :target_chapter),
+      # B25 CP2b：合成步继承 ref，确保同名章场景归章身份不因一次偏离处理而丢失。
+      target_chapter_ref: map_get(prose_step, :target_chapter_ref),
       requested_chapter_raw: map_get(prose_step, :requested_chapter_raw),
       target_word_count: map_get(prose_step, :target_word_count)
     }
@@ -353,6 +355,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
              risk_hint: risk_hint_for(step),
              authoring_intent: map_get(step, :authoring_intent),
              target_chapter: map_get(step, :target_chapter),
+             target_chapter_ref: map_get(step, :target_chapter_ref),
              requested_chapter_raw: map_get(step, :requested_chapter_raw),
              target_word_count: map_get(step, :target_word_count),
              reason_codes: plan_step_reason_codes(step, target, meta),
@@ -1726,6 +1729,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
              # TurnExecutionService 的续写前文注入、missing policy 与采纳 append 分流。
              authoring_intent: decision.authoring_intent,
              target_chapter: decision.target_chapter,
+             target_chapter_ref: decision.target_chapter_ref,
              requested_chapter_raw: decision.requested_chapter_raw,
              target_word_count: decision.target_word_count
            }

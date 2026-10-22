@@ -1110,12 +1110,7 @@ defmodule NovelPersistence.AdoptionRepository do
   defp resolve_chapter(repo, work_id, volume_id, title, nil) do
     case chapters_with_title(repo, work_id, title) do
       [] ->
-        insert_chapter(repo, %{
-          work_id: work_id,
-          volume_id: volume_id,
-          title: title,
-          seq: next_chapter_seq(repo, work_id)
-        })
+        insert_chapter_with_next_seq(repo, work_id, volume_id, title, 3)
 
       [chapter] ->
         {:ok, chapter}
@@ -1130,6 +1125,37 @@ defmodule NovelPersistence.AdoptionRepository do
     |> where([c], c.work_id == ^work_id and c.title == ^title)
     |> order_by([c], asc: c.seq)
     |> repo.all()
+  end
+
+  # B25 CP3：新章 seq 由 max(seq)+1 机械计算；并发下可能撞唯一索引——重试一次即可
+  # （下一次 max 会看到已提交行）。仍冲突 → 结构化错误（诚实失败，不静默换号）。
+  defp insert_chapter_with_next_seq(repo, work_id, volume_id, title, attempts) do
+    case insert_chapter(repo, %{
+           work_id: work_id,
+           volume_id: volume_id,
+           title: title,
+           seq: next_chapter_seq(repo, work_id)
+         }) do
+      {:ok, chapter} ->
+        {:ok, chapter}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        if attempts > 1 and unique_seq_conflict?(changeset) do
+          insert_chapter_with_next_seq(repo, work_id, volume_id, title, attempts - 1)
+        else
+          {:error, {:chapter_seq_conflict, title}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp unique_seq_conflict?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {:seq, {_message, opts}} -> Keyword.get(opts, :constraint) == :unique
+      _ -> false
+    end)
   end
 
   defp find_chapter_by_ref(repo, work_id, ref) when is_binary(ref) do

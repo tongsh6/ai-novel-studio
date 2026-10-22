@@ -20,6 +20,7 @@ defmodule NovelDomain.MicroPlanTest do
         risk_hint: :high,
         authoring_intent: :rewrite,
         target_chapter: "第01章：底层灵气账单",
+        target_chapter_ref: "chapter:33333333-3333-4333-8333-333333333333",
         target_word_count: 800
       }
     ]
@@ -76,6 +77,7 @@ defmodule NovelDomain.MicroPlanTest do
       assert action.write_intent == :production_candidate
       assert action.authoring_intent == :rewrite
       assert action.target_chapter == "第01章：底层灵气账单"
+      assert action.target_chapter_ref == "chapter:33333333-3333-4333-8333-333333333333"
       assert action.target_word_count == 800
     end
 

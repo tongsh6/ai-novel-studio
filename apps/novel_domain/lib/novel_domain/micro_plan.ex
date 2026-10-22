@@ -29,6 +29,7 @@ defmodule NovelDomain.MicroPlan do
           required(:risk_hint) => risk_hint(),
           optional(:authoring_intent) => authoring_intent(),
           optional(:target_chapter) => String.t() | nil,
+          optional(:target_chapter_ref) => String.t() | nil,
           optional(:requested_chapter_raw) => String.t() | nil,
           optional(:target_word_count) => pos_integer() | nil
         }
@@ -190,6 +191,7 @@ defmodule NovelDomain.MicroPlan do
     }
     |> put_optional(:authoring_intent, to_authoring_intent(field(action, :authoring_intent)))
     |> put_optional(:target_chapter, field(action, :target_chapter))
+    |> put_optional(:target_chapter_ref, field(action, :target_chapter_ref))
     |> put_optional(:requested_chapter_raw, field(action, :requested_chapter_raw))
     |> put_optional(:target_word_count, field(action, :target_word_count))
   end

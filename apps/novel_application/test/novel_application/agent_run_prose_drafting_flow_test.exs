@@ -413,6 +413,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   test "continuation decision injects prior prose into writer and marks pending artifact for append adoption" do
     parent = self()
     prior_prose = "他在第一夜数清了灵气账单上的每一笔亏空。"
+    chapter_ref = "chapter:77777777-7777-4777-8777-777777777777"
 
     writer = fn prompt ->
       cond do
@@ -420,7 +421,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           {:ok, with_provider_call(mission_result(), "pc-agent-prose-mission")}
 
         plan_draft_prompt?(prompt) ->
-          {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-cont-planner")}
+          {:ok,
+           with_provider_call(
+             prose_plan_draft(prompt, target_chapter_ref: chapter_ref),
+             "pc-agent-prose-cont-planner"
+           )}
 
         prompt_contains?(prompt, "AgentRun 下一步规划器") ->
           {:ok,
@@ -473,8 +478,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       session_id: "session-agent-prose-cont",
       turn_id: "turn-agent-prose-cont",
       quality_provider_execution: %Execution{result_fn: evaluator},
+      # B25 CP2b：有 ref 时前文按 ref 精确读（生产读端口同语义：ref 优先、title 兼容）。
       chapter_prose_reader: fn _work_id, chapter ->
-        if chapter == "第01章：开端", do: prior_prose, else: ""
+        if chapter in ["第01章：开端", chapter_ref], do: prior_prose, else: ""
       end,
       chapter_summary_reader: %{},
       character_reader: fn _work_id -> [] end
@@ -507,6 +513,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert pending.artifact_type == :prose_fragment
     assert pending.authoring_intent == :continuation
     assert pending.target_chapter == "第01章：开端"
+
+    # B25 CP2b：计划 step 的 chapter_ref 经 decision→MicroPlan action→provenance 进入 pending artifact。
+    assert pending.target_chapter_ref == chapter_ref
   end
 
   # Q1a（2026-08-30，D7 连带修正）：喂前文判别改产品事实——目标章已有已采纳正文就喂，
@@ -1103,6 +1112,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
   test "D2 actionable quality finding revises plan before waiting for author" do
     parent = self()
+    rewrite_ref = "chapter:88888888-8888-4888-8888-888888888888"
 
     writer = fn prompt ->
       cond do
@@ -1114,7 +1124,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           # （p1-chapter-overwrite-confirm 实锤：坐标丢失 → 采纳 append 绕过覆盖确认）。
           {:ok,
            with_provider_call(
-             prose_plan_draft(prompt, authoring_intent: "rewrite"),
+             prose_plan_draft(
+               prompt,
+               authoring_intent: "rewrite",
+               target_chapter_ref: rewrite_ref
+             ),
              "pc-agent-prose-d2-plan"
            )}
 
@@ -1221,6 +1235,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         pending <- event.payload.turn_result.adoption_state.pending do
       assert pending.authoring_intent == :rewrite
       assert pending.target_chapter == "第01章：开端"
+
+      # B25 CP2b：ref 同样跨偏离保持（首稿直通 + 判断②合成重试步都不能丢身份）。
+      assert pending.target_chapter_ref == rewrite_ref
     end
 
     assert {:ok, state} = AgentRunService.state(run_id)
@@ -1453,6 +1470,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     authoring_intent = Keyword.get(opts, :authoring_intent, authoring_intent)
     target_chapter = Keyword.get(opts, :target_chapter, target_chapter)
+    target_chapter_ref = Keyword.get(opts, :target_chapter_ref)
     requested_chapter_raw = Keyword.get(opts, :requested_chapter_raw, requested_chapter_raw)
     risk_hint = Keyword.get(opts, :risk_hint, "low")
 
@@ -1480,6 +1498,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           risk_hint: risk_hint,
           authoring_intent: authoring_intent,
           target_chapter: target_chapter,
+          target_chapter_ref: target_chapter_ref,
           requested_chapter_raw: requested_chapter_raw,
           success_criteria: ["prose_fragment_created", "quality_review_completed"]
         )

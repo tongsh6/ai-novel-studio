@@ -33,6 +33,7 @@ defmodule NovelDomain.AgentNextStepDecision do
           risk_hint: risk_hint(),
           authoring_intent: authoring_intent() | nil,
           target_chapter: String.t() | nil,
+          target_chapter_ref: String.t() | nil,
           requested_chapter_raw: String.t() | nil,
           target_word_count: pos_integer() | nil,
           exploration_query: String.t() | nil,
@@ -54,6 +55,7 @@ defmodule NovelDomain.AgentNextStepDecision do
     :target_tool_ref,
     :authoring_intent,
     :target_chapter,
+    :target_chapter_ref,
     :requested_chapter_raw,
     :target_word_count,
     :exploration_query,
@@ -108,6 +110,7 @@ defmodule NovelDomain.AgentNextStepDecision do
       risk_hint: decision.risk_hint,
       authoring_intent: decision.authoring_intent,
       target_chapter: decision.target_chapter,
+      target_chapter_ref: decision.target_chapter_ref,
       requested_chapter_raw: decision.requested_chapter_raw,
       target_word_count: decision.target_word_count,
       exploration_query: decision.exploration_query,
@@ -137,6 +140,7 @@ defmodule NovelDomain.AgentNextStepDecision do
     |> Map.update(:target_tool_ref, nil, &normalize_optional_string/1)
     |> Map.update(:authoring_intent, nil, &normalize_authoring_intent/1)
     |> Map.update(:target_chapter, nil, &normalize_optional_string/1)
+    |> Map.update(:target_chapter_ref, nil, &normalize_chapter_ref/1)
     |> Map.update(:requested_chapter_raw, nil, &normalize_optional_string/1)
     |> Map.update(:target_word_count, nil, &positive_int/1)
     |> Map.update(:exploration_query, nil, &nonblank_string/1)
@@ -156,6 +160,7 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp known_key("risk_hint"), do: :risk_hint
   defp known_key("authoring_intent"), do: :authoring_intent
   defp known_key("target_chapter"), do: :target_chapter
+  defp known_key("target_chapter_ref"), do: :target_chapter_ref
   defp known_key("requested_chapter_raw"), do: :requested_chapter_raw
   defp known_key("target_word_count"), do: :target_word_count
   defp known_key("exploration_query"), do: :exploration_query
@@ -166,6 +171,16 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp known_key("narrative_source"), do: :narrative_source
   defp known_key("confidence"), do: :confidence
   defp known_key(key), do: key
+
+  # B25 CP2b：domain 层不引入 Ecto——用 UUID 形态正则做纯函数校验（非法 → nil）。
+  @chapter_ref_pattern ~r/^chapter:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+
+  defp normalize_chapter_ref(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if Regex.match?(@chapter_ref_pattern, trimmed), do: trimmed, else: nil
+  end
+
+  defp normalize_chapter_ref(_value), do: nil
 
   defp normalize_decision_type(value) when value in @decision_types, do: value
   defp normalize_decision_type("execute_step"), do: :execute_step

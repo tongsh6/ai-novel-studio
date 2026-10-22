@@ -35,5 +35,8 @@ defmodule NovelPersistence.Schemas.Chapter do
     |> validate_required([:work_id, :volume_id, :title, :seq, :status])
     |> validate_inclusion(:status, StructureStatus.values())
     |> validate_number(:seq, greater_than: 0)
+    # B25 CP3（I-CH-3）：chapters work 内 seq 唯一由 DB 唯一索引兜底（迁移
+    # 20261023000001_add_unique_chapter_seq_index）。
+    |> unique_constraint(:seq, name: :chapters_work_id_seq_index)
   end
 end

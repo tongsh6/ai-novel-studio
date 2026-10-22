@@ -88,23 +88,19 @@ defmodule NovelApplication.TurnExecutionService do
 
     # AI 只识别意图与候选目标章；目标章由应用层用作品现有章节列表确定性解析（LLM 对结构化
     # target_chapter 不可靠），并把解析结果同时用于"读前文"和"采纳归章"，二者保持一致。
-    resolved_chapter =
-      resolve_target_chapter(
+    # B25（I-CH-1）：模型给出的 chapter_ref 优先（同名章唯一可区分）；无 ref 才按 title 唯一映射。
+    identity =
+      resolve_target_chapter_identity(
         action,
         input[:context],
         input[:chapter_prose_reader],
+        input[:chapter_index_reader] || NovelApplication.persistence_chapter_index_reader(),
         frame.workspace_id,
         author_input_text(frame, input[:author_input])
       )
 
-    # B25（I-CH-1）：把已解析标题确定性映射到 chapter_ref（唯一命中才成立）。
-    # 同名多章 → nil，不猜；采纳层按 title 唯一语义会诚实失败，要求调用方给 ref。
-    resolved_chapter_ref =
-      resolve_chapter_ref(
-        input[:chapter_index_reader] || NovelApplication.persistence_chapter_index_reader(),
-        frame.workspace_id,
-        resolved_chapter
-      )
+    resolved_chapter = identity.title
+    resolved_chapter_ref = identity.ref
 
     # CP0：固化写作坐标并评估缺失策略。hard missing（作者点名但 planner 匹配不到的章）→ 不调 provider。
     # B11A CP4：坐标同批带当前卷 ref（卷蓝图消费面 6 的坐标侧）。
@@ -603,6 +599,67 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
+  @doc """
+  B25（I-CH-1）：解析本轮归章的 `%{title, ref}` 身份。
+
+  - `action.target_chapter_ref` 合法 → 以 ref 为准；索引里能查到该 ref 时用索引 title
+    （章节改名后模型复制的旧标题不影响归章），查不到也保留 ref 交给持久层做
+    work scope 校验与诚实失败（不回退 title 静默写错章）。
+  - 无 ref → 已解析 title 经章节索引唯一命中映射 ref；同名多章 → nil（不猜）。
+
+  `@doc false` 公开供复用/单测（同 resolve_target_chapter 先例），不属于稳定对外契约。
+  """
+  @spec resolve_target_chapter_identity(
+          map(),
+          term(),
+          function() | nil,
+          function() | nil,
+          String.t(),
+          String.t()
+        ) ::
+          %{title: String.t(), ref: String.t() | nil}
+  def resolve_target_chapter_identity(action, context, reader, index_reader, work_id, author_text) do
+    title = resolve_target_chapter(action, context, reader, work_id, author_text)
+
+    case action_chapter_ref(index_reader, work_id, action[:target_chapter_ref]) do
+      {:ok, ref, entry_title} ->
+        %{title: entry_title || title, ref: ref}
+
+      :none ->
+        %{title: title, ref: resolve_chapter_ref(index_reader, work_id, title)}
+    end
+  end
+
+  defp action_chapter_ref(index_reader, work_id, ref) when is_binary(ref) do
+    case normalize_chapter_ref(ref) do
+      nil ->
+        :none
+
+      valid_ref ->
+        entry =
+          index_reader
+          |> read_chapter_entries(work_id)
+          |> Enum.find(fn entry -> "chapter:#{map_value(entry, :id)}" == valid_ref end)
+
+        {:ok, valid_ref, entry && map_value(entry, :title)}
+    end
+  end
+
+  defp action_chapter_ref(_index_reader, _work_id, _ref), do: :none
+
+  defp normalize_chapter_ref(value) when is_binary(value) do
+    case String.trim(value) do
+      "chapter:" <> uuid = ref ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, _} -> ref
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   # 按计划顺序从后往前找第一个已有已采纳正文的章（无 reader 或都没正文 → nil）。
   defp latest_written_chapter(chapters, reader, work_id)
        when is_function(reader, 2) and is_binary(work_id) do
@@ -632,11 +689,13 @@ defmodule NovelApplication.TurnExecutionService do
   defp resolve_chapter_ref(_reader, _work_id, _title), do: nil
 
   # 章节索引读端口失败按「无索引」诚实降级（ref 缺席 → 调用方走 title 唯一语义）。
-  defp read_chapter_entries(reader, work_id) do
+  defp read_chapter_entries(reader, work_id) when is_function(reader, 1) do
     reader.(work_id)
   rescue
     _ -> []
   end
+
+  defp read_chapter_entries(_reader, _work_id), do: []
 
   defp chapter_ref_from_entry(entry) do
     case map_value(entry, :id) do
@@ -2134,8 +2193,6 @@ defmodule NovelApplication.TurnExecutionService do
   defp action_summary(action) when is_map(action) do
     Map.get(action, :summary) || Map.get(action, "summary")
   end
-
-  defp action_summary(_), do: nil
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 

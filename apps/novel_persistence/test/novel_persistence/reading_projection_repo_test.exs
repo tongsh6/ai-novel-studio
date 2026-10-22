@@ -347,7 +347,12 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
 
   defp insert_reading_chain(work_id, volume_title, chapter_title, content, draft_state) do
     volume = insert_volume(work_id, volume_title, 1)
-    chapter = insert_chapter(work_id, volume.id, chapter_title, 1)
+
+    # B25 CP3（I-CH-3）：seq 在 work 内唯一（不再随卷重启）——测试夹具按 max+1 分配。
+    next_seq =
+      (Chapter |> where([c], c.work_id == ^work_id) |> Repo.aggregate(:max, :seq) || 0) + 1
+
+    chapter = insert_chapter(work_id, volume.id, chapter_title, next_seq)
     scene = insert_scene(work_id, chapter.id, "第一场", 1)
 
     status =

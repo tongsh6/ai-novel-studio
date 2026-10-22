@@ -1,6 +1,6 @@
 # B25-chapter-identity-unification：章节身份统一（写入/采纳/阅读/探索链一律 `chapter_ref = chapter:<chapters.id>`）
 
-**状态**：**doing（2026-10-23；CP0 契约冻结+历史数据审计、CP1 仓储层 ref 化、CP2a 应用采纳/读前文 ref 已落并过测试；CP2b 计划 step ref 贯通 / CP3 唯一约束迁移 / CP4 真实页面 待做）**。
+**状态**：**doing（2026-10-23；CP0 契约+审计、CP1 仓储层 ref 化、CP2a+CP2b 应用链 ref 贯通、CP3 seq 唯一索引迁移+显式修复脚本 已落并过全量测试；CP4 真实页面 待做）**。
 **来源**：`tasks/slices/B24-exploration-chapter-full-read.md` §6 / §7（B24 只统一了**读取/探索面**的唯一寻址；写入/采纳链仍把 `(work_id, title)` 当章节身份）；`docs/project-ledger.md` B24 收口记录；`tasks/NEXT.md` B25 行。
 **关联**：B24（读取面已用 ref）、B21（首次 append 场名占位）、B11A（卷/章结构）、Q1c（已采纳内容修订）、AU-05（采纳边界）。
 
@@ -56,7 +56,7 @@ chapter_read 按 ref 分页、歧义列候选）；本 slice 把**写入/采纳/
 | **CP0 契约冻结** | 章节身份/`seq`/`title` 三层语义；仓库端口签名改为 `chapter_ref`（或 `ChapterIdentity` 值对象）；ADR/契约注记（B24 §1.1 扩展、VS-00J 注记）；**历史数据审计口径**（重复 title/seq 清单） | 契约文档 + `adr_trace` + 只读审计报告 | **done（2026-10-23，见 §2.1）** |
 | **CP1 仓储层 ref 化** | AdoptionRepository（find_or_create/ensure_planned/has_accepted/next_seq 并发安全）、ReadingProjectionRepo（accepted_chapter_prose by ref）、ChapterMissionRepo（id 为主）单点收口；title 只做「唯一命中兼容」并返回歧义错误 | 仓储层单测矩阵（同名不合并/歧义拒绝/按 ref 写读/seq 冲突） | **done（2026-10-23，13 例：adoption_repository 7 + reading_projection 1 + domain/assembler/adoption_flow 5）** |
 | **CP2 应用链 ref 化** | TurnExecutionService.resolve_target_chapter / AdoptionWorkflow / 续写前文 / 修订目标 / ChapterMission 全部走 ref；judgment/plan 上下文提供 ref（B24 已给）；执行参数不信任 title | 应用层集成测试 + flow 回归 | **doing（CP2a done：采纳 attrs ref 透传 + 覆盖判断用 ref + 前文按 ref 读；CP2b 计划 step ref 贯通待做）** |
-| **CP3 数据与约束** | migration：`chapters` 唯一索引（先审计重复再上线）；重复标题/seq 历史数据修复脚本（只报告 + 显式修复，不静默合并）；回滚路径 | 迁移测试 + 审计报告（真实库/测试库） | registered |
+| **CP3 数据与约束** | migration：`chapters` 唯一索引（先审计重复再上线）；重复标题/seq 历史数据修复脚本（只报告 + 显式修复，不静默合并）；回滚路径 | 迁移测试 + 审计报告（真实库/测试库） | **done（2026-10-23：唯一索引迁移 + rollback 实测 + repair 脚本双模；重复 seq DB 修复演练 90 章无损）** |
 | **CP4 真实页面闭包** | 新场景 `b25-chapter-identity-unification`（同名两章 seed + 采纳/续写/阅读/大纲断言）；B24 两场景回归；真实 Tauri PASS + artifacts | `quality_accept.sh b25-chapter-identity-unification --surface tauri` PASS | registered |
 | **CP5 收口** | NEXT/journeys/ledger、B24 §6 follow-up 销账、ADR 注记；门禁全绿 | 全门禁 + task_done manifest | registered |
 
@@ -124,6 +124,37 @@ title 唯一兼容、ref 读前文/歧义空、seq max+1 不复用）；`reading
 模型也能确定性续写指定章；CP3 唯一索引迁移 + 历史修复脚本；CP4 真实 Tauri 场景（同名两章 seed +
 采纳/续写/阅读/大纲断言）+ B24 两场景回归；CP5 收口。
 
+## 2.3 CP2b/CP3 实现记录（2026-10-23）
+
+**CP2b 计划 step ref 贯通**：
+- `AgentPlan.PlanStep` / `AgentNextStepDecision` / `MicroPlan` action 新增 `target_chapter_ref`（additive）
+  ——domain 层用纯 UUID 形态正则校验（不引入 Ecto），非法/空 → nil。
+- `AgenticPlanDraftPlanner`：tool schema 增 `target_chapter_ref`；「计划要求」两段 prompt 明确要求
+  prose 步**逐字复制「作品章节」索引里的 `chapter_ref`**（同名章必须靠 ref 区分）；step 归一解析 ref。
+- prose flow：`mechanical_execute_decision` / 判断②合成重试步 / `plan_from_decision` 三处把
+  `target_chapter_ref` 与 title 坐标同批透传（跨偏离不丢身份）；`AgentRunServer` 计划步骤投影带 ref；
+  `PendingArtifactWorkflow` 修订路径从原候选继承 ref。
+- `TurnExecutionService`：新增 `@doc false resolve_target_chapter_identity/6`——action ref 优先
+  （索引 title 纠正模型复制的旧标题；stale ref 保留给持久层诚实失败，不回退 title 静默写错章），
+  无 ref 才按 title 唯一命中映射；读前文用 `ref || title`。
+
+**CP3 seq 唯一约束与历史修复**：
+- 迁移 `20261023000001_add_unique_chapter_seq_index`：`unique_index(:chapters, [:work_id, :seq])`
+  （Ecto 默认命名，SQLite UNIQUE 错误才能转 changeset error）；`Chapter.changeset` 补
+  `unique_constraint(:seq, name: :chapters_work_id_seq_index)`。
+- `AdoptionRepository` 新章 seq=max+1，并发唯一冲突重试一次（仍冲突 → `{:error, {:chapter_seq_conflict, title}}`
+  诚实失败，不静默换号）。
+- 新增 `scripts/chapter_identity_repair.exs`：默认只读报告（重复 title/seq/空 title）；`--fix-dup-seq`
+  显式修复——每 work 按 `(seq, inserted_at, id)` 稳定排序重排 1..n（事务内先负号再落位，唯一索引存在时也可执行），
+  永不合并/删除/改 title。演练：90 章 dogfood 快照注入重复 seq 后修复 → 90 章无损、0 重复；rollback 实测
+  `ecto.rollback` → 索引删除 → `ecto.migrate` → 索引重建。
+- 既有验收夹具漂移修正：阅读投影测试链按 work 内 max+1 分配 seq（旧夹具按卷重启 seq，与 I-CH-3 冲突）；
+  B24 `chapter_read` 重复 seq 歧义测试改为「CP3 后 DB 拒绝重复 seq + 唯一 seq 可读」（防御性歧义分支保留在服务层）。
+
+**测试**：domain 3 例（PlanStep/Decision/MicroPlan ref 归一）；planner 2 例（schema/prompt + step 解析）；
+`chapter_identity_resolution_test` 6 例；prose flow 2 处断言（pending artifact ref / 重试步继承）；
+persistence CP3 2 例 + 阅读链夹具修正。全量后端 **1,868/0**（application 708 / persistence 295）。
+
 ## 3. 不做 / 诚实边界
 
 - 不做「按 title 自动合并同名章」：同名是创作事实（两章可同名），身份只能靠 id/seq。
@@ -135,8 +166,8 @@ title 唯一兼容、ref 读前文/歧义空、seq max+1 不复用）；`reading
 
 - [x] CP0 契约冻结 + 历史数据审计（重复 title / seq 清单）—— 2026-10-23
 - [x] CP1 仓储层 ref 化 + 单测矩阵 —— 2026-10-23
-- [ ] CP2 应用链 ref 化 + flow 回归（CP2a done；CP2b 计划 step ref 贯通 next）
-- [ ] CP3 migration 唯一索引 + 历史修复脚本/回滚
+- [x] CP2 应用链 ref 化 + flow 回归（CP2a+CP2b done）—— 2026-10-23
+- [x] CP3 migration 唯一索引 + 历史修复脚本/回滚 —— 2026-10-23（rollback/修复演练实测）
 - [ ] CP4 真实 Tauri 新场景 + B24 两场景回归
 - [ ] CP5 台账/文档收口 + 全门禁
 - [ ] `tasks/slices/README.md` / `tasks/NEXT.md` / `docs/design/adr/README.md`（如 ADR 注记）回写

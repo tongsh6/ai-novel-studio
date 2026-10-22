@@ -108,6 +108,7 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
       "risk_hint" => Keyword.get(opts, :risk_hint, "low"),
       "authoring_intent" => Keyword.get(opts, :authoring_intent),
       "target_chapter" => Keyword.get(opts, :target_chapter),
+      "target_chapter_ref" => Keyword.get(opts, :target_chapter_ref),
       "requested_chapter_raw" => Keyword.get(opts, :requested_chapter_raw)
     }
   end

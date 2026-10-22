@@ -406,7 +406,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
              revision_base: ref,
              revision_reason: run.goal.text,
              authoring_intent: nil,
-             target_chapter: nil
+             target_chapter: nil,
+             # B25 CP2b：已采纳内容修订同样继承原候选的章节 ref（同名章场景不丢身份）。
+             target_chapter_ref: field(entry, :target_chapter_ref)
            }) do
         {:ok, artifact} ->
           turn_result =

@@ -1873,6 +1873,49 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
     end
   end
 
+  # B25 CP3（I-CH-3）：work 内 seq 唯一由 DB 唯一索引兜底（迁移 20261023000001）。
+  describe "B25 CP3 seq 唯一约束" do
+    test "同一 work 内重复 seq 被拒绝；不同 work 可以同 seq" do
+      work_id = Ecto.UUID.generate()
+      other_work_id = Ecto.UUID.generate()
+      volume = insert_volume!(work_id, "第一卷", 1)
+      other_volume = insert_volume!(other_work_id, "别卷", 1)
+
+      assert {:ok, _chapter} =
+               %Chapter{}
+               |> Chapter.changeset(%{
+                 work_id: work_id,
+                 volume_id: volume.id,
+                 title: "第一章",
+                 seq: 1
+               })
+               |> Repo.insert()
+
+      assert {:error, changeset} =
+               %Chapter{}
+               |> Chapter.changeset(%{
+                 work_id: work_id,
+                 volume_id: volume.id,
+                 title: "撞号章",
+                 seq: 1
+               })
+               |> Repo.insert()
+
+      assert Keyword.has_key?(changeset.errors, :seq)
+
+      # 跨作品同 seq 合法（seq 是 work 内唯一，不是全局唯一）。
+      assert {:ok, _other} =
+               %Chapter{}
+               |> Chapter.changeset(%{
+                 work_id: other_work_id,
+                 volume_id: other_volume.id,
+                 title: "别作第一章",
+                 seq: 1
+               })
+               |> Repo.insert()
+    end
+  end
+
   defp adopt_blueprint_outline(work_id, artifact_id, content) do
     assert {:ok, _} =
              AdoptionRepository.persist(%{

@@ -342,16 +342,22 @@ defmodule NovelDomain.AgentRunContractTest do
         write_intent: "tentative",
         authoring_intent: "continuation",
         target_chapter: "第01章：开端",
+        target_chapter_ref: "chapter:11111111-1111-4111-8111-111111111111",
         requested_chapter_raw: "第01章"
       })
 
     assert decision.authoring_intent == :continuation
     assert decision.target_chapter == "第01章：开端"
+
+    assert decision.target_chapter_ref ==
+             "chapter:11111111-1111-4111-8111-111111111111"
+
     assert decision.requested_chapter_raw == "第01章"
 
     summary = AgentNextStepDecision.author_safe_summary(decision)
     assert summary.authoring_intent == :continuation
     assert summary.target_chapter == "第01章：开端"
+    assert summary.target_chapter_ref == decision.target_chapter_ref
 
     # 缺省与非法值都归 nil：非 prose 步与旧 stub 输出保持现状行为（overwrite 语义不被误触发）。
     {:ok, plain} =
@@ -363,11 +369,46 @@ defmodule NovelDomain.AgentRunContractTest do
         summary: "读取上下文",
         target_tool_ref: "context_assemble",
         authoring_intent: "invented_intent",
-        target_chapter: "   "
+        target_chapter: "   ",
+        target_chapter_ref: "chapter:not-a-uuid"
       })
 
     assert plain.authoring_intent == nil
     assert plain.target_chapter == nil
+    assert plain.target_chapter_ref == nil
     assert plain.requested_chapter_raw == nil
+  end
+
+  test "AgentPlan normalizes optional target_chapter_ref on prose plan steps" do
+    valid_ref = "chapter:22222222-2222-4222-8222-222222222222"
+
+    {:ok, plan} =
+      AgentPlan.new(%{
+        plan_id: "ap_ref",
+        run_ref: "run_ref",
+        steps: [
+          %{
+            step_id: "prose_step",
+            kind: :act,
+            description: "续写第 2 章",
+            success_criteria: ["tentative_prose"],
+            target_tool_ref: "prose_writing",
+            authoring_intent: "continuation",
+            target_chapter: "灰烬中的手印",
+            target_chapter_ref: valid_ref
+          },
+          %{
+            step_id: "bad_ref_step",
+            kind: :act,
+            description: "坏 ref 不应污染计划",
+            success_criteria: ["observation"],
+            target_tool_ref: "prose_writing",
+            target_chapter_ref: "灰烬中的手印"
+          }
+        ]
+      })
+
+    assert Enum.at(plan.steps, 0).target_chapter_ref == valid_ref
+    assert Enum.at(plan.steps, 1).target_chapter_ref == nil
   end
 end

@@ -2609,6 +2609,7 @@ defmodule NovelApplication.AgentRunServer do
         risk_hint: step |> map_value(:risk_hint) |> atom_string(),
         authoring_intent: optional_atom_string(map_value(step, :authoring_intent)),
         target_chapter: map_value(step, :target_chapter),
+        target_chapter_ref: map_value(step, :target_chapter_ref),
         requested_chapter_raw: map_value(step, :requested_chapter_raw)
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)

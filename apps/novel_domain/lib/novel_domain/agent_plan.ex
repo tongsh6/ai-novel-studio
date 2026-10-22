@@ -24,6 +24,7 @@ defmodule NovelDomain.AgentPlan do
           risk_hint: risk_hint(),
           authoring_intent: authoring_intent() | nil,
           target_chapter: String.t() | nil,
+          target_chapter_ref: String.t() | nil,
           requested_chapter_raw: String.t() | nil,
           target_word_count: pos_integer() | nil,
           exploration_query: String.t() | nil
@@ -129,6 +130,8 @@ defmodule NovelDomain.AgentPlan do
       risk_hint: normalize_risk_hint(value(item, :risk_hint)),
       authoring_intent: normalize_authoring_intent(value(item, :authoring_intent)),
       target_chapter: normalize_optional_string(value(item, :target_chapter)),
+      # B25 CP2b：模型从作品章节索引逐字复制的 chapter_ref（chapter:<uuid>）；非法 → nil。
+      target_chapter_ref: normalize_chapter_ref(value(item, :target_chapter_ref)),
       requested_chapter_raw: normalize_optional_string(value(item, :requested_chapter_raw)),
       target_word_count: normalize_word_count(value(item, :target_word_count)),
       exploration_query: normalize_optional_string(value(item, :exploration_query))
@@ -148,6 +151,7 @@ defmodule NovelDomain.AgentPlan do
       risk_hint: :low,
       authoring_intent: nil,
       target_chapter: nil,
+      target_chapter_ref: nil,
       requested_chapter_raw: nil,
       target_word_count: nil,
       exploration_query: nil
@@ -171,6 +175,17 @@ defmodule NovelDomain.AgentPlan do
   defp normalize_risk_hint("medium"), do: :medium
   defp normalize_risk_hint("high"), do: :high
   defp normalize_risk_hint(_), do: :low
+
+  # B25 CP2b：只接受 `chapter:<uuid>` 形态；其余（null/标题/坏 uuid）→ nil，回退 title 唯一语义。
+  # B25 CP2b：domain 层不引入 Ecto——用 UUID 形态正则做纯函数校验（非法 → nil）。
+  @chapter_ref_pattern ~r/^chapter:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+
+  defp normalize_chapter_ref(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if Regex.match?(@chapter_ref_pattern, trimmed), do: trimmed, else: nil
+  end
+
+  defp normalize_chapter_ref(_value), do: nil
 
   defp normalize_authoring_intent(value) when value in [:none, :continuation, :rewrite], do: value
   defp normalize_authoring_intent("none"), do: :none

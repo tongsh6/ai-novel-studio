@@ -309,6 +309,21 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       assert step.target_word_count == 20_000
     end
 
+    test "target_chapter_ref 随步骤解析：合法 ref 保留，标题/坏 uuid 归 nil（B25 CP2b）" do
+      ref = "chapter:44444444-4444-4444-8444-444444444444"
+
+      step = drafted_act_step(Map.put(base_act_step(), "target_chapter_ref", ref))
+      assert step.target_chapter_ref == ref
+      assert step.target_chapter == "第01章：开端"
+
+      for invalid <- ["灰烬中的手印", "chapter:not-a-uuid", "", nil] do
+        invalid_step = drafted_act_step(Map.put(base_act_step(), "target_chapter_ref", invalid))
+        assert invalid_step.target_chapter_ref == nil
+        # title 坐标不受坏 ref 影响（旧路径兼容）。
+        assert invalid_step.target_chapter == "第01章：开端"
+      end
+    end
+
     test "rewrite authoring_intent 随步骤解析" do
       step = drafted_act_step(Map.put(base_act_step(), "authoring_intent", "rewrite"))
       assert step.authoring_intent == :rewrite
@@ -748,6 +763,42 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     ])
 
     refute text =~ "## 当前 AgentRun"
+  end
+
+  # B25 CP2b：计划协议把章节 ref 暴露为 prose 步坐标，并在 schema/prompt 中要求逐字复制。
+  test "B25：计划 schema 含 target_chapter_ref 且 prompt 要求逐字复制 chapter_ref" do
+    chapters = %{
+      titles: ["灰烬中的手印"],
+      entries: [
+        %{
+          title: "灰烬中的手印",
+          seq: 2,
+          id: "11111111-1111-4111-8111-111111111111",
+          has_prose: true
+        }
+      ]
+    }
+
+    reasoning_prompt = AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, chapters)
+    text = reasoning_prompt.messages |> hd() |> Map.fetch!(:content)
+
+    assert text =~ "target_chapter_ref"
+    assert text =~ "逐字复制该条索引里的 chapter_ref"
+
+    structure_prompt =
+      AgenticPlanDraftPlanner.draft_structure_prompt(probe_run(), %{}, chapters, "reasoning")
+
+    [tool] = structure_prompt.tools
+
+    step_properties =
+      tool.input_schema.properties
+      |> Map.fetch!(:plan)
+      |> Map.fetch!(:properties)
+      |> Map.fetch!(:steps)
+      |> Map.fetch!(:items)
+      |> Map.fetch!(:properties)
+
+    assert Map.has_key?(step_properties, :target_chapter_ref)
   end
 
   # B24 CP2（I-EXPLORE-READ-9）：计划章节段同批渲染 chapter_ref（探索寻址）+
