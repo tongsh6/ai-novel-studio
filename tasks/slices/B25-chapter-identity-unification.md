@@ -1,6 +1,6 @@
 # B25-chapter-identity-unification：章节身份统一（写入/采纳/阅读/探索链一律 `chapter_ref = chapter:<chapters.id>`）
 
-**状态**：**doing（2026-10-23；CP0 契约+审计、CP1 仓储层 ref 化、CP2a+CP2b 应用链 ref 贯通、CP3 seq 唯一索引迁移+显式修复脚本 已落并过全量测试；CP4 真实页面 待做）**。
+**状态**：**done（2026-10-23，CP0–CP5 全落）：契约冻结与历史审计、仓储层/应用链/计划链 ref 化、seq 唯一索引迁移与显式修复脚本、新真实 Tauri 场景 `b25-chapter-identity-unification` + B24 两场景回归 PASS、全门禁绿、台账/journey 收口。**
 **来源**：`tasks/slices/B24-exploration-chapter-full-read.md` §6 / §7（B24 只统一了**读取/探索面**的唯一寻址；写入/采纳链仍把 `(work_id, title)` 当章节身份）；`docs/project-ledger.md` B24 收口记录；`tasks/NEXT.md` B25 行。
 **关联**：B24（读取面已用 ref）、B21（首次 append 场名占位）、B11A（卷/章结构）、Q1c（已采纳内容修订）、AU-05（采纳边界）。
 
@@ -55,10 +55,10 @@ chapter_read 按 ref 分页、歧义列候选）；本 slice 把**写入/采纳/
 |---|---|---|---|
 | **CP0 契约冻结** | 章节身份/`seq`/`title` 三层语义；仓库端口签名改为 `chapter_ref`（或 `ChapterIdentity` 值对象）；ADR/契约注记（B24 §1.1 扩展、VS-00J 注记）；**历史数据审计口径**（重复 title/seq 清单） | 契约文档 + `adr_trace` + 只读审计报告 | **done（2026-10-23，见 §2.1）** |
 | **CP1 仓储层 ref 化** | AdoptionRepository（find_or_create/ensure_planned/has_accepted/next_seq 并发安全）、ReadingProjectionRepo（accepted_chapter_prose by ref）、ChapterMissionRepo（id 为主）单点收口；title 只做「唯一命中兼容」并返回歧义错误 | 仓储层单测矩阵（同名不合并/歧义拒绝/按 ref 写读/seq 冲突） | **done（2026-10-23，13 例：adoption_repository 7 + reading_projection 1 + domain/assembler/adoption_flow 5）** |
-| **CP2 应用链 ref 化** | TurnExecutionService.resolve_target_chapter / AdoptionWorkflow / 续写前文 / 修订目标 / ChapterMission 全部走 ref；judgment/plan 上下文提供 ref（B24 已给）；执行参数不信任 title | 应用层集成测试 + flow 回归 | **doing（CP2a done：采纳 attrs ref 透传 + 覆盖判断用 ref + 前文按 ref 读；CP2b 计划 step ref 贯通待做）** |
+| **CP2 应用链 ref 化** | TurnExecutionService 目标章身份解析 / AdoptionWorkflow / 续写前文 / 修订目标 / 计划 step 全链走 ref；judgment/plan 上下文提供 ref（B24 已给）；执行参数不信任 title | 应用层集成测试 + flow 回归 | **done（2026-10-23，CP2a+CP2b；见 §2.2/§2.3）** |
 | **CP3 数据与约束** | migration：`chapters` 唯一索引（先审计重复再上线）；重复标题/seq 历史数据修复脚本（只报告 + 显式修复，不静默合并）；回滚路径 | 迁移测试 + 审计报告（真实库/测试库） | **done（2026-10-23：唯一索引迁移 + rollback 实测 + repair 脚本双模；重复 seq DB 修复演练 90 章无损）** |
-| **CP4 真实页面闭包** | 新场景 `b25-chapter-identity-unification`（同名两章 seed + 采纳/续写/阅读/大纲断言）；B24 两场景回归；真实 Tauri PASS + artifacts | `quality_accept.sh b25-chapter-identity-unification --surface tauri` PASS | registered |
-| **CP5 收口** | NEXT/journeys/ledger、B24 §6 follow-up 销账、ADR 注记；门禁全绿 | 全门禁 + task_done manifest | registered |
+| **CP4 真实页面闭包** | 新场景 `b25-chapter-identity-unification`（同名两章 seed + 采纳/续写/阅读/大纲断言）；B24 两场景回归；真实 Tauri PASS + artifacts | `quality_accept.sh b25-chapter-identity-unification --surface tauri` PASS | **done（2026-10-23，真实 Tauri PASS + B24 两场景回归 PASS；见 §2.4）** |
+| **CP5 收口** | NEXT/journeys/ledger、B24 §6 follow-up 销账、ADR 注记；门禁全绿 | 全门禁 + task_done manifest | **done（2026-10-23；见 §2.5）** |
 
 **依赖**：CP0 → CP1 → CP2 → CP3 → CP4 → CP5。CP1/CP2 可同批；CP3 必须在 CP4 前（唯一索引）但历史数据修复可与 CP4 并行。
 
@@ -155,6 +155,46 @@ title 唯一兼容、ref 读前文/歧义空、seq max+1 不复用）；`reading
 `chapter_identity_resolution_test` 6 例；prose flow 2 处断言（pending artifact ref / 重试步继承）；
 persistence CP3 2 例 + 阅读链夹具修正。全量后端 **1,868/0**（application 708 / persistence 295）。
 
+## 2.4 CP4 真实页面验收记录（2026-10-23）
+
+**新场景 `b25-chapter-identity-unification`**（`quality/acceptance/scenarios/` + `scenarios.yml` +
+`scripts/tauri_slice_verify.sh` 注册，driver `driveB25ChapterIdentityUnification`）：
+
+- **seed**：`scripts/seed_b25_chapter_identity_unification.exs` —— 一个作品、一卷、两章**完全同名**
+  `"灰烬中的手印"`（seq=1 / seq=2）；第二章预置已采纳旧正文；恢复一条 `authoring_intent=continuation`、
+  `target_chapter_ref=chapter:<第二章 id>` 的待采纳候选（title 与两章都相同，只有 ref 能唯一指定目标）。
+- **真实页面流程**：恢复候选卡（作者先读正文）→ 点「保存为章节正文」→ approve accept `author_action`
+  → 采纳边界按 ref 落第二章（append 新场景）→ 档案大纲两行同名章 → 阅读模式两节同名章：第一章「待补足」、
+  第二章旧+新正文 → TOC/字数只反映第二章。
+- **外部证据**：WS 帧 author_action accept/resolved turn_result、`get_toc`（chapter_count=2、
+  empty_chapter_count=1、total_word_count=48）、`get_chapter_content`（第一章 scene=0/chars=0；
+  第二章 scene=2/chars=52 = 旧 27 + 新 25）、app JSONL 同口径日志、截图 4 张、summary.json、
+  log_noise（正常路径 0 error ≤45 行）。
+- **回归**：`judgment-explore-chapter-plan` 与 `judgment-explore-chapter-full-read` 真实 Tauri PASS
+  （CP2b 计划 schema/prompt 改动未破坏 B24 探索面）。
+
+**验收命令**：
+
+```bash
+PHOENIX_PORT=14661 VITE_DEV_PORT=15773 NOVEL_TEST_DB_DIR=/tmp/b13b-verify-db MIX_TEST_PARTITION=_b13b \
+  bash scripts/quality_accept.sh b25-chapter-identity-unification --surface tauri
+# → artifacts/slice-verify/b25-chapter-identity-unification-tauri/summary.json
+```
+
+验证结果：`summary.behavior = same_title_chapters_keep_distinct_identity_and_ref_targets_only_one`，
+`log_noise.ok=true`；三场景（新场景 + B24 两回归）exit 0。
+
+## 2.5 CP5 收口记录（2026-10-23）
+
+- B24 slice §6 follow-up（写入/采纳链 title 身份）已由本 slice 关闭；`tasks/slices/README.md`、
+  `docs/product/user-journeys.md` J27、`docs/project-ledger.md`、`tasks/NEXT.md` 同步。
+- 门禁：后端全量、compile -Werror、format、credo 0、dialyzer 0、xref 无环、arch、adr_trace 27/27、
+  quality manifest、前端 typecheck/lint/test、verifier self-test、I1/I2/I3/N-NARR/I-CACHE-1、
+  static scan 0 blocking、`task_done --slice b25-chapter-identity-unification` 证据入档。
+- **诚实边界**（§3 更新）：`ChapterMissionRepo` 的 tentative 写路径仍以 `chapter_seq` 定位（CP3 后由
+  work 内唯一索引兜底；get/confirm/rewrite 已按 chapter_id）；legacy artifact 无 ref 时按 title 唯一
+  命中兼容（歧义 → 诚实错误，不猜）；`chapters.title` 不加唯一约束（同名是创作事实）。
+
 ## 3. 不做 / 诚实边界
 
 - 不做「按 title 自动合并同名章」：同名是创作事实（两章可同名），身份只能靠 id/seq。
@@ -168,6 +208,6 @@ persistence CP3 2 例 + 阅读链夹具修正。全量后端 **1,868/0**（appli
 - [x] CP1 仓储层 ref 化 + 单测矩阵 —— 2026-10-23
 - [x] CP2 应用链 ref 化 + flow 回归（CP2a+CP2b done）—— 2026-10-23
 - [x] CP3 migration 唯一索引 + 历史修复脚本/回滚 —— 2026-10-23（rollback/修复演练实测）
-- [ ] CP4 真实 Tauri 新场景 + B24 两场景回归
-- [ ] CP5 台账/文档收口 + 全门禁
-- [ ] `tasks/slices/README.md` / `tasks/NEXT.md` / `docs/design/adr/README.md`（如 ADR 注记）回写
+- [x] CP4 真实 Tauri 新场景 + B24 两场景回归 —— 2026-10-23
+- [x] CP5 台账/文档收口 + 全门禁 —— 2026-10-23
+- [x] `tasks/slices/README.md` / `tasks/NEXT.md` / `docs/product/user-journeys.md` / `docs/project-ledger.md` 回写 —— 2026-10-23（无新 ADR；B24 §1.1 契约已覆盖身份定义）

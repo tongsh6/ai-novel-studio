@@ -8588,6 +8588,274 @@ async function driveAu08VolumeStructuredPlanning(page) {
   ];
 }
 
+// B25 CP4：章节身份统一——同名两章靠 chapter_ref 唯一寻址。
+// 种子恢复一条 target_chapter_ref 指向第二章的续写候选；作者从真实工作台采纳后，
+// 写入必须只落到第二章（append 新场景），第一章保持空章，阅读投影两章同名并存。
+async function driveB25ChapterIdentityUnification(page) {
+  const targetTitle = "灰烬中的手印";
+  const legacyBody = "旧账页上仍有上一夜的灰，他把指尖在纸边蹭净才敢继续翻。";
+  const continuationBody = "他把新查到的一行账目补在页脚，指尖停在墨迹未干处。";
+  const firstChapterId = readSeedField("first_chapter");
+  const secondChapterId = readSeedField("second_chapter");
+  const seededArtifactId = readSeedField("artifact_id");
+
+  assert(firstChapterId, "B25 seed did not expose first_chapter id in seed.log");
+  assert(secondChapterId, "B25 seed did not expose second_chapter id in seed.log");
+  assert(seededArtifactId, "B25 seed did not expose artifact_id in seed.log");
+
+  // 1) 恢复后的续写候选在真实页面可见：同名标题 + 正文 marker + 采纳入口。
+  await page.waitForFunction(
+    ({ title, marker }) => {
+      const text = document.body.innerText;
+      return (
+        text.includes(title) &&
+        text.includes(marker) &&
+        /待确认的创作材料|正文草稿/.test(text)
+      );
+    },
+    { title: targetTitle, marker: continuationBody },
+    { timeout: 30_000 },
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "b25-restored-same-title-candidate.png"),
+    fullPage: true,
+  });
+
+  // 2) 作者点击真实保存按钮 → accept author_action → 采纳边界按 ref 写入第二章。
+  const saveOriginalButton = page.getByRole("button", { name: /^保存原稿$/ });
+  const saveProseButton = page.getByRole("button", { name: /^保存为章节正文$/ });
+
+  if ((await saveOriginalButton.count()) > 0) {
+    await saveOriginalButton.first().click();
+  } else if ((await saveProseButton.count()) > 0) {
+    await saveProseButton.first().click();
+  } else {
+    await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  }
+
+  const acceptActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === seededArtifactId,
+    "Real workbench did not send an accept author_action for the restored same-title artifact",
+  );
+
+  const adoptTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === seededArtifactId,
+      ),
+    "No resolved adoption turn_result for the restored same-title artifact",
+    120_000,
+  );
+  const adoptTurnResult = adoptTurnFrame.body;
+
+  // 采纳后旧候选卡的保存按钮必须消失（防重复提交同一动作）。
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("button")].some((btn) =>
+        /^(?:保存为章节正文|保存原稿)$/.test((btn.textContent ?? "").trim()),
+      ),
+    { timeout: 10_000 },
+  );
+
+  // 3) 档案大纲：两章同名并存（不得被 title 合并成一行）。
+  await page.getByRole("button", { name: "打开档案" }).first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (title) => document.body.innerText.includes(title),
+    targetTitle,
+    { timeout: 10_000 },
+  );
+
+  const outlineSameTitleCount = await page.evaluate(
+    (title) =>
+      [...document.querySelectorAll("span")].filter(
+        (el) => el.children.length === 0 && (el.textContent ?? "").trim() === title,
+      ).length,
+    targetTitle,
+  );
+
+  assert(
+    outlineSameTitleCount >= 2,
+    `Archive outline did not keep two same-title chapter rows: ${outlineSameTitleCount}`,
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "b25-outline-same-title-two-chapters.png"),
+    fullPage: true,
+  });
+
+  // 4) 阅读模式：两章同名分节，仅 ref 指定章有旧+新正文，另一章待补足。
+  const beforeReadingLogCount = readAppLogRecords().length;
+  await clickVisibleReadingModeButton(page);
+
+  await page.waitForFunction(
+    ({ title, legacy, continuation }) => {
+      const text = document.body.innerText;
+      return (
+        text.includes("阅读模式") &&
+        text.includes(title) &&
+        text.includes(legacy) &&
+        text.includes(continuation) &&
+        !text.includes("暂无已采纳的章节内容")
+      );
+    },
+    { title: targetTitle, legacy: legacyBody, continuation: continuationBody },
+    { timeout: 30_000 },
+  );
+
+  const tocRecord = await waitForNewAppLogRecord(
+    beforeReadingLogCount,
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      Number(record.chapter_count ?? 0) === 2 &&
+      Number(record.total_word_count ?? 0) > 0 &&
+      Number(record.empty_chapter_count ?? 0) === 1,
+    "Reading mode did not read two same-title chapters with exactly one empty chapter",
+    30_000,
+  );
+
+  const firstChapterContentRecord = await waitForNewAppLogRecord(
+    beforeReadingLogCount,
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.chapter_id === firstChapterId,
+    "Reading mode did not read the empty same-title chapter",
+    30_000,
+  );
+
+  const secondChapterContentRecord = await waitForNewAppLogRecord(
+    beforeReadingLogCount,
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.chapter_id === secondChapterId &&
+      Number(record.scene_count ?? 0) === 2,
+    "Reading mode did not read the ref-target chapter with legacy + continuation scenes",
+    30_000,
+  );
+
+  const readingText = await page.locator("body").innerText();
+  const sameTitleHeadingCount = await page.evaluate(
+    (title) =>
+      [...document.querySelectorAll("h1")].filter(
+        (el) => (el.textContent ?? "").trim() === title,
+      ).length,
+    targetTitle,
+  );
+
+  assert(
+    sameTitleHeadingCount === 2,
+    `Reading mode did not render two same-title chapter sections: ${sameTitleHeadingCount}`,
+  );
+  assert(
+    Number(firstChapterContentRecord.scene_count ?? -1) === 0 &&
+      Number(firstChapterContentRecord.content_chars ?? -1) === 0,
+    `Empty same-title chapter unexpectedly gained prose: ${JSON.stringify(firstChapterContentRecord)}`,
+  );
+  assert(
+    Number(secondChapterContentRecord.content_chars ?? 0) ===
+      legacyBody.length + continuationBody.length,
+    `Ref-target chapter content chars ${secondChapterContentRecord.content_chars} != legacy + continuation`,
+  );
+  assert(
+    readingText.includes("本章尚无已采纳正文，待补足。"),
+    "Reading mode did not keep the non-target same-title chapter as 待补足",
+  );
+  assert(!readingText.includes("chapter:"), "chapter_ref leaked into author-visible reading text");
+  assert(
+    !readingText.includes(firstChapterId) && !readingText.includes(secondChapterId),
+    "Internal chapter id leaked into author-visible reading text",
+  );
+
+  // 5) get_toc 网络帧：两章同名、按 seq 排序，第一章空、第二章有正文。
+  const tocReplies = frames.filter((frame) => {
+    const response = frame.body?.response ?? frame.payload?.response ?? frame.body;
+    return frame.direction === "received" && Array.isArray(response?.volumes);
+  });
+  const lastTocReply = tocReplies[tocReplies.length - 1];
+  const tocResponse = lastTocReply
+    ? (lastTocReply.body?.response ?? lastTocReply.payload?.response ?? lastTocReply.body)
+    : null;
+  const tocChapters = Array.isArray(tocResponse?.volumes)
+    ? tocResponse.volumes.flatMap((volume) => volume.chapters ?? [])
+    : [];
+
+  assert(
+    tocChapters.length === 2,
+    `get_toc did not return two same-title chapters: ${JSON.stringify(tocChapters)}`,
+  );
+  assert(
+    tocChapters.every((chapter) => chapter.title === targetTitle),
+    `get_toc chapters did not keep the identical author-visible title: ${JSON.stringify(
+      tocChapters.map((chapter) => chapter.title),
+    )}`,
+  );
+  assert(
+    tocChapters[0]?.id === firstChapterId && tocChapters[1]?.id === secondChapterId,
+    "get_toc chapter order/identity did not follow work-unique seq",
+  );
+  assert(
+    Number(tocChapters[0]?.word_count ?? -1) === 0 &&
+      Number(tocChapters[1]?.word_count ?? 0) > 0,
+    `get_toc word counts did not isolate prose to the ref-target chapter: ${JSON.stringify(
+      tocChapters.map((chapter) => chapter.word_count),
+    )}`,
+  );
+
+  await page.screenshot({
+    path: path.join(artifactDir, "b25-reading-same-title-chapters.png"),
+    fullPage: true,
+  });
+
+  const visibleText = readingText;
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "b25-chapter-identity-unification",
+      turn_id: adoptTurnResult.turn_id,
+      work_id: adoptTurnResult.work_id ?? readSeedField("work_id"),
+      session_id: adoptTurnResult.session_id ?? null,
+      adopt_turn_id: adoptTurnResult.turn_id,
+      artifact_id: seededArtifactId,
+      chapter_title: targetTitle,
+      first_chapter_id: firstChapterId,
+      second_chapter_id: secondChapterId,
+      adoption_accept_action_sent: Boolean(acceptActionFrame),
+      adoption_resolved: true,
+      production_write_performed: adoptTurnResult.truthfulness?.production_write_performed ?? null,
+      outline_same_title_count: outlineSameTitleCount,
+      reading_same_title_heading_count: sameTitleHeadingCount,
+      reading_toc_chapter_count: Number(tocRecord.chapter_count ?? 0),
+      reading_toc_total_word_count: Number(tocRecord.total_word_count ?? 0),
+      reading_toc_empty_chapter_count: Number(tocRecord.empty_chapter_count ?? 0),
+      first_chapter_scene_count: Number(firstChapterContentRecord.scene_count ?? -1),
+      first_chapter_content_chars: Number(firstChapterContentRecord.content_chars ?? -1),
+      second_chapter_scene_count: Number(secondChapterContentRecord.scene_count ?? -1),
+      second_chapter_content_chars: Number(secondChapterContentRecord.content_chars ?? -1),
+      expected_legacy_body_chars: legacyBody.length,
+      expected_continuation_body_chars: continuationBody.length,
+      toc_chapter_titles: tocChapters.map((chapter) => chapter.title),
+      toc_chapter_words: tocChapters.map((chapter) => chapter.word_count),
+      chapter_ref_leaked: visibleText.includes("chapter:"),
+      reading_edit_then_accept_still_visible: await page
+        .getByRole("button", { name: /^修改后采纳$/ })
+        .count(),
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+    },
+  ];
+}
+
 async function driveP1ChapterDraftGeneration(page) {
   await page.getByRole("button", { name: "打开档案" }).first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
@@ -33682,6 +33950,7 @@ const drivers = {
   "au08-volume-structured-planning": driveAu08VolumeStructuredPlanning,
   "p1-chapter-draft-generation": driveP1ChapterDraftGeneration,
   "p1-chapter-adoption-reading": driveP1ChapterAdoptionReading,
+  "b25-chapter-identity-unification": driveB25ChapterIdentityUnification,
   "au07-state-trace-adoption-replay": driveAu07StateTraceAdoptionReplay,
   "p1-word-count-audit": driveP1WordCountAudit,
   "p1-chapter-edit-then-accept": driveP1ChapterEditThenAccept,

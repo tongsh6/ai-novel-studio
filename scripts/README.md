@@ -62,6 +62,7 @@
 | `seed_au12_work_profile_status_isolation.exs` | AU-12 作品档案状态隔离 seed。 |
 | `seed_e2e_01_readonly_tool_trace.exs` | E2E-01 只读工具 trace seed。 |
 | `seed_p1_chapter_draft_generation.exs` | P1 章节正文草稿生成 seed。 |
+| `seed_b25_chapter_identity_unification.exs` | **B25 CP4 章节身份统一 seed**：一个作品/两章完全同名（seq 1/2，第二章预置已采纳旧正文）+ 恢复一条 `target_chapter_ref` 指向第二章的续写候选；真实 Tauri 场景据此验证「同名章不合并、采纳只落 ref 目标章」。 |
 | `seed_p1_prose_execution_brief.exs` | P1 prose execution brief seed。 |
 | `seed_p1_prose_quality_evaluator_degrade.exs` | P1 prose quality evaluator degrade seed。 |
 | `seed_p1_prose_revision_candidate.exs` | P1 prose revision candidate seed。 |

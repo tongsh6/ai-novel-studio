@@ -16177,3 +16177,114 @@ describe("B22 慢流存活证据", () => {
     expect(findNativeSliceEvidence(slice, wrote)).toBeNull();
   });
 });
+
+// B25 CP4：同名章节身份统一——ref 唯一寻址，同名两章不合并。
+describe("B25 同名章节身份统一证据", () => {
+  const slice = "b25-chapter-identity-unification";
+  const firstChapterId = "11111111-1111-4111-8111-111111111111";
+  const secondChapterId = "22222222-2222-4222-8222-222222222222";
+  const artifactId = "as_b25_same_title_continuation";
+  const expectedLegacyChars = 10;
+  const expectedContinuationChars = 12;
+
+  const ui = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: "turn-b25-adopt",
+    artifact_id: artifactId,
+    first_chapter_id: firstChapterId,
+    second_chapter_id: secondChapterId,
+    adoption_resolved: true,
+    production_write_performed: true,
+    chapter_ref_leaked: false,
+    outline_same_title_count: 2,
+    reading_same_title_heading_count: 2,
+    first_chapter_scene_count: 0,
+    first_chapter_content_chars: 0,
+    second_chapter_scene_count: 2,
+    second_chapter_content_chars: expectedLegacyChars + expectedContinuationChars,
+    reading_toc_chapter_count: 2,
+    reading_toc_empty_chapter_count: 1,
+    reading_toc_total_word_count: 42,
+    expected_legacy_body_chars: expectedLegacyChars,
+    expected_continuation_body_chars: expectedContinuationChars,
+  };
+
+  const records = [
+    ui,
+    {
+      event: "channel.author_action.done",
+      action_type: "accept",
+      target_ref: artifactId,
+      action_status: "accepted",
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      chapter_id: firstChapterId,
+      scene_count: 0,
+      content_chars: 0,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      chapter_id: secondChapterId,
+      scene_count: 2,
+      content_chars: expectedLegacyChars + expectedContinuationChars,
+    },
+    {
+      event: "channel.get_toc.done",
+      chapter_count: 2,
+      empty_chapter_count: 1,
+      total_word_count: 42,
+    },
+  ];
+
+  it("ref 指定章写入 + 同名两章并存 + 阅读投影隔离才通过", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(evidence?.artifact_id).toBe(artifactId);
+    expect(evidence?.first_chapter_id).toBe(firstChapterId);
+    expect(evidence?.second_chapter_id).toBe(secondChapterId);
+
+    const behavior = findSliceBehaviorEvidence(slice, records, evidence, {
+      provider: "slice_verify",
+    });
+    expect(behavior?.behavior).toBe(
+      "same_title_chapters_keep_distinct_identity_and_ref_targets_only_one",
+    );
+  });
+
+  it("同名两章被合并 / 第一章被误写 / ref 泄漏 / 缺采纳动作都不能通过", () => {
+    const merged = records.map((record) =>
+      record.event === "channel.get_toc.done"
+        ? { ...record, chapter_count: 1, empty_chapter_count: 0 }
+        : record,
+    );
+    expect(findNativeSliceEvidence(slice, merged)).toBeNull();
+
+    const wroteFirst = records.map((record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.chapter_id === firstChapterId
+        ? { ...record, scene_count: 1, content_chars: 20 }
+        : record,
+    );
+    expect(findNativeSliceEvidence(slice, wroteFirst)).toBeNull();
+
+    const leaked = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, chapter_ref_leaked: true }
+        : record,
+    );
+    expect(findNativeSliceEvidence(slice, leaked)).toBeNull();
+
+    const noAccept = records.filter(
+      (record) => record.event !== "channel.author_action.done",
+    );
+    expect(findNativeSliceEvidence(slice, noAccept)).toBeNull();
+  });
+
+  it("live provider 模式没有生成 turn 的 LLM 调用证据时诚实拒绝", () => {
+    const evidence = findNativeSliceEvidence(slice, records);
+    expect(
+      findSliceBehaviorEvidence(slice, records, evidence, { provider: "lmstudio" }),
+    ).toBeNull();
+  });
+});

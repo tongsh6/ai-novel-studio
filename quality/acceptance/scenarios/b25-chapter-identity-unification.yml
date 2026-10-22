@@ -1,0 +1,73 @@
+id: b25-chapter-identity-unification
+title: 同名章节身份统一（chapter_ref 唯一寻址）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh b25-chapter-identity-unification --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - tasks/slices/B25-chapter-identity-unification.md
+
+invariants:
+  # I-CH-1：chapter_ref = "chapter:<chapters.id>" 是唯一章节身份；同名 title 不是身份。
+  - chapter-ref-is-the-only-target-identity
+  - same-title-chapters-never-merge
+  # I-CH-4：作者可见文本仍是「第 N 章「title」」/ 标题本身，不出现 ref/UUID/内部 id。
+  - author-visible-text-keeps-title-no-ref-leak
+  # 续写（append）只追加到 ref 指定章，另一章逐字节不变。
+  - continuation-append-targets-ref-chapter-only
+  - reading-projection-reflects-target-chapter-only
+  - same-title-chapters-keep-distinct-seq
+
+setup:
+  seed: scripts/seed_b25_chapter_identity_unification.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - observe: restored continuation draft card (same title as both chapters)
+  - click: 保存为章节正文
+  - open: 档案大纲
+  - observe: two chapter rows with the identical author-visible title
+  - open: 阅读模式
+  - observe: two same-title chapter sections；仅第二章有旧+新正文，第一章待补足
+  - observe: 目录、字数、投影来自真实 Channel 投影
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b25-chapter-identity-unification-tauri
+
+assertions:
+  ui:
+    - restored draft card shows the same title as both chapters and offers the real accept action
+    - archive outline keeps two chapter rows with the identical title (no silent merge)
+    - reading mode renders two same-title chapter sections
+    - only the ref-target chapter contains the legacy + continuation prose, the other stays 待补足
+    - TOC/word counts reflect the target chapter only
+    - no chapter_ref/UUID/internal chapter id leaks into author-visible text
+  network:
+    - author_action accept is sent from the real workbench for the restored artifact
+    - accepted turn_result contains resolved adoption state
+    - get_toc returns two same-title chapters ordered by seq, first empty and second non-empty
+    - get_chapter_content for the ref-target chapter contains both legacy and continuation prose
+  data:
+    - artifact_adopted is true
+    - production_write_performed is true
+    - seq stays work-unique (two chapters, seq 1 and 2)
+    - reading projection contains accepted prose only
+    - app log 噪声门禁（ADR-0018 §6）：正常路径 base turn 行数 ≤45 且 0 error 级（summary.log_noise）
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

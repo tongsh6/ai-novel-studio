@@ -211,6 +211,7 @@ export const nativeSliceIds = [
   ...ua01AgentCp6ScenarioIds,
   "agent-revision-orchestrator-boundary",
   "agent-replay-no-provider",
+  "b25-chapter-identity-unification",
   "p1-chapter-adoption-reading",
   "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
@@ -853,6 +854,14 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "channel.join.done",
     "toolbox.execute.done",
+    "slice_verify.ui_state.done",
+  ],
+  "b25-chapter-identity-unification": [
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
@@ -2619,6 +2628,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterEditThenAcceptEvidence(records);
   }
 
+  if (sliceId === "b25-chapter-identity-unification") {
+    return findB25ChapterIdentityUnificationEvidence(records);
+  }
+
   if (sliceId === "p1-chapter-overwrite-confirm") {
     return findP1ChapterOverwriteConfirmEvidence(records);
   }
@@ -3215,6 +3228,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-edit-then-accept") {
     return p1ChapterEditThenAcceptBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "b25-chapter-identity-unification") {
+    return b25ChapterIdentityUnificationBehavior(records, evidence, options);
   }
 
   if (sliceId === "p1-chapter-overwrite-confirm") {
@@ -20941,6 +20958,133 @@ function findP1ChapterOverwriteConfirmEvidence(records) {
     second_artifact_id: uiState.second_artifact_id,
     final_chapter_count: writtenChapterCount,
     key_events: keyEvents,
+  };
+}
+
+// B25 CP4：同名章节身份统一。外部证据 = 真实 WS 帧 ui-state + app JSONL 里的
+// author_action accept / adopt 日志 / get_toc / get_chapter_content，不依赖 driver 摘要。
+function findB25ChapterIdentityUnificationEvidence(records) {
+  const sliceId = "b25-chapter-identity-unification";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.adoption_resolved === true &&
+      record.production_write_performed === true &&
+      record.chapter_ref_leaked === false &&
+      Number(record.outline_same_title_count ?? 0) === 2 &&
+      Number(record.reading_same_title_heading_count ?? 0) === 2 &&
+      Number(record.first_chapter_scene_count ?? -1) === 0 &&
+      Number(record.first_chapter_content_chars ?? -1) === 0 &&
+      Number(record.second_chapter_scene_count ?? -1) === 2 &&
+      Number(record.second_chapter_content_chars ?? 0) > 0 &&
+      Number(record.reading_toc_chapter_count ?? 0) === 2 &&
+      Number(record.reading_toc_empty_chapter_count ?? -1) === 1 &&
+      Number(record.reading_toc_total_word_count ?? 0) > 0,
+  );
+  if (!uiState) return null;
+
+  const firstChapterId = uiState.first_chapter_id;
+  const secondChapterId = uiState.second_chapter_id;
+  const artifactId = uiState.artifact_id;
+  if (!firstChapterId || !secondChapterId || firstChapterId === secondChapterId) return null;
+  if (!artifactId) return null;
+
+  // 采纳动作真实经过 author_action 闭环（accept 指向恢复的候选 artifact）。
+  // author_action.done 只记 action_id/action_type（target_ref 在 start 记录里），
+  // 因而用 `accept:<artifact_id>` 契约绑定同一候选，避免只看通用 accept 旗标。
+  const acceptDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted" &&
+      (record.target_ref === artifactId || record.action_id === `accept:${artifactId}`),
+  );
+  if (!acceptDone) return null;
+
+  // 阅读投影独立证据：两章同名、第一章空、第二章 ref 目标章有两个场景。
+  const firstContent = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.chapter_id === firstChapterId &&
+      Number(record.scene_count ?? -1) === 0 &&
+      Number(record.content_chars ?? -1) === 0,
+  );
+  if (!firstContent) return null;
+
+  const secondContent = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.chapter_id === secondChapterId &&
+      Number(record.scene_count ?? -1) === 2 &&
+      Number(record.content_chars ?? 0) > 0,
+  );
+  if (!secondContent) return null;
+
+  const toc = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      Number(record.chapter_count ?? 0) === 2 &&
+      Number(record.empty_chapter_count ?? -1) === 1 &&
+      Number(record.total_word_count ?? 0) > 0,
+  );
+  if (!toc) return null;
+
+  // turn_ids 只放采纳 turn（seed 恢复的候选采纳不调 LLM；live provider 证据由
+  // behavior 显式拒绝，避免把无 provider 调用的场景误标成 live 验收）。
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.turn_id ?? uiState.adopt_turn_id ?? ""),
+    turn_ids: [],
+    artifact_id: artifactId,
+    first_chapter_id: firstChapterId,
+    second_chapter_id: secondChapterId,
+    first_chapter_scene_count: Number(firstContent.scene_count),
+    second_chapter_scene_count: Number(secondContent.scene_count),
+    second_chapter_content_chars: Number(secondContent.content_chars),
+    reading_toc_chapter_count: Number(toc.chapter_count),
+    reading_toc_empty_chapter_count: Number(toc.empty_chapter_count),
+    reading_toc_total_word_count: Number(toc.total_word_count),
+    key_events: keyEvents,
+  };
+}
+
+function b25ChapterIdentityUnificationBehavior(records, evidence, options) {
+  if (!evidence) return null;
+
+  // 本场景为种子恢复候选 + 真实页面采纳，不依赖模型/真实 provider；live provider
+  // 模式下没有生成 turn 的 LLM 调用可证，诚实拒绝而不是伪造通过。
+  if (options?.provider && options.provider !== "slice_verify") return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "b25-chapter-identity-unification",
+  );
+  if (!uiState) return null;
+
+  const expectedChars =
+    Number(uiState.expected_legacy_body_chars ?? -1) +
+    Number(uiState.expected_continuation_body_chars ?? -1);
+  if (expectedChars <= 0) return null;
+  if (Number(evidence.second_chapter_content_chars ?? 0) !== expectedChars) return null;
+
+  return {
+    slice_id: "b25-chapter-identity-unification",
+    behavior: "same_title_chapters_keep_distinct_identity_and_ref_targets_only_one",
+    turn_id: evidence.turn_id,
+    assertions: [
+      "restored_candidate_uses_chapter_ref_not_title_as_identity",
+      "author_accept_action_recorded_with_artifact_target",
+      "archive_outline_keeps_two_same_title_chapters",
+      "reading_renders_two_same_title_chapters",
+      "only_ref_target_chapter_gained_legacy_plus_continuation_prose",
+      "non_target_same_title_chapter_stays_empty",
+      "toc_word_counts_and_empty_chapter_isolate_target_chapter",
+      "no_chapter_ref_or_internal_id_leaks_into_author_visible_text",
+    ],
   };
 }
 

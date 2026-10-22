@@ -53,7 +53,7 @@
 
 ### 0.4 本 slice 不做 / 另立归属
 
-- **写入/采纳链的章节身份统一**（`find_or_create_chapter` / `ensure_planned_chapter` / `has_accepted_chapter?` / `accepted_chapter_prose` / `resolve_target_chapter` 从 title 改为唯一 id；seq 唯一约束/数据审计；`ChapterMissionRepo` 口径统一）→ **独立 follow-up slice**（候选 `B25-chapter-identity-unification`，见 §7），本 slice 不假装解决。
+- **写入/采纳链的章节身份统一**（`find_or_create_chapter` / `ensure_planned_chapter` / `has_accepted_chapter?` / `accepted_chapter_prose` / `resolve_target_chapter` 从 title 改为唯一 id；seq 唯一约束/数据审计；`ChapterMissionRepo` 口径统一）→ **独立 follow-up slice**（候选 `B25-chapter-identity-unification`，见 §7），本 slice 不假装解决。→ **follow-up 已关闭（2026-10-23，B25 done）**。
 - **确定性重复段/重复章检测（方案 B）** → `P1-word-count-audit` checkpoint B（`tasks/slices/P1-word-count-audit.md:91-95`；`docs/product/novel-output-milestones.md:67` 要求重复章 0）。本 slice 只解「AI 能读到完整正文」这一前置能力。
 - **单轮超过 12,000 字符的章节 / 3 章以上批量全文阅读** → 本 slice 受既有 `@max_explore_rounds 2` 限制，登记为后续 gap（见 §7）；不在本 slice 擅自放宽回合硬上限。
 - **provider 自适应观察预算 / AssemblyPolicy 档位接入** → 登记 gap。现状 `AssemblyPolicy` 已有 floor 2000 / standard 8000 / large 200000 chars（`assembly_policy.ex:35-40`），但探索服务没有 provider 上下文；且 `strata` 仍映射 floor（`assembly_policy.ex:41-47`），与今天实际能处理 2 万 token 判断 prompt 的事实不符，档位校准另立。
@@ -240,7 +240,7 @@ bash scripts/ai_static_scan.sh --top 10
 - **I1/I2/I3**：本 slice 不产 artifact item，不应改变三条不变量；跑绿即证明未越界。
 - **作者可见文案（I-READ-8）**：CP2/CP3 断言 author 事件 summary 与真实页面可见文本不含 `chapter_read` / `prose_search` 等内部 id、`chapter:`/UUID、`{"`、`offset`；含 `第 N 章「title」` 与「已阅读章节正文」。既有 driver 的「已检索」断言按新文案更新（chapter_read → 「已阅读」；prose_search 仍含「已检索」）。
 - **唯一编码寻址（I-READ-7/9）**：单测覆盖重复标题/重复 seq 的歧义与按 ref 正确读取、ref 分页无重叠无缺口；断言模型可见章节索引含 `chapter_ref`，作者可见文案不含 ref/UUID；不再用「第NN章」格式作为身份或示例。
-- **写入/采纳链身份未统一**：本 slice 只修读取面；`find_or_create_chapter` 等 title 身份按 follow-up slice 验证，不把本 slice 的绿当作全章身份问题已解决。
+- **写入/采纳链身份未统一**：本 slice 只修读取面；`find_or_create_chapter` 等 title 身份按 follow-up slice 验证，不把本 slice 的绿当作全章身份问题已解决。→ **已于 2026-10-23 由 `B25-chapter-identity-unification` 关闭**（CP1 仓储 ref 化、CP2a/CP2b 应用与计划链 ref、CP3 seq 唯一索引与修复脚本；新真实 Tauri 同名两章场景 + B24 两场景回归 PASS）。
 
 ## 6. 决策日志
 

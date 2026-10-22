@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-23（B22-CP4 慢流真实页面存活验收收口：`agent-provider-slow-stream-liveness` 真实 Tauri PASS；J26 closed。此前：B13B-DEFERRED-CLOSURE 收口：BB-4 `failed_recoverable` / BB-7 采纳持久化失败 TurnResult / BB-10 日志噪声门禁；J25 closed。此前：B24 探索面全章可读收口：chapter_read 分段预算 + `chapter_ref` 续读；C12 closed。此前：B23 停等理由与出口可见收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；历史证据保留版本边界）
+> 最后更新：2026-10-23（B25 章节身份统一收口：写入/采纳/阅读/使命链 `chapter_ref` 唯一寻址 + seq 唯一索引 + 新真实 Tauri 同名两章场景 PASS；J27 closed，J28 主线复位 next。此前：B13B-DEFERRED-CLOSURE 收口：BB-4 `failed_recoverable` / BB-7 采纳持久化失败 TurnResult / BB-10 日志噪声门禁；J25 closed。此前：B24 探索面全章可读收口：chapter_read 分段预算 + `chapter_ref` 续读；C12 closed。此前：B23 停等理由与出口可见收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；历史证据保留版本边界）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -456,7 +456,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J24 | 等待作者指定下一项（本轮队列已清空） | NEXT-AUTHOR-DIRECTED | tasks/NEXT 队列 | **closed（2026-10-23，作者已给出下一项指示）** | — | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.3 | 作者拍板 B13b 延后 3 项（BB-4/BB-7/BB-10 均方案 A），指令「只定方案，下一轮再执行」；队首转 `B13B-DEFERRED-CLOSURE`（next） |
 | J25 | 执行 B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板） | B13B-DEFERRED-CLOSURE / B13b | TurnStatus / Adoption 持久化失败 / 日志噪声门禁 | **closed（2026-10-23，CP1–CP5 全落；真实 Tauri 六场景 PASS + au04 既有漂移 D21 诚实登记）** | 单测 + 真实 Tauri（隔离库/分区） | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.4；`artifacts/slice-verify/{q3d-author-registration-guards,q3d-candidate-semantics,au05-conflict-cross-work-recovery,au05-canon-conflict-recovery,p1-chapter-adoption-reading,judgment-explore-chapter-plan}-tauri/summary.json` | BB-4：`TurnResultBuilder`/`AgentRunServer.safe_failure_turn_result`/`AdoptionWorkflow.decision_status`/`DialogueGateway.candidate_status` → `failed_recoverable`（phase 仍 failed、run/action_result status 不变）；BB-7：persist error → 失败 action_result + failed_recoverable TurnResult + `{:ok,...}` 广播（VS-04 规则 5）；BB-10：ADR-0018 §4 `level` + §6 45/60 口径 + `scripts/check_log_noise.sh`（17/17）+ CI + verifier `evaluateAppLogNoise`（正常路径 0 error；p1 38 行 / judgment-explore 14 行）+ 3 份 manifest data 断言；au05 两场景 seed 补 `kind` 夹具漂移；au04 未通过=既有判断纪元漂移 D21（非本批引入） |
 | J26 | Provider 存活策略真实页面闭环（慢但持续出字不被杀） | B22-CP4-SLOW-STREAM / B22 | Provider TimeoutPolicy / 流式 wire 静默 / 作者可见运行时长 | **closed（2026-10-23，真实 Tauri PASS）** | 外部 Tauri + 本地慢流替身 | `tasks/NEXT.md` B22-CP4-SLOW-STREAM 行；`tasks/slices/B22-provider-liveness-and-budget-policy.md` §2d；`artifacts/slice-verify/agent-provider-slow-stream-liveness-tauri/summary.json` | 新场景 `agent-provider-slow-stream-liveness`：本地 OpenAI 兼容替身 700ms/块持续 ~7s；真实 LM Studio adapter/Gateway/TimeoutPolicy + `NOVEL_LMSTUDIO_TIMEOUT_MS=3000`（仅 wire 静默窗口）→ 不被总挂钟误杀、5.2s 起作者可见「已运行」、正常 conversational TurnResult、`provider_timeout_count=0`；log noise 9 行/0 error；自适应校准明确保留 bootstrap 登记 C 轨观察（不冒充） |
-| J27 | 章节身份统一（写入/采纳/阅读/使命链） | B25-CHAPTER-IDENTITY-UNIFICATION / B24 | chapter_ref 唯一寻址 / AdoptionRepository / ReadingProjection / 唯一约束 | **next（2026-10-23 队列顺序推进，registered）** | 单测矩阵 + 真实 Tauri（计划） | `tasks/NEXT.md` B25 行；`tasks/slices/B25-chapter-identity-unification.md`；B24 §6/§7 | B24 已统一读取/探索面 ref；本 slice 补写入/采纳链：title 永不单独作身份键、同名章不合并、按 ref 写读、seq work 内唯一（DB 唯一索引）+ 重复数据显式修复、真实 Tauri 同名两章场景（采纳/续写/阅读/大纲）+ B24 两场景回归 → 收口 |
+| J27 | 章节身份统一（写入/采纳/阅读/使命链） | B25-CHAPTER-IDENTITY-UNIFICATION / B24 | chapter_ref 唯一寻址 / AdoptionRepository / ReadingProjection / 唯一约束 | **closed（2026-10-23，CP0–CP5 全落；新真实 Tauri 场景 + B24 两场景回归 PASS）** | 单测矩阵 + 真实 Tauri | `tasks/NEXT.md` B25 行；`tasks/slices/B25-chapter-identity-unification.md` §2.1–§2.5；`artifacts/slice-verify/b25-chapter-identity-unification-tauri/summary.json`；B24 两场景 summary | CP0 契约冻结（`chapter_ref` 唯一 / seq work 内唯一 / title 非唯一；禁止 first-match、同名多章诚实歧义）+ 90 章历史审计 0 冲突；CP1 仓储层 ref 写读与歧义错误；CP2a+CP2b 应用链/计划链 `target_chapter_ref` 贯通（含判断②合成重试步与修订路径继承）；CP3 `chapters` `(work_id,seq)` 唯一索引 + `chapter_identity_repair.exs` 显式修复（90 章演练无损、rollback 实测）；CP4 真实 Tauri：两章同名并存、采纳只落 ref 目标章（第一章 0 scene/0 chars、第二章 scene=2/chars=52）、TOC chapter_count=2/empty=1、作者可见无 ref/UUID，B24 两场景回归 PASS；CP5 全门禁绿 |
+| J28 | 主线复位：B25 收口后队列无未闭环实现项，等待作者拍板下一项（B13b §4.1 候选/B11D/E28-E30/VS-00D G1–G7/C 轨观察；B26 由并行会话负责） | MAINLINE-RESET-4 | 队列选择 | **next（2026-10-23，等作者拍板；不自动扩范围）** | 作者裁决 | `tasks/NEXT.md` MAINLINE-RESET-4 行；`tasks/NEXT.md` §4/§6 | 作者指定下一项后开新 slice 并登记 queue；本轮不自行从 backlog 挑活 |
 
 
 ---
@@ -479,10 +480,10 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 当前推进锁定：
 
 ```text
-Current Focus: B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板，下一轮执行）
-Current Journey: Journey J（J25 B13b 延后项收口）；J22/J24 已收口
-Current Breakpoint: J25 / B13B-DEFERRED-CLOSURE；已拍板待执行
-Next Task: B13B-DEFERRED-CLOSURE
+Current Focus: B25 章节身份统一已收口；队列无未闭环实现项，等待作者拍板下一项
+Current Journey: Journey J（J27 B25 章节身份统一已 closed）；J22/J24/J25/J26 已收口
+Current Breakpoint: J27 / B25-CHAPTER-IDENTITY-UNIFICATION（done）；下一项 J28 MAINLINE-RESET-4 等作者拍板
+Next Task: MAINLINE-RESET-4
 ```
 
 ---
@@ -510,7 +511,7 @@ Next Task: B13B-DEFERRED-CLOSURE
 
 ```text
 Current Focus: B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板，下一轮执行）
-Active Journey: Journey J（J25 B13b 延后项收口）
+Active Journey: Journey J（J27 B25 章节身份统一已 closed；J28 主线复位 next）
 Queue head: B13B-DEFERRED-CLOSURE
 ```
 
@@ -518,7 +519,7 @@ Queue head: B13B-DEFERRED-CLOSURE
 
 ```text
 Journey C / 自然创作对话与探索
-Step: J27 / B25-CHAPTER-IDENTITY-UNIFICATION（next 2026-10-23，队列顺序推进）
+Step: J28 / MAINLINE-RESET-4（next 2026-10-23，等作者拍板下一项）
 Status: next（B22-CP4 已 closed；章节写入/采纳链身份统一未开始）
 Gap / Next: 统一写入/采纳/阅读/使命链章节身份为 `chapter_ref = "chapter:<chapters.id>"`：CP0 契约+历史重复审计 → CP1 仓储层 ref 化 → CP2 应用链 ref 化 → CP3 唯一索引+显式修复 → CP4 真实 Tauri 同名两章场景 + B24 两场景回归 → CP5 收口；详见 `tasks/slices/B25-chapter-identity-unification.md`。
 ```
