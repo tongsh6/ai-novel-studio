@@ -32533,16 +32533,16 @@ async function driveAgentLoopBudgetLimit(page) {
 async function driveAgentNoProgressStop(page) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
-  // 重定义（ADR-0023 计划驱动机制 + ADR-0025 判断纪元）：no-progress 的诱导迁至
-  // prose 创作 profile（对话 chat 判 reply 终结，计划-修订路径只在创作 profile 内
-  // 可达）——模型起草只读上下文的单步计划，计划走完正文未产出触发修订，修订没有
-  // 补足新步骤、只是把同一步再排一遍；runtime 以 progress_signature 重复判停
-  // （awaiting_author + no_progress），空转步产物被丢弃。
+  // B23-FOLLOWUP（2026-10-23）：no-progress 的**可触发**语义——判断循环连续两次
+  // 探索同一个只读面（同 tool + 同 query），第二次观察与第一次逐字节相同 →
+  // progress_signature 重复（B24 CP2 已去 sequence）→ runtime 既有
+  // apply_progress_signature 命中 no_progress，停等 awaiting_author 并丢弃空转步产物。
+  // 替身由作者文本里的诊断标记唯一触发（test/support 内，产品零感知）。
   const nonce = `UA01NOPROGRESS-${Date.now().toString(36)}`;
   const work = await createWorkSeed({
     title: `UA01 AgentRun No Progress ${nonce}`,
     genre: "赛博修仙",
-    core_selling_point: "验证修订空转时 bounded AgentRun 停止等待作者",
+    core_selling_point: "验证重复探索无新信息时 bounded AgentRun 停止等待作者",
     target_reader: "需要避免自动循环空转的作者",
     tone_preference: "冷静、清晰",
   });
@@ -32560,7 +32560,7 @@ async function driveAgentNoProgressStop(page) {
 
   const frameStart = frames.length;
   const logStart = readAppLogRecords().length;
-  const message = `写一段雨夜巷战正文，标记${nonce}。`;
+  const message = `请核对作品档案的简介面是否一致；诊断标记 ${nonce}。`;
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -32572,7 +32572,7 @@ async function driveAgentNoProgressStop(page) {
       frame.event === "user_message" &&
       frame.body?.work_id === workId &&
       String(frame.body?.text ?? "").includes(nonce),
-    "UA-01 no-progress scenario did not send the spinning-revision request",
+    "UA-01 no-progress scenario did not send the repeated-exploration request",
     30_000,
   );
 
@@ -32590,35 +32590,39 @@ async function driveAgentNoProgressStop(page) {
   );
   const runId = ackFrame.body.response.run_id;
 
-  // 模型起草的单步计划（只读上下文）
-  const planDraftedFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_drafted" &&
-      Array.isArray(frame.body?.payload?.plan_steps) &&
-      frame.body.payload.plan_steps.length === 1,
-    "UA-01 no-progress scenario did not broadcast the single-step drafted plan",
-    60_000,
+  // 两次 exploration_observed（同一 tool + 同一 query + 逐字节相同观察 = 真重复）。
+  const explorations = [];
+
+  for (let index = 0; index < 2; index += 1) {
+    const explorationFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "exploration_observed",
+      `UA-01 no-progress scenario did not broadcast exploration observation #${index + 1}`,
+      60_000,
+    );
+    explorations.push(explorationFrame.body);
+  }
+
+  const firstPayload = explorations[0]?.payload ?? {};
+  const secondPayload = explorations[1]?.payload ?? {};
+  assert(
+    typeof firstPayload.tool === "string" && firstPayload.tool === secondPayload.tool,
+    "Repeated no-progress explorations did not use the same tool",
+  );
+  assert(
+    typeof firstPayload.query === "string" && firstPayload.query === secondPayload.query,
+    "Repeated no-progress explorations did not repeat the same query",
+  );
+  assert(
+    typeof firstPayload.summary === "string" && firstPayload.summary === secondPayload.summary,
+    "Repeated no-progress explorations did not produce byte-identical observations",
   );
 
-  // 修订发生但没有补足新步骤（空转修订）
-  const planRevisedFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "plan_revised",
-    "UA-01 no-progress scenario did not broadcast the spinning plan revision",
-    60_000,
-  );
-
-  // 空转保护判停（判断纪元实测语义）：prose 步链暂不产 progress_signature（缺口已
-  // 登记），保护由 replan 预算 + 计划耗尽兜底——修订一次后计划走完仍无正文 →
-  // awaiting_author（agent_loop_awaiting_author），不无限空转。
+  // runtime 判停：awaiting_author + reason_codes 含 no_progress。
   const awaitingFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
@@ -32627,8 +32631,8 @@ async function driveAgentNoProgressStop(page) {
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "awaiting_author" &&
       Array.isArray(frame.body?.reason_codes) &&
-      frame.body.reason_codes.includes("agent_loop_awaiting_author"),
-    "UA-01 no-progress scenario did not stop after the spinning revision",
+      frame.body.reason_codes.includes("no_progress"),
+    "UA-01 no-progress scenario did not stop with reason_code no_progress",
     60_000,
   );
 
@@ -32638,14 +32642,8 @@ async function driveAgentNoProgressStop(page) {
       frame.direction === "received" &&
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
-      frame.body?.status === "awaiting_author" &&
-      // 判断纪元：判断入场 2 步 + profile 内 context 步 + 空转重复步 = 4 步；
-      // 判断 2 + 起草 2 + 空转修订 2 = 6 次 provider 调用。
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 6 &&
-      Number(frame.body?.consumed_budget?.replans ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 0,
-    "UA-01 no-progress scenario did not broadcast stopped state with spinning-revision budget",
+      frame.body?.status === "awaiting_author",
+    "UA-01 no-progress scenario did not broadcast stopped state",
     60_000,
   );
 
@@ -32667,6 +32665,11 @@ async function driveAgentNoProgressStop(page) {
   assert(!finalTurnResultArrived, "No-progress AgentRun still emitted a final TurnResult");
 
   const visibleText = await page.locator("body").innerText();
+  assert(
+    visibleText.includes("未取得新进展") || visibleText.includes("等待你回复"),
+    "No-progress stop was not visible in the real workbench run feedback",
+  );
+
   const uiState = await commonUiState(
     page,
     { turn_id: parentUserMessageLog?.turn_id ?? "" },
@@ -32684,8 +32687,12 @@ async function driveAgentNoProgressStop(page) {
       parent_turn_id: parentUserMessageLog?.turn_id,
       run_id: runId,
       run_mode: ackFrame.body.response.run_mode,
-      plan_drafted_visible: planDraftedFrame.body?.event_type === "plan_drafted",
-      plan_revised_visible: planRevisedFrame.body?.event_type === "plan_revised",
+      exploration_count: explorations.length,
+      exploration_tool: firstPayload.tool,
+      exploration_query: firstPayload.query,
+      exploration_author_summaries: explorations.map((body) => body?.summary ?? ""),
+      repeated_exploration_same_query: firstPayload.query === secondPayload.query,
+      repeated_exploration_identical_observation: firstPayload.summary === secondPayload.summary,
       awaiting_event_type: awaitingFrame.body?.event_type,
       awaiting_reason_codes: awaitingFrame.body?.reason_codes ?? [],
       terminal_status: awaitingState.body?.status,
@@ -32702,7 +32709,6 @@ async function driveAgentNoProgressStop(page) {
     },
   ];
 }
-
 
 // AU10 CP5：真实 Tauri 场景下的外部渲染稳定性测量（rAF/MutationObserver，无产品 hook）。
 // 由 external-ui-driver 在真实入口页面上驱动：发送/AgentRun、档案展开、作品切换；

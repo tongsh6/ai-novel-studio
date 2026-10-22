@@ -9412,9 +9412,10 @@ function ds03DeadBoundedRunExpiryBehavior(turnIds, records, evidence) {
 
 function expectedAgentStopReason(sliceId) {
   if (sliceId === "agent-loop-budget-limit") return "budget_exhausted";
-  // 判断纪元实测：prose 步链暂不产 progress_signature（缺口已登记），空转判停由
-  // replan 预算 + 计划耗尽兜底（agent_loop_awaiting_author）。
-  if (sliceId === "agent-no-progress-stop") return "agent_loop_awaiting_author";
+  // B23-FOLLOWUP（2026-10-23）：真 no-progress 由重复探索同一只读面触发——
+  // 第二次 observation 逐字节相同 → progress_signature 重复（B24 CP2 去 sequence）
+  // → runtime 既有 apply_progress_signature 命中 no_progress。
+  if (sliceId === "agent-no-progress-stop") return "no_progress";
   return null;
 }
 
@@ -9442,16 +9443,15 @@ function findUa01AgentStopEvidence(records, sliceId) {
       return Number(record.consumed_steps ?? 0) === 3;
     }
 
-    // 重定义（ADR-0023 + ADR-0025 判断纪元）：修订空转判停迁 prose profile——
-    // 判断入场 2 步 + context 步 + 空转重复步 = 4 步；判断 2 + 起草 2 + 空转修订 2
-    // = 6 次 provider 调用、1 次 replan、0 工具。
+    // B23-FOLLOWUP：两次同 tool+同 query 探索（观察逐字节相同）→ runtime 判停。
+    // 步数=context 1 + 两次判断步 2；provider 调用=两轮判断各 2 次；0 工具调用。
     return (
-      Number(record.consumed_steps ?? 0) === 4 &&
-      Number(record.consumed_provider_calls ?? 0) === 6 &&
-      Number(record.consumed_replans ?? 0) === 1 &&
-      Number(record.consumed_tool_calls ?? 0) === 0 &&
-      boolValue(record.plan_drafted_visible) === true &&
-      boolValue(record.plan_revised_visible) === true
+      Number(record.exploration_count ?? 0) === 2 &&
+      boolValue(record.repeated_exploration_same_query) === true &&
+      boolValue(record.repeated_exploration_identical_observation) === true &&
+      Number(record.consumed_steps ?? 0) === 3 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_tool_calls ?? 0) === 0
     );
   });
   if (!uiState) return null;
@@ -9520,33 +9520,34 @@ function ua01AgentStopBehavior(turnIds, records, evidence, sliceId) {
     };
   }
 
-  // 重定义（ADR-0023 + ADR-0025 判断纪元）：修订空转判停迁 prose profile——判断
-  // 入场 2 步 + context 步 + 空转重复步 = 4 步；判断 2 + 起草 2 + 空转修订 2 = 6 次
-  // provider 调用、1 次 replan、0 工具；空转步产物被丢弃（无 TurnResult）。
-  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
-  if (Number(uiState.consumed_replans ?? 0) !== 1) return null;
+  // B23-FOLLOWUP：真 no-progress——两次探索同 tool+同 query、观察逐字节相同；
+  // runtime 判停 awaiting_author（no_progress），空转步产物丢弃（无 TurnResult）。
+  if (Number(uiState.exploration_count ?? 0) !== 2) return null;
+  if (boolValue(uiState.repeated_exploration_same_query) !== true) return null;
+  if (boolValue(uiState.repeated_exploration_identical_observation) !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 3) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 0) return null;
-  if (boolValue(uiState.plan_drafted_visible) !== true) return null;
-  if (boolValue(uiState.plan_revised_visible) !== true) return null;
   if (boolValue(uiState.any_tool_executed) !== false) return null;
 
   return {
     slice_id: sliceId,
-    behavior: "bounded_agent_run_stops_when_spinning_plan_revision_makes_no_progress",
+    behavior: "bounded_agent_run_stops_on_repeated_identical_exploration",
     turn_ids: evidence.turn_ids,
     run_id: evidence.run_id,
     stop_reason: reason,
+    exploration_count: Number(uiState.exploration_count ?? 0),
+    exploration_tool: uiState.exploration_tool ?? null,
+    exploration_query: uiState.exploration_query ?? null,
     consumed_steps: evidence.consumed_steps,
     consumed_tool_calls: evidence.consumed_tool_calls,
     consumed_provider_calls: evidence.consumed_provider_calls,
     assertions: [
-      "plain_conversation_request_was_sent_from_real_workbench",
-      "model_drafted_single_context_step_plan_then_revised_without_new_steps",
-      "runtime_detected_repeated_progress_signature_on_revised_step",
+      "author_request_was_sent_from_real_workbench",
+      "judgment_explored_same_readonly_surface_twice_verbatim",
+      "runtime_detected_repeated_progress_signature",
       "agent_run_stopped_as_awaiting_author_with_no_progress",
       "no_tool_executed_and_no_final_turn_result_was_broadcast",
-      "spinning_revision_consumed_one_replan_budget",
     ],
   };
 }

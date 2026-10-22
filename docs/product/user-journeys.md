@@ -204,7 +204,7 @@ Current Proof（B24 / C12，2026-10-23 PASS）：`judgment-explore-chapter-full-
 | C10 | 真实模型理解采纳事实并正确引导已有对象的后续处理 | Q1b / Q3d / DS02 | Interaction / Judgment / Adoption | closed（BIZ-06） | 三项页面专项；十轮数据链与最终四轮实模语义复验 | `tasks/slices/Q1B-live-archive-recheck.md`；`artifacts/project-analysis/biz6-context-semantic-review.json` | 上下文指代进入实际修订，原稿保留，新稿需采纳；放弃回执、版本登记和编辑后状态一致。已采纳内容的变更另归 D5。 |
 | C11 | 在合理等待内得到与模型叙事一致的结构化判断 | UA01-CALL2 / ADR-0025 | JudgmentProtocol / ProviderRun / MBC | 观察项 | 实模慢调用证据，待量化 | `tasks/slices/UA01-judgment-structured-call-reliability.md`；`tasks/NEXT.md` UA01-CALL2 | Q1b 存档 call2 537 秒、13,646 reasoning tokens；用户要求优先修业务正确性；参数对照停止，性能后续再评估。 |
 | C12 | 判断循环内部探索能读到完整章并据此答复（不再「可见正文被截断」） | B24-EXPLORATION-CHAPTER-FULL-READ / ADR-0025 | ExplorationService observation / Judgment / AgentRun | **closed（2026-10-23，真实 Tauri PASS）** | 单元矩阵 + 真实 Tauri automation | `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json`；`tasks/slices/B24-exploration-chapter-full-read.md` §8；`tasks/NEXT.md` B24 行 | `chapter_read` 观察 v2：【计划】≤500 /【摘要】≤400 / 正文单页 6000、短章一次全文；**唯一寻址 `chapter_ref = chapter:<chapters.id>`（DB 唯一、改名稳定）；seq 仅唯一别名、title 仅旧兼容且歧义列候选**；JSON `{"chapter_ref","offset"}` 续读 + `next_offset`/范围/footer（同 ref）；判断/计划章节索引同批暴露 ref；**作者可见 activity `第 N 章「title」`、不暴露内部工具 id/ref/UUID/JSON（I-READ-8/9）**；explore progress signature 去 sequence（同页重复命中 no-progress、合法续读不误停）；call2 观察重复渲染修复。写入/采纳链 title 身份统一归 follow-up（B25 候选）；超长章（>12k）/3 章以上批量/观察预算档位化登记 gap；确定性重复检测（方案 B）归 `P1-word-count-audit` checkpoint B。 |
-| C13 | 判断循环重复读取同一处仍无新信息时，诚实停下等作者而不是空转 | B23-FOLLOWUP-NOPROGRESS / ADR-0025 | AgentRun progress signature / awaiting_author 出口 | **next（2026-10-23，B24 收口后开档）** | 确定性 Tauri automation（计划） | `tasks/NEXT.md` B23-FOLLOWUP-NOPROGRESS 行；`quality/acceptance/scenarios/agent-no-progress-stop.yml` | 同 tool+同 query（含 offset）重复观察命中既有 `apply_progress_signature` no_progress 停等（B24 CP2 已去 sequence）；真实 Tauri 场景按判断纪元语义重写（两次同页探索 → awaiting_author + reason_codes 含 no_progress、零最终 TurnResult/零写入）；同步修正 B23 slice §6 与 NEXT 三处「该场景 PASS」台账不一致 |
+| C13 | 判断循环重复读取同一处仍无新信息时，诚实停下等作者而不是空转 | B23-FOLLOWUP-NOPROGRESS / ADR-0025 | AgentRun progress signature / awaiting_author 出口 | **closed（2026-10-23，真实 Tauri PASS）** | 确定性 Tauri automation | `artifacts/slice-verify/agent-no-progress-stop-tauri/summary.json`；`quality/acceptance/scenarios/agent-no-progress-stop.yml` | 同 tool+同 query（含 offset）重复观察命中既有 `apply_progress_signature` no_progress 停等（B24 CP2 已去 sequence）；真实 Tauri 场景按判断纪元语义重写（两次同页探索 → awaiting_author + reason_codes 含 no_progress、零最终 TurnResult/零写入）；两次 `exploration_observed` 同 tool+同 query+观察字节相同 → `progress_signature` 重复（B24 CP2 去 sequence）→ `apply_progress_signature` 命中 no_progress → awaiting_author；真实 Tauri PASS：`stop_reason=no_progress`、`exploration_count=2`、`steps=3/provider_calls=4/tool_calls=0`、无最终 TurnResult/零写入；台账三处不一致已修正 |
 
 ---
 
@@ -451,6 +451,7 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J19 | 基线清账 + B21 + B13b 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | **superseded（2026-10-22 晚间作者定向 B23 插单；主选择项转入 J20）** | 2026-10-22 工程基线清账（门禁全绿）、B21 首次 append 场名误标（真实 Tauri PASS）、B13b 22 份 ADR/47 条 gaps 全部裁决落档；不预先开工 | `tasks/NEXT.md` MAINLINE-RESET-3；`tasks/slices/B13B-adr-enforcement-reconciliation.md`；`reports/gap-ledger/latest.json` | 候选：B13b 转出的 11 个独立 slice（工作台当前卷 UI、R10/R11 正触发验收等）、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7；等待作者拍板。 |
 | J20 | 停等作者时「为什么停、怎么继续」可见（B23） | B23-AWAITING-AUTHOR-REASON / DS03 / 46§9 | AgentRun awaiting_author summary / ProviderActivity 补水键 / control dock / copy | **done（2026-10-23，新场景 + 五回归真实 Tauri PASS）** | CP1 补水按 run 命中 + standalone run 刷新补水；CP2 回复/补充文案族；CP3 计划耗尽结构事实；CP4 首次 join 惰性收口 failed + 过期坞；CP5 新场景 `agent-plan-exhausted-awaiting-reason` PASS（理由可见→刷新仍可见→回复语义→同 run 恢复 completed）；回归 awaiting×2 / dead-run / writer-timeout / no-progress PASS；证据 `artifacts/slice-verify/agent-plan-exhausted-awaiting-reason-tauri/summary.json`、`agent-dead-bounded-run-expiry-tauri/summary.json` | `tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`；`tasks/NEXT.md` B23 行；后端 1,816/0、前端 562/0、credo/dialyzer/format/enum/arch/xref/adr_trace/quality manifest 全绿；I1/I2/I3/N-NARR/I-CACHE-1 全绿；静态扫描 0 blocking | 判断循环「先问再做」调参、全只读计划规划层约束、run 级预算归 UA01/后续；reload 交付核对重传同 turn_id 属 server 幂等语义。 |
 | J21 | B23 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | **closed（2026-10-23 作者定向选择 B24）** | B23 已完成（新场景 + 五回归真实 Tauri PASS），队首恢复主线复位；作者随后定向「方案 A 开一个 slice」= B24 探索面全章可读 | `tasks/NEXT.md` MAINLINE-RESET-3（已转 deferred）；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 | 选择已入档；B24 完成后 MAINLINE-RESET-3 恢复，候选清单不变（B13b 转出 11 项、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7）。 |
+| J22 | 架构与契约债按 ADR 证据逐项闭环（B13b 转出的 B 轨小修批） | B13B-FOLLOWUP / B13b | ADR enforcement / domain+application 边界 / 验收注册 | **next（2026-10-23，B23-FOLLOWUP 收口后开档）** | 单测 + 定向真实 Tauri（计划） | `tasks/NEXT.md` B13B-FOLLOWUP 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.2 | 安全小修先做（BB-1/2/3/5/6/8/9 + D14 文档）；需产品拍板/口径裁决项诚实挂账（BB-4 failed_recoverable 边界、BB-7 Q5 持久化失败 TurnResult、BB-10 日志噪声口径）；验收同步项（BB-11 rail 断言、BB-12 场景注册+真实 Tauri）串行跑；门禁全绿收口 |
 
 ---
 
@@ -460,7 +461,7 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 |---|---|---|---:|---|---|
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
 | B 作品与上下文 | B1-B12 CP1 | AU12 CP2/CP3 后续 | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
-| C 自然对话与探索 | C1-C12（C7 继续补矩阵） | C13 判断循环 no-progress 停等口径（B23-FOLLOWUP next） | 1（C12 已闭环） | Tauri | watch |
+| C 自然对话与探索 | C1-C13（C7 继续补矩阵） | C13 已闭环；下一 B 轨批见 J22 | 0（C12/C13 已闭环） | Tauri | closed-prefix |
 | D 创作生命周期 | D1-D3 + P1 长篇主链 checkpoint + VS-00C CP5 | creative-quality / maintenance 后续 | 多个 | Tauri + tests | closed-prefix |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
 | F 草稿与采纳 | F1-F8 checkpoint | revision/state trace completeness | 多个 P0 | Tauri | watch |
@@ -472,10 +473,10 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 当前推进锁定：
 
 ```text
-Current Focus: B 轨债务（B23-FOLLOWUP-NOPROGRESS 场景校准 → B13B-FOLLOWUP 12 项小修）；B24 已收口
-Current Journey: Journey C（自然创作对话与探索）C12 已闭环；Journey J 工作台证据继续引用
-Current Breakpoint: C12 / B24 已 closed；主线候选取自 MAINLINE-RESET-3（deferred）
-Next Task: B23-FOLLOWUP-NOPROGRESS
+Current Focus: B 轨债务（B13B-FOLLOWUP 12 项小修）；B24 与 B23-FOLLOWUP 均已收口
+Current Journey: Journey J（J22 ADR/契约债闭环）；Journey C 的 C12/C13 已闭环
+Current Breakpoint: J22 / B13B-FOLLOWUP；主线候选取自 MAINLINE-RESET-3（deferred）
+Next Task: B13B-FOLLOWUP
 ```
 
 ---
@@ -502,18 +503,18 @@ Next Task: B23-FOLLOWUP-NOPROGRESS
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: B 轨债务（B23-FOLLOWUP-NOPROGRESS）；B24 全章可读已收口
-Active Journey: Journey C（自然创作对话与探索）
-Queue head: B23-FOLLOWUP-NOPROGRESS
+Current Focus: B 轨债务（B13B-FOLLOWUP）；B24 全章可读与 B23-FOLLOWUP no-progress 校准均收口
+Active Journey: Journey J（J22 ADR/契约债闭环）
+Queue head: B13B-FOLLOWUP
 ```
 
 本文对应位置：
 
 ```text
 Journey C / 自然创作对话与探索
-Step: C12 / B24-EXPLORATION-CHAPTER-FULL-READ（closed 2026-10-23）
-Status: closed（真实 Tauri PASS；`artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json`）
-Gap / Next: chapter_read 观察 v2（`chapter_ref` 唯一寻址 + 分段预算 + 续读 footer）已落地并真实页面验证；写入/采纳链 title 身份统一/seq 唯一约束归 follow-up `B25` 候选；超长章（>12k）、3 章以上批量、观察预算档位化、弱模型续读/ref 遵守归 gap。MAINLINE-RESET-3 仍 deferred，队首转 B23-FOLLOWUP-NOPROGRESS。
+Step: J22 / B13B-FOLLOWUP（next 2026-10-23）
+Status: next（B23-FOLLOWUP 收口后开档；B24 / B23-FOLLOWUP 均已 closed）
+Gap / Next: B13b 转出的 12 项 B 轨小修按「安全小修 → 验收同步 → 需拍板挂账」推进；产品行为变更项（failed_recoverable 边界、Q5 持久化失败 TurnResult、日志噪声口径）诚实挂账并转独立 slice/作者裁决；MAINLINE-RESET-3 仍 deferred。
 ```
 
 选择规则：

@@ -498,7 +498,7 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-loop-budget-limit --surface tauri
   - id: agent-no-progress-stop
-    title: "AgentRun 重复无进展时停止等待作者"
+    title: "AgentRun 重复探索同一处仍无新信息时停止等待作者（判断纪元语义；B23-FOLLOWUP 校准）"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agent-no-progress-stop.yml

@@ -1,17 +1,17 @@
 id: agent-no-progress-stop
-title: AgentRun 重复无进展时停止等待作者
+title: AgentRun 重复探索同一处无新信息时停止等待作者（判断纪元语义）
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agent-no-progress-stop --surface tauri
 
 contract:
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
-  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - loop-stops-when-no-progress
-  - repeated-readonly-observation-does-not-call-writer-provider
+  - loop-stops-on-true-no-progress
+  - repeated-exploration-does-not-write
   - no-final-artifact-after-no-progress-stop
 
 setup:
@@ -20,9 +20,9 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - send: repeated roster-read AgentRun request
-  - wait_for: two readonly character_roster steps
-  - verify: AgentRun stops awaiting_author with no_progress before character_design
+  - send: author request whose diagnosis marker makes the deterministic provider explore the same read-only archive face twice
+  - wait_for: two exploration observations with the same tool + query and byte-identical observation payload
+  - verify: AgentRun stops awaiting_author with reason_code no_progress (no third judgment, no final TurnResult, no production write)
 
 evidence:
   required:
@@ -33,12 +33,16 @@ evidence:
   artifact_dir: artifacts/slice-verify/agent-no-progress-stop-tauri
 
 assertions:
+  ui:
+    - 停止后作者可见运行反馈显示「未取得新进展」/等待作者回复语义
+  network:
+    - 两次 exploration_observed 为同 tool + 同 query 且观察字节相同（真重复）
+    - 停等事件 reason_codes 含 no_progress
   data:
     - run state reaches awaiting_author with reason no_progress
-    - consumed steps equals 2
-    - consumed provider calls equals 3 (1 profile routing + 2 step planner; no creative writer call)
-    - character_design tool does not execute
-    - no final character TurnResult is broadcast
+    - consumed steps equals 3 (context step + two judgment steps)
+    - consumed provider calls equals 4 (two judgment calls per round)
+    - no tool executed, no final TurnResult broadcast, no production write
 
 anti_hooks:
   product_acceptance_logic_added: false

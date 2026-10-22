@@ -910,7 +910,7 @@ native_action_description() {
       echo "send a bounded AgentRun request with an explicit one-step author budget -> verify the run stops awaiting_author at budget_exhausted before character_design"
       ;;
     agent-no-progress-stop)
-      echo "send a repeated roster-read AgentRun request -> verify two readonly roster steps then awaiting_author no_progress without provider or character_design call"
+      echo "send an author request whose diagnosis marker makes the deterministic provider explore the same read-only archive face twice -> verify two byte-identical exploration observations (same tool + query), then awaiting_author with reason_code no_progress and no final TurnResult or production write"
       ;;
     agent-plan-exhausted-awaiting-reason)
       echo "send a complex cross-capability request -> verify judgment_plan_v1 drafts an all-read-only plan, exhausts the replan budget into awaiting_author with a structural reason (plan/completed/unmet goal/checked steps/next step) -> reload keeps the reason -> reply-semantics hint/placeholder -> author supplement steers the same run to completion without a new run"

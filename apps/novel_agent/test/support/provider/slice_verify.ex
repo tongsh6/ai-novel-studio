@@ -2404,6 +2404,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_narrative_result(prompt) do
     narrative =
       cond do
+        # B23-FOLLOWUP：真 no-progress 诱导——两轮都选同一个只读探索（观察字节相同）。
+        no_progress_probe_request?(prompt) ->
+          no_progress_narrative(prompt)
+
         # B24 CP3：全章分页读取——首页后按 footer 继续，末页后给引用观察字节的回复。
         full_read_request?(prompt) ->
           full_read_narrative(prompt)
@@ -2422,6 +2426,26 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       end
 
     Result.new(narrative, usage_for(prompt, narrative))
+  end
+
+  # ── B23-FOLLOWUP：判断循环「真 no-progress」确定性替身 ────────────────────
+  # 作者文本含标记时，两轮判断都选择同一个只读探索（archive_read/profile，字节稳定）
+  # → 两次 observation 逐字相同 → 第二次 progress_signature 与第一次相同（B24 CP2
+  # 已去 sequence）→ runtime 既有 apply_progress_signature 命中 no_progress，
+  # 停等 awaiting_author 且丢弃空转步产物。
+  @no_progress_marker "UA01NOPROGRESS"
+  @no_progress_query "profile"
+
+  defp no_progress_probe_request?(prompt) do
+    String.contains?(judgment_author_input(prompt), @no_progress_marker)
+  end
+
+  defp no_progress_narrative(prompt) do
+    if String.contains?(prompt, "## 探索观察") do
+      "同一份档案再看一遍也不会有新信息，我先停下等作者补充方向。"
+    else
+      "我需要先查阅作品档案的简介面，确认已有事实再回答。"
+    end
   end
 
   # ── B24 CP3：判断循环内部翼「全章可读」确定性替身 ────────────────────────
@@ -2641,6 +2665,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     request = explore_request_for(prompt)
 
     cond do
+      # B23-FOLLOWUP：两轮都探索同一个只读面（archive_read/profile），第二次观察
+      # 字节与第一次完全相同 → progress_signature 重复 → runtime 既有 no_progress 停等。
+      no_progress_probe_request?(prompt) ->
+        judgment_explore_decision_result(prompt, %{
+          "tool" => "archive_read",
+          "query" => @no_progress_query
+        })
+
       # B24 CP3：全章分页读取的决策（首轮 ref 寻址 → footer JSON 续读 → reply）。
       full_read_request?(prompt) ->
         full_read_decision_result(prompt)
