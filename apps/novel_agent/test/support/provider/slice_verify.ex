@@ -41,6 +41,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @plan_exhaust_env "SLICE_VERIFY_PLAN_EXHAUST"
   @plan_exhaust_marker "UA01PLANEXHAUST"
   @plan_exhaust_steer_marker "按已核对结果先出方案"
+  # B24 CP3 真实页面场景（判断循环内部翼全章可读）：仅当作者请求同时点名本场景
+  # 章标题与「全章/核对/重复」措辞时启用。寻址必须复制判断 prompt 章节索引里的
+  # 唯一 chapter_ref（seed 故意放了一章同名标题——标题查询只会歧义）；续读 query
+  # 逐字取上一页观察 footer 的 JSON。仅依据 prompt 文本，不识别 slice id/env，
+  # 其它场景 prompt 不命中时行为逐字节不变。
+  @full_read_chapter_title "灰烬中的手印"
+  @full_read_request_probes ["全章", "核对", "重复"]
+  @full_read_last_page_anchor_marker "末页锚点"
+  @full_read_footer_pattern ~r/【续读】剩余 \d+ 字符；用 (\{"chapter_ref":"chapter:[0-9a-f-]{36}","offset":\d+\}) 继续。/u
 
   defstruct []
 
@@ -1331,7 +1340,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   # 与真实 LLM 的计划契约对称：「作者点名的章按『作品章节』列表精确复制全名填 target_chapter，
-  # 列表中没有对应章或无法确定时填 null」。点名章按章号对到 prompt 列表全名；对不上 → null
+  # 列表中没有对应章或无法确定时填 null」。点名章按**章条目**的 seq（新格式索引行）
+  # 或标题内嵌章号（旧兼容行）对到 prompt 列表的**真实 title**；对不上 → null
   # （block 信号，作者点名了不存在的章）；未点名 → null（由执行层按意图兜底解析）。
   defp prose_plan_authoring_coordinate(author_goal, chapters) do
     intent =
@@ -1347,7 +1357,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       token ->
         num = chapter_num(token)
-        matched = num && Enum.find(chapters, fn title -> chapter_num(title) == num end)
+        matched = num && chapter_title_for_num(chapters, num)
         {intent, matched, token}
     end
   end
@@ -2394,6 +2404,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_narrative_result(prompt) do
     narrative =
       cond do
+        # B24 CP3：全章分页读取——首页后按 footer 继续，末页后给引用观察字节的回复。
+        full_read_request?(prompt) ->
+          full_read_narrative(prompt)
+
         String.contains?(prompt, "## 探索观察") ->
           exploration_reply_narrative(prompt)
 
@@ -2408,6 +2422,118 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       end
 
     Result.new(narrative, usage_for(prompt, narrative))
+  end
+
+  # ── B24 CP3：判断循环内部翼「全章可读」确定性替身 ────────────────────────
+  # 场景：作者怀疑某章有重复，要求核对全章。替身只做三件机械事：
+  #   1) 首轮从判断 prompt 的章节索引复制唯一 chapter_ref，query offset=0；
+  #   2) 拿到观察后逐字使用页面 footer 里的续读 JSON（不自己拼 offset）；
+  #   3) 末页（无 footer）后回复字节引用观察里含末页锚点的行（N-NARR：不伪造内容）。
+  # 触发条件用本场景章标题 + 「全章/核对/重复」唯一锚定，其它场景 prompt 不命中。
+  defp full_read_request?(prompt) do
+    author_text = judgment_author_input(prompt)
+
+    String.contains?(author_text, @full_read_chapter_title) and
+      contains_any?(author_text, @full_read_request_probes)
+  end
+
+  # 判断 prompt 的章节索引行（模型可见，B24 I-READ-9 双面身份）：
+  #   - 第 N 章「<title>」[chapter_ref=chapter:<uuid>]（计划中）
+  # 复制**有已采纳正文**那个章（索引行无「（计划中）」= 目标章 B）的 ref；
+  # 同名干扰章 A 带「（计划中）」被排除。绝不按标题直接当查询（会命中歧义观察）。
+  defp full_read_chapter_ref(prompt) do
+    entries =
+      prompt
+      |> String.split("\n")
+      |> Enum.flat_map(&parse_chapter_entry_line/1)
+      |> Enum.filter(&(&1.chapter_ref != nil and &1.title == @full_read_chapter_title))
+
+    case Enum.find(entries, & &1.has_prose) || List.first(entries) do
+      nil -> nil
+      entry -> entry.chapter_ref
+    end
+  end
+
+  # 判断 prompt 里已渲染的观察段（`### 观察 N（tool「query」）\n<observation.summary>`）。
+  # 观察 summary 内无空行（seed 正文不含 "\n\n"），因此每条观察以空行/文末为界；
+  # 用惰性匹配逐条切出，避免观察正文里的换行干扰分界。
+  defp full_read_observation_summaries(prompt) do
+    ~r/### 观察 \d+（[^\n]*）\n(.*?)(?:\n\n|\z)/su
+    |> Regex.scan(prompt, capture: :all_but_first)
+    |> Enum.map(fn
+      [summary] -> summary
+      _ -> ""
+    end)
+  end
+
+  defp full_read_last_observation(prompt) do
+    case full_read_observation_summaries(prompt) do
+      [] -> nil
+      summaries -> List.last(summaries)
+    end
+  end
+
+  defp full_read_continuation_query(summary) do
+    case Regex.run(@full_read_footer_pattern, summary) do
+      [_, query] -> query
+      _ -> nil
+    end
+  end
+
+  # 末页观察里「含末页锚点的行」——回复按字节引用它，保持 N-NARR。
+  defp full_read_cited_excerpt(summary) do
+    summary
+    |> String.split("\n")
+    |> Enum.find(&String.contains?(&1, @full_read_last_page_anchor_marker))
+    |> case do
+      nil -> String.slice(summary, 0, 80)
+      line -> String.trim(line)
+    end
+  end
+
+  defp full_read_narrative(prompt) do
+    case full_read_last_observation(prompt) do
+      nil ->
+        "要核对全章是否有重复，需要先把整章读完。我先按章节唯一编号读取「#{@full_read_chapter_title}」的完整正文。"
+
+      summary ->
+        if full_read_continuation_query(summary) do
+          "首页只返回了前 6000 字符，剩余部分还没读到；我接着往后读完整章。"
+        else
+          "我逐页读完了整章正文，依据如下：\n\n#{full_read_cited_excerpt(summary)}\n\n" <>
+            "以上就是第二页正文里关于手印的原文。"
+        end
+    end
+  end
+
+  defp full_read_decision_result(prompt) do
+    case full_read_last_observation(prompt) do
+      nil ->
+        # 首轮：从章节索引复制唯一 chapter_ref，纯 ref 寻址（不用标题）。
+        case full_read_chapter_ref(prompt) do
+          nil ->
+            judgment_cited_reply_decision_result(prompt)
+
+          ref ->
+            judgment_explore_decision_result(prompt, %{
+              "tool" => "chapter_read",
+              "query" => "{\"chapter_ref\":\"#{ref}\",\"offset\":0}"
+            })
+        end
+
+      summary ->
+        # 第二轮：footer 里的续读 JSON 逐字作为下一次 explore query。
+        case full_read_continuation_query(summary) do
+          nil ->
+            judgment_cited_reply_decision_result(prompt)
+
+          query ->
+            judgment_explore_decision_result(prompt, %{
+              "tool" => "chapter_read",
+              "query" => query
+            })
+        end
+    end
   end
 
   # 回环第二判的回复：字节透传观察段命中行（含引用词的行），保持"回复引用检索
@@ -2515,6 +2641,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     request = explore_request_for(prompt)
 
     cond do
+      # B24 CP3：全章分页读取的决策（首轮 ref 寻址 → footer JSON 续读 → reply）。
+      full_read_request?(prompt) ->
+        full_read_decision_result(prompt)
+
       # call2 内嵌引用回复叙事（依据如下）→ 回环收束 reply
       String.contains?(prompt, "依据如下") ->
         judgment_cited_reply_decision_result(prompt)
@@ -3579,12 +3709,27 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       token ->
         num = chapter_num(token)
-        matched = num && Enum.find(chapters, fn title -> chapter_num(title) == num end)
+        matched = num && chapter_title_for_num(chapters, num)
 
         # 点名但匹配不到列表 → target_chapter=nil（block 信号）；匹配到 → 列表全名。
         {intent, matched, token}
     end
   end
+
+  # 章条目（新格式）按 seq 匹配作者点名章号；旧兼容条目按 title 内嵌章号匹配。
+  # 返回列表里该章的**真实 title**（target_chapter 必须精确复制 title，不是整行）。
+  defp chapter_title_for_num(chapters, num) do
+    case Enum.find(chapters, &chapter_entry_num_match?(&1, num)) do
+      nil -> nil
+      %{title: title} -> title
+      title when is_binary(title) -> title
+    end
+  end
+
+  defp chapter_entry_num_match?(%{seq: seq}, num) when is_integer(seq), do: seq == num
+  defp chapter_entry_num_match?(%{title: title}, num), do: chapter_num(title) == num
+  defp chapter_entry_num_match?(title, num) when is_binary(title), do: chapter_num(title) == num
+  defp chapter_entry_num_match?(_entry, _num), do: false
 
   defp named_chapter_token(text) do
     case Regex.run(~r/第\s*[0-9零一二三四五六七八九十百两]+\s*章/u, text) do
@@ -3640,14 +3785,48 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp cn_digit(""), do: 0
   defp cn_digit(s), do: Map.get(@cn_digits, s, 0)
 
+  # planner prompt「## 作品章节」段的条目（B24 I-READ-9：模型可见章节索引带唯一
+  # chapter_ref / seq / title 双面身份）。行格式：
+  #   - 第 N 章「<title>」[chapter_ref=chapter:<uuid>]（计划中）
+  # 旧兼容行（无 `第 N 章「」` 前缀）整行即 title，seq/chapter_ref 为 nil。
+  # 返回 `[%{title, seq, chapter_ref, has_prose}]`。
   defp accepted_chapters_in_prompt(prompt) do
-    # planner 段头为「## 作品章节（…含已规划但还没写正文的章）」，正文章节列表取自此段。
+    # planner 段头为「## 作品章节（…含已规划但还没写正文的章）」，章节列表取自此段。
     case Regex.run(~r/##\s*作品章节[^\n]*\n(.*?)(?:\n##|\z)/su, prompt) do
       [_, block] ->
-        ~r/^\s*-\s*(.+?)\s*$/mu
-        |> Regex.scan(block)
-        |> Enum.map(fn [_, title] -> title end)
-        |> Enum.reject(&(&1 == ""))
+        block
+        |> String.split("\n")
+        |> Enum.flat_map(&parse_chapter_entry_line/1)
+
+      _ ->
+        []
+    end
+  end
+
+  # `- 第 N 章「title」[chapter_ref=chapter:<uuid>]（计划中）` → 结构化条目；
+  # 非章节列表行返回 []。判断/planner/探索面章节索引共用同一行格式。
+  defp parse_chapter_entry_line(line) do
+    case Regex.run(~r/^\s*-\s*(.*\S)\s*$/u, line) do
+      [_, body] ->
+        planned = String.contains?(body, "（计划中）")
+
+        case Regex.run(
+               ~r/^第\s*(\d+)\s*章「(.+?)」\[chapter_ref=(chapter:[0-9a-fA-F-]{36})\]/u,
+               body
+             ) do
+          [_, seq, title, ref] ->
+            [
+              %{
+                title: title,
+                seq: String.to_integer(seq),
+                chapter_ref: String.downcase(ref),
+                has_prose: not planned
+              }
+            ]
+
+          _ ->
+            [%{title: body, seq: nil, chapter_ref: nil, has_prose: not planned}]
+        end
 
       _ ->
         []
@@ -3655,7 +3834,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   # checkpoint 1 单章续写：默认归第一章（与 driver 续写第 1 章一致）。
-  defp target_chapter_for(chapters), do: List.first(chapters)
+  # 兼容产物：条目 map 取 title；纯标题字符串直接返回。
+  defp target_chapter_for([%{title: title} | _]), do: title
+  defp target_chapter_for([title | _]) when is_binary(title), do: title
+  defp target_chapter_for(_chapters), do: nil
 
   defp tool_name_for_prompt(prompt) do
     cond do

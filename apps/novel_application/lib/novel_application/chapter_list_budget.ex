@@ -54,6 +54,87 @@ defmodule NovelApplication.ChapterListBudget do
     end
   end
 
+  @doc """
+  投影章节索引条目（B24 双面身份）：条目形如
+  `%{title: String.t(), seq: integer | nil, id: String.t() | nil, has_prose: boolean}`。
+
+  与 `project/2` 同规则（总数 ≤ 12 全列；超限保留首章 + 最近 6 章 + 作者点名章），
+  但以**条目身份**（title+seq+id）保留重复标题的不同章，供模型按 `chapter_ref` 寻址。
+  返回 `{listed_entries, omitted_count}`，顺序与投影前一致。
+  """
+  @spec project_entries([map()], String.t() | nil) :: {[map()], non_neg_integer()}
+  def project_entries(entries, author_text \\ nil)
+
+  def project_entries(entries, _author_text) when length(entries) <= @full_list_threshold,
+    do: {entries, 0}
+
+  def project_entries(entries, author_text) do
+    named =
+      entries
+      |> Enum.map(&entry_field(&1, :title, ""))
+      |> named_chapter_titles(author_text)
+      |> MapSet.new()
+
+    keep_keys =
+      entries
+      |> Enum.take(1)
+      |> Kernel.++(Enum.take(entries, -@recent_count))
+      |> Kernel.++(Enum.filter(entries, &MapSet.member?(named, entry_field(&1, :title, ""))))
+      |> MapSet.new(&entry_key/1)
+
+    listed = Enum.filter(entries, &MapSet.member?(keep_keys, entry_key(&1)))
+    {listed, length(entries) - length(listed)}
+  end
+
+  @doc """
+  渲染章节索引条目：带 id 的条目渲染为
+  `- 第 3 章「恐惧体验」[chapter_ref=chapter:<uuid>]`（模型按 ref 寻址，I-READ-9）；
+  无 id 的条目退回旧标题行（手工构造上下文/兼容路径）。
+  """
+  @spec render_entry_lines([map()], non_neg_integer(), non_neg_integer()) :: String.t()
+  def render_entry_lines(entries, omitted_count, total) do
+    lines = Enum.map_join(entries, "\n", &entry_line/1)
+
+    if omitted_count > 0 do
+      lines <>
+        "\n（共 #{total} 章；中段 #{omitted_count} 章从略——只列首章、最近 #{@recent_count} 章与作者点名章。）"
+    else
+      lines
+    end
+  end
+
+  @doc false
+  @spec entry_line(map()) :: String.t()
+  def entry_line(entry) do
+    title = entry_field(entry, :title, "")
+    planned = if Map.get(entry, :has_prose) == false, do: "（计划中）", else: ""
+
+    case Map.get(entry, :id) do
+      id when is_binary(id) and id != "" ->
+        ref = "chapter:#{id}"
+
+        case Map.get(entry, :seq) do
+          seq when is_integer(seq) -> "- 第 #{seq} 章「#{title}」[chapter_ref=#{ref}]#{planned}"
+          _ -> "- 「#{title}」[chapter_ref=#{ref}]#{planned}"
+        end
+
+      _ ->
+        "- #{title}#{planned}"
+    end
+  end
+
+  defp entry_field(entry, key, default) do
+    case Map.get(entry, key) do
+      value when is_binary(value) -> String.trim(value)
+      nil -> default
+      other -> other
+    end
+  end
+
+  defp entry_key(entry) do
+    {entry_field(entry, :title, ""), Map.get(entry, :seq), Map.get(entry, :id)}
+  end
+
   # 作者点名章匹配：正文里出现的 第N章/第N卷 序号词（阿拉伯/全角/中文数字），
   # 命中标题即保留。确定性文本匹配，不做语义猜测。
   @doc false

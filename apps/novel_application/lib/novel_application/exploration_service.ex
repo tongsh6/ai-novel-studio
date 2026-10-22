@@ -21,17 +21,31 @@ defmodule NovelApplication.ExplorationService do
   alias NovelFoundation.Enums.ChapterMissionStatus
   alias NovelPersistence.{ChapterSummaryRepo, ProseSearchRepo, WorkSessionRepo}
 
+  # 观察 v2（B24）：基础形状不变（tool/query/summary/refs），chapter_read 观察
+  # additive 携带续读/身份元数据（I-EXPLORE-READ-3/7/9）。
   @type observation :: %{
-          tool: String.t(),
-          query: String.t(),
-          summary: String.t(),
-          refs: [String.t()]
+          required(:tool) => String.t(),
+          required(:query) => String.t(),
+          required(:summary) => String.t(),
+          required(:refs) => [String.t()],
+          optional(:activity_summary) => String.t(),
+          optional(:chapter_ref) => String.t(),
+          optional(:chapter_seq) => integer() | nil,
+          optional(:next_offset) => non_neg_integer() | nil,
+          optional(:prose_total_chars) => non_neg_integer(),
+          optional(:prose_range) => %{start: pos_integer(), end: non_neg_integer()} | nil
         }
 
   # ledgers 面为 VS-00F CP1（ADR-0026）第 9 面：五本账进度视图（探索面同步律，08 §8）。
   @archive_facets ~w(profile characters foreshadowing rules stats current_state relationships preferences ledgers)
   @summary_max_chars 1500
-  @chapter_clip_chars 1200
+  # B24（I-EXPLORE-READ-2）：观察 v2 分段预算——设计态材料另计上限，正文单页 6000
+  # 字符。旧口径把三段拼成一条 1500 clip，设计态材料加料后正文只剩 216/4398 字
+  # （2026-10-23 stage 实锤），故计划/摘要不再与正文共享同一条预算。
+  @chapter_plan_max_chars 500
+  @chapter_summary_max_chars 400
+  @chapter_page_chars 6000
+  @section_ellipsis "…（略）"
   @adoption_page_size 3
   @chapter_mission_confirmed ChapterMissionStatus.confirmed()
   @chapter_mission_author_edited ChapterMissionStatus.author_edited()
@@ -44,8 +58,10 @@ defmodule NovelApplication.ExplorationService do
     },
     %{
       tool: "chapter_read",
-      query_help: "章节名（可只给编号如「第02章」）",
-      description: "读取某一章的设计计划、章摘要与已采纳正文"
+      # I-EXPLORE-READ-7：章标识作品无关——query 是作品目录里的真实章标题，不假设
+      # 任何编号格式；长章分页，续读用 JSON offset（I-EXPLORE-READ-3）。
+      query_help: ~s(作品目录中的真实章标题，原样复制；续读用 JSON {"chapter":"<章标题>","offset":<下页起点>}),
+      description: "读取某一章的设计计划、章摘要与已采纳正文（长章分页，按观察内【续读】继续）"
     },
     %{
       tool: "archive_read",
@@ -122,7 +138,8 @@ defmodule NovelApplication.ExplorationService do
          tool: "session_adoptions",
          query: query || "",
          summary: Jason.encode!(summary),
-         refs: Enum.map(page, & &1["artifact_id"])
+         refs: Enum.map(page, & &1["artifact_id"]),
+         activity_summary: activity_text("session_adoptions", query || "")
        }}
     else
       {:error, reason} -> {:error, reason}
@@ -210,39 +227,440 @@ defmodule NovelApplication.ExplorationService do
     end
   end
 
-  # ── chapter_read ──
+  # ── chapter_read（B24 观察 v2：分段预算 + JSON offset 续读） ──
+  #
+  # 契约：tasks/slices/B24-exploration-chapter-full-read.md §1.1。旧观察把
+  # 【计划】【摘要】【正文】拼成一条 1500 字符 clip——设计态材料持续加料把正文挤到
+  # 4.9%（2026-10-23 stage 实锤）。v2 分段预算：设计态材料另计上限、正文单页
+  # 6000 字符、续读页不重复计划/摘要，并在 footer 给出下一页 query。
+  #
+  # query 语法（B24 CP0 §1.1(a)，I-EXPLORE-READ-7 唯一编码寻址）：
+  #   - 规范     JSON {"chapter_ref":"chapter:<uuid>","offset":<n>}（唯一寻址）
+  #   - 便利别名 JSON {"chapter_seq":<n>,"offset":<n>}（必须 work 内唯一命中）
+  #   - 旧兼容   纯章标题 / JSON {"chapter":<TOC 真实标题>,"offset":<n>}
+  #              （必须唯一命中；歧义即错误并列出候选 ref，禁止 first-match）
+  # 分页续读必须复用同一 chapter_ref（footer 给出的正是它）。
 
   defp chapter_read(_work_id, ""), do: {:error, :empty_query}
 
   defp chapter_read(work_id, query) do
     volumes = work_id |> ReadingProjectionService.toc() |> Map.get(:volumes, [])
     chapters = Enum.flat_map(volumes, &Map.get(&1, :chapters, []))
+    index = chapter_index_lines(chapters)
 
-    case Enum.find(chapters, &chapter_match?(&1, query)) do
-      nil ->
-        {:ok,
-         observation(
-           "chapter_read",
-           query,
-           "没有找到「#{query}」。现有章节：#{chapter_index_text(volumes)}",
-           []
-         )}
+    case chapter_query(query) do
+      {:ok, spec, offset} ->
+        case resolve_chapter(chapters, spec) do
+          {:ok, chapter} ->
+            volume = chapter_volume(volumes, chapter)
+            chapter_read_page(work_id, chapter, volume, query, offset)
 
-      chapter ->
-        volume = chapter_volume(volumes, chapter)
+          {:error, {:ambiguous, candidates}} ->
+            {:ok, ambiguous_chapter_observation(query, spec, candidates)}
 
-        sections =
-          [chapter_plan_section(chapter, volume), chapter_summary_section(work_id, chapter)] ++
-            chapter_prose_sections(work_id, chapter)
+          {:error, :not_found} ->
+            {:ok, not_found_chapter_observation(query, spec, index)}
+        end
 
-        {:ok,
-         observation(
-           "chapter_read",
-           query,
-           "「#{chapter.title}」\n" <> Enum.join(sections, "\n"),
-           ["chapter:#{chapter.id}"]
-         )}
+      :error ->
+        {:ok, invalid_chapter_query_observation(query, index)}
     end
+  end
+
+  defp chapter_query(query) do
+    text = String.trim(query)
+
+    if String.starts_with?(text, "{") do
+      decode_chapter_query(text)
+    else
+      chapter_query_from_text(text)
+    end
+  end
+
+  defp chapter_query_from_text(text) do
+    case bare_chapter_ref(text) do
+      nil -> {:ok, {:title, text}, 0}
+      uuid -> {:ok, {:ref, uuid}, 0}
+    end
+  end
+
+  defp decode_chapter_query(text) do
+    with {:ok, %{} = payload} <- Jason.decode(text),
+         {:ok, offset} <- chapter_query_offset(payload),
+         {:ok, spec} <- chapter_query_spec(payload) do
+      {:ok, spec, offset}
+    else
+      _ -> :error
+    end
+  end
+
+  defp chapter_query_offset(payload) do
+    case Map.get(payload, "offset", 0) do
+      offset when is_integer(offset) and offset >= 0 -> {:ok, offset}
+      _ -> :error
+    end
+  end
+
+  defp chapter_query_spec(payload) do
+    cond do
+      Map.has_key?(payload, "chapter_ref") -> chapter_ref_query_spec(payload)
+      Map.has_key?(payload, "chapter_seq") -> chapter_seq_query_spec(payload)
+      Map.has_key?(payload, "chapter") -> chapter_title_query_spec(payload)
+      true -> :error
+    end
+  end
+
+  defp chapter_ref_query_spec(payload) do
+    case bare_chapter_ref(Map.get(payload, "chapter_ref")) do
+      nil -> :error
+      uuid -> {:ok, {:ref, uuid}}
+    end
+  end
+
+  defp chapter_seq_query_spec(payload) do
+    case Map.get(payload, "chapter_seq") do
+      seq when is_integer(seq) and seq >= 0 -> {:ok, {:seq, seq}}
+      _ -> :error
+    end
+  end
+
+  defp chapter_title_query_spec(payload) do
+    case Map.get(payload, "chapter") do
+      title when is_binary(title) ->
+        case String.trim(title) do
+          "" -> :error
+          trimmed -> {:ok, {:title, trimmed}}
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  # `chapter:<uuid>`（或裸 UUID）→ 小写规范 UUID 字符串；格式非法返回 nil。
+  # 不引入 Ecto 依赖（application 层不直接依赖持久化库），用 UUID 形态校验。
+  @uuid_pattern ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+
+  defp bare_chapter_ref(value) when is_binary(value) do
+    candidate =
+      case String.trim(value) do
+        "chapter:" <> uuid -> String.trim(uuid)
+        uuid -> uuid
+      end
+
+    if Regex.match?(@uuid_pattern, candidate), do: String.downcase(candidate), else: nil
+  end
+
+  defp bare_chapter_ref(_value), do: nil
+
+  # 解析顺序固定（I-EXPLORE-READ-7）：ref（唯一）→ seq（work 内唯一）→ 标题
+  # （精确优先、唯一子串；任何多候选都返回歧义，禁止按 TOC 顺序 first-match）。
+  defp resolve_chapter(chapters, {:ref, uuid}) do
+    case Enum.find(chapters, &(chapter_uuid(&1) == uuid)) do
+      nil -> {:error, :not_found}
+      chapter -> {:ok, chapter}
+    end
+  end
+
+  defp resolve_chapter(chapters, {:seq, seq}) do
+    case Enum.filter(chapters, &(Map.get(&1, :seq) == seq)) do
+      [chapter] -> {:ok, chapter}
+      [] -> {:error, :not_found}
+      many -> {:error, {:ambiguous, many}}
+    end
+  end
+
+  defp resolve_chapter(chapters, {:title, title}) do
+    exact = Enum.filter(chapters, &(chapter_title(&1) == title))
+
+    cond do
+      length(exact) == 1 -> {:ok, hd(exact)}
+      length(exact) > 1 -> {:error, {:ambiguous, exact}}
+      true -> resolve_chapter_by_substring(chapters, title)
+    end
+  end
+
+  defp resolve_chapter_by_substring(chapters, title) do
+    case Enum.filter(chapters, &chapter_match?(&1, title)) do
+      [chapter] -> {:ok, chapter}
+      [] -> {:error, :not_found}
+      many -> {:error, {:ambiguous, many}}
+    end
+  end
+
+  defp chapter_title(chapter) do
+    case Map.get(chapter, :title) do
+      title when is_binary(title) -> String.trim(title)
+      _ -> ""
+    end
+  end
+
+  defp chapter_uuid(chapter) do
+    case Map.get(chapter, :id) do
+      nil -> ""
+      id -> id |> to_string() |> String.downcase()
+    end
+  end
+
+  defp chapter_ref(chapter), do: "chapter:#{chapter_uuid(chapter)}"
+
+  # 章索引（模型面，I-EXPLORE-READ-9）：与判断/计划章节索引同格式。
+  defp chapter_index_lines([]), do: "（当前作品还没有章节）"
+
+  defp chapter_index_lines(chapters) do
+    Enum.map_join(chapters, "\n", fn chapter ->
+      NovelApplication.ChapterListBudget.entry_line(%{
+        title: chapter_title(chapter),
+        seq: Map.get(chapter, :seq),
+        id: chapter_uuid(chapter),
+        has_prose: Map.get(chapter, :word_count, 0) > 0
+      })
+    end)
+  end
+
+  defp ambiguous_chapter_observation(query, spec, candidates) do
+    observation(
+      "chapter_read",
+      query,
+      "章节「#{chapter_query_label(spec)}」匹配到 #{length(candidates)} 章，存在歧义；" <>
+        "请从章索引复制 chapter_ref 后重试：\n" <> chapter_index_lines(candidates),
+      Enum.map(candidates, &chapter_ref/1),
+      activity_summary: activity_failure_summary("chapter_read")
+    )
+  end
+
+  defp not_found_chapter_observation(query, spec, index) do
+    observation(
+      "chapter_read",
+      query,
+      "没有找到「#{chapter_query_label(spec)}」。现有章索引：\n" <> index,
+      [],
+      activity_summary: activity_failure_summary("chapter_read")
+    )
+  end
+
+  defp invalid_chapter_query_observation(query, index) do
+    observation(
+      "chapter_read",
+      query,
+      "章节检索参数无法识别：请优先复制章索引里的 chapter_ref（章节唯一标识）；" <>
+        ~s(续读时用观察 footer 给出的 JSON {"chapter_ref":"chapter:<uuid>","offset":<下页起点>}；) <>
+        "标题/序号只是唯一命中时的别名。\n现有章索引：\n" <> index,
+      [],
+      activity_summary: activity_failure_summary("chapter_read")
+    )
+  end
+
+  defp chapter_query_label({:ref, uuid}), do: "chapter:#{uuid}"
+  defp chapter_query_label({:seq, seq}), do: "第 #{seq} 章"
+  defp chapter_query_label({:title, title}), do: title
+
+  defp chapter_read_page(work_id, chapter, volume, query, offset) do
+    case ReadingProjectionService.chapter_content(chapter.id, work_id) do
+      {:ok, content} ->
+        prose = content.scenes |> Enum.map_join("\n", & &1.content)
+        total = String.length(prose)
+
+        cond do
+          total == 0 and offset == 0 ->
+            empty_chapter_observation(work_id, chapter, volume, query)
+
+          offset > total ->
+            out_of_range_observation(chapter, query, total)
+
+          offset == total ->
+            end_of_chapter_observation(chapter, query, offset, total)
+
+          true ->
+            paged_chapter_observation(
+              work_id,
+              chapter,
+              volume,
+              query,
+              offset,
+              prose,
+              total,
+              content.word_count
+            )
+        end
+
+      {:error, :not_found} when offset > 0 ->
+        out_of_range_observation(chapter, query, 0)
+
+      {:error, :not_found} ->
+        {:ok, empty_chapter_observation(work_id, chapter, volume, query)}
+    end
+  end
+
+  defp empty_chapter_observation(work_id, chapter, volume, query) do
+    sections =
+      [chapter_plan_section(chapter, volume), chapter_summary_section(work_id, chapter)] ++
+        ["【正文】还没有已采纳正文。"]
+
+    {:ok,
+     observation(
+       "chapter_read",
+       query,
+       chapter_title_line(chapter) <> "\n" <> Enum.join(sections, "\n"),
+       [chapter_ref(chapter)],
+       activity_summary:
+         "已阅读章节正文「#{chapter_title(chapter)}」#{chapter_seq_text(chapter)}（本章尚无已采纳正文）。",
+       extra: chapter_identity_keys(chapter)
+     )}
+  end
+
+  defp out_of_range_observation(chapter, query, total) do
+    {:ok,
+     observation(
+       "chapter_read",
+       query,
+       chapter_title_line(chapter) <>
+         "\noffset 超出正文范围（共 #{total} 字符）；" <>
+         ~s(从头读用 offset=0，或使用上一页给出的 next_offset。),
+       [chapter_ref(chapter)],
+       activity_summary: "已尝试阅读章节正文「#{chapter_title(chapter)}」，但读取位置超出正文范围。",
+       extra: chapter_identity_keys(chapter)
+     )}
+  end
+
+  defp end_of_chapter_observation(chapter, query, offset, total) do
+    range = if offset > 0, do: "（第 #{offset} 字符之后）", else: ""
+
+    {:ok,
+     observation(
+       "chapter_read",
+       query,
+       chapter_title_line(chapter) <>
+         "\noffset 到达正文末尾（共 #{total} 字符）#{range}，已无更多内容。",
+       [chapter_ref(chapter)],
+       activity_summary:
+         "已阅读章节正文「#{chapter_title(chapter)}」#{chapter_seq_text(chapter)}（已到正文末尾，共 #{total} 字符）。",
+       extra: chapter_identity_keys(chapter)
+     )}
+  end
+
+  defp paged_chapter_observation(
+         work_id,
+         chapter,
+         volume,
+         query,
+         offset,
+         prose,
+         total,
+         word_count
+       ) do
+    {page_text, page_end, next_offset} = chapter_page(prose, offset, total)
+
+    sections =
+      header_sections(work_id, chapter, volume, offset) ++
+        [prose_page_section(offset, page_end, total, word_count, page_text)] ++
+        continue_section(chapter, next_offset, total, page_end)
+
+    {:ok,
+     observation(
+       "chapter_read",
+       query,
+       chapter_title_line(chapter) <> "\n" <> Enum.join(sections, "\n"),
+       [chapter_ref(chapter)],
+       clip: false,
+       activity_summary: chapter_activity_summary(chapter, offset, page_end, total, word_count),
+       extra:
+         Map.merge(chapter_identity_keys(chapter), %{
+           next_offset: next_offset,
+           prose_total_chars: total,
+           prose_range: %{start: offset + 1, end: page_end}
+         })
+     )}
+  end
+
+  # 【计划】【摘要】只在首页（offset=0）返回；续读页不重复（I-EXPLORE-READ-3 的
+  # 省流约定，D4）。
+  defp header_sections(work_id, chapter, volume, 0),
+    do: [chapter_plan_section(chapter, volume), chapter_summary_section(work_id, chapter)]
+
+  defp header_sections(_work_id, _chapter, _volume, _offset), do: []
+
+  # I-EXPLORE-READ-1：页范围首尾相接、无重叠、无缺口；优先在 ≤ offset+6000 内最靠后
+  # 的 "\n\n" 段落边界切页（不把段落劈开），无段落边界按 6000 硬切。
+  defp chapter_page(prose, offset, total) do
+    hard_end = min(offset + @chapter_page_chars, total)
+
+    page_end =
+      if hard_end < total,
+        do: paragraph_boundary(prose, offset, hard_end) || hard_end,
+        else: hard_end
+
+    page_text = String.slice(prose, offset, page_end - offset)
+    next_offset = if page_end < total, do: page_end, else: nil
+
+    {page_text, page_end, next_offset}
+  end
+
+  defp paragraph_boundary(prose, offset, hard_end) do
+    window = String.slice(prose, offset, hard_end - offset)
+
+    case String.split(window, "\n\n") do
+      [_single] ->
+        nil
+
+      parts ->
+        boundary = String.length(window) - String.length(List.last(parts)) - 2
+        # boundary == 0 会让本页为空，退回硬切（页从 offset 开始）。
+        if boundary > 0, do: offset + boundary, else: nil
+    end
+  end
+
+  defp prose_page_section(offset, page_end, total, word_count, page_text) do
+    "【正文】第 #{offset + 1}–#{page_end} 字符 / 共 #{total} 字符（有效字数 #{word_count}）\n#{page_text}"
+  end
+
+  defp continue_section(_chapter, nil, _total, _page_end), do: []
+
+  defp continue_section(chapter, next_offset, total, page_end) do
+    # 逐字冻结 footer 形状（contract §1.1(b)）：分页必须复用同一 chapter_ref，
+    # JSON 键序固定为 chapter_ref → offset，便于模型照抄与外部验收断言。
+    query =
+      "{\"chapter_ref\":\"" <>
+        chapter_ref(chapter) <> "\",\"offset\":" <> Integer.to_string(next_offset) <> "}"
+
+    ["【续读】剩余 #{total - page_end} 字符；用 #{query} 继续。"]
+  end
+
+  defp chapter_activity_summary(chapter, 0, _page_end, _total, word_count) do
+    "已阅读章节正文「#{chapter_title(chapter)}」#{chapter_seq_text(chapter)}（有效字数 #{word_count}）。"
+  end
+
+  defp chapter_activity_summary(chapter, offset, page_end, total, _word_count) do
+    detail = "第 #{offset + 1}–#{page_end} 字符 / 共 #{total} 字符"
+
+    "已阅读章节正文「#{chapter_title(chapter)}」" <>
+      chapter_detail_text(chapter, detail) <> "。"
+  end
+
+  # 作者可见标题行（模型面）：seq + title 双面身份；作者面只从 activity_summary 取。
+  defp chapter_title_line(chapter) do
+    case Map.get(chapter, :seq) do
+      seq when is_integer(seq) -> "「#{chapter_title(chapter)}」（第 #{seq} 章）"
+      _ -> "「#{chapter_title(chapter)}」"
+    end
+  end
+
+  defp chapter_seq_text(chapter) do
+    case Map.get(chapter, :seq) do
+      seq when is_integer(seq) -> "（第 #{seq} 章）"
+      _ -> ""
+    end
+  end
+
+  defp chapter_detail_text(chapter, detail) do
+    case Map.get(chapter, :seq) do
+      seq when is_integer(seq) -> "（第 #{seq} 章；#{detail}）"
+      _ -> "（#{detail}）"
+    end
+  end
+
+  defp chapter_identity_keys(chapter) do
+    %{chapter_ref: chapter_ref(chapter), chapter_seq: Map.get(chapter, :seq)}
   end
 
   # 设计态（E18-E22 结构化计划；ADR-0025 CP5b 探索补面 A）：无结构化计划时
@@ -278,7 +696,7 @@ defmodule NovelApplication.ExplorationService do
           |> Enum.map_join("；", fn {label, value} -> "#{label}：#{value}" end)
       end
 
-    "【计划】#{append_volume_text(rendered, volume)}"
+    "【计划】#{clip_section(append_volume_text(rendered, volume), @chapter_plan_max_chars)}"
   end
 
   # 本章所属卷（按 TOC 卷节点反查：章的 volume_id / 章 id 归组）。
@@ -361,21 +779,10 @@ defmodule NovelApplication.ExplorationService do
   defp chapter_summary_section(work_id, chapter) do
     case ChapterSummaryRepo.current_accepted(work_id, chapter.id) do
       %{summary_text: text} when is_binary(text) and text != "" ->
-        "【摘要】#{text}"
+        "【摘要】#{clip_section(text, @chapter_summary_max_chars)}"
 
       _ ->
         "【摘要】（尚无章摘要）"
-    end
-  end
-
-  defp chapter_prose_sections(work_id, chapter) do
-    case ReadingProjectionService.chapter_content(chapter.id, work_id) do
-      {:ok, content} ->
-        text = content.scenes |> Enum.map_join("\n", & &1.content) |> clip(@chapter_clip_chars)
-        ["【正文】（有效字数 #{content.word_count}）\n#{text}"]
-
-      {:error, :not_found} ->
-        ["【正文】还没有已采纳正文。"]
     end
   end
 
@@ -559,22 +966,6 @@ defmodule NovelApplication.ExplorationService do
       "已采纳角色 #{stats[:characters] || 0}；确认记忆 #{stats[:memory_items] || 0}。"
   end
 
-  # AU08 CP3（08 §8 探索面同步律）：卷划分落地即须同批可达——AI 判断循环里读到的
-  # 章清单必须体现实际卷结构，否则规划期只知「预计卷数」而不知已经分成了哪几卷。
-  # 单卷时保持扁平（与分卷前逐字节等价，不给单卷书造层级）。
-  defp chapter_index_text(volumes) do
-    case volumes do
-      [single] ->
-        single |> Map.get(:chapters, []) |> Enum.map_join("、", & &1.title)
-
-      many ->
-        Enum.map_join(many, "；", fn volume ->
-          titles = volume |> Map.get(:chapters, []) |> Enum.map_join("、", & &1.title)
-          "#{Map.get(volume, :title, "未命名卷")}：#{titles}"
-        end)
-    end
-  end
-
   # ── memory_recall ──
 
   defp memory_recall(_work_id, ""), do: {:error, :empty_query}
@@ -597,13 +988,91 @@ defmodule NovelApplication.ExplorationService do
 
   # ── 公共 ──
 
-  defp observation(tool, query, summary, refs) do
-    %{tool: tool, query: query, summary: clip(summary, @summary_max_chars), refs: refs}
+  # B24（I-EXPLORE-READ-8）：作者可见活动文案集中映射。内部工具 id、原始 query
+  # JSON、offset 字段只留在 payload / trace / developer 面，作者面只看到人话。
+  # 页面（agentic loop 时间线）与 app 事件 summary 都从 observation.activity_summary 取。
+  @spec activity_summary(map()) :: String.t()
+  def activity_summary(%{activity_summary: text}) when is_binary(text), do: text
+
+  def activity_summary(%{tool: tool, query: query}),
+    do: activity_text(to_string(tool), query || "")
+
+  def activity_summary(_observation), do: "已完成一次作品检索。"
+
+  @doc "探索工具失败时给作者的诚实人话（不含内部工具 id / inspect 结构）。"
+  @spec activity_failure_summary(String.t() | nil) :: String.t()
+  def activity_failure_summary("chapter_read"), do: "章节检索未完成，可换个章名再试。"
+  def activity_failure_summary(_tool), do: "作品检索未完成，可换个检索词再试。"
+
+  defp activity_text("chapter_read", query) do
+    text = to_string(query)
+
+    if String.starts_with?(String.trim(text), "{") do
+      "已阅读章节正文。"
+    else
+      "已阅读章节正文「#{text}」。"
+    end
   end
+
+  defp activity_text("prose_search", query), do: "已检索正文「#{query}」。"
+  defp activity_text("session_adoptions", _query), do: "已查询当前会话候选。"
+  defp activity_text("memory_recall", query), do: "已检索记忆「#{query}」。"
+
+  defp activity_text("archive_read", facet),
+    do: "已查阅作品档案：#{archive_facet_label(facet)}。"
+
+  defp activity_text(_tool, _query), do: "已完成一次作品检索。"
+
+  defp archive_facet_label("profile"), do: "作品简介"
+  defp archive_facet_label("characters"), do: "角色档案"
+  defp archive_facet_label("foreshadowing"), do: "伏笔"
+  defp archive_facet_label("rules"), do: "写作规则"
+  defp archive_facet_label("stats"), do: "作品统计"
+  defp archive_facet_label("current_state"), do: "当前状态"
+  defp archive_facet_label("relationships"), do: "人物关系"
+  defp archive_facet_label("preferences"), do: "作者偏好"
+  defp archive_facet_label("ledgers"), do: "脉络账本"
+  defp archive_facet_label(_facet), do: "作品档案"
+
+  defp observation(tool, query, summary, refs, opts \\ []) do
+    summary = observation_summary(summary, Keyword.get(opts, :clip, true))
+
+    base = %{
+      tool: tool,
+      query: query,
+      summary: summary,
+      refs: refs,
+      activity_summary: observation_activity_value(tool, query, opts)
+    }
+
+    observation_extra(base, Keyword.get(opts, :extra))
+  end
+
+  defp observation_summary(summary, false), do: summary
+  defp observation_summary(summary, _clip), do: clip(summary, @summary_max_chars)
+
+  defp observation_activity_value(tool, query, opts) do
+    case Keyword.get(opts, :activity_summary) do
+      activity when is_binary(activity) -> activity
+      _ -> activity_text(tool, query)
+    end
+  end
+
+  defp observation_extra(base, extra) when is_map(extra), do: Map.merge(base, extra)
+  defp observation_extra(base, _extra), do: base
 
   defp clip(text, max) do
     if String.length(text) > max do
       String.slice(text, 0, max) <> "…（截断）"
+    else
+      text
+    end
+  end
+
+  # B24 分段预算的段内截断：截断后总长不超过 max（含「…（略）」标记）。
+  defp clip_section(text, max) do
+    if String.length(text) > max do
+      String.slice(text, 0, max - String.length(@section_ellipsis)) <> @section_ellipsis
     else
       text
     end

@@ -206,6 +206,7 @@ Implemented external UI driver slice ids:
   au12-character-identity-merge
   au14-foreshadow-resolution-roundtrip
   judgment-explore-chapter-plan
+  judgment-explore-chapter-full-read
   p1-export-minimum
   au08-reading-readonly-no-write
   au08-reading-return-context
@@ -371,7 +372,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au14-fact-inventory-roundtrip" && "$SLICE_ID" != "au14-finding-inventory-arc-loop" && "$SLICE_ID" != "au14-assumption-confirm-roundtrip" && "$SLICE_ID" != "au14-assumption-provisional-injection" && "$SLICE_ID" != "gap-wt04-non-exploration-frame-badges" && "$SLICE_ID" != "au08-volume-structured-planning" && "$SLICE_ID" != "au12-character-identity-merge" && "$SLICE_ID" != "au14-foreshadow-resolution-roundtrip" ]]; then
+if [[ "$SLICE_ID" != "judgment-explore-chapter-full-read" && "$SLICE_ID" != "au14-fact-inventory-roundtrip" && "$SLICE_ID" != "au14-finding-inventory-arc-loop" && "$SLICE_ID" != "au14-assumption-confirm-roundtrip" && "$SLICE_ID" != "au14-assumption-provisional-injection" && "$SLICE_ID" != "gap-wt04-non-exploration-frame-badges" && "$SLICE_ID" != "au08-volume-structured-planning" && "$SLICE_ID" != "au12-character-identity-merge" && "$SLICE_ID" != "au14-foreshadow-resolution-roundtrip" ]]; then
 if [[ "$SLICE_ID" != "au05-discard-author-action" && "$SLICE_ID" != "au06-single-active-confirmation" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "au07-gate-reason-why" && "$SLICE_ID" != "au07-persisted-trace-query" && "$SLICE_ID" != "au07-partial-replay-ui" && "$SLICE_ID" != "au07-trace-query-scope-negative-matrix" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "au07-state-trace-adoption-replay" && "$SLICE_ID" != "au07-behavior-trace-terminal-replay" && "$SLICE_ID" != "agentic-loop-no-deviation-direct" ]]; then
 if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-provider-vendor-matrix" && "$SLICE_ID" != "su01-provider-strata-local" && "$SLICE_ID" != "su01-local-secret-file-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "judgment-explore-internal" && "$SLICE_ID" != "au13-arc-ledger-roundtrip" && "$SLICE_ID" != "au13-review-adjudication-roundtrip" && "$SLICE_ID" != "au13-revise-prose-sibling" && "$SLICE_ID" != "judgment-explore-chapter-plan" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "au08-reading-readonly-no-write" && "$SLICE_ID" != "au08-reading-return-context" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-archive-stats-current" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-management-filter-matrix" && "$SLICE_ID" != "au09-memory-list-ux-redesign" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-memory-taxonomy-write-policy" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-character-role-taxonomy-protagonist-policy" && "$SLICE_ID" != "au09-character-candidate-per-item-adoption" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au10-workbench-render-stability" && "$SLICE_ID" != "b17-writer-timeout-steer" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "e2e-01-channel-action-security" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-archive-concurrent-model-run-read-snapshot" && "$SLICE_ID" != "au12-profile-read-failure-degrade" && "$SLICE_ID" != "au12-correction-intent-roundtrip" && "$SLICE_ID" != "au12-work-profile-status-isolation" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "p1-prose-execution-brief" && "$SLICE_ID" != "p1-prose-revision-candidate" && "$SLICE_ID" != "p1-prose-quality-finding-roundtrip" && "$SLICE_ID" != "p1-prose-quality-evaluator-degrade" && "$SLICE_ID" != "p1-prose-quality-adoption-boundary" && "$SLICE_ID" != "agent-prose-drafting-with-quality" && "$SLICE_ID" != "p1-prose-companion-artifacts" && "$SLICE_ID" != "wr01-chapter-mission-before-prose" && "$SLICE_ID" != "wr01-chapter-mission-author-decision" && "$SLICE_ID" != "wr02-planning-mission-before-outline" && "$SLICE_ID" != "ca03-carry-registry-observability" && "$SLICE_ID" != "ca04-carry-gap-closure" && "$SLICE_ID" != "wr01c-planning-mission-decision" && "$SLICE_ID" != "d1-character-vacuum-to-named-roster" && "$SLICE_ID" != "d3-summary-lazy-repair" && "$SLICE_ID" != "d4-planner-transient-retry" && "$SLICE_ID" != "q1b-candidate-revision-adoption" && "$SLICE_ID" != "q1b-candidate-stale-modal" && "$SLICE_ID" != "q1b-candidate-lifecycle" && "$SLICE_ID" != "q1b-live-archive-roundtrip" && "$SLICE_ID" != "q3d-message-delivery-recovery" && "$SLICE_ID" != "q3d-long-session-adoption-state" && "$SLICE_ID" != "q3d-candidate-semantics" && "$SLICE_ID" != "q3d-author-registration-guards" && "$SLICE_ID" != "q3d-message-outcome-roundtrip" && "$SLICE_ID" != "q3c-author-content-materialization" && "$SLICE_ID" != "q3b-capability-gap-honest-reply" && "$SLICE_ID" != "d6-purpose-model-routing" && "$SLICE_ID" != "agent-conversation-turn" && "$SLICE_ID" != "agentic-loop-plan-replan-reasoning" && "$SLICE_ID" != "ua01-agent-bounded-roster-to-character-design" ]] && ! is_ua01_acceptance_alias "$SLICE_ID"; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
@@ -405,7 +406,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au14-fact-inventory-roundtrip" && "$SLICE_ID" != "au14-finding-inventory-arc-loop" && "$SLICE_ID" != "au14-assumption-confirm-roundtrip" && "$SLICE_ID" != "au14-assumption-provisional-injection" && "$SLICE_ID" != "gap-wt04-non-exploration-frame-badges" && "$SLICE_ID" != "au08-volume-structured-planning" && "$SLICE_ID" != "au12-character-identity-merge" && "$SLICE_ID" != "au14-foreshadow-resolution-roundtrip" ]]; then
+if [[ "$SLICE_ID" != "judgment-explore-chapter-full-read" && "$SLICE_ID" != "au14-fact-inventory-roundtrip" && "$SLICE_ID" != "au14-finding-inventory-arc-loop" && "$SLICE_ID" != "au14-assumption-confirm-roundtrip" && "$SLICE_ID" != "au14-assumption-provisional-injection" && "$SLICE_ID" != "gap-wt04-non-exploration-frame-badges" && "$SLICE_ID" != "au08-volume-structured-planning" && "$SLICE_ID" != "au12-character-identity-merge" && "$SLICE_ID" != "au14-foreshadow-resolution-roundtrip" ]]; then
 if [[ "$SLICE_ID" != "au05-discard-author-action" && "$SLICE_ID" != "au06-single-active-confirmation" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "au07-gate-reason-why" && "$SLICE_ID" != "au07-persisted-trace-query" && "$SLICE_ID" != "au07-partial-replay-ui" && "$SLICE_ID" != "au07-trace-query-scope-negative-matrix" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "au07-state-trace-adoption-replay" && "$SLICE_ID" != "au07-behavior-trace-terminal-replay" ]]; then
 if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-provider-vendor-matrix" && "$SLICE_ID" != "su01-provider-strata-local" && "$SLICE_ID" != "su01-local-secret-file-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "judgment-explore-internal" && "$SLICE_ID" != "au13-arc-ledger-roundtrip" && "$SLICE_ID" != "au13-review-adjudication-roundtrip" && "$SLICE_ID" != "au13-revise-prose-sibling" && "$SLICE_ID" != "judgment-explore-chapter-plan" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "au08-reading-readonly-no-write" && "$SLICE_ID" != "au08-reading-return-context" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-archive-stats-current" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-management-filter-matrix" && "$SLICE_ID" != "au09-memory-list-ux-redesign" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-memory-taxonomy-write-policy" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-character-role-taxonomy-protagonist-policy" && "$SLICE_ID" != "au09-character-candidate-per-item-adoption" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au10-workbench-render-stability" && "$SLICE_ID" != "b17-writer-timeout-steer" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "e2e-01-channel-action-security" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-archive-concurrent-model-run-read-snapshot" && "$SLICE_ID" != "au12-profile-read-failure-degrade" && "$SLICE_ID" != "au12-correction-intent-roundtrip" && "$SLICE_ID" != "au12-work-profile-status-isolation" && "$SLICE_ID" != "p1-prose-execution-brief" && "$SLICE_ID" != "p1-prose-revision-candidate" && "$SLICE_ID" != "p1-prose-quality-finding-roundtrip" && "$SLICE_ID" != "p1-prose-quality-evaluator-degrade" && "$SLICE_ID" != "p1-prose-quality-adoption-boundary" && "$SLICE_ID" != "agent-prose-drafting-with-quality" && "$SLICE_ID" != "p1-prose-companion-artifacts" && "$SLICE_ID" != "wr01-chapter-mission-before-prose" && "$SLICE_ID" != "wr01-chapter-mission-author-decision" && "$SLICE_ID" != "wr02-planning-mission-before-outline" && "$SLICE_ID" != "ca03-carry-registry-observability" && "$SLICE_ID" != "ca04-carry-gap-closure" && "$SLICE_ID" != "wr01c-planning-mission-decision" && "$SLICE_ID" != "d1-character-vacuum-to-named-roster" && "$SLICE_ID" != "d3-summary-lazy-repair" && "$SLICE_ID" != "d4-planner-transient-retry" && "$SLICE_ID" != "q1b-candidate-revision-adoption" && "$SLICE_ID" != "q1b-candidate-stale-modal" && "$SLICE_ID" != "q1b-candidate-lifecycle" && "$SLICE_ID" != "q1b-live-archive-roundtrip" && "$SLICE_ID" != "q3d-message-delivery-recovery" && "$SLICE_ID" != "q3d-long-session-adoption-state" && "$SLICE_ID" != "q3d-candidate-semantics" && "$SLICE_ID" != "q3d-author-registration-guards" && "$SLICE_ID" != "q3d-message-outcome-roundtrip" && "$SLICE_ID" != "q3c-author-content-materialization" && "$SLICE_ID" != "q3b-capability-gap-honest-reply" && "$SLICE_ID" != "d6-purpose-model-routing" && "$SLICE_ID" != "ua01-agent-bounded-roster-to-character-design" ]] && ! is_ua01_acceptance_alias "$SLICE_ID"; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
@@ -1079,6 +1080,9 @@ native_action_description() {
     judgment-explore-chapter-plan)
       echo "seed adopted chapter plan (no prose) -> ask what a chapter is planned to cover -> judgment decides explore -> chapter_read retrieves design-state plan -> reply cites the plan content with its chapter"
       ;;
+    judgment-explore-chapter-full-read)
+      echo "seed two same-title chapters (one planned distractor + one adopted 7000-char target) -> author asks to review the whole chapter for duplicates -> judgment decides explore with the unique chapter_ref from the chapter index -> chapter_read returns page 1 (chars 1-6000) -> judgment copies the continuation footer JSON verbatim -> chapter_read returns page 2 (chars 6001-7000, no footer) -> reply cites the last-page-only fact; author-visible feedback stays human readable (no internal tool id / chapter_ref / UUID / JSON / offset)"
+      ;;
     au04-confirm-before-execute)
       echo "seed adopted chapter plan -> type a high-risk rewrite request in chat -> confirmation card arrives over the real wire (no tool call, no production write) -> click confirm -> ConfirmationBinding re-gate allows -> prose_writing produces a tentative draft pending adoption"
       ;;
@@ -1383,6 +1387,38 @@ if (fs.existsSync(uiStatePath)) {
   if (Array.isArray(uiRecords)) records.push(...uiRecords);
 }
 
+// B24 CP3（judgment-explore-chapter-full-read）：把真实 WS 帧里的 agent_event
+// （尤其 exploration_observed）注入 records 作为独立外部证据——verifier 直接解析
+// 帧内 observation summary / query，不依赖 driver 摘要。其它场景的 finder 只按
+// 自己的 event 名过滤，注入记录不改变既有行为。
+const uiFramesPath = path.join(artifactDir, "ui-frames.json");
+if (fs.existsSync(uiFramesPath)) {
+  try {
+    const uiFrames = JSON.parse(fs.readFileSync(uiFramesPath, "utf8"));
+
+    for (const frame of Array.isArray(uiFrames) ? uiFrames : []) {
+      if (frame?.direction !== "received" || frame?.event !== "agent_event") continue;
+
+      records.push({
+        event: "slice_verify.ws_agent_event",
+        slice_id: sliceId,
+        agent_event_type: frame.body?.event_type,
+        event_id: frame.body?.event_id,
+        sequence: frame.body?.sequence,
+        run_ref: frame.body?.run_ref,
+        summary: frame.body?.summary,
+        reason_codes: frame.body?.reason_codes,
+        payload: frame.body?.payload,
+        work_id: frame.body?.work_id,
+        session_id: frame.body?.session_id,
+        emitted_at: frame.body?.emitted_at,
+      });
+    }
+  } catch (error) {
+    console.error(`[tauri-slice-verify] failed to parse ui-frames.json: ${error.message}`);
+  }
+}
+
 const evidence = findNativeSliceEvidence(sliceId, records);
 
 if (evidence) {
@@ -1423,9 +1459,44 @@ if (evidence) {
     );
   }
 
+  // B24 CP3：判断 prompt 级外部证据（章节索引的 chapter_ref 是否真对模型可见）。
+  // slice_verify 替身也把收到的 prompt 落到 llm 日志（{ts, provider, prompt}）。
+  let promptRecords = [];
+  const promptLogPath = latestJsonlPath(llmLogDir, today);
+  if (promptLogPath) {
+    promptRecords = fs
+      .readFileSync(promptLogPath, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          const record = JSON.parse(line.replace(/^\[[^\]]+\]\s+/, ""));
+          return typeof record.prompt === "string" ? [record] : [];
+        } catch {
+          return [];
+        }
+      });
+  }
+
+  if (sliceId === "judgment-explore-chapter-full-read") {
+    fs.writeFileSync(
+      path.join(artifactDir, "judgment-prompts.json"),
+      JSON.stringify(promptRecords, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(artifactDir, "exploration-frames.json"),
+      JSON.stringify(
+        records.filter((record) => record.event === "slice_verify.ws_agent_event"),
+        null,
+        2,
+      ),
+    );
+  }
+
   const behaviorEvidence = findSliceBehaviorEvidence(sliceId, records, evidence, {
     provider,
     llmRecords,
+    promptRecords,
   });
   if (!behaviorEvidence) {
     process.exit(1);
@@ -1841,6 +1912,9 @@ case "$SLICE_ID" in
     ;;
   judgment-explore-chapter-plan)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  judgment-explore-chapter-full-read)
+    SEED_SCRIPT="scripts/seed_judgment_explore_chapter_full_read.exs"
     ;;
   au04-confirm-before-execute)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"

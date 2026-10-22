@@ -1402,6 +1402,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/judgment-explore-chapter-plan.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh judgment-explore-chapter-plan --surface tauri
+  - id: judgment-explore-chapter-full-read
+    title: "判断循环内部探索翼：长章分页完整读取与末页事实引用"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/judgment-explore-chapter-full-read.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh judgment-explore-chapter-full-read --surface tauri
   - id: au13-arc-ledger-roundtrip
     title: "弧光账自动更新、探索引用与后续正文投影"
     tier: nightly

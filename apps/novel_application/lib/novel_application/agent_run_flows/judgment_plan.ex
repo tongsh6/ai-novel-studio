@@ -459,9 +459,11 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   # 观察进流 + exploration_observed 事件；exploration_query 缺失或工具失败记为
   # 失败观察（诚实呈现，后续步/修订自行应对），不硬失败整个 run。
   defp execute_exploration_decision_step(run, sequence, decision, snapshot) do
-    tool = decision.target_tool_ref
+    # 本步只由 target_tool_ref ∈ @exploration_step_targets 的决策进入；`|| ""` 让
+    # 类型系统看到 binary（nil 会被 ExplorationService 诚实判为非法工具）。
+    tool = decision.target_tool_ref || ""
     query = decision.exploration_query || ""
-    work_id = run.work_id || run.workspace_id
+    work_id = run.work_id || run.workspace_id || ""
 
     observation_data =
       case NovelApplication.ExplorationService.run(work_id, tool, query) do
@@ -469,22 +471,26 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
           observation
 
         {:error, reason} ->
-          %{tool: tool, query: query, summary: "检索步执行失败：#{inspect(reason)}", refs: []}
+          %{
+            tool: tool,
+            query: query,
+            summary: "检索步执行失败：#{inspect(reason)}",
+            refs: [],
+            activity_summary: NovelApplication.ExplorationService.activity_failure_summary(tool)
+          }
       end
+
+    # B24 CP2（I-EXPLORE-READ-8）：作者可见活动行用集中人类可读文案；工具 id /
+    # 查询原文只留在 structured_payload / decision / trace。
+    activity = NovelApplication.ExplorationService.activity_summary(observation_data)
 
     emit_stage(
       snapshot,
       :exploration_observed,
-      "已检索 #{tool}「#{query}」。",
+      activity,
       ["exploration_observed", tool],
       ["explore:#{tool}:#{sequence}"],
-      %{
-        stage: :exploration_observed,
-        tool: tool,
-        query: query,
-        refs: observation_data.refs,
-        summary: observation_data.summary
-      }
+      exploration_event_payload(tool, query, observation_data)
     )
 
     {:ok, observation} =
@@ -502,25 +508,47 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
 
     {:ok,
      %{
-       step: exploration_step(run, sequence, tool, query),
+       step: exploration_step(run, sequence, activity),
        observations: [observation],
        provider_call_count: 0,
-       progress_signature: "#{run.run_id}:plan_explore:#{sequence}:#{tool}:#{query}"
+       # B24 CP2（I-EXPLORE-READ-5）：与判断循环同口径——签名不含 sequence，
+       # 同 tool+同 query（含 offset）才判 no-progress，续读页不误停。
+       progress_signature: "#{run.run_id}:plan_explore:#{tool}:#{query}"
      }}
   end
 
-  defp exploration_step(run, sequence, tool, query) do
+  # B24 §1.1(c)：观察元数据进 developer payload；nil 不写入（wire 的 author-safe
+  # payload 会把 atom 含 nil 字符串化，null 语义会被误读成 "nil"）。
+  defp exploration_event_payload(tool, query, observation) do
+    base = %{
+      stage: :exploration_observed,
+      tool: tool,
+      query: query,
+      refs: observation.refs,
+      summary: observation.summary
+    }
+
+    [:chapter_ref, :chapter_seq, :next_offset, :prose_total_chars, :prose_range]
+    |> Enum.reduce(base, fn key, acc ->
+      case Map.get(observation, key) do
+        nil -> acc
+        value -> Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp exploration_step(run, sequence, activity) do
     {:ok, step} =
       AgentStep.new(%{
         step_id: current_step_ref(run, sequence),
         run_ref: run.run_id,
         sequence: sequence,
         status: :completed,
-        goal: "检索：#{tool}「#{query}」",
+        goal: activity,
         observation_refs: [tool_observation_id(run, sequence)],
         state_snapshot_ref: state_snapshot_ref(run, sequence, "judgment_plan_explore"),
         idempotency_key:
-          "#{run.run_id}:#{sequence}:judgment_plan_explore:#{tool}:goal_v#{run.goal.version}"
+          "#{run.run_id}:#{sequence}:judgment_plan_explore:goal_v#{run.goal.version}"
       })
 
     step

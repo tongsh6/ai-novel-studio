@@ -15687,3 +15687,322 @@ describe("B21 多场计划首次 append 场名证据", () => {
     expect(findNativeSliceEvidence(slice, [withoutPlannedScenes, ...chainRecords])).toBeNull();
   });
 });
+
+// B24 CP3：chapter_ref 唯一寻址 + 观察 v2 分段/续读 + 作者可见文案（I-READ-1/2/3/4/7/8/9）。
+describe("B24 全章分页读取证据（chapter_ref 唯一寻址 + 续读）", () => {
+  const slice = "judgment-explore-chapter-full-read";
+  const title = "灰烬中的手印";
+  // 同作品两章同名：A=干扰章 seq=1 计划中；B=目标章 seq=2 有 7000 字正文。
+  const refA = "chapter:d2d71cf3-7e95-44ba-9c71-1505758c2195";
+  const refB = "chapter:28ec97dc-6d30-46e9-a76d-470ff9b75f45";
+  const openingAnchor = "开篇锚点：灰烬里按出一枚手印";
+  const endingAnchor = "末页锚点：井底浮现第七枚手印";
+  const turnId = "turn-full-read";
+
+  // 与产品段内截断一致：≤500 / ≤400 且以「…（略）」结尾。
+  const planText = `${"推".repeat(496)}…（略）`;
+  const summaryText = `${"摘".repeat(396)}…（略）`;
+  const page1Prose = `${openingAnchor}${"灰".repeat(6000 - openingAnchor.length)}`;
+  const page2Prose = `${"烬".repeat(1000 - endingAnchor.length)}${endingAnchor}`;
+  const page1Activity = `已阅读章节正文「${title}」（第 2 章）（有效字数 6244）。`;
+  const page2Activity = `已阅读章节正文「${title}」（第 2 章；第 6001–7000 字符 / 共 7000 字符）。`;
+
+  function observationSummary({ offset, rangeStart, rangeEnd, prose, nextOffset }) {
+    const lines = [`「${title}」（第 2 章）`];
+    if (offset === 0) {
+      lines.push(`【计划】${planText}`, `【摘要】${summaryText}`);
+    }
+    lines.push(`【正文】第 ${rangeStart}–${rangeEnd} 字符 / 共 7000 字符（有效字数 6244）\n${prose}`);
+    if (nextOffset != null) {
+      lines.push(
+        `【续读】剩余 ${7000 - rangeEnd} 字符；用 ${JSON.stringify({
+          chapter_ref: refB,
+          offset: nextOffset,
+        })} 继续。`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  function explorationFrame({
+    offset,
+    rangeStart,
+    rangeEnd,
+    prose,
+    nextOffset,
+    sequence,
+    activity = page1Activity,
+  }) {
+    const summary = observationSummary({ offset, rangeStart, rangeEnd, prose, nextOffset });
+    const query = JSON.stringify({ chapter_ref: refB, offset });
+
+    return {
+      event: "slice_verify.ws_agent_event",
+      slice_id: slice,
+      agent_event_type: "exploration_observed",
+      event_id: `exp-${sequence}`,
+      sequence,
+      summary: activity,
+      // 与当前 CP2 事件 payload 形状一致：结构化 ref 可能只在 query 里（观察
+      // summary 作者面不暴露 ref）。verifier 必须从 query fallback 解析。
+      payload: {
+        tool: "chapter_read",
+        query,
+        next_offset: nextOffset ?? null,
+        summary,
+      },
+    };
+  }
+
+  const page1Frame = explorationFrame({
+    offset: 0,
+    rangeStart: 1,
+    rangeEnd: 6000,
+    prose: page1Prose,
+    nextOffset: 6000,
+    sequence: 1,
+  });
+  const page2Frame = explorationFrame({
+    offset: 6000,
+    rangeStart: 6001,
+    rangeEnd: 7000,
+    prose: page2Prose,
+    nextOffset: null,
+    sequence: 2,
+    activity: page2Activity,
+  });
+
+  const uiState = {
+    event: "slice_verify.ui_state.done",
+    slice_id: slice,
+    turn_id: turnId,
+    explore_turn_id: turnId,
+    explore_question_text: `「${title}」这章我怀疑有重复，请把全章核对一遍。`,
+    chapter_title: title,
+    chapter_ref: refB,
+    chapter_seq: 2,
+    exploration_observed_count: 2,
+    author_feedback_text: "推理\n已阅读章节正文「灰烬中的手印」（第 2 章）。",
+    author_exploration_feedback_text: `${page1Activity}\n${page2Activity}`,
+    author_feedback_human_readable: true,
+    author_feedback_has_no_internal_terms: true,
+    author_feedback_shows_chapter_seq_two: true,
+    author_feedback_avoids_distractor_seq: true,
+    author_feedback_internal_terms_leaked: [],
+    explore_reply_text: `我逐页读完了整章正文，依据如下：\n\n${endingAnchor}\n\n以上就是第二页正文里关于手印的原文。`,
+    reply_has_citation_prefix: true,
+    reply_cites_ending_anchor: true,
+    exploration_visible_in_run_feedback: true,
+    explore_no_pending_artifacts: true,
+    no_production_write: true,
+  };
+
+  const baseRecords = [
+    { event: "channel.user_message.start", turn_id: turnId },
+    page1Frame,
+    page2Frame,
+    { event: "judgment.decided.done", turn_id: turnId, action: "explore" },
+    { event: "judgment.decided.done", turn_id: turnId, action: "explore" },
+    { event: "judgment.decided.done", turn_id: turnId, action: "reply" },
+    { event: "channel.user_message.done", turn_id: turnId },
+    uiState,
+  ];
+  const chapterIndexPrompt = {
+    prompt: [
+      "## 章节列表（共 2 章：已写 1 章，计划中 1 章）",
+      `- 第 1 章「${title}」[chapter_ref=${refA}]（计划中）`,
+      `- 第 2 章「${title}」[chapter_ref=${refB}]`,
+    ].join("\n"),
+  };
+  const promptRecords = [chapterIndexPrompt];
+
+  function evidenceOf(records) {
+    return findNativeSliceEvidence(slice, records);
+  }
+
+  function behaviorOf(records, prompts = promptRecords) {
+    const evidence = evidenceOf(records);
+    if (!evidence) return null;
+    return findSliceBehaviorEvidence(slice, records, evidence, { promptRecords: prompts });
+  }
+
+  it("按唯一 chapter_ref 两页读完整章并引用末页事实才通过", () => {
+    const evidence = evidenceOf(baseRecords);
+    expect(evidence).toMatchObject({
+      slice_id: slice,
+      chapter_ref: refB,
+      chapter_seq: 2,
+      exploration_observed_count: 2,
+      judgment_explore_count: 2,
+      page_ranges: [
+        [1, 6000],
+        [6001, 7000],
+      ],
+    });
+    expect(keyEventsForSlice(slice)).toEqual(
+      expect.arrayContaining([
+        "channel.user_message.start",
+        "channel.user_message.done",
+        "judgment.decided.done",
+        "slice_verify.ui_state.done",
+        "slice_verify.ws_agent_event",
+      ]),
+    );
+    expect(nativeSliceIds).toContain(slice);
+
+    const behavior = behaviorOf(baseRecords);
+    expect(behavior).toMatchObject({
+      slice_id: slice,
+      behavior: "judgment_pages_through_full_chapter_by_unique_chapter_ref",
+      chapter_ref: refB,
+      chapter_seq: 2,
+      prose_total_chars: 7000,
+      chapter_index_refs_visible_to_model: [refA, refB],
+    });
+    expect(behavior.assertions).toEqual(
+      expect.arrayContaining([
+        "first_explore_addressed_unique_chapter_ref_with_adopted_prose_not_ambiguous_title",
+        "continuation_query_copied_verbatim_from_page_one_footer",
+        "page_coverage_has_no_overlap_and_no_gap",
+        "author_visible_activity_omits_tool_id_ref_uuid_json_offset",
+      ]),
+    );
+  });
+
+  it("缺末页事实引用或作者可见文案泄露内部形态时拒绝", () => {
+    const uncited = baseRecords.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, reply_cites_ending_anchor: false }
+        : record,
+    );
+    expect(evidenceOf(uncited)).toBeNull();
+
+    const leakyActivity = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event" && record.sequence === 2
+        ? { ...record, summary: `已检索 chapter_read「chapter:${refB}」` }
+        : record,
+    );
+    expect(evidenceOf(leakyActivity)).not.toBeNull();
+    expect(behaviorOf(leakyActivity)).toBeNull();
+
+    const leakyPage = baseRecords.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            author_exploration_feedback_text: `${record.author_exploration_feedback_text}\nchapter_ref=${refB} offset=6000`,
+          }
+        : record,
+    );
+    expect(behaviorOf(leakyPage)).toBeNull();
+  });
+
+  it("页范围重叠/末页 footer 未消失/plan 未截断时拒绝", () => {
+    const overlap = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event" && record.sequence === 2
+        ? {
+            ...record,
+            payload: { ...record.payload, summary: observationSummary({
+              offset: 6000,
+              rangeStart: 6001,
+              rangeEnd: 7000,
+              prose: page2Prose,
+              nextOffset: null,
+            }).replace("第 6001–7000 字符", "第 6000–7000 字符") },
+          }
+        : record,
+    );
+    expect(behaviorOf(overlap)).toBeNull();
+
+    const lastPageStillContinues = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event" && record.sequence === 2
+        ? {
+            ...record,
+            payload: {
+              ...record.payload,
+              next_offset: 7000,
+              summary: observationSummary({
+                offset: 6000,
+                rangeStart: 6001,
+                rangeEnd: 7000,
+                prose: page2Prose,
+                nextOffset: 7000,
+              }),
+            },
+          }
+        : record,
+    );
+    expect(behaviorOf(lastPageStillContinues)).toBeNull();
+
+    const untruncatedPlan = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event" && record.sequence === 1
+        ? {
+            ...record,
+            payload: {
+              ...record.payload,
+              summary: record.payload.summary.replace(planText, "推".repeat(600)),
+            },
+          }
+        : record,
+    );
+    expect(behaviorOf(untruncatedPlan)).toBeNull();
+  });
+
+  it("用标题寻址、跨页换 ref、缺章节索引外部证据时拒绝", () => {
+    const titleAddressed = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event" && record.sequence === 1
+        ? {
+            ...record,
+            payload: {
+              ...record.payload,
+              query: JSON.stringify({ chapter: title, offset: 0 }),
+            },
+          }
+        : record,
+    );
+    expect(behaviorOf(titleAddressed)).toBeNull();
+
+    const switchedRef = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event" && record.sequence === 2
+        ? {
+            ...record,
+            payload: { ...record.payload, chapter_ref: refA },
+          }
+        : record,
+    );
+    expect(evidenceOf(switchedRef)).toBeNull();
+
+    // 判断 prompt 章节索引未暴露两个同名 ref（或根本没 prompt 记录）→ 不通过。
+    expect(behaviorOf(baseRecords, [])).toBeNull();
+    expect(
+      behaviorOf(baseRecords, [
+        { prompt: `## 章节列表\n- 第 2 章「${title}」[chapter_ref=${refB}]` },
+      ]),
+    ).toBeNull();
+
+    // 两页之间重新用标题解析续读（query 不是 footer 逐字 JSON）→ 不通过。
+    const page2TitleQuery = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event" && record.sequence === 2
+        ? {
+            ...record,
+            payload: {
+              ...record.payload,
+              query: JSON.stringify({ chapter: title, offset: 6000 }),
+            },
+          }
+        : record,
+    );
+    expect(behaviorOf(page2TitleQuery)).toBeNull();
+
+    // 事件 payload 若带 chapter_ref，必须与 query/观测页一致（不能指向干扰章 A）。
+    const mismatchedPayloadRef = baseRecords.map((record) =>
+      record.event === "slice_verify.ws_agent_event"
+        ? { ...record, payload: { ...record.payload, chapter_ref: refA } }
+        : record,
+    );
+    expect(behaviorOf(mismatchedPayloadRef)).toBeNull();
+
+    // 探索回合出现 production write / 工具 dispatch → 不通过。
+    const wrote = [...baseRecords, { event: "toolbox.execute.done", turn_id: turnId }];
+    expect(behaviorOf(wrote)).toBeNull();
+  });
+});

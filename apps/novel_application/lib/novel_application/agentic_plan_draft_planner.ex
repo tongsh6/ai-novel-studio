@@ -26,7 +26,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   @spec draft_plan_with_meta(AgentRun.t(), provider_execution(), map(), keyword()) ::
           {:ok, AgentPlan.t(), map()} | {:error, term()}
   def draft_plan_with_meta(%AgentRun{} = run, provider_execution, snapshot \\ %{}, opts \\ []) do
-    chapter_titles = chapter_titles(run, opts)
+    chapter_titles = chapter_index_payload(run, opts)
 
     request_plan_with_meta(
       run,
@@ -49,7 +49,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       |> Kernel.||("计划步骤已走完，但完成条件尚未成立。")
 
     revision_run = %{run | plan_version: next_plan_version(run)}
-    chapter_titles = chapter_titles(run, opts)
+    chapter_titles = chapter_index_payload(run, opts)
 
     request_plan_with_meta(
       revision_run,
@@ -62,27 +62,86 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     )
   end
 
-  # 规划期机械准备（ADR-0025）：作品章节全名列表由应用层确定性读取后注入 prompt，
-  # 不问模型。target_chapter 契约（精确复制列表全名）没有这份列表就无法履行——缺席时
-  # 点名章的正文请求会被缺失策略误判为"点名了不存在的章"而硬阻断。读取失败按无章节处理。
-  defp chapter_titles(%AgentRun{} = run, opts) do
-    reader =
-      Keyword.get(opts, :chapter_titles_reader) ||
-        NovelApplication.persistence_chapter_titles_reader()
+  # 规划期机械准备（ADR-0025）：作品章节索引由应用层确定性读取后注入 prompt，
+  # 不问模型。B24 CP2（I-EXPLORE-READ-9）：索引同时给出 chapter_ref（chapter_read
+  # 唯一寻址）、seq 与 title（target_chapter 仍精确复制标题；作者面只用 seq+title）。
+  # 读取失败按无章节处理——缺席时点名章的正文请求会被缺失策略误判为"点名了不存在的章"。
+  defp chapter_index_payload(%AgentRun{} = run, opts) do
+    entries = chapter_entries(run, opts)
+    %{titles: Enum.map(entries, & &1.title), entries: entries}
+  end
 
-    with true <- is_function(reader, 1),
-         titles when is_list(titles) <- safe_chapter_titles(reader, run.workspace_id) do
-      Enum.filter(titles, &(is_binary(&1) and String.trim(&1) != ""))
-    else
-      _ -> []
+  defp chapter_entries(%AgentRun{} = run, opts) do
+    cond do
+      is_function(Keyword.get(opts, :chapter_index_reader), 1) ->
+        normalize_chapter_entries(
+          safe_reader(Keyword.get(opts, :chapter_index_reader), run.workspace_id)
+        )
+
+      is_function(Keyword.get(opts, :chapter_titles_reader), 1) ->
+        titles_to_chapter_entries(
+          safe_reader(Keyword.get(opts, :chapter_titles_reader), run.workspace_id)
+        )
+
+      true ->
+        case NovelApplication.persistence_chapter_index_reader() do
+          reader when is_function(reader, 1) ->
+            normalize_chapter_entries(safe_reader(reader, run.workspace_id))
+
+          _ ->
+            titles_to_chapter_entries(
+              safe_reader(NovelApplication.persistence_chapter_titles_reader(), run.workspace_id)
+            )
+        end
     end
   end
 
-  defp safe_chapter_titles(reader, workspace_id) do
+  defp safe_reader(reader, workspace_id) when is_function(reader, 1) do
     reader.(workspace_id)
   rescue
     _error -> []
   end
+
+  defp safe_reader(_reader, _workspace_id), do: []
+
+  defp normalize_chapter_entries(entries) when is_list(entries) do
+    entries
+    |> Enum.map(&normalize_chapter_entry/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_chapter_entries(_entries), do: []
+
+  defp normalize_chapter_entry(entry) when is_map(entry) do
+    case Map.get(entry, :title) do
+      title when is_binary(title) ->
+        case String.trim(title) do
+          "" ->
+            nil
+
+          trimmed ->
+            %{
+              title: trimmed,
+              seq: Map.get(entry, :seq),
+              id: Map.get(entry, :id),
+              has_prose: Map.get(entry, :has_prose, true)
+            }
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_chapter_entry(_entry), do: nil
+
+  defp titles_to_chapter_entries(titles) when is_list(titles) do
+    titles
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> Enum.map(&%{title: String.trim(&1), seq: nil, id: nil, has_prose: true})
+  end
+
+  defp titles_to_chapter_entries(_titles), do: []
 
   # 两段式调用（ADR-0023 修订注记 2026-07-05，用户拍板体验优先）：
   # 第一段自由输出 reasoning——content 可流式，作者逐字看到模型在想什么；
@@ -537,7 +596,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   # L1 = 角色句之后的调用点常量（profile 参数、计划要求、能力目录）；L2 = 作品章节；
   # L3 = 本轮目标 / 版本 / run_id / 阶段状态；L4 = 输出契约置尾（见各 prompt 构造器）。
   @doc false
-  @spec draft_context_block(AgentRun.t(), map(), [String.t()]) :: String.t()
+  @spec draft_context_block(AgentRun.t(), map(), map() | [String.t()]) :: String.t()
   def draft_context_block(%AgentRun{} = run, snapshot, chapter_titles) do
     [
       """
@@ -574,21 +633,44 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     |> Enum.map_join("\n\n", &String.trim/1)
   end
 
-  # 与旧 Planner accepted_chapters_section 同一契约措辞：target_chapter 只能是列表全名。
+  # 与旧 Planner accepted_chapters_section 同一契约措辞：target_chapter 精确复制标题；
+  # B24 CP2：chapter_read 的 exploration_query 优先复制索引里的 chapter_ref。
   # T2a：有界投影（作者点名章恒在列——精确复制契约的依赖项由 ChapterListBudget 保证）。
-  defp accepted_chapters_section([], _author_text), do: ""
+  defp accepted_chapters_section(chapters, author_text) do
+    payload = chapters_payload(chapters)
 
-  defp accepted_chapters_section(chapter_titles, author_text) do
-    {listed, omitted} =
-      NovelApplication.ChapterListBudget.project(chapter_titles, author_text)
+    case payload.entries do
+      [] ->
+        ""
 
-    "\n## 作品章节（target_chapter 必须从此列表精确复制全名；含已规划但还没写正文的章）\n" <>
-      NovelApplication.ChapterListBudget.render_lines(listed, omitted, length(chapter_titles)) <>
-      "\n"
+      entries ->
+        {listed, omitted} =
+          NovelApplication.ChapterListBudget.project_entries(entries, author_text)
+
+        "\n## 作品章节（target_chapter 精确复制标题；chapter_read 优先复制 chapter_ref；含已规划但还没写正文的章）\n" <>
+          NovelApplication.ChapterListBudget.render_entry_lines(
+            listed,
+            omitted,
+            length(entries)
+          ) <>
+          "\n"
+    end
   end
 
+  # 公开 prompt 构造器兼容两种入参：索引 payload（生产）或章节标题列表（既有测试/调用）。
+  defp chapters_payload(%{titles: _titles, entries: entries} = payload) when is_list(entries),
+    do: payload
+
+  defp chapters_payload(titles) when is_list(titles) do
+    entries = titles_to_chapter_entries(titles)
+    %{titles: Enum.map(entries, & &1.title), entries: entries}
+  end
+
+  defp chapters_payload(_other), do: %{titles: [], entries: []}
+
   @doc false
-  @spec revision_context_block(AgentRun.t(), map(), [String.t()], String.t()) :: String.t()
+  @spec revision_context_block(AgentRun.t(), map(), map() | [String.t()], String.t()) ::
+          String.t()
   def revision_context_block(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
     [
       """
@@ -640,7 +722,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   # 两段式第一段：自由输出 reasoning，无 tools——content 可流式逐字显示给作者。
   @doc false
-  @spec draft_reasoning_prompt(AgentRun.t(), map(), [String.t()]) :: map()
+  @spec draft_reasoning_prompt(AgentRun.t(), map(), map() | [String.t()]) :: map()
   def draft_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
     %{
       messages: [
@@ -668,7 +750,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   # 两段式第二段：强制 native tool call，把第一段 reasoning 结构化为 AgentPlan。
   @doc false
-  @spec draft_structure_prompt(AgentRun.t(), map(), [String.t()], String.t() | nil) :: map()
+  @spec draft_structure_prompt(AgentRun.t(), map(), map() | [String.t()], String.t() | nil) ::
+          map()
   def draft_structure_prompt(%AgentRun{} = run, snapshot, chapter_titles, reasoning_text) do
     tool_prompt(
       @draft_tool_name,
@@ -689,7 +772,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   @doc false
-  @spec revision_reasoning_prompt(AgentRun.t(), map(), [String.t()], String.t()) :: map()
+  @spec revision_reasoning_prompt(AgentRun.t(), map(), map() | [String.t()], String.t()) :: map()
   def revision_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
     %{
       messages: [
@@ -714,7 +797,13 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   @doc false
-  @spec revision_structure_prompt(AgentRun.t(), map(), [String.t()], String.t(), String.t() | nil) ::
+  @spec revision_structure_prompt(
+          AgentRun.t(),
+          map(),
+          map() | [String.t()],
+          String.t(),
+          String.t() | nil
+        ) ::
           map()
   def revision_structure_prompt(
         %AgentRun{} = run,
@@ -746,7 +835,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     - context_assemble | explore | 读取当前作品上下文；建议作为首步
     - character_roster | explore | 读取当前已确认角色阵容（只读查询）
     - prose_search | explore | 全文检索已采纳正文（exploration_query 填检索词）
-    - chapter_read | explore | 读取某一章的设计计划、章摘要与已采纳正文（exploration_query 填章节名）
+    - chapter_read | explore | 读取某一章的设计计划、章摘要与已采纳正文（exploration_query 填作品目录里的真实章标题、原样复制；长章分页时按观察里的【续读】提示用 JSON {"chapter":"<章标题>","offset":<下页起点>} 续读）
     - archive_read | explore | 读取作品档案面（exploration_query 填 profile｜characters｜foreshadowing｜rules｜stats｜current_state｜relationships｜preferences 之一）
     - memory_recall | explore | 检索治理记忆（exploration_query 填检索词）
     - character_design | act | 设计新角色（产出待采纳候选）

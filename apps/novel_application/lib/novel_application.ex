@@ -428,6 +428,17 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回章索引读端口（B24 CP2）：`(work_id) -> [%{id, seq, title, has_prose}]`。
+
+  供判断/计划 prompt 渲染带 `chapter_ref` 的章节索引（模型按 ref 寻址）；与
+  `persistence_chapter_titles_reader/0` 同源，只读 additive。
+  """
+  @spec persistence_chapter_index_reader() :: (String.t() -> [map()]) | nil
+  def persistence_chapter_index_reader do
+    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.chapter_index_reader()
+  end
+
+  @doc """
   返回角色主档案读端口：`(work_id) -> 当前作品已采纳角色列表`（设计 21 §7.2 主档案层）。
 
   供创作/角色设计上下文注入"现有角色"（VS-00C 同向 / AU09-character-dossier-roundtrip I-c）：

@@ -189,6 +189,9 @@ defmodule NovelApplication.ContextAssembler do
       nil
     else
       %{
+        # B24（I-EXPLORE-READ-9）：章节唯一编码白名单透传——判断/计划章节索引据此
+        # 渲染 `[chapter_ref=chapter:<uuid>]`（additive key，既有消费者不受影响）。
+        id: chapter |> get_any([:id, "id"]) |> normalize_optional_text(),
         title: title,
         seq: chapter |> get_any([:seq, "seq"]) |> normalize_integer(),
         summary: chapter |> get_any([:summary, "summary"]) |> normalize_text(),

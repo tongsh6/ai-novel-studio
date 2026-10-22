@@ -151,6 +151,10 @@ defmodule NovelPersistence.WorkspaceContext do
       nil
     else
       %{
+        # B24（I-EXPLORE-READ-7/9）：章节唯一编码 additive——模型/工具按
+        # `chapter_ref = "chapter:<chapters.id>"` 寻址，title/seq 只作展示与别名。
+        # 既有消费者按 title/seq 读取不受影响。
+        id: Map.get(chapter, :id),
         title: title,
         seq: Map.get(chapter, :seq),
         summary: chapter |> Map.get(:summary) |> normalize_title(),
@@ -184,6 +188,22 @@ defmodule NovelPersistence.WorkspaceContext do
       work_id
       |> fetch_structured_chapters()
       |> titles_from_structured_chapters()
+    end
+  end
+
+  @doc """
+  章索引 reader port（B24 CP2）：`(work_id) -> [%{id: chapter_uuid, seq: integer, title: string, has_prose: boolean}]`。
+
+  供判断/计划 prompt 渲染「第 N 章「标题」[chapter_ref=chapter:<uuid>]」索引：模型按 ref
+  寻址，作者面只用 seq + title（I-EXPLORE-READ-9 双面身份）。与 TOC/structured chapters
+  同源，只读、零 schema 变更。
+  """
+  @spec chapter_index_reader() :: (String.t() -> [map()])
+  def chapter_index_reader do
+    fn work_id ->
+      work_id
+      |> fetch_structured_chapters()
+      |> Enum.map(&Map.take(&1, [:id, :seq, :title, :has_prose]))
     end
   end
 

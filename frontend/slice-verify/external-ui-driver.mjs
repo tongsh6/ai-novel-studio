@@ -11644,6 +11644,339 @@ function visibleTextIncludesPendingDraft(visibleText) {
   return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(visibleText);
 }
 
+// ── B24 CP3：判断循环内部翼「全章可读」──────────────────────────────
+// 场景：同作品两章同名标题（第 1 章计划中 / 第 2 章有 7000 字已采纳正文，页切
+// 1–6000 + 6001–7000，首/末页各有独有锚点）。作者要求核对全章；判断循环必须：
+//   1) 从章节索引复制**有正文那章**的唯一 chapter_ref（标题查询会歧义）；
+//   2) 读完首页后逐字复制 footer 续读 JSON 读续读页；
+//   3) 末页后 reply 引用末页独有事实。
+// driver 站在真实页面外读 WS 帧与页面可见文本；作者可见文案不允许暴露
+// chapter_read / chapter_ref / chapter:<uuid> / {"chapter / offset 等内部形态。
+const CHAPTER_FULL_READ_TITLE = "灰烬中的手印";
+const CHAPTER_FULL_READ_OPENING_ANCHOR = "开篇锚点：灰烬里按出一枚手印";
+const CHAPTER_FULL_READ_ENDING_ANCHOR = "末页锚点：井底浮现第七枚手印";
+const CHAPTER_FULL_READ_REF_PATTERN =
+  /^chapter:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const CHAPTER_FULL_READ_INTERNAL_PATTERNS = [
+  [/chapter_read/u, "chapter_read"],
+  [/chapter_ref/u, "chapter_ref"],
+  [/chapter:[0-9a-f]{8}-/u, "chapter:<uuid>"],
+  [/\{"chapter/u, '{"chapter'],
+  [/\boffset\b/u, "offset"],
+  [/【续读】/u, "【续读】"],
+  [/prose_range/u, "prose_range"],
+  [/next_offset/u, "next_offset"],
+];
+
+function parseChapterReadObservationText(summary) {
+  const text = String(summary ?? "");
+  const titleMatch = text.match(/^「([^」]+)」（第 (\d+) 章）\n/u);
+  const rangeMatch = text.match(
+    /【正文】第 (\d+)–(\d+) 字符 \/ 共 (\d+) 字符（有效字数 (\d+)）/u,
+  );
+  const footerMatch = text.match(
+    /【续读】剩余 (\d+) 字符；用 (\{"chapter_ref":"chapter:[0-9a-f-]{36}","offset":\d+\}) 继续。/u,
+  );
+  const planMatch = text.match(/【计划】([\s\S]*?)\n【摘要】/u);
+  const summarySectionMatch = text.match(/【摘要】([\s\S]*?)\n【正文】/u);
+
+  let prose = "";
+  if (rangeMatch) {
+    const proseStart = rangeMatch.index + rangeMatch[0].length + 1;
+    const footerIndex = text.indexOf("\n【续读】", proseStart);
+    prose = footerIndex >= 0 ? text.slice(proseStart, footerIndex) : text.slice(proseStart);
+  }
+
+  return {
+    title: titleMatch?.[1] ?? null,
+    title_seq: titleMatch ? Number(titleMatch[2]) : null,
+    range_start: rangeMatch ? Number(rangeMatch[1]) : null,
+    range_end: rangeMatch ? Number(rangeMatch[2]) : null,
+    prose_total_chars: rangeMatch ? Number(rangeMatch[3]) : null,
+    effective_word_count: rangeMatch ? Number(rangeMatch[4]) : null,
+    page_prose_chars: prose.length,
+    page_prose_contains_opening_anchor: prose.includes(CHAPTER_FULL_READ_OPENING_ANCHOR),
+    page_prose_contains_ending_anchor: prose.includes(CHAPTER_FULL_READ_ENDING_ANCHOR),
+    footer_present: Boolean(footerMatch),
+    continuation_query: footerMatch ? footerMatch[2] : null,
+    has_plan_section: text.includes("【计划】"),
+    plan_chars: planMatch ? planMatch[1].length : null,
+    plan_truncated: planMatch ? planMatch[1].endsWith("…（略）") : false,
+    has_summary_section: text.includes("【摘要】"),
+    summary_section_chars: summarySectionMatch ? summarySectionMatch[1].length : null,
+    summary_section_truncated: summarySectionMatch
+      ? summarySectionMatch[1].endsWith("…（略）")
+      : false,
+  };
+}
+
+async function chapterFullReadAuthorFeedback(page) {
+  return page.evaluate(() => {
+    const sections = Array.from(document.querySelectorAll('section[aria-label="推理"]'));
+
+    return {
+      timeline_text: sections.map((section) => section.innerText).join("\n"),
+      exploration_paragraphs: sections.flatMap((section) =>
+        Array.from(section.querySelectorAll('p[data-tone="explore"]')).map(
+          (node) => node.innerText,
+        ),
+      ),
+    };
+  });
+}
+
+async function driveJudgmentExploreChapterFullRead(page) {
+  // 作者式请求：不写「正文」二字（避免被路由到正文写作 profile），点名章标题 +
+  // 全章核对语义（test/support 替身按该锚定触发分页探索）。
+  const requestText = `「${CHAPTER_FULL_READ_TITLE}」这章我怀疑有重复，请把全章核对一遍。`;
+  const frameStart = frames.length;
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const replyFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      typeof frame.body?.assistant_message?.text === "string" &&
+      frame.body.assistant_message.text.includes("依据如下") &&
+      frame.body.assistant_message.text.includes(CHAPTER_FULL_READ_ENDING_ANCHOR),
+    "No paged full-chapter read reply turn_result was received for the chapter review request",
+    200_000,
+  );
+  const reply = replyFrame.body;
+  const replyText = reply.assistant_message.text;
+
+  // 回复真实渲染到页面（作者可见）。
+  await page.waitForFunction(
+    (needle) => document.body.innerText.includes(needle),
+    CHAPTER_FULL_READ_ENDING_ANCHOR,
+    { timeout: 15_000 },
+  );
+
+  // 只取作者可见的「推理/观察」时间线区域：系统生成的观察/活动行在这里渲染。
+  // body.innerText 过宽（含开发者面板），会把 developer 面的 tool/query 误判为泄漏。
+  const feedback = await chapterFullReadAuthorFeedback(page);
+  const explorationText = feedback.exploration_paragraphs.join("\n");
+  const timelineText = feedback.timeline_text;
+
+  assert(
+    explorationText.includes("已阅读章节正文"),
+    "Author-visible run feedback does not render the human-readable chapter read activity",
+  );
+  assert(
+    explorationText.includes(CHAPTER_FULL_READ_TITLE),
+    "Author-visible run feedback does not name the real chapter title",
+  );
+  assert(
+    explorationText.includes("第 2 章"),
+    "Author-visible run feedback does not show the real chapter sequence (第 2 章)",
+  );
+  assert(
+    !explorationText.includes("第 1 章"),
+    "Author-visible exploration feedback presented the planned distractor chapter as read",
+  );
+
+  const authorVisibleLeaks = CHAPTER_FULL_READ_INTERNAL_PATTERNS.filter(([pattern]) =>
+    pattern.test(timelineText),
+  ).map(([, label]) => label);
+  assert(
+    authorVisibleLeaks.length === 0,
+    `Author-visible feedback leaks internal exploration phrasing: ${authorVisibleLeaks.join(", ")}`,
+  );
+
+  // 真实 WS 帧里的 observation 是独立外部证据：两页/范围/ref/footer/锚点。
+  const explorationFrames = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.event_type === "exploration_observed",
+    );
+  assert(
+    explorationFrames.length === 2,
+    `Expected two chapter_read exploration observations, got ${explorationFrames.length}`,
+  );
+
+  const pages = explorationFrames.map((frame) => {
+    const payload = frame.body?.payload ?? {};
+    // 事件 payload 按契约保留 chapter_ref；若实现只在 query 里带 ref，则以 query
+    // 解析（作者可见面断言仍只看 summary 的人类可读文案）。
+    let queryPayload;
+    try {
+      queryPayload = JSON.parse(String(payload.query ?? ""));
+    } catch {
+      queryPayload = null;
+    }
+    const parsedChapterRef =
+      payload.chapter_ref ?? ((queryPayload && queryPayload.chapter_ref) || null);
+    const parsedChapterSeq =
+      payload.chapter_seq ?? parseChapterReadObservationText(payload.summary).title_seq;
+
+    return {
+      sequence: frame.body?.sequence ?? null,
+      event_id: frame.body?.event_id ?? null,
+      author_summary: String(frame.body?.summary ?? ""),
+      tool: payload.tool ?? null,
+      query: payload.query ?? null,
+      chapter_ref: parsedChapterRef,
+      chapter_seq: parsedChapterSeq,
+      next_offset: payload.next_offset ?? null,
+      payload_activity_summary: payload.activity_summary ?? null,
+      ...parseChapterReadObservationText(payload.summary),
+    };
+  });
+  const [page1, page2] = pages;
+
+  assert(page1.tool === "chapter_read" && page2.tool === "chapter_read", "Exploration tool is not chapter_read");
+  assert(
+    typeof page1.chapter_ref === "string" && CHAPTER_FULL_READ_REF_PATTERN.test(page1.chapter_ref),
+    `First page did not address a unique chapter_ref: ${page1.chapter_ref}`,
+  );
+  assert(
+    page2.chapter_ref === page1.chapter_ref,
+    "Continuation page did not reuse the same chapter_ref as page 1",
+  );
+  assert(
+    page1.chapter_seq === 2 && page2.chapter_seq === 2,
+    "Exploration did not read the chapter with adopted prose (seq=2)",
+  );
+  assert(
+    page1.title === CHAPTER_FULL_READ_TITLE && page1.title_seq === 2,
+    "Page 1 title line does not carry the real chapter title and sequence",
+  );
+  assert(
+    page1.range_start === 1 && page1.range_end === 6000 && page1.prose_total_chars === 7000,
+    "Page 1 range is not 1–6000 / 7000",
+  );
+  assert(
+    page2.range_start === 6001 && page2.range_end === 7000 && page2.prose_total_chars === 7000,
+    "Page 2 range is not 6001–7000 / 7000",
+  );
+  assert(page1.page_prose_chars === 6000, `Page 1 prose is not 6000 chars: ${page1.page_prose_chars}`);
+  assert(page2.page_prose_chars === 1000, `Page 2 prose is not 1000 chars: ${page2.page_prose_chars}`);
+  assert(
+    page1.page_prose_contains_opening_anchor && !page1.page_prose_contains_ending_anchor,
+    "Page 1 prose does not contain exactly the opening-page anchor",
+  );
+  assert(
+    page2.page_prose_contains_ending_anchor && !page2.page_prose_contains_opening_anchor,
+    "Page 2 prose does not contain exactly the last-page anchor",
+  );
+  assert(
+    page1.has_plan_section && page1.plan_chars !== null && page1.plan_chars <= 500,
+    "Page 1 plan section is missing or exceeded its 500-char budget",
+  );
+  assert(page1.plan_truncated, "Page 1 plan section was not truncated with …（略）");
+  assert(
+    page1.has_summary_section && page1.summary_section_chars !== null && page1.summary_section_chars <= 400,
+    "Page 1 summary section is missing or exceeded its 400-char budget",
+  );
+  assert(page1.summary_section_truncated, "Page 1 summary section was not truncated with …（略）");
+  assert(
+    !page2.has_plan_section && !page2.has_summary_section,
+    "Continuation page must not repeat plan/summary sections",
+  );
+  assert(page1.next_offset === 6000, `Page 1 next_offset is not 6000: ${page1.next_offset}`);
+  assert(page2.next_offset == null, "Last page must not advertise another next_offset");
+  assert(page1.footer_present, "Page 1 is missing the continuation footer");
+  assert(!page2.footer_present, "Last page must not have a continuation footer");
+
+  const page1Query = JSON.parse(page1.query);
+  const page2Query = JSON.parse(page2.query);
+  assert(
+    page1Query.chapter_ref === page1.chapter_ref && page1Query.offset === 0,
+    "First explore query is not a ref-addressed offset=0 read",
+  );
+  assert(
+    page2Query.chapter_ref === page1.chapter_ref && page2Query.offset === 6000,
+    "Second explore query did not continue the same chapter_ref at offset 6000",
+  );
+  assert(
+    page1.continuation_query === page2.query,
+    "Second explore query was not copied verbatim from the first page continuation footer",
+  );
+
+  assert(
+    page1.author_summary.includes("已阅读章节正文") &&
+      page1.author_summary.includes(CHAPTER_FULL_READ_TITLE) &&
+      page1.author_summary.includes("第 2 章") &&
+      page1.author_summary.includes("有效字数"),
+    `Page 1 author-visible activity text is not human readable: ${page1.author_summary}`,
+  );
+  assert(
+    !page1.author_summary.includes("第 1 章"),
+    "Page 1 author-visible activity text presented the distractor chapter as read",
+  );
+  assert(
+    page2.author_summary.includes("已阅读章节正文") &&
+      page2.author_summary.includes(CHAPTER_FULL_READ_TITLE) &&
+      page2.author_summary.includes("第 2 章") &&
+      page2.author_summary.includes("第 6001–7000 字符 / 共 7000 字符"),
+    `Page 2 author-visible activity text is not human readable: ${page2.author_summary}`,
+  );
+
+  const authorEventLeaks = CHAPTER_FULL_READ_INTERNAL_PATTERNS.filter(([pattern]) =>
+    pattern.test(page1.author_summary) || pattern.test(page2.author_summary),
+  ).map(([, label]) => label);
+  assert(
+    authorEventLeaks.length === 0,
+    `Author-visible exploration event summary leaks internal phrasing: ${authorEventLeaks.join(", ")}`,
+  );
+
+  assert(
+    replyText.includes("依据如下") && replyText.includes(CHAPTER_FULL_READ_ENDING_ANCHOR),
+    "Reply does not cite the last-page-only fact with a citation prefix",
+  );
+  assert(reply.truthfulness?.artifact_adopted !== true, "Explore reply turn must not adopt anything");
+  assert(
+    reply.truthfulness?.production_write_performed !== true,
+    "Paged chapter read turn must not perform a production write",
+  );
+  assert(
+    (reply.adoption_state?.pending ?? []).length === 0,
+    "Paged chapter read turn must not produce pending artifacts",
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, reply, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: reply.turn_id,
+      turn_ids: [reply.turn_id],
+      explore_turn_id: reply.turn_id,
+      explore_question_text: requestText,
+      chapter_title: CHAPTER_FULL_READ_TITLE,
+      chapter_ref: page1.chapter_ref,
+      chapter_seq: 2,
+      opening_anchor: CHAPTER_FULL_READ_OPENING_ANCHOR,
+      ending_anchor: CHAPTER_FULL_READ_ENDING_ANCHOR,
+      exploration_observed_count: pages.length,
+      exploration_pages: pages.map((page) => ({ ...page })),
+      author_feedback_text: timelineText.slice(0, 6000),
+      author_exploration_feedback_text: explorationText.slice(0, 3000),
+      author_feedback_visible: timelineText.includes("已阅读章节正文"),
+      author_feedback_human_readable: explorationText.includes("已阅读章节正文"),
+      author_feedback_shows_chapter_seq_two: explorationText.includes("第 2 章"),
+      author_feedback_avoids_distractor_seq: !explorationText.includes("第 1 章"),
+      author_feedback_has_no_internal_terms: authorVisibleLeaks.length === 0,
+      author_feedback_internal_terms_leaked: authorVisibleLeaks,
+      explore_reply_text: replyText,
+      reply_has_citation_prefix: replyText.includes("依据如下"),
+      reply_cites_ending_anchor: replyText.includes(CHAPTER_FULL_READ_ENDING_ANCHOR),
+      exploration_visible_in_run_feedback: explorationText.includes("已阅读章节正文"),
+      explore_no_pending_artifacts: (reply.adoption_state?.pending ?? []).length === 0,
+      no_production_write: reply.truthfulness?.production_write_performed !== true,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveJudgmentExploreChapterPlan(page) {
   // CP5b 设计态旗舰证明：作者问"某章按计划要写什么"——该信息只存在于已采纳章节
   // 计划（种子大纲）里，没有任何正文。判断① explore → chapter_read 读设计态 →
@@ -11676,14 +12009,19 @@ async function driveJudgmentExploreChapterPlan(page) {
   // （本场景零正文——这些词只可能来自章节计划）。
   const citesPlanContent = replyText.includes("残缺功法") || replyText.includes("突破底层限制");
   const citesChapter = replyText.includes("第02章");
-  const explorationVisible = visibleText.includes("已检索");
+  // B24 CP4：chapter_read 的作者可见活动行改为人类可读「已阅读章节正文…」（I-READ-8），
+  // 不再是内部工具形态「已检索 chapter_read…」；断言随新文案更新。
+  const explorationVisible = visibleText.includes("已阅读章节正文");
 
   assert(citesChapter, "Reply does not cite the chapter of the plan");
   assert(
     citesPlanContent,
     "Reply does not cite design-state plan content (which exists only in the adopted outline)",
   );
-  assert(explorationVisible, "Run feedback does not show the exploration observation (已检索)");
+  assert(
+    explorationVisible,
+    "Run feedback does not show the chapter-read observation (已阅读章节正文)",
+  );
   assert(
     reply.truthfulness?.artifact_adopted !== true,
     "Plan-question reply turn must not adopt anything",
@@ -32959,6 +33297,7 @@ const drivers = {
   "p1-chapter-expansion": driveP1ChapterExpansion,
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
   "judgment-explore-chapter-plan": driveJudgmentExploreChapterPlan,
+  "judgment-explore-chapter-full-read": driveJudgmentExploreChapterFullRead,
   "judgment-explore-internal": driveJudgmentExploreInternal,
   "au13-arc-ledger-roundtrip": driveAu13ArcLedgerRoundtrip,
   "au13-review-adjudication-roundtrip": driveAu13ReviewAdjudicationRoundtrip,

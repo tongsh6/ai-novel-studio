@@ -219,6 +219,7 @@ export const nativeSliceIds = [
   "p1-chapter-word-count-target",
   "judgment-explore-internal",
   "judgment-explore-chapter-plan",
+  "judgment-explore-chapter-full-read",
   "au13-arc-ledger-roundtrip",
   "au13-review-adjudication-roundtrip",
   "au13-revise-prose-sibling",
@@ -1115,6 +1116,13 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "judgment.decided.done",
     "slice_verify.ui_state.done",
+  ],
+  "judgment-explore-chapter-full-read": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "judgment.decided.done",
+    "slice_verify.ui_state.done",
+    "slice_verify.ws_agent_event",
   ],
   "au13-arc-ledger-roundtrip": [
     "channel.user_message.start",
@@ -2279,6 +2287,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findJudgmentExploreChapterPlanEvidence(records);
   }
 
+  if (sliceId === "judgment-explore-chapter-full-read") {
+    return findJudgmentExploreChapterFullReadEvidence(records);
+  }
+
   if (sliceId === "au04-confirm-before-execute") {
     return findAu04ConfirmBeforeExecuteEvidence(records);
   }
@@ -3039,6 +3051,16 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "judgment-explore-chapter-plan") {
     return judgmentExploreChapterPlanBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "judgment-explore-chapter-full-read") {
+    return judgmentExploreChapterFullReadBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "au04-confirm-before-execute") {
@@ -16062,6 +16084,344 @@ function findJudgmentExploreChapterPlanEvidence(records) {
     explore_reply_text: replyText,
     judgment_explore_count: judgmentEvents.filter((record) => record.action === "explore").length,
     key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+// ── B24 CP3：judgment-explore-chapter-full-read ────────────────────────
+// 契约：tasks/slices/B24-exploration-chapter-full-read.md §1.1（chapter_ref 唯一寻址 +
+// 观察 v2 分段预算/续读 + 作者可见文案 I-READ-8/9）。证据来源：
+//   - WS 帧：两次 exploration_observed（tool/query/chapter_ref/next_offset/summary）
+//   - ui-state：driver 在真实页面可见的「推理/观察」时间线取到的作者可见文本
+//   - llm-calls：判断 prompt 的章节索引（模型面可见 ref）与真实 turn 事件
+const CHAPTER_FULL_READ_TITLE = "灰烬中的手印";
+const CHAPTER_FULL_READ_OPENING_ANCHOR = "开篇锚点：灰烬里按出一枚手印";
+const CHAPTER_FULL_READ_ENDING_ANCHOR = "末页锚点：井底浮现第七枚手印";
+const CHAPTER_FULL_READ_UUID_REF_PATTERN =
+  /^chapter:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const CHAPTER_FULL_READ_FORBIDDEN_AUTHOR_PATTERNS = [
+  [/chapter_read/u, "chapter_read"],
+  [/chapter_ref/u, "chapter_ref"],
+  [/chapter:[0-9a-f]{8}-/u, "chapter:<uuid>"],
+  [/\{"chapter/u, '{"chapter'],
+  [/\boffset\b/u, "offset"],
+  [/【续读】/u, "【续读】"],
+  [/prose_range/u, "prose_range"],
+  [/next_offset/u, "next_offset"],
+];
+
+function chapterFullReadForbiddenAuthorTerms(text) {
+  const value = String(text ?? "");
+
+  return CHAPTER_FULL_READ_FORBIDDEN_AUTHOR_PATTERNS.filter(([pattern]) => pattern.test(value)).map(
+    ([, label]) => label,
+  );
+}
+
+// 解析探索观察（model-facing summary）里的页结构；与 driver 同口径，但 verifier
+// 独立从 WS 帧再解析一次（不信任 driver 摘要）。
+function parseChapterFullReadPage(record) {
+  const payload = record.payload ?? {};
+  const text = String(payload.summary ?? "");
+  const titleMatch = text.match(/^「([^」]+)」（第 (\d+) 章）\n/u);
+  const rangeMatch = text.match(
+    /【正文】第 (\d+)–(\d+) 字符 \/ 共 (\d+) 字符（有效字数 (\d+)）/u,
+  );
+  const footerMatch = text.match(
+    /【续读】剩余 (\d+) 字符；用 (\{"chapter_ref":"chapter:[0-9a-f-]{36}","offset":\d+\}) 继续。/u,
+  );
+  const planMatch = text.match(/【计划】([\s\S]*?)\n【摘要】/u);
+  const summarySectionMatch = text.match(/【摘要】([\s\S]*?)\n【正文】/u);
+
+  // 契约要求事件 payload 保留 chapter_ref；即使某实现只在 query 里保留，也以
+  // 「query 的 ref 必须同页一致」的语义解析（author 面仍由 summary 断言兜底）。
+  let queryPayload;
+  try {
+    queryPayload = JSON.parse(String(payload.query ?? ""));
+  } catch {
+    queryPayload = null;
+  }
+  const parsedChapterRef = payload.chapter_ref ?? ((queryPayload && queryPayload.chapter_ref) || null);
+  const parsedChapterSeq =
+    payload.chapter_seq ?? (titleMatch ? Number(titleMatch[2]) : null);
+
+  let prose = "";
+  if (rangeMatch) {
+    const proseStart = rangeMatch.index + rangeMatch[0].length + 1;
+    const footerIndex = text.indexOf("\n【续读】", proseStart);
+    prose = footerIndex >= 0 ? text.slice(proseStart, footerIndex) : text.slice(proseStart);
+  }
+
+  return {
+    author_summary: String(record.summary ?? ""),
+    event_id: record.event_id ?? null,
+    sequence: record.sequence ?? null,
+    tool: payload.tool ?? null,
+    query: payload.query ?? null,
+    chapter_ref: parsedChapterRef,
+    chapter_seq: parsedChapterSeq,
+    next_offset: payload.next_offset ?? null,
+    payload_activity_summary: payload.activity_summary ?? null,
+    title: titleMatch?.[1] ?? null,
+    title_seq: titleMatch ? Number(titleMatch[2]) : null,
+    range_start: rangeMatch ? Number(rangeMatch[1]) : null,
+    range_end: rangeMatch ? Number(rangeMatch[2]) : null,
+    prose_total_chars: rangeMatch ? Number(rangeMatch[3]) : null,
+    effective_word_count: rangeMatch ? Number(rangeMatch[4]) : null,
+    prose_chars: prose.length,
+    prose_contains_opening_anchor: prose.includes(CHAPTER_FULL_READ_OPENING_ANCHOR),
+    prose_contains_ending_anchor: prose.includes(CHAPTER_FULL_READ_ENDING_ANCHOR),
+    footer_present: Boolean(footerMatch),
+    continuation_query: footerMatch ? footerMatch[2] : null,
+    has_plan_section: text.includes("【计划】"),
+    plan_chars: planMatch ? planMatch[1].length : null,
+    plan_truncated: planMatch ? planMatch[1].endsWith("…（略）") : false,
+    has_summary_section: text.includes("【摘要】"),
+    summary_section_chars: summarySectionMatch ? summarySectionMatch[1].length : null,
+    summary_section_truncated: summarySectionMatch
+      ? summarySectionMatch[1].endsWith("…（略）")
+      : false,
+  };
+}
+
+// 从判断 prompt 里抽取同标题章节索引行（模型面可见 ref 的外部证据）。
+function chapterFullReadIndexEntries(promptText) {
+  const pattern =
+    /第\s*(\d+)\s*章「灰烬中的手印」\[chapter_ref=(chapter:[0-9a-f-]{36})\](（计划中）)?/gu;
+
+  return [...String(promptText ?? "").matchAll(pattern)].map((match) => ({
+    seq: Number(match[1]),
+    chapter_ref: match[2].toLowerCase(),
+    planned: Boolean(match[3]),
+  }));
+}
+
+function findJudgmentExploreChapterFullReadEvidence(records) {
+  const sliceId = "judgment-explore-chapter-full-read";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.exploration_observed_count === 2 &&
+      record.reply_cites_ending_anchor === true &&
+      record.author_feedback_human_readable === true &&
+      record.author_feedback_has_no_internal_terms === true,
+  );
+  if (!uiState) return null;
+
+  const wsExplorations = records.filter(
+    (record) =>
+      record.event === "slice_verify.ws_agent_event" &&
+      record.agent_event_type === "exploration_observed",
+  );
+  if (wsExplorations.length !== 2) return null;
+
+  const pages = wsExplorations.map(parseChapterFullReadPage);
+  const chapterRef = String(pages[0]?.chapter_ref ?? "");
+  if (!CHAPTER_FULL_READ_UUID_REF_PATTERN.test(chapterRef)) return null;
+  if (pages[1]?.chapter_ref !== chapterRef) return null;
+
+  const exploreTurnId = String(uiState.explore_turn_id ?? uiState.turn_id ?? "");
+  if (!exploreTurnId) return null;
+  const baseTurnId = exploreTurnId.split(":")[0];
+  const turnIds = [...new Set([baseTurnId, exploreTurnId])];
+
+  const judgmentEvents = records.filter(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      (record.turn_id === baseTurnId || record.turn_id === exploreTurnId),
+  );
+  const exploreActions = judgmentEvents.filter((record) => record.action === "explore").length;
+  const replyActions = judgmentEvents.filter((record) => record.action === "reply").length;
+  if (exploreActions !== 2 || replyActions < 1) return null;
+
+  const realTurn = records.some(
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      (record.turn_id === baseTurnId || record.turn_id === exploreTurnId),
+  );
+  if (!realTurn) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: exploreTurnId,
+    turn_ids: turnIds,
+    explore_turn_id: exploreTurnId,
+    chapter_title: CHAPTER_FULL_READ_TITLE,
+    chapter_ref: chapterRef,
+    chapter_seq: 2,
+    exploration_observed_count: 2,
+    page_ranges: pages.map((page) => [page.range_start, page.range_end]),
+    page_author_summaries: pages.map((page) => page.author_summary),
+    page_queries: pages.map((page) => page.query),
+    page_next_offsets: pages.map((page) => page.next_offset),
+    judgment_explore_count: exploreActions,
+    judgment_reply_count: replyActions,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function judgmentExploreChapterFullReadBehavior(turnIds, turnRecords, records, evidence, options) {
+  const sliceId = "judgment-explore-chapter-full-read";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.explore_turn_id === evidence.explore_turn_id,
+  );
+  if (!uiState) return null;
+
+  const wsExplorations = records.filter(
+    (record) =>
+      record.event === "slice_verify.ws_agent_event" &&
+      record.agent_event_type === "exploration_observed",
+  );
+  if (wsExplorations.length !== 2) return null;
+  const [page1, page2] = wsExplorations.map(parseChapterFullReadPage);
+
+  // ── 页结构 / 唯一 ref / 续读语义（I-READ-1/3/7） ──
+  if (page1.tool !== "chapter_read" || page2.tool !== "chapter_read") return null;
+  if (!CHAPTER_FULL_READ_UUID_REF_PATTERN.test(String(page1.chapter_ref ?? ""))) return null;
+  if (page2.chapter_ref !== page1.chapter_ref) return null;
+  if (page1.chapter_seq !== 2 || page2.chapter_seq !== 2) return null;
+  if (page1.title !== CHAPTER_FULL_READ_TITLE || page1.title_seq !== 2) return null;
+  if (page2.title !== CHAPTER_FULL_READ_TITLE || page2.title_seq !== 2) return null;
+
+  if (
+    page1.range_start !== 1 ||
+    page1.range_end !== 6000 ||
+    page1.prose_total_chars !== 7000 ||
+    page2.range_start !== 6001 ||
+    page2.range_end !== 7000 ||
+    page2.prose_total_chars !== 7000
+  ) {
+    return null;
+  }
+  // I-READ-1：首尾相接、无重叠、无缺口；最后一页结尾 = 正文总字符数。
+  if (page1.range_end + 1 !== page2.range_start) return null;
+  if (page2.range_end !== page1.prose_total_chars) return null;
+
+  if (page1.prose_chars !== 6000 || page2.prose_chars !== 1000) return null;
+  if (!page1.prose_contains_opening_anchor || page1.prose_contains_ending_anchor) return null;
+  if (!page2.prose_contains_ending_anchor || page2.prose_contains_opening_anchor) return null;
+
+  // I-READ-2：设计态材料段内截断后正文仍完整 6000 字符。
+  if (!page1.has_plan_section || page1.plan_chars === null || page1.plan_chars > 500) return null;
+  if (!page1.plan_truncated) return null;
+  if (!page1.has_summary_section || page1.summary_section_chars === null) return null;
+  if (page1.summary_section_chars > 400 || !page1.summary_section_truncated) return null;
+  if (page2.has_plan_section || page2.has_summary_section) return null;
+
+  // I-READ-3：首页有可执行续读 query，末页无 footer 且 next_offset 为空。
+  if (page1.next_offset !== 6000 || !page1.footer_present) return null;
+  if (page2.next_offset != null || page2.footer_present) return null;
+
+  // query 形状：首轮 ref 寻址 offset=0；续读逐字复制首页 footer。
+  let page1Query;
+  let page2Query;
+  try {
+    page1Query = JSON.parse(String(page1.query ?? ""));
+    page2Query = JSON.parse(String(page2.query ?? ""));
+  } catch {
+    return null;
+  }
+  if (page1Query?.chapter_ref !== page1.chapter_ref || page1Query?.offset !== 0) return null;
+  if (page2Query?.chapter_ref !== page1.chapter_ref || page2Query?.offset !== 6000) return null;
+  if (page1.continuation_query !== page2.query) return null;
+
+  // ── 作者可见文案（I-READ-8/9）：人类可读、用 seq+title、无 ref/UUID/内部工具 id/JSON ──
+  if (!page1.author_summary.includes("已阅读章节正文")) return null;
+  if (!page1.author_summary.includes(CHAPTER_FULL_READ_TITLE)) return null;
+  if (!page1.author_summary.includes("第 2 章")) return null;
+  if (!page1.author_summary.includes("有效字数")) return null;
+  if (page1.author_summary.includes("第 1 章")) return null;
+  if (!page2.author_summary.includes("已阅读章节正文")) return null;
+  if (!page2.author_summary.includes(CHAPTER_FULL_READ_TITLE)) return null;
+  if (!page2.author_summary.includes("第 2 章")) return null;
+  if (!page2.author_summary.includes("第 6001–7000 字符 / 共 7000 字符")) return null;
+  if (chapterFullReadForbiddenAuthorTerms(page1.author_summary).length > 0) return null;
+  if (chapterFullReadForbiddenAuthorTerms(page2.author_summary).length > 0) return null;
+  if (page1.payload_activity_summary != null) {
+    const payloadActivity = String(page1.payload_activity_summary);
+    if (!payloadActivity.includes("已阅读章节正文")) return null;
+    if (chapterFullReadForbiddenAuthorTerms(payloadActivity).length > 0) return null;
+  }
+
+  // driver 在真实页面可见时间线取到的文本：同一作者面断言。
+  const authorFeedback = String(uiState.author_exploration_feedback_text ?? "");
+  if (!authorFeedback.includes("已阅读章节正文")) return null;
+  if (!authorFeedback.includes(CHAPTER_FULL_READ_TITLE)) return null;
+  if (!authorFeedback.includes("第 2 章")) return null;
+  if (authorFeedback.includes("第 1 章")) return null;
+  if (chapterFullReadForbiddenAuthorTerms(authorFeedback).length > 0) return null;
+  if (chapterFullReadForbiddenAuthorTerms(String(uiState.author_feedback_text ?? "")).length > 0) {
+    return null;
+  }
+
+  // ── 回复引用末页独有事实（N-NARR 字节引用） ──
+  const replyText = String(uiState.explore_reply_text ?? "");
+  if (!replyText.includes("依据如下")) return null;
+  if (!replyText.includes(CHAPTER_FULL_READ_ENDING_ANCHOR)) return null;
+
+  // ── I-READ-9 模型面：判断 prompt 章节索引含两行同名 + 两个不同 ref ──
+  const promptRecords = Array.isArray(options?.promptRecords) ? options.promptRecords : [];
+  const chapterIndex = promptRecords
+    .map((record) => chapterFullReadIndexEntries(record.prompt))
+    .find((entries) => {
+      const target = entries.find(
+        (entry) => entry.chapter_ref === evidence.chapter_ref && entry.planned === false,
+      );
+      const distractor = entries.find(
+        (entry) => entry.chapter_ref !== evidence.chapter_ref && entry.planned === true,
+      );
+
+      return Boolean(
+        target && target.seq === 2 && distractor && distractor.seq === 1,
+      );
+    });
+  if (!chapterIndex) return null;
+
+  // ── 只读零写（I-READ-4） ──
+  if (uiState.explore_no_pending_artifacts !== true) return null;
+  if (uiState.no_production_write !== true) return null;
+  if (turnRecords.some((record) => record.event === "toolbox.execute.done")) return null;
+  if (
+    turnRecords.some(
+      (record) => record.event === "adoption.evaluate.done" && record.production_write === true,
+    )
+  ) {
+    return null;
+  }
+  // 只对本轮 turn 断言零错误（app JSONL 可能含启动期无关记录）。
+  if (turnRecords.some((record) => String(record.event ?? "").endsWith(".error"))) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "judgment_pages_through_full_chapter_by_unique_chapter_ref",
+    turn_ids: turnIds,
+    explore_turn_id: evidence.explore_turn_id,
+    chapter_title: CHAPTER_FULL_READ_TITLE,
+    chapter_ref: evidence.chapter_ref,
+    chapter_seq: 2,
+    page_ranges: evidence.page_ranges,
+    prose_total_chars: 7000,
+    judgment_explore_count: evidence.judgment_explore_count,
+    author_visible_activity_summaries: [page1.author_summary, page2.author_summary],
+    chapter_index_refs_visible_to_model: chapterIndex.map((entry) => entry.chapter_ref),
+    assertions: [
+      "author_question_asks_for_whole_chapter_review",
+      "judgment_decided_explore_twice_before_reply_on_same_turn",
+      "chapter_index_exposed_chapter_ref_for_both_same_title_chapters",
+      "first_explore_addressed_unique_chapter_ref_with_adopted_prose_not_ambiguous_title",
+      "page_one_covered_chars_1_to_6000_with_plan_summary_budgeted",
+      "page_two_continued_same_chapter_ref_at_offset_6000",
+      "continuation_query_copied_verbatim_from_page_one_footer",
+      "page_coverage_has_no_overlap_and_no_gap",
+      "last_page_has_no_footer_and_null_next_offset",
+      "reply_cites_last_page_only_fact",
+      "author_visible_activity_is_human_readable_seq_and_title",
+      "author_visible_activity_omits_tool_id_ref_uuid_json_offset",
+      "exploration_turn_performed_no_production_write",
+    ],
   };
 }
 

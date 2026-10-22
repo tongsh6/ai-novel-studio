@@ -490,6 +490,9 @@ defmodule NovelApplication.DialoguePlanningService do
 
   # 探索目录段（explore 开放时给判断 prompt）+ 已有观察段（机械渲染，
   # 结构词家族 + 出处 refs——观察正文是检索结果字节，非系统代笔叙述）。
+  # B24 CP2：上一页观察带 next_offset 时补一条续读提示（真实章标题 + 上一页 footer
+  # 的 query），让模型知道可以继续读而不是重复同一页；目录 query 说明由
+  # ExplorationService.catalog_section 单点产出（I-EXPLORE-READ-7）。
   defp exploration_sections(explorations, explore_open?) do
     catalog = if explore_open?, do: "\n\n" <> ExplorationService.catalog_section(), else: ""
 
@@ -506,10 +509,25 @@ defmodule NovelApplication.DialoguePlanningService do
               "### 观察 #{index}（#{observation.tool}「#{observation.query}」）\n#{observation.summary}"
             end)
 
-          "\n\n## 探索观察（已检索到的作品事实）\n\n" <> rendered
+          "\n\n## 探索观察（已检索到的作品事实）\n\n" <> rendered <> continue_hint(list)
       end
 
     catalog <> observations
+  end
+
+  defp continue_hint(explorations) do
+    case List.last(explorations) do
+      observation when is_map(observation) ->
+        if is_integer(Map.get(observation, :next_offset)) do
+          "\n\n（本章还有未读正文：下一轮用 chapter_read + 上一页【续读】给出的 query 继续读取；" <>
+            "不要重复读取同一页。）"
+        else
+          ""
+        end
+
+      _ ->
+        ""
+    end
   end
 
   # Q1c：把 accepted 目标 ref 明确摆到判断上下文里，避免模型在 resolved 列表里猜
@@ -659,9 +677,9 @@ defmodule NovelApplication.DialoguePlanningService do
 
     %{
       author_text: author_text,
-      author_content_context:
-        TurnInteractionService.context_section(context.interaction_state) <>
-          exploration_sections(explorations, false),
+      # B24 CP2（call2 观察重复渲染修复）：探索观察只在 context_block 渲染一次；
+      # 这里只剩消息处置上下文（pending/resolved/registered sources）。
+      author_content_context: TurnInteractionService.context_section(context.interaction_state),
       context_block:
         judgment_context_block(context, author_text) <>
           exploration_sections(explorations, explore_open?) <>
@@ -929,26 +947,30 @@ defmodule NovelApplication.DialoguePlanningService do
           observation
 
         {:error, reason} ->
-          %{tool: tool, query: query, summary: "探索工具执行失败：#{inspect(reason)}", refs: []}
+          %{
+            tool: tool,
+            query: query,
+            summary: "探索工具执行失败：#{inspect(reason)}",
+            refs: [],
+            activity_summary: ExplorationService.activity_failure_summary(tool)
+          }
       end
+
+    # B24 CP2（I-EXPLORE-READ-8）：作者可见活动行用集中人类可读文案——内部工具 id /
+    # 原始 query JSON / offset 只留在 payload/trace/developer 面。
+    activity = ExplorationService.activity_summary(observation)
 
     emit_judgment_stage(
       snapshot,
       :exploration_observed,
-      "已检索 #{tool}「#{query}」。",
+      activity,
       ["exploration_observed", tool],
-      %{
-        stage: :exploration_observed,
-        tool: tool,
-        query: query,
-        refs: observation.refs,
-        summary: observation.summary
-      }
+      exploration_event_payload(tool, query, observation)
     )
 
     {:ok,
      %{
-       step: judgment_agent_step(run, sequence, "探索：#{tool}「#{query}」"),
+       step: judgment_agent_step(run, sequence, activity),
        observations: [
          judgment_observation(
            run,
@@ -964,8 +986,31 @@ defmodule NovelApplication.DialoguePlanningService do
        ],
        stage_state: %{judgment_explorations: explorations ++ [observation]},
        provider_call_count: judgment.provider_call_count,
-       progress_signature: "#{run.run_id}:explore:#{sequence}:#{tool}:#{query}"
+       # B24 CP2（I-EXPLORE-READ-5）：signature 去掉 sequence——同 tool+同 query
+       # （含 offset）才命中 no-progress；不同 offset 的合法续读不误停。
+       progress_signature: "#{run.run_id}:explore:#{tool}:#{query}"
      }}
+  end
+
+  # B24 §1.1(c)：observation 元数据进 developer payload（chapter_ref 供验收独立核对
+  # ref 寻址；作者可见文本只用 activity_summary）。nil 值不写入——wire 的
+  # author-safe payload 会把 atom（含 nil）字符串化，保留 null 会被误读。
+  defp exploration_event_payload(tool, query, observation) do
+    base = %{
+      stage: :exploration_observed,
+      tool: tool,
+      query: query,
+      refs: observation.refs,
+      summary: observation.summary
+    }
+
+    [:chapter_ref, :chapter_seq, :next_offset, :prose_total_chars, :prose_range]
+    |> Enum.reduce(base, fn key, acc ->
+      case Map.get(observation, key) do
+        nil -> acc
+        value -> Map.put(acc, key, value)
+      end
+    end)
   end
 
   # execute/plan：切换到能力 profile（等价旧路由；计划起草→机械 cursor 沿用）。
@@ -1151,14 +1196,13 @@ defmodule NovelApplication.DialoguePlanningService do
   defp judgment_stable_chapters_section(
          %DialogueContext{current_chapters: [_ | _] = chapters} = context
        ) do
-    {listed, omitted} = ChapterListBudget.project(chapters, nil)
-    planned = planned_chapter_titles(context)
-    written_count = length(chapters) - map_size(planned)
+    entries = chapter_index_entries(context, chapters)
+    {listed, omitted} = ChapterListBudget.project_entries(entries, nil)
+    planned_count = Enum.count(entries, &(Map.get(&1, :has_prose) == false))
+    written_count = length(entries) - planned_count
 
-    annotated = annotate_planned_chapters(listed, planned)
-
-    "## 章节列表（共 #{length(chapters)} 章：已写 #{written_count} 章，计划中 #{map_size(planned)} 章）\n" <>
-      ChapterListBudget.render_lines(annotated, omitted, length(chapters)) <>
+    "## 章节列表（共 #{length(entries)} 章：已写 #{written_count} 章，计划中 #{planned_count} 章）\n" <>
+      ChapterListBudget.render_entry_lines(listed, omitted, length(entries)) <>
       "\n（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
   end
 
@@ -1168,49 +1212,84 @@ defmodule NovelApplication.DialoguePlanningService do
          %DialogueContext{current_chapters: [_ | _] = chapters} = context,
          author_text
        ) do
-    {listed, _omitted} = ChapterListBudget.project(chapters, nil)
-    stable = Map.new(listed, &{&1, true})
-    planned = planned_chapter_titles(context)
+    entries = chapter_index_entries(context, chapters)
+    {listed, _omitted} = ChapterListBudget.project_entries(entries, nil)
+    stable_keys = MapSet.new(listed, &entry_key/1)
+
+    named_titles =
+      entries
+      |> Enum.map(&entry_title/1)
+      |> ChapterListBudget.named_chapter_titles(author_text)
+      |> MapSet.new()
 
     supplement =
-      chapters
-      |> ChapterListBudget.named_chapter_titles(author_text)
-      |> Enum.reject(&Map.has_key?(stable, &1))
+      entries
+      |> Enum.filter(&MapSet.member?(named_titles, entry_title(&1)))
+      |> Enum.reject(&MapSet.member?(stable_keys, entry_key(&1)))
 
     case supplement do
       [] ->
         ""
 
-      titles ->
-        annotated = annotate_planned_chapters(titles, planned)
-
+      named_entries ->
         "## 作者点名章（本轮请求涉及；target_chapter 从此段或「章节列表」精确复制全名）\n" <>
-          Enum.map_join(annotated, "\n", &"- #{&1}")
+          ChapterListBudget.render_entry_lines(named_entries, 0, length(entries))
     end
   end
 
   defp judgment_named_chapters_section(_context, _author_text), do: ""
 
-  @spec annotate_planned_chapters([String.t()], map()) :: [String.t()]
-  defp annotate_planned_chapters(titles, planned) do
-    Enum.map(titles, &annotate_planned_chapter(&1, planned))
+  # B24（I-EXPLORE-READ-9 双面身份）：判断 L2 章节索引同时给出 chapter_ref（模型寻址）、
+  # seq（人类序号）与 title（展示）。有 structured_chapters（生产路径）时用其 id/seq；
+  # 手工构造的上下文只有标题时退回旧标题行（不伪造 ref）。
+  defp chapter_index_entries(%DialogueContext{} = context, chapters) when is_list(chapters) do
+    case chapter_index_entries_from_structured(context) do
+      entries when is_list(entries) -> entries
+      _ -> title_chapter_entries(chapters)
+    end
   end
 
-  @spec annotate_planned_chapter(String.t(), map()) :: String.t()
-  defp annotate_planned_chapter(title, planned) do
-    if Map.has_key?(planned, title), do: "#{title}（计划中）", else: title
+  defp chapter_index_entries_from_structured(%DialogueContext{structured_chapters: structured})
+       when is_list(structured) and structured != [] do
+    case structured |> Enum.map(&chapter_index_entry/1) |> Enum.reject(&is_nil/1) do
+      [] -> nil
+      entries -> entries
+    end
   end
 
-  @spec planned_chapter_titles(DialogueContext.t()) :: map()
-  defp planned_chapter_titles(%DialogueContext{structured_chapters: structured})
-       when is_list(structured) do
-    structured
-    |> Enum.reject(&Map.get(&1, :has_prose, false))
-    |> Enum.map(& &1.title)
-    |> Map.new(&{&1, true})
+  defp chapter_index_entries_from_structured(_context), do: nil
+
+  defp chapter_index_entry(chapter) when is_map(chapter) do
+    case Map.get(chapter, :title) do
+      title when is_binary(title) ->
+        if String.trim(title) == "" do
+          nil
+        else
+          %{
+            title: String.trim(title),
+            seq: Map.get(chapter, :seq),
+            id: Map.get(chapter, :id),
+            has_prose: Map.get(chapter, :has_prose, true)
+          }
+        end
+
+      _ ->
+        nil
+    end
   end
 
-  defp planned_chapter_titles(_context), do: %{}
+  defp chapter_index_entry(_chapter), do: nil
+
+  defp title_chapter_entries(chapters) do
+    chapters
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&%{title: String.trim(&1), seq: nil, id: nil, has_prose: true})
+    |> Enum.reject(&(&1.title == ""))
+  end
+
+  defp entry_title(entry), do: Map.get(entry, :title, "")
+
+  defp entry_key(entry), do: {entry_title(entry), Map.get(entry, :seq), Map.get(entry, :id)}
 
   defp judgment_conversation_section(%DialogueContext{conversation_summary: summary})
        when is_binary(summary) and summary != "" do

@@ -1,0 +1,65 @@
+id: judgment-explore-chapter-full-read
+title: 判断循环内部探索翼：长章分页完整读取与末页事实引用
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh judgment-explore-chapter-full-read --surface tauri
+
+contract:
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00B-dialogue-context-grounding-contract-pack.md
+  - docs/design/08-novel-element-model.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/B24-exploration-chapter-full-read.md
+
+invariants:
+  - judgment-decision-precedes-exploration-on-same-turn
+  - chapter-read-pages-cover-full-prose-without-overlap-or-gap
+  - chapter-read-targets-unique-chapter-ref-instead-of-ambiguous-title
+  - further-page-query-consumed-verbatim-from-continuation-footer
+  - reply-cites-last-page-only-fact
+  - no-production-write-during-exploration-turn
+  - author-visible-copy-does-not-leak-internal-tool-id-or-json
+  - author-visible-copy-omits-chapter-ref-and-uuid
+
+setup:
+  seed: scripts/seed_judgment_explore_chapter_full_read.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: 作者怀疑某章正文有重复、要求把全章核对一遍（该章有同名计划章，标题本身不唯一）
+  - verify: 判断循环先判 explore，按判断上下文章节索引里的 chapter_ref 读取第 1 页（第 1–6000 字符）
+  - verify: 观察 footer 给出同 ref 的续读 JSON；下一轮判断逐字复制该 JSON 读取续读页（第 6001–7000 字符）
+  - verify: 末页无续读 footer 后判 reply，回复字节引用只在末页出现的手印事实
+  - verify: 页面运行反馈出现人类可读「已阅读章节正文」「第 1 章」，不含内部工具 id / chapter_ref / UUID / JSON / offset
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_calls
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/judgment-explore-chapter-full-read-tauri
+
+assertions:
+  ui:
+    - 运行反馈出现「已阅读章节正文」与「第 1 章」等人类可读文案
+    - 作者可见文本不含 chapter_read / chapter_ref / chapter:<uuid> / {"chapter / offset 等内部形态
+    - 回复包含「依据如下」并引用末页独有手印事实
+  network:
+    - 同一真实 turn 内出现两次 exploration_observed（首页 + 续读页）
+    - 首页 footer 与第二次 explore query 逐字节一致（同一 chapter_ref、offset=6000）
+    - 判断 prompt 的章节索引含 [chapter_ref=chapter:<uuid>]（模型面可见 ref 的外部证据）
+  data:
+    - 页范围 1–6000 / 6001–7000 首尾相接、无重叠无缺口；末页 next_offset 为空且无 footer
+    - 目标章正文单页 6000 字符不被设计态材料挤占（【计划】≤500 /【摘要】≤400）
+    - judgment_explore_count=2，adoption_state.pending=[]，无 production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

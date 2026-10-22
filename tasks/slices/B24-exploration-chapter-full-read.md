@@ -2,7 +2,7 @@
 
 > ⚠️ **契约变更通知（2026-10-23 01:09 CST，commit `d817f67e`）**：本 slice 的章节身份已从「按标题寻址」修订为 **`chapter_ref = "chapter:<chapters.id>"` 唯一寻址**（见 §1.1(a)）。若你正在实现旧契约（JSON `{"chapter":...}`、`find_chapter` first-match、标题身份测试），**请先停止并重读 §1.1 / §6 / §7**；旧实现不得提交。写入/采纳链 title 身份统一归 follow-up（候选 B25），不在本 slice 范围。
 
-**状态**：**registered（2026-10-23 作者定向开档；CP0 契约冻结 = 本文档 §1.1，CP1+ 待开工）**。
+**状态**：**done（2026-10-23，CP0–CP4 全落；新真实 Tauri 场景 + 两回归 PASS；全门禁绿）**。
 **来源**：2026-10-23 00:17 stage 真实会话（turn `message_ce1b5c9f-3d15-4cc7-8b49-ff8b22f585e4` / run `run_mvjquwek_9`）中，作者要求「审核第一章内容，我发现有重复的」，AI 回复「当前我能看到第一章的开头、摘要和部分正文，但可见正文被截断，不能完整核对全章重复」。作者判定这是产品侧读取路径缺口，定向「方案 A 开一个 slice」。
 **关联既有 slice**：`UA01-judgment-driven-loop.md`（CP5a/CP5b 探索内部翼：工具目录、观察渲染、回合硬上限 2、clip 1500 的来源）；`UA01-agentic-loop-prompt-hardening.md`（判断 prompt 资产 / VS-00I 前缀稳定性，本 slice 改动目录与观察文本须复跑 I-CACHE-1）；`B23-awaiting-author-reason-and-exit-surface.md`（同 stage 诊断先例；不改变其停等/出口语义）；`P1-word-count-audit.md`（**方案 B** 确定性重复段/重复章检测归其 checkpoint B，本 slice 明确不做，只解读取能力）。
 **设计真源**：`docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md` §决策范围 #3 / §3 内部翼（**「工具与索引细节由 slice 冻结」**）、`docs/design/08-novel-element-model.md` §8 探索面同步律、`docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md`（AgentRun / AgentStep / observation）、`docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md`（prompt 前缀稳定）、`docs/design/ui/46-state-and-feedback.md` §9（活动行文案）。
@@ -158,10 +158,10 @@
 | CP | 内容 | 闭环覆盖 / 距闭环还缺 | 证明 | 状态 |
 |---|---|---|---|---|
 | **CP0 契约冻结** | 本文档 §1.1 冻结观察 v2（query/预算/续读/回合+进度/作者可见文案/非目标）；§6 决策按建议默认，作者可翻案 | 解 F2/F3；契约先于代码 | 本文档 + 决策日志 | **done（2026-10-23 开档冻结；开工授权即按建议默认执行）** |
-| **CP1 读取契约实现** | `ExplorationService`：`chapter_read` 解析 `chapter_ref`（唯一）/`chapter_seq`（唯一别名）/title（旧兼容、唯一命中）三路寻址，**歧义列候选 ref、禁止 first-match**；分段预算、页切分/范围/next_offset/footer（footer 用同 ref）、参数错误诚实观察；`catalog` 改为「优先复制 chapter_ref」；其它工具预算不变 | 解 F2/F3 的读取侧 + 唯一身份寻址；尚未接判断循环行为 | `exploration_service_test` 新矩阵：短章一页全文、6001+ 两页覆盖、段落边界/硬切、offset 越界/末尾/非法、计划/摘要再长正文仍 ≥6000、**重复标题→title 查询歧义列 ref、按 ref 读取正确章**、**重复 seq 同理**、按 ref 分页无重叠无缺口、旧纯标题唯一命中兼容、只读零写；旧三态断言零回归 | todo |
-| **CP2 循环与提示接入** | `DialoguePlanningService`：目录/续读提示（ref-first）、progress signature 去重、observation 可选键进事件 payload；**判断 L2 章节索引渲染 ref+seq+title**；`AgenticPlanDraftPlanner` 计划章节段同批渲染 ref（明确 ref 仅探索步用；target_chapter 仍复制标题）；`ContextAssembler`/`WorkspaceContext` 读端口 additively 透传 `chapters.id`；`JudgmentPlan` 计划内探索 signature 对齐；**作者可见 `exploration_observed` summary 改用集中人类可读标签（I-READ-8，工具 id/ref/UUID/JSON 不进作者面）**；顺带修 call2 `author_content_context` 与 `context_block` 重复渲染观察 | 解 F3/F4 的行为面 + 唯一身份可寻址 + 作者可见措辞 | `judgment_exploration_loop_test`：page1→page2 续读不触发 no-progress、最终 reply 引用末页独有事实；重复同页 → no_progress 停等；**章节列表含 chapter_ref、author 事件 summary 含「第 N 章「title」」且不含 `chapter_read`/`chapter:`/UUID/`{"`/`offset`**；`judgment_protocol_test` 目录文本；现有 explore→reply 场景回归；I-CACHE-1 | todo |
-| **CP3 真实页面场景** | 新场景 `judgment-explore-chapter-full-read`：seed **两章同名标题**（重复 title）+ 目标章正文 >6000 字符 + 首/末页独有锚点；外部 driver 从真实 Tauri 工作台输入作者式审核请求；替身从章节索引取目标章 `chapter_ref` 做两页探索并回复引用末页事实；verifier 断言按 ref 页序/范围/next_offset/末页事实/零写入/**页面可见文案 `第 N 章「title」` 且不含 ref/UUID/内部工具 id/JSON**；manifest 注册（`quality/acceptance/scenarios.yml` + scenario yml + `tauri_slice_verify.sh` 注册/seed） | 全部 1–3、7–9 与 4 的外部自动化证明（对话主链，不新增 UI） | `scripts/quality_accept.sh judgment-explore-chapter-full-read --surface tauri` PASS；`artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/`（截图 / ws 帧 / app JSONL / summary.json） | todo |
-| **CP4 回归与收口** | 既有 `judgment-explore-chapter-plan` 确定性回归（driver 断言随文案/章节索引更新）；`p1-chapter-adoption-reading`（正文读取/回填不被影响）；后端全量 + compile/format/credo/dialyzer/xref/arch/adr_trace/static scan；前端 verifier 测试；I1/I2/I3/N-NARR/I-CACHE-1；slice/NEXT/ledger/journey 收口；follow-up 身份统一 slice 登记 | 完整闭环；§7 gap 诚实登记 | 门禁命令清单见 §5；证据路径入档 | todo |
+| **CP1 读取契约实现** | `ExplorationService`：`chapter_read` 解析 `chapter_ref`（唯一）/`chapter_seq`（唯一别名）/title（旧兼容、唯一命中）三路寻址，**歧义列候选 ref、禁止 first-match**；分段预算、页切分/范围/next_offset/footer（footer 用同 ref）、参数错误诚实观察；`catalog` 改为「优先复制 chapter_ref」；其它工具预算不变 | 解 F2/F3 的读取侧 + 唯一身份寻址；尚未接判断循环行为 | `exploration_service_test` 新矩阵：短章一页全文、6001+ 两页覆盖、段落边界/硬切、offset 越界/末尾/非法、计划/摘要再长正文仍 ≥6000、**重复标题→title 查询歧义列 ref、按 ref 读取正确章**、**重复 seq 同理**、按 ref 分页无重叠无缺口、旧纯标题唯一命中兼容、只读零写；旧三态断言零回归 | **done（2026-10-23：三路寻址/歧义/续读/预算矩阵；`exploration_service_test` 22 例绿）** |
+| **CP2 循环与提示接入** | `DialoguePlanningService`：目录/续读提示（ref-first）、progress signature 去重、observation 可选键进事件 payload；**判断 L2 章节索引渲染 ref+seq+title**；`AgenticPlanDraftPlanner` 计划章节段同批渲染 ref（明确 ref 仅探索步用；target_chapter 仍复制标题）；`ContextAssembler`/`WorkspaceContext` 读端口 additively 透传 `chapters.id`；`JudgmentPlan` 计划内探索 signature 对齐；**作者可见 `exploration_observed` summary 改用集中人类可读标签（I-READ-8，工具 id/ref/UUID/JSON 不进作者面）**；顺带修 call2 `author_content_context` 与 `context_block` 重复渲染观察 | 解 F3/F4 的行为面 + 唯一身份可寻址 + 作者可见措辞 | `judgment_exploration_loop_test`：page1→page2 续读不触发 no-progress、最终 reply 引用末页独有事实；重复同页 → no_progress 停等；**章节列表含 chapter_ref、author 事件 summary 含「第 N 章「title」」且不含 `chapter_read`/`chapter:`/UUID/`{"`/`offset`**；`judgment_protocol_test` 目录文本；现有 explore→reply 场景回归；I-CACHE-1 | **done（2026-10-23：章节索引 ref/计划段/文案/signature/call2 去重；flow 测试绿；I-CACHE-1 绿）** |
+| **CP3 真实页面场景** | 新场景 `judgment-explore-chapter-full-read`：seed **两章同名标题**（重复 title）+ 目标章正文 >6000 字符 + 首/末页独有锚点；外部 driver 从真实 Tauri 工作台输入作者式审核请求；替身从章节索引取目标章 `chapter_ref` 做两页探索并回复引用末页事实；verifier 断言按 ref 页序/范围/next_offset/末页事实/零写入/**页面可见文案 `第 N 章「title」` 且不含 ref/UUID/内部工具 id/JSON**；manifest 注册（`quality/acceptance/scenarios.yml` + scenario yml + `tauri_slice_verify.sh` 注册/seed） | 全部 1–3、7–9 与 4 的外部自动化证明（对话主链，不新增 UI） | `scripts/quality_accept.sh judgment-explore-chapter-full-read --surface tauri` PASS；`artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/`（截图 / ws 帧 / app JSONL / summary.json） | **done（2026-10-23，真实 Tauri PASS）** |
+| **CP4 回归与收口** | 既有 `judgment-explore-chapter-plan` 确定性回归（driver 断言随文案/章节索引更新）；`p1-chapter-adoption-reading`（正文读取/回填不被影响）；后端全量 + compile/format/credo/dialyzer/xref/arch/adr_trace/static scan；前端 verifier 测试；I1/I2/I3/N-NARR/I-CACHE-1；slice/NEXT/ledger/journey 收口；follow-up 身份统一 slice 登记 | 完整闭环；§7 gap 诚实登记 | 门禁命令清单见 §5；证据路径入档 | **done（2026-10-23，全门禁绿；见 §8）** |
 
 **依赖**：CP0 → CP1 → CP2 → CP3 → CP4。CP1/CP2 可同批开发但分开自测；CP3 依赖 CP1+CP2 的观察形状稳定后一次成型（避免 driver/verifier 反复改口径）。
 
@@ -186,18 +186,18 @@
 | # | 任务 | 所属 CP | 状态 |
 |---|---|---|---|
 | T1 | 冻结观察合同 v2 与 §6 决策（含唯一编码寻址与作者可见文案） | CP0 | done |
-| T2 | `chapter_read` 三路寻址解析（`chapter_ref` 唯一 / `chapter_seq` 唯一别名 / title 旧兼容唯一命中）、歧义列候选、分段预算、页切分、范围与 next_offset/footer（同 ref） | CP1 | todo |
-| T3 | `chapter_read` 参数错误 / 越界 / 末尾 / 无已采纳正文 / 重复标题/seq 歧义的诚实观察 | CP1 | todo |
-| T4 | `ExplorationService.catalog` 与 `AgenticPlanDraftPlanner` 计划步目录更新（ref-first + 续读语法；不写死任何章名格式） | CP1/CP2 | todo |
-| T5 | 循环 explore 目录/续读提示 + progress signature（判断循环 + 计划内） | CP2 | todo |
-| T6 | call2 观察重复渲染修复（`author_content_context` 去重） | CP2 | todo |
-| T7 | 作者可见活动文案集中映射（章节用 `第 N 章「title」`；工具 id/ref/UUID/JSON 不进作者面），判断循环/计划 flow 共用 | CP2 | todo |
-| T8 | **章节索引 ref 暴露**：`WorkspaceContext`/`ContextAssembler` 透传 `id`；判断 L2 与计划章节段渲染 `[chapter_ref=...]`，并明示 ref 只供探索寻址（target_chapter 仍复制标题） | CP2 | todo |
-| T9 | `exploration_service_test` 页覆盖/预算优先级矩阵（I-READ-2 + 重复标题/重复 seq/按 ref 分页/旧唯一标题兼容） | CP1 | todo |
-| T10 | `judgment_exploration_loop_test` 续读/重复页 no-progress/末页事实回复/章节索引含 ref/author summary 无内部标识 | CP2 | todo |
-| T11 | 新 seed（**两章同名标题** + 非编号标题目标章）+ 替身按 ref 分页探索 + driver/verifier（含作者可见文案与无 ref/UUID 断言）+ manifest/注册 | CP3 | todo |
-| T12 | 真实 Tauri 场景 PASS + `judgment-explore-chapter-plan`（断言更新） / `p1-chapter-adoption-reading` 回归 | CP3/CP4 | todo |
-| T13 | 全门禁 + 不变量 + 静态扫描 + 文档收口 + follow-up slice 登记 | CP4 | todo |
+| T2 | `chapter_read` 三路寻址解析（`chapter_ref` 唯一 / `chapter_seq` 唯一别名 / title 旧兼容唯一命中）、歧义列候选、分段预算、页切分、范围与 next_offset/footer（同 ref） | CP1 | done |
+| T3 | `chapter_read` 参数错误 / 越界 / 末尾 / 无已采纳正文 / 重复标题/seq 歧义的诚实观察 | CP1 | done |
+| T4 | `ExplorationService.catalog` 与 `AgenticPlanDraftPlanner` 计划步目录更新（ref-first + 续读语法；不写死任何章名格式） | CP1/CP2 | done |
+| T5 | 循环 explore 目录/续读提示 + progress signature（判断循环 + 计划内） | CP2 | done |
+| T6 | call2 观察重复渲染修复（`author_content_context` 去重） | CP2 | done |
+| T7 | 作者可见活动文案集中映射（章节用 `第 N 章「title」`；工具 id/ref/UUID/JSON 不进作者面），判断循环/计划 flow 共用 | CP2 | done |
+| T8 | **章节索引 ref 暴露**：`WorkspaceContext`/`ContextAssembler` 透传 `id`；判断 L2 与计划章节段渲染 `[chapter_ref=...]`，并明示 ref 只供探索寻址（target_chapter 仍复制标题） | CP2 | done |
+| T9 | `exploration_service_test` 页覆盖/预算优先级矩阵（I-READ-2 + 重复标题/重复 seq/按 ref 分页/旧唯一标题兼容） | CP1 | done |
+| T10 | `judgment_exploration_loop_test` 续读/重复页 no-progress/末页事实回复/章节索引含 ref/author summary 无内部标识 | CP2 | done |
+| T11 | 新 seed（**两章同名标题** + 非编号标题目标章）+ 替身按 ref 分页探索 + driver/verifier（含作者可见文案与无 ref/UUID 断言）+ manifest/注册 | CP3 | done（2026-10-23，两章同名 seed + 真实 Tauri PASS） |
+| T12 | 真实 Tauri 场景 PASS + `judgment-explore-chapter-plan`（断言更新） / `p1-chapter-adoption-reading` 回归 | CP3/CP4 | done（2026-10-23，三场景真实 Tauri PASS） |
+| T13 | 全门禁 + 不变量 + 静态扫描 + 文档收口 + follow-up slice 登记 | CP4 | done（2026-10-23） |
 
 ## 5. 验证
 
@@ -244,6 +244,7 @@ bash scripts/ai_static_scan.sh --top 10
 
 ## 6. 决策日志
 
+- **2026-10-23 B24 收口（CP1–CP4 全落，作者两次纠偏后的最终契约）**：CP1 `ExplorationService.chapter_read` 观察 v2——三路寻址（`chapter_ref=chapter:<chapters.id>` 唯一 / `chapter_seq` work 内唯一别名 / title 旧兼容唯一命中，歧义列候选 ref、禁止 first-match）、分段预算（【计划】≤500 /【摘要】≤400 / 正文单页 6000，段内「…（略）」截断、整条 ≤7200）、段落边界优先切页 + 范围/总数/`next_offset`/续读 footer（复用同 ref）、参数/越界/末尾/无正文诚实观察、作者可见 `activity_summary` 集中映射（`第 N 章「title」`，无工具 id/ref/UUID/JSON/offset）。CP2——判断 L2 与计划章节段渲染 `- 第 N 章「title」[chapter_ref=chapter:<uuid>]`（`WorkspaceContext`/`ContextAssembler` 只读 additive 透传 id + 新 `chapter_index_reader` 读端口）、catalog/计划步目录 ref-first + 续读说明、progress signature 去 sequence（同页重复命中 no-progress、合法续读不误停）、call2 观察重复渲染去重、`exploration_observed` 事件 payload 带 ref/offset 元数据（nil 不写入，避免 wire author-safe payload 把 nil 字符串化）。CP3——新场景 `judgment-explore-chapter-full-read`（seed 两章同名「灰烬中的手印」：A seq1 计划中干扰项、B seq2 7000 字符目标章 + 首/末页独有锚点 + 超长计划/摘要；外部 Playwright 驱动真实 Tauri 工作台）**PASS**：判断从模型可见索引取 B 的 `chapter_ref` → 两页 1–6000 / 6001–7000 → 逐字抄 footer JSON → reply 引用末页独有事实 → 零写入；作者可见时间线为「已阅读章节正文「灰烬中的手印」（第 2 章）…」，无内部形态。CP4——`judgment-explore-chapter-plan`（driver 断言随文案更新）、`p1-chapter-adoption-reading` 两回归真实 Tauri PASS；后端全量、frontend 566/0、全门禁绿；`task_done` 证据入档。
 - **2026-10-23 开档（作者定向「方案 A 开一个 slice」）**：只读侦察确认根因 = 探索观察 1500 预算被设计态材料挤占（正文 4.9%）+ 无续读 + 探索回合 2；AI 两次拿到逐字节相同观察后被迫诚实回复。本 slice 冻结 `chapter_read` 观察 v2（分段预算/续读/进度语义），不做确定性重复审计（方案 B 归 `P1-word-count-audit` checkpoint B），不放宽回合硬上限。
 - **2026-10-23 开档后作者纠偏（第一轮，D5 修订）**：①D3 原示例 `"第01章"` 把某部作品的章名格式当成通用契约，**错**——作品章名可为「恐惧体验」「午夜来电」等任意标题；第一轮改为「作品 TOC 真实章标题，原样复制」，匹配精确优先 + 既有子串回退，catalog/提示/测试不得硬编码编号格式。②`chapter_read` 是内部工具名，**不适合让作者看到**——原活动行「已检索 chapter_read「…」。」与 JSON query 都会把内部实现泄漏到作者面；改为集中人类可读文案，工具 id/offset 只留 developer payload/trace，并进验收断言（I-READ-8）。
 - **2026-10-23 作者二次纠偏（身份模型，取代第一轮的标题寻址）**：作者指出「章节名会重复，哪怕加再多前提条件都可能重复」；只读核查确认 `chapters.id` 是 DB 唯一 UUID，`chapters.seq` 只是代码意图 work 内唯一（DB 无唯一约束），而探索/采纳/写作多处仍以 `(work_id, title)` 当身份（`find_or_create_chapter`/`ensure_planned_chapter`/`has_accepted_chapter?`/`accepted_chapter_prose`/`resolve_target_chapter`）；探索 `refs` 里已有 `chapter:<uuid>` 但模型看不到。修订：**唯一寻址改为 `chapter_ref = "chapter:<chapters.id>"`**；seq 仅作唯一命中别名，title 仅旧兼容且必须唯一命中（歧义列候选 ref，禁止 first-match）；判断/计划章节索引同批暴露 ref；作者面只用 `第 N 章「title」`（不出现 UUID/ref）；写入/采纳链 title 身份统一拆 follow-up slice（候选 `B25-chapter-identity-unification`，不在 B24 冒充解决）。
@@ -265,3 +266,21 @@ bash scripts/ai_static_scan.sh --top 10
 5. **真实模型是否遵守续读提示**：CP3 用确定性替身证明机制与主链；弱模型是否在真实会话中主动续读，归狗粮观察（与 C11/判断循环调参同批）。
 6. **模型自述回复中的内部工具名**：本 slice 只保证系统生成的 activity / 事件文案不暴露内部工具 id/ref（I-READ-8）；模型回复正文仍受 N-NARR 字节绑定，不篡改、不后处理。若真实模型把 `chapter_read` 等写进回复，另立 prompt 引导 / 文案守卫评估（不阻塞本 slice）。
 7. **真实模型是否按 ref 寻址**：catalog/章节索引说明 + 确定性替身可证明机制；弱模型是否优先复制 `chapter_ref`、不用标题猜，归狗粮观察；旧标题唯一命中兜底仍在。
+
+## 8. 收口记录（2026-10-23）
+
+**结果**：CP0–CP4 全部完成；`tasks/NEXT.md` 队首 B24 转 done、B23-FOLLOWUP 接队首；`docs/product/user-journeys.md` C12 转 closed；`docs/project-ledger.md` 与 `tasks/slices/README.md` 同步。
+
+**真实页面验收（外部自动化驱动真实 Tauri 工作台）**
+
+| 场景 | 结果 | 证据 |
+|---|---|---|
+| `judgment-explore-chapter-full-read`（新） | PASS | `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json`（turn `message_…`、`chapter_ref`、页范围 `[1,6000]/[6001,7000]`、两页作者可见 summary、`judgment_explore_count=2`、`judgment_reply_count=1`、零写入）+ 截图 / ui-frames / exploration-frames / judgment-prompts / llm-calls / app JSONL |
+| `judgment-explore-chapter-plan`（回归，断言随文案更新） | PASS | `artifacts/slice-verify/judgment-explore-chapter-plan-tauri/summary.json` |
+| `p1-chapter-adoption-reading`（正文读取/采纳回归） | PASS | `artifacts/slice-verify/p1-chapter-adoption-reading-tauri/summary.json` |
+
+**门禁**：`mix compile --warnings-as-errors` / `mix format --check-formatted` / `mix credo --strict`（0）/ `mix dialyzer`（0）/ xref 无环 / arch / `adr_trace 27/27` / `quality_manifest_check` passed / 后端全量 / 前端 typecheck+lint+566 tests / frontend_audit 27 / design trace 16 / I1·I2·I3·N-NARR·I-CACHE-1 / 静态扫描 0 blocking（task-done manifest 由 `scripts/task_done.sh --slice judgment-explore-chapter-full-read` 生成）。
+
+**单元/集成测试矩阵**：`exploration_service_test` 22 例（短章一页、两页覆盖、段落边界/硬切、offset 越界/末尾/非法、计划摘要再长正文仍 6000、ref/seq/title 三路寻址、重复标题/重复 seq 歧义列候选、只读零写、活动文案无内部形态、章索引带 ref）；`judgment_exploration_loop_test` 7 例（page1→page2 续读、末页事实 reply、章节索引 ref 双面身份、同页重复同签名/不同 offset 不同签名）；`agentic_plan_draft_planner_test` +2（计划章节段 ref、`chapter_index_reader` 注入）。
+
+**诚实边界（§7）**：写入/采纳链 title 身份统一、`seq` 唯一约束/数据审计、`ChapterMissionRepo` 口径统一仍归 follow-up slice（候选 `B25-chapter-identity-unification`）；超长章 >12k、3 章以上批量、provider 自适应观察预算、真实弱模型是否主动续读/按 ref 寻址均登记 gap。

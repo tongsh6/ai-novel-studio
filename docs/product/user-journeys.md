@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-23（B24 探索面全章可读开档：chapter_read 分段预算 + 续读；C12 为 next。此前：B23 停等理由与出口可见收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；历史证据保留版本边界）
+> 最后更新：2026-10-23（B24 探索面全章可读收口：chapter_read 分段预算 + `chapter_ref` 续读；C12 closed。此前：B23 停等理由与出口可见收口；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；VS-00I 已 **Frozen**，AB-RESUME 收口、剩余增量挂账；历史证据保留版本边界）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -182,13 +182,13 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C10（C7 继续补矩阵）。
 
-Current Breakpoint：C9 / BIZ-01–05 已闭环；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；AB-RESUME 已收口、VS-00I 已 Frozen；Q2/Anthropic 等冻结后增量挂账。**2026-10-23 作者定向 B24：判断循环探索面读全章（`chapter_read` 分段预算 + JSON offset 续读）开档，C12 为 next。** C11 性能仍为观察项。
+Current Breakpoint：C9 / BIZ-01–05 已闭环；C10 / BIZ-06 已闭环；D5 / Q1c 已收口；AB-RESUME 已收口、VS-00I 已 Frozen；Q2/Anthropic 等冻结后增量挂账。**2026-10-23 B24 收口：判断循环探索面可读完整章（`chapter_read` 分段预算 + `chapter_ref` 续读），C12 closed（真实 Tauri PASS）。** C11 性能仍为观察项。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
 Current Proof：`q3d-message-outcome-roundtrip --surface tauri` 已证明只读结果回填、原文分轮引用、输入/结果刷新恢复、重复候选保护和真实采纳状态追问；使用确定性 provider。原 Q3c 同消息路径同时回归通过。
 
-Next Proof（B24 / C12）：`judgment-explore-chapter-full-read`（计划新增）由外部自动化驱动真实 Tauri 工作台：作者式审核请求 → 判断 explore → 从章节索引取 `chapter_ref`（`chapter:<chapters.id>`）→ 两页续读（范围/next_offset 机械可见）→ 回复引用仅末页存在的正文事实 → 零写入；**章节身份用 DB 唯一 `chapter_ref`，title/seq 只在唯一命中时作别名（歧义列候选，禁止 first-match）；作者可见文案人类可读（`第 N 章「title」`，不出现 `chapter_read`/ref/UUID/JSON/offset）**；另跑 `judgment-explore-chapter-plan`（断言随文案/索引更新）/ `p1-chapter-adoption-reading` 回归。证据要求 `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json` + 截图/WS 帧/app JSONL。
+Current Proof（B24 / C12，2026-10-23 PASS）：`judgment-explore-chapter-full-read` 由外部 Playwright 驱动真实 Tauri 工作台：作者式审核请求 → 判断 explore → 从模型可见章节索引复制目标章 `chapter_ref`（`chapter:<chapters.id>`）→ 两页续读（1–6000 / 6001–7000，`next_offset=6000` 后末页为空）→ 逐字复制 footer JSON 续读 → 回复引用仅末页存在的正文事实 → 零写入；seed 两章同名标题，证明 ref 消歧（干扰章带（计划中））；作者可见时间线为「已阅读章节正文「灰烬中的手印」（第 2 章）…」，不出现 `chapter_read`/ref/UUID/JSON/offset。`judgment-explore-chapter-plan`（断言随文案更新）与 `p1-chapter-adoption-reading` 回归真实 Tauri PASS。证据 `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json` + 截图/WS 帧/llm-calls/app JSONL。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -203,7 +203,8 @@ Next Proof（B24 / C12）：`judgment-explore-chapter-full-read`（计划新增�
 | C9 | 输入可靠留存，作者约束、候选语义与动作后果一致 | Q3d / ADR-0027 | Interaction / AgentRun / TurnResult / Adoption | closed（BIZ-01–05） | 真实页面正反例 + Flash Next Q2 实模 | `tasks/slices/Q3D-message-outcome-roundtrip.md`；审计 notes §10 | 仅记录无候选，流程建议不产生方向动作；历史权限、正常方向讨论/选择、真实产物三类操作均已验证。 |
 | C10 | 真实模型理解采纳事实并正确引导已有对象的后续处理 | Q1b / Q3d / DS02 | Interaction / Judgment / Adoption | closed（BIZ-06） | 三项页面专项；十轮数据链与最终四轮实模语义复验 | `tasks/slices/Q1B-live-archive-recheck.md`；`artifacts/project-analysis/biz6-context-semantic-review.json` | 上下文指代进入实际修订，原稿保留，新稿需采纳；放弃回执、版本登记和编辑后状态一致。已采纳内容的变更另归 D5。 |
 | C11 | 在合理等待内得到与模型叙事一致的结构化判断 | UA01-CALL2 / ADR-0025 | JudgmentProtocol / ProviderRun / MBC | 观察项 | 实模慢调用证据，待量化 | `tasks/slices/UA01-judgment-structured-call-reliability.md`；`tasks/NEXT.md` UA01-CALL2 | Q1b 存档 call2 537 秒、13,646 reasoning tokens；用户要求优先修业务正确性；参数对照停止，性能后续再评估。 |
-| C12 | 判断循环内部探索能读到完整章并据此答复（不再「可见正文被截断」） | B24-EXPLORATION-CHAPTER-FULL-READ / ADR-0025 | ExplorationService observation / Judgment / AgentRun | **next（2026-10-23 作者定向开档；CP0 done，CP1+ 待开工）** | 局部 unit（计划）+ 真实 Tauri automation（计划） | `tasks/slices/B24-exploration-chapter-full-read.md`；`tasks/NEXT.md` B24 行；计划场景 `judgment-explore-chapter-full-read` | `chapter_read` 观察 v2：【计划】≤500 /【摘要】≤400 / 正文单页 6000、短章一次全文；**唯一寻址 `chapter_ref = chapter:<chapters.id>`（DB 唯一、改名稳定）；seq 仅唯一别名、title 仅旧兼容且歧义列候选**；JSON `{"chapter_ref","offset"}` 续读 + `next_offset`/范围/footer（同 ref）；判断/计划章节索引同批暴露 ref；**作者可见 activity `第 N 章「title」`、不暴露内部工具 id/ref/UUID/JSON（I-READ-8/9）**；explore progress signature 去 sequence（同页重复命中 no-progress、合法续读不误停）；call2 观察重复渲染修复。写入/采纳链 title 身份统一归 follow-up（B25 候选）；超长章（>12k）/3 章以上批量/观察预算档位化登记 gap；确定性重复检测（方案 B）归 `P1-word-count-audit` checkpoint B。 |
+| C12 | 判断循环内部探索能读到完整章并据此答复（不再「可见正文被截断」） | B24-EXPLORATION-CHAPTER-FULL-READ / ADR-0025 | ExplorationService observation / Judgment / AgentRun | **closed（2026-10-23，真实 Tauri PASS）** | 单元矩阵 + 真实 Tauri automation | `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json`；`tasks/slices/B24-exploration-chapter-full-read.md` §8；`tasks/NEXT.md` B24 行 | `chapter_read` 观察 v2：【计划】≤500 /【摘要】≤400 / 正文单页 6000、短章一次全文；**唯一寻址 `chapter_ref = chapter:<chapters.id>`（DB 唯一、改名稳定）；seq 仅唯一别名、title 仅旧兼容且歧义列候选**；JSON `{"chapter_ref","offset"}` 续读 + `next_offset`/范围/footer（同 ref）；判断/计划章节索引同批暴露 ref；**作者可见 activity `第 N 章「title」`、不暴露内部工具 id/ref/UUID/JSON（I-READ-8/9）**；explore progress signature 去 sequence（同页重复命中 no-progress、合法续读不误停）；call2 观察重复渲染修复。写入/采纳链 title 身份统一归 follow-up（B25 候选）；超长章（>12k）/3 章以上批量/观察预算档位化登记 gap；确定性重复检测（方案 B）归 `P1-word-count-audit` checkpoint B。 |
+| C13 | 判断循环重复读取同一处仍无新信息时，诚实停下等作者而不是空转 | B23-FOLLOWUP-NOPROGRESS / ADR-0025 | AgentRun progress signature / awaiting_author 出口 | **next（2026-10-23，B24 收口后开档）** | 确定性 Tauri automation（计划） | `tasks/NEXT.md` B23-FOLLOWUP-NOPROGRESS 行；`quality/acceptance/scenarios/agent-no-progress-stop.yml` | 同 tool+同 query（含 offset）重复观察命中既有 `apply_progress_signature` no_progress 停等（B24 CP2 已去 sequence）；真实 Tauri 场景按判断纪元语义重写（两次同页探索 → awaiting_author + reason_codes 含 no_progress、零最终 TurnResult/零写入）；同步修正 B23 slice §6 与 NEXT 三处「该场景 PASS」台账不一致 |
 
 ---
 
@@ -459,7 +460,7 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 |---|---|---|---:|---|---|
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
 | B 作品与上下文 | B1-B12 CP1 | AU12 CP2/CP3 后续 | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
-| C 自然对话与探索 | C1-C10（C7 继续补矩阵） | C12 探索面全章可读（B24 next） | 1 | Tauri | watch |
+| C 自然对话与探索 | C1-C12（C7 继续补矩阵） | C13 判断循环 no-progress 停等口径（B23-FOLLOWUP next） | 1（C12 已闭环） | Tauri | watch |
 | D 创作生命周期 | D1-D3 + P1 长篇主链 checkpoint + VS-00C CP5 | creative-quality / maintenance 后续 | 多个 | Tauri + tests | closed-prefix |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
 | F 草稿与采纳 | F1-F8 checkpoint | revision/state trace completeness | 多个 P0 | Tauri | watch |
@@ -471,10 +472,10 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 当前推进锁定：
 
 ```text
-Current Focus: 判断循环探索面全章可读（B24）：chapter_read 分段预算 + JSON offset 续读
-Current Journey: Journey C（自然创作对话与探索），同时引用 Journey J 的工作台证据
-Current Breakpoint: C12 / B24-EXPLORATION-CHAPTER-FULL-READ
-Next Task: B24-EXPLORATION-CHAPTER-FULL-READ
+Current Focus: B 轨债务（B23-FOLLOWUP-NOPROGRESS 场景校准 → B13B-FOLLOWUP 12 项小修）；B24 已收口
+Current Journey: Journey C（自然创作对话与探索）C12 已闭环；Journey J 工作台证据继续引用
+Current Breakpoint: C12 / B24 已 closed；主线候选取自 MAINLINE-RESET-3（deferred）
+Next Task: B23-FOLLOWUP-NOPROGRESS
 ```
 
 ---
@@ -501,18 +502,18 @@ Next Task: B24-EXPLORATION-CHAPTER-FULL-READ
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: 判断循环探索面全章可读（B24；CP0 契约冻结 done，CP1+ 待开工）
+Current Focus: B 轨债务（B23-FOLLOWUP-NOPROGRESS）；B24 全章可读已收口
 Active Journey: Journey C（自然创作对话与探索）
-Queue head: B24-EXPLORATION-CHAPTER-FULL-READ
+Queue head: B23-FOLLOWUP-NOPROGRESS
 ```
 
 本文对应位置：
 
 ```text
 Journey C / 自然创作对话与探索
-Step: C12 / B24-EXPLORATION-CHAPTER-FULL-READ
-Status: next（2026-10-23 作者定向开档）
-Gap / Next: 冻结 chapter_read 观察 v2（分段预算 + JSON offset 续读 + 进度语义），CP3 新真实 Tauri 场景 `judgment-explore-chapter-full-read` 证明两页探索/末页事实引用/零写入；超长章（>12k）、3 章以上批量、观察预算档位化登记 gap；确定性重复检测（方案 B）归 `P1-word-count-audit` checkpoint B。MAINLINE-RESET-3 已转 deferred，B24 完成后恢复。
+Step: C12 / B24-EXPLORATION-CHAPTER-FULL-READ（closed 2026-10-23）
+Status: closed（真实 Tauri PASS；`artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json`）
+Gap / Next: chapter_read 观察 v2（`chapter_ref` 唯一寻址 + 分段预算 + 续读 footer）已落地并真实页面验证；写入/采纳链 title 身份统一/seq 唯一约束归 follow-up `B25` 候选；超长章（>12k）、3 章以上批量、观察预算档位化、弱模型续读/ref 遵守归 gap。MAINLINE-RESET-3 仍 deferred，队首转 B23-FOLLOWUP-NOPROGRESS。
 ```
 
 选择规则：

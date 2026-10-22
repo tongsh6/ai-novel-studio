@@ -750,6 +750,79 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     refute text =~ "## 当前 AgentRun"
   end
 
+  # B24 CP2（I-EXPLORE-READ-9）：计划章节段同批渲染 chapter_ref（探索寻址）+
+  # seq/title（target_chapter 仍精确复制标题）。
+  test "B24：计划章节段渲染 chapter_ref + seq/title 双面身份" do
+    chapters = %{
+      titles: ["灰烬中的手印"],
+      entries: [
+        %{
+          title: "灰烬中的手印",
+          seq: 2,
+          id: "11111111-1111-4111-8111-111111111111",
+          has_prose: true
+        }
+      ]
+    }
+
+    text =
+      AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, chapters).messages
+      |> hd()
+      |> Map.fetch!(:content)
+
+    assert text =~
+             "- 第 2 章「灰烬中的手印」[chapter_ref=chapter:11111111-1111-4111-8111-111111111111]"
+
+    assert text =~ "target_chapter 精确复制标题；chapter_read 优先复制 chapter_ref"
+
+    # 无 seq/id 的旧标题列表仍退回旧行格式（兼容手工上下文/测试夹具）。
+    legacy = AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, ["第01章：开端"])
+
+    legacy_text = legacy.messages |> hd() |> Map.fetch!(:content)
+    assert legacy_text =~ "- 第01章：开端"
+    refute legacy_text =~ "[chapter_ref="
+  end
+
+  test "B24：draft_plan_with_meta 通过 chapter_index_reader 注入带 ref 的章节索引" do
+    parent = self()
+
+    result_fn = fn prompt ->
+      if NovelAgent.Provider.tool_call_prompt?(prompt) do
+        {:ok, act_provider_result(prose_act_step())}
+      else
+        send(parent, {:planner_prompt, prompt_text(prompt)})
+        {:ok, reasoning_provider_result()}
+      end
+    end
+
+    chapters = [
+      %{
+        id: "22222222-2222-4222-8222-222222222222",
+        seq: 1,
+        title: "灰烬中的手印",
+        has_prose: true
+      }
+    ]
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(
+               probe_run(),
+               %Execution{result_fn: result_fn},
+               %{},
+               chapter_index_reader: fn _workspace_id -> chapters end
+             )
+
+    assert_received {:planner_prompt, text}
+    assert text =~ "[chapter_ref=chapter:22222222-2222-4222-8222-222222222222]"
+    assert text =~ "第 1 章「灰烬中的手印」"
+  end
+
+  defp prompt_text(%{messages: messages}) do
+    Enum.map_join(messages, "\n", fn message ->
+      Map.get(message, :content) || Map.get(message, "content") || ""
+    end)
+  end
+
   test "VS-00I CP-D 修订 prompt 顺序：修订要求与能力说明前置，动态计划在后" do
     prompt =
       AgenticPlanDraftPlanner.revision_structure_prompt(
