@@ -452,7 +452,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J20 | 停等作者时「为什么停、怎么继续」可见（B23） | B23-AWAITING-AUTHOR-REASON / DS03 / 46§9 | AgentRun awaiting_author summary / ProviderActivity 补水键 / control dock / copy | **done（2026-10-23，新场景 + 五回归真实 Tauri PASS）** | CP1 补水按 run 命中 + standalone run 刷新补水；CP2 回复/补充文案族；CP3 计划耗尽结构事实；CP4 首次 join 惰性收口 failed + 过期坞；CP5 新场景 `agent-plan-exhausted-awaiting-reason` PASS（理由可见→刷新仍可见→回复语义→同 run 恢复 completed）；回归 awaiting×2 / dead-run / writer-timeout / no-progress PASS；证据 `artifacts/slice-verify/agent-plan-exhausted-awaiting-reason-tauri/summary.json`、`agent-dead-bounded-run-expiry-tauri/summary.json` | `tasks/slices/B23-awaiting-author-reason-and-exit-surface.md`；`tasks/NEXT.md` B23 行；后端 1,816/0、前端 562/0、credo/dialyzer/format/enum/arch/xref/adr_trace/quality manifest 全绿；I1/I2/I3/N-NARR/I-CACHE-1 全绿；静态扫描 0 blocking | 判断循环「先问再做」调参、全只读计划规划层约束、run 级预算归 UA01/后续；reload 交付核对重传同 turn_id 属 server 幂等语义。 |
 | J21 | B23 收口后的下一次主线选择 | MAINLINE-RESET-3 | tasks/NEXT 队列 | **closed（2026-10-23 作者定向选择 B24）** | B23 已完成（新场景 + 五回归真实 Tauri PASS），队首恢复主线复位；作者随后定向「方案 A 开一个 slice」= B24 探索面全章可读 | `tasks/NEXT.md` MAINLINE-RESET-3（已转 deferred）；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4/§7 | 选择已入档；B24 完成后 MAINLINE-RESET-3 恢复，候选清单不变（B13b 转出 11 项、12 项 B 轨小修、B11D、E28-E30、VS-00D G1–G7）。 |
 | J22 | 架构与契约债按 ADR 证据逐项闭环（B13b 转出的 B 轨小修批） | B13B-FOLLOWUP / B13b | ADR enforcement / domain+application 边界 / 验收注册 | **closed（2026-10-23，10/13 落地 + 3 项作者拍板延后）** | 单测 + 两组真实 Tauri | `tasks/slices/B13B-adr-enforcement-reconciliation.md` §11；`artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/summary.json`；`artifacts/slice-verify/judgment-plan-multi-step-tauri/summary.json` | BB-1/2/3/5/6/8/9/11/12 + D14 已落；真实 Tauri：au13 rail「审读待处置 5」同源可见且全处置后消失、judgment-plan-multi-step 注册并 PASS；⏸ BB-4 `failed_recoverable` 边界 / BB-7 Q5 持久化失败 TurnResult / BB-10 日志噪声口径需作者拍板（§11.3） |
-| J23 | 下一次主线选择与队列复位（B13B-FOLLOWUP 收口后） | MAINLINE-RESET-3 | tasks/NEXT 队列 | **next（2026-10-23，等待作者拍板下一项）** | 决策记录 | `tasks/NEXT.md` MAINLINE-RESET-3 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.1/§7 | 作者从候选清单拍板下一项：优先建议 WORKBENCH-CURRENT-VOLUME（小、用户可见，需定「当前卷」语义）或 R10/R11 正触发真实页面验收（纯验收债）；机制类 slice 无当前领域拉动按 Selection Rule 1 缓；DECISION 入 NEXT §6 与本文对应行 |
+| J23 | 下一次主线选择与队列复位（B13B-FOLLOWUP 收口后） | MAINLINE-RESET-3 | tasks/NEXT 队列 | **closed（2026-10-23，作者裁决：本轮到此为止）** | 决策记录 | `tasks/NEXT.md` MAINLINE-RESET-3 / NEXT-AUTHOR-DIRECTED 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.1/§7/§11 | 复位完成、不新开项；候选清单保留（B13b §4.1 11 项 + 延后 BB-4/BB-7/BB-10 + B11D/E28-E30/VS-00D G1–G7）；下一项等作者另行指示（`NEXT-AUTHOR-DIRECTED` 为队首，AI 不得自行替换） |
+| J24 | 等待作者指定下一项（本轮队列已清空） | NEXT-AUTHOR-DIRECTED | tasks/NEXT 队列 | **next（2026-10-23，等待作者另行指示）** | — | `tasks/NEXT.md` NEXT-AUTHOR-DIRECTED 行；`docs/project-ledger.md` 本轮收口段 | 无自动开工项；收到作者新指示后按 tasks/README 开工仪式登记新 slice（七问）→ gap ledger → 落地 → 更新 NEXT/journeys/ledger；作者已明确本轮收口，AI 不自行续排任务 |
 
 ---
 
@@ -474,10 +475,10 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 当前推进锁定：
 
 ```text
-Current Focus: 下一次主线选择与队列复位（MAINLINE-RESET-3，等待作者拍板）
-Current Journey: Journey J（J23 主线选择）；J22 ADR/契约债闭环已收口
-Current Breakpoint: J23 / MAINLINE-RESET-3；队列仅剩该选择项
-Next Task: MAINLINE-RESET-3
+Current Focus: 本轮队列收口（作者裁决：到此为止，下一项另行指示）
+Current Journey: Journey J（J24 等待作者指定下一项）；J22/J23 已收口
+Current Breakpoint: J24 / NEXT-AUTHOR-DIRECTED；无自动开工项
+Next Task: NEXT-AUTHOR-DIRECTED
 ```
 
 ---
@@ -504,18 +505,18 @@ Next Task: MAINLINE-RESET-3
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: 下一次主线选择（MAINLINE-RESET-3）；B24 / B23-FOLLOWUP / B13B-FOLLOWUP 均已收口
-Active Journey: Journey J（J23 主线选择）
-Queue head: MAINLINE-RESET-3
+Current Focus: 本轮队列收口（作者裁决：到此为止）；B24 / B23-FOLLOWUP / B13B-FOLLOWUP 均已收口
+Active Journey: Journey J（J24 等待作者指定下一项）
+Queue head: NEXT-AUTHOR-DIRECTED
 ```
 
 本文对应位置：
 
 ```text
 Journey C / 自然创作对话与探索
-Step: J23 / MAINLINE-RESET-3（next 2026-10-23，等待作者拍板）
-Status: next（B13B-FOLLOWUP 收口后；队列仅剩该选择项）
-Gap / Next: 作者从 B13b §4.1/§7 候选拍板下一项（建议 WORKBENCH-CURRENT-VOLUME 或 R10/R11 正触发验收）；BB-4/BB-7/BB-10 三项需作者拍板后转独立 slice；拍板结果写入 NEXT §6 与本文对应行。
+Step: J24 / NEXT-AUTHOR-DIRECTED（next 2026-10-23，等待作者另行指示）
+Status: next（作者裁决本轮到此为止；队列已清空、无自动开工项）
+Gap / Next: 收到作者新指示后按 tasks/README 开工仪式登记新 slice（七问）→ gap_ledger → 落地 → 更新 NEXT/journeys/ledger；B13B 延后三项（BB-4/BB-7/BB-10）保持挂账待裁决；候选清单（B13b §4.1 11 项 + B11D/E28-E30/VS-00D G1–G7）供作者下一次拍板。
 ```
 
 选择规则：
