@@ -188,7 +188,7 @@ Current Breakpoint：C9 / BIZ-01–05 已闭环；C10 / BIZ-06 已闭环；D5 / 
 
 Current Proof：`q3d-message-outcome-roundtrip --surface tauri` 已证明只读结果回填、原文分轮引用、输入/结果刷新恢复、重复候选保护和真实采纳状态追问；使用确定性 provider。原 Q3c 同消息路径同时回归通过。
 
-Next Proof（B24 / C12）：`judgment-explore-chapter-full-read`（计划新增）由外部自动化驱动真实 Tauri 工作台：作者式审核请求 → 判断 explore → `chapter_read` 两页续读（范围/next_offset 机械可见）→ 回复引用仅末页存在的正文事实 → 零写入；另跑 `judgment-explore-chapter-plan` / `p1-chapter-adoption-reading` 回归。证据要求 `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json` + 截图/WS 帧/app JSONL。
+Next Proof（B24 / C12）：`judgment-explore-chapter-full-read`（计划新增）由外部自动化驱动真实 Tauri 工作台：作者式审核请求 → 判断 explore → `chapter_read` 两页续读（范围/next_offset 机械可见）→ 回复引用仅末页存在的正文事实 → 零写入；**作者可见文案人类可读（不出现 `chapter_read` 等内部 id / JSON / offset），章标识按作品真实标题而不假设编号格式**；另跑 `judgment-explore-chapter-plan`（断言随文案更新）/ `p1-chapter-adoption-reading` 回归。证据要求 `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json` + 截图/WS 帧/app JSONL。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -203,7 +203,7 @@ Next Proof（B24 / C12）：`judgment-explore-chapter-full-read`（计划新增�
 | C9 | 输入可靠留存，作者约束、候选语义与动作后果一致 | Q3d / ADR-0027 | Interaction / AgentRun / TurnResult / Adoption | closed（BIZ-01–05） | 真实页面正反例 + Flash Next Q2 实模 | `tasks/slices/Q3D-message-outcome-roundtrip.md`；审计 notes §10 | 仅记录无候选，流程建议不产生方向动作；历史权限、正常方向讨论/选择、真实产物三类操作均已验证。 |
 | C10 | 真实模型理解采纳事实并正确引导已有对象的后续处理 | Q1b / Q3d / DS02 | Interaction / Judgment / Adoption | closed（BIZ-06） | 三项页面专项；十轮数据链与最终四轮实模语义复验 | `tasks/slices/Q1B-live-archive-recheck.md`；`artifacts/project-analysis/biz6-context-semantic-review.json` | 上下文指代进入实际修订，原稿保留，新稿需采纳；放弃回执、版本登记和编辑后状态一致。已采纳内容的变更另归 D5。 |
 | C11 | 在合理等待内得到与模型叙事一致的结构化判断 | UA01-CALL2 / ADR-0025 | JudgmentProtocol / ProviderRun / MBC | 观察项 | 实模慢调用证据，待量化 | `tasks/slices/UA01-judgment-structured-call-reliability.md`；`tasks/NEXT.md` UA01-CALL2 | Q1b 存档 call2 537 秒、13,646 reasoning tokens；用户要求优先修业务正确性；参数对照停止，性能后续再评估。 |
-| C12 | 判断循环内部探索能读到完整章并据此答复（不再「可见正文被截断」） | B24-EXPLORATION-CHAPTER-FULL-READ / ADR-0025 | ExplorationService observation / Judgment / AgentRun | **next（2026-10-23 作者定向开档；CP0 done，CP1+ 待开工）** | 局部 unit（计划）+ 真实 Tauri automation（计划） | `tasks/slices/B24-exploration-chapter-full-read.md`；`tasks/NEXT.md` B24 行；计划场景 `judgment-explore-chapter-full-read` | `chapter_read` 观察 v2：【计划】≤500 /【摘要】≤400 / 正文单页 6000、短章一次全文；JSON `{"chapter","offset"}` 续读 + `next_offset`/范围/footer；explore progress signature 去 sequence（同页重复命中 no-progress、合法续读不误停）；call2 观察重复渲染修复。超长章（>12k）/3 章以上批量/观察预算档位化登记 gap；确定性重复检测（方案 B）归 `P1-word-count-audit` checkpoint B。 |
+| C12 | 判断循环内部探索能读到完整章并据此答复（不再「可见正文被截断」） | B24-EXPLORATION-CHAPTER-FULL-READ / ADR-0025 | ExplorationService observation / Judgment / AgentRun | **next（2026-10-23 作者定向开档；CP0 done，CP1+ 待开工）** | 局部 unit（计划）+ 真实 Tauri automation（计划） | `tasks/slices/B24-exploration-chapter-full-read.md`；`tasks/NEXT.md` B24 行；计划场景 `judgment-explore-chapter-full-read` | `chapter_read` 观察 v2：【计划】≤500 /【摘要】≤400 / 正文单页 6000、短章一次全文；JSON `{"chapter","offset"}` 续读 + `next_offset`/范围/footer；**章标识按作品 TOC 真实标题（不假设编号格式，精确优先）**；**作者可见 activity 人类可读、不暴露内部工具 id/JSON（I-READ-8）**；explore progress signature 去 sequence（同页重复命中 no-progress、合法续读不误停）；call2 观察重复渲染修复。超长章（>12k）/3 章以上批量/观察预算档位化登记 gap；确定性重复检测（方案 B）归 `P1-word-count-audit` checkpoint B。 |
 
 ---
 
