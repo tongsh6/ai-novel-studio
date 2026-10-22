@@ -494,8 +494,10 @@ defmodule NovelPersistence.AdoptionRepository do
     content = projection_content(attrs)
     mode = projection_mode(attrs)
 
+    chapter_ref = normalize_chapter_ref(Map.get(attrs, :target_chapter_ref))
+
     with {:ok, volume} <- find_or_create_volume(repo, work_id),
-         {:ok, chapter} <- find_or_create_chapter(repo, work_id, volume.id, chapter_title),
+         {:ok, chapter} <- resolve_chapter(repo, work_id, volume.id, chapter_title, chapter_ref),
          :ok <- mark_chapter_drafted(repo, chapter),
          {:ok, scene} <- resolve_scene(repo, work_id, chapter, chapter_title, mode),
          :ok <- maybe_supersede_scene(repo, work_id, scene.id, mode),
@@ -567,34 +569,62 @@ defmodule NovelPersistence.AdoptionRepository do
   defp maybe_supersede_scene(_repo, _work_id, _scene_id, :append), do: :ok
 
   @doc """
-  读端口：当前作品是否已有「同 title 且含已采纳正文」的章节。
+  读端口：当前作品是否已有该章（`chapter_ref` 或 title）的已采纳正文。
   采纳边界用它判断是否为覆盖已有 canon（需作者确认）。
+
+  B25（I-CH-1）：章节身份优先 ref；title 只在**唯一命中**时成立。同名多章时保守返回 true
+  （视为已有 canon，要求作者确认），绝不 first-match 静默覆盖。
   """
-  @spec has_accepted_chapter?(String.t(), String.t()) :: boolean()
-  def has_accepted_chapter?(work_id, title) when is_binary(work_id) and is_binary(title) do
+  @spec has_accepted_chapter_identity?(String.t(), String.t()) :: boolean()
+  def has_accepted_chapter_identity?(work_id, identity)
+      when is_binary(work_id) and is_binary(identity) do
     case Ecto.UUID.cast(work_id) do
       {:ok, uuid} ->
-        accepted = AdoptionStatus.accepted()
-        normalized = canonical_chapter_title(title)
-
-        Chapter
-        |> join(:inner, [c], s in Scene, on: s.chapter_id == c.id and s.work_id == ^uuid)
-        |> join(:inner, [_c, s], d in Draft,
-          on: d.scene_id == s.id and d.work_id == ^uuid and d.status == ^accepted
-        )
-        |> where([c], c.work_id == ^uuid and c.title == ^normalized)
-        |> Repo.exists?()
+        case chapters_for_identity(uuid, identity) do
+          [] -> false
+          [chapter] -> chapter_has_accepted_prose?(uuid, chapter.id)
+          # 同名多章（旧 title 身份）：无法唯一归属 → 保守视为已有 canon。
+          _ambiguous -> true
+        end
 
       :error ->
         false
     end
   end
 
-  def has_accepted_chapter?(_work_id, _title), do: false
+  def has_accepted_chapter_identity?(_work_id, _identity), do: false
 
-  @doc "读端口工厂：注入 AdoptionWorkflow 判断覆盖。"
+  @doc "旧 title-only 读端口（等价 identity 版；保留给既有调用方/测试）。"
+  @spec has_accepted_chapter?(String.t(), String.t()) :: boolean()
+  def has_accepted_chapter?(work_id, title), do: has_accepted_chapter_identity?(work_id, title)
+
+  @doc "读端口工厂：注入 AdoptionWorkflow 判断覆盖（ref 或 title 均可）。"
   @spec overwrite_reader() :: (String.t(), String.t() -> boolean())
-  def overwrite_reader, do: &has_accepted_chapter?/2
+  def overwrite_reader, do: &has_accepted_chapter_identity?/2
+
+  defp chapter_has_accepted_prose?(work_uuid, chapter_id) do
+    accepted = AdoptionStatus.accepted()
+
+    Chapter
+    |> join(:inner, [c], s in Scene, on: s.chapter_id == c.id and s.work_id == ^work_uuid)
+    |> join(:inner, [_c, s], d in Draft,
+      on: d.scene_id == s.id and d.work_id == ^work_uuid and d.status == ^accepted
+    )
+    |> where([c], c.id == ^chapter_id and c.work_id == ^work_uuid)
+    |> Repo.exists?()
+  end
+
+  # B25：把 ref/title 解析成章列表（ref 幂等；title 可能多行）。调用方按 0/1/>1 决定语义。
+  defp chapters_for_identity(work_uuid, "chapter:" <> _rest = ref) do
+    case find_chapter_by_ref(Repo, work_uuid, ref) do
+      {:ok, chapter} -> [chapter]
+      :not_found -> []
+    end
+  end
+
+  defp chapters_for_identity(work_uuid, title) do
+    chapters_with_title(Repo, work_uuid, canonical_chapter_title(title))
+  end
 
   # 采纳章节计划（outline）→ 物化 accepted 卷/章结构（v3 AU-08：目录来源是已采纳的卷/章结构；
   # AU08-I1 只有已采纳作品事实进投影；SC-AU08-B2 允许章在目录里但还没有已采纳正文）。
@@ -1064,17 +1094,22 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
-  # 章节身份按 (work_id, title) 跨卷匹配，与覆盖检测 has_accepted_chapter?/2 一致：
-  # 旧代码每次采纳建新「已采纳内容」卷，遗留同名章会散落在多卷，按 title 跨卷查能复用并
-  # 就地覆盖，不再堆出重复章（A3）。新章才落到当前规范卷。
-  defp find_or_create_chapter(repo, work_id, volume_id, title) do
-    Chapter
-    |> where([c], c.work_id == ^work_id and c.title == ^title)
-    |> order_by([c], asc: c.seq)
-    |> limit(1)
-    |> repo.one()
-    |> case do
-      nil ->
+  # B25（I-CH-1/I-CH-2）：章节身份解析——ref 优先、title 只允许唯一命中。
+  #
+  # - ref 存在（`chapter:<uuid>`）：按 id + work scope 精确命中；找不到 → 显式错误，
+  #   **不回退 title**（回退会静默写错章）。
+  # - 无 ref（旧 artifact / 非模型路径）：按 work 内 title 精确匹配；
+  #   0 行 → 机械新建新章（新 ref）；1 行 → 复用；>1 行 → 歧义错误，禁止 first-match。
+  defp resolve_chapter(repo, work_id, _volume_id, _title, ref) when is_binary(ref) do
+    case find_chapter_by_ref(repo, work_id, ref) do
+      {:ok, chapter} -> {:ok, chapter}
+      :not_found -> {:error, {:target_chapter_not_found, ref}}
+    end
+  end
+
+  defp resolve_chapter(repo, work_id, volume_id, title, nil) do
+    case chapters_with_title(repo, work_id, title) do
+      [] ->
         insert_chapter(repo, %{
           work_id: work_id,
           volume_id: volume_id,
@@ -1082,10 +1117,49 @@ defmodule NovelPersistence.AdoptionRepository do
           seq: next_chapter_seq(repo, work_id)
         })
 
-      chapter ->
+      [chapter] ->
         {:ok, chapter}
+
+      chapters when is_list(chapters) ->
+        {:error, {:ambiguous_chapter_title, Enum.map(chapters, & &1.id)}}
     end
   end
+
+  defp chapters_with_title(repo, work_id, title) do
+    Chapter
+    |> where([c], c.work_id == ^work_id and c.title == ^title)
+    |> order_by([c], asc: c.seq)
+    |> repo.all()
+  end
+
+  defp find_chapter_by_ref(repo, work_id, ref) when is_binary(ref) do
+    with "chapter:" <> uuid <- ref,
+         {:ok, chapter_id} <- Ecto.UUID.cast(uuid),
+         %Chapter{} = chapter <-
+           Chapter
+           |> where([c], c.id == ^chapter_id and c.work_id == ^work_id)
+           |> repo.one() do
+      {:ok, chapter}
+    else
+      _ -> :not_found
+    end
+  end
+
+  # B25：把 artifact 上的 target_chapter_ref 归一为可解析形态；非法/空 → nil（回退 title 唯一语义）。
+  defp normalize_chapter_ref(value) when is_binary(value) do
+    case String.trim(value) do
+      "chapter:" <> uuid = ref ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, _} -> ref
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_chapter_ref(_), do: nil
 
   # 场景身份按 (work_id, chapter_id, title) 匹配：同章同 title 复用同场景并就地覆盖；
   # 多场景章不会误 supersede 别的场景（A6）。单场景模型下与原行为一致。

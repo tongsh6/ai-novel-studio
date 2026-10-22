@@ -45,6 +45,7 @@ defmodule NovelDomain.TentativeArtifactSet do
           context_refs: [String.t()],
           authoring_intent: authoring_intent(),
           target_chapter: String.t() | nil,
+          target_chapter_ref: String.t() | nil,
           revision_base: String.t() | nil,
           revision_reason: String.t() | nil,
           quality_finding_refs: [String.t()],
@@ -61,6 +62,8 @@ defmodule NovelDomain.TentativeArtifactSet do
     context_refs: [],
     authoring_intent: nil,
     target_chapter: nil,
+    # B25：章节身份优先用 ref（= "chapter:<chapters.id>"）；title 只作展示/旧兼容。
+    target_chapter_ref: nil,
     revision_base: nil,
     revision_reason: nil,
     quality_finding_refs: [],

@@ -343,7 +343,8 @@ defmodule NovelApplication.TurnResultBuilder do
       adoption_status: as.adoption_status,
       source_tool_result_ref: as.source_tool_result_ref,
       authoring_intent: as.authoring_intent,
-      target_chapter: as.target_chapter
+      target_chapter: as.target_chapter,
+      target_chapter_ref: as.target_chapter_ref
     }
   end
 

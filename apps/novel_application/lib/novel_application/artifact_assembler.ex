@@ -35,6 +35,8 @@ defmodule NovelApplication.ArtifactAssembler do
          source_tool_result_ref: tool_result.tool_result_id,
          authoring_intent: normalize_authoring_intent(Map.get(provenance, :authoring_intent)),
          target_chapter: normalize_target_chapter(Map.get(provenance, :target_chapter)),
+         # B25：章节身份以 ref 为准（title 只展示/旧兼容）；无 ref 时采纳层按 title 唯一命中。
+         target_chapter_ref: normalize_chapter_ref(Map.get(provenance, :target_chapter_ref)),
          revision_base: normalize_target_chapter(Map.get(provenance, :revision_base)),
          revision_reason: normalize_target_chapter(Map.get(provenance, :revision_reason)),
          quality_finding_refs: normalize_refs(Map.get(provenance, :quality_finding_refs))
@@ -160,6 +162,22 @@ defmodule NovelApplication.ArtifactAssembler do
   end
 
   defp normalize_target_chapter(_), do: nil
+
+  # B25：只接受 `chapter:<uuid>` 形态；非法/空 → nil（旧调用方继续按 title 唯一命中）。
+  defp normalize_chapter_ref(value) when is_binary(value) do
+    case String.trim(value) do
+      "chapter:" <> uuid = ref ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, _} -> ref
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_chapter_ref(_), do: nil
 
   defp normalize_refs(list) when is_list(list) do
     list

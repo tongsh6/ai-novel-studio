@@ -68,6 +68,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:provider_execution) => Execution.dependency(),
           optional(:quality_provider_execution) => Execution.dependency(),
           optional(:chapter_prose_reader) => function(),
+          optional(:chapter_index_reader) => function() | nil,
           optional(:chapter_summary_reader) => map() | nil,
           optional(:character_reader) => function() | nil,
           optional(:assumption_reader) => function() | nil,
@@ -96,6 +97,15 @@ defmodule NovelApplication.TurnExecutionService do
         author_input_text(frame, input[:author_input])
       )
 
+    # B25（I-CH-1）：把已解析标题确定性映射到 chapter_ref（唯一命中才成立）。
+    # 同名多章 → nil，不猜；采纳层按 title 唯一语义会诚实失败，要求调用方给 ref。
+    resolved_chapter_ref =
+      resolve_chapter_ref(
+        input[:chapter_index_reader] || NovelApplication.persistence_chapter_index_reader(),
+        frame.workspace_id,
+        resolved_chapter
+      )
+
     # CP0：固化写作坐标并评估缺失策略。hard missing（作者点名但 planner 匹配不到的章）→ 不调 provider。
     # B11A CP4：坐标同批带当前卷 ref（卷蓝图消费面 6 的坐标侧）。
     coordinate = build_coordinate(frame, action, input, resolved_chapter)
@@ -105,15 +115,21 @@ defmodule NovelApplication.TurnExecutionService do
     if MissingPolicyResult.block?(missing) do
       blocked_result(frame, input, coordinate, missing)
     else
-      do_execute(frame, plan, decision, input, action, resolved_chapter)
+      do_execute(frame, plan, decision, input, action, resolved_chapter, resolved_chapter_ref)
     end
   end
 
-  defp do_execute(frame, plan, decision, input, action, resolved_chapter) do
+  defp do_execute(frame, plan, decision, input, action, resolved_chapter, resolved_chapter_ref) do
     summary_reader = input[:chapter_summary_reader]
 
+    # 读前文优先按 ref（改名/同名都稳定）；无 ref 才回退 title（唯一命中语义由读端口保证）。
     prior_prose_full =
-      continuation_prior_prose(frame, action, resolved_chapter, input[:chapter_prose_reader])
+      continuation_prior_prose(
+        frame,
+        action,
+        resolved_chapter_ref || resolved_chapter,
+        input[:chapter_prose_reader]
+      )
 
     # CP1：前文 excerpt 预算由本上下文的组装策略给出（按 provider 档位），超预算尾部裁剪
     # 并产生 OmissionNote + 发 context.downgrade.done 业务日志；裁剪不再用写死的常量。
@@ -268,7 +284,16 @@ defmodule NovelApplication.TurnExecutionService do
     quality_provider_execution = quality_provider_execution(input)
 
     tool_result = dispatch_tool(req, provider_execution)
-    artifact_sets = assemble_artifacts(tool_result, frame.turn_id, plan, resolved_chapter)
+
+    artifact_sets =
+      assemble_artifacts(
+        tool_result,
+        frame.turn_id,
+        plan,
+        resolved_chapter,
+        resolved_chapter_ref
+      )
+
     artifact_set = List.first(artifact_sets)
 
     # VS-00E CP2：正文生成后运行独立质量评估（与 writer 逻辑分离），产出 QualityFinding +
@@ -590,6 +615,35 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp normalize_target_chapter(target) when is_binary(target), do: String.trim(target)
   defp normalize_target_chapter(_target), do: ""
+
+  # B25：标题 → chapter_ref 的确定性解析（只按唯一命中；0/多命中 → nil，不猜）。
+  # reader 形态与 B24 章节索引读端口一致：work_id -> [%{id, seq, title, ...}]。
+  defp resolve_chapter_ref(reader, work_id, title)
+       when is_function(reader, 1) and is_binary(work_id) and is_binary(title) and title != "" do
+    reader
+    |> read_chapter_entries(work_id)
+    |> Enum.filter(fn entry -> map_value(entry, :title) == title end)
+    |> case do
+      [entry] -> chapter_ref_from_entry(entry)
+      _ -> nil
+    end
+  end
+
+  defp resolve_chapter_ref(_reader, _work_id, _title), do: nil
+
+  # 章节索引读端口失败按「无索引」诚实降级（ref 缺席 → 调用方走 title 唯一语义）。
+  defp read_chapter_entries(reader, work_id) do
+    reader.(work_id)
+  rescue
+    _ -> []
+  end
+
+  defp chapter_ref_from_entry(entry) do
+    case map_value(entry, :id) do
+      id when is_binary(id) and id != "" -> "chapter:#{id}"
+      _ -> nil
+    end
+  end
 
   defp author_input_text(frame, author_input) do
     case author_input do
@@ -2098,16 +2152,22 @@ defmodule NovelApplication.TurnExecutionService do
          %ToolResult{tool_name: tool_name} = result,
          turn_id,
          plan,
-         resolved_chapter
+         resolved_chapter,
+         resolved_chapter_ref
        )
        when tool_name in @creative_tools do
-    case ArtifactAssembler.assemble_all(result, turn_id, provenance(plan, resolved_chapter)) do
+    case ArtifactAssembler.assemble_all(
+           result,
+           turn_id,
+           provenance(plan, resolved_chapter, resolved_chapter_ref)
+         ) do
       {:ok, artifact_sets} -> artifact_sets
       {:error, _reason} -> []
     end
   end
 
-  defp assemble_artifacts(_result, _turn_id, _plan, _resolved_chapter), do: []
+  defp assemble_artifacts(_result, _turn_id, _plan, _resolved_chapter, _resolved_chapter_ref),
+    do: []
 
   defp build_turn_result(
          frame,
@@ -2173,17 +2233,21 @@ defmodule NovelApplication.TurnExecutionService do
   # artifact provenance：authoring_intent 来自 plan；target_chapter 用应用层解析后的归章
   # （命中/回退后的章），保证"生成时读前文的章"与"采纳时归入的章"是同一章。
   # 非续写/重写时 resolved_chapter=""，回退到 plan 的 target_chapter（通常为 nil）。
-  defp provenance(%MicroPlan{proposed_actions: [action | _]}, resolved_chapter)
+  defp provenance(%MicroPlan{proposed_actions: [action | _]}, resolved_chapter, chapter_ref)
        when is_map(action) do
     target =
       if resolved_chapter != "",
         do: resolved_chapter,
         else: Map.get(action, :target_chapter)
 
-    %{authoring_intent: Map.get(action, :authoring_intent), target_chapter: target}
+    %{
+      authoring_intent: Map.get(action, :authoring_intent),
+      target_chapter: target,
+      target_chapter_ref: chapter_ref
+    }
   end
 
-  defp provenance(_plan, _resolved_chapter), do: %{}
+  defp provenance(_plan, _resolved_chapter, _chapter_ref), do: %{}
 
   defp narrate(
          %ToolResult{status: :succeeded},

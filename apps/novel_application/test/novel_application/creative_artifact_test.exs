@@ -182,6 +182,31 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert artifact_set.target_chapter == "第01章：底层灵气账单"
     end
 
+    test "carries target_chapter_ref provenance only for valid chapter:<uuid>" do
+      result =
+        Toolbox.execute(request("prose_writing"), fixed_json_provider([single_item("prose")]))
+
+      chapter_ref = "chapter:#{Ecto.UUID.generate()}"
+
+      assert {:ok, %TentativeArtifactSet{} = artifact_set} =
+               ArtifactAssembler.assemble(result, "turn-prose", %{
+                 authoring_intent: :continuation,
+                 target_chapter: "灰烬中的手印",
+                 target_chapter_ref: chapter_ref
+               })
+
+      assert artifact_set.target_chapter_ref == chapter_ref
+
+      for invalid <- ["chapter:not-a-uuid", "灰烬中的手印", "chapter:", nil] do
+        assert {:ok, %TentativeArtifactSet{} = artifact_set} =
+                 ArtifactAssembler.assemble(result, "turn-prose", %{
+                   target_chapter_ref: invalid
+                 })
+
+        assert artifact_set.target_chapter_ref == nil
+      end
+    end
+
     test "defaults provenance to nil when not provided (backward compatible)" do
       result =
         Toolbox.execute(request("prose_writing"), fixed_json_provider([single_item("prose")]))

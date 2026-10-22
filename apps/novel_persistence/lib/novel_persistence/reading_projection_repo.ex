@@ -142,33 +142,56 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   end
 
   @doc """
-  返回某章（按 work_id + 章节标题匹配）的已采纳正文：各场景取最新已采纳草稿，按场景顺序拼接。
+  返回某章（`chapter_ref = "chapter:<chapters.id>"` 或章节标题）的已采纳正文：
+  各场景取最新已采纳草稿，按场景顺序拼接。
 
   供续写/重写时把"本章已采纳正文"喂给 prose_writing，使其基于前文衔接（v2 28「基于前文」），
-  而不是重复或从头另起。无匹配章节或无已采纳正文时返回 ""。口径与 `chapter_content/2` 一致
-  （仅已采纳、每场景最新版本），与采纳层章节身份（同 work、同 title）对齐。
+  而不是重复或从头另起。无匹配章节或无已采纳正文时返回 ""。
+
+  B25（I-CH-1）：章节身份优先 ref（精确、改名稳定）；title 只在**唯一命中**时成立，
+  同名多章返回 ""（歧义不猜），调用方应改用 ref。
   """
   @spec accepted_chapter_prose(String.t(), String.t()) :: String.t()
-  def accepted_chapter_prose(work_id, chapter_title)
-      when is_binary(work_id) and is_binary(chapter_title) do
-    title = String.trim(chapter_title)
+  def accepted_chapter_prose(work_id, chapter_identity)
+      when is_binary(work_id) and is_binary(chapter_identity) do
+    identity = String.trim(chapter_identity)
 
     with {:ok, work_uuid} <- Ecto.UUID.cast(work_id),
-         false <- title == "",
-         %Chapter{} = chapter <- get_chapter_by_title(work_uuid, title) do
-      scenes = scenes_for_chapter(chapter.id, work_uuid)
-      drafts_by_scene = accepted_drafts_by_scene(Enum.map(scenes, & &1.id), work_uuid)
-
-      scenes
-      |> Enum.map(fn scene -> drafts_by_scene |> Map.get(scene.id) |> draft_content() end)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.join("\n\n")
+         false <- identity == "",
+         {:ok, chapter} <- chapter_for_identity(work_uuid, identity) do
+      chapter_accepted_prose(work_uuid, chapter)
     else
       _ -> ""
     end
   end
 
-  def accepted_chapter_prose(_work_id, _chapter_title), do: ""
+  def accepted_chapter_prose(_work_id, _chapter_identity), do: ""
+
+  defp chapter_for_identity(work_uuid, "chapter:" <> uuid) do
+    with {:ok, chapter_id} <- Ecto.UUID.cast(uuid),
+         %Chapter{} = chapter <- get_chapter(chapter_id, work_uuid) do
+      {:ok, chapter}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp chapter_for_identity(work_uuid, title) do
+    case chapters_by_title(work_uuid, title) do
+      [chapter] -> {:ok, chapter}
+      _ -> {:error, :ambiguous_or_missing_title}
+    end
+  end
+
+  defp chapter_accepted_prose(work_uuid, %Chapter{} = chapter) do
+    scenes = scenes_for_chapter(chapter.id, work_uuid)
+    drafts_by_scene = accepted_drafts_by_scene(Enum.map(scenes, & &1.id), work_uuid)
+
+    scenes
+    |> Enum.map(fn scene -> drafts_by_scene |> Map.get(scene.id) |> draft_content() end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
 
   @doc """
   设定盘点材料读端口（VS-00G CP4b-2）。
@@ -208,12 +231,11 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
   def fact_inventory_materials(_work_id), do: []
 
-  defp get_chapter_by_title(work_uuid, title) do
+  defp chapters_by_title(work_uuid, title) do
     Chapter
     |> where([c], c.work_id == ^work_uuid and c.title == ^title)
     |> order_by([c], asc: c.seq)
-    |> limit(1)
-    |> Repo.one()
+    |> Repo.all()
   end
 
   defp current_summary_materials(work_uuid) do
@@ -246,7 +268,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
       %{
         seq: chapter.seq,
         title: chapter.title,
-        prose: accepted_chapter_prose(work_uuid, chapter.title)
+        prose: accepted_chapter_prose(work_uuid, "chapter:#{chapter.id}")
       }
     end)
     |> Enum.reject(&(String.trim(&1.prose) == ""))

@@ -176,7 +176,7 @@ defmodule NovelApplication.AdoptionWorkflow do
        when is_function(reader, 2) and is_binary(work_id) do
     adoption_mode(artifact) == :overwrite and
       reading_projection_artifact_type?(artifact_field(artifact, :artifact_type)) and
-      reader.(work_id, adoption_chapter_title(artifact))
+      reader.(work_id, adoption_chapter_identity(artifact))
   end
 
   defp overwrite_existing?(_reader, _work_id, _artifact), do: false
@@ -537,6 +537,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       base_revision: normalized_base_revision(artifact_field(artifact, :revision_base)),
       content: artifact_content(artifact),
       summary: adoption_chapter_title(artifact),
+      # B25：章节身份优先 ref（title 只作展示/旧兼容；无 ref 时仓储层按 title 唯一命中）。
+      target_chapter_ref: adoption_chapter_ref(artifact),
       narrative_role: artifact_narrative_role(artifact),
       role: artifact_character_field(artifact, :role),
       aliases: artifact_character_field(artifact, :aliases),
@@ -1397,6 +1399,24 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   # 续写/重写归目标章（target_chapter provenance）；无则回退 artifact 标题。
+  # B25：章节身份字符串——有合法 ref 用 ref，否则回退 title（旧 artifact/非章节路径）。
+  defp adoption_chapter_identity(artifact) do
+    adoption_chapter_ref(artifact) || adoption_chapter_title(artifact)
+  end
+
+  defp adoption_chapter_ref(artifact) do
+    case artifact_field(artifact, :target_chapter_ref) do
+      "chapter:" <> uuid = ref ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, _} -> ref
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   defp adoption_chapter_title(artifact) do
     case artifact_field(artifact, :target_chapter) do
       title when is_binary(title) ->

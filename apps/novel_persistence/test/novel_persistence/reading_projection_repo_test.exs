@@ -361,6 +361,44 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
     %{volume: volume, chapter: chapter, scene: scene, draft: draft}
   end
 
+  # B25（I-CH-1）：章节正文读取身份以 ref 为准；title 只在唯一命中时兼容。
+  describe "B25 accepted_chapter_prose/2 章节身份" do
+    test "ref 精确读同名章的各自正文，title 歧义返回空" do
+      work_id = Ecto.UUID.generate()
+      volume = insert_volume(work_id, "第一卷：起源", 1)
+      first = insert_chapter(work_id, volume.id, "灰烬中的手印", 1)
+      second = insert_chapter(work_id, volume.id, "灰烬中的手印", 2)
+      unique = insert_chapter(work_id, volume.id, "唯一章", 3)
+
+      seed_accepted_prose(work_id, first.id, "第一章正文。")
+      seed_accepted_prose(work_id, second.id, "第二章正文。")
+      seed_accepted_prose(work_id, unique.id, "唯一章正文。")
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "chapter:#{first.id}") ==
+               "第一章正文。"
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "chapter:#{second.id}") ==
+               "第二章正文。"
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "灰烬中的手印") == ""
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "唯一章") == "唯一章正文。"
+
+      # 跨作品/坏 ref 诚实返回空。
+      assert ReadingProjectionRepo.accepted_chapter_prose(
+               Ecto.UUID.generate(),
+               "chapter:#{first.id}"
+             ) ==
+               ""
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "chapter:not-a-uuid") == ""
+    end
+
+    defp seed_accepted_prose(work_id, chapter_id, content) do
+      scene = insert_scene(work_id, chapter_id, "场景 1", 1)
+      insert_draft(work_id, scene.id, content, AdoptionStatus.accepted(), 1)
+    end
+  end
+
   defp insert_volume(work_id, title, seq) do
     %Volume{}
     |> Volume.changeset(%{work_id: work_id, title: title, seq: seq})

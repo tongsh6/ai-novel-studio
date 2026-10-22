@@ -80,6 +80,49 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert turn_result.truthfulness.state_persisted == true
     end
 
+    test "forwards target_chapter_ref to persistence writer and overwrite reader (B25)" do
+      chapter_ref = "chapter:#{Ecto.UUID.generate()}"
+      parent = self()
+
+      writer = fn attrs ->
+        send(parent, {:writer_attrs, attrs})
+        {:ok, %{mutation_id: "mutation-ref", persisted: true, reading_projection: nil}}
+      end
+
+      reader = fn work_id, identity ->
+        send(parent, {:overwrite_identity, work_id, identity})
+        false
+      end
+
+      source_turn =
+        source_turn_result(%{
+          artifact_type: :prose_fragment,
+          authoring_intent: :rewrite,
+          target_chapter: "灰烬中的手印",
+          target_chapter_ref: chapter_ref,
+          payload: %{title: "正文", content: "他收好账单。"}
+        })
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer,
+                 reader,
+                 nil,
+                 nil
+               )
+
+      assert action_result.status == "accepted"
+      assert turn_result.parent_turn_id == "turn-source"
+
+      # 覆盖判断用 ref（不是 title）：同名章场景下 identity 必须精确。
+      assert_receive {:overwrite_identity, "work-1", ^chapter_ref}
+      # 持久化 attrs 带 ref：写入/采纳链以 id 归属目标章。
+      assert_receive {:writer_attrs, attrs}
+      assert attrs.target_chapter_ref == chapter_ref
+    end
+
     test "persistence failure yields failed action_result and failed_recoverable turn_result (B13b BB-7)" do
       source_turn = source_turn_result()
       writer = fn _attrs -> {:error, :disk_full} end

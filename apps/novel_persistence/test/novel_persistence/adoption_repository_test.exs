@@ -1652,6 +1652,227 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
     end
   end
 
+  # B25（I-CH-1/I-CH-2）：章节身份以 chapter_ref 为唯一寻址；title 只在唯一命中时兼容。
+  describe "B25 章节身份（ref 优先 / title 仅唯一命中）" do
+    test "按 target_chapter_ref 精确写入指定章，同名另一章逐字节不受影响" do
+      work_id = Ecto.UUID.generate()
+      volume = insert_volume!(work_id, "第一卷：起源", 1)
+      first = insert_chapter!(work_id, volume.id, "灰烬中的手印", 1)
+      second = insert_chapter!(work_id, volume.id, "灰烬中的手印", 2)
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-b25-ref",
+                 artifact_id: "as-b25-ref",
+                 artifact_type: :prose_fragment,
+                 content: "第二份正文。",
+                 summary: "灰烬中的手印",
+                 mode: :overwrite,
+                 target_chapter_ref: "chapter:#{second.id}"
+               })
+
+      assert persisted.reading_projection.chapter_id == second.id
+
+      assert {:ok, %{scenes: [%{content: "第二份正文。"}]}} =
+               ReadingProjectionRepo.chapter_content(second.id, work_id)
+
+      # 同名另一章没有新增场景/正文。
+      assert {:ok, %{scenes: []}} = ReadingProjectionRepo.chapter_content(first.id, work_id)
+
+      # 不新增章：两章同名共存（同名是创作事实，不是身份）。
+      assert 2 == count_chapters(work_id)
+
+      assert AdoptionRepository.has_accepted_chapter_identity?(work_id, "chapter:#{second.id}")
+      refute AdoptionRepository.has_accepted_chapter_identity?(work_id, "chapter:#{first.id}")
+
+      # 同名 title 无法唯一归属 → 保守视为已有 canon（要求确认），绝不 first-match。
+      assert AdoptionRepository.has_accepted_chapter_identity?(work_id, "灰烬中的手印")
+    end
+
+    test "同名章且无 ref 时诚实歧义失败，不合并、不 first-match" do
+      work_id = Ecto.UUID.generate()
+      volume = insert_volume!(work_id, "第一卷：起源", 1)
+      first = insert_chapter!(work_id, volume.id, "灰烬中的手印", 1)
+      second = insert_chapter!(work_id, volume.id, "灰烬中的手印", 2)
+
+      assert {:error, {:ambiguous_chapter_title, chapter_ids}} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-b25-ambiguous",
+                 artifact_id: "as-b25-ambiguous",
+                 artifact_type: :prose_fragment,
+                 content: "歧义正文。",
+                 summary: "灰烬中的手印"
+               })
+
+      assert Enum.sort(chapter_ids) == Enum.sort([first.id, second.id])
+      assert 2 == count_chapters(work_id)
+
+      # 歧义失败没有写入任何 draft。
+      assert %{volumes: volumes} = ReadingProjectionRepo.toc(work_id)
+
+      assert volumes
+             |> Enum.flat_map(& &1.chapters)
+             |> Enum.all?(fn chapter -> chapter.word_count == 0 end)
+    end
+
+    test "ref 不存在/跨作品时显式失败，不回退 title 静默写错章" do
+      work_id = Ecto.UUID.generate()
+      other_work_id = Ecto.UUID.generate()
+      volume = insert_volume!(work_id, "第一卷：起源", 1)
+      insert_chapter!(work_id, volume.id, "已存在章", 1)
+
+      other_volume = insert_volume!(other_work_id, "别卷", 1)
+      foreign = insert_chapter!(other_work_id, other_volume.id, "已存在章", 1)
+
+      assert {:error, {:target_chapter_not_found, "chapter:" <> _}} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-b25-foreign-ref",
+                 artifact_id: "as-b25-foreign-ref",
+                 artifact_type: :prose_fragment,
+                 content: "不应写入。",
+                 summary: "已存在章",
+                 target_chapter_ref: "chapter:#{foreign.id}"
+               })
+
+      assert 1 == count_chapters(work_id)
+    end
+
+    test "title 唯一命中时保持旧兼容（无 ref 仍按唯一 title 写同章）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, first_persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-b25-legacy-1",
+                 artifact_id: "as-b25-legacy-1",
+                 artifact_type: :prose_fragment,
+                 content: "旧路径正文。",
+                 summary: "唯一章"
+               })
+
+      assert {:ok, second_persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-b25-legacy-2",
+                 artifact_id: "as-b25-legacy-2",
+                 artifact_type: :prose_fragment,
+                 content: "旧路径覆盖正文。",
+                 summary: "唯一章"
+               })
+
+      assert first_persisted.reading_projection.chapter_id ==
+               second_persisted.reading_projection.chapter_id
+
+      assert 1 == count_chapters(work_id)
+
+      assert {:ok, %{scenes: [%{content: "旧路径覆盖正文。"}]}} =
+               ReadingProjectionRepo.chapter_content(
+                 first_persisted.reading_projection.chapter_id,
+                 work_id
+               )
+    end
+
+    test "ref 读前文命中指定同名章，title 歧义返回空" do
+      work_id = Ecto.UUID.generate()
+      volume = insert_volume!(work_id, "第一卷：起源", 1)
+      first = insert_chapter!(work_id, volume.id, "灰烬中的手印", 1)
+      second = insert_chapter!(work_id, volume.id, "灰烬中的手印", 2)
+      unique = insert_chapter!(work_id, volume.id, "唯一章", 3)
+      insert_accepted_prose!(work_id, first.id, "第一章正文。")
+      insert_accepted_prose!(work_id, second.id, "第二章正文。")
+      insert_accepted_prose!(work_id, unique.id, "唯一章正文。")
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "chapter:#{first.id}") ==
+               "第一章正文。"
+
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "chapter:#{second.id}") ==
+               "第二章正文。"
+
+      # 同名 title 歧义：不猜，返回空（调用方应改用 ref）。
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "灰烬中的手印") == ""
+      # 唯一 title 旧兼容。
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "唯一章") == "唯一章正文。"
+    end
+
+    test "新章 seq 取 work 内 max+1（删除后不复用）" do
+      work_id = Ecto.UUID.generate()
+      volume = insert_volume!(work_id, "第一卷：起源", 1)
+      c1 = insert_chapter!(work_id, volume.id, "第一章", 1)
+      c2 = insert_chapter!(work_id, volume.id, "第二章", 2)
+      Repo.delete!(c2)
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-b25-seq",
+                 artifact_id: "as-b25-seq",
+                 artifact_type: :prose_fragment,
+                 content: "新章正文。",
+                 summary: "第三章"
+               })
+
+      chapter = Repo.get!(Chapter, persisted.reading_projection.chapter_id)
+      assert chapter.seq == 2
+      assert chapter.title == "第三章"
+      refute chapter.id == c1.id
+    end
+
+    defp count_chapters(work_id) do
+      Chapter
+      |> where([c], c.work_id == ^work_id)
+      |> Repo.aggregate(:count)
+    end
+
+    defp insert_volume!(work_id, title, seq) do
+      %Volume{}
+      |> Volume.changeset(%{work_id: work_id, title: title, seq: seq})
+      |> Repo.insert!()
+    end
+
+    defp insert_chapter!(work_id, volume_id, title, seq) do
+      %Chapter{}
+      |> Chapter.changeset(%{
+        work_id: work_id,
+        volume_id: volume_id,
+        title: title,
+        seq: seq,
+        status: StructureStatus.planned()
+      })
+      |> Repo.insert!()
+    end
+
+    defp insert_accepted_prose!(work_id, chapter_id, content) do
+      scene =
+        %Scene{}
+        |> Scene.changeset(%{
+          work_id: work_id,
+          chapter_id: chapter_id,
+          title: "场景 1",
+          seq: 1
+        })
+        |> Repo.insert!()
+
+      %Draft{}
+      |> Draft.changeset(%{
+        work_id: work_id,
+        scene_id: scene.id,
+        content: content,
+        status: AdoptionStatus.accepted(),
+        revision: 1
+      })
+      |> Repo.insert!()
+    end
+  end
+
   defp adopt_blueprint_outline(work_id, artifact_id, content) do
     assert {:ok, _} =
              AdoptionRepository.persist(%{
