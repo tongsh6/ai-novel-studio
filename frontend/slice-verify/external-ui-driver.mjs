@@ -15743,30 +15743,82 @@ async function driveP1ChapterEditThenAccept(page) {
   await textarea.waitFor({ timeout: 10_000 });
   await textarea.fill(editedText);
 
-  await page.getByRole("button", { name: /采纳修改后的版本|保存修改后的版本/ }).click();
+  const acceptActionMatcher = (frame) =>
+    frame.direction === "sent" &&
+    frame.event === "author_action" &&
+    frame.body?.action?.action_type === "edit_then_accept" &&
+    frame.body?.action?.target_ref === pendingArtifact.artifact_id &&
+    frame.body?.action?.payload?.edited_content === editedText;
 
-  const acceptActionFrame = await waitForFrame(
-    (frame) =>
-      frame.direction === "sent" &&
-      frame.event === "author_action" &&
-      frame.body?.action?.action_type === "edit_then_accept" &&
-      frame.body?.action?.target_ref === pendingArtifact.artifact_id &&
-      frame.body?.action?.payload?.edited_content === editedText,
-    "Real workbench did not send edit_then_accept author_action carrying edited_content",
+  const adoptOutcomeMatcher = (frame) =>
+    frame.direction === "received" &&
+    frame.event === "turn_result" &&
+    frame.body?.truthfulness?.artifact_adopted === true &&
+    (frame.body?.adoption_state?.resolved ?? []).some(
+      (entry) =>
+        entry.artifact_id === pendingArtifact.artifact_id &&
+        entry.adoption_status === "EDITED_ACCEPTED",
+    );
+
+  // 「保存修改后的版本」在极早点击时可能撞上 source_turn_result 尚未可读（channel
+  // author_action 返回 error 且不写库）；VS-04 §4.1 前端保留编辑全文/弹窗，允许作者
+  // 重试保存。外部驱动同样按作者方式重试（最多 3 次），不放开产品语义。
+  const saveEditedButton = page.getByRole("button", {
+    name: /采纳修改后的版本|保存修改后的版本/,
+  });
+
+  let acceptActionFrame = null;
+  let adoptTurnFrame = null;
+  let lastSaveError = "";
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if ((await saveEditedButton.count()) === 0) break;
+
+    const frameStart = frames.length;
+    await saveEditedButton
+      .first()
+      .click()
+      .catch(() => {});
+    await sleep(200);
+
+    const newFrames = frames.slice(frameStart);
+    acceptActionFrame =
+      newFrames.find((frame) => acceptActionMatcher(frame)) ?? acceptActionFrame;
+
+    const errorReply = newFrames.find(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "error",
+    );
+
+    if (errorReply) {
+      lastSaveError = JSON.stringify(errorReply.body?.response ?? errorReply.body);
+      await sleep(1_000);
+      continue;
+    }
+
+    try {
+      adoptTurnFrame = await waitForNewFrame(
+        frameStart,
+        adoptOutcomeMatcher,
+        "wait adopt outcome",
+        30_000,
+      );
+      break;
+    } catch (error) {
+      lastSaveError = error.message;
+      await sleep(800);
+    }
+  }
+
+  assert(
+    acceptActionFrame,
+    `Real workbench did not send edit_then_accept author_action carrying edited_content (${lastSaveError})`,
   );
-
-  const adoptTurnFrame = await waitForFrame(
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "turn_result" &&
-      frame.body?.truthfulness?.artifact_adopted === true &&
-      (frame.body?.adoption_state?.resolved ?? []).some(
-        (entry) =>
-          entry.artifact_id === pendingArtifact.artifact_id &&
-          entry.adoption_status === "EDITED_ACCEPTED",
-      ),
-    "No EDITED_ACCEPTED resolved turn_result websocket frame after edit_then_accept",
-    120_000,
+  assert(
+    adoptTurnFrame,
+    `No EDITED_ACCEPTED resolved turn_result websocket frame after edit_then_accept (${lastSaveError})`,
   );
   const adoptTurnResult = adoptTurnFrame.body;
 
@@ -15801,6 +15853,70 @@ async function driveP1ChapterEditThenAccept(page) {
   const editedWords = effectiveWordCount(editedText);
   const editedTextShown = visibleText.includes(editedText);
 
+  // ADR-0019 matrix（Q1Cb）：两步留痕必须可从真实 wire 外证——
+  // pending turn_result 的 adoption 条目=TENTATIVE，采纳 turn_result 的 resolved
+  // 条目=EDITED_ACCEPTED（canon 只能经 TENTATIVE 进入；不存在直接 ACCEPTED 跳变），
+  // 且 state trace 记录持久化 draft revision 引用。
+  const pendingAdoptionStatus = String(pendingArtifact.adoption_status ?? "");
+  const resolvedEntries = Array.isArray(adoptTurnResult.adoption_state?.resolved)
+    ? adoptTurnResult.adoption_state.resolved
+    : [];
+  const resolvedEntry = resolvedEntries.find(
+    (entry) => entry?.artifact_id === pendingArtifact.artifact_id,
+  );
+  const resolvedAdoptionStatus = String(resolvedEntry?.adoption_status ?? "");
+  const resolvedStatuses = resolvedEntries
+    .map((entry) => String(entry?.adoption_status ?? ""))
+    .filter((status) => status !== "");
+  const canonOnlyResolvedStatuses = resolvedStatuses.every((status) =>
+    ["ACCEPTED", "EDITED_ACCEPTED"].includes(status),
+  );
+  const stateTraceRefs = Array.isArray(adoptTurnResult.trace_summary?.state_trace_refs)
+    ? adoptTurnResult.trace_summary.state_trace_refs
+    : [];
+  // state trace 的持久化证据：mutation_ref + adopted_state_ref + 指向持久化 draft 的
+  // revision/projection ref（wire 上 source_revision_ref 为 mutation:<id>，
+  // reading projection ref 携带 reading_projection:draft:<draft_id>）。
+  const persistedRevisionRefs = stateTraceRefs
+    .map((ref) => String(ref?.source_revision_ref ?? ref?.projection_ref ?? ""))
+    .filter((ref) => ref !== "");
+  const draftRevisionRefRecorded = stateTraceRefs.some((ref) => {
+    const revisionRef = String(ref?.source_revision_ref ?? "");
+    const projectionRef = String(ref?.projection_ref ?? "");
+    const hasStateRefs =
+      typeof ref?.mutation_ref === "string" && typeof ref?.adopted_state_ref === "string";
+    const pointsAtDraft =
+      revisionRef.startsWith("draft:") ||
+      revisionRef.startsWith("mutation:") ||
+      projectionRef.includes("draft:");
+    return hasStateRefs && pointsAtDraft;
+  });
+  const twoStepCanonEntryRecorded =
+    pendingAdoptionStatus === "TENTATIVE" &&
+    ["ACCEPTED", "EDITED_ACCEPTED"].includes(resolvedAdoptionStatus);
+  const adoptionTransitionRejectionCount = readAppLogRecords().filter(
+    (record) =>
+      record.event === "adoption.persist.error" &&
+      String(record.reason_code ?? "") === "illegal_adoption_transition",
+  ).length;
+
+  assert(
+    twoStepCanonEntryRecorded,
+    `Adoption did not record the two-step TENTATIVE -> canon trail: ${pendingAdoptionStatus} -> ${resolvedAdoptionStatus}`,
+  );
+  assert(
+    canonOnlyResolvedStatuses,
+    `Resolved adoption statuses contained a non-canon status: ${resolvedStatuses.join(",")}`,
+  );
+  assert(
+    draftRevisionRefRecorded,
+    "Adopted TurnResult state trace did not record a persisted draft revision ref",
+  );
+  assert(
+    adoptionTransitionRejectionCount === 0,
+    `Legal edit_then_accept flow produced illegal adoption transition rejections: ${adoptionTransitionRejectionCount}`,
+  );
+
   assert(editedWords > 0, "Edited text had no effective words");
   assert(editedTextShown, "Author-edited prose was not shown in reading mode");
   assert(Number(totalWords) > 0, "Book total effective word count not visible/positive");
@@ -15834,6 +15950,14 @@ async function driveP1ChapterEditThenAccept(page) {
       chapter_word_count: chapterWords,
       expected_word_count: editedWords,
       word_count_matches_edited_prose: chapterWords === editedWords && totalWords === chapterWords,
+      pending_adoption_status: pendingAdoptionStatus,
+      resolved_adoption_status: resolvedAdoptionStatus,
+      adoption_status_trail: [pendingAdoptionStatus, resolvedAdoptionStatus].filter(Boolean),
+      two_step_canon_entry_recorded: twoStepCanonEntryRecorded,
+      canon_only_resolved_statuses: canonOnlyResolvedStatuses,
+      persisted_draft_revision_ref_recorded: draftRevisionRefRecorded,
+      persisted_revision_refs: persistedRevisionRefs,
+      adoption_transition_rejection_count: adoptionTransitionRejectionCount,
       user_message_text: sentMessage?.body?.text,
     },
   ];

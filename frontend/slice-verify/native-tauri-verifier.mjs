@@ -20884,7 +20884,15 @@ function findP1ChapterEditThenAcceptEvidence(records) {
       record.edit_button_cleared_after_adoption === true &&
       record.word_count_matches_edited_prose === true &&
       Number(record.total_word_count ?? 0) > 0 &&
-      Number(record.chapter_word_count ?? 0) > 0,
+      Number(record.chapter_word_count ?? 0) > 0 &&
+      // ADR-0019（Q1Cb）：canon 必须经 TENTATIVE 两步进入；resolved 集合只含 canon；
+      // state trace 记录持久化 draft revision；合法流程零非法转换拒绝。
+      record.two_step_canon_entry_recorded === true &&
+      record.pending_adoption_status === "TENTATIVE" &&
+      ["ACCEPTED", "EDITED_ACCEPTED"].includes(String(record.resolved_adoption_status ?? "")) &&
+      record.canon_only_resolved_statuses === true &&
+      record.persisted_draft_revision_ref_recorded === true &&
+      Number(record.adoption_transition_rejection_count ?? -1) === 0,
   );
   if (!uiState) return null;
 
@@ -20892,15 +20900,19 @@ function findP1ChapterEditThenAcceptEvidence(records) {
   if (!draftTurnId) return null;
   if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
 
-  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
-
-  const start = draftRecords.find(
+  // 判断纪元：generation 的 user_message 日志在 parent turn，prose turn_result 在
+  // child turn（`:agent:N`）——按 work + 文案关联，不假设同一 turn_id。
+  const start = records.find(
     (record) =>
-      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+      record.event === "channel.user_message.start" &&
+      record.generate_micro_plan === true &&
+      (record.work_id === uiState.work_id || record.workspace_id === uiState.work_id) &&
+      String(record.text_len ?? "") !== "" &&
+      Number(record.text_len ?? 0) > 0,
   );
   if (!start) return null;
 
-  const generatedByTool = draftRecords.some(
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
@@ -20947,13 +20959,33 @@ function findP1ChapterEditThenAcceptEvidence(records) {
     total_word_count: uiState.total_word_count,
     chapter_word_count: uiState.chapter_word_count,
     expected_word_count: uiState.expected_word_count,
+    pending_adoption_status: uiState.pending_adoption_status,
+    resolved_adoption_status: uiState.resolved_adoption_status,
+    adoption_status_trail: uiState.adoption_status_trail,
+    persisted_revision_refs: uiState.persisted_revision_refs,
+    adoption_transition_rejection_count: Number(uiState.adoption_transition_rejection_count ?? 0),
     key_events: keyEvents,
   };
 }
 
 function p1ChapterEditThenAcceptBehavior(turnIds, turnRecords, records, evidence, _options) {
-  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  // 判断纪元：user_message.start 在 parent turn，prose 执行在 child turn；用全局
+  // records 关联（draft_turn_id 为 child turn），不要求同 turn_id。
+  const startRecord = records.find(
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.generate_micro_plan === true &&
+      String(record.text_len ?? "") !== "" &&
+      Number(record.text_len ?? 0) > 0,
+  );
+  if (!startRecord) return null;
+  const toolDone = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!toolDone) return null;
 
   const uiState = records.find(
     (record) =>
@@ -20964,6 +20996,14 @@ function p1ChapterEditThenAcceptBehavior(turnIds, turnRecords, records, evidence
   if (!uiState) return null;
   if (uiState.word_count_matches_edited_prose !== true) return null;
   if (uiState.edited_text_shown_in_reading !== true) return null;
+  if (uiState.two_step_canon_entry_recorded !== true) return null;
+  if (uiState.pending_adoption_status !== "TENTATIVE") return null;
+  if (!["ACCEPTED", "EDITED_ACCEPTED"].includes(String(uiState.resolved_adoption_status ?? ""))) {
+    return null;
+  }
+  if (uiState.canon_only_resolved_statuses !== true) return null;
+  if (uiState.persisted_draft_revision_ref_recorded !== true) return null;
+  if (Number(uiState.adoption_transition_rejection_count ?? -1) !== 0) return null;
   if (Number(uiState.chapter_word_count ?? 0) !== Number(uiState.expected_word_count ?? -1)) {
     return null;
   }
@@ -20982,8 +21022,16 @@ function p1ChapterEditThenAcceptBehavior(turnIds, turnRecords, records, evidence
     chapter_word_count: Number(uiState.chapter_word_count ?? 0),
     expected_word_count: Number(uiState.expected_word_count ?? 0),
     content_chars: evidence.content_chars,
+    pending_adoption_status: evidence.pending_adoption_status,
+    resolved_adoption_status: evidence.resolved_adoption_status,
+    adoption_status_trail: evidence.adoption_status_trail,
+    persisted_revision_refs: evidence.persisted_revision_refs,
     assertions: [
       "chapter_draft_generated_from_adopted_plan",
+      "adoption_entered_canon_only_via_tentative_two_step_trail",
+      "resolved_adoption_status_is_canon_and_edited_accepted",
+      "state_trace_recorded_persisted_draft_revision_ref",
+      "legal_flow_produced_zero_illegal_adoption_transitions",
       "author_opened_edit_dialog_and_rewrote_prose",
       "edit_then_accept_author_action_carried_edited_content",
       "edit_then_accept_routed_through_adoption_boundary_as_edited_accepted",

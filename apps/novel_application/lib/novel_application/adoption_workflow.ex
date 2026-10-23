@@ -236,14 +236,21 @@ defmodule NovelApplication.AdoptionWorkflow do
           # 持久化失败不允许静默丢弃——产出失败 action_result + failed_recoverable
           # TurnResult，走既有 action_result/turn_result 广播；原候选保持 pending，
           # 作品事实未被修改。原始错误只进 developer 日志（author-safe）。
+          {reason_code, detail} = classify_persistence_failure(reason)
+
           LogEmit.emit(:adoption, :persist, :error, %{
-            reason_code: :adoption_persistence_failed,
+            reason_code: reason_code,
             artifact_id: artifact_field(artifact, :artifact_id),
-            outcome_detail: inspect(reason) |> String.slice(0, 300)
+            outcome_detail: to_string(detail) |> String.slice(0, 300)
           })
 
-          {:ok, build_failed_action_result(decision, artifact),
-           build_persistence_failure_turn_result(source_turn_result, decision, artifact)}
+          {:ok, build_failed_action_result(decision, artifact, reason_code),
+           build_persistence_failure_turn_result(
+             source_turn_result,
+             decision,
+             artifact,
+             reason_code
+           )}
       end
     else
       {:ok, build_decision_action_result(decision, artifact),
@@ -562,8 +569,16 @@ defmodule NovelApplication.AdoptionWorkflow do
     }
 
     case writer.(attrs) do
-      {:ok, persisted} -> {:ok, Map.put(persisted, :persisted, true)}
-      {:error, reason} -> {:error, "adoption persistence failed: #{inspect(reason)}"}
+      {:ok, persisted} ->
+        {:ok, Map.put(persisted, :persisted, true)}
+
+      # ADR-0019 INV-4（Q1Cb）：持久化边界拒绝非法 adoption 状态转换时保留结构化
+      # reason，供上层产出可解释失败（不静默吞、不伪装成通用写库失败）。
+      {:error, {:illegal_adoption_transition, detail}} ->
+        {:error, {:illegal_adoption_transition, detail}}
+
+      {:error, reason} ->
+        {:error, "adoption persistence failed: #{inspect(reason)}"}
     end
   end
 
@@ -598,10 +613,22 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp decision_action_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
   defp decision_action_status(_decision), do: "rejected"
 
+  # ADR-0019 INV-4：持久化边界拒绝非法 adoption 状态转换（矩阵）。
+  defp classify_persistence_failure({:illegal_adoption_transition, detail}),
+    do: {:illegal_adoption_transition, detail}
+
+  defp classify_persistence_failure(reason),
+    do: {:adoption_persistence_failed, inspect(reason)}
+
   # BB-7：持久化失败 = 失败 action_result（status 仍 failed，ADR 口径）+ 可恢复
   # TurnResult。作者可见文案只说结构事实（未保存/候选保留/作品事实未改），
   # 不带持久化异常原文。
-  defp build_failed_action_result(%AdoptionDecision{} = decision, artifact) do
+  defp build_failed_action_result(decision, artifact, reason_code)
+       when is_atom(reason_code) do
+    build_failed_action_result(decision, artifact, Atom.to_string(reason_code))
+  end
+
+  defp build_failed_action_result(%AdoptionDecision{} = decision, artifact, reason_code) do
     %{
       action_id: "adopt:#{artifact_field(artifact, :artifact_id)}",
       action_type: "adopt",
@@ -612,7 +639,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       persistence: %{
         persisted: false,
         persistence_status: "failed",
-        reason_code: "adoption_persistence_failed"
+        reason_code: reason_code
       }
     }
   end
@@ -620,18 +647,35 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp build_persistence_failure_turn_result(
          source_turn_result,
          %AdoptionDecision{} = decision,
-         artifact
-       ) do
+         artifact,
+         reason_code
+       )
+       when is_atom(reason_code) do
+    build_persistence_failure_turn_result(
+      source_turn_result,
+      decision,
+      artifact,
+      Atom.to_string(reason_code)
+    )
+  end
+
+  defp build_persistence_failure_turn_result(
+         source_turn_result,
+         %AdoptionDecision{} = decision,
+         artifact,
+         reason_code
+       )
+       when is_binary(reason_code) do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
-    reason_codes = ["adoption_persistence_failed", "author_action_retryable"]
+    reason_codes = [reason_code, "author_action_retryable"]
 
     %{
       schema_version: "3.0-draft",
       turn_id: NovelFoundation.ID.unique("turn_adopt"),
       parent_turn_id: source_turn_id,
       assistant_message: %{
-        text: "这次采纳没有保存成功：作品档案写入失败，原候选仍保留为待采纳，作品事实没有被修改。"
+        text: persistence_failure_message(reason_code)
       },
       ui_cards: [],
       trace_summary: %{
@@ -659,6 +703,15 @@ defmodule NovelApplication.AdoptionWorkflow do
         reason_codes: reason_codes
       }
     }
+  end
+
+  # 作者可见文案只说结构事实，不带持久化异常原文。
+  defp persistence_failure_message("illegal_adoption_transition") do
+    "这次采纳被拒绝：候选状态与当前作品事实不兼容（状态转换不合法），原候选仍保留为待采纳，作品事实没有被修改。"
+  end
+
+  defp persistence_failure_message(_reason_code) do
+    "这次采纳没有保存成功：作品档案写入失败，原候选仍保留为待采纳，作品事实没有被修改。"
   end
 
   defp build_cancel_confirmation_action_result(artifact) do

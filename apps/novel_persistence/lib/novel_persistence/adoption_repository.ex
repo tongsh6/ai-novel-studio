@@ -1201,6 +1201,8 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
+  # ADR-0019 INV-4（Q1Cb）：supersede 也必须经持久化边界矩阵校验，不再用
+  # update_all 绕过 changeset（update_all 不触发 validate_adoption_transition）。
   defp supersede_accepted_drafts(repo, work_id, scene_id) do
     accepted_statuses = [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
 
@@ -1209,9 +1211,23 @@ defmodule NovelPersistence.AdoptionRepository do
       [d],
       d.work_id == ^work_id and d.scene_id == ^scene_id and d.status in ^accepted_statuses
     )
-    |> repo.update_all(set: [status: AdoptionStatus.superseded(), updated_at: DateTime.utc_now()])
+    |> repo.all()
+    |> Enum.reduce_while(:ok, fn draft, :ok ->
+      case update_with_transition_guard(repo, draft) do
+        {:ok, _draft} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
-    :ok
+  # 逐行 changeset 更新会触发 optimistic lock；并发下 repo.update 会抛
+  # Ecto.StaleEntryError（不是 {:error, changeset}）。持久化边界把并发冲突收敛为
+  # 可解释错误（事务回滚），不让异常逃逸成 500。
+  defp update_with_transition_guard(repo, draft) do
+    draft |> Draft.supersede_changeset() |> repo.update()
+  rescue
+    error in Ecto.StaleEntryError ->
+      {:error, {:adoption_status_update_failed, Exception.message(error)}}
   end
 
   defp next_draft_revision(repo, scene_id) do

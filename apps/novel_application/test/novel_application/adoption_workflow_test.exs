@@ -160,6 +160,36 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       refute inspect(turn_result) =~ "disk_full"
     end
 
+    test "illegal adoption transition is rejected explainably at the persistence boundary (ADR-0019)" do
+      source_turn = source_turn_result()
+
+      writer = fn _attrs ->
+        {:error,
+         {:illegal_adoption_transition, "illegal adoption transition DISCARDED -> ACCEPTED"}}
+      end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer
+               )
+
+      assert action_result.status == "failed"
+
+      assert action_result.persistence.reason_code == "illegal_adoption_transition"
+
+      assert turn_result.phase == "failed"
+      assert turn_result.status == "failed_recoverable"
+      assert "illegal_adoption_transition" in turn_result.trace_summary.reason_codes
+      assert turn_result.assistant_message.text =~ "状态转换不合法"
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+      # author-safe：矩阵错误原文不进入作者可见载荷。
+      refute inspect(action_result) =~ "DISCARDED -> ACCEPTED"
+      refute inspect(turn_result) =~ "DISCARDED -> ACCEPTED"
+    end
+
     test "uses character_id as adopted state ref for character_seed persistence" do
       source_turn = source_turn_result()
 

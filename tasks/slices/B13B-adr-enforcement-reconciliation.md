@@ -199,6 +199,8 @@
 
 > **✅ #3 `BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY` 已收口（2026-10-23）**：作者授权下按 Q2 审计建议默认拍板 **VS-03 维持 draft（B）** → 8-2 显式 supersede 落地（`BehaviorState.supersede/3` + `snapshot/2` + `from_map/1`；`AdoptionWorkflow` 新 confirmation 打开时把同 workstream 上一 open author-blocking behavior 标 `:superseded` 并写 `behavior_state.history`/`trace_summary.behavior_supersede_ref`；Channel 维护 active behavior 并在真实 `author_action` accept 路径注入 `previous_behavior`）；8-1（cancel/reject 关闭不经 decision）与 9-2（binding 不校验 open behavior/target）登记为文档化偏差 + 触发翻案条件（ADR-0008/ADR-0009 gaps；VS-03 §9 实现注记）。真实 Tauri `au06-single-active-confirmation` re-anchor 为 seeded pending-candidate 流并 PASS（B2 显式 supersede B1、旧确认不可执行、最新确认只采纳一次）。详见 `tasks/slices/BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY.md`。
 
+> **✅ #4 `Q1CB-ADOPTION-TRANSITION-ENFORCEMENT` 已收口（2026-10-23）**：按作者授权默认拍板 **Q4** → 矩阵下沉 persistence；复活/un-archive 先 Deferred + trigger。实现：`Draft.changeset` 持久化边界矩阵校验（非法 changeset error + 事务中止）、`adopt/discard_changeset` 走矩阵、新增 `supersede_changeset`；`AdoptionRepository.supersede_accepted_drafts` 删除 `update_all` 绕过改逐行受校验 update（`Ecto.StaleEntryError` rescue 为可解释错误）；`AdoptionWorkflow` 非法转换分类为 failed action_result + `failed_recoverable` TurnResult（reason code `illegal_adoption_transition`、零原文泄漏）。真实 Tauri `p1-chapter-edit-then-accept` 扩展验收 PASS（pending TENTATIVE → resolved EDITED_ACCEPTED 两步留痕、resolved 只含 canon、合法流程零非法转换拒绝）。诚实边界：复活入口 Deferred；库内单行 canon；非法转换拒绝真实页面不可达（单测覆盖）；相邻 `ChapterSummaryRepo.update_status` 未强制。详见 `tasks/slices/Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md`。
+
 > 补充挂账（trigger 型，不新开 slice）：`DS04-clarification-surface`（B-24S4 触发）、`NEXT-B-BATCH-CODE-SMALL`（见 §4.2）、`R2-design-ref-wiring`（C-G2 归 R2/承诺账，§4.2）。
 
 ### 4.2 下批 B 轨小修批次（本批「修复-本批」未落地 12 项；其中 **8 条为组 A 本批可修代码项转下批 B 轨（本批未落地代码）**）

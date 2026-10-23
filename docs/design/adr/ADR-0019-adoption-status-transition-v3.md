@@ -117,9 +117,17 @@ artifact 产出即 `TENTATIVE`（VS-02A / ADR-0010）。
 - apps/novel_domain/test/novel_domain/adoption_status_test.exs
 - apps/novel_domain/test/novel_domain/chapter_summary_test.exs
 - apps/novel_persistence/test/novel_persistence/schemas/foundation/artifact_adoption_entry_test.exs
+- apps/novel_persistence/lib/novel_persistence/schemas/draft.ex
+- apps/novel_persistence/lib/novel_persistence/adoption_repository.ex
+- apps/novel_persistence/test/novel_persistence/schemas/draft_test.exs
+- apps/novel_application/lib/novel_application/adoption_workflow.ex
+- apps/novel_application/test/novel_application/adoption_workflow_test.exs
 - quality/acceptance/scenarios/q1c-adopted-content-revision.yml
+- quality/acceptance/scenarios/p1-chapter-edit-then-accept.yml
+- tasks/slices/Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md
 
 ## enforcement_gaps
 
-- 【B13b 裁决（2026-10-22）：修复-独立 slice（含伪缺口修正）】artifact 7 态矩阵的 enforcer 只在领域调用侧生效：`ChapterSummaryMaintenance`→`ChapterSummary.accept`（`chapter_summary_maintenance.ex:64`→`chapter_summary.ex:66/146`）是唯一生产路径；`AdoptionRepository` 直写 Draft ACCEPTED / supersede update_all（`adoption_repository.ex:507/1112`）绕过矩阵，`ArtifactAdoptionEntry` 的转换校验（`artifact_adoption_entry.ex:62-76`）仅被 TurnResult embedded schema（`turn_result.ex:76-77/103-104`）引用而该 schema 无生产写入调用者。**修正**：MemoryItem 走记忆状态机（`memory_item.ex:285-293`，本 ADR 非目标）、LedgerEntry 走两步 TENTATIVE→ACCEPTED 仪式（`adoption_repository.ex:978-984`），二者不计入本 gap；真实缺口=artifact/Draft 持久化边界未强制矩阵。开 slice `Q1Cb-adoption-transition-enforcement`（Contract=矩阵/INV-1/INV-4；Invariant=非法转换在持久化边界被拒、canon 必经 TENTATIVE；Acceptance Driver=扩 q1c/p1-chapter-edit-then-accept 真实 Tauri 断言两步留痕与拒绝可解释）。
-- 【B13b 裁决（2026-10-22）：修复-独立 slice（等产品触发）】复活/un-archive（DISCARDED/SUPERSEDED/INVALIDATED/ARCHIVED→TENTATIVE）仍只有矩阵与单测（`adoption_status.ex:10-19`、`adoption_status_test.exs:34`），生产无写入入口、无验收场景。触发=作者真实需要撤回误丢弃/恢复旧版时开 `AU05b-adoption-revive`（Contract=ADR-0019 复活路径/INV-1/INV-3；Invariant=复活必须经 TENTATIVE 重入采纳、直达 ACCEPTED 被拒；Acceptance Driver=au05 家族真实 Tauri：丢弃已采纳→恢复→重采）。若不承诺该体验，则降级为 Deferred 并写明重新触发条件。
+- ✅ **已关闭（2026-10-23，Q1CB-ADOPTION-TRANSITION-ENFORCEMENT）** B13b 裁决（含伪缺口修正）：artifact 7 态矩阵的 enforcer 原只在领域调用侧生效（`ChapterSummary.accept`），`AdoptionRepository` 直写 Draft ACCEPTED / supersede `update_all` 绕过矩阵。本 slice 把矩阵下沉持久化边界：`Draft.changeset/2` 对 persisted struct 的 status 变更调用 `NovelDomain.AdoptionStatus.transition_allowed?/2`（非法 → changeset error `illegal adoption transition FROM -> TO`）；`adopt_changeset`/`discard_changeset` 改走 changeset，新增 `supersede_changeset`；`AdoptionRepository.supersede_accepted_drafts/3` 删除 `update_all`，逐行 `Draft.supersede_changeset |> repo.update()`（非法转换中止事务）；`AdoptionWorkflow` 将 `{:illegal_adoption_transition, detail}` 分类为可解释 failed action_result + `failed_recoverable` TurnResult（reason code `illegal_adoption_transition`，作者文案只说结构事实，原文零泄漏）。canon 两步留痕：pending TurnResult 条目为 `TENTATIVE`、采纳 TurnResult resolved 条目为 `ACCEPTED`/`EDITED_ACCEPTED`（真实 Tauri `p1-chapter-edit-then-accept` 扩展断言）。**修正边界**：MemoryItem 走记忆状态机、LedgerEntry 走两步 TENTATIVE→ACCEPTED 仪式，不计入本 gap。证据：`apps/novel_persistence/lib/novel_persistence/schemas/draft.ex`、`apps/novel_persistence/lib/novel_persistence/adoption_repository.ex`、`apps/novel_application/lib/novel_application/adoption_workflow.ex`、`tasks/slices/Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md`、`artifacts/slice-verify/p1-chapter-edit-then-accept-tauri/summary.json`。
+- ◐ **Deferred（2026-10-23 作者默认裁决 Q4：复活先降级 Deferred）** B13b 裁决（等产品触发）：复活/un-archive（`DISCARDED/SUPERSEDED/INVALIDATED/ARCHIVED → TENTATIVE`）矩阵已允许且单测覆盖（`adoption_status.ex`、`draft_test.exs`），但生产无写入入口、无验收场景。触发=作者真实需要撤回误丢弃/恢复旧版 → 开 `AU05b-adoption-revive`（Contract=复活路径/INV-1/INV-3；Invariant=复活必须经 TENTATIVE 重入、直达 canon 被拒；Acceptance Driver=au05 家族真实 Tauri：丢弃→恢复→重采）。本 slice 不实现该入口，不冒充已闭环。
+

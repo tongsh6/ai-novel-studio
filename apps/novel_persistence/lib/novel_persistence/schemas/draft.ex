@@ -13,6 +13,7 @@ defmodule NovelPersistence.Schemas.Draft do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias NovelDomain.AdoptionStatus, as: AdoptionTransition
   alias NovelFoundation.Enums.AdoptionStatus
 
   @primary_key {:id, :binary_id, autogenerate: true}
@@ -33,20 +34,44 @@ defmodule NovelPersistence.Schemas.Draft do
     |> cast(attrs, [:work_id, :scene_id, :content, :status, :revision])
     |> validate_required([:work_id, :scene_id, :content, :status])
     |> validate_inclusion(:status, AdoptionStatus.values())
+    |> validate_adoption_transition(attrs)
     |> optimistic_lock(:revision)
   end
 
-  @doc "Mark a tentative draft as accepted."
-  def adopt_changeset(draft) do
-    draft
-    |> change(status: AdoptionStatus.accepted())
-    |> optimistic_lock(:revision)
+  # ADR-0019（Q1Cb）：draft adoption 状态转换必须在持久化边界按矩阵校验。
+  # 新建 struct 的 status 默认 TENTATIVE（初始态），因此首次以 ACCEPTED 落库等价
+  # TENTATIVE→ACCEPTED 两步中的第二步；非法跳变（如 DISCARDED→ACCEPTED）被拒绝且
+  # 错误可解释（changeset error "illegal adoption transition FROM -> TO"）。
+  defp validate_adoption_transition(changeset, attrs) do
+    from = changeset.data.status
+    to = fetch_attr(attrs, :status)
+
+    cond do
+      is_nil(to) or is_nil(from) ->
+        changeset
+
+      to_string(from) == to_string(to) ->
+        changeset
+
+      AdoptionTransition.transition_allowed?(to_string(from), to_string(to)) ->
+        changeset
+
+      true ->
+        add_error(changeset, :status, "illegal adoption transition #{from} -> #{to}")
+    end
   end
 
-  @doc "Mark a tentative draft as discarded."
-  def discard_changeset(draft) do
-    draft
-    |> change(status: AdoptionStatus.discarded())
-    |> optimistic_lock(:revision)
-  end
+  defp fetch_attr(attrs, key) when is_map(attrs),
+    do: Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+
+  defp fetch_attr(_attrs, _key), do: nil
+
+  @doc "Mark a draft as accepted（经 changeset 的 ADR-0019 矩阵校验）。"
+  def adopt_changeset(draft), do: changeset(draft, %{status: AdoptionStatus.accepted()})
+
+  @doc "Mark a draft as discarded（经 changeset 的 ADR-0019 矩阵校验）。"
+  def discard_changeset(draft), do: changeset(draft, %{status: AdoptionStatus.discarded()})
+
+  @doc "Mark an accepted draft as superseded（ADR-0019 矩阵校验）。"
+  def supersede_changeset(draft), do: changeset(draft, %{status: AdoptionStatus.superseded()})
 end

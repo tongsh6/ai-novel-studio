@@ -16,6 +16,8 @@ invariants:
   - reading-projection-uses-edited-accepted-prose
   - displayed-word-count-derived-from-edited-visible-prose
   - edit-then-accept-author-action-authorized-only
+  - canon-enters-only-via-tentative-two-step-transition
+  - resolved-adoption-statuses-stay-in-canon-set
 
 setup:
   seed: scripts/seed_p1_chapter_draft_generation.exs
@@ -53,6 +55,11 @@ assertions:
     - get_toc and get_chapter_content load edited accepted prose
   data:
     - artifact_edited_accepted is true
+    - pending adoption entry status is TENTATIVE before the author action
+    - resolved adoption entry status is EDITED_ACCEPTED (canon only via TENTATIVE two-step trail)
+    - resolved adoption statuses stay within the canon set (ACCEPTED / EDITED_ACCEPTED)
+    - adopted TurnResult state trace records the persisted draft revision ref
+    - legal edit_then_accept flow produces zero illegal adoption transition rejections
     - displayed word count equals effective count of edited prose
 
 anti_hooks:
