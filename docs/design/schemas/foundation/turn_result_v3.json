@@ -4,21 +4,57 @@
   "title": "TurnResultV3",
   "description": "v3 运行时 TurnResult 线格式（draft）。与 turn_result_v2.json 的关系：v2 是 ADR-0015 时代的历史冻结，v3 描述 UA-01 之后的真实主链输出，schema_version 当前为 '3.0-draft'（semver 收敛为 ADR-0024 Deferred 项）。additionalProperties=true：v3 draft 期容忍后端新增字段，漂移检测聚焦决策面字段与 ui_cards（ADR-0024 决策 5）；ui_cards / candidate_directions 的条目收紧由前端 barrel（lib/schemas.ts）用 ui_card.json / candidate_direction.json 生成物组合完成，codegen 不解析跨文件 $ref。",
   "type": "object",
-  "required": ["turn_id", "phase", "status", "assistant_message"],
+  "required": [
+    "turn_id",
+    "phase",
+    "status",
+    "assistant_message"
+  ],
   "additionalProperties": true,
   "definitions": {
     "adoption_entry": {
       "type": "object",
-      "required": ["artifact_id", "artifact_type", "adoption_status", "requires_adoption", "payload"],
+      "required": [
+        "artifact_id",
+        "artifact_type",
+        "adoption_status",
+        "requires_adoption",
+        "payload"
+      ],
       "properties": {
-        "artifact_id": { "type": "string" },
-        "artifact_type": { "type": "string" },
-        "adoption_status": { "type": "string" },
-        "requires_adoption": { "type": "boolean" },
-        "revision_base": { "type": ["string", "null"] },
-        "source_turn_ref": { "type": ["string", "null"] },
-        "source_tool_result_ref": { "type": ["string", "null"] },
-        "payload": { "type": "object" }
+        "artifact_id": {
+          "type": "string"
+        },
+        "artifact_type": {
+          "type": "string"
+        },
+        "adoption_status": {
+          "type": "string"
+        },
+        "requires_adoption": {
+          "type": "boolean"
+        },
+        "revision_base": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_turn_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_tool_result_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        }
       }
     }
   },
@@ -27,84 +63,183 @@
       "type": "string",
       "description": "当前为 '3.0-draft'。"
     },
-    "turn_id": { "type": "string", "minLength": 1 },
-    "parent_turn_id": { "type": ["string", "null"] },
-    "frame_ref": { "type": "string" },
-    "phase": { "type": "string" },
-    "status": { "type": "string" },
-    "next_action": { "type": "string" },
+    "turn_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent_turn_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "frame_ref": {
+      "type": "string"
+    },
+    "phase": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "next_action": {
+      "type": "string"
+    },
     "assistant_message": {
       "type": "object",
-      "required": ["text"],
+      "required": [
+        "text"
+      ],
       "properties": {
-        "text": { "type": "string" }
+        "text": {
+          "type": "string"
+        }
       }
     },
     "frame_summary": {
       "type": "object",
       "properties": {
-        "frame_type": { "type": "string" },
-        "dialogue_goal": { "type": "string" },
-        "uncertainty": { "type": "array", "items": { "type": "string" } }
+        "frame_type": {
+          "type": "string"
+        },
+        "dialogue_goal": {
+          "type": "string"
+        },
+        "uncertainty": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "ui_cards": {
       "type": "array",
       "description": "信息通告卡片（S2/S3 展示载体 + result_card）。条目形状见 foundation/ui_card.json。",
-      "items": { "$ref": "ui_card.json" }
+      "items": {
+        "$ref": "ui_card.json"
+      }
     },
     "available_actions": {
       "type": "array",
       "description": "UI 可提交动作唯一来源（ADR-0007；00c §7 #10）。",
       "items": {
         "type": "object",
-        "required": ["action_id", "action_type"],
+        "required": [
+          "action_id",
+          "action_type"
+        ],
         "properties": {
-          "action_id": { "type": "string", "minLength": 1 },
-          "action_type": { "type": "string", "minLength": 1 },
-          "label_key": { "type": "string" },
-          "source_turn_ref": { "type": "string" },
-          "target_ref": { "type": "string" },
-          "behavior_ref": { "type": "string" },
-          "candidate_set_ref": { "type": "string" },
-          "candidate_ref": { "type": "string" },
-          "enabled": { "type": "boolean" },
-          "idempotency_key": { "type": "string" },
-          "trace_ref": { "type": "string" },
-          "quality_finding_refs": { "type": "array", "items": { "type": "string" } }
+          "action_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label_key": {
+            "type": "string"
+          },
+          "source_turn_ref": {
+            "type": "string"
+          },
+          "target_ref": {
+            "type": "string"
+          },
+          "behavior_ref": {
+            "type": "string"
+          },
+          "candidate_set_ref": {
+            "type": "string"
+          },
+          "candidate_ref": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "trace_ref": {
+            "type": "string"
+          },
+          "quality_finding_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
     "candidate_directions": {
       "type": "array",
       "description": "S1 决策面驱动字段。条目形状见 foundation/candidate_direction.json。",
-      "items": { "$ref": "candidate_direction.json" }
+      "items": {
+        "$ref": "candidate_direction.json"
+      }
     },
     "adoption_state": {
       "type": "object",
       "description": "S2 决策面驱动字段（逐候选独立采纳单元，AU-09）。",
-      "required": ["pending", "resolved"],
+      "required": [
+        "pending",
+        "resolved"
+      ],
       "properties": {
-        "pending": { "type": "array", "items": { "$ref": "#/definitions/adoption_entry" } },
-        "resolved": { "type": "array", "items": { "$ref": "#/definitions/adoption_entry" } }
+        "pending": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/adoption_entry"
+          }
+        },
+        "resolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/adoption_entry"
+          }
+        }
       }
     },
     "behavior_state": {
       "type": "object",
       "description": "S3/S4 决策面驱动字段（BehaviorState.snapshot/1 形状，ADR-0008）。",
       "properties": {
-        "active": { "type": ["object", "null"] },
-        "history": { "type": "array", "items": { "type": "object" } }
+        "active": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
       }
     },
     "quality_review": {
       "type": "object",
       "description": "S5 决策面驱动字段（ADR-0020）。字段必填集与 QualityReviewCard 消费口径一致，缺失即漂移告警。",
-      "required": ["status", "policy_action", "review_status", "findings"],
+      "required": [
+        "status",
+        "policy_action",
+        "review_status",
+        "findings"
+      ],
       "properties": {
-        "status": { "type": "string" },
-        "policy_action": { "type": "string" },
-        "review_status": { "type": "string" },
+        "status": {
+          "type": "string"
+        },
+        "policy_action": {
+          "type": "string"
+        },
+        "review_status": {
+          "type": "string"
+        },
         "findings": {
           "type": "array",
           "items": {
@@ -123,46 +258,108 @@
               "revision_scope"
             ],
             "properties": {
-              "quality_finding_id": { "type": "string", "minLength": 1 },
-              "quality_gate": { "type": "string" },
-              "validator": { "type": "string" },
-              "severity": { "type": "string" },
-              "action": { "type": "string" },
-              "summary": { "type": "string", "minLength": 1 },
-              "reasoning": { "type": "string", "minLength": 1 },
-              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "quality_finding_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quality_gate": {
+                "type": "string"
+              },
+              "validator": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reasoning": {
+                "type": "string",
+                "minLength": 1
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
               "impact_scope": {
                 "type": "string",
-                "enum": ["local", "paragraph", "chapter"]
+                "enum": [
+                  "local",
+                  "paragraph",
+                  "chapter"
+                ]
               },
               "revision_scope": {
                 "type": "string",
-                "enum": ["local", "paragraph", "chapter"]
+                "enum": [
+                  "local",
+                  "paragraph",
+                  "chapter"
+                ]
               },
               "evidence_spans": {
                 "type": "array",
                 "minItems": 1,
                 "items": {
                   "type": "object",
-                  "required": ["text", "sentence_start", "sentence_end"],
+                  "required": [
+                    "text",
+                    "sentence_start",
+                    "sentence_end"
+                  ],
                   "properties": {
-                    "text": { "type": "string", "minLength": 1 },
-                    "location": { "type": "string" },
-                    "sentence_start": { "type": "integer", "minimum": 1 },
-                    "sentence_end": { "type": "integer", "minimum": 1 },
-                    "start_offset": { "type": "integer", "minimum": 0 },
-                    "end_offset": { "type": "integer", "minimum": 0 }
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "sentence_start": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "sentence_end": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "start_offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "end_offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
                   }
                 }
               },
-              "brief_field_refs": { "type": "array", "items": { "type": "string" } },
-              "suggested_revision": {
-                "type": ["object", "null"],
-                "properties": {
-                  "instruction": { "type": "string" }
+              "brief_field_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
                 }
               },
-              "can_override": { "type": "boolean" }
+              "suggested_revision": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "instruction": {
+                    "type": "string"
+                  }
+                }
+              },
+              "can_override": {
+                "type": "boolean"
+              }
             }
           }
         }
@@ -172,27 +369,87 @@
       "type": "object",
       "description": "S6 决策面关联摘要（AgentFinalizer 注入；前端会在运行时补充 events / provider_runs / activity_loaded 客户端字段）。",
       "properties": {
-        "run_id": { "type": "string" },
-        "run_mode": { "type": "string" },
-        "status": { "type": "string" },
-        "phase": { "type": "string" },
-        "parent_turn_ref": { "type": ["string", "null"] },
-        "profile_ref": { "type": "string" },
+        "run_id": {
+          "type": "string"
+        },
+        "run_mode": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "parent_turn_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profile_ref": {
+          "type": "string"
+        },
         "trigger": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "author_action 启动 run 的来源绑定；普通 user_message run 为 null。",
           "properties": {
-            "kind": { "type": "string" },
-            "receipt_id": { "type": ["string", "null"] },
-            "action_id": { "type": ["string", "null"] },
-            "action_type": { "type": ["string", "null"] },
-            "source_turn_ref": { "type": ["string", "null"] },
-            "source_surface_ref": { "type": ["string", "null"] },
-            "target_artifact_ref": { "type": ["string", "null"] },
-            "quality_finding_refs": { "type": "array", "items": { "type": "string" } }
+            "kind": {
+              "type": "string"
+            },
+            "receipt_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "action_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "action_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_turn_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_surface_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target_artifact_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "quality_finding_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         },
-        "long_run_task_ref": { "type": ["string", "null"] }
+        "long_run_task_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "trace_summary": {
@@ -203,15 +460,47 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["projection_type", "projection_id"],
+        "required": [
+          "projection_type",
+          "projection_id"
+        ],
         "properties": {
-          "projection_type": { "type": "string" },
-          "projection_id": { "type": "string" },
-          "source_revision_refs": { "type": "array", "items": { "type": "string" } },
-          "refresh_status": { "type": ["string", "null"] },
-          "projection_hint_id": { "type": ["string", "null"] },
-          "reason": { "type": ["string", "null"] },
-          "source_state_trace_ref": { "type": ["string", "null"] }
+          "projection_type": {
+            "type": "string"
+          },
+          "projection_id": {
+            "type": "string"
+          },
+          "source_revision_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "refresh_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projection_hint_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_state_trace_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
@@ -219,6 +508,36 @@
       "type": "object",
       "description": "诚实性事实（工具是否调用、是否写入等）。"
     },
-    "produced_at": { "type": "string" }
+    "produced_at": {
+      "type": "string"
+    },
+    "writing_coordinate": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "本轮写作坐标（B13b §4.1 #11 / VS-00J 消费面）：volume_ref 为当前卷 id（取自 get_toc 卷节点，缺省 null=未定卷），authoring_mode 为本轮写作模式，matched_chapter 为应用层确定性匹配到的目标章标题。与 app JSONL turn_execution.writing_coordinate.done 同源；UI 只用于解析当前卷名，不展示 ref。",
+      "properties": {
+        "volume_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "authoring_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matched_chapter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
   }
 }

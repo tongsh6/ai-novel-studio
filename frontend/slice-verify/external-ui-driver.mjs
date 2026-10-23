@@ -7822,6 +7822,57 @@ async function driveAu08VolumeStructuredPlanning(page) {
     );
   }
 
+  // B13b §4.1 #11（WORKBENCH-CURRENT-VOLUME）：真实工作台头部必须显示本轮写作坐标
+  // 解析出的真实卷（不是硬编码「未定卷」）。两层外部证据：
+  // ① get_writing_coordinate phx_reply 的 volume_title（服务端 coordinate → TOC 解析）；
+  // ② 页面头部可见文本（真实 DOM，非产品验收 hook）。
+  let writingCoordinateReply = null;
+  for (let attempt = 0; attempt < 60 && !writingCoordinateReply; attempt += 1) {
+    writingCoordinateReply = frames
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "phx_reply" &&
+          frame.body?.status === "ok" &&
+          frame.body?.response?.coordinate?.source === "writing_coordinate",
+      )
+      .pop();
+    if (!writingCoordinateReply) await sleep(250);
+  }
+  const coordinateVolumeTitleFromChannel = String(
+    writingCoordinateReply?.body?.response?.coordinate?.volume_title ?? "",
+  );
+  assert(
+    coordinateVolumeTitleFromChannel === proseVolumeTitle,
+    `get_writing_coordinate did not resolve the current volume to ${proseVolumeTitle}: ${JSON.stringify(
+      writingCoordinateReply?.body?.response?.coordinate ?? null,
+    )}`,
+  );
+
+  const readWorkbenchHeaderVolume = async () =>
+    (await page
+      .locator('[class*="volText"]')
+      .first()
+      .innerText()
+      .catch(() => ""))
+      .trim();
+  let workbenchHeaderVolumeTitle = "";
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    workbenchHeaderVolumeTitle = await readWorkbenchHeaderVolume();
+    if (workbenchHeaderVolumeTitle === proseVolumeTitle) break;
+    await sleep(250);
+  }
+  const workbenchBodyText = await page.locator("body").innerText();
+  const workbenchHeaderShowsCurrentVolume =
+    workbenchHeaderVolumeTitle === proseVolumeTitle &&
+    !workbenchBodyText.includes("未定卷");
+  assert(
+    workbenchHeaderShowsCurrentVolume,
+    `Workbench header did not show the real current volume ${proseVolumeTitle} (got ${JSON.stringify(
+      workbenchHeaderVolumeTitle,
+    )}, placeholder=${workbenchBodyText.includes("未定卷")})`,
+  );
+
   // writer prompt 外部证据：test-support 桩把真实收到的 prompt 落 llm-calls（产品零验收感知）。
   const readPromptTexts = () =>
     readLlmCallRecords()
@@ -8535,6 +8586,11 @@ async function driveAu08VolumeStructuredPlanning(page) {
       coordinate_volume_ref_matches_toc_volume: coordinateVolumeRefMatchesTocVolume,
       coordinate_volume_ref_source: coordinateVolumeRefSource,
       current_volume_id: currentVolumeId,
+      // B13b §4.1 #11：工作台头部当前卷 = 真实写作坐标解析卷（channel reply + DOM）。
+      workbench_header_volume_title: workbenchHeaderVolumeTitle,
+      workbench_header_volume_title_from_channel: coordinateVolumeTitleFromChannel,
+      workbench_header_shows_current_volume: workbenchHeaderShowsCurrentVolume,
+      workbench_header_placeholder_present: workbenchBodyText.includes("未定卷"),
       prose_volume_context_screenshot: true,
       // B11A CP3：档案「规划下一卷」真实动作 → 机械 scope → scoped 候选（1 卷蓝图 + 3 章）
       // → 采纳 → TOC 三卷、章号全局续排；planner prompt 带机械范围段。

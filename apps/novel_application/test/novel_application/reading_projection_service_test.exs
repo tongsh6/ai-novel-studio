@@ -37,6 +37,53 @@ defmodule NovelApplication.ReadingProjectionServiceTest do
              ReadingProjectionService.chapter_content(Ecto.UUID.generate(), Ecto.UUID.generate())
   end
 
+  describe "current_writing_coordinate/2 (B13b §4.1 #11)" do
+    test "prefers the latest turn writing_coordinate volume_ref and resolves its TOC title" do
+      work_id = Ecto.UUID.generate()
+      %{volume: volume} = insert_reading_chain(work_id)
+
+      turn_results = [
+        %{
+          turn_id: "turn-new",
+          produced_at: "2026-10-23T10:00:02Z",
+          writing_coordinate: %{volume_ref: volume.id, matched_chapter: "第一章"}
+        },
+        %{
+          turn_id: "turn-old",
+          produced_at: "2026-10-23T10:00:01Z",
+          writing_coordinate: %{volume_ref: "volume-other", matched_chapter: "第三章"}
+        }
+      ]
+
+      assert %{
+               volume_ref: volume_ref,
+               volume_title: "第一卷",
+               chapter_title: "第一章",
+               source: "writing_coordinate"
+             } = ReadingProjectionService.current_writing_coordinate(work_id, turn_results)
+
+      assert volume_ref == volume.id
+    end
+
+    test "falls back to the last TOC volume when the turn has no writing coordinate" do
+      work_id = Ecto.UUID.generate()
+      %{volume: volume} = insert_reading_chain(work_id)
+
+      assert %{
+               volume_ref: volume_ref,
+               volume_title: "第一卷",
+               source: "toc_fallback"
+             } = ReadingProjectionService.current_writing_coordinate(work_id, [])
+
+      assert volume_ref == volume.id
+    end
+
+    test "returns nil when the work has no volumes" do
+      assert ReadingProjectionService.current_writing_coordinate(Ecto.UUID.generate(), []) ==
+               nil
+    end
+  end
+
   defp insert_reading_chain(work_id) do
     volume =
       %Volume{}

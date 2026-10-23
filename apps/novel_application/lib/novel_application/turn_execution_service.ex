@@ -111,11 +111,29 @@ defmodule NovelApplication.TurnExecutionService do
     if MissingPolicyResult.block?(missing) do
       blocked_result(frame, input, coordinate, missing)
     else
-      do_execute(frame, plan, decision, input, action, resolved_chapter, resolved_chapter_ref)
+      do_execute(
+        frame,
+        plan,
+        decision,
+        input,
+        action,
+        resolved_chapter,
+        resolved_chapter_ref,
+        coordinate
+      )
     end
   end
 
-  defp do_execute(frame, plan, decision, input, action, resolved_chapter, resolved_chapter_ref) do
+  defp do_execute(
+         frame,
+         plan,
+         decision,
+         input,
+         action,
+         resolved_chapter,
+         resolved_chapter_ref,
+         coordinate
+       ) do
     summary_reader = input[:chapter_summary_reader]
 
     # 读前文优先按 ref（改名/同名都稳定）；无 ref 才回退 title（唯一命中语义由读端口保证）。
@@ -350,6 +368,10 @@ defmodule NovelApplication.TurnExecutionService do
       )
       |> Map.put(:assistant_message, %{text: assistant_message})
       |> maybe_put_quality_review(quality)
+      # B13b §4.1 #11（WORKBENCH-CURRENT-VOLUME）：把本轮写作坐标（volume_ref/
+      # authoring_mode/matched_chapter）aditively 装进 TurnResult，供真实工作台
+      # 头部显示当前卷（get_toc 回退在 Channel/application 侧完成；JSONL 同一坐标）。
+      |> Map.put(:writing_coordinate, coordinate_payload(coordinate))
 
     {turn_result, trace}
   end
@@ -385,6 +407,15 @@ defmodule NovelApplication.TurnExecutionService do
     })
   end
 
+  # TurnResult additive 字段：author-safe 写作坐标子集（不含 provider/内部 trace）。
+  defp coordinate_payload(%WritingCoordinate{} = coordinate) do
+    %{
+      volume_ref: coordinate.volume_ref,
+      authoring_mode: to_string(coordinate.authoring_mode),
+      matched_chapter: coordinate.matched_chapter
+    }
+  end
+
   # hard missing 短路：不调用 provider，产出可解释 conversational TurnResult；trace 记 reply-only。
   defp blocked_result(
          frame,
@@ -403,6 +434,7 @@ defmodule NovelApplication.TurnExecutionService do
     turn_result =
       TurnResultBuilder.build(frame, trace_summary, input[:candidates] || [], nil, nil, nil)
       |> Map.put(:assistant_message, %{text: blocked_message(coordinate)})
+      |> Map.put(:writing_coordinate, coordinate_payload(coordinate))
 
     {turn_result, trace}
   end

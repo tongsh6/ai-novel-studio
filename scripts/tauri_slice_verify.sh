@@ -844,7 +844,7 @@ native_action_description() {
       echo "open real archive outline -> click start planning -> generate 12 chapter plan -> adopt -> reopen archive outline and verify adopted chapter plan"
       ;;
     au08-volume-structured-planning)
-      echo "seed a work whose skeleton declares 2 planned volumes -> open real archive outline -> click start planning -> the plan comes back with a per-chapter 所属卷 assignment -> adopt -> reopen archive outline and verify two volume headers (卷名 · N章) with the chapters grouped exactly as the adopted plan assigned them -> open reading mode and verify the TOC shows the same two volume headers while get_toc reports volume_count=2"
+      echo "seed a work whose skeleton declares 2 planned volumes -> open real archive outline -> click start planning -> the plan comes back with a per-chapter 所属卷 assignment -> adopt -> reopen archive outline and verify two volume headers (卷名 · N章) with the chapters grouped exactly as the adopted plan assigned them -> start a real prose draft for a volume-1 chapter and verify the workbench header shows the real current volume resolved from the turn writing coordinate (never a 未定卷 placeholder) -> open reading mode and verify the TOC shows the same two volume headers while get_toc reports volume_count=2"
       ;;
     p1-chapter-draft-generation)
       echo "seed adopted chapter plan -> open real archive outline -> click generate draft for chapter 1 -> verify tentative prose draft and empty reading mode"

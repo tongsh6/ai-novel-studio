@@ -42,6 +42,7 @@ import {
   MessageDeliveryError,
   sendAuthorAction,
   getReviewReport,
+  getWritingCoordinate,
   sendAgentCommand,
   agentCommandErrorReason,
   onAgentEvent,
@@ -1673,6 +1674,23 @@ export function WorkspaceChat() {
     useAppStore.getState().setPendingBuildAction(null);
   }
 
+  // B13b §4.1 #11：工作台头部当前卷以真实写作坐标为准（服务端优先 TurnResult
+  // writing_coordinate.volume_ref，规划态回退 TOC 末卷）。失败时保留旧值/回退「全书」，
+  // 绝不伪造「未定卷」。
+  async function refreshWritingCoordinate(channel: Channel, workId: string, token: number) {
+    try {
+      const coordinate = await getWritingCoordinate(channel, workId);
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId })) return;
+      if (!coordinate?.volume_title) return;
+      setContext({
+        volumeId: coordinate.volume_ref ?? null,
+        volumeTitle: coordinate.volume_title,
+      });
+    } catch {
+      /* 读失败保留旧值；头部回退「全书」 */
+    }
+  }
+
   async function openWork(work: WorkDto) {
     const token = connectionTokenRef.current + 1;
     connectionTokenRef.current = token;
@@ -1707,7 +1725,7 @@ export function WorkspaceChat() {
         workTitle,
         assistantDisplayName: displayName,
         volumeId: null,
-        volumeTitle: "未定卷",
+        volumeTitle: null,
         chapterId: null,
         chapterTitle: null,
       });
@@ -1803,8 +1821,10 @@ export function WorkspaceChat() {
           workId: joinedWorkId,
           workTitle,
           assistantDisplayName: activeAssistantDisplayName,
-          volumeTitle: "未定卷",
+          volumeId: null,
+          volumeTitle: null,
         });
+        void refreshWritingCoordinate(channel, joinedWorkId, token);
         if (previousWork) {
           previousWorkRef.current = previousWork;
         }
@@ -1842,6 +1862,9 @@ export function WorkspaceChat() {
     channel.on("turn_result", (result: unknown) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
       handleTurnResult(parseIncomingTurnResult(result));
+      // B13b §4.1 #11：本轮写作坐标变化后刷新头部当前卷（真实 turn_result 携带
+      // writing_coordinate；服务端解析卷标题，前端不猜）。
+      void refreshWritingCoordinate(channel, work.id, token);
       // CP4c rail 待处置计数：turn 完成后刷新审读报告待处置数（章数节拍/全书审读
       // 都可能在 turn 内物化报告；轻量只读，读失败保留旧值不清零）。
       void getReviewReport(channel, work.id)

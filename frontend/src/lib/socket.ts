@@ -646,6 +646,31 @@ export function getToc(channel: Channel, workId: string): Promise<TocData> {
   });
 }
 
+// B13b §4.1 #11（WORKBENCH-CURRENT-VOLUME）：工作台头部当前写作坐标。
+// 服务端优先取最近 TurnResult 的 writing_coordinate.volume_ref（与 app JSONL 同源），
+// 规划态回退 TOC 末卷；无卷时 coordinate=null（UI 显示「全书」，不伪造「未定卷」）。
+export interface WritingCoordinate {
+  volume_ref: string | null;
+  volume_title: string | null;
+  chapter_title: string | null;
+  source: string;
+}
+
+export function getWritingCoordinate(
+  channel: Channel,
+  workId: string,
+): Promise<WritingCoordinate | null> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_writing_coordinate", { work_id: workId })
+      .receive("ok", (response: { coordinate?: WritingCoordinate | null }) =>
+        resolve(response?.coordinate ?? null),
+      )
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_writing_coordinate timeout")));
+  });
+}
+
 // B11A CP3（VS-00J §3.2 形态 A / 43 §5.0.7）：开新卷动作的作用域摘要。范围由服务端
 // 机械推导（next_seq=卷数+1、current=末卷、next_chapter_seq=全书章 seq+1），前端不猜；
 // 字段全部可选容错，缺失不影响「已受理」判定。

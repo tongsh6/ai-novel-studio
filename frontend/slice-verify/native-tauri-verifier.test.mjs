@@ -9437,6 +9437,9 @@ describe("native Tauri slice verifier", () => {
       coordinate_volume_ref_matches_toc_volume: true,
       coordinate_volume_ref_source: "app_jsonl",
       current_volume_id: "volume-au08-1",
+      workbench_header_volume_title: "第一卷·觉醒",
+      workbench_header_volume_title_from_channel: "第一卷·觉醒",
+      workbench_header_shows_current_volume: true,
       // B11A CP3：档案「规划下一卷」机械 scope → scoped 候选 → 三卷 TOC + planner 范围段。
       plan_next_volume_sent: true,
       plan_next_volume_scope: {
@@ -9632,6 +9635,9 @@ describe("native Tauri slice verifier", () => {
       ],
       coordinate_volume_ref: "volume-au08-1",
       current_volume_id: "volume-au08-1",
+      workbench_header_volume_title: "第一卷·觉醒",
+      workbench_header_volume_title_from_channel: "第一卷·觉醒",
+      workbench_header_shows_current_volume: true,
       // B11A CP5：卷级收束守则证据透传进 behavior。
       volume_closure_prompt_fragments: [
         "本卷为「第一卷·觉醒」",
@@ -9677,6 +9683,7 @@ describe("native Tauri slice verifier", () => {
         "prose_writer_prompt_carried_current_volume_blueprint",
         "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
         "writing_coordinate_volume_ref_bound_to_current_volume",
+        "workbench_header_shows_real_current_volume_not_placeholder",
         "prose_writer_prompt_carried_volume_closure_directive",
         "archive_plan_next_volume_action_scoped_to_next_volume",
         "scoped_volume_blueprint_and_opening_chapters_materialized",
@@ -14024,6 +14031,10 @@ function au08VolumeStructuredPlanningRecords({ uiStateOverrides = {}, tocOverrid
       coordinate_volume_ref_matches_toc_volume: true,
       coordinate_volume_ref_source: "app_jsonl",
       current_volume_id: volumeOneId,
+      workbench_header_volume_title: "第一卷·觉醒",
+      workbench_header_volume_title_from_channel: "第一卷·觉醒",
+      workbench_header_shows_current_volume: true,
+      workbench_header_placeholder_present: false,
       // B11A CP5：卷级收束守则默认分支跟在卷蓝图段之后（空行分隔、仅 1 次）。
       volume_closure_in_writer_prompt: true,
       volume_closure_prompt_fragments: volumeClosurePromptFragments,

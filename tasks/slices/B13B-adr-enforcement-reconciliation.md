@@ -203,6 +203,8 @@
 
 > **✅ #10 `R10R11-VOLUME-DEBT-SCENARIO` 已收口（2026-10-23；产品零改动）**：扩既有 tauri `au13-review-adjudication-roundtrip` 为正触发——seed `planned_volumes=4`、事实 3 卷（第 1 卷有蓝图、第 2/3 卷缺蓝图）、计划第 3/4 章分到第 2/3 卷 → 真实页面审读产出 8 处偏离（1 R10 `volume_plan_mismatch` + 2 R11 `volume_blueprint_missing` + 4 停滞 + 1 提前收官）；断言 finding 文案/source_refs/proposed_disposition 与 3 条修订设定 correction intent，全部处置后报告清空。真实 Tauri PASS + `au14-finding-inventory-arc-loop` 回归 PASS（B13b 要求的既有场景修复与复跑完成）。详见 `tasks/slices/R10R11-VOLUME-DEBT-SCENARIO.md`。
 
+> **✅ #11 `WORKBENCH-CURRENT-VOLUME` 已收口（2026-10-24；作者默认裁决 Q11-A）**：TurnResult additive `writing_coordinate`（volume_ref/authoring_mode/matched_chapter，与 app JSONL 同源）+ `ReadingProjectionService.current_writing_coordinate/2`（最近坐标 → get_toc 标题；规划态回退末个有章卷；无卷 nil）+ Channel `get_writing_coordinate` + 前端 socket/WorkspaceChat 头部消费，移除两处硬编码「未定卷」（初始 null，回退「全书」）。真实 Tauri `au08-volume-structured-planning` 扩展 PASS（channel reply 卷名 + 页面头部可见文本双层断言 = `第一卷·觉醒`，零「未定卷」）。**B13b §4.1 11 项至此全部处理完**（#1 待 B26 释放、#5–#9 trigger 挂账/延后）。详见 `tasks/slices/WORKBENCH-CURRENT-VOLUME.md`。
+
 > 补充挂账（trigger 型，不新开 slice）：`DS04-clarification-surface`（B-24S4 触发）、`NEXT-B-BATCH-CODE-SMALL`（见 §4.2）、`R2-design-ref-wiring`（C-G2 归 R2/承诺账，§4.2）。
 
 ### 4.2 下批 B 轨小修批次（本批「修复-本批」未落地 12 项；其中 **8 条为组 A 本批可修代码项转下批 B 轨（本批未落地代码）**）

@@ -462,7 +462,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J30 | 行为生命周期决策权收口（同 workstream 显式 supersede 旧 author-blocking behavior） | BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY / ADR-0008 / VS-03 | BehaviorState / AdoptionWorkflow / WorkspaceChannel | **closed（2026-10-23，真实 Tauri `au06` re-anchor PASS + 单测；8-1/9-2 文档化偏差）** | 单测矩阵 + 真实 Tauri（B1→B2 显式 supersede、旧确认不可执行、最新确认只采纳一次） | `tasks/NEXT.md` BEHAVIOR-LIFECYCLE 行；`tasks/slices/BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY.md`；`artifacts/slice-verify/au06-single-active-confirmation-tauri/summary.json` | 作者默认裁决 Q2=B（VS-03 维持 draft）：8-2 显式 supersede 落地（`BehaviorState.supersede/3` + `snapshot/2` + `from_map/1`；AdoptionWorkflow history/trace refs；Channel active_behavior + 真实 accept 路径注入 previous_behavior）；8-1 cancel/reject 关闭不经 decision、9-2 binding 不校验 open behavior 登记文档化偏差 + 触发翻案条件。au06 re-anchor 为 seeded pending-candidate 流 |
 | J31 | 采纳状态转换矩阵在持久化边界强制（canon 两步仪式、非法转换可解释拒绝） | Q1CB-ADOPTION-TRANSITION-ENFORCEMENT / ADR-0019 / VS-04 | AdoptionRepository / AdoptionWorkflow / Draft schema | **closed（2026-10-23，真实 Tauri `p1-chapter-edit-then-accept` PASS + 单测矩阵；复活 Deferred）** | 单测矩阵 + 真实 Tauri（pending TENTATIVE → resolved EDITED_ACCEPTED 两步留痕、合法流程零非法转换拒绝） | `tasks/NEXT.md` Q1CB 行；`tasks/slices/Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md`；`artifacts/slice-verify/p1-chapter-edit-then-accept-tauri/summary.json` | 作者默认裁决 Q4：矩阵下沉 persistence（`Draft.changeset` 矩阵校验 + supersede 逐行受校验 + 非法转换可解释失败）；复活/un-archive 维持 Deferred + trigger；库内仍单行 canon（两步仪式为 wire/决策语义）；非法转换拒绝真实页面不可达，由单测覆盖 |
 | J32 | 卷级负债规则正触发（planned=4、事实 3 卷且 2 卷缺蓝图 → 审读 R10/R11 finding → 处置 → 清空报告） | R10R11-VOLUME-DEBT-SCENARIO / ADR-0028 / VS-00J | au13 审读场景（真实 Tauri） | **closed（2026-10-23，真实 Tauri `au13-review-adjudication-roundtrip` 扩展 PASS + au14 回归 PASS）** | 真实 Tauri：8 处偏离（R10 1 + R11 2 + 停滞 4 + 提前收官 1）→ 逐条处置（含 3 条修订设定 correction intent）→ 报告清空 + rail 计数归零 | `tasks/NEXT.md` R10R11 行；`tasks/slices/R10R11-VOLUME-DEBT-SCENARIO.md`；`artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/summary.json` | 产品零改动（规则已实现）；R10/R11 只产设计负债 finding，不静默改写规划/不阻断写作；扩既有审读场景不新增平行场景 |
-| J33 | 工作台头部显示真实写作坐标当前卷（不出现假「未定卷」） | WORKBENCH-CURRENT-VOLUME / ADR-0028 §UI / VS-00J 消费面 | WorkspaceChat / 写作坐标 / get_toc | **next（2026-10-23，backlog §4.1 #11；作者已授权自动推进）** | 真实 Tauri au08 扩展断言当前卷名=真实卷（规划态回退 TOC） | `tasks/NEXT.md` WORKBENCH-CURRENT-VOLUME 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.1 #11 | 默认按 B13b §7 Q11 建议 A：写作坐标 `volume_ref`（JSONL 已有）+ get_toc 回退；卷蓝图作者编辑/作废维持非目标 |
+| J33 | 工作台头部显示真实写作坐标当前卷（不出现假「未定卷」） | WORKBENCH-CURRENT-VOLUME / ADR-0028 §UI / VS-00J 消费面 | WorkspaceChat / TurnResult writing_coordinate / get_toc / Channel | **closed（2026-10-24，真实 Tauri `au08` 扩展 PASS + 4 端单测）** | 真实 Tauri：get_writing_coordinate reply 卷名 + 页面头部可见文本双层断言 = 本轮坐标解析真实卷（第一卷·觉醒），零「未定卷」 | `tasks/NEXT.md` WORKBENCH-CURRENT-VOLUME 行；`tasks/slices/WORKBENCH-CURRENT-VOLUME.md`；`artifacts/slice-verify/au08-volume-structured-planning-tauri/summary.json` | 作者默认裁决 Q11-A：写作坐标 volume_ref 为主 + get_toc 回退；规划态回退 TOC；无卷显示「全书」；TurnResult additive 字段不新增持久化列；卷蓝图编辑维持非目标 |
+| J34 | B11D 质量场粒度/多场正文（场级质量评估与修订候选） | B11D-QUALITY-FIELD-GRANULARITY / VS-00E / VS-00G 质量契约 | QualityEvaluator / ArtifactAssembler / 阅读投影 | **next（2026-10-24，B13b §4.1 #1–#11 处理完后顺序项）** | 契约/现状侦察 → 单测 → 真实 Tauri 多场正文验收 | `tasks/NEXT.md` B11D 行；`tasks/slices/B11D-quality-field-granularity.md`（下一轮补七问） | 默认按 B13b/质量场契约审计建议推进；作者裁决点再按默认拍板 |
 
 
 ---
@@ -516,8 +517,8 @@ Next Task: MAINLINE-RESET-4
 
 ```text
 Current Focus: 作者授权按 NEXT.md 候选顺序自动推进 backlog（B13b §4.1 → B11D → E28-E30 → VS-00D G1–G7 → C 轨；含真实 Tauri 验收与全门禁；B26 由并行会话负责）
-Active Journey: Journey J（J29 GATE-ORDER-CLOSURE closed；J30 行为生命周期 closed；J31 采纳转换矩阵 closed；J32 卷级负债正触发 closed；J33 工作台当前卷 next）
-Queue head: WORKBENCH-CURRENT-VOLUME（backlog §4.1 #11）
+Active Journey: Journey J（J30 行为生命周期 closed；J31 采纳转换矩阵 closed；J32 卷级负债正触发 closed；J33 工作台当前卷 closed；J34 B11D 质量场粒度 next）
+Queue head: B11D-QUALITY-FIELD-GRANULARITY（B13b §4.1 之后顺序项）
 ```
 
 本文对应位置：

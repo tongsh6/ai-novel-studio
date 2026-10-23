@@ -1552,6 +1552,17 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert audit.meets_threshold == false
     end
 
+    test "get_writing_coordinate returns nil for an empty lobby instead of a fake volume" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref = push(socket, "get_writing_coordinate", %{})
+
+      assert_reply(ref, :ok, %{coordinate: nil}, @agent_run_timeout)
+    end
+
     test "get_chapter_content rejects missing chapter instead of relying on mock content" do
       {:ok, _, socket} =
         UserSocket

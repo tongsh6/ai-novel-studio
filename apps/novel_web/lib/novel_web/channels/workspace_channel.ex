@@ -714,6 +714,28 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, %{report: report}}, socket}
   end
 
+  # B13b §4.1 #11（WORKBENCH-CURRENT-VOLUME）：工作台头部当前写作坐标。
+  # 坐标优先取最近 TurnResult 的 writing_coordinate.volume_ref（与 app JSONL 同源），
+  # 规划态回退 TOC 末卷；无卷回 nil（UI 显示「全书」，不伪造「未定卷」）。
+  def handle_in("get_writing_coordinate", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+
+    coordinate =
+      NovelApplication.ReadingProjectionService.current_writing_coordinate(
+        work_id,
+        socket.assigns[:turn_results_list] || []
+      )
+
+    LogEmit.emit(:channel, :get_writing_coordinate, :done, %{
+      work_id: work_id,
+      volume_ref: coordinate && coordinate[:volume_ref],
+      volume_title: coordinate && coordinate[:volume_title],
+      source: coordinate && coordinate[:source]
+    })
+
+    {:reply, {:ok, %{coordinate: coordinate}}, socket}
+  end
+
   def handle_in("get_work_stats", payload, socket) do
     work_id = archive_work_id(payload, socket)
     data = NovelApplication.WorkArchiveService.stats(work_id)

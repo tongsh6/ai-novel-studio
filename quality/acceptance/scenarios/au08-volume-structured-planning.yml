@@ -10,6 +10,8 @@ contract:
   - docs/engineering/scenario-acceptance.md
   - tasks/slices/AU08-volume-structured-planning.md
   - tasks/slices/B11A-volume-blueprint.md
+  - docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md
+  - tasks/slices/WORKBENCH-CURRENT-VOLUME.md
 
 invariants:
   - I1-causal-binding
@@ -67,6 +69,7 @@ assertions:
     - volume blueprint block shows 目标冲突/支线：启动：/高潮与节奏：/新要素： rows, per-volume distinct
     - reading mode TOC renders the same two volume headers in the same order
     - archive outline starts a real prose draft for a chapter under volume 1 and the tentative draft card is visible
+    - workbench header shows the real current volume resolved from the prose turn writing coordinate, never a 未定卷 placeholder
     - archive outline renders 后续卷规划 / 规划下一卷 between the skeleton summary and the adopted chapter plan, and after the action it renders three volume headers (5/7/3 chapters)
     - archive outline renders the third volume read-only blueprint (卷蓝图/目标冲突/高潮章) after its volume header, before its chapter cards; reading mode TOC shows the three volume headers in order
   network:
@@ -75,6 +78,7 @@ assertions:
     - author_action accept sent and accepted
     - get_toc reply carries two volumes, each volume node carrying the adopted blueprint
     - prose turn user_message sent with micro plan and prose_writing prose_fragment turn_result received
+    - get_writing_coordinate reply resolves the prose turn volume_ref to the real current volume title and the page header renders it
     - plan_next_volume channel push sent with work_id and ok reply carries turn_id + mechanical volume_scope (next_seq=3, next_chapter_seq=13, current_volume_title=第二卷·裂变)
     - scoped plot_outline outline_draft turn_result received with exactly one third-volume blueprint line and three opening chapters (第13/14/15章)
     - get_toc reply after the next-volume adoption carries three volumes with global chapter seq continuity 1..15

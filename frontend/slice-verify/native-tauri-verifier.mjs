@@ -14743,6 +14743,13 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
       String(record.coordinate_volume_ref ?? "") !== "" &&
       record.coordinate_volume_ref_matches_toc_volume === true &&
       record.coordinate_volume_ref_source === "app_jsonl" &&
+      // B13b §4.1 #11（WORKBENCH-CURRENT-VOLUME）：真实工作台头部显示当前卷
+      // （channel coordinate 解析标题 + 真实 DOM 可见文本；不出现假「未定卷」）。
+      String(record.workbench_header_volume_title ?? "") !== "" &&
+      record.workbench_header_volume_title === record.prose_turn_volume_title &&
+      record.workbench_header_volume_title_from_channel === record.prose_turn_volume_title &&
+      record.workbench_header_shows_current_volume === true &&
+      record.workbench_header_placeholder_present === false &&
       // B11A CP5：卷级收束守则（默认分支）进入 writer prompt，跟在当前卷蓝图段之后。
       record.volume_closure_in_writer_prompt === true &&
       Array.isArray(record.volume_closure_prompt_fragments) &&
@@ -15268,6 +15275,11 @@ function findAu08VolumeStructuredPlanningEvidence(records) {
     coordinate_volume_ref_matches_toc_volume: true,
     coordinate_volume_ref_source: "app_jsonl",
     current_volume_id: tocVolumeIds[0],
+    workbench_header_volume_title: String(uiState.workbench_header_volume_title ?? ""),
+    workbench_header_volume_title_from_channel: String(
+      uiState.workbench_header_volume_title_from_channel ?? "",
+    ),
+    workbench_header_shows_current_volume: uiState.workbench_header_shows_current_volume === true,
     // B11A CP3：开新卷动作（机械 scope + scoped 候选 + 三卷 TOC + planner 范围段）。
     plan_next_volume_sent: true,
     plan_next_volume_scope: planNextVolumeScope,
@@ -15970,6 +15982,15 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
   if (String(evidence.coordinate_volume_ref) !== String(evidence.current_volume_id ?? "")) {
     return null;
   }
+  // B13b §4.1 #11：工作台头部当前卷 = 写作坐标解析的真实卷（channel reply + DOM 双层）。
+  if (String(evidence.workbench_header_volume_title ?? "") === "") return null;
+  if (
+    String(evidence.workbench_header_volume_title) !==
+    String(evidence.workbench_header_volume_title_from_channel ?? "")
+  ) {
+    return null;
+  }
+  if (evidence.workbench_header_shows_current_volume !== true) return null;
   // B11A CP5：卷级收束守则默认分支进入 writer prompt（跟在卷蓝图段之后、空行分隔、
   // 仅 1 次、显式含「不得写全书终局」），且不伪造书进度 85% 的全书优先触发。
   if (evidence.volume_closure_in_writer_prompt !== true) return null;
@@ -16047,6 +16068,10 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
     volume_closure_occurrence_count: evidence.volume_closure_occurrence_count,
     coordinate_volume_ref: evidence.coordinate_volume_ref,
     current_volume_id: evidence.current_volume_id,
+    workbench_header_volume_title: evidence.workbench_header_volume_title,
+    workbench_header_volume_title_from_channel:
+      evidence.workbench_header_volume_title_from_channel,
+    workbench_header_shows_current_volume: true,
     plan_next_volume_scope: evidence.plan_next_volume_scope,
     scoped_outline_volume_blueprint_lines: scopedBlueprintLines,
     scoped_outline_chapter_titles: scopedChapterTitles,
@@ -16073,6 +16098,7 @@ function au08VolumeStructuredPlanningBehavior(turnIds, turnRecords, records, evi
       "prose_writer_prompt_carried_current_volume_blueprint",
       "writer_prompt_volume_blueprint_section_not_duplicated_across_volumes",
       "writing_coordinate_volume_ref_bound_to_current_volume",
+      "workbench_header_shows_real_current_volume_not_placeholder",
       "prose_writer_prompt_carried_volume_closure_directive",
       "archive_plan_next_volume_action_scoped_to_next_volume",
       "scoped_volume_blueprint_and_opening_chapters_materialized",

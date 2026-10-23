@@ -26,6 +26,9 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     assert review.status == "warnings"
     assert review.findings != []
 
+    # B13b §4.1 #11：TurnResult additive 写作坐标字段存在（volume_ref 由上下文卷解析）。
+    assert %{authoring_mode: "first_draft", volume_ref: nil} = turn_result.writing_coordinate
+
     refs = Enum.map(review.findings, & &1["validator"])
     assert "validator.sentence_rhythm_uniformity" in refs
     [finding] = review.findings
