@@ -8601,6 +8601,65 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
   ).length;
   if (allowToolCount < 2) return null;
 
+  // GATE-ORDER-CLOSURE（ADR-0005）：真实 app JSONL 里每个 internal AgentStep 的
+  // gate lineage 必须版本一致、12 门有序、无阻断门；预算门必须来自真实 run 预算。
+  const expectedGateOrder = gateOrderNames();
+  const allowToolDecisions = records.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  );
+  const stepGateLineages = allowToolDecisions.map((record) => {
+    if (String(record.gate_order_version ?? "") !== "adr-0005-v1") return null;
+    const lineage = Array.isArray(record.gate_outcomes) ? record.gate_outcomes : [];
+    if (lineage.length !== expectedGateOrder.length) return null;
+    if (!lineage.every((entry, index) => entry.gate === expectedGateOrder[index])) return null;
+    if (!lineage.every((entry) => ["pass", "pass_with_note"].includes(entry.outcome))) return null;
+    if (record.first_blocking_gate != null) return null;
+    return lineage;
+  });
+  if (stepGateLineages.some((lineage) => lineage == null)) return null;
+  if (new Set(allowToolDecisions.map((record) => record.decision_id)).size !== allowToolDecisions.length) {
+    return null;
+  }
+  const budgetGate = stepGateLineages[0].find((entry) => entry.gate === "budget");
+  if (
+    budgetGate?.outcome !== "pass_with_note" ||
+    !(budgetGate.notes ?? []).includes("run_budget_remaining")
+  ) {
+    return null;
+  }
+  const traceReadinessGate = stepGateLineages[0].find((entry) => entry.gate === "trace_readiness");
+  if (traceReadinessGate?.outcome !== "pass" || uiState.step_trace_readiness_outcome !== "pass") {
+    return null;
+  }
+  if (!Array.isArray(uiState.step_gate_sequences) || uiState.step_gate_sequences.length !== 2) {
+    return null;
+  }
+  if (
+    !uiState.step_gate_sequences.every(
+      (sequence) =>
+        Array.isArray(sequence) &&
+        sequence.length === expectedGateOrder.length &&
+        sequence.every((gate, index) => gate === expectedGateOrder[index]),
+    )
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.step_trace_gate_versions) ||
+    !uiState.step_trace_gate_versions.every((version) => version === "adr-0005-v1")
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.step_trace_gate_result_counts) ||
+    !uiState.step_trace_gate_result_counts.every((count) => count === expectedGateOrder.length)
+  ) {
+    return null;
+  }
+  if (Number(uiState.gate_decided_event_count ?? 0) !== 2) return null;
+
   const rosterTool = records.some(
     (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
   );
@@ -8625,8 +8684,35 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
     consumed_steps: Number(uiState.consumed_steps ?? 0),
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    gate_order_version: uiState.gate_order_version,
+    step_gate_sequences: uiState.step_gate_sequences,
+    step_gate_outcomes: uiState.step_gate_outcomes ?? [],
+    step_decision_ids: uiState.step_decision_ids ?? [],
+    step_budget_gate_notes: uiState.step_budget_gate_notes ?? [],
+    step_trace_gate_versions: uiState.step_trace_gate_versions,
+    step_trace_gate_result_counts: uiState.step_trace_gate_result_counts,
+    gate_decided_event_count: Number(uiState.gate_decided_event_count ?? 0),
     key_events: keyEvents,
   };
+}
+
+// Gate order SSOT 的 verifier 侧镜像（与 NovelApplication.GateOrder.gate_names/0 同序）；
+// 真实页面断言只引用名字，不伪造产品能力。
+function gateOrderNames() {
+  return [
+    "correlation",
+    "envelope_validation",
+    "behavior_compatibility",
+    "action_scope",
+    "slot_contract_validation",
+    "authority",
+    "policy_safety",
+    "budget",
+    "toolbox_availability",
+    "write_boundary",
+    "trace_readiness",
+    "turn_result_compat",
+  ];
 }
 
 function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
@@ -8659,6 +8745,12 @@ function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
           "internal_character_design_step_crossed_allow_tool_gate",
           "character_roster_tool_executed_after_gate",
           "character_design_tool_executed_after_gate",
+          "each_internal_step_recorded_ordered_twelve_gate_results",
+          "gate_order_version_recorded_per_step",
+          "step_gate_results_written_to_decision_trace",
+          "run_budget_gate_used_real_remaining_budget",
+          "trace_readiness_gate_used_real_persistence_channel",
+          "two_steps_used_distinct_decision_lineage",
         ],
       };
 

@@ -24293,6 +24293,113 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
   const parentUserMessageLog = logsAfter.find(
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
   );
+
+  // GATE-ORDER-CLOSURE（ADR-0005）：每个 internal AgentStep 的 gate 序列必须能从真实
+  // app JSONL 逐门复核（identity/order/outcome/version），且与 step TurnResult 的
+  // trace_summary gate lineage 一致。外部自动化只读产品日志/帧/可见页面，不加钩子。
+  const expectedGateOrder = [
+    "correlation",
+    "envelope_validation",
+    "behavior_compatibility",
+    "action_scope",
+    "slot_contract_validation",
+    "authority",
+    "policy_safety",
+    "budget",
+    "toolbox_availability",
+    "write_boundary",
+    "trace_readiness",
+    "turn_result_compat",
+  ];
+  const allowToolDecisions = logsAfter.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  );
+  assert(
+    allowToolDecisions.length === 2,
+    `Expected exactly 2 allow_tool gate decisions, got ${allowToolDecisions.length}`,
+  );
+  const stepGateLineages = allowToolDecisions.map((record) => {
+    assert(
+      String(record.gate_order_version ?? "") === "adr-0005-v1",
+      `Gate decision recorded gate_order_version=${record.gate_order_version}`,
+    );
+    assert(
+      Number(record.gate_count ?? -1) === expectedGateOrder.length,
+      `Gate decision recorded gate_count=${record.gate_count}`,
+    );
+    const lineage = Array.isArray(record.gate_outcomes) ? record.gate_outcomes : [];
+    assert(lineage.length === expectedGateOrder.length, `Gate lineage length ${lineage.length} != 12`);
+    assert(
+      lineage.every((entry, index) => entry.gate === expectedGateOrder[index] && entry.order === index),
+      "Gate lineage is not in ADR-0005 order",
+    );
+    assert(
+      lineage.every((entry) => ["pass", "pass_with_note"].includes(entry.outcome)),
+      "Allow_tool step contains a blocked gate outcome",
+    );
+    assert(
+      record.first_blocking_gate == null,
+      "Allow_tool decision unexpectedly has first_blocking_gate",
+    );
+    return lineage;
+  });
+  assert(
+    new Set(allowToolDecisions.map((record) => record.decision_id)).size === 2,
+    "Two internal steps shared one decision_id",
+  );
+  const stepBudgetGate = stepGateLineages[0].find((entry) => entry.gate === "budget");
+  assert(
+    stepBudgetGate?.outcome === "pass_with_note" &&
+      (stepBudgetGate.notes ?? []).includes("run_budget_remaining"),
+    "Budget gate was not evaluated against the real AgentRun remaining budget",
+  );
+  const stepTraceReadiness = stepGateLineages[0].find((entry) => entry.gate === "trace_readiness");
+  assert(
+    stepTraceReadiness?.outcome === "pass",
+    "Trace readiness gate was not evaluated against the real persistence channel",
+  );
+  const gateDecidedFrames = frames.slice(frameStart).filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "gate_decided",
+  );
+  assert(
+    gateDecidedFrames.length === 2,
+    `Expected 2 gate_decided step events, got ${gateDecidedFrames.length}`,
+  );
+  gateDecidedFrames.forEach((frame) => {
+    const payload = frame.body?.payload ?? {};
+    assert(
+      String(payload.gate_order_version ?? "") === "adr-0005-v1",
+      "gate_decided payload missed gate_order_version",
+    );
+    assert(
+      Array.isArray(payload.gate_results) && payload.gate_results.length === expectedGateOrder.length,
+      "gate_decided payload missed 12 gate results",
+    );
+    assert(payload.first_blocking_gate == null, "gate_decided payload reported a blocking gate");
+  });
+  const stepTraceGateVersions = [rosterTurnFrame.body, turnFrame.body].map((body) => {
+    const summary = body?.trace_summary ?? {};
+    return summary.gate_order_version ?? null;
+  });
+  const stepTraceGateResultCounts = [rosterTurnFrame.body, turnFrame.body].map((body) => {
+    const summary = body?.trace_summary ?? {};
+    const results = summary.gate_results ?? [];
+    return Array.isArray(results) ? results.length : 0;
+  });
+  assert(
+    stepTraceGateVersions.every((version) => version === "adr-0005-v1"),
+    "Step TurnResult trace_summary missed gate_order_version",
+  );
+  assert(
+    stepTraceGateResultCounts.every((count) => count === expectedGateOrder.length),
+    "Step TurnResult trace_summary missed 12 gate results",
+  );
   const agentEventFrames = frames
     .slice(frameStart)
     .filter(
@@ -24406,6 +24513,20 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
           record.event === "orchestrator.decide.done" &&
           String(record.decision_type ?? "") === "allow_tool",
       ).length,
+      gate_order_version: allowToolDecisions[0]?.gate_order_version ?? null,
+      step_gate_sequences: stepGateLineages.map((lineage) => lineage.map((entry) => entry.gate)),
+      step_gate_outcomes: stepGateLineages.map((lineage) =>
+        Object.fromEntries(lineage.map((entry) => [entry.gate, entry.outcome])),
+      ),
+      step_decision_ids: allowToolDecisions.map((record) => record.decision_id),
+      step_budget_gate_notes: stepGateLineages.map(
+        (lineage) => lineage.find((entry) => entry.gate === "budget")?.notes ?? [],
+      ),
+      step_trace_gate_versions: stepTraceGateVersions,
+      step_trace_gate_result_counts: stepTraceGateResultCounts,
+      step_trace_readiness_outcome: stepTraceReadiness?.outcome ?? null,
+      gate_decided_event_count: gateDecidedFrames.length,
+      ordered_gate_names: expectedGateOrder,
       log_roster_tool_done: logsAfter.some(
         (record) =>
           record.event === "toolbox.execute.done" && record.tool_name === "character_roster",

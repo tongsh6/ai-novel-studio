@@ -137,7 +137,7 @@
 | `au14-assumption-confirm-roundtrip.yml` | 盘点激活暂定主角，作者确认就地转正为唯一已确认角色 |
 | `au14-assumption-provisional-injection.yml` | 激活假定计入主角在场判定并带【暂定】标注，否决后缺席守则回归 |
 | `dogfood-runner.yml` | P1 长篇狗粮运行器 |
-| `e2e-01-downgrade-real-page.yml` | E2E-01 真实页面多步 MicroPlan 降级 |
+| `e2e-01-downgrade-real-page.yml` | E2E-01 真实页面多步 MicroPlan 降级（**blocked 2026-10-23**：判断纪元后无 multi-step plan 生产者 + 退役事件；见 scenarios.yml blocked_reason） |
 | `e2e-01-full-chain.yml` | E2E-01 端到端全链路聚合验收 |
 | `e2e-01-readonly-tool-trace.yml` | E2E-01 只读工具调度与 trace 回查 |
 | `e2e-01-replay-report.yml` | E2E-01 ReplayReport 六问结构化回放 |

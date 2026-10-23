@@ -13,6 +13,7 @@ defmodule NovelDomain.OrchestratorDecision do
           | :fail_with_recovery
           | :allow_tool
           | :allow_agent_run
+          | :replay_existing
   @type decision_status :: :decided | :failed | :emitted
 
   @type action_ref :: %{
@@ -35,7 +36,9 @@ defmodule NovelDomain.OrchestratorDecision do
           first_blocking_gate: String.t() | nil,
           reason_codes: [String.t()],
           turn_result_policy: %{truthfulness_constraints: [String.t()]},
-          decision_trace_ref: String.t() | nil
+          decision_trace_ref: String.t() | nil,
+          gate_order_version: String.t() | nil,
+          gate_results: [NovelDomain.GateResult.t()]
         }
 
   @enforce_keys [
@@ -60,7 +63,9 @@ defmodule NovelDomain.OrchestratorDecision do
     required_author_action: nil,
     first_blocking_gate: nil,
     turn_result_policy: %{truthfulness_constraints: []},
-    decision_trace_ref: nil
+    decision_trace_ref: nil,
+    gate_order_version: nil,
+    gate_results: []
   ]
 
   @doc """
@@ -72,37 +77,31 @@ defmodule NovelDomain.OrchestratorDecision do
   def blocks_execution?(%__MODULE__{decision_type: :require_clarification}), do: true
   def blocks_execution?(%__MODULE__{decision_type: :reject}), do: true
   def blocks_execution?(%__MODULE__{decision_type: :fail_with_recovery}), do: true
+
+  # 幂等 replay 不执行新动作（复用已有 decision）；对「本轮是否可执行新动作」而言等价阻断。
+  def blocks_execution?(%__MODULE__{decision_type: :replay_existing}), do: true
   def blocks_execution?(_), do: false
+
+  @truthfulness_by_type %{
+    downgrade_to_dialogue: ["no_action_executed", "downgraded_to_conversation"],
+    require_confirmation: [
+      "no_action_executed",
+      "author_confirmation_required",
+      "confirmation_not_satisfied"
+    ],
+    require_clarification: ["no_action_executed", "scope_or_target_missing"],
+    reject: ["no_action_executed", "blocked_by_policy"],
+    fail_with_recovery: ["no_action_executed", "system_recovery_needed"],
+    allow_tool: ["tool_dispatched", "result_not_adoption"],
+    allow_agent_run: ["agent_run_created", "internal_steps_require_regate"],
+    replay_existing: ["no_action_executed", "reuse_recorded_decision"]
+  }
 
   @doc """
   Truthfulness constraints for TurnResult Builder.
   """
   @spec truthfulness_constraints(t()) :: [String.t()]
   def truthfulness_constraints(%__MODULE__{} = decision) do
-    case decision.decision_type do
-      :downgrade_to_dialogue ->
-        ["no_action_executed", "downgraded_to_conversation"]
-
-      :require_confirmation ->
-        ["no_action_executed", "author_confirmation_required", "confirmation_not_satisfied"]
-
-      :require_clarification ->
-        ["no_action_executed", "scope_or_target_missing"]
-
-      :reject ->
-        ["no_action_executed", "blocked_by_policy"]
-
-      :fail_with_recovery ->
-        ["no_action_executed", "system_recovery_needed"]
-
-      :allow_tool ->
-        ["tool_dispatched", "result_not_adoption"]
-
-      :allow_agent_run ->
-        ["agent_run_created", "internal_steps_require_regate"]
-
-      _ ->
-        []
-    end
+    Map.get(@truthfulness_by_type, decision.decision_type, [])
   end
 end

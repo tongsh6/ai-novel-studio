@@ -38,6 +38,12 @@ assertions:
     - parent user_message starts bounded AgentRun without sync_turn fallback
     - character_roster step has allow_tool decision before Toolbox execution
     - character_design step has allow_tool decision before Toolbox execution
+    - each internal step records ordered 12-gate lineage with gate_order_version adr-0005-v1
+    - no gate outcome on an allow_tool step is soft_block/hard_block/recoverable_failure
+    - budget gate evaluates the real AgentRun remaining budget (pass_with_note run_budget_remaining)
+    - trace readiness gate evaluates the real persistence channel (pass)
+    - step TurnResult trace_summary carries gate_order_version and 12 gate results (DecisionTrace gate lineage)
+    - two internal steps use distinct decision lineage (decision_id) and broadcast a gate_decided event each
 
 anti_hooks:
   product_acceptance_logic_added: false

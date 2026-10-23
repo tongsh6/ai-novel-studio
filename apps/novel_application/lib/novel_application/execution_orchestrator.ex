@@ -17,15 +17,22 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   @author_action_ttl_seconds 900
 
-  # gate → decision_type 翻译表（ADR-0005 gate 顺序是开放集合：新增 gate 走保守
-  # require_confirmation，保留 policy 等历史映射供后续 slice 复用）。
+  # gate → decision_type 翻译表（ADR-0005 §Gate 与 decision 的映射）。
+  # GATE-ORDER-CLOSURE 补齐 12 门后按 ADR 映射表收口；未知 gate 仍走保守
+  # require_confirmation（ADR-0005 gate 顺序是开放集合）。
   @gate_decision_types %{
-    action_scope: :downgrade_to_dialogue,
-    authority: :require_confirmation,
-    write_boundary: :require_confirmation,
-    policy: :reject,
+    correlation: :fail_with_recovery,
     envelope_validation: :fail_with_recovery,
-    correlation: :fail_with_recovery
+    behavior_compatibility: :require_clarification,
+    action_scope: :downgrade_to_dialogue,
+    slot_contract_validation: :require_clarification,
+    authority: :require_confirmation,
+    policy_safety: :downgrade_to_dialogue,
+    budget: :fail_with_recovery,
+    toolbox_availability: :fail_with_recovery,
+    write_boundary: :require_confirmation,
+    trace_readiness: :fail_with_recovery,
+    turn_result_compat: :fail_with_recovery
   }
   @default_gate_decision_type :require_confirmation
 
@@ -60,9 +67,14 @@ defmodule NovelApplication.ExecutionOrchestrator do
   @doc """
   裁决 MicroPlan。返回 {decision, behavior}。
 
-  opts 可带 `confirmation_binding`（ADR-0009 确认 re-gate）：作者确认后重新裁决时
-  传入有效 ConfirmationBinding，authority / write_boundary gate 视确认已满足；
-  其余 gate 照常评估，确认不等于裁决一定放行（VS-03 §6）。
+  opts 可带：
+
+  - `:confirmation_binding`（ADR-0009 确认 re-gate）：作者确认后重新裁决时传入有效
+    ConfirmationBinding，authority / write_boundary gate 视确认已满足；其余 gate 照常
+    评估，确认不等于裁决一定放行（VS-03 §6）。
+  - `:gate_context`（ADR-0005 GATE-ORDER-CLOSURE）：可选运行期事实——`:frame`、
+    `:open_behavior`、`:behavior_resolution`、`:budget`、`:trace_ready?`、`:idempotency`。
+    真实调用点按需接线；缺席的 gate 走「未接线」保守语义，不伪造已检查事实。
   """
   @spec decide(DialogueFrame.t(), MicroPlan.t(), keyword()) ::
           {OrchestratorDecision.t(), BehaviorState.t() | nil}
@@ -70,6 +82,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   def decide(%DialogueFrame{} = frame, %MicroPlan{} = plan, opts) do
     binding = Keyword.get(opts, :confirmation_binding)
+    gate_context = build_gate_context(frame, opts)
     decision_id = NovelFoundation.ID.unique("decision")
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:orchestrator, :decide, :start, %{})
@@ -77,17 +90,10 @@ defmodule NovelApplication.ExecutionOrchestrator do
     {decision, behavior} =
       case PlannerBoundary.validate(frame, plan) do
         {:error, reason} ->
-          {build_decision(
-             :fail_with_recovery,
-             decision_id,
-             frame,
-             plan,
-             reason,
-             "planner_boundary"
-           ), nil}
+          {build_planner_boundary_decision(decision_id, frame, plan, reason), nil}
 
         :ok ->
-          GateOrder.evaluate(plan, binding)
+          GateOrder.evaluate(plan, binding, gate_context)
           |> decision_from_gate_result(decision_id, frame, plan, binding)
           |> mark_confirmed_by(binding)
       end
@@ -100,10 +106,88 @@ defmodule NovelApplication.ExecutionOrchestrator do
       decision_type: decision.decision_type,
       decision_id: decision_id,
       has_behavior: behavior != nil,
+      first_blocking_gate: decision.first_blocking_gate,
+      gate_order_version: decision.gate_order_version,
+      gate_count: length(decision.gate_results),
+      # LogEmit 经 Jason 编码落 JSONL：tuple 无 Encoder 会让整行静默丢弃，这里用
+      # JSON-safe map lineage（也是 verifier 断言的稳定形态）。
+      gate_outcomes: NovelDomain.GateResult.lineage(decision.gate_results),
       duration_ms: duration
     })
 
     {decision, behavior}
+  end
+
+  # 运行期 gate 事实：frame 恒注入；其余由真实调用点显式提供（见各 flow）。
+  defp build_gate_context(frame, opts) do
+    opts
+    |> Keyword.get(:gate_context, %{})
+    |> Map.new()
+    |> Map.put(:frame, frame)
+  end
+
+  @doc """
+  从 AgentRun 运行态派生 gate_context（ADR-0005 gate 7 budget 的真实接线）。
+
+  agent run 的每个 tool step 在 `ExecutionOrchestrator.decide/3` 前调用本函数，
+  把 run 的真实剩余预算注入 gate；`AgentRun.budget_exhausted?/1` 为真时 budget
+  gate 会以 `recoverable_failure` 阻断，避免绕过 run 级预算重复执行。
+  """
+  @spec gate_context_for_run(map()) :: map()
+  def gate_context_for_run(run) when is_map(run) do
+    budget = Map.get(run, :budget) || %{}
+    consumed = Map.get(run, :consumed_budget) || %{}
+
+    context = %{
+      budget: %{
+        remaining: %{
+          steps: remaining_budget(budget, consumed, :max_steps, :execution_steps),
+          tool_calls: remaining_budget(budget, consumed, :max_tool_calls, :tool_calls),
+          provider_calls: remaining_budget(budget, consumed, :max_provider_calls, :provider_calls)
+        },
+        exhausted?: agent_run_budget_exhausted?(run)
+      }
+    }
+
+    # gate 10 trace readiness 的真实接线：持久化 tracer 存在 = 本轮 trace 可落库回放；
+    # 内存 trace 路径（测试/无持久化注入）缺席时不伪造可写事实，gate 走未接线语义。
+    if NovelApplication.persistence_tracer() do
+      Map.put(context, :trace_ready?, true)
+    else
+      context
+    end
+  end
+
+  defp remaining_budget(budget, consumed, max_key, consumed_key) do
+    max = budget_value(budget, max_key)
+    used = budget_value(consumed, consumed_key)
+
+    if is_integer(max) and is_integer(used), do: max(max - used, 0), else: nil
+  end
+
+  defp budget_value(map, key) when is_map(map) do
+    case Map.get(map, key) do
+      value when is_integer(value) -> value
+      _ -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp budget_value(_map, _key), do: nil
+
+  defp agent_run_budget_exhausted?(%NovelDomain.AgentRun{} = run),
+    do: NovelDomain.AgentRun.budget_exhausted?(run)
+
+  defp agent_run_budget_exhausted?(run) when is_map(run) do
+    budget_value(run, :budget) != nil and consumed_exhausted?(run)
+  end
+
+  defp consumed_exhausted?(run) do
+    budget = Map.get(run, :budget) || %{}
+    consumed = Map.get(run, :consumed_budget) || %{}
+
+    remaining_budget(budget, consumed, :max_steps, :execution_steps) == 0 or
+      remaining_budget(budget, consumed, :max_tool_calls, :tool_calls) == 0 or
+      remaining_budget(budget, consumed, :max_provider_calls, :provider_calls) == 0
   end
 
   # ── gate result handling ──────────────────────
@@ -128,35 +212,30 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   defp mark_confirmed_by(result, _binding), do: result
 
-  defp decision_from_gate_result({:pass, _results}, decision_id, frame, plan, binding) do
+  defp decision_from_gate_result({:pass, results}, decision_id, frame, plan, binding) do
     cond do
       allow_tool_dispatch?(plan, binding) ->
-        {build_allow_decision(decision_id, frame, plan), nil}
+        {build_allow_decision(decision_id, frame, plan, results), nil}
 
       allow_agent_run_start?(plan, binding) ->
-        {build_allow_agent_run_decision(decision_id, frame, plan), nil}
+        {build_allow_agent_run_decision(decision_id, frame, plan, results), nil}
 
       true ->
-        {build_decision(
-           :downgrade_to_dialogue,
-           decision_id,
-           frame,
-           plan,
-           "gates passed but plan requires confirmation or is multi-step",
-           "action_scope"
-         ), nil}
+        # 12 门全 pass 但没有可分发动作：这是 decision 级降级（不是 gate 阻断），
+        # first_blocking_gate 必须为 nil，否则 gate 序列与 first blocking gate 自相矛盾。
+        {build_gate_passed_downgrade(decision_id, frame, plan, results), nil}
     end
   end
 
   defp decision_from_gate_result(
-         {:block, gate_name, reason, _results},
+         {:block, gate_name, reason, results},
          decision_id,
          frame,
          plan,
          _binding
        ) do
     decision_type = gate_to_decision_type(gate_name)
-    decision = build_decision(decision_type, decision_id, frame, plan, reason, gate_name)
+    decision = build_decision(decision_type, decision_id, frame, plan, reason, gate_name, results)
 
     behavior =
       if decision_type == :require_confirmation do
@@ -164,6 +243,19 @@ defmodule NovelApplication.ExecutionOrchestrator do
       end
 
     {decision, behavior}
+  end
+
+  # 幂等 lineage 命中：不再执行新动作，decision 保留复用的 decision ref。
+  # 真实 replay 复用由 Channel 的 ActionIdempotencyService receipt 承担；gate 层
+  # 只在显式注入 replay 证据时短路（ADR-0005 gate 0 replay_existing）。
+  defp decision_from_gate_result(
+         {:replay_existing, _gate_name, decision_ref, results},
+         decision_id,
+         frame,
+         plan,
+         _binding
+       ) do
+    {build_replay_decision(decision_id, frame, plan, decision_ref, results), nil}
   end
 
   # ── behavior lifecycle ────────────────────────
@@ -266,7 +358,33 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   # ── decision builders ─────────────────────────
 
-  defp build_allow_decision(decision_id, frame, plan) do
+  defp build_gate_passed_downgrade(decision_id, frame, plan, results) do
+    %OrchestratorDecision{
+      decision_id: decision_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_type: :downgrade_to_dialogue,
+      decision_status: :decided,
+      approved_actions: [],
+      rejected_actions: [],
+      downgraded_actions: action_refs(plan.proposed_actions),
+      required_author_action: nil,
+      first_blocking_gate: nil,
+      reason_codes: [
+        "gates_passed",
+        "no_dispatchable_action",
+        "downgraded_to_dialogue"
+      ],
+      turn_result_policy: %{
+        truthfulness_constraints: truthfulness_constraints_for(:downgrade_to_dialogue)
+      },
+      gate_order_version: GateOrder.gate_order_version(),
+      gate_results: results
+    }
+  end
+
+  defp build_allow_decision(decision_id, frame, plan, results) do
     action = hd(plan.proposed_actions)
     tool_name = tool_name_from_action(action)
 
@@ -283,11 +401,13 @@ defmodule NovelApplication.ExecutionOrchestrator do
       required_author_action: nil,
       first_blocking_gate: nil,
       reason_codes: ["gates_passed", "single_step_low_risk", "tool:#{tool_name}"],
-      turn_result_policy: %{truthfulness_constraints: ["tool_dispatched", "result_not_adoption"]}
+      turn_result_policy: %{truthfulness_constraints: ["tool_dispatched", "result_not_adoption"]},
+      gate_order_version: GateOrder.gate_order_version(),
+      gate_results: results
     }
   end
 
-  defp build_allow_agent_run_decision(decision_id, frame, plan) do
+  defp build_allow_agent_run_decision(decision_id, frame, plan, results) do
     action = hd(plan.proposed_actions)
     profile_ref = action[:target_ref] || action[:profile_ref]
 
@@ -311,11 +431,13 @@ defmodule NovelApplication.ExecutionOrchestrator do
       ],
       turn_result_policy: %{
         truthfulness_constraints: ["agent_run_created", "internal_steps_require_regate"]
-      }
+      },
+      gate_order_version: GateOrder.gate_order_version(),
+      gate_results: results
     }
   end
 
-  defp build_decision(decision_type, decision_id, frame, plan, reason, gate_name) do
+  defp build_decision(decision_type, decision_id, frame, plan, reason, gate_name, results) do
     %OrchestratorDecision{
       decision_id: decision_id,
       turn_id: frame.turn_id,
@@ -329,7 +451,66 @@ defmodule NovelApplication.ExecutionOrchestrator do
       required_author_action: author_action_for(decision_type, reason),
       first_blocking_gate: to_string(gate_name),
       reason_codes: [to_string(decision_type), reason],
-      turn_result_policy: %{truthfulness_constraints: truthfulness_constraints_for(decision_type)}
+      turn_result_policy: %{truthfulness_constraints: truthfulness_constraints_for(decision_type)},
+      gate_order_version: GateOrder.gate_order_version(),
+      gate_results: results
+    }
+  end
+
+  # PlannerBoundary 在 gate 之前失败：仍写入 envelope_validation 的结构化 GateResult，
+  # 保证「validation failure 必须进入 DecisionTrace」（VS-01 §3）不因前置短路丢失。
+  defp build_planner_boundary_decision(decision_id, frame, plan, reason) do
+    result =
+      NovelDomain.GateResult.block(
+        :envelope_validation,
+        1,
+        :hard_block,
+        "planner_boundary_violation",
+        reason,
+        input_refs: %{plan_id: plan.plan_id, frame_ref: plan.frame_ref}
+      )
+
+    %OrchestratorDecision{
+      decision_id: decision_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_type: :fail_with_recovery,
+      decision_status: :decided,
+      approved_actions: [],
+      rejected_actions: action_refs(plan.proposed_actions),
+      downgraded_actions: action_refs(plan.proposed_actions),
+      required_author_action: author_action_for(:fail_with_recovery, reason),
+      first_blocking_gate: "planner_boundary",
+      reason_codes: ["fail_with_recovery", reason],
+      turn_result_policy: %{
+        truthfulness_constraints: truthfulness_constraints_for(:fail_with_recovery)
+      },
+      gate_order_version: GateOrder.gate_order_version(),
+      gate_results: [result]
+    }
+  end
+
+  # 幂等 lineage 命中：不再执行新动作，记录复用的已有 decision ref。
+  defp build_replay_decision(decision_id, frame, plan, existing_decision_ref, results) do
+    %OrchestratorDecision{
+      decision_id: decision_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_type: :replay_existing,
+      decision_status: :decided,
+      approved_actions: [],
+      rejected_actions: [],
+      downgraded_actions: action_refs(plan.proposed_actions),
+      required_author_action: nil,
+      first_blocking_gate: nil,
+      reason_codes: ["replay_existing", "replay_decision_ref:#{existing_decision_ref}"],
+      turn_result_policy: %{
+        truthfulness_constraints: ["no_action_executed", "reuse_recorded_decision"]
+      },
+      gate_order_version: GateOrder.gate_order_version(),
+      gate_results: results
     }
   end
 

@@ -1,4 +1,7 @@
 id: e2e-01-downgrade-real-page
+# blocked（2026-10-23，GATE-ORDER-CLOSURE）：判断纪元后主链无 multi-step MicroPlan
+# 生产者，action_scope 降级静态不可达；verifier key events 仍引用已退役事件。
+# gate 序列真实页面证据改由 agent-step-regate 承担；本场景待 re-anchor/退役裁决。
 title: E2E-01 真实页面多步 MicroPlan 降级
 tier: nightly
 surface: tauri

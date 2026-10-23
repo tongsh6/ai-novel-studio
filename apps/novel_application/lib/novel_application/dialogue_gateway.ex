@@ -94,6 +94,8 @@ defmodule NovelApplication.DialogueGateway do
       turn_result_ref: trace.turn_result_ref,
       replay_policy: trace.replay_policy,
       redaction_level: to_string(trace.redaction_level),
+      gate_order_version: trace.gate_order_version,
+      gate_result_refs: jsonable(trace.gate_result_refs),
       tool_trace_refs: jsonable(trace.tool_trace_refs),
       behavior_trace_refs: jsonable(trace.behavior_trace_refs),
       state_trace_refs: jsonable(trace.state_trace_refs),
@@ -699,8 +701,30 @@ defmodule NovelApplication.DialogueGateway do
        ) do
     frame = frame_from_turn_result(source_turn_result)
 
+    # GATE-ORDER-CLOSURE（ADR-0005 gate 0/2/10）：确认 re-gate 注入真实运行期事实——
+    # 幂等 lineage（Channel/ActionValidator 已验证的 confirmation key）、
+    # open behavior 的解析结果（作者动作已满足）与 trace 通道可用性。
+    gate_context = %{
+      idempotency: %{key: binding.idempotency_key},
+      open_behavior: %{
+        behavior_id: binding.behavior_ref,
+        lifecycle_status: :awaiting_author
+      },
+      behavior_resolution: :author_confirmed
+    }
+
+    # trace readiness 只在真实持久化通道存在时接线；测试/内存 trace 路径缺席时
+    # gate 走「未接线」保守语义（in-memory trace 仍可回放，不伪造不可写事实）。
+    gate_context =
+      if NovelApplication.persistence_tracer(),
+        do: Map.put(gate_context, :trace_ready?, true),
+        else: gate_context
+
     {decision, _behavior} =
-      ExecutionOrchestrator.decide(frame, plan, confirmation_binding: binding)
+      ExecutionOrchestrator.decide(frame, plan,
+        confirmation_binding: binding,
+        gate_context: gate_context
+      )
 
     ack = %{
       action_id: action_input.action_id,

@@ -647,7 +647,12 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       frame = frame(run, sequence, plan.plan_goal.summary)
       plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
       emit_micro_plan(snapshot, plan)
-      {decision_result, _behavior} = ExecutionOrchestrator.decide(frame, plan)
+
+      {decision_result, _behavior} =
+        ExecutionOrchestrator.decide(frame, plan,
+          gate_context: ExecutionOrchestrator.gate_context_for_run(run)
+        )
+
       emit_gate_decision(snapshot, decision_result)
 
       if decision_result.decision_type == :allow_tool do
@@ -662,6 +667,16 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
           snapshot
         )
       else
+        # GATE-ORDER-CLOSURE：阻断决策同样必须写 DecisionTrace（ADR-0005 逐门可解释），
+        # 再保持既有 agent_step_blocked 失败语义不变。
+        NovelApplication.BlockedDecisionTrace.record(
+          frame,
+          plan,
+          decision_result,
+          run,
+          Map.get(spec, :trace_persister)
+        )
+
         {:error, {:agent_step_blocked, tool_name(plan), decision_result.first_blocking_gate}}
       end
     end
@@ -1095,7 +1110,11 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
         stage: :orchestrator_decided,
         decision_ref: decision.decision_id,
         decision_type: decision.decision_type,
-        first_blocking_gate: decision.first_blocking_gate
+        first_blocking_gate: decision.first_blocking_gate,
+        # GATE-ORDER-CLOSURE（ADR-0005）：逐门 lineage 进 agent event，供真实页面验收
+        # 断言 gate 序列/version；app JSONL `orchestrator.decide.done` 同源记录。
+        gate_order_version: decision.gate_order_version,
+        gate_results: NovelDomain.GateResult.lineage(decision.gate_results)
       }
     )
   end

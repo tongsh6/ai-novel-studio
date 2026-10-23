@@ -15,7 +15,7 @@ defmodule NovelApplication.TraceReplayService do
   @decision_types ~w(
     reply_only exploration downgrade confirmation_required clarification_required rejected
     recovery fail_with_recovery tool_allowed tool_dispatched adopt_tentative cancel_waiting
-    author_action
+    author_action replay_existing agent_run_allowed
   )a
 
   @event_atoms ~w(
@@ -81,6 +81,15 @@ defmodule NovelApplication.TraceReplayService do
       event_order:
         Enum.map(record.event_order || [], &atom_from_string(&1, @event_atoms, :unknown))
     }
+    |> put_gate_lineage(record)
+  end
+
+  defp put_gate_lineage(%DecisionTrace{} = trace, record) do
+    %{
+      trace
+      | gate_order_version: Map.get(record, :gate_order_version),
+        gate_result_refs: Map.get(record, :gate_result_refs) || []
+    }
   end
 
   defp trace_summary(record, report) do
@@ -90,7 +99,9 @@ defmodule NovelApplication.TraceReplayService do
       no_tool_reason: record.no_tool_reason,
       no_behavior_reason: record.no_behavior_reason,
       no_write_reason: record.no_write_reason,
-      first_blocking_gate: first_blocking_gate(record.no_write_reason),
+      first_blocking_gate: first_blocking_gate(record),
+      gate_order_version: Map.get(record, :gate_order_version),
+      gate_results: Map.get(record, :gate_result_refs) || [],
       plan_ref: record.plan_ref,
       frame_ref: record.frame_ref,
       context_refs: record.context_refs || [],
@@ -169,13 +180,29 @@ defmodule NovelApplication.TraceReplayService do
   defp blank_to_nil(value) when value in ["", nil], do: nil
   defp blank_to_nil(value), do: value
 
-  defp first_blocking_gate(no_write_reason) when is_binary(no_write_reason) do
+  # GATE-ORDER-CLOSURE：结构化 gate lineage 优先（GateResult outcome 为阻断态的第一门）；
+  # 历史 trace 无 gate_result_refs 时回退 no_write_reason 文本（旧数据兼容，不伪造）。
+  defp first_blocking_gate(record) when is_map(record) do
+    gate_results = Map.get(record, :gate_result_refs) || []
+
+    structured =
+      Enum.find(gate_results, fn result ->
+        map_value(result, :outcome) in ["soft_block", "hard_block", "recoverable_failure"]
+      end)
+
+    case structured do
+      %{} = result -> map_value(result, :gate)
+      nil -> first_blocking_gate_from_reason(Map.get(record, :no_write_reason))
+    end
+  end
+
+  defp first_blocking_gate_from_reason(no_write_reason) when is_binary(no_write_reason) do
     Enum.find(@blocking_gates, fn gate ->
       String.contains?(no_write_reason, "blocked execution: #{gate}")
     end)
   end
 
-  defp first_blocking_gate(_no_write_reason), do: nil
+  defp first_blocking_gate_from_reason(_no_write_reason), do: nil
 
   defp map_value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))

@@ -457,7 +457,9 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J25 | 执行 B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板） | B13B-DEFERRED-CLOSURE / B13b | TurnStatus / Adoption 持久化失败 / 日志噪声门禁 | **closed（2026-10-23，CP1–CP5 全落；真实 Tauri 六场景 PASS + au04 既有漂移 D21 诚实登记）** | 单测 + 真实 Tauri（隔离库/分区） | `tasks/NEXT.md` B13B-DEFERRED-CLOSURE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §11.4；`artifacts/slice-verify/{q3d-author-registration-guards,q3d-candidate-semantics,au05-conflict-cross-work-recovery,au05-canon-conflict-recovery,p1-chapter-adoption-reading,judgment-explore-chapter-plan}-tauri/summary.json` | BB-4：`TurnResultBuilder`/`AgentRunServer.safe_failure_turn_result`/`AdoptionWorkflow.decision_status`/`DialogueGateway.candidate_status` → `failed_recoverable`（phase 仍 failed、run/action_result status 不变）；BB-7：persist error → 失败 action_result + failed_recoverable TurnResult + `{:ok,...}` 广播（VS-04 规则 5）；BB-10：ADR-0018 §4 `level` + §6 45/60 口径 + `scripts/check_log_noise.sh`（17/17）+ CI + verifier `evaluateAppLogNoise`（正常路径 0 error；p1 38 行 / judgment-explore 14 行）+ 3 份 manifest data 断言；au05 两场景 seed 补 `kind` 夹具漂移；au04 未通过=既有判断纪元漂移 D21（非本批引入） |
 | J26 | Provider 存活策略真实页面闭环（慢但持续出字不被杀） | B22-CP4-SLOW-STREAM / B22 | Provider TimeoutPolicy / 流式 wire 静默 / 作者可见运行时长 | **closed（2026-10-23，真实 Tauri PASS）** | 外部 Tauri + 本地慢流替身 | `tasks/NEXT.md` B22-CP4-SLOW-STREAM 行；`tasks/slices/B22-provider-liveness-and-budget-policy.md` §2d；`artifacts/slice-verify/agent-provider-slow-stream-liveness-tauri/summary.json` | 新场景 `agent-provider-slow-stream-liveness`：本地 OpenAI 兼容替身 700ms/块持续 ~7s；真实 LM Studio adapter/Gateway/TimeoutPolicy + `NOVEL_LMSTUDIO_TIMEOUT_MS=3000`（仅 wire 静默窗口）→ 不被总挂钟误杀、5.2s 起作者可见「已运行」、正常 conversational TurnResult、`provider_timeout_count=0`；log noise 9 行/0 error；自适应校准明确保留 bootstrap 登记 C 轨观察（不冒充） |
 | J27 | 章节身份统一（写入/采纳/阅读/使命链） | B25-CHAPTER-IDENTITY-UNIFICATION / B24 | chapter_ref 唯一寻址 / AdoptionRepository / ReadingProjection / 唯一约束 | **closed（2026-10-23，CP0–CP5 全落；新真实 Tauri 场景 + B24 两场景回归 PASS）** | 单测矩阵 + 真实 Tauri | `tasks/NEXT.md` B25 行；`tasks/slices/B25-chapter-identity-unification.md` §2.1–§2.5；`artifacts/slice-verify/b25-chapter-identity-unification-tauri/summary.json`；B24 两场景 summary | CP0 契约冻结（`chapter_ref` 唯一 / seq work 内唯一 / title 非唯一；禁止 first-match、同名多章诚实歧义）+ 90 章历史审计 0 冲突；CP1 仓储层 ref 写读与歧义错误；CP2a+CP2b 应用链/计划链 `target_chapter_ref` 贯通（含判断②合成重试步与修订路径继承）；CP3 `chapters` `(work_id,seq)` 唯一索引 + `chapter_identity_repair.exs` 显式修复（90 章演练无损、rollback 实测）；CP4 真实 Tauri：两章同名并存、采纳只落 ref 目标章（第一章 0 scene/0 chars、第二章 scene=2/chars=52）、TOC chapter_count=2/empty=1、作者可见无 ref/UUID，B24 两场景回归 PASS；CP5 全门禁绿 |
-| J28 | 主线复位：B25 收口后队列无未闭环实现项，等待作者拍板下一项（B13b §4.1 候选/B11D/E28-E30/VS-00D G1–G7/C 轨观察；B26 由并行会话负责） | MAINLINE-RESET-4 | 队列选择 | **next（2026-10-23，等作者拍板；不自动扩范围）** | 作者裁决 | `tasks/NEXT.md` MAINLINE-RESET-4 行；`tasks/NEXT.md` §4/§6 | 作者指定下一项后开新 slice 并登记 queue；本轮不自行从 backlog 挑活 |
+| J28 | 主线复位：B25 收口后队列无未闭环实现项，等待作者拍板下一项（B13b §4.1 候选/B11D/E28-E30/VS-00D G1–G7/C 轨观察；B26 由并行会话负责） | MAINLINE-RESET-4 | 队列选择 | **closed（2026-10-23，作者指令「按 tasks/NEXT.md 顺序逐项推进直到完成所有 task 和 slice」→ 授权按候选顺序自动推进 backlog；B26 仍由并行会话负责、本会话不碰）** | 作者裁决 | `tasks/NEXT.md` MAINLINE-RESET-4 / GATE-ORDER-CLOSURE 行；`tasks/NEXT.md` §4/§6 | 选择入档：B13b §4.1 `#2 GATE-ORDER-CLOSURE` 为首项（#1 PLANNER-SEMANTIC-BOUNDARY 因并行会话 B26 正在重写 judgment_protocol 而暂缓，避免写冲突）；后续按 §4.1 顺序推进 |
+| J29 | 执行权门禁逐门可解释（12 门 + GateResult/version + DecisionTrace） | GATE-ORDER-CLOSURE / ADR-0005 / VS-01 | GateOrder / GateResult / OrchestratorDecision / DecisionTrace / Replay | **closed（2026-10-23，真实 Tauri `agent-step-regate` PASS + 36 单测；e2e-01 降级场景 blocked 裁决）** | 单测矩阵 + 真实 Tauri 外部自动化 | `tasks/slices/GATE-ORDER-CLOSURE-execution-gate-order-12.md`；`artifacts/slice-verify/agent-step-regate-tauri/summary.json`；`apps/novel_application/test/novel_application/gate_order_closure_test.exs` | ADR-0005 全 12 门落地（含 behavior/slot/policy/toolbox 独立门）；`GateResult` 六态 outcome + `gate_order_version=adr-0005-v1`；逐门 lineage 进 decision/log/agent event/DecisionTrace（migration `20261023000002`）；真实接线 run 剩余预算（6 flow）、trace readiness、confirm re-gate 幂等 lineage/behavior 解析；toolbox 用 dispatchable；pass-downgrade first gate 修正 nil；allow/blocked 双路径落 trace（`BlockedDecisionTrace`）；Replay 六问契约不变地并入 gate 事实。真实 Tauri：2 step × 12 门有序、budget `run_budget_remaining`、trace readiness pass、step trace_summary 12 条 gate results、2 条 gate_decided event。诚实边界：blocked 路径真实页面场景、behavior 主路径、slot 后置、policy 规则集、幂等输入一致性、e2e-01 re-anchor 均登记后续 |
+| J30 | 行为生命周期决策权收口（behavior 开/更新/关闭经决策、同 workstream 显式 supersede） | BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY / ADR-0008 / VS-03 | BehaviorState / OrchestratorDecision / DialogueGateway | **next（2026-10-23，按 backlog §4.1 #3 顺序；作者已授权自动推进）** | 单测矩阵 + 真实 Tauri 回归（cancel waiting / single active confirmation / gate block） | `tasks/NEXT.md` BEHAVIOR-LIFECYCLE 行；`tasks/slices/B13B-adr-enforcement-reconciliation.md` §4.1 #3 | 默认裁决按 B13b §7 Q2 建议：VS-03 维持 draft（不整包冻结）→ 只做 8-2 显式 supersede + 文档化偏差；若实现中证明必须冻结再回作者 |
 
 
 ---
@@ -510,18 +512,18 @@ Next Task: MAINLINE-RESET-4
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: B13b 延后 3 项收口（BB-4/BB-7/BB-10，方案 A 已拍板，下一轮执行）
-Active Journey: Journey J（J27 B25 章节身份统一已 closed；J28 主线复位 next）
-Queue head: B13B-DEFERRED-CLOSURE
+Current Focus: 作者授权按 NEXT.md 候选顺序自动推进 backlog（B13b §4.1 → B11D → E28-E30 → VS-00D G1–G7 → C 轨；含真实 Tauri 验收与全门禁；B26 由并行会话负责）
+Active Journey: Journey J（J27 B25 closed；J28 主线复位 closed；J29 GATE-ORDER-CLOSURE closed；J30 行为生命周期 next）
+Queue head: BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY（backlog §4.1 #3）
 ```
 
 本文对应位置：
 
 ```text
-Journey C / 自然创作对话与探索
-Step: J28 / MAINLINE-RESET-4（next 2026-10-23，等作者拍板下一项）
-Status: next（B22-CP4 已 closed；章节写入/采纳链身份统一未开始）
-Gap / Next: 统一写入/采纳/阅读/使命链章节身份为 `chapter_ref = "chapter:<chapters.id>"`：CP0 契约+历史重复审计 → CP1 仓储层 ref 化 → CP2 应用链 ref 化 → CP3 唯一索引+显式修复 → CP4 真实 Tauri 同名两章场景 + B24 两场景回归 → CP5 收口；详见 `tasks/slices/B25-chapter-identity-unification.md`。
+Journey J / 系统治理层（执行权与行为生命周期）
+Step: J30 / BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY（next 2026-10-23）
+Status: next（J29 gate order 12 门已 closed；J30 默认按 Q2 建议维持 VS-03 draft、只做显式 supersede）
+Gap / Next: behavior 开/更新/关闭必须经 OrchestratorDecision，同 workstream 显式 supersede；扩 `au10-workbench-recovery-cancel-waiting` + `au06-single-active-confirmation` 真实页面断言；详见 `tasks/NEXT.md` 队列行。
 ```
 
 选择规则：

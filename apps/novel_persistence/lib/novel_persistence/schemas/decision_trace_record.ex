@@ -27,6 +27,8 @@ defmodule NovelPersistence.Schemas.DecisionTraceRecord do
     field(:replay_policy, :map)
     field(:redaction_level, :string, default: "author_safe")
     field(:event_order, {:array, :string})
+    field(:gate_order_version, :string)
+    field(:gate_result_refs, {:array, :map})
     field(:context_refs, {:array, :map})
     field(:tool_trace_refs, {:array, :map})
     field(:behavior_trace_refs, {:array, :map})
@@ -52,6 +54,8 @@ defmodule NovelPersistence.Schemas.DecisionTraceRecord do
     :turn_result_ref,
     :replay_policy,
     :redaction_level,
+    :gate_order_version,
+    :gate_result_refs,
     :context_refs,
     :tool_trace_refs,
     :behavior_trace_refs,

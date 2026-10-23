@@ -40,6 +40,7 @@ defmodule NovelApplication.ReplayService do
     base = [
       %{step: "frame", ref: trace.frame_ref, note: "DialogueFrame formed"},
       plan_chain_step(trace),
+      gate_chain_step(trace),
       %{step: "decision", type: trace.decision_type, note: "Orchestrator decision recorded"}
     ]
 
@@ -187,10 +188,45 @@ defmodule NovelApplication.ReplayService do
     %{id: id, question: question, source: source, status: status, answer: answer}
   end
 
+  # GATE-ORDER-CLOSURE（ADR-0005 §Replay）：回放必须回答 gate order version、
+  # 第一个阻断 gate 与逐门 outcome；无 gate lineage 的历史 trace 诚实标 not_recorded。
+  defp gate_chain_step(%DecisionTrace{gate_result_refs: results} = trace)
+       when is_list(results) and results != [] do
+    %{
+      step: "gate_order",
+      ref: trace.gate_order_version,
+      note: "gates=#{Enum.map_join(results, ">", &ref_value(&1, :gate))}"
+    }
+  end
+
+  defp gate_chain_step(%DecisionTrace{}), do: %{step: "gate_order", ref: nil, status: :partial}
+
   defp decision_reason_answer(%DecisionTrace{} = trace) do
     {:answered,
-     "decision=#{trace.decision_type}; no_tool=#{trace.no_tool_reason}; no_behavior=#{trace.no_behavior_reason}; no_write=#{trace.no_write_reason}"}
+     "decision=#{trace.decision_type}; no_tool=#{trace.no_tool_reason}; no_behavior=#{trace.no_behavior_reason}; no_write=#{trace.no_write_reason}" <>
+       gate_order_suffix(trace)}
   end
+
+  # ADR-0005 Replay：六问契约不变（VS-06），gate order version / 第一个阻断 gate
+  # 并入 decision_reason 回答；无 gate lineage 的历史 trace 追加 not_recorded 诚实标注。
+  defp gate_order_suffix(%DecisionTrace{gate_result_refs: results} = trace)
+       when is_list(results) and results != [] do
+    first_blocking =
+      Enum.find_value(results, fn result ->
+        if ref_value(result, :outcome) in ["soft_block", "hard_block", "recoverable_failure"] do
+          ref_value(result, :gate)
+        end
+      end) || "none"
+
+    outcomes =
+      Enum.map_join(results, ",", fn result ->
+        "#{ref_value(result, :gate)}=#{ref_value(result, :outcome)}"
+      end)
+
+    "; gate_order_version=#{trace.gate_order_version}; first_blocking_gate=#{first_blocking}; gate_outcomes=#{outcomes}"
+  end
+
+  defp gate_order_suffix(%DecisionTrace{}), do: "; gate_order=not_recorded"
 
   defp planner_vs_decision_answer(%DecisionTrace{} = trace) do
     cond do

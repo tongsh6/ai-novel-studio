@@ -441,15 +441,28 @@ v3 不继承 v2 Router-first handler 顺序。
 ## enforced_by
 
 - apps/novel_application/lib/novel_application/gate_order.ex
+- apps/novel_domain/lib/novel_domain/gate_result.ex
 - apps/novel_application/lib/novel_application/execution_orchestrator.ex
 - apps/novel_application/lib/novel_application/turn_execution_service.ex
 - apps/novel_application/lib/novel_application/trace_writer.ex
+- apps/novel_application/lib/novel_application/blocked_decision_trace.ex
+- apps/novel_application/lib/novel_application/trace_replay_service.ex
+- apps/novel_application/lib/novel_application/replay_service.ex
+- apps/novel_domain/lib/novel_domain/decision_trace.ex
+- apps/novel_domain/lib/novel_domain/orchestrator_decision.ex
+- apps/novel_persistence/lib/novel_persistence/schemas/decision_trace_record.ex
+- apps/novel_persistence/priv/repo/migrations/20261023000002_add_gate_lineage_to_decision_traces.exs
 - apps/novel_application/test/novel_application/execution_authority_test.exs
+- apps/novel_application/test/novel_application/gate_order_closure_test.exs
+- frontend/slice-verify/external-ui-driver.mjs
+- frontend/slice-verify/native-tauri-verifier.mjs
 - quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml
 - quality/acceptance/scenarios/agent-step-regate.yml
+- tasks/slices/GATE-ORDER-CLOSURE-execution-gate-order-12.md
 
 ## enforcement_gaps
 
-- B13b 裁决（2026-10-22，修复-独立 slice `GATE-ORDER-CLOSURE`）：`GateOrder.evaluate/2` 只实装 correlation、envelope_validation、action_scope、authority、budget、write_boundary、trace_readiness、turn_result_compat 八项（`gate_order.ex:25-34`）；behavior compatibility 由 Channel current_turn guard 兜底（`workspace_channel.ex:21-25,2861-2870`），slot/contract validation 分散在 `ActionValidator`/`MissingPolicyResult`（`action_validator.ex:13-21,108-130`；`turn_execution_service.ex:88-91`），toolbox availability 由 `allow_tool_dispatch?` 旁路（`execution_orchestrator.ex:230-258`），policy 无独立 gate。该 slice 按 ADR-0005 补齐并给真实页面 gate 序列证据。
-- B13b 裁决（2026-10-22，修复-独立 slice `GATE-ORDER-CLOSURE`）：budget、trace_readiness、turn_result_compat 当前恒返 `:pass`（`gate_order.ex:94-97,119-128`）；correlation 只查 refs 存在（`:52-58`），无幂等 replay/输入一致性（幂等目前由 Channel/`ActionIdempotencyService`+receipt 承担，`au04-confirm-idempotency-ui` 有真实页面历史证据）。该 slice 接线真实 budget/幂等 lineage 与 trace_readiness 判定。
-- B13b 裁决（2026-10-22，修复-独立 slice `GATE-ORDER-CLOSURE`）：无独立 `GateResult` 结构与逐 gate trace 写入（`gate_order.ex:16-22` 仅轻量 type），决策只保留 `first_blocking_gate` 与 reason string（`execution_orchestrator.ex:326`），gate order version 未记录（全仓 0 命中）。该 slice CP1 引入 GateResult/version 并写入 DecisionTrace，扩 `e2e-01-downgrade-real-page`/`agent-step-regate` 断言。
+- ✅ **已关闭（2026-10-23，GATE-ORDER-CLOSURE）** B13b 裁决：`GateOrder.evaluate/3` 已实装 ADR-0005 全 12 门（0 correlation → 11 turn_result_compat），`behavior_compatibility` / `slot_contract_validation` / `policy_safety` / `toolbox_availability` 成为独立 gate；`NovelDomain.GateResult` 冻结 gate identity/order/outcome/reason_code/input_refs；真实页面证据 `agent-step-regate`（2 internal step × 12 门有序）。证据：`apps/novel_application/lib/novel_application/gate_order.ex`、`apps/novel_domain/lib/novel_domain/gate_result.ex`、`artifacts/slice-verify/agent-step-regate-tauri/summary.json`、`tasks/slices/GATE-ORDER-CLOSURE-execution-gate-order-12.md`。
+- ✅ **已关闭（2026-10-23，GATE-ORDER-CLOSURE）** B13b 裁决：budget gate 从 AgentRun 真实剩余预算注入（6 个 agent run flow 经 `gate_context_for_run/1`）；trace_readiness 从真实持久化通道注入（confirm re-gate + agent run flow）；correlation 记录 confirmation idempotency lineage 并支持显式 replay 短路。真实页面证据：`agent-step-regate` 的 budget gate `pass_with_note run_budget_remaining`、trace_readiness `pass`、`gate_decided` payload。
+- ✅ **已关闭（2026-10-23，GATE-ORDER-CLOSURE）** B13b 裁决：引入 `GateResult` 结构与 `gate_order_version=adr-0005-v1`，逐门 lineage 进 `OrchestratorDecision` / `orchestrator.decide.done` JSONL / step `gate_decided` event / `DecisionTrace.gate_result_refs`（migration `20261023000002`）；allow 与 blocked 决策双路径落 trace（`BlockedDecisionTrace`）；Replay 六问契约不变地并入 gate order 回答。
+- ◐ **残余缺口（2026-10-23，诚实登记，见 slice §6）**：`e2e-01-downgrade-real-page` 在判断纪元后无 multi-step MicroPlan 生产者、且 verifier 仍引用已退役事件，已标 blocked（`quality/acceptance/scenarios.yml` `blocked_reason`）；blocked 路径尚无真实页面场景（单测覆盖）；behavior compatibility 主路径仍靠 Channel current_turn guard；`ActionValidator`/`MissingPolicyResult` 的 slot 语义仍在 gate 之后；policy/safety 只有 candidate-only state change 一条规则；Channel `ActionIdempotencyService` receipt 仍承担重复抑制、key 不含 payload digest（ADR #18 输入一致性未实现）；turn_result_compat 只做 frame 形状校验。

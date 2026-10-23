@@ -1260,6 +1260,8 @@ scenarios:
     title: "E2E-01 真实页面多步 MicroPlan 降级"
     tier: nightly
     surface: tauri
+    status: blocked
+    blocked_reason: "判断纪元（ADR-0025）后生产主链已无 multi-step MicroPlan 生产者（所有 %MicroPlan{} 构造点均为单 action），action_scope 降级阈值静态不可达；verifier key events 仍要求已退役 planner.form_frame.done / planner.form_micro_plan.done（B13B D7）。gate 序列证据改由 agent-step-regate（allow 路径 12 门真实页面 PASS）+ gate_order_closure_test（blocked 路径单测）承担；待 re-anchor 到判断链可控多步生产路径或正式退役后改 active。登记：tasks/slices/GATE-ORDER-CLOSURE-execution-gate-order-12.md §6。"
     default_provider: lmstudio
     manifest: quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml
     driver: frontend/slice-verify/external-ui-driver.mjs

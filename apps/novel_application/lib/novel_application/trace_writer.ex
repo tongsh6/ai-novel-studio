@@ -80,6 +80,8 @@ defmodule NovelApplication.TraceWriter do
       turn_result_ref: turn_result[:turn_id] || frame.turn_id,
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
+      gate_order_version: decision.gate_order_version,
+      gate_result_refs: gate_result_refs(decision),
       event_order: [
         :author_input_received,
         :dialogue_context_attached,
@@ -104,6 +106,8 @@ defmodule NovelApplication.TraceWriter do
         orchestrator_decision: decision.decision_type,
         first_blocking_gate: decision.first_blocking_gate,
         reason_codes: decision.reason_codes,
+        gate_order_version: decision.gate_order_version,
+        gate_results: NovelDomain.GateResult.lineage(decision.gate_results),
         context_refs: format_context_refs(context_refs)
       }
       |> maybe_put_ai_message_envelope(frame)
@@ -145,6 +149,8 @@ defmodule NovelApplication.TraceWriter do
       turn_result_ref: turn_result[:turn_id] || frame.turn_id,
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
+      gate_order_version: decision.gate_order_version,
+      gate_result_refs: gate_result_refs(decision),
       tool_trace_refs: [tool_trace_ref(req, result, decision)],
       # WR01c：使命结构化 payload 进 state_trace_refs（既有 {:array,:map} 列，零 migration）——
       # replay 重建与广播 summary 同源。
@@ -174,6 +180,8 @@ defmodule NovelApplication.TraceWriter do
         tool_result_id: result.tool_result_id,
         decision_ref: decision.decision_id,
         adoption_status: "not_adopted",
+        gate_order_version: decision.gate_order_version,
+        gate_results: NovelDomain.GateResult.lineage(decision.gate_results),
         context_refs: format_context_refs(context_refs)
       }
       |> maybe_put_omissions(turn_result)
@@ -315,6 +323,12 @@ defmodule NovelApplication.TraceWriter do
   defp maybe_put(summary, _key, ""), do: summary
   defp maybe_put(summary, key, value), do: Map.put(summary, key, value)
 
+  # GATE-ORDER-CLOSURE：DecisionTrace 的逐门 lineage（JSON-safe，author-safe 投影）。
+  # 只记录 gate identity/order/outcome/reason_code/input_refs；不记录 raw reasoning。
+  defp gate_result_refs(%OrchestratorDecision{} = decision) do
+    Enum.map(decision.gate_results, &NovelDomain.GateResult.to_map/1)
+  end
+
   defp maybe_put_ai_message_envelope(summary, %DialogueFrame{
          evidence_summary: %{ai_message_envelope: envelope}
        })
@@ -376,6 +390,7 @@ defmodule NovelApplication.TraceWriter do
   defp decision_type_for(:fail_with_recovery), do: :recovery
   defp decision_type_for(:allow_tool), do: :tool_allowed
   defp decision_type_for(:allow_agent_run), do: :agent_run_allowed
+  defp decision_type_for(:replay_existing), do: :replay_existing
 
   defp no_behavior_reason(:creative_exploration), do: "exploration stays conversational"
 

@@ -992,6 +992,10 @@ defmodule NovelWeb.WorkspaceChannel do
     do: Enum.map(value, &stringify_atom_values/1)
 
   defp stringify_atom_values(value) when is_boolean(value), do: value
+
+  # nil 是「无值」事实，不是 atom 枚举；转成字符串 "nil" 会让 wire 出现假值
+  # （GATE-ORDER-CLOSURE：first_blocking_gate=nil 曾被序列化成 "nil"）。保留 null。
+  defp stringify_atom_values(nil), do: nil
   defp stringify_atom_values(value) when is_atom(value), do: Atom.to_string(value)
   defp stringify_atom_values(value), do: value
 
