@@ -337,7 +337,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
               ],
               "impact_scope" => "local",
               "revision_scope" => "local",
-              "brief_field_refs" => [],
+              # B11D（质量场粒度）：指向本章计划第 2 场（矿区撤退）的情绪迁移；
+              # 服务端按 brief scene_N 白名单归因，不采信自造场 id。
+              "brief_field_refs" => ["scene_2.emotion_transition"],
               "confidence" => 0.88,
               "suggested_revision" => %{
                 "instruction" => "只改命中句段，让动作在风险、后果或视角上形成递进。"

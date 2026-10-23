@@ -154,4 +154,34 @@ describe("QualityReviewCard", () => {
     expect(submitted).not.toContain(CARD.qualityReview.reviseButton);
     expect(submitted).not.toContain(CARD.qualityReview.revisingButton);
   });
+
+  it("B11D renders server-derived scene attribution and brief_field_refs with honest boundary", () => {
+    const review: QualityReviewView = {
+      status: "warnings",
+      policy_action: "proceed_with_warning",
+      review_status: "completed",
+      findings: [
+        finding({
+          scene_index: 2,
+          scene_title: "撤退",
+          brief_field_refs: ["scene_2.emotion_transition"],
+        }),
+      ],
+    };
+
+    const text = collectText(
+      QualityReviewCard({
+        review,
+        selectedFindingIds: ["qf_test"],
+        onToggleFinding: () => {},
+        onRevise: () => {},
+      }),
+    );
+
+    expect(text).toContain(`${CARD.qualityReview.sceneLabel} · 撤退（第 2 场）`);
+    expect(text).toContain(CARD.qualityReview.briefFieldRefsLabel);
+    expect(text).toContain("第 2 场 · 情绪迁移");
+    expect(text).toContain(CARD.qualityReview.sceneScopeNote);
+  });
+
 });

@@ -108,6 +108,22 @@ export const CARD = {
       paragraph: "相关段落",
       chapter: "整章",
     } as Record<string, string>,
+    // B11D（质量场粒度）：finding 的场归属与关联设计字段（值由服务端给，前端不猜场）。
+    sceneLabel: "场",
+    scenePosition: (index: number, title: string | null | undefined) =>
+      title ? `${title}（第 ${index} 场）` : `第 ${index} 场`,
+    briefFieldRefsLabel: "关联设计字段",
+    briefFieldLabels: {
+      target_change: "目标变化",
+      causal_spine: "因果骨架",
+      character_agendas: "人物议程",
+      information_delta: "信息变化",
+      emotion_transition: "情绪迁移",
+      dialogue_intent: "对白意图",
+      sensory_anchor: "感官锚点",
+    } as Record<string, string>,
+    sceneScopeNote:
+      "场级信息只用于约束修订范围；修订候选仍是整章草稿，采纳仍按整章生效（只替换单场归后续章修订能力）。",
     unavailableTitle: "本次质量复核未完成",
     unavailableBody:
       "质量评审未能完成，以下原稿仍可由你审阅与采纳；系统不会据此自动改写或判定通过。",

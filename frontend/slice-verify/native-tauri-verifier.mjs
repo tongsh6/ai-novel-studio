@@ -4509,7 +4509,16 @@ function findP1ProseQualityFindingRoundtripEvidence(records) {
       record.adopt_event_sent === false &&
       Number(record.quality_form_candidate_count_logged ?? 0) >= 1 &&
       Number(record.quality_findings_count ?? 0) >= 1 &&
-      record.chapter_title === mechanicalChapterTitle,
+      record.chapter_title === mechanicalChapterTitle &&
+      // B11D（质量场粒度）：finding 场归因（scene_2 → 撤退）+ brief_field_refs 作者可见
+      // + 场级修订 prompt；候选仍是整章草稿（诚实边界文案可见）。
+      Number(record.finding_scene_index ?? 0) === 2 &&
+      record.finding_scene_title === "撤退" &&
+      record.scene_label_visible === true &&
+      record.brief_field_refs_visible === true &&
+      record.scene_scope_note_visible === true &&
+      record.revision_candidate_pending === true &&
+      record.revision_prompt_has_scene_scope === true,
   );
   if (!mechanicalState) return null;
 
@@ -4641,6 +4650,9 @@ function findP1ProseQualityFindingRoundtripEvidence(records) {
     finding_confidence: Number(mechanicalState.finding_confidence ?? -1),
     finding_impact_scope: String(mechanicalState.finding_impact_scope ?? ""),
     finding_revision_scope: String(mechanicalState.finding_revision_scope ?? ""),
+    finding_scene_index: Number(mechanicalState.finding_scene_index ?? 0),
+    finding_scene_title: String(mechanicalState.finding_scene_title ?? ""),
+    revision_turn_id: String(mechanicalState.revision_turn_id ?? ""),
     rhetoric_form_candidate_count: Number(rhetoricQuality.form_candidate_count ?? 0),
     rhetoric_finding_count: Number(rhetoricQuality.finding_count ?? -1),
     pacing_form_candidate_count: Number(pacingQuality.form_candidate_count ?? -1),
@@ -4692,6 +4704,15 @@ function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, e
   if (mechanicalState.local_revision_action_visible !== true) return null;
   if (mechanicalState.finding_in_draft_body !== false) return null;
   if (mechanicalState.adopt_event_sent !== false) return null;
+  // B11D：场归因必须由服务端给出（scene_2 → 撤退）并在卡上可见；修订 prompt 带场作用域，
+  // 候选仍是整章草稿（场级替换不属本 slice）。
+  if (Number(mechanicalState.finding_scene_index ?? 0) !== 2) return null;
+  if (mechanicalState.finding_scene_title !== "撤退") return null;
+  if (mechanicalState.scene_label_visible !== true) return null;
+  if (mechanicalState.brief_field_refs_visible !== true) return null;
+  if (mechanicalState.scene_scope_note_visible !== true) return null;
+  if (mechanicalState.revision_candidate_pending !== true) return null;
+  if (mechanicalState.revision_prompt_has_scene_scope !== true) return null;
 
   const rhetoricState = records.find(
     (record) =>
@@ -4729,6 +4750,9 @@ function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, e
     finding_confidence: evidence.finding_confidence,
     finding_impact_scope: evidence.finding_impact_scope,
     finding_revision_scope: evidence.finding_revision_scope,
+    finding_scene_index: evidence.finding_scene_index,
+    finding_scene_title: evidence.finding_scene_title,
+    revision_turn_id: evidence.revision_turn_id,
     assertions: [
       "real_archive_outline_action_chapter_draft_clicked",
       "independent_quality_review_completed_with_at_least_one_finding",
@@ -4740,6 +4764,8 @@ function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, e
       "chapter_scope_pacing_finding_exposes_chapter_revision_action",
       "finding_not_leaked_into_prose_draft_body",
       "draft_stays_tentative_no_adoption_triggered_by_finding",
+      "finding_attributed_to_planned_scene_with_brief_field_refs_visible",
+      "scene_scoped_revision_prompt_keeps_whole_chapter_candidate_boundary",
     ],
   };
 }

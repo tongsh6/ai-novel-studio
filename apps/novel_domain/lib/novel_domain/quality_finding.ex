@@ -30,6 +30,9 @@ defmodule NovelDomain.QualityFinding do
           impact_scope: atom(),
           revision_scope: atom(),
           brief_field_refs: [String.t()],
+          # B11D：多场正文（一件 artifact 多条 items）时的场归因；单 item 旧章级行为为 nil。
+          scene_index: pos_integer() | nil,
+          scene_title: String.t() | nil,
           suggested_revision: map() | nil,
           can_override: boolean(),
           created_at: String.t() | nil
@@ -50,6 +53,8 @@ defmodule NovelDomain.QualityFinding do
             impact_scope: :local,
             revision_scope: :local,
             brief_field_refs: [],
+            scene_index: nil,
+            scene_title: nil,
             suggested_revision: nil,
             can_override: true,
             created_at: nil
@@ -106,6 +111,8 @@ defmodule NovelDomain.QualityFinding do
               get_any(attrs, [:impact_scope, "impact_scope"])
           ),
         brief_field_refs: clean_list(get_any(attrs, [:brief_field_refs, "brief_field_refs"])),
+        scene_index: normalize_scene_index(get_any(attrs, [:scene_index, "scene_index"])),
+        scene_title: clean(get_any(attrs, [:scene_title, "scene_title"])),
         suggested_revision:
           normalize_map(get_any(attrs, [:suggested_revision, "suggested_revision"])),
         can_override:
@@ -134,6 +141,8 @@ defmodule NovelDomain.QualityFinding do
       "impact_scope" => Atom.to_string(f.impact_scope),
       "revision_scope" => Atom.to_string(f.revision_scope),
       "brief_field_refs" => f.brief_field_refs,
+      "scene_index" => f.scene_index,
+      "scene_title" => f.scene_title,
       "suggested_revision" => f.suggested_revision,
       "can_override" => f.can_override
     }
@@ -157,6 +166,9 @@ defmodule NovelDomain.QualityFinding do
       "impact_scope" => Atom.to_string(f.impact_scope),
       "revision_scope" => Atom.to_string(f.revision_scope),
       "brief_field_refs" => f.brief_field_refs,
+      # B11D：场归因（作者可见的设计态场名/序号；不得由前端自行推断）。
+      "scene_index" => f.scene_index,
+      "scene_title" => f.scene_title,
       "suggested_revision" => f.suggested_revision,
       "can_override" => f.can_override
     }
@@ -205,6 +217,17 @@ defmodule NovelDomain.QualityFinding do
       _ -> :local
     end
   end
+
+  defp normalize_scene_index(value) when is_integer(value) and value > 0, do: value
+
+  defp normalize_scene_index(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {index, ""} when index > 0 -> index
+      _ -> nil
+    end
+  end
+
+  defp normalize_scene_index(_value), do: nil
 
   defp normalize_spans(list) when is_list(list), do: Enum.filter(list, &is_map/1)
   defp normalize_spans(_list), do: []

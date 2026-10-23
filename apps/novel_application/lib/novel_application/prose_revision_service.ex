@@ -192,24 +192,27 @@ defmodule NovelApplication.ProseRevisionService do
         {:error, "revise target #{target_ref} is not a prose draft"}
 
       true ->
-        item =
-          entry
-          |> field(:payload)
-          |> field(:items)
-          |> List.wrap()
-          |> List.first()
+        items = entry |> field(:payload) |> field(:items) |> List.wrap()
+        first_item = List.first(items)
 
-        body = item |> field(:body) |> to_text()
+        # B11D：多 item 正文不得静默丢弃其余场——修订 prompt 携带全部场正文。
+        bodies =
+          items
+          |> Enum.map(fn item -> item |> field(:body) |> to_text() end)
+          |> Enum.reject(&(&1 == ""))
+
+        body = Enum.join(bodies, "\n\n")
 
         if body == "" do
           {:error, "revise target #{target_ref} has no prose body to revise"}
         else
           {:ok,
            %{
-             title: item |> field(:title) |> to_text(),
+             title: first_item |> field(:title) |> to_text(),
              body: body,
              revision_base: target_ref,
              target_chapter: field(entry, :target_chapter),
+             target_chapter_ref: field(entry, :target_chapter_ref),
              authoring_intent: field(entry, :authoring_intent)
            }}
         end
@@ -383,11 +386,13 @@ defmodule NovelApplication.ProseRevisionService do
 
     body = if items == "", do: "请整体提升正文质量。", else: items
 
+    scene_scope = revision_scene_scope_section(findings)
+
     """
     [质量修订要求]
     本次修订范围：#{revision_scope_label(scope)}。
     #{revision_scope_constraint(scope)}
-    请仅针对以下质量问题修改上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
+    #{scene_scope}请仅针对以下质量问题修改上文「原正文」，逐项回应，不得改变情节走向或新增作品事实：
     #{body}
     修订后保持与原正文相同的情节与人物状态，只解决上述问题；仍返回完整正文供作者对比。
     """
@@ -399,6 +404,8 @@ defmodule NovelApplication.ProseRevisionService do
     %{
       authoring_intent: original.authoring_intent,
       target_chapter: original.target_chapter,
+      # B25 补漏：修订候选沿用原草稿的章节身份 ref（无 ref 才回退 title）。
+      target_chapter_ref: Map.get(original, :target_chapter_ref),
       revision_base: original_revision_base(original),
       revision_reason: revision_reason(findings),
       quality_finding_refs: finding_refs(findings)
@@ -446,9 +453,11 @@ defmodule NovelApplication.ProseRevisionService do
     position = finding |> field(:evidence_spans) |> List.wrap() |> evidence_position()
     evidence = finding |> field(:evidence_spans) |> List.wrap() |> evidence_text()
     suggestion = finding |> field(:suggested_revision) |> field(:instruction) |> to_text()
+    scene = finding |> finding_scene_label()
 
     [
       summary,
+      if(scene == "", do: nil, else: "场：#{scene}"),
       if(position == "", do: nil, else: "位置：#{position}"),
       if(evidence == "", do: nil, else: "原句：#{evidence}"),
       if(reasoning == "", do: nil, else: "判断理由：#{reasoning}"),
@@ -456,6 +465,17 @@ defmodule NovelApplication.ProseRevisionService do
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n   ")
+  end
+
+  defp finding_scene_label(finding) do
+    index = finding |> field(:scene_index)
+    title = finding |> field(:scene_title) |> to_text()
+
+    cond do
+      is_integer(index) and index > 0 and title != "" -> "第 #{index} 场（#{title}）"
+      is_integer(index) and index > 0 -> "第 #{index} 场"
+      true -> ""
+    end
   end
 
   defp evidence_position([]), do: ""
@@ -486,6 +506,36 @@ defmodule NovelApplication.ProseRevisionService do
     |> Enum.reject(&(&1 == ""))
     |> Enum.take(3)
     |> Enum.join(" / ")
+  end
+
+  # B11D（质量场粒度）：所选 finding 的场归属进入修订 prompt；候选仍是整章草稿，
+  # 场级信息只作改写范围约束（不谎称只替换单场——那属章修订能力）。
+  defp revision_scene_scope_section(findings) do
+    case finding_scene_labels(findings) do
+      [] ->
+        ""
+
+      labels ->
+        "场级作用域：#{Enum.join(labels, "、")}。只改写这些场对应的句段；其他场的正文必须逐字节保留，不得顺带重写。\n"
+    end
+  end
+
+  defp finding_scene_labels(findings) do
+    findings
+    |> Enum.map(&scene_label_for_finding/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp scene_label_for_finding(finding) do
+    index = finding |> field(:scene_index)
+    title = finding |> field(:scene_title) |> to_text()
+
+    cond do
+      not is_integer(index) or index <= 0 -> nil
+      title == "" -> "第 #{index} 场"
+      true -> "第 #{index} 场（#{title}）"
+    end
   end
 
   defp revision_scope(findings) do

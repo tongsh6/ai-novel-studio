@@ -359,6 +359,21 @@
               },
               "can_override": {
                 "type": "boolean"
+              },
+              "scene_index": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "description": "B11D：finding 指向本章计划场次时的 1-based 场序号（来源=执行简述 scene_N；单场/未命中为 null）。"
+              },
+              "scene_title": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "B11D：finding 指向本章计划场次时的场名（设计态 scene_plans 标题；未命中为 null）。"
               }
             }
           }

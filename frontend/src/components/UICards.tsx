@@ -134,6 +134,28 @@ function selectedRevisionScope(
     .sort((left, right) => scopeRank(right) - scopeRank(left))[0] || "local";
 }
 
+// B11D（质量场粒度）：把服务端给的场归属与 brief_field_refs 展示为作者可读文本。
+// 场 id/标题来自服务端（brief scene_N → TOC 语义），前端不自行解析正文场边界。
+function briefFieldRefLabel(ref: string): string {
+  const [unit, field] = ref.split(".");
+  const unitLabel = /^scene_(\d+)$/.test(unit)
+    ? CARD.qualityReview.scenePosition(Number(unit.replace("scene_", "")), null)
+    : unit;
+  const fieldLabel =
+    CARD.qualityReview.briefFieldLabels[field] ||
+    field ||
+    CARD.qualityReview.briefFieldRefsLabel;
+  return field ? `${unitLabel} · ${fieldLabel}` : unitLabel;
+}
+
+function findingSceneLabel(finding: QualityFindingView): string | null {
+  const index = finding.scene_index;
+  if (typeof index === "number" && index > 0) {
+    return CARD.qualityReview.scenePosition(index, finding.scene_title);
+  }
+  return null;
+}
+
 function QualityFindingContent({ finding }: { finding: QualityFindingView }) {
   const gateLabel = finding.quality_gate
     ? CARD.qualityReview.gateLabels[finding.quality_gate] ||
@@ -151,6 +173,8 @@ function QualityFindingContent({ finding }: { finding: QualityFindingView }) {
     .filter((text): text is string => Boolean(text))
     .slice(0, 3);
   const suggestion = suggestedRevision(finding);
+  const sceneLabel = findingSceneLabel(finding);
+  const briefRefs = (finding.brief_field_refs ?? []).map(briefFieldRefLabel);
 
   return (
     <div className={styles.findingCardContent}>
@@ -170,7 +194,19 @@ function QualityFindingContent({ finding }: { finding: QualityFindingView }) {
         <span>
           {CARD.qualityReview.impactLabel} · {impactLabel}
         </span>
+        {sceneLabel && (
+          <span>
+            {CARD.qualityReview.sceneLabel} · {sceneLabel}
+          </span>
+        )}
       </div>
+      {briefRefs.length > 0 && (
+        <div className={styles.findingMetadata}>
+          <span>
+            {CARD.qualityReview.briefFieldRefsLabel} · {briefRefs.join("、")}
+          </span>
+        </div>
+      )}
       {evidence.map((text, index) => (
         <blockquote className={styles.evidenceQuote} key={`${text}-${index}`}>
           <span className={styles.evidencePrefix}>{CARD.qualityReview.evidencePrefix}</span>
@@ -229,6 +265,9 @@ export function QualityReviewCard({
   const revisionScope = selectedRevisionScope(review.findings, selectedFindingIds);
   const revisionAction =
     CARD.qualityReview.reviseButtons[revisionScope] || CARD.qualityReview.reviseButton;
+  const hasSceneScopedFinding = review.findings.some(
+    (finding) => typeof finding.scene_index === "number" && finding.scene_index > 0,
+  );
 
   if (revisionStarted) {
     return (
@@ -315,6 +354,9 @@ export function QualityReviewCard({
 
       {onRevise && (
         <>
+          {hasSceneScopedFinding && (
+            <div className={styles.qualityHintText}>{CARD.qualityReview.sceneScopeNote}</div>
+          )}
           <div className={styles.qualityHintText}>{CARD.qualityReview.reviseHint}</div>
           <div className={styles.actions}>
             <button

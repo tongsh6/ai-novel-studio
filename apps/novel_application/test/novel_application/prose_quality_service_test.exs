@@ -102,4 +102,111 @@ defmodule NovelApplication.ProseQualityServiceTest do
     assert agency.source_turn_ref == "t2"
     assert result.policy.action == :adoption_review
   end
+
+  describe "B11D scene attribution (质量场粒度)" do
+    @scene_units [
+      %{"unit_id" => "scene_1", "scene_title" => "交锋"},
+      %{"unit_id" => "scene_2", "scene_title" => "撤退"}
+    ]
+
+    test "finding with legal scene_N brief ref is attributed to that planned scene" do
+      semantic = fn _text, _ctx ->
+        {:ok,
+         [
+           %{
+             "quality_finding_id" => "qf_scene",
+             "quality_gate_ref" => "quality_gate.style_fit",
+             "validator_ref" => "validator.sentence_rhythm_uniformity",
+             "severity" => "warn",
+             "action" => "warn",
+             "summary" => "第二场动作句机械重复",
+             "reasoning" => "相同骨架没有形成递进。",
+             "confidence" => 0.8,
+             "evidence_spans" => [
+               %{"text" => "他猛地侧身。他一刀劈下。", "sentence_start" => 1, "sentence_end" => 2}
+             ],
+             "impact_scope" => "local",
+             "revision_scope" => "local",
+             "brief_field_refs" => ["scene_2.emotion_transition"]
+           }
+         ]}
+      end
+
+      result =
+        ProseQualityService.evaluate(@bad_uniform, %{scene_units: @scene_units},
+          semantic_fn: semantic
+        )
+
+      [finding] = result.findings
+      assert finding.scene_index == 2
+      assert finding.scene_title == "撤退"
+    end
+
+    test "self-reported scene fields are not trusted; only server-derived attribution is kept" do
+      semantic = fn _text, _ctx ->
+        {:ok,
+         [
+           %{
+             "quality_finding_id" => "qf_forged",
+             "quality_gate_ref" => "quality_gate.style_fit",
+             "validator_ref" => "validator.sentence_rhythm_uniformity",
+             "severity" => "warn",
+             "action" => "warn",
+             "summary" => "伪造场 id",
+             "reasoning" => "evaluator 自报场字段。",
+             "confidence" => 0.8,
+             "evidence_spans" => [
+               %{"text" => "他猛地侧身。", "sentence_start" => 1, "sentence_end" => 1}
+             ],
+             "impact_scope" => "local",
+             "revision_scope" => "local",
+             "scene_index" => 2,
+             "scene_title" => "伪造"
+           }
+         ]}
+      end
+
+      result =
+        ProseQualityService.evaluate(@bad_uniform, %{scene_units: @scene_units},
+          semantic_fn: semantic
+        )
+
+      [finding] = result.findings
+      assert finding.scene_index == nil
+      assert finding.scene_title == nil
+    end
+
+    test "unknown scene_N ref does not fabricate attribution" do
+      semantic = fn _text, _ctx ->
+        {:ok,
+         [
+           %{
+             "quality_finding_id" => "qf_unknown_scene",
+             "quality_gate_ref" => "quality_gate.style_fit",
+             "validator_ref" => "validator.sentence_rhythm_uniformity",
+             "severity" => "warn",
+             "action" => "warn",
+             "summary" => "未知场",
+             "reasoning" => "场 id 不在 brief 白名单。",
+             "confidence" => 0.7,
+             "evidence_spans" => [
+               %{"text" => "他猛地侧身。", "sentence_start" => 1, "sentence_end" => 1}
+             ],
+             "impact_scope" => "local",
+             "revision_scope" => "local",
+             "brief_field_refs" => ["scene_9.emotion_transition"]
+           }
+         ]}
+      end
+
+      result =
+        ProseQualityService.evaluate(@bad_uniform, %{scene_units: @scene_units},
+          semantic_fn: semantic
+        )
+
+      [finding] = result.findings
+      assert finding.scene_index == nil
+      assert finding.scene_title == nil
+    end
+  end
 end

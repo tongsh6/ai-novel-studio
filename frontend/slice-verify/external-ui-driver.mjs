@@ -24071,6 +24071,62 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     "Finding-roundtrip turn unexpectedly submitted an adopt event",
   );
 
+  // B11D（质量场粒度）：finding 的场归属与关联设计字段来自服务端 brief 白名单，
+  // 必须真实显示在质量卡上（场名 + 关联设计字段 + 场级修订诚实边界说明）。
+  const sceneLabelVisible = visibleText.includes("场 · 撤退（第 2 场）");
+  const briefFieldRefsVisible =
+    visibleText.includes("关联设计字段") && visibleText.includes("第 2 场 · 情绪迁移");
+  const sceneScopeNoteVisible = visibleText.includes(
+    "场级信息只用于约束修订范围；修订候选仍是整章草稿",
+  );
+  assert(
+    sceneLabelVisible,
+    `Quality card did not show the server-derived scene label for the finding: ${visibleText.slice(0, 400)}`,
+  );
+  assert(
+    briefFieldRefsVisible,
+    "Quality card did not show brief_field_refs as 关联设计字段 (场景 2 · 情绪迁移)",
+  );
+  assert(
+    sceneScopeNoteVisible,
+    "Quality card did not state the honest scene-scope boundary (candidate remains whole-chapter)",
+  );
+
+  // 选择该 finding → 触发真实 revise_from_findings 修订 run；修订 prompt 必须带场作用域，
+  // 但候选仍是整章草稿（场级信息只约束改写范围，不谎称只替换单场）。
+  const findingCheckbox = page.locator('input[type="checkbox"]').first();
+  await findingCheckbox.check();
+  await page.getByRole("button", { name: "局部修订所选问题" }).click();
+
+  const revisionTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      String(frame.body?.turn_id ?? "").startsWith("turn_rev") &&
+      frame.body?.truthfulness?.tool_name === "prose_writing" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No revise_from_findings revision candidate turn_result was received",
+    200_000,
+  );
+  const revisionTurnResult = revisionTurnFrame.body;
+  const revisionPending = revisionTurnResult.adoption_state.pending[0];
+
+  let revisionPrompt = null;
+  for (let attempt = 0; attempt < 40 && !revisionPrompt; attempt += 1) {
+    revisionPrompt = readLlmCallRecords()
+      .map((record) => String(record?.prompt ?? ""))
+      .find(
+        (prompt) =>
+          prompt.includes("[质量修订要求]") &&
+          prompt.includes("场级作用域：第 2 场（撤退）"),
+      );
+    if (!revisionPrompt) await sleep(200);
+  }
+  assert(revisionPrompt, "Revision prompt did not carry the selected finding scene scope");
+  const revisionPromptCarriesSceneBoundary =
+    revisionPrompt.includes("场：第 2 场（撤退）") &&
+    revisionPrompt.includes("其他场的正文必须逐字节保留");
+
   const mechanicalState = {
     ...uiState,
     turn_id: draftTurnResult.turn_id,
@@ -24105,6 +24161,20 @@ async function driveP1ProseQualityFindingRoundtrip(page) {
     adopt_event_sent: frames.some(
       (frame) => frame.direction === "sent" && frame.event === "adopt",
     ),
+    // B11D：finding 场归属（scene_2 → 撤退）+ brief_field_refs 作者可见 + 场级修订 prompt。
+    finding_scene_index: Number(finding.scene_index ?? 0),
+    finding_scene_title: String(finding.scene_title ?? ""),
+    scene_label_visible: sceneLabelVisible,
+    brief_field_refs_visible: briefFieldRefsVisible,
+    scene_scope_note_visible: sceneScopeNoteVisible,
+    revision_candidate_pending:
+      String(revisionPending?.artifact_id ?? "") !== "" &&
+      revisionTurnResult.truthfulness?.artifact_adopted !== true,
+    revision_of_original: String(revisionPending?.payload?.revision_of ?? "") !== "" ||
+      String(revisionPending?.revision_of ?? "") !== "",
+    revision_prompt_has_scene_scope:
+      Boolean(revisionPrompt) && revisionPromptCarriesSceneBoundary,
+    revision_turn_id: String(revisionTurnResult.turn_id ?? ""),
   };
 
   // 语义边界 1：形式分析器召回同句首/同骨架，但独立 evaluator 将递进誓词识别为刻意

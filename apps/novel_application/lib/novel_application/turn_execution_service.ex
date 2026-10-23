@@ -318,7 +318,7 @@ defmodule NovelApplication.TurnExecutionService do
         action,
         tool_result,
         quality_provider_execution,
-        execution_brief_text,
+        brief_result,
         facts_context_text(creative_facts, style_guide),
         quality_pacing_context(brief_result)
       )
@@ -1845,15 +1845,19 @@ defmodule NovelApplication.TurnExecutionService do
          action,
          %ToolResult{status: :succeeded} = tool_result,
          quality_provider_execution,
-         brief_text,
+         brief_result,
          facts_context,
          pacing_context
        ) do
     if prose_writing_action?(action) do
+      brief_text = render_execution_brief(brief_result)
+      scene_units = quality_scene_units(brief_result)
+
       ctx = %{
         source_ref: List.first(tool_result.artifact_refs),
         source_turn_ref: frame.turn_id,
-        source_type: :prose_fragment
+        source_type: :prose_fragment,
+        scene_units: scene_units
       }
 
       opts =
@@ -1861,11 +1865,14 @@ defmodule NovelApplication.TurnExecutionService do
           quality_provider_execution,
           frame,
           brief_text,
+          scene_units,
           facts_context,
           pacing_context
         )
 
-      result = ProseQualityService.evaluate(prose_body(tool_result), ctx, opts)
+      {prose_text, scenes} = prose_quality_input(tool_result)
+      ctx = Map.put(ctx, :scenes, scenes)
+      result = ProseQualityService.evaluate(prose_text, ctx, opts)
       emit_quality(frame, result)
       result
     end
@@ -1882,12 +1889,27 @@ defmodule NovelApplication.TurnExecutionService do
        ),
        do: nil
 
+  # B11D：把 brief 的场次清单（unit_id/scene_title）交给质量评估做合法场归因来源。
+  defp quality_scene_units({%ProseExecutionBrief{} = brief, _meta}) do
+    brief.scene_units
+    |> Enum.with_index(1)
+    |> Enum.map(fn {unit, index} ->
+      %{
+        "unit_id" => unit["unit_id"] || unit[:unit_id] || "scene_#{index}",
+        "scene_title" => unit["scene_title"] || unit[:scene_title]
+      }
+    end)
+  end
+
+  defp quality_scene_units(_brief_result), do: []
+
   # 独立 evaluator 通过单独的 quality provider execution 调用（与 writer 分离的
   # provider 调用 + 独立 prompt）。未注入时为确定性评估。
   defp semantic_opts(
          quality_provider_execution,
          frame,
          brief_text,
+         scene_units,
          facts_context,
          pacing_context
        ) do
@@ -1897,6 +1919,7 @@ defmodule NovelApplication.TurnExecutionService do
           quality_provider_execution,
           frame,
           brief_text,
+          scene_units,
           facts_context,
           pacing_context
         )
@@ -1910,6 +1933,7 @@ defmodule NovelApplication.TurnExecutionService do
          provider_execution,
          frame,
          brief_text,
+         scene_units,
          facts_context,
          pacing_context
        ) do
@@ -1923,7 +1947,8 @@ defmodule NovelApplication.TurnExecutionService do
         execution_brief: brief_text,
         facts_context: facts_context,
         form_candidates: Map.get(ctx, :form_candidates, []),
-        pacing_context: pacing_context
+        pacing_context: pacing_context,
+        scene_units: scene_units
       }
 
       case ProseQualityEvaluator.evaluate(request, provider_execution) do
@@ -1964,11 +1989,58 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp quality_pacing_context(_brief_result), do: nil
 
-  defp prose_body(%ToolResult{output: %{items: [item | _]}}) when is_map(item) do
-    clean_text(Map.get(item, :body) || Map.get(item, "body"))
+  # B11D：质量评估对**全部** items 正文（多场章）执行；单 item 与旧行为逐字节一致。
+  # 返回 {joined_text, scenes}：scenes 的字节区间与采纳层 items_to_content 的
+  # "\n\n" 拼接一致（第 1 场 offset=0），供 finding 证据偏移归因。
+  defp prose_quality_input(%ToolResult{output: %{items: items}}) when is_list(items) do
+    bodies =
+      items
+      |> Enum.map(fn item -> item |> item_body_text() |> clean_text() end)
+      |> Enum.reject(&(&1 == ""))
+
+    text = Enum.join(bodies, "\n\n")
+    scenes = scene_ranges(items, bodies)
+    {text, scenes}
   end
 
-  defp prose_body(_tool_result), do: ""
+  defp prose_quality_input(_tool_result), do: {"", []}
+
+  defp item_body_text(item) when is_map(item),
+    do: Map.get(item, :body) || Map.get(item, "body") || ""
+
+  defp item_body_text(_item), do: ""
+
+  defp scene_ranges(items, bodies) do
+    if length(bodies) < 2 do
+      []
+    else
+      {scenes, _offset} =
+        items
+        |> Enum.zip(bodies)
+        |> Enum.with_index(1)
+        |> Enum.reduce({[], 0}, fn {{item, body}, index}, {acc, offset} ->
+          scene = %{
+            index: index,
+            title: item_title(item),
+            start_offset: offset,
+            end_offset: offset + byte_size(body)
+          }
+
+          {[scene | acc], offset + byte_size(body) + 2}
+        end)
+
+      Enum.reverse(scenes)
+    end
+  end
+
+  defp item_title(item) when is_map(item) do
+    case Map.get(item, :title) || Map.get(item, "title") do
+      title when is_binary(title) and title != "" -> title
+      _ -> "场景 #{0}"
+    end
+  end
+
+  defp item_title(_item), do: nil
 
   defp clean_text(value) when is_binary(value), do: value
   defp clean_text(_value), do: ""

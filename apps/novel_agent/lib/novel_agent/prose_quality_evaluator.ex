@@ -196,7 +196,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
     服务冲突/潜台词、结尾是否留下继续阅读的驱动力（hook，且不是虚假承诺）、能力/境界/资源/代价
     与成长路径是否符合既有规则（不跳过必要铺垫、强度不失衡）。不要仅凭关键字命中就判失败。
 
-    #{brief_section(request)}#{reader_effect_section(request)}#{facts_section(request)}待评审正文：
+    #{brief_section(request)}#{scene_units_section(request)}#{reader_effect_section(request)}#{facts_section(request)}待评审正文：
     #{request.prose_text}
 
     只返回 JSON 对象。
@@ -209,6 +209,22 @@ defmodule NovelAgent.ProseQualityEvaluator do
   end
 
   defp brief_section(_request), do: ""
+
+  # B11D（质量场粒度）：把合法场次清单给 evaluator；finding 指向具体场时，必须在
+  # brief_field_refs 使用这里的 unit_id 前缀（服务端按该白名单归因，不采信自造场 id）。
+  defp scene_units_section(%QualityEvaluationRequest{scene_units: units})
+       when is_list(units) and units != [] do
+    lines =
+      Enum.map_join(units, "\n", fn unit ->
+        unit_id = Map.get(unit, "unit_id") || Map.get(unit, :unit_id)
+        title = Map.get(unit, "scene_title") || Map.get(unit, :scene_title)
+        "- #{unit_id}（#{title}）"
+      end)
+
+    "本章计划场次（finding 若指向某一具体场，必须在 brief_field_refs 中使用下列 unit_id 前缀，例如 scene_2.emotion_transition；禁止发明不存在的场 id）：\n#{lines}\n\n"
+  end
+
+  defp scene_units_section(_request), do: ""
 
   defp reader_effect_section(%QualityEvaluationRequest{reader_effect: effect})
        when is_binary(effect) and effect != "" do

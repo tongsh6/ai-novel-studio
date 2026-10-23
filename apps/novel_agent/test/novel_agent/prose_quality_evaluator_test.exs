@@ -204,4 +204,31 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert %QualityEvaluationResult{status: :error} =
              ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
   end
+
+  test "B11D prompt lists legal scene units for scene-attributed findings" do
+    test_pid = self()
+
+    request = %QualityEvaluationRequest{
+      request_id: "qer_scenes",
+      source_turn_ref: "turn_scenes",
+      prose_text: "他侧身。他挥刀。他格挡。",
+      scene_units: [
+        %{"unit_id" => "scene_1", "scene_title" => "交锋"},
+        %{"unit_id" => "scene_2", "scene_title" => "撤退"}
+      ]
+    }
+
+    complete = fn prompt ->
+      send(test_pid, {:prompt, prompt})
+      {:ok, %{content: findings_json([])}}
+    end
+
+    ProseQualityEvaluator.evaluate(request, provider_execution(complete))
+    assert_receive {:prompt, prompt}
+    assert prompt =~ "本章计划场次"
+    assert prompt =~ "scene_1（交锋）"
+    assert prompt =~ "scene_2（撤退）"
+    assert prompt =~ "brief_field_refs"
+    assert prompt =~ "禁止发明不存在的场 id"
+  end
 end

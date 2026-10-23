@@ -309,4 +309,28 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
       reason_codes: ["gates_passed", "tool:prose_writing"]
     }
   end
+
+  test "B11D revision prompt carries the selected finding scene scope (candidate still whole chapter)" do
+    source = run_prose_turn()
+
+    findings =
+      Enum.map(source.quality_review.findings, fn finding ->
+        finding
+        |> Map.put("scene_index", 2)
+        |> Map.put("scene_title", "撤退")
+      end)
+
+    source = %{source | quality_review: Map.put(source.quality_review, :findings, findings)}
+
+    {revision_turn, prompt} = revise(source)
+
+    assert prompt =~ "场：第 2 场（撤退）"
+    assert prompt =~ "场级作用域：第 2 场（撤退）"
+    assert prompt =~ "其他场的正文必须逐字节保留"
+
+    # 场级信息只约束改写范围；候选仍是完整章节草稿（revision_of 原稿保留）。
+    assert [revision_pending] = revision_turn.adoption_state.pending
+    assert to_string(revision_pending.artifact_type) == "prose_fragment"
+    assert revision_turn.truthfulness.artifact_adopted == false
+  end
 end

@@ -153,6 +153,15 @@ brief_field_refs / suggested_revision / can_override
 **不提升 finding 严重级别**，**不隐藏原始正文**。`quality_finding_id` 是选择动作与
 provenance 的稳定标识；`validator` 只表示规则类型，不能代替 finding id。
 
+## 7.3 B11D 补充：finding 的场级归因（2026-10-24）
+
+在多场章（`chapters.plan_direction["scene_plans"]` 非空、brief 含 `scene_N` 单元）中，finding 允许携带
+additive 的 `scene_index` / `scene_title`：来源只能是**执行简述 `scene_units.unit_id` 白名单**（finding 的
+`brief_field_refs` 使用 `scene_N.<field>`），由应用层确定性归因；evaluator 自报场字段不采信、自造场 id
+不归因（诚实缺席）。质量卡显示「场 · <场名>（第 N 场）」与「关联设计字段」，并明确「场级信息只约束修订
+范围，修订候选仍是整章草稿」。该字段不改变 `impact_scope/revision_scope` 三值枚举，也不改变采纳边界；
+多场正文（一次产出多 item → 多 scene）与「只替换单场」不在本契约范围（归 B28）。
+
 ## 8. 修订候选如何保持 tentative/adoption 边界
 
 新增作者动作 `revise_from_findings`（§12）：基于选定 findings 调用正文 writer，产出
@@ -167,7 +176,9 @@ chapter    → 允许章级重组，但仍不得改变已确认作品事实
 ```
 
 默认是 `local`；不得因为实现方便把局部问题升级成整章重写。writer 虽返回完整正文候选，
-但 scope 约束必须进入修订 prompt。原稿继续保留、不被覆盖；修订稿不自动采纳、不自动进入
+但 scope 约束必须进入修订 prompt。B11D 补充：所选 finding 带合法场归因时，修订 prompt 另带
+「场级作用域：第 N 场（场名）；其他场的正文必须逐字节保留」约束；候选仍是整章 sibling 草稿、
+采纳仍按整章生效（不宣称只替换单场）。原稿继续保留、不被覆盖；修订稿不自动采纳、不自动进入
 阅读投影；原稿与修订稿都各自走现有 adoption 七态；一次动作最多一个候选；evaluator 不得
 自动递归触发下一次修订。修订调用必须重新经过 `ExecutionOrchestrator`，不得伪造
 `decision_ref` 或从 application 编排直接绕过 gate 调用 toolbox。

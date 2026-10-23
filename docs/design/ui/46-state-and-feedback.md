@@ -156,6 +156,7 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | `46§9-agentic-loop-reasoning-flow`（当前冻结 screen，见 ADR-0022 / ADR-0023 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`） | 同一 assistant 工作态回复内展示 agentic loop 推理流五态（探索中 / 执行中 / 受阻等待作者 / 重规划 v1→v2 / 完成态）：叙事措辞归模型（浅色左橙边条=模型逐字输出）、结构骨架归 app（状态 chip / 版本 / 进度 / 可选 action）；provider 遥测降级为开发者视图；不展示 raw prompt、provider 术语或私有 chain-of-thought。替代已于 2026-07-01 删除的 `46§8-agent-run-dialogue-flow-v4` |
 | `46§9.7-agent-run-control-dock` | active AgentRun 的控制固定在输入区上方；对话内只保留运行记录；暂停/继续共用一个主操作槽位；终止任务独立并二次确认 |
 | `46§9.8-quality-revision-ready` | 质量卡只承载问题选择与修订决策；原稿保留独立保存、放弃、编辑后保存动作 |
+| `46§9.8-quality-scene-scope` | B11D（2026-10-24）：finding 有服务端场归因时显示「场 · 名（第 N 场）」与「关联设计字段」，并明示「场级信息只约束修订范围；修订候选仍是整章草稿」（不谎称只替换单场） |
 | `46§9.8-quality-revision-running` | 作者动作回执与来源绑定；同一 revision run 只出现一个 assistant 工作回合 |
 | `46§9.8-quality-revision-paused` | 暂停态沿用同一动作回执、assistant 工作回合与固定控制坞，不复制第二套进度 |
 | `46§9.8-quality-revision-comparison` | run 终态后固定控制坞收起；原稿与修订稿作为两个独立 tentative 候选分别决策 |

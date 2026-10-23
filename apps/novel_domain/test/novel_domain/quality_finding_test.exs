@@ -76,4 +76,39 @@ defmodule NovelDomain.QualityFindingTest do
       assert safe["revision_scope"] == "local"
     end
   end
+
+  describe "B11D scene attribution fields" do
+    test "new/1 normalizes scene_index/scene_title (int or numeric string)" do
+      finding =
+        Finding.new(
+          base(%{
+            "scene_index" => "2",
+            "scene_title" => "撤退"
+          })
+        )
+
+      assert finding.scene_index == 2
+      assert finding.scene_title == "撤退"
+    end
+
+    test "to_map exposes scene fields for TurnResult/wire" do
+      finding =
+        Finding.new(
+          base(%{
+            scene_index: 1,
+            scene_title: "交锋"
+          })
+        )
+
+      map = Finding.to_map(finding)
+      assert map["scene_index"] == 1
+      assert map["scene_title"] == "交锋"
+    end
+
+    test "missing/invalid scene fields stay nil" do
+      finding = Finding.new(base(%{"scene_index" => "not-a-number"}))
+      assert finding.scene_index == nil
+      assert finding.scene_title == nil
+    end
+  end
 end

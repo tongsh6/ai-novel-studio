@@ -16,7 +16,10 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
           reader_effect: String.t() | nil,
           facts_context: String.t() | nil,
           form_candidates: [map()],
-          pacing_context: map() | nil
+          pacing_context: map() | nil,
+          # B11D：本章计划场次（unit_id/scene_title）——finding 按场归属的合法来源；
+          # 缺席（旧调用/单场章）时场归因诚实不做。
+          scene_units: [map()]
         }
 
   @enforce_keys [:request_id, :prose_text]
@@ -30,6 +33,7 @@ defmodule NovelCommon.Contracts.QualityEvaluationRequest do
     reader_effect: nil,
     facts_context: nil,
     form_candidates: [],
-    pacing_context: nil
+    pacing_context: nil,
+    scene_units: []
   ]
 end

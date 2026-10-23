@@ -859,7 +859,7 @@ native_action_description() {
       echo "seed a slow revision provider window -> click quality revision -> verify stable receipt + one assistant work turn + one run-bound dock -> pause -> refresh -> reconnect and resume the same bounded run -> verify independent original/revision actions"
       ;;
     p1-prose-quality-finding-roundtrip)
-      echo "seed chapter plan with an action chapter -> open real archive outline -> generate the action-chapter draft -> verify the independent quality review completes and its finding summary is displayed verbatim on the real page, the finding does not leak into the prose body, and the draft stays tentative (finding is not a story fact)"
+      echo "seed chapter plan with an action chapter carrying two planned scenes -> open real archive outline -> generate the action-chapter draft -> verify the quality review completes, the finding is attributed to planned scene 撤退（第 2 场）with brief_field_refs shown as 关联设计字段, the card states the honest scene-scope boundary, selecting it and 局部修订所选问题 produces a tentative whole-chapter revision candidate whose prompt carries 场级作用域：第 2 场（撤退）and other-scene byte-preservation instruction, and no adoption is triggered"
       ;;
     p1-prose-quality-evaluator-degrade)
       echo "seed chapter plan with a degrade chapter (summary carries a CN degrade marker) -> open real archive outline -> generate that chapter's draft -> verify the independent evaluator fails and the review honestly degrades to unavailable (本次质量复核未完成) without faking a completed/passed verdict or fabricating findings, the marker never leaks into the prose body, and the draft still stays tentative"
