@@ -1,0 +1,56 @@
+# B30：已有章节重编号、结构修订与卷章类型边界
+
+- 状态：pending / 设计登记；代码、契约冻结、页面验收均未开始。
+- 登记日期：2026-10-23；本轮只授权写 slice / 登记 NEXT。
+- 归属：[AU08 卷结构规划](AU08-volume-structured-planning.md)、[B11A 卷蓝图](B11A-volume-blueprint.md)、[B25 章节身份](B25-chapter-identity-unification.md)、[VS-00J](../../docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md)；提示词统一消费 [B27](B27-systematic-prompt-and-intent-integration.md)。这是新增维护能力，不把 plot_outline 生成冒充重编号。
+
+## 1. 历史失败与完整目标
+
+stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 凌晨：第2卷规划产生两份“第11章”；作者要求“只修正列表编号，不改变章节内容定位”，系统生成另一份大纲并采纳。旧“第11章：外门名册上的空白”“第12章：旧钱与旧名”保留，同时新增“第12章：外门名册上的空白”“第13章：旧钱与旧名”。“第2卷：卷蓝图”还被写成 seq=11 的 Chapter。
+
+证据：[模型日志](../../log/llm-calls/stage/2026-10-23.jsonl) 第33–45行；[业务日志](../../log/app/stage/2026-10-23.jsonl) 第579–582行；[AdoptionRepository.ensure_planned_chapter](../../apps/novel_persistence/lib/novel_persistence/adoption_repository.ex) 按标题查找，不存在则新建。标题中的编号、真正 seq、卷/章类型不能继续混为一体。
+
+完整目标：作者提出对既有章节的维护 → 读取结构/基线 → 按 ID 列出拟变更映射 → 作者裁决/采纳 → 原子更新原对象 → 目录、阅读、使命/进度引用、探索与后续创作一致；不增加章节、不改正文。
+
+## 2. 开工七问
+
+1. **Contract**：B25 chapter_ref 为身份、seq 为作品内序号、title 为非唯一展示；VS-00J/ADR-0028 卷蓝图与 ChapterPlanDirection；VS-04/ADR-0019 采纳；新增维护操作契约在 CP0 冻结。
+2. **Invariant**：只重编号时 chapter_id 集合/章数/归卷/正文hash 不变；seq 唯一；变化有作者来源、基线与审计；卷蓝图不物化为章；关联索引/账本不因换号指向其他章；失败全回滚。
+3. **Boundary**：application 结构读取、候选变更计划、采纳和引用刷新；domain 纯映射/约束；persistence 事务顺序/唯一性/并发；web/frontend 复用结构面和采纳/差异展示。agent 生成建议，不直接执行编号 SQL；不改 provider adapter、不建平行大纲系统。
+4. **Consumer**：作者从 WorkspaceChat 说“编号理顺，内容不要动”，审阅原编号→新编号，采纳后目录/阅读/后续问答一致。
+5. **Proof**：重排/交换/并发冲突/跨作品/循环引用/幂等/回滚测试；全关联引用审计与真实页面；零正文变化、零新增章节硬断言。
+6. **Acceptance Driver**：拟新增 b30-chapter-renumber-roundtrip、b30-volume-blueprint-kind-boundary；外部驱动真实 Tauri 操作/刷新/追问，产品验收感知逻辑：**no**；UI 实现前读当前设计和 Pencil。
+7. **Exploration**：TOC/chapter_read/章使命/卷蓝图按稳定 ref 同批消费新序号；旧序号引用的迁移或有效失效策略明确、可查询，不把编号当身份。
+
+## 3. 设计提案与待冻结项
+
+- 提供已有结构维护操作，输入现存 chapter_ref、base version、变更映射及作者范围；不经“先重写大纲标题再按 title 插入”的路径。能力具体名字/输出类型进入现有 registry/schema，不能在前端发明卡类型。
+- 明确区分四类效果：只改展示编号、调整章节顺序、迁移所属卷、修改章节内容。当前首个闭环只重编号；其他效果不得被默认捆入。对不唯一的编号解释先提出可审阅方案，必要时只问会影响顺序的决定。
+- CP0 冻结 seq 与标题文本中历史章号的展示口径：界面真实章号来自 seq；旧标题前缀如何呈现/兼容须显式决定，不在保存时用宽泛正则改掉真实标题。title 不参与身份选择。
+- 采纳在一个事务里校验当前对象/版本/唯一约束并更新；交换编号要处理临时冲突，不能逐行半成功。正文和未授权卷归属不能变化。
+- 枚举全部以 seq 建索引/引用的消费者（章使命、章摘要、计划信息条目、伏笔回收时机、进度账、检索、写作坐标等），按稳定 ref 解析或明确迁移；不能只改 TOC 后宣布完成。新状态与 trace 足以回放旧→新映射。
+- 卷蓝图与章节条目在生成、解析、采纳间具备明确类型语义，复用 VS-00J。非法混排应拒绝/纠正，不通过“标题看起来像一章”误建 Chapter；是否需 schema 增量在 CP0 决定。
+- 操作完成回执基于已提交映射/实际对象数；生成了大纲候选不能说编号已修改。B27 能力目录必须说明该区别。
+- 历史重复章节和误建卷蓝图行只做只读来源/依赖/差异清单；不是重复 title 就可合并。数据清理单独备份、审阅、授权，不混入 migration 静默删除。
+
+## 4. Checkpoint
+
+| CP | 工作 | 状态 |
+|---|---|---|
+| CP0 | 隔离复现两份第11章与卷蓝图误建；冻结身份/序号/展示、维护操作、卷章类型和下游引用处理契约 | todo |
+| CP1 | 按现有 ID/版本生成可审阅变更映射；模型可用操作与 registry/结果一致；无关内容不重写 | todo |
+| CP2 | 采纳后事务更新、唯一约束、幂等/并发/回滚；禁止生成路径冒充维护，卷章类型校验落边界 | todo |
+| CP3 | 所有编号消费者/账本/探索/阅读/写作坐标同步与 trace；完成历史影响清单 | todo |
+| CP4 | 两个新真实 Tauri 场景＋AU08/B25/B24 回归；实模自然语言正反例 | todo |
+| CP5 | 全门禁、静态扫描、NEXT/journey/ledger 收口；未获授权的存量清理单列后续 | todo |
+
+CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为“范围外”。若关联过广，拆执行 checkpoint，保持上述不变量。
+
+## 5. 验收与恢复
+
+- 正例：三章有稳定 ID、不同正文及关联账目→自然语言只重编号→审阅→采纳→刷新/按章查询；章数/ID集合/正文hash/归卷不变，编号与下游引用一致。
+- 负例：同名章不合并；无目标/越界/重复 seq/基线过期/数据库失败不半写；未采纳零变更；重复确认不再次移动。
+- 卷类型：规划下一卷含卷蓝图和开篇章，采纳后蓝图仅属 Volume，Chapter 只包含真实章节；不降低既有 B11A 规划范围。
+- 拟命令：bash scripts/quality_accept.sh b30-chapter-renumber-roundtrip --surface tauri；b30-volume-blueprint-kind-boundary 同口径（实施时登记 quality）。回归 au08-volume-structured-planning、b25-chapter-identity-unification、B24 两个读章场景。
+- 完成 [AGENTS](../../AGENTS.md) 后端/前端/架构/静态扫描要求，主链 I3/I1/I2/N-NARR；场景证据与模型语义对照分别记录。当前文档不代表测试已执行。
+- 2026-10-23 — 作者授权登记；承接 AU08/B11A/B25 的维护缺口。下次先读 NEXT、B27、VS-00J 与真实消费者，从 CP0 开始，不直接重排 stage。

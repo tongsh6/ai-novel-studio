@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-10-24（愿景与任务依赖重排：C14 / B26-B27 联合作者交互成为唯一 next，C15 / B31 一般输入绑定紧随；D12–D15 登记整章、结构、角色维护与真实创作复验；J36 巡检回归周期动作。仅排期更新，未新增功能验收。）
+> 最后更新：2026-10-24（执行状态归原任务，本文只维护体验断点与覆盖；不再镜像队首）
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -71,7 +71,7 @@ LLM 是作者可感知的创作伙伴；
 | `closed` | 已有真实 Tauri/前端发起闭环，且 artifact 或命令可复跑。 |
 | `partial` | 有代码、局部测试、Channel/API 自动化或 UI 壳，但真实用户链路不完整。 |
 | `gap` | 设计存在，缺关键实现、入口、状态、持久化或 proof。 |
-| `next` | 当前推进队列的下一断点，必须与 `tasks/NEXT.md` 对齐。 |
+| 任务排期 | 仅在 `tasks/NEXT.md` 选择；本文不使用 next/queued 表示执行优先级。 |
 | `blocked` | 已确认需要前置条件，必须写明 blocker 和解锁条件。 |
 
 证据等级：
@@ -182,7 +182,7 @@ B1-B12 CP1 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed�
 
 Longest Closed Prefix：C1-C6；C7 补矩阵，C8 旧证据链失效；C9/C10/C12/C13 保留各自已验范围。
 
-Current Breakpoint：**C14 / B26-SINGLE-CALL-JUDGMENT**：B26 单调用协议与 B27 共同任务语义联合交付；明确问题绑定/空选项恢复由 B26 自证。C15 / B31 的一般输入归属紧随，CP0 可先复现，不作 B26 反向前置。C9/C10/C12/C13 的既有局部闭环保留；旧 AU11 envelope 生产链已退役，历史证据不证明当前统一输入。见 `tasks/NEXT.md` §2–§4。
+Current Breakpoint：C14 的自然交流与明确问题回传尚待闭环；B26 单调用协议与 B27 共同任务语义联合交付；明确问题绑定/空选项恢复由 B26 自证。C15 / B31 的一般输入归属紧随，CP0 可先复现，不作 B26 反向前置。C9/C10/C12/C13 的既有局部闭环保留；旧 AU11 envelope 生产链已退役，历史证据不证明当前统一输入。见 `tasks/NEXT.md` §2–§4。
 
 环境前置回归（2026-10-05，B16）：Phoenix 1.8.9 与锁定前端依赖恢复后，`q3c-author-content-materialization --surface tauri` 复跑通过；Tauri 已启动，外部 Playwright 操作真实工作台页面，证明作者原文候选与采纳链路。提供者为确定性替身，不证明 C9 义务机制或真实模型已闭环。
 
@@ -205,8 +205,8 @@ Current Proof（B24 / C12，2026-10-23 PASS）：`judgment-explore-chapter-full-
 | C11 | 在合理等待内得到与模型叙事一致的判断 | UA01-CALL2 / B26 / ADR-0025 | JudgmentProtocol / ProviderRun / MBC | 旧专项并入 C14 | 历史实模慢调用记录；新协议未验收 | `tasks/slices/UA01-judgment-structured-call-reliability.md`；`tasks/slices/B26-single-call-judgment-protocol.md` | call2 537 秒记录保留历史意义；参数对照停止。实际计数/存活/同源检查随 B26，新语义质量随 B27，不为性能重新建设两段式。 |
 | C12 | 判断循环内部探索能读到完整章并据此答复（不再「可见正文被截断」） | B24-EXPLORATION-CHAPTER-FULL-READ / ADR-0025 | ExplorationService observation / Judgment / AgentRun | **closed（2026-10-23，真实 Tauri PASS）** | 单元矩阵 + 真实 Tauri automation | `artifacts/slice-verify/judgment-explore-chapter-full-read-tauri/summary.json`；`tasks/slices/B24-exploration-chapter-full-read.md` §8；`tasks/NEXT.md` B24 行 | `chapter_read` 观察 v2：【计划】≤500 /【摘要】≤400 / 正文单页 6000、短章一次全文；**唯一寻址 `chapter_ref = chapter:<chapters.id>`（DB 唯一、改名稳定）；seq 仅唯一别名、title 仅旧兼容且歧义列候选**；JSON `{"chapter_ref","offset"}` 续读 + `next_offset`/范围/footer（同 ref）；判断/计划章节索引同批暴露 ref；**作者可见 activity `第 N 章「title」`、不暴露内部工具 id/ref/UUID/JSON（I-READ-8/9）**；explore progress signature 去 sequence（同页重复命中 no-progress、合法续读不误停）；call2 观察重复渲染修复。写入/采纳链 title 身份统一归 follow-up（B25 候选）；超长章（>12k）/3 章以上批量/观察预算档位化登记 gap；确定性重复检测（方案 B）归 `P1-word-count-audit` checkpoint B。 |
 | C13 | 判断循环重复读取同一处仍无新信息时，诚实停下等作者而不是空转 | B23-FOLLOWUP-NOPROGRESS / ADR-0025 | AgentRun progress signature / awaiting_author 出口 | **closed（2026-10-23，真实 Tauri PASS）** | 确定性 Tauri automation | `artifacts/slice-verify/agent-no-progress-stop-tauri/summary.json`；`quality/acceptance/scenarios/agent-no-progress-stop.yml` | 同 tool+同 query（含 offset）重复观察命中既有 `apply_progress_signature` no_progress 停等（B24 CP2 已去 sequence）；真实 Tauri 场景按判断纪元语义重写（两次同页探索 → awaiting_author + reason_codes 含 no_progress、零最终 TurnResult/零写入）；两次 `exploration_observed` 同 tool+同 query+观察字节相同 → `progress_signature` 重复（B24 CP2 去 sequence）→ `apply_progress_signature` 命中 no_progress → awaiting_author；真实 Tauri PASS：`stop_reason=no_progress`、`exploration_count=2`、`steps=3/provider_calls=4/tool_calls=0`、无最终 TurnResult/零写入；台账三处不一致已修正 |
-| C14 | 正常创作表达得到有据判断；明确问题的选项与自由回复可靠回传 | B26-SINGLE-CALL-JUDGMENT / B27 / PLANNER-SEMANTIC-BOUNDARY | 共同任务输入 / 单调用响应 / AuthorQuestion / AgentRun / Frame / MicroPlan | **next（联合设计；代码未开始）** | 当前源码核对与设计；真实页面/实模待验 | `tasks/NEXT.md` §2–§4；`tasks/slices/B26-single-call-judgment-protocol.md`；`tasks/slices/B27-systematic-prompt-and-intent-integration.md` | B26 CP1+B27 CP0 纳入最新 F1–F6；共享入口一次迁移。B26 独立自证明确问题/空选项/结果持久恢复，不等 B31；普通文本记录与预注册语义阈值各依契约真源。修订待 Accepted。 |
-| C15 | 没有明确问题动作绑定时，继续旧讨论或换话题仍进入正确任务 | B31-AUTHOR-REPLY-RUN-BINDING / Q3D / DS03 | AuthorInput / AgentRun / Behavior / 来源与投递身份 | queued（CP0 可提前） | 历史关联异常；当前页面根因待复现 | `tasks/slices/B31-author-reply-run-binding.md` §2.1；`tasks/NEXT.md` | 复用 B26 的问题/恢复绑定，不另建回传；一般自由输入、恢复排序、旧讨论与新话题独立验证，不能按列表顺序猜 run。 |
+| C14 | 正常创作表达得到有据判断；明确问题的选项与自由回复可靠回传 | B26-SINGLE-CALL-JUDGMENT / B27 / PLANNER-SEMANTIC-BOUNDARY | 共同任务输入 / 单调用响应 / AuthorQuestion / AgentRun / Frame / MicroPlan | gap（实现/验收以原任务为准） | 当前源码核对与设计；真实页面/实模待验 | `tasks/NEXT.md` §2–§4；`tasks/slices/B26-single-call-judgment-protocol.md`；`tasks/slices/B27-systematic-prompt-and-intent-integration.md` | B26 CP1+B27 CP0 纳入最新 F1–F6；共享入口一次迁移。B26 独立自证明确问题/空选项/结果持久恢复，不等 B31；普通文本记录与预注册语义阈值各依契约真源。修订待 Accepted。 |
+| C15 | 没有明确问题动作绑定时，继续旧讨论或换话题仍进入正确任务 | B31-AUTHOR-REPLY-RUN-BINDING / Q3D / DS03 | AuthorInput / AgentRun / Behavior / 来源与投递身份 | gap（实现/验收以原任务为准） | 历史关联异常；当前页面根因待复现 | `tasks/slices/B31-author-reply-run-binding.md` §2.1；`tasks/NEXT.md` | 复用 B26 的问题/恢复绑定，不另建回传；一般自由输入、恢复排序、旧讨论与新话题独立验证，不能按列表顺序猜 run。 |
 
 ---
 
@@ -241,22 +241,21 @@ Next Proof：按 `tasks/NEXT.md` 新顺序，从自然输入贯通候选、采�
 | D9 | P1 单章正文采纳与阅读 | AU-05 / AU-08 / AU-10 | AdoptionDecision / ProjectionHint / TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-adoption-reading-tauri{,-lmstudio}/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | 已证明作者采纳 `prose_fragment` 后，正文进入作品事实和 Reading Projection，ReadingMode 目录和章节正文从 Channel 读取。 |
 | D10 | VS-00C CP4 章计划结构化方向层 | VS-00C / NEM-GAP-03 | DialogueContext / ToolRequest / DecisionTrace | closed | Tauri + tests | `artifacts/slice-verify/vs00c-cp4-chapter-plan-structure-tauri/summary.json`；`tasks/slices/v3/VS-00C-creative-context-assembly.md` | 章计划已从自由文本摘要升级为 E18-E22 结构方向，prose_writing L2 可获得章功能、目标四件套、情绪定位、断章和字数场次。 |
 | D11 | VS-00C CP5 ReaderEffectBrief 与自报告 | VS-00C / G12 / G14 | DialogueContext / ToolRequest / TurnResult / TraceSummaryView | closed | Tauri + tests | `artifacts/slice-verify/vs00c-cp5-reader-effect-brief-tauri/summary.json`；`tasks/slices/v3/VS-00C-creative-context-assembly.md` | 已在 CP4 章方向之上补读者效果目标、钩子承诺和风险约束；AI 输出自报告只作为 quality signal / warning，不自动进入 adoption payload 或作品事实。 |
-| D12 | 修订或仅整理完整章节，采纳后仍为原章，阅读/后续创作使用新版本 | B28-WHOLE-CHAPTER-REVISION / Q1c / B25 / B11D | chapter_ref / 覆盖集合 / 版本 / Adoption / Projection | queued | 历史失败线索；当前闭环待复现 | `tasks/slices/B28-whole-chapter-revision.md`；`tasks/NEXT.md` B28 行 | 全文输入、格式保真、旧来源恢复、同章事务替代与全部消费面；B11D 多场正文/单场替换/逐场评审由 CP0 逐项接单，不以转出当完成。 |
-| D13 | 维护已有章节编号与结构，正文和对象身份不变 | B30-CHAPTER-STRUCTURE-MAINTENANCE / AU08 / B25 | chapter_ref / seq / Volume / 结构映射与引用 | queued | 当前源码已核对，真实页面待验 | `tasks/slices/B30-chapter-structure-maintenance.md`；`tasks/NEXT.md` B30 行 | 大纲物化仍按 title+limit(1)，不能引用 B25 正文 ref 场景声称已闭环；维护同一对象、引用/账本同步，卷章类型先核对当前 B11A。 |
-| D14 | 修改已有角色叙事身份，档案与后续创作一致 | B29-EXISTING-CHARACTER-ROLE-REVISION / AU09 CP2 | Character / narrative_role / 版本 / Adoption / Context | queued | 历史错误效果线索；实现待验 | `tasks/slices/B29-existing-character-role-revision.md`；`tasks/NEXT.md` B29 行 | 同角色 ID 更新、角色数不增、不擅自取消其他主角；记忆不能冒充主档案，探索与下一轮消费同步。 |
-| D15 | 连续创作中完成正文/结构/角色维护，重开续写、审读并导出 | P1-AUTHORING-DOGFOOD / G6 / NEM-GAP-05 | 真实工作台 / Canon / 五账 / 质量 / Reading / Export | queued（每 3–5 周期） | 新一轮真实模型/页面/文学盲评分别待取证 | `tasks/NEXT.md`；`docs/product/novel-output-milestones.md` §4/§8 | 10 章级既有狗粮节拍，记录错误对象、越权/虚报、错绑、重试率、漂移与作者负担；I10 盲评等负责人/时机，自动化不代替质量收益判定。 |
+| D12 | 修订或仅整理完整章节，采纳后仍为原章，阅读/后续创作使用新版本 | B28-WHOLE-CHAPTER-REVISION / Q1c / B25 / B11D | chapter_ref / 覆盖集合 / 版本 / Adoption / Projection | gap（实现/验收以原任务为准） | 历史失败线索；当前闭环待复现 | `tasks/slices/B28-whole-chapter-revision.md`；`tasks/NEXT.md` B28 行 | 全文输入、格式保真、旧来源恢复、同章事务替代与全部消费面；B11D 多场正文/单场替换/逐场评审由 CP0 逐项接单，不以转出当完成。 |
+| D13 | 维护已有章节编号与结构，正文和对象身份不变 | B30-CHAPTER-STRUCTURE-MAINTENANCE / AU08 / B25 | chapter_ref / seq / Volume / 结构映射与引用 | gap（实现/验收以原任务为准） | 当前源码已核对，真实页面待验 | `tasks/slices/B30-chapter-structure-maintenance.md`；`tasks/NEXT.md` B30 行 | 大纲物化仍按 title+limit(1)，不能引用 B25 正文 ref 场景声称已闭环；维护同一对象、引用/账本同步，卷章类型先核对当前 B11A。 |
+| D14 | 修改已有角色叙事身份，档案与后续创作一致 | B29-EXISTING-CHARACTER-ROLE-REVISION / AU09 CP2 | Character / narrative_role / 版本 / Adoption / Context | gap（实现/验收以原任务为准） | 历史错误效果线索；实现待验 | `tasks/slices/B29-existing-character-role-revision.md`；`tasks/NEXT.md` B29 行 | 同角色 ID 更新、角色数不增、不擅自取消其他主角；记忆不能冒充主档案，探索与下一轮消费同步。 |
+| D15 | 连续创作中完成正文/结构/角色维护，重开续写、审读并导出 | P1-AUTHORING-DOGFOOD / G6 / NEM-GAP-05 | 真实工作台 / Canon / 五账 / 质量 / Reading / Export | gap（实现/验收以原任务为准） | 新一轮真实模型/页面/文学盲评分别待取证 | `tasks/NEXT.md`；`docs/product/novel-output-milestones.md` §4/§8 | 10 章级既有狗粮节拍，记录错误对象、越权/虚报、错绑、重试率、漂移与作者负担；I10 盲评等负责人/时机，自动化不代替质量收益判定。 |
 
 ---
 
 ## 6. 使用规则
 
-1. 每次开工先读 `tasks/NEXT.md`，再用本文确认队首任务属于哪个 journey step。
-2. `tasks/NEXT.md` 是执行队列唯一入口；本文是用户流程和断点依据；`docs/project-ledger.md` 是事实台账。
-3. 如果要改变 Current Focus，必须先更新本文对应 journey 状态，再更新 `tasks/NEXT.md` 的 `Decision Log`。
-4. 每完成一个 checkpoint，必须把对应 step 的 `Status`、`Evidence Grade`、`Evidence / Command` 更新到本文。
-5. `closed` 必须有真实 Tauri/前端发起闭环；后端、Channel、组件或文档证据只能标 `partial` 或 `gap`。
-6. 单场景细节仍以 `docs/design/acceptance/` 为准；本文只维护跨 AU/SU 的连续用户流程。
-7. 如果一个 journey step 新增或改动，必须能回答 Contract / Invariant / Boundary / Consumer / Proof。
+1. 本文只维护用户体验节点、依赖、覆盖范围及原任务/证据链接；任务执行状态以 `tasks/README.md` 指定的原任务为准。
+2. 只有新增/改变用户路径、打通断点或发现覆盖失效时更新本文；checkpoint 内部进展无需同步。
+3. `closed` 必须有真实页面闭环且只覆盖所述范围；局部测试和设计分别记录，不能外推整个旅程。
+4. 本文不持有 next/queued、队首任务或当前施工顺序；选择工作只读 `tasks/NEXT.md`，无需再维护第二个 next。
+5. 验收口径在 `docs/design/acceptance/`，原任务记录状态/阻塞/验证，事实台账记录已发生结果；链接优先，避免复制细节。
+6. 体验节点变更仍需说明 Contract / Invariant / Boundary / Consumer / Proof；本次职责调整不降低产品验收标准。
 
 ---
 
@@ -491,14 +490,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | I Trace/Replay | I1 + I4 producer checkpoints | I2-I5 old-turn/developer/full-report completeness | 多个 P1 | Tauri + tests | watch |
 | J 工作台体验 | J1-J5 最小闭环 + J8 baseline checkpoint + J9 task_state checkpoint + J10 CP1 provider failure recovery + CP2 service reconnect recovery + CP3A cancel waiting recovery + CP3B provider timeout recovery | LongRunner deferred / 深矩阵待补 | 多个 P0/P1 | Tauri | watch |
 
-当前推进锁定：
+执行顺序见 [NEXT](../../tasks/NEXT.md)，任务状态及更新边界见 [tasks/README](../../tasks/README.md)。上表表示体验覆盖，不是施工进度。
 
-```text
-Current Focus: 自然表达、正确回复绑定与已有作品的可靠维护
-Current Journey: C14 → C15 → D12 全章 → D13 结构 → D14 角色 → D15 真实创作复验
-Current Breakpoint: C14 / B26+B27 联合设计与交付；G/ADR 配套缺口同批承接
-Next Task: B26-SINGLE-CALL-JUDGMENT（先 B26 CP1 + B27 CP0 / F1–F6；B31 CP0 可先复现，待 Accepted 不自动推进代码）
-```
 
 ---
 
@@ -519,25 +512,10 @@ Next Task: B26-SINGLE-CALL-JUDGMENT（先 B26 CP1 + B27 CP0 / F1–F6；B31 CP0 
 
 ---
 
-## 15. NEXT 对齐
+## 15. 执行入口
 
-`tasks/NEXT.md` §4 是唯一执行顺序，本节只投影同一队首：
+- [NEXT](../../tasks/NEXT.md)：选择当前任务与后续候选。
+- [任务状态与更新规则](../../tasks/README.md)：原任务维护执行状态；本图仅随体验覆盖变化更新。
+- [项目事实台账](../project-ledger.md)：历史交付与证据索引。
 
-```text
-Current Focus: 作者交互闭环与已有对象维护；不再按历史 ADR 缺口编号顺推
-Active Journey: C14（B26/B27 联合主线）；C15（B31 一般输入归属）
-Queue head: B26-SINGLE-CALL-JUDGMENT
-Next closures: B31 → B28 → B30 → B29 → P1-AUTHORING-DOGFOOD（每 3–5 周期插入）
-```
-
-B27 与 B26 共享入口迁移，分别验收；B31 CP0 可先做，一般输入最终集成消费 B26 明确绑定，不作其前置；J36 是周期巡检，不是产品 next。仅更新排期，未改变 contract 接受状态或制造功能证据。
-
-选择规则：
-
-1. 默认只能取 `tasks/NEXT.md` 中第一个 `Status=next` 的任务。
-2. 如果出现 P0 bug，可以临时插队，但必须同步更新 `tasks/NEXT.md` Decision Log 和本文对应 journey step。
-3. 如果 C6 无法闭环，不能跳到其他 AU/SU；必须先把 blocker 写入 `tasks/NEXT.md`，再选择 Journey C/F 内最小可闭环 checkpoint。
-4. 完成任务后必须同步更新：
-   - `tasks/NEXT.md` 的 Queue 和 Decision Log
-   - 本文对应 journey step 的 Status / Evidence
-   - `docs/project-ledger.md` 的事实与证据
+不再要求旅程图复制队首任务编号、next 状态或 NEXT 的决策日志。

@@ -314,6 +314,8 @@ slice 可以只覆盖其中一段连续链路，但必须形成可执行闭环�
 
 > 角色辨析（看名字易混，实为不同层）：`docs/design/quality/` = 质量门禁**设计**；`quality/` = 质量**运行体系**；`artifacts/` = 单次运行**证据**；`reports/` = 跨次**处置台账**。四者不是重复，不要互相合并或复制。
 
+**任务状态与排期分权**：原任务文档是执行状态/checkpoint/阻塞的唯一真源；`tasks/NEXT.md` 只保留当前任务、后续候选和阻塞引用。checkpoint 不要求向旅程/台账重复写状态；旅程仅随体验覆盖改变更新，事实台账仅记历史交付与证据。具体规则和迁移入口见 `tasks/README.md`。
+
 ### 禁止事项
 
 - **禁止新建平行的 plans / specs / notes / tasks / docs 目录或工具专属知识树。** 已知反例：`.sisyphus/`、`docs/superpowers/`、顶层 `notes/`、顶层 `quality/`、`artifacts/task-done/` 属历史孤岛，待收编，不得新增同类。

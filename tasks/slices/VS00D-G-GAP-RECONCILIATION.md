@@ -1,6 +1,7 @@
 # VS00D-G-GAP-RECONCILIATION：VS-00D G1–G7 / 差距台账复核与 C 轨观察（2026-10-24）
 
-- 状态：**done（2026-10-24；CP0 侦察/裁决 + CP1 台账修订 + 重扫复核；无产品代码变更）**
+- 状态：**done（2026-10-24 的差距对账批次；不代表下述转出项完成）**
+- 状态边界：§1–§5 是该批次历史；§6 是尚未拆出独立任务的 B 轨债务唯一状态源，§7 链接其他原任务，真实创作复验有独立小节状态。规则见 [tasks/README](../README.md)。
 - 来源：`tasks/NEXT.md` 队列项 `VS-00D-G1-G7`；`docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md` §6 G1–G7；`tasks/NEXT.md` §5 Selection Rule 第 6 条「差距回收仪式」；C 轨观察
 - 类型：差距对账 / 队列收账（无产品行为变更；不新增验收场景）
 - 七问简答：Contract=VS-00D §6 G 表 + §8 分期 + §11 共同输入 + 08 §6.2 NEM-GAP + NEXT B 轨债务表；Invariant=每个滞留 ≥3 快照项必须有裁决（推进 / 降级登记理由 / 显式弃置），不把机制存在当整体关闭、不把已销账项以文档改写方式复活；Boundary=只改 `tasks/`/`docs/project-ledger.md`/`reports/gap-ledger/`（不碰 VS-00D 契约文档工作树改动、不碰 B26–B31 并行文件）；Consumer=下一轮队列选择与作者对账；Proof=`bash scripts/gap_ledger.sh` 快照 + `node scripts/next_task_check.mjs` + 全门禁；Acceptance Driver=本 slice 无产品行为变更，复用同日 HEAD 已绿真实 Tauri 场景证据，不新增 driver；Exploration=不适用。
@@ -95,3 +96,109 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 - **2026-10-24 — CP0**：运行差距回收仪式（22 项开放 / 全部 ×37 滞留）→ G1–G7 裁决（G1/G3/G5/G7 承接 B27+B26；G2/G4/G6 降级 C 轨/后续 checkpoint；不关闭、不改 VS-00D 契约文档）→ NEM-GAP 6 项裁决（trigger/C 轨）→ B 轨 B1–B10 裁决（B1/B2/B8 销账、B3/B5/B6/B7/B10 降级 C 轨、B4 用户门控挂账）。
 - **2026-10-24 — CP1**：NEXT B 轨表按裁决修订；新增/更新 C 轨观察与 VS-00D 行状态；重扫差距台账；journeys/ledger 收口。
+
+## 6. 开放债务状态
+
+仅本表维护尚未拆出独立任务的 B 轨状态，`scripts/gap_ledger.sh` 只读本节。todo/blocked/deferred 均开放；明确 done/superseded/cancelled 才排除。已拆成独立任务的 B11–B31 到各原任务查询；历史完整债务表在 `docs/project-ledger.md` §10，不再参与扫描。每个子项有承接/触发条件；归并不是完成。
+
+| 编号 | 事项 | 状态 | 承接 / 触发 |
+|---|---|---|---|
+| B3 | work_direction 召回（AU09，探索翼=新消费者）、superseded 卡 UI 置灰、toolbox 遥测 run/turn 绑定 | todo | **部分归并（2026-10-24，未销账）**：work_direction/角色召回随 B27 共同输入审计及 B29 角色消费验证；superseded 卡 UI 随采纳 UI 真实需求、toolbox 遥测随 observability 批。不得用主档案更新代替召回证明。 |
+| B4 | SU01 live vendor 矩阵、DeepSeek live 探针 | blocked | **挂账（2026-10-24，用户门控）**：需真实 vendor 凭据/环境，非 AI 可闭环。 |
+| B5 | 47 文案指南机械步注记 | todo | **归并 B27（2026-10-24，未销账）**：随共同规则/文案统一处理 47 指南机械步注记，不再独立排一个文案批。 |
+| B7 | T4 残余三小件：探针 call1 目录陈旧（capability_catalog_section 5 项旧目录 vs 生产 6+4）、会话摘要同质 assistant 消息无去重（"已通过采纳边界"×10 注水）、runner 章节请求四子句长措辞助推 plan 判界方差 | todo | **部分归并（2026-10-24，未销账）**：旧 call1 目录探针随 B26 退役，必要判例迁入新协议；会话摘要重复/共同上下文语义归 B27，runner 章请求措辞归 P1-AUTHORING-DOGFOOD。停止两段式参数优化，不自发扩建 harness。 |
+| B9 | 狗粮 runner 的确认路径、Q1 空章清算与 Q4 重复段观察（采纳级元泄漏防线已完成，仅保留余项） | todo | 随真实创作复验：needs_confirmation 必须显式确认/跳过并计数；补写/重复观察仍待实跑。原 B9 的 done 只指元泄漏防线，不能遮蔽这些余项。 |
+| B10 | 上下文组装小件（2026-07-21 评估余项）：OmissionNote 覆盖不全（仅 prior_prose 裁剪留痕，摘要窗/roster/账面 cap 的取舍无省略记录）；判断 call1 加账面一行摘要（待议，call2 病灶史提醒判断 prompt 加东西须谨慎）；摘要质量门（四栏齐全有校验、内容质量无——摘要是账本/摘要窗/规划共同上游）；why-panel 上下文可解释面板（VS-00C CP2 延后件，随 CP4c 前端批） | todo | **部分归并（2026-10-24，未销账）**：G2/CA01 planner facts、待裁决报告、省略与覆盖范围进入 B27 CP0/CP3 调用矩阵；不再追加 call1 专属摘要。摘要质量收益随真实创作复验，why 面板扩展仍等实际 UI 消费需求。 |
+| B6 | `frontend/slice-verify/dogfood-runner.mjs` 判定架构债——文件里散落一堆各自手写的帧判定函数（事件名/字段字面量），契约理解不唯一、易与真实契约（`frontend/src/lib/socket.ts` 等）漂移（2026-07-20 `awaitingAuthor` 判错字段路径实锤）；已把 `adoptPendingDraft` 一处重构成"分类一次+穷尽分支"（`classifyChapterAttemptFrame`），其余判定点（`readToc`、settle/overwrite 确认等）仍是老写法，未同步重构 | todo | **归并 P1-AUTHORING-DOGFOOD（2026-10-24，未销账）**：仅迁移该真实旅程用到的帧分类/确认/恢复判定，契约单源；不先做全 runner 通用框架重构。 |
+
+## 7. 条件项与未关闭后果
+
+这是承接索引，不是第二份执行状态表；已有独立任务时只在接收方更新。原 NEXT 的条件、验收边界与排期依据迁回本对账任务；不因未列为 NEXT 候选而丢弃。
+
+| 项 | 承接 / 触发条件 | 当前处置与退出条件 |
+|---|---|---|
+| B13b §4.1 #1 / #6 | #1 已归联合主线；#6 真实质量样本归 P1-AUTHORING-DOGFOOD | 不再等“并行 B26 完成”才接 #1；#6 保留作者指定盲评负责人/时机的条件。B13b 对账完成不等于这两项实现完成 |
+| AU05B-ADOPTION-REVIVE（B13b #5） | 作者明确需要撤回误丢弃/恢复旧版 | deferred；矩阵已有，生产入口未有。复活必须回 TENTATIVE 重入采纳；B28 保留历史不自动承诺复活 UI |
+| UA01-CP6 外部探索（B13b #7） | 真实创作研究需求 + 作者出站授权粒度/来源可信度决策 | deferred；本轮优先内部作品事实闭环，不先扩搜索平台。触发后从真实问题到带来源 tentative 候选与采纳验收 |
+| VS-00F durable 对账 / NEM-GAP-06（B13b #8） | 真实审读超 bounded 预算或确需跨重启定期化 | deferred；复用 LongRunTask，证明同一任务恢复且不重复派发。正常有界审读不因此重做 |
+| Experience Engine dismiss（B13b #9） | 33 Experience Engine 有获准运行时和真实消费者 | deferred；保留现有 dismiss 审计证据，不为消台账先建引擎 |
+| E28–E30、NEM-GAP-02/04 | 真实创作暴露当前表达不足，并冻结具体对象/字段及消费者 | deferred；E24 角色议程结构化、E26 地点/时间/氛围也保留原账，不只列 E28–E30。B11D 多场/单场替换归 B28 CP0 接单，不混同“多加 craft 字段” |
+| NEM-GAP-05、VS-00D G6；NEM-GAP-08 | 前两项由狗粮检验持续防漂移/质量；08 由原 VS-00G CP5e 及假定链承接 | 机制已有证据不外推长期收益；CP5e 真实页面、触发 C、寿命催办、works 级假定仍分别开放。B29 触及角色档案时复用/回归相关假定，不趁机重建事实盘点 |
+| B3/B5/B7/B10 | 共同输入/枚举/目录/消息去重/文案归 B27；B3 的角色召回随 B29；B7 runner 措辞归狗粮 | 部分归并，均未销账；superseded 卡 UI、遥测、why 面板、摘要质量等剩余按原消费者拉动。停止两段式探针扩建不等于所有 B7 余项已修 |
+| B6/B9 | 下一次真实狗粮确需处理的帧分类、覆盖确认和失败恢复 | 随 P1-AUTHORING-DOGFOOD；仅统一真实契约消费，不先做通用 harness 重构 |
+| B4、AB-RESUME/VS-00I 冻结后增量、B22 自适应校准 | 凭据/可用环境或实际存活与缓存问题出现 | C 轨；复用当前 adapter/TimeoutPolicy。历史调用对数据只作历史证据，不能为追 cache 命中恢复双协议；不恢复作者已停止的 A/B |
+| C-TRACK-OBSERVATION | 开工/收尾差距回收；每 3–5 周期真实狗粮 | 周期仪式，2026-10-24 本轮已做；不再占产品队首。扫描只覆盖 G/NEM/B 轨登记表，开放计数只覆盖 G/NEM/B 轨来源，不是项目全部任务数 |
+
+### 原任务承接入口
+
+| 原记录 / 余项 | 唯一状态来源及仍需承接的范围 |
+|---|---|
+| B26/B27 联合入口、PLANNER-SEMANTIC-BOUNDARY、G1/G3/G5/G7 | [B26](B26-single-call-judgment-protocol.md) / [B27](B27-systematic-prompt-and-intent-integration.md)；协议与语义分别验收；G3 schema owner 为 B27，不恢复旧 AU11 producer |
+| B31 一般自由输入绑定 | [B31](B31-author-reply-run-binding.md)；明确 ask_author 问题绑定由 B26 自证，本项不作反向前置 |
+| Q1c 全章后果 / B11D 多场正文、单场替换、逐场评审 | [B28](B28-whole-chapter-revision.md) CP0 接单；原 B11D 已完成的 finding 归因保留。未形成覆盖/身份/事务/页面验收前，转出项保持开放 |
+| B25 大纲物化遗漏 / AU08 结构维护 | [B30](B30-chapter-structure-maintenance.md)；ensure_planned_chapter 仍 title+limit(1)，正文 ref 验收不覆盖该路径；卷章类型先复现，不重建已正确路径 |
+| AU09 已有角色改判主角 CP2 | [B29](B29-existing-character-role-revision.md)；主档案、记忆与下轮消费一致，不能以演化文字代替字段更新 |
+| Order 7 / G2 / NEM-GAP-01 | [B27](B27-systematic-prompt-and-intent-integration.md) 输入矩阵承接 CA01 planner facts / 待裁决报告 / 省略范围；[CA01](CA01-planning-context-completion.md) 原字段写入余项仍保留，已有 CA01–CA04/B11A 不重做 |
+| Order 6 / NEM-GAP-05/06 / R2 design_ref | [VS-00F](VS-00F-five-ledgers-three-state.md) 与 [B13b §4](B13B-adr-enforcement-reconciliation.md)；五账长期效果、design_ref、durable 和 dismiss 触发分别保留 |
+| NEM-GAP-08 | [VS-00G](VS-00G-fact-inventory-run.md) CP5e、触发 C、寿命催办、works 级假定、记忆注入富化；没有新证据不借本次迁移关账 |
+| B14 / DS03 尾项 | [DS03](DS03-awaiting-author-runtime-validity-and-recovery-surface.md)；schema/Pencil/其他 flow steer 等原余项保留，明确问题回复由 B26 承接 |
+| B22、B24、AB-RESUME、T7 的后置项 | [B22](B22-provider-liveness-and-budget-policy.md) 自适应校准；[B24](B24-exploration-chapter-full-read.md) 超长章/批量/档位；[提示词任务](UA01-agentic-loop-prompt-hardening.md) T6/T7 的 vendor/live/developer UI；均按原触发条件，不因历史行 done 关闭长尾 |
+| Order 8 空转调查、E28–E30 / NEM-GAP-02/04 | 原调查已完成，后续以本节条件表及 `docs/design/08-novel-element-model.md` 差距为源；需真实创作消费者，不自动建空字段 |
+
+### 真实创作复验
+
+- 状态：todo
+- 任务：P1-AUTHORING-DOGFOOD；既有周期复验，不新增产品能力或平行 harness。
+- 范围：引用 `docs/product/novel-output-milestones.md` §4/§8；每 3–5 个周期插入，最迟本轮 B26/B27→B31→B28→B30→B29 后执行。
+- 剩余：复用真实工作台 runner 完成 10 章创作，包含修订/结构/角色维护、采纳、重开、审读、导出；确认路径/空章/重复观察消费 §6 B6/B7/B9。各操作尚未上线时不能用脚本旁路代替。
+- 验证：实模语义、真实 Tauri 产品链、文学质量盲评分开；记录错对象/错绑/越权/虚报、重试率、缺章/重复/漂移、人工改稿负担。ADR-0020 I10 仍需作者指定盲评负责人/时机；AI 不代替盲评签字。
+
+## 8. 关联裁决与迁移记录
+
+### 2026-10-24 排期关联裁决
+
+以下是上一轮关联分析的决策依据；原任务承接后不在这里同步实现进度。
+
+排序依据是[愿景 §2.1–§2.3](../../docs/design/00-vision-and-engineering-roadmap.md)：会话结构是 Agent 内核；作者面对自然语言创作伙伴；系统掌管门禁、记账、归档；写入默认 tentative，作者决定 canon。长期目标仍是[产出里程碑](../../docs/product/novel-output-milestones.md)的连续创作、修订、事实一致与中断恢复，当前不以再堆一次字数替代这些能力。
+
+近期发展已从“补生成工具与底层机制”转到“把已有能力连成可靠的创作循环”：章节与卷已有稳定身份和结构，质量与采纳已有边界，作者却仍可能需要换成工具式说法、回复串任务、整章整理变成新建章、指定主角只落记忆、重编号变成新大纲。因此优先收敛任务语义与对象操作，而不是继续按 ADR 缺口编号逐个补件。
+
+### 设计滞后与任务归并裁决
+
+| 现有项 / 证据 | 判断 | 本轮排期处置与关闭条件 |
+|---|---|---|
+| B26 与 B27：UA-01 §2.2、VS-00D §11；生产仍为两段式 | 一个入口上的协议与语义变更，前后独立实施会改两遍 | 联合设计、一次接线；B26 负责协议/分派/来源/计数，B27 负责全调用点任务语义。协议通过和语义质量通过分别报告，不能相互顶替 |
+| B31 与 B26 ask_author：`WorkspaceChat` 当前从 `visibleAgentRuns.at(-1)` 取主输入目标；最新 UA-01 / B31 §2.1 已划清边界 | 明确问题的绑定与无明确绑定的一般输入相关，但不是同一前置 | B26 独立交付持久问题、空选项自由文本、显式选择及恢复；B31 处理一般输入/换话题/旧讨论归属，紧随后复用同一校验。CP0 可提前，不把 B31 全部完成设为 B26 门槛；列表顺序仍只是根因线索 |
+| B13b §4.1 #1 `PLANNER-SEMANTIC-BOUNDARY`；Q3A 语义对账 | 与新协议映射、能力目录和越权校验同一边界，不是“等 B26 完成再补”的独立刀 | 并入 B26 CP3 / B27 CP1–CP2：可执行结构的原响应→Frame→MicroPlan 校验、registry 合法性、权限与语义冲突对账；保留反例与真实入口验证，不扩成关键词路由器 |
+| VS-00D G1/G3/G5/G7、AU11 旧口吻/envelope 任务 | G 表与 AU11 历史完成口径仍依赖已退役的 `Planner.form_frame` 证据；旧 `AIMessageEnvelope` 有定义但未见生产外部调用，两份 AU11 场景已登记 blocked | 归 B27 全调用点矩阵；G3 schema/MissingPolicy/trace 的 owner 明确为 B27 CP0，按真实消费者决定复用/增量/退役。旧 builder 不补关键词续命，旧场景改锚当前判断链；G 项保持开放直到证据逐项成立 |
+| VS-00D G2、Order 7、CA01 余项、B10、NEM-GAP-01 | 作品事实与省略语义是 B27 的共同输入，继续全部放 C 轨会让“统一任务”缺事实 | 归 B27 CP0/CP3：planner 事实、阵容/摘要窗/创作锚、待裁决报告、截断与省略来源逐消费者核查；复用已接线的 CA01–CA04/B11A。新 why 面板及摘要质量收益仍另验，不借机扩 UI |
+| VS-00D G4/G6、B11D、质量修订 | 设计载体/质量机制已有实现；场级 finding 不等于场级正文身份或场级替换，fixture 不能证明文学收益 | G4 已有 brief/使命/坐标由 B27 保留，缺失维度按具体调用列账；G6 与五账长期效果进真实创作复验。B11D §5 的多场正文、单场替换、逐场评审在 B28 CP0 逐条接单裁决，不能以“已转 B28”自动关闭 |
+| B28、Q1c、B25：`PendingArtifactWorkflow.request_adopted/6` 只传所选 artifact 正文 | 单 artifact 修订已通不等于完整章修订；旧候选缺 ref 仍可能落新建兼容路径 | B28 负责完整覆盖集合、来源恢复、版本与同章事务替代；Q1c 既有证据保留，补原生 Tauri 全章后果。B28 优先于新领域槽扩容 |
+| B30、B25、AU08/B11A：`ensure_planned_chapter/4` 仍 title-first；卷章类型已有解析 | 生成/追加计划与维护原结构必须区分；B25 的正文证明不能覆盖大纲物化 | B30 优先于 B29：先复现并核对 B25 遗漏路径；维护按 ref 更新，生成路径身份/幂等也纳入同一契约。卷蓝图误建章先用当前 B11A 复现，已正确则保留回归，不再造类型系统 |
+| B29、AU09 角色类型 §7 CP2、Q1c | 角色叙事身份是 Character 主档案事实，演化记忆不能替代更新 | AU09 已有角色改判主角的余项合并到 B29；复用 Character 身份/归并及采纳，更新同一对象并同步档案/探索/上下文，不另建角色生命周期系统 |
+| `C-TRACK-OBSERVATION`、反复 MAINLINE-RESET、B13b 总审计 | 巡检已执行却长期占唯一 next；“处理完候选”也不等于 trigger 项已实现 | 巡检回归开工/收尾仪式，已完成任务移到历史区；每个未完成项在下表有 owner、前置与退出条件，不再以观察代替产品推进 |
+
+本轮代码核对入口：[判断协议](../../apps/novel_application/lib/novel_application/judgment_protocol.ex)、[旧 envelope](../../apps/novel_application/lib/novel_application/ai_message_envelope.ex)、[已采纳修订](../../apps/novel_application/lib/novel_application/pending_artifact_workflow.ex)、[采纳仓储](../../apps/novel_persistence/lib/novel_persistence/adoption_repository.ex)、[输入绑定](../../frontend/src/lib/agentRunInputRouting.ts)、[工作台](../../frontend/src/components/WorkspaceChat.tsx)。AU11 失败证据索引见 [known-gaps](../../quality/acceptance/known-gaps.md)，本轮未重跑页面。
+
+### 不再作为独立目标的实现
+
+- **两段式专属实现和优化**：按 B26 删除清单迁移后移除 call1/call2 分派、双态替身、专属解析/计数、调用对测试与探针；停止 UA01-CALL2 参数对照，不建模型分档、降级或开关。保留单调用所需 L0–L4 前缀纪律、缓存事实和 N-NARR；provider 的通用 forced-tool 能力整形不能误删。
+- **旧 AU11 入口与机械话术修补**：不恢复 `Planner.form_frame`，不新加自然语言关键词分类器，不用“复述意图/报形态/固定空行”解析业务授权。迁移必要契约后删除无消费者的旧实现，独立口吻任务并入 B27。
+- **重复机制**：不为正文/结构/角色各建一套修订框架、控制坞、采纳通道或长期义务账；共用现有身份、版本、授权与结果词义，保留各对象自己的事务和领域规则。
+- **尚无消费者的扩建**：不因 E28–E30 缺字段就先建槽；不为接 dismiss 先建 Experience Engine；不因有定期化设计就先建 durable 调度；不重建已被统一 Strata 后台取代的 per-profile 发现。
+
+这些是下一实现批的删除/合并约束，**本轮没有删除代码**。`00` 中初创阶段的 Stage 1、“下一步先设计”等文字以及历史 Order 顺序只作背景，不覆盖当前实现事实和本队列。
+
+### 2026-10-24 状态真源与 NEXT 精简
+
+- 范围/Contract：用户授权精简；`tasks/README.md` 固化“原任务维护状态、NEXT 只排期”；本任务已有差距对账职责，承接 B 轨扫描来源迁移。
+- Invariant：每个状态有唯一源；完成项不入当前/候选；移出 NEXT 不关闭差距；历史记录、未闭环后果及原证据限制保留。
+- Boundary：tasks/docs/reports/scripts；不改任何 umbrella app、生产前端、依赖或业务数据。Consumer 为接手者、next_task_check、gap_ledger 与统一静态扫描入口。
+- Proof：检查器正反例（源状态/失效链接/锚点/重复任务/多队首/旅程双写/体积）、差距扫描迁移与失败不覆盖快照测试、历史完整迁移对照；编译基线及统一扫描。
+- Acceptance Driver / Exploration：工程文档和脚本任务，无产品行为，不新增 Tauri 场景或验收 hook；非要素物化。
+- 迁移：旧 NEXT 完成记录/Order/债务快照/Decision Log 原文转 `docs/project-ledger.md` §10，条件/开放债务/关联裁决回本文件；B26–B31 原设计与验收状态未改。B9 原行整体 done 掩盖 runner/空章/重复余项，现只把余项显式挂 todo；这是揭示开放项，不回滚已完成的采纳防线。
+- 更新规则：checkpoint 只改原任务；选项或阻塞改变才改 NEXT；体验覆盖改变才改旅程；交付/证据/重要裁决才改事实台账。验证结果在本条下补充，不向 NEXT 回灌日志。
+
+- 迁移验证：旧 NEXT 548→25 行；83 行历史表格记录与原 Decision Log 完整迁入事实台账，11 行条件承接均在本文件可达；新链接检查通过。原 19 个开放差距 ID 全保留，新增 B9 余项后为 20 项（7 G / 6 NEM / 7 B），无虚假关闭。
+- 检查验证：`mix compile`、`node --test scripts/next_task_check.test.mjs`（22/22）、`node scripts/next_task_check.mjs`、`bash -n scripts/gap_ledger.sh`、`git diff --check` 通过；测试覆盖原状态变终态、锚点子任务、旅程双写、规模限制、源表/单行丢失及失败不覆盖快照。
+- 扫描闭环：首轮 `bash scripts/ai_static_scan.sh --top 10` 提示新动态 RegExp 与过期 task-done manifest；前者改为静态正则加标题层级比较，后者经 `bash scripts/task_done.sh --top 10` 正常刷新并触发完整复扫。最终结果消费 `artifacts/static-scan/top10.md` / `report.json` / `disposition.md`；既有 gitleaks 两项处置不改，本轮没有新增产品 UI 验收。
