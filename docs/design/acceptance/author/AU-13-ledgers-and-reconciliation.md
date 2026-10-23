@@ -40,6 +40,7 @@
 | SC-AU13-C1 | 面板「脉络」模块只读视图 + correction intent | CP4 **verified**（并入 `au13-review-adjudication-roundtrip` 场景步骤 1/4c，2026-07-22） |
 | SC-AU13-D1 | 设计负债（VS-00G）：骨架缺位 finding → 对话流补目标体量 → 规划 prompt 带骨架段+收官守则 → 扩章批不再产终局章（百章标本重放先证） | VS-00G CP2/CP3 |
 | SC-AU13-D2 | 设计负债（VS-00G R7 提前收官）：目标体量已立 + 进度远未及 + 近窗章计划出现终局定位 → 审读报告出现 `premature_finale` 条目（含进度百分比与命中章号）→ 作者可 revise_design 裁决 | VS-00G CP6 **verified**（并入 `au13-review-adjudication-roundtrip` 真实 Tauri 场景步骤 3b/4e，2026-07-29） |
+| SC-AU13-D3 | 设计负债（VS-00J R10/R11 卷级）：planned=4 且事实 3 卷（第 1 卷有蓝图、第 2/3 卷缺蓝图）→ 审读报告出现 1 条 `volume_plan_mismatch`（含计划/实际卷数与 source_refs、不阻断写作）+ 2 条 `volume_blueprint_missing`（逐卷卷名 + `volume:` refs + `proposed_disposition=revise_design`）→ 作者逐条 revise_design 处置 → report 全部处置后清空、rail 计数归零 | VS-00J CP5 / R10R11 slice **verified**（并入 `au13-review-adjudication-roundtrip` 真实 Tauri 场景步骤 3c/4f-4h，2026-10-23） |
 
 ## 5. 场景覆盖状态
 
@@ -51,6 +52,12 @@ D2 的规则侧已由 M4b 短跑真实模型证明开火（`artifacts/novel-outp
 不另起近重复场景：种子作品立 6 万字目标、只写第 1 章（进度 1%），但第 4 章计划已是
 「第一卷终局」，审读报告第 5 条即 `premature_finale`，页面可见进度百分比与命中章号，
 `revise_design` 处置把收官信号原文带回对话流。
+
+D3（卷级负债 R10/R11）**真实页面正触发已并入 B1 场景**（2026-10-23 verified）——同一份审读报告
+再多 3 条设计负债，不另起近重复场景：种子作品 `planned_volumes=4`、事实 3 卷（第 1 卷有蓝图、
+第 2/3 卷缺蓝图、计划第 3/4 章分到第 2/3 卷），审读报告第 6-8 条即 1 条 `volume_plan_mismatch`
++ 2 条 `volume_blueprint_missing`，页面可见计划/实际卷数、`work:`/`volumes:`/`volume:` source_refs
+与「修订设定」处置；三条卷债处置后报告共 8 条全部清空、rail 计数归零。
 
 ## 6. 落地路线
 

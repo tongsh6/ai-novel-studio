@@ -17487,10 +17487,23 @@ function findAu13ReviewAdjudicationEvidence(records) {
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
-      Number(record.review_finding_count ?? 0) >= 5 &&
-      Number(record.adjudicated_count ?? 0) >= 5 &&
+      // B13b §4.1 #10（R10/R11 正触发）：8 处偏离（4 停滞 + 1 提前收官 +
+      // 1 卷规划不一致 + 2 卷缺蓝图），逐条真实处置。
+      Number(record.review_finding_count ?? 0) >= 8 &&
+      Number(record.adjudicated_count ?? 0) >= 8 &&
       record.dismiss_evidence_logged === true &&
       record.report_fully_dispositioned === true &&
+      record.volume_debt_visible === true &&
+      record.volume_plan_mismatch_source_refs_visible === true &&
+      record.volume_blueprint_source_refs_visible === true &&
+      Array.isArray(record.volume_intent_texts) &&
+      record.volume_intent_texts.length === 3 &&
+      record.volume_intent_texts.every((text) => String(text).includes("修订设定")) &&
+      Number(record.volume_debt_dispositions ?? 0) === 3 &&
+      // ADR-0028 gap 原文：断言 proposed_disposition（报告数据而非按钮文本推断）。
+      Array.isArray(record.volume_report_findings) &&
+      record.volume_report_findings.length === 3 &&
+      record.volume_report_proposed_dispositions_visible === true &&
       // B13b BB-11（ADR-0026-g1）：rail 待处置计数与真实报告同源。
       Number(record.rail_review_pending_after_report ?? -1) ===
         Number(record.review_finding_count ?? -2) &&
@@ -17505,8 +17518,10 @@ function findAu13ReviewAdjudicationEvidence(records) {
   const report = records.find(
     (record) =>
       record.event === "ledger.report.done" &&
-      Number(record.finding_count ?? 0) >= 5 &&
-      Number(record.rules?.premature_finale ?? 0) >= 1,
+      Number(record.finding_count ?? 0) >= 8 &&
+      Number(record.rules?.premature_finale ?? 0) >= 1 &&
+      Number(record.rules?.volume_plan_mismatch ?? 0) >= 1 &&
+      Number(record.rules?.volume_blueprint_missing ?? 0) >= 2,
   );
   if (!report) return null;
 
@@ -17534,6 +17549,13 @@ function findAu13ReviewAdjudicationEvidence(records) {
     premature_finale_chapter_seq: Number(uiState.premature_finale_chapter_seq ?? 0),
     premature_finale_progress_percent: Number(uiState.premature_finale_progress_percent ?? 0),
     review_rules: uiState.review_rules ?? {},
+    volume_plan_mismatch_signal: uiState.volume_plan_mismatch_signal,
+    volume_blueprint_signals: uiState.volume_blueprint_signals,
+    volume_intent_texts: uiState.volume_intent_texts,
+    volume_debt_dispositions: Number(uiState.volume_debt_dispositions ?? 0),
+    volume_report_findings: uiState.volume_report_findings,
+    volume_report_proposed_dispositions_visible:
+      uiState.volume_report_proposed_dispositions_visible === true,
     rail_review_pending_after_report: Number(uiState.rail_review_pending_after_report ?? 0),
     rail_review_pending_after_disposition: uiState.rail_review_pending_after_disposition ?? null,
     key_events: keyEventsForSlice(sliceId),
@@ -17574,6 +17596,29 @@ function au13ReviewAdjudicationBehavior(_turnIds, _turnRecords, records, evidenc
   }
   if (uiState.rail_review_pending_after_disposition != null) return null;
 
+  // B13b §4.1 #10（R10/R11 正触发）：卷级设计负债必须在真实报告里可见且可处置。
+  if (uiState.volume_debt_visible !== true) return null;
+  if (uiState.volume_plan_mismatch_source_refs_visible !== true) return null;
+  if (uiState.volume_blueprint_source_refs_visible !== true) return null;
+  if (Number(evidence.review_rules?.volume_plan_mismatch ?? 0) < 1) return null;
+  if (Number(evidence.review_rules?.volume_blueprint_missing ?? 0) < 2) return null;
+  if (!Array.isArray(uiState.volume_intent_texts) || uiState.volume_intent_texts.length !== 3) {
+    return null;
+  }
+  if (!uiState.volume_intent_texts.every((text) => String(text).includes("修订设定"))) return null;
+  if (Number(uiState.volume_debt_dispositions ?? 0) !== 3) return null;
+  if (!Array.isArray(uiState.volume_report_findings) || uiState.volume_report_findings.length !== 3) {
+    return null;
+  }
+  if (uiState.volume_report_proposed_dispositions_visible !== true) return null;
+  if (
+    !uiState.volume_report_findings.every(
+      (finding) => String(finding?.proposed_disposition ?? "") === "revise_design",
+    )
+  ) {
+    return null;
+  }
+
   return {
     slice_id: evidence.slice_id,
     adjudication_roundtrip: true,
@@ -17584,6 +17629,22 @@ function au13ReviewAdjudicationBehavior(_turnIds, _turnRecords, records, evidenc
     premature_finale_reported_with_progress_and_chapter: true,
     premature_finale_chapter_seq: finaleChapterSeq,
     premature_finale_progress_percent: finaleProgressPercent,
+    volume_debt_visible: true,
+    volume_plan_mismatch_finding: true,
+    volume_blueprint_missing_findings: 2,
+    volume_debt_dispositioned_via_correction_intent: true,
+    volume_plan_mismatch_signal: evidence.volume_plan_mismatch_signal,
+    volume_blueprint_signals: evidence.volume_blueprint_signals,
+    volume_report_findings: evidence.volume_report_findings,
+    volume_report_proposed_dispositions_visible: true,
+    assertions: [
+      "real_full_review_reported_volume_plan_mismatch_r10",
+      "real_full_review_reported_multi_volume_missing_blueprint_r11",
+      "volume_debt_findings_carry_source_refs_and_do_not_block_writing",
+      "volume_debt_findings_offered_revise_design_disposition",
+      "volume_debt_dispositions_returned_correction_intents_to_dialogue",
+      "report_cleared_after_all_eight_findings_dispositioned",
+    ],
   };
 }
 

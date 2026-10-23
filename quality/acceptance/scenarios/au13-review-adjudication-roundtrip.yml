@@ -1,5 +1,5 @@
 id: au13-review-adjudication-roundtrip
-title: 审读报告逐项裁决与提前收官设计负债
+title: 审读报告逐项裁决 + 提前收官/卷级负债正触发
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh au13-review-adjudication-roundtrip --surface tauri
@@ -9,7 +9,10 @@ contract:
   - docs/design/contracts/VS-00F-five-ledgers-three-state-contract-pack.md
   - docs/design/contracts/VS-00G-fact-completeness-and-provisioning-contract-pack.md
   - docs/design/ui/43-structure-panel.md
+  - docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md
+  - docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md
   - tasks/slices/VS-00F-five-ledgers-three-state.md
+  - tasks/slices/R10R11-VOLUME-DEBT-SCENARIO.md
 
 invariants:
   - ledger-panel-and-report-are-readonly-until-author-adjudicates
@@ -19,6 +22,8 @@ invariants:
   - dismiss-lands-in-structured-experience-evidence
   - revise-dispositions-return-to-the-dialogue-as-correction-intent
   - premature-finale-reported-before-target-length
+  - volume-plan-mismatch-and-missing-blueprint-reported-as-design-debt
+  - volume-debt-findings-carry-source-refs-and-do-not-block-writing
   - no-silent-rewrite-of-design-or-prose
   - no-production-acceptance-hooks
 
@@ -27,18 +32,24 @@ setup:
   provider: slice_verify
 
 user_flow:
-  - open: real Tauri workbench seeded with four adopted characters, four STALLED arc entries, a four-chapter plan whose chapter four is 第一卷终局, an adopted chapter-one prose and a 60000-word target length
+  - open: real Tauri workbench seeded with four adopted characters, four STALLED arc entries, a four-chapter plan whose chapter four is 第一卷终局, an adopted chapter-one prose and a 60000-word target length, planned_volumes=4 with three fact volumes (two missing volume blueprint)
   - open: 作品档案脉络
   - observe: 五条脉络 with 停滞 4 chip, honest empty report and readonly hint
   - click: 发起全书审读
-  - observe: 全书审读完成：发现 5 处偏离
+  - observe: 全书审读完成：发现 8 处偏离
   - open: 作品档案脉络
   - observe: four 自第1章后未再出场 findings plus one 终局/收官定位 finding stating 全书进度约 N% and 第 4 章
+  - observe: one 卷规划不一致 finding stating 立项计划 4 卷 and 实际已建 3 卷 with work:/volumes: source refs
+  - observe: two 多卷缺蓝图 findings for 第二卷：暗流 and 第三卷：收束 with volume: source refs
   - click: 接受走向 on 凌渊
   - click: 标记误报 on 沈墨
   - click: 修订设定 on 韩晟
   - click: 修订正文 on 白露
   - click: 修订设定 on the 提前收官 finding
+  - click: 修订设定 on the 卷规划不一致 finding
+  - click: 修订设定 on the 第二卷：暗流 缺蓝图 finding
+  - click: 修订设定 on the 第三卷：收束 缺蓝图 finding
+  - observe: every volume-debt disposition sends a real correction intent user_message through the dialogue flow
   - open: 作品档案脉络
   - observe: 暂无待处置的审读报告
 
@@ -55,16 +66,22 @@ evidence:
 assertions:
   ui:
     - 脉络 tab shows five threads, the STALLED chip and the readonly hint before any review
-    - review report card lists four arc findings and one premature-finale finding
+    - review report card lists four arc findings, one premature-finale finding and three volume-debt findings
+    - volume-plan-mismatch card states planned 4 vs actual 3 volumes with source refs
+    - missing-blueprint cards name each multi-volume work volume with volume: source refs
+    - every volume-debt card offers the 修订设定 disposition
     - premature-finale card states the progress percent, the finale chapter seq and cites chapter_plan evidence
     - premature-finale card offers the 修订设定 disposition
-    - report shows 暂无待处置的审读报告 after all five findings are dispositioned
+    - report shows 暂无待处置的审读报告 after all eight findings are dispositioned (including the three volume-debt findings)
   network:
     - 发起全书审读 travels as a real author action that starts ledger_reconciliation_v1
     - revise_design and revise_prose dispositions send correction intents as real user_message frames
     - premature-finale correction intent carries the 终局/收官定位 signal verbatim
   data:
-    - ledger.report.done reports finding_count 5 and rules premature_finale at least 1
+    - ledger.report.done reports finding_count 8 and rules premature_finale, volume_plan_mismatch and volume_blueprint_missing
+    - volume_plan_mismatch finding carries work:planned_volumes and volumes:actual source refs
+    - volume_blueprint_missing findings carry volume: source refs for each volume without blueprint
+    - review-report data gives every volume-debt finding proposed_disposition revise_design
     - ledger.adjudicate.done covers accept_drift dismiss revise_design revise_prose
     - ledger.dismiss.done records the dismissed finding as structured evidence
     - premature-finale progress percent is below the 70 percent rule threshold

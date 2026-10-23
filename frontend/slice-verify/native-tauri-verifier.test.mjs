@@ -488,8 +488,8 @@ describe("native Tauri slice verifier", () => {
       design_turn_id: "turn-design",
       prose_turn_id: "turn-prose",
       review_report_id: "report-au13-b1",
-      review_finding_count: 5,
-      adjudicated_count: 5,
+      review_finding_count: 8,
+      adjudicated_count: 8,
       dispositions: ["accept_drift", "dismiss", "revise_design", "revise_prose"],
       dismiss_evidence_logged: true,
       design_intent_text: "审读报告发现「韩晟 自第1章后未再出场（停滞阈值超限）」，我选择修订设定：…",
@@ -503,9 +503,52 @@ describe("native Tauri slice verifier", () => {
       premature_finale_intent_text:
         "审读报告发现「全书进度约 1%，但近期章计划已出现终局/收官定位（第 4 章）——距目标体量尚远…」，我选择修订设定：…",
       premature_finale_turn_id: "turn-finale",
-      review_rules: { arc_stalled: 4, premature_finale: 1 },
+      review_rules: {
+        arc_stalled: 4,
+        premature_finale: 1,
+        volume_plan_mismatch: 1,
+        volume_blueprint_missing: 2,
+      },
+      // B13b §4.1 #10（R10/R11 正触发）：卷级设计负债作者可见信号/refs/处置。
+      volume_debt_visible: true,
+      volume_plan_mismatch_signal:
+        "立项计划 4 卷，实际已建 3 卷——意图与事实不一致（事实优先，不静默改写任一方）；建议修订立项卷数或补齐卷结构，不阻断写作。 证据：work:planned_volumes=4、volumes:actual=3",
+      volume_plan_mismatch_source_refs_visible: true,
+      volume_blueprint_signals: [
+        "卷「第二卷：暗流」尚无设计态卷蓝图（目标冲突/支线/高潮/新要素未立）——多卷作品建议补齐该卷蓝图，否则规划与写作缺少卷级目标参照；不阻断写作。 证据：volume:第二卷：暗流",
+        "卷「第三卷：收束」尚无设计态卷蓝图（目标冲突/支线/高潮/新要素未立）——多卷作品建议补齐该卷蓝图，否则规划与写作缺少卷级目标参照；不阻断写作。 证据：volume:第三卷：收束",
+      ],
+      volume_blueprint_source_refs_visible: true,
+      volume_intent_texts: [
+        "审读报告发现「立项计划 4 卷，实际已建 3 卷…」，我选择修订设定：…",
+        "审读报告发现「卷「第二卷：暗流」尚无设计态卷蓝图…」，我选择修订设定：…",
+        "审读报告发现「卷「第三卷：收束」尚无设计态卷蓝图…」，我选择修订设定：…",
+      ],
+      volume_intent_turn_ids: ["turn-volume-r10", "turn-volume-r11-2", "turn-volume-r11-3"],
+      volume_debt_dispositions: 3,
+      volume_report_findings: [
+        {
+          rule: "volume_plan_mismatch",
+          proposed_disposition: "revise_design",
+          source_refs: ["work:planned_volumes=4", "volumes:actual=3"],
+          signal: "立项计划 4 卷，实际已建 3 卷",
+        },
+        {
+          rule: "volume_blueprint_missing",
+          proposed_disposition: "revise_design",
+          source_refs: ["volume:第二卷：暗流"],
+          signal: "卷「第二卷：暗流」尚无设计态卷蓝图",
+        },
+        {
+          rule: "volume_blueprint_missing",
+          proposed_disposition: "revise_design",
+          source_refs: ["volume:第三卷：收束"],
+          signal: "卷「第三卷：收束」尚无设计态卷蓝图",
+        },
+      ],
+      volume_report_proposed_dispositions_visible: true,
       // B13b BB-11：rail 待处置计数与真实报告同源、全处置后消失。
-      rail_review_pending_after_report: 5,
+      rail_review_pending_after_report: 8,
       rail_review_pending_after_disposition: null,
       rail_review_pending_matches_report: true,
     };
@@ -513,8 +556,13 @@ describe("native Tauri slice verifier", () => {
       {
         event: "ledger.report.done",
         report_id: "report-au13-b1",
-        finding_count: 5,
-        rules: { arc_stalled: 4, premature_finale: 1 },
+        finding_count: 8,
+        rules: {
+          arc_stalled: 4,
+          premature_finale: 1,
+          volume_plan_mismatch: 1,
+          volume_blueprint_missing: 2,
+        },
       },
       { event: "ledger.adjudicate.done", disposition: "accept_drift" },
       { event: "ledger.adjudicate.done", disposition: "dismiss" },
@@ -522,6 +570,17 @@ describe("native Tauri slice verifier", () => {
       { event: "ledger.adjudicate.done", disposition: "revise_design" },
       { event: "ledger.adjudicate.done", disposition: "revise_prose" },
       { event: "ledger.adjudicate.done", disposition: "revise_design", rule: "premature_finale" },
+      { event: "ledger.adjudicate.done", disposition: "revise_design", rule: "volume_plan_mismatch" },
+      {
+        event: "ledger.adjudicate.done",
+        disposition: "revise_design",
+        rule: "volume_blueprint_missing",
+      },
+      {
+        event: "ledger.adjudicate.done",
+        disposition: "revise_design",
+        rule: "volume_blueprint_missing",
+      },
       uiState,
     ];
 
@@ -531,13 +590,51 @@ describe("native Tauri slice verifier", () => {
       turn_id: "turn-design",
       turn_ids: ["turn-design", "turn-prose", "turn-finale"],
       review_report_id: "report-au13-b1",
-      review_finding_count: 5,
-      adjudicated_count: 5,
+      review_finding_count: 8,
+      adjudicated_count: 8,
       dispositions: ["accept_drift", "dismiss", "revise_design", "revise_prose"],
       premature_finale_chapter_seq: 4,
       premature_finale_progress_percent: 1,
-      review_rules: { arc_stalled: 4, premature_finale: 1 },
-      rail_review_pending_after_report: 5,
+      review_rules: {
+        arc_stalled: 4,
+        premature_finale: 1,
+        volume_plan_mismatch: 1,
+        volume_blueprint_missing: 2,
+      },
+      volume_plan_mismatch_signal:
+        "立项计划 4 卷，实际已建 3 卷——意图与事实不一致（事实优先，不静默改写任一方）；建议修订立项卷数或补齐卷结构，不阻断写作。 证据：work:planned_volumes=4、volumes:actual=3",
+      volume_blueprint_signals: [
+        "卷「第二卷：暗流」尚无设计态卷蓝图（目标冲突/支线/高潮/新要素未立）——多卷作品建议补齐该卷蓝图，否则规划与写作缺少卷级目标参照；不阻断写作。 证据：volume:第二卷：暗流",
+        "卷「第三卷：收束」尚无设计态卷蓝图（目标冲突/支线/高潮/新要素未立）——多卷作品建议补齐该卷蓝图，否则规划与写作缺少卷级目标参照；不阻断写作。 证据：volume:第三卷：收束",
+      ],
+      volume_intent_texts: [
+        "审读报告发现「立项计划 4 卷，实际已建 3 卷…」，我选择修订设定：…",
+        "审读报告发现「卷「第二卷：暗流」尚无设计态卷蓝图…」，我选择修订设定：…",
+        "审读报告发现「卷「第三卷：收束」尚无设计态卷蓝图…」，我选择修订设定：…",
+      ],
+      volume_debt_dispositions: 3,
+      volume_report_findings: [
+        {
+          rule: "volume_plan_mismatch",
+          proposed_disposition: "revise_design",
+          source_refs: ["work:planned_volumes=4", "volumes:actual=3"],
+          signal: "立项计划 4 卷，实际已建 3 卷",
+        },
+        {
+          rule: "volume_blueprint_missing",
+          proposed_disposition: "revise_design",
+          source_refs: ["volume:第二卷：暗流"],
+          signal: "卷「第二卷：暗流」尚无设计态卷蓝图",
+        },
+        {
+          rule: "volume_blueprint_missing",
+          proposed_disposition: "revise_design",
+          source_refs: ["volume:第三卷：收束"],
+          signal: "卷「第三卷：收束」尚无设计态卷蓝图",
+        },
+      ],
+      volume_report_proposed_dispositions_visible: true,
+      rail_review_pending_after_report: 8,
       rail_review_pending_after_disposition: null,
       key_events: keyEventsForSlice(sliceId),
     });
@@ -551,6 +648,45 @@ describe("native Tauri slice verifier", () => {
       premature_finale_reported_with_progress_and_chapter: true,
       premature_finale_chapter_seq: 4,
       premature_finale_progress_percent: 1,
+      volume_debt_visible: true,
+      volume_plan_mismatch_finding: true,
+      volume_blueprint_missing_findings: 2,
+      volume_debt_dispositioned_via_correction_intent: true,
+      volume_plan_mismatch_signal:
+        "立项计划 4 卷，实际已建 3 卷——意图与事实不一致（事实优先，不静默改写任一方）；建议修订立项卷数或补齐卷结构，不阻断写作。 证据：work:planned_volumes=4、volumes:actual=3",
+      volume_blueprint_signals: [
+        "卷「第二卷：暗流」尚无设计态卷蓝图（目标冲突/支线/高潮/新要素未立）——多卷作品建议补齐该卷蓝图，否则规划与写作缺少卷级目标参照；不阻断写作。 证据：volume:第二卷：暗流",
+        "卷「第三卷：收束」尚无设计态卷蓝图（目标冲突/支线/高潮/新要素未立）——多卷作品建议补齐该卷蓝图，否则规划与写作缺少卷级目标参照；不阻断写作。 证据：volume:第三卷：收束",
+      ],
+      volume_report_findings: [
+        {
+          rule: "volume_plan_mismatch",
+          proposed_disposition: "revise_design",
+          source_refs: ["work:planned_volumes=4", "volumes:actual=3"],
+          signal: "立项计划 4 卷，实际已建 3 卷",
+        },
+        {
+          rule: "volume_blueprint_missing",
+          proposed_disposition: "revise_design",
+          source_refs: ["volume:第二卷：暗流"],
+          signal: "卷「第二卷：暗流」尚无设计态卷蓝图",
+        },
+        {
+          rule: "volume_blueprint_missing",
+          proposed_disposition: "revise_design",
+          source_refs: ["volume:第三卷：收束"],
+          signal: "卷「第三卷：收束」尚无设计态卷蓝图",
+        },
+      ],
+      volume_report_proposed_dispositions_visible: true,
+      assertions: [
+        "real_full_review_reported_volume_plan_mismatch_r10",
+        "real_full_review_reported_multi_volume_missing_blueprint_r11",
+        "volume_debt_findings_carry_source_refs_and_do_not_block_writing",
+        "volume_debt_findings_offered_revise_design_disposition",
+        "volume_debt_dispositions_returned_correction_intents_to_dialogue",
+        "report_cleared_after_all_eight_findings_dispositioned",
+      ],
     });
 
     const withoutFinaleOnPage = records.map((record) =>

@@ -14826,7 +14826,9 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   await page.waitForFunction(() => document.body.innerText.includes("全书审读完成"), {
     timeout: 120_000,
   });
-  await page.waitForFunction(() => document.body.innerText.includes("5 处偏离"), {
+  // B13b §4.1 #10（R10/R11 正触发）：8 处偏离 = 4 停滞 + 1 提前收官 + 1 卷规划不一致
+  // + 2 卷缺蓝图。
+  await page.waitForFunction(() => document.body.innerText.includes("8 处偏离"), {
     timeout: 10_000,
   });
   const reportRecord = await waitForNewAppLogRecord(
@@ -14840,6 +14842,18 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   assert(
     Number(reviewRules.premature_finale ?? 0) >= 1,
     `ledger.report.done rules must report premature_finale, got ${JSON.stringify(reviewRules)}`,
+  );
+  assert(
+    Number(reviewRules.volume_plan_mismatch ?? 0) === 1,
+    `ledger.report.done rules must report volume_plan_mismatch, got ${JSON.stringify(reviewRules)}`,
+  );
+  assert(
+    Number(reviewRules.volume_blueprint_missing ?? 0) === 2,
+    `ledger.report.done rules must report two volume_blueprint_missing findings, got ${JSON.stringify(reviewRules)}`,
+  );
+  assert(
+    Number(reportRecord.finding_count ?? 0) === 8,
+    `Full review report finding_count must be 8, got ${reportRecord.finding_count}`,
   );
 
   // 3. 报告可见（待处置）：四条停滞偏离 + 一条提前收官设计负债（VS-00G R7）
@@ -14882,6 +14896,105 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
   assert(
     finaleProgressPercent < 70,
     `Premature-finale finding must fire below the progress threshold, got ${finaleProgressPercent}%`,
+  );
+
+  // 3c.（B13b §4.1 #10 / VS-00J R10/R11 正触发）卷级设计负债必须出现在真实报告：
+  // R10 计划卷数 vs 事实卷数不一致（作者可见两侧数字 + source_refs），R11 多卷缺蓝图
+  // 逐卷一条（作者可见卷名 + volume ref + revise_design 处置）。
+  const mismatchCard = findingCard("立项计划 4 卷，实际已建 3 卷");
+  await mismatchCard.waitFor({ timeout: 10_000 });
+  const mismatchSignal = normalizeVisibleText(await mismatchCard.innerText());
+  assert(
+    mismatchSignal.includes("work:planned_volumes=4") &&
+      mismatchSignal.includes("volumes:actual=3"),
+    `R10 finding must cite planned/actual volume source refs, got: ${mismatchSignal}`,
+  );
+  assert(
+    mismatchSignal.includes("不阻断写作"),
+    `R10 finding must state it does not block writing (fact-first), got: ${mismatchSignal}`,
+  );
+  await mismatchCard
+    .getByRole("button", { name: "修订设定", exact: true })
+    .waitFor({ timeout: 10_000 });
+
+  const secondVolumeCard = findingCard("卷「第二卷：暗流」尚无设计态卷蓝图");
+  await secondVolumeCard.waitFor({ timeout: 10_000 });
+  const secondVolumeSignal = normalizeVisibleText(await secondVolumeCard.innerText());
+  assert(
+    secondVolumeSignal.includes("volume:第二卷：暗流"),
+    `R11 finding must cite the volume source ref, got: ${secondVolumeSignal}`,
+  );
+  await secondVolumeCard
+    .getByRole("button", { name: "修订设定", exact: true })
+    .waitFor({ timeout: 10_000 });
+
+  const thirdVolumeCard = findingCard("卷「第三卷：收束」尚无设计态卷蓝图");
+  await thirdVolumeCard.waitFor({ timeout: 10_000 });
+  const thirdVolumeSignal = normalizeVisibleText(await thirdVolumeCard.innerText());
+  assert(
+    thirdVolumeSignal.includes("volume:第三卷：收束"),
+    `R11 finding must cite the volume source ref, got: ${thirdVolumeSignal}`,
+  );
+  await thirdVolumeCard
+    .getByRole("button", { name: "修订设定", exact: true })
+    .waitFor({ timeout: 10_000 });
+
+  // 3d.（ADR-0028 gap 原文要求断言 proposed_disposition）报告数据经真实
+  // get_review_report phx_reply 返回：R10/R11 条目的 proposed_disposition 必须为
+  // revise_design，source_refs 必须精确命中卷事实（不是 UI 按钮文本推断）。
+  const reportReplyFindings = (() => {
+    for (let index = frames.length - 1; index >= 0; index -= 1) {
+      const frame = frames[index];
+      if (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        Array.isArray(frame.body?.response?.report?.findings)
+      ) {
+        return frame.body.response.report.findings;
+      }
+    }
+    return [];
+  })();
+
+  const volumeReportFindings = reportReplyFindings
+    .filter((finding) =>
+      ["volume_plan_mismatch", "volume_blueprint_missing"].includes(String(finding?.rule ?? "")),
+    )
+    .map((finding) => ({
+      rule: String(finding?.rule ?? ""),
+      proposed_disposition: String(finding?.proposed_disposition ?? ""),
+      source_refs: Array.isArray(finding?.source_refs) ? finding.source_refs.map(String) : [],
+      signal: String(finding?.signal ?? ""),
+    }));
+
+  const sortStrings = (values) => [...values].sort();
+  const mismatchReportFinding = volumeReportFindings.find(
+    (finding) => finding.rule === "volume_plan_mismatch",
+  );
+  const blueprintReportFindings = volumeReportFindings.filter(
+    (finding) => finding.rule === "volume_blueprint_missing",
+  );
+
+  assert(
+    volumeReportFindings.length === 3,
+    `Review report must expose 3 volume-debt findings, got ${JSON.stringify(volumeReportFindings)}`,
+  );
+  assert(
+    mismatchReportFinding?.proposed_disposition === "revise_design" &&
+      JSON.stringify(sortStrings(mismatchReportFinding.source_refs)) ===
+        JSON.stringify(["volumes:actual=3", "work:planned_volumes=4"]),
+    `R10 report finding must carry revise_design and exact source refs, got ${JSON.stringify(mismatchReportFinding)}`,
+  );
+  assert(
+    blueprintReportFindings.length === 2 &&
+      blueprintReportFindings.every((finding) => finding.proposed_disposition === "revise_design"),
+    `R11 report findings must carry revise_design, got ${JSON.stringify(blueprintReportFindings)}`,
+  );
+  assert(
+    JSON.stringify(sortStrings(blueprintReportFindings.flatMap((finding) => finding.source_refs))) ===
+      JSON.stringify(sortStrings(["volume:第二卷：暗流", "volume:第三卷：收束"])),
+    `R11 report findings must carry exact volume refs, got ${JSON.stringify(blueprintReportFindings)}`,
   );
 
   // B13b BB-11（ADR-0026-g1）：rail 待处置计数与真实报告同源。
@@ -15000,6 +15113,43 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
     200_000,
   );
 
+  // 4f.（B13b §4.1 #10 / VS-00J R10/R11 正触发）三条卷级设计负债逐条走同一条真实
+  // 处置链路：修订设定 → correction intent 回对话流（不静默改写规划/事实）。
+  const volumeIntents = [];
+
+  const disposeVolumeDebt = async (cardNeedle, intentNeedle, label) => {
+    await openThreadsTab();
+    const card = findingCard(cardNeedle);
+    await card.waitFor({ timeout: 10_000 });
+    const frameStart = frames.length;
+    await card.getByRole("button", { name: "修订设定", exact: true }).click();
+    const intentFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "").includes("修订设定") &&
+        String(frame.body?.text ?? "").includes(intentNeedle),
+      `${label} disposition did not send a correction intent user_message`,
+      30_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) => frame.direction === "received" && frame.event === "turn_result",
+      `No turn_result after ${label} correction intent`,
+      200_000,
+    );
+    volumeIntents.push({
+      label,
+      intent_text: String(intentFrame.body?.text ?? ""),
+      turn_id: String(turnFrame.body?.turn_id ?? ""),
+    });
+  };
+
+  await disposeVolumeDebt("立项计划 4 卷，实际已建 3 卷", "立项计划 4 卷", "R10 volume plan mismatch");
+  await disposeVolumeDebt("卷「第二卷：暗流」尚无设计态卷蓝图", "第二卷：暗流", "R11 missing blueprint vol2");
+  await disposeVolumeDebt("卷「第三卷：收束」尚无设计态卷蓝图", "第三卷：收束", "R11 missing blueprint vol3");
+
   // 5. 全部处置 → 报告转 ACCEPTED、活跃报告清空（latest 只回 TENTATIVE）：
   // 重开面板读真实持久态，诚实显示"暂无待处置的审读报告"。
   await openThreadsTab();
@@ -15050,6 +15200,22 @@ async function driveAu13ReviewAdjudicationRoundtrip(page) {
       rail_review_pending_after_report: railPendingAfterReport,
       rail_review_pending_after_disposition: railPendingAfterDisposition,
       rail_review_pending_matches_report: railPendingAfterReport === Number(reportRecord.finding_count ?? 0),
+      // B13b §4.1 #10（R10/R11 正触发）：卷级设计负债作者可见信号/source_refs/处置。
+      volume_debt_visible: true,
+      volume_plan_mismatch_signal: mismatchSignal,
+      volume_plan_mismatch_source_refs_visible:
+        mismatchSignal.includes("work:planned_volumes=4") && mismatchSignal.includes("volumes:actual=3"),
+      volume_blueprint_signals: [secondVolumeSignal, thirdVolumeSignal],
+      volume_blueprint_source_refs_visible:
+        secondVolumeSignal.includes("volume:第二卷：暗流") &&
+        thirdVolumeSignal.includes("volume:第三卷：收束"),
+      volume_intent_texts: volumeIntents.map((entry) => entry.intent_text),
+      volume_intent_turn_ids: volumeIntents.map((entry) => entry.turn_id),
+      volume_debt_dispositions: volumeIntents.length,
+      volume_report_findings: volumeReportFindings,
+      volume_report_proposed_dispositions_visible: volumeReportFindings.every(
+        (finding) => finding.proposed_disposition === "revise_design",
+      ),
     },
   ];
 }

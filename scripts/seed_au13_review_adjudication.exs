@@ -12,7 +12,8 @@ import Ecto.Query
 
 alias NovelApplication.{WorkService, WorkSessionService}
 alias NovelPersistence.{AdoptionRepository, LedgerRepository, Repo}
-alias NovelPersistence.Schemas.Chapter
+alias NovelFoundation.Enums.StructureStatus
+alias NovelPersistence.Schemas.{Chapter, Volume}
 
 chapter_lines = [
   "第01章：底层灵气账单: 主角在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。",
@@ -81,10 +82,10 @@ seed_chapter_one_prose =
     "target_reader" => "关注长篇连续性的作者",
     "tone_preference" => "克制、紧张、具象",
     "target_length" => 60_000,
-    # 事实卷数=1（章计划无「所属卷」标注 → 章计划采纳只建规范单卷）。计划卷数必须与
-    # 事实一致，否则 R10「卷规划不一致」负债 finding 会额外进审读报告，打破本场景
-    # 「发现 5 处偏离」/finding_count=5 断言（B13b-C D1 修复）。
-    "planned_volumes" => 1,
+    # B13b §4.1 #10（R10R11 正触发）：计划卷数=4，事实卷数=3（下方造 3 卷、其中 2 卷
+    # 缺卷蓝图）→ 审读报告必须同时产出 R10「卷规划不一致」1 条 + R11「多卷缺蓝图」2 条。
+    # 本场景由此同时覆盖"既有审读裁决链路"与"卷级负债正触发"，报告共 8 处偏离。
+    "planned_volumes" => 4,
     "serial_form" => "SERIALIZED"
   })
 
@@ -102,6 +103,66 @@ session_id = snapshot.active_session.id
     content: Enum.join(chapter_lines, "\n"),
     summary: "AU13 审读四章章节计划"
   })
+
+# R10/R11 正触发：章计划采纳只建规范单卷；在事实层补齐到 3 卷，其中第一卷有卷蓝图、
+# 第二/三卷缺蓝图（R11 逐卷一条），且 3≠计划 4（R10 一条）。二者都只是设计负债 finding，
+# 不阻断写作、不静默改写规划（事实优先）。
+first_volume =
+  Repo.one!(
+    from(v in Volume,
+      where: v.work_id == ^work.id,
+      order_by: [asc: v.seq],
+      limit: 1
+    )
+  )
+
+{:ok, _blueprinted_volume} =
+  first_volume
+  |> Volume.changeset(%{
+    blueprint: %{
+      "goal_conflict" => "底层灵气带宽被公司暗抽，第一卷要逼主角看见暗抽通道",
+      "arc_stage" => "从麻木缴费者到敢于反抗的行动者",
+      "climaxes" => ["第04章：第一卷终局：灵气回流"],
+      "new_characters" => ["凌渊", "沈墨", "韩晟", "白露"]
+    }
+  })
+  |> Repo.update()
+
+second_volume =
+  %Volume{}
+  |> Volume.changeset(%{
+    work_id: work.id,
+    title: "第二卷：暗流",
+    seq: 2,
+    status: StructureStatus.planned()
+  })
+  |> Repo.insert!()
+
+third_volume =
+  %Volume{}
+  |> Volume.changeset(%{
+    work_id: work.id,
+    title: "第三卷：收束",
+    seq: 3,
+    status: StructureStatus.planned()
+  })
+  |> Repo.insert!()
+
+# TOC 只渲染「有章的卷」；把计划第 3/4 章分到第二/三卷，三卷才都进事实读端口
+# （R11 逐卷检查蓝图；R10 事实卷数=3）。章身份/章计划语义不变（仅 volume_id 归属）。
+planned_chapters =
+  Repo.all(
+    from(c in Chapter,
+      where: c.work_id == ^work.id,
+      order_by: [asc: c.seq]
+    )
+  )
+
+for {chapter, volume} <- Enum.zip(planned_chapters, [first_volume, first_volume, second_volume, third_volume]) do
+  chapter
+  |> Chapter.changeset(%{volume_id: volume.id})
+  |> Repo.update!()
+end
 
 first_chapter =
   Repo.one!(
