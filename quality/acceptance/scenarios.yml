@@ -1048,6 +1048,8 @@ scenarios:
     title: "AI 引导式创作质量诊断 Message Envelope"
     tier: nightly
     surface: tauri
+    status: blocked
+    blocked_reason: "AIMessageEnvelope 证据链失效：唯一生产调用 AIMessageEnvelope.quality_diagnosis/3 与 evidence_summary[:ai_message_envelope] 写入已于 commit c4509c86（2026-07-19 帧纪元退役）删除，现仅剩 trace_writer.ex 消费者；2026-10-24 真实 Tauri 复跑 exit 1（driver 等待 No AU11 turn_result with AIMessageEnvelope trace summary，driver 末改 2026-06-19、旧证据 2026-06-22 含已退役 planner.form_frame.done）。待 B27/G7 统一 envelope 落地后 re-anchor；登记 tasks/slices/VS00D-G-GAP-RECONCILIATION.md §1.5。"
     manifest: quality/acceptance/scenarios/au11-quality-diagnosis-message-envelope.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --surface tauri
@@ -1055,6 +1057,8 @@ scenarios:
     title: "AI 引导式创作缺 WorkState 不编造"
     tier: nightly
     surface: tauri
+    status: blocked
+    blocked_reason: "AIMessageEnvelope 证据链失效：唯一生产调用 AIMessageEnvelope.quality_diagnosis/3 与 evidence_summary[:ai_message_envelope] 写入已于 commit c4509c86（2026-07-19 帧纪元退役）删除，现仅剩 trace_writer.ex 消费者；2026-10-24 真实 Tauri 复跑 exit 1（driver 等待 No AU11 turn_result with AIMessageEnvelope trace summary，driver 末改 2026-06-19、旧证据 2026-06-22 含已退役 planner.form_frame.done）。待 B27/G7 统一 envelope 落地后 re-anchor；登记 tasks/slices/VS00D-G-GAP-RECONCILIATION.md §1.5。"
     manifest: quality/acceptance/scenarios/au11-missing-workstate-policy.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri
