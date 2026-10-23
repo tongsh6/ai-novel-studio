@@ -1,5 +1,5 @@
 id: au06-single-active-confirmation
-title: 单一活跃 confirmation 只允许最新等待态执行，并回填 AU-03 开放行为上下文
+title: 单一活跃 confirmation 只允许最新等待态执行（旧 behavior 显式 supersede）并回填 AU-03 开放行为上下文
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh au06-single-active-confirmation --surface tauri
@@ -17,27 +17,30 @@ contract:
 
 invariants:
   - single-primary-author-blocking-behavior-per-workstream
+  - old-author-blocking-behavior-is-explicitly-superseded-with-replacement-ref
   - confirmation-action-comes-from-server-available-actions
-  - old-confirmation-does-not-dispatch-tool
+  - old-confirmation-does-not-adopt-or-write
   - latest-confirmation-remains-actionable
   - latest-active-behavior-enters-next-turn-author-safe-context
   - no-product-acceptance-hooks
 
 setup:
-  seed: scripts/seed_p1_chapter_draft_generation.exs
+  seed: scripts/seed_au06_single_active_confirmation.exs
   provider: slice_verify
 
 user_flow:
-  - open: real Tauri workbench with an adopted chapter plan
-  - type: first high-risk rewrite request in the real chat input
-  - observe: first needs_confirmation turn_result arrives over the real websocket
-  - type: second high-risk rewrite request before acting on the first confirmation
-  - observe: second needs_confirmation turn_result becomes the current active confirmation with a distinct behavior_ref
-  - observe: second needs_confirmation turn_result includes an author-safe behavior context ref from the previous open confirmation
+  - open: real Tauri workbench with two chapters that already have accepted prose
+  - observe: two restored pending overwrite-rewrite candidates are visible in the real transcript
+  - save: first pending candidate
+  - observe: first overwrite require_confirmation TurnResult opens behavior B1 over the real websocket
+  - type: a normal author message while B1 is still open
+  - observe: that turn's author-safe context carries the open behavior context ref (AU-03)
+  - save: second pending candidate
+  - observe: second require_confirmation TurnResult opens behavior B2 with a distinct behavior_ref; its behavior_state.history contains B1 as superseded with resolution_ref referencing B2
   - click: old 确认执行 button if it is still visible and enabled
-  - observe: old confirmation is hidden, disabled, or rejected as stale
+  - observe: old confirmation is hidden, disabled, or rejected as stale; no adoption/write happens
   - click: latest 确认执行 button
-  - observe: only the latest confirmation dispatches prose_writing and creates one pending prose_fragment
+  - observe: latest confirmation adopts exactly once (second candidate only; first stays pending)
 
 evidence:
   required:
@@ -52,17 +55,18 @@ assertions:
   ui:
     - first confirmation is visible before the second request
     - latest confirmation remains actionable after the old confirmation is prevented
-    - pending draft appears only after the latest confirmation
   network:
-    - both high-risk requests are sent through the real workspace channel
+    - the author message after the first confirmation is sent through the real workspace channel
     - old confirm action is either not sent or is rejected by the channel as stale
     - latest confirm action is sent through author_action
   data:
     - first and second confirmation actions have distinct behavior_ref values
     - neither confirmation turn calls a tool or writes production state before author action
-    - old confirmation creates no prose_writing dispatch and no pending prose_fragment
-    - latest confirmation dispatches prose_writing exactly once
-    - second confirmation turn_result contains a behavior context ref with author-safe summary
+    - old behavior is explicitly superseded: behavior_state.history carries it with resolution_ref referencing the replacement behavior
+    - trace_summary.behavior_supersede_ref equals the superseded history resolution_ref
+    - old confirmation produces no adoption or write
+    - latest confirmation adopts exactly once; the superseded first candidate stays pending and is not silently adopted
+    - the turn after an open confirmation receives an author-safe behavior context ref
     - behavior context summary does not expose behavior_ref or action_id
 
 anti_hooks:

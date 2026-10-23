@@ -1105,7 +1105,7 @@ native_action_description() {
       echo "seed adopted chapter plan -> type a high-risk rewrite request in chat -> confirmation card arrives -> send a follow-up message before confirming -> click old confirm if visible -> verify stale confirm cannot dispatch prose_writing or create a pending draft"
       ;;
     au06-single-active-confirmation)
-      echo "seed adopted chapter plan -> type two high-risk rewrite requests before confirming -> verify the old confirmation is hidden/disabled/stale and only the latest active confirmation can execute once"
+      echo "seed adopted chapter plan -> open two overwrite confirmations before acting -> verify the old behavior is explicitly superseded (history/resolution ref) and only the latest confirmation adopts once"
       ;;
     au04-confirmation-ttl-ui)
       echo "seed an expired confirmation turn_result -> restore it in the real workbench -> click visible confirm -> verify expired confirm is rejected without prose_writing or pending draft"
@@ -1961,7 +1961,7 @@ case "$SLICE_ID" in
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   au06-single-active-confirmation)
-    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    SEED_SCRIPT="scripts/seed_au06_single_active_confirmation.exs"
     ;;
   au04-confirmation-ttl-ui)
     SEED_SCRIPT="scripts/seed_au04_confirmation_ttl_ui.exs"

@@ -93,9 +93,13 @@ v2 的 slot waiting、confirmation modal 或 retry state 需要迁移为 Behavio
 - apps/novel_application/lib/novel_application/trace_writer.ex
 - apps/novel_domain/test/novel_domain/behavior_state_test.exs
 - apps/novel_application/test/novel_application/behavior_lifecycle_test.exs
+- apps/novel_application/test/novel_application/adoption_workflow_test.exs
+- apps/novel_domain/test/novel_domain/behavior_state_test.exs
+- apps/novel_web/lib/novel_web/channels/workspace_channel.ex
 - quality/acceptance/scenarios/au06-single-active-confirmation.yml
+- tasks/slices/BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY.md
 
 ## enforcement_gaps
 
-- B13b 裁决（2026-10-22，修复-独立 slice `BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY`）：cancel/reject 路径的 `BehaviorState` 关闭不经 `OrchestratorDecision`（`dialogue_gateway.ex:312,364-460` 直接构造 `lifecycle_status: :cancelled`）；该规则原文在 VS-03 §4 规则4（contract pack 仍 draft，且 ADR-0008 正文未冻结关闭权，原 gap 引用需修正）。slice 以 `cancel_or_close` decision + behavior trace ref 收敛，并扩 `au10-workbench-recovery-cancel-waiting` 真实页面断言；前置：作者裁决 VS-03 是否冻结（见 B13b 汇总「需要作者裁决的问题」）。
-- B13b 裁决（2026-10-22，修复-独立 slice `BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY`）：同一 workstream 至多一个 primary author-blocking behavior 的保证当前只在 Channel current-turn guard（`workspace_channel.ex:2861-2870`）与前端 `activeBehaviorId` 门控（`workbenchActions.ts:54-64`、`WorkspaceChat.tsx:2740-2756`），BehaviorState 的 `:superseded` 从未被赋值（全仓仅 `behavior_state.ex:74` 读取）；slice CP2 增加显式 supersede + history 断言，扩 `au06-single-active-confirmation`。
+- **◐ 文档化偏差（2026-10-23，作者裁决：VS-03 维持 draft，Q2 建议 B）** B13b 裁决 gap 8-1：cancel/reject 路径的 `BehaviorState` 关闭不经 `OrchestratorDecision`（`dialogue_gateway.ex` `cancel_waiting_behavior_state/3` 直接构造 `lifecycle_status: :cancelled`）；该规则原文在 VS-03 §4 规则4（contract pack 仍 draft，ADR-0008 正文未冻结关闭权）。按作者默认裁决，本 slice **不新增 `cancel_or_close` decision 载体**，登记为文档化偏差。**触发翻案**：①VS-03 §4 规则4 冻结（Q2 选 A）；②真实页面出现 cancel/reject 关闭了非目标 behavior（stale/cross-work）或 replay 需要 terminal close 证据；③新增 behavior 关闭生产者。证据与边界：`tasks/slices/BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY.md` §6。
+- ✅ **已关闭（2026-10-23，BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY CP1/CP2）** B13b 裁决 gap 8-2：同一 workstream 至多一个 primary author-blocking behavior 的保证此前只在 Channel current-turn guard 与前端 `activeBehaviorId` 门控，`:superseded` 从未被赋值。本 slice 落地显式 supersede：`NovelDomain.BehaviorState.supersede/3`（`lifecycle_status: :superseded` + `resolution = %{ref: "behavior_superseded:<old>:<new>", superseded_by, superseded_by_ref, reason_code}`）+ `snapshot/2`（新 active + 旧 behavior 进 history）+ `from_map/1`；`AdoptionWorkflow` 在打开新 confirmation 时对同 workstream 上一个 open author-blocking behavior 显式 supersede（TurnResult `behavior_state.history` + `trace_summary.behavior_supersede_ref` + `behavior_trace_refs` + `truthfulness.superseded_behavior_ref`）；Channel 维护 `active_behavior` 快照并在真实 `author_action` accept 路径注入 `previous_behavior`。真实页面验收：`au06-single-active-confirmation`（re-anchor 到采纳覆盖确认）B2 打开时 B1 进 history 且 resolution 指向 B2、旧确认不可执行、最新确认只采纳一次。**诚实边界**：supersede 只覆盖「上一个 active behavior」（不跨 turn 累积全历史）；工具派发确认在判断纪元不产可行动 behavior TurnResult（agent flow 丢弃 `_behavior`），故 8-2 的证明面是采纳覆盖确认；8-1/9-2 仍为文档化偏差。

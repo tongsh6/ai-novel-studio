@@ -20,6 +20,60 @@ defmodule NovelDomain.BehaviorStateTest do
     }
   end
 
+  describe "8-2 显式 supersede（VS-03 §4 规则 1/3）" do
+    test "supersede/3 marks old behavior :superseded and references replacement" do
+      old = open_behavior()
+      new = %{open_behavior() | behavior_id: "bh_2", opened_at_turn_ref: "turn_2"}
+
+      superseded = BehaviorState.supersede(old, new)
+
+      assert superseded.lifecycle_status == :superseded
+      assert BehaviorState.open?(superseded) == false
+      assert superseded.closed_at_turn_ref == "turn_2"
+      assert superseded.resolution.ref == "behavior_superseded:bh_1:bh_2"
+      assert superseded.resolution.superseded_by == "bh_2"
+      assert superseded.resolution.superseded_by_ref == "behavior:bh_2"
+      assert superseded.resolution.reason_code == "new_author_blocking_behavior_opened"
+    end
+
+    test "snapshot/2 keeps replacement active while superseded behavior goes to history" do
+      old = open_behavior()
+      new = %{open_behavior() | behavior_id: "bh_2"}
+
+      snapshot = BehaviorState.snapshot(new, [BehaviorState.supersede(old, new)])
+
+      assert snapshot.active.behavior_id == "bh_2"
+      assert snapshot.active.status == "WAITING_USER"
+
+      assert [
+               %{
+                 behavior_id: "bh_1",
+                 status: "CANCELLED",
+                 resolution_ref: "behavior_superseded:bh_1:bh_2"
+               }
+             ] = snapshot.history
+    end
+
+    test "from_map/1 restores summary maps with atom and string keys (JSON round-trip)" do
+      behavior = open_behavior()
+      summary = BehaviorState.summary(behavior)
+
+      restored = BehaviorState.from_map(summary)
+      assert restored.behavior_id == "bh_1"
+      assert restored.behavior_type == :confirmation
+      assert restored.lifecycle_status == :awaiting_author
+      assert restored.target_ref == "as-1"
+
+      json_restored = summary |> Jason.encode!() |> Jason.decode!() |> BehaviorState.from_map()
+      assert json_restored.behavior_id == "bh_1"
+      assert json_restored.lifecycle_status == :awaiting_author
+    end
+
+    test "from_map/1 rejects maps without behavior_id" do
+      assert BehaviorState.from_map(%{status: "WAITING_USER"}) == nil
+    end
+  end
+
   describe "snapshot/1 形状（唯一 behavior_state 序列化入口）" do
     test "nil → %{active: nil, history: []}" do
       assert BehaviorState.snapshot(nil) == %{active: nil, history: []}

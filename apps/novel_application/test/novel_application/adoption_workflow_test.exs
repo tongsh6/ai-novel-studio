@@ -288,6 +288,83 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                )
     end
 
+    test "explicitly supersedes previous author-blocking behavior when opening a new confirmation" do
+      source_turn = source_turn_result(%{risk_hint: :high})
+
+      previous_behavior = %{
+        "behavior_id" => "bh_old",
+        "behavior_type" => "confirmation",
+        "status" => "WAITING_USER",
+        "blocking_actor" => "author",
+        "opened_at_turn_ref" => "turn-old",
+        "opened_by_decision_ref" => "dec-old",
+        "frame_ref" => "frame-old",
+        "target_ref" => "as-old",
+        "required_next_action" => "confirm_before_execute",
+        "prompt_contract" => %{},
+        "available_actions" => []
+      }
+
+      assert {:ok, _action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{
+                 "artifact_id" => "as-1",
+                 "previous_behavior" => previous_behavior
+               })
+
+      active = turn_result.behavior_state.active
+      assert active.behavior_id == "bh_confirm_as-1"
+      assert active.status == "WAITING_USER"
+
+      assert [superseded] = turn_result.behavior_state.history
+      assert superseded.behavior_id == "bh_old"
+      assert superseded.status == "CANCELLED"
+      assert superseded.resolution_ref == "behavior_superseded:bh_old:bh_confirm_as-1"
+
+      assert turn_result.trace_summary.behavior_supersede_ref ==
+               "behavior_superseded:bh_old:bh_confirm_as-1"
+
+      assert [
+               %{
+                 behavior_ref: "bh_old",
+                 event_type: :supersede,
+                 next_status: :superseded,
+                 resolution_ref: "behavior_superseded:bh_old:bh_confirm_as-1",
+                 superseded_by_ref: "behavior:bh_confirm_as-1"
+               }
+             ] = turn_result.trace_summary.behavior_trace_refs
+
+      assert turn_result.truthfulness.superseded_behavior_ref ==
+               "behavior_superseded:bh_old:bh_confirm_as-1"
+
+      assert :ok =
+               NovelFoundation.TurnResultValidator.validate_behavior_state(
+                 turn_result.behavior_state
+               )
+    end
+
+    test "does not supersede a previous behavior that is already closed" do
+      source_turn = source_turn_result(%{risk_hint: :high})
+
+      previous_behavior = %{
+        "behavior_id" => "bh_closed",
+        "behavior_type" => "confirmation",
+        "status" => "RESOLVED",
+        "opened_at_turn_ref" => "turn-old",
+        "opened_by_decision_ref" => "dec-old",
+        "frame_ref" => "frame-old",
+        "required_next_action" => "confirm_before_execute"
+      }
+
+      assert {:ok, _action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{
+                 "artifact_id" => "as-1",
+                 "previous_behavior" => previous_behavior
+               })
+
+      assert turn_result.behavior_state.history == []
+      assert turn_result.trace_summary[:behavior_supersede_ref] == nil
+    end
+
     test "adopted revision requires overwrite confirmation and persists supersedes_ref" do
       source_turn =
         source_turn_result(%{

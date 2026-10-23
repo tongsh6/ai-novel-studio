@@ -990,9 +990,9 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "channel.user_message.done",
     "orchestrator.decide.done",
-    "channel.author_action.error",
     "channel.author_action.start",
     "channel.author_action.done",
+    "adoption.evaluate.done",
     "toolbox.execute.done",
     "slice_verify.ui_state.done",
   ],
@@ -18196,25 +18196,29 @@ function findAu06SingleActiveConfirmationEvidence(records) {
       r.event === "slice_verify.ui_state.done" &&
       r.slice_id === sliceId &&
       r.distinct_behavior_refs === true &&
+      r.supersede_explicit === true &&
+      String(r.superseded_behavior_id ?? "") !== "" &&
+      r.superseded_behavior_id === r.first_confirm_action_behavior_ref &&
+      r.supersede_resolution_references_replacement === true &&
+      r.supersede_ref_matches_trace === true &&
+      r.second_confirm_active_behavior_matches_action === true &&
       r.first_tool_called_before_confirm === false &&
       r.first_production_write_before_confirm === false &&
       r.second_tool_called_before_confirm === false &&
       r.second_production_write_before_confirm === false &&
       r.second_confirmation_advanced_current_turn === true &&
       r.old_confirm_prevented === true &&
-      r.no_tool_dispatch_after_old === true &&
-      r.no_pending_artifact_after_old === true &&
-      r.latest_confirm_action_sent === true &&
-      r.latest_confirm_dispatched === true &&
-      Number(r.latest_toolbox_execute_count ?? 0) === 1 &&
-      r.latest_pending_artifact_after_confirm === true &&
+      Number(r.adoption_after_old_count ?? -1) === 0 &&
+      r.latest_confirmation_adopted === true &&
+      Number(r.latest_adoption_turn_count ?? 0) === 1 &&
+      r.first_artifact_not_adopted === true &&
       String(r.first_confirm_action_behavior_ref ?? "") !== "" &&
       String(r.second_confirm_action_behavior_ref ?? "") !== "" &&
       r.second_turn_behavior_context_ref_visible === true &&
       r.second_turn_behavior_context_author_safe === true &&
       String(r.second_turn_behavior_context_summary ?? "") !== "" &&
-      (String(r.second_turn_behavior_context_source_id ?? "") === "behavior_summary" ||
-        String(r.second_turn_behavior_context_ref ?? "") !== ""),
+      r.behavior_context_leaks_behavior_ref === false &&
+      r.behavior_context_leaks_action_id === false,
   );
   if (!uiState) return null;
 
@@ -18222,46 +18226,22 @@ function findAu06SingleActiveConfirmationEvidence(records) {
   const secondTurnId = String(uiState.second_confirm_turn_id ?? "");
   if (!firstTurnId || !secondTurnId || firstTurnId === secondTurnId) return null;
 
-  const firstRecords = records.filter((r) => String(r.turn_id ?? "") === firstTurnId);
-  const secondRecords = records.filter((r) => String(r.turn_id ?? "") === secondTurnId);
-
-  const firstBlocked = firstRecords.some(
-    (r) => r.event === "orchestrator.decide.done" && r.decision_type === "require_confirmation",
-  );
-  const secondBlocked = secondRecords.some(
-    (r) => r.event === "orchestrator.decide.done" && r.decision_type === "require_confirmation",
-  );
-  if (!firstBlocked || !secondBlocked) return null;
-
-  const oldRejectedByChannel = records.some(
-    (r) =>
-      r.event === "channel.author_action.error" &&
-      r.turn_id === firstTurnId &&
-      r.action_type === "confirm_before_execute" &&
-      String(r.outcome_detail ?? "").includes("stale"),
-  );
-  const oldPreventedByUi =
-    uiState.confirm_button_count_after_second === 1 || uiState.old_confirm_disabled === true;
-  if (!oldRejectedByChannel && !oldPreventedByUi) return null;
-
-  const behaviorContextSummary = String(uiState.second_turn_behavior_context_summary ?? "");
-  const firstBehaviorRef = String(uiState.first_confirm_action_behavior_ref ?? "");
-  const firstActionId = String(uiState.first_confirm_action_id ?? "");
-  if (firstBehaviorRef !== "" && behaviorContextSummary.includes(firstBehaviorRef)) {
-    return null;
-  }
-  if (firstActionId !== "" && behaviorContextSummary.includes(firstActionId)) {
-    return null;
-  }
+  const requireConfirmationCount = records.filter(
+    (r) => r.event === "adoption.evaluate.done" && r.decision_type === "require_confirmation",
+  ).length;
+  if (requireConfirmationCount < 2) return null;
 
   const latestConfirmed = records.some(
     (r) =>
       r.event === "channel.author_action.done" &&
-      r.turn_id === secondTurnId &&
       r.action_type === "confirm_before_execute" &&
       r.action_status === "accepted",
   );
   if (!latestConfirmed) return null;
+
+  // 场景种子注入两条待采纳候选；真实页面只需一条作者消息（B1 打开时的上下文验证）。
+  const userMessages = records.filter((r) => r.event === "channel.user_message.start");
+  if (userMessages.length < 1) return null;
 
   return {
     slice_id: sliceId,
@@ -18269,11 +18249,17 @@ function findAu06SingleActiveConfirmationEvidence(records) {
     turn_ids: [firstTurnId, secondTurnId],
     first_confirm_turn_id: firstTurnId,
     second_confirm_turn_id: secondTurnId,
-    latest_executed_turn_id: uiState.latest_executed_turn_id,
-    artifact_id: uiState.artifact_id,
-    artifact_type: uiState.artifact_type,
+    first_confirm_action_id: uiState.first_confirm_action_id,
+    second_confirm_action_id: uiState.second_confirm_action_id,
     first_confirm_action_behavior_ref: uiState.first_confirm_action_behavior_ref,
     second_confirm_action_behavior_ref: uiState.second_confirm_action_behavior_ref,
+    supersede_explicit: uiState.supersede_explicit,
+    superseded_behavior_id: uiState.superseded_behavior_id,
+    superseded_behavior_status: uiState.superseded_behavior_status,
+    supersede_resolution_ref: uiState.supersede_resolution_ref,
+    trace_behavior_supersede_ref: uiState.trace_behavior_supersede_ref,
+    second_confirm_active_behavior_matches_action:
+      uiState.second_confirm_active_behavior_matches_action,
     second_turn_behavior_context_ref_visible: uiState.second_turn_behavior_context_ref_visible,
     second_turn_behavior_context_author_safe: uiState.second_turn_behavior_context_author_safe,
     second_turn_behavior_context_summary: uiState.second_turn_behavior_context_summary,
@@ -18284,11 +18270,13 @@ function findAu06SingleActiveConfirmationEvidence(records) {
     old_confirm_prevented: uiState.old_confirm_prevented,
     old_confirm_rejected: uiState.old_confirm_rejected,
     old_author_action_error_count: Number(uiState.old_author_action_error_count ?? 0),
-    toolbox_execute_after_old_count: Number(uiState.toolbox_execute_after_old_count ?? 0),
-    pending_prose_fragment_after_old_count: Number(
-      uiState.pending_prose_fragment_after_old_count ?? 0,
-    ),
-    latest_toolbox_execute_count: Number(uiState.latest_toolbox_execute_count ?? 0),
+    adoption_after_old_count: Number(uiState.adoption_after_old_count ?? 0),
+    latest_confirmation_adopted: uiState.latest_confirmation_adopted,
+    latest_adoption_turn_count: Number(uiState.latest_adoption_turn_count ?? 0),
+    latest_adoption_evaluate_count: Number(uiState.latest_adoption_evaluate_count ?? 0),
+    latest_adoption_write_count: Number(uiState.latest_adoption_write_count ?? 0),
+    adopted_artifact_type: uiState.adopted_artifact_type,
+    first_artifact_not_adopted: uiState.first_artifact_not_adopted,
     key_events: keyEvents,
   };
 }
@@ -19356,30 +19344,36 @@ function au06SingleActiveConfirmationBehavior(turnIds, _turnRecords, records, ev
   );
   if (!uiState) return null;
   if (uiState.distinct_behavior_refs !== true) return null;
+  if (uiState.supersede_explicit !== true) return null;
+  if (String(uiState.superseded_behavior_id ?? "") !== String(uiState.first_confirm_action_behavior_ref ?? "")) {
+    return null;
+  }
+  if (uiState.supersede_resolution_references_replacement !== true) return null;
+  if (uiState.supersede_ref_matches_trace !== true) return null;
+  if (uiState.second_confirm_active_behavior_matches_action !== true) return null;
   if (uiState.second_confirmation_advanced_current_turn !== true) return null;
   if (uiState.old_confirm_prevented !== true) return null;
-  if (uiState.no_tool_dispatch_after_old !== true) return null;
-  if (uiState.no_pending_artifact_after_old !== true) return null;
-  if (uiState.latest_confirm_dispatched !== true) return null;
+  if (Number(uiState.adoption_after_old_count ?? 0) !== 0) return null;
+  if (uiState.latest_confirmation_adopted !== true) return null;
+  if (Number(uiState.latest_adoption_turn_count ?? 0) !== 1) return null;
   if (uiState.second_turn_behavior_context_ref_visible !== true) return null;
   if (uiState.second_turn_behavior_context_author_safe !== true) return null;
   if (String(uiState.second_turn_behavior_context_summary ?? "") === "") return null;
-  if (
-    String(uiState.second_turn_behavior_context_source_id ?? "") !== "behavior_summary" &&
-    String(uiState.second_turn_behavior_context_ref ?? "") === ""
-  ) {
-    return null;
-  }
-  if (Number(uiState.toolbox_execute_after_old_count ?? 0) !== 0) return null;
-  if (Number(uiState.pending_prose_fragment_after_old_count ?? 0) !== 0) return null;
-  if (Number(uiState.latest_toolbox_execute_count ?? 0) !== 1) return null;
+  if (uiState.first_artifact_not_adopted !== true) return null;
+  if (Number(uiState.latest_adoption_evaluate_count ?? 0) < 1) return null;
 
   return {
     slice_id: "au06-single-active-confirmation",
-    behavior: "new_confirmation_supersedes_old_author_blocking_behavior_without_old_execution",
+    behavior: "new_confirmation_explicitly_supersedes_old_author_blocking_behavior",
     turn_ids: turnIds,
+    first_confirm_turn_id: evidence.first_confirm_turn_id,
+    second_confirm_turn_id: evidence.second_confirm_turn_id,
     first_confirm_action_behavior_ref: evidence.first_confirm_action_behavior_ref,
     second_confirm_action_behavior_ref: evidence.second_confirm_action_behavior_ref,
+    superseded_behavior_id: evidence.superseded_behavior_id,
+    superseded_behavior_status: evidence.superseded_behavior_status,
+    supersede_resolution_ref: evidence.supersede_resolution_ref,
+    trace_behavior_supersede_ref: evidence.trace_behavior_supersede_ref,
     second_turn_behavior_context_ref_visible: evidence.second_turn_behavior_context_ref_visible,
     second_turn_behavior_context_author_safe: evidence.second_turn_behavior_context_author_safe,
     second_turn_behavior_context_summary: evidence.second_turn_behavior_context_summary,
@@ -19390,13 +19384,16 @@ function au06SingleActiveConfirmationBehavior(turnIds, _turnRecords, records, ev
     old_confirm_prevented: evidence.old_confirm_prevented,
     old_confirm_rejected: evidence.old_confirm_rejected,
     old_author_action_error_count: evidence.old_author_action_error_count,
-    latest_toolbox_execute_count: evidence.latest_toolbox_execute_count,
+    adoption_after_old_count: evidence.adoption_after_old_count,
+    latest_adoption_turn_count: evidence.latest_adoption_turn_count,
     assertions: [
-      "first_high_risk_turn_opened_confirmation_in_real_workbench",
-      "second_high_risk_turn_advanced_to_a_distinct_active_confirmation",
+      "first_overwrite_confirmation_opened_in_real_workbench",
+      "second_overwrite_confirmation_advanced_to_a_distinct_active_behavior",
+      "old_behavior_explicitly_superseded_with_resolution_ref_to_replacement",
+      "supersede_chain_recorded_in_behavior_history_and_trace_summary",
       "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
-      "old_confirmation_did_not_dispatch_tool_or_create_pending_draft",
-      "latest_confirmation_remained_actionable_and_executed_once",
+      "old_confirmation_did_not_adopt_or_write",
+      "latest_confirmation_adopted_exactly_once",
       "second_turn_received_author_safe_behavior_context_ref",
     ],
   };

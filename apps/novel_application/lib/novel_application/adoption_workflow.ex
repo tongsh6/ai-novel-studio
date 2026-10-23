@@ -123,6 +123,13 @@ defmodule NovelApplication.AdoptionWorkflow do
       :duplicate_character_alias_hit,
       (duplicate_match && duplicate_match.alias_hit) == true
     )
+    # ADR-0008 8-2：同 workstream 上一个 active author-blocking behavior（由 Channel
+    # 从本 socket 的 turn_results 快照读出）。新 confirmation 打开时显式 supersede，
+    # 而不是依赖 Channel current-turn guard 隐式失效。
+    |> Map.put(
+      :previous_behavior,
+      Map.get(params, "previous_behavior") || Map.get(params, :previous_behavior)
+    )
   end
 
   # 同名/别名角色（M4 实锤 + AU12 CP2 别名后门）：档案已有同名已确认角色、或提案
@@ -962,30 +969,38 @@ defmodule NovelApplication.AdoptionWorkflow do
     artifact_id = artifact_field(artifact, :artifact_id)
     confirmation? = decision.decision_type == :require_confirmation
     behavior_id = "bh_confirm_#{artifact_id}"
+    decision_turn_id = NovelFoundation.ID.unique("turn_adopt")
+
+    {behavior_state, supersede_ref} =
+      decision_behavior_state(
+        confirmation?,
+        behavior_id,
+        artifact_id,
+        source_turn_id,
+        decision_turn_id,
+        decision,
+        decision_opts
+      )
 
     %{
       schema_version: "3.0-draft",
-      turn_id: NovelFoundation.ID.unique("turn_adopt"),
+      turn_id: decision_turn_id,
       parent_turn_id: source_turn_id,
       assistant_message: %{text: decision_message(decision, artifact, decision_opts)},
       ui_cards: [],
-      trace_summary: %{
-        decision_type: to_string(decision.decision_type),
-        reason_codes: decision.reason_codes,
-        decision_trace_ref: decision.decision_trace_ref,
-        state_trace_ref: decision.state_trace_ref
-      },
+      trace_summary:
+        %{
+          decision_type: to_string(decision.decision_type),
+          reason_codes: decision.reason_codes,
+          decision_trace_ref: decision.decision_trace_ref,
+          state_trace_ref: decision.state_trace_ref
+        }
+        |> maybe_put_behavior_supersede(supersede_ref, decision_turn_id),
       phase: decision_phase(decision),
       status: decision_status(decision),
       available_actions:
         if(confirmation?, do: confirmation_available_actions(artifact_id, behavior_id), else: []),
-      behavior_state:
-        BehaviorState.snapshot(
-          if(confirmation?,
-            do: confirmation_behavior(behavior_id, artifact_id, source_turn_id, decision),
-            else: nil
-          )
-        ),
+      behavior_state: behavior_state,
       projection_refs: [],
       adoption_decision: decision_payload(decision),
       truthfulness: %{
@@ -996,11 +1011,92 @@ defmodule NovelApplication.AdoptionWorkflow do
         mutation_ref: nil,
         adopted_state_ref: nil,
         durable_behavior_opened: confirmation?,
+        superseded_behavior_ref: supersede_ref,
         decision_type: decision.decision_type,
         reason_codes: decision.reason_codes
       }
     }
   end
+
+  # 8-2 显式 supersede：新 author-blocking confirmation 打开时，把同 workstream 上一个
+  # open author-blocking behavior 标成 :superseded 并放进新 TurnResult 的 behavior_state.history；
+  # 只依赖服务端已加载的上一 behavior 快照（Channel turn_results），不读 UI、不读验收开关。
+  defp decision_behavior_state(
+         false,
+         _behavior_id,
+         _artifact_id,
+         _source_turn_id,
+         _decision_turn_id,
+         _decision,
+         _opts
+       ),
+       do: {BehaviorState.snapshot(nil), nil}
+
+  defp decision_behavior_state(
+         true,
+         behavior_id,
+         artifact_id,
+         source_turn_id,
+         decision_turn_id,
+         decision,
+         opts
+       ) do
+    new_behavior = confirmation_behavior(behavior_id, artifact_id, source_turn_id, decision)
+    previous = BehaviorState.from_map(Map.get(opts, :previous_behavior))
+
+    cond do
+      is_nil(previous) or previous.behavior_id == behavior_id ->
+        {BehaviorState.snapshot(new_behavior), nil}
+
+      BehaviorState.open?(previous) and BehaviorState.author_blocking?(previous) ->
+        superseded =
+          BehaviorState.supersede(previous, new_behavior,
+            closed_at_turn_ref: decision_turn_id,
+            reason_code: "new_author_blocking_behavior_opened"
+          )
+
+        {BehaviorState.snapshot(new_behavior, [superseded]), superseded.resolution.ref}
+
+      true ->
+        {BehaviorState.snapshot(new_behavior), nil}
+    end
+  end
+
+  defp maybe_put_behavior_supersede(summary, nil, _decision_turn_id), do: summary
+
+  defp maybe_put_behavior_supersede(summary, supersede_ref, decision_turn_id) do
+    summary
+    |> Map.put(:behavior_supersede_ref, supersede_ref)
+    |> Map.put(:behavior_trace_refs, [
+      %{
+        behavior_ref: superseded_behavior_id(supersede_ref),
+        event_type: :supersede,
+        next_status: :superseded,
+        event_turn_ref: decision_turn_id,
+        resolution_ref: supersede_ref,
+        superseded_by_ref: superseded_by_ref(supersede_ref)
+      }
+    ])
+  end
+
+  # resolution_ref 形状冻结为 `behavior_superseded:<old_id>:<new_id>`（domain 同源）。
+  defp superseded_behavior_id("behavior_superseded:" <> rest) do
+    case String.split(rest, ":", parts: 2) do
+      [old_id, _new_id] -> old_id
+      _ -> rest
+    end
+  end
+
+  defp superseded_behavior_id(_ref), do: nil
+
+  defp superseded_by_ref("behavior_superseded:" <> rest) do
+    case String.split(rest, ":", parts: 2) do
+      [_old_id, new_id] -> "behavior:" <> new_id
+      _ -> nil
+    end
+  end
+
+  defp superseded_by_ref(_ref), do: nil
 
   defp confirmation_available_actions(artifact_id, behavior_id) do
     [

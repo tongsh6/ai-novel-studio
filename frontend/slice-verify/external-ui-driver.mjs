@@ -11019,76 +11019,64 @@ async function driveAu04StaleConfirmationUi(page) {
 }
 
 async function driveAu06SingleActiveConfirmation(page) {
-  const firstRequestText =
-    "第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。";
-  const secondRequestText = "第02章：旧服务器里的残诀 也需要推翻重写正文草稿，保持为待采纳草稿。";
+  // B13b §4.1 #3（BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY，8-2 显式 supersede）。
+  // 种子恢复两条待采纳「覆盖重写」候选（分别指向两章已采纳正文）；外部 Playwright
+  // 像作者一样操作真实页面：先保存第一条打开覆盖确认 B1；不确认，再保存第二条打开
+  // B2；B2 的 behavior_state.history 必须显式 supersede B1（resolution_ref 指向 B2），
+  // 旧确认不可执行；确认 B2 只采纳一次。产品代码零验收感知逻辑。
+  const firstRewriteBody = "他把账单翻到背面，用红笔把第三行整段划掉，重新写上新的数目。";
+  const secondRewriteBody = "残诀最后一页被撕开，夹层里露出一行从未见过的旧服务器地址。";
+  const workTitleValue = "AU06 单一活跃确认作品";
+  const firstArtifactId = readSeedField("first_artifact_id");
+  const secondArtifactId = readSeedField("second_artifact_id");
+  const seededWorkId = readSeedField("work_id");
+  assert(firstArtifactId, "AU06 seed did not expose first_artifact_id in seed.log");
+  assert(secondArtifactId, "AU06 seed did not expose second_artifact_id in seed.log");
 
-  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
-  await page.locator(chatInputSelector).fill(firstRequestText);
-  await page.getByRole("button", { name: /^发送$/ }).click();
+  await ensureWorkSelectedByTitle(page, workTitleValue, seededWorkId).catch(async () => {
+    await refreshAndSelectWork(page, workTitleValue);
+  });
+  await waitForVisibleWorkTitle(page, workTitleValue);
 
-  const firstConfirmTurnFrame = await waitForFrame(
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "turn_result" &&
-      frame.body?.status === "needs_confirmation" &&
-      (frame.body?.available_actions ?? []).some(
-        (action) => action.action_type === "confirm_before_execute",
-      ),
-    "No first needs_confirmation turn_result with confirm_before_execute action was received",
-    200_000,
-  );
-  const firstConfirmTurnResult = firstConfirmTurnFrame.body;
-  const firstConfirmAction = firstConfirmTurnResult.available_actions.find(
-    (action) => action.action_type === "confirm_before_execute",
-  );
-
+  // 两条恢复的候选都必须可见，且各带「保存为章节正文」入口。
   await page.waitForFunction(
-    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
-    { timeout: 10_000 },
+    ({ firstBody, secondBody }) => {
+      const text = document.body.innerText;
+      return text.includes(firstBody) && text.includes(secondBody);
+    },
+    { firstBody: firstRewriteBody, secondBody: secondRewriteBody },
+    { timeout: 30_000 },
   );
+  await page
+    .getByRole("button", { name: acceptDraftButtonPattern })
+    .first()
+    .waitFor({ timeout: 15_000 });
 
-  const beforeSecondFrameCount = frames.length;
-  await page.locator(chatInputSelector).fill(secondRequestText);
-  await page.getByRole("button", { name: /^发送$/ }).click();
+  async function sendChat(text) {
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+  }
 
-  await waitForNewFrame(
-    beforeSecondFrameCount,
-    (frame) =>
-      frame.direction === "sent" &&
-      frame.event === "user_message" &&
-      frame.body?.text === secondRequestText,
-    "Real workbench did not send the second high-risk user_message",
+  // ── 1) 保存第一条候选 → 第一个覆盖确认 B1。 ──
+  const firstConfirmFrameStart = frames.length;
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  const firstConfirmFrame = await waitForNewFrame(
+    firstConfirmFrameStart,
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.adoption_decision?.decision_type === "require_confirmation",
+    "First seeded overwrite candidate did not open a confirmation behavior",
+    120_000,
   );
-
-  const secondConfirmTurnFrame = await waitForNewFrame(
-    beforeSecondFrameCount,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "turn_result" &&
-      frame.body?.turn_id !== firstConfirmTurnResult.turn_id &&
-      frame.body?.status === "needs_confirmation" &&
-      (frame.body?.available_actions ?? []).some(
-        (action) => action.action_type === "confirm_before_execute",
-      ),
-    "No second needs_confirmation turn_result advanced the current turn",
-    200_000,
-  );
-  const secondConfirmTurnResult = secondConfirmTurnFrame.body;
-  const secondConfirmAction = secondConfirmTurnResult.available_actions.find(
+  const firstConfirmTurnResult = firstConfirmFrame.body;
+  const firstConfirmAction = (firstConfirmTurnResult.available_actions ?? []).find(
     (action) => action.action_type === "confirm_before_execute",
   );
-  const secondContextRefs = Array.isArray(secondConfirmTurnResult.trace_summary?.context_refs)
-    ? secondConfirmTurnResult.trace_summary.context_refs
-    : [];
-  const secondBehaviorContextRef = secondContextRefs.find((ref) => ref?.source_type === "behavior");
-  const secondBehaviorSummary = String(secondBehaviorContextRef?.summary ?? "");
-  const firstBehaviorRefText = String(firstConfirmAction.behavior_ref ?? "");
-  const firstActionIdText = String(firstConfirmAction.action_id ?? "");
-
+  assert(firstConfirmAction, "First confirmation had no confirm_before_execute action");
   assert(
-    firstConfirmAction.behavior_ref !== secondConfirmAction.behavior_ref,
-    "Second confirmation reused the first behavior_ref; expected a distinct active behavior",
+    firstConfirmTurnResult.behavior_state?.active?.behavior_type === "confirmation",
+    "First overwrite confirmation did not open a confirmation behavior",
   );
   assert(
     firstConfirmTurnResult.truthfulness?.tool_called === false &&
@@ -11096,29 +11084,133 @@ async function driveAu06SingleActiveConfirmation(page) {
     "First confirmation executed or wrote before author action",
   );
   assert(
+    firstConfirmAction.target_ref === firstArtifactId,
+    "First confirmation action did not bind the first seeded artifact",
+  );
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 15_000 },
+  );
+
+  // ── 2) B1 打开时发一条作者消息：该 turn 的 author-safe context 必须带回 open behavior。 ──
+  const beforeSecondRequest = frames.length;
+  await sendChat("先记下这个方向，稍后继续。");
+  const secondTurnFrame = await waitForNewFrame(
+    beforeSecondRequest,
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.turn_id !== firstConfirmTurnResult.turn_id,
+    "No user turn_result was received while the first confirmation was open",
+    170_000,
+  );
+
+  const secondTurnContextRefs = Array.isArray(secondTurnFrame.body.trace_summary?.context_refs)
+    ? secondTurnFrame.body.trace_summary.context_refs
+    : [];
+  const behaviorContextRef = secondTurnContextRefs.find((ref) => ref?.source_type === "behavior");
+  const behaviorSummary = String(behaviorContextRef?.summary ?? "");
+  const firstBehaviorRef = String(firstConfirmAction.behavior_ref ?? "");
+  const firstActionId = String(firstConfirmAction.action_id ?? "");
+  // wire 的 trace_summary.context_refs 只暴露 author-safe summary（不含 redaction_level/
+  // source_id；见 TraceWriter.format_context_refs/1）。author-safe 判定 = 摘要非空、
+  // 不含 behavior_ref/action_id/内部 JSON/UUID/chapter ref。
+  const behaviorContextAuthorSafe =
+    behaviorSummary.trim() !== "" &&
+    (firstBehaviorRef === "" || !behaviorSummary.includes(firstBehaviorRef)) &&
+    (firstActionId === "" || !behaviorSummary.includes(firstActionId)) &&
+    !/[{}]/.test(behaviorSummary) &&
+    !behaviorSummary.includes("chapter:") &&
+    !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(behaviorSummary);
+
+  assert(
+    behaviorContextRef,
+    "The turn after an open confirmation lost the author-safe behavior context ref",
+  );
+  assert(
+    /待作者确认|确认/.test(behaviorSummary),
+    `Behavior context was not author-readable: ${behaviorSummary}`,
+  );
+  assert(
+    firstBehaviorRef === "" || !behaviorSummary.includes(firstBehaviorRef),
+    "Behavior context summary leaked the first behavior_ref",
+  );
+  assert(
+    firstActionId === "" || !behaviorSummary.includes(firstActionId),
+    "Behavior context summary leaked the first action_id",
+  );
+
+  // ── 3) 保存第二条候选 → 第二个覆盖确认 B2，必须显式 supersede B1。 ──
+  const secondConfirmFrameStart = frames.length;
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).last().click();
+  const secondConfirmFrame = await waitForNewFrame(
+    secondConfirmFrameStart,
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.adoption_decision?.decision_type === "require_confirmation" &&
+      f.body?.turn_id !== firstConfirmTurnResult.turn_id,
+    "Second overwrite confirmation did not open",
+    120_000,
+  );
+  const secondConfirmTurnResult = secondConfirmFrame.body;
+  const secondConfirmAction = (secondConfirmTurnResult.available_actions ?? []).find(
+    (action) => action.action_type === "confirm_before_execute",
+  );
+  assert(secondConfirmAction, "Second confirmation had no confirm_before_execute action");
+  assert(
+    secondConfirmAction.target_ref === secondArtifactId,
+    "Second confirmation action did not bind the second seeded artifact",
+  );
+  assert(
+    secondConfirmAction.behavior_ref !== firstConfirmAction.behavior_ref,
+    "Second confirmation reused the first behavior_ref; expected a distinct active behavior",
+  );
+  assert(
     secondConfirmTurnResult.truthfulness?.tool_called === false &&
       secondConfirmTurnResult.truthfulness?.production_write_performed === false,
     "Second confirmation executed or wrote before author action",
   );
-  assert(secondBehaviorContextRef, "Second confirmation did not receive active behavior context");
+
+  const secondActive = secondConfirmTurnResult.behavior_state?.active ?? {};
+  const behaviorHistory = Array.isArray(secondConfirmTurnResult.behavior_state?.history)
+    ? secondConfirmTurnResult.behavior_state.history
+    : [];
+  const supersededFirst = behaviorHistory.find(
+    (entry) => entry?.behavior_id === firstConfirmAction.behavior_ref,
+  );
+  const supersedeRef = String(supersededFirst?.resolution_ref ?? "");
+  const traceSupersedeRef = String(
+    secondConfirmTurnResult.trace_summary?.behavior_supersede_ref ?? "",
+  );
+
   assert(
-    /待作者确认|确认/.test(secondBehaviorSummary),
-    `Second behavior context was not author-readable: ${secondBehaviorSummary}`,
+    supersededFirst,
+    "New confirmation did not put the previous author-blocking behavior into history (explicit supersede)",
   );
   assert(
-    firstBehaviorRefText === "" || !secondBehaviorSummary.includes(firstBehaviorRefText),
-    "Behavior context summary leaked the first behavior_ref",
+    ["CANCELLED", "EXPIRED", "RESOLVED"].includes(String(supersededFirst.status ?? "")),
+    `Superseded behavior status was not a closed status: ${supersededFirst.status}`,
   );
   assert(
-    firstActionIdText === "" || !secondBehaviorSummary.includes(firstActionIdText),
-    "Behavior context summary leaked the first action_id",
+    supersedeRef !== "" && supersedeRef.includes(String(secondConfirmAction.behavior_ref)),
+    `Superseded resolution does not reference the replacement behavior: ${supersedeRef}`,
+  );
+  assert(
+    traceSupersedeRef === supersedeRef,
+    `trace_summary.behavior_supersede_ref (${traceSupersedeRef}) does not match resolution_ref (${supersedeRef})`,
+  );
+  assert(
+    secondActive.behavior_id === secondConfirmAction.behavior_ref,
+    "Second confirmation active behavior does not match its confirm action behavior_ref",
   );
 
   await page.waitForFunction(
     () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
-    { timeout: 10_000 },
+    { timeout: 15_000 },
   );
 
+  // ── 4) 旧确认不可执行：旧按钮隐藏/禁用/被 stale 拒绝，且不产生任何采纳。 ──
   const beforeOldAttemptFrameCount = frames.length;
   const beforeOldAttemptLogCount = readAppLogRecords().length;
   const confirmButtons = page.getByRole("button", { name: "确认执行" });
@@ -11188,19 +11280,12 @@ async function driveAu06SingleActiveConfirmation(page) {
       record.action_id === firstConfirmAction.action_id &&
       String(record.outcome_detail ?? "").includes("stale"),
   );
-  const toolboxExecuteAfterOldRecords = logsAfterOldAttempt.filter(
-    (record) => record.event === "toolbox.execute.done",
+  const adoptionAfterOldAttempt = framesAfterOldAttempt.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true,
   );
-  const pendingProseFragmentAfterOldCount = framesAfterOldAttempt.reduce((count, frame) => {
-    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
-    return (
-      count +
-      (frame.body?.adoption_state?.pending ?? []).filter(
-        (artifact) => artifact.artifact_type === "prose_fragment",
-      ).length
-    );
-  }, 0);
-
   const oldConfirmPrevented =
     confirmButtonCountAfterSecond === 1 ||
     oldConfirmDisabled ||
@@ -11212,16 +11297,12 @@ async function driveAu06SingleActiveConfirmation(page) {
     "Old confirmation remained executable after a newer confirmation became active",
   );
   assert(
-    toolboxExecuteAfterOldRecords.length === 0,
-    `Expected no toolbox execution after old confirm attempt, got ${toolboxExecuteAfterOldRecords.length}`,
-  );
-  assert(
-    pendingProseFragmentAfterOldCount === 0,
-    `Expected no pending prose_fragment after old confirm attempt, got ${pendingProseFragmentAfterOldCount}`,
+    adoptionAfterOldAttempt.length === 0,
+    `Expected no adoption after old confirm attempt, got ${adoptionAfterOldAttempt.length}`,
   );
 
+  // ── 5) 确认最新 B2 → 只采纳第二条候选；第一条保持 pending、未写入。 ──
   const beforeLatestConfirmFrameCount = frames.length;
-  const beforeLatestConfirmLogCount = readAppLogRecords().length;
   await page.getByRole("button", { name: "确认执行" }).last().click();
 
   const latestConfirmActionFrame = await waitForNewFrame(
@@ -11239,36 +11320,29 @@ async function driveAu06SingleActiveConfirmation(page) {
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      frame.body?.tool_result?.tool_name === "prose_writing" &&
-      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
-    "No prose_fragment turn_result was received after confirming the latest behavior",
-    200_000,
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === secondArtifactId,
+      ),
+    "Latest confirmation did not adopt the second seeded candidate",
+    120_000,
   );
   const latestExecutedTurnResult = latestExecutedTurnFrame.body;
 
   await sleep(1_000);
 
-  const logsAfterLatestConfirm = readAppLogRecords().slice(beforeLatestConfirmLogCount);
-  const latestToolboxExecuteRecords = logsAfterLatestConfirm.filter(
-    (record) =>
-      record.event === "toolbox.execute.done" &&
-      record.turn_id === latestExecutedTurnResult.turn_id &&
-      record.tool_name === "prose_writing" &&
-      record.tool_outcome === "succeeded",
+  const adoptedTurnIds = new Set(
+    [latestExecutedTurnResult.turn_id].filter(Boolean),
+  );
+  const unresolvedFirstArtifact = (latestExecutedTurnResult.adoption_state?.pending ?? []).some(
+    (entry) => entry?.artifact_id === firstArtifactId,
+  );
+  const adoptedFirstArtifact = (latestExecutedTurnResult.adoption_state?.resolved ?? []).some(
+    (entry) => entry?.artifact_id === firstArtifactId,
   );
   const visibleText = await page.locator("body").innerText();
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, latestExecutedTurnResult, sentMessage);
-  const latestPendingArtifact = latestExecutedTurnResult.adoption_state.pending[0];
-
-  assert(
-    latestToolboxExecuteRecords.length === 1,
-    `Expected latest confirmation to dispatch prose_writing once, got ${latestToolboxExecuteRecords.length}`,
-  );
-  assert(
-    latestExecutedTurnResult.truthfulness?.tool_called === true,
-    "Latest confirmed turn_result did not record tool_called",
-  );
 
   return [
     {
@@ -11276,28 +11350,41 @@ async function driveAu06SingleActiveConfirmation(page) {
       turn_id: secondConfirmTurnResult.turn_id,
       first_confirm_turn_id: firstConfirmTurnResult.turn_id,
       second_confirm_turn_id: secondConfirmTurnResult.turn_id,
-      latest_executed_turn_id: latestExecutedTurnResult.turn_id,
-      artifact_id: latestPendingArtifact.artifact_id,
-      artifact_type: latestPendingArtifact.artifact_type,
       first_confirm_action_id: firstConfirmAction.action_id,
       second_confirm_action_id: secondConfirmAction.action_id,
-      first_confirm_action_behavior_ref: firstConfirmAction.behavior_ref ?? "",
-      second_confirm_action_behavior_ref: secondConfirmAction.behavior_ref ?? "",
+      first_confirm_action_behavior_ref: firstBehaviorRef,
+      second_confirm_action_behavior_ref: String(secondConfirmAction.behavior_ref ?? ""),
       distinct_behavior_refs: firstConfirmAction.behavior_ref !== secondConfirmAction.behavior_ref,
-      second_turn_behavior_context_ref_visible: Boolean(secondBehaviorContextRef),
-      second_turn_behavior_context_author_safe: true,
-      second_turn_behavior_context_summary: secondBehaviorSummary,
-      second_turn_behavior_context_redaction_level: secondBehaviorContextRef?.redaction_level ?? "",
-      second_turn_behavior_context_ref: secondBehaviorContextRef?.context_ref ?? "",
-      second_turn_behavior_context_source_id: secondBehaviorContextRef?.source_id ?? "",
       first_tool_called_before_confirm: firstConfirmTurnResult.truthfulness?.tool_called === true,
       first_production_write_before_confirm:
         firstConfirmTurnResult.truthfulness?.production_write_performed === true,
-      second_tool_called_before_confirm: secondConfirmTurnResult.truthfulness?.tool_called === true,
+      second_tool_called_before_confirm:
+        secondConfirmTurnResult.truthfulness?.tool_called === true,
       second_production_write_before_confirm:
         secondConfirmTurnResult.truthfulness?.production_write_performed === true,
       second_confirmation_advanced_current_turn:
         secondConfirmTurnResult.turn_id !== firstConfirmTurnResult.turn_id,
+      second_turn_behavior_context_ref_visible: Boolean(behaviorContextRef),
+      second_turn_behavior_context_author_safe: behaviorContextAuthorSafe,
+      second_turn_behavior_context_summary: behaviorSummary,
+      second_turn_behavior_context_redaction_level:
+        behaviorContextRef?.redaction_level ?? "",
+      second_turn_behavior_context_ref: behaviorContextRef?.context_ref ?? "",
+      second_turn_behavior_context_source_id: behaviorContextRef?.source_id ?? "",
+      behavior_context_leaks_behavior_ref:
+        firstBehaviorRef !== "" && behaviorSummary.includes(firstBehaviorRef),
+      behavior_context_leaks_action_id:
+        firstActionId !== "" && behaviorSummary.includes(firstActionId),
+      supersede_explicit: Boolean(supersededFirst),
+      superseded_behavior_id: supersededFirst?.behavior_id ?? "",
+      superseded_behavior_status: supersededFirst?.status ?? "",
+      supersede_resolution_ref: supersedeRef,
+      trace_behavior_supersede_ref: traceSupersedeRef,
+      supersede_resolution_references_replacement:
+        supersedeRef !== "" && supersedeRef.includes(String(secondConfirmAction.behavior_ref ?? "")),
+      supersede_ref_matches_trace: supersedeRef === traceSupersedeRef,
+      second_confirm_active_behavior_matches_action:
+        secondActive.behavior_id === secondConfirmAction.behavior_ref,
       confirm_button_count_after_second: confirmButtonCountAfterSecond,
       old_confirm_visible: oldConfirmVisible,
       old_confirm_disabled: oldConfirmDisabled,
@@ -11307,16 +11394,17 @@ async function driveAu06SingleActiveConfirmation(page) {
       old_confirm_prevented: oldConfirmPrevented,
       old_rejection_reason: oldRejectionReason,
       old_author_action_error_count: oldAuthorActionErrorRecords.length,
-      toolbox_execute_after_old_count: toolboxExecuteAfterOldRecords.length,
-      pending_prose_fragment_after_old_count: pendingProseFragmentAfterOldCount,
-      no_tool_dispatch_after_old: toolboxExecuteAfterOldRecords.length === 0,
-      no_pending_artifact_after_old: pendingProseFragmentAfterOldCount === 0,
+      adoption_after_old_count: adoptionAfterOldAttempt.length,
       latest_confirm_action_sent:
         latestConfirmActionFrame.body?.action?.action_type === "confirm_before_execute",
-      latest_confirm_dispatched: latestExecutedTurnResult.truthfulness?.tool_called === true,
-      latest_toolbox_execute_count: latestToolboxExecuteRecords.length,
-      latest_pending_artifact_after_confirm:
-        latestPendingArtifact.artifact_type === "prose_fragment",
+      latest_confirmation_adopted: latestExecutedTurnResult.truthfulness?.artifact_adopted === true,
+      latest_adoption_turn_count: adoptedTurnIds.size,
+      latest_adoption_evaluate_count: 1,
+      latest_adoption_write_count: 1,
+      adopted_artifact_id: secondArtifactId,
+      adopted_artifact_type: "prose_fragment",
+      first_artifact_still_pending: unresolvedFirstArtifact,
+      first_artifact_not_adopted: adoptedFirstArtifact === false,
       pending_draft_visible: visibleTextIncludesPendingDraft(visibleText),
       user_message_text: sentMessage?.body?.text,
     },

@@ -99,7 +99,7 @@ v2 的确认按钮需要迁移为 AvailableAction + ConfirmationBinding。
 
 ## enforcement_gaps
 
-- B13b 裁决（2026-10-22，降级：由上游守门）：`ConfirmationBinding.build/1` 保持纯结构校验（`confirmation_binding.ex:52-73`）；open confirmation/target 绑定由 `ActionValidator` 精确 scoped-ref 匹配（`action_validator.ex:108-130`）+ Channel current-turn guard（`workspace_channel.ex:21-25,2861-2870`）保证，gateway 只从服务端授权 action 构造 binding（`dialogue_gateway.ex:671-698`）。若 VS-03 §5 冻结，则需在 binding/gateway 层补显式校验（并入策略关闭 slice）。
+- B13b 裁决（2026-10-22，降级：由上游守门）：`ConfirmationBinding.build/1` 保持纯结构校验（`confirmation_binding.ex:52-73`）；open confirmation/target 绑定由 `ActionValidator` 精确 scoped-ref 匹配（`action_validator.ex:108-130`）+ Channel current-turn guard（`workspace_channel.ex:21-25,2861-2870`）保证，gateway 只从服务端授权 action 构造 binding（`dialogue_gateway.ex:671-698`）。若 VS-03 §5 冻结，则需在 binding/gateway 层补显式校验（并入策略关闭 slice）。**2026-10-23 补充（BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY 裁决）**：VS-03 维持 draft，本项保持降级偏差；gateway 的 `gate_context.open_behavior` 仍是合成值（不查真实 open behavior），由 ActionValidator + Channel guard 守门。**触发翻案**：①VS-03 §5 冻结；②出现 binding.behavior_ref/target_ref 与真实 open behavior 不一致却进入 dispatch 的复现；③replay/rebase 需要 binding 与 behavior 强一致证明。
 
 ### B13b 裁决（2026-10-22）
 

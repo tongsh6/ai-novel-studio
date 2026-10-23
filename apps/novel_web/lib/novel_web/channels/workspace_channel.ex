@@ -50,6 +50,9 @@ defmodule NovelWeb.WorkspaceChannel do
       |> assign(:turn_results_list, restored_list)
       |> assign(:turn_results_by_id, restored_map)
       |> assign(:current_turn_id, latest_turn_id(restored_map))
+      # ADR-0008 8-2：以 transcript 顺序（旧→新）最后一处 behavior_state 为准恢复
+      # 「当前 active author-blocking behavior」，供新 confirmation 打开时显式 supersede。
+      |> assign(:active_behavior, latest_behavior_state(restored_list))
       |> assign(:action_idempotency_ledger, %{})
 
     # Best-effort touch so the most-recently-opened work surfaces first in
@@ -344,6 +347,9 @@ defmodule NovelWeb.WorkspaceChannel do
       params
       |> Map.put("work_id", work_id)
       |> Map.put("session_id", socket.assigns[:session_id])
+      # ADR-0008 8-2：把本 socket 已知的最近 active author-blocking behavior 交给
+      # application，新 confirmation 打开时显式 supersede 旧 behavior（不依赖 UI 状态）。
+      |> Map.put("previous_behavior", previous_active_behavior(socket))
 
     case source_turn_result do
       {:error, reason} ->
@@ -1168,7 +1174,10 @@ defmodule NovelWeb.WorkspaceChannel do
           "action_id" => action_input.action_id,
           "action_type" => action_input.action_type,
           "behavior_ref" => action_input.behavior_ref,
-          "idempotency_key" => action_input.idempotency_key
+          "idempotency_key" => action_input.idempotency_key,
+          # 8-2：真实页面「保存为章节正文」走 author_action accept；上一 active
+          # author-blocking behavior 交 application 在新 confirmation 打开时显式 supersede。
+          "previous_behavior" => previous_active_behavior(socket)
         }
 
         result =
@@ -2667,6 +2676,27 @@ defmodule NovelWeb.WorkspaceChannel do
   defp candidate_source_turn_ref(selection),
     do: selection[:source_turn_ref] || selection["source_turn_ref"]
 
+  # ADR-0008 8-2：当前 workstream 最近一个 active author-blocking behavior 快照。
+  # 由 join restore（transcript 旧→新最后一处 behavior_state）与每轮 turn_result
+  # 广播维护，避免扫描混合顺序的 turn_results_list 复活已关闭 behavior。
+  defp previous_active_behavior(socket), do: Map.get(socket.assigns, :active_behavior)
+
+  # transcript 旧→新：取最后一处携带 behavior_state 的 turn 的 active（可能为 nil，
+  # 表示该 turn 已关闭/清空 behavior，不能继续向前找旧 open）。
+  defp latest_behavior_state(turn_results) when is_list(turn_results) do
+    turn_results
+    |> Enum.reduce(nil, fn turn_result, _acc ->
+      case map_field(turn_result, :behavior_state) do
+        %{} = behavior_state -> map_field(behavior_state, :active)
+        _ -> :no_behavior_state
+      end
+    end)
+    |> case do
+      :no_behavior_state -> nil
+      active -> active
+    end
+  end
+
   defp remember_turn_result(socket, %{turn_id: turn_id} = turn_result) when is_binary(turn_id) do
     turn_result = scope_turn_result(socket, turn_result)
     list = [turn_result | socket.assigns[:turn_results_list] || []]
@@ -2676,9 +2706,17 @@ defmodule NovelWeb.WorkspaceChannel do
     |> assign(:turn_results_list, list)
     |> assign(:turn_results_by_id, turn_results)
     |> assign(:current_turn_id, turn_id)
+    |> remember_active_behavior(turn_result)
   end
 
   defp remember_turn_result(socket, _turn_result), do: socket
+
+  defp remember_active_behavior(socket, turn_result) do
+    case map_field(turn_result, :behavior_state) do
+      %{} = behavior_state -> assign(socket, :active_behavior, map_field(behavior_state, :active))
+      _ -> socket
+    end
+  end
 
   defp scope_source_turn_result(_socket, nil), do: nil
 

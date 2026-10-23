@@ -197,6 +197,8 @@
 | 10 | `B11A-R10R11-volume-debt-scenario`（正触发） | C G1、C G6 | VS-00J §4 item5/§9 决策④ + ADR-0028 | R10/R11 finding 在真实页面出现并可处置、报告清空；事实优先不静默改写 | 扩既有审读场景或新增 volume-debt 场景：planned=3 且 2 卷缺蓝图 → 审读 → 两条 finding → 处置 → 无活跃报告 | 无需前置；建议随下批 B 轨 |
 | 11 | `WORKBENCH-CURRENT-VOLUME` | C G3 | ADR-0028 §UI 影响 + VS-00J 消费面 | 工作台头部显示真实写作坐标当前卷，不出现假「未定卷」；无验收感知逻辑 | 扩 `au08-volume-structured-planning` 断言当前卷名=真实卷；真实 Tauri 复跑 | 作者定当前卷语义/数据源（§7 Q11） |
 
+> **✅ #3 `BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY` 已收口（2026-10-23）**：作者授权下按 Q2 审计建议默认拍板 **VS-03 维持 draft（B）** → 8-2 显式 supersede 落地（`BehaviorState.supersede/3` + `snapshot/2` + `from_map/1`；`AdoptionWorkflow` 新 confirmation 打开时把同 workstream 上一 open author-blocking behavior 标 `:superseded` 并写 `behavior_state.history`/`trace_summary.behavior_supersede_ref`；Channel 维护 active behavior 并在真实 `author_action` accept 路径注入 `previous_behavior`）；8-1（cancel/reject 关闭不经 decision）与 9-2（binding 不校验 open behavior/target）登记为文档化偏差 + 触发翻案条件（ADR-0008/ADR-0009 gaps；VS-03 §9 实现注记）。真实 Tauri `au06-single-active-confirmation` re-anchor 为 seeded pending-candidate 流并 PASS（B2 显式 supersede B1、旧确认不可执行、最新确认只采纳一次）。详见 `tasks/slices/BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY.md`。
+
 > 补充挂账（trigger 型，不新开 slice）：`DS04-clarification-surface`（B-24S4 触发）、`NEXT-B-BATCH-CODE-SMALL`（见 §4.2）、`R2-design-ref-wiring`（C-G2 归 R2/承诺账，§4.2）。
 
 ### 4.2 下批 B 轨小修批次（本批「修复-本批」未落地 12 项；其中 **8 条为组 A 本批可修代码项转下批 B 轨（本批未落地代码）**）

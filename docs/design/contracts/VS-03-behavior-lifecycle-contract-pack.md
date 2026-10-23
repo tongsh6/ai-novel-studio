@@ -177,3 +177,12 @@ ADR-0009 can enter Accepted because this pack provides the confirmation binding 
 Acceptance does not authorize code. It only means VS-03 has stable design inputs for a later implementation plan after user approval.
 
 ---
+
+## 9. 实现注记（2026-10-23，BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY）
+
+- **状态**：本文仍为 **draft**（2026-10-23 作者裁决：维持 draft，不整包冻结；见 B13b §7 Q2 建议 B）。
+- **规则 1 / 3 已实现**：同一 workstream 至多一个 primary author-blocking behavior 的显式 supersede——`NovelDomain.BehaviorState.supersede/3` 把旧 behavior 标 `:superseded` 且 `resolution` 引用替代 behavior；新 TurnResult 的 `behavior_state.history` 携带被替代 behavior，`trace_summary.behavior_supersede_ref` / `behavior_trace_refs` 留痕。当前落地面是采纳覆盖确认（AdoptionWorkflow require_confirmation）。
+- **规则 2**：既有 cancel/resolve 路径已产 resolution（cancel/reject 走 `cancel_waiting_behavior_state/3`；采纳 reject/resolve 走 `terminal_confirmation_behavior_state/6`）。
+- **规则 4（关闭权）保持文档化偏差**：cancel/reject 关闭仍由 `DialogueGateway` 直接构造，不经 OrchestratorDecision；VS-03 §5 绑定强校验同为文档化偏差。触发翻案条件见 ADR-0008/ADR-0009 `## enforcement_gaps`。
+
+---
