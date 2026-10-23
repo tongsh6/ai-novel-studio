@@ -464,7 +464,8 @@ Next Proof：B23 已于 2026-10-23 收口（新真实 Tauri `agent-plan-exhauste
 | J32 | 卷级负债规则正触发（planned=4、事实 3 卷且 2 卷缺蓝图 → 审读 R10/R11 finding → 处置 → 清空报告） | R10R11-VOLUME-DEBT-SCENARIO / ADR-0028 / VS-00J | au13 审读场景（真实 Tauri） | **closed（2026-10-23，真实 Tauri `au13-review-adjudication-roundtrip` 扩展 PASS + au14 回归 PASS）** | 真实 Tauri：8 处偏离（R10 1 + R11 2 + 停滞 4 + 提前收官 1）→ 逐条处置（含 3 条修订设定 correction intent）→ 报告清空 + rail 计数归零 | `tasks/NEXT.md` R10R11 行；`tasks/slices/R10R11-VOLUME-DEBT-SCENARIO.md`；`artifacts/slice-verify/au13-review-adjudication-roundtrip-tauri/summary.json` | 产品零改动（规则已实现）；R10/R11 只产设计负债 finding，不静默改写规划/不阻断写作；扩既有审读场景不新增平行场景 |
 | J33 | 工作台头部显示真实写作坐标当前卷（不出现假「未定卷」） | WORKBENCH-CURRENT-VOLUME / ADR-0028 §UI / VS-00J 消费面 | WorkspaceChat / TurnResult writing_coordinate / get_toc / Channel | **closed（2026-10-24，真实 Tauri `au08` 扩展 PASS + 4 端单测）** | 真实 Tauri：get_writing_coordinate reply 卷名 + 页面头部可见文本双层断言 = 本轮坐标解析真实卷（第一卷·觉醒），零「未定卷」 | `tasks/NEXT.md` WORKBENCH-CURRENT-VOLUME 行；`tasks/slices/WORKBENCH-CURRENT-VOLUME.md`；`artifacts/slice-verify/au08-volume-structured-planning-tauri/summary.json` | 作者默认裁决 Q11-A：写作坐标 volume_ref 为主 + get_toc 回退；规划态回退 TOC；无卷显示「全书」；TurnResult additive 字段不新增持久化列；卷蓝图编辑维持非目标 |
 | J34 | B11D 质量场粒度（规划场级 finding 归因 + 质量卡可见 + 场级修订作用域；多场正文 Deferred→B28） | B11D-QUALITY-FIELD-GRANULARITY / VS-00E / ADR-0020 | QualityEvaluator / ProseQualityService / ProseRevisionService / 质量卡 | **closed（2026-10-24，真实 Tauri `p1-prose-quality-finding-roundtrip` 扩展 PASS + 9 端单测）** | 真实 Tauri：finding 归因「场 · 撤退（第 2 场）」+ 关联设计字段 + 场级修订 prompt（候选仍整章）+ 零采纳 | `tasks/NEXT.md` B11D 行；`tasks/slices/B11D-quality-field-granularity.md`；`artifacts/slice-verify/p1-prose-quality-finding-roundtrip-tauri/summary.json` | 审计默认：场语义=规划场次（scene_N 白名单）；方案 A（候选仍整章、采纳仍章级）；多场正文/场级替换 Deferred→B28；evaluator 自报场字段不采信 |
-| J35 | VS-00D AI 引导创作契约包 G1–G7 差距收口 | VS-00D-G1-G7 / VS-00D 契约包 | 契约消费面 / application / 真实 Tauri | **next（2026-10-24，B13b §4.1 #1–#11 处理后顺序项；E28-E30 trigger 挂账）** | 开工侦察 G1–G7 现状与可执行性 → 契约/实现/单测 → 真实 Tauri 验收 | `tasks/NEXT.md` VS-00D-G1-G7 行；`docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md` G 表 | 事实优先；trigger 型缺口诚实挂账；作者裁决点按审计建议默认拍板 |
+| J35 | VS-00D AI 引导创作契约包 G1–G7 差距对账（承接/降级/挂账裁决，契约未关闭项如实登记） | VS-00D-G1-G7 / VS-00D 契约包 | 差距台账 / 队列 / B27·B26 并行承接 | **closed（2026-10-24，差距回收仪式 22 项全裁决；无产品代码变更）** | 差距台账快照 + 逐项裁决入账 + B 轨销账/降级 + 重扫复核（22→19 开放） | `tasks/slices/VS00D-G-GAP-RECONCILIATION.md`；`reports/gap-ledger/latest.json`；`tasks/NEXT.md` VS-00D 行 | G1/G3/G5/G7 承接 B27+B26（trigger）；G2/G4/G6 降级 C 轨/后续 checkpoint；G1–G7 不关闭；契约文档状态更新归 B27 owner（不碰并行工作树） |
+| J36 | C 轨观察（差距回收仪式周期执行：开放差距/滞留红名单 → 逐项裁决） | C-TRACK-OBSERVATION / NEXT §5 Selection Rule #6 | 差距台账 / 队列 / 降级项排队 | **next（ongoing；2026-10-24 本轮观察已执行并裁决入账；后续每 3–5 周期狗粮 + 下次开工前再对账）** | 每次执行 `bash scripts/gap_ledger.sh` → 快照 → 裁决 → 修订台账 → 重扫 | `tasks/NEXT.md` C-TRACK-OBSERVATION 行；`docs/project-ledger.md` | C 轨被 A 轨拉动才做；不新开产品实现；降级项保留描述不删除证据 |
 
 
 ---
@@ -518,8 +519,8 @@ Next Task: MAINLINE-RESET-4
 
 ```text
 Current Focus: 作者授权按 NEXT.md 候选顺序自动推进 backlog（B13b §4.1 → B11D → E28-E30 → VS-00D G1–G7 → C 轨；含真实 Tauri 验收与全门禁；B26 由并行会话负责）
-Active Journey: Journey J（J31 采纳转换矩阵 closed；J32 卷级负债正触发 closed；J33 工作台当前卷 closed；J34 B11D 质量场粒度 closed；J35 VS-00D G1–G7 next）
-Queue head: VS-00D-G1-G7（B13b §4.1 之后顺序项；E28-E30 trigger 挂账）
+Active Journey: Journey J（J32 卷级负债 closed；J33 工作台当前卷 closed；J34 B11D 质量场粒度 closed；J35 VS-00D G1–G7 对账 closed；J36 C 轨观察 ongoing）
+Queue head: C-TRACK-OBSERVATION（周期；其余候选均为 trigger 挂账/并行会话承接）
 ```
 
 本文对应位置：
