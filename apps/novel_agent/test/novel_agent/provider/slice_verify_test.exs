@@ -525,3 +525,86 @@ defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
     assert args["adopted_content_ref"] == "as_q1c_setting"
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  @base_text "初稿：陈九斤二十五岁守灯楼，第七盏灯不点自亮。\n\n续写：灯楼九层，每层九盏，他数到第九层时天边泛白。"
+
+  defp fixture_body(content) do
+    decoded = Jason.decode!(content)
+
+    items =
+      cond do
+        is_list(decoded) -> decoded
+        is_map(decoded) -> Map.get(decoded, "items", [])
+        true -> []
+      end
+
+    items |> hd() |> Map.fetch!("body")
+  end
+
+  defp writer_prompt(revision_heading, author_words) do
+    """
+    本次你承担小说正文写作助手的角色。请严格按本任务输出契约返回，不要附加任何额外文字。
+
+    ## 创作协作共同规则
+    作者是唯一裁决者。
+
+    ## 本轮任务语义：修订
+    本轮为修订。
+
+    #{revision_heading}
+
+    写作要求：保持冷峻克制。
+
+    capability：prose_writing
+    artifact_type：prose_fragment
+    用户创作简述：修订第01章正文。作者原话：#{author_words}
+    上下文：第01章：夜潮当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：
+    #{@base_text}
+
+    重要：保留随机标识符。
+    输出契约（只返回 JSON，不要附加 JSON 以外的文字）：
+    - 只返回 JSON 数组，或一个含 "items" 非空数组的 JSON 对象。
+    """
+  end
+
+  test "target_segments writer prompt 命中章级修订 fixture 并只落实明确改动" do
+    prompt =
+      writer_prompt(
+        "## 指定片段/段落内容修订",
+        "把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。"
+      )
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    body = fixture_body(result.content)
+
+    assert body =~ "三十岁"
+    refute body =~ "二十五岁"
+    assert body =~ "灯楼九层，每层九盏"
+    assert body =~ "第七盏灯不点自亮"
+  end
+
+  test "whole_chapter content writer prompt 命中；format_only 返回基线原文" do
+    content_prompt =
+      writer_prompt("## 整章内容修订", "把第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。")
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, content_prompt, %InferenceParams{})
+    body = fixture_body(result.content)
+    assert body =~ "三十岁"
+
+    format_prompt =
+      writer_prompt("## 整章仅排版修订（format_only）", "把已保存的第一章正文整理一下，只调整分段和排版，不改字句。")
+
+    assert {:ok, format_result} =
+             SliceVerify.complete(nil, nil, format_prompt, %InferenceParams{})
+
+    format_body = fixture_body(format_result.content)
+
+    assert format_body == @base_text
+  end
+end

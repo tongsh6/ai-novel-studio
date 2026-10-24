@@ -2001,7 +2001,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp chapter_revision_prompt?(prompt) do
     String.contains?(prompt, "整章仅排版修订（format_only）") or
-      String.contains?(prompt, "整章正文修订")
+      String.contains?(prompt, "整章正文修订") or
+      String.contains?(prompt, "整章内容修订") or
+      String.contains?(prompt, "指定片段/段落内容修订")
   end
 
   defp chapter_revision_items(prompt, brief, context) do
