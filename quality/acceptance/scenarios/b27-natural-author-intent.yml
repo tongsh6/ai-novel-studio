@@ -1,0 +1,110 @@
+id: b27-natural-author-intent
+title: "B27 自然语言意图→创作效果映射（Tauri 场景草案，含必要澄清与能力缺口诚实）"
+tier: nightly
+surface: tauri
+default_provider: strata
+# 本轮状态：manifest 草案；尚未注册进 quality/acceptance/scenarios.yml（driver 未实现）。
+status_note: "draft（task-8 产出）：manifest 与入口可达性分析已就绪；driver 实现/注册后需取得真实 Tauri PASS 证据方可 active。"
+entrypoint: bash scripts/quality_accept.sh b27-natural-author-intent --surface tauri --provider strata
+contract:
+  - tasks/slices/B27-systematic-prompt-and-intent-integration.md §4.6 / §6 / §6.1
+  - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md §11（作者目标/证据/动作效果）
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md §2.2
+  - docs/design/adr/ADR-0025-judgment-driven-interactive-loop-v3.md
+invariants:
+  - natural-language-not-tool-syntax（作者不需要工具名/固定句式）
+  - necessary-clarification-only-when-undecidable（材料可消歧时不得把决定推回作者；不可消歧时可问并指出分歧）
+  - discussion-not-materialized（只聊/先收下不展开 → 零候选/零 canon）
+  - capability-gap-honest-not-masqueraded（缺效果说明缺口与可行路径，不用近邻能力冒充）
+  - supported-revision-hits-real-object（支持的修订命中真实对象/来源，不重复确认、不重新登记绕路）
+setup:
+  provider: strata
+  seed: >-
+    外部 harness 在隔离 test DB seed 合成样书：2 个待采纳候选（都含「第二段」）、1 个已采纳设定（灵气抽成七成）、
+    2 个历史开头版本（其一 SUPERSEDED）、角色沈砚与陈九斤；真实 Tauri 工作台打开该作品。
+  isolation: NOVEL_TEST_DB_DIR + MIX_TEST_PARTITION 独立目录；不写作者真实作品。
+user_flow:
+  - open: 启动真实 Tauri 工作台并选中 seed 作品。
+  - send: 「那就整理一下吧。」（前文明确仅排版、单个完整可修订对象）
+  - observe: 命中真实候选的仅排版修订，字句/情节不变；未扩展成通用润色。
+  - send: 「接下来往哪个方向写比较好？给我两三个想法。」
+  - observe: 给出具体内容方向（≥2），不用查看/保存等流程动作凑方向；不自动起写。
+  - send: 「先别动笔，我们聊聊主角陈九斤的性格弧线该怎么走。」
+  - observe: 只讨论，零候选/零登记/零 canon 写入。
+  - send: 「把沈砚改成本作主角。」（当前真实能力缺口：已有角色主档案身份修订）
+  - observe: 说明缺口与已有可行路径（设计期新角色/演化记忆的差别），不谎称已改/不反复要求换说法。
+  - send: 「把已采纳的世界设定里『灵气抽成七成』改成『六成』。」
+  - observe: 命中真实已采纳设定对象出修订候选，不重新登记新设定绕过、不直接写 canon。
+  - send: 「第一章开头现在最终用的是哪一版？顺便按当前版把下一段接下去。」
+  - observe: 按当前 accepted 版本回答/续写，不让作者再选 SUPERSEDED 旧版。
+  - reload: 刷新后候选/采纳/版本状态与刷新前一致，无重复副作用。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - llm_call_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/b27-natural-author-intent-tauri-strata
+assertions:
+  ui:
+    - 作者输入均为自然表达；页面不要求工具名/固定句式，不出现“请换一种说法”式循环。
+    - 方向/讨论/候选/缺口在真实工作台各有可区分作者可见表现。
+    - 刷新后候选/版本/采纳状态一致。
+  network:
+    - 每轮由真实主输入触发；无验收旁路 payload。
+    - 讨论轮无 propose_creative_directions/register_author_content/execute；能力缺口轮无 character_evolution 冒充主档案修改。
+    - 修订轮引用真实 adopted/pending 对象 ref；登记录入来源 turn 准确。
+  data:
+    - 仅排版修订不改变字句/情节；修订候选保留未涉及段落。
+    - 已采纳设定修订候选引用真实对象与当前版本；未直接写 canon。
+    - SUPERSEDED 旧版不被当作当前事实；无重复候选/重复副作用。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+prerequisites:
+  - B27 CP2/CP3 已把判断/计划共享语义接到真实入口；B29 未实现主档案身份修订，本场景期望缺口而非伪造能力。
+  - 若 CP4 前 B29 已实现该能力，按 §6.1 更换真实缺失效果并保留本场景支持路径回归，不得用生产开关伪造缺口。
+entry_reachability:
+  product_entry: frontend/src/App.tsx → WorkspaceChat 真实工作台
+  input_entry: 聊天主输入框（自然语言）
+  effect_entries:
+    - 待采纳候选卡片（查看/采纳）
+    - 作品档案/设定与阅读模式（核对已采纳版本；不得旁路直写）
+    - 能力缺口/问题回传的作者可见呈现
+  external_driver_base: frontend/slice-verify/external-ui-driver.mjs（复用 chatInputSelector、waitForFrame/latestTurnResult、候选卡片按钮、refreshAndSelectWork、readAppLogRecords）
+  gaps_to_close:
+    - 新增 drivers map 分支 driveB27NaturalAuthorIntent(page)；不新增产品 testid/hook。
+driver_plan:
+  implementation_surface: frontend/slice-verify/external-ui-driver.mjs
+  registration:
+    - 在 drivers map 增加 "b27-natural-author-intent": driveB27NaturalAuthorIntent
+  flow_steps:
+    - seed 作品；逐句发送上述自然表达，等待对应 turn_result 与作者可见效果。
+    - 抓取每轮 websocket frame、turn_result、app_jsonl、llm_call_jsonl 与候选/采纳持久事实。
+    - 断言“讨论轮零物化、缺口轮零冒充、修订/版本轮真实对象与来源”。
+  evidence_checks:
+    - summary.json 汇总每轮目标、observed effect、候选/采纳 refs、provider 请求版本字段。
+    - 与 §6.1 案例卡 M07/M09/M10/M14/M15/M16/M17 的通过/失败判据对齐；页面 PASS 不替代语义矩阵 PASS。
+registration_checklist:
+  - 1. 实现 driver 分支；quality_manifest_check.sh 通过。
+  - 2. 在 quality/acceptance/scenarios.yml 登记（tier=nightly/surface=tauri/default_provider=strata/driver/manifest/entrypoint 含 --surface tauri）。
+  - 3. 登记 quality/acceptance/scenarios/README.md Files 表。
+  - 4. 先在 slice_verify provider 下跑机制证据，再用 strata 跑真实语义证据；两者证据分开报告。
+  - 5. 未取得真实 PASS 证据前保持 draft/blocked，不得声明页面验收通过。
+regression_relations:
+  - rel: B26 Q3B capability gap
+    manifest: quality/acceptance/scenarios/q3b-capability-gap-honest-reply.yml
+    relation: 能力缺口轮与 Q3B 同语义；本场景额外断言判断/计划规则同源，不降低 Q3B。
+  - rel: B26 Q3C author content materialization
+    manifest: quality/acceptance/scenarios/q3c-author-content-materialization.yml
+    relation: 登记/修订轮消费其字节与来源纪律；Q3C 独立回归。
+  - rel: B26 Q3D message outcome roundtrip
+    manifest: quality/acceptance/scenarios/q3d-message-outcome-roundtrip.yml
+    relation: 刷新/版本/候选状态恢复复用其口径；DS02 七态恢复矩阵仍独立 gate。
+  - rel: B27 semantic matrix
+    fixture: quality/acceptance/fixtures/b27-semantic-cases/
+    relation: 覆盖 M07/M09/M10/M14/M15/M16/M17 的页面表达；语义质量由 §6.1 矩阵独立判定。

@@ -310,3 +310,12 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - `AuthoringTaskPolicy` 变薄委托：`shared_rules` 单一真源 + 判断/计划专属段（`b27-task-v2`，`content_hash/0`）；删除「仅排版互斥」承诺并写明当前无字节级排版能力的边界（B28 承接）；4 tests。
 - `NovelApplication.AuthoringTaskBuilder`：域模块共享的组装基座（`new/2` 构造+validate、`material/3`、`scope/2`、`output_contract/2`、`prior_result/1`、`to_input/1`、`from_input/1`；无据字段不补写；6 tests）。
 - 回归：`mix compile --warnings-as-errors`、`mix test` 1970 tests / 0 failures（含 judgment/plan 64 tests、novel_common 57 tests）、enum literal lint、credo strict 通过。
+
+#### CP4 语义验收基础设施（2026-10-24，harness 交付记录）
+
+- 运行器：`scripts/model_contracts/b27_semantic_eval.exs` 扩展 `--arm old|integrated|both`（默认 `--runs 2`，支持 case/all/surface/model/max-steps/timeout）；integrated 走 `DialoguePlanningService.plan_agent_run/3` + 判断循环 + provider log_fn 边界采集；old 直接回放 CP0 冻结快照请求（不重渲染旧 prompt），并做 wire 请求与快照逐字比对（L0 注入后 messages role/content 一致）。
+- 判分：`scripts/model_contracts/b27_semantic_score.exs` `--gen-templates` / `--score` / `--self-test`，判卷与聚合分离、盲评模板隐藏 arm；覆盖 §6.1 全部门槛（关键集两臂×两轮全过、整体≥90%、不低于旧臂、追问≤10%且≤旧臂、不可用≤2/40、零容忍=0、分母不剔、未填=invalid）。自测 6/6（含 key-set/追问/低于旧臂/零容忍/未填反例）。
+- 证据：`artifacts/model-contracts/b27-cp4/`（episodes、summaries、review-strata blind-index/templates、score-selftest、harness-report.md）；`--check-snapshots` 20/20（SP01 ok，SP02/SP03 保持 unavailable）。
+- 冒烟（非门槛）：old 臂 Strata/iq3_s M01/M11 + LM Studio qwen/qwen3.8-27b M11 命中允许路径且 wire 与快照一致；integrated 臂 Strata M10/M11/M13 ok，M01/M02 出现真实协议失败（如实记录、含两轮请求/响应原文）。
+- Tauri 草案：`quality/acceptance/scenarios/b27-prompt-lifecycle-consistency.yml`、`b27-natural-author-intent.yml`（entry_reachability/driver_plan/registration_checklist），**未注册 scenarios.yml**，driver 待 CP3 完成后实现并注册 nightly。
+- 裁决（Lead）：① integrated_arm 在 CP3 完成后用 `b27_case_freeze.exs --write-arms` 重算并跑 80 episode，本批仅 harness 冒烟；② 必验模型 = Strata/iq3_s（stage 实际），LM Studio qwen/qwen3.8-27b 为第二通道观察，qwen3.8-flash-next@q2_k 本轮不声明；③ old 臂单轮 vs integrated 多轮不对称在 CP4 报告披露；④ Tauri driver 与正式矩阵归 CP4 执行批。

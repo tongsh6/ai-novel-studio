@@ -6,6 +6,8 @@
 
 | 文件 | 场景 |
 |---|---|
+| `b27-natural-author-intent.yml` | B27 自然语言意图→创作效果映射（**草案**：manifest+driver 方案就绪，未注册 driver） |
+| `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**草案**：manifest+driver 方案就绪，未注册 driver） |
 | `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-frame-validation-friendly-error.yml` | frame 校验失败时作者友好提示 |
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
@@ -206,3 +208,8 @@
 - [b26-business-output-roundtrip.yml](b26-business-output-roundtrip.yml)：B26 原生方向、原文登记/去重/放弃/采纳、能力缺口与续行问题，外部系统 UI + wire/持久化对账。
 
 - [judgment-plan-multi-step.yml](judgment-plan-multi-step.yml)（`native_protocol_matrix`）：B26 计划矩阵原生三路径（同批计划/另行起草/核对后修订）；外部驱动 `scripts/macos_cgevent_plan_matrix_driver.swift`，证据检查 `scripts/native_plan_evidence_check.mjs`；证据 `artifacts/slice-verify/judgment-plan-multi-step-tauri-native/summary.json`。
+
+## B27 CP4 草案（未注册）
+
+- [b27-prompt-lifecycle-consistency.yml](b27-prompt-lifecycle-consistency.yml)：B27 统一任务语义在真实工作台的自然语言生命周期一致性；本轮只提交 manifest 草案、入口可达性分析与 driver/注册 checklist，**尚未在 `../scenarios.yml` 注册**，无 PASS 证据。
+- [b27-natural-author-intent.yml](b27-natural-author-intent.yml)：自然语言意图→创作效果（仅排版/方向/只聊/能力缺口/支持修订/版本）页面表达草案；同样未注册、无 PASS 证据。

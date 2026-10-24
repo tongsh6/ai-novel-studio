@@ -1,69 +1,118 @@
-# B27 CP0 语义评估运行器（骨架）
+# B27 CP4 双臂语义 episode 运行器（old_rules 冻结快照回放 / integrated 生产入口）
 #
-# 作用：对预注册案例做**单 episode 单轮请求回放**，落逐例结果 JSON，字段覆盖 B27 §6.1
-# rubric 判定所需（输入、snapshot hash、响应工具/文本、材料、允许路径命中、禁行为、
-# 耗时、调用计数）。本骨架不实现自动判分；最终语义判定由 CP4 按案例卡 rubric 盲评。
+# 归属：B27 §6.1 真实模型语义验收（CP4 执行批的基础设施）。本脚本**不**判定语义通过、
+# 不声称门槛通过；它只负责产出可判分的 episode 证据（原始请求/响应/映射/耗时/usage），
+# 逐例判定与聚合门槛由 `scripts/model_contracts/b27_semantic_score.exs` 承接。
 #
-# 用法（不污染默认 test DB；快照回放不写 DB，但沿用隔离 DB 环境避免任何意外写）：
+# ── 两臂定义 ─────────────────────────────────────────────────────────────
 #
-#   MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 \
-#     mix run scripts/model_contracts/b27_semantic_eval.exs --case M01 --provider stub
+#   old（old_rules_arm）
+#     回放 CP0 冻结快照 `quality/acceptance/fixtures/b27-semantic-cases/snapshots/<ID>.json`
+#     的请求（messages/tools/tool_choice + inference 常量），直接打到同一 provider。
+#     **不做旧 prompt 重渲染**：messages 字节来自冻结快照；L0 身份按快照
+#     `request.system_identity` 还原（生产 SystemIdentity.inject/1 同源），保证旧臂输入不变。
+#     CP0 只冻结了首轮请求，故 old 臂 episode = 单轮回放（rounds_executed=1），
+#     探索后的续行轮不在快照内，不伪造。与真实生产请求的差异边界写在 episode
+#     `episode.boundary` 与 HTTP 层 `wire_captures`：wire messages 与冻结快照逐字比对，
+#     工具 schema 由 adapter 做 OpenAI 兼容投影（工具名可比、schema 形态不同）。
 #
-#   # 真实 provider（LM Studio 本地；首次 JIT 加载慢，必须给 ≥300s 超时）
-#   NOVEL_LMSTUDIO_TIMEOUT_MS=600000 MIX_ENV=test \
-#   NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 \
-#     mix run scripts/model_contracts/b27_semantic_eval.exs --case M01 --provider lmstudio
+#   integrated（integrated_arm）
+#     走当前生产入口：`DialoguePlanningService.plan_agent_run/3`
+#     + 判断循环真实 planner + 真实 AgentRun step 收敛到 complete；
+#     注入的是生产默认 provider execution dependency，真实调用 LM Studio / Strata。
+#     请求/响应在 provider adapter `log_fn` 边界采集（与 B26 CP0 探针同一采集面，
+#     即真实 wire body），同时记录每一步 stage_state / 探索观察 / TurnResult。
+#     这是「capture execution at provider boundary」：只旁路记录，不替换模型结论、
+#     不写作品数据（隔离 test DB + Sandbox 回滚）。
 #
-#   # stage 实际 provider/model（Strata 统一推理后台，默认已加载 iq3_s）
-#   MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 \
-#     mix run scripts/model_contracts/b27_semantic_eval.exs --case M01 --provider strata
+# ── 用法 ────────────────────────────────────────────────────────────────
 #
-#   # 只看定义/完整性，不调用 provider
-#   ... --check-snapshots
+#   # 快照完整性（不调用 provider；默认 20 例）
+#   MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp4/db MIX_TEST_PARTITION=b27cp4 \
+#     mix run scripts/model_contracts/b27_semantic_eval.exs --check-snapshots
 #
-# 参数：
-#   --case ID[,ID]    案例（可多次）；默认 M01；--all 表示全部 20 例
-#   --surface judgment|plan  快照请求面（SP01 用 plan，其余默认 judgment）
+#   # old 臂：stage 实际模型 Strata / iq3_s，M01/M11 各跑 2 次
+#   MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp4/db MIX_TEST_PARTITION=b27cp4 \
+#     mix run scripts/model_contracts/b27_semantic_eval.exs --arm old --case M01,M11 --provider strata
+#
+#   # integrated 臂：生产入口 + 真实 provider（隔离 CP4 DB，必须）
+#   MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp4/db MIX_TEST_PARTITION=b27cp4 \
+#     mix run scripts/model_contracts/b27_semantic_eval.exs --arm integrated --case M01,M11 --provider strata
+#
+#   # 双臂正式矩阵（CP4 执行批；20×2×2 = 80 episode）
+#   ... --arm both --all --provider strata --runs 2
+#
+#   # LM Studio（先探活；模型按 --model 或默认 qwen/qwen3.8-27b，单例 300s）
+#   ... --arm old --case M01 --provider lmstudio --model qwen/qwen3.8-27b
+#
+#   # 计划面探针（SP01 冻结快照：old 臂回放 plan_draft；integrated 臂真实模型自行判断）
+#   ... --arm old --case SP01 --surface plan --provider strata
+#
+# ── 参数 ────────────────────────────────────────────────────────────────
+#   --arm old|integrated|both       默认 old（`old_rules` 接受为 old 别名）
+#   --case ID[,ID]                  可多次；ID 为 M01–M20 或 SP01；默认 M01
+#   --all                           全部 20 例（不含 SP01 计划面探针）
+#   --surface judgment|plan         快照请求面；plan 仅 SP01
 #   --provider stub|lmstudio|strata|deepseek   默认 stub
-#   --arm old_rules|integrated   默认 old_rules；integrated 仅占位（B27 CP3 后填）
-#   --runs N          重复次数（默认 1；§6.1 门槛执行时用 2）
-#   --out DIR         结果输出目录（默认 artifacts/model-contracts/b27-cp0/runs）
-#   --check-snapshots 只校验快照 hash（不调用 provider）
+#   --model MODEL                   覆盖 provider 模型（默认见 @providers）
+#   --runs N                        每例重复次数，默认 2（§6.1）
+#   --out DIR                       输出目录，默认 artifacts/model-contracts/b27-cp4
+#   --max-steps N                   integrated 单 episode 最大 step 数，默认 12
+#   --timeout-ms N                  单 episode 挂钟上限，默认 300000（超时如实记未成功）
+#   --check-snapshots               只校验冻结快照完整性，不调用 provider
+#   --skip-health-check             跳过 provider 探活（仅供离线诊断；默认必须探活）
 #
-# 退出码：
-#   0 成功（stub 或真实 provider 有响应并落结果）
-#   1 provider 调用失败（有错误、不可用）
-#   2 用法错误 / 快照缺失 / 完整性校验失败
-#   3 blocked（凭据缺失 / integrated 臂未就绪 / 快照不可用）
+# ── 产出 ────────────────────────────────────────────────────────────────
+#   <out>/episodes/<case>-<arm>-<provider>-run<N>.json   逐 episode 证据
+#   <out>/summaries/summary-<stamp>.json                 批次摘要（不是语义判分）
+#   <out>/run-manifest-<stamp>.json                      运行环境/输入 hash/命令
 #
-# 边界：
-#   - stub 结果只证明管道/字段/解析，**不是语义证据**（semantic_evidence=false）。
-#   - 回放对象是 CP0 冻结的 messages/tools/tool_choice；L0 身份按冻结快照还原，
-#     不由 Gateway 重新注入，保证旧规则臂字节不变。
-#   - 单轮回放不产生探索/候选/采纳副作用，也不代表整个 episode 完成。
+# ── 退出码 ──────────────────────────────────────────────────────────────
+#   0 全部 episode 有响应且落盘（stub 结果 semantic_evidence=false）
+#   1 至少一个 provider 失败（按 §6.1 计未成功，不删分母）
+#   2 用法错误 / 快照缺失 / 完整性失败 / DB 未隔离
+#   3 blocked（凭据缺失 / 探活失败 / 模型未加载 / 快照不可用）
+#
+# 边界：stub 只证明管道/字段/解析；real provider 单轮/多轮响应也不等于语义通过。
+# §6.1 通过与否只能由评分器在逐例判定填写后聚合，不能由本脚本自动断言。
+
+Code.require_file(Path.join(__DIR__, "b27_episode_support.exs"))
 
 defmodule B27SemanticEval do
   @moduledoc false
 
-  alias NovelAgent.Provider.{Execution, InferenceParams, SystemIdentity}
+  alias NovelAgent.Provider.{Execution, InferenceParams}
   alias NovelApplication.JudgmentToolContract
 
   @root Path.expand("../..", __DIR__)
   @fixtures_rel "quality/acceptance/fixtures/b27-semantic-cases"
   @fixtures Path.join(@root, @fixtures_rel)
   @cases_path Path.join(@fixtures, "cases.yml")
+  @arms_path Path.join(@fixtures, "arms.yml")
   @snapshots_dir Path.join(@fixtures, "snapshots")
-  @default_out Path.join(@root, "artifacts/model-contracts/b27-cp0/runs")
+  @default_out Path.join(@root, "artifacts/model-contracts/b27-cp4")
+  @db_marker "b27-cp4"
 
-  # 必验模型（与 cases.yml required_models 对齐；runner 用其解析 provider/model）
-  @models %{
-    "stub" => %{provider: :stub, model: "stub"},
-    "lmstudio" => %{provider: :lmstudio, model: "qwen3.8-flash-next@q2_k"},
-    "strata" => %{provider: :strata, model: "iq3_s"},
-    "deepseek" => %{provider: :deepseek, model: "deepseek-v4-pro"}
+  # 必验模型（与 cases.yml required_models 对齐）。LM Studio 默认取 test/dev 生产配置同源
+  # 模型 qwen/qwen3.8-27b；可用 --model 显式覆盖并如实记录。
+  @providers %{
+    "stub" => %{provider: :stub, model: "stub", semantic: false},
+    "lmstudio" => %{
+      provider: :lmstudio,
+      model: "qwen/qwen3.8-27b",
+      semantic: true,
+      health_url: "http://localhost:1234/v1/models"
+    },
+    "strata" => %{
+      provider: :strata,
+      model: "iq3_s",
+      semantic: true,
+      health_url: "http://127.0.0.1:47831/v1/models"
+    },
+    "deepseek" => %{provider: :deepseek, model: "deepseek-v4-pro", semantic: true}
   }
 
-  # 首轮允许/条件路径（runner 级辅助判定；最终以案例卡 rubric 盲评为准）
+  # 首轮允许/条件路径（runner 级辅助，仅供证据字段；最终 rubric 判卷由评分器承接）。
   @paths %{
     "M01" => %{allowed: [:explore], conditional: [:reply]},
     "M02" => %{allowed: [:reply], conditional: []},
@@ -78,15 +127,19 @@ defmodule B27SemanticEval do
     "M11" => %{allowed: [:register_author_content], conditional: [:explore]},
     "M12" => %{allowed: [:register_author_content], conditional: [:explore]},
     "M13" => %{allowed: [:reply], conditional: []},
-    "M14" => %{allowed: [:report_capability_gap, :explore], conditional: [:reply]},
+    "M14" => %{allowed: [:capability_gap, :explore], conditional: [:reply]},
     "M15" => %{allowed: [:execute], conditional: [:explore]},
     "M16" => %{allowed: [:explore, :reply, :execute], conditional: []},
     "M17" => %{allowed: [:explore, :ask_author, :reply], conditional: []},
     "M18" => %{allowed: [:explore, :ask_author], conditional: [:reply]},
     "M19" => %{allowed: [:reply, :explore], conditional: []},
     "M20" => %{allowed: [:reply, :explore], conditional: []},
-    "SP01" => %{allowed: [:plan_draft], conditional: []}
+    "SP01" => %{allowed: [:plan_draft], conditional: [:plan]}
   }
+
+  @execute_cases ["M04", "M07", "M08", "M15", "M16"]
+
+  # ── 入口 ────────────────────────────────────────────────────────────────
 
   def main(argv) do
     opts = parse_args(argv)
@@ -98,25 +151,80 @@ defmodule B27SemanticEval do
     end
   end
 
-  # 手写参数解析（OptionParser 的 :keep 语义在数值/多值混用时不直观，显式更可靠）。
+  # ── 参数 ────────────────────────────────────────────────────────────────
+
   defp parse_args(argv) do
-    parsed = parse_flags(argv, %{cases: [], all: false, check_snapshots: false})
+    parsed =
+      parse_flags(argv, %{
+        cases: [],
+        all: false,
+        check_snapshots: false,
+        arm: nil,
+        provider: nil,
+        model: nil,
+        runs: 2,
+        out: nil,
+        surface: nil,
+        max_steps: 12,
+        timeout_ms: 300_000,
+        skip_health_check: false
+      })
+
+    cases_explicit = parsed.all or parsed.cases != []
 
     cases =
       cond do
-        Map.get(parsed, :all) -> :all
-        Map.get(parsed, :cases, []) != [] -> Map.get(parsed, :cases)
+        parsed.all -> :all
+        parsed.cases != [] -> parsed.cases
         true -> ["M01"]
       end
 
+    arm = normalize_arm(parsed.arm)
+    provider = parsed.provider || "stub"
+    surface = parsed.surface
+
+    unless arm in ["old", "integrated", "both"] do
+      usage_error("--arm 只支持 old|integrated|both（收到 #{inspect(parsed.arm)}）")
+    end
+
+    unless Map.has_key?(@providers, provider) do
+      usage_error("未知 provider: #{provider}（可用：#{Map.keys(@providers) |> Enum.join("|")}）")
+    end
+
+    if surface != nil and surface not in ["judgment", "plan"] do
+      usage_error("--surface 只支持 judgment|plan（收到 #{inspect(surface)}）")
+    end
+
+    runs = max(parsed.runs, 1)
+    max_steps = max(parsed.max_steps, 1)
+    timeout_ms = max(parsed.timeout_ms, 1_000)
+
+    out =
+      case parsed.out do
+        nil -> @default_out
+        path -> Path.expand(path, @root)
+      end
+
+    provider_cfg = Map.fetch!(@providers, provider)
+    requested_model = parsed.model || provider_cfg.model
+
     %{
       cases: cases,
-      provider: Map.get(parsed, :provider) || "stub",
-      arm: Map.get(parsed, :arm) || "old_rules",
-      runs: max(Map.get(parsed, :runs) || 1, 1),
-      out: Map.get(parsed, :out) || @default_out,
-      surface: Map.get(parsed, :surface),
-      check_snapshots: Map.get(parsed, :check_snapshots) || false
+      cases_explicit: cases_explicit,
+      all: parsed.all,
+      check_snapshots: parsed.check_snapshots,
+      arm: arm,
+      provider: provider,
+      provider_cfg: provider_cfg,
+      requested_model: requested_model,
+      effective_model: effective_model(provider, requested_model),
+      runs: runs,
+      out: out,
+      surface: surface,
+      max_steps: max_steps,
+      timeout_ms: timeout_ms,
+      skip_health_check: parsed.skip_health_check,
+      raw_argv: argv
     }
   end
 
@@ -136,38 +244,52 @@ defmodule B27SemanticEval do
       "--check-snapshots" ->
         parse_flags(rest, Map.put(acc, :check_snapshots, true))
 
+      "--skip-health-check" ->
+        parse_flags(rest, Map.put(acc, :skip_health_check, true))
+
+      "--help" ->
+        IO.puts("用法见 scripts/model_contracts/b27_semantic_eval.exs 头部注释")
+        System.halt(0)
+
       "--case" ->
         {value, rest} = value_or_next(inline_value, rest)
         cases = acc.cases ++ String.split(value || "", ",", trim: true)
-        parse_flags(rest, Map.put(acc, :cases, cases))
+        parse_flags(rest, %{acc | cases: cases})
 
       "--provider" ->
         {value, rest} = value_or_next(inline_value, rest)
-        parse_flags(rest, Map.put(acc, :provider, value))
+        parse_flags(rest, %{acc | provider: value})
 
       "--arm" ->
         {value, rest} = value_or_next(inline_value, rest)
-        parse_flags(rest, Map.put(acc, :arm, value))
+        parse_flags(rest, %{acc | arm: value})
+
+      "--model" ->
+        {value, rest} = value_or_next(inline_value, rest)
+        parse_flags(rest, %{acc | model: value})
 
       "--out" ->
         {value, rest} = value_or_next(inline_value, rest)
-        parse_flags(rest, Map.put(acc, :out, value))
+        parse_flags(rest, %{acc | out: value})
 
       "--surface" ->
         {value, rest} = value_or_next(inline_value, rest)
-        parse_flags(rest, Map.put(acc, :surface, value))
+        parse_flags(rest, %{acc | surface: value})
 
       "--runs" ->
         {value, rest} = value_or_next(inline_value, rest)
-        runs = case Integer.parse(value || "") do
-          {n, _} -> n
-          :error -> 1
-        end
-        parse_flags(rest, Map.put(acc, :runs, runs))
+        parse_flags(rest, %{acc | runs: parse_int(value, acc.runs)})
+
+      "--max-steps" ->
+        {value, rest} = value_or_next(inline_value, rest)
+        parse_flags(rest, %{acc | max_steps: parse_int(value, acc.max_steps)})
+
+      "--timeout-ms" ->
+        {value, rest} = value_or_next(inline_value, rest)
+        parse_flags(rest, %{acc | timeout_ms: parse_int(value, acc.timeout_ms)})
 
       other ->
-        IO.puts("[b27-eval] 未知参数: #{other}")
-        System.halt(2)
+        usage_error("未知参数: #{other}")
     end
   end
 
@@ -175,65 +297,122 @@ defmodule B27SemanticEval do
   defp value_or_next(nil, []), do: {nil, []}
   defp value_or_next(value, rest), do: {value, rest}
 
-  # ── 快照完整性（不调用 provider） ───────────────────────────────────────
+  defp parse_int(nil, default), do: default
+
+  defp parse_int(value, default) do
+    case Integer.parse(value) do
+      {n, _} -> n
+      :error -> default
+    end
+  end
+
+  defp normalize_arm(nil), do: "old"
+
+  defp normalize_arm(arm) do
+    case String.downcase(to_string(arm)) do
+      "old" -> "old"
+      "old_rules" -> "old"
+      "old_rules_arm" -> "old"
+      "integrated" -> "integrated"
+      "integrated_arm" -> "integrated"
+      "both" -> "both"
+      other -> other
+    end
+  end
+
+  defp effective_model("stub", model), do: to_string(model || "stub")
+
+  defp effective_model(provider, model) do
+    env_key =
+      case provider do
+        "lmstudio" -> "NOVEL_LMSTUDIO_MODEL"
+        "strata" -> "NOVEL_STRATA_MODEL"
+        "deepseek" -> "NOVEL_DEEPSEEK_MODEL"
+        _ -> nil
+      end
+
+    (env_key && System.get_env(env_key)) || model
+  end
+
+  defp usage_error(message) do
+    IO.puts("[b27-eval] 用法错误: #{message}")
+    System.halt(2)
+  end
+
+  # ── 快照完整性（不调用 provider）────────────────────────────────────────
 
   defp check_snapshots(opts) do
     manifest = read_yaml!(@cases_path)
-    cases = get(manifest, "cases") || []
-    ids = case_ids(opts, cases)
+    all_cases = get(manifest, "cases") || []
+    probes = get(manifest, "surface_probes") || []
 
-    results =
-      Enum.map(ids, fn id ->
-        case load_snapshot(id, opts.surface) do
-          {:ok, snap} ->
-            integrity = integrity(snap)
-            %{id: id, ok: get(integrity, "verified") == true, detail: integrity}
+    # 无显式选择器时校验全部 20 例（要求 --check-snapshots 仍 20/20）。
+    case_ids =
+      if opts.cases_explicit,
+        do: selected_case_ids(opts, all_cases),
+        else: Enum.map(all_cases, &get(&1, "id"))
 
-          {:error, reason} ->
-            %{id: id, ok: false, detail: %{error: inspect(reason)}}
-        end
-      end)
+    case_results = Enum.map(case_ids, &check_one_snapshot(&1, opts.surface))
 
-    bad = Enum.reject(results, & &1.ok)
+    check_probes =
+      if opts.cases_explicit do
+        "SP01" in case_ids
+      else
+        true
+      end
 
-    Enum.each(results, fn r ->
-      IO.puts("[b27-eval] #{r.id}: #{if r.ok, do: "integrity ok", else: "FAIL #{inspect(r.detail)}"}")
+    probe_results =
+      if check_probes do
+        Enum.map(probes, fn probe ->
+          if get(probe, "snapshot") == "available" do
+            check_one_snapshot(get(probe, "id"), "plan")
+          else
+            %{id: get(probe, "id"), ok: true, skipped: true, detail: %{snapshot: "unavailable"}}
+          end
+        end)
+      else
+        []
+      end
+
+    Enum.each(case_results, fn r ->
+      status = if r.ok, do: "integrity ok", else: "FAIL #{inspect(r.detail)}"
+      IO.puts("[b27-eval] #{r.id}: #{status}")
     end)
 
-    IO.puts("[b27-eval] integrity: #{length(results) - length(bad)}/#{length(results)} ok")
+    Enum.each(probe_results, fn r ->
+      status =
+        cond do
+          Map.get(r, :skipped) -> "snapshot unavailable（登记为探针不可用，不计入 20 例）"
+          r.ok -> "integrity ok"
+          true -> "FAIL #{inspect(r.detail)}"
+        end
+
+      IO.puts("[b27-eval] probe #{r.id}: #{status}")
+    end)
+
+    bad = Enum.reject(case_results, & &1.ok)
+    case_total = length(case_results)
+    case_ok = case_total - length(bad)
+    IO.puts("[b27-eval] integrity: #{case_ok}/#{case_total} ok (cases)")
 
     if bad != [], do: System.halt(2)
+  end
+
+  defp check_one_snapshot(id, surface) do
+    case load_snapshot(id, surface) do
+      {:ok, snap} ->
+        integrity = integrity(snap)
+        %{id: id, ok: get(integrity, "verified") == true, detail: integrity}
+
+      {:error, reason} ->
+        %{id: id, ok: false, detail: %{error: inspect(reason)}}
+    end
   end
 
   # ── 主流程 ──────────────────────────────────────────────────────────────
 
   defp run(opts) do
-    if opts.arm == "integrated" do
-      IO.puts("""
-      [b27-eval] BLOCKED: integrated_arm 尚未就绪。
-        integrated_arm 由 B27 CP3 完成专业调用整合后，用 scripts/b27_case_freeze.exs
-        重算并登记（见 #{@fixtures_rel}/arms.yml）。本轮 CP0 只允许 old_rules_arm 回放。
-      """)
-
-      System.halt(3)
-    end
-
-    unless Map.has_key?(@models, opts.provider) do
-      IO.puts("[b27-eval] 未知 provider: #{opts.provider}（可用：#{Map.keys(@models) |> Enum.join("|")}）")
-      System.halt(2)
-    end
-
-    if opts.provider == "lmstudio" and lmstudio_timeout_ms() < 120_000 do
-      IO.puts("""
-      [b27-eval] 拒绝运行：LM Studio 超时太短（当前 #{lmstudio_timeout_ms()}ms）。
-        首次 JIT 加载可能数百秒，必须显式设置 ≥300000：
-          NOVEL_LMSTUDIO_TIMEOUT_MS=600000 MIX_ENV=test ... mix run scripts/model_contracts/b27_semantic_eval.exs --provider lmstudio
-      """)
-
-      System.halt(2)
-    end
-
-    model_cfg = Map.fetch!(@models, opts.provider)
+    start_manifest = run_manifest(opts)
 
     if opts.provider == "deepseek" and not deepseek_credential?() do
       IO.puts("""
@@ -241,62 +420,1113 @@ defmodule B27SemanticEval do
         本机未配置；该候选必验模型记为 blocked（不伪造可用）。
       """)
 
+      write_manifest(opts, start_manifest, [], :blocked)
       System.halt(3)
     end
 
-    configure_model(model_cfg)
+    preview_provider!(opts)
 
     manifest = read_yaml!(@cases_path)
-    cases = get(manifest, "cases") || []
-    ids = case_ids(opts, cases)
-    File.mkdir_p!(opts.out)
+    all_cases = get(manifest, "cases") || []
+    all_probes = get(manifest, "surface_probes") || []
+    fixtures = get(manifest, "fixtures") || %{}
 
-    results =
-      Enum.flat_map(ids, fn id ->
-        Enum.map(1..opts.runs, fn run_index ->
-          run_single(id, opts, run_index, model_cfg)
+    fixture_bundle = %{
+      work_defaults: get(fixtures, "work_defaults") || %{},
+      prose: get(fixtures, "prose") || %{}
+    }
+
+    cases = selected_case_ids(opts, all_cases)
+    case_specs = resolve_case_specs(cases, all_cases, all_probes, opts)
+
+    if opts.arm in ["integrated", "both"] do
+      B27EpisodeSupport.ensure_isolated_db!(@db_marker)
+    end
+
+    configure_provider(opts)
+
+    {:ok, capture_pid} = Agent.start_link(fn -> [] end)
+    install_wire_capture(opts.provider_cfg.provider, capture_pid)
+
+    File.mkdir_p!(Path.join(opts.out, "episodes"))
+    File.mkdir_p!(Path.join(opts.out, "summaries"))
+
+    arms = if opts.arm == "both", do: ["old", "integrated"], else: [opts.arm]
+
+    episodes =
+      Enum.flat_map(arms, fn arm ->
+        Enum.flat_map(case_specs, fn spec ->
+          case_id = get(spec, "id")
+
+          Enum.map(1..opts.runs, fn run_index ->
+            IO.puts(
+              "[b27-eval] running arm=#{arm} case=#{case_id} run=#{run_index} provider=#{opts.provider}"
+            )
+
+            doc =
+              case arm do
+                "old" ->
+                  run_old_episode(case_id, spec, opts, run_index, capture_pid)
+
+                "integrated" ->
+                  run_integrated_episode(
+                    case_id,
+                    spec,
+                    fixture_bundle,
+                    opts,
+                    run_index,
+                    capture_pid
+                  )
+              end
+
+            path = episode_path(opts, case_id, arm, run_index)
+            File.write!(path, Jason.encode!(doc, pretty: true) <> "\n")
+
+            print_episode(doc)
+            Map.put(doc, "episode_path", rel(path))
+          end)
         end)
       end)
 
-    summary = summarize(results, opts)
-    File.write!(Path.join(opts.out, "summary-#{stamp()}.json"), Jason.encode!(summary, pretty: true))
+    summary = summarize(episodes, opts)
+    stamp = stamp()
+
+    File.write!(
+      Path.join([opts.out, "summaries", "summary-#{stamp}.json"]),
+      Jason.encode!(summary, pretty: true) <> "\n"
+    )
+
+    write_manifest(opts, start_manifest, episodes, :done)
     print_summary(summary)
 
-    if Enum.any?(results, &(&1["status"] == "provider_error")), do: System.halt(1)
-    if Enum.all?(results, &(&1["status"] == "blocked")), do: System.halt(3)
-  end
+    statuses = Enum.map(episodes, & &1["status"])
 
-  defp case_ids(opts, cases) do
     cond do
-      opts.cases == :all -> Enum.map(cases, &get(&1, "id"))
-      true -> opts.cases
+      Enum.all?(statuses, &(&1 == "blocked")) -> System.halt(3)
+      Enum.any?(statuses, &(&1 == "provider_error")) -> System.halt(1)
+      true -> :ok
     end
   end
 
-  defp run_single(case_id, opts, run_index, model_cfg) do
-    case load_snapshot(case_id, opts.surface) do
-      {:ok, snap} ->
-        integrity = integrity(snap)
-        result = execute_replay(case_id, snap, integrity, opts, run_index, model_cfg)
-        path = Path.join(opts.out, "#{case_id}-#{opts.provider}-run#{run_index}.json")
-        File.write!(path, Jason.encode!(result, pretty: true) <> "\n")
-        Map.put(result, "result_path", path)
+  defp selected_case_ids(opts, all_cases) do
+    ids = Enum.map(all_cases, &get(&1, "id"))
 
-      {:error, reason} ->
+    case opts.cases do
+      :all ->
+        ids
+
+      list ->
+        unknown = Enum.reject(list, &(&1 in ids or &1 == "SP01"))
+
+        if unknown != [] do
+          usage_error("未知案例: #{Enum.join(unknown, ",")}（可用 M01–M20 / SP01）")
+        end
+
+        list
+    end
+  end
+
+  defp resolve_case_specs(ids, all_cases, all_probes, opts) do
+    specs =
+      Enum.map(ids, fn id ->
+        case Enum.find(all_cases ++ all_probes, &(get(&1, "id") == id)) do
+          nil -> usage_error("案例 #{id} 不在 cases.yml 中")
+          spec -> spec
+        end
+      end)
+
+    case opts.surface do
+      "plan" ->
+        if ids != ["SP01"] do
+          usage_error("--surface plan 只用于 SP01 计划面探针；20 例 rubric 案例固定 judgment 面")
+        end
+
+        specs
+
+      _ ->
+        if "SP01" in ids do
+          usage_error("SP01 是计划面探针，请显式使用 --surface plan --case SP01")
+        end
+
+        specs
+    end
+  end
+
+  # ── old 臂：冻结快照单轮回放 ────────────────────────────────────────────
+
+  defp run_old_episode(case_id, spec, opts, run_index, capture_pid) do
+    started = System.monotonic_time(:millisecond)
+
+    try do
+      case load_snapshot(case_id, opts.surface) do
+        {:ok, snap} ->
+          integrity = integrity(snap)
+          request = select_request(snap, opts.surface)
+          prompt = build_prompt(request)
+
+          Agent.update(capture_pid, fn _ -> [] end)
+          call_started = System.monotonic_time(:millisecond)
+          outcome = provider_complete_with_timeout(prompt, opts)
+          call_elapsed = System.monotonic_time(:millisecond) - call_started
+          wire_calls = Agent.get(capture_pid, & &1)
+          elapsed = System.monotonic_time(:millisecond) - started
+
+          base = %{
+            "schema" => "b27-semantic-episode-v1",
+            "generated_at" => now_iso(),
+            "case_id" => case_id,
+            "case_title" => get(spec, "title"),
+            "arm" => "old",
+            "arm_slot" => "old_rules_arm",
+            "run_index" => run_index,
+            "provider" => to_string(opts.provider_cfg.provider),
+            "requested_model" => opts.effective_model,
+            "actual_model" => actual_model(wire_calls, outcome),
+            "call_surface" => get(snap, "call_surface") || opts.surface || "judgment",
+            "request_ref" => %{
+              "kind" => "cp0_frozen_snapshot_replay",
+              "snapshot_path" =>
+                rel(Path.join(@snapshots_dir, snapshot_filename(case_id, opts.surface))),
+              "snapshot_file_sha256" =>
+                sha256(
+                  File.read!(Path.join(@snapshots_dir, snapshot_filename(case_id, opts.surface)))
+                ),
+              "frozen_request_sha256" => integrity["frozen_request_sha256"],
+              "actual_request_sha256" => integrity["actual_request_sha256"],
+              "integrity_verified" => integrity["verified"],
+              "prompt_sha256" => sha256(canonical_json(prompt)),
+              "prompt_chars" => prompt_chars(prompt)
+            },
+            "response" => response_doc(outcome, wire_calls, call_elapsed),
+            "mapping" => mapping_doc(case_id, outcome, wire_calls, opts.surface),
+            "allowed_path" => allowed_path_doc(case_id, outcome, wire_calls, opts.surface),
+            "forbidden_candidates" =>
+              zero_tolerance_candidates(case_id, outcome, wire_calls, opts.surface),
+            "unnecessary_question_candidate" =>
+              unnecessary_question_candidate(case_id, spec, outcome, wire_calls),
+            "elapsed_ms" => elapsed,
+            "provider_call_count" => length(wire_calls),
+            "usage" => aggregate_usage(wire_calls),
+            "error_class" => error_class(outcome),
+            "status" => if(match?({:ok, _}, outcome), do: "ok", else: "provider_error"),
+            "availability" => if(match?({:ok, _}, outcome), do: "available", else: "unavailable"),
+            "episode" => %{
+              "kind" => "frozen_first_round_replay",
+              "rounds_planned" => 1,
+              "rounds_executed" => 1,
+              "complete" => false,
+              "boundary" =>
+                "old 臂只回放 CP0 冻结的首轮请求，不做旧 prompt 重渲染；探索后的续行轮不在快照内，" <>
+                  "因此本 episode 是单轮语义证据，不是完整 40 episode 门槛。"
+            },
+            "wire_captures" => Enum.map(wire_calls, &wire_call_doc/1),
+            "wire_request_matches_snapshot" => wire_messages_match?(wire_calls, request),
+            "materials" => material_summary(snap),
+            "workspace_arm" => workspace_arm_check(),
+            "method" => method_doc(opts),
+            "provider_config" => provider_config_doc(opts)
+          }
+
+          base
+          |> Map.put("snapshot", integrity)
+          |> Map.put("spec_flags", spec_flags(spec))
+
+        {:error, reason} ->
+          blocked_episode(
+            case_id,
+            "old",
+            run_index,
+            opts,
+            {:snapshot_unavailable, reason},
+            started
+          )
+      end
+    rescue
+      error ->
+        error_episode(
+          case_id,
+          "old",
+          run_index,
+          opts,
+          {:runner_exception, Exception.message(error)},
+          started
+        )
+    end
+  end
+
+  # ── integrated 臂：生产入口 + 真实 provider ─────────────────────────────
+
+  defp run_integrated_episode(case_id, spec, fixture_bundle, opts, run_index, capture_pid) do
+    started = System.monotonic_time(:millisecond)
+
+    try do
+      Agent.update(capture_pid, fn _ -> [] end)
+
+      outcome =
+        B27EpisodeSupport.run_case_episode(case_id, spec, fixture_bundle, %{
+          max_steps: opts.max_steps,
+          episode_timeout_ms: opts.timeout_ms,
+          capture_pid: capture_pid
+        })
+
+      elapsed = System.monotonic_time(:millisecond) - started
+
+      case outcome do
+        {:ok, evidence} ->
+          wire_calls = get(evidence, "provider_calls") || []
+
+          base = %{
+            "schema" => "b27-semantic-episode-v1",
+            "generated_at" => now_iso(),
+            "case_id" => case_id,
+            "case_title" => get(spec, "title"),
+            "arm" => "integrated",
+            "arm_slot" => "integrated_arm",
+            "run_index" => run_index,
+            "provider" => to_string(opts.provider_cfg.provider),
+            "requested_model" => opts.effective_model,
+            "actual_model" => actual_model(wire_calls, {:ok, nil}),
+            "call_surface" => opts.surface || "judgment",
+            "request_ref" => %{
+              "kind" => "integrated_production_entry",
+              "entry" => "NovelApplication.DialoguePlanningService.plan_agent_run/3",
+              "step_driver" =>
+                "b27_episode_support.run_case_episode/4（生产 planner + 真实 AgentRun step 收敛）",
+              "capture_boundary" => "NovelAgent.Provider adapter log_fn（真实 wire body）",
+              "run_ref" => get(evidence, "run_ref"),
+              "profile_ref" => get(evidence, "profile_ref"),
+              "rounds_executed" => get(evidence, "rounds_executed"),
+              "first_request_sha256" => first_request_sha(wire_calls),
+              "provider_call_count" => length(wire_calls)
+            },
+            "response" => integrated_response_doc(evidence, wire_calls, elapsed),
+            "mapping" => integrated_mapping_doc(case_id, evidence, wire_calls, opts.surface),
+            "allowed_path" =>
+              integrated_allowed_path_doc(case_id, evidence, wire_calls, opts.surface),
+            "forbidden_candidates" =>
+              integrated_zero_tolerance_candidates(case_id, evidence, wire_calls),
+            "unnecessary_question_candidate" =>
+              integrated_unnecessary_question_candidate(case_id, spec, evidence),
+            "elapsed_ms" => elapsed,
+            "provider_call_count" => length(wire_calls),
+            "usage" => aggregate_usage(wire_calls),
+            "error_class" => nil,
+            "status" => "ok",
+            "availability" => "available",
+            "episode" => %{
+              "kind" => "integrated_production_loop",
+              "rounds_planned" => 2,
+              "rounds_executed" => get(evidence, "rounds_executed"),
+              "complete" => get(evidence, "end_reason") == "complete",
+              "end_reason" => get(evidence, "end_reason"),
+              "rounds" => get(evidence, "rounds"),
+              "turn_result" => get(evidence, "turn_result"),
+              "complete_decision" => get(evidence, "complete_decision"),
+              "complete_meta" => get(evidence, "complete_meta")
+            },
+            "wire_captures" => Enum.map(wire_calls, &wire_call_doc/1),
+            "workspace_arm" => workspace_arm_check(),
+            "method" => method_doc(opts),
+            "provider_config" => provider_config_doc(opts),
+            "integrated_context" => %{
+              "db" => "MIX_ENV=test + NOVEL_TEST_DB_DIR=#{db_dir()} + Sandbox 回滚",
+              "fixture_uuid_namespace" => "b27-cp0（与 CP0 冻结快照材料 ref 可比）",
+              "deviation" => "provider 默认选择被脚本覆盖为本次 --provider（stage 等价），其余走生产默认依赖",
+              "concurrent_workspace_note" => "运行期间工作区可能有并行 B27 CP3 修改；规则资产 hash 见 workspace_arm"
+            }
+          }
+
+          Map.put(base, "spec_flags", spec_flags(spec))
+
+        {:error, error} ->
+          error_episode(case_id, "integrated", run_index, opts, error, started,
+            partial_provider_calls: get(error, :partial_provider_calls)
+          )
+      end
+    rescue
+      error ->
+        error_episode(
+          case_id,
+          "integrated",
+          run_index,
+          opts,
+          {:runner_exception, Exception.message(error)},
+          started
+        )
+    end
+  end
+
+  # ── provider 调用（old 臂）与采集安装 ───────────────────────────────────
+
+  defp provider_complete(prompt, opts) do
+    try do
+      Execution.complete(prompt,
+        provider: opts.provider_cfg.provider,
+        purpose: :planner,
+        content_visibility: :author,
+        params: InferenceParams.new(temperature: 0.2)
+      )
+    rescue
+      error -> {:error, %{message: Exception.message(error), reason_code: :runner_exception}}
+    catch
+      kind, reason ->
+        {:error, %{message: inspect({kind, reason}), reason_code: :runner_exception}}
+    end
+  end
+
+  # old 臂单轮调用也遵守 --timeout-ms 的 episode 挂钟：provider 卡住/排队时如实记超时，
+  # 不无限等待共享 LM Studio/Strata 实例。超时按 §6.1 计未成功（不删分母）。
+  defp provider_complete_with_timeout(prompt, opts) do
+    task = Task.async(fn -> provider_complete(prompt, opts) end)
+
+    case Task.yield(task, opts.timeout_ms) do
+      {:ok, result} ->
+        result
+
+      {:exit, reason} ->
+        {:error,
+         %{
+           message: "provider task exit: #{truncate_json(inspect(reason), 500)}",
+           reason_code: :runner_exception
+         }}
+
+      nil ->
+        _ = Task.shutdown(task, :brutal_kill)
+
+        {:error,
+         %{
+           message: "episode wall clock > #{opts.timeout_ms}ms（provider 未在时限内返回）",
+           reason_code: :timeout
+         }}
+    end
+  end
+
+  # 在 provider adapter 配置上安装 log_fn：采集真实 wire 请求与结果（只旁路记录）。
+  defp install_wire_capture(provider, capture_pid) do
+    module = provider_module(provider)
+
+    if is_nil(module) do
+      IO.puts("[b27-eval] provider=#{provider} 无 wire 采集 hook（stub）；episode 只含 step 证据。")
+      :unsupported
+    else
+      existing = Application.get_env(:novel_agent, module, [])
+
+      log_fn = fn vendor, url, body, result, started_at ->
+        try do
+          call = %{
+            "provider" => to_string(vendor),
+            "url" => sanitize_url(url),
+            "started_at_monotonic_ms" => started_at,
+            "finished_at_monotonic_ms" => System.monotonic_time(:millisecond),
+            "wire_request" => jsonable(body),
+            "wire_result" => result_fact(result)
+          }
+
+          Agent.update(capture_pid, fn calls -> calls ++ [call] end)
+          :ok
+        rescue
+          _ -> :ok
+        end
+      end
+
+      Application.put_env(:novel_agent, module, Keyword.put(existing, :log_fn, log_fn))
+      :ok
+    end
+  end
+
+  defp provider_module(:stub), do: nil
+  defp provider_module(:lmstudio), do: NovelAgent.Provider.LMStudio
+  defp provider_module(:strata), do: NovelAgent.Provider.Strata
+  defp provider_module(:deepseek), do: NovelAgent.Provider.DeepSeek
+  defp provider_module(_), do: nil
+
+  defp result_fact({:ok, %NovelAgent.Provider.Result{} = result, attrs}) do
+    %{
+      "kind" => "success",
+      "http_status" => get(attrs, :status),
+      "content" => result.content || "",
+      "content_chars" => chars(result.content),
+      "content_sha256" => sha256(to_string(result.content || "")),
+      "tool_calls" => jsonable(result.tool_calls || []),
+      "usage" => jsonable(result.usage),
+      "adapter_duration_ms" => get(attrs, :duration),
+      "resp_body" => truncate_json(get(attrs, :resp_body), 2_000)
+    }
+  end
+
+  defp result_fact({:ok, %NovelAgent.Provider.Result{} = result}) do
+    %{
+      "kind" => "success",
+      "http_status" => nil,
+      "content" => result.content || "",
+      "content_chars" => chars(result.content),
+      "content_sha256" => sha256(to_string(result.content || "")),
+      "tool_calls" => jsonable(result.tool_calls || []),
+      "usage" => jsonable(result.usage)
+    }
+  end
+
+  defp result_fact({:ok, other, attrs}) do
+    %{
+      "kind" => "success_other",
+      "http_status" => get(attrs, :status),
+      "result" => truncate_json(jsonable(other), 4_000),
+      "adapter_duration_ms" => get(attrs, :duration)
+    }
+  end
+
+  defp result_fact({:error, {:error, error}, attrs}) do
+    %{
+      "kind" => "error",
+      "http_status" => get(attrs, :status),
+      "error" => jsonable(error),
+      "adapter_duration_ms" => get(attrs, :duration),
+      "resp_body" => truncate_json(get(attrs, :resp_body), 2_000)
+    }
+  end
+
+  defp result_fact({:error, error}) do
+    %{"kind" => "error", "error" => jsonable(error)}
+  end
+
+  defp result_fact(other),
+    do: %{"kind" => "unknown", "raw" => truncate_json(inspect(other), 1_000)}
+
+  # ── episode 文档字段组装 ────────────────────────────────────────────────
+
+  defp response_doc({:ok, %NovelAgent.Provider.Result{} = result}, wire_calls, elapsed) do
+    %{
+      "kind" => "provider_result",
+      "content" => result.content || "",
+      "content_chars" => chars(result.content),
+      "tool_calls" => jsonable(result.tool_calls || []),
+      "finish_reason" => result.provider_output && get(result.provider_output, :output_type),
+      "duration_ms" => elapsed,
+      "provider_calls" => max(length(wire_calls), 1)
+    }
+  end
+
+  defp response_doc({:error, error}, wire_calls, elapsed) do
+    %{
+      "kind" => "provider_error",
+      "error" => normalize_error(error),
+      "duration_ms" => elapsed,
+      "provider_calls" => length(wire_calls)
+    }
+  end
+
+  defp response_doc(_other, wire_calls, elapsed) do
+    %{"kind" => "unknown", "duration_ms" => elapsed, "provider_calls" => length(wire_calls)}
+  end
+
+  defp integrated_response_doc(evidence, wire_calls, elapsed) do
+    last_call = List.last(wire_calls)
+    turn_result = get(evidence, "turn_result") || %{}
+    last_result = get(last_call || %{}, "wire_result") || %{}
+
+    %{
+      "kind" => "production_loop_final",
+      "final_text" => get(turn_result, "text"),
+      "final_text_chars" => chars(get(turn_result, "text")),
+      "last_response_content" => get(last_result, "content"),
+      "last_response_tool_calls" => get(last_result, "tool_calls") || [],
+      "finish_reason" => finish_reason(last_result),
+      "duration_ms" => elapsed,
+      "provider_calls" => length(wire_calls)
+    }
+  end
+
+  defp mapping_doc(_case_id, outcome, wire_calls, surface) do
+    classification = classify_outcome(outcome, wire_calls, surface)
+
+    %{
+      "judgment_action" => classification["decision"],
+      "decision_detail" => classification["detail"],
+      "tool_calls" => classification["tool_calls"],
+      "final_text" => final_text(outcome, wire_calls),
+      "response_kind" => if(match?({:ok, _}, outcome), do: "ok", else: "error"),
+      "contract_validation" => contract_validation(outcome),
+      "rubric_note" => "runner 映射只作判卷输入；semantic_success 必须由评分器读取人工判定后聚合"
+    }
+  end
+
+  defp integrated_mapping_doc(_case_id, evidence, _wire_calls, surface) do
+    tool_events = integrated_tool_events(evidence)
+    judgment_decisions = Enum.filter(tool_events, &(&1["name"] == "judgment_decision"))
+    first = List.first(judgment_decisions)
+
+    first_action =
+      cond do
+        is_map(first) -> get(get(first, "arguments") || %{}, "action")
+        true -> nil
+      end
+
+    decision =
+      cond do
+        surface == "plan" and Enum.any?(tool_events, &(&1["name"] == "agent_plan_draft")) ->
+          "plan_draft"
+
+        is_binary(first_action) ->
+          first_action
+
+        true ->
+          classify_from_events(tool_events, get(evidence, "turn_result"))
+      end
+
+    %{
+      "judgment_action" => decision,
+      "decision_detail" =>
+        if(is_binary(first_action), do: "judgment_decision", else: "derived_from_tools"),
+      "tool_calls" => Enum.map(tool_events, &Map.drop(&1, ["call_index"])),
+      "tool_names" =>
+        tool_events |> Enum.map(& &1["name"]) |> Enum.reject(&is_nil/1) |> Enum.uniq(),
+      "judgment_decisions" =>
+        Enum.map(judgment_decisions, fn event ->
+          arguments = get(event, "arguments") || %{}
+
+          %{
+            "call_index" => get(event, "call_index"),
+            "round" => get(event, "round"),
+            "action" => get(arguments, "action"),
+            "dialogue_goal" => get(arguments, "dialogue_goal"),
+            "reason" => get(arguments, "reason"),
+            "explore_request" => get(arguments, "explore_request"),
+            "capability" => get(arguments, "capability")
+          }
+        end),
+      "final_text" => get(get(evidence, "turn_result") || %{}, "text"),
+      "judgment_settled" => settled_from_rounds(evidence),
+      "response_kind" => "production_loop",
+      "rubric_note" => "runner 映射只作判卷输入；semantic_success 必须由评分器读取人工判定后聚合"
+    }
+  end
+
+  defp classify_from_events(tool_events, turn_result) do
+    names = Enum.map(tool_events, & &1["name"])
+
+    cond do
+      "register_author_content" in names ->
+        "register_author_content"
+
+      "propose_creative_directions" in names ->
+        "creative_directions"
+
+      "report_capability_gap" in names ->
+        "capability_gap"
+
+      "agent_plan_draft" in names ->
+        "plan_draft"
+
+      "ask_author" in names ->
+        "ask_author"
+
+      is_binary(get(turn_result || %{}, "text")) and get(turn_result || %{}, "text") != "" ->
+        "reply"
+
+      true ->
+        "empty_response"
+    end
+  end
+
+  # 将每个 provider wire 响应里的 tool_calls 摊平为带轮次序号的判定事件。
+  defp integrated_tool_events(evidence) do
+    rounds = get(evidence, "rounds") || []
+
+    rounds
+    |> Enum.flat_map(fn round ->
+      sequence = get(round, "sequence")
+      calls = get(round, "calls") || []
+
+      Enum.with_index(calls, 1)
+      |> Enum.flat_map(fn {call, call_index} ->
+        result = get(call, "wire_result") || %{}
+        tool_calls = get(result, "tool_calls") || []
+
+        Enum.map(tool_calls, fn tool_call ->
+          %{
+            "name" => get(tool_call, "name") || get(tool_call, "function.name"),
+            "arguments" =>
+              get(tool_call, "arguments") || get(tool_call, "function.arguments") || %{},
+            "call_index" => call_index,
+            "round" => sequence
+          }
+        end)
+      end)
+    end)
+  end
+
+  defp settled_from_rounds(evidence) do
+    evidence
+    |> get("rounds")
+    |> List.wrap()
+    |> Enum.map(fn round -> get(get(round, "outcome") || %{}, "judgment_settled") end)
+    |> Enum.reject(&is_nil/1)
+    |> List.last()
+  end
+
+  defp allowed_path_doc(case_id, outcome, wire_calls, surface) do
+    paths = Map.get(@paths, case_id, %{allowed: [], conditional: []})
+    classification = classify_outcome(outcome, wire_calls, surface)
+    decision = classification["decision"]
+
+    %{
+      "hit" => decision in Enum.map(paths.allowed, &to_string/1),
+      "allowed" => Enum.map(paths.allowed, &to_string/1),
+      "conditional" => Enum.map(paths.conditional, &to_string/1),
+      "observed_decision" => decision
+    }
+  end
+
+  defp integrated_allowed_path_doc(case_id, evidence, _wire_calls, surface) do
+    paths = Map.get(@paths, case_id, %{allowed: [], conditional: []})
+    tool_events = integrated_tool_events(evidence)
+    judgment_decisions = Enum.filter(tool_events, &(&1["name"] == "judgment_decision"))
+    first = List.first(judgment_decisions)
+
+    first_action =
+      if is_map(first), do: get(get(first, "arguments") || %{}, "action"), else: nil
+
+    decision =
+      cond do
+        surface == "plan" and Enum.any?(tool_events, &(&1["name"] == "agent_plan_draft")) ->
+          "plan_draft"
+
+        is_binary(first_action) ->
+          first_action
+
+        true ->
+          classify_from_events(tool_events, get(evidence, "turn_result"))
+      end
+
+    %{
+      "hit" => decision in Enum.map(paths.allowed, &to_string/1),
+      "allowed" => Enum.map(paths.allowed, &to_string/1),
+      "conditional" => Enum.map(paths.conditional, &to_string/1),
+      "observed_decision" => decision,
+      "note" => "首轮判断路径命中；完整 §6.1 语义通过仍由 rubric 判卷决定"
+    }
+  end
+
+  defp zero_tolerance_candidates(case_id, outcome, _wire_calls, _surface) do
+    decision = classify_outcome(outcome, [], nil)["decision"]
+
+    [
+      decision == "register_author_content" and case_id not in ["M11", "M12"] and
+        "author_content_registration_without_request",
+      decision == "creative_directions" and case_id != "M09" and
+        "creative_directions_without_request",
+      decision == "capability_gap" and case_id != "M14" and
+        "capability_gap_without_matching_gap_case",
+      decision == "execute" and case_id not in @execute_cases and
+        "execute_without_matching_case_path"
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  defp integrated_zero_tolerance_candidates(case_id, evidence, _wire_calls) do
+    tool_events = integrated_tool_events(evidence)
+    names = Enum.map(tool_events, & &1["name"])
+    decisions = Enum.filter(tool_events, &(&1["name"] == "judgment_decision"))
+    actions = Enum.map(decisions, fn d -> get(get(d, "arguments") || %{}, "action") end)
+
+    [
+      "register_author_content" in names and case_id not in ["M11", "M12"] and
+        "author_content_registration_without_request",
+      "propose_creative_directions" in names and case_id != "M09" and
+        "creative_directions_without_request",
+      "report_capability_gap" in names and case_id != "M14" and
+        "capability_gap_without_matching_gap_case",
+      "execute" in actions and case_id not in @execute_cases and
+        "execute_without_matching_case_path",
+      "agent_plan_draft" in names and "judgment_decision" not in names and
+        "plan_draft_without_judgment_plan_decision"
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  defp unnecessary_question_candidate(_case_id, spec, outcome, _wire_calls) do
+    counted = truthy(get(spec, "unnecessary_question_counted"))
+
+    counted and classify_outcome(outcome, [], nil)["decision"] == "ask_author"
+  end
+
+  defp integrated_unnecessary_question_candidate(_case_id, spec, evidence) do
+    counted = truthy(get(spec, "unnecessary_question_counted"))
+    names = evidence |> integrated_tool_events() |> Enum.map(& &1["name"])
+
+    counted and "ask_author" in names
+  end
+
+  defp spec_flags(spec) do
+    %{
+      "key_case" => get(spec, "key_case") == true,
+      "retention" => get(spec, "retention") == true,
+      "unnecessary_question_counted" => get(spec, "unnecessary_question_counted") == true,
+      "zero_tolerance_applies" => get(spec, "zero_tolerance_applies") || [],
+      "snapshot" => get(spec, "snapshot")
+    }
+  end
+
+  defp blocked_episode(case_id, arm, run_index, opts, reason, started) do
+    %{
+      "schema" => "b27-semantic-episode-v1",
+      "generated_at" => now_iso(),
+      "case_id" => case_id,
+      "arm" => arm,
+      "run_index" => run_index,
+      "provider" => to_string(opts.provider_cfg.provider),
+      "requested_model" => opts.effective_model,
+      "status" => "blocked",
+      "availability" => "unavailable",
+      "error_class" => "blocked",
+      "blocked_reason" => inspect(reason),
+      "elapsed_ms" => System.monotonic_time(:millisecond) - started,
+      "response" => nil,
+      "mapping" => nil,
+      "method" => method_doc(opts)
+    }
+  end
+
+  defp error_episode(case_id, arm, run_index, opts, error, started, extra \\ []) do
+    error = if is_map(error), do: error, else: %{class: :unknown, message: inspect(error)}
+
+    %{
+      "schema" => "b27-semantic-episode-v1",
+      "generated_at" => now_iso(),
+      "case_id" => case_id,
+      "arm" => arm,
+      "run_index" => run_index,
+      "provider" => to_string(opts.provider_cfg.provider),
+      "requested_model" => opts.effective_model,
+      "status" => "provider_error",
+      "availability" => "unavailable",
+      "error_class" => error_class({:error, error}),
+      "error" => %{
+        "class" => to_string(get(error, :class) || :unknown),
+        "message" => get(error, :message) || inspect(error),
+        "rounds" => get(error, :rounds),
+        "round" => get(error, :round)
+      },
+      "elapsed_ms" => System.monotonic_time(:millisecond) - started,
+      "response" => nil,
+      "mapping" => nil,
+      "method" => method_doc(opts)
+    }
+    |> Map.merge(Map.new(Keyword.take(extra, [:partial_provider_calls])))
+  end
+
+  # ── 分类与判定辅助（非最终判分）────────────────────────────────────────
+
+  defp classify_outcome({:ok, %NovelAgent.Provider.Result{} = result}, _wire_calls, surface) do
+    classify_tool_calls(jsonable(result.tool_calls || []), result.content, surface)
+  end
+
+  defp classify_outcome({:ok, _other}, wire_calls, surface) do
+    last = List.last(wire_calls) || %{}
+    result = get(last, "wire_result") || %{}
+    classify_tool_calls(get(result, "tool_calls") || [], get(result, "content"), surface)
+  end
+
+  defp classify_outcome({:error, _}, _wire_calls, _surface) do
+    %{"decision" => "error", "detail" => "provider_error", "tool_calls" => []}
+  end
+
+  defp classify_outcome(other, _wire_calls, _surface) do
+    %{"decision" => "unknown", "detail" => inspect(other), "tool_calls" => []}
+  end
+
+  defp classify_tool_calls([], content, _surface) do
+    if chars(content) > 0 do
+      %{"decision" => "reply", "detail" => "no_tool_plain_text", "tool_calls" => []}
+    else
+      %{"decision" => "empty_response", "detail" => "no_tool_empty_content", "tool_calls" => []}
+    end
+  end
+
+  defp classify_tool_calls([call], content, "plan") do
+    name = get(call, "name")
+
+    if name == "agent_plan_draft" do
+      %{"decision" => "plan_draft", "detail" => "agent_plan_draft", "tool_calls" => [call]}
+    else
+      classify_tool_calls([call], content, "judgment")
+    end
+  end
+
+  defp classify_tool_calls([call], _content, _surface) do
+    name = get(call, "name")
+    args = get(call, "arguments") || %{}
+
+    decision =
+      case name do
+        "judgment_decision" -> get(args, "action")
+        "continuation_decision" -> "continue"
+        "ask_author" -> "ask_author"
+        "register_author_content" -> "register_author_content"
+        "propose_creative_directions" -> "creative_directions"
+        "report_capability_gap" -> "capability_gap"
+        "agent_plan_draft" -> "plan_draft"
+        other -> other || "other_tool"
+      end
+
+    %{"decision" => decision, "detail" => name, "tool_calls" => [call]}
+  end
+
+  defp classify_tool_calls(calls, _content, _surface) do
+    names = calls |> Enum.map(&get(&1, "name")) |> Enum.reject(&is_nil/1) |> Enum.sort()
+
+    cond do
+      "judgment_decision" in names and "agent_plan_draft" in names ->
+        decision = Enum.find(calls, &(get(&1, "name") == "judgment_decision"))
+        args = get(decision, "arguments") || %{}
+
+        if get(args, "action") == "plan" do
+          %{
+            "decision" => "plan",
+            "detail" => "judgment_decision.plan + agent_plan_draft",
+            "tool_calls" => calls
+          }
+        else
+          %{
+            "decision" => "invalid_combination",
+            "detail" => "two tools with non-plan action",
+            "tool_calls" => calls
+          }
+        end
+
+      true ->
         %{
-          "schema" => "b27-semantic-eval-result-v1",
-          "case_id" => case_id,
-          "status" => "blocked",
-          "blocked_reason" => "snapshot_unavailable: #{inspect(reason)}",
-          "arm" => opts.arm,
-          "provider" => opts.provider
+          "decision" => "invalid_combination",
+          "detail" => Enum.join(names, "+"),
+          "tool_calls" => calls
         }
     end
   end
 
+  defp contract_validation({:ok, %NovelAgent.Provider.Result{} = result}) do
+    case JudgmentToolContract.validate(result.tool_calls || [], :judgment) do
+      :ok -> %{"ok" => true, "error" => nil}
+      {:error, reason} -> %{"ok" => false, "error" => inspect(reason)}
+    end
+  end
+
+  defp contract_validation({:ok, _}), do: %{"ok" => nil, "error" => "non_result_outcome"}
+  defp contract_validation({:error, error}), do: %{"ok" => false, "error" => inspect(error)}
+  defp contract_validation(_), do: %{"ok" => nil, "error" => "no_outcome"}
+
+  defp final_text({:ok, %NovelAgent.Provider.Result{} = result}, wire_calls) do
+    cond do
+      chars(result.content) > 0 -> result.content
+      true -> last_wire_content(wire_calls)
+    end
+  end
+
+  defp final_text(_, wire_calls), do: last_wire_content(wire_calls)
+
+  defp last_wire_content(wire_calls) do
+    wire_calls
+    |> List.wrap()
+    |> Enum.map(fn call -> get(get(call, "wire_result") || %{}, "content") end)
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> List.last()
+  end
+
+  defp error_class({:ok, _}), do: nil
+
+  defp error_class({:error, error}) do
+    message =
+      (get(error, :message) || get(error, "message") || inspect(error))
+      |> to_string()
+      |> String.downcase()
+
+    cond do
+      String.contains?(message, ["timeout", "timed out", "超时", "没有返回", "生成超过", "time out"]) ->
+        "timeout"
+
+      String.contains?(message, [
+        "econnrefused",
+        "connection refused",
+        "connect",
+        "无法连接",
+        "未启动",
+        "econnreset"
+      ]) ->
+        "connection"
+
+      String.contains?(message, [
+        "model not found",
+        "choose a loaded model",
+        "no models loaded",
+        "model_not_found"
+      ]) ->
+        "provider_model_unavailable"
+
+      String.contains?(message, ["unauthorized", "401", "403", "api key", "auth"]) ->
+        "provider_auth"
+
+      String.contains?(message, ["format", "json", "tool_call", "protocol", "invalid_response"]) ->
+        "format_terminal_failure"
+
+      true ->
+        "provider_error"
+    end
+  end
+
+  defp error_class(_), do: "runner_exception"
+
+  defp finish_reason(result) do
+    get(result, "http_status") || get(result, "kind")
+  end
+
+  defp actual_model(wire_calls, outcome) do
+    usage_model =
+      wire_calls
+      |> List.wrap()
+      |> Enum.map(fn call -> get(get(call, "wire_result") || %{}, "usage") end)
+      |> Enum.map(fn usage -> get(usage || %{}, "model") end)
+      |> Enum.reject(&is_nil/1)
+      |> List.last()
+
+    cond do
+      is_binary(usage_model) ->
+        usage_model
+
+      match?({:ok, %NovelAgent.Provider.Result{}}, outcome) ->
+        {:ok, %NovelAgent.Provider.Result{usage: usage}} = outcome
+        usage_model_from(usage)
+
+      true ->
+        nil
+    end
+  end
+
+  defp usage_model_from(usage) when is_map(usage) do
+    get(usage, :model) || get(usage, "model")
+  end
+
+  defp usage_model_from(_), do: nil
+
+  defp aggregate_usage(wire_calls) do
+    usages =
+      wire_calls
+      |> List.wrap()
+      |> Enum.map(fn call -> get(get(call, "wire_result") || %{}, "usage") end)
+      |> Enum.filter(&is_map/1)
+
+    totals =
+      Enum.reduce(
+        usages,
+        %{"input_tokens" => 0, "output_tokens" => 0, "cached_tokens" => 0},
+        fn usage, acc ->
+          %{
+            "input_tokens" => acc["input_tokens"] + (get(usage, "input_tokens") || 0),
+            "output_tokens" => acc["output_tokens"] + (get(usage, "output_tokens") || 0),
+            "cached_tokens" => acc["cached_tokens"] + (get(usage, "cached_tokens") || 0)
+          }
+        end
+      )
+
+    totals
+    |> Map.put("provider_calls", length(wire_calls))
+    |> Map.put("per_call", usages)
+  end
+
+  defp wire_call_doc(call) do
+    request = get(call, "wire_request") || %{}
+    result = get(call, "wire_result") || %{}
+    messages = get(request, "messages") || []
+
+    %{
+      "provider" => get(call, "provider"),
+      "url" => get(call, "url"),
+      "started_at_monotonic_ms" => get(call, "started_at_monotonic_ms"),
+      "finished_at_monotonic_ms" => get(call, "finished_at_monotonic_ms"),
+      "latency_ms" =>
+        cond do
+          is_integer(get(call, "finished_at_monotonic_ms")) and
+              is_integer(get(call, "started_at_monotonic_ms")) ->
+            get(call, "finished_at_monotonic_ms") - get(call, "started_at_monotonic_ms")
+
+          true ->
+            nil
+        end,
+      "request" => %{
+        "body_sha256" => sha256(canonical_json(request)),
+        "messages_sha256" => sha256(canonical_json(messages)),
+        "message_count" => length(messages),
+        "prompt_chars" => prompt_chars_from_messages(messages),
+        "tool_names" => request_tool_names(request),
+        "tool_choice" => get(request, "tool_choice"),
+        "temperature" => get(request, "temperature"),
+        "max_tokens" => get(request, "max_tokens"),
+        "messages" => messages
+      },
+      "response" => %{
+        "kind" => get(result, "kind"),
+        "http_status" => get(result, "http_status"),
+        "content" => get(result, "content"),
+        "content_chars" => get(result, "content_chars"),
+        "tool_calls" => get(result, "tool_calls") || [],
+        "usage" => get(result, "usage"),
+        "adapter_duration_ms" => get(result, "adapter_duration_ms"),
+        "resp_body" => get(result, "resp_body"),
+        "error" => get(result, "error")
+      }
+    }
+  end
+
+  defp request_tool_names(request) do
+    request
+    |> get("tools")
+    |> List.wrap()
+    |> Enum.map(fn tool ->
+      get(tool, "function.name") || get(get(tool, "function") || %{}, "name") || get(tool, "name")
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp wire_messages_match?([], _request), do: nil
+
+  defp wire_messages_match?(wire_calls, request) do
+    # 快照 messages 保留 CP0 捕获时的 `bytes` 统计字段；wire messages 只有 role/content。
+    # 语义比对只取 role/content 字节（这是回放忠实性的判定口径）。
+    expected = request |> get("messages") |> List.wrap() |> Enum.map(&message_text/1)
+
+    actual =
+      wire_calls
+      |> List.first()
+      |> get("wire_request")
+      |> then(fn body -> get(body || %{}, "messages") end)
+
+    is_list(actual) and
+      canonical_json(Enum.map(actual, &message_text/1)) == canonical_json(expected)
+  end
+
+  defp message_text(message) do
+    %{"role" => get(message, "role"), "content" => get(message, "content")}
+  end
+
+  defp first_request_sha(wire_calls) do
+    wire_calls
+    |> List.wrap()
+    |> List.first()
+    |> then(fn call ->
+      body = get(call || %{}, "wire_request")
+      if is_map(body), do: sha256(canonical_json(body)), else: nil
+    end)
+  end
+
+  defp snapshot_filename(case_id, surface) do
+    cond do
+      surface == "plan" or case_id == "SP01" -> "SP01-plan.json"
+      true -> "#{case_id}.json"
+    end
+  end
+
+  # ── 快照加载/完整性 ─────────────────────────────────────────────────────
+
   defp load_snapshot(case_id, surface) do
-    expected = if surface == "plan" or String.starts_with?(case_id, "SP"), do: "SP01-plan", else: case_id
-    path = Path.join(@snapshots_dir, "#{expected}.json")
+    path = Path.join(@snapshots_dir, snapshot_filename(case_id, surface))
 
     cond do
       not File.exists?(path) ->
@@ -308,6 +1538,22 @@ defmodule B27SemanticEval do
     end
   end
 
+  defp select_request(snap, surface) do
+    cond do
+      surface == "plan" and is_map(get(snap, "requests")) ->
+        get(get(snap, "requests"), "plan_draft")
+
+      is_map(get(snap, "request")) ->
+        get(snap, "request")
+
+      is_map(get(snap, "requests")) ->
+        get(get(snap, "requests"), "judgment") || get(get(snap, "requests"), "plan_draft")
+
+      true ->
+        nil
+    end
+  end
+
   defp integrity(snap) do
     {request, expected_hash} =
       cond do
@@ -315,7 +1561,9 @@ defmodule B27SemanticEval do
           {get(snap, "request"), get(get(snap, "hashes") || %{}, "request_sha256")}
 
         is_map(get(snap, "requests")) ->
-          request = get(get(snap, "requests"), "plan_draft") || get(get(snap, "requests"), "judgment")
+          request =
+            get(get(snap, "requests"), "plan_draft") || get(get(snap, "requests"), "judgment")
+
           {request, get(get(snap, "hashes") || %{}, "plan_request_sha256")}
 
         true ->
@@ -335,43 +1583,11 @@ defmodule B27SemanticEval do
     }
   end
 
-  defp execute_replay(case_id, snap, integrity, opts, run_index, model_cfg) do
-    request = get(snap, "request") || get(get(snap, "requests"), "plan_draft")
-
-    if is_nil(request) do
-      %{
-        "schema" => "b27-semantic-eval-result-v1",
-        "case_id" => case_id,
-        "status" => "invalid_snapshot",
-        "arm" => opts.arm
-      }
-    else
-      prompt = build_prompt(request)
-      params = InferenceParams.new(temperature: get(get(request, "inference"), "temperature") || 0.2)
-      started = System.monotonic_time(:millisecond)
-
-      outcome =
-        try do
-          Execution.complete(prompt,
-            provider: model_cfg.provider,
-            purpose: :planner,
-            content_visibility: :author,
-            params: params
-          )
-        rescue
-          error -> {:error, %{message: Exception.message(error), reason_code: :runner_exception}}
-        catch
-          kind, reason -> {:error, %{message: inspect({kind, reason}), reason_code: :runner_exception}}
-        end
-
-      duration = System.monotonic_time(:millisecond) - started
-      build_result(case_id, snap, integrity, opts, run_index, model_cfg, prompt, outcome, duration)
-    end
-  end
-
   # 冻结快照 → 可回放 prompt：
-  # - messages[0] 是 CP0 冻结的 L0 身份消息（重建 metadata 让 Gateway 幂等识别、不重复注入）
-  # - 其余消息按冻结内容逐字回放；tools/tool_choice 原样
+  # messages[0] 是 CP0 冻结的 L0 身份消息（重建 metadata 让 Gateway 幂等识别、不重复注入），
+  # 其余消息按冻结内容逐字回放；tools/tool_choice 原样。
+  defp build_prompt(nil), do: %{messages: [], tools: [], tool_choice: "auto"}
+
   defp build_prompt(request) do
     messages = get(request, "messages") || []
     identity_meta = get(request, "system_identity") || %{}
@@ -386,8 +1602,11 @@ defmodule B27SemanticEval do
               content: get(first, "content"),
               metadata: %{
                 system_identity: %{
-                  version: get(identity_meta, "version") || SystemIdentity.version(),
-                  content_hash: get(identity_meta, "content_hash") || SystemIdentity.content_hash()
+                  version:
+                    get(identity_meta, "version") || NovelAgent.Provider.SystemIdentity.version(),
+                  content_hash:
+                    get(identity_meta, "content_hash") ||
+                      NovelAgent.Provider.SystemIdentity.content_hash()
                 }
               }
             }
@@ -405,101 +1624,374 @@ defmodule B27SemanticEval do
     }
   end
 
-  defp build_result(case_id, snap, integrity, opts, run_index, model_cfg, _prompt, outcome, duration) do
-    base = %{
-      "schema" => "b27-semantic-eval-result-v1",
-      "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-      "case_id" => case_id,
-      "run_index" => run_index,
+  defp prompt_chars(prompt) do
+    prompt
+    |> get(:messages)
+    |> List.wrap()
+    |> Enum.map(fn m -> chars(get(m, :content)) end)
+    |> Enum.sum()
+  end
+
+  defp prompt_chars_from_messages(messages) do
+    messages
+    |> List.wrap()
+    |> Enum.map(fn m -> chars(get(m, "content") || get(m, :content)) end)
+    |> Enum.sum()
+  end
+
+  # ── provider 配置 / 探活 ────────────────────────────────────────────────
+
+  defp configure_provider(opts) do
+    case opts.provider_cfg.provider do
+      :stub ->
+        :ok
+
+      :lmstudio ->
+        existing = Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio, [])
+
+        existing =
+          existing
+          |> Keyword.put(:model, opts.effective_model)
+          |> Keyword.put(:timeout, max(opts.timeout_ms, 300_000))
+          |> Keyword.put_new(:max_tokens, 32_000)
+
+        Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, existing)
+        put_default_provider(:lmstudio)
+        :ok
+
+      :strata ->
+        existing = Application.get_env(:novel_agent, NovelAgent.Provider.Strata, [])
+
+        Application.put_env(
+          :novel_agent,
+          NovelAgent.Provider.Strata,
+          existing
+          |> Keyword.put(:model, opts.effective_model)
+          |> Keyword.put(
+            :endpoint,
+            System.get_env("NOVEL_STRATA_ENDPOINT", "http://127.0.0.1:47831/v1")
+          )
+          |> Keyword.put_new(:max_tokens, 32_000)
+        )
+
+        put_default_provider(:strata)
+        :ok
+
+      :deepseek ->
+        existing = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek, [])
+
+        Application.put_env(
+          :novel_agent,
+          NovelAgent.Provider.DeepSeek,
+          Keyword.put(existing, :model, opts.effective_model)
+        )
+
+        put_default_provider(:deepseek)
+        :ok
+    end
+  end
+
+  defp put_default_provider(provider) do
+    existing = Application.get_env(:novel_agent, :provider, [])
+    Application.put_env(:novel_agent, :provider, Keyword.put(existing || [], :default, provider))
+  end
+
+  defp preview_provider!(opts) do
+    if opts.provider == "stub" or opts.skip_health_check do
+      if opts.skip_health_check and opts.provider != "stub" do
+        IO.puts("[b27-eval] WARN 跳过 provider 探活（--skip-health-check）：失败必须如实记录")
+      end
+
+      :ok
+    else
+      probe_provider!(opts)
+    end
+  end
+
+  defp probe_provider!(opts) do
+    url = opts.provider_cfg[:health_url]
+
+    case http_get_models(url) do
+      {:ok, ids, aliases} ->
+        requested = opts.effective_model
+
+        found =
+          requested in ids or requested in aliases or
+            model_loose_match?(requested, ids ++ aliases)
+
+        if found do
+          IO.puts("[b27-eval] provider #{opts.provider} alive；请求模型 #{requested} 在 /models 中")
+          :ok
+        else
+          IO.puts("""
+          [b27-eval] BLOCKED: provider #{opts.provider} 可用，但请求模型不可用。
+            endpoint: #{url}
+            requested: #{requested}
+            available: #{Enum.join(Enum.take(ids ++ aliases, 12), ", ")}
+          不伪造模型可用；请调整 --model 或加载模型后重跑。
+          """)
+
+          System.halt(3)
+        end
+
+      {:error, reason} ->
+        IO.puts("""
+        [b27-eval] BLOCKED: provider #{opts.provider} 探活失败（#{inspect(reason)}）。
+          endpoint: #{url}
+          真实调用会失败，按 blocked 记录；不伪造可用。
+        """)
+
+        System.halt(3)
+    end
+  end
+
+  defp http_get_models(url) do
+    case Req.get(url, receive_timeout: 10_000, retry: false) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_map(body) ->
+        data = get(body, "data") || []
+
+        ids =
+          data
+          |> Enum.map(fn item -> get(item, "id") end)
+          |> Enum.reject(&is_nil/1)
+
+        aliases =
+          data
+          |> Enum.flat_map(fn item ->
+            meta = get(item, "meta") || %{}
+            List.wrap(get(meta, "aliases"))
+          end)
+
+        {:ok, ids, aliases}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:http_status, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp model_loose_match?(requested, available) do
+    requested = to_string(requested)
+
+    Enum.any?(available, fn id ->
+      id = to_string(id)
+
+      id == requested or String.ends_with?(id, "/" <> requested) or
+        String.ends_with?(requested, "/" <> id)
+    end)
+  end
+
+  defp deepseek_credential? do
+    key =
+      System.get_env("DEEPSEEK_API_KEY") || System.get_env("NOVEL_DEEPSEEK_API_KEY") ||
+        Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek, [])[:api_key]
+
+    is_binary(key) and String.trim(key) != ""
+  end
+
+  # ── 输出 ────────────────────────────────────────────────────────────────
+
+  defp episode_path(opts, case_id, arm, run_index) do
+    Path.join([
+      opts.out,
+      "episodes",
+      "#{case_id}-#{arm}-#{opts.provider}-run#{run_index}.json"
+    ])
+  end
+
+  defp summarize(episodes, opts) do
+    statuses = Enum.frequencies_by(episodes, & &1["status"])
+
+    decisions =
+      episodes
+      |> Enum.map(fn e -> get(get(e, "mapping") || %{}, "judgment_action") end)
+      |> Enum.frequencies()
+
+    %{
+      "schema" => "b27-semantic-eval-summary-v1",
+      "generated_at" => now_iso(),
       "arm" => opts.arm,
-      "provider" => to_string(model_cfg.provider),
-      "requested_model" => model_cfg.model,
-      "call_surface" => integrity["call_surface"] || "judgment",
-      "snapshot" => integrity,
+      "provider" => opts.provider,
+      "requested_model" => opts.effective_model,
+      "runs" => opts.runs,
+      "case_count" => episodes |> Enum.map(& &1["case_id"]) |> Enum.uniq() |> length(),
+      "episode_count" => length(episodes),
+      "status_counts" => statuses,
+      "decision_counts" => decisions,
+      "semantic_evidence" => opts.provider != "stub",
+      "note" => "episode 证据批次摘要，不是 §6.1 判分；逐例 rubric 判定由 b27_semantic_score.exs 生成模板后填写再聚合。",
+      "results" =>
+        Enum.map(episodes, fn e ->
+          %{
+            "case_id" => e["case_id"],
+            "arm" => e["arm"],
+            "run_index" => e["run_index"],
+            "status" => e["status"],
+            "judgment_action" => get(get(e, "mapping") || %{}, "judgment_action"),
+            "allowed_path_hit" => get(get(e, "allowed_path") || %{}, "hit"),
+            "error_class" => e["error_class"],
+            "elapsed_ms" => e["elapsed_ms"],
+            "episode_path" => e["episode_path"]
+          }
+        end)
+    }
+  end
+
+  defp print_episode(doc) do
+    mapping = get(doc, "mapping") || %{}
+    allowed = get(doc, "allowed_path") || %{}
+
+    IO.puts(
+      "[b27-eval] #{doc["case_id"]} arm=#{doc["arm"]} run#{doc["run_index"]}: status=#{doc["status"]} " <>
+        "decision=#{inspect(get(mapping, "judgment_action"))} allowed_path=#{inspect(get(allowed, "hit"))} " <>
+        "calls=#{doc["provider_call_count"]} elapsed=#{doc["elapsed_ms"]}ms error=#{inspect(doc["error_class"])}"
+    )
+  end
+
+  defp print_summary(summary) do
+    IO.puts(
+      "[b27-eval] arm=#{summary["arm"]} provider=#{summary["provider"]} model=#{summary["requested_model"]} runs=#{summary["runs"]}"
+    )
+
+    IO.puts(
+      "[b27-eval] episodes=#{summary["episode_count"]} statuses=#{inspect(summary["status_counts"])}"
+    )
+
+    IO.puts("[b27-eval] decisions=#{inspect(summary["decision_counts"])}")
+    IO.puts("[b27-eval] summary: #{rel(Path.join([@default_out, "summaries"]))}/summary-*.json")
+  end
+
+  # ── 运行 manifest（环境与输入 hash；不是判分证据）────────────────────────
+
+  defp run_manifest(opts) do
+    %{
+      "schema" => "b27-cp4-run-manifest-v1",
+      "started_at" => now_iso(),
+      "command" =>
+        "mix run scripts/model_contracts/b27_semantic_eval.exs " <> Enum.join(opts.raw_argv, " "),
+      "arm" => opts.arm,
+      "provider" => opts.provider,
+      "requested_model" => opts.effective_model,
+      "runs" => opts.runs,
+      "cases" => if(opts.cases == :all, do: "all-20", else: opts.cases),
+      "surface" => opts.surface || "judgment",
+      "environment" => environment_facts(),
+      "fixtures" => fixture_facts(),
       "workspace_arm" => workspace_arm_check(),
-      "materials" => material_summary(snap),
-      "episode" => %{
-        "rounds_planned" => 2,
-        "rounds_executed" => 1,
-        "episode_complete" => false,
-        "note" => "CP0 骨架只回放冻结的首轮请求；必要探索/后续轮由 CP4 episode driver 承接"
+      "db" => %{
+        "mix_env" => "test",
+        "isolated_marker" => @db_marker,
+        "database" => db_dir()
       }
     }
+  end
 
-    case outcome do
-      {:ok, %NovelAgent.Provider.Result{} = result} ->
-        decision = classify(result, integrity["call_surface"])
-        contract = contract_validation(result)
-        paths = Map.get(@paths, case_id, %{allowed: [], conditional: []})
-        flags = get(snap, "flags") || %{}
-
-        unnecessary_question =
-          decision["decision"] == "ask_author" and truthy(get(flags, "unnecessary_question_counted"))
-
-        zero_tolerance = zero_tolerance_candidates(case_id, decision)
-
-        j = %{
-          "decision" => decision["decision"],
-          "detail" => decision["detail"],
-          "tool_calls" => Enum.map(result.tool_calls, &tool_call_doc/1),
-          "contract_validation" => contract,
-          "allowed_first_round_hit" => decision["decision"] in Enum.map(paths.allowed, &to_string/1),
-          "allowed_first_round" => Enum.map(paths.allowed, &to_string/1),
-          "conditional_first_round" => Enum.map(paths.conditional, &to_string/1),
-          "unnecessary_question" => unnecessary_question,
-          "zero_tolerance_candidates" => zero_tolerance,
-          "requires_rubric_review" => true
-        }
-
-        method =
-          if opts.provider == "stub" do
-            %{
-              "semantic_evidence" => false,
-              "pipeline_only" => true,
-              "note" => "生产 Stub adapter 响应；只证明管道/字段/解析，不构成 §6.1 语义证据"
-            }
-          else
-            %{
-              "semantic_evidence" => true,
-              "pipeline_only" => false,
-              "note" => "真实 provider 单轮响应；语义通过与否由 CP4 按案例卡 rubric 盲评判卷"
-            }
-          end
-
-        base
-        |> Map.merge(%{
-          "status" => "ok",
-          "response" => %{
-            "content" => result.content,
-            "content_chars" => chars(result.content),
-            "finish_reason" => result.provider_output && get(result.provider_output, :output_type),
-            "duration_ms" => duration,
-            "provider_calls" => 1
-          },
-          "provider_facts" => %{
-            "model" => model_from_output(result),
-            "provider_run_ref" => result.provider_run_ref,
-            "provider_call_ref" => result.provider_call_ref,
-            "provider_latency_ms" => provider_latency_ms(result),
-            "usage" => result.usage && (if is_struct(result.usage), do: Map.from_struct(result.usage), else: result.usage)
-          },
-          "judgment" => j,
-          "method" => method
-        })
-
-      {:error, error} ->
-        base
-        |> Map.merge(%{
-          "status" => "provider_error",
-          "error" => normalize_error(error),
-          "duration_ms" => duration,
-          "method" => %{
-            "semantic_evidence" => false,
-            "pipeline_only" => true,
-            "note" => "provider 调用失败；按 §6.1 计未成功，不删分母"
+  defp write_manifest(opts, start_manifest, episodes, state) do
+    manifest =
+      start_manifest
+      |> Map.put("finished_at", now_iso())
+      |> Map.put("state", to_string(state))
+      |> Map.put(
+        "episodes",
+        Enum.map(episodes, fn e ->
+          %{
+            "case_id" => e["case_id"],
+            "arm" => e["arm"],
+            "run_index" => e["run_index"],
+            "status" => e["status"],
+            "error_class" => e["error_class"],
+            "episode_path" => e["episode_path"]
           }
-        })
+        end)
+      )
+
+    path = Path.join(opts.out, "run-manifest-#{stamp()}.json")
+    File.mkdir_p!(opts.out)
+    File.write!(path, Jason.encode!(manifest, pretty: true) <> "\n")
+    path
+  end
+
+  defp environment_facts do
+    %{
+      "elixir" => System.version(),
+      "git_head" => git(["rev-parse", "HEAD"]),
+      "git_describe" => git(["describe", "--always", "--dirty"]),
+      "git_status_entries" =>
+        git(["status", "--porcelain"]) |> String.split("\n", trim: true) |> length(),
+      "mix_env" => System.get_env("MIX_ENV"),
+      "novel_test_db_dir" => System.get_env("NOVEL_TEST_DB_DIR"),
+      "mix_test_partition" => System.get_env("MIX_TEST_PARTITION"),
+      "boot_time" => now_iso()
+    }
+  end
+
+  defp fixture_facts do
+    snapshot_files = Path.wildcard(Path.join(@snapshots_dir, "*.json"))
+
+    %{
+      "cases_yml_sha256" => sha256(File.read!(@cases_path)),
+      "arms_yml_sha256" =>
+        if(File.exists?(@arms_path), do: sha256(File.read!(@arms_path)), else: nil),
+      "snapshot_count" => length(snapshot_files),
+      "snapshot_sha256" =>
+        Map.new(Enum.sort(snapshot_files), fn path ->
+          {Path.basename(path), sha256(File.read!(path))}
+        end)
+    }
+  end
+
+  defp workspace_arm_check do
+    with true <- File.exists?(@arms_path),
+         doc = YamlElixir.read_from_file!(@arms_path),
+         assets when is_list(assets) <- get(doc, "assets") do
+      drift =
+        assets
+        |> Enum.filter(fn asset ->
+          path = get(asset, "path")
+          abs = Path.join(@root, path)
+          expected = get(asset, "sha256")
+          not File.exists?(abs) or sha256(File.read!(abs)) != expected
+        end)
+        |> Enum.map(&get(&1, "path"))
+
+      %{
+        "frozen_arm_content_hash" => get(get(doc, "old_rules_arm") || %{}, "arm_content_hash"),
+        "integrated_arm_status" => get(get(doc, "integrated_arm") || %{}, "status"),
+        "workspace_matches_frozen_arm" => drift == [],
+        "drift_asset_paths" => drift,
+        "note" => "old 臂回放使用冻结快照字节，不受 drift 影响；integrated 臂使用当前工作区规则，drift 即新旧臂边界。"
+      }
+    else
+      _ -> %{"workspace_matches_frozen_arm" => nil, "note" => "arms.yml 缺失或不可解析"}
     end
+  end
+
+  defp provider_config_doc(opts) do
+    %{
+      "provider" => to_string(opts.provider_cfg.provider),
+      "requested_model" => opts.effective_model,
+      "purpose_initial" => "conversation（生产 plan_agent_run/2 默认）",
+      "judgment_override" =>
+        "JudgmentProtocol: purpose=planner, content_visibility=author, temperature=0.2",
+      "timeout_ms" => opts.timeout_ms,
+      "timeout_note" => "episode 挂钟上限；provider 侧 local response 静默窗口由 TimeoutPolicy 兜底"
+    }
+  end
+
+  defp method_doc(opts) do
+    %{
+      "semantic_evidence" => opts.provider != "stub",
+      "pipeline_only" => opts.provider == "stub",
+      "note" =>
+        if(opts.provider == "stub",
+          do: "stub 只证明管道/字段/解析，不构成 §6.1 语义证据",
+          else: "真实 provider 响应；语义通过与否必须由评分器读取人工判定后聚合"
+        )
+    }
   end
 
   defp material_summary(snap) do
@@ -519,101 +2011,6 @@ defmodule B27SemanticEval do
     }
   end
 
-  # ── 响应判定辅助（非最终判分） ──────────────────────────────────────────
-
-  # 计划面探针（SP01-plan）期望计划起草响应，不是判断决策。
-  defp classify(%NovelAgent.Provider.Result{tool_calls: [call]}, "plan") do
-    name = get(call, :name) || get(call, "name")
-
-    if name == "agent_plan_draft",
-      do: %{"decision" => "plan_draft", "detail" => "agent_plan_draft"},
-      else: classify(%NovelAgent.Provider.Result{tool_calls: [call]}, "judgment")
-  end
-
-  defp classify(%NovelAgent.Provider.Result{tool_calls: []} = result, _surface) do
-    if chars(result.content) > 0,
-      do: %{"decision" => "reply", "detail" => "no_tool_plain_text"},
-      else: %{"decision" => "empty_response", "detail" => "no_tool_empty_content"}
-  end
-
-  defp classify(%NovelAgent.Provider.Result{tool_calls: [call]}, _surface) do
-    name = get(call, :name) || get(call, "name")
-    args = get(call, :arguments) || get(call, "arguments") || %{}
-
-    case name do
-      "judgment_decision" -> %{"decision" => get(args, "action") || get(args, :action), "detail" => name}
-      "continuation_decision" -> %{"decision" => "continue", "detail" => name}
-      "ask_author" -> %{"decision" => "ask_author", "detail" => name}
-      "register_author_content" -> %{"decision" => "register_author_content", "detail" => name}
-      "propose_creative_directions" -> %{"decision" => "creative_directions", "detail" => name}
-      "report_capability_gap" -> %{"decision" => "capability_gap", "detail" => name}
-      "agent_plan_draft" -> %{"decision" => "invalid_combination", "detail" => "agent_plan_draft without judgment_decision.plan"}
-      other -> %{"decision" => "other_tool", "detail" => other}
-    end
-  end
-
-  defp classify(%NovelAgent.Provider.Result{tool_calls: calls}, _surface) do
-    names = calls |> Enum.map(&(get(&1, :name) || get(&1, "name"))) |> Enum.sort()
-
-    cond do
-      names == ["agent_plan_draft", "judgment_decision"] ->
-        decision = Enum.find(calls, &((get(&1, :name) || get(&1, "name")) == "judgment_decision"))
-        args = get(decision, :arguments) || get(decision, "arguments") || %{}
-
-        if (get(args, "action") || get(args, :action)) == "plan",
-          do: %{"decision" => "plan", "detail" => "judgment_decision.plan + agent_plan_draft"},
-          else: %{"decision" => "invalid_combination", "detail" => "two tools with non-plan action"}
-
-      true ->
-        %{"decision" => "invalid_combination", "detail" => Enum.join(names, "+")}
-    end
-  end
-
-  defp contract_validation(%NovelAgent.Provider.Result{tool_calls: calls}) do
-    case JudgmentToolContract.validate(calls, :judgment) do
-      :ok -> %{"ok" => true, "error" => nil}
-      {:error, reason} -> %{"ok" => false, "error" => inspect(reason)}
-    end
-  end
-
-  defp zero_tolerance_candidates(case_id, decision) do
-    registered = decision["decision"] == "register_author_content" and case_id not in ["M11", "M12"]
-    directions = decision["decision"] == "creative_directions" and case_id != "M09"
-
-    gap =
-      decision["decision"] == "capability_gap" and case_id != "M14"
-
-    execute =
-      decision["decision"] == "execute" and case_id not in ["M04", "M07", "M08", "M15", "M16"]
-
-    [
-      registered && "author_content_registration_without_request",
-      directions && "creative_directions_without_request",
-      gap && "capability_gap_without_matching_gap_case",
-      execute && "execute_without_matching_case_path"
-    ]
-    |> Enum.filter(& &1)
-  end
-
-  defp tool_call_doc(call) do
-    %{
-      "name" => get(call, :name) || get(call, "name"),
-      "arguments" => canonical(get(call, :arguments) || get(call, "arguments"))
-    }
-  end
-
-  defp model_from_output(%NovelAgent.Provider.Result{usage: usage}) when is_map(usage) do
-    get(usage, :model) || get(usage, "model") || get(usage, :model_id) || get(usage, "model_id")
-  end
-
-  defp model_from_output(_), do: nil
-
-  defp provider_latency_ms(%NovelAgent.Provider.Result{usage: usage}) when is_map(usage) do
-    get(usage, :latency_ms) || get(usage, "latency_ms")
-  end
-
-  defp provider_latency_ms(_), do: nil
-
   defp normalize_error(error) when is_map(error) do
     %{
       "reason_code" => get(error, :reason_code) || get(error, "reason_code") || "provider_error",
@@ -621,118 +2018,10 @@ defmodule B27SemanticEval do
     }
   end
 
-  defp normalize_error(error), do: %{"reason_code" => "provider_error", "message" => inspect(error)}
+  defp normalize_error(error),
+    do: %{"reason_code" => "provider_error", "message" => inspect(error)}
 
-  # ── 输出 ────────────────────────────────────────────────────────────────
-
-  defp summarize(results, opts) do
-    counts = Enum.frequencies_by(results, & &1["status"])
-    decisions = Enum.frequencies_by(results, &get(get(&1, "judgment") || %{}, "decision"))
-
-    %{
-      "schema" => "b27-semantic-eval-summary-v1",
-      "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-      "arm" => opts.arm,
-      "provider" => opts.provider,
-      "runs" => opts.runs,
-      "case_count" => length(results),
-      "status_counts" => counts,
-      "decision_counts" => decisions,
-      "semantic_evidence" => opts.provider != "stub",
-      "note" => "单轮回放骨架；§6.1 门槛需 CP4 完整 episode（20×2×2）与盲评判卷",
-      "results" => Enum.map(results, &Map.drop(&1, ["materials", "response", "method"])),
-      "result_files" => Enum.map(results, &get(&1, "result_path")) |> Enum.reject(&is_nil/1)
-    }
-  end
-
-  defp print_summary(summary) do
-    IO.puts("[b27-eval] arm=#{summary["arm"]} provider=#{summary["provider"]} runs=#{summary["runs"]}")
-
-    Enum.each(summary["results"], fn r ->
-      decision = get(get(r, "judgment") || %{}, "decision")
-      status = r["status"]
-      IO.puts("[b27-eval] #{r["case_id"]} run#{r["run_index"]}: #{status} decision=#{inspect(decision)}")
-    end)
-
-    IO.puts("[b27-eval] decisions: #{inspect(summary["decision_counts"])}")
-  end
-
-  # ── 当前工作区规则资产 vs 冻结旧规则臂（漂移声明，不阻断回放） ─────────
-  defp workspace_arm_check do
-    arms_path = Path.join(@fixtures, "arms.yml")
-
-    with true <- File.exists?(arms_path),
-         doc = YamlElixir.read_from_file!(arms_path),
-         assets when is_list(assets) <- get(doc, "assets") do
-      drift =
-        assets
-        |> Enum.filter(fn asset ->
-          path = get(asset, "path")
-          abs = Path.join(@root, path)
-          expected = get(asset, "sha256")
-          not File.exists?(abs) or sha256(File.read!(abs)) != expected
-        end)
-        |> Enum.map(&get(&1, "path"))
-
-      %{
-        "frozen_arm_content_hash" => get(get(doc, "old_rules_arm") || %{}, "arm_content_hash"),
-        "workspace_matches_frozen_arm" => drift == [],
-        "drift_asset_paths" => drift,
-        "note" =>
-          "旧规则臂回放使用冻结快照字节；若 drift 非空，说明当前工作区规则已前进（新臂），" <>
-            "不影响 old_rules_arm 回放，但 integrated_arm 必须用新 hash 重冻"
-      }
-    else
-      _ -> %{"workspace_matches_frozen_arm" => nil, "note" => "arms.yml 缺失或不可解析"}
-    end
-  end
-
-  # ── 配置/工具 ───────────────────────────────────────────────────────────
-
-  defp configure_model(%{provider: :stub}), do: :ok
-
-  defp configure_model(%{provider: :strata, model: model}) do
-    if is_nil(System.get_env("NOVEL_STRATA_MODEL")) do
-      Application.put_env(
-        :novel_agent,
-        NovelAgent.Provider.Strata,
-        (Application.get_env(:novel_agent, NovelAgent.Provider.Strata) || [])
-        |> Keyword.put(:model, model)
-      )
-    end
-
-    :ok
-  end
-
-  defp configure_model(%{provider: :lmstudio, model: model}) do
-    if is_nil(System.get_env("NOVEL_LMSTUDIO_MODEL")) do
-      Application.put_env(
-        :novel_agent,
-        NovelAgent.Provider.LMStudio,
-        (Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio) || [])
-        |> Keyword.put(:model, model)
-      )
-    end
-
-    :ok
-  end
-
-  defp configure_model(_), do: :ok
-
-  defp lmstudio_timeout_ms do
-    case Integer.parse(System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS") || "") do
-      {value, _} -> value
-      :error -> Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio, [])[:timeout] || 5000
-    end
-  end
-
-  defp deepseek_credential? do
-    key =
-      System.get_env("DEEPSEEK_API_KEY") || System.get_env("NOVEL_DEEPSEEK_API_KEY") ||
-        Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek, [])[:api_key]
-
-    is_binary(key) and String.trim(key) != ""
-  end
+  # ── 通用小工具 ──────────────────────────────────────────────────────────
 
   defp read_yaml!(path) do
     YamlElixir.read_from_file!(path)
@@ -768,12 +2057,72 @@ defmodule B27SemanticEval do
   end
 
   defp canonical(list) when is_list(list), do: Enum.map(list, &canonical/1)
-  defp canonical(value) when is_atom(value) and value not in [true, false, nil], do: Atom.to_string(value)
+  defp canonical(nil), do: nil
+
+  defp canonical(value) when is_atom(value) and value not in [true, false, nil],
+    do: Atom.to_string(value)
+
   defp canonical(value), do: value
 
-  defp stamp do
-    DateTime.utc_now() |> Calendar.strftime("%Y%m%d-%H%M%S")
+  # 保持 map key 为字符串；struct 转 map，未知形态降级 inspect，避免 Jason 编码失败。
+  defp jsonable(%_{} = struct), do: struct |> Map.from_struct() |> jsonable()
+
+  defp jsonable(map) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {to_string(k), jsonable(v)} end)
+
+  defp jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
+  defp jsonable(tuple) when is_tuple(tuple), do: inspect(tuple)
+  defp jsonable(fun) when is_function(fun), do: "<fun>"
+  defp jsonable(nil), do: nil
+  defp jsonable(value) when is_boolean(value) or is_number(value) or is_binary(value), do: value
+  defp jsonable(value) when is_atom(value), do: Atom.to_string(value)
+  defp jsonable(value), do: inspect(value)
+
+  defp truncate_json(nil, _limit), do: nil
+  defp truncate_json(value, limit) when is_binary(value), do: String.slice(value, 0, limit)
+  defp truncate_json(value, limit), do: value |> inspect() |> String.slice(0, limit)
+
+  defp sanitize_url(nil), do: nil
+
+  defp sanitize_url(url) do
+    url
+    |> to_string()
+    |> String.replace(~r/([?&](?:api_?key|key|token)=)[^&]*/i, "\\1<redacted>")
   end
+
+  defp db_dir do
+    case repo_config() do
+      nil -> "unknown"
+      database -> Path.dirname(database)
+    end
+  end
+
+  defp repo_config do
+    case Process.whereis(NovelPersistence.Repo) do
+      nil -> nil
+      _pid -> NovelPersistence.Repo.config()[:database] |> to_string()
+    end
+  end
+
+  defp git(args) do
+    case System.cmd("git", args, cd: @root, stderr_to_stdout: true) do
+      {out, 0} -> String.trim(out)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp rel(abs_path) do
+    case Path.relative_to(abs_path, @root) do
+      ^abs_path -> abs_path
+      rel -> rel
+    end
+  end
+
+  defp now_iso, do: DateTime.utc_now() |> DateTime.to_iso8601()
+
+  defp stamp, do: DateTime.utc_now() |> Calendar.strftime("%Y%m%d-%H%M%S")
 end
 
 B27SemanticEval.main(System.argv())

@@ -134,43 +134,128 @@ stage 已修（确定性实现通过与各模型质量通过分开记）。
   角色身份修订。若 CP4 前该能力实现，按 §6.1 更换真实缺失效果并重冻，不得用生产开关伪造缺口。
 - B28（整章修订）/B30（结构维护）未实现：相关能力在快照中如实缺席，不以提示词冒充能力。
 
-## 5. 运行器（骨架）
+## 5. 运行器（CP4：双臂 episode + 判卷模板 + 门槛聚合）
 
-`scripts/model_contracts/b27_semantic_eval.exs` 做**单 episode 单轮请求回放**并落逐例结果 JSON，
-字段覆盖 rubric 判定所需；不实现自动判分（最终由 CP4 按案例卡 rubric 盲评）。
+CP0 的「骨架」已扩展为 CP4 可执行基础设施（task-8）。三个入口分工明确，**都不自动判卷**：
+
+| 入口 | 角色 |
+|---|---|
+| `scripts/model_contracts/b27_semantic_eval.exs` | 产出**双臂 episode 证据**：`--arm old` 回放冻结快照、`--arm integrated` 走当前生产入口 + 真实 provider；`--check-snapshots` 校验 20/20 冻结快照 |
+| `scripts/model_contracts/b27_semantic_score.exs --gen-templates` | 扫描 episode，生成**隐藏 arm 标签**的逐例判卷模板（`blind-index.json` 保存真实臂映射，判卷人不读） |
+| `scripts/model_contracts/b27_semantic_score.exs --score` | 读取填写的判定，按 §6.1 聚合全部门槛，输出 PASS/FAIL + 失败清单 |
+| `scripts/model_contracts/b27_semantic_score.exs --self-test` | 用合成判定自测聚合器（正例 + 关键集失败/追问超限/低于旧臂/零容忍/未填反例） |
+
+### 5.1 双臂运行
 
 ```bash
-# 快照完整性（不调用 provider）
-MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 \
-  mix run scripts/model_contracts/b27_semantic_eval.exs --check-snapshots --all
+# 快照完整性（不调用 provider；无选择器时默认校验全部 20 例 + SP01/SP02/SP03 探针状态）
+MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp4/db MIX_TEST_PARTITION=b27cp4 \
+  mix run scripts/model_contracts/b27_semantic_eval.exs --check-snapshots
 
-# stub：只证明管道/字段/解析（semantic_evidence=false）
-MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 \
-  mix run scripts/model_contracts/b27_semantic_eval.exs --case M01,M11 --provider stub
+# old_rules 臂：回放 CP0 冻结快照，M01/M11 各 2 次（stage 实际 provider Strata / iq3_s）
+MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp4/db MIX_TEST_PARTITION=b27cp4 \
+  NOVEL_LOCAL_RESPONSE_TIMEOUT_MS=300000 NOVEL_LOCAL_NON_STREAM_TIMEOUT_MS=300000 \
+  mix run scripts/model_contracts/b27_semantic_eval.exs --arm old --case M01,M11 --provider strata
 
-# stage 实际模型（Strata；真实单轮语义证据）
-MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 \
-  mix run scripts/model_contracts/b27_semantic_eval.exs --case M01 --provider strata
+# integrated 臂：当前生产入口（DialoguePlanningService.plan_agent_run/3 + 判断循环 planner）
+# 必须使用隔离 CP4 DB；provider 边界采集，不替换模型结论、不写作品数据
+MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp4/db MIX_TEST_PARTITION=b27cp4 \
+  NOVEL_LOCAL_RESPONSE_TIMEOUT_MS=300000 NOVEL_LOCAL_NON_STREAM_TIMEOUT_MS=300000 \
+  mix run scripts/model_contracts/b27_semantic_eval.exs --arm integrated --case M01,M11 --provider strata
 
-# LM Studio（首次 JIT 慢，必须显式给 ≥300s）
-NOVEL_LMSTUDIO_TIMEOUT_MS=600000 MIX_ENV=test \
-NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 \
-  mix run scripts/model_contracts/b27_semantic_eval.exs --case M01 --provider lmstudio
+# 双臂正式矩阵（CP4 执行批；20×2×2 = 80 episode）
+... --arm both --all --provider strata --runs 2
 
-# 计划面探针（SP01 快照）
-... mix run scripts/model_contracts/b27_semantic_eval.exs --case SP01 --surface plan --provider strata
+# LM Studio 必验模型（先探活；默认模型取 test/dev 生产配置同源 qwen/qwen3.8-27b，可 --model 覆盖）
+... --arm both --all --provider lmstudio --model qwen/qwen3.8-27b
 ```
 
-- 参数：`--case ID[,ID]` / `--all` / `--surface judgment|plan` / `--provider stub|lmstudio|strata|deepseek`
-  / `--arm old_rules|integrated` / `--runs N` / `--out DIR` / `--check-snapshots`。
-- 结果：`artifacts/model-contracts/b27-cp0/runs/<case>-<provider>-runN.json` + `summary-*.json`；
-  字段含输入、snapshot hash、响应工具/文本、材料、允许路径命中、零容忍候选、无谓追问标记、
-  耗时、调用计数、`semantic_evidence`（stub=false）。
-- 退出码：0 成功；1 provider 失败；2 用法/快照缺失/完整性失败；3 blocked（凭据缺失 /
-  integrated 臂未就绪 / 快照不可用）。
-- **已知限制**：CP0 骨架只回放冻结首轮请求（`episode.rounds_executed=1`），不驱动探索/候选/
-  采纳多轮；§6.1 完整 40 episode（含必要探索与有界重试）由 CP4 episode driver 承接。
-  单轮响应也不等于语义通过——通过/失败按 rubric 盲评。
+- 参数：`--arm old|integrated|both`（`old_rules` 接受为 old 别名）、`--case ID[,ID]`、`--all`、
+  `--surface judgment|plan`（plan 仅 SP01）、`--provider stub|lmstudio|strata|deepseek`、
+  `--model`、`--runs N`（默认 **2**，§6.1）、`--out DIR`（默认 `artifacts/model-contracts/b27-cp4/`）、
+  `--max-steps N`（integrated 默认 12）、`--timeout-ms N`（单 episode 默认 300000）、`--check-snapshots`。
+- 真实 provider 运行前自动探活 `/v1/models`；模型不可用/凭据缺失按 blocked 退出（不伪造可用）。
+  单并发串行执行，避免与共享 LM Studio/Strata 实例上的并行任务互相拖慢。
+- 产出：
+  - `episodes/<case>-<arm>-<provider>-run<N>.json`：每 episode 证据；
+  - `summaries/summary-<stamp>.json`：批次摘要（状态/决策计数，**不是**语义判分）；
+  - `run-manifest-<stamp>.json`：命令、git/环境、cases.yml/snapshots/arms.yml hash。
+- episode 关键字段：`case_id/arm/run_index/provider/requested_model/actual_model`、
+  `request_ref`（快照 hash 或生产入口+首请求 hash）、`response`（模型输出原文/工具调用）、
+  `mapping`（judgment action 或 tool_calls/text）、`allowed_path`、`forbidden_candidates`、
+  `unnecessary_question_candidate`、`elapsed_ms`、`provider_call_count`、`usage`、`error_class`、
+  `availability`、`wire_captures[]`（provider 边界真实 wire 请求/响应全文）。
+- 退出码：0 有响应并落盘；1 至少一个 provider 失败（计未成功、不删分母）；2 用法/快照/DB 隔离错误；
+  3 blocked（凭据/探活/模型/快照不可用）。
+
+### 5.2 old 臂回放边界（快照字段是否足够，不伪造）
+
+- **足够可直接回放**：`request.messages`（含 L0，按快照 `system_identity` 还原，保证不二次注入）、
+  `request.tools`（内部 prompt 工具清单）、`request.tool_choice`、`inference.temperature`（`JudgmentProtocol.request/4`
+  显式常量 0.2，快照内注明来源）、`profile`、`request_sha256`。
+- **快照不携带、由同一 provider 配置最小补齐（不伪造模型/作品事实）**：
+  | 缺口 | 最小补法 | 影响 |
+  |---|---|---|
+  | provider wire 体中的 `max_tokens` | provider 配置/env（Strata/LM Studio 均 32000） | 与生产同源；不同模型的实际预算仍各自留证 |
+  | 推理/思考字段（`reasoning_effort`/`thinking`） | provider 配置默认（Strata 默认关思考 → `none`；LM Studio 不显式开） | 与 stage 默认一致；改动会改变样本，不得为跑通而调 |
+  | `stream` 选择 | 由 adapter 按 prompt（tool_call vs 文本）决定，与生产同源 | 回放无需伪造 |
+  | 连接/超时/鉴权参数 | runner 探活 + 300s episode 挂钟 + 既有 TimeoutPolicy | 超时/失败如实记 `error_class`，不删分母 |
+  | 首轮之后的续行请求 | **不存在于 CP0 冻结**（只冻结首轮） | old 臂 episode = 单轮；必要探索后的续行轮不伪造 |
+  | 运行级 turn/trace/provider run 元数据 | 不回放（wire 不需要） | episode 的 `request_ref.kind=frozen_first_round_replay` 明确声明 |
+- **与真实生产请求的差异边界**：old 臂不重渲染旧 prompt、不经过当前生产规则组装；它发送与 CP0 冻结
+  快照**逐字一致**的 messages/tools/tool_choice 到同一 provider/model/温度，因此度量的是「旧提示词语义」，
+  不是当前工作区生产请求字节。可核对证据：episode `wire_captures[0].request.messages`（provider 注入 L0 后）
+  与快照 `request.messages` 的 role/content 逐字比对结果在 `wire_request_matches_snapshot`（M01 冒烟为 true）；
+  工具名一致但 schema 会经 OpenAI 兼容投影，故 schema 形态不可逐字比。
+- **单轮语义判分提示**：old 臂只有第 1 轮证据；评分器模板对 old 臂要求判卷人按「该轮能否满足案例卡首轮要求」
+  判定，若首轮仅为取证而未给最终结论，不足以支撑完整语义成功时判 false 并在 notes 说明。这是 CP0 快照边界
+  带来的两臂不对称，CP4 汇报必须显式披露，不能拿单轮 old 臂冒充完整 40 episode 旧臂对照。
+
+### 5.3 判卷模板与门槛聚合（判卷 ≠ 自动评分）
+
+```bash
+# 1) 双臂矩阵跑完后生成盲评模板（隐藏 arm 标签；arm 映射只在 blind-index.json）
+MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --gen-templates \
+  --episodes artifacts/model-contracts/b27-cp4/episodes \
+  --out artifacts/model-contracts/b27-cp4 --provider strata --runs 2
+
+# 2) 判卷人：把 templates/<blind_id>.json 复制到 judgments/<blind_id>.json，
+#    填写 judgment 字段（semantic_success/allowed_path_ok/forbidden_behavior_violations/
+#    unnecessary_question/unavailable_reason/zero_tolerance_violation/critical_set/
+#    critical_pass_both_runs/reviewer/reviewed_at），并把 review_status 改为 filled
+
+# 3) 聚合 §6.1 全门槛 → PASS/FAIL + 失败清单
+MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --score \
+  --episodes artifacts/model-contracts/b27-cp4/episodes \
+  --out artifacts/model-contracts/b27-cp4 --provider strata --runs 2
+
+# 4) 聚合器自测（正例 + 关键集失败/追问超限/低于旧臂/零容忍/未填反例；不调用 provider）
+MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test \
+  --out artifacts/model-contracts/b27-cp4
+```
+
+- 产物：`review-<provider>/templates/*.json`、`review-<provider>/judgments/*.json`、
+  `review-<provider>/blind-index.json`、`review-<provider>/score-<stamp>.{json,md}`；
+  自测产物在 `artifacts/model-contracts/b27-cp4/score-selftest/`（gitignored）。
+- **未填判定 = invalid = 未成功**：聚合器绝不对缺失/未填/类型错误的判定做补全或当作成功；
+  同时 `review_complete`/`matrix_complete` 各自成为失败门槛。计划分母固定 20×2×2=80（每臂 40），
+  不可用/超时/格式终局失败也留在分母里。
+- 门槛（数值从 `../cases.yml#policies` 读取，不在运行器里另写一套）：零容忍=0；关键集两臂两轮全过；
+  新规则 ≥36/40（90%）且不低于同协议旧规则臂；无谓追问 17 例子集 ≤10% 且不高于旧臂；
+  不可用 ≤2/40（5%）。
+- 退出码：0 PASS；1 FAIL（含矩阵/判定不完整）；2 用法/IO 错误。
+
+### 5.4 已知限制（CP4 执行批必须区分）
+
+- **integrated 臂在 B27 CP3 完成前只作 harness 冒烟**：专业调用（writer/evaluator/摘要/盘点等）尚未全部迁移，
+  判断/计划入口是当前生产真源；CP4 正式矩阵必须在 CP3 完成后重跑，不能拿冒烟数据当门槛数据。
+- **old 臂单轮**（见 §5.2）与 integrated 多轮不完全对称；正式对照需在 CP4 报告中显式披露。
+- **LM Studio 必验模型口径**：`config/test.exs`/`config/dev.exs` 的生产默认模型是 `qwen/qwen3.8-27b`，
+  CP0 `required_models` 冻结的 LM Studio 证据模型是 `qwen3.8-flash-next@q2_k`；运行器默认取生产配置模型并支持
+  `--model` 覆盖，episode/manifest 记录实际请求模型。CP4 执行批须先裁决必验集合的 LM Studio 具体模型并单独记录，
+  不得用 `qwen/qwen3.8-27b` 通过冒充另一个模型的必验通过。
+- **stub 不是语义证据**：`semantic_evidence=false`，只证明管道/字段/DB 隔离/step 驱动。
+- 快照冻结/复跑仍用原 `scripts/b27_case_freeze.exs`（见 §6）；旧规则臂资产 hash 不变，运行器只读不回写。
 
 ## 6. 复跑与校验
 
