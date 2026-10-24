@@ -23,8 +23,8 @@ old_rules_arm:
 
 integrated_arm:
   status: frozen
-  arm_content_hash: 7975bfe190d545baa252af955de4708d98826b3cc33373c4f64f72d776130b5f
-  frozen_at: 2026-10-24T11:31:47.559882Z
+  arm_content_hash: 9041f114d10719d1f3eb2c473dddddb76d7e47af9f84f9d120fcc80c2b09a69a
+  frozen_at: 2026-10-24T12:37:19.337371Z
   filled_by: B27 CP4 执行批：CP3 完成后重冻当前工作区规则资产（scripts/b27_case_freeze.exs --write-arms）
   note: "CP4 按 §6.1 双臂对照；assets 为 integrated_arm 当前资产清单，old 臂资产清单见归档 arms-before-refreeze-*.yml 与各快照 rule_versions"
 
@@ -41,8 +41,8 @@ assets:
     version: b27-task-v2
   - role: L1 判断工具契约
     path: apps/novel_application/lib/novel_application/judgment_tool_contract.ex
-    sha256: 644f23848150e43a3b1f4db2c7f4f8ea8e181f0bdfe82f98f598c5be075899a2
-    bytes: 7169
+    sha256: 6d8becd97ee0fc5c045fe487022568b251cfbe7a1ce946f31b3248d65f1be5d4
+    bytes: 7424
     version: b26-tools-v1
   - role: L1 计划工具契约
     path: apps/novel_application/lib/novel_application/agent_plan_tool_contract.ex
@@ -51,13 +51,13 @@ assets:
     version: content-hash
   - role: L3 判断/续行模板
     path: apps/novel_application/lib/novel_application/judgment_protocol.ex
-    sha256: 2ea8113a8927a469890e97f3d1c861bed33fbba7879bbf35a3d52dfba7e90294
-    bytes: 21959
+    sha256: 2ebba9e32ccc7b7f3544ef42e74aac050d34e66d92e10811dcd64d0dfc40389d
+    bytes: 27006
     version: content-hash
   - role: L2/L3 判断上下文投影
     path: apps/novel_application/lib/novel_application/dialogue_planning_service.ex
-    sha256: 505617133a13b52de9a4250d1019cfa5bd16c114f1c9bbab5f16c8d163ec03ee
-    bytes: 88808
+    sha256: 60afd23c5ea2d719c5f3c8d79013f381515f1135a6e8c8c8bb46580ecd344e96
+    bytes: 90589
     version: content-hash
   - role: L3 原文登记规则
     path: apps/novel_application/lib/novel_application/turn_interaction_service.ex
@@ -86,8 +86,8 @@ assets:
     version: content-hash
   - role: 专业调用 writer
     path: apps/novel_agent/lib/novel_agent/creative_provider/real.ex
-    sha256: a5ac48d1e6deae11c92882096078b662959f755172f81752ea05c899a99b9108
-    bytes: 27517
+    sha256: e41ac8d134dde273c5db186c9f5c92d6b13a6ff5e25f5fd4e90a237ba61b7fdd
+    bytes: 28793
     version: content-hash
   - role: 专业调用 evaluator
     path: apps/novel_agent/lib/novel_agent/prose_quality_evaluator.ex
@@ -111,8 +111,8 @@ assets:
     version: content-hash
   - role: 专业调用 候选/修订入口
     path: apps/novel_application/lib/novel_application/pending_artifact_workflow.ex
-    sha256: 140a20b430c2c53b73de0a9ee665a7d5f4718aae14b32190ef5de82dbed7d94c
-    bytes: 26227
+    sha256: a3efe7dd34b1f7f17c72b91d79bf9ebf877f362cc9e694bf1b348de995ea5329
+    bytes: 34724
     version: content-hash
   - role: 专业调用 质量修订
     path: apps/novel_application/lib/novel_application/prose_revision_service.ex

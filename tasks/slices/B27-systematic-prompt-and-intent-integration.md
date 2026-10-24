@@ -393,3 +393,13 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - **产品修复**（`ab28f887`）：① **作品事实投影链根因**——`ContextAssembler.normalize_structured_chapter/1` 白名单丢弃 `WorkspaceContext.fetch_structured_chapters` 并入的 chapter_facts additive keys；白名单补齐后判断 prompt 事实块恢复真实值（M01 3/3 场 251 字 COMPLETED、M16 3/4 场+SUPERSEDED 1、M20 2/2 场 186 字+EDITED_ACCEPTED），补链回归测试。② M03 每轮机械「覆盖事实」段（未读末页→明确已读/未读范围、不得声称全章；全覆盖→已覆盖全章）+ 续读 hint 未读范围。③ 判断证据纪律（真实 ref、多候选不猜、改权威版本前取证、execute 单 ref）+ `target_not_available`/`target_ref_field_conflict` 机械纠错（有界重试后拒绝）+ 最终答复收束/零方向菜单/方向逐条/ask_author/能力缺口裁量。④ 修订基线纪律（CreativeProvider）+ PendingArtifactWorkflow 机械校验与有界重试（仅排版字句/段落不变、指定第 N 段保留其它段、明确数值改动必须落实；仍违反诚实失败 `revision_change_not_applied`/`revision_scope_violation`）。测试：application 836/0、agent 255/0。定向 probe：M06/M07/M17 6/6 ok、zero_tolerance **0/6**（retest2 该组 4 例全消除）；M13 零菜单/M20 核对结论/M07 execute 修复；M08/M15 由机械 guard 诚实失败（M15 疑 seed 基线，待 task-27 复核）；M09 方向仅概述（prompt 已补逐条规则，待 retest3）。
 - **证据补强**（`6a2953e9`）：episode `app_side_evidence` 增 `source_kind/source_ref/source_text_sha256/byte_equal_to_source`（current/历史 Interaction/历史候选三路；M12 实测 44 字符 sha256 相同=true）；`exploration_coverage` 增 covered/total/uncovered/last_page_covered/next_offset/ranges（M03 600s run 实测 18000/34357、末页未覆盖）；judge/score 事实规则同步，rubric/阈值未改。
 - **retest3 前置**：task-27 seed/fixture 保真复核（M15 世界设定基线、M08 候选第二段）完成后启动 task-26：一次 canonical 80 episode + 去泄漏 judge + §6.1 严格聚合；本记录不构成 CP4 PASS。
+
+#### CP4 retest3 记录（2026-10-24，canonical 仍 FAIL，趋势改善）
+
+- 前置：HEAD `7919b557`（含 retest3 证据补强 + seed R4）；old hash `211b2979…` 不变；integrated retest2 `7975bfe1…` → **retest3 `9041f114…`**（资产变化 5 项=task-22/23/24 产品修复）。
+- **一次** canonical 80 episode（无重跑/无 canonicalization/分母不剔）：old 40/40 ok（wire 40/40）；integrated **36/40 ok、4 unavailable**（M08 r1/r2 机械 guard `revision_change_not_applied`；M16 协议终局 `invalid_tool_combination`/`invalid_plan_tool_arguments`）。
+- judge 80/80（去泄漏证据输入，含 byte_equal_to_source/exploration_coverage，arm 隐藏）。
+- **§6.1 = FAIL，但改善**：zero_tolerance 4→**1**（M14r1 capability_masquerade）；key_set 失败 7→**4**（M01/M03/M14/M20）；overall 0.40→**0.60**（24/40）；not_below_old PASS；**unavailable 1→4/40 FAIL**；**unnecessary_question 0→1/34 FAIL**（M02r1 要求作者提供系统已有正文）。
+- 生效修复：M12/M15 两轮 PASS（R4 世界设定基线 + 历史来源字节证据）；M06/M11/M17/M04/M05/M19 两轮 PASS；事实投影链修复使 M01/M16/M20 部分行为改善。
+- 残余 root-cause（retest4 输入）：① M14r1 用 character_design 新建同名角色冒充主档案修改（ZT）；② M18 两轮未先探索合法来源直接 ask_author（相对 retest2 回退）；③ M02r1 无谓追问/M02r2 质量结论、M01r2 仅凭状态断言完成、M03 读 30000/34357 无全章结论、M09/M13 方向可见性、M10r2 基于错误事实、M20r2 字符数与 seed 不符；④ M08 机械 guard 诚实失败（seed 已复核无误，属产品/模型执行）；⑤ M16 协议终局。harness 证据缺口：M07 revise 产物来源 ref 未能解析 revision_of、原生只读工具调用未计入 exploration_coverage。
+- 披露：old 单轮不对称、judge 单模型无人工复核、LM 观察未跑、4 unavailable 计分母。本批不得当 PASS 证据，CP4 不标 done。
