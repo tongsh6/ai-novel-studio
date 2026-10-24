@@ -410,3 +410,14 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - **真实 probe**（`probe-r6-20261024-212026/`，批准窗口 6 episode）：M14 零容忍未触发（模型 report_capability_gap、拒绝冒充；但参数夹带额外字段→invalid_tool_arguments，已加 schema 纠错待 retest4）；M18 两轮 explore→ask allowed=true（回退修复）；M02 直接据索引回答不索要系统信息（uq 修复）；M08 仅 explore 未 execute（已加“唯一候选直接执行/探索后必须继续”规则待 retest4）。
 - **证据补强**（`a1cc0acf`）：失败 episode 把 `error.round(s).calls` 提升 top-level（M16 失败轮 raw 可查；已定位 r1 = `judgment_decision{action:"explore", capability:"work_archive_read"}` 字段互斥冲突）；`app_side_evidence` 支持 `payload.revision_of` 反查基候选；`exploration_coverage` 增 sources/judgment_explore_count/native_read_attempts（attempt≠executed；被拒 tool_not_in_profile 不计已读）；`content_length_evidence` 双口径（186 有效字数 vs 218 原始字符属口径差异，judge 不得判编造）。README §5.5 #12-15 / §5.6 R5。
 - **retest4**（task-32）进行中：一次 canonical 80 episode + 去泄漏 judge + 新证据字段，§6.1 严格；本记录不构成 CP4 PASS。
+
+#### CP4 retest4 记录（2026-10-24，仅 key_set/overall FAIL，6/8 gates PASS）
+
+- 前置：HEAD `e99bd218`（产品 7c28335b + 证据 a1cc0acf）；old hash `211b2979…` 不变；integrated retest3 `9041f114…` → **retest4 `1ca2e150…`**（7 项资产变化）。
+- **一次** canonical 80（无重跑/无 canonicalization/分母不剔）：old 40/40 ok（wire 40/40）；integrated **40/40 ok、unavailable 0**；decisions explore 17/reply 11/execute 5/register 4/capability_gap 2/ask 1。
+- **§6.1：6/8 gates PASS**：matrix/review PASS、**zero_tolerance 1→0 PASS**、**unavailable 4→0 PASS**、**unnecessary_question 1→0 PASS**、not_below_old PASS；**key_set FAIL 3（M03r2、M06r2、M20r1）**、**overall 0.60→0.75（30/40）FAIL**。
+- 生效修复：M01r2/M03r1/M08 两轮/M09r2/M14 两轮/M16r2/M20r2 等转 PASS；M08 真 execute、M14 capability_gap 正确、新证据字段生效（revision_of 6 ep、native_read_attempts 15 ep、content_length_evidence 40 ep）。
+- 残余分类：
+  - **真产品/模型**：M02 r1/r2（仅索引事实却给“骨架/未成型”质量结论，超 allowed path）、M03r2（读 12000/34357 后响应 `'-'` 空收束）、M06r2（ask_author 后未见作者选择却推进 as_m06_a）、M16r1（已读全章并生成草稿但未回答“当前最终用哪版”）、M18 r1/r2（仍直接 ask_author 未先 explore）。
+  - **harness 证据缺陷（非产品失败）**：M07 r1/r2 假阴性（候选差异仅结尾换行，证据缺全文/归一化）；M20r1 假阴性（facts char_count 217 vs seed 218 末尾换行 + `content_length_evidence` atom-key 取值 bug=0）。修复后 retest4 至少 33/40。
+- 披露：old 单轮不对称、judge 单模型无人工复核、LM 观察未跑。本批不得当 PASS 证据，CP4 不标 done。

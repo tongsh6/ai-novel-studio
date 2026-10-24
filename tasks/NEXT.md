@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**。**CP4 retest1/2/3 均 FAIL（趋势改善：retest3 success 24/40、ZT 1、key_set 4）**。Round 6 修复已提交：M14 冒充/M18 先探索/M02 uq/M01·M03 证据/M09·M13 可见性、M08 目标段定位、M16 字段互斥+计划参数纠错、M20 字符双口径；retest4 证据补强（失败轮 raw/修订来源/原生只读/双口径）。**task-32 retest4 进行中**（一次 canonical 80 + 盲评 §6.1）。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**。**CP4 retest4：6/8 gates PASS（ZT 0、unavailable 0、uq 0 首次全 PASS），仅 key_set 3（M03r2/M06r2/M20r1）与 overall 0.75（30/40）FAIL**。retest5 前置：① harness 证据修复（M07 全文/换行归一化、M20 atom-key bug）；② 产品修 M02 质量结论/M03r2 空收束/M06r2 无依据推进/M16r1 版本问答/M18 先探索。→ 新预注册批次 retest5。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
