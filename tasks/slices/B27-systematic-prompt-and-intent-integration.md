@@ -369,3 +369,21 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - **§6.1 canonical 结果 = FAIL**：matrix/review complete PASS；not_below_old PASS（old 单轮 0/40，对照局限披露）；unavailable PASS（1/40）；**zero_tolerance FAIL（integrated 2，均 M18 r1/r2：把无关历史指令当原文登记）；key_set FAIL（M01/M03/M11/M14/M17/M20）；overall 20/40=0.5 FAIL；unnecessary_question FAIL（2/34 > old 0/34）**。零容忍/关键集按 §6.1 限定新规则臂；old 臂命中（M12 零容忍 2、关键集 10）单列 baseline 不计 gate；README 口径已同步。
 - **残余断点（下一修复批次输入）**：M18 来源/对象错误（零容忍，最优先）；M11 工具参数缺 `author_content` 无法证明字节保真；M03 长章只读 12,000/34,357；M01/M20 结论与预置事实/持久版本矛盾；M14 以 ask_author 代能力缺口 + r2 协议终局失败；M17 未收束；M07r1 无谓追问。
 - 披露：judge 单模型（qwen/qwen3.8-27b，≠被评臂）无人工复核；LM 观察 80 episode 未跑；old 臂单轮基线。证据：`artifacts/model-contracts/b27-cp4/execution-batch-latest-retest/`。
+
+#### CP4 修复批记录（Round 4，2026-10-24，两笔提交）
+
+- **诊断先行**（`7a3676cd` harness/judge 侧）：canonical retest1 20 个 integrated 判负 episode 逐例分类：protocol_bug 3 / product_semantic 5 / harness_fixture 7 / judge_rubric 3 / model_variance 2；证据矩阵（请求上下文/工具调用/final_text/seed）落 `artifacts/model-contracts/b27-cp4/diagnosis-latest/`。
+  - harness 修复：CP4 runner `Sandbox.checkout(ownership_timeout: 600_000)`——长章 M03 6 页 chapter_read 覆盖 34,357 字符全章（原 120s timeout/2 页预算失败消失，诊断重判 PASS）；seed 的 pending/resolved 候选补 `payload.items[].body`（由 cases.yml 合成 prose 派生，cases 冻结未改；episode 增 `seeded_candidates`/`materials_model_visible`/`app_side_evidence`/`content_anomaly`）；judge 输入移除 `forbidden/zero_tolerance/unnecessary` 等 runner 内部提示，改给案例卡 rubric+事实证据；M11 实测 `byte_equal_to_author_text=true`（67/67 字节），定向重判 PASS（原判属 judge_rubric 错判，B26 J2 由应用侧逐字复制全文含指令前缀）。fixtures README 增 §5.5 证据口径澄清 + §5.6 预注册保真修订记录（R1 候选正文派生、R2 M16 superseded 事实、R3 judge 协议事实；不放宽 rubric）。
+- **产品修复**（`2bf1a3da` judgment+context）：M18 来源登记（`author_registration_rules` 明确 current 只适用于本条即原文、指代历史原文须先取证或具体澄清；机械校验 `anaphoric_current_source_requires_explicit_text` 拒绝错登记并给 correction 三路径）；M13 空回复（清洗 reasoning 占位行，纯占位走有界 correction，仍空诚实失败）；M14 能力缺口优先（效果不在目录→report_capability_gap，不以 ask_author 代替；alternative refs 放宽到真实可用工具）；M07 已有候选优先 + 空基线修订诚实失败（`candidate_content_unavailable`）；M03 长章续读额度（仅 next_offset 时开放、读完关闭、显式已读/总长/缺口）；M01/M20/M16 结构化作品事实块（当前采纳段数/字符/版本 refs/摘要/superseded 不计当前/会话采纳计数）；M07/M08 待采纳候选预览（空预览诚实标注）；M17 纯只读计划内联执行后回收判断收束。测试 +15；application 825/0、agent 254/0，compile -Werror、credo、enum lint、format、I1/I2/I3/N-NARR/I-CACHE 全绿。
+- 定向 probe（非门槛）：M18/M13/M14 行为修复可见；M20 引用当前生效正文；M03 全章覆盖；M07 可直接 revise；M16 暴露事实投影链缺陷（Repo 数据正确但判断 prompt 事实块 0/0/unknown，需产品 context 修复）；M01/M02/M07r1/M08/M17 仍属产品语义残余。
+- 当前 retest2（task-21）进行中：新预注册 80 episode 双臂 + 修复后证据口径盲评 §6.1；本记录不构成 CP4 PASS。
+
+#### CP4 retest2 记录（2026-10-24，canonical 仍 FAIL）
+
+- 前置：HEAD `7a3676cd`（harness 证据保真 + 产品修复已提交）；`--check-snapshots` 20/20；old hash `211b2979…` 不变，integrated retest1 `216d5ab6…` → retest2 **`7975bfe1…`**（资产变化 5 项=task-19/20 产品文件）。
+- 一次完整 80 episode canonical（无重跑刷分、无 runner 分类修正）：old 40/40 ok（wire 40/40）；integrated **39/40 ok、1 unavailable**（M14r2 真实 `incompatible_operation_fields`，计分母）；end_reason complete 36 / await_author 3 / error 1。
+- judge 80/80（qwen/qwen3.8-27b，去泄漏证据输入：materials/prompt_evidence/seeded_candidates/app_side_evidence/content_anomaly/final_text 原文）。
+- **§6.1 = FAIL**：matrix/review complete PASS；**unavailable PASS（1/40）**；**unnecessary_question PASS（0/34）**；not_below_old PASS（old 单轮 0/40，对照无实质意义）；**zero_tolerance FAIL（4：M06 r1/r2 未消歧猜对象、M07 r1 引用不存在 pending ref、M17 r2 未取证直接选版）**；**key_set FAIL（7：M01、M03r2、M06、M12、M14r2、M17r2、M20）**；**overall 16/40=0.40 FAIL**。
+- 与 retest1 机器指标可比：integrated ok 35→39/40、unavailable 27→1/40、追问 2/34→0/34；judge 成功数 20→16/40 属证据口径变更（retest1 含 runner 泄漏提示），不可读作退步。
+- 残余 root-cause（retest3 输入）：① **上下文事实投影/fetch 链**——prompt「作品事实」块仍显示已采纳 0 字符/SUPERSEDED 0/章状态未知，而 `chapter_facts` 实测数据正确（accepted=3/superseded=1/COMPLETED），影响 M01/M10r2/M16/M20/M06/M07（最高杠杆）；② 零容忍对象/版本纪律（M06/M07r1/M17r2）；③ 修订范围/收束（M07r2/M08/M09r1/M13r2/M15/M20/M03r2）；④ harness 证据缺口：M12 历史来源 app_side byte-equality 为 null（需补确定性证据，不刷分）。
+- 披露：judge 单模型/无人工复核、LM 观察通道未跑、old 单轮不对称、retest2 judge 口径变更。本批不得当 PASS 证据，CP4 不标 done。

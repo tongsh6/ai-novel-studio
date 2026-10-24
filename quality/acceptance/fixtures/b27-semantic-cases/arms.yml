@@ -23,8 +23,8 @@ old_rules_arm:
 
 integrated_arm:
   status: frozen
-  arm_content_hash: 216d5ab6b3faaf2fb8c001c99363d703baae638a30de3d77381203b975d43ace
-  frozen_at: 2026-10-24T09:34:44.608288Z
+  arm_content_hash: 7975bfe190d545baa252af955de4708d98826b3cc33373c4f64f72d776130b5f
+  frozen_at: 2026-10-24T11:31:47.559882Z
   filled_by: B27 CP4 执行批：CP3 完成后重冻当前工作区规则资产（scripts/b27_case_freeze.exs --write-arms）
   note: "CP4 按 §6.1 双臂对照；assets 为 integrated_arm 当前资产清单，old 臂资产清单见归档 arms-before-refreeze-*.yml 与各快照 rule_versions"
 
@@ -41,8 +41,8 @@ assets:
     version: b27-task-v2
   - role: L1 判断工具契约
     path: apps/novel_application/lib/novel_application/judgment_tool_contract.ex
-    sha256: a70c8a336b4593cdbb89fc00f7f06dd1e7612e91cddfb45ab8eda4e2e9a80894
-    bytes: 7019
+    sha256: 644f23848150e43a3b1f4db2c7f4f8ea8e181f0bdfe82f98f598c5be075899a2
+    bytes: 7169
     version: b26-tools-v1
   - role: L1 计划工具契约
     path: apps/novel_application/lib/novel_application/agent_plan_tool_contract.ex
@@ -51,18 +51,18 @@ assets:
     version: content-hash
   - role: L3 判断/续行模板
     path: apps/novel_application/lib/novel_application/judgment_protocol.ex
-    sha256: 0b4ccd5affe6268f2288338158f1dac359b7f143cf5fef0b5641a0b096bb9f9b
-    bytes: 17222
+    sha256: 2ea8113a8927a469890e97f3d1c861bed33fbba7879bbf35a3d52dfba7e90294
+    bytes: 21959
     version: content-hash
   - role: L2/L3 判断上下文投影
     path: apps/novel_application/lib/novel_application/dialogue_planning_service.ex
-    sha256: fc5167d6a6e9e2b9fdd8257fdef8f381ab7f0dab4593198cdf37b7323b5358a4
-    bytes: 75457
+    sha256: 505617133a13b52de9a4250d1019cfa5bd16c114f1c9bbab5f16c8d163ec03ee
+    bytes: 88808
     version: content-hash
   - role: L3 原文登记规则
     path: apps/novel_application/lib/novel_application/turn_interaction_service.ex
-    sha256: 33bdee6477da5df79887efe08bdaa48811579def0a35de12a6a6ffaa3064738e
-    bytes: 14671
+    sha256: 3344a32d3e09166f27c27a2421f3035148f6eecc380a7ba984d5a65fde8d5780
+    bytes: 17044
     version: content-hash
   - role: L3 计划起草/修订模板
     path: apps/novel_application/lib/novel_application/agentic_plan_draft_planner.ex
@@ -111,8 +111,8 @@ assets:
     version: content-hash
   - role: 专业调用 候选/修订入口
     path: apps/novel_application/lib/novel_application/pending_artifact_workflow.ex
-    sha256: 15bb73d2875c6a97ccb6dc7319d98cbf6ea9fc44c2f7ecafb9ad34b9d7965fb5
-    bytes: 25578
+    sha256: 140a20b430c2c53b73de0a9ee665a7d5f4718aae14b32190ef5de82dbed7d94c
+    bytes: 26227
     version: content-hash
   - role: 专业调用 质量修订
     path: apps/novel_application/lib/novel_application/prose_revision_service.ex

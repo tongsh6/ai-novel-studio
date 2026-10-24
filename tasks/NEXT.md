@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成并提交**（CP3a–CP3d）。**CP4 执行批与 retest1 均 FAIL（不得标 done）**：协议错误已从 25→0、不可用 27/40→1/40；canonical retest1 仍 FAIL（zero_tolerance M18×2、key_set 6 例、overall 20/40、无谓追问 2>old0）。Tauri 生命周期场景已注册并机制 PASS（`d60f6eb7`，非语义通过）。当前 Round 4 三线修复：task-18 诊断矩阵+harness/judge 证据保真（M11/M13/泄漏）、task-19 judgment 产品修复（M18/M13/M14/M07）、task-20 context/explore 修复（M03/M01/M20/M16/M17/M07-M08）；随后 task-21 retest2 新预注册批次 + 盲评 §6.1。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**（CP3a–CP3d）。**CP4 retest1/retest2 均 FAIL**（retest2：unavailable 1/40、追问 0/34 已 PASS；zero_tolerance 4、key_set 7、overall 16/40 FAIL）。retest2 残余：① **上下文作品事实投影/fetch 链**（repo 数据正确但 prompt 事实块 0/0/unknown，最高杠杆，影响 M01/M06/M07/M10/M16/M20）；② 零容忍对象/版本纪律（M06/M07r1/M17r2）；③ 修订范围/收束（M07r2/M08/M09r1/M13r2/M15/M20/M03r2）；④ harness M12 历史来源字节证据。下一步：产品+harness 修复批 → retest3 新预注册批次；M07 仅排版目标与 B28 format_only 边界需裁决。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
