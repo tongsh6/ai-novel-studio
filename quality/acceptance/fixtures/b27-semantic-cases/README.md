@@ -394,6 +394,14 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
     时漏采。retest6 起失败轮 planner raw request/response + tool_calls/arguments 可直接按 top-level 字段定位；
     不改变 rubric/阈值/失败分类逻辑。
 
+20. **段落口径（retest6，M08）。**
+    “第 N 段”按**空行分段**定义（`paragraph_definition`）：`cases.yml` fixture `prose` 数组每个元素 = 一段，
+    **不得按文本行数计数**。episode 证据：`seeded_candidates[].paragraph_count/paragraphs[]`（index/chars/sha256/preview）；
+    修订类 `app_side_evidence.artifacts[]` 增加 `source_paragraphs`/`item_paragraphs` 及
+    `changed_paragraph_indices`/`preserved_paragraph_indices`。judge 判“只改目标段、其他段保留”时必须以这些段号与
+    全文 diff 为准（M08 目标“第二段”=整段 ch01_mid，而不是第 2 行）；rubric 不变。
+
+
 ### 5.6 预注册保真修订记录（CP4 诊断批，2026-10-24；Lead 授权；不放宽 rubric）
 
 本段记录 Lead 授权的**证据保真修订**（不是改 `cases.yml`/`snapshots/`、不是改 §6.1 门槛/rubric）：
@@ -406,6 +414,7 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
 | R2 | **M16 superseded 版本 seed/投影保真补齐**：fixture 语义要求“一个历史版本已 SUPERSEDED” | 诊断实测 `ReadingProjectionRepo.chapter_facts(work_id)` 返回 `accepted_draft_count=3, superseded_draft_count=1, chapter_status=COMPLETED`（seed 数据正确）；但判断 prompt 的“作品事实”块仍显示 `0/0 场、SUPERSEDED 0 份、章状态未知`（`diagnosis-*/probe/episodes/M16-*` 与日志），说明**上下文投影/fetch 链**未把事实并入 prompt，不是 seed 缺数据 | 需在 retest2 前修复上下文投影/fetch（owner：产品/context 修复，不是 judge 放宽）；修好后 M16 仍按原 rubric 判定；seed 数据本身已保真 |
 | R3 | **M01/M11/M13 judge 口径澄清（仅协议事实）**：M11 原文登记由应用侧按来源逐字复制**作者消息全文（含指令性前缀，系统不抽取/不删）**，模型参数本就不含 `author_content`，judge 用 `app_side_evidence` 判定；M13 provider 返回字面占位符 `"[assistant reasoning omitted]"` 时按 provider 未返回作者可见内容处理（不是模型编造）；M01 “完整章”=已采纳正文/计划覆盖的结构事实（有正文/计划依据的“没写完”不因标签字面冲突判 fail） | B26 J2 冻结协议（`tasks/slices/B26-single-call-judgment-protocol.md`）；`TurnInteractionService.source_text("current",...)=current_text`、`ArtifactAssembler.assemble_author_content/3` body=author_text；M11 episode `app_side_evidence.byte_equal_to_author_text=true`（67/67 字节）；M13 `wire_captures[].response.resp_body` 为字面占位符；M01 `cases.yml` 通过/失败判据 | 只让 judge 知道协议事实；不降低 M11/M13/M01 的 rubric pass 要求（M11 仍需字节保真/来源正确；M13 占位符仍不能算成功回复；M01 仍禁编造未读情节） |
 
+| R8 | **retest6 准备：段落口径 + 争议第二方复核流程**（2026-10-24）：① M08 “第 N 段”按空行分段（fixture prose 数组元素），证据给 `seeded_candidates.paragraphs` 与修订 `source/item_paragraphs`+`changed_paragraph_indices`，禁止按行计数；② 新增 `b27_second_review.exs` 旁路流程（select/human/judge 三种模式），只写 second-review、不改主判/阈值/`--score` | 依据：retest5 M08 r2 judge 按“行”把第 4/5 行当段落，与 fixture 两段结构不符；Lead 要求门限附近争议 case 可留作者裁决记录。验证：stub M08 `paragraph_count=2`（p1 99 chars/p2 116 chars）；第二方复核 select/human/judge-prep 在 retest5 review 上演示（无真实模型）。详见 `artifacts/model-contracts/b27-cp4/evidence-reinforce5-*` | 只改证据字段/第二方旁路流程与 README；不改 cases/snapshots/阈值/rubric；主 judge 判决与 §6.1 聚合不变 |
 | R7 | **retest6 前置证据修复**（task-38 前置，2026-10-24）：失败轮 planner-purpose 调用落盘——① 失败分支携带 `provider_calls`/`partial_provider_calls`；② episode top-level `wire_captures` 合并 `error.provider_calls`（含 `AgenticPlanDraftPlanner` 的 purpose=planner 失败轮）；③ wire capture 对全部已知 adapter 安装，防 purpose 路由漏采 | 依据：retest5 M16 r1 失败在 prose plan 起草，但 episode 只落 4 次 judgment 调用、planner 失败轮 raw 缺失（`error.rounds` 无 planner call；`unexpected_planner_decision` 分支未携带 capture）；task-37 已修 planner 纠错回执/降级，需要 raw 证据核对字段 | 仅改 runner 证据采集；不改 apps/cases/snapshots/阈值/rubric；M16 判定标准不变 |
 | R6 | **retest5 前置证据修复**（task-33，2026-10-24）：① M07 修订文本级 diff 字段（全文截断+sha、`text_equal_ignore_trailing_newlines`、`char_delta`、`first_diff_offset`、`diff_summary`；仅结尾换行/空白视为排版允许）；② M20 `content_length_evidence` atom-key 取值 bug 修复 + 归一化字段（`body_chars_normalized`/`trailing_newline_delta`/`facts_char_count_total_normalized`，217/218 换行口径不矛盾） | 依据：retest4 M07 实际差异仅为末尾换行（218→217，字符相同）、judge 因缺全文误判字句变更；M20 judge 因 facts totals=0（runtime atom-key）与 seed 末尾换行误判矛盾；复算见 `artifacts/model-contracts/b27-cp4/evidence-reinforce3-*/` | 只补事实证据字段与 judge 证据规则；不改 cases/snapshots/阈值/rubric；M07/M20 pass 判据不变 |
 | R5 | **retest4 证据补强**（task-31，2026-10-24）：① 修订类 artifact 来源解析（`payload.revision_of` → 基候选 body，`source_kind=revised_candidate`/`byte_equal_to_source`）；② `exploration_coverage` 记录原生只读工具尝试（`rejected_contract/tool_not_in_profile` 不计入已读覆盖，区分 judgment_explore）；③ `content_length_evidence` 记录 seed body 原始字符数/有效字数 + 作品事实 `char_count`/有效字数双口径（M20 186=有效字数/CJK、218=原始字符/char_count，非矛盾）；④ 失败轮 provider 边界捕获提升到 episode top-level `wire_captures`/`partial_provider_calls`（M16 被拒轮 raw tool_calls 可定位）；⑤ README §5.5 #12-15 同步 | 依据：retest3 残余复核（M07 `source_text_found=false`；M01r2/M20r2/M03r1 原生 chapter_read 被 `tool_not_in_profile` 拒绝、未执行；M20 seed 218 字符 vs facts word_count 186）；实测见 `artifacts/model-contracts/b27-cp4/evidence-reinforce2-*/` | 只补事实证据字段与 README 口径；不改 cases/snapshots/阈值/rubric；M07/M01/M20/M03 判定标准不变 |
@@ -414,6 +423,26 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
 > 备注：R1 已随 harness seed 实现（episode `seeded_candidates`）；R2 的 seed 数据已保真、上下文投影修复归 retest2 前产品/context owner；
 > R3 的 judge prompt/README 澄清已实现，定向重判 M11 两轮 PASS（`diagnosis-*/probe/review-strata/judgments`）。
 > R4 为 retest3 前对 R1 通用派生的**保真修正**：修复“world_setting 用章节正文”“跨章候选取首章正文”两类 seed 缺陷，并记录 M08 复核为产品/模型归因（非 seed）。
+
+### 5.7 争议 case 第二方复核流程（retest6，作者裁决；不改主判/阈值）
+
+**定位**：主 judge 判分（`b27_blind_judge.exs` → `--score`）仍是唯一门禁判决；第二方复核是**旁路证据**，
+只写 `<review>/second-review/`（或独立 `--out`），不修改 `judgments/`、不参与 `--score`、不改变阈值/主判决。
+仅对门限附近/争议 case 使用（默认 `M08,M14,M16,M20`；可用 `--cases` 扩展）。
+
+**实现**：`scripts/model_contracts/b27_second_review.exs`（新文件）
+- `--mode select --review <review-strata>`：列出选定 case 的 integrated episode 及争议原因
+  （semantic_fail / zero_tolerance / unavailable / unnecessary_question），供决定复核范围。
+- `--mode human --human-input <json>`：读取作者/人工复核记录（按 `blind_id`，含 reviewer/verdict/notes/evidence_refs），
+  生成 `second-review/records/<blind_id>.json` 与 `second-review-summary.json|md`（记录与主判 agree/disagree）。
+- `--mode judge --model <second-judge-model> [--run]`：把主 review 目录复制到 `second-review/judge-arm/`
+  （不覆盖主判），用**另一个 judge 模型**只重判选定 case；`--run` 实际调用，未给则只准备副本并打印可复跑命令。
+- 汇总明确 `does_not_change_main_score: true`；第二 judge 必须与主 judge 模型不同，避免自证。
+
+**产物**：`review-strata/second-review/`（records、summary、judge-arm 副本/日志）；批次报告中单列
+“第二方复核”小节与分歧项，不写入 §6.1 gate 计算。retest5 演示运行见
+`artifacts/model-contracts/b27-cp4/evidence-reinforce5-*/second-review-sample-*`（sample，无真实模型调用）。
+
 
 ## 6. 复跑与校验
 

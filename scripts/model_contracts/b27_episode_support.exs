@@ -533,7 +533,16 @@ defmodule B27EpisodeSupport do
       "text_equal_ignore_trailing_newlines" => comparison.text_equal_ignore_trailing_newlines,
       "char_delta" => comparison.char_delta,
       "first_diff_offset" => comparison.first_diff_offset,
-      "diff_summary" => comparison.diff_summary
+      "diff_summary" => comparison.diff_summary,
+      # M08 段落口径：按空行分段（cases.yml fixture prose 数组每个元素=一段），不按行计数。
+      "paragraph_definition" =>
+        "paragraphs split by blank line; cases.yml fixture prose array element = one paragraph",
+      "source_paragraph_count" => length(comparison.source_paragraphs),
+      "item_paragraph_count" => length(comparison.item_paragraphs),
+      "source_paragraphs" => comparison.source_paragraphs,
+      "item_paragraphs" => comparison.item_paragraphs,
+      "changed_paragraph_indices" => comparison.changed_paragraph_indices,
+      "preserved_paragraph_indices" => comparison.preserved_paragraph_indices
     }
   end
 
@@ -573,11 +582,17 @@ defmodule B27EpisodeSupport do
       |> Enum.take_while(fn {bc, sc} -> bc == sc end)
       |> length()
 
+    paragraph_cmp = compare_paragraphs(source, body)
+
     %{
       text_equal: body == source,
       text_equal_ignore_trailing_newlines: body_norm == source_norm,
       char_delta: length(body_cps) - length(source_cps),
       first_diff_offset: first_diff,
+      source_paragraphs: paragraph_cmp.source_paragraphs,
+      item_paragraphs: paragraph_cmp.item_paragraphs,
+      changed_paragraph_indices: paragraph_cmp.changed_paragraph_indices,
+      preserved_paragraph_indices: paragraph_cmp.preserved_paragraph_indices,
       diff_summary: %{
         "only_trailing_whitespace_diff" => body != source and body_norm == source_norm,
         "common_prefix_chars" => common_prefix,
@@ -596,7 +611,58 @@ defmodule B27EpisodeSupport do
       text_equal_ignore_trailing_newlines: nil,
       char_delta: nil,
       first_diff_offset: nil,
+      source_paragraphs: [],
+      item_paragraphs: [],
+      changed_paragraph_indices: [],
+      preserved_paragraph_indices: [],
       diff_summary: nil
+    }
+  end
+
+  # 段落口径（M08）：按空行分段；fixture prose 数组每个元素一段。
+  defp split_paragraphs(text) when is_binary(text) do
+    Regex.split(~r/\n\s*\n/u, String.trim(text), trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp split_paragraphs(_), do: []
+
+  defp paragraph_meta(paragraphs) do
+    paragraphs
+    |> Enum.with_index(1)
+    |> Enum.map(fn {paragraph, index} ->
+      %{
+        "index" => index,
+        "chars" => String.length(paragraph),
+        "sha256" => sha256(paragraph),
+        "preview" => truncate(paragraph, 80)
+      }
+    end)
+  end
+
+  defp compare_paragraphs(source, body) do
+    source_paragraphs = split_paragraphs(source)
+    item_paragraphs = split_paragraphs(body)
+    max_count = max(length(source_paragraphs), length(item_paragraphs))
+
+    changed =
+      if max_count == 0 do
+        []
+      else
+        1..max_count//1
+        |> Enum.filter(fn index ->
+          Enum.at(source_paragraphs, index - 1) != Enum.at(item_paragraphs, index - 1)
+        end)
+      end
+
+    preserved = if max_count == 0, do: [], else: Enum.reject(1..max_count//1, &(&1 in changed))
+
+    %{
+      source_paragraphs: paragraph_meta(source_paragraphs),
+      item_paragraphs: paragraph_meta(item_paragraphs),
+      changed_paragraph_indices: changed,
+      preserved_paragraph_indices: preserved
     }
   end
 
@@ -1355,6 +1421,10 @@ defmodule B27EpisodeSupport do
       "body" => body,
       "body_chars" => chars(body),
       "body_sha256" => sha256(body),
+      "paragraph_count" => length(split_paragraphs(body)),
+      "paragraphs" => paragraph_meta(split_paragraphs(body)),
+      "paragraph_definition" =>
+        "blank-line separated; cases.yml fixture prose array element = one paragraph（不按行计数）",
       "body_source" => "cases.yml fixture deterministic derivation（harness seed enrichment）",
       "seed_rule" => seed_rule
     }

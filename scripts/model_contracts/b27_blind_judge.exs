@@ -630,6 +630,9 @@ defmodule B27BlindJudge do
         "body" => truncate(get(candidate, "body"), 1_200),
         "body_chars" => get(candidate, "body_chars"),
         "body_sha256" => get(candidate, "body_sha256"),
+        "paragraph_count" => get(candidate, "paragraph_count"),
+        "paragraphs" => get(candidate, "paragraphs") || [],
+        "paragraph_definition" => get(candidate, "paragraph_definition"),
         "body_source" => get(candidate, "body_source"),
         "seed_rule" => get(candidate, "seed_rule")
       }
@@ -695,6 +698,10 @@ defmodule B27BlindJudge do
       **不得**判字句变更/超出排版边界；只有 `first_diff_offset` 出现在正文中间、或存在非尾部字符差异时，
       才按案例卡判是否违反“只调标点与分段，别改字句”。不得因 `source_tool_result_ref=tr_*` 或
       `byte_equal_to_author_text=null` 判无法验证。
+    - **段落口径（M08 类）**：“第 N 段”必须按**空行分段**（`paragraph_definition`；cases.yml fixture prose
+      数组每个元素=一段），**不得按文本行数计数**。修订类证据的 `source_paragraphs`/`item_paragraphs` 给出
+      每段 index/chars/sha/preview，`changed_paragraph_indices`/`preserved_paragraph_indices` 给出实际变更/保留
+      的段号；判“只改目标段、其他段保留”时以这些段号与全文 diff 为准，rubric 不变。
     - **字符口径（M20 类）**：`content_length_evidence` 同时给出：seed body 原始字符数/归一化字符数/
       有效字数/末尾换行数（`body_chars`/`body_chars_normalized`/`body_effective_words`/`trailing_newline_delta`）、
       作品事实原始字符数（`facts_char_count_total`）、有效字数（`facts_word_count_total`）及各自定义。
