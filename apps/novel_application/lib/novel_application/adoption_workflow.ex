@@ -530,6 +530,158 @@ defmodule NovelApplication.AdoptionWorkflow do
     }
   end
 
+  @doc """
+  B28 CP1：章级修订上下文事实（只读）——阅读投影顺序的 covered refs/versions + 覆盖账。
+  task-49（builder/render）可据此调用 AuthoringTaskBuilder.for_chapter_revision/1。
+  """
+  def chapter_revision_context(work_id, chapter_identity) do
+    case NovelPersistence.AdoptionRepository.accepted_chapter_scopes(work_id, chapter_identity) do
+      {:ok, %{chapter_ref: ref, scopes: [_ | _] = scopes}} ->
+        {:ok,
+         %{
+           target_chapter_ref: ref,
+           covered_refs: Enum.map(scopes, &"draft:#{&1.draft_id}"),
+           expected_base_versions:
+             Enum.map(scopes, &%{ref: "draft:#{&1.draft_id}", version: &1.revision}),
+           materials:
+             Enum.map(scopes, fn scope ->
+               %{
+                 kind: :draft,
+                 ref: "draft:#{scope.draft_id}",
+                 version: scope.revision,
+                 complete?: true,
+                 omission_note: nil
+               }
+             end),
+           coverage: :complete
+         }}
+
+      {:ok, _no_scopes} ->
+        {:error, :incomplete_scope}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # B28 CP1：采纳前契约守卫（目标作用域/排版模式）。仅在有 B28 additive 信号时收紧；
+  # 缺省旧 artifact 保持 legacy 行为（迁移期兼容）。
+  @doc false
+  def validate_b28_contract(artifact) do
+    payload = artifact_field(artifact, :payload) || %{}
+    effect = b28_map(payload, :adoption_effect)
+    scope = b28_map(payload, :scope)
+    effect_mode = b28_value(effect, :mode)
+    modification = b28_modification_scope(payload, scope, effect_mode)
+
+    cond do
+      invalid_adoption_effect?(effect_mode) ->
+        {:error, :invalid_adoption_effect}
+
+      effect_requires_target?(effect_mode) and is_nil(adoption_chapter_ref(artifact)) ->
+        {:error, :target_missing}
+
+      b28_target_missing?(artifact, scope, effect_mode, modification) ->
+        # 有 B28 修改范围但没有目标身份：默认拒绝，不再标题回退/新建章。
+        {:error, :target_missing}
+
+      modification == "format_only" ->
+        validate_format_only(payload, artifact_content(artifact))
+
+      true ->
+        :ok
+    end
+  end
+
+  defp b28_modification_scope(payload, scope, effect_mode) do
+    b28_value(payload, :modification_scope) || b28_value(scope, :modification_scope) ||
+      if(effect_mode == "format_only", do: "format_only")
+  end
+
+  defp invalid_adoption_effect?(mode),
+    do: mode not in [nil, "replace_scope", "append", "new_chapter"]
+
+  defp effect_requires_target?(mode), do: mode in ["replace_scope", "append"]
+
+  defp b28_target_missing?(artifact, scope, effect_mode, modification) do
+    b28_signal? = not is_nil(effect_mode) or not is_nil(modification)
+
+    b28_signal? and is_nil(effect_mode) and is_nil(b28_value(scope, :target_chapter_ref)) and
+      is_nil(adoption_chapter_ref(artifact)) and modification != "format_only"
+  end
+
+  defp b28_effect_attrs(artifact) do
+    payload = artifact_field(artifact, :payload) || %{}
+    effect = b28_map(payload, :adoption_effect)
+    scope = b28_map(payload, :scope)
+
+    %{
+      adoption_effect: effect,
+      modification_scope:
+        b28_value(payload, :modification_scope) || b28_value(scope, :modification_scope),
+      target_chapter_ref: adoption_chapter_ref(artifact)
+    }
+  end
+
+  defp b28_map(map, key) when is_map(map) do
+    case Map.get(map, key) || Map.get(map, to_string(key)) do
+      %{} = value -> value
+      _ -> nil
+    end
+  end
+
+  defp b28_map(_map, _key), do: nil
+
+  defp b28_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, to_string(key))
+
+  defp b28_value(_map, _key), do: nil
+
+  defp validate_format_only(payload, content) do
+    source = b28_value(payload, :base_text) || b28_value(payload, :source_text)
+
+    cond do
+      not is_binary(source) or source == "" ->
+        {:error, :format_only_source_unavailable}
+
+      normalize_format_text(source) == normalize_format_text(content) ->
+        :ok
+
+      true ->
+        {offset, line} = first_format_difference(source, content)
+        {:error, {:format_only_violation, %{offset: offset, line: line}}}
+    end
+  end
+
+  # 冻结归一规则（B28 CP1）：行尾空白删除 → 换行归一 → 文末空行折叠；其余字节必须相等。
+  defp normalize_format_text(text) do
+    text
+    |> to_string()
+    |> String.replace("\r\n", "\n")
+    |> String.replace("\r", "\n")
+    |> String.split("\n")
+    |> Enum.map_join("\n", &String.trim_trailing/1)
+    |> String.replace(~r/\n+\z/u, "\n")
+    |> String.trim_trailing("\n")
+  end
+
+  defp first_format_difference(source, content) do
+    left = String.codepoints(normalize_format_text(source))
+    right = String.codepoints(normalize_format_text(content))
+
+    index =
+      left
+      |> Enum.zip(right)
+      |> Enum.find_index(fn {a, b} -> a != b end)
+      |> case do
+        nil -> if length(left) == length(right), do: 0, else: min(length(left), length(right))
+        value -> value
+      end
+
+    line = left |> Enum.take(index) |> Enum.count(&(&1 == "\n")) |> Kernel.+(1)
+    {index, line}
+  end
+
   defp persist_adoption(nil, _source_turn_result, decision, _artifact, _params) do
     {:ok,
      %{
@@ -545,6 +697,13 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp persist_adoption(writer, source_turn_result, decision, artifact, params)
        when is_function(writer, 1) do
+    case validate_b28_contract(artifact) do
+      :ok -> do_persist_adoption(writer, source_turn_result, decision, artifact, params)
+      error -> error
+    end
+  end
+
+  defp do_persist_adoption(writer, source_turn_result, decision, artifact, params) do
     attrs = %{
       actor_ref: "author",
       work_id: Map.get(params, "work_id") || map_field(source_turn_result, :work_id),
@@ -556,6 +715,9 @@ defmodule NovelApplication.AdoptionWorkflow do
       summary: adoption_chapter_title(artifact),
       # B25：章节身份优先 ref（title 只作展示/旧兼容；无 ref 时仓储层按 title 唯一命中）。
       target_chapter_ref: adoption_chapter_ref(artifact),
+      # B28 CP1：additive 采纳 effect / 修改范围（持久层 replace_scope 事务入口）。
+      adoption_effect: b28_effect_attrs(artifact).adoption_effect,
+      modification_scope: b28_effect_attrs(artifact).modification_scope,
       narrative_role: artifact_narrative_role(artifact),
       role: artifact_character_field(artifact, :role),
       aliases: artifact_character_field(artifact, :aliases),

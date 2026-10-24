@@ -489,6 +489,42 @@ defmodule NovelPersistence.AdoptionRepository do
   #   阅读投影同一章显示最新正文，不堆重复章。
   # - :append（续写）—— 同章新建场景（seq+1）累积，不复用旧场景、不 supersede，字数累加。
   defp persist_reading_projection(repo, attrs, mutation_id) do
+    case replace_scope_effect(attrs) do
+      nil -> persist_single_projection(repo, attrs, mutation_id)
+      effect -> persist_replace_scope(repo, attrs, mutation_id, effect)
+    end
+  end
+
+  # B28 CP1：replace_scope 多片段采纳——同章范围内旧 accepted drafts 全部 supersede，
+  # 新整章稿 accepted；chapter_id/章数/seq 不变；失败由原子 Multi 整体回滚。
+  defp persist_replace_scope(repo, attrs, mutation_id, effect) do
+    work_id = Map.fetch!(attrs, :work_id)
+    content = projection_content(attrs)
+    chapter_ref = normalize_chapter_ref(Map.get(attrs, :target_chapter_ref))
+
+    with {:ok, chapter} <- require_scope_chapter(repo, work_id, chapter_ref),
+         {:ok, covered} <- covered_scope_drafts(repo, work_id, chapter.id, effect),
+         :ok <- validate_expected_versions(repo, chapter.id, effect),
+         :ok <- ensure_complete_cover(repo, work_id, chapter.id, covered, effect),
+         :ok <- mark_chapter_drafted(repo, chapter),
+         :ok <- supersede_covered_scenes(repo, work_id, covered),
+         {:ok, draft} <-
+           insert_scope_draft(repo, work_id, content, covered) do
+      {:ok,
+       %{
+         volume_id: chapter.volume_id,
+         chapter_id: chapter.id,
+         scene_id: hd(covered).scene_id,
+         draft_id: draft.id,
+         source_revision_ref: "draft:#{draft.id}:#{draft.revision}",
+         mutation_id: mutation_id,
+         adoption_effect: "replace_scope",
+         superseded_draft_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}")
+       }}
+    end
+  end
+
+  defp persist_single_projection(repo, attrs, mutation_id) do
     work_id = Map.fetch!(attrs, :work_id)
     chapter_title = projection_title(attrs)
     content = projection_content(attrs)
@@ -1025,6 +1061,245 @@ defmodule NovelPersistence.AdoptionRepository do
   defp blank_to_nil(_value), do: nil
 
   # 正文采纳进某章 → 该章不再是纯计划态。PLANNED → DRAFTING；已 COMPLETED/其它不回退。
+  # B28 CP1：当前章按阅读投影顺序的全部 accepted 片段（材料覆盖账/版本基线）。
+  # 返回 [%{scene_ref, scene_seq, scene_id, draft_ref, draft_id, revision, content}]。
+  def accepted_chapter_scopes(work_id, chapter_identity) do
+    with {:ok, work_uuid} <- Ecto.UUID.cast(work_id),
+         {:ok, chapter} <- resolve_scope_chapter_by_identity(work_uuid, chapter_identity) do
+      scopes =
+        Scene
+        |> where([s], s.chapter_id == ^chapter.id and s.work_id == ^work_uuid)
+        |> order_by([s], asc: s.seq)
+        |> Repo.all()
+        |> Enum.map(&scene_accepted_scope(work_uuid, &1))
+        |> Enum.reject(&is_nil/1)
+
+      {:ok,
+       %{
+         chapter_id: chapter.id,
+         chapter_ref: "chapter:#{chapter.id}",
+         chapter_title: chapter.title,
+         scopes: scopes
+       }}
+    end
+  end
+
+  defp scene_accepted_scope(work_uuid, scene) do
+    accepted = AdoptionStatus.accepted()
+
+    draft =
+      Draft
+      |> where(
+        [d],
+        d.work_id == ^work_uuid and d.scene_id == ^scene.id and d.status == ^accepted
+      )
+      |> order_by([d], desc: d.revision, desc: d.updated_at)
+      |> limit(1)
+      |> Repo.one()
+
+    case draft do
+      %Draft{} = draft ->
+        %{
+          scene_ref: "scene:#{scene.id}",
+          scene_seq: scene.seq,
+          scene_id: scene.id,
+          draft_ref: "draft:#{draft.id}:#{draft.revision}",
+          draft_id: draft.id,
+          revision: draft.revision,
+          content: draft.content
+        }
+
+      nil ->
+        nil
+    end
+  end
+
+  defp resolve_scope_chapter_by_identity(work_uuid, "chapter:" <> _ = ref) do
+    find_chapter_by_ref(Repo, work_uuid, ref)
+  end
+
+  defp resolve_scope_chapter_by_identity(work_uuid, title) when is_binary(title) do
+    case chapters_with_title(Repo, work_uuid, canonical_chapter_title(title)) do
+      [chapter] -> {:ok, chapter}
+      [] -> {:error, :target_missing}
+      _many -> {:error, :target_ambiguous}
+    end
+  end
+
+  defp resolve_scope_chapter_by_identity(_work_uuid, _identity), do: {:error, :target_missing}
+
+  defp replace_scope_effect(attrs) do
+    case Map.get(attrs, :adoption_effect) do
+      %{} = effect ->
+        if effect_mode(effect) == "replace_scope", do: effect
+
+      "replace_scope" ->
+        %{}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp effect_mode(effect) do
+    Map.get(effect, "mode") || Map.get(effect, :mode)
+  end
+
+  defp require_scope_chapter(_repo, _work_id, nil), do: {:error, :target_missing}
+
+  defp require_scope_chapter(repo, work_id, "chapter:" <> _ = ref) do
+    case find_chapter_by_ref(repo, work_id, ref) do
+      {:ok, chapter} -> {:ok, chapter}
+      _ -> {:error, :target_missing}
+    end
+  end
+
+  defp require_scope_chapter(_repo, _work_id, _ref), do: {:error, :target_missing}
+
+  defp covered_scope_drafts(repo, work_id, chapter_id, effect) do
+    case effect_refs(effect) do
+      [] ->
+        {:error, :incomplete_scope}
+
+      refs ->
+        refs
+        |> Enum.reduce_while({:ok, []}, fn ref, {:ok, acc} ->
+          collect_covered_draft(repo, work_id, chapter_id, ref, acc)
+        end)
+        |> uniq_covered_drafts()
+    end
+  end
+
+  defp collect_covered_draft(repo, work_id, chapter_id, ref, acc) do
+    case load_covered_draft(repo, work_id, chapter_id, ref) do
+      {:ok, draft} -> {:cont, {:ok, acc ++ [draft]}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp uniq_covered_drafts({:ok, drafts}), do: {:ok, Enum.uniq_by(drafts, & &1.id)}
+  defp uniq_covered_drafts(error), do: error
+
+  defp effect_refs(effect) do
+    refs =
+      Map.get(effect, "covered") || Map.get(effect, :covered) || Map.get(effect, "covered_refs") ||
+        Map.get(effect, :covered_refs) || []
+
+    refs
+    |> List.wrap()
+    |> Enum.map(fn
+      %{} = item ->
+        Map.get(item, "draft_ref") || Map.get(item, :draft_ref) || Map.get(item, "ref") ||
+          Map.get(item, :ref)
+
+      ref when is_binary(ref) ->
+        ref
+
+      _ ->
+        nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp load_covered_draft(repo, work_id, chapter_id, "draft:" <> rest) do
+    [uuid, revision] =
+      case String.split(rest, ":") do
+        [uuid] -> [uuid, nil]
+        [uuid, revision] -> [uuid, revision]
+        _ -> [nil, nil]
+      end
+
+    with {:ok, draft_id} <- Ecto.UUID.cast(uuid),
+         %Draft{} = draft <- repo.get(Draft, draft_id),
+         true <- draft.work_id == work_id,
+         %Scene{} = scene <- repo.get(Scene, draft.scene_id),
+         true <- scene.chapter_id == chapter_id,
+         true <- draft.status in [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()],
+         true <- revision == nil or to_string(draft.revision) == to_string(revision) do
+      {:ok, Map.merge(draft, %{scene_id: draft.scene_id})}
+    else
+      nil -> {:error, :incomplete_scope}
+      false -> {:error, :stale_base_version}
+      _ -> {:error, :target_missing}
+    end
+  end
+
+  defp load_covered_draft(_repo, _work_id, _chapter_id, _ref), do: {:error, :target_missing}
+
+  defp validate_expected_versions(repo, chapter_id, effect) do
+    expected =
+      (Map.get(effect, "expected_base_versions") || Map.get(effect, :expected_base_versions) || [])
+      |> List.wrap()
+
+    Enum.reduce_while(expected, :ok, fn item, :ok ->
+      ref = Map.get(item, "ref") || Map.get(item, :ref)
+      version = Map.get(item, "version") || Map.get(item, :version)
+
+      with "draft:" <> rest <- ref,
+           [uuid | _] <- String.split(rest, ":"),
+           {:ok, draft_id} <- Ecto.UUID.cast(uuid),
+           %Draft{} = draft <- repo.get(Draft, draft_id),
+           %Scene{} = scene <- repo.get(Scene, draft.scene_id),
+           true <- scene.chapter_id == chapter_id,
+           true <- to_string(draft.revision) == to_string(version) do
+        {:cont, :ok}
+      else
+        _ -> {:halt, {:error, :stale_base_version}}
+      end
+    end)
+  end
+
+  defp ensure_complete_cover(repo, work_id, chapter_id, covered, effect) do
+    if Map.get(effect, "coverage") in ["complete", :complete] ||
+         Map.get(effect, "require_complete", true) do
+      all =
+        Scene
+        |> where([s], s.chapter_id == ^chapter_id and s.work_id == ^work_id)
+        |> repo.all()
+        |> Enum.flat_map(fn scene ->
+          Draft
+          |> where(
+            [d],
+            d.work_id == ^work_id and d.scene_id == ^scene.id and
+              d.status in ^[AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
+          )
+          |> repo.all()
+        end)
+        |> Enum.map(& &1.id)
+        |> MapSet.new()
+
+      covered_ids = covered |> Enum.map(& &1.id) |> MapSet.new()
+
+      if MapSet.subset?(all, covered_ids), do: :ok, else: {:error, :incomplete_scope}
+    else
+      :ok
+    end
+  end
+
+  defp supersede_covered_scenes(repo, work_id, covered) do
+    covered
+    |> Enum.map(& &1.scene_id)
+    |> Enum.uniq()
+    |> Enum.reduce_while(:ok, fn scene_id, :ok ->
+      case supersede_accepted_drafts(repo, work_id, scene_id) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp insert_scope_draft(repo, _work_id, content, covered) do
+    scene_id = hd(covered).scene_id
+
+    insert_draft(repo, %{
+      work_id: hd(covered).work_id,
+      scene_id: scene_id,
+      content: content,
+      status: AdoptionStatus.accepted(),
+      revision: next_draft_revision(repo, scene_id)
+    })
+  end
+
   defp mark_chapter_drafted(repo, %Chapter{status: status} = chapter) do
     if status == StructureStatus.planned() do
       chapter

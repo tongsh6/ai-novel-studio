@@ -45,13 +45,18 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     |> put_opt(:omission_note, opts[:omission_note])
   end
 
-  @doc "范围：refs + coverage；base_ref/base_hash/target_chapter_ref 只传真实来源。"
+  @doc """
+  范围：refs + coverage；base_ref/base_hash/target_chapter_ref 只传真实来源。
+  B28 CP1 additive：`modification_scope` / `expected_base_versions`（章级修订）。
+  """
   def scope(refs, opts \\ []) do
     %{refs: List.wrap(refs), coverage: Keyword.get(opts, :coverage, :single)}
     |> put_opt(:object_kind, opts[:object_kind])
     |> put_opt(:base_ref, opts[:base_ref])
     |> put_opt(:base_hash, opts[:base_hash])
     |> put_opt(:target_chapter_ref, opts[:target_chapter_ref])
+    |> put_opt(:modification_scope, opts[:modification_scope])
+    |> put_opt(:expected_base_versions, opts[:expected_base_versions])
     |> Enum.reject(fn {_k, value} -> is_nil(value) end)
     |> Map.new()
   end
@@ -192,6 +197,152 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       source_refs: string_list(attrs[:source_refs])
     })
   end
+
+  @chapter_revision_contract_opts [
+    schema_ref: "prose_writing_v1",
+    artifact_type: :prose_fragment,
+    required_keys: ["items", "item_id", "title", "body"],
+    allow_companions: false
+  ]
+
+  @chapter_modification_scopes [:format_only, :target_segments, :whole_chapter]
+
+  @doc """
+  B28 CP1：整章/多片段修订任务（chapter-scoped）。
+
+  `attrs`（材料/覆盖事实由调用方从真实上下文取，不在本模块推断）：
+  - `:target_chapter_ref`（必填，章身份）
+  - `:covered_refs`（有序 accepted 片段 refs；order 即阅读投影顺序）
+  - `:modification_scope`（`:format_only` | `:target_segments` | `:whole_chapter`，必填）
+  - `:expected_base_versions`（`[%{ref, version}]`，stale 校验依据，可空 v1）
+  - `:coverage`（默认 `:complete`；`:whole_chapter` 强制 complete）
+  - `:base_ref`/`:base_hash`（可选；章级修订以章身份+期望版本为基线）
+  - `:materials`（全章片段材料条目，含 version/complete?/omission_note）
+  - `:preserve`（追加保留项；默认整章 preserve 仍含“未要求修改内容逐字保留”）
+  - `:author_goal`/`:author_words`/`:source`/`:source_refs`/`:output_contract`
+
+  失败返回可解释 `{:error, {:authoring_task_invalid, detail}}`，调用方不得降级猜意图。
+  """
+  @spec for_chapter_revision(map()) ::
+          {:ok, AuthoringTask.t()} | {:error, {atom(), term()}}
+  def for_chapter_revision(attrs) when is_map(attrs) do
+    with {:ok, target_chapter_ref} <- chapter_revision_target(attrs),
+         {:ok, modification_scope} <- chapter_revision_modification_scope(attrs),
+         {:ok, covered_refs} <- chapter_revision_covered_refs(attrs),
+         :ok <- chapter_revision_scope_supported(modification_scope, attrs),
+         :ok <- chapter_revision_versions(attrs[:expected_base_versions]) do
+      coverage = chapter_revision_coverage(modification_scope, attrs[:coverage])
+
+      new(:revision, %{
+        author_goal: blank_to_nil(text(attrs[:author_goal])) || "按作者要求修订整章正文（覆盖范围内完整替换）",
+        author_words: author_words(attrs),
+        source: normalize_source(attrs[:source]),
+        scope:
+          scope(covered_refs,
+            object_kind: :chapter_prose,
+            coverage: coverage,
+            base_ref: blank_to_nil(text(attrs[:base_ref])),
+            base_hash: blank_to_nil(text(attrs[:base_hash])),
+            target_chapter_ref: target_chapter_ref,
+            modification_scope: modification_scope,
+            expected_base_versions: normalize_versions(attrs[:expected_base_versions])
+          ),
+        materials: List.wrap(attrs[:materials]),
+        preserve: revision_preserve(attrs, coverage),
+        operation_effect: :revise_candidate,
+        output_contract:
+          attrs[:output_contract] || output_contract(:json, @chapter_revision_contract_opts),
+        source_refs: string_list(attrs[:source_refs])
+      })
+    end
+  end
+
+  defp chapter_revision_target(attrs) do
+    case blank_to_nil(text(attrs[:target_chapter_ref])) do
+      nil -> {:error, {:authoring_task_invalid, {:target_chapter_ref_required, :revision}}}
+      ref -> {:ok, ref}
+    end
+  end
+
+  defp chapter_revision_modification_scope(attrs) do
+    case normalize_modification_scope(attrs[:modification_scope]) do
+      nil ->
+        {:error, {:authoring_task_invalid, {:modification_scope_required, :revision}}}
+
+      scope ->
+        {:ok, scope}
+    end
+  end
+
+  defp normalize_modification_scope(value) when value in @chapter_modification_scopes, do: value
+
+  defp normalize_modification_scope(value) when is_binary(value) do
+    Enum.find(@chapter_modification_scopes, &(Atom.to_string(&1) == value))
+  end
+
+  defp normalize_modification_scope(_value), do: nil
+
+  defp chapter_revision_covered_refs(attrs) do
+    refs = string_list(attrs[:covered_refs] || attrs[:refs])
+
+    cond do
+      refs == [] ->
+        {:error, {:authoring_task_invalid, {:covered_refs_required, :revision}}}
+
+      length(refs) != length(Enum.uniq(refs)) ->
+        {:error, {:authoring_task_invalid, {:covered_refs_duplicated, :revision}}}
+
+      true ->
+        {:ok, refs}
+    end
+  end
+
+  # :whole_chapter 要求覆盖全部当前 accepted 片段；:format_only 同样必须给出完整覆盖，
+  # 否则应用侧无法做空白归一后的字节等价判定（Q03）。
+  defp chapter_revision_scope_supported(:whole_chapter, attrs) do
+    case attrs[:coverage] do
+      nil -> :ok
+      :complete -> :ok
+      "complete" -> :ok
+      _ -> {:error, {:authoring_task_invalid, {:whole_chapter_coverage_required, :revision}}}
+    end
+  end
+
+  defp chapter_revision_scope_supported(_scope, _attrs), do: :ok
+
+  # 章级修订以章身份+期望版本为基线，覆盖范围必须是完整的。
+  defp chapter_revision_coverage(_scope, _coverage), do: :complete
+
+  defp chapter_revision_versions(nil), do: :ok
+  defp chapter_revision_versions([]), do: :ok
+
+  defp chapter_revision_versions(versions) when is_list(versions) do
+    if Enum.all?(versions, &valid_chapter_revision_version?/1),
+      do: :ok,
+      else: {:error, {:authoring_task_invalid, {:expected_base_versions_invalid, :revision}}}
+  end
+
+  defp chapter_revision_versions(_versions),
+    do: {:error, {:authoring_task_invalid, {:expected_base_versions_invalid, :revision}}}
+
+  defp valid_chapter_revision_version?(%{} = entry) do
+    ref = text(entry[:ref] || entry["ref"])
+    version = entry[:version] || entry["version"]
+    is_binary(ref) and ref != "" and is_integer(version) and version > 0
+  end
+
+  defp valid_chapter_revision_version?(_entry), do: false
+
+  defp normalize_versions(nil), do: nil
+  defp normalize_versions([]), do: nil
+
+  defp normalize_versions(versions) when is_list(versions) do
+    Enum.map(versions, fn entry ->
+      %{ref: text(entry[:ref] || entry["ref"]), version: entry[:version] || entry["version"]}
+    end)
+  end
+
+  defp normalize_versions(_versions), do: nil
 
   @doc """
   组装正文质量评估（quality_evaluation）任务：只读评审本轮生成的正文材料。

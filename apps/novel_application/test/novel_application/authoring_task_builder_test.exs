@@ -372,3 +372,122 @@ defmodule NovelApplication.AuthoringTaskBuilderCreativeRolesTest do
   defp expected_object_kind(:character_design), do: :character
   defp expected_object_kind(:world_building), do: :world_setting
 end
+
+defmodule NovelApplication.AuthoringTaskBuilderChapterRevisionTest do
+  use ExUnit.Case, async: true
+
+  alias NovelApplication.AuthoringTaskBuilder
+
+  defp attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        target_chapter_ref: "chapter:ch01",
+        covered_refs: ["draft:d1", "draft:d2", "scene:s1"],
+        modification_scope: :format_only,
+        expected_base_versions: [
+          %{ref: "draft:d1", version: 2},
+          %{ref: "draft:d2", version: 1}
+        ],
+        coverage: :complete,
+        materials: [
+          AuthoringTaskBuilder.material(:draft, "draft:d1", version: 2, complete?: true),
+          AuthoringTaskBuilder.material(:draft, "draft:d2", version: 1, complete?: true)
+        ],
+        author_goal: "把第一章正文按作者要求整理",
+        author_words: "把第一章正文整理一下，只调整分段和排版",
+        source: %{kind: :author_action, ref: "turn:t1"},
+        source_refs: ["turn:t1"]
+      },
+      overrides
+    )
+  end
+
+  test "format_only chapter revision builds chapter-scoped task with complete coverage" do
+    assert {:ok, task} = AuthoringTaskBuilder.for_chapter_revision(attrs())
+
+    assert task.kind == :revision
+    assert task.operation_effect == :revise_candidate
+    assert task.scope.target_chapter_ref == "chapter:ch01"
+    assert task.scope.modification_scope == :format_only
+    assert task.scope.object_kind == :chapter_prose
+    assert task.scope.coverage == :complete
+    assert task.scope.refs == ["draft:d1", "draft:d2", "scene:s1"]
+    assert Map.get(task.scope, :base_ref) == nil
+
+    assert task.scope.expected_base_versions == [
+             %{ref: "draft:d1", version: 2},
+             %{ref: "draft:d2", version: 1}
+           ]
+
+    assert length(task.materials) == 2
+    assert "未要求修改的内容逐字保留" in task.preserve
+  end
+
+  test "whole_chapter revision forces complete coverage and supports version expectations" do
+    assert {:ok, task} =
+             AuthoringTaskBuilder.for_chapter_revision(
+               attrs(%{
+                 modification_scope: :whole_chapter,
+                 coverage: :complete,
+                 expected_base_versions: [%{ref: "draft:d1", version: 3}]
+               })
+             )
+
+    assert task.scope.modification_scope == :whole_chapter
+    assert task.scope.coverage == :complete
+    assert task.scope.expected_base_versions == [%{ref: "draft:d1", version: 3}]
+    assert task.output_contract.allow_companions == false
+  end
+
+  test "chapter revision requires chapter target / scope / covered refs (explainable errors)" do
+    assert {:error, {:authoring_task_invalid, {:target_chapter_ref_required, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(attrs(%{target_chapter_ref: nil}))
+
+    assert {:error, {:authoring_task_invalid, {:modification_scope_required, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(attrs(%{modification_scope: nil}))
+
+    assert {:error, {:authoring_task_invalid, {:modification_scope_required, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(
+               attrs(%{modification_scope: :invalid_scope})
+             )
+
+    assert {:error, {:authoring_task_invalid, {:covered_refs_required, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(attrs(%{covered_refs: []}))
+
+    assert {:error, {:authoring_task_invalid, {:covered_refs_duplicated, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(
+               attrs(%{covered_refs: ["draft:d1", "draft:d1"]})
+             )
+  end
+
+  test "whole_chapter rejects partial coverage; invalid expected versions rejected" do
+    assert {:error, {:authoring_task_invalid, {:whole_chapter_coverage_required, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(
+               attrs(%{modification_scope: :whole_chapter, coverage: :partial})
+             )
+
+    assert {:error, {:authoring_task_invalid, {:expected_base_versions_invalid, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(
+               attrs(%{expected_base_versions: [%{ref: "draft:d1", version: 0}]})
+             )
+
+    assert {:error, {:authoring_task_invalid, {:expected_base_versions_invalid, :revision}}} =
+             AuthoringTaskBuilder.for_chapter_revision(
+               attrs(%{expected_base_versions: [%{"ref" => "", "version" => 2}]})
+             )
+  end
+
+  test "chapter revision task round-trips to_input/from_input and passes semantics" do
+    {:ok, task} = AuthoringTaskBuilder.for_chapter_revision(attrs())
+
+    input = AuthoringTaskBuilder.to_input(task)
+    assert {:ok, restored} = AuthoringTaskBuilder.from_input(input)
+    assert restored.scope.modification_scope == :format_only
+    assert restored.scope.target_chapter_ref == "chapter:ch01"
+
+    assert restored.scope.expected_base_versions == [
+             %{ref: "draft:d1", version: 2},
+             %{ref: "draft:d2", version: 1}
+           ]
+  end
+end

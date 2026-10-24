@@ -1274,4 +1274,18 @@ defmodule NovelApplication.JudgmentProtocolTest do
                quality_input
              )
   end
+
+  test "B28 CP1：判断 prompt 明确整章修订绑定与缺 ref 澄清（不退化为 prose_writing）" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "整章正文修订绑定"
+    assert content =~ "chapter-scoped 修订"
+    assert content =~ "该章全部当前 accepted 片段有序覆盖"
+    assert content =~ "仅排版=format_only"
+    assert content =~ "不得只绑单个 as_* artifact"
+    assert content =~ "不得退化成 prose_writing 新创作"
+    assert content =~ "缺章 ref 或同名章歧义时"
+    assert content =~ "禁止猜同名/跨作品"
+    assert String.split(content, "整章正文修订绑定") |> length() == 2
+  end
 end

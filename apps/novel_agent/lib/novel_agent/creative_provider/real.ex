@@ -171,26 +171,66 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp prose_prompt(request) do
     extra =
       if revision?(request),
-        do: @prose_writing_guidelines <> "\n" <> prose_revision_guidance(),
+        do: @prose_writing_guidelines <> "\n" <> prose_revision_guidance(request),
         else: @prose_writing_guidelines
 
     render_creative_prompt(request, "本次你承担小说正文写作助手的角色。", prose_domain_schema(), extra: extra)
   end
 
-  # 修订类正文：基线段落与未要求修改的内容必须保留；仅排版请求受 B28 format_only 边界约束。
-  defp prose_revision_guidance do
+  # 修订类正文：B28 CP1 按任务 modification_scope 分支渲染；
+  # 基线段落/未要求修改内容必须保留，且不得把修订表达成“继续往后写”。
+  defp prose_revision_guidance(request) do
+    case chapter_modification_scope(request) do
+      :format_only -> format_only_guidance()
+      :whole_chapter -> chapter_content_guidance("整章")
+      :target_segments -> chapter_content_guidance("指定片段/段落")
+      _ -> single_revision_guidance()
+    end
+  end
+
+  defp chapter_modification_scope(%CreativeRequest{task: %AuthoringTask{scope: scope}}) do
+    Map.get(scope || %{}, :modification_scope) ||
+      Map.get(scope || %{}, "modification_scope")
+  end
+
+  defp chapter_modification_scope(_request), do: nil
+
+  defp format_only_guidance do
+    """
+    ## 整章仅排版修订（format_only）
+    - 按任务给出的覆盖顺序完整输出：每个 covered 片段对应一个条目，按顺序全部输出，
+      不得遗漏、合并、新增、重排片段，也不得只输出改动过的片段。
+    - 只允许调整分段、标点、排版与空白；不改变任何字句。应用会按冻结归一规则（行尾空白、
+      换行形式、文末空行）做字节等价校验，违反会被拒绝。
+    - 不得写成续写或“继续往后写”，不得增加原文没有的内容；body 是覆盖范围内完整候选，
+      修改依据放 rationale。
+    """
+    |> String.trim()
+  end
+
+  defp chapter_content_guidance(coverage_label) do
+    """
+    ## #{coverage_label}内容修订
+    - 按任务给出的覆盖顺序输出#{coverage_label}的完整替换稿；不得只返回修改片段、摘要或旧稿对照。
+    - 只改作者明确指定范围内的内容；其余段落/片段逐字保留，不得合并、删除或重排未要求的片段。
+    - 不得写成续写或“继续往后写”；这是对已有正文的修订，不是新增正文。
+    - body 是覆盖范围内完整候选，修改依据放 rationale。
+    """
+    |> String.trim()
+  end
+
+  defp single_revision_guidance do
     """
     ## 修订基线纪律
     - 以给定原稿为唯一基线：保留原稿的段落边界与未要求修改段落的字句，只改作者明确要求的部分；
       作者指定段落（如“第二段”）时，其它段落逐字保留、不得合并或拆分；修订要求中给出的
       “目标段定位”就是该段原文，必须对它做真实修改。
     - 必须输出完整修订稿：body 是包含目标段真实修改后的完整新版本；原样返回基线原文视为未执行修订。
-    - 作者要求仅排版/分段/标点（例如“只调标点和分段，别改字句”）时，不得改动文字内容，
-      不得新增或删除段落/空行；系统当前没有保证字句不变的独立排版能力（B28 format_only 边界），
-      若无法在保留原句的前提下完成，如实说明限制，不要伪造“已完成仅排版”。
+    - 若作者要求仅排版/分段/标点（如“只调标点和分段，别改字句”）：不得改动文字内容，
+      不得新增或删除段落/空行；该路径尚未接入 B28 format_only 任务时如实说明限制，不伪造完成。
     - 作者给出明确改动（如“七成改六成”、某句替换）时，修订稿必须落实该改动；
       若原稿没有对应表述而无法落实，如实说明并停止，不要输出未改动候选冒充完成。
-    - body 只放完整的新版本；修改依据放 rationale。
+    - 不得写成续写或“继续往后写”；body 只放完整的新版本；修改依据放 rationale。
     """
     |> String.trim()
   end

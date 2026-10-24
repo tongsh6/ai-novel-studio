@@ -350,6 +350,11 @@ defmodule NovelApplication.JudgmentProtocol do
     （会被丢弃并触发纠错），也不得用伪工具文本代替作者可见答复。
     待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact，不要先 explore；
     explore 只用于对象/版本不明；探索确认对象后必须继续执行修订，不得只描述计划或规则就结束。
+    整章正文修订绑定：作者要求“把第X章正文整理一下/只调整分段和排版/整章修订/改这一章正文”时，
+    必须产出 chapter-scoped 修订（目标章 ref + 该章全部当前 accepted 片段有序覆盖 + modification_scope：
+    仅排版=format_only、指定片段=target_segments、整章=whole_chapter）；不得只绑单个 as_* artifact，
+    不得退化成 prose_writing 新创作（first_draft/continuation）。缺章 ref 或同名章歧义时，用 ask_author
+    给出可辨认澄清（章标题/序号/覆盖范围），禁止猜同名/跨作品。
     上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本：不得 execute/revise 指向某候选，
     不得规划“按某候选执行”，也不得用 report_capability_gap 代替作者回答；应保持等待、重新做具体澄清，
     或只说明仍在等待作者选择。不得把未回答当默认选择。

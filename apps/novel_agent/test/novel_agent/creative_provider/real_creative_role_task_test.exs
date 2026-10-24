@@ -169,7 +169,7 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert prompt =~ "## 修订基线纪律"
     assert prompt =~ "保留原稿的段落边界与未要求修改段落的字句"
     assert prompt =~ "作者指定段落"
-    assert prompt =~ "系统当前没有保证字句不变的独立排版能力（B28 format_only 边界）"
+    assert prompt =~ "不得写成续写或“继续往后写”"
     assert prompt =~ "不得新增或删除段落/空行"
     assert prompt =~ "明确改动（如“七成改六成”"
     assert prompt =~ "目标段定位"
@@ -178,5 +178,74 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     # 修订仍保留共享语义与输出契约尾
     assert prompt =~ "## 创作协作共同规则"
     assert prompt =~ "只返回 JSON 数组"
+  end
+
+  test "B28: format_only chapter revision renders ordered coverage + no continuation" do
+    task =
+      AuthoringTaskFixtures.task(:revision, %{
+        scope: %{
+          refs: ["draft:d1", "draft:d2"],
+          coverage: :complete,
+          target_chapter_ref: "chapter:ch01",
+          object_kind: :chapter_prose,
+          modification_scope: :format_only,
+          expected_base_versions: [%{ref: "draft:d1", version: 2}]
+        }
+      })
+
+    prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
+
+    assert prompt =~ "## 整章仅排版修订（format_only）"
+    assert prompt =~ "- 目标对象 refs：draft:d1、draft:d2"
+    assert prompt =~ "- 目标章 ref：chapter:ch01"
+    assert prompt =~ "修订范围：仅排版"
+    assert prompt =~ "按任务给出的覆盖顺序完整输出"
+    assert prompt =~ "只允许调整分段、标点、排版与空白；不改变任何字句"
+    assert prompt =~ "不得写成续写或“继续往后写”"
+    refute prompt =~ "系统当前没有保证字句不变的独立排版能力"
+    refute prompt =~ ~r/(请|可以)继续往后写/
+  end
+
+  test "B28: whole_chapter content revision renders full replacement + preserve others" do
+    task =
+      AuthoringTaskFixtures.task(:revision, %{
+        scope: %{
+          refs: ["draft:d1", "draft:d2"],
+          coverage: :complete,
+          target_chapter_ref: "chapter:ch01",
+          object_kind: :chapter_prose,
+          modification_scope: :whole_chapter,
+          expected_base_versions: [%{ref: "draft:d1", version: 1}]
+        }
+      })
+
+    prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
+
+    assert prompt =~ "## 整章内容修订"
+    assert prompt =~ "按任务给出的覆盖顺序输出整章的完整替换稿"
+    assert prompt =~ "不得只返回修改片段、摘要或旧稿对照"
+    assert prompt =~ "其余段落/片段逐字保留"
+    assert prompt =~ "不得写成续写或“继续往后写”"
+    assert prompt =~ "修订范围：整章"
+    refute prompt =~ ~r/(请|可以)继续往后写/
+  end
+
+  test "B28: target_segments revision renders scoped content revision guidance" do
+    task =
+      AuthoringTaskFixtures.task(:revision, %{
+        scope: %{
+          refs: ["draft:d1"],
+          coverage: :complete,
+          target_chapter_ref: "chapter:ch01",
+          object_kind: :chapter_prose,
+          modification_scope: :target_segments
+        }
+      })
+
+    prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
+
+    assert prompt =~ "## 指定片段/段落内容修订"
+    assert prompt =~ "只改作者明确指定范围内的内容"
+    assert prompt =~ "不得合并、删除或重排未要求的片段"
   end
 end
