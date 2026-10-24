@@ -1,6 +1,6 @@
 # B28：完整章节修订、排版范围与采纳身份闭环
 
-- 状态：pending / 设计登记；未实现、未验收。
+- 状态：**doing / CP0 已完成（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）**：当前版本已阻止 stage 式「单片段冒充整章」候选（honest failure），但整章只排版仍不可完成；内容修订采纳仍会因 target 空而新建章（stage 21:58 失败链可复现）。CP0 复现证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`、记录 `artifacts/model-contracts/b28-cp0/{ui-repro.md,code-chain.md,contract-proposal.md,stage-impact.md}`；CP1 契约与实现已按 §7 冻结。
 - 登记日期：2026-10-23；来源：stage“整理第1章正文”只处理初稿、采纳后新增第17章。
 - 上游：[Q1c](Q1C-adopted-content-revision.md)、[B24](B24-exploration-chapter-full-read.md)、[B25](B25-chapter-identity-unification.md)、[Q1Cb](Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md)。提示词统一归 [B27](B27-systematic-prompt-and-intent-integration.md)，不在此追加局部提示词补丁。
 - 本轮只授权任务登记，不修改代码或 stage 数据。
@@ -51,7 +51,7 @@
 
 | CP | 工作与完成标准 | 状态 |
 |---|---|---|
-| CP0 | 隔离复现旧 ref 缺失/初稿+续写；冻结目标范围、格式保真、覆盖和历史身份恢复契约；列 stage 只读影响清单 | todo |
+| CP0 | 隔离复现旧 ref 缺失/初稿+续写；冻结目标范围、格式保真、覆盖和历史身份恢复契约；列 stage 只读影响清单 | **done（2026-10-25，`e8ad1fad`）**：真实 Tauri 复现 T0–T3（同章 2 accepted、writer 只初稿、format 忠实失败、单处修订 target 空→新建章、同标题歧义拒绝、缺 ref 误路由但零写入）；契约冻结见 §7；stage 存量只读清单见 `stage-impact.md`（修复需另行授权） |
 | CP1 | 完整章节基线、版本/覆盖检查和旧来源恢复；失败路径不新建章；与 B27 共用操作语义 | todo |
 | CP2 | 修订候选/差异/确认→原章事务替代；旧版本与 trace 留存、幂等/回滚 | todo |
 | CP3 | 阅读/摘要/检索/探索/后续问答同批消费新值，UI 保留作者来源和范围 | todo |
@@ -73,3 +73,25 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 
 - 2026-10-23 — 将 stage 修订失败登记为 Q1c/B25 的真实业务补口，保留其历史已通过证据，不把单场景 done 外推为全章修订完成。
 - 先读 NEXT、B27 整合矩阵、Q1c/B25 实态与当前 WIP；从 CP0 隔离复现恢复，不直接修 stage 数据。
+
+## 7. CP0 契约冻结与 CP1 拆解（2026-10-25）
+
+### 7.1 CP0 真实复现结论（详见 `artifacts/model-contracts/b28-cp0/ui-repro.md`）
+
+- 真实 UI 构造同章 **2 场景/2 accepted draft**（初稿 2517 字符 + 零换行续写 1075，章内容 3593）；同标题两章隔离作品对照。
+- **T1 整章只排版**：judgment `execute/revise_adopted_content` 但只绑单个 artifact；writer prompt 两次只含初稿锚点/首段，**续写未进材料**；无候选，honest failure `{:pending_artifact_invalid, :revision_scope_violation}`，零写入。→ 当前版本已阻止 stage 式误导候选，但仍无法完成整章只排版。
+- **T2 明确改一处**：单片段候选（2516 字符、无续写），`target_chapter/target_chapter_ref=null`、`supersedes_ref=null`；采纳成功但 **chapter_count 2→3、新增章 seq=3**，原章未变、旧稿仍可读、投影过期提示、刷新幂等。→ stage 21:58 失败链同构，仍可复现。
+- **T0 同标题两章**：真实 UI 生成→修改后采纳被结构化拒绝 `ambiguous_chapter_title`（edit_then_accept 持久化未贯通 target_chapter_ref），零写入。
+- **T3 缺 ref**：judgment 误路由 `prose_writing`，但 missing policy 兜底停止、零写入/不新建章。
+- 根因：①材料按单 artifact 组装、无章级 accepted 片段/版本账；②无 format_only 操作语义（只能事后守卫）；③prose 修订候选 `target_chapter_ref=null`/`supersedes_ref=null`；④采纳按 title 回退（同名→歧义拒绝、异名→新建章），edit_then_accept 未贯通 ref；⑤缺 ref 意图落到 prose_writing。
+
+### 7.2 CP0 冻结决策（Q01–Q08）
+
+- **Q01 目标作用域（additive 到 `AuthoringTask.scope`，已落 `novel_common`）**：`modification_scope: :format_only | :target_segments | :whole_chapter`、`expected_base_versions: [%{ref, version}]`；复用 `refs/coverage/base_ref/base_hash/target_chapter_ref`。章级修订（`:whole_chapter`/`:format_only` + `target_chapter_ref`）以章身份+期望版本为基线，不强制单 artifact `base_ref`；`:whole_chapter` 要求 `coverage: :complete`。
+- **Q02 材料覆盖账**：整章/多片段修订必须组装全部当前 accepted 片段（阅读投影顺序）+ 每片段 version；`materials(kind/ref/version/complete?/omission_note)` 缺片段且未声明 omission → 拒绝 `incomplete_scope`；超预算分段保留覆盖账，不得截断称整章。
+- **Q03 format_only 归一规则（冻结）**：①逐行删除行尾空白；②换行形式归一（CRLF/CR→LF）；③文末连续空行折叠为单换行；④其余字节必须完全相等。判定在应用层机械执行，异常 `format_only_violation`（附首处差异 offset/行号），不自动降级 rewrite；B28 落地后 **B27 M07 known-gap 关闭**，B27 §6.1 不另造规则。
+- **Q04 采纳 effect 显式**：候选/采纳回执携带 `adoption_effect: replace_scope | append | new_chapter`；`replace_scope` 只替换覆盖范围内当前 accepted draft（旧的 supersede、历史保留、chapter_id/seq/章数不变）；target 缺失默认 `target_missing`，`new_chapter` 必须作者显式确认（禁止静默新建章）；edit_then_accept 必须贯通 `target_chapter_ref`。
+- **Q05 错误码（8 类，已落 `AuthoringSemantics.revision_error_codes/0`）**：`target_missing/target_ambiguous/stale_base_version/cross_work_scope/duplicate_apply/incomplete_scope/format_only_violation/partial_failure`；拒绝零写入、可解释。
+- **Q06 契约/持久化边界**：复用 B25 `chapter_ref`、Q1c `revision_base`/覆盖确认、VS-04 provenance、B27 `AuthoringTask` scope/materials；无 DB 表/列变更；`adoption_effect`/错误码落 TurnResult/adoption receipt payload（additive JSON），schema/codegen 若有增量在 CP2 前登记并同步 docs。
+- **Q07 stage 存量**：只读清单见 `stage-impact.md`（ch1 两份 accepted + ch17 新章）；修复需作者单独授权（备份+sha256、replace_scope 目标 ch1、ch17 保留历史），本 slice 不自动删除/合并。
+- **Q08 边界**：不改 provider/创作工具/采纳语义之外的体系；粘贴正文/摘要/检索按同一当前版本消费；模型意图原话/改述验证归 CP4；真实模型不得承担章节寻址。
