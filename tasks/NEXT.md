@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**（CP3a–CP3d）。**CP4 retest1/retest2 均 FAIL**（retest2：unavailable 1/40、追问 0/34 已 PASS；zero_tolerance 4、key_set 7、overall 16/40 FAIL）。retest2 残余：① **上下文作品事实投影/fetch 链**（repo 数据正确但 prompt 事实块 0/0/unknown，最高杠杆，影响 M01/M06/M07/M10/M16/M20）；② 零容忍对象/版本纪律（M06/M07r1/M17r2）；③ 修订范围/收束（M07r2/M08/M09r1/M13r2/M15/M20/M03r2）；④ harness M12 历史来源字节证据。下一步：产品+harness 修复批 → retest3 新预注册批次；M07 仅排版目标与 B28 format_only 边界需裁决。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**。**CP4 retest1/retest2 均 FAIL**（retest2：unavailable 1/40、追问 0/34 已 PASS；zero_tolerance 4、key_set 7、overall 16/40 FAIL）。Round 5 已完成并提交：作品事实投影链根因修复（ContextAssembler 白名单丢 facts）、对象/版本证据纪律（probe zero_tolerance 0/6）、修订范围/收束（M13/M20/M07 修复，M08/M15 诚实失败）、M03 覆盖事实、retest3 证据补强（历史来源字节/覆盖字段）。当前：task-27 M15/M08 seed 保真复核 → **task-26 retest3** 一次 canonical 80 episode + 盲评 §6.1；FAIL 则继续残余修复，PASS 后进 CP5。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
