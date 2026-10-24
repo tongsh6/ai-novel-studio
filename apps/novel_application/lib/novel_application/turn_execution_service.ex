@@ -91,12 +91,15 @@ defmodule NovelApplication.TurnExecutionService do
     # AI 只识别意图与候选目标章；目标章由应用层用作品现有章节列表确定性解析（LLM 对结构化
     # target_chapter 不可靠），并把解析结果同时用于"读前文"和"采纳归章"，二者保持一致。
     # B25（I-CH-1）：模型给出的 chapter_ref 优先（同名章唯一可区分）；无 ref 才按 title 唯一映射。
+    index_reader =
+      input[:chapter_index_reader] || NovelApplication.persistence_chapter_index_reader()
+
     identity =
       resolve_target_chapter_identity(
         action,
         input[:context],
         input[:chapter_prose_reader],
-        input[:chapter_index_reader] || NovelApplication.persistence_chapter_index_reader(),
+        index_reader,
         frame.workspace_id,
         author_input_text(frame, input[:author_input])
       )
@@ -107,7 +110,15 @@ defmodule NovelApplication.TurnExecutionService do
     # CP0：固化写作坐标并评估缺失策略。hard missing（作者点名但 planner 匹配不到的章）→ 不调 provider。
     # B11A CP4：坐标同批带当前卷 ref（卷蓝图消费面 6 的坐标侧）。
     coordinate = build_coordinate(frame, action, input, resolved_chapter)
-    missing = MissingPolicyResult.evaluate(coordinate)
+
+    # B28 CP0/Q01：同名章 + planner 未给 ref 时标题回退不安全 → 阻断并澄清，不生成标题回退候选。
+    missing =
+      if ambiguous_chapter_identity?(identity, index_reader, frame.workspace_id) do
+        MissingPolicyResult.ambiguous_chapter(identity.title)
+      else
+        MissingPolicyResult.evaluate(coordinate)
+      end
+
     emit_coordinate(frame, coordinate, missing)
 
     if MissingPolicyResult.block?(missing) do
@@ -472,19 +483,36 @@ defmodule NovelApplication.TurnExecutionService do
 
     turn_result =
       TurnResultBuilder.build(frame, trace_summary, input[:candidates] || [], nil, nil, nil)
-      |> Map.put(:assistant_message, %{text: blocked_message(coordinate)})
+      |> Map.put(:assistant_message, %{text: blocked_message(coordinate, missing)})
       |> Map.put(:writing_coordinate, coordinate_payload(coordinate))
 
     {turn_result, trace}
   end
 
-  defp blocked_message(%WritingCoordinate{requested_chapter: chapter})
-       when is_binary(chapter) and chapter != "" do
+  defp blocked_message(
+         %WritingCoordinate{requested_chapter: chapter},
+         %MissingPolicyResult{} = missing
+       ) do
+    if ambiguous_missing?(missing) do
+      "作品中有多个标题为《#{chapter || "…"}》的章节，无法安全判断要续写或修订哪一章——" <>
+        "请用章节卡片或章序号确认目标章后再试。"
+    else
+      missing_chapter_message(chapter)
+    end
+  end
+
+  defp ambiguous_missing?(%MissingPolicyResult{missing: missing}) do
+    Enum.any?(List.wrap(missing), fn item ->
+      Map.get(item, :what) == :target_chapter and Map.get(item, :reason) == :ambiguous
+    end)
+  end
+
+  defp missing_chapter_message(chapter) when is_binary(chapter) and chapter != "" do
     "没有找到《#{chapter}》这一章。当前作品里还没有这一章，无法续写或重写它——" <>
       "你可以先创建该章的计划，或确认要写的是哪一章。"
   end
 
-  defp blocked_message(_coordinate),
+  defp missing_chapter_message(_chapter),
     do: "没有找到要续写或重写的目标章节，无法继续。请确认要写哪一章。"
 
   defp build_tool_request(
@@ -838,6 +866,16 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp resolve_chapter_ref(_reader, _work_id, _title), do: nil
+
+  defp ambiguous_chapter_identity?(%{ref: nil, title: title}, reader, work_id)
+       when is_binary(title) and title != "" do
+    reader
+    |> read_chapter_entries(work_id)
+    |> Enum.count(fn entry -> map_value(entry, :title) == title end)
+    |> Kernel.>(1)
+  end
+
+  defp ambiguous_chapter_identity?(_identity, _reader, _work_id), do: false
 
   # 章节索引读端口失败按「无索引」诚实降级（ref 缺席 → 调用方走 title 唯一语义）。
   defp read_chapter_entries(reader, work_id) when is_function(reader, 1) do

@@ -1,6 +1,8 @@
 defmodule NovelApplication.B28AdoptionContractTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AdoptionWorkflow
   alias NovelFoundation.Enums.AdoptionStatus
@@ -191,8 +193,8 @@ defmodule NovelApplication.B28AdoptionContractTest do
     assert ref1 != ref2
     assert ref3 == "chapter:#{ch3.id}"
     # 只读：调用前后无新行
-    assert Repo.aggregate(Chapter, :count) == 4
-    assert Repo.aggregate(Draft, :count) == 4
+    assert Repo.aggregate(from(ch in Chapter, where: ch.work_id == ^work_id), :count) == 4
+    assert Repo.aggregate(from(d in Draft, where: d.work_id == ^work_id), :count) == 4
     assert {:ok, _} = AdoptionWorkflow.chapter_revision_context(work_id, ref2)
   end
 

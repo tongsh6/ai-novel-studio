@@ -84,7 +84,7 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
     assert Enum.all?(persisted.superseded_draft_refs, &Regex.match?(~r/^draft:[0-9a-f-]+:1$/, &1))
 
     # 章数不变、seq 不变
-    assert Repo.aggregate(Chapter, :count) == 1
+    assert Repo.aggregate(from(ch in Chapter, where: ch.work_id == ^c.work_id), :count) == 1
     assert Repo.get!(Chapter, c.chapter.id).seq == 1
 
     # 旧 drafts 全部 supersede（历史保留），新 accepted 在第一章

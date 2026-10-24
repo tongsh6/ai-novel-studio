@@ -53,4 +53,12 @@ defmodule NovelDomain.MissingPolicyResultTest do
     assert MissingPolicyResult.ok().severity == :ok
     refute MissingPolicyResult.block?(MissingPolicyResult.ok())
   end
+
+  test "ambiguous_chapter/1：同名章且无 ref → block + reason ambiguous（不猜目标章）" do
+    result = MissingPolicyResult.ambiguous_chapter("第01章：夜潮")
+
+    assert %{severity: :block} = result
+    assert MissingPolicyResult.block?(result)
+    assert [%{what: :target_chapter, reason: :ambiguous, ref: "第01章：夜潮"}] = result.missing
+  end
 end

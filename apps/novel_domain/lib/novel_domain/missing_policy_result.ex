@@ -64,6 +64,18 @@ defmodule NovelDomain.MissingPolicyResult do
 
   def evaluate(_coordinate), do: ok()
 
+  @doc """
+  B28 CP0/Q01：目标章标题在作品中有多个同名章且 planner 未给出 `chapter_ref`。
+  标题回退无法安全判定目标章，必须阻断并请作者用章节身份确认（不得猜、不得生成标题回退候选）。
+  """
+  @spec ambiguous_chapter(String.t() | nil) :: t()
+  def ambiguous_chapter(title) do
+    %__MODULE__{
+      severity: :block,
+      missing: [%{what: :target_chapter, reason: :ambiguous, ref: title}]
+    }
+  end
+
   @spec block?(t()) :: boolean()
   def block?(%__MODULE__{severity: :block}), do: true
   def block?(_result), do: false

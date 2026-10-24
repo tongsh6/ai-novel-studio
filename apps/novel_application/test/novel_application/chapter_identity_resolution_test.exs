@@ -135,4 +135,27 @@ defmodule NovelApplication.ChapterIdentityResolutionTest do
                )
     end
   end
+
+  @tag :b28_ambiguous_title
+  test "同名两章且无 ref：resolver 不猜，ref 保持 nil（execute 层据此阻断并澄清）" do
+    index_reader = fn _work_id ->
+      [
+        %{id: "33333333-3333-4333-8333-333333333331", seq: 1, title: "第01章：夜潮"},
+        %{id: "33333333-3333-4333-8333-333333333332", seq: 2, title: "第01章：夜潮"}
+      ]
+    end
+
+    context = %DialogueContext{current_chapters: ["第01章：夜潮"]}
+    action = %{target_chapter: "第01章：夜潮", authoring_intent: :continuation}
+
+    assert %{title: "第01章：夜潮", ref: nil} =
+             TurnExecutionService.resolve_target_chapter_identity(
+               action,
+               context,
+               nil,
+               index_reader,
+               "work-id",
+               "整理第01章"
+             )
+  end
 end
