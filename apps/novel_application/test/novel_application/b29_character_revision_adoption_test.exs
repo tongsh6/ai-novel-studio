@@ -1,6 +1,8 @@
 defmodule NovelApplication.B29CharacterRevisionAdoptionTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AdoptionWorkflow
   alias NovelFoundation.Enums.AdoptionStatus
@@ -72,7 +74,7 @@ defmodule NovelApplication.B29CharacterRevisionAdoptionTest do
       adoption_effect: %{mode: "character_field_update", character_ref: "character:#{shen.id}"}
     }
 
-    before_ids = Repo.all(Character) |> Enum.map(& &1.id) |> Enum.sort()
+    before_ids = characters_for(work.id) |> Enum.map(& &1.id) |> Enum.sort()
 
     assert {:ok, action_result, _turn_result} =
              AdoptionWorkflow.handle_adopt(
@@ -90,8 +92,8 @@ defmodule NovelApplication.B29CharacterRevisionAdoptionTest do
 
     assert Repo.get!(Character, shen.id).narrative_role == "PROTAGONIST"
     assert Repo.get!(Character, gu.id).narrative_role == "PROTAGONIST"
-    assert Repo.aggregate(Character, :count) == 2
-    assert Repo.all(Character) |> Enum.map(& &1.id) |> Enum.sort() == before_ids
+    assert Repo.aggregate(from(ch in Character, where: ch.work_id == ^work.id), :count) == 2
+    assert characters_for(work.id) |> Enum.map(& &1.id) |> Enum.sort() == before_ids
     assert Repo.aggregate(MemoryItem, :count) == 0
   end
 
@@ -135,5 +137,9 @@ defmodule NovelApplication.B29CharacterRevisionAdoptionTest do
              })
 
     assert Repo.get!(Character, shen.id).narrative_role == "ENSEMBLE_POV"
+  end
+
+  defp characters_for(work_id) do
+    from(ch in Character, where: ch.work_id == ^work_id) |> Repo.all()
   end
 end

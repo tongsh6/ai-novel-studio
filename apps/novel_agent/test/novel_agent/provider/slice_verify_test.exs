@@ -877,3 +877,160 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
     refute answer =~ "沈砚"
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  @shen "character:11111111-1111-1111-1111-111111111111"
+  @shen2 "character:33333333-3333-3333-3333-333333333333"
+  @gu "character:22222222-2222-2222-2222-222222222222"
+  @ayuan "character:44444444-4444-4444-4444-444444444444"
+
+  defp index(entries \\ nil) do
+    entries ||
+      """
+      - #{@shen}｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜灯楼查账人
+      - #{@gu}｜顾青｜别名：｜narrative_role=PROTAGONIST｜巡夜人
+      - #{@ayuan}｜阿鸢｜别名：小鸢｜narrative_role=SUPPORTING｜线人
+      """
+  end
+
+  defp ambiguous_index do
+    """
+    - #{@shen}｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜灯楼查账人
+    - #{@shen2}｜沈砚｜别名：小沈｜narrative_role=MINOR｜账房学徒
+    - #{@gu}｜顾青｜别名：｜narrative_role=PROTAGONIST｜巡夜人
+    """
+  end
+
+  defp prompt(author_text, index_lines) do
+    """
+    本次你承担创作判断器的角色。
+
+    ## 作品事实（持久化只读投影）
+    - 全书：正文统计：1 章中已写 1 章
+
+    ## 角色索引（已有角色；character_ref 是身份，name/aliases 仅展示与消歧）
+    #{index_lines}
+
+    ## 作者输入
+    #{author_text}
+    """
+  end
+
+  defp args(prompt) do
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert [%{"name" => "judgment_decision", "arguments" => arguments}] = result.tool_calls
+    arguments
+  end
+
+  test "唯一别名/唯一角色名 → execute revise_character_profile + 索引 ref（无 changes 等字段）" do
+    alias_args = args(prompt("指定老沈为主角", index()))
+    assert alias_args["action"] == "execute"
+    assert alias_args["capability"] == "revise_character_profile"
+    assert alias_args["character_ref"] == @shen
+    assert alias_args["dialogue_goal"] == "指定老沈为主角"
+    refute Map.has_key?(alias_args, "changes")
+    refute Map.has_key?(alias_args, "old")
+    refute Map.has_key?(alias_args, "new")
+    refute Map.has_key?(alias_args, "adopted_content_ref")
+
+    name_args = args(prompt("把顾青改判为反派", index()))
+    assert name_args["capability"] == "revise_character_profile"
+    assert name_args["character_ref"] == @gu
+  end
+
+  test "同名多候选 → 原生 ask_author 列候选 ref，不猜/不执行" do
+    author = "指定沈砚为主角"
+    full = prompt(author, ambiguous_index())
+
+    assert %{mode: :clarify, question: question, options: options} =
+             SliceVerify.character_profile_arguments(full)
+
+    assert question =~ "同名/多候选"
+    assert Enum.map(options, & &1.value) |> Enum.sort() == Enum.sort([@shen, @shen2])
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, full, %InferenceParams{})
+    assert [%{"name" => "ask_author", "arguments" => ask}] = result.tool_calls
+    assert (ask[:question] || ask["question"]) =~ "同名/多候选"
+    assert result.content =~ "同名/多候选"
+  end
+
+  test "讨论/询问不触发修订（reply）；设计新主角不误触发本分支" do
+    discussion = prompt("老沈适合当主角吗？只讨论，不要改作品设定。", index())
+    assert SliceVerify.character_profile_arguments(discussion) == nil
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, discussion, %InferenceParams{})
+
+    refute Enum.any?(
+             result.tool_calls,
+             &(&1["name"] == "judgment_decision" and
+                 get_in(&1, ["arguments", "capability"]) == "revise_character_profile")
+           )
+
+    design = prompt("帮我设计一个新主角", index())
+    assert SliceVerify.character_profile_arguments(design) == nil
+
+    assert {:ok, design_result} = SliceVerify.complete(nil, nil, design, %InferenceParams{})
+
+    refute Enum.any?(
+             design_result.tool_calls,
+             &(get_in(&1, ["arguments", "capability"]) == "revise_character_profile")
+           )
+  end
+
+  test "不存在角色 → ask_author 不猜；无角色索引 → 诚实澄清（不新建）" do
+    # 唯一角色名（阿鸢）可绑定；候选不存在才澄清
+    unique = prompt("指定阿鸢为主角", index())
+
+    assert %{mode: :execute, character_ref: @ayuan} =
+             SliceVerify.character_profile_arguments(unique)
+
+    no_match = prompt("指定一个不存在的第九角色为主角", index())
+    assert %{mode: :clarify, question: q} = SliceVerify.character_profile_arguments(no_match)
+    assert q =~ "没有找到"
+
+    no_index = """
+    本次你承担创作判断器的角色。
+
+    ## 作者输入
+    指定沈砚为主角
+    """
+
+    assert %{mode: :clarify, question: no_index_question} =
+             SliceVerify.character_profile_arguments(no_index)
+
+    assert no_index_question =~ "没有可核对的角色索引"
+    assert {:ok, no_index_result} = SliceVerify.complete(nil, nil, no_index, %InferenceParams{})
+    assert [%{"name" => "ask_author"}] = no_index_result.tool_calls
+  end
+
+  test "旧 B28/Q1c 分支不被角色档案 fixture 抢" do
+    b28 = """
+    本次你承担创作判断器的角色。
+
+    ## 可选章级修订目标（只读；ref 唯一，title 仅展示）
+    - chapter:11111111-1111-1111-1111-111111111111｜第01章：夜潮｜片段数 2｜覆盖 complete
+
+    ## 作者输入
+    把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。
+    """
+
+    assert SliceVerify.character_profile_arguments(b28) == nil
+
+    q1c = """
+    本次你承担创作判断器的角色。
+
+    ## 已采纳可修订对象（只用于 revise_adopted_content）
+    - as_q1c：revise_adopted_content
+
+    ## 作者输入
+    把已保存设定中岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。
+    """
+
+    assert SliceVerify.character_profile_arguments(q1c) == nil
+  end
+end

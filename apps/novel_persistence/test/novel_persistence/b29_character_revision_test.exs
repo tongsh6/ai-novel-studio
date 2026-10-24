@@ -1,6 +1,8 @@
 defmodule NovelPersistence.B29CharacterRevisionTest do
   use NovelPersistence.DataCase, async: false
 
+  import Ecto.Query
+
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.AdoptionRepository
   alias NovelPersistence.Repo
@@ -106,7 +108,7 @@ defmodule NovelPersistence.B29CharacterRevisionTest do
     {:ok, fact} =
       AdoptionRepository.character_profile_context(ctx.work.id, "character:#{ctx.shen.id}")
 
-    before_ids = Repo.all(Character) |> Enum.map(& &1.id) |> Enum.sort()
+    before_ids = characters_for(ctx.work.id) |> Enum.map(& &1.id) |> Enum.sort()
     body = Repo.get!(Draft, ctx.draft.id).content
 
     assert {:ok, receipt} =
@@ -127,8 +129,9 @@ defmodule NovelPersistence.B29CharacterRevisionTest do
     assert Repo.get!(Character, ctx.shen.id).narrative_role == "PROTAGONIST"
     assert Repo.get!(Character, ctx.gu.id).narrative_role == "PROTAGONIST"
     assert Repo.get!(Character, ctx.dup.id).narrative_role == "MINOR"
-    assert Repo.aggregate(Character, :count) == 4
-    assert Repo.all(Character) |> Enum.map(& &1.id) |> Enum.sort() == before_ids
+    # 本作品 3 个角色；另一个作品的角色不计入本作品角色数。
+    assert Repo.aggregate(from(ch in Character, where: ch.work_id == ^ctx.work.id), :count) == 3
+    assert characters_for(ctx.work.id) |> Enum.map(& &1.id) |> Enum.sort() == before_ids
     assert Repo.get!(Draft, ctx.draft.id).content == body
 
     # 幂等重放
@@ -146,7 +149,7 @@ defmodule NovelPersistence.B29CharacterRevisionTest do
   end
 
   test "stale/cross-work/invalid role/不存在 拒绝零写入", ctx do
-    before = Repo.all(Character) |> Enum.map(&{&1.id, &1.narrative_role}) |> Enum.sort()
+    before = characters_for(ctx.work.id) |> Enum.map(&{&1.id, &1.narrative_role}) |> Enum.sort()
 
     assert {:error, :stale_base} =
              AdoptionRepository.revise_character_narrative_role(
@@ -180,6 +183,11 @@ defmodule NovelPersistence.B29CharacterRevisionTest do
                "PROTAGONIST"
              )
 
-    assert Repo.all(Character) |> Enum.map(&{&1.id, &1.narrative_role}) |> Enum.sort() == before
+    assert characters_for(ctx.work.id) |> Enum.map(&{&1.id, &1.narrative_role}) |> Enum.sort() ==
+             before
+  end
+
+  defp characters_for(work_id) do
+    from(ch in Character, where: ch.work_id == ^work_id) |> Repo.all()
   end
 end

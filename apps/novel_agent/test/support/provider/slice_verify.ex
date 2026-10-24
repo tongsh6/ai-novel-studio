@@ -460,6 +460,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           ]
         )
 
+      # B29 CP4：已有角色叙事身份修订 → 绑定唯一 character_ref（候选由产品生成）。
+      character_profile_arguments(prompt_text) != nil ->
+        judgment_character_profile_result(prompt_text)
+
       # B29 CP3：「谁是主角」问答从判断 prompt 的「角色索引」读取 Character 当前
       # narrative_role（主档案优先），多主角全列/无主角诚实；不引用旧 memory。
       protagonist_question_prompt?(prompt_text) ->
@@ -3122,6 +3126,164 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   @doc """
+  B29 CP4 test-support：解析判断 prompt「## 角色索引（已有角色）」+ 作者原话，
+  返回 nil（非修订意图/讨论/设计新角色）或
+  %{mode: :execute|:clarify, capability, character_ref, dialogue_goal, question, options}。
+  只做对象绑定，不产出 changes/old/new（候选由产品 CharacterProfile 生成）。
+  """
+  def character_profile_arguments(prompt) when is_binary(prompt) do
+    author_text = judgment_author_input(prompt)
+    characters = character_index_from_prompt(prompt)
+
+    cond do
+      character_profile_discussion?(author_text) ->
+        nil
+
+      chapter_structure_maintenance_intent?(author_text) ->
+        nil
+
+      character_profile_design_intent?(author_text) ->
+        nil
+
+      character_profile_revision_intent?(author_text) ->
+        character_profile_decision(author_text, characters)
+
+      true ->
+        nil
+    end
+  end
+
+  def character_profile_arguments(_prompt), do: nil
+
+  defp character_profile_decision(author_text, []) do
+    %{
+      mode: :clarify,
+      capability: "revise_character_profile",
+      dialogue_goal: author_text,
+      question: "当前上下文没有可核对的角色索引，无法确认要改哪个已有角色；需要先读取角色主档案再操作，我不会猜或新建角色。",
+      options: []
+    }
+  end
+
+  defp character_profile_decision(author_text, characters) do
+    matches = Enum.filter(characters, &character_profile_match?(&1, author_text))
+
+    case matches do
+      [character] ->
+        %{
+          mode: :execute,
+          capability: "revise_character_profile",
+          character_ref: character.character_ref,
+          dialogue_goal: author_text
+        }
+
+      [] ->
+        %{
+          mode: :clarify,
+          capability: "revise_character_profile",
+          dialogue_goal: author_text,
+          question: "当前角色索引里没有找到与作者原话唯一匹配的已有角色；请确认要修订哪一位（不会新建角色或猜对象）。",
+          options: character_profile_options(characters)
+        }
+
+      many ->
+        %{
+          mode: :clarify,
+          capability: "revise_character_profile",
+          dialogue_goal: author_text,
+          question: "作者点名的角色存在同名/多候选，请选择具体是哪一位（不会猜）：",
+          options: character_profile_options(many)
+        }
+    end
+  end
+
+  defp character_profile_options(characters) do
+    Enum.map(characters, fn character ->
+      label =
+        [character.name, character_role_label(character)]
+        |> Enum.reject(&(&1 in [nil, ""]))
+        |> Enum.join("（")
+        |> then(fn
+          text when text == character.name -> text
+          text -> text <> "）"
+        end)
+
+      %{label: label, value: character.character_ref}
+    end)
+  end
+
+  defp character_role_label(character) do
+    aliases = Enum.join(character.aliases, "、")
+
+    cond do
+      aliases != "" -> "别名 #{aliases}"
+      character.role not in [nil, ""] -> character.role
+      true -> nil
+    end
+  end
+
+  defp character_profile_revision_intent?(text) do
+    role =
+      String.contains?(text, ["主角", "反派", "配角", "群像", "叙事身份", "角色定位", "次要角色"])
+
+    verb =
+      String.contains?(text, ["指定", "设为", "改为", "确立", "改判", "定为", "调整", "设成", "改成", "作为", "当作"])
+
+    role and verb
+  end
+
+  defp character_profile_design_intent?(text) do
+    String.contains?(text, ["设计", "创建", "新增", "加一个", "加个", "塑造"]) and
+      String.contains?(text, ["主角", "反派", "配角", "角色", "人物"])
+  end
+
+  defp character_profile_discussion?(text) do
+    String.contains?(text, ["讨论", "适合", "是否", "怎么", "如何", "先聊", "只聊", "别改", "不要改", "如果", "假如"])
+  end
+
+  defp character_profile_match?(character, text) do
+    names = [character.name | character.aliases] |> Enum.reject(&(&1 in [nil, ""]))
+    Enum.any?(names, &String.contains?(text, &1))
+  end
+
+  defp judgment_character_profile_result(prompt) do
+    decision = character_profile_arguments(prompt)
+
+    case decision.mode do
+      :execute ->
+        narrative =
+          "我会先给出角色叙事身份修订候选（只看主档案字段 narrative_role），待你确认后再改；不会新建角色、不写正文/记忆。"
+
+        Result.new(narrative, nil,
+          tool_calls: [
+            %{
+              "id" => "call_judgment_decision",
+              "name" => "judgment_decision",
+              "arguments" => %{
+                "action" => "execute",
+                "capability" => "revise_character_profile",
+                "character_ref" => decision.character_ref,
+                "dialogue_goal" => decision.dialogue_goal,
+                "reason" => "character_profile_revision"
+              }
+            }
+          ]
+        )
+
+      :clarify ->
+        Result.new(decision.question, nil,
+          tool_calls: [
+            %{
+              "id" => "call_ask_author",
+              "name" => "ask_author",
+              "arguments" => %{question: decision.question, options: decision.options}
+            }
+          ]
+        )
+    end
+  end
+
+  @doc """
   B29 CP3 test-support：「谁是主角」问题的确定性回答，只读判断 prompt 的「角色索引」
   中当前 narrative_role（主档案事实）。多主角全列；无主角诚实；无索引诚实说明。
   """
@@ -3185,15 +3347,36 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp parse_character_index_fields(fields) do
     name = Enum.at(fields, 1)
+    ref = fields |> List.first() |> to_string() |> String.trim_leading("- ") |> String.trim()
     role_field = Enum.find(fields, &String.starts_with?(&1, "narrative_role="))
+    alias_field = Enum.find(fields, &String.starts_with?(&1, "别名："))
 
     with true <- is_binary(name) and name != "",
+         true <- String.starts_with?(ref, "character:"),
          true <- is_binary(role_field),
          [_, role_value] <- String.split(role_field, "=", parts: 2) do
-      [%{name: name, narrative_role: String.trim(role_value)}]
+      [
+        %{
+          character_ref: ref,
+          name: name,
+          aliases: parse_alias_field(alias_field),
+          narrative_role: String.trim(role_value),
+          role: List.last(fields) |> String.trim()
+        }
+      ]
     else
       _ -> []
     end
+  end
+
+  defp parse_alias_field(nil), do: []
+
+  defp parse_alias_field(field) do
+    field
+    |> String.replace_prefix("别名：", "")
+    |> String.split(["、", ",", "，"], trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
   end
 
   defp judgment_cited_reply_decision_result(prompt) do
