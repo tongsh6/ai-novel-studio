@@ -1,6 +1,6 @@
 # B29：已有角色叙事身份修订与主角事实一致性
 
-- 状态：pending / 设计登记；未实现、未验收。
+- 状态：**doing / CP0 完成（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）**：当前版本无「已有角色主档案字段修订」能力——自然原话被 reply 吞掉、显式措辞才诚实 capability_gap；character_evolution 只写演化记忆、character_design 只新建角色；Character.narrative_role 未变且未用 memory 冒充。CP0 冻结见 §6，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只写任务，不修改代码或业务数据。
 - 归属：[AU09 角色类型/主角策略 §7 CP2](AU09-character-role-taxonomy-protagonist-policy.md) 已登记的“把已有角色指定/改判为主角”；衔接 [AU12 身份归并](AU12-character-identity-merge.md)、[Q1c](Q1C-adopted-content-revision.md)、[B27 系统提示词整合](B27-systematic-prompt-and-intent-integration.md)。
 
@@ -36,7 +36,7 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 
 | CP | 完整工作 | 状态 |
 |---|---|---|
-| CP0 | 按 AU09 CP2 核对主档案/记忆/角色身份，冻结字段修订与版本保护、采纳/确认语义、旧值留存契约 | todo |
+| CP0 | 按 AU09 CP2 核对主档案/记忆/角色身份，冻结字段修订与版本保护、采纳/确认语义、旧值留存契约 | **done（2026-10-25，`201b42cb`）**：真实 Tauri 17/17 checks/6 trials（自然原话 reply 零写入、显式措辞 capability_gap、多主角不清空、同名/别名不新建、讨论/放弃/跨作品零写入、「谁是主角」消费缺口）；契约冻结 §6（Q01–Q08）；aux 代码链/消费者/记忆审计/stage 只读 `artifacts/model-contracts/b29-cp0/` |
 | CP1 | 应用可调用的已有角色修订候选与领域校验；模型看见真实操作和对象，旧能力缺口保持诚实 | todo |
 | CP2 | 作者采纳→同一角色更新→审计/投影/记忆一致；幂等/并发/失败回滚 | todo |
 | CP3 | 档案、花名册、探索、后续判断/写作同批消费；真实 Tauri 自然输入、采纳、刷新、再问闭环 | todo |
@@ -50,3 +50,27 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 
 - 2026-10-23 — 按作者要求登记，承接已有 AU09 CP2，不重新定义主角概念，不把角色记忆视为叙事身份字段。
 - 恢复时先查 NEXT、B27/B26 状态及 WIP；按 CP0 确认真实消费者和版本链，再实现，不能自动回填 stage 的主角身份。
+
+## 6. CP0 记录与契约冻结（2026-10-25）
+
+### 6.1 CP0 真实复现结论（证据 `artifacts/slice-verify/b29-existing-character-role-revision-tauri/`）
+
+- 真实 Tauri（17/17 证据 checks、6 trials；保护副本 `...-b29-cp0-pass-final-20261025T0730/`；记录 `artifacts/model-contracts/b29-cp0/ui-repro.md`）：
+  - seed：沈砚 `ENSEMBLE_POV`/别名老沈、顾青 `PROTAGONIST`、同名沈砚 `MINOR`/别名小沈、阿鸢 `SUPPORTING` + accepted 正文。
+  - **A1「指定沈砚为主角」**（两个同名沈砚）→ judgment 仅 `reply`（无 capability/对象绑定）、pending=0、零写入；Character 4 角色字段不变（沈砚仍 ENSEMBLE_POV）、无 CHARACTER_PROFILE 记忆。
+  - **A2「指定老沈为主角」** → 同样 reply，别名未用于绑定。
+  - **A3 显式「把已有角色的叙事身份从配角改为主角」** → `capability_gap` 诚实说明「当前工具没有修改已有角色主档案叙事身份的能力；角色演化只写演化记录，不能代替身份修改…原档案保持不变」，零写入、无候选、无 memory 替代。
+  - **B 多主角**：顾青仍 PROTAGONIST、角色数 4、无全局清空；**C 同名/别名**：两个沈砚原 id 均在（同名 2→2、新增 0、aliases 老沈/小沈），未新建/错绑；**D 负例**：讨论/跨作品均 reply 零写入、无 accept 入口；**E 消费者**：档案角色面板显示类型标签，但「现在谁是主角？」仍通用 reply（消费者缺口）；protagonist memory=0（未用 memory 冒充）。
+- 与 stage 对照：stage 判断 character_evolution→采纳仅写 CHARACTER_PROFILE 记忆、主档案仍 ENSEMBLE_POV；当前确定性链路未复现 memory 冒充，但也无字段修订效果（自然原话连缺口都未识别）。
+- 根因：①无「修改已有 Character.narrative_role」能力/registry；②自然语言未绑定 character_ref/别名消歧；③无字段修订候选契约（character_ref+base version+旧/新值+采纳/审计）；④消费者（「谁是主角」）无字段事实可用。
+
+### 6.2 CP0 冻结决策（Q01–Q08）
+
+- **Q01 能力**：registry 新增 `revise_character_profile`（`provider_dependency: :none`、`write_scopes: ["character_dossier"]`、effect_summary「修订既有角色主档案字段，不新建角色、不写正文/不冒充演化记忆」）；与 `character_design`（新建）、`character_evolution`（演化记忆）严格区分；judgment 目录可见；能力未上线/对象不明时保持诚实 gap/澄清，不得用 evolution memory 冒充主档案修订。
+- **Q02 输入/身份/版本**：输入 `character_ref`（id，必需）+ 旧值/新值 + `base_fingerprint`（updated_at+关键字段 hash；Character 无 revision 列，先应用层 fingerprint）+ author scope；name/aliases 仅展示与同名消歧、不参与身份；同名/别名歧义 → `target_ambiguous` 澄清（列出候选 ref+name+summary）；跨作品 → `cross_work_scope`；不存在 → `target_missing`。
+- **Q03 候选**：`character_profile_revision` 候选（复用既有候选/差异/采纳卡，不新增前端卡）payload：`object_kind/character_ref/character_name/base_fingerprint/changes[{field,old,new}]/effects:["character_field_update"]/other_character_changes/adoption_effect`；候选可见对象与旧→新；未采纳零写入。
+- **Q04 effects 白名单**：首闭环只允许 `narrative_role`（值来自 AU09 NarrativeRole；允许多主角）；`role/summary/aliases` 等后续扩展；非法字段 `unsupported_field`、非法值 `invalid_character_role`；「唯一主角/替换原主角」不得默认清空/改其它角色，必须把其它角色变化放入 `other_character_changes` 供作者逐项裁决，未裁决只改目标。
+- **Q05 采纳 effect**：同一 `Ecto.Multi` 内 update 同 `character_id`（角色数不增、不改其它角色/work），失败整体回滚；审计/trace 记录 `character_ref/field/old/new/base_fingerprint/effects`，receipt 保留旧值供回滚（不新增字段历史表，除非后续证明不足）；幂等（同 char+changes+fingerprint → `duplicate_apply` 已提交回执）；stale fingerprint → `stale_base` 零写入；错误码 `target_missing/target_ambiguous/stale_base/unsupported_field/invalid_character_role/cross_work_scope/duplicate_apply/partial_failure/unsupported_effect`。
+- **Q06 记忆一致性**：Character 主档案为唯一事实源；首版**不写** CHARACTER_PROFILE 记忆（避免双事实源）；若后续同步，必须同一次采纳同源写入并 supersede 旧 profile memory（同 source_ref），禁止 memory-only 冒充；历史矛盾 memory（stage `9e4266e1…`）只读影响清单、清理需另行授权。
+- **Q07 消费者**：StructurePanel/角色档案、roster、archive_read characters、判断/写作 character facts、memory_recall、摘要/问答（「谁是主角」）以 Character.narrative_role 为当前事实；采纳后刷新/再问一致；旧值只留 history/trace；memory 不再作为主角当前事实。
+- **Q08 证据/回归**：新真实 Tauri 场景（自然原话/别名/同名消歧/多主角/负例/刷新再问）+ 实模原话/改述（CP4）+ 回归 AU09/AU12 当前场景；不得仅以 memory 行出现“主角”判通过；stage 存量修复需单独授权。
