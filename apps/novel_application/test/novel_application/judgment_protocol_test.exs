@@ -565,7 +565,7 @@ defmodule NovelApplication.JudgmentProtocolTest do
     correction = List.last(corrected.messages).content
     assert correction =~ "judgment_narrative_required"
     assert correction =~ "必须给出非空 content"
-    assert correction =~ "占位词"
+    assert correction =~ "仅标点占位"
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
              JudgmentProtocol.request_judgment(
@@ -1024,5 +1024,105 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "工具参数未通过 schema 校验"
     assert correction =~ "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning"
     assert correction =~ "不要添加 action/capability/body"
+  end
+
+  test "task-34 prompt：M02 质量边界/M03 占位收束/M06 未答不推进/M16 多意图/M18 探索优先" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "统计/索引类问题只回答进度与可核对事实"
+    assert content =~ "不得凭统计给质量/完成度结论"
+    assert content =~ "禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复"
+    assert content =~ "上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本"
+    assert content =~ "不得把未回答当默认选择"
+    assert content =~ "多意图请求"
+    assert content =~ "先回答版本/事实问题"
+    assert content =~ "来源探索优先 prose_search/chapter_read 查正文原文"
+
+    assert String.split(content, "上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本")
+           |> length() == 2
+
+    assert String.split(content, "统计/索引类问题只回答进度与可核对事实") |> length() == 2
+  end
+
+  test "M03：仅 '-'/标点占位内容视为空回复，纠错后可修复；仍空则诚实拒绝" do
+    dash = response("-", [])
+    good = response("已覆盖 1–12000/34357；未读部分 12001–34357，结论仅限已读部分，下一步继续读取末页。", [])
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([dash, good]), %{}, input())
+
+    assert judgment.narrative =~ "已覆盖"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "judgment_narrative_required"
+    assert correction =~ "仅标点占位"
+
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+             JudgmentProtocol.request_judgment(execution([dash, dash]), %{}, input())
+  end
+
+  test "M06：ask_author 重试后不得改成 execute 推进候选（未获作者回答）" do
+    malformed_ask =
+      call("ask_author", %{
+        "question" => "要改哪一份候选的第二段？",
+        "options" => [],
+        "recommended" => "as_m06_a"
+      })
+
+    advance =
+      execute_call(%{
+        "capability" => "revise_pending_artifact",
+        "pending_artifact_ref" => "as_m06_a"
+      })
+
+    opts = [
+      capabilities: ["revise_pending_artifact"],
+      pending_artifact_targets: %{"as_m06_a" => ["revise_pending_artifact"]}
+    ]
+
+    assert {:error, {:judgment_protocol_violation, :await_author_unanswered}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [malformed_ask]), response("", [advance])]),
+               %{},
+               input(opts)
+             )
+  end
+
+  test "M06：ask_author 参数错误重试为合法 ask_author 仍允许（不误伤澄清）" do
+    malformed_ask =
+      call("ask_author", %{"question" => "要改哪一份候选？", "options" => [], "recommended" => "x"})
+
+    valid_ask = call("ask_author", %{"question" => "要改哪一份候选的第二段？", "options" => []})
+
+    assert {:ok, %{action: "await_author", provider_call_count: 2}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [malformed_ask]), response("", [valid_ask])]),
+               %{},
+               input()
+             )
+  end
+
+  test "content 为原始工具调用 XML 标记时视为空响应，纠错后可修复" do
+    markup =
+      response(
+        "<tool_call>\n<function=chapter_read>\n<parameter=query>第02章：井底回声</parameter>\n</function>\n</tool_call>",
+        []
+      )
+
+    good = response("第 2 章「第02章：井底回声」已写完：COMPLETED，1/1 场，正文 62 字符。", [])
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([markup, good]), %{}, input())
+
+    assert judgment.narrative =~ "已写完"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    assert List.last(corrected.messages).content =~ "judgment_narrative_required"
+
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+             JudgmentProtocol.request_judgment(execution([markup, markup]), %{}, input())
   end
 end

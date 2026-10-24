@@ -14,6 +14,8 @@ defmodule NovelApplication.JudgmentProtocol do
   require NovelCommon.LogEmit, as: LogEmit
 
   @max_attempts 2
+  @pending_target_capabilities ~w(revise_pending_artifact discard_pending_artifact)
+  @adopted_target_capabilities ~w(revise_adopted_content)
   @error_excerpt_chars 400
   @write_intent_reason_re ~r/写入|保存|存档|落库|存入|登记进|写进/
   @type judgment :: map()
@@ -44,10 +46,10 @@ defmodule NovelApplication.JudgmentProtocol do
       else: {:error, :provider_execution_required}
   end
 
-  defp invoke(fun, prompt, input, profile, attempt) do
+  defp invoke(fun, prompt, input, profile, attempt, previous_tools \\ []) do
     case fun.(prompt) do
       {:ok, provider_result} ->
-        validate_response(fun, prompt, input, profile, attempt, provider_result)
+        validate_response(fun, prompt, input, profile, attempt, provider_result, previous_tools)
 
       {:error, _reason} when attempt < @max_attempts ->
         LogEmit.emit(:judgment, :provider_retry, :start, %{
@@ -55,15 +57,15 @@ defmodule NovelApplication.JudgmentProtocol do
           reason_code: "provider_request_failed"
         })
 
-        invoke(fun, prompt, input, profile, attempt + 1)
+        invoke(fun, prompt, input, profile, attempt + 1, previous_tools)
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp validate_response(fun, prompt, input, profile, attempt, provider_result) do
-    case decode(provider_result, profile, input) do
+  defp validate_response(fun, prompt, input, profile, attempt, provider_result, previous_tools) do
+    case decode(provider_result, profile, input, previous_tools) do
       {:ok, judgment} ->
         {:ok, Map.put(judgment, :provider_call_count, attempt)}
 
@@ -75,8 +77,24 @@ defmodule NovelApplication.JudgmentProtocol do
           attempt: attempt
         })
 
-        correct_or_reject(fun, prompt, input, profile, attempt, reason)
+        # 纠错重试时把本次尝试的工具名带上：若本次是 ask_author（即使参数有误），
+        # 重试不得在没有作者回答的情况下改为 execute/revise 推进候选（M06）。
+        correct_or_reject(
+          fun,
+          prompt,
+          input,
+          profile,
+          attempt,
+          reason,
+          tool_names(provider_result)
+        )
     end
+  end
+
+  defp tool_names(result) do
+    (field(result, :tool_calls) || [])
+    |> Enum.map(&field(&1, :name))
+    |> Enum.reject(&is_nil/1)
   end
 
   # 工具参数 schema 错误：给出“只填契约声明字段”的可执行纠正（M14 等模型常加 action/capability 等多余字段）。
@@ -85,6 +103,14 @@ defmodule NovelApplication.JudgmentProtocol do
       "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
       "ask_author 只填 question、options（optional reason_codes）；judgment_decision 按 action 填对应字段。" <>
       "保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  end
+
+  # M06：上一轮请求作者选择后，纠错重试不得改成推进具体候选/版本。
+  defp correction_content(:await_author_unanswered) do
+    "本次响应未通过契约校验：上一轮已向作者提问，但作者尚未回答/选择。" <>
+      "不得推进具体候选或版本：不能 execute/revise 指向某候选，不能规划“按某候选执行”，" <>
+      "也不能用 report_capability_gap 代替作者回答。请保持等待、重新做具体澄清（ask_author），或只说明仍在等待作者选择。" <>
+      "保留同一作者输入、来源、目标、范围与权限，不要猜测作者选择。"
   end
 
   # M16：judgment_decision 各 action 专属字段互斥；纠错给出具体冲突字段与正确形态。
@@ -124,7 +150,7 @@ defmodule NovelApplication.JudgmentProtocol do
   # 用户可见动作为空内容时，纠错必须明确“需要非空作者可见文本”，而不是泛泛说结构。
   defp correction_content(:judgment_narrative_required) do
     "本次响应未通过契约校验：judgment_narrative_required（缺少作者可见内容）。" <>
-      "纯文本回复/登记/缺口说明等用户可见动作必须给出非空 content；只输出思考、空 content 或“[assistant reasoning omitted]”这类占位词不算回复。" <>
+      "纯文本回复/登记/缺口说明等用户可见动作必须给出非空 content；只输出思考、空 content、“-”/“—”/仅标点占位或“[assistant reasoning omitted]”这类内容不算回复。" <>
       "请用一两句自然中文给出实际回复；使用工具时 content 可为空但 question/reason/author_reasoning 必须提供作者可见原话。" <>
       "保留同一作者输入、来源、目标、范围与权限，只补足可见内容。"
   end
@@ -155,7 +181,7 @@ defmodule NovelApplication.JudgmentProtocol do
       "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
   end
 
-  defp correct_or_reject(fun, prompt, input, profile, attempt, reason)
+  defp correct_or_reject(fun, prompt, input, profile, attempt, reason, previous_tools)
        when attempt < @max_attempts do
     correction = %{role: "user", content: correction_content(reason)}
 
@@ -164,15 +190,16 @@ defmodule NovelApplication.JudgmentProtocol do
       %{prompt | messages: prompt.messages ++ [correction]},
       input,
       profile,
-      attempt + 1
+      attempt + 1,
+      previous_tools
     )
   end
 
-  defp correct_or_reject(_, _, _, _, _, {family, _} = reason)
+  defp correct_or_reject(_, _, _, _, _, {family, _} = reason, _previous_tools)
        when family in [:author_content_registration_invalid, :pending_artifact_invalid],
        do: {:error, reason}
 
-  defp correct_or_reject(_, _, _, _, _, reason),
+  defp correct_or_reject(_, _, _, _, _, reason, _previous_tools),
     do: {:error, {:judgment_protocol_violation, reason}}
 
   defp validation_reason_code({_, reason}) when is_atom(reason), do: Atom.to_string(reason)
@@ -259,10 +286,20 @@ defmodule NovelApplication.JudgmentProtocol do
     不得仅凭章状态或“已保存/无待采纳候选”断言完成，也不得编造未读到的情节作为依据。
     统计/章节索引已经足够回答的问题（如“第二章写完了吗”）直接 reply，不要为形式先 explore；
     只有需要正文/章计划细节时才 chapter_read/archive_read。
+    统计/索引类问题只回答进度与可核对事实；不得凭统计给质量/完成度结论（如“更像骨架/片段/未成型/
+    篇幅不够=没写完”），需要质量判断时明确说明需读正文，或给下一步，而不是下结论。
     待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact，不要先 explore；
     explore 只用于对象/版本不明；探索确认对象后必须继续执行修订，不得只描述计划或规则就结束。
+    上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本：不得 execute/revise 指向某候选，
+    不得规划“按某候选执行”，也不得用 report_capability_gap 代替作者回答；应保持等待、重新做具体澄清，
+    或只说明仍在等待作者选择。不得把未回答当默认选择。
+    作者指代“资料/原文/之前那段”且可能存在于正文时，来源探索优先 prose_search/chapter_read 查正文原文，
+    不要只查 session_adoptions/memory_recall 就断定没有；探索预算内优先覆盖最可能来源。
     继续读取不是最终答复：读完后必须在本轮给出覆盖范围+结论（或明确缺口+下一步），不得只回“已继续读取/再给结论”
     这类过渡语结束。
+    禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复；覆盖不足时继续读取，或明确已覆盖范围+未读缺口+下一步。
+    多意图请求（如“当前最终用哪一版”+“再写一段”）必须逐项回应：最终答复先回答版本/事实问题
+    （例如当前最终版本是 EDITED_ACCEPTED 还是被 SUPERSEDED），再给生成/续写结果；不得只用“已生成草稿”结束。
     作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact（B28 format_only 边界在可见文本如实说明），
     不要只解释或报缺口。
     能力缺口优先：作者要求的效果（例如修改已有角色身份主档案、整章排版并保证字句不变）
@@ -297,7 +334,7 @@ defmodule NovelApplication.JudgmentProtocol do
     """
   end
 
-  defp decode(result, profile, input) when is_map(result) do
+  defp decode(result, profile, input, previous_tools) when is_map(result) do
     calls = field(result, :tool_calls) || []
 
     options =
@@ -308,6 +345,7 @@ defmodule NovelApplication.JudgmentProtocol do
         Map.get(input, :author_text) || Map.get(input, :goal_text) || ""
       )
       |> Keyword.put(:observation_count, length(Map.get(input, :observations) || []))
+      |> Keyword.put(:previous_attempt_tools, previous_tools)
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
@@ -318,7 +356,7 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  defp decode(_, _, _), do: {:error, :invalid_judgment_result}
+  defp decode(_, _, _, _), do: {:error, :invalid_judgment_result}
 
   defp validate_tools(calls, profile) do
     case JudgmentToolContract.validate(calls, profile) do
@@ -383,27 +421,11 @@ defmodule NovelApplication.JudgmentProtocol do
   defp validate_operation("execute", args, options) do
     capability = field(args, :capability)
 
-    targets =
-      Map.merge(
-        Keyword.get(options, :pending_artifact_targets, %{}),
-        Keyword.get(options, :adopted_content_targets, %{})
-      )
-
-    cond do
-      capability not in Keyword.get(options, :capabilities, []) ->
-        {:error, :capability_not_available}
-
-      not is_nil(field(args, :explore_request)) ->
-        {:error,
-         {:incompatible_operation_fields,
-          "execute 只填 capability 与一个目标 ref（pending_artifact_ref 或 adopted_content_ref）；explore_request 只用于 explore，请移除该字段。"}}
-
-      capability in Keyword.get(options, :readonly_capabilities, []) and
-          Regex.match?(@write_intent_reason_re, field(args, :reason)) ->
-        {:error, :judgment_semantic_conflict}
-
-      true ->
-        validate_execute_targets(args, targets)
+    if "ask_author" in Keyword.get(options, :previous_attempt_tools, []) and
+         capability in (@pending_target_capabilities ++ @adopted_target_capabilities) do
+      {:error, :await_author_unanswered}
+    else
+      validate_execute_capability(capability, args, options)
     end
   end
 
@@ -485,8 +507,30 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp validate_operation(_, _, _), do: :ok
 
-  @pending_target_capabilities ~w(revise_pending_artifact discard_pending_artifact)
-  @adopted_target_capabilities ~w(revise_adopted_content)
+  defp validate_execute_capability(capability, args, options) do
+    targets =
+      Map.merge(
+        Keyword.get(options, :pending_artifact_targets, %{}),
+        Keyword.get(options, :adopted_content_targets, %{})
+      )
+
+    cond do
+      capability not in Keyword.get(options, :capabilities, []) ->
+        {:error, :capability_not_available}
+
+      not is_nil(field(args, :explore_request)) ->
+        {:error,
+         {:incompatible_operation_fields,
+          "execute 只填 capability 与一个目标 ref（pending_artifact_ref 或 adopted_content_ref）；explore_request 只用于 explore，请移除该字段。"}}
+
+      capability in Keyword.get(options, :readonly_capabilities, []) and
+          Regex.match?(@write_intent_reason_re, field(args, :reason)) ->
+        {:error, :judgment_semantic_conflict}
+
+      true ->
+        validate_execute_targets(args, targets)
+    end
+  end
 
   defp validate_execute_targets(args, targets) do
     capability = field(args, :capability)
@@ -540,6 +584,22 @@ defmodule NovelApplication.JudgmentProtocol do
   ]
 
   defp sanitize_visible_content(text) when is_binary(text) do
+    # 模型把工具调用写成 XML/函数字面量塞进 content（而非原生 tool_calls）时，
+    # 它不是作者可见答复；不能展示，进入有界纠错要求用原生工具调用或给出真实答复。
+    if raw_tool_markup?(text) do
+      nil
+    else
+      sanitize_visible_lines(text)
+    end
+  end
+
+  defp sanitize_visible_content(_text), do: nil
+
+  defp raw_tool_markup?(text) do
+    Regex.match?(~r/<\/?tool_call\b|<function=|parameter\s*=/iu, text)
+  end
+
+  defp sanitize_visible_lines(text) do
     lines = String.split(text, "\n")
 
     if Enum.any?(lines, &provider_placeholder_line?/1) do
@@ -549,14 +609,21 @@ defmodule NovelApplication.JudgmentProtocol do
         |> Enum.join("\n")
         |> String.trim()
 
-      if cleaned == "", do: nil, else: cleaned
+      cond do
+        cleaned == "" -> nil
+        contentless?(cleaned) -> nil
+        true -> cleaned
+      end
     else
-      # 没有占位行时保持 provider 输出字节不变（N-NARR 绑定与既有空白语义）。
-      text
+      # 没有占位行时保持 provider 输出字节不变（N-NARR 绑定与既有空白语义）；
+      # 但纯占位/仅标点内容（如 "-"）视为空内容。
+      if contentless?(text), do: nil, else: text
     end
   end
 
-  defp sanitize_visible_content(_text), do: nil
+  # 仅空白/标点/符号的内容（如 "-"、"…"）不是作者可见答复，视为空内容走有界纠错。
+  defp contentless?(text),
+    do: String.replace(text, ~r/[\s\p{P}\p{S}]/u, "") == ""
 
   defp provider_placeholder_line?(line) do
     trimmed = String.trim(line)
