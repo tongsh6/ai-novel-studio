@@ -1293,6 +1293,29 @@
   overflow-wrap: anywhere;
 }
 
+/* B31 §6.2 Q02/Q05：主输入归属提示与任务选择（作者可见，不隐藏、不占 AI 消息位）。 */
+.agentRunInputRoutingNotice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #e6ded3;
+  border-radius: 8px;
+  background-color: #fbfaf8;
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.agentRunInputRunSelector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .agentRunDockAwaitingHint {
   color: var(--foreground-secondary);
   font-family: var(--sans);

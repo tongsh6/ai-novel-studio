@@ -147,7 +147,12 @@ import {
   candidateContinuationText,
 } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
-import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
+import {
+  buildAgentRunInputPresentation,
+  decideAgentRunInputRoute,
+  openQuestionRunIdsForRuns,
+  type AgentRunInputPresentation,
+} from "../lib/agentRunInputRouting";
 import { messageRenderKey } from "../lib/messageRenderKey";
 import {
   agentRunActivityQueryTurn,
@@ -933,6 +938,8 @@ interface AgentRunControlDockProps {
   onRequestCancel: () => void;
   onRestartTask: () => void;
   onWriterTimeoutRetry?: () => void;
+  // B31 §6.2 Q01 ②：作者与停等坞交互 = 与该 run 的最近交互（本地 focused run）。
+  onInteract?: () => void;
 }
 
 export function AgentRunControlDock({
@@ -951,6 +958,7 @@ export function AgentRunControlDock({
   onRequestCancel,
   onRestartTask,
   onWriterTimeoutRetry,
+  onInteract,
 }: AgentRunControlDockProps) {
   const reasoningFlow = agentRunReasoningFlow(events);
   const totalStepCount = Math.max(
@@ -1016,7 +1024,11 @@ export function AgentRunControlDock({
         : structuralDetail;
 
   return (
-    <section className={styles.agentRunControlDock} aria-label={WORKBENCH.agentRunControlsLabel}>
+    <section
+      className={styles.agentRunControlDock}
+      aria-label={WORKBENCH.agentRunControlsLabel}
+      onClickCapture={() => onInteract?.()}
+    >
       <details className={styles.agentRunDockDetails}>
         <summary
           className={styles.agentRunDockSummary}
@@ -1136,6 +1148,63 @@ export function AgentRunControlDock({
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * B31 §6.2 Q02/Q05：主输入归属提示。
+ * - 可确定性 steer：显示「将发给哪个任务」（多 live run 时），否则沿用现有提示。
+ * - 不可确定性 steer（歧义/其它 run 有未答问题）：显示可见提示；多 live run 歧义时
+ *   提供真实任务选择入口（点击只更新本地 focused run，不改写任何 run 事实）。
+ */
+export function AgentRunInputRoutingAids({
+  presentation,
+  onSelectRun,
+}: {
+  presentation: AgentRunInputPresentation;
+  onSelectRun: (runId: string) => void;
+}) {
+  if (presentation.canSteer) {
+    return (
+      <div className={styles.agentRunComposerContext}>
+        <span className={styles.agentRunComposerLabel}>
+          {WORKBENCH.agentRunWorkspaceInputLabel}
+        </span>
+        <span className={styles.agentRunComposerHint}>
+          {presentation.liveRunCount > 1 && presentation.steerTargetGoalText !== null
+            ? WORKBENCH.agentRunWorkspaceInputTarget(presentation.steerTargetGoalText)
+            : WORKBENCH.agentRunWorkspaceInputHint}
+        </span>
+      </div>
+    );
+  }
+  if (presentation.noticeKind === null) return null;
+  const noticeText =
+    presentation.noticeKind === "question"
+      ? WORKBENCH.agentRunWorkspaceInputQuestionNotice
+      : WORKBENCH.agentRunWorkspaceInputAmbiguousNotice;
+  return (
+    <div className={styles.agentRunInputRoutingNotice} role="status">
+      <span>{noticeText}</span>
+      {presentation.showRunSelector && (
+        <div
+          className={styles.agentRunInputRunSelector}
+          role="group"
+          aria-label={WORKBENCH.agentRunWorkspaceInputRunSelectorLabel}
+        >
+          {presentation.selectorRuns.map((run) => (
+            <button
+              key={run.run_id}
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => onSelectRun(run.run_id)}
+            >
+              {run.goal_text.trim() !== "" ? run.goal_text : WORKBENCH.agentRunUserFacingName}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1323,6 +1392,12 @@ export function WorkspaceChat() {
   } | null>(null);
   const [agentCommandInFlight, setAgentCommandInFlight] = useState(false);
   const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
+  // B31 §6.2 Q01：作者最近交互过的 run（点击结果/停等坞、提交 steer、显式回复问题）。
+  // 不使用 visibleAgentRunMap/广播到达序作为语义依据。
+  const [focusedAgentRunId, setFocusedAgentRunId] = useState<string | null>(null);
+  // B31 §6.2 Q01 ③：客户端语义活动时间——只记录真实活动（agent_event/turn_result），
+  // 不记录恢复广播到达序。
+  const [agentRunLastEventAt, setAgentRunLastEventAt] = useState<Record<string, number>>({});
   const [agentRunActivityLoading, setAgentRunActivityLoading] = useState<Record<string, boolean>>(
     {},
   );
@@ -1538,6 +1613,9 @@ export function WorkspaceChat() {
           resultAgentRunState,
         ),
       }));
+      // B31 §6.2 Q01 ③：真实结果到达 = 该 run 的语义活动时间（不用恢复广播序）。
+      const activityAt = Date.now();
+      setAgentRunLastEventAt((prev) => ({ ...prev, [resultAgentRunState.run_id]: activityAt }));
     }
     setLoading(false);
     void hydrateAgentRunActivityForTurn(result);
@@ -1672,6 +1750,8 @@ export function WorkspaceChat() {
     // 与等量运行时状态一起原子提交；避免「旧内容 → 空白 → 回填」和标题/消息混搭。
     setAgentRunStates({});
     setAgentEvents([]);
+    setFocusedAgentRunId(null);
+    setAgentRunLastEventAt({});
     setAgentRunActivityLoading({});
     setAgentRunActivityLoaded({});
     setStandaloneAgentRunActivityEvents({});
@@ -1893,6 +1973,8 @@ export function WorkspaceChat() {
     onAgentEvent(channel, (event) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
       setAgentEvents((prev) => [...prev.filter((item) => item.event_id !== event.event_id), event]);
+      // B31 §6.2 Q01 ③：真实 agent_event 是该 run 的语义活动时间（恢复广播不算活动）。
+      setAgentRunLastEventAt((prev) => ({ ...prev, [event.run_ref]: Date.now() }));
       if (event.event_type === "run_completed" || event.event_type === "run_failed") {
         setLoading(false);
       }
@@ -2226,32 +2308,39 @@ export function WorkspaceChat() {
     enabled: Boolean(context.workId && activeSessionId && !isReadOnlySessionView),
   });
 
+  const openAuthorQuestionBindings = [
+    ...(openQuestions.data ?? []),
+    ...messages.flatMap((message) => (message.turnResult ? [message.turnResult] : [])),
+  ]
+    .map((result) => result.author_question)
+    .filter((question): question is NonNullable<typeof question> => Boolean(question));
+  // B31 §6.2 Q01：未答问题只按 B26 身份（status=open + goal version 匹配）过滤；
+  // 不再用「visibleAgentRunMap 插入序末位」当作当前 run 语义依据。
+  const openAuthorQuestionRunIds = openQuestionRunIdsForRuns(
+    visibleAgentRuns,
+    openAuthorQuestionBindings,
+  );
+  const agentRunInputDecision = decideAgentRunInputRoute({
+    runs: visibleAgentRuns,
+    openQuestionRunIds: openAuthorQuestionRunIds,
+    focusedRunId: focusedAgentRunId,
+    lastEventAt: agentRunLastEventAt,
+    pendingAnswerBehaviorId: pendingAnswerBid,
+  });
+  const agentRunInputPresentation = buildAgentRunInputPresentation(
+    agentRunInputDecision,
+    visibleAgentRuns,
+  );
   const latestAgentRunHasModelQuestion = Boolean(
     latestAgentRun &&
     latestAgentRun.status === "awaiting_author" &&
-    [
-      ...(openQuestions.data ?? []),
-      ...messages.flatMap((message) => (message.turnResult ? [message.turnResult] : [])),
-    ].some(
-      (result) =>
-        result.author_question?.status === "open" &&
-        result.author_question.run_id === latestAgentRun.run_id &&
-        (latestAgentRun.goal?.version == null ||
-          result.author_question.goal_version === latestAgentRun.goal.version),
-    ),
+    openAuthorQuestionRunIds.includes(latestAgentRun.run_id),
   );
-  const usesTaskComposer = Boolean(
-    hasActiveAgentRun && latestAgentRun && !latestAgentRunHasModelQuestion,
-  );
+  const usesTaskComposer = agentRunInputPresentation.canSteer;
 
   const hasPendingAgentRunAnchor = Object.keys(pendingAgentRunAnchors).length > 0;
   const canRouteMainInputToAgentSteer =
-    !budgetShortfallAwaiting &&
-    shouldRouteInputToAgentSteer({
-      latestAgentRun,
-      pendingAnswerBehaviorId: pendingAnswerBid,
-      hasUnansweredModelQuestion: latestAgentRunHasModelQuestion,
-    });
+    !budgetShortfallAwaiting && agentRunInputPresentation.canSteer;
   const hasSteerInput = inputText.trim().length > 0;
   const canSubmitMainInput =
     !budgetShortfallAwaiting &&
@@ -2399,12 +2488,68 @@ export function WorkspaceChat() {
     [demoteAgentRunToDead],
   );
 
+  // B31 §6.2 Q02：显式 steer（停等坞/恢复动作或已裁决为 steer 的主输入）绑定传入的
+  // run；提交时记录 focused run（Q01 ②），并携带 goal version（Q03 additive）让服务端
+  // （task-42）校验目标版本。主输入是否走这里只由 decideAgentRunInputRoute 决定。
+  async function submitAgentSteer(
+    run: AgentRunStateData,
+    text: string,
+    options: { optimistic?: boolean; clearInput?: boolean } = {},
+  ) {
+    if (!channelRef.current || agentCommandInFlight) return;
+    const clientMessageId = nextLocalMessageId();
+    if (options.optimistic !== false) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "user",
+          text,
+          clientMessageId,
+          agentRunId: run.run_id,
+        },
+      ]);
+    }
+    if (options.clearInput) setInputText("");
+    setLoading(true);
+    setAgentCommandInFlight(true);
+    setFocusedAgentRunId(run.run_id);
+    setAgentRunLastEventAt((prev) => ({ ...prev, [run.run_id]: Date.now() }));
+    try {
+      const response = await sendSteerMessage(
+        channelRef.current,
+        run.run_id,
+        text,
+        context.workId!,
+        activeSessionId!,
+        clientMessageId,
+        run.goal?.version ?? null,
+      );
+      rememberAgentRunAck(response, text, clientMessageId);
+      setAgentCommandNotice(null);
+    } catch (error) {
+      // DS03：失败不追加 assistant 气泡；撤回乐观 user 消息并还原输入，
+      // 失败原因内联在控制坞 system status。
+      if (error instanceof MessageDeliveryError && error.kind === "transport") {
+        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendUnconfirmed }]);
+      } else if (options.optimistic !== false) {
+        setMessages((prev) => prev.filter((message) => message.clientMessageId !== clientMessageId));
+        setInputText(text);
+      }
+      setLoading(false);
+      noteAgentCommandFailure(run, "steer", error);
+    } finally {
+      setAgentCommandInFlight(false);
+    }
+  }
+
   async function handleAgentCommand(command: AgentCommand, text?: string) {
     if (!channelRef.current || !latestAgentRun) return;
     if (agentCommandInFlight) return;
 
     if (command === "steer" && text) {
-      await handleSend(text);
+      // 停等坞/显式控制动作：显式绑定坞所属 run，不受主输入歧义规则影响
+      // （B31 §6.2 Q02「停等坞发送调整显式绑定该 run 不变」）。
+      await submitAgentSteer(latestAgentRun, text);
       return;
     }
     const run = latestAgentRun;
@@ -2442,56 +2587,22 @@ export function WorkspaceChat() {
     if (!text.trim() || !channelRef.current || isReadOnlySessionView) return;
 
     const behaviorId = pendingAnswerBid;
-    if (
-      shouldRouteInputToAgentSteer({
-        latestAgentRun,
-        pendingAnswerBehaviorId: behaviorId,
-        generateMicroPlan: options.generateMicroPlan ?? false,
-        hasUnansweredModelQuestion: latestAgentRunHasModelQuestion,
-      })
-    ) {
-      if (agentCommandInFlight) return;
-      const steerRun = latestAgentRun!;
-      const clientMessageId = nextLocalMessageId();
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "user",
-          text,
-          clientMessageId,
-          agentRunId: steerRun.run_id,
-        },
-      ]);
-      if (messageText === inputText) setInputText("");
-      setLoading(true);
-      setAgentCommandInFlight(true);
-      try {
-        const response = await sendSteerMessage(
-          channelRef.current,
-          steerRun.run_id,
-          text,
-          context.workId!,
-          activeSessionId!,
-          clientMessageId,
-        );
-        rememberAgentRunAck(response, text, clientMessageId);
-        setAgentCommandNotice(null);
-      } catch (error) {
-        // DS03：失败不追加 assistant 气泡；撤回乐观 user 消息并还原输入，
-        // 失败原因内联在控制坞 system status。
-        if (error instanceof MessageDeliveryError && error.kind === "transport") {
-          setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendUnconfirmed }]);
-        } else {
-          setMessages((prev) =>
-            prev.filter((message) => message.clientMessageId !== clientMessageId),
-          );
-          setInputText(text);
-        }
-        setLoading(false);
-        noteAgentCommandFailure(steerRun, "steer", error);
-      } finally {
-        setAgentCommandInFlight(false);
-      }
+    // B31 §6.2 Q01/Q02：当前 run 由确定性选择函数给出；只有「唯一 active run +
+    // 会话无其它未答 open question + 无 pending answer/显式计划请求」才 plain steer，
+    // 否则按新请求（user_message 新 run）处理，输入区显示可见提示/任务选择。
+    const routingDecision = decideAgentRunInputRoute({
+      runs: visibleAgentRuns,
+      openQuestionRunIds: openAuthorQuestionRunIds,
+      focusedRunId: focusedAgentRunId,
+      lastEventAt: agentRunLastEventAt,
+      pendingAnswerBehaviorId: behaviorId,
+      generateMicroPlan: options.generateMicroPlan ?? false,
+    });
+    if (routingDecision.route === "steer" && routingDecision.run) {
+      await submitAgentSteer(routingDecision.run, text, {
+        optimistic: true,
+        clearInput: messageText === inputText,
+      });
       return;
     }
 
@@ -2653,6 +2764,11 @@ export function WorkspaceChat() {
       setMessages((prev) => [...prev, { role: "user", text, clientMessageId: submissionId }]);
       const response = await transmitUserMessage(channelRef.current, message);
       rememberAgentRunAck(response, text, submissionId);
+      // B31 §6.2 Q01 ②：显式回复问题 = 作者最近与该问题 run 交互。
+      if (action.target_ref) {
+        setFocusedAgentRunId(action.target_ref);
+        setAgentRunLastEventAt((prev) => ({ ...prev, [action.target_ref as string]: Date.now() }));
+      }
       void queryClient.invalidateQueries({
         queryKey: authorQuestionQueryKey(context.workId, activeSessionId),
       });
@@ -3818,6 +3934,7 @@ export function WorkspaceChat() {
           if (!latestAgentRunIsLive) return;
           void handleAgentCommand("steer", WORKBENCH.agentRunWriterTimeoutRetryPrompt);
         }}
+        onInteract={() => setFocusedAgentRunId(latestAgentRun.run_id)}
       />
     );
 
@@ -5282,6 +5399,14 @@ export function WorkspaceChat() {
               {!isReadOnlySessionView && renderExpiredBoundedDock && agentRunDock && (
                 <div className={styles.agentRunWorkspace}>{agentRunDock}</div>
               )}
+              {!isReadOnlySessionView &&
+                !usesTaskComposer &&
+                agentRunInputPresentation.noticeKind !== null && (
+                  <AgentRunInputRoutingAids
+                    presentation={agentRunInputPresentation}
+                    onSelectRun={(runId) => setFocusedAgentRunId(runId)}
+                  />
+                )}
               <div
                 className={
                   !isReadOnlySessionView && usesTaskComposer
@@ -5304,16 +5429,10 @@ export function WorkspaceChat() {
                   }
                 >
                   {!isReadOnlySessionView && usesTaskComposer && (
-                    <div className={styles.agentRunComposerContext}>
-                      <span className={styles.agentRunComposerLabel}>
-                        {WORKBENCH.agentRunWorkspaceInputLabel}
-                      </span>
-                      <span className={styles.agentRunComposerHint}>
-                        {canRouteMainInputToAgentSteer
-                          ? WORKBENCH.agentRunWorkspaceInputHint
-                          : WORKBENCH.agentRunWorkspaceInputUnavailableHint}
-                      </span>
-                    </div>
+                    <AgentRunInputRoutingAids
+                      presentation={agentRunInputPresentation}
+                      onSelectRun={(runId) => setFocusedAgentRunId(runId)}
+                    />
                   )}
                   <input
                     ref={mainInputRef}
@@ -5334,20 +5453,10 @@ export function WorkspaceChat() {
                           ? awaitingAuthorInputRequired
                             ? WORKBENCH.agentRunAwaitingInputPlaceholder
                             : WORKBENCH.agentRunMainInputSteerPlaceholder
-                          : hasActiveAgentRun &&
-                              !latestAgentRunIsDead &&
-                              !latestAgentRunHasModelQuestion
-                            ? WORKBENCH.agentRunMainInputUnavailablePlaceholder
-                            : WORKBENCH.inputPlaceholder
+                          : WORKBENCH.inputPlaceholder
                     }
                     disabled={
-                      !socketConnected ||
-                      isPanelOpen ||
-                      isReadOnlySessionView ||
-                      (hasActiveAgentRun &&
-                        !latestAgentRunIsDead &&
-                        !latestAgentRunHasModelQuestion &&
-                        !canRouteMainInputToAgentSteer)
+                      !socketConnected || isPanelOpen || isReadOnlySessionView
                     }
                   />
                   {!hasActiveAgentRun && (

@@ -106,8 +106,14 @@ defmodule NovelApplication.AgentRunServer do
   def steer(server, text, timeout \\ 5_000),
     do: GenServer.call(server, {:command, {:steer, text}}, timeout)
 
-  def steer_submission(server, text, submission_id),
-    do: GenServer.call(server, {:command, {:steer, text, submission_id}})
+  @doc "B31 CP1 Q03：带 expected_goal_version 的 steer；nil/缺省保持旧行为。"
+  def steer(server, text, expected_goal_version, timeout)
+      when is_integer(expected_goal_version) or is_nil(expected_goal_version) do
+    GenServer.call(server, {:command, {:steer, text, nil, expected_goal_version}}, timeout)
+  end
+
+  def steer_submission(server, text, submission_id, expected_goal_version \\ nil),
+    do: GenServer.call(server, {:command, {:steer, text, submission_id, expected_goal_version}})
 
   @spec author_budget_action(GenServer.server(), recovery_mode(), timeout()) ::
           {:ok, map()}
@@ -232,28 +238,41 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
-  def handle_call({:command, {:steer, text, submission_id}}, _from, state) when is_binary(text) do
-    run = %{state.run | goal: %{state.run.goal | text: text, version: state.run.goal.version + 1}}
+  # B26 显式问题回复路径使用 map 形式 submission；B31 CP1 的 expected_goal_version 参数
+  # 对其为 nil（问题回复的版本校验在 request payload 内由 AuthorQuestion.validate_reply 负责）。
+  def handle_call(
+        {:command, {:steer, %{author_question_reply: request}, submission_id, _expected}},
+        from,
+        state
+      ),
+      do:
+        handle_call(
+          {:command, {:steer, %{author_question_reply: request}, submission_id}},
+          from,
+          state
+        )
 
-    if terminal?(state) do
-      {:reply, {:error, :not_steerable}, state}
-    else
-      case TurnInteractionService.record_steer(run, text, state.interaction_store, submission_id) do
-        {:ok, %{duplicate?: true} = receipt} ->
-          {:reply,
-           {:ok,
-            %{
-              run_id: run.run_id,
-              parent_turn_ref: run.parent_turn_ref,
-              goal_version: receipt.goal_version
-            }}, state}
+  def handle_call({:command, {:steer, text, submission_id}}, from, state) when is_binary(text),
+    do: handle_call({:command, {:steer, text, submission_id, nil}}, from, state)
 
-        {:ok, _receipt} ->
-          apply_author_steer(state, run)
+  def handle_call(
+        {:command, {:steer, text, submission_id, expected_goal_version}},
+        _from,
+        state
+      )
+      when is_binary(text) do
+    current = state.run.goal.version
 
-        {:error, reason} ->
-          {:reply, {:error, reason}, state}
-      end
+    cond do
+      terminal?(state) ->
+        {:reply, {:error, :not_steerable}, state}
+
+      # B31 CP1 Q03：客户端声明版本与当前不符 → 可解释冲突；不推进 goal、不写 steer。
+      is_integer(expected_goal_version) and expected_goal_version != current ->
+        {:reply, {:error, {:goal_version_conflict, current, expected_goal_version}}, state}
+
+      true ->
+        do_apply_steer(state, text, submission_id, current)
     end
   end
 
@@ -319,6 +338,27 @@ defmodule NovelApplication.AgentRunServer do
             status: "running",
             budget: budget
           }}, state, {:continue, :run_next_step}}
+    end
+  end
+
+  defp do_apply_steer(state, text, submission_id, current_version) do
+    run = %{state.run | goal: %{state.run.goal | text: text, version: current_version + 1}}
+
+    case TurnInteractionService.record_steer(run, text, state.interaction_store, submission_id) do
+      {:ok, %{duplicate?: true} = receipt} ->
+        {:reply,
+         {:ok,
+          %{
+            run_id: run.run_id,
+            parent_turn_ref: run.parent_turn_ref,
+            goal_version: receipt.goal_version
+          }}, state}
+
+      {:ok, _receipt} ->
+        apply_author_steer(state, run)
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 

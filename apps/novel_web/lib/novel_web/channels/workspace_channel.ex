@@ -577,15 +577,18 @@ defmodule NovelWeb.WorkspaceChannel do
       when is_binary(run_id) do
     work = socket.assigns[:work_id]
     session = socket.assigns[:session_id]
+    expected_goal_version = Map.get(payload, "expected_goal_version")
 
-    with :ok <- validate_submission_identity(payload, work, session, id),
+    with :ok <- validate_expected_goal_version(expected_goal_version),
+         :ok <- validate_submission_identity(payload, work, session, id),
          {:ok, receipt} <-
            AgentRunService.steer_submission(%{
              work_id: work,
              session_id: session,
              run_id: run_id,
              turn_id: id,
-             text: payload["text"]
+             text: payload["text"],
+             expected_goal_version: expected_goal_version
            }) do
       runtime = if receipt.state, do: agent_run_state_payload(receipt.state, socket), else: nil
 
@@ -597,20 +600,44 @@ defmodule NovelWeb.WorkspaceChannel do
           run_id: run_id,
           turn_id: id,
           source_turn_ref: receipt.input.turn_id,
+          # B31 CP1 Q05-ack：additive 绑定信息（不改既有字段语义）。
+          resolved_run_id: run_id,
+          binding_source: "explicit_steer",
           agent_run_state: runtime,
           runtime_live: if(runtime, do: runtime.runtime_live, else: false),
           turn_results: receipt.turn_results,
           goal_version: receipt.input.content["goal_version"]
         }}, socket}
     else
-      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+      {:error, {:goal_version_conflict, current, expected}} ->
+        {:reply,
+         {:error,
+          %{
+            reason: "goal_version_conflict",
+            current_goal_version: current,
+            expected_goal_version: expected
+          }}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
 
   def handle_in("agent_command", %{"run_id" => run_id, "command" => command} = payload, socket) do
     case dispatch_agent_command(socket, run_id, command, payload) do
-      :ok -> {:reply, {:ok, %{received: true, run_id: run_id, command: command}}, socket}
-      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+      :ok ->
+        {:reply,
+         {:ok,
+          %{
+            received: true,
+            run_id: run_id,
+            command: command,
+            resolved_run_id: run_id,
+            binding_source: if(command == "steer", do: "explicit_steer", else: "active_run")
+          }}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, agent_command_error_payload(reason)}, socket}
     end
   end
 
@@ -1039,11 +1066,25 @@ defmodule NovelWeb.WorkspaceChannel do
   defp dispatch_agent_command(socket, run_id, command, payload) when is_binary(run_id) do
     with :ok <- ensure_run_belongs_to_socket(socket, run_id) do
       case command do
-        "pause" -> AgentRunService.pause(run_id)
-        "resume" -> AgentRunService.resume(run_id)
-        "cancel" -> AgentRunService.cancel(run_id)
-        "steer" -> dispatch_steer(socket, run_id, Map.get(payload, "text", ""))
-        _ -> {:error, :unknown_command}
+        "pause" ->
+          AgentRunService.pause(run_id)
+
+        "resume" ->
+          AgentRunService.resume(run_id)
+
+        "cancel" ->
+          AgentRunService.cancel(run_id)
+
+        "steer" ->
+          dispatch_steer(
+            socket,
+            run_id,
+            Map.get(payload, "text", ""),
+            Map.get(payload, "expected_goal_version")
+          )
+
+        _ ->
+          {:error, :unknown_command}
       end
     end
   end
@@ -1053,10 +1094,10 @@ defmodule NovelWeb.WorkspaceChannel do
 
   # DS03：steer 被接受后把作者补充持久化为 session Interaction——作者输入不得
   # 只存在于 React state / AgentRun goal，刷新后必须能从 transcript 恢复。
-  defp dispatch_steer(_socket, run_id, text) do
-    case AgentRunService.steer(run_id, text) do
-      {:ok, _steer_info} -> :ok
-      error -> error
+  defp dispatch_steer(_socket, run_id, text, expected_goal_version) do
+    with :ok <- validate_expected_goal_version(expected_goal_version),
+         {:ok, _steer_info} <- AgentRunService.steer(run_id, text, expected_goal_version) do
+      :ok
     end
   end
 
@@ -1263,6 +1304,21 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp timestamp_iso(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
   defp timestamp_iso(_), do: nil
+
+  # B31 CP1 Q03/Q05：expected_goal_version 只接受正整数（nil 兼容旧 payload）。
+  defp validate_expected_goal_version(nil), do: :ok
+  defp validate_expected_goal_version(value) when is_integer(value) and value > 0, do: :ok
+  defp validate_expected_goal_version(_value), do: {:error, :invalid_expected_goal_version}
+
+  defp agent_command_error_payload({:goal_version_conflict, current, expected}) do
+    %{
+      reason: "goal_version_conflict",
+      current_goal_version: current,
+      expected_goal_version: expected
+    }
+  end
+
+  defp agent_command_error_payload(reason), do: %{reason: reason_text(reason)}
 
   defp reason_text(reason) when is_binary(reason), do: reason
   defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)

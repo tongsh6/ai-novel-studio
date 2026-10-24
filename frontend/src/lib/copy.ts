@@ -457,6 +457,15 @@ export const WORKBENCH = {
   agentRunWorkspaceInputHint: "将应用到当前创作",
   agentRunWorkspaceInputUnavailableHint: "任务状态更新后可继续输入",
   agentRunSteerSend: "发送调整",
+  // B31 §6.2 Q05：多 live run 时作者可见「输入将发给哪个任务」，歧义时提示选择；
+  // 主输入在不能确定性 steer 时按新请求处理（B31 §6.2 Q02）。
+  agentRunWorkspaceInputTarget: (goalText: string) =>
+    goalText.trim() !== "" ? `将发给：「${goalText}」` : "将发给当前任务",
+  agentRunWorkspaceInputQuestionNotice:
+    "有任务正在等待你的问题回复：请在对应问题卡上回复；下方输入会作为新请求发送。",
+  agentRunWorkspaceInputAmbiguousNotice:
+    "当前有多个任务在进行；请选择要继续的任务，下方输入会作为新请求发送。",
+  agentRunWorkspaceInputRunSelectorLabel: "选择要继续的任务",
   // DS03 状态矩阵：awaiting_author 必须提交具体补充，不提供裸「继续」。
   agentRunAwaitingInputHint: "等待你的回复：在下方输入框补充方向后发送，任务才会继续。",
   agentRunBudgetShortfallHint: "预算不足：请选择恢复动作，或终止任务。",

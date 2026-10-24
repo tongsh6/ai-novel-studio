@@ -54,6 +54,10 @@ export interface SendMessageResult {
   message_status?: string;
   source_turn_ref?: string;
   goal_version?: number;
+  // B31 CP1 additive（无 schema/codegen 变更，后端 task-42 提供；CP3 文档同步项）：
+  // 服务端裁决后的实际目标 run 与绑定来源，供作者可见回执/回归断言。
+  resolved_run_id?: string;
+  binding_source?: string;
   turn_results?: Record<string, unknown>[];
   run_id?: string;
   run_mode?: string;
@@ -159,6 +163,7 @@ export function submissionIsSettled(response: SendMessageResult): boolean {
 export function transmitUserMessage(
   channel: Channel,
   message: UserMessageSubmission,
+  options: { steerExpectedGoalVersion?: number | null } = {},
 ): Promise<SendMessageResult> {
   if (message.delivery_status === "rejected") {
     return Promise.reject(
@@ -173,7 +178,11 @@ export function transmitUserMessage(
           : message.command === "steer"
             ? "agent_command"
             : "user_message",
-        message.command === "author_choice" ? { action: message.author_action } : message,
+        message.command === "author_choice"
+          ? { action: message.author_action }
+          : message.command === "steer" && options.steerExpectedGoalVersion != null
+            ? { ...message, expected_goal_version: options.steerExpectedGoalVersion }
+            : message,
         message.command === "steer" ? undefined : LLM_TURN_TIMEOUT_MS,
       )
       .receive("ok", (response: SendMessageResult) => {
@@ -237,6 +246,7 @@ export async function sendSteerMessage(
   workId: string,
   sessionId: string,
   turnId: string,
+  expectedGoalVersion: number | null = null,
 ): Promise<SendMessageResult> {
   const message = UserMessageSubmissionSchema.parse({
     text,
@@ -249,7 +259,11 @@ export async function sendSteerMessage(
     created_at: new Date().toISOString(),
   });
   await saveUserMessage(message);
-  return transmitUserMessage(channel, message);
+  // B31 §6.2 Q03 additive：plain steer 携带把输入绑定的 goal_version，由服务端
+  // （task-42）校验并在冲突时拒绝；schema/codegen 不变，仅 wire payload 增量。
+  return transmitUserMessage(channel, message, {
+    steerExpectedGoalVersion: expectedGoalVersion,
+  });
 }
 
 export interface AgentEventData {

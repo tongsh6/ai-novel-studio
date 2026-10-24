@@ -183,6 +183,64 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert receipt.input.content["goal_version"] == 2
   end
 
+  # B31 CP1 Q03：expected_goal_version 冲突 → 可解释错误，不推进 goal、不写 steer。
+  test "steer expected_goal_version 冲突不推进 goal，缺省/匹配保持旧行为" do
+    enable_delivery_persistence()
+    attrs = delivery_run_attrs()
+    parent = self()
+
+    step = fn _run, _sequence ->
+      send(parent, :steer_version_waiting)
+
+      receive do
+        :never -> :ok
+      end
+    end
+
+    {:ok, id} = AgentRunService.start_bounded(attrs, next_step_planner: sequential_steps([step]))
+    assert_receive :steer_version_waiting
+
+    base = %{
+      work_id: attrs.work_id,
+      session_id: attrs.session_id,
+      run_id: id,
+      text: "保留结构，补充心理描写"
+    }
+
+    assert {:error, {:goal_version_conflict, 1, 99}} =
+             AgentRunService.steer_submission(
+               Map.merge(base, %{turn_id: "steer-conflict-1", expected_goal_version: 99})
+             )
+
+    # 冲突不推进、不改文本；同 turn_id 仍可后续正常使用
+    assert {:ok, %{run: run}} = AgentRunService.state(id)
+    assert run.goal.version == 1
+    assert run.goal.text == attrs.goal.text
+
+    assert {:ok, receipt} =
+             AgentRunService.steer_submission(
+               Map.merge(base, %{turn_id: "steer-conflict-1", expected_goal_version: 1})
+             )
+
+    assert receipt.input.content["goal_version"] == 2
+
+    # 已推进后再用旧版本 → 冲突且不再推进
+    assert {:error, {:goal_version_conflict, 2, 1}} =
+             AgentRunService.steer_submission(
+               Map.merge(base, %{turn_id: "steer-conflict-2", expected_goal_version: 1})
+             )
+
+    assert {:ok, %{run: %{goal: %{version: 2}}}} = AgentRunService.state(id)
+
+    # 旧 payload（无 expected_goal_version）保持旧行为
+    assert {:ok, receipt2} =
+             AgentRunService.steer_submission(Map.merge(base, %{turn_id: "steer-legacy"}))
+
+    assert receipt2.input.content["goal_version"] == 3
+    [{pid, _}] = Registry.lookup(NovelApplication.AgentRunRegistry, id)
+    DynamicSupervisor.terminate_child(NovelApplication.AgentRunSupervisor, pid)
+  end
+
   defp enable_delivery_persistence do
     prior = Application.get_env(:novel_web, :persistence, [])
 

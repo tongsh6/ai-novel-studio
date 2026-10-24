@@ -124,6 +124,7 @@ defmodule NovelApplication.AgentRunService do
     recovered =
       work_id
       |> active_durable_records(session_id)
+      |> stable_record_sort()
       |> Enum.map(&recover_record(&1, recover_opts))
       |> Enum.reject(&is_nil/1)
 
@@ -153,6 +154,7 @@ defmodule NovelApplication.AgentRunService do
         _child ->
           []
       end)
+      |> Enum.sort_by(fn %{run: run} -> stable_run_sort_key(run.run_id) end)
 
     {:ok, states}
   rescue
@@ -187,6 +189,21 @@ defmodule NovelApplication.AgentRunService do
     :exit, _reason -> []
   end
 
+  # B31 CP1 Q04：JoinRestore/reconnect 广播顺序确定化（created_at + run_id）。
+  # 前端不依赖该序；此序仅保证重连/刷新证据与 UI 稳定可复现。
+  defp stable_record_sort(records) do
+    Enum.sort_by(records, fn record ->
+      {record.inserted_at || ~U[1970-01-01 00:00:00Z], record.id}
+    end)
+  end
+
+  defp stable_run_sort_key(run_id) do
+    case AgentRunLog.get_run(run_id) do
+      %{inserted_at: %DateTime{} = inserted} -> {inserted, run_id}
+      _ -> {~U[1970-01-01 00:00:00Z], run_id}
+    end
+  end
+
   defp active_durable_records(work_id, session_id) do
     case AgentRunLog.list_active_durable(work_id, session_id) do
       [] -> AgentRunLog.list_active_durable_by_work(work_id)
@@ -210,6 +227,7 @@ defmodule NovelApplication.AgentRunService do
     states =
       work_id
       |> AgentRunLog.list_active_bounded(session_id)
+      |> stable_record_sort()
       |> Enum.flat_map(&reap_dead_bounded/1)
 
     {:ok, states}
@@ -349,15 +367,19 @@ defmodule NovelApplication.AgentRunService do
     :global.trans({{__MODULE__, work, session, id}, self()}, fn -> do_steer_submission(attrs) end)
   end
 
-  defp do_steer_submission(%{
-         work_id: work,
-         session_id: session,
-         run_id: run_id,
-         turn_id: id,
-         text: text
-       }) do
+  defp do_steer_submission(
+         %{
+           work_id: work,
+           session_id: session,
+           run_id: run_id,
+           turn_id: id,
+           text: text
+         } = attrs
+       ) do
+    expected = Map.get(attrs, :expected_goal_version)
+
     with true <- is_binary(text) and String.trim(text) != "",
-         :ok <- accept_steer_submission(work, session, run_id, id, text),
+         :ok <- accept_steer_submission(work, session, run_id, id, text, expected),
          {:ok, receipt} <- message_receipt(run_id, work, session),
          input when not is_nil(input) <- InteractionLifecycle.submission_input(work, session, id) do
       {:ok, Map.put(receipt, :input, input)}
@@ -368,18 +390,18 @@ defmodule NovelApplication.AgentRunService do
     end
   end
 
-  defp accept_steer_submission(work, session, run_id, id, text) do
+  defp accept_steer_submission(work, session, run_id, id, text, expected) do
     case InteractionLifecycle.submission_input(work, session, id) do
       %{content: %{"agent_run_id" => ^run_id, "text" => ^text, "message_kind" => "steer"}} -> :ok
-      nil -> dispatch_new_steer_submission(work, session, run_id, id, text)
+      nil -> dispatch_new_steer_submission(work, session, run_id, id, text, expected)
       _ -> {:error, :input_identity_conflict}
     end
   end
 
-  defp dispatch_new_steer_submission(work, session, run_id, id, text) do
+  defp dispatch_new_steer_submission(work, session, run_id, id, text, expected) do
     with {:ok, pid} <- lookup(run_id),
          %{run: %{work_id: ^work, session_id: ^session}} <- AgentRunServer.state(pid),
-         {:ok, _} <- AgentRunServer.steer_submission(pid, text, id) do
+         {:ok, _} <- AgentRunServer.steer_submission(pid, text, id, expected) do
       :ok
     else
       {:error, _} = error -> error
@@ -441,12 +463,17 @@ defmodule NovelApplication.AgentRunService do
           {:ok,
            %{run_id: String.t(), parent_turn_ref: String.t() | nil, goal_version: pos_integer()}}
           | {:error, :not_found | :steer_requires_text | :not_steerable | :steer_timeout}
-  def steer(run_id, text) when is_binary(text) do
+  def steer(run_id, text) when is_binary(text), do: steer(run_id, text, nil)
+
+  @doc "B31 CP1 Q03：可选 expected_goal_version（nil 保持旧行为）。"
+  def steer(run_id, text, expected_goal_version)
+      when is_binary(text) and
+             (is_integer(expected_goal_version) or is_nil(expected_goal_version)) do
     if String.trim(text) == "" do
       {:error, :steer_requires_text}
     else
       case lookup(run_id) do
-        {:ok, pid} -> AgentRunServer.steer(pid, text)
+        {:ok, pid} -> AgentRunServer.steer(pid, text, expected_goal_version, 5_000)
         error -> error
       end
     end

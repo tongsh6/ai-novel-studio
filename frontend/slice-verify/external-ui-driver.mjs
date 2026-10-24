@@ -35497,7 +35497,6 @@ async function driveB31AuthorReplyRunBinding(page) {
   // ── Trial 2：刷新/重连恢复顺序观察；刷新后普通输入归属是否随恢复顺序变化 ─────
   {
     const { work, sessionId } = await createTrialWork("T2", trialTokens.t2);
-    const questionIndex = frames.length;
     const questionRun = await sendAwaitingQuestionRun(
       `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t2}。`,
       "T2 question run",
@@ -35509,15 +35508,14 @@ async function driveB31AuthorReplyRunBinding(page) {
     const trackedRunIds = { question: questionRun.run_id, plan: planRun.run_id };
     const visibleBeforeReload = await readVisibleSelection(page, "T2 before reload", trackedRunIds);
     const reloadObservations = [];
-    let lastReload = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      lastReload = await reloadAndObserve(
+      const reload = await reloadAndObserve(
         frames.length,
         readAppLogRecords().length,
         `T2 reload #${attempt}`,
       );
-      lastReload.visible = await readVisibleSelection(page, `T2 reload #${attempt}`, trackedRunIds);
-      reloadObservations.push(lastReload);
+      reload.visible = await readVisibleSelection(page, `T2 reload #${attempt}`, trackedRunIds);
+      reloadObservations.push(reload);
       await page.screenshot({
         path: path.join(artifactDir, `b31-t2-reload-${attempt}.png`),
         fullPage: true,
