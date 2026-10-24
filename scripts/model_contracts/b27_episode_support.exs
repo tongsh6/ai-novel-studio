@@ -490,6 +490,8 @@ defmodule B27EpisodeSupport do
     byte_equal =
       if is_binary(body) and is_binary(resolved.text), do: body == resolved.text, else: nil
 
+    comparison = compare_texts(body, resolved.text)
+
     %{
       "artifact_id" => get(entry, :artifact_id) || get(entry, "artifact_id"),
       "artifact_type" =>
@@ -515,8 +517,89 @@ defmodule B27EpisodeSupport do
           else: nil
         ),
       # 历史 turn / 候选 payload 来源的确定性字节保真证据（retest3 用于 M12 等）。
-      "byte_equal_to_source" => byte_equal
+      "byte_equal_to_source" => byte_equal,
+      # 文本级 diff（retest5 M07）：judge 需要看到实际差异而非仅 hash/长度，
+      # 才能判断是否仅为结尾换行/空白（排版允许）还是字句变更。
+      "source_text" => truncate(resolved.text, 2_000),
+      "item_body" => truncate(body, 2_000),
+      "text_equal" => comparison.text_equal,
+      "text_equal_ignore_trailing_newlines" => comparison.text_equal_ignore_trailing_newlines,
+      "char_delta" => comparison.char_delta,
+      "first_diff_offset" => comparison.first_diff_offset,
+      "diff_summary" => comparison.diff_summary
     }
+  end
+
+  # 文本级差异（小体量正文可判；仅记录事实，不判定 rubric）：
+  # - text_equal_ignore_trailing_newlines：仅去除结尾换行/空白后是否相等
+  # - first_diff_offset：不相等时第一个差异的 codepoint 偏移；相等为 nil
+  # - diff_summary：common_prefix/suffix、是否仅结尾空白差异、首尾片段 repr
+  defp compare_texts(body, source) when is_binary(body) and is_binary(source) do
+    body_cps = String.codepoints(body)
+    source_cps = String.codepoints(source)
+    body_norm = normalize_trailing_whitespace(body)
+    source_norm = normalize_trailing_whitespace(source)
+
+    first_diff =
+      Enum.reduce_while(Enum.with_index(Enum.zip(body_cps, source_cps)), nil, fn {{bc, sc}, idx},
+                                                                                 _acc ->
+        if bc == sc, do: {:cont, nil}, else: {:halt, idx}
+      end)
+
+    first_diff =
+      cond do
+        first_diff != nil -> first_diff
+        length(body_cps) == length(source_cps) -> nil
+        true -> min(length(body_cps), length(source_cps))
+      end
+
+    common_prefix =
+      Enum.zip(body_cps, source_cps)
+      |> Enum.take_while(fn {bc, sc} -> bc == sc end)
+      |> length()
+
+    rev_body = Enum.reverse(body_cps)
+    rev_source = Enum.reverse(source_cps)
+
+    common_suffix =
+      Enum.zip(rev_body, rev_source)
+      |> Enum.take_while(fn {bc, sc} -> bc == sc end)
+      |> length()
+
+    %{
+      text_equal: body == source,
+      text_equal_ignore_trailing_newlines: body_norm == source_norm,
+      char_delta: length(body_cps) - length(source_cps),
+      first_diff_offset: first_diff,
+      diff_summary: %{
+        "only_trailing_whitespace_diff" => body != source and body_norm == source_norm,
+        "common_prefix_chars" => common_prefix,
+        "common_suffix_chars" => common_suffix,
+        "body_chars" => length(body_cps),
+        "source_chars" => length(source_cps),
+        "body_named_tail" => inspect(trailing_fragment(body)),
+        "source_named_tail" => inspect(trailing_fragment(source))
+      }
+    }
+  end
+
+  defp compare_texts(_body, _source) do
+    %{
+      text_equal: nil,
+      text_equal_ignore_trailing_newlines: nil,
+      char_delta: nil,
+      first_diff_offset: nil,
+      diff_summary: nil
+    }
+  end
+
+  defp normalize_trailing_whitespace(text), do: Regex.replace(~r/\s+\z/u, text, "")
+
+  defp trailing_fragment(text) do
+    text
+    |> String.codepoints()
+    |> Enum.take(-24)
+    |> Enum.join()
   end
 
   # 解析原文登记 source_ref 对应的持久化原文（不伪造、找不到就 found=false）：

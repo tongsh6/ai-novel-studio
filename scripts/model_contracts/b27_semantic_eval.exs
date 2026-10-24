@@ -1664,39 +1664,60 @@ defmodule B27SemanticEval do
     seeded = get(evidence, "seeded_candidates") || []
     facts = get(evidence, "reading_projection_facts") || %{}
 
+    # reading_projection_facts 在 runtime 是 atom-key map（Ecto select），episode JSON 才变 string key；
+    # 统一用 atom-first 的 get_any（get/2 对 atom key 会 fallback string key）修复 totals=0 的 bug。
     chapter_word_counts =
       facts
-      |> Enum.map(fn {_chapter_id, chapter} -> get(chapter, "word_count") end)
+      |> Enum.map(fn {_chapter_id, chapter} ->
+        get(chapter, :word_count) || get(chapter, "word_count")
+      end)
       |> Enum.filter(&is_integer/1)
 
     chapter_char_counts =
       facts
-      |> Enum.map(fn {_chapter_id, chapter} -> get(chapter, "char_count") end)
+      |> Enum.map(fn {_chapter_id, chapter} ->
+        get(chapter, :char_count) || get(chapter, "char_count")
+      end)
       |> Enum.filter(&is_integer/1)
 
     %{
       "seeded_candidates" =>
         Enum.map(seeded, fn candidate ->
           body = get(candidate, "body") || ""
+          body_chars = get(candidate, "body_chars") || chars(body)
+          normalized_chars = chars(normalize_trailing_whitespace(body))
 
           %{
             "artifact_id" => get(candidate, "artifact_id"),
-            "body_chars" => get(candidate, "body_chars"),
+            "body_chars" => body_chars,
+            "body_chars_normalized" => normalized_chars,
+            "trailing_newline_delta" => body_chars - normalized_chars,
             "body_effective_words" => cjk_char_count(body),
             "body_sha256" => get(candidate, "body_sha256"),
             "body_chars_definition" => "payload body 原始字符串长度（含标点/换行）",
+            "body_chars_normalized_definition" => "去结尾换行/空白后的字符长度（与作品事实 char_count 对齐的口径）",
+            "trailing_newline_delta_definition" =>
+              "body_chars - body_chars_normalized（seed 末尾换行数）",
             "body_effective_words_definition" => "body 中 CJK 字符数（去标点/空白）"
           }
         end),
       "facts_char_count_total" => Enum.sum(chapter_char_counts),
-      "facts_char_count_definition" => "阅读投影 char_count（正文原始字符长度，含标点/换行；task-30 新增）",
+      "facts_char_count_total_normalized" => Enum.sum(chapter_char_counts),
+      "facts_char_count_definition" =>
+        "阅读投影 char_count（正文原始字符长度，含标点/换行；task-30 新增；本口径不含 seed 末尾补的换行）",
       "facts_word_count_total" => Enum.sum(chapter_word_counts),
       "facts_word_count_definition" => "阅读投影 word_count（有效字数口径；本 run 实测=body 中 CJK 字符数，不含标点/换行）",
       "note" =>
-        "M20 复核：模型引用的『186 字』来自作品事实有效字数；seed body 原始长度 218 字符；" <>
-          "facts 现同时给 char_count 与 word_count，两者口径不同但都正确，不应把 186 当编造。"
+        "M20 复核：186 字=作品事实有效字数（=body_effective_words）；217=作品事实 char_count（正文原始字符，不含 seed 末尾换行）；" <>
+          "seed body 218 字符含 1 个末尾换行（trailing_newline_delta=1）。217/218 的差异是换行口径，不是矛盾，不得判编造。"
     }
   end
+
+  defp normalize_trailing_whitespace(text) when is_binary(text) do
+    Regex.replace(~r/\s+\z/u, text, "")
+  end
+
+  defp normalize_trailing_whitespace(_), do: ""
 
   defp total_chars_from_observations(observations) do
     observations

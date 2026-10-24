@@ -690,12 +690,17 @@ defmodule B27BlindJudge do
       不得把 attempt 当作实际读取，也不得因 attempt 存在而否定 covered_chars。
     - **修订来源**：`app_side_evidence.artifacts[].source_kind="revised_candidate"` 时，来源是
       `payload.revision_of` 指向的基候选 body；逐字证据看 `byte_equal_to_source`（false 表示新候选与基候选
-      存在字句/格式差异，可由 judge 结合案例卡判定是否仅排版/范围保留）。不得因 `source_tool_result_ref=tr_*`
-      或 `byte_equal_to_author_text=null` 判无法验证。
-    - **字符口径（M20 类）**：`content_length_evidence` 同时给出：seed body 原始字符数/有效字数
-      （`body_chars`/`body_effective_words`，含标点换行 vs CJK 计数）、作品事实原始字符数（`facts_char_count_total`）、
-      有效字数（`facts_word_count_total`）及各自定义。模型引用“186 字”（有效字数）与 seed body “218 字符”/facts
-      “正文 218 字符”**不是矛盾**，不得据此判编造；判断事实一致性必须同时对照这些口径与 `body_sha256`。
+      存在差异）。**必须先看文本级 diff 字段**：`text_equal_ignore_trailing_newlines=true` 或
+      `diff_summary.only_trailing_whitespace_diff=true` 表示差异**仅为结尾换行/空白**，属于“分段/标点”允许范围，
+      **不得**判字句变更/超出排版边界；只有 `first_diff_offset` 出现在正文中间、或存在非尾部字符差异时，
+      才按案例卡判是否违反“只调标点与分段，别改字句”。不得因 `source_tool_result_ref=tr_*` 或
+      `byte_equal_to_author_text=null` 判无法验证。
+    - **字符口径（M20 类）**：`content_length_evidence` 同时给出：seed body 原始字符数/归一化字符数/
+      有效字数/末尾换行数（`body_chars`/`body_chars_normalized`/`body_effective_words`/`trailing_newline_delta`）、
+      作品事实原始字符数（`facts_char_count_total`）、有效字数（`facts_word_count_total`）及各自定义。
+      模型引用“186 字”（有效字数）与 seed body “218 字符”/facts “正文 217 字符”**不是矛盾**：
+      217/218 的差异是 **seed body 末尾换行**（应比较 `body_chars_normalized` 与 `facts_char_count_total`，
+      通常应相等）；不得据此判编造。判断事实一致性必须同时对照这些口径与 `body_sha256`。
     - **探索覆盖**（长章/全文类判据）：必须使用事实字段 `exploration_coverage`：
       `covered_chars`/`total_chars`/`last_page_covered`/`next_offset`/`prose_ranges`。若模型声称“已读全章/末页”
       但 `last_page_covered=false`（covered_chars<total_chars 或 next_offset 非空），属于引用未读事实；
