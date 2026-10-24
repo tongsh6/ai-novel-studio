@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | CP0 案例/快照/旧规则臂已冻结；下一步 CP3 专业调用逐项迁移（使命/writer/评估/摘要/盘点/结果叙述/provider progress），再按 §6.1 跑 20 例×2 次×双臂语义门槛与真实 Tauri 生命周期回归。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | CP0 案例/快照与 CP3a/b/c 专业调用迁移已完成；下一步 CP3d 收口（legacy 分支/双源文案/test-support 残留/I-CACHE 扩展/文档同步），随后 CP4 执行批：`b27_case_freeze --write-arms` 重算整合臂、跑 20 例×2 次×双臂语义门槛与真实 Tauri 生命周期回归。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
