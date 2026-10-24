@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B29-EXISTING-CHARACTER-ROLE-REVISION | **当前任务 / CP0 done（2026-10-25，`201b42cb`）**：真实 Tauri 复现「无已有角色主档案字段修订能力」（自然原话 reply 吞掉、显式措辞诚实 capability_gap、无 memory 冒充；多主角不清空/同名不新建/负例零写入）；冻结 Q01–Q08（`revise_character_profile` 能力、character_ref+base_fingerprint、old→new 候选、narrative_role 白名单/多主角不默认清空、同 id 原子更新+旧值回执、主档案为事实源禁止 memory-only、消费者刷新、场景+实模证据）。**CP1/CP2 完成并提交（`601518e9`）**：revise_character_profile 能力/判断绑定/候选 + 原子修订/采纳 effect，全后端 2179/0。**CP3 消费者进行中**（task-73：roster/档案/判断写作上下文/「谁是主角」以 Character.narrative_role 为当前事实、旧 memory 不冒充）→ CP4 场景+实模+回归（task-74）→ CP5。 | [B29](slices/B29-existing-character-role-revision.md) |
+| B29-EXISTING-CHARACTER-ROLE-REVISION | **当前任务 / CP0 done（2026-10-25，`201b42cb`）**：真实 Tauri 复现「无已有角色主档案字段修订能力」（自然原话 reply 吞掉、显式措辞诚实 capability_gap、无 memory 冒充；多主角不清空/同名不新建/负例零写入）；冻结 Q01–Q08（`revise_character_profile` 能力、character_ref+base_fingerprint、old→new 候选、narrative_role 白名单/多主角不默认清空、同 id 原子更新+旧值回执、主档案为事实源禁止 memory-only、消费者刷新、场景+实模证据）。**CP1/CP2 完成并提交（`601518e9`）**：revise_character_profile 能力/判断绑定/候选 + 原子修订/采纳 effect，全后端 2179/0。**CP3 完成并提交（`65ef9f8f`）**：roster/档案/判断写作上下文/「谁是主角」以 Character.narrative_role 为当前事实、旧 memory 不冒充；全后端 2184/0。**CP4 进行中**（task-74）：真实 Tauri 场景注册 PASS（原话/别名/同名消歧/负例/刷新再问）+ 实模 `iq3_s` 原话/改述 + AU09/AU12 回归；CP5 收口随后。 | [B29](slices/B29-existing-character-role-revision.md) |
 
 ## 后续候选
 
