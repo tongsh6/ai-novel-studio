@@ -2243,15 +2243,32 @@ function findB28WholeChapterRevisionEvidence(records) {
     (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
   );
   if (!ui) return null;
-  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 3) return null;
-  if (!ui.summary || typeof ui.summary !== "object") return null;
+  const checks = ui.cp2_checks ?? {};
+  const measured = ui.cp2_measured ?? {};
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 6) return null;
+  if (Object.keys(checks).length < 20) return null;
+  if (!Object.values(checks).every((value) => value === true)) return null;
+  if (ui.outcome !== "done") return null;
+  if (ui.summary?.all_checks_passed !== true) return null;
   if (ui.no_product_code_changed !== true) return null;
   if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+  if (measured.chapter_count_before !== measured.chapter_count_after) return null;
+  if (measured.same_title_ambiguous_blocked !== true) return null;
+  if (measured.same_title_zero_write_no_new_chapter !== true) return null;
+  if (measured.unique_title_candidate_has_chapter_ref !== true) return null;
+  if (measured.main_edit_then_accept_binds_chapter !== true) return null;
+  if (measured.refresh_idempotent !== true) return null;
+  if (measured.missing_ref_zero_write !== true) return null;
+  if (measured.missing_ref_blocked_with_clarification !== true) return null;
+  if (measured.missing_ref_no_new_writing_execution !== true) return null;
+  if (measured.visible_target_and_scope !== true) return null;
   return {
     slice_id: sliceId,
-    turn_id: "b28-cp0-whole-chapter-revision",
+    turn_id: "b28-cp2-whole-chapter-revision",
     turn_ids: [],
     trial_ids: ui.trial_ids,
+    checks,
+    measured,
     summary: ui.summary,
     seed: ui.seed,
     key_events: keyEventsForSlice(sliceId),
@@ -2266,24 +2283,34 @@ function b28WholeChapterRevisionBehavior(records, evidence, _options) {
   if (!ui) return null;
   return {
     slice_id: "b28-whole-chapter-revision",
-    behavior: "b28_cp0_whole_chapter_revision_multi_fragment_adoption_isolation_repro",
+    behavior: "b28_whole_chapter_revision_format_only_and_replace_scope_verified_on_real_workbench",
     turn_ids: [],
     trials: evidence.trial_ids,
+    checks: evidence.checks,
+    measured: evidence.measured,
     summary: evidence.summary,
     seed: evidence.seed,
     assertions: [
       "two_accepted_prose_fragments_written_through_real_ui_edit_then_accept",
-      "format_only_whole_chapter_request_judgment_and_writer_material_recorded",
-      "candidate_coverage_checked_against_both_fragment_anchors",
-      "whitespace_rule_candidate_vs_source_recorded",
-      "explicit_change_adoption_identity_and_chapter_count_recorded",
-      "same_title_distractor_chapter_untouched",
-      "reading_projection_and_refresh_idempotency_recorded",
-      "missing_accepted_ref_request_recorded_without_guess",
+      "format_only_judgment_binds_chapter_ref_and_covers_all_fragments",
+      "format_only_writer_prompt_contains_both_fragments_in_order",
+      "format_only_candidate_carries_target_chapter_ref_modification_scope_adoption_effect_base_text",
+      "format_only_candidate_whitespace_normalized_equals_full_chapter_source",
+      "format_only_adoption_replace_scope_keeps_chapter_identity_and_count",
+      "format_only_old_fragments_superseded_and_history_retained",
+      "format_only_reading_projection_consumes_replaced_scope",
+      "content_revision_candidate_covers_whole_chapter_and_changes_only_specified_spot",
+      "content_revision_adoption_replace_scope_keeps_chapter_identity_and_count",
+      "same_title_ambiguous_target_blocked_with_visible_clarification",
+      "same_title_blocked_path_zero_write_and_no_new_chapter",
+      "unique_title_candidate_carries_chapter_ref_and_edit_then_accept_binds_that_chapter",
+      "refresh_and_duplicate_adoption_idempotent",
+      "missing_accepted_ref_blocked_with_visible_clarification_zero_write_no_new_chapter",
+      "candidate_visible_text_shows_target_chapter_and_modification_scope",
       "no_product_code_or_acceptance_hook_changed",
     ],
     note:
-      "B28 CP0 reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and B28 CP1/CP2 implement the whole-chapter revision + same-chapter adoption contract.",
+      "Deterministic slice_verify provider validates the real workbench/state-chain contract; real-model intent and formatting quality belong to CP4.",
   };
 }
 

@@ -9,6 +9,7 @@
 | `b27-natural-author-intent.yml` | B27 自然语言意图→创作效果映射（**草案**：manifest+driver 方案就绪，未注册 driver） |
 | `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**active/nightly**：slice_verify 机制批次已 PASS，含 writer/evaluator 候选、待采纳、显式采纳、章摘要/trace、刷新恢复与下一轮持久事实；真实模型语义归 CP4 §6.1 矩阵） |
 | `b31-author-reply-run-binding.yml` | B31 作者补充输入与待回复任务稳定绑定（**active/nightly**：slice_verify 确定性 provider 下的多 awaiting run 归属/显式问题 author_choice/目标可见/JoinRestore 稳定序；真实模型语义不在本场景） |
+| `b28-whole-chapter-revision.yml` | B28 整章修订/排版范围/同章采纳（**active/nightly**：slice_verify 确定性 provider 下的章级目标+全章覆盖账、format_only 归一等价、content 只改指定处、replace_scope 同章替代/旧稿 superseded/刷新幂等、同名章澄清阻断、缺 ref 零写入；真实模型语义归 CP4） |
 | `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-frame-validation-friendly-error.yml` | frame 校验失败时作者友好提示 |
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
@@ -220,3 +221,13 @@
 **B31 / Q3D 边界（2026-10-25 CP3 文档同步）**：显式问题/选项回复由 `agent-awaiting-author-*` 与 `b26-author-question-roundtrip` 场景承担；`q3d-message-delivery-recovery` 只验证 **steer 投递恢复**（丢回执/断线/刷新/重启后的稳定身份、目标版本只推进一次、完成/失败/失活回执），不验证显式问题回复语义。按 B31 §6.2 Q02，存在其他 run 的未答 open question 时普通主输入不 plain steer（按新请求 + 可见提示）；因此 Q3D 恢复步骤使用**无 open author_question 的 awaiting 形状**（plan-exhaust awaiting）驱动 steer。`q3d-message-delivery-recovery.yml` 本体由 B31 CP3 场景任务同步（task-44），本 README 仅登记口径。
 
 - [b31-author-reply-run-binding.yml](b31-author-reply-run-binding.yml)（**已注册 active/nightly**）：B31 作者补充输入与待回复任务的稳定绑定——同会话两个 live awaiting_author run（B26 问题 run Q + 结构调整 plan-exhaust run S）下：Q open 时普通主输入按新请求（user_message 新 run）+ 可见提示，不 plain steer 到错误 run；两个 live-only run 歧义时可见提示 + 真实任务选择，点选后 steer 该 run 且 wire 带 `expected_goal_version`、ack 返回 `resolved_run_id`/`binding_source`；显式「回复此问题」仍 author_choice 绑定 Q；刷新/重连（JoinRestore 稳定序）后普通输入仍不串 run。driver `driveB31AuthorReplyRunBinding`，证据 `artifacts/slice-verify/b31-author-reply-run-binding-tauri/`。**边界**：确定性 provider 绑定/生命周期证据；真实模型自然语言语义质量归 B27 §6.1 矩阵。
+
+## B28 页面场景
+
+- [b28-whole-chapter-revision.yml](b28-whole-chapter-revision.yml)（**已注册 active/nightly**）：B28 整章修订/排版范围/同章采纳的真实工作台闭环——先经真实 UI 生成 `edit_then_accept` 同章两段 accepted 正文（初稿 2517 字符 + 零换行续写 1075 字符），再：
+  - **T0a** 同名两章 + 作者仅给标题 → 产品澄清阻断（可见「多个标题/章节卡片/章序号」文案、零候选/零写入/不新建章/不跨章误绑，B28 Q01）；
+  - **T0b** 唯一标题主作品生成候选带 `chapter:<uuid>` → `edit_then_accept` 同章绑定；
+  - **T1** 「把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。」→ 判断绑章目标、writer prompt 含两片段全文/顺序、候选顶层 `target_chapter_ref` + `modification_scope=format_only` + `adoption_effect{replace_scope,coverage complete,covered,expected_base_versions}` + `base_text`；冻结归一（行尾空白/换行形式/文末空行）后候选与整章源字节等价；「保存修订稿」→ replace_scope 同章替代（chapter_id/seq/章数不变、旧 draft SUPERSEDED 历史可查、阅读/刷新消费新值）；
+  - **T2** 内容修订只改「二十五岁→三十岁」→ 候选仍覆盖全章、其余逐字、同章替代不新建；
+  - **T3** 刷新/重复采纳幂等；**T4** 缺 accepted ref → 澄清阻断、零写入、不新建章。
+  driver `driveB28WholeChapterRevision`，verifier `findB28WholeChapterRevisionEvidence`（35 checks + measured，证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`）。**边界**：确定性 provider 状态链/契约证据；真实模型原话/改述与排版质量归 CP4；format_only_violation 端到端负例暂由 CP1 单测+CP4 覆盖。

@@ -1488,6 +1488,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/b31-author-reply-run-binding.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: bash scripts/quality_accept.sh b31-author-reply-run-binding --surface tauri
+  - id: b28-whole-chapter-revision
+    title: "B28 整章修订/排版范围/同章采纳（真实工作台闭环）"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/b28-whole-chapter-revision.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri
   # 原生 UI 由本机外部系统 CUA 驱动（非仓库内 Chromium driver）；仓库内落地的是
   # 原生证据检查器与外部传输代理，产品代码不含验收感知逻辑。
   - id: b26-business-output-roundtrip

@@ -1,51 +1,57 @@
 id: b28-whole-chapter-revision
-title: "B28 CP0 真实页面隔离复现：整章修订/多片段覆盖/同章采纳身份"
+title: "B28：整章修订/排版范围/同章采纳 真实工作台验收"
 tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  draft（CP0 隔离复现，未注册 scenarios.yml）：外部 Tauri driver 通过真实工作台
-  生成并 edit_then_accept 同一章两段 accepted 正文（初稿 2517 字符 + 零换行续写 1075
-  字符，另含同名 planned 干扰章），再发「整章只调整分段/排版、不改字句」与「明确只改
-  一处」两种自然语言请求，记录 judgment 绑定、writer 实际材料覆盖（llm-calls prompt）、
-  候选覆盖与约定空白规则对照、采纳 target_chapter/target_chapter_ref、是否新增章、
-  chapter_count/章身份、旧稿历史、阅读与刷新幂等，以及缺 accepted ref 时的恢复路径。
-  CP0 先复现与判断当前行为，不在修复前注册或声明 B28 功能 PASS。
+  active（2026-10-25 CP2 注册）：外部 Tauri runner 驱动真实工作台（原生窗口 + 真实
+  Phoenix/Vite 前端）复验 B28 整章修订闭环——章级目标/全章覆盖账、format_only 归一等价、
+  content_revision 只改指定处、replace_scope 同章替代（章身份/章数不变、旧稿 superseded 历史
+  可查、阅读/刷新消费新值）、同名章澄清阻断、缺 ref 零写入。证据边界：provider 为
+  slice_verify 确定性替身（状态链/契约证据）；真实模型原话/改述与排版质量归 CP4。产品代码
+  已提交（CP1/CP1.5），本场景不改产品代码、不新增验收感知逻辑。
 entrypoint: bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri
 contract:
-  - tasks/slices/B28-whole-chapter-revision.md §1 / §3 / §5（CP0）
-  - tasks/slices/Q1C-adopted-content-revision.md
-  - tasks/slices/B24-exploration-chapter-full-read.md、B25-chapter-identity-unification.md
+  - tasks/slices/B28-whole-chapter-revision.md §3/§5/§7
   - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
   - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
   - docs/design/adr/ADR-0019-adoption-status-transition-v3.md
   - tasks/slices/B27-systematic-prompt-and-intent-integration.md（M07 format_only known-gap）
 invariants:
-  - same-chapter-identity-stable（修订采纳后 chapter_id/章数不变）
-  - whole-chapter-input-covers-all-current-accepted-fragments
-  - format-only-whitespace-equivalent（去尾随空白/换行归一后源与候选逐字相等）
-  - old-drafts-remain-recoverable
-  - zero-canon-write-before-explicit-adoption
-  - missing-or-ambiguous-target-must-not-guess-or-create
+  - I-B28-1 章级目标：整章修订必须绑定 chapter_ref + 该章全部当前 accepted 片段覆盖账；不得只绑单 artifact，不得退化为新正文写作。
+  - I-B28-2 覆盖完整：writer 材料与候选覆盖全部 covered 片段（按阅读投影顺序）；缺片段/截断必须显式 omission，不能宣称整章。
+  - I-B28-3 排版保真：format_only 候选按冻结归一（行尾空白/换行形式/文末空行）后与整章源字节相等；差异 → `format_only_violation` 拒绝。
+  - I-B28-4 同章替代：replace_scope 采纳只替换 covered scope 内旧 accepted（SUPERSEDED 历史保留），chapter_id/seq/章数不变；失败整体回滚。
+  - I-B28-5 内容修订范围：只落实作者指定改动，其余片段逐字保留，完整替换稿。
+  - I-B28-6 身份唯一：同标题两章按 chapter_ref 绑定；缺 ref/歧义时澄清或拒绝，禁止 title 回退新建章。
+  - I-B28-7 幂等/消费：重复采纳/刷新不重复写；阅读投影与后续上下文只消费新 accepted 版本。
 setup:
   provider: slice_verify
-  seed: scripts/seed_b28_whole_chapter_revision.exs（两章章节计划 + 同名 planned 干扰章；两段 accepted 正文由 driver 真实 UI 写入）
-  env_note: 隔离 test DB；不写作者真实作品；确定性 provider 足够复现状态链，真实模型意图归 CP4。
+  seed: scripts/seed_b28_whole_chapter_revision.exs
+  seed_note: >-
+    主作品与隔离作品各含已采纳两章章节计划；隔离作品另有同名 planned 干扰章。
+    两段 accepted 正文（初稿 2517 字符 + 零换行续写 1075 字符）由 driver 经真实 UI
+    「生成正文草稿→修改后采纳」写入，seed 不伪造 accepted 正文。
+  env_note: 隔离 test DB；确定性 provider 足够验证真实页面/状态链与契约；真实模型意图归 CP4。
   trial_matrix:
-    - T1: 真实 UI 生成并 edit_then_accept 初稿（2517 字符，含「二十五岁」与初稿末句锚点）→ 续写并 edit_then_accept 零换行续写（1075 字符，含续写末句锚点）→「把第01章已保存的正文整理修订一下，只调整分段和排版，不要改字句」
-    - T2: 「把第01章已保存的正文里「二十五岁」改成「三十岁」，只改这一处，其余逐字不变」→ 候选→采纳→章数/章身份/target refs/旧稿/阅读/刷新
-    - T3: 无已采纳正文的新作品发整章修订请求 → 缺 ref 恢复不猜目标/不静默新建章
+    - T0a 同标题两章 + 作者仅给标题：产品按 B28 Q01 澄清阻断（可见「多个标题/章节卡片/章序号」文案、零候选、零写入、不新建章、不跨章误绑）；T0b 唯一标题主作品候选生成期带 chapter:<uuid>，edit_then_accept 同章绑定成功。
+    - T1 整章只排版：真实输入「把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。」→ 候选覆盖两片段 + target_chapter_ref/modification_scope=format_only/adoption_effect=replace_scope/covered refs/expected_base_versions/base_text → 归一后与源字节等价 → 采纳同章替代、旧稿 superseded、阅读/刷新一致。
+    - T2 明确内容修订：「把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。」→ 候选仍覆盖全章、只改指定处、replace_scope 不新建章、其余逐字保留。
+    - T3 刷新/重复采纳幂等：章数/章身份/正文 hash 不变，无重复采纳入口。
+    - T4 缺 accepted ref：新作品发整章修订请求 → 澄清/拒绝（不猜、不新建章、不进入新正文写作），零写入。
 user_flow:
   - open: 真实 Tauri runner（原生窗口 + 真实前端/后端）打开 seed 作品。
-  - create: 档案→大纲与结构→生成正文草稿→修改后采纳，写入初稿（2517 字符）。
-  - create: 主输入续写第01章下一段→修改后采纳，写入零换行续写（1075 字符）；确认同章 2 场景，同名干扰章存在。
-  - send: 「把第01章已保存的正文整理修订一下，只调整分段和排版，不要改字句。」
-  - observe: 判断绑定对象、writer 材料（llm-calls prompt 是否含两段正文/锚点）、候选是否覆盖两段、无候选时诚实失败文案；候选按约定空白规则与源对照。
-  - send: 「把第01章已保存的正文里「二十五岁」改成「三十岁」，只改这一处，其余逐字不变。」
-  - observe: 候选覆盖（是否只有第一段）、采纳 target_chapter/target_chapter_ref、是否新增章、章数/章身份、旧稿是否保留、阅读投影、刷新后幂等。
-  - open: 新作品（无 accepted 正文）。
+  - create: 档案→大纲与结构→生成正文草稿→修改后采纳，写入初稿；主输入续写同章下一段→修改后采纳，写入零换行续写；确认同章 2 场景 / 2 accepted。
+  - send: 「把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。」
+  - observe: 候选卡可见目标章 + 整章排版范围；wire 候选 target_chapter_ref/modification_scope(format_only)/adoption_effect(replace_scope+covered+expected_base_versions)/base_text；候选正文含两片段独有末句；冻结归一后与整章源字节等价。
+  - click: 「保存修订稿」（作者确认；无额外弹窗）。
+  - verify: 同章替代（chapter_id/seq/章数不变），旧 draft SUPERSEDED 历史可查，阅读投影/刷新消费新值。
+  - send: 「把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。」
+  - verify: 候选覆盖全章、只改该处、target_chapter_ref 非空、采纳 replace_scope 不新建章、替换外逐字保留。
+  - refresh: 刷新页面，验证章事实/正文 hash 不变、无重复采纳入口。
+  - create: 新作品（无 accepted 正文）。
   - send: 同样的整章修订请求。
-  - observe: 缺 ref 时是否诚实拒绝/澄清，是否零写入、不静默新增章。
+  - verify: 澄清/拒绝且零写入、不新建章、不路由为新正文写作。
 evidence:
   required:
     - screenshot
@@ -54,38 +60,45 @@ evidence:
     - llm_call_jsonl
     - summary_json
   extra_artifacts:
-    - b28-cp0-evidence.json（每 trial 的 judgment/writer 材料/候选覆盖/采纳身份/章事实/阅读与刷新）
-    - b28-01-two-accepted-fragments.png
-    - b28-02-reading-after-revision-adoption.png
-    - b28-final.png
+    - b28-cp2-evidence.json
+    - b28-cp2-t1-candidate.png
+    - b28-whole-chapter-revision-02-t1-reading-after-adoption.png
+    - b28-whole-chapter-revision-03-t2-reading-after-content-adoption.png
+    - b28-cp2-final.png
   artifact_dir: artifacts/slice-verify/b28-whole-chapter-revision-tauri
 assertions:
-  # CP0 复现证据断言：只声明可机械核对的观测，不预设 B28 功能已正确。
   ui:
-    - 同章两段 accepted 正文由真实工作台生成与 edit_then_accept 写入，阅读模式显示该章。
-    - 整章修订请求后页面可见候选卡或诚实失败文案；无候选时不得宣称已整理完成。
-    - 采纳后刷新页面，不得出现重复采纳入口；同名干扰章仍在目录中。
+    - 候选卡可见目标章（第01章：夜潮）与整章排版/修订范围文案；采纳按钮为「保存修订稿」，无额外弹窗。
+    - 阅读模式显示替代后的整章正文（两片段内容在冻结归一后等价），刷新后一致。
+    - 同名干扰章不在目录中重复出现/不被合并。
   network:
-    - 整章修订请求由真实主输入触发；记录 judgment action/capability 与 writer prompt 材料覆盖。
-    - 明确改一处请求的候选/采纳帧记录 target_chapter/target_chapter_ref（缺失也如实记录）。
-    - 缺 ref 请求不产生生产写入；若产生仓促新建章则记录为待修缺口。
+    - 候选 prose artifact 顶层 target_chapter_ref = 该章 chapter:<uuid>；payload 含 modification_scope=format_only|target_segments、adoption_effect{mode:replace_scope,coverage:complete,covered:[{draft_ref,version}],expected_base_versions}、base_text。
+    - 采纳 action 与 resolved adoption 帧可核对 target/effect；adoption 结果 additive 回显 superseded_draft_refs/adoption_effect。
+    - 缺 ref 请求不出现生产写入帧；不出现 prose_writing 新创作执行。
   data:
-    - 记录 chapter_count、章 id/title/seq、场景与 accepted draft 内容/hash。
-    - 约定空白规则（去行尾空白 + 空行/连续换行归一）下，候选与初稿/整章的相等性如实记录。
-    - 采纳后记录旧 draft 状态与可回溯性、阅读投影内容、刷新后章事实。
+    - chapter_count 与 chapter_id/seq 在 T1/T2 采纳前后不变；旧 accepted draft 变为 SUPERSEDED 且历史可查；当前 accepted 只一份整章稿。
+    - format_only：normalize(candidate) == normalize(全章当前正文)；content：仅指定替换（二十五岁→三十岁），其余逐字。
+    - 刷新后正文 hash/章事实不变；重复采纳幂等。
+  llm:
+    - judgment prompt 含章级目标（chapter_ref/标题/片段数/coverage）与 modification_scope；不得退化为单 artifact/新创作。
+    - writer prompt 含全部 covered 片段全文（初稿+续写，阅读投影顺序）与 target_chapter_ref/覆盖账。
+rejection_matrix:
+  - missing_target: 无 accepted 章目标 → target_missing/澄清，零写入、不新建章。
+  - format_only_violation: 候选改字句 → 拒绝并保留原稿（本场景暂以 CP1 单测覆盖，CP4 再做端到端负例）。
+  - stale_base_version / ambiguous_target / incomplete_scope：由 CP1 单测与必要回归覆盖。
 anti_hooks:
   product_acceptance_logic_added: false
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
 anti_hooks_verification: >-
-  driver 只使用用户可见语义（主输入 placeholder、发送/生成正文草稿/修改后采纳/保存修改后
-  的版本/阅读按钮文案、页面文本）+ WS 帧 + app/llm JSONL + 隔离 DB 只读核对；未新增
-  testid/隐藏 metadata/验收开关；产品代码未为验收改动。
+  driver 只使用用户可见语义（主输入、发送、生成正文草稿、修改后采纳、保存修订稿、阅读、
+  页面可见文本）+ WS 帧 + app/llm JSONL + 隔离 DB 只读核对；未新增 testid/隐藏 metadata/
+  验收开关；产品代码未为验收改动。
 prerequisites:
-  - Q1c/B24/B25 已交付的 adopted-content revision、chapter_ref 身份与阅读投影能力。
-  - 仅 slice_verify 确定性 provider；真实模型自然语言意图归 CP4。
+  - CP1 `655220d6` + CP1.5（判断上下文/全章 writer 材料/候选 payload/回执字段）已提交。
+  - B28 场景仅在上述真实链路可跑后注册 scenarios.yml；slice_verify 确定性 fixture 提供
+    format_only/content_revision 输出语义（真实模型归 CP4）。
 known_not_closed:
-  - CP0 只复现/判断，不注册 scenarios.yml、不声明 B28 通过。
-  - deterministic provider 对「只排版」无 format_only 语义；CP0 记录候选/诚实失败现状，真实意图归 CP4。
-  - 若当前版本已阻止误导候选或已修同章采纳，仍以 b28-cp0-evidence.json 的实测值为准，不据旧 stage 失败外推。
+  - 真实模型原话/改述与排版质量归 CP4；本场景为确定性 provider 状态链证据。
+  - format_only_violation 的端到端负向本场景暂不做（避免与 T1 正例混跑）；以 CP1 单测 + CP4 实模覆盖。
