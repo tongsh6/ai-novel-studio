@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B28-WHOLE-CHAPTER-REVISION | **当前任务 / CP0 done（2026-10-25，`7950437c`+`242509dc`）**：真实 Tauri 复现并冻结目标/材料/format_only/采纳 effect/错误码契约（§7 Q01–Q08）；CP1 进行中——prose（整章目标绑定/AuthoringTaskBuilder/format_only writer 渲染，task-49）、aux（全章材料覆盖账/replace_scope 多片段事务/format_only 守卫，task-50）→ 我集成提交 → CP2 真实页面复验+场景注册（task-51）。B31 已 done；B27 CP4 known-gap 仍登记在阻塞、由 B28 format_only 承接关闭。 | [B28](slices/B28-whole-chapter-revision.md) |
+| B28-WHOLE-CHAPTER-REVISION | **当前任务 / CP0+CP1 done（2026-10-25）**：真实 Tauri 复现+契约冻结（`7950437c`/`242509dc`）；CP1（`655220d6`）AuthoringTaskBuilder.for_chapter_revision、判断章级绑定、Real format_only/content_revision、replace_scope 多片段原子事务、b28 采纳守卫，全后端 2098/0。**CP1.5 wiring 进行中**：aux（chapter_revision_context 片段/整章文本 + 章级目标列表，task-52）→ prose（章级目标进判断上下文/writer 全章文本/候选 payload 贯通，task-53）→ CP2 真实页面复验+场景注册（task-51）。B27 CP4 known-gap 由 B28 format_only 承接关闭。 | [B28](slices/B28-whole-chapter-revision.md) |
 
 ## 后续候选
 
