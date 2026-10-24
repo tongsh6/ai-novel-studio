@@ -54,7 +54,7 @@
 | CP0 | 隔离复现旧 ref 缺失/初稿+续写；冻结目标范围、格式保真、覆盖和历史身份恢复契约；列 stage 只读影响清单 | **done（2026-10-25，`e8ad1fad`）**：真实 Tauri 复现 T0–T3（同章 2 accepted、writer 只初稿、format 忠实失败、单处修订 target 空→新建章、同标题歧义拒绝、缺 ref 误路由但零写入）；契约冻结见 §7；stage 存量只读清单见 `stage-impact.md`（修复需另行授权） |
 | CP1 | 完整章节基线、版本/覆盖检查和旧来源恢复；失败路径不新建章；与 B27 共用操作语义 | **done（2026-10-25，`655220d6`）**：共享契约（`7950437c`）落地；AuthoringTaskBuilder.for_chapter_revision/1、判断章级绑定规则、Real format_only/content_revision 渲染；persistence replace_scope 多片段原子事务 + accepted_chapter_scopes、application validate_b28_contract/chapter_revision_context；全后端 2098/0 全绿。CP1.5 wiring 已提交（`1dea5ed3`）：章级目标进判断上下文、writer 全章覆盖顺序文本、候选顶层/payload provenance、采纳回执 superseded refs；全后端 2111/0。CP2 真实页面复验（task-51）进行中 |
 | CP2 | 修订候选/差异/确认→原章事务替代；旧版本与 trace 留存、幂等/回滚 | **done（2026-10-25，`29f9a03d`）**：真实 Tauri `b28-whole-chapter-revision` PASS（35/35 checks、6 trials、log_noise ok）；T0a 同名澄清阻断、T0b ref 绑同章、T1 整章排版 replace_scope（章数 2→2、旧 2 稿 superseded、归一字节等价）、T2 只改指定处其余逐字、T3 幂等、T4 缺 ref 澄清零写入；回归 b25/judgment-explore-chapter-full-read/p1/q1c 全 PASS；场景已注册 nightly |
-| CP3 | 阅读/摘要/检索/探索/后续问答同批消费新值，UI 保留作者来源和范围 | in_progress（task-56：真实页面 replace_scope 后阅读/刷新/摘要/下一轮上下文/搜索或投影消费新值 + 历史可查） |
+| CP3 | 阅读/摘要/检索/探索/后续问答同批消费新值，UI 保留作者来源和范围 | **done（2026-10-25，`4d1cf3eb`）**：真实 Tauri PASS（48/48 checks、10 trials、log_noise ok）；T5 阅读/投影 hash/字数==新 accepted 全文、刷新一致、旧 3 稿 SUPERSEDED 历史可查；T6 摘要指向新 draft 不引用旧源；T7 真实主输入→prose_search 命中新值/旧值不命中、上下文含新整章正文；T8 档案可见章身份+范围；边界（无页面搜索入口/摘要 UI 不渲染）已登记 |
 | CP4 | 新真实 Tauri 场景＋Q1c/B24/B25/续写回归；真实模型原始问法与改述验证 | in_progress（task-57：真实模型 `iq3_s` 原话/改述各一，验证判断绑章+format_only→同章替代；串行、Lead 批准） |
 | CP5 | 全门禁、静态扫描、NEXT/journey D5/ledger；数据修复未授权时如实单列，不能称 stage 数据已恢复 | todo |
 
@@ -114,3 +114,11 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - **注册**：scenarios.yml（nightly/tauri）、manifest active、README、runner；`quality_manifest_check.sh` passed；回归 b25-chapter-identity-unification、judgment-explore-chapter-full-read、p1-chapter-adoption-reading、q1c-adopted-content-revision 全 PASS。
 - **本轮修复的真实缺口**：同名章歧义守卫（`392c45e9`）、章级 execute 工具绑定（`83f1452a`）、replace_scope 后 coverage 语义（`b014c5db`）、判断/writer fixture（`09d477a1`/`1f2f8121`）；driver 仅证据解析/时序适配，未降级断言。
 - **边界**：真实模型原话/改述与排版质量归 CP4；format_only violation 端到端负例由 CP1 单测 + CP4 覆盖（known_not_closed 已登记）。
+
+### 7.7 CP3 完成记录（2026-10-25，`4d1cf3eb`）
+
+- **真实 Tauri PASS**：`quality_accept b28-whole-chapter-revision --surface tauri` → 48/48 checks、10 trials（T0a/T0b/T1–T8）、log_noise ok；证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`（保护副本 `...-cp3-pass-final-20261025T0400/`、CP3 失败批次保留）。
+- **消费面实测**：阅读投影正文 hash==新候选 DB accepted 全文（3593 字符）、有效字数 3127==正文；刷新/重进一致；当前 accepted 仅 1 条新整章稿（含三十岁、无二十五岁），旧 3 条（初稿/续写/T1 合并稿）全部 SUPERSEDED 且历史可查；摘要 2 条（maintenance ok×2），当前 ACCEPTED `revision_base=draft:3dc1fe35…` 指向新 draft、不引用旧源；真实主输入「三十岁」→prose_search 命中、「二十五岁」→未检索到，判断/post-explore prompt 含新整章正文、旧独特句不在当前上下文（pre-explore 会话历史旧正文已分级注明）；档案可见章身份、T1 候选可见目标/范围。
+- **边界/known_not_closed**：无独立页面搜索入口（真实主输入+prose_search+DB 对账）；摘要失败诚实标记归 d3-summary 场景；档案不渲染摘要正文；真实模型/排版观感归 CP4；format_only violation 端到端负例由 CP1 单测+CP4。
+- **回归**：p1/q1c 复用 CP2 PASS（其后产品/frontend 无变更）；B24/B25/judgment 已 CP2 PASS 且未被触及。
+- manifest/README 已同步（48 checks、T5–T8 断言、边界），quality_manifest_check passed；未改产品代码。

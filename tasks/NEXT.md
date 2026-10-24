@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B28-WHOLE-CHAPTER-REVISION | **当前任务 / CP0+CP1 done（2026-10-25）**：真实 Tauri 复现+契约冻结（`7950437c`/`242509dc`）；CP1（`655220d6`）AuthoringTaskBuilder.for_chapter_revision、判断章级绑定、Real format_only/content_revision、replace_scope 多片段原子事务、b28 采纳守卫，全后端 2098/0。**CP1.5 wiring 已提交（`1dea5ed3`）**：章级目标进判断上下文、writer 全章覆盖顺序文本、候选顶层/payload provenance、采纳回执 superseded refs；全后端 2111/0。**CP2 完成（`29f9a03d`）**：真实 Tauri PASS 35/35 checks/6 trials，场景注册 nightly，B24/B25/Q1c/p1 回归全 PASS。**CP3 消费面进行中**（task-56：阅读/刷新/摘要/下一轮上下文/检索或投影消费新值+历史可查）；**CP4 真实模型原话/改述进行中**（task-57，`iq3_s` 串行、Lead 批准）。B27 CP4 known-gap 由 B28 format_only 承接关闭。 | [B28](slices/B28-whole-chapter-revision.md) |
+| B28-WHOLE-CHAPTER-REVISION | **当前任务 / CP0+CP1 done（2026-10-25）**：真实 Tauri 复现+契约冻结（`7950437c`/`242509dc`）；CP1（`655220d6`）AuthoringTaskBuilder.for_chapter_revision、判断章级绑定、Real format_only/content_revision、replace_scope 多片段原子事务、b28 采纳守卫，全后端 2098/0。**CP1.5 wiring 已提交（`1dea5ed3`）**：章级目标进判断上下文、writer 全章覆盖顺序文本、候选顶层/payload provenance、采纳回执 superseded refs；全后端 2111/0。**CP2 完成（`29f9a03d`）**：真实 Tauri PASS 35/35 checks/6 trials，场景注册 nightly，B24/B25/Q1c/p1 回归全 PASS。**CP3 完成（`4d1cf3eb`）**：真实 Tauri PASS 48/48 checks/10 trials（阅读/投影/摘要/检索/下一轮上下文消费新值、旧稿历史可查）。**CP4 真实模型进行中**（task-57，`iq3_s` 单槽串行、原话/改述各 1 次 canonical，Lead 已 GO）。B27 CP4 known-gap 由 B28 format_only 承接关闭。 | [B28](slices/B28-whole-chapter-revision.md) |
 
 ## 后续候选
 
