@@ -100,3 +100,9 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 
 - **CP1 已提交 `655220d6`**：`AuthoringTaskBuilder.for_chapter_revision/1`（target_chapter_ref/covered_refs/modification_scope/expected_base_versions/coverage=complete + 可解释错误）；判断 prompt 章级绑定规则；`CreativeProvider.Real` format_only（覆盖顺序完整稿/只排版/禁续写）与 content_revision（指定范围/其余逐字/完整替换稿）；`AdoptionRepository.persist` replace_scope 分支（target/版本/覆盖校验→旧 accepted supersede→新 accepted→同章同 seq/章数不变→投影，失败整体回滚）+ `accepted_chapter_scopes/2`；`AdoptionWorkflow.validate_b28_contract/1`（target_missing/format_only 归一/差异拒绝）与 `chapter_revision_context/2`。测试：application 869/0、agent 258/0、persistence 869/0；compile/format/credo/enum/xref/arch 全绿。
 - **CP1.5 wiring（已提交 `1dea5ed3`）**：aux `chapter_revision_context` 增 materials[].text/base_text + `chapter_revision_targets/1` 章目标列表；replace_scope 结果回显 `adoption_effect`/`superseded_draft_refs`；prose 章级目标进 `accepted_targets`/judgment prompt（「可选章级修订目标」+modification_scope）、chapter:* 经 `revise_chapter` 注入全章覆盖顺序正文、候选 artifact 顶层 `target_chapter_ref` + payload `modification_scope`/`adoption_effect`/format_only `base_text`、候选标题「<章标题>（整章排版/内容修订稿）」、slice_verify 章修订 fixture（format_only 基线 / content_revision 明确 X→Y 其余逐字）。测试：application 881/0、persistence 306/0、agent 258/0；全后端 2111/0；compile/format/credo/enum/xref/arch 全绿。CP2 真实页面（task-51）进行中。
+
+### 7.5 同名章目标歧义守卫（2026-10-25，`392c45e9`）
+
+- CP2 首跑发现：planner 未给 `chapter_ref` 且目标标题命中多个同名章时，生成期按 title 唯一映射失败（ref=nil）仍生成 title-only 候选，edit 采纳落入 title 回退 `ambiguous_chapter_title`。
+- 修复：`TurnExecutionService.execute` 在 provider 调用前检测「ref=nil 且同标题章 >1」→ `MissingPolicyResult.ambiguous_chapter/1` hard block，作者可见澄清（用章卡片/章序号确认），零写入、不生成候选、不新建章；`blocked_message` 区分 ambiguous/not_found。B28 Q01「歧义不猜」落地；CP2 T0 期望按此修订（T0a 阻断澄清 + before/after 对照；T0b ref 绑定成功用主作品唯一标题候选）。
+- 测试：domain `ambiguous_chapter/1`、resolver 同名两章 ref=nil、全后端 2113/0；compile/format/credo/enum/xref/arch 全绿。
