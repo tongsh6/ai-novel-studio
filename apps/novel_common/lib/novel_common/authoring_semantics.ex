@@ -126,6 +126,21 @@ defmodule NovelCommon.AuthoringSemantics do
   @doc "语义版本（变更规则文本时必须提升并记录）。"
   def version, do: @version
 
+  # B28 CP0 冻结：章节修订/采纳拒绝错误码（应用层使用；单一真源供测试/文档对照）。
+  @revision_error_codes [
+    "target_missing",
+    "target_ambiguous",
+    "stale_base_version",
+    "cross_work_scope",
+    "duplicate_apply",
+    "incomplete_scope",
+    "format_only_violation",
+    "partial_failure"
+  ]
+
+  @doc "B28 CP0：章节修订/采纳拒绝错误码表。"
+  def revision_error_codes, do: @revision_error_codes
+
   @doc "共享规则静态段唯一真源。"
   def shared_rules, do: String.trim(@shared_rules)
 
@@ -298,7 +313,9 @@ defmodule NovelCommon.AuthoringSemantics do
         coverage_line(scope),
         base_ref_line(scope),
         base_hash_line(scope),
-        target_chapter_line(scope)
+        target_chapter_line(scope),
+        modification_scope_line(scope),
+        expected_base_versions_line(scope)
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -344,6 +361,32 @@ defmodule NovelCommon.AuthoringSemantics do
   defp non_none_coverage(nil), do: nil
   defp non_none_coverage(:none), do: nil
   defp non_none_coverage(value), do: value
+
+  defp modification_scope_line(scope) do
+    case Map.get(scope, :modification_scope) do
+      nil -> nil
+      :format_only -> "- 修订范围：仅排版（不改变字句；应用会做空白归一后的字节等价校验）"
+      :target_segments -> "- 修订范围：指定片段/段落（其余正文逐字保留）"
+      :whole_chapter -> "- 修订范围：整章（覆盖全部当前已采纳片段）"
+      other -> "- 修订范围：#{other}"
+    end
+  end
+
+  defp expected_base_versions_line(scope) do
+    case List.wrap(Map.get(scope, :expected_base_versions)) do
+      [] ->
+        nil
+
+      versions ->
+        rendered =
+          Enum.map_join(versions, "、", fn
+            %{ref: ref, version: version} -> "#{ref}=v#{version}"
+            other -> inspect(other)
+          end)
+
+        "- 期望基线版本（stale 校验）：#{rendered}"
+    end
+  end
 
   defp preserve_section(%AuthoringTask{preserve: preserve}) do
     preserve = Enum.reject(List.wrap(preserve), &(&1 in [nil, ""]))
@@ -481,7 +524,24 @@ defmodule NovelCommon.AuthoringSemantics do
     end
   end
 
-  defp validate_scope(%AuthoringTask{kind: kind} = task) do
+  defp validate_scope(%AuthoringTask{} = task) do
+    case validate_modification_scope(task) do
+      :ok -> validate_scope_required(task)
+      other -> other
+    end
+  end
+
+  # B28 CP0：章级修订（whole_chapter/format_only + target_chapter_ref）以章身份+期望版本
+  # 作为基线，不强制单 artifact base_ref；其余修订仍必须给出 base_ref。
+  defp base_identity_missing?(scope, base_ref) do
+    chapter_scoped? =
+      Map.get(scope, :modification_scope) in [:whole_chapter, :format_only] and
+        not is_nil(Map.get(scope, :target_chapter_ref))
+
+    (is_nil(base_ref) or base_ref == "") and not chapter_scoped?
+  end
+
+  defp validate_scope_required(%AuthoringTask{kind: kind} = task) do
     if kind in AuthoringTask.scoped_kinds() do
       scope = task.scope || %{}
       refs = List.wrap(Map.get(scope, :refs))
@@ -495,7 +555,7 @@ defmodule NovelCommon.AuthoringSemantics do
         coverage == :none ->
           {:error, {:authoring_task_invalid, {:scope_coverage_required, kind}}}
 
-        is_nil(base_ref) or base_ref == "" ->
+        base_identity_missing?(scope, base_ref) ->
           {:error, {:authoring_task_invalid, {:base_ref_required, kind}}}
 
         true ->
@@ -504,6 +564,69 @@ defmodule NovelCommon.AuthoringSemantics do
     else
       :ok
     end
+  end
+
+  # B28 CP0：章节修订范围/基线版本/format_only 的机械不变量（契约级校验；
+  # 章身份与覆盖集合的运行时校验由 application 负责）。
+  defp validate_modification_scope(%AuthoringTask{} = task) do
+    scope = task.scope || %{}
+    modification_scope = Map.get(scope, :modification_scope)
+
+    cond do
+      invalid_modification_scope?(modification_scope) ->
+        {:error, {:authoring_task_invalid, {:modification_scope_invalid, modification_scope}}}
+
+      format_only_wrong_effect?(task, modification_scope) ->
+        {:error,
+         {:authoring_task_invalid, {:format_only_requires_revise_effect, task.operation_effect}}}
+
+      format_only_without_target?(scope, modification_scope) ->
+        {:error, {:authoring_task_invalid, {:format_only_target_required, task.kind}}}
+
+      whole_chapter_incomplete_coverage?(scope, modification_scope) ->
+        {:error, {:authoring_task_invalid, {:whole_chapter_coverage_required, task.kind}}}
+
+      not valid_expected_base_versions?(List.wrap(Map.get(scope, :expected_base_versions))) ->
+        {:error, {:authoring_task_invalid, {:expected_base_versions_invalid, task.kind}}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp invalid_modification_scope?(nil), do: false
+
+  defp invalid_modification_scope?(scope),
+    do: scope not in AuthoringTask.modification_scopes()
+
+  defp format_only_wrong_effect?(task, :format_only),
+    do: task.operation_effect != :revise_candidate
+
+  defp format_only_wrong_effect?(_task, _scope), do: false
+
+  defp format_only_without_target?(scope, :format_only) do
+    is_nil(Map.get(scope, :target_chapter_ref)) and is_nil(Map.get(scope, :base_ref))
+  end
+
+  defp format_only_without_target?(_scope, _modification_scope), do: false
+
+  defp whole_chapter_incomplete_coverage?(scope, :whole_chapter),
+    do: Map.get(scope, :coverage, :none) != :complete
+
+  defp whole_chapter_incomplete_coverage?(_scope, _modification_scope), do: false
+
+  defp valid_expected_base_versions?(versions) do
+    Enum.all?(versions, fn version ->
+      case version do
+        %{} = entry ->
+          ref = Map.get(entry, :ref) || Map.get(entry, "ref")
+          number = Map.get(entry, :version) || Map.get(entry, "version")
+          is_binary(ref) and ref != "" and is_integer(number) and number > 0
+
+        _other ->
+          false
+      end
+    end)
   end
 
   # 修订/重写必须显式给出保留项，避免「后段规则覆盖前段」的扩范围风险。

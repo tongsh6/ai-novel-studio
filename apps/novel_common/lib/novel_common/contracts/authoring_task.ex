@@ -111,6 +111,9 @@ defmodule NovelCommon.Contracts.AuthoringTask do
         }
 
   @enforce_keys [:kind, :operation_effect, :output_contract]
+
+  # B28 CP0：章节修订范围（additive；format_only 为「只排版不改字句」的机械可校验模式）。
+  @modification_scopes [:format_only, :target_segments, :whole_chapter]
   defstruct [
     :kind,
     :author_goal,
@@ -128,6 +131,9 @@ defmodule NovelCommon.Contracts.AuthoringTask do
 
   @doc "全部合法任务类型（单一真源）。"
   def kinds, do: @kinds
+
+  @doc "B28 CP0：章节修订范围枚举。"
+  def modification_scopes, do: @modification_scopes
 
   @doc "coverage 合法值。"
   def coverage_values, do: @coverage_values
@@ -228,9 +234,34 @@ defmodule NovelCommon.Contracts.AuthoringTask do
     |> maybe_put(:base_ref, optional_string(fetch(scope, :base_ref)))
     |> maybe_put(:base_hash, optional_string(fetch(scope, :base_hash)))
     |> maybe_put(:target_chapter_ref, optional_string(fetch(scope, :target_chapter_ref)))
+    |> maybe_put(:modification_scope, modification_scope_field(fetch(scope, :modification_scope)))
+    |> maybe_put(
+      :expected_base_versions,
+      normalize_expected_base_versions(fetch(scope, :expected_base_versions))
+    )
   end
 
   defp normalize_scope(_scope), do: %{refs: [], coverage: :none}
+
+  defp modification_scope_field(nil), do: nil
+  defp modification_scope_field(value) when value in @modification_scopes, do: value
+
+  defp modification_scope_field(value) when is_binary(value) do
+    Enum.find(@modification_scopes, &(Atom.to_string(&1) == value))
+  end
+
+  defp modification_scope_field(_value), do: nil
+
+  defp normalize_expected_base_versions(versions) when is_list(versions) do
+    versions
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn version ->
+      %{ref: optional_string(fetch(version, :ref)), version: fetch(version, :version)}
+    end)
+    |> Enum.reject(&(is_nil(&1.ref) or not is_integer(&1.version)))
+  end
+
+  defp normalize_expected_base_versions(_versions), do: []
 
   defp normalize_materials(materials) when is_list(materials) do
     materials

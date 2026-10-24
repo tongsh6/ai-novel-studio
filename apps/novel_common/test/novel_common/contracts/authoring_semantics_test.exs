@@ -102,6 +102,7 @@ defmodule NovelCommon.AuthoringSemanticsTest do
 
   test "validate rejects author-driven task without author source" do
     bad = task(%{author_goal: nil, author_words: nil})
+
     assert {:error, {:authoring_task_invalid, {:author_source_missing, :first_draft}}} =
              AuthoringSemantics.validate(bad)
   end
@@ -175,13 +176,19 @@ defmodule NovelCommon.AuthoringSemanticsTest do
         preserve: ["x"]
       })
 
-    expected = {:authoring_task_invalid, {:effect_mismatch, :revision, [:revise_candidate], :create_candidate}}
+    expected =
+      {:authoring_task_invalid,
+       {:effect_mismatch, :revision, [:revise_candidate], :create_candidate}}
 
     assert {:error, ^expected} = AuthoringSemantics.validate(bad)
   end
 
   test "JSON-safe roundtrip keeps task semantics and validates" do
-    task = revision(%{materials: [%{kind: :prose, ref: "as_1", complete?: false, omission_note: "片段"}]})
+    task =
+      revision(%{
+        materials: [%{kind: :prose, ref: "as_1", complete?: false, omission_note: "片段"}]
+      })
+
     map = AuthoringTask.to_map(task)
 
     assert map["kind"] == :revision
@@ -202,7 +209,9 @@ defmodule NovelCommon.AuthoringSemanticsTest do
   test "validate rejects stale semantic version" do
     bad = task(%{semantic_version: "b27-semantics-v0"})
 
-    expected = {:authoring_task_invalid, {:semantic_version_mismatch, "b27-semantics-v1", "b27-semantics-v0"}}
+    expected =
+      {:authoring_task_invalid,
+       {:semantic_version_mismatch, "b27-semantics-v1", "b27-semantics-v0"}}
 
     assert {:error, ^expected} = AuthoringSemantics.validate(bad)
   end
@@ -217,7 +226,8 @@ defmodule NovelCommon.AuthoringSemanticsTest do
         materials: []
       })
 
-    assert {:error, {:authoring_task_invalid, {:required_materials_missing, :quality_evaluation, _}}} =
+    assert {:error,
+            {:authoring_task_invalid, {:required_materials_missing, :quality_evaluation, _}}} =
              AuthoringSemantics.validate(eval)
 
     ok = %{eval | materials: [%{kind: :prose, ref: "as_1", complete?: true}]}
@@ -248,7 +258,13 @@ defmodule NovelCommon.AuthoringSemanticsTest do
         revision(%{
           scope: %{refs: ["as_1"], coverage: :single, base_ref: "as_1", base_hash: "sha256:abc"},
           materials: [
-            %{kind: :prior_prose, ref: "chapter:one", complete?: false, omission_note: "仅末尾 2000 字", version: 3}
+            %{
+              kind: :prior_prose,
+              ref: "chapter:one",
+              complete?: false,
+              omission_note: "仅末尾 2000 字",
+              version: 3
+            }
           ]
         })
       )
@@ -278,5 +294,129 @@ defmodule NovelCommon.AuthoringSemanticsTest do
     assert dynamic =~ "failed"
     assert dynamic =~ "生成失败，无候选"
     assert dynamic =~ "as_1"
+  end
+
+  # ── B28 CP0：章节修订范围/format_only/基线版本 ──────────────
+
+  test "modification_scope enums and format_only rules are mechanically validated" do
+    assert AuthoringTask.modification_scopes() == [
+             :format_only,
+             :target_segments,
+             :whole_chapter
+           ]
+
+    format_task =
+      revision(%{
+        scope: %{
+          refs: ["draft:1", "draft:2"],
+          coverage: :complete,
+          target_chapter_ref: "chapter:one",
+          modification_scope: :format_only,
+          expected_base_versions: [%{ref: "draft:1", version: 2}]
+        }
+      })
+
+    assert {:ok, _task} = AuthoringSemantics.validate(format_task)
+
+    assert {:error, {:authoring_task_invalid, {:modification_scope_invalid, :bogus}}} =
+             AuthoringSemantics.validate(
+               revision(%{
+                 scope: %{
+                   refs: ["as_1"],
+                   coverage: :single,
+                   base_ref: "as_1",
+                   modification_scope: :bogus
+                 }
+               })
+             )
+
+    assert {:error,
+            {:authoring_task_invalid,
+             {:effect_mismatch, :revision, [:revise_candidate], :create_candidate}}} =
+             AuthoringSemantics.validate(
+               revision(%{
+                 operation_effect: :create_candidate,
+                 scope: %{
+                   refs: ["as_1"],
+                   coverage: :single,
+                   base_ref: "as_1",
+                   modification_scope: :format_only
+                 }
+               })
+             )
+
+    assert {:error, {:authoring_task_invalid, {:format_only_target_required, :revision}}} =
+             AuthoringSemantics.validate(
+               revision(%{
+                 scope: %{refs: ["as_1"], coverage: :single, modification_scope: :format_only}
+               })
+             )
+
+    assert {:error, {:authoring_task_invalid, {:whole_chapter_coverage_required, :revision}}} =
+             AuthoringSemantics.validate(
+               revision(%{
+                 scope: %{
+                   refs: ["draft:1"],
+                   coverage: :partial,
+                   base_ref: "as_1",
+                   modification_scope: :whole_chapter
+                 }
+               })
+             )
+
+    assert {:error, {:authoring_task_invalid, {:expected_base_versions_invalid, :revision}}} =
+             AuthoringSemantics.validate(
+               revision(%{
+                 scope: %{
+                   refs: ["as_1"],
+                   coverage: :single,
+                   base_ref: "as_1",
+                   expected_base_versions: [%{ref: "as_1", version: "two"}]
+                 }
+               })
+             )
+  end
+
+  test "scope roundtrip preserves modification_scope/expected_base_versions and renders them" do
+    format_task =
+      revision(%{
+        scope: %{
+          refs: ["draft:1", "draft:2"],
+          coverage: :complete,
+          target_chapter_ref: "chapter:one",
+          modification_scope: :format_only,
+          expected_base_versions: [%{ref: "draft:1", version: 2}, %{ref: "draft:2", version: 1}]
+        }
+      })
+
+    map = AuthoringTask.to_map(format_task)
+    assert map["scope"][:modification_scope] == :format_only
+
+    assert map["scope"][:expected_base_versions] == [
+             %{ref: "draft:1", version: 2},
+             %{ref: "draft:2", version: 1}
+           ]
+
+    restored = AuthoringTask.from_map(map)
+    assert restored.scope.modification_scope == :format_only
+
+    assert restored.scope.expected_base_versions == [
+             %{ref: "draft:1", version: 2},
+             %{ref: "draft:2", version: 1}
+           ]
+
+    dynamic = AuthoringSemantics.dynamic_block(restored)
+    assert dynamic =~ "仅排版"
+    assert dynamic =~ "期望基线版本"
+    assert dynamic =~ "draft:1=v2"
+  end
+
+  test "revision error codes are frozen single source" do
+    codes = AuthoringSemantics.revision_error_codes()
+
+    assert length(codes) == 8
+    assert "format_only_violation" in codes
+    assert "incomplete_scope" in codes
+    assert "target_missing" in codes
   end
 end
