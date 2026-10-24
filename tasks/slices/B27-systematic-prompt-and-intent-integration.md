@@ -421,3 +421,10 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
   - **真产品/模型**：M02 r1/r2（仅索引事实却给“骨架/未成型”质量结论，超 allowed path）、M03r2（读 12000/34357 后响应 `'-'` 空收束）、M06r2（ask_author 后未见作者选择却推进 as_m06_a）、M16r1（已读全章并生成草稿但未回答“当前最终用哪版”）、M18 r1/r2（仍直接 ask_author 未先 explore）。
   - **harness 证据缺陷（非产品失败）**：M07 r1/r2 假阴性（候选差异仅结尾换行，证据缺全文/归一化）；M20r1 假阴性（facts char_count 217 vs seed 218 末尾换行 + `content_length_evidence` atom-key 取值 bug=0）。修复后 retest4 至少 33/40。
 - 披露：old 单轮不对称、judge 单模型无人工复核、LM 观察未跑。本批不得当 PASS 证据，CP4 不标 done。
+
+#### CP4 修复批记录（Round 7，2026-10-24，两笔提交）
+
+- **证据修复**（`d77fcc81`）：M07 文本级 diff（source/item 全文截断+sha、text_equal_ignore_trailing_newlines、char_delta、first_diff_offset、diff_summary；实测 retest4 M07 差异仅为末尾 `\n`，属排版允许）+ judge 规则；M20 修 `content_length_evidence.facts_*_total=0` 的 atom/string key bug，增 body_chars_normalized/trailing_newline_delta/facts_char_count_total_normalized 与换行口径规则（217 vs 218 不矛盾）。README §5.5 #16-18 / R6。
+- **产品修复**（`42d5b3f3`）：M02 统计/索引问题只答进度事实、不得凭统计下质量结论；M03 纯标点/占位/工具调用 XML content 视为空内容→有界 correction；M06 上轮 ask_author 未获回答时纠错重试改 execute/revise 指向候选 → `await_author_unanswered` 拒绝；M16 多意图请求先答版本再给草稿结果；M18 指代资料优先查 prose_search/chapter_read 正文。测试 judgment 44/0、application 852/0、agent 255/0。
+- 定向 probe（`probe-r7-20261024-222425/`，5 episode，0 provider_error）：M06 key_set 残余修复生效（ask_author 列 A/B 未推进）；M02/M03 暴露 provider 把工具调用写成 XML content 的新格式→已加 sanitization；M16 版本回答仍残余；M18 已先 explore，工具选择/预算属 plan/context 域。
+- **retest5**（task-35）进行中：一次 canonical 80 + 盲评 §6.1；本记录不构成 CP4 PASS。
