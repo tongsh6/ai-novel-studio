@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**。**CP4 retest5 FAIL（但证据修复全生效：M07/M20 转 PASS，ZT/uq 保持 0）**：remaining 5 unavailable 均为产品协议终局（M03 explore_not_available、M14r2 alternative_not_available、M16r1 plan_args、M17r1 pseudo-tool narrative）→ unavailable 5/40、key_set 3、overall 0.70。Round 8：① 协议拒绝纠错/降级（不再硬终局）；② 语义 M02/M08r2/M10/M18；③ retest6 新预注册批次。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**；**CP4 retest5 FAIL（协议终局）**。Round 8 修复已提交（`155cf47c` 协议纠错/降级+M02/M10/M08/M16/M18；`47a0fffb` M08 段落口径+争议 case 第二方复核）；**retest6（task-38，最后一次全量）进行中**：一次 canonical 80 + 盲评 §6.1 + 争议 case 旁路复核。作者裁决：retest6 未达硬门槛则记录 FAIL/known-gap 并转 B31；旧臂单轮基线保持、M07 归 B28、争议 case 加第二方复核。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 

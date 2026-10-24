@@ -437,3 +437,18 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - **证据修复全部验证生效**：M07 r1/r2 PASS（文本级 diff 按“仅末尾换行=排版允许”判）、M20 r1/r2 PASS（char_count 217/归一化 217/有效字数 186 双口径生效）；M06 r2、M16 r2、M17 r2 PASS。
 - 回退性质：协议拦截过严/无降级把原语义失败变成不可用终局（M03/M14r2/M17r1），直接打掉 key_set。产品语义残余：M02 r1/r2 仍尝试读正文/引用细节、M08 r2 修改非目标段、M10 r1/r2 分析任务 propose_creative_directions 物化（回归）、M18 r1/r2 误称探索不可用（实际 prose_search/session_adoptions 已成功）。
 - 下一修复方向：① 协议拒绝优先纠错回执/降级（exploration_not_available→预算耗尽说明+基于已读范围 reply；alternative_operation_not_available→列真实可用替代；judgment_narrative_required→丢弃伪工具文本并纠错；invalid_plan_tool_arguments→字段级纠错/重试可达）；② 语义 M02/M08r2/M10/M18。retest6 前置。本批不得当 PASS 证据，CP4 不标 done。
+
+#### CP4 作者裁决（2026-10-24，人工介入决策）
+
+- **出口策略**：Round 8 修复后执行 **retest6**；若仍未达 §6.1 硬门槛（overall≥36/40 且 key_set 全过），**记录 FAIL/known-gap 并转入 B31 队列**，不再继续全量 retest 循环；后续在 B28/产品硬化周期回归。
+- **基线/范围**：旧臂保持 CP0 单轮基线现状，`not_below_old` 仅作披露（不重冻续行快照）；M07「仅排版」按 B28 `format_only` 范围处理，不在 B27 实现。
+- **Judge 策略**：仅对门限附近/争议 case 增加第二 judge 或人工复核，其余保持单 judge 并披露局限。
+- **过程改进**：官方 retest 封顶（retest6 为最后一次全量）；增加 integrated-only 预检与定向 case 验证，避免用全量 retest 当产品单测。
+
+#### CP4 修复批记录（Round 8，2026-10-24，最后一次全量 retest 前置）
+
+- **协议纠错/降级**（`155cf47c`）：exploration_not_available / judgment_narrative_required 改为有界重试（3 次），探索最终不可用时降级为 provider 可见文本 reply（N-NARR 可追溯），不再硬终局；伪工具 XML content 丢弃 + correction；capability_gap alternative refs 过滤无效项保留真实可用项；M02 统计/索引直答、M10 分析零物化 + 已有充分事实直接 reply、M08 修订目标段/范围保持；M16 planner 纠错回执注入真实 targets + 失败族指引、inline plan 非法降级切 judgment_plan 重试；M18 探索预算状态机械事实段（预算用尽≠系统无能力）。
+- **证据准备**（`47a0fffb`）：M08 段落口径按 fixture prose 数组/空行分段（非按行计数）+ revised paragraphs 证据；新增 `b27_second_review`（select/human/judge 旁路，does_not_change_main_score=true；按作者裁决仅争议 case 复核）。
+- 定向 probe（probe-r8，6/6 ok、0 unavailable）：M03 全章通读+依据、M14 capability_gap 正确、M17 A/B 比较、M02 直接索引 reply、M10 零物化、M08 execute 目标段修改；M10 首决策 explore 路径口径已补规则（分析类充分事实直接 reply）。
+- 门禁：application 859/0、agent 255/0；compile/credo/enum/xref/arch/I1/I2/I3、snapshots 20/20 全绿。
+- **retest6（task-38）进行中**：最后一次全量 canonical 80 + 盲评 §6.1 + 争议 case 第二方复核；若未达硬门槛按作者裁决记录 FAIL/known-gap 并转 B31。
