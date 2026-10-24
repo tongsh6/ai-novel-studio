@@ -644,4 +644,168 @@ defmodule NovelApplication.JudgmentProtocolTest do
                input()
              )
   end
+
+  test "证据纪律规则在判断 prompt 中唯一且明确" do
+    prompt = JudgmentProtocol.prompt(input())
+    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+
+    assert String.split(content, "## 对象与版本证据纪律（先取证/消歧，再操作）") |> length() == 2
+    assert content =~ "只能引用本轮上下文或观察中真实列出的 ref"
+    assert content =~ "不得编造 ref"
+    assert content =~ "存在多个候选（pending_adoption_count > 1）"
+    assert content =~ "不得猜“最新/首条/最近讨论”"
+    assert content =~ "修改权威版本"
+    assert content =~ "只讨论/比较时不改变 canon"
+    assert content =~ "不得把建议包装成系统已定"
+    assert content =~ "execute 只填一个目标 ref 字段"
+
+    decision = Enum.find(prompt.tools, &(&1.name == "judgment_decision"))
+    assert decision.description =~ "对象/版本操作只引用上下文中真实存在的 ref"
+
+    # task-22 上下文覆盖事实的收束规则（M03）：未覆盖末页不得声称已读全章
+    assert content =~ "覆盖事实约束"
+    assert content =~ "不得声称已读全章或全章无矛盾"
+    assert String.split(content, "覆盖事实约束") |> length() == 2
+  end
+
+  test "引用不存在的目标 ref：纠错给出真实 ref/取证指引，修复后可执行" do
+    ghost =
+      execute_call(%{
+        "capability" => "revise_pending_artifact",
+        "pending_artifact_ref" => "as_ghost"
+      })
+
+    real =
+      execute_call(%{
+        "capability" => "revise_pending_artifact",
+        "pending_artifact_ref" => "as_real"
+      })
+
+    opts = [
+      capabilities: ["revise_pending_artifact"],
+      pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
+    ]
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [ghost]), response("", [real])]),
+               %{},
+               input(opts)
+             )
+
+    assert judgment.action == "execute"
+    assert judgment.pending_artifact_ref == "as_real"
+    assert judgment.provider_call_count == 2
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "target_not_available"
+    assert correction =~ "只能引用当前上下文/观察中真实列出的"
+    assert correction =~ "session_adoptions"
+    assert correction =~ "不得编造 ref"
+  end
+
+  test "引用不存在的目标 ref 且纠正后仍不存在 → 终局拒绝" do
+    ghost =
+      execute_call(%{
+        "capability" => "revise_pending_artifact",
+        "pending_artifact_ref" => "as_ghost"
+      })
+
+    opts = [
+      capabilities: ["revise_pending_artifact"],
+      pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
+    ]
+
+    assert {:error, {:pending_artifact_invalid, :target_not_available}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [ghost]), response("", [ghost])]),
+               %{},
+               input(opts)
+             )
+  end
+
+  test "候选 ref 与已采纳 ref 字段混填 → 字段纠错，修复后可执行" do
+    mixed =
+      execute_call(%{
+        "capability" => "revise_pending_artifact",
+        "pending_artifact_ref" => "as_real",
+        "adopted_content_ref" => "as_real"
+      })
+
+    clean =
+      execute_call(%{
+        "capability" => "revise_pending_artifact",
+        "pending_artifact_ref" => "as_real"
+      })
+
+    opts = [
+      capabilities: ["revise_pending_artifact"],
+      pending_artifact_targets: %{"as_real" => ["revise_pending_artifact"]}
+    ]
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [mixed]), response("", [clean])]),
+               %{},
+               input(opts)
+             )
+
+    assert judgment.action == "execute"
+    assert judgment.pending_artifact_ref == "as_real"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "target_ref_field_conflict"
+    assert correction =~ "不得同时填两个"
+  end
+
+  defp execute_call(overrides) do
+    call(
+      "judgment_decision",
+      Map.merge(
+        %{"action" => "execute", "dialogue_goal" => "修改候选", "reason" => "按作者要求修改。"},
+        overrides
+      )
+    )
+  end
+
+  test "可见收束/收下资料零菜单规则在判断 prompt 中明确" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "最终答复收束"
+    assert content =~ "不得只写内部推理、计划或过渡语"
+    assert content =~ "工具参数不能替代作者可见答复"
+    assert content =~ "用 propose_creative_directions 时 content 必须逐条写出每个方向的标题与一句话走向"
+    assert content =~ "作者只要求收下资料/只聊不展开时"
+    assert content =~ "零方向菜单、零候选/登记"
+
+    # 唯一性：关键规则只出现一次，避免多段复制后含义漂移
+    assert String.split(content, "最终答复收束") |> length() == 2
+    assert String.split(content, "零方向菜单、零候选/登记") |> length() == 2
+  end
+
+  test "M13：其它厂商 reasoning 占位变体也被去除，不泄漏给作者" do
+    text =
+      "[Assistant reasoning - internal content, not shown to author]\n" <>
+        "作者要求先收下资料；这里只确认收到，不展开。"
+
+    result = response(text, [])
+
+    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+    assert judgment.narrative == "作者要求先收下资料；这里只确认收到，不展开。"
+    refute judgment.narrative =~ "assistant reasoning"
+  end
+
+  test "ask_author 正式通道与能力缺口/排版裁量规则在 prompt 中明确" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "必须用 ask_author 工具提出具体问题"
+    assert content =~ "不能用普通 reply 里的问句或说明代替 ask_author"
+    assert content =~ "不得用 report_capability_gap"
+    assert content =~ "作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact"
+    assert String.split(content, "必须用 ask_author 工具提出具体问题") |> length() == 2
+  end
 end

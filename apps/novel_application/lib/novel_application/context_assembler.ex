@@ -210,7 +210,33 @@ defmodule NovelApplication.ContextAssembler do
         volume_blueprint:
           chapter
           |> get_any([:volume_blueprint, "volume_blueprint"])
-          |> normalize_volume_blueprint()
+          |> normalize_volume_blueprint(),
+        # B27 CP4 retest2 根因修复（task-22）：作品事实白名单透传——生产 fetcher
+        # （WorkspaceContext.fetch_structured_chapters）按章并入的持久化只读事实
+        # 必须穿过归一化，否则判断 prompt 的「作品事实」块只剩 0/未知。
+        # additive keys：既有消费者按 title/seq/plan 读取不受影响。
+        word_count: chapter |> get_any([:word_count, "word_count"]) |> normalize_integer(),
+        accepted_draft_count:
+          chapter
+          |> get_any([:accepted_draft_count, "accepted_draft_count"])
+          |> normalize_integer(),
+        scene_count: chapter |> get_any([:scene_count, "scene_count"]) |> normalize_integer(),
+        superseded_draft_count:
+          chapter
+          |> get_any([:superseded_draft_count, "superseded_draft_count"])
+          |> normalize_integer(),
+        current_draft_refs:
+          chapter
+          |> get_any([:current_draft_refs, "current_draft_refs"])
+          |> normalize_string_list(),
+        chapter_status:
+          chapter |> get_any([:chapter_status, "chapter_status"]) |> normalize_optional_text(),
+        summary_status:
+          chapter |> get_any([:summary_status, "summary_status"]) |> normalize_optional_text(),
+        summary_revision_base:
+          chapter
+          |> get_any([:summary_revision_base, "summary_revision_base"])
+          |> normalize_optional_text()
       }
     end
   end
@@ -251,6 +277,15 @@ defmodule NovelApplication.ContextAssembler do
   end
 
   defp normalize_integer(_), do: nil
+
+  defp normalize_string_list(values) when is_list(values) do
+    values
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_string_list(_), do: []
 
   defp normalize_has_prose(value) when is_boolean(value), do: value
   defp normalize_has_prose(value) when is_integer(value), do: value > 0

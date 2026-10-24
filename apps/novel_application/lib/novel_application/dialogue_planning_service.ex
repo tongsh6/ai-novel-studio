@@ -509,11 +509,40 @@ defmodule NovelApplication.DialoguePlanningService do
               "### 观察 #{index}（#{observation.tool}「#{observation.query}」）\n#{observation.summary}"
             end)
 
-          "\n\n## 探索观察（已检索到的作品事实）\n\n" <> rendered <> continue_hint(list, budget)
+          "\n\n## 探索观察（已检索到的作品事实）\n\n" <>
+            rendered <> coverage_note(list) <> continue_hint(list, budget)
       end
 
     catalog <> observations
   end
+
+  # B27 CP4 retest2（task-22）：每轮给出机械覆盖事实（已读字符/总长/未读范围）。
+  # 未覆盖末页时明确「不得声称已读全章」；已覆盖全章时明确「已覆盖全章」。
+  defp coverage_note(explorations) do
+    case List.last(explorations) do
+      %{tool: "chapter_read"} = observation -> coverage_text_for(observation)
+      _ -> ""
+    end
+  end
+
+  defp coverage_text_for(observation) do
+    total = Map.get(observation, :prose_total_chars)
+    read_end = get_in(observation, [:prose_range, :end]) || Map.get(observation, :next_offset)
+    coverage_text(total, read_end)
+  end
+
+  defp coverage_text(total, read_end)
+       when is_integer(total) and is_integer(read_end) and read_end >= total,
+       do: "\n\n（覆盖事实：本章正文已读 1–#{total}/#{total} 字符，已覆盖全章。）"
+
+  defp coverage_text(total, read_end) when is_integer(total) and is_integer(read_end) do
+    "\n\n（覆盖事实：本章正文已读 1–#{read_end}/#{total} 字符；" <>
+      "未读 #{read_end + 1}–#{total} 字符，未覆盖末页——" <>
+      "回答全章结论前必须继续读取，或在结论中明确已覆盖范围与未读缺口，" <>
+      "不得声称已读全章。）"
+  end
+
+  defp coverage_text(_total, _read_end), do: ""
 
   # B27 CP4 M03：给模型显式「已读覆盖/总长/下一页」事实与续读阶段约束（事实段，
   # 不冒充全文；是否继续取证仍由模型判断）。
@@ -523,25 +552,30 @@ defmodule NovelApplication.DialoguePlanningService do
 
     if is_map(observation) and is_map(continuation) and
          is_integer(Map.get(continuation, :next_offset)) do
-      coverage =
-        case continuation do
-          %{total: total, read_end: read_end} when is_integer(total) and is_integer(read_end) ->
-            "已读约 #{read_end}/#{total} 字符"
-
-          _ ->
-            "本章尚未读完"
-        end
-
-      stage =
-        if Map.get(budget, :continuation_only?, false),
-          do: "本轮剩余探索额度只用于该章续读：必须继续读取后续页，读完末页（next_offset 为 null）后再给出结论。",
-          else: ""
-
-      "\n\n（本章还有未读正文：#{coverage}；下一轮用 chapter_read + 上一页【续读】给出的 query " <>
-        "继续读取；不要重复读取同一页。#{stage}）"
+      "\n\n（本章还有未读正文：#{continuation_coverage(continuation)}#{continuation_unread(continuation)}；" <>
+        "下一轮用 chapter_read + 上一页【续读】给出的 query 继续读取；不要重复读取同一页。" <>
+        "未覆盖末页时不得声称已读全章，需继续读取或以明确缺口收束。#{continuation_stage(budget)}）"
     else
       ""
     end
+  end
+
+  defp continuation_coverage(%{total: total, read_end: read_end})
+       when is_integer(total) and is_integer(read_end),
+       do: "已读约 #{read_end}/#{total} 字符"
+
+  defp continuation_coverage(_continuation), do: "本章尚未读完"
+
+  defp continuation_unread(%{total: total, read_end: read_end})
+       when is_integer(total) and is_integer(read_end) and read_end < total,
+       do: "；未读 #{read_end + 1}–#{total} 字符"
+
+  defp continuation_unread(_continuation), do: ""
+
+  defp continuation_stage(budget) do
+    if Map.get(budget, :continuation_only?, false),
+      do: "本轮剩余探索额度只用于该章续读：必须继续读取后续页，读完末页（next_offset 为 null）后再给出结论。",
+      else: ""
   end
 
   # ── B27 CP4 M03/M17：探索预算、计划内联执行、作品事实块 ──

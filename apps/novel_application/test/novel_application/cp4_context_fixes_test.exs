@@ -55,6 +55,19 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert Enum.any?(prompts, &String.contains?(&1, "已读约 12000/34357 字符"))
     assert Enum.any?(prompts, &String.contains?(&1, "本轮剩余探索额度只用于该章续读"))
 
+    # 未读末页（已读 1–30000/34357）时 prompt 必须给出覆盖缺口事实，
+    # 并明确不得声称已读全章（retest2 M03r2 口径）。
+    partial_prompt =
+      Enum.find(prompts, fn prompt ->
+        String.contains?(prompt, "## 探索观察") and
+          length(String.split(prompt, "### 观察 ")) - 1 == 5
+      end)
+
+    assert partial_prompt
+    assert partial_prompt =~ "覆盖事实：本章正文已读 1–30000/34357 字符"
+    assert partial_prompt =~ "未读 30001–34357 字符"
+    assert partial_prompt =~ "不得声称已读全章"
+
     # 读完整章（6 页）后的判断 prompt 关闭探索目录，模型必须收束
     final_prompt =
       Enum.find(prompts, fn prompt ->
@@ -64,6 +77,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
     assert final_prompt
     assert final_prompt =~ @long_tail_anchor
+    assert final_prompt =~ "覆盖事实：本章正文已读 1–34357/34357 字符，已覆盖全章"
     refute final_prompt =~ "## 探索目录"
   end
 
@@ -271,6 +285,81 @@ defmodule NovelApplication.CP4ContextFixesTest do
 
     assert {:error, {:pending_artifact_invalid, :candidate_content_unavailable}} =
              PendingArtifactWorkflow.run(judgment, %{}, run, context, provider)
+  end
+
+  # ── retest2 根因回归：fetch → ContextAssembler 链保留 chapter_facts ──
+
+  test "生产 fetch 链把 chapter_facts 带进判断作品事实块（白名单透传回归）" do
+    {:ok, work} = WorkService.create(%{"title" => "事实链作品"})
+
+    volume =
+      %Volume{} |> Volume.changeset(%{work_id: work.id, title: "卷一", seq: 1}) |> Repo.insert!()
+
+    chapter =
+      %Chapter{}
+      |> Chapter.changeset(%{
+        work_id: work.id,
+        volume_id: volume.id,
+        title: "第01章：灯楼夜雨",
+        seq: 1,
+        status: "COMPLETED"
+      })
+      |> Repo.insert!()
+
+    scene =
+      %Scene{}
+      |> Scene.changeset(%{work_id: work.id, chapter_id: chapter.id, title: "场1", seq: 1})
+      |> Repo.insert!()
+
+    old_draft =
+      %Draft{}
+      |> Draft.changeset(%{
+        work_id: work.id,
+        scene_id: scene.id,
+        content: "旧版本正文（已被替换，不计入当前）。",
+        status: AdoptionStatus.accepted(),
+        revision: 1
+      })
+      |> Repo.insert!()
+
+    {:ok, _superseded} = Repo.update(Draft.supersede_changeset(old_draft))
+
+    %Draft{}
+    |> Draft.changeset(%{
+      work_id: work.id,
+      scene_id: scene.id,
+      content: "雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。",
+      status: AdoptionStatus.accepted(),
+      revision: 2
+    })
+    |> Repo.insert!()
+
+    fetcher = NovelPersistence.WorkspaceContext.context_fetcher_with_query()
+
+    context =
+      NovelApplication.ContextAssembler.assemble_for_input(
+        work.id,
+        "第01章写完了吗？当前版本是什么？",
+        fetcher,
+        session_id: "session-facts-chain"
+      )
+
+    assert [entry] = context.structured_chapters
+    assert entry.accepted_draft_count == 1
+    assert entry.scene_count == 1
+    assert entry.superseded_draft_count == 1
+    assert entry.word_count > 0
+    assert entry.chapter_status == "COMPLETED"
+    assert [ref] = entry.current_draft_refs
+    assert ref =~ "draft:"
+
+    block = DialoguePlanningService.judgment_context_block(context, "第01章写完了吗？当前版本是什么？")
+
+    assert block =~ "当前已采纳正文 1/1 场"
+    assert block =~ "历史 SUPERSEDED 稿 1 份（不计入当前）"
+    assert block =~ "章状态=COMPLETED"
+    assert block =~ "当前版本 refs=draft:"
+    refute block =~ "当前已采纳正文 0/0 场"
   end
 
   # ── helpers ───────────────────────────────────────────────

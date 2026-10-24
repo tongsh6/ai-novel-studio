@@ -39,7 +39,7 @@ defmodule NovelApplication.JudgmentToolContract do
   defp decision do
     tool(
       "judgment_decision",
-      "建议创作执行、规划或只读探索；不批准执行。",
+      "建议创作执行、规划或只读探索；不批准执行。对象/版本操作只引用上下文中真实存在的 ref；多候选未消歧先 explore/ask_author，不得猜；改权威版本前先取得当前版本事实。execute 只填一个目标 ref 字段（pending_artifact_ref 或 adopted_content_ref）。",
       %{
         action: %{type: "string", enum: ~w(execute plan explore)},
         dialogue_goal: @text,

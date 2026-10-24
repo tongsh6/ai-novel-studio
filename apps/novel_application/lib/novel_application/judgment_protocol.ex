@@ -79,6 +79,22 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
+  # 对象/版本证据纪律：ref 不在可见集合时，纠错必须给出“用真实 ref 或先取证/澄清”的路径。
+  defp correction_content({:pending_artifact_invalid, :target_not_available}) do
+    "本次响应未通过契约校验：target_not_available（引用的对象 ref 不在本轮可见目录）。" <>
+      "只能引用当前上下文/观察中真实列出的 pending_artifact_ref/adopted_content_ref；" <>
+      "没有真实 ref 时先 explore（session_adoptions 查候选、chapter_read/archive_read 查版本），或 ask_author 具体澄清，" <>
+      "不得编造 ref、不得用标题/记忆猜 ref。" <>
+      "保留同一作者输入、来源、目标、范围与权限，只纠正目标选择。"
+  end
+
+  defp correction_content(:target_ref_field_conflict) do
+    "本次响应未通过契约校验：target_ref_field_conflict（目标 ref 字段不合法）。" <>
+      "execute 只填一个目标 ref：待采纳候选用 pending_artifact_ref，已采纳内容用 adopted_content_ref；" <>
+      "不得同时填两个，也不得把候选 ref 填进 adopted_content_ref。" <>
+      "保留同一作者输入、来源、目标、范围与权限，只纠正字段与目标选择。"
+  end
+
   # 用户可见动作为空内容时，纠错必须明确“需要非空作者可见文本”，而不是泛泛说结构。
   defp correction_content(:judgment_narrative_required) do
     "本次响应未通过契约校验：judgment_narrative_required（缺少作者可见内容）。" <>
@@ -168,6 +184,17 @@ defmodule NovelApplication.JudgmentProtocol do
     #{TurnInteractionService.author_registration_rules()}
     合法原文来源：#{Jason.encode!(["current" | Keyword.get(options, :author_content_sources, [])])}
 
+    ## 对象与版本证据纪律（先取证/消歧，再操作）
+    对象/版本操作（revise/discard/改权威版本等）只能引用本轮上下文或观察中真实列出的 ref；
+    上下文没有真实 ref 时先 explore（如 session_adoptions 查候选、chapter_read/archive_read 查版本），
+    或用 ask_author 具体澄清，不得编造 ref、不得用标题/记忆猜 ref。
+    存在多个候选（pending_adoption_count > 1）且作者当前消息没有唯一指定对象/范围时，不得猜“最新/首条/最近讨论”，
+    必须先 explore(session_adoptions) 取证或 ask_author 指出具体分歧；明确前不执行 revise。
+    修改权威版本（正式开头/当前采纳版本/canon 等）前，必须有当前版本事实（先取证）或作者明确指定；
+    只讨论/比较时不改变 canon，也不得把建议包装成系统已定；最终选择由作者决定。
+    execute 只填一个目标 ref 字段：待采纳候选用 pending_artifact_ref，已采纳内容用 adopted_content_ref；
+    不得同时填两个，也不得把候选 ref 填进 adopted_content_ref。
+
     ## 决策与输出契约
     普通问答或分析整段 content 就是回复，无需调工具，无固定开场或空行格式。
     需要可点击创作方向时用 propose_creative_directions；原文物化用 register_author_content；
@@ -180,6 +207,22 @@ defmodule NovelApplication.JudgmentProtocol do
     模型工具调用不代表执行授权。
     用户可见动作必须有可见文本：纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
     使用工具时 content 可为空，但 question/reason/author_reasoning 必须提供作者可见原话。
+    覆盖事实约束：若本轮观测明确显示章节正文未覆盖末页（覆盖事实显示“未读>0”），
+    不得声称已读全章或全章无矛盾；必须继续读取，或在结论中明确已覆盖范围与未读缺口。
+    最终答复收束：content 必须是作者可直接读到的最终结论本身，不得只写内部推理、计划或过渡语
+    （如“我先核对一下”“我需要给出方向”）；方向/比较/状态核对类请求的可见文本必须包含实际方向内容、
+    比较依据与建议，或明确核对结论及所依据的正文证据。工具参数不能替代作者可见答复。
+    用 propose_creative_directions 时 content 必须逐条写出每个方向的标题与一句话走向（至少 2 条），
+    不能只概述“我给出三个方向”，也不能只把方向放进工具参数。
+    作者只要求收下资料/只聊不展开时：只简短确认收到，不追加下一步菜单、方向提示或可做动作清单
+    （零方向菜单、零候选/登记）。
+    需要作者裁决对象/来源/方向时，必须用 ask_author 工具提出具体问题（可带选项）——它是正式提问通道；
+    不能用普通 reply 里的问句或说明代替 ask_author；多候选无法消歧时先 explore 或 ask_author。
+    能力缺口判断只看“是否存在能产出目标效果的最接近可行操作”：存在可产出的修订/生成候选（只是不能保证
+    某些属性，如仅排版的字句不变）时，应执行该操作并在可见文本如实说明限制，不得用 report_capability_gap
+    或“没有能力”拒绝；确实没有任何可行操作时才报缺口。
+    作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact（B28 format_only 边界在可见文本如实说明），
+    不要只解释或报缺口。
     能力缺口优先：作者要求的效果（例如修改已有角色身份主档案、整章排版并保证字句不变）
     在当前可用操作目录里确实没有对应能力时，必须用 report_capability_gap 说明缺失效果与最近可行路径；
     不得用 ask_author 问“你要哪一种”来代替缺口报告，也不得用近似操作冒充。
@@ -315,7 +358,7 @@ defmodule NovelApplication.JudgmentProtocol do
         {:error, :judgment_semantic_conflict}
 
       true ->
-        PendingArtifactWorkflow.validate(args, targets)
+        validate_execute_targets(args, targets)
     end
   end
 
@@ -383,6 +426,26 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp validate_operation(_, _, _), do: :ok
 
+  @pending_target_capabilities ~w(revise_pending_artifact discard_pending_artifact)
+  @adopted_target_capabilities ~w(revise_adopted_content)
+
+  defp validate_execute_targets(args, targets) do
+    capability = field(args, :capability)
+    pending_ref = field(args, :pending_artifact_ref)
+    adopted_ref = field(args, :adopted_content_ref)
+
+    cond do
+      capability in @pending_target_capabilities and not is_nil(adopted_ref) ->
+        {:error, :target_ref_field_conflict}
+
+      capability in @adopted_target_capabilities and not is_nil(pending_ref) ->
+        {:error, :target_ref_field_conflict}
+
+      true ->
+        PendingArtifactWorkflow.validate(args, targets)
+    end
+  end
+
   defp empty_targets?(args),
     do:
       Enum.all?(
@@ -436,8 +499,12 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp sanitize_visible_content(_text), do: nil
 
-  defp provider_placeholder_line?(line),
-    do: String.trim(line) in @provider_placeholder_lines
+  defp provider_placeholder_line?(line) do
+    trimmed = String.trim(line)
+
+    trimmed in @provider_placeholder_lines or
+      Regex.match?(~r/^\[.*assistant reasoning.*\]$/iu, trimmed)
+  end
 
   defp tool_narrative(_result, nil, _args), do: {:error, :judgment_narrative_required}
 

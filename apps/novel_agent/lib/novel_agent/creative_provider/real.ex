@@ -169,9 +169,28 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp supported_tool?(tool), do: tool == "prose_writing" or tool in @creative_tool_names
 
   defp prose_prompt(request) do
-    render_creative_prompt(request, "本次你承担小说正文写作助手的角色。", prose_domain_schema(),
-      extra: @prose_writing_guidelines
-    )
+    extra =
+      if revision?(request),
+        do: @prose_writing_guidelines <> "\n" <> prose_revision_guidance(),
+        else: @prose_writing_guidelines
+
+    render_creative_prompt(request, "本次你承担小说正文写作助手的角色。", prose_domain_schema(), extra: extra)
+  end
+
+  # 修订类正文：基线段落与未要求修改的内容必须保留；仅排版请求受 B28 format_only 边界约束。
+  defp prose_revision_guidance do
+    """
+    ## 修订基线纪律
+    - 以给定原稿为唯一基线：保留原稿的段落边界与未要求修改段落的字句，只改作者明确要求的部分；
+      作者指定段落（如“第二段”）时，其它段落逐字保留、不得合并或拆分。
+    - 作者要求仅排版/分段/标点（例如“只调标点和分段，别改字句”）时，不得改动文字内容，
+      不得新增或删除段落/空行；系统当前没有保证字句不变的独立排版能力（B28 format_only 边界），
+      若无法在保留原句的前提下完成，如实说明限制，不要伪造“已完成仅排版”。
+    - 作者给出明确改动（如“七成改六成”、某句替换）时，修订稿必须落实该改动；
+      若原稿没有对应表述而无法落实，如实说明并停止，不要输出未改动候选冒充完成。
+    - body 只放完整的新版本；修改依据放 rationale。
+    """
+    |> String.trim()
   end
 
   defp outline_prompt(request) do

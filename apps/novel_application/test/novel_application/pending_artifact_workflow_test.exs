@@ -528,6 +528,10 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
       })
   end
 
+  defp item_for_prose(body) do
+    %{item_id: "item-prose", title: "候选", body: body, rationale: nil}
+  end
+
   defp record_pending_artifact(c, artifact_type, item) do
     tool = tool_for_artifact(artifact_type)
     turn_id = "turn-pending-#{artifact_type}"
@@ -588,4 +592,164 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   defp tool_for_artifact(:outline_draft), do: "plot_outline"
   defp tool_for_artifact(:character_seed), do: "character_design"
   defp tool_for_artifact(:world_setting), do: "world_building"
+
+  test "仅排版修订：改字句/增删空行被机械拦截并带指引重试一次", c do
+    base = "第一段文字。\n第二段文字。\n\n第三段文字。"
+
+    {artifact_id, "prose_writing"} =
+      record_pending_artifact(c, :prose_fragment, item_for_prose(base))
+
+    bodies =
+      [
+        # 第一次：擅自新增空行（段落数变化）
+        "第一段文字。\n\n第二段文字。\n\n第三段文字。",
+        # 重试后：只改标点，段落边界不变
+        "第一段文字！\n第二段文字。\n\n第三段文字。"
+      ]
+
+    parent = self()
+
+    provider = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:layout_prompt, prompt})
+        [body | rest] = Process.get(:layout_bodies)
+        Process.put(:layout_bodies, rest)
+
+        {:ok,
+         %NovelAgent.Provider.Result{
+           content:
+             Jason.encode!([%{item_id: "rev-layout", title: "修订稿", body: body, rationale: nil}]),
+           provider_call_ref: "pcall-layout-#{length(rest)}"
+         }}
+      end
+    }
+
+    Process.put(:layout_bodies, bodies)
+
+    run =
+      %{
+        c.run
+        | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
+          budget: %{max_tool_calls: 3, max_provider_calls: 6},
+          goal: %{c.run.goal | text: "那就整理一下吧"}
+      }
+
+    judgment = %{
+      judgment(c, "revise_pending_artifact")
+      | pending_artifact_ref: artifact_id,
+        dialogue_goal: "整理第01章前两段的排版候选：只调标点和分段，别改字句"
+    }
+
+    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+
+    assert_received {:layout_prompt, first}
+    assert_received {:layout_prompt, second}
+    assert second =~ "修订校验未通过"
+    assert second =~ "不得新增或删除段落"
+    refute first =~ "修订校验未通过"
+
+    [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.items |> hd() |> Map.get(:body) == "第一段文字！\n第二段文字。\n\n第三段文字。"
+  end
+
+  test "指定段落修订：合并/拆分其它段落被拦截并重试后保留基线", c do
+    base = "第一段。\n第二段原文。\n第三段。"
+
+    {artifact_id, "prose_writing"} =
+      record_pending_artifact(c, :prose_fragment, item_for_prose(base))
+
+    bodies = [
+      # 第一次：把三段合并成两段（结构丢失）
+      "第一段。\n第二段原文。\n第三段。",
+      # 重试后：只改第二段，其它段落逐字保留
+      "第一段。\n第二段改写。\n第三段。"
+    ]
+
+    Process.put(:scope_bodies, bodies)
+    parent = self()
+
+    provider = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:scope_prompt, prompt})
+        [body | rest] = Process.get(:scope_bodies)
+        Process.put(:scope_bodies, rest)
+
+        {:ok,
+         %NovelAgent.Provider.Result{
+           content:
+             Jason.encode!([%{item_id: "rev-scope", title: "修订稿", body: body, rationale: nil}]),
+           provider_call_ref: "pcall-scope-#{length(rest)}"
+         }}
+      end
+    }
+
+    run =
+      %{
+        c.run
+        | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
+          budget: %{max_tool_calls: 3, max_provider_calls: 6},
+          goal: %{c.run.goal | text: "把第二段改一下"}
+      }
+
+    judgment = %{
+      judgment(c, "revise_pending_artifact")
+      | pending_artifact_ref: artifact_id,
+        dialogue_goal: "只改第二段，其他段落保留"
+    }
+
+    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+
+    assert_received {:scope_prompt, first}
+    assert_received {:scope_prompt, second}
+    assert second =~ "修订校验未通过"
+    refute first =~ "修订校验未通过"
+
+    [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.items |> hd() |> Map.get(:body) == "第一段。\n第二段改写。\n第三段。"
+  end
+
+  test "明确数值改动未落实：带指引重试；仍不落实则诚实失败", c do
+    base = "他把七成收入交给灯楼。"
+
+    {artifact_id, "prose_writing"} =
+      record_pending_artifact(c, :prose_fragment, item_for_prose(base))
+
+    Process.put(:numeric_bodies, [base, base])
+
+    provider = %Execution{
+      result_fn: fn prompt ->
+        send(self(), {:numeric_prompt, prompt})
+        [body | rest] = Process.get(:numeric_bodies)
+        Process.put(:numeric_bodies, rest)
+
+        {:ok,
+         %NovelAgent.Provider.Result{
+           content:
+             Jason.encode!([%{item_id: "rev-num", title: "修订稿", body: body, rationale: nil}]),
+           provider_call_ref: "pcall-num-#{length(rest)}"
+         }}
+      end
+    }
+
+    run =
+      %{
+        c.run
+        | authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]},
+          budget: %{max_tool_calls: 3, max_provider_calls: 6},
+          goal: %{c.run.goal | text: "七成改六成"}
+      }
+
+    judgment = %{
+      judgment(c, "revise_pending_artifact")
+      | pending_artifact_ref: artifact_id,
+        dialogue_goal: "把七成改成六成"
+    }
+
+    assert {:error, {:pending_artifact_invalid, :revision_change_not_applied}} =
+             PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+
+    assert_received {:numeric_prompt, _first}
+    assert_received {:numeric_prompt, second}
+    assert second =~ "六成"
+  end
 end
