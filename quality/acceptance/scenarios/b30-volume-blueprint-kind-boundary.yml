@@ -4,32 +4,68 @@ tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  draft（CP0 边界草案；B30 CP0 先在 b30-chapter-renumber-roundtrip 的 trial B 中真实页面
-  取证；待 CP1/CP2 冻结类型边界后如需独立场景再注册，当前不注册 scenarios.yml）。
+  active（2026-10-25 CP4 注册）：外部 Tauri runner 在真实工作台规划卷章/规划下一卷并
+  采纳后，验证卷蓝图只存 `volumes.blueprint`（设计态）、Chapter 行只含真实章节、蓝图
+  不占 seq；seed harness 构造「章块标题含卷蓝图」的非法混排 outline 采纳 → 持久层
+  type_mismatch 拒绝且整体回滚零章/零卷。证据边界：确定性 slice_verify provider 驱动
+  规划链；真实模型意图归 CP4（另有单槽 model_behavior 证据）。
 entrypoint: bash scripts/quality_accept.sh b30-volume-blueprint-kind-boundary --surface tauri
 contract:
-  - tasks/slices/B30-chapter-structure-maintenance.md §3
+  - tasks/slices/B30-chapter-structure-maintenance.md §3 / §5（卷章类型边界）
   - docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md
   - docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md
+  - tasks/slices/AU08-volume-structured-planning.md、B11A-volume-blueprint.md
 invariants:
   - I-B30-3 卷蓝图只属 Volume 设计态，不得物化为 Chapter 或占 seq。
-  - I-VOL 卷蓝图/开篇章在生成、解析、采纳间具备明确类型语义，非法混排拒绝/纠正。
+  - I-VOL 卷蓝图/开篇章在生成、解析、采纳间具备明确类型语义；非法混排拒绝/纠正，不静默建章。
 setup:
   provider: slice_verify
-  seed: scripts/seed_b30_chapter_structure.exs（work B：只有全书骨架，无卷/章行）
+  seed: scripts/seed_b30_chapter_structure.exs
+  env_note: >-
+    seed 的 work B 只有全书骨架（planned_volumes=2），真实页面「规划卷章结构」后
+    「规划下一卷」；work C 为 harness：直接持久层 outline 采纳章块标题含「卷蓝图」，
+    期望 `{:error, :type_mismatch}` 且零章/零卷。
+  trial_matrix:
+    - B1 真实页面：规划卷章结构 → 保存到大纲（12 章 + 2 条卷蓝图行）；关闭/重开档案 → 规划下一卷 → 保存到大纲（3 章 + 1 条卷蓝图）；每步 DB 断言 blueprint 只在 volumes、Chapter 无蓝图行/不占 seq。
+    - B2 harness：seed 混排 outline 采纳 → type_mismatch 整体回滚，章/卷行数 0。
 user_flow:
-  - open: 真实 Tauri 工作台打开 work B。
+  - open: 真实 Tauri runner 打开 work B（只有全书骨架，无卷/章行）。
   - click: 打开档案 → 大纲与结构 → 规划卷章结构 → 保存到大纲。
-  - click: 规划下一卷（可见时）→ 保存到大纲。
-  - observe: 卷行 blueprint 与章行；卷蓝图不得作为章节卡片/Chapter/占 seq。
+  - verify: volumes=2 且 blueprint 存在；chapters=12 全为真实章节标题；无蓝图 Chapter/无蓝图占 seq。
+  - click: 关闭档案 → 重开 → 规划下一卷 → 保存到大纲。
+  - verify: volumes=3（第三卷 blueprint）；chapters=15；仍无蓝图 Chapter/无蓝图占 seq。
+  - read: seed.log 的 harness 结果 type_mismatch 且 DB work C 章/卷行 0。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  extra_artifacts:
+    - b30-blueprint-evidence.json
+    - b30-blueprint-boundary.png
+    - b30-blueprint-final.png
+  artifact_dir: artifacts/slice-verify/b30-volume-blueprint-kind-boundary-tauri
 assertions:
+  ui:
+    - 档案大纲按卷头分组显示章节卡片；卷头后可见只读卷蓝图块；无「卷蓝图」章节卡片。
+    - 阅读目录卷头/章节顺序与 volumes/chapters 行一致。
+  network:
+    - plot_outline outline_draft turn_result 携带卷蓝图行与逐章所属卷；author_action accept 后 action_result accepted。
   data:
-    - volumes.blueprint 承载卷级蓝图；chapters 无标题含「卷蓝图/蓝图」的行；无蓝图占 seq。
-    - 开篇章只物化为真实 Chapter（带所属卷），数量/seq 与采纳计划一致。
+    - volumes.blueprint 非空；chapters 无标题含「卷蓝图/蓝图」的行；蓝图不占 seq。
+    - 规划下一卷后卷数 2→3、章数 12→15，第三卷 blueprint 存在；仍无蓝图 Chapter。
+    - harness：`{:error, :type_mismatch}`，work C chapters=0/volumes=0。
 anti_hooks:
   product_acceptance_logic_added: false
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只用页面可见语义（打开档案/大纲与结构/规划卷章结构/规划下一卷/保存到大纲）+
+  WS 帧 + app JSONL + 隔离 DB 只读核对；未新增 testid/隐藏 metadata/验收开关。
+prerequisites:
+  - B11A 卷蓝图/ AU08 分卷规划 / VS-00J、ADR-0028 已交付；B30 CP2 type_mismatch 防护已提交。
 known_not_closed:
-  - 当前为 CP0 草案；独立场景待 CP1/CP2 类型边界实现后评估是否注册。
+  - 非法混排的真实入口在标准规划链路上被 parser 正常剥离，故 harness 只补持久层类型边界证据（seed 直接 outline 采纳）；真实模型意图归 CP4 单槽证据。
+  - stage 历史存量「第2卷：卷蓝图」误建章只做只读清单，不在本场景清理/迁移。

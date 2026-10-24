@@ -1,6 +1,8 @@
+import Ecto.Query
+
 alias NovelApplication.{WorkService, WorkSessionService}
 alias NovelFoundation.Enums.AdoptionStatus
-alias NovelPersistence.Repo
+alias NovelPersistence.{AdoptionRepository, Repo}
 alias NovelPersistence.Schemas.{Chapter, ChapterSummary, Draft, Scene, Volume}
 
 # B30 CP0：章节结构维护/卷蓝图边界的隔离种子。
@@ -106,6 +108,54 @@ chapter_seed_rows =
 
 # ── work B：AU08 同款全骨架、无卷/章行 ───────────────────────────────────────
 {work_b, session_b} = create_work.("B30 卷蓝图复现作品", 2)
+
+# ── work C：非法混排 harness（B30 CP2 type_mismatch 边界）────────────────────
+# 直接走持久层 outline 采纳（真实入口之外的 seed harness，仅构造类型边界证据）：
+# 章块标题含「卷蓝图」→ ensure_planned_chapter 必须 type_mismatch 整体回滚，
+# 不得静默物化成 Chapter/占 seq。
+{work_c, session_c} = create_work.("B30 卷蓝图混排边界作品", 1)
+
+type_mismatch_content = """
+第01章：正常开篇章
+所属卷：第一卷
+章功能定位：推进章
+情节推进：正常开篇
+第02章：卷蓝图
+所属卷：第一卷
+章功能定位：推进章
+情节推进：蓝图行混入章块
+"""
+
+type_mismatch_result =
+  AdoptionRepository.persist(%{
+    actor_ref: "author",
+    work_id: work_c.id,
+    source_turn_ref: "turn_b30_type_mismatch_seed",
+    artifact_id: "as_b30_type_mismatch_seed",
+    artifact_type: :outline_draft,
+    base_revision: 1,
+    content: type_mismatch_content,
+    summary: "B30 混排章块"
+  })
+
+type_mismatch_chapter_count =
+  Repo.aggregate(from(c in Chapter, where: c.work_id == ^work_c.id), :count)
+
+type_mismatch_volume_count =
+  Repo.aggregate(from(v in Volume, where: v.work_id == ^work_c.id), :count)
+
+type_mismatch_reason =
+  case type_mismatch_result do
+    {:error, reason} -> to_string(reason)
+    _ -> "none"
+  end
+
+IO.puts(
+  "[b30-chapter-structure-seed] work_c_id=#{work_c.id} session_c_id=#{session_c} " <>
+    "type_mismatch_reason=#{type_mismatch_reason} " <>
+    "type_mismatch_chapter_count=#{type_mismatch_chapter_count} " <>
+    "type_mismatch_volume_count=#{type_mismatch_volume_count}"
+)
 
 IO.puts(
   "[b30-chapter-structure-seed] work_a_id=#{work_a.id} session_a_id=#{session_a} " <>

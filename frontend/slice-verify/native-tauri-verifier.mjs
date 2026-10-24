@@ -2336,19 +2336,54 @@ function findB30ChapterRenumberEvidence(records) {
     (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
   );
   if (!ui) return null;
-  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 4) return null;
-  if (!ui.cp0_checks || Object.keys(ui.cp0_checks).length < 10) return null;
-  if (!ui.cp0_measured || typeof ui.cp0_measured !== "object") return null;
-  if (!ui.summary || typeof ui.summary !== "object") return null;
+  if (ui.cp4_model_behavior === true) {
+    if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 1) return null;
+    if (!ui.cp4_model_checks || Object.keys(ui.cp4_model_checks).length < 4) return null;
+    if (!Object.values(ui.cp4_model_checks).every((value) => value === true)) return null;
+    if (ui.summary?.all_checks_passed !== true) return null;
+    if (ui.no_product_code_changed !== true) return null;
+    if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+    return {
+      slice_id: sliceId,
+      turn_id: `b30-cp4-model-${ui.model_phrasing ?? "unknown"}`,
+      turn_ids: [],
+      trial_ids: ui.trial_ids,
+      checks: ui.cp4_model_checks,
+      measured: ui.cp4_model_measured,
+      summary: ui.summary,
+      seed: ui.seed,
+      model_only: true,
+      model_phrasing: ui.model_phrasing,
+      key_events: keyEventsForSlice(sliceId),
+    };
+  }
+  const checks = ui.cp4_checks ?? {};
+  const measured = ui.cp4_measured ?? {};
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 6) return null;
+  if (Object.keys(checks).length < 20) return null;
+  if (!Object.values(checks).every((value) => value === true)) return null;
+  if (ui.outcome !== "done") return null;
+  if (ui.summary?.all_checks_passed !== true) return null;
+  if (!measured || typeof measured !== "object") return null;
+  if (measured.t1_mapping_count == null || measured.t1_mapping_count < 1) return null;
+  if (measured.chapter_count_before !== measured.chapter_count_after) return null;
+  if (measured.swap_mapping_count !== 2) return null;
+  if (measured.reapply_seqs_unchanged !== true) return null;
+  if (measured.refreshed_stable !== true) return null;
+  if (measured.toc_order_matches_seq !== true) return null;
+  if (measured.reading_queries_visible !== true) return null;
+  if ((measured.negative_zero_write_count ?? 0) < 3) return null;
+  if ((measured.negative_clarified_count ?? 0) < 3) return null;
+  if (measured.harness_type_mismatch_reason !== "type_mismatch") return null;
   if (ui.no_product_code_changed !== true) return null;
   if (ui.measured_inputs_all_from_real_workbench !== true) return null;
   return {
     slice_id: sliceId,
-    turn_id: "b30-cp0-chapter-renumber-repro",
+    turn_id: "b30-cp4-chapter-renumber-roundtrip",
     turn_ids: [],
     trial_ids: ui.trial_ids,
-    checks: ui.cp0_checks,
-    measured: ui.cp0_measured,
+    checks,
+    measured,
     summary: ui.summary,
     seed: ui.seed,
     key_events: keyEventsForSlice(sliceId),
@@ -2362,9 +2397,32 @@ function b30ChapterRenumberBehavior(records, evidence, _options) {
       record.slice_id === "b30-chapter-renumber-roundtrip",
   );
   if (!ui) return null;
+  if (ui.cp4_model_behavior === true || evidence?.model_only === true) {
+    return {
+      slice_id: "b30-chapter-renumber-roundtrip",
+      behavior: "b30_cp4_model_behavior_maintenance_intent_binding",
+      turn_ids: [],
+      trials: evidence.trial_ids,
+      checks: evidence.checks,
+      measured: evidence.measured,
+      summary: evidence.summary,
+      boundary:
+        "真实模型只验证维护意图绑定/负例澄清（单轮、strata/iq3_s）；确定性 roundtrip 产品链 PASS 由 slice_verify 场景另行取证。",
+      assertions: [
+        "model_provider_strata_and_model_recorded",
+        "positive_phrasing_judgment_binds_maintain_chapter_structure",
+        "positive_phrasing_produces_reviewable_change_plan_candidate_without_write",
+        "negative_out_of_range_phrasing_clarifies_or_rejects_with_zero_write",
+        "no_fallback_to_plot_outline_or_prose_writing_for_maintenance_intent",
+        "no_product_code_or_acceptance_hook_changed",
+      ],
+      note:
+        "B30 CP4 real-model behavior evidence only; product state-chain PASS is the deterministic b30 roundtrip scenario.",
+    };
+  }
   return {
     slice_id: "b30-chapter-renumber-roundtrip",
-    behavior: "b30_cp0_chapter_structure_maintenance_and_volume_blueprint_kind_repro",
+    behavior: "b30_cp4_chapter_renumber_roundtrip_and_volume_blueprint_kind_boundary_verified",
     turn_ids: [],
     trials: evidence.trial_ids,
     checks: evidence.checks,
@@ -2372,17 +2430,78 @@ function b30ChapterRenumberBehavior(records, evidence, _options) {
     summary: evidence.summary,
     seed: evidence.seed,
     assertions: [
-      "natural_renumber_request_judgment_binding_and_write_vs_no_write_recorded",
-      "outline_flavored_request_reproduces_generate_another_outline_then_adopt_path",
-      "chapter_count_id_set_seq_title_duplicates_volume_assignment_prose_hashes_recorded_before_after",
-      "old_chapters_retained_and_prose_not_mutated_when_outline_adopted",
-      "chapter_summary_downstream_references_recorded",
-      "out_of_range_target_records_capability_gap_or_misroute_without_writes",
-      "volume_blueprint_lines_stay_volume_design_state_and_do_not_materialize_as_chapters_or_occupy_seq",
+      "real_renumber_request_binds_maintain_chapter_structure_and_reviewable_change_plan",
+      "candidate_visible_old_to_new_mapping_with_display_number_only_effect",
+      "adoption_applies_atomic_seq_renumber_with_committed_mapping_object_count_warnings",
+      "chapter_id_set_count_volume_title_text_prose_hashes_and_summary_refs_unchanged",
+      "swap_two_phase_and_dense_reapply_idempotent_without_duplicate_move",
+      "refresh_toc_and_per_chapter_reading_consume_new_seq_consistently",
+      "negative_matrix_missing_out_of_range_duplicate_zero_write_and_explainable",
+      "maintenance_intent_never_falls_back_to_plot_outline_or_prose_writing",
+      "volume_blueprint_stays_volume_design_state_and_never_materializes_as_chapter_or_seq",
+      "harness_mixed_blueprint_chapter_block_rejected_type_mismatch_zero_rows",
       "no_product_code_or_acceptance_hook_changed",
     ],
     note:
       "B30 CP0 isolation reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and CP1/CP2 implement the structure-maintenance contract.",
+  };
+}
+
+function findB30VolumeBlueprintKindBoundaryEvidence(records) {
+  const sliceId = "b30-volume-blueprint-kind-boundary";
+  const ui = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!ui) return null;
+  const checks = ui.cp4_checks ?? {};
+  const measured = ui.cp4_measured ?? {};
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 1) return null;
+  if (Object.keys(checks).length < 8) return null;
+  if (!Object.values(checks).every((value) => value === true)) return null;
+  if (ui.outcome !== "done") return null;
+  if (ui.summary?.all_checks_passed !== true) return null;
+  if (measured.blueprint_chapter_count !== 0) return null;
+  if (measured.harness_type_mismatch_reason !== "type_mismatch") return null;
+  if ((measured.blueprint_volumes_after_plan ?? 0) < 1) return null;
+  if (ui.no_product_code_changed !== true) return null;
+  if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+  return {
+    slice_id: sliceId,
+    turn_id: "b30-cp4-volume-blueprint-kind-boundary",
+    turn_ids: [],
+    trial_ids: ui.trial_ids,
+    checks,
+    measured,
+    summary: ui.summary,
+    seed: ui.seed,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function b30VolumeBlueprintKindBoundaryBehavior(records, evidence, _options) {
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "b30-volume-blueprint-kind-boundary",
+  );
+  if (!ui) return null;
+  return {
+    slice_id: "b30-volume-blueprint-kind-boundary",
+    behavior: "b30_cp4_volume_blueprint_kind_boundary_verified_on_real_workbench",
+    turn_ids: [],
+    trials: evidence.trial_ids,
+    checks: evidence.checks,
+    measured: evidence.measured,
+    summary: evidence.summary,
+    seed: evidence.seed,
+    assertions: [
+      "real_volume_plan_adopted_with_volume_blueprint_lines",
+      "blueprint_stored_only_in_volumes_blueprint_design_state",
+      "chapter_rows_only_real_chapters_and_blueprint_never_occupies_seq",
+      "next_volume_action_scope_plan_adopted_or_boundary_recorded",
+      "illegal_mixed_blueprint_chapter_block_rejected_type_mismatch_zero_rows",
+      "no_product_code_or_acceptance_hook_changed",
+    ],
   };
 }
 
@@ -2393,6 +2512,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "b30-chapter-renumber-roundtrip") {
     return findB30ChapterRenumberEvidence(records);
+  }
+
+  if (sliceId === "b30-volume-blueprint-kind-boundary") {
+    return findB30VolumeBlueprintKindBoundaryEvidence(records);
   }
 
   if (sliceId === "b31-author-reply-run-binding") {
@@ -3167,6 +3290,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "b30-chapter-renumber-roundtrip") {
     return b30ChapterRenumberBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "b30-volume-blueprint-kind-boundary") {
+    return b30VolumeBlueprintKindBoundaryBehavior(records, evidence, options);
   }
 
   if (sliceId === "b31-author-reply-run-binding") {

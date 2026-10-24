@@ -10,6 +10,8 @@
 | `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**active/nightly**：slice_verify 机制批次已 PASS，含 writer/evaluator 候选、待采纳、显式采纳、章摘要/trace、刷新恢复与下一轮持久事实；真实模型语义归 CP4 §6.1 矩阵） |
 | `b31-author-reply-run-binding.yml` | B31 作者补充输入与待回复任务稳定绑定（**active/nightly**：slice_verify 确定性 provider 下的多 awaiting run 归属/显式问题 author_choice/目标可见/JoinRestore 稳定序；真实模型语义不在本场景） |
 | `b28-whole-chapter-revision.yml` | B28 整章修订/排版范围/同章采纳（**active/nightly**：slice_verify 确定性 provider 下的章级目标+全章覆盖账、format_only 归一等价、content 只改指定处、replace_scope 同章替代/旧稿 superseded/刷新幂等、同名章澄清阻断、缺 ref 零写入；真实模型语义归 CP4） |
+| `b30-chapter-renumber-roundtrip.yml` | B30 章节重编号 roundtrip（**active/nightly**：维护意图→可审阅 old→new 映射→保存到作品→两阶段原子 seq 重编号；交换/密集重排/重复确认幂等；刷新 TOC/按章阅读消费新 seq；负例可解释拒绝零写入；卷蓝图仅 Volume/混排 type_mismatch） |
+| `b30-volume-blueprint-kind-boundary.yml` | B30 卷蓝图/卷章类型边界（**active/nightly**：真实页面规划卷章+规划下一卷采纳后蓝图只存 volumes.blueprint、Chapter 只含真实章节/不占 seq；seed harness 非法混排 type_mismatch 零行） |
 | `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-frame-validation-friendly-error.yml` | frame 校验失败时作者友好提示 |
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
@@ -232,3 +234,8 @@
   - **T3** 刷新/重复采纳幂等；**T4** 缺 accepted ref → 澄清阻断、零写入、不新建章。
   - **CP3 消费面（T5–T8）**：阅读/章节投影正文 hash == 新候选（冻结归一）、本章有效字数 == 正文有效字数（3127）、刷新重进一致；章摘要刷新/重建（当前 ACCEPTED 摘要 revision_base 指向新 draft、无 superseded 旧源引用）；下一轮追问真实主输入触发 prose_search（「三十岁」命中新正文、「二十五岁」未检索到），判断上下文/llm prompt 读新整章正文；旧 3 份 accepted 全部 SUPERSEDED 且历史内容可查、当前投影仅 1 条新整章稿；档案/阅读可见目标章与范围。
   driver `driveB28WholeChapterRevision`，verifier `findB28WholeChapterRevisionEvidence`（**48 checks** + measured，10 trials，证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`）。**边界**：确定性 provider 状态链/契约证据；真实模型原话/改述与排版质量归 CP4；format_only_violation 端到端负例暂由 CP1 单测+CP4 覆盖；产品当前无作者可点的独立正文搜索页面入口（检索证据经真实主输入→prose_search 工具链+DB 投影对账），档案大纲当前不渲染章摘要文本（摘要以 DB 当前 ACCEPTED 行+app 事件为证据）。
+
+## B30 页面场景
+
+- [b30-chapter-renumber-roundtrip.yml](b30-chapter-renumber-roundtrip.yml)（**已注册 active/nightly**）：真实 Tauri 页面验证既有章节结构维护闭环——seed 两卷（第二卷 3 章标题第11/12/13章但真实 seq 3/4/5，各带 accepted 正文/摘要）→ 真实输入「把第2卷章节编号理顺，内容不要动」→ judgment `maintain_chapter_structure` → 候选卡可见 old→new 映射（display_number_only/warnings）→「保存到作品」→ 两阶段原子 seq 更新（回执 committed_mapping/object_count/warnings）→ chapter_id 集合/章数/归卷/正文 hash/title 文本/摘要引用不变；随后点名两章对调、再次 dense 幂等、刷新后 TOC/按章阅读消费新 seq；负例（多卷未点名/越界第九卷/重复编号）澄清或作者可见拒绝、零写入、不回退大纲/新正文；卷蓝图/规划下一卷与 harness 混排 type_mismatch 同场景取证。driver `driveB30ChapterRenumberRoundtrip`，证据 `artifacts/slice-verify/b30-chapter-renumber-roundtrip-tauri/`（30 checks）。**边界**：确定性 provider 产品链证据；真实模型原话/改述意图由 CP4 单槽 model_behavior 证据分开报告，不替代本 PASS。
+- [b30-volume-blueprint-kind-boundary.yml](b30-volume-blueprint-kind-boundary.yml)（**已注册 active/nightly**）：真实页面「规划卷章结构」→保存到大纲→关闭/重开档案→「规划下一卷」→保存到大纲；volumes 2→3、chapters 12→15，volumes.blueprint 每卷存在，Chapter 无「卷蓝图/蓝图」行/不占 seq；seed harness 通过持久层 outline 采纳「章块标题含卷蓝图」→ `{:error, :type_mismatch}` 整体回滚（章/卷 0 行）。driver `driveB30VolumeBlueprintKindBoundary`，证据 `artifacts/slice-verify/b30-volume-blueprint-kind-boundary-tauri/`（12 checks）。
