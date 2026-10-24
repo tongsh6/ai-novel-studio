@@ -94,7 +94,7 @@ defmodule NovelApplication.B29CharacterRevisionAdoptionTest do
     assert Repo.get!(Character, gu.id).narrative_role == "PROTAGONIST"
     assert Repo.aggregate(from(ch in Character, where: ch.work_id == ^work.id), :count) == 2
     assert characters_for(work.id) |> Enum.map(& &1.id) |> Enum.sort() == before_ids
-    assert Repo.aggregate(MemoryItem, :count) == 0
+    assert Repo.aggregate(from(m in MemoryItem, where: m.work_id == ^work.id), :count) == 0
   end
 
   test "校验：非法字段/非法值/other_character_changes/缺 ref 拒绝且零写入" do

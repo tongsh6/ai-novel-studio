@@ -850,6 +850,32 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
     assert String.contains?(SliceVerify.character_role_answer(prompt("谁是主角", index)), "沈砚")
   end
 
+  test "AU09 回归：作品上下文存在但 roster 为空（无角色索引段）→ 诚实缺主角，不误报无法核对" do
+    empty_roster = """
+    本次你承担创作判断器的角色。
+
+    ## 作品事实（持久化只读投影）
+    - 全书：全书目标=未登记；正文统计：0 章中已写 0 章
+
+    ## 章节列表（共 0 章：已写 0 章，计划中 0 章）
+    （当前作品还没有章节）
+
+    ## 作者输入
+    现在谁是主角？
+    """
+
+    answer = SliceVerify.character_role_answer(empty_roster)
+    assert answer =~ "目前还没有谁被标记为主角"
+    assert answer =~ "以角色主档案为准"
+    assert answer =~ "指定某个已有角色为主角"
+    refute answer =~ "没有可核对的角色索引"
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, empty_roster, %InferenceParams{})
+    assert result.content =~ "目前还没有谁被标记为主角"
+    refute result.content =~ "没有可核对的角色索引"
+    assert result.tool_calls == []
+  end
+
   test "B29 CP3：单主角显示姓名；无主角诚实；无索引不引用记忆/不编造" do
     one = """
     - character:11111111-1111-1111-1111-111111111111｜沈砚｜别名：老沈｜narrative_role=PROTAGONIST｜查账人

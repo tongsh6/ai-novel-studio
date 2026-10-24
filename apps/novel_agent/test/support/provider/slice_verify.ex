@@ -3289,12 +3289,34 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   """
   def character_role_answer(prompt) when is_binary(prompt) do
     case character_index_from_prompt(prompt) do
-      [] -> "当前上下文没有可核对的角色索引；本次不能确认当前主角，需要先读取角色主档案再回答，不引用记忆里的旧说法。"
+      [] -> empty_character_index_answer(prompt)
       characters -> protagonist_answer(characters)
     end
   end
 
   def character_role_answer(_prompt), do: ""
+
+  # 两类“空”分开处理（AU09 回归）：
+  # - 作品上下文已组装（有作品事实/章节列表等）但没有「## 角色索引」段 => 当前作品确实无
+  #   角色/无主角，按 AU09 诚实缺口回答（不要误报“没有可核对的角色索引”）；
+  # - 有索引段但为空/无法解析，或上下文本身缺失 => 诚实说明无法核对，不引用旧记忆。
+  defp empty_character_index_answer(prompt) do
+    if String.contains?(prompt, "## 角色索引") do
+      no_character_index_answer()
+    else
+      if roster_context_present?(prompt),
+        do: protagonist_answer([]),
+        else: no_character_index_answer()
+    end
+  end
+
+  defp no_character_index_answer do
+    "当前上下文没有可核对的角色索引；本次不能确认当前主角，需要先读取角色主档案再回答，不引用记忆里的旧说法。"
+  end
+
+  defp roster_context_present?(prompt) do
+    String.contains?(prompt, ["## 作品事实", "## 章节列表", "## 当前作品上下文"])
+  end
 
   defp protagonist_answer(characters) do
     protagonists =
