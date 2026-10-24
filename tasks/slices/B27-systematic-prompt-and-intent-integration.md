@@ -359,3 +359,13 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - **盲评**（judge=LM Studio qwen/qwen3.8-27b，≠被评臂；80/80 完成，arm 隐藏，原始请求/响应落盘）：§6.1 聚合 **FAIL**：matrix/review complete PASS；not_below_old PASS；unnecessary_question PASS（0/34）；**zero_tolerance FAIL（2，均 old 臂 M12；integrated=0）**；key_set FAIL；overall 7/40=0.175 FAIL；unavailable 27/40 FAIL。
 - **裁决**：① 零容忍按 README 严格口径（两臂任一出现即 FAIL），本批 FAIL 且即使只看 integrated 其余 gate 仍 FAIL；② old 臂单轮 vs integrated 多轮不对称继续披露；③ judge 单模型局限（建议后续加第二 judge/人工复核争议项）；④ LM 观察通道本批未跑；⑤ **下一步：修复判断 plan 路径协议健壮性**（prompt 明确 agent_plan_draft 必须与 judgment_decision 同批、纠错回执携带具体合法组合指引 + capture 断言），再用**新预注册批次**复测；本批数据不得当作 CP4 PASS 证据。
 - 产物：`artifacts/model-contracts/b27-cp4/execution-batch-latest/`（execution-report.md、episodes×80、review-strata/judge/score、refreeze、logs）。
+
+#### CP4 复测批记录（2026-10-24，canonical run1 仍 FAIL）
+
+- **前置修复**：判断 plan 路径协议健壮性（`ee47acc0`：合法组合单一真源 + 纠错回执指引 + prompt 不可歧义表述 + tool description 提示；+5 tests）。定向 probe M03/M10/M13 3/3 ok。
+- **重冻**：old_rules_arm `211b2979…`（不变）；integrated_arm `5023ae4b…` → **`216d5ab6…`**（仅 judgment_protocol/judgment_tool_contract 资产变化；1 retired 仍保留 CP0 hash）。CP0 snapshots 20/20、未改写。
+- **canonical 认定（Lead 裁决）**：run1（03-matrix，完整 80 episode）为官方；run2 作 robustness；run3 中止归档不计 gate。run1 raw 中 4 例 `{:await_author, decision}` 合法终局被旧 runner 误分类为 provider_error，按原始 `error.rounds` 确定性修正分类（模型字节未改，canonical-run1/canonicalization.json 留证）；1 例 M14r2 真实 format_terminal 保留 unavailable。
+- **修复效果**：invalid_tool_combination 25→1→0（上批→run1→run2）；invalid_tool_arguments 2→0；integrated 可用 13/40→39/40、不可用 27/40→1/40；judge 语义成功 7/40→20/40。
+- **§6.1 canonical 结果 = FAIL**：matrix/review complete PASS；not_below_old PASS（old 单轮 0/40，对照局限披露）；unavailable PASS（1/40）；**zero_tolerance FAIL（integrated 2，均 M18 r1/r2：把无关历史指令当原文登记）；key_set FAIL（M01/M03/M11/M14/M17/M20）；overall 20/40=0.5 FAIL；unnecessary_question FAIL（2/34 > old 0/34）**。零容忍/关键集按 §6.1 限定新规则臂；old 臂命中（M12 零容忍 2、关键集 10）单列 baseline 不计 gate；README 口径已同步。
+- **残余断点（下一修复批次输入）**：M18 来源/对象错误（零容忍，最优先）；M11 工具参数缺 `author_content` 无法证明字节保真；M03 长章只读 12,000/34,357；M01/M20 结论与预置事实/持久版本矛盾；M14 以 ask_author 代能力缺口 + r2 协议终局失败；M17 未收束；M07r1 无谓追问。
+- 披露：judge 单模型（qwen/qwen3.8-27b，≠被评臂）无人工复核；LM 观察 80 episode 未跑；old 臂单轮基线。证据：`artifacts/model-contracts/b27-cp4/execution-batch-latest-retest/`。
