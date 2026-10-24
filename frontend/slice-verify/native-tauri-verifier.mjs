@@ -2505,6 +2505,61 @@ function b30VolumeBlueprintKindBoundaryBehavior(records, evidence, _options) {
   };
 }
 
+// B29 CP0（未注册草案）：已有角色叙事身份修订的真实 Tauri 隔离复现证据。
+// CP0 只记录当前版本的判断/候选/采纳/字段/记忆/消费者，不预设产品已通过；
+// finder 要求复现证据完整，不要求 checks 全 true。
+function findB29ExistingCharacterRoleEvidence(records) {
+  const sliceId = "b29-existing-character-role-revision";
+  const ui = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!ui) return null;
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 5) return null;
+  if (!ui.cp0_checks || Object.keys(ui.cp0_checks).length < 10) return null;
+  if (!ui.cp0_measured || typeof ui.cp0_measured !== "object") return null;
+  if (!ui.summary || typeof ui.summary !== "object") return null;
+  if (ui.no_product_code_changed !== true) return null;
+  if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+  return {
+    slice_id: sliceId,
+    turn_id: "b29-cp0-existing-character-role-repro",
+    turn_ids: [],
+    trial_ids: ui.trial_ids,
+    checks: ui.cp0_checks,
+    measured: ui.cp0_measured,
+    summary: ui.summary,
+    seed: ui.seed,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function b29ExistingCharacterRoleBehavior(records, evidence, _options) {
+  if (!records.some((record) => record.slice_id === "b29-existing-character-role-revision")) return null;
+  return {
+    slice_id: "b29-existing-character-role-revision",
+    behavior: "b29_cp0_existing_character_narrative_role_revision_repro",
+    turn_ids: [],
+    trials: evidence.trial_ids,
+    checks: evidence.checks,
+    measured: evidence.measured,
+    summary: evidence.summary,
+    seed: evidence.seed,
+    assertions: [
+      "historical_designate_shen_yan_request_judgment_and_candidate_recorded",
+      "adoption_outcome_and_memory_vs_profile_distinction_recorded",
+      "character_narrative_role_and_character_count_id_set_recorded_before_after",
+      "existing_other_protagonist_not_globally_cleared",
+      "same_name_and_alias_disambiguation_does_not_create_duplicate_or_misbind",
+      "capability_gap_phrasing_recorded_with_zero_write_when_unsupported",
+      "discussion_only_keeps_values_discard_keeps_original_and_cross_work_zero_write",
+      "archive_roster_and_followup_protagonist_answer_recorded_against_profile_field",
+      "no_product_code_or_acceptance_hook_changed",
+    ],
+    note:
+      "B29 CP0 isolation reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and CP1/CP2 implement existing-character narrative-role revision.",
+  };
+}
+
 export function findNativeSliceEvidence(sliceId, records) {
   if (sliceId === "b28-whole-chapter-revision") {
     return findB28WholeChapterRevisionEvidence(records);
@@ -2516,6 +2571,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "b30-volume-blueprint-kind-boundary") {
     return findB30VolumeBlueprintKindBoundaryEvidence(records);
+  }
+
+  if (sliceId === "b29-existing-character-role-revision") {
+    return findB29ExistingCharacterRoleEvidence(records);
   }
 
   if (sliceId === "b31-author-reply-run-binding") {
@@ -3294,6 +3353,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "b30-volume-blueprint-kind-boundary") {
     return b30VolumeBlueprintKindBoundaryBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "b29-existing-character-role-revision") {
+    return b29ExistingCharacterRoleBehavior(records, evidence, options);
   }
 
   if (sliceId === "b31-author-reply-run-binding") {

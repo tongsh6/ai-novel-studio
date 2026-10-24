@@ -1,0 +1,76 @@
+id: b29-existing-character-role-revision
+title: "B29 CP0 真实页面隔离复现：已有角色叙事身份修订与主档案/记忆一致性"
+tier: nightly
+surface: tauri
+default_provider: slice_verify
+status_note: >-
+  draft（CP0 隔离复现，未注册 scenarios.yml）：seed 已有角色（沈砚 ENSEMBLE_POV/别名
+  老沈、顾青 PROTAGONIST、同名沈砚 MINOR/别名小沈、阿鸢 SUPPORTING）与 accepted 正文；
+  真实 Tauri 页面记录「指定沈砚为主角」（stage 原话）/唯一别名/显式能力缺口措辞的判断
+  绑定、候选类型、采纳内容、Character.narrative_role/角色数/ID、CHARACTER_PROFILE 记忆、
+  多主角保留、同名消歧、负例、档案 roster 与后续追问一致性，判清当前版本能力缺口。
+  CP0 只复现/判断，不登记产品通过；不以 memory 出现“主角”判主档案字段通过。
+entrypoint: bash scripts/quality_accept.sh b29-existing-character-role-revision --surface tauri
+contract:
+  - tasks/slices/B29-existing-character-role-revision.md §1–§5
+  - tasks/slices/AU09-character-role-taxonomy-protagonist-policy.md §7 CP2
+  - tasks/slices/AU12-character-identity-merge.md、Q1C-adopted-content-revision.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/adr/ADR-0019-adoption-status-transition-v3.md、ADR-0027-author-obligation-state-v3.md
+invariants:
+  - I-B29-1 同 character_id 更新、角色数不增加；指定主角只改变获准字段。
+  - I-B29-2 未采纳零修改；不自动取消其他主角（现契约允许多主角）。
+  - I-B29-3 名字/别名只用于消歧，不按名称新建同名角色或错绑。
+  - I-B29-4 Character.narrative_role 是主档案字段；CHARACTER_PROFILE 记忆不能代替/覆盖它。
+  - I-B29-5 档案 roster、探索、判断/写作上下文与后续问答同批消费同一字段事实。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_b29_character_role_revision.exs
+  env_note: 隔离 test DB；确定性 provider 复现判断/候选/采纳/DB/消费者；真实模型意图归 CP4。
+  trial_matrix:
+    - A1 stage 原话「指定沈砚为主角」（两个同名沈砚）：判断 capability/对象、pending 候选、采纳内容、narrative_role/角色数/ID、记忆变化。
+    - A2 唯一别名「指定老沈为主角」：是否出现角色字段修订候选/仅 memory/evolution；采纳后主档案字段是否变化。
+    - A3 显式「把已有角色的叙事身份从配角改为主角」：当前版本诚实能力缺口/误路由与零写入证据。
+    - B 多主角：顾青已是 PROTAGONIST，对沈砚请求不得全局清空/取消顾青。
+    - C 同名/别名：两个沈砚不被合并/新建/按名称错绑。
+    - D 负例：只讨论不改字段、放弃候选原值不变、跨作品/失效目标零写入、重复采纳无新增入口。
+    - E 消费者：档案角色 roster 与「现在谁是主角」问答同 DB narrative_role 字段对账；memory 只作陪证。
+user_flow:
+  - open: 真实 Tauri runner 打开 seed 作品（已有 4 角色 + 一章 accepted 正文）。
+  - send: 「指定沈砚为主角。」→ 观察判断/候选；如有候选走真实保存。
+  - send: 「指定老沈为主角。」/「把已有角色的叙事身份从配角改为主角。」→ 观察绑定/能力缺口/零写入。
+  - verify: Character.narrative_role、角色数/ID、顾青 PROTAGONIST、两个沈砚均在且未被新建/错绑。
+  - send: 「老沈适合当主角吗？只讨论，不要改作品设定。」/重复/跨作品目标 → 负例零写入/原值不变。
+  - open: 档案→角色；send「现在谁是主角？」→ roster/TurnResult 与 DB 字段对账，memory 仅陪证。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  extra_artifacts:
+    - b29-cp0-evidence.json
+    - b29-a1-after-adoption.png
+    - b29-consumer-roster.png
+    - b29-final.png
+  artifact_dir: artifacts/slice-verify/b29-existing-character-role-revision-tauri
+assertions:
+  # CP0 复现证据断言：只记录可机械核对的观测，不预设产品已通过。
+  ui:
+    - 自然输入均由真实主输入触发；候选卡/保存/放弃/档案角色 tab 使用用户可见语义。
+    - 档案角色面板与后续「现在谁是主角」答复记录；不以 memory 行出现“主角”判主档案通过。
+  network:
+    - 记录 judgment 事件（action/capability/frame/reason）、pending artifact 类型/payload、采纳/放弃 action_result。
+  data:
+    - 记录 characters（id/name/aliases/narrative_role/status）与 memory_items（type/status/content）before/after。
+    - 记录角色数/ID 集合/同名数量/新增角色；顾青 narrative_role 是否保持 PROTAGONIST。
+    - A3 能力缺口措辞与零写入证据。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+known_not_closed:
+  - CP0 只复现/判断；场景未注册 scenarios.yml，不声明已有角色叙事身份修订已实现。
+  - 确定性 provider 复现状态链；真实模型原话/改述归 CP4。
+  - stale/跨作品/失效目标在无维护能力时只记录零写入/能力缺口；不作为产品能力通过证据。
