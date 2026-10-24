@@ -2245,8 +2245,8 @@ function findB28WholeChapterRevisionEvidence(records) {
   if (!ui) return null;
   const checks = ui.cp2_checks ?? {};
   const measured = ui.cp2_measured ?? {};
-  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 6) return null;
-  if (Object.keys(checks).length < 20) return null;
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 10) return null;
+  if (Object.keys(checks).length < 45) return null;
   if (!Object.values(checks).every((value) => value === true)) return null;
   if (ui.outcome !== "done") return null;
   if (ui.summary?.all_checks_passed !== true) return null;
@@ -2262,6 +2262,12 @@ function findB28WholeChapterRevisionEvidence(records) {
   if (measured.missing_ref_blocked_with_clarification !== true) return null;
   if (measured.missing_ref_no_new_writing_execution !== true) return null;
   if (measured.visible_target_and_scope !== true) return null;
+  if (measured.reading_chapter_words !== measured.reading_effective_words_expected) return null;
+  if (measured.reading_after_refresh_words !== measured.reading_chapter_words) return null;
+  if (measured.retrieval_new_hit !== true) return null;
+  if (measured.retrieval_old_miss !== true) return null;
+  if ((measured.history_superseded_count ?? 0) < 3) return null;
+  if (measured.current_accepted_count !== 1) return null;
   return {
     slice_id: sliceId,
     turn_id: "b28-cp2-whole-chapter-revision",
@@ -2307,6 +2313,13 @@ function b28WholeChapterRevisionBehavior(records, evidence, _options) {
       "refresh_and_duplicate_adoption_idempotent",
       "missing_accepted_ref_blocked_with_visible_clarification_zero_write_no_new_chapter",
       "candidate_visible_text_shows_target_chapter_and_modification_scope",
+      "reading_projection_after_replace_scope_equals_new_candidate_with_matching_word_count",
+      "reading_after_refresh_consumes_same_new_value_and_visible_target_chapter",
+      "chapter_summary_refreshed_after_replace_scope_not_pointing_to_superseded_source",
+      "next_round_judgment_context_reads_new_chapter_value_not_old",
+      "prose_search_retrieval_hits_new_value_and_old_value_not_current",
+      "old_accepted_drafts_all_superseded_with_history_retained_current_projection_only_new",
+      "archive_and_reading_show_target_chapter_and_summary_source_without_hidden_hooks",
       "no_product_code_or_acceptance_hook_changed",
     ],
     note:

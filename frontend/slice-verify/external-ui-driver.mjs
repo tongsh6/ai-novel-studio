@@ -36272,6 +36272,30 @@ async function driveB28WholeChapterRevision(page) {
       .slice(llmStart)
       .map((record) => (typeof record?.prompt === "string" ? record.prompt : llmCallPromptText(record)));
     const appRecords = readAppLogRecords().slice(logStart);
+    const turnFrames = frames.slice(start);
+    const explorationFrames = turnFrames
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          JSON.stringify(frame.body ?? {}).includes("prose_search"),
+      )
+      .map((frame) => ({
+        event: frame.event,
+        excerpt: JSON.stringify(frame.body ?? {}).slice(0, 1600),
+      }));
+    const explorationRecords = appRecords
+      .filter((record) => {
+        const raw = JSON.stringify(record ?? {});
+        return (
+          raw.includes("prose_search") ||
+          String(record.event ?? "").includes("exploration") ||
+          String(record.event ?? "").includes("prose_search")
+        );
+      })
+      .map((record) => ({
+        event: record.event,
+        excerpt: JSON.stringify(record).slice(0, 1200),
+      }));
     const promptFlags = (prompt) => ({
       chars: prompt.length,
       contains_initial_anchor: prompt.includes(initialAnchor),
@@ -36286,6 +36310,11 @@ async function driveB28WholeChapterRevision(page) {
       contains_covered_scope:
         prompt.includes("covered_refs") || prompt.includes("覆盖顺序") || prompt.includes("draft:"),
       contains_whole_chapter_words: prompt.includes("整章") || prompt.includes("覆盖范围"),
+      contains_thirty_age: prompt.includes("三十岁"),
+      contains_twentyfive_age: prompt.includes("二十五岁"),
+      contains_old_chapter_phrase: prompt.includes("点灯人第一次点灯时才二十五岁"),
+      contains_search_observation:
+        prompt.includes("正文检索") || prompt.includes("未检索到") || prompt.includes("探索观察"),
     });
     return {
       label,
@@ -36323,6 +36352,8 @@ async function driveB28WholeChapterRevision(page) {
       }, {}),
       llm_prompt_count: llmPromptTexts.length,
       llm_prompts: llmPromptTexts.map(promptFlags),
+      exploration_frames: explorationFrames,
+      exploration_records: explorationRecords,
     };
   }
 
@@ -36497,8 +36528,26 @@ async function driveB28WholeChapterRevision(page) {
     };
   }
 
+  async function chapterSummaryFacts(workId, chapterId) {
+    const rows = await dbAll(
+      "SELECT id, status, summary_text, source_ref, revision_base, updated_at FROM chapter_summaries WHERE work_id = ? AND chapter_id = ? ORDER BY updated_at",
+      [workId, chapterId],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      summary_text: String(row.summary_text ?? ""),
+      summary_chars: String(row.summary_text ?? "").length,
+      summary_sha256: sha256(row.summary_text),
+      source_ref: row.source_ref ?? null,
+      revision_base: row.revision_base ?? null,
+      updated_at: row.updated_at ?? null,
+    }));
+  }
+
   async function readingSnapshot(label) {
     try {
+      const start = frames.length;
       await page.getByRole("button", { name: readingModeButtonPattern }).click();
       await page.waitForFunction(
         () => document.body.innerText.includes("阅读模式") && document.body.innerText.includes("本章有效字数"),
@@ -36509,8 +36558,34 @@ async function driveB28WholeChapterRevision(page) {
         path: path.join(artifactDir, `${B28_SLICE_ID}-${label}.png`),
         fullPage: true,
       });
+      // 阅读模式会按目录逐章请求 get_chapter_content；取目标章回帧做投影正文对账。
+      const readingReplies = frames
+        .slice(start)
+        .map((frame) => frame.body?.response ?? frame.body)
+        .filter((response) => Array.isArray(response?.scenes));
+      const targetReply =
+        readingReplies.find(
+          (response) => String(response?.title ?? "").trim() === "第01章：夜潮",
+        ) ?? readingReplies.find((response) => (response?.scenes ?? []).length > 0) ?? null;
+      const sceneTexts = (targetReply?.scenes ?? [])
+        .map((scene) => String(scene?.content ?? ""))
+        .filter((content) => content !== "");
+      const projectionText = sceneTexts.join("\n\n");
       await page.getByRole("button", { name: "返回工作台" }).click();
-      return { visible: true, excerpt: text.slice(0, 1600) };
+      return {
+        visible: true,
+        excerpt: text.slice(0, 1600),
+        body_text: text,
+        chapter_words: parseChapterWords(text),
+        book_words: parseBookTotalWords(text),
+        visible_target_chapter: text.includes("第01章：夜潮"),
+        projection_scene_count: sceneTexts.length,
+        projection_content_chars: projectionText.length,
+        projection_content_sha256: sha256(projectionText),
+        projection_projection_text: projectionText,
+        projection_has_thirty_age: projectionText.includes("三十岁"),
+        projection_has_twentyfive_age: projectionText.includes("二十五岁"),
+      };
     } catch {
       return { visible: false, excerpt: "" };
     }
@@ -36658,6 +36733,7 @@ async function driveB28WholeChapterRevision(page) {
   await page
     .screenshot({ path: path.join(artifactDir, "b28-cp2-t1-candidate.png"), fullPage: true })
     .catch(() => {});
+  const summaryBeforeT1 = await chapterSummaryFacts(seedWorkId, chapterAId);
   let formatAdoption = null;
   if (formatCandidate.candidate_present) {
     formatAdoption = await adoptRevisionCandidate(formatTurn, "B28 T1 format adoption");
@@ -36802,6 +36878,7 @@ async function driveB28WholeChapterRevision(page) {
     contentAdoption = await adoptRevisionCandidate(contentTurn, "B28 T2 content adoption");
   }
   const contentAfter = await factsFor(seedWorkId, chapterAId);
+  const summaryAfterT2 = await chapterSummaryFacts(seedWorkId, chapterAId);
   const contentReading = await readingSnapshot("03-t2-reading-after-content-adoption");
   const expectedChangedSource = contentSource.replaceAll("二十五岁", "三十岁");
   const contentOnlySpotChanged =
@@ -36901,6 +36978,202 @@ async function driveB28WholeChapterRevision(page) {
       acceptButtonsAfterRefresh === 0,
   });
 
+  // ── CP3：replace_scope 后消费面（阅读/摘要/历史/检索/下一轮/UI 来源）──────────
+  const summaryAfterRefresh = await chapterSummaryFacts(seedWorkId, chapterAId);
+  const readingAfterRefresh = await readingSnapshot("04-cp3-reading-after-refresh");
+  const historyFacts = await chapterFacts(seedWorkId);
+  const chapterDraftHistory = historyFacts.drafts
+    .filter((row) => row.chapter_id === chapterAId)
+    .map((row) => ({
+      draft_id: row.id,
+      draft_ref: `draft:${row.id}:${row.revision}`,
+      status: row.draft_status,
+      revision: Number(row.revision),
+      content_chars: String(row.content ?? "").length,
+      content_sha256: sha256(row.content),
+    }));
+  const currentAcceptedRows = historyFacts.drafts.filter(
+    (row) => row.chapter_id === chapterAId && row.draft_status === "ACCEPTED",
+  );
+  const supersededRows = historyFacts.drafts.filter(
+    (row) => row.chapter_id === chapterAId && row.draft_status === "SUPERSEDED",
+  );
+  const latestAccepted = currentAcceptedRows[currentAcceptedRows.length - 1] ?? null;
+  const latestAcceptedRef = latestAccepted
+    ? `draft:${latestAccepted.id}:${latestAccepted.revision}`
+    : null;
+  const acceptedSummaryRows = (rows) => rows.filter((row) => row.status === "ACCEPTED");
+  const summaryCurrent =
+    acceptedSummaryRows(summaryAfterT2).at(-1) ??
+    acceptedSummaryRows(summaryAfterRefresh).at(-1) ??
+    null;
+  const summaryBeforeLatest = acceptedSummaryRows(summaryBeforeT1).at(-1) ?? null;
+  const summaryRefreshed =
+    Boolean(summaryCurrent) &&
+    (summaryBeforeLatest === null ||
+      (summaryCurrent.id !== summaryBeforeLatest.id &&
+        String(summaryCurrent.updated_at ?? "") >= String(summaryBeforeLatest.updated_at ?? "")));
+  const summaryReferencesOldSuperseded =
+    Boolean(summaryCurrent) &&
+    supersededRows.some((row) =>
+      JSON.stringify({
+        source_ref: summaryCurrent.source_ref,
+        revision_base: summaryCurrent.revision_base,
+      }).includes(row.id),
+    );
+  const expectedEffectiveWords = effectiveWordCount(contentAfter.accepted_text);
+  const formatAcceptedSha = sha256(formatAfter.accepted_text);
+  const contentAcceptedSha = sha256(contentAfter.accepted_text);
+  const readingFacts = {
+    format_reading: formatReading,
+    content_reading: contentReading,
+    reading_after_refresh: readingAfterRefresh,
+    expected_effective_words_after_t2: expectedEffectiveWords,
+    format_accepted_sha256: formatAcceptedSha,
+    content_accepted_sha256: contentAcceptedSha,
+    reading_matches_format_candidate:
+      formatReading.visible === true &&
+      formatReading.projection_content_sha256 === formatAcceptedSha,
+    reading_matches_content_candidate:
+      contentReading.visible === true &&
+      contentReading.projection_content_sha256 === contentAcceptedSha,
+    chapter_word_count_matches_content:
+      contentReading.chapter_words === expectedEffectiveWords,
+    refresh_reading_same_value:
+      readingAfterRefresh.visible === true &&
+      readingAfterRefresh.projection_content_sha256 === contentReading.projection_content_sha256 &&
+      readingAfterRefresh.chapter_words === contentReading.chapter_words,
+    visible_target_chapter:
+      formatReading.visible_target_chapter !== false && contentReading.visible_target_chapter === true,
+  };
+  evidence.trials.push({
+    id: "T5_reading_projection_after_replace_scope",
+    purpose:
+      "replace_scope 后真实阅读模式/章节投影 == 新候选（hash/归一/有效字数）；刷新重进仍新值；UI 可见目标章。",
+    format_reading: formatReading,
+    content_reading: contentReading,
+    reading_after_refresh: readingAfterRefresh,
+    facts: readingFacts,
+  });
+
+  const summaryFacts = {
+    before_t1: summaryBeforeT1,
+    after_t2: summaryAfterT2,
+    after_refresh: summaryAfterRefresh,
+    current_accepted_summary: summaryCurrent,
+    refreshed_after_replace_scope: summaryRefreshed,
+    references_superseded_old_draft: summaryReferencesOldSuperseded,
+    accepted_summary_count_after: acceptedSummaryRows(summaryAfterT2).length,
+  };
+  evidence.trials.push({
+    id: "T6_chapter_summary_after_replace_scope",
+    purpose:
+      "采纳后章摘要刷新/重生成：当前摘要状态不得把旧稿冒充新稿（当前 ACCEPTED 摘要存在且版本新于替换前；不得引用 superseded 旧 draft；失败须诚实标记——确定性器成功路径记录，失败机制归 d3 场景）。",
+    summary_facts: summaryFacts,
+  });
+
+  // 下一轮追问/检索：真实主输入带「」引用词触发 prose_search（确定性器只消费真实目录/正文）。
+  const searchNewTurn = await sendAuthorTurn(
+    "查一下第01章正文里有没有出现「三十岁」，只按当前正文回答。",
+    "B28 CP3 next-round search new value",
+    240_000,
+  );
+  const searchOldTurn = await sendAuthorTurn(
+    "查一下第01章正文里有没有出现「二十五岁」，只按当前正文回答。",
+    "B28 CP3 next-round search old value",
+    240_000,
+  );
+  const obsNewText = [
+    ...(searchNewTurn.exploration_frames ?? []).map((frame) => frame.excerpt),
+    ...(searchNewTurn.exploration_records ?? []).map((record) => record.excerpt),
+  ].join("\n");
+  const obsOldText = [
+    ...(searchOldTurn.exploration_frames ?? []).map((frame) => frame.excerpt),
+    ...(searchOldTurn.exploration_records ?? []).map((record) => record.excerpt),
+  ].join("\n");
+  const newPromptFlags = searchNewTurn.llm_prompts ?? [];
+  const nextRoundFacts = {
+    search_new: {
+      assistant_text: searchNewTurn.assistant_text,
+      judgment: searchNewTurn.judgment_records,
+      llm_prompts: newPromptFlags,
+      exploration_frames: searchNewTurn.exploration_frames,
+      exploration_records: searchNewTurn.exploration_records,
+      observation_excerpt: obsNewText.slice(0, 2000),
+    },
+    search_old: {
+      assistant_text: searchOldTurn.assistant_text,
+      judgment: searchOldTurn.judgment_records,
+      llm_prompts: searchOldTurn.llm_prompts ?? [],
+      exploration_frames: searchOldTurn.exploration_frames,
+      exploration_records: searchOldTurn.exploration_records,
+      observation_excerpt: obsOldText.slice(0, 2000),
+    },
+    current_body_prompt_count: newPromptFlags.filter(
+      (prompt) => prompt.contains_continuation_unique_phrase === true,
+    ).length,
+    prompts_with_old_chapter_phrase: newPromptFlags.filter(
+      (prompt) => prompt.contains_old_chapter_phrase === true,
+    ).length,
+    context_reads_new_chapter: newPromptFlags.some(
+      (prompt) =>
+        prompt.contains_thirty_age === true &&
+        prompt.contains_continuation_unique_phrase === true &&
+        prompt.contains_old_chapter_phrase !== true,
+    ),
+    retrieval_hits_new_value:
+      obsNewText.includes("三十岁") &&
+      (obsNewText.includes("命中") || searchNewTurn.assistant_text.includes("命中")),
+    retrieval_old_value_not_current:
+      (obsOldText.includes("未检索到") || obsOldText.includes("未命中")) &&
+      !/命中\s*\d+\s*章/u.test(obsOldText),
+  };
+  evidence.trials.push({
+    id: "T7_next_round_context_and_retrieval",
+    purpose:
+      "下一轮追问/检索走真实页面：判断上下文/llm prompt 读新整章正文（新值在、旧值不在）；prose_search 命中新正文、旧被替代文本不作为当前结果（无页面搜索入口，边界见 manifest）。",
+    next_round: nextRoundFacts,
+  });
+
+  // UI 来源/范围与历史可查：档案大纲可见目标章 + 摘要，历史旧稿全部 superseded 且内容保留。
+  await openArchiveOutline();
+  const archiveVisibleText = await page.locator("body").innerText();
+  const summaryVisibleInArchive = summaryCurrent
+    ? archiveVisibleText.includes(
+        String(summaryCurrent.summary_text).replace(/\s+/g, "").slice(0, 18),
+      )
+    : false;
+  await page.screenshot({
+    path: path.join(artifactDir, "b28-cp3-archive-summary-source.png"),
+    fullPage: true,
+  }).catch(() => {});
+  await closeArchiveIfOpen();
+  const historyEvidence = {
+    accepted_current_count: currentAcceptedRows.length,
+    superseded_count: supersededRows.length,
+    latest_accepted_draft_ref: latestAcceptedRef,
+    history_rows: chapterDraftHistory,
+    superseded_retained_initial_anchor: supersededRows.some((row) =>
+      String(row.content ?? "").includes(initialAnchor),
+    ),
+    superseded_retained_continuation_anchor: supersededRows.some((row) =>
+      String(row.content ?? "").includes(continuationAnchor),
+    ),
+    current_accepted_equals_final_content:
+      latestAccepted !== null && String(latestAccepted.content ?? "") === contentAfter.accepted_text,
+    current_accepted_has_thirty_age: String(latestAccepted?.content ?? "").includes("三十岁"),
+    current_accepted_has_twentyfive_age: String(latestAccepted?.content ?? "").includes("二十五岁"),
+    archive_visible_target_chapter: /第01章[：:]夜潮/.test(archiveVisibleText),
+    summary_visible_in_archive: summaryVisibleInArchive,
+  };
+  evidence.trials.push({
+    id: "T8_history_and_ui_source_visibility",
+    purpose:
+      "旧 accepted drafts 全部 superseded 且历史内容可查、不在当前投影；档案/阅读可见目标章与摘要来源，UI 无隐藏 hook。",
+    history_facts: historyEvidence,
+    archive_excerpt: archiveVisibleText.slice(0, 1600),
+  });
+
   // ── T4：缺 accepted ref 恢复（不得猜/不得新建章）────────────────────────────────
   const missingToken = Date.now().toString(36);
   const missingWork = await createWorkSeed({
@@ -36966,6 +37239,10 @@ async function driveB28WholeChapterRevision(page) {
   const t4 = evidence.trials.find((trial) => trial.id.startsWith("T4_"));
   const t0a = evidence.trials.find((trial) => trial.id.startsWith("T0a_"));
   const t0b = evidence.trials.find((trial) => trial.id.startsWith("T0b_"));
+  const t5 = evidence.trials.find((trial) => trial.id.startsWith("T5_"));
+  const t6 = evidence.trials.find((trial) => trial.id.startsWith("T6_"));
+  const t7 = evidence.trials.find((trial) => trial.id.startsWith("T7_"));
+  const t8 = evidence.trials.find((trial) => trial.id.startsWith("T8_"));
   evidence.checks = {
     same_title_ambiguous_blocked_with_clarification:
       t0a?.clarification_visible === true && t0a?.no_pending_candidate === true,
@@ -37025,6 +37302,37 @@ async function driveB28WholeChapterRevision(page) {
     missing_ref_zero_write: t4?.no_production_write === true,
     missing_ref_blocked_with_clarification: t4?.clarification_visible === true,
     missing_ref_no_new_writing_execution: t4?.no_writer_execution === true,
+    reading_projection_after_t1_equals_new_candidate:
+      t5?.facts?.reading_matches_format_candidate === true,
+    reading_projection_after_t2_equals_new_candidate:
+      t5?.facts?.reading_matches_content_candidate === true,
+    chapter_word_count_matches_new_content:
+      t5?.facts?.chapter_word_count_matches_content === true,
+    reading_after_refresh_consumes_same_new_value:
+      t5?.facts?.refresh_reading_same_value === true,
+    reading_visible_target_chapter: t5?.facts?.visible_target_chapter === true,
+    chapter_summary_refreshed_after_replace_scope:
+      t6?.summary_facts?.refreshed_after_replace_scope === true,
+    chapter_summary_not_pointing_to_superseded_old_draft:
+      t6?.summary_facts?.references_superseded_old_draft === false,
+    next_round_context_reads_new_chapter:
+      t7?.next_round?.context_reads_new_chapter === true,
+    retrieval_hits_new_value: t7?.next_round?.retrieval_hits_new_value === true,
+    retrieval_old_value_not_current:
+      t7?.next_round?.retrieval_old_value_not_current === true,
+    history_old_drafts_superseded_and_retained:
+      (t8?.history_facts?.superseded_count ?? 0) >= 3 &&
+      t8?.history_facts?.superseded_retained_initial_anchor === true &&
+      t8?.history_facts?.superseded_retained_continuation_anchor === true,
+    current_projection_only_new_accepted_draft:
+      t8?.history_facts?.accepted_current_count === 1 &&
+      t8?.history_facts?.current_accepted_equals_final_content === true &&
+      t8?.history_facts?.current_accepted_has_thirty_age === true &&
+      t8?.history_facts?.current_accepted_has_twentyfive_age === false,
+    ui_source_and_scope_visible:
+      t8?.history_facts?.archive_visible_target_chapter === true &&
+      formatVisibleTargetChapter === true &&
+      formatVisibleModificationScope === true,
     no_product_code_changed: true,
     no_acceptance_hooks_added: true,
   };
@@ -37076,6 +37384,22 @@ async function driveB28WholeChapterRevision(page) {
         missing_ref_judgment_routed_prose_writing: t4?.routed_to_new_writing ?? null,
         visible_target_and_scope:
           Boolean(formatVisibleTargetChapter && formatVisibleModificationScope),
+        reading_chapter_words: t5?.facts?.content_reading?.chapter_words ?? null,
+        reading_effective_words_expected:
+          t5?.facts?.expected_effective_words_after_t2 ?? null,
+        reading_after_refresh_words:
+          t5?.facts?.reading_after_refresh?.chapter_words ?? null,
+        summary_rows_before_t1: t6?.summary_facts?.before_t1?.length ?? null,
+        summary_rows_after_t2: t6?.summary_facts?.after_t2?.length ?? null,
+        summary_current_status: t6?.summary_facts?.current_accepted_summary?.status ?? null,
+        summary_current_source_ref:
+          t6?.summary_facts?.current_accepted_summary?.source_ref ?? null,
+        summary_visible_in_archive:
+          t8?.history_facts?.summary_visible_in_archive ?? null,
+        retrieval_new_hit: t7?.next_round?.retrieval_hits_new_value ?? null,
+        retrieval_old_miss: t7?.next_round?.retrieval_old_value_not_current ?? null,
+        history_superseded_count: t8?.history_facts?.superseded_count ?? null,
+        current_accepted_count: t8?.history_facts?.accepted_current_count ?? null,
         format_receipt_echoes_effect:
           t1?.adoption?.receipt_additive?.echoes_adoption_effect === true,
         content_receipt_echoes_effect:

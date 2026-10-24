@@ -7,7 +7,9 @@ status_note: >-
   active（2026-10-25 CP2 注册）：外部 Tauri runner 驱动真实工作台（原生窗口 + 真实
   Phoenix/Vite 前端）复验 B28 整章修订闭环——章级目标/全章覆盖账、format_only 归一等价、
   content_revision 只改指定处、replace_scope 同章替代（章身份/章数不变、旧稿 superseded 历史
-  可查、阅读/刷新消费新值）、同名章澄清阻断、缺 ref 零写入。证据边界：provider 为
+  可查、阅读/刷新消费新值）、同名章澄清阻断、缺 ref 零写入；CP3 追加 replace_scope 后
+  阅读/投影 hash+有效字数、章摘要刷新来源、下一轮 prose_search/上下文读新值、历史可查。
+  证据边界：provider 为
   slice_verify 确定性替身（状态链/契约证据）；真实模型原话/改述与排版质量归 CP4。产品代码
   已提交（CP1/CP1.5），本场景不改产品代码、不新增验收感知逻辑。
 entrypoint: bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri
@@ -39,6 +41,10 @@ setup:
     - T2 明确内容修订：「把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。」→ 候选仍覆盖全章、只改指定处、replace_scope 不新建章、其余逐字保留。
     - T3 刷新/重复采纳幂等：章数/章身份/正文 hash 不变，无重复采纳入口。
     - T4 缺 accepted ref：新作品发整章修订请求 → 澄清/拒绝（不猜、不新建章、不进入新正文写作），零写入。
+    - T5 阅读/投影消费：T1/T2 采纳后阅读模式章投影正文 hash == 新候选（冻结归一），有效字数 == 正文口径；刷新重进仍新值；UI 可见目标章。
+    - T6 摘要消费：采纳后章摘要刷新/重建（当前 ACCEPTED 摘要更新且不引用 superseded 旧 draft）；失败须诚实标记（本场景确定性器走成功路径，失败机制由现有摘要场景回归）。
+    - T7 下一轮上下文/检索：真实主输入追问/检索（「三十岁」命中、「二十五岁」不作为当前结果），app/llm JSONL 证明判断上下文读新整章正文（新值在、旧值不在）。
+    - T8 历史/UI 来源：旧 accepted drafts 全部 SUPERSEDED 且历史内容可查、不在当前投影；当前仅 1 条新整章 accepted；档案/阅读可见目标章与摘要来源，无隐藏 hook。
 user_flow:
   - open: 真实 Tauri runner（原生窗口 + 真实前端/后端）打开 seed 作品。
   - create: 档案→大纲与结构→生成正文草稿→修改后采纳，写入初稿；主输入续写同章下一段→修改后采纳，写入零换行续写；确认同章 2 场景 / 2 accepted。
@@ -49,6 +55,12 @@ user_flow:
   - send: 「把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。」
   - verify: 候选覆盖全章、只改该处、target_chapter_ref 非空、采纳 replace_scope 不新建章、替换外逐字保留。
   - refresh: 刷新页面，验证章事实/正文 hash 不变、无重复采纳入口。
+  - observe: 阅读模式/章节投影正文 hash == 新候选，有效字数 == 正文口径；刷新重进一致。
+  - observe: 章摘要刷新/重建（不把旧摘要冒充新稿）；历史旧 accepted 全部 superseded 可查、当前投影只含新整章稿。
+  - send: 「查一下第01章正文里有没有出现「三十岁」，只按当前正文回答。」（真实主输入→prose_search/下一轮上下文）
+  - verify: 判断上下文/llm prompt 读新整章正文（含新值、无旧值）；检索命中新正文。
+  - send: 「查一下第01章正文里有没有出现「二十五岁」，只按当前正文回答。」
+  - verify: 旧被替代文本不作为当前检索结果（无命中）；档案/阅读可见目标章与摘要来源。
   - create: 新作品（无 accepted 正文）。
   - send: 同样的整章修订请求。
   - verify: 澄清/拒绝且零写入、不新建章、不路由为新正文写作。
@@ -64,6 +76,7 @@ evidence:
     - b28-cp2-t1-candidate.png
     - b28-whole-chapter-revision-02-t1-reading-after-adoption.png
     - b28-whole-chapter-revision-03-t2-reading-after-content-adoption.png
+    - b28-cp3-archive-summary-source.png
     - b28-cp2-final.png
   artifact_dir: artifacts/slice-verify/b28-whole-chapter-revision-tauri
 assertions:
@@ -79,6 +92,9 @@ assertions:
     - chapter_count 与 chapter_id/seq 在 T1/T2 采纳前后不变；旧 accepted draft 变为 SUPERSEDED 且历史可查；当前 accepted 只一份整章稿。
     - format_only：normalize(candidate) == normalize(全章当前正文)；content：仅指定替换（二十五岁→三十岁），其余逐字。
     - 刷新后正文 hash/章事实不变；重复采纳幂等。
+    - 阅读投影章正文 hash == 新候选，本章有效字数 == 正文有效字数；刷新重进一致。
+    - 章摘要当前 ACCEPTED 版本刷新且不引用 superseded 旧 draft；旧 draft 历史保留、当前 accepted 仅 1 条新整章稿。
+    - 下一轮判断/检索上下文含新值（三十岁）、不含旧值（二十五岁）；prose_search 命中新正文，旧文本不作为当前结果。
   llm:
     - judgment prompt 含章级目标（chapter_ref/标题/片段数/coverage）与 modification_scope；不得退化为单 artifact/新创作。
     - writer prompt 含全部 covered 片段全文（初稿+续写，阅读投影顺序）与 target_chapter_ref/覆盖账。
@@ -100,5 +116,7 @@ prerequisites:
   - B28 场景仅在上述真实链路可跑后注册 scenarios.yml；slice_verify 确定性 fixture 提供
     format_only/content_revision 输出语义（真实模型归 CP4）。
 known_not_closed:
-  - 真实模型原话/改述与排版质量归 CP4；本场景为确定性 provider 状态链证据。
+  - 真实模型原话/改述与排版质量归 CP4；本场景为确定性 provider 状态链证据；检索/下一轮只证明上下文与检索读新正文，不评模型语义质量。
   - format_only_violation 的端到端负向本场景暂不做（避免与 T1 正例混跑）；以 CP1 单测 + CP4 实模覆盖。
+  - 产品当前无作者可点的独立「搜索正文」页面入口：检索证据经真实主输入→模型工具 prose_search（真实 Channel/工具链）+ 隔离 DB/投影只读对账；如后续新增页面搜索入口，本场景需补 UI 路径。
+  - 章摘要失败诚实标记机制由既有摘要场景（如 d3-summary-lazy-repair）覆盖；本场景只验证成功刷新路径与「当前摘要不冒充旧稿」的来源一致性。当前档案大纲不渲染章摘要正文，摘要证据用隔离 DB 当前 ACCEPTED 行（source/revision_base/updated_at）+ chapter_summary_maintenance app 事件；UI 摘要显示不作为断言。
