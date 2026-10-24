@@ -1,6 +1,6 @@
 # B28：完整章节修订、排版范围与采纳身份闭环
 
-- 状态：**doing / CP0 已完成（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）**：当前版本已阻止 stage 式「单片段冒充整章」候选（honest failure），但整章只排版仍不可完成；内容修订采纳仍会因 target 空而新建章（stage 21:58 失败链可复现）。CP0 复现证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`、记录 `artifacts/model-contracts/b28-cp0/{ui-repro.md,code-chain.md,contract-proposal.md,stage-impact.md}`；CP1 契约与实现已按 §7 冻结。
+- 状态：**done（2026-10-25，CP0–CP5；真实 Tauri 场景 PASS 48/48 checks，CP4 真实模型意图/材料覆盖 PASS，writer 生产端 known-gap 如实记录）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本已阻止 stage 式「单片段冒充整章」候选（honest failure），但整章只排版仍不可完成；内容修订采纳仍会因 target 空而新建章（stage 21:58 失败链可复现）。CP0 复现证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`、记录 `artifacts/model-contracts/b28-cp0/{ui-repro.md,code-chain.md,contract-proposal.md,stage-impact.md}`；CP1 契约与实现已按 §7 冻结。
 - 登记日期：2026-10-23；来源：stage“整理第1章正文”只处理初稿、采纳后新增第17章。
 - 上游：[Q1c](Q1C-adopted-content-revision.md)、[B24](B24-exploration-chapter-full-read.md)、[B25](B25-chapter-identity-unification.md)、[Q1Cb](Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md)。提示词统一归 [B27](B27-systematic-prompt-and-intent-integration.md)，不在此追加局部提示词补丁。
 - 本轮只授权任务登记，不修改代码或 stage 数据。
@@ -55,8 +55,8 @@
 | CP1 | 完整章节基线、版本/覆盖检查和旧来源恢复；失败路径不新建章；与 B27 共用操作语义 | **done（2026-10-25，`655220d6`）**：共享契约（`7950437c`）落地；AuthoringTaskBuilder.for_chapter_revision/1、判断章级绑定规则、Real format_only/content_revision 渲染；persistence replace_scope 多片段原子事务 + accepted_chapter_scopes、application validate_b28_contract/chapter_revision_context；全后端 2098/0 全绿。CP1.5 wiring 已提交（`1dea5ed3`）：章级目标进判断上下文、writer 全章覆盖顺序文本、候选顶层/payload provenance、采纳回执 superseded refs；全后端 2111/0。CP2 真实页面复验（task-51）进行中 |
 | CP2 | 修订候选/差异/确认→原章事务替代；旧版本与 trace 留存、幂等/回滚 | **done（2026-10-25，`29f9a03d`）**：真实 Tauri `b28-whole-chapter-revision` PASS（35/35 checks、6 trials、log_noise ok）；T0a 同名澄清阻断、T0b ref 绑同章、T1 整章排版 replace_scope（章数 2→2、旧 2 稿 superseded、归一字节等价）、T2 只改指定处其余逐字、T3 幂等、T4 缺 ref 澄清零写入；回归 b25/judgment-explore-chapter-full-read/p1/q1c 全 PASS；场景已注册 nightly |
 | CP3 | 阅读/摘要/检索/探索/后续问答同批消费新值，UI 保留作者来源和范围 | **done（2026-10-25，`4d1cf3eb`）**：真实 Tauri PASS（48/48 checks、10 trials、log_noise ok）；T5 阅读/投影 hash/字数==新 accepted 全文、刷新一致、旧 3 稿 SUPERSEDED 历史可查；T6 摘要指向新 draft 不引用旧源；T7 真实主输入→prose_search 命中新值/旧值不命中、上下文含新整章正文；T8 档案可见章身份+范围；边界（无页面搜索入口/摘要 UI 不渲染）已登记 |
-| CP4 | 新真实 Tauri 场景＋Q1c/B24/B25/续写回归；真实模型原始问法与改述验证 | in_progress（task-57：真实模型 `iq3_s` 原话/改述各一，验证判断绑章+format_only→同章替代；串行、Lead 批准） |
-| CP5 | 全门禁、静态扫描、NEXT/journey D5/ledger；数据修复未授权时如实单列，不能称 stage 数据已恢复 | todo |
+| CP4 | 新真实 Tauri 场景＋Q1c/B24/B25/续写回归；真实模型原始问法与改述验证 | **done（2026-10-25，`2095b9a3` + CP5 记录）**：`strata/iq3_s` 单槽 3 轮（original canonical/retry1/paraphrase canonical）：两 phrasing 判断均绑 `chapter:<uuid>`+format_only、writer prompt 覆盖两片段（model_behavior PASS）；writer 生成系统性 `invalid_response` 退化（~260s 低信息熵重复）→ 无候选、零写入、诚实失败（writer known-gap，记 §7.8）；CP4 driver 证据分支已提交；正例候选契约/format_only_violation 负例待 writer 生产端修复后回归 |
+| CP5 | 全门禁、静态扫描、NEXT/journey D5/ledger；数据修复未授权时如实单列，不能称 stage 数据已恢复 | **done（2026-10-25，CP5 收口）**：后端 2122 tests/0、前端 603 tests、I1/I2/I3、adr/credo/enum/xref/arch/format、frontend audit/design、manifest、静态扫描、task_done；stage 数据修复保持只读清单未授权；B28 done（CP4 writer known-gap 如实登记） |
 
 CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 done。可先完成数据边界修复，不依赖先重写所有提示词；新增提示词资产必须遵循 B27 整合决定。
 
@@ -122,3 +122,20 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - **边界/known_not_closed**：无独立页面搜索入口（真实主输入+prose_search+DB 对账）；摘要失败诚实标记归 d3-summary 场景；档案不渲染摘要正文；真实模型/排版观感归 CP4；format_only violation 端到端负例由 CP1 单测+CP4。
 - **回归**：p1/q1c 复用 CP2 PASS（其后产品/frontend 无变更）；B24/B25/judgment 已 CP2 PASS 且未被触及。
 - manifest/README 已同步（48 checks、T5–T8 断言、边界），quality_manifest_check passed；未改产品代码。
+
+### 7.8 CP4 真实模型验证记录（2026-10-25，`2095b9a3`）
+
+- **环境**：HEAD `a64810e4`（CP3 `4d1cf3eb`；产品代码 `1f2f8121`）；Strata 单槽独占 `iq3_s`（preflight `/v1/models` 就绪、无其它 agent 调用）；窗口 03:45–04:20；预算 ≤2 phrasing×≤2 轮，实际 3 轮（original canonical + original retry1（provider invalid_response 允许重试）+ paraphrase canonical），无因结果重跑。
+- **model_behavior（3/3 一致 PASS）**：原话「把第一章正文整理一下，只调整分段和排版，不要改字句。」与改述「第一章正文帮我统一下排版和分段，文字别动。」→ judgment `execute/revise_adopted_content`，reason 明确绑定 `chapter:<uuid>`（第01章：夜潮，2 片段、coverage complete）+ `modification_scope=format_only`；writer prompt 同时含两片段独有锚点、chapter ref/title、整章覆盖/format_only 证据。
+- **writer 生成系统性失败（known-gap）**：provider 259–271s 后 `invalid_response`「Strata 响应内容退化（低信息熵重复）」→ `prose_writing` provider_error → run failed；无候选。original 两轮复现→系统性模型/provider 退化（非瞬时）；paraphrase 未再重试（预算诚实）。
+- **product_state_chain**：无候选→无采纳、零写入；章数/章身份/旧 accepted refs/内容字符与 baseline 完全一致；作者可见诚实失败文案「修订未能生成有效的新稿…本次没有改变原稿或写入作品事实」。CP4 正例候选契约/归一等价/replace_scope 与 `format_only_violation` 负例未被真实模型触发，依赖 writer 生产端修复后回归（known-gap 2）。
+- **证据**：`artifacts/slice-verify/b28-whole-chapter-revision-tauri-strata-cp4-{original,original-retry1,paraphrase}/`（ui-frames/app-log/llm-calls raw/截图/`b28-cp4-strata-evidence.json`）；汇总 `artifacts/slice-verify/b28-cp4-strata-validation-20261025-042020/`（report.md/summary.json/console/preflight/driver.patch）。CP4 run 不产出 CP2/CP3 场景 checks（runner exit 1 属预期），不以 runner PASS 代替语义结论；未注册新场景。
+- **边界**：未改产品/frontend/src/tasks/cases/snapshots；未调提示词/未放宽守卫/未重跑换分；Strata 槽已释放、无残留。
+
+### 7.9 CP5 收口记录（2026-10-25）
+
+- **门禁**：compile -Werror、**2122 tests/0**（common 96/domain 378/agent 265/persistence 306/application 884/web 133）、test -Werror、repo format、credo strict 0、enum/xref/arch/adr；前端 typecheck/lint/**603 tests**、frontend_audit、check_design_trace；quality_manifest_check；**I1/I2/I3 全 PASS**。
+- **真实页面**：`b28-whole-chapter-revision` 注册 nightly，canonical PASS **48/48 checks/10 trials**（CP0 复现批次与 CP2/CP3 失败批次全保留）。
+- **台账/排期**：本 slice CP0–CP5 记录、slices README、NEXT→B30、project-ledger 已更新；B27 M07 known-gap 按 B28 format_only 机制落地更新（机制+确定性场景关闭，真实模型语义受 strata known-gap 限制，不宣称模型已通过）。
+- **未授权项（如实单列）**：stage 存量数据（ch1 两份 accepted + ch17 新章）保持只读清单 `stage-impact.md`，不删除/不合并/不写数据；实际修复需作者单独授权（备份+sha256、replace_scope 目标 ch1、ch17 保留历史）。
+- **known limits**：① CP4 writer 生产端 known-gap（strata/iq3_s 长整章生成退化）→ 正例候选契约/format_only_violation 负例待修复后回归；② 无独立页面搜索入口（prose_search 工具链+DB 对账）；摘要失败机制归 d3；档案不渲染摘要；③ CP4 证据为非注册 harness 分支（env 门控），真实模型语义不进入 nightly 判定。

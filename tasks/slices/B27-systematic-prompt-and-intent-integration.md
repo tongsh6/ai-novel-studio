@@ -463,3 +463,8 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - 第二方复核：`b27_second_review` select 覆盖 14 episodes、争议 6 blind_id；**无独立第二 judge 模型**（主 judge qwen3.8；strata/iq3_s 为被评模型）→ 作者/人工记录模板待填，旁路不影响主判。
 - 披露：old 单轮不对称、judge 单模型无人工复核、LM 观察未跑、0 provider 失败；无重跑刷分、未删分母、未改阈值/rubric/cases/snapshots。judge retry bugfix（`b27_blind_judge.exs` prompt ++ [map]）随记录提交。
 - **CP5 状态**：文档/状态/NEXT/台账已同步；完整 CP5 收口仍需 known-gap 回归与作者第二方复核记录（部分完成）。
+
+#### B28 承接更新（2026-10-25）
+
+- **M07（format_only 字句保真）关闭（机制+确定性场景）**：B28 CP1 落地 `modification_scope=:format_only` 契约、`AuthoringTask` 校验、writer format_only 渲染、应用侧空白归一（行尾空白删除/换行归一/文末空行折叠）后字节等价守卫与 `format_only_violation`；CP2 真实 Tauri `b28-whole-chapter-revision` T1 PASS（整章两片段只排版候选归一后字节等价、replace_scope 同章替代）。真实模型 writer 生成受 strata/iq3_s 长整章退化 known-gap 限制（B28 §7.8），不宣称真实模型语义通过。
+- 其余 retest6 known-gap（M01r2/M02/M08r2/M16r1/M18r1）仍为 B27 输入，后续硬化周期与 B28/B30/B29 回归。
