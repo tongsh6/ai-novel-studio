@@ -1034,19 +1034,176 @@ defmodule B27EpisodeSupport do
   # 不改 cases.yml/snapshots），并在 episode 证据记录正文 hash；用于语义判分与复测。
   defp candidate_seed_context(fixture, prose_lib) do
     chapters = get(fixture, "chapters") || []
-    first_chapter = List.first(chapters) || %{}
-    refs = get(first_chapter, "prose") || []
-    texts = Enum.map(refs, &resolve_prose!(prose_lib, &1))
-    primary = Enum.join(texts, "\n")
-    first_two = texts |> Enum.take(2) |> Enum.join("\n")
 
-    alternate =
-      case get(prose_lib, "ch01_open") do
-        text when is_binary(text) -> text
-        _ -> primary
-      end
+    chapter_ctx =
+      Enum.map(chapters, fn chapter ->
+        seq = get(chapter, "seq") || 1
+        refs = get(chapter, "prose") || []
+        texts = Enum.map(refs, &resolve_prose!(prose_lib, &1))
+        text = Enum.join(texts, "\n")
+        first_two = texts |> Enum.take(2) |> Enum.join("\n")
+        fallback_ref = chapter_opening_ref(seq)
+        fallback_text = prose_text(prose_lib, fallback_ref)
 
-    %{primary: primary, first_two: first_two, alternate: alternate}
+        %{
+          seq: seq,
+          refs: refs,
+          texts: texts,
+          text: text,
+          first_two: first_two,
+          opening: List.first(texts) || fallback_text,
+          fallback: fallback_text
+        }
+      end)
+
+    first = List.first(chapter_ctx) || %{}
+
+    %{
+      chapters: chapter_ctx,
+      primary: Map.get(first, :text) || "",
+      first_two: Map.get(first, :first_two) || "",
+      alternate: prose_text(prose_lib, "ch01_open") || Map.get(first, :text) || "",
+      lore_rule: extract_lore_rule(prose_lib)
+    }
+  end
+
+  # M15：world_setting 候选正文不能套用章节正文（R1 通用规则曾导致基线是第01章正文，
+  # 与案例卡“灵气抽成七成→六成”不符）。确定性派生：fixture title + cases.yml prose library 中
+  # 唯一含“抽成七成”的引文（ch03_open 的「抽成七成，余者归灯。」）；不新造词句。
+  defp extract_lore_rule(prose_lib) do
+    open_quote = <<0x201C::utf8>>
+    close_quote = <<0x201D::utf8>>
+
+    prose_lib
+    |> Map.values()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.flat_map(fn text ->
+      text
+      |> String.split(open_quote)
+      |> Enum.drop(1)
+      |> Enum.map(fn part ->
+        case String.split(part, close_quote, parts: 2) do
+          [rule, _rest] -> rule
+          _ -> nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+    end)
+    |> Enum.find(&String.contains?(&1, "七成"))
+  end
+
+  defp world_setting_type?(artifact_type, title) do
+    artifact_type = to_string(artifact_type || "")
+    title = to_string(title || "")
+
+    String.contains?(artifact_type, "world_setting") or
+      String.contains?(artifact_type, "lore") or
+      String.contains?(artifact_type, "rule") or
+      String.contains?(title, "设定") or
+      String.contains?(title, "规则")
+  end
+
+  defp world_setting_body(title, lore_rule) do
+    title = to_string(title || "")
+
+    cond do
+      is_binary(lore_rule) and lore_rule != "" and title != "" -> title <> "\n" <> lore_rule
+      is_binary(lore_rule) and lore_rule != "" -> lore_rule
+      true -> title
+    end
+  end
+
+  defp chapter_opening_ref(seq) when is_integer(seq) do
+    if seq < 10, do: "ch0#{seq}_open", else: "ch#{seq}_open"
+  end
+
+  defp chapter_opening_ref(_seq), do: nil
+
+  defp prose_text(prose_lib, ref) when is_binary(ref) do
+    case get(prose_lib, ref) do
+      text when is_binary(text) and text != "" -> text
+      _ -> nil
+    end
+  end
+
+  defp prose_text(_prose_lib, _ref), do: nil
+
+  defp chapter_seq_from_title(title) do
+    title = to_string(title || "")
+
+    case Regex.run(~r/第0?(\d+)章/, title) do
+      [_, seq] -> String.to_integer(seq)
+      _ -> nil
+    end
+  end
+
+  defp candidate_derivation(title, index, artifact_type, seed_ctx) do
+    title = to_string(title || "")
+    artifact_type = to_string(artifact_type || "")
+
+    cond do
+      world_setting_type?(artifact_type, title) ->
+        {world_setting_body(title, seed_ctx.lore_rule),
+         "fixture.title + cases.yml.prose_lib 引文（ch03_open「抽成七成，余者归灯。」）"}
+
+      true ->
+        chapter = target_chapter(title, seed_ctx)
+
+        cond do
+          String.contains?(title, "前两段") ->
+            {chapter.first_two, "chapter#{chapter.seq}.first_two_prose_segments"}
+
+          chapter.text != "" and String.contains?(title, " A") ->
+            {chapter.text, "chapter#{chapter.seq}.prose_refs_joined（A 候选）"}
+
+          chapter.text != "" and String.contains?(title, " B") ->
+            {variant_b_body(chapter),
+             "prose_lib opening / chapter#{chapter.seq}（B 候选，保证与 A 有可辨识差异）"}
+
+          chapter.text != "" ->
+            {chapter.text, "chapter#{chapter.seq}.prose_refs_joined（按标题章号）"}
+
+          is_binary(chapter.fallback) and chapter.fallback != "" ->
+            {chapter.fallback,
+             "chapter#{chapter.seq}.prose[] 为空 → prose_lib.#{chapter_opening_ref(chapter.seq)}"}
+
+          true ->
+            alternate_or_primary(index, seed_ctx)
+        end
+    end
+  end
+
+  defp target_chapter(title, seed_ctx) do
+    seq = chapter_seq_from_title(title) || 1
+
+    Enum.find(seed_ctx.chapters, &(&1.seq == seq)) || List.first(seed_ctx.chapters) ||
+      %{
+        seq: seq,
+        refs: [],
+        texts: [],
+        text: "",
+        first_two: "",
+        opening: nil,
+        fallback: nil
+      }
+  end
+
+  defp variant_b_body(chapter) do
+    cond do
+      is_binary(chapter.fallback) and chapter.fallback != "" -> chapter.fallback
+      length(chapter.texts) > 1 -> Enum.at(chapter.texts, 1)
+      true -> chapter.text
+    end
+  end
+
+  defp alternate_or_primary(index, seed_ctx) do
+    cond do
+      index > 0 and is_binary(seed_ctx.alternate) and seed_ctx.alternate != "" ->
+        {seed_ctx.alternate, "prose_lib.ch01_open（第二候选）"}
+
+      true ->
+        {seed_ctx.primary, "chapter.prose_refs_joined"}
+    end
   end
 
   defp enrich_adoption_entry(entry, default_turn, index, seed_ctx) do
@@ -1055,7 +1212,7 @@ defmodule B27EpisodeSupport do
     title = get(entry, "title")
     status = get(entry, "adoption_status") || "TENTATIVE"
     source_turn_ref = get(entry, "source_turn_ref") || default_turn
-    body = candidate_body(title, index, seed_ctx)
+    {body, seed_rule} = candidate_derivation(title, index, artifact_type, seed_ctx)
     body = body || ""
 
     enriched =
@@ -1085,31 +1242,11 @@ defmodule B27EpisodeSupport do
       "body" => body,
       "body_chars" => chars(body),
       "body_sha256" => sha256(body),
-      "body_source" => "cases.yml fixture prose（harness seed enrichment）",
-      "seed_rule" => candidate_seed_rule(title, index)
+      "body_source" => "cases.yml fixture deterministic derivation（harness seed enrichment）",
+      "seed_rule" => seed_rule
     }
 
     {enriched, evidence}
-  end
-
-  defp candidate_body(title, index, seed_ctx) do
-    title = to_string(title || "")
-
-    cond do
-      String.contains?(title, "前两段") -> seed_ctx.first_two
-      index > 0 -> seed_ctx.alternate
-      true -> seed_ctx.primary
-    end
-  end
-
-  defp candidate_seed_rule(title, index) do
-    title = to_string(title || "")
-
-    cond do
-      String.contains?(title, "前两段") -> "chapter.first_two_prose_segments"
-      index > 0 -> "prose_lib.ch01_open（第二候选，保证与 A 有可辨识差异）"
-      true -> "chapter.prose_refs_joined"
-    end
   end
 
   defp insert_interaction!(work_id, session_id, turn_id, role, content) do
