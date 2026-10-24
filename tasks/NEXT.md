@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B28-WHOLE-CHAPTER-REVISION | **当前任务**：整章修订与同章采纳（含 B11D 转出项接单，数据边界不硬等全部提示词迁移）。B31 已于 2026-10-25 done（多 awaiting run 归属/steer 版本校验/恢复稳定序，场景注册 PASS；Q3D 口径对齐）。B27 CP4 known-gap 仍登记在阻塞，后续 B28/硬化周期回归。先读 [B28 slice](slices/B28-whole-chapter-revision.md) 并按其 CP0 冻结开工。 | [B28](slices/B28-whole-chapter-revision.md) |
+| B28-WHOLE-CHAPTER-REVISION | **当前任务 / CP0 done（2026-10-25，`7950437c`+`242509dc`）**：真实 Tauri 复现并冻结目标/材料/format_only/采纳 effect/错误码契约（§7 Q01–Q08）；CP1 进行中——prose（整章目标绑定/AuthoringTaskBuilder/format_only writer 渲染，task-49）、aux（全章材料覆盖账/replace_scope 多片段事务/format_only 守卫，task-50）→ 我集成提交 → CP2 真实页面复验+场景注册（task-51）。B31 已 done；B27 CP4 known-gap 仍登记在阻塞、由 B28 format_only 承接关闭。 | [B28](slices/B28-whole-chapter-revision.md) |
 
 ## 后续候选
 
