@@ -312,7 +312,10 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
         decision: decision,
         candidates: [],
         context: Map.get(spec, :context),
-        author_input: %{text: author_input_text(run, plan, observations)},
+        author_input: %{
+          text: author_input_text(run, plan, observations),
+          author_goal_text: run.goal.text
+        },
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(tool_name, spec, snapshot),
         chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),

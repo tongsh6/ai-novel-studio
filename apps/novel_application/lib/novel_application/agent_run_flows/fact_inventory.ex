@@ -542,13 +542,8 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
   end
 
   defp merge_proposals(p1, p2) do
-    [
-      :characters,
-      :world_rules,
-      :foreshadowings,
-      :skeleton_suggestions,
-      :foreshadowing_resolutions
-    ]
+    # B27 CP3d：proposal key 清单唯一真源在 FactInventoryService（不再在 flow 复制一份）。
+    FactInventoryService.proposal_keys()
     |> Enum.reduce(%{}, fn key, acc ->
       merged =
         (Map.get(p1, key, []) ++ Map.get(p2, key, []))

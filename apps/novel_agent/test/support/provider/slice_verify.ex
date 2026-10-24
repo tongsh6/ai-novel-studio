@@ -11,6 +11,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Provider.SystemIdentity
   alias NovelAgent.Provider.Usage
 
@@ -183,7 +184,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # D3：摘要生成定向失败注入——正文含 D3SUMFAIL（经章标题→创作主语进正文第二句）时
   # 仅摘要调用失败，writer/评审不受影响；断供自愈场景以此制造缺口。
   defp maybe_fail_summary_prompt(prompt_text) do
-    if chapter_summary_prompt?(prompt_text) and String.contains?(prompt_text, "D3SUMFAIL") and
+    if StubChapterSummary.prompt?(prompt_text) and String.contains?(prompt_text, "D3SUMFAIL") and
          not :persistent_term.get({__MODULE__, :d3_summary_failed_once}, false) do
       # 一次性失败（瞬态故障语义）：正文里的标记是永久的，若每次都失败，补做也会
       # 永远失败——真实病像（思考模型超时/退化）本就是瞬态的，补做正是它的解药。
@@ -390,34 +391,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       judgment_prompt?(prompt_text) ->
         judgment_result(prompt, prompt_text)
 
-      chapter_summary_prompt?(prompt_text) ->
-        Result.new(chapter_summary_body(prompt_text))
+      StubChapterSummary.prompt?(prompt_text) ->
+        Result.new(StubChapterSummary.body(prompt_text))
 
       true ->
         non_judgment_response_result(prompt, prompt_text)
     end
   end
 
-  # VS-00F CP1（AU-13）：ChapterSummaryGenerator 独立摘要 prompt 的确定性四栏产出。
-  # 正文首行（roster 出场句，见 opening_body）归「人物状态与弧光」栏——复刻真实
-  # 模型把出场人物写进人物栏的行为，令弧光账提炼可命中真实角色名。
-  defp chapter_summary_prompt?(text), do: String.contains?(text, "连续性维护助手")
-
-  defp chapter_summary_body(prompt_text) do
-    prose =
-      case Regex.run(~r/已采纳正文：\n(.+)\z/su, prompt_text) do
-        [_, text] -> String.trim(text)
-        _ -> ""
-      end
-
-    lines = String.split(prose, "\n", trim: true)
-    first_line = List.first(lines) || "（无）"
-    plot = lines |> Enum.drop(1) |> Enum.join("") |> String.slice(0, 120)
-
-    "【情节推进】#{if plot == "", do: "（无）", else: plot}\n" <>
-      "【人物状态与弧光】#{first_line}\n【伏笔动作】（无）\n【情绪基调】紧张推进"
-  end
-
+  # VS-00F CP1（AU-13）+ B27 CP3d：章摘要确定性四栏唯一真源在
+  # `NovelAgent.Provider.StubChapterSummary`（stub 与 SliceVerify 共用，避免双份漂移）。
   # B26 判断①：一次 auto 响应同时给出公开文本与可选原生工具。
   defp judgment_result(_prompt, prompt_text) do
     input = judgment_author_input(prompt_text)
@@ -1337,19 +1320,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         ])
       ],
       reason_codes: ["agent_plan_drafted", "world_building_plan_drafted"]
-    }
-  end
-
-  defp agent_plan_draft_packet_for_profile("provider_progress_v1") do
-    %{
-      reasoning: "直接调用 provider，并只记录 author-safe 进度边界。",
-      steps: [
-        plan_step("provider_complete", "act", "调用 provider 并记录安全进度事件。", [
-          "provider_progress_events_visible",
-          "provider_result_completed"
-        ])
-      ],
-      reason_codes: ["agent_plan_drafted", "provider_progress_plan_drafted"]
     }
   end
 
@@ -2525,7 +2495,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     "plot_outline_with_context_v1" => "plot_outline",
     "character_evolution_with_context_v1" => "character_evolution",
     "world_building_with_context_v1" => "world_building",
-    "provider_progress_v1" => "provider_progress",
     "readonly_batch_context_v1" => "work_archive_read"
   }
 
@@ -3521,18 +3490,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       {:contains, ["只读批量", "批量读取", "read-only batch", "readonly batch"],
        {"readonly_batch_context_v1", "模型选择只读批量上下文工作流。",
         ["model_profile_selected", "readonly_batch_text_match"]}},
-      {:contains,
-       [
-         "provider 进度",
-         "模型进度",
-         "流式进度",
-         "流式事件",
-         "provider progress",
-         "streaming progress",
-         "UA01CP6SLOW"
-       ],
-       {"provider_progress_v1", "模型选择模型执行进度工作流。",
-        ["model_profile_selected", "provider_progress_text_match"]}},
       {:contains, ["正文草稿", "写下一章", "续写", "正文"],
        {"prose_drafting_with_quality_v1", "模型选择正文写作工作流。",
         ["model_profile_selected", "prose_drafting_text_match"]}},
@@ -4224,13 +4181,28 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Enum.filter(&String.contains?(text, &1))
   end
 
-  defp creative_prompt_parts(prompt) do
-    case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt) do
-      [_, brief, context] ->
-        {String.trim(brief), String.trim(context)}
+  # B27 CP3d：creative prompt 以稳定段标记（SharedRules）识别；anchor 文本仍用于
+  # brief/context 抽取，但不再依赖旧模板固定位置。无标记时回退 author_input 抽取。
+  defp task_aware_creative_prompt?(text), do: String.contains?(text, "## 创作协作共同规则")
 
-      _ ->
+  defp creative_prompt_parts(prompt) do
+    case creative_anchor_parts(prompt) do
+      {brief, context} ->
+        {brief, context}
+
+      nil ->
         {author_input_text_from_prompt(prompt), ""}
+    end
+  end
+
+  defp creative_anchor_parts(prompt) do
+    if task_aware_creative_prompt?(prompt) or String.contains?(prompt, "用户创作简述：") do
+      case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt) do
+        [_, brief, context] -> {String.trim(brief), String.trim(context)}
+        _ -> nil
+      end
+    else
+      nil
     end
   end
 

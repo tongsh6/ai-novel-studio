@@ -242,3 +242,133 @@ defmodule NovelApplication.AuthoringTaskBuilderProseTest do
              AuthoringTaskBuilder.for_quality_evaluation(%{turn_id: nil, source_ref: nil})
   end
 end
+
+defmodule NovelApplication.AuthoringTaskBuilderCreativeRolesTest do
+  use ExUnit.Case, async: true
+
+  alias NovelApplication.AuthoringTaskBuilder
+
+  defp sections(overrides \\ %{}) do
+    Map.merge(
+      %{
+        character_roster: "## 现有角色\n- 白露（对手）",
+        prior_summaries: "## 前文各章摘要",
+        creative_facts: "## 作品事实",
+        style_guide: "## 写作风格",
+        work_skeleton: "## 全书进度",
+        planning_mission: "## 本轮规划使命",
+        dialogue_context: "## 当前作者输入"
+      },
+      overrides
+    )
+  end
+
+  defp attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        action: %{summary: "按作者请求生成候选"},
+        turn_id: "turn_1",
+        workspace_id: "work_1",
+        author_input: %{author_goal_text: "作者原话 NONCE1"},
+        author_goal: "按作者请求生成候选",
+        sections: sections(),
+        source_refs: ["turn:turn_1"]
+      },
+      overrides
+    )
+  end
+
+  test "outline creation task keeps domain artifact_type and work scope" do
+    assert {:ok, task} = AuthoringTaskBuilder.for_outline(attrs())
+    assert task.kind == :outline
+    assert task.operation_effect == :create_candidate
+    assert task.output_contract.artifact_type == :outline_draft
+    assert task.scope.object_kind == :outline
+    assert task.scope.coverage == :multi
+    assert task.author_words == "作者原话 NONCE1"
+    assert Enum.any?(task.materials, &(&1.kind == :planning_mission))
+  end
+
+  test "character design/evolution creation tasks use role effects and schemas" do
+    assert {:ok, design} = AuthoringTaskBuilder.for_character_design(attrs())
+    assert design.kind == :character_design
+    assert design.operation_effect == :design_object
+    assert design.output_contract.artifact_type == :character_seed
+    assert design.scope.object_kind == :character
+
+    assert {:ok, evolution} = AuthoringTaskBuilder.for_character_evolution(attrs())
+    assert evolution.kind == :character_evolution
+    assert evolution.operation_effect == :create_candidate
+    assert evolution.output_contract.artifact_type == :character_evolution_seed
+    assert evolution.scope.object_kind == :character_memory
+  end
+
+  test "world building artifact_type comes from author intent deterministically" do
+    cases = [
+      {"设计一个跨三卷回收的伏笔线索", :foreshadowing_seed},
+      {"制定一条后续写作规则，约束战斗段落文风", :style_rule_seed},
+      {"制定一个会持续制造选择压力的世界规则", :world_rule_seed},
+      {"禁止提前揭示矿区旧账谜底", :constraint_seed},
+      {"写一个关于灯楼九层天气的世界设定", :world_setting}
+    ]
+
+    for {words, artifact_type} <- cases do
+      {:ok, task} =
+        AuthoringTaskBuilder.for_world_building(
+          attrs(%{author_input: %{author_goal_text: words}, author_goal: "生成世界设定草稿"})
+        )
+
+      assert task.output_contract.artifact_type == artifact_type
+    end
+
+    # 显式 artifact_type 优先于分类
+    {:ok, explicit} =
+      AuthoringTaskBuilder.for_world_building(attrs(%{artifact_type: :constraint_seed}))
+
+    assert explicit.output_contract.artifact_type == :constraint_seed
+  end
+
+  test "role revisions carry artifact_type, base_ref/hash and preserve" do
+    for {artifact_type, role} <- [
+          {:prose_fragment, :prose},
+          {:outline_draft, :outline},
+          {:character_seed, :character_design},
+          {:world_setting, :world_building}
+        ] do
+      attrs = %{
+        source: %{kind: :author_action, ref: "turn:rev"},
+        artifact_ref: "as_1",
+        artifact_type: artifact_type,
+        base_body: "原候选正文",
+        coverage: :single,
+        target_chapter_ref: "chapter:one",
+        author_goal: "按作者要求修订",
+        author_words: "改一下",
+        source_refs: ["turn:rev"]
+      }
+
+      assert {:ok, task} = AuthoringTaskBuilder.for_revision(attrs)
+      assert task.kind == :revision
+      assert task.operation_effect == :revise_candidate
+      assert task.scope.base_ref == "as_1"
+      assert String.length(task.scope.base_hash) == 64
+      assert task.preserve != []
+      assert task.output_contract.artifact_type == artifact_type
+      assert task.scope.object_kind == expected_object_kind(role)
+    end
+  end
+
+  test "role revision without base_ref is rejected" do
+    assert {:error, {:authoring_task_invalid, {:scope_required, :revision}}} =
+             AuthoringTaskBuilder.for_revision(%{
+               artifact_type: :outline_draft,
+               base_body: "x",
+               author_goal: "修订"
+             })
+  end
+
+  defp expected_object_kind(:prose), do: :prose_fragment
+  defp expected_object_kind(:outline), do: :outline
+  defp expected_object_kind(:character_design), do: :character
+  defp expected_object_kind(:world_building), do: :world_setting
+end

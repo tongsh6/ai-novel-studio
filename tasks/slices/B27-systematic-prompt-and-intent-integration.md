@@ -2,7 +2,7 @@
 
 > **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
 
-- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；CP3 进行中：CP3a 契约/规则单一真源已提交；CP3b prose 域（writer/revision/evaluator）与 CP3c 辅助域（summary/inventory/ledger/narration/退役）已实现并通过全量回归；CP3d 收口（legacy 清理/双源删除/I-CACHE 扩展/文档同步）与 CP4 语义矩阵待做。
+- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；**CP3 已完成（2026-10-24，CP3a–CP3d 全部落地）**：所有 creative 专业调用（writer/outline/character_design/character_evolution/world_building/revision/evaluator）与辅助域（summary/inventory/ledger/narration）强制携带 AuthoringTask 并由 AuthoringSemantics 单一真源渲染；legacy 无 task 分支删除、ProviderProgress/AIMessageEnvelope 退役、test-support 单源、I-CACHE writer/evaluator profile、AU11 文档口径同步；CP4 语义矩阵/生命周期验收待执行。
 - 登记日期：2026-10-23。
 - 来源：作者要求分析 stage 对话，区分模型判断与应用能力缺口；随后明确“作者不应自己写提示词，应用应帮助模型理解意图”，并要求先分析现有提示词写法、从应用整体整合，禁止单点补丁。
 - 授权沿革：初次只授权设计和排期；2026-10-24 已确认共享入口实现与验证。原作品数据修复仍需独立授权。
@@ -121,7 +121,7 @@
 | CP0 | 与 B26 CP1 核对构造器/任务/规则/J1–J4；固化 §6.1 的20例/双臂40 episode、rubric/保留集及 VS-00D §11.4 trace | **done（2026-10-24）**：20 例案例卡 + 20/20 真实输入快照 + SP01 计划面探针 + 保留集/关键集/追问子集 + 旧规则臂 hash + 必验模型 + 运行器骨架已冻结；证据见文末「CP0 冻结记录」 | SP02 续行面/SP03 专业调用面快照待 CP3；M14 随 B29 重冻；40 episode 门槛归 CP4 |
 | CP1 | 提取共同规则/角色选择、能力效果/schema/重试语义，随 B26 CP2 立即由真实入口消费；迁移/退役孤立 Envelope | 共享规则已有判断/计划真实消费者；专业调用剩余覆盖归 CP3 | 全专业调用覆盖 |
 | CP2 | 与 B26 CP2 一次迁移共享判断/计划入口；连续目标/证据/结果、必要提问；移除进度泛化/机械报形态/空行解析 | 共享判断/计划已迁移；机制与原生回复有证据，完整语义结果待 CP4 | 创作/评估/维护一致性 |
-| CP3 | 迁移计划、使命、writer、修订、evaluator、章摘要、盘点、结果叙述、provider progress 及纠错路径；保留各角色输出契约；删除被替代规则 | **doing（CP3a/b/c 已实现，CP3d 收口待做）**：writer/revision/evaluator + summary/inventory/ledger/narration 全部携带 AuthoringTask 并由共享语义渲染；ProviderProgress/AIMessageEnvelope 退役；全量回归 2010 tests/0 failures | CP3d：删除 legacy 无 task 分支与 test-support 残留、双源文案合并、I-CACHE writer/evaluator profile、文档同步；CP4 真实模型/页面验收 |
+| CP3 | 迁移计划、使命、writer、修订、evaluator、章摘要、盘点、结果叙述、provider progress 及纠错路径；保留各角色输出契约；删除被替代规则 | **done（2026-10-24，CP3a–CP3d）**：全部专业调用携带 AuthoringTask + 单一规则真源；creative 四类工具新建/修订接线、legacy 无 task 分支/旧模板/关键词推断删除；ProviderProgress/AIMessageEnvelope 退役 + 静态守卫；test-support 单源（stub_chapter_summary）；AU11 blocked 口径同步；I-CACHE 新增 writer/evaluator 行 | CP4 真实模型语义门槛与 Tauri 生命周期验收；adoption 继承语义归 B28；world artifact_type 显式化需 plan/schema 扩展（后续）；narration 调用计数口径后续 slice |
 | CP4 | B26 CP3 协议/业务保留先通过，再按 §6.1 逐例判新旧规则/保留集、完成联合生命周期 Tauri；硬门槛与全矩阵通过 | todo；共享证据、分别结论 | 全门禁、任务台账 |
 | CP5 | 完整门禁、静态扫描处置；同步旧 AU11/VS-00D/UA01 任务入口、设计/契约、NEXT/journey/ledger | todo | 无；此前均不得标 slice done |
 
@@ -337,3 +337,10 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 6. 文档同步：AU11/VS00D-G known-gaps 的 AIMessageEnvelope 退役措辞、B27 §2 矩阵 provider_progress/AIMessageEnvelope 行、CP2.2 整章摘要输入后续。
 7. pending prose_fragment 修订补 e2e prompt 断言；narration provider 调用与 trace/budget 顺序复核。
 8. 全门禁 + 静态扫描 + 提交，再进 CP4 执行批（integrated_arm 重算 + 80 episode + Tauri driver）。
+
+#### CP3d 实施记录（2026-10-24，CP3 收口）
+
+- **creative tool task 强制**（CP3d-A）：`AuthoringTaskBuilder.for_outline/for_character_design/for_character_evolution/for_world_building` 覆盖新建+修订；`CreativeToolAdapter` task 必填（缺 → failed `authoring_task_required`，invalid → `authoring_task_invalid`，不回落旧模板）；`CreativeProvider.Real` 重写为 task-only（5 角色模板 L1 shared → L3 dynamic → L4 角色 schema 置尾，role 句按 revision 切换，无 generic fallback）；`ProseQualityEvaluator` task 必填；`world artifact_type` 分类从 agent 迁到 application builder 单一实现；`QualityEvaluationRequest.reader_effect` 删除（无消费者证据）。
+- **test-support/文档/aux legacy**（CP3d-B）：stub/slice_verify 的 `provider_progress_v1` 常量清零；章摘要确定性 body 抽到 `StubChapterSummary` 单源；`fact_inventory_service` 死代码与第二份 artifact_type 清单删除；ledger flow 2-tuple test seam 删除；AU11 known-gaps/scenarios.yml/README 改为「旧 envelope 生产链已退役，re-anchor 触发=B27/G7 统一语义」，`agent-provider-streaming-progress` 改 blocked；aux legacy 审计结论：summary/inventory 无无 task 路径，narration 确定性 fallback 保留（真实错误路径），material_scope 为应用内部 key 不进 DTO，narration 计数口径后续 slice。
+- **Lead 集成**：`AuthoringTask` 删除退役的 `:provider_progress` kind（含 kind_effects/label/operation_rules/goal_optional）；CP0 arms 冻结脚本支持**退役资产**（保留 CP0 原 sha/bytes + retired 元数据，旧臂 hash 不因文件删除漂移，integrated 臂重冻时标记 retired）；`agent-provider-streaming-progress.yml` 状态同步 blocked；I-CACHE 新增 writer/evaluator consecutive profile（covered+enforced 均 true）。
+- **门禁**：`mix compile --warnings-as-errors`；`mix test` **2024 tests / 0 failures**；`mix test --warnings-as-errors` 0 warning；format、credo strict 0、enum lint、xref 无环、arch_check、adr_trace；I1 4/4、I2 3/3 不相交、I3 3/3、N-NARR PASS、I-CACHE 8 行全 covered+enforced；quality_manifest_check、next_task_check；CP4 `--check-snapshots` 20/20。残留：CP0 arms 将随 CP4 执行批 `--write-arms` 重冻为 integrated_arm（旧臂快照不变）；adoption 继承语义归 B28；world artifact_type 若要改由判断/计划显式给出需扩展 plan/schema（后续）；narration provider 调用计数口径后续 slice。

@@ -28,7 +28,6 @@ defmodule NovelCommon.AuthoringSemantics do
     chapter_summary: [:narrate],
     fact_inventory: [:extract_facts],
     ledger_reconcile: [:reconcile],
-    provider_progress: [:narrate],
     result_narration: [:narrate]
   }
 
@@ -46,7 +45,6 @@ defmodule NovelCommon.AuthoringSemantics do
     chapter_summary: "章节摘要",
     fact_inventory: "事实盘点",
     ledger_reconcile: "账面对账",
-    provider_progress: "运行进度摘要",
     result_narration: "工具结果叙述"
   }
 
@@ -118,10 +116,6 @@ defmodule NovelCommon.AuthoringSemantics do
     ledger_reconcile: """
     本轮为账面对账：按给定规则与数据产出待裁决 finding/报告；规则判定不交给模型自由发挥，
     不改写作品事实，不跳过人工裁决直接销账。
-    """,
-    provider_progress: """
-    本轮为运行进度摘要：只概括当前执行进度与边界，不改变作品事实，不虚报完成，
-    不把工具调用成功当成作者目标已满足。
     """,
     result_narration: """
     本轮为结果叙述：依据真实作者目标与工具实际后果说明发生了什么、影响范围与下一步；
@@ -284,7 +278,6 @@ defmodule NovelCommon.AuthoringSemantics do
 
   # 这些任务是系统发起/只读型，作者目标可以缺席；其余作者驱动任务缺目标时说明而不是补写。
   @goal_optional_kinds [
-    :provider_progress,
     :result_narration,
     :quality_evaluation,
     :ledger_reconcile,
@@ -320,11 +313,28 @@ defmodule NovelCommon.AuthoringSemantics do
     end
   end
 
-  defp object_kind_line(scope), do: nil_or("- 对象类型：#{Map.get(scope, :object_kind)}", Map.get(scope, :object_kind))
-  defp coverage_line(scope), do: nil_or("- 覆盖范围：#{coverage_label(Map.get(scope, :coverage))}", non_none_coverage(Map.get(scope, :coverage)))
-  defp base_ref_line(scope), do: nil_or("- 基线对象：#{Map.get(scope, :base_ref)}", Map.get(scope, :base_ref))
-  defp base_hash_line(scope), do: nil_or("- 基线内容 hash：#{Map.get(scope, :base_hash)}", Map.get(scope, :base_hash))
-  defp target_chapter_line(scope), do: nil_or("- 目标章 ref：#{Map.get(scope, :target_chapter_ref)}", Map.get(scope, :target_chapter_ref))
+  defp object_kind_line(scope),
+    do: nil_or("- 对象类型：#{Map.get(scope, :object_kind)}", Map.get(scope, :object_kind))
+
+  defp coverage_line(scope),
+    do:
+      nil_or(
+        "- 覆盖范围：#{coverage_label(Map.get(scope, :coverage))}",
+        non_none_coverage(Map.get(scope, :coverage))
+      )
+
+  defp base_ref_line(scope),
+    do: nil_or("- 基线对象：#{Map.get(scope, :base_ref)}", Map.get(scope, :base_ref))
+
+  defp base_hash_line(scope),
+    do: nil_or("- 基线内容 hash：#{Map.get(scope, :base_hash)}", Map.get(scope, :base_hash))
+
+  defp target_chapter_line(scope),
+    do:
+      nil_or(
+        "- 目标章 ref：#{Map.get(scope, :target_chapter_ref)}",
+        Map.get(scope, :target_chapter_ref)
+      )
 
   defp nil_or(_text, nil), do: nil
   defp nil_or(_text, false), do: nil
@@ -384,15 +394,25 @@ defmodule NovelCommon.AuthoringSemantics do
 
   defp prior_result_section(%AuthoringTask{prior_result: prior}) do
     lines =
-      [prior_run_line(prior), prior_status_line(prior), prior_summary_line(prior), prior_pending_line(prior)]
+      [
+        prior_run_line(prior),
+        prior_status_line(prior),
+        prior_summary_line(prior),
+        prior_pending_line(prior)
+      ]
       |> Enum.reject(&is_nil/1)
 
     section("上一轮真实结果", lines)
   end
 
-  defp prior_run_line(prior), do: nil_or("- 上一轮运行：#{Map.get(prior, :run_ref)}", Map.get(prior, :run_ref))
-  defp prior_status_line(prior), do: nil_or("- 上一轮终态：#{Map.get(prior, :status)}", Map.get(prior, :status))
-  defp prior_summary_line(prior), do: nil_or("- 上一轮结果：#{Map.get(prior, :summary)}", Map.get(prior, :summary))
+  defp prior_run_line(prior),
+    do: nil_or("- 上一轮运行：#{Map.get(prior, :run_ref)}", Map.get(prior, :run_ref))
+
+  defp prior_status_line(prior),
+    do: nil_or("- 上一轮终态：#{Map.get(prior, :status)}", Map.get(prior, :status))
+
+  defp prior_summary_line(prior),
+    do: nil_or("- 上一轮结果：#{Map.get(prior, :summary)}", Map.get(prior, :summary))
 
   defp prior_pending_line(prior) do
     case List.wrap(Map.get(prior, :pending_refs)) do
@@ -496,7 +516,9 @@ defmodule NovelCommon.AuthoringSemantics do
 
   defp validate_preserve(_task), do: :ok
 
-  defp action_source?(%{kind: kind, ref: ref}), do: kind in AuthoringTask.action_source_kinds() and is_binary(ref) and ref != ""
+  defp action_source?(%{kind: kind, ref: ref}),
+    do: kind in AuthoringTask.action_source_kinds() and is_binary(ref) and ref != ""
+
   defp action_source?(_), do: false
 
   defp validate_materials(%AuthoringTask{materials: materials}) do

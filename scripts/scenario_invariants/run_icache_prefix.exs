@@ -16,14 +16,20 @@ defmodule ICachePrefixDriver do
 
   alias NovelAgent.Provider.Gateway
 
+  alias NovelAgent.CreativeProvider.Real
+  alias NovelAgent.Provider.Execution
+
   alias NovelApplication.{
     AgenticPlanDraftPlanner,
+    AuthoringTaskBuilder,
     ChapterMissionService,
     DialoguePlanningService,
     JudgmentProtocol
   }
 
+  alias NovelCommon.Contracts.{CreativeRequest, QualityEvaluationRequest}
   alias NovelDomain.{AgentRun, ChapterMissionInputs, DialogueContext}
+  alias NovelAgent.ProseQualityEvaluator
 
   @chapter_titles [
     "第01章：底层灵气账单",
@@ -60,7 +66,7 @@ defmodule ICachePrefixDriver do
     restore = install_capture_provider()
 
     try do
-      rows = single_call_rows() ++ cp_d_rows() ++ cp_c_rows()
+      rows = single_call_rows() ++ cp_d_rows() ++ cp_c_rows() ++ professional_rows()
       assert_enforced_rows!(rows)
 
       markdown = render_markdown(rows)
@@ -201,6 +207,188 @@ defmodule ICachePrefixDriver do
     ]
   end
 
+  # ── CP3：writer / evaluator 专业调用连续轮前缀 ────────────────
+  # 生产渲染路径：CreativeRequest.task → Real/Evaluator 渲染 → Gateway L0 注入边界捕获，
+  # 静态段（角色句+shared/operation/output 规则）必须在连续轮字节恒定，L3 动态段随后变化。
+  defp professional_rows do
+    writer_a = writer_prompt(writer_task("接着第01章往下写一段正文", "chapter:one", "第01章：底层灵气账单"))
+    writer_b = writer_prompt(writer_task("接着第02章往下写，并保持既有文风", "chapter:two", "第02章：旧服务器里的残诀"))
+
+    evaluator_a = evaluator_prompt(evaluator_task("biz_icache_eval_a", "chapter:one"))
+    evaluator_b = evaluator_prompt(evaluator_task("biz_icache_eval_b", "chapter:two"))
+
+    [
+      shared_prefix_row(
+        "writer",
+        "consecutive",
+        writer_a,
+        writer_b,
+        "## 本轮作者目标",
+        ["## 创作协作共同规则", "## 本轮任务语义"],
+        true
+      ),
+      shared_prefix_row(
+        "evaluator",
+        "consecutive",
+        evaluator_a,
+        evaluator_b,
+        "## 对象与范围",
+        ["## 创作协作共同规则", "## 输出契约纪律"],
+        true
+      )
+    ]
+  end
+
+  defp writer_task(goal, chapter_ref, chapter_title) do
+    {:ok, task} =
+      AuthoringTaskBuilder.new(:continuation, %{
+        author_goal: goal,
+        author_words: goal,
+        scope:
+          AuthoringTaskBuilder.scope([chapter_ref],
+            coverage: :chapter,
+            target_chapter_ref: chapter_ref
+          ),
+        materials: [
+          AuthoringTaskBuilder.material(:prior_prose, chapter_ref, complete?: true, version: 1),
+          AuthoringTaskBuilder.material(:target_structure, "#{chapter_ref}:structure",
+            complete?: true
+          )
+        ],
+        output_contract:
+          AuthoringTaskBuilder.output_contract(:json,
+            required_keys: ["items", "companion_artifacts", "self_report"],
+            allow_companions: true
+          )
+      })
+
+    {task, chapter_title}
+  end
+
+  defp writer_prompt({task, chapter_title}) do
+    request = %CreativeRequest{
+      request_id: "icache_writer_#{task.author_goal}",
+      tool_name: "prose_writing",
+      artifact_type: :prose_fragment,
+      creative_brief: task.author_goal,
+      context_text: "目标章：#{chapter_title}",
+      source_turn_ref: "turn_icache_writer",
+      task: task
+    }
+
+    parent = self()
+
+    execution = %Execution{
+      result_fn: fn prompt ->
+        {:ok, _} = Gateway.execute(prompt, "capture-model", purpose: :writer)
+
+        captured =
+          receive do
+            {:icache_prompt, captured, _params} -> captured
+          after
+            5_000 -> raise "writer capture provider did not receive prompt"
+          end
+
+        send(parent, {:icache_professional_prompt, normalize_captured_prompt(captured)})
+
+        {:ok,
+         %{
+           content:
+             Jason.encode!(%{
+               "items" => [
+                 %{"item_id" => "i1", "title" => "片段", "body" => "正文", "rationale" => nil}
+               ],
+               "companion_artifacts" => [],
+               "self_report" => %{
+                 "assumptions" => [],
+                 "intended_reader_effect" => nil,
+                 "used_context_refs" => [],
+                 "risk_flags" => []
+               }
+             }),
+           tool_calls: []
+         }}
+      end
+    }
+
+    case Real.generate(request, execution) do
+      %NovelCommon.Contracts.CreativeProviderResult{status: :ok} -> :ok
+      other -> raise "writer generate failed for I-CACHE capture: #{inspect(other)}"
+    end
+
+    receive do
+      {:icache_professional_prompt, captured} -> captured
+    after
+      5_000 -> raise "writer prompt not captured"
+    end
+  end
+
+  defp evaluator_task(request_id, chapter_ref) do
+    {:ok, task} =
+      AuthoringTaskBuilder.new(:quality_evaluation, %{
+        author_goal: nil,
+        author_words: nil,
+        source: %{kind: :author_action, ref: "act_icache_eval"},
+        scope: AuthoringTaskBuilder.scope([chapter_ref], coverage: :single),
+        materials: [
+          AuthoringTaskBuilder.material(:prose, "#{chapter_ref}:fragment",
+            complete?: false,
+            omission_note: "仅本轮生成片段"
+          )
+        ],
+        output_contract: AuthoringTaskBuilder.output_contract(:json, required_keys: ["findings"])
+      })
+
+    {request_id, task}
+  end
+
+  defp evaluator_prompt({request_id, task}) do
+    request = %QualityEvaluationRequest{
+      request_id: request_id,
+      source_turn_ref: "turn_icache_eval",
+      source_ref: "as_icache",
+      prose_text: "巷口的灯在雨里晃，他把账牌塞进袖口。",
+      task: task
+    }
+
+    parent = self()
+
+    execution = %Execution{
+      result_fn: fn prompt ->
+        {:ok, _} = Gateway.execute(prompt, "capture-model", purpose: :evaluator)
+
+        captured =
+          receive do
+            {:icache_prompt, captured, _params} -> captured
+          after
+            5_000 -> raise "evaluator capture provider did not receive prompt"
+          end
+
+        send(parent, {:icache_professional_prompt, normalize_captured_prompt(captured)})
+
+        {:ok, %{content: Jason.encode!(%{"findings" => []}), tool_calls: []}}
+      end
+    }
+
+    case ProseQualityEvaluator.evaluate(request, execution) do
+      %NovelCommon.Contracts.QualityEvaluationResult{status: :ok} -> :ok
+      other -> raise "evaluator failed for I-CACHE capture: #{inspect(other)}"
+    end
+
+    receive do
+      {:icache_professional_prompt, captured} -> captured
+    after
+      5_000 -> raise "evaluator prompt not captured"
+    end
+  end
+
+  # Gateway 对 binary prompt 会以 message list 形式交给 provider；统一成 prompt map 供
+  # capture/2 复用（identity 已注入，二次 inject 会识别并保持）。
+  defp normalize_captured_prompt(messages) when is_list(messages),
+    do: %{messages: messages, tools: []}
+
+  defp normalize_captured_prompt(prompt), do: prompt
+
   defp shared_prefix_row(
          call_site,
          pair_kind,
@@ -214,8 +402,9 @@ defmodule ICachePrefixDriver do
     {second, tools_b} = capture(prompt_b, call_site <> "-b")
     if tools_a != tools_b, do: raise("I-CACHE profile schema drift at #{call_site}")
 
-    if call_site != "chapter_mission" and
-         (prompt_a.tool_choice != "auto" or prompt_b.tool_choice != "auto"),
+    # 有 tool_choice 的判断/计划类调用必须是单调用 auto；writer/evaluator 无工具选择字段。
+    if call_site != "chapter_mission" and Map.has_key?(prompt_a, :tool_choice) and
+         (Map.get(prompt_a, :tool_choice) != "auto" or Map.get(prompt_b, :tool_choice) != "auto"),
        do: raise("I-CACHE single-call auto required at #{call_site}")
 
     shared = shared_prefix_bytes(first, second)

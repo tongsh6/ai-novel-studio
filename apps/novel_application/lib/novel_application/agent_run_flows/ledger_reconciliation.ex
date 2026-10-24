@@ -275,11 +275,6 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
     end
   end
 
-  defp reconcile_summary({:ok, :no_findings}), do: %{status: :no_findings, finding_count: 0}
-
-  defp reconcile_summary({:ok, report}) when is_map(report),
-    do: %{status: :report, finding_count: report.finding_count, report_id: report.id}
-
   defp reconcile_summary({:ok, :no_findings, coverage}) do
     coverage |> Map.put(:status, :no_findings) |> Map.put(:finding_count, 0)
   end

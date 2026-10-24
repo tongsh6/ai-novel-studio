@@ -1,7 +1,11 @@
 id: agent-provider-streaming-progress
 title: Provider execution progress 进入 AgentRun author-safe 事件流
 tier: nightly
-status: active
+status: blocked
+blocked_reason: >-
+  依赖的 ProviderProgress 专业调用（flow/profile/计划目录）已随 B27 CP3c 整体退役（无生产消费者）；
+  本场景不得按关键词复活旧入口。re-anchor 建议：由 agent-provider-execution-stream-unified /
+  agent-provider-execution-stream-error-author-safe 覆盖 developer telemetry，或另立长跑进度 slice 后重写 driver。
 surface: tauri
 entrypoint: scripts/quality_accept.sh agent-provider-streaming-progress --surface tauri
 

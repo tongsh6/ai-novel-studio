@@ -27,6 +27,7 @@ defmodule NovelAgent.Provider.Stub do
 
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.StubChapterSummary
   alias NovelAgent.Provider.SystemIdentity
 
   defstruct []
@@ -108,9 +109,9 @@ defmodule NovelAgent.Provider.Stub do
       NovelAgent.Provider.tool_call_prompt?(prompt) and chapter_mission_prompt?(text) ->
         chapter_mission_result(prompt, text)
 
-      # B27 CP3c：章摘要确定性四栏（默认 stub provider 的测试/补做链路）。
-      chapter_summary_prompt?(text) ->
-        Result.new(chapter_summary_body(text))
+      # B27 CP3c/CP3d：章摘要确定性四栏（stub 与 SliceVerify 共用单一 fixture 真源）。
+      StubChapterSummary.prompt?(text) ->
+        Result.new(StubChapterSummary.body(text))
 
       true ->
         Result.new(infer_response(text))
@@ -120,26 +121,6 @@ defmodule NovelAgent.Provider.Stub do
   # ── 判断①（ADR-0025 方案 B 回复内联）契约样本 ──
   # 按作者输入语义确定性判五选一形态，与真实 LLM 遵循同一契约：简单请求不开计划、
   # 多步复杂任务开计划、缺作品事实先探索、意图不明等作者说清。
-
-  # ── 章摘要替身（B27 CP3c）──
-  # 与生产 prompt 的「连续性维护助手 + 已采纳正文：」契约一致；只做确定性四栏渲染，
-  # 供断供补做（D3）等使用默认 stub provider 的测试。
-  defp chapter_summary_prompt?(text), do: String.contains?(text, "连续性维护助手")
-
-  defp chapter_summary_body(prompt_text) do
-    prose =
-      case Regex.run(~r/已采纳正文：\n(.+)\z/su, prompt_text) do
-        [_, text] -> String.trim(text)
-        _ -> ""
-      end
-
-    lines = String.split(prose, "\n", trim: true)
-    first_line = List.first(lines) || "（无）"
-    plot = lines |> Enum.drop(1) |> Enum.join("") |> String.slice(0, 120)
-
-    "【情节推进】#{if plot == "", do: "（无）", else: plot}\n" <>
-      "【人物状态与弧光】#{first_line}\n【伏笔动作】（无）\n【情绪基调】紧张推进"
-  end
 
   # ── WR01 写前推理替身 ──
   # 按真实 prompt 材料中列名的 [ref] 产本章使命（不发明依据；材料为空时只给 statement）。
@@ -416,8 +397,6 @@ defmodule NovelAgent.Provider.Stub do
     {["交代过", "查一下"], [], {"explore", nil}},
     {["梳理"], ["重写", "更新"], {"plan", "prose_writing"}},
     {["只读批量", "批量读取", "readonly batch"], [], {"execute", "work_archive_read"}},
-    {["provider 进度", "模型进度", "流式进度", "流式事件", "provider progress"], [],
-     {"execute", "provider_progress"}},
     {["聊聊", "只聊", "先聊", "随便聊"], [], {"reply", nil}},
     {["正文草稿", "写下一章", "续写", "正文"], [], {"execute", "prose_writing"}},
     {["章节大纲", "章节计划", "分章大纲", "卷纲"], [], {"execute", "plot_outline"}},
@@ -613,9 +592,6 @@ defmodule NovelAgent.Provider.Stub do
       {:contains, ["只读批量", "批量读取", "read-only batch", "readonly batch"],
        {"readonly_batch_context_v1", "模型选择只读批量上下文工作流。",
         ["model_profile_selected", "readonly_batch_text_match"]}},
-      {:contains, ["provider 进度", "流式进度", "streaming progress", "UA01CP6SLOW"],
-       {"provider_progress_v1", "模型选择模型执行进度工作流。",
-        ["model_profile_selected", "provider_progress_text_match"]}},
       {:contains, ["章节大纲", "章节计划", "分章大纲", "卷纲", "outline"],
        {"plot_outline_with_context_v1", "模型选择章节大纲工作流。",
         ["model_profile_selected", "plot_outline_text_match"]}},
@@ -779,19 +755,6 @@ defmodule NovelAgent.Provider.Stub do
         ])
       ],
       reason_codes: ["agent_plan_drafted", "world_building_plan_drafted"]
-    }
-  end
-
-  defp agent_plan_draft_response_for_profile("provider_progress_v1") do
-    %{
-      reasoning: "[stub] 直接调用 provider，并只记录 author-safe 进度边界。",
-      steps: [
-        plan_step("provider_complete", "act", "调用 provider 并记录安全进度事件。", [
-          "provider_progress_events_visible",
-          "provider_result_completed"
-        ])
-      ],
-      reason_codes: ["agent_plan_drafted", "provider_progress_plan_drafted"]
     }
   end
 
@@ -1231,22 +1194,38 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   # 从 normalized prompt 中提取 user role 部分（含 nonce 等用户随机内容）
+  # B27 CP3d：creative prompt 先按稳定段标记识别（SharedRules/任务语义），
+  # 再取 brief/context；anchor 文本保留，但不再要求旧模板的固定位置。
+  defp task_aware_creative_prompt?(text), do: String.contains?(text, "## 创作协作共同规则")
+
   defp extract_user_text(prompt_text) do
-    case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt_text) do
-      [_, brief, context] ->
-        [String.trim(brief), String.trim(context)]
+    case creative_anchor_parts(prompt_text) do
+      {brief, context} ->
+        [brief, context]
         |> Enum.reject(&(&1 == ""))
         |> Enum.join("\n")
 
-      _ ->
+      nil ->
         extract_role_user_text(prompt_text)
     end
   end
 
   defp extract_creative_parts(prompt_text) do
-    case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt_text) do
-      [_, brief, context] -> {String.trim(brief), String.trim(context)}
-      _ -> {extract_role_user_text(prompt_text), ""}
+    case creative_anchor_parts(prompt_text) do
+      {brief, context} -> {brief, context}
+      nil -> {extract_role_user_text(prompt_text), ""}
+    end
+  end
+
+  defp creative_anchor_parts(prompt_text) do
+    if task_aware_creative_prompt?(prompt_text) or
+         String.contains?(prompt_text, "用户创作简述：") do
+      case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt_text) do
+        [_, brief, context] -> {String.trim(brief), String.trim(context)}
+        _ -> nil
+      end
+    else
+      nil
     end
   end
 

@@ -127,7 +127,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
     refute correction =~ "每个 finding 必须包含原句证据、句子位置、判断理由、影响范围、修订\n    范围和 0~1 置信度"
   end
 
-  test "legacy evaluator request without task keeps working" do
+  test "evaluator request without task fails instead of using legacy template" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
     legacy = %QualityEvaluationRequest{
@@ -139,11 +139,9 @@ defmodule NovelAgent.ProseQualityEvaluatorTaskTest do
       execution_brief: "本章执行简述"
     }
 
-    assert ProseQualityEvaluator.evaluate(legacy, execution(agent, @valid_findings)).status == :ok
-    prompt = Agent.get(agent, & &1)
-
-    assert prompt =~ "本次你承担小说正文质量评审助手的角色"
-    assert prompt =~ "quality_gate_ref"
-    refute prompt =~ "## 创作协作共同规则"
+    result = ProseQualityEvaluator.evaluate(legacy, execution(agent, @valid_findings))
+    assert result.status == :error
+    assert result.error.code == "authoring_task_required"
+    assert Agent.get(agent, & &1) == nil
   end
 end

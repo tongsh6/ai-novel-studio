@@ -4,7 +4,10 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelAgent.Tools.CreativeToolAdapter
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolRequest
+
+  alias NovelAgent.TestSupport.AuthoringTaskFixtures
 
   defmodule SelfReportProvider do
     @behaviour NovelAgent.CreativeProvider
@@ -211,7 +214,11 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
       decision_ref: "decision-1",
       tool_name: "prose_writing",
       tool_version: "1.0",
-      input: %{"creative_brief" => "写第一章", "context_text" => "ReaderEffectBrief"}
+      input: %{
+        "creative_brief" => "写第一章",
+        "context_text" => "ReaderEffectBrief",
+        "authoring_task" => AuthoringTask.to_map(AuthoringTaskFixtures.prose_task())
+      }
     }
   end
 end

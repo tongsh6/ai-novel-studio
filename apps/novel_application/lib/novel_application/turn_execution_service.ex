@@ -293,10 +293,10 @@ defmodule NovelApplication.TurnExecutionService do
       planning_mission: planning_mission_text
     }
 
-    # B27 CP3b：prose_writing 先组装任务语义（共享规则/对象范围/材料/出站契约），
+    # B27 CP3d：所有 creative tool 先组装任务语义（共享规则/对象范围/材料/出站契约），
     # 校验失败时仍产可解释 failed ToolResult，不派发、不静默回退旧文本。
     authoring_task_result =
-      prose_authoring_task(%{
+      creative_authoring_task(%{
         frame: frame,
         action: action,
         input: input,
@@ -609,8 +609,9 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp maybe_put_authoring_task(input, _sections), do: input
 
-  # 仅 prose_writing 组装 writer 任务；其它 creative tool 的辅助域迁移归 CP3c。
-  defp prose_authoring_task(%{} = ctx) do
+  # 所有 creative tool 组装 AuthoringTask（B27 CP3d：creative 侧无 legacy 无 task 分支）。
+  # 非 creative 工具（text_analysis / character_roster 等）不进入 creative provider，不需要 task。
+  defp creative_authoring_task(%{} = ctx) do
     %{
       frame: frame,
       action: action,
@@ -625,10 +626,13 @@ defmodule NovelApplication.TurnExecutionService do
       style_truncated?: style_truncated?
     } = ctx
 
-    if prose_writing_action?(action) do
-      AuthoringTaskBuilder.for_prose_writing(%{
+    tool = capability_name(action)
+
+    if tool in @creative_tools do
+      AuthoringTaskBuilder.for_creative_tool(tool, %{
         action: action,
         turn_id: frame.turn_id,
+        workspace_id: frame.workspace_id,
         author_input: input[:author_input],
         author_goal: action_summary(action),
         resolved_chapter: resolved_chapter,

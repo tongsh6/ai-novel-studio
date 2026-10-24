@@ -7,8 +7,15 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
 
+  alias NovelAgent.TestSupport.AuthoringTaskFixtures
+
   defp request(text \\ "他走进房间。") do
-    %QualityEvaluationRequest{request_id: "qer_1", source_turn_ref: "turn_1", prose_text: text}
+    %QualityEvaluationRequest{
+      request_id: "qer_1",
+      source_turn_ref: "turn_1",
+      prose_text: text,
+      task: AuthoringTaskFixtures.quality_evaluation_task()
+    }
   end
 
   defp findings_json(findings), do: Jason.encode!(%{"findings" => findings})
@@ -72,7 +79,8 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
           "chapter_role" => "主线推进章",
           "plot_progress" => "主角必须夺回证据"
         }
-      }
+      },
+      task: AuthoringTaskFixtures.quality_evaluation_task()
     }
 
     complete = fn prompt ->
@@ -215,7 +223,8 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
       scene_units: [
         %{"unit_id" => "scene_1", "scene_title" => "交锋"},
         %{"unit_id" => "scene_2", "scene_title" => "撤退"}
-      ]
+      ],
+      task: AuthoringTaskFixtures.quality_evaluation_task()
     }
 
     complete = fn prompt ->

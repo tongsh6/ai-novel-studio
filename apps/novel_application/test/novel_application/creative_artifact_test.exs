@@ -14,6 +14,8 @@ defmodule NovelApplication.CreativeArtifactTest do
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.TurnResultBuilder
+  alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.TentativeArtifactSet
@@ -78,18 +80,22 @@ defmodule NovelApplication.CreativeArtifactTest do
       end
     end
 
-    test "world_building chooses specific archive artifact types from author intent" do
-      cases = [
-        {"设计一个跨三卷回收的伏笔线索", :foreshadowing_seed},
-        {"制定一条后续写作规则，约束战斗段落文风", :style_rule_seed},
-        {"制定一个会持续制造选择压力的世界规则", :world_rule_seed},
-        {"禁止提前揭示矿区旧账谜底", :constraint_seed}
-      ]
+    test "world_building uses task output_contract artifact_type (no adapter keyword table)" do
+      for artifact_type <- [
+            :foreshadowing_seed,
+            :style_rule_seed,
+            :world_rule_seed,
+            :constraint_seed
+          ] do
+        input =
+          Map.merge(
+            %{"text" => "fixture", "creative_brief" => "fixture"},
+            task_input("world_building", artifact_type)
+          )
 
-      for {brief, artifact_type} <- cases do
         result =
           Toolbox.execute(
-            request("world_building", %{"text" => brief, "creative_brief" => brief}),
+            request("world_building", input),
             fixed_json_provider([single_item(to_string(artifact_type))])
           )
 
@@ -305,10 +311,9 @@ defmodule NovelApplication.CreativeArtifactTest do
     entry = CapabilityRegistry.get(tool_name)
 
     input =
-      Map.merge(
-        %{"text" => "fixture text #{tool_name}", "creative_brief" => "brief #{tool_name}"},
-        input_overrides
-      )
+      %{"text" => "fixture text #{tool_name}", "creative_brief" => "brief #{tool_name}"}
+      |> Map.merge(task_input(tool_name))
+      |> Map.merge(input_overrides)
 
     %ToolRequest{
       tool_request_id: "tq-#{tool_name}-#{System.unique_integer([:positive, :monotonic])}",
@@ -324,6 +329,45 @@ defmodule NovelApplication.CreativeArtifactTest do
       created_at: DateTime.utc_now()
     }
   end
+
+  defp task_input(tool_name, artifact_type \\ nil) do
+    contract = %{
+      kind: :json,
+      schema_ref: "tentative_artifact_v1",
+      artifact_type: artifact_type || default_artifact_type(tool_name),
+      required_keys: ["items", "item_id", "title", "body"],
+      allow_companions: tool_name == "prose_writing"
+    }
+
+    task = %AuthoringTask{
+      kind: kind_for(tool_name),
+      author_goal: "fixture goal #{tool_name}",
+      author_words: "fixture author words #{tool_name}",
+      scope: %{refs: ["work:fixture"], coverage: :chapter},
+      materials: [%{kind: :target_structure, ref: "target_structure:fixture"}],
+      preserve: [],
+      operation_effect: effect_for(tool_name),
+      output_contract: contract,
+      source_refs: ["turn:fixture"],
+      semantic_version: AuthoringSemantics.version()
+    }
+
+    %{"authoring_task" => AuthoringTask.to_map(task)}
+  end
+
+  defp default_artifact_type("character_design"), do: :character_seed
+  defp default_artifact_type("plot_outline"), do: :outline_draft
+  defp default_artifact_type("prose_writing"), do: :prose_fragment
+  defp default_artifact_type("world_building"), do: :world_setting
+  defp default_artifact_type(_tool), do: :world_setting
+
+  defp kind_for("character_design"), do: :character_design
+  defp kind_for("plot_outline"), do: :outline
+  defp kind_for("world_building"), do: :world_building
+  defp kind_for(_tool), do: :first_draft
+
+  defp effect_for("character_design"), do: :design_object
+  defp effect_for(_tool), do: :create_candidate
 
   defp single_item(id) do
     %{

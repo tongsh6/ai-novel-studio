@@ -46,22 +46,24 @@ defmodule NovelApplication.FactInventoryService do
   @skeleton_suggestion_type "work_skeleton_suggestion"
   @foreshadowing_resolution_type "foreshadowing_resolution"
 
-  @proposal_buckets %{
-    "character_seed" => :characters,
-    "world_rule_seed" => :world_rules,
-    "foreshadowing_seed" => :foreshadowings,
-    "work_skeleton_suggestion" => :skeleton_suggestions,
-    "foreshadowing_resolution" => :foreshadowing_resolutions
-  }
-
-  @doc false
-  def skeleton_fields, do: @skeleton_fields
+  # artifact_type → proposal bucket 的单一真源（有序：决定 artifact_set 的 canonical 顺序）。
+  @proposal_bucket_pairs [
+    {"character_seed", :characters},
+    {"world_rule_seed", :world_rules},
+    {"foreshadowing_seed", :foreshadowings},
+    {"work_skeleton_suggestion", :skeleton_suggestions},
+    {"foreshadowing_resolution", :foreshadowing_resolutions}
+  ]
+  @proposal_buckets Map.new(@proposal_bucket_pairs)
 
   @doc "artifact_type → proposal bucket 的单一真源（解析与 flow 分组共用）。"
   def proposal_buckets, do: @proposal_buckets
 
+  @doc "有序 artifact_type/bucket 对（artifact_sets canonical 顺序单一真源，供测试/审计）。"
+  def proposal_bucket_pairs, do: @proposal_bucket_pairs
+
   @doc "提案分组的 canonical keys（flow 合并/摘要遍历共用）。"
-  def proposal_keys, do: @proposal_buckets |> Map.values() |> Enum.uniq()
+  def proposal_keys, do: @proposal_bucket_pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
   @doc "本轮允许的 artifact_type 词表（按缺位规划字段/未回收伏笔条件展开）。"
   @spec inventory_artifact_types(keyword()) :: [String.t()]
@@ -270,13 +272,12 @@ defmodule NovelApplication.FactInventoryService do
   """
   @spec artifact_sets(proposal(), map()) :: [TentativeArtifactSet.t()]
   def artifact_sets(proposal, attrs) when is_map(proposal) and is_map(attrs) do
-    [
-      {:character_seed, Map.get(proposal, :characters, [])},
-      {:world_rule_seed, Map.get(proposal, :world_rules, [])},
-      {:foreshadowing_seed, Map.get(proposal, :foreshadowings, [])},
-      {:work_skeleton_suggestion, Map.get(proposal, :skeleton_suggestions, [])},
-      {:foreshadowing_resolution, Map.get(proposal, :foreshadowing_resolutions, [])}
-    ]
+    # artifact_type → proposal bucket 的映射唯一真源是 @proposal_buckets：
+    # 这里反转得到 {artifact_type, items}，不另写第二份类型清单。
+    @proposal_bucket_pairs
+    |> Enum.map(fn {artifact_type, bucket} ->
+      {String.to_existing_atom(artifact_type), Map.get(proposal, bucket, [])}
+    end)
     |> Enum.reject(fn {_type, items} -> items == [] end)
     |> Enum.map(fn {artifact_type, items} ->
       %TentativeArtifactSet{

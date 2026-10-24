@@ -96,7 +96,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
     assert Agent.get(agent, & &1) == 0
   end
 
-  test "legacy call without authoring_task keeps nil task and old template" do
+  test "call without authoring_task fails instead of falling back to legacy template" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
     result =
@@ -107,9 +107,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTaskTest do
         Real
       )
 
-    assert result.status == :succeeded
-    prompt = Agent.get(agent, & &1)
-    assert prompt =~ "若上下文中已给出本章前文，请在其后自然衔接续写"
-    refute prompt =~ "## 创作协作共同规则"
+    assert result.status == :failed
+    assert [%{code: "authoring_task_required"}] = result.errors
+    assert Agent.get(agent, & &1) == nil
   end
 end

@@ -25,7 +25,6 @@ defmodule NovelCommon.Contracts.AuthoringTask do
     :chapter_summary,
     :fact_inventory,
     :ledger_reconcile,
-    :provider_progress,
     :result_narration
   ]
 
@@ -293,5 +292,4 @@ defmodule NovelCommon.Contracts.AuthoringTask do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, []), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
 end

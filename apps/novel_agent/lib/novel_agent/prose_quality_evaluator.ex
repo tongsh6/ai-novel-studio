@@ -17,6 +17,14 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   @spec evaluate(QualityEvaluationRequest.t(), Execution.dependency()) ::
           QualityEvaluationResult.t()
+  # B27 CP3d：质量评审强制携带 AuthoringTask（材料覆盖/范围由任务语义声明）。
+  def evaluate(%QualityEvaluationRequest{task: nil}, _provider_execution) do
+    QualityEvaluationResult.error(%{
+      code: "authoring_task_required",
+      message: "quality evaluation requires an authoring task"
+    })
+  end
+
   def evaluate(%QualityEvaluationRequest{} = request, provider_execution) do
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
@@ -170,88 +178,6 @@ defmodule NovelAgent.ProseQualityEvaluator do
     """
   end
 
-  defp build_prompt(%QualityEvaluationRequest{} = request) do
-    """
-    本次你承担小说正文质量评审助手的角色。请只读地评审下面这段正文是否实现其写作目标，严格按 JSON
-    对象返回，不要附加任何额外文字，不要重写正文。
-
-    顶层对象必须包含 "findings"：JSON 数组，每个元素是一个发现项（只列真实存在的问题，
-    没有问题则返回空数组）。每个发现项包含：
-    - "quality_finding_id"：稳定 finding 标识；形式候选确认项使用 "qf_" + candidate_id
-    - "candidate_id"：仅形式候选确认项填写对应 candidate_id，其他 finding 可省略
-    - "quality_gate_ref"：如 quality_gate.character_logic / quality_gate.pacing /
-      quality_gate.payoff_validity / quality_gate.style_fit / quality_gate.knowledge_boundary /
-      quality_gate.web_hook_strength / quality_gate.power_scaling
-    - "validator_ref"：如 validator.scene_change / validator.emotional_transition /
-      validator.character_agency / validator.causal_progression /
-      validator.setup_turn_consequence / validator.brief_alignment / validator.dialogue_intent_fit /
-      validator.chapter_end_hook / validator.power_curve_consistency
-    - "severity"：info | warn | high
-    - "action"：warn | adoption_review | block | confirm（文学类问题用 warn/adoption_review，
-      只有高置信事实冲突/认知越界才用 block/confirm；战力膨胀仅当与既有规则硬冲突才 block，
-      成长过快用 confirm/adoption_review）
-    - "summary"：一句话说明问题
-    - "reasoning"：说明为什么这些原句构成问题；不得只复述统计信号
-    - "evidence_spans"：数组，每项至少包含
-      {"text": "正文中的原句", "sentence_start": 2, "sentence_end": 4}
-    - "impact_scope"：local | paragraph | chapter
-    - "revision_scope"：local | paragraph | chapter；默认 local，只有问题确实覆盖段落或整章
-      才能扩大
-    - "brief_field_refs"：数组，关联的执行简述字段（如 scene_1.emotion_transition），没有则 []
-    - "confidence"：0~1 之间的小数
-    - "suggested_revision"：{"instruction": "给作者的具体修订策略"}
-
-    任务 A：局部形式候选的语义判定。
-    #{form_candidates_section(request)}
-    形式候选只是召回信号，不是问题结论。这里必须区分机械重复与刻意排比、回环、咒语感、
-    仪式感或情绪升级。只要原句在强度、意义、视角、动作后果或情绪上形成清晰递进，就不要
-    输出 finding。只有重复没有形成上述递进、读感近似模板填充时，才输出
-    quality_gate.style_fit / validator.sentence_rhythm_uniformity，并沿用 candidate_id、
-    位置和原句证据。禁止把此类形式问题命名为“章节节奏”。
-
-    任务 B：章节级叙事节奏独立评审。
-    #{pacing_context_section(request)}
-    节奏是“实际叙事密度是否匹配本章结构功能”的相对判断，不是句长、句数、段落长度或对白
-    数量统计。请对照章功能、情节推进、人物变化、信息释放、情绪目标和 hook，判断正文的
-    事件密度、张力轨迹以及细写/概述选择是否匹配。只有存在具体错配且能引用正文原句时，
-    才输出 quality_gate.pacing / validator.narrative_pacing_fit；影响整章时
-    impact_scope/revision_scope 才可为 chapter。
-
-    其他评审维度：场景是否产生变化、情绪转向是否有触发、人物是否有明确目标与阻力、人物行动是否
-    来自选择、转折是否导致后果、信息释放是否符合执行简述、实际读者效果是否偏离目标、对话是否
-    服务冲突/潜台词、结尾是否留下继续阅读的驱动力（hook，且不是虚假承诺）、能力/境界/资源/代价
-    与成长路径是否符合既有规则（不跳过必要铺垫、强度不失衡）。不要仅凭关键字命中就判失败。
-
-    #{brief_section(request)}#{scene_units_section(request)}#{facts_section(request)}待评审正文：
-    #{request.prose_text}
-
-    只返回 JSON 对象。
-    """
-  end
-
-  defp brief_section(%QualityEvaluationRequest{execution_brief: brief})
-       when is_binary(brief) and brief != "" do
-    "本章执行简述（评审对照）：\n#{brief}\n\n"
-  end
-
-  defp brief_section(_request), do: ""
-
-  # B11D（质量场粒度）：把合法场次清单给 evaluator；finding 指向具体场时，必须在
-  # brief_field_refs 使用这里的 unit_id 前缀（服务端按该白名单归因，不采信自造场 id）。
-  defp scene_units_section(%QualityEvaluationRequest{scene_units: units})
-       when is_list(units) and units != [] do
-    lines =
-      Enum.map_join(units, "\n", fn unit ->
-        unit_id = Map.get(unit, "unit_id") || Map.get(unit, :unit_id)
-        title = Map.get(unit, "scene_title") || Map.get(unit, :scene_title)
-        "- #{unit_id}（#{title}）"
-      end)
-
-    "本章计划场次（finding 若指向某一具体场，必须在 brief_field_refs 中使用下列 unit_id 前缀，例如 scene_2.emotion_transition；禁止发明不存在的场 id）：\n#{lines}\n\n"
-  end
-
-  defp scene_units_section(_request), do: ""
-
   defp material_coverage_statement(%AuthoringTask{scope: scope}) do
     coverage = Map.get(scope || %{}, :coverage, :single)
 
@@ -316,9 +242,28 @@ defmodule NovelAgent.ProseQualityEvaluator do
     "- 结构必须与首次请求完全一致（quality_evaluation JSON；shared rules kind=#{task.kind}）；不得放宽必填字段或改变 findings 结构。"
   end
 
-  defp correction_contract(_request) do
-    "- 结构必须与首次请求完全一致（findings 数组与必填字段）；不得放宽必填字段。"
+  defp brief_section(%QualityEvaluationRequest{execution_brief: brief})
+       when is_binary(brief) and brief != "" do
+    "本章执行简述（评审对照）：\n#{brief}\n\n"
   end
+
+  defp brief_section(_request), do: ""
+
+  # B11D（质量场粒度）：把合法场次清单给 evaluator；finding 指向具体场时，必须在
+  # brief_field_refs 使用这里的 unit_id 前缀（服务端按该白名单归因，不采信自造场 id）。
+  defp scene_units_section(%QualityEvaluationRequest{scene_units: units})
+       when is_list(units) and units != [] do
+    lines =
+      Enum.map_join(units, "\n", fn unit ->
+        unit_id = Map.get(unit, "unit_id") || Map.get(unit, :unit_id)
+        title = Map.get(unit, "scene_title") || Map.get(unit, :scene_title)
+        "- #{unit_id}（#{title}）"
+      end)
+
+    "本章计划场次（finding 若指向某一具体场，必须在 brief_field_refs 中使用下列 unit_id 前缀，例如 scene_2.emotion_transition；禁止发明不存在的场 id）：\n#{lines}\n\n"
+  end
+
+  defp scene_units_section(_request), do: ""
 
   # CA02（31 §6.12 🟡 门补输入）：作品事实基线——knowledge_boundary/character_logic/
   # power_scaling 类判断据此比对，而非仅凭正文自评。缺席诚实缺席（不伪造基线）。

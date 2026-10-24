@@ -31,6 +31,7 @@ defmodule I3NonceDriver do
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Toolbox
   alias NovelApplication.AgentRunService
+  alias NovelApplication.AuthoringTaskBuilder
   alias NovelApplication.DialoguePlanningService
   alias NovelCommon.Contracts.ToolRequest
 
@@ -171,11 +172,15 @@ defmodule I3NonceDriver do
       tool_name: tool_name_for(c.name),
       tool_version: "1.0.0",
       plan_ref: "i3_plan_#{c.name}",
-      input: %{
-        "text" => "请基于以下内容生成创作产物，必须将标识符 #{nonce} 原样嵌入输出至少一处。主题：#{c.topic}",
-        "creative_brief" =>
-          "标识符：#{nonce}。这是来自用户输入的一次性串，工具必须在 items 的 title/body/rationale 任一字段保留 #{nonce}。"
-      },
+      input:
+        Map.merge(
+          %{
+            "text" => "请基于以下内容生成创作产物，必须将标识符 #{nonce} 原样嵌入输出至少一处。主题：#{c.topic}",
+            "creative_brief" =>
+              "标识符：#{nonce}。这是来自用户输入的一次性串，工具必须在 items 的 title/body/rationale 任一字段保留 #{nonce}。"
+          },
+          layer_b_authoring_task(c, nonce)
+        ),
       read_scope_grants: ["author_text"],
       write_scope_grants: [],
       idempotency_key: "i3_idem_#{c.name}_#{:rand.uniform(999_999)}",
@@ -188,6 +193,31 @@ defmodule I3NonceDriver do
     # indeterminate。此处修复注入形态，判定语义（nonce 必须出现在 items）不变。
     {:ok, Toolbox.execute(req, provider_execution(result_fn))}
   end
+
+  # CP3d：creative 专业调用必须携带 AuthoringTask（缺 task → failed），Layer-B 同口径组装。
+  defp layer_b_authoring_task(c, nonce) do
+    text =
+      "请基于以下内容生成创作产物，必须将标识符 #{nonce} 原样嵌入输出至少一处。主题：#{c.topic}"
+
+    {:ok, task} =
+      AuthoringTaskBuilder.new(layer_b_kind(c.name), %{
+        author_goal: text,
+        author_words: text,
+        scope: AuthoringTaskBuilder.scope([], coverage: :none),
+        materials: [],
+        output_contract:
+          AuthoringTaskBuilder.output_contract(:json,
+            required_keys: ["items"],
+            allow_companions: true
+          )
+      })
+
+    AuthoringTaskBuilder.to_input(task)
+  end
+
+  defp layer_b_kind("character-seed"), do: :character_design
+  defp layer_b_kind("prose-fragment"), do: :first_draft
+  defp layer_b_kind(_), do: :outline
 
   defp tool_name_for("character-seed"), do: "character_design"
   defp tool_name_for("prose-fragment"), do: "prose_writing"

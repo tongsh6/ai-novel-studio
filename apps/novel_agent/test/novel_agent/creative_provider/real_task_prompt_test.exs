@@ -148,7 +148,7 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
     assert prompt =~ "未要求修改的内容逐字保留"
   end
 
-  test "legacy call without task keeps byte-compatible old template" do
+  test "call without task fails instead of using legacy template" do
     {:ok, agent} = Agent.start_link(fn -> nil end)
 
     request = %CreativeRequest{
@@ -161,12 +161,10 @@ defmodule NovelAgent.CreativeProvider.RealTaskPromptTest do
       provider_hints: %{}
     }
 
-    assert Real.generate(request, execution(agent)).status == :ok
-    prompt = Agent.get(agent, & &1)
-
-    # 旧路径保持原模板（迁移期兼容；CP3d 清理）
-    assert prompt =~ "若上下文中已给出本章前文，请在其后自然衔接续写"
-    refute prompt =~ "## 创作协作共同规则"
+    result = Real.generate(request, execution(agent))
+    assert result.status == :error
+    assert [%{code: "authoring_task_required"}] = result.errors
+    assert Agent.get(agent, & &1) == nil
   end
 
   test "correction prompt re-renders the same output contract instead of relaxing it" do

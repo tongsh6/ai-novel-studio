@@ -617,16 +617,18 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  # 只有 prose_fragment 修订在本轮 CP3b 迁移为 AuthoringTask；其它角色类型归 CP3c。
-  # task 组装失败返回可解释错误（由调用方不派发），不回退旧文本。
-  defp revision_input(input, "prose_writing", entry, frame, author_text, run, source_kind) do
+  # B27 CP3d：所有可修订 creative 类型（prose/outline/character/world）统一组装
+  # AuthoringTask；角色/设定/大纲 schema 差异由 output_contract.artifact_type 与
+  # 各自 agent 模板保留。task 组装失败返回可解释错误（由调用方不派发）。
+  defp revision_input(input, tool, entry, frame, author_text, run, source_kind) do
     attrs = %{
       source: %{kind: source_kind, ref: run_ref(run, frame)},
       artifact_ref: field(entry, :artifact_id),
+      artifact_type: field(entry, :artifact_type),
       base_body: TurnInteractionService.artifact_body(entry),
       coverage: :single,
       target_chapter_ref: field(entry, :target_chapter_ref),
-      author_goal: "按作者要求修订已有正文候选",
+      author_goal: revision_goal(tool),
       author_words: author_text,
       source_refs: [run_ref(run, frame), "turn:" <> frame.turn_id]
     }
@@ -637,8 +639,11 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp revision_input(input, _tool, _entry, _frame, _author_text, _run, _source_kind),
-    do: {:ok, input}
+  defp revision_goal("prose_writing"), do: "按作者要求修订正文候选"
+  defp revision_goal("plot_outline"), do: "按作者要求修订章节计划候选"
+  defp revision_goal("character_design"), do: "按作者要求修订角色设定候选"
+  defp revision_goal("world_building"), do: "按作者要求修订设定候选"
+  defp revision_goal(_tool), do: "按作者要求修订已有内容"
 
   defp run_ref(run, frame) do
     field(run, :parent_turn_ref) || field(run, :run_id) || "turn:" <> frame.turn_id

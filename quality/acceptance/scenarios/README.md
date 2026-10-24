@@ -43,7 +43,7 @@
 | `agent-provider-execution-activity-restored.yml` | ProviderExecution activity 在 session 恢复时保持 AgentRun summary-only，作者展开同一 assistant 工作详情后通过 scoped AgentRun activity API 异步恢复 developer telemetry 与 ProviderRun usage/event/output summary；断言 ProviderRun 事件序列、输出摘要和 no-provider-recall 边界在展开后可见（CP6，active/nightly） |
 | `agent-session-transcript-lazy-page.yml` | 长 session 恢复时 transcript 首屏只取最新页，作者点击“加载更早对话”后按 cursor 异步取回旧消息；旧 assistant 的“工作详情”仍通过 scoped AgentRun activity API 原地展开 ProviderRun replay，且加载旧页/展开详情都不重新调用 provider（CP6，active/nightly） |
 | `agent-provider-execution-error-author-safe.yml` | 普通对话 ProviderExecution error facts 投影为 developer telemetry（CP6，nightly active） |
-| `agent-provider-streaming-progress.yml` | Provider execution progress 进入 AgentRun author-safe 事件流（CP6 历史场景名，nightly active） |
+| `agent-provider-streaming-progress.yml` | Provider execution progress 进入 AgentRun author-safe 事件流（CP6 历史场景名；**blocked**：依赖的 `provider_progress_v1` profile 已退役，待 re-anchor；事件类型 developer telemetry 由 `agent-provider-execution-stream-unified` / `-error-author-safe` 覆盖） |
 | `agent-provider-cancel-honest-boundary.yml` | Provider cancel 通过统一 ProviderExecution 取消（CP6，nightly active） |
 | `agent-readonly-batch-profile.yml` | AgentRun 只读 batch profile 可并行读取且不写作品事实（CP6，nightly active） |
 | `agent-prose-drafting-with-quality.yml` | AgentRun 正文草稿 Profile 复用正文质量复核链路 |
@@ -128,8 +128,8 @@
 | `au10-workbench-recovery-provider-timeout.yml` | Provider 超时后工作台可恢复 |
 | `au10-workbench-recovery-reconnect.yml` | WebSocket 断线重连后工作台可继续 |
 | `au10-workbench-recovery-taskstate.yml` | 工作台 task_state 生命周期可见 |
-| `au11-quality-diagnosis-message-envelope.yml` | AI 引导式创作质量诊断 message envelope |
-| `au11-missing-workstate-policy.yml` | AI 引导式创作缺 WorkState 不编造 |
+| `au11-quality-diagnosis-message-envelope.yml` | AI 引导式创作质量诊断 message envelope（**blocked**：旧 envelope 生产链已退役，re-anchor 触发 = B27/G7 统一语义落地后按新 trace 字段重写） |
+| `au11-missing-workstate-policy.yml` | AI 引导式创作缺 WorkState 不编造（**blocked**：同上，旧 envelope 生产链已退役） |
 | `au12-work-profile-overview.yml` | 作品档案立项概览只读视图 |
 | `au12-profile-read-failure-degrade.yml` | 作品档案读取失败诚实降级与重试恢复 |
 | `au12-correction-intent-roundtrip.yml` | 作品档案立项修订意图回到对话与采纳边界 |

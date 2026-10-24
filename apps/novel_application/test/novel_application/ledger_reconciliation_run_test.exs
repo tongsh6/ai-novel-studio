@@ -17,7 +17,16 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
     reconcile_fn = fn work_id ->
       Agent.update(counter, &(&1 + 1))
       send(parent, {:reconciled, work_id})
-      {:ok, %{id: "report-1", finding_count: 3}}
+
+      # B27 CP3c/D2 port 契约：机械审读结果必须携带规则覆盖（scan 真源）。
+      {:ok, %{id: "report-1", finding_count: 3},
+       %{
+         rules_evaluated: [:arc_stalled, :genre_promise],
+         rules_skipped: [
+           %{rule: :volume_plan_mismatch, status: :skipped, reason: :volumes_port_missing}
+         ],
+         scope: %{work_id: work_id, entries: 0, summaries: 0, roster: 0}
+       }}
     end
 
     spec =
@@ -53,6 +62,8 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
     assert text =~ "3 处偏离"
     assert text =~ "脉络"
     assert text =~ "未改动任何设定或正文"
+    # 规则覆盖随回执显式（skipped 不静默）。
+    assert text =~ "1 项规则因数据缺失/读端口缺席未执行"
 
     assert_receive {:agent_event, :run_completed, _}, 500
 

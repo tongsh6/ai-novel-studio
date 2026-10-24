@@ -31,22 +31,33 @@ defmodule NovelAgent.CreativeProvider.Real do
   - 正文只写故事本身：不得出现"第N章"这类章节编号自指或对后文章节的预告，不得出现"待采纳""草稿""审校"等工作流程词，不要写解释正文的元评论。章节坐标与计划信息只是给你的背景，不是剧情事实。
   """
 
+  # B27 CP3d：creative provider 只接受带 AuthoringTask 的专业调用；未知工具显式失败，
+  # 不再有 legacy 无 task 模板或 generic fallback。
   @impl true
-  def generate(%CreativeRequest{} = request, provider_execution) do
-    case Execution.result_fn(provider_execution) do
-      result_fn when is_function(result_fn, 1) ->
-        result =
-          request
-          |> build_prompt()
-          |> do_generate(result_fn, _retry? = true, correction_contract(request))
+  def generate(%CreativeRequest{task: nil}, _provider_execution) do
+    provider_error("authoring_task_required", "creative provider requires an authoring task")
+  end
 
-        enforce_companion_scope(result, request)
+  @impl true
+  def generate(%CreativeRequest{tool_name: tool} = request, provider_execution) do
+    if supported_tool?(tool) do
+      case Execution.result_fn(provider_execution) do
+        result_fn when is_function(result_fn, 1) ->
+          result =
+            request
+            |> build_prompt()
+            |> do_generate(result_fn, _retry? = true, correction_contract(request))
 
-      _ ->
-        provider_error(
-          "provider_execution_required",
-          "creative provider requires provider execution"
-        )
+          enforce_companion_scope(result, request)
+
+        _ ->
+          provider_error(
+            "provider_execution_required",
+            "creative provider requires provider execution"
+          )
+      end
+    else
+      provider_error("unsupported_creative_tool", "unsupported creative tool: #{inspect(tool)}")
     end
   end
 
@@ -136,17 +147,79 @@ defmodule NovelAgent.CreativeProvider.Real do
     """
   end
 
-  # CP3b：带 AuthoringTask 的 writer 渲染。静态规则来自 AuthoringSemantics（唯一真源），
-  # 操作互斥由 task.kind 选择；动态段只含应用已验证事实；角色输出契约置尾。
-  defp build_prompt(
-         %CreativeRequest{tool_name: "prose_writing", task: %AuthoringTask{} = task} = request
-       ) do
+  @creative_tool_names ~w(plot_outline character_design character_evolution world_building)
+
+  # ── B27 CP3d：creative 角色模板（task 必填，角色差异保留在域段）─────────────
+
+  defp build_prompt(%CreativeRequest{tool_name: "prose_writing"} = request),
+    do: prose_prompt(request)
+
+  defp build_prompt(%CreativeRequest{tool_name: "plot_outline"} = request),
+    do: outline_prompt(request)
+
+  defp build_prompt(%CreativeRequest{tool_name: "character_design"} = request),
+    do: character_design_prompt(request)
+
+  defp build_prompt(%CreativeRequest{tool_name: "character_evolution"} = request),
+    do: character_evolution_prompt(request)
+
+  defp build_prompt(%CreativeRequest{tool_name: "world_building"} = request),
+    do: world_building_prompt(request)
+
+  defp supported_tool?(tool), do: tool == "prose_writing" or tool in @creative_tool_names
+
+  defp prose_prompt(request) do
+    render_creative_prompt(request, "本次你承担小说正文写作助手的角色。", prose_domain_schema(),
+      extra: @prose_writing_guidelines
+    )
+  end
+
+  defp outline_prompt(request) do
+    role =
+      if revision?(request),
+        do: "本次你承担章计划修订助手的角色。",
+        else: "本次你承担章计划助手的角色。"
+
+    render_creative_prompt(request, role, outline_domain_schema())
+  end
+
+  defp character_design_prompt(request) do
+    role =
+      if revision?(request),
+        do: "本次你承担小说角色设定修订助手的角色。",
+        else: "本次你承担小说角色设计助手的角色。"
+
+    render_creative_prompt(request, role, character_design_domain_schema())
+  end
+
+  defp character_evolution_prompt(request) do
+    render_creative_prompt(
+      request,
+      "本次你承担小说角色连续性助手的角色。",
+      character_evolution_domain_schema()
+    )
+  end
+
+  defp world_building_prompt(request) do
+    role =
+      if revision?(request),
+        do: "本次你承担小说设定修订助手的角色。",
+        else: "本次你承担小说设定与连续性设计助手的角色。"
+
+    render_creative_prompt(request, role, world_building_domain_schema(request))
+  end
+
+  # 统一的 creative prompt 骨架：L1 角色句 + 共享语义静态段 → 角色域 schema →
+  # L3 材料（三锚点/执行简述/账面/使命/修订要求）→ L4 输出契约置尾。
+  defp render_creative_prompt(%CreativeRequest{} = request, role, domain_schema, opts \\ []) do
+    extra = Keyword.get(opts, :extra, "")
+
     """
-    本次你承担小说正文写作助手的角色。请严格按本任务输出契约返回，不要附加任何额外文字。
+    #{role}请严格按本任务输出契约返回，不要附加任何额外文字。
 
-    #{AuthoringSemantics.static_block(task)}
+    #{task_blocks(request)}
 
-    #{AuthoringSemantics.dynamic_block(task)}
+    #{domain_schema}
 
     capability：#{request.tool_name}
     artifact_type：#{request.artifact_type}
@@ -156,67 +229,60 @@ defmodule NovelAgent.CreativeProvider.Real do
     重要：#{nonce_requirement()}
     #{execution_brief_section(request)}
     #{progress_state_section(request)}
+    #{planning_mission_section(request)}
     #{revision_section(request)}
-    #{prose_item_contract()}
-    #{@prose_writing_guidelines}
-    #{prose_output_contract_tail()}
+    #{extra}
+    #{output_contract_tail(request)}
     """
+    |> String.trim()
   end
 
-  # prose_writing：写一章/一段正文，结果应是一段连贯文本，而不是多个互相竞争、
-  # 各自从头另起的开头。因此要求"恰好一个连贯条目"。其余创意发散类能力（大纲、
-  # 人物草案等）仍返回多个候选供作者择一。
-  defp build_prompt(%CreativeRequest{tool_name: "prose_writing"} = request) do
+  defp task_blocks(%CreativeRequest{task: %AuthoringTask{} = task}) do
+    [AuthoringSemantics.static_block(task), AuthoringSemantics.dynamic_block(task)]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  defp revision?(%CreativeRequest{task: %AuthoringTask{kind: :revision}}), do: true
+  defp revision?(_request), do: false
+
+  # 输出契约只承诺运行时真正强制/允许的字段（Audit F05）；角色域 schema 保留在上文。
+  defp output_contract_tail(%CreativeRequest{task: %AuthoringTask{} = task}) do
+    contract = task.output_contract || %{}
+    required = contract_map_get(contract, :required_keys) |> List.wrap() |> Enum.reject(&blank?/1)
+    companions = contract_map_get(contract, :allow_companions) == true
+    item_keys = Enum.reject(required, &(&1 == "items"))
+
     """
-    本次你承担小说正文写作助手的角色。请严格按 JSON 对象格式返回，不要附加任何额外文字。
+    输出契约（只返回 JSON，不要附加 JSON 以外的文字）：
+    - 只返回 JSON 数组，或一个含 "items" 非空数组的 JSON 对象；每个 item 必须含 #{Enum.join(item_keys, "、")}。
+    - 伴生产物：#{if companions, do: "允许，没有则 []", else: "不允许"}；不得为凑数引入无依据的伴生对象。
+    - 本角色其余结构与字段要求见上文；字符串值内的换行必须写成 \\\\n 转义。
+    """
+    |> String.trim()
+  end
 
-    顶层对象必须包含：
-    - "items"：JSON 数组，且恰好包含一个连贯正文条目
-    - "companion_artifacts"：本轮新引入且值得登记的伴生产物数组；没有则 []，不得凑数
-    - "self_report"：非权威自报告对象，只供质量门和 trace 复核，不代表作品事实
-
-    items 内的正文条目必须包含以下键：
+  defp prose_domain_schema do
+    """
+    items 内正文条目必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：本段正文的简短标题（只给一个标题，不要罗列多个备选）
-    - "body"：一段连贯、完整的正文。直接写正文，不要在开头重复标题或章节名，也不要把同一情节用多个不同开头写多遍。若上下文中已给出本章前文，请在其后自然衔接续写，承接情节与人物状态，不要从头另起或重复已写内容。body 内不得出现独立的结构/状态元标签，例如“场景 2”“第2场”“第二场”“正文草稿”“待采纳草稿”“标题：”；这些只能放在 title / self_report 等结构字段里，不属于小说正文。
+    - "body"：一段连贯、完整的正文。直接写正文，不要在开头重复标题或章节名，也不要把同一情节用多个不同开头写多遍。body 内不得出现独立的结构/状态元标签，例如“场景 2”“第2场”“第二场”“正文草稿”“待采纳草稿”“标题：”；这些只能放在 title / self_report 等结构字段里，不属于小说正文。
     - "rationale"：一句话依据（或 null）
 
-    companion_artifacts 每项含 artifact_type/item_id/title/body/rationale。类型仅限
+    companion_artifacts 可为空；每项含 artifact_type/item_id/title/body/rationale。类型仅限
     character_seed、foreshadowing_seed、world_rule_seed、constraint_seed；角色可带
-    narrative_role/role/aliases。只提取有依据的新事实，不重复已有事实或升级普通细节。
-    rationale 写明依据；所有 item_id 唯一。
-    若上下文中没有「现有角色」章节（作品尚无角色档案），必须为本段正文中每个具名
-    出场人物各产出一条 character_seed（含 narrative_role），供作者把人物立进档案；
-    已有「现有角色」章节时，仍只为真正新引入的人物产出 character_seed。
-
-    self_report 必须包含以下键：
-    - "assumptions"：数组；列出你为了完成正文所做的关键假设，没有则 []
-    - "intended_reader_effect"：字符串或 null；概括你尝试制造的读者效果
-    - "used_context_refs"：数组；列出你实际使用的上下文段名称，例如 reader_effect_brief、target_structure、continuity_summary、prior_prose
-    - "risk_flags"：数组；列出可能需要作者或质量门复核的风险，没有则 []
-
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：#{nonce_requirement()}
-    #{execution_brief_section(request)}
-    #{progress_state_section(request)}
-    #{revision_section(request)}
-    #{@prose_writing_guidelines}
-    只返回 JSON 对象。
+    narrative_role/role/aliases。只提取有依据的新事实，不重复已有事实或升级普通细节；
+    所有 item_id 必须唯一。若上下文没有「现有角色」章节，建议为本段具名出场人物各产出一条
+    character_seed（含 narrative_role）供作者立档；已有阵容时只为真正新引入的人物产出。
+    self_report 为可选对象（assumptions/intended_reader_effect/used_context_refs/risk_flags），
+    只是非权威自报告，不代表作品事实。
     """
+    |> String.trim()
   end
 
-  defp build_prompt(
-         %CreativeRequest{tool_name: "plot_outline", artifact_type: :outline_draft} = request
-       ) do
+  defp outline_domain_schema do
     """
-    本次你承担章计划助手的角色。请严格按 JSON 数组格式返回多个章节条目，不要附加任何额外文字。
-
-    #{task_shared_block(request)}
-
     每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：章节标题，格式建议为“第NN章：标题”
@@ -239,27 +305,13 @@ defmodule NovelAgent.CreativeProvider.Real do
       感官：该场时空与感官锚点（如潮湿霉味、风扇噪音）
     - "rationale"：一句话说明该章在整体结构中的作用（或 null）
 
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：#{nonce_requirement()}
-    #{progress_state_section(request)}
-    #{planning_mission_section(request)}
-    #{revision_section(request)}
-    只返回 JSON 数组。
+    输出 1 个或多个章节条目；不要改已存在章节的对象身份（重编号/合并/删除）。
     """
+    |> String.trim()
   end
 
-  # character_design：AI 引导的上下文感知角色设计（AU09 / `01` §3.2 结构引导 / `21` §7.2 角色对象模型）。
-  # schema 是开放框架（I-g）：覆盖核心骨架维度，并据作品信息推断补充作品专属维度，不被固定字段表封死。
-  defp build_prompt(%CreativeRequest{tool_name: "character_design"} = request) do
+  defp character_design_domain_schema do
     """
-    本次你承担小说角色设计助手的角色。请基于作品上下文为作者设计贴合本作的角色，并严格按 JSON 数组格式返回，不要附加任何额外文字。
-
-    #{task_shared_block(request)}
-
     数组包含 1 个（必要时至多 2 个取向明显不同的）角色设计候选，每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：角色名（只给一个名字，简洁，不要罗列备选）
@@ -280,25 +332,15 @@ defmodule NovelAgent.CreativeProvider.Real do
       再根据作品题材、世界观与设定自行推断补充本作特有的维度（如修仙→境界/功法/灵根；科幻→种族/科技背景；都市→职业/社会网络）。上述列表只是骨架，不要被它限制。
     - "rationale"：一句话说明该设计如何贴合作品背景/世界观/剧情（或 null）
 
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：角色设计必须基于上下文中的作品背景、世界观、设定与现有角色，不要脱离本作凭空生成。#{nonce_requirement()}
-
-    #{revision_section(request)}
-    只返回 JSON 数组。
+    角色设计必须基于上下文中的作品背景、世界观、设定与现有角色，不要脱离本作凭空生成。
     """
+    |> String.trim()
   end
 
-  # character_evolution：更新已有角色的演化 / 当前状态 / 关系变化（AU-09 §4.5 角色记忆）。
-  # 不是创建新角色，也不改主档案底座；采纳后写角色记忆（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）。
-  defp build_prompt(%CreativeRequest{tool_name: "character_evolution"} = request) do
+  defp character_evolution_domain_schema do
     """
-    本次你承担小说角色连续性助手的角色。作者要记录一个已有角色随剧情发生的**演化事件**（成长/转变、当前状态变化、或与其他角色的关系变化），不是创建新角色。请基于作品上下文与现有角色，生成 1 条可采纳的角色演化记忆草稿，并严格按 JSON 数组格式返回，不要附加任何额外文字。
-
-    #{task_shared_block(request)}
+    作者要记录一个已有角色随剧情发生的**演化事件**（成长/转变、当前状态变化、或与其他角色的关系变化），
+    不是创建新角色。请基于作品上下文与现有角色，生成 1 条可采纳的角色演化记忆草稿。
 
     条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -307,49 +349,24 @@ defmodule NovelAgent.CreativeProvider.Real do
     - "memory_subtype"：从下列三选一——CHARACTER_PROFILE（长期设定/弧光演化）、CURRENT_STATE（当前处境/伤势/所知/所在）、RELATIONSHIP（角色间关系变化）。无法判断时省略或给 null
     - "rationale"：一句话说明该演化如何贴合剧情（或 null）
 
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：必须基于上下文中的现有角色与剧情，不要脱离本作凭空生成；只记录演化事件，不重建主档案。#{nonce_requirement()}
-
-    只返回 JSON 数组。
+    必须基于上下文中的现有角色与剧情，不要脱离本作凭空生成；只记录演化事件，不重建主档案。
     """
+    |> String.trim()
   end
 
-  # world_building：作品档案中的世界设定 / 伏笔 / 规则草稿。
-  # 采纳后仍经 AU-09 memory governance；provider 只生成 tentative artifact。
-  defp build_prompt(%CreativeRequest{tool_name: "world_building", revision: revision} = request)
-       when is_binary(revision) and revision != "" do
-    """
-    本次你承担小说设定修订助手的角色。按作者要求编辑给定原稿，返回一个合法 JSON 数组，不附加额外文字。
-
-    #{task_shared_block(request)}
-    这是已有内容的新版本，保留原稿结构和未要求修改的内容，不做新建设定的模板扩写。
-    每项包含 item_id（新标识符）、title（修订稿标题）、body（完整修订正文）、rationale（修改依据或 null）。
-    body 是可供作者采纳的正文，不要向其中添加修改说明、旧值/新值对照或保存状态说明。
-
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：仅执行当前修订要求，保留原稿中的信息与标识。#{legacy_fact_reminder(request)}
-    #{revision_section(request)}
-    只返回 JSON 数组。
-    """
+  defp world_building_domain_schema(request) do
+    if revision?(request) do
+      world_building_revision_schema(request.artifact_type)
+    else
+      world_building_creation_schema(request.artifact_type)
+    end
   end
 
-  defp build_prompt(%CreativeRequest{tool_name: "world_building"} = request) do
-    guidance = world_building_guidance(request.artifact_type)
+  defp world_building_creation_schema(artifact_type) do
+    guidance = world_building_guidance(artifact_type)
 
     """
-    本次你承担小说设定与连续性设计助手的角色。请基于作品上下文为作者生成可采纳的#{guidance.label}，并严格按 JSON 数组格式返回，不要附加任何额外文字。
-
-    #{task_shared_block(request)}
-
-    本次草稿类型：#{request.artifact_type}
+    本次草稿类型：#{artifact_type}
 
     数组包含 1 个（必要时至多 2 个取向明显不同的）草稿候选，每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -358,110 +375,53 @@ defmodule NovelAgent.CreativeProvider.Real do
       缺少上下文支撑的字段写“（待定）”，不要编造既有事实。
     - "rationale"：一句话说明该草稿如何贴合作品背景、当前剧情或后续创作约束（或 null）
 
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：草稿必须基于上下文中的作品背景、世界观、设定、角色和已采纳内容。#{legacy_tentative_reminder(request)}#{nonce_requirement()}
-
-    只返回 JSON 数组。
+    草稿必须基于上下文中的作品背景、世界观、设定、角色和已采纳内容。
     """
+    |> String.trim()
   end
 
-  defp build_prompt(%CreativeRequest{} = request) do
+  # 设定修订沿用原稿形态，不复用新建设定的模板栏目（审计 D09 行为保留）。
+  defp world_building_revision_schema(artifact_type) do
     """
-    本次你承担创作助手的角色。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
-
-    #{task_shared_block(request)}
+    本次修订类型：#{artifact_type}
+    这是已有内容的新版本：按修订要求编辑给定原稿，保留原稿结构和未要求修改的内容，
+    不做新建设定的模板扩写。
 
     每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
-    - "title"：简短标题
-    - "body"：核心内容
-    - "rationale"：一句话依据（或 null）
+    - "title"：修订稿标题
+    - "body"：完整修订正文；只放可供作者采纳的新版本，不添加修改说明、旧值/新值对照或保存状态说明
+    - "rationale"：修改依据（或 null）
 
-    capability：#{request.tool_name}
-    artifact_type：#{request.artifact_type}
-    用户创作简述：#{request.creative_brief}
-    上下文：#{request.context_text}
-
-    重要：#{nonce_requirement()}
-
-    只返回 JSON 数组。
+    body 与修订依据必须基于上下文中的作品背景、世界观、设定与给定原稿。
     """
+    |> String.trim()
   end
 
-  # CP3b：共享任务段（L1 静态 + L3 动态事实）；无 task 的旧调用返回空串保持字节兼容。
-  defp task_shared_block(%CreativeRequest{task: %AuthoringTask{} = task}) do
-    [AuthoringSemantics.static_block(task), AuthoringSemantics.dynamic_block(task)]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n\n")
+  defp contract_map_get(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
-  defp task_shared_block(_request), do: ""
+  defp contract_map_get(_map, _key), do: nil
 
-  # X3：有 task 时采纳/事实声明由 AuthoringSemantics.shared_rules 唯一提供，
-  # 角色模板不再重复；无 task 的旧调用保留原声明（迁移期兼容）。
-  defp legacy_fact_reminder(%CreativeRequest{task: %AuthoringTask{}}), do: ""
-  defp legacy_fact_reminder(_request), do: "返回条目不得冒充已保存事实。"
-
-  defp legacy_tentative_reminder(%CreativeRequest{task: %AuthoringTask{}}), do: ""
-  defp legacy_tentative_reminder(_request), do: "不要把 tentative 草稿说成已经生效。"
-
-  # I3 种子贯通要求：六处模板统一从此渲染，避免同一规则手写多份（审计 X2）。
+  # I3 种子贯通要求：creative 模板统一从此渲染，避免同一规则手写多份（审计 X2）。
   defp nonce_requirement do
     "如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留至少一处。"
-  end
-
-  defp prose_item_contract do
-    """
-    items 内正文条目必须包含以下键：
-    - "item_id"：你生成的短标识符（不含空格）
-    - "title"：本段正文的简短标题（只给一个标题，不要罗列多个备选）
-    - "body"：一段连贯、完整的正文。直接写正文，不要在开头重复标题或章节名，也不要把同一情节用多个不同开头写多遍。body 内不得出现独立的结构/状态元标签，例如“场景 2”“第2场”“第二场”“正文草稿”“待采纳草稿”“标题：”；这些只能放在 title / self_report 等结构字段里，不属于小说正文。
-    - "rationale"：一句话依据（或 null）
-
-    companion_artifacts 可为空；每项含 artifact_type/item_id/title/body/rationale。类型仅限
-    character_seed、foreshadowing_seed、world_rule_seed、constraint_seed；角色可带
-    narrative_role/role/aliases。只提取有依据的新事实，不重复已有事实或升级普通细节；
-    所有 item_id 必须唯一。若上下文没有「现有角色」章节，建议为本段具名出场人物各产出一条
-    character_seed（含 narrative_role）供作者立档；已有阵容时只为真正新引入的人物产出。
-    """
-    |> String.trim()
-  end
-
-  # 输出契约与运行时 ToolOutputContract 校验同源（B27 CP3b / 审计 F05）：
-  # 只承诺运行时真正强制/允许的字段，不在 prompt 里写比校验更严的"必须"。
-  defp prose_output_contract_tail do
-    """
-    输出契约（只返回这一个 JSON 对象，不要附加任何额外文字）：
-    - "items"：非空 JSON 数组；按任务语义生成连贯正文条目（通常一个）。
-    - "companion_artifacts"：JSON 数组，可为空。
-    - "self_report"：可选对象；若提供，含 assumptions/intended_reader_effect/used_context_refs/risk_flags，只是非权威自报告，不代表作品事实。
-    - 字符串值内的换行必须写成 \\n 转义，不能出现裸换行。
-    """
-    |> String.trim()
   end
 
   # 纠错提示里的契约片段：与首次请求同一 task/output_contract，禁止重试时改变结构。
   defp correction_contract(%CreativeRequest{task: %AuthoringTask{} = task}) do
     contract = task.output_contract || %{}
-    required = Map.get(contract, :required_keys) || Map.get(contract, "required_keys") || []
 
-    companions =
-      Map.get(contract, :allow_companions) || Map.get(contract, "allow_companions") || false
+    required =
+      contract |> contract_map_get(:required_keys) |> List.wrap() |> Enum.reject(&blank?/1)
 
-    "- 结构必须与首次请求完全一致（JSON；必须字段：#{Enum.join(List.wrap(required), "、")}；伴生产物：#{if companions, do: "允许", else: "不允许"}）；不得改成其它结构或放宽必填字段。"
+    companions = contract_map_get(contract, :allow_companions) == true
+
+    "- 结构必须与首次请求完全一致（JSON；必须字段：#{Enum.join(required, "、")}；伴生产物：#{if companions, do: "允许", else: "不允许"}）；不得改成其它结构或放宽必填字段。"
   end
 
-  defp correction_contract(%CreativeRequest{tool_name: "prose_writing"}) do
-    "- 结构必须与首次请求完全一致：顶层 JSON 对象含 items/companion_artifacts/self_report；不得改成数组或其它结构。"
-  end
-
-  defp correction_contract(_request) do
-    "- 结构必须与首次请求完全一致（保留原数组/对象形态与必填字段）；不得改变输出契约。"
-  end
+  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 
   # VS-00E：场级执行简述（已由 application 渲染成文本）追加在 prose 三锚点之后，
   # 不污染 stub/slice_verify 的「用户创作简述：/上下文：/重要：」捕获。缺省为空。

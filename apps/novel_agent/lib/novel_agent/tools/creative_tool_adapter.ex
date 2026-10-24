@@ -66,17 +66,24 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
   end
 
   # 从 ToolRequest.input["authoring_task"]（JSON-safe map）恢复并校验 task。
-  # 校验失败返回可解释错误，由调用方转成 failed ToolResult；不静默回退旧文本。
+  # B27 CP3d：creative 调用强制携带 task；缺失/校验失败返回可解释错误，不静默回退。
   defp authoring_task(input) when is_map(input) do
     case Map.get(input, "authoring_task") || Map.get(input, :authoring_task) do
-      nil -> {:ok, nil}
+      nil -> {:error, authoring_task_required_error()}
       %AuthoringTask{} = task -> validate_authoring_task(task)
       map when is_map(map) -> map |> AuthoringTask.from_map() |> validate_authoring_task()
       _other -> {:error, authoring_task_error(:not_a_task)}
     end
   end
 
-  defp authoring_task(_input), do: {:ok, nil}
+  defp authoring_task(_input), do: {:error, authoring_task_required_error()}
+
+  defp authoring_task_required_error do
+    %{
+      code: "authoring_task_required",
+      message: "creative calls require ToolRequest.input[\"authoring_task\"]"
+    }
+  end
 
   defp validate_authoring_task(nil), do: {:error, authoring_task_error(:not_a_task)}
 

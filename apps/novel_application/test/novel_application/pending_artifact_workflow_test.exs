@@ -112,6 +112,11 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert prompt =~ run.goal.text
     refute run.goal.text =~ "林渡"
     assert prompt =~ "body 只放完整的新版本"
+
+    # B27 CP3d：world 修订由 AuthoringTask 渲染（共享规则 + 修订 operation + preserve）
+    assert prompt =~ "## 创作协作共同规则"
+    assert prompt =~ "本轮为修订"
+    assert prompt =~ "## 必须保留"
     refute prompt =~ "逐行包含：设定内容"
     [revised] = result.turn_result.adoption_state.pending
     assert result.artifact_refs == [revised.artifact_id]
@@ -403,6 +408,73 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
              )
   end
 
+  test "prose/outline/character pending revisions carry authoring task and shared semantics", c do
+    cases = [
+      {:prose_fragment, "prose_writing"},
+      {:outline_draft, "plot_outline"},
+      {:character_seed, "character_design"}
+    ]
+
+    for {artifact_type, tool} <- cases do
+      {artifact_id, ^tool} =
+        record_pending_artifact(c, artifact_type, %{
+          item_id: "item-#{artifact_type}",
+          title: "候选",
+          body: "原候选正文内容",
+          rationale: nil
+        })
+
+      parent = self()
+
+      provider = %Execution{
+        result_fn: fn prompt ->
+          send(parent, {:revision_prompt, artifact_type, prompt})
+
+          {:ok,
+           %NovelAgent.Provider.Result{
+             content:
+               Jason.encode!([
+                 %{
+                   item_id: "revised-#{artifact_type}",
+                   title: "修订稿",
+                   body: "修订正文",
+                   rationale: nil
+                 }
+               ]),
+             provider_call_ref: "pcall-rev-#{artifact_type}"
+           }}
+        end
+      }
+
+      run = %{
+        c.run
+        | authority_scope: %{production_write: false, allowed_tools: [tool]},
+          budget: %{max_tool_calls: 3, max_provider_calls: 6}
+      }
+
+      judgment = %{
+        judgment(c, "revise_pending_artifact")
+        | pending_artifact_ref: artifact_id,
+          dialogue_goal: "修订这份候选，其他内容不变"
+      }
+
+      assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, provider)
+      assert_receive {:revision_prompt, ^artifact_type, prompt}, 500
+
+      # 任务语义随请求出站：共享规则 + 修订操作 + 基线/保留 + 作者原话
+      assert prompt =~ "## 创作协作共同规则"
+      assert prompt =~ "本轮为修订"
+      assert prompt =~ "## 必须保留"
+      assert prompt =~ "artifact_type：#{artifact_type}"
+      assert prompt =~ "作者原话（逐字保留、可追溯）："
+      assert prompt =~ "原候选正文内容"
+
+      [revised] = result.turn_result.adoption_state.pending
+      assert revised.artifact_type == artifact_type
+      assert revised.payload.revision_of == artifact_id
+    end
+  end
+
   test "修订模型失败不关闭原稿，也不把修改要求当成新正文", c do
     parent = self()
 
@@ -455,4 +527,65 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
         scope_ref: work
       })
   end
+
+  defp record_pending_artifact(c, artifact_type, item) do
+    tool = tool_for_artifact(artifact_type)
+    turn_id = "turn-pending-#{artifact_type}"
+
+    tool_result = %NovelCommon.Contracts.ToolResult{
+      tool_result_id: "tr-#{artifact_type}",
+      tool_request_ref: "tq-#{artifact_type}",
+      tool_name: tool,
+      status: :succeeded,
+      output: %{
+        artifact_type: artifact_type,
+        item_count: 1,
+        items: [item],
+        companion_item_count: 0,
+        companion_artifacts: []
+      },
+      artifact_refs: [item.item_id],
+      state_delta: [],
+      usage: %{duration_ms: 0, tool: tool, version: "1.0.0"},
+      trace_refs: [],
+      completed_at: DateTime.utc_now()
+    }
+
+    {:ok, artifact_set} = ArtifactAssembler.assemble(tool_result, turn_id)
+
+    frame = %DialogueFrame{
+      schema_version: "3.0-draft",
+      frame_id: "frame-#{artifact_type}",
+      turn_id: turn_id,
+      workspace_id: c.work.id,
+      primary: true,
+      frame_type: :execution_candidate,
+      source_refs: %{author_input_ref: turn_id},
+      dialogue_goal: %{summary: "生成候选"},
+      tool_need: %{needs_tool: true, reason_code: :tool_needed},
+      execution_readiness: :ready,
+      author_visible_draft: %{message: "候选"},
+      evidence_summary: %{},
+      uncertainty: []
+    }
+
+    turn_result =
+      TurnResultBuilder.build(
+        frame,
+        %{trace_ref: "trace-#{artifact_type}"},
+        [],
+        nil,
+        tool_result,
+        artifact_set
+      )
+
+    record(c.work.id, c.session.id, turn_result)
+    [pending] = turn_result.adoption_state.pending
+    {pending.artifact_id, tool}
+  end
+
+  defp tool_for_artifact(:prose_fragment), do: "prose_writing"
+  defp tool_for_artifact(:outline_draft), do: "plot_outline"
+  defp tool_for_artifact(:character_seed), do: "character_design"
+  defp tool_for_artifact(:world_setting), do: "world_building"
 end

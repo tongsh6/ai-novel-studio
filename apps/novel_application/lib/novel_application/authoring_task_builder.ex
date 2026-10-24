@@ -11,6 +11,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
 
   alias NovelCommon.AuthoringSemantics
   alias NovelCommon.Contracts.AuthoringTask
+  alias NovelCommon.Contracts.ToolOutputContract
 
   @doc """
   构造并校验 task；失败返回 `{:error, {code, detail}}`，调用方不得降级猜意图。
@@ -168,6 +169,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
   def for_revision(attrs) when is_map(attrs) do
     coverage = normalize_coverage(attrs[:coverage])
     base_ref = text(attrs[:artifact_ref])
+    artifact_type = normalize_artifact_type(attrs[:artifact_type]) || :prose_fragment
 
     new(:revision, %{
       author_goal: blank_to_nil(text(attrs[:author_goal])) || "按作者动作或复核发现修订已有内容",
@@ -175,7 +177,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       source: normalize_source(attrs[:source]),
       scope:
         scope(refs_for(base_ref),
-          object_kind: attrs[:object_kind] || :prose_fragment,
+          object_kind: attrs[:object_kind] || revision_object_kind(artifact_type),
           coverage: coverage,
           base_ref: blank_to_nil(base_ref),
           base_hash: content_hash(attrs[:base_body]),
@@ -184,7 +186,9 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       materials: revision_materials(attrs, base_ref),
       preserve: revision_preserve(attrs, coverage),
       operation_effect: :revise_candidate,
-      output_contract: attrs[:output_contract] || output_contract(:json, @prose_contract_opts),
+      output_contract:
+        attrs[:output_contract] ||
+          role_output_contract(revision_role(artifact_type), artifact_type),
       source_refs: string_list(attrs[:source_refs])
     })
   end
@@ -224,6 +228,292 @@ defmodule NovelApplication.AuthoringTaskBuilder do
       output_contract: attrs[:output_contract] || output_contract(:json, @quality_contract_opts),
       source_refs: string_list(attrs[:source_refs])
     })
+  end
+
+  # ── CP3d：非 prose creative tool 的任务组装 ──────────────────────────
+  #
+  # plot_outline / character_design / character_evolution / world_building 的新建调用。
+  # 角色/设定/大纲的领域 schema 与文案仍保留在 agent 模板；这里只统一任务语义、
+  # 来源、范围/材料与输出契约（artifact_type + 运行时必填键）。
+
+  @outline_contract_opts [
+    schema_ref: "tentative_artifact_v1",
+    artifact_type: :outline_draft,
+    required_keys: ["items", "item_id", "title", "body"],
+    allow_companions: false
+  ]
+
+  @character_design_contract_opts [
+    schema_ref: "tentative_artifact_v1",
+    artifact_type: :character_seed,
+    required_keys: ["items", "item_id", "title", "body"],
+    allow_companions: false
+  ]
+
+  @character_evolution_contract_opts [
+    schema_ref: "tentative_artifact_v1",
+    artifact_type: :character_evolution_seed,
+    required_keys: ["items", "item_id", "title", "body"],
+    allow_companions: false
+  ]
+
+  @doc "按 tool 分派 creative 新建任务组装；未知 creative tool 返回错误（不静默）。"
+  @spec for_creative_tool(String.t(), map()) ::
+          {:ok, AuthoringTask.t()} | {:error, {atom(), term()}}
+  def for_creative_tool("prose_writing", attrs), do: for_prose_writing(attrs)
+  def for_creative_tool("plot_outline", attrs), do: for_outline(attrs)
+  def for_creative_tool("character_design", attrs), do: for_character_design(attrs)
+  def for_creative_tool("character_evolution", attrs), do: for_character_evolution(attrs)
+  def for_creative_tool("world_building", attrs), do: for_world_building(attrs)
+
+  def for_creative_tool(tool, _attrs),
+    do: {:error, {:unsupported_creative_tool, to_string(tool)}}
+
+  @doc "大纲/章计划新建任务。"
+  @spec for_outline(map()) :: {:ok, AuthoringTask.t()} | {:error, {atom(), term()}}
+  def for_outline(attrs) when is_map(attrs) do
+    new(:outline, %{
+      author_goal: blank_to_nil(text(attrs[:author_goal])),
+      author_words: author_words(attrs),
+      scope: creative_scope(attrs, :outline, :multi),
+      materials: creative_materials(attrs),
+      preserve: [],
+      operation_effect: :create_candidate,
+      output_contract: attrs[:output_contract] || output_contract(:json, @outline_contract_opts),
+      source_refs: string_list(attrs[:source_refs])
+    })
+  end
+
+  @doc "角色设计新建任务。"
+  @spec for_character_design(map()) :: {:ok, AuthoringTask.t()} | {:error, {atom(), term()}}
+  def for_character_design(attrs) when is_map(attrs) do
+    new(:character_design, %{
+      author_goal: blank_to_nil(text(attrs[:author_goal])),
+      author_words: author_words(attrs),
+      scope: creative_scope(attrs, :character, :single),
+      materials: creative_materials(attrs),
+      preserve: [],
+      operation_effect: :design_object,
+      output_contract:
+        attrs[:output_contract] || output_contract(:json, @character_design_contract_opts),
+      source_refs: string_list(attrs[:source_refs])
+    })
+  end
+
+  @doc "角色演化记录新建任务（写记忆，不改主档案；领域 schema 在 agent 模板保留）。"
+  @spec for_character_evolution(map()) ::
+          {:ok, AuthoringTask.t()} | {:error, {atom(), term()}}
+  def for_character_evolution(attrs) when is_map(attrs) do
+    new(:character_evolution, %{
+      author_goal: blank_to_nil(text(attrs[:author_goal])),
+      author_words: author_words(attrs),
+      scope: creative_scope(attrs, :character_memory, :single),
+      materials: creative_materials(attrs),
+      preserve: [],
+      operation_effect: :create_candidate,
+      output_contract:
+        attrs[:output_contract] || output_contract(:json, @character_evolution_contract_opts),
+      source_refs: string_list(attrs[:source_refs])
+    })
+  end
+
+  @doc """
+  世界设定/伏笔/规则/约束/风格草稿新建任务。
+
+  artifact_type 由已解析任务给出；应用侧未显式给出时按作者意图文本做确定性归类
+  （与旧 adapter 一致的唯一实现，agent adapter 不再持有另一份关键词表）。
+  """
+  @spec for_world_building(map()) :: {:ok, AuthoringTask.t()} | {:error, {atom(), term()}}
+  def for_world_building(attrs) when is_map(attrs) do
+    artifact_type = normalize_artifact_type(attrs[:artifact_type]) || classify_world_type(attrs)
+
+    new(:world_building, %{
+      author_goal: blank_to_nil(text(attrs[:author_goal])),
+      author_words: author_words(attrs),
+      scope: creative_scope(attrs, :world_setting, :single),
+      materials: creative_materials(attrs),
+      preserve: [],
+      operation_effect: :create_candidate,
+      output_contract:
+        attrs[:output_contract] || role_output_contract(:world_building, artifact_type),
+      source_refs: string_list(attrs[:source_refs])
+    })
+  end
+
+  # 角色专属输出契约（修订路径与 world artifact_type 共用）。
+  defp role_output_contract(:prose, artifact_type),
+    do: output_contract(:json, Keyword.put(@prose_contract_opts, :artifact_type, artifact_type))
+
+  defp role_output_contract(:outline, _artifact_type),
+    do: output_contract(:json, @outline_contract_opts)
+
+  defp role_output_contract(:character_design, _artifact_type),
+    do: output_contract(:json, @character_design_contract_opts)
+
+  defp role_output_contract(:character_evolution, _artifact_type),
+    do: output_contract(:json, @character_evolution_contract_opts)
+
+  defp role_output_contract(:world_building, artifact_type) do
+    output_contract(:json,
+      schema_ref: "tentative_artifact_v1",
+      artifact_type: artifact_type,
+      required_keys: ["items", "item_id", "title", "body"],
+      allow_companions: false
+    )
+  end
+
+  defp role_output_contract(_role, artifact_type) do
+    output_contract(:json,
+      schema_ref: "tentative_artifact_v1",
+      artifact_type: artifact_type,
+      required_keys: ["items", "item_id", "title", "body"],
+      allow_companions: false
+    )
+  end
+
+  defp revision_role(:prose_fragment), do: :prose
+  defp revision_role(:outline_draft), do: :outline
+  defp revision_role(:character_seed), do: :character_design
+  defp revision_role(:character_evolution_seed), do: :character_evolution
+
+  defp revision_role(type)
+       when type in [
+              :world_setting,
+              :foreshadowing_seed,
+              :world_rule_seed,
+              :style_rule_seed,
+              :constraint_seed
+            ],
+       do: :world_building
+
+  defp revision_role(_type), do: :generic
+
+  defp revision_object_kind(:outline_draft), do: :outline
+  defp revision_object_kind(:character_seed), do: :character
+  defp revision_object_kind(:character_evolution_seed), do: :character_memory
+
+  defp revision_object_kind(type)
+       when type in [
+              :world_setting,
+              :foreshadowing_seed,
+              :world_rule_seed,
+              :style_rule_seed,
+              :constraint_seed
+            ],
+       do: :world_setting
+
+  defp revision_object_kind(_type), do: :prose_fragment
+
+  defp creative_scope(attrs, object_kind, coverage) do
+    scope(refs_for(work_ref(attrs)),
+      object_kind: object_kind,
+      coverage: coverage,
+      target_chapter_ref: blank_to_nil(text(attrs[:resolved_chapter_ref]))
+    )
+  end
+
+  defp work_ref(attrs) do
+    cond do
+      ref = blank_to_nil(text(attrs[:work_ref])) -> ref
+      id = blank_to_nil(text(attrs[:workspace_id])) -> "work:" <> id
+      true -> nil
+    end
+  end
+
+  defp classify_world_type(attrs) do
+    # 优先用作者原话判断类型；只有原话缺失（按钮动作/系统触发）才退回应用归纳的目标。
+    # 不把 action summary 的枚举词（如"伏笔或规则草稿"）混进作者意图。
+    text = text(blank_to_nil(text(author_words(attrs))) || text(attrs[:author_goal]))
+
+    cond do
+      contains_any?(text, ["伏笔", "悬念", "线索", "回收"]) -> :foreshadowing_seed
+      contains_any?(text, ["风格规则", "写作规则", "文风", "语气", "推荐写法"]) -> :style_rule_seed
+      contains_any?(text, ["约束", "限制", "禁止", "不得", "禁忌"]) -> :constraint_seed
+      contains_any?(text, ["规则", "规则体系", "世界规则"]) -> :world_rule_seed
+      true -> :world_setting
+    end
+  end
+
+  defp contains_any?(text, terms), do: Enum.any?(terms, &String.contains?(text, &1))
+
+  defp normalize_artifact_type(nil), do: nil
+
+  defp normalize_artifact_type(type) when is_atom(type) do
+    if type in ToolOutputContract.creative_artifact_types(), do: type, else: nil
+  end
+
+  defp normalize_artifact_type(type) when is_binary(type) do
+    case ToolOutputContract.normalize_artifact_type(type) do
+      {:ok, atom} -> atom
+      {:error, _} -> nil
+    end
+  end
+
+  defp normalize_artifact_type(_type), do: nil
+
+  defp creative_materials(attrs) do
+    sections = attrs[:sections] || %{}
+    key = creative_material_key(attrs)
+
+    [
+      optional_material(:target_structure, text(sections[:target_structure]),
+        ref: "target_structure:#{key}",
+        complete?: false,
+        omission_note: "仅目标章与前后邻章结构窗口"
+      ),
+      prior_prose_material(text(attrs[:prior_prose]), key, omission_text(attrs[:omission_notes])),
+      optional_material(:prior_summaries, text(sections[:prior_summaries]),
+        ref: "prior_summaries:#{key}",
+        complete?: false,
+        omission_note: "仅最近章节摘要窗口，较早章节未列出"
+      ),
+      optional_material(:character_roster, text(sections[:character_roster]),
+        ref: "character_roster:#{key}"
+      ),
+      optional_material(:creative_facts, text(sections[:creative_facts]),
+        ref: "creative_facts:#{key}",
+        complete?: not (attrs[:facts_truncated?] == true),
+        omission_note: truncation_note(attrs[:facts_truncated?] == true, "已确认事实按分组上限截断")
+      ),
+      optional_material(:style_guide, text(sections[:style_guide]),
+        ref: "style_guide:#{key}",
+        complete?: not (attrs[:style_truncated?] == true),
+        omission_note: truncation_note(attrs[:style_truncated?] == true, "风格条目录入按上限截断")
+      ),
+      optional_material(:work_skeleton, text(sections[:work_skeleton]),
+        ref: "work_skeleton:#{key}"
+      ),
+      optional_material(:volume_scope, text(sections[:volume_scope]), ref: "volume_scope:#{key}"),
+      optional_material(:current_volume_blueprint, text(sections[:current_volume_blueprint]),
+        ref: "current_volume_blueprint:#{key}"
+      ),
+      optional_material(:planning_mission, text(sections[:planning_mission]),
+        ref: "planning_mission:#{key}"
+      ),
+      optional_material(:progress_state, text(sections[:progress_state]),
+        ref: "progress_state:#{key}",
+        complete?: false,
+        omission_note: "账面投影最多 6 条相关弧光/伏笔"
+      ),
+      optional_material(:absence_directives, text(sections[:absence_directives]),
+        ref: "absence_directives:#{key}"
+      ),
+      optional_material(:dialogue_context, text(sections[:dialogue_context]),
+        ref: "dialogue_context:#{key}"
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp creative_material_key(attrs) do
+    [
+      text(attrs[:resolved_chapter_ref]),
+      text(attrs[:resolved_chapter]),
+      work_ref(attrs),
+      "turn:" <> text(attrs[:turn_id])
+    ]
+    |> Enum.reject(&blank?/1)
+    |> List.first()
   end
 
   # writer 的操作语义来自已解析事实：

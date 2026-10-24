@@ -70,10 +70,13 @@ defmodule B27CaseFreeze do
     {"L1 判断工具契约", "apps/novel_application/lib/novel_application/judgment_tool_contract.ex"},
     {"L1 计划工具契约", "apps/novel_application/lib/novel_application/agent_plan_tool_contract.ex"},
     {"L3 判断/续行模板", "apps/novel_application/lib/novel_application/judgment_protocol.ex"},
-    {"L2/L3 判断上下文投影", "apps/novel_application/lib/novel_application/dialogue_planning_service.ex"},
+    {"L2/L3 判断上下文投影",
+     "apps/novel_application/lib/novel_application/dialogue_planning_service.ex"},
     {"L3 原文登记规则", "apps/novel_application/lib/novel_application/turn_interaction_service.ex"},
-    {"L3 计划起草/修订模板", "apps/novel_application/lib/novel_application/agentic_plan_draft_planner.ex"},
-    {"L3 判断计划 flow", "apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex"},
+    {"L3 计划起草/修订模板",
+     "apps/novel_application/lib/novel_application/agentic_plan_draft_planner.ex"},
+    {"L3 判断计划 flow",
+     "apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex"},
     {"L1 能力效果目录", "apps/novel_common/lib/novel_common/capability_registry.ex"},
     {"L1 任务 profile 注册表", "apps/novel_agent/lib/novel_agent/agent_task_profile_registry.ex"},
     {"专业调用 writer", "apps/novel_agent/lib/novel_agent/creative_provider/real.ex"},
@@ -84,8 +87,21 @@ defmodule B27CaseFreeze do
     {"专业调用 候选/修订入口", "apps/novel_application/lib/novel_application/pending_artifact_workflow.ex"},
     {"专业调用 质量修订", "apps/novel_application/lib/novel_application/prose_revision_service.ex"},
     {"专业调用 结果叙述", "apps/novel_application/lib/novel_application/planner.ex"},
-    {"专业调用 运行进度", "apps/novel_application/lib/novel_application/agent_run_flows/provider_progress.ex"}
+    {"专业调用 运行进度",
+     "apps/novel_application/lib/novel_application/agent_run_flows/provider_progress.ex"}
   ]
+
+  # CP3d 退役资产：路径 → 冻结时的 sha256/字节 + 退役说明。
+  # 旧臂 hash 不得因文件删除而漂移：校验/重算时用冻结值代表旧臂历史内容；
+  # integrated 臂重冻时同样标记 retired，不手改历史 hash。
+  @retired_rule_assets %{
+    "apps/novel_application/lib/novel_application/agent_run_flows/provider_progress.ex" => %{
+      "sha256" => "f6910ddf7bc8a965e51ef6c0f83cb96514565c6613a9a6bb1317a33b0eb60722",
+      "bytes" => 19_350,
+      "retired_at" => "2026-10-24",
+      "reason" => "B27 CP3c：ProviderProgress 小调用无生产消费者，flow/profile/预算整体退役"
+    }
+  }
 
   # ── 入口 ──────────────────────────────────────────────────────────────────
 
@@ -115,13 +131,21 @@ defmodule B27CaseFreeze do
         run_case_sandboxed(case, work_defaults, prose_lib, opts, rule_assets, frozen_date)
       end)
 
-    probe_results = Enum.map(all_probes, &run_probe(&1, work_defaults, prose_lib, opts, rule_assets, frozen_date))
+    probe_results =
+      Enum.map(
+        all_probes,
+        &run_probe(&1, work_defaults, prose_lib, opts, rule_assets, frozen_date)
+      )
 
     arm_result = write_or_verify_arms(rule_assets, opts)
 
     if opts.check do
       write_drift_report(results, probe_results, arm_result, opts)
-      drift = Enum.filter(results, &(&1.status == :drift)) ++ Enum.filter(results, &(&1.status == :error))
+
+      drift =
+        Enum.filter(results, &(&1.status == :drift)) ++
+          Enum.filter(results, &(&1.status == :error))
+
       if drift != [], do: System.halt(3)
     else
       write_report(manifest, results, probe_results, arm_result, rule_assets, opts)
@@ -130,7 +154,10 @@ defmodule B27CaseFreeze do
     failures = Enum.filter(results, &(&1.status == :error))
 
     if failures != [] do
-      IO.puts("[b27-freeze] #{length(failures)} case(s) failed; see #{@artifacts_dir}/freeze-report.md")
+      IO.puts(
+        "[b27-freeze] #{length(failures)} case(s) failed; see #{@artifacts_dir}/freeze-report.md"
+      )
+
       System.halt(1)
     else
       ok = Enum.count(results, &(&1.status in [:written, :verified]))
@@ -286,7 +313,9 @@ defmodule B27CaseFreeze do
     insert_volume!(volume_id, work_id)
 
     chapters = get(fixture, "chapters") || []
-    chapter_rows = Enum.map(chapters, &insert_chapter!(case_id, work_id, volume_id, &1, prose_lib))
+
+    chapter_rows =
+      Enum.map(chapters, &insert_chapter!(case_id, work_id, volume_id, &1, prose_lib))
 
     characters = get(fixture, "characters") || []
     Enum.each(characters, &insert_character!(case_id, work_id, &1))
@@ -356,12 +385,20 @@ defmodule B27CaseFreeze do
 
     Enum.with_index(prose_refs, 1)
     |> Enum.each(fn {ref, index} ->
-      insert_scene_draft!(case_id, work_id, chapter_id, index, resolve_prose!(prose_lib, ref), "ACCEPTED")
+      insert_scene_draft!(
+        case_id,
+        work_id,
+        chapter_id,
+        index,
+        resolve_prose!(prose_lib, ref),
+        "ACCEPTED"
+      )
     end)
 
     if is_map(long_prose) do
       body =
-        (resolve_prose!(prose_lib, get(long_prose, "unit")) |> to_string())
+        resolve_prose!(prose_lib, get(long_prose, "unit"))
+        |> to_string()
         |> String.duplicate(int(get(long_prose, "repeat"), 200))
 
       content =
@@ -544,7 +581,8 @@ defmodule B27CaseFreeze do
              capture
            ),
          {:ok, run} <- AgentRun.new(spec.run_attrs),
-         {:ok, context_result} <- run_step(spec.next_step_planner, run, 1, empty, :context_assemble),
+         {:ok, context_result} <-
+           run_step(spec.next_step_planner, run, 1, empty, :context_assemble),
          stage_state = context_result.stage_state,
          snapshot = %{empty | stage_state: stage_state, observations: context_result.observations},
          {:execute, judgment_step, _decision, _meta} <- spec.next_step_planner.(run, 2, snapshot) do
@@ -650,9 +688,23 @@ defmodule B27CaseFreeze do
       plan_prompt = find_prompt(prompts, :plan_draft)
 
       cond do
-        is_nil(judgment_prompt) -> {:error, :probe_judgment_request_missing}
-        is_nil(plan_prompt) -> {:error, :probe_plan_request_missing}
-        true -> {:ok, plan_probe_doc(probe, seeded, assembled, judgment_prompt, plan_prompt, rule_assets, frozen_date)}
+        is_nil(judgment_prompt) ->
+          {:error, :probe_judgment_request_missing}
+
+        is_nil(plan_prompt) ->
+          {:error, :probe_plan_request_missing}
+
+        true ->
+          {:ok,
+           plan_probe_doc(
+             probe,
+             seeded,
+             assembled,
+             judgment_prompt,
+             plan_prompt,
+             rule_assets,
+             frozen_date
+           )}
       end
     end
   end
@@ -685,7 +737,8 @@ defmodule B27CaseFreeze do
              capture
            ),
          {:ok, run} <- AgentRun.new(spec.run_attrs),
-         {:ok, context_result} <- run_step(spec.next_step_planner, run, 1, empty, :context_assemble),
+         {:ok, context_result} <-
+           run_step(spec.next_step_planner, run, 1, empty, :context_assemble),
          stage_state = context_result.stage_state,
          snapshot = %{empty | stage_state: stage_state, observations: context_result.observations},
          {:execute, judgment_step, _decision, _meta} <- spec.next_step_planner.(run, 2, snapshot),
@@ -848,7 +901,8 @@ defmodule B27CaseFreeze do
         "slice" => "tasks/slices/B27-systematic-prompt-and-intent-integration.md §6.1",
         "cases" => "#{@fixtures_rel}/cases.yml",
         "arms" => "#{@fixtures_rel}/arms.yml",
-        "acceptance_contract" => "docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md §11.4"
+        "acceptance_contract" =>
+          "docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md §11.4"
       },
       "provenance" => %{
         "entry" => "NovelApplication.DialoguePlanningService.plan_agent_run/3",
@@ -858,7 +912,8 @@ defmodule B27CaseFreeze do
         "provider_called" => false,
         "capture_policy" => "capture-then-error：捕获后故意中止，不产生模型响应/业务副作用",
         "post_capture_step" => assembled.capture_meta.post_capture_outcome,
-        "db" => "MIX_ENV=test + NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db + Sandbox 回滚",
+        "db" =>
+          "MIX_ENV=test + NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db + Sandbox 回滚",
         "deterministic_uuids" => true,
         "fixture" => "合成样书，不含作者真实作品数据",
         "redaction" => %{"applied" => true, "patterns" => redaction_patterns(), "matches" => 0}
@@ -895,7 +950,15 @@ defmodule B27CaseFreeze do
     }
   end
 
-  defp plan_probe_doc(probe, seeded, assembled, judgment_prompt, plan_prompt, rule_assets, frozen_date) do
+  defp plan_probe_doc(
+         probe,
+         seeded,
+         assembled,
+         judgment_prompt,
+         plan_prompt,
+         rule_assets,
+         frozen_date
+       ) do
     judgment_request = request_doc(judgment_prompt)
     plan_request = request_doc(plan_prompt)
     materials = materials_doc(assembled.context, judgment_request, assembled.input, seeded)
@@ -922,10 +985,12 @@ defmodule B27CaseFreeze do
       },
       "provenance" => %{
         "entry" => "NovelApplication.DialoguePlanningService.plan_agent_run/3",
-        "path" => "judgment_decision{action=plan} → JudgmentPlan.next_step_planner → AgenticPlanDraftPlanner.draft_plan_with_meta/3",
+        "path" =>
+          "judgment_decision{action=plan} → JudgmentPlan.next_step_planner → AgenticPlanDraftPlanner.draft_plan_with_meta/3",
         "capture_boundary" => "NovelAgent.Provider.Execution.result_fn",
         "provider_called" => false,
-        "db" => "MIX_ENV=test + NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db + Sandbox 回滚"
+        "db" =>
+          "MIX_ENV=test + NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db + Sandbox 回滚"
       },
       "requests" => %{
         "judgment" => judgment_request,
@@ -1038,14 +1103,17 @@ defmodule B27CaseFreeze do
           }
         end),
       "pending_adoptions" => artifact_summaries(get(interaction_state, :pending_adoptions) || []),
-      "adopted_content_targets" => artifact_summaries(get(interaction_state, :resolved_adoptions) || []),
+      "adopted_content_targets" =>
+        artifact_summaries(get(interaction_state, :resolved_adoptions) || []),
       "interaction_state" => %{
         "author_inputs" => length(get(interaction_state, :author_inputs) || []),
         "recent_results" => length(get(interaction_state, :recent_results) || []),
         "session_summary_chars" => chars(get(seeded.session, :summary)),
         "has_conversation_summary" => chars(get(context, :conversation_summary)) > 0
       },
-      "work_snapshot_keys" => get(context, :current_work_snapshot) |> then(fn snap -> if is_map(snap), do: snap |> Map.keys() |> Enum.sort(), else: [] end),
+      "work_snapshot_keys" =>
+        get(context, :current_work_snapshot)
+        |> then(fn snap -> if is_map(snap), do: snap |> Map.keys() |> Enum.sort(), else: [] end),
       "prompt_facts" => %{
         "has_l0_identity" => String.contains?(wire_text, "你在 AI Novel Studio 中工作"),
         "has_task_policy" => String.contains?(wire_text, "共同任务规则版本："),
@@ -1116,7 +1184,7 @@ defmodule B27CaseFreeze do
   defp rule_versions_doc(rule_assets) do
     versions =
       rule_assets
-      |> Enum.filter(& &1["exists"])
+      |> Enum.filter(&(&1["exists"] or &1["retired"]))
       |> Map.new(fn asset -> {asset["path"], asset["sha256"]} end)
 
     %{
@@ -1154,8 +1222,22 @@ defmodule B27CaseFreeze do
     Enum.map(@rule_assets, fn {role, rel_path} ->
       abs = Path.join(@root, rel_path)
       exists = File.exists?(abs)
-      sha = if exists, do: sha256(File.read!(abs)), else: nil
-      bytes = if exists, do: File.stat!(abs).size, else: nil
+      retired = Map.get(@retired_rule_assets, rel_path)
+
+      sha =
+        cond do
+          exists -> sha256(File.read!(abs))
+          retired -> retired["sha256"]
+          true -> nil
+        end
+
+      bytes =
+        cond do
+          exists -> File.stat!(abs).size
+          retired -> retired["bytes"]
+          true -> nil
+        end
+
       version = asset_version(rel_path)
 
       %{
@@ -1164,7 +1246,10 @@ defmodule B27CaseFreeze do
         "sha256" => sha,
         "bytes" => bytes,
         "version" => version,
-        "exists" => exists
+        "exists" => exists,
+        "retired" => retired != nil,
+        "retired_at" => retired && retired["retired_at"],
+        "retire_reason" => retired && retired["reason"]
       }
     end)
   end
@@ -1189,11 +1274,15 @@ defmodule B27CaseFreeze do
   end
 
   defp write_or_verify_arms(rule_assets, opts) do
-    missing = Enum.filter(rule_assets, &(!&1["exists"]))
+    missing = Enum.filter(rule_assets, &(!&1["exists"] and !&1["retired"]))
 
     cond do
       missing != [] ->
-        %{status: :error, reason: "missing assets: #{inspect(Enum.map(missing, & &1["path"]))}", drift: []}
+        %{
+          status: :error,
+          reason: "missing assets: #{inspect(Enum.map(missing, & &1["path"]))}",
+          drift: []
+        }
 
       opts.check and File.exists?(@arms_path) ->
         verify_arms(rule_assets)
@@ -1231,7 +1320,7 @@ defmodule B27CaseFreeze do
 
     drift =
       rule_assets
-      |> Enum.filter(& &1["exists"])
+      |> Enum.filter(&(&1["exists"] or &1["retired"]))
       |> Enum.filter(fn asset -> Map.get(frozen, asset["path"]) != asset["sha256"] end)
       |> Enum.map(fn asset ->
         %{
@@ -1242,7 +1331,10 @@ defmodule B27CaseFreeze do
       end)
 
     status = if drift == [], do: :verified, else: :drift
-    if drift != [], do: Logger.warning("[b27-freeze] arms.yml 漂移: #{inspect(Enum.map(drift, & &1.path))}")
+
+    if drift != [],
+      do: Logger.warning("[b27-freeze] arms.yml 漂移: #{inspect(Enum.map(drift, & &1.path))}")
+
     %{status: status, drift: drift}
   end
 
@@ -1252,12 +1344,25 @@ defmodule B27CaseFreeze do
     assets_block =
       rule_assets
       |> Enum.map_join("\n", fn asset ->
+        retired_lines =
+          if asset["retired"] do
+            """
+            retired: true
+            retired_at: #{yaml_str(asset["retired_at"])}
+            retire_reason: #{yaml_str(asset["retire_reason"])}
+            """
+            |> String.trim_trailing()
+          else
+            ""
+          end
+
         """
           - role: #{yaml_str(asset["role"])}
             path: #{yaml_str(asset["path"])}
             sha256: #{yaml_str(asset["sha256"])}
             bytes: #{asset["bytes"]}
             version: #{yaml_str(asset["version"])}
+        #{retired_lines}
         """
         |> String.trim_trailing()
       end)
@@ -1303,6 +1408,7 @@ defmodule B27CaseFreeze do
 
   defp write_report(manifest, results, probes, arm_result, rule_assets, _opts) do
     File.mkdir_p!(@artifacts_dir)
+
     command =
       "MIX_ENV=test NOVEL_TEST_DB_DIR=artifacts/model-contracts/b27-cp0/db MIX_TEST_PARTITION=b27cp0 mix run scripts/b27_case_freeze.exs"
 
@@ -1625,7 +1731,10 @@ defmodule B27CaseFreeze do
 
   defp canonical(list) when is_list(list), do: Enum.map(list, &canonical/1)
   defp canonical(nil), do: nil
-  defp canonical(value) when is_atom(value) and value not in [true, false, nil], do: Atom.to_string(value)
+
+  defp canonical(value) when is_atom(value) and value not in [true, false, nil],
+    do: Atom.to_string(value)
+
   defp canonical(value), do: value
 
   defp rel(abs_path) do

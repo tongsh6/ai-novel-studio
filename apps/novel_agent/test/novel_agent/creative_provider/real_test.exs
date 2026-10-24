@@ -6,6 +6,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.Contracts.CreativeRequest
 
+  alias NovelAgent.TestSupport.AuthoringTaskFixtures
+
   @request %CreativeRequest{
     request_id: "req-1",
     tool_name: "prose_writing",
@@ -13,6 +15,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     creative_brief: "写第一章开篇",
     source_turn_ref: "turn-1",
     context_text: "赛博修仙",
+    task: AuthoringTaskFixtures.prose_task(),
     provider_hints: %{}
   }
 
@@ -247,7 +250,12 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert %{status: :error, errors: [%{code: "duplicate_item_id"}]} =
              Real.generate(@request, provider_execution(fn _ -> {:ok, %{content: duplicate}} end))
 
-    non_prose = %{@request | tool_name: "character_design", artifact_type: :character_seed}
+    non_prose = %{
+      @request
+      | tool_name: "character_design",
+        artifact_type: :character_seed,
+        task: AuthoringTaskFixtures.task(:character_design)
+    }
 
     assert %{status: :error, errors: [%{code: "unexpected_companion_artifacts"}]} =
              Real.generate(
@@ -296,8 +304,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "body 内不得出现独立的结构/状态元标签"
 
     # D1 CP2：档案真空时要求为具名出场人物产出 character_seed（模型可读条件，零契约新增）
-    assert prompt =~ "若上下文中没有「现有角色」章节"
-    assert prompt =~ "必须为本段正文中每个具名"
+    assert prompt =~ "若上下文没有「现有角色」章节"
+    assert prompt =~ "建议为本段具名出场人物各产出"
     assert prompt =~ "场景 2"
     assert prompt =~ "待采纳草稿"
     assert prompt =~ "用户创作简述："
@@ -315,7 +323,12 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       {:ok, %{content: @good_json}}
     end
 
-    request = %{@request | tool_name: "plot_outline", artifact_type: :outline_draft}
+    request = %{
+      @request
+      | tool_name: "plot_outline",
+        artifact_type: :outline_draft,
+        task: AuthoringTaskFixtures.task(:outline)
+    }
 
     assert %{status: :ok} = Real.generate(request, provider_execution(result_fn))
 
@@ -361,6 +374,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       creative_brief: "设计一个稽查官 NONCE7Q",
       source_turn_ref: "turn-char",
       context_text: "## 现有角色\n- 白露（对手）：黑市掮客",
+      task: AuthoringTaskFixtures.task(:character_design),
       provider_hints: %{}
     }
 
@@ -392,7 +406,17 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       | tool_name: "world_building",
         artifact_type: "world_setting",
         context_text: "原稿保留原文结构。",
-        revision: "正文仅包含修订结果，修改依据放在 rationale。"
+        revision: "正文仅包含修订结果，修改依据放在 rationale。",
+        task:
+          AuthoringTaskFixtures.task(:revision, %{
+            output_contract: %{
+              kind: :json,
+              schema_ref: "tentative_artifact_v1",
+              artifact_type: :world_setting,
+              required_keys: ["items", "item_id", "title", "body"],
+              allow_companions: false
+            }
+          })
     }
 
     assert %{status: :ok} =
@@ -413,7 +437,17 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
   test "角色和大纲同批消费已有的修订要求字段" do
     for {tool, type} <- [{"character_design", "character_seed"}, {"plot_outline", :outline_draft}] do
-      request = %{@request | tool_name: tool, artifact_type: type, revision: "沿用原稿结构修订正文。"}
+      request = %{
+        @request
+        | tool_name: tool,
+          artifact_type: type,
+          revision: "沿用原稿结构修订正文。",
+          task:
+            AuthoringTaskFixtures.task(:revision, %{
+              output_contract:
+                AuthoringTaskFixtures.contract_for(kind_for_tool(tool))
+            })
+      }
 
       assert %{status: :ok} =
                Real.generate(
@@ -453,6 +487,12 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       creative_brief: "设计一个伏笔线索 RULE9Q8",
       source_turn_ref: "turn-world",
       context_text: "## 已确认设定\n- 灵源矿区吞掉过失踪者",
+      task:
+        AuthoringTaskFixtures.task(:world_building, %{
+          output_contract:
+            AuthoringTaskFixtures.task(:world_building).output_contract
+            |> Map.put(:artifact_type, :foreshadowing_seed)
+        }),
       provider_hints: %{}
     }
 
@@ -469,4 +509,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "重要："
     assert prompt =~ "原样保留"
   end
+
+  defp kind_for_tool("plot_outline"), do: :outline
+  defp kind_for_tool("character_design"), do: :character_design
+  defp kind_for_tool(_tool), do: :outline
 end
