@@ -221,4 +221,126 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
       }
     }
   end
+
+  defmodule OutlineRefProvider do
+    @behaviour NovelAgent.CreativeProvider
+
+    alias NovelCommon.Contracts.CreativeProviderResult
+
+    @impl true
+    def generate(_request, _provider_execution) do
+      items =
+        case :persistent_term.get({__MODULE__, :mode}, :valid) do
+          :valid -> valid_items()
+          :invalid -> invalid_items()
+          :duplicate -> duplicate_items()
+        end
+
+      %CreativeProviderResult{status: :ok, items: items}
+    end
+
+    def set_mode(mode), do: :persistent_term.put({__MODULE__, :mode}, mode)
+
+    defp valid_items do
+      [
+        %{
+          item_id: "ch-ref",
+          title: "第2章：外门名册上的空白",
+          body: "章功能定位：推进章",
+          rationale: nil,
+          chapter_ref: "chapter:11111111-1111-1111-1111-111111111111"
+        },
+        %{item_id: "ch-new", title: "第3章：新章", body: "章功能定位：铺垫章", rationale: nil}
+      ]
+    end
+
+    defp invalid_items do
+      [
+        %{
+          item_id: "ch-bad",
+          title: "第2章：x",
+          body: "章功能定位：推进章",
+          rationale: nil,
+          chapter_ref: "chapter:not-a-uuid"
+        }
+      ]
+    end
+
+    defp duplicate_items do
+      ref = "chapter:22222222-2222-2222-2222-222222222222"
+
+      [
+        %{item_id: "a", title: "第2章：a", body: "章功能定位：推进章", rationale: nil, chapter_ref: ref},
+        %{item_id: "b", title: "第3章：b", body: "章功能定位：铺垫章", rationale: nil, chapter_ref: ref}
+      ]
+    end
+  end
+
+  test "plot_outline chapter_ref 合法原样透传，新章不填" do
+    OutlineRefProvider.set_mode(:valid)
+
+    result =
+      CreativeToolAdapter.execute(
+        outline_request(),
+        :outline_draft,
+        %Execution{result_fn: fn _ -> {:ok, %{content: "unused"}} end},
+        OutlineRefProvider
+      )
+
+    assert result.status == :succeeded
+    [first, second] = result.output.items
+    assert first.chapter_ref == "chapter:11111111-1111-1111-1111-111111111111"
+    refute Map.has_key?(second, :chapter_ref)
+  end
+
+  test "plot_outline 非法/重复 chapter_ref 在 adapter 边界可解释拒绝（不静默丢）" do
+    OutlineRefProvider.set_mode(:invalid)
+
+    invalid =
+      CreativeToolAdapter.execute(
+        outline_request(),
+        :outline_draft,
+        %Execution{result_fn: fn _ -> {:ok, %{content: "unused"}} end},
+        OutlineRefProvider
+      )
+
+    assert invalid.status == :failed
+    assert [%{code: "invalid_chapter_ref"}] = invalid.errors
+    assert invalid.artifact_refs == []
+
+    OutlineRefProvider.set_mode(:duplicate)
+
+    duplicate =
+      CreativeToolAdapter.execute(
+        outline_request(),
+        :outline_draft,
+        %Execution{result_fn: fn _ -> {:ok, %{content: "unused"}} end},
+        OutlineRefProvider
+      )
+
+    assert duplicate.status == :failed
+    assert [%{code: "duplicate_chapter_ref"}] = duplicate.errors
+  end
+
+  defp outline_request do
+    %ToolRequest{
+      tool_request_id: "tool-outline",
+      turn_id: "turn-1",
+      frame_ref: "frame-1",
+      decision_ref: "decision-1",
+      tool_name: "plot_outline",
+      tool_version: "1.0",
+      input: %{
+        "creative_brief" => "规划下面几章",
+        "context_text" =>
+          "## 作品章节\n- 第 2 章「外门名册上的空白」[chapter_ref=chapter:11111111-1111-1111-1111-111111111111]",
+        "authoring_task" =>
+          AuthoringTask.to_map(
+            AuthoringTaskFixtures.task(:outline, %{
+              output_contract: AuthoringTaskFixtures.contract_for(:outline)
+            })
+          )
+      }
+    }
+  end
 end

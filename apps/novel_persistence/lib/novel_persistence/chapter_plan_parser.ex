@@ -40,6 +40,10 @@ defmodule NovelPersistence.ChapterPlanParser do
   # 选逐章标注而非卷标题分隔行：标注自描述、不依赖行序，重排/追加不会串卷。
   @volume_labels ["所属卷", "卷归属", "所属分卷"]
 
+  # B30 CP3-A2：模型对已存在章原样复制 chapter_ref（plot_outline 输出契约，prose 同批）；
+  # 新章留空。parser 只透传，不做 title 猜测；合法性由物化层校验。
+  @chapter_ref_labels ["章节引用", "章节ref", "章节 ref", "chapter_ref", "章引用", "章ref"]
+
   # NEM04 刀③：场级计划逐场标注（`场次：标题｜目标：…｜议程：…｜情绪：…`）。
   # 子槽用｜分隔（避开方向解析的；切分）；标题必填，缺则整行丢弃；行序即场次 seq。
   # B11C CP1：子槽词表扩到 VS-00E §1 scene_units 已冻结的场级结构全集（因果/信息差/
@@ -86,7 +90,8 @@ defmodule NovelPersistence.ChapterPlanParser do
           title: String.t(),
           summary: String.t() | nil,
           plan_direction: map() | nil,
-          volume_title: String.t() | nil
+          volume_title: String.t() | nil,
+          chapter_ref: String.t() | nil
         }
 
   @typedoc "卷蓝图块：卷身份 (title, seq) 与设计槽归一 map（无设计槽时为空 map）。"
@@ -267,6 +272,7 @@ defmodule NovelPersistence.ChapterPlanParser do
     {title, initial} = parse_title_and_initial(first)
     body_lines = [initial | rest] |> Enum.reject(&blank?/1)
     {volume_title, body_lines} = extract_volume_title(body_lines)
+    {chapter_ref, body_lines} = extract_chapter_ref(body_lines)
     {scene_plans, direction_lines} = extract_scene_plans(body_lines)
     direction = direction_lines |> Enum.join("\n") |> parse_direction()
     direction = with_scene_plans(direction, scene_plans)
@@ -276,12 +282,43 @@ defmodule NovelPersistence.ChapterPlanParser do
       title: title,
       summary: summary(initial, direction),
       plan_direction: ChapterPlanDirection.to_storage(direction),
-      volume_title: volume_title
+      volume_title: volume_title,
+      chapter_ref: chapter_ref
     }
   end
 
   defp parse_block(_block),
-    do: %{seq: 0, title: "", summary: nil, plan_direction: nil, volume_title: nil}
+    do: %{
+      seq: 0,
+      title: "",
+      summary: nil,
+      plan_direction: nil,
+      volume_title: nil,
+      chapter_ref: nil
+    }
+
+  # chapter_ref 标注抽出后不参与方向/摘要（它是身份引用，不是写作指导）。
+  defp extract_chapter_ref(lines) do
+    {ref_lines, rest} = Enum.split_with(lines, &chapter_ref_label_line?/1)
+
+    ref =
+      ref_lines
+      |> Enum.find_value(fn line ->
+        case split_label(line) do
+          {:ok, _label, value} -> blank_to_nil(value)
+          :error -> nil
+        end
+      end)
+
+    {ref, rest}
+  end
+
+  defp chapter_ref_label_line?(line) do
+    case split_label(line) do
+      {:ok, label, _value} -> normalize_direction_label(label) in @chapter_ref_labels
+      :error -> false
+    end
+  end
 
   # 卷标注抽出后不再参与方向解析与摘要计算：它是结构归属，不该混进写作指导文本。
   defp extract_volume_title(lines) do
@@ -415,7 +452,7 @@ defmodule NovelPersistence.ChapterPlanParser do
   defp label_line?(line),
     do:
       direction_label_line?(line) or volume_label_line?(line) or scene_label_line?(line) or
-        volume_blueprint_label_line?(line)
+        chapter_ref_label_line?(line) or volume_blueprint_label_line?(line)
 
   defp direction_field(label) do
     label

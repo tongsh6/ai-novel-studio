@@ -365,8 +365,9 @@ defmodule NovelAgent.CreativeProvider.Real do
       对白表面：对白表面在谈什么｜潜台词：对白暗里争什么
       感官：该场时空与感官锚点（如潮湿霉味、风扇噪音）
     - "rationale"：一句话说明该章在整体结构中的作用（或 null）
-
-    输出 1 个或多个章节条目；不要改已存在章节的对象身份（重编号/合并/删除）。
+    - "chapter_ref"（可选）：若该章在上下文「作品章节」索引中已存在，**逐字复制**该条目的
+      `chapter_ref`（形如 `chapter:<uuid>`）；新规划的章不填/留空；不得自行编造、改写 ref，
+      也不得把 ref 拼进 title 或 body。只有确实复制的 ref 才能填。
     """
     |> String.trim()
   end

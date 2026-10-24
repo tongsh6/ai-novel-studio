@@ -147,6 +147,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
 
   defp validate_provider_output(req, items, companion_artifacts) do
     with {:ok, normalized_items} <- ToolOutputContract.validate_creative_items(items),
+         {:ok, normalized_items} <-
+           attach_outline_chapter_refs(req.tool_name, items, normalized_items),
          {:ok, normalized_companions} <-
            ToolOutputContract.validate_prose_companion_artifacts(companion_artifacts),
          :ok <- validate_companion_scope(req.tool_name, normalized_companions),
@@ -155,6 +157,95 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       {:ok, normalized_items, normalized_companions}
     end
   end
+
+  # B30 CP3-P2：plot_outline 可选 chapter_ref 透传。ToolOutputContract 白名单会丢弃未知字段，
+  # 这里从 provider 原始 item 按 item_id 重挂；形状非法直接拒绝（不静默丢 ref 退回 title 新建）。
+  defp attach_outline_chapter_refs("plot_outline", raw_items, normalized_items) do
+    with {:ok, refs_by_item} <- raw_chapter_refs(raw_items),
+         :ok <- validate_unique_chapter_refs(refs_by_item) do
+      {:ok, merge_chapter_refs(normalized_items, refs_by_item)}
+    end
+  end
+
+  defp attach_outline_chapter_refs(_tool_name, _raw_items, normalized_items),
+    do: {:ok, normalized_items}
+
+  defp merge_chapter_refs(items, refs) do
+    Enum.map(items, fn item -> put_chapter_ref(item, Map.get(refs, item.item_id)) end)
+  end
+
+  defp put_chapter_ref(item, nil), do: item
+  defp put_chapter_ref(item, ref), do: Map.put(item, :chapter_ref, ref)
+
+  defp raw_chapter_refs(raw_items) when is_list(raw_items) do
+    Enum.reduce_while(raw_items, {:ok, %{}}, fn raw, {:ok, acc} ->
+      with true <- is_map(raw),
+           item_id when is_binary(item_id) <- map_get(raw, :item_id),
+           {:ok, ref} <- normalize_optional_chapter_ref(map_get(raw, :chapter_ref)) do
+        {:cont, {:ok, if(ref, do: Map.put(acc, item_id, ref), else: acc)}}
+      else
+        false ->
+          {:cont, {:ok, acc}}
+
+        nil ->
+          {:cont, {:ok, acc}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp raw_chapter_refs(_raw_items), do: {:ok, %{}}
+
+  defp normalize_optional_chapter_ref(nil), do: {:ok, nil}
+  defp normalize_optional_chapter_ref(""), do: {:ok, nil}
+
+  defp normalize_optional_chapter_ref(ref) when is_binary(ref) do
+    if chapter_ref?(ref) do
+      {:ok, ref}
+    else
+      {:error,
+       %{
+         code: "invalid_chapter_ref",
+         message: "plot_outline chapter_ref 必须形如 chapter:<uuid>，不得编造或改写：#{inspect(ref)}"
+       }}
+    end
+  end
+
+  defp normalize_optional_chapter_ref(ref) do
+    {:error,
+     %{
+       code: "invalid_chapter_ref",
+       message: "plot_outline chapter_ref 必须是字符串或省略：#{inspect(ref)}"
+     }}
+  end
+
+  defp chapter_ref?(ref),
+    do:
+      Regex.match?(
+        ~r/^chapter:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+        ref
+      )
+
+  defp validate_unique_chapter_refs(refs_by_item) do
+    refs = refs_by_item |> Map.values() |> Enum.filter(&is_binary/1)
+
+    if length(refs) == length(Enum.uniq(refs)) do
+      :ok
+    else
+      {:error,
+       %{
+         code: "duplicate_chapter_ref",
+         message: "plot_outline 同一已存在章不能被多个条目重复绑定 chapter_ref"
+       }}
+    end
+  end
+
+  defp map_get(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp map_get(_map, _key), do: nil
 
   defp validate_companion_scope("prose_writing", _companion_artifacts), do: :ok
   defp validate_companion_scope(_tool_name, []), do: :ok

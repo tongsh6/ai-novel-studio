@@ -70,6 +70,10 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     }
     |> put_opt(:schema_ref, opts[:schema_ref])
     |> put_opt(:artifact_type, opts[:artifact_type])
+    |> put_opt(
+      :optional_keys,
+      Keyword.get(opts, :optional_keys, []) |> List.wrap() |> Enum.reject(&(&1 == ""))
+    )
   end
 
   @doc "上一轮真实结果摘要（仅已发生事实）。"
@@ -401,6 +405,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
     schema_ref: "tentative_artifact_v1",
     artifact_type: :outline_draft,
     required_keys: ["items", "item_id", "title", "body"],
+    optional_keys: ["chapter_ref"],
     allow_companions: false
   ]
 

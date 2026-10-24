@@ -21,6 +21,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.CharacterRosterNarration
   alias NovelApplication.CreativeDecisionPacketBuilder
   alias NovelApplication.Planner
+  alias NovelApplication.PlotOutlineChapterRef
   alias NovelApplication.ProseExecutionBriefBuilder
   alias NovelApplication.ProseQualityService
   alias NovelApplication.TraceWriter
@@ -346,6 +347,7 @@ defmodule NovelApplication.TurnExecutionService do
         {:error, reason} -> authoring_task_failed_result(req, reason)
         {:ok, _task} -> dispatch_tool(req, provider_execution)
       end
+      |> validate_outline_chapter_scope(input)
 
     artifact_sets =
       assemble_artifacts(
@@ -2544,6 +2546,30 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp dispatch_tool(%ToolRequest{} = req, _result_fn), do: AuthorizedToolExecutor.execute(req)
+
+  # B30 CP3-P2：plot_outline 的 chapter_ref 必须指向当前作品已有章；非法/跨作品 → 可解释失败
+  # （不静默丢 ref 退回 title 新建，也不生成候选）。
+  defp validate_outline_chapter_scope(
+         %ToolResult{tool_name: "plot_outline", status: :succeeded, output: %{items: items}} =
+           tool_result,
+         input
+       )
+       when is_list(items) do
+    context = Map.get(input, :context)
+
+    structured =
+      case context do
+        %NovelDomain.DialogueContext{structured_chapters: chapters} -> List.wrap(chapters)
+        _ -> []
+      end
+
+    case PlotOutlineChapterRef.validate_work_scope(items, structured) do
+      :ok -> tool_result
+      {:error, reason} -> PlotOutlineChapterRef.failed_result(tool_result, reason)
+    end
+  end
+
+  defp validate_outline_chapter_scope(tool_result, _input), do: tool_result
 
   defp assemble_artifacts(
          %ToolResult{tool_name: tool_name} = result,

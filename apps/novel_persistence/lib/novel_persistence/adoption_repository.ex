@@ -715,7 +715,8 @@ defmodule NovelPersistence.AdoptionRepository do
         repo,
         Map.fetch!(attrs, :work_id),
         Map.get(attrs, :content),
-        Map.get(attrs, :artifact_id)
+        Map.get(attrs, :artifact_id),
+        Map.get(attrs, :chapter_refs) || []
       )
     else
       {:ok, 0}
@@ -724,14 +725,40 @@ defmodule NovelPersistence.AdoptionRepository do
 
   # AU08 CP2：计划章按各自标注的所属卷物化。无标注（单卷书或旧计划）→ 全部落规范卷，
   # 与 CP2 之前逐字节等价。卷按 (work_id, title) 幂等复用，同名不重复建卷。
-  defp materialize_chapter_structure(repo, work_id, content, artifact_id) do
+  defp materialize_chapter_structure(repo, work_id, content, artifact_id, chapter_refs) do
     %{chapters: chapters, volume_blueprints: volume_blueprints} =
       ChapterPlanParser.parse_with_volumes(content)
+
+    chapters = merge_ordered_chapter_refs(chapters, chapter_refs)
 
     with {:ok, _volumes} <-
            materialize_volume_blueprints(repo, work_id, volume_blueprints, artifact_id) do
       reduce_planned_chapters(chapters, repo, work_id)
     end
+  end
+
+  # B30 CP3-A2：item 级 chapter_ref 按章条目顺序合并（item 顺序 == 章条目顺序）；
+  # parser 已识别的正文标签 ref 优先保留（显式文本 > item 字段兜底）。
+  defp merge_ordered_chapter_refs(chapters, refs) when is_list(chapters) do
+    refs = List.wrap(refs)
+
+    chapters
+    |> Enum.with_index()
+    |> Enum.map(fn {chapter, index} ->
+      ref = Enum.at(refs, index)
+      existing = Map.get(chapter, :chapter_ref)
+
+      cond do
+        is_binary(existing) and String.trim(existing) != "" ->
+          chapter
+
+        is_binary(ref) and String.trim(ref) != "" ->
+          Map.put(chapter, :chapter_ref, String.trim(ref))
+
+        true ->
+          chapter
+      end
+    end)
   end
 
   # 卷蓝图物化（VS-00J §3.1）：采纳=作者对卷纲的定稿授权，逐卷按 (work_id, seq)
@@ -812,16 +839,8 @@ defmodule NovelPersistence.AdoptionRepository do
 
   defp reduce_planned_chapters(chapters, repo, work_id) do
     Enum.reduce_while(chapters, {:ok, 0}, fn chapter, {:ok, n} ->
-      with {:ok, volume} <-
-             find_or_create_volume(
-               repo,
-               work_id,
-               chapter[:volume_title],
-               StructureStatus.planned()
-             ),
-           :ok <- ensure_planned_chapter(repo, work_id, volume.id, chapter) do
-        {:cont, {:ok, n + 1}}
-      else
+      case ensure_planned_chapter(repo, work_id, chapter) do
+        :ok -> {:cont, {:ok, n + 1}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
@@ -831,11 +850,63 @@ defmodule NovelPersistence.AdoptionRepository do
   defp outline_artifact?("outline_draft"), do: true
   defp outline_artifact?(_), do: false
 
-  # 计划章按 (work_id, title) 幂等：不存在则建（带大纲摘要/方向）；已存在则只补缺失的
-  # summary 或 plan_direction（正文先于计划采纳、或旧计划无结构方向时）。已有事实不覆盖。
-  defp ensure_planned_chapter(repo, work_id, volume_id, %{title: _title} = chapter) do
+  # B30 CP3-A2：计划章物化 ref-first——模型对已存在章复制 chapter_ref 时按 ref 更新
+  # 该章（summary/plan_direction 只补缺，不改 seq/title/归卷/正文）；无 ref/非法格式
+  # 保持旧 (work_id,title) 幂等（迁移兼容）；合法 ref 但不存在/跨作品 → 拒绝且不猜 title。
+  defp ensure_planned_chapter(repo, work_id, %{title: _title} = chapter) do
     with :ok <- validate_chapter_object_kind(chapter) do
-      do_ensure_planned_chapter(repo, work_id, volume_id, chapter)
+      case chapter_ref_field(chapter) do
+        {:ok, ref} -> ensure_ref_planned_chapter(repo, work_id, ref, chapter)
+        :fallback -> ensure_legacy_planned_chapter(repo, work_id, chapter)
+      end
+    end
+  end
+
+  defp chapter_ref_field(chapter) do
+    ref = Map.get(chapter, :chapter_ref) || Map.get(chapter, "chapter_ref")
+
+    case normalize_chapter_ref(ref) do
+      nil -> :fallback
+      normalized -> {:ok, normalized}
+    end
+  end
+
+  defp ensure_ref_planned_chapter(repo, work_id, ref, chapter) do
+    summary = blank_to_nil(Map.get(chapter, :summary))
+    plan_direction = ChapterPlanDirection.to_storage(Map.get(chapter, :plan_direction))
+
+    case find_chapter_by_ref(repo, work_id, ref) do
+      {:ok, existing_chapter} ->
+        changes =
+          %{}
+          |> maybe_put_missing_summary(existing_chapter.summary, summary)
+          |> maybe_put_missing_direction(existing_chapter.plan_direction, plan_direction)
+
+        result =
+          if changes == %{} do
+            {:ok, existing_chapter}
+          else
+            existing_chapter |> Chapter.changeset(changes) |> repo.update()
+          end
+
+        with {:ok, chapter_row} <- result do
+          maybe_seed_plan_info_entry(repo, work_id, chapter_row)
+        end
+
+      _ ->
+        {:error, :target_missing}
+    end
+  end
+
+  defp ensure_legacy_planned_chapter(repo, work_id, chapter) do
+    with {:ok, volume} <-
+           find_or_create_volume(
+             repo,
+             work_id,
+             chapter[:volume_title],
+             StructureStatus.planned()
+           ) do
+      do_ensure_planned_chapter(repo, work_id, volume.id, chapter)
     end
   end
 

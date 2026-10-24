@@ -710,6 +710,18 @@ defmodule NovelApplication.AdoptionWorkflow do
     %{mapping: mapping, expected: expected, object_count: b28_value(plan, :object_count)}
   end
 
+  defp outline_chapter_refs(artifact) do
+    payload = artifact_field(artifact, :payload) || %{}
+    items = Map.get(payload, :items) || Map.get(payload, "items") || []
+
+    items
+    |> List.wrap()
+    |> Enum.map(fn item ->
+      Map.get(item, :chapter_ref) || Map.get(item, "chapter_ref") ||
+        Map.get(item, :target_chapter_ref) || Map.get(item, "target_chapter_ref")
+    end)
+  end
+
   defp b28_effect_attrs(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
     effect = b28_map(payload, :adoption_effect)
@@ -863,6 +875,9 @@ defmodule NovelApplication.AdoptionWorkflow do
       # B28 CP1：additive 采纳 effect / 修改范围（持久层 replace_scope 事务入口）。
       adoption_effect: b28_effect_attrs(artifact).adoption_effect,
       modification_scope: b28_effect_attrs(artifact).modification_scope,
+      # B30 CP3-A2：plot_outline item 级可选 chapter_ref（模型对已存在章复制），
+      # 按章条目顺序透传给物化链；新章 nil/缺省。parser 也兼容正文标签行。
+      chapter_refs: outline_chapter_refs(artifact),
       narrative_role: artifact_narrative_role(artifact),
       role: artifact_character_field(artifact, :role),
       aliases: artifact_character_field(artifact, :aliases),

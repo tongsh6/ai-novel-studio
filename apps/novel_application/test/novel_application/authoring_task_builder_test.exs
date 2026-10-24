@@ -490,4 +490,16 @@ defmodule NovelApplication.AuthoringTaskBuilderChapterRevisionTest do
              %{ref: "draft:d2", version: 1}
            ]
   end
+
+  test "plot_outline 输出契约声明可选 chapter_ref（B30 CP3-P2）" do
+    assert {:ok, task} = AuthoringTaskBuilder.for_creative_tool("plot_outline", attrs())
+
+    assert task.output_contract.optional_keys == ["chapter_ref"]
+    assert task.output_contract.required_keys == ["items", "item_id", "title", "body"]
+    assert task.output_contract.artifact_type == :outline_draft
+
+    # 其它创作工具不声明该可选字段
+    assert {:ok, prose} = AuthoringTaskBuilder.for_creative_tool("prose_writing", attrs())
+    refute Map.get(prose.output_contract, :optional_keys, []) |> Enum.member?("chapter_ref")
+  end
 end
