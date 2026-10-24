@@ -739,3 +739,74 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
     assert SliceVerify.chapter_structure_arguments(outline) == nil
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyExplorationCitationSourceTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  test "B30 回归：探索回复引用观察段的设计态计划，不引用 session_adoptions JSON" do
+    prompt = """
+    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
+
+    ## 章节列表（共 2 章：已写 1 章，计划中 1 章）
+    - 第 1 章「潮声之前」[chapter_ref=chapter:11111111-1111-1111-1111-111111111111]
+    - 第 2 章「旧服务器里的残诀」[chapter_ref=chapter:22222222-2222-2222-2222-222222222222]
+
+    ## 探索观察（已检索到的作品事实）
+
+    ### 观察 1（chapter_read「第02章」）
+    「旧服务器里的残诀」（第 2 章）
+    【计划】功能定位：推进章；情节推进：陆沉舟潜入废弃机房，从旧服务器中找到残缺功法，第一次突破底层限制；人物变化：获得可成长的手段。
+    【摘要】（尚无章摘要）
+    【正文】还没有已采纳正文。
+
+    ## 探索预算状态（机械事实）
+    - 本轮已执行只读探索：1 次（来源：chapter_read）
+    - 当前状态：仍可继续只读探索
+
+    ## 当前可用操作（效果与权限，以本轮真实目录为准）
+    - prose_writing：按明确写作坐标生成正文候选，区分首稿、续写、重写。
+
+    ## 消息处置与已有产物
+    下列是当前作品和会话的记录事实。
+    {"pending_adoptions":[],"pending_adoption_count":0,"resolved_adoptions":[],"author_inputs":[{"text":"「第02章」按计划要写什么？","run_ref":"run_x","turn_ref":"message_x"}],"omitted_adoptions":0}
+
+    ## 作者输入
+    「第02章」按计划要写什么？
+    """
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    content = result.content
+
+    # 必须引用观察里的设计态计划内容（该内容只存在于已采纳大纲）
+    assert content =~ "旧服务器里的残诀"
+    assert content =~ "残缺功法"
+    assert content =~ "突破底层限制"
+    assert content =~ "【计划】"
+
+    # 不得把观察段之后的会话候选 JSON 当引用
+    refute content =~ "pending_adoptions"
+    refute content =~ "author_inputs"
+    refute content =~ "omitted_adoptions"
+    refute content =~ ~s("text")
+    refute content =~ "session_adoptions"
+  end
+
+  test "探索段缺失时回退不伪造（无观察不引用 JSON）" do
+    prompt = """
+    本次你承担创作判断器的角色。
+
+    ## 消息处置与已有产物
+    {"pending_adoptions":[],"author_inputs":[{"text":"「第02章」查一下"}]}
+
+    ## 作者输入
+    「第02章」查一下
+    """
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    refute result.content =~ "pending_adoptions"
+    refute result.content =~ "author_inputs"
+  end
+end

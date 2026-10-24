@@ -2801,8 +2801,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     cited_line =
       prompt
-      |> String.split("## 探索观察", parts: 2)
-      |> List.last()
+      |> exploration_observation_section()
       |> String.split("\n")
       |> cited_observation_line(term)
 
@@ -2820,6 +2819,22 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     else
       "我检索了正文中与「#{term}」相关的段落，依据如下：\n\n#{String.trim(cited_line)}\n\n" <>
         "以上就是正文里关于「#{term}」的既有事实。"
+    end
+  end
+
+  # B30 CP4 回归修复：探索观察段之后还可能跟「当前可用操作/消息处置 JSON/作者输入」等
+  # B30 新增段；旧实现 split 后取整段尾，会把 session_adoptions JSON（其中 author_inputs
+  # 文本含模型引用词「第02章」）误当作观察引用。这里只取观察段本身（到下一个 ## 段头）。
+  defp exploration_observation_section(prompt) do
+    case String.split(prompt, "## 探索观察", parts: 2) do
+      [_, rest] ->
+        rest
+        |> String.split(~r/\n##\s/u, parts: 2)
+        |> List.first()
+        |> Kernel.||("")
+
+      _ ->
+        ""
     end
   end
 
@@ -2845,19 +2860,52 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         Enum.find_index(lines, hit_line)
 
     case index do
+      nil -> cited_design_plan_line(lines)
+      index -> citation_block(lines, index)
+    end
+  end
+
+  # 引用词是章号/查询词（如「第02章」）时观察正文里可能没有该字面词；回退到观察段内
+  # 的设计态计划行（【计划】/章功能定位），保证回复引用检索到的设计态内容而不是 JSON。
+  defp cited_design_plan_line(lines) do
+    index =
+      Enum.find_index(lines, fn line ->
+        String.contains?(line, "【计划】") or String.contains?(line, "章功能定位")
+      end)
+
+    case index do
       nil ->
-        ""
+        citation_block(lines, Enum.find_index(lines, &(String.trim(&1) != "")) || 0)
 
       index ->
-        lines
-        |> Enum.drop(index)
-        |> Enum.take(3)
-        |> Enum.take_while(fn line ->
-          trimmed = String.trim(line)
-          trimmed != "" and not String.starts_with?(trimmed, "###")
-        end)
-        |> Enum.join("\n")
+        start = plan_citation_start(lines, index)
+        citation_block(lines, start)
     end
+  end
+
+  # 设计态计划行通常前一行是观察标题行「<章标题>」（不带 ###/【】），一并引用，
+  # 让回复可见检索命中的章标题 + 计划内容，而不是只给【计划】字段。
+  defp plan_citation_start(lines, index) when index > 0 do
+    previous = Enum.at(lines, index - 1) |> String.trim()
+
+    if previous != "" and not String.starts_with?(previous, ["###", "【"]) do
+      index - 1
+    else
+      index
+    end
+  end
+
+  defp plan_citation_start(_lines, index), do: index
+
+  defp citation_block(lines, index) do
+    lines
+    |> Enum.drop(index)
+    |> Enum.take(3)
+    |> Enum.take_while(fn line ->
+      trimmed = String.trim(line)
+      trimmed != "" and not String.starts_with?(trimmed, "###")
+    end)
+    |> Enum.join("\n")
   end
 
   # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = 单次判断响应返回原始垃圾
