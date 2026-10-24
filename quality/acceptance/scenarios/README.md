@@ -8,6 +8,7 @@
 |---|---|
 | `b27-natural-author-intent.yml` | B27 自然语言意图→创作效果映射（**草案**：manifest+driver 方案就绪，未注册 driver） |
 | `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**active/nightly**：slice_verify 机制批次已 PASS，含 writer/evaluator 候选、待采纳、显式采纳、章摘要/trace、刷新恢复与下一轮持久事实；真实模型语义归 CP4 §6.1 矩阵） |
+| `b31-author-reply-run-binding.yml` | B31 作者补充输入与待回复任务稳定绑定（**active/nightly**：slice_verify 确定性 provider 下的多 awaiting run 归属/显式问题 author_choice/目标可见/JoinRestore 稳定序；真实模型语义不在本场景） |
 | `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-frame-validation-friendly-error.yml` | frame 校验失败时作者友好提示 |
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
@@ -213,3 +214,7 @@
 
 - [b27-prompt-lifecycle-consistency.yml](b27-prompt-lifecycle-consistency.yml)（**已注册 active/nightly**）：B27 统一任务语义在真实工作台的生命周期一致性——判断.execute(prose)→计划→writer 草稿+独立 evaluator→待采纳（零自动采纳/零写入）→刷新恢复→作者显式采纳→trace/章摘要持久化→再刷新→下一轮按持久事实回答→判断/取证引用。外部 driver 为 `frontend/slice-verify/external-ui-driver.mjs`（`driveB27PromptLifecycleConsistency`），verifier 在 `frontend/slice-verify/native-tauri-verifier.mjs` 用真实 app JSONL 对账；入口 `bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri`，机制 PASS 证据 `artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri/summary.json`。**声明边界**：机制/生命周期证据使用 slice_verify 确定性 provider；真实模型自然语言语义（含 M01/M05/M19/M20 顺序）归 B27 §6.1 20 例双臂矩阵，不由本场景替代。
 - [b27-natural-author-intent.yml](b27-natural-author-intent.yml)：自然语言意图→创作效果（仅排版/方向/只聊/能力缺口/支持修订/版本）页面表达草案；未注册、无 PASS 证据。
+
+## B31 页面场景
+
+- [b31-author-reply-run-binding.yml](b31-author-reply-run-binding.yml)（**已注册 active/nightly**）：B31 作者补充输入与待回复任务的稳定绑定——同会话两个 live awaiting_author run（B26 问题 run Q + 结构调整 plan-exhaust run S）下：Q open 时普通主输入按新请求（user_message 新 run）+ 可见提示，不 plain steer 到错误 run；两个 live-only run 歧义时可见提示 + 真实任务选择，点选后 steer 该 run 且 wire 带 `expected_goal_version`、ack 返回 `resolved_run_id`/`binding_source`；显式「回复此问题」仍 author_choice 绑定 Q；刷新/重连（JoinRestore 稳定序）后普通输入仍不串 run。driver `driveB31AuthorReplyRunBinding`，证据 `artifacts/slice-verify/b31-author-reply-run-binding-tauri/`。**边界**：确定性 provider 绑定/生命周期证据；真实模型自然语言语义质量归 B27 §6.1 矩阵。

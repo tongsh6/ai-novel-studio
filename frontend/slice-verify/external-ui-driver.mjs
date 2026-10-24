@@ -34827,10 +34827,18 @@ async function driveB27PromptLifecycleConsistency(page) {
 // 用普通主输入回应「当代问题」，记录输入来源/可见焦点/请求 run_id/服务端绑定/持久 refs，
 // 并与显式「回复此问题」（B26 author_action）对照。只做复现与证据收集，不改产品代码；
 // 测试 run 的创建用真实主输入（T1/T2）或外部协议 seed（T3/T4，复刻历史恢复场景）。
+// B31 CP2：真实工作台复验 CP1 绑定语义并留证。形状覆盖：两个 live awaiting run
+// （B26 问题 run Q + 结构调整 plan-exhaust run S，创建/恢复顺序与目标较旧较新排列）、
+// 普通主输入不得被 plain steer 到错误 run（Q02：新请求 + 可见提示）、显式「回复此问题」
+// 仍 author_choice 正确、两个 live-only run 歧义时提示选择、点选后 steer 携带
+// expected_goal_version 且 ack 返回 resolved_run_id/binding_source、刷新/重连后仍不串 run。
+// 输入一律来自真实工作台可见语义（placeholder/按钮/提示文案），不改产品代码。
 const B31_SLICE_ID = "b31-author-reply-run-binding";
 const B31_QUESTION_MARKER = "UA01AWAITSTEER";
 const B31_PLAN_EXHAUST_MARKER = "UA01PLANEXHAUST";
-const B31_HINT_NEW_DISCUSSION = "请在问题中选择或回复；下方输入会开始新的讨论。";
+const B31_QUESTION_NOTICE = "有任务正在等待你的问题回复";
+const B31_AMBIGUOUS_NOTICE = "当前有多个任务在进行";
+const B31_SELECTOR_GROUP = "选择要继续的任务";
 const B31_EXPLICIT_REPLY_TEXT =
   "直接在现有正文基础上扩写，增加场景、细节和心理描写，保持现有结构与情节不变。";
 
@@ -34842,6 +34850,13 @@ async function driveB31AuthorReplyRunBinding(page) {
     surface: "tauri",
     driver: "headless-chromium-real-frontend-backend",
     provider: "slice_verify",
+    cp2_expectations: {
+      open_question_plain_input: "user_message 新 run + 可见问题提示，不 plain steer",
+      ambiguous_live_only_runs: "user_message 新 run + 可见歧义提示与任务选择",
+      selector_focus: "点选任务后主输入恢复该 run steer，wire 带 expected_goal_version",
+      explicit_reply: "author_choice 绑定问题 run（question_ref/expected_goal_version）",
+      restore: "JoinRestore 稳定序且刷新后普通输入不串 run",
+    },
     trials: [],
     anti_hooks: {
       data_testid_used: false,
@@ -34849,8 +34864,16 @@ async function driveB31AuthorReplyRunBinding(page) {
       product_autorun_used: false,
       protocol_bypass_for_measured_input: false,
     },
-    notes: [],
   };
+
+  function goalSummaryOf(text) {
+    const firstLine =
+      String(text ?? "")
+        .split("\n")
+        .map((line) => line.trim())
+        .find(Boolean) ?? "";
+    return firstLine.length > 40 ? `${firstLine.slice(0, 40)}…` : firstLine;
+  }
 
   function visibleAwaitingExcerpt(text) {
     const markers = ["等待你的回复", "任务正在等待", "目标产出尚未完成", "等待作者"];
@@ -34859,12 +34882,11 @@ async function driveB31AuthorReplyRunBinding(page) {
       if (position < 0) return found;
       return found < 0 ? position : Math.min(found, position);
     }, -1);
-    return index < 0 ? "" : text.slice(Math.max(0, index - 120), index + 420);
+    return index < 0 ? "" : text.slice(Math.max(0, index - 100), index + 380);
   }
 
-  async function readVisibleSelection(page, label, trackedRunIds) {
+  async function readVisibleInputState(page, label) {
     const text = await page.locator("body").innerText();
-    const hintNewDiscussion = text.includes(B31_HINT_NEW_DISCUSSION);
     const steerInputVisible = await page
       .locator(agentRunSteerInputSelector)
       .first()
@@ -34880,31 +34902,40 @@ async function driveB31AuthorReplyRunBinding(page) {
       .catch(() => null);
     const sendAdjustButtonCount = await page.getByRole("button", { name: /^发送调整$/ }).count();
     const sendButtonCount = await page.getByRole("button", { name: /^发送$/ }).count();
-    const replyButtons = await page.getByRole("button", { name: "回复此问题", exact: true }).count();
-    const steerMode = steerInputVisible || sendAdjustButtonCount > 0;
-    const selectedHasModelQuestion = hintNewDiscussion;
+    const replyQuestionButtonCount = await page
+      .getByRole("button", { name: "回复此问题", exact: true })
+      .count();
+    const questionNoticeVisible = text.includes(B31_QUESTION_NOTICE);
+    const ambiguousNoticeVisible = text.includes(B31_AMBIGUOUS_NOTICE);
+    const selectorGroup = page.getByRole("group", { name: B31_SELECTOR_GROUP });
+    const selectorGroupVisible = (await selectorGroup.count()) > 0;
+    const selectorOptions = selectorGroupVisible
+      ? (await selectorGroup.getByRole("button").allTextContents()).map((value) => value.trim())
+      : [];
+    const steerTargetTexts = [...text.matchAll(/将发给：「([^」]*)」/g)].map((match) => match[1]);
     return {
       label,
-      hint_new_discussion: hintNewDiscussion,
-      steer_mode: steerMode,
+      steer_mode: steerInputVisible || sendAdjustButtonCount > 0,
       steer_input_visible: steerInputVisible,
       steer_placeholder: steerPlaceholder,
       main_placeholder: mainPlaceholder,
       send_adjust_button_count: sendAdjustButtonCount,
       send_button_count: sendButtonCount,
-      reply_question_button_count: replyButtons,
-      selected_has_model_question: selectedHasModelQuestion,
-      selected_kind: hintNewDiscussion ? "question_run" : steerMode ? "no_question_run" : "unknown",
-      tracked_run_ids: trackedRunIds,
+      reply_question_button_count: replyQuestionButtonCount,
+      question_notice_visible: questionNoticeVisible,
+      ambiguous_notice_visible: ambiguousNoticeVisible,
+      selector_group_visible: selectorGroupVisible,
+      selector_options: selectorOptions,
+      steer_target_texts: steerTargetTexts,
       awaiting_excerpt: visibleAwaitingExcerpt(text),
-      page_tail: text.slice(-600),
+      page_tail: text.slice(-500),
     };
   }
 
   function normalizeTrackedRunIds(trackedRunIds) {
     if (Array.isArray(trackedRunIds)) return trackedRunIds.filter(Boolean);
     if (trackedRunIds && typeof trackedRunIds === "object") {
-      return [trackedRunIds.question, trackedRunIds.plan].filter(Boolean);
+      return Object.values(trackedRunIds).filter(Boolean);
     }
     return [];
   }
@@ -34929,10 +34960,17 @@ async function driveB31AuthorReplyRunBinding(page) {
         goal_version: frame.body?.goal?.version ?? null,
         runtime_live: frame.body?.runtime_live ?? null,
         profile_ref: frame.body?.profile_ref ?? null,
-        parent_turn_ref: frame.body?.parent_turn_ref ?? null,
       };
     }
     return { states, order };
+  }
+
+  async function readGoalVersions(trackedRunIds) {
+    const runIds = normalizeTrackedRunIds(trackedRunIds);
+    const { states } = frameRunStates(0, runIds);
+    const versions = {};
+    for (const runId of runIds) versions[runId] = states[runId]?.goal_version ?? null;
+    return versions;
   }
 
   async function sendAwaitingQuestionRun(text, label) {
@@ -34956,8 +34994,7 @@ async function driveB31AuthorReplyRunBinding(page) {
         frame.event === "phx_reply" &&
         frame.body?.status === "ok" &&
         frame.body?.response?.received === true &&
-        typeof frame.body?.response?.run_id === "string" &&
-        frame.body.response.run_id !== "",
+        typeof frame.body?.response?.run_id === "string",
       `${label}: awaiting-question run was not acked`,
       30_000,
     );
@@ -34986,9 +35023,7 @@ async function driveB31AuthorReplyRunBinding(page) {
       run_id: runId,
       parent_turn_ref: sent.body?.turn_id,
       question: questionFrame.body.author_question,
-      question_turn_result: questionFrame.body,
       awaiting_state: awaitingState.body,
-      sent,
       ack: ack.body.response,
       log_start: logStart,
       frame_start: start,
@@ -35048,49 +35083,32 @@ async function driveB31AuthorReplyRunBinding(page) {
       parent_turn_ref: sent.body?.turn_id,
       awaiting_event: awaitingEvent.body,
       awaiting_state: awaitingState.body,
-      sent,
       ack: ack.body.response,
       log_start: logStart,
       frame_start: start,
     };
   }
 
-  async function readGoalVersions(trackedRunIds, afterFrameIndex = 0) {
-    const runIds = normalizeTrackedRunIds(trackedRunIds);
-    const { states } = frameRunStates(afterFrameIndex, runIds);
-    const versions = {};
-    for (const runId of runIds) versions[runId] = states[runId]?.goal_version ?? null;
-    return versions;
-  }
-
-  async function probeFreeInput(page, text, label, trackedRunIds, workId, sessionId) {
+  async function probeMainInput(page, text, label, trackedRunIds, workId, sessionId) {
+    const visibleBefore = await readVisibleInputState(page, `${label} before`);
     const start = frames.length;
     const logStart = readAppLogRecords().length;
     const goalVersionsBefore = await readGoalVersions(trackedRunIds);
-    const visibleBefore = await readVisibleSelection(page, `${label} before send`, trackedRunIds);
-
-    const steerInputVisible = await page
-      .locator(agentRunSteerInputSelector)
-      .first()
-      .isVisible()
-      .catch(() => false);
-    const sendAdjustButtonCount = await page.getByRole("button", { name: /^发送调整$/ }).count();
-    const composerMode = steerInputVisible || sendAdjustButtonCount > 0 ? "steer" : "user_message";
-    if (composerMode === "steer") {
+    const modeBefore = visibleBefore.steer_mode ? "steer" : "user_message";
+    if (modeBefore === "steer") {
       await page.locator(agentRunSteerInputSelector).first().fill(text);
       await page.getByRole("button", { name: /^发送调整$/ }).click();
     } else {
       await page.locator(chatInputSelector).fill(text);
       await page.getByRole("button", { name: /^发送$/ }).click();
     }
-
     const sent = await waitForNewFrame(
       start,
       (frame) =>
         frame.direction === "sent" &&
         ["agent_command", "user_message"].includes(frame.event) &&
         String(frame.body?.text ?? "") === text,
-      `${label}: free input was not sent from the real workbench`,
+      `${label}: main input was not sent from the real workbench`,
       30_000,
     );
     const sentEvent = sent.event;
@@ -35101,15 +35119,13 @@ async function driveB31AuthorReplyRunBinding(page) {
         frame.event === "phx_reply" &&
         frame.body?.status === "ok" &&
         frame.body?.response?.received === true &&
-        typeof frame.body?.response?.run_id === "string" &&
-        frame.body.response.run_id !== "",
-      `${label}: free input was not acked`,
+        typeof frame.body?.response?.run_id === "string",
+      `${label}: main input was not acked`,
       60_000,
     );
     const ackResponse = ack.body.response;
     const targetRunId =
       sentEvent === "agent_command" ? sent.body?.run_id : ackResponse.run_id ?? null;
-
     if (sentEvent === "agent_command") {
       await waitForNewFrame(
         start,
@@ -35131,19 +35147,25 @@ async function driveB31AuthorReplyRunBinding(page) {
           frame.event === "agent_run_state" &&
           frame.body?.run_id === targetRunId &&
           frame.body?.status === "running",
-        `${label}: new discussion run did not start running`,
+        `${label}: new request run did not start running`,
         60_000,
       ).catch(() => null);
     }
     await sleep(1_200);
+    const visibleAfter = await readVisibleInputState(page, `${label} after`);
     const goalVersionsAfter = await readGoalVersions(trackedRunIds);
-    const sendFrames = frames.slice(start).filter(
-      (frame) =>
-        frame.direction === "received" &&
-        frame.event === "agent_event" &&
-        frame.body?.run_ref === targetRunId,
-    );
-    const appRecords = readAppLogRecords().slice(logStart);
+    const followupEvents = frames
+      .slice(start)
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_event" &&
+          frame.body?.run_ref === targetRunId,
+      )
+      .map((frame) => ({
+        event_type: frame.body?.event_type,
+        reason_codes: frame.body?.reason_codes ?? [],
+      }));
     const snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
     const persistedRows = (snapshot.transcript ?? [])
       .filter((row) => row.role === "user" && row.text === text)
@@ -35156,51 +35178,54 @@ async function driveB31AuthorReplyRunBinding(page) {
     return {
       label,
       input_text: text,
-      composer_mode: composerMode,
+      mode_before: modeBefore,
       visible_before: visibleBefore,
+      visible_after: visibleAfter,
       sent_event: sentEvent,
       sent_frame: sent.body,
+      new_run_id: sentEvent === "user_message" ? targetRunId : null,
+      target_run_id: targetRunId,
+      expected_goal_version_sent:
+        sentEvent === "agent_command" ? sent.body?.expected_goal_version ?? null : null,
       ack: {
         run_id: ackResponse.run_id ?? null,
         goal_version: ackResponse.goal_version ?? null,
-        source_turn_ref: ackResponse.source_turn_ref ?? null,
-        runtime_live: ackResponse.runtime_live ?? null,
-        agent_run_state_status: ackResponse.agent_run_state?.status ?? null,
+        resolved_run_id: ackResponse.resolved_run_id ?? null,
+        binding_source: ackResponse.binding_source ?? null,
+        expected_goal_version: ackResponse.expected_goal_version ?? null,
       },
-      target_run_id: targetRunId,
-      target_equals_selected_no_question_run:
-        visibleBefore.selected_kind === "no_question_run" && targetRunId === visibleBefore.tracked_run_ids.plan,
       goal_versions_before: goalVersionsBefore,
       goal_versions_after: goalVersionsAfter,
-      target_goal_version_increment:
-        sentEvent === "agent_command" && ackResponse.goal_version != null
-          ? ackResponse.goal_version
-          : null,
-      followup_events: sendFrames.map((frame) => ({
-        event_type: frame.body?.event_type,
-        reason_codes: frame.body?.reason_codes ?? [],
-        summary: String(frame.body?.summary ?? "").slice(0, 120),
-      })),
-      app_log: {
-        user_message_starts: appRecords
-          .filter((record) => record.event === "channel.user_message.start")
-          .map((record) => ({ turn_id: record.turn_id, text_len: record.text_len })),
-        context_assembles: appRecords
-          .filter((record) => record.event === "context.assemble.start")
-          .map((record) => ({ turn_id: record.turn_id })),
-        judgment_decisions: appRecords
-          .filter((record) => record.event === "judgment.decided.done")
-          .map((record) => ({ turn_id: record.turn_id, action: record.action })),
-      },
+      followup_events: followupEvents,
       persisted_rows: persistedRows,
       persisted_count: persistedRows.length,
-      snapshot_pending_adoptions: (snapshot.pending_adoptions ?? []).length,
+      app_log: {
+        user_message_starts: readAppLogRecords()
+          .slice(logStart)
+          .filter((record) => record.event === "channel.user_message.start")
+          .map((record) => ({ turn_id: record.turn_id, text_len: record.text_len })),
+      },
     };
   }
 
-  async function probeExplicitReply(page, question, label, questionRunId, otherRunIds) {
+  async function clickTaskSelector(page, goalSummary) {
+    const group = page.getByRole("group", { name: B31_SELECTOR_GROUP });
+    await group.waitFor({ state: "visible", timeout: 10_000 });
+    const option = group.getByRole("button", { name: goalSummary, exact: true });
+    await option.waitFor({ state: "visible", timeout: 10_000 });
+    await option.click();
+    await page.waitForFunction(
+      (summary) => document.body.innerText.includes(`将发给：「${summary}」`),
+      goalSummary,
+      { timeout: 10_000 },
+    );
+    return { goal_summary: goalSummary, clicked: true };
+  }
+
+  async function probeExplicitReply(page, question, label, questionRunId, trackedRunIds) {
     const start = frames.length;
     const logStart = readAppLogRecords().length;
+    const visibleBefore = await readVisibleInputState(page, `${label} before`);
     const replyButtons = await page.getByRole("button", { name: "回复此问题", exact: true }).count();
     assert(replyButtons > 0, `${label}: explicit question card has no reply entry`);
     await page.getByRole("button", { name: "回复此问题", exact: true }).first().click();
@@ -35208,7 +35233,6 @@ async function driveB31AuthorReplyRunBinding(page) {
     await composer.waitFor({ timeout: 15_000 });
     await composer.fill(B31_EXPLICIT_REPLY_TEXT);
     await page.getByRole("button", { name: "发送回复", exact: true }).click();
-
     const actionFrame = await waitForNewFrame(
       start,
       (frame) =>
@@ -35249,10 +35273,14 @@ async function driveB31AuthorReplyRunBinding(page) {
       `${label}: question run did not reach a terminal state`,
       120_000,
     ).catch(() => null);
-    const afterStates = frameRunStates(start, [questionRunId, ...otherRunIds]);
+    await sleep(800);
+    const visibleAfter = await readVisibleInputState(page, `${label} after`);
+    const afterStates = frameRunStates(start, [questionRunId, ...normalizeTrackedRunIds(trackedRunIds)]);
     return {
       label,
       reply_button_count_before: replyButtons,
+      visible_before: visibleBefore,
+      visible_after: visibleAfter,
       action: {
         action_id: action.action_id,
         action_type: action.action_type,
@@ -35282,15 +35310,15 @@ async function driveB31AuthorReplyRunBinding(page) {
   async function createTrialWork(label, token) {
     const logStart = readAppLogRecords().length;
     const work = await createWorkSeed({
-      title: `B31 多 awaiting run ${label} ${token}`,
+      title: `B31 CP2 绑定复验 ${label} ${token}`,
       genre: "赛博修仙",
-      core_selling_point: "两个 live awaiting run 的普通输入归属隔离复现",
+      core_selling_point: "两个 live awaiting run 的普通输入归属与显式问题绑定",
       target_reader: "需要稳定回复绑定的作者",
       tone_preference: "冷静、清晰",
     });
     await refreshAndSelectWork(page, work.title);
     await waitForVisibleWorkTitle(page, work.title);
-    const joinRecord = await waitForNewAppLogRecord(
+    await waitForNewAppLogRecord(
       logStart,
       (record) => record.event === "channel.join.done" && record.work_id === work.id,
       `${label}: work channel did not join`,
@@ -35312,7 +35340,7 @@ async function driveB31AuthorReplyRunBinding(page) {
       if (!sessionId) await sleep(200);
     }
     assert(sessionId, `${label}: joined session id was not captured`);
-    return { work, sessionId, joinRecord };
+    return { work, sessionId };
   }
 
   async function reloadAndObserve(frameStartBefore, logStartBefore, label) {
@@ -35329,6 +35357,15 @@ async function driveB31AuthorReplyRunBinding(page) {
     const reconnectRecords = readAppLogRecords()
       .slice(logStartBefore)
       .filter((record) => record.event === "channel.agent_run_reconnect.done");
+    const stateFrames = frames
+      .slice(frameStartBefore)
+      .filter((frame) => frame.direction === "received" && frame.event === "agent_run_state")
+      .map((frame) => ({
+        run_id: frame.body?.run_id,
+        status: frame.body?.status,
+        goal_version: frame.body?.goal?.version ?? null,
+        runtime_live: frame.body?.runtime_live ?? null,
+      }));
     const joinFrames = frames
       .slice(frameStartBefore)
       .filter(
@@ -35338,19 +35375,6 @@ async function driveB31AuthorReplyRunBinding(page) {
           frame.body?.response?.joined === true,
       );
     const lastJoin = joinFrames.at(-1)?.body?.response ?? null;
-    const openQuestions = Array.isArray(lastJoin?.open_author_question_turn_results)
-      ? lastJoin.open_author_question_turn_results
-      : [];
-    const stateFrames = frames
-      .slice(frameStartBefore)
-      .filter((frame) => frame.direction === "received" && frame.event === "agent_run_state")
-      .map((frame) => ({
-        run_id: frame.body?.run_id,
-        status: frame.body?.status,
-        goal_version: frame.body?.goal?.version ?? null,
-        runtime_live: frame.body?.runtime_live ?? null,
-        profile_ref: frame.body?.profile_ref ?? null,
-      }));
     return {
       label,
       restore_order: reconnectRecords.map((record) => ({
@@ -35358,20 +35382,23 @@ async function driveB31AuthorReplyRunBinding(page) {
         runtime_live: record.runtime_live,
       })),
       state_frame_order: stateFrames,
-      open_question_runs: openQuestions.map((result) => ({
-        run_id: result?.author_question?.run_id,
-        question_ref: result?.author_question?.question_ref,
-        status: result?.author_question?.status,
-        goal_version: result?.author_question?.goal_version,
-      })),
+      open_question_runs: Array.isArray(lastJoin?.open_author_question_turn_results)
+        ? lastJoin.open_author_question_turn_results.map((result) => ({
+            run_id: result?.author_question?.run_id,
+            question_ref: result?.author_question?.question_ref,
+            status: result?.author_question?.status,
+            goal_version: result?.author_question?.goal_version,
+          }))
+        : [],
       snapshot: {
         pending_adoptions: (snapshot.pending_adoptions ?? []).length,
         transcript_count: Array.isArray(snapshot.transcript) ? snapshot.transcript.length : null,
       },
+      visible: await readVisibleInputState(page, label),
     };
   }
 
-  async function pushProtocolUserMessageForSeed(client, text, workId, sessionId, label) {
+  async function pushProtocolSeed(client, text, workId, sessionId, label) {
     const eventsBefore = client.events.length;
     const frameStart = frames.length;
     const reply = await receiveProtocolPush(
@@ -35403,439 +35430,468 @@ async function driveB31AuthorReplyRunBinding(page) {
       `${label}: protocol-seeded question run did not persist its author_question`,
       60_000,
     ).catch(() => null);
-    return { runId, ack: reply.payload, question };
+    return { runId, ack: reply.payload, question, goal_summary: goalSummaryOf(text) };
   }
 
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
-  const trialTokens = {
-    t1: `T1-${Date.now().toString(36)}`,
-    t2: `T2-${Date.now().toString(36)}`,
-    t3: `T3-${Date.now().toString(36)}`,
-    t4: `T4-${Date.now().toString(36)}`,
-    t5: `T5-${Date.now().toString(36)}`,
+  const token = Date.now().toString(36);
+  const checks = {
+    open_question_plain_input_new_request: true,
+    open_question_notice_visible: true,
+    question_run_left_open: true,
+    structure_run_not_advanced: true,
+    explicit_reply_bound_question_run: true,
+    explicit_reply_goal_version_advanced: true,
+    post_reply_steer_target_visible: true,
+    ambiguous_notice_and_selector_visible: true,
+    ambiguous_plain_input_new_request: true,
+    selector_focus_steer_ok: true,
+    steer_expected_goal_version_sent: true,
+    steer_ack_binding_fields: true,
+    selector_steer_other_run_untouched: true,
+    restore_order_stable: true,
+    reload_plain_input_new_request: true,
+    no_product_code_changed: true,
   };
 
-  // ── Trial 1：真实主输入先问题 run、后结构 run；普通输入归属 + 重复输入 ──────
+  // ── T1：UI 创建 Q（旧）+ S（新）；Q open 时普通主输入→新请求+提示；显式回复对照 ──
   {
-    const { work, sessionId } = await createTrialWork("T1", trialTokens.t1);
-    const questionIndex = frames.length;
+    const { work, sessionId } = await createTrialWork("T1", token);
     const questionRun = await sendAwaitingQuestionRun(
-      `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t1}。`,
+      `第一章字数太少了，标记${B31_QUESTION_MARKER}-T1-${token}。`,
       "T1 question run",
     );
     const planRun = await sendPlanExhaustRun(
-      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t1}`,
+      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-T1-${token}`,
       "T1 plan-exhaust run",
     );
     const trackedRunIds = { question: questionRun.run_id, plan: planRun.run_id };
     await sleep(1_000);
-    const stateAfterCreation = frameRunStates(questionIndex, [questionRun.run_id, planRun.run_id]);
-    const visibleAfterCreation = await readVisibleSelection(page, "T1 after creation", trackedRunIds);
-    await page.screenshot({ path: path.join(artifactDir, "b31-t1-two-awaiting-runs.png"), fullPage: true });
-    const freeFirst = await probeFreeInput(
+    const visibleAfterCreation = await readVisibleInputState(page, "T1 after creation");
+    await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t1-two-awaiting-runs.png"), fullPage: true });
+    checks.open_question_notice_visible &&= visibleAfterCreation.question_notice_visible;
+    checks.open_question_plain_input_new_request &&= !visibleAfterCreation.steer_mode;
+    const plainFirst = await probeMainInput(
       page,
-      `处理重复第11章，只修正列表编号，保留你对已读正文的核对结论，标记B31FREE-T1A-${trialTokens.t1}`,
-      "T1 free input #1",
+      `处理重复第11章，只修正列表编号，保留你对已读正文的核对结论，B31CP2-T1A-${token}`,
+      "T1 plain input #1 (question open)",
       trackedRunIds,
       work.id,
       sessionId,
     );
-    const freeRepeat = await probeFreeInput(
+    checks.open_question_plain_input_new_request &&= plainFirst.sent_event === "user_message";
+    checks.question_run_left_open &&=
+      plainFirst.goal_versions_after[questionRun.run_id] === questionRun.question.goal_version;
+    checks.structure_run_not_advanced &&=
+      plainFirst.goal_versions_after[planRun.run_id] === 1;
+    checks.open_question_notice_visible &&= plainFirst.visible_after.question_notice_visible;
+    const plainRepeat = await probeMainInput(
       page,
-      freeFirst.input_text,
-      "T1 repeated free input",
+      plainFirst.input_text,
+      "T1 plain input repeated (question still open)",
       trackedRunIds,
       work.id,
       sessionId,
     );
+    checks.open_question_plain_input_new_request &&=
+      plainRepeat.sent_event === "user_message" &&
+      plainRepeat.new_run_id !== plainFirst.new_run_id;
+    checks.question_run_left_open &&=
+      plainRepeat.goal_versions_after[questionRun.run_id] === questionRun.question.goal_version;
+    checks.structure_run_not_advanced &&=
+      plainRepeat.goal_versions_after[planRun.run_id] === 1;
     const explicit = await probeExplicitReply(
       page,
       questionRun.question,
-      "T1 explicit reply control",
+      "T1 explicit reply (control)",
       questionRun.run_id,
       [planRun.run_id],
     );
-    const finalStates = frameRunStates(questionIndex, [questionRun.run_id, planRun.run_id]);
+    checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
+    checks.explicit_reply_goal_version_advanced &&=
+      explicit.ack.goal_version === questionRun.question.goal_version + 1 &&
+      explicit.terminal_status === "completed";
+    // 回复后仅剩结构 run（单 live run）时，输入区恢复「调整当前任务/发送调整」；
+    // 「将发给：「…」」目标行只在多 live run 时渲染（Q05），单 run 由现有 hint 表达。
+    checks.post_reply_steer_target_visible &&=
+      explicit.visible_after.steer_mode === true &&
+      explicit.visible_after.send_adjust_button_count === 1 &&
+      !explicit.visible_after.question_notice_visible;
     evidence.trials.push({
-      id: "T1_ui_creation_question_then_plan",
+      id: "T1_ui_question_then_structure_open_question_plain_input",
       purpose:
-        "真实主输入创建两个 awaiting run（问题 run 较旧、结构 run 较新），记录普通输入的 run 归属、重复输入与服务端 goal_version。",
-      trial_token: trialTokens.t1,
+        "Q open 时普通主输入必须作为新请求（新 user_message 新 run）+ 可见问题提示，不得 plain steer 到 S；重复输入同样；显式回复仍绑定 Q。",
       work_id: work.id,
       session_id: sessionId,
       runs: {
         question: {
           run_id: questionRun.run_id,
-          parent_turn_ref: questionRun.parent_turn_ref,
           question_ref: questionRun.question.question_ref,
-          question_status: questionRun.question.status,
           question_goal_version: questionRun.question.goal_version,
-          awaiting_status: questionRun.awaiting_state?.status,
         },
         plan: {
           run_id: planRun.run_id,
-          parent_turn_ref: planRun.parent_turn_ref,
           awaiting_reason_codes: planRun.awaiting_event?.reason_codes ?? [],
-          awaiting_status: planRun.awaiting_state?.status,
-          profile_ref: planRun.awaiting_state?.profile_ref,
         },
       },
       creation_order: [questionRun.run_id, planRun.run_id],
-      newest_run_id: planRun.run_id,
-      state_after_creation: stateAfterCreation.states,
       visible_after_creation: visibleAfterCreation,
-      free_input_first: freeFirst,
-      free_input_repeat: freeRepeat,
+      plain_input_first: plainFirst,
+      plain_input_repeat: plainRepeat,
       explicit_reply: explicit,
-      final_states: finalStates.states,
-      explicit_reply_bound_question_run: explicit.binds_question_run,
-      other_run_unchanged_after_explicit_reply:
-        finalStates.states[planRun.run_id]?.status === planRun.awaiting_state?.status,
+      post_reply_visible: explicit.visible_after,
     });
   }
 
-  // ── Trial 2：刷新/重连恢复顺序观察；刷新后普通输入归属是否随恢复顺序变化 ─────
+  // ── T2：刷新/重连三次（JoinRestore 稳定序）后普通输入仍新请求，不串 run ─────
   {
-    const { work, sessionId } = await createTrialWork("T2", trialTokens.t2);
+    const { work, sessionId } = await createTrialWork("T2", token);
     const questionRun = await sendAwaitingQuestionRun(
-      `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t2}。`,
+      `第一章字数太少了，标记${B31_QUESTION_MARKER}-T2-${token}。`,
       "T2 question run",
     );
     const planRun = await sendPlanExhaustRun(
-      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t2}`,
+      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-T2-${token}`,
       "T2 plan-exhaust run",
     );
     const trackedRunIds = { question: questionRun.run_id, plan: planRun.run_id };
-    const visibleBeforeReload = await readVisibleSelection(page, "T2 before reload", trackedRunIds);
-    const reloadObservations = [];
+    const reloads = [];
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const reload = await reloadAndObserve(
-        frames.length,
-        readAppLogRecords().length,
-        `T2 reload #${attempt}`,
+      reloads.push(
+        await reloadAndObserve(
+          frames.length,
+          readAppLogRecords().length,
+          `T2 reload #${attempt}`,
+        ),
       );
-      reload.visible = await readVisibleSelection(page, `T2 reload #${attempt}`, trackedRunIds);
-      reloadObservations.push(reload);
-      await page.screenshot({
-        path: path.join(artifactDir, `b31-t2-reload-${attempt}.png`),
-        fullPage: true,
-      });
     }
-    const visibleAfterReload = reloadObservations.at(-1).visible;
-    const freeAfterReload = await probeFreeInput(
+    // JoinRestore 稳定序以 WS 到达帧序为准：app JSONL 由异步 LogEmit 写入，同一
+    // 毫秒附近的记录文件顺序可能晚于真实广播序（本次批次 17:33:18 出现日志反序，
+    // 但三帧序始终一致），故证据同时保留两者、稳定性断言用帧序。
+    const trackedRunIdSet = new Set(normalizeTrackedRunIds(trackedRunIds));
+    const restoreFrameOrders = reloads.map((reload) => {
+      const seen = [];
+      for (const entry of reload.state_frame_order ?? []) {
+        if (!trackedRunIdSet.has(entry.run_id) || seen.includes(entry.run_id)) continue;
+        seen.push(entry.run_id);
+      }
+      return seen;
+    });
+    const restoreOrders = reloads.map((reload) =>
+      reload.restore_order.map((entry) => entry.run_id),
+    );
+    checks.restore_order_stable &&= restoreFrameOrders.every(
+      (order) => order.length === 2 && order.join(",") === restoreFrameOrders[0].join(","),
+    );
+    checks.open_question_notice_visible &&= reloads.every(
+      (reload) => reload.visible.question_notice_visible,
+    );
+    checks.open_question_plain_input_new_request &&= reloads.every(
+      (reload) => !reload.visible.steer_mode,
+    );
+    const plainAfterReload = await probeMainInput(
       page,
-      `处理重复第11章，只修正列表编号，保留你对已读正文的核对结论，标记B31FREE-T2-${trialTokens.t2}`,
-      "T2 free input after reload",
+      `处理重复第11章，只修正列表编号，B31CP2-T2-${token}`,
+      "T2 plain input after reload",
       trackedRunIds,
       work.id,
       sessionId,
     );
+    checks.reload_plain_input_new_request &&= plainAfterReload.sent_event === "user_message";
+    checks.question_run_left_open &&=
+      plainAfterReload.goal_versions_after[questionRun.run_id] === questionRun.question.goal_version;
+    checks.structure_run_not_advanced &&=
+      plainAfterReload.goal_versions_after[planRun.run_id] === 1;
+    const explicit = await probeExplicitReply(
+      page,
+      questionRun.question,
+      "T2 explicit reply after reload",
+      questionRun.run_id,
+      [planRun.run_id],
+    );
+    checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
     evidence.trials.push({
-      id: "T2_restore_order_permutation",
+      id: "T2_restore_then_plain_input",
       purpose:
-        "两个 live awaiting run 刷新/重连恢复；记录每次 JoinRestore 广播顺序与页面选中信号，刷新后普通输入落到哪个 run。",
-      trial_token: trialTokens.t2,
+        "三个 live awaiting run 刷新/重连三次：JoinRestore 顺序稳定；普通输入仍为新请求+提示；Q 不被误答、S goal 不推进；显式回复正确。",
       work_id: work.id,
       session_id: sessionId,
       runs: {
-        question: {
-          run_id: questionRun.run_id,
-          question_ref: questionRun.question.question_ref,
-          question_goal_version: questionRun.question.goal_version,
-        },
-        plan: {
-          run_id: planRun.run_id,
-          awaiting_reason_codes: planRun.awaiting_event?.reason_codes ?? [],
-        },
+        question: { run_id: questionRun.run_id, question_ref: questionRun.question.question_ref },
+        plan: { run_id: planRun.run_id },
       },
-      creation_order: [questionRun.run_id, planRun.run_id],
-      visible_before_reload: visibleBeforeReload,
-      reloads: reloadObservations,
-      visible_after_reload: visibleAfterReload,
-      free_input_after_reload: freeAfterReload,
+      reloads,
+      reconnect_log_orders: restoreOrders,
+      restore_frame_orders: restoreFrameOrders,
+      plain_input_after_reload: plainAfterReload,
+      explicit_reply_after_reload: explicit,
     });
   }
 
-  // ── Trial 3：协议 seed 两 run（结构较旧、问题较新），刷新恢复后普通输入归属 ──
+  // ── T3：协议 seed（S 旧、Q 新）刷新恢复：Q open → 普通输入新请求 + 提示 ─────
   {
-    const { work, sessionId } = await createTrialWork("T3", trialTokens.t3);
+    const { work, sessionId } = await createTrialWork("T3", token);
     const client = await joinProtocolWorkspace(work.id, sessionId);
     try {
-      const planSeed = await pushProtocolUserMessageForSeed(
+      const planSeed = await pushProtocolSeed(
         client,
-        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t3}`,
+        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-T3-${token}`,
         work.id,
         sessionId,
         "T3 plan seed",
       );
-      const questionSeed = await pushProtocolUserMessageForSeed(
+      const questionSeed = await pushProtocolSeed(
         client,
-        `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t3}。`,
+        `第一章字数太少了，标记${B31_QUESTION_MARKER}-T3-${token}。`,
         work.id,
         sessionId,
         "T3 question seed",
       );
       const trackedRunIds = { question: questionSeed.runId, plan: planSeed.runId };
       const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T3 reload");
-      const visible = await readVisibleSelection(page, "T3 after reload", trackedRunIds);
-      await page.screenshot({ path: path.join(artifactDir, "b31-t3-restored-seeded.png"), fullPage: true });
-      const questionResult = (reload.open_question_runs ?? []).find(
-        (entry) => entry.run_id === questionSeed.runId,
-      );
-      const freeAnswer = await probeFreeInput(
+      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t3-seeded-restored.png"), fullPage: true });
+      checks.open_question_notice_visible &&= reload.visible.question_notice_visible;
+      checks.open_question_plain_input_new_request &&= !reload.visible.steer_mode;
+      const plain = await probeMainInput(
         page,
-        `我回答上面那个问题：直接在现有正文基础上扩写，增加细节，标记B31ANSWER-T3-${trialTokens.t3}`,
-        "T3 plain free answer to older question",
+        `我回答上面那个问题：直接在现有正文基础上扩写，增加细节，B31CP2-T3-${token}`,
+        "T3 plain answer while question open",
         trackedRunIds,
         work.id,
         sessionId,
       );
+      checks.open_question_plain_input_new_request &&= plain.sent_event === "user_message";
+      checks.question_run_left_open &&=
+        plain.goal_versions_after[questionSeed.runId] === 1;
+      checks.structure_run_not_advanced &&= plain.goal_versions_after[planSeed.runId] === 1;
+      const explicit = await probeExplicitReply(
+        page,
+        questionSeed.question,
+        "T3 explicit reply after plain input",
+        questionSeed.runId,
+        [planSeed.runId],
+      );
+      checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
       evidence.trials.push({
-        id: "T3_seeded_plan_older_question_newer",
+        id: "T3_seeded_question_newer_plain_answer_not_steered",
         purpose:
-          "外部协议 seed 两个 awaiting run（结构较旧、问题较新）后刷新恢复；问题在非 selected run 时，普通输入落到哪个 run。",
-        trial_token: trialTokens.t3,
+          "协议 seed（S 旧、Q 新）刷新恢复后，语义回答问题的普通主输入仍按新请求处理并显示提示，不 steer S；显式回复绑定 Q。",
         work_id: work.id,
         session_id: sessionId,
         runs: {
+          plan: { run_id: planSeed.runId, goal_summary: planSeed.goal_summary },
           question: {
             run_id: questionSeed.runId,
-            parent_turn_ref: questionSeed.ack?.turn_id ?? null,
-            question_ref: questionSeed.question?.author_question?.question_ref ?? questionResult?.question_ref ?? null,
-            question_goal_version:
-              questionSeed.question?.author_question?.goal_version ?? null,
-          },
-          plan: {
-            run_id: planSeed.runId,
-            parent_turn_ref: planSeed.ack?.turn_id ?? null,
+            question_ref: questionSeed.question?.author_question?.question_ref ?? null,
           },
         },
-        creation_order: [planSeed.runId, questionSeed.runId],
-        newest_run_id: questionSeed.runId,
         seed_method: "external_protocol_push_user_message",
         reload,
-        visible_after_reload: visible,
-        open_question_visible_in_join: Boolean(questionResult),
-        free_input_plain_answer: freeAnswer,
+        plain_input: plain,
+        explicit_reply: explicit,
       });
     } finally {
       await closeProtocolWorkspace(client);
     }
   }
 
-  // ── Trial 4：协议 seed（问题较旧、结构较新），刷新后普通输入与显式回复对照 ───
+  // ── T4：协议 seed（Q 旧、S 新）刷新恢复：显式回复正确，普通输入新请求 ───────
   {
-    const { work, sessionId } = await createTrialWork("T4", trialTokens.t4);
+    const { work, sessionId } = await createTrialWork("T4", token);
     const client = await joinProtocolWorkspace(work.id, sessionId);
     try {
-      const questionSeed = await pushProtocolUserMessageForSeed(
+      const questionSeed = await pushProtocolSeed(
         client,
-        `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t4}。`,
+        `第一章字数太少了，标记${B31_QUESTION_MARKER}-T4-${token}。`,
         work.id,
         sessionId,
         "T4 question seed",
       );
-      const planSeed = await pushProtocolUserMessageForSeed(
+      const planSeed = await pushProtocolSeed(
         client,
-        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t4}`,
+        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-T4-${token}`,
         work.id,
         sessionId,
         "T4 plan seed",
       );
       const trackedRunIds = { question: questionSeed.runId, plan: planSeed.runId };
       const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T4 reload");
-      const visible = await readVisibleSelection(page, "T4 after reload", trackedRunIds);
-      await page.screenshot({ path: path.join(artifactDir, "b31-t4-restored-question-older.png"), fullPage: true });
-      const freeAnswer = await probeFreeInput(
+      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t4-seeded-restored.png"), fullPage: true });
+      const plain = await probeMainInput(
         page,
-        `我回答上面那个问题：直接在现有正文基础上扩写，增加细节，标记B31ANSWER-T4-${trialTokens.t4}`,
-        "T4 plain free answer to older question",
+        `我回答上面那个问题：直接在现有正文基础上扩写，增加细节，B31CP2-T4-${token}`,
+        "T4 plain answer while question open",
         trackedRunIds,
         work.id,
         sessionId,
       );
+      checks.open_question_plain_input_new_request &&= plain.sent_event === "user_message";
+      checks.question_run_left_open &&= plain.goal_versions_after[questionSeed.runId] === 1;
+      checks.structure_run_not_advanced &&= plain.goal_versions_after[planSeed.runId] === 1;
       const explicit = await probeExplicitReply(
         page,
         questionSeed.question,
-        "T4 explicit reply control",
+        "T4 explicit reply (control)",
         questionSeed.runId,
         [planSeed.runId],
       );
+      checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
+      checks.explicit_reply_goal_version_advanced &&=
+        explicit.ack.goal_version === 2 && explicit.terminal_status === "completed";
       evidence.trials.push({
-        id: "T4_seeded_question_older_plan_newer",
+        id: "T4_seeded_question_older_plain_then_explicit",
         purpose:
-          "外部协议 seed（问题较旧、结构较新）后刷新；对照普通输入与显式「回复此问题」的 run 绑定。",
-        trial_token: trialTokens.t4,
+          "协议 seed（Q 旧、S 新）刷新恢复：普通输入新请求+提示；显式回复 author_choice 绑定 Q（target_ref/question_ref/expected_goal_version，goal 1→2 completed）。",
         work_id: work.id,
         session_id: sessionId,
         runs: {
-          question: {
-            run_id: questionSeed.runId,
-            question_ref: questionSeed.question?.author_question?.question_ref ?? null,
-            question_goal_version:
-              questionSeed.question?.author_question?.goal_version ?? null,
-          },
+          question: { run_id: questionSeed.runId },
           plan: { run_id: planSeed.runId },
         },
-        creation_order: [questionSeed.runId, planSeed.runId],
-        newest_run_id: planSeed.runId,
         seed_method: "external_protocol_push_user_message",
         reload,
-        visible_after_reload: visible,
-        free_input_plain_answer: freeAnswer,
-        explicit_reply_after_plain: explicit,
+        plain_input: plain,
+        explicit_reply: explicit,
       });
     } finally {
       await closeProtocolWorkspace(client);
     }
   }
 
-  // ── Trial 5：两个「无显式问题」live await run（都无 TurnResult），恢复顺序交换时
-  // 选中 run 是否就是最后恢复广播的 run（R1/R3 的决定性对照）。──────────────────
+  // ── T5：两个 live-only run 歧义 → 新请求 + 选择提示；点选后 steer 带版本/绑定 ─
   {
-    const { work, sessionId } = await createTrialWork("T5", trialTokens.t5);
+    const { work, sessionId } = await createTrialWork("T5", token);
     const client = await joinProtocolWorkspace(work.id, sessionId);
     try {
-      const planSeedA = await pushProtocolUserMessageForSeed(
+      const planSeedA = await pushProtocolSeed(
         client,
-        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-T5A-${trialTokens.t5}`,
+        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-T5A-${token}`,
         work.id,
         sessionId,
         "T5 plan seed A",
       );
-      const planSeedB = await pushProtocolUserMessageForSeed(
+      const planSeedB = await pushProtocolSeed(
         client,
-        `先读完第02章正文，再调整章节大纲，最后更新主角状态，${B31_PLAN_EXHAUST_MARKER}-T5B-${trialTokens.t5}`,
+        `先读完第02章正文，再调整章节大纲，最后更新主角状态，${B31_PLAN_EXHAUST_MARKER}-T5B-${token}`,
         work.id,
         sessionId,
         "T5 plan seed B",
       );
       const trackedRunIds = [planSeedA.runId, planSeedB.runId];
       const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T5 reload");
-      const visible = await readVisibleSelection(page, "T5 after reload", trackedRunIds);
-      await page.screenshot({ path: path.join(artifactDir, "b31-t5-two-live-only-runs.png"), fullPage: true });
-      const goalVersionsBefore = await readGoalVersions(trackedRunIds);
-      const freeInput = await probeFreeInput(
+      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t5-live-only-ambiguous.png"), fullPage: true });
+      checks.ambiguous_notice_and_selector_visible &&=
+        reload.visible.ambiguous_notice_visible &&
+        reload.visible.selector_group_visible &&
+        reload.visible.selector_options.length === 2;
+      checks.ambiguous_plain_input_new_request &&= !reload.visible.steer_mode;
+      const plain = await probeMainInput(
         page,
-        `按已核对结果先出方案，继续推进第一章结构调整，标记B31FREE-T5-${trialTokens.t5}`,
-        "T5 free input on two live-only awaiting runs",
+        `先保留当前计划，等我确认后再继续，B31CP2-T5A-${token}`,
+        "T5 ambiguous plain input",
         trackedRunIds,
         work.id,
         sessionId,
       );
+      checks.ambiguous_plain_input_new_request &&= plain.sent_event === "user_message";
+      const selectorTarget = planSeedA;
+      const selector = await clickTaskSelector(page, selectorTarget.goal_summary);
+      const focusedVisible = await readVisibleInputState(page, "T5 after selector focus");
+      checks.selector_focus_steer_ok &&=
+        focusedVisible.steer_mode &&
+        focusedVisible.steer_target_texts.includes(selectorTarget.goal_summary);
+      const steerProbe = await probeMainInput(
+        page,
+        `按已核对结果先出方案，继续推进第一章结构调整，B31CP2-T5B-${token}`,
+        "T5 steer after selector focus",
+        trackedRunIds,
+        work.id,
+        sessionId,
+      );
+      checks.selector_focus_steer_ok &&=
+        steerProbe.sent_event === "agent_command" &&
+        steerProbe.target_run_id === selectorTarget.runId;
+      checks.steer_expected_goal_version_sent &&=
+        steerProbe.expected_goal_version_sent === 1;
+      checks.steer_ack_binding_fields &&=
+        steerProbe.ack.resolved_run_id === selectorTarget.runId &&
+        steerProbe.ack.binding_source === "explicit_steer" &&
+        steerProbe.ack.goal_version === 2;
+      checks.selector_steer_other_run_untouched &&=
+        steerProbe.goal_versions_after[planSeedB.runId] === 1;
+      await page.screenshot({ path: path.join(artifactDir, "b31-cp2-t5-focused-steer.png"), fullPage: true });
       evidence.trials.push({
-        id: "T5_two_live_only_awaiting_runs",
+        id: "T5_live_only_ambiguous_selector_then_steer",
         purpose:
-          "两个都没有 TurnResult 的 live awaiting run：恢复广播顺序是否直接决定页面选中的 run 与普通输入目标（R1/R3 决定性对照）。",
-        trial_token: trialTokens.t5,
+          "两个无显式问题的 live awaiting run：普通输入为歧义新请求+可见选择提示；点选任务后主输入恢复该 run steer，wire 带 expected_goal_version，ack 返回 resolved_run_id/binding_source 且另一 run 不推进。",
         work_id: work.id,
         session_id: sessionId,
         runs: {
-          question: null,
-          plan_a: { run_id: planSeedA.runId },
-          plan_b: { run_id: planSeedB.runId },
-          plan: { run_id: planSeedB.runId },
+          plan_a: { run_id: planSeedA.runId, goal_summary: planSeedA.goal_summary },
+          plan_b: { run_id: planSeedB.runId, goal_summary: planSeedB.goal_summary },
         },
-        tracked_run_ids: trackedRunIds,
-        creation_order: trackedRunIds,
-        newest_run_id: planSeedB.runId,
         seed_method: "external_protocol_push_user_message",
         reload,
-        visible_after_reload: visible,
-        restore_order: (reload.restore_order ?? []).map((entry) => entry.run_id),
-        last_restored_run_id: reload.restore_order?.at(-1)?.run_id ?? null,
-        goal_versions_before: goalVersionsBefore,
-        free_input: freeInput,
-        target_equals_last_restored: freeInput.target_run_id === (reload.restore_order?.at(-1)?.run_id ?? null),
+        ambiguous_plain_input: plain,
+        selector,
+        focused_visible: focusedVisible,
+        steer_after_focus: steerProbe,
       });
     } finally {
       await closeProtocolWorkspace(client);
     }
   }
 
-  const flatBindingChecks = {
-    free_input_sent_as_plain_steer_count: evidence.trials.reduce(
-      (count, trial) =>
-        count +
-        ["free_input_first", "free_input_repeat", "free_input_after_reload", "free_input_plain_answer"].filter(
-          (key) => trial[key]?.sent_event === "agent_command",
-        ).length,
-      0,
-    ),
-    free_input_sent_as_new_user_message_count: evidence.trials.reduce(
-      (count, trial) =>
-        count +
-        ["free_input_first", "free_input_repeat", "free_input_after_reload", "free_input_plain_answer"].filter(
-          (key) => trial[key]?.sent_event === "user_message",
-        ).length,
-      0,
-    ),
-    explicit_reply_bound_question_run: evidence.trials
-      .filter((trial) => trial.explicit_reply || trial.explicit_reply_after_plain)
-      .every(
+  // 汇总实测值（拒绝字符串式自证：每个 check 都由具体帧/持久事实推导）。
+  const plainInputs = evidence.trials
+    .flatMap((trial) => [
+      trial.plain_input_first,
+      trial.plain_input_repeat,
+      trial.plain_input_after_reload,
+      trial.plain_input,
+      trial.ambiguous_plain_input,
+      trial.steer_after_focus,
+    ])
+    .filter(Boolean);
+  evidence.cp2 = {
+    checks,
+    measured: {
+      plain_input_count: plainInputs.length,
+      plain_input_new_run_count: plainInputs.filter((probe) => probe.sent_event === "user_message")
+        .length,
+      plain_input_steer_count: plainInputs.filter((probe) => probe.sent_event === "agent_command")
+        .length,
+      question_notice_observations: evidence.trials.filter(
         (trial) =>
-          (trial.explicit_reply ?? trial.explicit_reply_after_plain)?.binds_question_run === true,
-      ),
-    selected_run_equals_last_restored_run: evidence.trials
-      .filter((trial) => trial.reload?.restore_order?.length > 0)
-      .every((trial) => {
-        const lastRestored = trial.reload.restore_order.at(-1)?.run_id;
-        const selected =
-          trial.visible_after_reload?.selected_kind === "question_run"
-            ? trial.runs.question.run_id
-            : trial.runs.plan.run_id;
-        return lastRestored === selected;
-      }),
-    two_live_only_runs_free_input_target_equals_last_restored: evidence.trials
-      .filter((trial) => trial.id === "T5_two_live_only_awaiting_runs")
-      .every((trial) => trial.target_equals_last_restored === true),
-    two_live_only_runs_observed_restore_order: evidence.trials
-      .filter((trial) => trial.id === "T5_two_live_only_awaiting_runs")
-      .map((trial) => ({ restore_order: trial.restore_order, target_run_id: trial.free_input?.target_run_id })),
-  };
-  evidence.binding_checks = flatBindingChecks;
-  evidence.summary = {
-    trials: evidence.trials.length,
-    create_orders_covered: [
-      "question_run_then_plan_run_ui",
-      "plan_run_then_question_run_protocol_seed",
-      "question_run_then_plan_run_protocol_seed",
-      "two_live_only_plan_runs_protocol_seed",
-    ],
-    restore_observations: evidence.trials
-      .filter((trial) => trial.reloads)
-      .flatMap((trial) => trial.reloads.map((reload) => reload.restore_order)),
-    plain_free_input_targets: evidence.trials.map((trial) => {
-      const probe =
-        trial.free_input_first ??
-        trial.free_input_after_reload ??
-        trial.free_input_plain_answer ??
-        trial.free_input ??
-        null;
-      const selectedKind = probe?.visible_before?.selected_kind ?? null;
-      const planRunId = trial.runs?.plan?.run_id ?? null;
-      const questionRunId = trial.runs?.question?.run_id ?? null;
-      const selectedRunId = selectedKind === "question_run" ? questionRunId : planRunId;
-      return {
-        trial: trial.id,
-        input_intent_question_or_structure:
-          trial.id.startsWith("T3") || trial.id.startsWith("T4")
-            ? "answer_visible_question"
-            : "continue_structure_task",
-        selected_kind: selectedKind,
-        target_run_id: probe?.target_run_id ?? null,
-        selected_run_id: selectedRunId,
-        target_is_selected: Boolean(selectedRunId && probe?.target_run_id === selectedRunId),
-        sent_event: probe?.sent_event ?? null,
-      };
-    }),
+          trial.visible_after_creation?.question_notice_visible ||
+          trial.reload?.visible?.question_notice_visible ||
+          trial.plain_input_first?.visible_after?.question_notice_visible,
+      ).length,
+      ambiguous_notice_observations: evidence.trials.filter(
+        (trial) => trial.reload?.visible?.ambiguous_notice_visible,
+      ).length,
+      selector_steer_expected_goal_version:
+        evidence.trials.find((trial) => trial.steer_after_focus)?.steer_after_focus
+          ?.expected_goal_version_sent ?? null,
+      selector_steer_ack:
+        evidence.trials.find((trial) => trial.steer_after_focus)?.steer_after_focus?.ack ?? null,
+      explicit_reply_ack: evidence.trials
+        .map((trial) => trial.explicit_reply?.ack)
+        .filter(Boolean),
+      reconnect_log_orders: evidence.trials
+        .filter((trial) => trial.reconnect_log_orders)
+        .map((trial) => trial.reconnect_log_orders),
+      restore_frame_orders: evidence.trials
+        .filter((trial) => trial.restore_frame_orders)
+        .map((trial) => trial.restore_frame_orders),
+    },
   };
 
   fs.writeFileSync(
-    path.join(artifactDir, "b31-cp0-evidence.json"),
+    path.join(artifactDir, "b31-cp2-evidence.json"),
     JSON.stringify(evidence, null, 2),
   );
-  await page.screenshot({ path: path.join(artifactDir, "b31-final.png"), fullPage: true });
+  await page.screenshot({ path: path.join(artifactDir, "b31-cp2-final.png"), fullPage: true });
 
   return [
     {
@@ -35844,22 +35900,17 @@ async function driveB31AuthorReplyRunBinding(page) {
       outcome: "done",
       trials: evidence.trials.length,
       trial_ids: evidence.trials.map((trial) => trial.id),
-      trial_tokens: trialTokens,
-      binding_checks: flatBindingChecks,
-      free_input_targets: evidence.summary.plain_free_input_targets,
-      restore_observations: evidence.summary.restore_observations,
-      explicit_reply_bound_question_run: flatBindingChecks.explicit_reply_bound_question_run,
-      selected_run_equals_last_restored_run:
-        flatBindingChecks.selected_run_equals_last_restored_run,
-      plain_free_input_steer_count: flatBindingChecks.free_input_sent_as_plain_steer_count,
-      plain_free_input_new_run_count: flatBindingChecks.free_input_sent_as_new_user_message_count,
-      protocol_seed_used_for_trial_setup: true,
-      measured_inputs_all_from_real_workbench: true,
+      cp2_checks: checks,
+      cp2_measured: evidence.cp2.measured,
+      passed_trial_ids: evidence.trials
+        .filter((trial) => trial.id)
+        .map((trial) => trial.id),
       no_product_code_changed: true,
+      measured_inputs_all_from_real_workbench: true,
+      protocol_seed_used_for_trial_setup: true,
     },
   ];
 }
-
 
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,

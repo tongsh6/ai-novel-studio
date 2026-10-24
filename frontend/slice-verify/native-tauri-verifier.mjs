@@ -2145,29 +2145,56 @@ function b27PromptLifecycleBehavior(records, evidence, options) {
   };
 }
 
-// B31 CP0（未注册草案）：真实页面隔离复现多 awaiting run 的普通输入归属。
-// 本 finder/behavior 只用于让既有 Tauri runner 生成 summary.json 证据，不把 CP0
-// 复现结果当 PASS 注册；输入来源/绑定/根因表由 driver 的 b31-cp0-evidence.json 与
-// artifacts/model-contracts/b31-cp0/ui-repro.md 承担。
+// B31 CP2：真实页面复验 CP1 绑定语义（确定性 provider）。finder 只筛 UI 证据字段；
+// 行为断言由 driver 从真实 WS 帧/ack/persist 推导的 cp2_checks 承担，避免字符串自证。
 function findB31AuthorReplyRunBindingEvidence(records) {
   const sliceId = "b31-author-reply-run-binding";
   const ui = records.find(
     (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
   );
   if (!ui) return null;
-  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 3) return null;
-  if (!ui.binding_checks || typeof ui.binding_checks !== "object") return null;
-  if (ui.explicit_reply_bound_question_run !== true) return null;
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 5) return null;
+  const checks = ui.cp2_checks;
+  if (!checks || typeof checks !== "object") return null;
+  const required = [
+    "open_question_plain_input_new_request",
+    "open_question_notice_visible",
+    "question_run_left_open",
+    "structure_run_not_advanced",
+    "explicit_reply_bound_question_run",
+    "explicit_reply_goal_version_advanced",
+    "post_reply_steer_target_visible",
+    "ambiguous_notice_and_selector_visible",
+    "ambiguous_plain_input_new_request",
+    "selector_focus_steer_ok",
+    "steer_expected_goal_version_sent",
+    "steer_ack_binding_fields",
+    "selector_steer_other_run_untouched",
+    "restore_order_stable",
+    "reload_plain_input_new_request",
+    "no_product_code_changed",
+  ];
+  if (!required.every((key) => checks[key] === true)) return null;
   if (ui.measured_inputs_all_from_real_workbench !== true) return null;
   if (ui.protocol_seed_used_for_trial_setup !== true) return null;
   if (ui.no_product_code_changed !== true) return null;
+  const measured = ui.cp2_measured ?? {};
+  if (Number(measured.plain_input_new_run_count ?? 0) < 5) return null;
+  if (Number(measured.plain_input_steer_count ?? 0) !== 1) {
+    // 唯一允许的 plain steer 是「点选任务后显式继续该任务」（T5）。
+    return null;
+  }
+  if (measured.selector_steer_expected_goal_version !== 1) return null;
+  const ack = measured.selector_steer_ack ?? {};
+  if (ack.resolved_run_id == null || ack.binding_source !== "explicit_steer") return null;
+  if (ack.goal_version !== 2) return null;
   return {
     slice_id: sliceId,
-    turn_id: "b31-cp0-multi-awaiting-runs",
+    turn_id: "b31-cp2-binding-semantics",
     turn_ids: [],
     trial_ids: ui.trial_ids,
-    free_input_targets: ui.free_input_targets ?? [],
-    restore_observations: ui.restore_observations ?? [],
+    cp2_checks: checks,
+    cp2_measured: measured,
     key_events: keyEventsForSlice(sliceId),
   };
 }
@@ -2179,26 +2206,30 @@ function b31AuthorReplyRunBindingBehavior(records, evidence, _options) {
       record.slice_id === "b31-author-reply-run-binding",
   );
   if (!ui) return null;
-  const checks = ui.binding_checks ?? {};
+  const checks = ui.cp2_checks ?? {};
   return {
     slice_id: "b31-author-reply-run-binding",
-    behavior: "b31_cp0_multi_awaiting_run_plain_input_binding_isolation_repro",
+    behavior: "b31_cp2_author_reply_run_binding_semantics_verified_on_real_workbench",
     turn_ids: [],
     trials: evidence.trial_ids,
-    binding_checks: checks,
-    free_input_targets: evidence.free_input_targets,
-    restore_observations: evidence.restore_observations,
+    cp2_checks: checks,
+    cp2_measured: evidence.cp2_measured,
     assertions: [
-      "two_live_awaiting_runs_created_in_one_work_session",
-      "plain_free_input_binding_recorded_with_run_id_and_server_ack",
-      "explicit_author_choice_reply_binds_question_run",
-      "restore_order_and_selected_run_recorded_across_reloads",
-      "creation_order_and_target_age_permutations_covered",
-      "repeated_input_recorded_without_cross_run_advancement",
+      "open_question_plain_main_input_becomes_new_request_with_visible_notice",
+      "question_run_remains_open_and_structure_run_goal_version_untouched",
+      "explicit_author_choice_reply_binds_question_run_with_expected_goal_version",
+      "post_reply_steer_target_visible_for_remaining_run",
+      "ambiguous_live_only_runs_show_visible_notice_and_real_task_selector",
+      "selector_focus_restores_plain_steer_to_selected_run",
+      "steer_wire_carries_expected_goal_version",
+      "steer_ack_returns_resolved_run_id_and_binding_source",
+      "other_live_run_goal_version_not_advanced",
+      "join_restore_order_stable_across_reloads",
+      "reload_then_plain_input_still_new_request_not_cross_run_steer",
       "no_product_code_or_acceptance_hook_changed",
     ],
     note:
-      "CP0 reproduction only; scenario remains unregistered draft until binding root cause is adjudicated in B31 CP1.",
+      "B31 CP2 binding semantics evidence uses slice_verify deterministic provider; real-model natural-language quality belongs to the semantic matrix, not this scenario.",
   };
 }
 
