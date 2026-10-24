@@ -608,3 +608,134 @@ defmodule NovelAgent.Provider.SliceVerifyChapterWriterFixtureTest do
     assert format_body == @base_text
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  defp judgment_prompt(author_text, opts \\ []) do
+    planned = Keyword.get(opts, :planned_volumes)
+    directory = Keyword.get(opts, :directory, true)
+
+    facts =
+      if planned,
+        do: "- 全书：全书目标=未登记；目标总字数=60000；预计卷数=#{planned}；连载形态=SERIALIZED；正文统计：4 章中已写 3 章、计划中 1 章",
+        else: "- 全书：全书目标=未登记；目标总字数=未登记；正文统计：4 章中已写 3 章"
+
+    chapters =
+      if directory do
+        """
+
+        ## 章节列表（共 4 章：已写 3 章，计划中 1 章）
+        - 第 1 章「潮声之前」[chapter_ref=chapter:11111111-1111-1111-1111-111111111111]
+        - 第 3 章「外门名册上的空白」[chapter_ref=chapter:22222222-2222-2222-2222-222222222222]
+        - 第 4 章「旧钱与旧名」[chapter_ref=chapter:33333333-3333-3333-3333-333333333333]
+        """
+      else
+        ""
+      end
+
+    """
+    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
+
+    ## 作品事实（持久化只读投影）
+    #{facts}
+    #{chapters}
+
+    ## 作者输入
+    #{author_text}
+    """
+  end
+
+  defp arguments_of(result) do
+    assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
+    args
+  end
+
+  test "B30 维护正例：第2卷编号理顺 → execute maintain_chapter_structure" do
+    author = "把第2卷章节编号理顺，内容不要动"
+    prompt = judgment_prompt(author, planned_volumes: 2)
+
+    assert %{
+             mode: :execute,
+             capability: "maintain_chapter_structure",
+             dialogue_goal: ^author
+           } = SliceVerify.chapter_structure_arguments(prompt)
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    args = arguments_of(result)
+
+    assert args["action"] == "execute"
+    assert args["capability"] == "maintain_chapter_structure"
+    assert args["dialogue_goal"] == author
+    refute Map.has_key?(args, "pending_artifact_ref")
+    refute Map.has_key?(args, "adopted_content_ref")
+    refute args["capability"] in ["plot_outline", "prose_writing"]
+  end
+
+  test "B30 负例：不存在卷/多卷未点名 → ask_author 澄清，不猜、不生成大纲" do
+    out_of_range = judgment_prompt("把不存在的第九卷章节编号理顺，内容不要动", planned_volumes: 2)
+
+    assert {:ok, out_result} = SliceVerify.complete(nil, nil, out_of_range, %InferenceParams{})
+
+    assert [%{"name" => "ask_author", "arguments" => ask}] = out_result.tool_calls
+    question = ask[:question] || ask["question"]
+    assert question =~ "第9卷"
+    assert question =~ "2 卷"
+    assert (ask[:options] || ask["options"]) == []
+
+    ambiguous = judgment_prompt("把章节编号理顺，内容不要动", planned_volumes: 2)
+    assert {:ok, amb_result} = SliceVerify.complete(nil, nil, ambiguous, %InferenceParams{})
+
+    assert [%{"name" => "ask_author", "arguments" => amb_ask}] = amb_result.tool_calls
+    assert (amb_ask[:question] || amb_ask["question"]) =~ "多卷"
+    refute Enum.any?(amb_result.tool_calls, &(&1["name"] == "judgment_decision"))
+  end
+
+  test "B30 单卷未点名可执行；无章节目录 → 澄清" do
+    single = judgment_prompt("把章节编号理顺，内容不要动", planned_volumes: 1)
+    assert %{mode: :execute} = SliceVerify.chapter_structure_arguments(single)
+
+    no_directory =
+      judgment_prompt("把第2卷章节编号理顺，内容不要动", planned_volumes: 2, directory: false)
+
+    assert %{mode: :clarify} = SliceVerify.chapter_structure_arguments(no_directory)
+  end
+
+  test "B28/Q1c/普通创作分支不回归（维护 fixture 不误触发）" do
+    b28 = """
+    本次你承担创作判断器的角色。
+
+    ## 可选章级修订目标（只读；ref 唯一，title 仅展示）
+    - chapter:11111111-1111-1111-1111-111111111111｜第01章：夜潮｜片段数 2｜覆盖 complete
+
+    ## 作者输入
+    把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。
+    """
+
+    assert SliceVerify.chapter_structure_arguments(b28) == nil
+
+    q1c = """
+    本次你承担创作判断器的角色。
+
+    ## 已采纳可修订对象（只用于 revise_adopted_content）
+    - as_q1c_setting：revise_adopted_content
+
+    ## 作者输入
+    把已保存设定中岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。
+    """
+
+    assert SliceVerify.chapter_structure_arguments(q1c) == nil
+
+    outline = """
+    本次你承担创作判断器的角色。
+
+    ## 作者输入
+    帮我规划第三卷的章节大纲和分章结构。
+    """
+
+    assert SliceVerify.chapter_structure_arguments(outline) == nil
+  end
+end

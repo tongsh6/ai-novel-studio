@@ -409,6 +409,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       plan_protocol_mode(input) != nil ->
         plan_protocol_judgment(input)
 
+      # B30 CP4：结构维护意图直接产出 execute/ask_author（不经过 generic 叙事覆盖，
+      # 澄清问题保留具体卷号/当前卷数）；B28/Q1c 不命中该意图。
+      chapter_structure_prompt?(prompt_text) ->
+        judgment_chapter_structure_result(prompt_text)
+
       String.contains?(input, "把已有角色的叙事身份从配角改为主角") ->
         narrative = "当前工具没有修改已有角色主档案叙事身份的能力；角色演化只写演化记录，不能代替身份修改。可以先讨论调整方案，原档案保持不变。"
 
@@ -2910,11 +2915,155 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(prompt, "依据如下") ->
         judgment_cited_reply_decision_result(prompt)
 
+      # B30 CP4：章节结构维护（重编号）意图 → maintain_chapter_structure execute；
+      # 缺卷/越界/多卷歧义 → ask_author 澄清（不猜、不生成大纲/新正文）。
+      chapter_structure_prompt?(prompt) ->
+        judgment_chapter_structure_result(prompt)
+
       request != nil ->
         judgment_explore_decision_result(prompt, request)
 
       true ->
         judgment_decision_verdict_result(prompt)
+    end
+  end
+
+  @doc """
+  B30 CP4 test-support：解析判断 prompt 的章节结构维护意图（与产品
+  `ChapterStructureMaintenance.intent?/1` 同义），并只根据 prompt 里可见的
+  作品预约卷数/章节目录决定 execute 或澄清。返回 nil（非维护意图）或
+  %{mode: :execute | :clarify, ...}。仅 fixture 使用，不参与产品协议字段。
+  """
+  def chapter_structure_arguments(prompt) when is_binary(prompt) do
+    author_text = judgment_author_input(prompt)
+
+    if chapter_structure_maintenance_intent?(author_text) do
+      build_chapter_structure_decision(
+        author_text,
+        String.contains?(prompt, "## 章节列表"),
+        chapter_volume_number(author_text),
+        planned_volumes_from_prompt(prompt)
+      )
+    end
+  end
+
+  def chapter_structure_arguments(_prompt), do: nil
+
+  defp build_chapter_structure_decision(author_text, false, _named, _planned) do
+    structure_clarify(author_text, "当前作品还没有可维护的章节结构；请先确认要维护哪一卷的编号。")
+  end
+
+  defp build_chapter_structure_decision(author_text, true, named, planned)
+       when is_integer(named) and is_integer(planned) and (named < 1 or named > planned) do
+    structure_clarify(
+      author_text,
+      "没有找到第#{named}卷；当前作品登记 #{planned} 卷。请确认要维护哪一卷的章节编号。"
+    )
+  end
+
+  defp build_chapter_structure_decision(author_text, true, named, planned)
+       when is_integer(named) and is_integer(planned) do
+    structure_execute(author_text)
+  end
+
+  defp build_chapter_structure_decision(author_text, true, named, nil) when is_integer(named) do
+    structure_clarify(author_text, "无法从当前作品信息确认卷范围；请先确认要维护哪一卷的章节编号。")
+  end
+
+  defp build_chapter_structure_decision(author_text, true, _named, 1),
+    do: structure_execute(author_text)
+
+  defp build_chapter_structure_decision(author_text, true, _named, _planned) do
+    structure_clarify(author_text, "当前作品登记多卷；请指出要维护哪一卷的章节编号，我不会猜。")
+  end
+
+  defp structure_execute(author_text) do
+    %{mode: :execute, capability: "maintain_chapter_structure", dialogue_goal: author_text}
+  end
+
+  defp structure_clarify(author_text, question) do
+    %{
+      mode: :clarify,
+      capability: "maintain_chapter_structure",
+      dialogue_goal: author_text,
+      question: question
+    }
+  end
+
+  defp chapter_structure_prompt?(prompt), do: chapter_structure_arguments(prompt) != nil
+
+  defp chapter_structure_maintenance_intent?(text) do
+    (String.contains?(text, ["编号", "序号", "章号", "重编号", "列表编号", "编号理顺", "章节顺序", "结构编号"]) or
+       String.contains?(text, ["编号", "序号"])) and
+      String.contains?(text, ["卷", "章", "章节", "目录", "列表"])
+  end
+
+  defp planned_volumes_from_prompt(prompt) do
+    case Regex.run(~r/预计卷数[=:：]\s*(\d+)/u, prompt) do
+      [_, n] -> String.to_integer(n)
+      _ -> nil
+    end
+  end
+
+  defp chapter_volume_number(text) do
+    case Regex.run(~r/第\s*([0-9一二三四五六七八九十]+)\s*卷/u, text) do
+      [_, raw] -> chapter_volume_number_value(raw)
+      _ -> nil
+    end
+  end
+
+  @chapter_volume_digits %{
+    "一" => 1,
+    "二" => 2,
+    "三" => 3,
+    "四" => 4,
+    "五" => 5,
+    "六" => 6,
+    "七" => 7,
+    "八" => 8,
+    "九" => 9,
+    "十" => 10
+  }
+
+  defp chapter_volume_number_value(raw) do
+    case Integer.parse(raw) do
+      {n, ""} -> n
+      _ -> Map.get(@chapter_volume_digits, raw)
+    end
+  end
+
+  defp judgment_chapter_structure_result(prompt) do
+    decision = chapter_structure_arguments(prompt)
+
+    case decision.mode do
+      :execute ->
+        narrative = "按你的要求维护章节结构：只重编号，不改标题/正文/归卷/章数；我会先给出可审阅的旧→新编号变更计划。"
+
+        Result.new(narrative, nil,
+          tool_calls: [
+            %{
+              "id" => "call_judgment_decision",
+              "name" => "judgment_decision",
+              "arguments" => %{
+                "action" => "execute",
+                "capability" => "maintain_chapter_structure",
+                "dialogue_goal" => decision.dialogue_goal,
+                "reason" => "chapter_structure_maintenance"
+              }
+            }
+          ]
+        )
+
+      :clarify ->
+        Result.new(decision.question, nil,
+          tool_calls: [
+            %{
+              "id" => "call_ask_author",
+              "name" => "ask_author",
+              "arguments" => %{question: decision.question, options: []}
+            }
+          ]
+        )
     end
   end
 

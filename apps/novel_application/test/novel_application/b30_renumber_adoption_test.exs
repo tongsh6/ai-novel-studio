@@ -1,6 +1,8 @@
 defmodule NovelApplication.B30RenumberAdoptionTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.AdoptionWorkflow
   alias NovelFoundation.Enums.AdoptionStatus
@@ -93,8 +95,12 @@ defmodule NovelApplication.B30RenumberAdoptionTest do
     assert Repo.get!(Chapter, c1.id).seq == 13
     assert Repo.get!(Chapter, c3.id).seq == 11
     assert Repo.get!(Chapter, c2.id).seq == 12
-    assert Repo.aggregate(Chapter, :count) == 3
-    assert Enum.all?(Repo.all(Draft), &(&1.status == AdoptionStatus.accepted()))
+    assert chapter_count(work.id) == 3
+
+    assert Enum.all?(
+             from(d in Draft, where: d.work_id == ^work.id) |> Repo.all(),
+             &(&1.status == AdoptionStatus.accepted())
+           )
   end
 
   test "renumber effect 校验：unsupported_effect / no_target 拒绝且零写入" do
@@ -128,5 +134,9 @@ defmodule NovelApplication.B30RenumberAdoptionTest do
 
     after_rows = Repo.all(Chapter) |> Enum.map(&{&1.id, &1.seq})
     assert after_rows == before
+  end
+
+  defp chapter_count(work_id) do
+    Repo.aggregate(from(c in Chapter, where: c.work_id == ^work_id), :count)
   end
 end

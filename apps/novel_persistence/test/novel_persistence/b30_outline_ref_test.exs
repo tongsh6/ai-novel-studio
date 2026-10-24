@@ -1,6 +1,8 @@
 defmodule NovelPersistence.B30OutlineRefTest do
   use NovelPersistence.DataCase, async: false
 
+  import Ecto.Query
+
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.AdoptionRepository
   alias NovelPersistence.ChapterPlanParser
@@ -57,7 +59,7 @@ defmodule NovelPersistence.B30OutlineRefTest do
       revision: 1
     })
 
-    before = Repo.all(Chapter) |> Enum.map(&{&1.id, &1.title, &1.seq, &1.volume_id})
+    before = chapters_for(work.id) |> Enum.map(&{&1.id, &1.title, &1.seq, &1.volume_id})
     hash = :crypto.hash(:sha256, "原正文")
 
     content = """
@@ -68,9 +70,9 @@ defmodule NovelPersistence.B30OutlineRefTest do
 
     assert {:ok, _} = persist_outline(work, content)
 
-    after_rows = Repo.all(Chapter) |> Enum.map(&{&1.id, &1.title, &1.seq, &1.volume_id})
+    after_rows = chapters_for(work.id) |> Enum.map(&{&1.id, &1.title, &1.seq, &1.volume_id})
     assert Enum.sort(before) == Enum.sort(after_rows)
-    assert Repo.aggregate(Chapter, :count) == 2
+    assert chapter_count(work.id) == 2
 
     updated = Repo.get!(Chapter, c1.id)
     assert updated.title == "第11章：外门名册"
@@ -99,14 +101,14 @@ defmodule NovelPersistence.B30OutlineRefTest do
     """
 
     assert {:ok, _} = persist_outline(work, content)
-    assert Repo.aggregate(Chapter, :count) == 3
+    assert chapter_count(work.id) == 3
     assert Repo.get!(Chapter, duplicate.id).summary == "同标题摘要"
     assert Repo.get!(Chapter, c1.id).summary == nil
 
     # 无 ref：旧 (work_id,title) 幂等，命中原有章不新建
     content_legacy = "#{c1.title}: 旧式摘要\n章功能定位：过渡章"
     assert {:ok, _} = persist_outline(work, content_legacy)
-    assert Repo.aggregate(Chapter, :count) == 3
+    assert chapter_count(work.id) == 3
     assert Repo.get!(Chapter, c1.id).summary == "旧式摘要"
 
     # 非法格式 ref：回退旧 title 幂等（不猜、不 crash）
@@ -116,7 +118,7 @@ defmodule NovelPersistence.B30OutlineRefTest do
     """
 
     assert {:ok, _} = persist_outline(work, content_bad_format)
-    assert Repo.aggregate(Chapter, :count) == 4
+    assert chapter_count(work.id) == 4
   end
 
   test "合法 ref 不存在/跨作品 → target_missing 零写入", _c do
@@ -188,7 +190,15 @@ defmodule NovelPersistence.B30OutlineRefTest do
 
     assert new_chapter
     assert new_chapter.seq > 12
-    assert Repo.aggregate(Chapter, :count) == 3
+    assert chapter_count(work.id) == 3
     assert Repo.get!(Volume, volume.id).work_id == work.id
+  end
+
+  defp chapter_count(work_id) do
+    Repo.aggregate(from(c in Chapter, where: c.work_id == ^work_id), :count)
+  end
+
+  defp chapters_for(work_id) do
+    from(c in Chapter, where: c.work_id == ^work_id) |> Repo.all()
   end
 end

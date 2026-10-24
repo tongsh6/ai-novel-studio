@@ -1,6 +1,8 @@
 defmodule NovelApplication.B30ChapterStructureContextIntegrationTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.ChapterStructureMaintenance
   alias NovelPersistence.Repo
@@ -45,7 +47,9 @@ defmodule NovelApplication.B30ChapterStructureContextIntegrationTest do
            ]
 
     # 只读：change_plan 构建后章 seq/标题/归卷未变化
-    chapters = Repo.all(Chapter) |> Enum.map(&{&1.id, &1.seq, &1.title, &1.volume_id})
+    chapters =
+      Repo.all(from(c in Chapter, where: c.work_id == ^work.id))
+      |> Enum.map(&{&1.id, &1.seq, &1.title, &1.volume_id})
 
     assert Enum.sort(chapters) ==
              Enum.sort([

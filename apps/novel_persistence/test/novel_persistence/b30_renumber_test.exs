@@ -1,6 +1,8 @@
 defmodule NovelPersistence.B30RenumberTest do
   use NovelPersistence.DataCase, async: false
 
+  import Ecto.Query
+
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.AdoptionRepository
   alias NovelPersistence.Repo
@@ -67,8 +69,13 @@ defmodule NovelPersistence.B30RenumberTest do
   test "renumber 交换 11↔13 原子提交：seq 变化、id/章数/归卷/title/正文 hash 不变", ctx do
     [c1, c2, c3] = ctx.chapters
 
-    before = Repo.all(Chapter) |> Enum.map(&{&1.id, &1.title, &1.volume_id})
-    before_hashes = Map.new(Repo.all(Draft), &{&1.scene_id, :crypto.hash(:sha256, &1.content)})
+    before = chapters_for(ctx.work.id) |> Enum.map(&{&1.id, &1.title, &1.volume_id})
+
+    before_hashes =
+      Map.new(
+        from(d in Draft, where: d.work_id == ^ctx.work.id) |> Repo.all(),
+        &{&1.scene_id, :crypto.hash(:sha256, &1.content)}
+      )
 
     mapping = [
       %{"chapter_ref" => "chapter:#{c1.id}", "new_seq" => 13},
@@ -87,16 +94,21 @@ defmodule NovelPersistence.B30RenumberTest do
     assert receipt.effects == ["display_number_only"]
     assert receipt.duplicate == false
 
-    assert Enum.map(Repo.all(Chapter) |> Enum.sort_by(& &1.seq), & &1.seq) == [11, 12, 13]
+    assert Enum.map(chapters_for(ctx.work.id) |> Enum.sort_by(& &1.seq), & &1.seq) == [11, 12, 13]
     assert Repo.get!(Chapter, c1.id).seq == 13
     assert Repo.get!(Chapter, c3.id).seq == 11
     assert Repo.get!(Chapter, c2.id).seq == 12
-    assert Repo.aggregate(Chapter, :count) == 3
+    assert chapter_count(ctx.work.id) == 3
 
-    after_rows = Repo.all(Chapter) |> Enum.map(&{&1.id, &1.title, &1.volume_id})
+    after_rows = chapters_for(ctx.work.id) |> Enum.map(&{&1.id, &1.title, &1.volume_id})
     assert Enum.sort(before) == Enum.sort(after_rows)
 
-    after_hashes = Map.new(Repo.all(Draft), &{&1.scene_id, :crypto.hash(:sha256, &1.content)})
+    after_hashes =
+      Map.new(
+        from(d in Draft, where: d.work_id == ^ctx.work.id) |> Repo.all(),
+        &{&1.scene_id, :crypto.hash(:sha256, &1.content)}
+      )
+
     assert after_hashes == before_hashes
 
     # 幂等重放：已提交回执（duplicate）
@@ -180,7 +192,7 @@ defmodule NovelPersistence.B30RenumberTest do
   end
 
   test "蓝图行 object_kind/title 防护：type_mismatch 拒绝且不建章/不占 seq", ctx do
-    before = Repo.aggregate(Chapter, :count)
+    before = chapter_count(ctx.work.id)
 
     assert {:error, :type_mismatch} =
              AdoptionRepository.persist(%{
@@ -193,6 +205,14 @@ defmodule NovelPersistence.B30RenumberTest do
                summary: "第2卷：卷蓝图"
              })
 
-    assert Repo.aggregate(Chapter, :count) == before
+    assert chapter_count(ctx.work.id) == before
+  end
+
+  defp chapter_count(work_id) do
+    Repo.aggregate(from(c in Chapter, where: c.work_id == ^work_id), :count)
+  end
+
+  defp chapters_for(work_id) do
+    from(c in Chapter, where: c.work_id == ^work_id) |> Repo.all()
   end
 end
