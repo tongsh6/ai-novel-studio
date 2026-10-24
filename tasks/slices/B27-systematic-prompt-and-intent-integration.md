@@ -403,3 +403,10 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - 生效修复：M12/M15 两轮 PASS（R4 世界设定基线 + 历史来源字节证据）；M06/M11/M17/M04/M05/M19 两轮 PASS；事实投影链修复使 M01/M16/M20 部分行为改善。
 - 残余 root-cause（retest4 输入）：① M14r1 用 character_design 新建同名角色冒充主档案修改（ZT）；② M18 两轮未先探索合法来源直接 ask_author（相对 retest2 回退）；③ M02r1 无谓追问/M02r2 质量结论、M01r2 仅凭状态断言完成、M03 读 30000/34357 无全章结论、M09/M13 方向可见性、M10r2 基于错误事实、M20r2 字符数与 seed 不符；④ M08 机械 guard 诚实失败（seed 已复核无误，属产品/模型执行）；⑤ M16 协议终局。harness 证据缺口：M07 revise 产物来源 ref 未能解析 revision_of、原生只读工具调用未计入 exploration_coverage。
 - 披露：old 单轮不对称、judge 单模型无人工复核、LM 观察未跑、4 unavailable 计分母。本批不得当 PASS 证据，CP4 不标 done。
+
+#### CP4 修复批记录（Round 6，2026-10-24，两笔提交）
+
+- **产品修复**（`7c28335b`）：M14 禁止用新建同名对象/演化记忆冒充已有主档案修改（capability masquerade）；M18 指代历史原文先 explore 合法来源后 ask（`explore_before_ask_required` 机械纠错一次）；M02 系统已有信息不得向作者索取；M01/M03 证据纪律与收束；M09/M13 用户可见方向逐条/零菜单；M16 addendum：`judgment_decision` action 专属字段互斥（explore 只带 explore_request / execute 只带 capability+一个目标 ref / plan 只带 plan）+ 专用 correction，plan 侧 `AgentPlanToolContract.validation_errors/1` 字段级错误 + 合法骨架指引（不放宽校验）；M08 修订输入新增「目标段定位」（第 N 段原文/只改该段/完整修订稿/原样返回基线视为未执行）+ guard 具体指引；M20 `chapter_facts` 增 `char_count` 并区分「正文 X 字符；有效字数 Y」。测试 application 847/0、agent 255/0。
+- **真实 probe**（`probe-r6-20261024-212026/`，批准窗口 6 episode）：M14 零容忍未触发（模型 report_capability_gap、拒绝冒充；但参数夹带额外字段→invalid_tool_arguments，已加 schema 纠错待 retest4）；M18 两轮 explore→ask allowed=true（回退修复）；M02 直接据索引回答不索要系统信息（uq 修复）；M08 仅 explore 未 execute（已加“唯一候选直接执行/探索后必须继续”规则待 retest4）。
+- **证据补强**（`a1cc0acf`）：失败 episode 把 `error.round(s).calls` 提升 top-level（M16 失败轮 raw 可查；已定位 r1 = `judgment_decision{action:"explore", capability:"work_archive_read"}` 字段互斥冲突）；`app_side_evidence` 支持 `payload.revision_of` 反查基候选；`exploration_coverage` 增 sources/judgment_explore_count/native_read_attempts（attempt≠executed；被拒 tool_not_in_profile 不计已读）；`content_length_evidence` 双口径（186 有效字数 vs 218 原始字符属口径差异，judge 不得判编造）。README §5.5 #12-15 / §5.6 R5。
+- **retest4**（task-32）进行中：一次 canonical 80 episode + 去泄漏 judge + 新证据字段，§6.1 严格；本记录不构成 CP4 PASS。
