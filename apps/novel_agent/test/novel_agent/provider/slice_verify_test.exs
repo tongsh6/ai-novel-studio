@@ -1060,3 +1060,74 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     assert SliceVerify.character_profile_arguments(q1c) == nil
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyCharacterDesignJudgmentTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  @shen "character:11111111-1111-1111-1111-111111111111"
+
+  defp prompt(author_text, opts \\ []) do
+    roster = Keyword.get(opts, :roster)
+
+    roster_section =
+      if roster do
+        """
+
+        ## 角色索引（已有角色；character_ref 是身份，name/aliases 仅展示与消歧）
+        - #{@shen}｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜查账人
+        """
+      else
+        ""
+      end
+
+    """
+    本次你承担创作判断器的角色。
+
+    ## 作品事实（持久化只读投影）
+    - 全书：正文统计：0 章中已写 0 章
+
+    ## 章节列表（共 0 章：已写 0 章，计划中 0 章）
+    （当前作品还没有章节）
+    #{roster_section}
+
+    ## 作者输入
+    #{author_text}
+    """
+  end
+
+  test "AU09 回归：设计主角 → execute/character_design（空 roster 也能产候选）" do
+    author = "帮我设计一个主角，作为这部作品的核心人物。"
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt(author), %InferenceParams{})
+    assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
+
+    assert args["action"] == "execute"
+    assert args["capability"] == "character_design"
+    assert args["dialogue_goal"] == author
+    refute args["capability"] == "revise_character_profile"
+  end
+
+  test "设计新角色不抢已有角色修订；指定已有先走 revise_character_profile" do
+    design = prompt("设计一个新主角", roster: true)
+    assert {:ok, design_result} = SliceVerify.complete(nil, nil, design, %InferenceParams{})
+    [design_call] = design_result.tool_calls
+    assert design_call["arguments"]["capability"] == "character_design"
+
+    revise = prompt("指定老沈为主角", roster: true)
+    assert {:ok, revise_result} = SliceVerify.complete(nil, nil, revise, %InferenceParams{})
+    [revise_call] = revise_result.tool_calls
+    assert revise_call["arguments"]["capability"] == "revise_character_profile"
+    assert revise_call["arguments"]["character_ref"] == @shen
+  end
+
+  test "主角查询仍不触发设计/修订（诚实回答）" do
+    query = prompt("现在谁是主角？")
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, query, %InferenceParams{})
+    assert result.tool_calls == []
+    assert result.content =~ "目前还没有谁被标记为主角"
+  end
+end

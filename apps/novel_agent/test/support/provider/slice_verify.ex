@@ -405,10 +405,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp judgment_result(_prompt, prompt_text) do
     input = judgment_author_input(prompt_text)
 
-    cond do
-      plan_protocol_mode(input) != nil ->
-        plan_protocol_judgment(input)
+    if plan_protocol_mode(input) != nil do
+      plan_protocol_judgment(input)
+    else
+      judgment_result_cond(prompt_text, input)
+    end
+  end
 
+  defp judgment_result_cond(prompt_text, input) do
+    cond do
       # B30 CP4：结构维护意图直接产出 execute/ask_author（不经过 generic 叙事覆盖，
       # 澄清问题保留具体卷号/当前卷数）；B28/Q1c 不命中该意图。
       chapter_structure_prompt?(prompt_text) ->
@@ -469,6 +474,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       protagonist_question_prompt?(prompt_text) ->
         narrative = character_role_answer(prompt_text)
         Result.new(narrative, nil)
+
+      # AU09：设计/创建新角色（含「帮我设计一个主角…」）→ execute character_design；
+      # B29 已有角色修订分支先匹配，protagonist 查询分支先匹配，设计新角色不抢。
+      character_design_request_prompt?(prompt_text) ->
+        judgment_character_design_result(prompt_text)
 
       true ->
         regular_judgment_result(prompt_text)
@@ -3399,6 +3409,28 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> String.split(["、", ",", "，"], trim: true)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
+  end
+
+  defp judgment_character_design_result(prompt) do
+    author_text = judgment_author_input(prompt)
+
+    narrative =
+      "我会按你的要求设计一个待采纳的角色候选（含结构化 narrative_role），确认前不会写入作品事实。"
+
+    Result.new(narrative, nil,
+      tool_calls: [
+        %{
+          "id" => "call_judgment_decision",
+          "name" => "judgment_decision",
+          "arguments" => %{
+            "action" => "execute",
+            "capability" => "character_design",
+            "dialogue_goal" => author_text,
+            "reason" => "character_design_request"
+          }
+        }
+      ]
+    )
   end
 
   defp judgment_cited_reply_decision_result(prompt) do
