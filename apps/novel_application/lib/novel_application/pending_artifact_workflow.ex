@@ -169,15 +169,89 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp maintain_chapter_structure(judgment, input, run, context) do
     author_text = to_string(run.goal.text || "")
 
-    with {:ok, facts} <- chapter_structure_facts(input, run),
-         {:ok, plan} <-
-           NovelApplication.ChapterStructureMaintenance.change_plan(author_text, facts),
-         {:ok, result} <- build_structure_change_candidate(judgment, plan, facts, run, context) do
-      {:ok, result}
-    else
-      {:error, {:chapter_structure_invalid, _} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:chapter_structure_invalid, reason}}
+    outcome =
+      with {:ok, facts} <- chapter_structure_facts(input, run),
+           {:ok, plan} <-
+             NovelApplication.ChapterStructureMaintenance.change_plan(author_text, facts),
+           {:ok, result} <- build_structure_change_candidate(judgment, plan, facts, run, context) do
+        {:ok, result}
+      else
+        {:error, {:chapter_structure_invalid, reason}} -> {:error, reason}
+        {:error, reason} -> {:error, reason}
+      end
+
+    case outcome do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, reason} ->
+        # B30 CP4：维护能力的目标/范围/效果错误必须回到作者可见的拒绝/澄清结果，
+        # 不能升级为 agent_run 通用内部错误；拒绝路径零写入。
+        maintain_refusal_result(judgment, input, run, context, reason)
     end
+  end
+
+  defp maintain_refusal_result(judgment, input, run, context, reason) do
+    frame = frame(judgment, input, run, :meta_discussion, nil)
+    {trace, summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
+
+    trace = %{
+      trace
+      | decision_type: :chapter_structure_maintenance,
+        no_write_reason: "chapter_structure_not_applied",
+        event_order: [
+          :author_input_received,
+          :dialogue_context_attached,
+          :chapter_structure_change_rejected,
+          :turn_result_emitted
+        ]
+    }
+
+    turn_result =
+      TurnResultBuilder.build(frame, summary, [], nil, nil, nil)
+      |> Map.put(:assistant_message, %{text: maintain_refusal_message(reason)})
+      |> Map.merge(%{
+        workspace_id: run.workspace_id,
+        work_id: run.work_id,
+        session_id: run.session_id
+      })
+
+    DialogueGateway.persist_turn_trace(
+      {:ok, turn_result, trace, [], context},
+      run.workspace_id,
+      run.session_id,
+      field(input, :trace_persister)
+    )
+
+    {:ok,
+     %{
+       turn_result: turn_result,
+       artifact_refs: [],
+       tool_call_count: 0,
+       provider_call_count: 0
+     }}
+  end
+
+  defp maintain_refusal_message(:target_ambiguous) do
+    "无法确定要重编号的目标章节：当前请求指向多个候选（例如重复编号或同名章节）。" <>
+      "我没有改动任何章节——请用章节卡片或明确的章序号确认目标后再试。"
+  end
+
+  defp maintain_refusal_message(:no_target) do
+    "没有找到要重编号的目标章节。我没有改动任何章节——请确认要调整的卷/章节范围后再试。"
+  end
+
+  defp maintain_refusal_message(:out_of_range) do
+    "目标卷或章节范围超出当前作品结构。我没有改动任何章节——请确认目标卷/章后再试。"
+  end
+
+  defp maintain_refusal_message(:unsupported_effect) do
+    "当前只支持章节重编号（展示编号/顺序），尚未支持该结构变更效果。" <>
+      "我没有改动任何章节。"
+  end
+
+  defp maintain_refusal_message(reason) do
+    "本轮章节结构维护未能安全执行（原因：#{reason}）。我没有改动任何章节。"
   end
 
   defp chapter_structure_facts(input, run) do

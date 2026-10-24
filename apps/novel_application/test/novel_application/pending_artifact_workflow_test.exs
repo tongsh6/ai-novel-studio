@@ -814,4 +814,50 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     |> Repo.all()
     |> Enum.map(&{&1.id, &1.seq, &1.title, &1.volume_id})
   end
+
+  test "B30 维护负例：越界目标 → 作者可见拒绝（非内部错误）、零写入、无候选", c do
+    volume = Repo.insert!(%Volume{work_id: c.work.id, title: "第二卷", seq: 2})
+
+    for {title, seq} <- [{"第11章：甲", 11}, {"第12章：乙", 12}] do
+      Repo.insert!(%Chapter{work_id: c.work.id, volume_id: volume.id, title: title, seq: seq})
+    end
+
+    goal_text = "把第九卷章节编号理顺，内容不要动"
+    run = %{c.run | goal: %{text: goal_text, version: 1}}
+
+    judgment = %{
+      action: "execute",
+      capability: "maintain_chapter_structure",
+      dialogue_goal: goal_text,
+      narrative: "作者点名了不存在的卷。"
+    }
+
+    before = chapter_rows(c.work.id)
+
+    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
+
+    assert %{assistant_message: %{text: text}} = result.turn_result
+    assert text =~ "超出当前作品结构"
+    assert result.artifact_refs == []
+    assert chapter_rows(c.work.id) == before
+    assert result.tool_call_count == 0 and result.provider_call_count == 0
+  end
+
+  test "B30 维护负例：无目标 → 作者可见拒绝、零写入、无候选", c do
+    goal_text = "把第2卷章节编号理顺，内容不要动"
+    run = %{c.run | goal: %{text: goal_text, version: 1}}
+
+    judgment = %{
+      action: "execute",
+      capability: "maintain_chapter_structure",
+      dialogue_goal: goal_text,
+      narrative: "当前作品没有可维护的卷章结构。"
+    }
+
+    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
+
+    assert %{assistant_message: %{text: text}} = result.turn_result
+    assert text =~ "没有找到要重编号的目标章节"
+    assert result.artifact_refs == []
+  end
 end
