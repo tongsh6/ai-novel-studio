@@ -800,7 +800,7 @@ async function configureProviderRuntime(attrs) {
 function activeSliceVerifyProvider() {
   const provider = process.env.SLICE_VERIFY_PROVIDER ?? "slice_verify";
   assert(
-    ["slice_verify", "lmstudio", "deepseek"].includes(provider),
+    ["slice_verify", "lmstudio", "deepseek", "strata"].includes(provider),
     `Unsupported slice verify provider: ${provider}`,
   );
   return provider;
@@ -842,6 +842,15 @@ async function providerRuntimeAttrsForExternalRun(provider) {
       "qwen/qwen3.5-122b-a10b";
 
     return { provider: "lmstudio", endpoint, model };
+  }
+
+  if (provider === "strata") {
+    // B28 CP4：Strata App 管理的唯一统一入口（supports_endpoint=false），
+    // 部署侧可用 NOVEL_STRATA_ENDPOINT 覆盖；模型由 Strata App 管理。
+    return compactProviderAttrs({
+      provider: "strata",
+      model: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
+    });
   }
 
   const apiKey = process.env.NOVEL_DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY;
@@ -35973,6 +35982,11 @@ const B28_FORMAT_ONLY_REQUEST =
   "把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。";
 const B28_CONTENT_REQUEST =
   "把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。";
+// B28 CP4：整章只排版请求的「原话」与「改述」版本（任务原文，不得改写）。
+const B28_CP4_ORIGINAL_REQUEST =
+  "把第一章正文整理一下，只调整分段和排版，不要改字句。";
+const B28_CP4_PARAPHRASE_REQUEST =
+  "第一章正文帮我统一下排版和分段，文字别动。";
 
 // 冻结归一规则（B28 CP1）：行尾空白删除 → 换行归一 → 文末空行折叠；其余字节相等。
 function b28NormalizeFormatText(text) {
@@ -36717,6 +36731,212 @@ async function driveB28WholeChapterRevision(page) {
     ).drafts.filter((row) => row.draft_status === "ACCEPTED").length,
     accepted_drafts_total_after_second: baseline.accepted_refs.length,
   });
+
+  // ── B28 CP4：真实模型（strata/iq3_s）原话/改述整章只排版验证（单槽串行）────────
+  // 前史由确定性 slice_verify 经真实 UI 写入（初稿 2517 + 零换行续写 1075），
+  // 证据标注「模型仅验证修订轮」；真实模型只承担本轮修订意图与 writer 产出。
+  const cp4PhrasingRaw = process.env.B28_CP4_PHRASING;
+  if (cp4PhrasingRaw) {
+    const cp4Phrasing = String(cp4PhrasingRaw).toLowerCase().includes("paraphrase")
+      ? "paraphrase"
+      : "original";
+    const cp4Request =
+      cp4Phrasing === "paraphrase" ? B28_CP4_PARAPHRASE_REQUEST : B28_CP4_ORIGINAL_REQUEST;
+    const cp4Baseline = await factsFor(seedWorkId, chapterAId);
+    const cp4Source = cp4Baseline.accepted_text;
+    await configureProviderRuntime(await providerRuntimeAttrsForExternalRun("strata"));
+    const cp4Turn = await sendAuthorTurn(cp4Request, `B28 CP4 ${cp4Phrasing}`, 600_000);
+    const cp4Candidate = candidateFacts(cp4Turn);
+    const cp4Flags = cp4Turn.llm_prompts;
+    const cp4VisibleText = cp4Candidate.candidate_present
+      ? await page.locator("body").innerText()
+      : "";
+    await page
+      .screenshot({ path: path.join(artifactDir, `b28-cp4-${cp4Phrasing}-candidate.png`), fullPage: true })
+      .catch(() => {});
+    const cp4NormalizedEqualsSource =
+      cp4Candidate.candidate_present &&
+      b28NormalizeFormatText(cp4Candidate.candidate_body) === b28NormalizeFormatText(cp4Source);
+    let cp4Adoption = null;
+    let cp4AdoptionError = null;
+    let cp4FormatOnlyViolation = false;
+    if (cp4Candidate.candidate_present) {
+      try {
+        cp4Adoption = await adoptRevisionCandidate(cp4Turn, `B28 CP4 ${cp4Phrasing} adoption`);
+      } catch (error) {
+        cp4AdoptionError = String(error?.message ?? error);
+        cp4FormatOnlyViolation = /format_only_violation/.test(cp4AdoptionError);
+      }
+    }
+    const cp4After = await factsFor(seedWorkId, chapterAId);
+    const cp4Reading = await readingSnapshot(`cp4-${cp4Phrasing}-after`);
+    const cp4NewChapters = cp4After.chapters.filter(
+      (row) => !cp4Baseline.chapters.some((old) => old.id === row.id),
+    );
+    const cp4ChapterIdentityStable =
+      cp4After.chapters.length === cp4Baseline.chapters.length && cp4NewChapters.length === 0;
+    const cp4OldSuperseded =
+      cp4After.drafts.filter((row) => row.draft_status === "SUPERSEDED").length >= 2;
+    const cp4ReadingEqualsCandidate =
+      cp4Candidate.candidate_present &&
+      b28NormalizeFormatText(cp4After.accepted_text) ===
+        b28NormalizeFormatText(cp4Candidate.candidate_body);
+    const cp4Positive = cp4NormalizedEqualsSource && cp4Adoption;
+    const cp4Checks = {
+      model_provider_strata: true,
+      model_requested: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
+      prehistory_deterministic_slice_verify: true,
+      judgment_bound_chapter:
+        cp4Flags.some(
+          (prompt) =>
+            (prompt.contains_chapter_ref || prompt.contains_chapter_title) &&
+            (prompt.contains_format_only || prompt.contains_whole_chapter_words),
+        ),
+      writer_prompt_covers_both_fragments: cp4Flags.some(
+        (prompt) =>
+          prompt.contains_initial_unique_phrase && prompt.contains_continuation_unique_phrase,
+      ),
+      candidate_present: cp4Candidate.candidate_present,
+      candidate_target_chapter_ref:
+        cp4Candidate.target_chapter_ref === `chapter:${chapterAId}`,
+      candidate_modification_scope_format_only:
+        cp4Candidate.modification_scope === "format_only",
+      candidate_effect_replace_scope: cp4Candidate.adoption_effect_mode === "replace_scope",
+      candidate_covers_both_fragments:
+        cp4Candidate.contains_initial_anchor && cp4Candidate.contains_continuation_anchor,
+      candidate_base_text_covers_both:
+        cp4Candidate.base_text_contains_initial_anchor === true &&
+        cp4Candidate.base_text_contains_continuation_anchor === true,
+      candidate_normalized_equals_source: cp4NormalizedEqualsSource,
+      positive_adoption_applied: Boolean(cp4Adoption),
+      positive_same_chapter_identity: cp4Positive ? cp4ChapterIdentityStable : null,
+      positive_old_fragments_superseded: cp4Positive ? cp4OldSuperseded : null,
+      positive_reading_consumes_new_value: cp4Positive ? cp4ReadingEqualsCandidate : null,
+      format_only_violation_honest_rejection:
+        cp4Candidate.candidate_present && !cp4NormalizedEqualsSource
+          ? cp4FormatOnlyViolation && !cp4Adoption && cp4ChapterIdentityStable
+          : null,
+      format_only_violation_no_write:
+        cp4Candidate.candidate_present && !cp4NormalizedEqualsSource
+          ? !cp4Adoption && cp4After.accepted_text === cp4Source
+          : null,
+      model_behavior_recorded: true,
+    };
+    const cp4Outcome = cp4Candidate.candidate_present
+      ? cp4NormalizedEqualsSource
+        ? "positive"
+        : "format_only_violation_or_unexpected"
+      : "no_candidate_model_fallback";
+    evidence.trials.push({
+      id: `CP4_real_model_${cp4Phrasing}`,
+      purpose:
+        "真实模型 strata/iq3_s 在真实工作台验证整章只排版原话/改述：judgment 绑章+format_only，writer 收到全章材料；候选归一后等价（正例）或按 format_only_violation 诚实拒绝（负例）；采纳同章替代。",
+      model: {
+        provider: "strata",
+        model: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
+        requested_via: "PUT /api/provider/config",
+      },
+      prehistory: {
+        provider: "slice_verify",
+        deterministic: true,
+        created_via_real_ui: true,
+        initial_fragment_chars: initialFragment.length,
+        continuation_fragment_chars: continuationFragment.length,
+        continuation_newline_count: (continuationFragment.match(/\n/g) ?? []).length,
+        note: "前史为确定性 slice_verify seed（真实 UI 生成/采纳），模型仅验证修订轮",
+      },
+      request_text: cp4Request,
+      baseline: {
+        chapter_count: cp4Baseline.chapters.length,
+        chapter_a_id: chapterAId,
+        accepted_refs: cp4Baseline.accepted_refs,
+        chapter_content_chars: cp4Source.length,
+        chapter_content_sha256: sha256(cp4Source),
+      },
+      model_behavior: {
+        assistant_text: cp4Turn.assistant_text,
+        judgment_records: cp4Turn.judgment_records,
+        llm_prompts: cp4Flags,
+        visible_excerpt: cp4VisibleText.slice(0, 1200),
+        failure_records: cp4Turn.failure_records,
+      },
+      candidate: cp4Candidate,
+      adoption: cp4Adoption,
+      adoption_error: cp4AdoptionError,
+      consequence: {
+        chapter_count_after: cp4After.chapters.length,
+        chapter_identity_stable: cp4ChapterIdentityStable,
+        new_chapters: cp4NewChapters,
+        chapter_a_content_chars_after: cp4After.accepted_text.length,
+        chapter_a_content_sha256_after: sha256(cp4After.accepted_text),
+        old_fragments_superseded: cp4OldSuperseded,
+        current_accepted_refs_after: cp4After.accepted_refs,
+        reading_mode_visible: cp4Reading.visible,
+        reading_excerpt: cp4Reading.excerpt,
+      },
+      format_only_result: {
+        normalized_equals_source: cp4NormalizedEqualsSource,
+        honest_rejection: cp4FormatOnlyViolation,
+        outcome: cp4Outcome,
+      },
+      contract_checks: cp4Checks,
+    });
+    evidence.cp4 = {
+      phrasing: cp4Phrasing,
+      request_text: cp4Request,
+      model: { provider: "strata", model: process.env.NOVEL_STRATA_MODEL ?? "iq3_s" },
+      prehistory_deterministic: true,
+      trials: evidence.trials.length,
+      checks: cp4Checks,
+      evidence_boundary:
+        "前史确定性 slice_verify；真实模型仅承担本轮 judgment/writer（原话/改述各 1 次 canonical，不重跑换分）。",
+    };
+    evidence.checks = cp4Checks;
+    evidence.summary = {
+      checks_passed: Object.values(cp4Checks).filter((value) => value === true).length,
+      checks_total: Object.values(cp4Checks).filter((value) => value !== null).length,
+      checks_null: Object.values(cp4Checks).filter((value) => value === null).length,
+      all_positive_checks_passed:
+        cp4Outcome === "positive" &&
+        cp4Checks.judgment_bound_chapter === true &&
+        cp4Checks.writer_prompt_covers_both_fragments === true &&
+        cp4Checks.candidate_target_chapter_ref === true &&
+        cp4Checks.candidate_modification_scope_format_only === true &&
+        cp4Checks.candidate_effect_replace_scope === true &&
+        cp4Checks.positive_adoption_applied === true &&
+        cp4Checks.positive_same_chapter_identity === true &&
+        cp4Checks.positive_old_fragments_superseded === true &&
+        cp4Checks.positive_reading_consumes_new_value === true,
+      format_only_negative_branch_honest:
+        cp4Outcome !== "positive" && cp4Checks.format_only_violation_honest_rejection === true,
+      outcome: cp4Outcome,
+    };
+    fs.writeFileSync(
+      path.join(artifactDir, "b28-cp4-strata-evidence.json"),
+      JSON.stringify(evidence, null, 2),
+    );
+    await page
+      .screenshot({ path: path.join(artifactDir, "b28-cp4-final.png"), fullPage: true })
+      .catch(() => {});
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: B28_SLICE_ID,
+        outcome: cp4Outcome,
+        provider: "strata",
+        model: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
+        phrasing: cp4Phrasing,
+        evidence_note:
+          "前史确定性 slice_verify；真实模型仅验证修订轮；原话/改述各 1 次 canonical，不重跑换分。",
+        cp4_checks: cp4Checks,
+        summary: evidence.summary,
+        trials: evidence.trials.length,
+        trial_ids: evidence.trials.map((trial) => trial.id),
+        no_product_code_changed: true,
+        measured_inputs_all_from_real_workbench: true,
+      },
+    ];
+  }
 
   // ── T1：整章只排版 ────────────────────────────────────────────────────────────
   const formatBaseline = await factsFor(seedWorkId, chapterAId);
