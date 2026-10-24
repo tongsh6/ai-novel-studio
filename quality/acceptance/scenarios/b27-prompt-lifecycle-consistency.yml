@@ -118,6 +118,7 @@ registration_checklist:
   - 4. 在 frontend/slice-verify/external-ui-driver.mjs 的 drivers map 注册；tauri_slice_verify.sh 的 --list 需能识别（按现有实现模式加白名单分支）。
   - 5. 跑 bash scripts/quality_manifest_check.sh 通过；再跑 bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri --provider slice_verify 取得机制证据。
   - 6. 跑 --provider strata（真实模型）取得语义生命周期证据；artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri-strata/ 落 screenshot/WS/app_jsonl/llm_call_jsonl/summary。
+  - driver 必须走真实 WorkspaceChat 可见语义（真实主输入/候选卡片/采纳/刷新恢复），断言 judgment→plan→writer→evaluator→summary→adoption→下一轮 的可回放链（以 turn/run/trace/候选/采纳持久事实与 provider 请求为证据）；不得新增产品验收感知逻辑、testid 或旁路 Channel 注入。
   - 7. 未取得真实 PASS 证据前不得标 active，不得在 slice 汇报写“页面验收通过”。
   - 8. 与 B27 §6.1 语义矩阵分开报告：本场景是页面生命周期/来源一致性证据，不是 40 episode 门槛。
 regression_relations:

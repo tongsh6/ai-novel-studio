@@ -94,6 +94,7 @@ registration_checklist:
   - 2. 在 quality/acceptance/scenarios.yml 登记（tier=nightly/surface=tauri/default_provider=strata/driver/manifest/entrypoint 含 --surface tauri）。
   - 3. 登记 quality/acceptance/scenarios/README.md Files 表。
   - 4. 先在 slice_verify provider 下跑机制证据，再用 strata 跑真实语义证据；两者证据分开报告。
+  - driver 必须走真实 WorkspaceChat 可见语义（真实主输入/候选卡片/采纳/刷新恢复），断言 judgment→plan→writer→evaluator→summary→adoption→下一轮 的可回放链（以 turn/run/trace/候选/采纳持久事实与 provider 请求为证据）；不得新增产品验收感知逻辑、testid 或旁路 Channel 注入。
   - 5. 未取得真实 PASS 证据前保持 draft/blocked，不得声明页面验收通过。
 regression_relations:
   - rel: B26 Q3B capability gap

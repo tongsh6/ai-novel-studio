@@ -250,10 +250,11 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
 - **integrated 臂在 B27 CP3 完成前只作 harness 冒烟**：专业调用（writer/evaluator/摘要/盘点等）尚未全部迁移，
   判断/计划入口是当前生产真源；CP4 正式矩阵必须在 CP3 完成后重跑，不能拿冒烟数据当门槛数据。
 - **old 臂单轮**（见 §5.2）与 integrated 多轮不完全对称；正式对照需在 CP4 报告中显式披露。
-- **LM Studio 必验模型口径**：`config/test.exs`/`config/dev.exs` 的生产默认模型是 `qwen/qwen3.8-27b`，
-  CP0 `required_models` 冻结的 LM Studio 证据模型是 `qwen3.8-flash-next@q2_k`；运行器默认取生产配置模型并支持
-  `--model` 覆盖，episode/manifest 记录实际请求模型。CP4 执行批须先裁决必验集合的 LM Studio 具体模型并单独记录，
-  不得用 `qwen/qwen3.8-27b` 通过冒充另一个模型的必验通过。
+- **必验模型口径（Lead 2026-10-24 裁决，CP4 执行批沿用）**：B27 §6.1 必验模型 = **`strata` / `iq3_s`**
+  （stage 实际 provider/model）；LM Studio `qwen/qwen3.8-27b` 仅作**第二通道观察**（可跑、可记录，不作必验通过声明）；
+  `qwen3.8-flash-next@q2_k` 本轮不声明。运行器请求模型可用 `--model` 覆盖并记录到 episode/manifest 的
+  `requested_model`/`actual_model`；不得用观察通道通过冒充必验模型通过。必验模型清单目前仍以 `../cases.yml#required_models`
+  的 CP0 冻结事实为准，本裁决只约束 CP4 通过声明的口径。
 - **stub 不是语义证据**：`semantic_evidence=false`，只证明管道/字段/DB 隔离/step 驱动。
 - 快照冻结/复跑仍用原 `scripts/b27_case_freeze.exs`（见 §6）；旧规则臂资产 hash 不变，运行器只读不回写。
 
