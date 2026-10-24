@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B31-AUTHOR-REPLY-RUN-BINDING | 一般输入、换话题与旧讨论进入正确任务；复用 B26 明确问题绑定。**当前任务**：B27 CP4 已按作者裁决记录 known-gap（retest6 34/40、key_set 仅 M01r2、unavailable 0）并转入本任务；先读 [B31 slice](slices/B31-author-reply-run-binding.md) 并做 CP0 复现，再按 NEXT 推进。 | [B31](slices/B31-author-reply-run-binding.md) |
+| B31-AUTHOR-REPLY-RUN-BINDING | **CP0 已完成（2026-10-25）**：真实 Tauri 复现两 live awaiting run 时普通主输入被 plain steer 到错误 run（Q 仍 open），根因=前端 visibleAgentRunMap 插入序 + 普通输入只看 selected run + JoinRestore 顺序无契约；显式 author_choice 路径正确。**CP1 进行中**：前端确定性 selectActiveAgentRun + 主输入 steer 条件/目标可见（task-41）；后端 expected_goal_version 校验 + JoinRestore 稳定序 + ack 绑定（task-42）→ CP2 场景复验/注册（task-43）。 | [B31](slices/B31-author-reply-run-binding.md) |
 
 ## 后续候选
 
