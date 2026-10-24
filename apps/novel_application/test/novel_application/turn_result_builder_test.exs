@@ -78,4 +78,57 @@ defmodule NovelApplication.TurnResultBuilderTest do
       reason_codes: [to_string(type)]
     }
   end
+
+  test "build/8 pending_payload 只对本次候选追加 additive 字段（旧调用无变化）" do
+    {:ok, artifact} =
+      NovelApplication.ArtifactAssembler.assemble(
+        %NovelCommon.Contracts.ToolResult{
+          tool_result_id: "tr-b28",
+          tool_request_ref: "tq-b28",
+          tool_name: "prose_writing",
+          status: :succeeded,
+          output: %{
+            artifact_type: "prose_fragment",
+            item_count: 1,
+            items: [%{item_id: "i1", title: "候选", body: "正文", rationale: nil}]
+          },
+          artifact_refs: ["i1"],
+          state_delta: [],
+          usage: %{},
+          trace_refs: [],
+          completed_at: DateTime.utc_now()
+        },
+        "turn-b28"
+      )
+
+    frame = %DialogueFrame{
+      schema_version: "3.0-draft",
+      frame_id: "frame-b28",
+      turn_id: "turn-b28",
+      workspace_id: "work",
+      primary: true,
+      frame_type: :execution_candidate,
+      source_refs: %{author_input_ref: "turn-b28"},
+      dialogue_goal: %{summary: "候选"},
+      tool_need: %{needs_tool: true, reason_code: :tool_needed},
+      execution_readiness: :ready,
+      author_visible_draft: %{message: "候选"},
+      evidence_summary: %{},
+      uncertainty: []
+    }
+
+    legacy = TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact)
+    [legacy_pending] = legacy.adoption_state.pending
+    refute Map.has_key?(legacy_pending.payload, "modification_scope")
+
+    with_payload =
+      TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
+        pending_payload: %{"modification_scope" => "format_only", "base_text" => "正文"}
+      })
+
+    [pending] = with_payload.adoption_state.pending
+    assert pending.payload["modification_scope"] == "format_only"
+    assert pending.payload["base_text"] == "正文"
+    assert pending.payload[:items] |> hd() |> Map.get(:body) == "正文"
+  end
 end

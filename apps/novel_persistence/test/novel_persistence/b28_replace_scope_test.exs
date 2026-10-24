@@ -75,6 +75,14 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
     assert persisted.reading_projection.adoption_effect == "replace_scope"
     assert length(persisted.reading_projection.superseded_draft_refs) == 2
 
+    # B28 CP1.5-A2：顶层 additive 结果回显（WS/回执可断言）
+    assert persisted.adoption_effect.mode == "replace_scope"
+    assert persisted.adoption_effect.coverage == "complete"
+    assert length(persisted.adoption_effect.covered) == 2
+    assert length(persisted.adoption_effect.expected_base_versions) == 2
+    assert length(persisted.superseded_draft_refs) == 2
+    assert Enum.all?(persisted.superseded_draft_refs, &Regex.match?(~r/^draft:[0-9a-f-]+:1$/, &1))
+
     # 章数不变、seq 不变
     assert Repo.aggregate(Chapter, :count) == 1
     assert Repo.get!(Chapter, c.chapter.id).seq == 1
@@ -159,5 +167,55 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
              })
 
     assert Repo.aggregate(Draft, :count) == before
+  end
+
+  test "append 回显 adoption_effect(mode) 且无 superseded；legacy 无 effect 字段兼容" do
+    work_id = Ecto.UUID.generate()
+    volume = Repo.insert!(%Volume{work_id: work_id, title: "第一卷", seq: 1})
+
+    chapter =
+      Repo.insert!(%Chapter{work_id: work_id, volume_id: volume.id, title: "第01章：开端", seq: 1})
+
+    scene = Repo.insert!(%Scene{work_id: work_id, chapter_id: chapter.id, title: "场景 1", seq: 1})
+
+    Repo.insert!(%Draft{
+      work_id: work_id,
+      scene_id: scene.id,
+      content: "初稿",
+      status: AdoptionStatus.accepted(),
+      revision: 1
+    })
+
+    assert {:ok, appended} =
+             AdoptionRepository.persist(%{
+               actor_ref: "author",
+               work_id: work_id,
+               source_turn_ref: "turn-b28-append",
+               artifact_id: "as-b28-append",
+               artifact_type: :prose_fragment,
+               content: "续写片段",
+               summary: "第01章：开端",
+               target_chapter_ref: "chapter:#{chapter.id}",
+               mode: :append,
+               adoption_effect: %{"mode" => "append"}
+             })
+
+    assert appended.adoption_effect.mode == "append"
+    refute Map.has_key?(appended, :superseded_draft_refs)
+
+    # legacy（无 adoption_effect）：保持旧字段，不新增 effect 回显
+    assert {:ok, legacy} =
+             AdoptionRepository.persist(%{
+               actor_ref: "author",
+               work_id: work_id,
+               source_turn_ref: "turn-b28-legacy",
+               artifact_id: "as-b28-legacy",
+               artifact_type: :plot_direction,
+               content: "剧情方向",
+               summary: "方向"
+             })
+
+    refute Map.has_key?(legacy, :adoption_effect)
+    refute Map.has_key?(legacy, :superseded_draft_refs)
   end
 end

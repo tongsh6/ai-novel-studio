@@ -195,4 +195,76 @@ defmodule NovelApplication.B28AdoptionContractTest do
     assert Repo.aggregate(Draft, :count) == 4
     assert {:ok, _} = AdoptionWorkflow.chapter_revision_context(work_id, ref2)
   end
+
+  test "handle_adopt 透传 replace_scope 结果到 action_result（additive）" do
+    source_turn = %{
+      turn_id: "turn-source",
+      work_id: "work-1",
+      adoption_state: %{
+        pending: [
+          %{
+            artifact_id: "as-1",
+            artifact_type: :prose_fragment,
+            adoption_status: "TENTATIVE",
+            requires_adoption: true,
+            payload: %{content: "候选正文"}
+          }
+        ],
+        resolved: []
+      },
+      trace_summary: %{trace_ref: "trace-source"}
+    }
+
+    writer = fn _attrs ->
+      {:ok,
+       %{
+         mutation_id: "mutation-1",
+         mutation_status: "APPLIED",
+         source_revision_ref: "mutation:mutation-1",
+         adoption_effect: %{
+           mode: "replace_scope",
+           covered: ["draft:a"],
+           expected_base_versions: [],
+           coverage: "complete"
+         },
+         superseded_draft_refs: ["draft:a:1", "draft:b:1"],
+         reading_projection: nil
+       }}
+    end
+
+    assert {:ok, action_result, _turn_result} =
+             AdoptionWorkflow.handle_adopt(
+               source_turn,
+               %{"artifact_id" => "as-1", "work_id" => "work-1"},
+               writer
+             )
+
+    assert action_result.adoption_effect.mode == "replace_scope"
+    assert action_result.superseded_draft_refs == ["draft:a:1", "draft:b:1"]
+    assert action_result.persistence.mutation_id == "mutation-1"
+  end
+
+  test "不存在的 chapter ref / 非法 work 返回 :target_missing（不 crash）" do
+    work_id = Ecto.UUID.generate()
+    volume = Repo.insert!(%Volume{work_id: work_id, title: "第一卷", seq: 1})
+
+    chapter =
+      Repo.insert!(%Chapter{work_id: work_id, volume_id: volume.id, title: "第01章：开端", seq: 1})
+
+    scene = Repo.insert!(%Scene{work_id: work_id, chapter_id: chapter.id, title: "场景 1", seq: 1})
+
+    Repo.insert!(%Draft{
+      work_id: work_id,
+      scene_id: scene.id,
+      content: "正文",
+      status: AdoptionStatus.accepted(),
+      revision: 1
+    })
+
+    assert {:error, :target_missing} =
+             AdoptionWorkflow.chapter_revision_context(work_id, "chapter:#{Ecto.UUID.generate()}")
+
+    assert {:error, :target_missing} =
+             AdoptionWorkflow.chapter_revision_context("not-a-uuid", "chapter:#{chapter.id}")
+  end
 end

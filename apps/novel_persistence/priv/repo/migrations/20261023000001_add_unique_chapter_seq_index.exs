@@ -15,6 +15,6 @@ defmodule NovelPersistence.Repo.Migrations.AddUniqueChapterSeqIndex do
   def change do
     # 命名遵循 Ecto 默认约定（SQLite UNIQUE 错误不携带索引名，custom name 无法被
     # `unique_constraint/3` 匹配；用默认名 chapters_work_id_seq_index 才能转 changeset error）。
-    create unique_index(:chapters, [:work_id, :seq])
+    create(unique_index(:chapters, [:work_id, :seq]))
   end
 end

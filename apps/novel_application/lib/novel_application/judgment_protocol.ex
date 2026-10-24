@@ -278,6 +278,8 @@ defmodule NovelApplication.JudgmentProtocol do
     ## 当前作品与实际观察
     #{Map.get(input, :context_block, "")}
 
+    #{chapter_revision_targets_section(options)}
+
     ## 当前可用操作（效果与权限，以本轮真实目录为准）
     #{AuthoringTaskPolicy.operations(options)}
     #{Map.get(input, :author_content_context, "")}
@@ -399,6 +401,21 @@ defmodule NovelApplication.JudgmentProtocol do
     一次只返回一个工具，不能只给文本，不把应用故障或预算停止伪造成作者问题。
     content 可同时自然说明；空 content 时 reason/question/author_reasoning 保留作者可见原话。
     """
+  end
+
+  defp chapter_revision_targets_section(options) do
+    targets = Keyword.get(options, :chapter_revision_targets, [])
+
+    if is_list(targets) and targets != [] do
+      lines =
+        Enum.map_join(targets, "\n", fn target ->
+          "- #{Map.get(target, :chapter_ref)}｜#{Map.get(target, :chapter_title)}｜片段数 #{Map.get(target, :fragment_count)}｜覆盖 #{Map.get(target, :coverage)}｜modification_scope 按作者要求选择：format_only=仅排版 / target_segments=指定片段 / whole_chapter=整章"
+        end)
+
+      "## 可选章级修订目标（只读；ref 唯一，title 仅展示）\n" <> lines
+    else
+      ""
+    end
   end
 
   defp decode(result, profile, input, previous_tools) when is_map(result) do

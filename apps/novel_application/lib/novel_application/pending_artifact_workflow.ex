@@ -66,14 +66,33 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   @doc "已采纳内容目标目录（Q1c）；与 pending 目录分开，避免模型把已采纳对象当候选。"
   def accepted_targets(context) do
-    context.interaction_state
-    |> Map.get(:resolved_adoptions, [])
-    |> Enum.filter(
-      &(to_string(field(&1, :adoption_status)) in NovelDomain.AdoptionStatus.canon_statuses())
-    )
-    |> Map.new(&{field(&1, :artifact_id), operations(&1)})
-    |> Enum.reject(fn {_ref, operations} -> operations == [] end)
-    |> Map.new()
+    artifacts =
+      context.interaction_state
+      |> Map.get(:resolved_adoptions, [])
+      |> Enum.filter(
+        &(to_string(field(&1, :adoption_status)) in NovelDomain.AdoptionStatus.canon_statuses())
+      )
+      |> Map.new(&{field(&1, :artifact_id), operations(&1)})
+      |> Enum.reject(fn {_ref, operations} -> operations == [] end)
+      |> Map.new()
+
+    Map.merge(artifacts, chapter_revision_targets(context))
+  end
+
+  # B28 CP1.5：有 accepted 正文的章目标也进入已采纳可修订目录，让判断能把
+  # “整理第X章正文”绑定到 chapter:<uuid>（而不是单个 as_* artifact）。
+  # 仅暴露完整覆盖的章；ref 唯一，title 只由上下文/章列表展示。
+  defp chapter_revision_targets(context) do
+    work_id = field(context, :workspace_id) || field(context, :work_id)
+
+    with true <- is_binary(work_id),
+         {:ok, targets} <- AdoptionWorkflow.chapter_revision_targets(work_id) do
+      targets
+      |> Enum.filter(&(Map.get(&1, :coverage) == :complete))
+      |> Map.new(&{Map.get(&1, :chapter_ref), ["revise_adopted_content"]})
+    else
+      _ -> %{}
+    end
   end
 
   @doc "由实际目标类型选择执行工具，不能把创作调用藏在 judgment 的权限之下。"
@@ -114,6 +133,23 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     turn = field(input, :turn_id) || run.parent_turn_ref
     NovelCommon.LogContext.put_turn(run.workspace_id, run.work_id, turn, run.session_id)
 
+    if chapter_revision_target?(judgment) do
+      revise_chapter(judgment, input, run, context, provider)
+    else
+      run_artifact_target(judgment, input, run, context, provider)
+    end
+  end
+
+  defp chapter_revision_target?(judgment) do
+    field(judgment, :action) == "execute" and
+      field(judgment, :capability) == "revise_adopted_content" and
+      chapter_ref?(field(judgment, :adopted_content_ref))
+  end
+
+  defp chapter_ref?(ref) when is_binary(ref), do: String.starts_with?(ref, "chapter:")
+  defp chapter_ref?(_ref), do: false
+
+  defp run_artifact_target(judgment, input, run, context, provider) do
     with {:ok, snapshot} <-
            WorkSessionService.show(run.work_id || run.workspace_id, run.session_id),
          false <- snapshot.read_only,
@@ -135,6 +171,297 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       {:error, {:pending_artifact_invalid, _} = reason} -> {:error, reason}
       _ -> {:error, {:pending_artifact_invalid, :target_not_available}}
     end
+  end
+
+  # B28 CP1.5：章级修订（chapter-scoped）——从已采纳正文事实构造 chapter task，
+  # writer 输入含覆盖顺序的整章正文；候选 payload 携带 adoption_effect/format_only base_text。
+  defp revise_chapter(judgment, input, run, context, provider) do
+    chapter_ref = field(judgment, :adopted_content_ref)
+    work_id = run.work_id || run.workspace_id
+    frame = frame(judgment, input, run, :execution_candidate, chapter_ref)
+
+    chapter_title = chapter_revision_title(work_id, chapter_ref)
+    modification_scope = chapter_modification_scope(run, judgment)
+
+    with {:ok, snapshot} <- WorkSessionService.show(work_id, run.session_id),
+         false <- snapshot.read_only,
+         :ok <- check_chapter_authority(run),
+         :ok <- check_budget(run, "revise_adopted_content"),
+         {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
+         {:ok, task} <-
+           build_chapter_revision_task(facts, modification_scope, run, frame, judgment) do
+      tool = "prose_writing"
+      plan = chapter_revision_plan(frame, tool)
+      {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
+
+      request =
+        chapter_revision_request(%{
+          frame: frame,
+          plan: plan,
+          decision: decision,
+          tool: tool,
+          task: task,
+          facts: facts,
+          modification_scope: modification_scope,
+          chapter_title: chapter_title,
+          judgment: judgment,
+          run: run
+        })
+
+      result = AuthorizedToolExecutor.execute(request, provider)
+
+      {trace, summary} =
+        TraceWriter.record_with_tool(
+          frame,
+          plan,
+          decision,
+          request,
+          result,
+          %{turn_id: frame.turn_id},
+          context
+        )
+
+      decision = %{decision | decision_trace_ref: trace.trace_id}
+
+      case ArtifactAssembler.assemble(result, frame.turn_id, %{
+             revision_base: chapter_ref,
+             revision_reason: run.goal.text,
+             target_chapter: chapter_title,
+             target_chapter_ref: chapter_ref
+           }) do
+        {:ok, artifact} ->
+          visible_title = chapter_candidate_title(chapter_title, modification_scope)
+
+          turn_result =
+            TurnResultBuilder.build(
+              frame,
+              summary,
+              [],
+              decision,
+              result,
+              artifact,
+              behavior,
+              %{
+                candidate_title: visible_title,
+                pending_payload:
+                  b28_candidate_payload(
+                    facts,
+                    modification_scope,
+                    chapter_ref,
+                    visible_title
+                  )
+              }
+            )
+
+          finish(turn_result, trace, context, input, run, "revise_chapter", chapter_ref, 1)
+
+        {:error, _reason} ->
+          failed_revision(trace, context, input, run, tool)
+      end
+    else
+      false ->
+        {:error, {:pending_artifact_invalid, :revision_not_allowed}}
+
+      {:error, reason} when reason in [:target_missing, :target_ambiguous, :incomplete_scope] ->
+        {:error, {:pending_artifact_invalid, reason}}
+
+      {:error, {:pending_artifact_invalid, _} = reason} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp check_chapter_authority(run) do
+    tools = field(field(run, :authority_scope), :allowed_tools) || []
+
+    if "prose_writing" in tools,
+      do: :ok,
+      else: {:error, {:pending_artifact_invalid, :capability_not_authorized}}
+  end
+
+  defp chapter_revision_facts(work_id, chapter_ref) do
+    AdoptionWorkflow.chapter_revision_context(work_id, chapter_ref)
+  end
+
+  defp chapter_revision_title(work_id, chapter_ref) do
+    case AdoptionWorkflow.chapter_revision_targets(work_id) do
+      {:ok, targets} ->
+        Enum.find_value(targets, chapter_ref, &target_chapter_title(&1, chapter_ref))
+
+      _ ->
+        chapter_ref
+    end
+  end
+
+  defp target_chapter_title(%{chapter_ref: ref} = target, ref),
+    do: Map.get(target, :chapter_title)
+
+  defp target_chapter_title(_target, _chapter_ref), do: nil
+
+  # 判断/计划只能选到章目标（chapter_ref，无 schema 字段）；范围由本轮作者原话 +
+  # 判断 dialogue_goal 的确定性措辞解析（不做模型关键词猜测的语义改写）。
+  defp chapter_modification_scope(run, judgment) do
+    text = to_string(run.goal.text || "") <> " " <> to_string(judgment.dialogue_goal || "")
+
+    cond do
+      Regex.match?(
+        ~r/(只|仅).{0,10}(调|改|做|整理).{0,10}(标点|分段|排版)|(标点|分段|排版).{0,10}(不改|不变|别改)|别改字句|字句.{0,6}(不变|别动)/u,
+        text
+      ) ->
+        :format_only
+
+      Regex.match?(~r/(整章|全章|整篇|全文|通读)/u, text) ->
+        :whole_chapter
+
+      true ->
+        :target_segments
+    end
+  end
+
+  defp build_chapter_revision_task(facts, modification_scope, run, frame, judgment) do
+    preserve =
+      if modification_scope == :format_only,
+        do: ["只调整标点/分段/排版，不改变字句"],
+        else: []
+
+    attrs = %{
+      target_chapter_ref: facts.target_chapter_ref,
+      covered_refs: facts.covered_refs,
+      expected_base_versions: facts.expected_base_versions,
+      materials: facts.materials,
+      coverage: :complete,
+      modification_scope: modification_scope,
+      author_goal: chapter_author_goal(judgment),
+      author_words: run.goal.text,
+      source: %{kind: :author_action, ref: run_ref(run, frame)},
+      source_refs: [run_ref(run, frame), "turn:" <> frame.turn_id],
+      preserve: preserve
+    }
+
+    case AuthoringTaskBuilder.for_chapter_revision(attrs) do
+      {:ok, task} -> {:ok, task}
+      {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
+    end
+  end
+
+  defp chapter_author_goal(judgment) do
+    case judgment.dialogue_goal do
+      goal when is_binary(goal) and goal != "" -> goal
+      _ -> "按作者要求修订章正文"
+    end
+  end
+
+  defp chapter_revision_plan(frame, tool) do
+    %MicroPlan{
+      plan_id: "plan_#{frame.turn_id}",
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_goal: frame.dialogue_goal,
+      risk_hint: :low,
+      proposed_actions: [
+        %{
+          action_id: "act_revise_chapter_#{frame.turn_id}",
+          action_type: :capability_invocation,
+          summary: "按作者要求修订整章正文",
+          target_ref: tool,
+          write_intent: :tentative,
+          risk_hint: :low
+        }
+      ],
+      stop_after_next_action: true
+    }
+  end
+
+  defp chapter_revision_request(request_context) do
+    %{
+      frame: frame,
+      plan: plan,
+      decision: decision,
+      tool: tool,
+      task: task,
+      facts: facts,
+      modification_scope: modification_scope,
+      chapter_title: chapter_title,
+      judgment: judgment,
+      run: run
+    } = request_context
+
+    registry = CapabilityRegistry.get(tool)
+
+    input =
+      %{
+        "creative_brief" =>
+          "修订#{chapter_title}正文（#{modification_scope_label(modification_scope)}）。" <>
+            "作者原话：#{run.goal.text}
+本轮理解（用于消解上下文指代，与原话冲突时以原话为准）：" <>
+            "#{judgment.dialogue_goal || ""}
+覆盖范围：#{length(facts.covered_refs)} 个已采纳片段，按阅读投影顺序处理。",
+        "context_text" =>
+          "#{chapter_title}当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：
+" <>
+            facts.base_text,
+        "revision" => chapter_revision_instruction(modification_scope),
+        "artifact_type" => "prose_fragment"
+      }
+      |> Map.merge(AuthoringTaskBuilder.to_input(task))
+
+    %ToolRequest{
+      tool_request_id: NovelFoundation.ID.unique("tq_revision_chapter"),
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_ref: decision.decision_id,
+      tool_name: tool,
+      tool_version: registry.tool_version,
+      input: input,
+      read_scope_grants: registry.read_scopes,
+      write_scope_grants: [],
+      idempotency_key: "#{frame.turn_id}:revise_chapter:#{facts.target_chapter_ref}",
+      trace_policy: %{level: "standard"},
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp chapter_revision_instruction(:format_only) do
+    "本轮为整章仅排版修订（format_only）：按覆盖顺序输出整章完整候选，覆盖全部片段；" <>
+      "只调整分段/标点/排版，不改变任何字句；应用会做空白归一后的字节等价校验；不得续写或只输出改动片段。"
+  end
+
+  defp chapter_revision_instruction(_scope) do
+    "本轮为整章正文修订：按覆盖顺序输出覆盖范围的完整替换稿；只改作者指定内容，" <>
+      "其余正文逐字保留；不得只输出片段、摘要或续写。"
+  end
+
+  defp modification_scope_label(:format_only), do: "仅排版"
+  defp modification_scope_label(:whole_chapter), do: "整章内容修订"
+  defp modification_scope_label(:target_segments), do: "指定片段修订"
+
+  defp chapter_candidate_title(chapter_title, :format_only),
+    do: "#{chapter_title}（整章排版修订稿）"
+
+  defp chapter_candidate_title(chapter_title, _scope),
+    do: "#{chapter_title}（整章内容修订稿）"
+
+  defp b28_candidate_payload(facts, modification_scope, chapter_ref, visible_title) do
+    effect = %{
+      "mode" => "replace_scope",
+      "covered" => Enum.map(facts.materials, &"#{&1.ref}:#{&1.version}"),
+      "expected_base_versions" => facts.expected_base_versions,
+      "coverage" => "complete"
+    }
+
+    payload = %{
+      title: visible_title,
+      target_chapter_ref: chapter_ref,
+      modification_scope: Atom.to_string(modification_scope),
+      adoption_effect: effect
+    }
+
+    if modification_scope == :format_only,
+      do: Map.put(payload, :base_text, facts.base_text),
+      else: payload
   end
 
   defp source_for(judgment, snapshot) do

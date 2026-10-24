@@ -568,6 +568,12 @@ defmodule NovelApplication.AdoptionWorkflow do
       {:ok, _no_scopes} ->
         {:error, :incomplete_scope}
 
+      :not_found ->
+        {:error, :target_missing}
+
+      :error ->
+        {:error, :target_missing}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -775,7 +781,25 @@ defmodule NovelApplication.AdoptionWorkflow do
       decision: decision_payload(decision),
       persistence: persisted
     }
+    |> put_b28_result_fields(persisted)
   end
+
+  defp put_b28_result_fields(result, persisted) when is_map(persisted) do
+    result
+    |> maybe_put_b28_field(
+      :adoption_effect,
+      Map.get(persisted, :adoption_effect) || Map.get(persisted, "adoption_effect")
+    )
+    |> maybe_put_b28_field(
+      :superseded_draft_refs,
+      Map.get(persisted, :superseded_draft_refs) || Map.get(persisted, "superseded_draft_refs")
+    )
+  end
+
+  defp put_b28_result_fields(result, _persisted), do: result
+
+  defp maybe_put_b28_field(result, _key, nil), do: result
+  defp maybe_put_b28_field(result, key, value), do: Map.put(result, key, value)
 
   defp build_decision_action_result(%AdoptionDecision{} = decision, artifact) do
     %{
@@ -971,6 +995,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       decision: decision_payload(decision),
       persistence: persisted
     }
+    |> put_b28_result_fields(persisted)
   end
 
   defp build_turn_result(

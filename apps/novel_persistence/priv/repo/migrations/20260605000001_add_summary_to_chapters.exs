@@ -5,7 +5,7 @@ defmodule NovelPersistence.Repo.Migrations.AddSummaryToChapters do
   # 阅读目录/结构面板单一数据源读 chapter，不再依赖独立的 chapter_plans 视图。
   def change do
     alter table(:chapters) do
-      add :summary, :string
+      add(:summary, :string)
     end
   end
 end

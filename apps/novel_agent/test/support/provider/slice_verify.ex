@@ -1927,6 +1927,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     {brief, context} = creative_prompt_parts(prompt)
 
     cond do
+      # B28 CP1.5：章级修订任务（chapter-scoped）确定性产出覆盖顺序完整稿。
+      # format_only：返回整章基线原文（允许的空白归一后等价）；content_revision：
+      # 只落实作者原话里明确写出的“X 改成/改为/→ Y”，其余逐字保留。
+      chapter_revision_prompt?(prompt) ->
+        chapter_revision_items(prompt, brief, context)
+
       String.starts_with?(brief, "修订下面已有候选") ->
         original = context |> String.split("：\n", parts: 2) |> List.last()
         body = String.replace(original, "沈砚", "林渡")
@@ -1991,6 +1997,49 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           [item]
         end
     end
+  end
+
+  defp chapter_revision_prompt?(prompt) do
+    String.contains?(prompt, "整章仅排版修订（format_only）") or
+      String.contains?(prompt, "整章正文修订")
+  end
+
+  defp chapter_revision_items(prompt, brief, context) do
+    base = chapter_revision_base_text(context)
+
+    body =
+      if String.contains?(prompt, "整章仅排版修订（format_only）"),
+        do: base,
+        else: apply_explicit_changes(base, brief)
+
+    [
+      %{
+        item_id: "chapter_revision_#{:erlang.phash2(prompt)}",
+        title:
+          if(String.contains?(prompt, "整章仅排版修订（format_only）"),
+            do: "整章排版修订稿",
+            else: "整章内容修订稿"
+          ),
+        body: body,
+        rationale: "确定性 fixture：按 task 覆盖范围与作者原话输出完整稿。"
+      }
+    ]
+  end
+
+  defp chapter_revision_base_text(context) do
+    case String.split(context, "：\n", parts: 2) do
+      [_prefix, rest] -> String.trim_trailing(rest)
+      _ -> String.trim(context)
+    end
+  end
+
+  defp apply_explicit_changes(text, brief) do
+    ~r/((?:[0-9]+|[一二三四五六七八九十百千两]+)[^\s，。；：]{0,4})(?:改成|改为|→)([^，。；：\s]{1,16})/u
+    |> Regex.scan(brief)
+    |> Enum.reduce(text, fn
+      [_, from, to], acc -> String.replace(acc, from, to)
+      _, acc -> acc
+    end)
   end
 
   defp log_received_prompt(prompt_text, prompt) do

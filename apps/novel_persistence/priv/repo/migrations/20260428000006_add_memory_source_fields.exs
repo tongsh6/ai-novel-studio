@@ -11,15 +11,15 @@ defmodule NovelPersistence.Repo.Migrations.AddMemorySourceFields do
 
   def change do
     alter table(:interactions) do
-      add :source_ref, :string
-      add :scope_ref, :string
-      add :freshness_score, :float, default: 0.5, null: false
-      add :importance_score, :float, default: 0.5, null: false
-      add :replayable, :boolean, default: true, null: false
-      add :retrievable, :boolean, default: true, null: false
+      add(:source_ref, :string)
+      add(:scope_ref, :string)
+      add(:freshness_score, :float, default: 0.5, null: false)
+      add(:importance_score, :float, default: 0.5, null: false)
+      add(:replayable, :boolean, default: true, null: false)
+      add(:retrievable, :boolean, default: true, null: false)
     end
 
-    create index(:interactions, [:scope_ref])
-    create index(:interactions, [:source_ref])
+    create(index(:interactions, [:scope_ref]))
+    create(index(:interactions, [:source_ref]))
   end
 end

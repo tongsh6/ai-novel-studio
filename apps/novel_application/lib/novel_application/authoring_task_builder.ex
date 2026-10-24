@@ -241,7 +241,7 @@ defmodule NovelApplication.AuthoringTaskBuilder do
           scope(covered_refs,
             object_kind: :chapter_prose,
             coverage: coverage,
-            base_ref: blank_to_nil(text(attrs[:base_ref])),
+            base_ref: chapter_revision_base_ref(attrs, modification_scope, target_chapter_ref),
             base_hash: blank_to_nil(text(attrs[:base_hash])),
             target_chapter_ref: target_chapter_ref,
             modification_scope: modification_scope,
@@ -255,6 +255,16 @@ defmodule NovelApplication.AuthoringTaskBuilder do
         source_refs: string_list(attrs[:source_refs])
       })
     end
+  end
+
+  # :target_segments 未被冻结 semantics 的“章级基线豁免”覆盖；用章身份作为基线 ref
+  # 让多片段/指定片段修订仍以章+期望版本为基线（不要求单 artifact base_ref）。
+  defp chapter_revision_base_ref(attrs, :target_segments, target_chapter_ref) do
+    blank_to_nil(text(attrs[:base_ref])) || target_chapter_ref
+  end
+
+  defp chapter_revision_base_ref(attrs, _scope, _target_chapter_ref) do
+    blank_to_nil(text(attrs[:base_ref]))
   end
 
   defp chapter_revision_target(attrs) do

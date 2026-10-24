@@ -27,7 +27,8 @@ defmodule NovelApplication.TurnResultBuilder do
         decision \\ nil,
         tool_result \\ nil,
         artifact_set \\ nil,
-        behavior \\ nil
+        behavior \\ nil,
+        opts \\ %{}
       ) do
     candidates = if frame.frame_type == :creative_exploration, do: candidates, else: []
 
@@ -62,7 +63,11 @@ defmodule NovelApplication.TurnResultBuilder do
     |> maybe_add_candidates(frame, candidates)
     |> maybe_add_decision(decision)
     |> maybe_add_tool_result(tool_result)
-    |> maybe_add_artifacts(artifact_set)
+    |> maybe_add_artifacts(
+      artifact_set,
+      Map.get(opts, :pending_payload, %{}),
+      Map.get(opts, :candidate_title)
+    )
     |> maybe_add_behavior(behavior)
   end
 
@@ -255,9 +260,11 @@ defmodule NovelApplication.TurnResultBuilder do
     |> Map.update(:available_actions, actions, fn existing -> existing ++ actions end)
   end
 
-  defp maybe_add_artifacts(r, nil), do: r
+  defp maybe_add_artifacts(r, artifact_set, extra_payload \\ %{}, candidate_title \\ nil)
 
-  defp maybe_add_artifacts(r, as) do
+  defp maybe_add_artifacts(r, nil, _extra_payload, _candidate_title), do: r
+
+  defp maybe_add_artifacts(r, as, extra_payload, candidate_title) do
     # AU-09：逐候选独立采纳——多候选 character_seed 每条候选成为独立 pending 条目，
     # 拥有自己的 artifact_id（与 available_actions 的 target_ref 一致），作者逐项授权；
     # 采纳一个只物化该条目对应的 item，其它候选保持 pending、不进入作品事实。
@@ -268,7 +275,7 @@ defmodule NovelApplication.TurnResultBuilder do
     adoption_state = %{
       pending:
         List.wrap(Map.get(current_adoption_state, :pending)) ++
-          Enum.map(units, &unit_pending_entry(as, &1)),
+          Enum.map(units, &unit_pending_entry(as, &1, extra_payload)),
       resolved: List.wrap(Map.get(current_adoption_state, :resolved))
     }
 
@@ -277,7 +284,7 @@ defmodule NovelApplication.TurnResultBuilder do
         card_type: "candidate_set",
         priority: "high",
         visibility: "always",
-        title: artifact_card_title(as),
+        title: candidate_title || artifact_card_title(as),
         body: artifact_card_body(as),
         artifact_refs: [as.artifact_set_id],
         candidate_set_ref: as.artifact_set_id,
@@ -352,12 +359,14 @@ defmodule NovelApplication.TurnResultBuilder do
     end
   end
 
-  defp unit_pending_entry(%TentativeArtifactSet{} = as, unit) do
+  defp unit_pending_entry(%TentativeArtifactSet{} = as, unit, extra_payload) do
+    extra_payload = if is_map(extra_payload), do: extra_payload, else: %{}
+
     %{
       artifact_id: unit.artifact_id,
       artifact_type: as.artifact_type,
       requires_adoption: true,
-      payload: unit_payload(as, unit),
+      payload: Map.merge(unit_payload(as, unit), extra_payload),
       adoption_status: as.adoption_status,
       source_tool_result_ref: as.source_tool_result_ref,
       authoring_intent: as.authoring_intent,

@@ -3,7 +3,7 @@ defmodule NovelPersistence.Repo.Migrations.AddRevisionToWorks do
 
   def change do
     alter table(:works) do
-      add :revision, :integer, null: false, default: 1
+      add(:revision, :integer, null: false, default: 1)
     end
   end
 end

@@ -15,7 +15,9 @@ defmodule NovelPersistence.Repo.Migrations.UppercaseStatusEnums do
   use Ecto.Migration
 
   def up do
-    execute("UPDATE works SET status = UPPER(status) WHERE status IN ('tentative','accepted','discarded')")
+    execute(
+      "UPDATE works SET status = UPPER(status) WHERE status IN ('tentative','accepted','discarded')"
+    )
 
     execute("""
     UPDATE long_run_tasks SET status = CASE status
@@ -41,7 +43,9 @@ defmodule NovelPersistence.Repo.Migrations.UppercaseStatusEnums do
   end
 
   def down do
-    execute("UPDATE works SET status = LOWER(status) WHERE status IN ('TENTATIVE','ACCEPTED','DISCARDED')")
+    execute(
+      "UPDATE works SET status = LOWER(status) WHERE status IN ('TENTATIVE','ACCEPTED','DISCARDED')"
+    )
 
     execute("""
     UPDATE long_run_tasks SET status = CASE status

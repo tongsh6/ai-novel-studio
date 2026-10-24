@@ -1288,4 +1288,31 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "禁止猜同名/跨作品"
     assert String.split(content, "整章正文修订绑定") |> length() == 2
   end
+
+  test "B28 CP1.5：判断 prompt 出现章级目标（ref/title/片段数/coverage/modification_scope）" do
+    targets = [
+      %{
+        chapter_ref: "chapter:c1",
+        chapter_title: "第01章：灯楼夜雨",
+        seq: 1,
+        covered_refs: ["draft:d1", "draft:d2"],
+        fragment_count: 2,
+        char_count: 218,
+        coverage: :complete
+      }
+    ]
+
+    prompt = JudgmentProtocol.prompt(input(chapter_revision_targets: targets))
+    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "## 可选章级修订目标"
+    assert content =~ "chapter:c1"
+    assert content =~ "第01章：灯楼夜雨"
+    assert content =~ "片段数 2"
+    assert content =~ "覆盖 complete"
+    assert content =~ "format_only=仅排版"
+    assert content =~ "target_segments=指定片段"
+    assert content =~ "whole_chapter=整章"
+    assert String.split(content, "## 可选章级修订目标") |> length() == 2
+  end
 end

@@ -10,24 +10,24 @@ defmodule NovelPersistence.Repo.Migrations.CreateMutations do
 
   def change do
     create table(:mutations, primary_key: false) do
-      add :id, :binary_id, primary_key: true
-      add :actor_ref, :string, null: false
-      add :source_turn_ref, :string, null: false
-      add :source_task_ref, :string
-      add :target_scope, :string, null: false
-      add :target_object_ref, :string, null: false
-      add :base_revision, :integer, null: false
-      add :mutation_type, :string, null: false
-      add :status, :string, null: false, default: "PROPOSED"
-      add :proposed_change_ref, :string
-      add :authority_scope, :string
-      add :requires_adoption, :boolean, default: false
+      add(:id, :binary_id, primary_key: true)
+      add(:actor_ref, :string, null: false)
+      add(:source_turn_ref, :string, null: false)
+      add(:source_task_ref, :string)
+      add(:target_scope, :string, null: false)
+      add(:target_object_ref, :string, null: false)
+      add(:base_revision, :integer, null: false)
+      add(:mutation_type, :string, null: false)
+      add(:status, :string, null: false, default: "PROPOSED")
+      add(:proposed_change_ref, :string)
+      add(:authority_scope, :string)
+      add(:requires_adoption, :boolean, default: false)
 
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:mutations, [:target_object_ref])
-    create index(:mutations, [:source_turn_ref])
-    create index(:mutations, [:status])
+    create(index(:mutations, [:target_object_ref]))
+    create(index(:mutations, [:source_turn_ref]))
+    create(index(:mutations, [:status]))
   end
 end

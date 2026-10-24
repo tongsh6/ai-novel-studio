@@ -1106,6 +1106,7 @@ defmodule NovelApplication.DialoguePlanningService do
           adopted_content_targets:
             NovelApplication.PendingArtifactWorkflow.accepted_targets(context),
           registered_sources: TurnInteractionService.registered_sources(context),
+          chapter_revision_targets: chapter_revision_targets(run),
           readonly_capabilities: @judgment_readonly_capabilities,
           author_content_sources:
             context
@@ -1117,6 +1118,16 @@ defmodule NovelApplication.DialoguePlanningService do
             else: []
           )
     }
+  end
+
+  # B28 CP1.5：把有 accepted 正文的章目标带入判断上下文（ref 唯一，title 仅展示）。
+  defp chapter_revision_targets(run) do
+    work_id = run.work_id || run.workspace_id
+
+    case NovelApplication.AdoptionWorkflow.chapter_revision_targets(work_id) do
+      {:ok, targets} -> targets
+      _ -> []
+    end
   end
 
   # 业务日志（ADR-0018 观测族）：判断结构落地事实——frame 语义并入判断后，

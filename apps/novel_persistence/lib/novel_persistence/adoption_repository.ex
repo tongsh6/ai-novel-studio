@@ -100,7 +100,8 @@ defmodule NovelPersistence.AdoptionRepository do
            character,
            work_planning,
            reading_projection,
-           revision_supersede
+           revision_supersede,
+           attrs
          )}
 
       {:error, _step, reason, _changes} ->
@@ -117,7 +118,8 @@ defmodule NovelPersistence.AdoptionRepository do
          character,
          work_planning,
          reading_projection,
-         revision_supersede
+         revision_supersede,
+         attrs
        ) do
     %{
       mutation_id: mutation.id,
@@ -129,7 +131,47 @@ defmodule NovelPersistence.AdoptionRepository do
     |> put_supersede(revision_supersede)
     |> put_character(character)
     |> put_work_planning(work_planning)
+    |> put_b28_effect(attrs, reading_projection)
   end
+
+  # B28 CP1.5：结果回显（additive）——replace_scope 的 superseded refs 与 effect；
+  # append/new_chapter 仅回显 adoption_effect(mode)，无 superseded 列表。
+  defp put_b28_effect(result, attrs, %{} = projection) do
+    if Map.get(projection, :adoption_effect) == "replace_scope" do
+      result
+      |> Map.put(:adoption_effect, echo_effect(attrs, "replace_scope"))
+      |> Map.put(:superseded_draft_refs, Map.get(projection, :superseded_draft_refs, []))
+    else
+      put_effect_only(result, attrs)
+    end
+  end
+
+  defp put_b28_effect(result, attrs, _projection), do: put_effect_only(result, attrs)
+
+  defp put_effect_only(result, attrs) do
+    case normalize_effect_echo(Map.get(attrs, :adoption_effect)) do
+      nil -> result
+      effect -> Map.put(result, :adoption_effect, effect)
+    end
+  end
+
+  defp echo_effect(attrs, fallback_mode) do
+    normalize_effect_echo(Map.get(attrs, :adoption_effect)) || %{mode: fallback_mode}
+  end
+
+  defp normalize_effect_echo(%{} = effect) do
+    %{
+      mode: Map.get(effect, "mode") || Map.get(effect, :mode),
+      covered: Map.get(effect, "covered") || Map.get(effect, :covered) || [],
+      expected_base_versions:
+        Map.get(effect, "expected_base_versions") || Map.get(effect, :expected_base_versions) ||
+          [],
+      coverage: Map.get(effect, "coverage") || Map.get(effect, :coverage)
+    }
+  end
+
+  defp normalize_effect_echo(mode) when is_binary(mode), do: %{mode: mode}
+  defp normalize_effect_echo(_), do: nil
 
   defp put_memory_item(result, nil), do: result
 
@@ -1162,7 +1204,10 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   defp resolve_scope_chapter_by_identity(work_uuid, "chapter:" <> _ = ref) do
-    find_chapter_by_ref(Repo, work_uuid, ref)
+    case find_chapter_by_ref(Repo, work_uuid, ref) do
+      {:ok, chapter} -> {:ok, chapter}
+      _ -> {:error, :target_missing}
+    end
   end
 
   defp resolve_scope_chapter_by_identity(work_uuid, title) when is_binary(title) do

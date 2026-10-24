@@ -15,26 +15,26 @@ defmodule NovelPersistence.Repo.Migrations.AddLongRunTaskFields do
 
   def change do
     alter table(:long_run_tasks) do
-      add :scope_ref, :string
-      add :created_by, :string
-      add :parent_turn_ref, :string
-      add :parent_task_ref, :string
-      add :plan_ref, :string
-      add :estimated_budget, :map
-      add :consumed_budget, :map
-      add :checkpoint_policy_ref, :string
-      add :authority_scope, :string
-      add :current_unit_ref, :string
-      add :completed_unit_refs, {:array, :string}, default: []
-      add :pending_artifact_refs, {:array, :string}, default: []
-      add :accepted_artifact_refs, {:array, :string}, default: []
-      add :warning_refs, {:array, :string}, default: []
-      add :failure_ref, :string
-      add :resume_ref, :string
-      add :branch_parent_ref, :string
+      add(:scope_ref, :string)
+      add(:created_by, :string)
+      add(:parent_turn_ref, :string)
+      add(:parent_task_ref, :string)
+      add(:plan_ref, :string)
+      add(:estimated_budget, :map)
+      add(:consumed_budget, :map)
+      add(:checkpoint_policy_ref, :string)
+      add(:authority_scope, :string)
+      add(:current_unit_ref, :string)
+      add(:completed_unit_refs, {:array, :string}, default: [])
+      add(:pending_artifact_refs, {:array, :string}, default: [])
+      add(:accepted_artifact_refs, {:array, :string}, default: [])
+      add(:warning_refs, {:array, :string}, default: [])
+      add(:failure_ref, :string)
+      add(:resume_ref, :string)
+      add(:branch_parent_ref, :string)
     end
 
-    create index(:long_run_tasks, [:scope_ref])
-    create index(:long_run_tasks, [:parent_turn_ref])
+    create(index(:long_run_tasks, [:scope_ref]))
+    create(index(:long_run_tasks, [:parent_turn_ref]))
   end
 end

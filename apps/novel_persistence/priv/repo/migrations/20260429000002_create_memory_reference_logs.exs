@@ -9,18 +9,18 @@ defmodule NovelPersistence.Repo.Migrations.CreateMemoryReferenceLogs do
 
   def change do
     create table(:memory_reference_logs, primary_key: false) do
-      add :id, :binary_id, primary_key: true
-      add :memory_id, :binary_id, null: false
-      add :work_id, :binary_id, null: false
-      add :task_id, :binary_id
-      add :conversation_id, :binary_id
-      add :reference_scene, :string, null: false
-      add :reference_reason, :text
+      add(:id, :binary_id, primary_key: true)
+      add(:memory_id, :binary_id, null: false)
+      add(:work_id, :binary_id, null: false)
+      add(:task_id, :binary_id)
+      add(:conversation_id, :binary_id)
+      add(:reference_scene, :string, null: false)
+      add(:reference_reason, :text)
 
       timestamps(type: :utc_datetime_usec, updated_at: false)
     end
 
-    create index(:memory_reference_logs, [:memory_id])
-    create index(:memory_reference_logs, [:work_id, :reference_scene])
+    create(index(:memory_reference_logs, [:memory_id]))
+    create(index(:memory_reference_logs, [:work_id, :reference_scene]))
   end
 end
