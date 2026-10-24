@@ -549,10 +549,19 @@ defmodule NovelApplication.AdoptionWorkflow do
                  kind: :draft,
                  ref: "draft:#{scope.draft_id}",
                  version: scope.revision,
+                 text: scope.content,
                  complete?: true,
                  omission_note: nil
                }
              end),
+           # 整章当前阅读投影正文：沿用 ReadingProjectionRepo.accepted_chapter_prose/2 的
+           # 约定——scene seq 升序、每 scene 当前 accepted draft、空片段剔除、
+           # 片段间以 "\n\n" 连接（与阅读模式/章节阅读消费的章节正文一致）。
+           base_text:
+             scopes
+             |> Enum.map(& &1.content)
+             |> Enum.reject(&(&1 in [nil, ""]))
+             |> Enum.join("\n\n"),
            coverage: :complete
          }}
 
@@ -562,6 +571,15 @@ defmodule NovelApplication.AdoptionWorkflow do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc """
+  B28 CP1.5：该 work 有 accepted 正文的章目标列表（只读，按章 seq 排序）。
+  返回 {:ok, [%{chapter_ref, chapter_title, seq, covered_refs, fragment_count, char_count, coverage}]}
+  或 {:error, reason}；供判断上下文暴露章级目标（ref 唯一，title 仅展示）。
+  """
+  def chapter_revision_targets(work_id) do
+    NovelPersistence.AdoptionRepository.accepted_chapter_targets(work_id)
   end
 
   # B28 CP1：采纳前契约守卫（目标作用域/排版模式）。仅在有 B28 additive 信号时收紧；

@@ -1084,6 +1084,53 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
+  # B28 CP1.5：该 work 有 accepted 正文的章目标列表（只读；按章 seq 升序）。
+  # coverage：该章全部 scene 均有当前 accepted draft → :complete，否则 :partial。
+  # 同名章不做 title 合并，按 chapter_ref 唯一列出（判断侧用 ref 绑定，title 仅展示）。
+  def accepted_chapter_targets(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, work_uuid} ->
+        targets =
+          Chapter
+          |> where([c], c.work_id == ^work_uuid)
+          |> order_by([c], asc: c.seq, asc: c.id)
+          |> Repo.all()
+          |> Enum.map(&chapter_revision_target(work_uuid, &1))
+          |> Enum.reject(&is_nil/1)
+
+        {:ok, targets}
+
+      :error ->
+        {:error, :target_missing}
+    end
+  end
+
+  defp chapter_revision_target(work_uuid, chapter) do
+    scenes =
+      Scene
+      |> where([s], s.chapter_id == ^chapter.id and s.work_id == ^work_uuid)
+      |> order_by([s], asc: s.seq)
+      |> Repo.all()
+
+    scopes = scenes |> Enum.map(&scene_accepted_scope(work_uuid, &1)) |> Enum.reject(&is_nil/1)
+
+    case scopes do
+      [] ->
+        nil
+
+      scopes ->
+        %{
+          chapter_ref: "chapter:#{chapter.id}",
+          chapter_title: chapter.title,
+          seq: chapter.seq,
+          covered_refs: Enum.map(scopes, &"draft:#{&1.draft_id}"),
+          fragment_count: length(scopes),
+          char_count: scopes |> Enum.map(&String.length(&1.content)) |> Enum.sum(),
+          coverage: if(length(scopes) == length(scenes), do: :complete, else: :partial)
+        }
+    end
+  end
+
   defp scene_accepted_scope(work_uuid, scene) do
     accepted = AdoptionStatus.accepted()
 
