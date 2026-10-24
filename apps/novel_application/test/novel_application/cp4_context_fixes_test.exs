@@ -147,6 +147,7 @@ defmodule NovelApplication.CP4ContextFixesTest do
           seq: 1,
           has_prose: true,
           word_count: 900,
+          char_count: 950,
           accepted_draft_count: 3,
           scene_count: 3,
           current_draft_refs: ["draft:d1:1", "draft:d2:1", "draft:d3:1"],
@@ -182,14 +183,44 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert block =~ "## 作品事实（持久化只读投影"
     assert block =~ "目标总字数=200000"
     assert block =~ "预计卷数=3"
+    assert block =~ "当前已采纳正文：字符数 950；有效字数 900"
     assert block =~ "2 章中已写 1 章、计划中 1 章"
-    assert block =~ "第1章「第01章：灯楼夜雨」：当前已采纳正文 3/3 场，共 900 字符"
+    assert block =~ "第1章「第01章：灯楼夜雨」：当前已采纳正文 3/3 场（正文 950 字符；有效字数 900）"
     assert block =~ "当前版本 refs=draft:d1:1, draft:d2:1, draft:d3:1"
     assert block =~ "章摘要=ACCEPTED"
     assert block =~ "历史 SUPERSEDED 稿 1 份（不计入当前）"
     assert block =~ "章计划字段=ending_hook, opening_hook"
     assert block =~ "resolved 1 项，其中 ACCEPTED/EDITED_ACCEPTED 1 项"
     assert block =~ "不等于整章或全书叙事完成"
+  end
+
+  test "旧作品无 char_count 时 facts 只给有效字数，不伪造字符数" do
+    context = %DialogueContext{
+      workspace_id: "w-legacy",
+      current_work_snapshot: %{title: "旧作品"},
+      structured_chapters: [
+        %{
+          id: "c1",
+          title: "第01章：旧稿",
+          seq: 1,
+          has_prose: true,
+          word_count: 500,
+          accepted_draft_count: 1,
+          scene_count: 1,
+          current_draft_refs: ["draft:old:1"],
+          superseded_draft_count: 0,
+          chapter_status: "COMPLETED",
+          summary_status: nil,
+          plan_direction: %{}
+        }
+      ]
+    }
+
+    block = DialoguePlanningService.judgment_context_block(context, "进度如何？")
+
+    assert block =~ "当前已采纳正文有效字数 500"
+    assert block =~ "第1章「第01章：旧稿」：当前已采纳正文 1/1 场（有效字数 500）"
+    refute block =~ "字符数 0"
   end
 
   test "待采纳候选预览：真实 ref/type/状态/操作/正文预览；空预览诚实标注不得编造" do
@@ -352,10 +383,12 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert entry.chapter_status == "COMPLETED"
     assert [ref] = entry.current_draft_refs
     assert ref =~ "draft:"
+    assert entry.char_count == String.length("雨从后半夜开始下，陈九斤把最后一盏油灯挪到窗台上。")
+    assert entry.word_count < entry.char_count
 
     block = DialoguePlanningService.judgment_context_block(context, "第01章写完了吗？当前版本是什么？")
 
-    assert block =~ "当前已采纳正文 1/1 场"
+    assert block =~ "当前已采纳正文 1/1 场（正文 #{entry.char_count} 字符；有效字数 #{entry.word_count}）"
     assert block =~ "历史 SUPERSEDED 稿 1 份（不计入当前）"
     assert block =~ "章状态=COMPLETED"
     assert block =~ "当前版本 refs=draft:"

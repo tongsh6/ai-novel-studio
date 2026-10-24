@@ -216,6 +216,7 @@ defmodule NovelApplication.ContextAssembler do
         # 必须穿过归一化，否则判断 prompt 的「作品事实」块只剩 0/未知。
         # additive keys：既有消费者按 title/seq/plan 读取不受影响。
         word_count: chapter |> get_any([:word_count, "word_count"]) |> normalize_integer(),
+        char_count: chapter |> get_any([:char_count, "char_count"]) |> normalize_integer(),
         accepted_draft_count:
           chapter
           |> get_any([:accepted_draft_count, "accepted_draft_count"])

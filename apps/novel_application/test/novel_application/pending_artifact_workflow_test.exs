@@ -111,7 +111,7 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert prompt =~ "把沈砚改成林渡"
     assert prompt =~ run.goal.text
     refute run.goal.text =~ "林渡"
-    assert prompt =~ "body 只放完整的新版本"
+    assert prompt =~ "必须输出完整修订稿"
 
     # B27 CP3d：world 修订由 AuthoringTask 渲染（共享规则 + 修订 operation + preserve）
     assert prompt =~ "## 创作协作共同规则"

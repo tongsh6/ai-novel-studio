@@ -484,12 +484,11 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert {:ok, %{action: "reply", provider_call_count: 2}} =
              JudgmentProtocol.request_judgment(execution([first, second]), %{}, input())
 
-    # capability_not_available 在现有协议里属于需纠正后重试；本用例验证第一轮纠错文案：
-    # 其它 reason 仍用原泛化文案，不混入合法组合指引。
+    # invalid_tool_arguments 走参数 schema 专用纠错（不含合法组合指引）；仍允许一次纠正后继续。
     assert_receive {:provider_request, _}
     assert_receive {:provider_request, corrected}
     correction = List.last(corrected.messages).content
-    assert correction =~ "只纠正不合法结构"
+    assert correction =~ "工具参数未通过 schema 校验"
     refute correction =~ JudgmentToolContract.legal_combination_guidance()
   end
 
@@ -807,5 +806,223 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "不得用 report_capability_gap"
     assert content =~ "作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact"
     assert String.split(content, "必须用 ask_author 工具提出具体问题") |> length() == 2
+  end
+
+  test "task-28 证据/冒充/系统信息/收束规则在判断 prompt 中明确" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    # M14：禁止用新建同名/演化候选冒充已有主档案修改
+    assert content =~ "修改已有对象的主档案/权威字段"
+    assert content =~ "不得把"
+    assert content =~ "新建同名对象"
+    assert content =~ "演化/记忆候选"
+    assert content =~ "不能说“新建档案后他就是主角/就实现了修改”"
+
+    # M02：系统已有信息不得向作者索取
+    assert content =~ "系统已有的章节索引、章状态、统计、正文/档案材料不得向作者索取"
+
+    # M01：完成/质量判断先读正文与章计划
+    assert content =~ "问“某章写完了吗/有无矛盾/质量如何”必须先读正文与章计划"
+    assert content =~ "不得仅凭章状态或“已保存/无待采纳候选”断言完成"
+
+    # M03：继续读取不是最终答复
+    assert content =~ "继续读取不是最终答复"
+    assert content =~ "不得只回“已继续读取/再给结论”"
+
+    # M09：不得用元描述代替方向
+    assert content =~ "也不能用“你的请求属于创作方向讨论”这类"
+
+    # 唯一性（关键规则只出现一次）
+    assert String.split(content, "系统已有的章节索引、章状态、统计、正文/档案材料不得向作者索取")
+           |> length() == 2
+
+    assert String.split(content, "修改已有对象的主档案/权威字段") |> length() == 2
+  end
+
+  test "M18：指代历史原文且可探索时先 ask_author 被机械拦截，先 explore 后可通过" do
+    ask =
+      call("ask_author", %{
+        "question" => "请贴出灯油配方原文或指出来源。",
+        "options" => []
+      })
+
+    explore =
+      call("judgment_decision", %{
+        "action" => "explore",
+        "dialogue_goal" => "查找正文中的灯油配方原文",
+        "reason" => "作者指代历史原文，先取证。",
+        "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
+      })
+
+    protocol_input =
+      input(explore: true, explore_tools: ["chapter_read", "prose_search"])
+      |> Map.put(:author_text, "把之前那段灯油配方的资料存进设定")
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [ask]), response("", [explore])]),
+               %{},
+               protocol_input
+             )
+
+    assert judgment.action == "explore"
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "explore_before_ask_required"
+    assert correction =~ "session_adoptions"
+    assert correction =~ "不得默认先问作者"
+  end
+
+  test "M18：无指代/不可探索/已有观察时 ask_author 仍合法" do
+    ask = call("ask_author", %{"question" => "你要改哪一份候选？", "options" => []})
+
+    # 无指代：不强制先探索
+    assert {:ok, %{action: "await_author"}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [ask])]),
+               %{},
+               input(explore: true, explore_tools: ["chapter_read"])
+             )
+
+    # 探索不可用：允许直接问
+    anaphoric =
+      input()
+      |> Map.put(:author_text, "把之前那段灯油配方存进设定")
+
+    assert {:ok, %{action: "await_author"}} =
+             JudgmentProtocol.request_judgment(execution([response("", [ask])]), %{}, anaphoric)
+
+    # 已有观察（完成过探索）：允许问作者
+    observed =
+      input(explore: true, explore_tools: ["chapter_read"])
+      |> Map.put(:author_text, "把之前那段灯油配方存进设定")
+      |> Map.put(:observations, [%{tool: "chapter_read", refs: ["chapter:one"]}])
+
+    assert {:ok, %{action: "await_author"}} =
+             JudgmentProtocol.request_judgment(execution([response("", [ask])]), %{}, observed)
+  end
+
+  test "M16：action 专属字段互斥在 prompt 中明确，explore 带 capability 被具体纠错后可修复" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "judgment_decision 各 action 的专属字段互斥"
+    assert content =~ "explore 只带 explore_request"
+    assert content =~ "execute 只带 capability 与一个目标 ref"
+    assert String.split(content, "judgment_decision 各 action 的专属字段互斥") |> length() == 2
+
+    bad =
+      call("judgment_decision", %{
+        "action" => "explore",
+        "capability" => "work_archive_read",
+        "dialogue_goal" => "核对章节事实",
+        "reason" => "需要取证。"
+      })
+
+    good =
+      call("judgment_decision", %{
+        "action" => "explore",
+        "dialogue_goal" => "核对章节事实",
+        "reason" => "需要取证。",
+        "explore_request" => %{"tool" => "chapter_read", "query" => "第01章：灯楼夜雨"}
+      })
+
+    opts = [explore: true, explore_tools: ["chapter_read"], capabilities: ["work_archive_read"]]
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [bad]), response("", [good])]),
+               %{},
+               input(opts)
+             )
+
+    assert judgment.action == "explore"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "incompatible_operation_fields"
+    assert correction =~ "explore 只填 explore_request"
+    assert correction =~ "不得携带 capability"
+    assert correction =~ "execute 才填 capability"
+  end
+
+  test "M16：execute 带 explore_request 被具体纠错后可修复" do
+    bad =
+      call("judgment_decision", %{
+        "action" => "execute",
+        "capability" => "prose_writing",
+        "dialogue_goal" => "写章",
+        "reason" => "作者要求。",
+        "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
+      })
+
+    good =
+      call("judgment_decision", %{
+        "action" => "execute",
+        "capability" => "prose_writing",
+        "dialogue_goal" => "写章",
+        "reason" => "作者要求。"
+      })
+
+    opts = [capabilities: ["prose_writing"]]
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [bad]), response("", [good])]),
+               %{},
+               input(opts)
+             )
+
+    assert judgment.action == "execute"
+    assert judgment.capability == "prose_writing"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "execute 只填 capability 与一个目标 ref"
+    assert correction =~ "explore_request 只用于 explore"
+  end
+
+  test "task-28 补充：直接回答/唯一候选直接执行/参数 schema 指引在 prompt 中明确" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "统计/章节索引已经足够回答的问题"
+    assert content =~ "直接 reply，不要为形式先 explore"
+    assert content =~ "待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact"
+    assert content =~ "探索确认对象后必须继续执行修订"
+  end
+
+  test "工具参数 schema 错误带具体字段指引，一次纠错后可修复" do
+    bad =
+      call("report_capability_gap", %{
+        "dialogue_goal" => "改已有角色身份",
+        "missing_effect" => "无法修改已有角色主档案身份",
+        "author_reasoning" => "说明缺口。",
+        "capability" => nil
+      })
+
+    good =
+      call("report_capability_gap", %{
+        "dialogue_goal" => "改已有角色身份",
+        "missing_effect" => "无法修改已有角色主档案身份",
+        "author_reasoning" => "说明缺口。"
+      })
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [bad]), response("", [good])]),
+               %{},
+               input()
+             )
+
+    assert judgment.action == "capability_gap"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "工具参数未通过 schema 校验"
+    assert correction =~ "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning"
+    assert correction =~ "不要添加 action/capability/body"
   end
 end

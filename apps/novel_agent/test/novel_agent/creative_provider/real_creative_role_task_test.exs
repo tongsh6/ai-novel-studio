@@ -155,9 +155,15 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert [%{code: "unsupported_creative_tool"}] = result.errors
   end
 
-  test "prose revision prompt carries baseline/scope discipline (task-24)" do
+  test "prose revision prompt carries baseline/scope discipline (task-24/29)" do
     task = AuthoringTaskFixtures.task(:revision)
-    prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
+
+    request = %{
+      request("prose_writing", :prose_fragment, task)
+      | revision: "本轮修订已有候选。必须输出完整修订稿。\n\n目标段定位：作者要求修改第2段。\n第二段原文。"
+    }
+
+    prompt = captured_prompt(request)
 
     assert prompt =~ "本轮为修订"
     assert prompt =~ "## 修订基线纪律"
@@ -166,6 +172,9 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     assert prompt =~ "系统当前没有保证字句不变的独立排版能力（B28 format_only 边界）"
     assert prompt =~ "不得新增或删除段落/空行"
     assert prompt =~ "明确改动（如“七成改六成”"
+    assert prompt =~ "目标段定位"
+    assert prompt =~ "必须输出完整修订稿"
+    assert prompt =~ "原样返回基线原文视为未执行修订"
     # 修订仍保留共享语义与输出契约尾
     assert prompt =~ "## 创作协作共同规则"
     assert prompt =~ "只返回 JSON 数组"

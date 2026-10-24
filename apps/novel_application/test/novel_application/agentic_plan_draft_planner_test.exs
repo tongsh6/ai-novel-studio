@@ -56,8 +56,10 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     }
   end
 
-  defp provider_result(content) do
-    tool_calls = [%{"name" => "agent_plan_draft", "arguments" => plan_arguments()}]
+  defp provider_result(content), do: provider_result_with_arguments(content, plan_arguments())
+
+  defp provider_result_with_arguments(content, arguments) do
+    tool_calls = [%{"name" => "agent_plan_draft", "arguments" => arguments}]
 
     {:ok, output} =
       ProviderOutput.new(%{
@@ -807,5 +809,82 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
       assert args.author_reasoning == result.content
     end
+  end
+
+  # task-30：计划参数结构错误时，纠错回执必须给出字段级问题 + 合法骨架，一次纠正可修复。
+  test "invalid plan tool arguments 纠错回执携带具体字段错误与合法骨架，一次纠正可修复" do
+    test_pid = self()
+    valid = plan_arguments()
+    [s1, s2] = valid["plan"]["steps"]
+
+    invalid =
+      valid
+      |> Map.put("status", "drafting")
+      |> Map.put("plan", %{"steps" => [Map.delete(s1, "success_criteria"), s2]})
+
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+      send(test_pid, {:plan_prompt, n, prompt})
+
+      case n do
+        1 -> {:ok, provider_result_with_arguments("第一次计划。", invalid)}
+        _ -> {:ok, provider_result("第二次计划。")}
+      end
+    end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert_received {:plan_prompt, 1, _first}
+    assert_received {:plan_prompt, 2, correction}
+    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+
+    assert correction_text =~ "plan.steps[0] 缺少必填字段 success_criteria"
+    assert correction_text =~ "含未允许字段 status"
+    assert correction_text =~ "合法最小骨架"
+    assert correction_text =~ "kind 只能取"
+    assert correction_text =~ "顶层只能是四个字段"
+  end
+
+  test "invalid plan tool arguments 两次仍非法 → 终局 reason 保持原子并对日志保留字段细节" do
+    valid = plan_arguments()
+    [s1, s2] = valid["plan"]["steps"]
+    invalid = Map.put(valid, "plan", %{"steps" => [Map.delete(s1, "target_tool_ref"), s2]})
+
+    result_fn = fn _prompt -> {:ok, provider_result_with_arguments("仍非法。", invalid)} end
+
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+  end
+
+  test "AgentPlanToolContract.validation_errors 精确指出缺失必填与非法枚举值" do
+    assert AgentPlanToolContract.validation_errors(plan_arguments()) == []
+
+    errors =
+      AgentPlanToolContract.validation_errors(%{
+        "author_reasoning" => "x",
+        "plan" => %{
+          "steps" => [
+            %{
+              "step_id" => "s1",
+              "kind" => "write",
+              "description" => "d",
+              "success_criteria" => []
+            }
+          ]
+        },
+        "reason_codes" => [],
+        "confidence" => 1.5
+      })
+
+    assert Enum.any?(errors, &(&1 =~ "plan.steps[0] 缺少必填字段 target_tool_ref"))
+    assert Enum.any?(errors, &(&1 =~ "plan.steps[0].kind 只能是 explore｜act"))
+    assert Enum.any?(errors, &(&1 =~ "arguments.confidence 不能大于 1"))
   end
 end

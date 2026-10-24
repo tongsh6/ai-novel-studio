@@ -717,7 +717,8 @@ defmodule NovelApplication.DialoguePlanningService do
           Enum.map(written, &chapter_facts_line/1) ++
           session_adoption_facts_lines(context)
 
-      "## 作品事实（持久化只读投影；版本/完成度/统计以本段为准，SUPERSEDED 不计入当前）\n" <>
+      "## 作品事实（持久化只读投影；版本/完成度/统计以本段为准，SUPERSEDED 不计入当前；" <>
+        "字符数=正文原始字符长度，有效字数=去标点/空白口径）\n" <>
         Enum.join(Enum.reject(lines, &(&1 in [nil, ""])), "\n")
     end
   end
@@ -728,7 +729,13 @@ defmodule NovelApplication.DialoguePlanningService do
     total = length(chapters)
     written = Enum.count(chapters, &(Map.get(&1, :has_prose) == true))
     planned = total - written
-    chars = chapters |> Enum.map(&(Map.get(&1, :word_count) || 0)) |> Enum.sum()
+    words = chapters |> Enum.map(&(Map.get(&1, :word_count) || 0)) |> Enum.sum()
+    chars = chapters |> Enum.map(&(Map.get(&1, :char_count) || 0)) |> Enum.sum()
+
+    body_stats =
+      if chars > 0,
+        do: "当前已采纳正文：字符数 #{chars}；有效字数 #{words}",
+        else: "当前已采纳正文有效字数 #{words}"
 
     target =
       [
@@ -741,7 +748,7 @@ defmodule NovelApplication.DialoguePlanningService do
     goal = snapshot_value(snapshot, :main_goal, "全书目标")
 
     "- 全书：#{goal}；#{target}；正文统计：#{total} 章中已写 #{written} 章、计划中 #{planned} 章" <>
-      "；当前已采纳正文字符合计 #{chars}"
+      "；#{body_stats}"
   end
 
   defp snapshot_value(snapshot, key, label) do
@@ -753,21 +760,33 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp chapter_facts_line(chapter) do
     seq = Map.get(chapter, :seq)
-    title = Map.get(chapter, :title) || ""
-    accepted = Map.get(chapter, :accepted_draft_count) || 0
-    scenes = Map.get(chapter, :scene_count) || 0
-    words = Map.get(chapter, :word_count) || 0
+    title = text_or_default(Map.get(chapter, :title), "")
+    accepted = integer_or_zero(Map.get(chapter, :accepted_draft_count))
+    scenes = integer_or_zero(Map.get(chapter, :scene_count))
+    words = integer_or_zero(Map.get(chapter, :word_count))
+    chars = integer_or_zero(Map.get(chapter, :char_count))
     refs = List.wrap(Map.get(chapter, :current_draft_refs))
-    superseded = Map.get(chapter, :superseded_draft_count) || 0
-    summary_status = Map.get(chapter, :summary_status) || "无当前采纳摘要"
-    chapter_status = Map.get(chapter, :chapter_status) || "未知"
+    superseded = integer_or_zero(Map.get(chapter, :superseded_draft_count))
+    summary_status = text_or_default(Map.get(chapter, :summary_status), "无当前采纳摘要")
+    chapter_status = text_or_default(Map.get(chapter, :chapter_status), "未知")
     plan_fields = chapter_plan_fields(chapter)
 
-    "- 第#{seq}章「#{title}」：当前已采纳正文 #{accepted}/#{scenes} 场，共 #{words} 字符；" <>
+    "- 第#{seq}章「#{title}」：当前已采纳正文 #{accepted}/#{scenes} 场（#{chapter_volume_label(chars, words)}）；" <>
       current_version_segment(refs) <>
       "；章摘要=#{summary_status}；历史 SUPERSEDED 稿 #{superseded} 份（不计入当前）；" <>
       "章状态=#{chapter_status}；章计划字段=#{plan_fields_label(plan_fields)}"
   end
+
+  defp text_or_default(value, default) when value in [nil, ""], do: default
+  defp text_or_default(value, _default), do: value
+
+  defp integer_or_zero(value) when is_integer(value), do: value
+  defp integer_or_zero(_value), do: 0
+
+  defp chapter_volume_label(chars, words) when is_integer(chars) and chars > 0,
+    do: "正文 #{chars} 字符；有效字数 #{words}"
+
+  defp chapter_volume_label(_chars, words), do: "有效字数 #{words}"
 
   defp current_version_segment([]), do: "当前版本 refs=（无）"
   defp current_version_segment(refs), do: "当前版本 refs=" <> Enum.join(refs, ", ")

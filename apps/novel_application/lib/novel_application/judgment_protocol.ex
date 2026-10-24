@@ -79,6 +79,32 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
+  # 工具参数 schema 错误：给出“只填契约声明字段”的可执行纠正（M14 等模型常加 action/capability 等多余字段）。
+  defp correction_content(:invalid_tool_arguments) do
+    "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
+      "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
+      "ask_author 只填 question、options（optional reason_codes）；judgment_decision 按 action 填对应字段。" <>
+      "保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  end
+
+  # M16：judgment_decision 各 action 专属字段互斥；纠错给出具体冲突字段与正确形态。
+  defp correction_content({:incompatible_operation_fields, detail}) do
+    "本次响应未通过契约校验：incompatible_operation_fields（动作与字段不匹配）。" <>
+      to_string(detail) <>
+      "\n规则：explore 只填 explore_request（tool/query），不得携带 capability/pending_artifact_ref/adopted_content_ref；" <>
+      "execute 才填 capability 与一个目标 ref，不得携带 explore_request；plan 只填 plan 相关字段与判断字段。" <>
+      "保留取证意图与目标，只纠正字段。"
+  end
+
+  # M18：指代历史材料且可探索时，先取证再问作者；纠错给出明确顺序。
+  defp correction_content(:explore_before_ask_required) do
+    "本次响应未通过契约校验：explore_before_ask_required（来源缺失但尚未取证就先问作者）。" <>
+      "作者在指代系统可能已有的历史材料，而本轮还没有观察证据；若只读探索可用，" <>
+      "必须先用 judgment_decision.explore 取证（chapter_read/prose_search 查正文原文；session_adoptions 查历史候选/登记），" <>
+      "探索后仍无合法来源，再用 ask_author 具体澄清是哪条消息或请作者贴出原文；不得默认先问作者。" <>
+      "保留同一作者输入、来源、目标、范围与权限，只纠正取证顺序。"
+  end
+
   # 对象/版本证据纪律：ref 不在可见集合时，纠错必须给出“用真实 ref 或先取证/澄清”的路径。
   defp correction_content({:pending_artifact_invalid, :target_not_available}) do
     "本次响应未通过契约校验：target_not_available（引用的对象 ref 不在本轮可见目录）。" <>
@@ -213,14 +239,30 @@ defmodule NovelApplication.JudgmentProtocol do
     （如“我先核对一下”“我需要给出方向”）；方向/比较/状态核对类请求的可见文本必须包含实际方向内容、
     比较依据与建议，或明确核对结论及所依据的正文证据。工具参数不能替代作者可见答复。
     用 propose_creative_directions 时 content 必须逐条写出每个方向的标题与一句话走向（至少 2 条），
-    不能只概述“我给出三个方向”，也不能只把方向放进工具参数。
+    不能只概述“我给出三个方向”，也不能只把方向放进工具参数，也不能用“你的请求属于创作方向讨论”这类
+    元描述代替实际方向内容。
     作者只要求收下资料/只聊不展开时：只简短确认收到，不追加下一步菜单、方向提示或可做动作清单
     （零方向菜单、零候选/登记）。
+    judgment_decision 各 action 的专属字段互斥：explore 只带 explore_request（tool/query），不得带
+    capability/pending_artifact_ref/adopted_content_ref；execute 只带 capability 与一个目标 ref，
+    不得带 explore_request；plan 只带 plan 相关字段，不得带 explore_request 或目标 ref。
     需要作者裁决对象/来源/方向时，必须用 ask_author 工具提出具体问题（可带选项）——它是正式提问通道；
     不能用普通 reply 里的问句或说明代替 ask_author；多候选无法消歧时先 explore 或 ask_author。
     能力缺口判断只看“是否存在能产出目标效果的最接近可行操作”：存在可产出的修订/生成候选（只是不能保证
     某些属性，如仅排版的字句不变）时，应执行该操作并在可见文本如实说明限制，不得用 report_capability_gap
     或“没有能力”拒绝；确实没有任何可行操作时才报缺口。
+    修改已有对象的主档案/权威字段（如把已有角色改成主角/改身份）而目录没有对应能力时，缺口说明不得把
+    “新建同名对象”“演化/记忆候选”列为实现该效果的最近路径或建议——它们不改变原对象主档案，属于不同效果；
+    如需提及只能明确说明差别，不能说“新建档案后他就是主角/就实现了修改”。
+    系统已有的章节索引、章状态、统计、正文/档案材料不得向作者索取：能只读取证先 chapter_read/archive_read；
+    无法读取时用已有索引/统计事实回答并说明证据边界。问“某章写完了吗/有无矛盾/质量如何”必须先读正文与章计划，
+    不得仅凭章状态或“已保存/无待采纳候选”断言完成，也不得编造未读到的情节作为依据。
+    统计/章节索引已经足够回答的问题（如“第二章写完了吗”）直接 reply，不要为形式先 explore；
+    只有需要正文/章计划细节时才 chapter_read/archive_read。
+    待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact，不要先 explore；
+    explore 只用于对象/版本不明；探索确认对象后必须继续执行修订，不得只描述计划或规则就结束。
+    继续读取不是最终答复：读完后必须在本轮给出覆盖范围+结论（或明确缺口+下一步），不得只回“已继续读取/再给结论”
+    这类过渡语结束。
     作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact（B28 format_only 边界在可见文本如实说明），
     不要只解释或报缺口。
     能力缺口优先：作者要求的效果（例如修改已有角色身份主档案、整章排版并保证字句不变）
@@ -265,6 +307,7 @@ defmodule NovelApplication.JudgmentProtocol do
         :author_text,
         Map.get(input, :author_text) || Map.get(input, :goal_text) || ""
       )
+      |> Keyword.put(:observation_count, length(Map.get(input, :observations) || []))
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
@@ -351,7 +394,9 @@ defmodule NovelApplication.JudgmentProtocol do
         {:error, :capability_not_available}
 
       not is_nil(field(args, :explore_request)) ->
-        {:error, :incompatible_operation_fields}
+        {:error,
+         {:incompatible_operation_fields,
+          "execute 只填 capability 与一个目标 ref（pending_artifact_ref 或 adopted_content_ref）；explore_request 只用于 explore，请移除该字段。"}}
 
       capability in Keyword.get(options, :readonly_capabilities, []) and
           Regex.match?(@write_intent_reason_re, field(args, :reason)) ->
@@ -370,13 +415,14 @@ defmodule NovelApplication.JudgmentProtocol do
         field(request, :tool) in Keyword.get(options, :explore_tools, [])
 
     cond do
-      not available ->
-        {:error, :exploration_not_available}
-
+      # 先校验字段互斥：动作专属字段错误时给出可执行纠错（M16），再判断探索是否可用。
       not empty_targets?(args) ->
         {:error,
          {:incompatible_operation_fields,
           "explore 只提供 explore_request；capability/候选目标仅用于 execute，请保留取证意图并纠正字段。"}}
+
+      not available ->
+        {:error, :exploration_not_available}
 
       true ->
         :ok
@@ -386,7 +432,10 @@ defmodule NovelApplication.JudgmentProtocol do
   defp validate_operation("plan", args, _) do
     if empty_targets?(args) and is_nil(field(args, :explore_request)),
       do: :ok,
-      else: {:error, :incompatible_operation_fields}
+      else:
+        {:error,
+         {:incompatible_operation_fields,
+          "plan 只带 plan 相关字段与 dialogue_goal/reason，不得携带 explore_request 或目标 ref；取证请用 explore，执行请用 execute。"}}
   end
 
   defp validate_operation("author_content_registration", args, options) do
@@ -397,12 +446,22 @@ defmodule NovelApplication.JudgmentProtocol do
     )
   end
 
-  defp validate_operation("await_author", args, _) do
+  defp validate_operation("await_author", args, options) do
     values = Enum.map(field(args, :options), &field(&1, :value))
 
-    if values == Enum.uniq(values) and Enum.all?(values, &(&1 == String.trim(&1))),
-      do: :ok,
-      else: {:error, :question_option_values_invalid}
+    cond do
+      not (values == Enum.uniq(values) and Enum.all?(values, &(&1 == String.trim(&1)))) ->
+        {:error, :question_option_values_invalid}
+
+      # 作者指代可能已有的历史原文、只读探索可用且本轮尚无观察：先取证再问作者。
+      Keyword.get(options, :explore, false) and
+        Keyword.get(options, :observation_count, 0) == 0 and
+          TurnInteractionService.anaphoric_reference?(Keyword.get(options, :author_text, "")) ->
+        {:error, :explore_before_ask_required}
+
+      true ->
+        :ok
+    end
   end
 
   # 缺口说明的 alternative_operation_refs 允许引用本轮真实可用的：

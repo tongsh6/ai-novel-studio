@@ -195,14 +195,14 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     case ctx.result_fn.(prompt) do
       {:ok, %{content: content} = provider_result} ->
         provider_result
-        |> parse_tool_call_result(ctx.tool_name)
+        |> parse_tool_call_result_detailed(ctx.tool_name)
         |> build_or_retry_plan(
           Map.merge(ctx, %{content: content, provider_result: provider_result})
         )
 
       {:ok, %{"content" => content} = provider_result} ->
         provider_result
-        |> parse_tool_call_result(ctx.tool_name)
+        |> parse_tool_call_result_detailed(ctx.tool_name)
         |> build_or_retry_plan(
           Map.merge(ctx, %{content: content, provider_result: provider_result})
         )
@@ -211,7 +211,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
         provider_result = %{content: content, tool_calls: []}
 
         provider_result
-        |> parse_tool_call_result(ctx.tool_name)
+        |> parse_tool_call_result_detailed(ctx.tool_name)
         |> build_or_retry_plan(
           Map.merge(ctx, %{content: content, provider_result: provider_result})
         )
@@ -278,6 +278,13 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       tool_name: ctx.tool_name,
       reason: inspect(reason)
     })
+
+    # 对外保持既有终局 reason 原子（tests/协议兼容）；字段细节已进纠错回执与日志。
+    reason =
+      case reason do
+        {:invalid_plan_tool_arguments, _errors} -> :invalid_plan_tool_arguments
+        other -> other
+      end
 
     {:error, {:agent_plan_protocol_violation, reason}}
   end
@@ -589,6 +596,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，并**逐字复制该条索引里的 chapter_ref 填入 target_chapter_ref**（同名章必须靠 ref 区分；列表中没有对应章或无法确定时两者都填 null）。
       - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
       - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
+      - tool arguments 顶层只能是 plan / author_reasoning / reason_codes / confidence 四个字段，不得加额外字段。
       - 只起草计划，不声称已经执行，不输出工具结果。
       - 普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。
       """,
@@ -657,6 +665,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       - prose_writing 步必须携带 authoring_intent / target_chapter / requested_chapter_raw / target_chapter_ref；作者点名的章按「作品章节」列表精确复制全名填 target_chapter，并**逐字复制该条索引里的 chapter_ref 填入 target_chapter_ref**（同名章必须靠 ref 区分；列表中没有对应章或无法确定时两者都填 null）。
       - authoring_intent 是枚举不是描述文字，只能取：continuation（续写既有章：保留已采纳正文接着写）｜ rewrite（推翻重写该章）｜ null（写新章）。作者说"接着写/继续写/往下写"必须填 continuation。
       - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右"）时，prose_writing 步携带 target_word_count 整数估计；没有篇幅诉求填 null，不要硬编。
+      - tool arguments 顶层只能是 plan / author_reasoning / reason_codes / confidence 四个字段，不得加额外字段。
       - 只修订计划，不声称已经执行，不输出工具结果。
       - 如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。
       """,
@@ -826,15 +835,28 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp tool_call_correction_prompt(original_prompt, failed_content, reason) do
     original_text = original_prompt_text(original_prompt)
 
+    field_guidance =
+      case reason do
+        {:invalid_plan_tool_arguments, errors} when is_list(errors) and errors != [] ->
+          "\n- 上次被拒的具体字段问题（逐项修正）：\n" <>
+            Enum.map_join(Enum.take(errors, 12), "\n", &"  - #{&1}")
+
+        _ ->
+          ""
+      end
+
     tool_prompt(
       original_prompt.tool_choice,
       """
       你上一次的 AgentRun 计划 tool call 无法被系统解析（#{inspect(reason)}）。请严格重新输出同一任务：
       - 必须调用 #{original_prompt.tool_choice}，且只调用这一个 tool
-      - tool arguments 必须包含 plan.steps、author_reasoning、reason_codes、confidence
-      - 每个 PlanStep 必须有 step_id / kind / description / success_criteria / target_tool_ref
-      - 除 author_reasoning 与步骤 description 外，不要把其它叙事字段放进 tool arguments
-
+      - tool arguments 顶层只能是四个字段：plan / author_reasoning / reason_codes / confidence（不得加 status、title、body 等额外字段）
+      - plan 只能是 {\"steps\": [PlanStep, ...]}；每个 PlanStep 必须有 step_id / kind / description / success_criteria / target_tool_ref
+      - kind 只能取 \"explore\" 或 \"act\"；target_tool_ref 只能取本任务 plan_step_targets 列表中的值
+      - 检索步（prose_search/chapter_read/archive_read/memory_recall）可带 exploration_query 字符串；非检索步填 null 或省略
+      - 合法最小骨架（值按本任务填写，不要照抄占位）：
+        {\"plan\":{\"steps\":[{\"step_id\":\"s1\",\"kind\":\"explore\",\"description\":\"...\",\"success_criteria\":[\"...\"],\"target_tool_ref\":\"context_assemble\"}]},\"author_reasoning\":\"...\",\"reason_codes\":[\"agent_plan_drafted\"],\"confidence\":0.9}
+      #{field_guidance}
       ## 你的上一次 content（截取前 #{@max_failed_planner_output_chars} 字符）
       #{String.slice(to_string(failed_content), 0, @max_failed_planner_output_chars)}
 
@@ -845,6 +867,14 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   end
 
   defp parse_tool_call_result(provider_result, tool_name) do
+    case parse_tool_call_result_detailed(provider_result, tool_name) do
+      {:error, {:invalid_plan_tool_arguments, _errors}} -> {:error, :invalid_plan_tool_arguments}
+      other -> other
+    end
+  end
+
+  # task-30：结构纠正回执要携带具体字段指引，先拿到字段级错误再进入重试/终局。
+  defp parse_tool_call_result_detailed(provider_result, tool_name) do
     with {:ok, parsed} <- tool_call_arguments(provider_result, tool_name) do
       require_json_object(parsed)
     end
@@ -872,7 +902,9 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
          ) do
       {:ok, args}
     else
-      {:error, :invalid_plan_tool_arguments}
+      {:error,
+       {:invalid_plan_tool_arguments,
+        NovelApplication.AgentPlanToolContract.validation_errors(args)}}
     end
   end
 

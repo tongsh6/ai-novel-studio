@@ -197,7 +197,8 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   判断上下文「作品事实」投影（B27 CP4 M01/M16/M20）：按章返回当前采纳草稿事实。
 
   只读；只取当前 canon（Draft.status=ACCEPTED）与历史 SUPERSEDED 计数：
-  - `word_count`：当前采纳正文有效字数（与阅读投影同源）
+  - `word_count`：当前采纳正文有效字数（与阅读投影同源，去标点/空白口径）
+  - `char_count`：当前采纳正文原始字符数（`length(content)`，含标点/空白），与有效字数区分
   - `accepted_draft_count` / `scene_count`：当前有采纳稿的场景数 / 场景总数
   - `current_draft_refs`：当前每场采纳稿的 `draft:<id>:<revision>`（最多 5 条）
   - `superseded_draft_count`：历史被替换稿数（明确不计入当前）
@@ -237,7 +238,13 @@ defmodule NovelPersistence.ReadingProjectionRepo do
               d.status in ^[AdoptionStatus.accepted(), AdoptionStatus.superseded()]
           )
           |> order_by([d], asc: d.scene_id, desc: d.revision)
-          |> select([d], %{id: d.id, scene_id: d.scene_id, revision: d.revision, status: d.status})
+          |> select([d], %{
+            id: d.id,
+            scene_id: d.scene_id,
+            revision: d.revision,
+            status: d.status,
+            content_chars: fragment("length(?)", d.content)
+          })
           |> Repo.all()
 
         accepted_status = AdoptionStatus.accepted()
@@ -265,6 +272,11 @@ defmodule NovelPersistence.ReadingProjectionRepo do
           superseded = Enum.filter(chapter_drafts, &(&1.status == superseded_status))
           summary = Map.get(summaries, chapter.id)
 
+          char_count =
+            accepted
+            |> Enum.map(&(Map.get(&1, :content_chars) || 0))
+            |> Enum.sum()
+
           refs =
             accepted
             |> Enum.take(5)
@@ -272,6 +284,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
           Map.put(acc, to_string(chapter.id), %{
             word_count: Map.get(words, chapter.id, 0),
+            char_count: char_count,
             accepted_draft_count: length(accepted),
             scene_count: Map.get(scene_counts, chapter.id, 0),
             current_draft_refs: refs,
