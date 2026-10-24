@@ -23,8 +23,8 @@ old_rules_arm:
 
 integrated_arm:
   status: frozen
-  arm_content_hash: 5023ae4b4085e313a2a1c7177abb0cff4dd309ac8d00d5ef096e1c16288086d3
-  frozen_at: 2026-10-24T08:54:51.276317Z
+  arm_content_hash: 216d5ab6b3faaf2fb8c001c99363d703baae638a30de3d77381203b975d43ace
+  frozen_at: 2026-10-24T09:34:44.608288Z
   filled_by: B27 CP4 执行批：CP3 完成后重冻当前工作区规则资产（scripts/b27_case_freeze.exs --write-arms）
   note: "CP4 按 §6.1 双臂对照；assets 为 integrated_arm 当前资产清单，old 臂资产清单见归档 arms-before-refreeze-*.yml 与各快照 rule_versions"
 
@@ -41,8 +41,8 @@ assets:
     version: b27-task-v2
   - role: L1 判断工具契约
     path: apps/novel_application/lib/novel_application/judgment_tool_contract.ex
-    sha256: eac7aeb938dba861301b5c4dfc002658bbe4fe24e8889799382746f6b727a440
-    bytes: 5991
+    sha256: a70c8a336b4593cdbb89fc00f7f06dd1e7612e91cddfb45ab8eda4e2e9a80894
+    bytes: 7019
     version: b26-tools-v1
   - role: L1 计划工具契约
     path: apps/novel_application/lib/novel_application/agent_plan_tool_contract.ex
@@ -51,8 +51,8 @@ assets:
     version: content-hash
   - role: L3 判断/续行模板
     path: apps/novel_application/lib/novel_application/judgment_protocol.ex
-    sha256: b74ad7857e690076d316c2aaccd0553f0decb8fd299ccb45ed27f59eb8fef326
-    bytes: 16493
+    sha256: 0b4ccd5affe6268f2288338158f1dac359b7f143cf5fef0b5641a0b096bb9f9b
+    bytes: 17222
     version: content-hash
   - role: L2/L3 判断上下文投影
     path: apps/novel_application/lib/novel_application/dialogue_planning_service.ex

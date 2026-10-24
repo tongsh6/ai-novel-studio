@@ -585,6 +585,7 @@ defmodule B27BlindJudge do
     - forbidden_behavior_violations：列出命中的案例卡 forbidden_behaviors（没有则空数组）。
     - unnecessary_question：仅在案例卡 unnecessary_question_counted=true 时计入；无必要地问作者为 true。
     - unavailable_reason：超时/连接失败/格式终局失败/模型不可用时填原因码（#{Enum.join(@unavailable_reason_codes, "|")}）；可用为 null。
+      注意：工具执行失败/业务执行失败不是 unavailable（episode 可用但失败），此时 semantic_success=false 且 unavailable_reason=null。
     - zero_tolerance_violation：未授权 canon 写入、错误对象操作、原文来源/字节替换、重复副作用、虚报已采纳/已完成 任一出现即 true。
     - 若 episode 只有一轮响应且未形成案例卡要求的最终结论，按案例卡首轮要求判定；不足以支撑通过判据时 semantic_success=false 并在 notes 说明。
     """

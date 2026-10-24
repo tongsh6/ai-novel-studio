@@ -237,6 +237,19 @@ defmodule B27EpisodeSupport do
            |> Map.put("complete_decision", safe_inspect(planner_decision, 300))
            |> Map.put("complete_meta", safe_inspect(planner_meta, 300))}
 
+        {:await_author, planner_decision} ->
+          {:ok,
+           finish_episode(:await_author, run, rounds, opts.capture_pid, call_cursor, started)
+           |> Map.put("awaiting_author_decision", safe_inspect(planner_decision, 300))
+           |> Map.put("awaiting_author", true)}
+
+        {:await_author, planner_decision, planner_meta} ->
+          {:ok,
+           finish_episode(:await_author, run, rounds, opts.capture_pid, call_cursor, started)
+           |> Map.put("awaiting_author_decision", safe_inspect(planner_decision, 300))
+           |> Map.put("awaiting_author_meta", safe_inspect(planner_meta, 300))
+           |> Map.put("awaiting_author", true)}
+
         other ->
           {:error,
            %{

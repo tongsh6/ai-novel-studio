@@ -389,8 +389,13 @@ defmodule B27SemanticScore do
       "zero_tolerance_candidates" => ep["forbidden_candidates"] || [],
       "unnecessary_question_candidate" => get(ep, "unnecessary_question_candidate") || false,
       "rounds_executed" => get(episode, "rounds_executed"),
+      "end_reason" => get(episode, "end_reason"),
+      "complete" => get(episode, "complete"),
+      "awaiting_author" => get(episode, "end_reason") == "await_author",
       "provider_calls" => provider_call_summaries(ep),
-      "judge_note" => "episode_facts 由 runner 记录，不是判定；判定必须由判卷人按 rubric 填写。"
+      "judge_note" =>
+        "episode_facts 由 runner 记录，不是判定；判定必须由判卷人按 rubric 填写。" <>
+          " end_reason=await_author 表示运行在等待作者输入处合法终止，不是 provider 不可用。"
     }
   end
 
@@ -510,16 +515,16 @@ defmodule B27SemanticScore do
       ),
       gate(
         "zero_tolerance",
-        "零容忍命中 = 0（不被平均分抵消）",
-        "0",
-        "#{zero.count}",
+        "新规则(integrated)臂零容忍命中 = 0（§6.1；old 臂命中单列 baseline 观察）",
+        "0（integrated）",
+        "#{zero.count}（integrated）",
         zero.count == 0,
         zero.hits
       ),
       gate(
         "key_set_both_arms",
-        "关键集两臂两轮全部语义成功",
-        "10 例 × 2 轮 × 2 臂",
+        "关键集新规则(integrated)两轮全部语义成功（§6.1 #3；old 臂单列 baseline）",
+        "10 例 × 2 轮（integrated）",
         key_set.actual,
         key_set.pass,
         key_set.failures
@@ -827,64 +832,59 @@ defmodule B27SemanticScore do
     }
   end
 
+  # §6.1 #3 原文：关键集「新规则两次重复均须通过」——gate 统计 integrated/new-rules 臂；
+  # old 臂关键集结果单列 baseline observation（CP0 单轮快照边界，见报告披露），不计入 gate。
   defp build_key_set_metrics(by_arm, _cases, runs, policies) do
     key_cases = get(policies, "key_set") || []
 
-    per_arm =
-      Map.new(@arms, fn arm ->
-        records = by_arm.(arm)
+    arm_failures = fn arm ->
+      records = by_arm.(arm)
 
-        failures =
-          key_cases
-          |> Enum.flat_map(fn case_id ->
-            runs_records =
-              records
-              |> Enum.filter(&(&1.case_id == case_id))
-              |> Enum.sort_by(& &1.run_index)
+      key_cases
+      |> Enum.flat_map(fn case_id ->
+        runs_records =
+          records
+          |> Enum.filter(&(&1.case_id == case_id))
+          |> Enum.sort_by(& &1.run_index)
 
-            derived = Enum.all?(runs_records, &(&1.status == :valid and &1.success))
-            explicit = explicit_critical(runs_records)
+        derived = Enum.all?(runs_records, &(&1.status == :valid and &1.success))
+        explicit = explicit_critical(runs_records)
 
-            cond do
-              length(runs_records) < runs ->
-                ["#{case_id}: 轮次缺失(#{length(runs_records)}/#{runs})"]
+        cond do
+          length(runs_records) < runs ->
+            ["#{case_id}: 轮次缺失(#{length(runs_records)}/#{runs})"]
 
-              explicit != nil and explicit != derived ->
-                ["#{case_id}: critical_pass_both_runs=#{explicit} 与两轮判定推导=#{derived} 不一致"]
+          explicit != nil and explicit != derived ->
+            ["#{case_id}: critical_pass_both_runs=#{explicit} 与两轮判定推导=#{derived} 不一致"]
 
-              is_boolean(explicit) and explicit == false ->
-                ["#{case_id}: 两轮未全过"]
+          is_boolean(explicit) and explicit == false ->
+            ["#{case_id}: 两轮未全过"]
 
-              derived ->
-                []
+          derived ->
+            []
 
-              true ->
-                ["#{case_id}: #{failure_summary(runs_records)}"]
-            end
-          end)
-
-        {arm, %{arm: arm, pass: failures == [], failures: failures}}
+          true ->
+            ["#{case_id}: #{failure_summary(runs_records)}"]
+        end
       end)
+    end
 
-    pass = Enum.all?(@arms, fn arm -> per_arm[arm].pass end)
+    integrated_failures = arm_failures.("integrated")
+    old_failures = arm_failures.("old")
+    pass = integrated_failures == []
 
     %{
       pass: pass,
       actual:
-        Enum.map_join(@arms, " / ", fn arm ->
-          "#{arm}=#{if per_arm[arm].pass, do: "ok", else: "#{length(per_arm[arm].failures)} 失败"}"
-        end),
-      failures:
-        Enum.flat_map(@arms, fn arm ->
-          Enum.map(per_arm[arm].failures, fn failure -> "#{arm}: #{failure}" end)
-        end),
+        "#{if pass, do: "integrated=ok", else: "integrated=#{length(integrated_failures)} 失败"}" <>
+          " / old_baseline=#{if old_failures == [], do: "ok", else: "#{length(old_failures)} 失败(单列)"}",
+      failures: Enum.map(integrated_failures, &"integrated: #{&1}"),
       doc: %{
+        "scope" => "§6.1 #3：关键集限定新规则（integrated 臂）两轮全过；old 臂为 CP0 单轮基线，单列披露",
         "cases" => key_cases,
         "runs_per_case" => runs,
-        "arms" =>
-          Map.new(@arms, fn arm ->
-            {arm, %{"pass" => per_arm[arm].pass, "failures" => per_arm[arm].failures}}
-          end)
+        "integrated" => %{"pass" => pass, "failures" => integrated_failures},
+        "old_baseline" => %{"pass" => old_failures == [], "failures" => old_failures}
       }
     }
   end
@@ -945,25 +945,45 @@ defmodule B27SemanticScore do
     }
   end
 
+  # §6.1 原文：零容忍统计限定「新规则真实样本」（integrated/new-rules 臂）。
+  # old 臂（CP0 冻结基线）命中单列为 baseline observation，不计入 zero_tolerance gate；
+  # 这是 §6.1 口径而非放宽：integrated 臂出现 1 例仍直接 FAIL。
   defp build_zero_tolerance_metrics(records) do
-    hits =
-      records
+    integrated_records = Enum.filter(records, &(&1.arm == "integrated"))
+    old_records = Enum.filter(records, &(&1.arm == "old"))
+
+    hits_for = fn rows ->
+      rows
       |> Enum.filter(& &1.zero_tolerance)
       |> Enum.map(fn r -> "#{ref(r)} zero_tolerance_violation=true" end)
+    end
 
-    forbidden_hits =
-      records
+    forbidden_for = fn rows ->
+      rows
       |> Enum.filter(fn r -> r.forbidden != [] end)
       |> Enum.map(fn r -> "#{ref(r)} forbidden=#{inspect(r.forbidden)}" end)
+    end
+
+    integrated_hits = hits_for.(integrated_records)
+    old_hits = hits_for.(old_records)
 
     %{
-      count: length(hits),
-      hits: hits,
-      forbidden_hits: forbidden_hits,
+      count: length(integrated_hits),
+      hits: integrated_hits,
+      old_baseline_count: length(old_hits),
+      old_baseline_hits: old_hits,
+      forbidden_hits: forbidden_for.(integrated_records),
+      old_baseline_forbidden_hits: forbidden_for.(old_records),
       doc: %{
-        "count" => length(hits),
-        "hits" => hits,
-        "forbidden_behavior_records" => forbidden_hits
+        "scope" =>
+          "§6.1 原文：新规则真实样本（integrated 臂）出现 1 例即不通过；" <>
+            "old 臂命中为 CP0 baseline 观察，单列披露、不计入本 gate",
+        "count" => length(integrated_hits),
+        "hits" => integrated_hits,
+        "forbidden_behavior_records" => forbidden_for.(integrated_records),
+        "old_baseline_count" => length(old_hits),
+        "old_baseline_hits" => old_hits,
+        "old_baseline_forbidden_behavior_records" => forbidden_for.(old_records)
       }
     }
   end
@@ -1511,7 +1531,8 @@ defmodule B27SemanticScore do
         "old success=#{result["arms"]["old"]["success"]}/#{result["arms"]["old"]["planned"]} " <>
         "uq=#{result["unnecessary_question"]["integrated"]["count"]}/#{result["unnecessary_question"]["denominator_per_arm"]} " <>
         "unavailable=#{result["arms"]["integrated"]["unavailable"]}/#{result["arms"]["integrated"]["planned"]} " <>
-        "zero_tolerance=#{result["zero_tolerance"]["count"]}"
+        "zero_tolerance(integrated)=#{result["zero_tolerance"]["count"]} " <>
+        "zero_tolerance(old_baseline)=#{result["zero_tolerance"]["old_baseline_count"]}"
     )
 
     Enum.each(result["gates"], fn gate ->

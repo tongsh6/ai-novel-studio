@@ -503,7 +503,7 @@ defmodule B27SemanticEval do
 
     cond do
       Enum.all?(statuses, &(&1 == "blocked")) -> System.halt(3)
-      Enum.any?(statuses, &(&1 == "provider_error")) -> System.halt(1)
+      Enum.any?(statuses, &(&1 in ["provider_error", "execution_error"])) -> System.halt(1)
       true -> :ok
     end
   end
@@ -719,6 +719,7 @@ defmodule B27SemanticEval do
               "rounds_executed" => get(evidence, "rounds_executed"),
               "complete" => get(evidence, "end_reason") == "complete",
               "end_reason" => get(evidence, "end_reason"),
+              "awaiting_author" => get(evidence, "awaiting_author") == true,
               "rounds" => get(evidence, "rounds"),
               "turn_result" => get(evidence, "turn_result"),
               "complete_decision" => get(evidence, "complete_decision"),
@@ -1189,6 +1190,7 @@ defmodule B27SemanticEval do
 
   defp error_episode(case_id, arm, run_index, opts, error, started, extra \\ []) do
     error = if is_map(error), do: error, else: %{class: :unknown, message: inspect(error)}
+    failure = classify_episode_failure(error)
 
     %{
       "schema" => "b27-semantic-episode-v1",
@@ -1198,9 +1200,9 @@ defmodule B27SemanticEval do
       "run_index" => run_index,
       "provider" => to_string(opts.provider_cfg.provider),
       "requested_model" => opts.effective_model,
-      "status" => "provider_error",
-      "availability" => "unavailable",
-      "error_class" => error_class({:error, error}),
+      "status" => failure.status,
+      "availability" => failure.availability,
+      "error_class" => failure.error_class,
       "error" => %{
         "class" => to_string(get(error, :class) || :unknown),
         "message" => get(error, :message) || inspect(error),
@@ -1329,6 +1331,48 @@ defmodule B27SemanticEval do
     |> Enum.map(fn call -> get(get(call, "wire_result") || %{}, "content") end)
     |> Enum.reject(&(is_nil(&1) or &1 == ""))
     |> List.last()
+  end
+
+  # §6.1 的「不可用」= provider/模型不可用（超时/连接/鉴权/模型缺失/格式终局失败）。
+  # 生产执行失败（如 pending_artifact_execution_failed / 工具执行失败）是 episode 内业务失败：
+  # 计未成功，但**不是** unavailable，不能混入 ≤2/40 的不可用门槛。
+  defp classify_episode_failure(error) do
+    message =
+      (get(error, :message) || get(error, "message") || inspect(error))
+      |> to_string()
+      |> String.downcase()
+
+    cond do
+      String.contains?(message, "pending_artifact_execution_failed") or
+        String.contains?(message, "tool_execution_failed") or
+          String.contains?(message, "tool_execution_error") ->
+        %{
+          status: "execution_error",
+          availability: "available",
+          error_class: "tool_execution_failure"
+        }
+
+      String.contains?(message, "episode_timeout") or String.contains?(message, "wall clock >") ->
+        %{status: "provider_error", availability: "unavailable", error_class: "timeout"}
+
+      String.contains?(message, "invalid_tool_combination") or
+        String.contains?(message, "invalid_tool_arguments") or
+        String.contains?(message, "judgment_protocol_violation") or
+        String.contains?(message, "agent_plan_protocol_violation") or
+          String.contains?(message, "incompatible_operation_fields") ->
+        %{
+          status: "provider_error",
+          availability: "unavailable",
+          error_class: "format_terminal_failure"
+        }
+
+      true ->
+        %{
+          status: "provider_error",
+          availability: "unavailable",
+          error_class: error_class({:error, error})
+        }
+    end
   end
 
   defp error_class({:ok, _}), do: nil
