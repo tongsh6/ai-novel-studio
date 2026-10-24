@@ -43,7 +43,7 @@ B26 独立负责所有由 ask_author 产生的明确问题：持久 author_quest
 | CP | 工作 | 状态 |
 |---|---|---|
 | CP0 | 真实页面隔离复现多停等/刷新；判清当前回复对象语义与根因，列每个输入来源/绑定/结果 | **done（2026-10-25）**：T1–T5 真实 Tauri 复现；证据 `artifacts/slice-verify/b31-author-reply-run-binding-tauri/`（PASS 批次副本 `-cp0-pass-20261025T0052`），记录 `artifacts/model-contracts/b31-cp0/{ui-repro.md,code-chain.md}`；显式 author_choice 路径正确 |
-| CP1 | 基于证据修绑定选择与服务端校验，保留既有幂等/恢复契约；补错误与拒绝路径 | todo |
+| CP1 | 基于证据修绑定选择与服务端校验，保留既有幂等/恢复契约；补错误与拒绝路径 | **done（2026-10-25，`1a1fe079`）**：前端 Q01 确定性选择/Q02 主输入条件/Q05 目标可见；后端 Q03 expected_goal_version 校验/Q04 恢复稳定序/Q05-ack 绑定信息；前端 607 tests、后端 2080 tests/0，门禁绿；无 schema/codegen |
 | CP2 | 新场景从真实输入到同 run 结果/刷新/再回复；B26 选项接线可用后补选项等价回归 | todo |
 | CP3 | DS03/B23/Q3D/取消和重传回归、全门禁、台账收口 | todo |
 
@@ -75,3 +75,10 @@ B26 独立负责所有由 ask_author 产生的明确问题：持久 author_quest
 - **Q05 目标可见**：多 live run 时停等坞/输入区显示输入将发给哪个任务（复用现有 goal 摘要；多歧义时提示选择）。
 - **Q06 边界**：不新增问题表；显式问题 schema 不变（B26 已有 question_ref/expected_goal_version/author_choice）；plain steer 字段为 additive 可选；不改 provider/创作工具/采纳语义。
 - **CP1 影响面**：frontend（WorkspaceChat/agentRunInputRouting/agentRunAnchoring + 单测）、web（WorkspaceChannel steer 校验/恢复广播序）、application（AgentRunService steer 版本校验）、persistence 仅必要读取；场景 `b31-author-reply-run-binding` 在 CP2 注册。
+
+### 6.3 CP1 实施记录（2026-10-25，`1a1fe079`）
+
+- **前端**：`agentRunInputRouting.ts` 新增 `selectActiveAgentRun`（priority：唯一 open question（goal version 匹配）> `focusedRunId` > 唯一语义活动时间 > 唯一 steerable > null/ambiguous；忽略 terminal/dead）、`decideAgentRunInputRoute`、`openQuestionRunIdsForRuns`、`buildAgentRunInputPresentation`；`WorkspaceChat` 接入选择/决策（移除 visibleAgentRunMap 末位语义）、`focusedAgentRunId`+语义活动时间（仅 agent_event/TurnResult 更新，不用恢复广播序）、`submitAgentSteer` 携带 additive `expected_goal_version`、`AgentRunInputRoutingAids`（目标提示/歧义提示/任务选择）、copy/CSS；`socket.ts` ack 类型 additive `resolved_run_id/binding_source`（无 codegen）。双 live run 歧义时主输入为新请求+可见提示；有未答 open question 时不 steer 并提示走问题回复；停等坞「发送调整」显式绑定。
+- **后端**：channel steer 接受可选正整数 `expected_goal_version`（非法类型 `invalid_expected_goal_version`）→ AgentRunService/Server；版本冲突返回 `goal_version_conflict`（current/expected）且不推进/不写 steer，缺省兼容旧行为；ack additive `resolved_run_id`/`binding_source`；`recover_durable`/`list_dead_bounded`/`reconnect_bounded` 按 `{inserted_at,id}` 稳定排序，组序固定；B26 问题回复 map 形式 submission 的 4-tuple 兼容 clause 修复（全量回归发现并修）。
+- 测试：前端 `pnpm typecheck/lint/test`（37 files/607 tests）、frontend_audit、check_design_trace 全绿；后端 2080 tests/0（含 channel steer binding 2 例、application 冲突/兼容 4 例、author question roundtrip 21 例回归）、credo/enum/xref/arch 绿。
+- 残留/CP2 输入：历史卡片/消息点击未接 focused（CP2 按场景定，不新增隐式点击语义）；待投递重传路径不带 expected_goal_version（schema/codegen 决策留 CP3）；坞内目标行可选；CP3 文档同步项（UA-01 additive 字段/旧 shouldRouteInputToAgentSteer 删除/copy 登记）。

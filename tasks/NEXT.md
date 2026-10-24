@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B31-AUTHOR-REPLY-RUN-BINDING | **CP0 已完成（2026-10-25）**：真实 Tauri 复现两 live awaiting run 时普通主输入被 plain steer 到错误 run（Q 仍 open），根因=前端 visibleAgentRunMap 插入序 + 普通输入只看 selected run + JoinRestore 顺序无契约；显式 author_choice 路径正确。**CP1 进行中**：前端确定性 selectActiveAgentRun + 主输入 steer 条件/目标可见（task-41）；后端 expected_goal_version 校验 + JoinRestore 稳定序 + ack 绑定（task-42）→ CP2 场景复验/注册（task-43）。 | [B31](slices/B31-author-reply-run-binding.md) |
+| B31-AUTHOR-REPLY-RUN-BINDING | **CP0 已完成（2026-10-25）**：真实 Tauri 复现两 live awaiting run 时普通主输入被 plain steer 到错误 run（Q 仍 open），根因=前端 visibleAgentRunMap 插入序 + 普通输入只看 selected run + JoinRestore 顺序无契约；显式 author_choice 路径正确。**CP1 完成并提交（`1a1fe079`）**：前端确定性 selectActiveAgentRun/主输入条件/目标可见；后端 expected_goal_version 校验/恢复稳定序/ack 绑定；前端 607 tests、后端 2080 tests/0 全绿。**CP2 进行中**（task-43）：真实 Tauri 复验新语义（普通主输入不再串 run、显式问题仍正确、刷新稳定）→ 注册场景 + 回归（agent-awaiting-author-steer-resume 等）。 | [B31](slices/B31-author-reply-run-binding.md) |
 
 ## 后续候选
 
