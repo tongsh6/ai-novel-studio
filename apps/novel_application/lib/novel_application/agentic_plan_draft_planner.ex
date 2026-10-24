@@ -268,7 +268,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     emit_plan_retry(:structure, :correction, reason)
 
     ctx.prompt
-    |> tool_call_correction_prompt(ctx.content, reason)
+    |> tool_call_correction_prompt(ctx.content, reason, ctx.run)
     |> request_plan(%{ctx | attempt: ctx.attempt + 1, retry?: false})
   end
 
@@ -832,18 +832,10 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp internal_observation_steps("world_building_with_context_v1"), do: ["context_assemble"]
   defp internal_observation_steps(_profile_ref), do: []
 
-  defp tool_call_correction_prompt(original_prompt, failed_content, reason) do
+  defp tool_call_correction_prompt(original_prompt, failed_content, reason, run) do
     original_text = original_prompt_text(original_prompt)
-
-    field_guidance =
-      case reason do
-        {:invalid_plan_tool_arguments, errors} when is_list(errors) and errors != [] ->
-          "\n- 上次被拒的具体字段问题（逐项修正）：\n" <>
-            Enum.map_join(Enum.take(errors, 12), "\n", &"  - #{&1}")
-
-        _ ->
-          ""
-      end
+    targets = correction_targets(run)
+    skeleton_target = List.first(targets) || "context_assemble"
 
     tool_prompt(
       original_prompt.tool_choice,
@@ -851,12 +843,12 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       你上一次的 AgentRun 计划 tool call 无法被系统解析（#{inspect(reason)}）。请严格重新输出同一任务：
       - 必须调用 #{original_prompt.tool_choice}，且只调用这一个 tool
       - tool arguments 顶层只能是四个字段：plan / author_reasoning / reason_codes / confidence（不得加 status、title、body 等额外字段）
-      - plan 只能是 {\"steps\": [PlanStep, ...]}；每个 PlanStep 必须有 step_id / kind / description / success_criteria / target_tool_ref
-      - kind 只能取 \"explore\" 或 \"act\"；target_tool_ref 只能取本任务 plan_step_targets 列表中的值
+      - plan 只能是 {"steps": [PlanStep, ...]}；每个 PlanStep 必须有 step_id / kind / description / success_criteria / target_tool_ref
+      - kind 只能取 "explore" 或 "act"；target_tool_ref 只能取本任务 plan_step_targets 列表中的值
       - 检索步（prose_search/chapter_read/archive_read/memory_recall）可带 exploration_query 字符串；非检索步填 null 或省略
       - 合法最小骨架（值按本任务填写，不要照抄占位）：
-        {\"plan\":{\"steps\":[{\"step_id\":\"s1\",\"kind\":\"explore\",\"description\":\"...\",\"success_criteria\":[\"...\"],\"target_tool_ref\":\"context_assemble\"}]},\"author_reasoning\":\"...\",\"reason_codes\":[\"agent_plan_drafted\"],\"confidence\":0.9}
-      #{field_guidance}
+        {"plan":{"steps":[{"step_id":"s1","kind":"explore","description":"...","success_criteria":["..."],"target_tool_ref":"#{skeleton_target}"}]},"author_reasoning":"...","reason_codes":["agent_plan_drafted"],"confidence":0.9}
+      #{targets_guidance(targets)}#{shape_guidance(reason, original_prompt.tool_choice)}#{field_guidance(reason)}
       ## 你的上一次 content（截取前 #{@max_failed_planner_output_chars} 字符）
       #{String.slice(to_string(failed_content), 0, @max_failed_planner_output_chars)}
 
@@ -865,6 +857,41 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       """
     )
   end
+
+  defp correction_targets(%{} = run), do: allowed_targets(run)
+  defp correction_targets(_run), do: []
+
+  defp targets_guidance([]), do: ""
+
+  defp targets_guidance(targets) do
+    "\n- 本任务可用 plan_step_targets（target_tool_ref 只能取这些）：#{Enum.join(targets, "、")}"
+  end
+
+  defp field_guidance({:invalid_plan_tool_arguments, errors})
+       when is_list(errors) and errors != [] do
+    "\n- 上次被拒的具体字段问题（逐项修正）：\n" <>
+      Enum.map_join(Enum.take(errors, 12), "\n", &"  - #{&1}")
+  end
+
+  defp field_guidance(_reason), do: ""
+
+  defp shape_guidance(:native_tool_call_required, tool_choice) do
+    "\n- 上次没有返回 native tool call：必须通过 tool_calls 返回 #{tool_choice}，arguments 是 JSON object（不要只输出 content/文本/XML）"
+  end
+
+  defp shape_guidance({:native_tool_call_count_invalid, 0}, tool_choice) do
+    "\n- 上次没有返回 native tool call（tool_calls 为空）：必须通过 tool_calls 返回 #{tool_choice}，arguments 是 JSON object（不要只输出 content/文本）"
+  end
+
+  defp shape_guidance({:native_tool_call_count_invalid, count}, tool_choice) do
+    "\n- 上次返回 #{count} 个 tool call；本次只返回 1 个 #{tool_choice}，不要附加其他工具"
+  end
+
+  defp shape_guidance(:json_object_required, _tool_choice) do
+    "\n- arguments 必须是 JSON object（不是 JSON 字符串、不能套信封）"
+  end
+
+  defp shape_guidance(_reason, _tool_choice), do: ""
 
   defp parse_tool_call_result(provider_result, tool_name) do
     case parse_tool_call_result_detailed(provider_result, tool_name) do

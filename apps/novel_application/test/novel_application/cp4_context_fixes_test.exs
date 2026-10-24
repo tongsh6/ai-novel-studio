@@ -67,6 +67,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert partial_prompt =~ "覆盖事实：本章正文已读 1–30000/34357 字符"
     assert partial_prompt =~ "未读 30001–34357 字符"
     assert partial_prompt =~ "不得声称已读全章"
+    assert partial_prompt =~ "## 探索预算状态（机械事实）"
+    assert partial_prompt =~ "仍可继续只读探索"
 
     # 读完整章（6 页）后的判断 prompt 关闭探索目录，模型必须收束
     final_prompt =
@@ -78,6 +80,8 @@ defmodule NovelApplication.CP4ContextFixesTest do
     assert final_prompt
     assert final_prompt =~ @long_tail_anchor
     assert final_prompt =~ "覆盖事实：本章正文已读 1–34357/34357 字符，已覆盖全章"
+    assert final_prompt =~ "只读探索预算已用尽"
+    assert final_prompt =~ "不是系统没有探索能力"
     refute final_prompt =~ "## 探索目录"
   end
 

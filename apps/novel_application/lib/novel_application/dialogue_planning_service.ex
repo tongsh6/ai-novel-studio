@@ -510,10 +510,41 @@ defmodule NovelApplication.DialoguePlanningService do
             end)
 
           "\n\n## 探索观察（已检索到的作品事实）\n\n" <>
-            rendered <> coverage_note(list) <> continue_hint(list, budget)
+            rendered <>
+            coverage_note(list) <>
+            continue_hint(list, budget) <>
+            exploration_budget_section(list, budget)
       end
 
     catalog <> observations
+  end
+
+  # B27 CP4 retest5 M18：如实投影探索预算状态与已执行来源——预算关闭不等于
+  # “系统没有探索能力”；模型据此基于已有观察收束或提出具体澄清。
+  defp exploration_budget_section([], _budget), do: ""
+
+  defp exploration_budget_section(explorations, budget) do
+    tools =
+      explorations
+      |> Enum.map(&Map.get(&1, :tool))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    count = length(explorations)
+
+    state =
+      if Map.get(budget, :open?, false) do
+        "仍可继续只读探索（普通回合上限 #{@max_explore_rounds}；长章续读另计；当前已执行 #{count} 次）"
+      else
+        "只读探索预算已用尽，本轮不再受理新的 explore 请求；这不是系统没有探索能力" <>
+          "（已执行来源：#{Enum.join(tools, "、")}，其观察仍可直接引用）"
+      end
+
+    "\n\n## 探索预算状态（机械事实）\n" <>
+      "- 本轮已执行只读探索：#{count} 次#{if tools == [], do: "", else: "（来源：#{Enum.join(tools, "、")}）"}\n" <>
+      "- 当前状态：#{state}\n" <>
+      "- 预算用尽时：基于已有观察回答/收束；需要作者补充材料时提出具体澄清，" <>
+      "不得把“预算用尽”表述成“系统没有/不可用探索能力”。"
   end
 
   # B27 CP4 retest2（task-22）：每轮给出机械覆盖事实（已读字符/总长/未读范围）。
@@ -1126,12 +1157,39 @@ defmodule NovelApplication.DialoguePlanningService do
   # 检索步后**回到判断收束**（下一轮由模型给最终作者可见结论/提问），而不是切到
   # judgment_plan flow 耗尽后停等作者而没有结论。含创作步的计划仍走原 flow。
   defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, context, snapshot) do
-    with {:ok, plan, _inline_meta} <-
-           selected_judgment_plan(run, :judgment_plan, judgment),
-         steps when is_list(steps) and steps != [] <- read_only_plan_steps(plan) do
-      execute_planned_explorations(judgment, plan, steps, run, sequence, input, context, snapshot)
-    else
-      _ -> judgment_switch_result(:judgment_plan, judgment, input, run, sequence)
+    case selected_judgment_plan(run, :judgment_plan, judgment) do
+      {:ok, plan, inline_meta} ->
+        case read_only_plan_steps(plan) do
+          steps when is_list(steps) and steps != [] ->
+            execute_planned_explorations(
+              judgment,
+              plan,
+              steps,
+              run,
+              sequence,
+              input,
+              context,
+              snapshot
+            )
+
+          _ ->
+            judgment_switch_payload(
+              :judgment_plan,
+              judgment,
+              input,
+              run,
+              sequence,
+              plan,
+              inline_meta
+            )
+        end
+
+      # B27 CP4 retest5 M16 r1：同批 inline 计划参数非法时若直接 terminal，会绕过
+      # AgenticPlanDraftPlanner 的有界纠错重试链。这里降级为「切 judgment_plan flow，
+      # 由 flow 重新起草计划」：校验不放宽，planner 内部仍有字段级纠错回执；
+      # 只有 planner 两次都失败才按原子 reason 终局。
+      {:error, _reason} ->
+        judgment_switch_plan_drafting(judgment, input, run, sequence)
     end
   end
 
@@ -1418,44 +1476,55 @@ defmodule NovelApplication.DialoguePlanningService do
   # execute/plan：切换到能力 profile（等价旧路由；计划起草→机械 cursor 沿用）。
   defp judgment_switch_result(profile, judgment, input, run, sequence) do
     log_judgment_decided(judgment, "judgment_" <> judgment.action, 0)
-    selection = judgment_selection(judgment, profile)
 
     with {:ok, target_plan, inline_meta} <- selected_judgment_plan(run, profile, judgment) do
-      {:ok,
-       %{
-         step: judgment_agent_step(run, sequence, "判断进入#{selection.profile_ref}"),
-         observations: [
-           judgment_observation(
-             run,
-             sequence,
-             judgment.narrative,
-             "profile:#{selection.profile_ref}",
-             %{
-               stage: :judgment_decided,
-               action: judgment.action,
-               profile_ref: selection.profile_ref
-             }
-           )
-         ],
-         stage_state: %{
-           routed_profile: Atom.to_string(profile),
-           inline_plan_meta: inline_meta,
-           routed_profile_ref: selection.profile_ref,
-           profile_selection: selection
-         },
-         run_patch: %{
-           profile_ref: selection.profile_ref,
-           authority_scope:
-             authority_scope(profile, Map.put(input, :profile_selection, selection)),
-           plan: target_plan,
-           plan_ref: plan_id(target_plan),
-           plan_version: plan_version(target_plan),
-           budget: routed_profile_budget(run.goal.text, profile, input)
-         },
-         provider_call_count: judgment.provider_call_count,
-         progress_signature: "#{run.run_id}:judgment_switch:#{selection.profile_ref}"
-       }}
+      judgment_switch_payload(profile, judgment, input, run, sequence, target_plan, inline_meta)
     end
+  end
+
+  # B27 CP4 retest5：inline plan 校验失败时切 flow 重新起草（planner 自带纠错重试链）。
+  defp judgment_switch_plan_drafting(judgment, input, run, sequence) do
+    log_judgment_decided(judgment, "judgment_plan", 0)
+    {:ok, pending_plan} = agent_run_agent_plan(run.run_id, :judgment_plan)
+    judgment_switch_payload(:judgment_plan, judgment, input, run, sequence, pending_plan, nil)
+  end
+
+  defp judgment_switch_payload(profile, judgment, input, run, sequence, target_plan, inline_meta) do
+    selection = judgment_selection(judgment, profile)
+
+    {:ok,
+     %{
+       step: judgment_agent_step(run, sequence, "判断进入#{selection.profile_ref}"),
+       observations: [
+         judgment_observation(
+           run,
+           sequence,
+           judgment.narrative,
+           "profile:#{selection.profile_ref}",
+           %{
+             stage: :judgment_decided,
+             action: judgment.action,
+             profile_ref: selection.profile_ref
+           }
+         )
+       ],
+       stage_state: %{
+         routed_profile: Atom.to_string(profile),
+         inline_plan_meta: inline_meta,
+         routed_profile_ref: selection.profile_ref,
+         profile_selection: selection
+       },
+       run_patch: %{
+         profile_ref: selection.profile_ref,
+         authority_scope: authority_scope(profile, Map.put(input, :profile_selection, selection)),
+         plan: target_plan,
+         plan_ref: plan_id(target_plan),
+         plan_version: plan_version(target_plan),
+         budget: routed_profile_budget(run.goal.text, profile, input)
+       },
+       provider_call_count: judgment.provider_call_count,
+       progress_signature: "#{run.run_id}:judgment_switch:#{selection.profile_ref}"
+     }}
   end
 
   defp selected_judgment_plan(run, :judgment_plan, %{plan_result: result}) when is_map(result) do

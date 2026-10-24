@@ -633,15 +633,20 @@ defmodule NovelApplication.JudgmentProtocolTest do
         "dialogue_goal" => "缺口",
         "missing_effect" => "缺能力",
         "author_reasoning" => "说明。",
-        "alternative_operation_refs" => ["make_magic"]
+        "alternative_operation_refs" => ["make_magic", "chapter_read"]
       })
 
-    assert {:error, {:judgment_protocol_violation, :alternative_operation_not_available}} =
+    # 无效 refs 被过滤而非拒整条响应；真实可用项保留（M14 r2 不终局）。
+    assert {:ok, judgment} =
              JudgmentProtocol.request_judgment(
                execution([response("", [invented])]),
                %{},
-               input()
+               input(explore: true, explore_tools: ["chapter_read"])
              )
+
+    assert judgment.reply_record.model_interpretation[:alternative_operation_refs] == [
+             "chapter_read"
+           ]
   end
 
   test "证据纪律规则在判断 prompt 中唯一且明确" do
@@ -1124,5 +1129,149 @@ defmodule NovelApplication.JudgmentProtocolTest do
 
     assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
              JudgmentProtocol.request_judgment(execution([markup, markup]), %{}, input())
+  end
+
+  test "task-36：探索不可用时降级为基于已有文本的 reply，不硬终局" do
+    explore =
+      call("judgment_decision", %{
+        "action" => "explore",
+        "dialogue_goal" => "继续读末页",
+        "reason" => "还需覆盖末页。",
+        "explore_request" => %{"tool" => "chapter_read", "query" => "第01章"}
+      })
+
+    transitional = "已读到 1–30000/34357；本轮探索预算已用尽，无法继续读取末页。"
+
+    results =
+      for _ <- 1..3 do
+        response(transitional, [explore])
+      end
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution(results), %{}, input(explore: false))
+
+    assert judgment.action == "reply"
+    assert judgment.degraded_reason == "exploration_budget_exhausted"
+    assert judgment.narrative == transitional
+    assert judgment.provider_call_count == 3
+  end
+
+  test "task-36：伪工具文本反复出现时有界重试（不无限循环）" do
+    pseudo =
+      response(
+        "<tool_call>\n<function=chapter_read>\n<parameter=query>第01章</parameter>\n</function>\n</tool_call>",
+        []
+      )
+
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+             JudgmentProtocol.request_judgment(execution([pseudo, pseudo, pseudo]), %{}, input())
+
+    # 3 次有界尝试后诚实拒绝（不是 1 次即终局）
+    assert_receive {:provider_request, _}
+    assert_receive {:provider_request, _}
+    assert_receive {:provider_request, _}
+    refute_receive {:provider_request, _}
+  end
+
+  test "task-36：只聊/分析任务不得物化方向（discussion_only 纠错后可 reply）" do
+    directions =
+      call("propose_creative_directions", %{
+        "candidate_directions" => [%{"title" => "方向一", "pitch" => "走向"}],
+        "author_reasoning" => "给出方向。"
+      })
+
+    good = response("陈九斤的弧线可以从“数灯/不接纸/不能回头”三个动作往代价走。", [])
+
+    protocol_input =
+      input()
+      |> Map.put(:author_text, "先别动笔，我们聊聊主角陈九斤的性格弧线该怎么走。")
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [directions]), good]),
+               %{},
+               protocol_input
+             )
+
+    assert judgment.action == "reply"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    assert List.last(corrected.messages).content =~ "discussion_only_violation"
+  end
+
+  test "task-36：要求生成方向时 discussion_only 不误伤（仍可 propose）" do
+    directions =
+      call("propose_creative_directions", %{
+        "candidate_directions" => [%{"title" => "方向一", "pitch" => "走向"}],
+        "author_reasoning" => "给出方向。"
+      })
+
+    protocol_input =
+      input()
+      |> Map.put(:author_text, "先别动笔，给我两三个接下来可写的方向。")
+
+    assert {:ok, %{action: "creative_directions"}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [directions])]),
+               %{},
+               protocol_input
+             )
+  end
+
+  test "task-36 prompt：M02 索引直答/M10 只聊零物化/M03 探索预算/M17 禁止伪工具文本" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "只问进度/章数/字数/是否已写/章状态"
+    assert content =~ "直接按索引/统计 reply，不要 chapter_read"
+    assert content =~ "属于分析任务：不得调用"
+    assert content =~ "探索预算已用尽/不可用时不得再请求 explore"
+    assert content =~ "工具调用必须使用原生 tool_calls"
+    assert String.split(content, "只问进度/章数/字数/是否已写/章状态") |> length() == 2
+  end
+
+  test "task-36 收口：分析型已有充分事实时直接 reply；质量判断才允许 explore" do
+    content = JudgmentProtocol.prompt(input()).messages |> List.first() |> Map.fetch!(:content)
+
+    assert content =~ "分析/讨论类任务且系统已有充分事实"
+    assert content =~ "直接 reply，"
+    assert content =~ "不要为形式 explore 正文"
+    assert content =~ "只有质量/矛盾/覆盖结论确实需要正文时才 chapter_read/archive_read"
+    assert String.split(content, "分析/讨论类任务且系统已有充分事实") |> length() == 2
+
+    analysis_input =
+      input()
+      |> Map.put(:author_text, "先别动笔，我们聊聊主角陈九斤的性格弧线该怎么走。")
+
+    # 分析任务：直接 reply 合法（不物化、不强制 explore）
+    assert {:ok, %{action: "reply"}} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("基于第一章已采纳事实：陈九斤的性格弧线可以从数灯/不接纸/不能回头三个动作谈起。", [])
+               ]),
+               %{},
+               analysis_input
+             )
+
+    # 质量/矛盾判断需要正文：explore 仍合法
+    quality_input =
+      analysis_input
+      |> Map.put(:author_text, "第二章正文质量如何？有没有前后矛盾？")
+      |> Map.put(:options, explore: true, explore_tools: ["chapter_read"])
+
+    quality_explore =
+      call("judgment_decision", %{
+        "action" => "explore",
+        "dialogue_goal" => "读第二章正文判断质量与矛盾",
+        "reason" => "需要正文才能判断质量。",
+        "explore_request" => %{"tool" => "chapter_read", "query" => "第02章：井底回声"}
+      })
+
+    assert {:ok, %{action: "explore"}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [quality_explore])]),
+               %{},
+               quality_input
+             )
   end
 end

@@ -241,6 +241,17 @@ defmodule NovelApplication.TurnInteractionService do
   def anaphoric_reference?(text) when is_binary(text),
     do: Regex.match?(@anaphoric_reference_re, text)
 
+  # 作者明确"只聊/先别动笔/讨论"且没有要求生成/登记时：分析类任务，不得物化候选。
+  @discussion_re ~r/(先别动笔|别动笔|只聊|聊聊|先聊|讨论一下|讨论|聊聊看|分析一下|不要写|别写|不生成|别生成)/u
+  @materialize_request_re ~r/(生成|写一段|写个|写一版|候选|方向|草稿|续写|改写|重写|登记|保存|存进|存到|产出)/u
+
+  @doc false
+  def discussion_only?(text) when is_binary(text) do
+    Regex.match?(@discussion_re, text) and not Regex.match?(@materialize_request_re, text)
+  end
+
+  def discussion_only?(_text), do: false
+
   defp validate_current_registration_source(author_text) do
     text = to_string(author_text || "")
 

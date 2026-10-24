@@ -848,6 +848,33 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert correction_text =~ "合法最小骨架"
     assert correction_text =~ "kind 只能取"
     assert correction_text =~ "顶层只能是四个字段"
+    assert correction_text =~ "本任务可用 plan_step_targets"
+    assert correction_text =~ "context_assemble"
+  end
+
+  test "上次未返回 native tool call 时纠错回执明确要求 tool_calls/JSON object，一次纠正可修复" do
+    test_pid = self()
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+      send(test_pid, {:plan_prompt, n, prompt})
+
+      case n do
+        1 -> {:ok, %{content: "这是文本而不是工具调用。", tool_calls: [], provider_output: nil}}
+        _ -> {:ok, provider_result("第二次计划。")}
+      end
+    end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert_received {:plan_prompt, 2, correction}
+    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    assert correction_text =~ "没有返回 native tool call"
+    assert correction_text =~ "arguments 是 JSON object"
   end
 
   test "invalid plan tool arguments 两次仍非法 → 终局 reason 保持原子并对日志保留字段细节" do

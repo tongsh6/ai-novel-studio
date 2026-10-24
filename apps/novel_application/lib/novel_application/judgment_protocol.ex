@@ -16,6 +16,8 @@ defmodule NovelApplication.JudgmentProtocol do
   @max_attempts 2
   @pending_target_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_target_capabilities ~w(revise_adopted_content)
+  @judgment_tool_names ~w(judgment_decision ask_author agent_plan_draft register_author_content
+                          propose_creative_directions report_capability_gap)
   @error_excerpt_chars 400
   @write_intent_reason_re ~r/写入|保存|存档|落库|存入|登记进|写进/
   @type judgment :: map()
@@ -77,17 +79,21 @@ defmodule NovelApplication.JudgmentProtocol do
           attempt: attempt
         })
 
-        # 纠错重试时把本次尝试的工具名带上：若本次是 ask_author（即使参数有误），
-        # 重试不得在没有作者回答的情况下改为 execute/revise 推进候选（M06）。
-        correct_or_reject(
-          fun,
-          prompt,
-          input,
-          profile,
-          attempt,
-          reason,
-          tool_names(provider_result)
-        )
+        if reason == :exploration_not_available and attempt >= @max_attempts + 1 do
+          degrade_to_reply(provider_result, input, attempt)
+        else
+          # 纠错重试时把本次尝试的工具名带上：若本次是 ask_author（即使参数有误），
+          # 重试不得在没有作者回答的情况下改为 execute/revise 推进候选（M06）。
+          correct_or_reject(
+            fun,
+            prompt,
+            input,
+            profile,
+            attempt,
+            reason,
+            tool_names(provider_result)
+          )
+        end
     end
   end
 
@@ -95,6 +101,24 @@ defmodule NovelApplication.JudgmentProtocol do
     (field(result, :tool_calls) || [])
     |> Enum.map(&field(&1, :name))
     |> Enum.reject(&is_nil/1)
+  end
+
+  # 探索预算关闭/覆盖已充分时不再终局：用模型本条可见文本作为 reply 收束
+  # （必须是 provider 输出字节，保持 N-NARR 可追溯；不伪造结论）。
+  defp degrade_to_reply(provider_result, input, attempt) do
+    content = field(provider_result, :content)
+
+    with true <- nonblank?(content),
+         {:ok, text, source} <- content_narrative(provider_result, content) do
+      judgment =
+        normalized("reply", %{}, nil, provider_result, text, source, input)
+        |> Map.put(:provider_call_count, attempt)
+        |> Map.put(:degraded_reason, "exploration_budget_exhausted")
+
+      {:ok, judgment}
+    else
+      _ -> {:error, {:judgment_protocol_violation, :exploration_not_available}}
+    end
   end
 
   # 工具参数 schema 错误：给出“只填契约声明字段”的可执行纠正（M14 等模型常加 action/capability 等多余字段）。
@@ -120,6 +144,18 @@ defmodule NovelApplication.JudgmentProtocol do
       "\n规则：explore 只填 explore_request（tool/query），不得携带 capability/pending_artifact_ref/adopted_content_ref；" <>
       "execute 才填 capability 与一个目标 ref，不得携带 explore_request；plan 只填 plan 相关字段与判断字段。" <>
       "保留取证意图与目标，只纠正字段。"
+  end
+
+  defp correction_content(:exploration_not_available) do
+    "本次响应未通过契约校验：exploration_not_available（本轮只读探索预算已用尽/不可用）。" <>
+      "不得再请求 explore；请直接基于已有观察与覆盖事实给作者最终答复（说明已覆盖范围与未读缺口/下一步），" <>
+      "或用 ask_author 做必要澄清；覆盖已充分则直接给结论。不得以过程语或空内容收束。"
+  end
+
+  defp correction_content(:discussion_only_violation) do
+    "本次响应未通过契约校验：discussion_only_violation（作者本轮只要求分析/讨论，明确说先别动笔/只聊/不生成）。" <>
+      "不得调用 propose_creative_directions、register_author_content 或任何生成/写入操作。" <>
+      "请只在 content 里给出分析/讨论本身；不要物化候选、方向卡片或登记原文。"
   end
 
   # M18：指代历史材料且可探索时，先取证再问作者；纠错给出明确顺序。
@@ -179,6 +215,22 @@ defmodule NovelApplication.JudgmentProtocol do
   defp correction_content(reason) do
     "本次响应未通过契约校验：#{inspect(reason) |> String.slice(0, @error_excerpt_chars)}。" <>
       "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
+  end
+
+  # 探索预算用尽/伪工具文本：多给一次有界重试，避免直接终局（M03/M17 key-set）。
+  defp correct_or_reject(fun, prompt, input, profile, attempt, reason, previous_tools)
+       when reason in [:exploration_not_available, :judgment_narrative_required] and
+              attempt < @max_attempts + 1 do
+    correction = %{role: "user", content: correction_content(reason)}
+
+    invoke(
+      fun,
+      %{prompt | messages: prompt.messages ++ [correction]},
+      input,
+      profile,
+      attempt + 1,
+      previous_tools
+    )
   end
 
   defp correct_or_reject(fun, prompt, input, profile, attempt, reason, previous_tools)
@@ -288,6 +340,14 @@ defmodule NovelApplication.JudgmentProtocol do
     只有需要正文/章计划细节时才 chapter_read/archive_read。
     统计/索引类问题只回答进度与可核对事实；不得凭统计给质量/完成度结论（如“更像骨架/片段/未成型/
     篇幅不够=没写完”），需要质量判断时明确说明需读正文，或给下一步，而不是下结论。
+    只问进度/章数/字数/是否已写/章状态（如“第二章写完了吗”）时直接按索引/统计 reply，不要 chapter_read；
+    只有问质量/矛盾/计划兑现时才读正文。不得把统计本身当质量结论。
+    作者明确“先别动笔/只聊/讨论/分析”且没有要求生成或登记时，属于分析任务：不得调用
+    propose_creative_directions、register_author_content 或任何生成/写入操作；只在 content 给分析内容。
+    分析/讨论类任务且系统已有充分事实（章节统计/索引/已给材料/最近观察）时直接 reply，
+    不要为形式 explore 正文；只有质量/矛盾/覆盖结论确实需要正文时才 chapter_read/archive_read。
+    工具调用必须使用原生 tool_calls；不得把“<tool_call>/<function=...>”这类伪工具文本写进 content
+    （会被丢弃并触发纠错），也不得用伪工具文本代替作者可见答复。
     待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact，不要先 explore；
     explore 只用于对象/版本不明；探索确认对象后必须继续执行修订，不得只描述计划或规则就结束。
     上一轮向作者提问后尚未收到作者回答/选择时，不得推进具体候选或版本：不得 execute/revise 指向某候选，
@@ -298,6 +358,8 @@ defmodule NovelApplication.JudgmentProtocol do
     继续读取不是最终答复：读完后必须在本轮给出覆盖范围+结论（或明确缺口+下一步），不得只回“已继续读取/再给结论”
     这类过渡语结束。
     禁止用“-”“—”“…”或仅标点/空白的占位内容作为最终答复；覆盖不足时继续读取，或明确已覆盖范围+未读缺口+下一步。
+    探索预算已用尽/不可用时不得再请求 explore；直接基于已有观察与覆盖事实 reply（已覆盖范围+结论
+    或缺口+下一步），或做必要澄清。
     多意图请求（如“当前最终用哪一版”+“再写一段”）必须逐项回应：最终答复先回答版本/事实问题
     （例如当前最终版本是 EDITED_ACCEPTED 还是被 SUPERSEDED），再给生成/续写结果；不得只用“已生成草稿”结束。
     作者要求仅排版且存在可修订候选时，应执行 revise_pending_artifact（B28 format_only 边界在可见文本如实说明），
@@ -346,9 +408,14 @@ defmodule NovelApplication.JudgmentProtocol do
       )
       |> Keyword.put(:observation_count, length(Map.get(input, :observations) || []))
       |> Keyword.put(:previous_attempt_tools, previous_tools)
+      |> Keyword.put(
+        :discussion_only,
+        TurnInteractionService.discussion_only?(Map.get(input, :author_text) || "")
+      )
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
+         {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
          :ok <- validate_operation(operation, args, options),
          {:ok, text, source} <- narrative(result, call, args) do
       judgment = normalized(operation, args, call, result, text, source, input)
@@ -460,12 +527,18 @@ defmodule NovelApplication.JudgmentProtocol do
           "plan 只带 plan 相关字段与 dialogue_goal/reason，不得携带 explore_request 或目标 ref；取证请用 explore，执行请用 execute。"}}
   end
 
+  defp validate_operation("creative_directions", _args, options) do
+    if Keyword.get(options, :discussion_only, false),
+      do: {:error, :discussion_only_violation},
+      else: :ok
+  end
+
   defp validate_operation("author_content_registration", args, options) do
-    TurnInteractionService.validate_author_registration(
-      Map.put(args, "action", "author_content_registration"),
-      Keyword.get(options, :author_content_sources, []),
-      Keyword.get(options, :author_text, "")
-    )
+    if Keyword.get(options, :discussion_only, false) do
+      {:error, :discussion_only_violation}
+    else
+      validate_author_registration(args, options)
+    end
   end
 
   defp validate_operation("await_author", args, options) do
@@ -489,23 +562,42 @@ defmodule NovelApplication.JudgmentProtocol do
   # 缺口说明的 alternative_operation_refs 允许引用本轮真实可用的：
   # 能力目录、只读探索目录、或判断层工具（如 register_author_content）。
   # 仍然拒绝不存在的操作名（不发明操作），但不把“真实可用的下一步”误判成非法。
-  @judgment_tool_refs ~w(judgment_decision ask_author agent_plan_draft
-                          register_author_content propose_creative_directions
-                          report_capability_gap)
 
-  defp validate_operation("capability_gap", args, options) do
-    refs = field(args, :alternative_operation_refs) || []
-
-    allowed =
-      Keyword.get(options, :capabilities, []) ++
-        Keyword.get(options, :explore_tools, []) ++ @judgment_tool_refs
-
-    if Enum.all?(refs, &(&1 in allowed)),
-      do: :ok,
-      else: {:error, :alternative_operation_not_available}
+  defp validate_operation("capability_gap", _args, _options) do
+    # 缺口说明是“如实报告”语义：alternative refs 只是最近可行路径提示，
+    # 不能因模型写了带描述/不存在项而拒掉整个响应（M14 r2 终局根因）。
+    :ok
   end
 
   defp validate_operation(_, _, _), do: :ok
+
+  # 缺口说明的 alternative refs：过滤掉不在本轮真实目录中的项，保留可用项，
+  # 不因为模型多写/写错替代项而拒绝整条响应（M14 r2 终局根因）。
+  defp sanitize_operation_args("capability_gap", args, options) do
+    allowed =
+      Keyword.get(options, :capabilities, []) ++
+        Keyword.get(options, :explore_tools, []) ++ @judgment_tool_names
+
+    case field(args, :alternative_operation_refs) do
+      refs when is_list(refs) ->
+        args
+        |> Map.delete("alternative_operation_refs")
+        |> Map.put(:alternative_operation_refs, Enum.filter(refs, &(&1 in allowed)))
+
+      _ ->
+        args
+    end
+  end
+
+  defp sanitize_operation_args(_operation, args, _options), do: args
+
+  defp validate_author_registration(args, options) do
+    TurnInteractionService.validate_author_registration(
+      Map.put(args, "action", "author_content_registration"),
+      Keyword.get(options, :author_content_sources, []),
+      Keyword.get(options, :author_text, "")
+    )
+  end
 
   defp validate_execute_capability(capability, args, options) do
     targets =

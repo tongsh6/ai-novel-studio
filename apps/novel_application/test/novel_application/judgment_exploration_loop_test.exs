@@ -156,7 +156,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert result.stage_state.judgment_settled == "completed"
   end
 
-  test "explore_request 缺失在整组校验阶段拒绝（不伪造检索或提问）" do
+  test "explore_request 缺失且探索不可用时有界降级 reply（不伪造检索或提问）" do
     work_id = seed_work_with_prose()
 
     provider_execution =
@@ -187,8 +187,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     snapshot = %{empty | stage_state: context_result.stage_state}
     assert {:execute, judgment_step, _dj, _mj} = spec.next_step_planner.(run, 2, snapshot)
 
-    assert {:error, {:judgment_protocol_violation, :exploration_not_available}} =
-             judgment_step.(run, 2, snapshot)
+    # 探索不可用不再硬终局：有界重试后降级为基于已有内容的 reply 收束（不伪造检索）。
+    assert {:ok, result} = judgment_step.(run, 2, snapshot)
+    assert result.provider_call_count == 3
+    assert result.stage_state.judgment_settled == "completed"
+    assert Map.get(result.stage_state, :judgment_explorations, []) == []
   end
 
   test "探索续读全回环：章节索引 ref → page1 → page2（JSON offset）→ reply 引用末页独有事实" do
@@ -315,6 +318,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     third_prompt = Enum.find(third_prompts, &String.contains?(&1, @last_page_anchor))
     assert third_prompt
     refute third_prompt =~ "## 探索目录"
+
+    # B27 CP4 retest5 M18：预算关闭时如实投影「已执行来源/预算已用尽/不是能力缺失」
+    assert third_prompt =~ "## 探索预算状态（机械事实）"
+    assert third_prompt =~ "只读探索预算已用尽"
+    assert third_prompt =~ "不是系统没有探索能力"
+    assert third_prompt =~ "已执行来源：chapter_read"
     # I-READ-9：模型可见章节索引同时给出 chapter_ref 与 seq/title。
     assert third_prompt =~ "[chapter_ref=#{chapter_ref}]"
     assert third_prompt =~ "第 1 章「#{@full_read_title}」"

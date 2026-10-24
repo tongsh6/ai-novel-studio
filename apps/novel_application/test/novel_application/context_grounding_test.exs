@@ -216,5 +216,4 @@ defmodule NovelApplication.ContextGroundingTest do
       assert text =~ "不能执行工具或写入作品事实"
     end
   end
-
 end
