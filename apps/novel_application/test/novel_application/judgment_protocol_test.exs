@@ -492,4 +492,156 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert correction =~ "只纠正不合法结构"
     refute correction =~ JudgmentToolContract.legal_combination_guidance()
   end
+
+  test "M18：current 指代历史资料被机械拒绝，纠错给出来源纠正路径并允许一次修复" do
+    registration =
+      call("register_author_content", %{
+        "author_content_source_ref" => "current",
+        "dialogue_goal" => "登记灯油配方",
+        "author_reasoning" => "按作者要求登记。"
+      })
+
+    bad = response("", [registration])
+
+    good =
+      response("请先指出来源。", [
+        call("ask_author", %{"question" => "请指出要保存的灯油配方原文来源。", "options" => []})
+      ])
+
+    protocol_input =
+      input(author_content_sources: ["turn_prev"])
+      |> Map.put(:author_text, "把之前那段灯油配方的资料存进设定")
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, protocol_input)
+
+    assert judgment.action == "await_author"
+    assert judgment.provider_call_count == 2
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "anaphoric_current_source_requires_explicit_text"
+    assert correction =~ "current 只适用于本条消息本身就是被登记原文"
+    assert correction =~ "judgment_decision.explore"
+    assert correction =~ "ask_author"
+    assert correction =~ "不得把历史指令、会话摘要或保存指令当作原文"
+  end
+
+  test "M18：纠错后仍把 current 当原文 → 终局拒绝" do
+    registration =
+      call("register_author_content", %{
+        "author_content_source_ref" => "current",
+        "dialogue_goal" => "登记灯油配方",
+        "author_reasoning" => "按作者要求登记。"
+      })
+
+    protocol_input =
+      input(author_content_sources: [])
+      |> Map.put(:author_text, "把之前那段灯油配方的资料存进设定")
+
+    assert {:error,
+            {:author_content_registration_invalid,
+             :anaphoric_current_source_requires_explicit_text}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [registration]), response("", [registration])]),
+               %{},
+               protocol_input
+             )
+  end
+
+  test "M13：只有推理占位内容视为空回复，纠错后可修复；仍空则诚实拒绝" do
+    placeholder = response("[assistant reasoning omitted]", [])
+    good = response("已按你刚才说的收下，先留在对话里。", [])
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([placeholder, good]), %{}, input())
+
+    assert judgment.action == "reply"
+    assert judgment.narrative == "已按你刚才说的收下，先留在对话里。"
+    assert judgment.provider_call_count == 2
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "judgment_narrative_required"
+    assert correction =~ "必须给出非空 content"
+    assert correction =~ "占位词"
+
+    assert {:error, {:judgment_protocol_violation, :judgment_narrative_required}} =
+             JudgmentProtocol.request_judgment(
+               execution([placeholder, placeholder]),
+               %{},
+               input()
+             )
+  end
+
+  test "M13：占位行后附真实文本时去掉占位行，保留可追溯真实内容" do
+    text = "[assistant reasoning internal]\n我收到了，这条先留在对话里。"
+    result = response(text, [])
+
+    assert {:ok, judgment} = JudgmentProtocol.request_judgment(execution([result]), %{}, input())
+    assert judgment.narrative == "我收到了，这条先留在对话里。"
+    refute judgment.narrative =~ "assistant reasoning"
+
+    assert :ok =
+             AgentNarrativeSource.verify(judgment.narrative, judgment.narrative_source, %{
+               "run-call-1" => result.provider_output
+             })
+  end
+
+  test "M14/M07 判断 prompt 包含能力缺口与已有候选优先规则（capture）" do
+    prompt = JudgmentProtocol.prompt(input())
+    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+
+    # M14：能力缺口必须 report_capability_gap，ask_author 不能代替
+    assert content =~ "能力缺口优先"
+    assert content =~ "report_capability_gap 说明缺失效果"
+    assert content =~ "不得用 ask_author 问“你要哪一种”来代替缺口报告"
+    assert content =~ "ask_author 只用于需要作者裁决方向/对象/范围且材料无法消歧"
+
+    # M07：已有候选优先直接修订，预览为空不构成追问理由
+    assert content =~ "已有候选优先"
+    assert content =~ "直接选择 revise_pending_artifact"
+    assert content =~ "候选正文预览可能为空"
+    assert content =~ "不要先 ask_author"
+
+    # 工具描述也编码区分
+    ask = Enum.find(prompt.tools, &(&1.name == "ask_author"))
+    gap = Enum.find(prompt.tools, &(&1.name == "report_capability_gap"))
+    assert ask.description =~ "能力缺口必须用 report_capability_gap"
+    assert gap.description =~ "不以 ask_author 代替"
+  end
+
+  test "能力缺口的最近可行路径允许引用判断层工具与探索工具（不发明操作）" do
+    gap =
+      call("report_capability_gap", %{
+        "dialogue_goal" => "登记历史原文",
+        "missing_effect" => "无法从当前材料找到可逐字登记的原文",
+        "author_reasoning" => "请作者贴出原文后再登记。",
+        "alternative_operation_refs" => ["register_author_content", "chapter_read"]
+      })
+
+    assert {:ok, %{action: "capability_gap", provider_call_count: 1}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("说明", [gap])]),
+               %{},
+               input(explore: true, explore_tools: ["chapter_read"])
+             )
+
+    invented =
+      call("report_capability_gap", %{
+        "dialogue_goal" => "缺口",
+        "missing_effect" => "缺能力",
+        "author_reasoning" => "说明。",
+        "alternative_operation_refs" => ["make_magic"]
+      })
+
+    assert {:error, {:judgment_protocol_violation, :alternative_operation_not_available}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [invented])]),
+               %{},
+               input()
+             )
+  end
 end

@@ -127,10 +127,20 @@ defmodule NovelPersistence.WorkspaceContext do
   # 全部为 additive keys（既有消费者按 title/seq/... 读取不受影响）；无卷/无蓝图时
   # 对应值为 nil，一切渲染与今天逐字节等价（I-VOL-4）。
   defp fetch_structured_chapters(workspace_id) when is_binary(workspace_id) do
-    workspace_id
-    |> ReadingProjectionRepo.toc()
-    |> Map.get(:volumes, [])
-    |> Enum.flat_map(&structured_chapter_entries/1)
+    entries =
+      workspace_id
+      |> ReadingProjectionRepo.toc()
+      |> Map.get(:volumes, [])
+      |> Enum.flat_map(&structured_chapter_entries/1)
+
+    # B27 CP4（M01/M16/M20）：判断上下文作品事实投影（只读）——按章并入当前采纳
+    # 草稿计数/版本 refs/历史 superseded/摘要状态，供判断回答版本与完成度问题。
+    # additive keys；无事实时为空 map，既有消费者读取不受影响。
+    facts = ReadingProjectionRepo.chapter_facts(workspace_id)
+
+    Enum.map(entries, fn entry ->
+      Map.merge(entry, Map.get(facts, to_string(entry.id), %{}))
+    end)
   end
 
   defp fetch_structured_chapters(_workspace_id), do: []

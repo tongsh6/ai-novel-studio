@@ -86,7 +86,7 @@ defmodule NovelApplication.JudgmentToolContract do
 
     tool(
       "ask_author",
-      "需要作者决定时提出问题，可提供选项；空选项仍可自由回复。",
+      "只用于需要作者裁决方向/对象/范围且材料无法消歧；能力缺口必须用 report_capability_gap，不能用本工具代替或封装。",
       %{
         question: @text,
         options: %{type: "array", items: option},
@@ -126,7 +126,7 @@ defmodule NovelApplication.JudgmentToolContract do
   defp gap do
     tool(
       "report_capability_gap",
-      "如实报告当前能力不能实现的效果，不派发近似工具。",
+      "所需效果不在本轮可用操作目录时必须用它说明缺失效果与最近可行路径；不派发近似工具，也不以 ask_author 代替。",
       %{
         dialogue_goal: @text,
         missing_effect: @text,

@@ -418,7 +418,17 @@ defmodule NovelApplication.DialoguePlanningService do
   # 0 提供者调用），观察写进 stage_state 回环再判断；回合硬上限后判断不再开放
   # explore 选项（被迫四选一收束）。
 
+  # 探索回合：普通探索（不同工具/问题）最多 2 轮；长章分页续读额外给 8 轮额度
+  # （B27 CP4 M03：34k 字符长章需 6 页，旧 2 轮上限只读到 12,000 即被迫收束）。
+  # 续读额度只在「上一观察仍是同一章未读完的正文页（next_offset 非 nil）」时开放，
+  # 读完末页立即关闭；总探索步数仍有硬上界，预算按上界补足。
   @max_explore_rounds 2
+  @max_chapter_continuation_rounds 8
+  @max_explore_steps @max_explore_rounds + @max_chapter_continuation_rounds
+
+  # 判断循环内联执行的计划步目标（只读、0 provider 调用；B27 CP4 M17）。
+  @read_only_plan_targets ~w(context_assemble character_roster prose_search chapter_read archive_read memory_recall)
+  @exploration_plan_targets ~w(prose_search chapter_read archive_read memory_recall)
 
   # 判断①能力目录（prompt 目录 + schema enum + 解析校验三处同源；dispatch 表
   # @judgment_capability_profiles 是按能力分派 profile 的超集，作者可选目录仍以本列表为准）。
@@ -483,8 +493,8 @@ defmodule NovelApplication.DialoguePlanningService do
   # B24 CP2：上一页观察带 next_offset 时补一条续读提示（真实章标题 + 上一页 footer
   # 的 query），让模型知道可以继续读而不是重复同一页；目录 query 说明由
   # ExplorationService.catalog_section 单点产出（I-EXPLORE-READ-7）。
-  defp exploration_sections(explorations, explore_open?) do
-    catalog = if explore_open?, do: "\n\n" <> ExplorationService.catalog_section(), else: ""
+  defp exploration_sections(explorations, budget) do
+    catalog = if budget.open?, do: "\n\n" <> ExplorationService.catalog_section(), else: ""
 
     observations =
       case explorations do
@@ -499,26 +509,352 @@ defmodule NovelApplication.DialoguePlanningService do
               "### 观察 #{index}（#{observation.tool}「#{observation.query}」）\n#{observation.summary}"
             end)
 
-          "\n\n## 探索观察（已检索到的作品事实）\n\n" <> rendered <> continue_hint(list)
+          "\n\n## 探索观察（已检索到的作品事实）\n\n" <> rendered <> continue_hint(list, budget)
       end
 
     catalog <> observations
   end
 
-  defp continue_hint(explorations) do
-    case List.last(explorations) do
-      observation when is_map(observation) ->
-        if is_integer(Map.get(observation, :next_offset)) do
-          "\n\n（本章还有未读正文：下一轮用 chapter_read + 上一页【续读】给出的 query 继续读取；" <>
-            "不要重复读取同一页。）"
-        else
-          ""
+  # B27 CP4 M03：给模型显式「已读覆盖/总长/下一页」事实与续读阶段约束（事实段，
+  # 不冒充全文；是否继续取证仍由模型判断）。
+  defp continue_hint(explorations, budget) do
+    observation = List.last(explorations)
+    continuation = Map.get(budget, :continuation)
+
+    if is_map(observation) and is_map(continuation) and
+         is_integer(Map.get(continuation, :next_offset)) do
+      coverage =
+        case continuation do
+          %{total: total, read_end: read_end} when is_integer(total) and is_integer(read_end) ->
+            "已读约 #{read_end}/#{total} 字符"
+
+          _ ->
+            "本章尚未读完"
         end
 
-      _ ->
-        ""
+      stage =
+        if Map.get(budget, :continuation_only?, false),
+          do: "本轮剩余探索额度只用于该章续读：必须继续读取后续页，读完末页（next_offset 为 null）后再给出结论。",
+          else: ""
+
+      "\n\n（本章还有未读正文：#{coverage}；下一轮用 chapter_read + 上一页【续读】给出的 query " <>
+        "继续读取；不要重复读取同一页。#{stage}）"
+    else
+      ""
     end
   end
+
+  # ── B27 CP4 M03/M17：探索预算、计划内联执行、作品事实块 ──
+
+  # 长章续读额度：普通探索 2 轮后，只要上一观察是同一章未读完的正文页
+  # （next_offset 非 nil），额外开放最多 @max_chapter_continuation_rounds 轮续读。
+  defp exploration_budget(explorations) do
+    total = length(explorations)
+    normal_open? = total < @max_explore_rounds
+    continuation = continuation_target(List.last(explorations))
+    extra = max(total - @max_explore_rounds, 0)
+    continuation_open? = continuation != nil and extra < @max_chapter_continuation_rounds
+
+    %{
+      open?: normal_open? or continuation_open?,
+      normal_open?: normal_open?,
+      continuation_open?: continuation_open?,
+      continuation_only?: not normal_open? and continuation_open?,
+      continuation: continuation,
+      total: total
+    }
+  end
+
+  defp continuation_target(observation) when is_map(observation) do
+    next_offset = Map.get(observation, :next_offset)
+
+    if is_integer(next_offset) do
+      %{
+        chapter_ref: Map.get(observation, :chapter_ref),
+        next_offset: next_offset,
+        total: Map.get(observation, :prose_total_chars),
+        read_end: get_in(observation, [:prose_range, :end]) || next_offset
+      }
+    end
+  end
+
+  defp continuation_target(_observation), do: nil
+
+  # 只读计划：全部步 target 都属只读集合；返回需内联执行的探索步（context/roster 已就绪）。
+  defp read_only_plan_steps(plan) when is_map(plan) do
+    steps =
+      case map_get(plan, :steps) do
+        steps when is_list(steps) -> steps
+        _ -> []
+      end
+
+    if steps != [] and
+         Enum.all?(steps, &(map_get(&1, :target_tool_ref) in @read_only_plan_targets)) do
+      Enum.filter(steps, &(map_get(&1, :target_tool_ref) in @exploration_plan_targets))
+    else
+      nil
+    end
+  end
+
+  defp read_only_plan_steps(_plan), do: nil
+
+  # M17：内联执行纯只读计划的探索步，观察写入 stage_state 后回到判断循环收束
+  # （下一轮判断给最终作者可见结论/必要提问）。不切 profile、不产生 turn_result。
+  defp execute_planned_explorations(
+         judgment,
+         _plan,
+         steps,
+         run,
+         sequence,
+         input,
+         _context,
+         snapshot
+       ) do
+    work_id = map_get(input, :work_id) || run.work_id || run.workspace_id
+    log_judgment_decided(judgment, "judgment_plan_inline_explore", 0)
+    explorations = judgment_explorations(judgment_stage_state(snapshot))
+
+    observations =
+      Enum.map(steps, fn step ->
+        tool = map_get(step, :target_tool_ref)
+        query = map_get(step, :exploration_query) || ""
+        observation = run_inline_exploration(work_id, run, tool, query)
+
+        emit_judgment_stage(
+          snapshot,
+          :exploration_observed,
+          ExplorationService.activity_summary(observation),
+          ["exploration_observed", tool],
+          exploration_event_payload(tool, query, observation)
+        )
+
+        observation
+      end)
+
+    tools = Enum.map(steps, &map_get(&1, :target_tool_ref)) |> Enum.uniq()
+
+    {:ok,
+     %{
+       step: judgment_agent_step(run, sequence, "按模型计划完成只读检索（#{length(observations)} 步）"),
+       observations: [
+         judgment_observation(
+           run,
+           sequence,
+           "计划内只读检索完成：#{Enum.join(tools, " / ")}",
+           "explore:plan:#{sequence}",
+           %{stage: :exploration_observed, tools: tools, step_count: length(observations)}
+         )
+       ],
+       stage_state: %{judgment_explorations: explorations ++ observations},
+       provider_call_count: judgment.provider_call_count,
+       progress_signature:
+         "#{run.run_id}:explore:plan:#{length(explorations) + length(observations)}"
+     }}
+  end
+
+  defp run_inline_exploration(work_id, run, tool, query) do
+    case ExplorationService.run(work_id, tool, query, run.session_id) do
+      {:ok, observation} ->
+        observation
+
+      {:error, reason} ->
+        %{
+          tool: tool,
+          query: query,
+          summary: "探索工具执行失败：#{inspect(reason)}",
+          refs: [],
+          activity_summary: ExplorationService.activity_failure_summary(tool)
+        }
+    end
+  end
+
+  # 作品事实块（B27 CP4 M01/M16/M20）：持久化只读投影，回答版本/完成度/统计问题。
+  # 与「章节列表」分开：列表是索引，本段是当前 canon 的计数/版本/历史事实。
+  defp judgment_work_facts_section(%DialogueContext{} = context) do
+    chapters = context.structured_chapters || []
+    written = Enum.filter(chapters, &(Map.get(&1, :has_prose) == true))
+    snapshot = context.current_work_snapshot || %{}
+
+    if written == [] and map_size(snapshot) == 0 do
+      ""
+    else
+      lines =
+        [whole_book_facts_line(snapshot, chapters)] ++
+          Enum.map(written, &chapter_facts_line/1) ++
+          session_adoption_facts_lines(context)
+
+      "## 作品事实（持久化只读投影；版本/完成度/统计以本段为准，SUPERSEDED 不计入当前）\n" <>
+        Enum.join(Enum.reject(lines, &(&1 in [nil, ""])), "\n")
+    end
+  end
+
+  defp judgment_work_facts_section(_context), do: ""
+
+  defp whole_book_facts_line(snapshot, chapters) do
+    total = length(chapters)
+    written = Enum.count(chapters, &(Map.get(&1, :has_prose) == true))
+    planned = total - written
+    chars = chapters |> Enum.map(&(Map.get(&1, :word_count) || 0)) |> Enum.sum()
+
+    target =
+      [
+        snapshot_value(snapshot, :target_length, "目标总字数"),
+        snapshot_value(snapshot, :planned_volumes, "预计卷数"),
+        snapshot_value(snapshot, :serial_form, "连载形态")
+      ]
+      |> Enum.join("；")
+
+    goal = snapshot_value(snapshot, :main_goal, "全书目标")
+
+    "- 全书：#{goal}；#{target}；正文统计：#{total} 章中已写 #{written} 章、计划中 #{planned} 章" <>
+      "；当前已采纳正文字符合计 #{chars}"
+  end
+
+  defp snapshot_value(snapshot, key, label) do
+    case map_get(snapshot, key) do
+      value when value in [nil, ""] -> "#{label}=未登记"
+      value -> "#{label}=#{value}"
+    end
+  end
+
+  defp chapter_facts_line(chapter) do
+    seq = Map.get(chapter, :seq)
+    title = Map.get(chapter, :title) || ""
+    accepted = Map.get(chapter, :accepted_draft_count) || 0
+    scenes = Map.get(chapter, :scene_count) || 0
+    words = Map.get(chapter, :word_count) || 0
+    refs = List.wrap(Map.get(chapter, :current_draft_refs))
+    superseded = Map.get(chapter, :superseded_draft_count) || 0
+    summary_status = Map.get(chapter, :summary_status) || "无当前采纳摘要"
+    chapter_status = Map.get(chapter, :chapter_status) || "未知"
+    plan_fields = chapter_plan_fields(chapter)
+
+    "- 第#{seq}章「#{title}」：当前已采纳正文 #{accepted}/#{scenes} 场，共 #{words} 字符；" <>
+      current_version_segment(refs) <>
+      "；章摘要=#{summary_status}；历史 SUPERSEDED 稿 #{superseded} 份（不计入当前）；" <>
+      "章状态=#{chapter_status}；章计划字段=#{plan_fields_label(plan_fields)}"
+  end
+
+  defp current_version_segment([]), do: "当前版本 refs=（无）"
+  defp current_version_segment(refs), do: "当前版本 refs=" <> Enum.join(refs, ", ")
+
+  defp plan_fields_label([]), do: "（未登记）"
+  defp plan_fields_label(fields), do: Enum.join(fields, ", ")
+
+  defp chapter_plan_fields(chapter) do
+    case Map.get(chapter, :plan_direction) do
+      %{} = direction -> direction |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+      _ -> []
+    end
+  end
+
+  defp session_adoption_facts_lines(%DialogueContext{interaction_state: state})
+       when is_map(state) do
+    pending = List.wrap(Map.get(state, :pending_adoptions))
+    resolved = List.wrap(Map.get(state, :resolved_adoptions))
+
+    if pending == [] and resolved == [] do
+      []
+    else
+      canon =
+        Enum.count(
+          resolved,
+          &(adoption_status(&1) in NovelDomain.AdoptionStatus.canon_statuses())
+        )
+
+      discarded =
+        Enum.count(
+          resolved,
+          &(adoption_status(&1) == NovelFoundation.Enums.AdoptionStatus.discarded())
+        )
+
+      [
+        "- 会话候选处置：pending #{length(pending)} 项（未采纳）；resolved #{length(resolved)} 项，" <>
+          "其中 ACCEPTED/EDITED_ACCEPTED #{canon} 项、DISCARDED #{discarded} 项；" <>
+          "候选处置/单段采纳不等于整章或全书叙事完成。"
+      ]
+    end
+  end
+
+  defp session_adoption_facts_lines(_context), do: []
+
+  defp adoption_status(entry) do
+    entry |> map_get(:adoption_status) |> to_string_or_empty()
+  end
+
+  defp to_string_or_empty(nil), do: ""
+  defp to_string_or_empty(value), do: to_string(value)
+
+  # 待采纳候选预览（B27 CP4 M07/M08）：真实 ref/类型/状态/可用操作/内容预览。
+  # 预览为空时如实说明（来源回合可能未携带正文），并提示执行修订时系统会读取实际候选。
+  defp judgment_pending_candidates_section(%DialogueContext{interaction_state: state})
+       when is_map(state) do
+    entries = List.wrap(Map.get(state, :pending_adoptions))
+
+    if entries == [] do
+      ""
+    else
+      lines = entries |> Enum.take(12) |> Enum.map(&pending_candidate_line/1)
+
+      "## 待采纳候选（真实对象，status=TENTATIVE；body_preview 为空时不得据此编造内容）\n" <>
+        Enum.join(lines, "\n")
+    end
+  end
+
+  defp judgment_pending_candidates_section(_context), do: ""
+
+  defp pending_candidate_line(entry) do
+    ref = map_get(entry, :artifact_id)
+    type = map_get(entry, :artifact_type)
+    status = adoption_status(entry)
+    operations = NovelApplication.PendingArtifactWorkflow.operations(entry)
+    payload = map_get(entry, :payload) || %{}
+    title = candidate_title(payload)
+    body = candidate_body_preview(payload)
+
+    body_text =
+      if body == "",
+        do: "（空：来源回合未携带候选正文预览；执行修订时系统读取实际候选内容，不得据此编造）",
+        else: body
+
+    "- ref=#{ref} | type=#{type} | status=#{status} | title=#{title || "（无标题）"}" <>
+      " | operations=#{Enum.join(operations, "/")} | body_preview=#{body_text}"
+  end
+
+  defp candidate_title(payload) when is_map(payload) do
+    case map_get(payload, :summary) do
+      title when is_binary(title) ->
+        title
+
+      _ ->
+        case map_get(payload, :items) do
+          [item | _] -> map_get(item, :title)
+          _ -> map_get(payload, :title)
+        end
+    end
+  end
+
+  defp candidate_title(_payload), do: nil
+
+  defp candidate_body_preview(payload) when is_map(payload) do
+    body =
+      case map_get(payload, :content) do
+        content when is_binary(content) ->
+          content
+
+        _ ->
+          payload
+          |> map_get(:items)
+          |> List.wrap()
+          |> Enum.map(&map_get(&1, :body))
+          |> Enum.filter(&is_binary/1)
+          |> Enum.join("\n\n")
+      end
+
+    String.slice(body, 0, 300)
+  end
+
+  defp candidate_body_preview(_payload), do: ""
 
   # Q1c：把 accepted 目标 ref 明确摆到判断上下文里，避免模型在 resolved 列表里猜
   # 或把“没有待采纳候选”误判成“没有修订能力”。
@@ -651,7 +987,7 @@ defmodule NovelApplication.DialoguePlanningService do
 
         {:ok, judgment} ->
           emit_judgment_decided(snapshot, judgment)
-          dispatch_judgment(judgment, run, sequence, input, context)
+          dispatch_judgment(judgment, run, sequence, input, context, snapshot)
 
         {:error, reason} ->
           {:error, reason}
@@ -660,7 +996,8 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp judgment_protocol_input(input, run, context, explorations) do
-    explore_open? = length(explorations) < @max_explore_rounds
+    budget = exploration_budget(explorations)
+    explore_open? = budget.open?
 
     author_text = effective_author_text(input, run)
 
@@ -674,7 +1011,7 @@ defmodule NovelApplication.DialoguePlanningService do
       author_content_context: TurnInteractionService.context_section(context.interaction_state),
       context_block:
         judgment_context_block(context, author_text) <>
-          exploration_sections(explorations, explore_open?) <>
+          exploration_sections(explorations, budget) <>
           adopted_content_targets_section(context),
       options:
         [
@@ -711,7 +1048,7 @@ defmodule NovelApplication.DialoguePlanningService do
     })
   end
 
-  defp dispatch_judgment(%{action: action} = judgment, run, sequence, input, context)
+  defp dispatch_judgment(%{action: action} = judgment, run, sequence, input, context, _snapshot)
        when action in [
               "reply",
               "creative_directions",
@@ -720,15 +1057,39 @@ defmodule NovelApplication.DialoguePlanningService do
             ],
        do: finalize_judgment_reply(judgment, run, sequence, input, context, :completed)
 
-  defp dispatch_judgment(%{action: "await_author"} = judgment, run, sequence, input, context),
-    do: finalize_judgment_reply(judgment, run, sequence, input, context, :awaiting_author)
+  defp dispatch_judgment(
+         %{action: "await_author"} = judgment,
+         run,
+         sequence,
+         input,
+         context,
+         _snapshot
+       ),
+       do: finalize_judgment_reply(judgment, run, sequence, input, context, :awaiting_author)
 
   # CP4（ADR-0025 决策 2）：plan ≠ execute——判"复杂"进跨能力真计划 profile，
   # 计划由模型基于能力目录制定（judgment_plan flow 内起草，plan_drafted 照发）。
-  defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, _context),
-    do: judgment_switch_result(:judgment_plan, judgment, input, run, sequence)
+  # B27 CP4 M17：若模型计划只含只读探索步（无创作能力步），在判断循环内联执行这些
+  # 检索步后**回到判断收束**（下一轮由模型给最终作者可见结论/提问），而不是切到
+  # judgment_plan flow 耗尽后停等作者而没有结论。含创作步的计划仍走原 flow。
+  defp dispatch_judgment(%{action: "plan"} = judgment, run, sequence, input, context, snapshot) do
+    with {:ok, plan, _inline_meta} <-
+           selected_judgment_plan(run, :judgment_plan, judgment),
+         steps when is_list(steps) and steps != [] <- read_only_plan_steps(plan) do
+      execute_planned_explorations(judgment, plan, steps, run, sequence, input, context, snapshot)
+    else
+      _ -> judgment_switch_result(:judgment_plan, judgment, input, run, sequence)
+    end
+  end
 
-  defp dispatch_judgment(%{action: "execute"} = judgment, run, sequence, input, context) do
+  defp dispatch_judgment(
+         %{action: "execute"} = judgment,
+         run,
+         sequence,
+         input,
+         context,
+         _snapshot
+       ) do
     if judgment.capability in NovelApplication.PendingArtifactWorkflow.capabilities() do
       log_judgment_decided(judgment, :execution_candidate, 0)
       tool = NovelApplication.PendingArtifactWorkflow.execution_tool(judgment, context)
@@ -765,7 +1126,7 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp dispatch_judgment(judgment, _run, _sequence, _input, _context),
+  defp dispatch_judgment(judgment, _run, _sequence, _input, _context, _snapshot),
     do: {:error, {:unknown_judgment_action, judgment.action}}
 
   defp pending_artifact_next_step(run, sequence, provider, input, state) do
@@ -942,20 +1303,7 @@ defmodule NovelApplication.DialoguePlanningService do
     work_id = map_get(input, :work_id) || run.work_id || run.workspace_id
     log_judgment_decided(judgment, "judgment_explore", 0)
 
-    observation =
-      case ExplorationService.run(work_id, tool, query, run.session_id) do
-        {:ok, observation} ->
-          observation
-
-        {:error, reason} ->
-          %{
-            tool: tool,
-            query: query,
-            summary: "探索工具执行失败：#{inspect(reason)}",
-            refs: [],
-            activity_summary: ExplorationService.activity_failure_summary(tool)
-          }
-      end
+    observation = run_inline_exploration(work_id, run, tool, query)
 
     # B24 CP2（I-EXPLORE-READ-8）：作者可见活动行用集中人类可读文案——内部工具 id /
     # 原始 query JSON / offset 只留在 payload/trace/developer 面。
@@ -1187,7 +1535,9 @@ defmodule NovelApplication.DialoguePlanningService do
   def judgment_context_block(context, author_text) do
     [
       judgment_work_section(context),
+      judgment_work_facts_section(context),
       judgment_stable_chapters_section(context),
+      judgment_pending_candidates_section(context),
       judgment_named_chapters_section(context, author_text),
       judgment_conversation_section(context),
       TurnInteractionService.context_section(context.interaction_state),
@@ -1839,8 +2189,9 @@ defmodule NovelApplication.DialoguePlanningService do
     # +2 = 判断循环入场开销上界：机械准备 1 step（0 调用）+ 判断①单调用 1 次 + 一次有界纠错余量；
     # 计划/续行额外调用由 run_budget/3 的 plan_overhead_budget/1 统一补足。
     # CP5a 探索余量（上界 backstop 非配额）：每回合 = 探索步 1 step（0 调用）+
-    # 再判断 1 step（单调用，含纠错余量），@max_explore_rounds 回合封顶。
-    explore_allowance = @max_explore_rounds * 2
+    # 再判断 1 step（单调用，含纠错余量）；B27 CP4 M03 起含长章续读额度
+    # （普通探索 2 轮 + 同章续读最多 8 轮，续读在读完末页即关闭）。
+    explore_allowance = @max_explore_steps * 2
 
     %{
       max_steps: max_budget(routed, :max_steps) + 2 + explore_allowance,

@@ -382,6 +382,61 @@ defmodule NovelApplication.TurnInteractionServiceTest do
              )
   end
 
+  test "M18：current 只适用于本条消息本身即原文；指代过去资料且无显式原文时机械拒绝" do
+    registration = %{action: "author_content_registration", author_content_source_ref: "current"}
+
+    # 典型指代历史原文的保存指令：current 不成立
+    assert {:error,
+            {:author_content_registration_invalid,
+             :anaphoric_current_source_requires_explicit_text}} =
+             TurnInteractionService.validate_author_registration(
+               registration,
+               [],
+               "把之前那段灯油配方的资料存进设定"
+             )
+
+    # 无指代的普通保存请求：current 合法（不误拒）
+    assert :ok =
+             TurnInteractionService.validate_author_registration(
+               registration,
+               [],
+               "把这段灯油配方存进设定"
+             )
+
+    # 指代但本条消息显式给出原文（引号/冒号后的实质内容）：current 合法
+    assert :ok =
+             TurnInteractionService.validate_author_registration(
+               registration,
+               [],
+               "把之前那句存进设定：“灯油用鲸脂，松脂少许”"
+             )
+
+    # 指代 + 本条消息本身是足够长的原文材料：current 合法
+    assert :ok =
+             TurnInteractionService.validate_author_registration(
+               registration,
+               [],
+               "之前的灯油配方是：" <>
+                 "鲸脂三份、松脂一份、灯芯草灰少许，混匀后静置三日再点火。"
+             )
+  end
+
+  test "M18：历史来源（非 current）的机械校验不越权，由判断 prompt 约束对象匹配" do
+    registration = %{
+      action: "author_content_registration",
+      author_content_source_ref: "turn_prev"
+    }
+
+    # current 语义之外的来源不在本机械规则里误杀：是否“来源原文就是被指代资料”
+    # 由判断 prompt 规则与模型取证负责（应用侧仍按来源字节保真复制）。
+    assert :ok =
+             TurnInteractionService.validate_author_registration(
+               registration,
+               ["turn_prev"],
+               "把之前那段灯油配方的资料存进设定"
+             )
+  end
+
   test "先前已提交候选后运行失败，保留原记录且不谎称零产出", %{attrs: attrs, store: store} do
     parent = self()
 

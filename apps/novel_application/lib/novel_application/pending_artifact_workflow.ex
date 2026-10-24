@@ -168,6 +168,16 @@ defmodule NovelApplication.PendingArtifactWorkflow do
        else: {:error, {:pending_artifact_invalid, :budget_exhausted}}
   end
 
+  # B27 CP4 M07/M08：候选正文是修订基线的必要材料。投影缺失时不得带着空基线调用
+  # 模型（否则模型会编造“原候选内容”）；在调用前诚实失败，作者可重试/换对象。
+  defp check_revision_content(entry) do
+    if String.trim(TurnInteractionService.artifact_body(entry)) == "" do
+      {:error, {:pending_artifact_invalid, :candidate_content_unavailable}}
+    else
+      :ok
+    end
+  end
+
   defp source(snapshot, ref) do
     entry = Enum.find(snapshot.pending_adoptions, &(field(&1, :artifact_id) == ref))
 
@@ -315,11 +325,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
     with true <- is_binary(tool),
          false <- OrchestratorDecision.blocks_execution?(decision),
+         :ok <- check_revision_content(entry),
          {:ok, request} <- request(frame, plan, decision, entry, tool, run.goal.text, run) do
       finish_revision(Map.put(ctx, :request, request))
     else
       false -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
       true -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
+      {:error, {:pending_artifact_invalid, _} = reason} -> {:error, reason}
       {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
     end
   end
@@ -439,6 +451,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     else
       false -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
       true -> {:error, {:pending_artifact_invalid, :revision_not_allowed}}
+      {:error, {:pending_artifact_invalid, _} = reason} -> {:error, reason}
       {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
     end
   end

@@ -79,6 +79,24 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
+  # 用户可见动作为空内容时，纠错必须明确“需要非空作者可见文本”，而不是泛泛说结构。
+  defp correction_content(:judgment_narrative_required) do
+    "本次响应未通过契约校验：judgment_narrative_required（缺少作者可见内容）。" <>
+      "纯文本回复/登记/缺口说明等用户可见动作必须给出非空 content；只输出思考、空 content 或“[assistant reasoning omitted]”这类占位词不算回复。" <>
+      "请用一两句自然中文给出实际回复；使用工具时 content 可为空但 question/reason/author_reasoning 必须提供作者可见原话。" <>
+      "保留同一作者输入、来源、目标、范围与权限，只补足可见内容。"
+  end
+
+  # M18：指代历史原文但把其它消息/指令当来源时，给出可执行的来源纠正路径。
+  defp correction_content(
+         {:author_content_registration_invalid, :anaphoric_current_source_requires_explicit_text}
+       ) do
+    "本次响应未通过契约校验：anaphoric_current_source_requires_explicit_text（作者在指代过去的资料，current 不是合法来源）。" <>
+      "current 只适用于本条消息本身就是被登记原文。请选择其一：改用已列出的合法历史来源，且仅当该来源完整原文就是作者指代的资料；用 judgment_decision.explore 取证合法来源；或用 ask_author 请作者指出来源/贴出原文。" <>
+      "不得把历史指令、会话摘要或保存指令当作原文，也不得先登记再说明来源不含内容。" <>
+      "保留同一作者输入、来源、目标、范围与权限，只纠正来源选择。"
+  end
+
   # invalid_tool_combination 是模型最容易重复的协议错误：纠错回执必须给出可执行的
   # 合法组合指引（同源 helper），让一次纠错可修复；其它 reason 文案保持不变。
   defp correction_content(:invalid_tool_combination) do
@@ -160,7 +178,15 @@ defmodule NovelApplication.JudgmentProtocol do
     多个相互依赖的产物/阶段才用 judgment_decision.plan，且必须与 agent_plan_draft 同批返回。
     #{JudgmentToolContract.legal_combination_guidance()}
     模型工具调用不代表执行授权。
-    有 content 时自然说明当前建议；空 content 时在 question、author_reasoning 或 reason 给作者原话。
+    用户可见动作必须有可见文本：纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
+    使用工具时 content 可为空，但 question/reason/author_reasoning 必须提供作者可见原话。
+    能力缺口优先：作者要求的效果（例如修改已有角色身份主档案、整章排版并保证字句不变）
+    在当前可用操作目录里确实没有对应能力时，必须用 report_capability_gap 说明缺失效果与最近可行路径；
+    不得用 ask_author 问“你要哪一种”来代替缺口报告，也不得用近似操作冒充。
+    ask_author 只用于需要作者裁决方向/对象/范围且材料无法消歧，不是能力缺口的替代品。
+    已有候选优先：pending_adoptions 中存在候选且本轮作者明确要对某个已有候选做修改/整理/排版/润色时，
+    直接选择 revise_pending_artifact 并用 artifact_ref 引用该候选，不要先 ask_author。
+    候选正文预览可能为空，不代表对象不存在——修订工具会读取真实候选全文；只有对象/范围确实无法消歧时才问。
     提供资料但只要求收下时不调工具、不生成方向/候选；保存指令不能代替被引用原文。
     """
   end
@@ -189,9 +215,17 @@ defmodule NovelApplication.JudgmentProtocol do
   defp decode(result, profile, input) when is_map(result) do
     calls = field(result, :tool_calls) || []
 
+    options =
+      input
+      |> Map.get(:options, [])
+      |> Keyword.put(
+        :author_text,
+        Map.get(input, :author_text) || Map.get(input, :goal_text) || ""
+      )
+
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
-         :ok <- validate_operation(operation, args, Map.get(input, :options, [])),
+         :ok <- validate_operation(operation, args, options),
          {:ok, text, source} <- narrative(result, call, args) do
       judgment = normalized(operation, args, call, result, text, source, input)
       validate_inline_plan(judgment, input)
@@ -315,7 +349,8 @@ defmodule NovelApplication.JudgmentProtocol do
   defp validate_operation("author_content_registration", args, options) do
     TurnInteractionService.validate_author_registration(
       Map.put(args, "action", "author_content_registration"),
-      Keyword.get(options, :author_content_sources, [])
+      Keyword.get(options, :author_content_sources, []),
+      Keyword.get(options, :author_text, "")
     )
   end
 
@@ -327,10 +362,21 @@ defmodule NovelApplication.JudgmentProtocol do
       else: {:error, :question_option_values_invalid}
   end
 
+  # 缺口说明的 alternative_operation_refs 允许引用本轮真实可用的：
+  # 能力目录、只读探索目录、或判断层工具（如 register_author_content）。
+  # 仍然拒绝不存在的操作名（不发明操作），但不把“真实可用的下一步”误判成非法。
+  @judgment_tool_refs ~w(judgment_decision ask_author agent_plan_draft
+                          register_author_content propose_creative_directions
+                          report_capability_gap)
+
   defp validate_operation("capability_gap", args, options) do
     refs = field(args, :alternative_operation_refs) || []
 
-    if Enum.all?(refs, &(&1 in Keyword.get(options, :capabilities, []))),
+    allowed =
+      Keyword.get(options, :capabilities, []) ++
+        Keyword.get(options, :explore_tools, []) ++ @judgment_tool_refs
+
+    if Enum.all?(refs, &(&1 in allowed)),
       do: :ok,
       else: {:error, :alternative_operation_not_available}
   end
@@ -353,9 +399,45 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp content_narrative(result, text) do
-    with {:ok, source} <- AgentNarrativeSource.from_provider_result(result, text),
-         do: {:ok, text, source}
+    case sanitize_visible_content(text) do
+      nil ->
+        {:error, :judgment_narrative_required}
+
+      visible ->
+        with {:ok, source} <- AgentNarrativeSource.from_provider_result(result, visible),
+             do: {:ok, visible, source}
+    end
   end
+
+  # 厂商/网关在只有私有推理时会返回 "[assistant reasoning omitted]" 之类的占位行；
+  # 它不是作者内容，不能展示、也不能当作非空回复。纯占位 → 视为空内容（走纠错），
+  # 占位行+真实文本 → 去掉占位行并保留可追溯的真实字节（仍是 provider output 子串）。
+  @provider_placeholder_lines [
+    "[assistant reasoning omitted]",
+    "[assistant reasoning internal]"
+  ]
+
+  defp sanitize_visible_content(text) when is_binary(text) do
+    lines = String.split(text, "\n")
+
+    if Enum.any?(lines, &provider_placeholder_line?/1) do
+      cleaned =
+        lines
+        |> Enum.reject(&provider_placeholder_line?/1)
+        |> Enum.join("\n")
+        |> String.trim()
+
+      if cleaned == "", do: nil, else: cleaned
+    else
+      # 没有占位行时保持 provider 输出字节不变（N-NARR 绑定与既有空白语义）。
+      text
+    end
+  end
+
+  defp sanitize_visible_content(_text), do: nil
+
+  defp provider_placeholder_line?(line),
+    do: String.trim(line) in @provider_placeholder_lines
 
   defp tool_narrative(_result, nil, _args), do: {:error, :judgment_narrative_required}
 

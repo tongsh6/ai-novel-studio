@@ -194,6 +194,102 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   end
 
   @doc """
+  判断上下文「作品事实」投影（B27 CP4 M01/M16/M20）：按章返回当前采纳草稿事实。
+
+  只读；只取当前 canon（Draft.status=ACCEPTED）与历史 SUPERSEDED 计数：
+  - `word_count`：当前采纳正文有效字数（与阅读投影同源）
+  - `accepted_draft_count` / `scene_count`：当前有采纳稿的场景数 / 场景总数
+  - `current_draft_refs`：当前每场采纳稿的 `draft:<id>:<revision>`（最多 5 条）
+  - `superseded_draft_count`：历史被替换稿数（明确不计入当前）
+  - `chapter_status`：章结构状态（planned/drafting/…）
+  - `summary_status` / `summary_revision_base`：当前章摘要状态（无则 nil）
+  """
+  @spec chapter_facts(String.t()) :: %{optional(String.t()) => map()}
+  def chapter_facts(work_id) when is_binary(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, uuid} ->
+        words = word_counts_by_chapter(uuid)
+
+        chapters =
+          Chapter
+          |> where([c], c.work_id == ^uuid)
+          |> select([c], %{id: c.id, status: c.status})
+          |> Repo.all()
+
+        scenes =
+          Scene
+          |> where([s], s.work_id == ^uuid)
+          |> select([s], %{id: s.id, chapter_id: s.chapter_id})
+          |> Repo.all()
+
+        chapter_by_scene = Map.new(scenes, &{&1.id, &1.chapter_id})
+
+        scene_counts =
+          Enum.reduce(scenes, %{}, fn scene, acc ->
+            Map.update(acc, scene.chapter_id, 1, &(&1 + 1))
+          end)
+
+        drafts =
+          Draft
+          |> where(
+            [d],
+            d.work_id == ^uuid and
+              d.status in ^[AdoptionStatus.accepted(), AdoptionStatus.superseded()]
+          )
+          |> order_by([d], asc: d.scene_id, desc: d.revision)
+          |> select([d], %{id: d.id, scene_id: d.scene_id, revision: d.revision, status: d.status})
+          |> Repo.all()
+
+        accepted_status = AdoptionStatus.accepted()
+        superseded_status = AdoptionStatus.superseded()
+        canon_summaries = [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
+
+        summaries =
+          ChapterSummary
+          |> where([s], s.work_id == ^uuid and s.status in ^canon_summaries)
+          |> order_by([s], desc: s.inserted_at)
+          |> select([s], %{
+            chapter_id: s.chapter_id,
+            status: s.status,
+            revision_base: s.revision_base
+          })
+          |> Repo.all()
+          |> Enum.uniq_by(& &1.chapter_id)
+          |> Map.new(&{&1.chapter_id, &1})
+
+        Enum.reduce(chapters, %{}, fn chapter, acc ->
+          chapter_drafts =
+            Enum.filter(drafts, &(Map.get(chapter_by_scene, &1.scene_id) == chapter.id))
+
+          accepted = Enum.filter(chapter_drafts, &(&1.status == accepted_status))
+          superseded = Enum.filter(chapter_drafts, &(&1.status == superseded_status))
+          summary = Map.get(summaries, chapter.id)
+
+          refs =
+            accepted
+            |> Enum.take(5)
+            |> Enum.map(&"draft:#{&1.id}:#{&1.revision}")
+
+          Map.put(acc, to_string(chapter.id), %{
+            word_count: Map.get(words, chapter.id, 0),
+            accepted_draft_count: length(accepted),
+            scene_count: Map.get(scene_counts, chapter.id, 0),
+            current_draft_refs: refs,
+            superseded_draft_count: length(superseded),
+            chapter_status: chapter.status,
+            summary_status: summary && summary.status,
+            summary_revision_base: summary && summary.revision_base
+          })
+        end)
+
+      :error ->
+        %{}
+    end
+  end
+
+  def chapter_facts(_work_id), do: %{}
+
+  @doc """
   设定盘点材料读端口（VS-00G CP4b-2）。
 
   优先读取整部作品当前 ACCEPTED 章摘要（按章节顺序、每章最新一条），让长篇盘点覆盖全书且
