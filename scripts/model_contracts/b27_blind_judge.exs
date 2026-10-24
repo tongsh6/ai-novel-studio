@@ -552,6 +552,7 @@ defmodule B27BlindJudge do
       "unnecessary_question_candidate" => get(facts, "unnecessary_question_candidate"),
       "rounds_executed" => get(facts, "rounds_executed"),
       "content_anomaly" => get(facts, "content_anomaly"),
+      "exploration_coverage" => get(facts, "exploration_coverage"),
       "materials_model_visible" => compact_materials(get(facts, "materials_model_visible")),
       "seeded_candidates" => compact_seeded(get(facts, "seeded_candidates")),
       "app_side_evidence" => compact_app_side(get(facts, "app_side_evidence")),
@@ -679,6 +680,13 @@ defmodule B27BlindJudge do
       删去前缀。因此“候选正文包含指令性前缀”是**正确行为**，不能据此判违反复述/字节替换。只要
       `app_side_evidence.available=true` 且 `artifacts[].byte_equal_to_author_text=true`
       （`source_is_current_turn=true`），逐字保真即满足；仅当 byte_equal=false、来源错误或未产生候选时才判失败。
+    - 来源为**历史 turn/候选**（`source_kind="historical_turn"|"candidate_payload"`）：使用
+      `artifacts[].byte_equal_to_source`、`source_text_sha256`、`item_body_sha256`、`source_text_found` 判定；
+      此时 `byte_equal_to_author_text=null` 是正常的（它只对 current turn 有意义），不得据此判“无法验证/失败”。
+    - **探索覆盖**（长章/全文类判据）：必须使用事实字段 `exploration_coverage`：
+      `covered_chars`/`total_chars`/`last_page_covered`/`next_offset`/`prose_ranges`。若模型声称“已读全章/末页”
+      但 `last_page_covered=false`（covered_chars<total_chars 或 next_offset 非空），属于引用未读事实；
+      若模型明确说明已读范围与缺口（未冒充全文），按案例卡 allowed path 判，不强制“必须覆盖末页”。
     - `content_anomaly.type=provider_placeholder` 表示 provider 返回字面占位符
       "[assistant reasoning omitted]"（不是 runner 截断、也不是模型回复正文）。此时不要把占位符当模型编造，
       应判 semantic_success=false 并在 notes 说明“provider 未返回作者可见内容”。

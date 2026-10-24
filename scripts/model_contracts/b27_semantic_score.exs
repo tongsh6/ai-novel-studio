@@ -389,6 +389,7 @@ defmodule B27SemanticScore do
       "final_text" =>
         get(response, "final_text") || get(mapping, "final_text") || get(response, "content"),
       "content_anomaly" => ep["content_anomaly"],
+      "exploration_coverage" => ep["exploration_coverage"],
       "materials_model_visible" => ep["materials_model_visible"],
       "app_side_evidence" => ep["app_side_evidence"],
       "seeded_candidates" => ep["seeded_candidates"],

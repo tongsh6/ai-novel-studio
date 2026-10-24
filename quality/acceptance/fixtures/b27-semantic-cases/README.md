@@ -309,6 +309,27 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
 7. **长 episode DB 连接时限。**
    长章多页续读可能超过 Ecto Sandbox 默认 `ownership_timeout=120s`；CP4 runner 的 Sandbox checkout 提升到
    **600s**，与 episode wall clock（默认 300s）匹配，避免长章 case 因连接所有权超时丢失语义证据。
+9. **历史来源字节证据（retest3，M12）。**
+   原文登记 `source_ref` 可能指向**历史 turn 或候选**（非 current）。episode `app_side_evidence.artifacts[]` 现记录
+   `source_kind`（`current_turn`/`historical_turn`/`candidate_payload`/`candidate_or_unknown_ref`）、`source_ref`、
+   `source_text_found`、`source_text_sha256`、`item_body_sha256`、`byte_equal_to_source`：从持久化来源
+   （历史 user Interaction 的 `content.text`，或历史 TurnResult 候选 `payload.items[].body`）取原文，
+   与物化 artifact body 做逐字节比较。判卷对历史来源必须使用 `byte_equal_to_source`；
+   `byte_equal_to_author_text=null` 只表示“非 current turn”，不得据此判无法验证/失败。
+   找不到来源时如实 `source_text_found=false`（不得伪造原文），判卷按 rubric 判；该证据补强不降低 M12 通过要求。
+10. **长章探索覆盖证据（retest3，M03）。**
+    episode 新增 `exploration_coverage`：由**实际探索观察**（`judgment_explorations[].prose_range/next_offset/summary`）
+    计算（取**最后一个非空的累积观察快照**，不重复累计前轮）`covered_chars`、`total_chars`、`uncovered_chars`、
+    `last_page_covered`、`next_offset`、`prose_ranges`、`observation_count`。判卷对长章/全文覆盖判据必须使用该字段：若模型声称“已读全章/末页”但
+    `last_page_covered=false`（covered<total 或 next_offset 非空），按“引用未读事实”判；若模型明确说明
+    已读范围与缺口（未冒充全文），按案例卡 allowed path 判。该字段只补事实证据，不改 M03 通过/失败判据。
+11. **retest3 基础设施口径（与 retest2 一致，不因证据补强改变门槛）。**
+    - 一次 canonical 完整 80 episode（`--arm both --all --provider strata --runs 2`），预注册首个完整矩阵，不因分数重跑；分母不剔。
+    - judge 去泄漏（仅案例卡 rubric + 事实证据）、arm 隐藏、原始 prompt/response/usage 落盘；judge 模型口径同前批（qwen/qwen3.8-27b）。
+    - Ecto Sandbox `ownership_timeout=600s`；episode wall clock 300s；strata 先 `/v1/models` 探活；瞬时 provider 失败按
+      `provider_error` 落 episode 并计入分母（不删例、不因瞬时错误重跑刷分）。
+    - §6.1 阈值/rubric/cases/snapshots 不变；old baseline 单列；zero_tolerance/key_set 限定 integrated 臂。
+
 8. **judge 输入去泄漏。**
    自本批起判卷模板 `episode_facts` 不再包含 runner 内部提示（`forbidden_candidates` /
    `zero_tolerance_candidates` / `unnecessary_question_candidate` / `allowed_path.hit` 等），只保留案例卡 rubric

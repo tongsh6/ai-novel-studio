@@ -19,6 +19,8 @@
 defmodule B27EpisodeSupport do
   @moduledoc false
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelApplication.DialoguePlanningService
@@ -33,7 +35,8 @@ defmodule B27EpisodeSupport do
     Scene,
     Volume,
     Work,
-    WorkSession
+    WorkSession,
+    Interaction
   }
 
   require Logger
@@ -471,7 +474,11 @@ defmodule B27EpisodeSupport do
     item = List.first(items) || %{}
     body = get(item, :body) || get(item, "body")
     source = get(entry, :source_tool_result_ref) || get(entry, "source_tool_result_ref")
-    current_source = "author_input:" <> ctx.turn_id
+
+    resolved = resolve_source_text(source, ctx)
+
+    byte_equal =
+      if is_binary(body) and is_binary(resolved.text), do: body == resolved.text, else: nil
 
     %{
       "artifact_id" => get(entry, :artifact_id) || get(entry, "artifact_id"),
@@ -480,18 +487,111 @@ defmodule B27EpisodeSupport do
       "adoption_status" =>
         to_string_safe(get(entry, :adoption_status) || get(entry, "adoption_status")),
       "source_tool_result_ref" => source,
-      "source_is_current_turn" => source == current_source or source == "author_input:current",
+      "source_kind" => resolved.kind,
+      "source_ref" => resolved.ref,
+      "source_is_current_turn" => resolved.kind == "current_turn",
+      "source_text_found" => resolved.found,
+      "source_text_chars" => chars(resolved.text),
+      "source_text_sha256" => if(is_binary(resolved.text), do: sha256(resolved.text), else: nil),
       "title" => get(item, :title) || get(item, "title"),
       "item_body_present" => is_binary(body),
       "item_body_chars" => chars(body),
       "item_body_sha256" => if(is_binary(body), do: sha256(body), else: nil),
       "author_text_sha256" => sha256(ctx.author_text),
       "byte_equal_to_author_text" =>
-        if(is_binary(body) and source in [current_source, "author_input:current"],
+        if(resolved.kind == "current_turn" and is_binary(body),
           do: body == ctx.author_text,
           else: nil
-        )
+        ),
+      # 历史 turn / 候选 payload 来源的确定性字节保真证据（retest3 用于 M12 等）。
+      "byte_equal_to_source" => byte_equal
     }
+  end
+
+  # 解析原文登记 source_ref 对应的持久化原文（不伪造、找不到就 found=false）：
+  # - current turn：本 episode 作者输入（ctx.author_text）
+  # - author_input:<turn_ref>：持久化 user Interaction 的 content["text"]（历史资料）
+  # - 候选/artifact ref：扫描本会话 assistant TurnResult.adoption_state 的 payload.items body
+  defp resolve_source_text(source, ctx) when is_binary(source) do
+    current_source = "author_input:" <> ctx.turn_id
+    turn_ref = String.replace_prefix(source, "author_input:", "")
+
+    cond do
+      source in [current_source, "author_input:current", "current", ctx.turn_id] ->
+        %{kind: "current_turn", ref: ctx.turn_id, text: ctx.author_text, found: true}
+
+      true ->
+        case fetch_historical_turn_text(ctx.session_id, turn_ref) do
+          {:ok, text} ->
+            %{kind: "historical_turn", ref: source, text: text, found: true}
+
+          :not_found ->
+            case fetch_candidate_payload_text(ctx.session_id, source) do
+              {:ok, text} ->
+                %{kind: "candidate_payload", ref: source, text: text, found: true}
+
+              :not_found ->
+                %{kind: "candidate_or_unknown_ref", ref: source, text: nil, found: false}
+            end
+        end
+    end
+  end
+
+  defp resolve_source_text(_source, _ctx) do
+    %{kind: "unknown", ref: nil, text: nil, found: false}
+  end
+
+  defp fetch_historical_turn_text(session_id, turn_ref) do
+    row =
+      Repo.one(
+        from(i in Interaction,
+          where: i.session_id == ^session_id and i.turn_id == ^turn_ref and i.role == "user",
+          order_by: [desc: i.inserted_at, desc: i.id],
+          limit: 1
+        )
+      )
+
+    case row && (get(row.content, "text") || get(row.content, "author_text")) do
+      text when is_binary(text) and text != "" -> {:ok, text}
+      _ -> :not_found
+    end
+  rescue
+    _ -> :not_found
+  end
+
+  defp fetch_candidate_payload_text(session_id, artifact_ref) do
+    rows =
+      Repo.all(
+        from(i in Interaction,
+          where: i.session_id == ^session_id and i.role == "assistant",
+          order_by: [desc: i.inserted_at, desc: i.id],
+          select: i.content
+        )
+      )
+
+    entries =
+      Enum.flat_map(rows, fn content ->
+        turn_result = get(content, "turn_result") || %{}
+        adoption = get(turn_result, "adoption_state") || %{}
+
+        List.wrap(get(adoption, "pending")) ++ List.wrap(get(adoption, "resolved"))
+      end)
+
+    case Enum.find(entries, &(get(&1, "artifact_id") == artifact_ref)) do
+      nil ->
+        :not_found
+
+      entry ->
+        payload = get(entry, "payload") || %{}
+        item = List.first(List.wrap(get(payload, "items"))) || %{}
+
+        case get(item, "body") do
+          body when is_binary(body) and body != "" -> {:ok, body}
+          _ -> :not_found
+        end
+    end
+  rescue
+    _ -> :not_found
   end
 
   # 模型可见材料覆盖：记录判断上下文实际提供给模型的章节/候选预览/已采纳对象/引用与省略说明，

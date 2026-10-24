@@ -736,6 +736,7 @@ defmodule B27SemanticEval do
                 evidence
               ),
             "content_anomaly" => content_anomaly(evidence),
+            "exploration_coverage" => exploration_coverage(evidence),
             "workspace_arm" => workspace_arm_check(),
             "method" => method_doc(opts),
             "provider_config" => provider_config_doc(opts),
@@ -755,7 +756,8 @@ defmodule B27SemanticEval do
             app_side_evidence: get(error, :app_side_evidence),
             materials_model_visible: get(error, :materials_model_visible),
             seeded_candidates: get(error, :seeded_candidates),
-            content_anomaly: content_anomaly(%{"turn_result" => nil, "end_reason" => "error"})
+            content_anomaly: content_anomaly(%{"turn_result" => nil, "end_reason" => "error"}),
+            exploration_coverage: exploration_coverage(%{"rounds" => get(error, :rounds) || []})
           )
       end
     rescue
@@ -1235,7 +1237,8 @@ defmodule B27SemanticEval do
           :app_side_evidence,
           :materials_model_visible,
           :seeded_candidates,
-          :content_anomaly
+          :content_anomaly,
+          :exploration_coverage
         ])
       )
     )
@@ -1477,6 +1480,84 @@ defmodule B27SemanticEval do
     |> Enum.flat_map(fn round ->
       get(get(round, "outcome") || %{}, "judgment_explorations") || []
     end)
+  end
+
+  # 探索覆盖证据（retest3 M03）：从实际探索观察（judgment_explorations）计算
+  # 已读字符/总字符/末页是否覆盖/next_offset，供 judge 判定“未读末页却声称全章”。
+  defp exploration_coverage(evidence) do
+    # 各轮 outcome 的 judgment_explorations 是**累积**历史快照（第 N 轮含前 N-1 轮观察），
+    # 因此取最后一个非空快照做覆盖计算，避免把历史重复计数。
+    observations = latest_explorations(evidence)
+
+    ranges =
+      observations
+      |> Enum.map(fn o -> get(o, "prose_range") || get(o, :prose_range) end)
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn r ->
+        %{"start" => get(r, :start) || get(r, "start"), "end" => get(r, :end) || get(r, "end")}
+      end)
+
+    ends = ranges |> Enum.map(fn r -> get(r, "end") end) |> Enum.filter(&is_integer/1)
+    covered = if ends == [], do: 0, else: Enum.max(ends)
+    total = total_chars_from_observations(observations)
+
+    next_offsets =
+      observations
+      |> Enum.map(fn o -> get(o, "next_offset") || get(o, :next_offset) end)
+      |> Enum.reject(&is_nil/1)
+
+    summaries =
+      observations
+      |> Enum.map(fn o -> get(o, "summary") || get(o, :summary) end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.slice(&1, 0, 240))
+
+    %{
+      "observation_count" => length(observations),
+      "tools" =>
+        observations
+        |> Enum.map(fn o -> get(o, "tool") || get(o, :tool) || get(o, "name") end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq(),
+      "prose_ranges" => ranges,
+      "covered_chars" => covered,
+      "total_chars" => total,
+      "uncovered_chars" => if(is_integer(total), do: max(total - covered, 0), else: nil),
+      "last_page_covered" => if(is_integer(total), do: covered >= total, else: nil),
+      "next_offset" => List.last(next_offsets),
+      "observation_summaries" => summaries,
+      "note" =>
+        "covered_chars=实际探索观察 prose_range 的最大 end；total_chars=观察 summary 中“共 N 字符”；" <>
+          "last_page_covered=covered>=total；next_offset=最后一次观察的续读游标。"
+    }
+  end
+
+  defp latest_explorations(evidence) do
+    (get(evidence, "rounds") || [])
+    |> Enum.map(fn round ->
+      get(get(round, "outcome") || %{}, "judgment_explorations") ||
+        get(get(round, "outcome") || %{}, :judgment_explorations) || []
+    end)
+    |> Enum.reject(&(&1 == []))
+    |> List.last()
+    |> List.wrap()
+  end
+
+  defp total_chars_from_observations(observations) do
+    observations
+    |> Enum.map(fn o ->
+      summary = get(o, "summary") || get(o, :summary) || ""
+
+      case Regex.run(~r/共\s*(\d+)\s*字符/, summary) do
+        [_, n] -> String.to_integer(n)
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      values -> Enum.max(values)
+    end
   end
 
   # 证据保真：记录 provider 返回内容异常（占位符/无作者可见文本），不替换/不改写原文。
