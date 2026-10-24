@@ -990,20 +990,65 @@ defmodule NovelApplication.ExplorationService do
   defp memory_recall(_work_id, ""), do: {:error, :empty_query}
 
   defp memory_recall(work_id, query) do
+    note = character_role_note(work_id, query)
+
     case MemoryManagementService.recall(work_id, %{"query" => query}) do
       {:ok, %{text: text, candidate_count: count}} when count > 0 and text != "" ->
         {:ok,
-         observation("memory_recall", query, "记忆检索「#{query}」命中 #{count} 条：\n#{text}", [
-           "memory:#{count}"
-         ])}
+         observation(
+           "memory_recall",
+           query,
+           "记忆检索「#{query}」命中 #{count} 条：\n#{text}#{note}",
+           ["memory:#{count}"]
+         )}
 
       {:ok, _empty} ->
-        {:ok, observation("memory_recall", query, "记忆中未检索到「#{query}」。", [])}
+        {:ok, observation("memory_recall", query, "记忆中未检索到「#{query}」。#{note}", [])}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp character_role_note(work_id, query) do
+    if role_query?(query) do
+      case NovelApplication.CharacterProfile.targets(work_id) do
+        {:ok, characters} -> role_fact_note(characters)
+        characters when is_list(characters) -> role_fact_note(characters)
+        _ -> ""
+      end
+    else
+      ""
+    end
+  rescue
+    _ -> ""
+  end
+
+  defp role_query?(query) do
+    is_binary(query) and
+      String.contains?(query, ["主角", "反派", "配角", "身份", "谁是", "叙事角色"])
+  end
+
+  @doc false
+  def role_fact_note(characters) when is_list(characters) do
+    protagonists =
+      characters
+      |> Enum.filter(&(Map.get(&1, :narrative_role) == "PROTAGONIST"))
+      |> Enum.map(&(Map.get(&1, :name) || "未命名角色"))
+
+    cond do
+      protagonists != [] ->
+        "\n（当前角色主档案为准：主角=#{Enum.join(protagonists, "、")}；记忆中的旧身份描述属历史，不改变当前字段。）"
+
+      characters != [] ->
+        "\n（当前角色主档案为准：尚无被标记为主角的角色；记忆中的旧身份描述属历史，不改变当前字段。）"
+
+      true ->
+        ""
+    end
+  end
+
+  def role_fact_note(_characters), do: ""
 
   # ── 公共 ──
 

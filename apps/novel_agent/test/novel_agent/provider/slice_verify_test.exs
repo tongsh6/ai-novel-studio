@@ -810,3 +810,70 @@ defmodule NovelAgent.Provider.SliceVerifyExplorationCitationSourceTest do
     refute result.content =~ "author_inputs"
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyCharacterRoleQuestionTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  defp prompt(author_text, index_lines) do
+    """
+    本次你承担创作判断器的角色。
+
+    ## 作品事实（持久化只读投影）
+    - 全书：正文统计：1 章中已写 1 章
+
+    ## 角色索引（已有角色；character_ref 是身份，name/aliases 仅展示与消歧）
+    #{index_lines}
+
+    ## 作者输入
+    #{author_text}
+    """
+  end
+
+  test "B29 CP3：「谁是主角」从角色索引当前 narrative_role 回答（多主角全列）" do
+    index = """
+    - character:11111111-1111-1111-1111-111111111111｜沈砚｜别名：老沈｜narrative_role=PROTAGONIST｜查账人
+    - character:22222222-2222-2222-2222-222222222222｜顾青｜别名：｜narrative_role=PROTAGONIST｜巡夜人
+    - character:33333333-3333-3333-3333-333333333333｜阿鸢｜别名：｜narrative_role=SUPPORTING｜线人
+    """
+
+    assert {:ok, result} =
+             SliceVerify.complete(nil, nil, prompt("现在谁是主角？", index), %InferenceParams{})
+
+    assert result.content =~ "当前作品有 2 位主角（群像）：沈砚、顾青"
+    assert result.content =~ "角色主档案"
+    refute result.content =~ "你想直接和我讨论"
+    assert result.tool_calls == []
+
+    assert String.contains?(SliceVerify.character_role_answer(prompt("谁是主角", index)), "沈砚")
+  end
+
+  test "B29 CP3：单主角显示姓名；无主角诚实；无索引不引用记忆/不编造" do
+    one = """
+    - character:11111111-1111-1111-1111-111111111111｜沈砚｜别名：老沈｜narrative_role=PROTAGONIST｜查账人
+    - character:22222222-2222-2222-2222-222222222222｜顾青｜别名：｜narrative_role=SUPPORTING｜巡夜人
+    """
+
+    assert SliceVerify.character_role_answer(prompt("现在谁是主角？", one)) =~ "当前作品的主角是 沈砚"
+
+    no_protagonist = """
+    - character:11111111-1111-1111-1111-111111111111｜沈砚｜别名：老沈｜narrative_role=ENSEMBLE_POV｜查账人
+    """
+
+    assert SliceVerify.character_role_answer(prompt("有没有主角？", no_protagonist)) =~
+             "目前还没有谁被标记为主角"
+
+    no_index = """
+    本次你承担创作判断器的角色。
+
+    ## 作者输入
+    现在谁是主角？
+    """
+
+    answer = SliceVerify.character_role_answer(no_index)
+    assert answer =~ "没有可核对的角色索引"
+    refute answer =~ "沈砚"
+  end
+end

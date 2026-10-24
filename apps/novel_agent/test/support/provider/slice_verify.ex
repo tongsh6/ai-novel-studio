@@ -460,6 +460,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           ]
         )
 
+      # B29 CP3：「谁是主角」问答从判断 prompt 的「角色索引」读取 Character 当前
+      # narrative_role（主档案优先），多主角全列/无主角诚实；不引用旧 memory。
+      protagonist_question_prompt?(prompt_text) ->
+        narrative = character_role_answer(prompt_text)
+        Result.new(narrative, nil)
+
       true ->
         regular_judgment_result(prompt_text)
     end
@@ -3112,6 +3118,81 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
             }
           ]
         )
+    end
+  end
+
+  @doc """
+  B29 CP3 test-support：「谁是主角」问题的确定性回答，只读判断 prompt 的「角色索引」
+  中当前 narrative_role（主档案事实）。多主角全列；无主角诚实；无索引诚实说明。
+  """
+  def character_role_answer(prompt) when is_binary(prompt) do
+    case character_index_from_prompt(prompt) do
+      [] -> "当前上下文没有可核对的角色索引；本次不能确认当前主角，需要先读取角色主档案再回答，不引用记忆里的旧说法。"
+      characters -> protagonist_answer(characters)
+    end
+  end
+
+  def character_role_answer(_prompt), do: ""
+
+  defp protagonist_answer(characters) do
+    protagonists =
+      characters
+      |> Enum.filter(&(&1.narrative_role == "PROTAGONIST"))
+      |> Enum.map(& &1.name)
+
+    case protagonists do
+      [one] ->
+        "当前作品的主角是 #{one}（以角色主档案为准）。"
+
+      many when length(many) > 1 ->
+        "当前作品有 #{length(many)} 位主角（群像）：#{Enum.join(many, "、")}（以角色主档案为准）。"
+
+      [] ->
+        "目前还没有谁被标记为主角（以角色主档案为准）。如果要确定主角，可以指定某个已有角色为主角。"
+    end
+  end
+
+  defp protagonist_question_prompt?(prompt) do
+    input = judgment_author_input(prompt)
+
+    String.contains?(input, ["谁是主角", "主角是谁", "有没有主角", "现在谁是主角", "主角有谁", "哪位是主角", "主角是谁啊"]) and
+      not String.contains?(input, ["指定", "设为", "改为", "确立"])
+  end
+
+  defp character_index_from_prompt(prompt) do
+    case String.split(prompt, "## 角色索引", parts: 2) do
+      [_, rest] ->
+        section = rest |> String.split(~r/\n##\s/u, parts: 2) |> List.first() || ""
+
+        section
+        |> String.split("\n")
+        |> Enum.flat_map(&parse_character_index_line/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp parse_character_index_line(line) do
+    trimmed = String.trim(line)
+
+    if String.starts_with?(trimmed, "- ") do
+      parse_character_index_fields(trimmed |> String.split("｜") |> Enum.map(&String.trim/1))
+    else
+      []
+    end
+  end
+
+  defp parse_character_index_fields(fields) do
+    name = Enum.at(fields, 1)
+    role_field = Enum.find(fields, &String.starts_with?(&1, "narrative_role="))
+
+    with true <- is_binary(name) and name != "",
+         true <- is_binary(role_field),
+         [_, role_value] <- String.split(role_field, "=", parts: 2) do
+      [%{name: name, narrative_role: String.trim(role_value)}]
+    else
+      _ -> []
     end
   end
 
