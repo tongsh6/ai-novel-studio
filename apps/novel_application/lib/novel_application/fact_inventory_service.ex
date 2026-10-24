@@ -56,6 +56,22 @@ defmodule NovelApplication.FactInventoryService do
   ]
   @proposal_buckets Map.new(@proposal_bucket_pairs)
 
+  # AU12 回归修复：artifact_type 字符串 → 固定 atom 的显式真源（仅编译期字面量）。
+  # 禁止 String.to_existing_atom/动态建 atom：artifact_sets 在首轮盘点时若依赖模块未加载，
+  # 会 badarg（work_skeleton_suggestion）。未知类型返回 :error，由调用方跳过/报错，不 crash。
+  @artifact_type_atoms %{
+    "character_seed" => :character_seed,
+    "world_rule_seed" => :world_rule_seed,
+    "foreshadowing_seed" => :foreshadowing_seed,
+    "work_skeleton_suggestion" => :work_skeleton_suggestion,
+    "foreshadowing_resolution" => :foreshadowing_resolution
+  }
+
+  @doc "artifact_type 字符串 → 固定 atom（显式白名单；未知返回 :error，不动态建 atom）。"
+  @spec artifact_type_atom(term()) :: {:ok, atom()} | :error
+  def artifact_type_atom(type) when is_binary(type), do: Map.fetch(@artifact_type_atoms, type)
+  def artifact_type_atom(_type), do: :error
+
   @doc "artifact_type → proposal bucket 的单一真源（解析与 flow 分组共用）。"
   def proposal_buckets, do: @proposal_buckets
 
@@ -275,8 +291,11 @@ defmodule NovelApplication.FactInventoryService do
     # artifact_type → proposal bucket 的映射唯一真源是 @proposal_buckets：
     # 这里反转得到 {artifact_type, items}，不另写第二份类型清单。
     @proposal_bucket_pairs
-    |> Enum.map(fn {artifact_type, bucket} ->
-      {String.to_existing_atom(artifact_type), Map.get(proposal, bucket, [])}
+    |> Enum.flat_map(fn {artifact_type, bucket} ->
+      case artifact_type_atom(artifact_type) do
+        {:ok, atom_type} -> [{atom_type, Map.get(proposal, bucket, [])}]
+        :error -> []
+      end
     end)
     |> Enum.reject(fn {_type, items} -> items == [] end)
     |> Enum.map(fn {artifact_type, items} ->
