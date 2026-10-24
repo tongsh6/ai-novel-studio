@@ -322,7 +322,10 @@ defmodule NovelApplication.ToolProvenanceTest do
         end)
 
       assert tool_prompt =~ "本章已采纳正文"
-      assert tool_prompt =~ "衔接续写"
+
+      # B27 CP3b：材料标题不再写操作指令，续写语义由共享 operation_rules 提供
+      assert tool_prompt =~ "本轮为续写"
+      refute tool_prompt =~ "请在其后自然衔接续写"
       assert tool_prompt =~ @prior
     end
 
@@ -332,7 +335,9 @@ defmodule NovelApplication.ToolProvenanceTest do
           @prior
         end)
 
-      assert tool_prompt =~ "基于它重写整章"
+      assert tool_prompt =~ "本章已采纳正文"
+      assert tool_prompt =~ "本轮为重写/覆盖"
+      refute tool_prompt =~ "基于它重写整章"
       assert tool_prompt =~ @prior
     end
 

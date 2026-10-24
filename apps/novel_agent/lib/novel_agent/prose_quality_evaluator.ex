@@ -10,6 +10,8 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Result, as: ProviderResult
+  alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
 
@@ -20,7 +22,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
       result_fn when is_function(result_fn, 1) ->
         request
         |> build_prompt()
-        |> do_evaluate(result_fn, _retry? = true)
+        |> do_evaluate(result_fn, _retry? = true, correction_contract(request))
 
       _ ->
         QualityEvaluationResult.error(%{
@@ -30,16 +32,16 @@ defmodule NovelAgent.ProseQualityEvaluator do
     end
   end
 
-  defp do_evaluate(prompt, result_fn, retry?) do
+  defp do_evaluate(prompt, result_fn, retry?, contract) do
     case result_fn.(prompt) do
       {:ok, %ProviderResult{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?)
+        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
 
       {:ok, %{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?)
+        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
 
       {:ok, content} when is_binary(content) ->
-        parse_or_retry(content, nil, prompt, result_fn, retry?)
+        parse_or_retry(content, nil, prompt, result_fn, retry?, contract)
 
       {:error, error} ->
         QualityEvaluationResult.error(%{
@@ -52,15 +54,15 @@ defmodule NovelAgent.ProseQualityEvaluator do
     end
   end
 
-  defp parse_or_retry(content, provider_call_ref, prompt, result_fn, retry?) do
+  defp parse_or_retry(content, provider_call_ref, prompt, result_fn, retry?, contract) do
     case parse_findings(content) do
       {:ok, findings} ->
         QualityEvaluationResult.ok(findings, provider_call_ref)
 
       :error when retry? ->
         prompt
-        |> correction_prompt(content)
-        |> do_evaluate(result_fn, false)
+        |> correction_prompt(content, contract)
+        |> do_evaluate(result_fn, false, contract)
 
       :error ->
         QualityEvaluationResult.error(%{
@@ -144,6 +146,30 @@ defmodule NovelAgent.ProseQualityEvaluator do
     Map.get(result, :provider_call_ref) || Map.get(result, "provider_call_ref")
   end
 
+  # CP3b：带 AuthoringTask 的评审渲染。规则来自 AuthoringSemantics，材料覆盖由 task
+  # 显式声明（不把单候选/片段当整章）；证据原句/字段要求仍是评审角色专属（L4）。
+  defp build_prompt(%QualityEvaluationRequest{task: %AuthoringTask{} = task} = request) do
+    """
+    本次你承担小说正文质量评审助手的角色。请只读地评审下面这段正文是否实现其写作目标，严格按 JSON
+    对象返回，不要附加任何额外文字，不要重写正文。
+
+    #{AuthoringSemantics.static_block(task)}
+
+    #{AuthoringSemantics.dynamic_block(task)}
+
+    #{material_coverage_statement(task)}
+
+    #{findings_contract()}
+
+    #{review_tasks(request)}
+
+    #{brief_section(request)}#{scene_units_section(request)}#{facts_section(request)}待评审正文：
+    #{request.prose_text}
+
+    只返回 JSON 对象。
+    """
+  end
+
   defp build_prompt(%QualityEvaluationRequest{} = request) do
     """
     本次你承担小说正文质量评审助手的角色。请只读地评审下面这段正文是否实现其写作目标，严格按 JSON
@@ -196,7 +222,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
     服务冲突/潜台词、结尾是否留下继续阅读的驱动力（hook，且不是虚假承诺）、能力/境界/资源/代价
     与成长路径是否符合既有规则（不跳过必要铺垫、强度不失衡）。不要仅凭关键字命中就判失败。
 
-    #{brief_section(request)}#{scene_units_section(request)}#{reader_effect_section(request)}#{facts_section(request)}待评审正文：
+    #{brief_section(request)}#{scene_units_section(request)}#{facts_section(request)}待评审正文：
     #{request.prose_text}
 
     只返回 JSON 对象。
@@ -226,12 +252,73 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   defp scene_units_section(_request), do: ""
 
-  defp reader_effect_section(%QualityEvaluationRequest{reader_effect: effect})
-       when is_binary(effect) and effect != "" do
-    "读者效果目标（评审对照）：\n#{effect}\n\n"
+  defp material_coverage_statement(%AuthoringTask{scope: scope}) do
+    coverage = Map.get(scope || %{}, :coverage, :single)
+
+    case coverage do
+      :chapter ->
+        "评审范围：整章材料（可给出章级结论；仍须以正文原句为证据）。"
+
+      _ ->
+        "评审范围：单对象/片段（只评审给定材料；不得据此声称整章或全书结论，证据不足时明确范围限制）。"
+    end
   end
 
-  defp reader_effect_section(_request), do: ""
+  # 评审角色专属任务说明（形式候选 + 章级节奏 + 其他维度）；两种渲染共用。
+  defp review_tasks(request) do
+    """
+    任务 A：局部形式候选的语义判定。
+    #{form_candidates_section(request)}
+    形式候选只是召回信号，不是问题结论。这里必须区分机械重复与刻意排比、回环、咒语感、
+    仪式感或情绪升级。只要原句在强度、意义、视角、动作后果或情绪上形成清晰递进，就不要
+    输出 finding。只有重复没有形成上述递进、读感近似模板填充时，才输出
+    quality_gate.style_fit / validator.sentence_rhythm_uniformity，并沿用 candidate_id、
+    位置和原句证据。禁止把此类形式问题命名为“章节节奏”。
+
+    任务 B：章节级叙事节奏独立评审。
+    #{pacing_context_section(request)}
+    节奏是“实际叙事密度是否匹配本章结构功能”的相对判断，不是句长、句数、段落长度或对白
+    数量统计。请对照章功能、情节推进、人物变化、信息释放、情绪目标和 hook，判断正文的
+    事件密度、张力轨迹以及细写/概述选择是否匹配。只有存在具体错配且能引用正文原句时，
+    才输出 quality_gate.pacing / validator.narrative_pacing_fit；影响整章时
+    impact_scope/revision_scope 才可为 chapter。材料范围是片段时不得给章级节奏结论。
+
+    其他评审维度：场景是否产生变化、情绪转向是否有触发、人物是否有明确目标与阻力、人物行动是否
+    来自选择、转折是否导致后果、信息释放是否符合执行简述、实际读者效果是否偏离目标、对话是否
+    服务冲突/潜台词、结尾是否留下继续阅读的驱动力（hook，且不是虚假承诺）、能力/境界/资源/代价
+    与成长路径是否符合既有规则（不跳过必要铺垫、强度不失衡）。不要仅凭关键字命中就判失败。
+    """
+    |> String.trim()
+  end
+
+  # 输出契约唯一文本：首次请求与纠错共用；字段要求与 valid_finding?/1 校验同源。
+  defp findings_contract do
+    """
+    输出契约（只返回 JSON 对象）：
+    顶层对象必须包含 "findings" 数组（没有问题则为空数组）。每个 finding 必填：
+    - "quality_finding_id"：稳定 finding 标识
+    - "quality_gate_ref"：质量门 ref（如 quality_gate.character_logic / quality_gate.pacing）
+    - "validator_ref"：validator ref（如 validator.scene_change / validator.emotional_transition）
+    - "summary"：一句话说明问题
+    - "reasoning"：说明为什么这些原句构成问题，不得只复述统计信号
+    - "evidence_spans"：非空数组；每项含 {"text": 正文原句, "sentence_start": 正整数, "sentence_end": 正整数}
+    - "impact_scope"：local | paragraph | chapter
+    - "revision_scope"：local | paragraph | chapter；默认 local，只有问题确实覆盖段落或整章才能扩大
+    - "confidence"：0~1 之间的小数
+    可选字段：severity（info|warn|high）、action（warn|adoption_review|block|confirm）、
+    candidate_id、brief_field_refs、suggested_revision（{"instruction": ...}）。
+    字符串值内的换行必须写成 \\n 转义。
+    """
+    |> String.trim()
+  end
+
+  defp correction_contract(%QualityEvaluationRequest{task: %AuthoringTask{} = task}) do
+    "- 结构必须与首次请求完全一致（quality_evaluation JSON；shared rules kind=#{task.kind}）；不得放宽必填字段或改变 findings 结构。"
+  end
+
+  defp correction_contract(_request) do
+    "- 结构必须与首次请求完全一致（findings 数组与必填字段）；不得放宽必填字段。"
+  end
 
   # CA02（31 §6.12 🟡 门补输入）：作品事实基线——knowledge_boundary/character_logic/
   # power_scaling 类判断据此比对，而非仅凭正文自评。缺席诚实缺席（不伪造基线）。
@@ -257,11 +344,12 @@ defmodule NovelAgent.ProseQualityEvaluator do
   defp pacing_context_section(_request),
     do: "本次缺少章节结构参照；不得输出 narrative_pacing_fit finding。"
 
-  defp correction_prompt(original_prompt, failed_content) do
+  defp correction_prompt(original_prompt, failed_content, contract) do
     """
-    你上一次的输出不是合法且字段完整的质量评审 JSON。请严格重新输出一个包含 "findings"
-    数组的 JSON 对象；每个 finding 必须包含原句证据、句子位置、判断理由、影响范围、修订
-    范围和 0~1 置信度。不要输出 JSON 以外的任何文字。
+    你上一次的输出不是合法且字段完整的质量评审 JSON。请严格按首次请求的同一输出契约重
+    新输出完整结果：
+    #{contract}
+    不要输出 JSON 以外的任何文字。
 
     ## 你的上一次输出（截取前 300 字符）
     #{String.slice(failed_content, 0, 300)}

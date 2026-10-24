@@ -119,6 +119,55 @@ defmodule NovelDomain.ChapterPlanDirection do
     end
   end
 
+  @typedoc """
+  章功能定位的归一类别（B27 CP3c / D7）：`chapter_role` 是模型产出的自由文本
+  （prompt 允许「推进章 / 铺垫章 / 高潮章 / 过渡章 / 转折章之一或自然语言等价描述」），
+  ledger/reconcile 等机械规则不能直接按精确中文字面量匹配，必须先经本函数归一。
+  """
+  @type role_kind :: :advancing | :setup | :climax | :transition | :turning | :other | :unknown
+
+  # 顺序敏感：先匹配更具体的词，避免被其他词误命中。
+  @role_kind_markers [
+    {:climax, "高潮"},
+    {:turning, "转折"},
+    {:advancing, "推进"},
+    {:setup, "铺垫"},
+    {:transition, "过渡"}
+  ]
+
+  @doc """
+  把章功能定位自由文本归一为类别。
+
+  仅做确定性词面归一（不做语义猜测）：未知文本归 `:other`，缺失归 `:unknown`；
+  消费方按类别判断，展示仍使用原文。
+  """
+  @spec role_kind(t() | map() | nil | String.t()) :: role_kind()
+  def role_kind(%__MODULE__{chapter_role: role}), do: role_kind(role)
+  def role_kind(value) when is_map(value), do: value |> from_storage() |> role_kind()
+
+  def role_kind(role) when is_binary(role) do
+    role = String.trim(role)
+
+    if role == "",
+      do: :unknown,
+      else: Enum.find_value(@role_kind_markers, :other, &marker_kind(role, &1))
+  end
+
+  def role_kind(nil), do: :unknown
+  def role_kind(_value), do: :unknown
+
+  defp marker_kind(role, {kind, marker}) do
+    if String.contains?(role, marker), do: kind, else: nil
+  end
+
+  @doc """
+  该章功能定位是否推进主线冲突账（推进/高潮/转折三类）。
+
+  与 `NovelApplication.LedgerMaintenance` 的消费口径一致；归类由本模块单一真源。
+  """
+  @spec conflict_progress?(t() | map() | nil | String.t()) :: boolean()
+  def conflict_progress?(value), do: role_kind(value) in [:advancing, :climax, :turning]
+
   @doc "把 `existing` 里的使命带进新方向（大纲重物化不得丢作者裁决过的使命）。"
   @spec carry_mission(map() | nil, t() | map() | nil) :: map() | nil
   def carry_mission(storage, existing) do

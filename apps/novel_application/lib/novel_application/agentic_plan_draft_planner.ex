@@ -560,8 +560,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       "prose_writing"
     ]
 
-  defp plan_step_targets("provider_progress_v1"), do: ["provider_complete"]
-
   defp plan_step_targets("readonly_batch_context_v1"), do: ["readonly_batch"]
   defp plan_step_targets("ledger_reconciliation_v1"), do: ["ledger_reconcile"]
 
@@ -785,12 +783,6 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     """
     - context_assemble | explore | 读取世界设定上下文
     - world_building | act | 生成世界设定、伏笔或规则草稿
-    """
-  end
-
-  defp step_catalog("provider_progress_v1") do
-    """
-    - provider_complete | act | 调用 provider 并记录 author-safe 进度边界
     """
   end
 

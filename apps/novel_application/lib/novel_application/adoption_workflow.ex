@@ -274,7 +274,10 @@ defmodule NovelApplication.AdoptionWorkflow do
         chapter_title: adoption_chapter_title(artifact),
         prose_text: artifact_content(artifact),
         source_ref: turn_id(source_turn_result),
-        revision_base: revision_base_from_persisted(persisted)
+        revision_base: revision_base_from_persisted(persisted),
+        # B27 CP3c/D4：主采纳路径只有本次采纳片段，不是整章已采纳正文；
+        # 如实标注范围，摘要不得冒充整章。
+        material_scope: :fragment
       })
 
       :ok

@@ -81,7 +81,7 @@ defmodule ICachePrefixDriver do
   defp single_call_rows do
     a = %{goal_text: "写第一章", deviation_summary: "尚缺结尾", observation_block: "已有前半章"}
     b = %{a | goal_text: "写第二章", observation_block: "新观察"}
-    shared = "所有动作均须由系统门禁放行。"
+    shared = "所有动作均须经系统门禁放行。"
 
     row =
       shared_prefix_row(
@@ -192,7 +192,7 @@ defmodule ICachePrefixDriver do
         JudgmentProtocol.prompt(input_b),
         "## 会话摘要",
         [
-          "所有动作均须由系统门禁放行。",
+          "所有动作均须经系统门禁放行。",
           "（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
         ],
         # CP-C 重排完成：连续两轮共享前缀必须覆盖 L0–L2（能力目录 L1 + 稳定章节 L2）。

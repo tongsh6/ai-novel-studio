@@ -35,7 +35,7 @@ defmodule NovelApplication.LedgerReconciliationService do
           optional(atom()) => any()
         }
 
-  @spec scan(String.t(), deps()) :: {:ok, %{findings: [map()], counts: map()}}
+  @spec scan(String.t(), deps()) :: {:ok, map()}
   def scan(work_id, deps) do
     entries = deps.entries.(work_id)
     summaries = deps.summaries.(work_id)
@@ -58,6 +58,15 @@ defmodule NovelApplication.LedgerReconciliationService do
     promise_entry = Enum.find(entries, &(&1.ledger == "promise" and &1.subject_ref == "genre"))
     leaked_entries = Enum.filter(entries, &(&1.ledger == "information" and &1.status == "LEAKED"))
 
+    # B27 CP3c / C3：规则覆盖显式化——读端口缺席/读失败而跳过的规则必须进报告口径，
+    # 「无 findings」不能被作者读成「全书都没问题」。
+    {volume_findings, volume_coverage} = volume_debt_findings(work_id, deps, profile)
+    {finale_findings, finale_coverage} = premature_finale_findings(work_id, deps, profile)
+    {assumption_findings, assumption_coverage} = assumption_overdue_findings(work_id, deps)
+
+    {foreshadow_findings, foreshadow_coverage} =
+      foreshadowing_findings(work_id, entries, deps, profile)
+
     findings =
       LedgerReconciliation.arc_stalled_findings(arc_entries) ++
         List.wrap(
@@ -65,20 +74,59 @@ defmodule NovelApplication.LedgerReconciliationService do
         ) ++
         Enum.map(leaked_entries, &leak_finding/1) ++
         design_debt_findings(roster, summaries, profile) ++
-        volume_debt_findings(work_id, deps, profile) ++
-        premature_finale_findings(work_id, deps, profile) ++
-        assumption_overdue_findings(work_id, deps) ++
-        foreshadowing_findings(work_id, entries, deps, profile)
+        volume_findings ++
+        finale_findings ++
+        assumption_findings ++
+        foreshadow_findings
+
+    coverage =
+      base_coverage() ++
+        volume_coverage ++
+        finale_coverage ++
+        assumption_coverage ++
+        foreshadow_coverage
 
     counts = Enum.frequencies_by(findings, & &1.rule)
+    evaluated = for %{status: :evaluated, rule: rule} <- coverage, do: rule
+    skipped = for %{status: :skipped} = entry <- coverage, do: entry
+
+    scope = %{
+      work_id: work_id,
+      entries: length(entries),
+      summaries: length(summaries),
+      roster: length(roster),
+      rules_evaluated: evaluated,
+      rules_skipped: skipped
+    }
 
     LogEmit.emit(:ledger, :reconcile, :done, %{
       work_id: work_id,
       finding_count: length(findings),
-      rules: counts
+      rules: counts,
+      rules_evaluated: evaluated,
+      rules_skipped: Enum.map(skipped, & &1.rule)
     })
 
-    {:ok, %{findings: findings, counts: counts}}
+    {:ok,
+     %{
+       findings: findings,
+       counts: counts,
+       rules: coverage,
+       rules_evaluated: evaluated,
+       rules_skipped: skipped,
+       scope: scope
+     }}
+  end
+
+  # 无外部读端口依赖、每次都真实执行的基础规则族。
+  defp base_coverage do
+    [
+      %{rule: :arc_stalled, status: :evaluated},
+      %{rule: :genre_promise, status: :evaluated},
+      %{rule: :planned_info_leak, status: :evaluated},
+      %{rule: :protagonist_undermaterialized, status: :evaluated},
+      %{rule: :skeleton_missing, status: :evaluated}
+    ]
   end
 
   @doc """
@@ -90,8 +138,21 @@ defmodule NovelApplication.LedgerReconciliationService do
   @spec materialize(String.t(), deps(), map(), integer() | nil) ::
           {:ok, map() | :no_findings} | {:error, term()}
   def materialize(work_id, deps, report_repo, scanned_at_seq \\ nil) do
-    {:ok, %{findings: findings, counts: counts}} = scan(work_id, deps)
+    {:ok, scan} = scan(work_id, deps)
+    materialize_from_scan(work_id, scan, report_repo, scanned_at_seq)
+  end
 
+  @doc """
+  从已完成的 scan 结果物化报告（不重复扫描）。返回报告或 `:no_findings`。
+  """
+  @spec materialize_from_scan(String.t(), map(), map(), integer() | nil) ::
+          {:ok, map() | :no_findings} | {:error, term()}
+  def materialize_from_scan(
+        work_id,
+        %{findings: findings, counts: counts},
+        report_repo,
+        scanned_at_seq
+      ) do
     if findings == [] do
       {:ok, :no_findings}
     else
@@ -198,15 +259,31 @@ defmodule NovelApplication.LedgerReconciliationService do
           volumes = List.wrap(reader.(work_id))
           planned_volumes = profile[:planned_volumes] || profile["planned_volumes"]
 
-          List.wrap(
-            LedgerReconciliation.volume_plan_mismatch_finding(planned_volumes, length(volumes))
-          ) ++ LedgerReconciliation.volume_blueprint_missing_finding(volumes)
+          findings =
+            List.wrap(
+              LedgerReconciliation.volume_plan_mismatch_finding(planned_volumes, length(volumes))
+            ) ++ LedgerReconciliation.volume_blueprint_missing_finding(volumes)
+
+          {findings,
+           [
+             %{rule: :volume_plan_mismatch, status: :evaluated},
+             %{rule: :volume_blueprint_missing, status: :evaluated}
+           ]}
         rescue
-          _error -> []
+          _error ->
+            {[],
+             [
+               skipped_rule(:volume_plan_mismatch, :read_failed),
+               skipped_rule(:volume_blueprint_missing, :read_failed)
+             ]}
         end
 
       _ ->
-        []
+        {[],
+         [
+           skipped_rule(:volume_plan_mismatch, :volumes_port_missing),
+           skipped_rule(:volume_blueprint_missing, :volumes_port_missing)
+         ]}
     end
   end
 
@@ -228,52 +305,71 @@ defmodule NovelApplication.LedgerReconciliationService do
         |> Enum.sort_by(& &1.seq)
         |> Enum.take(-@premature_finale_window)
 
-      List.wrap(
-        LedgerReconciliation.premature_finale_finding(
-          progress_percent,
-          recent_chapters,
-          @premature_finale_progress_threshold
+      findings =
+        List.wrap(
+          LedgerReconciliation.premature_finale_finding(
+            progress_percent,
+            recent_chapters,
+            @premature_finale_progress_threshold
+          )
         )
-      )
+
+      {findings, [%{rule: :premature_finale, status: :evaluated}]}
     else
-      _ -> []
+      condition ->
+        reason =
+          case condition do
+            false -> :target_length_missing
+            _ -> :read_port_missing
+          end
+
+        {[], [skipped_rule(:premature_finale, reason)]}
     end
   rescue
-    _error -> []
+    _error -> {[], [skipped_rule(:premature_finale, :read_failed)]}
   end
 
   # VS00F 刀④：R9 伏笔超期（仅有预期且已超期，机械比对已写章/卷）+ 收官前未回收
   # 清单（whole_book/无预期型只在进度达 R7 同源阈值时列名过目）。读端口缺席→诚实跳过。
   defp foreshadowing_findings(work_id, entries, deps, profile) do
-    overdue =
+    {overdue, overdue_coverage} =
       case deps[:written_progress] do
         progress_reader when is_function(progress_reader, 1) ->
-          LedgerReconciliation.foreshadowing_overdue_findings(entries, progress_reader.(work_id))
+          {LedgerReconciliation.foreshadowing_overdue_findings(
+             entries,
+             progress_reader.(work_id)
+           ), [%{rule: :foreshadowing_overdue, status: :evaluated}]}
 
         _ ->
-          []
+          {[], [skipped_rule(:foreshadowing_overdue, :written_progress_port_missing)]}
       end
 
-    endgame =
+    {endgame, endgame_coverage} =
       with target_length when is_integer(target_length) and target_length > 0 <-
              profile[:target_length] || profile["target_length"],
            stats_reader when is_function(stats_reader, 1) <- deps[:stats] do
         words_total = work_id |> stats_reader.() |> Map.get(:words_total, 0)
 
-        List.wrap(
-          LedgerReconciliation.unresolved_foreshadowing_endgame_finding(
-            entries,
-            words_total / target_length * 100,
-            @premature_finale_progress_threshold
-          )
-        )
+        {List.wrap(
+           LedgerReconciliation.unresolved_foreshadowing_endgame_finding(
+             entries,
+             words_total / target_length * 100,
+             @premature_finale_progress_threshold
+           )
+         ), [%{rule: :unresolved_foreshadowing_endgame, status: :evaluated}]}
       else
-        _ -> []
+        _ ->
+          {[], [skipped_rule(:unresolved_foreshadowing_endgame, :target_or_stats_missing)]}
       end
 
-    overdue ++ endgame
+    {overdue ++ endgame, overdue_coverage ++ endgame_coverage}
   rescue
-    _error -> []
+    _error ->
+      {[],
+       [
+         skipped_rule(:foreshadowing_overdue, :read_failed),
+         skipped_rule(:unresolved_foreshadowing_endgame, :read_failed)
+       ]}
   end
 
   # R8 假定超龄催办（VS-00G §2.3 防护③）：激活中的工作假定按「激活后新增已采纳
@@ -281,29 +377,34 @@ defmodule NovelApplication.LedgerReconciliationService do
   defp assumption_overdue_findings(work_id, deps) do
     with assumptions_reader when is_function(assumptions_reader, 1) <- deps[:assumptions],
          count_reader when is_function(count_reader, 2) <- deps[:summary_count_since] do
-      work_id
-      |> assumptions_reader.()
-      |> Enum.filter(&NovelDomain.WorkingAssumption.active?/1)
-      |> Enum.map(fn assumption ->
-        age = count_reader.(work_id, Map.get(assumption, :inserted_at))
+      findings =
+        work_id
+        |> assumptions_reader.()
+        |> Enum.filter(&NovelDomain.WorkingAssumption.active?/1)
+        |> Enum.map(fn assumption ->
+          age = count_reader.(work_id, Map.get(assumption, :inserted_at))
 
-        LedgerReconciliation.assumption_overdue_finding(
-          %{
-            id: Map.get(assumption, :id),
-            name: Map.get(assumption, :name),
-            narrative_role: Map.get(assumption, :narrative_role)
-          },
-          age,
-          NovelDomain.WorkingAssumption.default_lifespan_chapters()
-        )
-      end)
-      |> Enum.reject(&is_nil/1)
+          LedgerReconciliation.assumption_overdue_finding(
+            %{
+              id: Map.get(assumption, :id),
+              name: Map.get(assumption, :name),
+              narrative_role: Map.get(assumption, :narrative_role)
+            },
+            age,
+            NovelDomain.WorkingAssumption.default_lifespan_chapters()
+          )
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      {findings, [%{rule: :assumption_overdue, status: :evaluated}]}
     else
-      _ -> []
+      _ -> {[], [skipped_rule(:assumption_overdue, :assumption_port_missing)]}
     end
   rescue
-    _error -> []
+    _error -> {[], [skipped_rule(:assumption_overdue, :read_failed)]}
   end
+
+  defp skipped_rule(rule, reason), do: %{rule: rule, status: :skipped, reason: reason}
 
   defp leak_finding(entry) do
     %{

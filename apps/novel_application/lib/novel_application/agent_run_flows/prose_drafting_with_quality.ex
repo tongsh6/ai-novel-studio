@@ -1202,7 +1202,10 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         candidates: [],
         context: execution_context,
         chapter_mission: Map.get(stage_state(snapshot), :chapter_mission),
-        author_input: %{text: author_input_text(run, plan, observations, guidance)},
+        author_input: %{
+          text: author_input_text(run, plan, observations, guidance),
+          author_goal_text: run.goal.text
+        },
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot, :writer),
         quality_provider_execution: quality_provider_execution(spec, snapshot),

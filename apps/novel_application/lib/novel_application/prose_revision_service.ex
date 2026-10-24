@@ -27,6 +27,7 @@ defmodule NovelApplication.ProseRevisionService do
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.Provider.Execution
   alias NovelApplication.ArtifactAssembler
+  alias NovelApplication.AuthoringTaskBuilder
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.TraceWriter
@@ -117,7 +118,7 @@ defmodule NovelApplication.ProseRevisionService do
         provider_execution
       ) do
     with {:ok, provider_execution} <- require_provider_execution(provider_execution),
-         req = build_request(frame, plan, decision, original, findings),
+         {:ok, req} <- build_request(frame, plan, decision, original, findings),
          result = AuthorizedToolExecutor.execute(req, provider_execution),
          {:ok, execution} <-
            assemble_revision_artifact(
@@ -342,25 +343,52 @@ defmodule NovelApplication.ProseRevisionService do
        ) do
     entry = CapabilityRegistry.get(@prose_tool)
 
-    %ToolRequest{
-      tool_request_id: NovelFoundation.ID.unique("tq_rev"),
-      turn_id: frame.turn_id,
-      frame_ref: frame.frame_id,
-      plan_ref: plan.plan_id,
-      decision_ref: decision.decision_id,
-      tool_name: @prose_tool,
-      tool_version: (entry && entry.tool_version) || "unknown",
-      input: %{
-        "creative_brief" => revision_brief(findings),
-        "context_text" => original_context(original),
-        "revision" => revision_section(findings, revision_scope(findings))
-      },
-      read_scope_grants: (entry && entry.read_scopes) || [],
-      write_scope_grants: [],
-      idempotency_key: "idem_#{frame.turn_id}_revise",
-      trace_policy: %{level: "standard"},
-      created_at: DateTime.utc_now()
-    }
+    with {:ok, task} <- revision_authoring_task(frame, original, findings) do
+      input =
+        %{
+          "creative_brief" => revision_brief(findings),
+          "context_text" => original_context(original),
+          "revision" => revision_section(findings, revision_scope(findings))
+        }
+        |> Map.merge(AuthoringTaskBuilder.to_input(task))
+
+      {:ok,
+       %ToolRequest{
+         tool_request_id: NovelFoundation.ID.unique("tq_rev"),
+         turn_id: frame.turn_id,
+         frame_ref: frame.frame_id,
+         plan_ref: plan.plan_id,
+         decision_ref: decision.decision_id,
+         tool_name: @prose_tool,
+         tool_version: (entry && entry.tool_version) || "unknown",
+         input: input,
+         read_scope_grants: (entry && entry.read_scopes) || [],
+         write_scope_grants: [],
+         idempotency_key: "idem_#{frame.turn_id}_revise",
+         trace_policy: %{level: "standard"},
+         created_at: DateTime.utc_now()
+       }}
+    end
+  end
+
+  # B27 CP3b：修订任务语义由真实业务事实组装（来源=质量发现；基线=被修订候选 ref；
+  # 范围按 findings 的最大 revision_scope 降级为 single/chapter，不冒充整章）。
+  defp revision_authoring_task(frame, original, findings) do
+    scope = revision_scope(findings)
+    coverage = if scope == :chapter, do: :chapter, else: :single
+    base_ref = Map.get(original, :revision_base) || "turn:" <> frame.turn_id
+    finding_refs = finding_refs(findings)
+
+    AuthoringTaskBuilder.for_revision(%{
+      source: %{kind: :quality_finding, ref: List.first(finding_refs) || "turn:" <> frame.turn_id},
+      artifact_ref: base_ref,
+      base_body: Map.get(original, :body),
+      coverage: coverage,
+      target_chapter_ref: Map.get(original, :target_chapter_ref),
+      author_goal: revision_reason(findings),
+      findings_ref: "quality_findings:" <> (List.first(finding_refs) || frame.turn_id),
+      source_refs: Enum.uniq(["turn:" <> frame.turn_id | finding_refs])
+    })
   end
 
   defp revision_brief(findings) do

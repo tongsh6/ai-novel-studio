@@ -16,22 +16,71 @@ defmodule NovelApplication.FactInventoryService do
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelApplication.AuxTaskBuilder
+  alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.ToolOutputContract
   alias NovelDomain.TentativeArtifactSet
+  alias NovelFoundation.Enums.NarrativeRole
 
-  @type material_item :: %{seq: non_neg_integer(), title: String.t(), prose: String.t()}
+  @type material_item :: %{
+          required(:seq) => non_neg_integer(),
+          required(:title) => String.t(),
+          required(:prose) => String.t(),
+          optional(:kind) => :chapter_summary | :chapter_prose | atom(),
+          optional(:version) => String.t() | nil,
+          optional(:truncated) => boolean()
+        }
   @type proposal :: %{
           characters: [map()],
           world_rules: [map()],
-          foreshadowings: [map()],
-          skeleton_suggestions: [map()]
+          foreshadowings: [map()]
         }
 
   @material_prose_clip 700
   @skeleton_fields ~w(target_length planned_volumes serial_form)
 
+  # B27 CP3c：artifact_type 词表白名单单一真源（prompt / 解析分组 / 合并 / artifact_sets
+  # 全从本模块取；不散落在 flow 里另写副本）。提案家族仍走既有 seed 采纳边界。
+  @inventory_seed_types ["character_seed", "world_rule_seed", "foreshadowing_seed"]
+  @skeleton_suggestion_type "work_skeleton_suggestion"
+  @foreshadowing_resolution_type "foreshadowing_resolution"
+
+  @proposal_buckets %{
+    "character_seed" => :characters,
+    "world_rule_seed" => :world_rules,
+    "foreshadowing_seed" => :foreshadowings,
+    "work_skeleton_suggestion" => :skeleton_suggestions,
+    "foreshadowing_resolution" => :foreshadowing_resolutions
+  }
+
   @doc false
   def skeleton_fields, do: @skeleton_fields
+
+  @doc "artifact_type → proposal bucket 的单一真源（解析与 flow 分组共用）。"
+  def proposal_buckets, do: @proposal_buckets
+
+  @doc "提案分组的 canonical keys（flow 合并/摘要遍历共用）。"
+  def proposal_keys, do: @proposal_buckets |> Map.values() |> Enum.uniq()
+
+  @doc "本轮允许的 artifact_type 词表（按缺位规划字段/未回收伏笔条件展开）。"
+  @spec inventory_artifact_types(keyword()) :: [String.t()]
+  def inventory_artifact_types(opts \\ []) do
+    types = @inventory_seed_types
+
+    types
+    |> maybe_add_type(
+      Keyword.get(opts, :missing_skeleton_fields, []) != [],
+      @skeleton_suggestion_type
+    )
+    |> maybe_add_type(
+      Keyword.get(opts, :unresolved_foreshadows, []) != [],
+      @foreshadowing_resolution_type
+    )
+  end
+
+  defp maybe_add_type(types, true, type), do: types ++ [type]
+  defp maybe_add_type(types, _false, _type), do: types
 
   @doc """
   盘点提炼：材料 → 提案。`materials` 为 `[%{seq, title, prose}]`（application 装配
@@ -65,21 +114,44 @@ defmodule NovelApplication.FactInventoryService do
     unresolved_foreshadows =
       normalize_unresolved_foreshadows(Keyword.get(opts, :unresolved_foreshadows, []))
 
-    prompt =
-      inventory_prompt(
-        build_material_text(materials),
-        length(materials),
-        missing_fields,
-        known_characters,
-        unresolved_foreshadows
-      )
+    with {:ok, task} <- inventory_task(materials, opts) do
+      prompt =
+        inventory_prompt(
+          build_material_text(materials),
+          length(materials),
+          missing_fields,
+          known_characters,
+          unresolved_foreshadows,
+          Keyword.merge(opts, task: task, materials: materials)
+        )
 
-    case Execution.result_fn(provider_execution) do
-      result_fn when is_function(result_fn, 1) ->
-        do_extract(prompt, result_fn, _retry? = true, _attempt = 1)
+      case Execution.result_fn(provider_execution) do
+        result_fn when is_function(result_fn, 1) ->
+          do_extract(prompt, result_fn, _retry? = true, _attempt = 1)
 
-      _ ->
-        {:error, :provider_execution_missing}
+        _ ->
+          {:error, :provider_execution_missing}
+      end
+    end
+  end
+
+  # B27 CP3c：材料 → AuthoringTask（范围/版本/完整度/省略由真实材料字段组装）。
+  # D5 降批时每批材料重新组装 task，禁止静默沿用全量材料语义。
+  defp inventory_task(materials, opts) do
+    case Keyword.get(opts, :task) do
+      %AuthoringTask{} = task ->
+        {:ok, task}
+
+      nil ->
+        AuxTaskBuilder.for_fact_inventory(%{
+          work_id: Keyword.get(opts, :work_id),
+          materials: materials,
+          author_goal: Keyword.get(opts, :author_goal),
+          author_words: Keyword.get(opts, :author_words)
+        })
+
+      _other ->
+        {:error, :invalid_authoring_task}
     end
   end
 
@@ -221,44 +293,95 @@ defmodule NovelApplication.FactInventoryService do
   @doc false
   @spec build_material_text([material_item()]) :: String.t()
   def build_material_text(materials) do
-    Enum.map_join(materials, "\n\n", fn %{seq: seq, title: title, prose: prose} ->
-      "【第#{seq}章 #{title}】\n#{String.slice(to_string(prose), 0, @material_prose_clip)}"
+    Enum.map_join(materials, "\n\n", fn material ->
+      %{seq: seq, title: title, prose: prose} = material
+      kind = Map.get(material, :kind) || :chapter_prose
+      version = Map.get(material, :version)
+      raw = to_string(prose)
+
+      truncated =
+        Map.get(material, :truncated) == true or String.length(raw) > @material_prose_clip
+
+      # B27 CP3c：逐章标注材料真实来源/版本/截断，不再把所有材料统称「正文摘录」。
+      "【第#{seq}章 #{title}#{material_meta(kind, version, truncated)}】\n" <>
+        String.slice(raw, 0, @material_prose_clip)
     end)
   end
 
+  defp material_meta(kind, version, truncated) do
+    parts =
+      [
+        material_kind_label(kind),
+        version && "版本 #{version}",
+        truncated && "摘录已截断"
+      ]
+      |> Enum.reject(&(&1 in [nil, false]))
+
+    if parts == [], do: "", else: "｜" <> Enum.join(parts, "｜")
+  end
+
+  defp material_kind_label(:chapter_summary), do: "章摘要（非正文全文）"
+  defp material_kind_label(_kind), do: "正文摘录"
+
   @doc false
-  @spec inventory_prompt(String.t(), non_neg_integer(), [String.t()], [String.t()], [map()]) ::
+  @spec inventory_prompt(
+          String.t(),
+          non_neg_integer(),
+          [String.t()],
+          [String.t()],
+          [map()],
+          keyword()
+        ) ::
           String.t()
   def inventory_prompt(
         material_text,
         chapter_count,
         missing_skeleton_fields \\ [],
         known_characters \\ [],
-        unresolved_foreshadows \\ []
+        unresolved_foreshadows \\ [],
+        opts \\ []
       ) do
+    task = Keyword.get(opts, :task)
+    materials = Keyword.get(opts, :materials, [])
+    role_values = NarrativeRole.values() |> Enum.join(" / ")
+
+    artifact_types =
+      inventory_artifact_types(
+        missing_skeleton_fields: missing_skeleton_fields,
+        unresolved_foreshadows: unresolved_foreshadows
+      )
+
+    semantics =
+      case task do
+        %AuthoringTask{} = task -> AuthoringSemantics.render(task)
+        _ -> ""
+      end
+
     """
-    本次你承担小说设定盘点助手的角色。下面是一部作品前 #{chapter_count} 章的正文摘录。请从正文中反向提炼出
+    本次你承担小说设定盘点助手的角色。材料为作品已写章节的正文摘录或章摘要
+    （#{chapter_count} 条，逐章来源/版本/截断见「材料清单」）；请从材料中反向提炼出
     作品"事实上已经存在"的设定，整理成结构化提案供作者采纳登记。
-    #{known_characters_section(known_characters)}#{unresolved_foreshadows_section(unresolved_foreshadows)}
-    要求：
-    - 只提炼正文中实际出现的设定，不发明正文里没有的内容。
-    - 主角：找出正文的核心视角人物/主角（可多个），narrative_role 取 PROTAGONIST/SUPPORTING/ANTAGONIST/MINOR 之一。
-    - 世界规则：正文反复出现、支撑剧情的世界观规则或设定。
-    - 伏笔：正文埋下但尚未回收的线索。
+    #{semantics}
+    #{material_coverage_note(materials)}#{known_characters_section(known_characters)}#{unresolved_foreshadows_section(unresolved_foreshadows)}
+    ## 盘点映射要求
+    - 主角：找出材料中的核心视角人物/主角（可多个），narrative_role 取 #{role_values} 之一。
+    - 世界规则：材料中反复出现、支撑剧情的世界观规则或设定。
+    - 伏笔：材料中埋下但尚未回收的线索。
     - 每项标注依据（出现的章）。
     #{skeleton_prompt_section(missing_skeleton_fields)}
+    ## 输出契约
     只返回 JSON 数组，不要附加任何额外文字。每项必须包含：
-    - "artifact_type"：只能是 character_seed / world_rule_seed / foreshadowing_seed#{skeleton_type_hint(missing_skeleton_fields)}
+    - "artifact_type"：只能是 #{Enum.join(artifact_types, " / ")}
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：角色名、规则短名或伏笔短名
-    - "body"：从正文提炼出的具体设定
+    - "body"：从材料提炼出的具体设定
     - "rationale"：依据章节；没有则 null
     - character_seed 另带 "narrative_role"：
-      PROTAGONIST / SUPPORTING / ANTAGONIST / MINOR / ENSEMBLE_POV 之一
-    - character_seed 可带 "role"：一句话身份描述（用作品语境写）；正文没有依据就省略
-    - character_seed 可带 "aliases"：字符串数组，正文中实际出现过的别称/化名/旧名；
+      #{role_values} 之一
+    - character_seed 可带 "role"：一句话身份描述（用作品语境写）；材料没有依据就省略
+    - character_seed 可带 "aliases"：字符串数组，材料中实际出现过的别称/化名/旧名；
       没有就省略，不要编造
-    - foreshadowing_seed 可带 "planned_reveal"：该伏笔的预期回收时机，仅当正文或
+    - foreshadowing_seed 可带 "planned_reveal"：该伏笔的预期回收时机，仅当材料或
       设定明确暗示时给出，形如 {"kind":"chapter","seq":12} / {"kind":"volume","seq":2} /
       {"kind":"whole_book"}；没把握就省略——不要发明预期
 
@@ -273,9 +396,40 @@ defmodule NovelApplication.FactInventoryService do
        "body":"伏笔内容","rationale":"依据第N章"}#{skeleton_prompt_example(missing_skeleton_fields)}
     ]
 
-    正文摘录：
+    材料清单：
     #{material_text}
     """
+  end
+
+  # 材料覆盖说明（B27 CP3c / I1）：只陈述真实材料范围与缺口，不虚构总章数。
+  defp material_coverage_note([]), do: ""
+
+  defp material_coverage_note(materials) do
+    seqs =
+      materials
+      |> Enum.map(&Map.get(&1, :seq))
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sort()
+      |> Enum.uniq()
+
+    gaps =
+      seqs
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.flat_map(fn [left, right] ->
+        if right - left > 1, do: Enum.to_list((left + 1)..(right - 1)), else: []
+      end)
+
+    coverage =
+      case seqs do
+        [] ->
+          "材料清单为空。"
+
+        list ->
+          gap_text = if gaps == [], do: "", else: "；缺材料/未列出的章 seq：#{Enum.join(gaps, ", ")}"
+          "本轮材料覆盖 seq：#{Enum.join(list, ", ")}#{gap_text}。未列出的章不在本轮材料内，不得假设其内容。"
+      end
+
+    "## 材料覆盖说明\n" <> coverage <> "\n"
   end
 
   # 已在档角色段：盘点=补全缺口，已登记的角色不该被当成新发现重提（M4 实锤：
@@ -291,8 +445,8 @@ defmodule NovelApplication.FactInventoryService do
     ## 未回收伏笔核对（仅当正文材料里已实际回收时才提案，不要臆断）
     #{Enum.map_join(items, "\n", fn item -> "- [#{item.ref}] #{item.label}" end)}
 
-    如判断上列某条伏笔已在正文中回收，产出 foreshadowing_resolution 提案：
-    {"artifact_type":"foreshadowing_resolution","item_id":"resolution_x","title":"伏笔短名",
+    如判断上列某条伏笔已在正文中回收，产出 #{@foreshadowing_resolution_type} 提案：
+    {"artifact_type":"#{@foreshadowing_resolution_type}","item_id":"resolution_x","title":"伏笔短名",
      "body":"正文如何回收它的描述","rationale":"依据第N章","resolution_target":"foreshadow_…",
      "resolved_at_seq":N}
     resolution_target 必须原样使用上列中括号内的引用；没有已回收的就不产出此类提案。
@@ -339,15 +493,12 @@ defmodule NovelApplication.FactInventoryService do
     """
   end
 
-  defp skeleton_type_hint([]), do: ""
-  defp skeleton_type_hint(_missing_fields), do: " / work_skeleton_suggestion"
-
   defp skeleton_prompt_example([]), do: ""
 
   defp skeleton_prompt_example(_missing_fields) do
     """
     ,
-      {"artifact_type":"work_skeleton_suggestion","item_id":"skeleton_target_length",
+      {"artifact_type":"#{@skeleton_suggestion_type}","item_id":"skeleton_target_length",
        "title":"目标体量","body":"按已写节奏推断全书约 30 万字","rationale":"依据前 N 章体量",
        "skeleton_field":"target_length","skeleton_value":300000}
     """
@@ -356,7 +507,8 @@ defmodule NovelApplication.FactInventoryService do
 
   defp correction_prompt(original_prompt, failed_content) do
     """
-    你上一次的输出不是合法 JSON 提案。请严格重新输出一个 JSON 数组；每项都要带
+    你上一次的输出不是合法 JSON 提案。请严格重新输出同一个任务（保持原任务、材料范围
+    与输出契约不变，只修正 JSON 协议格式）：每项都要带
     artifact_type / item_id / title / body / rationale，不要输出 JSON 以外的任何文字。
 
     #{original_prompt}

@@ -21,7 +21,6 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
-  alias NovelApplication.AgentRunFlows.ProviderProgress
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.ChapterListBudget
@@ -49,8 +48,6 @@ defmodule NovelApplication.DialoguePlanningService do
   @world_building_profile_ref WorldBuildingWithContext.profile_ref()
   @revision_allowed_tools ["prose_writing"]
   @revision_profile_ref ProseRevisionFromFindings.profile_ref()
-  @provider_progress_allowed_tools ["provider_complete"]
-  @provider_progress_profile_ref ProviderProgress.profile_ref()
   @readonly_batch_allowed_tools ["readonly_batch"]
   @readonly_batch_profile_ref ReadonlyBatchContext.profile_ref()
   @ledger_reconciliation_profile_ref LedgerReconciliation.profile_ref()
@@ -108,7 +105,6 @@ defmodule NovelApplication.DialoguePlanningService do
           | :character_evolution_with_context
           | :world_building_with_context
           | :prose_revision_from_findings
-          | :provider_progress
           | :readonly_batch_context
           | :ledger_reconciliation
           | :fact_inventory
@@ -273,10 +269,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp agent_run_agent_plan(run_id, :prose_revision_from_findings),
     do: {:ok, pending_model_plan(run_id)}
 
-  defp agent_run_agent_plan(run_id, :provider_progress) do
-    {:ok, pending_model_plan(run_id)}
-  end
-
   defp agent_run_agent_plan(run_id, :readonly_batch_context) do
     {:ok, pending_model_plan(run_id)}
   end
@@ -429,7 +421,7 @@ defmodule NovelApplication.DialoguePlanningService do
   @max_explore_rounds 2
 
   # 判断①能力目录（prompt 目录 + schema enum + 解析校验三处同源；dispatch 表
-  # @judgment_capability_profiles 是超集——provider_progress 不在作者可选目录）。
+  # @judgment_capability_profiles 是按能力分派 profile 的超集，作者可选目录仍以本列表为准）。
   @judgment_capabilities ~w(character_design character_evolution prose_writing plot_outline world_building work_archive_read)
 
   @judgment_capability_profiles %{
@@ -438,8 +430,7 @@ defmodule NovelApplication.DialoguePlanningService do
     "prose_writing" => :prose_drafting_with_quality,
     "plot_outline" => :plot_outline_with_context,
     "world_building" => :world_building_with_context,
-    "work_archive_read" => :readonly_batch_context,
-    "provider_progress" => :provider_progress
+    "work_archive_read" => :readonly_batch_context
   }
 
   # Q3a 语义对账只读集：由 dispatch 表编译期推导（profile=readonly_batch_context
@@ -1455,7 +1446,6 @@ defmodule NovelApplication.DialoguePlanningService do
     do: {:ok, :character_evolution_with_context}
 
   defp profile_for_ref(@world_building_profile_ref), do: {:ok, :world_building_with_context}
-  defp profile_for_ref(@provider_progress_profile_ref), do: {:ok, :provider_progress}
   defp profile_for_ref(@readonly_batch_profile_ref), do: {:ok, :readonly_batch_context}
   defp profile_for_ref(value), do: {:error, {:unknown_profile_ref, value}}
 
@@ -1490,7 +1480,6 @@ defmodule NovelApplication.DialoguePlanningService do
       "plot_outline_with_context" => :plot_outline_with_context,
       "character_evolution_with_context" => :character_evolution_with_context,
       "world_building_with_context" => :world_building_with_context,
-      "provider_progress" => :provider_progress,
       "readonly_batch_context" => :readonly_batch_context
     }
   end
@@ -1503,7 +1492,6 @@ defmodule NovelApplication.DialoguePlanningService do
       :plot_outline_with_context,
       :character_evolution_with_context,
       :world_building_with_context,
-      :provider_progress,
       :readonly_batch_context
     ]
   end
@@ -1715,22 +1703,6 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp agent_next_step_planner(
-         :provider_progress,
-         text,
-         _context,
-         _context_fetcher,
-         provider_execution,
-         input
-       ) do
-    ProviderProgress.next_step_planner(%{
-      text: text,
-      provider_execution: provider_execution,
-      planner_provider_execution: map_get(input, :planner_provider_execution),
-      provider_capabilities_fn: map_get(input, :provider_capabilities_fn)
-    })
-  end
-
-  defp agent_next_step_planner(
          :readonly_batch_context,
          _text,
          _context,
@@ -1861,7 +1833,6 @@ defmodule NovelApplication.DialoguePlanningService do
         run_budget(text, :plot_outline_with_context),
         run_budget(text, :character_evolution_with_context),
         run_budget(text, :world_building_with_context),
-        run_budget(text, :provider_progress),
         run_budget(text, :readonly_batch_context)
       ]
 
@@ -2013,16 +1984,6 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  defp run_budget(_text, :provider_progress) do
-    %{
-      max_steps: 2,
-      max_tool_calls: 1,
-      max_provider_calls: 2,
-      max_replans: 1,
-      max_pending_artifacts: 3
-    }
-  end
-
   defp run_budget(_text, :readonly_batch_context) do
     %{
       max_steps: 3,
@@ -2066,7 +2027,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp profile_ref(:character_evolution_with_context), do: @character_evolution_profile_ref
   defp profile_ref(:world_building_with_context), do: @world_building_profile_ref
   defp profile_ref(:prose_revision_from_findings), do: @revision_profile_ref
-  defp profile_ref(:provider_progress), do: @provider_progress_profile_ref
   defp profile_ref(:readonly_batch_context), do: @readonly_batch_profile_ref
   defp profile_ref(:ledger_reconciliation), do: @ledger_reconciliation_profile_ref
   defp profile_ref(:fact_inventory), do: @fact_inventory_profile_ref
@@ -2083,7 +2043,6 @@ defmodule NovelApplication.DialoguePlanningService do
   defp allowed_tools(:character_evolution_with_context), do: @character_evolution_allowed_tools
   defp allowed_tools(:world_building_with_context), do: @world_building_allowed_tools
   defp allowed_tools(:prose_revision_from_findings), do: @revision_allowed_tools
-  defp allowed_tools(:provider_progress), do: @provider_progress_allowed_tools
   defp allowed_tools(:readonly_batch_context), do: @readonly_batch_allowed_tools
   defp allowed_tools(:ledger_reconciliation), do: @ledger_reconciliation_allowed_tools
   defp allowed_tools(:fact_inventory), do: @fact_inventory_allowed_tools

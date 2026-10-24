@@ -655,7 +655,10 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         decision: decision,
         candidates: [],
         context: execution_context,
-        author_input: %{text: author_input_text(run, plan, observations)},
+        author_input: %{
+          text: author_input_text(run, plan, observations),
+          author_goal_text: run.goal.text
+        },
         source_turn_ref: run.parent_turn_ref,
         provider_execution: provider_execution(spec, snapshot),
         chapter_prose_reader:

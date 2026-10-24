@@ -82,6 +82,14 @@ defmodule NovelApplication.FactInventoryRunTest do
     assert :character_seed in pending_types
     assert :world_rule_seed in pending_types
 
+    # B27 CP3c / D5：降批是已登记例外，覆盖范围机器可读标注（不静默换材料）。
+    assert turn_result.tool_result.output.material_batch_fallback == true
+
+    assert Enum.any?(
+             turn_result.trace_summary.context_refs,
+             &String.contains?(&1, "fact_inventory_material_batch_fallback")
+           )
+
     # 降批实证：1 次全量失败 + 左右两半各 1 次 = 恰 3 次盘点调用。
     # 不再断言全局 jsonl 文件——log_jsonl env 是全局的，全量套件下被并发测试翻动致 flaky。
     assert Agent.get(counter, & &1) == 3
@@ -209,7 +217,8 @@ defmodule NovelApplication.FactInventoryRunTest do
     assert run.status == :completed
     assert run.consumed_budget.steps == 1
     assert run.consumed_budget.tool_calls == 1
-    assert run.consumed_budget.provider_calls == 2
+    # B27 CP3c/D2：机械计划 0 调用；consumed = 盘点业务调用 1 次。
+    assert run.consumed_budget.provider_calls == 1
     assert length(run.pending_artifact_refs) == 5
   end
 

@@ -168,4 +168,46 @@ defmodule NovelDomain.ChapterPlanDirectionTest do
       assert ChapterPlanDirection.scene_slot_lines(nil) == []
     end
   end
+
+  describe "role_kind/1 + conflict_progress?/1 (B27 D7)" do
+    test "canonical 五类与自然语言变体归一，展示原文不变" do
+      assert ChapterPlanDirection.role_kind("推进章") == :advancing
+      assert ChapterPlanDirection.role_kind("高潮章") == :climax
+      assert ChapterPlanDirection.role_kind("转折章") == :turning
+      assert ChapterPlanDirection.role_kind("铺垫章") == :setup
+      assert ChapterPlanDirection.role_kind("过渡章") == :transition
+
+      # 自然语言变体（outline prompt 允许「自然语言等价描述」）
+      assert ChapterPlanDirection.role_kind("这一段是推进主线的章节") == :advancing
+      assert ChapterPlanDirection.role_kind("全卷高潮收束") == :climax
+      assert ChapterPlanDirection.role_kind("剧情转折点") == :turning
+      assert ChapterPlanDirection.role_kind("前置铺垫") == :setup
+      assert ChapterPlanDirection.role_kind("章节之间的过渡") == :transition
+    end
+
+    test "未知/缺失/非文本诚实归类，不误判为推进类" do
+      assert ChapterPlanDirection.role_kind(nil) == :unknown
+      assert ChapterPlanDirection.role_kind("") == :unknown
+      assert ChapterPlanDirection.role_kind("  ") == :unknown
+      assert ChapterPlanDirection.role_kind("日常章") == :other
+      assert ChapterPlanDirection.role_kind(:weird) == :unknown
+
+      assert ChapterPlanDirection.role_kind(%{"chapter_role" => "推进章"}) == :advancing
+      assert ChapterPlanDirection.role_kind(%{"plot_progress" => "只推进情节"}) == :unknown
+
+      direction = ChapterPlanDirection.new(%{chapter_role: "高潮章"})
+      assert ChapterPlanDirection.role_kind(direction) == :climax
+    end
+
+    test "conflict_progress? 只认推进/高潮/转折三类" do
+      assert ChapterPlanDirection.conflict_progress?("推进章")
+      assert ChapterPlanDirection.conflict_progress?("高潮章")
+      assert ChapterPlanDirection.conflict_progress?("转折章")
+
+      refute ChapterPlanDirection.conflict_progress?("铺垫章")
+      refute ChapterPlanDirection.conflict_progress?("过渡章")
+      refute ChapterPlanDirection.conflict_progress?("日常章")
+      refute ChapterPlanDirection.conflict_progress?(nil)
+    end
+  end
 end

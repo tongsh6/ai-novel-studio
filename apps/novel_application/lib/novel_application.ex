@@ -213,7 +213,9 @@ defmodule NovelApplication do
         work_id: Map.get(input, :work_id),
         chapter_id: Map.get(input, :chapter_id),
         summary_text: summary.summary_text,
-        prose_text: Map.get(input, :prose_text)
+        prose_text: Map.get(input, :prose_text),
+        # B27 CP3c：账面出处带真实摘要版本（revision_base），不带则保持旧默认 ref。
+        summary_version: Map.get(input, :revision_base)
       },
       ledger_maintenance_deps()
     )
@@ -390,7 +392,10 @@ defmodule NovelApplication do
         work_id: work_id,
         chapter_id: chapter_id,
         prose_text: prose_text,
-        source_ref: "summary_repair:#{chapter_id}"
+        source_ref: "summary_repair:#{chapter_id}",
+        # B27 CP3c/D4：断供补做路径读取的是整章已采纳正文 → complete?=true；
+        # 与采纳主路径的片段语义区分，二者共用同一摘要任务/生成器。
+        material_scope: :chapter
       }
 
       result = NovelApplication.ChapterSummaryMaintenance.run(input, generator, repo)

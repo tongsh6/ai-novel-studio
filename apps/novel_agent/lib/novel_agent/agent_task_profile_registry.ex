@@ -85,20 +85,6 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
-  @provider_progress_profile %{
-    profile_id: "provider_progress_v1",
-    allowed_tools: ["provider_complete"],
-    required_observations: [],
-    completion_conditions: ["provider_progress_recorded"],
-    pause_conditions: [
-      "target_work_missing",
-      "run_budget_exhausted",
-      "provider_execution_cancel_requested"
-    ],
-    run_policy_ref: "bounded_small_v1",
-    durable_eligible: false
-  }
-
   @readonly_batch_context_profile %{
     profile_id: "readonly_batch_context_v1",
     effect_summary: "批量只读作品档案、结构与统计，不生成候选，不保存或登记任何内容。",
@@ -154,7 +140,6 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   def get("character_evolution_with_context_v1"), do: @character_evolution_profile
   def get("world_building_with_context_v1"), do: @world_building_profile
   def get("prose_revision_from_findings_v1"), do: @prose_revision_profile
-  def get("provider_progress_v1"), do: @provider_progress_profile
   def get("readonly_batch_context_v1"), do: @readonly_batch_context_profile
   def get("ledger_reconciliation_v1"), do: @ledger_reconciliation_profile
   def get("fact_inventory_v1"), do: @fact_inventory_profile

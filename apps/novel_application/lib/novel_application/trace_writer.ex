@@ -45,7 +45,6 @@ defmodule NovelApplication.TraceWriter do
         context_refs: format_context_refs(context_refs),
         has_context: context != nil and DialogueContext.has_context?(context)
       }
-      |> maybe_put_ai_message_envelope(frame)
       |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
@@ -111,7 +110,6 @@ defmodule NovelApplication.TraceWriter do
         gate_results: NovelDomain.GateResult.lineage(decision.gate_results),
         context_refs: format_context_refs(context_refs)
       }
-      |> maybe_put_ai_message_envelope(frame)
       |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
@@ -195,7 +193,6 @@ defmodule NovelApplication.TraceWriter do
       |> maybe_put_decision_packet_ref(turn_result)
       |> maybe_put_provider_refs(turn_result)
       |> maybe_put_quality(turn_result)
-      |> maybe_put_ai_message_envelope(frame)
       |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
@@ -337,17 +334,6 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_reply_record(summary, _), do: summary
-
-  defp maybe_put_ai_message_envelope(summary, %DialogueFrame{
-         evidence_summary: %{ai_message_envelope: envelope}
-       })
-       when is_map(envelope) do
-    summary
-    |> Map.put(:guidance_mode, get_in(envelope, [:turn_guidance_layer, :guidance_mode]))
-    |> Map.put(:ai_message_envelope, envelope)
-  end
-
-  defp maybe_put_ai_message_envelope(summary, _frame), do: summary
 
   @doc "Record recovery trace when plan generation fails."
   @spec record_recovery(DialogueFrame.t(), map(), DialogueContext.t() | nil) ::

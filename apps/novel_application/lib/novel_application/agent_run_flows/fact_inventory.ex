@@ -12,7 +12,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
-  alias NovelApplication.AgenticPlanDraftPlanner
+  alias NovelApplication.AgentRunFlows.MechanicalPlan
   alias NovelApplication.FactInventoryService
   alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnResultBuilder
@@ -40,32 +40,32 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     end
   end
 
-  defp plan_for_run(run, snapshot, spec) do
-    if model_plan_ready?(run.plan) do
+  # B27 CP3c / D2：固定单步维护 run 用机械计划，不再模型起草无业务目标的计划
+  # （审计 C7：模型计划不改变行为、却把机械维护绑定到模型可用性）。
+  defp plan_for_run(run, _snapshot, _spec) do
+    if MechanicalPlan.ready?(run.plan, @inventory_step_target) do
       {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
     else
-      with {:ok, plan, meta} <-
-             AgenticPlanDraftPlanner.draft_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot
-             ) do
-        {:ok, plan, Map.put(meta, :agent_plan, plan)}
-      end
+      plan =
+        MechanicalPlan.for_run(run, [
+          %{
+            step_id: "fact_inventory_1",
+            target_tool_ref: @inventory_step_target,
+            description: "读取作品材料并整理待采纳设定提案。",
+            success_criteria: ["fact_inventory_observation_exists"],
+            write_intent: :tentative
+          }
+        ])
+
+      {:ok, plan,
+       %{
+         provider_call_count: 0,
+         suppress_plan_event: true,
+         agent_plan: plan,
+         agent_plan_cursor: 0
+       }}
     end
   end
-
-  defp model_plan_ready?(plan) when is_map(plan) do
-    case map_get(plan, :steps) do
-      [_ | _] = steps ->
-        Enum.all?(steps, &(map_get(&1, :target_tool_ref) == @inventory_step_target))
-
-      _ ->
-        false
-    end
-  end
-
-  defp model_plan_ready?(_plan), do: false
 
   defp mechanical_decision(run, sequence, snapshot, meta) do
     steps = plan_steps(run.plan)
@@ -120,7 +120,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
         run_ref: run.run_id,
         sequence: sequence,
         decision_type: :goal_satisfied,
-        summary: "设定盘点提案已生成，等待作者逐项处置。",
+        summary: "盘点机械目标已完成：已生成待作者逐项处置的提案（不代表已采纳或作者目标已完成）。",
         reason_codes: ["fact_inventory_artifacts_created", "goal_satisfied"],
         observation_refs: observation_refs
       })
@@ -195,23 +195,32 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
              inventory_with_batch_fallback(
                materials,
                inventory_provider_execution(spec, snapshot),
+               work_id: run.work_id,
+               author_words: run.goal.text,
                missing_skeleton_fields: missing_skeleton_fields,
                known_characters: known_characters(spec, run),
                unresolved_foreshadows: unresolved_foreshadows(spec, run)
              ),
            proposal = filter_skeleton_suggestions(proposal, missing_skeleton_fields),
            assumption_result = materialize_protagonist_assumption(spec, run, proposal),
+           batch_fallback? = Map.get(proposal_meta, :batch_fallback, false),
+           context_refs = inventory_context_refs(run.work_id, materials, batch_fallback?),
            [_ | _] = artifact_sets <-
              FactInventoryService.artifact_sets(proposal, %{
                source_turn_ref: inventory_turn_id(run, sequence),
                source_tool_result_ref: tool_result_id(run, sequence),
-               context_refs: [
-                 "work:#{run.work_id}",
-                 "fact_inventory_materials:#{length(materials)}"
-               ]
+               context_refs: context_refs
              }) do
         turn_result =
-          build_turn_result(run, sequence, materials, artifact_sets, assumption_result)
+          build_turn_result(
+            run,
+            sequence,
+            materials,
+            artifact_sets,
+            assumption_result,
+            batch_fallback?,
+            context_refs
+          )
           |> AgentFinalizer.attach_run_summary(%{
             run_id: run.run_id,
             run_mode: run.run_mode,
@@ -226,6 +235,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
           artifact_sets
           |> inventory_summary(refs)
           |> Map.put(:assumption, assumption_result)
+          |> Map.put(:material_batch_fallback, batch_fallback?)
 
         {:ok,
          %{
@@ -292,9 +302,17 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
   defp assumption_writer(_spec),
     do: NovelApplication.persistence_assumption_character_writer()
 
-  defp build_turn_result(run, sequence, materials, artifact_sets, assumption_result) do
+  defp build_turn_result(
+         run,
+         sequence,
+         materials,
+         artifact_sets,
+         assumption_result,
+         batch_fallback?,
+         context_refs
+       ) do
     items = Enum.flat_map(artifact_sets, & &1.items)
-    frame = frame(run, sequence, length(items), assumption_result)
+    frame = frame(run, sequence, length(items), assumption_result, batch_fallback?)
 
     tool_result = %ToolResult{
       tool_result_id: tool_result_id(run, sequence),
@@ -306,6 +324,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
         artifact_types: Enum.map(artifact_sets, & &1.artifact_type),
         item_count: length(items),
         material_count: length(materials),
+        material_batch_fallback: batch_fallback?,
         items: items
       },
       state_delta:
@@ -324,10 +343,22 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     trace_summary = %{
       tool_result_id: tool_result.tool_result_id,
       writer_provider_call_ref: Enum.find_value(items, &map_get(&1, :provider_call_ref)),
-      context_refs: ["work:#{run.work_id}", "fact_inventory_materials:#{length(materials)}"]
+      context_refs: context_refs
     }
 
     TurnResultBuilder.build_artifact_sets(frame, trace_summary, nil, tool_result, artifact_sets)
+  end
+
+  # B27 CP3c / I1+D5：盘点材料覆盖的机器可读来源；降批时显式标注例外（非全量材料）。
+  defp inventory_context_refs(work_id, materials, batch_fallback?) do
+    [
+      "work:#{work_id}",
+      "fact_inventory_materials:#{length(materials)}"
+    ] ++
+      if(batch_fallback?,
+        do: ["fact_inventory_material_batch_fallback:true"],
+        else: []
+      )
   end
 
   defp inventory_summary(artifact_sets, refs) do
@@ -352,7 +383,12 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
         step_ref: current_step_ref(run, sequence),
         observation_type: :artifact_created,
         source_ref: tool_result_id(run, sequence),
-        summary: "已从作品材料整理出 #{summary.item_count} 条待采纳设定提案。",
+        summary:
+          "已从作品材料整理出 #{summary.item_count} 条待采纳设定提案。" <>
+            if(summary[:material_batch_fallback],
+              do: "（材料规模/失败触发分批盘点，覆盖为分批材料范围；见材料与覆盖标注。）",
+              else: ""
+            ),
         structured_payload: summary,
         evidence_refs: [
           "tool_result:#{tool_result_id(run, sequence)}" | Enum.map(refs, &"artifact:#{&1}")
@@ -382,7 +418,7 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     step
   end
 
-  defp frame(run, sequence, item_count, assumption_result) do
+  defp frame(run, sequence, item_count, assumption_result, batch_fallback?) do
     %DialogueFrame{
       schema_version: "3.0-draft",
       frame_id: "frame_#{run.run_id}_#{sequence}",
@@ -397,12 +433,17 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
       author_visible_draft: %{
         message:
           "设定盘点完成：整理出 #{item_count} 条设定与规划提案。它们仍是待采纳草稿，请逐项确认。" <>
-            assumption_notice(assumption_result)
+            batch_fallback_notice(batch_fallback?) <> assumption_notice(assumption_result)
       },
       evidence_summary: %{agent_run_ref: run.run_id},
       uncertainty: []
     }
   end
+
+  defp batch_fallback_notice(true),
+    do: "另外，本次盘点因材料规模/失败采用分批处理，结论只覆盖分批材料范围。"
+
+  defp batch_fallback_notice(_batch_fallback?), do: ""
 
   # OQ2 即时通知（防护①作者侧）：required 假定自动激活时明示告知与裁决入口。
   defp assumption_notice(:activated),
@@ -473,8 +514,8 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
 
   defp inventory_with_batch_fallback(materials, provider_execution, opts) do
     case FactInventoryService.inventory_with_meta(materials, provider_execution, opts) do
-      {:ok, _proposal, _meta} = ok ->
-        ok
+      {:ok, proposal, meta} ->
+        {:ok, proposal, Map.put(meta, :batch_fallback, false)}
 
       {:error, reason} when length(materials) > @min_inventory_batch ->
         half = div(length(materials) + 1, 2)
@@ -489,7 +530,10 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
         with {:ok, p1, m1} <- inventory_with_batch_fallback(left, provider_execution, opts),
              {:ok, p2, m2} <- inventory_with_batch_fallback(right, provider_execution, opts) do
           {:ok, merge_proposals(p1, p2),
-           %{provider_call_count: m1.provider_call_count + m2.provider_call_count}}
+           %{
+             provider_call_count: m1.provider_call_count + m2.provider_call_count,
+             batch_fallback: true
+           }}
         end
 
       {:error, reason} ->
@@ -549,10 +593,6 @@ defmodule NovelApplication.AgentRunFlows.FactInventory do
     (Map.get(spec, :provider_execution) || Execution.dependency(purpose: :tool))
     |> Execution.with_route_hint(:fact_inventory)
     |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :writer)
-  end
-
-  defp planner_provider_execution(spec) do
-    Map.get(spec, :planner_provider_execution) || Map.get(spec, :provider_execution)
   end
 
   defp inventory_done?(snapshot) do

@@ -7,37 +7,8 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
   """
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
-  alias NovelApplication.TestAgenticLoopFixtures
-
-  defp plan_draft do
-    TestAgenticLoopFixtures.plan_tool_call_result(
-      "机械执行一次全书审读并物化审读报告。",
-      [
-        TestAgenticLoopFixtures.plan_step(
-          "ledger_reconcile_run",
-          "ledger_reconcile",
-          "机械执行全书审读并物化审读报告",
-          success_criteria: ["ledger_reconcile_observation_exists"]
-        ),
-        TestAgenticLoopFixtures.plan_step(
-          "ledger_reconcile_finalize",
-          "ledger_reconcile",
-          "汇总审读结论并声明未改动设定或正文",
-          success_criteria: ["ledger_reconcile_turn_result_emitted", "production_write_false"]
-        )
-      ],
-      reason_codes: ["agent_plan_drafted", "ledger_reconcile_plan_drafted"]
-    )
-  end
-
-  defp planner_provider do
-    %Execution{
-      result_fn: fn _prompt -> {:ok, plan_draft()} end
-    }
-  end
 
   test "全书审读 run：机械物化恰一次，完成 turn 引导到脉络页，不产生待采纳 artifact" do
     parent = self()
@@ -61,7 +32,7 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
           reconcile_fn: reconcile_fn
         },
         nil,
-        planner_provider()
+        nil
       )
 
     assert spec.run_attrs.profile_ref == "ledger_reconciliation_v1"
@@ -88,9 +59,10 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
 
-    # 机械审读恰一次；规则判定不经模型（provider 调用仅单调用计划起草 ×1，ADR-0023）
+    # 机械审读恰一次；规则判定不经模型；B27 CP3c/D2 起固定单步维护 run 用机械计划：
+    # 计划起草与机械审读均为 0 provider 调用。
     assert Agent.get(counter, & &1) == 1
-    assert run.consumed_budget.provider_calls == 1
+    assert run.consumed_budget.provider_calls == 0
     assert run.pending_artifact_refs == []
   end
 
@@ -109,7 +81,7 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
           reconcile_fn: fn _work_id -> {:error, :db_down} end
         },
         nil,
-        planner_provider()
+        nil
       )
 
     assert {:ok, _run_id} =
@@ -119,8 +91,15 @@ defmodule NovelApplication.LedgerReconciliationRunTest do
              )
 
     assert_receive {:agent_event, :turn_result_ready, turn_event}, 1_000
-    text = turn_event.payload.turn_result.assistant_message.text
+    turn_result = turn_event.payload.turn_result
+    text = turn_result.assistant_message.text
     assert text =~ "全书审读未完成"
     refute text =~ "审读报告已就绪"
+
+    # B27 CP3c / C3：scan error 不得 completed+goal_satisfied；run 可结束但 TurnResult
+    # phase/status 如实失败，tool_result 不伪造成功。
+    assert turn_result.phase == "failed"
+    assert turn_result.status == "failed_recoverable"
+    assert turn_result.tool_result.status in [:failed, "failed"]
   end
 end

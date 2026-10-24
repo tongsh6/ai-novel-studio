@@ -10,6 +10,8 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Result, as: ProviderResult
+  alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeProviderResult
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.Contracts.ToolOutputContract
@@ -36,7 +38,7 @@ defmodule NovelAgent.CreativeProvider.Real do
         result =
           request
           |> build_prompt()
-          |> do_generate(result_fn, _retry? = true)
+          |> do_generate(result_fn, _retry? = true, correction_contract(request))
 
         enforce_companion_scope(result, request)
 
@@ -70,19 +72,19 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp enforce_companion_scope(result, _request), do: result
 
-  defp do_generate(prompt, result_fn, retry?) do
+  defp do_generate(prompt, result_fn, retry?, contract) do
     case result_fn.(prompt) do
       {:ok, %ProviderResult{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?)
+        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
 
       {:ok, %{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?)
+        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
 
       {:ok, %{"content" => content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?)
+        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?, contract)
 
       {:ok, content} when is_binary(content) ->
-        parse_or_retry(content, nil, prompt, result_fn, retry?)
+        parse_or_retry(content, nil, prompt, result_fn, retry?, contract)
 
       {:error, error} ->
         provider_error("provider_error", inspect(error), provider_error_type(error))
@@ -97,13 +99,13 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   # 真实 LLM 偶发输出非法 JSON（长上下文下字符串值内裸换行、JSON 外多余文字等），
   # 与 Planner 的 frame JSON 重试同模式：携带失败片段重试一次，再失败才向上报错。
-  defp parse_or_retry(content, provider_call_ref, prompt, result_fn, retry?) do
+  defp parse_or_retry(content, provider_call_ref, prompt, result_fn, retry?, contract) do
     result = parse_content(content, provider_call_ref)
 
     if retry? and invalid_json?(result) do
       prompt
-      |> json_correction_prompt(content)
-      |> do_generate(result_fn, false)
+      |> json_correction_prompt(content, contract)
+      |> do_generate(result_fn, false, contract)
     else
       result
     end
@@ -117,11 +119,12 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   defp invalid_json?(_result), do: false
 
-  defp json_correction_prompt(original_prompt, failed_content) do
+  # 纠错只修协议/格式，不改变输出契约：契约片段由首次请求同一 task/output_contract
+  # 渲染，禁止在重试时放宽为别的结构（B27 §3.1 retry 纪律）。
+  defp json_correction_prompt(original_prompt, failed_content, contract) do
     """
-    你上一次的输出不是合法 JSON，解析失败。请严格重新输出：
-    - 只返回一个合法的 JSON 数组，或一个包含 "items" 数组的 JSON 对象
-    - 如果原始任务要求 self_report，必须保留 self_report 对象
+    你上一次的输出不是合法 JSON，解析失败。请严格按首次请求的同一输出契约重新输出完整结果：
+    #{contract}
     - 不要输出 JSON 以外的任何文字
     - 字符串值内的换行必须写成 \\n 转义，不能出现裸换行
 
@@ -130,6 +133,33 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     ## 原始任务
     #{original_prompt}
+    """
+  end
+
+  # CP3b：带 AuthoringTask 的 writer 渲染。静态规则来自 AuthoringSemantics（唯一真源），
+  # 操作互斥由 task.kind 选择；动态段只含应用已验证事实；角色输出契约置尾。
+  defp build_prompt(
+         %CreativeRequest{tool_name: "prose_writing", task: %AuthoringTask{} = task} = request
+       ) do
+    """
+    本次你承担小说正文写作助手的角色。请严格按本任务输出契约返回，不要附加任何额外文字。
+
+    #{AuthoringSemantics.static_block(task)}
+
+    #{AuthoringSemantics.dynamic_block(task)}
+
+    capability：#{request.tool_name}
+    artifact_type：#{request.artifact_type}
+    用户创作简述：#{request.creative_brief}
+    上下文：#{request.context_text}
+
+    重要：#{nonce_requirement()}
+    #{execution_brief_section(request)}
+    #{progress_state_section(request)}
+    #{revision_section(request)}
+    #{prose_item_contract()}
+    #{@prose_writing_guidelines}
+    #{prose_output_contract_tail()}
     """
   end
 
@@ -170,7 +200,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在该条目的 body 或 rationale 中原样保留至少一处。
+    重要：#{nonce_requirement()}
     #{execution_brief_section(request)}
     #{progress_state_section(request)}
     #{revision_section(request)}
@@ -184,6 +214,8 @@ defmodule NovelAgent.CreativeProvider.Real do
        ) do
     """
     本次你承担章计划助手的角色。请严格按 JSON 数组格式返回多个章节条目，不要附加任何额外文字。
+
+    #{task_shared_block(request)}
 
     每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -212,8 +244,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），
-    必须在至少一个条目的 title/body/rationale 中原样保留。
+    重要：#{nonce_requirement()}
     #{progress_state_section(request)}
     #{planning_mission_section(request)}
     #{revision_section(request)}
@@ -226,6 +257,8 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp build_prompt(%CreativeRequest{tool_name: "character_design"} = request) do
     """
     本次你承担小说角色设计助手的角色。请基于作品上下文为作者设计贴合本作的角色，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+
+    #{task_shared_block(request)}
 
     数组包含 1 个（必要时至多 2 个取向明显不同的）角色设计候选，每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -252,7 +285,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：角色设计必须基于上下文中的作品背景、世界观、设定与现有角色，不要脱离本作凭空生成。如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留。
+    重要：角色设计必须基于上下文中的作品背景、世界观、设定与现有角色，不要脱离本作凭空生成。#{nonce_requirement()}
 
     #{revision_section(request)}
     只返回 JSON 数组。
@@ -264,6 +297,8 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp build_prompt(%CreativeRequest{tool_name: "character_evolution"} = request) do
     """
     本次你承担小说角色连续性助手的角色。作者要记录一个已有角色随剧情发生的**演化事件**（成长/转变、当前状态变化、或与其他角色的关系变化），不是创建新角色。请基于作品上下文与现有角色，生成 1 条可采纳的角色演化记忆草稿，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+
+    #{task_shared_block(request)}
 
     条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -277,7 +312,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：必须基于上下文中的现有角色与剧情，不要脱离本作凭空生成；只记录演化事件，不重建主档案。如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在 title/body/rationale 中原样保留。
+    重要：必须基于上下文中的现有角色与剧情，不要脱离本作凭空生成；只记录演化事件，不重建主档案。#{nonce_requirement()}
 
     只返回 JSON 数组。
     """
@@ -289,6 +324,8 @@ defmodule NovelAgent.CreativeProvider.Real do
        when is_binary(revision) and revision != "" do
     """
     本次你承担小说设定修订助手的角色。按作者要求编辑给定原稿，返回一个合法 JSON 数组，不附加额外文字。
+
+    #{task_shared_block(request)}
     这是已有内容的新版本，保留原稿结构和未要求修改的内容，不做新建设定的模板扩写。
     每项包含 item_id（新标识符）、title（修订稿标题）、body（完整修订正文）、rationale（修改依据或 null）。
     body 是可供作者采纳的正文，不要向其中添加修改说明、旧值/新值对照或保存状态说明。
@@ -298,7 +335,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：仅执行当前修订要求，保留原稿中的信息与标识。返回条目不得冒充已保存事实。
+    重要：仅执行当前修订要求，保留原稿中的信息与标识。#{legacy_fact_reminder(request)}
     #{revision_section(request)}
     只返回 JSON 数组。
     """
@@ -309,6 +346,8 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     """
     本次你承担小说设定与连续性设计助手的角色。请基于作品上下文为作者生成可采纳的#{guidance.label}，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+
+    #{task_shared_block(request)}
 
     本次草稿类型：#{request.artifact_type}
 
@@ -324,7 +363,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：草稿必须基于上下文中的作品背景、世界观、设定、角色和已采纳内容。不要把 tentative 草稿说成已经生效。如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留。
+    重要：草稿必须基于上下文中的作品背景、世界观、设定、角色和已采纳内容。#{legacy_tentative_reminder(request)}#{nonce_requirement()}
 
     只返回 JSON 数组。
     """
@@ -333,6 +372,8 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp build_prompt(%CreativeRequest{} = request) do
     """
     本次你承担创作助手的角色。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+
+    #{task_shared_block(request)}
 
     每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
@@ -345,11 +386,81 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），
-    必须在至少一个条目的 title/body/rationale 中原样保留。
+    重要：#{nonce_requirement()}
 
     只返回 JSON 数组。
     """
+  end
+
+  # CP3b：共享任务段（L1 静态 + L3 动态事实）；无 task 的旧调用返回空串保持字节兼容。
+  defp task_shared_block(%CreativeRequest{task: %AuthoringTask{} = task}) do
+    [AuthoringSemantics.static_block(task), AuthoringSemantics.dynamic_block(task)]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  defp task_shared_block(_request), do: ""
+
+  # X3：有 task 时采纳/事实声明由 AuthoringSemantics.shared_rules 唯一提供，
+  # 角色模板不再重复；无 task 的旧调用保留原声明（迁移期兼容）。
+  defp legacy_fact_reminder(%CreativeRequest{task: %AuthoringTask{}}), do: ""
+  defp legacy_fact_reminder(_request), do: "返回条目不得冒充已保存事实。"
+
+  defp legacy_tentative_reminder(%CreativeRequest{task: %AuthoringTask{}}), do: ""
+  defp legacy_tentative_reminder(_request), do: "不要把 tentative 草稿说成已经生效。"
+
+  # I3 种子贯通要求：六处模板统一从此渲染，避免同一规则手写多份（审计 X2）。
+  defp nonce_requirement do
+    "如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留至少一处。"
+  end
+
+  defp prose_item_contract do
+    """
+    items 内正文条目必须包含以下键：
+    - "item_id"：你生成的短标识符（不含空格）
+    - "title"：本段正文的简短标题（只给一个标题，不要罗列多个备选）
+    - "body"：一段连贯、完整的正文。直接写正文，不要在开头重复标题或章节名，也不要把同一情节用多个不同开头写多遍。body 内不得出现独立的结构/状态元标签，例如“场景 2”“第2场”“第二场”“正文草稿”“待采纳草稿”“标题：”；这些只能放在 title / self_report 等结构字段里，不属于小说正文。
+    - "rationale"：一句话依据（或 null）
+
+    companion_artifacts 可为空；每项含 artifact_type/item_id/title/body/rationale。类型仅限
+    character_seed、foreshadowing_seed、world_rule_seed、constraint_seed；角色可带
+    narrative_role/role/aliases。只提取有依据的新事实，不重复已有事实或升级普通细节；
+    所有 item_id 必须唯一。若上下文没有「现有角色」章节，建议为本段具名出场人物各产出一条
+    character_seed（含 narrative_role）供作者立档；已有阵容时只为真正新引入的人物产出。
+    """
+    |> String.trim()
+  end
+
+  # 输出契约与运行时 ToolOutputContract 校验同源（B27 CP3b / 审计 F05）：
+  # 只承诺运行时真正强制/允许的字段，不在 prompt 里写比校验更严的"必须"。
+  defp prose_output_contract_tail do
+    """
+    输出契约（只返回这一个 JSON 对象，不要附加任何额外文字）：
+    - "items"：非空 JSON 数组；按任务语义生成连贯正文条目（通常一个）。
+    - "companion_artifacts"：JSON 数组，可为空。
+    - "self_report"：可选对象；若提供，含 assumptions/intended_reader_effect/used_context_refs/risk_flags，只是非权威自报告，不代表作品事实。
+    - 字符串值内的换行必须写成 \\n 转义，不能出现裸换行。
+    """
+    |> String.trim()
+  end
+
+  # 纠错提示里的契约片段：与首次请求同一 task/output_contract，禁止重试时改变结构。
+  defp correction_contract(%CreativeRequest{task: %AuthoringTask{} = task}) do
+    contract = task.output_contract || %{}
+    required = Map.get(contract, :required_keys) || Map.get(contract, "required_keys") || []
+
+    companions =
+      Map.get(contract, :allow_companions) || Map.get(contract, "allow_companions") || false
+
+    "- 结构必须与首次请求完全一致（JSON；必须字段：#{Enum.join(List.wrap(required), "、")}；伴生产物：#{if companions, do: "允许", else: "不允许"}）；不得改成其它结构或放宽必填字段。"
+  end
+
+  defp correction_contract(%CreativeRequest{tool_name: "prose_writing"}) do
+    "- 结构必须与首次请求完全一致：顶层 JSON 对象含 items/companion_artifacts/self_report；不得改成数组或其它结构。"
+  end
+
+  defp correction_contract(_request) do
+    "- 结构必须与首次请求完全一致（保留原数组/对象形态与必填字段）；不得改变输出契约。"
   end
 
   # VS-00E：场级执行简述（已由 application 渲染成文本）追加在 prose 三锚点之后，

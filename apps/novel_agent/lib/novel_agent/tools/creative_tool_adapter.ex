@@ -2,6 +2,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
   @moduledoc false
 
   alias NovelAgent.Provider.Execution
+  alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.Contracts.CreativeProviderResult
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.Contracts.ToolOutputContract
@@ -21,20 +23,24 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
     result_id = NovelFoundation.ID.unique("tr")
     now = DateTime.utc_now()
 
-    case ToolOutputContract.normalize_artifact_type(artifact_type) do
-      {:ok, normalized_type} ->
-        request = creative_request(req, normalized_type)
-
-        request
-        |> provider_module.generate(provider_execution)
-        |> provider_result_to_tool_result(req, result_id, now, normalized_type)
-
+    with {:ok, normalized_type} <- ToolOutputContract.normalize_artifact_type(artifact_type),
+         {:ok, request} <- creative_request(req, normalized_type) do
+      request
+      |> provider_module.generate(provider_execution)
+      |> provider_result_to_tool_result(req, result_id, now, normalized_type)
+    else
       {:error, %{code: code, message: message}} ->
         failed_tool_result(req, result_id, now, [%{code: code, message: message}])
     end
   end
 
   defp creative_request(%ToolRequest{} = req, artifact_type) do
+    with {:ok, task} <- authoring_task(req.input) do
+      {:ok, build_request(req, artifact_type, task)}
+    end
+  end
+
+  defp build_request(%ToolRequest{} = req, artifact_type, task) do
     %CreativeRequest{
       request_id: "cr_#{req.tool_request_id}",
       tool_name: req.tool_name,
@@ -52,8 +58,37 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       decision_packet: optional_map(Map.get(req.input, "decision_packet")),
       # VS-00E CP3：按质量发现重写的要求文本放入 input["revision"]，同样透传给 provider。
       revision: optional_text(Map.get(req.input, "revision")),
+      # B27 CP3b：专业调用共同任务语义（application 组装、common 校验后由本 adapter 恢复）。
+      # 无 task 的旧调用保持 nil（迁移期兼容，CP3d 清理清单）。
+      task: task,
       provider_hints: Map.get(req.input, "provider_hints", %{})
     }
+  end
+
+  # 从 ToolRequest.input["authoring_task"]（JSON-safe map）恢复并校验 task。
+  # 校验失败返回可解释错误，由调用方转成 failed ToolResult；不静默回退旧文本。
+  defp authoring_task(input) when is_map(input) do
+    case Map.get(input, "authoring_task") || Map.get(input, :authoring_task) do
+      nil -> {:ok, nil}
+      %AuthoringTask{} = task -> validate_authoring_task(task)
+      map when is_map(map) -> map |> AuthoringTask.from_map() |> validate_authoring_task()
+      _other -> {:error, authoring_task_error(:not_a_task)}
+    end
+  end
+
+  defp authoring_task(_input), do: {:ok, nil}
+
+  defp validate_authoring_task(nil), do: {:error, authoring_task_error(:not_a_task)}
+
+  defp validate_authoring_task(%AuthoringTask{} = task) do
+    case AuthoringSemantics.validate(task) do
+      {:ok, task} -> {:ok, task}
+      {:error, reason} -> {:error, authoring_task_error(reason)}
+    end
+  end
+
+  defp authoring_task_error(reason) do
+    %{code: "authoring_task_invalid", message: "invalid authoring task: #{inspect(reason)}"}
   end
 
   defp optional_text(value) when is_binary(value) do

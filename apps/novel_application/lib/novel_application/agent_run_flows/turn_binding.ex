@@ -25,7 +25,7 @@ defmodule NovelApplication.AgentRunFlows.TurnBinding do
 
   alias NovelCommon.LogContext
 
-  @typedoc "AgentRun step 序号，或 ledger_reconcile / provider_progress 这类具名步。"
+  @typedoc "AgentRun step 序号，或 ledger_reconcile 这类具名维护步。"
   @type sequence :: non_neg_integer() | String.t() | atom()
 
   @doc """

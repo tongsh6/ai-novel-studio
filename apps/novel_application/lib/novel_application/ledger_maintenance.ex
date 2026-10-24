@@ -14,6 +14,7 @@ defmodule NovelApplication.LedgerMaintenance do
   require NovelCommon.LogEmit
 
   alias NovelCommon.LogEmit
+  alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.ChapterSummary
   alias NovelDomain.LedgerEntry
 
@@ -26,7 +27,9 @@ defmodule NovelApplication.LedgerMaintenance do
           required(:chapter_id) => String.t(),
           required(:summary_text) => String.t(),
           optional(:prose_text) => String.t() | nil,
-          optional(:summary_ref) => String.t() | nil
+          optional(:summary_ref) => String.t() | nil,
+          # B27 CP3c：摘要真实版本（revision_base），有则并入 source_ref 供追溯。
+          optional(:summary_version) => String.t() | nil
         }
 
   @typedoc "端口：角色阵容 / 章序号索引 / 作品档案 / 账面仓储。"
@@ -62,7 +65,7 @@ defmodule NovelApplication.LedgerMaintenance do
       roster = deps.roster.(work_id)
       text = extraction_text(input.summary_text)
       sighted = Enum.filter(roster, &subject_in_text?(&1, text))
-      summary_ref = Map.get(input, :summary_ref) || "chapter_summary:#{chapter_id}"
+      summary_ref = summary_source_ref(input, chapter_id)
 
       sighted_count =
         Enum.count(sighted, fn character ->
@@ -217,15 +220,13 @@ defmodule NovelApplication.LedgerMaintenance do
     end
   end
 
-  @conflict_progress_roles ~w(推进章 高潮章 转折章)
-
   # CP3：情绪曲线记账——每采纳章一条（subject=chapter），全机械（记录性账目）。
   defp record_emotion_curve(repo, work_id, input, chapter_id, current) do
     realized =
       input.summary_text |> ChapterSummary.parse_sections() |> Map.get(:mood)
 
     status = LedgerEntry.emotion_status(Map.get(current, :emotion), realized)
-    summary_ref = Map.get(input, :summary_ref) || "chapter_summary:#{chapter_id}"
+    summary_ref = summary_source_ref(input, chapter_id)
 
     case LedgerEntry.new(%{
            work_id: work_id,
@@ -252,8 +253,10 @@ defmodule NovelApplication.LedgerMaintenance do
   end
 
   # CP3：主线冲突记账——设计角色为推进/高潮/转折章的采纳推进主线；随后休眠重算。
+  # B27 CP3c/D7：chapter_role 是模型自由文本，归类走 `ChapterPlanDirection.conflict_progress?/1`
+  # 单一真源，不再在本模块手写中文字面量集合。
   defp record_main_conflict(repo, work_id, chapter_id, current, summary_ref) do
-    if Map.get(current, :chapter_role) in @conflict_progress_roles do
+    if ChapterPlanDirection.conflict_progress?(Map.get(current, :chapter_role)) do
       existing =
         repo.list.(work_id)
         |> Enum.find(&(&1.ledger == "conflict" and &1.subject_ref == "main"))
@@ -384,7 +387,7 @@ defmodule NovelApplication.LedgerMaintenance do
 
   defp record_future_ref_leaks(repo, work_id, input, chapter_id, current) do
     prose = Map.get(input, :prose_text)
-    summary_ref = Map.get(input, :summary_ref) || "chapter_summary:#{chapter_id}"
+    summary_ref = summary_source_ref(input, chapter_id)
 
     prose
     |> NovelDomain.LedgerReconciliation.future_chapter_refs(current.seq)
@@ -407,6 +410,17 @@ defmodule NovelApplication.LedgerMaintenance do
         {:error, _} -> false
       end
     end)
+  end
+
+  # B27 CP3c：账面出处的单一构造点。显式 summary_ref 优先；否则用章摘要 ref，
+  # 有真实摘要版本时并入 `@<version>`，让账目来源可追溯到产出摘要的正文版本。
+  defp summary_source_ref(input, chapter_id) do
+    base = Map.get(input, :summary_ref) || "chapter_summary:#{chapter_id}"
+
+    case Map.get(input, :summary_version) do
+      version when is_binary(version) and version != "" -> "#{base}@#{version}"
+      _ -> base
+    end
   end
 
   defp persist(%LedgerEntry{} = entry, repo) do

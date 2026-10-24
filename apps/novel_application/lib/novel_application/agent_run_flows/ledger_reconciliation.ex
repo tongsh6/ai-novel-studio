@@ -10,9 +10,11 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
 
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
-  alias NovelApplication.AgenticPlanDraftPlanner
+  alias NovelApplication.AgentRunFlows.MechanicalPlan
   alias NovelApplication.AgentRunFlows.TurnBinding
+  alias NovelApplication.AuxTaskBuilder
   alias NovelApplication.LedgerReconciliationService
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 
   @profile_ref "ledger_reconciliation_v1"
@@ -36,29 +38,39 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
     end
   end
 
-  defp plan_for_run(run, snapshot, spec) do
-    if model_plan_ready?(run.plan) do
+  # B27 CP3c / D2：固定单步维护 run 用机械计划，不再模型起草无业务目标的计划。
+  # 两步与既有 step 语义同形：第一步机械审读，第二步汇总作者回执。
+  defp plan_for_run(run, _snapshot, _spec) do
+    if MechanicalPlan.ready?(run.plan, @reconcile_step_target) do
       {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
     else
-      with {:ok, plan, meta} <-
-             AgenticPlanDraftPlanner.draft_plan_with_meta(
-               run,
-               planner_provider_execution(spec),
-               snapshot
-             ) do
-        {:ok, plan, Map.put(meta, :agent_plan, plan)}
-      end
+      plan =
+        MechanicalPlan.for_run(run, [
+          %{
+            step_id: "ledger_reconcile_1",
+            target_tool_ref: @reconcile_step_target,
+            description: "机械执行全书审读并物化审读报告。",
+            success_criteria: ["ledger_reconcile_observation_exists"],
+            write_intent: :tentative
+          },
+          %{
+            step_id: "ledger_reconcile_finalize_1",
+            target_tool_ref: @reconcile_step_target,
+            description: "汇总审读结论并声明未改动设定或正文。",
+            success_criteria: ["ledger_reconcile_turn_result_emitted", "production_write_false"],
+            write_intent: :none
+          }
+        ])
+
+      {:ok, plan,
+       %{
+         provider_call_count: 0,
+         suppress_plan_event: true,
+         agent_plan: plan,
+         agent_plan_cursor: 0
+       }}
     end
   end
-
-  defp model_plan_ready?(plan) when is_map(plan) do
-    case Map.get(plan, :steps) || Map.get(plan, "steps") do
-      [_ | _] = steps -> Enum.all?(steps, &(not blank?(map_get(&1, :target_tool_ref))))
-      _ -> false
-    end
-  end
-
-  defp model_plan_ready?(_plan), do: false
 
   defp mechanical_decision(run, sequence, snapshot, meta) do
     steps = plan_steps(run.plan)
@@ -72,7 +84,8 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
         |> mechanical_execute_decision(run, sequence, meta)
 
       reconciled?(snapshot) ->
-        {:ok, complete_decision(run, sequence, observation_refs(snapshot)), meta}
+        summary_map = snapshot |> Map.get(:stage_state, %{}) |> Map.get(:ledger_reconcile, %{})
+        {:ok, final_decision(run, sequence, summary_map, observation_refs(snapshot)), meta}
 
       true ->
         {:error, {:plan_exhausted, @plan_exhausted_replan_reason}}
@@ -121,6 +134,30 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
     decision
   end
 
+  # B27 CP3c / C3：审读失败时不用 goal_satisfied 冒充完成；run 生命周期可结束，
+  # 但决策语义是未达成（作者文案同步「未完成」）。
+  defp unfulfilled_decision(run, sequence, summary_map, observation_refs) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_ledger_reconcile_unfulfilled",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :no_progress,
+        summary: "全书审读未完成：#{Map.get(summary_map, :reason, "未知原因")}。未改动任何设定或正文。",
+        reason_codes: ["ledger_reconcile_failed", "goal_unfulfilled"],
+        observation_refs: observation_refs
+      })
+
+    decision
+  end
+
+  defp final_decision(run, sequence, summary_map, observation_refs) do
+    case Map.get(summary_map, :status) do
+      :error -> unfulfilled_decision(run, sequence, summary_map, observation_refs)
+      _ -> complete_decision(run, sequence, observation_refs)
+    end
+  end
+
   defp next_step_from_decision(
          %AgentNextStepDecision{
            decision_type: :execute_step,
@@ -139,9 +176,10 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
   end
 
   defp next_step_from_decision(
-         %AgentNextStepDecision{decision_type: :goal_satisfied} = decision,
+         %AgentNextStepDecision{decision_type: decision_type} = decision,
          _spec
-       ),
+       )
+       when decision_type in [:goal_satisfied, :no_progress],
        do: {:complete, decision}
 
   defp next_step_from_decision(decision, _spec), do: {:await_author, decision}
@@ -190,15 +228,29 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
   defp reconcile_step(spec) do
     fn run, sequence, _snapshot ->
       outcome = reconcile_fn(spec).(run.work_id)
+      summary_map = reconcile_summary(outcome)
 
-      {:ok,
-       %{
-         step: step(run, sequence, "ledger_reconcile"),
-         observations: [observation(run, sequence, outcome)],
-         stage_state: %{ledger_reconcile: reconcile_summary(outcome)},
-         tool_call_count: 1,
-         progress_signature: "#{run.run_id}:ledger_reconciled"
-       }}
+      case AuxTaskBuilder.for_ledger_reconcile(%{
+             work_id: run.work_id,
+             trigger: :agent_run,
+             scanned_at_seq: Map.get(summary_map, :scanned_at_seq),
+             author_words: run.goal.text
+           }) do
+        {:ok, task} ->
+          summary_map = Map.put(summary_map, :authoring_task, AuthoringTask.to_map(task))
+
+          {:ok,
+           %{
+             step: step(run, sequence, "ledger_reconcile"),
+             observations: [observation(run, sequence, outcome)],
+             stage_state: %{ledger_reconcile: summary_map},
+             tool_call_count: 1,
+             progress_signature: "#{run.run_id}:ledger_reconciled"
+           }}
+
+        {:error, reason} ->
+          {:error, {:ledger_reconcile_task_invalid, reason}}
+      end
     end
   end
 
@@ -206,12 +258,20 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
 
   defp reconcile_fn(_spec) do
     fn work_id ->
-      LedgerReconciliationService.materialize(
-        work_id,
-        LedgerReconciliationService.persistence_deps(),
-        LedgerReconciliationService.persistence_report_repo(),
-        nil
-      )
+      deps = LedgerReconciliationService.persistence_deps()
+      report_repo = LedgerReconciliationService.persistence_report_repo()
+
+      with {:ok, scan} <- LedgerReconciliationService.scan(work_id, deps),
+           {:ok, outcome} <-
+             LedgerReconciliationService.materialize_from_scan(work_id, scan, report_repo, nil) do
+        coverage = %{
+          rules_evaluated: scan.rules_evaluated,
+          rules_skipped: scan.rules_skipped,
+          scope: scan.scope
+        }
+
+        {:ok, outcome, coverage}
+      end
     end
   end
 
@@ -220,16 +280,34 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
   defp reconcile_summary({:ok, report}) when is_map(report),
     do: %{status: :report, finding_count: report.finding_count, report_id: report.id}
 
+  defp reconcile_summary({:ok, :no_findings, coverage}) do
+    coverage |> Map.put(:status, :no_findings) |> Map.put(:finding_count, 0)
+  end
+
+  defp reconcile_summary({:ok, report, coverage}) when is_map(report) do
+    coverage
+    |> Map.put(:status, :report)
+    |> Map.put(:finding_count, report.finding_count)
+    |> Map.put(:report_id, report.id)
+  end
+
   defp reconcile_summary({:error, reason}), do: %{status: :error, reason: inspect(reason)}
 
   defp observation(run, sequence, outcome) do
     summary_map = reconcile_summary(outcome)
 
+    skipped_note = coverage_skipped_note(summary_map)
+
     text =
       case summary_map.status do
-        :no_findings -> "全书审读完成：未发现偏离，不产生新报告。"
-        :report -> "全书审读完成：发现 #{summary_map.finding_count} 处偏离，审读报告已物化（TENTATIVE）。"
-        :error -> "全书审读失败：#{summary_map.reason}"
+        :no_findings ->
+          "全书审读完成：未发现偏离，不产生新报告。#{skipped_note}"
+
+        :report ->
+          "全书审读完成：发现 #{summary_map.finding_count} 处偏离，审读报告已物化（TENTATIVE）。#{skipped_note}"
+
+        :error ->
+          "全书审读失败：#{summary_map.reason}"
       end
 
     {:ok, observation} =
@@ -271,40 +349,56 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
          observations: [],
          turn_result: turn_result,
          loop_status: :completed,
-         loop_decision: complete_decision(run, sequence, observation_refs(snapshot)),
+         loop_decision: final_decision(run, sequence, summary_map, observation_refs(snapshot)),
          progress_signature: "#{run.run_id}:ledger_reconcile_finalized"
        }}
     end
   end
 
   # app 侧事实口径（readonly 先例）：机械产出如实汇报，不代模型发声、不改设定或正文。
+  # B27 CP3c / C3：run 可以结束，但「完成」声明只属于真实成功的审读；error 时
+  # phase/status 如实标 failed，且不伪造 tool_result 成功。
   defp turn_result(run, summary_map) do
+    skipped_note = coverage_skipped_note(summary_map)
+
     text =
       case summary_map do
         %{status: :report, finding_count: count} ->
-          "全书审读完成：发现 #{count} 处偏离，审读报告已就绪——档案「脉络」页可逐项处置。未改动任何设定或正文。"
+          "全书审读完成：发现 #{count} 处偏离，审读报告已就绪——档案「脉络」页可逐项处置。#{skipped_note}未改动任何设定或正文。"
 
         %{status: :error, reason: reason} ->
           "全书审读未完成：#{reason}。未改动任何设定或正文。"
 
         _ ->
-          "全书审读完成：五条脉络未发现偏离。未改动任何设定或正文。"
+          "全书审读完成：已执行规则未发现偏离。#{skipped_note}未改动任何设定或正文。"
+      end
+
+    {phase, status, tool_status} =
+      case summary_map do
+        %{status: :error} -> {"failed", "failed_recoverable", :failed}
+        _ -> {"completed", "completed", :succeeded}
       end
 
     %{
       schema_version: "3.0-draft",
       turn_id: TurnBinding.bind(run, "ledger_reconcile"),
       parent_turn_id: run.parent_turn_ref,
-      phase: "completed",
-      status: "completed",
+      phase: phase,
+      status: status,
       next_action: "none",
       assistant_message: %{text: text},
       ui_cards: [],
       available_actions: [],
-      tool_result: %{status: :succeeded, artifact_refs: [], errors: []},
+      tool_result: %{status: tool_status, artifact_refs: [], errors: []},
       artifact_set: nil
     }
   end
+
+  defp coverage_skipped_note(%{rules_skipped: [_ | _] = skipped}) do
+    "另有 #{length(skipped)} 项规则因数据缺失/读端口缺席未执行（覆盖清单见轨迹），不构成「全书无问题」结论。"
+  end
+
+  defp coverage_skipped_note(_summary_map), do: ""
 
   defp reconciled?(snapshot) do
     snapshot
@@ -344,10 +438,6 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
 
   defp current_step_ref(run, sequence), do: "step_#{run.run_id}_#{sequence}"
 
-  defp planner_provider_execution(spec) do
-    Map.get(spec, :planner_provider_execution) || Map.get(spec, :provider_execution)
-  end
-
   defp plan_cursor(snapshot) when is_map(snapshot) do
     snapshot
     |> Map.get(:stage_state, %{})
@@ -371,6 +461,4 @@ defmodule NovelApplication.AgentRunFlows.LedgerReconciliation do
 
   defp map_get(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
   defp map_get(_map, _key), do: nil
-
-  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 end

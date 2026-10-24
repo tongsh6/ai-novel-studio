@@ -42,6 +42,9 @@ defmodule NovelApplication.ChapterSummaryAdoptionHookTest do
     assert input.chapter_id == "chapter-1"
     assert input.prose_text == "巷口的灯在雨里晃。"
     assert input.revision_base == "draft:draft-1:1"
+
+    # B27 CP3c / D4：主采纳路径只有本次采纳片段，必须显式标 fragment（不冒充整章）。
+    assert input.material_scope == :fragment
   end
 
   test "非正文 artifact（character_seed）不触发 maintainer" do

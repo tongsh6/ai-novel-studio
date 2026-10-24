@@ -1,44 +1,72 @@
 defmodule NovelApplication.ChapterSummaryGenerator do
   @moduledoc """
-  章摘要默认生成器（VS-00C CP2.1 / contract §6.3）。
+  章摘要默认生成器（VS-00C CP2.1 / contract §6.3；B27 CP3c 迁移）。
 
-  走统一 provider execution stream 的兼容消费者产出四栏摘要文本，再解析回四栏 map
-  交给 `ChapterSummaryMaintenance` 渲染为 canonical `summary_text`。这是一条**独立摘要 prompt**，
-  不复用、不触碰 prose_writing 的 real.ex 三锚点模板（契约 §6 边界）。
+  消费 `NovelCommon.Contracts.AuthoringTask`（kind `:chapter_summary`）：
 
-  CP2.1 从本次采纳的正文 `prose_text` 生成；按全章已采纳正文生成（append 连续性）属 CP2.2。
-  生成失败一律返回 `{:error, reason}`，由 maintenance 降级，不抛错。
+  - 材料范围/版本/完整度由 application 在 `task.materials` 中如实标注（片段 vs 整章）；
+  - 规则文本唯一真源为 `NovelCommon.AuthoringSemantics`（shared/operation/output + dynamic）；
+  - 四栏领域标签仍取 `NovelDomain.ChapterSummary`（单一真源，渲染/解析同源）；
+  - 这是独立摘要 prompt，不复用、不触碰 prose_writing 的 real.ex 三锚点模板（契约 §6 边界）。
+
+  失败一律返回 `{:error, reason}`，由 maintenance 降级，不抛错。解析不出四栏标签时
+  诚实失败，不把整段模型输出或整章原文塞进摘要栏（B27 CP3c / C1 P0）。
   """
 
   alias NovelAgent.Provider.Execution
+  alias NovelCommon.AuthoringSemantics
+  alias NovelCommon.Contracts.AuthoringTask
   alias NovelCommon.LogContext
   alias NovelDomain.ChapterSummary
 
   @doc "从 maintenance 输入生成四栏摘要 map；失败返回 `{:error, reason}`。"
   @spec generate(map()) :: {:ok, map()} | {:error, term()}
-  def generate(input) when is_map(input) do
+  def generate(input) when is_map(input), do: generate(input, nil)
+
+  @doc false
+  @spec generate(map(), NovelAgent.Provider.Execution.dependency() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def generate(input, provider_execution) when is_map(input) do
     prose = input |> Map.get(:prose_text) |> normalize()
 
-    if prose == "" do
-      {:error, :empty_prose}
-    else
-      LogContext.with_step("chapter_summary", fn ->
-        prose
-        |> build_prompt()
-        |> Execution.complete(purpose: :narration)
-        |> handle_completion(prose)
-      end)
+    cond do
+      prose == "" ->
+        {:error, :empty_prose}
+
+      not match?(%AuthoringTask{}, Map.get(input, :task)) ->
+        {:error, :authoring_task_missing}
+
+      true ->
+        task = Map.fetch!(input, :task)
+        prompt = build_prompt(task, prose)
+
+        LogContext.with_step("chapter_summary", fn ->
+          prompt
+          |> complete(provider_execution)
+          |> handle_completion()
+        end)
+    end
+  end
+
+  # 生产走统一 provider execution（purpose :narration）；测试可注入 execution 捕获
+  # 真实构造的 prompt（不改变生产路径）。
+  defp complete(prompt, nil), do: Execution.complete(prompt, purpose: :narration)
+
+  defp complete(prompt, provider_execution) do
+    case Execution.result_fn(provider_execution) do
+      result_fn when is_function(result_fn, 1) -> result_fn.(prompt)
+      _ -> {:error, :provider_execution_missing}
     end
   end
 
   # Provider execution 的完成形态只有 `{:ok, %Result{}}` / `{:error, map()}`
-  # （Execution.complete/2 契约）；旧兼容的裸文本/未知形态分支已死，不再保留。
-  defp handle_completion({:ok, %{content: text}}, prose) when is_binary(text),
-    do: {:ok, parse_sections(text, prose)}
+  # （Execution.complete/2 契约）。
+  defp handle_completion({:ok, %{content: text}}) when is_binary(text),
+    do: parse_sections(text)
 
-  defp handle_completion({:error, reason}, _prose), do: {:error, reason}
+  defp handle_completion({:error, reason}), do: {:error, reason}
 
-  defp build_prompt(prose) do
+  defp build_prompt(%AuthoringTask{} = task, prose) do
     labels = ChapterSummary.section_labels()
 
     sections_spec =
@@ -47,35 +75,41 @@ defmodule NovelApplication.ChapterSummaryGenerator do
       end)
 
     """
-    本次你承担连续性维护助手的角色。请把下面这一章的已采纳正文，压缩成高信息密度的“写后摘要”，
-    供后续续写衔接与跨章连续性使用。目标 200~400 字。
+    本次你承担连续性维护助手的角色。
 
-    严格按以下四栏输出，每栏一行，保留方括号标签，不要输出正文原句、不要加额外说明：
+    #{AuthoringSemantics.render(task)}
+
+    ## 角色输出格式
+    严格按以下四栏输出，每栏一行，保留方括号标签；摘要不是全文，不要输出正文原句、
+    不要加额外说明。目标 200~400 字。
     #{sections_spec}
 
+    ## 本次材料正文
     已采纳正文：
     #{prose}
     """
+    |> String.trim()
   end
 
-  # 按四栏标签解析模型输出；任一栏缺失则该栏留空（render 时补「（无）」）。
-  # 完全解析不到四栏时，把整段输出归入“情节推进”，避免丢失内容。
-  # 解析走域层公共逆变换（真源单点，Order 4 契约化）；生成侧保留空文本兜底语义。
-  defp parse_sections(text, prose) do
+  # 按四栏标签解析模型输出；部分栏缺失时保留已解析栏（render 时补「（无）」）。
+  # 完全没有任何四栏标签 → 诚实失败，绝不把整段输出/整章原文当摘要。
+  defp parse_sections(text) do
     case ChapterSummary.parse_sections(text) do
       sections when map_size(sections) == 0 ->
-        %{plot: text |> normalize() |> fallback(prose)}
-
-      %{plot: _} = sections ->
-        sections
+        {:error, :summary_sections_unparseable}
 
       sections ->
-        sections
+        if any_section_label?(text),
+          do: {:ok, sections},
+          else: {:error, :summary_sections_unparseable}
     end
   end
 
-  defp fallback("", prose), do: prose
-  defp fallback(text, _prose), do: text
+  defp any_section_label?(text) do
+    ChapterSummary.section_labels()
+    |> Map.values()
+    |> Enum.any?(&String.contains?(text, "【#{&1}】"))
+  end
 
   defp normalize(value) when is_binary(value), do: String.trim(value)
   defp normalize(_), do: ""

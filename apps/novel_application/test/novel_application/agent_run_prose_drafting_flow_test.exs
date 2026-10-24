@@ -221,6 +221,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert_receive {:writer_prompt, writer_prompt}, 500
     assert writer_prompt =~ "用户创作简述："
     assert writer_prompt =~ "场级执行简述"
+
+    # B27 CP3b：writer 由共享任务语义渲染（L1 静态段 + L3 动态事实），不再只靠模板
+    assert writer_prompt =~ "## 创作协作共同规则"
+    assert writer_prompt =~ "本轮任务语义："
+    assert writer_prompt =~ "## 材料与覆盖"
+    assert writer_prompt =~ "作者原话（逐字保留、可追溯）"
     assert writer_prompt =~ "companion_artifacts"
     # WR01：使命随简报进 writer prompt，带依据文本；越界条目不得出现。
     assert writer_prompt =~ "本章使命：本章必须让主角从被动观察转向主动寻找出口。"
@@ -229,6 +235,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     refute writer_prompt =~ "不存在的伏笔"
     assert_receive {:evaluator_prompt, evaluator_prompt}, 500
     assert evaluator_prompt =~ "质量评审"
+    # B27 CP3b：evaluator 消费同一任务语义，并显式声明材料覆盖范围
+    assert evaluator_prompt =~ "## 创作协作共同规则"
+    assert evaluator_prompt =~ "评审范围：单对象/片段"
     refute evaluator_prompt =~ "用户创作简述："
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "质量复核已完成"

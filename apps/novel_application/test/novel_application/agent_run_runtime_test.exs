@@ -3,7 +3,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelApplication.AgentRunFlows.ProviderProgress
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
@@ -1719,90 +1718,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.consumed_budget.provider_calls == 1
   end
 
-  test "provider progress flow emits author-safe provider progress and provider budget" do
-    parent = self()
-
-    result_fn = fn prompt ->
-      if agent_plan_draft_prompt?(prompt) do
-        {:ok, provider_progress_plan_draft()}
-      else
-        send(parent, {:provider_called, prompt})
-        {:ok, %{content: "provider-progress-output"}}
-      end
-    end
-
-    spec =
-      DialoguePlanningService.run_spec_for_profile(
-        :provider_progress,
-        %{
-          text: "请展示 provider 进度并说明取消边界",
-          workspace_id: "ws-provider-progress",
-          work_id: "work-provider-progress",
-          session_id: "session-provider-progress",
-          turn_id: "turn-provider-progress",
-          provider_capabilities_fn: fn ->
-            %{
-              provider: :stub,
-              supports_streaming: true,
-              supports_cancellation: true,
-              cancel_strategy: :provider_execution_cancel
-            }
-          end
-        },
-        nil,
-        %Execution{result_fn: result_fn}
-      )
-
-    assert spec.run_attrs.profile_ref == "provider_progress_v1"
-    assert spec.run_attrs.budget.max_provider_calls == 7
-    assert is_function(spec.next_step_planner, 3)
-
-    assert_raise ArgumentError, "provider_progress_v1 requires next_step_planner/1", fn ->
-      ProviderProgress.steps(%{})
-    end
-
-    assert {:ok, run_id} =
-             AgentRunService.start_bounded(spec.run_attrs,
-               next_step_planner: spec.next_step_planner,
-               event_sink: event_sink_full(parent)
-             )
-
-    assert_receive {:agent_event_full, :run_started, _}, 500
-
-    plan_event =
-      :plan_drafted
-      |> collect_full_events_until(500)
-      |> List.last()
-
-    assert plan_event.payload.target_tool_ref == "provider_complete"
-    assert [%{target_tool_ref: "provider_complete"}] = plan_event.payload.plan_steps
-
-    assert_receive {:agent_event_full, :provider_progress, start_event}, 500
-    assert "provider_call_started" in start_event.reason_codes
-    refute Map.has_key?(start_event.payload, :prompt)
-    refute Map.has_key?(start_event.payload, "prompt")
-
-    assert_receive {:agent_event_full, :provider_progress, active_event}, 500
-    assert "provider_execution_stream_active" in active_event.reason_codes
-    assert active_event.payload.stream_mode == :provider_stream
-
-    assert_receive {:provider_called, prompt}, 500
-    assert prompt =~ "请展示 provider 进度"
-
-    assert_receive {:agent_event_full, :provider_progress, completed_event}, 500
-    assert "provider_call_completed" in completed_event.reason_codes
-    assert completed_event.payload.output_chars == String.length("provider-progress-output")
-
-    assert_receive {:agent_event_full, :turn_result_ready, turn_event}, 500
-    assert turn_event.payload.turn_result.agent_run.run_id == run_id
-    assert_receive {:agent_event_full, :run_completed, _}, 500
-
-    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
-    assert run.status == :completed
-    assert run.consumed_budget.provider_calls == 2
-    assert run.pending_artifact_refs == []
-  end
-
   test "readonly batch profile reads multiple sources without provider calls or artifacts" do
     parent = self()
 
@@ -2401,22 +2316,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         )
       ],
       reason_codes: ["agent_plan_drafted", "character_design_plan_drafted"]
-    )
-  end
-
-  defp provider_progress_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
-      "直接调用 provider，并只记录 author-safe 进度边界。",
-      [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "call_provider_progress",
-          "provider_complete",
-          "调用 provider 并记录安全进度事件",
-          kind: "act",
-          success_criteria: ["provider_progress_events_visible", "provider_result_completed"]
-        )
-      ],
-      reason_codes: ["agent_plan_drafted", "provider_progress_plan_drafted"]
     )
   end
 

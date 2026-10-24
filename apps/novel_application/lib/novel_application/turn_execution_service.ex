@@ -13,6 +13,8 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelAgent.ProseQualityEvaluator
   alias NovelAgent.Provider.Execution
   alias NovelApplication.ArtifactAssembler
+  alias NovelApplication.AuthoringTaskBuilder
+  alias NovelApplication.AuxTaskBuilder
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.CarryRegistry
   alias NovelApplication.CharacterRosterNarration
@@ -184,7 +186,12 @@ defmodule NovelApplication.TurnExecutionService do
     # CA02（VS-00C §3.1 L3b/L4 最小形态）：确认记忆机械分组注入写作——事实段
     # （伏笔/规则/状态/关系）+ 风格段（STYLE_RULE/AUTHOR_PREFERENCE）。与关键词
     # recall 通道并存；无确认记忆时诚实缺席。
-    %{facts: creative_facts, style: style_guide} =
+    %{
+      facts: creative_facts,
+      style: style_guide,
+      facts_truncated?: facts_truncated?,
+      style_truncated?: style_truncated?
+    } =
       creative_memory_sections(frame, action, input[:context], input[:memory_reader])
 
     # VS-00G CP1：承重事实完备性判定（机械准备，0 调用，ADR-0025）。按能力 manifest
@@ -266,6 +273,49 @@ defmodule NovelApplication.TurnExecutionService do
       {:dialogue_context, dialogue_context_text}
     ])
 
+    sections = %{
+      resolved_chapter: resolved_chapter,
+      target_structure: target_structure,
+      dialogue_context: dialogue_context_text,
+      prior_prose: prior_prose,
+      prior_summaries: prior_summaries,
+      character_roster: character_roster,
+      characters: characters,
+      execution_brief: execution_brief_text,
+      decision_packet: decision_packet_data,
+      progress_state: progress_state,
+      creative_facts: creative_facts,
+      style_guide: style_guide,
+      absence_directives: absence_directives,
+      work_skeleton: work_skeleton,
+      volume_scope: volume_scope_section,
+      current_volume_blueprint: current_volume_blueprint,
+      planning_mission: planning_mission_text
+    }
+
+    # B27 CP3b：prose_writing 先组装任务语义（共享规则/对象范围/材料/出站契约），
+    # 校验失败时仍产可解释 failed ToolResult，不派发、不静默回退旧文本。
+    authoring_task_result =
+      prose_authoring_task(%{
+        frame: frame,
+        action: action,
+        input: input,
+        resolved_chapter: resolved_chapter,
+        resolved_chapter_ref: resolved_chapter_ref,
+        sections: sections,
+        prior_prose: prior_prose,
+        omission_notes: omission_notes,
+        brief_result: brief_result,
+        facts_truncated?: facts_truncated?,
+        style_truncated?: style_truncated?
+      })
+
+    authoring_task =
+      case authoring_task_result do
+        {:ok, task} -> task
+        {:error, _reason} -> nil
+      end
+
     req =
       build_tool_request(
         frame,
@@ -273,31 +323,17 @@ defmodule NovelApplication.TurnExecutionService do
         decision,
         input,
         action,
-        %{
-          resolved_chapter: resolved_chapter,
-          target_structure: target_structure,
-          dialogue_context: dialogue_context_text,
-          prior_prose: prior_prose,
-          prior_summaries: prior_summaries,
-          character_roster: character_roster,
-          characters: characters,
-          execution_brief: execution_brief_text,
-          decision_packet: decision_packet_data,
-          progress_state: progress_state,
-          creative_facts: creative_facts,
-          style_guide: style_guide,
-          absence_directives: absence_directives,
-          work_skeleton: work_skeleton,
-          volume_scope: volume_scope_section,
-          current_volume_blueprint: current_volume_blueprint,
-          planning_mission: planning_mission_text
-        }
+        Map.put(sections, :authoring_task, authoring_task)
       )
 
     provider_execution = provider_execution(input)
     quality_provider_execution = quality_provider_execution(input)
 
-    tool_result = dispatch_tool(req, provider_execution)
+    tool_result =
+      case authoring_task_result do
+        {:error, reason} -> authoring_task_failed_result(req, reason)
+        {:ok, _task} -> dispatch_tool(req, provider_execution)
+      end
 
     artifact_sets =
       assemble_artifacts(
@@ -355,7 +391,10 @@ defmodule NovelApplication.TurnExecutionService do
     # 使 TurnResult.orchestrator_decision 可追溯到实际 DecisionTrace。
     decision = %{decision | decision_trace_ref: trace.trace_id}
 
-    assistant_message = narrate(tool_result, artifact_set, provider_execution)
+    # B27 CP3c / C5：结果叙述携带真实作者目标与工具后果（AuthoringTask :result_narration）；
+    # 组装失败 → nil → 确定性叙述，不退回无依据的模型叙述。
+    narration_task = narration_task(input, frame, tool_result, artifact_set)
+    assistant_message = narrate(tool_result, artifact_set, provider_execution, narration_task)
 
     turn_result =
       build_turn_result(
@@ -527,6 +566,7 @@ defmodule NovelApplication.TurnExecutionService do
     |> maybe_put_decision_packet(sections)
     |> maybe_put_progress_state(sections)
     |> maybe_put_planning_mission(sections)
+    |> maybe_put_authoring_task(sections)
   end
 
   defp maybe_put_author_goal_text(input, text) when is_binary(text) and text != "",
@@ -560,6 +600,81 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp maybe_put_planning_mission(input, _sections), do: input
+
+  # B27 CP3b：writer 任务语义随 ToolRequest.input 出站（JSON-safe map）；
+  # 无 task 的非 prose 调用保持旧输入。adapter 出站前会 from_input + validate。
+  defp maybe_put_authoring_task(input, %{authoring_task: task}) when not is_nil(task) do
+    Map.merge(input, AuthoringTaskBuilder.to_input(task))
+  end
+
+  defp maybe_put_authoring_task(input, _sections), do: input
+
+  # 仅 prose_writing 组装 writer 任务；其它 creative tool 的辅助域迁移归 CP3c。
+  defp prose_authoring_task(%{} = ctx) do
+    %{
+      frame: frame,
+      action: action,
+      input: input,
+      resolved_chapter: resolved_chapter,
+      resolved_chapter_ref: resolved_chapter_ref,
+      sections: sections,
+      prior_prose: prior_prose,
+      omission_notes: omission_notes,
+      brief_result: brief_result,
+      facts_truncated?: facts_truncated?,
+      style_truncated?: style_truncated?
+    } = ctx
+
+    if prose_writing_action?(action) do
+      AuthoringTaskBuilder.for_prose_writing(%{
+        action: action,
+        turn_id: frame.turn_id,
+        author_input: input[:author_input],
+        author_goal: action_summary(action),
+        resolved_chapter: resolved_chapter,
+        resolved_chapter_ref: resolved_chapter_ref,
+        prior_prose: prior_prose,
+        omission_notes: omission_notes,
+        sections: sections,
+        execution_brief: sections[:execution_brief],
+        execution_brief_degraded?: execution_brief_degraded?(brief_result),
+        facts_truncated?: facts_truncated?,
+        style_truncated?: style_truncated?,
+        source_refs: source_refs(frame, input)
+      })
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp source_refs(frame, input) do
+    [input[:source_turn_ref], "turn:" <> frame.turn_id]
+    |> Enum.reject(&blank?/1)
+    |> Enum.uniq()
+  end
+
+  defp execution_brief_degraded?({_brief, %{degraded: true}}), do: true
+  defp execution_brief_degraded?(_brief_result), do: false
+
+  # 任务语义校验失败时仍产生可解释 failed ToolResult（不调 provider、不写 artifact）。
+  defp authoring_task_failed_result(%ToolRequest{} = req, reason) do
+    %ToolResult{
+      tool_result_id: NovelFoundation.ID.unique("tr"),
+      tool_request_ref: req.tool_request_id,
+      tool_name: req.tool_name,
+      status: :failed,
+      output: nil,
+      errors: [
+        %{
+          code: "authoring_task_invalid",
+          message: "本轮专业调用任务语义未通过校验，未调用创作能力：#{inspect(reason)}"
+        }
+      ],
+      artifact_refs: [],
+      state_delta: [],
+      completed_at: DateTime.utc_now()
+    }
+  end
 
   defp maybe_put_decision_packet(input, %{decision_packet: packet}) when is_map(packet) do
     Map.put(input, "decision_packet", packet)
@@ -1003,7 +1118,9 @@ defmodule NovelApplication.TurnExecutionService do
 
       sections = %{
         facts: render_creative_facts(facts, limit),
-        style: render_style_guide(Map.get(facts, :style, []), limit)
+        style: render_style_guide(Map.get(facts, :style, []), limit),
+        facts_truncated?: facts_truncated?(facts, limit),
+        style_truncated?: length(Map.get(facts, :style, [])) > limit
       }
 
       # ADR-0018 观测性：事实/风格段进入创作请求的事实；空段不发（诚实缺席不制造噪声）。
@@ -1017,7 +1134,7 @@ defmodule NovelApplication.TurnExecutionService do
 
       sections
     else
-      %{facts: "", style: ""}
+      %{facts: "", style: "", facts_truncated?: false, style_truncated?: false}
     end
   end
 
@@ -1027,6 +1144,12 @@ defmodule NovelApplication.TurnExecutionService do
     {:current_states, "人物当前状态"},
     {:relationships, "人物关系"}
   ]
+
+  defp facts_truncated?(facts, limit) do
+    Enum.any?(@creative_fact_groups, fn {key, _label} ->
+      length(Map.get(facts, key, [])) > limit
+    end)
+  end
 
   defp render_creative_facts(facts, limit) do
     blocks =
@@ -1860,6 +1983,24 @@ defmodule NovelApplication.TurnExecutionService do
         scene_units: scene_units
       }
 
+      authoring_task_result =
+        AuthoringTaskBuilder.for_quality_evaluation(%{
+          source_ref: List.first(tool_result.artifact_refs),
+          turn_id: frame.turn_id,
+          coverage: :single,
+          target_chapter_ref: action[:target_chapter_ref],
+          execution_brief: brief_text,
+          facts_context: facts_context,
+          author_goal: "评审本轮生成的正文候选是否实现执行简述目标",
+          source_refs: [frame.turn_id]
+        })
+
+      authoring_task =
+        case authoring_task_result do
+          {:ok, task} -> task
+          {:error, _reason} -> nil
+        end
+
       opts =
         semantic_opts(
           quality_provider_execution,
@@ -1867,7 +2008,8 @@ defmodule NovelApplication.TurnExecutionService do
           brief_text,
           scene_units,
           facts_context,
-          pacing_context
+          pacing_context,
+          authoring_task
         )
 
       {prose_text, scenes} = prose_quality_input(tool_result)
@@ -1911,7 +2053,8 @@ defmodule NovelApplication.TurnExecutionService do
          brief_text,
          scene_units,
          facts_context,
-         pacing_context
+         pacing_context,
+         authoring_task
        ) do
     case Execution.result_fn(quality_provider_execution) do
       result_fn when is_function(result_fn, 1) ->
@@ -1921,7 +2064,8 @@ defmodule NovelApplication.TurnExecutionService do
           brief_text,
           scene_units,
           facts_context,
-          pacing_context
+          pacing_context,
+          authoring_task
         )
 
       _ ->
@@ -1935,7 +2079,8 @@ defmodule NovelApplication.TurnExecutionService do
          brief_text,
          scene_units,
          facts_context,
-         pacing_context
+         pacing_context,
+         authoring_task
        ) do
     semantic_fn = fn text, ctx ->
       request = %QualityEvaluationRequest{
@@ -1948,7 +2093,8 @@ defmodule NovelApplication.TurnExecutionService do
         facts_context: facts_context,
         form_candidates: Map.get(ctx, :form_candidates, []),
         pacing_context: pacing_context,
-        scene_units: scene_units
+        scene_units: scene_units,
+        task: authoring_task
       }
 
       case ProseQualityEvaluator.evaluate(request, provider_execution) do
@@ -2273,17 +2419,11 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp prior_prose_section(_action, ""), do: ""
 
-  defp prior_prose_section(action, prose) do
-    heading =
-      case action[:authoring_intent] do
-        :rewrite ->
-          "## 本章当前已采纳正文（请基于它重写整章，可大幅改动情节与措辞，但保持人物与设定一致）"
-
-        _ ->
-          "## 本章已采纳正文（请在其后自然衔接续写，承接情节、人物状态与语气，不要重复已写内容，也不要从头另起）"
-      end
-
-    heading <> "\n" <> prose
+  # B27 CP3b：前文只作材料，不在材料标题里写操作指令——续写/重写/修订由
+  # AuthoringTask.kind + AuthoringSemantics.operation_rules 选择，避免同 prompt 内
+  # 基础续写句与重写/修订要求并置（审计 A F02/X1）。
+  defp prior_prose_section(_action, prose) do
+    "## 本章已采纳正文（写作基线材料，不是本轮指令；本轮操作范围由任务语义决定）\n" <> prose
   end
 
   defp tool_context_text(%NovelDomain.DialogueContext{} = context, text) do
@@ -2410,36 +2550,111 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp provenance(_plan, _resolved_chapter, _chapter_ref), do: %{}
 
+  # ── B27 CP3c / C5：结果叙述任务组装（真实目标 + 真实后果，不猜意图） ──
+
+  defp narration_task(input, frame, tool_result, artifact_set) do
+    attrs = %{
+      author_goal: narration_goal(frame),
+      author_words: author_input_text(frame, input[:author_input]),
+      tool_name: tool_result.tool_name,
+      tool_status: tool_result.status,
+      artifact_refs: narration_artifact_refs(tool_result, artifact_set),
+      outcome_summary: narration_outcome_summary(tool_result, artifact_set),
+      provider_call_ref: narration_provider_call_ref(tool_result),
+      turn_ref: frame.turn_id
+    }
+
+    case AuxTaskBuilder.for_result_narration(attrs) do
+      {:ok, task} -> task
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp narration_goal(frame) do
+    case frame.dialogue_goal do
+      %{summary: summary} when is_binary(summary) -> summary
+      summary when is_binary(summary) -> summary
+      _ -> nil
+    end
+  end
+
+  defp narration_artifact_refs(tool_result, %{items: items}) when is_list(items) do
+    item_refs =
+      items
+      |> Enum.map(&(map_value(&1, :item_id) || map_value(&1, :artifact_id)))
+      |> Enum.reject(&is_nil/1)
+
+    (item_refs ++ List.wrap(Map.get(tool_result, :artifact_refs))) |> Enum.uniq()
+  end
+
+  defp narration_artifact_refs(tool_result, _artifact_set),
+    do: List.wrap(Map.get(tool_result, :artifact_refs))
+
+  defp narration_outcome_summary(%ToolResult{status: :succeeded} = tool_result, artifact_set) do
+    case artifact_set do
+      %{items: [_ | _] = items} ->
+        "已生成 #{length(items)} 个待采纳创作候选，尚未被采纳、未写入作品事实。"
+
+      _ ->
+        safe_output_summary(Map.get(tool_result, :output))
+    end
+  end
+
+  defp narration_outcome_summary(%ToolResult{status: :failed}, _artifact_set),
+    do: "工具执行失败，未生成可交付结果。"
+
+  defp narration_outcome_summary(%ToolResult{status: status}, _artifact_set),
+    do: "工具执行未完成（状态：#{status}）。"
+
+  defp safe_output_summary(%{item_count: count, artifact_type: type}) when is_integer(count),
+    do: "生成 #{count} 个 #{type} 候选（待采纳）。"
+
+  defp safe_output_summary(%{item_count: count}) when is_integer(count),
+    do: "工具输出 #{count} 项，尚未被采纳、未写入作品事实。"
+
+  defp safe_output_summary(%{characters: characters}) when is_list(characters),
+    do: "已读取到 #{length(characters)} 个角色。"
+
+  defp safe_output_summary(_output), do: "操作已执行完成，未产生待采纳创作材料。"
+
+  defp narration_provider_call_ref(%ToolResult{output: output}) when is_map(output) do
+    Map.get(output, :provider_call_ref) || Map.get(output, "provider_call_ref") ||
+      Map.get(output, :provider_call_id) || Map.get(output, "provider_call_id")
+  end
+
+  defp narration_provider_call_ref(_tool_result), do: nil
+
   defp narrate(
          %ToolResult{status: :succeeded},
          %{artifact_type: type, target_chapter: chapter},
-         _result_fn
+         _result_fn,
+         _task
        )
        when type in [:prose_fragment, "prose_fragment"] and is_binary(chapter) and chapter != "" do
     "已生成#{chapter}正文草稿。请先审阅，保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn)
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn, _task)
        when type in [:prose_fragment, "prose_fragment"] do
     "已生成章节正文草稿。请先审阅，保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn)
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn, _task)
        when type in [:outline_draft, "outline_draft"] do
     "已生成大纲草稿。请先审阅，保存后会进入作品档案的大纲与结构；未保存前只保留为本轮草稿。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn)
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn, _task)
        when type in [:character_seed, "character_seed"] do
     "已生成角色设定草稿。请先审阅，保存后会进入作品档案；未保存前不会写入作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn)
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn, _task)
        when type in [:foreshadowing_seed, "foreshadowing_seed"] do
     "已生成伏笔草稿。请先审阅，保存后会进入作品档案的伏笔；未保存前不会写入作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn)
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn, _task)
        when type in [
               :world_rule_seed,
               "world_rule_seed",
@@ -2451,7 +2666,7 @@ defmodule NovelApplication.TurnExecutionService do
     "已生成规则草稿。请先审阅，保存后会进入作品档案的经验规则；未保存前不会写入作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn)
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _result_fn, _task)
        when type in [:world_setting, "world_setting"] do
     "已生成世界设定草稿。请先审阅，保存后会进入作品档案；未保存前不会写入作品事实。"
   end
@@ -2459,27 +2674,33 @@ defmodule NovelApplication.TurnExecutionService do
   defp narrate(
          %ToolResult{status: :succeeded, tool_name: "character_roster"} = tool_result,
          nil,
-         _result_fn
+         _result_fn,
+         _task
        ) do
     characters = get_in(tool_result.output, [:characters]) || []
     CharacterRosterNarration.message(characters)
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: _type}, _result_fn) do
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: _type}, _result_fn, _task) do
     "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded} = tool_result, _artifact_set, provider_execution) do
+  defp narrate(
+         %ToolResult{status: :succeeded} = tool_result,
+         _artifact_set,
+         provider_execution,
+         task
+       ) do
     case Execution.result_fn(provider_execution) do
       result_fn when is_function(result_fn, 1) ->
-        Planner.narrate_tool_result(tool_result, provider_execution)
+        Planner.narrate_tool_result(tool_result, task, provider_execution)
 
       _ ->
         "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
     end
   end
 
-  defp narrate(%ToolResult{status: :failed} = tool_result, _artifact_set, _result_fn) do
+  defp narrate(%ToolResult{status: :failed} = tool_result, _artifact_set, _result_fn, _task) do
     reason =
       tool_result.errors
       |> List.wrap()
@@ -2489,7 +2710,7 @@ defmodule NovelApplication.TurnExecutionService do
     "这次没有生成创作草稿，工具执行失败：#{reason}。未创建待采纳内容，也没有写入作品事实。"
   end
 
-  defp narrate(_tool_result, _artifact_set, _result_fn) do
+  defp narrate(_tool_result, _artifact_set, _result_fn, _task) do
     "工具执行未完成。未创建待采纳内容，也没有写入作品事实。"
   end
 end

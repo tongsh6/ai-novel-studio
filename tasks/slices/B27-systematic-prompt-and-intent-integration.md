@@ -2,7 +2,7 @@
 
 > **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
 
-- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；CP3 进行中：CP3a 共享任务语义契约/规则单一真源已落地（`b27-semantics-v1`），CP3b prose 域与 CP3c 辅助域迁移进行中；CP4 语义矩阵仍未闭环。
+- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；CP3 进行中：CP3a 契约/规则单一真源已提交；CP3b prose 域（writer/revision/evaluator）与 CP3c 辅助域（summary/inventory/ledger/narration/退役）已实现并通过全量回归；CP3d 收口（legacy 清理/双源删除/I-CACHE 扩展/文档同步）与 CP4 语义矩阵待做。
 - 登记日期：2026-10-23。
 - 来源：作者要求分析 stage 对话，区分模型判断与应用能力缺口；随后明确“作者不应自己写提示词，应用应帮助模型理解意图”，并要求先分析现有提示词写法、从应用整体整合，禁止单点补丁。
 - 授权沿革：初次只授权设计和排期；2026-10-24 已确认共享入口实现与验证。原作品数据修复仍需独立授权。
@@ -121,7 +121,7 @@
 | CP0 | 与 B26 CP1 核对构造器/任务/规则/J1–J4；固化 §6.1 的20例/双臂40 episode、rubric/保留集及 VS-00D §11.4 trace | **done（2026-10-24）**：20 例案例卡 + 20/20 真实输入快照 + SP01 计划面探针 + 保留集/关键集/追问子集 + 旧规则臂 hash + 必验模型 + 运行器骨架已冻结；证据见文末「CP0 冻结记录」 | SP02 续行面/SP03 专业调用面快照待 CP3；M14 随 B29 重冻；40 episode 门槛归 CP4 |
 | CP1 | 提取共同规则/角色选择、能力效果/schema/重试语义，随 B26 CP2 立即由真实入口消费；迁移/退役孤立 Envelope | 共享规则已有判断/计划真实消费者；专业调用剩余覆盖归 CP3 | 全专业调用覆盖 |
 | CP2 | 与 B26 CP2 一次迁移共享判断/计划入口；连续目标/证据/结果、必要提问；移除进度泛化/机械报形态/空行解析 | 共享判断/计划已迁移；机制与原生回复有证据，完整语义结果待 CP4 | 创作/评估/维护一致性 |
-| CP3 | 迁移计划、使命、writer、修订、evaluator、章摘要、盘点、结果叙述、provider progress 及纠错路径；保留各角色输出契约；删除被替代规则 | todo | 全矩阵真实模型/页面验证 |
+| CP3 | 迁移计划、使命、writer、修订、evaluator、章摘要、盘点、结果叙述、provider progress 及纠错路径；保留各角色输出契约；删除被替代规则 | **doing（CP3a/b/c 已实现，CP3d 收口待做）**：writer/revision/evaluator + summary/inventory/ledger/narration 全部携带 AuthoringTask 并由共享语义渲染；ProviderProgress/AIMessageEnvelope 退役；全量回归 2010 tests/0 failures | CP3d：删除 legacy 无 task 分支与 test-support 残留、双源文案合并、I-CACHE writer/evaluator profile、文档同步；CP4 真实模型/页面验收 |
 | CP4 | B26 CP3 协议/业务保留先通过，再按 §6.1 逐例判新旧规则/保留集、完成联合生命周期 Tauri；硬门槛与全矩阵通过 | todo；共享证据、分别结论 | 全门禁、任务台账 |
 | CP5 | 完整门禁、静态扫描处置；同步旧 AU11/VS-00D/UA01 任务入口、设计/契约、NEXT/journey/ledger | todo | 无；此前均不得标 slice done |
 
@@ -319,3 +319,21 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - 冒烟（非门槛）：old 臂 Strata/iq3_s M01/M11 + LM Studio qwen/qwen3.8-27b M11 命中允许路径且 wire 与快照一致；integrated 臂 Strata M10/M11/M13 ok，M01/M02 出现真实协议失败（如实记录、含两轮请求/响应原文）。
 - Tauri 草案：`quality/acceptance/scenarios/b27-prompt-lifecycle-consistency.yml`、`b27-natural-author-intent.yml`（entry_reachability/driver_plan/registration_checklist），**未注册 scenarios.yml**，driver 待 CP3 完成后实现并注册 nightly。
 - 裁决（Lead）：① integrated_arm 在 CP3 完成后用 `b27_case_freeze.exs --write-arms` 重算并跑 80 episode，本批仅 harness 冒烟；② 必验模型 = Strata/iq3_s（stage 实际），LM Studio qwen/qwen3.8-27b 为第二通道观察，qwen3.8-flash-next@q2_k 本轮不声明；③ old 臂单轮 vs integrated 多轮不对称在 CP4 报告披露；④ Tauri driver 与正式矩阵归 CP4 执行批。
+
+#### CP3b / CP3c 实施记录（2026-10-24，实现完成，CP3d 收口待做）
+
+**CP3b（prose 域）**：writer 四类 kind（first_draft/continuation/rewrite/revision）由真实业务事实判定并经 `AuthoringTaskBuilder.for_prose_writing/1` 组装；`CreativeProvider.Real` task-aware 渲染（L1 角色句+static_block → L3 dynamic_block → L4 角色 JSON 契约置尾），删除固定续写句（X1）、I3 六处重复收敛为 `nonce_requirement/0`（X2）、world 采纳声明 task 路径由 shared_rules 唯一提供（X3）；revision 三来源（quality findings / pending candidate / adopted content）统一 `for_revision/1` + `operation_rules`；evaluator 消费 `QualityEvaluationRequest.task` + 材料覆盖声明 + findings 契约与校验同源；correction 只渲染同一契约+失败原因，不放宽。prompt 捕获测试覆盖 L1 唯一来源、作者原话/解释分离、rewrite/revision 无固定续写句、输出契约同源。
+
+**CP3c（辅助域）**：summary 消费 AuthoringTask(:chapter_summary)，材料 scope/version/complete?/omission 显式，主采纳路径 `:fragment`、补做路径 `:chapter`，解析失败诚实失败（不再整章原文 fallback）；inventory 用 `NarrativeRole.values()` 消除 4/5 值漂移、artifact_type/材料标注/覆盖说明/纠错保范围/降批 coverage 标注单源化；ledger/reconcile scan 返回 rules_evaluated/skipped/scope，固定单步维护 run 改机械计划（0 provider 调用），error 不再 goal_satisfied/completed；`Planner.narrate_tool_result/3` 消费 AuthoringTask(:result_narration)（真实目标+工具后果+只读/候选口径），task 缺失/失败→确定性叙述；**退役** ProviderProgress flow/profile/预算/测试与 AIMessageEnvelope 模块/测试/trace_writer 死读取，新增静态退役守卫；`ChapterPlanDirection.role_kind/1` 纯归一（不改 schema）。
+
+**验证（合并工作区，2026-10-24）**：`mix compile --warnings-as-errors` 通过；`mix test` **2010 tests / 0 failures**（foundation 96 / common 57 / agent 246 / domain 377 / persistence 302 / application 801 / web 131）；`mix test --warnings-as-errors` 通过；touched 文件 format check 通过；enum literal lint、credo strict（0 issue）、xref 无环、arch_check、adr_trace 通过；I1/I2/I3/N-NARR/I-CACHE 待本批收口复跑记录。交付报告：`artifacts/model-contracts/b27-cp3/{audit-prose.md,audit-aux.md,cp3b-report.md}`。
+
+**CP3d 待办清单**：
+1. 删除 legacy 无 task 分支（`real.ex` 旧模板/evaluator 旧模板/adapter nil 兼容/turn_execution 非 prose 等 9 处，见 cp3b-report §8），不做 fallback 双文本。
+2. 删除 `AuthoringTaskPolicy` 以外残留双源文案与 D06–D08 应用层修订文案合并（ProseRevisionService/PendingArtifactWorkflow）。
+3. 清理 test-support 残留：`provider/stub.ex`、`test/support/provider/slice_verify.ex` 的 provider_progress_v1 常量；stub 与 slice_verify 章摘要确定性 body 去重（抽共享 test support）。
+4. `QualityEvaluationRequest.reader_effect` 字段：确认无消费者后删除或由 builder 填。
+5. I-CACHE 扩展 writer/evaluator 连续轮 profile 并记录新基线（marker 已更新为 CP3a 规则文本）。
+6. 文档同步：AU11/VS00D-G known-gaps 的 AIMessageEnvelope 退役措辞、B27 §2 矩阵 provider_progress/AIMessageEnvelope 行、CP2.2 整章摘要输入后续。
+7. pending prose_fragment 修订补 e2e prompt 断言；narration provider 调用与 trace/budget 顺序复核。
+8. 全门禁 + 静态扫描 + 提交，再进 CP4 执行批（integrated_arm 重算 + 80 episode + Tauri driver）。

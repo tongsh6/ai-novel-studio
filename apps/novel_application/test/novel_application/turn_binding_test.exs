@@ -51,7 +51,7 @@ defmodule NovelApplication.AgentRunFlows.TurnBindingTest do
            "这些 flow 仍在裸拼 frame turn_id（会丢 Logger metadata 绑定，B15 回归）：#{inspect(offenders)}"
   end
 
-  test "具名步（ledger_reconcile / provider_progress 形态）同样构造并绑定" do
+  test "具名步（ledger_reconcile 等维护步形态）同样构造并绑定" do
     assert TurnBinding.bind(run(), "ledger_reconcile") == "turn_b15:agent:ledger_reconcile"
     assert Logger.metadata()[:turn_id] == "turn_b15:agent:ledger_reconcile"
   end

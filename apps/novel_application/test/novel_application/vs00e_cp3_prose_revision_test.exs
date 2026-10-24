@@ -47,6 +47,12 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     assert prompt =~ "上下文："
     assert prompt =~ "重要："
     assert prompt =~ "[质量修订要求]"
+
+    # B27 CP3b：修订由 revision task 渲染，操作互斥来自共享语义，不再继承基础续写句
+    assert prompt =~ "## 创作协作共同规则"
+    assert prompt =~ "本轮为修订"
+    assert prompt =~ "## 必须保留"
+    refute prompt =~ "请在其后自然衔接续写"
     assert prompt =~ "本次修订范围：局部修订"
     assert prompt =~ "命中范围外的文字应尽量逐字保持不变"
     assert prompt =~ @bad_prose

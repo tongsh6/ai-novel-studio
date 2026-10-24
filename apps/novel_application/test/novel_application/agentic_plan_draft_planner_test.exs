@@ -786,7 +786,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
   test "原生页面替身的全部计划 profile 在起草与修订时都满足同一固定 schema" do
     profiles =
-      ~w(prose_drafting_with_quality_v1 character_design_with_context_v1 plot_outline_with_context_v1 character_evolution_with_context_v1 world_building_with_context_v1 provider_progress_v1 readonly_batch_context_v1 ledger_reconciliation_v1 fact_inventory_v1 judgment_plan_v1 prose_revision_from_findings_v1)
+      ~w(prose_drafting_with_quality_v1 character_design_with_context_v1 plot_outline_with_context_v1 character_evolution_with_context_v1 world_building_with_context_v1 readonly_batch_context_v1 ledger_reconciliation_v1 fact_inventory_v1 judgment_plan_v1 prose_revision_from_findings_v1)
 
     for profile <- profiles,
         {title, tool} <- [

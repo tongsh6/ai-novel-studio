@@ -15,6 +15,7 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
 
   require NovelCommon.LogEmit
 
+  alias NovelApplication.AuxTaskBuilder
   alias NovelCommon.LogEmit
   alias NovelDomain.ChapterSummary
 
@@ -57,7 +58,8 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
 
   defp do_run(input, generator, repo, work_id, chapter_id) do
     with :ok <- validate_anchor(work_id, chapter_id),
-         {:ok, summary_text} <- generate(generator, input),
+         {:ok, task} <- build_task(input),
+         {:ok, summary_text} <- generate(generator, Map.put(input, :task, task)),
          {:ok, _superseded} <- repo.supersede.(work_id, chapter_id),
          tentative <- build_tentative(input, summary_text),
          {:ok, persisted} <- repo.insert.(to_attrs(tentative)),
@@ -73,6 +75,14 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
       {:ok, accepted}
     else
       {:error, reason} -> degrade(work_id, chapter_id, reason)
+    end
+  end
+
+  # B27 CP3c：摘要任务语义由 application 组装（真实材料范围/版本），生成器只消费 task。
+  defp build_task(input) do
+    case AuxTaskBuilder.for_chapter_summary(input) do
+      {:ok, task} -> {:ok, task}
+      {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
     end
   end
 
@@ -140,5 +150,7 @@ defmodule NovelApplication.ChapterSummaryMaintenance do
   defp degrade_reason_code(%{type: :provider_error}), do: :generation_failed
   defp degrade_reason_code(%{type: :timeout}), do: :generation_failed
   defp degrade_reason_code(:empty_prose), do: :empty_prose
+  defp degrade_reason_code({:authoring_task_invalid, _reason}), do: :authoring_task_invalid
+  defp degrade_reason_code(:summary_sections_unparseable), do: :generation_failed
   defp degrade_reason_code(_reason), do: :persistence_failed
 end
