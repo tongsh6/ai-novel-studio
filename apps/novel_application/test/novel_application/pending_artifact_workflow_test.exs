@@ -15,8 +15,9 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
 
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.{DialogueContext, DialogueFrame}
+  alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.{MemoryLog, Repo, WorkSessionRepo}
-  alias NovelPersistence.Schemas.{Chapter, Volume}
+  alias NovelPersistence.Schemas.{Chapter, Character, Volume}
 
   import Ecto.Query
 
@@ -859,5 +860,45 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert %{assistant_message: %{text: text}} = result.turn_result
     assert text =~ "没有找到要重编号的目标章节"
     assert result.artifact_refs == []
+  end
+
+  test "B29 角色修订候选：trace 完整构造持久化不 crash，产出 character_profile_revision 且零写入", c do
+    shen =
+      Repo.insert!(%Character{
+        work_id: c.work.id,
+        name: "沈砚",
+        aliases: ["老沈"],
+        role: "灯楼查账人",
+        narrative_role: "ENSEMBLE_POV",
+        status: AdoptionStatus.accepted()
+      })
+
+    goal_text = "指定老沈为主角"
+    run = %{c.run | goal: %{text: goal_text, version: 1}}
+
+    judgment = %{
+      action: "execute",
+      capability: "revise_character_profile",
+      character_ref: "character:#{shen.id}",
+      dialogue_goal: goal_text,
+      narrative: "我会生成角色主档案叙事身份的修订候选。"
+    }
+
+    before = Repo.get!(Character, shen.id)
+
+    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
+
+    [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.object_kind == "character_profile_revision"
+    assert pending.payload.character_ref == "character:#{shen.id}"
+    [change] = pending.payload.changes
+    assert change.field == "narrative_role"
+    assert change.old == "ENSEMBLE_POV"
+    assert change.new == "PROTAGONIST"
+
+    # 只产候选：主档案字段零变化，角色数不变。
+    after_row = Repo.get!(Character, shen.id)
+    assert after_row.narrative_role == before.narrative_role
+    assert after_row.name == before.name
   end
 end

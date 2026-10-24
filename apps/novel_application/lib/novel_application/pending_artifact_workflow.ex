@@ -443,7 +443,20 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         session_id: run.session_id
       })
 
-    trace = %{trace_id: "trace_#{frame.turn_id}", turn_id: frame.turn_id}
+    # B29 CP4：完整 DecisionTrace（与 maintain 分支同修法）——两键 trace 会触发
+    # DialogueGateway.trace_to_attrs badkey（frame_ref 等）。
+    {trace, _summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
+
+    trace = %{
+      trace
+      | decision_type: :character_profile_revision,
+        event_order: [
+          :author_input_received,
+          :dialogue_context_attached,
+          :character_profile_revision_candidate_built,
+          :turn_result_emitted
+        ]
+    }
 
     DialogueGateway.persist_turn_trace(
       {:ok, result, trace, [], context},
