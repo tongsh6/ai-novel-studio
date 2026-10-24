@@ -428,3 +428,12 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - **产品修复**（`42d5b3f3`）：M02 统计/索引问题只答进度事实、不得凭统计下质量结论；M03 纯标点/占位/工具调用 XML content 视为空内容→有界 correction；M06 上轮 ask_author 未获回答时纠错重试改 execute/revise 指向候选 → `await_author_unanswered` 拒绝；M16 多意图请求先答版本再给草稿结果；M18 指代资料优先查 prose_search/chapter_read 正文。测试 judgment 44/0、application 852/0、agent 255/0。
 - 定向 probe（`probe-r7-20261024-222425/`，5 episode，0 provider_error）：M06 key_set 残余修复生效（ask_author 列 A/B 未推进）；M02/M03 暴露 provider 把工具调用写成 XML content 的新格式→已加 sanitization；M16 版本回答仍残余；M18 已先 explore，工具选择/预算属 plan/context 域。
 - **retest5**（task-35）进行中：一次 canonical 80 + 盲评 §6.1；本记录不构成 CP4 PASS。
+
+#### CP4 retest5 记录（2026-10-24，证据修复全部生效，但协议终局导致 3 gate FAIL）
+
+- 前置：HEAD `4f1b702b`（证据 d77fcc81 + 产品 42d5b3f3）；old hash `211b2979…` 不变；integrated retest4 `1ca2e150…` → **retest5 `fa2ef92d…`**（资产变化 1 项：judgment_protocol.ex）。
+- 一次 canonical 80（无重跑/无 canonicalization/分母不剔）：old 40/40；integrated **35/40 ok、5 unavailable**（全部产品协议终局失败，非 provider/网络）：M03 r1/r2 已读全章后再 explore → `:exploration_not_available`；M14r2 capability_gap alternative refs 被 `:alternative_operation_not_available` 拒绝；M16r1 `invalid_plan_tool_arguments`；M17r1 伪工具调用文本 → `:judgment_narrative_required`。
+- **§6.1：ZT 0 PASS、uq 0/34 PASS、not_below PASS；unavailable 5/40 FAIL、key_set FAIL 3（M03/M14r2/M17r1）、overall 0.70（28/40）FAIL**。
+- **证据修复全部验证生效**：M07 r1/r2 PASS（文本级 diff 按“仅末尾换行=排版允许”判）、M20 r1/r2 PASS（char_count 217/归一化 217/有效字数 186 双口径生效）；M06 r2、M16 r2、M17 r2 PASS。
+- 回退性质：协议拦截过严/无降级把原语义失败变成不可用终局（M03/M14r2/M17r1），直接打掉 key_set。产品语义残余：M02 r1/r2 仍尝试读正文/引用细节、M08 r2 修改非目标段、M10 r1/r2 分析任务 propose_creative_directions 物化（回归）、M18 r1/r2 误称探索不可用（实际 prose_search/session_adoptions 已成功）。
+- 下一修复方向：① 协议拒绝优先纠错回执/降级（exploration_not_available→预算耗尽说明+基于已读范围 reply；alternative_operation_not_available→列真实可用替代；judgment_narrative_required→丢弃伪工具文本并纠错；invalid_plan_tool_arguments→字段级纠错/重试可达）；② 语义 M02/M08r2/M10/M18。retest6 前置。本批不得当 PASS 证据，CP4 不标 done。

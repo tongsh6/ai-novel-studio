@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**。**CP4 retest4：6/8 gates PASS**（ZT 0、unavailable 0、uq 0 首次全 PASS；仅 key_set 3、overall 0.75）。Round 7 修复已提交：HARNESS M07 文本 diff/换行归一化、M20 atom-key 修复（`d77fcc81`）；产品 M02/M03r2/M06r2/M16r1/M18（`42d5b3f3`）。**retest5（task-35）进行中**：一次 canonical 80 + 盲评；若 key_set 全过且 overall≥36/40 → CP4 PASS 进 CP5。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成**。**CP4 retest5 FAIL（但证据修复全生效：M07/M20 转 PASS，ZT/uq 保持 0）**：remaining 5 unavailable 均为产品协议终局（M03 explore_not_available、M14r2 alternative_not_available、M16r1 plan_args、M17r1 pseudo-tool narrative）→ unavailable 5/40、key_set 3、overall 0.70。Round 8：① 协议拒绝纠错/降级（不再硬终局）；② 语义 M02/M08r2/M10/M18；③ retest6 新预注册批次。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
