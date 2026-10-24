@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | CP0 案例/快照与 CP3a/b/c 专业调用迁移已完成；下一步 CP3d 收口（legacy 分支/双源文案/test-support 残留/I-CACHE 扩展/文档同步），随后 CP4 执行批：`b27_case_freeze --write-arms` 重算整合臂、跑 20 例×2 次×双臂语义门槛与真实 Tauri 生命周期回归。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成并提交**（CP3a–CP3d：全部专业调用 AuthoringTask 单一路径、legacy 删除、退役与 test-support 清理）。当前 CP4 执行批进行中：`b27_case_freeze --write-arms` 重算 integrated_arm、20 例×2 次×双臂 80 episode + 盲评 §6.1 判分；`b27-prompt-lifecycle-consistency` 真实 Tauri 生命周期 driver 已跑通待注册提交。缺口：CP0 arms 重冻需随本批提交；真实模型语义 PASS/FAIL 与观察通道边界待判分后回填。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 
