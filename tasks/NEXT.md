@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B30-CHAPTER-STRUCTURE-MAINTENANCE | **当前任务**：按稳定身份维护原结构、补 B25 大纲物化 title-first 遗漏，正文与引用保持一致。B28 已于 2026-10-25 done（整章修订/format_only/replace_scope 场景 nightly PASS；CP4 writer known-gap 登记）。先读 [B30 slice](slices/B30-chapter-structure-maintenance.md) 并从其 CP0 开工。 | [B30](slices/B30-chapter-structure-maintenance.md) |
+| B30-CHAPTER-STRUCTURE-MAINTENANCE | **当前任务 / CP0 done（2026-10-25，`0f756e2b`）**：真实 Tauri 复现结构维护能力缺失（reply/target_not_available/plot_outline 误路由）、采纳按 title 新建章、标题号≠seq；标准 B11A 蓝图路径安全但持久层无类型防护。CP0 冻结 Q01–Q08（`maintain_chapter_structure` 能力/只重编号首闭环/old→new 映射/两阶段 seq 事务/蓝图类型边界/seq 权威展示/消费者迁移/证据回归）。**CP1/CP2 进行中**：prose（能力+判断+change plan，task-60）、aux（原子 renumber+蓝图类型防护，task-61）→ CP3 消费者迁移 → CP4 两场景+实模 → CP5。 | [B30](slices/B30-chapter-structure-maintenance.md) |
 
 ## 后续候选
 

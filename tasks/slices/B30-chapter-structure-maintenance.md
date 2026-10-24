@@ -1,6 +1,6 @@
 # B30：已有章节重编号、结构修订与卷章类型边界
 
-- 状态：pending / 设计登记；代码、契约冻结、页面验收均未开始。
+- 状态：**doing / CP0 完成（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）**：当前版本无结构维护能力（结构意图→reply/target_not_available/plot_outline 误路由），采纳物化按 title 新建章（无按 chapter_ref 改 seq 路径）；标准 B11A 规划路径蓝图类型安全但持久层无防护。CP0 冻结见 §7，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只授权写 slice / 登记 NEXT。
 - 归属：[AU08 卷结构规划](AU08-volume-structured-planning.md)、[B11A 卷蓝图](B11A-volume-blueprint.md)、[B25 章节身份](B25-chapter-identity-unification.md)、[VS-00J](../../docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md)；提示词统一消费 [B27](B27-systematic-prompt-and-intent-integration.md)。这是新增维护能力，不把 plot_outline 生成冒充重编号。
 
@@ -37,7 +37,7 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 凌晨：第2卷
 
 | CP | 工作 | 状态 |
 |---|---|---|
-| CP0 | 隔离复现两份第11章与卷蓝图误建；冻结身份/序号/展示、维护操作、卷章类型和下游引用处理契约 | todo |
+| CP0 | 隔离复现两份第11章与卷蓝图误建；冻结身份/序号/展示、维护操作、卷章类型和下游引用处理契约 | **done（2026-10-25，`0f756e2b`）**：真实 Tauri 22/22 checks/5 trials（A1 reply 零写入/标题号与 seq 错位保留；A2/A2b target_not_available run failed；C1 越界误路由 plot_outline 候选；B 蓝图仅存 volumes.blueprint 不占 seq）；契约冻结见 §7（Q01–Q08）；aux 代码链/消费者审计/stage 只读清单 `artifacts/model-contracts/b30-cp0/` |
 | CP1 | 按现有 ID/版本生成可审阅变更映射；模型可用操作与 registry/结果一致；无关内容不重写 | todo |
 | CP2 | 采纳后事务更新、唯一约束、幂等/并发/回滚；禁止生成路径冒充维护，卷章类型校验落边界 | todo |
 | CP3 | 所有编号消费者/账本/探索/阅读/写作坐标同步与 trace；完成历史影响清单 | todo |
@@ -54,3 +54,25 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 - 拟命令：bash scripts/quality_accept.sh b30-chapter-renumber-roundtrip --surface tauri；b30-volume-blueprint-kind-boundary 同口径（实施时登记 quality）。回归 au08-volume-structured-planning、b25-chapter-identity-unification、B24 两个读章场景。
 - 完成 [AGENTS](../../AGENTS.md) 后端/前端/架构/静态扫描要求，主链 I3/I1/I2/N-NARR；场景证据与模型语义对照分别记录。当前文档不代表测试已执行。
 - 2026-10-23 — 作者授权登记；承接 AU08/B11A/B25 的维护缺口。下次先读 NEXT、B27、VS-00J 与真实消费者，从 CP0 开始，不直接重排 stage。
+
+## 7. CP0 记录与契约冻结（2026-10-25）
+
+### 7.1 CP0 真实复现结论
+
+- 真实 Tauri 隔离复现（22/22 证据 checks、5 trials；证据 `artifacts/slice-verify/b30-chapter-renumber-roundtrip-tauri/`、保护批次 `...-cp0-pass-20261025T0455/`、失败批次保留；记录 `artifacts/model-contracts/b30-cp0/ui-repro.md`）：
+  - **A1 自然原话**「把第2卷章节编号理顺，内容不要动」→ judgment `reply`、无 pending、零写入；章节 4→4，id/seq/归卷/正文 hash/摘要引用不变，标题号（11/12/13）与真实 seq（3/4/5）的 3 处错位原样保留。
+  - **A2/A2b**（大纲措辞 / stage 原话）→ `target_not_available`×2 → run failed，零写入、无候选；历史「生成另一份大纲并采纳」在当前确定性链路**未复现**（失败早于候选生成）。
+  - **C1 越界目标** → judgment 误路由 `execute/plot_outline` 并生成 outline_draft 候选（未采纳本 trial 零写入；若采纳会误增章）。
+  - **B 卷蓝图边界**：标准 B11A 规划路径（含「规划下一卷」）蓝图仅存 `volumes.blueprint`，**无 Chapter 标题含蓝图、未占 seq**；持久层 `ensure_planned_chapter` 无 object_kind 防护（历史误建根因未在当前链路复现）。
+- 根因：①无结构维护能力（registry/judgment）；②采纳物化按 `(work_id,title)` 查找→不存在新建章，无按 chapter_ref 更新 seq 路径；③标题号≠身份/序号，展示口径未冻结；④卷蓝图类型边界未下沉持久层；⑤缺差异/基线/回执契约。
+
+### 7.2 CP0 冻结决策（Q01–Q08）
+
+- **Q01 维护能力**：新增 registry capability `maintain_chapter_structure`（operation `renumber_chapters` 为首闭环；不新增前端卡，复用既有候选/差异/采纳卡与回执）；judgment 目录必须可见且与 `plot_outline` 明确区分（结构维护 ≠ 生成大纲）；维护意图不得回退 reply/plot_outline/prose_writing；缺目标/越界/歧义→澄清或 gap。
+- **Q02 维护操作契约**：输入 `chapter_ref` 列表 + 每章 `expected_seq`/`expected_version` + `mapping(ref→new_seq)` + work/volume scope + `source.author_input_ref` + base revision；输出可审阅 `change_plan`（mapping old→new、object_count、effects、warnings）作为候选 payload；未采纳零写入；回执基于已提交映射/实际对象数，不得用「大纲已采纳」冒充编号已改。
+- **Q03 四类效果严格分离**：`display_number_only`（首闭环，只重编号）/`reorder`/`move_volume`/`content_modify`；契约显式 `effects`，不得默认捆入；非法效果 → `unsupported_effect`；只重编号不变量：chapter_id 集合/章数/归卷/正文 hash/title 文本不变，仅 seq 与展示章号变化。
+- **Q04 seq 交换事务**：`unique_index(:chapters,[:work_id,:seq])` 已存在；交换/重排用**两阶段临时 seq**（保留区间）在同一 `Ecto.Multi` 内完成，失败整体回滚；幂等（同 operation+mapping+submission → 已提交回执 `duplicate_apply`）；stale base → `stale_base_version`；错误码：`no_target/target_ambiguous/out_of_range/duplicate_seq/stale_base_version/cross_work_scope/type_mismatch/unsupported_effect/partial_failure/duplicate_apply`。
+- **Q05 卷蓝图类型边界**：蓝图仅属 `volumes.blueprint`（VS-00J）；plan→adoption 全链携带 `object_kind`，`ensure_planned_chapter/reduce_planned_chapters` 拒绝 blueprint 行/非法混排（`type_mismatch` 拒绝或纠正提示），不得静默成章/占 seq；标准 B11A 路径保持安全；schema 增量暂不提（先证解析歧义/需显式 kind 时再增）。
+- **Q06 标题展示口径**：身份=`chapter_ref`；真实章号=`seq`；`title` 仅展示、不参与身份/选择/匹配；历史「第NN章：」前缀不改写存储 title；UI/TOC/回执用当前 seq 生成章号展示，旧 title 前缀仅作历史文本。
+- **Q07 下游消费者迁移**：按 `artifacts/model-contracts/b30-cp0/consumer-audit.md` 5 项必做——①计划条目 title 幂等 → chapter_ref；②写作坐标/章使命/进度账/伏笔回收窗口 → ref 优先 + 动态展示 seq；③TOC/探索 chapter_read/检索展示用当前 seq、title 前缀不参与匹配；④阅读投影/章摘要/计划方向（id 消费）验证无需迁移；⑤历史重复章/误建蓝图行只读清单保留（修复另行授权）。重编号后旧 seq 引用迁移或明确失效，trace 保留 old→new。
+- **Q08 证据/回归**：两个真实 Tauri 场景（b30-chapter-renumber-roundtrip/b30-volume-blueprint-kind-boundary）+ AU08/B25/B24 回归 + 实模原话/改述正反例；CP3 引用/投影后果不得写“范围外”；stage 存量清理需单独备份/审阅/授权，不混入 migration。
