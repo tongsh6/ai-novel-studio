@@ -833,7 +833,28 @@ defmodule NovelPersistence.AdoptionRepository do
 
   # 计划章按 (work_id, title) 幂等：不存在则建（带大纲摘要/方向）；已存在则只补缺失的
   # summary 或 plan_direction（正文先于计划采纳、或旧计划无结构方向时）。已有事实不覆盖。
-  defp ensure_planned_chapter(repo, work_id, volume_id, %{title: title} = chapter) do
+  defp ensure_planned_chapter(repo, work_id, volume_id, %{title: _title} = chapter) do
+    with :ok <- validate_chapter_object_kind(chapter) do
+      do_ensure_planned_chapter(repo, work_id, volume_id, chapter)
+    end
+  end
+
+  # B30 CP2 Q05：blueprint 行/非法混排不得物化成 Chapter/占 seq。
+  defp validate_chapter_object_kind(chapter) when is_map(chapter) do
+    kind = Map.get(chapter, :object_kind) || Map.get(chapter, "object_kind")
+    title = Map.get(chapter, :title) || Map.get(chapter, "title") || ""
+
+    cond do
+      kind in [:volume_blueprint, "volume_blueprint"] -> {:error, :type_mismatch}
+      kind not in [nil, :chapter, "chapter"] -> {:error, :type_mismatch}
+      Regex.match?(~r/卷蓝图|volume[_ ]?blueprint/i, to_string(title)) -> {:error, :type_mismatch}
+      true -> :ok
+    end
+  end
+
+  defp validate_chapter_object_kind(_chapter), do: {:error, :type_mismatch}
+
+  defp do_ensure_planned_chapter(repo, work_id, volume_id, %{title: title} = chapter) do
     summary = blank_to_nil(Map.get(chapter, :summary))
     plan_direction = ChapterPlanDirection.to_storage(Map.get(chapter, :plan_direction))
 
@@ -1103,6 +1124,396 @@ defmodule NovelPersistence.AdoptionRepository do
   defp blank_to_nil(_value), do: nil
 
   # 正文采纳进某章 → 该章不再是纯计划态。PLANNED → DRAFTING；已 COMPLETED/其它不回退。
+  # ── B30 CP2：章节结构读端口 + 原子重编号 ────────────────────────────
+
+  @doc """
+  B30 CP2 只读：当前作品（可按卷）章节结构事实，供维护能力生成 change plan。
+  返回 `{:ok, %{work_id, base_revision, volumes: [%{volume_ref, seq, title, chapters: [...]}]}}`
+  或 `{:error, :target_missing | :out_of_range}`。title 仅展示；chapter_ref 为身份。
+  """
+  def chapter_structure_context(work_id, volume_ref \\ nil)
+
+  def chapter_structure_context(work_id, volume_ref) do
+    with {:ok, work_uuid} <- Ecto.UUID.cast(work_id),
+         {:ok, work} <- fetch_work(work_uuid),
+         {:ok, volume} <- fetch_scope_volume(work_uuid, volume_ref) do
+      volumes =
+        case volume do
+          nil -> volumes_with_chapters(work_uuid)
+          %Volume{} -> [volume_with_chapters(work_uuid, volume)]
+        end
+
+      volumes_flat =
+        Enum.map(volumes, fn volume ->
+          %{
+            volume_ref: volume.volume_ref,
+            title: volume.title,
+            seq: volume.seq,
+            blueprint_ref: nil
+          }
+        end)
+
+      chapters_flat = Enum.flat_map(volumes, & &1.chapters) |> Enum.sort_by(& &1.seq)
+
+      {:ok,
+       %{
+         work_id: work_uuid,
+         base_revision: work.revision || 1,
+         volume_ref: volume_ref,
+         volumes: volumes_flat,
+         chapters: chapters_flat,
+         same_title_groups: same_title_groups(volumes)
+       }}
+    end
+  end
+
+  @doc """
+  B30 CP2：两阶段原子重编号。mapping 为 `[%{chapter_ref, new_seq}]`；
+  expected_base_versions 为 `[%{chapter_ref, expected_seq, expected_version}]`（version 可省略）。
+  只更新 seq；不改 title/正文/归卷。返回已提交 mapping/object_count/base_revision。
+  """
+  @spec renumber_chapters(String.t(), [map()], [map()], keyword()) ::
+          {:ok, map()} | {:error, atom() | tuple()}
+  def renumber_chapters(work_id, mapping, expected_base_versions, opts \\ []) do
+    with {:ok, work_uuid} <- Ecto.UUID.cast(work_id),
+         {:ok, targets} <- normalize_renumber_mapping(work_uuid, mapping),
+         :ok <- validate_renumber_same_volume(work_uuid, Keyword.get(opts, :volume_ref)) do
+      dispatch_renumber(work_uuid, targets, expected_base_versions, opts)
+    end
+  end
+
+  # 幂等重放：目标章已全部位于 new_seq → 已提交回执（duplicate），不再报 stale。
+  defp dispatch_renumber(work_uuid, targets, expected_base_versions, opts) do
+    if renumber_already_applied?(targets) do
+      {:ok, renumber_receipt(targets, work_uuid, duplicate: true)}
+    else
+      validate_and_execute_renumber(work_uuid, targets, expected_base_versions, opts)
+    end
+  end
+
+  defp validate_and_execute_renumber(work_uuid, targets, expected_base_versions, opts) do
+    with :ok <- validate_renumber_expected(work_uuid, targets, expected_base_versions),
+         :ok <- validate_renumber_base(work_uuid, Keyword.get(opts, :base_revision)),
+         :ok <- validate_renumber_new_seqs(work_uuid, targets) do
+      execute_renumber(work_uuid, targets)
+    end
+  end
+
+  defp fetch_work(work_uuid) do
+    case Repo.get(Work, work_uuid) do
+      %Work{} = work -> {:ok, work}
+      _ -> {:error, :target_missing}
+    end
+  end
+
+  defp fetch_scope_volume(_work_uuid, nil), do: {:ok, nil}
+
+  defp fetch_scope_volume(work_uuid, "volume:" <> uuid) do
+    with {:ok, volume_id} <- Ecto.UUID.cast(uuid),
+         %Volume{} = volume <-
+           Volume |> where([v], v.id == ^volume_id and v.work_id == ^work_uuid) |> Repo.one() do
+      {:ok, volume}
+    else
+      _ -> {:error, :out_of_range}
+    end
+  end
+
+  defp fetch_scope_volume(_work_uuid, _ref), do: {:error, :out_of_range}
+
+  defp volumes_with_chapters(work_uuid) do
+    Volume
+    |> where([v], v.work_id == ^work_uuid)
+    |> order_by([v], asc: v.seq, asc: v.id)
+    |> Repo.all()
+    |> Enum.map(&volume_with_chapters(work_uuid, &1))
+  end
+
+  defp volume_with_chapters(work_uuid, %Volume{} = volume) do
+    chapters =
+      Chapter
+      |> where([c], c.work_id == ^work_uuid and c.volume_id == ^volume.id)
+      |> order_by([c], asc: c.seq, asc: c.id)
+      |> Repo.all()
+      |> Enum.map(&chapter_structure_fact(work_uuid, &1))
+
+    %{
+      volume_ref: "volume:#{volume.id}",
+      seq: volume.seq,
+      title: volume.title,
+      chapters: chapters
+    }
+  end
+
+  defp chapter_structure_fact(work_uuid, %Chapter{} = chapter) do
+    prose = chapter_accepted_prose_for(work_uuid, chapter)
+    drafts = accepted_draft_refs(work_uuid, chapter.id)
+
+    %{
+      chapter_ref: "chapter:#{chapter.id}",
+      seq: chapter.seq,
+      title: chapter.title,
+      version: Enum.max([chapter_version_from_drafts(drafts), 0]),
+      content_hash: content_hash(prose),
+      content_chars: String.length(prose),
+      volume_ref: "volume:#{chapter.volume_id}",
+      accepted_draft_refs: drafts,
+      accepted_summary_refs: List.wrap(summary_ref(work_uuid, chapter.id)),
+      status: chapter.status
+    }
+  end
+
+  defp chapter_accepted_prose_for(work_uuid, chapter) do
+    Scene
+    |> where([s], s.chapter_id == ^chapter.id and s.work_id == ^work_uuid)
+    |> order_by([s], asc: s.seq)
+    |> Repo.all()
+    |> Enum.map(fn scene ->
+      Draft
+      |> where(
+        [d],
+        d.work_id == ^work_uuid and d.scene_id == ^scene.id and
+          d.status == ^AdoptionStatus.accepted()
+      )
+      |> order_by([d], desc: d.revision, desc: d.updated_at)
+      |> limit(1)
+      |> Repo.one()
+      |> case do
+        %Draft{content: content} -> content
+        _ -> ""
+      end
+    end)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  defp accepted_draft_refs(work_uuid, chapter_id) do
+    Scene
+    |> join(:inner, [s], d in Draft, on: d.scene_id == s.id and d.work_id == ^work_uuid)
+    |> where([s, d], s.chapter_id == ^chapter_id and d.status == ^AdoptionStatus.accepted())
+    |> order_by([s, d], asc: s.seq, desc: d.revision)
+    |> select([s, d], %{id: d.id, revision: d.revision, scene_id: s.id})
+    |> Repo.all()
+    |> Enum.uniq_by(& &1.scene_id)
+    |> Enum.map(&"draft:#{&1.id}:#{&1.revision}")
+  end
+
+  defp chapter_version_from_drafts(refs) do
+    refs
+    |> Enum.map(fn "draft:" <> rest ->
+      rest
+      |> String.split(":")
+      |> List.last()
+      |> Integer.parse()
+      |> case do
+        {n, _} -> n
+        :error -> 0
+      end
+    end)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  defp content_hash(""), do: nil
+  defp content_hash(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
+
+  defp summary_ref(work_uuid, chapter_id) do
+    case NovelPersistence.ChapterSummaryRepo.current_accepted(work_uuid, chapter_id) do
+      %{id: id} -> "chapter_summary:#{id}"
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp same_title_groups(volumes) do
+    volumes
+    |> Enum.flat_map(& &1.chapters)
+    |> Enum.group_by(& &1.title)
+    |> Enum.filter(fn {_title, chapters} -> length(chapters) > 1 end)
+    |> Enum.map(fn {title, chapters} ->
+      %{title: title, chapter_refs: Enum.map(chapters, & &1.chapter_ref)}
+    end)
+  end
+
+  defp normalize_renumber_mapping(work_uuid, mapping) when is_list(mapping) do
+    mapping
+    |> Enum.reduce_while({:ok, []}, fn item, {:ok, acc} ->
+      ref = Map.get(item, "chapter_ref") || Map.get(item, :chapter_ref)
+      new_seq = Map.get(item, "new_seq") || Map.get(item, :new_seq)
+
+      with "chapter:" <> uuid <- ref,
+           {:ok, chapter_id} <- Ecto.UUID.cast(uuid),
+           %Chapter{} = chapter <-
+             Chapter |> where([c], c.id == ^chapter_id and c.work_id == ^work_uuid) |> Repo.one(),
+           true <- is_integer(new_seq) do
+        {:cont, {:ok, acc ++ [%{chapter: chapter, chapter_ref: ref, new_seq: new_seq}]}}
+      else
+        {:ok, _} -> {:halt, {:error, :no_target}}
+        _ -> {:halt, {:error, :no_target}}
+      end
+    end)
+    |> case do
+      {:ok, []} ->
+        {:error, :no_target}
+
+      {:ok, targets} ->
+        if duplicate_refs?(targets), do: {:error, :duplicate_seq}, else: {:ok, targets}
+
+      error ->
+        error
+    end
+  end
+
+  defp normalize_renumber_mapping(_work_uuid, _mapping), do: {:error, :no_target}
+
+  defp duplicate_refs?(targets),
+    do: length(Enum.uniq_by(targets, & &1.chapter_ref)) != length(targets)
+
+  defp validate_renumber_expected(_work_uuid, targets, expected) do
+    expected_map =
+      expected
+      |> List.wrap()
+      |> Enum.reduce(%{}, fn item, acc ->
+        ref = Map.get(item, "chapter_ref") || Map.get(item, :chapter_ref)
+        seq = Map.get(item, "expected_seq") || Map.get(item, :expected_seq)
+        Map.put(acc, ref, seq)
+      end)
+
+    Enum.reduce_while(targets, :ok, fn target, :ok ->
+      expected_seq =
+        Map.get(
+          expected_map,
+          target.chapter_ref,
+          Map.get(expected_map, :default, target.chapter.seq)
+        )
+
+      cond do
+        not is_integer(expected_seq) -> {:halt, {:error, :stale_base_version}}
+        target.chapter.seq != expected_seq -> {:halt, {:error, :stale_base_version}}
+        true -> {:cont, :ok}
+      end
+    end)
+  end
+
+  defp validate_renumber_base(_work_uuid, nil), do: :ok
+
+  defp validate_renumber_base(work_uuid, base_revision) do
+    case Repo.get(Work, work_uuid) do
+      %Work{revision: ^base_revision} -> :ok
+      _ -> {:error, :stale_base_version}
+    end
+  end
+
+  defp validate_renumber_new_seqs(work_uuid, targets) do
+    target_refs = MapSet.new(targets, & &1.chapter_ref)
+
+    occupied =
+      Chapter
+      |> where([c], c.work_id == ^work_uuid)
+      |> select([c], %{id: c.id, seq: c.seq})
+      |> Repo.all()
+      |> Enum.reject(&MapSet.member?(target_refs, "chapter:#{&1.id}"))
+
+    occupied_seqs = Enum.map(occupied, & &1.seq) |> MapSet.new()
+    new_seqs = Enum.map(targets, & &1.new_seq)
+
+    cond do
+      length(Enum.uniq(new_seqs)) != length(new_seqs) -> {:error, :duplicate_seq}
+      Enum.any?(new_seqs, &MapSet.member?(occupied_seqs, &1)) -> {:error, :duplicate_seq}
+      Enum.any?(new_seqs, &(&1 < 1)) -> {:error, :out_of_range}
+      true -> :ok
+    end
+  end
+
+  defp validate_renumber_same_volume(_work_uuid, nil), do: :ok
+
+  defp validate_renumber_same_volume(_work_uuid, "volume:" <> uuid) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, _} -> :ok
+      :error -> {:error, :cross_work_scope}
+    end
+  end
+
+  defp validate_renumber_same_volume(_work_uuid, _ref), do: {:error, :out_of_range}
+
+  defp renumber_already_applied?(targets) do
+    Enum.all?(targets, fn target -> target.chapter.seq == target.new_seq end)
+  end
+
+  defp execute_renumber(work_uuid, targets) do
+    temp_offset = 1_000_000
+    ts = System.os_time(:microsecond)
+
+    mapping_result =
+      Repo.transaction(fn ->
+        targets
+        |> Enum.with_index(1)
+        |> Enum.each(fn {target, index} ->
+          temp_seq = temp_offset + index
+
+          target.chapter
+          |> Ecto.Changeset.change(%{seq: temp_seq})
+          |> Repo.update!()
+        end)
+
+        Enum.each(targets, fn target ->
+          target.chapter
+          |> Ecto.Changeset.change(%{seq: target.new_seq})
+          |> Repo.update!()
+        end)
+
+        %{mapping: targets, work_id: work_uuid, at: ts}
+      end)
+
+    case mapping_result do
+      {:ok, %{mapping: applied}} ->
+        {:ok, renumber_receipt(applied, work_uuid, duplicate: false)}
+
+      {:error, reason} ->
+        {:error, renumber_conflict_reason(reason)}
+    end
+  rescue
+    _error in Ecto.ConstraintError -> {:error, :duplicate_seq}
+    _error in Ecto.StaleEntryError -> {:error, :partial_failure}
+    _ -> {:error, :partial_failure}
+  end
+
+  defp renumber_conflict_reason(%Ecto.Changeset{} = changeset) do
+    if Enum.any?(changeset.errors, fn {_field, {msg, _}} -> msg =~ "unique" end),
+      do: :duplicate_seq,
+      else: :partial_failure
+  end
+
+  defp renumber_conflict_reason(_), do: :partial_failure
+
+  defp renumber_receipt(targets, work_uuid, opts) do
+    mapping =
+      Enum.map(targets, fn target ->
+        %{
+          chapter_ref: target.chapter_ref,
+          from_seq: target.chapter.seq,
+          to_seq: target.new_seq
+        }
+      end)
+
+    %{
+      operation: "renumber_chapters",
+      committed: true,
+      duplicate: Keyword.get(opts, :duplicate, false),
+      work_id: work_uuid,
+      mapping: mapping,
+      object_count: length(mapping),
+      effects: ["display_number_only"],
+      base_revision: current_work_revision(work_uuid)
+    }
+  end
+
+  defp current_work_revision(work_uuid) do
+    case Repo.get(Work, work_uuid) do
+      %Work{revision: revision} -> revision
+      _ -> nil
+    end
+  end
+
   # B28 CP1：当前章按阅读投影顺序的全部 accepted 片段（材料覆盖账/版本基线）。
   # 返回 [%{scene_ref, scene_seq, scene_id, draft_ref, draft_id, revision, content}]。
   def accepted_chapter_scopes(work_id, chapter_identity) do

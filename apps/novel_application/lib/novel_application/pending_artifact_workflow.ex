@@ -26,7 +26,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_capabilities ~w(revise_adopted_content)
-  @capabilities @pending_capabilities ++ @adopted_capabilities
+  @structure_capabilities ~w(maintain_chapter_structure)
+  @capabilities @pending_capabilities ++ @adopted_capabilities ++ @structure_capabilities
   @adopted_revision_types ~w(world_setting world_rule_seed style_rule_seed constraint_seed prose_fragment)
   @revision_tools %{
     "prose_fragment" => "prose_writing",
@@ -104,6 +105,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         |> Enum.find(&(field(&1, :artifact_id) == field(judgment, :pending_artifact_ref)))
         |> revision_tool()
 
+      "maintain_chapter_structure" ->
+        # B30 CP1：结构维护是 application 内确定性变更计划，无 provider/tool adapter。
+        "judgment"
+
       "revise_adopted_content" ->
         # B28 CP1.5：章级修订（chapter:<uuid>）不在 resolved_adoptions 目录；其真实执行工具
         # 是 prose writer（由 PendingArtifactWorkflow.run 的 chapter 分支消费整章事实）。
@@ -122,6 +127,15 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   def validate(judgment, targets) do
+    if field(judgment, :action) == "execute" and
+         field(judgment, :capability) in @structure_capabilities do
+      :ok
+    else
+      validate_artifact_target(judgment, targets)
+    end
+  end
+
+  defp validate_artifact_target(judgment, targets) do
     if field(judgment, :action) == "execute" and field(judgment, :capability) in @capabilities do
       ref =
         field(judgment, :pending_artifact_ref) ||
@@ -139,11 +153,118 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     turn = field(input, :turn_id) || run.parent_turn_ref
     NovelCommon.LogContext.put_turn(run.workspace_id, run.work_id, turn, run.session_id)
 
-    if chapter_revision_target?(judgment) do
-      revise_chapter(judgment, input, run, context, provider)
-    else
-      run_artifact_target(judgment, input, run, context, provider)
+    cond do
+      field(judgment, :capability) == "maintain_chapter_structure" ->
+        maintain_chapter_structure(judgment, input, run, context)
+
+      chapter_revision_target?(judgment) ->
+        revise_chapter(judgment, input, run, context, provider)
+
+      true ->
+        run_artifact_target(judgment, input, run, context, provider)
     end
+  end
+
+  # B30 CP1：结构维护只产出可审阅变更计划候选（零写入、零 provider 调用）。
+  defp maintain_chapter_structure(judgment, input, run, context) do
+    author_text = to_string(run.goal.text || "")
+
+    with {:ok, facts} <- chapter_structure_facts(input, run),
+         {:ok, plan} <-
+           NovelApplication.ChapterStructureMaintenance.change_plan(author_text, facts),
+         {:ok, result} <- build_structure_change_candidate(judgment, plan, facts, run, context) do
+      {:ok, result}
+    else
+      {:error, {:chapter_structure_invalid, _} = reason} -> {:error, reason}
+      {:error, reason} -> {:error, {:chapter_structure_invalid, reason}}
+    end
+  end
+
+  defp chapter_structure_facts(input, run) do
+    case Map.get(input, "chapter_structure_context") || Map.get(input, :chapter_structure_context) do
+      %{} = facts ->
+        {:ok, facts}
+
+      nil ->
+        NovelApplication.ChapterStructureMaintenance.load_context(run.work_id || run.workspace_id)
+    end
+  end
+
+  defp build_structure_change_candidate(judgment, plan, facts, run, context) do
+    frame = frame(judgment, %{}, run, :execution_candidate, plan_scope_ref(facts, plan))
+    title = "章节重编号变更计划（#{plan.object_count} 章）"
+
+    item = %{
+      item_id: "chapter_structure_plan_#{:erlang.phash2({plan.mapping, frame.turn_id})}",
+      title: title,
+      body: render_change_plan_body(plan),
+      rationale: "只重编号并更新列表展示；章节标题/正文/归卷/章数不变。"
+    }
+
+    artifact = %NovelDomain.TentativeArtifactSet{
+      artifact_set_id: NovelFoundation.ID.unique("as"),
+      artifact_type: :chapter_structure_change_plan,
+      items: [item],
+      source_turn_ref: frame.turn_id,
+      source_tool_result_ref: "chapter_structure_change_plan"
+    }
+
+    payload = %{
+      object_kind: "chapter_structure_change_plan",
+      title: title,
+      target_chapter_ref: nil,
+      change_plan: plan,
+      source: %{"author_input_ref" => TurnInteractionService.input_ref(run)}
+    }
+
+    result =
+      TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
+        candidate_title: title,
+        pending_payload: payload
+      })
+
+    result =
+      Map.merge(result, %{
+        workspace_id: run.workspace_id,
+        work_id: run.work_id,
+        session_id: run.session_id
+      })
+
+    trace = %{trace_id: "trace_#{frame.turn_id}", turn_id: frame.turn_id}
+
+    DialogueGateway.persist_turn_trace(
+      {:ok, result, trace, [], context},
+      run.workspace_id,
+      run.session_id,
+      field(%{}, :trace_persister)
+    )
+
+    refs = Enum.map(get_in(result, [:adoption_state, :pending]) || [], &field(&1, :artifact_id))
+
+    {:ok,
+     %{
+       turn_result: result,
+       artifact_refs: refs,
+       tool_call_count: 0,
+       provider_call_count: 0
+     }}
+  end
+
+  defp plan_scope_ref(facts, plan) do
+    Map.get(facts, :volume_ref) || Map.get(facts, "volume_ref") ||
+      plan.mapping |> List.first() |> then(&(&1 && &1.chapter_ref))
+  end
+
+  defp render_change_plan_body(plan) do
+    lines =
+      Enum.map(plan.mapping, fn entry ->
+        "- #{entry.chapter_ref}：第#{entry.from_seq}章 → 第#{entry.to_seq}章"
+      end)
+
+    warnings =
+      if plan.warnings == [], do: [], else: ["" | Enum.map(plan.warnings, &"- 注意：#{&1}")]
+
+    Enum.join(lines ++ warnings, "\n")
   end
 
   defp chapter_revision_target?(judgment) do

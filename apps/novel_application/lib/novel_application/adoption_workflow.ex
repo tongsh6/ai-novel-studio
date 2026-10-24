@@ -593,6 +593,14 @@ defmodule NovelApplication.AdoptionWorkflow do
   @doc false
   def validate_b28_contract(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
+
+    case renumber_change_plan(payload) do
+      nil -> validate_b28_adoption(artifact, payload)
+      plan -> validate_renumber_change_plan(plan)
+    end
+  end
+
+  defp validate_b28_adoption(artifact, payload) do
     effect = b28_map(payload, :adoption_effect)
     scope = b28_map(payload, :scope)
     effect_mode = b28_value(effect, :mode)
@@ -632,6 +640,74 @@ defmodule NovelApplication.AdoptionWorkflow do
 
     b28_signal? and is_nil(effect_mode) and is_nil(b28_value(scope, :target_chapter_ref)) and
       is_nil(adoption_chapter_ref(artifact)) and modification != "format_only"
+  end
+
+  defp renumber_change_plan(payload) when is_map(payload) do
+    object_kind = b28_value(payload, :object_kind)
+    plan = b28_map(payload, :change_plan)
+    effect = b28_map(payload, :adoption_effect)
+
+    if object_kind == "chapter_structure_change_plan" or
+         b28_value(effect, :mode) == "renumber_chapters" or
+         b28_value(plan, :operation) == "renumber_chapters" do
+      plan || effect || payload
+    end
+  end
+
+  defp renumber_change_plan(_payload), do: nil
+
+  defp validate_renumber_change_plan(plan) do
+    mapping = List.wrap(b28_value(plan, :mapping))
+    effects = List.wrap(b28_value(plan, :effects) || ["display_number_only"])
+
+    cond do
+      effects != ["display_number_only"] ->
+        {:error, :unsupported_effect}
+
+      mapping == [] ->
+        {:error, :no_target}
+
+      Enum.any?(mapping, fn item ->
+        is_nil(b28_value(item, :chapter_ref)) or not is_integer(b28_value(item, :to_seq))
+      end) ->
+        {:error, :no_target}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp renumber_plan_attrs(payload) do
+    plan = renumber_change_plan(payload) || payload || %{}
+
+    mapping =
+      plan
+      |> b28_value(:mapping)
+      |> List.wrap()
+      |> Enum.map(fn item ->
+        %{
+          "chapter_ref" => b28_value(item, :chapter_ref),
+          "new_seq" => b28_value(item, :to_seq),
+          "from_seq" => b28_value(item, :from_seq)
+        }
+      end)
+
+    versions =
+      plan
+      |> b28_value(:base_versions)
+      |> List.wrap()
+      |> Map.new(fn item -> {b28_value(item, :chapter_ref), b28_value(item, :version)} end)
+
+    expected =
+      Enum.map(mapping, fn item ->
+        %{
+          "chapter_ref" => item["chapter_ref"],
+          "expected_seq" => item["from_seq"],
+          "version" => Map.get(versions, item["chapter_ref"])
+        }
+      end)
+
+    %{mapping: mapping, expected: expected, object_count: b28_value(plan, :object_count)}
   end
 
   defp b28_effect_attrs(artifact) do
@@ -721,9 +797,54 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp persist_adoption(writer, source_turn_result, decision, artifact, params)
        when is_function(writer, 1) do
-    case validate_b28_contract(artifact) do
-      :ok -> do_persist_adoption(writer, source_turn_result, decision, artifact, params)
-      error -> error
+    payload = artifact_field(artifact, :payload) || %{}
+
+    case renumber_change_plan(payload) do
+      nil ->
+        case validate_b28_contract(artifact) do
+          :ok -> do_persist_adoption(writer, source_turn_result, decision, artifact, params)
+          error -> error
+        end
+
+      plan ->
+        persist_renumber_adoption(source_turn_result, artifact, params, plan)
+    end
+  end
+
+  defp persist_renumber_adoption(source_turn_result, artifact, params, plan) do
+    with :ok <- validate_renumber_change_plan(plan),
+         %{mapping: mapping, expected: expected} <- renumber_plan_attrs(plan),
+         work_id <-
+           Map.get(params, "work_id") || artifact_field(artifact, :work_id) ||
+             map_field(source_turn_result, :work_id),
+         {:ok, receipt} <-
+           NovelPersistence.AdoptionRepository.renumber_chapters(
+             work_id,
+             mapping,
+             expected,
+             [
+               base_revision: Map.get(params, "base_revision") || Map.get(params, :base_revision),
+               volume_ref: Map.get(params, "volume_ref") || Map.get(params, :volume_ref)
+             ]
+             |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+           ) do
+      {:ok,
+       %{
+         mutation_id: nil,
+         mutation_status: MutationStatus.applied(),
+         source_revision_ref: "renumber:#{receipt.object_count}",
+         persisted: true,
+         adoption_effect: %{mode: "renumber_chapters", effects: receipt.effects},
+         committed_mapping: receipt.mapping,
+         object_count: receipt.object_count,
+         base_revision: receipt.base_revision,
+         duplicate: Map.get(receipt, :duplicate, false),
+         warnings: List.wrap(b28_value(plan, :warnings)),
+         reading_projection: nil
+       }}
+    else
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -793,6 +914,18 @@ defmodule NovelApplication.AdoptionWorkflow do
     |> maybe_put_b28_field(
       :superseded_draft_refs,
       Map.get(persisted, :superseded_draft_refs) || Map.get(persisted, "superseded_draft_refs")
+    )
+    |> maybe_put_b28_field(
+      :committed_mapping,
+      Map.get(persisted, :committed_mapping) || Map.get(persisted, "committed_mapping")
+    )
+    |> maybe_put_b28_field(
+      :object_count,
+      Map.get(persisted, :object_count) || Map.get(persisted, "object_count")
+    )
+    |> maybe_put_b28_field(
+      :warnings,
+      Map.get(persisted, :warnings) || Map.get(persisted, "warnings")
     )
   end
 

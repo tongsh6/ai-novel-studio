@@ -1315,4 +1315,77 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert content =~ "whole_chapter=整章"
     assert String.split(content, "## 可选章级修订目标") |> length() == 2
   end
+
+  test "B30 CP1：结构维护意图禁止回退 reply/plot_outline；maintain capability 可通过" do
+    author = "把第2卷章节编号理顺，内容不要动"
+    prompt_input = input(capabilities: ["maintain_chapter_structure", "plot_outline"])
+    prompt_input = Map.put(prompt_input, :author_text, author)
+
+    # 回退 reply → 维护意图机械纠错
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("我可以帮你调整章节编号。", []),
+                 response("", [maintenance_decision()])
+               ]),
+               %{},
+               prompt_input
+             )
+
+    assert judgment.action == "execute"
+    assert judgment.capability == "maintain_chapter_structure"
+    assert judgment.provider_call_count == 2
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    assert List.last(corrected.messages).content =~ "maintenance_capability_required"
+
+    # 误路由 plot_outline（生成大纲）→ 同样纠错
+    assert {:error, {:judgment_protocol_violation, :maintenance_capability_required}} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("", [
+                   call("judgment_decision", %{
+                     "action" => "execute",
+                     "capability" => "plot_outline",
+                     "dialogue_goal" => author,
+                     "reason" => "生成大纲"
+                   })
+                 ]),
+                 response("", [
+                   call("judgment_decision", %{
+                     "action" => "execute",
+                     "capability" => "plot_outline",
+                     "dialogue_goal" => author,
+                     "reason" => "生成大纲"
+                   })
+                 ])
+               ]),
+               %{},
+               prompt_input
+             )
+  end
+
+  test "B30 CP1：判断 prompt 含维护能力目录与边界（不生成大纲/不新建章/不改正文）" do
+    content =
+      JudgmentProtocol.prompt(input(capabilities: ["maintain_chapter_structure"]))
+      |> Map.fetch!(:messages)
+      |> List.first()
+      |> Map.fetch!(:content)
+
+    assert content =~ "maintain_chapter_structure"
+    assert content =~ "只维护既有章结构"
+    assert content =~ "不生成大纲"
+    assert content =~ "章节结构维护"
+    assert content =~ "不得回退为 reply/plot_outline/prose_writing"
+  end
+
+  defp maintenance_decision do
+    call("judgment_decision", %{
+      "action" => "execute",
+      "capability" => "maintain_chapter_structure",
+      "dialogue_goal" => "把第2卷章节编号理顺，内容不要动",
+      "reason" => "章节结构维护"
+    })
+  end
 end

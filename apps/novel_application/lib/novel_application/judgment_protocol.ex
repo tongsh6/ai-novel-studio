@@ -5,6 +5,7 @@ defmodule NovelApplication.JudgmentProtocol do
   alias NovelApplication.{
     AgentNarrativeSource,
     AuthoringTaskPolicy,
+    ChapterStructureMaintenance,
     JudgmentToolContract,
     PendingArtifactWorkflow,
     ProviderActivityProjector,
@@ -135,6 +136,13 @@ defmodule NovelApplication.JudgmentProtocol do
       "不得推进具体候选或版本：不能 execute/revise 指向某候选，不能规划“按某候选执行”，" <>
       "也不能用 report_capability_gap 代替作者回答。请保持等待、重新做具体澄清（ask_author），或只说明仍在等待作者选择。" <>
       "保留同一作者输入、来源、目标、范围与权限，不要猜测作者选择。"
+  end
+
+  defp correction_content(:maintenance_capability_required) do
+    "本次响应未通过契约校验：maintenance_capability_required（这是章节结构维护请求，但响应没有走维护能力）。" <>
+      "作者要求的是既有章结构维护（重编号/只改列表编号）：必须用 judgment_decision.execute，capability=maintain_chapter_structure；" <>
+      "只重编号，不生成大纲、不新建章、不改 title/正文/归卷/章数。不得回退 reply/plot_outline/prose_writing。" <>
+      "缺目标/越界/同名歧义时用 ask_author 具体澄清或 report_capability_gap。保留同一作者输入、目标、对象与范围。"
   end
 
   # M16：judgment_decision 各 action 专属字段互斥；纠错给出具体冲突字段与正确形态。
@@ -352,6 +360,11 @@ defmodule NovelApplication.JudgmentProtocol do
     （会被丢弃并触发纠错），也不得用伪工具文本代替作者可见答复。
     待采纳候选唯一且作者明确要修改它时，直接 execute revise_pending_artifact，不要先 explore；
     explore 只用于对象/版本不明；探索确认对象后必须继续执行修订，不得只描述计划或规则就结束。
+    章节结构维护：作者要求“把第N卷/第N章编号理顺、只改列表编号、重编号、只修正章节序号、章节顺序编号”等
+    既有结构维护时，必须用 judgment_decision.execute capability=maintain_chapter_structure（effect 仅
+    display_number_only：只重编号/只改展示章号，不生成大纲、不新建章、不改 title/正文/归卷/章数）；
+    不得回退为 reply/plot_outline/prose_writing，也不得生成大纲候选冒充维护。缺目标/越界/同名歧义时，
+    用 ask_author 给可辨认澄清（卷/章序号或 ref）或 report_capability_gap，不得猜。
     整章正文修订绑定：作者要求“把第X章正文整理一下/只调整分段和排版/整章修订/改这一章正文”时，
     必须产出 chapter-scoped 修订（目标章 ref + 该章全部当前 accepted 片段有序覆盖 + modification_scope：
     仅排版=format_only、指定片段=target_segments、整章=whole_chapter）；不得只绑单个 as_* artifact，
@@ -437,6 +450,7 @@ defmodule NovelApplication.JudgmentProtocol do
 
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
+         :ok <- validate_maintenance_route(operation, args, options),
          {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
          :ok <- validate_operation(operation, args, options),
          {:ok, text, source} <- narrative(result, call, args) do
@@ -506,6 +520,28 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp operation(_, _), do: {:error, :invalid_tool_combination}
+
+  # B30 CP1：结构维护意图必须走 maintain_chapter_structure（不能回退 reply/大纲/新正文）；
+  # 允许先 explore 取证、或 ask/gap 澄清；否则有界纠错。
+  defp validate_maintenance_route(operation, args, options) do
+    author_text = Keyword.get(options, :author_text, "")
+
+    if ChapterStructureMaintenance.intent?(author_text) do
+      cond do
+        operation == "execute" and
+            field(args, :capability) == "maintain_chapter_structure" ->
+          :ok
+
+        operation in ["capability_gap", "await_author", "explore"] ->
+          :ok
+
+        true ->
+          {:error, :maintenance_capability_required}
+      end
+    else
+      :ok
+    end
+  end
 
   defp validate_operation("execute", args, options) do
     capability = field(args, :capability)
