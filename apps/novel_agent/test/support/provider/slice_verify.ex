@@ -1993,7 +1993,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       # AU-09：作者明确要多个角色候选（“两个/几个/候选/不同方向”）时确定性产出 2 条独立候选，
       # 让逐候选采纳 slice 在离线 provider 下也能演练；普通“设计一个角色”仍单条。
       multi_character_candidate_prompt?(prompt, brief) ->
-        character_candidate_items(brief, context)
+        character_candidate_items(prompt, brief, context)
 
       # AU-09：角色演化记忆草稿（采纳后写角色记忆，非主档案）。
       character_evolution_seed_prompt?(prompt) ->
@@ -2144,7 +2144,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   # 两条取向明显不同、各自独立可采纳的角色候选（item_id/标题各不相同，便于逐项采纳断言）。
-  defp character_candidate_items(brief, context) do
+  defp character_candidate_items(prompt, brief, context) do
     fingerprint = [brief, context] |> Enum.join("\n") |> :erlang.phash2() |> Integer.to_string(36)
     suffix = String.slice(fingerprint, 0, 4)
 
@@ -2162,6 +2162,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         rationale: "候选二：游离于秩序之外的线人方向。"
       }
     ]
+    |> Enum.map(&maybe_put_narrative_role(&1, prompt, brief))
   end
 
   defp outline_plan_prompt?(prompt), do: String.contains?(prompt, "artifact_type：outline_draft")

@@ -243,6 +243,23 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
       assert item["narrative_role"] == "ANTAGONIST"
     end
 
+    test "AU09 回归：设计主角（brief 含候选词触发多候选）时每条 character_seed 都带 narrative_role" do
+      creative_prompt = """
+      JSON 数组
+      artifact_type：character_seed
+      用户创作简述：帮我设计一个主角候选，作为这部作品的核心人物。
+      上下文：当前作品背景与候选方向说明。
+      重要：保留随机标识符。
+      """
+
+      assert {:ok, result} =
+               SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
+
+      assert [a, b] = Jason.decode!(result.content)
+      assert a["narrative_role"] == "PROTAGONIST"
+      assert b["narrative_role"] == "PROTAGONIST"
+    end
+
     test "要求多个角色候选时确定性产出 2 条独立候选（item_id/标题互不相同）" do
       creative_prompt = """
       JSON 数组
