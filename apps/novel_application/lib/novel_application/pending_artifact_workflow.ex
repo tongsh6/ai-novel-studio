@@ -27,7 +27,11 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   @pending_capabilities ~w(revise_pending_artifact discard_pending_artifact)
   @adopted_capabilities ~w(revise_adopted_content)
   @structure_capabilities ~w(maintain_chapter_structure)
-  @capabilities @pending_capabilities ++ @adopted_capabilities ++ @structure_capabilities
+  @character_profile_capabilities ~w(revise_character_profile)
+  @capabilities @pending_capabilities ++
+                  @adopted_capabilities ++
+                  @structure_capabilities ++
+                  @character_profile_capabilities
   @adopted_revision_types ~w(world_setting world_rule_seed style_rule_seed constraint_seed prose_fragment)
   @revision_tools %{
     "prose_fragment" => "prose_writing",
@@ -109,6 +113,10 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         # B30 CP1：结构维护是 application 内确定性变更计划，无 provider/tool adapter。
         "judgment"
 
+      "revise_character_profile" ->
+        # B29 CP1：角色主档案字段修订同样由 application 内确定性候选构建，无 provider。
+        "judgment"
+
       "revise_adopted_content" ->
         # B28 CP1.5：章级修订（chapter:<uuid>）不在 resolved_adoptions 目录；其真实执行工具
         # 是 prose writer（由 PendingArtifactWorkflow.run 的 chapter 分支消费整章事实）。
@@ -128,7 +136,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   def validate(judgment, targets) do
     if field(judgment, :action) == "execute" and
-         field(judgment, :capability) in @structure_capabilities do
+         field(judgment, :capability) in (@structure_capabilities ++
+                                            @character_profile_capabilities) do
       :ok
     else
       validate_artifact_target(judgment, targets)
@@ -156,6 +165,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     cond do
       field(judgment, :capability) == "maintain_chapter_structure" ->
         maintain_chapter_structure(judgment, input, run, context)
+
+      field(judgment, :capability) == "revise_character_profile" ->
+        revise_character_profile(judgment, input, run, context)
 
       chapter_revision_target?(judgment) ->
         revise_chapter(judgment, input, run, context, provider)
@@ -350,6 +362,99 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       if plan.warnings == [], do: [], else: ["" | Enum.map(plan.warnings, &"- 注意：#{&1}")]
 
     Enum.join(lines ++ warnings, "\n")
+  end
+
+  # B29 CP1：角色主档案字段修订候选（零写库、零 provider）。
+  defp revise_character_profile(judgment, input, run, context) do
+    author_text = to_string(run.goal.text || judgment.dialogue_goal || "")
+    desired_role = NovelApplication.CharacterProfile.narrative_role_from_text(author_text)
+
+    with {:ok, facts} <- character_profile_facts(input, run),
+         roster = List.wrap(Map.get(facts, :roster) || Map.get(facts, "roster")),
+         {:ok, target} <-
+           NovelApplication.CharacterProfile.resolve_target(
+             author_text,
+             roster,
+             field(judgment, :character_ref)
+           ),
+         {:ok, payload} <-
+           NovelApplication.CharacterProfile.build_candidate(
+             target,
+             desired_role,
+             author_text,
+             roster
+           ),
+         :ok <- NovelApplication.CharacterProfile.validate_changes(payload),
+         {:ok, result} <-
+           build_character_profile_candidate(judgment, payload, input, run, context) do
+      {:ok, result}
+    else
+      {:error, {:character_profile_invalid, _} = reason} -> {:error, reason}
+      {:error, reason} -> {:error, {:character_profile_invalid, reason}}
+    end
+  end
+
+  defp character_profile_facts(input, run) do
+    case Map.get(input, "character_profile_context") || Map.get(input, :character_profile_context) do
+      %{} = facts ->
+        {:ok, facts}
+
+      nil ->
+        case NovelApplication.CharacterProfile.targets(run.work_id || run.workspace_id) do
+          {:ok, roster} -> {:ok, %{roster: roster}}
+          roster when is_list(roster) and roster != [] -> {:ok, %{roster: roster}}
+          _ -> {:error, :target_missing}
+        end
+    end
+  end
+
+  defp build_character_profile_candidate(judgment, payload, input, run, context) do
+    frame = frame(judgment, %{}, run, :execution_candidate, payload.character_ref)
+    title = NovelApplication.CharacterProfile.candidate_title(payload)
+
+    item = %{
+      item_id:
+        "character_profile_revision_#{:erlang.phash2({payload.character_ref, payload.changes, frame.turn_id})}",
+      title: title,
+      body: NovelApplication.CharacterProfile.candidate_body(payload),
+      rationale: "只修订既有角色主档案字段；不新建角色、不写正文、不写演化记忆。"
+    }
+
+    artifact = %NovelDomain.TentativeArtifactSet{
+      artifact_set_id: NovelFoundation.ID.unique("as"),
+      artifact_type: :character_profile_revision,
+      items: [item],
+      source_turn_ref: frame.turn_id,
+      source_tool_result_ref: "character_profile_revision",
+      target_chapter: nil,
+      target_chapter_ref: nil
+    }
+
+    pending_payload = Map.put(payload, :title, title)
+
+    result =
+      TurnResultBuilder.build(frame, %{}, [], nil, nil, artifact, nil, %{
+        candidate_title: title,
+        pending_payload: pending_payload
+      })
+      |> Map.merge(%{
+        workspace_id: run.workspace_id,
+        work_id: run.work_id,
+        session_id: run.session_id
+      })
+
+    trace = %{trace_id: "trace_#{frame.turn_id}", turn_id: frame.turn_id}
+
+    DialogueGateway.persist_turn_trace(
+      {:ok, result, trace, [], context},
+      run.workspace_id,
+      run.session_id,
+      field(input, :trace_persister)
+    )
+
+    refs = Enum.map(get_in(result, [:adoption_state, :pending]) || [], &field(&1, :artifact_id))
+
+    {:ok, %{turn_result: result, artifact_refs: refs, tool_call_count: 0, provider_call_count: 0}}
   end
 
   defp chapter_revision_target?(judgment) do

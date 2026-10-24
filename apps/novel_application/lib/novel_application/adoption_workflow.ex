@@ -15,6 +15,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MutationStatus
+  alias NovelFoundation.Enums.NarrativeRole
 
   require NovelCommon.LogEmit, as: LogEmit
 
@@ -594,9 +595,15 @@ defmodule NovelApplication.AdoptionWorkflow do
   def validate_b28_contract(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
 
-    case renumber_change_plan(payload) do
-      nil -> validate_b28_adoption(artifact, payload)
-      plan -> validate_renumber_change_plan(plan)
+    case character_revision_plan(payload) do
+      nil ->
+        case renumber_change_plan(payload) do
+          nil -> validate_b28_adoption(artifact, payload)
+          plan -> validate_renumber_change_plan(plan)
+        end
+
+      plan ->
+        validate_character_revision(plan)
     end
   end
 
@@ -811,6 +818,16 @@ defmodule NovelApplication.AdoptionWorkflow do
        when is_function(writer, 1) do
     payload = artifact_field(artifact, :payload) || %{}
 
+    case character_revision_plan(payload) do
+      nil ->
+        persist_artifact_adoption(writer, source_turn_result, decision, artifact, params, payload)
+
+      plan ->
+        persist_character_revision(source_turn_result, artifact, params, plan)
+    end
+  end
+
+  defp persist_artifact_adoption(writer, source_turn_result, decision, artifact, params, payload) do
     case renumber_change_plan(payload) do
       nil ->
         case validate_b28_contract(artifact) do
@@ -822,6 +839,109 @@ defmodule NovelApplication.AdoptionWorkflow do
         persist_renumber_adoption(source_turn_result, artifact, params, plan)
     end
   end
+
+  defp persist_character_revision(source_turn_result, artifact, params, plan) do
+    with :ok <- validate_character_revision(plan),
+         work_id <-
+           Map.get(params, "work_id") || artifact_field(artifact, :work_id) ||
+             map_field(source_turn_result, :work_id),
+         character_ref <- b28_value(plan, :character_ref),
+         change <- plan_changes(plan) |> hd(),
+         old_role <- b28_value(change, :old),
+         new_role <- b28_value(change, :new),
+         fingerprint <- b28_value(plan, :base_fingerprint),
+         {:ok, receipt} <-
+           NovelPersistence.AdoptionRepository.revise_character_narrative_role(
+             work_id,
+             character_ref,
+             fingerprint,
+             new_role,
+             old_role: old_role
+           ) do
+      committed_change = %{
+        field: "narrative_role",
+        old: receipt.old,
+        new: receipt.new
+      }
+
+      {:ok,
+       %{
+         mutation_id: nil,
+         mutation_status: MutationStatus.applied(),
+         source_revision_ref: "character_profile_revision:#{receipt.character_ref}",
+         persisted: true,
+         adoption_effect: %{mode: "character_field_update", effects: receipt.effects},
+         committed_changes: [committed_change],
+         character_ref: receipt.character_ref,
+         base_fingerprint: receipt.base_fingerprint,
+         current_fingerprint: Map.get(receipt, :current_fingerprint),
+         object_count: receipt.object_count,
+         duplicate: Map.get(receipt, :duplicate, false),
+         reading_projection: nil
+       }}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp character_revision_plan(payload) when is_map(payload) do
+    object_kind = b28_value(payload, :object_kind)
+    effect = b28_map(payload, :adoption_effect)
+
+    if object_kind == "character_profile_revision" or
+         b28_value(effect, :mode) == "character_field_update" do
+      payload
+    end
+  end
+
+  defp character_revision_plan(_payload), do: nil
+
+  defp validate_character_revision(plan) do
+    with :ok <- validate_character_revision_target(plan),
+         :ok <- validate_character_revision_effects(plan) do
+      validate_character_revision_change(plan)
+    end
+  end
+
+  defp validate_character_revision_target(plan) do
+    if is_binary(b28_value(plan, :character_ref)), do: :ok, else: {:error, :target_missing}
+  end
+
+  defp validate_character_revision_effects(plan) do
+    effects = List.wrap(b28_value(plan, :effects) || ["character_field_update"])
+    other_changes = List.wrap(b28_value(plan, :other_character_changes) || [])
+
+    cond do
+      effects != ["character_field_update"] -> {:error, :unsupported_effect}
+      # 首闭环只允许修订目标角色；“替换原主角/唯一主角”须作者逐项裁决，不能静默打包。
+      other_changes != [] -> {:error, :unsupported_effect}
+      true -> :ok
+    end
+  end
+
+  defp validate_character_revision_change(plan) do
+    changes = plan_changes(plan)
+    change = List.first(changes) || %{}
+
+    cond do
+      length(changes) != 1 or b28_value(change, :field) != "narrative_role" ->
+        {:error, :unsupported_field}
+
+      is_nil(b28_value(change, :old)) ->
+        {:error, :unsupported_field}
+
+      not is_binary(b28_value(plan, :base_fingerprint)) ->
+        {:error, :stale_base}
+
+      not NarrativeRole.valid?(b28_value(change, :new)) ->
+        {:error, :invalid_character_role}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp plan_changes(plan), do: List.wrap(b28_value(plan, :changes))
 
   defp persist_renumber_adoption(source_turn_result, artifact, params, plan) do
     with :ok <- validate_renumber_change_plan(plan),
@@ -920,28 +1040,22 @@ defmodule NovelApplication.AdoptionWorkflow do
     |> put_b28_result_fields(persisted)
   end
 
+  @b28_result_fields [
+    :adoption_effect,
+    :superseded_draft_refs,
+    :committed_mapping,
+    :object_count,
+    :warnings,
+    :committed_changes,
+    :character_ref,
+    :base_fingerprint,
+    :current_fingerprint
+  ]
+
   defp put_b28_result_fields(result, persisted) when is_map(persisted) do
-    result
-    |> maybe_put_b28_field(
-      :adoption_effect,
-      Map.get(persisted, :adoption_effect) || Map.get(persisted, "adoption_effect")
-    )
-    |> maybe_put_b28_field(
-      :superseded_draft_refs,
-      Map.get(persisted, :superseded_draft_refs) || Map.get(persisted, "superseded_draft_refs")
-    )
-    |> maybe_put_b28_field(
-      :committed_mapping,
-      Map.get(persisted, :committed_mapping) || Map.get(persisted, "committed_mapping")
-    )
-    |> maybe_put_b28_field(
-      :object_count,
-      Map.get(persisted, :object_count) || Map.get(persisted, "object_count")
-    )
-    |> maybe_put_b28_field(
-      :warnings,
-      Map.get(persisted, :warnings) || Map.get(persisted, "warnings")
-    )
+    Enum.reduce(@b28_result_fields, result, fn key, acc ->
+      maybe_put_b28_field(acc, key, map_field(persisted, key))
+    end)
   end
 
   defp put_b28_result_fields(result, _persisted), do: result

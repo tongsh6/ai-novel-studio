@@ -9,6 +9,22 @@ defmodule NovelApplication.CapabilityRegistry do
   alias NovelCommon.Contracts.CapabilityRegistryEntry
 
   @local_entries %{
+    "revise_character_profile" => %CapabilityRegistryEntry{
+      tool_name: "revise_character_profile",
+      tool_version: "1.0.0",
+      tool_layer: :policy,
+      input_contract_ref: "character_profile_revision_input_v1",
+      output_contract_ref: "character_profile_revision_v1",
+      effect_summary: "修订既有角色主档案字段（首闭环 narrative_role），生成可审阅旧→新角色字段修订候选；不新建角色、不写正文、不冒充角色演化记忆。",
+      read_scopes: ["character_dossier", "character_list"],
+      write_scopes: ["character_dossier"],
+      risk_class: :medium,
+      status: :active,
+      trace_level: :standard,
+      provider_dependency: :none,
+      supports_retry: false,
+      supports_cancellation: false
+    },
     "maintain_chapter_structure" => %CapabilityRegistryEntry{
       tool_name: "maintain_chapter_structure",
       tool_version: "1.0.0",

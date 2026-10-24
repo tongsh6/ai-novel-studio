@@ -1388,4 +1388,219 @@ defmodule NovelApplication.JudgmentProtocolTest do
       "reason" => "章节结构维护"
     })
   end
+
+  test "B29 CP1：判断 prompt 含角色索引/修订能力/绑定规则（与 design/evolution 区分）" do
+    targets = [
+      %{
+        character_ref: "character:11111111-1111-1111-1111-111111111111",
+        name: "沈砚",
+        aliases: ["老沈"],
+        narrative_role: "ENSEMBLE_POV",
+        summary: "灯楼查账人"
+      },
+      %{
+        character_ref: "character:22222222-2222-2222-2222-222222222222",
+        name: "顾青",
+        aliases: [],
+        narrative_role: "PROTAGONIST",
+        summary: "巡夜人"
+      }
+    ]
+
+    content =
+      JudgmentProtocol.prompt(
+        input(
+          capabilities: ["revise_character_profile", "character_design"],
+          character_targets: targets
+        )
+      )
+      |> Map.fetch!(:messages)
+      |> List.first()
+      |> Map.fetch!(:content)
+
+    assert content =~ "## 角色索引"
+    assert content =~ "character:11111111-1111-1111-1111-111111111111"
+    assert content =~ "老沈"
+    assert content =~ "narrative_role=ENSEMBLE_POV"
+    assert content =~ "revise_character_profile"
+    assert content =~ "不新建角色、不写正文、不冒充角色演化记忆"
+    assert content =~ "灯楼查账人"
+    assert content =~ "不得回退 reply/character_evolution/character_design"
+    assert content =~ "设计/创建新主角"
+  end
+
+  test "B29 CP1：已有角色身份修订必须走 revise_character_profile；design/evolution 误路由被纠正" do
+    author = "指定沈砚为主角"
+
+    targets = [
+      %{
+        character_ref: "character:11111111-1111-1111-1111-111111111111",
+        name: "沈砚",
+        aliases: ["老沈"],
+        narrative_role: "ENSEMBLE_POV",
+        summary: "灯查账人"
+      },
+      %{
+        character_ref: "character:33333333-3333-3333-3333-333333333333",
+        name: "沈砚",
+        aliases: ["小沈"],
+        narrative_role: "MINOR",
+        summary: "学徒"
+      }
+    ]
+
+    prompt_input =
+      input(
+        capabilities: ["revise_character_profile", "character_evolution", "character_design"],
+        character_targets: targets
+      )
+      |> Map.put(:author_text, author)
+
+    # 回退 reply → 纠错
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("我可以帮你调整角色身份。", []),
+                 response(
+                   "",
+                   [
+                     call("judgment_decision", %{
+                       "action" => "execute",
+                       "capability" => "revise_character_profile",
+                       "character_ref" => "character:11111111-1111-1111-1111-111111111111",
+                       "dialogue_goal" => author,
+                       "reason" => "character_profile_revision"
+                     })
+                   ]
+                 )
+               ]),
+               %{},
+               prompt_input
+             )
+
+    assert judgment.action == "execute"
+    assert judgment.capability == "revise_character_profile"
+    assert judgment.character_ref == "character:11111111-1111-1111-1111-111111111111"
+
+    assert_receive {:provider_request, _}
+    assert_receive {:provider_request, corrected}
+    assert List.last(corrected.messages).content =~ "character_profile_capability_required"
+
+    # 演化记忆误路由 → 同一纠错
+    assert {:error, {:judgment_protocol_violation, :character_profile_capability_required}} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("", [
+                   call("judgment_decision", %{
+                     "action" => "execute",
+                     "capability" => "character_evolution",
+                     "dialogue_goal" => author,
+                     "reason" => "演化记忆"
+                   })
+                 ]),
+                 response("", [
+                   call("judgment_decision", %{
+                     "action" => "execute",
+                     "capability" => "character_evolution",
+                     "dialogue_goal" => author,
+                     "reason" => "演化记忆"
+                   })
+                 ])
+               ]),
+               %{},
+               prompt_input
+             )
+  end
+
+  test "B29 CP1：同名歧义不猜 → 纠错为 ask_author；设计新主角仍走 character_design" do
+    author = "把沈砚指定为主角"
+
+    targets = [
+      %{
+        character_ref: "character:11111111-1111-1111-1111-111111111111",
+        name: "沈砚",
+        aliases: ["老沈"],
+        narrative_role: "ENSEMBLE_POV",
+        summary: "查账人"
+      },
+      %{
+        character_ref: "character:33333333-3333-3333-3333-333333333333",
+        name: "沈砚",
+        aliases: ["小沈"],
+        narrative_role: "MINOR",
+        summary: "学徒"
+      }
+    ]
+
+    prompt_input =
+      input(
+        capabilities: ["revise_character_profile", "character_design"],
+        character_targets: targets
+      )
+      |> Map.put(:author_text, author)
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("", [
+                   call("judgment_decision", %{
+                     "action" => "execute",
+                     "capability" => "revise_character_profile",
+                     "character_ref" => nil,
+                     "dialogue_goal" => author,
+                     "reason" => "绑定"
+                   })
+                 ]),
+                 response("", [
+                   call("ask_author", %{
+                     "question" => "你指的是哪个沈砚？",
+                     "options" => [
+                       %{
+                         "label" => "老沈（查账人）",
+                         "value" => "character:11111111-1111-1111-1111-111111111111"
+                       },
+                       %{
+                         "label" => "小沈（学徒）",
+                         "value" => "character:33333333-3333-3333-3333-333333333333"
+                       }
+                     ]
+                   })
+                 ])
+               ]),
+               %{},
+               prompt_input
+             )
+
+    assert judgment.action == "await_author"
+    assert judgment.question == "你指的是哪个沈砚？"
+
+    # 设计新主角：不是已有角色修订意图，仍走 character_design
+    design_author = "帮我设计一个新主角"
+
+    design_input =
+      input(
+        capabilities: ["revise_character_profile", "character_design"],
+        character_targets: targets
+      )
+      |> Map.put(:author_text, design_author)
+
+    assert {:ok, design} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("", [
+                   call("judgment_decision", %{
+                     "action" => "execute",
+                     "capability" => "character_design",
+                     "dialogue_goal" => design_author,
+                     "reason" => "设计新角色"
+                   })
+                 ])
+               ]),
+               %{},
+               design_input
+             )
+
+    assert design.action == "execute"
+    assert design.capability == "character_design"
+  end
 end

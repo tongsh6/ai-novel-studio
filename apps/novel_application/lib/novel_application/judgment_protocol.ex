@@ -6,6 +6,7 @@ defmodule NovelApplication.JudgmentProtocol do
     AgentNarrativeSource,
     AuthoringTaskPolicy,
     ChapterStructureMaintenance,
+    CharacterProfile,
     JudgmentToolContract,
     PendingArtifactWorkflow,
     ProviderActivityProjector,
@@ -136,6 +137,28 @@ defmodule NovelApplication.JudgmentProtocol do
       "不得推进具体候选或版本：不能 execute/revise 指向某候选，不能规划“按某候选执行”，" <>
       "也不能用 report_capability_gap 代替作者回答。请保持等待、重新做具体澄清（ask_author），或只说明仍在等待作者选择。" <>
       "保留同一作者输入、来源、目标、范围与权限，不要猜测作者选择。"
+  end
+
+  defp correction_content(:character_profile_capability_required) do
+    "本次响应未通过契约校验：character_profile_capability_required（这是已有角色叙事身份修订请求，但响应没有走对应能力）。" <>
+      "必须用 judgment_decision.execute，capability=revise_character_profile，并从「角色索引」逐字复制该角色的 character_ref；" <>
+      "只改 narrative_role，不新建角色、不写正文/演化记忆；不得回退 reply/character_evolution/character_design（设计新角色除外）。" <>
+      "同名/别名歧义用 ask_author 列候选；不存在/越界用澄清或 report_capability_gap。"
+  end
+
+  defp correction_content(:character_target_ambiguous) do
+    "本次响应未通过契约校验：character_target_ambiguous（作者点名的角色在角色索引里同名/别名歧义）。" <>
+      "用 ask_author 列出候选 character_ref+name 让作者选择，不得猜；不要新建角色。"
+  end
+
+  defp correction_content(:character_target_missing) do
+    "本次响应未通过契约校验：character_target_missing（没有找到作者点名的已有角色）。" <>
+      "先确认对象：可用 ask_author 澄清，或 report_capability_gap 说明缺口；不得新建角色/写正文，不得用演化记忆冒充主档案修订。"
+  end
+
+  defp correction_content(:invalid_character_role) do
+    "本次响应未通过契约校验：invalid_character_role（无法确定要改成的叙事角色）。" <>
+      "narrative_role 只能取 PROTAGONIST/ANTAGONIST/SUPPORTING/MINOR/ENSEMBLE_POV；请用 ask_author 澄清或按作者原话选择合法值。"
   end
 
   defp correction_content(:maintenance_capability_required) do
@@ -287,6 +310,7 @@ defmodule NovelApplication.JudgmentProtocol do
     #{Map.get(input, :context_block, "")}
 
     #{chapter_revision_targets_section(options)}
+    #{character_targets_section(options)}
 
     ## 当前可用操作（效果与权限，以本轮真实目录为准）
     #{AuthoringTaskPolicy.operations(options)}
@@ -365,6 +389,12 @@ defmodule NovelApplication.JudgmentProtocol do
     display_number_only：只重编号/只改展示章号，不生成大纲、不新建章、不改 title/正文/归卷/章数）；
     不得回退为 reply/plot_outline/prose_writing，也不得生成大纲候选冒充维护。缺目标/越界/同名歧义时，
     用 ask_author 给可辨认澄清（卷/章序号或 ref）或 report_capability_gap，不得猜。
+    角色主档案字段修订：作者要求“指定/改判/确立/把 <已有角色名或别名> 设为主角/反派/配角/群像”等
+    已有角色叙事身份修订时，必须用 judgment_decision.execute capability=revise_character_profile，
+    并逐字复制「角色索引」中该角色的 character_ref（身份只认 ref，name/aliases 仅展示与消歧）；
+    只允许修订既有角色主档案 narrative_role，不新建角色、不写正文、不冒充角色演化记忆。
+    同名/别名歧义不得猜：ask_author 列出候选 ref+name；不存在/越界用澄清或 report_capability_gap；
+    不得回退 reply/character_evolution/character_design（“设计/创建新主角”仍走 character_design）。
     整章正文修订绑定：作者要求“把第X章正文整理一下/只调整分段和排版/整章修订/改这一章正文”时，
     必须产出 chapter-scoped 修订（目标章 ref + 该章全部当前 accepted 片段有序覆盖 + modification_scope：
     仅排版=format_only、指定片段=target_segments、整章=whole_chapter）；不得只绑单个 as_* artifact，
@@ -416,6 +446,21 @@ defmodule NovelApplication.JudgmentProtocol do
     """
   end
 
+  defp character_targets_section(options) do
+    targets = Keyword.get(options, :character_targets, [])
+
+    if is_list(targets) and targets != [] do
+      lines =
+        Enum.map_join(targets, "\n", fn target ->
+          "- #{Map.get(target, :character_ref)}｜#{Map.get(target, :name)}｜别名：#{Enum.join(List.wrap(Map.get(target, :aliases)), "、")}｜narrative_role=#{Map.get(target, :narrative_role) || "未设置"}｜#{Map.get(target, :summary) || Map.get(target, :role) || ""}"
+        end)
+
+      "## 角色索引（已有角色；character_ref 是身份，name/aliases 仅展示与消歧）\n" <> lines
+    else
+      ""
+    end
+  end
+
   defp chapter_revision_targets_section(options) do
     targets = Keyword.get(options, :chapter_revision_targets, [])
 
@@ -451,6 +496,7 @@ defmodule NovelApplication.JudgmentProtocol do
     with :ok <- validate_tools(calls, profile),
          {:ok, operation, args, call} <- operation(calls, profile),
          :ok <- validate_maintenance_route(operation, args, options),
+         :ok <- validate_character_profile_route(operation, args, options),
          {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
          :ok <- validate_operation(operation, args, options),
          {:ok, text, source} <- narrative(result, call, args) do
@@ -540,6 +586,46 @@ defmodule NovelApplication.JudgmentProtocol do
       end
     else
       :ok
+    end
+  end
+
+  # B29 CP1：角色叙事身份修订意图必须走 revise_character_profile，并绑定唯一 character_ref；
+  # 允许先 explore 取证、或 ask/gap 澄清；设计新角色仍走 character_design。
+  defp validate_character_profile_route(operation, args, options) do
+    author_text = Keyword.get(options, :author_text, "")
+
+    cond do
+      not CharacterProfile.revision_intent?(author_text) ->
+        :ok
+
+      operation == "execute" and field(args, :capability) == "revise_character_profile" ->
+        validate_character_profile_execute(args, options, author_text)
+
+      operation == "execute" and CharacterProfile.design_new_protagonist_intent?(author_text) ->
+        :ok
+
+      operation in ["capability_gap", "await_author", "explore"] ->
+        :ok
+
+      true ->
+        {:error, :character_profile_capability_required}
+    end
+  end
+
+  defp validate_character_profile_execute(args, options, author_text) do
+    targets = List.wrap(Keyword.get(options, :character_targets, []))
+    model_ref = field(args, :character_ref)
+
+    case CharacterProfile.narrative_role_from_text(author_text) do
+      nil ->
+        {:error, :invalid_character_role}
+
+      _desired ->
+        case CharacterProfile.resolve_target(author_text, targets, model_ref) do
+          {:ok, _target} -> :ok
+          {:error, :target_ambiguous} -> {:error, :character_target_ambiguous}
+          {:error, _reason} -> {:error, :character_target_missing}
+        end
     end
   end
 
@@ -702,7 +788,7 @@ defmodule NovelApplication.JudgmentProtocol do
   defp empty_targets?(args),
     do:
       Enum.all?(
-        [:capability, :pending_artifact_ref, :adopted_content_ref],
+        [:capability, :pending_artifact_ref, :adopted_content_ref, :character_ref],
         &is_nil(field(args, &1))
       )
 
@@ -817,6 +903,7 @@ defmodule NovelApplication.JudgmentProtocol do
       dialogue_goal: field(args, :dialogue_goal),
       pending_artifact_ref: field(args, :pending_artifact_ref),
       adopted_content_ref: field(args, :adopted_content_ref),
+      character_ref: field(args, :character_ref),
       explore_request: explore_request(field(args, :explore_request)),
       candidate_directions: field(args, :candidate_directions) || [],
       author_content_source_ref: field(args, :author_content_source_ref),

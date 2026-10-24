@@ -1118,6 +1118,7 @@ defmodule NovelApplication.DialoguePlanningService do
             NovelApplication.PendingArtifactWorkflow.accepted_targets(context),
           registered_sources: TurnInteractionService.registered_sources(context),
           chapter_revision_targets: chapter_revision_targets(run),
+          character_targets: character_targets(run),
           readonly_capabilities: @judgment_readonly_capabilities,
           author_content_sources:
             context
@@ -1129,6 +1130,20 @@ defmodule NovelApplication.DialoguePlanningService do
             else: []
           )
     }
+  end
+
+  # B29 CP1：把已有角色索引（ref/name/aliases/narrative_role/summary）带入判断目录，
+  # name/aliases 仅展示与消歧；读端口不可用时诚实为空（不猜/不新建）。
+  defp character_targets(run) do
+    work_id = run.work_id || run.workspace_id
+
+    case NovelApplication.CharacterProfile.targets(work_id) do
+      {:ok, targets} when is_list(targets) -> targets
+      targets when is_list(targets) -> targets
+      _ -> []
+    end
+  rescue
+    _ -> []
   end
 
   # B28 CP1.5：把有 accepted 正文的章目标带入判断上下文（ref 唯一，title 仅展示）。

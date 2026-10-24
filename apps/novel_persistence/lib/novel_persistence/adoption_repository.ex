@@ -1195,6 +1195,200 @@ defmodule NovelPersistence.AdoptionRepository do
   defp blank_to_nil(_value), do: nil
 
   # 正文采纳进某章 → 该章不再是纯计划态。PLANNED → DRAFTING；已 COMPLETED/其它不回退。
+  # ── B29 CP2：角色主档案读端口 + narrative_role 原子修订 ──────────────
+
+  @doc """
+  B29 CP2 只读：角色主档案事实（供判断绑定/候选）。
+  `character_profile_context(work_id)` 返回全部 accepted/tentative 角色 + 同名分组；
+  `character_profile_context(work_id, character_ref)` 返回单角色或可解释错误。
+  base_fingerprint = sha256(character_id+name+aliases+narrative_role+role+summary+status+updated_at)。
+  """
+  def character_profile_context(work_id) when is_binary(work_id) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, work_uuid} ->
+        characters =
+          Character
+          |> where([c], c.work_id == ^work_uuid)
+          |> order_by([c], asc: c.name, asc: c.inserted_at)
+          |> Repo.all()
+
+        facts = Enum.map(characters, &character_profile_fact/1)
+
+        {:ok,
+         %{
+           work_id: work_uuid,
+           characters: facts,
+           same_name_groups: character_same_name_groups(facts)
+         }}
+
+      :error ->
+        {:error, :cross_work_scope}
+    end
+  end
+
+  def character_profile_context(work_id, nil) when is_binary(work_id) do
+    character_profile_context(work_id)
+  end
+
+  def character_profile_context(work_id, character_ref) when is_binary(work_id) do
+    with {:ok, work_uuid} <- Ecto.UUID.cast(work_id),
+         {:ok, character} <- fetch_character_for_revision(work_uuid, character_ref) do
+      {:ok, character_profile_fact(character)}
+    end
+  end
+
+  def character_profile_context(_work_id, _character_ref), do: {:error, :target_missing}
+
+  @doc """
+  B29 CP2：原子修订 Character.narrative_role（同 character_id、角色数不增、不改其它字段/角色/work）。
+  - invalid_character_role / unsupported_field / stale_base（fingerprint 不符）/ target_missing / cross_work_scope；
+  - 幂等重放（角色已是 new_role 且 opt old_role 匹配）→ committed duplicate 回执，不重复写；
+  - 返回 committed changes(field/old/new)/fingerprint 供审计回滚。
+  """
+  def revise_character_narrative_role(
+        work_id,
+        character_ref,
+        expected_fingerprint,
+        new_role,
+        opts \\ []
+      ) do
+    with :ok <- validate_character_role_field(new_role),
+         {:ok, work_uuid} <- Ecto.UUID.cast(work_id),
+         {:ok, character} <- fetch_character_for_revision(work_uuid, character_ref) do
+      maybe_apply_character_revision(character, new_role, expected_fingerprint, opts)
+    end
+  end
+
+  defp maybe_apply_character_revision(character, new_role, expected_fingerprint, opts) do
+    if character.narrative_role == new_role do
+      # 幂等重放：目标已具备 new_role（opts 带 old_role 说明是同一变更的重复采纳）。
+      {:ok,
+       character_revision_receipt(character, character, expected_fingerprint,
+         duplicate: true,
+         old_role: Keyword.get(opts, :old_role) || character.narrative_role
+       )}
+    else
+      apply_character_revision(character, new_role, expected_fingerprint, opts)
+    end
+  end
+
+  defp apply_character_revision(character, new_role, expected_fingerprint, opts) do
+    with :ok <- validate_character_fingerprint(character, expected_fingerprint, opts) do
+      update_character_narrative_role(character, new_role, expected_fingerprint)
+    end
+  end
+
+  defp update_character_narrative_role(character, new_role, expected_fingerprint) do
+    Repo.transaction(fn ->
+      {:ok, updated} =
+        character
+        |> Character.changeset(%{narrative_role: new_role})
+        |> Repo.update()
+
+      character_revision_receipt(character, updated, expected_fingerprint, duplicate: false)
+    end)
+    |> case do
+      {:ok, receipt} -> {:ok, receipt}
+      {:error, reason} -> {:error, {:partial_failure, reason}}
+    end
+  end
+
+  defp validate_character_role_field(role) do
+    if NarrativeRole.valid?(role), do: :ok, else: {:error, :invalid_character_role}
+  end
+
+  defp fetch_character_for_revision(work_uuid, "character:" <> uuid) do
+    fetch_character_for_revision(work_uuid, uuid)
+  end
+
+  defp fetch_character_for_revision(work_uuid, uuid) when is_binary(uuid) do
+    with {:ok, character_id} <- Ecto.UUID.cast(uuid),
+         %Character{} = character <- Repo.get(Character, character_id) do
+      if character.work_id == work_uuid do
+        {:ok, character}
+      else
+        {:error, :cross_work_scope}
+      end
+    else
+      _ -> {:error, :target_missing}
+    end
+  end
+
+  defp fetch_character_for_revision(_work_uuid, _ref), do: {:error, :target_missing}
+
+  defp validate_character_fingerprint(character, expected, opts) do
+    cond do
+      is_nil(expected) ->
+        {:error, :stale_base}
+
+      is_binary(expected) and expected == character_base_fingerprint(character) ->
+        :ok
+
+      is_binary(Keyword.get(opts, :old_role)) and
+          Keyword.get(opts, :old_role) == character.narrative_role ->
+        :ok
+
+      true ->
+        {:error, :stale_base}
+    end
+  end
+
+  defp character_profile_fact(%Character{} = character) do
+    %{
+      character_ref: "character:#{character.id}",
+      name: character.name,
+      aliases: List.wrap(character.aliases),
+      narrative_role: character.narrative_role,
+      role: character.role,
+      summary: character.summary,
+      status: character.status,
+      base_fingerprint: character_base_fingerprint(character),
+      updated_at: character.updated_at && DateTime.to_iso8601(character.updated_at)
+    }
+  end
+
+  defp character_base_fingerprint(%Character{} = character) do
+    payload =
+      [
+        character.id,
+        character.name,
+        Enum.join(List.wrap(character.aliases), ","),
+        character.narrative_role,
+        character.role,
+        character.summary,
+        character.status,
+        character.updated_at && DateTime.to_iso8601(character.updated_at)
+      ]
+      |> Enum.map_join("|", &to_string/1)
+
+    :crypto.hash(:sha256, payload) |> Base.encode16(case: :lower)
+  end
+
+  defp character_same_name_groups(facts) do
+    facts
+    |> Enum.group_by(& &1.name)
+    |> Enum.filter(fn {_name, rows} -> length(rows) > 1 end)
+    |> Enum.map(fn {name, rows} ->
+      %{name: name, character_refs: Enum.map(rows, & &1.character_ref)}
+    end)
+  end
+
+  defp character_revision_receipt(before, after_character, expected_fingerprint, opts) do
+    %{
+      committed: true,
+      duplicate: Keyword.get(opts, :duplicate, false),
+      character_ref: "character:#{after_character.id}",
+      field: "narrative_role",
+      old: Keyword.get(opts, :old_role) || before.narrative_role,
+      new: after_character.narrative_role,
+      object_count: 1,
+      effects: ["character_field_update"],
+      base_fingerprint: expected_fingerprint,
+      current_fingerprint: character_base_fingerprint(after_character),
+      work_id: after_character.work_id
+    }
+  end
+
   # ── B30 CP2：章节结构读端口 + 原子重编号 ────────────────────────────
 
   @doc """
