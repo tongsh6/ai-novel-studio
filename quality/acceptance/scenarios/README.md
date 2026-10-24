@@ -217,4 +217,6 @@
 
 ## B31 页面场景
 
+**B31 / Q3D 边界（2026-10-25 CP3 文档同步）**：显式问题/选项回复由 `agent-awaiting-author-*` 与 `b26-author-question-roundtrip` 场景承担；`q3d-message-delivery-recovery` 只验证 **steer 投递恢复**（丢回执/断线/刷新/重启后的稳定身份、目标版本只推进一次、完成/失败/失活回执），不验证显式问题回复语义。按 B31 §6.2 Q02，存在其他 run 的未答 open question 时普通主输入不 plain steer（按新请求 + 可见提示）；因此 Q3D 恢复步骤使用**无 open author_question 的 awaiting 形状**（plan-exhaust awaiting）驱动 steer。`q3d-message-delivery-recovery.yml` 本体由 B31 CP3 场景任务同步（task-44），本 README 仅登记口径。
+
 - [b31-author-reply-run-binding.yml](b31-author-reply-run-binding.yml)（**已注册 active/nightly**）：B31 作者补充输入与待回复任务的稳定绑定——同会话两个 live awaiting_author run（B26 问题 run Q + 结构调整 plan-exhaust run S）下：Q open 时普通主输入按新请求（user_message 新 run）+ 可见提示，不 plain steer 到错误 run；两个 live-only run 歧义时可见提示 + 真实任务选择，点选后 steer 该 run 且 wire 带 `expected_goal_version`、ack 返回 `resolved_run_id`/`binding_source`；显式「回复此问题」仍 author_choice 绑定 Q；刷新/重连（JoinRestore 稳定序）后普通输入仍不串 run。driver `driveB31AuthorReplyRunBinding`，证据 `artifacts/slice-verify/b31-author-reply-run-binding-tauri/`。**边界**：确定性 provider 绑定/生命周期证据；真实模型自然语言语义质量归 B27 §6.1 矩阵。

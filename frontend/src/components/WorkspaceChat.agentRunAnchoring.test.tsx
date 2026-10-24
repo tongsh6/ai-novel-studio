@@ -17,7 +17,7 @@ import {
   upsertAssistantTurnResultMessage,
   type AgentRunAnchorMessage,
 } from "../lib/agentRunAnchoring";
-import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
+import { decideAgentRunInputRoute } from "../lib/agentRunInputRouting";
 import { type TurnResult } from "./WorkspaceChat";
 import type { AgentRunStateData } from "../lib/socket";
 
@@ -465,12 +465,15 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
     const merged = mergeAgentRunRuntimeState(acknowledgedRun, completedFromTurnResult);
 
     expect(merged.status).toBe("completed");
+    // B31 CP3：旧 latestAgentRun 路由已移除；终态 merged run 由确定性路由裁决为
+    // 不 steer（按新请求 user_message）。
+    expect(decideAgentRunInputRoute({ runs: [merged] }).route).toBe("user_message");
     expect(
-      shouldRouteInputToAgentSteer({
-        latestAgentRun: merged,
+      decideAgentRunInputRoute({
+        runs: [merged],
         pendingAnswerBehaviorId: null,
-      }),
-    ).toBe(false);
+      }).reason,
+    ).toBe("no_active_run");
   });
 
   it("does not let delayed running state reopen a completed AgentRun", () => {

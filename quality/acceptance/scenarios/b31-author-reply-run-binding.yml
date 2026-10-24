@@ -103,6 +103,7 @@ known_not_closed:
   - T3/T4/T5 第二个 run 的创建使用外部协议 seed（复刻 stage 双 run 恢复形状）；真实用户双 run 创建形状由 T1/T2 覆盖。
   - 「明确新话题不被任何 awaiting run 截走」在 T1/T2/T3/T4 已验证为普通输入成新请求；多 open question 的显式选择属后续体验迭代。
   - 待投递重传路径（断线重放的 steer submission）不携带 expected_goal_version（generated schema 未扩）；live send 均携带。CP3 文档/契约同步项已登记。
+  - 显式问题回复只由 agent-awaiting-author-*（B26）场景验证；本场景的显式问题对照仅覆盖 author_choice 绑定，不重复 B26 全矩阵。
 driver_plan:
   implementation_surface: frontend/slice-verify/external-ui-driver.mjs
   driver_function: driveB31AuthorReplyRunBinding
@@ -112,7 +113,7 @@ regression_relations:
   - rel: agent-awaiting-author-steer-resume / agent-awaiting-author-input-required
     relation: 显式问题路径（author_choice/问题卡/composer）不变，本场景作为新增多 run 归属回归；B26 的选项/自由回复矩阵仍由原场景独立承担。
   - rel: q3d-message-delivery-recovery
-    relation: 复用 Q3D 的持久 submission/恢复边界；本场景新增多 run 选择与 steer 目标校验，不替代 Q3D 重传矩阵。
+    relation: Q3D 只验证消息/steer 投递恢复与幂等（2026-10-25 起改用无 open question 的 plan-exhaust awaiting）；显式问题回复归 agent-awaiting-author-*；本场景新增多 run 归属与 steer 目标校验，不替代 Q3D 重传矩阵。
   - rel: DS03 / B23
     relation: runtime_live/terminal 规则继续由 DS03 场景承担；本场景不改状态机，只选择与绑定输入目标。
   - rel: B27 CP4 语义矩阵

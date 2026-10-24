@@ -611,6 +611,15 @@ agent_command → pause / resume / cancel / steer
 
 Agent runtime 不持有 Phoenix socket。bounded runtime 通过 Channel 传入的 application-owned event sink 发布 author-visible 事件和最终 `TurnResult`；durable runtime 在 UA-CP5 中复用该 event sink，并在 Channel join recovery 时重新绑定 live runtime 或从 `LongRunTask` checkpoint 广播恢复状态。
 
+### 9.1 B31 CP1 additive：作者输入 → run 绑定、版本前置与恢复稳定序（2026-10-25）
+
+B31 CP1（`1a1fe079`）在既有 `agent_command` 协议上做 additive 扩展，不改既有字段语义、不新增 Channel 命令/问题表：
+
+- **plain steer 可选 `expected_goal_version`（正整数）**：客户端发送当前看到的 run `goal.version`。服务端与当前 `run.goal.version` 比对，不匹配返回 `goal_version_conflict`（附 `current_goal_version` / `expected_goal_version`），**不推进 goal、不写 steer**；缺省保持旧行为（迁移期兼容）。不要求 run 处于 awaiting_author（显式 steer 仍可用于 running/paused），terminal 拒绝沿用既有规则。
+- **steer ack additive**：成功回执增加 `resolved_run_id`（实际绑定的 run）与 `binding_source`（如 `explicit_steer` / `active_run`），供前端与外部证据核对；既有 ack 字段（`run_id`/`turn_id`/`source_turn_ref`/`goal_version`/`agent_run_state`）语义不变。
+- **前端运行选择语义（Q01/Q02/Q05）**：唯一 open author question（且 goal version 与 run 匹配）所属 run > 作者最近交互/focused run > 唯一 steerable run > 否则 null（歧义不自动 steer）。仅当 active run 唯一确定、且会话中不存在其他 run 的未答 open question、且无 pending answer/计划选项时，主输入才走 plain steer；否则主输入按**新请求**（`user_message` 新 run）处理并给作者可见提示。显式问题/选项回复只走 B26 `author_choice`；多 live run 时输入区/停等坞必须可见“输入将发给哪个任务”，歧义时提示选择。禁止以 Map 插入序/广播到达序作为语义依据。
+- **JoinRestore/reconnect 广播稳定序**：恢复广播按 `{inserted_at, id}`（reconnect 用 `{created_at, run_id}`）稳定排序输出，保证刷新/重连/外部证据可复现；该序**仅供可复现，不构成前端选择依据**。
+
 `user_message` 不保留同步 `DialogueGateway` / `sync_turn` fallback。普通 reply-only、direct tool 与创作 profile 都必须先 ack `run_id`，再在 AgentRun lifecycle 内完成 context / frame / plan / gate / execute / finalize。`author_action` 仍走专用 action 入口，但不得作为 `user_message` 的旧同步兼容路径回流。
 
 ## 10. Interrupt Semantics
@@ -630,7 +639,7 @@ Cancel：绑定明确 `run_id`，保留已完成 step / event / trace / tentativ
 
 Resume：paused run 检查 snapshot 是否 stale；stale 时 replan 或 awaiting author。
 
-Steer：递增 `goal.version`，旧 plan superseded，已完成 Observation 保留，未执行步骤失效并重新规划剩余步骤。
+Steer：递增 `goal.version`，旧 plan superseded，已完成 Observation 保留，未执行步骤失效并重新规划剩余步骤。B31 CP1 起 plain steer 可携带可选 `expected_goal_version`：与当前 `goal.version` 不匹配时返回 `goal_version_conflict` 并拒绝，不推进 goal、不写 steer（详见 §9.1）；ack additive 返回 `resolved_run_id` / `binding_source`。
 
 当前已落地的是 ProviderExecution cancellation：AgentRun cancel 绑定明确 `run_id`，请求同一 ProviderExecution token 取消，adapter 在同一 ProviderRun/Event/Output stream 内物化 cancelled facts。
 

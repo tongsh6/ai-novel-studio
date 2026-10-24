@@ -444,8 +444,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
           revision: "沿用原稿结构修订正文。",
           task:
             AuthoringTaskFixtures.task(:revision, %{
-              output_contract:
-                AuthoringTaskFixtures.contract_for(kind_for_tool(tool))
+              output_contract: AuthoringTaskFixtures.contract_for(kind_for_tool(tool))
             })
       }
 

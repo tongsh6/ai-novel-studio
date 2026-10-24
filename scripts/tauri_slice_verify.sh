@@ -2239,7 +2239,7 @@ MIX_ENV=test \
   SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" || "$SLICE_ID" == "su01-local-secret-file-roundtrip" ]] && echo 1 || echo 0)" \
   SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" || "$SLICE_ID" == "su01-provider-test-failure-ui" ]] && echo 1 || echo 0)" \
   SLICE_VERIFY_WRITER_TIMEOUT="$([[ "$SLICE_ID" == "b17-writer-timeout-steer" ]] && echo 1 || echo 0)" \
-  SLICE_VERIFY_PLAN_EXHAUST="$([[ "$SLICE_ID" == "agent-plan-exhausted-awaiting-reason" || "$SLICE_ID" == "b31-author-reply-run-binding" ]] && echo 1 || echo 0)" \
+  SLICE_VERIFY_PLAN_EXHAUST="$([[ "$SLICE_ID" == "agent-plan-exhausted-awaiting-reason" || "$SLICE_ID" == "b31-author-reply-run-binding" || "$SLICE_ID" == "q3d-message-delivery-recovery" ]] && echo 1 || echo 0)" \
   NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
   AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &

@@ -348,6 +348,19 @@ UI 回传给系统的输入分两类：
 3. UI 不提交 hidden execution flags，如 `approved=true`。
 4. 系统必须重新校验 action 是否仍有效。
 
+### 6.3 B31 运行绑定与输入路由（CP1，2026-10-25）
+
+多 live run 时，UI 不得以 Map 插入序/广播到达序决定输入目标；使用确定性 active run 选择（B31 Q01）：
+
+1. 唯一 open author question（`author_question.status=open` 且 goal version 与 run 匹配）所属 run；
+2. 作者最近交互/focused 的 run（点击该 run 卡片/停等坞/结果、提交 steer 时记录）；
+3. 唯一 steerable run；
+4. 否则 null（歧义）。
+
+主输入（`AuthorTextInput`）仅在 active run 唯一确定、且会话中不存在其他 run 的未答 open question、且无 pending answer/计划选项时，才作为 plain steer 绑定该 run；否则按新请求（`user_message` 新 run）处理，并在输入区以现有 copy/notice 机制给可见提示（不新增隐藏 hook/testid）。显式问题/选项回复仍只走 B26 `AuthorActionInput(author_choice)`（question_ref/expected_goal_version/target_ref 绑定）。多 live run 时停等坞/输入区显示“输入将发给哪个任务”，歧义时提示作者选择。
+
+plain steer 请求携带 `expected_goal_version`；ack 返回 additive `resolved_run_id`/`binding_source`。JoinRestore/reconnect 的恢复广播稳定序仅保证刷新可复现，不参与 UI 选择（见 UA-01 §9.1）。
+
 ---
 
 ## 7. 状态渲染矩阵

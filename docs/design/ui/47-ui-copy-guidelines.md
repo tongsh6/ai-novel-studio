@@ -195,3 +195,16 @@ Clarification 文案应避免：
 ```text
 预算提醒：本轮预计还需要较多 token，可能超过当前额度。请确认是否继续。
 ```
+
+### 7.7 B31 作者输入 → run 绑定文案（2026-10-25 登记）
+
+B31 CP1/Q05 新增文案（`frontend/src/lib/copy.ts` 现有条目，仅登记不改代码）：
+
+| copy key | 中文文案 | 使用场景 |
+|---|---|---|
+| `agentRunWorkspaceInputTarget(goalText)` | `将发给：「${goalText}」` / 空目标时「将发给当前任务」 | 多 live run/停等坞显示输入目标任务，保证目标可见 |
+| `agentRunWorkspaceInputQuestionNotice` | 有任务正在等待你的问题回复：请在对应问题卡上回复；下方输入会作为新请求发送。 | 存在其他 run 的未答 open question，主输入不走 plain steer |
+| `agentRunWorkspaceInputAmbiguousNotice` | 当前有多个任务在进行；请选择要继续的任务，下方输入会作为新请求发送。 | 多个 live run 无法确定性选择，主输入按新请求 + 提示选择 |
+| `agentRunWorkspaceInputRunSelectorLabel` | 选择要继续的任务 | 歧义时任务选择器标题 |
+
+约束：提示使用可见文案与既有 notice/selector 机制，不新增隐藏 hook、`data-testid` 或验收专用属性；文案不使用内部 run_id/技术术语，目标任务以作者可见 goal 摘要表示。

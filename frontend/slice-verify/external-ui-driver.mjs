@@ -5427,7 +5427,10 @@ async function driveMessageDeliveryRecovery(page) {
   const service = createPhoenixServiceController();
   async function database(turnId) {
     const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(path.join(process.env.NOVEL_TEST_DB_DIR, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION}.sqlite3`), { readOnly: true });
+    // 与 config/test.exs 相同的默认路径：NOVEL_TEST_DB_DIR 未显式设置时落在系统
+    // 临时目录；使标准 quality_accept 命令无需额外 env 也能核对持久事实。
+    const dbDir = process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir();
+    const db = new DatabaseSync(path.join(dbDir, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION ?? ""}.sqlite3`), { readOnly: true });
     try {
       const inputs = db.prepare("SELECT content, workspace_id, session_id FROM interactions WHERE role='user' AND turn_id=?").all(turnId);
       const runs = db.prepare("SELECT id, status FROM agent_runs WHERE parent_turn_ref=?").all(turnId);
@@ -5495,14 +5498,53 @@ async function driveMessageDeliveryRecovery(page) {
     await waitUntil(async () => (await database(fresh.turn_id)).runs[0]?.status === "completed", "新请求未独立完成");
     await page.waitForFunction(() => !Object.keys(localStorage).some((key) => key.startsWith("ans.userMessage.")));
     // 引导也是用户输入：丢失命令回执后刷新，不得再次推进目标版本。
+    // B31 CP3（Lead 裁决 Option A）：Q3D 只验 steer 投递恢复；显式问题回复归
+    // agent-awaiting-author-* 场景。这里用 plan-exhaust awaiting（无 open
+    // author_question），主输入保持「发送调整」steer 语义。
     const awaitingStart = frames.length;
-    await page.locator(chatInputSelector).fill(`第一章字数太少了，UA01AWAITSTEER-${nonce}。`);
+    await page.locator(chatInputSelector).fill(
+      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，UA01PLANEXHAUST-${nonce}`,
+    );
     await page.getByRole("button", { name: /^发送$/ }).click();
-    const awaiting = (await waitForNewFrame(awaitingStart, (f) => f.event === "agent_run_state" && f.body?.status === "awaiting_author", "未进入等待补充状态")).body;
+    const awaitingEvent = await waitForNewFrame(
+      awaitingStart,
+      (f) =>
+        f.event === "agent_event" &&
+        f.body?.event_type === "awaiting_author" &&
+        (f.body?.reason_codes ?? []).includes("plan_exhausted_without_completion"),
+      "未进入计划耗尽等待补充状态",
+      180_000,
+    );
+    const awaiting = (await waitForNewFrame(
+      awaitingStart,
+      (f) =>
+        f.event === "agent_run_state" &&
+        f.body?.status === "awaiting_author" &&
+        f.body?.run_id === awaitingEvent.body?.run_ref,
+      "未进入等待补充状态",
+    )).body;
+    assert(
+      (await page.getByRole("button", { name: "回复此问题", exact: true }).count()) === 0,
+      "plan-exhaust awaiting 不应出现显式问题卡（Q3D 仅验 steer 投递恢复）",
+    );
+    assert(
+      !frames
+        .slice(awaitingStart)
+        .some(
+          (frame) =>
+            frame.event === "turn_result" &&
+            frame.body?.author_question?.run_id === awaiting.run_id,
+        ),
+      "plan-exhaust awaiting 不应产生 open author_question",
+    );
     await page.locator(agentRunSteerInputSelector).waitFor();
+    assert(
+      (await page.getByRole("button", { name: /^发送调整$/ }).count()) >= 1,
+      "plan-exhaust awaiting 主输入不是发送调整 steer 语义",
+    );
     deliveryFault.active = true;
     deliveryFault.turnId = null;
-    const steerText = `先只记录这份资料，不要生成候选：引导原文 ${nonce}。`;
+    const steerText = `按已核对结果先出方案，继续推进第一章结构调整，Q3DSTEER-${nonce}`;
     await page.locator(agentRunSteerInputSelector).fill(steerText);
     await page.getByRole("button", { name: /^发送调整$/ }).click();
     const steerId = await waitUntil(() => deliveryFault.turnId, "引导未携带稳定身份");

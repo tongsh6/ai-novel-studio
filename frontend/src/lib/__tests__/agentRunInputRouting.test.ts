@@ -5,7 +5,6 @@ import {
   decideAgentRunInputRoute,
   openQuestionRunIdsForRuns,
   selectActiveAgentRun,
-  shouldRouteInputToAgentSteer,
 } from "../agentRunInputRouting";
 import type { AgentRunStateData } from "../socket";
 
@@ -23,60 +22,6 @@ function run(
     ...overrides,
   };
 }
-
-describe("shouldRouteInputToAgentSteer (legacy compatibility)", () => {
-  it("routes ordinary input to steer while an AgentRun is active", () => {
-    const single = (status: string) => run(`run-${status}`, status);
-    expect(shouldRouteInputToAgentSteer({ latestAgentRun: single("running") })).toBe(true);
-    expect(shouldRouteInputToAgentSteer({ latestAgentRun: single("paused") })).toBe(true);
-    expect(shouldRouteInputToAgentSteer({ latestAgentRun: single("awaiting_author") })).toBe(true);
-  });
-
-  it("未绑定主输入不隐式回答模型问题，明确回复走源 author_action", () => {
-    const awaiting = run("run-awaiting", "awaiting_author");
-    expect(
-      shouldRouteInputToAgentSteer({
-        latestAgentRun: awaiting,
-        hasUnansweredModelQuestion: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRouteInputToAgentSteer({
-        latestAgentRun: awaiting,
-        hasUnansweredModelQuestion: false,
-      }),
-    ).toBe(true);
-  });
-
-  it("does not steal normal chat input when no active run exists", () => {
-    expect(shouldRouteInputToAgentSteer({ latestAgentRun: null })).toBe(false);
-    expect(
-      shouldRouteInputToAgentSteer({ latestAgentRun: run("run-completed", "completed") }),
-    ).toBe(false);
-    expect(
-      shouldRouteInputToAgentSteer({ latestAgentRun: run("run-cancelled", "cancelled") }),
-    ).toBe(false);
-    expect(shouldRouteInputToAgentSteer({ latestAgentRun: run("run-failed", "failed") })).toBe(
-      false,
-    );
-  });
-
-  it("keeps pending author answers and explicit micro-plan requests on the user_message path", () => {
-    expect(
-      shouldRouteInputToAgentSteer({
-        latestAgentRun: run("run-running", "running"),
-        pendingAnswerBehaviorId: "behavior_pending",
-      }),
-    ).toBe(false);
-
-    expect(
-      shouldRouteInputToAgentSteer({
-        latestAgentRun: run("run-running", "running"),
-        generateMicroPlan: true,
-      }),
-    ).toBe(false);
-  });
-});
 
 describe("selectActiveAgentRun (B31 §6.2 Q01)", () => {
   it("优先选择唯一 open question 所属 run，而非 Map 末位的 run", () => {
