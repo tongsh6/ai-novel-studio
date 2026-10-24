@@ -1948,6 +1948,9 @@ defmodule B27SemanticEval do
     with true <- File.exists?(@arms_path),
          doc = YamlElixir.read_from_file!(@arms_path),
          assets when is_list(assets) <- get(doc, "assets") do
+      old_hash = get(get(doc, "old_rules_arm") || %{}, "arm_content_hash")
+      integrated_hash = get(get(doc, "integrated_arm") || %{}, "arm_content_hash")
+
       drift =
         assets
         |> Enum.filter(fn asset ->
@@ -1958,16 +1961,32 @@ defmodule B27SemanticEval do
         end)
         |> Enum.map(&get(&1, "path"))
 
+      current_hash = arm_content_hash(assets)
+
       %{
-        "frozen_arm_content_hash" => get(get(doc, "old_rules_arm") || %{}, "arm_content_hash"),
-        "integrated_arm_status" => get(get(doc, "integrated_arm") || %{}, "status"),
-        "workspace_matches_frozen_arm" => drift == [],
+        "old_rules_arm_content_hash" => old_hash,
+        "integrated_arm_content_hash" => integrated_hash,
+        "current_workspace_arm_content_hash" => current_hash,
+        "workspace_matches_integrated_arm" =>
+          is_binary(integrated_hash) and current_hash == integrated_hash,
+        "workspace_matches_frozen_old_arm" => is_binary(old_hash) and current_hash == old_hash,
         "drift_asset_paths" => drift,
-        "note" => "old 臂回放使用冻结快照字节，不受 drift 影响；integrated 臂使用当前工作区规则，drift 即新旧臂边界。"
+        "note" =>
+          "old 臂回放使用冻结快照字节，不受 drift 影响；integrated 臂使用当前工作区规则，" <>
+            "drift 即重冻后的再次前进（CP4 执行批矩阵应尽量在无 drift 窗口运行并记录）"
       }
     else
-      _ -> %{"workspace_matches_frozen_arm" => nil, "note" => "arms.yml 缺失或不可解析"}
+      _ -> %{"workspace_matches_frozen_old_arm" => nil, "note" => "arms.yml 缺失或不可解析"}
     end
+  end
+
+  # arms.yml assets 清单 → 与冻结清单一致的 arm_content_hash 算法（path:sha256 排序后 sha256）。
+  defp arm_content_hash(assets) do
+    assets
+    |> Enum.map(fn asset -> "#{get(asset, "path")}:#{get(asset, "sha256")}" end)
+    |> Enum.sort()
+    |> Enum.join("\n")
+    |> sha256()
   end
 
   defp provider_config_doc(opts) do

@@ -1288,13 +1288,46 @@ defmodule B27CaseFreeze do
         verify_arms(rule_assets)
 
       File.exists?(@arms_path) and Map.get(opts, :write_arms, false) ->
-        # 显式重冻：旧 arms.yml 先归档到 artifacts 供审计，再写新基线。
+        # 显式重冻：旧 arms.yml 先归档到 artifacts 供审计；old_rules_arm hash 保持不变，
+        # 当前工作区规则资产登记为 integrated_arm（两个 hash 同时写回 arms.yml）。
         backup = Path.join(@artifacts_dir, "arms-before-refreeze-#{stamp()}.yml")
         File.mkdir_p!(@artifacts_dir)
         File.cp!(@arms_path, backup)
-        written = write_arms(rule_assets)
+
+        old_doc = read_yaml!(@arms_path)
+        old_arm = get(old_doc, "old_rules_arm") || %{}
+        old_assets = get(old_doc, "assets") || []
+        written = write_arms(rule_assets, old_doc)
+
+        refreeze = %{
+          "schema" => "b27-arm-refreeze-v1",
+          "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+          "archived_arms_path" => rel(backup),
+          "old_rules_arm_hash" => get(old_arm, "arm_content_hash"),
+          "integrated_arm_hash" => arm_content_hash(rule_assets),
+          "asset_diff" => arm_asset_diff(old_assets, rule_assets),
+          "retired_assets" =>
+            rule_assets
+            |> Enum.filter(& &1["retired"])
+            |> Enum.map(fn asset -> %{"path" => asset["path"], "sha256" => asset["sha256"]} end),
+          "note" => "old_rules_arm 保持 CP0 冻结 hash；integrated_arm = CP3 完成后当前工作区规则资产 hash。"
+        }
+
+        refreeze_path = Path.join(@artifacts_dir, "arm-refreeze-#{stamp()}.json")
+        File.write!(refreeze_path, Jason.encode!(refreeze, pretty: true) <> "\n")
+
         IO.puts("[b27-freeze] arms.yml 已重冻（旧版归档：#{rel(backup)}）")
-        written
+        IO.puts("[b27-freeze] old_rules_arm=#{refreeze["old_rules_arm_hash"]}")
+        IO.puts("[b27-freeze] integrated_arm=#{refreeze["integrated_arm_hash"]}")
+        IO.puts("[b27-freeze] arm refreeze diff: #{rel(refreeze_path)}")
+
+        Map.merge(written, %{
+          "old_rules_arm_hash" => refreeze["old_rules_arm_hash"],
+          "integrated_arm_hash" => refreeze["integrated_arm_hash"],
+          "archived_arms_path" => refreeze["archived_arms_path"],
+          "refreeze_path" => rel(refreeze_path),
+          "asset_diff" => refreeze["asset_diff"]
+        })
 
       File.exists?(@arms_path) ->
         verify_arms(rule_assets)
@@ -1308,9 +1341,25 @@ defmodule B27CaseFreeze do
     DateTime.utc_now() |> Calendar.strftime("%Y%m%d-%H%M%S")
   end
 
-  defp write_arms(rule_assets) do
-    File.write!(@arms_path, arms_yaml(rule_assets))
+  defp write_arms(rule_assets, old_doc \\ nil) do
+    File.write!(@arms_path, arms_yaml(rule_assets, old_doc))
     %{status: :written, drift: []}
+  end
+
+  # 旧 arms.yml 资产清单 vs 当前工作区：给重冻报告留 changed/added/removed 证据。
+  defp arm_asset_diff(old_assets, rule_assets) do
+    old_map = Map.new(old_assets, fn asset -> {get(asset, "path"), get(asset, "sha256")} end)
+    new_map = Map.new(rule_assets, fn asset -> {asset["path"], asset["sha256"]} end)
+
+    changed =
+      for {path, new_hash} <- new_map, Map.has_key?(old_map, path), old_map[path] != new_hash do
+        %{"path" => path, "old_sha256" => old_map[path], "new_sha256" => new_hash}
+      end
+
+    added = for {path, _} <- new_map, not Map.has_key?(old_map, path), do: path
+    removed = for {path, _} <- old_map, not Map.has_key?(new_map, path), do: path
+
+    %{"changed" => changed, "added" => added, "removed" => removed}
   end
 
   defp verify_arms(rule_assets) do
@@ -1335,11 +1384,33 @@ defmodule B27CaseFreeze do
     if drift != [],
       do: Logger.warning("[b27-freeze] arms.yml 漂移: #{inspect(Enum.map(drift, & &1.path))}")
 
-    %{status: status, drift: drift}
+    %{
+      status: status,
+      drift: drift,
+      old_rules_arm_hash: get(get(doc, "old_rules_arm") || %{}, "arm_content_hash"),
+      integrated_arm_hash:
+        get(get(doc, "integrated_arm") || %{}, "arm_content_hash") ||
+          arm_content_hash(rule_assets)
+    }
   end
 
-  defp arms_yaml(rule_assets) do
-    arm_hash = arm_content_hash(rule_assets)
+  defp arms_yaml(rule_assets, old_doc) do
+    integrated_hash = arm_content_hash(rule_assets)
+    old_arm = if old_doc, do: get(old_doc, "old_rules_arm") || %{}, else: %{}
+    old_hash = get(old_arm, "arm_content_hash") || integrated_hash
+
+    old_frozen_date =
+      get(old_arm, "frozen_at") || get(old_doc || %{}, "frozen_date") || "2026-10-24"
+
+    refreeze_date = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    {old_status, integrated_status, integrated_filled_by} =
+      if old_doc do
+        {"frozen", "frozen",
+         "B27 CP4 执行批：CP3 完成后重冻当前工作区规则资产（scripts/b27_case_freeze.exs --write-arms）"}
+      else
+        {"frozen", "pending", "B27 CP3 专业调用整合完成后重算并登记"}
+      end
 
     assets_block =
       rule_assets
@@ -1385,15 +1456,18 @@ defmodule B27CaseFreeze do
     criteria: "§6.1 真实模型语义验收固定通过标准（不得测后修改）"
 
     old_rules_arm:
-      status: frozen
-      arm_content_hash: #{yaml_str(arm_hash)}
-      captured_by: "scripts/b27_case_freeze.exs"
-      note: "hash 快照 = CP0 冻结时工作区提示词/规则真实内容；integrated_arm 不得复用本清单冒充旧臂"
+      status: #{old_status}
+      arm_content_hash: #{yaml_str(old_hash)}
+      frozen_at: #{yaml_str(old_frozen_date)}
+      captured_by: "scripts/b27_case_freeze.exs（CP0 首次冻结；重冻只读复用）"
+      note: "hash 快照 = CP0 冻结时工作区提示词/规则真实内容；重冻不得改写本 hash，integrated_arm 不得复用本清单冒充旧臂"
 
     integrated_arm:
-      status: pending
-      filled_by: "B27 CP3 专业调用整合完成后重算并登记"
-      note: "填好后 CP4 按 §6.1 双臂对照；旧臂 hash 保持不变"
+      status: #{integrated_status}
+      arm_content_hash: #{if integrated_status == "frozen", do: yaml_str(integrated_hash), else: "null"}
+      frozen_at: #{if integrated_status == "frozen", do: yaml_str(refreeze_date), else: "null"}
+      filled_by: #{yaml_str(integrated_filled_by)}
+      note: "CP4 按 §6.1 双臂对照；assets 为 integrated_arm 当前资产清单，old 臂资产清单见归档 arms-before-refreeze-*.yml 与各快照 rule_versions"
 
     assets:
     #{assets_block}
@@ -1501,8 +1575,11 @@ defmodule B27CaseFreeze do
     | 关键集 | #{Enum.join(key_set, "/")}（#{length(key_set)} 例） |
     | 保留集 | #{Enum.join(retention, "/")}（#{length(retention)} 例，含同句异境） |
     | 无谓追问计入子集 | #{length(asked)} 例（分母 = 子集 × 2 次重复/臂 = #{length(asked) * 2}/臂） |
-    | 旧规则臂 arm_content_hash | `#{arm_content_hash(rule_assets)}` |
+    | old_rules_arm hash（CP0 冻结，不得改写） | `#{Map.get(arm_result, :old_rules_arm_hash) || arm_content_hash(rule_assets)}` |
+    | integrated_arm hash（CP4 重冻） | `#{Map.get(arm_result, :integrated_arm_hash) || "pending（未重冻）"}` |
     | arms.yml 状态 | #{arm_result.status}#{arm_note(arm_result)} |
+    | arms 归档（重冻前） | `#{Map.get(arm_result, :archived_arms_path) || "—"}` |
+    | arm 重冻 diff | `#{Map.get(arm_result, :refreeze_path) || "—"}` |
 
     ## 2. 逐例快照
 
@@ -1542,11 +1619,11 @@ defmodule B27CaseFreeze do
     - SP02（续行面）/SP03（专业调用面）本轮以 `snapshot: unavailable` 登记原因与承接（CP3），
       未用合成偏离/伪造任务输入冒充真实快照。
     - 不改 §6.1 门槛数值；本报告不执行 40 episode 门槛，CP4 才判定通过/失败。
-    - **并行工作区风险**：CP0 冻结期间共享工作区存在并行的 B26 未提交实现修改（本报告生成时
-      arms.yml 若显示 drift，说明当前工作区规则已相对冻结基线前进）。旧规则臂回放以
-      `snapshots/` 中的冻结请求字节为准（自包含，不依赖当前工作区源码）；重新冻结会更新
-      arm hash，使旧臂基线变更——B27 CP3 开始后应保持 old_rules_arm hash 不变，新状态登记为
-      integrated_arm。
+    - **双臂与重冻**：old_rules_arm hash 一旦 CP0 冻结不得改写；B27 CP3 完成后用
+      `scripts/b27_case_freeze.exs --write-arms --out-dir <scratch>` 重冻时，脚本把当前工作区规则资产
+      登记为 integrated_arm，并归档重冻前 arms.yml + 写 arm-refreeze diff 到 artifacts。
+      CP0 快照（`snapshots/`）冻结不得重写：重冻时必须用 `--out-dir` 指向 scratch，避免覆盖本目录。
+      旧规则臂回放以 `snapshots/` 中的冻结请求字节为准（自包含，不依赖当前工作区源码）。
     #{runner_evidence_section()}
     """
 

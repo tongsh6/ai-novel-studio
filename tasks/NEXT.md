@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成并提交**（CP3a–CP3d：全部专业调用 AuthoringTask 单一路径、legacy 删除、退役与 test-support 清理）。当前 CP4 执行批进行中：`b27_case_freeze --write-arms` 重算 integrated_arm、20 例×2 次×双臂 80 episode + 盲评 §6.1 判分；`b27-prompt-lifecycle-consistency` 真实 Tauri 生命周期 driver 已跑通待注册提交。缺口：CP0 arms 重冻需随本批提交；真实模型语义 PASS/FAIL 与观察通道边界待判分后回填。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
+| B27-SYSTEMATIC-PROMPT-INTENT | **CP3 已完成并提交**（CP3a–CP3d：全部专业调用 AuthoringTask 单一路径、legacy 删除、退役与 test-support 清理）。当前 CP4 执行批进行中：`b27_case_freeze --write-arms` 重算 integrated_arm、20 例×2 次×双臂 80 episode + 盲评 §6.1 判分；`b27-prompt-lifecycle-consistency` 真实 Tauri 生命周期场景已注册并取得机制 PASS（slice_verify 确定性 provider，非语义通过，提交 `d60f6eb7`）。**CP4 执行批结果 = FAIL（不得标 CP4 done）**：双臂 80 episode 已跑（old 40/40 ok；integrated 13 ok/27 provider_error，25× invalid_tool_combination）、80/80 盲评完成，§6.1 聚合 FAIL（zero_tolerance 2 old / key_set / overall 0.175 / unavailable 27/40）。arms 已重冻（old hash 不变、integrated 已登记）。下一 checkpoint：修复判断 plan 路径协议健壮性（agent_plan_draft 必须与 judgment_decision 同批 + 纠错回执携带合法组合指引 + capture 断言），再用新预注册批次复测；本批数据不得当 PASS 证据。 | [B27](slices/B27-systematic-prompt-and-intent-integration.md) |
 
 ## 后续候选
 

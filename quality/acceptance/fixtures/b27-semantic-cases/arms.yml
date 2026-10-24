@@ -17,13 +17,16 @@ criteria: "§6.1 真实模型语义验收固定通过标准（不得测后修改
 old_rules_arm:
   status: frozen
   arm_content_hash: 211b29799319e35dbb30a366d85f244bfbe2fddd8ecdc664a60a7ee212d1d99e
-  captured_by: "scripts/b27_case_freeze.exs"
-  note: "hash 快照 = CP0 冻结时工作区提示词/规则真实内容；integrated_arm 不得复用本清单冒充旧臂"
+  frozen_at: 2026-10-24
+  captured_by: "scripts/b27_case_freeze.exs（CP0 首次冻结；重冻只读复用）"
+  note: "hash 快照 = CP0 冻结时工作区提示词/规则真实内容；重冻不得改写本 hash，integrated_arm 不得复用本清单冒充旧臂"
 
 integrated_arm:
-  status: pending
-  filled_by: "B27 CP3 专业调用整合完成后重算并登记"
-  note: "填好后 CP4 按 §6.1 双臂对照；旧臂 hash 保持不变"
+  status: frozen
+  arm_content_hash: 5023ae4b4085e313a2a1c7177abb0cff4dd309ac8d00d5ef096e1c16288086d3
+  frozen_at: 2026-10-24T08:54:51.276317Z
+  filled_by: B27 CP4 执行批：CP3 完成后重冻当前工作区规则资产（scripts/b27_case_freeze.exs --write-arms）
+  note: "CP4 按 §6.1 双臂对照；assets 为 integrated_arm 当前资产清单，old 臂资产清单见归档 arms-before-refreeze-*.yml 与各快照 rule_versions"
 
 assets:
   - role: L0 产品身份
@@ -33,9 +36,9 @@ assets:
     version: sys-identity-v1
   - role: L1 创作任务策略
     path: apps/novel_application/lib/novel_application/authoring_task_policy.ex
-    sha256: d57d27bdd17ba52bc2a697c5ef43e2b717f0f2fa94551e1f7cf326e560aa2da3
-    bytes: 2689
-    version: b27-task-v1
+    sha256: 296a622c22ac8d325baf015ab6d9ead56c7374f5d746a9eac6ae93db7d23813b
+    bytes: 3458
+    version: b27-task-v2
   - role: L1 判断工具契约
     path: apps/novel_application/lib/novel_application/judgment_tool_contract.ex
     sha256: eac7aeb938dba861301b5c4dfc002658bbe4fe24e8889799382746f6b727a440
@@ -53,8 +56,8 @@ assets:
     version: content-hash
   - role: L2/L3 判断上下文投影
     path: apps/novel_application/lib/novel_application/dialogue_planning_service.ex
-    sha256: b3d2785a898159224636ad7c0d0fe3b39b0215f5d843ee7aba50ad72883fb905
-    bytes: 76802
+    sha256: fc5167d6a6e9e2b9fdd8257fdef8f381ab7f0dab4593198cdf37b7323b5358a4
+    bytes: 75457
     version: content-hash
   - role: L3 原文登记规则
     path: apps/novel_application/lib/novel_application/turn_interaction_service.ex
@@ -63,13 +66,13 @@ assets:
     version: content-hash
   - role: L3 计划起草/修订模板
     path: apps/novel_application/lib/novel_application/agentic_plan_draft_planner.ex
-    sha256: 3a896bcf89dc9e9610d72734579074ba22621b6f1cac21b46792df5765f4344a
-    bytes: 40868
+    sha256: d20f0c502c7b2e7f5a6d92007393173ff0204550a00c585a9459c8e18e3f8ed3
+    bytes: 40638
     version: content-hash
   - role: L3 判断计划 flow
     path: apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex
-    sha256: 1c0d0e00db155bac6f28d9abc0cc8405ac171ba36a88c7fe1a1242307ee2410b
-    bytes: 38401
+    sha256: f62107e40d77d30cdd03f5afbc01b480309fec39ef2c7e6e3642a8815a7a3737
+    bytes: 38464
     version: content-hash
   - role: L1 能力效果目录
     path: apps/novel_common/lib/novel_common/capability_registry.ex
@@ -78,18 +81,18 @@ assets:
     version: content-hash
   - role: L1 任务 profile 注册表
     path: apps/novel_agent/lib/novel_agent/agent_task_profile_registry.ex
-    sha256: d83b3a1ec31dd5d2d553cb201e58bdd5b19ae39c1c4d1a2e519a8d9d1aa0b1d7
-    bytes: 6894
+    sha256: dd115fd5bfbc6dd17565dbf38af7a2211adba588a1c799fc36da9a798d29e839
+    bytes: 6417
     version: content-hash
   - role: 专业调用 writer
     path: apps/novel_agent/lib/novel_agent/creative_provider/real.ex
-    sha256: 04bd779938d1dc151aeab44ef79f04c19b10bdd537fc7da8e9e19443aae578ef
-    bytes: 26758
+    sha256: a5ac48d1e6deae11c92882096078b662959f755172f81752ea05c899a99b9108
+    bytes: 27517
     version: content-hash
   - role: 专业调用 evaluator
     path: apps/novel_agent/lib/novel_agent/prose_quality_evaluator.ex
-    sha256: 3518f9782d457f009f792ebcbbf96a49bb689e98c9af7ca621e09d165b557f94
-    bytes: 12743
+    sha256: 86431f8a38d5fe968a64e7646420bfba25050c4938b91e0374441376c0baf4e0
+    bytes: 13632
     version: content-hash
   - role: 专业调用 章使命
     path: apps/novel_application/lib/novel_application/chapter_mission_service.ex
@@ -98,31 +101,34 @@ assets:
     version: content-hash
   - role: 专业调用 章摘要
     path: apps/novel_application/lib/novel_application/chapter_summary_generator.ex
-    sha256: 965ad85645fdeb1324e0086cc7f9891ba26f8b13e6217989fe78b2ed97fa0a9b
-    bytes: 3112
+    sha256: 35d29708fbda4c4bc4c685552280c62fcd4b10bef7f884583dc451dcd1a546db
+    bytes: 4228
     version: content-hash
   - role: 专业调用 盘点
     path: apps/novel_application/lib/novel_application/fact_inventory_service.ex
-    sha256: 84805a513c5992d862a1a289c545cbe5bdfadd93df4200bf1c05f2d38261cd2e
-    bytes: 18440
+    sha256: 827b12d535a3dd8f96c1aa1ebd0dd6384f3d3904eeeb5f2e0bd8eadc980e1d45
+    bytes: 23813
     version: content-hash
   - role: 专业调用 候选/修订入口
     path: apps/novel_application/lib/novel_application/pending_artifact_workflow.ex
-    sha256: c1c2a597dcabb814a8c0f072d3f1d6632aae972292e370201cb14bb77e7a6caf
-    bytes: 21851
+    sha256: 15bb73d2875c6a97ccb6dc7319d98cbf6ea9fc44c2f7ecafb9ad34b9d7965fb5
+    bytes: 25578
     version: content-hash
   - role: 专业调用 质量修订
     path: apps/novel_application/lib/novel_application/prose_revision_service.ex
-    sha256: 3841c0693ebb9060e05598246cdeb0db3cc78625fab5fec963f199b85e187dd5
-    bytes: 23597
+    sha256: e77126d70fd7f4a168896102977018a65d5f94423ef85d04502c429f053a12ce
+    bytes: 24911
     version: content-hash
   - role: 专业调用 结果叙述
     path: apps/novel_application/lib/novel_application/planner.ex
-    sha256: a92458d60d75154dabef5d5ada6ea2b5b656e83e834a1bfbec19b8878a74ac8f
-    bytes: 7685
+    sha256: b98c1e08a143a74a722f4c9af085a284cfbfbd89f5332bd49203ccb8b5c588c0
+    bytes: 11054
     version: content-hash
   - role: 专业调用 运行进度
     path: apps/novel_application/lib/novel_application/agent_run_flows/provider_progress.ex
     sha256: f6910ddf7bc8a965e51ef6c0f83cb96514565c6613a9a6bb1317a33b0eb60722
     bytes: 19350
     version: content-hash
+retired: true
+retired_at: 2026-10-24
+retire_reason: B27 CP3c：ProviderProgress 小调用无生产消费者，flow/profile/预算整体退役

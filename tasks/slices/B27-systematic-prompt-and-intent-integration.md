@@ -344,3 +344,18 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - **test-support/文档/aux legacy**（CP3d-B）：stub/slice_verify 的 `provider_progress_v1` 常量清零；章摘要确定性 body 抽到 `StubChapterSummary` 单源；`fact_inventory_service` 死代码与第二份 artifact_type 清单删除；ledger flow 2-tuple test seam 删除；AU11 known-gaps/scenarios.yml/README 改为「旧 envelope 生产链已退役，re-anchor 触发=B27/G7 统一语义」，`agent-provider-streaming-progress` 改 blocked；aux legacy 审计结论：summary/inventory 无无 task 路径，narration 确定性 fallback 保留（真实错误路径），material_scope 为应用内部 key 不进 DTO，narration 计数口径后续 slice。
 - **Lead 集成**：`AuthoringTask` 删除退役的 `:provider_progress` kind（含 kind_effects/label/operation_rules/goal_optional）；CP0 arms 冻结脚本支持**退役资产**（保留 CP0 原 sha/bytes + retired 元数据，旧臂 hash 不因文件删除漂移，integrated 臂重冻时标记 retired）；`agent-provider-streaming-progress.yml` 状态同步 blocked；I-CACHE 新增 writer/evaluator consecutive profile（covered+enforced 均 true）。
 - **门禁**：`mix compile --warnings-as-errors`；`mix test` **2024 tests / 0 failures**；`mix test --warnings-as-errors` 0 warning；format、credo strict 0、enum lint、xref 无环、arch_check、adr_trace；I1 4/4、I2 3/3 不相交、I3 3/3、N-NARR PASS、I-CACHE 8 行全 covered+enforced；quality_manifest_check、next_task_check；CP4 `--check-snapshots` 20/20。残留：CP0 arms 将随 CP4 执行批 `--write-arms` 重冻为 integrated_arm（旧臂快照不变）；adoption 继承语义归 B28；world artifact_type 若要改由判断/计划显式给出需扩展 plan/schema（后续）；narration provider 调用计数口径后续 slice。
+
+#### CP4 生命周期场景记录（2026-10-24，`d60f6eb7`）
+
+- `b27-prompt-lifecycle-consistency` 外部 driver 落地（`frontend/slice-verify/external-ui-driver.mjs` + native-tauri verifier key events/JSONL 对账 + `tauri_slice_verify.sh` allowlist/seed），注册进 `quality/acceptance/scenarios.yml`（nightly/tauri，default_provider=slice_verify）。
+- **机制 PASS**：`bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri` → exit 0；证据 `artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri/`（4 轮 user_message、judgment 5、prose_writing 1、quality 1、author_action 恰 1 且显式、四栏摘要落库、刷新后 pending/ACCEPTED 字节一致、下一轮按持久事实回答、log_noise ok）；失败批次（替身回环误判、HMR 干扰）保留不伪造 PASS。
+- 回归：`b26-author-question-roundtrip` PASS（3 roundtrips）、`judgment-plan-multi-step` PASS。
+- **边界**：本场景证据是 slice_verify 确定性 provider 的机制/生命周期，不是真实模型语义通过（§6.1 20 例双臂矩阵独立判定）；原生 CUA 窗口驱动与真实模型生命周期归后续批次。
+
+#### CP4 执行批记录（2026-10-24，FAIL，不标 CP4 done）
+
+- **双臂重冻**：修复 `b27_case_freeze.exs --write-arms` 旧臂误写缺陷后重冻：old_rules_arm hash `211b2979…`（不变）、integrated_arm hash `5023ae4b…`；资产 12 changed / 1 retired（provider_progress 保留 CP0 hash）；CP0 snapshots/cases.yml 未改写（20/20 check）。
+- **80 episode 矩阵**（必验 strata/iq3_s，runs=2，分母不剔）：old 40/40 ok（wire 40/40 与快照一致）；integrated **13 ok / 27 provider_error**（25× `invalid_tool_combination`——模型只发 `agent_plan_draft` 未与 `judgment_decision.plan` 合法组合，有界纠错 2 次仍终局拒绝；2× `invalid_tool_arguments`）。该协议失败在 CP3 前 harness 冒烟（M01/M02）已出现，**不是 CP3 迁移引入**，而是判断 plan 路径在生产模型上的既有协议健壮性缺口。
+- **盲评**（judge=LM Studio qwen/qwen3.8-27b，≠被评臂；80/80 完成，arm 隐藏，原始请求/响应落盘）：§6.1 聚合 **FAIL**：matrix/review complete PASS；not_below_old PASS；unnecessary_question PASS（0/34）；**zero_tolerance FAIL（2，均 old 臂 M12；integrated=0）**；key_set FAIL；overall 7/40=0.175 FAIL；unavailable 27/40 FAIL。
+- **裁决**：① 零容忍按 README 严格口径（两臂任一出现即 FAIL），本批 FAIL 且即使只看 integrated 其余 gate 仍 FAIL；② old 臂单轮 vs integrated 多轮不对称继续披露；③ judge 单模型局限（建议后续加第二 judge/人工复核争议项）；④ LM 观察通道本批未跑；⑤ **下一步：修复判断 plan 路径协议健壮性**（prompt 明确 agent_plan_draft 必须与 judgment_decision 同批、纠错回执携带具体合法组合指引 + capture 断言），再用**新预注册批次**复测；本批数据不得当作 CP4 PASS 证据。
+- 产物：`artifacts/model-contracts/b27-cp4/execution-batch-latest/`（execution-report.md、episodes×80、review-strata/judge/score、refreeze、logs）。

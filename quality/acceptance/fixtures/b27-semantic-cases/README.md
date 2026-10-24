@@ -234,9 +234,13 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
   --out artifacts/model-contracts/b27-cp4
 ```
 
+- 判卷可由独立 judge 驱动完成（CP4 执行批）：`scripts/model_contracts/b27_blind_judge.exs --review <review-dir> --model <judge-model>`
+  用**不同于被评臂**的外部模型逐 episode 判卷（默认 LM Studio；拒绝 `iq3_s`），隐藏 arm、每集独立 JSON 回执，
+  原始 prompt/响应/usage 落 `review-<provider>/judge/`；judge 不可用 → BLOCKED（exit 3）留证，不写任何判定。
+  该驱动只记录外部模型判定，不声称等价人工盲评。
 - 产物：`review-<provider>/templates/*.json`、`review-<provider>/judgments/*.json`、
-  `review-<provider>/blind-index.json`、`review-<provider>/score-<stamp>.{json,md}`；
-  自测产物在 `artifacts/model-contracts/b27-cp4/score-selftest/`（gitignored）。
+  `review-<provider>/judge/*.json`、`review-<provider>/blind-index.json`、
+  `review-<provider>/score-<stamp>.{json,md}`；自测产物在 `artifacts/model-contracts/b27-cp4/score-selftest/`（gitignored）。
 - **未填判定 = invalid = 未成功**：聚合器绝不对缺失/未填/类型错误的判定做补全或当作成功；
   同时 `review_complete`/`matrix_complete` 各自成为失败门槛。计划分母固定 20×2×2=80（每臂 40），
   不可用/超时/格式终局失败也留在分母里。
