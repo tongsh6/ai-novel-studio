@@ -37,8 +37,8 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 | CP | 完整工作 | 状态 |
 |---|---|---|
 | CP0 | 按 AU09 CP2 核对主档案/记忆/角色身份，冻结字段修订与版本保护、采纳/确认语义、旧值留存契约 | **done（2026-10-25，`201b42cb`）**：真实 Tauri 17/17 checks/6 trials（自然原话 reply 零写入、显式措辞 capability_gap、多主角不清空、同名/别名不新建、讨论/放弃/跨作品零写入、「谁是主角」消费缺口）；契约冻结 §6（Q01–Q08）；aux 代码链/消费者/记忆审计/stage 只读 `artifacts/model-contracts/b29-cp0/` |
-| CP1 | 应用可调用的已有角色修订候选与领域校验；模型看见真实操作和对象，旧能力缺口保持诚实 | todo |
-| CP2 | 作者采纳→同一角色更新→审计/投影/记忆一致；幂等/并发/失败回滚 | todo |
+| CP1 | 应用可调用的已有角色修订候选与领域校验；模型看见真实操作和对象，旧能力缺口保持诚实 | **done（2026-10-25，`601518e9`）**：`revise_character_profile` 能力（provider none/write_scopes character_dossier）+ judgment character_ref 绑定/机械 gate（同名别名歧义 ask、设计新主角仍 character_design、设计/演化不冒充）+ CharacterProfile 零写库候选（object_kind/character_ref/base_fingerprint/changes old→new/effects/other_character_changes=[] + display-only suggestions） |
+| CP2 | 作者采纳→同一角色更新→审计/投影/记忆一致；幂等/并发/失败回滚 | **done（2026-10-25，`601518e9`）**：`character_profile_context/1,2`（同名分组/base_fingerprint）+ `revise_character_narrative_role/5` 原子更新（同 id 只改 narrative_role、角色数/其它角色/正文不变、失败回滚、幂等 duplicate）+ AdoptionWorkflow `character_field_update` effect（回执 committed_changes/old+new fingerprint；不调 writer/不新建角色/不写 memory）；persistence 318/0、application 921/0 |
 | CP3 | 档案、花名册、探索、后续判断/写作同批消费；真实 Tauri 自然输入、采纳、刷新、再问闭环 | todo |
 | CP4 | 实模改述/必要澄清对照、全门禁；同步 AU09 CP2/NEXT/journey/ledger | todo |
 
@@ -74,3 +74,9 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 - **Q06 记忆一致性**：Character 主档案为唯一事实源；首版**不写** CHARACTER_PROFILE 记忆（避免双事实源）；若后续同步，必须同一次采纳同源写入并 supersede 旧 profile memory（同 source_ref），禁止 memory-only 冒充；历史矛盾 memory（stage `9e4266e1…`）只读影响清单、清理需另行授权。
 - **Q07 消费者**：StructurePanel/角色档案、roster、archive_read characters、判断/写作 character facts、memory_recall、摘要/问答（「谁是主角」）以 Character.narrative_role 为当前事实；采纳后刷新/再问一致；旧值只留 history/trace；memory 不再作为主角当前事实。
 - **Q08 证据/回归**：新真实 Tauri 场景（自然原话/别名/同名消歧/多主角/负例/刷新再问）+ 实模原话/改述（CP4）+ 回归 AU09/AU12 当前场景；不得仅以 memory 行出现“主角”判通过；stage 存量修复需单独授权。
+
+### 6.3 CP1/CP2 实施记录（2026-10-25，`601518e9`）
+
+- **CP1**：`CapabilityRegistry` additive `revise_character_profile`（provider none、write_scopes ["character_dossier"]、effect_summary「修订既有角色主档案字段，不新建角色、不写正文、不冒充角色演化记忆」）；`JudgmentToolContract` nullable `character_ref`；判断 prompt「角色索引（已有角色）」+ 修订规则 + `validate_character_profile_route` 机械 gate（身份修订意图必须 execute+该能力并绑定唯一 character_ref；回退 reply/character_evolution/character_design → 纠错；同名/别名歧义 → ask_author 列候选；设计/创建新主角仍 character_design）；`CharacterProfile` 读 `character_profile_context`（仅 ACCEPTED/EDITED_ACCEPTED）→ `PendingArtifactWorkflow` 零写库/零 provider 候选 `character_profile_revision`（payload object_kind/character_ref/character_name/base_fingerprint/changes 单条 old→new/effects/other_character_changes=[]/adoption_effect + display-only `suggested_other_character_changes`）。
+- **CP2**：`character_profile_context/1,2` 读端口（角色索引/同名分组/base_fingerprint=sha256(id|name|aliases|narrative_role|role|summary|status|updated_at)；target_missing/cross_work_scope）；`revise_character_narrative_role/5` 原子更新（NarrativeRole 合法值、同 work、fingerprint stale、同 id 只改 narrative_role、角色数/其它角色/正文不变、失败回滚、幂等 duplicate）；`AdoptionWorkflow` `character_profile_revision`/`adoption_effect.mode="character_field_update"`（校验单 change/old+new/effects/other_character_changes=[]；回执 `committed_changes`/`character_ref`/`base_fingerprint`(旧)/`current_fingerprint`(新)/`object_count`；不调 writer、不新建角色、不写 CHARACTER_PROFILE memory）。
+- **测试/门禁**：application 921/0、persistence 318/0、agent 273/0，全后端 2179/0；compile/test -Werror/format/credo 0/enum/xref/arch/adr、I1/I2/I3 全绿。CP3 消费者（task-73）进行中。
