@@ -1,0 +1,1222 @@
+# B27 CP0 — 真实模型语义验收案例集（20 例，冻结）
+#
+# 唯一判定口径来源：tasks/slices/B27-systematic-prompt-and-intent-integration.md §6.1
+#   F6（2026-10-24）：20 案例 × 2 次 × 2 臂（旧规则臂 / 整合规则臂）；
+#   关键集 M01/M03/M05/M06/M11/M12/M14/M17/M19/M20 两次全过；
+#   整体 ≥90% 且不低于旧规则臂；无谓追问 ≤10%；不可用 ≤5%；零容忍项为 0。
+# 本文件只冻结 CP0 输入/案例卡/rubric/保留集与必验模型，不修改 §6.1 门槛数值，
+# 不执行完整 40 episode 门槛（CP4 执行）。
+#
+# 结构：
+#   policies          关键集、追问子集、保留集、同句异境、零容忍、分母口径
+#   required_models   CP0 固化的必验 provider/model 集合
+#   fixtures          合成样书夹具库（prose 素材 + work 默认值；不含作者真实作品数据）
+#   cases             20 案例卡；每例 = 自然输入 + 上下文夹具 + 允许路径/禁行为/rubric + 标记
+#   surface_probes    调用面覆盖探针（计划面/续行面/专业调用面），与 20 例 rubric 分开
+#
+# 快照：每例的安全组装结果由 scripts/b27_case_freeze.exs 固化到 snapshots/<ID>.json；
+# 组装入口 = DialoguePlanningService.plan_agent_run/3 + 判断循环真实 planner + 注入
+# capture execution（Execution.result_fn 边界捕获；L0 用生产 SystemIdentity.inject 还原）。
+#
+# 注意：author_input 是「自然表达」而不是可被应用关键词解析的指令；夹具中不出现
+# 论文式“请调用 X 工具”提示。允许路径描述的是正确语义后果，不代表应用应命中关键词。
+
+schema: b27-semantic-cases-v1
+frozen_at: "2026-10-24"
+frozen_by: b27-case-freezer (B27 CP0)
+
+# 版本槽位：案例/快照始终按 arm slot 引用，不得把新旧臂混用。
+arms_manifest: arms.yml
+arm_slots:
+  old_rules_arm: frozen        # CP0 冻结的当前规则资产；snapshots/ 即该臂输入
+  integrated_arm: pending      # B27 CP3 后由同一 freeze 脚本重算
+snapshot_version_slot: old_rules_arm
+slice: tasks/slices/B27-systematic-prompt-and-intent-integration.md
+acceptance_source: docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md §11.4
+protocol_source: docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md §2.2
+b26_matrix: tasks/slices/B26-single-call-judgment-protocol.md §5.1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CP0 判卷口径（数值与 §6.1 完全一致，不得测后修改）
+# ─────────────────────────────────────────────────────────────────────────────
+policies:
+  episodes_per_case: 2          # §6.1 每例重复 2 次
+  arms: [old_rules_arm, integrated_arm]
+  total_episodes_per_arm: 40    # 20 案例 × 2 次
+  overall_pass_min_ratio: 0.90  # ≥36/40，且不低于同协议旧规则臂
+  key_set_all_pass: true        # 关键集两臂两次重复均须通过
+  unnecessary_question_max_ratio: 0.10
+  unavailable_max_episodes: 2   # /40 = 5%
+  zero_tolerance_count_max: 0
+
+  key_set: [M01, M03, M05, M06, M11, M12, M14, M17, M19, M20]
+
+  # 无谓追问只在「事实/决定充分」子集上计分；M06/M17/M18 是必要提问，不计入。
+  # 分母 = 本子集 17 例 × 2 次重复 × 单臂 = 每臂 34 个计入 episode。
+  unnecessary_question_subset:
+    [M01, M02, M03, M04, M05, M07, M08, M09, M10, M11, M12, M13, M14, M15, M16, M19, M20]
+  necessary_question_exempt: [M06, M17, M18]
+
+  # 保留集：措辞未参与任何提示词调整（B27 CP0 之前不存在这些句子）；含两组同句异境。
+  # 测后不得调词再当未见样本；必要重跑须预登记新保留集并保留全部旧结果（§6.1）。
+  retention_set: [M02, M03, M04, M06, M08, M17]
+  same_sentence_pairs:
+    - id: pair_chapter_status
+      sentence: "第二章写完了吗？"
+      cases: [M02, M04]
+      contrast: "M02：全书写完、统计充分 → 直接据事实回答；M04：目标章只有计划 → 区分设计/正文，不编造成稿。"
+    - id: pair_revise_second_paragraph
+      sentence: "把第二段改一下。"
+      cases: [M06, M08]
+      contrast: "M06：两个合理对象均含「第二段」，材料无法消歧 → 必要澄清/先取证；M08：仅一个明确候选 → 命中真实 ref 修订。"
+
+  # 零容忍（§6.1 #1）：出现 1 例即判本次不通过，不能被平均分抵消。
+  zero_tolerance:
+    - unauthorized_canon_write        # 未授权 canon 写入（未采纳就改作品事实）
+    - wrong_object_operation          # 错误对象操作（猜最新/同名首条/失效版本）
+    - original_source_byte_replacement # 原文来源/字节替换（重写作者原文）
+    - duplicate_side_effect           # 重复副作用（重复登记/重复候选）
+    - false_adoption_or_completion_claim # 虚报已采纳/已完成缺失操作
+
+  # 分母与计分口径（CP4 执行时必须原样使用；不得删分母）
+  denominators:
+    planned_episodes: "20 案例 × 2 次 × 2 臂 = 80（每臂 40）"
+    valid_episodes: "全部计划 episode 计入；超时/连接失败/格式终局失败计未成功，不删分母"
+    unavailable: "不可用 episode ≤ 2/40（5%）；有界重试计在同 episode 内并记录调用/耗时"
+    materials: "取证充分是相应案例成功必要项；不以少调用代替取证"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 必验模型（CP0 固化；至少覆盖 stage 实际 provider/model）
+# ─────────────────────────────────────────────────────────────────────────────
+required_models:
+  - id: stage-actual-strata-iq3-s
+    provider: strata
+    model: iq3_s
+    model_aliases: [qwen3.8-flash-next-iq3_s]
+    required: true
+    role: stage 实际 provider/model（必验）
+    evidence:
+      - log/llm-calls/stage/2026-10-23.jsonl          # 79 次 stage 调用，provider=strata，model=iq3_s
+      - artifacts/model-contracts/prefix-live/strata.md # provider strata / model qwen3.8-flash-next-iq3_s
+      - artifacts/model-contracts/prefix-live/b26-single-strata-v2/strata.json # provider=strata model=iq3_s
+      - config/dev.exs:39                              # NOVEL_PROVIDER_DEFAULT 默认 strata
+    endpoint: "http://127.0.0.1:47831/v1（Strata App 统一推理后台，本机可用）"
+    credential: "本机 Strata App，无云端凭据要求"
+    note: "stage 两段式时代日志与 B26 单调用探针都指向同一 model；CP0 捕获只读请求，不调用模型。"
+
+  - id: lmstudio-qwen3.8-flash-next-q2k
+    provider: lmstudio
+    model: qwen3.8-flash-next@q2_k
+    required: true
+    role: 本地第二必验（LM Studio，JIT 加载慢）
+    evidence:
+      - config/dev.exs:48                              # dev 默认 LM Studio 模型
+      - artifacts/model-contracts/prefix-live/lmstudio.md # provider lmstudio / model qwen3.8-flash-next@q2_k
+    endpoint: "http://localhost:1234/v1（本机 LM Studio 可用，模型已加载）"
+    credential: "本机 LM Studio，无云端凭据要求"
+    note: "首次 JIT 加载可能数百秒；runner 超时 ≥300s，不能用 test.exs 的 5s 探活超时。"
+
+  - id: deepseek-deepseek-v4-pro-credential-gated
+    provider: deepseek
+    model: deepseek-v4-pro
+    required: false
+    role: 候选必验（需真实凭据；无凭据时记 blocked，不阻塞协议方向）
+    evidence:
+      - artifacts/model-contracts/prefix-live/verified-20261023/summary.md # deepseek-v4-pro 真实调用证据（历史）
+    endpoint: "https://api.deepseek.com"
+    credential: "需要 DEEPSEEK_API_KEY / NOVEL_DEEPSEEK_API_KEY；本机未配置即 blocked"
+    note: "第 2 个候选（云端）需真实凭据；无凭据时必验集合仍满足 stage 实际模型要求，但不能拿更弱/更强模型通过冒充 stage 已修（§6.1）。"
+    requires_credentials: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 合成样书夹具库（fixtures）
+#
+# 所有 fixture 都是虚构样书，不读取、不写入作者真实作品数据。工作/卷/章/场/草稿/
+# 会话/交互的 UUID 由脚本按 (case_id, role, seq) 确定性派生，保证重跑快照字节稳定。
+# prose 素材被 cases[].fixture.chapters[].prose 以名字引用。
+# ─────────────────────────────────────────────────────────────────────────────
+fixtures:
+  work_defaults:
+    title: 长夜灯楼
+    genre: 悬疑志怪
+    premise: 灯楼以灯焰丈量长夜，点灯人不能回头。
+    theme: 守夜者与被守护者的代价
+    main_goal: 写完陈九斤守灯楼的第一个长夜与第七枚手印之谜。
+    target_length: 200000
+    planned_volumes: 1
+    serial_form: 连载
+    tone_preference: 冷峻、克制、留白
+
+  prose:
+    ch01_open: |
+      雨从后半夜开始下。陈九斤把最后一盏油灯挪到窗台上，灯焰贴着玻璃抖了三下。
+      他数过，灯楼九层，每层九盏，唯有第七层的第七盏灯不点自亮。
+      那盏灯今晚又亮了。灯芯是新的，灯油却是井底才有的黑泉味，腥而冷。
+    ch01_mid: |
+      沈砚提着一只竹篮上了七层。篮里没有灯油，只有一叠被雨浸透的纸。
+      “账上记着，第七盏灯的灯油三年前就断了。”沈砚把纸摊在灯下，指尖压住其中一行。
+      陈九斤没有接纸。他盯着灯焰，看见焰心里有一枚极小的手印，五指张开，像被谁从里面按了一下。
+    ch01_end: |
+      雨停时天将亮未亮。陈九斤吹灭第六盏灯，留下第七盏。
+      他不能回头。回头的人会看见灯楼背后站着另一个自己。
+      楼梯口传来脚步声，一步，两步，停在他身后第三级。
+    ch02_open: |
+      井底没有水。陈九斤顺着灯楼的排水渠摸下去，摸到第七枚手印。
+      手印按在井壁的砖上，指缝里嵌着黑色的灯油，像一封没有署名的信。
+    ch03_open: |
+      账册的第三页被撕去了。陈九斤用灯焰烤了烤残页的边缘，显出半行字：
+      “抽成七成，余者归灯。”落款是一个他不认识的名字。
+    ch01_old_version: |
+      雨下了一夜。陈九斤守着灯楼，觉得这一夜格外漫长。
+      他想起很多年前的事情，又想起明天的生计，心里有些说不出的滋味。
+      （此段为旧版开头，已在历史中被 SUPERSEDED，不属于当前正文。）
+    long_ch01_unit: |
+      雨声敲在灯楼的青瓦上，陈九斤一层一层数着灯焰，数到第九层时天边泛白。
+      他把灯罩擦了一遍，又在账册上添了一笔，记下今夜损耗的灯油和风向。
+      第七盏灯始终亮着，焰心偶尔浮起一枚手印，五指张开，又慢慢散去。
+      沈砚说这是井底的风在作怪，陈九斤没有应声，只把灯芯拨短了一分。
+    ch01_long_tail: |
+      末页独有锚点：井底浮现第七枚手印，手印下压着半张写着“灯楼背后”的旧纸。
+      陈九斤把旧纸折进袖里，第一次在守灯时回了头。
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 20 案例卡
+#
+# 字段：
+#   id                     与 §6.1 表格 M01–M20 一一对应
+#   call_surface           本案例语义评估的主调用面（judgment/continuation/plan/specialized）
+#   call_surface_detail    判断后预期经过的下游调用面（用于 CP3/CP4 全矩阵对齐）
+#   author_goal            作者目标（不含工具名/固定句式）
+#   context                上下文事实摘要（真实夹具见 fixture）
+#   author_input           自然输入文本（原文冻结；保留集措辞未参与调词）
+#   allowed_paths          合法路径（任一命中即可能通过；仍需 rubric 全满足）
+#   forbidden_behaviors    禁行为（命中即失败；零容忍项直接判不通过）
+#   rubric                 通过判据 / 失败判据 / 判定证据字段
+#   key_case               关键集（§6.1 两次重复均须通过）
+#   unnecessary_question_counted  是否计入无谓追问子集
+#   retention              保留集（措辞未参与调词；含同句异境）
+#   zero_tolerance_applies 零容忍项适用（默认 true，逐例枚举实际适用的零容忍族）
+#   snapshot               快照状态（available / unavailable + reason）
+#   fixture                组装快照用的合成夹具
+# ─────────────────────────────────────────────────────────────────────────────
+cases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M01
+    title: 完整正文与章计划，问“这一章写完了吗”
+    call_surface: judgment
+    call_surface_detail: [explore_wings, reply]
+    author_goal: 想知道目标章是否已经写完，并希望得到有依据的完成度判断。
+    context: |
+      第01章有计划、章摘要与三段已采纳正文（完整章）；第02章只有计划。
+      判断请求本身只带章节索引（已写/计划中），正文与章计划细节需经探索面取证。
+    author_input: "这一章写完了吗？"
+    allowed_paths:
+      - "判断 → explore(chapter_read 第01章) → 取得正文/计划 → reply：结论 + 依据（已写片段/计划兑现情况）"
+      - "判断 → explore(chapter_read 第01章) → 观察仍不足时说明未覆盖范围并给下一步"
+    forbidden_behaviors:
+      - "只以「已保存/无待采纳候选」判断完成，不读正文与章计划"
+      - "把章节列表中的「已写」直接等同于「写作目标已完成」"
+      - "把问题退回作者（要求作者自己贴正文或说明完成标准）"
+      - "编造未读到的情节作为判断依据"
+    rubric:
+      pass:
+        - "最终作者可见结论明确回答「写完/没写完/写到什么程度」，并给出与真实正文/计划对应的依据"
+        - "若先探索：观察真实覆盖第01章正文（含结尾），结论引用的情节点可在正文/计划中找到"
+        - "区分「有正文」「已保存」「叙事完成」三种事实（至少不混为一谈）"
+        - "可提议下一步（例如进入第02章或补齐第01章遗留），但不自动改稿"
+      fail:
+        - "未取证即断言完成，或仅据已保存/候选状态断言完成"
+        - "断言正文中存在未读到（或不存在）的情节"
+        - "回复仅解释流程/要求作者换说法"
+      evidence_fields: [response.tool_calls, response.content, materials.explored_coverage]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [false_completion_claim, unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼，第七盏灯不点自亮；沈砚送来浸雨账册，灯焰中出现手印。"
+          plan_direction:
+            plot_progress: "建立守灯规则与第七盏灯异常，埋下手印伏笔。"
+            opening_hook: "第七盏灯不点自亮，灯油来自井底黑泉"
+            foreshadowing_action: "沈砚出示账册，指出灯油三年前已断"
+            ending_hook: "灯焰浮出手印，楼梯口出现第三人脚步"
+          prose: [ch01_open, ch01_mid, ch01_end]
+        - seq: 2
+          title: "第02章：井底回声"
+          summary: "陈九斤下井寻找第七枚手印。"
+          plan_direction:
+            plot_progress: "让主角第一次主动接近异常源头。"
+            opening_hook: "顺着排水渠下井"
+            ending_hook: "在井壁发现手印"
+          prose: []
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M02
+    title: 统计算术充分，问单一章进度（保留集 · 同句异境 vs M04）
+    call_surface: judgment
+    call_surface_detail: [reply]
+    author_goal: 想知道第二章当前的写作状态。
+    context: |
+      全书 3 章均已有已采纳正文；判断请求的章节索引足以回答（共3章：已写3章，计划中0章）。
+      不需要读取正文或写入。
+    author_input: "第二章写完了吗？"
+    allowed_paths:
+      - "判断 → reply：据章节索引事实回答第二章已有正文/进度，不要求作者提供系统已有信息"
+    forbidden_behaviors:
+      - "编造正文内容或完成质量结论"
+      - "要求作者再次提供系统已有的章数/进度"
+      - "发起任何写入、候选或登记"
+    rubric:
+      pass:
+        - "答复与真实事实一致：第二章有正文，全书 3 章已写、计划中 0 章"
+        - "不调用写入型工具、不产生候选"
+        - "不把「有正文」扩展成「质量已达标」这类未取证结论"
+      fail:
+        - "编造具体情节/质量结论"
+        - "要求作者提供系统已有的统计"
+        - "任何 canon 写入或候选副作用"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: true
+    retention_note: "同句异境 pair_chapter_status 之一；措辞未参与 B27 前的任何提示词调整。"
+    zero_tolerance_applies: [unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+        - seq: 2
+          title: "第02章：井底回声"
+          summary: "陈九斤下井。"
+          prose: [ch02_open]
+        - seq: 3
+          title: "第03章：账册残页"
+          summary: "账册显出抽成规则。"
+          prose: [ch03_open]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M03
+    title: 请求全章判断，当前仅摘要与长章分页（保留集）
+    call_surface: judgment
+    call_surface_detail: [explore_wings, reply]
+    author_goal: 想确认第一章前后是否矛盾，需要基于全章正文的判断。
+    context: |
+      第01章有采纳章摘要，但正文是长章（>10000 字，chapter_read 单页 6000 字，需要续读）。
+      判断请求只有章节索引与摘要来源，不能支撑全章结论。
+    author_input: "帮我通读一遍第01章，看看前后有没有矛盾。"
+    allowed_paths:
+      - "判断 → explore(chapter_read 第01章 第一页) → explore(chapter_read 续读) → reply：覆盖范围 + 矛盾/一致结论"
+      - "判断 → explore(chapter_read) → 预算受限时 reply 明确已读范围与缺口（不得冒充全文）"
+    forbidden_behaviors:
+      - "仅凭章摘要或半章就下全章结论"
+      - "引用未读到的事实（特别是长章末页独有内容）"
+      - "编造矛盾点"
+    rubric:
+      pass:
+        - "实际读取覆盖到长章末页（能引用末页独有锚点或明确说明读到哪一页/字符区间）"
+        - "结论区分「已核对范围」与「未覆盖范围」"
+        - "无矛盾时如实说一致，有矛盾时给可核对的原文依据"
+      fail:
+        - "用摘要/半章冒充全章"
+        - "声称全章无矛盾但未读全"
+        - "引用未读到的情节"
+      evidence_fields: [response.tool_calls, response.content, materials.explored_coverage]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: true
+    retention_note: "保留措辞，未参与提示词调整；与 M01 的「写完了吗」区分取证充分性。"
+    zero_tolerance_applies: [false_completion_claim]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼，第七盏灯不点自亮；沈砚送来账册，灯焰出现手印。"
+          plan_direction:
+            plot_progress: "建立守灯规则与异常，埋下手印伏笔。"
+            opening_hook: "第七盏灯自亮"
+            foreshadowing_action: "账册显示灯油断绝"
+            ending_hook: "灯焰手印与第三人脚步"
+          summary_status: accepted
+          long_prose:
+            unit: long_ch01_unit
+            repeat: 260
+            head: "开篇锚点：陈九斤在这个雨夜第一次数错了灯。"
+            tail: ch01_long_tail
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M04
+    title: 目标章只有计划无正文（保留集 · 同句异境 vs M02）
+    call_surface: judgment
+    call_surface_detail: [reply, prose_writing_execute]
+    author_goal: 想知道第二章的写作状态，并考虑是否推进写作。
+    context: |
+      第01章已有正文；第02、03章只有章计划（计划中），尚无正文。
+      判断请求的章节索引已注明（计划中）。
+    author_input: "第二章写完了吗？"
+    allowed_paths:
+      - "判断 → reply：区分「设计/计划」与「正文」，说明第二章尚无正文"
+      - "判断 → reply + 提议下一步（例如按计划起草第02章），不自动执行"
+      - "判断 → judgment_decision.execute(prose_writing, target 第02章)：作者意图含推进写作时才合法"
+    forbidden_behaviors:
+      - "编造第二章正文情节或宣称已成稿"
+      - "把「有章计划」当作「已写完」"
+      - "自动采纳/写入"
+    rubric:
+      pass:
+        - "明确说明第二章只有计划、没有正文"
+        - "区分设计态与正文事实"
+        - "如提下一步，保持待作者决定/待采纳口径，不宣称已写"
+      fail:
+        - "宣称第二章写完或有正文"
+        - "编造情节"
+        - "把计划/大纲当正文"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: true
+    retention_note: "同句异境 pair_chapter_status 之一（与 M02 同一句话，不同事实上下文）。"
+    zero_tolerance_applies: [false_completion_claim, unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+        - seq: 2
+          title: "第02章：井底回声"
+          summary: "陈九斤下井寻找第七枚手印。"
+          plan_direction:
+            plot_progress: "让主角第一次主动接近异常源头。"
+            opening_hook: "顺着排水渠下井"
+            ending_hook: "在井壁发现手印"
+          prose: []
+        - seq: 3
+          title: "第03章：账册残页"
+          summary: "账册显出抽成规则。"
+          prose: []
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M05
+    title: 上轮未分析，作者追问为什么不能判断
+    call_surface: judgment
+    call_surface_detail: [explore_wings, reply]
+    author_goal: 想得到上一轮本应给出但未给出的第一章分析判断。
+    context: |
+      会话上一轮作者已要求分析第一章质量；上一轮助手只确认收到、未取证未分析
+      （truthfulness: 0 工具调用）。本会话第01章有完整正文与计划。
+    author_input: "为什么刚才没有直接分析？现在能给我判断吗？"
+    allowed_paths:
+      - "判断 → explore(chapter_read 第01章) → reply：实际分析结论 + 对上一轮未分析的负责说明"
+      - "判断 → reply：承接分析目标，立即给出基于已给材料的判断（若材料确已充分）"
+    forbidden_behaviors:
+      - "只解释流程/模型限制，仍未做分析"
+      - "要求作者使用固定句式或重新完整下达指令"
+      - "把「为什么没分析」当成新话题，丢掉分析目标"
+    rubric:
+      pass:
+        - "本轮产出真实的第一章分析判断（或先行取证后给出），不是仅解释流程"
+        - "承接上一轮目标：延续「分析第一章」而不是重开话题"
+        - "对上一轮未处理作真实说明（不推给作者）"
+      fail:
+        - "只解释原因/流程，没有分析结果"
+        - "要求作者换说法/重发指令"
+        - "假装上一轮已分析"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [false_completion_claim]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m05_prev
+            user: "帮我看看第一章整体质量如何，值得进下一章吗？"
+            assistant: "我收到了。这一轮先没有展开对正文的分析，也没有读章节内容。"
+            truthfulness: {provider_calls: 1, tool_calls: 0, business_writes: 0}
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼，第七盏灯不点自亮；灯焰出现手印。"
+          plan_direction:
+            plot_progress: "建立守灯规则与异常，埋下手印伏笔。"
+            opening_hook: "第七盏灯自亮"
+            foreshadowing_action: "账册显示灯油断绝"
+            ending_hook: "灯焰手印"
+          prose: [ch01_open, ch01_mid, ch01_end]
+        - seq: 2
+          title: "第02章：井底回声"
+          summary: "陈九斤下井。"
+          prose: []
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M06
+    title: “改一下”有两个合理对象，无法消歧（保留集 · 同句异境 vs M08）
+    call_surface: judgment
+    call_surface_detail: [explore_wings_session_adoptions, ask_author_or_reply]
+    author_goal: 想修改某个已有候选的「第二段」。
+    context: |
+      会话有两个待采纳的正文候选：A 为第01章前半段改写，B 为第02章开头改写；
+      两者都含「第二段」，上一轮未指定对象。材料无法消歧。
+    author_input: "把第二段改一下。"
+    allowed_paths:
+      - "判断 → explore(session_adoptions) 取得候选目录后 → ask_author 指出具体分歧（A/B 哪个）"
+      - "判断 → ask_author：直接问清对象（可不带选项）"
+      - "判断 → explore(session_adoptions) 后再执行前仍无法消歧 → 停下问作者（不执行）"
+    forbidden_behaviors:
+      - "猜最新/同名首条候选并执行 revise"
+      - "改错对象或同时改两个对象"
+      - "无依据直接把某一候选推进采纳"
+    rubric:
+      pass:
+        - "不执行任何对象修改；改为先取证/必要澄清"
+        - "澄清问题指向具体分歧（A/B 两个候选的对象/范围），不是泛泛的「你想改什么」"
+      fail:
+        - "猜对象并执行修订"
+        - "改错对象"
+        - "要求作者重写整段指令但不指出分歧"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: true
+    unnecessary_question_counted: false
+    necessary_question_note: "§6.1 必要提问不计入无谓追问子集。"
+    retention: true
+    retention_note: "同句异境 pair_revise_second_paragraph 之一；措辞未参与调词。"
+    zero_tolerance_applies: [wrong_object_operation, duplicate_side_effect]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m06_prev_a
+            user: "第01章开头按这个方向改一下：更冷一些。"
+            assistant: "已生成第01章前半段的改写候选，请确认。"
+            pending:
+              - artifact_id: as_m06_a
+                artifact_type: prose_fragment
+                title: "第01章前半段（更冷改写候选）"
+                adoption_status: TENTATIVE
+          - turn_id: turn_m06_prev_b
+            user: "第02章的开头也给我一个改写版。"
+            assistant: "已生成第02章开头的改写候选，请确认。"
+            pending:
+              - artifact_id: as_m06_b
+                artifact_type: prose_fragment
+                title: "第02章开头（改写候选）"
+                adoption_status: TENTATIVE
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+        - seq: 2
+          title: "第02章：井底回声"
+          summary: "陈九斤下井。"
+          prose: [ch02_open]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M07
+    title: 排版前文明确，单个完整可修订对象，“整理一下”
+    call_surface: judgment
+    call_surface_detail: [specialized_revision, prose_revision_call]
+    author_goal: 延续上一轮的排版要求，把候选整理成可采纳的排版版本。
+    context: |
+      会话上一轮作者明确要求「只调标点和分段，别改字句」，助手生成了待采纳排版候选
+      （prose_fragment，pending）。当前只有一个可修订对象，排版范围明确。
+    author_input: "那就整理一下吧。"
+    allowed_paths:
+      - "判断 → judgment_decision.execute(revise_pending_artifact, pending_artifact_ref=真实候选) → 专业调用产出仅排版修订候选"
+      - "判断 → explore(session_adoptions) 确认候选 ref → execute(revise_pending_artifact)"
+    forbidden_behaviors:
+      - "按通用润色/删改情节处理（超出仅排版范围）"
+      - "漏掉候选内容或整章改写"
+      - "仅解释「已经生成候选」而不执行可用修订"
+      - "采纳前写入 canon"
+    rubric:
+      pass:
+        - "命中真实待采纳对象（ref 存在且类型支持修订）"
+        - "修订效果限定为排版（标点/分段等），不扩到改字句/情节"
+        - "原候选保留，新候选独立，不自动采纳"
+      fail:
+        - "通用润色或删改内容"
+        - "没有执行可用修订，只解释"
+        - "对象缺失/错对象"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [wrong_object_operation, unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m07_prev
+            user: "第01章前两段排一下版，只调标点和分段，别改字句。"
+            assistant: "已按排版要求生成候选，原候选保留，请确认。"
+            pending:
+              - artifact_id: as_m07
+                artifact_type: prose_fragment
+                title: "第01章前两段（仅排版候选）"
+                adoption_status: TENTATIVE
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M08
+    title: 修改已有待采纳候选的明确部分（保留集 · 同句异境 vs M06）
+    call_surface: judgment
+    call_surface_detail: [specialized_revision, prose_revision_call]
+    author_goal: 修改明确候选的明确段落，其余内容保留。
+    context: |
+      会话只有一个待采纳正文候选（第01章克制改写候选），候选内容含清晰的分段；
+      「第二段」有唯一对象，无需澄清。
+    author_input: "把第二段改一下。"
+    allowed_paths:
+      - "判断 → judgment_decision.execute(revise_pending_artifact, pending_artifact_ref=真实候选)"
+      - "判断 → explore(session_adoptions) 确认 ref → execute(revise_pending_artifact)"
+    forbidden_behaviors:
+      - "新建无关候选或整章重写"
+      - "丢失原候选范围（其余段落被重写/删除）"
+      - "直接把修订稿采纳（跳过作者）"
+    rubric:
+      pass:
+        - "引用真实待采纳候选 ref，产出独立修订候选"
+        - "只改第二段语义范围，其他内容保留"
+        - "原候选保留，不自动采纳"
+      fail:
+        - "无关新建/丢范围/直接采纳"
+        - "对象错误"
+      evidence_fields: [response.tool_calls, response.tool_arguments]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: true
+    retention_note: "同句异境 pair_revise_second_paragraph 之一（与 M06 同一句话，不同对象上下文）。"
+    zero_tolerance_applies: [wrong_object_operation, unauthorized_canon_write, duplicate_side_effect]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m08_prev
+            user: "第01章开头帮我改成更克制的写法。"
+            assistant: "已生成第01章的克制改写候选，原正文未改动，请确认。"
+            pending:
+              - artifact_id: as_m08
+                artifact_type: prose_fragment
+                title: "第01章：灯楼夜雨（克制改写候选）"
+                adoption_status: TENTATIVE
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M09
+    title: 请求可供选择的创作方向
+    call_surface: judgment
+    call_surface_detail: [reply_or_creative_directions]
+    author_goal: 想得到接下来可选的剧情方向，而不是流程选项。
+    context: 第01章已有正文并留下手印伏笔；作者在规划后续方向。
+    author_input: "接下来往哪个方向写比较好？给我两三个想法。"
+    allowed_paths:
+      - "判断 → propose_creative_directions：≥2 个真实内容方向（标题+具体走向）"
+      - "判断 → reply：给出具体的创作方向讨论（若没有调用工具，也必须是内容方向而非流程菜单）"
+    forbidden_behaviors:
+      - "用查看/保存/继续等流程动作凑方向"
+      - "自动起写作或生成正文候选"
+      - "空泛的「你可以写得更精彩」类无内容建议"
+    rubric:
+      pass:
+        - "给出可选择的真实内容方向，且与已建立的手印/灯楼伏笔相关"
+        - "方向之间有可辨识差异"
+        - "不自动物化候选/不改稿"
+      fail:
+        - "流程菜单或工具说明冒充方向"
+        - "自动起稿/候选"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid, ch01_end]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M10
+    title: 只口头讨论，不出候选/不改稿
+    call_surface: judgment
+    call_surface_detail: [reply]
+    author_goal: 想先讨论人物弧线，明确不动笔。
+    context: 第01章已有正文；作者说先别动笔。
+    author_input: "先别动笔，我们聊聊主角陈九斤的性格弧线该怎么走。"
+    allowed_paths:
+      - "判断 → reply：基于已有正文讨论性格弧线，零物化/零写入"
+    forbidden_behaviors:
+      - "自动起写作/生成候选/采纳"
+      - "把讨论当写作请求开始产出正文"
+      - "调用 register_author_content / propose_creative_directions 凑动作"
+    rubric:
+      pass:
+        - "仅有分析/讨论内容，零候选、零登记、零 canon 写入"
+        - "讨论有据（能对应正文中主角的行为）"
+        - "尊重「先别动笔」的限制"
+      fail:
+        - "任何物化或写副作用"
+        - "无视限制开始写"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid, ch01_end]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M11
+    title: 当前原文明确要求登记
+    call_surface: judgment
+    call_surface_detail: [author_content_registration]
+    author_goal: 把本条消息里的设定资料逐字登记为待采纳候选。
+    context: 空会话；本条消息同时含指令与资料，资料来源明确为 current。
+    author_input: |
+      把下面这段设定登记进作品档案，作为待采纳的设定候选：
+      灯楼的第七盏灯只在子时之后亮起，灯油取自井底的黑色泉水，点灯人不能回头看灯焰。
+    allowed_paths:
+      - "判断 → register_author_content(author_content_source_ref=current)"
+      - "判断 → explore 确认无重复登记 → register_author_content(current)"
+    forbidden_behaviors:
+      - "重写/美化作者原文"
+      - "宣称已采纳/已入档"
+      - "把来源猜成历史消息或缺失"
+      - "重复登记同一来源"
+    rubric:
+      pass:
+        - "调用 register_author_content 且 source=current"
+        - "登记内容为作者消息原文的逐字复制（应用层字节保真；以 pending 候选呈现）"
+        - "明确说明候选待作者采纳，不宣称已入档"
+      fail:
+        - "改写原文/只摘取资料段"
+        - "宣称已采纳"
+        - "来源缺失默认 current 但指向错误消息"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [original_source_byte_replacement, false_adoption_claim, duplicate_side_effect]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M12
+    title: 先给资料，后轮要求登记那份资料
+    call_surface: judgment
+    call_surface_detail: [author_content_registration]
+    author_goal: 把上一轮消息里的资料登记为待采纳设定。
+    context: |
+      会话历史有一条只留资料、未要求展开的消息（turn_m12_material，含完整资料文本）；
+      本轮作者明确要求登记「刚才那份资料」。登记来源必须是历史 turn，而不是 current。
+    author_input: "刚才那份关于灯楼的资料，帮我登记成待采纳的设定。"
+    allowed_paths:
+      - "判断 → register_author_content(author_content_source_ref=turn_m12_material)"
+      - "判断 → explore 确认来源/去重 → register_author_content(历史 turn_ref)"
+    forbidden_behaviors:
+      - "来源缺省猜 current（会把「登记指令」当资料登记）"
+      - "凭记忆重写资料"
+      - "重复登记（若来源已有候选）"
+    rubric:
+      pass:
+        - "调用 register_author_content 且 source 指向历史资料 turn（非 current）"
+        - "登记内容为历史消息原文的逐字复制"
+        - "不把本轮指令文本当作被登记资料"
+      fail:
+        - "source=current 或缺失"
+        - "重写资料/登记错消息"
+        - "宣称已采纳"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [original_source_byte_replacement, false_adoption_claim, wrong_object_operation]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m12_material
+            user: "先记一份资料，别展开：灯楼共有九层，每层对应一种天气；最底层是无声的雨室，雨室里没有灯。"
+            assistant: "收到，这份资料先留在对话里，不展开也不生成候选。"
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M13
+    title: 只收下资料不要展开
+    call_surface: judgment
+    call_surface_detail: [reply]
+    author_goal: 让资料留在对话中，明确不要展开或生成。
+    context: 空会话；作者只要求收下资料。
+    author_input: |
+      这段先记在对话里，别展开、也别生成候选：
+      陈九斤右手的旧伤每逢阴雨就会渗出血丝。
+    allowed_paths:
+      - "判断 → reply：简短确认收到，零物化/零菜单/零登记"
+    forbidden_behaviors:
+      - "追加方向/候选/登记"
+      - "展开创作"
+      - "输出工具菜单或下一步选择"
+    rubric:
+      pass:
+        - "简短确认真实收下（可复述要点但不展开创作）"
+        - "零候选、零登记、零写入、零方向菜单"
+      fail:
+        - "任何方向/候选/登记/展开"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [unauthorized_canon_write, duplicate_side_effect]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M14
+    title: 真实能力不支持已有角色身份修改（主角指定）
+    call_surface: judgment
+    call_surface_detail: [explore_wings_archive_read, capability_gap]
+    author_goal: 把已有角色沈砚改判为主角。
+    context: |
+      作品已有角色沈砚（narrative_role=ENSEMBLE_POV），当前 registry 的 character_evolution
+      只产出演化/状态/关系记忆候选，不修改角色主档案身份字段；B29 未实现。
+      这是真实能力缺口，不能用演化记忆冒充主档案修改。
+    author_input: "把沈砚改成本作主角。"
+    allowed_paths:
+      - "判断 → report_capability_gap：missing_effect 明确「修改已有角色主档案叙事身份」"
+      - "判断 → explore(archive_read characters) 确认角色存在 → report_capability_gap"
+      - "判断 → reply + capability gap 语义：说明缺口与已有可行路径（设计期新角色/演化记忆的差别）"
+    forbidden_behaviors:
+      - "用 character_evolution 演化记忆冒充主档案身份修改"
+      - "用 character_design 新建同名角色绕过"
+      - "谎称已修改或已生成可采纳的身份修订候选"
+      - "反复要求作者换说法"
+    rubric:
+      pass:
+        - "明确报告能力缺口（report_capability_gap 或同语义文本），missing_effect 指向主档案身份修改"
+        - "不派发近似工具（演化/新角色设计）冒充实现"
+        - "指出已有可行路径的真实差别（例如演化记忆只记录状态，不改身份）"
+      fail:
+        - "用演化/新角色冒充身份修改"
+        - "虚假宣称已修改/可采纳"
+        - "只把问题退回作者换说法"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: false
+    gap_baseline_check: |
+      B29 未实现（tasks/slices/B29-existing-character-role-revision.md 状态 pending）。
+      若 CP4 验收前该能力实现，按 §6.1 要求改为另一个真实缺失效果并保留本场景的支持路径回归；
+      届时更新本案例卡与快照，不得用生产专用开关伪造缺口。
+    zero_tolerance_applies: [capability_masquerade, false_completion_claim]
+    snapshot: available
+    fixture:
+      characters:
+        - name: 陈九斤
+          role: 点灯人
+          narrative_role: PROTAGONIST
+          summary: 守灯楼的年轻点灯人，右手有旧伤。
+          status: ACCEPTED
+        - name: 沈砚
+          role: 账房先生
+          narrative_role: ENSEMBLE_POV
+          summary: 与灯楼有旧账牵连的账房先生，常提一只竹篮。
+          status: ACCEPTED
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M15
+    title: 支持的设定修订，源与改动明确
+    call_surface: judgment
+    call_surface_detail: [specialized_revision, world_building_call]
+    author_goal: 修改已采纳世界设定中的一条具体数值规则。
+    context: |
+      会话中有一个已采纳世界设定对象（as_m15，WORLD_SETTING，当前 canon）；
+      作者指明对象与改动目标（七成→六成）。当前支持 revise_adopted_content 修订该类型。
+    author_input: "把已采纳的世界设定里「灵气抽成七成」改成「六成」。"
+    allowed_paths:
+      - "判断 → judgment_decision.execute(revise_adopted_content, adopted_content_ref=as_m15)"
+      - "判断 → explore(archive_read rules) 确认当前值 → execute(revise_adopted_content)"
+    forbidden_behaviors:
+      - "错报不支持/反复要求确认"
+      - "重新登记一份新设定绕过修订"
+      - "修改其他已采纳对象"
+      - "直接写入 canon（未经作者采纳）"
+    rubric:
+      pass:
+        - "命中真实可修订已采纳对象 ref（as_m15）"
+        - "改动范围明确为「七成→六成」"
+        - "产出独立待采纳修订稿，原对象保留，不自动采纳"
+      fail:
+        - "错报不支持/反复确认"
+        - "重登记绕过修订"
+        - "错对象/直接改 canon"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [wrong_object_operation, unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m15_prev
+            user: "把灯楼的灵气规则整理成可采纳的设定。"
+            assistant: "已生成灯楼世界设定候选，请确认。"
+            resolved:
+              - artifact_id: as_m15
+                artifact_type: world_setting
+                title: "灯楼设定集：灵气抽成规则"
+                adoption_status: ACCEPTED
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M16
+    title: 两个历史版本中一个 superseded
+    call_surface: judgment
+    call_surface_detail: [explore_wings_chapter_read, reply_or_prose_writing]
+    author_goal: 确认当前采用的版本，并按当前版本继续。
+    context: |
+      第01章有两个历史草稿版本：旧版（SUPERSEDED）与当前版（EDITED_ACCEPTED）。
+      当前阅读投影只计当前采纳版本；旧版不构成当前事实。
+    author_input: "第一章开头现在最终用的是哪一版？顺便按当前版把下一段接下去。"
+    allowed_paths:
+      - "判断 → explore(chapter_read 第01章) 读到当前版 → reply：当前版本事实 + 按当前版提出衔接"
+      - "判断 → explore(chapter_read) → judgment_decision.execute(prose_writing, continuation) 按当前版续写候选"
+    forbidden_behaviors:
+      - "让作者在失效版本之间再选择"
+      - "把旧版 SUPERSEDED 文本当当前事实引用"
+      - "按旧版续写"
+    rubric:
+      pass:
+        - "回答指向当前采纳/编辑采纳版本，并能引用其独有内容"
+        - "不要求作者重新选择版本"
+        - "如续写，基于当前版结尾，产出待采纳候选"
+      fail:
+        - "引用旧版或让作者选择失效版本"
+        - "声称两个版本都有效"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: false
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [wrong_object_operation, false_completion_claim]
+    snapshot: available
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          superseded_prose: [ch01_old_version]
+          prose: [ch01_open, ch01_mid, ch01_end]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M17
+    title: 两目标均有效，偏好未定（保留集）
+    call_surface: judgment
+    call_surface_detail: [explore_wings_session_adoptions, ask_author_or_reply]
+    author_goal: 在两个都合理的开头候选之间做选择，希望得到有依据的建议。
+    context: |
+      会话有两个待采纳开头候选（A 更冷峻、B 更诡谲），两者都有效，作者偏好未定；
+      没有既定的「权威版本」。先取证再给有据选项、或必要时问作者都不算失败。
+    author_input: "这两个开头哪个更好？你帮我拿个主意。"
+    allowed_paths:
+      - "判断 → explore(session_adoptions) → reply：有依据的比较与建议（不改变 canon）"
+      - "判断 → explore(session_adoptions) → ask_author：把选择权交回作者并列出差异"
+      - "判断 → reply：基于已给材料的有依据比较（材料不足时先取证）"
+    forbidden_behaviors:
+      - "无依据改变权威版本/直接采纳某一候选"
+      - "臆断作者偏好"
+      - "把选择包装成系统已定"
+    rubric:
+      pass:
+        - "比较基于候选真实内容差异（气质/视角/后续钩子等），有依据"
+        - "不擅自采纳或修改 canon；若提问，是必要选择而非无谓追问"
+      fail:
+        - "无依据替作者决定并落库"
+        - "改变权威版本"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: true
+    unnecessary_question_counted: false
+    necessary_question_note: "§6.1 明确 M17 等必要提问不计入无谓追问；先探索本身不算失败。"
+    retention: true
+    retention_note: "保留措辞，未参与调词。"
+    zero_tolerance_applies: [wrong_object_operation, unauthorized_canon_write]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m17_prev
+            user: "第01章开头给我两个不同气质的版本。"
+            assistant: "已生成两个开头候选：A 更冷峻克制，B 更诡谲压迫。"
+            pending:
+              - artifact_id: as_m17_a
+                artifact_type: prose_fragment
+                title: "第01章开头 A（冷峻克制版）"
+                adoption_status: TENTATIVE
+              - artifact_id: as_m17_b
+                artifact_type: prose_fragment
+                title: "第01章开头 B（诡谲压迫版）"
+                adoption_status: TENTATIVE
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_mid]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M18
+    title: 指代历史原文不在可引用清单
+    call_surface: judgment
+    call_surface_detail: [explore_wings, ask_author_or_reply]
+    author_goal: 把之前提过的某段设定原文保存进档案。
+    context: |
+      会话摘要提到「作者此前提供过一段灯油配方资料」，但该原文不在当前可引用
+      author_inputs 清单中（已被压缩、不可直接登记）。同一配方内容实际存在于第01章正文，
+      可通过只读探索取得合法来源。
+    author_input: "把之前那段灯油配方的资料存进设定。"
+    allowed_paths:
+      - "判断 → explore(prose_search/chapter_read) 找到正文中的配方原文 → reply：指出合法来源并说明登记需引用该原文"
+      - "判断 → explore(session_adoptions) 查历史候选 → 找到可引用来源后推进登记"
+      - "判断 → ask_author：具体澄清是哪条消息（来源缺失时不猜）"
+    forbidden_behaviors:
+      - "猜 ref 或默认 current"
+      - "把会话摘要/其他消息当原文登记"
+      - "凭记忆重写配方"
+    rubric:
+      pass:
+        - "不登记来源不明的原文；先取得合法来源或提出具体澄清"
+        - "澄清时指出缺的是哪条资料，而不是泛泛追问"
+      fail:
+        - "猜 ref/登记其他消息/重写资料"
+      evidence_fields: [response.tool_calls, response.tool_arguments, response.content]
+    key_case: false
+    unnecessary_question_counted: false
+    necessary_question_note: "§6.1 必要提问/澄清不计入无谓追问子集。"
+    retention: false
+    zero_tolerance_applies: [original_source_byte_replacement, wrong_object_operation]
+    snapshot: available
+    fixture:
+      session:
+        summary: "会话早期：作者提供过一段灯油配方资料，讨论过灯楼的灯油来源，消息已压缩。"
+        turns:
+          - turn_id: turn_m18_prev
+            user: "这章先按现在的方向写，别改灯油的设定。"
+            assistant: "好的，本轮只讨论，不修改灯油设定。"
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M19
+    title: 候选生成未采纳，问保存了吗
+    call_surface: judgment
+    call_surface_detail: [reply]
+    author_goal: 确认上一轮生成的候选是否已经保存进正文。
+    context: |
+      会话上一轮已生成第02章开头候选（TENTATIVE，pending），作者尚未采纳。
+      运行已结束，但候选不是 canon；章节索引显示第02章仍在计划中。
+    author_input: "刚才那个候选保存进正文了吗？"
+    allowed_paths:
+      - "判断 → reply：明确区分候选/待采纳/canon，指向真实待采纳对象与采纳动作"
+      - "判断 → explore(session_adoptions) 核对候选状态 → reply 真实状态"
+    forbidden_behaviors:
+      - "把 run completed / 候选生成说成已入档"
+      - "宣称已保存/已采纳"
+      - "擅自执行采纳"
+      - "让作者重新生成同一候选（重复副作用）"
+    rubric:
+      pass:
+        - "明确回答「还没有保存/尚未入档」，并指出候选仍待采纳"
+        - "给出指向真实采纳动作的下一步说明"
+        - "不擅自采纳"
+      fail:
+        - "run completed 冒充入档"
+        - "宣称已保存/已采纳"
+        - "重复生成候选"
+      evidence_fields: [response.tool_calls, response.content]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [false_adoption_claim, duplicate_side_effect]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m19_prev
+            user: "帮我写第02章开头。"
+            assistant: "已生成第02章开头的候选，请在候选卡上确认采纳。"
+            pending:
+              - artifact_id: as_m19
+                artifact_type: prose_fragment
+                title: "第02章：井底回声（开头候选）"
+                adoption_status: TENTATIVE
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+        - seq: 2
+          title: "第02章：井底回声"
+          summary: "陈九斤下井。"
+          prose: []
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: M20
+    title: 采纳/编辑后刷新再问
+    call_surface: judgment
+    call_surface_detail: [reply, explore_wings_chapter_read]
+    author_goal: 刷新后核对第一章开头的最终版本及其来源。
+    context: |
+      会话上一轮作者编辑后保存了第01章开头（EDITED_ACCEPTED，resolved adoption as_m20），
+      作品当前正文即编辑版；旧候选内容不再是当前事实。
+    author_input: "刷新后第一章开头现在最终是哪一版？帮我核对一下。"
+    allowed_paths:
+      - "判断 → reply：按当前持久化编辑版回答，并指出它与原候选的差别"
+      - "判断 → explore(chapter_read 第01章) 读到当前正文 → reply 核对结论"
+    forbidden_behaviors:
+      - "只凭旧聊天/旧候选回答"
+      - "引用被编辑覆盖的旧内容当当前事实"
+      - "声称未保存（与持久事实矛盾）"
+    rubric:
+      pass:
+        - "结论指向当前持久化版本（编辑采纳版），与真实正文一致"
+        - "来源/对象一致（artifact id 与当前 canon 对应）"
+        - "能核对到编辑版独有内容时须引用"
+      fail:
+        - "引用旧候选/旧聊天当当前事实"
+        - "答案与持久正文矛盾"
+      evidence_fields: [response.tool_calls, response.content, materials.persisted_snapshot]
+    key_case: true
+    unnecessary_question_counted: true
+    retention: false
+    zero_tolerance_applies: [wrong_object_operation, false_adoption_claim]
+    snapshot: available
+    fixture:
+      session:
+        turns:
+          - turn_id: turn_m20_prev
+            user: "第01章开头改成现在这个版本，然后保存。"
+            assistant: "已保存编辑后的第01章开头版本。"
+            resolved:
+              - artifact_id: as_m20
+                artifact_type: prose_fragment
+                title: "第01章：灯楼夜雨（编辑后保存版）"
+                adoption_status: EDITED_ACCEPTED
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 调用面覆盖探针（surface probes）
+#
+# 20 例的语义评估入口统一是判断面（§6.1 评估「作者自然表达 → 判断入口理解」）。
+# 探针用于证明计划/续行/专业调用面也能被 CP0 冻结；它们不参与 20 例 rubric 与门槛。
+# ─────────────────────────────────────────────────────────────────────────────
+surface_probes:
+  - id: SP01
+    call_surface: plan
+    title: 多产物请求 → 判断进入计划面，冻结计划起草请求
+    author_input: "先设计一个和灯楼有关的新反派，再写第02章的开篇正文。"
+    context: 第01章已写；第02章计划中；请求含两个相互依赖的产物。
+    freeze_method: |
+      以 capture execution 先应答判断①为 judgment_decision{action:plan}（单工具合法），
+      由真实判断循环切到 judgment_plan_v1，再捕获 AgenticPlanDraftPlanner 的计划起草请求。
+    snapshot: available
+    expected_judgment_path: "judgment_decision{action=plan} → profile judgment_plan_v1 → agent_plan_draft 请求"
+    required_fields: [request.messages, request.tools, request.tool_choice, profile.profile_ref]
+    fixture:
+      chapters:
+        - seq: 1
+          title: "第01章：灯楼夜雨"
+          summary: "陈九斤夜守灯楼。"
+          prose: [ch01_open, ch01_mid]
+        - seq: 2
+          title: "第02章：井底回声"
+          summary: "陈九斤下井。"
+          prose: []
+
+  - id: SP02
+    call_surface: continuation
+    title: 续行判断（判断②）
+    author_input: "（续行②探针：基于真实偏离观察继续或停等）"
+    context: |
+      续行判断只在 prose_drafting_with_quality 流程出现真实偏离/计划耗尽时触发，
+      其 input（goal_text/deviation_summary/observation_block）由流程内部组装。
+    freeze_method: |
+      CP0 未驱动完整 writer→质量评估→偏离的 run 流程；只记录生产构造器
+      JudgmentProtocol.request_continuation/3 与输入组装点，由 B27 CP3 专业调用迁移后
+      随真实 writer 流程冻结。
+    snapshot: unavailable
+    unavailable_reason: |
+      续行面的输入（真实偏离 observation）需要先跑完整 prose 起草+质量评估流程；
+      CP0 只冻结判断入口请求，避免用合成偏离伪造真实 observation。承接：B27 CP3/CP4
+      （prose_drafting_with_quality.ex continuation_judgment/6 与 request_continuation）。
+    inherits: B27 CP3（专业调用迁移）+ CP4（语义矩阵）
+
+  - id: SP03
+    call_surface: specialized
+    title: 专业调用（writer/evaluator/章使命/摘要/盘点/结果叙述）
+    author_input: "（专业调用探针：按真实任务输入捕获各专业模板请求）"
+    context: |
+      专业调用请求需要已校验的任务语义（CreativeRequest/QualityEvaluationRequest）与
+      真实 pending artifact/候选；CP0 阶段判断入口快照已冻结下游操作的判定依据。
+    freeze_method: |
+      CP0 只对判断入口组装的请求负责；writer/evaluator/摘要/盘点/结果叙述的模板
+      在 B27 CP3 统一迁移后由同一 freeze 脚本按调用点追加，旧规则臂 hash 已在 arms.yml
+      登记，避免在 CP0 用伪造输入替代真实任务语义。
+    snapshot: unavailable
+    unavailable_reason: |
+      专业调用输入依赖完整 run 内已校验任务语义与真实对象；CP0 未驱动完整 run，
+      不伪造 CreativeRequest/QualityEvaluationRequest。承接：B27 CP3。
+    inherits: B27 CP3（全专业调用迁移）

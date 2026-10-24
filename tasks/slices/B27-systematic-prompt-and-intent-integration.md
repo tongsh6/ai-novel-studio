@@ -1,10 +1,12 @@
 # B27：全应用提示词审计整合与自然语言创作判断
 
-- 状态：pending / 联合设计；2026-10-24 文档已与 B26 对齐，修订未宣称 Accepted，生产代码和验收均未开始。
+> **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
+
+- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；CP3 专业调用和 CP4 语义矩阵仍未闭环。
 - 登记日期：2026-10-23。
 - 来源：作者要求分析 stage 对话，区分模型判断与应用能力缺口；随后明确“作者不应自己写提示词，应用应帮助模型理解意图”，并要求先分析现有提示词写法、从应用整体整合，禁止单点补丁。
-- 本次授权：写 slice、登记 NEXT；不授权本轮代码实施、模型实测调用或 stage 数据修复。
-- 关联任务：[B26 单调用协议](B26-single-call-judgment-protocol.md)、[VS-00D](v3/VS-00D-ai-guided-authoring-message-contract.md)、[UA01 提示词任务](UA01-agentic-loop-prompt-hardening.md)、[AU11 口吻](AU11-creative-partner-conversational-voice.md)、[Q3D](Q3D-message-outcome-roundtrip.md)、[Q3B](Q3B-capability-gap-exit.md)。
+- 授权沿革：初次只授权设计和排期；2026-10-24 已确认共享入口实现与验证。原作品数据修复仍需独立授权。
+- 关联任务：[B26 单调用协议](B26-single-call-judgment-protocol.md)、[VS-00D](../../docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md)、[UA01 提示词任务](UA01-agentic-loop-prompt-hardening.md)、[AU11 口吻](AU11-creative-partner-conversational-voice.md)、[Q3D](Q3D-message-outcome-roundtrip.md)、[Q3B](Q3B-capability-gap-exit.md)。
 
 ## 1. 产品目标与完整闭环
 
@@ -116,9 +118,9 @@
 
 | CP | 内容 | 状态 | 完整闭环尚缺 |
 |---|---|---|---|
-| CP0 | 与 B26 CP1 核对构造器/任务/规则/J1–J4；固化 §6.1 的20例/双臂40 episode、rubric/保留集及 VS-00D §11.4 trace | todo；联合文档已补，捕获/冻结待完成 | 共享接线、语义对照、页面与门禁 |
-| CP1 | 提取共同规则/角色选择、能力效果/schema/重试语义，随 B26 CP2 立即由真实入口消费；迁移/退役孤立 Envelope | todo；依赖联合设计，不交付空抽象 | 全专业调用覆盖 |
-| CP2 | 与 B26 CP2 一次迁移共享判断/计划入口；连续目标/证据/结果、必要提问；移除进度泛化/机械报形态/空行解析 | todo；与 B26 CP2 联动，不等其全部收口再重写 | 创作/评估/维护一致性 |
+| CP0 | 与 B26 CP1 核对构造器/任务/规则/J1–J4；固化 §6.1 的20例/双臂40 episode、rubric/保留集及 VS-00D §11.4 trace | **done（2026-10-24）**：20 例案例卡 + 20/20 真实输入快照 + SP01 计划面探针 + 保留集/关键集/追问子集 + 旧规则臂 hash + 必验模型 + 运行器骨架已冻结；证据见文末「CP0 冻结记录」 | SP02 续行面/SP03 专业调用面快照待 CP3；M14 随 B29 重冻；40 episode 门槛归 CP4 |
+| CP1 | 提取共同规则/角色选择、能力效果/schema/重试语义，随 B26 CP2 立即由真实入口消费；迁移/退役孤立 Envelope | 共享规则已有判断/计划真实消费者；专业调用剩余覆盖归 CP3 | 全专业调用覆盖 |
+| CP2 | 与 B26 CP2 一次迁移共享判断/计划入口；连续目标/证据/结果、必要提问；移除进度泛化/机械报形态/空行解析 | 共享判断/计划已迁移；机制与原生回复有证据，完整语义结果待 CP4 | 创作/评估/维护一致性 |
 | CP3 | 迁移计划、使命、writer、修订、evaluator、章摘要、盘点、结果叙述、provider progress 及纠错路径；保留各角色输出契约；删除被替代规则 | todo | 全矩阵真实模型/页面验证 |
 | CP4 | B26 CP3 协议/业务保留先通过，再按 §6.1 逐例判新旧规则/保留集、完成联合生命周期 Tauri；硬门槛与全矩阵通过 | todo；共享证据、分别结论 | 全门禁、任务台账 |
 | CP5 | 完整门禁、静态扫描处置；同步旧 AU11/VS-00D/UA01 任务入口、设计/契约、NEXT/journey/ledger | todo | 无；此前均不得标 slice done |
@@ -197,6 +199,8 @@ M14 基线使用未支持的已有角色身份修改；若验收前该能力已�
 
 ## 8. 决策日志与恢复
 
+- 2026-10-24 — 按 NEXT 开始推进，作者要求先读愿景与总体设计。核对 `00/01/00b/00d/08`、产品旅程与架构护栏后，发现“纯文本无需模型结构”尚缺对 ADR-0001 每轮 primary frame 的明确衔接；已补上游修订提案并在 VS-00D §11.4 定义来源/未知语义与实际消费者，§11.4.1 记录共同输入现有载体。生产仍是两段式，`context_used=true` 等旧投影仍待实施迁移；不能把文档目标当作已生效。CP0 请求捕获、20例 snapshot/hash/保留集与必验模型冻结仍未完成，后续依 §6.1 执行。本次共同文档验证与 WIP 恢复点见 [B26 §10](B26-single-call-judgment-protocol.md#10-按-next-推进的总体设计核查2026-10-24)。
+
 - 2026-10-24 — 六项复审补口：按 VS-00D §11.4 留原话/supplied evidence，不虚构认知字段；明确问题空选项回复/恢复由 B26 独立承担；§6.1 固化20例×2次、关键集全过、总体≥90%且不低于基线、无谓追问≤10%、不可用≤5%与零容忍项。均为新验收目标，未测量、未验收，本轮不改代码。
 
 - 2026-10-24 — 作者要求更新联合文档并同步 NEXT。明确 B26 CP1/B27 CP0 共同设计、共享入口一次迁移、协议/业务保留先于语义质量验证；J1–J4 的 schema/mapping 只维护在 UA-01，任务语义只维护在 VS-00D §11。本轮只改文档，不把草案或旧 CP0 样本标成功能完成。
@@ -204,3 +208,39 @@ M14 基线使用未支持的已有角色身份修改；若验收前该能力已�
 - 2026-10-23 — 作者要求写 slice、登记 NEXT，保留“不改代码”；追加要求整体审计整合现有提示词，禁止单点补丁。原拟“意图提示词优化”升级为本文件的全调用点语义整合，其他能力分 B28–B31。
 - 2026-10-23 — 已核实统一 L0/缓存纪律存在，旧 Planner.form_frame 退役，过渡 Envelope 未发现生产外部静态引用；只登记审计与方案，不修改生产模板或 Frozen 契约。
 - 恢复顺序：先读 NEXT 与当前 WIP，再核对 B26/VS-00H/VS-00I 实态，按 §2 逐构造器定位真实消费者；从 CP0 的请求捕获/规则整合决定开始。不要从旧 persona 任务的 form_frame 入口开工。
+
+
+### 2026-10-24 共享入口实施记录
+
+作者确认开工后，`AuthoringTaskPolicy` / `JudgmentToolContract` / `AgentPlanToolContract` 同批由判断、续行、计划起草/修订消费；能力效果取自真实 registry，普通回复按已接受 ADR-0001 留源/未知语义，公开流式内容不依赖 provider 私有 reasoning 或 planner purpose。完整文件/来源/持久回传和证据分层见 [B26 §11](B26-single-call-judgment-protocol.md#11-共享入口实施-checkpoint2026-10-24)。
+
+现场 stage 偏好只读核实为 Strata / iq3_s，单调用合成探针已捕获一次合法 explore；这只证明协议请求与解析，不证明 §6.1 语义门槛。CP0 固定案例尚缺，不能把提示词开发样例改称预注册保留集。下一 checkpoint 先补隔离旧规则对照/案例，再推进 CP3 全调用点；专业 writer/evaluator/摘要/盘点/结果叙述等未迁移部分仍属于完整任务。原生 UI 现有证据为初始问题选择/自由回复/窗口重开，浏览器扩大矩阵另记，不混称 Tauri。
+
+### 2026-10-24 业务与回放消费者核查
+
+B26 §13 已将普通结果/trace 同事务落库，并使 Replay 按源作用域恢复 `reply_record`、材料与未知认知语义；这补齐了共同输入/输出的证据消费者，不表示全部专业调用已迁移。真实 Tauri 已覆盖方向、当前/历史原文、重复/放弃后登记、初始/续行缺口及问题回传；真实模型20例质量矩阵仍未冻结或执行。
+
+原生业务批次还暴露三个需在整体消费者审计中对账的现象：Why 面板的“没有额外作品上下文”须区分 supplied 材料与模型实际使用声明；运行 completed 的活动文案须与 goal_unfulfilled 分开；运行前后及刷新后的步骤计数存在展示差异（证据在 B26 trace 批次截图/WS/session）。这些现象的根因尚未全部确认，下一步应追踪构造器→投影→消费者，不以文案补丁替代来源与状态整合。一般输入归属继续由 B31 承接，冷启动 durable 执行仍遵守既有条件项范围。
+
+### 2026-10-24 CP0 冻结记录（20 例案例集 / 输入快照 / 旧规则臂）
+
+CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 episode 门槛、不改产品提示词、不改门槛数值。
+
+**产物与入口**
+
+| 产物 | 位置 |
+|---|---|
+| 20 例案例卡（用例、允许路径、禁行为、rubric、关键集/保留集/追问子集、调用面、`snapshot` 状态） | `quality/acceptance/fixtures/b27-semantic-cases/cases.yml` |
+| 冻结口径索引（§6.1 映射、双臂、必验模型、分母、运行器用法、未闭环） | `quality/acceptance/fixtures/b27-semantic-cases/README.md` |
+| 真实生产入口组装的输入快照（20 case + SP01 计划面探针；776K，字节稳定可 `--check`） | `quality/acceptance/fixtures/b27-semantic-cases/snapshots/` |
+| 双臂规则资产 manifest（20 项 sha256；`old_rules_arm.arm_content_hash=211b2979…`，`integrated_arm: pending`） | `quality/acceptance/fixtures/b27-semantic-cases/arms.yml` |
+| 冻结脚本 + 运行器骨架 | `scripts/b27_case_freeze.exs`、`scripts/model_contracts/b27_semantic_eval.exs`（索引已登记） |
+| 冻结报告 / 运行证据 | `artifacts/model-contracts/b27-cp0/{freeze-report.md,runs/}` |
+
+**覆盖与口径**：M01–M20 与 §6.1 一一对应；关键集 10 例（M01/M03/M05/M06/M11/M12/M14/M17/M19/M20）；保留集 6 例（M02/M03/M04/M06/M08/M17，含「第二章写完了吗？」M02/M04 与「把第二段改一下。」M06/M08 两组同句异境）；无谓追问计入子集 17 例（M06/M17/M18 为必要提问/澄清不计入）。每臂 40 episode、追问 34/臂、不可用 ≤2/40 已写入 README，不在实施期改动。
+
+**快照边界**：`DialoguePlanningService.plan_agent_run/3` + 判断循环真实 planner + capture execution（0 次模型调用；L0 用生产 `SystemIdentity.inject/1` 还原）；隔离 test DB + Sandbox 回滚 + 确定性 UUID/时间归一，`b27_case_freeze.exs --check` 与 runner integrity 均 20/20。SP02 续行面 / SP03 专业调用面如实标 `snapshot: unavailable`，承接 B27 CP3，不伪造快照。M14 使用当前真实能力缺口（B29 未实现已有角色身份修订），未用开关伪造；B29 落地后按 §6.1 换缺失效果重冻。
+
+**真实 provider 单轮证据（可用性，不是门槛通过）**：stage 实际 `strata/iq3_s`，关键集 2 例 × 2 次——M01 两次均 `judgment_decision{action=explore, chapter_read 第01章}`，M11 两次均 `register_author_content{source=current}`，均命中允许首轮路径且两次一致（`artifacts/model-contracts/b27-cp0/runs/`）。lmstudio 未跑（共享实例被并行 B26 CP0 探针占用，CP4 按必验模型集合补跑）；DeepSeek 缺凭据按 blocked 退出码 3 记录。
+
+**未闭环**：integrated arm（CP3 后同一脚本重算）、40 episode 门槛 + 盲评（CP4）、SP02/SP03 快照（CP3）、M14 随 B29 重冻。CP0 冻结不等于语义验收通过；B27 不得据此标 done。
