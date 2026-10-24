@@ -737,6 +737,7 @@ defmodule B27SemanticEval do
               ),
             "content_anomaly" => content_anomaly(evidence),
             "exploration_coverage" => exploration_coverage(evidence),
+            "content_length_evidence" => content_length_evidence(evidence),
             "workspace_arm" => workspace_arm_check(),
             "method" => method_doc(opts),
             "provider_config" => provider_config_doc(opts),
@@ -752,12 +753,15 @@ defmodule B27SemanticEval do
 
         {:error, error} ->
           error_episode(case_id, "integrated", run_index, opts, error, started,
-            partial_provider_calls: get(error, :partial_provider_calls),
             app_side_evidence: get(error, :app_side_evidence),
             materials_model_visible: get(error, :materials_model_visible),
             seeded_candidates: get(error, :seeded_candidates),
             content_anomaly: content_anomaly(%{"turn_result" => nil, "end_reason" => "error"}),
-            exploration_coverage: exploration_coverage(%{"rounds" => get(error, :rounds) || []})
+            exploration_coverage: exploration_coverage(%{"rounds" => get(error, :rounds) || []}),
+            content_length_evidence:
+              content_length_evidence(%{
+                "seeded_candidates" => get(error, :seeded_candidates)
+              })
           )
       end
     rescue
@@ -1204,6 +1208,31 @@ defmodule B27SemanticEval do
     }
   end
 
+  defp error_provider_calls(error) do
+    round_calls =
+      case get(error, :round) do
+        %{} = round -> get(round, :calls) || get(round, "calls") || []
+        _ -> []
+      end
+
+    rounds_calls =
+      (get(error, :rounds) || [])
+      |> Enum.flat_map(fn round -> get(round, :calls) || get(round, "calls") || [] end)
+
+    (round_calls ++ rounds_calls)
+    |> Enum.uniq_by(fn call ->
+      {get(call, :started_at_monotonic_ms) || get(call, "started_at_monotonic_ms"),
+       get(call, :finished_at_monotonic_ms) || get(call, "finished_at_monotonic_ms")}
+    end)
+  end
+
+  defp error_provider_call_count(error, extra) do
+    case Keyword.get(extra, :partial_provider_calls) do
+      nil -> length(error_provider_calls(error))
+      count -> count
+    end
+  end
+
   defp error_episode(case_id, arm, run_index, opts, error, started, extra \\ []) do
     error = if is_map(error), do: error, else: %{class: :unknown, message: inspect(error)}
     failure = classify_episode_failure(error)
@@ -1225,6 +1254,10 @@ defmodule B27SemanticEval do
         "rounds" => get(error, :rounds),
         "round" => get(error, :round)
       },
+      # 失败轮证据：把 error.round/error.rounds[].calls 的 provider 边界捕获提升到 top-level，
+      # 保证被拒轮（invalid_tool_combination 等）的 request messages + response raw tool_calls/arguments 可定位。
+      "wire_captures" => Enum.map(error_provider_calls(error), &wire_call_doc/1),
+      "partial_provider_calls" => error_provider_call_count(error, extra),
       "elapsed_ms" => System.monotonic_time(:millisecond) - started,
       "response" => nil,
       "mapping" => nil,
@@ -1233,12 +1266,12 @@ defmodule B27SemanticEval do
     |> Map.merge(
       Map.new(
         Keyword.take(extra, [
-          :partial_provider_calls,
           :app_side_evidence,
           :materials_model_visible,
           :seeded_candidates,
           :content_anomaly,
-          :exploration_coverage
+          :exploration_coverage,
+          :content_length_evidence
         ])
       )
     )
@@ -1512,7 +1545,19 @@ defmodule B27SemanticEval do
       |> Enum.filter(&is_binary/1)
       |> Enum.map(&String.slice(&1, 0, 240))
 
+    native_attempts = native_read_attempts(evidence)
+
     %{
+      "sources" =>
+        if(native_attempts == [],
+          do: ["judgment_explore"],
+          else: ["judgment_explore", "native_read_attempt"]
+        ),
+      "judgment_explore_count" => length(observations),
+      "native_read_attempt_count" => length(native_attempts),
+      "native_read_executed_count" =>
+        Enum.count(native_attempts, &(get(&1, "outcome") == "executed")),
+      "native_read_attempts" => native_attempts,
       "observation_count" => length(observations),
       "tools" =>
         observations
@@ -1541,6 +1586,116 @@ defmodule B27SemanticEval do
     |> Enum.reject(&(&1 == []))
     |> List.last()
     |> List.wrap()
+  end
+
+  # 原生只读工具调用尝试（不经 judgment_decision.explore）：当前产品契约以
+  # `tool_not_in_profile` 拒绝；记录 attempt/outcome，但不计入已读覆盖（未被实际执行）。
+  defp native_read_attempts(evidence) do
+    rounds = get(evidence, "rounds") || []
+
+    read_tools = [
+      "chapter_read",
+      "prose_search",
+      "archive_read",
+      "session_adoptions",
+      "memory_recall"
+    ]
+
+    rounds
+    |> Enum.flat_map(fn round ->
+      calls = get(round, "calls") || []
+
+      calls
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {call, index} ->
+        tool_calls = get(get(call, "wire_result") || %{}, "tool_calls") || []
+        rejected = native_call_rejected?(calls, index)
+
+        tool_calls
+        |> Enum.filter(fn tc -> get(tc, "name") in read_tools end)
+        |> Enum.map(fn tc ->
+          %{
+            "tool" => get(tc, "name"),
+            "arguments" => String.slice(safe_json(get(tc, "arguments")) || "", 0, 500),
+            "outcome" => if(rejected, do: "rejected_contract", else: "unknown_not_verified"),
+            "rejection_reason" => if(rejected, do: "tool_not_in_profile", else: nil),
+            "executed_read" => false,
+            "note" => "原生只读工具未通过判断协议（tool_not_in_profile）；不计入已读覆盖。"
+          }
+        end)
+      end)
+    end)
+  end
+
+  defp native_call_rejected?(calls, index) do
+    case Enum.at(calls, index + 1) do
+      nil ->
+        false
+
+      next ->
+        messages = get(get(next, "wire_request") || %{}, "messages") || []
+
+        Enum.any?(messages, fn message ->
+          content = get(message, "content") || ""
+          String.contains?(content, "tool_not_in_profile")
+        end)
+    end
+  end
+
+  defp safe_json(nil), do: nil
+  defp safe_json(value) when is_binary(value), do: value
+  defp safe_json(value), do: inspect(value)
+
+  defp cjk_char_count(text) when is_binary(text) do
+    text
+    |> String.codepoints()
+    |> Enum.count(fn codepoint ->
+      case codepoint do
+        <<code::utf8>> -> code >= 0x4E00 and code <= 0x9FFF
+        _ -> false
+      end
+    end)
+  end
+
+  defp cjk_char_count(_), do: 0
+
+  # M20：字符口径证据（seed body 原始字符数 vs 阅读投影有效字数）。
+  defp content_length_evidence(evidence) do
+    seeded = get(evidence, "seeded_candidates") || []
+    facts = get(evidence, "reading_projection_facts") || %{}
+
+    chapter_word_counts =
+      facts
+      |> Enum.map(fn {_chapter_id, chapter} -> get(chapter, "word_count") end)
+      |> Enum.filter(&is_integer/1)
+
+    chapter_char_counts =
+      facts
+      |> Enum.map(fn {_chapter_id, chapter} -> get(chapter, "char_count") end)
+      |> Enum.filter(&is_integer/1)
+
+    %{
+      "seeded_candidates" =>
+        Enum.map(seeded, fn candidate ->
+          body = get(candidate, "body") || ""
+
+          %{
+            "artifact_id" => get(candidate, "artifact_id"),
+            "body_chars" => get(candidate, "body_chars"),
+            "body_effective_words" => cjk_char_count(body),
+            "body_sha256" => get(candidate, "body_sha256"),
+            "body_chars_definition" => "payload body 原始字符串长度（含标点/换行）",
+            "body_effective_words_definition" => "body 中 CJK 字符数（去标点/空白）"
+          }
+        end),
+      "facts_char_count_total" => Enum.sum(chapter_char_counts),
+      "facts_char_count_definition" => "阅读投影 char_count（正文原始字符长度，含标点/换行；task-30 新增）",
+      "facts_word_count_total" => Enum.sum(chapter_word_counts),
+      "facts_word_count_definition" => "阅读投影 word_count（有效字数口径；本 run 实测=body 中 CJK 字符数，不含标点/换行）",
+      "note" =>
+        "M20 复核：模型引用的『186 字』来自作品事实有效字数；seed body 原始长度 218 字符；" <>
+          "facts 现同时给 char_count 与 word_count，两者口径不同但都正确，不应把 186 当编造。"
+    }
   end
 
   defp total_chars_from_observations(observations) do

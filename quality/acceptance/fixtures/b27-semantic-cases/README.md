@@ -338,6 +338,34 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
    只能作为证据字段，不能代替判卷。
 
 
+12. **修订类 artifact 来源证据（retest4，M07）。**
+    `revise_pending_artifact`/`revise_adopted_content` 产物的 `source_tool_result_ref` 指向**修订工具结果**
+    （`tr_*`），不是基候选。episode `app_side_evidence.artifacts[]` 现记录 `revision_of`（来自
+    `payload.revision_of`）并在 source 无法从 turn 解析时，用 `revision_of` 反查 pending/adopted 候选
+    `payload.items[].body` 作为来源：`source_kind="revised_candidate"`、`source_text_found`、
+    `source_text_sha256`、`item_body_sha256`、`byte_equal_to_source`（false=新候选与基候选有字句/格式差异）。
+    找不到如实 `source_text_found=false`、`byte_equal_to_source=null`，不伪造；judge 不得因
+    `source_tool_result_ref=tr_*` 或 `byte_equal_to_author_text=null` 判无法验证。rubric 不变。
+13. **原生只读工具尝试证据（retest4，M01/M20/M03）。**
+    episode `exploration_coverage` 现同时记录 `judgment_explore_count`、`native_read_attempts[]`：
+    模型直接调用原生只读工具（chapter_read/prose_search/archive_read/session_adoptions/memory_recall）的
+    尝试及其 `outcome`。当前判断协议以 `tool_not_in_profile` 拒绝，`outcome="rejected_contract"`、
+    `executed_read=false` → **不计入 `covered_chars`/`total_chars`**；模型在被拒后声称“已读取全章/末页”
+    属于不实陈述。`sources` 字段区分 `judgment_explore` 与 `native_read_attempt`；finding 只补事实口径，
+    M01/M03 的 rubric 不变。
+14. **字符口径证据（retest4，M20）。**
+    episode 新增 `content_length_evidence`：`seeded_candidates[].body_chars/body_effective_words/body_sha256`
+    （原始字符长度含标点换行 / body 中 CJK 有效字数 / sha）+ `facts_char_count_total`（作品事实正文原始字符数，
+    task-30 新增 `char_count`）+ `facts_word_count_total`（有效字数）+ 全部口径定义文案。
+    M20 实测：seed body=218 字符、有效字数=186（CJK），作品事实 word_count=186；模型引用“186 字”来自事实块，
+    与 seed 218 字符**口径不同但都正确**，不得据此判编造。judge 判定事实一致性须同时对照这些口径与 sha；rubric 不变。
+15. **失败轮 provider 原始证据（retest4，M16）。**
+    episode 失败时（format_terminal_failure 等）把 `error.round` / `error.rounds[].calls` 的 provider 边界捕获
+    提升到 top-level `wire_captures` 与 `partial_provider_calls`（去重；含 request messages + response raw
+    `tool_calls/arguments`），使 `invalid_tool_combination` / `invalid_plan_tool_arguments` 等被拒轮可定位；
+    不改变 rubric/案例。
+
+
 ### 5.6 预注册保真修订记录（CP4 诊断批，2026-10-24；Lead 授权；不放宽 rubric）
 
 本段记录 Lead 授权的**证据保真修订**（不是改 `cases.yml`/`snapshots/`、不是改 §6.1 门槛/rubric）：
@@ -350,6 +378,7 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
 | R2 | **M16 superseded 版本 seed/投影保真补齐**：fixture 语义要求“一个历史版本已 SUPERSEDED” | 诊断实测 `ReadingProjectionRepo.chapter_facts(work_id)` 返回 `accepted_draft_count=3, superseded_draft_count=1, chapter_status=COMPLETED`（seed 数据正确）；但判断 prompt 的“作品事实”块仍显示 `0/0 场、SUPERSEDED 0 份、章状态未知`（`diagnosis-*/probe/episodes/M16-*` 与日志），说明**上下文投影/fetch 链**未把事实并入 prompt，不是 seed 缺数据 | 需在 retest2 前修复上下文投影/fetch（owner：产品/context 修复，不是 judge 放宽）；修好后 M16 仍按原 rubric 判定；seed 数据本身已保真 |
 | R3 | **M01/M11/M13 judge 口径澄清（仅协议事实）**：M11 原文登记由应用侧按来源逐字复制**作者消息全文（含指令性前缀，系统不抽取/不删）**，模型参数本就不含 `author_content`，judge 用 `app_side_evidence` 判定；M13 provider 返回字面占位符 `"[assistant reasoning omitted]"` 时按 provider 未返回作者可见内容处理（不是模型编造）；M01 “完整章”=已采纳正文/计划覆盖的结构事实（有正文/计划依据的“没写完”不因标签字面冲突判 fail） | B26 J2 冻结协议（`tasks/slices/B26-single-call-judgment-protocol.md`）；`TurnInteractionService.source_text("current",...)=current_text`、`ArtifactAssembler.assemble_author_content/3` body=author_text；M11 episode `app_side_evidence.byte_equal_to_author_text=true`（67/67 字节）；M13 `wire_captures[].response.resp_body` 为字面占位符；M01 `cases.yml` 通过/失败判据 | 只让 judge 知道协议事实；不降低 M11/M13/M01 的 rubric pass 要求（M11 仍需字节保真/来源正确；M13 占位符仍不能算成功回复；M01 仍禁编造未读情节） |
 
+| R5 | **retest4 证据补强**（task-31，2026-10-24）：① 修订类 artifact 来源解析（`payload.revision_of` → 基候选 body，`source_kind=revised_candidate`/`byte_equal_to_source`）；② `exploration_coverage` 记录原生只读工具尝试（`rejected_contract/tool_not_in_profile` 不计入已读覆盖，区分 judgment_explore）；③ `content_length_evidence` 记录 seed body 原始字符数/有效字数 + 作品事实 `char_count`/有效字数双口径（M20 186=有效字数/CJK、218=原始字符/char_count，非矛盾）；④ 失败轮 provider 边界捕获提升到 episode top-level `wire_captures`/`partial_provider_calls`（M16 被拒轮 raw tool_calls 可定位）；⑤ README §5.5 #12-15 同步 | 依据：retest3 残余复核（M07 `source_text_found=false`；M01r2/M20r2/M03r1 原生 chapter_read 被 `tool_not_in_profile` 拒绝、未执行；M20 seed 218 字符 vs facts word_count 186）；实测见 `artifacts/model-contracts/b27-cp4/evidence-reinforce2-*/` | 只补事实证据字段与 README 口径；不改 cases/snapshots/阈值/rubric；M07/M01/M20/M03 判定标准不变 |
 | R4 | **retest3 前 seed 保真复核修正**（task-27，2026-10-24）：① **M15 world_setting 基线**改为确定性派生 `fixture.title + cases.yml.prose_lib 中唯一含“抽成七成”的引文（ch03_open「抽成七成，余者归灯。」）`；② pending 候选正文改为**按标题章号取目标章正文**（同批复核发现同类缺陷：M06 `as_m06_b` 第02章候选此前误取第01章正文、M19 第02章候选此前误取第01章正文；目标章 prose 为空时回退 `prose_lib.ch0N_open`）；③ **M08 复核结论：seed 无误** —— `as_m08` payload body 218 字符、清晰两段（第二段=ch01_mid，唯一对象），上下文 target ref 与 payload 一致，失败归产品/模型（机械 guard 诚实失败），不改数据 | M15 修复前 seed 证据：retest2 episode `seeded_candidates[as_m15].body` = 第01章正文（100 chars，rule=`chapter.prose_refs_joined`），与案例卡“灵气抽成七成”不符；修复后 stub code-level 核对见 `artifacts/model-contracts/b27-cp4/seed-fidelity-*/`。M08 的 `seeded_candidates[as_m08]` 两段结构与 `pending_artifact_ref=as_m08` 上下文一致 | 只改 harness seed 确定性派生规则与 README；不改 cases.yml/snapshots/阈值；M15 修复后基线含“抽成七成，余者归灯”，仍按原 rubric 判定；M08/M06/M19 的 rubric 与 allowed paths 不变 |
 
 > 备注：R1 已随 harness seed 实现（episode `seeded_candidates`）；R2 的 seed 数据已保真、上下文投影修复归 retest2 前产品/context owner；

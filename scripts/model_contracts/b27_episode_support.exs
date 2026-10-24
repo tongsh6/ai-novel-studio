@@ -475,7 +475,17 @@ defmodule B27EpisodeSupport do
     body = get(item, :body) || get(item, "body")
     source = get(entry, :source_tool_result_ref) || get(entry, "source_tool_result_ref")
 
+    revision_of = get(payload, "revision_of") || get(entry, "revision_of")
     resolved = resolve_source_text(source, ctx)
+
+    # 修订类 artifact：source_tool_result_ref 指向修订工具结果（tr_*），不是基候选。
+    # 用 payload.revision_of 反查 pending/adopted 候选 payload body 作为来源证据。
+    resolved =
+      if not resolved.found and is_binary(revision_of) and revision_of != "" do
+        resolve_revision_source(revision_of, ctx)
+      else
+        resolved
+      end
 
     byte_equal =
       if is_binary(body) and is_binary(resolved.text), do: body == resolved.text, else: nil
@@ -487,6 +497,7 @@ defmodule B27EpisodeSupport do
       "adoption_status" =>
         to_string_safe(get(entry, :adoption_status) || get(entry, "adoption_status")),
       "source_tool_result_ref" => source,
+      "revision_of" => revision_of,
       "source_kind" => resolved.kind,
       "source_ref" => resolved.ref,
       "source_is_current_turn" => resolved.kind == "current_turn",
@@ -539,6 +550,18 @@ defmodule B27EpisodeSupport do
 
   defp resolve_source_text(_source, _ctx) do
     %{kind: "unknown", ref: nil, text: nil, found: false}
+  end
+
+  # 修订来源：从 payload.revision_of 反查基候选（seed/历史 assistant TurnResult 的 adoption_state
+  # pending/resolved payload.items[].body）。找不到如实 found=false，不伪造。
+  defp resolve_revision_source(revision_of, ctx) do
+    case fetch_candidate_payload_text(ctx.session_id, revision_of) do
+      {:ok, text} ->
+        %{kind: "revised_candidate", ref: revision_of, text: text, found: true}
+
+      :not_found ->
+        %{kind: "revised_candidate", ref: revision_of, text: nil, found: false}
+    end
   end
 
   defp fetch_historical_turn_text(session_id, turn_ref) do

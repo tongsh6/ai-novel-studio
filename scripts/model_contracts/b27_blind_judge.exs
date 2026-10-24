@@ -553,6 +553,7 @@ defmodule B27BlindJudge do
       "rounds_executed" => get(facts, "rounds_executed"),
       "content_anomaly" => get(facts, "content_anomaly"),
       "exploration_coverage" => get(facts, "exploration_coverage"),
+      "content_length_evidence" => get(facts, "content_length_evidence"),
       "materials_model_visible" => compact_materials(get(facts, "materials_model_visible")),
       "seeded_candidates" => compact_seeded(get(facts, "seeded_candidates")),
       "app_side_evidence" => compact_app_side(get(facts, "app_side_evidence")),
@@ -683,6 +684,18 @@ defmodule B27BlindJudge do
     - 来源为**历史 turn/候选**（`source_kind="historical_turn"|"candidate_payload"`）：使用
       `artifacts[].byte_equal_to_source`、`source_text_sha256`、`item_body_sha256`、`source_text_found` 判定；
       此时 `byte_equal_to_author_text=null` 是正常的（它只对 current turn 有意义），不得据此判“无法验证/失败”。
+    - **原生只读工具尝试**：`exploration_coverage.native_read_attempts[]` 记录模型直接调用原生只读工具
+      （chapter_read 等）的尝试；当前判断协议会以 `tool_not_in_profile` 拒绝，`outcome="rejected_contract"`
+      且 `executed_read=false`，**不计入已读覆盖**。模型在被拒后声称“已读取全章/末页”属于不实陈述；
+      不得把 attempt 当作实际读取，也不得因 attempt 存在而否定 covered_chars。
+    - **修订来源**：`app_side_evidence.artifacts[].source_kind="revised_candidate"` 时，来源是
+      `payload.revision_of` 指向的基候选 body；逐字证据看 `byte_equal_to_source`（false 表示新候选与基候选
+      存在字句/格式差异，可由 judge 结合案例卡判定是否仅排版/范围保留）。不得因 `source_tool_result_ref=tr_*`
+      或 `byte_equal_to_author_text=null` 判无法验证。
+    - **字符口径（M20 类）**：`content_length_evidence` 同时给出：seed body 原始字符数/有效字数
+      （`body_chars`/`body_effective_words`，含标点换行 vs CJK 计数）、作品事实原始字符数（`facts_char_count_total`）、
+      有效字数（`facts_word_count_total`）及各自定义。模型引用“186 字”（有效字数）与 seed body “218 字符”/facts
+      “正文 218 字符”**不是矛盾**，不得据此判编造；判断事实一致性必须同时对照这些口径与 `body_sha256`。
     - **探索覆盖**（长章/全文类判据）：必须使用事实字段 `exploration_coverage`：
       `covered_chars`/`total_chars`/`last_page_covered`/`next_offset`/`prose_ranges`。若模型声称“已读全章/末页”
       但 `last_page_covered=false`（covered_chars<total_chars 或 next_offset 非空），属于引用未读事实；
