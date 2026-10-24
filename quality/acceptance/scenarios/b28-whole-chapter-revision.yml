@@ -1,0 +1,91 @@
+id: b28-whole-chapter-revision
+title: "B28 CP0 真实页面隔离复现：整章修订/多片段覆盖/同章采纳身份"
+tier: nightly
+surface: tauri
+default_provider: slice_verify
+status_note: >-
+  draft（CP0 隔离复现，未注册 scenarios.yml）：外部 Tauri driver 通过真实工作台
+  生成并 edit_then_accept 同一章两段 accepted 正文（初稿 2517 字符 + 零换行续写 1075
+  字符，另含同名 planned 干扰章），再发「整章只调整分段/排版、不改字句」与「明确只改
+  一处」两种自然语言请求，记录 judgment 绑定、writer 实际材料覆盖（llm-calls prompt）、
+  候选覆盖与约定空白规则对照、采纳 target_chapter/target_chapter_ref、是否新增章、
+  chapter_count/章身份、旧稿历史、阅读与刷新幂等，以及缺 accepted ref 时的恢复路径。
+  CP0 先复现与判断当前行为，不在修复前注册或声明 B28 功能 PASS。
+entrypoint: bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri
+contract:
+  - tasks/slices/B28-whole-chapter-revision.md §1 / §3 / §5（CP0）
+  - tasks/slices/Q1C-adopted-content-revision.md
+  - tasks/slices/B24-exploration-chapter-full-read.md、B25-chapter-identity-unification.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0019-adoption-status-transition-v3.md
+  - tasks/slices/B27-systematic-prompt-and-intent-integration.md（M07 format_only known-gap）
+invariants:
+  - same-chapter-identity-stable（修订采纳后 chapter_id/章数不变）
+  - whole-chapter-input-covers-all-current-accepted-fragments
+  - format-only-whitespace-equivalent（去尾随空白/换行归一后源与候选逐字相等）
+  - old-drafts-remain-recoverable
+  - zero-canon-write-before-explicit-adoption
+  - missing-or-ambiguous-target-must-not-guess-or-create
+setup:
+  provider: slice_verify
+  seed: scripts/seed_b28_whole_chapter_revision.exs（两章章节计划 + 同名 planned 干扰章；两段 accepted 正文由 driver 真实 UI 写入）
+  env_note: 隔离 test DB；不写作者真实作品；确定性 provider 足够复现状态链，真实模型意图归 CP4。
+  trial_matrix:
+    - T1: 真实 UI 生成并 edit_then_accept 初稿（2517 字符，含「二十五岁」与初稿末句锚点）→ 续写并 edit_then_accept 零换行续写（1075 字符，含续写末句锚点）→「把第01章已保存的正文整理修订一下，只调整分段和排版，不要改字句」
+    - T2: 「把第01章已保存的正文里「二十五岁」改成「三十岁」，只改这一处，其余逐字不变」→ 候选→采纳→章数/章身份/target refs/旧稿/阅读/刷新
+    - T3: 无已采纳正文的新作品发整章修订请求 → 缺 ref 恢复不猜目标/不静默新建章
+user_flow:
+  - open: 真实 Tauri runner（原生窗口 + 真实前端/后端）打开 seed 作品。
+  - create: 档案→大纲与结构→生成正文草稿→修改后采纳，写入初稿（2517 字符）。
+  - create: 主输入续写第01章下一段→修改后采纳，写入零换行续写（1075 字符）；确认同章 2 场景，同名干扰章存在。
+  - send: 「把第01章已保存的正文整理修订一下，只调整分段和排版，不要改字句。」
+  - observe: 判断绑定对象、writer 材料（llm-calls prompt 是否含两段正文/锚点）、候选是否覆盖两段、无候选时诚实失败文案；候选按约定空白规则与源对照。
+  - send: 「把第01章已保存的正文里「二十五岁」改成「三十岁」，只改这一处，其余逐字不变。」
+  - observe: 候选覆盖（是否只有第一段）、采纳 target_chapter/target_chapter_ref、是否新增章、章数/章身份、旧稿是否保留、阅读投影、刷新后幂等。
+  - open: 新作品（无 accepted 正文）。
+  - send: 同样的整章修订请求。
+  - observe: 缺 ref 时是否诚实拒绝/澄清，是否零写入、不静默新增章。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - llm_call_jsonl
+    - summary_json
+  extra_artifacts:
+    - b28-cp0-evidence.json（每 trial 的 judgment/writer 材料/候选覆盖/采纳身份/章事实/阅读与刷新）
+    - b28-01-two-accepted-fragments.png
+    - b28-02-reading-after-revision-adoption.png
+    - b28-final.png
+  artifact_dir: artifacts/slice-verify/b28-whole-chapter-revision-tauri
+assertions:
+  # CP0 复现证据断言：只声明可机械核对的观测，不预设 B28 功能已正确。
+  ui:
+    - 同章两段 accepted 正文由真实工作台生成与 edit_then_accept 写入，阅读模式显示该章。
+    - 整章修订请求后页面可见候选卡或诚实失败文案；无候选时不得宣称已整理完成。
+    - 采纳后刷新页面，不得出现重复采纳入口；同名干扰章仍在目录中。
+  network:
+    - 整章修订请求由真实主输入触发；记录 judgment action/capability 与 writer prompt 材料覆盖。
+    - 明确改一处请求的候选/采纳帧记录 target_chapter/target_chapter_ref（缺失也如实记录）。
+    - 缺 ref 请求不产生生产写入；若产生仓促新建章则记录为待修缺口。
+  data:
+    - 记录 chapter_count、章 id/title/seq、场景与 accepted draft 内容/hash。
+    - 约定空白规则（去行尾空白 + 空行/连续换行归一）下，候选与初稿/整章的相等性如实记录。
+    - 采纳后记录旧 draft 状态与可回溯性、阅读投影内容、刷新后章事实。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只使用用户可见语义（主输入 placeholder、发送/生成正文草稿/修改后采纳/保存修改后
+  的版本/阅读按钮文案、页面文本）+ WS 帧 + app/llm JSONL + 隔离 DB 只读核对；未新增
+  testid/隐藏 metadata/验收开关；产品代码未为验收改动。
+prerequisites:
+  - Q1c/B24/B25 已交付的 adopted-content revision、chapter_ref 身份与阅读投影能力。
+  - 仅 slice_verify 确定性 provider；真实模型自然语言意图归 CP4。
+known_not_closed:
+  - CP0 只复现/判断，不注册 scenarios.yml、不声明 B28 通过。
+  - deterministic provider 对「只排版」无 format_only 语义；CP0 记录候选/诚实失败现状，真实意图归 CP4。
+  - 若当前版本已阻止误导候选或已修同章采纳，仍以 b28-cp0-evidence.json 的实测值为准，不据旧 stage 失败外推。

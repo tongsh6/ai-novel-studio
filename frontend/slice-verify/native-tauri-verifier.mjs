@@ -2233,7 +2233,65 @@ function b31AuthorReplyRunBindingBehavior(records, evidence, _options) {
   };
 }
 
+// B28 CP0（未注册草案）：整章修订/多片段覆盖/同章采纳的真实工作台隔离复现。
+// 本 finder/behavior 只让既有 Tauri runner 生成 summary.json 证据；CP0 结论、现状
+// 判断与 CP1 最小契约字段由 b28-cp0-evidence.json + artifacts/model-contracts/b28-cp0/
+// ui-repro.md 承担，不把复现结果当 B28 功能 PASS。
+function findB28WholeChapterRevisionEvidence(records) {
+  const sliceId = "b28-whole-chapter-revision";
+  const ui = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!ui) return null;
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 3) return null;
+  if (!ui.summary || typeof ui.summary !== "object") return null;
+  if (ui.no_product_code_changed !== true) return null;
+  if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+  return {
+    slice_id: sliceId,
+    turn_id: "b28-cp0-whole-chapter-revision",
+    turn_ids: [],
+    trial_ids: ui.trial_ids,
+    summary: ui.summary,
+    seed: ui.seed,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function b28WholeChapterRevisionBehavior(records, evidence, _options) {
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" && record.slice_id === "b28-whole-chapter-revision",
+  );
+  if (!ui) return null;
+  return {
+    slice_id: "b28-whole-chapter-revision",
+    behavior: "b28_cp0_whole_chapter_revision_multi_fragment_adoption_isolation_repro",
+    turn_ids: [],
+    trials: evidence.trial_ids,
+    summary: evidence.summary,
+    seed: evidence.seed,
+    assertions: [
+      "two_accepted_prose_fragments_written_through_real_ui_edit_then_accept",
+      "format_only_whole_chapter_request_judgment_and_writer_material_recorded",
+      "candidate_coverage_checked_against_both_fragment_anchors",
+      "whitespace_rule_candidate_vs_source_recorded",
+      "explicit_change_adoption_identity_and_chapter_count_recorded",
+      "same_title_distractor_chapter_untouched",
+      "reading_projection_and_refresh_idempotency_recorded",
+      "missing_accepted_ref_request_recorded_without_guess",
+      "no_product_code_or_acceptance_hook_changed",
+    ],
+    note:
+      "B28 CP0 reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and B28 CP1/CP2 implement the whole-chapter revision + same-chapter adoption contract.",
+  };
+}
+
 export function findNativeSliceEvidence(sliceId, records) {
+  if (sliceId === "b28-whole-chapter-revision") {
+    return findB28WholeChapterRevisionEvidence(records);
+  }
+
   if (sliceId === "b31-author-reply-run-binding") {
     return findB31AuthorReplyRunBindingEvidence(records);
   }
@@ -2999,6 +3057,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
 export function findSliceBehaviorEvidence(sliceId, records, evidence, options = {}) {
   if (!evidence) return null;
+
+  if (sliceId === "b28-whole-chapter-revision") {
+    return b28WholeChapterRevisionBehavior(records, evidence, options);
+  }
 
   if (sliceId === "b31-author-reply-run-binding") {
     return b31AuthorReplyRunBindingBehavior(records, evidence, options);

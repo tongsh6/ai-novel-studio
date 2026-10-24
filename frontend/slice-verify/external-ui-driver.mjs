@@ -689,7 +689,16 @@ async function clickWorkMenuItemByExactTitle(page, title) {
   for (let index = 0; index < count; index += 1) {
     const item = items.nth(index);
     const text = ((await item.textContent()) ?? "").replace(/\s+/g, " ").trim();
-    if (text === title || text === `${title} 当前`) {
+    // 菜单项的「当前」标识以独立 badge 渲染，DOM 文本可能没有空格分隔；按用户可见
+    // 标题主体比较（去掉空白后 equals title 或 title+当前），避免因展示分隔符失败。
+    const compact = text.replace(/\s+/g, "");
+    const titleCompact = String(title).replace(/\s+/g, "");
+    if (
+      text === title ||
+      text === `${title} 当前` ||
+      compact === titleCompact ||
+      compact === `${titleCompact}当前`
+    ) {
       await item.click();
       return;
     }
@@ -35954,6 +35963,797 @@ async function driveB31AuthorReplyRunBinding(page) {
   ];
 }
 
+// B28 CP0：整章修订/多片段覆盖/同章采纳的真实工作台隔离复现。
+// 用真实 UI 生成并 edit_then_accept 两段正文（初稿 2517 字符 + 零换行续写 1075 字符），
+// 再发自然语言「整章只排版修订」与「明确改一处」两种请求，记录 judgment 绑定、writer
+// 实际材料（llm-calls prompt）、候选覆盖、采纳目标/章身份/历史与阅读投影。
+// 只采集与对照，不修改产品代码、不加验收感知；确定性 provider 足够复现状态链。
+const B28_SLICE_ID = "b28-whole-chapter-revision";
+const B28_FORMAT_ONLY_REQUEST =
+  "把第01章已保存的正文整理修订一下，只调整分段和排版，不要改字句。";
+const B28_EXPLICIT_CHANGE_REQUEST =
+  "把第01章已保存的正文里「二十五岁」改成「三十岁」，只改这一处，其余逐字不变。";
+
+function b28NormalizeWhitespace(text) {
+  return String(text ?? "")
+    .split("\n")
+    .map((line) => line.replace(/[ \t\u3000]+$/u, ""))
+    .join("\n")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
+function b28BuildInitialFragment() {
+  const paragraphs = [
+    "夜潮漫上雨港的石阶时，沈砚正在旧书铺里核对灯楼送来的第七本旧账。",
+    "账页被潮气泡得发软，指尖一按就留下浅浅的水痕。",
+    "他把三盏灯下的数字抄在草纸上，发现每一笔灯油都比账上多出半钱。",
+    "井底黑泉的运费从没有单独列过，却每月准时出现在「杂耗」一栏里。",
+    "沈砚记得很清楚，点灯人第一次点灯时才二十五岁，那一年灯楼还没有第七盏灯。",
+    "子时将近，楼下忽然传来灯焰爆响的声音，像有人在井口轻轻敲了三下。",
+    "他披上旧毡衣，把账本塞进怀里，顺着后巷的湿墙往灯楼走。",
+    "巷子尽头的灯楼只有一扇窗亮着，窗上蒙着潮气，看不清里面的人。",
+    "守夜的门房没有拦他，只指了指井口，说今晚的灯油已经烧到井底了。",
+    "沈砚俯身去看，井水里沉着一点蓝灰色的光，像一枚被水泡胀的火星。",
+    "他把手伸进井绳的旧扣里，听见自己在心里数：一、二、三。",
+    "第七次灯焰爆响的同时，井口浮起一枚灯芯，芯上缠着一小片写着名字的纸。",
+    "【初稿末句】井口浮起一枚灯芯，像谁留下的问号。",
+  ];
+  let body = paragraphs.join("\n\n");
+  const padUnit = "潮气顺着墙缝往里渗，他把呼吸放轻，听见灯楼深处传来灯油滴落的声音。";
+  while (body.length < 2517) {
+    body += "\n\n" + padUnit;
+  }
+  return body.slice(0, 2517);
+}
+
+function b28BuildContinuationFragment() {
+  const seedLine =
+    "沈砚把灯芯摊在掌心，纸片上只有半个名字；他沿井壁的旧梯继续往下，脚底的石阶被灯油浸得发黑，守夜人的灯在下面转蓝，他听见有人用很轻的声音说：点灯人不能回头看灯焰。他没有回头，只把账本翻到最后一页，上面记着第七盏灯的数量与井底黑泉的取油时辰，字迹和他自己的很像。";
+  const endingAnchor = "【续写末句】灯焰在子时之后转蓝，井底有人轻轻应了一声。";
+  let body = seedLine;
+  while (body.length + endingAnchor.length < 1075) {
+    body += "井底的风把灯焰吹得低下去，他数着台阶继续走，账页上的名字慢慢清晰。";
+  }
+  body = body.slice(0, 1075 - endingAnchor.length) + endingAnchor;
+  return body;
+}
+
+async function driveB28WholeChapterRevision(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+  const { createHash } = await import("node:crypto");
+  const sha256 = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
+  const seedWorkId = readSeedField("work_id");
+  const seedSessionId = readSeedField("session_id");
+  const chapterAId = readSeedField("chapter_a_id");
+  const isolationWorkId = readSeedField("isolation_work_id");
+  const isolationChapterAId = readSeedField("isolation_chapter_a_id");
+  const isolationDuplicateChapterId = readSeedField("isolation_duplicate_chapter_id");
+  assert(
+    seedWorkId &&
+      seedSessionId &&
+      chapterAId &&
+      isolationWorkId &&
+      isolationChapterAId &&
+      isolationDuplicateChapterId,
+    "B28 seed fields missing",
+  );
+  const mainWorkTitle = "B28 整章修订复现作品";
+  const isolationWorkTitle = "B28 同标题章隔离作品";
+
+  const initialFragment = b28BuildInitialFragment();
+  const continuationFragment = b28BuildContinuationFragment();
+  const initialAnchor = "【初稿末句】";
+  const continuationAnchor = "【续写末句】";
+  const evidence = {
+    scenario: B28_SLICE_ID,
+    surface: "tauri",
+    driver: "headless-chromium-real-frontend-backend",
+    provider: "slice_verify",
+    seed: {
+      work_id: seedWorkId,
+      session_id: seedSessionId,
+      chapter_a_id: chapterAId,
+      isolation_work_id: isolationWorkId,
+      isolation_chapter_a_id: isolationChapterAId,
+      isolation_duplicate_chapter_id: isolationDuplicateChapterId,
+      initial_fragment_chars: initialFragment.length,
+      continuation_fragment_chars: continuationFragment.length,
+      continuation_newline_count: (continuationFragment.match(/\n/g) ?? []).length,
+    },
+    trials: [],
+  };
+
+  async function db() {
+    const { DatabaseSync } = await import("node:sqlite");
+    const dbDir = process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir();
+    return new DatabaseSync(
+      path.join(dbDir, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION ?? ""}.sqlite3`),
+      { readOnly: true },
+    );
+  }
+
+  async function dbAll(sql, params = []) {
+    const database = await db();
+    try {
+      return database.prepare(sql).all(...params);
+    } finally {
+      database.close();
+    }
+  }
+
+  async function chapterFacts(workId) {
+    const chapters = await dbAll(
+      "SELECT id, title, seq, status FROM chapters WHERE work_id = ? ORDER BY seq",
+      [workId],
+    );
+    const scenes = await dbAll(
+      "SELECT s.id AS scene_id, s.chapter_id, s.seq AS scene_seq, d.content, d.status AS draft_status, d.revision FROM scenes s LEFT JOIN drafts d ON d.scene_id = s.id AND d.status = 'ACCEPTED' WHERE s.chapter_id IN (SELECT id FROM chapters WHERE work_id = ?) ORDER BY s.chapter_id, s.seq, d.revision",
+      [workId],
+    );
+    return { chapters, scenes };
+  }
+
+  async function chapterContent(chapterId) {
+    const rows = await dbAll(
+      "SELECT s.seq AS scene_seq, d.content FROM scenes s JOIN drafts d ON d.scene_id = s.id AND d.status = 'ACCEPTED' WHERE s.chapter_id = ? ORDER BY s.seq, d.revision",
+      [chapterId],
+    );
+    return rows.map((row) => row.content ?? "").join("\n");
+  }
+
+  async function closeArchiveIfOpen() {
+    const closeButton = page.getByRole("button", { name: "关闭档案" });
+    if ((await closeButton.count()) > 0) {
+      await closeButton.first().click().catch(() => {});
+      await sleep(200);
+    }
+  }
+
+  async function openArchiveOutline() {
+    const archiveOpen = await page
+      .getByRole("tab", { name: "大纲与结构" })
+      .isVisible()
+      .catch(() => false);
+    if (!archiveOpen) await page.getByRole("button", { name: "打开档案" }).first().click();
+    await page.getByRole("tab", { name: "大纲与结构" }).click();
+    await page.getByText("已采纳章节计划").first().waitFor({ timeout: 15_000 });
+  }
+
+  async function generateChapterDraft(label) {
+    const start = frames.length;
+    const logStart = readAppLogRecords().length;
+    await openArchiveOutline();
+    await page.getByRole("button", { name: "生成正文草稿" }).first().click();
+    const turnFrame = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+        Array.isArray(frame.body?.adoption_state?.pending) &&
+        frame.body.adoption_state.pending.some((entry) => entry.artifact_type === "prose_fragment"),
+      `${label}: chapter draft candidate was not produced`,
+      240_000,
+    );
+    const pending = turnFrame.body.adoption_state.pending.find(
+      (entry) => entry.artifact_type === "prose_fragment",
+    );
+    return { turnResult: turnFrame.body, pending, logStart, frameStart: start };
+  }
+
+  async function editThenAccept(page, pendingArtifact, editedText, label) {
+    await page.waitForFunction(
+      () => /修改后采纳|修改后保存正文/.test(document.body.innerText),
+      { timeout: 20_000 },
+    );
+    await page
+      .getByRole("button", { name: /修改后采纳|修改后保存正文/ })
+      .first()
+      .click();
+    const textarea = page.locator("textarea").first();
+    await textarea.waitFor({ timeout: 15_000 });
+    await textarea.fill(editedText);
+    const saveButton = page.getByRole("button", { name: /采纳修改后的版本|保存修改后的版本/ });
+    let acceptFrame = null;
+    let adoptTurn = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if ((await saveButton.count()) === 0) break;
+      const attemptStart = frames.length;
+      await saveButton.first().click().catch(() => {});
+      await sleep(250);
+      acceptFrame =
+        frames
+          .slice(attemptStart)
+          .find(
+            (frame) =>
+              frame.direction === "sent" &&
+              frame.event === "author_action" &&
+              frame.body?.action?.action_type === "edit_then_accept" &&
+              frame.body?.action?.target_ref === pendingArtifact.artifact_id,
+          ) ?? acceptFrame;
+      try {
+        adoptTurn = await waitForNewFrame(
+          attemptStart,
+          (frame) =>
+            frame.direction === "received" &&
+            frame.event === "turn_result" &&
+            frame.body?.truthfulness?.artifact_adopted === true &&
+            (frame.body?.adoption_state?.resolved ?? []).some(
+              (entry) =>
+                entry.artifact_id === pendingArtifact.artifact_id &&
+                entry.adoption_status === "EDITED_ACCEPTED",
+            ),
+          `${label}: edited adoption outcome`,
+          45_000,
+        );
+        break;
+      } catch {
+        await sleep(800);
+      }
+    }
+    assert(acceptFrame && adoptTurn, `${label}: edit_then_accept did not resolve`);
+    return {
+      edited_chars: editedText.length,
+      action_type: acceptFrame.body?.action?.action_type,
+      action_target_ref: acceptFrame.body?.action?.target_ref,
+      adopted_status: "EDITED_ACCEPTED",
+      resolved_entry: (adoptTurn.body.adoption_state?.resolved ?? []).find(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
+      turn_id: adoptTurn.body.turn_id,
+    };
+  }
+
+  async function sendAuthorTurn(text, label, timeoutMs = 240_000) {
+    const start = frames.length;
+    const logStart = readAppLogRecords().length;
+    const llmStart = readLlmCallRecords().length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === text,
+      `${label}: author input was not sent`,
+      30_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        String(frame.body?.turn_id ?? "").startsWith(String(sent.body?.turn_id ?? "")),
+      `${label}: no correlated TurnResult`,
+      timeoutMs,
+    );
+    await sleep(1_200);
+    const llmPrompts = readLlmCallRecords()
+      .slice(llmStart)
+      .map((record) =>
+        typeof record?.prompt === "string" ? record.prompt : llmCallPromptText(record),
+      );
+    const appRecords = readAppLogRecords().slice(logStart);
+    return {
+      label,
+      text,
+      sent_turn_id: sent.body?.turn_id,
+      turnResult: turnFrame.body,
+      assistant_text: String(turnFrame.body?.assistant_message?.text ?? ""),
+      pending: turnFrame.body?.adoption_state?.pending ?? [],
+      resolved: turnFrame.body?.adoption_state?.resolved ?? [],
+      truthfulness: turnFrame.body?.truthfulness ?? {},
+      judgment_records: appRecords
+        .filter((record) => record.event === "judgment.decided.done")
+        .map((record) => ({
+          action: record.action,
+          capability: record.capability,
+          frame_type: record.frame_type,
+          reason_code: record.reason_code ?? null,
+        })),
+      failure_records: appRecords
+        .filter(
+          (record) =>
+            String(record.event ?? "").includes("failed") ||
+            String(record.event ?? "").includes("error") ||
+            String(record.outcome ?? "") === "error",
+        )
+        .map((record) => ({
+          event: record.event,
+          outcome: record.outcome ?? null,
+          reason_code: record.reason_code ?? null,
+          message: String(record.msg ?? "").slice(0, 300),
+        })),
+      app_event_counts: appRecords.reduce((acc, record) => {
+        const key = String(record.event ?? "");
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {}),
+      llm_prompt_count: llmPrompts.length,
+      llm_prompts: llmPrompts.map((prompt) => ({
+        chars: prompt.length,
+        contains_initial_anchor: prompt.includes(initialAnchor),
+        contains_continuation_anchor: prompt.includes(continuationAnchor),
+        contains_initial_unique_phrase: prompt.includes("点灯人第一次点灯时才二十五岁"),
+        contains_continuation_unique_phrase: prompt.includes("点灯人不能回头看灯焰"),
+        has_adopted_revision_brief: prompt.includes("修订下面已采纳的作品内容"),
+        has_original_accepted_content: prompt.includes("原已采纳内容"),
+        has_initial_body: prompt.includes(initialFragment.slice(0, 60)),
+        has_continuation_body: prompt.includes(continuationFragment.slice(0, 60)),
+      })),
+      log_start: logStart,
+    };
+  }
+
+  function candidateFacts(turn) {
+    const candidate = turn.pending.find((entry) => entry.artifact_type === "prose_fragment");
+    const body = String(
+      candidate?.payload?.items?.map((item) => item.body).filter(Boolean).join("\n\n") ?? "",
+    );
+    return {
+      candidate_present: Boolean(candidate),
+      candidate_id: candidate?.artifact_id ?? null,
+      candidate_body_chars: body.length,
+      candidate_body_sha256: candidate ? sha256(body) : null,
+      candidate_body: body,
+      contains_initial_anchor: body.includes(initialAnchor),
+      contains_continuation_anchor: body.includes(continuationAnchor),
+      contains_initial_unique_phrase: body.includes("点灯人第一次点灯时才二十五岁"),
+      contains_continuation_unique_phrase: body.includes("点灯人不能回头看灯焰"),
+      pending_entry_keys: candidate ? Object.keys(candidate).sort() : [],
+      payload_keys: candidate?.payload ? Object.keys(candidate.payload).sort() : [],
+      target_chapter: candidate?.target_chapter ?? null,
+      target_chapter_ref: candidate?.target_chapter_ref ?? null,
+    };
+  }
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await waitForWorkByTitle(mainWorkTitle, new Set(), 20_000);
+  await waitForWorkByTitle(isolationWorkTitle, new Set(), 20_000);
+
+  // ── T0：同标题两章身份隔离（真实 UI 采纳请求必须拒绝而不是按 title 误绑/合并）──
+  await refreshAndSelectWork(page, isolationWorkTitle);
+  await waitForVisibleWorkTitle(page, isolationWorkTitle, 20_000);
+  const isolationBefore = await chapterFacts(isolationWorkId);
+  const isolationDraft = await generateChapterDraft("B28 isolation same-title draft");
+  const isolationAttemptStart = frames.length;
+  await page
+    .getByRole("button", { name: /修改后采纳|修改后保存正文/ })
+    .first()
+    .click();
+  const isolationTextarea = page.locator("textarea").first();
+  await isolationTextarea.waitFor({ timeout: 15_000 });
+  await isolationTextarea.fill(initialFragment);
+  await page
+    .getByRole("button", { name: /采纳修改后的版本|保存修改后的版本/ })
+    .first()
+    .click()
+    .catch(() => {});
+  const isolationErrorFrame = await waitForNewFrame(
+    isolationAttemptStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "error",
+    "B28 same-title isolation adoption expected a structured rejection",
+    30_000,
+  ).catch(() => null);
+  const isolationAuthorActions = frames
+    .slice(isolationAttemptStart)
+    .filter((frame) => frame.direction === "sent" && frame.event === "author_action");
+  await page.keyboard.press("Escape").catch(() => {});
+  await sleep(600);
+  const isolationAfter = await chapterFacts(isolationWorkId);
+  const isolationErrorReason = String(
+    isolationErrorFrame?.body?.response?.reason ?? isolationErrorFrame?.body?.reason ?? "",
+  );
+  evidence.trials.push({
+    id: "T0_same_title_identity_isolation",
+    purpose:
+      "同标题两章（真实已采纳计划章 + 同名 planned 干扰章）下，真实 UI 采纳请求必须拒绝歧义而不是按 title 误绑/合并；记录结构化 reason、是否零写入。",
+    isolation_work_id: isolationWorkId,
+    isolation_chapter_a_id: isolationChapterAId,
+    isolation_duplicate_chapter_id: isolationDuplicateChapterId,
+    isolation_chapters_before: isolationBefore.chapters,
+    candidate_artifact_id: isolationDraft.pending?.artifact_id ?? null,
+    author_action_sent: isolationAuthorActions.length,
+    author_action_type: isolationAuthorActions[0]?.body?.action?.action_type ?? null,
+    error_reason: isolationErrorReason,
+    rejected_by_structured_reason: isolationErrorReason.includes("ambiguous_chapter_title"),
+    chapters_after: isolationAfter.chapters,
+    accepted_drafts_before: isolationBefore.scenes.filter((row) => row.draft_status === "ACCEPTED").length,
+    accepted_drafts_after: isolationAfter.scenes.filter((row) => row.draft_status === "ACCEPTED").length,
+    duplicate_chapter_untouched: isolationAfter.chapters.some(
+      (row) =>
+        row.id === isolationDuplicateChapterId &&
+        row.title === isolationBefore.chapters.find((old) => old.id === isolationDuplicateChapterId)?.title,
+    ),
+  });
+
+  // ── 回到唯一标题主作品，构造两段 accepted 正文 ───────────────────────────────
+  await refreshAndSelectWork(page, mainWorkTitle);
+  await waitForVisibleWorkTitle(page, mainWorkTitle, 20_000);
+  const baselineFacts = await chapterFacts(seedWorkId);
+  assert(
+    baselineFacts.chapters.length === 2,
+    `B28 main seed expected 2 unique-title chapters, got ${baselineFacts.chapters.length}`,
+  );
+
+  // ── 构造两段 accepted 正文（真实 UI 生成 + edit_then_accept 控制内容）──────────
+  const firstDraft = await generateChapterDraft("B28 first draft");
+  const firstAdoption = await editThenAccept(
+    page,
+    firstDraft.pending,
+    initialFragment,
+    "B28 initial fragment adoption",
+  );
+  const afterFirst = await chapterFacts(seedWorkId);
+  await closeArchiveIfOpen();
+  const secondDraft = await sendAuthorTurn(
+    "接着第01章继续往下写一段，只写下一段正文，保持人物与情节不变。",
+    "B28 continuation draft request",
+    240_000,
+  );
+  const secondPending = secondDraft.pending.find((entry) => entry.artifact_type === "prose_fragment");
+  assert(secondPending, "B28 continuation candidate was not produced");
+  const secondAdoption = await editThenAccept(
+    page,
+    secondPending,
+    continuationFragment,
+    "B28 continuation fragment adoption",
+  );
+  const afterSecond = await chapterFacts(seedWorkId);
+  const chapterContentAfterSecond = await chapterContent(chapterAId);
+  const chapterScenesAfterSecond = afterSecond.scenes.filter(
+    (row) => row.chapter_id === chapterAId,
+  );
+  await page.screenshot({ path: path.join(artifactDir, "b28-01-two-accepted-fragments.png"), fullPage: true });
+
+  // ── T1：作者自然语言「整章只排版修订」──────────────────────────────────────
+  const formatTurn = await sendAuthorTurn(B28_FORMAT_ONLY_REQUEST, "B28 format-only whole-chapter request");
+  const formatCandidate = candidateFacts(formatTurn);
+  const formatChapterFacts = await chapterFacts(seedWorkId);
+  const formatNormalizedAgainstInitial =
+    formatCandidate.candidate_present &&
+    b28NormalizeWhitespace(formatCandidate.candidate_body) ===
+      b28NormalizeWhitespace(initialFragment);
+  const formatNormalizedAgainstWholeChapter =
+    formatCandidate.candidate_present &&
+    b28NormalizeWhitespace(formatCandidate.candidate_body) ===
+      b28NormalizeWhitespace(chapterContentAfterSecond);
+  evidence.trials.push({
+    id: "T1_format_only_whole_chapter_request",
+    purpose:
+      "作者要求整章只调整分段/排版不改字句；记录 judgment 绑定、writer 材料覆盖、候选覆盖与诚实失败/候选字节差异。",
+    request_text: B28_FORMAT_ONLY_REQUEST,
+    baseline: {
+      chapter_count: baselineFacts.chapters.length,
+      chapter_a_scene_count_before: 0,
+      after_first_scene_drafts: afterFirst.scenes.filter((row) => row.chapter_id === chapterAId).length,
+      after_second_scene_drafts: chapterScenesAfterSecond.length,
+      chapter_content_chars: chapterContentAfterSecond.length,
+      chapter_content_sha256: sha256(chapterContentAfterSecond),
+      first_adoption: firstAdoption,
+      second_adoption: secondAdoption,
+      fragments: {
+        initial_chars: initialFragment.length,
+        initial_anchor_present: chapterContentAfterSecond.includes(initialAnchor),
+        continuation_chars: continuationFragment.length,
+        continuation_anchor_present: chapterContentAfterSecond.includes(continuationAnchor),
+        continuation_newlines: (continuationFragment.match(/\n/g) ?? []).length,
+      },
+    },
+    judgment: formatTurn.judgment_records,
+    writer_prompts: formatTurn.llm_prompts,
+    turn: {
+      assistant_text: formatTurn.assistant_text,
+      pending_count: formatTurn.pending.length,
+      truthfulness: formatTurn.truthfulness,
+      failure_records: formatTurn.failure_records,
+      app_event_counts: formatTurn.app_event_counts,
+    },
+    candidate: formatCandidate,
+    whitespace_rule: {
+      normalization: "strip trailing whitespace per line + collapse blank lines + trim",
+      candidate_equals_initial: formatNormalizedAgainstInitial,
+      candidate_equals_whole_chapter: formatNormalizedAgainstWholeChapter,
+    },
+    chapter_facts_after: formatChapterFacts.chapters,
+    isolation_untouched_after_format_request:
+      isolationAfter.scenes.filter((row) => row.draft_status === "ACCEPTED").length ===
+      isolationBefore.scenes.filter((row) => row.draft_status === "ACCEPTED").length,
+  });
+
+  // ── T2：明确改一处（确定性 provider 支持）→ 观察单片段候选与采纳身份 ─────────
+  const chapterBeforeExplicit = await chapterFacts(seedWorkId);
+  const explicitTurn = await sendAuthorTurn(B28_EXPLICIT_CHANGE_REQUEST, "B28 explicit change request");
+  const explicitCandidate = candidateFacts(explicitTurn);
+  let explicitAdoption = null;
+  if (explicitCandidate.candidate_present) {
+    const pendingEntry = explicitTurn.pending.find(
+      (entry) => entry.artifact_type === "prose_fragment",
+    );
+    const cardButtonTexts = (
+      await page.getByRole("button").allTextContents()
+    ).map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const acceptStart = frames.length;
+    const acceptPattern =
+      /保存修订稿|编辑修订稿后保存|替代已保存版本|替换已保存版本|采纳修订|保存为章节正文|保存原稿|采纳修改后的版本|保存修改后的版本|采纳/;
+    const acceptButton = page.getByRole("button", { name: acceptPattern });
+    const acceptButtonCount = await acceptButton.count();
+    let confirmationClicked = false;
+    let actionSent = null;
+    let errorReply = null;
+    let adoptedFrame = null;
+    if (acceptButtonCount > 0) {
+      await acceptButton.first().click().catch(() => {});
+      const confirmButton = page.getByRole("button", {
+        name: /确认覆盖|确认替代|确认替换|确认保存|确认/,
+      });
+      if ((await confirmButton.count()) > 0) {
+        await confirmButton.first().click().catch(() => {});
+        confirmationClicked = true;
+      }
+      actionSent =
+        frames
+          .slice(acceptStart)
+          .find((frame) => frame.direction === "sent" && frame.event === "author_action") ??
+        null;
+      errorReply =
+        frames
+          .slice(acceptStart)
+          .find(
+            (frame) =>
+              frame.direction === "received" &&
+              frame.event === "phx_reply" &&
+              frame.body?.status === "error",
+          ) ?? null;
+      adoptedFrame = await waitForNewFrame(
+        acceptStart,
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "turn_result" &&
+          frame.body?.truthfulness?.artifact_adopted === true &&
+          (frame.body?.adoption_state?.resolved ?? []).some(
+            (entry) => entry.artifact_id === pendingEntry.artifact_id,
+          ),
+        "B28 explicit-change adoption did not resolve",
+        180_000,
+      ).catch(() => null);
+    }
+    explicitAdoption = {
+      card_button_texts: cardButtonTexts.filter((value) =>
+        /采纳|保存|替代|替换|确认/.test(value),
+      ),
+      accept_button_count: acceptButtonCount,
+      confirmation_clicked: confirmationClicked,
+      author_action: actionSent
+        ? {
+            action_type: actionSent.body?.action?.action_type ?? null,
+            target_ref: actionSent.body?.action?.target_ref ?? null,
+            payload_keys: Object.keys(actionSent.body?.action?.payload ?? {}).sort(),
+            confirmation_satisfied:
+              actionSent.body?.action?.payload?.confirmation_satisfied ?? null,
+          }
+        : null,
+      error_reply: errorReply
+        ? JSON.stringify(errorReply.body?.response ?? errorReply.body).slice(0, 500)
+        : null,
+      adopted: Boolean(adoptedFrame),
+      resolved_entry: adoptedFrame
+        ? (adoptedFrame.body.adoption_state.resolved ?? []).find(
+            (entry) => entry.artifact_id === pendingEntry.artifact_id,
+          )
+        : null,
+      turn_id: adoptedFrame?.body?.turn_id ?? null,
+      projection_refs: adoptedFrame?.body?.projection_refs ?? [],
+      trace_summary: adoptedFrame?.body?.trace_summary ?? null,
+    };
+  }
+  const chapterAfterExplicit = await chapterFacts(seedWorkId);
+  const chapterContentAfterExplicit = await chapterContent(chapterAId);
+  const newChapterRows = chapterAfterExplicit.chapters.filter(
+    (row) => !chapterBeforeExplicit.chapters.some((old) => old.id === row.id),
+  );
+  const chapterAChanged = chapterContentAfterExplicit !== chapterContentAfterSecond;
+  let readingVisible = false;
+  let readingExcerpt = "";
+  try {
+    await page.getByRole("button", { name: readingModeButtonPattern }).click();
+    await page.waitForFunction(
+      () => document.body.innerText.includes("阅读模式") && document.body.innerText.includes("本章有效字数"),
+      { timeout: 20_000 },
+    );
+    const readingText = await page.locator("body").innerText();
+    readingVisible = true;
+    readingExcerpt = readingText.slice(0, 1200);
+    await page.screenshot({ path: path.join(artifactDir, "b28-02-reading-after-revision-adoption.png"), fullPage: true });
+    await page.getByRole("button", { name: "返回工作台" }).click();
+  } catch {
+    // 阅读入口不可达时保留 readingVisible=false（证据仍含正文投影 DB 事实）。
+  }
+  const refreshStart = readAppLogRecords().length;
+  const resumeResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/sessions/resume") && response.ok(),
+  );
+  await page.reload({ waitUntil: "commit" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+  await (await resumeResponse).json().catch(() => null);
+  await sleep(600);
+  const chapterAfterRefresh = await chapterFacts(seedWorkId);
+  const acceptButtonsAfterRefresh = await page
+    .getByRole("button", { name: /^保存原稿$|^保存为章节正文$/ })
+    .count();
+  evidence.trials.push({
+    id: "T2_explicit_change_candidate_and_adoption_identity",
+    purpose:
+      "用确定性 provider 支持的「明确改一处」请求产生单片段修订候选，观察候选覆盖、采纳 target_chapter/target_chapter_ref、是否新增章、章身份/章数、旧稿历史与阅读/刷新恢复。",
+    request_text: B28_EXPLICIT_CHANGE_REQUEST,
+    chapter_before: chapterBeforeExplicit.chapters,
+    judgment: explicitTurn.judgment_records,
+    writer_prompts: explicitTurn.llm_prompts,
+    turn: {
+      assistant_text: explicitTurn.assistant_text,
+      pending_count: explicitTurn.pending.length,
+      truthfulness: explicitTurn.truthfulness,
+      failure_records: explicitTurn.failure_records,
+      app_event_counts: explicitTurn.app_event_counts,
+    },
+    candidate: explicitCandidate,
+    adoption: explicitAdoption,
+    consequence: {
+      chapter_count_before: chapterBeforeExplicit.chapters.length,
+      chapter_count_after: chapterAfterExplicit.chapters.length,
+      new_chapters: newChapterRows,
+      chapter_a_content_changed: chapterAChanged,
+      chapter_a_content_chars_after: chapterContentAfterExplicit.length,
+      chapter_a_content_sha256_after: sha256(chapterContentAfterExplicit),
+      old_fragments_still_readable:
+        chapterContentAfterExplicit.includes(initialAnchor) ||
+        chapterContentAfterExplicit.includes(continuationAnchor),
+      isolation_work_untouched:
+        isolationAfter.scenes.filter((row) => row.draft_status === "ACCEPTED").length ===
+        isolationBefore.scenes.filter((row) => row.draft_status === "ACCEPTED").length,
+      reading_mode_visible: readingVisible,
+      reading_excerpt: readingExcerpt,
+      accept_buttons_after_refresh: acceptButtonsAfterRefresh,
+      chapter_count_after_refresh: chapterAfterRefresh.chapters.length,
+      resume_log_records: readAppLogRecords().slice(refreshStart).length,
+    },
+  });
+
+  // ── T3：缺 ref 恢复（无已采纳正文的新作品）→ 不猜目标、不新增章 ──────────────
+  const missingToken = Date.now().toString(36);
+  const missingWork = await createWorkSeed({
+    title: `B28 缺 ref 恢复 ${missingToken}`,
+    genre: "雨港悬疑",
+    core_selling_point: "缺 accepted 目标时的诚实恢复",
+    target_reader: "关注修订边界的作者",
+    tone_preference: "冷、湿",
+  });
+  await refreshAndSelectWork(page, missingWork.title);
+  await waitForVisibleWorkTitle(page, missingWork.title, 20_000);
+  const missingChaptersBefore = await dbAll(
+    "SELECT id FROM chapters WHERE work_id = ?",
+    [missingWork.id],
+  );
+  const missingTurn = await sendAuthorTurn(
+    B28_FORMAT_ONLY_REQUEST,
+    "B28 missing accepted ref request",
+    240_000,
+  );
+  const missingChaptersAfter = await dbAll(
+    "SELECT id, title, seq FROM chapters WHERE work_id = ?",
+    [missingWork.id],
+  );
+  evidence.trials.push({
+    id: "T3_missing_accepted_ref_recovery",
+    purpose:
+      "无已采纳正文时发整章修订请求：记录 judgment/模型路径、是否产生候选或新增章/写入（不得猜目标或静默新建章）。",
+    request_text: B28_FORMAT_ONLY_REQUEST,
+    judgment: missingTurn.judgment_records,
+    writer_prompts: missingTurn.llm_prompts,
+    turn: {
+      assistant_text: missingTurn.assistant_text,
+      pending_count: missingTurn.pending.length,
+      truthfulness: missingTurn.truthfulness,
+      app_event_counts: missingTurn.app_event_counts,
+    },
+    chapter_count_before: missingChaptersBefore.length,
+    chapter_count_after: missingChaptersAfter.length,
+    new_chapters: missingChaptersAfter,
+    no_production_write: missingTurn.truthfulness?.production_write_performed !== true,
+  });
+
+  const finalFacts = await chapterFacts(seedWorkId);
+  const trialById = (idPrefix) => evidence.trials.find((trial) => trial.id.startsWith(idPrefix));
+  const formatTrial = trialById("T1_");
+  const explicitTrial = trialById("T2_");
+  const missingTrial = trialById("T3_");
+  evidence.summary = {
+    format_only_request: formatTrial?.candidate?.candidate_present
+      ? "candidate_produced"
+      : "no_candidate_honest_path",
+    format_only_failure_records: formatTrial?.turn?.failure_records ?? [],
+    format_only_assistant_text: formatTrial?.turn?.assistant_text ?? null,
+    // 只看真正的 writer（adopted revision brief）prompt；judgment/context prompt 也可能
+    // 含两段材料的引用，不能用来证明 writer 覆盖。
+    writer_prompt_count:
+      formatTrial?.writer_prompts?.filter((prompt) => prompt.has_adopted_revision_brief).length ?? 0,
+    writer_prompt_covered_both_fragments: Boolean(
+      formatTrial?.writer_prompts
+        ?.filter((prompt) => prompt.has_adopted_revision_brief)
+        .some((prompt) => prompt.has_continuation_body),
+    ),
+    writer_prompt_covered_initial_fragment: Boolean(
+      formatTrial?.writer_prompts
+        ?.filter((prompt) => prompt.has_adopted_revision_brief)
+        .some((prompt) => prompt.has_initial_body),
+    ),
+    writer_prompt_continuation_anchor_seen: Boolean(
+      formatTrial?.writer_prompts
+        ?.filter((prompt) => prompt.has_adopted_revision_brief)
+        .some((prompt) => prompt.contains_continuation_anchor),
+    ),
+    format_only_candidate_equals_initial_whitespace:
+      formatTrial?.whitespace_rule?.candidate_equals_initial ?? null,
+    format_only_candidate_equals_whole_chapter_whitespace:
+      formatTrial?.whitespace_rule?.candidate_equals_whole_chapter ?? null,
+    explicit_change_candidate_present: explicitTrial?.candidate?.candidate_present ?? false,
+    explicit_change_candidate_covers_continuation:
+      explicitTrial?.candidate?.contains_continuation_anchor ?? false,
+    explicit_change_adoption_adopted: explicitTrial?.adoption?.adopted ?? false,
+    explicit_change_adoption_author_action: explicitTrial?.adoption?.author_action ?? null,
+    explicit_change_adoption_target_chapter:
+      explicitTrial?.adoption?.resolved_entry?.payload?.target_chapter ??
+      explicitTrial?.candidate?.target_chapter ??
+      null,
+    explicit_change_adoption_target_chapter_ref:
+      explicitTrial?.adoption?.resolved_entry?.payload?.target_chapter_ref ??
+      explicitTrial?.candidate?.target_chapter_ref ??
+      null,
+    explicit_change_new_chapter_count:
+      explicitTrial?.consequence?.new_chapters?.length ?? null,
+    chapter_count_unchanged_after_revision_adoption:
+      explicitTrial?.consequence?.chapter_count_before ===
+      explicitTrial?.consequence?.chapter_count_after,
+    chapter_id_identity_retained: finalFacts.chapters.some((row) => row.id === chapterAId),
+    same_title_isolation_rejected_without_write:
+      isolationErrorReason.includes("ambiguous_chapter_title") &&
+      isolationAfter.scenes.filter((row) => row.draft_status === "ACCEPTED").length ===
+        isolationBefore.scenes.filter((row) => row.draft_status === "ACCEPTED").length,
+    same_title_isolation_error_reason: isolationErrorReason,
+    missing_ref_no_new_chapters:
+      (missingTrial?.chapter_count_after ?? 0) === (missingTrial?.chapter_count_before ?? 0),
+    missing_ref_zero_write: missingTrial?.no_production_write ?? null,
+    missing_ref_judgment: missingTrial?.judgment ?? null,
+  };
+  fs.writeFileSync(
+    path.join(artifactDir, "b28-cp0-evidence.json"),
+    JSON.stringify(evidence, null, 2),
+  );
+  await page.screenshot({ path: path.join(artifactDir, "b28-final.png"), fullPage: true });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: B28_SLICE_ID,
+      outcome: "done",
+      trials: evidence.trials.length,
+      trial_ids: evidence.trials.map((trial) => trial.id),
+      summary: evidence.summary,
+      seed: evidence.seed,
+      no_product_code_changed: true,
+      measured_inputs_all_from_real_workbench: true,
+    },
+  ];
+}
+
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
@@ -35983,6 +36783,7 @@ const drivers = {
   "b26-author-question-roundtrip": driveB26AuthorQuestionRoundtrip,
   "b27-prompt-lifecycle-consistency": driveB27PromptLifecycleConsistency,
   "b31-author-reply-run-binding": driveB31AuthorReplyRunBinding,
+  "b28-whole-chapter-revision": driveB28WholeChapterRevision,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,
   "agent-plan-native-tool-calling-protocol": driveAgentPlanNativeToolCallingProtocol,
