@@ -1383,7 +1383,7 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh q3c-author-content-materialization --surface tauri
   - id: q3b-capability-gap-honest-reply
-    title: "Q3b 能力缺口诚实回复（存档意图无承接）"
+    title: "真实能力缺口的诚实回复与可行路径"
     tier: nightly
     surface: tauri
     default_provider: slice_verify
@@ -1464,3 +1464,19 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-provider-slow-stream-liveness.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-provider-slow-stream-liveness --surface tauri
+  - id: b26-author-question-roundtrip
+    title: "B26 明确问题选项与自由回复的持久回环"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b26-author-question-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh b26-author-question-roundtrip --surface tauri
+  # 原生 UI 由本机外部系统 CUA 驱动（非仓库内 Chromium driver）；仓库内落地的是
+  # 原生证据检查器与外部传输代理，产品代码不含验收感知逻辑。
+  - id: b26-business-output-roundtrip
+    title: "B26 原生业务结果与续行问题回环"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/b26-business-output-roundtrip.yml
+    driver: scripts/native_business_evidence_check.mjs
+    entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 bash scripts/quality_accept.sh b26-business-output-roundtrip --surface tauri

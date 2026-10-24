@@ -2,6 +2,8 @@ id: q3d-author-registration-guards
 title: 原文登记来源与操作边界
 tier: nightly
 surface: tauri
+# 默认交互为 Chromium 集成；真实原生业务回环见 B26 业务场景。
+driver: headless-chromium
 entrypoint: scripts/quality_accept.sh q3d-author-registration-guards --surface tauri
 contract:
   - docs/design/adr/ADR-0027-author-obligation-state-v3.md
@@ -15,9 +17,9 @@ setup:
   seed: null
   provider: slice_verify
 user_flow:
-  - open: Tauri 运行中的真实工作台页面
+  - open: 当前真实工作台页面（浏览器前后端集成）
   - input: 提供带随机标识的原文，先记录不生成
-  - input: 分别请求保存，test/support provider 注入缺失来源、越界来源、矛盾动作
+  - input: 分别请求保存，test/support provider 注入缺失来源、越界来源、互斥原生工具同返
   - reload: 每次失败状态恢复，无候选和采纳入口
   - input: 再请求保存，provider 首次缺失来源、收到纠正提示后引用历史来源
   - click: 作者采纳原文候选
@@ -34,7 +36,8 @@ assertions:
     - 纠正后 provider_call_ref 绑定原文 turn
     - 作者动作返回 ACCEPTED
   data:
-    - 失败回填原输入及结果引用，并有对应拒绝日志
+    - 失败回填原输入及结果引用，judgment.output_validation.done 记录最终 rejected 和具体原因
+    - 每轮结构纠正最多一次；provider 传输重试不附加结构纠正指令且共享额度
     - 拒绝前没有创作派发或物化事件
     - 采纳前零事实，采纳后唯一事实
     - app log 噪声门禁（ADR-0018 §6）：失败恢复路径 base turn 行数 ≤60；正常路径 0 error 级（summary.log_noise）

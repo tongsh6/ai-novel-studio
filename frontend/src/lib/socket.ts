@@ -168,8 +168,12 @@ export function transmitUserMessage(
   return new Promise((resolve, reject) => {
     channel
       .push(
-        message.command === "steer" ? "agent_command" : "user_message",
-        message,
+        message.command === "author_choice"
+          ? "author_action"
+          : message.command === "steer"
+            ? "agent_command"
+            : "user_message",
+        message.command === "author_choice" ? { action: message.author_action } : message,
         message.command === "steer" ? undefined : LLM_TURN_TIMEOUT_MS,
       )
       .receive("ok", (response: SendMessageResult) => {
@@ -177,7 +181,11 @@ export function transmitUserMessage(
           reject(new MessageDeliveryError("transport", "message receipt identity mismatch"));
           return;
         }
-        if (message.command === "steer" || submissionIsSettled(response)) {
+        if (
+          message.command === "steer" ||
+          message.command === "author_choice" ||
+          submissionIsSettled(response)
+        ) {
           void acknowledgeUserMessage(message.work_id, message.session_id, message.turn_id).catch(
             console.warn,
           );

@@ -72,17 +72,6 @@ defmodule NovelApplication.GateOrderClosureTest do
     struct!(MicroPlan, Keyword.merge(defaults, attrs))
   end
 
-  defp gate_outcomes({:pass, results}), do: Map.new(results, &{&1.gate, &1.outcome})
-
-  defp gate_outcomes({:block, _gate, _reason, results}),
-    do: Map.new(results, &{&1.gate, &1.outcome})
-
-  defp gate_outcomes({:replay_existing, _gate, _ref, results}),
-    do: Map.new(results, &{&1.gate, &1.outcome})
-
-  defp first_blocking_gate({:block, gate, _reason, _results}), do: gate
-  defp first_blocking_gate({:pass, _results}), do: nil
-
   # ── 契约：12 门与 version ────────────────────────
 
   describe "gate order contract" do

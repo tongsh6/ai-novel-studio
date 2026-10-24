@@ -2,7 +2,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Execution
-  alias NovelApplication.AgenticPlanDraftPlanner
+  alias NovelAgent.Test.Provider.SliceVerify
+  alias NovelApplication.{AgenticPlanDraftPlanner, AgentPlanToolContract, JudgmentToolContract}
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
 
@@ -99,49 +100,24 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert meta.author_narrative_source.source_type == "provider_output"
   end
 
-  test "two-stage protocol: free-form reasoning call first, forced tool call second, narrative binds to reasoning call" do
-    test_pid = self()
+  test "单调用 auto 同时携计划与说明，不再请求前置叙事" do
+    parent = self()
 
-    {:ok, reasoning_output} =
-      ProviderOutput.new(%{
-        provider_run_ref: "prun_reasoning",
-        provider_call_ref: "pcall_reasoning",
-        status: :ok,
-        output_type: :text,
-        content: %{text: @narrative},
-        refs: ["pcall_reasoning"]
-      })
-
-    result_fn = fn prompt ->
-      send(test_pid, {:prompt, prompt})
-
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        # 第二段：强制 tool call，content 系统性为空（LM Studio 形态）
-        {:ok, provider_result("")}
-      else
-        {:ok, %{content: @narrative, tool_calls: [], provider_output: reasoning_output}}
+    execution = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:prompt, prompt})
+        {:ok, provider_result(@narrative)}
       end
-    end
-
-    execution = %Execution{result_fn: result_fn}
+    }
 
     assert {:ok, plan, meta} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
 
-    assert_received {:prompt, first_prompt}
-    assert_received {:prompt, second_prompt}
-    refute NovelAgent.Provider.tool_call_prompt?(first_prompt)
-    assert NovelAgent.Provider.tool_choice(second_prompt) == "agent_plan_draft"
-
-    # 第二段 prompt 内嵌第一段 reasoning
-    assert second_prompt.messages |> hd() |> Map.fetch!(:content) =~ @narrative
-
+    assert_received {:prompt, %{tool_choice: "auto", tools: [%{name: "agent_plan_draft"}]}}
+    refute_receive {:prompt, _}
     assert length(plan.steps) == 2
-    assert meta.provider_call_count == 2
-    assert meta.summary == @narrative
-    # 叙事绑定第一段（流式 reasoning）的 provider output，而不是结构调用
-    assert meta.author_narrative_source.source_type == "provider_output"
-    assert meta.author_narrative_source.provider_run_ref == "prun_reasoning"
+    assert meta.provider_call_count == 1
+    assert meta.author_narrative_source.provider_run_ref == "prun_plan_draft"
   end
 
   test "plan with out-of-catalog tool as standalone step is rejected at draft time" do
@@ -192,37 +168,20 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     bad_tool_calls = [%{"name" => "agent_plan_draft", "arguments" => bad_arguments}]
 
     result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        send(test_pid, {:structure_prompt, prompt})
-        {:ok, %{content: "", tool_calls: bad_tool_calls}}
-      else
-        {:ok, %{content: @narrative, tool_calls: []}}
-      end
+      send(test_pid, {:plan_prompt, prompt})
+      {:ok, %{content: "", tool_calls: bad_tool_calls}}
     end
 
-    assert {:error, {:plan_step_target_not_allowed, ["world_building"]}} =
+    assert {:error,
+            {:agent_plan_protocol_violation, {:plan_step_target_not_allowed, ["world_building"]}}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(run, %Execution{result_fn: result_fn})
 
-    # 起草被拒后走了一次纠错重试（第二个结构 prompt 是纠错 prompt）
-    assert_received {:structure_prompt, _first}
-    assert_received {:structure_prompt, retry_prompt}
+    # 起草被拒后走了一次纠错重试（第二个单调用 prompt 是纠错 prompt）
+    assert_received {:plan_prompt, _first}
+    assert_received {:plan_prompt, retry_prompt}
 
     retry_text = retry_prompt.messages |> hd() |> Map.fetch!(:content)
     assert retry_text =~ "无法被系统解析"
-  end
-
-  defp reasoning_provider_result do
-    {:ok, output} =
-      ProviderOutput.new(%{
-        provider_run_ref: "prun_reasoning",
-        provider_call_ref: "pcall_reasoning",
-        status: :ok,
-        output_type: :text,
-        content: %{text: @narrative},
-        refs: ["pcall_reasoning"]
-      })
-
-    %{content: @narrative, tool_calls: [], provider_output: output}
   end
 
   test "planning prompts carry the work chapter list so target_chapter contract is satisfiable" do
@@ -230,12 +189,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     result_fn = fn prompt ->
       send(test_pid, {:prompt, prompt})
-
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:ok, provider_result("")}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+      {:ok, provider_result("")}
     end
 
     titles_reader = fn "ws_plan_draft" -> ["第01章：开端", "第02章：矿区追击战"] end
@@ -248,17 +202,14 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
                chapter_titles_reader: titles_reader
              )
 
-    assert_received {:prompt, reasoning_prompt}
-    assert_received {:prompt, structure_prompt}
+    assert_received {:prompt, plan_prompt}
 
-    # 两段 prompt 都必须携带「作品章节」列表：target_chapter 契约要求模型精确复制列表全名，
+    # 单调用 prompt 必须携带「作品章节」列表：target_chapter 契约要求模型精确复制列表全名，
     # 缺了列表点名章请求只能填 null → 被缺失策略误判"点名了不存在的章"（本回归的根因）。
-    for prompt <- [reasoning_prompt, structure_prompt] do
-      text = prompt.messages |> hd() |> Map.fetch!(:content)
-      assert text =~ "## 作品章节"
-      assert text =~ "- 第02章：矿区追击战"
-      assert text =~ "精确复制全名"
-    end
+    text = plan_prompt.messages |> hd() |> Map.fetch!(:content)
+    assert text =~ "## 作品章节"
+    assert text =~ "- 第02章：矿区追击战"
+    assert text =~ "精确复制全名"
   end
 
   test "planning prompts omit the chapter section when the work has no chapters" do
@@ -266,12 +217,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     result_fn = fn prompt ->
       send(test_pid, {:prompt, prompt})
-
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:ok, provider_result("")}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+      {:ok, provider_result("")}
     end
 
     assert {:ok, _plan, _meta} =
@@ -282,8 +228,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
                chapter_titles_reader: fn _workspace_id -> [] end
              )
 
-    assert_received {:prompt, reasoning_prompt}
-    refute reasoning_prompt.messages |> hd() |> Map.fetch!(:content) =~ "## 作品章节"
+    assert_received {:prompt, plan_prompt}
+    refute plan_prompt.messages |> hd() |> Map.fetch!(:content) =~ "## 作品章节"
   end
 
   # 写作坐标解析（自帧纪元 Planner.form_micro_plan 载体迁移，2026-07 帧退役批次 2）：
@@ -299,9 +245,15 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       assert step.target_word_count == nil
     end
 
-    test "字符串形式的篇幅诉求解析为整数" do
-      step = drafted_act_step(Map.put(base_act_step(), "target_word_count", "600"))
-      assert step.target_word_count == 600
+    test "字符串形式的篇幅诉求违反整数 schema，不静默转换" do
+      execution = %Execution{
+        result_fn: fn _ ->
+          {:ok, act_provider_result(Map.put(prose_act_step(), "target_word_count", "1200"))}
+        end
+      }
+
+      assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
+               AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
     end
 
     test "离谱篇幅诉求钳制到上限" do
@@ -354,15 +306,11 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       base_act_step()
       |> Map.drop(["authoring_intent"])
 
-    result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
-        step = if n == 1, do: missing_step, else: base_act_step()
+    result_fn = fn _prompt ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+      step = if n == 1, do: missing_step, else: base_act_step()
 
-        {:ok, act_provider_result(step)}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+      {:ok, act_provider_result(step)}
     end
 
     assert {:ok, plan, _meta} =
@@ -383,13 +331,9 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
     missing_step = Map.drop(base_act_step(), ["authoring_intent"])
 
-    result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        Agent.update(counter, &(&1 + 1))
-        {:ok, act_provider_result(missing_step)}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+    result_fn = fn _prompt ->
+      Agent.update(counter, &(&1 + 1))
+      {:ok, act_provider_result(missing_step)}
     end
 
     assert {:ok, plan, _meta} =
@@ -409,12 +353,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     result_fn = fn prompt ->
       send(test_pid, {:prompt, prompt})
-
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:ok, provider_result("")}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+      {:ok, provider_result("")}
     end
 
     assert {:ok, _plan, _meta} =
@@ -423,13 +362,10 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
                %Execution{result_fn: result_fn}
              )
 
-    assert_received {:prompt, reasoning_prompt}
-    assert_received {:prompt, structure_prompt}
+    assert_received {:prompt, plan_prompt}
 
-    for prompt <- [reasoning_prompt, structure_prompt] do
-      text = prompt.messages |> hd() |> Map.fetch!(:content)
-      refute text =~ removed_capability
-    end
+    text = plan_prompt.messages |> hd() |> Map.fetch!(:content)
+    refute text =~ removed_capability
   end
 
   defp base_act_step do
@@ -476,7 +412,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     step
   end
 
-  test "套娃信封 arguments 被确定性解套（M0 空计划根因回归）" do
+  test "套娃信封 arguments 被封闭协议拒绝，不自行修补（M0 空计划根因回归）" do
     wrapped = %{
       "name" => "agent_plan_draft",
       "arguments" => %{
@@ -499,44 +435,31 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
         refs: []
       })
 
-    # 两段式镜像实锤形态：call1 有叙事内容（正常流式），call2 结构调用被套娃。
+    # 单调用实锤形态：同一次响应的 tool call 参数被套一层信封。
     execution = %Execution{
-      result_fn: fn prompt ->
-        if NovelAgent.Provider.tool_call_prompt?(prompt) do
-          {:ok, %{content: "", tool_calls: tool_calls, provider_output: output}}
-        else
-          {:ok, reasoning_provider_result()}
-        end
+      result_fn: fn _prompt ->
+        {:ok, %{content: "", tool_calls: tool_calls, provider_output: output}}
       end
     }
 
-    assert {:ok, plan, _meta} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
-
-    assert [step] = plan.steps
-    assert step.target_tool_ref == "prose_writing"
-    assert step.authoring_intent == :continuation
   end
 
   # ── D4：provider 瞬态错误单次重试 ──────────────────────
 
-  test "结构段 provider 首调超时 → 原样重试成功（D4 瞬态族）" do
+  test "provider 首调超时 → 原样重试成功（D4 瞬态族）" do
     test_pid = self()
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
-    result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
-        send(test_pid, {:structure_call, n})
+    result_fn = fn _prompt ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+      send(test_pid, {:plan_call, n})
 
-        if n == 1 do
-          {:error, %{type: :timeout, message: "transient"}}
-        else
-          {:ok,
-           act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
-        end
+      if n == 1 do
+        {:error, %{type: :timeout, message: "transient"}}
       else
-        {:ok, reasoning_provider_result()}
+        {:ok, act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
       end
     end
 
@@ -545,20 +468,16 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
                result_fn: result_fn
              })
 
-    assert_received {:structure_call, 1}
-    assert_received {:structure_call, 2}
+    assert_received {:plan_call, 1}
+    assert_received {:plan_call, 2}
     assert [_step] = plan.steps
-    # reasoning 1 + 结构 2 = 3 次调用如实计数
-    assert meta.provider_call_count == 3
+    # 单调用协议：原样重发共 2 次调用，如实计数
+    assert meta.provider_call_count == 2
   end
 
-  test "结构段两次都失败 → 诚实上抛（单次额度不无限重试）" do
-    result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:error, %{type: :timeout, message: "persistent"}}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+  test "provider 两次都失败 → 诚实上抛（单次额度不无限重试）" do
+    result_fn = fn _prompt ->
+      {:error, %{type: :timeout, message: "persistent"}}
     end
 
     assert {:error, %{type: :timeout}} =
@@ -567,30 +486,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
              })
   end
 
-  test "叙事段首调失败 → 原样重试成功（D4 双段覆盖）" do
-    {:ok, counter} = Agent.start_link(fn -> 0 end)
-
-    result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:ok, act_provider_result(Map.put(prose_act_step(), "authoring_intent", "continuation"))}
-      else
-        n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
-
-        if n == 1,
-          do: {:error, %{type: :provider_error, message: "empty"}},
-          else: {:ok, reasoning_provider_result()}
-      end
-    end
-
-    assert {:ok, plan, _meta} =
-             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
-               result_fn: result_fn
-             })
-
-    assert [_step] = plan.steps
-  end
-
-  test "plan 键二次编码（JSON 字符串）被确定性解套（M5 空计划根因回归）" do
+  test "plan 键二次编码（JSON 字符串）被封闭协议拒绝，不自行修补（M5 空计划根因回归）" do
     plan_json =
       Jason.encode!(%{
         "steps" => [Map.put(prose_act_step(), "authoring_intent", "continuation")],
@@ -617,21 +513,13 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       })
 
     execution = %Execution{
-      result_fn: fn prompt ->
-        if NovelAgent.Provider.tool_call_prompt?(prompt) do
-          {:ok, %{content: "", tool_calls: tool_calls, provider_output: output}}
-        else
-          {:ok, reasoning_provider_result()}
-        end
+      result_fn: fn _prompt ->
+        {:ok, %{content: "", tool_calls: tool_calls, provider_output: output}}
       end
     }
 
-    assert {:ok, plan, _meta} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
-
-    assert [step] = plan.steps
-    assert step.target_tool_ref == "prose_writing"
-    assert step.authoring_intent == :continuation
   end
 
   test "自由文本 authoring_intent 被拒并携带原因重试（M0 狗粮缺陷回归）；重试合法后成功" do
@@ -641,16 +529,12 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     good_step = Map.put(prose_act_step(), "authoring_intent", "continuation")
 
     result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        correction? =
-          prompt.messages |> hd() |> Map.fetch!(:content) |> String.contains?("无法被系统解析")
+      correction? =
+        prompt.messages |> hd() |> Map.fetch!(:content) |> String.contains?("无法被系统解析")
 
-        send(test_pid, {:structure_call, correction?})
-        step = if correction?, do: good_step, else: bad_step
-        {:ok, act_provider_result(step)}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+      send(test_pid, {:plan_call, correction?})
+      step = if correction?, do: good_step, else: bad_step
+      {:ok, act_provider_result(step)}
     end
 
     assert {:ok, plan, meta} =
@@ -658,11 +542,11 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
                result_fn: result_fn
              })
 
-    assert_received {:structure_call, false}
-    assert_received {:structure_call, true}
+    assert_received {:plan_call, false}
+    assert_received {:plan_call, true}
 
-    # 重试成功：reasoning 1 + 结构 2 = 3 次调用；intent 按枚举落 plan
-    assert meta.provider_call_count == 3
+    # 重试成功：单调用协议首调 + 一次纠错 = 2 次调用；intent 按枚举落 plan
+    assert meta.provider_call_count == 2
     assert [step] = plan.steps
     assert step.authoring_intent == :continuation
   end
@@ -670,20 +554,14 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   test "重试仍是自由文本 authoring_intent 则诚实失败（不静默吞成新章语义）" do
     bad_step = Map.put(prose_act_step(), "authoring_intent", "衔接前文继续推进")
 
-    result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:ok, act_provider_result(bad_step)}
-      else
-        {:ok, reasoning_provider_result()}
-      end
+    result_fn = fn _prompt ->
+      {:ok, act_provider_result(bad_step)}
     end
 
-    assert {:error, {:invalid_authoring_intent, message}} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
                result_fn: result_fn
              })
-
-    assert message =~ "衔接前文继续推进"
   end
 
   defp prose_act_step do
@@ -742,7 +620,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       end
     }
 
-    assert {:error, :reasoning_text_required} =
+    assert {:error, {:agent_plan_protocol_violation, :invalid_plan_tool_arguments}} =
              AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), execution)
   end
 
@@ -750,7 +628,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
   # 防止后续改动把 run_id / goal / 章节等易变字段重新插回共享前缀。
   test "VS-00I CP-D 起草 prompt 顺序：L1 → L2 → L3，输出要求置尾" do
     prompt =
-      AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, ["第01章：开端"])
+      AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
 
     text = prompt.messages |> hd() |> Map.fetch!(:content)
 
@@ -759,7 +637,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       "## 可用能力说明",
       "## 作品章节",
       "## 本轮目标",
-      "## 输出要求"
+      "## 输出契约"
     ])
 
     refute text =~ "## 当前 AgentRun"
@@ -779,14 +657,14 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       ]
     }
 
-    reasoning_prompt = AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, chapters)
+    reasoning_prompt = AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, chapters)
     text = reasoning_prompt.messages |> hd() |> Map.fetch!(:content)
 
     assert text =~ "target_chapter_ref"
     assert text =~ "逐字复制该条索引里的 chapter_ref"
 
     structure_prompt =
-      AgenticPlanDraftPlanner.draft_structure_prompt(probe_run(), %{}, chapters, "reasoning")
+      AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, chapters)
 
     [tool] = structure_prompt.tools
 
@@ -817,7 +695,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     }
 
     text =
-      AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, chapters).messages
+      AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, chapters).messages
       |> hd()
       |> Map.fetch!(:content)
 
@@ -827,7 +705,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert text =~ "target_chapter 精确复制标题；chapter_read 优先复制 chapter_ref"
 
     # 无 seq/id 的旧标题列表仍退回旧行格式（兼容手工上下文/测试夹具）。
-    legacy = AgenticPlanDraftPlanner.draft_reasoning_prompt(probe_run(), %{}, ["第01章：开端"])
+    legacy = AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
 
     legacy_text = legacy.messages |> hd() |> Map.fetch!(:content)
     assert legacy_text =~ "- 第01章：开端"
@@ -838,12 +716,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     parent = self()
 
     result_fn = fn prompt ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:ok, act_provider_result(prose_act_step())}
-      else
-        send(parent, {:planner_prompt, prompt_text(prompt)})
-        {:ok, reasoning_provider_result()}
-      end
+      send(parent, {:planner_prompt, prompt_text(prompt)})
+      {:ok, act_provider_result(prose_act_step())}
     end
 
     chapters = [
@@ -876,12 +750,11 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
   test "VS-00I CP-D 修订 prompt 顺序：修订要求与能力说明前置，动态计划在后" do
     prompt =
-      AgenticPlanDraftPlanner.revision_structure_prompt(
+      AgenticPlanDraftPlanner.revision_prompt(
         probe_run(),
         %{},
         ["第01章：开端"],
-        "质量复核要求补足步骤",
-        "先补步骤再继续。"
+        "质量复核要求补足步骤"
       )
 
     text = prompt.messages |> hd() |> Map.fetch!(:content)
@@ -894,7 +767,7 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
       "## 修订触发原因",
       "## 当前计划",
       "## 最近观察",
-      "## 输出格式"
+      "## 输出契约"
     ])
   end
 
@@ -909,5 +782,30 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
     assert offsets == Enum.sort(offsets),
            "prompt 段落顺序不符: #{inspect(markers)}"
+  end
+
+  test "原生页面替身的全部计划 profile 在起草与修订时都满足同一固定 schema" do
+    profiles =
+      ~w(prose_drafting_with_quality_v1 character_design_with_context_v1 plot_outline_with_context_v1 character_evolution_with_context_v1 world_building_with_context_v1 provider_progress_v1 readonly_batch_context_v1 ledger_reconciliation_v1 fact_inventory_v1 judgment_plan_v1 prose_revision_from_findings_v1)
+
+    for profile <- profiles,
+        {title, tool} <- [
+          {"AgentRun 计划起草器", "agent_plan_draft"},
+          {"AgentRun 计划修订器", "agent_plan_revision"}
+        ] do
+      prompt = %{
+        messages: [%{role: "user", content: "#{title}\nprofile_ref: #{profile}\n作者目标：推进当前创作请求"}],
+        tools: [AgentPlanToolContract.tool(tool)],
+        tool_choice: "auto"
+      }
+
+      {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+      assert [%{"name" => ^tool, "arguments" => args}] = result.tool_calls
+
+      assert JudgmentToolContract.valid?(args, AgentPlanToolContract.schema()),
+             "#{profile} #{tool}"
+
+      assert args.author_reasoning == result.content
+    end
   end
 end

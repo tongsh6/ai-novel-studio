@@ -19,6 +19,21 @@ describe("shouldRouteInputToAgentSteer", () => {
     expect(shouldRouteInputToAgentSteer({ latestAgentRun: run("awaiting_author") })).toBe(true);
   });
 
+  it("未绑定主输入不隐式回答模型问题，明确回复走源 author_action", () => {
+    expect(
+      shouldRouteInputToAgentSteer({
+        latestAgentRun: run("awaiting_author"),
+        hasUnansweredModelQuestion: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRouteInputToAgentSteer({
+        latestAgentRun: run("awaiting_author"),
+        hasUnansweredModelQuestion: false,
+      }),
+    ).toBe(true);
+  });
+
   it("does not steal normal chat input when no active run exists", () => {
     expect(shouldRouteInputToAgentSteer({ latestAgentRun: null })).toBe(false);
     expect(shouldRouteInputToAgentSteer({ latestAgentRun: run("completed") })).toBe(false);

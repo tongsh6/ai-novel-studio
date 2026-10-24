@@ -104,7 +104,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
   # ── ⑥ 测试替身：真实 prompt 文本驱动（不认 slice id / env）────────────────
 
   describe "测试替身 scope 行为（真实产品文本驱动）" do
-    test "判断 call2：真实作者文本「请规划下一卷…」→ execute plot_outline" do
+    test "判断单调用 auto：真实作者文本「请规划下一卷…」→ execute plot_outline" do
       prompt = %{
         messages: [
           %{role: "system", content: "你是创作判断器，只输出判断 JSON。"},
@@ -114,7 +114,7 @@ defmodule NovelApplication.B11ACp3VolumeScopeTest do
           }
         ],
         tools: [%{name: "judgment_decision", description: "", input_schema: %{}}],
-        tool_choice: "judgment_decision"
+        tool_choice: "auto"
       }
 
       assert {:ok, result} =

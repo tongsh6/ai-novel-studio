@@ -220,6 +220,7 @@ defmodule NovelWeb.WorkSessionsController do
       transcript_page: serialize_transcript_page(snapshot.transcript_page),
       pending_adoptions: snapshot.pending_adoptions,
       pending_adoption_turn_results: snapshot.pending_adoption_turn_results,
+      open_author_question_turn_results: snapshot.open_author_question_turn_results,
       resolved_adoptions: snapshot.resolved_adoptions,
       resume_trace_refs: snapshot.resume_trace_refs
     }
@@ -234,6 +235,7 @@ defmodule NovelWeb.WorkSessionsController do
       transcript_page: serialize_transcript_page(snapshot.transcript_page),
       pending_adoptions: snapshot.pending_adoptions,
       pending_adoption_turn_results: snapshot.pending_adoption_turn_results,
+      open_author_question_turn_results: snapshot.open_author_question_turn_results,
       resolved_adoptions: snapshot.resolved_adoptions,
       resume_trace_refs: snapshot.resume_trace_refs
     }

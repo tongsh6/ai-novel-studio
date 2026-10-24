@@ -3,7 +3,7 @@
 # 判断②（观察 + 续行）上线时缺 live 探针——判断①有六用例探针（live 1.0 才放行），
 # 判断②的续行方向（continue|await_author）只有桩预言与 prompt 粗指引对齐。本探针
 # 补齐：消费生产构造器 `JudgmentProtocol.request_continuation`（生产同路径），验证：
-#   ① 协议合规：call1 观察叙事 + call2 forced continuation_decision 可解析。
+#   ① 协议合规：单次 auto 的 continuation_decision / ask_author / report_capability_gap 可解析。
 #   ② 方向质量：四用例阵列——质量意见可修正（continue）/ 计划走完缺产出步
 #      （continue）/ 工具连续故障（await_author）/ 前提缺失需作者裁决（await_author）。
 #

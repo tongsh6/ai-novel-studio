@@ -4,6 +4,8 @@
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
 // Design: docs/design/ui/46-state-and-feedback.md §6 / §9 / §9.8 (候选编辑失败、AgentRun 与动作回执)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 41§3.1-candidate-discussion-collapsed (oFt1j), 46§9-agentic-loop-reasoning-flow (DM8gx), 46§9.7-agent-run-control-dock (dxUhh), 46§9.8-quality-revision-running (EYiyl)
+import { AuthorQuestionReply } from "./AuthorQuestionReply";
+import { UserMessageSubmissionSchema } from "../generated/foundation/user_message_submission";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Channel } from "phoenix";
@@ -41,6 +43,7 @@ import {
   submissionIsSettled,
   MessageDeliveryError,
   sendAuthorAction,
+  saveUserMessage,
   getReviewReport,
   getWritingCoordinate,
   sendAgentCommand,
@@ -75,6 +78,8 @@ import {
 import {
   resumeWorkspace,
   pendingAdoptionTurnResults,
+  openAuthorQuestionTurnResults,
+  authorQuestionQueryKey,
   mergeResumedTranscript,
   pendingAdoptionQueryKey,
   searchSessions,
@@ -923,6 +928,7 @@ interface AgentRunControlDockProps {
   commandInFlight: boolean;
   noticeText?: string | null;
   hasSteerInput?: boolean;
+  modelQuestionAwaiting?: boolean;
   onCommand: (command: AgentCommand) => void;
   onRequestCancel: () => void;
   onRestartTask: () => void;
@@ -940,6 +946,7 @@ export function AgentRunControlDock({
   commandInFlight,
   noticeText = null,
   hasSteerInput = false,
+  modelQuestionAwaiting = false,
   onCommand,
   onRequestCancel,
   onRestartTask,
@@ -1069,7 +1076,9 @@ export function AgentRunControlDock({
                 ? WORKBENCH.agentRunBudgetShortfallHint
                 : writerTimeoutAwaiting
                   ? WORKBENCH.agentRunWriterTimeoutHint
-                  : WORKBENCH.agentRunAwaitingInputHint}
+                  : modelQuestionAwaiting
+                    ? WORKBENCH.authorQuestionUseSourceHint
+                    : WORKBENCH.agentRunAwaitingInputHint}
             </span>
             {writerTimeoutAwaiting && onWriterTimeoutRetry && (
               <button
@@ -2210,12 +2219,38 @@ export function WorkspaceChat() {
       hasMessageAnchor: latestAgentRunHasMessageAnchor,
     },
   );
+  const openQuestions = useQuery({
+    queryKey: authorQuestionQueryKey(context.workId, activeSessionId),
+    queryFn: async () =>
+      openAuthorQuestionTurnResults(await getSessionSnapshot(context.workId!, activeSessionId!)),
+    enabled: Boolean(context.workId && activeSessionId && !isReadOnlySessionView),
+  });
+
+  const latestAgentRunHasModelQuestion = Boolean(
+    latestAgentRun &&
+    latestAgentRun.status === "awaiting_author" &&
+    [
+      ...(openQuestions.data ?? []),
+      ...messages.flatMap((message) => (message.turnResult ? [message.turnResult] : [])),
+    ].some(
+      (result) =>
+        result.author_question?.status === "open" &&
+        result.author_question.run_id === latestAgentRun.run_id &&
+        (latestAgentRun.goal?.version == null ||
+          result.author_question.goal_version === latestAgentRun.goal.version),
+    ),
+  );
+  const usesTaskComposer = Boolean(
+    hasActiveAgentRun && latestAgentRun && !latestAgentRunHasModelQuestion,
+  );
+
   const hasPendingAgentRunAnchor = Object.keys(pendingAgentRunAnchors).length > 0;
   const canRouteMainInputToAgentSteer =
     !budgetShortfallAwaiting &&
     shouldRouteInputToAgentSteer({
       latestAgentRun,
       pendingAnswerBehaviorId: pendingAnswerBid,
+      hasUnansweredModelQuestion: latestAgentRunHasModelQuestion,
     });
   const hasSteerInput = inputText.trim().length > 0;
   const canSubmitMainInput =
@@ -2403,8 +2438,8 @@ export function WorkspaceChat() {
     messageText: string = inputText,
     options: { generateMicroPlan?: boolean } = {},
   ) {
-    const text = messageText.trim();
-    if (!text || !channelRef.current || isReadOnlySessionView) return;
+    const text = messageText;
+    if (!text.trim() || !channelRef.current || isReadOnlySessionView) return;
 
     const behaviorId = pendingAnswerBid;
     if (
@@ -2412,6 +2447,7 @@ export function WorkspaceChat() {
         latestAgentRun,
         pendingAnswerBehaviorId: behaviorId,
         generateMicroPlan: options.generateMicroPlan ?? false,
+        hasUnansweredModelQuestion: latestAgentRunHasModelQuestion,
       })
     ) {
       if (agentCommandInFlight) return;
@@ -2559,6 +2595,81 @@ export function WorkspaceChat() {
         },
       ]);
       setLoading(false);
+    }
+  };
+
+  const questionReplyDisabled = (result: WireTurnResult) => {
+    const question = result.author_question;
+    const run = question ? agentRunStates[question.run_id] : null;
+    return (
+      !socketConnected ||
+      Boolean(
+        run &&
+        (run.status !== "awaiting_author" ||
+          run.runtime_live === false ||
+          (run.goal?.version != null && run.goal.version !== question?.goal_version)),
+      )
+    );
+  };
+
+  const handleQuestionReply = async (
+    turnResult: WireTurnResult,
+    action: NonNullable<WireTurnResult["available_actions"]>[number],
+    text: string,
+  ) => {
+    if (!channelRef.current || !context.workId || !activeSessionId || action.enabled === false)
+      return false;
+    let saved = false;
+    try {
+      const prior = (await pendingUserMessages(context.workId, activeSessionId)).find(
+        (entry) =>
+          entry.command === "author_choice" &&
+          entry.text === text &&
+          entry.delivery_status !== "rejected" &&
+          entry.author_action?.action_id === action.action_id &&
+          entry.author_action.payload.question_ref === action.question_ref,
+      );
+      const submissionId = prior?.turn_id ?? newUserMessageId();
+      const message =
+        prior ??
+        UserMessageSubmissionSchema.parse({
+          turn_id: submissionId,
+          work_id: context.workId,
+          session_id: activeSessionId,
+          text,
+          generate_micro_plan: false,
+          created_at: new Date().toISOString(),
+          command: "author_choice",
+          run_id: action.target_ref,
+          author_action: toAuthorActionPayload(turnResult.turn_id, action, {
+            submission_id: submissionId,
+            question_ref: action.question_ref,
+            expected_goal_version: action.expected_goal_version,
+            ...(action.response_kind === "free_text" ? { text } : {}),
+          }),
+        });
+      await saveUserMessage(message);
+      saved = true;
+      setMessages((prev) => [...prev, { role: "user", text, clientMessageId: submissionId }]);
+      const response = await transmitUserMessage(channelRef.current, message);
+      rememberAgentRunAck(response, text, submissionId);
+      void queryClient.invalidateQueries({
+        queryKey: authorQuestionQueryKey(context.workId, activeSessionId),
+      });
+      return true;
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: !saved
+            ? WORKBENCH.sendStorageFailure
+            : error instanceof MessageDeliveryError && error.kind === "transport"
+              ? WORKBENCH.sendUnconfirmed
+              : WORKBENCH.sendRejectedRetained,
+        },
+      ]);
+      return false;
     }
   };
 
@@ -2864,7 +2975,11 @@ export function WorkspaceChat() {
       // 逐候选采纳动作已渲染进候选卡片内部，不再进底部动作行。
     )
       .filter((action) => !isPerItemAdoptionAction(action))
-      .filter((action) => action.action_type !== "agent_run_budget_selected_steps");
+      .filter(
+        (action) =>
+          action.action_type !== "agent_run_budget_selected_steps" &&
+          action.action_type !== "author_choice",
+      );
 
   const actionTitle = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.disabled_reason) return action.disabled_reason;
@@ -3693,6 +3808,7 @@ export function WorkspaceChat() {
         commandInFlight={agentCommandInFlight}
         noticeText={agentCommandNoticeText}
         hasSteerInput={hasSteerInput}
+        modelQuestionAwaiting={latestAgentRunHasModelQuestion}
         onCommand={(command) => {
           void handleAgentCommand(command);
         }}
@@ -4450,6 +4566,26 @@ export function WorkspaceChat() {
                 </button>
               </div>
             )}
+            {!isReadOnlySessionView &&
+              (openQuestions.data ?? [])
+                .filter(
+                  (result) =>
+                    !messages.some((message) => message.turnResult?.turn_id === result.turn_id),
+                )
+                .map((result) => (
+                  <section key={result.turn_id} aria-label={WORKBENCH.authorQuestionPending}>
+                    <p className={styles.agentRunComposerHint}>
+                      {WORKBENCH.authorQuestionContext}
+                      {result.frame_summary?.dialogue_goal}
+                    </p>
+                    <p>{result.author_question?.question}</p>
+                    <AuthorQuestionReply
+                      result={result}
+                      disabled={questionReplyDisabled(result)}
+                      onReply={handleQuestionReply}
+                    />
+                  </section>
+                ))}
             {messages.map((msg, i) => {
               const messageAgentRunId = turnResultAgentRunId(msg.turnResult);
               const anchoredAgentRun =
@@ -4535,17 +4671,16 @@ export function WorkspaceChat() {
                       })()}
                     <div className={styles.text}>{msg.text}</div>
 
-                    {msg.role === "assistant" && messageAgentRun && (
-                      <AgentRunDialogueFlow
-                        run={messageAgentRun}
-                        events={messageAgentRunEvents}
-                        draftCharCount={pendingDraftCharCount(msg.turnResult)}
-                        assistantMessageText={
-                          assistantMessageTextForAgentRun(messages, messageAgentRun.run_id) ??
-                          msg.text
-                        }
-                      />
-                    )}
+                    {msg.role === "assistant" &&
+                      messageAgentRun &&
+                      !msg.turnResult?.author_question && (
+                        <AgentRunDialogueFlow
+                          run={messageAgentRun}
+                          events={messageAgentRunEvents}
+                          draftCharCount={pendingDraftCharCount(msg.turnResult)}
+                          assistantMessageText={msg.text}
+                        />
+                      )}
 
                     {msg.role === "assistant" && msg.turnResult && (
                       <button
@@ -4792,6 +4927,14 @@ export function WorkspaceChat() {
                           </div>
                         );
                       })()}
+
+                    {!isReadOnlySessionView && msg.turnResult?.author_question && (
+                      <AuthorQuestionReply
+                        result={msg.turnResult}
+                        disabled={questionReplyDisabled(msg.turnResult)}
+                        onReply={handleQuestionReply}
+                      />
+                    )}
 
                     {!isReadOnlySessionView &&
                       msg.turnResult &&
@@ -5141,17 +5284,13 @@ export function WorkspaceChat() {
               )}
               <div
                 className={
-                  !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
+                  !isReadOnlySessionView && usesTaskComposer
                     ? styles.agentRunWorkspace
                     : styles.standardComposer
                 }
-                role={
-                  !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
-                    ? "group"
-                    : undefined
-                }
+                role={!isReadOnlySessionView && usesTaskComposer ? "group" : undefined}
                 aria-label={
-                  !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
+                  !isReadOnlySessionView && usesTaskComposer
                     ? WORKBENCH.agentRunWorkspaceLabel
                     : undefined
                 }
@@ -5159,12 +5298,12 @@ export function WorkspaceChat() {
                 {!isReadOnlySessionView && renderActiveAgentRunDock && agentRunDock}
                 <div
                   className={
-                    !isReadOnlySessionView && hasActiveAgentRun && latestAgentRun
+                    !isReadOnlySessionView && usesTaskComposer
                       ? styles.agentRunComposerRow
                       : styles.standardComposerRow
                   }
                 >
-                  {!isReadOnlySessionView && hasActiveAgentRun && latestAgentRun && (
+                  {!isReadOnlySessionView && usesTaskComposer && (
                     <div className={styles.agentRunComposerContext}>
                       <span className={styles.agentRunComposerLabel}>
                         {WORKBENCH.agentRunWorkspaceInputLabel}
@@ -5195,7 +5334,9 @@ export function WorkspaceChat() {
                           ? awaitingAuthorInputRequired
                             ? WORKBENCH.agentRunAwaitingInputPlaceholder
                             : WORKBENCH.agentRunMainInputSteerPlaceholder
-                          : hasActiveAgentRun && !latestAgentRunIsDead
+                          : hasActiveAgentRun &&
+                              !latestAgentRunIsDead &&
+                              !latestAgentRunHasModelQuestion
                             ? WORKBENCH.agentRunMainInputUnavailablePlaceholder
                             : WORKBENCH.inputPlaceholder
                     }
@@ -5203,7 +5344,10 @@ export function WorkspaceChat() {
                       !socketConnected ||
                       isPanelOpen ||
                       isReadOnlySessionView ||
-                      (hasActiveAgentRun && !latestAgentRunIsDead && !canRouteMainInputToAgentSteer)
+                      (hasActiveAgentRun &&
+                        !latestAgentRunIsDead &&
+                        !latestAgentRunHasModelQuestion &&
+                        !canRouteMainInputToAgentSteer)
                     }
                   />
                   {!hasActiveAgentRun && (

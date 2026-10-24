@@ -32,6 +32,8 @@ defmodule NovelApplication.WorkSessionService do
          sessions: Enum.map(WorkSessionRepo.list_by_work(work_id), &session_dto/1),
          transcript: transcript_entries,
          transcript_page: transcript_page_dto(transcript_page),
+         open_author_question_turn_results:
+           NovelApplication.AuthorQuestionService.open_results(work_id, session.id),
          pending_adoptions: Enum.map(adoptions.pending_adoptions, &normalize_atom_keys/1),
          pending_adoption_turn_results:
            Enum.map(adoptions.pending_adoption_turn_results, &strip_agent_run_activity/1),
@@ -66,6 +68,11 @@ defmodule NovelApplication.WorkSessionService do
          read_only: read_only?,
          transcript: transcript_entries,
          transcript_page: transcript_page_dto(transcript_page),
+         open_author_question_turn_results:
+           if(read_only?,
+             do: [],
+             else: NovelApplication.AuthorQuestionService.open_results(work_id, session.id)
+           ),
          pending_adoptions:
            if(read_only?,
              do: [],
@@ -145,7 +152,12 @@ defmodule NovelApplication.WorkSessionService do
          work: work,
          session: session_dto(session),
          read_only: session.status != "ACTIVE",
-         turn_results: turn_results
+         turn_results: turn_results,
+         open_author_question_turn_results:
+           if(session.status == "ACTIVE",
+             do: NovelApplication.AuthorQuestionService.open_results(work_id, session.id),
+             else: []
+           )
        }}
     else
       nil ->
@@ -264,12 +276,21 @@ defmodule NovelApplication.WorkSessionService do
 
   defp ensure_archivable(%WorkSession{}), do: :ok
 
+  defp project_author_question(result, work, session) when is_map(result) do
+    if get_in_any(result, [:author_question]),
+      do: NovelApplication.AuthorQuestionService.project(result, work, session),
+      else: result
+  end
+
+  defp project_author_question(result, _, _), do: result
+
   defp interaction_dto(%Interaction{} = interaction, summaries_by_turn) do
     turn_result =
       interaction.content
       |> turn_result_from_content()
       |> strip_agent_run_activity()
       |> attach_agent_run_summary(summaries_by_turn)
+      |> project_author_question(interaction.workspace_id, interaction.session_id)
 
     %{
       id: interaction.id,

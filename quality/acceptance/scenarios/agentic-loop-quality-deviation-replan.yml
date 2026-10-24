@@ -2,6 +2,8 @@ id: agentic-loop-quality-deviation-replan
 title: ADR-0023 D2 质量发现驱动判断②改进闭环
 tier: nightly
 surface: tauri
+# 既有 runner 启动 Tauri；默认交互由 Chromium 驱动，实际证据层级为 browser。
+driver: headless-chromium
 entrypoint: scripts/quality_accept.sh agentic-loop-quality-deviation-replan --surface tauri
 
 contract:
@@ -21,14 +23,14 @@ setup:
   provider: slice_verify
 
 user_flow:
-  - open: real Tauri workbench
+  - open: 当前真实工作台（浏览器前后端集成）
   - send: 正文创作请求 "写下一章正文草稿，主角无需代价复活，违反既有规则"（高置信规则冲突质量发现）
   - wait_for: bounded AgentRun fast ack（profile_ref=prose_drafting_with_quality_v1）
   - wait_for: artifact_created 与 quality_review 观察
   - wait_for: 判断②续行以 provider-sourced plan_revised 发布（reason_codes 含 agentic_deviation:D2）
   - wait_for: artifact_superseded（中间稿被改进稿替代）
   - wait_for: run_completed；最终 TurnResult 为 completed 且恰 1 条 improved pending 候选
-  - verify: agent_run_state completed，steps=5、tool_calls=2、provider_calls=10、replans=1
+  - verify: agent_run_state completed，steps=6、tool_calls=2、provider_calls=8、replans=1
 
 evidence:
   required:
@@ -45,7 +47,7 @@ assertions:
   network:
     - plan_revised reason_codes 含 agentic_deviation:D2，且 author_narrative_source.source_type=provider_output
     - artifact_superseded 事件 refs 非空（中间稿被改进稿替代）
-    - run_completed；agent_run_state 记录 profile_ref=prose_drafting_with_quality_v1、status=completed、steps=5、tool_calls=2、provider_calls=10、replans=1
+    - run_completed；agent_run_state 记录 profile_ref=prose_drafting_with_quality_v1、status=completed、steps=6、tool_calls=2、provider_calls=8、replans=1
     - 最终 TurnResult 为 completed 且 pending 恰 1（改进稿）
   data:
     - 质量发现经判断②续行转化为改进导向，无需作者介入即完成改进闭环

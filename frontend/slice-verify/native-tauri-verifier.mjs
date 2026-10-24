@@ -188,6 +188,7 @@ export const nativeSliceIds = [
   "d4-planner-transient-retry",
   "d6-purpose-model-routing",
   "agent-conversation-turn",
+  "b26-author-question-roundtrip",
   "agentic-loop-plan-replan-reasoning",
   "agentic-loop-no-deviation-direct",
   "agent-plan-native-tool-calling-protocol",
@@ -613,6 +614,7 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
+  "b26-author-question-roundtrip": ["channel.user_message.start", "channel.user_message.done", "channel.author_action.start", "channel.author_action.done", "slice_verify.ui_state.done"],
   "agent-conversation-turn": [
     "channel.user_message.start",
     "provider_gateway.complete.start",
@@ -808,11 +810,13 @@ const sliceKeyEvents = {
     "orchestrator.decide.done",
     "toolbox.execute.done",
     "channel.user_message.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   "agent-awaiting-author-input-required": [
     "channel.join.done",
     "channel.user_message.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   "agent-bounded-refresh-live-resume": [
@@ -1716,7 +1720,7 @@ const sliceKeyEvents = {
   "q3d-message-delivery-recovery": ["channel.user_message.start", "channel.user_message.done"],
   "q3d-long-session-adoption-state": ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-candidate-semantics": ["judgment.output_validation.done", "judgment.decided.done", "adoption.evaluate.done"],
-  "q3d-author-registration-guards": ["judgment.author_content_validation.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
+  "q3d-author-registration-guards": ["judgment.output_validation.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"],
   "q3d-message-outcome-roundtrip": [
     "channel.user_message.start", "context.assemble.done", "judgment.decided.done",
     "judgment.author_content_materialized.done", "channel.user_message.done", "adoption.evaluate.done",
@@ -2502,6 +2506,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "agent-prose-drafting-with-quality") {
     return findAgentProseDraftingWithQualityEvidence(records);
+  }
+
+  if (sliceId === "b26-author-question-roundtrip") {
+    return findB26QuestionEvidence(records);
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -3420,6 +3428,11 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "d6-purpose-model-routing") {
     return d6PurposeModelRoutingBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "b26-author-question-roundtrip") {
+    const verified = findB26QuestionEvidence(records);
+    return verified ? { ...verified, behavior: "source_bound_author_question_roundtrip", assertions: ["choice_and_free_text_restored", "same_run_goal_advanced_once", "answer_bytes_persisted", "no_unbound_steer_or_canon_write"] } : null;
   }
 
   if (sliceId === "agent-conversation-turn") {
@@ -6242,6 +6255,24 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
 
 // ADR-0025 CP1 判断循环口径：机械准备（0 调用）→ 判断①两段式（2 调用）→ 回复内联
 // 终结；judgment_decided 取代 plan_drafted 计划步断言；provider 取证走持久化事实。
+function findB26QuestionEvidence(records) {
+  const ui = records.find((r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "b26-author-question-roundtrip");
+  const rounds = ui?.roundtrips;
+  if (!Array.isArray(rounds) || rounds.length !== 3 || ui.no_production_write !== true) return null;
+  if (!rounds.some((r) => r.option_count === 0 && r.reply_kind === "free_text") || !rounds.some((r) => r.reply_kind === "choice")) return null;
+  for (const round of rounds) {
+    if (![round.restored_same_question, round.source_bound, round.answer_bytes_preserved, round.open_question_closed, round.no_new_user_message_for_answer].every((v) => v === true)) return null;
+    if (round.goal_version !== 2) return null;
+    if (!records.some((r) => r.event === "channel.author_action.done" && r.action_id === round.action_id && r.target_ref === round.run_id && r.action_status === "accepted")) return null;
+    if (!records.some((r) => r.event === "channel.user_message.done" && r.run_id === round.run_id)) return null;
+  }
+  const multi = ui.multi_run;
+  if (!multi || multi.older_run_id === multi.newer_run_id || multi.independent_new_request !== true || multi.explicit_old_source_preserved !== true || multi.newer_question_still_open !== true || multi.outside_recent_transcript !== true || multi.restored_after_pagination !== true) return null;
+  if (!records.some((r) => r.event === "channel.author_action.done" && r.action_id === multi.older_action_id && r.target_ref === multi.older_run_id && r.action_status === "accepted")) return null;
+  return { slice_id: "b26-author-question-roundtrip", turn_id: ui.turn_id, turn_ids: ui.turn_ids,
+    run_id: rounds[0].run_id, roundtrips: rounds, multi_run: multi, key_events: keyEventsForSlice("b26-author-question-roundtrip") };
+}
+
 function findAgentConversationTurnEvidence(records, requestedSliceId = "agent-conversation-turn") {
   const sliceId = requestedSliceId;
   const keyEvents = keyEventsForSlice(sliceId);
@@ -6271,18 +6302,17 @@ function findAgentConversationTurnEvidence(records, requestedSliceId = "agent-co
       boolValue(record.ui_author_reasoning_delta_visible) === true &&
       boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
       boolValue(record.ui_author_reasoning_stream_grew) === true &&
-      // 机械准备 1 步 + 判断① 1 步；判断两段式恰 2 次调用；零工具零修订
+      // 机械准备 1 步 + 判断① 1 步；判断单次调用；零工具零修订
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 2 &&
+      Number(record.consumed_provider_calls ?? 0) === 1 &&
       Number(record.consumed_replans ?? -1) === 0 &&
       record.persisted_provider_facts_matched_budget === true &&
       Array.isArray(record.persisted_provider_purposes) &&
-      record.persisted_provider_purposes.includes("author_reasoning") &&
       record.persisted_provider_purposes.includes("planner") &&
-      record.ui_agentic_loop_reasoning_visible === true &&
+      record.ui_final_reply_occurrences === 1 &&
+      record.plain_reply_provenance_valid === true &&
       record.ui_agentic_loop_result_visible === true &&
-      record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_toolbox_execute_count ?? 0) === 0,
@@ -6352,15 +6382,15 @@ function agentConversationTurnBehavior(
   if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  // ADR-0025 CP1：判断①两段式恰 2 次调用（简单对话）。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
+  // ADR-0025 CP1：判断①单次调用（简单对话）。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
   if (Number(uiState.consumed_replans ?? -1) !== 0) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
 
   return {
     slice_id: requestedSliceId,
-    behavior: "plain_conversation_judged_reply_inline_with_two_provider_calls",
+    behavior: "plain_conversation_judged_reply_inline_with_one_provider_call",
     turn_ids: turnIds,
     parent_turn_id: evidence.parent_turn_id,
     final_turn_id: evidence.final_turn_id,
@@ -6379,7 +6409,7 @@ function agentConversationTurnBehavior(
       "judgment_narrative_streamed_author_visible_before_structure",
       "judgment_decided_reply_with_provider_bound_narrative_source",
       "inline_reply_turn_result_byte_carried_streamed_narrative_prefix",
-      "simple_conversation_consumed_exactly_two_provider_calls",
+      "simple_conversation_consumed_exactly_one_provider_call",
       "no_tool_no_adoption_no_production_write",
     ],
   };
@@ -6822,9 +6852,9 @@ const AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS = {
   "agentic-loop-tool-failure-replan": {
     signal: "D1",
     mode: "await",
-    steps: 4,
+    steps: 5,
     toolCalls: 1,
-    providerCalls: 8,
+    providerCalls: 6,
     behavior: "tool_failure_settles_awaiting_author_after_judgment_continuation",
     assertions: [
       "d1_tool_failure_observed_by_judgment_continuation",
@@ -6834,9 +6864,9 @@ const AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS = {
   "agentic-loop-quality-deviation-replan": {
     signal: "D2",
     mode: "improve",
-    steps: 5,
+    steps: 6,
     toolCalls: 2,
-    providerCalls: 10,
+    providerCalls: 8,
     minArtifactEvents: 2,
     allowCandidateTurnResult: true,
     behavior: "quality_finding_improves_draft_through_judgment_continuation",
@@ -6851,7 +6881,7 @@ const AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS = {
     mode: "await",
     steps: 5,
     toolCalls: 0,
-    providerCalls: 7,
+    providerCalls: 4,
     gateDecisionType: "require_confirmation",
     gateFirstBlockingGate: "authority",
     maxToolStartedEvents: 0,
@@ -6865,9 +6895,9 @@ const AGENTIC_LOOP_PROSE_DEVIATION_EXPECTATIONS = {
   "agentic-loop-deterministic-gap-replan": {
     signal: "D7",
     mode: "await",
-    steps: 4,
+    steps: 5,
     toolCalls: 0,
-    providerCalls: 6,
+    providerCalls: 4,
     maxToolCompletedEvents: 0,
     maxToolboxExecuteCount: 0,
     behavior: "deterministic_gap_settles_awaiting_author_after_judgment_continuation",
@@ -7082,7 +7112,11 @@ function proseDeviationTurnResultMatches(record, expected) {
     );
   }
 
-  return boolValue(record.final_turn_result_arrived) === false;
+  return boolValue(record.final_turn_result_arrived) === true &&
+    record.final_turn_result_agent_run_status === "awaiting_author" &&
+    boolValue(record.author_question_present) === true &&
+    boolValue(record.source_bound_reply_action_present) === true &&
+    Number(record.final_turn_result_pending_artifact_count ?? -1) === 0;
 }
 
 function findAgentPlotOutlineWithContextEvidence(records) {
@@ -9149,64 +9183,20 @@ function findUa01AgentSteerEvidence(records, sliceId) {
   };
 }
 
+function findExplicitQuestionReplyEvidence(records, sliceId) {
+  const state = records.find((row) => row.event === "slice_verify.ui_state.done" && row.slice_id === sliceId);
+  if (!state || state.run_mode !== "bounded" || state.awaiting_status !== "awaiting_author" || state.terminal_status !== "completed") return null;
+  if (state.reply_action_type !== "author_choice" || state.reply_ack_received !== true || state.reply_source_bound !== true || state.adjusted_goal_version !== 2) return null;
+  if (!["bare_resume_absent", "question_reply_hint_visible", "question_reply_composer_visible", "empty_reply_disabled", "question_answered", "no_second_user_message_for_reply", "no_second_run_after_reply", "final_message_is_not_old_question", "same_parent", "source_controls_closed_after_reply"].every((key) => state[key] === true)) return null;
+  if (state.blank_reply_request_count !== 0 || state.question_record_count !== 1 || state.reply_record_count !== 1) return null;
+  if (!state.run_resumed_reason_codes?.includes("resume_after_steer") || !state.question_ref || !state.question_source_turn_ref || !state.reply_action_id || !state.reply_submission_id) return null;
+  if (!records.some((row) => row.event === "channel.user_message.done" && row.run_id === state.run_id && row.run_mode === "bounded" && row.work_id === state.work_id && row.session_id === state.session_id)) return null;
+  if (!records.some((row) => row.event === "channel.author_action.done" && row.action_type === "author_choice" && row.action_status === "accepted" && row.target_ref === state.run_id && row.action_id === state.reply_action_id && row.turn_id === state.question_source_turn_ref && row.work_id === state.work_id && row.session_id === state.session_id)) return null;
+  return { ...state, turn_id: state.parent_turn_id, turn_ids: [state.parent_turn_id], key_events: keyEventsForSlice(sliceId) };
+}
+
 function findUa01AwaitingAuthorSteerEvidence(records) {
-  const sliceId = "agent-awaiting-author-steer-resume";
-  const keyEvents = keyEventsForSlice(sliceId);
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.run_mode === "bounded" &&
-      record.awaiting_status === "awaiting_author" &&
-      record.terminal_status === "completed" &&
-      record.command === "steer" &&
-      record.command_ack_received === true &&
-      record.command_target_bound_to_active_run === true &&
-      record.plan_adjusted_event_type === "plan_adjusted" &&
-      record.run_resumed_event_type === "run_resumed" &&
-      Array.isArray(record.run_resumed_reason_codes) &&
-      record.run_resumed_reason_codes.includes("resume_after_steer") &&
-      Number(record.adjusted_goal_version ?? 0) >= 2 &&
-      record.steer_text_visible_after_submit === true &&
-      record.no_second_user_message_for_steer === true &&
-      record.no_second_run_after_steer === true &&
-      record.stale_awaiting_prompt_not_repeated === true &&
-      Number(record.stale_awaiting_prompt_total_count ?? 0) === 1 &&
-      record.final_result_visible_after_adjustment === true &&
-      record.final_result_child_of_same_parent === true,
-  );
-  if (!uiState) return null;
-
-  const runId = String(uiState.run_id ?? "");
-  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
-  if (!runId || !parentTurnId) return null;
-
-  const parentAck = records.some(
-    (record) =>
-      record.event === "channel.user_message.done" &&
-      record.run_id === runId &&
-      String(record.run_mode ?? "") === "bounded",
-  );
-  if (!parentAck) return null;
-
-  return {
-    slice_id: sliceId,
-    turn_id: parentTurnId,
-    turn_ids: [parentTurnId],
-    parent_turn_id: parentTurnId,
-    run_id: runId,
-    command: "steer",
-    command_source: "awaiting_author_task_input",
-    awaiting_status: uiState.awaiting_status,
-    terminal_status: uiState.terminal_status,
-    adjusted_goal_version: Number(uiState.adjusted_goal_version ?? 0),
-    no_second_user_message_for_steer: true,
-    no_second_run_after_steer: true,
-    stale_awaiting_prompt_total_count: Number(
-      uiState.stale_awaiting_prompt_total_count ?? 0,
-    ),
-    key_events: keyEvents,
-  };
+  return findExplicitQuestionReplyEvidence(records, "agent-awaiting-author-steer-resume");
 }
 
 function ua01AgentSteerUsesMainInput(sliceId) {
@@ -9301,160 +9291,26 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
   };
 }
 
-function ua01AwaitingAuthorSteerBehavior(turnIds, records, evidence) {
-  const sliceId = "agent-awaiting-author-steer-resume";
-  if (turnIds.length !== 1) return null;
-
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.run_id === evidence.run_id,
-  );
-  if (!uiState) return null;
-  if (uiState.command !== "steer") return null;
-  if (uiState.command_ack_received !== true) return null;
-  if (uiState.command_target_bound_to_active_run !== true) return null;
-  if (uiState.plan_adjusted_event_type !== "plan_adjusted") return null;
-  if (uiState.run_resumed_event_type !== "run_resumed") return null;
-  if (uiState.awaiting_status !== "awaiting_author") return null;
-  if (uiState.terminal_status !== "completed") return null;
-  if (Number(uiState.adjusted_goal_version ?? 0) < 2) return null;
-  if (uiState.no_second_user_message_for_steer !== true) return null;
-  if (uiState.no_second_run_after_steer !== true) return null;
-  if (uiState.stale_awaiting_prompt_not_repeated !== true) return null;
-  if (uiState.final_result_visible_after_adjustment !== true) return null;
-
-  return {
-    slice_id: sliceId,
-    behavior: "awaiting_author_adjustment_resumes_and_completes_the_same_agent_run",
-    turn_ids: evidence.turn_ids,
-    run_id: evidence.run_id,
-    command: "steer",
-    command_source: evidence.command_source,
-    awaiting_status: evidence.awaiting_status,
-    terminal_status: evidence.terminal_status,
-    adjusted_goal_version: evidence.adjusted_goal_version,
-    no_second_user_message_for_steer: evidence.no_second_user_message_for_steer,
-    no_second_run_after_steer: evidence.no_second_run_after_steer,
-    stale_awaiting_prompt_total_count: evidence.stale_awaiting_prompt_total_count,
-    assertions: [
-      "ambiguous_request_reached_awaiting_author_with_visible_prompt",
-      "fixed_task_input_sent_author_adjustment_as_agent_command_steer",
-      "steer_command_targeted_the_existing_run_id_and_received_ack",
-      "plan_adjusted_and_run_resumed_were_broadcast_for_the_same_run",
-      "goal_version_two_carried_the_exact_author_adjustment",
-      "adjustment_did_not_create_a_second_user_message_or_agent_run",
-      "same_agent_run_reached_completed_with_a_final_turn_result",
-      "original_awaiting_prompt_remained_once_and_was_not_repeated",
-      "final_result_was_visible_after_the_author_adjustment",
-    ],
-  };
+function explicitQuestionReplyBehavior(turnIds, records, evidence, sliceId) {
+  if (turnIds.length !== 1 || !findExplicitQuestionReplyEvidence(records, sliceId)) return null;
+  return { slice_id: sliceId, behavior: "explicit_question_reply_resumes_same_run_with_immutable_source",
+    turn_ids: evidence.turn_ids, run_id: evidence.run_id, question_ref: evidence.question_ref,
+    reply_action_type: "author_choice", adjusted_goal_version: evidence.adjusted_goal_version,
+    assertions: ["explicit_question_action_bound_source_run_and_version", "empty_reply_disabled_without_request",
+      "plan_adjusted_and_run_resumed_for_same_run", "question_and_reply_persisted_once_after_reload",
+      "historical_question_closed_without_reissuing_or_new_run"] };
 }
 
-// ── DS03 状态矩阵：awaiting_author 必填补充（无裸继续 + 空输入禁发 + 刷新不重复） ──
+function ua01AwaitingAuthorSteerBehavior(turnIds, records, evidence) {
+  return explicitQuestionReplyBehavior(turnIds, records, evidence, "agent-awaiting-author-steer-resume");
+}
+
 function findDs03AwaitingAuthorInputRequiredEvidence(records) {
-  const sliceId = "agent-awaiting-author-input-required";
-  const keyEvents = keyEventsForSlice(sliceId);
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.run_mode === "bounded" &&
-      record.awaiting_status === "awaiting_author" &&
-      record.terminal_status === "completed" &&
-      record.command === "steer" &&
-      record.command_ack_received === true &&
-      record.command_target_bound_to_active_run === true &&
-      record.bare_resume_absent_while_awaiting === true &&
-      record.awaiting_input_hint_visible === true &&
-      record.awaiting_placeholder_visible === true &&
-      record.empty_send_disabled_while_awaiting === true &&
-      record.same_run_resumed_after_input === true &&
-      Array.isArray(record.run_resumed_reason_codes) &&
-      record.run_resumed_reason_codes.includes("resume_after_steer") &&
-      record.steer_text_restored_after_reload === true &&
-      Number(record.steer_text_reload_occurrence_count ?? 0) === 1 &&
-      Number(record.stale_awaiting_prompt_after_reload_count ?? 0) === 1 &&
-      record.no_failure_bubble === true,
-  );
-  if (!uiState) return null;
-
-  const runId = String(uiState.run_id ?? "");
-  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
-  if (!runId || !parentTurnId) return null;
-
-  const parentAck = records.some(
-    (record) =>
-      record.event === "channel.user_message.done" &&
-      record.run_id === runId &&
-      String(record.run_mode ?? "") === "bounded",
-  );
-  if (!parentAck) return null;
-
-  return {
-    slice_id: sliceId,
-    turn_id: parentTurnId,
-    turn_ids: [parentTurnId],
-    parent_turn_id: parentTurnId,
-    run_id: runId,
-    command: "steer",
-    command_source: "awaiting_author_task_input",
-    awaiting_status: uiState.awaiting_status,
-    terminal_status: uiState.terminal_status,
-    steer_text_reload_occurrence_count: Number(uiState.steer_text_reload_occurrence_count ?? 0),
-    stale_awaiting_prompt_after_reload_count: Number(
-      uiState.stale_awaiting_prompt_after_reload_count ?? 0,
-    ),
-    key_events: keyEvents,
-  };
+  return findExplicitQuestionReplyEvidence(records, "agent-awaiting-author-input-required");
 }
 
 function ds03AwaitingAuthorInputRequiredBehavior(turnIds, records, evidence) {
-  const sliceId = "agent-awaiting-author-input-required";
-  if (turnIds.length !== 1) return null;
-
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.run_id === evidence.run_id,
-  );
-  if (!uiState) return null;
-  if (uiState.bare_resume_absent_while_awaiting !== true) return null;
-  if (uiState.awaiting_input_hint_visible !== true) return null;
-  if (uiState.awaiting_placeholder_visible !== true) return null;
-  if (uiState.empty_send_disabled_while_awaiting !== true) return null;
-  if (uiState.same_run_resumed_after_input !== true) return null;
-  if (uiState.steer_text_restored_after_reload !== true) return null;
-  if (Number(uiState.steer_text_reload_occurrence_count ?? 0) !== 1) return null;
-  if (Number(uiState.stale_awaiting_prompt_after_reload_count ?? 0) !== 1) return null;
-  if (uiState.no_failure_bubble !== true) return null;
-  if (uiState.terminal_status !== "completed") return null;
-
-  return {
-    slice_id: sliceId,
-    behavior: "awaiting_author_requires_concrete_input_and_survives_reload_without_duplicates",
-    turn_ids: evidence.turn_ids,
-    run_id: evidence.run_id,
-    command: "steer",
-    command_source: evidence.command_source,
-    awaiting_status: evidence.awaiting_status,
-    terminal_status: evidence.terminal_status,
-    steer_text_reload_occurrence_count: evidence.steer_text_reload_occurrence_count,
-    stale_awaiting_prompt_after_reload_count: evidence.stale_awaiting_prompt_after_reload_count,
-    assertions: [
-      "awaiting_author_dock_exposed_no_bare_resume_action",
-      "awaiting_input_hint_and_required_placeholder_were_visible",
-      "empty_input_kept_the_send_adjustment_action_disabled",
-      "concrete_adjustment_was_sent_as_agent_command_steer",
-      "plan_adjusted_and_run_resumed_after_steer_bound_the_same_run",
-      "same_agent_run_reached_completed_after_the_adjustment",
-      "steer_message_was_persisted_and_restored_once_after_reload",
-      "awaiting_prompt_stayed_singular_after_reload",
-      "no_failure_bubble_was_shown_after_reload",
-    ],
-  };
+  return explicitQuestionReplyBehavior(turnIds, records, evidence, "agent-awaiting-author-input-required");
 }
 
 // ── DS03 状态矩阵：刷新后活 runtime 重连同一 bounded run 并原地恢复 ──
@@ -13624,13 +13480,13 @@ function findAuthorRegistrationGuardsEvidence(records) {
   if (!ui || !Array.isArray(ui.failed_turns) || ui.failed_turns.length !== 3) return null;
   if (!["historical_bytes_preserved", "source_binding_preserved", "failed_results_restored",
     "no_write_before_adoption"].every((key) => ui[key] === true) || ui.confirmed_fact_count !== 1) return null;
-  const expected = ["source_required", "source_not_available", "operation_conflict"];
+  const expected = ["source_required", "source_not_available", "invalid_tool_combination"];
   if (new Set(ui.failed_turns.map((r) => r.turn_id)).size !== 3 ||
     !expected.every((code) => ui.failed_turns.some((r) => r.reason_code === code && r.status === "failed_recoverable"))) return null;
   for (const failed of ui.failed_turns) {
     const logs = records.filter((r) => r.turn_id === failed.turn_id);
     if (!["retry", "rejected"].every((outcome) => logs.some((r) =>
-      r.event === "judgment.author_content_validation.done" && r.outcome === outcome &&
+      r.event === "judgment.output_validation.done" && r.outcome === outcome &&
       r.reason_code === failed.reason_code))) return null;
     if (logs.some((r) => r.event?.startsWith("toolbox.execute.") ||
       ["judgment.decided.done", "judgment.author_content_materialized.done", "adoption.evaluate.done"].includes(r.event))) return null;
@@ -13640,10 +13496,10 @@ function findAuthorRegistrationGuardsEvidence(records) {
   const corrected = records.filter((r) => r.turn_id === ui.turn_id);
   if (!["judgment.decided.done", "judgment.author_content_materialized.done"].every((event) =>
     corrected.some((r) => r.event === event))) return null;
-  if (!corrected.some((r) => r.event === "judgment.author_content_validation.done" &&
+  if (!corrected.some((r) => r.event === "judgment.output_validation.done" &&
     r.reason_code === "source_required" && r.outcome === "retry")) return null;
   if (hasErrorEvent(corrected) || hasEventPrefix(corrected, "toolbox.execute.") ||
-    corrected.some((r) => r.event === "judgment.author_content_validation.done" && r.outcome === "rejected")) return null;
+    corrected.some((r) => r.event === "judgment.output_validation.done" && r.outcome === "rejected")) return null;
   if (!records.some((r) => r.event === "adoption.evaluate.done" &&
     (r.turn_id === ui.turn_id || String(r.turn_id ?? "").startsWith(`${ui.turn_id}:`)))) return null;
   return { slice_id: sliceId, turn_id: ui.turn_id, turn_ids: [ui.turn_id],
@@ -13656,7 +13512,7 @@ function findQ3cAuthorContentEvidence(records, sliceId = "q3c-author-content-mat
   for (const [turnId, turnRecords] of byTurn) {
     const frame = turnRecords.find(
       (record) =>
-        record.event === "judgment.decided.done" && record.frame_type === "capability_gap",
+        record.event === "judgment.decided.done" && record.action === "author_content_registration",
     );
     if (!frame) continue;
 
@@ -13713,7 +13569,7 @@ function q3cAuthorContentBehavior(turnIds, turnRecords, records, sliceId = "q3c-
     turn_ids: turnIds,
     source_turn_ref: turnIds[0],
     assertions: [
-      "judgment_returned_capability_gap_frame",
+      "judgment_returned_explicit_author_content_registration",
       "author_content_materialized_as_world_setting_candidate",
       "no_tool_execution_on_source_turn",
       "adoption_resolved_by_author_action",

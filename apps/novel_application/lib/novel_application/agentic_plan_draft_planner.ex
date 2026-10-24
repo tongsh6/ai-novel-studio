@@ -7,9 +7,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   The drafter produces an author-visible AgentPlan track. It does not approve
   execution; runtime still turns each plan step into an AgentStep/MicroPlan path.
 
-  两段式调用协议（ADR-0023 修订注记 2026-07-05）：先自由输出 reasoning（content
-  流式逐字显示给作者），再强制 native tool call 产计划结构；规划调用成本 ×2 是
-  用户拍板的体验优先决策。
+  B26：单次 auto 调用同时返回作者可见说明与计划；坏结构有界纠正一次。
   """
 
   alias NovelAgent.Provider.Execution
@@ -32,8 +30,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       run,
       provider_execution,
       snapshot,
-      draft_reasoning_prompt(run, snapshot, chapter_titles),
-      &draft_structure_prompt(run, snapshot, chapter_titles, &1),
+      draft_prompt(run, snapshot, chapter_titles),
       @draft_tool_name,
       &draft_meta/2
     )
@@ -55,8 +52,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       revision_run,
       provider_execution,
       snapshot,
-      revision_reasoning_prompt(run, snapshot, chapter_titles, revision_reason),
-      &revision_structure_prompt(run, snapshot, chapter_titles, revision_reason, &1),
+      revision_prompt(run, snapshot, chapter_titles, revision_reason),
       @revision_tool_name,
       &revision_meta(&1, &2, revision_reason)
     )
@@ -143,34 +139,35 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
 
   defp titles_to_chapter_entries(_titles), do: []
 
-  # 两段式调用（ADR-0023 修订注记 2026-07-05，用户拍板体验优先）：
-  # 第一段自由输出 reasoning——content 可流式，作者逐字看到模型在想什么；
-  # 第二段强制 native tool call 产计划结构，prompt 内嵌第一段 reasoning。
-  # 叙事优先绑定第一段 content；第一段空 content 时回退第二段 arguments.author_reasoning。
-  defp request_plan_with_meta(
-         %AgentRun{} = run,
-         provider_execution,
-         snapshot,
-         reasoning_prompt,
-         structure_prompt_fun,
-         tool_name,
-         meta_fun
-       )
-       when is_function(meta_fun, 2) do
-    with {:ok, reasoning_fn} <- plan_result_fn(provider_execution, snapshot, :author_reasoning),
-         {:ok, structure_fn} <- plan_result_fn(provider_execution, snapshot, :planner),
-         {:ok, reasoning_text, reasoning_result} <-
-           request_reasoning(reasoning_prompt, reasoning_fn) do
-      request_plan(structure_prompt_fun.(reasoning_text), %{
+  defp request_plan_with_meta(run, provider_execution, snapshot, prompt, tool_name, meta_fun) do
+    with {:ok, result_fn} <- plan_result_fn(provider_execution, snapshot, :planner) do
+      request_plan(prompt, %{
         tool_name: tool_name,
-        result_fn: structure_fn,
+        result_fn: result_fn,
         run: run,
         attempt: 1,
         retry?: true,
-        meta_fun: meta_fun,
-        reasoning_text: reasoning_text,
-        reasoning_result: reasoning_result
+        meta_fun: meta_fun
       })
+    end
+  end
+
+  @doc "消费判断响应同批给出的模型计划，不发起第二次调用。"
+  def plan_from_result(run, result) do
+    with {:ok, parsed} <- parse_tool_call_result(result, @draft_tool_name),
+         :ok <- validate_writing_intents(parsed, %{run: run}),
+         {:ok, plan} <- build_plan(run, parsed),
+         :ok <- validate_plan_targets(run, plan),
+         {:ok, text, origin, source} <- resolve_narrative(%{provider_result: result}, parsed),
+         {:ok, binding} <- narrative_source(source, text, origin, @draft_tool_name) do
+      {:ok, plan,
+       %{
+         provider_call_count: 0,
+         summary: text,
+         author_narrative_source: binding,
+         reason_codes: reason_codes(parsed),
+         confidence: confidence(parsed)
+       }}
     end
   end
 
@@ -178,39 +175,17 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     result_fn =
       provider_execution
       |> Execution.with_purpose(purpose)
-      |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: purpose)
+      |> Execution.with_content_visibility(:author)
+      |> ProviderActivityProjector.with_stage_sink(snapshot,
+        purpose: :planner,
+        content_visibility: :author
+      )
       |> Execution.result_fn()
 
     case result_fn do
       result_fn when is_function(result_fn, 1) -> {:ok, result_fn}
       nil -> {:error, :provider_execution_required}
       other -> {:error, {:invalid_plan_draft_provider, other}}
-    end
-  end
-
-  # D4（M5 实锤，ADR-0023 CP0 半边实装）：provider 瞬态错误（超时/空响应/连接类/
-  # 形状破坏）单次原样重试——同请求方差大（84-220s vs 900s 尾部），重试期望收益为正；
-  # 两次仍败诚实上抛。叙事段与结构段各自一次额度（结构段与纠正重试共享额度）。
-  defp request_reasoning(prompt, result_fn), do: request_reasoning(prompt, result_fn, true)
-
-  defp request_reasoning(prompt, result_fn, retry?) do
-    case result_fn.(prompt) do
-      {:ok, %{content: content} = provider_result} ->
-        {:ok, nonblank(content), provider_result}
-
-      {:error, reason} when retry? ->
-        emit_plan_retry(:reasoning, :provider_error, reason)
-        request_reasoning(prompt, result_fn, false)
-
-      {:error, reason} ->
-        {:error, reason}
-
-      other when retry? ->
-        emit_plan_retry(:reasoning, :invalid_result, other)
-        request_reasoning(prompt, result_fn, false)
-
-      other ->
-        {:error, {:invalid_plan_reasoning_result, other}}
     end
   end
 
@@ -274,8 +249,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
          {:ok, narrative_source} <-
            narrative_source(source_result, reasoning, origin, ctx.tool_name) do
       base_meta = %{
-        # +1 = 前置流式 reasoning 调用
-        provider_call_count: ctx.attempt + 1,
+        provider_call_count: ctx.attempt,
         summary: reasoning,
         author_narrative_source: narrative_source,
         reason_codes: reason_codes(parsed),
@@ -298,16 +272,17 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     |> request_plan(%{ctx | attempt: ctx.attempt + 1, retry?: false})
   end
 
-  defp retry_or_error(reason, _ctx), do: {:error, reason}
+  defp retry_or_error(reason, ctx) do
+    NovelCommon.LogEmit.emit(:plan_draft, :output_validation, :done, %{
+      outcome: "rejected",
+      tool_name: ctx.tool_name,
+      reason: inspect(reason)
+    })
 
-  # 叙事解析：优先第一段流式 reasoning 的 content 字节（作者已逐字看到）；
-  # 第一段空 content 时回退结构调用 content，再回退 arguments.author_reasoning
-  # 必填字段——字节仍归模型，N-NARR 溯源走 provider_output_tool_narrative 绑定。
-  defp resolve_narrative(%{reasoning_text: text, reasoning_result: result}, _parsed)
-       when is_binary(text) do
-    {:ok, text, :content, result}
+    {:error, {:agent_plan_protocol_violation, reason}}
   end
 
+  # 只绑定当前有效响应；纠正调用不能沿用失败响应的作者文字。
   defp resolve_narrative(ctx, parsed) do
     content =
       ctx.provider_result
@@ -723,114 +698,37 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     |> Enum.map_join("\n\n", &String.trim/1)
   end
 
-  # 两段式第一段：自由输出 reasoning，无 tools——content 可流式逐字显示给作者。
-  @doc false
-  @spec draft_reasoning_prompt(AgentRun.t(), map(), map() | [String.t()]) :: map()
-  def draft_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
-    %{
-      messages: [
-        %{
-          role: "user",
-          content: """
-          本次你承担 AgentRun 计划起草器的角色。你只起草本次运行的可见 AgentPlan，不批准执行。
+  # 单调用 auto：content 为作者可见 reasoning（可流式），计划结构走同名 native tool arguments。
+  @doc "单调用计划起草请求；共同任务策略与判断入口同源。"
+  def draft_prompt(%AgentRun{} = run, snapshot, chapter_titles) do
+    tool_prompt(@draft_tool_name, """
+    本次你承担 AgentRun 计划起草器的角色，只提出计划，不批准执行。
+    共同任务规则版本：#{NovelApplication.AuthoringTaskPolicy.version()}。
+    #{NovelApplication.AuthoringTaskPolicy.rules()}
 
-          #{draft_context_block(run, snapshot, chapter_titles)}
+    #{draft_context_block(run, snapshot, chapter_titles)}
 
-          ## 输出要求（46§9.4 意图开场段体裁）
-          - 用自然中文向作者输出一段连贯的第一人称意图陈述，必须依次覆盖三件事：
-            1) 目标复述：用一句话复述你理解的作者本轮目标；
-            2) 动作顺序：先做什么、再做什么、为什么这样安排；
-            3) 边界承诺：明确说明本轮产物是待确认草稿、不会直接写入作品档案（或本轮只读不产出）。
-          - 用作者听得懂的创作语言描述动作（如「读取当前角色阵容」「起草反派候选」），
-            禁止出现内部能力名、下划线标识符或英文机器名（如 context_assemble、strategy_gate）。
-          - 这段话会逐字实时显示给作者：直接输出说明正文，不要标题、JSON、代码块或机器 ref。
-          - 只说明计划，不声称已经执行，不输出工具结果，不要调用任何工具。
-          """
-        }
-      ]
-    }
+    ## 输出契约
+    调用 agent_plan_draft 给出完整计划。说明必要步骤、依据与待采纳边界，不机械复述形态。
+    content 可以同时说明计划；author_reasoning 保留作者可见原话，空 content 时从该字段展示。
+    不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
+    """)
   end
 
-  # 两段式第二段：强制 native tool call，把第一段 reasoning 结构化为 AgentPlan。
-  @doc false
-  @spec draft_structure_prompt(AgentRun.t(), map(), map() | [String.t()], String.t() | nil) ::
-          map()
-  def draft_structure_prompt(%AgentRun{} = run, snapshot, chapter_titles, reasoning_text) do
-    tool_prompt(
-      @draft_tool_name,
-      """
-      本次你承担 AgentRun 计划起草器的角色。你只起草本次运行的可见 AgentPlan，不批准执行。
+  @doc "单调用计划修订请求，沿原任务与已完成前缀修订。"
+  def revision_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
+    tool_prompt(@revision_tool_name, """
+    本次你承担 AgentRun 计划修订器的角色，只提出计划，不批准执行。
+    共同任务规则版本：#{NovelApplication.AuthoringTaskPolicy.version()}。
+    #{NovelApplication.AuthoringTaskPolicy.rules()}
 
-      #{draft_context_block(run, snapshot, chapter_titles)}
+    #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
 
-      ## 你已向作者说明的计划 reasoning
-      #{reasoning_text || "（reasoning 缺失：你必须在 author_reasoning 字段补写一段作者可见 reasoning 原文）"}
-
-      ## 输出格式
-      - native tool call：必须调用 #{@draft_tool_name}，把上方 reasoning 对应的完整计划结构放入 tool arguments。
-      - arguments 必须包含 author_reasoning 字段：填与上方 reasoning 一致的作者可见原文；reasoning 缺失时自己补写。
-      - 除 author_reasoning 与步骤 description 外，不要把其它叙事字段放入 tool arguments。
-      """
-    )
-  end
-
-  @doc false
-  @spec revision_reasoning_prompt(AgentRun.t(), map(), map() | [String.t()], String.t()) :: map()
-  def revision_reasoning_prompt(%AgentRun{} = run, snapshot, chapter_titles, revision_reason) do
-    %{
-      messages: [
-        %{
-          role: "user",
-          content: """
-          本次你承担 AgentRun 计划修订器的角色。你只修订本次运行的可见 AgentPlan，不批准执行。
-
-          #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
-
-          ## 输出要求（46§9.4 阶段结论段体裁）
-          - 用自然中文向作者输出一段连贯的结论陈述，必须依次覆盖三件事：
-            1) 已核清的事实：到目前为止确认了什么（内联提及关键对象名，如章节/角色/设定）；
-            2) 判断：为什么当前计划需要修订；
-            3) 影响范围：修订后接下来只会做什么、不会碰什么。
-          - 这段话会逐字实时显示给作者：直接输出说明正文，不要标题、JSON、代码块或机器 ref。
-          - 只说明修订，不声称已经执行，不输出工具结果，不要调用任何工具。
-          """
-        }
-      ]
-    }
-  end
-
-  @doc false
-  @spec revision_structure_prompt(
-          AgentRun.t(),
-          map(),
-          map() | [String.t()],
-          String.t(),
-          String.t() | nil
-        ) ::
-          map()
-  def revision_structure_prompt(
-        %AgentRun{} = run,
-        snapshot,
-        chapter_titles,
-        revision_reason,
-        reasoning_text
-      ) do
-    tool_prompt(
-      @revision_tool_name,
-      """
-      本次你承担 AgentRun 计划修订器的角色。你只修订本次运行的可见 AgentPlan，不批准执行。
-
-      #{revision_context_block(run, snapshot, chapter_titles, revision_reason)}
-
-      ## 你已向作者说明的修订 reasoning
-      #{reasoning_text || "（reasoning 缺失：你必须在 author_reasoning 字段补写一段作者可见 reasoning 原文）"}
-
-      ## 输出格式
-      - native tool call：必须调用 #{@revision_tool_name}，把上方 reasoning 对应的完整修订后计划结构放入 tool arguments。
-      - arguments 必须包含 author_reasoning 字段：填与上方 reasoning 一致的作者可见原文；reasoning 缺失时自己补写。
-      - 除 author_reasoning 与步骤 description 外，不要把其它叙事字段放入 tool arguments。
-      """
-    )
+    ## 输出契约
+    调用 agent_plan_revision 给出完整修订计划，保留已完成前缀和当前任务对象/范围。
+    content 可同时说明事实、修订理由与影响范围；author_reasoning 保留作者可见原话。
+    不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
+    """)
   end
 
   defp step_catalog("judgment_plan_v1") do
@@ -972,58 +870,22 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     end
   end
 
-  defp matching_tool_arguments(calls, tool_name) do
-    matches =
-      Enum.filter(calls, fn call ->
-        map_get(call, :name) == tool_name
-      end)
+  defp matching_tool_arguments([call], tool_name) do
+    args = map_get(call, :arguments)
 
-    case matches do
-      [call] ->
-        case map_get(call, :arguments) do
-          args when is_map(args) -> {:ok, unwrap_envelope(args, tool_name)}
-          _ -> {:error, :native_tool_call_arguments_required}
-        end
-
-      [] ->
-        {:error, {:native_tool_call_required, tool_name}}
-
-      _multiple ->
-        {:error, {:native_tool_call_count_invalid, length(matches)}}
-    end
-  end
-
-  # M0 狗粮实锤（2026-07-19，"steps must not be empty" ×4 根因）：gpt-oss-120b 偶发
-  # 把工具调用信封复制进 arguments——%{"name" => 同名工具, "arguments" => %{真参数}}。
-  # 仅当信封 name 与本工具精确同名且内层为 map 时解套（结构确定性识别，非语义猜测；
-  # 其它形状原样返回交给既有校验诚实失败）。
-  #
-  # M5 狗粮实锤（2026-08-25，qwen3.8-27b 第 03 章 run_failed 根因）：同族新变体——
-  # "plan" 键是本工具合法 schema（args.plan.steps），但模型偶发把 plan 的值二次编码
-  # 成 JSON 字符串（%{"plan" => "{\"steps\": [...]}"）→ 下游读 plan.steps 得空 →
-  # "steps must not be empty" 整 run 报废。结构确定性识别：仅当 plan 值是可解码为
-  # 含 "steps" 列表的 map 的字符串时，原位解码放回（不改结构）；其余形状原样交校验。
-  defp unwrap_envelope(args, tool_name) do
-    inner = map_get(args, :arguments)
-
-    if map_get(args, :name) == tool_name and is_map(inner) do
-      decode_stringified_plan(inner)
+    if map_get(call, :name) == tool_name and
+         NovelApplication.JudgmentToolContract.valid?(
+           args,
+           NovelApplication.AgentPlanToolContract.schema()
+         ) do
+      {:ok, args}
     else
-      decode_stringified_plan(args)
+      {:error, :invalid_plan_tool_arguments}
     end
   end
 
-  defp decode_stringified_plan(args) do
-    with plan when is_binary(plan) <- map_get(args, :plan),
-         {:ok, %{} = decoded} <- Jason.decode(plan),
-         steps when is_list(steps) <- map_get(decoded, :steps) do
-      if Map.has_key?(args, "plan"),
-        do: Map.put(args, "plan", decoded),
-        else: Map.put(args, :plan, decoded)
-    else
-      _ -> args
-    end
-  end
+  defp matching_tool_arguments(calls, _tool_name),
+    do: {:error, {:native_tool_call_count_invalid, length(calls)}}
 
   defp require_json_object(parsed) when is_map(parsed), do: {:ok, parsed}
   defp require_json_object(_parsed), do: {:error, :json_object_required}
@@ -1033,78 +895,14 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       messages: [
         %{role: "user", content: content}
       ],
-      tools: [agent_plan_tool(tool_name)],
-      tool_choice: tool_name
+      tools: [plan_tool(tool_name)],
+      tool_choice: "auto"
     }
   end
 
-  defp agent_plan_tool(tool_name) do
-    %{
-      name: tool_name,
-      description: "Return the complete AgentPlan structure for this AgentRun.",
-      input_schema: agent_plan_tool_schema()
-    }
-  end
-
-  defp agent_plan_tool_schema do
-    %{
-      type: "object",
-      required: ["plan", "author_reasoning", "reason_codes", "confidence"],
-      additionalProperties: false,
-      properties: %{
-        author_reasoning: %{
-          type: "string",
-          minLength: 1,
-          description: "作者可见 reasoning 原文（与前置流式 reasoning 一致；reasoning 缺失时的回退叙事来源）"
-        },
-        plan: %{
-          type: "object",
-          required: ["steps"],
-          additionalProperties: false,
-          properties: %{
-            steps: %{
-              type: "array",
-              minItems: 1,
-              items: %{
-                type: "object",
-                required: [
-                  "step_id",
-                  "kind",
-                  "description",
-                  "success_criteria",
-                  "target_tool_ref"
-                ],
-                additionalProperties: false,
-                properties: %{
-                  step_id: %{type: "string", minLength: 1},
-                  kind: %{type: "string", enum: ["explore", "act"]},
-                  description: %{type: "string", minLength: 1},
-                  success_criteria: %{type: "array", items: %{type: "string"}},
-                  depends_on: %{type: "array", items: %{type: "string"}},
-                  target_tool_ref: %{type: "string", minLength: 1},
-                  write_intent: %{type: "string", enum: ["none", "tentative"]},
-                  risk_hint: %{type: "string", enum: ["low", "medium", "high"]},
-                  authoring_intent: %{
-                    anyOf: [
-                      %{type: "string", enum: ["none", "continuation", "rewrite"]},
-                      %{type: "null"}
-                    ]
-                  },
-                  target_chapter: %{anyOf: [%{type: "string"}, %{type: "null"}]},
-                  target_chapter_ref: %{anyOf: [%{type: "string"}, %{type: "null"}]},
-                  requested_chapter_raw: %{anyOf: [%{type: "string"}, %{type: "null"}]},
-                  target_word_count: %{anyOf: [%{type: "integer"}, %{type: "null"}]},
-                  exploration_query: %{anyOf: [%{type: "string"}, %{type: "null"}]}
-                }
-              }
-            }
-          }
-        },
-        reason_codes: %{type: "array", items: %{type: "string"}},
-        confidence: %{type: "number", minimum: 0, maximum: 1}
-      }
-    }
-  end
+  defdelegate plan_tool(name \\ @draft_tool_name),
+    to: NovelApplication.AgentPlanToolContract,
+    as: :tool
 
   defp original_prompt_text(%{messages: [%{content: content} | _]}), do: content
   defp original_prompt_text(other), do: inspect(other)

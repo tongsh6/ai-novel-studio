@@ -76,7 +76,10 @@ defmodule NovelApplication.ArtifactAssembler do
     else
       {:ok,
        %TentativeArtifactSet{
-         artifact_set_id: NovelFoundation.ID.unique("as"),
+         artifact_set_id:
+           "as_author_" <>
+             (:crypto.hash(:sha256, :erlang.term_to_binary({turn_ref, author_source_ref, body}))
+              |> Base.encode16(case: :lower)),
          artifact_type: :world_setting,
          items: [
            %{

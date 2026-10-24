@@ -14,3 +14,5 @@
 | [ui_card.json](ui_card.json) | 同名基础契约的 JSON Schema |
 | [user_message_submission.json](user_message_submission.json) | 不可变用户消息投递记录，ADR-0027 D1 |
 | [enums/](enums/README.md) | 编译期冻结枚举，清单见上级索引 |
+
+- [`author_choice_action.json`](author_choice_action.json)：B26 模型选项与系统自由回复源动作的条件 schema，由前端 TurnResult 组合校验。

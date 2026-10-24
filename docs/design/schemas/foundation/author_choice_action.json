@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AuthorChoiceAction",
+  "description": "B26 明确问题的唯一源动作；模型选项与系统自由回复的字段条件。",
+  "anyOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "action_type",
+        "label_key",
+        "source_turn_ref",
+        "target_ref",
+        "idempotency_key",
+        "question_ref",
+        "expected_goal_version",
+        "response_kind",
+        "label",
+        "candidate_ref"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "const": "author_choice"
+        },
+        "label_key": {
+          "const": "author_question.option"
+        },
+        "source_turn_ref": {
+          "type": "string"
+        },
+        "target_ref": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "trace_ref": {
+          "type": "string"
+        },
+        "question_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_goal_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "response_kind": {
+          "enum": [
+            "choice",
+            "free_text"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "action_type",
+        "label_key",
+        "source_turn_ref",
+        "target_ref",
+        "idempotency_key",
+        "question_ref",
+        "expected_goal_version",
+        "response_kind"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "const": "author_choice"
+        },
+        "label_key": {
+          "const": "author_question.reply"
+        },
+        "source_turn_ref": {
+          "type": "string"
+        },
+        "target_ref": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "trace_ref": {
+          "type": "string"
+        },
+        "question_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_goal_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "response_kind": {
+          "const": "free_text"
+        }
+      }
+    }
+  ]
+}

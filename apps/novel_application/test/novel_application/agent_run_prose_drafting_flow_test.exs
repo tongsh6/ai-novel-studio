@@ -252,7 +252,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert length(state.run.completed_step_refs) == 3
     assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 5
+    assert state.run.consumed_budget.provider_calls == 4
     assert Enum.any?(state.observations, &(&1.observation_type == :artifact_created))
     assert Enum.any?(state.observations, &(&1.observation_type == :quality_review))
 
@@ -406,8 +406,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert Map.get(state.final_turn_result.trace_summary, :chapter_mission_statement) ==
              "这一章只写主角找到出口，不解释房间来历。"
 
-    # 规划 2 + writer 1 + evaluator 1 = 4：没有写前推理调用。
-    assert state.run.consumed_budget.provider_calls == 4
+    # 规划 1 + writer 1 + evaluator 1 = 3：没有写前推理调用。
+    assert state.run.consumed_budget.provider_calls == 3
   end
 
   test "continuation decision injects prior prose into writer and marks pending artifact for append adoption" do
@@ -655,10 +655,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
           attempt = Agent.get_and_update(planner_counter, fn count -> {count + 1, count + 1} end)
           send(parent, {:planner_prompt, attempt, prompt})
 
-          # 两段式：attempt 1 = 流式 reasoning（无 tools，返回 content 合法）；
-          # attempt 2 = 结构化 tool call 首次失败（缺 tool_calls）触发纠错重试；
-          # attempt 3 = 纠错后返回合法 tool call。
-          if attempt <= 2 do
+          # 单调用 auto：attempt 1 只回 content、缺 plan tool call → 触发一次纠错重试；
+          # attempt 2 纠错后返回合法 tool call。
+          if attempt == 1 do
             {:ok, %{content: "先读取正文写作上下文。", tool_calls: []}}
           else
             {:ok,
@@ -737,15 +736,12 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
                event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
              )
 
-    assert_receive {:planner_prompt, 1, reasoning_prompt}, 500
-    assert prompt_text(reasoning_prompt) =~ "AgentRun 计划起草器"
-    refute NovelAgent.Provider.tool_call_prompt?(reasoning_prompt)
-    assert_receive {:planner_prompt, 2, structure_prompt}, 500
-    assert NovelAgent.Provider.tool_choice(structure_prompt) == "agent_plan_draft"
-    assert prompt_text(structure_prompt) =~ "你已向作者说明的计划 reasoning"
-    assert_receive {:planner_prompt, 3, retry_prompt}, 500
+    assert_receive {:planner_prompt, 1, initial_prompt}, 500
+    assert NovelAgent.Provider.tool_choice(initial_prompt) == "auto"
+    assert_receive {:planner_prompt, 2, retry_prompt}, 500
     assert prompt_text(retry_prompt) =~ "上一次的 AgentRun 计划 tool call 无法被系统解析"
-    assert prompt_text(retry_prompt) =~ "必须调用 agent_plan_draft"
+    assert NovelAgent.Provider.tool_choice(retry_prompt) == "auto"
+    refute_receive {:planner_prompt, 3, _}
     assert_receive {:writer_prompt, _writer_prompt}, 1_000
     assert_receive {:agent_event, :run_completed, _}, 2_000
 
@@ -754,9 +750,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # WR01：context + chapter_mission + prose_writing 三步。
     assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 1
-    # 规划 3（reasoning + 结构失败 + 纠错）+ 写前推理 1 + writer 1 + evaluator 1
-    assert state.run.consumed_budget.provider_calls == 6
-    assert Agent.get(planner_counter, & &1) == 3
+    # 规划 2（首调缺 tool call + 纠错）+ 写前推理 1 + writer 1 + evaluator 1 = 5
+    assert state.run.consumed_budget.provider_calls == 5
+    assert Agent.get(planner_counter, & &1) == 2
   end
 
   test "作者已采纳旗标在迭代边界机械收束（0 调用，不再进判断②/改进步）（M0）" do
@@ -827,7 +823,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       stage_sink: fn _event -> :ok end
     }
 
-    # 计划已走完 + 旗标在：原本会进判断②（2 次调用）；收束语义下 0 调用直接完成。
+    # 计划已走完 + 旗标在：原本会进判断②（1 次调用）；收束语义下 0 调用直接完成。
     assert {:complete, decision, meta} = spec.next_step_planner.(run, 3, snapshot)
     assert decision.decision_type == :goal_satisfied
     assert "author_adopted_candidate" in decision.reason_codes
@@ -844,9 +840,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-d1-plan")}
-
-        continuation_narrative_prompt?(prompt) ->
-          continuation_narrative("写作模型连续故障，我先停下来，等你确认后再继续。")
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("await_author", "")
@@ -886,8 +879,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 1
 
-    # runtime 直连（无判断①入场）：起草 2 + 写前推理 1 + 失败 writer 步 2 + 判断② 2 = 7。
-    assert state.run.consumed_budget.provider_calls == 7
+    # runtime 直连（无判断①入场）：起草 1 + 写前推理 1 + 失败 writer 步 2 + 判断② 1 = 5。
+    assert state.run.consumed_budget.provider_calls == 5
   end
 
   test "writer timeout exhaustion surfaces a scoped retry reason" do
@@ -900,9 +893,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-prose-timeout-plan")}
-
-        continuation_narrative_prompt?(prompt) ->
-          continuation_narrative("写作模型连续超时，我先停下来，等你确认后再继续。")
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("continue", "先拆场景，逐段写，缩小单次输出。")
@@ -1030,9 +1020,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         plan_draft_prompt?(prompt) ->
           {:ok, with_provider_call(prose_plan_draft(prompt), "pc-agent-b17-plan")}
 
-        continuation_narrative_prompt?(prompt) ->
-          continuation_narrative("写作调用失败了，我先拆成场景、缩小单次输出。")
-
         continuation_decision_prompt?(prompt) ->
           continuation_decision("continue", "先拆成场景，缩小单次范围后再生成。")
 
@@ -1131,9 +1118,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              ),
              "pc-agent-prose-d2-plan"
            )}
-
-        continuation_narrative_prompt?(prompt) ->
-          continuation_narrative("质量复核发现规则冲突，我会按意见修正后再交给你。")
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("continue", "去掉无代价复活，补上规则代价。")
@@ -1245,9 +1229,9 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     # 判断② continue 按修订事实计 1 次 replan。
     assert state.run.consumed_budget.replans == 1
     assert state.run.consumed_budget.tool_calls == 2
-    # runtime 直连：起草 2 + prose 步 2 + 判断② 2 + 重试步 2（writer+复评）= 8。
-    # WR01：+1 写前推理调用。
-    assert state.run.consumed_budget.provider_calls == 9
+    # runtime 直连：起草 1 + prose 步 2 + 判断② 1 + 重试步 2（writer+复评）= 6。
+    # WR01：+1 写前推理调用 = 7。
+    assert state.run.consumed_budget.provider_calls == 7
     # 改进闭环终局：pending 只剩改进稿（首稿已被替代）。
     assert length(state.run.pending_artifact_refs) == 1
     # 改进稿即最终 TurnResult（completed + 单 pending）。
@@ -1274,9 +1258,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              prose_plan_draft(prompt, risk_hint: "high"),
              "pc-agent-prose-d4-plan"
            )}
-
-        continuation_narrative_prompt?(prompt) ->
-          continuation_narrative("这一步被系统权限门禁拦下，需要你确认后才能继续。")
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("await_author", "")
@@ -1319,8 +1300,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.status == :awaiting_author
     assert state.run.consumed_budget.replans == 0
     assert state.run.consumed_budget.tool_calls == 0
-    # runtime 直连：起草 2 + 写前推理 1 + 判断② 2 = 5（writer 未派发）。
-    assert state.run.consumed_budget.provider_calls == 5
+    # runtime 直连：起草 1 + 写前推理 1 + 判断② 1 = 3（writer 未派发）。
+    assert state.run.consumed_budget.provider_calls == 3
   end
 
   test "D7 deterministic missing chapter gap revises plan without calling writer provider" do
@@ -1341,9 +1322,6 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              ),
              "pc-agent-prose-d7-plan"
            )}
-
-        continuation_narrative_prompt?(prompt) ->
-          continuation_narrative("你点名的章节在作品里还不存在，需要你确认目标章后我再继续。")
 
         continuation_decision_prompt?(prompt) ->
           continuation_decision("await_author", "")
@@ -1382,8 +1360,8 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert state.run.status == :awaiting_author
     assert state.run.consumed_budget.replans == 0
 
-    # runtime 直连：起草 2 + 写前推理 1 + 判断② 2 = 5（writer provider 未调用）。
-    assert state.run.consumed_budget.provider_calls == 5
+    # runtime 直连：起草 1 + 写前推理 1 + 判断② 1 = 3（writer provider 未调用）。
+    assert state.run.consumed_budget.provider_calls == 3
   end
 
   # WR01：写前推理步的确定性结果——一条依据在材料内（context() 的第 01 章计划字段）、
@@ -1406,56 +1384,37 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   defp plan_draft_prompt?(prompt),
     do: prompt_contains?(prompt, "AgentRun 计划起草器")
 
-  defp plan_revision_prompt?(prompt),
-    do: prompt_contains?(prompt, "AgentRun 计划修订器")
-
-  # CP3a 判断②两段式（偏离信号 → 观察 + 续行，替代模型计划修订）。
-  defp continuation_narrative_prompt?(prompt),
-    do: prompt_contains?(prompt, "当前创作执行出现了需要你判断的情况")
-
   defp continuation_decision_prompt?(prompt),
-    do: prompt_contains?(prompt, "现在把续行判断结构化")
+    do: prompt_contains?(prompt, "continuation_decision")
 
-  defp continuation_narrative(text) do
+  defp continuation_decision(action, guidance) do
+    text = if action == "continue", do: "按观察继续修正：#{guidance}", else: "我先停下来，需要作者确认后继续。"
+
+    {name, args} =
+      if action == "continue",
+        do:
+          {"continuation_decision",
+           %{"action" => "continue", "guidance" => guidance, "reason" => text}},
+        else: {"ask_author", %{"question" => text, "options" => []}}
+
+    calls = [%{"name" => name, "arguments" => args}]
+
     {:ok,
      %{
        content: text,
+       tool_calls: calls,
        provider_output: %NovelCommon.Contracts.ProviderOutput{
          provider_run_ref: "prun-continuation",
          provider_call_ref: "pcall-continuation",
          status: :ok,
-         content: %{text: text}
+         content: %{text: text, tool_calls: calls}
        }
-     }}
-  end
-
-  defp continuation_decision(action, guidance) do
-    {:ok,
-     %{
-       content: "",
-       tool_calls: [
-         %{
-           "name" => "continuation_decision",
-           "arguments" => %{
-             "action" => action,
-             "guidance" => guidance,
-             "reason" => "continuation_#{action}"
-           }
-         }
-       ]
      }}
   end
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
 
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
-
-  defp prose_plan_revision(prompt) do
-    prose_plan_draft(prompt,
-      reason_codes: ["agent_plan_revised", "prose_plan_revised"],
-      tool_name: "agent_plan_revision"
-    )
-  end
 
   defp prose_plan_draft(prompt, opts \\ []) do
     prompt = prompt_text(prompt)

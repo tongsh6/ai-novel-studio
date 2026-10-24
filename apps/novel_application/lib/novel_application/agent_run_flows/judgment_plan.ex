@@ -79,7 +79,19 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   # CP4：计划由模型基于能力目录制定（真计划，plan_drafted 照发）；app 不预制轨道。
   defp plan_for_run(run, snapshot, spec) do
     if model_plan_ready?(run.plan) do
-      {:ok, run.plan, %{provider_call_count: 0, suppress_plan_event: true}}
+      inline = get_in(snapshot, [:stage_state, :inline_plan_meta])
+
+      meta =
+        if is_map(inline) and plan_cursor(snapshot) == 0,
+          do:
+            Map.merge(inline, %{
+              agent_plan: run.plan,
+              provider_call_count: 0,
+              suppress_plan_event: false
+            }),
+          else: %{provider_call_count: 0, suppress_plan_event: true}
+
+      {:ok, run.plan, meta}
     else
       with {:ok, plan, meta} <-
              AgenticPlanDraftPlanner.draft_plan_with_meta(

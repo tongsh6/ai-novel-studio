@@ -28,8 +28,6 @@ defmodule NovelApplication.AgentNarrativeSource do
   @spec from_provider_result(map(), String.t()) :: {:ok, source()} | {:error, term()}
   def from_provider_result(provider_result, narrative)
       when is_map(provider_result) and is_binary(narrative) do
-    narrative = String.trim(narrative)
-
     with :ok <- require_narrative(narrative),
          {:ok, output} <- provider_output(provider_result),
          {:ok, source_text} <- provider_output_text(output),
@@ -68,8 +66,6 @@ defmodule NovelApplication.AgentNarrativeSource do
 
   def from_tool_call_narrative(provider_result, tool_name, narrative, narrative_field)
       when is_map(provider_result) and is_binary(tool_name) and is_binary(narrative) do
-    narrative = String.trim(narrative)
-
     with :ok <- require_narrative(narrative),
          {:ok, output} <- provider_output(provider_result),
          {:ok, source_text} <- tool_narrative_text(output, tool_name, narrative_field),
@@ -127,8 +123,8 @@ defmodule NovelApplication.AgentNarrativeSource do
 
   def verify(_narrative, _source, _provider_outputs), do: {:error, :invalid_narrative_source}
 
-  defp require_narrative(""), do: {:error, :empty_author_narrative}
-  defp require_narrative(_narrative), do: :ok
+  defp require_narrative(text),
+    do: if(String.trim(text) == "", do: {:error, :empty_author_narrative}, else: :ok)
 
   defp provider_output(provider_result) do
     case map_get(provider_result, :provider_output) do
@@ -203,7 +199,11 @@ defmodule NovelApplication.AgentNarrativeSource do
                 :author_reasoning,
                 "author_reasoning",
                 :author_narrative,
-                "author_narrative"
+                "author_narrative",
+                :question,
+                "question",
+                :reason,
+                "reason"
               ] do
     content
     |> map_get(:tool_calls)
@@ -220,12 +220,15 @@ defmodule NovelApplication.AgentNarrativeSource do
 
   defp tool_call_narrative(args, field) when is_map(args) do
     key =
-      if field in [:author_narrative, "author_narrative"],
-        do: :author_narrative,
-        else: :author_reasoning
+      case to_string(field) do
+        "question" -> :question
+        "reason" -> :reason
+        "author_narrative" -> :author_narrative
+        _ -> :author_reasoning
+      end
 
     case map_get(args, key) do
-      text when is_binary(text) and text != "" -> {:ok, String.trim(text)}
+      text when is_binary(text) and text != "" -> {:ok, text}
       _ -> {:error, :tool_narrative_text_required}
     end
   end

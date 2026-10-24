@@ -24,7 +24,7 @@ user_flow:
   - open: real Tauri workbench
   - send: plain conversation input without any deviation fixture marker
   - wait_for: bounded AgentRun fast ack（profile_ref=judgment_loop_v1）
-  - wait_for: 机械准备 1 步 + 判断①两段式（2 provider calls）完成，judgment_action=reply
+  - wait_for: 机械准备 1 步 + 判断①单调用 auto（2 provider calls）完成，judgment_action=reply
   - wait_for: completed no-tool TurnResult 与 completed AgentRun state
   - verify: 直通路径不消费 replan 预算、不调用工具、不写入
 
@@ -42,7 +42,7 @@ assertions:
     - 判断步与内联回复在作者面可见
   network:
     - parent user_message 在最终 TurnResult 前收到 bounded run_id
-    - agent_run_state：profile_ref=judgment_loop_v1、consumed_steps=2、provider_calls=2、consumed_replans=0、tool_calls=0
+    - agent_run_state：profile_ref=judgment_loop_v1、consumed_steps=2、provider_calls=1、consumed_replans=0、tool_calls=0
     - 无 plan_revised 事件
     - 最终 TurnResult 携带同一 run_id
   data:

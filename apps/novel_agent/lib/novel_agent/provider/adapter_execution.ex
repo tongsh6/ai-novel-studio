@@ -217,6 +217,10 @@ defmodule NovelAgent.Provider.AdapterExecution do
   """
   @spec author_reasoning_delta(context(), String.t(), boolean()) ::
           {String.t() | nil, boolean()}
+  def author_reasoning_delta(%{content_visibility: :author}, content, _author_open?)
+      when is_binary(content),
+      do: {non_empty_string(content), true}
+
   def author_reasoning_delta(ctx, content, author_open?) when is_binary(content) do
     if author_reasoning_purpose?(ctx) and author_open? do
       split_author_reasoning_delta(content)
@@ -575,10 +579,15 @@ defmodule NovelAgent.Provider.AdapterExecution do
   defp text_chunks(content, ctx) do
     text = to_string(content)
 
-    if author_reasoning_purpose?(ctx) do
-      author_reasoning_text_chunks(text)
-    else
-      safe_text_chunks(text)
+    cond do
+      Map.get(ctx, :content_visibility) == :author ->
+        fixed_text_chunks(text, @author_reasoning_delta_chunk_size)
+
+      author_reasoning_purpose?(ctx) ->
+        author_reasoning_text_chunks(text)
+
+      true ->
+        safe_text_chunks(text)
     end
   end
 

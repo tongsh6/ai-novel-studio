@@ -8,6 +8,7 @@
 // 本 barrel 用各自的 codegen 生成物在此收紧。这里只做组合，不手写形状。
 
 import { z } from "zod";
+import { AuthorChoiceActionSchema } from "../generated/foundation/author_choice_action";
 
 import { ArtifactAdoptionEntrySchema } from "../generated/foundation/artifact_adoption_entry";
 import { CandidateDirectionSchema } from "../generated/foundation/candidate_direction";
@@ -45,6 +46,19 @@ export const TurnResultSchema = TurnResultV3Schema.extend({
       resolved: z.array(TurnAdoptionEntrySchema),
     })
     .optional(),
+}).superRefine((result, ctx) => {
+  for (const [index, action] of (result.available_actions ?? []).entries()) {
+    if (
+      action.action_type === "author_choice" &&
+      !AuthorChoiceActionSchema.safeParse(action).success
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "invalid author_choice source action",
+        path: ["available_actions", index],
+      });
+    }
+  }
 });
 
 export type TurnResult = z.infer<typeof TurnResultSchema>;

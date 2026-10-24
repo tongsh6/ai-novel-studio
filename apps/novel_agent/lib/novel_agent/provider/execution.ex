@@ -116,6 +116,17 @@ defmodule NovelAgent.Provider.Execution do
 
   def with_cancellation_token(dependency, _token), do: dependency
 
+  @doc "显式声明本次 content 是否向作者流式展示；不改变用途路由或私有 reasoning 可见性。"
+  def with_content_visibility(%__MODULE__{gateway_opts: opts} = dependency, visibility)
+      when is_list(opts) and visibility in [:author, :developer] do
+    rebuild_gateway_execution(dependency, Keyword.put(opts, :content_visibility, visibility))
+  end
+
+  def with_content_visibility(%__MODULE__{} = dependency, visibility),
+    do: %{dependency | metadata: Map.put(dependency.metadata, :content_visibility, visibility)}
+
+  def with_content_visibility(dependency, _visibility), do: dependency
+
   @spec with_purpose(dependency(), ProviderRun.purpose()) :: dependency()
   def with_purpose(%__MODULE__{gateway_opts: opts} = dependency, purpose)
       when is_list(opts) do

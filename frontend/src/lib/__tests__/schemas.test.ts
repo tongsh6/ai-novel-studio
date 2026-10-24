@@ -250,3 +250,66 @@ describe("CandidateDirectionSchema", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("B26 明确问题 wire", () => {
+  const question = {
+    question_ref: "q:1",
+    run_id: "run:1",
+    goal_version: 1,
+    source_turn_ref: "turn:question",
+    question: "要保留悬念吗？",
+    options: [],
+    status: "open",
+    provider_call_ref: "call:1",
+  };
+  const reply = {
+    action_id: "answer:1",
+    action_type: "author_choice",
+    label_key: "author_question.reply",
+    source_turn_ref: "turn:question",
+    target_ref: "run:1",
+    question_ref: "q:1",
+    expected_goal_version: 1,
+    response_kind: "free_text",
+    idempotency_key: "idem:1",
+    enabled: true,
+  };
+  it("空选项问题及真实自由回复动作在解析后完整保留", () => {
+    const parsed = TurnResultSchema.parse({
+      ...minimalValid,
+      author_question: question,
+      available_actions: [reply],
+    });
+    expect(parsed.author_question).toEqual(question);
+    expect(parsed.available_actions).toEqual([reply]);
+  });
+  it("缺失绑定或伪造系统动作候选被拒绝，不能静默丢字段", () => {
+    const { question_ref: _q, ...unbound } = reply;
+    void _q;
+    for (const action of [
+      unbound,
+      { ...reply, candidate_ref: "invented" },
+      { ...reply, expected_goal_version: 0 },
+    ]) {
+      expect(
+        TurnResultSchema.safeParse({
+          ...minimalValid,
+          author_question: question,
+          available_actions: [action],
+        }).success,
+      ).toBe(false);
+    }
+  });
+  it("普通回复的展示来源与未知判断不会被 codegen 剥除", () => {
+    const frame = {
+      frame_type: "casual_reply",
+      dialogue_goal: "作者原话",
+      frame_origin: "application_display_default",
+      goal_origin: "author_input",
+      model_interpretation_status: "not_provided",
+    };
+    expect(TurnResultSchema.parse({ ...minimalValid, frame_summary: frame }).frame_summary).toEqual(
+      frame,
+    );
+  });
+});

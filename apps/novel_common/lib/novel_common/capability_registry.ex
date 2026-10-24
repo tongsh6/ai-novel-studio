@@ -69,6 +69,7 @@ defmodule NovelCommon.CapabilityRegistry do
       },
       "world_building" => %CapabilityRegistryEntry{
         tool_name: "world_building",
+        effect_summary: "生成世界观、设定、规则或伏笔的待采纳候选，不直接入档。",
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "world_building_v1",
@@ -84,6 +85,7 @@ defmodule NovelCommon.CapabilityRegistry do
       },
       "character_design" => %CapabilityRegistryEntry{
         tool_name: "character_design",
+        effect_summary: "生成新角色主档案候选，采纳后创建；不用于修改已有人物身份字段。",
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "character_design_v1",
@@ -101,6 +103,7 @@ defmodule NovelCommon.CapabilityRegistry do
       # （CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP），区别于 character_design 写主档案。
       "character_evolution" => %CapabilityRegistryEntry{
         tool_name: "character_evolution",
+        effect_summary: "生成已有角色演化、当前状态、关系变化的记忆候选，不修改角色主档案身份字段。",
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "character_evolution_v1",
@@ -116,6 +119,7 @@ defmodule NovelCommon.CapabilityRegistry do
       },
       "plot_outline" => %CapabilityRegistryEntry{
         tool_name: "plot_outline",
+        effect_summary: "生成章节/卷纲候选，不冒充已存在章节的重编号或移动。",
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "plot_outline_v1",
@@ -131,6 +135,7 @@ defmodule NovelCommon.CapabilityRegistry do
       },
       "prose_writing" => %CapabilityRegistryEntry{
         tool_name: "prose_writing",
+        effect_summary: "按明确写作坐标生成正文候选，区分首稿、续写、重写；不自动采纳，不把片段修订冒充整章修订。",
         tool_version: "1.0.0",
         tool_layer: :creative,
         input_contract_ref: "prose_writing_v1",

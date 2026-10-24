@@ -8,7 +8,7 @@
 |---|---|
 | `lib/` | 被多个脚本复用的 shell helper。 |
 | `scenario_invariants/` | I1/I2/I3、N-NARR 与 I-CACHE 前缀共享度量 driver。 |
-| `model_contracts/` | [模型契约索引](model_contracts/README.md)：计划/判断 MBC、VS-00I 真实 call1→call2 缓存基线与原生 HTTP/SSE 证据，支持 Gateway 注册的真实 Provider；exit 65=凭据/环境阻塞。 |
+| `model_contracts/` | [模型契约索引](model_contracts/README.md)：计划/判断 MBC、VS-00I 真实单调用缓存与独立控制样本与原生 HTTP/SSE 证据，支持 Gateway 注册的真实 Provider；exit 65=凭据/环境阻塞。 |
 
 ## 顶层脚本
 
@@ -34,6 +34,8 @@
 | `grep_workspace.sh` | 按 workspace 检索日志/证据辅助。 |
 | `lint_enum_literals.exs` | 枚举字面量 lint 辅助。 |
 | `macos_cgevent_local_secret_file_driver.swift` | macOS 本地 secret 文件 UI 驱动辅助。 |
+| `macos_cgevent_plan_matrix_driver.swift` | **B26 计划矩阵原生驱动**：CGEvent/AX 操作真实 Tauri 窗口完成同批计划/独立起草/核对后修订三路径，写 `native-ui-complete.json`；配合 `TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1` 与 `scripts/native_plan_evidence_check.mjs` 使用。 |
+| `b27_case_freeze.exs` | **B27 CP0 案例冻结**：在隔离 test DB 中用真实生产入口组装 20 例语义案例请求快照并计算旧规则臂 hash（`quality/acceptance/fixtures/b27-semantic-cases/`）；`--check` 校验快照/规则漂移。 |
 | `next_task_check.mjs` | 检查 NEXT 三段简表、当前项唯一、任务来源/锚点/非终态与长度；拒绝旅程双写排期，不再要求旅程维护 next。 |
 | `next_task_check.test.mjs` | 排期/源状态/链接/体积与差距扫描迁移、快照保护反例；运行 `node --test scripts/next_task_check.test.mjs`，无需前端依赖。 |
 | `gap_ledger.sh` | 从既有差距表生成开放清单及跨次快照，落点见 `reports/gap-ledger/README.md`。 |
@@ -74,6 +76,31 @@
 | `stage.sh` | stage 桌面启动入口。 |
 | `task_done.sh` | 任务完成统一门禁入口。 |
 | `task_done_check.mjs` | task-done manifest 与 UI evidence 检查。 |
-| `tauri_slice_verify.sh` | 真实 Tauri slice verify 入口。 |
+| `tauri_slice_verify.sh` | 启动 Tauri 的验收入口；默认交互为 Chromium，summary 如实标 browser；B26 的 `TAURI_NATIVE_SYSTEM_DRIVER=1` 使用外部系统 UI 驱动原生窗口。 |
+| `native_question_transport_proxy.mjs` | B26 原生验收外部 WebSocket/HTTP 代理；复用已安装 ws，按证据目录 control 文件丢 ack/断线或改绑负例，生产代码无感知。 |
+| `native_business_evidence_check.mjs` | B26 原生业务结果与续行问题验收；按实际用户操作、传输和持久事实核对来源、幂等、采纳边界与缺口收尾。 |
+| `native_plan_evidence_check.mjs` | B26 既有多步计划场景的额外原生矩阵：同响应计划、独立起草与耗尽修订，核对来源、实际调用、编排和待采纳持久结果。 |
+| `native_question_evidence_check.mjs` | B26 原生问题回复：本次启动 nonce、原生截图、源动作日志与持久输入字节对账；不驱动产品、不接受 Chromium 证据。 |
 | `verify_stage_process_ownership.sh` | stage/Tauri 进程 ownership 验收脚本。 |
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
+
+- `task_done_check.mjs`：校验本轮改动哈希与真实 Tauri 证据；可用 `--manifest` 或 `TASK_DONE_MANIFEST` 显式指向 `artifacts/slice-verify/<slice>/manifest.json`，不新增历史 `artifacts/task-done/` 目录。
+
+
+### B26 原生系统 UI 验收
+
+运行 `TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_SLICE_VERIFY_TIMEOUT_SECONDS=1200 CARGO_NET_OFFLINE=true bash scripts/quality_accept.sh b26-author-question-roundtrip --surface tauri`。读取 `artifacts/slice-verify/b26-author-question-roundtrip-tauri-native/native-driver-ready.json`；外部 CUA 按 `app_path` 选择本次原生窗口。wrapper 仅为现有 debug binary 补 macOS app 元数据，独立 desktop profile，不修改产品逻辑或安装应用。默认 Vite/后端仍由标准 Tauri dev runner 启动。
+
+1. 在可见主输入发送“结尾有两个方向，先让我选择。”，保存原生截图并点击“保留悬念”。
+2. 发送“结尾还没想清楚，请先问我一个问题。”；点击该问题“回复此问题”，输入带首尾空格的原话并“发送回复”。
+3. 关闭并重新打开该原生窗口，确认源问题显示“已收到回复”、输入原话可见；保存原生截图与可访问性状态。
+4. 用只读 session API 与 app JSONL 取得本次真实 question/run/submission/action ID，写入 `native-ui-complete.json`（字段见 checker）。expected answer 使用实际输入原文，不从输出推导；截图保存其真实 PNG/JPEG 格式。checker 核对 nonce/时间/格式、同 run 一次持久化、源动作 accepted 与 open 集合关闭，输出 summary。
+5. 通过 CUA 关闭 wrapper 窗口；标准 runner 回收其 Phoenix/Tauri 进程。更广泛的浏览器问答矩阵和原生两轮核心链分别报告，不能互相替代。
+
+
+B26 扩展故障/分页模式额外设置 `TAURI_NATIVE_TRANSPORT_PROXY=1`：外部驱动可在产物目录写 `transport-control.json`，`drop_next_author_ack: true` 在下一次问题回答已被服务器接受后丢 ack 并断线，`tamper_next_author_action: {target_ref: ...}` 只改变外部 wire 作为跨 run 负例。生产代码无感知。完整帧进入 `native-transport.jsonl`；完成记录可声明 `transport_replay`、`paged_question_refs`、`cross_run_rejection`，checker 核对实际帧/分页/持久状态，不接受仅凭人工布尔断言。分页16轮必须成功且零方向/产物；失败批次应独立保留，不覆盖为成功。
+
+
+原生验收可加 `TAURI_NATIVE_ARTIFACT_TAG=scope` 等目录标签（仅小写字母/数字/连字符，最多32字符），保留不同矩阵批次；标签只用于脚本证据路径，不进入产品。B26 作用域变体先完成两种问题答复，再创建未答问题、开启新会话并从历史入口只读查看，切换到新作品后用外部代理构造跨作品 target 负例；保存历史只读快照及完整帧，`scope_switch` 对账原问题版本/状态与两个作品输入均未改变。
+
+B26 业务回环命令：`TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 bash scripts/quality_accept.sh b26-business-output-roundtrip --surface tauri`。由 CUA 在独立 app_path 完成其 manifest 用户流；`drop_next_committed_result` 在真实结果已落盘后丢掉首次 TurnResult 并断线，重传/恢复必须复用原产物。关闭窗口前备份完整 session、待采纳 payload 和独立 profile，避免丢失任何测试草稿；不采纳草稿来换取关闭许可。

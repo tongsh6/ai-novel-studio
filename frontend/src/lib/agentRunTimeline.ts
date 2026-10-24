@@ -116,7 +116,6 @@ function numberPayloadValue(
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-
 export function agentRunReasoningFlow(events: AgentEventData[]): AgenticLoopReasoningFlow {
   const reasoningEvents = events
     .filter(isAgenticLoopReasoningEvent)
@@ -306,7 +305,6 @@ function streamedAuthorReasoningEvents(
 function isAuthorReasoningDeltaEvent(event: AgentEventData): boolean {
   return (
     event.event_type === "provider_progress" &&
-    stringPayloadValue(event.payload, "purpose") === "author_reasoning" &&
     rawStringPayloadValue(event.payload, "author_narrative_delta") !== null
   );
 }
@@ -350,11 +348,6 @@ function normalizePlanStepStatus(status: string | null): AgenticLoopPlanStepStat
   return "pending";
 }
 
-
-
-
-
-
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -368,28 +361,3 @@ function stringRecordValue(
   const value = record?.[key];
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

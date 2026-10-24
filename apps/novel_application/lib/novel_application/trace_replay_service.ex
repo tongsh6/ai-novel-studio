@@ -9,6 +9,7 @@ defmodule NovelApplication.TraceReplayService do
   alias NovelApplication.ReplayService
   alias NovelApplication.WorkService
   alias NovelDomain.DecisionTrace
+  alias NovelPersistence.InteractionLifecycle
   alias NovelPersistence.TraceRepository
   alias NovelPersistence.WorkSessionRepo
 
@@ -45,7 +46,11 @@ defmodule NovelApplication.TraceReplayService do
          work_id: work.id,
          session_id: session.id,
          turn_id: turn_id,
-         trace_summary: trace_summary(record, report),
+         trace_summary:
+           Map.merge(
+             trace_summary(record, report),
+             InteractionLifecycle.trace_metadata(work_id, session_id, turn_id, record.trace_id)
+           ),
          replay_report: replay_report_map(report)
        }}
     else

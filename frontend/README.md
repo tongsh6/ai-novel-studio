@@ -37,3 +37,7 @@ bash ../scripts/quality_accept.sh au03-context-source-ui --surface tauri
 - Prefer visible semantics: role, label, placeholder, button text, visible page text.
 - User-visible copy belongs in `frontend/src/lib/copy.ts`.
 - UI components must keep design trace headers when required by project rules.
+
+## B26 / B27 共享入口
+
+- [AuthorQuestionReply.tsx](src/components/AuthorQuestionReply.tsx)：单调用共同任务、明确问题来源与持久回复链的实现/验证；契约见 UA-01 §2.2 与 VS-00D §11。

@@ -6,20 +6,6 @@ defmodule NovelApplication.DialogueGatewayTest do
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueFrame
 
-  @frame_json """
-  {
-    "frame_type": "casual_reply",
-    "dialogue_goal_summary": "用户发来消息",
-    "needs_tool": false,
-    "no_tool_reason": "no_tool_needed",
-    "execution_readiness": "not_applicable",
-    "assistant_message": "收到你的消息。",
-    "candidate_directions": [],
-    "context_used": false,
-    "uncertainty": []
-  }
-  """
-
   defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   # ── VS-00 reply-only tests ──────────────────────────

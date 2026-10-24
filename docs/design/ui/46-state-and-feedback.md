@@ -215,7 +215,7 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 ### 9.3 禁止
 
 - 禁止用 `ProviderActivityProjector`、前端 copy 或 `AgentObservation.summary` 拼作者可见过程叙事。
-- 禁止把普通 provider telemetry、raw prompt、provider 私有 reasoning / thinking、完整 ToolRequest 或 native tool-call arguments 放入作者主视图；`author_reasoning` 只能透出作者可见 planning prose，legacy 两段式协议只允许 JSON tail 之前的文本。
+- 禁止把普通 provider telemetry、raw prompt、provider 私有 reasoning / thinking、完整 ToolRequest 或 native tool-call arguments 放入作者主视图；`author_reasoning` 只能透出作者可见 planning prose（2026-10-23 B26 后判断/计划为单调用 auto：content 段可流式透出，native tool arguments 不进作者主视图）。
 - 禁止把 legacy 结构 JSON tail 或 native tool-call arguments 里的字段当作作者叙述渲染；这些结构只能驱动 chip、状态、版本、下一步 action 或 developer-only count/name telemetry。
 - 禁止为了验收给生产 UI 增加专用 hook；场景验证必须从真实页面与真实事件投影观察。
 
@@ -230,7 +230,7 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 
 | Codex 要素 | 写作场景等价物 | 数据来源 | 措辞归属 |
 |---|---|---|---|
-| 意图开场段（目标+顺序+边界承诺，一段连贯第一人称） | 「先看看你现在的角色阵容，再围绕镜像冲突设计反派；生成的候选只作为草稿等你确认，不会直接写进作品档案。」 | `author_reasoning` 流式 delta（计划起草 call1，已落地） | **模型**（提示词体裁约束） |
+| 意图开场段（目标+顺序+边界承诺，一段连贯第一人称） | 「先看看你现在的角色阵容，再围绕镜像冲突设计反派；生成的候选只作为草稿等你确认，不会直接写进作品档案。」 | 判断/计划单调用 auto 的 content 流式 delta（已落地；结构走同名 native tool arguments，不进作者主视图） | **模型**（提示词体裁约束） |
 | 折叠活动行（「运行了多个命令」「正在编辑文件」） | 「查阅作品档案 · 角色 3 · 设定 2」「正在起草角色候选…」「检索前文 · 第 12-14 章」 | `gate_decided` / `tool_started` / `tool_completed` / `artifact_created` 结构事件 + refs 计数 | **app copy**（中性结构动词模板，禁止"模型发现/认为"句式） |
 | 阶段结论段（「范围已核清：只改 X…不新增 Y…」） | 「阵容已核清：确认角色 2 名，无既定反派；候选将围绕稽查线设计，本轮只产出待采纳草稿，不触碰已确认设定。」 | `exploration_observed` / `evaluation_made` 的 `author_narrative`（source-bound） | **模型**（提示词体裁：核清了什么/判断是什么/只动哪里） |
 | 轻量进度行（「第 1/6 步 · 2 个文件已更 +25-13」） | 「第 2/4 步 · 1 份草稿待采纳 · 约 1,200 字」 | plan cursor / `pending_artifact_refs` / artifact 字数统计 | **app copy** |
@@ -249,11 +249,12 @@ ADR-0023 CP2 的 D1-D7 偏离信号不新增专用 UI 语义：UI 继续消费�
 
 #### 9.4.3 提示词体裁约束（实施时进 prompt 资产，非 UI 责任）
 
-- 计划起草 call1 的 author_reasoning 开场须包含：本轮目标复述、动作顺序、边界承诺
-  （不写入/待确认语义）。
+- 计划起草（单调用 auto）的 content 开场须包含：本轮目标复述、动作顺序、边界承诺
+  （不写入/待确认语义）；计划结构走同名 native tool arguments，不重复作为叙事。
 - `exploration_observed` / `evaluation_made` 叙事须为成段结论：已核清事实 + 判断 +
   影响范围（内联关键对象名），不再是单短句。
-- 体裁约束只影响措辞组织方式；N-NARR 字节绑定、两段式协议、native tool calling 均不变。
+- 体裁约束只影响措辞组织方式；N-NARR 字节绑定、单调用 auto 协议与 native tool calling 均不变
+  （2026-10-23 B26 已移除两段式调用对）。
 
 #### 9.4.4 活动行 copy 草案（实施时进 copy.ts）
 
@@ -379,6 +380,12 @@ active AgentRun 的暂停、继续、终止和自然语言调整入口不得跟�
 run/command/reason 去重，成功后清除），不得追加为 assistant 气泡；`not_found` 同时把
 该 run 本地降为 dead。command pending 期间所有提交按钮禁用（防连击）。dead run 不再
 计入顶栏“进行中任务”聚合，主输入框恢复普通消息语义。
+
+#### 明确模型问题的回复入口（B26，2026-10-24 已接受契约的落实）
+
+UA-01 §2.2.2 A 产生的 `author_question` 在原问题旁提供选项或多行自由回复，发送文案为“发送回复”，按源问题/run/版本绑定，仍消费原 run 的 steer 机制。空白回复必须禁用发送，不能提供裸“继续”；推荐项不自动发送。未绑定的主输入开始新讨论，不自动截给列表中最后一个 run。预算、writer timeout 等非模型问题的控制坞继续遵循下述既有矩阵；不要把两种入口混成第二套问题协议。历史问题只读/已回答动作关闭。
+
+“原等待说明不重复”按唯一持久 `question_ref` 与已答状态验证；审计工作过程可展示原有模型叙事，不把可回看日志误当新问题，也不能用日志文字存在代替真实可答动作。
 
 #### 9.7.2 Writer timeout 恢复出口（2026-10-21 DS03 post-closure）
 

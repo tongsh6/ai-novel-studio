@@ -1,5 +1,7 @@
 # ADR-0023：Agentic Loop 计划驱动执行与调用经济学 v3
 
+> **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
+
 > **修订注记（2026-07-15，ADR-0025）**：本 ADR 适用域由"一切 AgentRun"收窄为
 > "模型判断需要计划的 run"。交互式场景改走判断驱动循环（判断①/② + 计划按需 +
 > 探索），N-PLAN 表述由 ADR-0025 改写；本 ADR 的机制（模型起草/修订计划、机械
@@ -338,6 +340,11 @@ draft/revision fallback。
 - Deferred disposition（2026-07-05）：地板模型下计划质量不在本 ADR 内追加生产兜底或固定步骤 fallback；当前以 schema 校验、一次重试、D1-D7 偏离信号、预算/no-progress 终止兜底，不把地板档质量冒充为产品质量基准。若后续要做模型质量分层或强模型路由，需另立 eval/backlog。
 - Deferred disposition（2026-07-05）：opt-in 步级/收束 narration 默认关闭且本 ADR 不实现；未来若需要，必须是显式产品设置或独立 ADR/slice，并继续满足 N-NARR source binding，不得由 app copy 或验收 hook 伪造。
 - 修订注记（2026-07-05，用户拍板，见 `tasks/slices/UA01-agentic-loop-streaming-reasoning-card-simplification.md`）：CP4 强制 native tool call 使规划调用期间 assistant content 无字节可流，作者面对长时间零反馈后计划卡片突然出现，构成体验回归。用户拍板计划起草/修订改为**两段式调用**：第一段自由输出（无 tools）流式产出作者可见 reasoning（`author_narrative_delta` 可流），第二段强制 native tool call 产计划结构（prompt 内嵌第一段 reasoning）。规划调用成本 ×2 是**明知与本 ADR 调用经济学冲突后的体验优先决策**；叙事优先绑定第一段 content，arguments.author_reasoning 降级为空 content 回退通道。N-PLAN、D1-D7、机械推进语义不变。
+- **撤销注记（2026-10-23，作者拍板，B26 `tasks/slices/B26-single-call-judgment-protocol.md`）**：上条 2026-07-05 两段式决策与 CP4「计划起草 prompt 强制 `tool_choice=agent_plan_draft` / 修订强制 `agent_plan_revision`」口径**同批作废，不做兼容**。计划起草/修订改为单调用 `tool_choice: auto`：`agent_plan_draft` / `agent_plan_revision` 作为 auto 工具在判断调用内被调（判断入口），或在非判断入口的 bounded run 内单独一次 auto 调用（tools 仅 plan 工具）；content 仍为作者可见 reasoning（可流），tool arguments 出结构。原「forced 时 content 无字节可流」前提已被 SI T4 证伪（运行时 `ProviderOutput.content` 与 `tool_calls` 同携带），经济学理由被 VS-00I 消解，详 ADR-0025 §5 修订注记。**不变**：N-PLAN、D1–D7 偏离信号、机械推进、`max_replans`、schema 校验 + 一次重试 + 诚实失败、tool arguments 不进作者主视图（N-NARR source binding）。`agent-plan-native-tool-calling-protocol` 场景断言由「forced 调用」改为「auto 下仍调 `agent_plan_draft` 且 runtime 沿计划机械推进」（B26 CP4）。
+
+> **2026-10-24 联合迁移补充（作者已接受并授权实施；单调用共享入口已随 B26 CP2 落地，完整验收见 B26 §11–§14 与 B27）**：B26 的最终 profile/工具组合、续行停等与计数以 [UA-01 §2.2](../contracts/UA-01-unified-agent-run-loop-contract-pack.md) 为准；B27 的目标/范围/事实输入以 [VS-00D §11](../contracts/VS-00D-ai-guided-authoring-contract-pack.md) 为准。计划不再重新解释成另一个作者目标；共享判断/计划入口一次迁移，不先搬旧规则后再重写。模型续行工具仅 continue，需作者决定用 ask_author。缺计划后的单独起草、纠错与取证后的判断均按真实额外调用计数；不把整个 run 限为一次 provider 调用，不增加无业务必要的纯收束调用。机械推进、D1–D7、预算、step re-gate 和模型计划来源保持。2026-10-23 撤销注记仅保留历史背景，冲突口径以本联合修订稿为准。
+
+> **2026-10-24 运行结果补充（已随 B26 CP2 实施；证据见 B26 §13/§14）**：completed 只说明当前运行结束；普通回复、方向/原文候选和能力缺口按 UA-01 §2.2.3a 留 outcome，不自动附 goal_satisfied。续行报告缺口明确 goal_unfulfilled，不执行后续计划或假等待作者。已有机械 settle 可承接，不新建长期目标状态机；发布失败重放与先前效果保留必须有对应证据。
 
 ## enforced_by
 

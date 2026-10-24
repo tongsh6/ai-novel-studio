@@ -25,7 +25,7 @@ user_flow:
   - send: plain conversation input（无任何 deviation fixture 标记）
   - wait_for: bounded AgentRun fast ack（run_mode=bounded，profile_ref=judgment_loop_v1）
   - wait_for: 机械准备 1 步（context 组装）完成
-  - wait_for: 判断①两段式（author_reasoning 叙事 + planner 判断）共 2 次 provider 调用完成，judgment_decided(action=reply)
+  - wait_for: 判断①单调用 auto（同响应公开 content 与判断）共 1 次 provider 调用完成，judgment_decided(action=reply)
   - wait_for: 作者可见最终回复内联携带 provider 来源的叙事前缀，turn_result_ready
   - verify: 同一 run 的最终 TurnResult 无工具调用、无采纳、无生产写入
 
@@ -40,14 +40,14 @@ evidence:
 assertions:
   ui:
     - 作者发送消息后立即出现 AI 工作态骨架，不等待完整模型叙事
-    - AgentRun 面板达到 completed，作者可读回复可见
-    - 判断步（judgment_decided）与内联回复叙事在作者面可见
+    - 运行完成后恢复普通输入，作者可读回复只呈现一次
+    - 公开内容流在运行中可见；最终纯文本保留来源/未知判断，不重复渲染整段叙事
   network:
     - parent user_message 在最终 TurnResult 前收到 bounded run_id
     - author_reasoning_delta 事件至少 2 个，且 UI 叙事流随累积 delta 增长
     - 判断① 的 judgment_action=reply、judgment_narrative_source_type=provider_output，judgment 在叙事之后
-    - agent_run_state 记录 profile_ref=judgment_loop_v1、consumed_steps=2、tool_calls=0、provider_calls=2、replans=0
-    - provider 持久化事实与预算一致，purposes 含 author_reasoning 与 planner
+    - agent_run_state 记录 profile_ref=judgment_loop_v1、consumed_steps=2、tool_calls=0、provider_calls=1、replans=0
+    - provider 持久化事实与预算一致，purpose 为 planner，公开内容以 author_reasoning 增量投影
     - 最终 TurnResult 携带同一 run_id 与 profile_ref=judgment_loop_v1
   data:
     - channel 记录 bounded ack，且 log_sync_turn_count=0

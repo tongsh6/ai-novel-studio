@@ -1,13 +1,17 @@
 id: q3b-capability-gap-honest-reply
-title: 存档意图无承接时诚实缺口回复与登记路径
+title: 真实能力缺口的诚实回复与可行路径
 tier: nightly
 surface: tauri
+# B26 原文登记已有真实承接；旧 D8 来源回归由 q3c/B26 业务矩阵继续保护。
+# 默认交互是 Chromium 集成；原生证明见 b26-business-output-roundtrip。
+driver: headless-chromium
 entrypoint: scripts/quality_accept.sh q3b-capability-gap-honest-reply --surface tauri
 real_lmstudio_entrypoint: scripts/tauri_slice_verify.sh --real-lmstudio q3b-capability-gap-honest-reply
 
 contract:
   - docs/engineering/scenario-acceptance.md
   - docs/design/contracts/VS-00-reply-only-contract-pack.md
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/design/notes/2026-08-30-stage-session-archive-loop.md
   - tasks/slices/Q3B-capability-gap-exit.md
 
@@ -21,10 +25,10 @@ setup:
   provider: slice_verify
 
 user_flow:
-  - open: real Tauri workbench
-  - input: 作者要求把提供的大纲直接存档为作品设定（D8 stage 五连击同型输入）
+  - open: 当前真实工作台（浏览器前后端集成）
+  - input: 作者要求把已有角色的叙事身份从配角改为主角（当前尚无该维护能力）
   - click: 发送
-  - observe: 自然回复显式承认「没有直接写入档案的能力」并给出登记路径；路径由回复叙事说明，不产生创作方向卡
+  - observe: 自然回复显式承认缺少主档案身份修改能力；不使用角色演化冒充修改，不产生创作方向卡，可先讨论方案
   - do_not_see: execution card / confirmation card / adoption decision
 
 evidence:

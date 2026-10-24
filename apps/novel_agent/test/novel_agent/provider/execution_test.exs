@@ -14,6 +14,28 @@ defmodule NovelAgent.Provider.ExecutionTest do
     end)
   end
 
+  test "公开 content 的流可见性独立于 planner 路由，花括号不截断自然文本" do
+    text = "前段 {这是作者可见的文本} 后段"
+
+    assert {^text, true} =
+             AdapterExecution.author_reasoning_delta(
+               %{purpose: :planner, content_visibility: :author},
+               text,
+               true
+             )
+
+    assert {nil, true} = AdapterExecution.author_reasoning_delta(%{purpose: :planner}, text, true)
+
+    dependency =
+      Execution.dependency(provider: :stub, purpose: :planner)
+      |> Execution.with_content_visibility(:author)
+
+    assert dependency.purpose == :planner
+    assert dependency.gateway_opts[:content_visibility] == :author
+    assert {:ok, result} = Execution.result_fn(dependency).("只是测试公开内容，不含私有推理")
+    assert Enum.any?(result.provider_events, &is_binary(&1.payload[:author_narrative_delta]))
+  end
+
   test "dependency completion delegates through the unified provider execution gateway" do
     dependency = Execution.dependency(purpose: :writer, provider_call_ref: "pcall_execution_test")
     complete = Execution.result_fn(dependency)

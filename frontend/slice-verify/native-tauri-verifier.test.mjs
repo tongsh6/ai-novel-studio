@@ -157,14 +157,14 @@ describe("BIZ-05 候选语义证据", () => {
 describe("Q3D 原文登记边界证据", () => {
   const slice = "q3d-author-registration-guards";
   // B13b BB-4（ADR-0006 #2）：run 失败兜底 TurnResult status = failed_recoverable。
-  const failed = ["source_required", "source_not_available", "operation_conflict"].map((reason_code) =>
+  const failed = ["source_required", "source_not_available", "invalid_tool_combination"].map((reason_code) =>
     ({ turn_id: reason_code, reason_code, status: "failed_recoverable" }));
   const ui = { event: "slice_verify.ui_state.done", slice_id: slice, turn_id: "save", source_turn_id: "source",
     failed_turns: failed, historical_bytes_preserved: true, source_binding_preserved: true,
     failed_results_restored: true, no_write_before_adoption: true, confirmed_fact_count: 1 };
   const records = [ui, ...failed.flatMap((entry) => ["retry", "rejected"].map((outcome) =>
-    ({ ...entry, event: "judgment.author_content_validation.done", outcome }))),
-    { turn_id: "save", event: "judgment.author_content_validation.done", reason_code: "source_required", outcome: "retry" },
+    ({ ...entry, event: "judgment.output_validation.done", outcome }))),
+    { turn_id: "save", event: "judgment.output_validation.done", reason_code: "source_required", outcome: "retry" },
     { turn_id: "save", event: "judgment.decided.done" },
     { turn_id: "save", event: "judgment.author_content_materialized.done" },
     { turn_id: "save:adopt", event: "adoption.evaluate.done" }];
@@ -177,16 +177,16 @@ describe("Q3D 原文登记边界证据", () => {
   });
 
   it("缺少一种拒绝、刷新证据或误执行工具不能通过", () => {
-    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "operation_conflict"))).toBeNull();
+    expect(findNativeSliceEvidence(slice, records.filter((r) => r.turn_id !== "invalid_tool_combination"))).toBeNull();
     expect(findNativeSliceEvidence(slice, [{ ...ui, failed_results_restored: false }, ...records.slice(1)])).toBeNull();
     expect(findNativeSliceEvidence(slice, [...records, { turn_id: "source_required", event: "toolbox.execute.start" }])).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "operation_conflict", event: "judgment.author_content_materialized.done" }])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "invalid_tool_combination", event: "judgment.author_content_materialized.done" }])).toBeNull();
   });
 
   it("其他回合的采纳或纠正失败不能替代恢复成功", () => {
     const unrelated = records.map((r) => r.event === "adoption.evaluate.done" ? { ...r, turn_id: "save-other:adopt" } : r);
     expect(findNativeSliceEvidence(slice, unrelated)).toBeNull();
-    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "save", event: "judgment.author_content_validation.done", outcome: "rejected" }])).toBeNull();
+    expect(findNativeSliceEvidence(slice, [...records, { turn_id: "save", event: "judgment.output_validation.done", outcome: "rejected" }])).toBeNull();
   });
 });
 
@@ -1010,11 +1010,13 @@ describe("native Tauri slice verifier", () => {
         ui_author_reasoning_stream_grew: true,
         consumed_steps: 2,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 2,
+        consumed_provider_calls: 1,
         consumed_replans: 0,
         persisted_provider_facts_matched_budget: true,
-        persisted_provider_purposes: ["author_reasoning", "planner"],
-        ui_agentic_loop_reasoning_visible: true,
+        persisted_provider_purposes: ["planner"],
+        ui_agentic_loop_reasoning_visible: false,
+        ui_final_reply_occurrences: 1,
+        plain_reply_provenance_valid: true,
         ui_agentic_loop_result_visible: true,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
@@ -1029,17 +1031,17 @@ describe("native Tauri slice verifier", () => {
       run_id: "run-conversation",
       profile_ref: "judgment_loop_v1",
       judgment_action: "reply",
-      consumed_provider_calls: 2,
+      consumed_provider_calls: 1,
     });
     expect(findSliceBehaviorEvidence("agent-conversation-turn", records, evidence)).toMatchObject({
       slice_id: "agent-conversation-turn",
-      behavior: "plain_conversation_judged_reply_inline_with_two_provider_calls",
+      behavior: "plain_conversation_judged_reply_inline_with_one_provider_call",
       assertions: expect.arrayContaining([
         "mechanical_context_assembled_before_any_model_narrative",
         "judgment_narrative_streamed_author_visible_before_structure",
         "judgment_decided_reply_with_provider_bound_narrative_source",
         "inline_reply_turn_result_byte_carried_streamed_narrative_prefix",
-        "simple_conversation_consumed_exactly_two_provider_calls",
+        "simple_conversation_consumed_exactly_one_provider_call",
       ]),
     });
 
@@ -1231,11 +1233,13 @@ describe("native Tauri slice verifier", () => {
         ui_author_reasoning_stream_grew: true,
         consumed_steps: 2,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 2,
+        consumed_provider_calls: 1,
         consumed_replans: 0,
         persisted_provider_facts_matched_budget: true,
-        persisted_provider_purposes: ["author_reasoning", "planner"],
-        ui_agentic_loop_reasoning_visible: true,
+        persisted_provider_purposes: ["planner"],
+        ui_agentic_loop_reasoning_visible: false,
+        ui_final_reply_occurrences: 1,
+        plain_reply_provenance_valid: true,
         ui_agentic_loop_result_visible: true,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
@@ -1249,7 +1253,7 @@ describe("native Tauri slice verifier", () => {
       slice_id: "agentic-loop-no-deviation-direct",
       run_id: "run-direct",
       profile_ref: "judgment_loop_v1",
-      consumed_provider_calls: 2,
+      consumed_provider_calls: 1,
     });
 
     expect(
@@ -1537,9 +1541,9 @@ describe("native Tauri slice verifier", () => {
       {
         signal: "D1",
         mode: "await",
-        steps: 4,
+        steps: 5,
         toolCalls: 1,
-        providerCalls: 8,
+        providerCalls: 6,
         behavior: "tool_failure_settles_awaiting_author_after_judgment_continuation",
         headAssertion: "d1_tool_failure_observed_by_judgment_continuation",
       },
@@ -1549,9 +1553,9 @@ describe("native Tauri slice verifier", () => {
       {
         signal: "D2",
         mode: "improve",
-        steps: 5,
+        steps: 6,
         toolCalls: 2,
-        providerCalls: 10,
+        providerCalls: 8,
         artifactEvents: 2,
         supersededEvents: 1,
         allowCandidateTurnResult: true,
@@ -1566,7 +1570,7 @@ describe("native Tauri slice verifier", () => {
         mode: "await",
         steps: 5,
         toolCalls: 0,
-        providerCalls: 7,
+        providerCalls: 4,
         gateDecisionType: "require_confirmation",
         gateFirstBlockingGate: "authority",
         behavior: "gate_deny_settles_awaiting_author_after_judgment_continuation",
@@ -1578,9 +1582,9 @@ describe("native Tauri slice verifier", () => {
       {
         signal: "D7",
         mode: "await",
-        steps: 4,
+        steps: 5,
         toolCalls: 0,
-        providerCalls: 6,
+        providerCalls: 4,
         behavior: "deterministic_gap_settles_awaiting_author_after_judgment_continuation",
         headAssertion: "d7_deterministic_gap_observed_by_judgment_continuation",
       },
@@ -1614,12 +1618,12 @@ describe("native Tauri slice verifier", () => {
         consumed_tool_calls: expected.toolCalls,
         consumed_provider_calls: expected.providerCalls,
         consumed_replans: improve ? 1 : 0,
-        final_turn_result_arrived: improve || expected.allowCandidateTurnResult === true,
+        final_turn_result_arrived: true,
+        author_question_present: !improve,
+        source_bound_reply_action_present: !improve,
         final_turn_result_agent_run_status: improve
           ? "completed"
-          : expected.allowCandidateTurnResult === true
-            ? "awaiting_author"
-            : null,
+          : "awaiting_author",
         final_turn_result_pending_artifact_count:
           improve || expected.allowCandidateTurnResult === true ? 1 : 0,
         final_turn_result_quality_policy_action:
@@ -1716,137 +1720,32 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
-  it("accepts awaiting-author steer evidence only when the same run resumes and stale prompt stays singular", () => {
-    const records = [
-      {
-        event: "channel.user_message.done",
-        turn_id: "turn-awaiting-steer",
-        run_id: "run-awaiting-steer",
-        run_mode: "bounded",
-      },
-      {
-        event: "slice_verify.ui_state.done",
-        slice_id: "agent-awaiting-author-steer-resume",
-        parent_turn_id: "turn-awaiting-steer",
-        run_id: "run-awaiting-steer",
-        run_mode: "bounded",
-        awaiting_status: "awaiting_author",
-        terminal_status: "completed",
-        command: "steer",
-        command_ack_received: true,
-        command_target_bound_to_active_run: true,
-        plan_adjusted_event_type: "plan_adjusted",
-        run_resumed_event_type: "run_resumed",
-        run_resumed_reason_codes: ["steer_requested", "resume_after_steer"],
-        adjusted_goal_version: 2,
-        steer_text_visible_after_submit: true,
-        no_second_user_message_for_steer: true,
-        no_second_run_after_steer: true,
-        stale_awaiting_prompt_total_count: 1,
-        stale_awaiting_prompt_not_repeated: true,
-        final_result_visible_after_adjustment: true,
-        final_result_child_of_same_parent: true,
-      },
+  it.each(["agent-awaiting-author-steer-resume", "agent-awaiting-author-input-required"])("requires source-bound author_choice evidence for %s", (sliceId) => {
+    const state = { event: "slice_verify.ui_state.done", slice_id: sliceId, work_id: "work", session_id: "session",
+      parent_turn_id: "parent", run_id: "run", run_mode: "bounded", awaiting_status: "awaiting_author", terminal_status: "completed",
+      question_ref: "question", question_source_turn_ref: "question-turn", reply_action_id: "reply", reply_submission_id: "submission",
+      reply_action_type: "author_choice", reply_ack_received: true, reply_source_bound: true, adjusted_goal_version: 2,
+      bare_resume_absent: true, question_reply_hint_visible: true, question_reply_composer_visible: true,
+      empty_reply_disabled: true, blank_reply_request_count: 0, question_record_count: 1, question_answered: true,
+      reply_record_count: 1, no_second_user_message_for_reply: true, no_second_run_after_reply: true,
+      final_message_is_not_old_question: true, same_parent: true, source_controls_closed_after_reply: true,
+      run_resumed_reason_codes: ["resume_after_steer"] };
+    const logs = [
+      { event: "channel.user_message.done", work_id: "work", session_id: "session", run_id: "run", run_mode: "bounded" },
+      { event: "channel.author_action.done", work_id: "work", session_id: "session", action_type: "author_choice", action_status: "accepted", action_id: "reply", target_ref: "run", turn_id: "question-turn" }
     ];
-
-    const evidence = findNativeSliceEvidence("agent-awaiting-author-steer-resume", records);
-
-    expect(evidence).toMatchObject({
-      turn_id: "turn-awaiting-steer",
-      run_id: "run-awaiting-steer",
-      command_source: "awaiting_author_task_input",
-      awaiting_status: "awaiting_author",
-      terminal_status: "completed",
-      adjusted_goal_version: 2,
-      stale_awaiting_prompt_total_count: 1,
+    const records = [...logs, state];
+    const evidence = findNativeSliceEvidence(sliceId, records);
+    expect(evidence).toMatchObject({ question_ref: "question", adjusted_goal_version: 2, turn_ids: ["parent"] });
+    expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toMatchObject({
+      behavior: "explicit_question_reply_resumes_same_run_with_immutable_source",
+      assertions: expect.arrayContaining(["question_and_reply_persisted_once_after_reload"])
     });
-    expect(
-      findSliceBehaviorEvidence("agent-awaiting-author-steer-resume", records, evidence),
-    ).toMatchObject({
-      behavior: "awaiting_author_adjustment_resumes_and_completes_the_same_agent_run",
-      assertions: expect.arrayContaining([
-        "plan_adjusted_and_run_resumed_were_broadcast_for_the_same_run",
-        "original_awaiting_prompt_remained_once_and_was_not_repeated",
-      ]),
-    });
-
-    const duplicatedPromptRecords = records.map((record) =>
-      record.event === "slice_verify.ui_state.done"
-        ? {
-            ...record,
-            stale_awaiting_prompt_total_count: 2,
-            stale_awaiting_prompt_not_repeated: false,
-          }
-        : record,
-    );
-    expect(
-      findNativeSliceEvidence("agent-awaiting-author-steer-resume", duplicatedPromptRecords),
-    ).toBeNull();
-  });
-
-  it("accepts DS03 awaiting-input evidence only when the required-input surface holds and reload keeps single copies", () => {
-    const records = [
-      {
-        event: "channel.user_message.done",
-        turn_id: "turn-awaiting-input",
-        run_id: "run-awaiting-input",
-        run_mode: "bounded",
-      },
-      {
-        event: "slice_verify.ui_state.done",
-        slice_id: "agent-awaiting-author-input-required",
-        parent_turn_id: "turn-awaiting-input",
-        run_id: "run-awaiting-input",
-        run_mode: "bounded",
-        awaiting_status: "awaiting_author",
-        terminal_status: "completed",
-        command: "steer",
-        command_ack_received: true,
-        command_target_bound_to_active_run: true,
-        bare_resume_absent_while_awaiting: true,
-        awaiting_input_hint_visible: true,
-        awaiting_placeholder_visible: true,
-        empty_send_disabled_while_awaiting: true,
-        same_run_resumed_after_input: true,
-        run_resumed_reason_codes: ["steer_requested", "resume_after_steer"],
-        steer_text_restored_after_reload: true,
-        steer_text_reload_occurrence_count: 1,
-        stale_awaiting_prompt_after_reload_count: 1,
-        no_failure_bubble: true,
-      },
-    ];
-
-    const evidence = findNativeSliceEvidence("agent-awaiting-author-input-required", records);
-
-    expect(evidence).toMatchObject({
-      turn_id: "turn-awaiting-input",
-      run_id: "run-awaiting-input",
-      command_source: "awaiting_author_task_input",
-      awaiting_status: "awaiting_author",
-      terminal_status: "completed",
-      steer_text_reload_occurrence_count: 1,
-      stale_awaiting_prompt_after_reload_count: 1,
-    });
-    expect(
-      findSliceBehaviorEvidence("agent-awaiting-author-input-required", records, evidence),
-    ).toMatchObject({
-      behavior:
-        "awaiting_author_requires_concrete_input_and_survives_reload_without_duplicates",
-      assertions: expect.arrayContaining([
-        "awaiting_author_dock_exposed_no_bare_resume_action",
-        "empty_input_kept_the_send_adjustment_action_disabled",
-        "steer_message_was_persisted_and_restored_once_after_reload",
-      ]),
-    });
-
-    const bareResumeRecords = records.map((record) =>
-      record.event === "slice_verify.ui_state.done"
-        ? { ...record, bare_resume_absent_while_awaiting: false }
-        : record,
-    );
-    expect(
-      findNativeSliceEvidence("agent-awaiting-author-input-required", bareResumeRecords),
-    ).toBeNull();
+    for (const invalid of [{ question_record_count: 2 }, { reply_record_count: 2 }, { adjusted_goal_version: 3 }, { empty_reply_disabled: false }, { bare_resume_absent: false }, { reply_action_type: "steer" }]) {
+      expect(findNativeSliceEvidence(sliceId, [...logs, { ...state, ...invalid }])).toBeNull();
+    }
+    expect(findNativeSliceEvidence(sliceId, [logs[0], state])).toBeNull();
+    expect(findNativeSliceEvidence(sliceId, [logs[0], { ...logs[1], target_ref: "other-run" }, state])).toBeNull();
   });
 
   it("accepts DS03 live refresh-resume evidence only when the same run reconnects and resumes in place", () => {

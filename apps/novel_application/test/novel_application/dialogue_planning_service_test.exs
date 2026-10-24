@@ -33,7 +33,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     refute Map.has_key?(spec, :steps)
   end
 
-  test "判断 reply 内联终结：简单对话恰 2 次调用产出 casual_reply TurnResult" do
+  test "判断 reply 内联终结：简单对话恰 1 次调用产出 casual_reply TurnResult" do
     narrative = "你想聊聊创作方向；当前信息足够，我直接回应你。\n\n可以从主角的日常细节切入，先立住人物再展开冲突。"
 
     provider_execution =
@@ -57,8 +57,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     {context_result, judgment_result} = drive_judgment(spec, run, sink)
 
-    # 简单对话 = 判断①两段式恰 2 次调用；无 profile 切换
-    assert judgment_result.provider_call_count == 2
+    # 简单对话 = 判断①单调用恰 1 次调用；无 profile 切换
+    assert judgment_result.provider_call_count == 1
     refute Map.get(judgment_result, :run_patch)
 
     turn_result = judgment_result.turn_result
@@ -113,9 +113,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
       drive_judgment(spec, steered_run, fn _event -> :ok end)
 
     assert_receive {:judgment_prompt, narrative_prompt}
-    assert_receive {:judgment_prompt, structured_prompt}
+    refute_receive {:judgment_prompt, _}
 
-    for prompt <- [narrative_prompt, structured_prompt] do
+    for prompt <- [narrative_prompt] do
       assert prompt =~ steered_text
       refute prompt =~ original_text
     end
@@ -148,10 +148,9 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     {:ok, run} = AgentRun.new(spec.run_attrs)
     {_context_result, judgment_result} = drive_judgment(spec, run, fn _event -> :ok end)
 
-    assert judgment_result.turn_result.frame_summary == %{
-             frame_type: :question_answer,
-             dialogue_goal: "解释胜利过轻削弱张力的原因"
-           }
+    assert judgment_result.turn_result.frame_summary.frame_type == :casual_reply
+    assert judgment_result.turn_result.frame_summary.model_interpretation_status == "not_provided"
+    assert judgment_result.turn_result.frame_summary.dialogue_goal == "这一章赢得太轻，为什么会削弱张力？"
 
     assert judgment_result.turn_result.assistant_message.text == narrative
   end
@@ -234,9 +233,11 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
   test "原文登记缺来源或动作矛盾时不返回产物或创作 profile" do
     for {action, capability, source, reason} <- [
-          {"reply", nil, nil, :source_required},
-          {"reply", nil, "foreign", :source_not_available},
-          {"execute", "world_building", "current", :operation_conflict}
+          {"reply", nil, nil, {:author_content_registration_invalid, :source_required}},
+          {"reply", nil, "foreign",
+           {:author_content_registration_invalid, :source_not_available}},
+          {"execute", "world_building", "current",
+           {:judgment_protocol_violation, :invalid_tool_combination}}
         ] do
       execution =
         judgment_execution(action, capability,
@@ -252,7 +253,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
             workspace_id: "ws-guard",
             work_id: "work-guard",
             session_id: "session-guard",
-            turn_id: "guard-#{reason}"
+            turn_id: "guard-#{inspect(reason)}"
           },
           nil,
           execution
@@ -260,7 +261,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
       {:ok, run} = AgentRun.new(spec.run_attrs)
 
-      assert {_context, {:error, {:author_content_registration_invalid, ^reason}}} =
+      assert {_context, {:error, ^reason}} =
                drive_judgment_result(spec, run, fn _ -> :ok end)
     end
   end
@@ -296,7 +297,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     {_context_result, judgment_result} = drive_judgment(spec, run, sink)
 
     turn_result = judgment_result.turn_result
-    assert turn_result.frame_summary.frame_type == :capability_gap
+    assert turn_result.frame_summary.frame_type == :casual_reply
 
     # 字节纯度：body 精确等于作者消息、title 是 body 字符前缀、来源 ref 结构化
     assert [pending] = turn_result.adoption_state.pending
@@ -589,7 +590,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     refute Map.has_key?(spec, :steps)
   end
 
-  # 判断循环（ADR-0025 CP1）：机械准备（0 调用）→ 判断①两段式（2 调用）→
+  # 判断循环（ADR-0025 CP1）：机械准备（0 调用）→ 判断①单调用（1 调用）→
   # execute/plan 切换到能力 profile（等价旧路由语义）。
   defp assert_user_message_routes_to(input, expected_profile_ref) do
     provider_execution =
@@ -604,7 +605,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     sink = fn _event -> :ok end
     {_context_result, judgment_result} = drive_judgment(spec, run, sink)
 
-    assert judgment_result.provider_call_count == 2
+    assert judgment_result.provider_call_count == 1
 
     routed_run = apply_run_patch(run, judgment_result.run_patch)
     assert routed_run.profile_ref == expected_profile_ref
@@ -657,87 +658,86 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
   defp capability_for_profile_ref("world_building_with_context_v1"), do: "world_building"
 
-  # 判断①两段式替身：叙事调用（无 tools）返回 content + provider_output（叙事字节绑定），
-  # 结构调用（forced tool）返回 judgment_decision tool call。
+  # 判断①替身：单调用响应同时返回 content 与可选工具（叙事字节绑定）。
   defp judgment_execution(action, capability, opts \\ []) do
-    narrative =
-      Keyword.get(opts, :narrative, "我理解你的意图，这是一个明确的创作动作，我直接执行。")
+    narrative = Keyword.get(opts, :narrative, "这是一个明确的创作动作，准备生成待采纳候选。")
+    on_prompt = Keyword.get(opts, :on_prompt, fn _ -> :ok end)
+    goal = Keyword.get(opts, :dialogue_goal, "推进作者本轮创作目标")
 
-    on_prompt = Keyword.get(opts, :on_prompt, fn _prompt -> :ok end)
+    calls =
+      cond do
+        opts[:author_content_registration] ->
+          registration = %{
+            name: "register_author_content",
+            arguments: %{
+              author_content_source_ref: opts[:author_content_source_ref],
+              dialogue_goal: goal,
+              author_reasoning: narrative
+            }
+          }
 
-    arguments =
-      %{
-        "action" => action,
-        "reason" => "test_judgment",
-        "reply_included" => Keyword.get(opts, :reply_included, false)
-      }
-      |> maybe_put("capability", capability)
-      |> maybe_put_list("candidate_directions", Keyword.get(opts, :candidate_directions))
-      |> maybe_put_binary("frame_type", Keyword.get(opts, :frame_type))
-      |> maybe_put_binary("dialogue_goal", Keyword.get(opts, :dialogue_goal))
-      |> maybe_put("author_content_registration", Keyword.get(opts, :author_content_registration))
-      |> maybe_put("author_content_source_ref", Keyword.get(opts, :author_content_source_ref))
+          if action == "execute", do: [registration, registration], else: [registration]
+
+        opts[:frame_type] == "capability_gap" ->
+          [
+            %{
+              name: "report_capability_gap",
+              arguments: %{
+                dialogue_goal: goal,
+                missing_effect: narrative,
+                author_reasoning: narrative
+              }
+            }
+          ]
+
+        action == "reply" and opts[:candidate_directions] not in [nil, []] ->
+          [
+            %{
+              name: "propose_creative_directions",
+              arguments: %{
+                candidate_directions: opts[:candidate_directions],
+                author_reasoning: narrative
+              }
+            }
+          ]
+
+        action == "reply" ->
+          []
+
+        action == "await_author" ->
+          [%{name: "ask_author", arguments: %{question: narrative, options: []}}]
+
+        true ->
+          [
+            %{
+              name: "judgment_decision",
+              arguments: %{
+                action: action,
+                capability: capability,
+                dialogue_goal: goal,
+                reason: narrative
+              }
+            }
+          ]
+      end
 
     %Execution{
       result_fn: fn prompt ->
         on_prompt.(prompt)
 
-        cond do
-          judgment_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
-            {:ok,
-             %{
-               content: "",
-               tool_calls: [
-                 %{
-                   "name" => "judgment_decision",
-                   "arguments" => Map.put_new(arguments, "record_only", false)
-                 }
-               ],
-               provider_output: judgment_provider_output("pcall-judgment-decision", "")
-             }}
-
-          judgment_prompt?(prompt) ->
-            {:ok,
-             %{
-               content: narrative,
-               tool_calls: [],
-               provider_output: judgment_provider_output("pcall-judgment-narrative", narrative)
-             }}
-
-          true ->
-            flunk("unexpected provider call in judgment loop test")
-        end
+        {:ok,
+         %{
+           content: narrative,
+           tool_calls: calls,
+           provider_output: %ProviderOutput{
+             provider_run_ref: "prun-judgment",
+             provider_call_ref: "pcall-judgment",
+             status: :ok,
+             content: %{text: narrative, tool_calls: calls}
+           }
+         }}
       end
     }
-  end
-
-  defp maybe_put(arguments, _key, nil), do: arguments
-  defp maybe_put(arguments, key, value), do: Map.put(arguments, key, value)
-
-  defp maybe_put_list(arguments, key, value) when is_list(value),
-    do: Map.put(arguments, key, value)
-
-  defp maybe_put_list(arguments, _key, _value), do: arguments
-
-  defp maybe_put_binary(arguments, key, value) when is_binary(value),
-    do: Map.put(arguments, key, value)
-
-  defp maybe_put_binary(arguments, _key, _value), do: arguments
-
-  defp judgment_prompt?(prompt), do: prompt_contains?(prompt, "创作判断器")
-
-  defp judgment_provider_output(call_ref, text) do
-    {:ok, output} =
-      ProviderOutput.new(%{
-        provider_run_ref: "prun-judgment",
-        provider_call_ref: call_ref,
-        status: :ok,
-        output_type: :text,
-        content: %{text: text},
-        refs: [call_ref]
-      })
-
-    output
   end
 
   defp apply_run_patch(run, patch) do
@@ -751,8 +751,6 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
         budget: Map.get(patch, :budget) || run.budget
     }
   end
-
-  defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
 
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 end

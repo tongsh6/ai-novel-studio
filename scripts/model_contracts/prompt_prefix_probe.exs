@@ -1,7 +1,7 @@
 defmodule ModelContracts.PromptPrefixProbe do
   @moduledoc """
   VS-00I 在线证据：生产判断协议 + Gateway + 原生 HTTP/SSE。
-  首个 call1→call2 在任何复测之前执行。不注册替身、不写作品、不加载模型。
+  首个生产单调用在任何复测之前执行。不注册替身、不写作品、不加载模型。
   配置覆盖仅在当前 BEAM 的 RuntimeConfig 内生效，认证头不进入证据。
   """
   alias NovelAgent.Provider.{Execution, Gateway, HTTP, InferenceParams, RuntimeConfig}
@@ -28,7 +28,7 @@ defmodule ModelContracts.PromptPrefixProbe do
       Enum.map(select_providers(List.first(argv) || "all", options), fn option ->
         report = run_provider(option, dir)
         write_report(dir, to_string(option.id), report)
-        IO.puts("[prefix-pair] #{option.id}: #{report.status}")
+        IO.puts("[prefix-single] #{option.id}: #{report.status}")
         report
       end)
 
@@ -46,9 +46,9 @@ defmodule ModelContracts.PromptPrefixProbe do
     end)
   end
 
-  defp load_profile(nil), do: :ok
+  def load_profile(nil), do: :ok
 
-  defp load_profile(dir) do
+  def load_profile(dir) do
     stored =
       get_in(read_json(Path.join(dir, "preferences.json")), ["model_provider", "providers"]) ||
         %{}
@@ -94,7 +94,7 @@ defmodule ModelContracts.PromptPrefixProbe do
     do: blocked(option, "凭据缺失，未发起推理")
 
   defp run_provider(option, dir) do
-    IO.puts("[prefix-pair] #{option.id}: 只读检查模型列表")
+    IO.puts("[prefix-single] #{option.id}: 只读检查模型列表")
 
     case Gateway.provider_models(%{provider: option.id}) do
       {:ok, %{models: models}} ->
@@ -132,21 +132,21 @@ defmodule ModelContracts.PromptPrefixProbe do
     input = judgment_input(salt)
 
     try do
-      groups = [run_pair("call_pair", option.id, input, collector)]
+      groups = [run_single("single_call", option.id, input, collector)]
 
       groups =
-        if System.get_env("PREFIX_PROBE_MODE") == "pair" do
+        if System.get_env("PREFIX_PROBE_MODE") == "single" do
           groups
         else
           groups ++
             [
-              run_pair(
+              run_single(
                 "next_input",
                 option.id,
                 %{input | author_text: "请给第02章再设计一个不同的结尾悬念。"},
                 collector
               ),
-              run_pair(
+              run_single(
                 "changed_prefix",
                 option.id,
                 judgment_input(salt <> "-changed"),
@@ -164,7 +164,7 @@ defmodule ModelContracts.PromptPrefixProbe do
         generated_at: DateTime.utc_now(),
         status: if(Enum.all?(groups, & &1.protocol_ok), do: "measured", else: "failed"),
         cold_cache_guaranteed: false,
-        note: "未清理用户缓存；同请求复测是独立样本，不能代替调用对证据。",
+        note: "未清理用户缓存；同请求复测是独立样本；请求与纠错次数均单列。",
         groups: groups
       }
     after
@@ -264,102 +264,104 @@ defmodule ModelContracts.PromptPrefixProbe do
     )
   end
 
-  defp run_pair(name, provider, input, collector) do
-    IO.puts("[prefix-pair] #{provider}: #{name} 生产判断调用对")
+  defp run_single(name, provider, input, collector) do
+    IO.puts("[prefix-single] #{provider}: #{name} 生产单调用判断")
     before = Agent.get(collector, &length(&1.requests))
     result = JudgmentProtocol.request_judgment(execution(provider, collector), %{}, input)
 
     group =
-      evaluate_pair(name, Agent.get(collector, &Enum.drop(&1.requests, before)), result, input)
+      evaluate_single(name, Agent.get(collector, &Enum.drop(&1.requests, before)), result, input)
 
     IO.puts(
-      "[prefix-pair] #{provider}: #{name} protocol=#{group.protocol_ok} cache=#{group.cache_status}"
+      "[prefix-single] #{provider}: #{name} protocol=#{group.protocol_ok} cache=#{group.cache_status}"
     )
 
     group
   end
 
-  def evaluate_pair(name, rows, result, input \\ nil) do
-    first = List.first(rows)
-    second = Enum.at(rows, 1)
-    narrative = if first, do: response_content(first), else: ""
+  def evaluate_single(name, rows, result, _input \\ nil) do
+    last = List.last(rows)
 
-    bound =
-      second != nil and String.trim(narrative) != "" and
-        narrative_bound?(second, narrative, input)
-
-    valid = match?({:ok, %{provider_call_count: 2}}, result)
-    no_tool = first != nil and not response_has_tool_call?(first)
-
-    choices_valid =
-      first != nil and second != nil and
-        none_choice?(get(first.request, :tool_choice)) and forced_judgment?(second.request)
-
-    action =
+    {valid, count, action, narrative} =
       case result do
-        {:ok, judgment} -> judgment.action
-        _ -> nil
+        {:ok, judgment} ->
+          {true, judgment.provider_call_count, judgment.action, judgment.narrative}
+
+        _ ->
+          {false, 0, nil, nil}
       end
+
+    choices_valid = rows != [] and Enum.all?(rows, &auto_choice?(get(&1.request, :tool_choice)))
+    bound = is_binary(narrative) and last != nil and narrative in response_texts(last)
+    tools_valid = last != nil and (action != "reply" or not response_has_tool_call?(last))
 
     %{
       name: name,
-      protocol_ok: valid and length(rows) == 2 and bound and no_tool and choices_valid,
+      protocol_ok:
+        valid and count in 1..2 and count == length(rows) and choices_valid and bound and
+          tools_valid,
       tool_choices_valid: choices_valid,
       narrative_bound: bound,
-      narrative_without_tool_call: no_tool,
       judgment_parsed: valid,
       action: action,
       request_count: length(rows),
-      cache_status: if(second, do: cache_status(native_usage(second)), else: "unobservable"),
+      first_attempt: count == 1,
+      correction_count: max(count - 1, 0),
+      cache_status: if(last, do: cache_status(native_usage(last)), else: "unobservable"),
       calls: Enum.map(rows, &summarize_call/1)
     }
   end
 
-  defp none_choice?("none"), do: true
-  defp none_choice?(choice) when is_map(choice), do: get(choice, :type) == "none"
-  defp none_choice?(_choice), do: false
+  defp auto_choice?("auto"), do: true
+  defp auto_choice?(choice) when is_map(choice), do: get(choice, :type) == "auto"
+  defp auto_choice?(_), do: false
 
-  defp forced_judgment?(body) do
-    case get(body, :tool_choice) do
-      choice when is_map(choice) ->
-        function = get(choice, :function) || %{}
-        get(choice, :name) == "judgment_decision" or get(function, :name) == "judgment_decision"
+  defp response_texts(row) do
+    frames = frames(row)
 
-      "required" ->
-        Enum.map(get(body, :tools) || [], fn tool ->
-          get(tool, :name) || get(get(tool, :function) || %{}, :name)
-        end) == ["judgment_decision"]
+    fragments =
+      Enum.flat_map(frames, fn frame ->
+        choice = List.first(frame["choices"] || []) || %{}
 
-      _ ->
-        false
+        Enum.map(get_in(choice, ["delta", "tool_calls"]) || [], fn call ->
+          {call["index"] || 0, get_in(call, ["function", "arguments"]) || ""}
+        end) ++
+          if(is_binary(get_in(frame, ["delta", "partial_json"])),
+            do: [{frame["index"] || 0, frame["delta"]["partial_json"]}],
+            else: []
+          )
+      end)
+
+    decoded =
+      fragments
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Enum.flat_map(fn {_index, parts} -> strings(Enum.join(parts)) end)
+
+    [response_content(row) | Enum.flat_map(frames, &strings/1)] ++ decoded
+  end
+
+  defp strings(value) when is_map(value), do: Enum.flat_map(Map.values(value), &strings/1)
+  defp strings(value) when is_list(value), do: Enum.flat_map(value, &strings/1)
+
+  defp strings(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) or is_list(decoded) -> [value | strings(decoded)]
+      _ -> [value]
     end
   end
 
-  defp narrative_bound?(second, narrative, nil) do
-    Enum.any?(get(second.request, :messages) || [], fn m ->
-      String.contains?(get(m, :content) || "", String.trim(narrative))
-    end)
-  end
-
-  defp narrative_bound?(second, narrative, input) do
-    # 生产构造器会截断长说明；消费该构造器，不另造截断规则或误要求全文回灌。
-    expected = JudgmentProtocol.decision_prompt(input, String.trim(narrative)).messages
-    actual = get(second.request, :messages) || []
-
-    Enum.map(expected, & &1.content) ==
-      actual |> Enum.reject(&(get(&1, :role) == "system")) |> Enum.map(&get(&1, :content))
-  end
+  defp strings(_), do: []
 
   defp run_control(provider, input, collector) do
-    IO.puts("[prefix-pair] #{provider}: identical_control（非调用对证明）")
+    IO.puts("[prefix-single] #{provider}: identical_control（同请求控制样本）")
     before = Agent.get(collector, &length(&1.requests))
-    prompt = JudgmentProtocol.narrative_prompt(input)
+    prompt = JudgmentProtocol.prompt(input)
 
     results =
       for _ <- 1..2 do
         Gateway.execute(prompt, nil, InferenceParams.new(temperature: 0.4),
           provider: provider,
-          purpose: :author_reasoning
+          purpose: :planner
         )
       end
 
@@ -482,7 +484,9 @@ defmodule ModelContracts.PromptPrefixProbe do
 
     %{
       author_text: text,
-      context_block: DialoguePlanningService.judgment_context_block(context, text),
+      context_block:
+        DialoguePlanningService.judgment_context_block(context, text) <>
+          "\n\n" <> ExplorationService.catalog_section(),
       options: [
         explore: true,
         capabilities:
@@ -506,7 +510,7 @@ defmodule ModelContracts.PromptPrefixProbe do
             ]
           else
             Enum.map(provider.groups, fn group ->
-              call = List.last(group.calls)
+              call = List.last(group.calls) || %{native_usage: %{}, model: "unavailable"}
               usage = call.native_usage
               cached = Enum.find_value(@cache_fields, fn path -> get_in(usage, path) end)
 
@@ -516,9 +520,9 @@ defmodule ModelContracts.PromptPrefixProbe do
         end)
 
       header = [
-        "# 真实 Provider 调用对缓存证据",
+        "# 真实 Provider 单调用缓存证据",
         "",
-        "同请求复测不代替调用对证明；未清理用户缓存；非流式总耗时不作 TTFT。",
+        "请求/纠错与同请求控制样本分开；未清理用户缓存；非流式总耗时不作 TTFT。",
         "",
         "| Provider | 样本 | 协议 / 状态 | 缓存 | 原生命中 tokens | 模型 / 原因 |",
         "|---|---|---|---|---:|---|"

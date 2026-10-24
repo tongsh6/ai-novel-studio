@@ -261,14 +261,14 @@ defmodule NovelDomain.BehaviorState do
        do: value
 
   defp lifecycle_from(value) when is_binary(value) do
-    case value do
-      "OPEN" -> :open
-      "WAITING_USER" -> :awaiting_author
-      "RESOLVING" -> :resolving
-      "RESOLVED" -> :resolved
-      "CANCELLED" -> :cancelled
-      "EXPIRED" -> :failed
-      other -> lifecycle_atom(other)
+    cond do
+      value == BehaviorStatus.open() -> :open
+      value == BehaviorStatus.waiting_user() -> :awaiting_author
+      value == "RESOLVING" -> :resolving
+      value == BehaviorStatus.resolved() -> :resolved
+      value == BehaviorStatus.cancelled() -> :cancelled
+      value == BehaviorStatus.expired() -> :failed
+      true -> lifecycle_atom(value)
     end
   end
 

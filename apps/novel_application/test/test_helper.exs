@@ -36,18 +36,6 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
     Map.fetch!(packet, :reasoning) <> "\n" <> Jason.encode!(tail)
   end
 
-  def plan_reasoning_tail(reasoning, steps, opts \\ []) when is_list(steps) do
-    tail = %{
-      "plan" => %{
-        "steps" => steps
-      },
-      "reason_codes" => Keyword.get(opts, :reason_codes, ["agent_plan_drafted"]),
-      "confidence" => Keyword.get(opts, :confidence, 1.0)
-    }
-
-    reasoning <> "\n" <> Jason.encode!(tail)
-  end
-
   def plan_tool_call_result(reasoning, steps, opts \\ []) when is_list(steps) do
     tool_name = Keyword.get(opts, :tool_name, "agent_plan_draft")
 
@@ -57,6 +45,7 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
         %{
           "name" => tool_name,
           "arguments" => %{
+            "author_reasoning" => reasoning,
             "plan" => %{
               "steps" => steps
             },

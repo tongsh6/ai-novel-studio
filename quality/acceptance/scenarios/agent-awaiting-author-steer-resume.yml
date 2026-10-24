@@ -25,13 +25,16 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: an ambiguous request that requires an expansion direction
-  - wait_for: awaiting_author TurnResult and the fixed task input
-  - send: a concrete expansion direction through "发送调整"
-  - verify: adjustment is agent_command steer bound to the active run_id
+  - wait_for: awaiting_author state and the independent author_question TurnResult
+  - click: 回复此问题
+  - verify: empty or whitespace-only replies keep 发送回复 disabled and send no request
+  - send: a concrete expansion direction through "发送回复"
+  - verify: author_action author_choice binds question_ref, source_turn_ref, run_id and immutable submission_id
   - wait_for: plan_adjusted and run_resumed for the same run_id
   - wait_for: completed TurnResult for the same run_id
   - verify: the completed assistant result appears after the adjustment message
-  - verify: the original awaiting-author prompt remains before the adjustment and is not repeated after it
+  - reload: the workbench page
+  - verify: the original question is answered once and the reply is restored once on the same run
 
 evidence:
   required:
@@ -44,15 +47,18 @@ evidence:
 assertions:
   ui:
     - awaiting-author prompt is visible before the adjustment
-    - fixed task input accepts the concrete author direction
+    - the source question accepts the concrete author direction through 回复此问题
+    - empty and whitespace-only replies keep 发送回复 disabled
     - final assistant result is rendered after the adjustment message
-    - awaiting-author prompt occurs exactly once and never repeats after the adjustment
+    - answered question has no reply controls and the final result is not the old question
   network:
-    - adjustment is sent as agent_command steer for the active run_id
+    - reply is sent as author_action author_choice with exact question and run bindings
+    - empty replies send no author_action, agent_command or user_message
     - no second channel user_message is sent for the adjustment
     - plan_adjusted and run_resumed are broadcast for the same run_id
   data:
-    - adjusted agent_run_state carries goal version >= 2 and exact adjustment text
+    - accepted reply increments goal version exactly once and preserves exact adjustment text
+    - one question_ref is answered and one submission_id is persisted after reload; audit history may retain the earlier narration
     - the same run_id reaches completed
     - no second AgentRun is created after the adjustment
 

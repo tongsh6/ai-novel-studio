@@ -123,13 +123,13 @@ defmodule NovelAgent.Provider.GatewayTest do
       end
     end
 
-    test "连续两次调用共享同一身份前缀（call1/call2 形态）" do
+    test "连续两次调用共享同一身份前缀（前缀稳定性）" do
       old = Application.get_env(:novel_agent, :provider)
       Application.put_env(:novel_agent, :provider, default: :capturing)
 
       try do
-        assert {:ok, _} = Gateway.execute("判断叙事 call1")
-        assert {:ok, _} = Gateway.execute("判断结构 call2")
+        assert {:ok, _} = Gateway.execute("第一次判断调用")
+        assert {:ok, _} = Gateway.execute("第二次判断调用")
 
         assert_receive {:captured_prompt, first}
         assert_receive {:captured_prompt, second}

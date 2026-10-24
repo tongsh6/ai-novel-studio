@@ -2,6 +2,8 @@ id: agentic-loop-gate-deviation-replan
 title: ADR-0023 D4 Orchestrator gate deny 后判断②续行停等作者
 tier: nightly
 surface: tauri
+# 既有 runner 启动 Tauri；默认交互由 Chromium 驱动，实际证据层级为 browser。
+driver: headless-chromium
 entrypoint: scripts/quality_accept.sh agentic-loop-gate-deviation-replan --surface tauri
 
 contract:
@@ -21,13 +23,13 @@ setup:
   provider: slice_verify
 
 user_flow:
-  - open: real Tauri workbench
+  - open: 当前真实工作台（浏览器前后端集成）
   - send: 高风险正文请求 "写下一章正文草稿，高风险，确认后再执行"
   - wait_for: bounded AgentRun fast ack（profile_ref=prose_drafting_with_quality_v1）
   - wait_for: gate_decided 记录 decision_type=require_confirmation、first_blocking_gate=authority
   - wait_for: awaiting_author 事件，reason_codes 含 judgment_continuation 与 agentic_deviation:D4
   - verify: writer provider 未派发（无 tool_started / 工具执行）
-  - verify: agent_run_state 记录 status=awaiting_author、steps=5、tool_calls=0、provider_calls=7、replans=0，且无最终 TurnResult
+  - verify: agent_run_state 记录 status=awaiting_author、steps=5、tool_calls=0、provider_calls=4、replans=0，且交付独立问题 TurnResult，不伪造创作候选
 
 evidence:
   required:
@@ -44,8 +46,8 @@ assertions:
   network:
     - gate_decided 记录 decision_type=require_confirmation 与 first_blocking_gate=authority
     - awaiting_author reason_codes 含 judgment_continuation 与 agentic_deviation:D4
-    - agent_run_state 记录 profile_ref=prose_drafting_with_quality_v1、status=awaiting_author、steps=5、tool_calls=0、provider_calls=7、replans=0
-    - 无最终 TurnResult 广播
+    - agent_run_state 记录 profile_ref=prose_drafting_with_quality_v1、status=awaiting_author、steps=5、tool_calls=0、provider_calls=4、replans=0
+    - 独立问题 TurnResult 携 source/question/run 绑定及 author_choice 自由回复动作
   data:
     - gate deny 后 writer provider 未被派发（无工具执行）
     - Orchestrator gate 未被绕过

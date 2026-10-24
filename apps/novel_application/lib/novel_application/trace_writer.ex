@@ -46,6 +46,7 @@ defmodule NovelApplication.TraceWriter do
         has_context: context != nil and DialogueContext.has_context?(context)
       }
       |> maybe_put_ai_message_envelope(frame)
+      |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
@@ -111,6 +112,7 @@ defmodule NovelApplication.TraceWriter do
         context_refs: format_context_refs(context_refs)
       }
       |> maybe_put_ai_message_envelope(frame)
+      |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
@@ -194,6 +196,7 @@ defmodule NovelApplication.TraceWriter do
       |> maybe_put_provider_refs(turn_result)
       |> maybe_put_quality(turn_result)
       |> maybe_put_ai_message_envelope(frame)
+      |> maybe_put_reply_record(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
@@ -328,6 +331,12 @@ defmodule NovelApplication.TraceWriter do
   defp gate_result_refs(%OrchestratorDecision{} = decision) do
     Enum.map(decision.gate_results, &NovelDomain.GateResult.to_map/1)
   end
+
+  defp maybe_put_reply_record(summary, %{evidence_summary: %{reply_record: record}}) do
+    Map.put(summary, :reply_record, record)
+  end
+
+  defp maybe_put_reply_record(summary, _), do: summary
 
   defp maybe_put_ai_message_envelope(summary, %DialogueFrame{
          evidence_summary: %{ai_message_envelope: envelope}

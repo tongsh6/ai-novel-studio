@@ -52,6 +52,7 @@ export interface WorkspaceResumeSnapshot {
   transcript_page: SessionTranscriptPageInfo;
   pending_adoptions: Record<string, unknown>[];
   pending_adoption_turn_results?: WireTurnResult[];
+  open_author_question_turn_results?: WireTurnResult[];
   resolved_adoptions: Record<string, unknown>[];
   resume_trace_refs: string[];
 }
@@ -64,6 +65,7 @@ export interface WorkspaceSessionSnapshot {
   transcript_page: SessionTranscriptPageInfo;
   pending_adoptions: Record<string, unknown>[];
   pending_adoption_turn_results?: WireTurnResult[];
+  open_author_question_turn_results?: WireTurnResult[];
   resolved_adoptions: Record<string, unknown>[];
   resume_trace_refs: string[];
 }
@@ -176,6 +178,16 @@ export function pendingAdoptionTurnResults(
   snapshot: Pick<WorkspaceResumeSnapshot, "pending_adoption_turn_results">,
 ): WireTurnResult[] {
   return (snapshot.pending_adoption_turn_results ?? []).map(parseIncomingTurnResult);
+}
+
+export function openAuthorQuestionTurnResults(
+  snapshot: Pick<WorkspaceResumeSnapshot, "open_author_question_turn_results">,
+): WireTurnResult[] {
+  return (snapshot.open_author_question_turn_results ?? []).map(parseIncomingTurnResult);
+}
+
+export function authorQuestionQueryKey(workId: string | null, sessionId: string | null) {
+  return ["session-author-questions", workId, sessionId] as const;
 }
 
 export function pendingAdoptionQueryKey(workId: string | null, sessionId: string | null) {

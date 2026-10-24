@@ -294,6 +294,17 @@ export const CARD = {
 // ============================================================
 
 export const WORKBENCH = {
+  authorQuestionReply: "回复此问题",
+  authorQuestionUseSourceHint: "请在问题中选择或回复；下方输入会开始新的讨论。",
+  authorQuestionReplyLabel: "对此问题的补充",
+  authorQuestionSend: "发送回复",
+  authorQuestionCancel: "收起回复",
+  authorQuestionEmpty: "请输入具体补充。",
+  authorQuestionPending: "仍待回复的问题",
+  authorQuestionContext: "对应讨论：",
+  authorQuestionAnswered: "已收到回复",
+  authorQuestionClosed: "此问题已结束",
+  authorQuestionUnavailable: "此问题暂不可回复",
   userDisplayName: "你",
   assistantDisplayNameDefault: "AI",
   assistantDisplayNameAction: "AI 名称",

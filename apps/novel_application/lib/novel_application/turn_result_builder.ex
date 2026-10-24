@@ -39,7 +39,10 @@ defmodule NovelApplication.TurnResultBuilder do
       ui_cards: [],
       frame_summary: %{
         frame_type: frame.frame_type,
-        dialogue_goal: frame.dialogue_goal.summary
+        dialogue_goal: frame.dialogue_goal.summary,
+        frame_origin: frame.evidence_summary[:frame_origin],
+        goal_origin: frame.evidence_summary[:goal_origin],
+        model_interpretation_status: frame.evidence_summary[:model_interpretation_status]
       },
       trace_summary: trace_summary,
       phase: build_phase(behavior, decision, tool_result),
@@ -55,11 +58,26 @@ defmodule NovelApplication.TurnResultBuilder do
     }
 
     result
+    |> add_exploration_truth(frame)
     |> maybe_add_candidates(frame, candidates)
     |> maybe_add_decision(decision)
     |> maybe_add_tool_result(tool_result)
     |> maybe_add_artifacts(artifact_set)
     |> maybe_add_behavior(behavior)
+  end
+
+  defp add_exploration_truth(result, frame) do
+    count = get_in(frame.evidence_summary, [:reply_record, :exploration_call_count]) || 0
+
+    if count > 0 do
+      Map.update!(
+        result,
+        :truthfulness,
+        &Map.merge(&1, %{tool_called: true, exploration_call_count: count})
+      )
+    else
+      result
+    end
   end
 
   @doc """

@@ -15,6 +15,7 @@ defmodule NovelDomain.DialogueFrame do
           | :capability_gap
   @type reason_code ::
           :no_tool_needed
+          | :no_tool_requested
           | :tool_needed
           | :exploratory_only
           | :insufficient_execution_target
@@ -64,6 +65,7 @@ defmodule NovelDomain.DialogueFrame do
   ]
   @allowed_reason_codes [
     :no_tool_needed,
+    :no_tool_requested,
     :tool_needed,
     :exploratory_only,
     :insufficient_execution_target,

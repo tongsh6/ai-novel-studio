@@ -74,11 +74,12 @@ defmodule NovelAgent.Provider.AnthropicTest do
   end
 
   describe "execute/5" do
-    test "call1 与 call2 保留同一工具集，分别映射原生 none 与具名强制调用" do
+    # provider 能力整形：同一工具集分别映射原生 none 与具名 tool_choice，供不同调用族按需使用。
+    test "同一工具集在 none 与具名强制调用下分别映射原生 none / 具名 tool_choice" do
       test_pid = self()
 
       eventsource = fn _url, body, _opts, on_data ->
-        send(test_pid, {:call1_body, body})
+        send(test_pid, {:tool_choice_none_body, body})
 
         on_data.(
           anthropic_sse("content_block_delta", %{
@@ -92,7 +93,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
       end
 
       http = fn _url, body, _opts ->
-        send(test_pid, {:call2_body, body})
+        send(test_pid, {:tool_choice_named_body, body})
 
         {:ok, 200,
          %{
@@ -136,8 +137,8 @@ defmodule NovelAgent.Provider.AnthropicTest do
                  provider_ctx()
                )
 
-      assert_receive {:call1_body, first}
-      assert_receive {:call2_body, second}
+      assert_receive {:tool_choice_none_body, first}
+      assert_receive {:tool_choice_named_body, second}
       assert first.tools == second.tools
       assert first.tool_choice == %{type: "none"}
       assert second.tool_choice == %{type: "tool", name: "judgment_decision"}

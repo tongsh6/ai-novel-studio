@@ -5,7 +5,6 @@
 #
 # 每个样本都走生产 prompt 构造器 → 真实 Gateway 边界（L0 身份注入）→ 测试捕获
 # provider，再按固定序列化做字节级公共前缀比较。三类 pair_kind：
-#   - call_pair      ：同一调用对 call1 / call2（CP-AB 首个对照样本）
 #   - cross_run      ：同一调用点跨 run（CP-D：共享前缀须覆盖 L1）
 #   - consecutive    ：同一调用点连续两轮（CP-C：共享前缀须覆盖 L0–L2）
 #
@@ -61,7 +60,7 @@ defmodule ICachePrefixDriver do
     restore = install_capture_provider()
 
     try do
-      rows = call_pair_rows() ++ cp_d_rows() ++ cp_c_rows()
+      rows = single_call_rows() ++ cp_d_rows() ++ cp_c_rows()
       assert_enforced_rows!(rows)
 
       markdown = render_markdown(rows)
@@ -78,39 +77,24 @@ defmodule ICachePrefixDriver do
     end
   end
 
-  # ── CP-AB：调用对 call1/call2 ─────────────────────────
+  # B26：同 profile 连续请求保持 auto 与固定工具 schema，旧调用对不再存在。
+  defp single_call_rows do
+    a = %{goal_text: "写第一章", deviation_summary: "尚缺结尾", observation_block: "已有前半章"}
+    b = %{a | goal_text: "写第二章", observation_block: "新观察"}
+    shared = "所有动作均须由系统门禁放行。"
 
-  defp call_pair_rows do
-    continuation_input = %{
-      goal_text: "写第01章正文草稿",
-      deviation_summary: "工具 prose_writing 执行失败（timeout）",
-      observation_block: "正文写作调用超时，计划步骤已走完但尚未生成草稿。"
-    }
-
-    conversation_input = %{
-      context_block: "## 当前作品\n- title: 前缀度量样书",
-      author_text: "把第01章写得更紧凑",
-      options: []
-    }
-
-    [
-      pair(
+    row =
+      shared_prefix_row(
         "continuation",
-        JudgmentProtocol.continuation_narrative_prompt(continuation_input),
-        JudgmentProtocol.continuation_decision_prompt(
-          continuation_input,
-          "我看到了超时；先缩小单次产出范围，再决定是否停等作者。"
-        )
-      ),
-      pair(
-        "conversation",
-        JudgmentProtocol.narrative_prompt(conversation_input),
-        JudgmentProtocol.decision_prompt(
-          conversation_input,
-          "你要的是一个明确的创作动作，我准备直接执行。"
-        )
+        "consecutive",
+        JudgmentProtocol.prompt(a, :continuation),
+        JudgmentProtocol.prompt(b, :continuation),
+        "## 当前目标",
+        [shared],
+        true
       )
-    ]
+
+    [row]
   end
 
   # ── CP-D：起草 / 修订 / 章节使命跨 run ────────────────
@@ -121,8 +105,6 @@ defmodule ICachePrefixDriver do
 
     snapshot_a = %{stage_state: %{"planning" => %{}}}
     snapshot_b = %{stage_state: %{"planning" => %{}, "quality" => %{}}}
-
-    reasoning = "我打算先读取正文写作上下文，再生成续写草稿并完成质量复核。"
 
     revision_a =
       agent_run("run_icache_cp_d_rev_a", "接着第01章往下写一段正文", 1,
@@ -144,83 +126,31 @@ defmodule ICachePrefixDriver do
 
     [
       shared_prefix_row(
-        "draft_reasoning",
+        "draft",
         "cross_run",
-        AgenticPlanDraftPlanner.draft_reasoning_prompt(run_a, snapshot_a, @chapter_titles),
-        AgenticPlanDraftPlanner.draft_reasoning_prompt(run_b, snapshot_b, @chapter_titles),
+        AgenticPlanDraftPlanner.draft_prompt(run_a, snapshot_a, @chapter_titles),
+        AgenticPlanDraftPlanner.draft_prompt(run_b, snapshot_b, @chapter_titles),
         "## 本轮目标",
-        [
-          "普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。",
-          "- 第04章：巡检队的诱捕"
-        ],
+        ["普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。", "- 第04章：巡检队的诱捕"],
         true
       ),
       shared_prefix_row(
-        "draft_structure",
+        "revision",
         "cross_run",
-        AgenticPlanDraftPlanner.draft_structure_prompt(
-          run_a,
-          snapshot_a,
-          @chapter_titles,
-          reasoning
-        ),
-        AgenticPlanDraftPlanner.draft_structure_prompt(
-          run_b,
-          snapshot_b,
-          @chapter_titles,
-          reasoning
-        ),
-        "## 本轮目标",
-        [
-          "普通路径应覆盖完成目标所需最少步骤；不要添加纯收束模型调用。",
-          "- 第04章：巡检队的诱捕"
-        ],
-        true
-      ),
-      shared_prefix_row(
-        "revision_reasoning",
-        "cross_run",
-        AgenticPlanDraftPlanner.revision_reasoning_prompt(
+        AgenticPlanDraftPlanner.revision_prompt(
           revision_a,
           revision_snapshot(revision_reason_a),
           @chapter_titles,
           revision_reason_a
         ),
-        AgenticPlanDraftPlanner.revision_reasoning_prompt(
+        AgenticPlanDraftPlanner.revision_prompt(
           revision_b,
           revision_snapshot(revision_reason_b),
           @chapter_titles,
           revision_reason_b
         ),
         "## 本轮目标",
-        [
-          "如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。",
-          "- 第04章：巡检队的诱捕"
-        ],
-        true
-      ),
-      shared_prefix_row(
-        "revision_structure",
-        "cross_run",
-        AgenticPlanDraftPlanner.revision_structure_prompt(
-          revision_a,
-          revision_snapshot(revision_reason_a),
-          @chapter_titles,
-          revision_reason_a,
-          reasoning
-        ),
-        AgenticPlanDraftPlanner.revision_structure_prompt(
-          revision_b,
-          revision_snapshot(revision_reason_b),
-          @chapter_titles,
-          revision_reason_b,
-          reasoning
-        ),
-        "## 本轮目标",
-        [
-          "如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。",
-          "- 第04章：巡检队的诱捕"
-        ],
+        ["如果计划已走完但完成条件未满足，必须补足能够让运行继续取得真实进展的最少步骤。", "- 第04章：巡检队的诱捕"],
         true
       ),
       shared_prefix_row(
@@ -229,15 +159,11 @@ defmodule ICachePrefixDriver do
         ChapterMissionService.mission_prompt(mission_a, "把这一章写得更紧凑", :prose),
         ChapterMissionService.mission_prompt(mission_b, "保持文风继续推进", :prose),
         "材料（每条以 [ref] 开头",
-        [
-          "- must_avoid：0 到 3 条，后续章计划信息的保密与全书进度守则优先，basis_ref 同上。"
-        ],
+        ["- must_avoid：0 到 3 条，后续章计划信息的保密与全书进度守则优先，basis_ref 同上。"],
         true
       )
     ]
   end
-
-  # ── CP-C：判断 call1 连续两轮 ─────────────────────────
 
   defp cp_c_rows do
     author_a = "接着第02章往下写一段正文"
@@ -262,74 +188,17 @@ defmodule ICachePrefixDriver do
       shared_prefix_row(
         "judgment_consecutive",
         "consecutive",
-        JudgmentProtocol.narrative_prompt(input_a),
-        JudgmentProtocol.narrative_prompt(input_b),
+        JudgmentProtocol.prompt(input_a),
+        JudgmentProtocol.prompt(input_b),
         "## 会话摘要",
         [
-          "**绝不选 work_archive_read**——它读不了愿望也存不了任何东西。",
+          "所有动作均须由系统门禁放行。",
           "（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
         ],
         # CP-C 重排完成：连续两轮共享前缀必须覆盖 L0–L2（能力目录 L1 + 稳定章节 L2）。
         true
-      ),
-      # CP-E 冻结证据：call1/call2 共享前缀必须覆盖 call1 的全部可缓存前缀
-      # （L0–L2 + 作者输入），L4 按 §2.3 硬规则置尾、不参与共享前缀。
-      pair(
-        "judgment_call_pair_prod",
-        JudgmentProtocol.narrative_prompt(input_a),
-        JudgmentProtocol.decision_prompt(input_a, "本轮判为单动作执行，准备执行。"),
-        boundary_marker: "作者刚发来一条输入",
-        required_tails: [
-          "**绝不选 work_archive_read**——它读不了愿望也存不了任何东西。",
-          "（回答写作进度时以「已写」计数为准；标注（计划中）的章尚无正文。各章正文细节不在本段内；作者点名章见下段。）"
-        ],
-        enforce: true
       )
     ]
-  end
-
-  # ── 样本与公共前缀 ─────────────────────────────────────
-
-  defp pair(call_site, call1, call2, opts \\ []) do
-    {first, first_tools} = capture(call1, call_site <> "-call1")
-    {second, second_tools} = capture(call2, call_site <> "-call2")
-
-    if first_tools != second_tools do
-      raise "I-CACHE-2 violation at #{call_site}: call1/call2 tools differ"
-    end
-
-    shared = shared_prefix_bytes(first, second)
-    total = min(byte_size(first), byte_size(second))
-    boundary_marker = Keyword.get(opts, :boundary_marker)
-    required_tails = Keyword.get(opts, :required_tails, [])
-    enforce? = Keyword.get(opts, :enforce, false)
-
-    {boundary, covers} =
-      if boundary_marker do
-        boundary = marker_offset!(first, boundary_marker, call_site)
-
-        required_tail_ends =
-          Enum.map(required_tails, fn tail ->
-            marker_offset!(first, tail, call_site) + byte_size(tail)
-          end)
-
-        {boundary, shared >= boundary and Enum.all?(required_tail_ends, &(shared >= &1))}
-      else
-        {nil, nil}
-      end
-
-    %{
-      call_site: call_site,
-      pair_kind: "call_pair",
-      shared_prefix_bytes: shared,
-      total_bytes: total,
-      ratio: ratio(shared, total),
-      boundary_marker: boundary_marker,
-      boundary_bytes: boundary,
-      covers_required_prefix: covers,
-      enforce: enforce?,
-      tools_equal: true
-    }
   end
 
   defp shared_prefix_row(
@@ -341,8 +210,13 @@ defmodule ICachePrefixDriver do
          required_tails,
          enforce?
        ) do
-    {first, _tools_a} = capture(prompt_a, call_site <> "-a")
-    {second, _tools_b} = capture(prompt_b, call_site <> "-b")
+    {first, tools_a} = capture(prompt_a, call_site <> "-a")
+    {second, tools_b} = capture(prompt_b, call_site <> "-b")
+    if tools_a != tools_b, do: raise("I-CACHE profile schema drift at #{call_site}")
+
+    if call_site != "chapter_mission" and
+         (prompt_a.tool_choice != "auto" or prompt_b.tool_choice != "auto"),
+       do: raise("I-CACHE single-call auto required at #{call_site}")
 
     shared = shared_prefix_bytes(first, second)
     total = min(byte_size(first), byte_size(second))
@@ -365,7 +239,7 @@ defmodule ICachePrefixDriver do
       boundary_bytes: boundary,
       covers_required_prefix: covers,
       enforce: enforce?,
-      tools_equal: nil
+      tools_equal: true
     }
   end
 

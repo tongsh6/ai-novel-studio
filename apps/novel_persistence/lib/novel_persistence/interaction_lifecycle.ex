@@ -8,10 +8,14 @@ defmodule NovelPersistence.InteractionLifecycle do
 
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.{Interaction, WorkSession}
+  alias NovelPersistence.TraceRepository
   alias NovelPersistence.WorkSessionRepo
 
   @history_limit 80
   @author_limit 10
+
+  def call(:question_delivery, attrs), do: NovelPersistence.AuthorQuestionRepo.publish(attrs)
+  def call(:question_answer, attrs), do: NovelPersistence.AuthorQuestionRepo.answer(attrs)
 
   def call(:receive, attrs) do
     Repo.transaction(fn -> receive_input(attrs) end)
@@ -19,7 +23,12 @@ defmodule NovelPersistence.InteractionLifecycle do
 
   def call(:result, attrs) do
     Repo.transaction(fn ->
-      result = attrs.turn_result
+      {result, reused?} =
+        NovelPersistence.AuthorContentRegistration.resolve(%{
+          attrs
+          | turn_result: jsonable(attrs.turn_result)
+        })
+
       turn_ref = value(result, :turn_id)
 
       content = %{
@@ -39,7 +48,8 @@ defmodule NovelPersistence.InteractionLifecycle do
       |> unwrap!()
 
       update_inputs(attrs, turn_ref)
-      :recorded
+      persist_decision_trace(attrs[:decision_trace])
+      if reused?, do: %{turn_result: result}, else: :recorded
     end)
   end
 
@@ -48,6 +58,20 @@ defmodule NovelPersistence.InteractionLifecycle do
       update_inputs(attrs, nil)
       :recorded
     end)
+  end
+
+  defp persist_decision_trace(nil), do: :ok
+
+  defp persist_decision_trace(attrs) do
+    case TraceRepository.get_by_trace_id(attrs.trace_id) do
+      nil ->
+        TraceRepository.insert(attrs) |> unwrap!()
+
+      existing ->
+        unless existing.workspace_id == attrs.workspace_id and
+                 existing.session_id == attrs.session_id and existing.turn_id == attrs.turn_id,
+               do: Repo.rollback(:trace_identity_conflict)
+    end
   end
 
   @doc "同作品、同活动会话的状态投影；消息摘要有界，采纳状态完整。"
@@ -88,6 +112,56 @@ defmodule NovelPersistence.InteractionLifecycle do
       nil -> nil
       entry -> %{turn_id: entry.turn_id, content: entry.content}
     end
+  end
+
+  @doc "仅从同作用域、同 trace 的已提交结果恢复作者可见来源元数据，不生成模型认知。"
+  def trace_metadata(work, session, turn, trace) do
+    row =
+      from(i in Interaction,
+        where:
+          i.workspace_id == ^work and i.session_id == ^session and i.turn_id == ^turn and
+            i.role == "assistant",
+        where:
+          fragment("json_extract(?, '$.turn_result.trace_summary.trace_ref')", i.content) ==
+            ^trace,
+        order_by: [desc: i.updated_at],
+        limit: 1
+      )
+      |> Repo.one()
+
+    case row do
+      nil -> %{}
+      row -> author_trace_metadata(row.content["turn_result"])
+    end
+  end
+
+  defp author_trace_metadata(result) do
+    summary =
+      Map.merge(
+        result["trace_summary"] || %{},
+        Map.take(
+          result["frame_summary"] || %{},
+          ~w(frame_origin goal_origin model_interpretation_status)
+        )
+      )
+
+    [
+      :reply_record,
+      :frame_type,
+      :dialogue_goal,
+      :context_refs,
+      :has_context,
+      :frame_origin,
+      :goal_origin,
+      :model_interpretation_status
+    ]
+    |> Enum.flat_map(fn key ->
+      case Map.fetch(summary, Atom.to_string(key)) do
+        {:ok, value} -> [{key, value}]
+        :error -> []
+      end
+    end)
+    |> Map.new()
   end
 
   def received_user_run(attrs) do
@@ -132,6 +206,10 @@ defmodule NovelPersistence.InteractionLifecycle do
       generate_micro_plan: Map.get(attrs, :generate_micro_plan, false),
       submission_id: Map.get(attrs, :submission_id, attrs.turn_id),
       message_kind: Map.get(attrs, :message_kind, "user_message"),
+      author_question_ref: Map.get(attrs, :author_question_ref),
+      author_action_ref: Map.get(attrs, :author_action_ref),
+      author_choice_value: Map.get(attrs, :author_choice_value),
+      source_question_turn_ref: Map.get(attrs, :source_question_turn_ref),
       goal_version: Map.get(attrs, :goal_version, 1),
       message_handling: %{status: "created", processed_at: nil, result_turn_refs: []}
     }
@@ -159,6 +237,10 @@ defmodule NovelPersistence.InteractionLifecycle do
 
   defp same_input?(content, attrs) do
     content["text"] == attrs.text and
+      content["author_question_ref"] == Map.get(attrs, :author_question_ref) and
+      content["author_action_ref"] == Map.get(attrs, :author_action_ref) and
+      content["author_choice_value"] == Map.get(attrs, :author_choice_value) and
+      content["source_question_turn_ref"] == Map.get(attrs, :source_question_turn_ref) and
       content["candidate_selection"] == jsonable(Map.get(attrs, :candidate_selection)) and
       Map.get(content, "message_kind", "user_message") ==
         Map.get(attrs, :message_kind, "user_message") and

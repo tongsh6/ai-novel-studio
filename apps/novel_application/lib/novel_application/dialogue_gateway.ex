@@ -79,7 +79,8 @@ defmodule NovelApplication.DialogueGateway do
   def jsonable(value) when is_list(value), do: Enum.map(value, &jsonable/1)
   def jsonable(value), do: value
 
-  defp trace_to_attrs(trace, ws_id, session_id) do
+  @doc false
+  def trace_to_attrs(trace, ws_id, session_id) do
     %{
       workspace_id: ws_id,
       session_id: session_id,

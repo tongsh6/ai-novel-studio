@@ -1,6 +1,8 @@
 # VS-00I Prompt Prefix Stability Contract Pack（Prompt 前缀稳定性契约）
 
-> 状态：**Frozen（2026-10-21，作者裁决 §14 选项 1）**。本文定义"每次 provider 请求从头开始的字节恒定前缀"的分层模型、各调用点映射、adapter 责任、度量与分期。不授权代码实现；实现经 `tasks/slices/UA01-agentic-loop-prompt-hardening.md` T6 推进。**2026-10-21 进展**：CP-AB / CP-D / CP-C 完成；CP-E 在 local/DeepSeek 范围完成（含 Strata 临时 IQ3 profile）；冻结判据按 §14 选项 1 修订并生效。Anthropic live/断点、其余厂商凭据与 Strata Q2 live 复测为**冻结后 adapter 增量**，不阻塞本契约。
+> **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
+
+> 状态：**Frozen（2026-10-21，作者裁决 §14 选项 1）；2026-10-23 §3 / I-CACHE-2 经作者批准修订（B26：两段式调用对移除，前缀共享对象改为同调用点连续轮次），其余条款不变**。本文定义"每次 provider 请求从头开始的字节恒定前缀"的分层模型、各调用点映射、adapter 责任、度量与分期。不授权代码实现；实现经 `tasks/slices/UA01-agentic-loop-prompt-hardening.md` T6 推进。**2026-10-21 进展**：CP-AB / CP-D / CP-C 完成；CP-E 在 local/DeepSeek 范围完成（含 Strata 临时 IQ3 profile）；冻结判据按 §14 选项 1 修订并生效。Anthropic live/断点、其余厂商凭据与 Strata Q2 live 复测为**冻结后 adapter 增量**，不阻塞本契约。
 >
 > 角色：`VS-00H` 解决了"前缀第一段是什么"（系统身份）；本文解决"身份之后怎么排"。它是 `notes/2026-07-22-prompt-as-function-of-state.md` §2.1 六段骨架在**排序维度**上的补充——六段骨架回答"prompt 里要有哪些段、约束放哪"，本文回答"这些段按稳定度如何排才能被 provider 缓存复用"。两者冲突时，六段骨架中有判例支撑的位置要求优先（§2.3）。
 >
@@ -23,6 +25,8 @@
 | Anthropic 缓存前缀顺序为 tools → system → messages；`cache_control` 仅在 system 且阈值 4096 字符，实际不触发 | `anthropic.ex` `anthropic_system/1` |
 | writer / evaluator / world_building 已是"格式规范在前、上下文在后" | `creative_provider/real.ex`、`prose_quality_evaluator.ex` |
 | `Usage.cached_tokens` 读 OpenAI / DeepSeek / Anthropic 字段；LM Studio 是否返回未验证 | `usage.ex`；`VS-00H` §11.1 |
+
+> 2026-10-23 B26 后：上表「判断 call1 无 tools / call2 带 judgment tool」行为历史（两段式已删除）；当前判断/计划为单调用 `tool_choice: auto`，前缀共享对象与守卫见 §3 修订与 §3.4/§7 I-CACHE-3。
 
 ### 1.2 问题陈述
 
@@ -52,7 +56,7 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 | L0 | 系统身份 | `SystemIdentity.content()` | 代码版本 | 全部请求 |
 | L1 | 调用点静态前言 | 角色句、任务框架、输出格式说明、**工具 schema**、能力目录、按 profile 恒定的允许目标 | 代码版本 / profile | 同调用点全部请求 |
 | L2 | 作品级半稳定 | 作品快照、章节稳定列表、角色阵容、已采纳规则摘要 | 作品事实变化时 | 同作品、同调用点连续请求 |
-| L3 | 轮级易变 | 作者输入、会话摘要、interaction state、open behavior、作者点名章、goal、deviation、observation、run_id、revision_reason | 每轮 / 每 run | 仅调用对内 |
+| L3 | 轮级易变 | 作者输入、会话摘要、interaction state、open behavior、作者点名章、goal、deviation、observation、run_id、revision_reason | 每轮 / 每 run | 仅同一输入版本，不承诺跨轮恒定 |
 | L4 | 决策点约束 + 输出契约 | 判别规则、字段映射、禁止声明 | 代码版本 | 静态但置尾（§2.3） |
 
 每层内部同样按"稳定 → 易变"排。
@@ -79,7 +83,9 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 
 ## 3. 调用对与工具集恒定
 
-### 3.1 规则（2026-10-21 拍板：默认开启）
+> **修订（2026-10-23，作者批准，B26 `tasks/slices/B26-single-call-judgment-protocol.md`）**：本节 3.1–3.3 的「调用对（call1 自由叙事 → call2 强制 tool call）」前提随两段式移除而**作废**，I-CACHE-2「调用对 tools 恒定」同批作废。替代规则：**同一判断 / 起草调用点在 run 内 tools 列表字节恒定**（`contracts/UA-01` §2.2.1），`tool_choice` 恒为 `auto`；前缀共享对象从「call1 ↔ call2」变为「同调用点连续轮次」。§2 五层模型、§2.3 L4 置尾、I-CACHE-1、§6 度量方法不变；§9 CP-AB 调用对样本与 §11 实证降为历史证据。Anthropic「`tool_choice: none` 支持核对」议题随之消失（auto 为各厂商原生）。守卫改写归 B26 CP3（`run_icache_prefix.exs` 删 `pair/4`，改单调用前缀守卫）。以下为原文。
+
+### 3.1 规则（2026-10-21 拍板：默认开启；2026-10-23 作废，见上）
 
 同一调用对（call1 自由叙事 → call2 强制 tool call）内，**tools 列表字节恒定**：call1 携带与 call2 相同的工具集，`tool_choice` 为 `none`；call2 为强制该工具。
 
@@ -109,9 +115,19 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 
 ---
 
+### 3.4 B26/B27 联合语义与静态/动态边界（2026-10-24 修订，已随 B26 CP2 实施）
+
+本节细化既有静态前缀纪律，不改 adapter；单调用共享入口已实施，完整语义/页面验收见 B26 §14 与 B27：
+- 工具/profile/响应真源为 [UA-01 §2.2](UA-01-unified-agent-run-loop-contract-pack.md)，任务语义为 [VS-00D §11](VS-00D-ai-guided-authoring-contract-pack.md)。B26 管协议与计数，B27 管规则和材料。
+- 同 call_site/profile/run 的工具 schema/规则版本固定；判断、续行、独立起草可以使用不同固定集合，不强迫全应用同一 tools。
+- 合法 author/source/chapter refs、available_operations、状态/版本/权限属于 L2/L3 动态材料，不嵌入每轮变化的 schema 枚举；静态稳定不能阻止执行时重新验证权限。
+- 原文登记/方向/缺口是明确业务工具，探索仅 judgment_decision 封装，不因“tools 全集”再暴露第二原生探索入口。
+- L4 继续置尾并保持精简；B27 共同协作策略归 L1，角色模板按已验证操作选择，不追加互斥规则。L0 身份版本原则不变。
+- 必要取证、后续判断、补计划、重试均真实计数；A/B 保持模型、上下文和口径可比。旧调用对样本仅历史基线，不代表单调用完整验收。
+
 ## 4. 调用点映射表
 
-本表是实现时的逐调用点真源；每行迁移独立成 checkpoint。
+以下表记录 T6 时期两段式调用点与迁移风险，保留历史证据；B26/B27 的目标调用矩阵见 §4.1，不能把历史 call1/call2 行继续当生产新入口。
 
 | 调用点 | L1（前置） | L2 | L3（后移） | L4（置尾，不动） | 迁移风险 |
 |---|---|---|---|---|---|
@@ -129,6 +145,18 @@ provider 的 prompt cache 是字节级最长公共前缀复用。
 映射表中"移出"的字段（如 `run_id`）须确认模型确实不消费它；若 trace / 校验依赖它出现在 prompt 中，改为置尾而非移出。
 
 ---
+
+### 4.1 单调用目标映射（2026-10-24，已随 B26 CP2 实施口径）
+
+| 调用点 | 静态规则 / schema | 作品和任务材料 | 决策点与输出 | 负责 |
+|---|---|---|---|---|
+| 对话判断 | 统一协作策略、业务效果目录、固定工具集合 | 作品事实/合法来源/对象范围/先前结果/原话/观察 | 直接文本或明确工具；无空行/文本结构解析 | B26 协议 + B27 输入 |
+| 续行 | 同源判断边界、continue/ask_author/缺口工具 | 当前目标/偏离/证据/预算/问题绑定 | continue 或明确提问/缺口，非第二 await 参数 | B26 + B27 |
+| 独立计划起草/修订 | 固定 plan 工具及计划约束 | 同一目标/版本/完成前缀/观察 | 真实计划；不重复做一轮叙事转结构 | B26 + B27 |
+| 使命/创作/修订/评估 | 专业角色及互斥操作规则、专属 schema | 已验证目标/完整基线或明确省略/保留项/质量证据 | 各自既有输出，不因整合强制同一格式 | B27 |
+| 摘要/盘点/结果叙述/重试 | 专用任务与同源字段约束 | 真实输入范围/版本/结果/失败原因 | 来源可追溯；重试不改变任务/输出契约 | B27 |
+
+工具/profile 切换与任务状态变更必须留痕；schema 缓存稳定不是“不许对象可用性变化”。各实现任务按同一矩阵捕获实际请求，不能只计算字节前缀而不证明语义块被消费。
 
 ## 5. 厂商适配矩阵
 
@@ -185,10 +213,12 @@ call_site | pair_kind (consecutive | call_pair) | shared_prefix_bytes | total_by
 
 | ID | 不变量 | 机器可验 | 门禁时机 |
 |---|---|---|---|
-| I-CACHE-1 | 同调用对 call1 / call2 的 L0–L1 字节恒定；同调用点连续两轮、作品未变时 L0–L2 字节恒定 | §6.1 度量脚本断言 | CP-AB 起出报告；**CP-C 完成后**登记进 `docs/engineering/scenario-invariants.md` 升为 CI 阻断（此前阻断会把所有未迁移调用点标红，无信息量） |
-| I-CACHE-2 | 同调用对 tools 列表字节恒定 | 捕获帧断言 | CP-AB 起即阻断（范围只含已迁移调用对） |
-| I-CACHE-3 | 迁移前后该调用点 MBC pass_rate 不退化；call1 在 `tool_choice: none` 下无工具调用倾向 | 既有探针 A/B + 新增断言 | 每个 CP 的合入门禁 |
+| I-CACHE-1 | B26/B27 目标：同 call_site/profile 连续判断的 L0–L1 静态字节恒定，作品未变时半稳定 L2 按真实状态核对；旧 call1/call2 调用对断言仅作历史 | §6 捕获请求及 §4.1 目标矩阵；守卫已随 B26 CP3 改为单调用前缀守卫，不保留第二生产协议 | B26 CP3 已改写并执行（证据见 B26 §14）；失败即阻断，不以文档替代通过 |
+| I-CACHE-2 | ~~同调用对 tools 列表字节恒定~~ **作废（2026-10-23 B26，作者批准）**：调用对不复存在；替代为「同判断/起草调用点 run 内 tools 字节恒定」，守卫改写归 B26 CP3 | 捕获帧断言 | 历史 |
+| I-CACHE-3 | 单调用下规则重排/整合不得破坏来源、权限或实际效果；语义成功按 B27 §6.1 达标且不低于同协议基线。旧 call1/none 倾向断言仅历史，不再作新协议门禁 | 同 call_site/profile/schema版本的离线前缀捕获＋确定性矩阵100%＋真实模型预注册 A/B；所有超时/失败计分母 | B26 CP3 验协议/前缀与旧业务；B27 CP4 验语义，新规则失败不回退双协议、不跳过不变量 |
 | 继承 | I-SYS-1～3、I1 / I2 / I3、N-NARR、N-PLAN 全部不变 | 既有 driver | 不变 |
+
+I-CACHE-3 的迁移说明（F5）：历史“call1 在 tool_choice:none 下无调用倾向”不适用于已删除的调用点，只保留旧报告。新门禁不能用删脚本/disable directive 放行；B26 实施时用单调用 profile/schema/合法组合与计数守卫替换并复跑。协议方向不由旧 CP0 质量比率决定，但产品语义未达到 B27 §6.1 就不能宣称 B27 完成。冷热/不同 slot 的 live TTFT 不直接作可比结论，离线静态前缀、真实 usage 和语义结果分别报告。
 
 ---
 

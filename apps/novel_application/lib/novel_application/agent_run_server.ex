@@ -66,6 +66,7 @@ defmodule NovelApplication.AgentRunServer do
             progress_signatures: MapSet.new(),
             final_turn_result: nil,
             event_sink: nil,
+            defer_delivery: false,
             interaction_store: nil,
             provider_cancellation_token: nil
 
@@ -204,6 +205,33 @@ defmodule NovelApplication.AgentRunServer do
   def handle_call({:command, {:steer, text}}, from, state) when is_binary(text),
     do: handle_call({:command, {:steer, text, nil}}, from, state)
 
+  def handle_call(
+        {:command, {:steer, %{author_question_reply: request}, submission_id}},
+        _from,
+        state
+      ) do
+    alias NovelPersistence.AuthorQuestionRepo
+
+    source =
+      AuthorQuestionRepo.source(request.workspace_id, request.session_id, request.source_turn_ref)
+
+    source = source && source.content["turn_result"]
+
+    case AuthorQuestionRepo.receipt(request.receipt_key, request.payload_digest) do
+      {:ok, receipt} ->
+        {:reply, {:ok, Map.put(receipt, "duplicate", true)}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+
+      :new ->
+        case NovelApplication.AuthorQuestion.validate_reply(state.run, request, source) do
+          :ok -> commit_question_answer(state, request, submission_id)
+          {:error, reason} -> {:reply, {:error, reason}, state}
+        end
+    end
+  end
+
   def handle_call({:command, {:steer, text, submission_id}}, _from, state) when is_binary(text) do
     run = %{state.run | goal: %{state.run.goal | text: text, version: state.run.goal.version + 1}}
 
@@ -291,6 +319,58 @@ defmodule NovelApplication.AgentRunServer do
             status: "running",
             budget: budget
           }}, state, {:continue, :run_next_step}}
+    end
+  end
+
+  defp commit_question_answer(state, request, submission_id) do
+    run = %{
+      state.run
+      | goal: %{state.run.goal | text: request.text, version: state.run.goal.version + 1}
+    }
+
+    applied = apply_author_steer(%{state | defer_delivery: true}, run)
+    next = elem(applied, 2)
+
+    result = %{
+      status: "accepted",
+      run_id: run.run_id,
+      question_ref: request.question_ref,
+      submission_id: submission_id,
+      goal_version: run.goal.version,
+      payload_digest: request.payload_digest
+    }
+
+    attrs =
+      Map.merge(request, %{
+        run_record: run_attrs(next.run),
+        events: new_event_attrs(state, next),
+        checkpoint: question_checkpoint(next),
+        result: result,
+        input: %{
+          workspace_id: request.workspace_id,
+          session_id: request.session_id,
+          run_id: run.run_id,
+          status: run.status,
+          goal_version: run.goal.version,
+          turn_id: "#{run.parent_turn_ref}:steer:#{run.goal.version}",
+          submission_id: submission_id,
+          text: request.text,
+          message_kind: "steer",
+          author_question_ref: request.question_ref,
+          author_action_ref: request.action_input.action_id,
+          author_choice_value: request.choice_value,
+          source_question_turn_ref: request.source_turn_ref
+        }
+      })
+
+    case TurnInteractionService.commit_question(:question_answer, attrs, state.interaction_store) do
+      {:ok, receipt} ->
+        next = publish_committed_events(state, next)
+        reply = {:reply, {:ok, receipt}, next}
+        if tuple_size(applied) == 4, do: Tuple.insert_at(reply, 3, elem(applied, 3)), else: reply
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -483,6 +563,9 @@ defmodule NovelApplication.AgentRunServer do
           {state, type, reason_codes, payload} =
             maybe_promote_steer_plan_revision(state, type, summary, reason_codes, payload)
 
+          visibility =
+            if cancel_requested?(state) or terminal?(state), do: :developer, else: visibility
+
           emit(state, type, visibility, summary, reason_codes, refs, payload)
 
         :ignore ->
@@ -533,6 +616,17 @@ defmodule NovelApplication.AgentRunServer do
 
     task =
       Task.Supervisor.async_nolink(NovelApplication.AgentStepTaskSupervisor, fn ->
+        # ADR-0018 / LogContext：Task 进程不继承 run server 的进程日志关联键，而
+        # next_step_planner 内的独立计划起草/修订 provider 调用发生在该 step 的
+        # TurnBinding.bind 之前。先按本 run 的源 turn 绑定，保证 provider 调用与
+        # run 事件可被同一 turn 归因；后续 step 执行仍由 TurnBinding.bind 覆盖。
+        NovelCommon.LogContext.put_turn(
+          run_for_step.workspace_id,
+          run_for_step.work_id,
+          run_for_step.parent_turn_ref,
+          run_for_step.session_id
+        )
+
         executor.(step_fun, run_for_step, sequence, step_snapshot(state, server, run_for_step))
       end)
 
@@ -553,6 +647,70 @@ defmodule NovelApplication.AgentRunServer do
 
   defp step_ref(run_id, sequence), do: "step_#{run_id}_#{sequence}"
 
+  defp handle_step_result(
+         %{run: %{interrupt_state: %{status: :cancel_requested}}} = state,
+         result
+       ) do
+    # 取消已先进入 run 命令序列：迟到结果仅计真实开销，不发布候选/问题/动作。
+    case result do
+      {:ok, facts} when is_map(facts) -> add_consumed_budget(state, facts)
+      _ -> add_consumed_budget(state, %{})
+    end
+  end
+
+  defp handle_step_result(state, {:ok, %{turn_result: %{author_question: _}} = result}) do
+    next =
+      %{state | defer_delivery: true}
+      |> merge_stage_state(result[:stage_state])
+      |> apply_recorded_result(result, result[:artifact_refs] || [], result.turn_result, nil)
+      |> put_run_status(:awaiting_author)
+      |> put_run_phase(:stopped)
+      |> emit(
+        :awaiting_author,
+        result.turn_result.author_question.question,
+        Enum.uniq([
+          "model_question"
+          | if(result[:loop_decision], do: result.loop_decision.reason_codes, else: [])
+        ]),
+        [
+          result.turn_result.author_question.question_ref
+        ]
+      )
+
+    attrs = %{
+      workspace_id: next.run.work_id,
+      session_id: next.run.session_id,
+      run_id: next.run.run_id,
+      status: :awaiting_author,
+      goal_version: next.run.goal.version,
+      turn_result: json_safe(result.turn_result),
+      run_record: run_attrs(next.run),
+      events: new_event_attrs(state, next),
+      checkpoint: question_checkpoint(next),
+      decision_trace:
+        if(result[:decision_trace],
+          do:
+            NovelApplication.DialogueGateway.trace_to_attrs(
+              result.decision_trace,
+              next.run.work_id,
+              next.run.session_id
+            )
+        )
+    }
+
+    case TurnInteractionService.commit_question(
+           :question_delivery,
+           attrs,
+           state.interaction_store
+         ) do
+      {:ok, _} ->
+        publish_committed_events(state, next)
+
+      {:error, _} ->
+        settle_run_failed(state, :interaction_persistence_failed, ["question_persistence_failed"])
+    end
+  end
+
   defp handle_step_result(state, {:ok, result}) when is_map(result) do
     artifact_refs = Map.get(result, :artifact_refs, [])
     turn_result = Map.get(result, :turn_result)
@@ -571,9 +729,23 @@ defmodule NovelApplication.AgentRunServer do
         do: {[], nil, nil},
         else: {artifact_refs, turn_result, Map.get(result, :loop_status)}
 
-    case TurnInteractionService.record_result(state.run, turn_result, state.interaction_store) do
+    case TurnInteractionService.record_result(
+           state.run,
+           turn_result,
+           state.interaction_store,
+           result[:decision_trace]
+         ) do
       :ok ->
         apply_recorded_result(state, result, artifact_refs, turn_result, loop_status)
+
+      {:ok, persisted} ->
+        apply_recorded_result(
+          state,
+          Map.put(result, :turn_result, persisted),
+          [],
+          persisted,
+          loop_status
+        )
 
       {:error, _reason} ->
         settle_run_failed(state, :interaction_persistence_failed, [
@@ -583,7 +755,9 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp handle_step_result(state, {:error, reason}) do
-    settle_run_failed(state, reason, ["step_failed" | failure_family_reason_codes(reason)])
+    state
+    |> add_consumed_budget(%{})
+    |> settle_run_failed(reason, ["step_failed" | failure_family_reason_codes(reason)])
   end
 
   defp handle_step_result(state, other) do
@@ -640,7 +814,8 @@ defmodule NovelApplication.AgentRunServer do
       outcome_detail: reason |> inspect() |> String.slice(0, 300)
     })
 
-    turn_result = safe_failure_turn_result(state.run, reason)
+    turn_result =
+      state.run |> safe_failure_turn_result(reason) |> preserve_committed_results(state)
 
     TurnInteractionService.record_result(
       %{state.run | status: :failed},
@@ -657,8 +832,45 @@ defmodule NovelApplication.AgentRunServer do
     |> persist_run_state()
   end
 
+  defp preserve_committed_results(result, state) do
+    refs =
+      state.events
+      |> Enum.filter(&(&1.event_type in [:artifact_created, :turn_result_ready]))
+      |> Enum.map(
+        &(get_in(&1.payload, [:turn_result, :turn_id]) ||
+            get_in(&1.payload, ["turn_result", "turn_id"]))
+      )
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    current = TurnInteractionService.input_ref(state.run)
+    result = Map.put(result, :turn_id, current)
+    preserve_result_refs(result, state, refs)
+  end
+
+  defp preserve_result_refs(result, _state, []), do: result
+
+  defp preserve_result_refs(result, state, refs) do
+    turn =
+      if result.turn_id in refs,
+        do: "#{result.turn_id}:failure:#{state.next_sequence}",
+        else: result.turn_id
+
+    result
+    |> Map.put(:turn_id, turn)
+    |> Map.put(:assistant_message, %{text: "本次操作未完成，运行已停止。此前已提交的结果仍保留，请查看原记录后决定下一步。"})
+    |> Map.update!(
+      :trace_summary,
+      &Map.merge(&1, %{
+        effect_scope: "current_operation",
+        prior_committed_result_refs: refs,
+        no_write_reason: "failed operation did not revoke prior committed results"
+      })
+    )
+  end
+
   # provider 错误契约形状（Gateway execution_error：%{type:, message:}）判定失败家族。
-  # 判断结构不可解析（ADR-0025 判断①call2 重试后仍坏）= provider 输出契约违约，
+  # 判断结构不可解析（ADR-0025 判断①单调用纠错重试后仍坏）= provider 输出契约违约，
   # 与帧纪元 :frame_contract_invalid 同格——作者应得到"格式不符合契约，请重试"。
   defp provider_failure_reason?({:judgment_decision_unparseable, _fragment}), do: true
 
@@ -667,6 +879,10 @@ defmodule NovelApplication.AgentRunServer do
 
   defp provider_failure_reason?(reason),
     do: is_map(reason) and is_atom(Map.get(reason, :type))
+
+  defp failure_family_reason_codes({family, _reason})
+       when family in [:judgment_protocol_violation, :agent_plan_protocol_violation],
+       do: ["protocol_violation", Atom.to_string(family)]
 
   defp failure_family_reason_codes({:author_content_registration_invalid, reason}),
     do: ["author_content_registration_invalid", Atom.to_string(reason)]
@@ -686,6 +902,10 @@ defmodule NovelApplication.AgentRunServer do
   defp failure_family_reason_codes(reason) do
     if provider_failure_reason?(reason), do: ["provider_error"], else: []
   end
+
+  defp failure_author_summary({family, _reason})
+       when family in [:judgment_protocol_violation, :agent_plan_protocol_violation],
+       do: "模型输出未通过操作契约校验，本轮已安全停止。"
 
   defp failure_author_summary({:author_content_registration_invalid, _}),
     do: "原文登记未通过校验，本轮已安全停止。"
@@ -764,6 +984,10 @@ defmodule NovelApplication.AgentRunServer do
   defp failure_fallback_message(:interaction_persistence_failed),
     do: "本轮结果未能保存，已停止发布成功结果。请稍后重试。"
 
+  defp failure_fallback_message({family, _reason})
+       when family in [:judgment_protocol_violation, :agent_plan_protocol_violation],
+       do: "模型返回的操作或来源没有通过校验，纠正后仍不符合约束。原请求已保留；没有生成候选或写入作品事实，可以调整请求后重试。"
+
   defp failure_fallback_message({:author_content_registration_invalid, reason}),
     do: TurnInteractionService.author_registration_failure_message(reason)
 
@@ -799,9 +1023,17 @@ defmodule NovelApplication.AgentRunServer do
     state
     |> put_run_status(:completed)
     |> put_run_phase(:stopped)
-    |> emit(:run_completed, "AgentRun 已完成。", ["goal_satisfied", "agent_loop_completed"], [
-      decision.decision_id
-    ])
+    |> emit(
+      :run_completed,
+      "AgentRun 已完成。",
+      if(decision.decision_type == :goal_satisfied,
+        do: ["goal_satisfied", "agent_loop_completed"],
+        else: ["agent_loop_completed"]
+      ),
+      [
+        decision.decision_id
+      ]
+    )
   end
 
   defp maybe_apply_loop_status(state, :awaiting_author, %AgentNextStepDecision{} = decision) do
@@ -985,12 +1217,27 @@ defmodule NovelApplication.AgentRunServer do
           consumed
           | tool_calls: consumed.tool_calls + non_negative_count(result[:tool_call_count]),
             provider_calls:
-              consumed.provider_calls + non_negative_count(result[:provider_call_count]),
+              max(
+                consumed.provider_calls + non_negative_count(result[:provider_call_count]),
+                observed_provider_calls(state)
+              ),
             replans: consumed.replans + non_negative_count(result[:replan_count])
         }
     }
 
     %{state | run: run}
+  end
+
+  # 失败/有界纠错也消耗调用；统一 provider 事件是实际调用的下界，不能只累计成功结果。
+  defp observed_provider_calls(state) do
+    state.events
+    |> Enum.filter(&(&1.event_type == :provider_progress))
+    |> Enum.map(
+      &(Map.get(&1.payload, :provider_call_ref) || Map.get(&1.payload, "provider_call_ref"))
+    )
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+    |> MapSet.size()
   end
 
   defp non_negative_count(value) when is_integer(value) and value > 0, do: value
@@ -1371,10 +1618,30 @@ defmodule NovelApplication.AgentRunServer do
         emitted_at: DateTime.utc_now()
       })
 
-    AgentEventPublisher.publish(event, state.event_sink)
-    persist_event(event)
+    unless state.defer_delivery do
+      AgentEventPublisher.publish(event, state.event_sink)
+      persist_event(event)
+    end
 
     %{state | event_sequence: sequence, events: state.events ++ [event]}
+  end
+
+  defp question_checkpoint(%{run: %{run_mode: :durable, long_run_task_ref: ref}} = state)
+       when is_binary(ref),
+       do: %{task_ref: ref, attrs: long_run_task_update_attrs(state.run, state)}
+
+  defp question_checkpoint(_state), do: nil
+
+  defp new_event_attrs(before, after_state) do
+    after_state.events |> Enum.drop(length(before.events)) |> Enum.map(&event_attrs/1)
+  end
+
+  defp publish_committed_events(before, after_state) do
+    after_state.events
+    |> Enum.drop(length(before.events))
+    |> Enum.each(&AgentEventPublisher.publish(&1, after_state.event_sink))
+
+    %{after_state | defer_delivery: false}
   end
 
   defp run_started_payload(%AgentRun{} = run) do
@@ -1389,10 +1656,13 @@ defmodule NovelApplication.AgentRunServer do
     }
   end
 
+  defp persist_run_state(%{defer_delivery: true} = state), do: state
+
   defp persist_run_state(%{run: %AgentRun{} = run} = state) do
     TurnInteractionService.record_status(run, state.interaction_store)
 
-    persist_async(fn ->
+    # 运行快照按 GenServer 命令序同步写入，避免旧异步快照覆盖已提交的问题/答复版本。
+    persist(fn ->
       AgentRunLog.upsert_run(run_attrs(run))
       persist_events_snapshot(run, state.events)
       persist_long_run_checkpoint(run, state)
@@ -2449,7 +2719,8 @@ defmodule NovelApplication.AgentRunServer do
     {:ok,
      result
      |> maybe_attach_plan_run_patch(meta)
-     |> maybe_attach_replan(decision)}
+     |> maybe_attach_replan(decision)
+     |> Map.merge(Map.take(meta, [:turn_result, :decision_trace]))}
   end
 
   defp attach_terminal_plan_meta(result, _decision, _meta), do: result

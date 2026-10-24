@@ -49,3 +49,17 @@ anti_hooks:
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
+
+# B26 的额外原生证据；基础浏览器场景仅覆盖原多步计划，不替代此矩阵。
+native_protocol_matrix:
+  entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 bash scripts/quality_accept.sh judgment-plan-multi-step --surface tauri
+  verifier: scripts/native_plan_evidence_check.mjs
+  cases:
+    - 同批计划：judgment_decision.plan 与 agent_plan_draft 来自相同 provider_call_ref，零独立起草调用
+    - 另行起草计划：一次判断和一次 auto 起草调用，完整模型计划实际执行
+    - 先核对再补齐计划：只读初始计划耗尽后，一次 auto 修订保留已完成前缀并追加创作步骤
+  assertions:
+    - 每条路径由原生主输入启动，恰一条 user_message，各自同一 run 完成
+    - 两个业务工具均过编排门禁；多个候选只待采纳，零 canon 写入
+    - provider 调用分别为 3、4、5；replans 分别为 0、0、1；不把 native 调用当业务工具计数
+    - 重开后原计划结果与待采纳产物仍可见，原文/模型来源字段保持

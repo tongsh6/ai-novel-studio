@@ -1,0 +1,48 @@
+id: b26-business-output-roundtrip
+title: B26 原生业务结果与续行问题回环
+tier: nightly
+surface: tauri
+driver: cua-native-system-ui
+entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 bash scripts/quality_accept.sh b26-business-output-roundtrip --surface tauri
+# 原生 UI 由本机外部系统 CUA 操作真实 app_path；transport proxy 追加外部 WS 代理，
+# 用于丢失回执/断线恢复证据。仓库内落地证据检查器 scripts/native_business_evidence_check.mjs，
+# 产品代码不含验收感知逻辑。
+driver_modes:
+  native: external-cua-native-system-ui
+  native_transport: external-cua-native-system-ui-with-external-websocket-proxy
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md
+invariants:
+  - narrative-and-business-operation-same-response
+  - author-bytes-and-source-preserved
+  - no-canon-write-before-adoption
+  - registration-reuses-current-source-version
+  - committed-output-recovery-does-not-reexecute
+setup:
+  provider: slice_verify
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+user_flow:
+  - 原生输入普通讨论和创作方向，点击真实方向动作，不擅自入档
+  - 原生登记当前原文，外部代理丢弃已提交结果并断线，重连恢复同一候选
+  - 采纳当前原文；输入另一份只收下的资料，后轮引用历史来源登记
+  - 重复请求同来源时返回既有对象；放弃后再次登记产新候选，采纳后再请求不重写
+  - 原生请求真实不支持的已有角色身份修改，诚实能力缺口结束且不派发近似工具
+  - 原生触发已有 test/support 工具失败场景，续行 ask_author 产生独立问题，作者原话回到同一 run
+  - 点击续行缺口的为什么入口，读取同一持久 trace，确认回放不重新调用模型
+  - 关闭并重开原生窗口，核对结果、来源与采纳状态
+evidence:
+  required: [native_screenshots, native_transport_jsonl, app_jsonl, persisted_session, memory_facts, summary_json]
+  artifact_dir: artifacts/slice-verify/b26-business-output-roundtrip-tauri-native
+assertions:
+  - 以上各输入只从真实 Tauri 主入口触发，生产逻辑不识别验收
+  - 普通回复、方向、登记和缺口完成运行；缺口不记 goal_satisfied
+  - 登记字节精确来自当前或历史原输入，重复登记不生成额外候选或采纳
+  - 外部丢失结果恢复复用原产物/turn ID，不重新调用模型
+  - 续行问题带 source/question/action/run 绑定与通用自由回复，答复推进原 run 一次
+  - 结果与 trace 同事务；回放保留原话来源、材料提供记录与未知认知标识
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -238,6 +238,7 @@ defmodule NovelAgent.Provider.Gateway do
         provider_call_ref: provider_call_ref,
         provider_run_id: provider_run_id,
         purpose: purpose,
+        content_visibility: Keyword.get(opts, :content_visibility, :developer),
         owner_refs: owner_refs,
         event_sink: event_sink,
         cancellation_token: cancellation_token,

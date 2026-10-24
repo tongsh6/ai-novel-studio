@@ -1,6 +1,6 @@
 # MBC 模型行为契约探针：tool-call-compliance
 #
-# 验证「计划起草的强制 tool_choice 双通道协议」在指定 provider 上真实可用：
+# 验证「计划起草的单调用 auto 原生工具协议」在指定 provider 上真实可用：
 # 穿过生产 AgenticPlanDraftPlanner（真实 prompt + schema + 解析）与真实 adapter
 # 请求整形（含 DeepSeek thinking×tool_choice 能力约束降级），不走 UI、秒级。
 #

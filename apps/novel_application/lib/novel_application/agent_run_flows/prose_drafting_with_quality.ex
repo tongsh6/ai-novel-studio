@@ -56,12 +56,19 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       with {:ok, plan, plan_meta} <- plan_for_run(run, snapshot, spec),
            {:ok, decision, result_meta} <-
              mechanical_decision(%{run | plan: plan}, sequence, snapshot, plan_meta, spec) do
-        decision
-        |> next_step_from_decision(spec)
+        result = next_step_result(decision, spec, result_meta)
+
+        result
         |> with_plan_cursor(Map.get(result_meta, :agent_plan_cursor, 0), result_meta)
         |> AgenticNextStepPlanner.with_provider_call_meta(result_meta)
       end
     end
+  end
+
+  defp next_step_result(decision, spec, meta) do
+    if meta[:completion_without_goal],
+      do: {:complete, decision},
+      else: next_step_from_decision(decision, spec)
   end
 
   defp plan_for_run(run, snapshot, spec) do
@@ -186,7 +193,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     input = %{
       goal_text: run.goal.text,
       deviation_summary: AgenticDeviationSignal.revision_reason(deviation),
-      observation_block: continuation_observation_block(snapshot)
+      observation_block: continuation_observation_block(snapshot),
+      source_input_ref: NovelApplication.TurnInteractionService.input_ref(run)
     }
 
     case JudgmentProtocol.request_continuation(
@@ -199,6 +207,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
       {:ok, %{action: "await_author"} = continuation} ->
         continuation_await_decision(run, sequence, snapshot, deviation, continuation)
+
+      {:ok, %{action: "capability_gap"} = continuation} ->
+        continuation_gap_decision(run, sequence, snapshot, deviation, continuation)
 
       {:error, reason} ->
         {:error, reason}
@@ -302,7 +313,21 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         |> Map.put(:author_narrative_source, continuation.narrative_source)
         |> attach_deviation_meta(deviation, snapshot)
 
-      {:ok, decision, meta}
+      {result, trace} = NovelApplication.AuthorQuestion.turn_result(run, continuation)
+      {:ok, decision, Map.merge(meta, %{turn_result: result, decision_trace: trace})}
+    end
+  end
+
+  defp continuation_gap_decision(run, sequence, snapshot, deviation, continuation) do
+    with {:ok, decision, meta} <-
+           continuation_await_decision(run, sequence, snapshot, deviation, continuation) do
+      decision = %{
+        decision
+        | decision_type: :no_progress,
+          reason_codes: ["goal_unfulfilled", "capability_gap"]
+      }
+
+      {:ok, decision, Map.put(meta, :completion_without_goal, true)}
     end
   end
 

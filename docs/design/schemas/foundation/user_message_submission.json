@@ -61,7 +61,8 @@
     },
     "command": {
       "enum": [
-        "steer"
+        "steer",
+        "author_choice"
       ]
     },
     "run_id": {
@@ -83,6 +84,70 @@
         "max_steps": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "author_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_turn_ref",
+        "action_id",
+        "action_type",
+        "target_ref",
+        "idempotency_key",
+        "payload"
+      ],
+      "properties": {
+        "source_turn_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_type": {
+          "const": "author_choice"
+        },
+        "target_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "submission_id",
+            "question_ref",
+            "expected_goal_version"
+          ],
+          "properties": {
+            "submission_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "question_ref": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expected_goal_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       }
     }

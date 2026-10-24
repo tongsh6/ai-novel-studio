@@ -1,26 +1,9 @@
-# MBC 模型行为契约探针：judgment-protocol（ADR-0025 CP1 实施前置）
-#
-# 验证「判断①方案 B 回复内联协议」与「是否开计划的判断质量」在指定 provider 上
-# 真实可用（ADR-0025 §8 开放问题 1）：
-#   ① 协议合规：call1 自由输出判断叙事（判"直接回复"时同一调用空行后内联回复正文），
-#      call2 强制 native tool call 产出轻量判断结构（action 五选一可解析）。
-#   ② 判断质量：固定六用例阵列（闲聊/上下文事实/单动作创作/多步复杂/需检索/意图不明），
-#      弱模型不得对简单请求乱开计划、不得对复杂任务漏计划。
-#
-# 判断①提示词/请求机已迁入生产模块 `NovelApplication.JudgmentProtocol`（CP1a），
-# 本探针消费生产构造器（与 tool_call_compliance 消费 AgenticPlanDraftPlanner 同理）。
-# 调用穿真实 Gateway/ProviderExecution 运行时（Execution.dependency(provider:)），秒级、不写库。
-#
-# 用法：
-#   PHX_SERVER=false mix run scripts/model_contracts/judgment_protocol.exs [stub|lmstudio|strata|deepseek]
-# 环境变量：
-#   MODEL_CONTRACT_RUNS           每用例试验次数（默认 2）
-#   MODEL_CONTRACT_MIN_PASS_RATE  判断准确率阈值（默认 0.85；协议合规恒为 1.0 硬闸门）
-#   MODEL_CONTRACT_CONTEXT_SHAPES 逗号分隔的上下文形态（默认 bare,in_run,long_run；
-#                                 加入 production 时经生产 judgment_context_block 构造，
-#                                 VS-00I CP-C 的前缀重排 A/B 用它）
-#   NOVEL_DEEPSEEK_API_KEY / DEEPSEEK_API_KEY  deepseek 凭据（缺失 → exit 65）
-# 退出码：0 通过；1 低于阈值；65 凭据/环境阻塞（全部试验均为连接/凭据类失败）。
+# B26/B27 生产单调用判断 MBC：同次 auto 响应携公开文本与明确业务工具。
+# 普通回复整段 content，不要求空行或额外分类；协议、实际纠错、判断质量分账。
+# 用法：bash scripts/probe_run.sh scripts/model_contracts/judgment_protocol.exs <provider> <runs>
+# MODEL_CONTRACT_CONTEXT_SHAPES=production 使用生产上下文构造器。
+# MODEL_CONTRACT_ARTIFACT_DIR 可把本次证据写入独立批次，保留旧基线。
+# 本探针是固定用例判断回归，不替代 B27 的 20 例完整 episode / 盲评或真实页面。
 
 alias NovelAgent.Provider.{DeepSeek, Execution}
 alias NovelApplication.{DialoguePlanningService, ExplorationService, JudgmentProtocol}
@@ -38,7 +21,7 @@ defmodule ModelContracts.JudgmentProtocol do
     "403"
   ]
 
-  @actions ~w(reply execute plan explore await_author)
+  @actions ~w(reply execute plan explore await_author creative_directions author_content_registration capability_gap)
 
   # 六用例阵列：expected 为可接受 action 集合（单一期望优先，避免稀释信号）。
   @battery [
@@ -174,9 +157,9 @@ defmodule ModelContracts.JudgmentProtocol do
       form_applicable: Enum.count(trials, &(&1.form in [:pass, :fail])),
       judgment_pass: Enum.count(trials, &(&1.judgment == :pass)),
       judgment_applicable: Enum.count(trials, &(&1.judgment in [:pass, :fail])),
-      call2_first_pass: Enum.count(trials, &(&1.call2_first_pass == true)),
-      call2_first_applicable: Enum.count(trials, &is_boolean(&1.call2_first_pass)),
-      call2_retries: trials |> Enum.map(& &1.call2_retries) |> Enum.sum(),
+      first_attempt_pass: Enum.count(trials, &(&1.first_attempt_pass == true)),
+      first_attempt_applicable: Enum.count(trials, &is_boolean(&1.first_attempt_pass)),
+      correction_calls: trials |> Enum.map(& &1.correction_calls) |> Enum.sum(),
       failures:
         trials
         |> Enum.map(& &1.detail)
@@ -220,15 +203,15 @@ defmodule ModelContracts.JudgmentProtocol do
             {:fail, d} -> {:fail, d}
           end
 
-        # T4 体温计：provider_call_count=2 即 call2 首调可用（无越界/结构重试）。
+        # 首次响应可用性：provider_call_count=1；有界纠错另外计数。
         # T1/T2c 只看最终结果，内部重试把首调自造能力名完全遮住（假绿教训）。
         %{
           protocol: :pass,
           form: form,
           judgment: judgment_outcome,
           detail: detail,
-          call2_first_pass: Map.get(judgment, :provider_call_count) == 2,
-          call2_retries: max((Map.get(judgment, :provider_call_count) || 2) - 2, 0)
+          first_attempt_pass: Map.get(judgment, :provider_call_count) == 1,
+          correction_calls: max((Map.get(judgment, :provider_call_count) || 1) - 1, 0)
         }
 
       {:error, reason} ->
@@ -239,8 +222,8 @@ defmodule ModelContracts.JudgmentProtocol do
               form: :skip,
               judgment: :skip,
               detail: detail,
-              call2_first_pass: nil,
-              call2_retries: 0
+              first_attempt_pass: nil,
+              correction_calls: 0
             }
 
           {:fail, detail} ->
@@ -249,24 +232,19 @@ defmodule ModelContracts.JudgmentProtocol do
               form: :skip,
               judgment: :skip,
               detail: detail,
-              call2_first_pass: false,
-              call2_retries: 1
+              first_attempt_pass: false,
+              correction_calls: 1
             }
         end
     end
   end
 
-  # 方案 B 内联契约：直接回复用例的 call1 必须是「判断说明 + 空行 + 回复正文」两段以上。
-  defp check_inline_reply(narrative, %{reply_case: true}) do
-    paragraphs =
-      narrative
-      |> String.split(~r/\n\s*\n/u, trim: true)
-      |> Enum.reject(&(String.trim(&1) == ""))
-
-    if length(paragraphs) >= 2, do: :ok, else: {:fail, "inline_reply_missing"}
+  # 普通回复仅要求非空原文，不从自然文本抽取协议字段。
+  defp check_inline_reply(narrative, _battery_case) do
+    if is_binary(narrative) and String.trim(narrative) != "",
+      do: :ok,
+      else: {:fail, "empty_reply"}
   end
-
-  defp check_inline_reply(_narrative, _battery_case), do: :ok
 
   defp check_decision(decision, battery_case) do
     action = map_get(decision, :action)
@@ -278,9 +256,6 @@ defmodule ModelContracts.JudgmentProtocol do
       action not in battery_case.expected ->
         {:fail,
          "judgment_mismatch:expected=#{Enum.join(battery_case.expected, "|")} got=#{action}"}
-
-      battery_case.reply_case and map_get(decision, :reply_included) != true ->
-        {:fail, "reply_flag_wrong"}
 
       capability_mismatch?(decision, battery_case) ->
         {:fail, "capability_mismatch:got=#{inspect(map_get(decision, :capability))}"}
@@ -448,10 +423,10 @@ defmodule ModelContracts.JudgmentProtocol do
           form_applicable = cases |> Enum.map(& &1.form_applicable) |> Enum.sum()
           judgment_pass = cases |> Enum.map(& &1.judgment_pass) |> Enum.sum()
           judgment_applicable = cases |> Enum.map(& &1.judgment_applicable) |> Enum.sum()
-          call2_first_pass = cases |> Enum.map(& &1.call2_first_pass) |> Enum.sum()
+          first_attempt_pass = cases |> Enum.map(& &1.first_attempt_pass) |> Enum.sum()
 
-          call2_first_applicable =
-            cases |> Enum.map(& &1.call2_first_applicable) |> Enum.sum()
+          first_attempt_applicable =
+            cases |> Enum.map(& &1.first_attempt_applicable) |> Enum.sum()
 
           %{
             variant: result.variant,
@@ -462,13 +437,16 @@ defmodule ModelContracts.JudgmentProtocol do
             form_adherence_rate: rate(form_pass, form_applicable),
             judgment_accuracy: rate(judgment_pass, judgment_applicable),
             # T4 体温计：首调即合法结构的比率与重试总数（阈值暂不入闸门，先测量）。
-            call2_first_try_rate: rate(call2_first_pass, call2_first_applicable),
-            call2_retries: cases |> Enum.map(& &1.call2_retries) |> Enum.sum()
+            first_attempt_rate: rate(first_attempt_pass, first_attempt_applicable),
+            correction_calls: cases |> Enum.map(& &1.correction_calls) |> Enum.sum()
           }
         end)
     }
 
-    dir = Path.join(["artifacts", "model-contracts", provider])
+    dir =
+      System.get_env("MODEL_CONTRACT_ARTIFACT_DIR") ||
+        Path.join(["artifacts", "model-contracts", provider])
+
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, "judgment-protocol.json"), Jason.encode!(summary, pretty: true))
     summary
@@ -490,8 +468,8 @@ defmodule ModelContracts.JudgmentProtocol do
       IO.puts(
         "[mbc/judgment-protocol] #{summary.provider}/#{variant.variant} " <>
           "protocol=#{variant.protocol_compliance_rate} form=#{variant.form_adherence_rate} " <>
-          "judgment=#{variant.judgment_accuracy} call2_first_try=#{variant.call2_first_try_rate} " <>
-          "call2_retries=#{variant.call2_retries} blocked=#{variant.blocked}/#{variant.total_runs}"
+          "judgment=#{variant.judgment_accuracy} first_attempt=#{variant.first_attempt_rate} " <>
+          "correction_calls=#{variant.correction_calls} blocked=#{variant.blocked}/#{variant.total_runs}"
       )
     end)
 

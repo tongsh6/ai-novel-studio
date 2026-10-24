@@ -2,6 +2,8 @@ id: q3c-author-content-materialization
 title: 作者内容字节直达采纳链（存档诉求的正确终局）
 tier: nightly
 surface: tauri
+# 默认交互是 Chromium 集成；原生证明见 b26-business-output-roundtrip。
+driver: headless-chromium
 entrypoint: scripts/quality_accept.sh q3c-author-content-materialization --surface tauri
 real_lmstudio_entrypoint: scripts/tauri_slice_verify.sh --real-lmstudio q3c-author-content-materialization
 
@@ -21,7 +23,7 @@ setup:
   provider: slice_verify
 
 user_flow:
-  - open: real Tauri workbench
+  - open: 当前真实工作台（浏览器前后端集成）
   - input: 作者提供大纲原文并要求存档为作品设定（D8 五连击的正确终局形态）
   - click: 发送
   - observe: 待采纳 world_setting 候选出现，body 为作者原文字节；缺口回复承认无直接写入能力

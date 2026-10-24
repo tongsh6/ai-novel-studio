@@ -1,10 +1,12 @@
 # VS-00D AI-Guided Authoring Contract Pack（AI 引导式创作三层 + Message 契约）
 
+> **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
+
 > 状态：draft for review（2026-06-13）
 >
-> 角色：本文定义“AI 如何引导作者进行小说创作”的三层 contract：小说层、当前作品层、本轮引导层；同时定义这三层如何落到每一次 AI 调用的 message layer。本文不引入脱离现有主链的新 runtime 架构；它约束现有 `DialogueGateway → ContextAssembler → Planner → DialogueFrame → MicroPlan → ExecutionOrchestrator → Tool/Provider → TurnResult/Trace` 如何补强小说创作判断能力。
+> 角色：本文定义“AI 如何引导作者进行小说创作”的三层 contract：小说层、当前作品层、本轮引导层；同时定义这三层如何落到每一次 AI 调用的 message layer。本文不引入脱离现有主链的新 runtime 架构；它约束现有 `DialogueGateway / AgentRun → ContextAssembler → JudgmentProtocol → DialogueFrame / MicroPlan → ExecutionOrchestrator → Tool/Provider → TurnResult/Trace` 如何补强小说创作判断能力。
 >
-> 当前实现事实：代码中已有 `Planner.form_frame/3`、`Planner.form_micro_plan/4`、`DialogueContext`、`DialogueFrame`、`MicroPlan`、`ExecutionOrchestrator` 与 creative provider；但 `DialogueFrame` 当前仍是粗粒度字段，`DialogueContext` 当前主要承载 snapshot / conversation / memory / chapters，尚未承载完整小说层与作品状态投影。本文是未来设计完善的 contract pack，不宣称当前代码已完成。
+> 当前实现事实（2026-10-24 校准）：当前判断入口为 DialoguePlanningService / JudgmentProtocol，计划由 AgenticPlanDraftPlanner 承接；旧 Planner.form_frame / form_micro_plan 已退役。AIMessageEnvelope 仍为质量诊断过渡 builder，本次生产 lib 静态检索未见外部引用，不能当作全调用点接通。生产共享判断/计划入口已按 §11 迁移为单调用 `tool_choice: auto`，两段式已删除；完整协议/业务/页面验收与剩余缺口见 B26 §11–§14，不以本文宣称 G1–G7 已关闭。
 
 ---
 
@@ -125,7 +127,7 @@ AI 应该探索、结构化、执行、质量诊断，还是先澄清/确认？
 
 | 字段/概念 | 含义 | 当前落位 |
 |---|---|---|
-| frame_type | 本轮认知类型 | 已有 `DialogueFrame.frame_type` |
+| frame_type | 结构业务操作的认知类型；普通回复默认仅展示用途 | 已有 DialogueFrame.frame_type；无工具回复按 §11.4，不把默认值当模型判断 |
 | dialogue_goal | 本轮对话目标 | 已有 `DialogueFrame.dialogue_goal` |
 | guidance_mode | 探索 / 结构 / 执行 / 质量 / 澄清 / 确认 / 无引导 | 目标 schema；当前可先作为 `evidence_summary` 或 `uncertainty` 过渡 |
 | element_focus | 本轮重点小说要素，如人物动机、章节功能、信息释放 | 目标 schema；可先进入 trace / evidence |
@@ -135,7 +137,7 @@ AI 应该探索、结构化、执行、质量诊断，还是先澄清/确认？
 
 实现原则：
 
-1. `Planner.form_frame` 是本轮引导层的第一入口；它可以让 AI 做创作语义判断。
+1. 当前本轮引导入口为 DialoguePlanningService / JudgmentProtocol；由 AI 做创作语义判断，旧 Planner.form_frame 不作为新实施落点。
 2. `DialogueFrame.validate/1` 和后续 schema 校验负责保证 AI 输出结构合法。
 3. `MicroPlan` 只能表达下一步行动建议，不能把引导判断升级为执行批准。
 4. `ExecutionOrchestrator` 仍负责权限、风险、写入、确认、采纳边界。
@@ -371,12 +373,12 @@ USER / CONTEXT
 AuthorInput
 → ContextAssembler
    - 组装当前作品层：snapshot / memory / chapters / future structured state
-→ Planner.form_frame
+→ JudgmentProtocol（由 DialoguePlanningService 调用）
    - 接收小说层压缩原则 + 当前作品层 + 作者输入
    - AI 产出本轮引导判断
 → DialogueFrame.validate
    - 系统校验结构、禁止批准语义
-→ Planner.form_micro_plan（按需）
+→ 当前 action / plan 编排构造 MicroPlan（按需）
    - AI 提出下一步行动建议
 → ExecutionOrchestrator
    - gate / confirmation / downgrade / allow_tool
@@ -413,7 +415,7 @@ AuthorInput
 ## 7. 实现原则（未来 slice 必须遵守）
 
 1. **不推翻现有主链**：所有完善必须穿过 DialogueGateway / ContextAssembler / Planner / DialogueFrame / MicroPlan / Orchestrator / ToolResult / TurnResult。
-2. **AI 判断必须结构化**：小说创作判断不能只留在 assistant_message 文案里，至少要进入 DialogueFrame evidence / uncertainty / trace；成熟后进 schema。
+2. **可执行判断必须结构化，普通回答保留真实认知记录**：对象、操作、来源、范围和可操作结果由明确结构输出承载；无工具普通分析/问答按 §11.4 保存原话与应用提供的证据，未输出的模型意图/焦点/不确定性记 not_provided，不从文字抽取、不用默认 frame 伪造，也不为补字段再调用模型。
 3. **作品状态必须有来源**：当前作品层不能由 AI 生成；AI 只能请求、引用、诊断缺失或提出怀疑。
 4. **小说层不是 prompt dump**：每轮至少带核心原则与要素索引，按本轮引导层展开相关切片；选择结果必须可 trace。
 5. **MicroPlan 仍是建议**：即使 AI 判断“应执行/应重写/应修订”，也只能形成 plan，不能绕过 Orchestrator。
@@ -481,3 +483,83 @@ AuthorInput
 - `04/VS-01`：Planner 的引导判断和 MicroPlan 仍受 Orchestrator 权限边界约束。
 - `acceptance/author/AU-11-ai-guided-authoring.md`：作者视角验收本文的最小闭环；缺该验收时，本文不能进入实现完成口径。
 - `tasks/slices/v3/VS-00D-ai-guided-authoring-message-contract.md`：承重 slice 入口；用于把本文从 contract pack 推进到可验证实现。
+
+## 11. B26 / B27 联合消息语义（2026-10-24 修订已接受）
+
+本节与 [UA-01 §2.2](UA-01-unified-agent-run-loop-contract-pack.md) 共同定稿：本节管理语义输入/规则归属，UA-01 管工具协议、四断点 J1–J4 与回传。共享判断/计划入口已按本节迁移，验证与未闭环项见 B26/B27；不宣称 G1–G7 已关闭，不新增前置意图分类调用或长期义务表。
+
+### 11.1 一份逻辑任务，多个专业调用
+
+复用 DialogueContext / DialogueFrame / AgentRun / CreativeRequest / QualityEvaluationRequest。先列出现有承载与必要 schema 增量，不能把全部概念立刻新增成字段，也不能在字符串里拼另一份隐式协议：
+
+| 语义 | 来源 | 下游约束 |
+|---|---|---|
+| 作者原话/来源与动作身份 | Interaction、投递/steer 来源、合法来源清单 | 原话不被解释覆盖；历史内容来源与本轮动作来源分开 |
+| 当前目标与解释依据 | 明确模型结构，或带来源的作者原话/既有目标；普通回复按 §11.4 | 后续可细化，不无声换目标；未提供的模型解释不伪造，不成为 canon |
+| 对象/范围/基线版本 | 当前章/角色/候选等读投影 | 同名不当身份、摘要不冒充全文；覆盖与未读部分明确 |
+| 操作效果与保留项 | operation contract、作者范围、Orchestrator | 续写/重写/修订/仅排版互斥；模板不扩大权限 |
+| 缺失/冲突/预算/可用操作 | 真实取证和 runtime | 能取证先取证；有必要作者决定才提问；缺口不派给近似能力 |
+| 结果与未完成部分 | ToolResult、Adoption、Projection、receipt | 工具成功/候选生成/入档/目标满足分开；机械事实可校验，文学质量由模型解释 |
+
+合法对象 refs 不塞静态 schema 枚举；前端焦点不是修改授权。B27 不替代 B28–B30 操作能力，B31 的真实回复绑定也不能靠 prompt 猜。
+
+### 11.2 规则归属与替换纪律
+
+- 保留 SystemIdentity 唯一 L0、角色专属格式、来源/采纳边界及 L0–L4；不拼覆盖所有角色的大 system prompt。
+- 统一任务/能力效果/身份/状态词义，按调用职责投影；原文登记、方向、缺口由 UA-01 明确工具承载，不从空行/标题/列表恢复业务结构。
+- 删除固定复述/报形态与进度问法一律直接答的过宽规则；保留简短行动说明和证据结论。普通回复不为填 frame 再调模型。
+- writer 按已验证操作选规则：仅排版不继承续写/润色/删情节；修订不得与基础模板的“接着前文写”同时生效。
+- 枚举/输出字段从 schema/contract 真源投影；重试只纠错，保留同任务/范围/来源/输出约束，不扩权。
+- 保留作者原文字节与候选/canon 隔离，模型自称完成不代替结果核验；结构工具的作者文字仍符合 N-NARR。
+- application 组装业务事实/任务，agent 消费既有 common DTO、不反向依赖 domain/application，Gateway/adapter 不持有小说意图特判。
+- 旧 Envelope 可用纯逻辑迁往实际消费者；失效入口验证后退役，禁止加“写完”关键词冒充意图能力修复。
+
+### 11.3 分工、依赖与验收
+
+B26 管 schema/映射/分派/回传/重试计数/协议删除，B27 管本节输入/规则及专业调用。共同设计先于共享迁移：B26 CP1＋B27 CP0 → B26 CP2＋B27 CP1/CP2 同一入口改造 → 协议/业务保留验证 → B27 CP3 专业调用整合 → 语义 A/B、全生命周期真实 Tauri、各自门禁。B27 不等待 B26 全部收口才再改一次 JudgmentProtocol。
+
+验收分：协议/来源/无副作用确定性验证；同模型同上下文自然表达对照；作者输入→取证/候选/作者动作→持久化/刷新/追问的真实页面。J1–J4 用例归 UA-01 §2.2.7，专业调用矩阵归 B27 §2；无消费证据的 matrix 行不能当作已完成。B26 CP0 旧探针只证明旧规则下部分单调用可行，不代表 B27 已生效。
+
+### 11.4 无工具回复与结构化认知记录的边界（F3，2026-10-24）
+
+普通问答/文学分析可以只返回文本，不为“本轮是什么类型”再调工具或另一模型。认知记录不替模型补内在判断；本节取代 §2.3/§7 中“所有回复必有模型结构”的旧泛化解释。
+
+本节**不取消每个作者 turn 的 primary DialogueFrame**。与 [ADR-0001 修订提案](../adr/ADR-0001-dialogue-frame-v3.md) 联合接受后，应用出口仍建立、校验并持久引用 frame；变化是区分模型输出与应用记录事实，而非让普通回复绕过认知锚点。该上游修订未 Accepted 前，本节不能自行替代 ADR-0001 的字段语义。
+
+| 回复形态 | 持久记录 | 不能声称 |
+|---|---|---|
+| 无工具普通回复 | 原始 content + provider_call_ref/source_input_ref；trace_summary.reply_record.response_kind=plain_text；supplied_context_refs、真实 observation_refs/读取覆盖；model_interpretation_status=not_provided，model_interpretation=null | 不从散文提取/默认 guidance_mode、element_focus、uncertainty；提供材料不等于模型实际使用 |
+| 明确工具结构的判断/业务输出 | 实际 goal/target/source/范围字段及 provider 来源；app 校验事实与结果单列 | 不将 schema 合法或工具成功当文学判断正确；不填工具未给的推断 |
+| 取证后普通分析 | 除文本外引用先前同任务/版本的结构判断与真实观察，标 upstream_judgment_ref | 不冒充本次新判断字段，不把先前目标绑到新话题，不声称模型逐项使用全部 supplied refs |
+
+- 无工具回复必有 primary frame 与稳定 frame_id/turn_id/source_refs；frame_type=casual_reply 仅为非权威展示默认，evidence_summary.frame_origin=application_display_default，不用于权限、意图路由、质量分类或自动记忆。dialogue_goal.summary 用作者原话或同任务/版本仍适用的已验证上游 goal，标 goal_origin=author_input/upstream_judgment，不冒充本次模型理解。
+- tool_need.needs_tool=false 配拟新增 reason_code=no_tool_requested，表示当前响应没有请求派发；execution_readiness=not_applicable 表示本响应无可执行建议，不判断作者目标是否已完成。evidence_summary.model_interpretation_status=not_provided 与 model_interpretation=null 是未知语义的依据；旧 uncertainty 容器若保留空数组，只是未承载模型输出，不能展示为“无不确定性”。
+- supplied_context_refs 是确实进入请求的材料；observation_refs/coverage 来自真实取证。used_context_refs、模型焦点/不确定性未结构输出时留 null/缺省，不填空集合冒充“确定没有”，不沿用旧 context_used=true 机械断言。
+- 派发能力、生成可操作方向/原文候选、提交 quality finding 或推进确认，必须使用对应业务结构及门禁；文本不会自动升级成这些效果。现有质量评审继续走 QualityEvaluationRequest/Findings，不新增每轮必调分类器。
+- 历史记录缺元数据时标 legacy_unknown，只回看，不回填虚构分类、不改历史模型正文。
+- 字段落现有 trace_summary/evidence 与版本化三层输入，不新增认知/义务表。B27 定语义，B26 在共享回复出口接线，两者共同验收。
+- 证明：普通统计答复、完整章分析、部分读取诚实说明各一例；原话/refs/覆盖可回放，未提供判断字段未知，零额外抽取调用、零业务副作用。模型质量按 B27 §6.1，不以字段存在即通过。
+
+**当前消费者核查与迁移验收**：`DialoguePlanningService.judgment_frame/4` 目前固定写 `context_used=true`，`TraceWriter.record/3` 按 frame type/reason 投影摘要，`TurnResultBuilder` 从 frame 构造结果；只往 `evidence_summary` 加字段不能保证 Why/Replay 消费到来源。实施时必须同批覆盖 frame → TraceWriter/脱敏 → TurnResult.frame_summary/trace_summary.reply_record → 持久 Interaction/DecisionTrace → replay/view model。author-safe 摘要只投影必要来源与覆盖，不复制 raw prompt、私有 thinking 或敏感上下文。
+
+同一 turn 先探索后文本收尾时，`no_tool_requested` 只属于最后一个 provider 响应；实际探索记录、计数及 `upstream_judgment_ref` 不被覆盖。`truthfulness` 的整轮工具调用事实从真实记录聚合，不能从最终 frame 的默认值反推。验证必须断言 primary frame 引用、逐字段来源、刷新/回放后来源不丢、未输出判断不被下游使用，以及整轮探索仍可见。
+
+### 11.4.1 共同任务输入的现有承载（B27 CP0 设计核对）
+
+以下是当前代码可定位的载体与必要消费规则，不是已经接通的统一信封；实际请求捕获、20例 snapshot/hash 与保留集仍按 B27 §6.1 完成。
+
+| 语义与现有载体 | 共享入口与专业调用的处理 | 缺失处置 / 验证 |
+|---|---|---|
+| 原话与来源：Interaction / AuthorActionInput.payload、AgentRun goal/version | application 绑定本轮来源、目标版本与历史材料来源，判断/计划/重试使用同一绑定；原文登记按原消息取字节 | 没有合法来源不默认 current；历史资料登记、重传同身份异内容分别拒错 |
+| 作品状态：DialogueContext.current_work_snapshot / structured_chapters / interaction_state / context_refs / omission_notes / assembly_policy | 作为 WorkState 投影；取证 observation 的对象版本、分页与覆盖同批传递，不把摘要或裁切段改称全章 | 可读则先取证；预算不足诚实保留覆盖缺口，不能硬填事实 |
+| 任务执行：CreativeRequest.source_turn_ref / decision_packet / execution_brief / revision / progress_state / planning_mission | common DTO 是 application → agent 的既有边界；应用先明确目标/操作/范围，agent 按该任务渲染角色规则 | 当前 revision 仍是文本，不能宣称已具备互斥操作契约；CP1 以真实 writer 消费确定必要 DTO 增量，不塞进 provider_hints 或靠字符串关键词选操作 |
+| 质量评审：QualityEvaluationRequest.source_ref / source_type / prose_text / execution_brief / facts_context / scene_units | 保留独立评审契约，比较实际提交正文与对应目标/基线；对话诊断只复用质量维度和证据原则 | 缺场/章覆盖显式说明；不把 evaluator prompt 全量复制到判断入口，不拿单段评审冒充全章结论 |
+| 结果：ToolResult / adoption_state / projection refs / receipt | 后续判断消费已生成、待采纳、已采纳、投影状态的真实差别；任务完成须独立证据 | 普通文本、run completed、工具成功均不自动生成 goal_satisfied；M19/M20 验证刷新后的权威状态 |
+
+固定小说原则与协作策略归 L1，动态作品/任务材料按 VS-00I 放入对应层，L4 决策约束仍置尾。接受共同设计不等于全专业调用已经迁移；B27 CP1/CP3 必须逐调用点记录上述载体实际进入请求的位置、版本、缺失策略与真实消费者。
+
+### 11.5 六项补口的职责与通过边界
+
+问题的持久投影、空选项回传/恢复与各结果运行态以 UA-01 §2.2.2 A / §2.2.3a 为真源，B26 独立完成；无明确问题绑定的一般自由输入归 B31，不是 B26 前置。§11.4 解决纯文本记录，不放宽可执行判断的结构/来源。
+
+旧 novel_web “仅透传”范围由 ADR-0025 当前边界替代；I-CACHE-3 单调用/语义口径由 VS-00I §7 定义，旧 none 调用对断言仅历史。B27 §6.1 固化期望/阈值/分母，不能测后改合格线。文档交叉审查只说明规格一致，状态链、真实模型和真实 Tauri 仍需证据。

@@ -124,6 +124,16 @@ defmodule NovelApplication.ProviderActivityProjector do
     purpose = Keyword.get(opts, :purpose) || provider_purpose(run)
     payload = payload(event, run, output, purpose)
 
+    payload =
+      if Keyword.get(opts, :content_visibility) == :author and event.event_type == :chunk,
+        do:
+          Map.put(
+            payload,
+            :author_narrative_delta,
+            payload_string(event.payload, :author_narrative_delta)
+          ),
+        else: payload
+
     stage_sink.(%{
       event_type: :provider_progress,
       visibility: visibility(event, purpose, payload),
@@ -150,9 +160,8 @@ defmodule NovelApplication.ProviderActivityProjector do
   defp summary(%ProviderEvent{event_type: type}, _purpose, _output, _attrs),
     do: "provider_event:#{type}"
 
-  defp visibility(%ProviderEvent{event_type: :chunk}, purpose, %{author_narrative_delta: delta})
-       when purpose in [:author_reasoning, "author_reasoning"] and is_binary(delta) and
-              delta != "",
+  defp visibility(%ProviderEvent{event_type: :chunk}, _purpose, %{author_narrative_delta: delta})
+       when is_binary(delta) and delta != "",
        do: :author
 
   defp visibility(_event, _purpose, _payload), do: :developer

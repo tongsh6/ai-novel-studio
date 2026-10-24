@@ -15,6 +15,10 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     :ok
   end
 
+  @full_read_title "灰烬中的手印"
+  @first_page_anchor "开篇锚点：灰烬里按出一枚手印"
+  @last_page_anchor "末页独有锚点：井底浮现第七枚手印"
+
   @prose "陈九斤蹲在矿区的出气口边上，把今天的灵气账单摊开在膝盖上。宗门的抽成又涨到了七成。"
 
   test "explore 内部翼全回环：判断 explore → 真实检索观察（0 调用）→ 回环再判断（带观察）→ reply 收束" do
@@ -46,11 +50,11 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     snapshot1 = %{empty | stage_state: context_result.stage_state}
 
-    # 判断① 第一轮：explore（判断两段 2 调用；检索本身 0 调用）
+    # 判断① 第一轮：explore（单调用 1 次；检索本身 0 调用）
     assert {:execute, judgment_step1, _d1, _m1} = spec.next_step_planner.(run, 2, snapshot1)
     assert {:ok, explore_result} = judgment_step1.(run, 2, snapshot1)
 
-    assert explore_result.provider_call_count == 2
+    assert explore_result.provider_call_count == 1
     refute Map.has_key?(explore_result, :turn_result)
     assert [observation] = explore_result.stage_state.judgment_explorations
     assert observation.tool == "prose_search"
@@ -64,7 +68,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     # 第一轮判断 prompt 开放探索：目录段在场
     assert_received {:prompt, first_prompt}
     assert first_prompt =~ "## 探索目录"
-    assert first_prompt =~ "先探索"
+    assert first_prompt =~ "只读探索当前允许：true"
 
     # exploration_observed 阶段事件已发
     assert_received {:stage_event, %{event_type: :exploration_observed} = stage_event}
@@ -80,14 +84,14 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert {:execute, judgment_step2, _d2, _m2} = spec.next_step_planner.(run, 3, snapshot2)
     assert {:ok, reply_result} = judgment_step2.(run, 3, snapshot2)
 
-    # 第二轮判断叙事 prompt 携带观察段（检索结果字节进上下文；call2 无 context 段）
+    # 第二轮判断 prompt 携带观察段（检索结果字节进上下文）
     prompts = drain_prompts([first_prompt])
     observed_prompt = Enum.find(prompts, &String.contains?(&1, "## 探索观察"))
     assert observed_prompt
     assert observed_prompt =~ "灵气账单"
 
     # reply 收束：回复引用检索事实
-    assert reply_result.provider_call_count == 2
+    assert reply_result.provider_call_count == 1
     turn_result = reply_result.turn_result
     assert turn_result.assistant_message.text =~ "灵气账单"
     assert reply_result.stage_state.judgment_settled == "completed"
@@ -144,7 +148,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     assert_received {:prompt, prompt}
     refute prompt =~ "## 探索目录"
-    refute prompt =~ "先探索"
+    assert prompt =~ "只读探索当前允许：false"
     # 观察仍在上下文（已检索到的事实不丢）
     assert prompt =~ "## 探索观察"
     assert prompt =~ "观察二"
@@ -152,16 +156,12 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     assert result.stage_state.judgment_settled == "completed"
   end
 
-  test "explore_request 缺失按 S2 韧性降级停等（不伪造检索）" do
+  test "explore_request 缺失在整组校验阶段拒绝（不伪造检索或提问）" do
     work_id = seed_work_with_prose()
 
     provider_execution =
-      scripted_judgment_execution(fn prompt, _prompt_text ->
-        if NovelAgent.Provider.tool_call_prompt?(prompt) do
-          {:decision, %{"action" => "explore", "reason" => "missing_facts"}}
-        else
-          {:narrative, "我需要先检索，但我没有说清检索什么。"}
-        end
+      scripted_judgment_execution(fn _prompt, _prompt_text ->
+        {:decision, %{"action" => "explore", "reason" => "missing_facts"}}
       end)
 
     assert {:ok, spec} =
@@ -186,17 +186,10 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
     snapshot = %{empty | stage_state: context_result.stage_state}
     assert {:execute, judgment_step, _dj, _mj} = spec.next_step_planner.(run, 2, snapshot)
-    assert {:ok, result} = judgment_step.(run, 2, snapshot)
 
-    assert result.stage_state.judgment_settled == "awaiting_author"
-    assert result.turn_result.assistant_message.text =~ "检索"
+    assert {:error, {:judgment_protocol_violation, :exploration_not_available}} =
+             judgment_step.(run, 2, snapshot)
   end
-
-  # ── B24 CP2：续读回环、作者可见文案、progress signature ──
-
-  @full_read_title "灰烬中的手印"
-  @first_page_anchor "开篇锚点：灰烬里按出一枚手印"
-  @last_page_anchor "末页独有锚点：井底浮现第七枚手印"
 
   test "探索续读全回环：章节索引 ref → page1 → page2（JSON offset）→ reply 引用末页独有事实" do
     {work_id, chapter_ref} = seed_work_with_full_chapter()
@@ -406,39 +399,15 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   # 判断循环替身：首轮按作者 request 点名探索；观察页带【续读】footer 时**逐字抄
   # footer 的 JSON** 续读；两页观察都在时 reply 字节引用末页独有锚点（N-NARR）。
   defp full_read_execution(test_pid) do
-    scripted_judgment_execution(fn prompt, prompt_text ->
-      send(test_pid, {:prompt, prompt_text})
-      full_read_decision(NovelAgent.Provider.tool_call_prompt?(prompt), prompt_text)
+    scripted_judgment_execution(fn _prompt, text ->
+      send(test_pid, {:prompt, text})
+
+      case observed_pages(text) do
+        0 -> explore_chapter_decision("need_full_chapter", explore_ref_query(text))
+        1 -> explore_chapter_decision("need_remaining_pages", footer_query(text))
+        _ -> {:narrative, "我把全章两页都读完了，依据如下：\n\n" <> @last_page_anchor}
+      end
     end)
-  end
-
-  defp full_read_decision(true, prompt_text) do
-    cond do
-      String.contains?(prompt_text, "依据如下") ->
-        reply_decision()
-
-      observed_pages(prompt_text) >= 2 ->
-        reply_decision()
-
-      observed_pages(prompt_text) == 1 ->
-        explore_chapter_decision("need_remaining_pages", footer_query(prompt_text))
-
-      true ->
-        explore_chapter_decision("need_full_chapter", explore_ref_query(prompt_text))
-    end
-  end
-
-  defp full_read_decision(false, prompt_text) do
-    case observed_pages(prompt_text) do
-      0 ->
-        {:narrative, "要核对全章是否重复，我需要先读取整章正文。"}
-
-      1 ->
-        {:narrative, "第一页只覆盖到全章一部分，我继续读下一页。"}
-
-      _ ->
-        {:narrative, "我把全章两页都读完了，依据如下：\n\n" <> @last_page_anchor}
-    end
   end
 
   defp explore_chapter_decision(reason, query) do
@@ -451,11 +420,6 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   end
 
   defp observed_pages(prompt_text), do: length(String.split(prompt_text, "### 观察 ")) - 1
-
-  defp reply_decision do
-    {:decision,
-     %{"action" => "reply", "reason" => "context_sufficient", "reply_included" => true}}
-  end
 
   defp footer_query(prompt_text) do
     case Regex.run(~r/【续读】剩余 \d+ 字符；用 (\{"chapter_ref".*?\}) 继续。/u, prompt_text) do
@@ -473,17 +437,13 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
   end
 
   defp repeat_explore_execution(tool, query) do
-    scripted_judgment_execution(fn prompt, _prompt_text ->
-      if NovelAgent.Provider.tool_call_prompt?(prompt) do
-        {:decision,
-         %{
-           "action" => "explore",
-           "reason" => "missing_work_facts_require_retrieval",
-           "explore_request" => %{"tool" => tool, "query" => query}
-         }}
-      else
-        {:narrative, "我需要先检索作品事实。"}
-      end
+    scripted_judgment_execution(fn _prompt, _prompt_text ->
+      {:decision,
+       %{
+         "action" => "explore",
+         "reason" => "missing_work_facts_require_retrieval",
+         "explore_request" => %{"tool" => tool, "query" => query}
+       }}
     end)
   end
 
@@ -531,35 +491,21 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
   # ── 脚本执行 ──
 
-  # 两段式脚本：第一轮判断 explore（explore_request 点名 prose_search「灵气账单」）；
-  # prompt 带「探索观察」段后判 reply（叙事引用观察段中含引用词的行——字节透传）。
+  # 单调用判断循环脚本：首轮判断 explore（explore_request 点名 prose_search「灵气账单」）；
+  # prompt 带「探索观察」段后以整段 content 回复（叙事引用观察段中含引用词的行——字节透传）。
   defp explore_then_reply_execution(test_pid) do
-    scripted_judgment_execution(fn prompt, prompt_text ->
-      send(test_pid, {:prompt, prompt_text})
-      structural? = NovelAgent.Provider.tool_call_prompt?(prompt)
-      explored? = String.contains?(prompt_text, "## 探索观察")
+    scripted_judgment_execution(fn _prompt, text ->
+      send(test_pid, {:prompt, text})
 
-      # call2 不带 context 段：靠叙事回声（决策 prompt 内嵌 call1 叙事）分辨轮次
-      echoed_citation? = String.contains?(prompt_text, "依据如下")
-
-      cond do
-        structural? and echoed_citation? ->
-          {:decision,
-           %{"action" => "reply", "reason" => "context_sufficient", "reply_included" => true}}
-
-        structural? ->
-          {:decision,
-           %{
-             "action" => "explore",
-             "reason" => "missing_work_facts_require_retrieval",
-             "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
-           }}
-
-        explored? ->
-          {:narrative, "我检索了正文，依据如下：\n\n#{cited_observation(prompt_text)}"}
-
-        true ->
-          {:narrative, "回答这个问题需要正文事实；我先检索「灵气账单」相关段落。"}
+      if String.contains?(text, "## 探索观察") do
+        {:narrative, "我检索了正文，依据如下：\n\n#{cited_observation(text)}"}
+      else
+        {:decision,
+         %{
+           "action" => "explore",
+           "reason" => "missing_work_facts_require_retrieval",
+           "explore_request" => %{"tool" => "prose_search", "query" => "灵气账单"}
+         }}
       end
     end)
   end
@@ -592,15 +538,20 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
           {:decision, arguments} ->
             {:ok,
              %{
-               content: "",
+               content: "先核对作品事实。",
                tool_calls: [
                  %{
                    "name" => "judgment_decision",
-                   "arguments" => Map.put_new(arguments, "record_only", false)
+                   "arguments" =>
+                     Map.put_new(
+                       Map.drop(arguments, ["reply_included", "frame_type", "record_only"]),
+                       "dialogue_goal",
+                       "核对作品事实"
+                     )
                  }
                ],
                provider_output:
-                 provider_output("pcall-dec-#{System.unique_integer([:positive])}", "")
+                 provider_output("pcall-dec-#{System.unique_integer([:positive])}", "先核对作品事实。")
              }}
         end
       end

@@ -1,9 +1,7 @@
 defmodule NovelApplication.ContextGroundingTest do
   use ExUnit.Case, async: true
 
-  alias NovelAgent.Provider.Execution
   alias NovelApplication.ContextAssembler
-  alias NovelApplication.DialogueGateway
   alias NovelDomain.DialogueContext
 
   # Stub context fetcher that returns a realistic novel context
@@ -21,8 +19,6 @@ defmodule NovelApplication.ContextGroundingTest do
   end
 
   defp empty_fetcher(_ws_id), do: {:ok, nil, nil, nil, nil}
-
-  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   # ── Context Assembly ──────────────────────────
 
@@ -221,34 +217,4 @@ defmodule NovelApplication.ContextGroundingTest do
     end
   end
 
-  # ── Grounded vs Ungrounded Turn ──────────────
-
-  defp trace_summary_has_no_context(trace) do
-    trace.no_tool_reason != nil
-  end
-
-  defp event_order_indicates_empty_context(trace) do
-    :dialogue_context_empty in trace.event_order
-  end
-
-  defp quality_fetcher(_ws_id, _author_text) do
-    {:ok,
-     %{
-       "title" => "灵源纪元",
-       "genre" => "赛博修仙",
-       "core_selling_point" => "林烬追查妹妹林瑶留下的矿区线索",
-       "target_reader" => "喜欢高压逆转和悬疑成长线的读者",
-       "tone_preference" => "克制、悬疑、带希望感",
-       "current_chapter" => "第三章：霓虹地牢",
-       "protagonist" => "林烬"
-     }, nil, "林瑶失踪指向灵源矿区，林烬必须追查线索。", nil, ["第三章：霓虹地牢"],
-     [
-       %{
-         title: "第三章：霓虹地牢",
-         seq: 3,
-         summary: "林烬轻松击败守卫，但矿区代价还未显现。",
-         has_prose: true
-       }
-     ]}
-  end
 end

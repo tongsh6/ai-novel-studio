@@ -56,7 +56,7 @@
 | `d3-summary-lazy-repair.yml` | 摘要异步失败不阻采纳→读取侧惰性补做→补做摘要回流后续写作 prompt（D3） |
 | `d4-planner-transient-retry.yml` | 计划起草首调瞬态失败→单次原样重试成功→retry 事件留痕、run 正常完成（D4） |
 | `d6-purpose-model-routing.yml` | 按用途分模型：writer 覆盖仅命中写作调用、其余跟随全局、按用途设置区真实可见（D6） |
-| `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun（判断纪元 reply 直通；机械准备 1 步 + 判断① 2 调用） |
+| `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun（判断纪元 reply 直通；机械准备 1 步 + 判断① 1 次 auto 调用） |
 | `agentic-loop-plan-replan-reasoning.yml` | ADR-0023 D6 短计划耗尽后判断②续行修订计划并继续完成（判断纪元 prose 基座） |
 | `agentic-loop-no-deviation-direct.yml` | 判断纪元无偏离直通：判断① reply、2 步/2 调用、不消费 replan |
 | `agent-plan-native-tool-calling-protocol.yml` | ADR-0023 CP4 AgentPlan 原生 tool calling（判断纪元 prose 基座 + activity API + native names） |
@@ -200,3 +200,9 @@
 | `au13-revise-prose-sibling.yml` | 全书审读 revise_prose 处置产出 sibling 修订候选、原稿保留 |
 | `au10-workbench-render-stability.yml` | 工作台渲染稳定性与作品切换原子性 |
 | `b17-writer-timeout-steer.yml` | writer timeout 真实原因呈现与 scoped steer 同 run 恢复 |
+
+- [b26-author-question-roundtrip.yml](b26-author-question-roundtrip.yml)：B26 真实 Tauri 有选项/空选项/自由回复与刷新、原话和运行绑定回归。
+
+- [b26-business-output-roundtrip.yml](b26-business-output-roundtrip.yml)：B26 原生方向、原文登记/去重/放弃/采纳、能力缺口与续行问题，外部系统 UI + wire/持久化对账。
+
+- [judgment-plan-multi-step.yml](judgment-plan-multi-step.yml)（`native_protocol_matrix`）：B26 计划矩阵原生三路径（同批计划/另行起草/核对后修订）；外部驱动 `scripts/macos_cgevent_plan_matrix_driver.swift`，证据检查 `scripts/native_plan_evidence_check.mjs`；证据 `artifacts/slice-verify/judgment-plan-multi-step-tauri-native/summary.json`。

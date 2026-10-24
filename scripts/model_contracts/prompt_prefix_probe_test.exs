@@ -12,34 +12,28 @@ defmodule ModelContracts.PromptPrefixProbeTest do
     assert Probe.cache_status(%{"cache_read_input_tokens" => 32}) == "hit"
   end
 
-  test "真实说明必须进入 call2；重复 call1 和隐藏重试不能冒充调用对" do
+  test "生产单调用必须 auto、同响应字节绑定且如实计数" do
     first =
       row(
-        %{messages: [%{content: "call1"}], stream: true, tool_choice: "none"},
+        %{messages: [%{content: "作者输入"}], stream: true, tool_choice: "auto"},
         nil,
         "data: " <> Jason.encode!(%{choices: [%{delta: %{content: "模型实际说明"}}]}) <> "\n\n"
       )
 
-    second =
-      row(
-        %{
-          messages: [%{content: "说明：模型实际说明\n决策"}],
-          stream: false,
-          tool_choice: %{type: "function", function: %{name: "judgment_decision"}}
-        },
-        %{"usage" => %{"prompt_tokens_details" => %{"cached_tokens" => 64}}}
-      )
+    result = {:ok, %{provider_call_count: 1, action: "reply", narrative: "模型实际说明"}}
+    assert Probe.evaluate_single("single", [first], result).protocol_ok
+    refute Probe.evaluate_single("single", [first, first], result).protocol_ok
 
-    result = {:ok, %{provider_call_count: 2, action: "execute"}}
-    assert Probe.evaluate_pair("pair", [first, second], result).protocol_ok
-    refute Probe.evaluate_pair("pair", [first, first], result).protocol_ok
-    auto = put_in(first, [:request, :tool_choice], "auto")
-    refute Probe.evaluate_pair("pair", [auto, second], result).protocol_ok
+    refute Probe.evaluate_single(
+             "single",
+             [put_in(first, [:request, :tool_choice], "none")],
+             result
+           ).protocol_ok
 
-    refute Probe.evaluate_pair(
-             "pair",
-             [first, second],
-             {:ok, %{provider_call_count: 3, action: "execute"}}
+    refute Probe.evaluate_single(
+             "single",
+             [first],
+             {:ok, %{provider_call_count: 1, action: "reply", narrative: "伪造"}}
            ).protocol_ok
   end
 
@@ -57,33 +51,36 @@ defmodule ModelContracts.PromptPrefixProbeTest do
     assert Probe.summarize_call(nonstream).cache_status == "unobservable"
   end
 
-  test "长说明消费生产 call2 的截断规则，替换说明不能通过" do
-    input = Probe.judgment_input("long-narrative-test")
-    narrative = String.duplicate("这是模型当次产生的长判断说明。", 30)
+  test "空 content 的作者叙事必须来自当次真实工具字段，纠错不借旧字节" do
+    request = %{stream: false, tool_choice: %{type: "auto"}}
 
-    first =
-      row(
-        %{stream: true, tool_choice: "none"},
-        nil,
-        "data: " <> Jason.encode!(%{choices: [%{delta: %{content: narrative}}]}) <> "\n\n"
-      )
-
-    prompt = NovelApplication.JudgmentProtocol.decision_prompt(input, narrative)
-
-    second =
-      row(
+    response = %{
+      "choices" => [
         %{
-          messages: prompt.messages,
-          stream: false,
-          tool_choice: %{type: "tool", name: "judgment_decision"}
-        },
-        %{}
-      )
+          "message" => %{
+            "tool_calls" => [
+              %{
+                "function" => %{
+                  "name" => "ask_author",
+                  "arguments" => Jason.encode!(%{question: "选择哪种结尾？", options: []})
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
 
-    result = {:ok, %{provider_call_count: 2, action: "execute"}}
-    assert Probe.evaluate_pair("pair", [first, second], result, input).protocol_ok
-    fake = row(%{messages: [%{role: "user", content: "伪造说明"}], stream: false}, %{})
-    refute Probe.evaluate_pair("pair", [first, fake], result, input).protocol_ok
+    good = row(request, response)
+    result = {:ok, %{provider_call_count: 1, action: "await_author", narrative: "选择哪种结尾？"}}
+    assert Probe.evaluate_single("single", [good], result).protocol_ok
+    final = row(request, %{"choices" => [%{"message" => %{"content" => "纠正后的内容"}}]})
+
+    refute Probe.evaluate_single(
+             "retry",
+             [good, final],
+             {:ok, %{provider_call_count: 2, action: "reply", narrative: "选择哪种结尾？"}}
+           ).protocol_ok
   end
 
   test "Provider 选择来自注册集合，未知名称和替身不能静默运行" do

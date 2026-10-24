@@ -26,7 +26,6 @@ defmodule NovelApplication.DialoguePlanningService do
   alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.ChapterListBudget
   alias NovelApplication.ContextAssembler
-  alias NovelApplication.DialogueGateway
   alias NovelApplication.ExplorationService
   alias NovelApplication.JudgmentProtocol
   alias NovelApplication.TraceWriter
@@ -613,7 +612,7 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  # 判断①：两段式（call1 叙事流式 + call2 judgment_decision），随后按 action 分发。
+  # B26：单调用响应整组校验后，按明确操作派发。
   defp judgment_next_step(run, sequence, provider_execution, input, state) do
     with {:ok, decision} <-
            judgment_mech_decision(run, sequence, "judgment", "判断本轮形态。", [
@@ -646,7 +645,6 @@ defmodule NovelApplication.DialoguePlanningService do
       result =
         with {:ok, judgment} <-
                JudgmentProtocol.request_judgment(provider_execution, snapshot, protocol_input),
-             :ok <- JudgmentProtocol.validate_output_boundary(judgment),
              :ok <-
                TurnInteractionService.validate_author_registration(
                  judgment,
@@ -677,7 +675,10 @@ defmodule NovelApplication.DialoguePlanningService do
 
     %{
       author_text: author_text,
-      # B24 CP2（call2 观察重复渲染修复）：探索观察只在 context_block 渲染一次；
+      source_input_ref: TurnInteractionService.input_ref(run),
+      supplied_context_refs: Enum.map(context.context_refs, & &1.context_ref),
+      observations: explorations,
+      # B24 CP2（历史两段式时期修复，单调用后仍成立）：探索观察只在 context_block 渲染一次；
       # 这里只剩消息处置上下文（pending/resolved/registered sources）。
       author_content_context: TurnInteractionService.context_section(context.interaction_state),
       context_block:
@@ -686,6 +687,7 @@ defmodule NovelApplication.DialoguePlanningService do
           adopted_content_targets_section(context),
       options:
         [
+          plan_run: %{run | profile_ref: "judgment_plan_v1"},
           capabilities:
             @judgment_capabilities ++ NovelApplication.PendingArtifactWorkflow.capabilities(),
           pending_artifact_targets: NovelApplication.PendingArtifactWorkflow.targets(context),
@@ -718,8 +720,14 @@ defmodule NovelApplication.DialoguePlanningService do
     })
   end
 
-  defp dispatch_judgment(%{action: "reply"} = judgment, run, sequence, input, context),
-    do: finalize_judgment_reply(judgment, run, sequence, input, context, :completed)
+  defp dispatch_judgment(%{action: action} = judgment, run, sequence, input, context)
+       when action in [
+              "reply",
+              "creative_directions",
+              "author_content_registration",
+              "capability_gap"
+            ],
+       do: finalize_judgment_reply(judgment, run, sequence, input, context, :completed)
 
   defp dispatch_judgment(%{action: "await_author"} = judgment, run, sequence, input, context),
     do: finalize_judgment_reply(judgment, run, sequence, input, context, :awaiting_author)
@@ -814,9 +822,13 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   # reply / await_author 终结：判断结构机械转换 DialogueFrame（frame 语义并入判断①），
-  # 下游 Trace / TurnResultBuilder / 持久化副作用沿用零改动；正文=call1 输出（N-NARR 字节绑定）。
+  # Trace / TurnResultBuilder 保持同源；结果与 trace 由运行时同事务提交，正文来自同一有效响应。
   defp finalize_judgment_reply(judgment, run, sequence, input, context, settle) do
-    turn_id = map_get(input, :turn_id) || run.parent_turn_ref
+    turn_id =
+      if judgment.action == "await_author",
+        do: NovelApplication.AuthorQuestion.turn_id(run, judgment),
+        else: TurnInteractionService.input_ref(run)
+
     ws_id = map_get(input, :workspace_id) || run.workspace_id
     frame = judgment_frame(judgment, turn_id, ws_id, context)
     candidates = judgment_candidates(judgment, frame.frame_id)
@@ -829,16 +841,14 @@ defmodule NovelApplication.DialoguePlanningService do
       |> TurnResultBuilder.build(trace_summary, candidates)
       |> scope_judgment_turn_result(input, run)
       |> AgentFinalizer.attach_run_summary(judgment_run_summary(run, settle))
+      |> Map.put(
+        :outcome,
+        if(judgment.action == "capability_gap", do: "goal_unfulfilled", else: judgment.action)
+      )
+      |> maybe_attach_question(judgment, run)
 
     with {:ok, turn_result} <-
            maybe_attach_author_content(turn_result, judgment, input, run, context) do
-      DialogueGateway.persist_turn_trace(
-        {:ok, turn_result, trace, candidates, context},
-        ws_id,
-        map_get(input, :session_id),
-        map_get(input, :trace_persister)
-      )
-
       {:ok,
        %{
          step: judgment_agent_step(run, sequence, "判断并生成本轮回应"),
@@ -849,12 +859,18 @@ defmodule NovelApplication.DialoguePlanningService do
            })
          ],
          turn_result: turn_result,
+         decision_trace: trace,
          stage_state: %{judgment_settled: settle_state(settle)},
          provider_call_count: judgment.provider_call_count,
          progress_signature: "#{run.run_id}:judgment:#{turn_id}"
        }}
     end
   end
+
+  defp maybe_attach_question(result, %{action: "await_author"} = judgment, run),
+    do: NovelApplication.AuthorQuestion.attach(result, judgment, run)
+
+  defp maybe_attach_question(result, _, _), do: result
 
   defp settle_state(:completed), do: "completed"
   defp settle_state(:awaiting_author), do: "awaiting_author"
@@ -863,7 +879,7 @@ defmodule NovelApplication.DialoguePlanningService do
   # 时，把作者消息字节机械物化为待采纳 world_setting 候选——写入大门（作者采纳）
   # 不再只放模型的东西。来源缺失或空文本诚实失败，不用存档指令替代历史原文。
   defp maybe_attach_author_content(turn_result, judgment, input, run, context) do
-    if judgment[:author_content_registration] == true do
+    if judgment.action == "author_content_registration" do
       current_ref = TurnInteractionService.input_ref(run)
 
       input_bytes =
@@ -888,6 +904,13 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp attach_author_source(turn_result, context, source_ref, text) do
+    turn_result =
+      Map.update!(
+        turn_result,
+        :trace_summary,
+        &Map.put(&1, :registration_source_ref, "author_input:#{source_ref}")
+      )
+
     if TurnInteractionService.materialized_source?(context, source_ref) do
       {:ok, turn_result}
     else
@@ -923,19 +946,6 @@ defmodule NovelApplication.DialoguePlanningService do
   # 不见 settle 会再入判断步。explore_request 缺失（模型选了 explore 但没点名工具/
   # 查询）按 S2 韧性降级停等，不伪造检索。工具失败记为观察（诚实呈现，下一轮判断
   # 自行换面或停等），不硬失败整个 run。
-  defp judgment_explore_result(
-         %{explore_request: nil} = judgment,
-         run,
-         sequence,
-         input,
-         context,
-         _snapshot,
-         _explorations
-       ) do
-    degraded = %{judgment | reason: "explore_request_missing"}
-    finalize_judgment_reply(degraded, run, sequence, input, context, :awaiting_author)
-  end
-
   defp judgment_explore_result(judgment, run, sequence, input, _context, snapshot, explorations) do
     %{tool: tool, query: query} = judgment.explore_request
     work_id = map_get(input, :work_id) || run.work_id || run.workspace_id
@@ -1018,7 +1028,7 @@ defmodule NovelApplication.DialoguePlanningService do
     log_judgment_decided(judgment, "judgment_" <> judgment.action, 0)
     selection = judgment_selection(judgment, profile)
 
-    with {:ok, target_plan} <- agent_run_agent_plan(run.run_id, profile) do
+    with {:ok, target_plan, inline_meta} <- selected_judgment_plan(run, profile, judgment) do
       {:ok,
        %{
          step: judgment_agent_step(run, sequence, "判断进入#{selection.profile_ref}"),
@@ -1037,6 +1047,7 @@ defmodule NovelApplication.DialoguePlanningService do
          ],
          stage_state: %{
            routed_profile: Atom.to_string(profile),
+           inline_plan_meta: inline_meta,
            routed_profile_ref: selection.profile_ref,
            profile_selection: selection
          },
@@ -1053,6 +1064,16 @@ defmodule NovelApplication.DialoguePlanningService do
          progress_signature: "#{run.run_id}:judgment_switch:#{selection.profile_ref}"
        }}
     end
+  end
+
+  defp selected_judgment_plan(run, :judgment_plan, %{plan_result: result}) when is_map(result) do
+    planned_run = %{run | profile_ref: profile_ref(:judgment_plan)}
+
+    NovelApplication.AgenticPlanDraftPlanner.plan_from_result(planned_run, result)
+  end
+
+  defp selected_judgment_plan(run, profile, _judgment) do
+    with {:ok, plan} <- agent_run_agent_plan(run.run_id, profile), do: {:ok, plan, nil}
   end
 
   defp judgment_selection(judgment, profile) do
@@ -1076,10 +1097,6 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
-  # 只有模型明确选择创作探索才可产方向；不能由候选存在反推作者意图。
-  defp judgment_exploration?(judgment),
-    do: judgment.frame_type == "creative_exploration" and judgment[:record_only] != true
-
   # 判断结构 → DialogueFrame 机械转换（非预制创作决策：全部字段来自模型判断输出）。
   defp judgment_frame(judgment, turn_id, ws_id, %DialogueContext{} = context) do
     frame_type = reply_frame_type(judgment.frame_type)
@@ -1088,24 +1105,40 @@ defmodule NovelApplication.DialoguePlanningService do
 
     %DialogueFrame{
       schema_version: "3.0-draft",
-      frame_id: NovelFoundation.ID.unique("frame"),
+      frame_id:
+        "frame_" <>
+          NovelApplication.AuthorQuestion.hash(
+            {turn_id, judgment.narrative_source.provider_call_ref}
+          ),
       turn_id: turn_id,
       workspace_id: ws_id,
       primary: true,
       frame_type: frame_type,
       source_refs: %{
-        author_input_ref: "author_input:#{turn_id}",
+        author_input_ref: "author_input:#{judgment.reply_record.source_input_ref || turn_id}",
         dialogue_context_ref: context_ref
       },
-      dialogue_goal: %{summary: judgment.dialogue_goal || "回应作者本轮输入"},
-      tool_need: %{needs_tool: false, reason_code: reply_reason_code(frame_type)},
+      dialogue_goal: %{summary: judgment.dialogue_goal || judgment.author_input},
+      tool_need: %{
+        needs_tool: false,
+        reason_code:
+          if(judgment.action == "reply",
+            do: :no_tool_requested,
+            else: reply_reason_code(frame_type)
+          )
+      },
       execution_readiness: :not_applicable,
       author_visible_draft: %{message: judgment.narrative},
       evidence_summary: %{
-        judgment: true,
         action: judgment.action,
-        record_only: judgment.record_only,
-        context_used: true
+        frame_origin:
+          if(judgment.action == "reply", do: "application_display_default", else: "model_tool"),
+        goal_origin: if(judgment.dialogue_goal, do: "model_tool", else: "author_input"),
+        model_interpretation_status: judgment.model_interpretation_status,
+        model_interpretation:
+          if(judgment.action == "reply", do: nil, else: %{goal: judgment.dialogue_goal}),
+        reply_record: judgment.reply_record,
+        author_narrative_source: judgment.narrative_source
       },
       uncertainty: []
     }
@@ -1127,14 +1160,15 @@ defmodule NovelApplication.DialoguePlanningService do
   # 候选随判断结构携带（S2 保全）：字节绑定 provider tool arguments（I1/I3 语义不变）。
   # 判定探索但有效候选为空（坏结构/空标题）→ 应用兜底候选（与 frame 路径同一份，
   # Planner.fallback_candidates——S2 韧性语义平移）。
-  defp judgment_candidates(%{candidate_directions: directions} = judgment, frame_id) do
+  defp judgment_candidates(%{candidate_directions: directions}, frame_id) do
     candidates =
       directions
-      |> Enum.map(fn c ->
+      |> Enum.with_index()
+      |> Enum.map(fn {c, index} ->
         %CandidateDirection{
-          direction_id: NovelFoundation.ID.unique("dir"),
-          title: c |> map_get(:title) |> to_string() |> String.trim(),
-          pitch: c |> map_get(:pitch) |> to_string() |> String.trim(),
+          direction_id: "dir_" <> NovelApplication.AuthorQuestion.hash({frame_id, index}),
+          title: map_get(c, :title),
+          pitch: map_get(c, :pitch),
           tone_tags: map_get(c, :tone_tags) || [],
           source_frame_ref: frame_id,
           risk_hint: :low,
@@ -1143,11 +1177,7 @@ defmodule NovelApplication.DialoguePlanningService do
       end)
       |> Enum.filter(&(&1.title != "" and &1.pitch != ""))
 
-    if candidates == [] and judgment_exploration?(judgment) do
-      NovelApplication.Planner.fallback_candidates(frame_id)
-    else
-      candidates
-    end
+    candidates
   end
 
   defp scope_judgment_turn_result(turn_result, input, run) do
@@ -1158,7 +1188,7 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   # 判断①的 L2/L3 上下文段（机械准备渲染）。L1（角色句 + 能力目录）由
-  # `JudgmentProtocol` 的公共前缀统一产出，使 call1/call2 与连续两轮共享 L0–L1；
+  # `JudgmentProtocol` 的公共前缀统一产出，使同 profile 连续两轮共享 L0–L1；
   # 章节段拆为 L2 稳定列表（不消费作者输入）与 L3 作者点名补充。
   # 探针与生产共用同一真源（MBC 的上下文必须是被测代码真实产出的字节）。
   @doc false
@@ -1188,9 +1218,9 @@ defmodule NovelApplication.DialoguePlanningService do
   defp judgment_work_section(_context),
     do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
 
-  # T2a（call2 病灶结构性收口）：章节段有界投影——超限时首章+最近 N。
+  # T2a（长上下文病灶结构性收口，历史两段式时期发现）：章节段有界投影——超限时首章+最近 N。
   # CP-C（VS-00I §4）：稳定列表不消费作者输入（L2）；作者点名章在 L3 单独补充，
-  # 保证连续两轮的 L0–L2 字节恒定；target_chapter 精确复制契约两段都适用。
+  # 保证连续两轮的 L0–L2 字节恒定；target_chapter 精确复制契约在判断与计划调用均适用。
   # Order 7-④（M2 实锤：标头"已写章节共17章"实际12章有正文）：标头区分已写/
   # 计划中，未写正文的章标注「（计划中）」——判断器对写作进度的认知不再被计划章污染。
   defp judgment_stable_chapters_section(
@@ -1310,7 +1340,7 @@ defmodule NovelApplication.DialoguePlanningService do
         capability: judgment.capability,
         reason: judgment.reason,
         candidate_count: length(judgment.candidate_directions),
-        record_only: judgment.record_only,
+        model_interpretation_status: judgment.model_interpretation_status,
         author_narrative: judgment.narrative,
         author_narrative_source: judgment.narrative_source
       },
@@ -1481,8 +1511,8 @@ defmodule NovelApplication.DialoguePlanningService do
   defp routed_profile_budget(text, profile, input) do
     base = run_budget(text, profile, input)
 
-    # +2 = 判断循环入场开销：机械准备 1 step（0 调用）+ 判断① 1 step（两段式 2 调用）；
-    # 两段式规划开销已在 run_budget/3 补足
+    # +2 = 判断循环入场开销上界：机械准备 1 step（0 调用）+ 判断①单调用 1 次 + 一次有界纠错余量；
+    # 计划/续行额外调用由 plan_overhead_budget/1 统一补足（上界 backstop 不是配额）。
     %{
       base
       | max_steps: base.max_steps + 2,
@@ -1805,9 +1835,9 @@ defmodule NovelApplication.DialoguePlanningService do
     end
   end
 
-  # 判断②续行余量（ADR-0025 CP3）：起草两段式多 1 次 reasoning 调用；模型计划修订
-  # 已被判断②取代——每次续行 = 判断②两段 2 + 续行重产出步（占 1 步 1 工具、prose
-  # 双调用上界 2），三维各按 max_replans 补足 backstop 余量（上限是兜底不是配额）。
+  # 判断②续行余量（ADR-0025 CP3）：续行判断为单调用；模型计划修订已被判断②取代——
+  # 每次续行 = 判断②单调用 1 + 续行重产出步（占 1 步 1 工具、prose 双调用上界 2），
+  # 三维各按 max_replans 补足 backstop 余量（上限是兜底不是配额，不按最小调用裁剪）。
   # 旧的 max_steps: 1 指纹分支保留为防御性代码，但不再由文本触发；
   # 结构化作者预算在 run_budget/3 之后通过 author_max_steps 进入。
   defp plan_overhead_budget(%{max_steps: 1} = base) do
@@ -1835,10 +1865,10 @@ defmodule NovelApplication.DialoguePlanningService do
         run_budget(text, :readonly_batch_context)
       ]
 
-    # +2 = 判断循环入场开销：机械准备 1 step（0 调用）+ 判断①两段式 2 调用；
-    # 两段式规划开销由 run_budget/3 的 plan_overhead_budget 统一补足。
+    # +2 = 判断循环入场开销上界：机械准备 1 step（0 调用）+ 判断①单调用 1 次 + 一次有界纠错余量；
+    # 计划/续行额外调用由 run_budget/3 的 plan_overhead_budget/1 统一补足。
     # CP5a 探索余量（上界 backstop 非配额）：每回合 = 探索步 1 step（0 调用）+
-    # 再判断 1 step 2 调用，@max_explore_rounds 回合封顶。
+    # 再判断 1 step（单调用，含纠错余量），@max_explore_rounds 回合封顶。
     explore_allowance = @max_explore_rounds * 2
 
     %{

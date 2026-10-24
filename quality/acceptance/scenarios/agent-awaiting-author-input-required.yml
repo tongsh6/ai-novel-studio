@@ -25,13 +25,15 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: an ambiguous request that requires an expansion direction
-  - wait_for: awaiting_author state, TurnResult, and the required-input control dock
-  - verify: no bare 继续 action, the reply-semantics required-input hint, the reply/补充 placeholder, and a disabled empty 发送调整
-  - send: a concrete expansion direction through "发送调整"
+  - wait_for: awaiting_author state and the independent author_question TurnResult
+  - verify: no bare 继续 action and a hint directing replies to the source question
+  - click: 回复此问题
+  - verify: empty and whitespace-only input keeps 发送回复 disabled and sends no request
+  - send: a concrete expansion direction through "发送回复"
   - wait_for: plan_adjusted and run_resumed (resume_after_steer) for the same run_id
   - wait_for: completed state and the final TurnResult for the same run_id
   - reload: the workbench page
-  - verify: the steer message and the awaiting prompt are each restored exactly once without a failure bubble
+  - verify: the question is answered once, the reply is restored once on its original run, and reply controls are closed
 
 evidence:
   required:
@@ -43,19 +45,20 @@ evidence:
 
 assertions:
   ui:
-    - awaiting_author dock shows the required-input hint instead of a bare 继续 action
-    - the required-input hint reads 等待你的回复：在下方输入框补充方向后发送，任务才会继续。
-    - main input carries the awaiting placeholder 在下方输入框回复或补充，发送后任务继续…
-    - the awaiting status label reads 等待你回复 and the badge reads 1 个任务等待回复
-    - empty input keeps the 发送调整 action disabled
-    - reloaded transcript shows the steer message exactly once and no 操作失败，请重试。
+    - explicit question has no bare 继续 action
+    - the hint reads 请在问题中选择或回复；下方输入会开始新的讨论。
+    - 回复此问题 opens the labelled 对此问题的补充 composer
+    - empty and whitespace-only input keeps 发送回复 disabled
+    - reloaded transcript shows the reply and answered question without active reply controls
   network:
-    - concrete adjustment is sent as agent_command steer bound to the active run_id
+    - concrete reply is author_action author_choice bound to question_ref, source_turn_ref and the original run_id
+    - blank replies send no author_action, agent_command or user_message
+    - accepted reply increments goal version exactly once
     - plan_adjusted and run_resumed with resume_after_steer are broadcast for the same run_id
     - the same run_id reaches completed with a final TurnResult
   data:
-    - the steer text persists as one user interaction and is restored once after reload
-    - the awaiting prompt appears exactly once after reload
+    - exact reply text persists once under its immutable submission_id and original run_id
+    - one question_ref is answered after reload; audit history may retain the earlier narration
     - no second AgentRun is created by the adjustment
 
 anti_hooks:

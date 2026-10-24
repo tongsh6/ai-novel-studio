@@ -3,8 +3,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelAgent.Provider.Result
-  alias NovelApplication.AgentRunFlows.ConversationTurn
   alias NovelApplication.AgentRunFlows.ProviderProgress
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunService
@@ -13,7 +11,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
-  alias NovelPersistence.{AgentRunLog, LongRunTaskLog, ProviderRunLog, Repo}
+  alias NovelPersistence.{AgentRunLog, LongRunTaskLog, Repo}
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -1801,7 +1799,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
-    assert run.consumed_budget.provider_calls == 3
+    assert run.consumed_budget.provider_calls == 2
     assert run.pending_artifact_refs == []
   end
 
@@ -1879,7 +1877,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
-    assert run.consumed_budget.provider_calls == 2
+    assert run.consumed_budget.provider_calls == 1
     assert run.consumed_budget.tool_calls == 4
     assert run.pending_artifact_refs == []
   end
@@ -2108,127 +2106,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     end
   end
 
-  defp provider_activity_execution(frame_json) when is_binary(frame_json) do
-    %Execution{
-      purpose: :conversation,
-      execute_fn: fn prompt ->
-        cond do
-          # 两段式第二段：强制 tool call 的结构化调用（:planner purpose 独立 refs）
-          agent_plan_draft_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
-            provider_activity_success_result(prompt, :planner, conversation_plan_draft())
-
-          # 两段式第一段：无 tools 的流式 reasoning 调用
-          agent_plan_draft_prompt?(prompt) ->
-            provider_activity_success_result(
-              prompt,
-              :author_reasoning,
-              conversation_plan_draft()
-            )
-
-          true ->
-            provider_activity_success_result(prompt, :conversation, frame_json)
-        end
-      end
-    }
-  end
-
-  defp provider_activity_execution(:conversation_error) do
-    %Execution{
-      purpose: :conversation,
-      execute_fn: fn prompt ->
-        cond do
-          agent_plan_draft_prompt?(prompt) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
-            provider_activity_success_result(prompt, :planner, conversation_plan_draft())
-
-          agent_plan_draft_prompt?(prompt) ->
-            provider_activity_success_result(
-              prompt,
-              :author_reasoning,
-              conversation_plan_draft()
-            )
-
-          true ->
-            provider_activity_error_result()
-        end
-      end
-    }
-  end
-
-  defp provider_activity_success_result(_prompt, purpose, result) do
-    {content, tool_calls} = provider_result_parts(result)
-    {run_ref, call_ref} = provider_refs_for_purpose(purpose)
-
-    {:ok, provider_run} =
-      ProviderRun.new(%{
-        provider_run_id: run_ref,
-        provider_call_ref: call_ref,
-        purpose: purpose,
-        execution_mode: :event_stream,
-        status: :completed,
-        provider_id: "stub",
-        model: "stub-model"
-      })
-
-    {:ok, started_event} =
-      ProviderEvent.new(%{
-        event_id: "pevt-#{purpose}-started",
-        provider_run_ref: run_ref,
-        sequence: 1,
-        event_type: :started,
-        summary: "provider started",
-        refs: [call_ref],
-        payload: %{provider: "stub"}
-      })
-
-    {:ok, final_event} =
-      ProviderEvent.new(%{
-        event_id: "pevt-#{purpose}-final",
-        provider_run_ref: run_ref,
-        sequence: 3,
-        event_type: :final_output,
-        visibility: :developer,
-        summary: "provider final output",
-        refs: [call_ref],
-        payload: %{raw_prompt: "must not be projected"}
-      })
-
-    {:ok, chunk_event} =
-      ProviderEvent.new(%{
-        event_id: "pevt-#{purpose}-chunk",
-        provider_run_ref: run_ref,
-        sequence: 2,
-        event_type: :chunk,
-        summary: "provider chunk",
-        refs: [call_ref],
-        payload: %{
-          output_type: :text,
-          chunk_index: 1,
-          content_length: 7,
-          accumulated_content_length: 7,
-          author_narrative_delta: author_reasoning_delta(purpose, content)
-        }
-      })
-
-    {:ok, output} =
-      ProviderOutput.new(%{
-        provider_run_ref: run_ref,
-        provider_call_ref: call_ref,
-        status: :ok,
-        output_type: :text,
-        content: provider_output_content(content, tool_calls),
-        usage: %{total_tokens: 12},
-        refs: [call_ref]
-      })
-
-    {:ok,
-     %{
-       provider_run: provider_run,
-       events: [started_event, chunk_event, final_event],
-       output: output,
-       result: Result.new(content, nil, tool_calls: tool_calls)
-     }}
-  end
-
   defp provider_activity_error_result do
     raw_failure = "raw provider failure payload must not be projected"
 
@@ -2352,25 +2229,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
      }}
   end
 
-  defp provider_refs_for_purpose(:author_reasoning),
-    do: {"prun-author-reasoning", "pcall-author-reasoning"}
-
-  defp provider_refs_for_purpose(:planner), do: {"prun-planner", "pcall-planner"}
-
-  defp provider_refs_for_purpose(:conversation), do: {"prun-conversation", "pcall-conversation"}
-
-  defp author_reasoning_delta(:author_reasoning, content) when is_binary(content) do
-    content
-    |> String.split("{", parts: 2)
-    |> hd()
-    |> case do
-      "" -> nil
-      delta -> delta
-    end
-  end
-
-  defp author_reasoning_delta(_purpose, _content), do: nil
-
   defp fixed_json_provider(items) do
     json = Jason.encode!(items)
 
@@ -2393,9 +2251,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   defp agent_plan_draft_prompt?(prompt),
     do: prompt_contains?(prompt, "AgentRun 计划起草器")
-
-  defp agent_plan_revision_prompt?(prompt),
-    do: prompt_contains?(prompt, "AgentRun 计划修订器")
 
   defp prompt_contains?(prompt, pattern), do: prompt_text(prompt) =~ pattern
 
@@ -2488,34 +2343,12 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   defp plan_revision_for(_plan_holds, _revision_reason), do: nil
 
-  defp existing_observation_section(prompt) do
-    prompt
-    |> prompt_text()
-    |> String.split("## 决策规则", parts: 2)
-    |> hd()
-  end
-
   defp single_item(id) do
     %{
       "item_id" => id,
       "title" => "title-#{id}",
       "body" => "body-#{id}",
       "rationale" => nil
-    }
-  end
-
-  defp reply_only_provider do
-    %Execution{
-      result_fn: fn prompt ->
-        result =
-          cond do
-            agent_plan_draft_prompt?(prompt) -> conversation_plan_draft()
-            agent_next_step_prompt?(prompt) -> next_step_decision(prompt)
-            true -> reply_only_frame_json()
-          end
-
-        provider_result(result)
-      end
     }
   end
 
@@ -2526,21 +2359,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           cond do
             agent_plan_draft_prompt?(prompt) -> readonly_batch_plan_draft()
             agent_next_step_prompt?(prompt) -> next_step_decision(prompt)
-            true -> reply_only_frame_json()
-          end
-
-        provider_result(result)
-      end
-    }
-  end
-
-  defp conversation_budget_deviation_provider do
-    %Execution{
-      result_fn: fn prompt ->
-        result =
-          cond do
-            agent_plan_revision_prompt?(prompt) -> conversation_plan_revision()
-            agent_plan_draft_prompt?(prompt) -> conversation_plan_draft()
             true -> reply_only_frame_json()
           end
 
@@ -2563,38 +2381,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     })
   end
 
-  defp conversation_plan_draft do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
-      "先组装当前作品上下文，再形成对话帧、完成策略裁决并生成本轮回应。",
-      [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "assemble_conversation_context",
-          "context_assemble",
-          "组装当前作品上下文",
-          success_criteria: ["conversation_context_attached"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "frame_conversation",
-          "dialogue_frame",
-          "形成对话认知帧",
-          success_criteria: ["dialogue_frame_created"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "gate_conversation_strategy",
-          "strategy_gate",
-          "制定执行策略并完成系统裁决",
-          success_criteria: ["strategy_gate_completed"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "finalize_conversation_response",
-          "response_finalize",
-          "生成本轮回应",
-          success_criteria: ["turn_result_ready"]
-        )
-      ]
-    )
-  end
-
   defp character_design_plan_draft do
     NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
       "先读取角色阵容，再基于阵容设计新的角色候选。",
@@ -2615,20 +2401,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         )
       ],
       reason_codes: ["agent_plan_drafted", "character_design_plan_drafted"]
-    )
-  end
-
-  defp conversation_context_only_plan do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
-      "先只读取当前作品上下文，再观察是否需要继续。",
-      [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "assemble_conversation_context",
-          "context_assemble",
-          "组装当前作品上下文",
-          success_criteria: ["conversation_context_attached"]
-        )
-      ]
     )
   end
 
@@ -2669,51 +2441,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     )
   end
 
-  defp conversation_plan_revision do
-    NovelApplication.TestAgenticLoopFixtures.plan_tool_call_result(
-      "上下文已读取但本轮回应尚未生成，需要补足对话帧、策略裁决和回应生成步骤。",
-      [
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "assemble_conversation_context",
-          "context_assemble",
-          "组装当前作品上下文",
-          success_criteria: ["conversation_context_attached"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "frame_conversation",
-          "dialogue_frame",
-          "形成对话认知帧",
-          success_criteria: ["dialogue_frame_created"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "gate_conversation_strategy",
-          "strategy_gate",
-          "制定执行策略并完成系统裁决",
-          success_criteria: ["strategy_gate_completed"]
-        ),
-        NovelApplication.TestAgenticLoopFixtures.plan_step(
-          "finalize_conversation_response",
-          "response_finalize",
-          "生成本轮回应",
-          success_criteria: ["turn_result_ready"]
-        )
-      ],
-      reason_codes: ["agent_plan_revised", "plan_exhausted_without_completion"],
-      tool_name: "agent_plan_revision"
-    )
-  end
-
   defp provider_result(%{content: _content, tool_calls: _tool_calls} = result), do: {:ok, result}
   defp provider_result(content), do: {:ok, %{content: content}}
-
-  defp provider_result_parts(%{content: content, tool_calls: tool_calls})
-       when is_binary(content) and is_list(tool_calls),
-       do: {content, tool_calls}
-
-  defp provider_result_parts(content) when is_binary(content), do: {content, []}
-
-  defp provider_output_content(content, []), do: %{text: content}
-  defp provider_output_content(content, tool_calls), do: %{text: content, tool_calls: tool_calls}
 
   defp prompt_text(prompt), do: NovelApplication.TestAgenticLoopFixtures.prompt_text(prompt)
 
@@ -2728,18 +2457,6 @@ defmodule NovelApplication.AgentRunRuntimeTest do
            test_execute_decision(run, sequence), %{provider_call_count: 0}}
       end
     end
-  end
-
-  defp assert_planner_step(event, target_tool_ref) do
-    assert "agent_plan_drafted" in event.reason_codes
-    assert is_list(event.payload.plan_steps)
-    assert event.payload.author_narrative == event.summary
-
-    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
-      event.payload.author_narrative_source
-    )
-
-    assert event.payload.target_tool_ref == target_tool_ref
   end
 
   defp wrap_test_step(step_fun, step_count) do

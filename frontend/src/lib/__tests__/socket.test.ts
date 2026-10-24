@@ -148,6 +148,45 @@ describe("sendMessage", () => {
     expect(ch.push).toHaveBeenLastCalledWith("agent_command", saved, undefined);
   });
 
+  it("问题回复沿 author_action 投递，刷新重传保留问题、原话与 submission 身份", async () => {
+    const ch = mockChannel();
+    const action = {
+      action_id: "answer:1",
+      action_type: "author_choice" as const,
+      source_turn_ref: "turn:question",
+      target_ref: "run:question",
+      idempotency_key: "idem:answer",
+      payload: {
+        submission_id: "question-message-1",
+        question_ref: "q:1",
+        expected_goal_version: 3,
+        text: "  保留悬念\n不改开头  ",
+      },
+    };
+    await saveUserMessage({
+      turn_id: "question-message-1",
+      work_id: "work-a",
+      session_id: "session-a",
+      text: action.payload.text,
+      command: "author_choice",
+      run_id: "run:question",
+      author_action: action,
+      generate_micro_plan: false,
+      created_at: "2026-10-24T00:00:00Z",
+    });
+    const [saved] = await pendingUserMessages("work-a", "session-a");
+    void transmitUserMessage(ch, saved);
+    expect(ch.push).toHaveBeenLastCalledWith("author_action", { action }, LLM_TURN_TIMEOUT_MS);
+    void transmitUserMessage(ch, saved);
+    expect(ch.push).toHaveBeenLastCalledWith("author_action", { action }, LLM_TURN_TIMEOUT_MS);
+    await expect(
+      saveUserMessage({
+        ...saved,
+        author_action: { ...action, payload: { ...action.payload, text: "改写" } },
+      }),
+    ).rejects.toMatchObject({ kind: "storage" });
+  });
+
   it("本机保存失败或身份冲突不发送；待投递按作品和会话隔离", async () => {
     const ch = mockChannel();
     void sendMessage(ch, "原文", "work-a", null, "session-a", false, null, "message-a");

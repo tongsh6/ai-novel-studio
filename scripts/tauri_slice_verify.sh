@@ -37,10 +37,12 @@ ORIGINAL_HOME="${HOME:-}"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 source "$PROJECT_ROOT/scripts/lib/tauri_dev_config.sh"
 SLICE_ID=""
+NATIVE_SYSTEM_DRIVER="${TAURI_NATIVE_SYSTEM_DRIVER:-0}"
 SLICE_VERIFY_PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}"
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5769}"
 API_URL="http://127.0.0.1:${PHOENIX_PORT}"
+UI_PROXY_TARGET="$API_URL"
 WS_URL="ws://127.0.0.1:${PHOENIX_PORT}/socket"
 VITE_WS_URL="ws://localhost:${VITE_PORT}/socket"
 # Order 62 CP1 两段式规划后单场景真实链路（run + driver 收尾 + 证据落盘）普遍超过
@@ -145,6 +147,7 @@ Implemented external UI driver slice ids:
   d4-planner-transient-retry
   d6-purpose-model-routing
   agent-conversation-turn
+  b26-author-question-roundtrip
   agentic-loop-plan-replan-reasoning
   agentic-loop-no-deviation-direct
   agent-plan-native-tool-calling-protocol
@@ -345,6 +348,8 @@ is_ua01_acceptance_alias() {
       agent-provider-cancel-honest-boundary | \
       agent-readonly-batch-profile | \
       agent-conversation-turn | \
+      b26-author-question-roundtrip | \
+      b26-business-output-roundtrip | \
       agentic-loop-plan-replan-reasoning | \
       agentic-loop-no-deviation-direct | \
       agent-plan-native-tool-calling-protocol | \
@@ -377,7 +382,7 @@ fi
 
 if [[ "$SLICE_ID" != "judgment-explore-chapter-full-read" && "$SLICE_ID" != "au14-fact-inventory-roundtrip" && "$SLICE_ID" != "au14-finding-inventory-arc-loop" && "$SLICE_ID" != "au14-assumption-confirm-roundtrip" && "$SLICE_ID" != "au14-assumption-provisional-injection" && "$SLICE_ID" != "gap-wt04-non-exploration-frame-badges" && "$SLICE_ID" != "au08-volume-structured-planning" && "$SLICE_ID" != "au12-character-identity-merge" && "$SLICE_ID" != "au14-foreshadow-resolution-roundtrip" ]]; then
 if [[ "$SLICE_ID" != "au05-discard-author-action" && "$SLICE_ID" != "au06-single-active-confirmation" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "au07-gate-reason-why" && "$SLICE_ID" != "au07-persisted-trace-query" && "$SLICE_ID" != "au07-partial-replay-ui" && "$SLICE_ID" != "au07-trace-query-scope-negative-matrix" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "au07-state-trace-adoption-replay" && "$SLICE_ID" != "au07-behavior-trace-terminal-replay" && "$SLICE_ID" != "agentic-loop-no-deviation-direct" ]]; then
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-provider-vendor-matrix" && "$SLICE_ID" != "su01-provider-strata-local" && "$SLICE_ID" != "su01-local-secret-file-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "judgment-explore-internal" && "$SLICE_ID" != "au13-arc-ledger-roundtrip" && "$SLICE_ID" != "au13-review-adjudication-roundtrip" && "$SLICE_ID" != "au13-revise-prose-sibling" && "$SLICE_ID" != "judgment-explore-chapter-plan" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "au08-reading-readonly-no-write" && "$SLICE_ID" != "au08-reading-return-context" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-archive-stats-current" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-management-filter-matrix" && "$SLICE_ID" != "au09-memory-list-ux-redesign" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-memory-taxonomy-write-policy" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-character-role-taxonomy-protagonist-policy" && "$SLICE_ID" != "au09-character-candidate-per-item-adoption" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au10-workbench-render-stability" && "$SLICE_ID" != "b17-writer-timeout-steer" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "e2e-01-channel-action-security" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-archive-concurrent-model-run-read-snapshot" && "$SLICE_ID" != "au12-profile-read-failure-degrade" && "$SLICE_ID" != "au12-correction-intent-roundtrip" && "$SLICE_ID" != "au12-work-profile-status-isolation" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "p1-prose-execution-brief" && "$SLICE_ID" != "p1-prose-revision-candidate" && "$SLICE_ID" != "p1-prose-quality-finding-roundtrip" && "$SLICE_ID" != "p1-prose-quality-evaluator-degrade" && "$SLICE_ID" != "p1-prose-quality-adoption-boundary" && "$SLICE_ID" != "agent-prose-drafting-with-quality" && "$SLICE_ID" != "p1-prose-companion-artifacts" && "$SLICE_ID" != "wr01-chapter-mission-before-prose" && "$SLICE_ID" != "wr01-chapter-mission-author-decision" && "$SLICE_ID" != "wr02-planning-mission-before-outline" && "$SLICE_ID" != "ca03-carry-registry-observability" && "$SLICE_ID" != "ca04-carry-gap-closure" && "$SLICE_ID" != "wr01c-planning-mission-decision" && "$SLICE_ID" != "d1-character-vacuum-to-named-roster" && "$SLICE_ID" != "d3-summary-lazy-repair" && "$SLICE_ID" != "d4-planner-transient-retry" && "$SLICE_ID" != "q1b-candidate-revision-adoption" && "$SLICE_ID" != "q1b-candidate-stale-modal" && "$SLICE_ID" != "q1b-candidate-lifecycle" && "$SLICE_ID" != "q1b-live-archive-roundtrip" && "$SLICE_ID" != "q3d-message-delivery-recovery" && "$SLICE_ID" != "q3d-long-session-adoption-state" && "$SLICE_ID" != "q3d-candidate-semantics" && "$SLICE_ID" != "q3d-author-registration-guards" && "$SLICE_ID" != "q3d-message-outcome-roundtrip" && "$SLICE_ID" != "q3c-author-content-materialization" && "$SLICE_ID" != "q3b-capability-gap-honest-reply" && "$SLICE_ID" != "d6-purpose-model-routing" && "$SLICE_ID" != "agent-conversation-turn" && "$SLICE_ID" != "agentic-loop-plan-replan-reasoning" && "$SLICE_ID" != "ua01-agent-bounded-roster-to-character-design" && "$SLICE_ID" != "agent-provider-slow-stream-liveness" && "$SLICE_ID" != "b25-chapter-identity-unification" ]] && ! is_ua01_acceptance_alias "$SLICE_ID"; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-provider-vendor-matrix" && "$SLICE_ID" != "su01-provider-strata-local" && "$SLICE_ID" != "su01-local-secret-file-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "judgment-explore-internal" && "$SLICE_ID" != "au13-arc-ledger-roundtrip" && "$SLICE_ID" != "au13-review-adjudication-roundtrip" && "$SLICE_ID" != "au13-revise-prose-sibling" && "$SLICE_ID" != "judgment-explore-chapter-plan" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "au08-reading-readonly-no-write" && "$SLICE_ID" != "au08-reading-return-context" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-archive-stats-current" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-management-filter-matrix" && "$SLICE_ID" != "au09-memory-list-ux-redesign" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-memory-taxonomy-write-policy" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-character-role-taxonomy-protagonist-policy" && "$SLICE_ID" != "au09-character-candidate-per-item-adoption" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au10-workbench-render-stability" && "$SLICE_ID" != "b17-writer-timeout-steer" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "e2e-01-channel-action-security" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-archive-concurrent-model-run-read-snapshot" && "$SLICE_ID" != "au12-profile-read-failure-degrade" && "$SLICE_ID" != "au12-correction-intent-roundtrip" && "$SLICE_ID" != "au12-work-profile-status-isolation" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "p1-prose-execution-brief" && "$SLICE_ID" != "p1-prose-revision-candidate" && "$SLICE_ID" != "p1-prose-quality-finding-roundtrip" && "$SLICE_ID" != "p1-prose-quality-evaluator-degrade" && "$SLICE_ID" != "p1-prose-quality-adoption-boundary" && "$SLICE_ID" != "agent-prose-drafting-with-quality" && "$SLICE_ID" != "p1-prose-companion-artifacts" && "$SLICE_ID" != "wr01-chapter-mission-before-prose" && "$SLICE_ID" != "wr01-chapter-mission-author-decision" && "$SLICE_ID" != "wr02-planning-mission-before-outline" && "$SLICE_ID" != "ca03-carry-registry-observability" && "$SLICE_ID" != "ca04-carry-gap-closure" && "$SLICE_ID" != "wr01c-planning-mission-decision" && "$SLICE_ID" != "d1-character-vacuum-to-named-roster" && "$SLICE_ID" != "d3-summary-lazy-repair" && "$SLICE_ID" != "d4-planner-transient-retry" && "$SLICE_ID" != "q1b-candidate-revision-adoption" && "$SLICE_ID" != "q1b-candidate-stale-modal" && "$SLICE_ID" != "q1b-candidate-lifecycle" && "$SLICE_ID" != "q1b-live-archive-roundtrip" && "$SLICE_ID" != "q3d-message-delivery-recovery" && "$SLICE_ID" != "q3d-long-session-adoption-state" && "$SLICE_ID" != "q3d-candidate-semantics" && "$SLICE_ID" != "q3d-author-registration-guards" && "$SLICE_ID" != "q3d-message-outcome-roundtrip" && "$SLICE_ID" != "q3c-author-content-materialization" && "$SLICE_ID" != "q3b-capability-gap-honest-reply" && "$SLICE_ID" != "d6-purpose-model-routing" && "$SLICE_ID" != "agent-conversation-turn" && "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "agentic-loop-plan-replan-reasoning" && "$SLICE_ID" != "ua01-agent-bounded-roster-to-character-design" && "$SLICE_ID" != "agent-provider-slow-stream-liveness" && "$SLICE_ID" != "b25-chapter-identity-unification" ]] && ! is_ua01_acceptance_alias "$SLICE_ID"; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -431,6 +436,21 @@ case "$SLICE_VERIFY_PROVIDER" in
     ;;
 esac
 
+if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
+  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" ]]; then
+    echo "Native system driver is currently registered only for B26 question/business/plan roundtrips" >&2
+    exit 64
+  fi
+  ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX}-native"
+  NATIVE_ARTIFACT_TAG="${TAURI_NATIVE_ARTIFACT_TAG:-}"
+  if [[ -n "$NATIVE_ARTIFACT_TAG" ]]; then
+    if [[ ! "$NATIVE_ARTIFACT_TAG" =~ ^[a-z0-9-]+$ || ${#NATIVE_ARTIFACT_TAG} -gt 32 ]]; then
+      echo "Native artifact tag must use at most 32 lowercase letters, digits or hyphens" >&2
+      exit 64
+    fi
+    ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX}-${NATIVE_ARTIFACT_TAG}"
+  fi
+fi
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/slice-verify/${SLICE_ID}${ARTIFACT_SUFFIX}"
 APP_LOG_DIR="$ARTIFACT_DIR/app-log"
 LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"
@@ -596,6 +616,7 @@ fi
 PHX_PID=""
 TAURI_PID=""
 UI_DRIVER_PID=""
+NATIVE_PROXY_PID=""
 TAURI_CONFIG_OVERRIDE=""
 
 reset_test_db() {
@@ -633,6 +654,8 @@ cleanup() {
   # 与 mix 之下的 beam.smp 必须一并终止，否则会留下孤儿 Tauri 窗口/端口。
   kill_process_tree "$UI_DRIVER_PID" || true
   wait "$UI_DRIVER_PID" 2>/dev/null || true
+  kill_process_tree "$NATIVE_PROXY_PID" || true
+  wait "$NATIVE_PROXY_PID" 2>/dev/null || true
   kill_process_tree "$TAURI_PID" || true
   wait "$TAURI_PID" 2>/dev/null || true
   kill_process_tree "$PHX_PID" || true
@@ -690,7 +713,7 @@ start_tauri_app() {
   CARGO_HOME="${CARGO_HOME:-${ORIGINAL_HOME}/.cargo}" \
   RUSTUP_HOME="${RUSTUP_HOME:-${ORIGINAL_HOME}/.rustup}" \
   VITE_API_ENDPOINT="" \
-    VITE_PROXY_TARGET="$API_URL" \
+    VITE_PROXY_TARGET="$UI_PROXY_TARGET" \
     VITE_WS_ENDPOINT="$VITE_WS_URL" \
     VITE_DEV_PORT="$VITE_PORT" \
     pnpm tauri dev --config "$TAURI_CONFIG_OVERRIDE" >"$log_file" 2>&1 &
@@ -702,6 +725,9 @@ start_tauri_app() {
 
 native_action_description() {
   case "$SLICE_ID" in
+    b26-business-output-roundtrip)
+      echo "native workbench -> directions -> source registration/reuse/discard/adoption -> result-loss recovery -> honest capability gap -> continuation question reply"
+      ;;
     su01-provider-health-model)
       echo "launch real workbench -> wait for backend provider health polling -> verify the model/provider badge displays backend health metadata"
       ;;
@@ -802,7 +828,7 @@ native_action_description() {
       echo "record author input -> reference prior original -> reload -> inspect pending state -> adopt -> inspect resolved state; readonly result also survives reload and feeds the next judgment"
       ;;
     q3c-author-content-materialization)
-      echo "send archive request carrying original content -> verify author bytes surface as pending world_setting candidate, gap reply admits missing capability, author adoption resolves it into the archive with no pre-adoption write"
+      echo "send archive request carrying original content -> verify author bytes surface as pending world_setting candidate, explicit registration keeps the source and adoption boundary, author adoption resolves it into the archive with no pre-adoption write"
       ;;
     q3b-capability-gap-honest-reply)
       echo "send archive-write request without write capability -> verify honest capability_gap reply admits the gap, nearest-path guidance stays in the reply with no creative direction action, and no execution/adoption/production write happens"
@@ -901,10 +927,10 @@ native_action_description() {
       echo "send a slow bounded AgentRun from the real workbench -> submit steering text through the main chat input -> verify it becomes agent_command steer for the active run_id without creating a second user_message or run"
       ;;
     agent-awaiting-author-steer-resume)
-      echo "send an ambiguous expansion request -> wait for awaiting_author -> submit a concrete adjustment through the real task input -> verify the same run resumes and completes without repeating the stale confirmation prompt"
+      echo "send an ambiguous expansion request -> open its explicit question reply -> verify blank replies are disabled -> submit author_choice with immutable source binding -> verify the same run resumes and the answered question and exact reply persist once"
       ;;
     agent-awaiting-author-input-required)
-      echo "send an ambiguous expansion request -> wait for awaiting_author -> verify no bare resume action, required-input hint/placeholder, and disabled empty send -> submit a concrete adjustment -> verify the same run resumes to completed and the reload keeps the steer message exactly once"
+      echo "send an ambiguous expansion request -> open its explicit question reply -> verify no bare resume action and disabled empty/whitespace send -> submit author_choice -> verify same-run completion and unique answered question/reply after reload"
       ;;
     agent-bounded-refresh-live-resume)
       echo "send a slow bounded AgentRun -> pause it -> reload the workbench -> verify the channel reconnects the same live run (recovered + runtime_live) -> click resume -> verify run_resumed with resume_requested and completion without a second run or run restart"
@@ -998,6 +1024,9 @@ native_action_description() {
       ;;
     d6-purpose-model-routing)
       echo "configure a writer purpose override through the public provider config API -> open real model settings and see the per-purpose section defaulting to follow-global -> send a prose request -> the writer provider call logs the override model while other calls keep the global model"
+      ;;
+    b26-author-question-roundtrip)
+      echo "send real author questions -> reload stable source actions -> choose or type an answer -> verify same-run continuation, immutable input and persistent closure"
       ;;
     agent-conversation-turn)
       echo "send plain conversation input from the real workbench -> verify bounded AgentRun fast ack, conversation_turn_v1 profile, final TurnResult, and no tool/write/adoption"
@@ -1307,6 +1336,41 @@ native_action_description() {
 
 drive_external_ui() {
   cd "$PROJECT_ROOT/frontend"
+  if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
+    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" <<'READY'
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+const [dir, api, home] = process.argv.slice(2);
+// 开发 CLI 运行无 app 包元数据的二进制，macOS 应用发现无法按路径定位。
+// 仅为同一二进制补包装，供外部系统 UI 驱动；不改变产品代码。
+const bundle = path.join(dir, "AI Novel Studio.app");
+const contents = path.join(bundle, "Contents");
+fs.mkdirSync(path.join(contents, "MacOS"), { recursive: true });
+fs.copyFileSync(path.resolve("src-tauri/target/debug/app"), path.join(contents, "MacOS", "native-app"));
+fs.writeFileSync(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.ai-novel-studio.app</string>
+<key>CFBundleName</key><string>AI Novel Studio</string><key>CFBundleExecutable</key><string>app</string>
+<key>CFBundlePackageType</key><string>APPL</string></dict></plist>`);
+const profile = `b26-native-${Date.now()}`;
+fs.writeFileSync(path.join(contents, "MacOS", "app"), `#!/bin/sh
+export AI_NOVEL_DESKTOP_PROFILE=${profile}
+exec "$(dirname "$0")/native-app"
+`, { mode: 0o755 });
+fs.chmodSync(path.join(contents, "MacOS", "native-app"), 0o755);
+fs.writeFileSync(path.join(dir, "native-driver-ready.json"), JSON.stringify({ run_ref: randomUUID(),
+  app_path: bundle, desktop_profile: profile,
+  ready_at: new Date().toISOString(), api_url: api, tauri_home: home, driver: "external-system-ui",
+  browser_driver_started: false }, null, 2));
+READY
+    echo "[tauri-slice-verify] Native window ready for external system UI driver (no Chromium)."
+    for _ in $(seq 1 "$TAURI_WAIT_SECONDS"); do
+      if [[ -f "$ARTIFACT_DIR/native-ui-complete.json" ]]; then return 0; fi
+      sleep 1
+    done
+    echo "Native system UI evidence not supplied before timeout" >&2
+    return 1
+  fi
   if [[ "$SLICE_ID" == "su01-local-secret-file-roundtrip" ]]; then
     CLANG_MODULE_CACHE_PATH=/private/tmp/ans-local-secret-file-clang \
       HOME="$TAURI_SLICE_HOME" \
@@ -1367,6 +1431,16 @@ drive_external_ui() {
 }
 
 verify_native_slice() {
+  if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
+    if [[ "$SLICE_ID" == "b26-business-output-roundtrip" ]]; then
+      node "$PROJECT_ROOT/scripts/native_business_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR"
+    elif [[ "$SLICE_ID" == "judgment-plan-multi-step" ]]; then
+      node "$PROJECT_ROOT/scripts/native_plan_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR" "$LLM_LOG_DIR"
+    else
+      node "$PROJECT_ROOT/scripts/native_question_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR"
+    fi
+    return
+  fi
   node --input-type=module - "$SLICE_ID" "$APP_LOG_DIR" "$ARTIFACT_DIR" "$SLICE_VERIFY_PROVIDER" "$LLM_LOG_DIR" <<'NODE'
 import fs from "node:fs";
 import path from "node:path";
@@ -1540,7 +1614,10 @@ if (evidence) {
         live_provider: liveProviderEvidence,
         lmstudio: lmstudioEvidence,
         log_noise: logNoise,
-        surface: "tauri",
+        surface: sliceId === "su01-local-secret-file-roundtrip" ? "tauri" : "browser",
+        requested_surface: "tauri",
+        driver: sliceId === "su01-local-secret-file-roundtrip" ? "native-system-ui" : "headless-chromium",
+        tauri_window_launched: true,
       },
       null,
       2,
@@ -1846,6 +1923,9 @@ case "$SLICE_ID" in
   agentic-loop-budget-deviation-replan)
     SEED_SCRIPT=""
     ;;
+  b26-business-output-roundtrip)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
   agentic-loop-tool-failure-replan)
     SEED_SCRIPT=""
     ;;
@@ -2147,6 +2227,14 @@ MIX_ENV=test \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
 PHX_PID=$!
 wait_for_url "$API_URL/health" "Phoenix"
+
+if [[ "$NATIVE_SYSTEM_DRIVER" == "1" && "${TAURI_NATIVE_TRANSPORT_PROXY:-0}" == "1" ]]; then
+  NATIVE_PROXY_PORT="${TAURI_NATIVE_PROXY_PORT:-4661}"
+  node "$PROJECT_ROOT/scripts/native_question_transport_proxy.mjs" "$API_URL" "$NATIVE_PROXY_PORT" "$ARTIFACT_DIR" >"$ARTIFACT_DIR/transport-proxy.log" 2>&1 &
+  NATIVE_PROXY_PID=$!
+  UI_PROXY_TARGET="http://127.0.0.1:${NATIVE_PROXY_PORT}"
+  wait_for_url "$UI_PROXY_TARGET/health" "External transport proxy"
+fi
 
 cd "$PROJECT_ROOT/frontend"
 setup_isolated_macos_keychain

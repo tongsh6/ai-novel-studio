@@ -9,8 +9,97 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Execution
+  alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
+  alias NovelCommon.Contracts.ProviderOutput
+
+  for {mode, draft_count, revision_count, total} <- [
+        {"同批计划", 0, 0, 3},
+        {"另行起草计划", 1, 0, 4},
+        {"先核对再补齐计划", 1, 1, 5}
+      ] do
+    test "#{mode} 从真实判断入口进入同一计划运行，按实际调用计数并保留待采纳边界" do
+      parent = self()
+      suffix = System.unique_integer([:positive])
+
+      execution = %Execution{
+        result_fn: fn prompt ->
+          names =
+            if is_map(prompt),
+              do: Enum.map(Map.get(prompt, :tools, []), &Map.get(&1, :name)),
+              else: []
+
+          ref = "plan-call-#{System.unique_integer([:positive])}"
+          send(parent, {:plan_request, names, ref})
+          {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+
+          output = %ProviderOutput{
+            provider_run_ref: ref,
+            provider_call_ref: ref,
+            status: :ok,
+            content: %{text: result.content, tool_calls: result.tool_calls}
+          }
+
+          {:ok, result |> Map.from_struct() |> Map.put(:provider_output, output)}
+        end
+      }
+
+      assert {:ok, spec} =
+               DialoguePlanningService.plan_agent_run(
+                 %{
+                   text: "请按#{unquote(mode)}设计一个角色，再设计相关世界设定。",
+                   workspace_id: "ws-plan-#{suffix}",
+                   work_id: "work-plan-#{suffix}",
+                   session_id: "session-plan-#{suffix}",
+                   turn_id: "turn-plan-#{suffix}",
+                   chapter_prose_reader: fn _, _ -> "" end,
+                   chapter_summary_reader: %{},
+                   character_reader: fn _ -> [] end
+                 },
+                 nil,
+                 execution
+               )
+
+      assert {:ok, run_id} =
+               AgentRunService.start_bounded(spec.run_attrs,
+                 next_step_planner: spec.next_step_planner,
+                 event_sink: fn event -> send(parent, {:plan_event, event.event_type, event}) end
+               )
+
+      on_exit(fn -> AgentRunService.cancel(run_id) end)
+      assert_receive {:plan_event, :plan_drafted, event}, 2_000
+      assert_receive {:plan_event, :run_completed, _}, 3_000
+      assert {:ok, state} = AgentRunService.state(run_id)
+      assert state.run.profile_ref == "judgment_plan_v1"
+      assert state.run.status == :completed
+      assert length(state.run.pending_artifact_refs) >= 2
+      assert state.run.consumed_budget.tool_calls == 2
+      assert state.run.consumed_budget.provider_calls == unquote(total)
+      assert state.run.consumed_budget.replans == unquote(revision_count)
+
+      requests =
+        Enum.map(1..unquote(total), fn _ ->
+          assert_receive {:plan_request, names, ref}, 100
+          {names, ref}
+        end)
+
+      assert Enum.count(requests, fn {names, _} -> names == ["agent_plan_draft"] end) ==
+               unquote(draft_count)
+
+      assert Enum.count(requests, fn {names, _} -> names == ["agent_plan_revision"] end) ==
+               unquote(revision_count)
+
+      assert event.payload.plan_steps != []
+
+      if unquote(draft_count) == 0 do
+        {_, judgment_ref} = hd(requests)
+        assert event.payload.author_narrative_source.provider_call_ref == judgment_ref
+      end
+
+      refute_receive {:plan_request, _, _}, 30
+    end
+  end
 
   test "judgment plan run drafts a model plan and executes capability steps into pending artifacts" do
     parent = self()
@@ -29,6 +118,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
              %{
                "name" => "agent_plan_draft",
                "arguments" => %{
+                 "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
                  "plan" => %{
                    "steps" => [
                      plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
@@ -108,8 +198,8 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 2
 
-    # 起草 2（reasoning+结构）+ 两个 act 步各 1 = 4（runtime 直连，无判断①入场）。
-    assert state.run.consumed_budget.provider_calls == 4
+    # 单调用起草 1 + 两个 act 步各 1 = 3（runtime 直连，无判断①入场）。
+    assert state.run.consumed_budget.provider_calls == 3
   end
 
   test "judgment plan executes an in-plan retrieval step inline with zero provider calls (CP5b)" do
@@ -127,6 +217,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
              %{
                "name" => "agent_plan_draft",
                "arguments" => %{
+                 "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
                  "plan" => %{
                    "steps" => [
                      plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
@@ -211,11 +302,12 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
     assert length(state.run.pending_artifact_refs) == 1
-    # 3 步（context + 检索 + act）；工具 1（仅 act）；调用 = 起草 2 + act 1 = 3
+
+    # 3 步（context + 检索 + act）；工具 1（仅 act）；调用 = 单调用起草 1 + act 1 = 2
     # ——检索步 0 提供者调用、不经 Toolbox。
     assert state.run.consumed_budget.steps == 3
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 3
+    assert state.run.consumed_budget.provider_calls == 2
   end
 
   test "judgment plan revises its own plan when exhausted before the goal is met" do
@@ -236,6 +328,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                %{
                  "name" => "agent_plan_revision",
                  "arguments" => %{
+                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
                    "plan" => %{
                      "steps" => [
                        plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
@@ -259,6 +352,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                %{
                  "name" => "agent_plan_draft",
                  "arguments" => %{
+                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
                    "plan" => %{
                      "steps" => [
                        plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。")
@@ -351,6 +445,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                %{
                  "name" => "agent_plan_revision",
                  "arguments" => %{
+                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
                    "plan" => %{
                      "steps" => [
                        plan_step("r1", "context_assemble", "explore", "复核目标章节上下文。")
@@ -372,6 +467,7 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                %{
                  "name" => "agent_plan_draft",
                  "arguments" => %{
+                   "author_reasoning" => "按本轮目标推进计划，所有创作产出均待作者采纳。",
                    "plan" => %{
                      "steps" => [
                        plan_step("s1", "context_assemble", "explore", "读取当前作品上下文。"),
@@ -383,13 +479,6 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                  }
                }
              ]
-           }}
-
-        plan_draft_reasoning_prompt?(text) ->
-          {:ok,
-           %{
-             content: "先只读核对，必要时再修订计划，#{raw_sentinel}-draft。",
-             provider_call_id: "pc-b23-cp3-plan-reasoning"
            }}
 
         true ->
@@ -478,9 +567,6 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   end
 
   defp plan_draft_prompt?(text), do: String.contains?(text, "agent_plan_draft")
-
-  # 起草两段式第一段（自由 reasoning）不含工具 schema 名，按角色锚点识别。
-  defp plan_draft_reasoning_prompt?(text), do: String.contains?(text, "计划起草器")
 
   defp revision_prompt?(text), do: String.contains?(text, "计划修订器")
 

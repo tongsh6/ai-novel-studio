@@ -110,6 +110,24 @@
           "items": {
             "type": "string"
           }
+        },
+        "frame_origin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "goal_origin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model_interpretation_status": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -170,6 +188,24 @@
             "items": {
               "type": "string"
             }
+          },
+          "question_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_goal_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "response_kind": {
+            "enum": [
+              "choice",
+              "free_text"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }
@@ -464,6 +500,9 @@
             "string",
             "null"
           ]
+        },
+        "runtime_live": {
+          "type": "boolean"
         }
       }
     },
@@ -553,6 +592,103 @@
         }
       },
       "additionalProperties": false
+    },
+    "author_question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question_ref",
+        "run_id",
+        "goal_version",
+        "source_turn_ref",
+        "question",
+        "options",
+        "status",
+        "provider_call_ref"
+      ],
+      "properties": {
+        "question_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "goal_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_turn_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "value"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "choice",
+                  "free_text"
+                ]
+              },
+              "recommended": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "status": {
+          "enum": [
+            "open",
+            "answered",
+            "closed"
+          ]
+        },
+        "close_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "answered",
+                "superseded",
+                "cancelled",
+                "terminal",
+                "runtime_lost"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_call_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "submission_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   }
 }

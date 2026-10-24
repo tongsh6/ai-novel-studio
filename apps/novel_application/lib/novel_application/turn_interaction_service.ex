@@ -14,6 +14,8 @@ defmodule NovelApplication.TurnInteractionService do
 
   def store, do: NovelApplication.persistence_interaction_lifecycle()
 
+  def commit_question(operation, attrs, store), do: call(store, operation, attrs)
+
   def receive_input(run, store, input \\ %{}) do
     if user_message?(run) do
       call(
@@ -44,15 +46,39 @@ defmodule NovelApplication.TurnInteractionService do
     )
   end
 
-  def record_result(_run, nil, _store), do: :ok
+  def record_result(run, result, store, trace \\ nil)
+  def record_result(_run, nil, _store, _trace), do: :ok
 
-  def record_result(run, result, store) when is_map(result) do
+  def record_result(run, result, store, trace) when is_map(result) do
     attrs = Map.put(scope(run), :turn_result, DialogueGateway.jsonable(result))
 
+    attrs =
+      if trace,
+        do:
+          Map.put(
+            attrs,
+            :decision_trace,
+            DialogueGateway.trace_to_attrs(trace, run.workspace_id, run.session_id)
+          ),
+        else: attrs
+
     case call(store, :result, attrs) do
+      {:ok, %{turn_result: persisted}} -> {:ok, persisted_result(result, persisted)}
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp persisted_result(original, persisted) do
+    result =
+      Enum.reduce(
+        [:outcome, :adoption_state, :available_actions, :ui_cards, :phase, :status],
+        original,
+        fn key, acc -> Map.put(acc, key, persisted[Atom.to_string(key)]) end
+      )
+
+    registration = get_in(persisted, ["trace_summary", "registration"])
+    Map.update!(result, :trace_summary, &Map.put(&1, :registration, registration))
   end
 
   def record_status(run, store) do
@@ -175,11 +201,9 @@ defmodule NovelApplication.TurnInteractionService do
   @doc "原文登记的联合前置条件；只有显式来源和保真分支可以进入物化。"
   def validate_author_registration(judgment, sources) do
     result =
-      case value(judgment, :author_content_registration) do
-        true -> validate_registration_fields(judgment, sources)
-        flag when flag in [nil, false] -> :ok
-        _ -> {:error, :invalid_signal}
-      end
+      if value(judgment, :action) == "author_content_registration",
+        do: validate_registration_fields(judgment, sources || []),
+        else: :ok
 
     case result do
       :ok -> :ok
@@ -191,10 +215,6 @@ defmodule NovelApplication.TurnInteractionService do
     source = value(judgment, :author_content_source_ref)
 
     cond do
-      value(judgment, :action) != "reply" or
-          value(judgment, :frame_type) != "capability_gap" ->
-        {:error, :operation_conflict}
-
       is_nil(source) or source == "" ->
         {:error, :source_required}
 
@@ -206,13 +226,13 @@ defmodule NovelApplication.TurnInteractionService do
     end
   end
 
-  @doc "两阶段共用的业务规则；登记作者原文与生成新内容是不同操作。"
+  @doc "判断与执行共用的业务规则；登记作者原文与生成新内容是不同操作。"
   def author_registration_rules do
     """
     ## 原文登记与采纳规则（优先于一般形态映射）
     - 作者只要求把资料留在本次对话、暂不展开或生成候选时，只确认收到，不登记原文、不产方向或产物。
       对话中已留存原输入不等于作品档案已入档；后续作者明确要求登记或生成候选时再处理。
-    - 作者明确要求把具体原文登记进作品档案或物化为待采纳候选时，按原文登记处理：选择直接回复，明确原文将成为
+    - 作者明确要求把具体原文登记进作品档案或物化为待采纳候选时，调用 register_author_content 并填明确来源，原文将成为
       待采纳的作品设定候选；应用按来源逐字复制，不调用创作能力重写，也不直接写入档案。
       这里的原文是被引用消息的完整文本，包括同条消息中的指令性前缀；系统不会自动抽取资料段或删去前缀，
       不能在回复中声称会剔除它们。若作者希望只保留资料内容，应修订现有候选或在“修改后保存”中编辑全文。
@@ -229,31 +249,6 @@ defmodule NovelApplication.TurnInteractionService do
       已修改后保存表示保存了编辑版本，不应宣称原文逐字入档。
     - 只有作者确实要求生成或改写新内容时，才选择创作执行；不能把原文登记转成创作重写。
     """
-  end
-
-  def author_registration_retry_hint(reason, sources) do
-    detail =
-      case reason do
-        :already_materialized ->
-          "该来源已有待采纳或已采纳版本。关闭 author_content_registration，直接回复真实状态及现有对象的操作；不得要求重新登记或新建同来源候选。必须在 author_narrative 给出纠正后的作者回复。"
-
-        :operation_conflict ->
-          "author_content_registration=true 只能搭配 action=reply、frame_type=capability_gap。"
-
-        :source_required ->
-          "启用原文登记时 author_content_source_ref 必填，不能为 null 或缺失。"
-
-        :source_not_available ->
-          "原文来源不在本次上下文的合法来源集合内。"
-
-        :invalid_signal ->
-          "author_content_registration 必须是布尔值。"
-      end
-
-    detail <>
-      "来源只能填 #{Enum.join(["current" | sources], " / ")}；必须按作者意图修正，" <>
-      "不能把保留原文改成创作重写来绕过校验。来源不明确时 action=await_author，" <>
-      "author_content_registration=false，请求作者补充来源。"
   end
 
   @doc "业务校验失败后的作者安全说明，不暴露机器编号或模型原始载荷。"

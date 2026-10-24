@@ -209,7 +209,7 @@ defmodule NovelApplication.FactInventoryRunTest do
     assert run.status == :completed
     assert run.consumed_budget.steps == 1
     assert run.consumed_budget.tool_calls == 1
-    assert run.consumed_budget.provider_calls == 3
+    assert run.consumed_budget.provider_calls == 2
     assert length(run.pending_artifact_refs) == 5
   end
 

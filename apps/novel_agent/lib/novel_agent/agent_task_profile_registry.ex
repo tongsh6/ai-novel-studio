@@ -101,6 +101,7 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
 
   @readonly_batch_context_profile %{
     profile_id: "readonly_batch_context_v1",
+    effect_summary: "批量只读作品档案、结构与统计，不生成候选，不保存或登记任何内容。",
     allowed_tools: ["readonly_batch"],
     required_observations: [],
     completion_conditions: ["readonly_batch_observations_exist"],

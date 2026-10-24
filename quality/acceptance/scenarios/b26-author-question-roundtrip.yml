@@ -1,0 +1,51 @@
+id: b26-author-question-roundtrip
+title: B26 明确问题选项与自由回复的持久回环
+tier: nightly
+surface: tauri
+# surface 是既有 runner 启动入口；实际操作面以 summary.surface/driver 为准。
+# 默认为 Chromium 前后端集成。原生核心变体设置 TAURI_NATIVE_SYSTEM_DRIVER=1，
+# 外部 CUA 操作本次 app_path，仅覆盖 choice/系统 free_text/窗口重开，
+# 设置 TAURI_NATIVE_TRANSPORT_PROXY=1 可运行原生丢回执/跨run/分页扩展矩阵，
+# 其余未运行格子不能由这批证据代替。
+driver_modes:
+  default: headless-chromium
+  native_core: cua-native-system-ui
+  native_transport: cua-native-system-ui-with-external-websocket-proxy
+  native_entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 bash scripts/quality_accept.sh b26-author-question-roundtrip --surface tauri
+entrypoint: scripts/quality_accept.sh b26-author-question-roundtrip --surface tauri
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md
+invariants:
+  - explicit-question-source-and-run-binding
+  - answer-bytes-and-submission-identity-preserved
+  - one-answer-one-goal-version
+setup:
+  provider: slice_verify
+user_flow:
+  - send: 从真实工作台提出结尾取舍请求
+  - reload: 查看同一持久问题及选项
+  - click: 模型选项，观察原运行继续并结束
+  - send: 请求不带选项的问题
+  - reload: 点击回复此问题，输入自由补充并发送
+  - send: 再次请求选项问题，选择模型自由文本选项并提交
+  - send: 保留一个未回答问题时，从未绑定主输入发起新问题，再显式回答较早的问题
+  - send: 从真实输入再发送16轮普通讨论，使两个问题都超出最近聊天分页；刷新后从独立问题投影回复旧问题
+  - verify: 两个 run 独立，旧问题回复不绑定最新 run；三轮均携真实源动作、问题版本、稳定 submission，原文持久化且问题关闭
+evidence:
+  required: [screenshot, websocket_frames, app_jsonl, summary_json]
+  artifact_dir: artifacts/slice-verify/b26-author-question-roundtrip-tauri
+assertions:
+  ui:
+    - 三类回复入口均在真实工作台可操作，刷新保持同一问题
+  network:
+    - 回答仅发送 author_action，不新发 user_message 或无绑定 steer
+    - 同一 run 的 goal.version 仅增加一次
+  data:
+    - 原话与模型选项 label 精确持久化，answered 问题移出 open 恢复集合
+    - 业务日志 action_id 和 run_id 与源动作一致，零 canon 写入
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

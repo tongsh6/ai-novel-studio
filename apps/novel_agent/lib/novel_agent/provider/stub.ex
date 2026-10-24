@@ -85,17 +85,11 @@ defmodule NovelAgent.Provider.Stub do
     judgment_family_result(prompt, text) || infer_non_judgment_result(prompt, text)
   end
 
-  # 判断族分发（ADR-0025）：判断②（观察+续行）先于判断①判别——continuation
-  # prompt 也含"创作判断器"措辞，顺序即正确性。两段式：forced tool 结构段 /
-  # 自由叙事段；非判断族返回 nil 交回主分发。
-  defp judgment_family_result(prompt, text) do
-    tool_call? = NovelAgent.Provider.tool_call_prompt?(prompt)
-
+  # 同次返回 content 与明确工具输出，不再按有无 tools 生成两段应答。
+  defp judgment_family_result(_prompt, text) do
     cond do
-      tool_call? and continuation_prompt?(text) -> continuation_decision_result(text)
-      continuation_prompt?(text) -> Result.new(continuation_narrative_content(text))
-      tool_call? and judgment_prompt?(text) -> judgment_decision_result(text)
-      judgment_prompt?(text) and not tool_call? -> Result.new(judgment_narrative_content(text))
+      continuation_prompt?(text) -> continuation_decision_result(text)
+      judgment_prompt?(text) -> judgment_decision_result(text)
       true -> nil
     end
   end
@@ -113,10 +107,6 @@ defmodule NovelAgent.Provider.Stub do
       # WR01 写前推理步：forced tool call 产本章使命（依据只取 prompt 材料里列名的 ref）。
       NovelAgent.Provider.tool_call_prompt?(prompt) and chapter_mission_prompt?(text) ->
         chapter_mission_result(prompt, text)
-
-      # 两段式规划第一段：无 tools 的自由流式 reasoning 调用，只返回叙事 content。
-      agent_plan_prompt?(text) ->
-        Result.new(agent_plan_reasoning_content(text))
 
       true ->
         Result.new(infer_response(text))
@@ -248,19 +238,15 @@ defmodule NovelAgent.Provider.Stub do
 
   defp continuation_decision_result(text) do
     {action, guidance} = continuation_direction(text)
+    narrative = continuation_narrative_content(text)
 
-    Result.new("continuation_#{action}", nil,
-      tool_calls: [
-        %{
-          "name" => "continuation_decision",
-          "arguments" => %{
-            "action" => action,
-            "guidance" => guidance,
-            "reason" => "continuation_#{action}"
-          }
-        }
-      ]
-    )
+    {name, args} =
+      if action == "continue",
+        do:
+          {"continuation_decision", %{action: "continue", guidance: guidance, reason: narrative}},
+        else: {"ask_author", %{question: narrative, options: []}}
+
+    Result.new(narrative, nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp creative_output_prompt?(text) do
@@ -307,37 +293,43 @@ defmodule NovelAgent.Provider.Stub do
 
   defp judgment_decision_result(text) do
     {action, capability} = judgment_action(text)
-    {action, extra_args} = shape_judgment_action(action, text)
+    {action, extra} = shape_judgment_action(action, text)
+    narrative = judgment_narrative_content(text)
+    goal = stub_dialogue_goal(text)
 
-    arguments =
-      %{
-        "action" => action,
-        "reason" => judgment_reason(action),
-        "reply_included" => action == "reply",
-        "record_only" => false,
-        "frame_type" => stub_reply_frame_type(action, text),
-        "dialogue_goal" => stub_dialogue_goal(text)
-      }
-      |> then(fn args ->
-        if capability, do: Map.put(args, "capability", capability), else: args
-      end)
-      |> then(fn args ->
-        # Q3c：存档意图消息本身携带内容原文——注册信号置真（作者字节物化触发）。
-        if stub_archive_write?(text),
-          do:
-            Map.merge(args, %{
-              "author_content_registration" => true,
-              "author_content_source_ref" => "current"
-            }),
-          else: args
-      end)
-      |> Map.merge(extra_args)
+    calls =
+      cond do
+        stub_archive_write?(text) ->
+          [
+            %{
+              name: "register_author_content",
+              arguments: %{
+                author_content_source_ref: "current",
+                dialogue_goal: goal,
+                author_reasoning: narrative
+              }
+            }
+          ]
 
-    Result.new(judgment_reason(action), nil,
-      tool_calls: [
-        %{"name" => "judgment_decision", "arguments" => arguments}
-      ]
-    )
+        action == "reply" ->
+          []
+
+        action == "await_author" ->
+          [%{name: "ask_author", arguments: %{question: narrative, options: []}}]
+
+        true ->
+          args = %{action: action, dialogue_goal: goal, reason: judgment_reason(action)}
+          args = if action == "execute", do: Map.put(args, :capability, capability), else: args
+
+          args =
+            if action == "explore",
+              do: Map.put(args, :explore_request, extra["explore_request"]),
+              else: args
+
+          [%{name: "judgment_decision", arguments: args}]
+      end
+
+    Result.new(narrative, nil, tool_calls: calls)
   end
 
   # CP5a 内部翼：explore 仅在判断 prompt 开放「先探索」形态时成立（协议 options
@@ -345,41 +337,21 @@ defmodule NovelAgent.Provider.Stub do
   # 为 reply。explore_request 点名 prose_search + 「」引用词（无引用词取查询短语尾）。
   defp shape_judgment_action("explore", text) do
     cond do
-      # call1 带观察段 / call2 内嵌引用回复叙事（依据如下）→ 回环收束 reply
+      # 单调用判断 prompt 已带观察段 / 内嵌引用回复叙事（依据如下）→ 回环收束 reply
       String.contains?(text, "## 探索观察") or String.contains?(text, "依据如下") ->
-        {"reply", %{"reply_included" => true}}
+        {"reply", %{}}
 
-      # call1 开放「先探索」形态 / call2 内嵌探索叙事回声 → explore 成立
-      String.contains?(text, "先探索") or String.contains?(text, "我需要先检索作品事实") ->
+      # 单调用判断 prompt 仍开放「先探索」形态 / 内嵌探索叙事回声 → explore 成立
+      String.contains?(text, "只读探索当前允许：true") or String.contains?(text, "我需要先检索作品事实") ->
         {"explore",
          %{"explore_request" => %{"tool" => explore_tool(text), "query" => explore_term(text)}}}
 
       true ->
-        {"reply", %{"reply_included" => true}}
+        {"reply", %{}}
     end
   end
 
   defp shape_judgment_action(action, _text), do: {action, %{}}
-
-  defp stub_reply_frame_type(action, text) when action in ["reply", "await_author"] do
-    author_text = judgment_author_input(text)
-
-    cond do
-      contains_any?(author_text, ["存档", "保存进档案", "写入档案", "登记进档案", "存进档案"]) ->
-        "capability_gap"
-
-      contains_any?(author_text, ["协作方式", "创作流程", "下一步怎么合作"]) ->
-        "meta_discussion"
-
-      contains_any?(author_text, ["为什么", "怎么", "如何", "吗？", "吗?"]) ->
-        "question_answer"
-
-      true ->
-        "casual_reply"
-    end
-  end
-
-  defp stub_reply_frame_type(_action, _text), do: nil
 
   defp stub_dialogue_goal(text) do
     text
@@ -455,6 +427,8 @@ defmodule NovelAgent.Provider.Stub do
          do: route
     end)
   end
+
+  defp judgment_default(text) when text in ["hello", "hi", "你好"], do: {"reply", nil}
 
   defp judgment_default(author_text) do
     if String.length(author_text) <= 6, do: {"await_author", nil}, else: {"reply", nil}
@@ -551,17 +525,6 @@ defmodule NovelAgent.Provider.Stub do
       frame_prompt?(text) -> frame_json(text)
       true -> "[stub] echo: " <> text
     end
-  end
-
-  defp agent_plan_reasoning_content(text) do
-    response =
-      if agent_plan_revision_prompt?(text) do
-        agent_plan_revision_response(text)
-      else
-        agent_plan_draft_response(text)
-      end
-
-    Map.fetch!(response, :reasoning)
   end
 
   defp agent_plan_prompt?(text),
@@ -685,7 +648,7 @@ defmodule NovelAgent.Provider.Stub do
     Result.new(Map.fetch!(response, :reasoning), nil,
       tool_calls: [
         %{
-          "name" => NovelAgent.Provider.tool_choice(prompt) || "agent_plan",
+          "name" => NovelAgent.Provider.tool_specs(prompt) |> hd() |> Map.fetch!(:name),
           "arguments" => plan_tool_arguments(response)
         }
       ]
@@ -874,6 +837,7 @@ defmodule NovelAgent.Provider.Stub do
 
   defp plan_tool_arguments(packet) do
     %{
+      "author_reasoning" => Map.fetch!(packet, :reasoning),
       "plan" => %{"steps" => Map.fetch!(packet, :steps)},
       "reason_codes" => Map.get(packet, :reason_codes, ["agent_plan_drafted"]),
       "confidence" => Map.get(packet, :confidence, 1.0)

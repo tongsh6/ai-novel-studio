@@ -1,5 +1,7 @@
 # ADR-0001：DialogueFrame v3 语义与最小 Contract
 
+> **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
+
 - 状态：Accepted
 - 日期：2026-05-06
 - 来源文档：
@@ -14,6 +16,18 @@
 - 取代者：无
 
 > Accepted 范围：冻结每个 turn 必有 primary `DialogueFrame` 的语义、reply-only 也必须可追踪/可回放的规则，以及 VS-00 所需最小字段语义。本文不授权代码实现；代码实现仍需用户明确开始。
+
+### B26 / B27 修订：无工具回复的记录来源（2026-10-24，Accepted）
+
+本修订细化普通回复的字段来源，不取消每个作者 turn 必有 primary `DialogueFrame`、稳定 frame/turn/trace 引用和回放的要求。作者已接受联合修订并授权实现；实现证据与剩余验收以 B26/B27 原任务为准。
+
+- 无工具普通回复仍由 application 的 Planner 出口建立并校验 primary frame；模型不必为填 frame 额外调用工具或再发起一次分类请求。原始回应逐字绑定有效 `provider_call_ref`，作者输入、实际提供材料和读取覆盖可追溯。
+- `casual_reply` 是该出口的应用展示投影，不表示模型判定作者在闲聊。`dialogue_goal.summary` 只能引用本轮作者原话或仍适用的已验证上游目标，并分别标明来源；不得补写模型未输出的意图、焦点或不确定性。
+- `tool_need.needs_tool=false` 仅表达本响应未请求业务派发；拟增加 `reason_code=no_tool_requested` 区分于模型声称“不需要工具”。若同一作者 turn 先前已探索，trace 仍保留实际 ToolRequest/ToolResult，不得据最后一次回复把整轮记成零工具。
+- 未输出的模型认知显式记为 `not_provided`；格式容器中的空列表不构成“模型已判断无不确定性”的证据。UI、记忆提炼、质量判断、意图派发与 Why/Replay 消费者必须保留来源标识，不能把展示默认升级为模型事实或授权。
+- 明确业务工具继续提供结构化目标、对象、来源与建议；所有动作仍经 Orchestrator，作品写入仍经 tentative/adoption。文本中出现“保存/同意”等字样不产生执行权。
+
+字段映射和验证以 [VS-00D §11.4](../contracts/VS-00D-ai-guided-authoring-contract-pack.md) 为唯一细则；实施范围以 [UA-01 §2.2.8](../contracts/UA-01-unified-agent-run-loop-contract-pack.md) 为准。共享出口已按本修订迁移，普通回复来源由 judgment_protocol_test 与场景不变量验证；全范围完成状态仍见 B26/B27。
 
 ---
 

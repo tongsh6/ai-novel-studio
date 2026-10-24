@@ -60,7 +60,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     # D1 CP2：替身把收到的 prompt 落到 llm 日志目录（HTTP 层记录器在替身场景不落盘）——
     # 场景化验收由此获得 prompt 级外部证据（守则文案/阵容段是否真进 prompt）。
     # 仅 test/support 行为，产品零感知。
-    log_received_prompt(prompt_text)
+    log_received_prompt(prompt_text, prompt)
     maybe_delay_su02_slow_work_switch(prompt_text)
     maybe_delay_archive_slow(prompt_text)
     maybe_delay_agent_cancel(prompt_text)
@@ -122,7 +122,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp maybe_delay_author_reasoning_chunk(ctx, event) do
-    if Map.get(ctx, :purpose) in [:author_reasoning, "author_reasoning"] and
+    if (Map.get(ctx, :purpose) in [:author_reasoning, "author_reasoning"] or
+          ctx[:content_visibility] == :author) and
          is_binary(event.payload[:author_narrative_delta]) do
       Process.sleep(@author_reasoning_chunk_delay_ms)
     end
@@ -417,17 +418,203 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       "【人物状态与弧光】#{first_line}\n【伏笔动作】（无）\n【情绪基调】紧张推进"
   end
 
-  # 判断①（ADR-0025 方案 B）：结构段（forced tool）产 judgment_decision；
-  # 叙事段自由输出，判"直接回复"时同一次输出空行后内联回复正文（复用帧机器语义）。
-  defp judgment_result(prompt, prompt_text) do
-    if NovelAgent.Provider.tool_call_prompt?(prompt) do
-      judgment_decision_result(prompt_text)
-    else
-      judgment_narrative_result(prompt_text)
+  # B26 判断①：一次 auto 响应同时给出公开文本与可选原生工具。
+  defp judgment_result(_prompt, prompt_text) do
+    input = judgment_author_input(prompt_text)
+
+    cond do
+      plan_protocol_mode(input) != nil ->
+        plan_protocol_judgment(input)
+
+      String.contains?(input, "把已有角色的叙事身份从配角改为主角") ->
+        narrative = "当前工具没有修改已有角色主档案叙事身份的能力；角色演化只写演化记录，不能代替身份修改。可以先讨论调整方案，原档案保持不变。"
+
+        Result.new(narrative, nil,
+          tool_calls: [
+            %{
+              name: "report_capability_gap",
+              arguments: %{
+                dialogue_goal: input,
+                missing_effect: "修改已有角色主档案的叙事身份",
+                author_reasoning: narrative
+              }
+            }
+          ]
+        )
+
+      String.contains?(input, "结尾有两个方向，先让我选择") ->
+        Result.new("结尾要保留悬念，还是当章收束？", nil,
+          tool_calls: [
+            %{
+              name: "ask_author",
+              arguments: %{
+                question: "结尾要保留悬念，还是当章收束？",
+                options: [
+                  %{value: "keep", label: "保留悬念", recommended: true},
+                  %{value: "close", label: "当章收束"},
+                  %{value: "custom", label: "自行补充", kind: "free_text"}
+                ]
+              }
+            }
+          ]
+        )
+
+      String.contains?(input, "结尾还没想清楚，请先问我一个问题") ->
+        Result.new("你希望读者在结尾留下怎样的感受？", nil,
+          tool_calls: [
+            %{
+              name: "ask_author",
+              arguments: %{
+                question: "你希望读者在结尾留下怎样的感受？",
+                options: []
+              }
+            }
+          ]
+        )
+
+      true ->
+        regular_judgment_result(prompt_text)
     end
   end
 
-  # 判断②（ADR-0025 CP3a）：观察 + 续行两段式——计划耗尽（D6 语义）判 continue
+  # B26：三种模型计划响应仅由外部验收替身提供，产品不识别这些措辞。
+  defp plan_protocol_mode(text) do
+    Enum.find(["同批计划", "另行起草计划", "先核对再补齐计划"], &String.contains?(text, &1))
+  end
+
+  defp plan_protocol_judgment(input) do
+    packet = plan_protocol_packet(:complete)
+
+    decision = %{
+      name: "judgment_decision",
+      arguments: %{action: "plan", dialogue_goal: input, reason: packet.reasoning}
+    }
+
+    calls =
+      if plan_protocol_mode(input) == "同批计划",
+        do: [decision, agent_plan_tool_call("agent_plan_draft", packet)],
+        else: [decision]
+
+    Result.new(packet.reasoning, nil, tool_calls: calls)
+  end
+
+  defp plan_protocol_packet(stage) do
+    context =
+      plan_step("context_assemble", "explore", "核对已有作品材料。", ["context_observation_created"])
+
+    creative = [
+      plan_step("character_design", "act", "提出角色设计候选。", ["tentative_character_created"]),
+      plan_step("world_building", "act", "围绕角色提出世界设定候选。", ["tentative_setting_created"])
+    ]
+
+    %{
+      reasoning: "先核对作品材料，再设计角色和相关世界设定，全部产出留待作者采纳。",
+      steps: if(stage == :short, do: [context], else: [context | creative]),
+      reason_codes: [if(stage == :revision, do: "agent_plan_revised", else: "agent_plan_drafted")]
+    }
+  end
+
+  defp regular_judgment_result(prompt_text) do
+    result = judgment_decision_result(prompt_text)
+    narrative = judgment_narrative_result(prompt_text).content
+
+    case result.tool_calls do
+      [call] -> single_judgment_output(call["arguments"], narrative, result)
+      _ -> result
+    end
+  end
+
+  # 验收替身按既有场景的语义裁决构造新协议，一次调用返回全部字节。
+  defp single_judgment_output(args, text, result) do
+    {name, payload} = single_fixture_operation(args, text)
+
+    calls =
+      if name, do: [%{"id" => "call_#{name}", "name" => name, "arguments" => payload}], else: []
+
+    calls = fixture_conflicting_calls(calls, args)
+    %{result | content: text, tool_calls: calls}
+  end
+
+  defp fixture_conflicting_calls(
+         calls,
+         %{"author_content_registration" => true, "action" => "execute"} = args
+       ) do
+    {name, payload} = single_fixture_decision(args)
+    calls ++ [%{"id" => "conflicting-execute", "name" => name, "arguments" => payload}]
+  end
+
+  defp fixture_conflicting_calls(calls, %{"record_only" => true}) when calls != [],
+    do: calls ++ calls
+
+  defp fixture_conflicting_calls(calls, _), do: calls
+
+  defp single_fixture_operation(args, text) do
+    cond do
+      args["author_content_registration"] == true ->
+        {"register_author_content",
+         %{
+           author_content_source_ref: args["author_content_source_ref"],
+           dialogue_goal: args["dialogue_goal"] || "登记原文",
+           author_reasoning: text
+         }}
+
+      args["action"] == "await_author" ->
+        {"ask_author", %{question: text, options: []}}
+
+      args["action"] == "reply" ->
+        single_fixture_reply(args, text)
+
+      true ->
+        single_fixture_decision(args)
+    end
+  end
+
+  defp single_fixture_reply(args, text) do
+    cond do
+      args["candidate_directions"] not in [nil, []] ->
+        {"propose_creative_directions",
+         %{
+           candidate_directions:
+             Enum.map(
+               args["candidate_directions"],
+               &fixture_direction/1
+             ),
+           author_reasoning: text
+         }}
+
+      args["frame_type"] == "capability_gap" ->
+        {"report_capability_gap",
+         %{
+           dialogue_goal: args["dialogue_goal"] || "当前创作请求",
+           missing_effect: text,
+           author_reasoning: text
+         }}
+
+      true ->
+        {nil, %{}}
+    end
+  end
+
+  defp fixture_direction(direction) do
+    direction
+    |> Map.new(fn {key, value} -> {to_string(key), value} end)
+    |> Map.take(["title", "pitch", "tone_tags"])
+  end
+
+  defp single_fixture_decision(args) do
+    filtered =
+      Map.take(
+        args,
+        ~w(action reason dialogue_goal capability explore_request pending_artifact_ref adopted_content_ref)
+      )
+
+    filtered =
+      if args["action"] != "execute", do: Map.delete(filtered, "capability"), else: filtered
+
+    {"judgment_decision", Map.put_new(filtered, "dialogue_goal", "推进当前创作请求")}
+  end
+
+  # 判断②（ADR-0025 CP3a）：单调用续行——计划耗尽（D6 语义）判 continue
   # 补产出步；其余偏离（质量/门禁/缺章/工具故障）裁决权在作者，判 await_author。
   defp maybe_fail_writer_timeout_prompt(prompt_text) do
     if System.get_env(@writer_timeout_env) == "1" and prose_fragment_prompt?(prompt_text) and
@@ -446,43 +633,53 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp continuation_prompt?(text),
     do: String.contains?(text, "你的两种续行方式") or String.contains?(text, "continuation_decision")
 
-  defp continuation_result(prompt, text) do
-    cond do
-      # B17 fixture：首次 writer timeout 后判断②必须走“继续执行（拆场景重试）”，
-      # 才能复现真实 stage 的第二次失败→计划耗尽→机械停等；不是产品分支。
-      writer_timeout_fixture?() and NovelAgent.Provider.tool_call_prompt?(prompt) ->
-        Result.new("continuation_continue", nil,
-          tool_calls: [
-            %{
-              "name" => "continuation_decision",
-              "arguments" => %{
-                "action" => "continue",
-                "guidance" => "先拆成场景，缩小单次范围后再生成。",
-                "reason" => "continuation_continue"
-              }
+  defp continuation_result(_prompt, text) do
+    if String.contains?(continuation_goal(text), "同步到发布平台") and
+         String.contains?(text, "工具 prose_writing 执行失败") do
+      narrative = "本次正文生成未完成，当前也没有同步到发布平台的能力。可以先保留现有作品，在支持的范围内重新调整目标。"
+
+      Result.new(narrative, nil,
+        tool_calls: [
+          %{
+            name: "report_capability_gap",
+            arguments: %{
+              dialogue_goal: continuation_goal(text),
+              missing_effect: "同步到发布平台",
+              author_reasoning: narrative
             }
-          ]
-        )
-
-      writer_timeout_fixture?() ->
-        Result.new("写作调用失败了，我先拆成场景、缩小单次输出，再继续生成。")
-
-      NovelAgent.Provider.tool_call_prompt?(prompt) ->
-        {action, guidance} = continuation_decision(text)
-
-        arguments = %{
-          "action" => action,
-          "guidance" => guidance,
-          "reason" => "continuation_#{action}"
-        }
-
-        Result.new("continuation_#{action}", nil,
-          tool_calls: [%{"name" => "continuation_decision", "arguments" => arguments}]
-        )
-
-      true ->
-        Result.new(continuation_narrative(text))
+          }
+        ]
+      )
+    else
+      regular_continuation_result(text)
     end
+  end
+
+  defp continuation_goal(text) do
+    case Regex.run(~r/## 当前目标\s*\n(.*?)\n## 偏离事实/su, text) do
+      [_, goal] -> goal
+      _ -> ""
+    end
+  end
+
+  defp continuation_retry_requested?(text),
+    do: String.contains?(continuation_goal(text), "按原目标重试一次")
+
+  defp regular_continuation_result(text) do
+    {action, guidance} =
+      if writer_timeout_fixture?(),
+        do: {"continue", "先拆成场景，缩小单次范围后再生成。"},
+        else: continuation_decision(text)
+
+    narrative = continuation_narrative(text)
+
+    {name, args} =
+      if action == "continue",
+        do:
+          {"continuation_decision", %{action: "continue", guidance: guidance, reason: narrative}},
+        else: {"ask_author", %{question: narrative, options: []}}
+
+    Result.new(narrative, nil, tool_calls: [%{name: name, arguments: args}])
   end
 
   defp writer_timeout_fixture?, do: System.get_env(@writer_timeout_env) == "1"
@@ -491,6 +688,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp continuation_decision(text) do
     cond do
+      continuation_retry_requested?(text) ->
+        {"continue", "按作者刚给出的回复，保持原目标和范围重试一次。"}
+
       String.contains?(text, "计划步骤已走完") ->
         {"continue", "补足正文产出步，按原目标继续生成草稿。"}
 
@@ -511,6 +711,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp continuation_narrative(text) do
     cond do
+      continuation_retry_requested?(text) ->
+        "你已要求按原目标重试，我会保持原范围再执行一次。"
+
+      String.contains?(text, "工具 prose_writing 执行失败") ->
+        "正文生成失败，还没有可采纳的正文草稿。你希望重试，还是调整这次目标？"
+
       String.contains?(text, "计划步骤已走完") ->
         "计划走完但正文还没有产出，我会补上产出步继续完成这轮草稿。"
 
@@ -539,13 +745,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       agent_plan_draft_prompt?(prompt_text) and NovelAgent.Provider.tool_call_prompt?(prompt) ->
         agent_plan_draft_result(prompt_text)
-
-      # 两段式规划第一段：无 tools 的自由流式 reasoning 调用，只返回叙事 content。
-      agent_plan_revision_prompt?(prompt_text) ->
-        agent_plan_reasoning_result(prompt_text, :revision)
-
-      agent_plan_draft_prompt?(prompt_text) ->
-        agent_plan_reasoning_result(prompt_text, :draft)
 
       true ->
         content = response_content(prompt, prompt_text)
@@ -631,17 +830,6 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp mission_statement(false, _foreshadow),
     do: "本章按计划推进，不引入新的主导冲突。"
-
-  defp agent_plan_reasoning_result(prompt, mode) do
-    packet =
-      case mode do
-        :revision -> agent_plan_revision_packet(prompt)
-        :draft -> agent_plan_draft_packet(prompt)
-      end
-
-    reasoning = Map.fetch!(packet, :reasoning)
-    Result.new(reasoning, usage_for(prompt, reasoning))
-  end
 
   defp response_content(prompt, prompt_text) do
     cond do
@@ -876,6 +1064,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     profile_ref = agent_plan_profile_ref(prompt)
 
     cond do
+      plan_protocol_mode(agent_plan_author_goal(prompt)) != nil ->
+        plan_protocol_packet(:revision)
+
       plan_exhaust_revision?(profile_ref, prompt) ->
         plan_exhaust_revision_packet(prompt)
 
@@ -914,6 +1105,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp agent_plan_draft_packet(prompt) do
     profile_ref = agent_plan_profile_ref(prompt)
 
+    case plan_protocol_mode(agent_plan_author_goal(prompt)) do
+      "先核对再补齐计划" -> plan_protocol_packet(:short)
+      nil -> agent_plan_draft_packet_for_fixture(profile_ref, prompt)
+      _ -> plan_protocol_packet(:complete)
+    end
+  end
+
+  # fixture 分支拆出主函数，避免协议模式判断与夹具判定混在一个 cond 里（复杂度门禁）。
+  defp agent_plan_draft_packet_for_fixture(profile_ref, prompt) do
     cond do
       # B23 CP5 fixture：判断①判 plan 后的首次计划起草只排只读步（无产出步）。
       profile_ref == "judgment_plan_v1" and plan_exhaust_fixture?() and
@@ -1261,6 +1461,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp agent_plan_tool_arguments(packet) do
     %{
+      author_reasoning: Map.fetch!(packet, :reasoning),
       plan: %{steps: Map.fetch!(packet, :steps)},
       reason_codes: Map.get(packet, :reason_codes, ["agent_plan_drafted"]),
       confidence: Map.get(packet, :confidence, 1.0)
@@ -1822,7 +2023,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp log_received_prompt(prompt_text) do
+  defp log_received_prompt(prompt_text, prompt) do
     case Application.get_env(:novel_common, :llm_log_dir) do
       dir when is_binary(dir) and dir != "" ->
         File.mkdir_p!(dir)
@@ -1832,7 +2033,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           Jason.encode!(%{
             ts: DateTime.utc_now() |> DateTime.to_iso8601(),
             provider: "slice_verify",
-            prompt: prompt_text
+            prompt: prompt_text,
+            tools: if(is_map(prompt), do: Map.get(prompt, :tools, []), else: []),
+            tool_choice: if(is_map(prompt), do: Map.get(prompt, :tool_choice), else: nil),
+            work_id: Logger.metadata()[:work_id],
+            session_id: Logger.metadata()[:session_id],
+            turn_id: Logger.metadata()[:turn_id]
           })
 
         File.write!(file, line <> "\n", [:append])
@@ -2386,7 +2592,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     case Map.get(@judgment_capability_for_profile, profile_ref) do
       nil ->
         exploratory =
-          exploratory_prompt_text?(author_text) and
+          not explicit_no_candidate_text?(String.downcase(author_text)) and
+            exploratory_prompt_text?(author_text) and
             not candidate_context_followup_prompt?(prompt)
 
         {"reply", nil, exploratory}
@@ -2628,7 +2835,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = call2 返回原始垃圾
+  # 判断结构不可用诱导（ADR-0025 判断纪元语义）：garbage = 单次判断响应返回原始垃圾
   # payload（无合法 tool call）；bad-frame = 结构完整但 action 非法（模型仍说帧
   # 语言）。两者都应触发协议携带片段重试一次 → 仍坏 → S7 安全失败终局。
   defp judgment_decision_result(prompt) do
@@ -2679,7 +2886,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       full_read_request?(prompt) ->
         full_read_decision_result(prompt)
 
-      # call2 内嵌引用回复叙事（依据如下）→ 回环收束 reply
+      # 单次判断响应内嵌引用回复叙事（依据如下）→ 回环收束 reply
       String.contains?(prompt, "依据如下") ->
         judgment_cited_reply_decision_result(prompt)
 
@@ -2719,8 +2926,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp explore_request_for(prompt) do
     author_text = judgment_author_input(prompt)
 
-    # call1（叙事）：探索目录开放且尚无观察段；call2（决策，无 context 段）：
-    # 内嵌的 call1 叙事回声（先检索「）标记本轮已判探索。
+    # 单调用判断：探索目录开放且尚无观察段；或 content 回声（先检索「）标记本轮已判探索。
     explore_context? =
       (String.contains?(prompt, "## 探索目录") and
          not String.contains?(prompt, "## 探索观察")) or
@@ -2848,7 +3054,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # BIZ-05 外部页面故障注入：模型理解与输出冲突，覆盖一次纠正及持续拒绝。
   defp candidate_semantics_arguments(arguments, prompt) do
     input = judgment_author_input(prompt)
-    corrected? = String.contains?(prompt, "## 本轮输出边界未通过校验")
+    corrected? = String.contains?(prompt, "本次响应未通过契约校验：")
 
     cond do
       String.contains?(input, "仅记录纠正样例") ->
@@ -2970,16 +3176,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp message_state_arguments(arguments, prompt) do
     if message_state_request?(prompt) do
-      source =
-        message_state_facts(prompt)
-        |> Map.get("author_inputs", [])
-        |> Enum.find(&String.starts_with?(&1["text"] || "", "先只记录这份资料"))
+      source = registration_source(message_state_facts(prompt))
 
       facts = message_state_facts(prompt)
 
       existing? = materialized_message_source?(facts, source)
 
-      registration? = String.contains?(judgment_author_input(prompt), "上一条资料原文") and not existing?
+      registration? =
+        String.contains?(judgment_author_input(prompt), "上一条资料原文") and
+          (not existing? or String.contains?(judgment_author_input(prompt), "重复登记同源样例"))
 
       Map.merge(arguments, %{
         "frame_type" => if(registration?, do: "capability_gap", else: "question_answer"),
@@ -2992,6 +3197,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     else
       arguments
     end
+  end
+
+  defp registration_source(facts) do
+    facts
+    |> Map.get("author_inputs", [])
+    |> Enum.find(&String.starts_with?(&1["text"] || "", "先只记录这份资料"))
+  end
+
+  defp registration_adoptions(facts) do
+    source = registration_source(facts)
+    ref = if source, do: "author_input:#{source["turn_ref"]}"
+
+    ((facts["pending_adoptions"] || []) ++ (facts["resolved_adoptions"] || []))
+    |> Enum.filter(&(is_binary(ref) and &1["source_ref"] == ref))
   end
 
   defp materialized_message_source?(facts, source) do
@@ -3085,8 +3304,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       contains_any?(input, ["年龄", "改成", "修订"])
   end
 
-  # call1 带「已采纳可修订对象」目录；call2 只带消息处置 JSON。两处都必须能取到
-  # 真实 accepted ref，不能靠猜最新一条。
+  # 单调用判断 prompt 同时携带「已采纳可修订对象」目录与消息处置事实；两处都必须能
+  # 取到真实 accepted ref，不能靠猜最新一条。
   defp accepted_revision_ref(prompt) do
     case Regex.run(
            ~r/##\s*已采纳可修订对象[^\n]*\n\s*-\s*([^：\n]+)：revise_adopted_content/u,
@@ -3126,7 +3345,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         Map.merge(arguments, %{"action" => "execute", "capability" => "world_building"})
 
       String.contains?(input, "一次纠正样例") and
-          not String.contains?(prompt, "## 原文登记未通过业务校验") ->
+          not String.contains?(prompt, "本次响应未通过契约校验：") ->
         Map.put(arguments, "author_content_source_ref", nil)
 
       true ->
@@ -3137,6 +3356,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp message_state_narrative(prompt) do
     input = judgment_author_input(prompt)
     facts = message_state_facts(prompt)
+
+    source_adoptions = registration_adoptions(facts)
 
     lifecycle_narrative(input, facts) ||
       cond do
@@ -3150,12 +3371,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           "已收到这份资料原文，本轮只记录，不生成候选。"
 
         Enum.any?(
-          Map.get(facts, "resolved_adoptions", []),
+          source_adoptions,
           &(&1["status"] in ["ACCEPTED", "EDITED_ACCEPTED"])
         ) ->
           "这份资料已经采纳入档，已有采纳结果可核对。"
 
-        Map.get(facts, "pending_adoptions", []) != [] ->
+        Enum.any?(source_adoptions, &(&1["status"] == "TENTATIVE")) ->
           "这份资料尚未采纳，请在已有候选卡上采纳。运行结束不代表已经入档。"
 
         true ->
@@ -3961,15 +4182,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  defp explicit_no_candidate_text?(normalized) do
+    contains_any?(normalized, ["不生成候选", "不生成草稿", "只交流观点", "先只聊"])
+  end
+
   defp conversation_only_text?(normalized) do
-    contains_any?(normalized, [
-      "不写正文",
-      "不要写正文",
-      "不用写正文",
-      "先聊方向",
-      "只聊方向",
-      "讨论方向"
-    ])
+    explicit_no_candidate_text?(normalized) or
+      contains_any?(normalized, [
+        "不写正文",
+        "不要写正文",
+        "不用写正文",
+        "先聊方向",
+        "只聊方向",
+        "讨论方向"
+      ])
   end
 
   defp profile_route_matched_terms(text) do

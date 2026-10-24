@@ -72,7 +72,7 @@ SystemIdentityMessage
 
 | 禁含 | 原因 |
 |---|---|
-| 输出格式要求（JSON / 自然语言 / 不要 markdown / 不要代码块） | 调用点之间互斥：判断 call1 要自然语言，writer 要 JSON |
+| 输出格式要求（JSON / 自然语言 / 不要 markdown / 不要代码块） | 调用点之间互斥：判断/计划单调用 content 要自然语言、结构走 native tool call；writer 要 JSON |
 | 输出语言要求 | 部分结构化输出字段为英文枚举；语言要求归调用点 |
 | 具体角色名（判断器 / 起草器 / 评审器 / 写作助手） | 角色随调用变化，是六段骨架第①段，不是身份层 |
 | 任何作品级或轮级内容 | 破坏前缀稳定性（§7），且违反 `VS-00D` "三层不得混成一段" |
@@ -192,7 +192,7 @@ NovelAgent.Provider.Gateway.execute/4
 | CP0 | 本文 + `VS-00D` / `08` / notes 指针 + `UA01` T7 登记 | 文档可达链完整（contracts README → 本文；VS-00D §4.4 → 本文） | 任何代码 |
 | CP1 | 身份模块（文本 + version + hash）；gateway 注入 + 幂等；`system_identity_ref` 进 ProviderRun 事实；gateway focused tests；Stub 兼容核验；全量 `mix test`；一条既有 slice_verify 场景复跑；I1/I2/I3 | I-SYS-1 / I-SYS-3 成立；既有测试爆点全部显式处理（断言 messages 长度 / 首条内容的测试需同步更新，不得静默放宽） | 不改 18 处调用点文本；不做 opt-out；不做缓存 |
 | CP2 | 18 处调用点去产品自称：`你是小说创作系统的创作判断器` → `本次你承担创作判断器的角色`，删除"小说创作系统 / 长篇小说写作台 / 一个小说创作 AI"；I-SYS-2 静态守卫落地；既有 MBC 探针复跑对照 | 探针 pass_rate 不退化；I-SYS-2 守卫绿 | 不做角色枚举（无消费者，YAGNI；notes "不为体系化而重写"） |
-| CP3 | `Usage.cached_tokens` + adapter 映射 + ProviderRun / 开发者视图可见；Anthropic `cache_control` 标记；judgment call1/call2 前缀共享实测 | 开发者视图可见命中数；call2 命中 call1 前缀有数据 | 不调整任何 prompt 内部段落顺序（归 `UA01` T6） |
+| CP3 | `Usage.cached_tokens` + adapter 映射 + ProviderRun / 开发者视图可见；Anthropic `cache_control` 标记；判断调用前缀共享实测（2026-10-23 B26 移除两段式后，历史 call1/call2 调用对实测降为历史证据；当前为同调用点连续轮前缀，见 VS-00I §3.4/§7） | 开发者视图可见命中数；单调用历史调用对命中数据仅作旧证据 | 不调整任何 prompt 内部段落顺序（归 `UA01` T6） |
 
 CP1 是最小承重步：它已经穿过 调用点 → gateway → adapter → provider → ProviderRun trace 的真实链路，有真实消费者（trace / developer 视图），可由外部脚本证明。CP2 / CP3 是其后果，不是可选项；未做前本 slice 不得标 done。
 

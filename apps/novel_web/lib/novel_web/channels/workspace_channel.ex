@@ -76,7 +76,18 @@ defmodule NovelWeb.WorkspaceChannel do
 
     send(self(), :recover_durable_agent_runs)
 
-    {:ok, %{joined: true, work_id: work_id, session_id: session_id}, socket}
+    questions =
+      if valid_uuid?(work_id) and valid_uuid?(session_id),
+        do: NovelApplication.AuthorQuestionService.open_results(work_id, session_id),
+        else: []
+
+    {:ok,
+     %{
+       joined: true,
+       work_id: work_id,
+       session_id: session_id,
+       open_author_question_turn_results: questions
+     }, socket}
   end
 
   defp restore_join_turn_results(work_id, payload) do
@@ -261,6 +272,92 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   @impl true
+  def handle_in(
+        "author_action",
+        %{"action" => %{"action_type" => "author_choice"} = params},
+        socket
+      ) do
+    input = %AuthorActionInput{
+      input_id: NovelFoundation.ID.unique("in"),
+      source_turn_ref: params["source_turn_ref"],
+      action_id: params["action_id"],
+      action_type: "author_choice",
+      target_ref: params["target_ref"],
+      candidate_ref: params["candidate_ref"],
+      idempotency_key: params["idempotency_key"],
+      payload: if(is_map(params["payload"]), do: params["payload"], else: %{})
+    }
+
+    LogContext.put_turn(
+      socket.assigns[:workspace_id],
+      socket.assigns[:work_id],
+      input.source_turn_ref,
+      socket.assigns[:session_id]
+    )
+
+    LogEmit.emit(:channel, :author_action, :start, %{
+      action_type: "author_choice",
+      action_id: input.action_id,
+      target_ref: input.target_ref,
+      question_ref: input.payload["question_ref"]
+    })
+
+    case NovelApplication.AuthorQuestionService.reply(
+           socket.assigns[:work_id],
+           socket.assigns[:session_id],
+           input
+         ) do
+      {:ok, result} ->
+        result =
+          Map.merge(result, %{
+            action_id: input.action_id,
+            action_type: "author_choice",
+            source_turn_ref: input.source_turn_ref
+          })
+
+        result =
+          Map.merge(result, %{
+            received: true,
+            turn_id: result.submission_id,
+            action_status: result.status
+          })
+
+        result =
+          case AgentRunService.state(input.target_ref) do
+            {:ok, state} ->
+              Map.put(result, :agent_run_state, agent_run_state_payload(state, socket))
+
+            _ ->
+              result
+          end
+
+        LogEmit.emit(:channel, :author_action, :done, %{
+          action_type: "author_choice",
+          action_id: input.action_id,
+          target_ref: input.target_ref,
+          action_status: result.status,
+          duplicate: result.duplicate
+        })
+
+        broadcast!(socket, "action_result", result)
+        {:reply, {:ok, result}, socket}
+
+      {:error, reason} ->
+        {:reply,
+         {:error,
+          %{
+            status: "rejected",
+            reason_code:
+              if(is_atom(reason),
+                do: Atom.to_string(reason),
+                else: "author_question_delivery_failed"
+              ),
+            question_ref: input.payload["question_ref"],
+            submission_id: input.payload["submission_id"]
+          }}, socket}
+    end
+  end
+
   def handle_in("author_action", %{"action" => action_params}, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     source_turn_ref = action_params["source_turn_ref"] || ws_id

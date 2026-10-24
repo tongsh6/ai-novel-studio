@@ -112,8 +112,9 @@ function checkManifest() {
     return;
   }
 
-  const manifestPath = args.manifest
-    ? path.resolve(rootDir, args.manifest)
+  const requestedManifest = args.manifest ?? process.env.TASK_DONE_MANIFEST;
+  const manifestPath = requestedManifest
+    ? path.resolve(rootDir, requestedManifest)
     : findLatestManifest();
 
   if (!manifestPath) {
