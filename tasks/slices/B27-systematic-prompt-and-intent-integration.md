@@ -308,4 +308,5 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - `NovelCommon.AuthoringSemantics`（`b27-semantics-v1`）：shared_rules/operation_rules/output_contract_rules/static_block(L1)/dynamic_block(L3)/render、`validate/1`（作者来源含 action/quality_finding 来源、revise/rewrite 需 base_ref+preserve、材料 ref/complete 校验、quality_evaluation/summary/inventory 需真实 prose 材料、semantic_version 校验）、`content_hash/0`；18 tests。
 - `CreativeRequest`/`QualityEvaluationRequest` additive `task: AuthoringTask | nil`（迁移期 nil 兼容，CP3d 后强制）。
 - `AuthoringTaskPolicy` 变薄委托：`shared_rules` 单一真源 + 判断/计划专属段（`b27-task-v2`，`content_hash/0`）；删除「仅排版互斥」承诺并写明当前无字节级排版能力的边界（B28 承接）；4 tests。
+- `NovelApplication.AuthoringTaskBuilder`：域模块共享的组装基座（`new/2` 构造+validate、`material/3`、`scope/2`、`output_contract/2`、`prior_result/1`、`to_input/1`、`from_input/1`；无据字段不补写；6 tests）。
 - 回归：`mix compile --warnings-as-errors`、`mix test` 1970 tests / 0 failures（含 judgment/plan 64 tests、novel_common 57 tests）、enum literal lint、credo strict 通过。

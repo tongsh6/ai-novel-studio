@@ -174,13 +174,13 @@ defmodule NovelCommon.Contracts.AuthoringTask do
       kind: atom_field(map, :kind),
       author_goal: optional_string(fetch(map, :author_goal)),
       author_words: optional_string(fetch(map, :author_words)),
-      source: map_or_nil(fetch(map, :source)),
-      scope: map_or_empty(fetch(map, :scope)),
-      materials: map_list(fetch(map, :materials)),
+      source: normalize_source(fetch(map, :source)),
+      scope: normalize_scope(fetch(map, :scope)),
+      materials: normalize_materials(fetch(map, :materials)),
       preserve: string_list(fetch(map, :preserve)),
       operation_effect: atom_field(map, :operation_effect),
-      prior_result: map_or_nil(fetch(map, :prior_result)),
-      output_contract: map_or_empty(fetch(map, :output_contract)),
+      prior_result: normalize_prior_result(fetch(map, :prior_result)),
+      output_contract: normalize_output_contract(fetch(map, :output_contract)),
       source_refs: string_list(fetch(map, :source_refs)),
       semantic_version: optional_string(fetch(map, :semantic_version)) || "b27-semantics-v1"
     }
@@ -188,14 +188,19 @@ defmodule NovelCommon.Contracts.AuthoringTask do
 
   def from_map(_other), do: nil
 
-  defp fetch(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp fetch(map, key) when is_map(map),
+    do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
 
   defp atom_field(map, key) do
     case fetch(map, key) do
-      value when is_atom(value) -> value
-      value when is_binary(value) -> String.to_existing_atom(value)
+      value when is_atom(value) and not is_nil(value) -> value
+      value when is_binary(value) -> existing_atom(value)
       _ -> nil
     end
+  end
+
+  defp existing_atom(value) do
+    String.to_existing_atom(value)
   rescue
     ArgumentError -> nil
   end
@@ -203,16 +208,90 @@ defmodule NovelCommon.Contracts.AuthoringTask do
   defp optional_string(value) when is_binary(value), do: value
   defp optional_string(_value), do: nil
 
+  defp normalize_source(source) when is_map(source) do
+    case atom_field(source, :kind) do
+      nil ->
+        nil
+
+      kind ->
+        %{kind: kind}
+        |> maybe_put(:ref, optional_string(fetch(source, :ref)))
+    end
+  end
+
+  defp normalize_source(_source), do: nil
+
+  defp normalize_scope(scope) when is_map(scope) do
+    coverage = atom_field(scope, :coverage) || :none
+
+    %{refs: string_list(fetch(scope, :refs)), coverage: coverage}
+    |> maybe_put(:object_kind, field_or_string(scope, :object_kind))
+    |> maybe_put(:base_ref, optional_string(fetch(scope, :base_ref)))
+    |> maybe_put(:base_hash, optional_string(fetch(scope, :base_hash)))
+    |> maybe_put(:target_chapter_ref, optional_string(fetch(scope, :target_chapter_ref)))
+  end
+
+  defp normalize_scope(_scope), do: %{refs: [], coverage: :none}
+
+  defp normalize_materials(materials) when is_list(materials) do
+    materials
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn material ->
+      %{
+        kind: field_or_string(material, :kind) || :material,
+        ref: optional_string(fetch(material, :ref))
+      }
+      |> maybe_put(:version, fetch(material, :version))
+      |> maybe_put(:complete?, fetch(material, :complete?))
+      |> maybe_put(:omission_note, optional_string(fetch(material, :omission_note)))
+    end)
+  end
+
+  defp normalize_materials(_materials), do: []
+
+  defp normalize_prior_result(prior) when is_map(prior) do
+    %{}
+    |> maybe_put(:run_ref, optional_string(fetch(prior, :run_ref)))
+    |> maybe_put(:turn_ref, optional_string(fetch(prior, :turn_ref)))
+    |> maybe_put(:status, field_or_string(prior, :status))
+    |> maybe_put(:summary, optional_string(fetch(prior, :summary)))
+    |> maybe_put(:pending_refs, string_list(fetch(prior, :pending_refs)))
+  end
+
+  defp normalize_prior_result(_prior), do: nil
+
+  defp normalize_output_contract(contract) when is_map(contract) do
+    %{
+      kind: field_or_string(contract, :kind) || :json,
+      required_keys: string_list(fetch(contract, :required_keys)),
+      allow_companions: fetch(contract, :allow_companions) == true
+    }
+    |> maybe_put(:schema_ref, optional_string(fetch(contract, :schema_ref)))
+    |> maybe_put(:artifact_type, field_or_string(contract, :artifact_type))
+  end
+
+  defp normalize_output_contract(_contract),
+    do: %{kind: :json, required_keys: [], allow_companions: false}
+
+  defp field_or_string(map, key) do
+    case fetch(map, key) do
+      value when is_atom(value) and not is_nil(value) -> value
+      value when is_binary(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp string_list(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
+  defp string_list(_value), do: []
+
   defp map_or_nil(value) when is_map(value), do: value
   defp map_or_nil(_value), do: nil
 
   defp map_or_empty(value) when is_map(value), do: value
   defp map_or_empty(_value), do: %{}
 
-  defp map_list(value) when is_list(value), do: Enum.filter(value, &is_map/1)
-  defp map_list(_value), do: []
-
-  defp string_list(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
-  defp string_list(_value), do: []
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, []), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
 end
