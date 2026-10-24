@@ -3055,6 +3055,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       |> candidate_semantics_arguments(prompt)
       |> pending_lifecycle_arguments(prompt)
       |> adopted_revision_arguments(prompt)
+      |> chapter_revision_arguments(prompt)
 
     reasoning = judgment_reason_code(action)
 
@@ -3291,6 +3292,172 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         do: entry["revision_of"] != nil,
         else: entry["revision_of"] == nil and String.contains?(entry["body_preview"] || "", "沈砚")
     end)
+  end
+
+  @doc """
+  B28 CP1.5/CP2：从判断 prompt 的「可选章级修订目标」段与作者原话解析章级修订参数。
+  返回 %{capability/adopted_content_ref/modification_scope/dialogue_goal}；
+  无章级意图/无可用章目标返回 nil。仅 test-support，不参与产品协议字段（judgment
+  schema 不接受 modification_scope；产品按 dialogue_goal/作者原话确定性推导范围）。
+  """
+  def chapter_revision_arguments(prompt) when is_binary(prompt) or is_map(prompt) do
+    prompt_text = prompt_to_text(prompt)
+    targets = chapter_revision_targets_from_prompt(prompt_text)
+    author_text = judgment_author_input(prompt_text)
+
+    if targets != [] and chapter_revision_intent?(author_text) do
+      %{
+        capability: "revise_adopted_content",
+        adopted_content_ref: chapter_revision_target_ref(targets, author_text),
+        modification_scope: chapter_revision_scope(author_text),
+        dialogue_goal: author_text
+      }
+    else
+      nil
+    end
+  end
+
+  def chapter_revision_arguments(_prompt), do: nil
+
+  defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_to_text(%{messages: messages}) do
+    messages
+    |> List.wrap()
+    |> Enum.map_join("\n", fn
+      %{content: content} when is_binary(content) -> content
+      _ -> ""
+    end)
+  end
+
+  defp chapter_revision_targets_from_prompt(prompt) do
+    ~r/^\s*-\s*(chapter:[0-9a-fA-F-]+)｜([^｜\n]+)｜片段数\s*(\d+)｜覆盖\s*([^\s｜]+)/mu
+    |> Regex.scan(prompt)
+    |> Enum.map(fn [_, ref, title, count, coverage] ->
+      %{
+        ref: String.trim(ref),
+        title: String.trim(title),
+        fragment_count: String.to_integer(count),
+        coverage: String.trim(coverage)
+      }
+    end)
+  end
+
+  defp chapter_revision_intent?(author_text) do
+    text = to_string(author_text)
+
+    String.contains?(text, ["正文", "章节", "章", "已保存", "已采纳"]) and
+      contains_any?(text, ["整理", "修订", "调整", "排版", "分段", "标点", "通读", "改"])
+  end
+
+  defp chapter_revision_scope(author_text) do
+    text = to_string(author_text)
+
+    cond do
+      Regex.match?(
+        ~r/(只|仅).{0,10}(调整|调|改|整理).{0,10}(分段|排版|标点)|不改字句|不要改字句|别改字句|字句.{0,6}(不变|别动)/u,
+        text
+      ) ->
+        "format_only"
+
+      Regex.match?(~r/(整章|全章|整篇|全文|通读)/u, text) ->
+        "whole_chapter"
+
+      true ->
+        "target_segments"
+    end
+  end
+
+  # 目标章选择只用唯一证据：原话章序号/标题唯一匹配；否则单目标；多目标不猜（nil 交产品守卫）。
+  defp chapter_revision_target_ref([], _author_text), do: nil
+
+  defp chapter_revision_target_ref([target], _author_text), do: target.ref
+
+  defp chapter_revision_target_ref(targets, author_text) do
+    text = to_string(author_text)
+
+    seq = chapter_seq_from_text(text)
+    title_matches = Enum.filter(targets, &chapter_title_matches?(&1.title, text))
+
+    cond do
+      seq != nil and Enum.count(targets, &(chapter_seq(&1.title) == seq)) == 1 ->
+        Enum.find(targets, &(chapter_seq(&1.title) == seq)).ref
+
+      length(title_matches) == 1 ->
+        hd(title_matches).ref
+
+      true ->
+        nil
+    end
+  end
+
+  defp chapter_seq_from_text(text) do
+    case Regex.run(~r/第\s*([0-9一二三四五六七八九十]+)\s*章/u, text) do
+      [_, raw] ->
+        case Integer.parse(raw) do
+          {n, ""} -> n
+          _ -> cn_chapter_seq(raw)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  @cn_chapter_digits %{
+    "一" => 1,
+    "二" => 2,
+    "三" => 3,
+    "四" => 4,
+    "五" => 5,
+    "六" => 6,
+    "七" => 7,
+    "八" => 8,
+    "九" => 9,
+    "十" => 10
+  }
+
+  defp cn_chapter_seq(raw), do: Map.get(@cn_chapter_digits, raw)
+
+  defp chapter_seq(title) do
+    case Regex.run(~r/第\s*([0-9一二三四五六七八九十]+)\s*章/u, to_string(title)) do
+      [_, raw] ->
+        case Integer.parse(raw) do
+          {n, ""} -> n
+          _ -> cn_chapter_seq(raw)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp chapter_title_matches?(title, text) do
+    title = to_string(title)
+    core = title |> String.split(["：", ":"], parts: 2) |> List.last() |> String.trim()
+
+    (String.length(core) >= 2 and String.contains?(text, core)) or
+      String.contains?(text, title)
+  end
+
+  defp chapter_revision_arguments(arguments, prompt) do
+    case chapter_revision_arguments(prompt) do
+      nil ->
+        arguments
+
+      revision ->
+        Map.merge(arguments, %{
+          "action" => "execute",
+          "capability" => revision.capability,
+          "adopted_content_ref" => revision.adopted_content_ref,
+          "pending_artifact_ref" => nil,
+          "frame_type" => nil,
+          "dialogue_goal" => revision.dialogue_goal,
+          "candidate_directions" => [],
+          "author_content_registration" => false,
+          "record_only" => false
+        })
+    end
   end
 
   # Q1c 已采纳设定修订：判断 prompt 在「已采纳可修订对象」段落列出真实 accepted ref。

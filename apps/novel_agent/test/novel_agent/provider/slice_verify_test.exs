@@ -417,3 +417,111 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert message == "AU04FAILTOOL fixture provider failure"
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyChapterRevisionTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  @chapter_ref "chapter:11111111-1111-1111-1111-111111111111"
+
+  defp judgment_prompt(author_text, targets \\ nil) do
+    targets =
+      targets ||
+        "- #{@chapter_ref}｜第01章：夜潮｜片段数 2｜覆盖 complete｜modification_scope 按作者要求选择：format_only=仅排版 / target_segments=指定片段 / whole_chapter=整章"
+
+    """
+    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
+
+    ## 可选章级修订目标（只读；ref 唯一，title 仅展示）
+    #{targets}
+
+    ## 已采纳可修订对象（只用于 revise_adopted_content）
+    - as_q1c_setting：revise_adopted_content
+
+    ## 作者输入
+    #{author_text}
+    """
+  end
+
+  defp chapter_arguments(author_text) do
+    SliceVerify.chapter_revision_arguments(judgment_prompt(author_text))
+  end
+
+  test "章级排版意图 → format_only + chapter ref + 作者原话" do
+    author_text = "把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。"
+    revision = chapter_arguments(author_text)
+
+    assert revision.capability == "revise_adopted_content"
+    assert revision.adopted_content_ref == @chapter_ref
+    assert revision.modification_scope == "format_only"
+    assert revision.dialogue_goal == author_text
+
+    assert {:ok, result} =
+             SliceVerify.complete(nil, nil, judgment_prompt(author_text), %InferenceParams{})
+
+    assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
+    assert args["action"] == "execute"
+    assert args["capability"] == "revise_adopted_content"
+    assert args["adopted_content_ref"] == @chapter_ref
+    assert args["dialogue_goal"] == author_text
+  end
+
+  test "整章/通读意图 → whole_chapter；明确改一处 → target_segments" do
+    assert chapter_arguments("帮我通读一遍第一章正文，看看有没有矛盾。").modification_scope ==
+             "whole_chapter"
+
+    assert chapter_arguments("把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。").modification_scope ==
+             "target_segments"
+
+    # 仅排版优先于“整章”限定
+    assert chapter_arguments("把整章正文整理一下，只调整分段和标点，不改字句。").modification_scope ==
+             "format_only"
+  end
+
+  test "同名/多目标不猜：无唯一章序号匹配 → chapter ref nil（交产品守卫）" do
+    targets = """
+    - #{@chapter_ref}｜第01章：夜潮｜片段数 2｜覆盖 complete｜modification_scope 按作者要求
+    - chapter:22222222-2222-2222-2222-222222222222｜第01章：夜潮｜片段数 1｜覆盖 complete｜modification_scope 按作者要求
+    """
+
+    revision = SliceVerify.chapter_revision_arguments(judgment_prompt("整理已保存的正文。", targets))
+
+    assert revision.capability == "revise_adopted_content"
+    assert revision.adopted_content_ref == nil
+  end
+
+  test "原话唯一章序号匹配多目标时仍可绑定" do
+    targets = """
+    - #{@chapter_ref}｜第01章：夜潮｜片段数 2｜覆盖 complete｜modification_scope 按作者要求
+    - chapter:22222222-2222-2222-2222-222222222222｜第02章：井底｜片段数 1｜覆盖 complete｜modification_scope 按作者要求
+    """
+
+    revision =
+      SliceVerify.chapter_revision_arguments(judgment_prompt("把第一章正文整理一下，只调整排版，不改字句。", targets))
+
+    assert revision.adopted_content_ref == @chapter_ref
+    assert revision.modification_scope == "format_only"
+  end
+
+  test "旧 Q1c 单片段已采纳分支保持可用（不回归）" do
+    prompt = """
+    本次你承担创作判断器的角色。
+
+    ## 已采纳可修订对象（只用于 revise_adopted_content）
+    - as_q1c_setting：revise_adopted_content
+
+    ## 作者输入
+    把已保存设定中岑舟的年龄从二十五岁改成三十岁，其他内容保持不变。
+    """
+
+    assert SliceVerify.chapter_revision_arguments(prompt) == nil
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+    assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
+    assert args["action"] == "execute"
+    assert args["capability"] == "revise_adopted_content"
+    assert args["adopted_content_ref"] == "as_q1c_setting"
+  end
+end
