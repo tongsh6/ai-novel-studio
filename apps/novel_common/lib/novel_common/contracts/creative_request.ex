@@ -19,6 +19,7 @@ defmodule NovelCommon.Contracts.CreativeRequest do
           progress_state: String.t() | nil,
           planning_mission: String.t() | nil,
           revision: String.t() | nil,
+          task: NovelCommon.Contracts.AuthoringTask.t() | nil,
           provider_hints: map()
         }
 
@@ -44,6 +45,9 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     # VS-00E CP3 / BIZ-06：revision 为应用层渲染的修订要求（进 provider message），
     # 支持质量发现重写和已有候选修订。默认 nil 保持原有新建内容路径。
     revision: nil,
+    # B27 CP3：专业调用共同任务语义（作者目标/来源、对象与范围、材料完整性、保留项、
+    # 输出契约）。迁移期 nil 保持旧行为；迁移完成后所有专业调用必须携带。
+    task: nil,
     provider_hints: %{}
   ]
 end

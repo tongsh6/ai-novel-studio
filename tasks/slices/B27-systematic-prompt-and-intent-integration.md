@@ -2,7 +2,7 @@
 
 > **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
 
-- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；CP3 专业调用和 CP4 语义矩阵仍未闭环。
+- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；CP3 进行中：CP3a 共享任务语义契约/规则单一真源已落地（`b27-semantics-v1`），CP3b prose 域与 CP3c 辅助域迁移进行中；CP4 语义矩阵仍未闭环。
 - 登记日期：2026-10-23。
 - 来源：作者要求分析 stage 对话，区分模型判断与应用能力缺口；随后明确“作者不应自己写提示词，应用应帮助模型理解意图”，并要求先分析现有提示词写法、从应用整体整合，禁止单点补丁。
 - 授权沿革：初次只授权设计和排期；2026-10-24 已确认共享入口实现与验证。原作品数据修复仍需独立授权。
@@ -244,3 +244,68 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 **真实 provider 单轮证据（可用性，不是门槛通过）**：stage 实际 `strata/iq3_s`，关键集 2 例 × 2 次——M01 两次均 `judgment_decision{action=explore, chapter_read 第01章}`，M11 两次均 `register_author_content{source=current}`，均命中允许首轮路径且两次一致（`artifacts/model-contracts/b27-cp0/runs/`）。lmstudio 未跑（共享实例被并行 B26 CP0 探针占用，CP4 按必验模型集合补跑）；DeepSeek 缺凭据按 blocked 退出码 3 记录。
 
 **未闭环**：integrated arm（CP3 后同一脚本重算）、40 episode 门槛 + 盲评（CP4）、SP02/SP03 快照（CP3）、M14 随 B29 重冻。CP0 冻结不等于语义验收通过；B27 不得据此标 done。
+
+### 2026-10-24 CP3 设计冻结（Lead 裁决，基于审计 A）
+
+依据：只读审计 `artifacts/model-contracts/b27-cp3/audit-prose.md`（18 个真实调用点矩阵、Top 冲突 F01–F12、需裁决 Q01–Q08；辅助域审计 B 待回）。本冻结替代 §3.1 的抽象提案，作为 CP3 实施规范；不改 §6.1 门槛。
+
+#### 决策（Q01–Q08）
+
+| ID | 裁决 | 结果 / 边界 |
+|---|---|---|
+| Q01 仅排版 | **延后到 B28**，CP3 不实现 `format_only` kind/能力/模板/字节校验 | 从共享规则删除"仅排版"承诺（避免规则承诺>能力）；在 B28 文档登记 CP0 输入（audit F01/§4.8）；判断/计划 prompt 引用的规则文本由 CP3a 同一真源更新 |
+| Q02 kind/effect | 采用**操作效果白名单**：`AuthoringTask.kind` 表达语义，`operation_effect` 必须属于该 kind 允许集合 | `character_design/world_building/outline/character_evolution` 允许 `create_candidate` 或 `revise_candidate`；prose 四类各自 1:1；validate 拒绝越界 |
+| Q03 基线身份 | 用 `scope.base_ref`（真实 artifact/章 ref）+ 可选 `base_hash` 作为基线身份，**不伪造版本号**；`revision/rewrite` 必须带 base_ref 与显式 preserve | 章/候选的数值 revision 落库需 persistence 增量，属 B28/其他 slice；CP3 只保证来源真实与可追溯 |
+| Q04 修订 provenance | 修订任务固定 `operation_effect: :revise_candidate`，不继承 rewrite 的采纳覆盖语义 | CP3 只修任务语义与提示词；采纳层 `authoring_intent`→overwrite 继承问题登记为 B28 CP0 输入（审计 F04），不在 CP3 改采纳边界 |
+| Q05 按钮修订作者来源 | `AuthoringTask.source` 增补 `%{kind: :author_action \| :quality_finding \| :quality_gate_revision, ref}`；作者驱动任务可用已验证动作来源替代原话 | 仍要求真实 ref；不得用系统内部原因伪造作者意图 |
+| Q06 test/support 锚点 | **允许 CP3b 同批修改 stub/slice_verify 解析方式**（按稳定段标记解析），恢复 VS-00I L1 前置/L4 置尾 | 只改验收替身解析与断言锚点，不改产品对验收的感知；不得让替身反向约束产品措辞 |
+| Q07 真源归属 | `NovelCommon.AuthoringSemantics` 为专业调用规则唯一真源；`AuthoringTaskPolicy` 改为委托（保留版本/hash 与判断/计划消费者） | CP3a 一次提交包含 common 契约/规则、策略委托、`CreativeRequest`/`QualityEvaluationRequest` additive `task` 字段与 hash；随后 CP3b/CP3c 迁移调用点 |
+| Q08 范围 | CP3 只承认 single-artifact 修订；evaluator 必须声明材料覆盖（如"仅新生成片段，非整章"），整章操作/校验归 B28 | 不把"整章/多场"写进 CP3 承诺；B28 提供对象后再开放 chapter coverage |
+
+#### 契约与模块边界（CP3a 已落地/待接线）
+
+- `NovelCommon.Contracts.AuthoringTask`（additive DTO）：`kind/author_goal/author_words/source/scope(base_ref/base_hash)/materials(complete?/omission_note/version)/preserve/operation_effect/prior_result/output_contract/source_refs/semantic_version`；`validate/1` 由 `AuthoringSemantics` 提供。
+- `NovelCommon.AuthoringSemantics`（唯一规则真源，`b27-semantics-v1`）：`shared_rules/0`（作者主权/事实边界/来源/材料完整性/完成声明/输出契约/重试纪律）、`operation_rules(kind)`、`output_contract_rules/1`、`static_block/1`（L1）+ `dynamic_block/1`（L3）+ `render/1`；`content_hash/0` 供 prompt 捕获测试断言单一来源；`validate/1` 机械不变量（作者来源、范围/base_ref、preserve、材料 ref/complete 标志、输出契约）。
+- `NovelCommon.Contracts.CreativeRequest` / `QualityEvaluationRequest`：additive `task: AuthoringTask.t() | nil`；迁移期 nil 保持旧行为，CP3d 后所有专业调用必须携带。
+- application：`AuthoringTaskBuilder` 按域组装业务事实（不写规则句）；D06/D07/D08 修订合并为 revision builder（来源分块）；`AuthoringTaskPolicy` 委托 common 规则（判断/计划文本不变或仅同源重排，需快照对照）。
+- agent：`CreativeProvider.Real` 按 `task.kind` 选角色模板，L1=角色句+static_block，L2/L3=dynamic_block，L4=角色输出契约置尾；`ProseQualityEvaluator` 同源消费 task；删除 I3 重复句 6 处、world_building 重复声明、关键词选型（由 application 传 artifact_type）。
+
+#### 实施拆分与责任（CP3a–CP3d）
+
+| 步 | 内容 | 消费者/验收 | 责任 |
+|---|---|---|---|
+| CP3a | common 契约/规则 + `AuthoringTaskPolicy` 委托 + 两请求 additive task + 单测/hash 快照 | 判断/计划提示词与既有测试不退化；`novel_common` 15 tests + 策略 hash | Lead（本轮已完成 foundation，待接线与提交） |
+| CP3b | prose 域迁移：writer 四类 kind 互斥、revision/evaluator、D06/D07/D08 合并、I3 句收敛、输出契约 descriptor、stub/slice_verify 解析改造、prompt 捕获测试 | B26 业务/计划场景 + prose/evaluator/revision 回归；I-CACHE writer/evaluator profile 记录 | b27-audit-prose（审计上下文延续） |
+| CP3c | 辅助域迁移：mission/summary/inventory/reconcile/progress/narration/AIMessageEnvelope 裁决；材料范围/版本/省略、枚举 SSOT、结果叙述真实后果 | 对应 unit + 既有场景回归 | b27-audit-aux |
+| CP3d | 删除被替代规则/双源（含 `AuthoringTaskPolicy` 旧句、X1–X10 清单）、prompt 捕获 hash 唯一性断言、I-CACHE 扩展、全门禁 | §7 验证与 CP5 门禁 | Lead + 两实现者 |
+
+#### 验收与证据（CP3 完成标准）
+
+- 每调用点 prompt 捕获断言：共享规则段 hash == `AuthoringSemantics.content_hash()` 且只出现一次；任务动态段来自事实；角色输出契约必要字段存在；互斥冲突句（固定续写句/意图标题句/仅排版承诺）消失。
+- 单测：kind×effect 白名单、base_ref/preserve、材料完整性拒绝、action source、retry 保契约不扩范围、输出契约与运行时校验同源。
+- 回归：B26 QA/OUT 与业务场景、prose/evaluator/revision/mission/summary/inventory/reconcile 既有场景；I1/I2/I3/N-NARR；I-CACHE 逐 profile；CP4 20 例双臂语义门槛单独判定。
+- 诚实边界：本轮 audit 只读、不含真实模型语义；CP3 不宣称 B28 的整章/排版/结构维护能力。
+
+#### CP3 辅助域裁决（基于审计 B `artifacts/model-contracts/b27-cp3/audit-aux.md`）
+
+| ID | 裁决 | 边界 |
+|---|---|---|
+| D1 ProviderProgress | **退役**（CP3c 删除 flow/profile 注册/计划目录/预算/相关测试）：静态核查无生产可达入口、模型输出被丢弃、作者可见文案为系统模板；未来长跑进度需求另立 slice | 删除属「旧入口验证后退役」；不保留第二套进度语义 |
+| D2 维护 run 计划起草 | `fact_inventory_v1` / `ledger_reconciliation_v1` 等固定单步目标改**机械计划**，不再让模型起草无业务目标的计划；保留真实 step 执行与门禁 | 与 B26「协议唯一、不增无业务必要调用」一致；计数按实测 |
+| D3 共享规则唯一真源 | 以 `NovelCommon.AuthoringSemantics` 为唯一文本；`AuthoringTaskPolicy` 变薄适配（CP3a 已落地 `b27-task-v2`） | 不含两套文本并存 |
+| D4 摘要材料范围 | CP3 只做「按真实材料显式标注片段/覆盖/版本」，整章已采纳正文输入归 CP2.2/后续；不得让 prompt 自称整章 | C1 P0 同批修：解析失败不再 fallback 把整章原文塞入摘要栏 |
+| D5 盘点降批 | 登记为 retry 已知例外：降批后必须重新组装 materials 并带 coverage/截断标注；禁止静默换材料 | 写入 VS-00D retry 纪律引用（B27 文档记录） |
+| D6 AIMessageEnvelope | **退役**（CP3c 删除模块/测试/`trace_writer` 死读取）；不按关键词补活 | 同步登记 AU11/VS00D-G 口径：旧 envelope 生产链已退役 |
+| D7 chapter_role | CP3 只加 domain 纯归一函数（`ChapterPlanDirection.role_kind/1` 或等价）供 ledger/reconcile/展示共用；schema enum/codegen 另立后续（避免本次扩 schema） | 不改 `docs/design/schemas/**` |
+| D8 AuthoringTask 强制携带 | 分阶段强制（D8=b）：每个调用点迁移同批删除旧段落；CP3 完成判据=全部专业调用携带且 validate 通过 | CP3d 收口检查 |
+| D9 P0 修复批次 | 随 CP3c 迁移同批修 C1（摘要范围标注）、C2（narrative_role 4/5 值改 schema 真源插值）、C3（机械 run 完成声明由真实 outcome 派生） | 每项需真实消费者 + 测试；不在 CP4 前遗留 |
+
+辅助域实施注意：summary/inventory/narration 的 prompt 构造器位于 application，可继续在 application 渲染，但**规则文本必须来自 `AuthoringSemantics`**；枚举用 `NovelFoundation.Enums.*` 插值；`AuthoringTask` 的 materials 需带 kind/ref/version/complete?/omission_note。
+
+#### CP3a 实施记录（2026-10-24，Lead，已落地）
+
+- `NovelCommon.Contracts.AuthoringTask`：kind 白名单（不含 format_only；`format_only` 延后 B28）、`operation_effect` 白名单（kind×effect 解耦，允许角色工具新建/修订）、`scope.base_ref/base_hash`、`materials(complete?/omission_note/version)`、`preserve`、`source{kind,ref}`、`prior_result`、`output_contract`、`semantic_version`；`to_map/from_map` 用于 ToolRequest.input/trace 的 JSON-safe 往返。
+- `NovelCommon.AuthoringSemantics`（`b27-semantics-v1`）：shared_rules/operation_rules/output_contract_rules/static_block(L1)/dynamic_block(L3)/render、`validate/1`（作者来源含 action/quality_finding 来源、revise/rewrite 需 base_ref+preserve、材料 ref/complete 校验、quality_evaluation/summary/inventory 需真实 prose 材料、semantic_version 校验）、`content_hash/0`；18 tests。
+- `CreativeRequest`/`QualityEvaluationRequest` additive `task: AuthoringTask | nil`（迁移期 nil 兼容，CP3d 后强制）。
+- `AuthoringTaskPolicy` 变薄委托：`shared_rules` 单一真源 + 判断/计划专属段（`b27-task-v2`，`content_hash/0`）；删除「仅排版互斥」承诺并写明当前无字节级排版能力的边界（B28 承接）；4 tests。
+- 回归：`mix compile --warnings-as-errors`、`mix test` 1970 tests / 0 failures（含 judgment/plan 64 tests、novel_common 57 tests）、enum literal lint、credo strict 通过。
