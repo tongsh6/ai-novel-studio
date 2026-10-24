@@ -240,6 +240,7 @@ defmodule B27EpisodeSupport do
                  round: round,
                  rounds: Enum.reverse(rounds),
                  partial_provider_calls: total_calls(opts.capture_pid),
+                 provider_calls: all_calls(opts.capture_pid),
                  elapsed_ms: System.monotonic_time(:millisecond) - started,
                  app_side_evidence:
                    safe_evidence(fn ->
@@ -256,6 +257,8 @@ defmodule B27EpisodeSupport do
                  message: truncate(inspect(other), 800),
                  round: round,
                  rounds: Enum.reverse(rounds),
+                 partial_provider_calls: total_calls(opts.capture_pid),
+                 provider_calls: all_calls(opts.capture_pid),
                  elapsed_ms: System.monotonic_time(:millisecond) - started,
                  app_side_evidence:
                    safe_evidence(fn ->
@@ -313,11 +316,15 @@ defmodule B27EpisodeSupport do
            |> Map.put("awaiting_author", true)}
 
         other ->
+          # 计划起草（purpose=planner）在 safe_planner 内发生；该分支此前不 drain/携带
+          # capture 结果，导致 retest5 M16 r1 的 planner 失败轮 raw request/response 丢失。
           {:error,
            %{
              class: :unexpected_planner_decision,
              message: truncate(inspect(other), 800),
              rounds: Enum.reverse(rounds),
+             partial_provider_calls: total_calls(opts.capture_pid),
+             provider_calls: all_calls(opts.capture_pid),
              elapsed_ms: System.monotonic_time(:millisecond) - started,
              app_side_evidence:
                safe_evidence(fn ->

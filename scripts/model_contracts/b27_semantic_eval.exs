@@ -446,7 +446,7 @@ defmodule B27SemanticEval do
     configure_provider(opts)
 
     {:ok, capture_pid} = Agent.start_link(fn -> [] end)
-    install_wire_capture(opts.provider_cfg.provider, capture_pid)
+    install_wire_captures(capture_pid)
 
     File.mkdir_p!(Path.join(opts.out, "episodes"))
     File.mkdir_p!(Path.join(opts.out, "summaries"))
@@ -859,7 +859,18 @@ defmodule B27SemanticEval do
   defp provider_module(:lmstudio), do: NovelAgent.Provider.LMStudio
   defp provider_module(:strata), do: NovelAgent.Provider.Strata
   defp provider_module(:deepseek), do: NovelAgent.Provider.DeepSeek
+  defp provider_module(:anthropic), do: NovelAgent.Provider.Anthropic
   defp provider_module(_), do: nil
+
+  # retest6 M16 需求：计划起草（purpose=planner）可能经不同 adapter/配置路由，
+  # 对全部已知 adapter 安装同一 log_fn，保证 planner-purpose 真实 wire 请求/响应也落盘。
+  defp install_wire_captures(capture_pid) do
+    for provider <- [:strata, :lmstudio, :deepseek, :anthropic] do
+      install_wire_capture(provider, capture_pid)
+    end
+
+    :ok
+  end
 
   defp result_fact({:ok, %NovelAgent.Provider.Result{} = result, attrs}) do
     %{
@@ -1209,6 +1220,8 @@ defmodule B27SemanticEval do
   end
 
   defp error_provider_calls(error) do
+    captured_calls = get(error, :provider_calls) || get(error, "provider_calls") || []
+
     round_calls =
       case get(error, :round) do
         %{} = round -> get(round, :calls) || get(round, "calls") || []
@@ -1219,7 +1232,7 @@ defmodule B27SemanticEval do
       (get(error, :rounds) || [])
       |> Enum.flat_map(fn round -> get(round, :calls) || get(round, "calls") || [] end)
 
-    (round_calls ++ rounds_calls)
+    (captured_calls ++ round_calls ++ rounds_calls)
     |> Enum.uniq_by(fn call ->
       {get(call, :started_at_monotonic_ms) || get(call, "started_at_monotonic_ms"),
        get(call, :finished_at_monotonic_ms) || get(call, "finished_at_monotonic_ms")}
