@@ -52,7 +52,7 @@
 | CP | 工作与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 隔离复现旧 ref 缺失/初稿+续写；冻结目标范围、格式保真、覆盖和历史身份恢复契约；列 stage 只读影响清单 | **done（2026-10-25，`e8ad1fad`）**：真实 Tauri 复现 T0–T3（同章 2 accepted、writer 只初稿、format 忠实失败、单处修订 target 空→新建章、同标题歧义拒绝、缺 ref 误路由但零写入）；契约冻结见 §7；stage 存量只读清单见 `stage-impact.md`（修复需另行授权） |
-| CP1 | 完整章节基线、版本/覆盖检查和旧来源恢复；失败路径不新建章；与 B27 共用操作语义 | todo |
+| CP1 | 完整章节基线、版本/覆盖检查和旧来源恢复；失败路径不新建章；与 B27 共用操作语义 | **done（2026-10-25，`655220d6`）**：共享契约（`7950437c`）落地；AuthoringTaskBuilder.for_chapter_revision/1、判断章级绑定规则、Real format_only/content_revision 渲染；persistence replace_scope 多片段原子事务 + accepted_chapter_scopes、application validate_b28_contract/chapter_revision_context；全后端 2098/0 全绿。CP1.5 wiring（章级目标进上下文/writer 全章文本/候选 payload 贯通，task-52/53）进行中 |
 | CP2 | 修订候选/差异/确认→原章事务替代；旧版本与 trace 留存、幂等/回滚 | todo |
 | CP3 | 阅读/摘要/检索/探索/后续问答同批消费新值，UI 保留作者来源和范围 | todo |
 | CP4 | 新真实 Tauri 场景＋Q1c/B24/B25/续写回归；真实模型原始问法与改述验证 | todo |
@@ -95,3 +95,8 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - **Q06 契约/持久化边界**：复用 B25 `chapter_ref`、Q1c `revision_base`/覆盖确认、VS-04 provenance、B27 `AuthoringTask` scope/materials；无 DB 表/列变更；`adoption_effect`/错误码落 TurnResult/adoption receipt payload（additive JSON），schema/codegen 若有增量在 CP2 前登记并同步 docs。
 - **Q07 stage 存量**：只读清单见 `stage-impact.md`（ch1 两份 accepted + ch17 新章）；修复需作者单独授权（备份+sha256、replace_scope 目标 ch1、ch17 保留历史），本 slice 不自动删除/合并。
 - **Q08 边界**：不改 provider/创作工具/采纳语义之外的体系；粘贴正文/摘要/检索按同一当前版本消费；模型意图原话/改述验证归 CP4；真实模型不得承担章节寻址。
+
+### 7.3 CP1/CP1.5 实施记录（2026-10-25）
+
+- **CP1 已提交 `655220d6`**：`AuthoringTaskBuilder.for_chapter_revision/1`（target_chapter_ref/covered_refs/modification_scope/expected_base_versions/coverage=complete + 可解释错误）；判断 prompt 章级绑定规则；`CreativeProvider.Real` format_only（覆盖顺序完整稿/只排版/禁续写）与 content_revision（指定范围/其余逐字/完整替换稿）；`AdoptionRepository.persist` replace_scope 分支（target/版本/覆盖校验→旧 accepted supersede→新 accepted→同章同 seq/章数不变→投影，失败整体回滚）+ `accepted_chapter_scopes/2`；`AdoptionWorkflow.validate_b28_contract/1`（target_missing/format_only 归一/差异拒绝）与 `chapter_revision_context/2`。测试：application 869/0、agent 258/0、persistence 869/0；compile/format/credo/enum/xref/arch 全绿。
+- **CP1.5 wiring（进行中）**：task-52（aux）扩展 `chapter_revision_context` 的片段/整章文本 + `chapter_revision_targets/1`；task-53（prose）章级目标进判断上下文、TurnExecutionService 注入全章源文本、候选 payload（target_chapter_ref/modification_scope/adoption_effect/base_text）贯通至采纳。完成后 CP2 真实页面（task-51）验证。
