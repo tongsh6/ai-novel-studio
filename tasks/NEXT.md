@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B31-AUTHOR-REPLY-RUN-BINDING | **CP0 已完成（2026-10-25）**：真实 Tauri 复现两 live awaiting run 时普通主输入被 plain steer 到错误 run（Q 仍 open），根因=前端 visibleAgentRunMap 插入序 + 普通输入只看 selected run + JoinRestore 顺序无契约；显式 author_choice 路径正确。**CP1 完成并提交（`1a1fe079`）**：前端确定性 selectActiveAgentRun/主输入条件/目标可见；后端 expected_goal_version 校验/恢复稳定序/ack 绑定；前端 607 tests、后端 2080 tests/0 全绿。**CP2 进行中**（task-43）：真实 Tauri 复验新语义（普通主输入不再串 run、显式问题仍正确、刷新稳定）→ 注册场景 + 回归（agent-awaiting-author-steer-resume 等）。 | [B31](slices/B31-author-reply-run-binding.md) |
+| B28-WHOLE-CHAPTER-REVISION | **当前任务**：整章修订与同章采纳（含 B11D 转出项接单，数据边界不硬等全部提示词迁移）。B31 已于 2026-10-25 done（多 awaiting run 归属/steer 版本校验/恢复稳定序，场景注册 PASS；Q3D 口径对齐）。B27 CP4 known-gap 仍登记在阻塞，后续 B28/硬化周期回归。先读 [B28 slice](slices/B28-whole-chapter-revision.md) 并按其 CP0 冻结开工。 | [B28](slices/B28-whole-chapter-revision.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B28-WHOLE-CHAPTER-REVISION | 完整章修订与同章采纳；含 B11D 转出项接单，数据边界不硬等全部提示词迁移。 | [B28](slices/B28-whole-chapter-revision.md) |
 | B30-CHAPTER-STRUCTURE-MAINTENANCE | 按稳定身份维护原结构，补 B25 大纲物化 title-first 遗漏；正文与引用保持一致。 | [B30](slices/B30-chapter-structure-maintenance.md) |
 | B29-EXISTING-CHARACTER-ROLE-REVISION | 同一角色主档案字段更新，档案、记忆与后续创作一致。 | [B29](slices/B29-existing-character-role-revision.md) |
 | P1-AUTHORING-DOGFOOD | 每 3–5 周期插入 10 章级真实创作复验；检验上述能力组合后的体验。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |

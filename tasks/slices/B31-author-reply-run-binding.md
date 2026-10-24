@@ -1,6 +1,6 @@
 # B31：作者补充输入与待回复任务的稳定绑定
 
-- 状态：doing / **CP0 已完成（2026-10-25，真实 Tauri 隔离复现）**：已复现「两个 awaiting run + 普通自由输入被 steer 到另一 run」；根因=前端当前 run 取 visibleAgentRunMap 插入序末位 + 普通主输入对 selected run 一律 steer（非 selected 的 open question 不参与）+ JoinRestore 广播顺序无契约；服务端按客户端 run_id 绑定无独立错误（goal 无跳级）。CP1 修复设计已冻结（见 §6）。
+- 状态：**done（2026-10-25，CP0–CP3）**。CP0 真实 Tauri 复现「两个 awaiting run + 普通自由输入被 steer 到另一 run」并裁决根因（前端插入序选择 + 普通输入只按 selected run steer/不参与非 selected 的 open question + JoinRestore 顺序无契约；服务端绑定与 B26 显式路径经证据排除）；CP1 修复（确定性 active run/主输入条件/expected_goal_version/恢复稳定序/ack 绑定）；CP2 真实 Tauri 新语义 PASS + 场景注册；CP3 Q3D 口径对齐、deprecated 清理、UA-01/设计/copy 文档同步、全门禁与台账。known limits 见 §6.5。
 - 登记日期：2026-10-23；本轮不改代码、不重发 stage 消息。
 - 关联：[Q3D](Q3D-message-outcome-roundtrip.md)、[DS03](DS03-awaiting-author-runtime-validity-and-recovery-surface.md)、[B23](B23-awaiting-author-reason-and-exit-surface.md)、[B26](B26-single-call-judgment-protocol.md)、[B27](B27-systematic-prompt-and-intent-integration.md)。
 
@@ -44,8 +44,8 @@ B26 独立负责所有由 ask_author 产生的明确问题：持久 author_quest
 |---|---|---|
 | CP0 | 真实页面隔离复现多停等/刷新；判清当前回复对象语义与根因，列每个输入来源/绑定/结果 | **done（2026-10-25）**：T1–T5 真实 Tauri 复现；证据 `artifacts/slice-verify/b31-author-reply-run-binding-tauri/`（PASS 批次副本 `-cp0-pass-20261025T0052`），记录 `artifacts/model-contracts/b31-cp0/{ui-repro.md,code-chain.md}`；显式 author_choice 路径正确 |
 | CP1 | 基于证据修绑定选择与服务端校验，保留既有幂等/恢复契约；补错误与拒绝路径 | **done（2026-10-25，`1a1fe079`）**：前端 Q01 确定性选择/Q02 主输入条件/Q05 目标可见；后端 Q03 expected_goal_version 校验/Q04 恢复稳定序/Q05-ack 绑定信息；前端 607 tests、后端 2080 tests/0，门禁绿；无 schema/codegen |
-| CP2 | 新场景从真实输入到同 run 结果/刷新/再回复；B26 选项接线可用后补选项等价回归 | todo |
-| CP3 | DS03/B23/Q3D/取消和重传回归、全门禁、台账收口 | todo |
+| CP2 | 新场景从真实输入到同 run 结果/刷新/再回复；B26 选项接线可用后补选项等价回归 | **done（2026-10-25，`6882fcf4`）**：真实 Tauri PASS（`b31-author-reply-run-binding` 注册 nightly），cp2_checks 16 全 true、log_noise ok；Q open 时普通主输入 6/7 新 run、0 错误 steer；显式回复 4/4 绑对；live-only 歧义 selector→steer 带 expected_goal_version/ack 绑定；刷新 JoinRestore 稳定；B26 awaiting×2 回归 PASS（证据 artifacts/slice-verify/b31-author-reply-run-binding-tauri + cp2-report） |
+| CP3 | DS03/B23/Q3D/取消和重传回归、全门禁、台账收口 | **done（2026-10-25，`500cdf9c`）**：Q3D 改用无 open question 的 plan-exhaust awaiting 验证 steer 投递恢复（Option A，PASS）；b31/agent-awaiting-author-steer-resume/agent-awaiting-author-input-required 全 PASS；前端 37 files/603 tests、后端 2080 tests/0、全门禁绿；UA-01 §9.1/§10、07-workbench-ui-contract §6.3、47-ui-copy §7.7 文档同步；deprecated 选择函数删除 |
 
 若 CP0 证实问题已被其他改动消除，保留复现对照与新增真实回归证据，按证据关闭；不得为了有实现而改代码。CP2 未覆盖页面入口和持久来源不能仅凭 helper 测试标 done。
 
@@ -82,3 +82,10 @@ B26 独立负责所有由 ask_author 产生的明确问题：持久 author_quest
 - **后端**：channel steer 接受可选正整数 `expected_goal_version`（非法类型 `invalid_expected_goal_version`）→ AgentRunService/Server；版本冲突返回 `goal_version_conflict`（current/expected）且不推进/不写 steer，缺省兼容旧行为；ack additive `resolved_run_id`/`binding_source`；`recover_durable`/`list_dead_bounded`/`reconnect_bounded` 按 `{inserted_at,id}` 稳定排序，组序固定；B26 问题回复 map 形式 submission 的 4-tuple 兼容 clause 修复（全量回归发现并修）。
 - 测试：前端 `pnpm typecheck/lint/test`（37 files/607 tests）、frontend_audit、check_design_trace 全绿；后端 2080 tests/0（含 channel steer binding 2 例、application 冲突/兼容 4 例、author question roundtrip 21 例回归）、credo/enum/xref/arch 绿。
 - 残留/CP2 输入：历史卡片/消息点击未接 focused（CP2 按场景定，不新增隐式点击语义）；待投递重传路径不带 expected_goal_version（schema/codegen 决策留 CP3）；坞内目标行可选；CP3 文档同步项（UA-01 additive 字段/旧 shouldRouteInputToAgentSteer 删除/copy 登记）。
+
+### 6.4 CP2/CP3 证据与完成判定（2026-10-25）
+
+- **真实 Tauri 场景**：`bash scripts/quality_accept.sh b31-author-reply-run-binding --surface tauri` PASS（`b31_cp2_author_reply_run_binding_semantics_verified_on_real_workbench`；cp2_checks 16/16；trials T1–T5；证据 `artifacts/slice-verify/b31-author-reply-run-binding-tauri/`）。Q3D 回归 PASS（plan-exhaust awaiting；awaiting 0 author_question、0 问题卡、steer 两次同 run、ack goal_version=2 只推进一次 + resolved_run_id/binding_source；证据 `artifacts/slice-verify/q3d-message-delivery-recovery-tauri/`）。B26 awaiting×2 回归 PASS。
+- **门禁**：mix compile -Werror、2080 tests/0、test -Werror、repo-wide format、credo strict 0、enum、xref、arch、adr；frontend typecheck/lint/603 tests、frontend_audit、check_design_trace；quality_manifest_check；I1/I2/I3/N-NARR/I-CACHE 不适用（本 slice 未改 provider/创作主链），Tauri 证据为页面/持久化边界。
+- **完成判定**：CP0 真实页面复现、CP1 有测试与错误路径、CP2 覆盖真实页面入口与持久来源、CP3 回归/文档/台账齐备 → **B31 done**。B26 显式问题矩阵仍由 B26/agent-awaiting-author-* 独立承担，未混入本 slice 结论。
+- **known limits**：① 历史 run 卡片/消息点击未作为 focused 来源（避免新增隐式点击语义；当前聚焦来源=提交 steer/显式回复/停等坞点击/任务选择）；② 待投递重传路径不携带 expected_goal_version（generated schema 未扩，后端 nil 兼容；live steer 均携带）；③ 证据为 headless Chromium 驱动真实前后端（Tauri 窗口同时拉起），非原生 CUA；④ slice_verify 确定性 provider，不声明真实模型语义质量；⑤ T3/T4/T5 的 run 创建为外部协议 seed（证据已标注），T1/T2 覆盖真实用户创建形状。
