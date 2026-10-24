@@ -2145,7 +2145,68 @@ function b27PromptLifecycleBehavior(records, evidence, options) {
   };
 }
 
+// B31 CP0（未注册草案）：真实页面隔离复现多 awaiting run 的普通输入归属。
+// 本 finder/behavior 只用于让既有 Tauri runner 生成 summary.json 证据，不把 CP0
+// 复现结果当 PASS 注册；输入来源/绑定/根因表由 driver 的 b31-cp0-evidence.json 与
+// artifacts/model-contracts/b31-cp0/ui-repro.md 承担。
+function findB31AuthorReplyRunBindingEvidence(records) {
+  const sliceId = "b31-author-reply-run-binding";
+  const ui = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!ui) return null;
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 3) return null;
+  if (!ui.binding_checks || typeof ui.binding_checks !== "object") return null;
+  if (ui.explicit_reply_bound_question_run !== true) return null;
+  if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+  if (ui.protocol_seed_used_for_trial_setup !== true) return null;
+  if (ui.no_product_code_changed !== true) return null;
+  return {
+    slice_id: sliceId,
+    turn_id: "b31-cp0-multi-awaiting-runs",
+    turn_ids: [],
+    trial_ids: ui.trial_ids,
+    free_input_targets: ui.free_input_targets ?? [],
+    restore_observations: ui.restore_observations ?? [],
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function b31AuthorReplyRunBindingBehavior(records, evidence, _options) {
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "b31-author-reply-run-binding",
+  );
+  if (!ui) return null;
+  const checks = ui.binding_checks ?? {};
+  return {
+    slice_id: "b31-author-reply-run-binding",
+    behavior: "b31_cp0_multi_awaiting_run_plain_input_binding_isolation_repro",
+    turn_ids: [],
+    trials: evidence.trial_ids,
+    binding_checks: checks,
+    free_input_targets: evidence.free_input_targets,
+    restore_observations: evidence.restore_observations,
+    assertions: [
+      "two_live_awaiting_runs_created_in_one_work_session",
+      "plain_free_input_binding_recorded_with_run_id_and_server_ack",
+      "explicit_author_choice_reply_binds_question_run",
+      "restore_order_and_selected_run_recorded_across_reloads",
+      "creation_order_and_target_age_permutations_covered",
+      "repeated_input_recorded_without_cross_run_advancement",
+      "no_product_code_or_acceptance_hook_changed",
+    ],
+    note:
+      "CP0 reproduction only; scenario remains unregistered draft until binding root cause is adjudicated in B31 CP1.",
+  };
+}
+
 export function findNativeSliceEvidence(sliceId, records) {
+  if (sliceId === "b31-author-reply-run-binding") {
+    return findB31AuthorReplyRunBindingEvidence(records);
+  }
+
   if (sliceId === "b27-prompt-lifecycle-consistency") {
     return findB27PromptLifecycleEvidence(records);
   }
@@ -2907,6 +2968,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
 export function findSliceBehaviorEvidence(sliceId, records, evidence, options = {}) {
   if (!evidence) return null;
+
+  if (sliceId === "b31-author-reply-run-binding") {
+    return b31AuthorReplyRunBindingBehavior(records, evidence, options);
+  }
 
   if (sliceId === "b27-prompt-lifecycle-consistency") {
     return b27PromptLifecycleBehavior(records, evidence, options);

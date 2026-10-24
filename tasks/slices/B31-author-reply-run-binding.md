@@ -1,6 +1,6 @@
 # B31：作者补充输入与待回复任务的稳定绑定
 
-- 状态：pending / 设计登记；入口根因待真实页面复现，不将日志线索写成已确认 UI 根因。
+- 状态：doing / **CP0 已完成（2026-10-25，真实 Tauri 隔离复现）**：已复现「两个 awaiting run + 普通自由输入被 steer 到另一 run」；根因=前端当前 run 取 visibleAgentRunMap 插入序末位 + 普通主输入对 selected run 一律 steer（非 selected 的 open question 不参与）+ JoinRestore 广播顺序无契约；服务端按客户端 run_id 绑定无独立错误（goal 无跳级）。CP1 修复设计已冻结（见 §6）。
 - 登记日期：2026-10-23；本轮不改代码、不重发 stage 消息。
 - 关联：[Q3D](Q3D-message-outcome-roundtrip.md)、[DS03](DS03-awaiting-author-runtime-validity-and-recovery-surface.md)、[B23](B23-awaiting-author-reason-and-exit-surface.md)、[B26](B26-single-call-judgment-protocol.md)、[B27](B27-systematic-prompt-and-intent-integration.md)。
 
@@ -42,7 +42,7 @@ B26 独立负责所有由 ask_author 产生的明确问题：持久 author_quest
 
 | CP | 工作 | 状态 |
 |---|---|---|
-| CP0 | 真实页面隔离复现多停等/刷新；判清当前回复对象语义与根因，列每个输入来源/绑定/结果 | todo |
+| CP0 | 真实页面隔离复现多停等/刷新；判清当前回复对象语义与根因，列每个输入来源/绑定/结果 | **done（2026-10-25）**：T1–T5 真实 Tauri 复现；证据 `artifacts/slice-verify/b31-author-reply-run-binding-tauri/`（PASS 批次副本 `-cp0-pass-20261025T0052`），记录 `artifacts/model-contracts/b31-cp0/{ui-repro.md,code-chain.md}`；显式 author_choice 路径正确 |
 | CP1 | 基于证据修绑定选择与服务端校验，保留既有幂等/恢复契约；补错误与拒绝路径 | todo |
 | CP2 | 新场景从真实输入到同 run 结果/刷新/再回复；B26 选项接线可用后补选项等价回归 | todo |
 | CP3 | DS03/B23/Q3D/取消和重传回归、全门禁、台账收口 | todo |
@@ -57,3 +57,21 @@ B26 独立负责所有由 ask_author 产生的明确问题：持久 author_quest
 - 拟命令：bash scripts/quality_accept.sh b31-author-reply-run-binding --surface tauri（实施时注册）；回归 agent-awaiting-author-steer-resume、agent-awaiting-author-input-required、Q3D 重传与 DS03 当前已注册场景；B26 的 agent-ask-author-options-roundtrip 在其实现后加入。
 - 按 [AGENTS](../../AGENTS.md) 执行修改范围对应门禁、静态扫描闭环；触及主链时 I1/I2/I3/N-NARR 必跑。真实页面网络/持久化事实与模型理解表现分开报告。
 - 2026-10-23 — 作者要求登记；将“已证实错误关联”与“待复现入口根因”分开，不做未经证据的全局 latest-run 改造。恢复先读 NEXT 与当前 WIP，再从 CP0 开始。
+
+## 6. CP0 记录与 CP1 设计冻结（2026-10-25）
+
+### 6.1 CP0 真实页面复现结论
+
+- **已复现**：同会话两个 live `awaiting_author` run（结构 run S、B26 问题 run Q）时，作者用普通主输入写「我回答上面那个问题：…」实际发送 `agent_command steer`，payload `run_id=S`；Q 保持 `goal.version=1 / question.status=open`；persist `turn_xxx:steer:2 + agent_run_id=S + 唯一 submission_id`。显式「回复此问题」对照正确：`author_action author_choice`，`target_ref=Q/question_ref/expected_goal_version=1`，ack accepted、goal 1→2、Q completed。
+- **主根因**：前端「当前 run」=`visibleAgentRunMap` 插入序末位——transcript `turn_result` 先入（旧→新）、standalone awaiting run 后追加，故总被选中；普通主输入对 selected run 一律 steer，且只检查 selected run 自身的 open question。**次根因**：JoinRestore 广播顺序无契约（T2 `[S,Q]`↔`[Q,S]` 交换；live-only 形状 selected 跟随最后恢复项）。**排除**：服务端按客户端 run_id 绑定无独立错误、goal 无跳级、无双 run 同时推进；B26 显式路径正确。
+- 其他已证实：open question 在非 selected run 时普通输入不会被引导；「回答上一问」的普通输入不绑定问题身份；selected run terminal 时同文字才成新 user_message。
+
+### 6.2 CP1 设计冻结（Q01–Q06）
+
+- **Q01 确定性 active run 选择（前端纯函数）**：优先级 ① 唯一 open question（goal version 与 run 匹配）所属 run；② 作者最近交互过的 run（本地 focusedRunId：点击该 run 卡片/停等坞/结果、提交 steer 时记录）；③ 最近事件/创建时间更新者；④ 唯一 steerable run；⑤ 否则 null（歧义，不自动 steer）。禁止 Map 插入序/广播到达序作为语义依据。
+- **Q02 主输入 steer 条件**：仅当 ① active run 唯一确定且 ② 会话中不存在其他 run 的未答 open question 且 ③ 无 pending answer/计划选项时，才走 plain steer；否则主输入按**新请求**（user_message 新 run）处理，并在输入区给出可见提示（现有 copy/notice 机制，不新增隐藏 hook）。显式问题/选项回复只走 B26 author_choice；停等坞「发送调整」显式绑定该 run。
+- **Q03 服务端校验**：plain steer 增可选 `expected_goal_version`（前端总是发送）与 `run_id` 同 work/session/runtime live 校验；版本不匹配 → `goal_version_conflict` 拒绝且不推进 goal；不要求 awaiting（允许 running/paused 的显式 steer），但 terminal 拒绝（已有）。
+- **Q04 JoinRestore 顺序确定化**：web 恢复广播按稳定序（created_at + run_id/sequence）输出；前端选择不依赖该序，仅用于可复现。
+- **Q05 目标可见**：多 live run 时停等坞/输入区显示输入将发给哪个任务（复用现有 goal 摘要；多歧义时提示选择）。
+- **Q06 边界**：不新增问题表；显式问题 schema 不变（B26 已有 question_ref/expected_goal_version/author_choice）；plain steer 字段为 additive 可选；不改 provider/创作工具/采纳语义。
+- **CP1 影响面**：frontend（WorkspaceChat/agentRunInputRouting/agentRunAnchoring + 单测）、web（WorkspaceChannel steer 校验/恢复广播序）、application（AgentRunService steer 版本校验）、persistence 仅必要读取；场景 `b31-author-reply-run-binding` 在 CP2 注册。

@@ -1,0 +1,93 @@
+id: b31-author-reply-run-binding
+title: "B31 CP0 真实页面隔离复现：同一会话两个 live awaiting_author run 的普通输入归属与恢复顺序"
+tier: nightly
+surface: tauri
+default_provider: slice_verify
+status_note: >-
+  draft（CP0 隔离复现，未注册 scenarios.yml）：外部 Tauri driver 在同一 work/session 内构造
+  两个 live awaiting_author run（一个 B26 显式问题 run、一个结构调整 plan-exhaust run），
+  记录普通主输入的 run 归属、服务端 ack/goal_version 绑定、持久 refs、WS 顺序，并覆盖
+  创建顺序/恢复顺序/目标 run 较旧较新排列与重复输入；显式「回复此问题」author_action 作为
+  对照必须绑对问题 run。CP0 只复现与裁决根因，不在未裁决前注册或声明 PASS；CP1 修复后
+  再由本场景承担回归。
+entrypoint: bash scripts/quality_accept.sh b31-author-reply-run-binding --surface tauri
+contract:
+  - tasks/slices/B31-author-reply-run-binding.md §1 / §2 / §3 / §4（CP0）
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md §2.2.2 A（ask_author 问题身份/动作/恢复）
+  - docs/design/adr/ADR-0027-author-obligation-state-v3.md D1（消息与运行分别留痕）/ D3（判断消费真实处置状态）
+  - docs/design/adr/ADR-0024-decision-surface-registry-v3.md
+  - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md §11.4（普通回复来源）
+  - tasks/slices/B23-awaiting-author-reason-and-exit-surface.md、DS03、Q3D
+invariants:
+  - same-reply-must-not-change-target-run-because-of-restore-order
+  - run-binding-scope-consistent（work/session/run/behavior）
+  - explicit-question-action-binding-wins（question_ref/expected_goal_version/target_ref/source_turn_ref）
+  - no-binding-evidence-must-not-guess-latest-run
+  - persisted-input-identity-and-original-text-preserved
+  - inactive-run-must-not-fake-resume
+setup:
+  provider: slice_verify
+  seed: none（driver 真实主输入/外部协议 seed 创建两个 awaiting run；隔离 test DB，不写作者真实作品）
+  env_note: >-
+    tauri_slice_verify.sh 仅为该 CP0 slice 打开既有 test-support 环境
+    SLICE_VERIFY_PLAN_EXHAUST=1，用于确定性产生「结构调整 plan-exhaust awaiting_author」
+    第二个 run；产品 runtime 不识别 slice id，env 关闭时其它场景行为逐字节不变。
+  trial_matrix:
+    - T1: 真实主输入先建 B26 问题 run（较旧）再建结构 run（较新）→ 普通自由输入 + 重复一次 + 显式回复对照
+    - T2: 同 T1 创建顺序 → 刷新/重连 3 次，记录 JoinRestore 广播顺序与页面选中信号 → 刷新后普通输入归属
+    - T3: 外部协议 seed（结构较旧、问题较新）→ 刷新恢复 → 普通输入以「回答上一问」语义发出，记录落到哪个 run
+    - T4: 外部协议 seed（问题较旧、结构较新）→ 刷新恢复 → 普通输入归属 + 显式回复对照
+  isolation: NOVEL_TEST_DB_DIR + MIX_TEST_PARTITION 独立目录；不启动第二个 Phoenix 端口实例。
+user_flow:
+  - open: 真实 Tauri runner（原生窗口 + 真实前端/后端）打开隔离种子 work。
+  - create: 真实主输入发送带 UA01AWAITSTEER 的自然语言 → B26 显式问题 TurnResult + awaiting_author run。
+  - create: 真实主输入发送跨能力结构调整文本（UA01PLANEXHAUST）→ plan-exhaust awaiting_author run（无 TurnResult）。
+  - observe: 页面同时可见问题卡（回复此问题）与结构 run 停等理由；记录当前选中信号（主输入 placeholder/按钮/提示文案）。
+  - send: 普通自由输入（不点显式回复）→ 记录实际发送事件（agent_command steer vs user_message）、run_id、服务端 ack、goal_version。
+  - repeat: 同一输入再发一次 → 记录是否重复推进/跨 run。
+  - reload: 刷新/重连（多次）→ 记录 JoinRestore 广播顺序、open question 列表、页面选中信号变化。
+  - send: 刷新后普通输入 → 记录目标 run 与选中 run 是否一致。
+  - click: 显式「回复此问题」→ author_action author_choice 必须绑定问题 run；问题 run 恢复/收束，另一 run 不被推进。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  extra_artifacts:
+    - b31-cp0-evidence.json（trial 表：创建顺序/恢复顺序/可见选中/发送事件/target run/ack/goal_version/persist refs）
+    - b31-t1-two-awaiting-runs.png
+    - b31-t2-reload-{1,2,3}.png
+    - b31-t3-restored-seeded.png
+    - b31-t4-restored-question-older.png
+  artifact_dir: artifacts/slice-verify/b31-author-reply-run-binding-tauri
+assertions:
+  ui:
+    - 两个 awaiting_author run 在同一 work/session 内同时 live，页面同时呈现问题卡与结构停等理由。
+    - 每次输入前记录主输入模式（steer 补充 vs 普通新讨论）、placeholder 与提示文案，作为「当前选中 run」可见信号。
+    - 显式「回复此问题」路径可用且发送后问题 run 恢复/收束，另一 run 状态不被改写。
+  network:
+    - 每次普通输入记录真实发送事件名（agent_command steer 或 user_message）与 payload 中的 run_id。
+    - 普通 steer 的 ack 记录 run_id/goal_version/source_turn_ref；仅目标 run goal_version 推进，另一 run 不变。
+    - 显式回复是 author_action author_choice，且 target_ref/question_ref/expected_goal_version/source_turn_ref 绑定问题 run。
+    - JoinRestore 的 agent_run_reconnect 顺序与 agent_run_state 到达顺序被逐次记录。
+  data:
+    - 每次输入在 session transcript 中按 submission_id/agent_run_id 恢复为唯一记录，原文不变。
+    - 输入落到哪个 run 与可见选中信号/恢复顺序的对应关系被记录并可追溯。
+    - 重复输入不导致两个 awaiting run 同时推进或 goal_version 跳级。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只使用用户可见语义（主输入 placeholder/按钮文案/问题卡与回复 composer/页面文本）
+  + WS 帧 + app JSONL + 公开 session API；未新增 product testid/hook/env 或旁路 Channel 注入。
+  T3/T4 的外部协议 push 仅用于 seed 历史 run（复刻 stage 恢复场景），被测输入一律来自真实工作台。
+prerequisites:
+  - B26 显式问题协议/动作绑定已可用（本 CP0 用其作为对照路径）。
+  - 仅 slice_verify 确定性 provider；真实模型语义不在 CP0 范围。
+known_not_closed:
+  - CP0 只记录并裁决绑定根因；未修复前不注册 scenarios.yml、不声明 PASS 场景。
+  - T3/T4 的 run 创建经外部协议 seed（证据中标注）；真实用户双 run 创建形状由 T1/T2 覆盖。
+  - 「明确新话题不被旧 awaiting run 截走」与「多 open question 必要澄清」属 CP1/CP2 产品决策，本 CP0 只记录当前行为。

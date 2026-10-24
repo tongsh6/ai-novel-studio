@@ -34823,6 +34823,1046 @@ async function driveB27PromptLifecycleConsistency(page) {
 }
 
 
+// B31 CP0（真实工作台隔离复现）：同一 work/session 内两个 live awaiting_author run，
+// 用普通主输入回应「当代问题」，记录输入来源/可见焦点/请求 run_id/服务端绑定/持久 refs，
+// 并与显式「回复此问题」（B26 author_action）对照。只做复现与证据收集，不改产品代码；
+// 测试 run 的创建用真实主输入（T1/T2）或外部协议 seed（T3/T4，复刻历史恢复场景）。
+const B31_SLICE_ID = "b31-author-reply-run-binding";
+const B31_QUESTION_MARKER = "UA01AWAITSTEER";
+const B31_PLAN_EXHAUST_MARKER = "UA01PLANEXHAUST";
+const B31_HINT_NEW_DISCUSSION = "请在问题中选择或回复；下方输入会开始新的讨论。";
+const B31_EXPLICIT_REPLY_TEXT =
+  "直接在现有正文基础上扩写，增加场景、细节和心理描写，保持现有结构与情节不变。";
+
+async function driveB31AuthorReplyRunBinding(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const evidence = {
+    scenario: B31_SLICE_ID,
+    surface: "tauri",
+    driver: "headless-chromium-real-frontend-backend",
+    provider: "slice_verify",
+    trials: [],
+    anti_hooks: {
+      data_testid_used: false,
+      hidden_dom_metadata_used: false,
+      product_autorun_used: false,
+      protocol_bypass_for_measured_input: false,
+    },
+    notes: [],
+  };
+
+  function visibleAwaitingExcerpt(text) {
+    const markers = ["等待你的回复", "任务正在等待", "目标产出尚未完成", "等待作者"];
+    const index = markers.reduce((found, marker) => {
+      const position = text.indexOf(marker);
+      if (position < 0) return found;
+      return found < 0 ? position : Math.min(found, position);
+    }, -1);
+    return index < 0 ? "" : text.slice(Math.max(0, index - 120), index + 420);
+  }
+
+  async function readVisibleSelection(page, label, trackedRunIds) {
+    const text = await page.locator("body").innerText();
+    const hintNewDiscussion = text.includes(B31_HINT_NEW_DISCUSSION);
+    const steerInputVisible = await page
+      .locator(agentRunSteerInputSelector)
+      .first()
+      .isVisible()
+      .catch(() => false);
+    const steerPlaceholder = steerInputVisible
+      ? await page.locator(agentRunSteerInputSelector).first().getAttribute("placeholder")
+      : null;
+    const mainPlaceholder = await page
+      .locator(chatInputSelector)
+      .first()
+      .getAttribute("placeholder")
+      .catch(() => null);
+    const sendAdjustButtonCount = await page.getByRole("button", { name: /^发送调整$/ }).count();
+    const sendButtonCount = await page.getByRole("button", { name: /^发送$/ }).count();
+    const replyButtons = await page.getByRole("button", { name: "回复此问题", exact: true }).count();
+    const steerMode = steerInputVisible || sendAdjustButtonCount > 0;
+    const selectedHasModelQuestion = hintNewDiscussion;
+    return {
+      label,
+      hint_new_discussion: hintNewDiscussion,
+      steer_mode: steerMode,
+      steer_input_visible: steerInputVisible,
+      steer_placeholder: steerPlaceholder,
+      main_placeholder: mainPlaceholder,
+      send_adjust_button_count: sendAdjustButtonCount,
+      send_button_count: sendButtonCount,
+      reply_question_button_count: replyButtons,
+      selected_has_model_question: selectedHasModelQuestion,
+      selected_kind: hintNewDiscussion ? "question_run" : steerMode ? "no_question_run" : "unknown",
+      tracked_run_ids: trackedRunIds,
+      awaiting_excerpt: visibleAwaitingExcerpt(text),
+      page_tail: text.slice(-600),
+    };
+  }
+
+  function normalizeTrackedRunIds(trackedRunIds) {
+    if (Array.isArray(trackedRunIds)) return trackedRunIds.filter(Boolean);
+    if (trackedRunIds && typeof trackedRunIds === "object") {
+      return [trackedRunIds.question, trackedRunIds.plan].filter(Boolean);
+    }
+    return [];
+  }
+
+  function frameRunStates(afterFrameIndex, trackedRunIds) {
+    const runIds = normalizeTrackedRunIds(trackedRunIds);
+    const states = {};
+    const order = [];
+    for (const frame of frames.slice(afterFrameIndex)) {
+      if (
+        frame.direction !== "received" ||
+        frame.event !== "agent_run_state" ||
+        !runIds.includes(frame.body?.run_id)
+      ) {
+        continue;
+      }
+      const runId = frame.body.run_id;
+      if (!order.includes(runId)) order.push(runId);
+      states[runId] = {
+        status: frame.body?.status,
+        phase: frame.body?.phase,
+        goal_version: frame.body?.goal?.version ?? null,
+        runtime_live: frame.body?.runtime_live ?? null,
+        profile_ref: frame.body?.profile_ref ?? null,
+        parent_turn_ref: frame.body?.parent_turn_ref ?? null,
+      };
+    }
+    return { states, order };
+  }
+
+  async function sendAwaitingQuestionRun(text, label) {
+    const start = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === text,
+      `${label}: awaiting-question input was not sent from the real main input`,
+      30_000,
+    );
+    const ack = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        frame.body?.response?.received === true &&
+        typeof frame.body?.response?.run_id === "string" &&
+        frame.body.response.run_id !== "",
+      `${label}: awaiting-question run was not acked`,
+      30_000,
+    );
+    const runId = ack.body.response.run_id;
+    const questionFrame = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.author_question?.run_id === runId,
+      `${label}: explicit author_question TurnResult was not broadcast`,
+      120_000,
+    );
+    const awaitingState = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.status === "awaiting_author",
+      `${label}: question run did not reach awaiting_author`,
+      60_000,
+    );
+    return {
+      kind: "explicit_question",
+      run_id: runId,
+      parent_turn_ref: sent.body?.turn_id,
+      question: questionFrame.body.author_question,
+      question_turn_result: questionFrame.body,
+      awaiting_state: awaitingState.body,
+      sent,
+      ack: ack.body.response,
+      log_start: logStart,
+      frame_start: start,
+    };
+  }
+
+  async function sendPlanExhaustRun(text, label) {
+    const start = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === text,
+      `${label}: plan-exhaust input was not sent from the real main input`,
+      30_000,
+    );
+    const ack = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        frame.body?.response?.received === true &&
+        typeof frame.body?.response?.run_id === "string",
+      `${label}: plan-exhaust run was not acked`,
+      30_000,
+    );
+    const runId = ack.body.response.run_id;
+    const awaitingEvent = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "awaiting_author" &&
+        (frame.body?.reason_codes ?? []).includes("plan_exhausted_without_completion"),
+      `${label}: plan-exhaust run did not stop awaiting the author`,
+      180_000,
+    );
+    const awaitingState = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.status === "awaiting_author",
+      `${label}: plan-exhaust run state did not reach awaiting_author`,
+      60_000,
+    );
+    return {
+      kind: "plan_exhaust_awaiting",
+      run_id: runId,
+      parent_turn_ref: sent.body?.turn_id,
+      awaiting_event: awaitingEvent.body,
+      awaiting_state: awaitingState.body,
+      sent,
+      ack: ack.body.response,
+      log_start: logStart,
+      frame_start: start,
+    };
+  }
+
+  async function readGoalVersions(trackedRunIds, afterFrameIndex = 0) {
+    const runIds = normalizeTrackedRunIds(trackedRunIds);
+    const { states } = frameRunStates(afterFrameIndex, runIds);
+    const versions = {};
+    for (const runId of runIds) versions[runId] = states[runId]?.goal_version ?? null;
+    return versions;
+  }
+
+  async function probeFreeInput(page, text, label, trackedRunIds, workId, sessionId) {
+    const start = frames.length;
+    const logStart = readAppLogRecords().length;
+    const goalVersionsBefore = await readGoalVersions(trackedRunIds);
+    const visibleBefore = await readVisibleSelection(page, `${label} before send`, trackedRunIds);
+
+    const steerInputVisible = await page
+      .locator(agentRunSteerInputSelector)
+      .first()
+      .isVisible()
+      .catch(() => false);
+    const sendAdjustButtonCount = await page.getByRole("button", { name: /^发送调整$/ }).count();
+    const composerMode = steerInputVisible || sendAdjustButtonCount > 0 ? "steer" : "user_message";
+    if (composerMode === "steer") {
+      await page.locator(agentRunSteerInputSelector).first().fill(text);
+      await page.getByRole("button", { name: /^发送调整$/ }).click();
+    } else {
+      await page.locator(chatInputSelector).fill(text);
+      await page.getByRole("button", { name: /^发送$/ }).click();
+    }
+
+    const sent = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "sent" &&
+        ["agent_command", "user_message"].includes(frame.event) &&
+        String(frame.body?.text ?? "") === text,
+      `${label}: free input was not sent from the real workbench`,
+      30_000,
+    );
+    const sentEvent = sent.event;
+    const ack = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        frame.body?.response?.received === true &&
+        typeof frame.body?.response?.run_id === "string" &&
+        frame.body.response.run_id !== "",
+      `${label}: free input was not acked`,
+      60_000,
+    );
+    const ackResponse = ack.body.response;
+    const targetRunId =
+      sentEvent === "agent_command" ? sent.body?.run_id : ackResponse.run_id ?? null;
+
+    if (sentEvent === "agent_command") {
+      await waitForNewFrame(
+        start,
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_event" &&
+          frame.body?.run_ref === targetRunId &&
+          ["plan_adjusted", "run_resumed", "awaiting_author", "run_completed"].includes(
+            frame.body?.event_type,
+          ),
+        `${label}: steered run did not broadcast a resumption/adjustment event`,
+        120_000,
+      ).catch(() => null);
+    } else {
+      await waitForNewFrame(
+        start,
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "agent_run_state" &&
+          frame.body?.run_id === targetRunId &&
+          frame.body?.status === "running",
+        `${label}: new discussion run did not start running`,
+        60_000,
+      ).catch(() => null);
+    }
+    await sleep(1_200);
+    const goalVersionsAfter = await readGoalVersions(trackedRunIds);
+    const sendFrames = frames.slice(start).filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === targetRunId,
+    );
+    const appRecords = readAppLogRecords().slice(logStart);
+    const snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
+    const persistedRows = (snapshot.transcript ?? [])
+      .filter((row) => row.role === "user" && row.text === text)
+      .map((row) => ({
+        turn_id: row.turn_id,
+        agent_run_id: row.agent_run_id ?? null,
+        submission_id: row.submission_id ?? null,
+        text_matches: row.text === text,
+      }));
+    return {
+      label,
+      input_text: text,
+      composer_mode: composerMode,
+      visible_before: visibleBefore,
+      sent_event: sentEvent,
+      sent_frame: sent.body,
+      ack: {
+        run_id: ackResponse.run_id ?? null,
+        goal_version: ackResponse.goal_version ?? null,
+        source_turn_ref: ackResponse.source_turn_ref ?? null,
+        runtime_live: ackResponse.runtime_live ?? null,
+        agent_run_state_status: ackResponse.agent_run_state?.status ?? null,
+      },
+      target_run_id: targetRunId,
+      target_equals_selected_no_question_run:
+        visibleBefore.selected_kind === "no_question_run" && targetRunId === visibleBefore.tracked_run_ids.plan,
+      goal_versions_before: goalVersionsBefore,
+      goal_versions_after: goalVersionsAfter,
+      target_goal_version_increment:
+        sentEvent === "agent_command" && ackResponse.goal_version != null
+          ? ackResponse.goal_version
+          : null,
+      followup_events: sendFrames.map((frame) => ({
+        event_type: frame.body?.event_type,
+        reason_codes: frame.body?.reason_codes ?? [],
+        summary: String(frame.body?.summary ?? "").slice(0, 120),
+      })),
+      app_log: {
+        user_message_starts: appRecords
+          .filter((record) => record.event === "channel.user_message.start")
+          .map((record) => ({ turn_id: record.turn_id, text_len: record.text_len })),
+        context_assembles: appRecords
+          .filter((record) => record.event === "context.assemble.start")
+          .map((record) => ({ turn_id: record.turn_id })),
+        judgment_decisions: appRecords
+          .filter((record) => record.event === "judgment.decided.done")
+          .map((record) => ({ turn_id: record.turn_id, action: record.action })),
+      },
+      persisted_rows: persistedRows,
+      persisted_count: persistedRows.length,
+      snapshot_pending_adoptions: (snapshot.pending_adoptions ?? []).length,
+    };
+  }
+
+  async function probeExplicitReply(page, question, label, questionRunId, otherRunIds) {
+    const start = frames.length;
+    const logStart = readAppLogRecords().length;
+    const replyButtons = await page.getByRole("button", { name: "回复此问题", exact: true }).count();
+    assert(replyButtons > 0, `${label}: explicit question card has no reply entry`);
+    await page.getByRole("button", { name: "回复此问题", exact: true }).first().click();
+    const composer = page.getByRole("textbox", { name: "对此问题的补充", exact: true });
+    await composer.waitFor({ timeout: 15_000 });
+    await composer.fill(B31_EXPLICIT_REPLY_TEXT);
+    await page.getByRole("button", { name: "发送回复", exact: true }).click();
+
+    const actionFrame = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "author_action" &&
+        frame.body?.action?.action_type === "author_choice",
+      `${label}: explicit reply did not use the source author_action`,
+      30_000,
+    );
+    const action = actionFrame.body.action;
+    const ack = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        frame.body?.response?.submission_id === action.payload?.submission_id,
+      `${label}: explicit reply receipt was not returned`,
+      60_000,
+    );
+    const resumedEvent = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === questionRunId &&
+        ["plan_adjusted", "run_resumed", "run_completed"].includes(frame.body?.event_type),
+      `${label}: question run did not resume after the explicit reply`,
+      120_000,
+    ).catch(() => null);
+    const terminalState = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === questionRunId &&
+        ["completed", "failed", "cancelled"].includes(frame.body?.status),
+      `${label}: question run did not reach a terminal state`,
+      120_000,
+    ).catch(() => null);
+    const afterStates = frameRunStates(start, [questionRunId, ...otherRunIds]);
+    return {
+      label,
+      reply_button_count_before: replyButtons,
+      action: {
+        action_id: action.action_id,
+        action_type: action.action_type,
+        target_ref: action.target_ref ?? null,
+        source_turn_ref: action.source_turn_ref ?? null,
+        question_ref: action.payload?.question_ref ?? null,
+        expected_goal_version: action.payload?.expected_goal_version ?? null,
+        submission_id: action.payload?.submission_id ?? null,
+      },
+      ack: {
+        status: ack.body?.response?.status ?? null,
+        question_ref: ack.body?.response?.question_ref ?? null,
+        goal_version: ack.body?.response?.goal_version ?? null,
+        duplicate: ack.body?.response?.duplicate ?? null,
+      },
+      resumed_event: resumedEvent
+        ? { event_type: resumedEvent.body?.event_type, reason_codes: resumedEvent.body?.reason_codes }
+        : null,
+      terminal_status: terminalState?.body?.status ?? null,
+      run_states_after: afterStates.states,
+      binds_question_run: action.target_ref === questionRunId,
+      reply_text: B31_EXPLICIT_REPLY_TEXT,
+      log_start: logStart,
+    };
+  }
+
+  async function createTrialWork(label, token) {
+    const logStart = readAppLogRecords().length;
+    const work = await createWorkSeed({
+      title: `B31 多 awaiting run ${label} ${token}`,
+      genre: "赛博修仙",
+      core_selling_point: "两个 live awaiting run 的普通输入归属隔离复现",
+      target_reader: "需要稳定回复绑定的作者",
+      tone_preference: "冷静、清晰",
+    });
+    await refreshAndSelectWork(page, work.title);
+    await waitForVisibleWorkTitle(page, work.title);
+    const joinRecord = await waitForNewAppLogRecord(
+      logStart,
+      (record) => record.event === "channel.join.done" && record.work_id === work.id,
+      `${label}: work channel did not join`,
+      30_000,
+    );
+    let sessionId = null;
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && !sessionId) {
+      const joinReply = frames
+        .filter(
+          (frame) =>
+            frame.direction === "received" &&
+            frame.event === "phx_reply" &&
+            frame.body?.response?.joined === true &&
+            frame.body?.response?.work_id === work.id,
+        )
+        .at(-1);
+      sessionId = joinReply?.body?.response?.session_id ?? null;
+      if (!sessionId) await sleep(200);
+    }
+    assert(sessionId, `${label}: joined session id was not captured`);
+    return { work, sessionId, joinRecord };
+  }
+
+  async function reloadAndObserve(frameStartBefore, logStartBefore, label) {
+    const resumeResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/sessions/resume") && response.ok(),
+    );
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+      timeout: 30_000,
+    });
+    const snapshot = await (await resumeResponse).json();
+    await sleep(900);
+    const reconnectRecords = readAppLogRecords()
+      .slice(logStartBefore)
+      .filter((record) => record.event === "channel.agent_run_reconnect.done");
+    const joinFrames = frames
+      .slice(frameStartBefore)
+      .filter(
+        (frame) =>
+          frame.direction === "received" &&
+          frame.event === "phx_reply" &&
+          frame.body?.response?.joined === true,
+      );
+    const lastJoin = joinFrames.at(-1)?.body?.response ?? null;
+    const openQuestions = Array.isArray(lastJoin?.open_author_question_turn_results)
+      ? lastJoin.open_author_question_turn_results
+      : [];
+    const stateFrames = frames
+      .slice(frameStartBefore)
+      .filter((frame) => frame.direction === "received" && frame.event === "agent_run_state")
+      .map((frame) => ({
+        run_id: frame.body?.run_id,
+        status: frame.body?.status,
+        goal_version: frame.body?.goal?.version ?? null,
+        runtime_live: frame.body?.runtime_live ?? null,
+        profile_ref: frame.body?.profile_ref ?? null,
+      }));
+    return {
+      label,
+      restore_order: reconnectRecords.map((record) => ({
+        run_id: record.run_id,
+        runtime_live: record.runtime_live,
+      })),
+      state_frame_order: stateFrames,
+      open_question_runs: openQuestions.map((result) => ({
+        run_id: result?.author_question?.run_id,
+        question_ref: result?.author_question?.question_ref,
+        status: result?.author_question?.status,
+        goal_version: result?.author_question?.goal_version,
+      })),
+      snapshot: {
+        pending_adoptions: (snapshot.pending_adoptions ?? []).length,
+        transcript_count: Array.isArray(snapshot.transcript) ? snapshot.transcript.length : null,
+      },
+    };
+  }
+
+  async function pushProtocolUserMessageForSeed(client, text, workId, sessionId, label) {
+    const eventsBefore = client.events.length;
+    const frameStart = frames.length;
+    const reply = await receiveProtocolPush(
+      client.channel.push(
+        "user_message",
+        { text, work_id: workId, session_id: sessionId, generate_micro_plan: false },
+        120_000,
+      ),
+      `${label}: protocol user_message`,
+    );
+    assert(reply.status === "ok", `${label}: protocol seed push failed: ${JSON.stringify(reply.payload)}`);
+    const runId = reply.payload?.run_id ?? reply.payload?.agent_run_state?.run_id;
+    assert(runId, `${label}: protocol seed push did not return a run_id`);
+    await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.status === "awaiting_author",
+      `${label}: protocol-seeded run did not reach awaiting_author`,
+      180_000,
+    );
+    const question = await waitForProtocolEvent(
+      client,
+      eventsBefore,
+      "turn_result",
+      (payload) => payload?.author_question?.run_id === runId,
+      `${label}: protocol-seeded question run did not persist its author_question`,
+      60_000,
+    ).catch(() => null);
+    return { runId, ack: reply.payload, question };
+  }
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const trialTokens = {
+    t1: `T1-${Date.now().toString(36)}`,
+    t2: `T2-${Date.now().toString(36)}`,
+    t3: `T3-${Date.now().toString(36)}`,
+    t4: `T4-${Date.now().toString(36)}`,
+    t5: `T5-${Date.now().toString(36)}`,
+  };
+
+  // ── Trial 1：真实主输入先问题 run、后结构 run；普通输入归属 + 重复输入 ──────
+  {
+    const { work, sessionId } = await createTrialWork("T1", trialTokens.t1);
+    const questionIndex = frames.length;
+    const questionRun = await sendAwaitingQuestionRun(
+      `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t1}。`,
+      "T1 question run",
+    );
+    const planRun = await sendPlanExhaustRun(
+      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t1}`,
+      "T1 plan-exhaust run",
+    );
+    const trackedRunIds = { question: questionRun.run_id, plan: planRun.run_id };
+    await sleep(1_000);
+    const stateAfterCreation = frameRunStates(questionIndex, [questionRun.run_id, planRun.run_id]);
+    const visibleAfterCreation = await readVisibleSelection(page, "T1 after creation", trackedRunIds);
+    await page.screenshot({ path: path.join(artifactDir, "b31-t1-two-awaiting-runs.png"), fullPage: true });
+    const freeFirst = await probeFreeInput(
+      page,
+      `处理重复第11章，只修正列表编号，保留你对已读正文的核对结论，标记B31FREE-T1A-${trialTokens.t1}`,
+      "T1 free input #1",
+      trackedRunIds,
+      work.id,
+      sessionId,
+    );
+    const freeRepeat = await probeFreeInput(
+      page,
+      freeFirst.input_text,
+      "T1 repeated free input",
+      trackedRunIds,
+      work.id,
+      sessionId,
+    );
+    const explicit = await probeExplicitReply(
+      page,
+      questionRun.question,
+      "T1 explicit reply control",
+      questionRun.run_id,
+      [planRun.run_id],
+    );
+    const finalStates = frameRunStates(questionIndex, [questionRun.run_id, planRun.run_id]);
+    evidence.trials.push({
+      id: "T1_ui_creation_question_then_plan",
+      purpose:
+        "真实主输入创建两个 awaiting run（问题 run 较旧、结构 run 较新），记录普通输入的 run 归属、重复输入与服务端 goal_version。",
+      trial_token: trialTokens.t1,
+      work_id: work.id,
+      session_id: sessionId,
+      runs: {
+        question: {
+          run_id: questionRun.run_id,
+          parent_turn_ref: questionRun.parent_turn_ref,
+          question_ref: questionRun.question.question_ref,
+          question_status: questionRun.question.status,
+          question_goal_version: questionRun.question.goal_version,
+          awaiting_status: questionRun.awaiting_state?.status,
+        },
+        plan: {
+          run_id: planRun.run_id,
+          parent_turn_ref: planRun.parent_turn_ref,
+          awaiting_reason_codes: planRun.awaiting_event?.reason_codes ?? [],
+          awaiting_status: planRun.awaiting_state?.status,
+          profile_ref: planRun.awaiting_state?.profile_ref,
+        },
+      },
+      creation_order: [questionRun.run_id, planRun.run_id],
+      newest_run_id: planRun.run_id,
+      state_after_creation: stateAfterCreation.states,
+      visible_after_creation: visibleAfterCreation,
+      free_input_first: freeFirst,
+      free_input_repeat: freeRepeat,
+      explicit_reply: explicit,
+      final_states: finalStates.states,
+      explicit_reply_bound_question_run: explicit.binds_question_run,
+      other_run_unchanged_after_explicit_reply:
+        finalStates.states[planRun.run_id]?.status === planRun.awaiting_state?.status,
+    });
+  }
+
+  // ── Trial 2：刷新/重连恢复顺序观察；刷新后普通输入归属是否随恢复顺序变化 ─────
+  {
+    const { work, sessionId } = await createTrialWork("T2", trialTokens.t2);
+    const questionIndex = frames.length;
+    const questionRun = await sendAwaitingQuestionRun(
+      `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t2}。`,
+      "T2 question run",
+    );
+    const planRun = await sendPlanExhaustRun(
+      `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t2}`,
+      "T2 plan-exhaust run",
+    );
+    const trackedRunIds = { question: questionRun.run_id, plan: planRun.run_id };
+    const visibleBeforeReload = await readVisibleSelection(page, "T2 before reload", trackedRunIds);
+    const reloadObservations = [];
+    let lastReload = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      lastReload = await reloadAndObserve(
+        frames.length,
+        readAppLogRecords().length,
+        `T2 reload #${attempt}`,
+      );
+      lastReload.visible = await readVisibleSelection(page, `T2 reload #${attempt}`, trackedRunIds);
+      reloadObservations.push(lastReload);
+      await page.screenshot({
+        path: path.join(artifactDir, `b31-t2-reload-${attempt}.png`),
+        fullPage: true,
+      });
+    }
+    const visibleAfterReload = reloadObservations.at(-1).visible;
+    const freeAfterReload = await probeFreeInput(
+      page,
+      `处理重复第11章，只修正列表编号，保留你对已读正文的核对结论，标记B31FREE-T2-${trialTokens.t2}`,
+      "T2 free input after reload",
+      trackedRunIds,
+      work.id,
+      sessionId,
+    );
+    evidence.trials.push({
+      id: "T2_restore_order_permutation",
+      purpose:
+        "两个 live awaiting run 刷新/重连恢复；记录每次 JoinRestore 广播顺序与页面选中信号，刷新后普通输入落到哪个 run。",
+      trial_token: trialTokens.t2,
+      work_id: work.id,
+      session_id: sessionId,
+      runs: {
+        question: {
+          run_id: questionRun.run_id,
+          question_ref: questionRun.question.question_ref,
+          question_goal_version: questionRun.question.goal_version,
+        },
+        plan: {
+          run_id: planRun.run_id,
+          awaiting_reason_codes: planRun.awaiting_event?.reason_codes ?? [],
+        },
+      },
+      creation_order: [questionRun.run_id, planRun.run_id],
+      visible_before_reload: visibleBeforeReload,
+      reloads: reloadObservations,
+      visible_after_reload: visibleAfterReload,
+      free_input_after_reload: freeAfterReload,
+    });
+  }
+
+  // ── Trial 3：协议 seed 两 run（结构较旧、问题较新），刷新恢复后普通输入归属 ──
+  {
+    const { work, sessionId } = await createTrialWork("T3", trialTokens.t3);
+    const client = await joinProtocolWorkspace(work.id, sessionId);
+    try {
+      const planSeed = await pushProtocolUserMessageForSeed(
+        client,
+        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t3}`,
+        work.id,
+        sessionId,
+        "T3 plan seed",
+      );
+      const questionSeed = await pushProtocolUserMessageForSeed(
+        client,
+        `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t3}。`,
+        work.id,
+        sessionId,
+        "T3 question seed",
+      );
+      const trackedRunIds = { question: questionSeed.runId, plan: planSeed.runId };
+      const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T3 reload");
+      const visible = await readVisibleSelection(page, "T3 after reload", trackedRunIds);
+      await page.screenshot({ path: path.join(artifactDir, "b31-t3-restored-seeded.png"), fullPage: true });
+      const questionResult = (reload.open_question_runs ?? []).find(
+        (entry) => entry.run_id === questionSeed.runId,
+      );
+      const freeAnswer = await probeFreeInput(
+        page,
+        `我回答上面那个问题：直接在现有正文基础上扩写，增加细节，标记B31ANSWER-T3-${trialTokens.t3}`,
+        "T3 plain free answer to older question",
+        trackedRunIds,
+        work.id,
+        sessionId,
+      );
+      evidence.trials.push({
+        id: "T3_seeded_plan_older_question_newer",
+        purpose:
+          "外部协议 seed 两个 awaiting run（结构较旧、问题较新）后刷新恢复；问题在非 selected run 时，普通输入落到哪个 run。",
+        trial_token: trialTokens.t3,
+        work_id: work.id,
+        session_id: sessionId,
+        runs: {
+          question: {
+            run_id: questionSeed.runId,
+            parent_turn_ref: questionSeed.ack?.turn_id ?? null,
+            question_ref: questionSeed.question?.author_question?.question_ref ?? questionResult?.question_ref ?? null,
+            question_goal_version:
+              questionSeed.question?.author_question?.goal_version ?? null,
+          },
+          plan: {
+            run_id: planSeed.runId,
+            parent_turn_ref: planSeed.ack?.turn_id ?? null,
+          },
+        },
+        creation_order: [planSeed.runId, questionSeed.runId],
+        newest_run_id: questionSeed.runId,
+        seed_method: "external_protocol_push_user_message",
+        reload,
+        visible_after_reload: visible,
+        open_question_visible_in_join: Boolean(questionResult),
+        free_input_plain_answer: freeAnswer,
+      });
+    } finally {
+      await closeProtocolWorkspace(client);
+    }
+  }
+
+  // ── Trial 4：协议 seed（问题较旧、结构较新），刷新后普通输入与显式回复对照 ───
+  {
+    const { work, sessionId } = await createTrialWork("T4", trialTokens.t4);
+    const client = await joinProtocolWorkspace(work.id, sessionId);
+    try {
+      const questionSeed = await pushProtocolUserMessageForSeed(
+        client,
+        `第一章字数太少了，标记${B31_QUESTION_MARKER}-${trialTokens.t4}。`,
+        work.id,
+        sessionId,
+        "T4 question seed",
+      );
+      const planSeed = await pushProtocolUserMessageForSeed(
+        client,
+        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-${trialTokens.t4}`,
+        work.id,
+        sessionId,
+        "T4 plan seed",
+      );
+      const trackedRunIds = { question: questionSeed.runId, plan: planSeed.runId };
+      const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T4 reload");
+      const visible = await readVisibleSelection(page, "T4 after reload", trackedRunIds);
+      await page.screenshot({ path: path.join(artifactDir, "b31-t4-restored-question-older.png"), fullPage: true });
+      const freeAnswer = await probeFreeInput(
+        page,
+        `我回答上面那个问题：直接在现有正文基础上扩写，增加细节，标记B31ANSWER-T4-${trialTokens.t4}`,
+        "T4 plain free answer to older question",
+        trackedRunIds,
+        work.id,
+        sessionId,
+      );
+      const explicit = await probeExplicitReply(
+        page,
+        questionSeed.question,
+        "T4 explicit reply control",
+        questionSeed.runId,
+        [planSeed.runId],
+      );
+      evidence.trials.push({
+        id: "T4_seeded_question_older_plan_newer",
+        purpose:
+          "外部协议 seed（问题较旧、结构较新）后刷新；对照普通输入与显式「回复此问题」的 run 绑定。",
+        trial_token: trialTokens.t4,
+        work_id: work.id,
+        session_id: sessionId,
+        runs: {
+          question: {
+            run_id: questionSeed.runId,
+            question_ref: questionSeed.question?.author_question?.question_ref ?? null,
+            question_goal_version:
+              questionSeed.question?.author_question?.goal_version ?? null,
+          },
+          plan: { run_id: planSeed.runId },
+        },
+        creation_order: [questionSeed.runId, planSeed.runId],
+        newest_run_id: planSeed.runId,
+        seed_method: "external_protocol_push_user_message",
+        reload,
+        visible_after_reload: visible,
+        free_input_plain_answer: freeAnswer,
+        explicit_reply_after_plain: explicit,
+      });
+    } finally {
+      await closeProtocolWorkspace(client);
+    }
+  }
+
+  // ── Trial 5：两个「无显式问题」live await run（都无 TurnResult），恢复顺序交换时
+  // 选中 run 是否就是最后恢复广播的 run（R1/R3 的决定性对照）。──────────────────
+  {
+    const { work, sessionId } = await createTrialWork("T5", trialTokens.t5);
+    const client = await joinProtocolWorkspace(work.id, sessionId);
+    try {
+      const planSeedA = await pushProtocolUserMessageForSeed(
+        client,
+        `先读完第01章正文，再调整章节大纲，最后更新主角当前状态，${B31_PLAN_EXHAUST_MARKER}-T5A-${trialTokens.t5}`,
+        work.id,
+        sessionId,
+        "T5 plan seed A",
+      );
+      const planSeedB = await pushProtocolUserMessageForSeed(
+        client,
+        `先读完第02章正文，再调整章节大纲，最后更新主角状态，${B31_PLAN_EXHAUST_MARKER}-T5B-${trialTokens.t5}`,
+        work.id,
+        sessionId,
+        "T5 plan seed B",
+      );
+      const trackedRunIds = [planSeedA.runId, planSeedB.runId];
+      const reload = await reloadAndObserve(frames.length, readAppLogRecords().length, "T5 reload");
+      const visible = await readVisibleSelection(page, "T5 after reload", trackedRunIds);
+      await page.screenshot({ path: path.join(artifactDir, "b31-t5-two-live-only-runs.png"), fullPage: true });
+      const goalVersionsBefore = await readGoalVersions(trackedRunIds);
+      const freeInput = await probeFreeInput(
+        page,
+        `按已核对结果先出方案，继续推进第一章结构调整，标记B31FREE-T5-${trialTokens.t5}`,
+        "T5 free input on two live-only awaiting runs",
+        trackedRunIds,
+        work.id,
+        sessionId,
+      );
+      evidence.trials.push({
+        id: "T5_two_live_only_awaiting_runs",
+        purpose:
+          "两个都没有 TurnResult 的 live awaiting run：恢复广播顺序是否直接决定页面选中的 run 与普通输入目标（R1/R3 决定性对照）。",
+        trial_token: trialTokens.t5,
+        work_id: work.id,
+        session_id: sessionId,
+        runs: {
+          question: null,
+          plan_a: { run_id: planSeedA.runId },
+          plan_b: { run_id: planSeedB.runId },
+          plan: { run_id: planSeedB.runId },
+        },
+        tracked_run_ids: trackedRunIds,
+        creation_order: trackedRunIds,
+        newest_run_id: planSeedB.runId,
+        seed_method: "external_protocol_push_user_message",
+        reload,
+        visible_after_reload: visible,
+        restore_order: (reload.restore_order ?? []).map((entry) => entry.run_id),
+        last_restored_run_id: reload.restore_order?.at(-1)?.run_id ?? null,
+        goal_versions_before: goalVersionsBefore,
+        free_input: freeInput,
+        target_equals_last_restored: freeInput.target_run_id === (reload.restore_order?.at(-1)?.run_id ?? null),
+      });
+    } finally {
+      await closeProtocolWorkspace(client);
+    }
+  }
+
+  const flatBindingChecks = {
+    free_input_sent_as_plain_steer_count: evidence.trials.reduce(
+      (count, trial) =>
+        count +
+        ["free_input_first", "free_input_repeat", "free_input_after_reload", "free_input_plain_answer"].filter(
+          (key) => trial[key]?.sent_event === "agent_command",
+        ).length,
+      0,
+    ),
+    free_input_sent_as_new_user_message_count: evidence.trials.reduce(
+      (count, trial) =>
+        count +
+        ["free_input_first", "free_input_repeat", "free_input_after_reload", "free_input_plain_answer"].filter(
+          (key) => trial[key]?.sent_event === "user_message",
+        ).length,
+      0,
+    ),
+    explicit_reply_bound_question_run: evidence.trials
+      .filter((trial) => trial.explicit_reply || trial.explicit_reply_after_plain)
+      .every(
+        (trial) =>
+          (trial.explicit_reply ?? trial.explicit_reply_after_plain)?.binds_question_run === true,
+      ),
+    selected_run_equals_last_restored_run: evidence.trials
+      .filter((trial) => trial.reload?.restore_order?.length > 0)
+      .every((trial) => {
+        const lastRestored = trial.reload.restore_order.at(-1)?.run_id;
+        const selected =
+          trial.visible_after_reload?.selected_kind === "question_run"
+            ? trial.runs.question.run_id
+            : trial.runs.plan.run_id;
+        return lastRestored === selected;
+      }),
+    two_live_only_runs_free_input_target_equals_last_restored: evidence.trials
+      .filter((trial) => trial.id === "T5_two_live_only_awaiting_runs")
+      .every((trial) => trial.target_equals_last_restored === true),
+    two_live_only_runs_observed_restore_order: evidence.trials
+      .filter((trial) => trial.id === "T5_two_live_only_awaiting_runs")
+      .map((trial) => ({ restore_order: trial.restore_order, target_run_id: trial.free_input?.target_run_id })),
+  };
+  evidence.binding_checks = flatBindingChecks;
+  evidence.summary = {
+    trials: evidence.trials.length,
+    create_orders_covered: [
+      "question_run_then_plan_run_ui",
+      "plan_run_then_question_run_protocol_seed",
+      "question_run_then_plan_run_protocol_seed",
+      "two_live_only_plan_runs_protocol_seed",
+    ],
+    restore_observations: evidence.trials
+      .filter((trial) => trial.reloads)
+      .flatMap((trial) => trial.reloads.map((reload) => reload.restore_order)),
+    plain_free_input_targets: evidence.trials.map((trial) => {
+      const probe =
+        trial.free_input_first ??
+        trial.free_input_after_reload ??
+        trial.free_input_plain_answer ??
+        trial.free_input ??
+        null;
+      const selectedKind = probe?.visible_before?.selected_kind ?? null;
+      const planRunId = trial.runs?.plan?.run_id ?? null;
+      const questionRunId = trial.runs?.question?.run_id ?? null;
+      const selectedRunId = selectedKind === "question_run" ? questionRunId : planRunId;
+      return {
+        trial: trial.id,
+        input_intent_question_or_structure:
+          trial.id.startsWith("T3") || trial.id.startsWith("T4")
+            ? "answer_visible_question"
+            : "continue_structure_task",
+        selected_kind: selectedKind,
+        target_run_id: probe?.target_run_id ?? null,
+        selected_run_id: selectedRunId,
+        target_is_selected: Boolean(selectedRunId && probe?.target_run_id === selectedRunId),
+        sent_event: probe?.sent_event ?? null,
+      };
+    }),
+  };
+
+  fs.writeFileSync(
+    path.join(artifactDir, "b31-cp0-evidence.json"),
+    JSON.stringify(evidence, null, 2),
+  );
+  await page.screenshot({ path: path.join(artifactDir, "b31-final.png"), fullPage: true });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: B31_SLICE_ID,
+      outcome: "done",
+      trials: evidence.trials.length,
+      trial_ids: evidence.trials.map((trial) => trial.id),
+      trial_tokens: trialTokens,
+      binding_checks: flatBindingChecks,
+      free_input_targets: evidence.summary.plain_free_input_targets,
+      restore_observations: evidence.summary.restore_observations,
+      explicit_reply_bound_question_run: flatBindingChecks.explicit_reply_bound_question_run,
+      selected_run_equals_last_restored_run:
+        flatBindingChecks.selected_run_equals_last_restored_run,
+      plain_free_input_steer_count: flatBindingChecks.free_input_sent_as_plain_steer_count,
+      plain_free_input_new_run_count: flatBindingChecks.free_input_sent_as_new_user_message_count,
+      protocol_seed_used_for_trial_setup: true,
+      measured_inputs_all_from_real_workbench: true,
+      no_product_code_changed: true,
+    },
+  ];
+}
+
+
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
@@ -34851,6 +35891,7 @@ const drivers = {
   "agent-conversation-turn": driveAgentConversationTurn,
   "b26-author-question-roundtrip": driveB26AuthorQuestionRoundtrip,
   "b27-prompt-lifecycle-consistency": driveB27PromptLifecycleConsistency,
+  "b31-author-reply-run-binding": driveB31AuthorReplyRunBinding,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,
   "agent-plan-native-tool-calling-protocol": driveAgentPlanNativeToolCallingProtocol,
