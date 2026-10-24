@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B30-CHAPTER-STRUCTURE-MAINTENANCE | **当前任务 / CP0 done（2026-10-25，`0f756e2b`）**：真实 Tauri 复现结构维护能力缺失（reply/target_not_available/plot_outline 误路由）、采纳按 title 新建章、标题号≠seq；标准 B11A 蓝图路径安全但持久层无类型防护。CP0 冻结 Q01–Q08（`maintain_chapter_structure` 能力/只重编号首闭环/old→new 映射/两阶段 seq 事务/蓝图类型边界/seq 权威展示/消费者迁移/证据回归）。**CP1/CP2 完成并提交（`a5581f35`）**：maintain_chapter_structure 能力/判断/change_plan + 原子 renumber/采纳 effect/蓝图类型防护，全后端 2138/0。**CP3 消费者迁移进行中**：账本/伏笔/检索/探索（task-62 aux）与计划绑定/写作坐标/章使命/别名（task-63 prose）→ CP4 两场景+实模（task-64）→ CP5。 | [B30](slices/B30-chapter-structure-maintenance.md) |
+| B30-CHAPTER-STRUCTURE-MAINTENANCE | **当前任务 / CP0 done（2026-10-25，`0f756e2b`）**：真实 Tauri 复现结构维护能力缺失（reply/target_not_available/plot_outline 误路由）、采纳按 title 新建章、标题号≠seq；标准 B11A 蓝图路径安全但持久层无类型防护。CP0 冻结 Q01–Q08（`maintain_chapter_structure` 能力/只重编号首闭环/old→new 映射/两阶段 seq 事务/蓝图类型边界/seq 权威展示/消费者迁移/证据回归）。**CP1/CP2 完成并提交（`a5581f35`）**：maintain_chapter_structure 能力/判断/change_plan + 原子 renumber/采纳 effect/蓝图类型防护，全后端 2138/0。**CP3 大部分提交（`dbdb7770`）**：ChapterDisplay/写作坐标/章使命/探索/判断上下文 ref-first、账本伏笔 seq remap、检索/TOC 审计；**计划物化 ref-first 成对补进行中**（task-65 parser/物化 + task-66 plot_outline 契约）→ CP4 两场景+实模（task-64，依赖 62/63/65/66）→ CP5。 | [B30](slices/B30-chapter-structure-maintenance.md) |
 
 ## 后续候选
 

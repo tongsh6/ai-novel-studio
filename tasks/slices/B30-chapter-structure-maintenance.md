@@ -40,7 +40,7 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 凌晨：第2卷
 | CP0 | 隔离复现两份第11章与卷蓝图误建；冻结身份/序号/展示、维护操作、卷章类型和下游引用处理契约 | **done（2026-10-25，`0f756e2b`）**：真实 Tauri 22/22 checks/5 trials（A1 reply 零写入/标题号与 seq 错位保留；A2/A2b target_not_available run failed；C1 越界误路由 plot_outline 候选；B 蓝图仅存 volumes.blueprint 不占 seq）；契约冻结见 §7（Q01–Q08）；aux 代码链/消费者审计/stage 只读清单 `artifacts/model-contracts/b30-cp0/` |
 | CP1 | 按现有 ID/版本生成可审阅变更映射；模型可用操作与 registry/结果一致；无关内容不重写 | **done（2026-10-25，`a5581f35`）**：registry `maintain_chapter_structure`（provider none、既有结构维护、与 plot_outline 区分）；JudgmentProtocol prompt+机械 gate（维护意图不得回退 reply/plot_outline/prose_writing，有界纠错）；ChapterStructureMaintenance 读 context 生成 old→new change_plan（密集重编号/对调/越界/无目标/歧义、effects=display_number_only、base_versions、warnings）；PendingArtifactWorkflow 零 provider/零写入候选 |
 | CP2 | 采纳后事务更新、唯一约束、幂等/并发/回滚；禁止生成路径冒充维护，卷章类型校验落边界 | **done（2026-10-25，`a5581f35`）**：`chapter_structure_context/2` 读端口；`renumber_chapters/4` 两阶段临时 seq 单一事务（同 work/卷、stale、唯一、幂等 duplicate 回执、失败整体回滚、只改 seq）；AdoptionWorkflow renumber effect（回执基于已提交映射/object_count/warnings，不调 writer/不建章/不写正文）；`ensure_planned_chapter` object_kind 蓝图 type_mismatch 防护；测试 application 896/0、persistence 310/0 |
-| CP3 | 所有编号消费者/账本/探索/阅读/写作坐标同步与 trace；完成历史影响清单 | todo |
+| CP3 | 所有编号消费者/账本/探索/阅读/写作坐标同步与 trace；完成历史影响清单 | **部分完成（2026-10-25，`dbdb7770`）**：ChapterDisplay（身份=ref/章号=当前 seq）、TEC 目标章/写作坐标/章使命/探索别名/判断计划上下文 ref-first；账本/伏笔历史 seq 按 ref 解析当前值（LogEmit remap）；检索/TOC/阅读审计无需迁移；**计划物化 ref-first（B25 title-first 遗漏）成对补进行中**（task-65 parser/物化 + task-66 plot_outline 契约） |
 | CP4 | 两个新真实 Tauri 场景＋AU08/B25/B24 回归；实模自然语言正反例 | todo |
 | CP5 | 全门禁、静态扫描、NEXT/journey/ledger 收口；未获授权的存量清理单列后续 | todo |
 
@@ -82,3 +82,12 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 - **CP1**：`CapabilityRegistry` additive `maintain_chapter_structure`（provider none、read/write chapter_structure、effect_summary 明确只维护既有结构）；JudgmentProtocol prompt 维护规则 + `validate_maintenance_route/3` 机械 gate（维护意图只放行 execute+maintain/capability_gap/await_author/explore；reply/plot_outline/prose_writing → `maintenance_capability_required` 有界纠错）；`ChapterStructureMaintenance.load_context/2` + `change_plan/2`（密集重编号/点名对调/越界/无目标/多卷歧义、object_count、effects=["display_number_only"]、base_versions、warnings）；PendingArtifactWorkflow 维护分支零 provider/零写入产出候选 artifact（`chapter_structure_change_plan`，复用既有卡，不新增前端卡）。
 - **CP2**：`AdoptionRepository.chapter_structure_context/2`（卷/章 refs/seq/title/版本/hash/摘要/同名分组）；`renumber_chapters/4` 两阶段负临时 seq 单一事务（同 work/卷、expected_seq/stale、new_seq 唯一/>=1、幂等 duplicate 回执、失败整体回滚、只改 seq 不写 title/正文/归卷）；`AdoptionWorkflow` renumber effect（action_result 顶层 adoption_effect/committed_mapping/object_count/warnings/persistence；不调 writer/不建章/不写正文）；`ensure_planned_chapter` 前置 object_kind/蓝图校验（type_mismatch 随 Multi 回滚，不静默成章/占 seq，无 schema 增量）。
 - **测试/门禁**：新增 b30 service 6、读端口集成 2、judgment 2、renumber persistence 4、renumber adoption 2（含交换/幂等/stale/越界/零写入/蓝图拒绝）；application 896/0、persistence 310/0、agent 265/0，全后端 2138/0；compile/test -Werror/format/credo/enum/xref/arch/adr、I1/I2/I3 全绿。CP3 消费者迁移（task-62/63）进行中。
+
+### 7.4 CP3 实施记录（2026-10-25，`dbdb7770`）
+
+- **展示单一真源**：新 `NovelApplication.ChapterDisplay`——身份 chapter_ref、章号当前 seq；title 历史编号与 seq 一致保留原文，重编号不一致时展示层剥旧编号用当前 seq+core，不重写存储 title。
+- **写作坐标/章使命/探索/判断上下文**：TEC 目标章按结构化章条目当前 seq/展示标题匹配（旧 title 编号不参与身份，ref 优先）；章使命 ref-first + mission 材料带 chapter_ref/当前 seq/core；chapter_read title 别名展示/core 精确优先→唯一包含、显式第 N 章按当前 seq（旧 seq not_found）、多候选歧义；章节事实/索引行展示当前 seq+core+ref。
+- **账本/伏笔**：历史账目 payload 的 `last_seen_seq/last_advanced_seq/emotion seq` 在停滞/休眠窗口计算前按 chapter_ref（emotion 用 subject_ref）从当前 chapter_index 解析当前 seq，变更发 `LogEmit ledger.seq_remapped`（old→new）；旧 seq 不再静默错位；新账用当前 seq。
+- **检索/TOC/阅读**：prose_search 观察只展示 title、refs 有效 → 审计无需改；TOC/阅读投影按当前 DB seq 排序；chapter_id 消费路径无需迁移。
+- **测试/门禁**：b30 consumer migration 4/0、ledger seq migration 1/0、exploration seq 1/0；application 902/0、domain 378/0、persistence 310/0、agent 265/0，全后端 2144/0；compile/format/credo/enum/xref/arch、I1/I2/I3 全绿。
+- **计划物化残留（成对补）**：`ensure_planned_chapter` 仍 `(work_id,title)` 幂等、`ChapterPlanParser` 章 map 无 chapter_ref；已按 Lead 裁决 **B** 派 task-65（aux parser/物化 ref-first）+ task-66（prose plot_outline 输出契约复制已存在章 ref），完成后 CP4。
