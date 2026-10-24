@@ -363,6 +363,10 @@ defmodule B27SemanticScore do
     }
   end
 
+  # judge 输入只给事实证据 + 案例卡 rubric；不喂 runner 内部提示（forbidden_candidates /
+  # zero_tolerance_candidates / unnecessary_question_candidate / allowed_path.hit 等），
+  # 避免 judge 把 runner 诊断当判定。证据字段与案例卡 evidence_fields 对齐：
+  # 请求上下文覆盖、工具调用/参数、工具结果、app-side 物化字节、provider 内容异常。
   defp episode_facts(ep) do
     mapping = ep["mapping"] || %{}
     response = ep["response"] || %{}
@@ -379,23 +383,23 @@ defmodule B27SemanticScore do
       "elapsed_ms" => ep["elapsed_ms"],
       "provider_call_count" => ep["provider_call_count"],
       "usage" => ep["usage"],
-      "judgment_action" => get(mapping, "judgment_action"),
+      "observed_judgment_action" => get(mapping, "judgment_action"),
       "tool_calls" => get(mapping, "tool_calls") || [],
       "tool_names" => get(mapping, "tool_names") || [],
       "final_text" =>
         get(response, "final_text") || get(mapping, "final_text") || get(response, "content"),
-      "allowed_path" => ep["allowed_path"] || %{},
-      "forbidden_candidates" => ep["forbidden_candidates"] || [],
-      "zero_tolerance_candidates" => ep["forbidden_candidates"] || [],
-      "unnecessary_question_candidate" => get(ep, "unnecessary_question_candidate") || false,
+      "content_anomaly" => ep["content_anomaly"],
+      "materials_model_visible" => ep["materials_model_visible"],
+      "app_side_evidence" => ep["app_side_evidence"],
+      "seeded_candidates" => ep["seeded_candidates"],
       "rounds_executed" => get(episode, "rounds_executed"),
       "end_reason" => get(episode, "end_reason"),
       "complete" => get(episode, "complete"),
       "awaiting_author" => get(episode, "end_reason") == "await_author",
       "provider_calls" => provider_call_summaries(ep),
       "judge_note" =>
-        "episode_facts 由 runner 记录，不是判定；判定必须由判卷人按 rubric 填写。" <>
-          " end_reason=await_author 表示运行在等待作者输入处合法终止，不是 provider 不可用。"
+        "episode_facts 是 runner 记录的事实证据，不是判定；不含 runner 的 forbidden/zero-tolerance/" <>
+          "追问候选等内部提示。end_reason=await_author 表示运行在等待作者输入处合法终止，不是 provider 不可用。"
     }
   end
 

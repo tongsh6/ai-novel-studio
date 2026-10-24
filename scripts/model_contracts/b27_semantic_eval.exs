@@ -726,6 +726,16 @@ defmodule B27SemanticEval do
               "complete_meta" => get(evidence, "complete_meta")
             },
             "wire_captures" => Enum.map(wire_calls, &wire_call_doc/1),
+            "seeded_candidates" => get(evidence, "seeded_candidates"),
+            "reading_projection_facts" => get(evidence, "reading_projection_facts"),
+            "app_side_evidence" => get(evidence, "app_side_evidence"),
+            "materials_model_visible" =>
+              prompt_visible_materials(
+                get(evidence, "materials_model_visible"),
+                wire_calls,
+                evidence
+              ),
+            "content_anomaly" => content_anomaly(evidence),
             "workspace_arm" => workspace_arm_check(),
             "method" => method_doc(opts),
             "provider_config" => provider_config_doc(opts),
@@ -741,7 +751,11 @@ defmodule B27SemanticEval do
 
         {:error, error} ->
           error_episode(case_id, "integrated", run_index, opts, error, started,
-            partial_provider_calls: get(error, :partial_provider_calls)
+            partial_provider_calls: get(error, :partial_provider_calls),
+            app_side_evidence: get(error, :app_side_evidence),
+            materials_model_visible: get(error, :materials_model_visible),
+            seeded_candidates: get(error, :seeded_candidates),
+            content_anomaly: content_anomaly(%{"turn_result" => nil, "end_reason" => "error"})
           )
       end
     rescue
@@ -1214,7 +1228,17 @@ defmodule B27SemanticEval do
       "mapping" => nil,
       "method" => method_doc(opts)
     }
-    |> Map.merge(Map.new(Keyword.take(extra, [:partial_provider_calls])))
+    |> Map.merge(
+      Map.new(
+        Keyword.take(extra, [
+          :partial_provider_calls,
+          :app_side_evidence,
+          :materials_model_visible,
+          :seeded_candidates,
+          :content_anomaly
+        ])
+      )
+    )
   end
 
   # ── 分类与判定辅助（非最终判分）────────────────────────────────────────
@@ -1375,6 +1399,111 @@ defmodule B27SemanticEval do
     end
   end
 
+  # 模型实际可见材料（从真实 wire prompt + 探索观察中抽取的事实），用于区分“模型没用材料”与“材料没给模型”。
+  # 模型实际可见材料（从真实 wire prompt + 探索观察中抽取的事实），用于区分“模型没用材料”与“材料没给模型”。
+  defp prompt_visible_materials(materials, wire_calls, evidence) do
+    base = materials || %{}
+
+    prompts =
+      wire_calls
+      |> List.wrap()
+      |> Enum.map(fn call ->
+        request = Map.get(call || %{}, "wire_request") || %{}
+        messages = Map.get(request, "messages") || []
+        Enum.map_join(messages, "\n", &(get(&1, "content") || ""))
+      end)
+
+    prompt_text = Enum.join(prompts, "\n---\n")
+
+    json_previews =
+      Regex.scan(~r/"body_preview"\s*:\s*"([^"]*)"/, prompt_text)
+      |> Enum.map(fn [_, value] -> value end)
+
+    rendered_previews =
+      Regex.scan(~r/body_preview=([^\n]*)/, prompt_text)
+      |> Enum.map(fn [_, value] -> String.trim(value) end)
+
+    previews = json_previews ++ rendered_previews
+    seeded_candidates = get(evidence, "seeded_candidates") || []
+
+    seeded_in_prompt =
+      seeded_candidates
+      |> Enum.map(fn candidate ->
+        body = get(candidate, "body") || ""
+
+        head =
+          body
+          |> String.trim()
+          |> String.slice(0, 40)
+
+        %{
+          "artifact_id" => get(candidate, "artifact_id"),
+          "body_sha256" => get(candidate, "body_sha256"),
+          "body_chars" => get(candidate, "body_chars"),
+          "appears_in_prompt" => head != "" and String.contains?(prompt_text, head)
+        }
+      end)
+
+    Map.merge(base, %{
+      "prompt_evidence" => %{
+        "prompt_chars" => String.length(prompt_text),
+        "prompt_sha256" => sha256(prompt_text),
+        "body_preview_total" => length(previews),
+        "body_preview_empty" => Enum.count(previews, &(&1 in ["", "（空）", "（未提供）", "null"])),
+        "body_preview_nonempty" =>
+          Enum.count(previews, &(&1 not in ["", "（空）", "（未提供）", "null"])),
+        "artifact_refs_in_prompt" =>
+          Regex.scan(~r/(?:"artifact_ref"\s*:\s*"|ref=)([^"\s|]+)/, prompt_text)
+          |> Enum.map(fn [_, ref] -> ref end)
+          |> Enum.uniq(),
+        "mentions_superseded" => String.contains?(String.upcase(prompt_text), "SUPERSEDED"),
+        "mentions_edited_accepted" => String.contains?(prompt_text, "EDITED_ACCEPTED"),
+        "seeded_candidates_in_prompt" => seeded_in_prompt,
+        "observation_count" => length(observations_of(evidence)),
+        "observed_prose_ranges" =>
+          observations_of(evidence)
+          |> Enum.map(fn o -> get(o, "prose_range") end)
+          |> Enum.reject(&is_nil/1),
+        "observed_summary_chars" =>
+          observations_of(evidence)
+          |> Enum.map(fn o -> chars(get(o, "summary")) end)
+          |> Enum.sum()
+      }
+    })
+  end
+
+  defp observations_of(evidence) do
+    (get(evidence, "rounds") || [])
+    |> Enum.flat_map(fn round ->
+      get(get(round, "outcome") || %{}, "judgment_explorations") || []
+    end)
+  end
+
+  # 证据保真：记录 provider 返回内容异常（占位符/无作者可见文本），不替换/不改写原文。
+  defp content_anomaly(evidence) do
+    turn_result = get(evidence, "turn_result") || %{}
+    text = get(turn_result, "text")
+
+    cond do
+      is_binary(text) and String.contains?(text, "[assistant reasoning omitted]") ->
+        %{
+          "type" => "provider_placeholder",
+          "placeholder" => "[assistant reasoning omitted]",
+          "source" => "provider_response_content",
+          "note" => "provider 返回内容即字面占位符；runner 原样记录（未替换、未截断）。这不是 runner 编造的 final_text。"
+        }
+
+      (is_nil(text) or text == "") and get(evidence, "end_reason") == "complete" ->
+        %{
+          "type" => "no_author_visible_final_text",
+          "note" => "episode completed 但没有作者可见 reply 文本（可能只有工具/计划步骤）；runner 如实记录空值。"
+        }
+
+      true ->
+        nil
+    end
+  end
+
   defp error_class({:ok, _}), do: nil
 
   defp error_class({:error, error}) do
@@ -1405,7 +1534,14 @@ defmodule B27SemanticEval do
       ]) ->
         "provider_model_unavailable"
 
-      String.contains?(message, ["unauthorized", "401", "403", "api key", "auth"]) ->
+      String.contains?(message, [
+        "unauthorized",
+        "401",
+        "403",
+        "api key",
+        "auth_required",
+        "authentication failed"
+      ]) ->
         "provider_auth"
 
       String.contains?(message, ["format", "json", "tool_call", "protocol", "invalid_response"]) ->

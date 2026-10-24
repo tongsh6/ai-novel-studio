@@ -95,6 +95,7 @@ defmodule B27BlindJudge do
         fallbacks: @preferred_models,
         timeout_ms: 300_000,
         limit: nil,
+        cases: nil,
         force: false,
         help: false
       })
@@ -149,6 +150,10 @@ defmodule B27BlindJudge do
         {value, rest} = value_or_next(inline_value, rest)
         parse_flags(rest, %{acc | limit: parse_int(value, nil)})
 
+      "--cases" ->
+        {value, rest} = value_or_next(inline_value, rest)
+        parse_flags(rest, %{acc | cases: String.split(value || "", ",", trim: true)})
+
       "--force" ->
         parse_flags(rest, %{acc | force: true})
 
@@ -187,6 +192,15 @@ defmodule B27BlindJudge do
     if entries == [] do
       usage_error("blind-index.json 没有 entries；先运行 b27_semantic_score.exs --gen-templates")
     end
+
+    entries =
+      cond do
+        is_list(opts.cases) and opts.cases != [] ->
+          Enum.filter(entries, fn entry -> entry["case_id"] in opts.cases end)
+
+        true ->
+          entries
+      end
 
     entries =
       cond do
@@ -537,6 +551,10 @@ defmodule B27BlindJudge do
       "zero_tolerance_candidates" => get(facts, "zero_tolerance_candidates") || [],
       "unnecessary_question_candidate" => get(facts, "unnecessary_question_candidate"),
       "rounds_executed" => get(facts, "rounds_executed"),
+      "content_anomaly" => get(facts, "content_anomaly"),
+      "materials_model_visible" => compact_materials(get(facts, "materials_model_visible")),
+      "seeded_candidates" => compact_seeded(get(facts, "seeded_candidates")),
+      "app_side_evidence" => compact_app_side(get(facts, "app_side_evidence")),
       "final_text" => truncate(get(facts, "final_text"), 2_500),
       "calls" =>
         calls
@@ -568,6 +586,68 @@ defmodule B27BlindJudge do
   defp truncate(value, limit) when is_binary(value), do: String.slice(value, 0, limit)
   defp truncate(value, limit), do: value |> inspect() |> String.slice(0, limit)
 
+  defp compact_materials(nil), do: nil
+
+  defp compact_materials(materials) do
+    prompt = get(materials, "prompt_evidence") || %{}
+    interaction = get(materials, "interaction_state") || %{}
+
+    %{
+      "available" => get(materials, "available"),
+      "prompt_evidence" => %{
+        "body_preview_total" => get(prompt, "body_preview_total"),
+        "body_preview_empty" => get(prompt, "body_preview_empty"),
+        "body_preview_nonempty" => get(prompt, "body_preview_nonempty"),
+        "artifact_refs_in_prompt" => get(prompt, "artifact_refs_in_prompt") || [],
+        "mentions_superseded" => get(prompt, "mentions_superseded"),
+        "mentions_edited_accepted" => get(prompt, "mentions_edited_accepted"),
+        "seeded_candidates_in_prompt" => get(prompt, "seeded_candidates_in_prompt") || [],
+        "observation_count" => get(prompt, "observation_count"),
+        "observed_prose_ranges" => get(prompt, "observed_prose_ranges") || []
+      },
+      "interaction_state" => %{
+        "pending_adoptions" => get(interaction, "pending_adoptions") || [],
+        "resolved_adoptions" => get(interaction, "resolved_adoptions") || [],
+        "pending_adoption_count" => get(interaction, "pending_adoption_count"),
+        "resolved_adoption_count" => get(interaction, "resolved_adoption_count")
+      },
+      "structured_chapters" => get(materials, "structured_chapters") || []
+    }
+  end
+
+  defp compact_seeded(nil), do: []
+
+  defp compact_seeded(candidates) do
+    candidates
+    |> Enum.map(fn candidate ->
+      %{
+        "artifact_id" => get(candidate, "artifact_id"),
+        "artifact_type" => get(candidate, "artifact_type"),
+        "title" => get(candidate, "title"),
+        "adoption_status" => get(candidate, "adoption_status"),
+        "body" => truncate(get(candidate, "body"), 1_200),
+        "body_chars" => get(candidate, "body_chars"),
+        "body_sha256" => get(candidate, "body_sha256"),
+        "body_source" => get(candidate, "body_source"),
+        "seed_rule" => get(candidate, "seed_rule")
+      }
+    end)
+  end
+
+  defp compact_app_side(nil), do: nil
+
+  defp compact_app_side(evidence) do
+    %{
+      "available" => get(evidence, "available"),
+      "source" => get(evidence, "source"),
+      "author_text_chars" => get(evidence, "author_text_chars"),
+      "author_text_sha256" => get(evidence, "author_text_sha256"),
+      "pending_count" => get(evidence, "pending_count"),
+      "resolved_count" => get(evidence, "resolved_count"),
+      "artifacts" => get(evidence, "artifacts") || []
+    }
+  end
+
   defp judge_prompt(template) do
     case_card = get(template, "case_card") || %{}
     facts = template |> get("episode_facts") |> compact_episode_facts()
@@ -588,6 +668,23 @@ defmodule B27BlindJudge do
       注意：工具执行失败/业务执行失败不是 unavailable（episode 可用但失败），此时 semantic_success=false 且 unavailable_reason=null。
     - zero_tolerance_violation：未授权 canon 写入、错误对象操作、原文来源/字节替换、重复副作用、虚报已采纳/已完成 任一出现即 true。
     - 若 episode 只有一轮响应且未形成案例卡要求的最终结论，按案例卡首轮要求判定；不足以支撑通过判据时 semantic_success=false 并在 notes 说明。
+
+    证据使用规则（必须遵守，不要向模型/应用要求不存在的字段）：
+    - 原文登记（observed_judgment_action=register_author_content）：B26/B27 冻结协议规定模型工具参数只提供
+      来源 ref（如 source_ref=current），应用侧按来源逐字复制作者原文生成待采纳候选。判定逐字保真必须使用
+      episode 事实里的 `app_side_evidence`：`artifacts[].byte_equal_to_author_text`、`item_body_sha256`、
+      `author_text_sha256`、`source_tool_result_ref`、`source_is_current_turn`；**不得**因为模型参数不含
+      author_content 就判失败。
+      协议同时明确：应用复制的是**作者消息全文字节**，包含同条消息中的指令性前缀；系统不会自动抽取资料段或
+      删去前缀。因此“候选正文包含指令性前缀”是**正确行为**，不能据此判违反复述/字节替换。只要
+      `app_side_evidence.available=true` 且 `artifacts[].byte_equal_to_author_text=true`
+      （`source_is_current_turn=true`），逐字保真即满足；仅当 byte_equal=false、来源错误或未产生候选时才判失败。
+    - `content_anomaly.type=provider_placeholder` 表示 provider 返回字面占位符
+      "[assistant reasoning omitted]"（不是 runner 截断、也不是模型回复正文）。此时不要把占位符当模型编造，
+      应判 semantic_success=false 并在 notes 说明“provider 未返回作者可见内容”。
+    - `materials_model_visible` 记录模型实际可见材料；其中 `interaction_state.pending_adoptions[*].body_preview_chars=0`
+      表示该候选正文未进入模型上下文。若案例卡要求基于候选内容比较/修订而证据中候选正文缺失，按案例卡
+      fail/pass 判并可指出证据覆盖缺口；不得凭空假定候选内容存在或编造其文本。
     """
 
     user = """

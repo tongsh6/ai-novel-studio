@@ -263,6 +263,75 @@ MIX_ENV=test mix run scripts/model_contracts/b27_semantic_score.exs --self-test 
 - **stub 不是语义证据**：`semantic_evidence=false`，只证明管道/字段/DB 隔离/step 驱动。
 - 快照冻结/复跑仍用原 `scripts/b27_case_freeze.exs`（见 §6）；旧规则臂资产 hash 不变，运行器只读不回写。
 
+### 5.5 证据口径澄清（CP4 诊断批，2026-10-24；不放宽通过标准）
+
+以下澄清只对齐**冻结协议/真实证据口径**，不改 §6.1 数值门槛、不改 `cases.yml`/`snapshots/`、不改案例通过/失败判据。
+
+1. **原文登记（M11/M12）：模型参数本就不含 `author_content`。**
+   B26 J2 冻结协议写明「`register_author_content` 携明确 `source_ref`，**应用按来源保真物化**」（见
+   [B26 §0.1 表格 J2](../../../../tasks/slices/B26-single-call-judgment-protocol.md)）；实现为
+   `DialoguePlanningService.maybe_attach_author_content/5` + `TurnInteractionService.source_text("current", ...)`
+   返回当前作者消息全文字节，再由 `ArtifactAssembler.assemble_author_content/3` 以 `body = author_text` 机械构造候选
+   （见 `apps/novel_application/lib/novel_application/dialogue_planning_service.ex`、
+   `.../turn_interaction_service.ex`、`.../artifact_assembler.ex`）。
+   因此判卷必须用 episode 的 `app_side_evidence`（`artifacts[].byte_equal_to_author_text`、
+   `item_body_sha256`/`author_text_sha256`、`source_tool_result_ref`、`source_is_current_turn`）验证字节保真，
+   **不得**要求模型工具参数里出现原文内容。该字段是证据补强，不是降低 M11/M12 的通过要求。
+2. **“完整章”是结构事实，不是字数标准（M01）。**
+   `cases.yml` 的 `fixture.chapters[].prose` 中三段已采纳正文即构成“完整章”（章节状态为已写、计划节点齐全）；
+   M01 通过判据是「明确回答写完/没写完/写到什么程度，并给出与真实正文/计划对应的依据」。判卷不得仅因
+   结论措辞与“完整章”标签字面不同而判失败；若认定“未完成”必须基于真实正文/计划证据，若正文/计划支持
+   “计划节点已覆盖”则可判写完。该澄清不改变 M01 的 forbidden（不得编造未读到情节、不得把已保存等同叙事完成）。
+3. **M03 的长章预算路径。**
+   案例卡允许路径包含「判断 → explore(chapter_read) → 预算受限时 reply 明确已读范围与缺口（不得冒充全文）」。
+   模型如**明确声明只读到第 1–12000/34357 字符并区分已核对/未覆盖范围**，属于该路径；不得判“必须覆盖末页”
+   作为唯一通过条件；但“用摘要/半章冒充全章结论”仍按 fail 判据失败。生产侧探索预算/续读能力是否足以覆盖
+   长章属产品修复项（见诊断批 residual），不由判卷口径替代。
+4. **provider 占位内容（M13）。**
+   个别 episode 的 provider 响应 `content` 字面为 `"[assistant reasoning omitted]"`（Strata 引擎对
+   reasoning-only 输出的隐私占位；证据：episode `wire_captures[].response.resp_body` 即字面占位符）。
+   这不是 runner 截断、也不是模型编造的可见回复。runner 现在**原样记录**该 content，并新增
+   `content_anomaly={type: "provider_placeholder"}`；判卷应把它视为“provider 未返回作者可见内容”→
+   semantic_success=false，而不是按模型编造判罚。产品/集成侧如何处理该占位符属 task-19/20 修复项。
+5. **fixture 候选内容缺失 = harness_fixture 缺陷（M07/M08/M16/M17/M20）。**
+   冻结 fixture 的 `session.turns[*].pending/resolved` 只登记 `artifact_id/artifact_type/title/adoption_status`，
+   不含候选 payload 正文、版本或 superseded 元数据；生产投影因此渲染 `body_preview=""`（证据：episode
+   `materials_model_visible.interaction_state.pending_adoptions[*].body_preview_chars=0`、prompt 中
+   `"body_preview":""`）。这些案例的“修订/比较/版本”判据在证据上无法成立，**当前判负不能直接归因于产品**；
+   需在 CP4 修复批以预注册方式补全 fixture 候选内容/版本元数据后重测，不得把本澄清当作放宽判据。
+6. **harness seed 候选正文补齐（不改 cases/snapshots）。**
+   `cases.yml` 的 `session.turns[*].pending/resolved` 只冻结候选元数据，无正文 payload；为保证 M07/M08/M17/M20 的
+   “修订/比较/版本”判据有可验证材料，runner seed 现按同一 fixture 的合成样书 prose 确定性派生候选正文
+   （M07 前两段 = `ch01_open+ch01_mid`；M08/M20 = 第一章 prose refs 连接；M17 第二候选用 `prose_lib.ch01_open`
+   以保证 A/B 有可辨识差异），不读取作者真实作品、不改 `cases.yml`/`snapshots/`。episode 新增
+   `seeded_candidates` 记录每个候选的 `body_chars/body_sha256/body_source/seed_rule`，供判卷核对；生产投影因此
+   `body_preview` 非空（模型真正看到候选内容）。该补齐只服务于语义判分证据保真，不改变案例通过/失败判据。
+7. **长 episode DB 连接时限。**
+   长章多页续读可能超过 Ecto Sandbox 默认 `ownership_timeout=120s`；CP4 runner 的 Sandbox checkout 提升到
+   **600s**，与 episode wall clock（默认 300s）匹配，避免长章 case 因连接所有权超时丢失语义证据。
+8. **judge 输入去泄漏。**
+   自本批起判卷模板 `episode_facts` 不再包含 runner 内部提示（`forbidden_candidates` /
+   `zero_tolerance_candidates` / `unnecessary_question_candidate` / `allowed_path.hit` 等），只保留案例卡 rubric
+   + 事实证据字段（请求上下文覆盖 `materials_model_visible`、工具调用/参数、工具结果、`app_side_evidence`、
+   `content_anomaly`、`final_text` 原文、状态/耗时/usage）。judge 仍须按案例卡 rubric 独立判定；runner 诊断
+   只能作为证据字段，不能代替判卷。
+
+
+### 5.6 预注册保真修订记录（CP4 诊断批，2026-10-24；Lead 授权；不放宽 rubric）
+
+本段记录 Lead 授权的**证据保真修订**（不是改 `cases.yml`/`snapshots/`、不是改 §6.1 门槛/rubric）：
+- 记录事实依据与证据路径；后续 retest2 必须按同一口径复跑。
+- 任何 judge 口径澄清只允许“让 judge 知道 B26/B27 冻结协议事实”，不得降低 rubric pass 要求。
+
+| # | 授权修订 | 事实依据（证据） | 影响范围 / 不改什么 |
+|---|---|---|---|
+| R1 | **M07/M08/M17/M20 seed 候选正文派生**：harness seed 为 pending/resolved 候选补 `payload.items[].body` | `cases.yml` 的 `session.turns[*].pending/resolved` 只冻结元数据；生产投影因此 `body_preview=""`、M07/M08 修订前置校验 `candidate_content_unavailable`、M20 无法核对编辑版。诊断 probe 已记录 `seeded_candidates{body,body_sha256,seed_rule}`，prompt 实测 `body_preview_nonempty>0`、`seeded_candidates_in_prompt=true`（`diagnosis-*/probe/episodes`、`logs/06-probe-final-evidence.log`） | 派生自同一 fixture 的合成样书 prose（M07 前两段；M08/M20 章 prose 连接；M17 B 用 `prose_lib.ch01_open` 保证 A/B 可辨识差异）；不改 cases.yml/snapshots，不改被判案例通过/失败判据 |
+| R2 | **M16 superseded 版本 seed/投影保真补齐**：fixture 语义要求“一个历史版本已 SUPERSEDED” | 诊断实测 `ReadingProjectionRepo.chapter_facts(work_id)` 返回 `accepted_draft_count=3, superseded_draft_count=1, chapter_status=COMPLETED`（seed 数据正确）；但判断 prompt 的“作品事实”块仍显示 `0/0 场、SUPERSEDED 0 份、章状态未知`（`diagnosis-*/probe/episodes/M16-*` 与日志），说明**上下文投影/fetch 链**未把事实并入 prompt，不是 seed 缺数据 | 需在 retest2 前修复上下文投影/fetch（owner：产品/context 修复，不是 judge 放宽）；修好后 M16 仍按原 rubric 判定；seed 数据本身已保真 |
+| R3 | **M01/M11/M13 judge 口径澄清（仅协议事实）**：M11 原文登记由应用侧按来源逐字复制**作者消息全文（含指令性前缀，系统不抽取/不删）**，模型参数本就不含 `author_content`，judge 用 `app_side_evidence` 判定；M13 provider 返回字面占位符 `"[assistant reasoning omitted]"` 时按 provider 未返回作者可见内容处理（不是模型编造）；M01 “完整章”=已采纳正文/计划覆盖的结构事实（有正文/计划依据的“没写完”不因标签字面冲突判 fail） | B26 J2 冻结协议（`tasks/slices/B26-single-call-judgment-protocol.md`）；`TurnInteractionService.source_text("current",...)=current_text`、`ArtifactAssembler.assemble_author_content/3` body=author_text；M11 episode `app_side_evidence.byte_equal_to_author_text=true`（67/67 字节）；M13 `wire_captures[].response.resp_body` 为字面占位符；M01 `cases.yml` 通过/失败判据 | 只让 judge 知道协议事实；不降低 M11/M13/M01 的 rubric pass 要求（M11 仍需字节保真/来源正确；M13 占位符仍不能算成功回复；M01 仍禁编造未读情节） |
+
+> 备注：R1 已随 harness seed 实现（episode `seeded_candidates`）；R2 的 seed 数据已保真、上下文投影修复归 retest2 前产品/context owner；
+> R3 的 judge prompt/README 澄清已实现，定向重判 M11 两轮 PASS（`diagnosis-*/probe/review-strata/judgments`）。
+
 ## 6. 复跑与校验
 
 ```bash

@@ -100,7 +100,8 @@ defmodule B27EpisodeSupport do
   def run_case_episode(case_id, case_spec, fixture_bundle, opts) do
     task =
       Task.async(fn ->
-        :ok = Sandbox.checkout(Repo)
+        # 长 episode（长章多页续读）可能超过默认 120s；与 episode wall clock 对齐到 600s。
+        :ok = Sandbox.checkout(Repo, ownership_timeout: 600_000)
 
         case seed_fixture!(case_id, fixture_bundle, get(case_spec, "fixture") || %{}) do
           {:ok, seeded} ->
@@ -150,7 +151,16 @@ defmodule B27EpisodeSupport do
       Process.put(:b27_cp4_stage_events, [])
       snapshot = %{stage_state: %{}, observations: [], events: [], stage_sink: stage_sink()}
 
-      loop(spec.next_step_planner, run, 1, snapshot, opts, [], 0, started)
+      ctx = %{
+        case_id: seeded.case_id,
+        work_id: seeded.work_id,
+        session_id: seeded.session_id,
+        turn_id: "turn_#{seeded.case_id}_current",
+        author_text: author_text,
+        seeded_candidates: seeded.seeded_candidates || []
+      }
+
+      loop(spec.next_step_planner, run, 1, snapshot, opts, [], 0, started, ctx)
     else
       {:error, reason} ->
         {:error, %{class: :planning_failed, message: truncate(inspect(reason), 800)}}
@@ -168,10 +178,19 @@ defmodule B27EpisodeSupport do
       {:error, %{class: :runner_exception, message: truncate(inspect({kind, reason}), 800)}}
   end
 
-  defp loop(planner, run, sequence, snapshot, opts, rounds, call_cursor, started) do
+  defp loop(planner, run, sequence, snapshot, opts, rounds, call_cursor, started, ctx) do
     if sequence > opts.max_steps do
       {:ok,
-       finish_episode(:max_steps_reached, run, rounds, opts.capture_pid, call_cursor, started)}
+       finish_episode(
+         :max_steps_reached,
+         run,
+         rounds,
+         opts.capture_pid,
+         call_cursor,
+         started,
+         ctx,
+         snapshot
+       )}
     else
       case safe_planner(planner, run, sequence, snapshot) do
         {:execute, step, planner_decision, planner_meta} ->
@@ -206,7 +225,8 @@ defmodule B27EpisodeSupport do
                 opts,
                 rounds2,
                 new_cursor,
-                started
+                started,
+                ctx
               )
 
             {:error, reason} ->
@@ -217,7 +237,13 @@ defmodule B27EpisodeSupport do
                  round: round,
                  rounds: Enum.reverse(rounds),
                  partial_provider_calls: total_calls(opts.capture_pid),
-                 elapsed_ms: System.monotonic_time(:millisecond) - started
+                 elapsed_ms: System.monotonic_time(:millisecond) - started,
+                 app_side_evidence:
+                   safe_evidence(fn ->
+                     app_side_evidence(last_turn_result(Enum.reverse(rounds)), ctx)
+                   end),
+                 materials_model_visible:
+                   safe_evidence(fn -> materials_model_visible(snapshot) end)
                }}
 
             other ->
@@ -227,25 +253,58 @@ defmodule B27EpisodeSupport do
                  message: truncate(inspect(other), 800),
                  round: round,
                  rounds: Enum.reverse(rounds),
-                 elapsed_ms: System.monotonic_time(:millisecond) - started
+                 elapsed_ms: System.monotonic_time(:millisecond) - started,
+                 app_side_evidence:
+                   safe_evidence(fn ->
+                     app_side_evidence(last_turn_result(Enum.reverse(rounds)), ctx)
+                   end),
+                 materials_model_visible:
+                   safe_evidence(fn -> materials_model_visible(snapshot) end)
                }}
           end
 
         {:complete, planner_decision, planner_meta} ->
           {:ok,
-           finish_episode(:complete, run, rounds, opts.capture_pid, call_cursor, started)
+           finish_episode(
+             :complete,
+             run,
+             rounds,
+             opts.capture_pid,
+             call_cursor,
+             started,
+             ctx,
+             snapshot
+           )
            |> Map.put("complete_decision", safe_inspect(planner_decision, 300))
            |> Map.put("complete_meta", safe_inspect(planner_meta, 300))}
 
         {:await_author, planner_decision} ->
           {:ok,
-           finish_episode(:await_author, run, rounds, opts.capture_pid, call_cursor, started)
+           finish_episode(
+             :await_author,
+             run,
+             rounds,
+             opts.capture_pid,
+             call_cursor,
+             started,
+             ctx,
+             snapshot
+           )
            |> Map.put("awaiting_author_decision", safe_inspect(planner_decision, 300))
            |> Map.put("awaiting_author", true)}
 
         {:await_author, planner_decision, planner_meta} ->
           {:ok,
-           finish_episode(:await_author, run, rounds, opts.capture_pid, call_cursor, started)
+           finish_episode(
+             :await_author,
+             run,
+             rounds,
+             opts.capture_pid,
+             call_cursor,
+             started,
+             ctx,
+             snapshot
+           )
            |> Map.put("awaiting_author_decision", safe_inspect(planner_decision, 300))
            |> Map.put("awaiting_author_meta", safe_inspect(planner_meta, 300))
            |> Map.put("awaiting_author", true)}
@@ -256,13 +315,18 @@ defmodule B27EpisodeSupport do
              class: :unexpected_planner_decision,
              message: truncate(inspect(other), 800),
              rounds: Enum.reverse(rounds),
-             elapsed_ms: System.monotonic_time(:millisecond) - started
+             elapsed_ms: System.monotonic_time(:millisecond) - started,
+             app_side_evidence:
+               safe_evidence(fn ->
+                 app_side_evidence(last_turn_result(Enum.reverse(rounds)), ctx)
+               end),
+             materials_model_visible: safe_evidence(fn -> materials_model_visible(snapshot) end)
            }}
       end
     end
   end
 
-  defp finish_episode(reason, run, rounds, capture_pid, call_cursor, started) do
+  defp finish_episode(reason, run, rounds, capture_pid, call_cursor, started, ctx, snapshot) do
     rounds = Enum.reverse(rounds)
     calls = all_calls(capture_pid) |> Enum.take(call_cursor)
 
@@ -282,7 +346,12 @@ defmodule B27EpisodeSupport do
       "provider_calls" => calls,
       "provider_call_count" => length(calls),
       "turn_result" => turn_result,
-      "elapsed_ms" => System.monotonic_time(:millisecond) - started
+      "elapsed_ms" => System.monotonic_time(:millisecond) - started,
+      "app_side_evidence" => safe_evidence(fn -> app_side_evidence(turn_result, ctx) end),
+      "materials_model_visible" => safe_evidence(fn -> materials_model_visible(snapshot) end),
+      "seeded_candidates" => ctx.seeded_candidates,
+      "reading_projection_facts" =>
+        safe_evidence(fn -> NovelPersistence.ReadingProjectionRepo.chapter_facts(ctx.work_id) end)
     }
   end
 
@@ -350,6 +419,163 @@ defmodule B27EpisodeSupport do
 
   defp step_error(nil), do: nil
   defp step_error(error), do: truncate(inspect(error), 800)
+
+  # ── 证据保真：app-side 物化字节 + 模型可见材料覆盖 ────────────────────────
+
+  defp safe_evidence(fun) do
+    fun.()
+  rescue
+    error ->
+      %{"available" => false, "reason" => "evidence_capture_failed: #{Exception.message(error)}"}
+  catch
+    kind, reason ->
+      %{"available" => false, "reason" => "evidence_capture_failed: #{inspect({kind, reason})}"}
+  end
+
+  # B26 J2：register_author_content 由**应用侧**按来源逐字复制作者原文；
+  # 模型参数只有 source_ref。这里从本 episode 的 TurnResult.adoption_state 读取物化后的候选字节
+  # （该数据即生产 app-side 物化结果；脚本驱动不经过 AgentRunServer 持久化，故从 runtime TurnResult 取），
+  # 记录与作者消息字节的逐字相等证据（hash/长度/来源 ref），供 judge 用应用侧事实判分。
+  defp app_side_evidence(turn_result, ctx) do
+    turn_result = turn_result || %{}
+    adoption = get(turn_result, "adoption_state") || get(turn_result, :adoption_state) || %{}
+    pending = List.wrap(get(adoption, "pending") || get(adoption, :pending))
+    resolved = List.wrap(get(adoption, "resolved") || get(adoption, :resolved))
+    artifacts = (pending ++ resolved) |> Enum.map(&artifact_entry_evidence(&1, ctx))
+
+    %{
+      "available" => not is_nil(turn_result) and turn_result != %{},
+      "source" => "runtime_turn_result（生产 app-side 物化结果；手动 step driver 未持久化 Interaction，故不依赖 DB）",
+      "turn_id" => ctx.turn_id,
+      "author_text_sha256" => sha256(ctx.author_text),
+      "author_text_chars" => chars(ctx.author_text),
+      "pending_count" => length(pending),
+      "resolved_count" => length(resolved),
+      "artifacts" => artifacts,
+      "note" =>
+        "app-side 物化证据：register_author_content 的候选 body 由应用按 source_ref 逐字复制作者原文；" <>
+          "模型参数本就不含 author_content（B26 J2 冻结协议）。"
+    }
+  end
+
+  defp last_turn_result(rounds) do
+    rounds
+    |> Enum.map(&get(get(&1, "outcome") || %{}, "turn_result"))
+    |> Enum.reject(&is_nil/1)
+    |> List.last()
+  end
+
+  defp artifact_entry_evidence(entry, ctx) do
+    payload = get(entry, :payload) || get(entry, "payload") || %{}
+    items = List.wrap(get(payload, :items) || get(payload, "items"))
+    item = List.first(items) || %{}
+    body = get(item, :body) || get(item, "body")
+    source = get(entry, :source_tool_result_ref) || get(entry, "source_tool_result_ref")
+    current_source = "author_input:" <> ctx.turn_id
+
+    %{
+      "artifact_id" => get(entry, :artifact_id) || get(entry, "artifact_id"),
+      "artifact_type" =>
+        to_string_safe(get(entry, :artifact_type) || get(entry, "artifact_type")),
+      "adoption_status" =>
+        to_string_safe(get(entry, :adoption_status) || get(entry, "adoption_status")),
+      "source_tool_result_ref" => source,
+      "source_is_current_turn" => source == current_source or source == "author_input:current",
+      "title" => get(item, :title) || get(item, "title"),
+      "item_body_present" => is_binary(body),
+      "item_body_chars" => chars(body),
+      "item_body_sha256" => if(is_binary(body), do: sha256(body), else: nil),
+      "author_text_sha256" => sha256(ctx.author_text),
+      "byte_equal_to_author_text" =>
+        if(is_binary(body) and source in [current_source, "author_input:current"],
+          do: body == ctx.author_text,
+          else: nil
+        )
+    }
+  end
+
+  # 模型可见材料覆盖：记录判断上下文实际提供给模型的章节/候选预览/已采纳对象/引用与省略说明，
+  # 用于区分“产品/模型没用好材料”与“harness fixture 根本没给材料”。
+  defp materials_model_visible(snapshot) do
+    context = get(get(snapshot, :stage_state) || %{}, :judgment_context)
+
+    if is_map(context) do
+      interaction = get(context, :interaction_state) || %{}
+
+      %{
+        "available" => true,
+        "current_chapters" => get(context, :current_chapters) || [],
+        "structured_chapters" =>
+          (get(context, :structured_chapters) || [])
+          |> Enum.map(fn chapter ->
+            %{
+              "id" => get(chapter, :id) || get(chapter, "id"),
+              "seq" => get(chapter, :seq) || get(chapter, "seq"),
+              "title" => get(chapter, :title) || get(chapter, "title"),
+              "has_plan" =>
+                not is_nil(get(chapter, :plan_direction) || get(chapter, "plan_direction")),
+              "has_prose" => get(chapter, :has_prose) || get(chapter, "has_prose"),
+              "summary_chars" => chars(get(chapter, :summary) || get(chapter, "summary"))
+            }
+          end),
+        "interaction_state" => summarize_interaction_state(interaction),
+        "context_ref_count" => length(get(context, :context_refs) || []),
+        "context_ref_types" =>
+          (get(context, :context_refs) || [])
+          |> Enum.map(fn ref ->
+            to_string_safe(get(ref, :source_type) || get(ref, "source_type"))
+          end)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.uniq(),
+        "conversation_summary_chars" => chars(get(context, :conversation_summary)),
+        "omission_notes" =>
+          (get(context, :omission_notes) || [])
+          |> Enum.map(fn note -> truncate(to_string_safe(inspect(note)), 300) end)
+      }
+    else
+      %{"available" => false, "reason" => "judgment_context missing in stage_state"}
+    end
+  end
+
+  defp summarize_interaction_state(interaction) do
+    summarize_entries = fn key ->
+      (get(interaction, key) || [])
+      |> Enum.map(fn entry ->
+        payload = get(entry, :payload) || get(entry, "payload") || %{}
+        items = List.wrap(get(payload, :items) || get(payload, "items"))
+        first_item = List.first(items) || %{}
+
+        %{
+          "artifact_ref" =>
+            get(entry, :artifact_ref) || get(entry, "artifact_ref") ||
+              get(entry, :artifact_id) || get(entry, "artifact_id"),
+          "artifact_type" =>
+            to_string_safe(get(entry, :artifact_type) || get(entry, "artifact_type")),
+          "title" => get(entry, :title) || get(entry, "title"),
+          "adoption_status" =>
+            to_string_safe(get(entry, :adoption_status) || get(entry, "adoption_status")),
+          "body_preview_chars" =>
+            chars(
+              get(entry, :body_preview) || get(entry, "body_preview") ||
+                get(first_item, :body) || get(first_item, "body")
+            ),
+          "available_operations" =>
+            get(entry, :available_operations) || get(entry, "available_operations") || [],
+          "revision_of" => get(entry, :revision_of) || get(entry, "revision_of")
+        }
+      end)
+    end
+
+    %{
+      "author_inputs" => length(get(interaction, :author_inputs) || []),
+      "recent_results" => length(get(interaction, :recent_results) || []),
+      "pending_adoptions" => summarize_entries.("pending_adoptions"),
+      "resolved_adoptions" => summarize_entries.("resolved_adoptions"),
+      "omitted_adoptions" => get(interaction, :omitted_adoptions) || 0,
+      "pending_adoption_count" => get(interaction, :pending_adoption_count),
+      "resolved_adoption_count" => get(interaction, :resolved_adoption_count)
+    }
+  end
 
   # ── provider 边界采集读取（log_fn 由 eval 脚本安装在 adapter 配置上）────────
 
@@ -451,7 +677,10 @@ defmodule B27EpisodeSupport do
     session_fixture = get(fixture, "session") || %{}
     session_row = insert_session!(work_id, session_id, session_fixture)
     turns = get(session_fixture, "turns") || []
-    Enum.each(turns, &insert_turn!(work_id, session_row.id, &1))
+    seed_ctx = candidate_seed_context(fixture, prose_lib)
+
+    candidate_evidence =
+      Enum.flat_map(turns, &insert_turn!(work_id, session_row.id, &1, seed_ctx))
 
     {:ok,
      %{
@@ -460,7 +689,8 @@ defmodule B27EpisodeSupport do
        work: Repo.get!(Work, work_id),
        session: session_row,
        session_id: session_id,
-       chapters: chapter_rows
+       chapters: chapter_rows,
+       seeded_candidates: candidate_evidence
      }}
   rescue
     error -> {:error, %{class: :seed_failed, message: Exception.message(error)}}
@@ -620,12 +850,27 @@ defmodule B27EpisodeSupport do
     |> Repo.insert!()
   end
 
-  defp insert_turn!(work_id, session_id, turn) do
+  defp insert_turn!(work_id, session_id, turn, seed_ctx) do
     turn_id = get(turn, "turn_id") || det_uuid("#{work_id}:#{get(turn, "user")}")
     user_text = get(turn, "user") || ""
     assistant_text = get(turn, "assistant") || ""
-    pending = get(turn, "pending") || []
-    resolved = get(turn, "resolved") || []
+    pending_entries = get(turn, "pending") || []
+    resolved_entries = get(turn, "resolved") || []
+
+    {pending, pending_evidence} =
+      pending_entries
+      |> Enum.with_index()
+      |> Enum.map(fn {entry, index} -> enrich_adoption_entry(entry, turn_id, index, seed_ctx) end)
+      |> Enum.unzip()
+
+    {resolved, resolved_evidence} =
+      resolved_entries
+      |> Enum.with_index()
+      |> Enum.map(fn {entry, index} -> enrich_adoption_entry(entry, turn_id, index, seed_ctx) end)
+      |> Enum.unzip()
+
+    candidate_evidence =
+      Enum.map(pending_evidence ++ resolved_evidence, &Map.put(&1, "turn_ref", turn_id))
 
     truthfulness =
       get(turn, "truthfulness") ||
@@ -655,7 +900,7 @@ defmodule B27EpisodeSupport do
       }
     })
 
-    :ok
+    candidate_evidence
   end
 
   defp adoption_entry(entry, default_turn) do
@@ -666,6 +911,105 @@ defmodule B27EpisodeSupport do
       "adoption_status" => get(entry, "adoption_status") || "TENTATIVE",
       "source_turn_ref" => get(entry, "source_turn_ref") || default_turn
     }
+    |> maybe_put_payload(entry)
+  end
+
+  # 保留补齐的候选 payload（正文），否则生产投影 artifact_body 为空 → 修订前置校验
+  # `candidate_content_unavailable`（M07/M08 真实产品行为）；payload 是夹具证据，不是产品事实。
+  defp maybe_put_payload(adoption_map, entry) do
+    case get(entry, "payload") do
+      payload when is_map(payload) ->
+        adoption_map
+        |> Map.put("payload", payload)
+        |> Map.put("requires_adoption", get(entry, "requires_adoption") || true)
+
+      _ ->
+        adoption_map
+    end
+  end
+
+  # 夹具候选正文补齐：cases.yml fixture 的 session.turns 只冻结候选元数据（id/type/title/status），
+  # 没有正文 payload；生产投影因此显示空预览，M07/M08/M17/M20 无法语义判分。
+  # 本 harness 按 cases.yml fixture 的合成样书 prose 确定性派生候选正文（不读作者真实数据、
+  # 不改 cases.yml/snapshots），并在 episode 证据记录正文 hash；用于语义判分与复测。
+  defp candidate_seed_context(fixture, prose_lib) do
+    chapters = get(fixture, "chapters") || []
+    first_chapter = List.first(chapters) || %{}
+    refs = get(first_chapter, "prose") || []
+    texts = Enum.map(refs, &resolve_prose!(prose_lib, &1))
+    primary = Enum.join(texts, "\n")
+    first_two = texts |> Enum.take(2) |> Enum.join("\n")
+
+    alternate =
+      case get(prose_lib, "ch01_open") do
+        text when is_binary(text) -> text
+        _ -> primary
+      end
+
+    %{primary: primary, first_two: first_two, alternate: alternate}
+  end
+
+  defp enrich_adoption_entry(entry, default_turn, index, seed_ctx) do
+    artifact_id = get(entry, "artifact_id")
+    artifact_type = get(entry, "artifact_type") || "prose_fragment"
+    title = get(entry, "title")
+    status = get(entry, "adoption_status") || "TENTATIVE"
+    source_turn_ref = get(entry, "source_turn_ref") || default_turn
+    body = candidate_body(title, index, seed_ctx)
+    body = body || ""
+
+    enriched =
+      entry
+      |> Map.put("payload", %{
+        "items" => [
+          %{
+            "item_id" => "ai_#{artifact_id || default_turn}",
+            "title" => title,
+            "body" => body,
+            "rationale" => nil,
+            "provider_call_ref" => "fixture_seed:#{default_turn}"
+          }
+        ],
+        "title" => title,
+        "item_count" => 1
+      })
+      |> Map.put("requires_adoption", true)
+      |> Map.put("source_turn_ref", source_turn_ref)
+      |> Map.put("adoption_status", status)
+
+    evidence = %{
+      "artifact_id" => artifact_id,
+      "artifact_type" => to_string_safe(artifact_type),
+      "title" => title,
+      "adoption_status" => to_string_safe(status),
+      "body" => body,
+      "body_chars" => chars(body),
+      "body_sha256" => sha256(body),
+      "body_source" => "cases.yml fixture prose（harness seed enrichment）",
+      "seed_rule" => candidate_seed_rule(title, index)
+    }
+
+    {enriched, evidence}
+  end
+
+  defp candidate_body(title, index, seed_ctx) do
+    title = to_string(title || "")
+
+    cond do
+      String.contains?(title, "前两段") -> seed_ctx.first_two
+      index > 0 -> seed_ctx.alternate
+      true -> seed_ctx.primary
+    end
+  end
+
+  defp candidate_seed_rule(title, index) do
+    title = to_string(title || "")
+
+    cond do
+      String.contains?(title, "前两段") -> "chapter.first_two_prose_segments"
+      index > 0 -> "prose_lib.ch01_open（第二候选，保证与 A 有可辨识差异）"
+      true -> "chapter.prose_refs_joined"
+    end
   end
 
   defp insert_interaction!(work_id, session_id, turn_id, role, content) do
@@ -771,4 +1115,10 @@ defmodule B27EpisodeSupport do
   defp truncate(nil, _limit), do: nil
   defp truncate(value, limit) when is_binary(value), do: String.slice(value, 0, limit)
   defp truncate(value, limit), do: value |> inspect() |> String.slice(0, limit)
+
+  defp chars(nil), do: 0
+  defp chars(value) when is_binary(value), do: String.length(value)
+  defp chars(_), do: 0
+
+  defp sha256(binary), do: :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
 end
