@@ -752,4 +752,26 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     assert_received {:numeric_prompt, second}
     assert second =~ "六成"
   end
+
+  test "execution_tool：章级 revise_adopted_content 绑定 prose_writing（不依赖 resolved_adoptions）" do
+    judgment = %{
+      action: "execute",
+      capability: "revise_adopted_content",
+      adopted_content_ref: "chapter:11111111-1111-4111-8111-111111111111",
+      narrative: "作者要求整理整章正文"
+    }
+
+    context = %{interaction_state: %{resolved_adoptions: [], pending_adoptions: []}}
+
+    assert PendingArtifactWorkflow.execution_tool(judgment, context) == "prose_writing"
+
+    pending_judgment = %{
+      action: "execute",
+      capability: "revise_adopted_content",
+      adopted_content_ref: "as_not_in_resolved",
+      narrative: "作者要求修订已采纳内容"
+    }
+
+    assert is_nil(PendingArtifactWorkflow.execution_tool(pending_judgment, context))
+  end
 end

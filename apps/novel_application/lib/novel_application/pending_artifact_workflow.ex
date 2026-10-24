@@ -105,10 +105,16 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         |> revision_tool()
 
       "revise_adopted_content" ->
-        context.interaction_state
-        |> Map.get(:resolved_adoptions, [])
-        |> Enum.find(&(field(&1, :artifact_id) == field(judgment, :adopted_content_ref)))
-        |> revision_tool()
+        # B28 CP1.5：章级修订（chapter:<uuid>）不在 resolved_adoptions 目录；其真实执行工具
+        # 是 prose writer（由 PendingArtifactWorkflow.run 的 chapter 分支消费整章事实）。
+        if chapter_ref?(field(judgment, :adopted_content_ref)) do
+          "prose_writing"
+        else
+          context.interaction_state
+          |> Map.get(:resolved_adoptions, [])
+          |> Enum.find(&(field(&1, :artifact_id) == field(judgment, :adopted_content_ref)))
+          |> revision_tool()
+        end
 
       _ ->
         "judgment"
