@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B28-WHOLE-CHAPTER-REVISION | **当前任务 / CP0+CP1 done（2026-10-25）**：真实 Tauri 复现+契约冻结（`7950437c`/`242509dc`）；CP1（`655220d6`）AuthoringTaskBuilder.for_chapter_revision、判断章级绑定、Real format_only/content_revision、replace_scope 多片段原子事务、b28 采纳守卫，全后端 2098/0。**CP1.5 wiring 进行中**：aux（chapter_revision_context 片段/整章文本 + 章级目标列表，task-52）→ prose（章级目标进判断上下文/writer 全章文本/候选 payload 贯通，task-53）→ CP2 真实页面复验+场景注册（task-51）。B27 CP4 known-gap 由 B28 format_only 承接关闭。 | [B28](slices/B28-whole-chapter-revision.md) |
+| B28-WHOLE-CHAPTER-REVISION | **当前任务 / CP0+CP1 done（2026-10-25）**：真实 Tauri 复现+契约冻结（`7950437c`/`242509dc`）；CP1（`655220d6`）AuthoringTaskBuilder.for_chapter_revision、判断章级绑定、Real format_only/content_revision、replace_scope 多片段原子事务、b28 采纳守卫，全后端 2098/0。**CP1.5 wiring 已提交（`1dea5ed3`）**：章级目标进判断上下文、writer 全章覆盖顺序文本、候选顶层/payload provenance、采纳回执 superseded refs；全后端 2111/0。**CP2 真实页面复验+场景注册进行中**（task-51）：T0–T4/31 checks → PASS 后注册 b28 场景 + B24/B25/Q1c/p1 回归。B27 CP4 known-gap 由 B28 format_only 承接关闭。 | [B28](slices/B28-whole-chapter-revision.md) |
 
 ## 后续候选
 
