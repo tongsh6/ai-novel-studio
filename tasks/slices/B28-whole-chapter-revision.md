@@ -53,9 +53,9 @@
 |---|---|---|
 | CP0 | 隔离复现旧 ref 缺失/初稿+续写；冻结目标范围、格式保真、覆盖和历史身份恢复契约；列 stage 只读影响清单 | **done（2026-10-25，`e8ad1fad`）**：真实 Tauri 复现 T0–T3（同章 2 accepted、writer 只初稿、format 忠实失败、单处修订 target 空→新建章、同标题歧义拒绝、缺 ref 误路由但零写入）；契约冻结见 §7；stage 存量只读清单见 `stage-impact.md`（修复需另行授权） |
 | CP1 | 完整章节基线、版本/覆盖检查和旧来源恢复；失败路径不新建章；与 B27 共用操作语义 | **done（2026-10-25，`655220d6`）**：共享契约（`7950437c`）落地；AuthoringTaskBuilder.for_chapter_revision/1、判断章级绑定规则、Real format_only/content_revision 渲染；persistence replace_scope 多片段原子事务 + accepted_chapter_scopes、application validate_b28_contract/chapter_revision_context；全后端 2098/0 全绿。CP1.5 wiring 已提交（`1dea5ed3`）：章级目标进判断上下文、writer 全章覆盖顺序文本、候选顶层/payload provenance、采纳回执 superseded refs；全后端 2111/0。CP2 真实页面复验（task-51）进行中 |
-| CP2 | 修订候选/差异/确认→原章事务替代；旧版本与 trace 留存、幂等/回滚 | todo |
-| CP3 | 阅读/摘要/检索/探索/后续问答同批消费新值，UI 保留作者来源和范围 | todo |
-| CP4 | 新真实 Tauri 场景＋Q1c/B24/B25/续写回归；真实模型原始问法与改述验证 | todo |
+| CP2 | 修订候选/差异/确认→原章事务替代；旧版本与 trace 留存、幂等/回滚 | **done（2026-10-25，`29f9a03d`）**：真实 Tauri `b28-whole-chapter-revision` PASS（35/35 checks、6 trials、log_noise ok）；T0a 同名澄清阻断、T0b ref 绑同章、T1 整章排版 replace_scope（章数 2→2、旧 2 稿 superseded、归一字节等价）、T2 只改指定处其余逐字、T3 幂等、T4 缺 ref 澄清零写入；回归 b25/judgment-explore-chapter-full-read/p1/q1c 全 PASS；场景已注册 nightly |
+| CP3 | 阅读/摘要/检索/探索/后续问答同批消费新值，UI 保留作者来源和范围 | in_progress（task-56：真实页面 replace_scope 后阅读/刷新/摘要/下一轮上下文/搜索或投影消费新值 + 历史可查） |
+| CP4 | 新真实 Tauri 场景＋Q1c/B24/B25/续写回归；真实模型原始问法与改述验证 | in_progress（task-57：真实模型 `iq3_s` 原话/改述各一，验证判断绑章+format_only→同章替代；串行、Lead 批准） |
 | CP5 | 全门禁、静态扫描、NEXT/journey D5/ledger；数据修复未授权时如实单列，不能称 stage 数据已恢复 | todo |
 
 CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 done。可先完成数据边界修复，不依赖先重写所有提示词；新增提示词资产必须遵循 B27 整合决定。
@@ -106,3 +106,11 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - CP2 首跑发现：planner 未给 `chapter_ref` 且目标标题命中多个同名章时，生成期按 title 唯一映射失败（ref=nil）仍生成 title-only 候选，edit 采纳落入 title 回退 `ambiguous_chapter_title`。
 - 修复：`TurnExecutionService.execute` 在 provider 调用前检测「ref=nil 且同标题章 >1」→ `MissingPolicyResult.ambiguous_chapter/1` hard block，作者可见澄清（用章卡片/章序号确认），零写入、不生成候选、不新建章；`blocked_message` 区分 ambiguous/not_found。B28 Q01「歧义不猜」落地；CP2 T0 期望按此修订（T0a 阻断澄清 + before/after 对照；T0b ref 绑定成功用主作品唯一标题候选）。
 - 测试：domain `ambiguous_chapter/1`、resolver 同名两章 ref=nil、全后端 2113/0；compile/format/credo/enum/xref/arch 全绿。
+
+### 7.6 CP2 完成记录（2026-10-25，`29f9a03d`）
+
+- **真实 Tauri PASS**：`bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri` → 35/35 checks、6 trials（T0a/T0b/T1/T2/T3/T4）、`log_noise.ok=true`、tauri 窗口；证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`（保护副本 `...-cp2-registered-pass-20261025T0400/`），历史失败批次全部保留。
+- **实测**：T0a 同名两章 title-only → 澄清阻断、章数不变零写入；T0b 唯一标题候选顶层 `target_chapter_ref=chapter:<uuid>`、edit_then_accept 同章绑定；T1 整章只排版候选 3594 字符覆盖两片段、format_only/replace_scope、归一后字节等价、章数 2→2、旧 2 稿 superseded 历史、阅读/刷新新值；T2 只改二十五→三十其余逐字、同章不新建；T3 刷新/重复采纳幂等；T4 缺 ref 澄清、零写入、不路由新写作。
+- **注册**：scenarios.yml（nightly/tauri）、manifest active、README、runner；`quality_manifest_check.sh` passed；回归 b25-chapter-identity-unification、judgment-explore-chapter-full-read、p1-chapter-adoption-reading、q1c-adopted-content-revision 全 PASS。
+- **本轮修复的真实缺口**：同名章歧义守卫（`392c45e9`）、章级 execute 工具绑定（`83f1452a`）、replace_scope 后 coverage 语义（`b014c5db`）、判断/writer fixture（`09d477a1`/`1f2f8121`）；driver 仅证据解析/时序适配，未降级断言。
+- **边界**：真实模型原话/改述与排版质量归 CP4；format_only violation 端到端负例由 CP1 单测 + CP4 覆盖（known_not_closed 已登记）。
