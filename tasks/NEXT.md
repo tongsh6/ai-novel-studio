@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B30-CHAPTER-STRUCTURE-MAINTENANCE | **当前任务 / CP0 done（2026-10-25，`0f756e2b`）**：真实 Tauri 复现结构维护能力缺失（reply/target_not_available/plot_outline 误路由）、采纳按 title 新建章、标题号≠seq；标准 B11A 蓝图路径安全但持久层无类型防护。CP0 冻结 Q01–Q08（`maintain_chapter_structure` 能力/只重编号首闭环/old→new 映射/两阶段 seq 事务/蓝图类型边界/seq 权威展示/消费者迁移/证据回归）。**CP1/CP2 完成并提交（`a5581f35`）**：maintain_chapter_structure 能力/判断/change_plan + 原子 renumber/采纳 effect/蓝图类型防护，全后端 2138/0。**CP3 大部分提交（`dbdb7770`）**：ChapterDisplay/写作坐标/章使命/探索/判断上下文 ref-first、账本伏笔 seq remap、检索/TOC 审计；**计划物化 ref-first 成对补已提交（`2497e793`）**：outline chapter_ref 透传、ensure ref-first 不新建、输出契约/校验、B25 title-first 遗漏关闭；全后端 2156/0。**CP4 完成（`9b309fd5`）**：两真实 Tauri 场景注册 PASS（30/30 + 12/12 checks）、实模 original/paraphrase/negative POST-FIX PASS；回归 au08/b25/judgment-explore-chapter-full-read/b28 PASS，`judgment-explore-chapter-plan` 引用错源回归诊断中（task-68，test-support vs 产品）→ 修复后重跑即可 CP5 收口。 | [B30](slices/B30-chapter-structure-maintenance.md) |
+| B29-EXISTING-CHARACTER-ROLE-REVISION | **当前任务**：同一角色主档案字段更新，档案、记忆与后续创作一致（journey D14）。B30 已于 2026-10-25 done（章节重编号/结构维护/卷蓝图边界两场景 nightly PASS；stage 清理需授权）。先读 [B29 slice](slices/B29-existing-character-role-revision.md) 并从其 CP0 开工。 | [B29](slices/B29-existing-character-role-revision.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B29-EXISTING-CHARACTER-ROLE-REVISION | 同一角色主档案字段更新，档案、记忆与后续创作一致。 | [B29](slices/B29-existing-character-role-revision.md) |
 | P1-AUTHORING-DOGFOOD | 每 3–5 周期插入 10 章级真实创作复验；检验上述能力组合后的体验。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 阻塞

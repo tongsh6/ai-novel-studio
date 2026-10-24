@@ -1,6 +1,6 @@
 # B30：已有章节重编号、结构修订与卷章类型边界
 
-- 状态：**doing / CP0 完成（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）**：当前版本无结构维护能力（结构意图→reply/target_not_available/plot_outline 误路由），采纳物化按 title 新建章（无按 chapter_ref 改 seq 路径）；标准 B11A 规划路径蓝图类型安全但持久层无防护。CP0 冻结见 §7，CP1/CP2 进行中。
+- 状态：**done（2026-10-25，CP0–CP5；两真实 Tauri 场景注册 PASS 30/30 + 12/12，实模 POST-FIX PASS，回归全绿）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无结构维护能力（结构意图→reply/target_not_available/plot_outline 误路由），采纳物化按 title 新建章（无按 chapter_ref 改 seq 路径）；标准 B11A 规划路径蓝图类型安全但持久层无防护。CP0 冻结见 §7，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只授权写 slice / 登记 NEXT。
 - 归属：[AU08 卷结构规划](AU08-volume-structured-planning.md)、[B11A 卷蓝图](B11A-volume-blueprint.md)、[B25 章节身份](B25-chapter-identity-unification.md)、[VS-00J](../../docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md)；提示词统一消费 [B27](B27-systematic-prompt-and-intent-integration.md)。这是新增维护能力，不把 plot_outline 生成冒充重编号。
 
@@ -42,7 +42,7 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 凌晨：第2卷
 | CP2 | 采纳后事务更新、唯一约束、幂等/并发/回滚；禁止生成路径冒充维护，卷章类型校验落边界 | **done（2026-10-25，`a5581f35`）**：`chapter_structure_context/2` 读端口；`renumber_chapters/4` 两阶段临时 seq 单一事务（同 work/卷、stale、唯一、幂等 duplicate 回执、失败整体回滚、只改 seq）；AdoptionWorkflow renumber effect（回执基于已提交映射/object_count/warnings，不调 writer/不建章/不写正文）；`ensure_planned_chapter` object_kind 蓝图 type_mismatch 防护；测试 application 896/0、persistence 310/0 |
 | CP3 | 所有编号消费者/账本/探索/阅读/写作坐标同步与 trace；完成历史影响清单 | **done（2026-10-25，`dbdb7770`+`2497e793`）**：ChapterDisplay（身份=ref/章号=当前 seq）、TEC 目标章/写作坐标/章使命/探索别名/判断计划上下文 ref-first；账本/伏笔历史 seq 按 ref 解析当前值（LogEmit remap）；检索/TOC/阅读审计无需迁移；计划物化 ref-first 成对补已提交（`2497e793`）：ChapterPlanParser/物化链 chapter_ref 透传、do_ensure_planned_chapter ref-first（同 work ref 只补 summary/plan_direction、不新建/不改 seq/title/归卷/正文）、plot_outline 输出契约复制已存在章 ref + adapter/TEC 校验 |
 | CP4 | 两个新真实 Tauri 场景＋AU08/B25/B24 回归；实模自然语言正反例 | **done（2026-10-25，`9b309fd5`）**：`b30-chapter-renumber-roundtrip` PASS 30/30 checks/6 trials（重编号/对调/幂等/刷新/消费者/负例作者可见澄清零写入）；`b30-volume-blueprint-kind-boundary` PASS 12/12（蓝图仅 volumes.blueprint、无蓝图章/不占 seq、非法混排 type_mismatch 回滚）；双场景注册 nightly；实模 `strata/iq3_s` 单槽 original/paraphrase/negative POST-FIX 均 PASS（修复前 badkey/内部错误已留 before-after）；回归 au08/b25/judgment-explore-chapter-full-read/b28 PASS；`judgment-explore-chapter-plan` 可复现回归待诊断（task-68） |
-| CP5 | 全门禁、静态扫描、NEXT/journey/ledger 收口；未获授权的存量清理单列后续 | todo |
+| CP5 | 全门禁、静态扫描、NEXT/journey/ledger 收口；未获授权的存量清理单列后续 | **done（2026-10-25，CP5 收口）**：全后端 2165 tests/0、前端 603 tests、compile/format/credo 0/enum/xref/arch/adr、I1/I2/I3；静态扫描/task-done；journey D13 closed、slices README/ledger/NEXT 同步；stage 存量清理只读清单未授权单列 |
 
 CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为“范围外”。若关联过广，拆执行 checkpoint，保持上述不变量。
 
@@ -108,3 +108,12 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 - **实模**（`strata/iq3_s` 单槽；model_behavior 与 product_state_chain 分开）：修复前 original → judgment maintain 正确但产品 badkey `frame_ref` 崩溃无候选（before）；修复后 original → model_behavior PASS + product_state_chain PASS（pending `chapter_structure_change_plan` 候选、零写入、章 4→4）；paraphrase（「第二卷的章节序号有点乱…别改正文」）model+state PASS；negative（「第九卷」）→ capability_gap 作者可见解释、零写入、无候选/无回退。证据 `artifacts/slice-verify/b30-cp4-model-{original,original-postfix,paraphrase-postfix,negative-postfix}/`。
 - **回归**：au08-volume-structured-planning、b25-chapter-identity-unification、judgment-explore-chapter-full-read、b28-whole-chapter-revision PASS；`judgment-explore-chapter-plan` 可复现失败（chapter_read 观察正确但最终回复引用 session_adoptions JSON），失败批次 `...-b30cp4-fail-20261025T0620/` 保留，task-68 诊断中。
 - **CP4 期间修复的真实缺陷**：维护分支 trace 不完整 badkey（`f2ebf514`）、维护目标/范围错误未映射为作者可见拒绝（`00a63c11`）。
+
+### 7.7 CP5 收口记录（2026-10-25）
+
+- **门禁**：compile -Werror、**2165 tests/0**（common 96/domain 378/agent 273/persistence 315/application 910/web 133）、test -Werror、repo format、credo strict 0、enum/xref/arch/adr；前端 typecheck/lint/**603 tests**、frontend_audit、check_design_trace；quality_manifest_check；**I1/I2/I3 全 PASS**；静态扫描 PASS（仅既有 gitleaks disposition/流程噪声）、task-done manifest。
+- **真实页面**：`b30-chapter-renumber-roundtrip`（30/30 checks/6 trials）与 `b30-volume-blueprint-kind-boundary`（12/12 checks）注册 nightly 并 PASS；证据 canonical/保护副本/全部失败批次保留（CP0 批次、解释性缺口 batch1、verifier 阈值 batch2-3、轮询窗 batch4、蓝图 pre-fix、chapter-plan 失败两份 + 最终 PASS 副本）。
+- **回归**：au08-volume-structured-planning、b25-chapter-identity-unification、judgment-explore-chapter-full-read、judgment-explore-chapter-plan（test-support fixture 修复后 PASS）、b28-whole-chapter-revision 全 PASS。
+- **实模**（`strata/iq3_s` 单槽，POST-FIX）：original/paraphrase model_behavior+product_state_chain PASS（judgment 绑 maintain、候选产生、零写入）；negative（第九卷）capability_gap 作者可见解释、零写入；修复前 original badkey 崩溃证据保留 before/after。model-only runner exit 1 因 verifier 不消费 model-only ui record（B28 同现象），证据 JSON/app-log/截图齐全，不影响确定性场景。
+- **known limits（如实登记）**：① `baseline stale/unsupported_effect` 在真实页面无自然语言注入入口，由 CP1/CP2 单测 + adoption 守卫覆盖（两 b30 yml known_not_closed 已登记）；② 结构维护首闭环只支持 `display_number_only`，reorder/move_volume/content_modify 未实现（契约已预留 effects 分离）；③ stage 历史存量（两份第11章/新增12·13章/「第2卷：卷蓝图」seq=11 Chapter）保持只读清单 `artifacts/model-contracts/b30-cp0/stage-impact.md`，不删除/不合并/不写数据，修复需作者单独授权；④ model-only harness 非注册入口、不作 CI 判据。
+- **完成判定**：CP0 真实复现→CP1/CP2 能力+事务→CP3 消费者迁移→CP4 两场景+回归+实模→CP5 门禁/台账，均齐备；B30 done。后续结构深化（reorder/move_volume）与 stage 清理另立任务。
