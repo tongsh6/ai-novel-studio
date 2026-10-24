@@ -22,7 +22,7 @@
 
 | 文件 | 角色 |
 |---|---|
-| [B27-systematic-prompt-and-intent-integration.md](B27-systematic-prompt-and-intent-integration.md) | 全应用任务语义与提示词整合；共享判断/计划入口、专业调用矩阵、固定20例双臂语义验收及自然创作体验。**CP0 已冻结**（20 例/快照/旧规则臂）；**CP3 已完成并提交**（CP3a 契约+策略、CP3b prose 域、CP3c 辅助域、CP3d 全 creative tool task 强制/legacy 删除/退役同步）；**CP4 仍 FAIL**：执行批与复测批（canonical run1）均未达 §6.1（协议错误已修复、不可用达标，但零容忍/关键集/overall/追问未过），残余语义修复批次进行中；Tauri 生命周期场景已注册并取得机制 PASS（非语义通过）。实施状态、证据及剩余范围只维护在原任务。 |
+| [B27-systematic-prompt-and-intent-integration.md](B27-systematic-prompt-and-intent-integration.md) | 全应用任务语义与提示词整合；共享判断/计划入口、专业调用矩阵、固定20例双臂语义验收及自然创作体验。**CP0 已冻结**（20 例/快照/旧规则臂）；**CP3 已完成并提交**（CP3a 契约+策略、CP3b prose 域、CP3c 辅助域、CP3d 全 creative tool task 强制/legacy 删除/退役同步）；**CP4 = measured FAIL/known-gap**（retest6 最后一次全量：integrated 40/40 ok、unavailable 0、ZT 0、uq 0；key_set 仅 M01r2、overall 34/40=0.85），作者裁决转 B31、不再全量 retest；Tauri 生命周期场景已注册并取得机制 PASS（非语义通过）。实施状态、证据及剩余范围只维护在原任务。 |
 | [B28-whole-chapter-revision.md](B28-whole-chapter-revision.md) | **pending（2026-10-23，设计登记）**：完整章节修订与排版采纳闭环。Q1c/B25 补口：章 ref + 全部当前正文/版本 + 明确覆盖范围；旧 artifact 缺身份按来源恢复，修订不得标题0命中新建章；初稿+续写全量输入、仅排版保真、覆盖确认、原章事务替代；章数/ID不变、旧稿可查；阅读/摘要/检索/后续上下文一致；新真实 Tauri + B24/B25/Q1c 回归。 |
 | [B29-existing-character-role-revision.md](B29-existing-character-role-revision.md) | **pending（2026-10-23，设计登记）**：已有角色叙事身份修订。承接 AU09 §7 CP2：按 character_id/基线生成字段变更候选，采纳后改真实 narrative_role；角色演化记忆不能代替主档案更新；同一角色改为主角、角色数不增、多主角不被擅自清空；档案/花名册/探索/后续创作一致；幂等/并发/拒绝矩阵 + 真实 Tauri 自然输入→采纳→刷新→追问。 |
 | [B30-chapter-structure-maintenance.md](B30-chapter-structure-maintenance.md) | **pending（2026-10-23，设计登记）**：已有章节重编号与卷章类型边界。AU08/B11A/B25 后续：按稳定 chapter_ref 提出结构变更映射，采纳后原子更新现存对象；卷蓝图不得物化成章；重编号不增章/不改正文/不串卷；seq唯一、关联使命/账本/探索/阅读一致；卷章类型独立校验；两个新真实 Tauri 场景 + AU08/B25 回归。 |

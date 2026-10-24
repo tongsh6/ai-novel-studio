@@ -2,7 +2,7 @@
 
 > **2026-10-24 联合修订已接受**：作者确认“确定 开工”，接受 B26/B27 联合设计及 ADR-0001 普通回复来源修订，并授权共享入口实现与验证。下文历史“待 Accepted / 本轮只改文档”描述保留当时语境，不再构成本次实施阻塞；实现和验收仍按各 slice 逐项留证。
 
-- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；**CP3 已完成（2026-10-24，CP3a–CP3d 全部落地）**：所有 creative 专业调用（writer/outline/character_design/character_evolution/world_building/revision/evaluator）与辅助域（summary/inventory/ledger/narration）强制携带 AuthoringTask 并由 AuthoringSemantics 单一真源渲染；legacy 无 task 分支删除、ProviderProgress/AIMessageEnvelope 退役、test-support 单源、I-CACHE writer/evaluator profile、AU11 文档口径同步；CP4 语义矩阵/生命周期验收待执行。
+- 状态：doing / 共享入口已实现；2026-10-24 联合修订已接受，CP1/CP2 随 B26 接线并有机制/页面证据；**CP0 已于 2026-10-24 冻结完成**（20 例案例卡、20/20 输入快照、保留集/关键集/追问子集、旧规则臂 hash、必验模型与运行器骨架）；**CP3 已完成（2026-10-24，CP3a–CP3d 全部落地）**：所有 creative 专业调用（writer/outline/character_design/character_evolution/world_building/revision/evaluator）与辅助域（summary/inventory/ledger/narration）强制携带 AuthoringTask 并由 AuthoringSemantics 单一真源渲染；legacy 无 task 分支删除、ProviderProgress/AIMessageEnvelope 退役、test-support 单源、I-CACHE writer/evaluator profile、AU11 文档口径同步；CP4 语义矩阵经 6 次预注册批次测量：retest6（最后一次全量）**FAIL/known-gap**（integrated 40/40 ok、unavailable 0、ZT 0、uq 0、overall 34/40=0.85、key_set 仅 M01r2 失败）；作者裁决记录 known-gap 并转入 B31，不再全量 retest。
 - 登记日期：2026-10-23。
 - 来源：作者要求分析 stage 对话，区分模型判断与应用能力缺口；随后明确“作者不应自己写提示词，应用应帮助模型理解意图”，并要求先分析现有提示词写法、从应用整体整合，禁止单点补丁。
 - 授权沿革：初次只授权设计和排期；2026-10-24 已确认共享入口实现与验证。原作品数据修复仍需独立授权。
@@ -122,7 +122,7 @@
 | CP1 | 提取共同规则/角色选择、能力效果/schema/重试语义，随 B26 CP2 立即由真实入口消费；迁移/退役孤立 Envelope | 共享规则已有判断/计划真实消费者；专业调用剩余覆盖归 CP3 | 全专业调用覆盖 |
 | CP2 | 与 B26 CP2 一次迁移共享判断/计划入口；连续目标/证据/结果、必要提问；移除进度泛化/机械报形态/空行解析 | 共享判断/计划已迁移；机制与原生回复有证据，完整语义结果待 CP4 | 创作/评估/维护一致性 |
 | CP3 | 迁移计划、使命、writer、修订、evaluator、章摘要、盘点、结果叙述、provider progress 及纠错路径；保留各角色输出契约；删除被替代规则 | **done（2026-10-24，CP3a–CP3d）**：全部专业调用携带 AuthoringTask + 单一规则真源；creative 四类工具新建/修订接线、legacy 无 task 分支/旧模板/关键词推断删除；ProviderProgress/AIMessageEnvelope 退役 + 静态守卫；test-support 单源（stub_chapter_summary）；AU11 blocked 口径同步；I-CACHE 新增 writer/evaluator 行 | CP4 真实模型语义门槛与 Tauri 生命周期验收；adoption 继承语义归 B28；world artifact_type 显式化需 plan/schema 扩展（后续）；narration 调用计数口径后续 slice |
-| CP4 | B26 CP3 协议/业务保留先通过，再按 §6.1 逐例判新旧规则/保留集、完成联合生命周期 Tauri；硬门槛与全矩阵通过 | todo；共享证据、分别结论 | 全门禁、任务台账 |
+| CP4 | B26 CP3 协议/业务保留先通过，再按 §6.1 逐例判新旧规则/保留集、完成联合生命周期 Tauri；硬门槛与全矩阵通过 | **measured FAIL / known-gap（2026-10-25）**：retest6 integrated 40/40 ok、unavailable 0、ZT 0、uq 0、not_below PASS；key_set 仅 M01r2、overall 34/40=0.85 <0.90。known-gap：M01r2/M02r1-r2/M08r2/M16r1/M18r1（详见 retest6 记录）；作者裁决不再全量 retest、转 B31，后续 B28/硬化周期回归 | Tauri 生命周期场景已注册并机制 PASS（slice_verify，非语义通过）；第二方复核模板待作者 human 记录 |
 | CP5 | 完整门禁、静态扫描处置；同步旧 AU11/VS-00D/UA01 任务入口、设计/契约、NEXT/journey/ledger | todo | 无；此前均不得标 slice done |
 
 联合文档不等于生产切换；设计可先做，规则实现随共享入口一次接线。B28–B30 可在 CP0 协同定义操作契约并独立实现，B27 不等待新增维护能力才能证明已有只读分析可用。全调用点矩阵仍为完整范围，不因 B26 协议验证通过而缩小。
@@ -452,3 +452,14 @@ CP0 按 §6.1 只做「调整提示词前」的基线冻结，不跑完整 40 ep
 - 定向 probe（probe-r8，6/6 ok、0 unavailable）：M03 全章通读+依据、M14 capability_gap 正确、M17 A/B 比较、M02 直接索引 reply、M10 零物化、M08 execute 目标段修改；M10 首决策 explore 路径口径已补规则（分析类充分事实直接 reply）。
 - 门禁：application 859/0、agent 255/0；compile/credo/enum/xref/arch/I1/I2/I3、snapshots 20/20 全绿。
 - **retest6（task-38）进行中**：最后一次全量 canonical 80 + 盲评 §6.1 + 争议 case 第二方复核；若未达硬门槛按作者裁决记录 FAIL/known-gap 并转 B31。
+
+#### CP4 retest6 记录（2026-10-25，作者裁定的最后一次全量 retest：FAIL/known-gap）
+
+- 前置：HEAD `0bfbf4cc`（Round 8 产品修复 `155cf47c` + 证据 `47a0fffb`）；old hash `211b2979…` 不变；integrated retest5 `fa2ef92d…` → **retest6 `6b0f54ae…`**（4 项产品资产变化）。
+- 一次 canonical 80（矩阵无重跑；judge 侧 M08 r2 因 judge retry bug 修复后仅补判该条，其余 79 条主判未动）：old 40/40 ok；integrated **40/40 ok、unavailable 0**（首次）。
+- **§6.1：matrix/review PASS、ZT 0 PASS、unused_question 0/34 PASS、not_below_old PASS、unavailable 0/40 PASS；key_set FAIL 1（仅 M01r2）、overall FAIL 0.85（34/40，阈值 0.90）**。
+- 改善：success 28→34；M03/M14r2/M17r1 协议终局全部消除；M07/M20/M10 两轮 PASS；M16r2/M18r2 转 PASS。
+- **known-gap（转 B31 修复输入）**：① M01r2（key_set 唯一失败，未取证仅凭章节状态断言完成）；② M02 r1/r2（allowed path 未遵守；judge 事实输入缺逐章 facts 文本，属 harness known-gap）；③ M08r2（段落口径已生效 changed_paragraph_indices=[2]，judge 对 reason 表述有争议，待第二方复核）；④ M16r1（已读全章却称“手上没有正文”，基于 mission 续写且未引用当前版独有内容）；⑤ M18r1（未探索正文来源直接 capability_gap，r2 PASS）。
+- 第二方复核：`b27_second_review` select 覆盖 14 episodes、争议 6 blind_id；**无独立第二 judge 模型**（主 judge qwen3.8；strata/iq3_s 为被评模型）→ 作者/人工记录模板待填，旁路不影响主判。
+- 披露：old 单轮不对称、judge 单模型无人工复核、LM 观察未跑、0 provider 失败；无重跑刷分、未删分母、未改阈值/rubric/cases/snapshots。judge retry bugfix（`b27_blind_judge.exs` prompt ++ [map]）随记录提交。
+- **CP5 状态**：文档/状态/NEXT/台账已同步；完整 CP5 收口仍需 known-gap 回归与作者第二方复核记录（部分完成）。

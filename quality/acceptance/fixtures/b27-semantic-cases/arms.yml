@@ -23,8 +23,8 @@ old_rules_arm:
 
 integrated_arm:
   status: frozen
-  arm_content_hash: fa2ef92d77a4407d1e8dbc49559ef61433269892008d24db823bf94b1f6dd3db
-  frozen_at: 2026-10-24T14:29:43.698861Z
+  arm_content_hash: 6b0f54aeb738e3892141a8a4937a8c58fa71185551839687d72df4b41d7d80a3
+  frozen_at: 2026-10-24T15:27:33.494526Z
   filled_by: B27 CP4 执行批：CP3 完成后重冻当前工作区规则资产（scripts/b27_case_freeze.exs --write-arms）
   note: "CP4 按 §6.1 双臂对照；assets 为 integrated_arm 当前资产清单，old 臂资产清单见归档 arms-before-refreeze-*.yml 与各快照 rule_versions"
 
@@ -51,23 +51,23 @@ assets:
     version: content-hash
   - role: L3 判断/续行模板
     path: apps/novel_application/lib/novel_application/judgment_protocol.ex
-    sha256: bc10eda9c192180da25e98364fdc88b40ef77ffac0de5365c1409ba3cc01e0e8
-    bytes: 36043
+    sha256: 81c5c2518b0e6e00375c4b86984920686e41f3d2dde647ce06cd698b6df3fb91
+    bytes: 40855
     version: content-hash
   - role: L2/L3 判断上下文投影
     path: apps/novel_application/lib/novel_application/dialogue_planning_service.ex
-    sha256: cc2b786d34c05ef462ef567b58b5272f337b6e54b96acbae1496eb9dd86a3d0a
-    bytes: 91524
+    sha256: a3208340edaa1a1c69a7f7832d97c3672ce843968efc721a79dc09c1884c01be
+    bytes: 94243
     version: content-hash
   - role: L3 原文登记规则
     path: apps/novel_application/lib/novel_application/turn_interaction_service.ex
-    sha256: 576bd1e535a5e6454144529d342360d2b6477646ee5b69e94500da12bc2d7759
-    bytes: 17431
+    sha256: f7fb2880834eef9edc77c13c4c2f3763e5bde19a69a278d1af894bf5e1cb2257
+    bytes: 18048
     version: content-hash
   - role: L3 计划起草/修订模板
     path: apps/novel_application/lib/novel_application/agentic_plan_draft_planner.ex
-    sha256: b6f6eb0fe9234ec12edb70225331994a0978eb53c7697445d39956ee67238cb6
-    bytes: 42598
+    sha256: ce2a0f02a153fb24d97785b6494d1420761fd6f800259d8e123a4d6c89710be0
+    bytes: 43947
     version: content-hash
   - role: L3 判断计划 flow
     path: apps/novel_application/lib/novel_application/agent_run_flows/judgment_plan.ex

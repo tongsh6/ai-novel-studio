@@ -407,14 +407,15 @@ defmodule B27BlindJudge do
         if attempt == 1 do
           prompt
         else
-          [
-            prompt,
-            %{
-              "role" => "user",
-              "content" => "上一次输出不是合法 JSON 或字段不完整。请只输出一个 JSON 对象，不要任何解释或 markdown。"
-            }
-          ]
-          |> Enum.concat()
+          # 注意：不能用 Enum.concat([prompt, map])——map 是 enumerable（会展开成 {k,v} 元组），
+          # 必须用 prompt ++ [map] 保证 correction message 是 map（retest6 M08 r2 judge retry bug）。
+          prompt ++
+            [
+              %{
+                "role" => "user",
+                "content" => "上一次输出不是合法 JSON 或字段不完整。请只输出一个 JSON 对象，不要任何解释或 markdown。"
+              }
+            ]
         end
 
       started = System.monotonic_time(:millisecond)
