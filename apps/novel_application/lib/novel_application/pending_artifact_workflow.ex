@@ -230,7 +230,18 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         session_id: run.session_id
       })
 
-    trace = %{trace_id: "trace_#{frame.turn_id}", turn_id: frame.turn_id}
+    {trace, _summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
+
+    trace = %{
+      trace
+      | decision_type: :chapter_structure_maintenance,
+        event_order: [
+          :author_input_received,
+          :dialogue_context_attached,
+          :chapter_structure_plan_built,
+          :turn_result_emitted
+        ]
+    }
 
     DialogueGateway.persist_turn_trace(
       {:ok, result, trace, [], context},

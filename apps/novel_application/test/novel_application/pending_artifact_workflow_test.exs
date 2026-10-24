@@ -16,6 +16,9 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.{DialogueContext, DialogueFrame}
   alias NovelPersistence.{MemoryLog, Repo, WorkSessionRepo}
+  alias NovelPersistence.Schemas.{Chapter, Volume}
+
+  import Ecto.Query
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -773,5 +776,42 @@ defmodule NovelApplication.PendingArtifactWorkflowTest do
     }
 
     assert is_nil(PendingArtifactWorkflow.execution_tool(pending_judgment, context))
+  end
+
+  test "B30 维护分支：trace 完整构造持久化不 crash，产出 change plan 候选且零写入", c do
+    volume = Repo.insert!(%Volume{work_id: c.work.id, title: "第二卷", seq: 2})
+
+    for {title, seq} <- [{"第11章：甲", 11}, {"第12章：乙", 12}, {"第13章：丙", 13}] do
+      Repo.insert!(%Chapter{work_id: c.work.id, volume_id: volume.id, title: title, seq: seq})
+    end
+
+    goal_text = "把第2卷章节编号理顺，内容不要动"
+    run = %{c.run | goal: %{text: goal_text, version: 1}}
+
+    judgment = %{
+      action: "execute",
+      capability: "maintain_chapter_structure",
+      dialogue_goal: goal_text,
+      narrative: "我会生成第2卷章节重编号的可审阅变更计划。"
+    }
+
+    before = chapter_rows(c.work.id)
+
+    assert {:ok, result} = PendingArtifactWorkflow.run(judgment, %{}, run, c.context, nil)
+
+    [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.object_kind == "chapter_structure_change_plan"
+    assert pending.payload.change_plan.object_count == 3
+    assert pending.payload.change_plan.effects == ["display_number_only"]
+
+    # 只产出候选：章节身份/序号零变化，未生产写入。
+    assert chapter_rows(c.work.id) == before
+    refute Map.get(result.turn_result.truthfulness || %{}, :production_write_performed, false)
+  end
+
+  defp chapter_rows(work_id) do
+    from(ch in Chapter, where: ch.work_id == ^work_id, order_by: ch.seq)
+    |> Repo.all()
+    |> Enum.map(&{&1.id, &1.seq, &1.title, &1.volume_id})
   end
 end

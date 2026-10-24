@@ -615,7 +615,7 @@ defmodule NovelAgent.Provider.SliceVerifyChapterStructureMaintenanceTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Test.Provider.SliceVerify
 
-  defp judgment_prompt(author_text, opts \\ []) do
+  defp judgment_prompt(author_text, opts) do
     planned = Keyword.get(opts, :planned_volumes)
     directory = Keyword.get(opts, :directory, true)
 
