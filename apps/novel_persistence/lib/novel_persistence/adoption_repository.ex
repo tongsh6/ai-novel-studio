@@ -1127,7 +1127,9 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   # B28 CP1.5：该 work 有 accepted 正文的章目标列表（只读；按章 seq 升序）。
-  # coverage：该章全部 scene 均有当前 accepted draft → :complete，否则 :partial。
+  # coverage 语义：章内每个 scene 要么有当前 accepted draft，要么已有正文历史（被整章
+  # replace_scope 替代后只留 superseded 历史、当前投影即整章稿）；只有「计划了但从未写过」
+  # 的 scene 才把章标为 :partial。真 partial（部分规划场未写）不受影响。
   # 同名章不做 title 合并，按 chapter_ref 唯一列出（判断侧用 ref 绑定，title 仅展示）。
   def accepted_chapter_targets(work_id) do
     case Ecto.UUID.cast(work_id) do
@@ -1168,9 +1170,29 @@ defmodule NovelPersistence.AdoptionRepository do
           covered_refs: Enum.map(scopes, &"draft:#{&1.draft_id}"),
           fragment_count: length(scopes),
           char_count: scopes |> Enum.map(&String.length(&1.content)) |> Enum.sum(),
-          coverage: if(length(scopes) == length(scenes), do: :complete, else: :partial)
+          coverage: chapter_coverage(scopes, scenes, work_uuid)
         }
     end
+  end
+
+  # 覆盖完整的判定：有当前 accepted 投影，且每个 scene 不是「从未写过正文」。
+  # scene 有 superseded 历史（replace_scope 后）视为已被整章稿覆盖，不算缺口。
+  defp chapter_coverage(_scopes, [], _work_uuid), do: :partial
+
+  defp chapter_coverage(scopes, scenes, work_uuid) do
+    if Enum.all?(scenes, &scene_covered_or_retired?(&1, scopes, work_uuid)),
+      do: :complete,
+      else: :partial
+  end
+
+  defp scene_covered_or_retired?(scene, scopes, work_uuid) do
+    Enum.any?(scopes, &(&1.scene_id == scene.id)) or scene_has_draft_history?(work_uuid, scene.id)
+  end
+
+  defp scene_has_draft_history?(work_uuid, scene_id) do
+    Draft
+    |> where([d], d.work_id == ^work_uuid and d.scene_id == ^scene_id)
+    |> Repo.exists?()
   end
 
   defp scene_accepted_scope(work_uuid, scene) do

@@ -269,4 +269,45 @@ defmodule NovelApplication.B28AdoptionContractTest do
     assert {:error, :target_missing} =
              AdoptionWorkflow.chapter_revision_context("not-a-uuid", "chapter:#{chapter.id}")
   end
+
+  test "chapter_revision_targets：replace_scope 后仅有 superseded 历史的 scene 仍算 complete" do
+    work_id = Ecto.UUID.generate()
+    volume = Repo.insert!(%Volume{work_id: work_id, title: "第一卷", seq: 1})
+
+    chapter =
+      Repo.insert!(%Chapter{
+        work_id: work_id,
+        volume_id: volume.id,
+        title: "第01章：替代后",
+        seq: 1
+      })
+
+    scene1 =
+      Repo.insert!(%Scene{work_id: work_id, chapter_id: chapter.id, title: "场景 1", seq: 1})
+
+    scene2 =
+      Repo.insert!(%Scene{work_id: work_id, chapter_id: chapter.id, title: "场景 2", seq: 2})
+
+    Repo.insert!(%Draft{
+      work_id: work_id,
+      scene_id: scene1.id,
+      content: "整章替代稿正文。",
+      status: AdoptionStatus.accepted(),
+      revision: 1
+    })
+
+    # replace_scope 后：旧续写所在 scene 无 accepted，只剩 superseded 历史。
+    Repo.insert!(%Draft{
+      work_id: work_id,
+      scene_id: scene2.id,
+      content: "被替代的续写历史正文。",
+      status: AdoptionStatus.superseded(),
+      revision: 1
+    })
+
+    assert {:ok, [target]} = AdoptionWorkflow.chapter_revision_targets(work_id)
+    assert target.chapter_ref == "chapter:#{chapter.id}"
+    assert target.coverage == :complete
+    assert target.fragment_count == 1
+  end
 end
