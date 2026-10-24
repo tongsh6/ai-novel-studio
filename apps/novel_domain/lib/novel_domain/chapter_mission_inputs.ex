@@ -534,10 +534,43 @@ defmodule NovelDomain.ChapterMissionInputs do
 
   defp chapter_header(nil), do: "目标章：未定（按进度态推导）"
 
-  defp chapter_header(%{seq: seq, title: title}) do
+  defp chapter_header(%{seq: seq, title: title} = chapter) do
+    title = display_chapter_title(seq, title)
+
     seq_text = if is_integer(seq), do: "第#{seq}章 ", else: ""
-    "目标章：#{seq_text}#{title || ""}" |> String.trim()
+    ref_text = chapter_ref_suffix(map_value(chapter, :chapter_ref))
+    "目标章：#{seq_text}#{title || ""}#{ref_text}" |> String.trim()
   end
+
+  # 历史 title 内嵌章号与当前 seq 一致时保留原文（不给一致数据制造无意义 diff）；
+  # 重编号后不一致 → 用当前 seq 展示 core title，旧编号不冒充身份。
+  defp display_chapter_title(seq, title) when is_integer(seq) and is_binary(title) do
+    case title_number(title) do
+      ^seq -> title
+      _ -> core_chapter_title(title)
+    end
+  end
+
+  defp display_chapter_title(_seq, title), do: core_chapter_title(title)
+
+  defp title_number(title) do
+    case Regex.run(~r/^\s*第\s*(\d+)\s*章/u, title) do
+      [_, n] -> String.to_integer(n)
+      _ -> nil
+    end
+  end
+
+  # B30 CP3-P（Q06/Q07）：真实章号=当前 seq；历史 title 里的「第NN章：」前缀仅展示历史，
+  # 渲染时剥掉以避免双重编号；身份由 chapter_ref 承担。
+  @chapter_title_prefix ~r/^\s*第\s*[0-9一二三四五六七八九十百千两]+\s*[章回节][:：\-—\s]*/u
+
+  defp core_chapter_title(title) when is_binary(title),
+    do: title |> String.replace(@chapter_title_prefix, "", global: false) |> String.trim()
+
+  defp core_chapter_title(_title), do: ""
+
+  defp chapter_ref_suffix(ref) when is_binary(ref) and ref != "", do: "（#{ref}）"
+  defp chapter_ref_suffix(_ref), do: ""
 
   defp planning_header, do: "本轮规划（按当前进度态推导接下来该规划什么）"
 
@@ -555,12 +588,17 @@ defmodule NovelDomain.ChapterMissionInputs do
     %{
       seq: map_value(chapter, :seq),
       title: map_value(chapter, :title),
+      chapter_ref:
+        map_value(chapter, :chapter_ref) || chapter_ref_from_id(map_value(chapter, :id)),
       summary: map_value(chapter, :summary),
       direction: direction
     }
   end
 
   defp normalize_chapter(_), do: nil
+
+  defp chapter_ref_from_id(id) when is_binary(id) and id != "", do: "chapter:#{id}"
+  defp chapter_ref_from_id(_id), do: nil
 
   defp normalize_progress(%{} = progress) do
     %{

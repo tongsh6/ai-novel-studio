@@ -17,6 +17,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.AuxTaskBuilder
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.CarryRegistry
+  alias NovelApplication.ChapterDisplay
   alias NovelApplication.CharacterRosterNarration
   alias NovelApplication.CreativeDecisionPacketBuilder
   alias NovelApplication.Planner
@@ -761,7 +762,7 @@ defmodule NovelApplication.TurnExecutionService do
     chapters = accepted_chapter_titles(context)
     target = normalize_target_chapter(action[:target_chapter])
     intent = action[:authoring_intent]
-    mentioned = mentioned_chapter_title(author_text, chapters)
+    mentioned = mentioned_chapter_title(author_text, chapters, context)
 
     cond do
       target != "" and target in chapters ->
@@ -771,7 +772,7 @@ defmodule NovelApplication.TurnExecutionService do
         mentioned
 
       intent in [:continuation, :rewrite] ->
-        latest_written_chapter(chapters, reader, work_id) || target
+        latest_written_chapter(chapters, reader, work_id, context) || target
 
       true ->
         ""
@@ -840,6 +841,23 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   # 按计划顺序从后往前找第一个已有已采纳正文的章（无 reader 或都没正文 → nil）。
+  # B30 CP3-P：结构化章条目优先用 has_prose 判定，读取仍用展示/storage title。
+  defp latest_written_chapter(chapters, reader, work_id, context) do
+    structured = structured_chapters(context)
+
+    structured
+    |> Enum.reverse()
+    |> Enum.find(fn chapter ->
+      Map.get(chapter, :has_prose, false) or
+        ((reader && is_function(reader, 2)) and is_binary(work_id) and
+           safe_read_prose(reader, work_id, Map.get(chapter, :title, "")) != "")
+    end)
+    |> case do
+      %{title: title} when is_binary(title) -> title
+      _ -> latest_written_chapter(chapters, reader, work_id)
+    end
+  end
+
   defp latest_written_chapter(chapters, reader, work_id)
        when is_function(reader, 2) and is_binary(work_id) do
     chapters
@@ -848,6 +866,12 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp latest_written_chapter(_chapters, _reader, _work_id), do: nil
+
+  defp structured_chapters(%NovelDomain.DialogueContext{structured_chapters: chapters})
+       when is_list(chapters),
+       do: chapters
+
+  defp structured_chapters(_context), do: []
 
   defp normalize_target_chapter(target) when is_binary(target), do: String.trim(target)
   defp normalize_target_chapter(_target), do: ""
@@ -893,6 +917,9 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
+  defp chapter_ref_from_id(id) when is_binary(id) and id != "", do: "chapter:#{id}"
+  defp chapter_ref_from_id(_id), do: nil
+
   defp author_input_text(frame, author_input) do
     case author_input do
       %{text: text} when is_binary(text) -> text
@@ -909,33 +936,35 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
+  # B30 CP3-P（Q06/Q07）：点名章只按当前 seq / 展示标题匹配（历史 title 前缀不参与身份）。
+  # 结构化条目不唯一 → 不猜（返回 ""，后续由 ref 唯一语义兜底/澄清）。
+  defp mentioned_chapter_title(text, chapters, context)
+       when is_binary(text) and is_list(chapters) do
+    case mentioned_structured_chapter(text, structured_chapters(context)) do
+      %{title: title} when is_binary(title) ->
+        title
+
+      nil ->
+        mentioned_chapter_title(text, chapters)
+    end
+  end
+
   defp mentioned_chapter_title(text, chapters) when is_binary(text) and is_list(chapters) do
-    Enum.find(chapters, &(is_binary(&1) and String.contains?(text, &1))) ||
-      mentioned_chapter_by_number(text, chapters) ||
-      ""
+    Enum.find(chapters, &(is_binary(&1) and String.contains?(text, &1))) || ""
   end
 
   defp mentioned_chapter_title(_text, _chapters), do: ""
 
-  defp mentioned_chapter_by_number(text, chapters) do
-    case Regex.run(~r/第\s*(\d+)\s*章/u, text) do
-      [_, n] ->
-        number = String.to_integer(n)
-        Enum.find(chapters, &(chapter_number(&1) == number))
+  defp mentioned_structured_chapter(_text, []), do: nil
 
-      _ ->
-        nil
-    end
-  end
+  defp mentioned_structured_chapter(text, structured) do
+    matches = Enum.filter(structured, &ChapterDisplay.text_matches?(&1, text))
 
-  defp chapter_number(title) when is_binary(title) do
-    case Regex.run(~r/第\s*(\d+)\s*章/u, title) do
-      [_, n] -> String.to_integer(n)
+    case matches do
+      [chapter] -> chapter
       _ -> nil
     end
   end
-
-  defp chapter_number(_title), do: nil
 
   defp accepted_chapter_titles(%NovelDomain.DialogueContext{current_chapters: chapters})
        when is_list(chapters),
@@ -2367,7 +2396,9 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp structured_chapter_window(chapters, target)
        when is_list(chapters) and is_binary(target) and target != "" do
-    index = Enum.find_index(chapters, &(Map.get(&1, :title) == target))
+    index =
+      Enum.find_index(chapters, &(Map.get(&1, :title) == target)) ||
+        unique_display_index(chapters, target)
 
     if is_integer(index) do
       %{
@@ -2379,6 +2410,13 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp structured_chapter_window(_chapters, _target), do: nil
+
+  defp unique_display_index(chapters, target) do
+    case Enum.filter(chapters, &ChapterDisplay.text_matches?(&1, target)) do
+      [chapter] -> Enum.find_index(chapters, &(&1 == chapter))
+      _ -> nil
+    end
+  end
 
   defp render_target_structure_section(nil, _frame, _policy), do: ""
 
@@ -2405,9 +2443,12 @@ defmodule NovelApplication.TurnExecutionService do
 
     emit_reader_effect(frame, title, reader_effect, policy)
 
+    display_title = ChapterDisplay.display_title(current)
+    ref = chapter_ref_from_id(Map.get(current, :id))
+
     [
       "## 目标章结构（写前设计态）",
-      "- 目标章：#{title}#{seq_suffix(seq)}",
+      "- 目标章：#{display_title}#{seq_suffix(seq)}#{ref && " [chapter_ref=#{ref}]"}",
       direction_or_summary_lines(direction, summary),
       reader_effect_lines(reader_effect),
       "- 卷内位置：#{neighbor_label("上一章", window.previous)}；#{neighbor_label("下一章", window.next)}",
@@ -2454,10 +2495,23 @@ defmodule NovelApplication.TurnExecutionService do
   defp summary_or_empty(summary) when is_binary(summary) and summary != "", do: summary
   defp summary_or_empty(_summary), do: "（无计划摘要）"
 
-  defp neighbor_label(label, %{title: title}) when is_binary(title) and title != "",
-    do: "#{label}=#{title}"
+  defp neighbor_label(label, %{title: title} = chapter) when is_binary(title) and title != "" do
+    "#{label}=#{neighbor_title(chapter)}"
+  end
 
   defp neighbor_label(label, _chapter), do: "#{label}=无"
+
+  defp neighbor_title(chapter) do
+    title = Map.get(chapter, :title, "")
+    seq = Map.get(chapter, :seq)
+    embedded = ChapterDisplay.title_number(title)
+
+    if is_integer(seq) and is_integer(embedded) and embedded == seq do
+      title
+    else
+      ChapterDisplay.core_title(title)
+    end
+  end
 
   defp prior_prose_section(_action, ""), do: ""
 

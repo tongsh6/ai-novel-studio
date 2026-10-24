@@ -74,7 +74,7 @@ defmodule NovelApplication.LedgerMaintenance do
 
       # 停滞窗口锚定本次采纳章的 seq（写作进度），不是章索引最大 seq——索引里
       # 含未写的计划章，用它会把窗口提前拉爆（增量规划先扩章、后逐章写的形态）。
-      stalled_count = recompute_stalls(deps.repo, work_id, current.seq)
+      stalled_count = recompute_stalls(deps.repo, work_id, index, current.seq)
 
       # CP2a：genre 承诺条目播种（首次记账时从作品档案立账，OPEN）+ 正文前指
       # 扫描 → 信息账 LEAKED 条目（计划信息泄进实现态是既成事实的记账，非裁决）。
@@ -89,7 +89,7 @@ defmodule NovelApplication.LedgerMaintenance do
       # CP3：情绪曲线记账（intended=章计划 E20 vs realized=摘要情绪栏，机械判定）
       # + 主线冲突记账（设计角色=推进/高潮/转折章的采纳即主线推进，休眠规则同弧光）。
       emotion_status = record_emotion_curve(deps.repo, work_id, input, chapter_id, current)
-      record_main_conflict(deps.repo, work_id, chapter_id, current, summary_ref)
+      record_main_conflict(deps.repo, work_id, index, chapter_id, current, summary_ref)
 
       # CP2b 节拍（产品判据 milestones §4.4 每 10-20 章；简版=章 seq 整除节拍值
       # 触发；显式发起与 profile 化归 CP4）：全量对账并物化报告（TENTATIVE，
@@ -189,7 +189,89 @@ defmodule NovelApplication.LedgerMaintenance do
     text |> String.trim() |> String.slice(0, @presence_note_max_chars)
   end
 
-  defp recompute_stalls(repo, work_id, current_seq) do
+  # B30 CP3 Q07：历史账目 payload 里的 seq 是采纳当时的旧序号；重编号后按
+  # chapter_ref（last_seen/last_advanced/subject_ref）从当前章索引解析当前 seq，
+  # 再参与窗口计算/持久化。旧 seq 不静默参与错位比较；变更以业务日志留痕 old→new。
+  defp hydrate_chapter_seq(stored, chapter_index) when is_map(stored) and is_map(chapter_index) do
+    payload = stored_payload(stored)
+    ledger = stored_ledger(stored)
+
+    {payload, changed?} =
+      hydrate_payload_seq(payload, "last_seen_chapter", "last_seen_seq", chapter_index)
+
+    {payload, changed?} =
+      hydrate_payload_seq(
+        payload,
+        "last_advanced_chapter",
+        "last_advanced_seq",
+        chapter_index,
+        changed?
+      )
+
+    {payload, changed?} = hydrate_emotion_seq(payload, stored, ledger, chapter_index, changed?)
+
+    emit_seq_remapped(stored, ledger, payload, changed?)
+    Map.put(stored, :payload, payload)
+  end
+
+  defp hydrate_chapter_seq(stored, _chapter_index), do: stored
+
+  defp stored_payload(stored), do: Map.get(stored, :payload) || Map.get(stored, "payload") || %{}
+
+  defp stored_ledger(stored), do: Map.get(stored, :ledger) || Map.get(stored, "ledger")
+
+  defp emit_seq_remapped(_stored, _ledger, _payload, false), do: :ok
+
+  defp emit_seq_remapped(stored, ledger, payload, true) do
+    LogEmit.emit(:ledger, :seq_remapped, :done, %{
+      ledger: ledger,
+      subject_ref: Map.get(stored, :subject_ref) || Map.get(stored, "subject_ref"),
+      chapter_ref:
+        Map.get(payload, "last_seen_chapter") || Map.get(payload, "last_advanced_chapter"),
+      current_seq:
+        Map.get(payload, "last_seen_seq") || Map.get(payload, "last_advanced_seq") ||
+          Map.get(payload, "seq")
+    })
+  end
+
+  defp chapter_key("chapter:" <> uuid), do: uuid
+  defp chapter_key(ref), do: to_string(ref)
+
+  defp hydrate_payload_seq(payload, ref_key, seq_key, chapter_index, changed? \\ false) do
+    ref = Map.get(payload, ref_key)
+    current = is_binary(ref) && Map.get(chapter_index, chapter_key(ref))
+
+    case current do
+      %{seq: seq} when is_integer(seq) ->
+        if seq == Map.get(payload, seq_key) do
+          {payload, changed?}
+        else
+          {Map.put(payload, seq_key, seq), true}
+        end
+
+      _ ->
+        {payload, changed?}
+    end
+  end
+
+  defp hydrate_emotion_seq(payload, stored, "emotion_curve", chapter_index, changed?) do
+    ref = Map.get(stored, :subject_ref) || Map.get(stored, "subject_ref")
+
+    case is_binary(ref) && Map.get(chapter_index, chapter_key(ref)) do
+      %{seq: seq} when is_integer(seq) ->
+        if seq == Map.get(payload, "seq"),
+          do: {payload, changed?},
+          else: {Map.put(payload, "seq", seq), true}
+
+      _ ->
+        {payload, changed?}
+    end
+  end
+
+  defp hydrate_emotion_seq(payload, _stored, _ledger, _chapter_index, changed?),
+    do: {payload, changed?}
+
+  defp recompute_stalls(repo, work_id, chapter_index, current_seq) do
     threshold =
       Application.get_env(
         :novel_application,
@@ -200,6 +282,8 @@ defmodule NovelApplication.LedgerMaintenance do
     repo.list.(work_id)
     |> Enum.filter(&(&1.ledger == "arc"))
     |> Enum.count(fn stored ->
+      stored = hydrate_chapter_seq(stored, chapter_index)
+
       with {:ok, entry} <- LedgerEntry.new(stored),
            {:changed, changed} <- LedgerEntry.arc_recompute_stall(entry, current_seq, threshold) do
         persist(changed, repo) and changed.status == "STALLED"
@@ -255,7 +339,7 @@ defmodule NovelApplication.LedgerMaintenance do
   # CP3：主线冲突记账——设计角色为推进/高潮/转折章的采纳推进主线；随后休眠重算。
   # B27 CP3c/D7：chapter_role 是模型自由文本，归类走 `ChapterPlanDirection.conflict_progress?/1`
   # 单一真源，不再在本模块手写中文字面量集合。
-  defp record_main_conflict(repo, work_id, chapter_id, current, summary_ref) do
+  defp record_main_conflict(repo, work_id, chapter_index, chapter_id, current, summary_ref) do
     if ChapterPlanDirection.conflict_progress?(Map.get(current, :chapter_role)) do
       existing =
         repo.list.(work_id)
@@ -294,10 +378,10 @@ defmodule NovelApplication.LedgerMaintenance do
       end
     end
 
-    recompute_conflict_dormancy(repo, work_id, current.seq)
+    recompute_conflict_dormancy(repo, work_id, chapter_index, current.seq)
   end
 
-  defp recompute_conflict_dormancy(repo, work_id, current_seq) do
+  defp recompute_conflict_dormancy(repo, work_id, chapter_index, current_seq) do
     threshold =
       Application.get_env(
         :novel_application,
@@ -308,6 +392,8 @@ defmodule NovelApplication.LedgerMaintenance do
     repo.list.(work_id)
     |> Enum.filter(&(&1.ledger == "conflict"))
     |> Enum.each(fn stored ->
+      stored = hydrate_chapter_seq(stored, chapter_index)
+
       with {:ok, entry} <- LedgerEntry.new(stored),
            {:changed, changed} <-
              LedgerEntry.conflict_recompute_dormant(entry, current_seq, threshold) do

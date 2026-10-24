@@ -15,7 +15,13 @@ defmodule NovelApplication.ExplorationService do
   summary 是检索结果的机械渲染（结构词家族 + 出处 refs），不产生系统代笔叙述。
   """
 
-  alias NovelApplication.{MemoryManagementService, ReadingProjectionService, WorkArchiveService}
+  alias NovelApplication.{
+    ChapterDisplay,
+    MemoryManagementService,
+    ReadingProjectionService,
+    WorkArchiveService
+  }
+
   alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.VolumeBlueprint
   alias NovelFoundation.Enums.ChapterMissionStatus
@@ -370,18 +376,27 @@ defmodule NovelApplication.ExplorationService do
     end
   end
 
+  # B30 CP3-P（Q06/Q07）：标题/展示名只是唯一命中时的别名，按当前 seq + title core 解析；
+  # 历史「第NN章：」前缀不参与身份匹配（数字以当前 seq 为准，多候选不猜）。
   defp resolve_chapter(chapters, {:title, title}) do
-    exact = Enum.filter(chapters, &(chapter_title(&1) == title))
+    exact = Enum.filter(chapters, &chapter_exact_title_match?(&1, title))
 
     cond do
       length(exact) == 1 -> {:ok, hd(exact)}
       length(exact) > 1 -> {:error, {:ambiguous, exact}}
-      true -> resolve_chapter_by_substring(chapters, title)
+      true -> resolve_chapter_by_display(chapters, title)
     end
   end
 
-  defp resolve_chapter_by_substring(chapters, title) do
-    case Enum.filter(chapters, &chapter_match?(&1, title)) do
+  defp chapter_exact_title_match?(chapter, title) do
+    raw = chapter_title(chapter)
+    core = ChapterDisplay.core_title(raw)
+
+    title in [raw, core, ChapterDisplay.display_title(chapter)]
+  end
+
+  defp resolve_chapter_by_display(chapters, title) do
+    case Enum.filter(chapters, &ChapterDisplay.text_matches?(&1, title)) do
       [chapter] -> {:ok, chapter}
       [] -> {:error, :not_found}
       many -> {:error, {:ambiguous, many}}
@@ -633,16 +648,25 @@ defmodule NovelApplication.ExplorationService do
   defp chapter_activity_summary(chapter, offset, page_end, total, _word_count) do
     detail = "第 #{offset + 1}–#{page_end} 字符 / 共 #{total} 字符"
 
-    "已阅读章节正文「#{chapter_title(chapter)}」" <>
+    "已阅读章节正文「#{chapter_read_display_title(chapter)}」" <>
       chapter_detail_text(chapter, detail) <> "。"
   end
 
   # 作者可见标题行（模型面）：seq + title 双面身份；作者面只从 activity_summary 取。
   defp chapter_title_line(chapter) do
+    core = ChapterDisplay.core_title(chapter_title(chapter))
+    core = if core == "", do: chapter_title(chapter), else: core
+
     case Map.get(chapter, :seq) do
-      seq when is_integer(seq) -> "「#{chapter_title(chapter)}」（第 #{seq} 章）"
+      seq when is_integer(seq) -> "「#{core}」（第 #{seq} 章）"
       _ -> "「#{chapter_title(chapter)}」"
     end
+  end
+
+  defp chapter_read_display_title(chapter) do
+    raw = chapter_title(chapter)
+    core = ChapterDisplay.core_title(raw)
+    if core == "", do: raw, else: core
   end
 
   defp chapter_seq_text(chapter) do
@@ -784,11 +808,6 @@ defmodule NovelApplication.ExplorationService do
       _ ->
         "【摘要】（尚无章摘要）"
     end
-  end
-
-  defp chapter_match?(chapter, query) do
-    title = chapter.title || ""
-    String.contains?(title, query) or String.contains?(query, title)
   end
 
   # ── archive_read ──

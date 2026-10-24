@@ -107,7 +107,7 @@ defmodule NovelApplication.ChapterListBudget do
   @doc false
   @spec entry_line(map()) :: String.t()
   def entry_line(entry) do
-    title = entry_field(entry, :title, "")
+    title = display_entry_title(entry)
     planned = if Map.get(entry, :has_prose) == false, do: "（计划中）", else: ""
 
     case Map.get(entry, :id) do
@@ -121,6 +121,22 @@ defmodule NovelApplication.ChapterListBudget do
 
       _ ->
         "- #{title}#{planned}"
+    end
+  end
+
+  # B30 CP3-P（Q06/Q07）：有当前 seq 时展示 seq 章号 + title core（剥历史“第NN章：”前缀），
+  # 避免与真实 seq 双重编号；不改写存储 title。
+  defp display_entry_title(entry) do
+    title = entry_field(entry, :title, "")
+
+    embedded = NovelApplication.ChapterDisplay.title_number(title)
+    seq = Map.get(entry, :seq)
+
+    if is_integer(seq) and is_binary(title) and title != "" and
+         not (is_integer(embedded) and embedded == seq) do
+      NovelApplication.ChapterDisplay.core_title(title)
+    else
+      title
     end
   end
 

@@ -920,24 +920,58 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         &NovelApplication.persistence_chapter_prose_reader/0
       )
 
-    title =
-      TurnExecutionService.resolve_target_chapter(
+    work_id = run.work_id || run.workspace_id
+
+    index_reader =
+      reader_dep(
+        spec,
+        :chapter_index_reader,
+        &NovelApplication.persistence_chapter_index_reader/0
+      )
+
+    identity =
+      TurnExecutionService.resolve_target_chapter_identity(
         action,
         context,
         reader,
-        run.work_id || run.workspace_id,
+        index_reader,
+        work_id,
         run.goal.text
       )
 
-    chapters = context.structured_chapters || []
-
-    case title do
-      "" -> Enum.find(chapters, &(Map.get(&1, :has_prose) == false))
-      title -> Enum.find(chapters, &(Map.get(&1, :title) == title))
-    end
+    context.structured_chapters
+    |> List.wrap()
+    |> pick_mission_chapter(identity)
   end
 
   defp mission_target_chapter(_run, _spec, _context, _decision), do: nil
+
+  defp pick_mission_chapter(chapters, %{ref: ref, title: title} = _identity) do
+    cond do
+      is_binary(ref) and ref != "" ->
+        Enum.find(chapters, &(mission_chapter_ref(&1) == ref)) ||
+          find_mission_by_title(chapters, title)
+
+      title != "" ->
+        find_mission_by_title(chapters, title)
+
+      true ->
+        Enum.find(chapters, &(Map.get(&1, :has_prose) == false))
+    end
+  end
+
+  defp find_mission_by_title(chapters, title) when is_binary(title) and title != "" do
+    Enum.find(chapters, &(Map.get(&1, :title) == title)) ||
+      case Enum.filter(chapters, &NovelApplication.ChapterDisplay.text_matches?(&1, title)) do
+        [chapter] -> chapter
+        _ -> nil
+      end
+  end
+
+  defp find_mission_by_title(_chapters, _title), do: nil
+
+  defp mission_chapter_ref(%{id: id}) when is_binary(id) and id != "", do: "chapter:#{id}"
+  defp mission_chapter_ref(_chapter), do: nil
 
   defp prose_plan_step(plan) do
     plan

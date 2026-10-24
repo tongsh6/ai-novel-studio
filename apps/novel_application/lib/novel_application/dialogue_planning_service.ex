@@ -802,10 +802,21 @@ defmodule NovelApplication.DialoguePlanningService do
     chapter_status = text_or_default(Map.get(chapter, :chapter_status), "未知")
     plan_fields = chapter_plan_fields(chapter)
 
-    "- 第#{seq}章「#{title}」：当前已采纳正文 #{accepted}/#{scenes} 场（#{chapter_volume_label(chars, words)}）；" <>
+    "- #{chapter_facts_title(seq, title)}：当前已采纳正文 #{accepted}/#{scenes} 场（#{chapter_volume_label(chars, words)}）；" <>
       current_version_segment(refs) <>
       "；章摘要=#{summary_status}；历史 SUPERSEDED 稿 #{superseded} 份（不计入当前）；" <>
       "章状态=#{chapter_status}；章计划字段=#{plan_fields_label(plan_fields)}"
+  end
+
+  defp chapter_facts_title(seq, title) do
+    title = to_string(title || "")
+    embedded = NovelApplication.ChapterDisplay.title_number(title)
+
+    if is_integer(seq) and is_integer(embedded) and embedded == seq do
+      "第#{seq}章「#{title}」"
+    else
+      NovelApplication.ChapterDisplay.display_title(%{seq: seq, title: title})
+    end
   end
 
   defp text_or_default(value, default) when value in [nil, ""], do: default
