@@ -1,0 +1,35 @@
+id: b30-volume-blueprint-kind-boundary
+title: "B30：卷蓝图/卷章类型边界（Volume 设计态 vs Chapter 行）"
+tier: nightly
+surface: tauri
+default_provider: slice_verify
+status_note: >-
+  draft（CP0 边界草案；B30 CP0 先在 b30-chapter-renumber-roundtrip 的 trial B 中真实页面
+  取证；待 CP1/CP2 冻结类型边界后如需独立场景再注册，当前不注册 scenarios.yml）。
+entrypoint: bash scripts/quality_accept.sh b30-volume-blueprint-kind-boundary --surface tauri
+contract:
+  - tasks/slices/B30-chapter-structure-maintenance.md §3
+  - docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md
+  - docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md
+invariants:
+  - I-B30-3 卷蓝图只属 Volume 设计态，不得物化为 Chapter 或占 seq。
+  - I-VOL 卷蓝图/开篇章在生成、解析、采纳间具备明确类型语义，非法混排拒绝/纠正。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_b30_chapter_structure.exs（work B：只有全书骨架，无卷/章行）
+user_flow:
+  - open: 真实 Tauri 工作台打开 work B。
+  - click: 打开档案 → 大纲与结构 → 规划卷章结构 → 保存到大纲。
+  - click: 规划下一卷（可见时）→ 保存到大纲。
+  - observe: 卷行 blueprint 与章行；卷蓝图不得作为章节卡片/Chapter/占 seq。
+assertions:
+  data:
+    - volumes.blueprint 承载卷级蓝图；chapters 无标题含「卷蓝图/蓝图」的行；无蓝图占 seq。
+    - 开篇章只物化为真实 Chapter（带所属卷），数量/seq 与采纳计划一致。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+known_not_closed:
+  - 当前为 CP0 草案；独立场景待 CP1/CP2 类型边界实现后评估是否注册。

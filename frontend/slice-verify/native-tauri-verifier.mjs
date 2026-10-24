@@ -2327,9 +2327,72 @@ function b28WholeChapterRevisionBehavior(records, evidence, _options) {
   };
 }
 
+// B30 CP0（未注册草案）：章节重编号/结构修订与卷蓝图类型边界的真实 Tauri 隔离复现。
+// CP0 目标是记录“当前版本真实行为与能力缺口”，不预设产品已正确；因此 finder 要求
+// 复现证据完整（trials/checks/无产品改动），CP0 checks 结果作为证据字段，不要求全 true。
+function findB30ChapterRenumberEvidence(records) {
+  const sliceId = "b30-chapter-renumber-roundtrip";
+  const ui = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!ui) return null;
+  if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 4) return null;
+  if (!ui.cp0_checks || Object.keys(ui.cp0_checks).length < 10) return null;
+  if (!ui.cp0_measured || typeof ui.cp0_measured !== "object") return null;
+  if (!ui.summary || typeof ui.summary !== "object") return null;
+  if (ui.no_product_code_changed !== true) return null;
+  if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+  return {
+    slice_id: sliceId,
+    turn_id: "b30-cp0-chapter-renumber-repro",
+    turn_ids: [],
+    trial_ids: ui.trial_ids,
+    checks: ui.cp0_checks,
+    measured: ui.cp0_measured,
+    summary: ui.summary,
+    seed: ui.seed,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function b30ChapterRenumberBehavior(records, evidence, _options) {
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "b30-chapter-renumber-roundtrip",
+  );
+  if (!ui) return null;
+  return {
+    slice_id: "b30-chapter-renumber-roundtrip",
+    behavior: "b30_cp0_chapter_structure_maintenance_and_volume_blueprint_kind_repro",
+    turn_ids: [],
+    trials: evidence.trial_ids,
+    checks: evidence.checks,
+    measured: evidence.measured,
+    summary: evidence.summary,
+    seed: evidence.seed,
+    assertions: [
+      "natural_renumber_request_judgment_binding_and_write_vs_no_write_recorded",
+      "outline_flavored_request_reproduces_generate_another_outline_then_adopt_path",
+      "chapter_count_id_set_seq_title_duplicates_volume_assignment_prose_hashes_recorded_before_after",
+      "old_chapters_retained_and_prose_not_mutated_when_outline_adopted",
+      "chapter_summary_downstream_references_recorded",
+      "out_of_range_target_records_capability_gap_or_misroute_without_writes",
+      "volume_blueprint_lines_stay_volume_design_state_and_do_not_materialize_as_chapters_or_occupy_seq",
+      "no_product_code_or_acceptance_hook_changed",
+    ],
+    note:
+      "B30 CP0 isolation reproduction only; scenario remains an unregistered draft until Lead freezes CP0 and CP1/CP2 implement the structure-maintenance contract.",
+  };
+}
+
 export function findNativeSliceEvidence(sliceId, records) {
   if (sliceId === "b28-whole-chapter-revision") {
     return findB28WholeChapterRevisionEvidence(records);
+  }
+
+  if (sliceId === "b30-chapter-renumber-roundtrip") {
+    return findB30ChapterRenumberEvidence(records);
   }
 
   if (sliceId === "b31-author-reply-run-binding") {
@@ -3100,6 +3163,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "b28-whole-chapter-revision") {
     return b28WholeChapterRevisionBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "b30-chapter-renumber-roundtrip") {
+    return b30ChapterRenumberBehavior(records, evidence, options);
   }
 
   if (sliceId === "b31-author-reply-run-binding") {

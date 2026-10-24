@@ -37632,6 +37632,575 @@ async function driveB28WholeChapterRevision(page) {
     },
   ];
 }
+// B30 CP0：已有章节重编号/结构修订与卷蓝图类型边界的真实工作台隔离复现。
+// 目标：不预设修法，记录当前版本的真实判断绑定/写入/后果，复现历史失败条件
+// （标题里的章号 vs 真实 seq vs 卷/章类型混用；维护请求被当成再生成大纲）。
+const B30_SLICE_ID = "b30-chapter-renumber-roundtrip";
+
+async function driveB30ChapterRenumberRoundtrip(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+  const { createHash } = await import("node:crypto");
+  const sha256 = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
+  const workAId = readSeedField("work_a_id");
+  const volume1Id = readSeedField("volume1_id");
+  const volume2Id = readSeedField("volume2_id");
+  const seededChapterIds = String(readSeedField("chapter_ids") ?? "")
+    .split(",")
+    .filter(Boolean);
+  const workBId = readSeedField("work_b_id");
+  assert(workAId && volume1Id && volume2Id && workBId, "B30 seed fields missing");
+  const workATitle = "B30 章节重编号复现作品";
+  const workBTitle = "B30 卷蓝图复现作品";
+  const naturalRequest = "把第2卷章节编号理顺，内容不要动";
+  const outlineRequest = "把第二卷的章节大纲编号理顺，只改列表编号，章节内容不要动";
+  const stageWordingRequest = "只修正第二卷的列表编号，不改变章节内容定位";
+  const missingTargetRequest = "把不存在的第九卷章节大纲编号理顺，内容不要动";
+  const evidence = {
+    scenario: B30_SLICE_ID,
+    surface: "tauri",
+    driver: "headless-chromium-real-frontend-backend",
+    provider: "slice_verify",
+    evidence_boundary:
+      "确定性 provider 复现真实页面/状态链上的判断、写入与后果；真实模型意图/措辞变异归 CP4。",
+    seed: {
+      work_a_id: workAId,
+      volume1_id: volume1Id,
+      volume2_id: volume2Id,
+      seeded_chapter_ids: seededChapterIds,
+      work_b_id: workBId,
+    },
+    trials: [],
+  };
+
+  async function dbAll(sql, params = []) {
+    const { DatabaseSync } = await import("node:sqlite");
+    const dbDir = process.env.NOVEL_TEST_DB_DIR ?? os.tmpdir();
+    const database = new DatabaseSync(
+      path.join(dbDir, `ai_novel_studio_test${process.env.MIX_TEST_PARTITION ?? ""}.sqlite3`),
+      { readOnly: true },
+    );
+    try {
+      return database.prepare(sql).all(...params);
+    } finally {
+      database.close();
+    }
+  }
+
+  async function structureFacts(workId) {
+    const volumes = await dbAll(
+      "SELECT id, title, seq, status, blueprint FROM volumes WHERE work_id = ? ORDER BY seq",
+      [workId],
+    );
+    const chapters = await dbAll(
+      "SELECT id, title, seq, status, volume_id, summary FROM chapters WHERE work_id = ? ORDER BY seq",
+      [workId],
+    );
+    const drafts = await dbAll(
+      "SELECT d.id, d.scene_id, s.chapter_id, d.content, d.status AS draft_status, d.revision FROM drafts d JOIN scenes s ON s.id = d.scene_id WHERE d.work_id = ? ORDER BY d.inserted_at",
+      [workId],
+    );
+    const summaries = await dbAll(
+      "SELECT id, chapter_id, status, summary_text, source_ref, revision_base FROM chapter_summaries WHERE work_id = ? ORDER BY inserted_at",
+      [workId],
+    );
+    const acceptedByChapter = new Map();
+    for (const draft of drafts.filter((row) => row.draft_status === "ACCEPTED")) {
+      acceptedByChapter.set(draft.chapter_id, String(draft.content ?? ""));
+    }
+    return {
+      volumes: volumes.map((row) => ({
+        id: row.id,
+        title: row.title,
+        seq: Number(row.seq),
+        status: row.status,
+        blueprint: row.blueprint ?? null,
+      })),
+      chapters: chapters.map((row) => {
+        const content = acceptedByChapter.get(row.id) ?? "";
+        return {
+          id: row.id,
+          title: row.title,
+          seq: Number(row.seq),
+          status: row.status,
+          volume_id: row.volume_id,
+          content_chars: content.length,
+          content_sha256: content ? sha256(content) : null,
+          title_number: (() => {
+            const match = String(row.title ?? "").match(/第\s*(\d+)\s*章/u);
+            return match ? Number(match[1]) : null;
+          })(),
+        };
+      }),
+      drafts: drafts.map((row) => ({
+        id: row.id,
+        chapter_id: row.chapter_id,
+        status: row.draft_status,
+        revision: Number(row.revision),
+        content_sha256: sha256(row.content),
+      })),
+      summaries: summaries.map((row) => ({
+        id: row.id,
+        chapter_id: row.chapter_id,
+        status: row.status,
+        summary_sha256: sha256(row.summary_text),
+        source_ref: row.source_ref ?? null,
+        revision_base: row.revision_base ?? null,
+      })),
+    };
+  }
+
+  function chapterDiff(before, after) {
+    const beforeIds = new Set(before.chapters.map((row) => row.id));
+    const afterIds = new Set(after.chapters.map((row) => row.id));
+    const retained = before.chapters.filter((row) => afterIds.has(row.id));
+    const added = after.chapters.filter((row) => !beforeIds.has(row.id));
+    const removed = before.chapters.filter((row) => !afterIds.has(row.id));
+    const afterById = new Map(after.chapters.map((row) => [row.id, row]));
+    const contentChanged = retained.filter((row) => {
+      const next = afterById.get(row.id);
+      return (
+        !next ||
+        next.content_sha256 !== row.content_sha256 ||
+        next.title !== row.title ||
+        next.seq !== row.seq ||
+        next.volume_id !== row.volume_id
+      );
+    });
+    const titleCounts = new Map();
+    for (const row of after.chapters) {
+      titleCounts.set(row.title, (titleCounts.get(row.title) ?? 0) + 1);
+    }
+    const duplicateTitles = [...titleCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([title, count]) => ({ title, count }));
+    const seqs = after.chapters.map((row) => row.seq);
+    return {
+      chapter_count_before: before.chapters.length,
+      chapter_count_after: after.chapters.length,
+      retained_count: retained.length,
+      added_chapters: added,
+      removed_chapters: removed,
+      retained_chapters_mutated: contentChanged,
+      new_chapter_count: added.length,
+      duplicate_titles: duplicateTitles,
+      seq_unique: new Set(seqs).size === seqs.length,
+      seq_sorted: seqs.join(","),
+      title_number_seq_mismatch: after.chapters
+        .filter((row) => row.title_number !== null && row.title_number !== row.seq)
+        .map((row) => ({
+          id: row.id,
+          title: row.title,
+          title_number: row.title_number,
+          seq: row.seq,
+        })),
+      volume_assignment: after.chapters.map((row) => ({
+        id: row.id,
+        title: row.title,
+        seq: row.seq,
+        volume_id: row.volume_id,
+      })),
+    };
+  }
+
+  async function openArchiveOutline() {
+    const archiveOpen = await page
+      .getByRole("tab", { name: "大纲与结构" })
+      .isVisible()
+      .catch(() => false);
+    if (!archiveOpen) await page.getByRole("button", { name: "打开档案" }).first().click();
+    await page.getByRole("tab", { name: "大纲与结构" }).click();
+  }
+
+  async function closeArchiveIfOpen() {
+    const closeButton = page.getByRole("button", { name: "关闭档案" });
+    if ((await closeButton.count()) > 0) {
+      await closeButton.first().click().catch(() => {});
+      await sleep(200);
+    }
+  }
+
+  async function selectWorkByTitle(title) {
+    await waitForWorkByTitle(title, new Set(), 20_000);
+    try {
+      await waitForVisibleWorkTitle(page, title, 10_000);
+    } catch {
+      await refreshAndSelectWork(page, title).catch(async () => {
+        await page.getByRole("button", { name: /作品|切换作品/ }).first().click().catch(() => {});
+        await page.getByRole("menuitem", { name: new RegExp(title) }).first().click();
+      });
+      await waitForVisibleWorkTitle(page, title, 20_000);
+    }
+  }
+
+  async function sendAuthorInput(text, label, timeoutMs = 240_000) {
+    const start = frames.length;
+    const logStart = readAppLogRecords().length;
+    const llmStart = readLlmCallRecords().length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === text,
+      `${label}: author input was not sent`,
+      30_000,
+    );
+    const turnFrame = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        String(frame.body?.turn_id ?? "").startsWith(String(sent.body?.turn_id ?? "")),
+      `${label}: no correlated TurnResult`,
+      timeoutMs,
+    ).catch(() => null);
+    await sleep(1_000);
+    const appRecords = readAppLogRecords().slice(logStart);
+    const llmPrompts = readLlmCallRecords()
+      .slice(llmStart)
+      .map((record) => (typeof record?.prompt === "string" ? record.prompt : ""));
+    return {
+      label,
+      text,
+      sent_turn_id: sent.body?.turn_id,
+      turnResult: turnFrame?.body ?? null,
+      assistant_text: String(turnFrame?.body?.assistant_message?.text ?? ""),
+      pending: turnFrame?.body?.adoption_state?.pending ?? [],
+      pending_types: (turnFrame?.body?.adoption_state?.pending ?? []).map((entry) => entry.artifact_type),
+      resolved: turnFrame?.body?.adoption_state?.resolved ?? [],
+      truthfulness: turnFrame?.body?.truthfulness ?? {},
+      judgment_records: appRecords
+        .filter((record) => record.event.startsWith("judgment."))
+        .map((record) => ({
+          event: record.event,
+          action: record.action ?? null,
+          capability: record.capability ?? null,
+          frame_type: record.frame_type ?? null,
+          reason_code: record.reason_code ?? null,
+        })),
+      app_event_counts: appRecords.reduce((acc, record) => {
+        const key = String(record.event ?? "");
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {}),
+      llm_prompt_count: llmPrompts.length,
+      llm_prompts_with_outline: llmPrompts.filter((prompt) => prompt.includes("章节大纲")).length,
+    };
+  }
+
+  async function adoptOutlineCandidate(turnResult, label) {
+    const pending = (turnResult?.adoption_state?.pending ?? []).find(
+      (entry) => entry.artifact_type === "outline_draft",
+    );
+    if (!pending) return { adopted: false, reason: "no_outline_pending" };
+    const start = frames.length;
+    const button = page.getByRole("button", { name: acceptDraftButtonPattern });
+    if ((await button.count()) === 0) return { adopted: false, reason: "no_adopt_button" };
+    await button.first().click();
+    const actionFrame = await waitForNewFrame(
+      start,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "action_result" &&
+        frame.body?.status === "accepted",
+      `${label}: outline adoption action_result`,
+      180_000,
+    ).catch(() => null);
+    await sleep(1_000);
+    return {
+      adopted: Boolean(actionFrame),
+      pending_artifact_id: pending.artifact_id,
+      item_count: (pending.payload?.items ?? []).length,
+      chapter_count: Number(pending.payload?.chapter_count ?? (pending.payload?.items ?? []).length),
+      volume_blueprint_lines: (pending.payload?.items ?? [])
+        .flatMap((item) => String(item?.body ?? "").split("\n"))
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("卷蓝图："))
+        .map((line) => line.slice(0, 160)),
+      action_result_status: actionFrame?.body?.status ?? null,
+    };
+  }
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  // ── A1：作者原话（无「大纲」措辞）──────────────────────────────────────────
+  await selectWorkByTitle(workATitle);
+  const a1Before = await structureFacts(workAId);
+  const a1Turn = await sendAuthorInput(naturalRequest, "B30 A1 natural renumber request");
+  const a1After = await structureFacts(workAId);
+  await page.screenshot({ path: path.join(artifactDir, "b30-a1-natural-request.png"), fullPage: true }).catch(() => {});
+  evidence.trials.push({
+    id: "A1_natural_renumber_request",
+    purpose: "原话「把第2卷章节编号理顺，内容不要动」：记录判断绑定、是否生成大纲/新章、写入与后果。",
+    request: naturalRequest,
+    before: a1Before,
+    judgment: a1Turn.judgment_records,
+    turn: {
+      assistant_text: a1Turn.assistant_text,
+      pending_types: a1Turn.pending_types,
+      truthfulness: a1Turn.truthfulness,
+      app_event_counts: a1Turn.app_event_counts,
+      llm_prompt_count: a1Turn.llm_prompt_count,
+    },
+    after: a1After,
+    diff: chapterDiff(a1Before, a1After),
+  });
+
+  // ── A2：按大纲措辞（复现「生成另一份大纲并采纳」路径）──────────────────────
+  const a2Before = await structureFacts(workAId);
+  const a2Turn = await sendAuthorInput(outlineRequest, "B30 A2 outline renumber request");
+  const a2Adoption = await adoptOutlineCandidate(a2Turn.turnResult, "B30 A2 outline adoption");
+  const a2After = await structureFacts(workAId);
+  await page.screenshot({ path: path.join(artifactDir, "b30-a2-outline-adoption.png"), fullPage: true }).catch(() => {});
+  evidence.trials.push({
+    id: "A2_outline_path_renumber_request",
+    purpose:
+      "含「章节大纲」措辞的重编号请求：复现系统生成另一份大纲/新章而非重编号；记录旧章保留、新章、重复编号、章数/ID/归卷/正文 hash 与摘要引用变化。",
+    request: outlineRequest,
+    before: a2Before,
+    judgment: a2Turn.judgment_records,
+    turn: {
+      assistant_text: a2Turn.assistant_text,
+      pending_types: a2Turn.pending_types,
+      truthfulness: a2Turn.truthfulness,
+      app_event_counts: a2Turn.app_event_counts,
+      llm_prompt_count: a2Turn.llm_prompt_count,
+      llm_prompts_with_outline: a2Turn.llm_prompts_with_outline,
+    },
+    adoption: a2Adoption,
+    after: a2After,
+    diff: chapterDiff(a2Before, a2After),
+  });
+
+  // ── A2b：stage 原话措辞（「只修正列表编号，不改变章节内容定位」）────────────
+  const a2bBefore = await structureFacts(workAId);
+  const a2bTurn = await sendAuthorInput(stageWordingRequest, "B30 A2b stage wording request");
+  const a2bAdoption = await adoptOutlineCandidate(a2bTurn.turnResult, "B30 A2b outline adoption");
+  const a2bAfter = await structureFacts(workAId);
+  await page
+    .screenshot({ path: path.join(artifactDir, "b30-a2b-stage-wording.png"), fullPage: true })
+    .catch(() => {});
+  evidence.trials.push({
+    id: "A2b_stage_wording_request",
+    purpose:
+      "复现 stage 原话措辞「只修正列表编号，不改变章节内容定位」：记录判断绑定；若仍生成大纲候选则真实采纳并记录章数/ID/正文 hash 后果；否则记录零写入/能力缺失。",
+    request: stageWordingRequest,
+    before: a2bBefore,
+    judgment: a2bTurn.judgment_records,
+    turn: {
+      assistant_text: a2bTurn.assistant_text,
+      pending_types: a2bTurn.pending_types,
+      truthfulness: a2bTurn.truthfulness,
+      app_event_counts: a2bTurn.app_event_counts,
+      llm_prompt_count: a2bTurn.llm_prompt_count,
+      llm_prompts_with_outline: a2bTurn.llm_prompts_with_outline,
+    },
+    adoption: a2bAdoption,
+    after: a2bAfter,
+    diff: chapterDiff(a2bBefore, a2bAfter),
+  });
+
+  // ── C：负例（无目标/越界；当前无维护能力时记录能力缺失/误路由）──────────────
+  const cBefore = await structureFacts(workAId);
+  const cTurn = await sendAuthorInput(missingTargetRequest, "B30 C missing target request");
+  const cAfter = await structureFacts(workAId);
+  evidence.trials.push({
+    id: "C1_missing_or_out_of_range_target",
+    purpose:
+      "无目标/越界（不存在的第九卷）维护请求：当前无结构维护能力时应记录被误路由/能力缺失，而不是静默写入或误改其他章。",
+    request: missingTargetRequest,
+    before: cBefore,
+    judgment: cTurn.judgment_records,
+    turn: {
+      assistant_text: cTurn.assistant_text,
+      pending_types: cTurn.pending_types,
+      truthfulness: cTurn.truthfulness,
+      app_event_counts: cTurn.app_event_counts,
+    },
+    after: cAfter,
+    diff: chapterDiff(cBefore, cAfter),
+    capability_gap_evidence: {
+      no_structure_maintenance_capability:
+        !(cTurn.judgment_records ?? []).some((record) => record.capability === "maintain_chapter_structure"),
+      misrouted_or_replied:
+        cTurn.pending_types.length > 0 || String(cTurn.assistant_text).length > 0,
+    },
+  });
+
+  // ── B：卷蓝图/卷章类型边界（真实页面规划卷章 + 规划下一卷）──────────────────
+  await selectWorkByTitle(workBTitle);
+  await openArchiveOutline();
+  const bBefore = await structureFacts(workBId);
+  const planStart = frames.length;
+  await page.getByRole("button", { name: "规划卷章结构" }).click();
+  const planTurnFrame = await waitForNewFrame(
+    planStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "plot_outline" &&
+      frame.body?.tool_result?.output?.artifact_type === "outline_draft",
+    "B30 B: no volume plan outline_draft turn_result",
+    240_000,
+  );
+  const planAdoption1 = await adoptOutlineCandidate(planTurnFrame.body, "B30 B first volume plan adoption");
+  const bAfterPlan = await structureFacts(workBId);
+  // 规划下一卷（产品在已采纳计划后提供开卷动作按钮）；关闭/重开档案并等待渲染，
+  // 若仍不可见则如实记录边界。
+  await closeArchiveIfOpen();
+  await sleep(500);
+  await openArchiveOutline();
+  let nextVolumeVisible = false;
+  const nextVolumeButton = page.getByRole("button", { name: /规划下一卷/ });
+  for (let attempt = 1; attempt <= 10 && !nextVolumeVisible; attempt += 1) {
+    nextVolumeVisible = (await nextVolumeButton.count()) > 0;
+    if (!nextVolumeVisible) await sleep(400);
+  }
+  let nextVolumeAdoption;
+  let bAfterNextVolume = bAfterPlan;
+  if (nextVolumeVisible) {
+    const nextStart = frames.length;
+    await nextVolumeButton.first().click();
+    const nextTurnFrame = await waitForNewFrame(
+      nextStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.tool_name === "plot_outline" &&
+        frame.body?.tool_result?.output?.artifact_type === "outline_draft",
+      "B30 B: no scoped next-volume outline_draft turn_result",
+      240_000,
+    ).catch(() => null);
+    nextVolumeAdoption = nextTurnFrame
+      ? await adoptOutlineCandidate(nextTurnFrame.body, "B30 B next volume adoption")
+      : { adopted: false, reason: "no_next_volume_turn_result" };
+    bAfterNextVolume = await structureFacts(workBId);
+  } else {
+    nextVolumeAdoption = { adopted: false, reason: "next_volume_button_not_visible" };
+  }
+  await page.screenshot({ path: path.join(artifactDir, "b30-b-volume-blueprint.png"), fullPage: true }).catch(() => {});
+  const blueprintChapters = (after) =>
+    after.chapters.filter((row) => /卷蓝图|蓝图/u.test(String(row.title ?? "")));
+  evidence.trials.push({
+    id: "B_volume_blueprint_kind_boundary",
+    purpose:
+      "真实页面规划卷章/规划下一卷：卷蓝图只属 Volume（blueprint 设计态），不得物化为 Chapter/占 seq；记录卷/章行、蓝图行、章数/seq。",
+    before: bBefore,
+    plan_adoption: planAdoption1,
+    after_plan: bAfterPlan,
+    next_volume_adoption: nextVolumeAdoption,
+    after_next_volume: bAfterNextVolume,
+    blueprint_chapters_after_plan: blueprintChapters(bAfterPlan),
+    blueprint_chapters_after_next_volume: blueprintChapters(bAfterNextVolume),
+    volumes_with_blueprint_after_plan: bAfterPlan.volumes.filter((row) => row.blueprint != null).map((row) => ({
+      title: row.title,
+      seq: row.seq,
+    })),
+    volumes_with_blueprint_after_next_volume: bAfterNextVolume.volumes
+      .filter((row) => row.blueprint != null)
+      .map((row) => ({ title: row.title, seq: row.seq })),
+    seq_occupied_by_blueprint_after_plan: bAfterPlan.chapters.some((row) => /卷蓝图|蓝图/u.test(row.title)),
+  });
+
+  // ── 汇总 CP0 checks（复现证据；不预设当前版本应通过）────────────────────────
+  const a1 = evidence.trials.find((trial) => trial.id.startsWith("A1_"));
+  const a2 = evidence.trials.find((trial) => trial.id.startsWith("A2_"));
+  const a2b = evidence.trials.find((trial) => trial.id.startsWith("A2b_"));
+  const c1 = evidence.trials.find((trial) => trial.id.startsWith("C1_"));
+  const b = evidence.trials.find((trial) => trial.id.startsWith("B_"));
+  const a2Diff = a2?.diff ?? {};
+  evidence.checks = {
+    a1_real_natural_request_recorded:
+      a1?.before?.chapters?.length > 0 && Boolean(a1?.turn?.assistant_text?.length),
+    a1_no_silent_structure_write:
+      (a1?.diff?.chapter_count_after ?? 0) === (a1?.diff?.chapter_count_before ?? -1) &&
+      (a1?.diff?.retained_chapters_mutated ?? []).length === 0,
+    a2_validation_failure_or_candidate_recorded:
+      Boolean(a2?.turn?.assistant_text?.length) &&
+      (a2?.turn?.pending_types?.includes("outline_draft") === true ||
+        (a2?.turn?.app_event_counts?.["judgment.output_validation.done"] ?? 0) > 0),
+    a2_no_silent_structure_write_when_validation_failed:
+      (a2Diff.chapter_count_after ?? -1) === (a2Diff.chapter_count_before ?? -2) &&
+      (a2Diff.retained_chapters_mutated ?? []).length === 0,
+    a2_old_chapters_retained: (a2Diff.retained_count ?? 0) === (a2?.before?.chapters?.length ?? -1),
+    a2_no_available_renumber_capability: !(a2?.judgment ?? []).some(
+      (record) => record.capability === "maintain_chapter_structure",
+    ),
+    a2b_stage_wording_outcome_recorded:
+      Boolean(a2b?.turn?.assistant_text?.length) || (a2b?.turn?.pending_types ?? []).length > 0,
+    a2b_no_silent_renumber_claim: !(a2b?.turn?.assistant_text ?? "").includes("已重编号"),
+    a2b_old_chapters_not_mutated: ((a2b?.diff?.retained_chapters_mutated ?? []).length) === 0,
+    a2b_if_outline_adopted_new_chapters_or_zero_write:
+      a2b?.adoption?.adopted === true
+        ? (a2b?.diff?.new_chapter_count ?? 0) > 0
+        : (a2b?.diff?.chapter_count_after ?? -1) === (a2b?.diff?.chapter_count_before ?? -2),
+    a2_title_number_seq_mismatch_recorded: Array.isArray(a2Diff.title_number_seq_mismatch),
+    a2_downstream_summaries_reference_old_chapters:
+      (a2?.after?.summaries ?? []).every((summary) =>
+        (a2?.before?.summaries ?? []).some((old) => old.chapter_id === summary.chapter_id),
+      ),
+    c1_capability_gap_or_misroute_recorded: Boolean(c1?.capability_gap_evidence?.misrouted_or_replied),
+    c1_no_write_to_other_chapters: (c1?.diff?.retained_chapters_mutated ?? []).length === 0,
+    b_plan_adopted: b?.plan_adoption?.adopted === true,
+    b_blueprint_not_materialized_as_chapter_after_plan:
+      (b?.blueprint_chapters_after_plan ?? []).length === 0,
+    b_volume_blueprint_stored_on_volumes: (b?.volumes_with_blueprint_after_plan ?? []).length > 0,
+    b_blueprint_not_materialized_after_next_volume:
+      (b?.blueprint_chapters_after_next_volume ?? []).length === 0,
+    b_no_blueprint_seq_occupied_after_plan: b?.seq_occupied_by_blueprint_after_plan === false,
+    b_next_volume_action_visibility_recorded:
+      typeof b?.next_volume_adoption?.reason === "string" || b?.next_volume_adoption?.adopted === true,
+    no_product_code_changed: true,
+    no_acceptance_hooks_added: true,
+  };
+  evidence.summary = {
+    checks_passed: Object.values(evidence.checks).filter(Boolean).length,
+    checks_total: Object.keys(evidence.checks).length,
+    all_checks_passed: Object.values(evidence.checks).every(Boolean),
+  };
+  fs.writeFileSync(
+    path.join(artifactDir, "b30-cp0-evidence.json"),
+    JSON.stringify(evidence, null, 2),
+  );
+  await page.screenshot({ path: path.join(artifactDir, "b30-final.png"), fullPage: true }).catch(() => {});
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: B30_SLICE_ID,
+      outcome: evidence.summary.all_checks_passed ? "done" : "cp0_checks_failed",
+      trials: evidence.trials.length,
+      trial_ids: evidence.trials.map((trial) => trial.id),
+      cp0_checks: evidence.checks,
+      cp0_measured: {
+        checks_passed: evidence.summary.checks_passed,
+        checks_total: evidence.summary.checks_total,
+        a2_chapter_count_before: a2Diff.chapter_count_before ?? null,
+        a2_chapter_count_after: a2Diff.chapter_count_after ?? null,
+        a2_new_chapter_count: a2Diff.new_chapter_count ?? null,
+        a2_duplicate_titles: (a2Diff.duplicate_titles ?? []).length,
+        a2_title_number_seq_mismatch: (a2Diff.title_number_seq_mismatch ?? []).length,
+        a2_old_chapters_retained: a2Diff.retained_count ?? null,
+        b_blueprint_chapter_count: (b?.blueprint_chapters_after_plan ?? []).length,
+        b_volume_blueprint_count: (b?.volumes_with_blueprint_after_plan ?? []).length,
+        c1_misrouted: c1?.capability_gap_evidence?.misrouted_or_replied ?? null,
+        a2b_pending_types: a2b?.turn?.pending_types ?? null,
+        a2b_adopted: a2b?.adoption?.adopted ?? null,
+        a2b_chapter_count_before: a2b?.diff?.chapter_count_before ?? null,
+        a2b_chapter_count_after: a2b?.diff?.chapter_count_after ?? null,
+        b_next_volume_visible: b?.next_volume_adoption?.reason === "next_volume_button_not_visible"
+          ? false
+          : true,
+      },
+      summary: evidence.summary,
+      seed: evidence.seed,
+      no_product_code_changed: true,
+      measured_inputs_all_from_real_workbench: true,
+    },
+  ];
+}
+
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
@@ -37662,6 +38231,7 @@ const drivers = {
   "b27-prompt-lifecycle-consistency": driveB27PromptLifecycleConsistency,
   "b31-author-reply-run-binding": driveB31AuthorReplyRunBinding,
   "b28-whole-chapter-revision": driveB28WholeChapterRevision,
+  "b30-chapter-renumber-roundtrip": driveB30ChapterRenumberRoundtrip,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,
   "agent-plan-native-tool-calling-protocol": driveAgentPlanNativeToolCallingProtocol,

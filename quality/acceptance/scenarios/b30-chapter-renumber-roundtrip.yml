@@ -1,0 +1,79 @@
+id: b30-chapter-renumber-roundtrip
+title: "B30 CP0 真实页面隔离复现：章节重编号/结构修订与卷蓝图类型边界"
+tier: nightly
+surface: tauri
+default_provider: slice_verify
+status_note: >-
+  draft（CP0 隔离复现，未注册 scenarios.yml）：seed 两卷结构（第二卷 3 章标题写
+  第11/12/13章但真实 seq 为 3/4/5，各带 accepted 正文与章摘要）+ AU08 同款骨架作品；
+  真实 Tauri 页面记录自然重编号请求、含大纲措辞请求、越界负例与规划卷章/规划下一卷的
+  判断绑定/写入/后果，判断当前版本能力缺口。CP0 只复现/判断，不登记产品通过。
+entrypoint: bash scripts/quality_accept.sh b30-chapter-renumber-roundtrip --surface tauri
+contract:
+  - tasks/slices/B30-chapter-structure-maintenance.md §1–§5
+  - tasks/slices/AU08-volume-structured-planning.md、B11A-volume-blueprint.md、B25-chapter-identity-unification.md
+  - docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md
+  - docs/design/adr/ADR-0028-volume-structure-and-open-volume-action-v3.md
+  - docs/design/adr/ADR-0019-adoption-status-transition-v3.md
+invariants:
+  - I-B30-1 只重编号时 chapter_id 集合/章数/归卷/正文 hash 不变；seq 唯一。
+  - I-B30-2 标题里的章号不是身份；维护请求不得以“再生成一份大纲/新章”冒充重编号。
+  - I-B30-3 卷蓝图只属 Volume 设计态，不得物化为 Chapter 或占 seq。
+  - I-B30-4 下游引用（章摘要/使命/进度/探索/写作坐标）按稳定 ref 消费，不因换号指向其他章。
+  - I-B30-5 未采纳零写入；失败全回滚；无目标/越界/重复 seq/基线过期不半写。
+setup:
+  provider: slice_verify
+  seed: scripts/seed_b30_chapter_structure.exs
+  env_note: 隔离 test DB；确定性 provider 复现状态链与后果，真实模型意图归 CP4。
+  trial_matrix:
+    - A1: 作者原话「把第2卷章节编号理顺，内容不要动」→ 记录判断绑定/pending/是否写入/后果。
+    - A2: 含「章节大纲」措辞「把第二卷的章节大纲编号理顺，只改列表编号，章节内容不要动」→ 复现“生成另一份大纲并采纳”路径；采纳后记录章数/ID 集合/seq/标题号/重复标题/归卷/正文 hash/摘要引用 before/after。
+    - C1: 越界目标「把不存在的第九卷章节大纲编号理顺」→ 记录能力缺失/被误路由且不改其他章。
+    - B: 骨架作品真实页面「规划卷章结构」→（可见时）「规划下一卷」→ 采纳；记录卷蓝图是否物化为 Chapter/占 seq。
+user_flow:
+  - open: 真实 Tauri runner（原生窗口 + 真实前后端）打开 seed 作品 A。
+  - send: 「把第2卷章节编号理顺，内容不要动。」→ 观察判断/候选/写入。
+  - send: 「把第二卷的章节大纲编号理顺，只改列表编号，章节内容不要动。」→ 若出大纲候选，真实「保存到大纲」采纳 → DB/页面记录 before/after。
+  - send: 「把不存在的第九卷章节大纲编号理顺，内容不要动。」→ 观察是否误路由/能力缺失、是否零写入。
+  - open: 作品 B（只有全书骨架）→ 档案/大纲与结构 → 规划卷章结构 → 保存到大纲 →（可见时）规划下一卷 → 保存到大纲 → 观察卷/章行与蓝图。
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  extra_artifacts:
+    - b30-cp0-evidence.json
+    - b30-a1-natural-request.png
+    - b30-a2-outline-adoption.png
+    - b30-b-volume-blueprint.png
+    - b30-final.png
+  artifact_dir: artifacts/slice-verify/b30-chapter-renumber-roundtrip-tauri
+assertions:
+  # CP0 复现证据断言：只声明可机械核对的观测，不预设产品已通过。
+  ui:
+    - A1 原话与 A2 大纲措辞均由真实主输入触发；候选/回执/保存按钮可见语义操作。
+    - 采纳后档案目录/阅读可见章数/卷归属变化（或记录无变化）。
+    - 规划卷章后档案不出现「卷蓝图」作为章节卡片。
+  network:
+    - 记录 judgment 事件（action/capability/frame_type/reason）、pending artifact 类型、adoption action_result。
+    - plot_outline 候选的章节/卷蓝图行与采纳结果帧保留。
+  data:
+    - 记录 A2 before/after：chapter_count、chapter id 集合、seq、标题号与 seq 差异、重复标题、volume 归属、accepted 正文 hash、chapter_summaries chapter_id/ref。
+    - 记录 B：volumes(blueprint) 与 chapters 行，断言无 Chapter 标题含「卷蓝图」、无蓝图占 seq；否则保留为待修缺口。
+    - C1 记录判断/候选与零写入/不改其他章证据。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只用页面可见语义（主输入/发送/打开档案/大纲与结构/规划卷章结构/规划下一卷/
+  保存到大纲）+ WS 帧 + app JSONL + 隔离 DB 只读核对；未新增 testid/隐藏 metadata/验收开关。
+prerequisites:
+  - B25 chapter_ref/seq 身份、AU08/B11A 卷结构与卷蓝图、VS-00J/ADR-0028 已交付。
+  - B30 CP1/CP2 未实现前本场景仅作 CP0 证据，不注册、不声明产品通过。
+known_not_closed:
+  - CP0 只复现/判断；场景未注册 scenarios.yml，不声明「重编号已实现」。
+  - 历史 stage 数据（第1章/第17章/两份第11章）不在本 seed 中伪装复刻；按 B30 §3 另做只读影响清单，未获授权不清理。
+  - 确定性 provider 复现机制/后果；真实模型原话与措辞变异归 CP4。
