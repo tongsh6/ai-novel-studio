@@ -7,7 +7,7 @@
 | 文件 | 场景 |
 |---|---|
 | `b27-natural-author-intent.yml` | B27 自然语言意图→创作效果映射（**草案**：manifest+driver 方案就绪，未注册 driver） |
-| `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**草案**：manifest+driver 方案就绪，未注册 driver） |
+| `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**active/nightly**：slice_verify 机制批次已 PASS，含 writer/evaluator 候选、待采纳、显式采纳、章摘要/trace、刷新恢复与下一轮持久事实；真实模型语义归 CP4 §6.1 矩阵） |
 | `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-frame-validation-friendly-error.yml` | frame 校验失败时作者友好提示 |
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
@@ -209,7 +209,7 @@
 
 - [judgment-plan-multi-step.yml](judgment-plan-multi-step.yml)（`native_protocol_matrix`）：B26 计划矩阵原生三路径（同批计划/另行起草/核对后修订）；外部驱动 `scripts/macos_cgevent_plan_matrix_driver.swift`，证据检查 `scripts/native_plan_evidence_check.mjs`；证据 `artifacts/slice-verify/judgment-plan-multi-step-tauri-native/summary.json`。
 
-## B27 CP4 草案（未注册）
+## B27 CP4 页面场景
 
-- [b27-prompt-lifecycle-consistency.yml](b27-prompt-lifecycle-consistency.yml)：B27 统一任务语义在真实工作台的自然语言生命周期一致性；本轮只提交 manifest 草案、入口可达性分析与 driver/注册 checklist，**尚未在 `../scenarios.yml` 注册**，无 PASS 证据。
-- [b27-natural-author-intent.yml](b27-natural-author-intent.yml)：自然语言意图→创作效果（仅排版/方向/只聊/能力缺口/支持修订/版本）页面表达草案；同样未注册、无 PASS 证据。
+- [b27-prompt-lifecycle-consistency.yml](b27-prompt-lifecycle-consistency.yml)（**已注册 active/nightly**）：B27 统一任务语义在真实工作台的生命周期一致性——判断.execute(prose)→计划→writer 草稿+独立 evaluator→待采纳（零自动采纳/零写入）→刷新恢复→作者显式采纳→trace/章摘要持久化→再刷新→下一轮按持久事实回答→判断/取证引用。外部 driver 为 `frontend/slice-verify/external-ui-driver.mjs`（`driveB27PromptLifecycleConsistency`），verifier 在 `frontend/slice-verify/native-tauri-verifier.mjs` 用真实 app JSONL 对账；入口 `bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri`，机制 PASS 证据 `artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri/summary.json`。**声明边界**：机制/生命周期证据使用 slice_verify 确定性 provider；真实模型自然语言语义（含 M01/M05/M19/M20 顺序）归 B27 §6.1 20 例双臂矩阵，不由本场景替代。
+- [b27-natural-author-intent.yml](b27-natural-author-intent.yml)：自然语言意图→创作效果（仅排版/方向/只聊/能力缺口/支持修订/版本）页面表达草案；未注册、无 PASS 证据。

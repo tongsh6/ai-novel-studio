@@ -1472,6 +1472,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/b26-author-question-roundtrip.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh b26-author-question-roundtrip --surface tauri
+  - id: b27-prompt-lifecycle-consistency
+    title: "B27 统一任务语义真实工作台生命周期（判断/计划→writer/evaluator→待采纳→显式采纳→摘要/trace→刷新→下一轮）"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/b27-prompt-lifecycle-consistency.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri
   # 原生 UI 由本机外部系统 CUA 驱动（非仓库内 Chromium driver）；仓库内落地的是
   # 原生证据检查器与外部传输代理，产品代码不含验收感知逻辑。
   - id: b26-business-output-roundtrip

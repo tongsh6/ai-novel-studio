@@ -615,6 +615,19 @@ const sliceKeyEvents = {
   ],
   // ADR-0025 CP1 判断循环：reply 路径无 Orchestrator 工具裁决，无 orchestrator.decide。
   "b26-author-question-roundtrip": ["channel.user_message.start", "channel.user_message.done", "channel.author_action.start", "channel.author_action.done", "slice_verify.ui_state.done"],
+  "b27-prompt-lifecycle-consistency": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "judgment.decided.done",
+    "toolbox.execute.done",
+    "prose_quality.evaluated.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "chapter_summary_maintenance.run.done",
+    "slice_verify.ui_state.done",
+  ],
   "agent-conversation-turn": [
     "channel.user_message.start",
     "provider_gateway.complete.start",
@@ -1967,7 +1980,176 @@ function findQ1bLiveArchiveEvidence(records) {
   return { ...ui, turn_id: ui.materialization_turn_id };
 }
 
+// B27 CP4 联合生命周期：UI 摘要由外部 driver 产生；本 finder 只筛外部语义完整性，
+// 真实 app JSONL 对账在 b27PromptLifecycleBehavior 中完成。
+function findB27PromptLifecycleEvidence(records) {
+  const sliceId = "b27-prompt-lifecycle-consistency";
+  const ui = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.sent_user_message_count === 4 &&
+      Number(record.judgment_explore_observed ?? 0) >= 1 &&
+      record.judgment_explore_tool === "chapter_read" &&
+      record.judgment_reply_cites_plan === true &&
+      record.judgment_no_pending_artifacts === true &&
+      record.judgment_no_production_write === true &&
+      record.writer_judgment_action === "execute" &&
+      record.writer_judgment_capability === "prose_writing" &&
+      record.writer_quality_review_status === "completed" &&
+      record.writer_quality_evaluated_logged === true &&
+      record.writer_prose_dispatch_count === 1 &&
+      typeof record.writer_prose_pending_id === "string" &&
+      record.writer_prose_pending_id !== "" &&
+      record.writer_prose_pending_tentative === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write_before_adoption === true &&
+      record.no_author_action_before_adoption === true &&
+      record.pending_survives_reload === true &&
+      record.reload_pending_count === 1 &&
+      record.pending_bytes_survive_reload === true &&
+      record.author_inputs_preserved_after_reload === true &&
+      record.pre_adoption_status_reports_tentative === true &&
+      record.pre_adoption_status_claims_accepted === false &&
+      record.adoption_action_type === "accept" &&
+      record.adoption_target_ref === record.writer_prose_pending_id &&
+      record.adoption_resolved_status === "ACCEPTED" &&
+      typeof record.adoption_trace_ref === "string" &&
+      record.adoption_trace_ref !== "" &&
+      record.chapter_summary_maintenance_four_column === true &&
+      record.post_adoption_status_reports_accepted === true &&
+      record.post_adoption_pending_count === 0 &&
+      record.next_round_based_on_persisted_facts === true &&
+      record.reading_mode_shows_adopted_prose === true &&
+      Number(record.reading_chapter_word_count ?? 0) > 0,
+  );
+  if (!ui) return null;
+
+  const turnIds = Array.isArray(ui.turn_ids) ? ui.turn_ids.filter(Boolean) : [];
+  if (turnIds.length < 4) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: ui.turn_id,
+    turn_ids: turnIds,
+    work_id: ui.work_id,
+    session_id: ui.session_id,
+    artifact_id: ui.writer_prose_pending_id,
+    writer_run_id: ui.writer_run_id,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function b27PromptLifecycleBehavior(records, evidence, options) {
+  const sliceId = "b27-prompt-lifecycle-consistency";
+  const ui = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!ui) return null;
+
+  const appRecords = records.filter(
+    (record) => typeof record.event === "string" && !record.event.startsWith("slice_verify."),
+  );
+  const count = (predicate) => appRecords.filter(predicate).length;
+
+  const userMessages = count((record) => record.event === "channel.user_message.start");
+  const judgmentDecisions = count((record) => record.event === "judgment.decided.done");
+  const proseDispatches = count(
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing",
+  );
+  const qualityEvaluations = count(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" && record.review_status === "completed",
+  );
+  const authorActions = count((record) => record.event === "channel.author_action.start");
+  const acceptedActions = count(
+    (record) => record.event === "channel.author_action.done" && record.action_status === "accepted",
+  );
+  const summaries = count(
+    (record) =>
+      record.event === "chapter_summary_maintenance.run.done" &&
+      record.four_column === true &&
+      String(record.status ?? "").toUpperCase() === "ACCEPTED",
+  );
+  if (userMessages !== 4) return null;
+  if (judgmentDecisions < 3) return null;
+  if (proseDispatches !== 1 || qualityEvaluations !== 1) return null;
+  if (authorActions !== 1 || acceptedActions !== 1) return null;
+  if (summaries < 1) return null;
+
+  const proseToolIndex = appRecords.findIndex(
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing",
+  );
+  const authorActionIndex = appRecords.findIndex(
+    (record) => record.event === "channel.author_action.start",
+  );
+  const summaryIndex = appRecords.findIndex(
+    (record) =>
+      record.event === "chapter_summary_maintenance.run.done" && record.four_column === true,
+  );
+  if (proseToolIndex < 0 || authorActionIndex <= proseToolIndex || summaryIndex <= authorActionIndex) {
+    return null;
+  }
+  // 判断/取证引用轮必须在采纳与章摘要之后：若历史引用回复仍能再次触发探索回环，
+  // 说明多轮判断入口被历史文本干扰，不能算页面生命周期闭环。
+  const exploreJudgmentIndex = appRecords.findIndex(
+    (record) => record.event === "judgment.decided.done" && record.action === "explore",
+  );
+  if (exploreJudgmentIndex <= summaryIndex) return null;
+  const acceptAction = appRecords.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_status === "accepted" &&
+      String(record.action_id ?? "") === `accept:${evidence.artifact_id}`,
+  );
+  if (!acceptAction) return null;
+
+  if (options.provider && options.provider !== "slice_verify") {
+    // 真实模型批次必须绑定真实 provider 调用证据；机制批次不得冒充真实模型语义。
+    if (!findLiveProviderEvidence(options.provider, evidence.turn_ids, options.llmRecords ?? [])) {
+      return null;
+    }
+  }
+
+  return {
+    slice_id: sliceId,
+    behavior:
+      "b27_unified_prompt_lifecycle_judgment_writer_evaluator_pending_adoption_summary_refresh_next_turn",
+    turn_ids: evidence.turn_ids,
+    artifact_id: evidence.artifact_id,
+    app_log: {
+      user_messages: userMessages,
+      judgment_decisions: judgmentDecisions,
+      prose_tool_dispatches: proseDispatches,
+      quality_evaluations: qualityEvaluations,
+      author_actions: authorActions,
+      accepted_author_actions: acceptedActions,
+      four_column_summary_maintenances: summaries,
+      explore_judgment_after_summary_maintenance: true,
+      evidence_turns: evidence.turn_ids.length,
+    },
+    assertions: [
+      "author_used_real_workbench_main_input_four_times",
+      "writer_round_routed_by_judgment_execute_to_prose_capability",
+      "judgment_explored_adopted_chapter_plan_after_adoption_and_cited_evidence",
+      "writer_produced_tentative_prose_candidate_with_completed_quality_evaluation",
+      "no_auto_adoption_and_no_production_write_before_author_action",
+      "pending_candidate_and_author_words_survived_reload_without_duplicates",
+      "status_question_reported_tentative_not_adopted",
+      "explicit_author_action_resolved_adoption_with_trace_refs",
+      "four_column_chapter_summary_persisted_on_adoption",
+      "adopted_bytes_and_status_survived_reload",
+      "next_round_reported_persisted_accepted_state",
+      "reading_projection_contains_adopted_prose",
+    ],
+  };
+}
+
 export function findNativeSliceEvidence(sliceId, records) {
+  if (sliceId === "b27-prompt-lifecycle-consistency") {
+    return findB27PromptLifecycleEvidence(records);
+  }
+
   if (sliceId === "q1b-candidate-revision-adoption") return findCandidateRevisionAdoptionEvidence(records);
   if (sliceId === "q1b-candidate-stale-modal") return findCandidateStaleModalEvidence(records);
   if (sliceId === "q1b-candidate-lifecycle") return findCandidateLifecycleEvidence(records);
@@ -2725,6 +2907,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
 export function findSliceBehaviorEvidence(sliceId, records, evidence, options = {}) {
   if (!evidence) return null;
+
+  if (sliceId === "b27-prompt-lifecycle-consistency") {
+    return b27PromptLifecycleBehavior(records, evidence, options);
+  }
 
   if (sliceId === "q1b-candidate-revision-adoption") {
     const verified = findCandidateRevisionAdoptionEvidence(records);

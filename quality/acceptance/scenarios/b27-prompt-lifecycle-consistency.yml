@@ -1,14 +1,18 @@
 id: b27-prompt-lifecycle-consistency
-title: "B27 统一任务语义在真实工作台的自然语言生命周期一致性（Tauri 联合场景草案）"
+title: "B27 统一任务语义在真实工作台的自然语言生命周期一致性（判断/计划→writer/evaluator→待采纳→显式采纳→摘要/trace→刷新→下一轮）"
 tier: nightly
 surface: tauri
-default_provider: strata
-# 本轮状态：manifest 草案 + 入口可达性分析 + driver 方案；**尚未注册**进 quality/acceptance/scenarios.yml，
-# 因为 external-ui-driver.mjs 尚无本 slice 的 driver 分支。先保持草案，避免 --tier nightly 执行未实现 driver。
-status_note: "draft（task-8 产出）：manifest 与 driver 方案已就绪；待 B26 CP3 通过 + B27 CP3 全专业调用迁移后实现 driver、登记 scenarios.yml 并取得真实 PASS 证据，方可改 active。"
-entrypoint: bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri --provider strata
+default_provider: slice_verify
+status_note: >-
+  active（2026-10-24 注册）：外部 driver 已实现并由真实 Tauri runner 跑通机制/生命周期批次
+  （slice_verify 确定性 provider，证据 artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri/）。
+  本场景是页面生命周期与来源一致性证据，**不是真实模型语义通过**：真实模型语义门槛（B27 §6.1
+  20 例双臂 40 episode）由 scripts/model_contracts/b27_semantic_eval.exs + 盲评矩阵独立判定；
+  `--provider strata`/`--provider lmstudio` 的真实模型生命周期批次尚未取得 PASS，不得引用本场景
+  机制证据替代。注册默认 provider 取确定性替身，使 nightly 生命周期门禁可重复执行。
+entrypoint: bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri
 contract:
-  - tasks/slices/B27-systematic-prompt-and-intent-integration.md §4.6 / §6 / §6.1 / §7
+  - tasks/slices/B27-systematic-prompt-and-intent-integration.md §4 / §6 / §6.1 / §7
   - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md §11.4（普通回复来源与未知语义）
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md §2.2（工具/profile/schema/响应映射）
   - docs/design/contracts/VS-00I-prompt-prefix-stability-contract-pack.md（L0–L4 稳定性）
@@ -23,120 +27,158 @@ invariants:
   - reply-source-and-bytes-preserved（普通回复/原文登记不得编造模型未提供结构或替换原文字节）
   - unified-policy-version-observable（判断/计划/专业调用消费同一规则版本，可沿 trace/请求核对）
 setup:
-  provider: strata
+  provider: slice_verify
   seed: >-
-    外部 harness 在隔离 test DB seed 合成样书（1 章已采纳正文 + 2 章计划 + 1 个待采纳候选 + 历史追问 turn），
-    不读取/不写作者真实作品；真实 Tauri 工作台打开该作品。
-  isolation: NOVEL_TEST_DB_DIR + MIX_TEST_PARTITION 独立目录；不启动第二个 Phoenix 端口冲突实例。
+    scripts/seed_p1_prose_revision_candidate.exs（复用 VS-00E CP3 修订候选种子）：隔离 test DB 中
+    合成「VS-00E 修订候选验证作品」+ 已采纳 4 章章计划（无正文），真实 Tauri 工作台打开该作品与
+    活动会话。种子不含待采纳候选；待采纳正文与采纳事实全部由本场景页面操作产生。
+  isolation: NOVEL_TEST_DB_DIR + MIX_TEST_PARTITION 独立目录；不启动第二个 Phoenix 端口实例；不读写作者真实作品。
+  reused_seed_note: >-
+    与 agent-prose-drafting-with-quality / p1-prose-quality-* 复用同一种子，但本场景不断言质量阈值得分，
+    只断言判断/计划→writer→evaluator→候选→采纳→摘要/trace→刷新→下一轮的页面生命周期事实。
 user_flow:
-  - open: 启动真实 Tauri 工作台，选中 seed 作品，确认会话连接。
-  - send: 作者自然语言「这一章写完了吗？」（不带工具名/固定句式）。
-  - observe: 运行活动显示判断→按需只读取证→作者可见结论；结论引用真实正文/计划事实。
-  - send: 追问「为什么刚才没有直接分析？现在能给我判断吗？」（上一轮目标未丢）。
-  - observe: 同会话延续分析目标，给出有依据判断，而不是只解释流程或要求换说法。
-  - send: 「把第二段改一下。」（两个合理候选不能消歧的上下文）。
-  - observe: 必要澄清/先取证，不猜对象直接执行；未执行错对象。
-  - answer: 作者按问题选项/自由文本确认对象后继续。
-  - send: 「把下面这段设定登记进作品档案，作为待采纳的设定候选：灯楼的第七盏灯只在子时之后亮起，灯油取自井底的黑色泉水，点灯人不能回头看灯焰。」
-  - observe: 生成字节保真的待采纳候选，不宣称已采纳/已入档。
-  - reload: 刷新工作台；同一会话/运行可恢复，候选仍为待采纳，不重复生成同一候选。
-  - send: 「刚才那个候选保存进正文了吗？」（候选未采纳状态追问）。
-  - observe: 明确区分候选/待采纳/canon，指向真实采纳动作；不把 run completed 说成已保存。
-  - click: 作者在真实候选卡片采纳。
-  - reload: 刷新后按持久事实回答「现在第一章开头最终是哪一版？」（版本/来源一致）。
-  - scroll: 会话历史保留作者原话、判断依据、候选与采纳回执。
+  # 实现顺序说明：判断/取证引用轮放在最后。slice_verify 确定性替身的判断 prompt 会携带最近
+  # 会话摘要，若先出现「依据如下」引用回复，后续判断会被替身误判成探索回环（历史文本干扰）。
+  # 该顺序只为机制批次可重复；真实模型语义顺序（M01→M05→M19→M20）归 B27 §6.1 矩阵。
+  - open: 启动真实 Tauri runner（原生窗口 + 真实前端/后端），工作台打开种子作品，会话已连接。
+  - send: 「写下一章」（主输入 placeholder「输入你的想法、问题或指令...」）。
+  - observe: 判断.execute(prose_writing) → AgentRun 起草计划（context_assemble + chapter_mission +
+    prose_writing）→ writer 产出正文草稿 → 独立 evaluator 完成质量复核；候选停 TENTATIVE 待采纳，
+    零自动采纳、零 production write，运行完成不等于已采纳。
+  - reload: 刷新工作台并从 /sessions/resume 恢复；待采纳候选与作者原话仍在，候选字节不变、无重复。
+  - send: 「资料处理进度」（候选未采纳状态追问）。
+  - observe: 按持久事实回答待采纳 1 份 / TENTATIVE，并引用候选真实字节；不把 run completed 说成已保存。
+  - click: 作者在真实候选卡片上显式采纳（保存为章节正文/保存原稿）。
+  - observe: 唯一 author_action accept 绑定该 artifact；resolved=ACCEPTED；trace_summary.trace_ref 与
+    state/projection trace refs 落库；章四栏摘要维护事件落 app JSONL。
+  - reload: 再次刷新；已采纳候选恢复为 ACCEPTED 且不再待采纳，正文候选字节与采纳结果一致。
+  - send: 「资料处理进度」。
+  - observe: 同一问题在采纳后按新持久事实回答：待采纳 0 份 / 已处置 1 份 / ACCEPTED。
+  - open: 阅读模式。
+  - observe: 已采纳正文进入阅读投影（本章有效字数 > 0，无待补足空态）。
+  - send: 「「第02章」按计划要写什么？」（最后一轮判断/取证）。
+  - observe: 判断先 explore：真实 chapter_read 观察「第02章」计划内容；回复引用计划事实，
+    本轮零候选/零写入；分析不把已采纳正文或历史回复当计划事实。
 evidence:
   required:
     - screenshot
     - websocket_frames
     - turn_result
     - app_jsonl
-    - llm_call_jsonl
-    - provider_run_log
     - summary_json
-  artifact_dir: artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri-strata
+  optional:
+    - llm_call_jsonl（仅 live provider 批次存在；机制批次由 slice_verify 替身提供，不伪造）
+  artifact_dir: artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri
+  extra_artifacts:
+    - b27-lifecycle-evidence.json（driver 汇总：作者输入/每阶段实测值/持久快照）
+    - b27-lifecycle-turns.json
+    - b27-01-writer-evaluator-pending.png
+    - b27-02-reload-pending-honest-status.png
+    - b27-03-explicit-adoption.png
+    - b27-04-adopted-reading-projection.png
+    - b27-05-judgment-grounded-answer.png
 assertions:
   ui:
-    - 作者全程只用自然语言；页面无工具名/固定句式要求，也无验收专用 hook。
-    - 运行活动/回复/候选卡片在刷新后恢复到同一持久状态（turn、run、候选、采纳）。
-    - 能力缺口与不可用路径如实显示，不以流程菜单或相似能力冒充。
+    - 作者四轮输入全部来自真实主输入框（同一 placeholder）；页面无工具名/固定句式要求，无验收专用 hook。
+    - 判断轮回复引用真实已采纳章计划内容；页面显示 exploration 观察，不出现候选卡或入档宣称。
+    - writer 轮页面出现正文候选卡与「质量复核」；候选为待采纳，无自动采纳。
+    - 刷新后候选卡、作者原话与助手结论恢复且不重复；候选字节与刷新前一致。
+    - 采纳后正文进入阅读模式投影（本章有效字数 > 0）。
   network:
-    - 每轮只由真实主输入触发 user_message；无验收脚本注入的旁路 Channel payload。
-    - 判断/计划/结果叙述的 provider 请求携带同一规则版本（TaskPolicy/JudgmentToolContract/UA-01 profile）；请求体可由 llm_call_jsonl 与 app_jsonl 对账。
-    - 分析轮无 production_write/canon 写入；登记轮只产生 pending 候选；采纳轮产生真实 resolved adoption。
+    - 全程 4 条真实 user_message 由主输入发送；无旁路 Channel payload/测试注入用户消息。
+    - 全程 author_action 仅在作者显式点击候选卡后出现且恰好 1 次；此前 0 次。
+    - 判断轮 explore 观察来自真实 chapter_read；writer 轮 prose_writing 恰好派发 1 次、evaluator 完成 1 次。
+    - 采纳前每轮 turn_result truthfulness 均无 production_write；采纳轮 resolved adoption 绑定候选 artifact_id。
   data:
-    - TurnResult/trace/候选/采纳状态与 UI 文案一致；run completed 不被当作已采纳。
-    - 作者原话与登记原文在持久层字节保真、来源 turn 准确；跨轮追问引用同一来源。
-    - 刷新/重复请求不产生重复候选或重复副作用。
+    - 待采纳候选在 /sessions/resume 恢复时 adoption_status=TENTATIVE 且 payload 字节不变，无重复候选。
+    - 采纳轮 trace_summary.trace_ref 非空，state_trace_refs/projection_refs 落库；app JSONL 有
+      chapter_summary_maintenance.run.done（four_column=true, status=ACCEPTED）与 accepted author_action。
+    - 采纳持久化为 ACCEPTED；刷新后不在 pending；采纳后同一状态问题回答「待采纳 0 份/已处置 1 份/ACCEPTED」，
+      与采纳前「待采纳 1 份/TENTATIVE」不同，证明下一轮消费持久事实。
+    - 正文候选字节在候选→持久→采纳→刷新链路上保持一致。
 anti_hooks:
   product_acceptance_logic_added: false
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只使用用户可见语义（input[placeholder]、按钮文案「发送」「保存为章节正文/保存原稿」「阅读」「返回工作台」、
+  页面可见文本）+ WS 帧 + app JSONL + 公开 session/work API；未新增 data-testid/slice 专用 data-*；
+  未新增产品验收 env/开关；确定性 provider 仅在 MIX_ENV=test harness 中经既有 slice_verify 注入。
 prerequisites:
   - B26 CP3（协议/业务保留）先通过；本场景不承担 B26 QA/OUT 确定性矩阵。
-  - B27 CP3 全专业调用迁移完成或按调用点登记未迁移范围；本场景只声明判断/计划/结果叙述与已迁移专业调用的页面生命周期。
-  - B29/B30 未实现的能力（角色主档案身份修订/结构维护）按真实缺口显示，不伪造。
+  - B27 CP3 专业调用迁移已完成（writer/evaluator/summary 已携带 AuthoringTask）；本场景只声明判断/计划/
+    writer/evaluator/summary 的页面生命周期，不声明 §6.1 语义门槛。
+  - B29/B30 未实现的能力（角色主档案身份修订/结构维护）不在本场景伪造。
 entry_reachability:
-  product_entry: frontend/src/App.tsx → WorkspaceChat（真实 Tauri 工作台，非 demo/Storybook）
+  product_entry: frontend/src/App.tsx → WorkspaceChat（真实 Tauri runner 拉起的前端，非 demo/Storybook）
   input_entry: 聊天输入框（placeholder「输入你的想法、问题或指令...」），发送即 user_message
   observation_entries:
-    - 运行活动/进度与 AgentRun 结果投影（author-safe）
+    - 运行活动/进度与 AgentRun 结果投影（author-safe，含「质量复核」）
     - 待采纳候选卡片与采纳动作（真实卡片按钮）
-    - 阅读模式/章节正文与作品档案入口（核对真实现有版本）
+    - 阅读模式章节正文与有效字数（核对已采纳投影）
   persistence_entries:
-    - rebuild/刷新后的会话恢复（同一 work/session/turn）
+    - rebuild/刷新后的会话恢复（/sessions/resume，同一 work/session/turn，pending/resolved 快照）
     - 候选/采纳状态由持久层投影恢复，不由前端内存伪造
-  external_driver_base: frontend/slice-verify/external-ui-driver.mjs（已有 chatInputSelector、waitForFrame、latestTurnResult、readAppLogRecords、readLlmCallRecords、waitForTranscriptTurn、refreshAndSelectWork 等可复用 helper）
-  gaps_to_close:
-    - external-ui-driver.mjs 尚无 b27-* slice 分支：需新增 driveB27PromptLifecycleConsistency(page) 并注册 drivers map。
-    - Tauri 原生窗口模式（TAURI_NATIVE_SYSTEM_DRIVER）本轮未要求；先做 headless-chromium 真实前后端（surface=tauri 的既有 runner），原生扩展另登记。
+  external_driver_base: frontend/slice-verify/external-ui-driver.mjs（复用 chatInputSelector、waitForFrame、
+    waitForNewAppLogRecord、fetchSessionSnapshotFromApi、parseChapterWords、commonUiState 等 helper）
 driver_plan:
   implementation_surface: frontend/slice-verify/external-ui-driver.mjs
+  driver_function: driveB27PromptLifecycleConsistency
+  verifier: frontend/slice-verify/native-tauri-verifier.mjs（findB27PromptLifecycleEvidence /
+    b27PromptLifecycleBehavior，用 app JSONL 对账 UI 摘要）
   registration:
-    - 在 drivers map 增加 "b27-prompt-lifecycle-consistency": driveB27PromptLifecycleConsistency
-    - driver 内复用既有 helper；不新增产品侧 testid/hook；不要用协议旁路 pushProtocolUserMessage 代替真实输入（仅允许用于 seed 后置数据准备并在证据中说明）
+    - drivers map 已注册 "b27-prompt-lifecycle-consistency"
+    - scripts/tauri_slice_verify.sh 已登记 allowlist/usage/种子分支/描述
+    - 不使用 pushProtocolUserMessage 等旁路；真正重复调用一律拒绝
   flow_steps:
-    - 启动/选中 seed 作品；等待服务连接与聊天输入可用。
-    - 发送 M01/M05 风格自然语言；等待 turn_result 帧与作者可见结论；抓取该轮 llm_call_jsonl 请求版本字段。
-    - 发送 M06 风格歧义请求；断言未直接执行错对象，出现必要澄清或先取证。
-    - 发送 M11 风格登记原文；断言 pending 候选字节保真（body === 作者原文），run completed 不等于已采纳。
-    - 刷新 + 重开；断言同一 turn/run/候选恢复，无重复候选。
-    - 发送 M19 风格保存追问；断言候选/canon 区分。
-    - 真实采纳后刷新；发送 M20 风格版本追问；断言按持久版本/来源回答。
+    - 真实主输入发送「写下一章」→ 断言 judgment execute(prose_writing)、plan_drafted
+      （context+mission+prose）、artifact_created、质量复核 tool_completed、
+      prose_quality.evaluated.done(completed)、pending prose TENTATIVE、零 author_action。
+    - reload /sessions/resume → 断言 pending 1 份 TENTATIVE、字节不变、作者原话恢复且不重复。
+    - 发送「资料处理进度」→ 断言按持久事实报 TENTATIVE + 候选字节，不宣称 ACCEPTED。
+    - 点击候选卡真实采纳按钮 → 断言唯一 accept author_action target_ref、resolved ACCEPTED、
+      trace_summary.trace_ref、state/projection trace refs、章摘要 four_column 事件。
+    - reload → 断言 resolved ACCEPTED、pending 0、候选字节一致；同一问题回答待采纳 0/已处置 1/ACCEPTED。
+    - 阅读模式 → 断言已采纳正文进入投影且有本章有效字数。
+    - 最后发送计划问句 → 断言 chapter_read exploration 观察与引用计划的回复（零候选/零写入）。
   evidence_checks:
-    - summary.json 汇总 stage 状态、run/turn refs、候选/采纳持久事实、provider 请求版本字段。
-    - websocket_frames 与 app_jsonl 对账：每条作者可见结论有真实 turn_result/trace 依据。
-    - 独立断言“分析轮零 production_write、登记轮零 canon 写入、采纳轮真实 resolved”。
-  split_surfaces:
-    deterministic: 用 slice_verify provider 先跑机制/lifecycle（无语义通过声明）
-    real_llm: 用 strata（stage 实际）跑自然语言语义；声明通过必须带真实 provider 证据
+    - summary.json 汇总 slice 证据 + behavior assertions + app_log 计数 + log_noise。
+    - WS 帧（ui-frames.json）与 app JSONL（app-log.json）对账每条作者可见结论。
+    - driver 另写 b27-lifecycle-evidence.json/b27-lifecycle-turns.json 保留实测值。
+  provider_split:
+    mechanism: slice_verify（本场景注册默认；页面生命周期/来源一致性机制证据）
+    real_llm: --provider strata（stage 实际模型）或 lmstudio；语义判定归 B27 §6.1 矩阵，本场景不冒充
 registration_checklist:
-  - 1. 实现 driver 分支并通过 quality_manifest_check.sh（manifest 已含 id/tier/surface/entrypoint/contract/invariants/setup/user_flow/evidence/assertions/anti_hooks）。
-  - 2. 在 quality/acceptance/scenarios.yml 增加条目：id/title/tier=nightly/surface=tauri/default_provider=strata/manifest/driver=frontend/slice-verify/external-ui-driver.mjs/entrypoint（必须含 --surface tauri）。
-  - 3. 把本文件从「草案」改为已注册；在 quality/acceptance/scenarios/README.md 的 Files 表登记。
-  - 4. 在 frontend/slice-verify/external-ui-driver.mjs 的 drivers map 注册；tauri_slice_verify.sh 的 --list 需能识别（按现有实现模式加白名单分支）。
-  - 5. 跑 bash scripts/quality_manifest_check.sh 通过；再跑 bash scripts/quality_accept.sh b27-prompt-lifecycle-consistency --surface tauri --provider slice_verify 取得机制证据。
-  - 6. 跑 --provider strata（真实模型）取得语义生命周期证据；artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri-strata/ 落 screenshot/WS/app_jsonl/llm_call_jsonl/summary。
-  - driver 必须走真实 WorkspaceChat 可见语义（真实主输入/候选卡片/采纳/刷新恢复），断言 judgment→plan→writer→evaluator→summary→adoption→下一轮 的可回放链（以 turn/run/trace/候选/采纳持久事实与 provider 请求为证据）；不得新增产品验收感知逻辑、testid 或旁路 Channel 注入。
-  - 7. 未取得真实 PASS 证据前不得标 active，不得在 slice 汇报写“页面验收通过”。
-  - 8. 与 B27 §6.1 语义矩阵分开报告：本场景是页面生命周期/来源一致性证据，不是 40 episode 门槛。
+  - 1. manifest 与 driver/verifier/runner 已实现；quality_manifest_check.sh 通过。
+  - 2. 已在 quality/acceptance/scenarios.yml 注册（tier=nightly/surface=tauri/manifest/driver/entrypoint 含 --surface tauri）。
+  - 3. 已在 quality/acceptance/scenarios/README.md Files 表登记。
+  - 4. 已用 slice_verify 取得真实 runner PASS 机制证据（artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri/）。
+  - 5. 真实模型（strata）语义生命周期批次未取得 PASS；按 §6.1 由语义矩阵独立执行，不标为语义通过。
+  - 6. production_write/trace/summary 断言来自真实 Channel→app 编排→persistence，不是 driver 内存伪造。
 regression_relations:
-  - rel: B26 Q3B capability gap
-    manifest: quality/acceptance/scenarios/q3b-capability-gap-honest-reply.yml
-    relation: 本场景复用其“真实能力缺口诚实回复”语义（M14 同族），并新增统一规则版本在判断/计划面的来源核对；Q3B 仍独立作为缺口回归。
-  - rel: B26 Q3C author content materialization
-    manifest: quality/acceptance/scenarios/q3c-author-content-materialization.yml
-    relation: 本场景的登记轮断言候选字节保真/来源 turn，与 Q3C 重叠部分保持同一断言，不降低 Q3C；刷新/追问为新增生命周期维度。
-  - rel: B26 Q3D message outcome roundtrip
+  - rel: agent-prose-drafting-with-quality
+    manifest: quality/acceptance/scenarios/agent-prose-drafting-with-quality.yml
+    relation: 复用同一种子与 writer+evaluator 页面路径；本场景新增判断轮、刷新恢复、显式采纳、章摘要/trace
+      与下一轮持久事实追问，不降低该场景的 provider 计数/质量断言。
+  - rel: q3d-message-outcome-roundtrip
     manifest: quality/acceptance/scenarios/q3d-message-outcome-roundtrip.yml
-    relation: 本场景复用“消息处置/运行结果/作者原文跨轮”证据链，新增判断→计划→结果叙述的规则同源检查；Q3D 的 DS02 状态恢复矩阵仍是独立 gate。
-  - rel: B26 author question roundtrip
+    relation: 复用「候选/待采纳/已采纳跨轮状态」证据口径；本场景的正文候选为 writer/evaluator 产出，
+      DS02 七态恢复矩阵仍由 Q3D 独立承担。
+  - rel: b26-author-question-roundtrip
     manifest: quality/acceptance/scenarios/b26-author-question-roundtrip.yml
-    relation: 本场景只在需要澄清时消费其问题回传语义（M06/M17），不重复其选项/自由回复全矩阵。
-  - rel: B26 judgment-plan-multi-step（计划场景）
-    manifest: quality/acceptance/scenarios/judgment-plan-multi-step.yml
-    relation: 本场景的后续计划轮如触发计划面，复用其计划矩阵证据；未触发时如实标未覆盖，不伪造。
+    relation: 本场景不触发必要提问（该路径由 M06/M17 语义矩阵与 B26 问题场景覆盖），只消费既有 session 恢复语义。
+  - rel: judgment-explore-chapter-plan / agent-conversation-turn
+    manifest: quality/acceptance/scenarios/judgment-explore-chapter-plan.yml
+    relation: 判断轮复用 chapter_read 设计态探索的页面证据；本场景新增 writer/evaluator/采纳/刷新链。
   - rel: B27 semantic matrix
     fixture: quality/acceptance/fixtures/b27-semantic-cases/
-    relation: 本场景取 M01/M05/M06/M11/M19/M20 的页面表达回归；语义质量门槛仍由 §6.1 的 80 episode 矩阵独立判定，页面 PASS 不能替代矩阵 PASS。
+    relation: 本场景取 M01/M05/M11/M19/M20 的页面生命周期表达；语义质量门槛仍由 §6.1 的 40 episode
+      矩阵独立判定，页面 PASS 不能替代矩阵 PASS。
+known_not_closed:
+  - 真实模型（strata/iq3_s）语义生命周期批次未取得 PASS；归 CP4 §6.1 矩阵，不得引用本场景机制证据替代。
+  - 机制批次把判断/取证引用轮放在最后：slice_verify 确定性替身的判断 prompt 携带最近会话摘要，
+    先出现的「依据如下」引用回复会被替身误判为探索回环（历史文本干扰），导致后续判断不执行能力。
+    这是替身限制，不是产品缺陷；真实模型批次的 M01→M05→M19→M20 顺序由 §6.1 矩阵验证。
+  - 必要澄清（M06/M17）/能力缺口（M14）页面路径未在本场景断言；由 b27-natural-author-intent 与语义矩阵承担。
+  - evaluator 质量阈值（finding 内容正确性）不在本场景断言；本场景只断言 evaluator 运行/完成与 evidence 链。

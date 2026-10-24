@@ -34106,6 +34106,723 @@ async function driveB17WriterTimeoutSteer(page) {
   ];
 }
 
+// B27 CP4 联合生命周期（真实工作台）：writer/evaluator 候选 + 独立质量复核 → 待采纳
+// （零自动采纳）→ 刷新恢复 → 作者显式采纳 → trace/章摘要持久化 → 再刷新 → 下一轮按
+// 持久事实回答 → 判断/计划取证引用（最后一轮，避免确定性替身把历史引用回复误判为
+// 探索回环；真实模型语义顺序归 B27 §6.1 矩阵）。只使用用户可见语义（主输入
+// placeholder、按钮文案、候选卡/阅读模式文本）+ WS 帧 + 真实 app JSONL + 会话持久
+// 快照；不新增产品验收感知逻辑、testid 或旁路 Channel 注入。
+async function driveB27PromptLifecycleConsistency(page) {
+  const scenarioId = "b27-prompt-lifecycle-consistency";
+  const writerMessage = "写下一章";
+  const statusQuestion = "资料处理进度";
+  const planQuestion = "「第02章」按计划要写什么？";
+
+  const seedWorkId = readSeedField("work_id");
+  assert(seedWorkId, "B27 lifecycle seed log does not carry work_id");
+  const seedWork = await fetchWorkFromApi(seedWorkId);
+  const workTitle = String(seedWork.title ?? "");
+  assert(workTitle !== "", "B27 lifecycle seed work has no title");
+
+  const turns = [];
+  const stages = {};
+  const sentAuthorActions = () =>
+    frames.filter((frame) => frame.direction === "sent" && frame.event === "author_action");
+
+  function bodyPhrase(body, minLength = 12) {
+    const line = String(body ?? "")
+      .split("\n")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.length >= minLength);
+    return (line ?? String(body ?? "")).slice(0, 24);
+  }
+
+  async function reloadWorkbench() {
+    const resumeResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/sessions/resume") && response.ok(),
+    );
+    await page.reload({ waitUntil: "commit" });
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+      timeout: 30_000,
+    });
+    const snapshot = await (await resumeResponse).json();
+    await waitForVisibleWorkTitle(page, workTitle, 20_000);
+    return snapshot;
+  }
+
+  async function sendAuthorMessage(text, label, timeoutMs = 240_000) {
+    const frameStart = frames.length;
+    const logStart = readAppLogRecords().length;
+    await page.locator(chatInputSelector).fill(text);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+    const sent = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "user_message" &&
+        String(frame.body?.text ?? "") === text,
+      `${label}: real workbench did not send the author message from the main input`,
+      30_000,
+    );
+    const parentTurnId = String(sent.body?.turn_id ?? "");
+    const turnFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        (String(frame.body?.turn_id ?? "") === parentTurnId ||
+          String(frame.body?.turn_id ?? "").startsWith(`${parentTurnId}:`) ||
+          String(frame.body?.parent_turn_id ?? "") === parentTurnId),
+      `${label}: no TurnResult correlated to the author message`,
+      timeoutMs,
+    );
+    const turnResult = turnFrame.body;
+    turns.push({
+      label,
+      text,
+      parent_turn_id: parentTurnId,
+      turn_id: turnResult.turn_id,
+      run_id: turnResult.agent_run?.run_id ?? null,
+      assistant_text: String(turnResult.assistant_message?.text ?? ""),
+      action_taken: turnResult.action_taken ?? null,
+      pending_count: (turnResult.adoption_state?.pending ?? []).length,
+      production_write_performed: turnResult.truthfulness?.production_write_performed,
+      artifact_adopted: turnResult.truthfulness?.artifact_adopted,
+    });
+    return { sent, turnResult, frameStart, logStart, parentTurnId };
+  }
+
+  async function waitForPendingProseCard(needle, timeoutMs = 30_000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const saveButtons = await page
+        .getByRole("button", {
+          name: /^(?:保存为章节正文|保存原稿|确认创建|保存到大纲|保存到作品档案|保存到作品)$/,
+        })
+        .count()
+        .catch(() => 0);
+      if (saveButtons > 0) {
+        await page.waitForFunction(
+          (expected) => document.body.innerText.includes(expected),
+          needle,
+          { timeout: 10_000 },
+        );
+        return saveButtons;
+      }
+      await sleep(250);
+    }
+    throw new Error("B27: pending candidate card did not expose a real save action");
+  }
+
+  // Tauri 原生窗口与 Playwright 页并发连接 Vite dev server 时，冷启动依赖优化可能
+  // 向已连接页面发一次 full reload（真实 HMR，不是产品行为）。等它结束再开始操作，
+  // 否则跑到一半的 TurnResult 广播会落在旧 socket 上而丢失；证据里如实记录 reload 次数。
+  let pageLoadCount = 0;
+  let lastPageLoadAt = Date.now();
+  page.on("load", () => {
+    pageLoadCount += 1;
+    lastPageLoadAt = Date.now();
+  });
+
+  async function waitForColdStartSettle() {
+    const started = Date.now();
+    while (Date.now() - started < 60_000) {
+      await sleep(1_000);
+      const stableFor = Date.now() - lastPageLoadAt;
+      if (Date.now() - started >= 12_000 && stableFor >= 6_000) return;
+      if (stableFor < 6_000) {
+        await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+        await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+          timeout: 30_000,
+        });
+      }
+    }
+    throw new Error("B27: workbench did not stabilize before author operations");
+  }
+
+  await waitForColdStartSettle();
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await waitForVisibleWorkTitle(page, workTitle, 30_000).catch(async () => {
+    await refreshAndSelectWork(page, workTitle);
+  });
+  assert((await page.locator(chatInputSelector).count()) === 1, "B27: main chat input is not unique");
+
+  // ── Stage 1：判断/计划 → writer 候选 → 独立 evaluator；停待采纳零写入 ────
+  const writerTurn = await sendAuthorMessage(writerMessage, "writer_with_evaluator", 300_000);
+  const writerTurnResult = writerTurn.turnResult;
+  const writerRunId = writerTurnResult.agent_run?.run_id;
+  assert(writerRunId, "B27: writer round did not run through a bounded AgentRun");
+  const writerFrames = frames.slice(writerTurn.frameStart);
+  const writerAgentEvents = writerFrames.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === writerRunId,
+  );
+  const writerEventTypes = writerAgentEvents.map((frame) => frame.body?.event_type);
+  const writerJudgmentEvent = writerAgentEvents.find(
+    (frame) => frame.body?.event_type === "judgment_decided",
+  );
+  assert(
+    writerJudgmentEvent &&
+      (writerJudgmentEvent.body?.reason_codes ?? []).includes("judgment_execute"),
+    `B27: writer round was not routed by a judgment execute decision: ${writerEventTypes.join(",")}`,
+  );
+  assert(
+    writerEventTypes.includes("plan_drafted"),
+    `B27: writer run did not broadcast a drafted plan: ${writerEventTypes.join(",")}`,
+  );
+  const draftedPlan = writerAgentEvents.find((frame) => frame.body?.event_type === "plan_drafted");
+  const draftedPlanSteps = draftedPlan?.body?.payload?.plan_steps ?? [];
+  assert(
+    draftedPlanSteps.some((step) => step?.target_tool_ref === "context_assemble") &&
+      draftedPlanSteps.some((step) => step?.target_tool_ref === "prose_writing"),
+    "B27: drafted plan did not include the context + prose steps",
+  );
+  assert(
+    writerEventTypes.includes("artifact_created"),
+    `B27: writer run did not broadcast artifact_created: ${writerEventTypes.join(",")}`,
+  );
+  assert(
+    writerAgentEvents.some(
+      (frame) =>
+        frame.body?.event_type === "tool_completed" &&
+        String(frame.body?.summary ?? "").includes("质量复核"),
+    ),
+    "B27: writer run did not expose the evaluator (质量复核) observation",
+  );
+  const pendingProse = (writerTurnResult.adoption_state?.pending ?? []).find(
+    (entry) => entry.artifact_type === "prose_fragment",
+  );
+  assert(pendingProse, "B27: writer round did not leave a pending prose_fragment candidate");
+  const pendingBody = String(pendingProse.payload?.items?.[0]?.body ?? "");
+  assert(pendingBody !== "", "B27: pending prose candidate has no body bytes");
+  const writerReview = writerTurnResult.quality_review ?? {};
+  assert(
+    writerReview.review_status === "completed",
+    `B27: evaluator did not complete: ${writerReview.review_status}`,
+  );
+  assert(
+    pendingProse.requires_adoption === true &&
+      String(pendingProse.adoption_status ?? "") === "TENTATIVE",
+    "B27: prose candidate bypassed the tentative adoption boundary",
+  );
+  assert(
+    writerTurnResult.truthfulness?.artifact_adopted === false,
+    "B27: writer round auto-adopted the candidate",
+  );
+  assert(
+    writerTurnResult.truthfulness?.production_write_performed === false,
+    "B27: writer round wrote production facts before author adoption",
+  );
+  assert(
+    sentAuthorActions().length === 0,
+    "B27: an author_action was sent before the author explicitly adopted",
+  );
+  const writerJudgmentRecord = await waitForNewAppLogRecord(
+    writerTurn.logStart,
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.turn_id === writerTurn.parentTurnId &&
+      record.action === "execute" &&
+      record.capability === "prose_writing",
+    "B27: judgment did not route the writer request to the prose capability",
+    60_000,
+  );
+  const qualityRecord = await waitForNewAppLogRecord(
+    writerTurn.logStart,
+    (record) =>
+      record.event === "prose_quality.evaluated.done" && record.review_status === "completed",
+    "B27: evaluator completion was not persisted in the app log",
+    60_000,
+  );
+  const proseToolRecords = readAppLogRecords()
+    .slice(writerTurn.logStart)
+    .filter((record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing");
+  assert(proseToolRecords.length === 1, "B27: writer tool was not dispatched exactly once");
+  const pendingNeedle = bodyPhrase(pendingBody);
+  await waitForPendingProseCard(pendingNeedle);
+  await page.screenshot({
+    path: path.join(artifactDir, "b27-01-writer-evaluator-pending.png"),
+    fullPage: true,
+  });
+  stages.writer_evaluator = {
+    message: writerMessage,
+    turn_id: writerTurnResult.turn_id,
+    run_id: writerRunId,
+    profile_ref: writerTurnResult.agent_run?.profile_ref,
+    judgment_action: writerJudgmentRecord.action,
+    judgment_capability: writerJudgmentRecord.capability,
+    plan_step_tools: draftedPlanSteps.map((step) => step?.target_tool_ref),
+    agent_event_types: writerEventTypes,
+    quality_review_status: writerReview.review_status,
+    quality_policy_action: writerReview.policy_action,
+    quality_findings_count: (writerReview.findings ?? []).length,
+    quality_event_logged: Boolean(qualityRecord),
+    pending_artifact_id: pendingProse.artifact_id,
+    pending_artifact_type: pendingProse.artifact_type,
+    pending_tentative: true,
+    pending_body_chars: pendingBody.length,
+    prose_dispatch_count: proseToolRecords.length,
+    no_auto_adoption: true,
+    no_production_write: true,
+    no_author_action_before_adoption: true,
+    user_message_text: writerMessage,
+  };
+
+  // ── Stage 2：刷新恢复 → 候选仍待采纳、无重复；状态追问不把完成当入档 ──
+  const firstResumeSnapshot = await reloadWorkbench();
+  const pendingAfterReload = (firstResumeSnapshot.pending_adoptions ?? []).filter(
+    (entry) => entry.artifact_id === pendingProse.artifact_id,
+  );
+  assert(
+    pendingAfterReload.length === 1,
+    `B27: pending candidate was not restored exactly once after reload (${pendingAfterReload.length})`,
+  );
+  assert(
+    pendingAfterReload[0].adoption_status === "TENTATIVE",
+    "B27: restored candidate lost its tentative status",
+  );
+  assert(
+    String(pendingAfterReload[0].payload?.items?.[0]?.body ?? "") === pendingBody,
+    "B27: restored candidate bytes differ from the generated candidate",
+  );
+  assert(
+    (firstResumeSnapshot.pending_adoptions ?? []).length === 1,
+    "B27: reload produced duplicate pending candidates",
+  );
+  const restoredVisibleText = await page.locator("body").innerText();
+  assert(
+    restoredVisibleText.includes(writerMessage),
+    "B27: reload did not restore the author's original words",
+  );
+  assert(
+    restoredVisibleText.split(writerMessage).length - 1 === 1,
+    "B27: restored transcript duplicated an author message",
+  );
+  await waitForPendingProseCard(pendingNeedle);
+  const statusTurnBeforeAdoption = await sendAuthorMessage(statusQuestion, "pending_status_question");
+  const statusBeforeText = turns.at(-1).assistant_text;
+  assert(
+    statusBeforeText.includes("待采纳 1 份"),
+    `B27: pending status answer does not report the real pending count: ${statusBeforeText}`,
+  );
+  assert(
+    statusBeforeText.includes("TENTATIVE"),
+    `B27: pending status answer does not expose the canonical tentative status: ${statusBeforeText}`,
+  );
+  assert(
+    statusBeforeText.includes(bodyPhrase(pendingBody, 8)),
+    `B27: pending status answer does not quote the real candidate bytes: ${statusBeforeText}`,
+  );
+  assert(
+    !statusBeforeText.includes("ACCEPTED"),
+    `B27: pending status answer claims an adoption that did not happen: ${statusBeforeText}`,
+  );
+  assert(
+    (statusTurnBeforeAdoption.turnResult.adoption_state?.pending ?? []).length === 0,
+    "B27: status question created a new candidate",
+  );
+  assert(
+    statusTurnBeforeAdoption.turnResult.truthfulness?.production_write_performed !== true,
+    "B27: status question performed a production write",
+  );
+  const beforeAdoptionSnapshot = await fetchSessionSnapshotFromApi(
+    seedWorkId,
+    latestSentUserMessage()?.body?.session_id,
+  );
+  assert(
+    (beforeAdoptionSnapshot.pending_adoptions ?? []).some(
+      (entry) =>
+        entry.artifact_id === pendingProse.artifact_id && entry.adoption_status === "TENTATIVE",
+    ),
+    "B27: pending candidate is not persisted as TENTATIVE before adoption",
+  );
+  assert(
+    !(beforeAdoptionSnapshot.resolved_adoptions ?? []).some(
+      (entry) => entry.artifact_id === pendingProse.artifact_id,
+    ),
+    "B27: candidate is already resolved before the author adopted it",
+  );
+  stages.pending_restore_and_status = {
+    reload_pending_count: (firstResumeSnapshot.pending_adoptions ?? []).length,
+    restored_status: pendingAfterReload[0].adoption_status,
+    restored_bytes_intact: true,
+    transcript_author_words_restored: true,
+    status_question: statusQuestion,
+    status_answer: statusBeforeText,
+    reports_tentative: true,
+    claims_accepted: false,
+    no_new_candidate: true,
+    no_production_write: true,
+  };
+  await page.screenshot({
+    path: path.join(artifactDir, "b27-02-reload-pending-honest-status.png"),
+    fullPage: true,
+  });
+
+  // ── Stage 3：作者显式采纳 → resolved、trace/state refs、章摘要持久化 ─────
+  const adoptionFrameStart = frames.length;
+  const adoptionLogStart = readAppLogRecords().length;
+  const saveExact = page.getByRole("button", { name: /^保存为章节正文$/ });
+  const saveOriginal = page.getByRole("button", { name: /^保存原稿$/ });
+  const saveLabel = (await saveExact.count()) > 0 ? "保存为章节正文" : "保存原稿";
+  const saveButton = (await saveExact.count()) > 0 ? saveExact.first() : saveOriginal.first();
+  await saveButton.waitFor({ state: "visible", timeout: 15_000 });
+  await saveButton.click();
+  const acceptActionFrame = await waitForNewFrame(
+    adoptionFrameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === pendingProse.artifact_id,
+    "B27: real workbench did not send the accept author_action for the pending candidate",
+    30_000,
+  );
+  const adoptedTurnFrame = await waitForNewFrame(
+    adoptionFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === pendingProse.artifact_id,
+      ),
+    "B27: adoption did not resolve the pending candidate",
+    180_000,
+  );
+  const adoptedTurnResult = adoptedTurnFrame.body;
+  const resolvedEntry = (adoptedTurnResult.adoption_state?.resolved ?? []).find(
+    (entry) => entry.artifact_id === pendingProse.artifact_id,
+  );
+  assert(
+    String(resolvedEntry?.adoption_status ?? "") === "ACCEPTED",
+    `B27: resolved adoption status is not ACCEPTED: ${resolvedEntry?.adoption_status}`,
+  );
+  assert(
+    sentAuthorActions().length === 1,
+    `B27: expected exactly one explicit author_action, got ${sentAuthorActions().length}`,
+  );
+  const stateTraceRefs = Array.isArray(adoptedTurnResult.trace_summary?.state_trace_refs)
+    ? adoptedTurnResult.trace_summary.state_trace_refs
+    : [];
+  const projectionRefs = Array.isArray(adoptedTurnResult.projection_refs)
+    ? adoptedTurnResult.projection_refs
+    : [];
+  assert(
+    typeof adoptedTurnResult.trace_summary?.trace_ref === "string" &&
+      adoptedTurnResult.trace_summary.trace_ref !== "",
+    "B27: adoption TurnResult did not carry a persisted trace_ref",
+  );
+  assert(
+    stateTraceRefs.length >= 1 || projectionRefs.length >= 1,
+    "B27: adoption did not persist state/projection trace refs",
+  );
+  const actionDoneRecord = await waitForNewAppLogRecord(
+    adoptionLogStart,
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_status === "accepted" &&
+      String(record.action_id ?? "") === `accept:${pendingProse.artifact_id}`,
+    "B27: explicit adoption was not persisted as an accepted author action",
+    60_000,
+  );
+  const summaryMaintenanceRecord = await waitForNewAppLogRecord(
+    adoptionLogStart,
+    (record) =>
+      record.event === "chapter_summary_maintenance.run.done" &&
+      record.four_column === true &&
+      String(record.status ?? "").toUpperCase() === "ACCEPTED",
+    "B27: adoption did not persist the four-column chapter summary",
+    120_000,
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "b27-03-explicit-adoption.png"),
+    fullPage: true,
+  });
+  stages.adoption = {
+    save_button: saveLabel,
+    action_type: acceptActionFrame.body?.action?.action_type,
+    target_ref: acceptActionFrame.body?.action?.target_ref,
+    adoption_turn_id: adoptedTurnResult.turn_id,
+    artifact_adopted: adoptedTurnResult.truthfulness?.artifact_adopted,
+    production_write_performed: adoptedTurnResult.truthfulness?.production_write_performed,
+    resolved_status: resolvedEntry?.adoption_status,
+    trace_ref: adoptedTurnResult.trace_summary?.trace_ref,
+    state_trace_ref_count: stateTraceRefs.length,
+    projection_ref_count: projectionRefs.length,
+    projection_refresh_status: projectionRefs[0]?.refresh_status ?? null,
+    author_action_log_status: actionDoneRecord.action_status,
+    summary_maintenance_four_column: summaryMaintenanceRecord.four_column === true,
+    summary_maintenance_status: summaryMaintenanceRecord.status,
+    summary_chapter_id: summaryMaintenanceRecord.chapter_id ?? null,
+    author_action_count: sentAuthorActions().length,
+  };
+
+  // ── Stage 4：再刷新 → 下一轮按持久事实回答（候选→已采纳）；阅读投影 ─────
+  const secondResumeSnapshot = await reloadWorkbench();
+  const resolvedAfterReload = (secondResumeSnapshot.resolved_adoptions ?? []).find(
+    (entry) => entry.artifact_id === pendingProse.artifact_id,
+  );
+  assert(
+    String(resolvedAfterReload?.adoption_status ?? "") === "ACCEPTED",
+    "B27: adopted candidate was not restored as ACCEPTED after reload",
+  );
+  assert(
+    !(secondResumeSnapshot.pending_adoptions ?? []).some(
+      (entry) => entry.artifact_id === pendingProse.artifact_id,
+    ),
+    "B27: adopted candidate re-entered pending state after reload",
+  );
+  assert(
+    String(resolvedAfterReload?.payload?.items?.[0]?.body ?? "") === pendingBody,
+    "B27: adopted bytes differ from the tentative candidate bytes",
+  );
+  const statusTurnAfterAdoption = await sendAuthorMessage(statusQuestion, "adopted_status_question");
+  const statusAfterText = turns.at(-1).assistant_text;
+  assert(
+    statusAfterText.includes("已处置 1 份"),
+    `B27: next round does not consume the persisted adoption: ${statusAfterText}`,
+  );
+  assert(
+    statusAfterText.includes("ACCEPTED"),
+    `B27: next round does not expose the canonical adopted status: ${statusAfterText}`,
+  );
+  assert(
+    statusAfterText !== statusBeforeText,
+    "B27: next round returned the same pre-adoption facts",
+  );
+  assert(
+    !statusAfterText.includes("待采纳 1 份"),
+    "B27: next round still reports the adopted candidate as pending",
+  );
+  assert(
+    (statusTurnAfterAdoption.turnResult.adoption_state?.pending ?? []).length === 0,
+    "B27: post-adoption status question created a new candidate",
+  );
+
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+  await page.waitForFunction(
+    (needle) =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("本章有效字数") &&
+      document.body.innerText.includes(needle),
+    pendingNeedle,
+    { timeout: 20_000 },
+  );
+  const readingText = await page.locator("body").innerText();
+  const chapterWordCount = parseChapterWords(readingText);
+  assert(
+    Number(chapterWordCount) > 0,
+    "B27: reading mode did not project the adopted prose word count",
+  );
+  assert(
+    !readingText.includes("暂无已采纳的章节内容"),
+    "B27: adopted chapter content is missing from the reading projection",
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, "b27-04-adopted-reading-projection.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 15_000 });
+
+  stages.next_round_and_projection = {
+    resolved_status_after_reload: resolvedAfterReload?.adoption_status,
+    adopted_bytes_intact: true,
+    status_question: statusQuestion,
+    post_adoption_status_answer: statusAfterText,
+    reports_accepted: statusAfterText.includes("ACCEPTED"),
+    reports_disposed: statusAfterText.includes("已处置 1 份"),
+    differs_from_pre_adoption: statusAfterText !== statusBeforeText,
+    reading_mode_visible: true,
+    reading_chapter_word_count: Number(chapterWordCount),
+    reading_shows_adopted_prose: true,
+  };
+
+  // ── Stage 5：判断/计划取证 → 有依据结论（分析零写入；最后一轮）──────────
+  const planTurn = await sendAuthorMessage(planQuestion, "judgment_plan_grounded");
+  const planTurnResult = planTurn.turnResult;
+  const planReplyText = turns.at(-1).assistant_text;
+  assert(planReplyText.includes("依据如下"), "B27: judgment reply does not cite retrieved evidence");
+  assert(planReplyText.includes("第02章"), "B27: judgment reply does not cite the asked chapter");
+  assert(
+    /矿区|巡检傀儡/.test(planReplyText),
+    "B27: judgment reply does not cite the adopted chapter-plan content",
+  );
+  assert(
+    (planTurnResult.adoption_state?.pending ?? []).length === 0,
+    "B27: analysis round unexpectedly materialized a pending candidate",
+  );
+  assert(
+    planTurnResult.truthfulness?.production_write_performed !== true,
+    "B27: analysis round performed a production write",
+  );
+  const planExplorations = frames
+    .slice(planTurn.frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.event_type === "exploration_observed",
+    );
+  assert(
+    planExplorations.length >= 1,
+    "B27: judgment round did not broadcast a real exploration observation",
+  );
+  const planObservation = planExplorations[0].body ?? {};
+  assert(
+    planObservation.payload?.tool === "chapter_read",
+    `B27: judgment exploration did not read the adopted chapter plan: ${planObservation.payload?.tool}`,
+  );
+  await waitForNewAppLogRecord(
+    planTurn.logStart,
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.action === "explore" &&
+      record.turn_id === planTurn.parentTurnId,
+    "B27: judgment did not decide to explore before answering",
+    60_000,
+  );
+  await waitForNewAppLogRecord(
+    planTurn.logStart,
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.action === "reply" &&
+      record.turn_id === planTurn.parentTurnId,
+    "B27: judgment did not converge to a cited reply",
+    60_000,
+  );
+  const planJudgmentRecords = readAppLogRecords()
+    .slice(planTurn.logStart)
+    .filter((record) => record.event === "judgment.decided.done");
+  stages.judgment_plan = {
+    question: planQuestion,
+    turn_id: planTurnResult.turn_id,
+    exploration_count: planExplorations.length,
+    exploration_tool: planObservation.payload?.tool,
+    cited_chapter: planReplyText.includes("第02章"),
+    cited_plan_content: /矿区|巡检傀儡/.test(planReplyText),
+    judgment_actions: planJudgmentRecords.map((record) => record.action),
+    reply_text: planReplyText,
+    no_pending_artifacts: (planTurnResult.adoption_state?.pending ?? []).length === 0,
+    no_production_write: planTurnResult.truthfulness?.production_write_performed !== true,
+    user_message_text: planQuestion,
+  };
+  await page.screenshot({
+    path: path.join(artifactDir, "b27-05-judgment-grounded-answer.png"),
+    fullPage: true,
+  });
+
+  const sentUserMessages = frames.filter(
+    (frame) => frame.direction === "sent" && frame.event === "user_message",
+  );
+  assert(
+    sentUserMessages.length === 4,
+    `B27: expected 4 real workbench messages, got ${sentUserMessages.length}`,
+  );
+  const turnIds = turns.map((turn) => turn.parent_turn_id).filter(Boolean);
+  const uiState = await commonUiState(page, adoptedTurnResult, latestSentUserMessage());
+  const evidence = {
+    scenario: scenarioId,
+    surface: "tauri",
+    driver: "headless-chromium-real-frontend-backend",
+    seeded_work: { work_id: seedWorkId, title: workTitle },
+    author_inputs: turns.map((turn) => ({ label: turn.label, text: turn.text, turn_id: turn.turn_id })),
+    stages,
+    persistence: {
+      first_resume_snapshot_pending: (firstResumeSnapshot.pending_adoptions ?? []).map((entry) => ({
+        artifact_id: entry.artifact_id,
+        adoption_status: entry.adoption_status,
+        artifact_type: entry.artifact_type,
+      })),
+      second_resume_snapshot_resolved: (secondResumeSnapshot.resolved_adoptions ?? [])
+        .filter((entry) => entry.artifact_id === pendingProse.artifact_id)
+        .map((entry) => ({
+          artifact_id: entry.artifact_id,
+          adoption_status: entry.adoption_status,
+        })),
+    },
+    anti_hooks: {
+      data_testid_used: false,
+      hidden_dom_metadata_used: false,
+      product_autorun_used: false,
+      real_user_input_used: true,
+      protocol_bypass_used: false,
+    },
+  };
+  fs.writeFileSync(
+    path.join(artifactDir, "b27-lifecycle-evidence.json"),
+    JSON.stringify(evidence, null, 2),
+  );
+  fs.writeFileSync(path.join(artifactDir, "b27-lifecycle-turns.json"), JSON.stringify(turns, null, 2));
+
+  return [
+    {
+      ...uiState,
+      slice_id: scenarioId,
+      turn_id: adoptedTurnResult.turn_id,
+      turn_ids: turnIds,
+      work_id: seedWorkId,
+      session_id: latestSentUserMessage()?.body?.session_id,
+      plan_question_text: planQuestion,
+      writer_message_text: writerMessage,
+      status_question_text: statusQuestion,
+      sent_user_message_count: sentUserMessages.length,
+      cold_start_page_reloads: pageLoadCount,
+      writer_judgment_action: writerJudgmentRecord.action,
+      writer_judgment_capability: writerJudgmentRecord.capability,
+      judgment_explore_observed: planExplorations.length,
+      judgment_explore_tool: planObservation.payload?.tool,
+      judgment_actions: planJudgmentRecords.map((record) => record.action),
+      judgment_reply_cites_plan: planReplyText.includes("第02章") && /矿区|巡检傀儡/.test(planReplyText),
+      judgment_no_pending_artifacts: (planTurnResult.adoption_state?.pending ?? []).length === 0,
+      judgment_no_production_write:
+        planTurnResult.truthfulness?.production_write_performed !== true,
+      writer_run_id: writerRunId,
+      writer_profile_ref: writerTurnResult.agent_run?.profile_ref,
+      writer_plan_step_tools: draftedPlanSteps.map((step) => step?.target_tool_ref),
+      writer_quality_review_status: writerReview.review_status,
+      writer_quality_findings_count: (writerReview.findings ?? []).length,
+      writer_quality_evaluated_logged: Boolean(qualityRecord),
+      writer_prose_pending_id: pendingProse.artifact_id,
+      writer_prose_pending_tentative: true,
+      writer_prose_pending_body_chars: pendingBody.length,
+      writer_prose_dispatch_count: proseToolRecords.length,
+      no_auto_adoption: true,
+      no_production_write_before_adoption: true,
+      no_author_action_before_adoption: true,
+      pending_survives_reload: true,
+      reload_pending_count: (firstResumeSnapshot.pending_adoptions ?? []).length,
+      pending_bytes_survive_reload: true,
+      author_inputs_preserved_after_reload: true,
+      pre_adoption_status_answer: statusBeforeText,
+      pre_adoption_status_reports_tentative: true,
+      pre_adoption_status_claims_accepted: false,
+      adoption_action_type: acceptActionFrame.body?.action?.action_type,
+      adoption_target_ref: acceptActionFrame.body?.action?.target_ref,
+      adoption_resolved_status: resolvedEntry?.adoption_status,
+      adoption_trace_ref: adoptedTurnResult.trace_summary?.trace_ref,
+      adoption_state_trace_refs_count: stateTraceRefs.length,
+      adoption_projection_refs_count: projectionRefs.length,
+      adoption_projection_refresh_status: projectionRefs[0]?.refresh_status ?? null,
+      adoption_author_action_log_status: actionDoneRecord.action_status,
+      chapter_summary_maintenance_four_column: summaryMaintenanceRecord.four_column === true,
+      chapter_summary_maintenance_status: summaryMaintenanceRecord.status,
+      post_adoption_status_answer: statusAfterText,
+      post_adoption_status_reports_accepted: true,
+      post_adoption_pending_count: (secondResumeSnapshot.pending_adoptions ?? []).length,
+      next_round_based_on_persisted_facts: true,
+      reading_mode_shows_adopted_prose: true,
+      reading_chapter_word_count: Number(chapterWordCount),
+      outcome: "done",
+    },
+  ];
+}
+
+
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
@@ -34133,6 +34850,7 @@ const drivers = {
   "d6-purpose-model-routing": driveD6PurposeModelRouting,
   "agent-conversation-turn": driveAgentConversationTurn,
   "b26-author-question-roundtrip": driveB26AuthorQuestionRoundtrip,
+  "b27-prompt-lifecycle-consistency": driveB27PromptLifecycleConsistency,
   "agentic-loop-plan-replan-reasoning": driveAgenticLoopPlanReplanReasoning,
   "agentic-loop-no-deviation-direct": driveAgenticLoopNoDeviationDirect,
   "agent-plan-native-tool-calling-protocol": driveAgentPlanNativeToolCallingProtocol,
