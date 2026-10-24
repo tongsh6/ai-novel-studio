@@ -29,6 +29,37 @@ defmodule NovelApplication.JudgmentProtocolTest do
       options: opts
     }
 
+  defp plan_args do
+    %{
+      "plan" => %{
+        "steps" => [
+          %{
+            "step_id" => "s1",
+            "kind" => "act",
+            "description" => "写正文",
+            "success_criteria" => ["done"],
+            "target_tool_ref" => "prose_writing"
+          }
+        ]
+      },
+      "author_reasoning" => "先取证再写",
+      "reason_codes" => ["planned"],
+      "confidence" => 0.9
+    }
+  end
+
+  defp plan_decision_call do
+    call("judgment_decision", %{
+      "action" => "plan",
+      "dialogue_goal" => "分步执行",
+      "reason" => "需要计划"
+    })
+  end
+
+  defp plan_pair do
+    [call("agent_plan_draft", plan_args()), plan_decision_call()]
+  end
+
   defp execution(results) do
     parent = self()
     ref = make_ref()
@@ -353,5 +384,112 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert_received {:provider_request, corrected}
     assert length(corrected.messages) == length(original.messages) + 1
     refute_receive {:provider_request, _}
+  end
+
+  test "判断 prompt 的合法工具组合规则唯一且明确" do
+    prompt = JudgmentProtocol.prompt(input())
+    content = prompt.messages |> List.first() |> Map.fetch!(:content)
+    guidance = JudgmentToolContract.legal_combination_guidance()
+
+    # 规则只出现一次（单一真源，不允许别处再手写一份）
+    assert String.split(content, guidance) |> length() == 2
+    assert content =~ "单独返回 agent_plan_draft 是非法响应"
+
+    plan_tool = Enum.find(prompt.tools, &(&1.name == "agent_plan_draft"))
+    assert plan_tool.description =~ "必须与 judgment_decision(action=plan) 同一响应同批返回"
+    # schema/名称不变
+    assert plan_tool.input_schema == NovelApplication.AgentPlanToolContract.schema()
+  end
+
+  test "单独 agent_plan_draft：纠错回执携带合法组合指引且一次纠正可修复" do
+    bad = response("先给计划。", [call("agent_plan_draft", plan_args())])
+    good = response("按计划分步执行。", plan_pair())
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(execution([bad, good]), %{}, input())
+
+    assert judgment.action == "plan"
+    assert judgment.provider_call_count == 2
+
+    assert_receive {:provider_request, first}
+    assert_receive {:provider_request, second}
+    refute_receive {:provider_request, _}
+
+    # 保留原输入/工具集，只追加纠错消息
+    assert hd(second.messages).content == hd(first.messages).content
+    assert second.tools == first.tools
+    assert length(second.messages) == length(first.messages) + 1
+
+    correction = List.last(second.messages).content
+    assert correction =~ "invalid_tool_combination"
+    assert correction =~ "agent_plan_draft 只能与 judgment_decision(action=plan)"
+    assert correction =~ JudgmentToolContract.legal_combination_guidance()
+    assert correction =~ "保留同一作者输入、来源、目标、范围与权限"
+  end
+
+  test "单独 agent_plan_draft 重试后仍非法 → 终局拒绝且调用计数正确" do
+    bad = response("先给计划。", [call("agent_plan_draft", plan_args())])
+    still_bad = response("还是只有计划。", [call("agent_plan_draft", plan_args())])
+
+    assert {:error, {:judgment_protocol_violation, :invalid_tool_combination}} =
+             JudgmentProtocol.request_judgment(execution([bad, still_bad]), %{}, input())
+
+    assert_receive {:provider_request, _}
+    assert_receive {:provider_request, second}
+    assert List.last(second.messages).content =~ "invalid_tool_combination"
+    refute_receive {:provider_request, _}
+  end
+
+  test "合法组合（双工具 plan / 单 judgment_decision plan / 普通回复）不回归" do
+    assert {:ok, %{action: "plan", provider_call_count: 1}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", plan_pair())]),
+               %{},
+               input()
+             )
+
+    # 单 judgment_decision(action=plan) 仍合法（不带 inline plan）
+    assert {:ok, %{action: "plan"}} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [plan_decision_call()])]),
+               %{},
+               input()
+             )
+
+    assert {:ok, %{action: "reply"}} =
+             JudgmentProtocol.request_judgment(execution([response("普通答复", [])]), %{}, input())
+
+    # 单 judgment_decision execute / 其它单工具仍合法
+    assert {:ok, %{action: "execute"}} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("", [
+                   call("judgment_decision", %{
+                     "action" => "execute",
+                     "capability" => "prose_writing",
+                     "dialogue_goal" => "写章",
+                     "reason" => "作者明确要求"
+                   })
+                 ])
+               ]),
+               %{},
+               input(capabilities: ["prose_writing"])
+             )
+  end
+
+  test "其它校验 reason 的纠错文案保持原样（不混入合法组合指引）" do
+    first = response("", [call("judgment_decision", %{action: "execute"})])
+    second = response("已按原目标继续。", [])
+
+    assert {:ok, %{action: "reply", provider_call_count: 2}} =
+             JudgmentProtocol.request_judgment(execution([first, second]), %{}, input())
+
+    # capability_not_available 在现有协议里属于需纠正后重试；本用例验证第一轮纠错文案：
+    # 其它 reason 仍用原泛化文案，不混入合法组合指引。
+    assert_receive {:provider_request, _}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+    assert correction =~ "只纠正不合法结构"
+    refute correction =~ JudgmentToolContract.legal_combination_guidance()
   end
 end

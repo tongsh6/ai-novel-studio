@@ -79,14 +79,25 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
+  # invalid_tool_combination 是模型最容易重复的协议错误：纠错回执必须给出可执行的
+  # 合法组合指引（同源 helper），让一次纠错可修复；其它 reason 文案保持不变。
+  defp correction_content(:invalid_tool_combination) do
+    "本次响应未通过契约校验：invalid_tool_combination（工具组合非法）。" <>
+      JudgmentToolContract.legal_combination_guidance() <>
+      "保留同一作者输入、来源、目标、范围与权限，只纠正工具组合；不要扩大操作或复述失败响应。"
+  end
+
+  defp correction_content({:invalid_tool_combination, _detail}),
+    do: correction_content(:invalid_tool_combination)
+
+  defp correction_content(reason) do
+    "本次响应未通过契约校验：#{inspect(reason) |> String.slice(0, @error_excerpt_chars)}。" <>
+      "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
+  end
+
   defp correct_or_reject(fun, prompt, input, profile, attempt, reason)
        when attempt < @max_attempts do
-    correction = %{
-      role: "user",
-      content:
-        "本次响应未通过契约校验：#{inspect(reason) |> String.slice(0, @error_excerpt_chars)}。" <>
-          "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
-    }
+    correction = %{role: "user", content: correction_content(reason)}
 
     invoke(
       fun,
@@ -146,8 +157,9 @@ defmodule NovelApplication.JudgmentProtocol do
     单个创作产物用 judgment_decision.execute，capability 必须在本轮目录；只读取证仅用
     judgment_decision.explore + explore_request{tool,query}，不能直接调用探索目录里的 native tool。
     只读探索当前允许：#{Keyword.get(options, :explore, false)}；目录：#{Jason.encode!(Keyword.get(options, :explore_tools, []))}。
-    多个相互依赖的产物/阶段才用 judgment_decision.plan，可同次给 agent_plan_draft；
-    这是唯一合法双工具组合，其他操作一次只能给一个工具。模型工具调用不代表执行授权。
+    多个相互依赖的产物/阶段才用 judgment_decision.plan，且必须与 agent_plan_draft 同批返回。
+    #{JudgmentToolContract.legal_combination_guidance()}
+    模型工具调用不代表执行授权。
     有 content 时自然说明当前建议；空 content 时在 question、author_reasoning 或 reason 给作者原话。
     提供资料但只要求收下时不调工具、不生成方向/候选；保存指令不能代替被引用原文。
     """

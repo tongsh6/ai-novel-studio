@@ -4,6 +4,12 @@ defmodule NovelApplication.JudgmentToolContract do
   @version "b26-tools-v1"
   def version, do: @version
 
+  # 判断调用唯一合法工具组合的文案真源：产品 prompt 与 invalid_tool_combination
+  # 纠错回执共用，避免两处各写一份而导致漂移（B27 CP4 task-16）。
+  @legal_combination_guidance "工具组合规则：agent_plan_draft 只能与 judgment_decision(action=plan) 在同一响应中同批返回（两个工具名必须同时出现）；单独返回 agent_plan_draft 是非法响应。其他操作一次只能返回一个工具；普通回复可以不调用工具。"
+
+  @plan_tool_description_suffix "必须与 judgment_decision(action=plan) 同一响应同批返回；单独返回非法。"
+
   @text %{type: "string", minLength: 1}
   @strings %{type: "array", items: %{type: "string"}}
   @nullable_text %{anyOf: [%{type: "string"}, %{type: "null"}]}
@@ -12,7 +18,7 @@ defmodule NovelApplication.JudgmentToolContract do
     [
       decision(),
       question(),
-      NovelApplication.AgentPlanToolContract.tool(),
+      plan_tool(),
       registration(),
       directions(),
       gap()
@@ -20,6 +26,15 @@ defmodule NovelApplication.JudgmentToolContract do
   end
 
   def tools(:continuation), do: [continuation(), question(), gap()]
+
+  # 只在描述里补"必须同批"提示；schema/字段/名称保持不变（task-16 约束）。
+  defp plan_tool do
+    tool = NovelApplication.AgentPlanToolContract.tool()
+    Map.update!(tool, :description, &(&1 <> " " <> @plan_tool_description_suffix))
+  end
+
+  @doc "判断调用合法工具组合的唯一文案真源（prompt 与纠错回执共用）。"
+  def legal_combination_guidance, do: @legal_combination_guidance
 
   defp decision do
     tool(
