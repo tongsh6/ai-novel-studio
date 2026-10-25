@@ -1953,17 +1953,52 @@ try {
     run_duration_ms: Date.now() - startedAt,
   });
 
-  await page.screenshot({
-    path: path.join(artifactDir, "dogfood-final.png"),
-    fullPage: true,
-  });
+  await page
+    .screenshot({
+      path: path.join(artifactDir, "dogfood-final.png"),
+      fullPage: true,
+    })
+    .catch((screenshotError) => {
+      log(`final screenshot skipped: ${screenshotError?.message ?? screenshotError}`);
+    });
   log("artifacts written");
 } catch (error) {
-  await page.screenshot({
-    path: path.join(artifactDir, "dogfood-failure.png"),
-    fullPage: true,
-  });
+  // 外部 SIGTERM/浏览器关闭等事故下，page/context 可能已关闭；最终截图不能覆盖原始错误。
+  // 记录结构化 failure 后抛错，让 runner 以非零退出码结束（由上层 trap 清理）。
+  try {
+    if (!page.isClosed()) {
+      await page.screenshot({
+        path: path.join(artifactDir, "dogfood-failure.png"),
+        fullPage: true,
+      });
+    } else {
+      log("failure screenshot skipped: page already closed");
+    }
+  } catch (screenshotError) {
+    log(`failure screenshot skipped: ${screenshotError?.message ?? screenshotError}`);
+  }
+  try {
+    fs.writeFileSync(
+      path.join(artifactDir, "failure.json"),
+      JSON.stringify(
+        {
+          at: new Date().toISOString(),
+          status: "failed",
+          error: String(error?.message ?? error),
+          stack: String(error?.stack ?? "").slice(0, 4000),
+          run_duration_ms: Date.now() - startedAt,
+        },
+        null,
+        2,
+      ),
+    );
+    log("failure.json written");
+  } catch (writeError) {
+    console.error(`failure.json write failed: ${writeError?.message ?? writeError}`);
+  }
   throw error;
 } finally {
-  await browser.close();
+  await browser.close().catch((closeError) => {
+    log(`browser close skipped: ${closeError?.message ?? closeError}`);
+  });
 }
