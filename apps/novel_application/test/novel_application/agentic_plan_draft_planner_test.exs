@@ -58,8 +58,8 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
 
   defp provider_result(content), do: provider_result_with_arguments(content, plan_arguments())
 
-  defp provider_result_with_arguments(content, arguments) do
-    tool_calls = [%{"name" => "agent_plan_draft", "arguments" => arguments}]
+  defp provider_result_with_arguments(content, arguments, tool_name \\ "agent_plan_draft") do
+    tool_calls = [%{"name" => tool_name, "arguments" => arguments}]
 
     {:ok, output} =
       ProviderOutput.new(%{
@@ -976,5 +976,105 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert correction_text =~ "不能只返回"
     assert correction_text =~ "合法最小骨架"
     assert correction_text =~ ~s("author_reasoning":"...")
+  end
+
+  test "P1 复验：draft/revision 骨架含 prose_writing 的 authoring_intent（写新章也显式 null/值）" do
+    draft =
+      AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
+
+    draft_text = draft.messages |> hd() |> Map.fetch!(:content)
+
+    assert draft_text =~ ~s("authoring_intent":"continuation")
+    assert draft_text =~ "prose_writing 步必须在 step 对象里显式写"
+    assert draft_text =~ "写新章也要有该键"
+    assert draft_text =~ ~s("target_tool_ref":"prose_writing")
+
+    revision =
+      AgenticPlanDraftPlanner.revision_prompt(
+        probe_run(),
+        %{},
+        ["第01章：开端"],
+        "补足正文产出步"
+      )
+
+    revision_text = revision.messages |> hd() |> Map.fetch!(:content)
+    assert revision_text =~ ~s("authoring_intent":"continuation")
+    assert revision_text =~ "写新章也要有该键"
+  end
+
+  test "P1 复验：纠错请求 tools 仍暴露 agent_plan_draft（不是 auto），骨架含 authoring_intent" do
+    test_pid = self()
+    valid = plan_arguments()
+    only_plan = %{"plan" => valid["plan"]}
+
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+      send(test_pid, {:plan_prompt, n, prompt})
+
+      case n do
+        1 -> {:ok, provider_result_with_arguments("第一次只给 plan。", only_plan)}
+        _ -> {:ok, provider_result("第二次补齐。")}
+      end
+    end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert_received {:plan_prompt, 2, correction}
+
+    tool_names =
+      correction.tools
+      |> Enum.map(&Map.get(&1, :name))
+      |> Enum.reject(&is_nil/1)
+
+    assert "agent_plan_draft" in tool_names
+    refute "auto" in tool_names
+    assert correction.tool_choice == "auto"
+
+    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    assert correction_text =~ "必须调用 agent_plan_draft"
+    refute correction_text =~ "必须调用 auto"
+    assert correction_text =~ "function name 必须是 agent_plan_draft"
+    assert correction_text =~ ~s("authoring_intent":"continuation")
+    assert correction_text =~ ~s("target_tool_ref":"prose_writing")
+  end
+
+  test "P1 复验：revision 纠错请求 tools 暴露 agent_plan_revision（不是 auto）" do
+    test_pid = self()
+    valid = plan_arguments()
+    only_plan = %{"plan" => valid["plan"]}
+
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+      send(test_pid, {:plan_prompt, n, prompt})
+
+      case n do
+        1 -> {:ok, provider_result_with_arguments("修订只给 plan。", only_plan, "agent_plan_revision")}
+        _ -> {:ok, provider_result_with_arguments("修订补齐。", valid, "agent_plan_revision")}
+      end
+    end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.revise_plan_with_meta(
+               probe_run(),
+               %Execution{result_fn: result_fn},
+               %{},
+               revision_reason: "补足正文产出步"
+             )
+
+    assert_received {:plan_prompt, 2, correction}
+    tool_names = correction.tools |> Enum.map(&Map.get(&1, :name)) |> Enum.reject(&is_nil/1)
+    assert "agent_plan_revision" in tool_names
+    refute "auto" in tool_names
+
+    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+    assert correction_text =~ "必须调用 agent_plan_revision"
+    refute correction_text =~ "必须调用 auto"
   end
 end

@@ -268,7 +268,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     emit_plan_retry(:structure, :correction, reason)
 
     ctx.prompt
-    |> tool_call_correction_prompt(ctx.content, reason, ctx.run)
+    |> tool_call_correction_prompt(ctx.content, reason, ctx.run, ctx.tool_name)
     |> request_plan(%{ctx | attempt: ctx.attempt + 1, retry?: false})
   end
 
@@ -842,44 +842,135 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp plan_arguments_contract(allowed_targets) do
     step_target = List.first(List.wrap(allowed_targets)) || "context_assemble"
 
+    steps =
+      [plan_step_skeleton("s1", "explore", step_target, [])] ++
+        if "prose_writing" in List.wrap(allowed_targets) do
+          [
+            plan_step_skeleton("s2", "act", "prose_writing", [
+              {"write_intent", "tentative"},
+              {"authoring_intent", "continuation"},
+              {"target_chapter", "..."},
+              {"requested_chapter_raw", nil},
+              {"target_chapter_ref", nil}
+            ])
+          ]
+        else
+          []
+        end
+
+    skeleton =
+      Jason.encode!(%{
+        "plan" => %{"steps" => steps},
+        "author_reasoning" => "...",
+        "reason_codes" => ["agent_plan_drafted"],
+        "confidence" => 0.9
+      })
+
     """
     ### arguments JSON 骨架（顶层四字段缺一不可，plan 不是唯一包裹）
     必须返回一个 JSON object，顶层同时包含 plan / author_reasoning / reason_codes / confidence：
-    {"plan":{"steps":[{"step_id":"s1","kind":"explore","description":"...","success_criteria":["..."],"target_tool_ref":"#{step_target}"}]},"author_reasoning":"...","reason_codes":["agent_plan_drafted"],"confidence":0.9}
+    #{skeleton}
 
     说明：
     - plan 必须是 arguments 的一个顶层字段；只返回 {"plan":{...}} 会因缺少 author_reasoning / reason_codes / confidence 被校验拒绝。
     - plan.steps 每步必须含 step_id / kind / description / success_criteria / target_tool_ref；kind 只能是 explore 或 act。
+    - prose_writing 步必须在 step 对象里显式写 "authoring_intent" 键：continuation / rewrite / null（写新章也要有该键，不能省略）；同时带 target_chapter / requested_chapter_raw / target_chapter_ref，无值填 null。
     - author_reasoning 是作者可见计划说明原文；reason_codes 是字符串数组；confidence 是 0..1 数字。
     - 不要加额外顶层字段，不要服务端补字段（系统不会替你补）。
     """
     |> String.trim()
   end
 
-  defp tool_call_correction_prompt(original_prompt, failed_content, reason, run) do
+  defp tool_call_correction_prompt(original_prompt, failed_content, reason, run, tool_name) do
     original_text = original_prompt_text(original_prompt)
     targets = correction_targets(run)
+    tool_name = correction_tool_name(tool_name, original_prompt, targets)
     skeleton_target = List.first(targets) || "context_assemble"
 
     tool_prompt(
-      original_prompt.tool_choice,
+      tool_name,
       """
       你上一次的 AgentRun 计划 tool call 无法被系统解析（#{inspect(reason)}）。请严格重新输出同一任务：
-      - 必须调用 #{original_prompt.tool_choice}，且只调用这一个 tool
+      - 必须调用 #{tool_name}，且只调用这一个 tool（function name 必须是 #{tool_name}，不能把 auto 当 function name）
       - tool arguments 顶层只能是四个字段：plan / author_reasoning / reason_codes / confidence（不得加 status、title、body 等额外字段）
       - plan 只能是 {"steps": [PlanStep, ...]}；每个 PlanStep 必须有 step_id / kind / description / success_criteria / target_tool_ref
+      - prose_writing 步必须在 step 对象里显式写 "authoring_intent" 键：continuation / rewrite / null（写新章也要有该键，不能省略）；同时带 target_chapter / requested_chapter_raw / target_chapter_ref，无值填 null
       - kind 只能取 "explore" 或 "act"；target_tool_ref 只能取本任务 plan_step_targets 列表中的值
       - 检索步（prose_search/chapter_read/archive_read/memory_recall）可带 exploration_query 字符串；非检索步填 null 或省略
       - 合法最小骨架（值按本任务填写，不要照抄占位）：
-        {"plan":{"steps":[{"step_id":"s1","kind":"explore","description":"...","success_criteria":["..."],"target_tool_ref":"#{skeleton_target}"}]},"author_reasoning":"...","reason_codes":["agent_plan_drafted"],"confidence":0.9}
+        #{correction_skeleton_json(targets, skeleton_target)}
       - 上次 arguments 未通过计划 schema 时，逐项核对顶层四字段 plan / author_reasoning / reason_codes / confidence：plan 只是其中一个顶层字段，不能只返回 {"plan":{...}}；也不要加额外字段。
-      #{targets_guidance(targets)}#{shape_guidance(reason, original_prompt.tool_choice)}#{field_guidance(reason)}
+      #{targets_guidance(targets)}#{shape_guidance(reason, tool_name)}#{field_guidance(reason)}
       ## 你的上一次 content（截取前 #{@max_failed_planner_output_chars} 字符）
       #{String.slice(to_string(failed_content), 0, @max_failed_planner_output_chars)}
 
       ## 原始任务
       #{original_text}
       """
+    )
+  end
+
+  defp correction_tool_name(tool_name, _original_prompt, _targets)
+       when tool_name in [@draft_tool_name, @revision_tool_name],
+       do: tool_name
+
+  defp correction_tool_name(_tool_name, original_prompt, _targets) do
+    original_prompt
+    |> prompt_tool_name()
+    |> Kernel.||(@draft_tool_name)
+  end
+
+  defp prompt_tool_name(original_prompt) do
+    original_prompt
+    |> map_get(:tools)
+    |> List.wrap()
+    |> Enum.find_value(&known_plan_tool_name/1)
+  end
+
+  defp known_plan_tool_name(tool) do
+    case map_get(tool, :name) do
+      name when name in [@draft_tool_name, @revision_tool_name] -> name
+      _ -> nil
+    end
+  end
+
+  # 纠错骨架必须包含 prose_writing 步的 authoring_intent（写新章也必须显式 null），
+  # 否则模型照抄骨架仍会 missing_authoring_intent。
+  defp correction_skeleton_json(targets, skeleton_target) do
+    steps =
+      [plan_step_skeleton("s1", "explore", skeleton_target, [])] ++
+        if "prose_writing" in List.wrap(targets) do
+          [
+            plan_step_skeleton("s2", "act", "prose_writing", [
+              {"write_intent", "tentative"},
+              {"authoring_intent", "continuation"},
+              {"target_chapter", "..."},
+              {"requested_chapter_raw", nil},
+              {"target_chapter_ref", nil}
+            ])
+          ]
+        else
+          []
+        end
+
+    Jason.encode!(%{
+      "plan" => %{"steps" => steps},
+      "author_reasoning" => "...",
+      "reason_codes" => ["agent_plan_drafted"],
+      "confidence" => 0.9
+    })
+  end
+
+  defp plan_step_skeleton(step_id, kind, target, extra_fields) do
+    Map.merge(
+      %{
+        "step_id" => step_id,
+        "kind" => kind,
+        "description" => "...",
+        "success_criteria" => ["..."],
+        "target_tool_ref" => target
+      },
+      Map.new(extra_fields)
     )
   end
 
