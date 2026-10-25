@@ -1,6 +1,6 @@
 # B36 局部修订算法与结构化编辑能力（不只 prompt）
 
-- 状态：**doing / CP0 设计 + CP1 完成（2026-10-25，`bdc725c5`）**：确定性分段/diff 越界校验/采纳集成已提交（LocalizedRevision；target 段外逐字节一致、out_of_scope/incomplete/stale 零写入、receipt segment_changes）；CP2 结构化段落替换（writer 只产目标段 replacement + replace_segments 确定性 apply）进行中；CP3 真实模型 scoped replay、P1 canonical-2 待后。
+- 状态：**doing / CP0 设计 + CP1/CP2 完成（2026-10-25，`bdc725c5`/`be189f0c`）**：确定性分段/diff 越界校验/采纳集成已提交（LocalizedRevision；target 段外逐字节一致、out_of_scope/incomplete/stale 零写入、receipt segment_changes）；CP2 结构化段落替换已提交（writer 只产目标段 replacement + replace_segments 确定性 apply/失败零写入）；CP2 residual=agent 侧静态修订 prompt 仍要求整章稿 → task-97 prose 对齐中；CP3 真实模型 scoped replay（第一段实际变化且其余逐字保留）、P1 canonical-2 待后。
 - 类型：文本编辑算法 + 采纳事务能力 + 候选/验收契约承重 slice
 - 来源：B35 CP3（局部 126 chars 被当整章 complete 覆盖，1002→116 字）、B33 CP4、用户 2026-10-25 裁决
 - 关联：B28 整章修订、B35 修订采纳范围完整性、B33 判断可达性、P1 canonical-2
@@ -56,3 +56,11 @@
 ### CP2 进行中（task-96）
 
 target_segments 修订 writer 只产目标段 replacement（不要求整章），候选 body=provider 原样；adoption_effect `replace_segments` 确定性 apply（base/hash/segment 校验→逐段替换→LocalizedRevision 二次校验→新 draft/supersede/projection/receipt）；失败零写入/回滚；整章/format_only 原路径不回归。完成后 CP3 真实模型 scoped replay（第一段实际变化且其余逐字保留）→ P1 canonical-2。
+
+### CP2 实施记录（2026-10-25，`be189f0c`）
+
+- writer target_segments：只要求目标段替换文本（provider 原样 body；不要求整章/不复述未改段/不加解释）；整章/format_only 走原 replace_scope。
+- 候选 payload scope{kind,target_chapter_ref,target_segment_ids,base_draft_ref,base_version,expected_segment_hashes}；adoption_effect `replace_segments`。
+- `persist_replace_segments`（Ecto.Multi）：base ref/version、章内唯一 accepted base、逐段 expected sha256（`segment_mismatch`）、空 replacement/多段不匹配→`incomplete_scope`、按段替换保留原尾分隔符其他字节原样、LocalizedRevision 二次校验（`out_of_scope_changes`）、新 draft accepted/旧 superseded/章角色不变/失败回滚零写入；receipt segment_changes/old_chars/new_chars/diff_stats。
+- 测试 b36_replace_segments_test 2/0；persistence 327/0、application 953/0、全后端 2237/0。
+- **residual**：`CreativeProvider.Real` 静态修订块仍写「输出完整替换稿/不得只返回修改片段」，与 target_segments replacement-only 冲突 → task-97 修复后 CP3。
