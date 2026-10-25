@@ -327,4 +327,39 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert pending.payload[:title] == "#{c.chapter_title}（整章内容修订稿）"
     assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
   end
+
+  test "B35 target_segments：prompt 要求整章完整替换稿，候选 payload 声明 scope/covered/preserve", c do
+    run = %{
+      c.run
+      | goal: %{text: "只把第一章开头一段改得更紧张，其他段落逐字保留。", version: 1}
+    }
+
+    judgment =
+      judgment(c.chapter_ref, %{
+        dialogue_goal: "只把第一章开头一段改得更紧张，其他段落逐字保留。"
+      })
+
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(
+               judgment,
+               %{},
+               run,
+               c.context,
+               provider(c.base_text, self())
+             )
+
+    assert_received {:chapter_writer_prompt, prompt}
+    assert prompt =~ "整章完整替换稿"
+    assert prompt =~ "未改段落必须与当前已采纳正文逐字一致"
+
+    [pending] = result.turn_result.adoption_state.pending
+    payload = pending.payload
+
+    assert payload[:modification_scope] == "target_segments"
+    assert payload[:scope]["kind"] == "target_segments"
+    assert payload[:scope]["target_chapter_ref"] == c.chapter_ref
+    assert payload[:scope]["covered"] != []
+    assert payload[:scope]["preserve_unmentioned_verbatim"] == true
+    assert payload[:adoption_effect]["coverage"] == "complete"
+  end
 end

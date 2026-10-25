@@ -548,6 +548,7 @@ defmodule NovelPersistence.AdoptionRepository do
          {:ok, covered} <- covered_scope_drafts(repo, work_id, chapter.id, effect),
          :ok <- validate_expected_versions(repo, chapter.id, effect),
          :ok <- ensure_complete_cover(repo, work_id, chapter.id, covered, effect),
+         :ok <- ensure_content_covers_scope(attrs, covered, effect, content),
          :ok <- mark_chapter_drafted(repo, chapter),
          :ok <- supersede_covered_scenes(repo, work_id, covered),
          {:ok, draft} <-
@@ -561,7 +562,11 @@ defmodule NovelPersistence.AdoptionRepository do
          source_revision_ref: "draft:#{draft.id}:#{draft.revision}",
          mutation_id: mutation_id,
          adoption_effect: "replace_scope",
-         superseded_draft_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}")
+         superseded_draft_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}"),
+         scope: scope_label(attrs, effect),
+         covered_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}"),
+         old_chars: covered_base_chars(covered),
+         new_chars: String.length(content)
        }}
     end
   end
@@ -2037,6 +2042,43 @@ defmodule NovelPersistence.AdoptionRepository do
         _ -> {:halt, {:error, :stale_base_version}}
       end
     end)
+  end
+
+  # B35 CP2：replace_scope + coverage=complete 的机械完整性守卫。
+  # 当前 replace_scope 以「整份章稿」替换 covered 范围；局部修订（段落级）候选只有几百
+  # chars 时，若仍声明 complete，会在 supersede 旧稿后造成整章数据塌缩（B33 CP4 真实事故：
+  # 126 chars 替换 1198 chars）。这里按长度下界拒绝明显的局部候选（零写入），
+  # 真正的段级合并/更细粒度 scope 留 CP1 契约扩展；format_only 由归一字节校验负责。
+  defp ensure_content_covers_scope(attrs, covered, effect, content) do
+    coverage = Map.get(effect, "coverage") || Map.get(effect, :coverage)
+
+    if to_string(coverage) == "complete" do
+      scope = scope_label(attrs, effect)
+      base_chars = covered_base_chars(covered)
+      new_chars = String.length(content || "")
+
+      cond do
+        scope == "format_only" -> :ok
+        base_chars == 0 -> :ok
+        new_chars == 0 -> {:error, :incomplete_scope}
+        new_chars < div(base_chars, 2) -> {:error, :incomplete_scope}
+        true -> :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp covered_base_chars(covered) do
+    covered |> Enum.map(&String.length(to_string(&1.content || ""))) |> Enum.sum()
+  end
+
+  defp scope_label(attrs, effect) do
+    raw =
+      Map.get(attrs, :modification_scope) || Map.get(attrs, "modification_scope") ||
+        Map.get(effect, "modification_scope") || Map.get(effect, :modification_scope)
+
+    to_string(raw || "whole_chapter")
   end
 
   defp ensure_complete_cover(repo, work_id, chapter_id, covered, effect) do

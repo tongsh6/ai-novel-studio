@@ -759,9 +759,16 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       "只调整分段/标点/排版，不改变任何字句；应用会做空白归一后的字节等价校验；不得续写或只输出改动片段。"
   end
 
+  defp chapter_revision_instruction(:target_segments) do
+    "本轮为指定片段修订，但采纳以整章替换范围落地：必须输出**整章完整替换稿**" <>
+      "（包含原文所有段落/场次，按覆盖顺序；只改写作者指定的目标段，其余段落逐字保留，不得改写/删减/合并），" <>
+      "不得只输出改动片段、摘要、局部候选或续写。未改段落必须与当前已采纳正文逐字一致；" <>
+      "若无法确定目标段，输出整章原文并说明需要作者澄清，不要用局部文本冒充整章。"
+  end
+
   defp chapter_revision_instruction(_scope) do
-    "本轮为整章正文修订：按覆盖顺序输出覆盖范围的完整替换稿；只改作者指定内容，" <>
-      "其余正文逐字保留；不得只输出片段、摘要或续写。"
+    "本轮为整章正文修订：输出整章完整替换稿；只改作者指定内容，其余正文逐字保留；" <>
+      "不得只输出片段、摘要或续写。"
   end
 
   defp modification_scope_label(:format_only), do: "仅排版"
@@ -782,10 +789,18 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       "coverage" => "complete"
     }
 
+    covered_refs = Enum.map(facts.materials, &"#{&1.ref}:#{&1.version}")
+
     payload = %{
       title: visible_title,
       target_chapter_ref: chapter_ref,
       modification_scope: Atom.to_string(modification_scope),
+      scope: %{
+        "kind" => Atom.to_string(modification_scope),
+        "target_chapter_ref" => chapter_ref,
+        "covered" => covered_refs,
+        "preserve_unmentioned_verbatim" => modification_scope != :format_only
+      },
       adoption_effect: effect
     }
 

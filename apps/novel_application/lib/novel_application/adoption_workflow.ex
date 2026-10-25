@@ -1049,7 +1049,11 @@ defmodule NovelApplication.AdoptionWorkflow do
     :committed_changes,
     :character_ref,
     :base_fingerprint,
-    :current_fingerprint
+    :current_fingerprint,
+    :scope,
+    :covered_refs,
+    :old_chars,
+    :new_chars
   ]
 
   defp put_b28_result_fields(result, persisted) when is_map(persisted) do
