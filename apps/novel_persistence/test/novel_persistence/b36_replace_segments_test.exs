@@ -129,4 +129,126 @@ defmodule NovelPersistence.B36ReplaceSegmentsTest do
            |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
            |> Enum.sort() == before
   end
+
+  test "多份 accepted drafts（canonical-2 缺陷）：covered_refs 组合 base，替换后整章一份新 accepted，全部 covered superseded",
+       ctx do
+    scene2 =
+      Repo.insert!(%Scene{
+        work_id: ctx.work_id,
+        chapter_id: ctx.chapter.id,
+        title: "场景 2",
+        seq: 2
+      })
+
+    d2 =
+      Repo.insert!(%Draft{
+        work_id: ctx.work_id,
+        scene_id: scene2.id,
+        content: "第五段：零换行续写段。",
+        status: AdoptionStatus.accepted(),
+        revision: 1
+      })
+
+    combined = @base <> "\n\n" <> d2.content
+    seg = LocalizedRevision.segment(combined) |> hd()
+    replacement = "第一段：灯影更紧，账页发白。"
+
+    effect = %{
+      "mode" => "replace_segments",
+      "covered" => ["draft:#{ctx.draft.id}:5", "draft:#{d2.id}:1"],
+      "base_versions" => [
+        %{"ref" => "draft:#{ctx.draft.id}", "version" => 5},
+        %{"ref" => "draft:#{d2.id}", "version" => 1}
+      ],
+      "target_segment_ids" => [seg.segment_id],
+      "expected_segment_hashes" => [%{"segment_id" => seg.segment_id, "sha256" => seg.sha256}]
+    }
+
+    assert {:ok, persisted} =
+             AdoptionRepository.persist(%{
+               actor_ref: "author",
+               work_id: ctx.work_id,
+               source_turn_ref: "turn-b36-multi",
+               artifact_id: "as-b36-multi",
+               artifact_type: :prose_fragment,
+               content: replacement,
+               summary: "第03章",
+               target_chapter_ref: "chapter:#{ctx.chapter.id}",
+               adoption_effect: effect,
+               modification_scope: "target_segments",
+               target_segment_ids: effect["target_segment_ids"],
+               expected_segment_hashes: effect["expected_segment_hashes"],
+               mode: :overwrite
+             })
+
+    assert length(persisted.reading_projection.covered_refs) == 2
+    assert length(persisted.reading_projection.segment_changes) == 1
+    assert Repo.get!(Draft, ctx.draft.id).status == AdoptionStatus.superseded()
+    assert Repo.get!(Draft, d2.id).status == AdoptionStatus.superseded()
+
+    {:ok, content} = ReadingProjectionRepo.chapter_content(ctx.chapter.id, ctx.work_id)
+    text = Enum.map_join(content.scenes, "\n\n", & &1.content)
+    assert text =~ replacement
+    for p <- tl(@paras), do: assert(text =~ p)
+    assert text =~ d2.content
+
+    accepted =
+      Draft
+      |> where([d], d.work_id == ^ctx.work_id and d.status == ^AdoptionStatus.accepted())
+      |> Repo.all()
+
+    assert length(accepted) == 1
+    assert hd(accepted).scene_id == ctx.scene.id
+    assert String.trim_trailing(hd(accepted).content) == String.trim_trailing(text)
+  end
+
+  test "多 draft covered 版本不符 → stale_base_version 零写入", ctx do
+    scene2 =
+      Repo.insert!(%Scene{
+        work_id: ctx.work_id,
+        chapter_id: ctx.chapter.id,
+        title: "场景 2",
+        seq: 2
+      })
+
+    d2 =
+      Repo.insert!(%Draft{
+        work_id: ctx.work_id,
+        scene_id: scene2.id,
+        content: "续写段。",
+        status: AdoptionStatus.accepted(),
+        revision: 1
+      })
+
+    seg = LocalizedRevision.segment(@base) |> hd()
+
+    bad = %{
+      "mode" => "replace_segments",
+      "covered" => ["draft:#{ctx.draft.id}:5", "draft:#{d2.id}:1"],
+      "base_versions" => [
+        %{"ref" => "draft:#{ctx.draft.id}", "version" => 5},
+        %{"ref" => "draft:#{d2.id}", "version" => 99}
+      ],
+      "target_segment_ids" => [seg.segment_id],
+      "expected_segment_hashes" => [%{"segment_id" => seg.segment_id, "sha256" => seg.sha256}]
+    }
+
+    before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status}) |> Enum.sort()
+
+    assert {:error, :stale_base_version} =
+             AdoptionRepository.persist(%{
+               actor_ref: "author",
+               work_id: ctx.work_id,
+               source_turn_ref: "turn-b36-multi-stale",
+               artifact_id: "as-b36-multi-stale",
+               artifact_type: :prose_fragment,
+               content: "替换",
+               summary: "第03章",
+               target_chapter_ref: "chapter:#{ctx.chapter.id}",
+               adoption_effect: bad,
+               modification_scope: "target_segments"
+             })
+
+    assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status}) |> Enum.sort() == before
+  end
 end

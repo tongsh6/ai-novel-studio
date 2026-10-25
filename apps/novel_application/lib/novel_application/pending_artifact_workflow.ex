@@ -868,6 +868,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         %{
           "mode" => "replace_segments",
           "covered" => covered_refs,
+          "base_versions" =>
+            Enum.map(facts.materials, &%{"ref" => &1.ref, "version" => &1.version}),
           "target_segment_ids" => target_segment_ids,
           "expected_segment_hashes" => expected_segment_hashes,
           "base_draft_ref" => base_draft_ref,
@@ -890,6 +892,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         "kind" => Atom.to_string(modification_scope),
         "target_chapter_ref" => chapter_ref,
         "covered" => covered_refs,
+        "covered_refs" => covered_refs,
+        "base_versions" => effect["base_versions"],
         "target_segment_ids" => target_segment_ids,
         "expected_segment_hashes" => expected_segment_hashes,
         "base_draft_ref" => base_draft_ref,
