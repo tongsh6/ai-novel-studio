@@ -74,3 +74,8 @@
 - canonical-1 DB 新副本 `tmp/dogfood-db-p1-design-replay-20261025`；detached maintenance-only design_character；strata iq3_s；证据 `artifacts/novel-output/p1-b37-cp4-design-replay-2026-10-25/`。
 - design 拍：character_seed「陆沉」1 候选→真实作者 accepted；direction=第05章线；clarifications=0、ignored=[]、wrong_route=0；wait 4/38.7s/0 timeouts；canonical DB sha 未变。
 - 结论：B37 CP4 确定性方向/bounded 澄清/无关候选忽略在真实 iq3_s 成立；canonical-3d fresh 启动。
+
+### CP5 记录（2026-10-25，用户指出运行中模型会等作者回复；canonical-3d attempt4 停止）
+
+- canonical-3d phase1（detached，~15min）实况：第01章 1539、第02章 1127；多次 `agent_awaiting_author` → runner 按工具失败 readToc/取消活跃 run/重发，每章多耗 2–4min；用户指出模型在等作者决策/补充，不能干等。Lead 通过 detached stop 终止（attempt4 证据 `...canonical3d-attempt4-awaiting-author/`，不用于 P1）。
+- task-102（B37 CP5）：通用 `respondToAuthorQuestion`——识别 awaiting question/options/recommended；以作者身份 bounded 回复具体默认决策（章/续写/维护/扩章共用，≤2 次不同回复）；**不 cancel/readToc/重发**；无问题文本/重复问题→`author_question_unresolved` bounded 失败；记录 author_question_events；dry-run fixtures + 真实模型单章 scoped replay 后 canonical-3e final。
