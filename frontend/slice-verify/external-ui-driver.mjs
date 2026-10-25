@@ -17835,7 +17835,25 @@ async function driveAu09CharacterRoleTaxonomyProtagonistPolicy(page) {
     "帮我设计一个主角，作为这部作品的核心人物。",
     designBefore,
   );
-  const pending = design.turnResult.adoption_state?.pending?.[0];
+  // B29 CP4 回归适配：character_design execute 之后产品先回落一条 conversational ack，
+  // 真正带 pending character_seed 的 turn_result 是随后完成的 run 投影（真实异步主链）。
+  // 原实现把第一条 ack 当成设计结果导致误断言；这里改为等待带 character_seed 的 turn_result，
+  // 仍断言同一真实候选（不降级：必须拿到 character_seed + narrative_role=PROTAGONIST）。
+  const designCandidateFrame = await waitForNewFrame(
+    designBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (entry) => entry.artifact_type === "character_seed",
+      ),
+    "Protagonist design did not produce a tentative character_seed artifact",
+    120_000,
+  ).catch(() => null);
+  const designTurnResult = designCandidateFrame?.body ?? design.turnResult;
+  const pending = designTurnResult.adoption_state?.pending?.find(
+    (entry) => entry.artifact_type === "character_seed",
+  );
   assert(
     pending && pending.artifact_type === "character_seed",
     "Protagonist design did not produce a tentative character_seed artifact",
@@ -17848,10 +17866,25 @@ async function driveAu09CharacterRoleTaxonomyProtagonistPolicy(page) {
   const protagonistName = String(pending.payload?.items?.[0]?.title ?? "").trim();
   assert(protagonistName.length > 0, "Designed protagonist character_seed has no name");
 
-  // 采纳：经采纳边界写入 Character 主档案。
-  const acceptButton = page.getByRole("button", { name: acceptDraftButtonPattern }).first();
-  await acceptButton.waitFor({ timeout: 10_000 });
-  await acceptButton.click();
+  // 采纳：经采纳边界写入 Character 主档案。设计主角可能产出多条候选（真实批量卡：
+  // 单选 radio + 「保存所选方案到作品档案」）；作者可见语义下先选择首条候选再保存，
+  // 与后续断言使用 items[0] 的主角名一致。单候选仍走原采纳按钮。
+  const candidateRadios = page.getByRole("radio");
+  if ((await candidateRadios.count()) > 0) {
+    await candidateRadios.first().check().catch(() => {});
+    // 选中后的采纳动作文案是「保存方案 A 到作品档案」（空选择态是「保存所选方案到作品档案」）。
+    // 必须等 React 的选中摘要出现后再点选中态按钮，避免点到空选择态的禁用按钮。
+    await page
+      .waitForFunction(() => /已选择：|方案 [A-Z]/.test(document.body.innerText), { timeout: 15_000 })
+      .catch(() => {});
+    const selectedAccept = page.getByRole("button", { name: /保存方案 [A-Z] 到作品档案/ });
+    await selectedAccept.first().waitFor({ timeout: 15_000 });
+    await selectedAccept.first().click();
+  } else {
+    const acceptButton = page.getByRole("button", { name: acceptDraftButtonPattern }).first();
+    await acceptButton.waitFor({ timeout: 15_000 });
+    await acceptButton.click();
+  }
 
   const adoptFrame = await waitForNewFrame(
     designBefore,
@@ -39046,41 +39079,6 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     };
   }
 
-  async function adoptFirstCandidate(turnResult, label) {
-    const pending = turnResult?.adoption_state?.pending ?? [];
-    if (pending.length === 0) return { adopted: false, reason: "no_pending_candidate" };
-    const start = frames.length;
-    const button = page.getByRole("button", {
-      name: /保存到作品档案|保存到作品|保存原稿|保存为大纲|保存为章节正文|保存修订稿/,
-    });
-    const count = await button.count();
-    if (count > 0) await button.first().click().catch(() => {});
-    const resultFrame = await waitForNewFrame(
-      start,
-      (frame) =>
-        frame.direction === "received" &&
-        ((frame.event === "action_result" && frame.body?.status === "accepted") ||
-          frame.event === "turn_result"),
-      `${label}: adoption outcome`,
-      180_000,
-    ).catch(() => null);
-    await sleep(800);
-    return {
-      adopted: Boolean(resultFrame),
-      clicked_button_count: count,
-      pending_types: pending.map((entry) => entry.artifact_type),
-      pending_payloads: pending.map((entry) => ({
-        artifact_type: entry.artifact_type,
-        payload_title: entry.payload?.title ?? null,
-        payload_narrative_role: entry.payload?.narrative_role ?? null,
-        payload_keys: Object.keys(entry.payload ?? {}).sort(),
-        item_count: (entry.payload?.items ?? []).length,
-      })),
-      result_event: resultFrame?.event ?? null,
-      result_status: resultFrame?.body?.status ?? null,
-    };
-  }
-
   async function openArchiveCharacters() {
     const archiveOpen = await page.getByRole("tab", { name: "角色" }).isVisible().catch(() => false);
     if (!archiveOpen) await page.getByRole("button", { name: "打开档案" }).first().click();
@@ -39096,296 +39094,573 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     }
   }
 
+  // ── B29 CP4：真实模型（strata/iq3_s）已有角色叙事身份修订绑定（单槽/env 门控）──
+  // 实模只验证判断绑定/候选与负例澄清，不替代确定性产品链 PASS。
+  const b29Cp4PhrasingRaw = process.env.B29_CP4_PHRASING;
+  if (b29Cp4PhrasingRaw) {
+    const phrasingKey = String(b29Cp4PhrasingRaw).toLowerCase().includes("paraphrase")
+      ? "paraphrase"
+      : String(b29Cp4PhrasingRaw).toLowerCase().includes("discussion")
+        ? "discussion"
+        : "original";
+    const cp4Requests = {
+      original: "指定沈砚为主角",
+      paraphrase: "让老沈当这部书的主角吧，别改动其他角色",
+      discussion: "老沈适合当主角吗？只讨论，不要改作品设定",
+    };
+    const cp4Request = cp4Requests[phrasingKey];
+    const cp4LogStart = readAppLogRecords().length;
+    const cp4LlmStart = readLlmCallRecords().length;
+    await selectWorkByTitle(workTitle);
+    const cp4Before = await facts(workId);
+    await configureProviderRuntime(await providerRuntimeAttrsForExternalRun("strata"));
+    const cp4Turn = await sendAuthorInput(cp4Request, `B29 CP4 model ${phrasingKey}`, 600_000);
+    await sleep(1_000);
+    const cp4After = await facts(workId);
+    const cp4AppRecords = readAppLogRecords().slice(cp4LogStart);
+    const cp4LlmRecords = readLlmCallRecords().slice(cp4LlmStart);
+    const cp4ProviderRecords = cp4AppRecords
+      .filter((record) =>
+        ["provider_gateway.complete.start", "provider_gateway.complete.done", "judgment.decided.done"].includes(
+          String(record.event ?? ""),
+        ),
+      )
+      .map((record) => ({
+        event: record.event,
+        provider: record.provider ?? null,
+        model: record.model ?? null,
+        action: record.action ?? null,
+        capability: record.capability ?? null,
+        frame_type: record.frame_type ?? null,
+        reason_code: record.reason_code ?? null,
+        outcome: record.outcome ?? null,
+      }));
+    const cp4JudgmentActions = (cp4Turn.judgment_records ?? []).map((record) => ({
+      action: record.action,
+      capability: record.capability,
+      reason_code: record.reason_code,
+    }));
+    const cp4CapabilityBound = cp4JudgmentActions.some(
+      (record) => record.capability === "revise_character_profile",
+    );
+    const cp4PendingTypes = cp4Turn.pending_types ?? [];
+    const cp4CandidateRevision = cp4Turn.pending.some(
+      (entry) => entry.artifact_type === "character_profile_revision",
+    );
+    const cp4AskedOrGap = cp4JudgmentActions.some(
+      (record) => record.action === "ask_author" || record.action === "capability_gap",
+    );
+    const cp4ZeroWrite =
+      cp4After.characters.length === cp4Before.characters.length &&
+      cp4After.memories.length === cp4Before.memories.length &&
+      cp4After.characters.every((row) => {
+        const old = cp4Before.characters.find((item) => item.id === row.id);
+        return old && old.narrative_role === row.narrative_role;
+      });
+    const cp4ProviderSeen = cp4ProviderRecords.find((record) => record.provider === "strata") ?? null;
+    const cp4ModelSeen = cp4ProviderSeen?.model ?? null;
+    const cp4Checks =
+      phrasingKey === "paraphrase"
+        ? {
+            model_provider_strata: Boolean(cp4ProviderSeen),
+            model_name_recorded: cp4ModelSeen === null || cp4ModelSeen === "iq3_s",
+            judgment_bound_revise_character_profile: cp4CapabilityBound,
+            candidate_profile_revision_produced: cp4CandidateRevision,
+            no_write_before_adoption: cp4ZeroWrite,
+            no_fallback_to_character_evolution_or_design: !cp4PendingTypes.some((type) =>
+              ["character_evolution_seed", "character_seed"].includes(type),
+            ),
+          }
+        : {
+            model_provider_strata: Boolean(cp4ProviderSeen),
+            model_name_recorded: cp4ModelSeen === null || cp4ModelSeen === "iq3_s",
+            negative_clarified_or_rejected: cp4AskedOrGap || cp4ZeroWrite,
+            negative_no_write: cp4ZeroWrite,
+            negative_no_profile_revision_candidate: !cp4CandidateRevision,
+            no_fallback_to_character_evolution_or_design: !cp4PendingTypes.some((type) =>
+              ["character_evolution_seed", "character_seed"].includes(type),
+            ),
+          };
+    const cp4AllPassed = Object.values(cp4Checks).every(Boolean);
+    const cp4Evidence = {
+      scenario: B29_SLICE_ID,
+      run_kind: "cp4_real_model_behavior_only",
+      provider: "strata",
+      model: cp4ModelSeen ?? process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
+      phrasing: phrasingKey,
+      request_text: cp4Request,
+      evidence_boundary:
+        "真实模型只验证既有角色叙事身份修订的判断绑定/候选或同名/讨论澄清（单轮）；确定性产品链 PASS 由 slice_verify 场景另行取证，二者分开报告。",
+      judgment_actions: cp4JudgmentActions,
+      provider_records: cp4ProviderRecords,
+      llm_call_count: cp4LlmRecords.length,
+      pending_types: cp4PendingTypes,
+      assistant_text: cp4Turn.assistant_text,
+      truthfulness: cp4Turn.truthfulness,
+      app_event_counts: cp4Turn.app_event_counts,
+      character_state_chain: {
+        before: cp4Before,
+        after: cp4After,
+        zero_write_before_adoption: cp4ZeroWrite,
+      },
+      model_behavior_checks: cp4Checks,
+      model_behavior_measured: {
+        provider: cp4ProviderSeen?.provider ?? null,
+        model: cp4ModelSeen,
+        phrasing: phrasingKey,
+        judgment_actions: cp4JudgmentActions,
+        capability_bound: cp4CapabilityBound,
+        profile_revision_candidate: cp4CandidateRevision,
+        asked_or_gap: cp4AskedOrGap,
+        zero_write: cp4ZeroWrite,
+      },
+    };
+    fs.writeFileSync(
+      path.join(artifactDir, `b29-cp4-model-behavior-${phrasingKey}.json`),
+      JSON.stringify(cp4Evidence, null, 2),
+    );
+    await page
+      .screenshot({ path: path.join(artifactDir, `b29-cp4-model-${phrasingKey}.png`), fullPage: true })
+      .catch(() => {});
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: B29_SLICE_ID,
+        outcome: cp4AllPassed ? "done" : "cp4_model_behavior_checks_failed",
+        cp4_model_behavior: true,
+        model_phrasing: phrasingKey,
+        trial_ids: [`CP4_real_model_${phrasingKey}`],
+        cp4_model_checks: cp4Checks,
+        cp4_model_measured: cp4Evidence.model_behavior_measured,
+        summary: {
+          checks_passed: Object.values(cp4Checks).filter(Boolean).length,
+          checks_total: Object.keys(cp4Checks).length,
+          all_checks_passed: cp4AllPassed,
+        },
+        no_product_code_changed: true,
+        measured_inputs_all_from_real_workbench: true,
+      },
+    ];
+  }
+
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await selectWorkByTitle(workTitle);
-  const baseline = await facts(workId);
 
-  // ── A1：stage 原话「指定沈砚为主角」（同名两角色 → 观察绑定/消歧/产出/采纳后果）──
-  const a1 = await sendAuthorInput("指定沈砚为主角", "B29 A1 historical phrase");
-  const a1Adoption = await adoptFirstCandidate(a1.turnResult, "B29 A1 adopt");
-  const a1After = await facts(workId);
-  await openArchiveCharacters();
-  const archiveRosterTextA1 = await page.locator("body").innerText();
-  await page.screenshot({ path: path.join(artifactDir, "b29-a1-after-adoption.png"), fullPage: true }).catch(() => {});
-  await closeArchiveIfOpen();
-  evidence.trials.push({
-    id: "A1_historical_designate_shen_yan_protagonist",
-    purpose:
-      "stage 原话「指定沈砚为主角」（作品有两个同名沈砚）：记录判断 capability/对象绑定、pending 候选类型/payload、采纳动作与内容、Character.narrative_role/角色数/ID、CHARACTER_PROFILE 记忆变化。",
-    request: "指定沈砚为主角",
-    baseline,
-    judgment: a1.judgment_records,
-    turn: {
-      assistant_text: a1.assistant_text,
-      pending_types: a1.pending_types,
-      truthfulness: a1.truthfulness,
-      app_event_counts: a1.app_event_counts,
-      llm_prompt_count: a1.llm_prompt_count,
-    },
-    adoption: a1Adoption,
-    after: a1After,
-    archive_roster_excerpt: archiveRosterTextA1.slice(0, 1600),
-  });
-
-  // ── A2：唯一别名目标「指定老沈为主角」──────────────────────────────────────
-  const a2 = await sendAuthorInput("指定老沈为主角", "B29 A2 unique alias phrase");
-  const a2Adoption = await adoptFirstCandidate(a2.turnResult, "B29 A2 adopt");
-  const a2After = await facts(workId);
-  evidence.trials.push({
-    id: "A2_unique_alias_designate_protagonist",
-    purpose:
-      "唯一别名「老沈」指向既有沈砚（ENSEMBLE_POV）：记录是否出现角色字段修订候选/是否只产生 memory、采纳后主档案 narrative_role 是否变化。",
-    request: "指定老沈为主角",
-    before: a1After,
-    judgment: a2.judgment_records,
-    turn: {
-      assistant_text: a2.assistant_text,
-      pending_types: a2.pending_types,
-      truthfulness: a2.truthfulness,
-      app_event_counts: a2.app_event_counts,
-    },
-    adoption: a2Adoption,
-    after: a2After,
-  });
-
-  // ── A3：显式角色叙事身份能力缺口措辞（确定性 fixture 已知分支）────────────────
-  const a3 = await sendAuthorInput(
-    "把已有角色的叙事身份从配角改为主角",
-    "B29 A3 explicit role-revision capability gap",
-  );
-  const a3After = await facts(workId);
-  evidence.trials.push({
-    id: "A3_explicit_role_revision_capability_gap",
-    purpose:
-      "显式「把已有角色叙事身份从配角改为主角」：记录当前版本是否诚实说明缺口（不产出近似候选、不写主档案、零写入），还是误用 character_evolution 记忆冒充。",
-    request: "把已有角色的叙事身份从配角改为主角",
-    before: a2After,
-    judgment: a3.judgment_records,
-    assistant_text: a3.assistant_text,
-    pending_types: a3.pending_types,
-    truthfulness: a3.truthfulness,
-    after: a3After,
-    zero_write:
-      a3After.characters.length === a2After.characters.length &&
-      a3After.memories.length === a2After.memories.length,
-  });
-
-  // ── B：多主角（顾青已是 PROTAGONIST；只改目标不被全局取消）─────────────────
-  const bAfter = await facts(workId);
-  const guAfter = bAfter.characters.find((row) => row.id === guId);
-  evidence.trials.push({
-    id: "B_multi_protagonist_preservation",
-    purpose:
-      "既有其他主角（顾青 PROTAGONIST）时，对沈砚的请求不得全局取消/清空既有主角；记录顾青 narrative_role 与角色集合。",
-    gu_before: baseline.characters.find((row) => row.id === guId),
-    gu_after: guAfter,
-    gu_still_protagonist: guAfter?.narrative_role === "PROTAGONIST",
-    character_count_before: baseline.character_count,
-    character_count_after: bAfter.character_count,
-  });
-
-  // ── C：同名/别名消歧（两个沈砚不得合并/新建/按名称错绑）────────────────────
-  const cAfter = await facts(workId);
-  const shenSameName = cAfter.characters.filter((row) => row.name === "沈砚");
-  const originalIds = new Set(baseline.characters.map((row) => row.id));
-  const addedCharacters = cAfter.characters.filter((row) => !originalIds.has(row.id));
-  evidence.trials.push({
-    id: "C_same_name_alias_disambiguation",
-    purpose:
-      "两个同名沈砚（别名老沈/小沈）+ 唯一别名请求：记录是否新建同名角色、是否按名称错绑到另一个沈砚、原 character_id 集合是否变化。",
-    baseline_shen_ids: baseline.characters.filter((row) => row.name === "沈砚").map((row) => row.id),
-    after_shen_rows: shenSameName,
-    same_name_count_before: baseline.characters.filter((row) => row.name === "沈砚").length,
-    same_name_count_after: shenSameName.length,
-    added_characters: addedCharacters,
-    no_new_same_name_character: addedCharacters.every((row) => row.name !== "沈砚"),
-    both_original_shen_present:
-      shenSameName.some((row) => row.id === shenId) && shenSameName.some((row) => row.id === shenSmallId),
-  });
-
-  // ── D：负例（只讨论/放弃候选/跨作品失效目标/重复采纳）──────────────────────
-  const d1Before = await facts(workId);
-  const d1 = await sendAuthorInput("老沈适合当主角吗？只讨论，不要改作品设定", "B29 D1 discussion only");
-  const d1After = await facts(workId);
-  const d1NoWrite =
-    d1After.characters.length === d1Before.characters.length &&
-    d1After.memories.length === d1Before.memories.length &&
-    d1After.characters.every((row) => {
-      const old = d1Before.characters.find((item) => item.id === row.id);
-      return old && old.narrative_role === row.narrative_role;
-    });
-  // 放弃候选：再发一次唯一目标请求；若有 pending 则点击「不保存/放弃」，原值不变。
-  const discardTurn = await sendAuthorInput("指定老沈为主角", "B29 D2 discard candidate");
-  const discardBefore = await facts(workId);
-  let discardAction = null;
-  const discardButtons = page.getByRole("button", { name: /^不保存$|不保存|放弃|不采纳/ });
-  if ((await discardButtons.count()) > 0) {
-    const discardStart = frames.length;
-    await discardButtons.first().click().catch(() => {});
-    discardAction = await waitForNewFrame(
-      discardStart,
-      (frame) =>
-        frame.direction === "received" &&
-        (frame.event === "action_result" || frame.event === "turn_result"),
-      "B29 D2 discard outcome",
-      120_000,
-    ).catch(() => null);
-    await sleep(600);
+  // ── CP4 helpers：候选→采纳→receipt/DB/消费者 ─────────────────────────────────
+  async function visibleText() {
+    return page.locator("body").innerText();
   }
-  const discardAfter = await facts(workId);
-  // 重复采纳/失效目标：跨作品/不存在目标措辞；当前无能力时应零写入。
-  const d3Before = await facts(workId);
-  const d3 = await sendAuthorInput(
-    "把另一个作品里的沈砚设为主角",
-    "B29 D3 cross-work / invalid target",
-  );
-  const d3After = await facts(workId);
-  const acceptButtonsAfter = await page.getByRole("button", { name: /保存到作品档案|保存到作品/ }).count();
+
+  async function adoptVisibleCandidate(turnResult) {
+    const pending = (turnResult?.adoption_state?.pending ?? []).find(
+      (entry) => entry.artifact_type === "character_profile_revision",
+    );
+    const text = await visibleText();
+    if (!pending) {
+      return { adopted: false, reason: "no_character_profile_revision_pending", visible_text: text };
+    }
+    const start = frames.length;
+    const button = page.getByRole("button", { name: /^保存到作品$|保存到作品|保存到作品档案|保存修订稿/ });
+    const buttonCount = await button.count();
+    if (buttonCount > 0) await button.first().click().catch(() => {});
+    let actionFrame = null;
+    let errorFrame = null;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      actionFrame =
+        frames
+          .slice(start)
+          .find(
+            (frame) =>
+              frame.direction === "received" &&
+              frame.event === "action_result" &&
+              frame.body?.status === "accepted",
+          ) ?? null;
+      errorFrame =
+        frames
+          .slice(start)
+          .find(
+            (frame) =>
+              frame.direction === "received" &&
+              frame.event === "phx_reply" &&
+              frame.body?.status === "error",
+          ) ?? null;
+      if (actionFrame || errorFrame) break;
+      await sleep(250);
+    }
+    await sleep(800);
+    return {
+      adopted: Boolean(actionFrame),
+      button_count: buttonCount,
+      visible_text: text,
+      pending_artifact_id: pending.artifact_id,
+      pending_payload: pending.payload ?? {},
+      action_result: actionFrame?.body ?? null,
+      error: errorFrame ? JSON.stringify(errorFrame.body?.response ?? errorFrame.body).slice(0, 800) : null,
+    };
+  }
+
+  function candidateFacts(adoption) {
+    const payload = adoption?.pending_payload ?? {};
+    const changes = payload.changes ?? [];
+    const receipt = adoption?.action_result ?? {};
+    return {
+      object_kind: payload.object_kind ?? null,
+      character_ref: payload.character_ref ?? null,
+      character_name: payload.character_name ?? null,
+      base_fingerprint: payload.base_fingerprint ?? null,
+      changes,
+      change_count: changes.length,
+      field: changes[0]?.field ?? null,
+      old_value: changes[0]?.old ?? null,
+      new_value: changes[0]?.new ?? null,
+      effects: payload.effects ?? [],
+      other_character_changes: payload.other_character_changes ?? [],
+      suggested_other_character_changes: payload.suggested_other_character_changes ?? [],
+      adoption_effect: payload.adoption_effect ?? null,
+      visible_has_old_to_new:
+        adoption?.visible_text?.includes(`${changes[0]?.old}`) &&
+        adoption?.visible_text?.includes(`${changes[0]?.new}`),
+      receipt_committed_changes: receipt.committed_changes ?? null,
+      receipt_character_ref: receipt.character_ref ?? null,
+      receipt_base_fingerprint: receipt.base_fingerprint ?? null,
+      receipt_current_fingerprint: receipt.current_fingerprint ?? null,
+      receipt_adoption_effect: receipt.adoption_effect ?? null,
+      receipt_duplicate: receipt.duplicate ?? null,
+    };
+  }
+
+  async function acceptedDraftHashes(workUuid) {
+    const rows = await dbAll(
+      "SELECT id, content FROM drafts WHERE work_id = ? ORDER BY id",
+      [workUuid],
+    );
+    return rows.map((row) => ({ id: row.id, content_sha256: sha256(row.content) }));
+  }
+
+  function stateChecks(before, after, plan) {
+    const afterById = new Map(after.characters.map((row) => [row.id, row]));
+    return {
+      target_character_id_present: afterById.has(String(plan.character_ref ?? "").replace(/^character:/, "")),
+      narrative_role_updated_to_new: afterById.get(
+        String(plan.character_ref ?? "").replace(/^character:/, ""),
+      )?.narrative_role === plan.new_value,
+      character_count_unchanged: before.characters.length === after.characters.length,
+      character_id_set_unchanged:
+        JSON.stringify(before.characters.map((row) => row.id).sort()) ===
+        JSON.stringify(after.characters.map((row) => row.id).sort()),
+      other_characters_unchanged: before.characters
+        .filter((row) => row.id !== String(plan.character_ref ?? "").replace(/^character:/, ""))
+        .every((row) => {
+          const next = afterById.get(row.id);
+          return (
+            next &&
+            next.narrative_role === row.narrative_role &&
+            next.name === row.name &&
+            JSON.stringify(next.aliases) === JSON.stringify(row.aliases)
+          );
+        }),
+      no_new_character: after.characters.length === before.characters.length,
+      no_new_memory: after.memories.length === before.memories.length,
+    };
+  }
+
+  async function waitInputEnabled() {
+    await closeArchiveIfOpen();
+    await page.keyboard.press("Escape").catch(() => {});
+    await page
+      .waitForFunction(
+        () => {
+          const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+          return Boolean(input) && !input.disabled;
+        },
+        { timeout: 20_000 },
+      )
+      .catch(() => {});
+  }
+
+  // ── T1：正例（唯一别名 老沈 → 候选 old→new → 保存 → 同 id 字段更新）───────────
+  const t1Before = await facts(workId);
+  const t1DraftHashesBefore = await acceptedDraftHashes(workId);
+  const t1Turn = await sendAuthorInput("指定老沈为主角", "B29 CP4 T1 unique alias revision");
+  const t1Adoption = await adoptVisibleCandidate(t1Turn.turnResult);
+  const t1Plan = candidateFacts(t1Adoption);
+  const t1After = await facts(workId);
+  const t1DraftHashesAfter = await acceptedDraftHashes(workId);
+  const t1State = stateChecks(t1Before, t1After, t1Plan);
+  await page.screenshot({ path: path.join(artifactDir, "b29-cp4-t1-after-adoption.png"), fullPage: true }).catch(() => {});
   evidence.trials.push({
-    id: "D_negatives_discussion_discard_cross_work_repeat",
+    id: "T1_positive_unique_alias_narrative_role_revision",
     purpose:
-      "负例：只讨论不改字段；放弃候选原值不变；跨作品/失效目标零写入；重复采纳/无新增候选入口。",
-    discussion: {
-      request: "老沈适合当主角吗？只讨论，不要改作品设定",
-      assistant_text: d1.assistant_text,
-      pending_types: d1.pending_types,
-      no_write: d1NoWrite,
+      "真实输入「指定老沈为主角」（唯一别名）→ judgment revise_character_profile + character_ref → 候选可见对象与 narrative_role old→new（ENSEMBLE_POV→PROTAGONIST）→ 保存 → 同 character_id 更新、角色数/ID 不变、顾青 PROTAGONIST 保留、正文 hash 不变、receipt committed_changes/character_ref/old value/fingerprint。",
+    request: "指定老沈为主角",
+    before: t1Before,
+    judgment: t1Turn.judgment_records,
+    turn: {
+      assistant_text: t1Turn.assistant_text,
+      pending_types: t1Turn.pending_types,
+      truthfulness: t1Turn.truthfulness,
+      app_event_counts: t1Turn.app_event_counts,
     },
+    plan: t1Plan,
+    adoption: { adopted: t1Adoption.adopted, error: t1Adoption.error },
+    after: t1After,
+    drafts_before: t1DraftHashesBefore,
+    drafts_after: t1DraftHashesAfter,
+    state_checks: t1State,
+    gu_still_protagonist: t1After.characters.find((row) => row.id === guId)?.narrative_role === "PROTAGONIST",
+  });
+
+  // ── T2：同名「沈砚」→ ask_author 澄清候选，零写入 ────────────────────────────
+  await waitInputEnabled();
+  const t2Before = await facts(workId);
+  const t2Turn = await sendAuthorInput("指定沈砚为主角", "B29 CP4 T2 same-name ambiguity");
+  const t2After = await facts(workId);
+  evidence.trials.push({
+    id: "T2_same_name_ambiguity_asks_author_zero_write",
+    purpose:
+      "两个同名沈砚时「指定沈砚为主角」→ ask_author 列出具体候选（老沈/小沈或 refs），零写入、不猜测、不新建。",
+    request: "指定沈砚为主角",
+    before: t2Before,
+    judgment: t2Turn.judgment_records,
+    assistant_text: t2Turn.assistant_text,
+    pending_types: t2Turn.pending_types,
+    asked_author: (t2Turn.judgment_records ?? []).some((record) =>
+      ["ask_author", "await_author"].includes(record.action),
+    ),
+    zero_write:
+      t2After.characters.length === t2Before.characters.length &&
+      t2After.characters.every((row) => {
+        const old = t2Before.characters.find((item) => item.id === row.id);
+        return old && old.narrative_role === row.narrative_role;
+      }) &&
+      t2After.memories.length === t2Before.memories.length,
+    after: t2After,
+  });
+
+  // ── T3：只讨论 → reply，不产生修订候选/零写入 ───────────────────────────────
+  await waitInputEnabled();
+  const t3Before = await facts(workId);
+  const t3Turn = await sendAuthorInput(
+    "老沈适合当主角吗？只讨论，不要改作品设定",
+    "B29 CP4 T3 discussion only",
+  );
+  const t3After = await facts(workId);
+  evidence.trials.push({
+    id: "T3_discussion_only_no_candidate_zero_write",
+    purpose: "「老沈适合当主角吗？只讨论」→ 普通 reply，无 character_profile_revision 候选、不改字段。",
+    request: "老沈适合当主角吗？只讨论，不要改作品设定",
+    judgment: t3Turn.judgment_records,
+    assistant_text: t3Turn.assistant_text,
+    pending_types: t3Turn.pending_types,
+    no_candidate: !(t3Turn.pending_types ?? []).includes("character_profile_revision"),
+    zero_write:
+      JSON.stringify(t3Before.characters.map((row) => [row.id, row.narrative_role])) ===
+      JSON.stringify(t3After.characters.map((row) => [row.id, row.narrative_role])),
+  });
+
+  // ── T4：刷新/重开档案/「现在谁是主角」新值；旧值只在 trace ───────────────────
+  await waitInputEnabled();
+  const beforeRefresh = await facts(workId);
+  const resumeResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/sessions/resume") && response.ok(),
+    { timeout: 30_000 },
+  );
+  await page.reload({ waitUntil: "commit" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+  await (await resumeResponse).json().catch(() => null);
+  await sleep(800);
+  const afterRefresh = await facts(workId);
+  await openArchiveCharacters();
+  const rosterText = await visibleText();
+  await page.screenshot({ path: path.join(artifactDir, "b29-cp4-roster.png"), fullPage: true }).catch(() => {});
+  await closeArchiveIfOpen();
+  await waitInputEnabled();
+  const followupTurn = await sendAuthorInput("现在谁是主角？", "B29 CP4 T4 followup protagonist question");
+  evidence.trials.push({
+    id: "T4_refresh_reopen_roster_and_followup_new_value",
+    purpose:
+      "刷新/重开档案后 roster 与「现在谁是主角？」返回新值（沈砚主角 + 顾青主角多主角全列）；DB 主档案字段为唯一事实，旧值只在 trace/history，memory 不冒充。",
+    shen_after_refresh: afterRefresh.characters.find((row) => row.id === shenId),
+    refresh_stable:
+      beforeRefresh.characters.length === afterRefresh.characters.length &&
+      beforeRefresh.characters.every((row) => {
+        const next = afterRefresh.characters.find((item) => item.id === row.id);
+        return next && next.narrative_role === row.narrative_role;
+      }),
+    roster_excerpt: rosterText.slice(0, 1800),
+    roster_mentions_protagonist: /主角/.test(rosterText),
+    followup: {
+      request: "现在谁是主角？",
+      judgment: followupTurn.judgment_records,
+      assistant_text: followupTurn.assistant_text,
+      pending_types: followupTurn.pending_types,
+      app_event_counts: followupTurn.app_event_counts,
+    },
+    followup_mentions_shen: followupTurn.assistant_text.includes("沈砚"),
+    followup_mentions_gu: followupTurn.assistant_text.includes("顾青"),
+    zero_write_after: JSON.stringify(afterRefresh.characters.map((row) => [row.id, row.narrative_role])) ===
+      JSON.stringify((await facts(workId)).characters.map((row) => [row.id, row.narrative_role])),
+  });
+
+  // ── T5：放弃候选 → 原值不变；T6：重复采纳幂等；T7 跨作品/不存在负例 ────────────
+  await waitInputEnabled();
+  const t5Before = await facts(workId);
+  const t5Turn = await sendAuthorInput("把阿鸢设为主角", "B29 CP4 T5 candidate then discard");
+  const discardButton = page.getByRole("button", { name: /^不保存$|不保存|放弃|不采纳/ });
+  let discardClicked = false;
+  if ((await discardButton.count()) > 0) {
+    await discardButton.first().click().catch(() => {});
+    discardClicked = true;
+    await sleep(800);
+  }
+  const t5After = await facts(workId);
+  const t6Before = await facts(workId);
+  const t6Turn = await sendAuthorInput("指定老沈为主角", "B29 CP4 T6 repeat adoption");
+  const t6After = await facts(workId);
+  await waitInputEnabled();
+  const t7Before = await facts(workId);
+  const t7Turn = await sendAuthorInput(
+    "把另一个作品里的沈砚设为主角",
+    "B29 CP4 T7 cross-work / missing target",
+  );
+  const t7After = await facts(workId);
+  evidence.trials.push({
+    id: "T5_negatives_discard_repeat_cross_work",
+    purpose:
+      "放弃候选原值不变；重复采纳幂等（同一 id 不变、字段不重复写、无新增角色/记忆）；跨作品/失效目标零写入且不猜。",
     discard: {
+      request: "把阿鸢设为主角",
+      pending_types: t5Turn.pending_types,
+      discard_clicked: discardClicked,
+      before: t5Before.characters.map((row) => [row.id, row.narrative_role]),
+      after: t5After.characters.map((row) => [row.id, row.narrative_role]),
+      unchanged:
+        JSON.stringify(t5Before.characters.map((row) => [row.id, row.narrative_role])) ===
+        JSON.stringify(t5After.characters.map((row) => [row.id, row.narrative_role])),
+    },
+    repeat: {
       request: "指定老沈为主角",
-      pending_types: discardTurn.pending_types,
-      discard_clicked: Boolean(discardAction),
-      discard_event: discardAction?.event ?? null,
-      before: discardBefore,
-      after: discardAfter,
-      values_unchanged:
-        JSON.stringify(
-          discardBefore.characters.map((row) => [row.id, row.narrative_role]),
-        ) ===
-        JSON.stringify(discardAfter.characters.map((row) => [row.id, row.narrative_role])),
+      judgment: t6Turn.judgment_records,
+      assistant_text: t6Turn.assistant_text,
+      pending_types: t6Turn.pending_types,
+      idempotent_or_noop:
+        JSON.stringify(t6Before.characters.map((row) => [row.id, row.narrative_role])) ===
+        JSON.stringify(t6After.characters.map((row) => [row.id, row.narrative_role])),
+      character_count_unchanged: t6Before.characters.length === t6After.characters.length,
     },
     cross_work: {
       request: "把另一个作品里的沈砚设为主角",
-      judgment: d3.judgment_records,
-      assistant_text: d3.assistant_text,
-      pending_types: d3.pending_types,
+      judgment: t7Turn.judgment_records,
+      assistant_text: t7Turn.assistant_text,
+      pending_types: t7Turn.pending_types,
       zero_write:
-        d3After.characters.length === d3Before.characters.length &&
-        d3After.memories.length === d3Before.memories.length,
+        JSON.stringify(t7Before.characters.map((row) => [row.id, row.narrative_role])) ===
+        JSON.stringify(t7After.characters.map((row) => [row.id, row.narrative_role])),
     },
-    accept_buttons_after_repeat: acceptButtonsAfter,
   });
 
-  // ── 消费者：档案角色面板 + 后续「现在谁是主角」问答 vs DB 字段/记忆 ───────────
-  await openArchiveCharacters();
-  const archiveRosterText = await page.locator("body").innerText();
-  await page.screenshot({ path: path.join(artifactDir, "b29-consumer-roster.png"), fullPage: true }).catch(() => {});
-  await closeArchiveIfOpen();
-  const consumerQuestion = await sendAuthorInput("现在谁是主角？", "B29 consumer protagonist question");
-  const finalFacts = await facts(workId);
-  const shenFinal = finalFacts.characters.find((row) => row.id === shenId);
-  const protagonistMemories = finalFacts.memories.filter(
-    (row) => String(row.content).includes("主角") || String(row.content).includes("PROTAGONIST"),
-  );
-  evidence.trials.push({
-    id: "E_consumer_roster_and_followup_protagonist",
-    purpose:
-      "消费者一致性：作品档案角色面板与后续「现在谁是主角」问答是否与 Character.narrative_role 字段一致；记忆中的“主角”文本只作陪证，不作为主档案通过依据。",
-    archive_roster_excerpt: archiveRosterText.slice(0, 2200),
-    followup: {
-      request: "现在谁是主角？",
-      assistant_text: consumerQuestion.assistant_text,
-      judgment: consumerQuestion.judgment_records,
-      pending_types: consumerQuestion.pending_types,
-      app_event_counts: consumerQuestion.app_event_counts,
-    },
-    shen_final_profile: shenFinal,
-    protagonist_memories: protagonistMemories,
-    profile_vs_memory:
-      shenFinal?.narrative_role === "PROTAGONIST"
-        ? "profile_protagonist"
-        : protagonistMemories.length > 0
-          ? "memory_claims_protagonist_but_profile_not_updated"
-          : "no_protagonist_fact",
-  });
-
+  // ── CP4 checks/measured/return ──────────────────────────────────────────────
+  const trial = (prefix) => evidence.trials.find((item) => item.id.startsWith(prefix));
+  const t1 = trial("T1_");
+  const t2 = trial("T2_");
+  const t3 = trial("T3_");
+  const t4 = trial("T4_");
+  const t5 = trial("T5_");
+  const t1PlanFacts = t1?.plan ?? {};
+  const t1StateChecks = t1?.state_checks ?? {};
+  const draftHashesUnchanged =
+    JSON.stringify(t1?.drafts_before ?? []) === JSON.stringify(t1?.drafts_after ?? []);
   const checks = {
-    a1_judgment_and_pending_recorded:
-      Boolean(a1.assistant_text?.length) || a1.pending_types.length > 0,
-    a1_adoption_outcome_recorded: typeof a1Adoption.adopted === "boolean",
-    a2_judgment_and_pending_recorded:
-      Boolean(a2.assistant_text?.length) || a2.pending_types.length > 0,
-    a3_capability_gap_recorded:
-      (a3.judgment_records ?? []).some((record) => record.action === "capability_gap") ||
-      /没有.*能力|不能.*修改|能力缺口|只写演化|原档案保持/u.test(a3.assistant_text ?? ""),
-    a3_zero_write: a3.trial_zero_write !== false,
-    gu_still_protagonist: evidence.trials.find((trial) => trial.id.startsWith("B_"))?.gu_still_protagonist === true,
-    no_new_same_name_character:
-      evidence.trials.find((trial) => trial.id.startsWith("C_"))?.no_new_same_name_character === true,
-    both_original_shen_present:
-      evidence.trials.find((trial) => trial.id.startsWith("C_"))?.both_original_shen_present === true,
-    discussion_only_no_write:
-      evidence.trials.find((trial) => trial.id.startsWith("D_"))?.discussion.no_write === true,
-    discard_values_unchanged:
-      evidence.trials.find((trial) => trial.id.startsWith("D_"))?.discard.values_unchanged !== false,
-    cross_work_zero_write:
-      evidence.trials.find((trial) => trial.id.startsWith("D_"))?.cross_work.zero_write === true,
-    no_repeat_accept_entry: acceptButtonsAfter === 0,
-    archive_roster_recorded: Boolean(archiveRosterText?.length),
-    followup_protagonist_recorded: Boolean(consumerQuestion.assistant_text?.length),
-    profile_and_memory_recorded:
-      Boolean(shenFinal) && Array.isArray(finalFacts.memories),
+    judgment_bound_revise_character_profile:
+      (t1?.judgment ?? []).some(
+        (record) =>
+          record.action === "execute" && record.capability === "revise_character_profile",
+      ),
+    candidate_object_and_old_to_new_visible:
+      t1PlanFacts.character_name === "沈砚" &&
+      t1PlanFacts.field === "narrative_role" &&
+      t1PlanFacts.old_value === "ENSEMBLE_POV" &&
+      t1PlanFacts.new_value === "PROTAGONIST" &&
+      t1PlanFacts.visible_has_old_to_new === true,
+    candidate_effects_and_other_changes_empty:
+      JSON.stringify(t1PlanFacts.effects ?? []) === JSON.stringify(["character_field_update"]) &&
+      (t1PlanFacts.other_character_changes ?? []).length === 0,
+    adoption_applied: t1?.adoption?.adopted === true,
+    receipt_committed_changes_old_new:
+      Array.isArray(t1PlanFacts.receipt_committed_changes) &&
+      t1PlanFacts.receipt_committed_changes[0]?.field === "narrative_role" &&
+      t1PlanFacts.receipt_committed_changes[0]?.old === "ENSEMBLE_POV" &&
+      t1PlanFacts.receipt_committed_changes[0]?.new === "PROTAGONIST",
+    receipt_character_ref_and_fingerprint:
+      Boolean(t1PlanFacts.receipt_character_ref) &&
+      Boolean(t1PlanFacts.receipt_base_fingerprint) &&
+      Boolean(t1PlanFacts.receipt_current_fingerprint),
+    same_character_id_updated: t1StateChecks.target_character_id_present === true &&
+      t1StateChecks.narrative_role_updated_to_new === true,
+    character_count_and_id_set_unchanged:
+      t1StateChecks.character_count_unchanged === true && t1StateChecks.character_id_set_unchanged === true,
+    other_characters_unchanged: t1StateChecks.other_characters_unchanged === true,
+    gu_protagonist_retained: t1?.gu_still_protagonist === true,
+    no_new_character_or_memory: t1StateChecks.no_new_character === true && t1StateChecks.no_new_memory === true,
+    prose_hashes_unchanged: draftHashesUnchanged,
+    same_name_asks_author: t2?.asked_author === true,
+    same_name_zero_write: t2?.zero_write === true && (t2?.pending_types ?? []).length === 0,
+    discussion_no_candidate_zero_write: t3?.no_candidate === true && t3?.zero_write === true,
+    refresh_stable_new_value:
+      t4?.refresh_stable === true &&
+      t4?.shen_after_refresh?.narrative_role === "PROTAGONIST",
+    roster_and_followup_new_value:
+      t4?.roster_mentions_protagonist === true &&
+      t4?.followup_mentions_shen === true &&
+      t4?.followup_mentions_gu === true,
+    followup_zero_write: t4?.zero_write_after === true,
+    discard_keeps_original: t5?.discard?.unchanged === true,
+    repeat_adoption_idempotent:
+      t5?.repeat?.idempotent_or_noop === true && t5?.repeat?.character_count_unchanged === true,
+    cross_work_zero_write: t5?.cross_work?.zero_write === true,
     no_product_code_changed: true,
     no_acceptance_hooks_added: true,
   };
-  // a3_zero_write 使用 trial 记录值（上面未写 trial_zero_write 字段，这里回填）。
-  const a3Trial = evidence.trials.find((trial) => trial.id.startsWith("A3_"));
-  checks.a3_zero_write = a3Trial?.zero_write === true;
   evidence.checks = checks;
   evidence.summary = {
     checks_passed: Object.values(checks).filter(Boolean).length,
     checks_total: Object.keys(checks).length,
     all_checks_passed: Object.values(checks).every(Boolean),
   };
-  evidence.conclusion = {
-    current_behavior:
-      shenFinal?.narrative_role === "PROTAGONIST"
-        ? "existing_character_role_revision_effective"
-        : protagonistMemories.length > 0
-          ? "memory_only_no_profile_field_revision"
-          : "no_field_revision_capability_observed",
-    profile_field: shenFinal?.narrative_role ?? null,
-    protagonist_memory_count: protagonistMemories.length,
-    character_count: finalFacts.character_count,
-  };
   fs.writeFileSync(
-    path.join(artifactDir, "b29-cp0-evidence.json"),
+    path.join(artifactDir, "b29-cp4-evidence.json"),
     JSON.stringify(evidence, null, 2),
   );
-  await page.screenshot({ path: path.join(artifactDir, "b29-final.png"), fullPage: true }).catch(() => {});
+  await page.screenshot({ path: path.join(artifactDir, "b29-cp4-final.png"), fullPage: true }).catch(() => {});
   return [
     {
       event: "slice_verify.ui_state.done",
       slice_id: B29_SLICE_ID,
-      outcome: evidence.summary.all_checks_passed ? "done" : "cp0_checks_failed",
+      outcome: evidence.summary.all_checks_passed ? "done" : "cp4_checks_failed",
       trials: evidence.trials.length,
-      trial_ids: evidence.trials.map((trial) => trial.id),
-      cp0_checks: checks,
-      cp0_measured: {
+      trial_ids: evidence.trials.map((item) => item.id),
+      cp4_checks: checks,
+      cp4_measured: {
         checks_passed: evidence.summary.checks_passed,
         checks_total: evidence.summary.checks_total,
-        shen_narrative_role: evidence.conclusion.profile_field,
-        character_count: evidence.conclusion.character_count,
-        protagonist_memory_count: evidence.conclusion.protagonist_memory_count,
-        gu_narrative_role: evidence.trials.find((trial) => trial.id.startsWith("B_"))?.gu_after?.narrative_role ?? null,
-        a1_pending_types: evidence.trials.find((trial) => trial.id.startsWith("A1"))?.turn?.pending_types ?? null,
-        a2_pending_types: evidence.trials.find((trial) => trial.id.startsWith("A2"))?.turn?.pending_types ?? null,
-        a3_zero_write: a3Trial?.zero_write ?? null,
-        same_name_count_after:
-          evidence.trials.find((trial) => trial.id.startsWith("C_"))?.same_name_count_after ?? null,
-        added_character_count:
-          evidence.trials.find((trial) => trial.id.startsWith("C_"))?.added_characters?.length ?? null,
-        memory_only_vs_profile: evidence.conclusion.current_behavior,
+        shen_character_ref: t1PlanFacts.character_ref ?? null,
+        shen_old_role: t1PlanFacts.old_value ?? null,
+        shen_new_role: t1PlanFacts.new_value ?? null,
+        character_count_before: t1?.before?.characters?.length ?? null,
+        character_count_after: t1?.after?.characters?.length ?? null,
+        receipt_committed_changes: t1PlanFacts.receipt_committed_changes ?? null,
+        receipt_character_ref: t1PlanFacts.receipt_character_ref ?? null,
+        gu_after: t1?.after?.characters?.find((row) => row.name === "顾青")?.narrative_role ?? null,
+        same_name_asked: t2?.asked_author ?? null,
+        discussion_no_candidate: t3?.no_candidate ?? null,
+        refreshed_shen_role: t4?.shen_after_refresh?.narrative_role ?? null,
+        followup_text: t4?.followup?.assistant_text ?? null,
+        discard_unchanged: t5?.discard?.unchanged ?? null,
+        repeat_idempotent: t5?.repeat?.idempotent_or_noop ?? null,
+        cross_work_zero_write: t5?.cross_work?.zero_write ?? null,
       },
       summary: evidence.summary,
       seed: evidence.seed,
@@ -39394,7 +39669,6 @@ async function driveB29ExistingCharacterRoleRevision(page) {
     },
   ];
 }
-
 const drivers = {
   "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,

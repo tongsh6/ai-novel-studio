@@ -1512,6 +1512,14 @@ scenarios:
     manifest: quality/acceptance/scenarios/b30-volume-blueprint-kind-boundary.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: bash scripts/quality_accept.sh b30-volume-blueprint-kind-boundary --surface tauri
+  - id: b29-existing-character-role-revision
+    title: "B29 已有角色叙事身份修订（真实工作台 roundtrip + 多主角/同名/负例）"
+    tier: nightly
+    surface: tauri
+    default_provider: slice_verify
+    manifest: quality/acceptance/scenarios/b29-existing-character-role-revision.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: bash scripts/quality_accept.sh b29-existing-character-role-revision --surface tauri
   # 原生 UI 由本机外部系统 CUA 驱动（非仓库内 Chromium driver）；仓库内落地的是
   # 原生证据检查器与外部传输代理，产品代码不含验收感知逻辑。
   - id: b26-business-output-roundtrip

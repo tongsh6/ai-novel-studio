@@ -2514,19 +2514,54 @@ function findB29ExistingCharacterRoleEvidence(records) {
     (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
   );
   if (!ui) return null;
+  if (ui.cp4_model_behavior === true) {
+    if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 1) return null;
+    if (!ui.cp4_model_checks || Object.keys(ui.cp4_model_checks).length < 4) return null;
+    if (!Object.values(ui.cp4_model_checks).every((value) => value === true)) return null;
+    if (ui.summary?.all_checks_passed !== true) return null;
+    if (ui.no_product_code_changed !== true) return null;
+    if (ui.measured_inputs_all_from_real_workbench !== true) return null;
+    return {
+      slice_id: sliceId,
+      turn_id: `b29-cp4-model-${ui.model_phrasing ?? "unknown"}`,
+      turn_ids: [],
+      trial_ids: ui.trial_ids,
+      checks: ui.cp4_model_checks,
+      measured: ui.cp4_model_measured,
+      summary: ui.summary,
+      seed: ui.seed,
+      model_only: true,
+      model_phrasing: ui.model_phrasing,
+      key_events: keyEventsForSlice(sliceId),
+    };
+  }
+  const checks = ui.cp4_checks ?? {};
+  const measured = ui.cp4_measured ?? {};
   if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 5) return null;
-  if (!ui.cp0_checks || Object.keys(ui.cp0_checks).length < 10) return null;
-  if (!ui.cp0_measured || typeof ui.cp0_measured !== "object") return null;
-  if (!ui.summary || typeof ui.summary !== "object") return null;
+  if (Object.keys(checks).length < 20) return null;
+  if (!Object.values(checks).every((value) => value === true)) return null;
+  if (ui.outcome !== "done") return null;
+  if (ui.summary?.all_checks_passed !== true) return null;
+  if (!measured || typeof measured !== "object") return null;
+  if (measured.shen_old_role !== "ENSEMBLE_POV" || measured.shen_new_role !== "PROTAGONIST") return null;
+  if (measured.character_count_before !== measured.character_count_after) return null;
+  if (!Array.isArray(measured.receipt_committed_changes) || measured.receipt_committed_changes.length < 1) {
+    return null;
+  }
+  if (measured.same_name_asked !== true) return null;
+  if (measured.discussion_no_candidate !== true) return null;
+  if (measured.refreshed_shen_role !== "PROTAGONIST") return null;
+  if (measured.discard_unchanged !== true || measured.repeat_idempotent !== true) return null;
+  if (measured.cross_work_zero_write !== true) return null;
   if (ui.no_product_code_changed !== true) return null;
   if (ui.measured_inputs_all_from_real_workbench !== true) return null;
   return {
     slice_id: sliceId,
-    turn_id: "b29-cp0-existing-character-role-repro",
+    turn_id: "b29-cp4-existing-character-role-revision",
     turn_ids: [],
     trial_ids: ui.trial_ids,
-    checks: ui.cp0_checks,
-    measured: ui.cp0_measured,
+    checks,
+    measured,
     summary: ui.summary,
     seed: ui.seed,
     key_events: keyEventsForSlice(sliceId),
@@ -2535,9 +2570,30 @@ function findB29ExistingCharacterRoleEvidence(records) {
 
 function b29ExistingCharacterRoleBehavior(records, evidence, _options) {
   if (!records.some((record) => record.slice_id === "b29-existing-character-role-revision")) return null;
+  if (evidence?.model_only === true) {
+    return {
+      slice_id: "b29-existing-character-role-revision",
+      behavior: "b29_cp4_model_behavior_existing_character_role_revision_binding",
+      turn_ids: [],
+      trials: evidence.trial_ids,
+      checks: evidence.checks,
+      measured: evidence.measured,
+      summary: evidence.summary,
+      boundary:
+        "真实模型只验证既有角色叙事身份修订的判断绑定/候选或同名/讨论澄清（单轮、strata/iq3_s）；确定性产品链 PASS 由 slice_verify 场景另行取证。",
+      assertions: [
+        "model_provider_strata_and_model_recorded",
+        "positive_phrasing_judgment_binds_revise_character_profile",
+        "positive_phrasing_produces_profile_revision_candidate_without_write",
+        "same_name_or_discussion_phrasing_clarifies_or_no_write",
+        "no_fallback_to_character_evolution_or_character_design",
+        "no_product_code_or_acceptance_hook_changed",
+      ],
+    };
+  }
   return {
     slice_id: "b29-existing-character-role-revision",
-    behavior: "b29_cp0_existing_character_narrative_role_revision_repro",
+    behavior: "b29_cp4_existing_character_narrative_role_revision_roundtrip_verified",
     turn_ids: [],
     trials: evidence.trial_ids,
     checks: evidence.checks,
@@ -2545,14 +2601,15 @@ function b29ExistingCharacterRoleBehavior(records, evidence, _options) {
     summary: evidence.summary,
     seed: evidence.seed,
     assertions: [
-      "historical_designate_shen_yan_request_judgment_and_candidate_recorded",
-      "adoption_outcome_and_memory_vs_profile_distinction_recorded",
-      "character_narrative_role_and_character_count_id_set_recorded_before_after",
-      "existing_other_protagonist_not_globally_cleared",
-      "same_name_and_alias_disambiguation_does_not_create_duplicate_or_misbind",
-      "capability_gap_phrasing_recorded_with_zero_write_when_unsupported",
-      "discussion_only_keeps_values_discard_keeps_original_and_cross_work_zero_write",
-      "archive_roster_and_followup_protagonist_answer_recorded_against_profile_field",
+      "real_request_binds_existing_character_ref_and_revise_character_profile",
+      "candidate_shows_target_and_narrative_role_old_to_new",
+      "adoption_updates_same_character_id_with_committed_changes_and_fingerprints",
+      "character_count_id_set_other_characters_prose_and_memory_unchanged",
+      "existing_other_protagonist_retained_and_multi_protagonist_answer_lists_both",
+      "same_name_ambiguity_asks_author_with_zero_write",
+      "discussion_only_reply_has_no_candidate_and_no_write",
+      "refresh_reopen_roster_and_followup_consume_new_profile_field",
+      "discard_keeps_original_repeat_adoption_idempotent_and_cross_work_zero_write",
       "no_product_code_or_acceptance_hook_changed",
     ],
     note:
@@ -22479,37 +22536,59 @@ function findAu09CharacterRoleTaxonomyEvidence(records) {
   ].filter(Boolean);
   if (turnIds.length < 4) return null;
 
-  // 设计轮真实调用 character_design 工具。
+  // 设计轮真实调用 character_design 工具。B29 CP4 后设计走异步 AgentRun：候选 turn_id
+  // 是 run 的 agent step（如 message_x:agent:3），character_design 可在同一 run 前缀的
+  // 后续 step（agent:4）完成；按 run 关联 turn_ids 匹配，不要求等于单一候选 turn_id。
+  const designRunPrefix = String(uiState.design_turn_id ?? "").split(":agent:")[0];
+  const inDesignRun = (turnId) => {
+    const value = String(turnId ?? "");
+    return value === designRunPrefix || value.startsWith(`${designRunPrefix}:agent:`);
+  };
   const designGenerated = records.some(
     (record) =>
-      record.turn_id === uiState.design_turn_id &&
+      inDesignRun(record.turn_id) &&
       record.event === "toolbox.execute.done" &&
       record.tool_name === "character_design" &&
       record.tool_outcome === "succeeded",
   );
   if (!designGenerated) return null;
 
-  // 两次"主角是谁"都走只读 character_roster 工具。
-  const preQueryReadOnly = records.some(
-    (record) =>
-      record.turn_id === uiState.pre_query_turn_id &&
-      record.event === "toolbox.execute.done" &&
-      record.tool_name === "character_roster" &&
-      record.tool_outcome === "succeeded",
-  );
-  const postQueryReadOnly = records.some(
-    (record) =>
-      record.turn_id === uiState.post_query_turn_id &&
-      record.event === "toolbox.execute.done" &&
-      record.tool_name === "character_roster" &&
-      record.tool_outcome === "succeeded",
-  );
-  if (!preQueryReadOnly || !postQueryReadOnly) return null;
+  // B29 CP4（Lead task-78 裁决）：CP3 后「主角是谁」由判断基于角色索引/主档案事实直接
+  // 回答，不强制 dispatch character_roster 工具。契约改为：两次查询均为只读判断回答
+  // （reply/await_author/capability_gap）+ 零生产写入 + 无创作写工具事件；诚实缺口/新主角
+  // 姓名断言由 uiState（真实 UI）与 driver 证据覆盖。
+  const readonlyQueryTurn = (turnId) => {
+    const turnRecords = records.filter((record) => record.turn_id === turnId);
+    const judgment = turnRecords.find((record) => record.event === "judgment.decided.done");
+    const acceptedAction = turnRecords.some(
+      (record) =>
+        record.event === "channel.author_action.done" &&
+        String(record.action_type ?? "") === "accept" &&
+        String(record.action_status ?? "") === "accepted",
+    );
+    const writingTools = turnRecords.some(
+      (record) =>
+        record.event === "toolbox.execute.done" &&
+        ["character_design", "character_evolution", "prose_writing", "world_building", "plot_outline"].includes(
+          String(record.tool_name ?? ""),
+        ),
+    );
+    return (
+      Boolean(judgment) &&
+      ["reply", "await_author", "capability_gap"].includes(String(judgment.action ?? "")) &&
+      !acceptedAction &&
+      !writingTools
+    );
+  };
+  if (!readonlyQueryTurn(uiState.pre_query_turn_id) || !readonlyQueryTurn(uiState.post_query_turn_id)) {
+    return null;
+  }
 
-  // 采纳经采纳边界写入。
+  // 采纳经采纳边界写入。异步 AgentRun 下 accept author_action 可能落在同一 run 的
+  // 后续 agent step（如 message_x:agent:4），按 run 关联 turn_ids 匹配（B29 CP4 契约）。
   const adopted = records.some(
     (record) =>
-      record.turn_id === uiState.design_turn_id &&
+      inDesignRun(record.turn_id) &&
       record.event === "channel.author_action.done" &&
       record.action_type === "accept" &&
       record.action_status === "accepted",
@@ -22558,11 +22637,12 @@ function au09CharacterRoleTaxonomyBehavior(turnIds, _turnRecords, records, _evid
     adopted_state_ref: uiState.adopted_state_ref,
     assertions: [
       "protagonist_query_before_design_honestly_reports_missing_protagonist",
-      "protagonist_query_before_design_performs_no_production_write",
+      "protagonist_query_before_design_answered_read_only_from_character_facts_without_write",
       "protagonist_design_produces_structured_narrative_role_protagonist_character_seed",
+      "protagonist_design_run_dispatches_character_design_tool_within_associated_run_turn_ids",
       "adoption_boundary_writes_protagonist_into_character_dossier",
       "archive_character_tab_shows_structured_protagonist_label",
-      "protagonist_query_after_design_answers_protagonist_name",
+      "protagonist_query_after_design_answers_protagonist_name_read_only_from_character_facts",
       "protagonist_query_after_design_performs_no_production_write",
       options.provider === "lmstudio"
         ? "lmstudio_real_provider_drove_protagonist_taxonomy_roundtrip"

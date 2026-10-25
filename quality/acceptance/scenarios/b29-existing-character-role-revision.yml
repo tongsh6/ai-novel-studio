@@ -1,15 +1,18 @@
 id: b29-existing-character-role-revision
-title: "B29 CP0 真实页面隔离复现：已有角色叙事身份修订与主档案/记忆一致性"
+title: "B29：已有角色叙事身份修订（真实工作台 roundtrip + 多主角/同名/负例）"
 tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  draft（CP0 隔离复现，未注册 scenarios.yml）：seed 已有角色（沈砚 ENSEMBLE_POV/别名
-  老沈、顾青 PROTAGONIST、同名沈砚 MINOR/别名小沈、阿鸢 SUPPORTING）与 accepted 正文；
-  真实 Tauri 页面记录「指定沈砚为主角」（stage 原话）/唯一别名/显式能力缺口措辞的判断
-  绑定、候选类型、采纳内容、Character.narrative_role/角色数/ID、CHARACTER_PROFILE 记忆、
-  多主角保留、同名消歧、负例、档案 roster 与后续追问一致性，判清当前版本能力缺口。
-  CP0 只复现/判断，不登记产品通过；不以 memory 出现“主角”判主档案字段通过。
+  active（2026-10-25 CP4 注册）：外部 Tauri runner 驱动真实工作台复验已有角色
+  narrative_role 修订闭环——真实输入指定唯一别名「老沈」为主角 → judgment
+  `revise_character_profile` + character_ref → 候选卡显示对象与
+  narrative_role：ENSEMBLE_POV → PROTAGONIST → 保存到作品 → 同 character_id 原子更新
+  （receipt committed_changes/character_ref/old value/base+current fingerprint，角色数/ID/
+  其它角色/正文 hash/记忆不变）；同名「沈砚」→ ask_author 澄清零写入；只讨论 → reply
+  零候选；刷新/重开档案/「现在谁是主角？」返回新值（多主角全列）；放弃候选原值不变、
+  重复采纳幂等、跨作品/失效目标零写入。证据边界：确定性 slice_verify provider 产品链；
+  真实模型意图归 CP4 单槽 model_behavior 证据（另行归档）。
 entrypoint: bash scripts/quality_accept.sh b29-existing-character-role-revision --surface tauri
 contract:
   - tasks/slices/B29-existing-character-role-revision.md §1–§5
@@ -18,30 +21,29 @@ contract:
   - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
   - docs/design/adr/ADR-0019-adoption-status-transition-v3.md、ADR-0027-author-obligation-state-v3.md
 invariants:
-  - I-B29-1 同 character_id 更新、角色数不增加；指定主角只改变获准字段。
-  - I-B29-2 未采纳零修改；不自动取消其他主角（现契约允许多主角）。
+  - I-B29-1 同 character_id 更新、角色数不增加；指定主角只改变获准字段 narrative_role。
+  - I-B29-2 未采纳零修改；不自动取消其他主角（现契约允许多主角，其它角色变化只列给作者裁决）。
   - I-B29-3 名字/别名只用于消歧，不按名称新建同名角色或错绑。
   - I-B29-4 Character.narrative_role 是主档案字段；CHARACTER_PROFILE 记忆不能代替/覆盖它。
-  - I-B29-5 档案 roster、探索、判断/写作上下文与后续问答同批消费同一字段事实。
+  - I-B29-5 档案 roster、探索、判断/写作上下文与后续问答同批消费同一字段事实；旧值只在 trace/history。
 setup:
   provider: slice_verify
   seed: scripts/seed_b29_character_role_revision.exs
-  env_note: 隔离 test DB；确定性 provider 复现判断/候选/采纳/DB/消费者；真实模型意图归 CP4。
+  env_note: 隔离 test DB；确定性 provider 驱动判断绑定/候选/采纳/DB/消费者；真实模型归 CP4。
   trial_matrix:
-    - A1 stage 原话「指定沈砚为主角」（两个同名沈砚）：判断 capability/对象、pending 候选、采纳内容、narrative_role/角色数/ID、记忆变化。
-    - A2 唯一别名「指定老沈为主角」：是否出现角色字段修订候选/仅 memory/evolution；采纳后主档案字段是否变化。
-    - A3 显式「把已有角色的叙事身份从配角改为主角」：当前版本诚实能力缺口/误路由与零写入证据。
-    - B 多主角：顾青已是 PROTAGONIST，对沈砚请求不得全局清空/取消顾青。
-    - C 同名/别名：两个沈砚不被合并/新建/按名称错绑。
-    - D 负例：只讨论不改字段、放弃候选原值不变、跨作品/失效目标零写入、重复采纳无新增入口。
-    - E 消费者：档案角色 roster 与「现在谁是主角」问答同 DB narrative_role 字段对账；memory 只作陪证。
+    - T1 正例：唯一别名「指定老沈为主角」→ judgment revise_character_profile + character_ref → 候选可见对象与 old→new(ENSEMBLE_POV→PROTAGONIST) → 保存 → 同 character_id、角色数/ID 不变、顾青 PROTAGONIST 保留、正文 hash 不变、receipt committed_changes/character_ref/old value/fingerprint。
+    - T2 同名：两个沈砚时「指定沈砚为主角」→ ask_author 列候选澄清、零写入。
+    - T3 讨论：「老沈适合当主角吗？只讨论」→ reply、零候选、零写入。
+    - T4 刷新/消费者：刷新+重开档案 roster 显示新值；「现在谁是主角？」多主角全列（沈砚、顾青，以角色主档案为准）；memory 不冒充。
+    - T5 负例：放弃候选原值不变；重复采纳幂等；跨作品/失效目标零写入不猜。
 user_flow:
-  - open: 真实 Tauri runner 打开 seed 作品（已有 4 角色 + 一章 accepted 正文）。
-  - send: 「指定沈砚为主角。」→ 观察判断/候选；如有候选走真实保存。
-  - send: 「指定老沈为主角。」/「把已有角色的叙事身份从配角改为主角。」→ 观察绑定/能力缺口/零写入。
-  - verify: Character.narrative_role、角色数/ID、顾青 PROTAGONIST、两个沈砚均在且未被新建/错绑。
-  - send: 「老沈适合当主角吗？只讨论，不要改作品设定。」/重复/跨作品目标 → 负例零写入/原值不变。
-  - open: 档案→角色；send「现在谁是主角？」→ roster/TurnResult 与 DB 字段对账，memory 仅陪证。
+  - open: 真实 Tauri runner 打开 seed 作品（沈砚 ENSEMBLE_POV/别名老沈、顾青 PROTAGONIST、同名沈砚 MINOR/别名小沈、阿鸢 SUPPORTING + accepted 正文）。
+  - send: 「指定老沈为主角。」→ 候选卡显示「沈砚 · 叙事身份修订」+ narrative_role：ENSEMBLE_POV → PROTAGONIST。
+  - click: 「保存到作品」→ 同 character_id 字段更新；receipt committed_changes/character_ref/fingerprint；角色数/ID/其它角色/正文 hash/记忆不变。
+  - send: 「指定沈砚为主角。」→ 同名澄清 ask_author（老沈/小沈），零写入。
+  - send: 「老沈适合当主角吗？只讨论，不要改作品设定。」→ reply，无候选零写入。
+  - refresh: 刷新并重开档案 → roster 显示沈砚=主角；send「现在谁是主角？」→ 「当前作品有 2 位主角（群像）：沈砚、顾青（以角色主档案为准）」。
+  - send: 「把阿鸢设为主角」→ 放弃候选 → 原值不变；重复「指定老沈为主角」→ 幂等；「把另一个作品里的沈砚设为主角」→ 零写入不猜。
 evidence:
   required:
     - screenshot
@@ -49,28 +51,35 @@ evidence:
     - app_jsonl
     - summary_json
   extra_artifacts:
-    - b29-cp0-evidence.json
-    - b29-a1-after-adoption.png
-    - b29-consumer-roster.png
-    - b29-final.png
+    - b29-cp4-evidence.json
+    - b29-cp4-t1-after-adoption.png
+    - b29-cp4-roster.png
+    - b29-cp4-final.png
   artifact_dir: artifacts/slice-verify/b29-existing-character-role-revision-tauri
 assertions:
-  # CP0 复现证据断言：只记录可机械核对的观测，不预设产品已通过。
   ui:
-    - 自然输入均由真实主输入触发；候选卡/保存/放弃/档案角色 tab 使用用户可见语义。
-    - 档案角色面板与后续「现在谁是主角」答复记录；不以 memory 行出现“主角”判主档案通过。
+    - 候选卡显示目标角色名与 narrative_role old→new；保存后无全局清空其他角色。
+    - 档案角色面板与「现在谁是主角？」返回主档案新值；多主角全列；旧值不继续作为当前事实。
   network:
-    - 记录 judgment 事件（action/capability/frame/reason）、pending artifact 类型/payload、采纳/放弃 action_result。
+    - judgment.decided.done capability=revise_character_profile 且绑定 character_ref；action_result 顶层 committed_changes/character_ref/base+current_fingerprint。
+    - 同名 ask_author 候选零写入；讨论 reply 零候选。
   data:
-    - 记录 characters（id/name/aliases/narrative_role/status）与 memory_items（type/status/content）before/after。
-    - 记录角色数/ID 集合/同名数量/新增角色；顾青 narrative_role 是否保持 PROTAGONIST。
-    - A3 能力缺口措辞与零写入证据。
+    - 同 character_id 更新、角色数/ID 集合不变、其它角色字段不变、accepted 正文 hash 不变、memory 行不增。
+    - receipt old=ENSEMBLE_POV/new=PROTAGONIST、base/current fingerprint 存在；放弃/跨作品/重复采纳零写入或幂等。
+  llm:
+    - 确定性 provider 判断 prompt 含「## 角色索引（已有角色）」与作者原话；同名时 ask_author 列具体候选。
 anti_hooks:
   product_acceptance_logic_added: false
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
+anti_hooks_verification: >-
+  driver 只用页面可见语义（主输入/发送/打开档案/角色 tab/保存到作品/不保存/放弃/刷新）+
+  WS 帧 + app/llm JSONL + 隔离 DB 只读核对；未新增 testid/隐藏 metadata/验收开关。
+prerequisites:
+  - B29 CP1/CP2（能力/绑定/候选 + 原子更新/采纳 effect）与 CP3（消费者一致）已提交。
+  - 真实模型意图（strata/iq3_s 单槽）证据与确定性 product_state_chain 分开归档；不替代本场景 PASS。
 known_not_closed:
-  - CP0 只复现/判断；场景未注册 scenarios.yml，不声明已有角色叙事身份修订已实现。
-  - 确定性 provider 复现状态链；真实模型原话/改述归 CP4。
-  - stale/跨作品/失效目标在无维护能力时只记录零写入/能力缺口；不作为产品能力通过证据。
+  - 真实模型原话/改述由 CP4 单槽 model_behavior 证据验证；本场景为确定性 provider 产品链证据。
+  - stale/并发竞争在真实页面无并行写入注入入口（由 CP2 单测/守卫覆盖）；本场景只验跨作品/失效目标/重复采纳。
+  - CHARACTER_PROFILE 历史矛盾记忆只做只读影响清单，不在本场景清理。

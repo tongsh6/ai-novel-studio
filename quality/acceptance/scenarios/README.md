@@ -12,6 +12,7 @@
 | `b28-whole-chapter-revision.yml` | B28 整章修订/排版范围/同章采纳（**active/nightly**：slice_verify 确定性 provider 下的章级目标+全章覆盖账、format_only 归一等价、content 只改指定处、replace_scope 同章替代/旧稿 superseded/刷新幂等、同名章澄清阻断、缺 ref 零写入；真实模型语义归 CP4） |
 | `b30-chapter-renumber-roundtrip.yml` | B30 章节重编号 roundtrip（**active/nightly**：维护意图→可审阅 old→new 映射→保存到作品→两阶段原子 seq 重编号；交换/密集重排/重复确认幂等；刷新 TOC/按章阅读消费新 seq；负例可解释拒绝零写入；卷蓝图仅 Volume/混排 type_mismatch） |
 | `b30-volume-blueprint-kind-boundary.yml` | B30 卷蓝图/卷章类型边界（**active/nightly**：真实页面规划卷章+规划下一卷采纳后蓝图只存 volumes.blueprint、Chapter 只含真实章节/不占 seq；seed harness 非法混排 type_mismatch 零行） |
+| `b29-existing-character-role-revision.yml` | B29 已有角色叙事身份修订（**active/nightly**：真实输入唯一别名指定主角→revise_character_profile+character_ref→候选 ENSEMBLE_POV→PROTAGONIST→保存→同 character_id 原子更新/角色数不变/其它主角保留/正文 hash 不变/receipt committed_changes；同名 ask 零写入；讨论零候选；刷新 roster/「谁是主角」多主角全列；放弃/跨作品/重复采纳负例） |
 | `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-frame-validation-friendly-error.yml` | frame 校验失败时作者友好提示 |
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
@@ -239,3 +240,7 @@
 
 - [b30-chapter-renumber-roundtrip.yml](b30-chapter-renumber-roundtrip.yml)（**已注册 active/nightly**）：真实 Tauri 页面验证既有章节结构维护闭环——seed 两卷（第二卷 3 章标题第11/12/13章但真实 seq 3/4/5，各带 accepted 正文/摘要）→ 真实输入「把第2卷章节编号理顺，内容不要动」→ judgment `maintain_chapter_structure` → 候选卡可见 old→new 映射（display_number_only/warnings）→「保存到作品」→ 两阶段原子 seq 更新（回执 committed_mapping/object_count/warnings）→ chapter_id 集合/章数/归卷/正文 hash/title 文本/摘要引用不变；随后点名两章对调、再次 dense 幂等、刷新后 TOC/按章阅读消费新 seq；负例（多卷未点名/越界第九卷/重复编号）澄清或作者可见拒绝、零写入、不回退大纲/新正文；卷蓝图/规划下一卷与 harness 混排 type_mismatch 同场景取证。driver `driveB30ChapterRenumberRoundtrip`，证据 `artifacts/slice-verify/b30-chapter-renumber-roundtrip-tauri/`（30 checks）。**边界**：确定性 provider 产品链证据；真实模型原话/改述意图由 CP4 单槽 model_behavior 证据分开报告，不替代本 PASS。
 - [b30-volume-blueprint-kind-boundary.yml](b30-volume-blueprint-kind-boundary.yml)（**已注册 active/nightly**）：真实页面「规划卷章结构」→保存到大纲→关闭/重开档案→「规划下一卷」→保存到大纲；volumes 2→3、chapters 12→15，volumes.blueprint 每卷存在，Chapter 无「卷蓝图/蓝图」行/不占 seq；seed harness 通过持久层 outline 采纳「章块标题含卷蓝图」→ `{:error, :type_mismatch}` 整体回滚（章/卷 0 行）。driver `driveB30VolumeBlueprintKindBoundary`，证据 `artifacts/slice-verify/b30-volume-blueprint-kind-boundary-tauri/`（12 checks）。
+
+## B29 页面场景
+
+- [b29-existing-character-role-revision.yml](b29-existing-character-role-revision.yml)（**已注册 active/nightly**）：真实 Tauri 页面验证已有角色 narrative_role 修订闭环——seed 沈砚 ENSEMBLE_POV/别名老沈、顾青 PROTAGONIST、同名沈砚 MINOR/别名小沈、阿鸢 SUPPORTING + accepted 正文 → 「指定老沈为主角」→ judgment `revise_character_profile` + character_ref → 候选卡对象与 old→new（ENSEMBLE_POV→PROTAGONIST）→「保存到作品」→ 同 character_id 原子更新（receipt committed_changes/character_ref/old value/base+current fingerprint；角色数/ID/其它角色/正文 hash/记忆不变；顾青 PROTAGONIST 保留）→ 同名「指定沈砚为主角」ask_author 列候选零写入 → 讨论 reply 零候选 → 刷新/重开档案 roster 与「现在谁是主角？」返回「当前作品有 2 位主角（群像）：沈砚、顾青（以角色主档案为准）」→ 放弃候选原值不变、重复采纳幂等、跨作品零写入。driver `driveB29ExistingCharacterRoleRevision`，证据 `artifacts/slice-verify/b29-existing-character-role-revision-tauri/`（23 checks）。**边界**：确定性 provider 产品链；真实模型原话/改述与同名/讨论澄清由 CP4 `strata/iq3_s` 单槽 model_behavior 证据分开报告，不替代本 PASS。

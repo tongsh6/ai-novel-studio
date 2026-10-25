@@ -25,7 +25,7 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - ask: who is the protagonist (before any protagonist exists)
-  - observe: assistant honestly reports a missing protagonist with no write
+  - observe: assistant honestly reports a missing protagonist with no write (answered read-only from the character role index / main dossier facts)
   - design: a protagonist character with structured narrative_role
   - adopt: generated character_seed through the adoption boundary
   - open: archive character tab
@@ -49,8 +49,11 @@ assertions:
     - character archive tab shows the structured 主角 narrative-role label
     - protagonist query after design answers the protagonist name
   network:
-    - protagonist query dispatches the read-only character_roster tool
-    - protagonist design dispatches the character_design tool with structured narrative_role
+    # B29 CP4（Lead task-78 裁决）：CP3 后「主角是谁」由判断基于当前角色事实
+    # （Character.narrative_role 角色索引/主档案）直接回答，允许无 tool 的只读判断
+    # 回答；不再强制 dispatch character_roster 工具。仍要求零生产写入。
+    - protagonist queries answer from current character facts (role index / main dossier) and perform no production write
+    - protagonist design run dispatches the character_design tool within the run's associated turn_ids (async run step may differ from the candidate turn_id), with structured narrative_role
     - author_action adoption persists the protagonist character state ref
   data:
     - designed character_seed carries structured narrative_role PROTAGONIST
@@ -62,3 +65,10 @@ anti_hooks:
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
+
+known_boundary: >-
+  B29 CP4（Lead task-78）后「主角是谁」是可校验的只读判断回答：由判断 prompt 的
+  Character.narrative_role 角色索引/主档案事实直接产生，不再强制 dispatch
+  character_roster 工具；场景仍断言零生产写入、诚实缺口/新主角姓名、档案主角标签与采纳
+  state ref。设计主角走真实异步 AgentRun，character_design 工具事件按 run 关联
+  turn_ids（agent step 前缀）匹配，不要求等于单一候选 turn_id。
