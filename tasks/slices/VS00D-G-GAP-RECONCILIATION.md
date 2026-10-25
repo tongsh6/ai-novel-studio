@@ -157,12 +157,19 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 - **批次/预算**：每轮一次 **canonical** 10 章级真实创作复验；总真实模型 writer 调用预算按 10 章 × 平均 2–3 轮估算（≤40 次），超预算以诚实失败/缺口记录收尾；不并发模型（单槽），不因结果不理想重跑换分；失败/重试次数全量计数。
 - **模型**：先做 ≤2 章模型 probe（LM Studio `qwen3.8-flash-next@iq4_nl` 优先，必要时 `qwen3.8-27b-bf16`/`strata/iq3_s`），按 probe 的延迟/可采纳性/失败模式选定 provider/model/timeout，并写入 `artifacts/novel-output/p1-model-probe-2026-10-25/plan.md`；probe 与正式 run 串行。
+- **模型生命周期（用户硬约束，2026-10-25）**：真实模型加载属 harness 能力、非产品能力；**任何 probe/正式 run 结束（含失败/中断）必须 `~/.lmstudio/bin/lms unload --all` 并用 `lms ps` 验证无已加载大模型**；同一时刻只允许加载 1 个模型；加载前记录 `lms ps`/内存压力，发现 >1 大模型或非预期模型立即中止并报 Lead；不得让模型常驻导致本机负载过大/崩溃重启。
 - **范围（10 章级会话）**：真实 Tauri 工作台自然语言创作，含至少：新章/续写草稿多章（≥5 章达标）、**整章仅排版修订**（B28 format_only，≥1）、**整章内容修订**（≥1）、**章节重编号/结构维护**（B30，≥1）、**已有角色叙事身份修订**（B29，≥1）；每类均从真实自然语言入口出发并经真实采纳/确认；含 **重启后 resume 断点续跑** 演练、阅读模式/档案审读、导出完整作品；维护动作不得用脚本旁路代替（runner 只能像作者操作 UI）。
 - **度量**：错对象/错绑（回复或操作落到错误章/角色/run）、越权写入/未确认写入、虚报完成、走错能力/误路由、重试率、缺章/重复章/重复段、字数漂移/质量漂移、人工改稿负担（作者视角记录）；确定性统计用 word-count/quality/continuity 报告；模型语义与产品状态链分开。
 - **证据（milestones §8）**：`artifacts/novel-output/p1-authoring-dogfood-2026-10-25/{summary.json,word-count.json,chapter-quality.md,continuity-report.md,export/,progress.jsonl,...}` + 真实 Tauri/WS/app JSONL/llm-calls/截图/DB 快照；失败/重试批次全保留。
 - **B6/B7/B9 消费**：runner 仅对本旅程用到的帧分类/确认/恢复判定迁移「分类一次+穷尽分支」契约单源；`needs_confirmation` 显式确认/跳过并计数；空章/重复段观察接入报告；章节请求按自然作者措辞。
 - **文学质量盲评（ADR-0020 I10）**：与产品状态链/自动化分开；**需作者指定盲评负责人/时机**，AI 不代签、不以自动化分数替代质量收益判定；本轮先输出可盲评样本包（chapters/quality/连续性），盲评结果待作者安排。
 - **退出/收尾**：10 章 canonical（或诚实记录失败章数）完成后输出证据与报告；未达标项/缺口/数据清理均如实登记，不把机制通过冒充文学收益；stage 数据修复另行授权。
+
+#### 2026-10-25 CP0 阻塞与修复（预注册后、canonical 前）
+
+- **probe 发现**：真实模型（LM Studio `qwen3.8-flash-next@iq4_nl` / `qwen3.8-27b-bf16`）在 `agent_plan_draft` 只返回 `{"plan":{...}}` arguments；`AgentPlanToolContract` 要求顶层 `{plan, author_reasoning, reason_codes, confidence}` 且 `additionalProperties=false` → `plan_draft.output_validation rejected {:invalid_plan_tool_arguments, []}` → `agent_plan_protocol_violation`，每章 0 正文。**模型可用性不是问题，是 plan 协议/提示不可达**；不修则 canonical 10 章只会产出失败证据。
+- **裁决**：先做最小产品可达性修复（task-81：draft/revision 输出契约显式 JSON 骨架 + `invalid_plan_tool_arguments` 纠错回执携带字段级错误/骨架；**不放宽 schema、不服务端补字段**），修复提交后 harness 做**单次受控单章验证**（加载选定模型→验证→`lms unload --all` 卸载），通过后发 P1 GO 再跑 canonical 10 章。probe 的 A/B 失败证据保留，不重跑刷分。
+- **模型卸载**：probe 结束时 harness 必须卸载全部模型（`lms unload --all` + `lms ps` 验证为空），正式 dogfood 复用同一生命周期规则。
 
 ## 8. 关联裁决与迁移记录
 
