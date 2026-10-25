@@ -48,3 +48,11 @@
 - canonical-3b attempt2（HEAD `7130d4b8`→`177422f5`，detached）暴露：input 30s 两次超时；turn 120s 对真实 iq3_s writer/续写不足（实测 writer 90–200s、续写 197s），08:15 runner 超时后**重复发送同一续写指令**（08:16:44 才收到并采纳）→ 批次污染，已停止（Lead 通过 detached stop，TERM/143；证据改名 `...canonical3b-attempt2-budget-contaminated/` 并写 failure-summary）。
 - 修复（task-100）：按 provider 预算（slice_verify 快；strata/lmstudio input120/ack60/turn360/candidate300/adoption180/maintenance300/export120/toc60，env 可覆盖）；turn 超时**不重发**同 instruction（in-flight guard + wait_timeout/failure）；wait_events/summary 记 provider/budget；slow_turn 故障注入测试；detached status/stop 支持显式 artifact dir。
 - canonical-3c：CP3 修复提交后 fresh DB/证据目录执行（attempt1 SIGTERM/attempt2 预算污染均保留，不重跑分数）。
+
+### CP3 实施记录（2026-10-25，`f0e26573`）
+
+- provider 预算表（env 覆盖）：slice_verify input30/ack30/turn120/candidate120/adoption90/maintenance180/export60/toc30；strata/lmstudio input120/ack60/turn360/candidate300/adoption180/maintenance300/export120/toc60；late_result_grace real120s/slice30s。
+- turn 超时**不重发**：超预算只等 late-result grace，grace 失败→fatal `turn_timeout` 非零退出；in-flight guard；`isFatalWaitError` 直接冒泡。
+- wait_events/wait_stats/failure.json 记录 provider/budget/elapsed/outcome；detached status/stop 支持 `--artifact-dir`。
+- 测试（slice_verify）：预算表断言；slow_turn+小预算→exit1/turn_timeout/`instruction_sent` 恰好 1 次；page_closed/backend_down/action_failed/stall 回归；正常 10 章+维护 5/5、46 waits/5532ms/0 timeouts。
+- canonical-3c：fresh DB/证据目录（attempt1 SIGTERM、attempt2 预算污染保留）。
