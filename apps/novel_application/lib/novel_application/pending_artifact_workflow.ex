@@ -578,7 +578,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
                     facts,
                     modification_scope,
                     chapter_ref,
-                    visible_title
+                    visible_title,
+                    b36_revision_scope(facts, modification_scope, run)
                   )
               }
             )
@@ -781,7 +782,81 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp chapter_candidate_title(chapter_title, _scope),
     do: "#{chapter_title}（整章内容修订稿）"
 
-  defp b28_candidate_payload(facts, modification_scope, chapter_ref, visible_title) do
+  # B36 CP1：候选生成时确定 target segment ids（按作者范围：第一段/第N段/开头/结尾/整章）。
+  # 无法解析出目标段时返回 []，采纳侧会以 incomplete_scope 拒绝（不猜）。
+  defp b36_revision_scope(facts, modification_scope, run) do
+    segments = NovelPersistence.LocalizedRevision.segment(facts.base_text)
+    all_ids = Enum.map(segments, & &1.segment_id)
+
+    ids =
+      case modification_scope do
+        :whole_chapter -> all_ids
+        :format_only -> all_ids
+        :target_segments -> target_ids_from_author_text(segments, run.goal.text)
+      end
+
+    first = List.first(facts.materials) || %{}
+    {ids, Map.get(first, :ref), Map.get(first, :version)}
+  end
+
+  defp target_ids_from_author_text(segments, text) when is_binary(text) do
+    cond do
+      Regex.match?(~r/开头|第一段/u, text) -> first_id(segments)
+      Regex.match?(~r/最后一段|结尾/u, text) -> last_id(segments)
+      true -> ordinal_target_ids(segments, text)
+    end
+  end
+
+  defp target_ids_from_author_text(_segments, _text), do: []
+
+  defp first_id([%{segment_id: id} | _]), do: [id]
+  defp first_id(_segments), do: []
+
+  defp last_id(segments) do
+    case List.last(segments) do
+      nil -> []
+      %{segment_id: id} -> [id]
+    end
+  end
+
+  defp ordinal_target_ids(segments, text) do
+    case Regex.run(~r/第\s*([0-9]+|[一二三四五六七八九十]+)\s*段/u, text) do
+      [_, raw] ->
+        case Enum.at(segments, ordinal_to_index(raw)) do
+          nil -> []
+          seg -> [seg.segment_id]
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp ordinal_to_index(raw) when raw in ["一", "1"], do: 0
+  defp ordinal_to_index(raw) when raw in ["二", "2"], do: 1
+  defp ordinal_to_index(raw) when raw in ["三", "3"], do: 2
+  defp ordinal_to_index(raw) when raw in ["四", "4"], do: 3
+  defp ordinal_to_index(raw) when raw in ["五", "5"], do: 4
+  defp ordinal_to_index(raw) when raw in ["六", "6"], do: 5
+  defp ordinal_to_index(raw) when raw in ["七", "7"], do: 6
+  defp ordinal_to_index(raw) when raw in ["八", "8"], do: 7
+  defp ordinal_to_index(raw) when raw in ["九", "9"], do: 8
+  defp ordinal_to_index(raw) when raw in ["十", "10"], do: 9
+
+  defp ordinal_to_index(raw) do
+    case Integer.parse(raw) do
+      {n, _} -> n - 1
+      :error -> 0
+    end
+  end
+
+  defp b28_candidate_payload(
+         facts,
+         modification_scope,
+         chapter_ref,
+         visible_title,
+         {target_segment_ids, base_draft_ref, base_version}
+       ) do
     effect = %{
       "mode" => "replace_scope",
       "covered" => Enum.map(facts.materials, &"#{&1.ref}:#{&1.version}"),
@@ -799,6 +874,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         "kind" => Atom.to_string(modification_scope),
         "target_chapter_ref" => chapter_ref,
         "covered" => covered_refs,
+        "target_segment_ids" => target_segment_ids,
+        "base_draft_ref" => base_draft_ref,
+        "base_version" => base_version,
         "preserve_unmentioned_verbatim" => modification_scope != :format_only
       },
       adoption_effect: effect

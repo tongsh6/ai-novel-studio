@@ -48,6 +48,18 @@ defmodule NovelPersistence.B35ReplaceScopeIntegrityTest do
     }
   end
 
+  defp target_ids_for(scope) do
+    if scope == "target_segments" do
+      @base_text
+      |> NovelPersistence.LocalizedRevision.segment()
+      |> List.first()
+      |> Map.get(:segment_id)
+      |> List.wrap()
+    else
+      []
+    end
+  end
+
   defp persist(ctx, content, scope, coverage \\ "complete") do
     AdoptionRepository.persist(%{
       actor_ref: "author",
@@ -60,6 +72,7 @@ defmodule NovelPersistence.B35ReplaceScopeIntegrityTest do
       target_chapter_ref: "chapter:#{ctx.chapter.id}",
       adoption_effect: effect(ctx, coverage),
       modification_scope: scope,
+      target_segment_ids: target_ids_for(scope),
       mode: :overwrite
     })
   end
@@ -155,6 +168,20 @@ defmodule NovelPersistence.B35ReplaceScopeIntegrityTest do
                },
                modification_scope: "whole_chapter"
              })
+
+    assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content}) |> Enum.sort() == before
+  end
+
+  test "未改段被改 → out_of_scope_changes 零写入（target ids 只含第一段）", ctx do
+    # 改第二段（非 target），第一段保持原样：段落数/长度均正常，只有 diff 范围校验能抓。
+    bad =
+      @base_paragraphs
+      |> List.replace_at(1, "第二段被越界改写了。")
+      |> Enum.join("\n\n")
+
+    before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content}) |> Enum.sort()
+
+    assert {:error, :out_of_scope_changes} = persist(ctx, bad, "target_segments")
 
     assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content}) |> Enum.sort() == before
   end

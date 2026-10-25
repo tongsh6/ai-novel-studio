@@ -28,6 +28,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelFoundation.Enums.VolumeBlueprintStatus
   alias NovelFoundation.ID
   alias NovelPersistence.ChapterPlanParser
+  alias NovelPersistence.LocalizedRevision
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Character
@@ -548,7 +549,7 @@ defmodule NovelPersistence.AdoptionRepository do
          {:ok, covered} <- covered_scope_drafts(repo, work_id, chapter.id, effect),
          :ok <- validate_expected_versions(repo, chapter.id, effect),
          :ok <- ensure_complete_cover(repo, work_id, chapter.id, covered, effect),
-         :ok <- ensure_content_covers_scope(attrs, covered, effect, content),
+         {:ok, coverage_info} <- ensure_content_covers_scope(attrs, covered, effect, content),
          :ok <- mark_chapter_drafted(repo, chapter),
          :ok <- supersede_covered_scenes(repo, work_id, covered),
          {:ok, draft} <-
@@ -563,10 +564,13 @@ defmodule NovelPersistence.AdoptionRepository do
          mutation_id: mutation_id,
          adoption_effect: "replace_scope",
          superseded_draft_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}"),
-         scope: scope_label(attrs, effect),
+         scope: coverage_info.scope,
          covered_refs: Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}"),
-         old_chars: covered_base_chars(covered),
-         new_chars: String.length(content)
+         target_segment_ids: coverage_info.target_segment_ids,
+         segment_changes: coverage_info.segment_changes,
+         diff_stats: coverage_info.diff_stats,
+         old_chars: coverage_info.old_chars,
+         new_chars: coverage_info.new_chars
        }}
     end
   end
@@ -2044,33 +2048,60 @@ defmodule NovelPersistence.AdoptionRepository do
     end)
   end
 
-  # B35 CP2：replace_scope + coverage=complete 的机械完整性守卫。
-  # 当前 replace_scope 以「整份章稿」替换 covered 范围；局部修订（段落级）候选只有几百
-  # chars 时，若仍声明 complete，会在 supersede 旧稿后造成整章数据塌缩（B33 CP4 真实事故：
-  # 126 chars 替换 1198 chars）。这里按长度下界拒绝明显的局部候选（零写入），
-  # 真正的段级合并/更细粒度 scope 留 CP1 契约扩展；format_only 由归一字节校验负责。
+  # B36 CP1：replace_scope 覆盖完整性——确定性分段 + 段落级 diff。
+  # target_segments 必须携带 target_segment_ids（由候选构造按作者范围算出）；
+  # 集合外段落必须逐字节一致；空/截断 -> incomplete_scope；越界 -> out_of_scope_changes；
+  # 校验发生在 supersede/insert 之前，失败由调用方 Ecto.Multi 回滚（零写入）。
+  # 保留 B35 的长度兜底（防候选整体塌缩），format_only 由 B28 归一字节校验负责。
   defp ensure_content_covers_scope(attrs, covered, effect, content) do
     coverage = Map.get(effect, "coverage") || Map.get(effect, :coverage)
+    scope = scope_label(attrs, effect)
 
-    if to_string(coverage) == "complete" do
-      scope = scope_label(attrs, effect)
-      base_chars = covered_base_chars(covered)
-      new_chars = String.length(content || "")
-
-      cond do
-        scope == "format_only" -> :ok
-        base_chars == 0 -> :ok
-        new_chars == 0 -> {:error, :incomplete_scope}
-        new_chars < div(base_chars, 2) -> {:error, :incomplete_scope}
-        true -> :ok
-      end
+    if to_string(coverage) != "complete" do
+      {:ok, empty_coverage(scope, content)}
     else
-      :ok
+      base_text = Enum.map_join(covered, "\n\n", &to_string(&1.content || ""))
+      target_ids = target_segment_ids(attrs, effect)
+
+      opts = [
+        scope: scope,
+        target_segment_ids: target_ids,
+        base_version: Map.get(attrs, :base_version) || Map.get(attrs, "base_version"),
+        current_version: covered |> List.first() |> then(&(&1 && &1.revision))
+      ]
+
+      with {:ok, info} <- LocalizedRevision.validate(base_text, content, opts),
+           :ok <- enforce_length_floor(scope, info.old_chars, info.new_chars) do
+        {:ok, Map.merge(info, %{scope: scope, target_segment_ids: target_ids})}
+      end
     end
   end
 
-  defp covered_base_chars(covered) do
-    covered |> Enum.map(&String.length(to_string(&1.content || ""))) |> Enum.sum()
+  defp enforce_length_floor("format_only", _old_chars, _new_chars), do: :ok
+  defp enforce_length_floor(_scope, old_chars, _new_chars) when old_chars == 0, do: :ok
+
+  defp enforce_length_floor(_scope, old_chars, new_chars) when new_chars < div(old_chars, 2),
+    do: {:error, :incomplete_scope}
+
+  defp enforce_length_floor(_scope, _old_chars, _new_chars), do: :ok
+
+  defp target_segment_ids(attrs, effect) do
+    raw =
+      Map.get(attrs, :target_segment_ids) || Map.get(attrs, "target_segment_ids") ||
+        Map.get(effect, "target_segment_ids") || Map.get(effect, :target_segment_ids) || []
+
+    LocalizedRevision.normalize_target_ids(raw)
+  end
+
+  defp empty_coverage(scope, content) do
+    %{
+      scope: scope,
+      target_segment_ids: [],
+      segment_changes: [],
+      old_chars: 0,
+      new_chars: String.length(content || ""),
+      diff_stats: %{segment_count: 0, changed_segment_count: 0}
+    }
   end
 
   defp scope_label(attrs, effect) do

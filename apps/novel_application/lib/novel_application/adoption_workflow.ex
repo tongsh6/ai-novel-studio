@@ -729,6 +729,13 @@ defmodule NovelApplication.AdoptionWorkflow do
     end)
   end
 
+  defp b36_scope_attr(artifact, key) do
+    payload = artifact_field(artifact, :payload) || %{}
+    scope = b28_map(payload, :scope)
+
+    b28_value(scope, key) || b28_value(payload, key)
+  end
+
   defp b28_effect_attrs(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
     effect = b28_map(payload, :adoption_effect)
@@ -995,6 +1002,10 @@ defmodule NovelApplication.AdoptionWorkflow do
       # B28 CP1：additive 采纳 effect / 修改范围（持久层 replace_scope 事务入口）。
       adoption_effect: b28_effect_attrs(artifact).adoption_effect,
       modification_scope: b28_effect_attrs(artifact).modification_scope,
+      # B36 CP1：局部修订范围声明（additive；经候选 payload.scope 透传到采纳 diff 校验）。
+      target_segment_ids: b36_scope_attr(artifact, :target_segment_ids),
+      base_draft_ref: b36_scope_attr(artifact, :base_draft_ref),
+      base_version: b36_scope_attr(artifact, :base_version),
       # B30 CP3-A2：plot_outline item 级可选 chapter_ref（模型对已存在章复制），
       # 按章条目顺序透传给物化链；新章 nil/缺省。parser 也兼容正文标签行。
       chapter_refs: outline_chapter_refs(artifact),
