@@ -79,3 +79,9 @@
 
 - canonical-3d phase1（detached，~15min）实况：第01章 1539、第02章 1127；多次 `agent_awaiting_author` → runner 按工具失败 readToc/取消活跃 run/重发，每章多耗 2–4min；用户指出模型在等作者决策/补充，不能干等。Lead 通过 detached stop 终止（attempt4 证据 `...canonical3d-attempt4-awaiting-author/`，不用于 P1）。
 - task-102（B37 CP5）：通用 `respondToAuthorQuestion`——识别 awaiting question/options/recommended；以作者身份 bounded 回复具体默认决策（章/续写/维护/扩章共用，≤2 次不同回复）；**不 cancel/readToc/重发**；无问题文本/重复问题→`author_question_unresolved` bounded 失败；记录 author_question_events；dry-run fixtures + 真实模型单章 scoped replay 后 canonical-3e final。
+
+### CP5 实施记录（2026-10-25，`0476f299`）
+
+- 识别 `turn_result.author_question`（question/options/recommended/actions）；`respondToAuthorQuestion` 章/续写/维护/扩章共用：options 选 recommended/第一个；无 options 按动作具体默认回复；≤2 条不同回复；记录 author_question_events；**不 cancel/readToc/不重发原 instruction**；无问题文本/重复问题/无 action → `author_question_unresolved` fatal；集成章 adopt/maintenance/plan expand。
+- test-support 最小分支：choice 回复「保留悬念」→ 第01章 prose 候选；slice_verify_test 51/0；dry-run free-text/options→prose 555 字（1 instruction/1 回复）；重复/无文本 bounded fatal；正常 10 章+维护 5/5、故障注入不回归；全后端 2241/0。
+- canonical-3e final：fresh DB/证据目录 detached 启动（attempt1–4 保留；运行中 author question 自动应答并入监控）。
