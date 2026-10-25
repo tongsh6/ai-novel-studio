@@ -147,7 +147,7 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 ### 真实创作复验
 
-- 状态：**doing / CP0（2026-10-25 预注册完成）**：最后一轮 10 章级真实创作复验（B26/B27→B31→B28→B30→B29 后），模型 probe/选型与 dogfood runner 适配进行中；正式 canonical run 待 Lead「P1 GO」。
+- 状态：**doing / canonical 实跑完成但验收未过（2026-10-25）**：10 章级真实创作复验已按预注册跑完（Strata `iq3_s`，phase1+phase2 约 43.3min，单次未重跑换分）：**10,002 有效字、7/10 章≥1000、维护 2/5**；暴露真实模型下判断误路由 24 次（写正文/设计角色/内容修订返 reply/creative_directions/await_author），计划上下文约 70k chars/输入 token 中位 23–32k；新开候选 **B33 判断路由/上下文可靠性** + **P1 runner 维护措辞修复**，修复后做 scoped 真实模型复验；P1 未关闭。
 - 任务：P1-AUTHORING-DOGFOOD；既有周期复验，不新增产品能力或平行 harness。
 - 范围：引用 `docs/product/novel-output-milestones.md` §4/§8；每 3–5 个周期插入，最迟本轮 B26/B27→B31→B28→B30→B29 后执行。
 - 剩余：复用真实工作台 runner 完成 10 章创作，包含修订/结构/角色维护、采纳、重开、审读、导出；确认路径/空章/重复观察消费 §6 B6/B7/B9。各操作尚未上线时不能用脚本旁路代替。
@@ -172,6 +172,7 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 - **裁决**：先做最小产品可达性修复（task-81：draft/revision 输出契约显式 JSON 骨架 + `invalid_plan_tool_arguments` 纠错回执携带字段级错误/骨架；**不放宽 schema、不服务端补字段**），修复提交后 harness 做**单次受控单章验证**（加载选定模型→验证→`lms unload --all` 卸载），通过后发 P1 GO 再跑 canonical 10 章。probe 的 A/B 失败证据保留，不重跑刷分。
 - **模型卸载**：probe 结束时 harness 必须卸载全部模型（`lms unload --all` + `lms ps` 验证为空），正式 dogfood 复用同一生命周期规则。
 - **单章受控验证 PASS（2026-10-25，HEAD `582a7ae8`）**：Strata `iq3_s` 单章一次通过——`plan_draft.output_validation` rejected=0（无 invalid_plan_tool_arguments）、plan 顶层四字段+steps=3+prose_writing 带 authoring_intent、正文 1405 words、无失控重复（8-gram 0.0157、max completion 1452）、pending 候选由外部 runner 作者确认采纳、0 run_failed/0 retry；wall 207.975s、12 calls/7728 completion tokens/聚合 36.61 tok/s；结束 `lms ps=[]`、Strata loaded=null。证据 `artifacts/novel-output/p1-model-validate-strata-2026-10-25/`。**canonical 10 章已 GO（fresh+stop-after 5+resume，单次不重跑换分）**。
+- **canonical 实跑结果（2026-10-25，HEAD `f213e56d`，P1 未通过）**：`--provider strata --model iq3_s`，phase1 `--stop-after 5` 16.4min + phase2 `--resume` 26.9min，exit 0、导出成功、单次未重跑。实测：**10,002 有效字**（目标 100k 未达）、章 12（前 10 章中 7 章≥1000：01 1145/02 1092/03 1002/04 1230/06 1566/07 1551/10 1460；05 章 956 短、08/09 空、11/12 未写）；writer 11 次（≤40）、重试 26（wrong-route 24 + locator timeout 2）；B9 confirm 3/skip 0；空章 4、重复段 0；维护 **2/5**（format_revision ✅、chapter_renumber ✅；design_character ❌ 5 次 judgment 只回角色方向、content_revision ❌ 4 次 `agent_awaiting_author`、character_role_revision ⛔ 依赖设计未执行）；无错对象/错绑/越权写入/虚报。**根因线索**：判断输入约 70k chars（input token 中位 23–32k，失败 reply 中位 32.4k），iq3_s 在长/冗余上下文下把创作动作判成 reply/creative_directions/await_author；正文无失控/32k 截断（重复段 0），瓶颈是语义路由不是长文退化。证据 `artifacts/novel-output/p1-authoring-dogfood-2026-10-25/`（§8 证据 + app-log/llm-calls/backend/db-snapshot/run-report/失败截图）；模型生命周期 close（Strata loaded=null、`lms ps=[]`、native iq3_s 按任务前保留）。**P1 不关**：新开 B33（判断路由/上下文可靠性）与 P1 runner 维护措辞修复，修复后 scoped 复验，不复跑换分。
 
 ## 8. 关联裁决与迁移记录
 
