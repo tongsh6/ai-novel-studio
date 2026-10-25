@@ -1,6 +1,6 @@
 # B34 作者意图语料与验证覆盖（stage 运行日志 2026-06 起）
 
-- 状态：**doing / CP0 完成（2026-10-25，语料 146 turn→98 去重作者原话，覆盖缺口矩阵已出）**：CP1/CP2 验证覆盖扩展进行中（fixture/测试/场景），CP3 实模 scoped 验证待后。
+- 状态：**doing / CP0 完成（2026-10-25，语料 146 turn→98 去重作者原话，覆盖缺口矩阵已出）；CP1/CP2 完成（2026-10-25，契约冻结+确定性 fixture/测试/场景草案）**；CP3 实模 scoped 验证待后。
 - 类型：验证体系/意图覆盖（不新增产品能力；把真实历史作者意图沉淀为可回归的验证资产）
 - 来源：`log/llm-calls/stage/*.jsonl`（2026-06-17 起，23 文件约 13MB）+ `log/app/stage/*.jsonl`（约 5.2MB）；另 P1 canonical/实模证据
 - 关联：B26 单调用判断协议、B27 任务语义/调用矩阵、B33 动作意图有界纠错、P1-AUTHORING-DOGFOOD、D15
@@ -77,3 +77,48 @@
 - `world_foreshadow discussion-vs-adopt` 边界（讨论不产候选；明确保存才产 world_rule 候选）。
 - delegation/noise 边界负例（不自动执行/采纳；并入 B33 负例集）。
 - 2026-10 新协议单独切窗重采频次（CP1 实施时先重跑抽取器加窗口过滤，频次单独报告）。
+
+### CP1/CP2 实施记录（2026-10-25，task-91）
+
+**实现范围**：只改 test-support/测试/场景清单与本文档；不改产品/frontend/src/tasks 之外文档；无新增产品钩子/testid；无真实模型调用。
+
+**fixture 实现**（`apps/novel_agent/test/support/provider/slice_verify.ex`）：
+- `progress_query_prompt?/1` + `judgment_progress_query_result/1`：从判断 prompt 的 `## 章节列表（共 N 章：已写 M 章，计划中 K 章）`（或正文统计）读事实回答；无章节事实时诚实说明不猜；零 tool_calls/零候选。
+- `work_setup_prompt?/2` + `judgment_work_setup_result/1`：空作品（无已写章）的起名/开始创作/题材开场 → ask_author（题材/方向/书名），不产 prose。
+- `discussion_prompt?/1` + `discussion_reply/1`：继续聊方向/写法讨论/不要写正文 → reply，零候选；与 B33 gate 负例配对。
+- `world_foreshadow_discussion_prompt?/1` / `world_foreshadow_adopt_prompt?/1`：讨论（继续聊/是否合理/评价）→ reply 零候选；明确“保存为/采纳该/新增伏笔…”→ execute world_building（仍为待采纳候选）。
+- `delegation_noise_prompt?/1`：短确认/噪声（同意你的路径/kkk/数字/收到）→ reply，不自动 execute/adopt；零写入。
+- 分支放在既有 B28/B29/B30/AU09 判断分支之后、generic regular 之前，旧分支优先级不变；未改产品协议字段。
+
+**测试证据**：
+- `apps/novel_agent/test/novel_agent/provider/slice_verify_test.exs`：新增 `SliceVerifyB34AuthorIntentFixtureTest` 5 组（progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise），全绿；既有 45 组不回归（50/0）。
+- `apps/novel_application/test/novel_application/b34_author_intent_fixture_test.exs`：5 组真实链路（fixture→`JudgmentProtocol.request_judgment`）：
+  - progress_query：`reply` + 章节统计事实 + `candidate_directions == []`；
+  - work_setup：`await_author` + 具体问题，无 capability/prose 候选；
+  - discussion：`reply` + 零候选，B33 gate 不触发（`provider_call_count == 1`）；
+  - world_foreshadow：讨论 reply 零候选；保存请求 execute world_building；讨论零候选；
+  - delegation/noise：reply + 零候选/零 capability。
+- 回归：B28/B29/B30/AU09 判断 fixture 全量绿；application 全量见下方验证记录。
+- 场景清单：`quality/acceptance/scenarios/b34-author-intent-corpus-fixtures.yml`（**draft / tier deterministic / default_provider slice_verify**；未注册 `scenarios.yml`，不注册真实模型 nightly）；README 已索引。
+
+**覆盖前/后矩阵（意图类 × 频次 × fixture 状态）**：
+
+| 意图类 | 全量频次 | 2026-10 窗口 | 覆盖前 | 覆盖后（确定性） | 状态 |
+|---|---:|---:|---|---|---|
+| progress_query | 10 | 2 | **无**（HIGH） | slice_verify progress fixture + app 链路测试 | 已覆盖 |
+| work_setup | 8 | 3 | **无**（HIGH） | slice_verify work_setup fixture + app 链路测试 | 已覆盖 |
+| discussion | 8 | 1 | 普通对话/多轮场景，缺“讨论不误执行”专项 | slice_verify discussion fixture + app 链路测试（B33 gate 负例） | 已覆盖 |
+| world_foreshadow | 14 | 5 | 采纳场景多，缺讨论 vs 采纳边界 | slice_verify discussion/adopt 分支 + app 链路测试 | 边界已覆盖 |
+| delegation | 2 | 1 | **无**（MED） | slice_verify 短确认/噪声负例 + app 测试 | 已覆盖 |
+| chitchat_noise | 2 | 1 | **无**（MED） | 并入 delegation/noise fixture | 已覆盖 |
+| other_unclassified | 5 | 1 | 无 | 按 CP0 建议不新增 fixture（短指代依赖上下文，保留语料溯源） | 不新增（有意） |
+| prose_write / meta_acceptance / plan_outline / chapter_revision / chapter_rewrite / query_status / export_review / structure_change / character_design | 已有较广覆盖 | — | LOW | 保持既有用例/优先级，不重复造 | 保持 |
+
+**2026-10 窗口频率说明**：见本 slice “2026-10 新协议窗口重采”节；窗口 39 条去重语料中 progress_query 2、work_setup 3、discussion 1、world_foreshadow 5、delegation 1、chitchat_noise 1；旧协议 unknown 噪声消失，但 prose_write 占比下降、meta_acceptance/plan_outline 上升（仅频次事实，误路由结论由 B33 CP4 复验）。
+
+**验证记录**：
+- `apps/novel_agent`: slice_verify fixture 50/0；全量 **290/0**（p1plan 隔离分区）。
+- `apps/novel_application`: B34 fixture test 5/0；全量 **950/0**（p1plan）。
+- `mix compile --warnings-as-errors` 零警告；`mix format --check-formatted` 通过；touched credo 0 issue；I1/I2/I3 全绿（p1plan）；`bash scripts/ai_static_scan.sh --top 10 --quick` 本改动文件 0 findings（余既有 gitleaks/task-done manifest 流程项）。
+- 未关闭：CP3 真实模型 scoped 验证（lifecycle 可用新增案例）；CP4 覆盖报告引用。
+

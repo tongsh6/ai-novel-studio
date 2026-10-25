@@ -1148,3 +1148,101 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterDesignJudgmentTest do
     assert result.content =~ "目前还没有谁被标记为主角"
   end
 end
+
+defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
+  use ExUnit.Case, async: true
+
+  alias NovelAgent.Provider.InferenceParams
+  alias NovelAgent.Test.Provider.SliceVerify
+
+  defp judgment_prompt(author_text, context) do
+    """
+    本次你承担创作判断器的角色，与作者讨论并判断创作下一步。
+
+    ## 当前作品与实际观察
+    #{context}
+
+    ## 作者输入
+    #{author_text}
+
+    ## 决策与输出契约
+    只输出一个工具或作者可见回复。
+    """
+  end
+
+  defp complete(author_text, context \\ "") do
+    SliceVerify.complete(nil, nil, judgment_prompt(author_text, context), %InferenceParams{})
+  end
+
+  test "真实语料 progress_query：按章节统计回答，零候选零写入" do
+    context = """
+    ## 章节列表（共 3 章：已写 2 章，计划中 1 章）
+    - 第 1 章「潮声之前」[chapter_ref=chapter:aaa]
+    - 第 2 章「旧钱与旧名」[chapter_ref=chapter:bbb]
+    - 第 3 章「外门名册上的空白」[chapter_ref=chapter:ccc]（计划中）
+    """
+
+    for wording <- ["第几章写到哪了？", "草稿在哪？", "执行完了么？", "后面还有哪些章节？"] do
+      assert {:ok, result} = complete(wording, context)
+      assert result.tool_calls == []
+      assert result.content =~ "当前共 3 章：已写 2 章，计划中 1 章"
+      refute result.content =~ "生成候选"
+    end
+  end
+
+  test "真实语料 work_setup：空作品起名/开始创作 → ask_author，不直接产 prose" do
+    for wording <- ["给这个作品起个名字", "新的小说开始", "开始创作，从哪开始"] do
+      assert {:ok, result} = complete(wording)
+      assert [%{name: "ask_author", arguments: args}] = result.tool_calls
+      question = args[:question] || args["question"]
+      assert is_binary(question) and question != ""
+      refute result.content =~ "正文草稿"
+      assert (args[:options] || args["options"]) == []
+    end
+  end
+
+  test "真实语料 discussion：继续聊/写法讨论 → reply 零候选零写入" do
+    for wording <- [
+          "继续聊「从世界观开始」这个方向：先构建一个独特的奇幻世界，再让故事自然生长出来。",
+          "这个方向的开场冲突应该怎么设计？不要写正文，只继续聊。",
+          "这段写法如何？只讨论，不生成草稿。"
+        ] do
+      assert {:ok, result} = complete(wording)
+      assert result.tool_calls == []
+      assert is_binary(result.content) and result.content != ""
+      refute result.content =~ "我会生成"
+    end
+  end
+
+  test "真实语料 world_foreshadow：讨论不产候选；明确保存才产世界设定候选" do
+    discussion = "继续聊「世界观先行」这个方向：先设定一个独特的规则体系，让故事冲突天然嵌入其中。"
+
+    assert {:ok, discussed} = complete(discussion)
+    assert discussed.tool_calls == []
+    assert discussed.content =~ "只讨论"
+
+    adopt = "把「情绪是真实可见的物质」这个设定保存为世界规则。"
+
+    assert {:ok, adopted} = complete(adopt)
+
+    assert [
+             %{
+               name: "judgment_decision",
+               arguments: %{
+                 "action" => "execute",
+                 "capability" => "world_building"
+               }
+             }
+           ] = adopted.tool_calls
+
+    assert adopted.content =~ "待采纳"
+  end
+
+  test "真实语料 delegation/chitchat_noise：不自动执行/采纳，零写入" do
+    for wording <- ["同意你的路径", "kkk", "2", "收到"] do
+      assert {:ok, result} = complete(wording)
+      assert result.tool_calls == []
+      assert result.content =~ "不自动执行或采纳"
+    end
+  end
+end

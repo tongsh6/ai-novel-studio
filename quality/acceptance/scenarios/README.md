@@ -8,6 +8,7 @@
 |---|---|
 | `b27-natural-author-intent.yml` | B27 自然语言意图→创作效果映射（**草案**：manifest+driver 方案就绪，未注册 driver） |
 | `b27-prompt-lifecycle-consistency.yml` | B27 统一任务语义真实工作台生命周期一致性（**active/nightly**：slice_verify 机制批次已 PASS，含 writer/evaluator 候选、待采纳、显式采纳、章摘要/trace、刷新恢复与下一轮持久事实；真实模型语义归 CP4 §6.1 矩阵） |
+| `b34-author-intent-corpus-fixtures.yml` | B34 真实作者意图确定性 fixture（**draft**：progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise；slice_verify + application/agent tests；不注册真实模型 nightly） |
 | `b31-author-reply-run-binding.yml` | B31 作者补充输入与待回复任务稳定绑定（**active/nightly**：slice_verify 确定性 provider 下的多 awaiting run 归属/显式问题 author_choice/目标可见/JoinRestore 稳定序；真实模型语义不在本场景） |
 | `b28-whole-chapter-revision.yml` | B28 整章修订/排版范围/同章采纳（**active/nightly**：slice_verify 确定性 provider 下的章级目标+全章覆盖账、format_only 归一等价、content 只改指定处、replace_scope 同章替代/旧稿 superseded/刷新幂等、同名章澄清阻断、缺 ref 零写入；真实模型语义归 CP4） |
 | `b30-chapter-renumber-roundtrip.yml` | B30 章节重编号 roundtrip（**active/nightly**：维护意图→可审阅 old→new 映射→保存到作品→两阶段原子 seq 重编号；交换/密集重排/重复确认幂等；刷新 TOC/按章阅读消费新 seq；负例可解释拒绝零写入；卷蓝图仅 Volume/混排 type_mismatch） |

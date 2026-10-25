@@ -1,0 +1,49 @@
+id: b34-author-intent-corpus-fixtures
+title: "B34 真实作者意图确定性 fixture 覆盖（progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise）"
+tier: deterministic
+surface: test
+default_provider: slice_verify
+# 本轮状态：确定性 fixture manifest；未注册进 quality/acceptance/scenarios.yml，
+# 不注册真实模型 nightly；CP3 真实模型 scoped 验证另行登记。
+status_note: "CP2 draft：映射 B34 CP1 契约到 slice_verify 判断 fixture + application/agent 确定性测试；无外部 driver。"
+contract:
+  - tasks/slices/B34-author-intent-corpus-validation.md §6 CP1 验证契约
+  - artifacts/model-contracts/b34-cp0/{coverage-matrix.md,corpus-summary.md,taxonomy.md}
+invariants:
+  - progress_query-readonly-facts（按章节索引/统计回答，零候选、零写入）
+  - work_setup-not-direct-prose（空作品题材/起名 → ask_author/plan，不直接产正文）
+  - discussion-not-materialized（讨论/方向/写法评价 → reply，零候选、零写入；B33 gate 不误纠错）
+  - world-foreshadow-discussion-vs-adopt（讨论零候选；明确保存/采纳才 execute world_building）
+  - delegation-noise-no-auto-execute（短确认/噪声不自动创建/采纳，零写入）
+fixtures:
+  - id: author-progress-question-in-writing-context
+    evidence: apps/novel_agent/test/novel_agent/provider/slice_verify_test.exs (B34 progress tests)
+    wording: ["第几章写到哪了？", "草稿在哪？", "执行完了么？", "后面还有哪些章节？"]
+    expects: reply + 章节统计事实；tool_calls 空；无候选/写入。
+  - id: author-new-work-genre-and-title
+    evidence: slice_verify_test B34 work_setup test
+    wording: ["给这个作品起个名字", "新的小说开始", "开始创作，从哪开始"]
+    expects: ask_author（题材/方向/书名）；无 prose 候选。
+  - id: author-direction-discussion-without-execute
+    evidence: slice_verify_test + apps/novel_application/test/novel_application/b34_author_intent_fixture_test.exs
+    wording: ["继续聊「从世界观开始」这个方向…", "这个方向的开场冲突应该怎么设计？不要写正文，只继续聊。"]
+    expects: reply；零候选；B33 action-intent gate 不纠错。
+  - id: world-foreshadow-discussion-vs-adopt
+    evidence: slice_verify_test + application B34 test
+    wording: ["继续聊「世界观先行」这个方向…", "把「情绪是真实可见的物质」这个设定保存为世界规则。"]
+    expects: 讨论 reply 零候选；明确保存 execute world_building。
+  - id: delegation-chitchat-noise-boundary
+    evidence: slice_verify_test B34 delegation test
+    wording: ["同意你的路径", "kkk", "2", "收到"]
+    expects: reply；不自动 execute/adopt；零候选。
+assertions:
+  data:
+    - 以上 fixture 均不产生 pending candidate 或作品事实写入；world_foreshadow 采纳仅产待采纳候选。
+    - 旧 B28/B29/B30/AU09 判断 fixture 分支不回归。
+  protocol:
+    - 仅用确定性 test/support provider；不注册真实模型 nightly；不新增产品钩子/testid。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

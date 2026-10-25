@@ -481,7 +481,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         judgment_character_design_result(prompt_text)
 
       true ->
-        regular_judgment_result(prompt_text)
+        b34_or_regular_judgment_result(prompt_text, input)
     end
   end
 
@@ -520,6 +520,203 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       steps: if(stage == :short, do: [context], else: [context | creative]),
       reason_codes: [if(stage == :revision, do: "agent_plan_revised", else: "agent_plan_drafted")]
     }
+  end
+
+  # B34 CP1/CP2 分支拆出，避免 judgment_result_cond 复杂度过高；仍保持
+  # 既有 B28/B29/B30/AU09 分支优先级在前、generic regular 在最后。
+  defp b34_or_regular_judgment_result(prompt_text, input) do
+    cond do
+      # B34 CP1/CP2：真实 stage 语料高频/高风险意图的确定性 fixture（保持既有分支优先级；
+      # 这些分支只消费 prompt 内可见事实，不引入产品协议字段）。
+      progress_query_prompt?(input) ->
+        judgment_progress_query_result(prompt_text)
+
+      work_setup_prompt?(prompt_text, input) ->
+        judgment_work_setup_result(input)
+
+      world_foreshadow_discussion_prompt?(input) ->
+        Result.new(
+          "这轮只讨论设定/伏笔的合理性与边界，不生成候选、不写入作品事实；" <>
+            "如果要把它保存为世界规则或设定候选，请明确说“保存/采纳这个设定”。",
+          nil
+        )
+
+      world_foreshadow_adopt_prompt?(input) ->
+        judgment_world_foreshadow_adopt_result(input)
+
+      discussion_prompt?(input) ->
+        Result.new(discussion_reply(input), nil)
+
+      delegation_noise_prompt?(input) ->
+        Result.new(
+          "收到，这轮不自动执行或采纳；如果要继续，请指出具体动作（写哪一章、设计什么角色、改哪段）。",
+          nil
+        )
+
+      true ->
+        regular_judgment_result(prompt_text)
+    end
+  end
+
+  # ── B34 CP1/CP2 真实语料意图 fixture ────────────────────────────────────────
+  # 只使用 prompt 中真实可见事实（章节统计/已写章数/作者原话），不预设作品内容。
+  defp progress_query_prompt?(text) do
+    contains_any?(text, [
+      "后面还有哪些章节",
+      "当前有几章已经完成",
+      "现在做什么",
+      "我要确认什么",
+      "草稿在哪",
+      "执行完了么",
+      "写到哪了",
+      "写到哪儿了",
+      "第几章写到哪",
+      "进度怎么样",
+      "进度如何",
+      "写完了吗",
+      "还有几章没写"
+    ])
+  end
+
+  defp judgment_progress_query_result(prompt_text) do
+    case chapter_counts_from_prompt(prompt_text) do
+      {total, written, planned} ->
+        Result.new(
+          "当前共 #{total} 章：已写 #{written} 章，计划中 #{planned} 章。" <>
+            "以上是当前章节索引/统计可核对的事实，不代表质量判断；需要某章正文位置时再读该章，这轮不写作品事实。",
+          nil
+        )
+
+      nil ->
+        Result.new(
+          "当前还没有可核对的章节索引/统计；我不会猜进度，也不会写入作品事实。请先确认要核对哪一章。",
+          nil
+        )
+    end
+  end
+
+  defp chapter_counts_from_prompt(prompt) when is_binary(prompt) do
+    case Regex.run(
+           ~r/##\s*章节列表（共\s*(\d+)\s*章：已写\s*(\d+)\s*章[，,]\s*计划中\s*(\d+)\s*章）/u,
+           prompt
+         ) do
+      [_, total, written, planned] ->
+        {String.to_integer(total), String.to_integer(written), String.to_integer(planned)}
+
+      _ ->
+        case Regex.run(~r/正文统计：\s*(\d+)\s*章中已写\s*(\d+)\s*章/u, prompt) do
+          [_, total, written] ->
+            t = String.to_integer(total)
+            w = String.to_integer(written)
+            {t, w, max(t - w, 0)}
+
+          _ ->
+            nil
+        end
+    end
+  end
+
+  defp work_setup_prompt?(prompt_text, input) do
+    normalized = Regex.replace(~r/\s+/u, input, "")
+
+    contains_any?(normalized, [
+      "给这个作品起个名字",
+      "起个名字",
+      "新的小说",
+      "开始创作",
+      "从哪开始",
+      "写一本",
+      "开一本",
+      "类型和基调"
+    ]) and not work_has_written_chapters?(prompt_text)
+  end
+
+  defp work_has_written_chapters?(prompt) do
+    case chapter_counts_from_prompt(prompt) do
+      {_total, written, _planned} -> written > 0
+      nil -> String.contains?(prompt, "## 章节列表")
+    end
+  end
+
+  defp judgment_work_setup_result(input) do
+    question =
+      if contains_any?(input, ["名字", "起名", "书名"]) do
+        "想给这部作品起什么类型的名字？先告诉我题材/基调（例如玄幻、都市、悬疑），我给几个书名候选，再继续开篇。"
+      else
+        "想从哪个方向开始这部新作品：先定题材/基调，还是先起书名？确认前不会直接写正文。"
+      end
+
+    Result.new(question, nil,
+      tool_calls: [
+        %{
+          name: "ask_author",
+          arguments: %{question: question, options: []}
+        }
+      ]
+    )
+  end
+
+  defp worldish?(text), do: contains_any?(text, ["伏笔", "设定", "世界观", "世界规则", "规则体系"])
+
+  defp world_foreshadow_discussion_prompt?(text) do
+    worldish?(text) and
+      contains_any?(text, ["继续聊", "讨论", "是否合理", "合不合理", "分析", "评价", "怎么看", "边界", "方向"])
+  end
+
+  defp world_foreshadow_adopt_prompt?(text) do
+    worldish?(text) and
+      not contains_any?(text, ["上一条", "资料原文", "原文保存", "已保存设定", "已保存的设定"]) and
+      contains_any?(text, [
+        "保存为",
+        "保存这个设定",
+        "保存该设定",
+        "采纳这个",
+        "采纳该",
+        "加入设定",
+        "添加设定",
+        "新增设定",
+        "新增伏笔",
+        "添加伏笔",
+        "调整伏笔",
+        "修改伏笔",
+        "记入设定",
+        "登记为"
+      ])
+  end
+
+  defp judgment_world_foreshadow_adopt_result(input) do
+    Result.new(
+      "我会按你的要求生成一份待采纳的世界设定/伏笔候选，确认前不会写入作品事实。",
+      nil,
+      tool_calls: [
+        %{
+          name: "judgment_decision",
+          arguments: %{
+            "action" => "execute",
+            "capability" => "world_building",
+            "dialogue_goal" => input,
+            "reason" => "作者明确要求保存/采纳设定或伏笔"
+          }
+        }
+      ]
+    )
+  end
+
+  defp discussion_prompt?(text) do
+    contains_any?(text, ["继续聊", "讨论", "这个方向", "这段写法", "写法如何", "评价", "分析", "聊聊"]) and
+      not contains_any?(text, ["保存", "采纳", "生成", "写一章"])
+  end
+
+  defp discussion_reply(input) do
+    "可以，我们接着讨论这个方向：#{String.slice(String.trim(input), 0, 40)}。" <>
+      "这轮只讨论，不生成候选、不写入作品事实；需要我动手时请明确说写哪一章/改哪段。"
+  end
+
+  defp delegation_noise_prompt?(text) do
+    trim = String.trim(text)
+
+    trim in ["同意你的路径", "kkk", "ok", "OK", "好的", "收到", "嗯", "2"] or
+      (String.length(trim) <= 2 and Regex.match?(~r/^[\p{L}\p{N}]+$/u, trim))
   end
 
   defp regular_judgment_result(prompt_text) do
