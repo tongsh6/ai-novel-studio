@@ -211,6 +211,21 @@ scoped 维护补验，不整批重写 10 章：
   - `design_unrelated_only` → bounded 失败（不采纳）；
   - 既有 10 章+维护 5/5、page_closed/backend_down/action_failed/stall 无回归。
 
+## 4.9 B37 CP5 通用作者问题应答（task-102）
+- 识别 `turn_result.author_question`（question/options{choice,free_text,recommended}/available_actions），
+  与普通 `agent_run_state awaiting_author`（工具失败/无问题）区分。
+- 通用 `respondToAuthorQuestion`（章/续写/维护/扩章共用）：有 options 选 recommended（无则第一个
+  choice）；无 options 按动作给具体默认决策（写章/续写继续、内容修订第一段、设计用 CP4 方向、
+  重编号对调、plan_expand、通用 fallback）；**不 cancel/readToc/不重发原 instruction**，只经作者问题
+  卡回复；≤2 条不同回复；事件写 `author_question_events`。
+- 同一问题重复 / 无问题文本 / 回复失败 → bounded `author_question_unresolved`（fatal 非零退出），
+  不无限等；保留 B37 预算/watchdog/fail-fast。
+- 确定性 dry-run：free-text question→回复→prose 候选 PASS（1 次 instruction/1 次回复）；options
+  question→recommended「保留悬念」→prose 候选 PASS（1 次 instruction/1 次回复/555 字；test-support
+  新增最小分支：author_question choice 回复后返回第01章 prose_writing，旧 fixture 分支优先级不变）；
+  repeat 与 no-text → bounded `author_question_unresolved` FAIL。
+- 正常 10 章+维护 5/5、page/backend/action/stall/slow_turn 故障注入无回归。
+
 ## 5. 需 Lead/harness 确认
 1) ~~probe 选定 provider/model~~ **已裁决**：canonical = Strata `iq3_s`（endpoint 47831；
    harness 预加载/结束后 unload 并验证 loaded=null）；runner/script 不加载模型。

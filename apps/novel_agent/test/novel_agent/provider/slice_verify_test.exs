@@ -1238,6 +1238,16 @@ defmodule NovelAgent.Provider.SliceVerifyB34AuthorIntentFixtureTest do
     assert adopted.content =~ "待采纳"
   end
 
+  test "B37 CP5：author_question options 回复“保留悬念”→ prose_writing 续写第01章" do
+    assert {:ok, result} = complete("保留悬念")
+
+    assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
+    assert args["action"] == "execute"
+    assert args["capability"] == "prose_writing"
+    assert args["dialogue_goal"] =~ "第01章"
+    assert result.content =~ "保留悬念"
+  end
+
   test "真实语料 delegation/chitchat_noise：不自动执行/采纳，零写入" do
     for wording <- ["同意你的路径", "kkk", "2", "收到"] do
       assert {:ok, result} = complete(wording)

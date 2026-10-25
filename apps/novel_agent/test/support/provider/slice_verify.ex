@@ -553,9 +553,40 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           nil
         )
 
+      # B37 CP5 deterministic fixture：作者对 author_question options 的回复
+      # （保留悬念）→ 继续写第01章正文，供 dry-run 断言「1 次回复→prose 候选→采纳」。
+      # 只服务该测试路径；旧分支优先级不变。
+      String.contains?(input, "保留悬念") ->
+        judgment_author_question_choice_prose_result(prompt_text)
+
       true ->
         regular_judgment_result(prompt_text)
     end
+  end
+
+  defp judgment_author_question_choice_prose_result(prompt_text) do
+    chapter =
+      cond do
+        String.contains?(prompt_text, "第01章") -> "第01章：底层灵气账单"
+        true -> "第01章：底层灵气账单"
+      end
+
+    Result.new(
+      "按作者选择“保留悬念”继续写#{chapter}正文。",
+      nil,
+      tool_calls: [
+        %{
+          "id" => "call_judgment_decision",
+          "name" => "judgment_decision",
+          "arguments" => %{
+            "action" => "execute",
+            "capability" => "prose_writing",
+            "dialogue_goal" => "按作者选择继续写#{chapter}正文，保持结尾保留悬念；细节由你定，不要问我。",
+            "reason" => "author_question_choice_continue"
+          }
+        }
+      ]
+    )
   end
 
   # ── B34 CP1/CP2 真实语料意图 fixture ────────────────────────────────────────

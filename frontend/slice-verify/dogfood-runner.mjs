@@ -137,6 +137,10 @@ const FAULT_SIM_KINDS = [
   "design_ask_then_seed",
   "design_unrelated_then_seed",
   "design_unrelated_only",
+  "author_question_options",
+  "author_question_free_text",
+  "author_question_repeat",
+  "author_question_no_text",
 ];
 const faultSim = process.env.DOGFOOD_FAULT_SIM ?? "";
 if (faultSim && !FAULT_SIM_KINDS.includes(faultSim)) {
@@ -290,6 +294,7 @@ function isFatalWaitError(error) {
       "signal",
       "turn_timeout",
       "in_flight_guard",
+      "author_question_unresolved",
     ].includes(error.code)
   );
 }
@@ -360,6 +365,7 @@ function recordFailureFile(error, extra = {}) {
           stack: String(error?.stack ?? "").slice(0, 4000),
           current_wait: currentWait,
           wait_stats: waitStats(),
+          author_question_events: authorQuestionEvents,
           ...extra,
         },
         null,
@@ -463,6 +469,212 @@ function recordClarification({ beat, follow_up, question_turn_id = null }) {
     follow_up,
     question_turn_id,
   });
+}
+
+// B37 CP5：author_question 事件/应答（章/续写/维护/扩章共用）。
+const authorQuestionEvents = [];
+const AUTHOR_QUESTION_REPLY_LIMIT = 2;
+
+function recordAuthorQuestionEvent(entry) {
+  authorQuestionEvents.push({ at: new Date().toISOString(), ...entry });
+}
+
+function authorQuestionGraceBudget() {
+  const raw = process.env.DOGFOOD_AUTHOR_QUESTION_GRACE_MS;
+  const fallback = provider === "slice_verify" ? 3_000 : 15_000;
+  const value = raw == null || raw === "" ? fallback : Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`invalid DOGFOOD_AUTHOR_QUESTION_GRACE_MS=${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+function authorQuestionDefaultAnswer(context = {}) {
+  switch (context.kind) {
+    case "chapter_write":
+      return `按当前章计划直接继续写${context.chapter ? `《${context.chapter}》` : ""}，细节由你定，不要问我；保持与已采纳正文连续。`;
+    case "continuation":
+      return `按已采纳正文结尾直接继续往下写${context.chapter ? `《${context.chapter}》` : ""}，细节由你定，不要问我；保持连续。`;
+    case "content_revision":
+      return `就改${context.chapter ? `《${context.chapter}》` : "目标章"}正文第一段，其他段落别动。`;
+    case "design_character":
+      return `按这个方向设计并保存：${context.direction?.text ?? "接住当前主线、给后续章节一个可复用的配角"}；直接生成角色主档案候选并保存到作品档案，不要再问我。`;
+    case "renumber":
+      return "把第03章和第04章的编号对调，内容不要动。";
+    case "plan_expand":
+      return "按现有章节顺序继续规划下一批章节计划，细节由你定，不要问我。";
+    case "inventory":
+      return "按默认建议继续完成设定盘点，细节由你定。";
+    default:
+      return "按你建议的默认方案继续，不要问我；无法确定就保持原样并说明。";
+  }
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function respondToAuthorQuestion(page, result, context = {}) {
+  const question = result.question;
+  if (!question?.question) {
+    throw new DogfoodWaitError(
+      "author_question_unresolved",
+      "product entered awaiting_author without a question text",
+      { context },
+    );
+  }
+  const ref = question.question_ref;
+  const answered = context.answeredQuestionRefs ?? [];
+  if (answered.includes(ref)) {
+    recordAuthorQuestionEvent({
+      question: question.question,
+      options: question.options ?? [],
+      reply: null,
+      step: "duplicate_question",
+      outcome: "failed",
+      context,
+    });
+    throw new DogfoodWaitError(
+      "author_question_unresolved",
+      `same author question repeated without progress: ${question.question}`,
+      { question_ref: ref, context },
+    );
+  }
+  if ((context.questionReplies ?? 0) >= AUTHOR_QUESTION_REPLY_LIMIT) {
+    throw new DogfoodWaitError(
+      "author_question_unresolved",
+      "author question reply limit reached",
+      { question_ref: ref, context },
+    );
+  }
+  answered.push(ref);
+  const options = question.options ?? [];
+  const actions = result.actions ?? [];
+  const choiceOptions = options.filter((option) => option.kind !== "free_text");
+  const recommended = choiceOptions.find((option) => option.recommended) ?? choiceOptions[0] ?? null;
+  let chosenOption = null;
+  let replyText = null;
+  try {
+    if (recommended) {
+      chosenOption = recommended;
+      const action =
+        actions.find(
+          (candidate) =>
+            candidate.response_kind === "choice" && candidate.label === recommended.label,
+        ) ?? actions.find((candidate) => candidate.response_kind === "choice");
+      if (!action) {
+        throw new DogfoodWaitError(
+          "author_question_unresolved",
+          `no choice action for option ${recommended.label}`,
+          { question_ref: ref, context },
+        );
+      }
+      replyText = recommended.label ?? action.label ?? "";
+      await withTimeout(
+        page.getByRole("button", { name: new RegExp(`^${escapeRegExp(replyText)}$`) }).last().click(),
+        waitBudget("ack"),
+        "author question option click",
+      );
+      recordAuthorQuestionEvent({
+        question: question.question,
+        question_ref: ref,
+        options,
+        reply: replyText,
+        reply_kind: "choice",
+        recommended: Boolean(recommended.recommended),
+        step: "choice",
+        outcome: "replied",
+        context,
+      });
+    } else {
+      const freeTextAction =
+        actions.find((candidate) => candidate.response_kind === "free_text") ?? actions[0];
+      if (!freeTextAction) {
+        throw new DogfoodWaitError(
+          "author_question_unresolved",
+          "no free-text reply action for author question",
+          { question_ref: ref, context },
+        );
+      }
+      replyText = authorQuestionDefaultAnswer(context);
+      const buttonLabel = freeTextAction.label ?? "回复此问题";
+      await withTimeout(
+        page
+          .getByRole("button", { name: new RegExp(`^${escapeRegExp(buttonLabel)}$`) })
+          .last()
+          .click(),
+        waitBudget("ack"),
+        "author question free-text open",
+      );
+      const textarea = page.locator('textarea[aria-label="对此问题的补充"]');
+      await withTimeout(
+        textarea.waitFor({ state: "visible", timeout: waitBudget("input") }),
+        waitBudget("input"),
+        "author question textarea",
+      );
+      await withTimeout(textarea.fill(replyText), waitBudget("input"), "author question fill");
+      await withTimeout(
+        page.getByRole("button", { name: /^发送回复$/ }).last().click(),
+        waitBudget("ack"),
+        "author question send",
+      );
+      recordAuthorQuestionEvent({
+        question: question.question,
+        question_ref: ref,
+        options,
+        reply: replyText,
+        reply_kind: "free_text",
+        step: "free_text",
+        outcome: "replied",
+        context,
+      });
+    }
+  } catch (error) {
+    recordAuthorQuestionEvent({
+      question: question.question,
+      question_ref: ref,
+      options,
+      reply: replyText,
+      step: "reply_failed",
+      outcome: "failed",
+      error: String(error?.message ?? error),
+      context,
+    });
+    if (error instanceof DogfoodWaitError) throw error;
+    throw new DogfoodWaitError(
+      "author_question_unresolved",
+      `failed to reply author question: ${String(error?.message ?? error)}`,
+      { question_ref: ref, context },
+    );
+  }
+  log(
+    `author_question [${context.kind ?? "generic"}]: replied ${JSON.stringify(
+      chosenOption ? { option: chosenOption.label } : { text: replyText },
+    )}`,
+  );
+  // 回复后只等产品继续，不重发原 instruction / 不 cancel / 不 readToc。
+  return { question_ref: ref, reply: replyText };
+}
+
+async function waitForAuthorQuestionAfterAwaiting(fromIndex, label) {
+  try {
+    return await waitForJourneyKind(
+      (classification) => classification.kind === "author_question",
+      `author question did not follow awaiting_author: ${label}`,
+      authorQuestionGraceBudget(),
+      fromIndex,
+      "author_question",
+    );
+  } catch (error) {
+    if (error instanceof DogfoodWaitError && error.code === "wait_timeout") {
+      throw new DogfoodWaitError(
+        "author_question_unresolved",
+        `awaiting_author without question text within grace: ${label}`,
+        { fromIndex },
+      );
+    }
+    throw error;
+  }
 }
 
 function confirmationCounts() {
@@ -763,6 +975,21 @@ function classifyJourneyFrame(frame, ctx = {}) {
   if (frame.event !== "turn_result") return { kind: "ignore" };
   if (!frameBelongsToTurn(frame, ctx.turnId)) return { kind: "ignore" };
 
+  // B37 CP5：产品向作者提问（author_question）优先于普通 turn_result 分类。
+  if (body.author_question) {
+    const question = body.author_question;
+    const actions = (body.available_actions ?? []).filter(
+      (action) =>
+        action.action_type === "author_choice" && action.question_ref === question.question_ref,
+    );
+    return {
+      kind: "author_question",
+      question,
+      actions,
+      turnId: body.turn_id ?? null,
+    };
+  }
+
   const pending = body.adoption_state?.pending ?? [];
   const toolName = body.tool_result?.tool_name ?? null;
 
@@ -1006,21 +1233,69 @@ function waitFor(kind, predicate, label, fromIndex = 0) {
 // 作者采纳一条待采纳正文（首稿/续写）。B6：帧判定全部来自 classifyJourneyFrame，
 // 这里只对判别联合做穷尽 switch；B9：每个 needs_confirmation 显式记录 confirm/skip。
 async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, options = {}) {
-  const first = await waitForJourneyKind(
-    (classification) =>
-      [
-        "prose_ready",
-        "candidate_ready",
-        "wrong_route_reply",
-        "run_failed",
-        "agent_awaiting_author",
-        "confirmation_required",
-      ].includes(classification.kind),
+  const candidatePredicate = (classification) =>
+    [
+      "prose_ready",
+      "candidate_ready",
+      "wrong_route_reply",
+      "run_failed",
+      "agent_awaiting_author",
+      "confirmation_required",
+      "author_question",
+    ].includes(classification.kind);
+  let waitFrom = fromIndex;
+  let first = await waitForJourneyKind(
+    candidatePredicate,
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
     options.turnBudgetMs ?? waitBudget("turn"),
-    fromIndex,
+    waitFrom,
     options.waitKind ?? "turn",
   );
+  const answeredQuestionRefs = [];
+  let questionReplies = 0;
+  while (true) {
+    if (first.classification.kind === "author_question") {
+      await respondToAuthorQuestion(page, first.classification, {
+        kind: options.continuation ? "continuation" : "chapter_write",
+        chapter: chapterTitle,
+        answeredQuestionRefs,
+        questionReplies,
+      });
+      questionReplies += 1;
+      waitFrom = frames.length;
+      if (faultSim === "author_question_repeat" && first.frame) {
+        frames.push({ ...first.frame });
+      }
+      first = await waitForJourneyKind(
+        candidatePredicate,
+        `No prose_fragment after author_question for ${chapterTitle}`,
+        waitBudget("turn"),
+        waitFrom,
+        "turn",
+      );
+      continue;
+    }
+    if (first.classification.kind === "agent_awaiting_author") {
+      const question = await waitForAuthorQuestionAfterAwaiting(waitFrom, chapterTitle);
+      await respondToAuthorQuestion(page, question.classification, {
+        kind: options.continuation ? "continuation" : "chapter_write",
+        chapter: chapterTitle,
+        answeredQuestionRefs,
+        questionReplies,
+      });
+      questionReplies += 1;
+      waitFrom = frames.length;
+      first = await waitForJourneyKind(
+        candidatePredicate,
+        `No prose_fragment after author_question for ${chapterTitle}`,
+        waitBudget("turn"),
+        waitFrom,
+        "turn",
+      );
+      continue;
+    }
+    break;
+  }
 
   let classification = first.classification;
   switch (classification.kind) {
@@ -1162,16 +1437,40 @@ async function planMoreChapters(page) {
     "后面的章节也写出来吧，接着现有章节往下规划一批新的章节计划。",
   );
 
-  const outline = await waitForJourneyKind(
+  const answeredQuestionRefs = [];
+  let questionReplies = 0;
+  let waitFrom = fromIndex;
+  let outline = await waitForJourneyKind(
     (classification) =>
-      classification.kind === "candidate_ready" &&
-      classification.artifactTypes.includes("outline_draft") &&
-      Number(classification.pending?.payload?.chapter_count ?? 0) >= 1,
-    "No incremental outline_draft candidate while expanding the plan",
+      (classification.kind === "candidate_ready" &&
+        classification.artifactTypes.includes("outline_draft") &&
+        Number(classification.pending?.payload?.chapter_count ?? 0) >= 1) ||
+      classification.kind === "author_question",
+    "No incremental outline_draft or author question while expanding the plan",
     waitBudget("candidate"),
-    fromIndex,
+    waitFrom,
     "candidate",
   );
+  while (outline.classification.kind === "author_question") {
+    await respondToAuthorQuestion(page, outline.classification, {
+      kind: "plan_expand",
+      answeredQuestionRefs,
+      questionReplies,
+    });
+    questionReplies += 1;
+    waitFrom = frames.length;
+    outline = await waitForJourneyKind(
+      (classification) =>
+        (classification.kind === "candidate_ready" &&
+          classification.artifactTypes.includes("outline_draft") &&
+          Number(classification.pending?.payload?.chapter_count ?? 0) >= 1) ||
+        classification.kind === "author_question",
+      "No incremental outline_draft after author question",
+      waitBudget("candidate"),
+      waitFrom,
+      "candidate",
+    );
+  }
   const pending = outline.classification.pending;
 
   await page.waitForFunction(() => document.body.innerText.includes("保存到大纲"), null, {
@@ -1340,24 +1639,66 @@ function isProseCandidate(classification) {
 // （2026-10-25 dry-run 实锤：重编号被确定性 fixture 判成 clarify/casual_reply）。
 // `agent_awaiting_author` 单独返回给调用方：产品可能是在向作者澄清段/对象，author
 // 补一句消歧后继续（task-87）；其它拍若未配置消歧则显式失败，不静默等待。
-async function waitForMaintenanceOutcome(predicate, label, fromIndex, timeoutMs = waitBudget("maintenance")) {
-  const result = await waitForJourneyKind(
-    (classification) =>
-      predicate(classification) ||
-      // 任何“另一个结局”都是终局：错误路由/run 失败/产品澄清/非预期候选，都快速交给调用方，
-      // 不在 30 分钟窗口里盲等（task-87：避免 creative_directions 等非 character_seed 候选挂起）。
-      [
-        "wrong_route_reply",
-        "run_failed",
-        "agent_awaiting_author",
-        "candidate_ready",
-        "prose_ready",
-      ].includes(classification.kind),
-    label,
-    timeoutMs,
-    fromIndex,
-    "maintenance",
-  );
+async function waitForMaintenanceOutcome(
+  predicate,
+  label,
+  fromIndex,
+  timeoutMs = waitBudget("maintenance"),
+  questionContext = {},
+) {
+  let waitFrom = fromIndex;
+  const answeredQuestionRefs = [];
+  let questionReplies = 0;
+  let result;
+  for (;;) {
+    result = await waitForJourneyKind(
+      (classification) =>
+        predicate(classification) ||
+        // 任何“另一个结局”都是终局：错误路由/run 失败/产品澄清/非预期候选，都快速交给调用方，
+        // 不在 30 分钟窗口里盲等（task-87：避免 creative_directions 等非 character_seed 候选挂起）。
+        [
+          "wrong_route_reply",
+          "run_failed",
+          "agent_awaiting_author",
+          "candidate_ready",
+          "prose_ready",
+          "author_question",
+        ].includes(classification.kind),
+      label,
+      timeoutMs,
+      waitFrom,
+      "maintenance",
+    );
+    if (result.classification.kind === "author_question") {
+      await respondToAuthorQuestion(activePage, result.classification, {
+        ...questionContext,
+        answeredQuestionRefs,
+        questionReplies,
+      });
+      questionReplies += 1;
+      waitFrom = frames.length;
+      continue;
+    }
+    if (result.classification.kind === "agent_awaiting_author") {
+      try {
+        const question = await waitForAuthorQuestionAfterAwaiting(waitFrom, label);
+        await respondToAuthorQuestion(activePage, question.classification, {
+          ...questionContext,
+          answeredQuestionRefs,
+          questionReplies,
+        });
+        questionReplies += 1;
+        waitFrom = frames.length;
+        continue;
+      } catch (error) {
+        if (error instanceof DogfoodWaitError && error.code === "author_question_unresolved") {
+          return result;
+        }
+        throw error;
+      }
+    }
+    break;
+  }
   if (result.classification.kind === "wrong_route_reply" || result.classification.kind === "run_failed") {
     const detail = result.classification.assistantText ?? result.classification.kind;
     throw new Error(
@@ -1400,6 +1741,8 @@ async function runFormatRevisionBeat(page, state, toc) {
     (classification) => isProseCandidate(classification),
     `format revision produced no prose candidate for ${title}`,
     fromIndex,
+    waitBudget("maintenance"),
+    { kind: "generic", beat: "format_revision" },
   );
   assertNotAwaitingWithoutClarification(candidate, "format revision");
   const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
@@ -1438,6 +1781,8 @@ async function runContentRevisionBeat(page, state, toc) {
     (classification) => isProseCandidate(classification),
     `content revision produced no prose candidate for ${title}`,
     fromIndex,
+    waitBudget("maintenance"),
+    { kind: "content_revision", chapter: title },
   );
   if (candidate.classification.kind === "agent_awaiting_author") {
     const followUp = `就改${title}正文的第一段，其他段落别动。`;
@@ -1448,6 +1793,8 @@ async function runContentRevisionBeat(page, state, toc) {
       (classification) => isProseCandidate(classification),
       `content revision produced no prose candidate for ${title} after clarification`,
       fromIndex,
+      waitBudget("maintenance"),
+      { kind: "content_revision", chapter: title },
     );
     assertNotAwaitingWithoutClarification(candidate, "content revision after clarification");
   }
@@ -1487,6 +1834,8 @@ async function runRenumberBeat(page, state, toc) {
       classification.artifactTypes.includes("chapter_structure_change_plan"),
     "renumber produced no chapter_structure_change_plan candidate",
     fromIndex,
+    waitBudget("maintenance"),
+    { kind: "renumber" },
   );
   assertNotAwaitingWithoutClarification(candidate, "chapter renumber");
   const payload = candidate.classification.pending?.payload ?? {};
@@ -1581,9 +1930,11 @@ function injectSyntheticUnrelatedProseCandidate(atIndex) {
   );
 }
 
-async function waitForDesignOutcome({ label, fromIndex, timeoutMs }) {
+async function waitForDesignOutcome({ label, fromIndex, timeoutMs, questionContext = {} }) {
   const deadline = Date.now() + timeoutMs;
   const ignored = [];
+  const answeredQuestionRefs = [];
+  let questionReplies = 0;
   let cursor = fromIndex;
   while (Date.now() < deadline) {
     const remaining = Math.max(1, deadline - Date.now());
@@ -1593,9 +1944,12 @@ async function waitForDesignOutcome({ label, fromIndex, timeoutMs }) {
       result = await waitForJourneyKind(
         (classification) =>
           isCharacterSeedClassification(classification) ||
-          ["agent_awaiting_author", "wrong_route_reply", "run_failed"].includes(
-            classification.kind,
-          ) ||
+          [
+            "agent_awaiting_author",
+            "wrong_route_reply",
+            "run_failed",
+            "author_question",
+          ].includes(classification.kind) ||
           isUnrelatedMaintenanceCandidate(classification),
         label,
         grace,
@@ -1620,7 +1974,35 @@ async function waitForDesignOutcome({ label, fromIndex, timeoutMs }) {
     if (isCharacterSeedClassification(classification)) {
       return { candidate: result, ignored, fromIndex: cursor };
     }
-    if (["agent_awaiting_author", "wrong_route_reply", "run_failed"].includes(classification.kind)) {
+    if (classification.kind === "author_question") {
+      await respondToAuthorQuestion(activePage, classification, {
+        ...questionContext,
+        answeredQuestionRefs,
+        questionReplies,
+      });
+      questionReplies += 1;
+      cursor = frames.length;
+      continue;
+    }
+    if (classification.kind === "agent_awaiting_author") {
+      try {
+        const question = await waitForAuthorQuestionAfterAwaiting(cursor, label);
+        await respondToAuthorQuestion(activePage, question.classification, {
+          ...questionContext,
+          answeredQuestionRefs,
+          questionReplies,
+        });
+        questionReplies += 1;
+        cursor = frames.length;
+        continue;
+      } catch (error) {
+        if (error instanceof DogfoodWaitError && error.code === "author_question_unresolved") {
+          return { terminal: result, ignored, fromIndex: cursor };
+        }
+        throw error;
+      }
+    }
+    if (["wrong_route_reply", "run_failed"].includes(classification.kind)) {
       return { terminal: result, ignored, fromIndex: cursor };
     }
     if (isUnrelatedMaintenanceCandidate(classification)) {
@@ -1682,6 +2064,7 @@ async function runDesignCharacterBeat(page, state, toc) {
     label: "character design produced no character_seed candidate",
     fromIndex: waitFrom,
     timeoutMs: remaining(),
+    questionContext: { kind: "design_character", direction },
   });
 
   let clarifications = 0;
@@ -1698,6 +2081,7 @@ async function runDesignCharacterBeat(page, state, toc) {
       label: `character design produced no character_seed candidate after clarification #${clarifications}`,
       fromIndex: waitFrom,
       timeoutMs: remaining(),
+      questionContext: { kind: "design_character", direction },
     });
   }
 
@@ -1768,6 +2152,8 @@ async function runRoleRevisionBeat(page, state) {
       classification.artifactTypes.includes("character_profile_revision"),
     `role revision produced no character_profile_revision candidate for ${characterName}`,
     fromIndex,
+    waitBudget("maintenance"),
+    { kind: "generic", beat: "role_revision" },
   );
   assertNotAwaitingWithoutClarification(candidate, "character role revision");
   const payload = candidate.classification.pending?.payload ?? {};
@@ -1868,11 +2254,20 @@ async function driveChapterTurn(page, chapter) {
   const continuation = words > 0;
   // B7：自然作者短句——不再塞「根据已采纳章节计划…保持为待采纳草稿」四子句，
   // 计划/上下文由产品主链注入，避免措辞助推判断 plan 判界方差。
-  const instruction = continuation
+  let instruction = continuation
     ? `接着${chapter.title}往下写一段吧。`
     : `${chapter.title}的正文还没写，帮我写出来吧。`;
+  if (faultSim === "author_question_options" || faultSim === "author_question_repeat") {
+    instruction += " 结尾有两个方向，先让我选择。";
+  }
+  if (faultSim === "author_question_free_text") {
+    instruction += " 结尾还没想清楚，请先问我一个问题。";
+  }
 
   const { fromIndex, turnId } = await sendAuthorMessage(page, instruction);
+  if (faultSim === "author_question_no_text") {
+    injectSyntheticAwaitingAuthor(fromIndex);
+  }
   inFlightInstruction = {
     chapter: chapter.title,
     instruction,
@@ -2649,6 +3044,7 @@ try {
     inventory_beat: inventoryBeat,
     wait_stats: waitStats(),
     wait_events_path: WAIT_EVENTS_PATH,
+    author_question_events: authorQuestionEvents,
     run_duration_ms: Date.now() - startedAt,
   });
 
