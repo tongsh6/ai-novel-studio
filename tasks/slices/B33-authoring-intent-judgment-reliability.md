@@ -66,10 +66,10 @@
 | CP | 工作 | 状态 |
 |---|---|---|
 | CP0 | 受控重放诊断 + 契约冻结 | done（2026-10-25，15 calls） |
-| CP1 | 判断上下文去重/按 profile 裁剪 + trace（消除 `## 消息处置与已有产物` 双份；记录 prompt tokens/sections） | 进行中 |
-| CP2 | 动作意图有界纠错 gate + prompt 规则补强 + `judgment.wrong_route` 事件；不降 schema | 进行中 |
+| CP1 | 判断上下文去重/按 profile 裁剪 + trace（消除 `## 消息处置与已有产物` 双份；记录 prompt tokens/sections） | **done（2026-10-25，`33077f0e`）**：根因 dialogue_planning_service 双处渲染；去重后默认 profile 1 次；写作判断 keep-list 20,056→10,633 chars（约 −47%）；`judgment.prompt_diagnostics` |
+| CP2 | 动作意图有界纠错 gate + prompt 规则补强 + `judgment.wrong_route` 事件；不降 schema | **done（2026-10-25，`33077f0e`）**：AuthoringTaskPolicy 规则补强；JudgmentProtocol 一次有界纠错（仅 :judgment profile，D7 provider_calls=3 保持）；失败转具体 ask_author + wrong_route 事件；测试全绿 |
 | CP3 | 诊断事件/计数 + P1 runner 对齐 + 确定性测试 | todo |
-| CP4 | scoped 真实模型复验（S1 写章长上下文/S2 design/S3 content revision/S4 负例/S5 回归；不整批重跑） | todo |
+| CP4 | scoped 真实模型复验（S1 写章长上下文/S2 design/S3 content revision/S4 负例/S5 回归；不整批重跑） | **进行中（task-92 lifecycle）**：native iq3_s 常驻、canonical DB 副本、维护拍 replay + 单章写；证据 `artifacts/novel-output/p1-b33-cp4-replay-2026-10-25/` |
 | CP5 | 全门禁/台账/P1 收口判定 | todo |
 
 ### CP4 通过门槛（预注册）
