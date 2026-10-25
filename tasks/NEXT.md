@@ -6,14 +6,13 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| P1-AUTHORING-DOGFOOD | **当前任务 / canonical 实跑完成但验收未过（2026-10-25）**：Strata iq3_s 单次 10 章复验（~43.3min）=10,002 字、7/10 章达标、维护 2/5；暴露真实模型判断误路由 24 次（写正文/设计角色/内容修订返 reply 等）+ P1 runner 维护措辞歧义。**P1 未关闭**，下一步候选：**B33 判断路由/上下文可靠性修复**（CP0 复现→契约→修复→scoped 真实模型复验）+ **P1 runner 维护措辞修复**；修复后 scoped 复验再决定 P1 收口。证据见 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
+| P1-AUTHORING-DOGFOOD | **当前任务 / canonical 实跑完成但验收未过（2026-10-25）**：Strata iq3_s 单次 10 章复验（~43.3min）=10,002 字、7/10 章达标、维护 2/5；暴露真实模型判断误路由 24 次（写正文/设计角色/内容修订返 reply 等）+ P1 runner 维护措辞歧义。**P1 未关闭**，下一步：**B33 判断路由/上下文可靠性修复**（候选，CP0 复现→契约→修复→scoped 真实模型复验）+ P1 runner 维护措辞修复（content_revision 明确目标段/design 口径，属 P1 验收支架）；修复后 scoped 复验再决定 P1 收口。证据见 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
 | B33-AUTHORING-INTENT-JUDGMENT-RELIABILITY | **新增候选（P1 暴露）**：真实模型长上下文下判断误路由（24 wrong-route）——写正文/设计角色/内容修订被判 reply/creative_directions/await；CP0 假设 H1–H4（随机性/上下文膨胀/规则不可达/模型边界），冻结「动作意图→execute 绑定或 ask/gap，不得吞掉」+ 上下文预算 + 有界纠错；修复后 scoped 真实模型复验（不整批重跑）。 | [B33](slices/B33-authoring-intent-judgment-reliability.md) |
-| P1-RUNNER-MAINTENANCE-WORDING | **新增候选（P1 暴露）**：dogfood runner 维护拍措辞歧义——content_revision 未给具体段导致真实模型诚实 await_author；design_character 措辞/等待口径需对齐真实 UI；修 runner 后 scoped 维护拍复验（不整批重跑）。 | `frontend/slice-verify/dogfood-runner.mjs`；[VS00D 真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 阻塞
 
