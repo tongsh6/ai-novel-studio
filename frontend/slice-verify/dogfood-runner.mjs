@@ -19,6 +19,10 @@
 //   DOGFOOD_PLAN_CHAPTERS   只推进章节计划前 N 章（P1 canonical=10；0=不限）
 //   DOGFOOD_STOP_AFTER_ADVANCED 写满 N 个已推进章后优雅退出（resume 演练）
 //   DOGFOOD_MAINTENANCE     1=启用维护组合插入点（默认）；0=dry-run 关闭
+//   DOGFOOD_MAINTENANCE_ONLY 1=维护补验模式：不写章节，只回放 DOGFOOD_MAINTENANCE_RETRY
+//                           指定的维护拍（需同一 canonical DB/证据目录）
+//   DOGFOOD_MAINTENANCE_RETRY 逗号分隔的维护拍 id（design_character/content_revision/
+//                           character_role_revision/...）；补验时重置这些拍并强制触发
 //
 // P1 CP0（2026-10-25）：B6 帧判定单源（classifyJourneyFrame+穷尽 switch）；
 // B9 needs_confirmation 显式确认/跳过计数 + 空章/重复段观察；B7 章节请求自然作者措辞；
@@ -38,6 +42,13 @@ const targetWords = Number(process.env.DOGFOOD_TARGET_WORDS ?? "0");
 const planChapters = Number(process.env.DOGFOOD_PLAN_CHAPTERS ?? "0");
 const stopAfterAdvanced = Number(process.env.DOGFOOD_STOP_AFTER_ADVANCED ?? "0");
 const maintenanceEnabled = (process.env.DOGFOOD_MAINTENANCE ?? "1") !== "0";
+// P1 CP0 维护补验（task-87）：B33 修复后只回放指定维护拍，不整批重跑 10 章。
+// 需与 canonical 同一 DB/证据目录（已有章节事实），只重置指定拍并强制触发。
+const maintenanceOnly = (process.env.DOGFOOD_MAINTENANCE_ONLY ?? "0") === "1";
+const maintenanceRetryIds = (process.env.DOGFOOD_MAINTENANCE_RETRY ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 // 正文采纳按钮的真实文案集合：无质量发现=「保存为章节正文」；带发现时草稿归类
@@ -159,6 +170,15 @@ function recordConfirmationDecision({ kind, decision, target, reason_codes = [],
     target,
     reason_codes,
     reason,
+  });
+}
+
+function recordClarification({ beat, follow_up, question_turn_id = null }) {
+  clarificationEvents.push({
+    at: new Date().toISOString(),
+    beat,
+    follow_up,
+    question_turn_id,
   });
 }
 
@@ -812,25 +832,52 @@ function isProseCandidate(classification) {
   );
 }
 
-// 维护节拍等待候选时必须对“判成别的结局”快速失败（reply/run_failed/awaiting_author），
-// 否则错误路由会退化成 30 分钟盲等（2026-10-25 dry-run 实锤：重编号被确定性 fixture
-// 判成 clarify/casual_reply，runner 白等 30min）。候选/失败分支都从分类器单源来。
+// 维护节拍等待候选时对“判成别的结局”快速失败（reply/run_failed），不再 30 分钟盲等
+// （2026-10-25 dry-run 实锤：重编号被确定性 fixture 判成 clarify/casual_reply）。
+// `agent_awaiting_author` 单独返回给调用方：产品可能是在向作者澄清段/对象，author
+// 补一句消歧后继续（task-87）；其它拍若未配置消歧则显式失败，不静默等待。
 async function waitForMaintenanceOutcome(predicate, label, fromIndex, timeoutMs = 1_800_000) {
   const result = await waitForJourneyKind(
     (classification) =>
       predicate(classification) ||
-      ["wrong_route_reply", "run_failed", "agent_awaiting_author"].includes(classification.kind),
+      // 任何“另一个结局”都是终局：错误路由/run 失败/产品澄清/非预期候选，都快速交给调用方，
+      // 不在 30 分钟窗口里盲等（task-87：避免 creative_directions 等非 character_seed 候选挂起）。
+      [
+        "wrong_route_reply",
+        "run_failed",
+        "agent_awaiting_author",
+        "candidate_ready",
+        "prose_ready",
+      ].includes(classification.kind),
     label,
     timeoutMs,
     fromIndex,
   );
-  if (result.classification.kind !== "wrong_route_reply" && result.classification.kind !== "run_failed" && result.classification.kind !== "agent_awaiting_author") {
-    return result;
+  if (result.classification.kind === "wrong_route_reply" || result.classification.kind === "run_failed") {
+    const detail = result.classification.assistantText ?? result.classification.kind;
+    throw new Error(
+      `${label}: maintenance misroute/failure (${result.classification.kind}): ${String(detail).slice(0, 300)}`,
+    );
   }
-  const detail =
-    result.classification.assistantText ??
-    result.classification.kind;
-  throw new Error(`${label}: maintenance misroute/failure (${result.classification.kind}): ${String(detail).slice(0, 300)}`);
+  if (
+    (result.classification.kind === "candidate_ready" || result.classification.kind === "prose_ready") &&
+    !predicate(result.classification)
+  ) {
+    const types =
+      result.classification.kind === "candidate_ready"
+        ? result.classification.artifactTypes
+        : ["prose_ready"];
+    throw new Error(
+      `${label}: unexpected maintenance candidate type(s) ${JSON.stringify(types)} (misroute, no fake candidate)`,
+    );
+  }
+  return result;
+}
+
+function assertNotAwaitingWithoutClarification(result, label) {
+  if (result.classification.kind === "agent_awaiting_author") {
+    throw new Error(`${label}: product asked author for clarification, but this beat has no scoped disambiguation`);
+  }
 }
 
 // B28：整章仅排版修订（format_only）。
@@ -849,6 +896,7 @@ async function runFormatRevisionBeat(page, state, toc) {
     `format revision produced no prose candidate for ${title}`,
     fromIndex,
   );
+  assertNotAwaitingWithoutClarification(candidate, "format revision");
   const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
     acceptNames: /保存修订稿|保存为章节正文|保存原稿/,
   });
@@ -875,15 +923,29 @@ async function runContentRevisionBeat(page, state, toc) {
   if (!chapter) throw new Error(`content revision target chapter seq=${seq} missing`);
   const wordsBefore = Number(chapter.word_count ?? 0);
   const title = chapter.title;
+  // task-87：明确到可执行段（"第一段"），避免"某一段"歧义；产品若仍澄清，作者补一句
+  // 消歧继续，不把澄清算失败。
   const { fromIndex, turnId } = await sendMaintenanceMessage(
     page,
-    `把${title}的正文里的一段改得更克制一些，只改这一处，其他不要动。`,
+    `把${title}的正文第一段改得更紧张，只改这一段，其他段落别动。`,
   );
-  const candidate = await waitForMaintenanceOutcome(
+  let candidate = await waitForMaintenanceOutcome(
     (classification) => isProseCandidate(classification),
     `content revision produced no prose candidate for ${title}`,
     fromIndex,
   );
+  if (candidate.classification.kind === "agent_awaiting_author") {
+    const followUp = `就改${title}正文的第一段，其他段落别动。`;
+    recordClarification({ beat: "content_revision", follow_up: followUp });
+    log(`content_revision: product asked for clarification — author disambiguates: ${followUp}`);
+    await sendMaintenanceMessage(page, followUp);
+    candidate = await waitForMaintenanceOutcome(
+      (classification) => isProseCandidate(classification),
+      `content revision produced no prose candidate for ${title} after clarification`,
+      fromIndex,
+    );
+    assertNotAwaitingWithoutClarification(candidate, "content revision after clarification");
+  }
   const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
     acceptNames: /保存修订稿|保存为章节正文|保存原稿/,
   });
@@ -921,6 +983,7 @@ async function runRenumberBeat(page, state, toc) {
     "renumber produced no chapter_structure_change_plan candidate",
     fromIndex,
   );
+  assertNotAwaitingWithoutClarification(candidate, "chapter renumber");
   const payload = candidate.classification.pending?.payload ?? {};
   const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
     acceptNames: /保存到作品/,
@@ -941,17 +1004,33 @@ async function runRenumberBeat(page, state, toc) {
 
 // 设计一个配角（供后续角色身份修订使用）。
 async function runDesignCharacterBeat(page, state) {
+  // task-87：真实作者口吻明确"设计并保存到作品档案"，期待 character_seed；若仍 reply
+  // 则记录 wrong-route 失败，不造假。产品若先澄清，作者消歧继续，不算失败。
   const { fromIndex, turnId } = await sendMaintenanceMessage(
     page,
-    "帮我设计一个配角，后面剧情里会用到。",
+    "帮我设计并保存一个后面会用到、还没出场的配角到作品档案。",
   );
-  const candidate = await waitForMaintenanceOutcome(
+  let candidate = await waitForMaintenanceOutcome(
     (classification) =>
       classification.kind === "candidate_ready" &&
       classification.artifactTypes.includes("character_seed"),
     "character design produced no character_seed candidate",
     fromIndex,
   );
+  if (candidate.classification.kind === "agent_awaiting_author") {
+    const followUp = "方向由你定，设计一个后面会用到、还没出场的配角，并保存到作品档案。";
+    recordClarification({ beat: "design_character", follow_up: followUp });
+    log(`design_character: product asked for clarification — author disambiguates: ${followUp}`);
+    await sendMaintenanceMessage(page, followUp);
+    candidate = await waitForMaintenanceOutcome(
+      (classification) =>
+        classification.kind === "candidate_ready" &&
+        classification.artifactTypes.includes("character_seed"),
+      "character design produced no character_seed candidate after clarification",
+      fromIndex,
+    );
+    assertNotAwaitingWithoutClarification(candidate, "design character after clarification");
+  }
   const pendings = candidate.classification.pendings ?? [candidate.classification.pending];
   const target =
     pendings.find((entry) => entry.artifact_type === "character_seed") ?? pendings[0];
@@ -998,6 +1077,7 @@ async function runRoleRevisionBeat(page, state) {
     `role revision produced no character_profile_revision candidate for ${characterName}`,
     fromIndex,
   );
+  assertNotAwaitingWithoutClarification(candidate, "character role revision");
   const payload = candidate.classification.pending?.payload ?? {};
   const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
     acceptNames: /保存到作品/,
@@ -1029,8 +1109,9 @@ async function maybeRunMaintenanceBeats(page, toc, state) {
   const settled = settledChapterCount(currentToc);
 
   for (const beat of MAINTENANCE_BEATS) {
-    if (state.completed.includes(beat.id)) continue;
-    if (settled < beat.after_settled) continue;
+    const forcedRetry = maintenanceRetryIds.includes(beat.id);
+    if (state.completed.includes(beat.id) && !forcedRetry) continue;
+    if (!forcedRetry && settled < beat.after_settled) continue;
     state.attempts[beat.id] = (state.attempts[beat.id] ?? 0) + 1;
     if (state.attempts[beat.id] > 2) {
       log(`maintenance beat ${beat.id} skipped after repeated failures`);
@@ -1587,6 +1668,8 @@ const metaLeakInterceptions = [];
 // B9：needs_confirmation 显式确认/跳过计数 + 恢复路径判定计数，全部进 summary。
 const confirmationDecisions = [];
 const recoveryDecisions = [];
+// P1 CP0 维护补验：产品澄清（awaiting_author）→ runner 消歧继续的次数/内容（不算失败）。
+const clarificationEvents = [];
 // VS-00G 盘点节拍（M4）：R5 阈值后由 runner 模拟作者响应产品引导发起一次盘点。
 const inventoryBeat = { attempted: false, attempts: 0, done: false, result: null };
 
@@ -1605,12 +1688,25 @@ try {
       `maintenance=${maintenanceEnabled ? "on" : "off"} resume_completed_beats=${JSON.stringify(maintenanceState.completed)}`,
   );
 
+  let stoppedForBreakpoint = false;
+
+  if (maintenanceOnly) {
+    // task-87 维护补验：同一 canonical DB/证据目录，不写章节，只重置并强制回放指定维护拍。
+    // 这是验收支架模式，不替代 canonical，也不重跑章节/不换分。
+    log(`maintenance-only replay: retry_ids=${JSON.stringify(maintenanceRetryIds)}`);
+    for (const id of maintenanceRetryIds) {
+      maintenanceState.completed = (maintenanceState.completed ?? []).filter((beatId) => beatId !== id);
+      if (maintenanceState.attempts) delete maintenanceState.attempts[id];
+    }
+    saveMaintenanceState(maintenanceState);
+    appendProgress({ maintenance_only_replay: maintenanceRetryIds });
+    toc = await maybeRunMaintenanceBeats(page, toc, maintenanceState);
+  } else {
   // 逐章推进：每轮处理一个未达标章的一次产出（首稿或续写），失败重试一次后跳过。
   // maxChapters 限制的是“本次推进了多少个不同的章”，0 = 跑到全部达标。
   const advancedTitles = new Set();
   const skippedTitles = new Set();
   let planFailures = 0;
-  let stoppedForBreakpoint = false;
 
   for (;;) {
     const chapter = nextPendingChapter(toc, skippedTitles, planChapters);
@@ -1755,6 +1851,8 @@ try {
     }
   }
 
+  }
+
   // 导出后页面停在阅读模式；最终 toc 用循环尾的最新投影。
   // 断点续跑演练 phase1 不导出，phase2 resume 后照常导出。
   let exportPath = "";
@@ -1774,7 +1872,10 @@ try {
     chapters_advanced_this_run: chaptersAdvanced,
     target_plan_chapters: planChapters,
     maintenance_enabled: maintenanceEnabled,
+    maintenance_only_replay: maintenanceOnly,
+    maintenance_retry_ids: maintenanceRetryIds,
     maintenance_state: maintenanceState,
+    clarification_events: clarificationEvents,
     stopped_for_resume_breakpoint: stoppedForBreakpoint,
     plan_version: "p1-cp0-10",
     retry_thermometer: retryThermometer(failures),

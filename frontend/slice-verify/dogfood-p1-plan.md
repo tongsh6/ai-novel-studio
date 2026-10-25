@@ -133,6 +133,52 @@ bash scripts/dogfood_run.sh --provider slice_verify --chapters 10 --plan-chapter
   模型语义与产品状态链分开。
 - I10 盲评：本 CP0 只准备可盲评样本包；需作者指定负责人/时机，AI 不代签。
 
+## 4.5 维护补验计划（task-87，B33 判断路由修复后）
+canonical（2026-10-25）已如实记录：maintenance 5 拍仅 format_revision + chapter_renumber 成功，
+design_character（5 次 wrong-route route→reply）、content_revision（4 次 agent_awaiting_author）、
+character_role_revision（依赖 design 未执行）失败；**不重跑 canonical、不换分**。B33 修复后只做
+scoped 维护补验，不整批重写 10 章：
+
+1) **先 slice_verify dry-run 验证 replay 模式**（不占模型槽）：用 canonical 证据目录 + DB 的**副本**
+   （避免污染 canonical 原始证据），脚本 dry-run 验证 runner 的 maintenance-only 路径、候选/采纳/
+   summary 字段：
+   ```bash
+   cp -R artifacts/novel-output/p1-authoring-dogfood-2026-10-25 /tmp/p1-canonical-copy
+   cp -R tmp/dogfood-db-p1-canonical-20261025 /tmp/p1-canonical-db-copy
+   DOGFOOD_ARTIFACT_DIR=/tmp/p1-canonical-copy NOVEL_TEST_DB_DIR=/tmp/p1-canonical-db-copy \
+   DOGFOOD_MAINTENANCE_ONLY=1 DOGFOOD_MAINTENANCE_RETRY=design_character,content_revision,character_role_revision \
+   bash scripts/dogfood_run.sh --provider slice_verify --resume --plan-chapters 10 --min-words 1000
+   ```
+   （dry-run 仅验支架，不产真实维护结论；同一 DB 副本内已有章节事实。）
+2) **真实模型 scoped 维护回放**（等 B33 修复 + Lead GO；harness 加载 Strata `iq3_s`，单次）：
+   同样使用 canonical 证据/DB 的**副本**，`--provider strata`，只回放三拍：
+   `design_character,content_revision,character_role_revision`；不写章节、不导出整书（可复用已有
+   export），结束后证据单独落 `p1-authoring-dogfood-2026-10-25-maintenance-replay-<date>/`，
+   canonical 原始目录不改。
+   ```bash
+   DOGFOOD_ARTIFACT_DIR=<canonical-copy> NOVEL_TEST_DB_DIR=<canonical-db-copy> \
+   NOVEL_STRATA_MODEL=iq3_s NOVEL_STRATA_ENDPOINT=http://127.0.0.1:47831/v1 \
+   DOGFOOD_MAINTENANCE_ONLY=1 DOGFOOD_MAINTENANCE_RETRY=design_character,content_revision,character_role_revision \
+   bash scripts/dogfood_run.sh --provider strata --resume --plan-chapters 10 --min-words 1000
+   ```
+3) 本轮 runner 措辞/消歧修复（task-87）：
+   - content_revision 改为明确可执行段：`把第04章正文第一段改得更紧张，只改这一段，其他段落别动。`
+     （不再用「某一段」；产品若仍澄清，runner 以作者身份补一句「就改第一段…」继续，记录
+     `clarification_events`，不算失败）；
+   - design_character 改为真实作者口吻：`帮我设计并保存一个后面会用到、还没出场的配角到作品档案。`
+     期待 `character_seed`；若仍 reply 记录 wrong-route 失败，不造假；
+   - character_role_revision 依赖 design 成功后的角色名（B29 主档案字段修订）。
+4) 补验判据：design 产 `character_seed` 并采纳；content 产 prose 修订并采纳（目标第一段）；role
+   产 `character_profile_revision`（`SUPPORTING→PROTAGONIST`）并采纳；澄清/误路由/失败全量记录；
+   若仍失败如实回报，不改写 canonical 失败事实、不重跑换分。
+5) 补验结果单独报告（replay ≠ canonical）；I10 盲评仍待作者指定。
+6) **本 CP0 静态验证（2026-10-25，slice_verify，不占模型槽）**：用 canonical 证据/DB 的副本执行
+   maintenance-only replay → design_character/content_revision/character_role_revision **三拍均成功**
+   （design→character_seed、content→prose_fragment、role→`character_profile_revision`
+   `SUPPORTING→PROTAGONIST`；clarification_events=[]），正常期拍未重写；证据
+   `artifacts/novel-output/p1-cp0-maintenance-replay-dryrun-2026-10-25/`。
+   该结果只验证 runner 支架/措辞/回放链路，**不替代** B33 修复后的真实模型 scoped 回放。
+
 ## 5. 需 Lead/harness 确认
 1) ~~probe 选定 provider/model~~ **已裁决**：canonical = Strata `iq3_s`（endpoint 47831；
    harness 预加载/结束后 unload 并验证 loaded=null）；runner/script 不加载模型。
