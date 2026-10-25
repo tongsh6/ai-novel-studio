@@ -564,12 +564,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp judgment_author_question_choice_prose_result(prompt_text) do
-    chapter =
-      cond do
-        String.contains?(prompt_text, "第01章") -> "第01章：底层灵气账单"
-        true -> "第01章：底层灵气账单"
-      end
+  defp judgment_author_question_choice_prose_result(_prompt_text) do
+    chapter = "第01章：底层灵气账单"
 
     Result.new(
       "按作者选择“保留悬念”继续写#{chapter}正文。",

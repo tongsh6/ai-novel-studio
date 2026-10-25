@@ -510,9 +510,6 @@ function authorQuestionDefaultAnswer(context = {}) {
   }
 }
 
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 async function respondToAuthorQuestion(page, result, context = {}) {
   const question = result.question;
@@ -571,7 +568,7 @@ async function respondToAuthorQuestion(page, result, context = {}) {
       }
       replyText = recommended.label ?? action.label ?? "";
       await withTimeout(
-        page.getByRole("button", { name: new RegExp(`^${escapeRegExp(replyText)}$`) }).last().click(),
+        page.getByRole("button", { name: replyText, exact: true }).last().click(),
         waitBudget("ack"),
         "author question option click",
       );
@@ -600,7 +597,7 @@ async function respondToAuthorQuestion(page, result, context = {}) {
       const buttonLabel = freeTextAction.label ?? "回复此问题";
       await withTimeout(
         page
-          .getByRole("button", { name: new RegExp(`^${escapeRegExp(buttonLabel)}$`) })
+          .getByRole("button", { name: buttonLabel, exact: true })
           .last()
           .click(),
         waitBudget("ack"),
