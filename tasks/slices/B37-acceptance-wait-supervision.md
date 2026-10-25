@@ -68,3 +68,9 @@
 - design beat：首指令按章节计划确定性推导方向（下一待写章/seq/用途）+ 命名授权 +「直接生成并保存到作品档案，不需要再问我」；产品仍 ask_author 时补 ≤2 条不同具体方向（避开演化/世界设定触发词）；等待只认 `character_seed`，无关 `prose_ready/candidate_ready` 忽略/不采纳，首个无关后 `DOGFOOD_DESIGN_UNRELATED_GRACE_MS`（slice5s/real30s）有界等待；只有无关候选→`design_unrelated_candidate_only` bounded 失败；detail 记 direction/clarifications/ignored_candidates。
 - dry-run（slice_verify）：normal_design/ask_then_seed/unrelated_then_seed PASS；unrelated_only bounded FAIL ~5.2s；正常 10 章+维护 5/5、wait_stats 46/0 timeouts；故障注入不回归。
 - 下一步：design-beat 真实模型 scoped replay（canonical DB 副本）→ PASS 后 canonical-3d fresh（attempt1/2/3 保留）。
+
+### CP4 真实模型 scoped replay（2026-10-25，PASS）
+
+- canonical-1 DB 新副本 `tmp/dogfood-db-p1-design-replay-20261025`；detached maintenance-only design_character；strata iq3_s；证据 `artifacts/novel-output/p1-b37-cp4-design-replay-2026-10-25/`。
+- design 拍：character_seed「陆沉」1 候选→真实作者 accepted；direction=第05章线；clarifications=0、ignored=[]、wrong_route=0；wait 4/38.7s/0 timeouts；canonical DB sha 未变。
+- 结论：B37 CP4 确定性方向/bounded 澄清/无关候选忽略在真实 iq3_s 成立；canonical-3d fresh 启动。
