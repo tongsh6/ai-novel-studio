@@ -69,7 +69,7 @@
 | CP1 | 判断上下文去重/按 profile 裁剪 + trace（消除 `## 消息处置与已有产物` 双份；记录 prompt tokens/sections） | **done（2026-10-25，`33077f0e`）**：根因 dialogue_planning_service 双处渲染；去重后默认 profile 1 次；写作判断 keep-list 20,056→10,633 chars（约 −47%）；`judgment.prompt_diagnostics` |
 | CP2 | 动作意图有界纠错 gate + prompt 规则补强 + `judgment.wrong_route` 事件；不降 schema | **done（2026-10-25，`33077f0e`）**：AuthoringTaskPolicy 规则补强；JudgmentProtocol 一次有界纠错（仅 :judgment profile，D7 provider_calls=3 保持）；失败转具体 ask_author + wrong_route 事件；测试全绿 |
 | CP3 | 诊断事件/计数 + P1 runner 对齐 + 确定性测试 | todo |
-| CP4 | scoped 真实模型复验（S1 写章长上下文/S2 design/S3 content revision/S4 负例/S5 回归；不整批重跑） | **进行中（task-92 lifecycle）**：native iq3_s 常驻、canonical DB 副本、维护拍 replay + 单章写；证据 `artifacts/novel-output/p1-b33-cp4-replay-2026-10-25/` |
+| CP4 | scoped 真实模型复验（S1 写章长上下文/S2 design/S3 content revision/S4 负例/S5 回归；不整批重跑） | **完成（2026-10-25，FAIL：路由修复 PASS，内容修订数据完整性 FAIL）**：design→character_seed、role→character_profile_revision SUPPORTING→PROTAGONIST、S1 第08章 0→1514 字、wrong_route 事件 **24→0**、重试 0；但 content_revision 采纳把整章 1002→116 字（仅 126 字片段被当 complete replace_scope，其他段落丢失）→ 新开 B35；S4 歧义负例 runner 不可构造，留确定性测试。证据 `artifacts/novel-output/p1-b33-cp4-replay-2026-10-25/` |
 | CP5 | 全门禁/台账/P1 收口判定 | todo |
 
 ### CP4 通过门槛（预注册）
@@ -79,3 +79,11 @@
 - S3 指定目标内容修订：execute revise_adopted_content 或 ask_author 明确目标段，不得无目标 await。
 - S4 负例：ask_author 具体缺口、零写入。
 - S5 回归：B28/B29/B30 不回归；无新增错对象/越权/虚报；上下文 token 显著下降且重复 section=0；诊断事件可计数。
+
+## 7. CP4 结果记录（2026-10-25）
+
+- 环境：native iq3_s 常驻、canonical DB 副本、不新增加载；维护拍 replay + S1 单章（第08章）。
+- **路由/动作修复 PASS**：design_character → `character_seed`（林默）采纳；character_role_revision → `character_profile_revision` SUPPORTING→PROTAGONIST；S1 第08章 0→647→1514 字（explore→execute prose_writing 正常），wrong-route 事件 **24→0**、重试 0。
+- **内容修订数据完整性 FAIL**：content_revision 候选仅 126 chars，但采纳 `replace_scope complete` 覆盖整章旧 draft（1198 chars）→ 章节有效字数 1002→116，其他段落丢失；**B35** 修复候选范围声明+采纳覆盖完整性校验；P1 canonical-2 暂停至 B35 scoped replay PASS。
+- S4 歧义负例：runner 现有路径无法在不改产品下稳定构造；留确定性测试覆盖，不伪造。
+- 不重跑整批、不覆盖 P1 canonical 原证据。

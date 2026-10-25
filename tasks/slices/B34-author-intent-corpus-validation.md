@@ -122,3 +122,11 @@
 - `mix compile --warnings-as-errors` 零警告；`mix format --check-formatted` 通过；touched credo 0 issue；I1/I2/I3 全绿（p1plan）；`bash scripts/ai_static_scan.sh --top 10 --quick` 本改动文件 0 findings（余既有 gitleaks/task-done manifest 流程项）。
 - 未关闭：CP3 真实模型 scoped 验证（lifecycle 可用新增案例）；CP4 覆盖报告引用。
 
+
+## 7. CP1/CP2 实施记录（2026-10-25，`0f1eeee9`）
+
+- `slice_verify` 判断 fixture 按真实语料 wording 增补：progress_query 按章节统计回答零候选；work_setup 空作品 ask_author（题材/方向/书名）不产 prose；discussion 讨论 reply 零候选（B33 gate 负例）；world_foreshadow 讨论 reply / 明确保存才 execute world_building；delegation/chitchat_noise reply 不自动执行/采纳。
+- 测试：`SliceVerifyB34AuthorIntentFixtureTest` 5 组 + application `b34_author_intent_fixture_test` 5 组真实链路；agent 290/0、application 950/0、全后端 2225/0；compile -Werror/format/credo/enum 绿。
+- 场景清单：`quality/acceptance/scenarios/b34-author-intent-corpus-fixtures.yml`（deterministic draft，未注册 nightly；README 已索引）。
+- 覆盖前后矩阵：progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise 均从缺口→确定性覆盖；other_unclassified 按 CP0 建议不新增（短指代依赖上下文）；prose_write 等既有保持。
+- 2026-10 窗口频次（aux）：64 turn→39 条去重；meta_acceptance 7/plan_outline 6/world_foreshadow 5/prose_write 4/work_setup 3/chapter_rewrite 3/chapter_revision 2/progress_query 2；unknown 0（旧协议噪声消失）。
