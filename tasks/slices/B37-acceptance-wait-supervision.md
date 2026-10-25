@@ -1,6 +1,6 @@
 # B37 验收等待与故障监督优化（消除空等）
 
-- 状态：pending / CP0 设计登记（2026-10-25，用户反馈：验收体系等待机制需优化，许多空等浪费时间；canonical-3 被外部 SIGTERM 后无快速失败/监督）
+- 状态：**doing / CP0–CP2 完成（2026-10-25，`7130d3b8`）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动。
 - 类型：验收 harness 可靠性（不新增产品能力；runner/launcher/监督与证据）
 - 来源：canonical-1/2/3 运行证据；B33 CP3/B35 CP3b/B36 CP3 scoped replay；用户 2026-10-25 指令
 - 关联：P1-AUTHORING-DOGFOOD、B36、`frontend/slice-verify/dogfood-runner.mjs`、`scripts/dogfood_run.sh`
@@ -35,3 +35,10 @@
 - 不改产品/frontend/src/judgment/schema；不改验收判据语义（只改等待/失败/监督）；不新增产品钩子。
 - 真实模型仍单槽、用完卸载；canonical-3b 一次（canonical-3 attempt1 SIGTERM 保留为事故批次，不因分数重跑）。
 - 不删除/覆盖历史证据；等待预算/故障注入参数在 evidence/summary 中记录。
+
+## 5. CP1/CP2 实施记录（2026-10-25，`7130d3b8`）
+
+- `dogfood-runner.mjs`：`WAIT_BUDGET_DEFAULTS`（input30/ack30/turn120/candidate120/adoption90/maintenance180/export60/toc30，env `DOGFOOD_WAIT_<KIND>_MS`）；所有等待经 waitForJourneyKind/waitFor，10s heartbeat + `wait-events.jsonl` + summary `wait_stats`；fail-fast typed error（action_failed/action_result failed/adoption_persistence_failed/incomplete_scope/UI 失败文案/page closed/backend health down/SIGTERM）；watchdog 10s；failure.json（code/current_wait/wait_stats/stack）。
+- `scripts/dogfood_run_detached.sh start/status/stop`：Python 独立 session（start_new_session）、pidfile/lock、4657/5769+strata 预检、detached.log/heartbeat.jsonl/meta（HEAD/命令/env）、trap INT/TERM/EXIT 写 termination.json、stop 定向 TERM 进程组。
+- 验证（slice_verify）：正常 10 章+维护 5/5、46 waits/5538ms/0 timeout；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 全部 exit1+typed failure；detached 父 shell kill -9 后 run 继续 exit0、主动 stop 1076ms TERM/143、重复 start exit1；node/eslint/bash-n 绿。
+- 证据 `artifacts/novel-output/p1-b37-wait-supervision-2026-10-25/`；canonical-3b 使用 detached launcher。
