@@ -914,4 +914,67 @@ defmodule NovelApplication.AgenticPlanDraftPlannerTest do
     assert Enum.any?(errors, &(&1 =~ "plan.steps[0].kind 只能是 explore｜act"))
     assert Enum.any?(errors, &(&1 =~ "arguments.confidence 不能大于 1"))
   end
+
+  test "P1 可达性：draft/revision prompt 显式声明 arguments 顶层四字段骨架与 plan.steps 最小示例" do
+    draft =
+      AgenticPlanDraftPlanner.draft_prompt(probe_run(), %{}, ["第01章：开端"])
+
+    draft_text = draft.messages |> hd() |> Map.fetch!(:content)
+
+    assert draft_text =~ "arguments JSON 骨架"
+    assert draft_text =~ "plan / author_reasoning / reason_codes / confidence"
+    assert draft_text =~ "plan 不是唯一包裹"
+    assert draft_text =~ ~s("author_reasoning":"...")
+    assert draft_text =~ ~s("confidence":0.9)
+    assert draft_text =~ "只返回"
+    assert draft_text =~ ~s({"plan":{...}})
+    assert draft_text =~ "plan.steps 每步必须含"
+
+    revision =
+      AgenticPlanDraftPlanner.revision_prompt(
+        probe_run(),
+        %{},
+        ["第01章：开端"],
+        "计划步骤已走完但完成条件未满足"
+      )
+
+    revision_text = revision.messages |> hd() |> Map.fetch!(:content)
+    assert revision_text =~ "arguments JSON 骨架"
+    assert revision_text =~ "顶层同时包含 plan / author_reasoning / reason_codes / confidence"
+  end
+
+  test "P1 可达性：模型只返回只有 plan 顶层字段时纠错回执含具体缺失字段与骨架，一次纠正成功" do
+    test_pid = self()
+    valid = plan_arguments()
+    only_plan = %{"plan" => valid["plan"]}
+
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    result_fn = fn prompt ->
+      n = Agent.get_and_update(counter, &{&1 + 1, &1 + 1})
+      send(test_pid, {:plan_prompt, n, prompt})
+
+      case n do
+        1 -> {:ok, provider_result_with_arguments("第一次只给了 plan。", only_plan)}
+        _ -> {:ok, provider_result("第二次补齐顶层字段。")}
+      end
+    end
+
+    assert {:ok, _plan, _meta} =
+             AgenticPlanDraftPlanner.draft_plan_with_meta(probe_run(), %Execution{
+               result_fn: result_fn
+             })
+
+    assert_received {:plan_prompt, 1, _first}
+    assert_received {:plan_prompt, 2, correction}
+    correction_text = correction.messages |> hd() |> Map.fetch!(:content)
+
+    assert correction_text =~ "缺少必填字段 author_reasoning"
+    assert correction_text =~ "缺少必填字段 reason_codes"
+    assert correction_text =~ "缺少必填字段 confidence"
+    assert correction_text =~ "plan 只是其中一个顶层字段"
+    assert correction_text =~ "不能只返回"
+    assert correction_text =~ "合法最小骨架"
+    assert correction_text =~ ~s("author_reasoning":"...")
+  end
 end

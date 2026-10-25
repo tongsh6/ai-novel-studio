@@ -719,6 +719,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     调用 agent_plan_draft 给出完整计划。说明必要步骤、依据与待采纳边界，不机械复述形态。
     content 可以同时说明计划；author_reasoning 保留作者可见原话，空 content 时从该字段展示。
     不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
+
+    #{plan_arguments_contract(allowed_targets(run))}
     """)
   end
 
@@ -735,6 +737,8 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
     调用 agent_plan_revision 给出完整修订计划，保留已完成前缀和当前任务对象/范围。
     content 可同时说明事实、修订理由与影响范围；author_reasoning 保留作者可见原话。
     不执行步骤，不声称产物已经生成或采纳，不输出工具结果。
+
+    #{plan_arguments_contract(allowed_targets(run))}
     """)
   end
 
@@ -832,6 +836,26 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
   defp internal_observation_steps("world_building_with_context_v1"), do: ["context_assemble"]
   defp internal_observation_steps(_profile_ref), do: []
 
+  # P1 可达性：真实模型常把 arguments 只写成 {"plan":{...}}，漏掉另三个顶层必填字段。
+  # 契约本身不改（schema 仍 required + additionalProperties=false）；prompt 给显式骨架，
+  # 说明 plan 只是顶层字段之一，避免“只包 plan”的可达性缺口。
+  defp plan_arguments_contract(allowed_targets) do
+    step_target = List.first(List.wrap(allowed_targets)) || "context_assemble"
+
+    """
+    ### arguments JSON 骨架（顶层四字段缺一不可，plan 不是唯一包裹）
+    必须返回一个 JSON object，顶层同时包含 plan / author_reasoning / reason_codes / confidence：
+    {"plan":{"steps":[{"step_id":"s1","kind":"explore","description":"...","success_criteria":["..."],"target_tool_ref":"#{step_target}"}]},"author_reasoning":"...","reason_codes":["agent_plan_drafted"],"confidence":0.9}
+
+    说明：
+    - plan 必须是 arguments 的一个顶层字段；只返回 {"plan":{...}} 会因缺少 author_reasoning / reason_codes / confidence 被校验拒绝。
+    - plan.steps 每步必须含 step_id / kind / description / success_criteria / target_tool_ref；kind 只能是 explore 或 act。
+    - author_reasoning 是作者可见计划说明原文；reason_codes 是字符串数组；confidence 是 0..1 数字。
+    - 不要加额外顶层字段，不要服务端补字段（系统不会替你补）。
+    """
+    |> String.trim()
+  end
+
   defp tool_call_correction_prompt(original_prompt, failed_content, reason, run) do
     original_text = original_prompt_text(original_prompt)
     targets = correction_targets(run)
@@ -848,6 +872,7 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
       - 检索步（prose_search/chapter_read/archive_read/memory_recall）可带 exploration_query 字符串；非检索步填 null 或省略
       - 合法最小骨架（值按本任务填写，不要照抄占位）：
         {"plan":{"steps":[{"step_id":"s1","kind":"explore","description":"...","success_criteria":["..."],"target_tool_ref":"#{skeleton_target}"}]},"author_reasoning":"...","reason_codes":["agent_plan_drafted"],"confidence":0.9}
+      - 上次 arguments 未通过计划 schema 时，逐项核对顶层四字段 plan / author_reasoning / reason_codes / confidence：plan 只是其中一个顶层字段，不能只返回 {"plan":{...}}；也不要加额外字段。
       #{targets_guidance(targets)}#{shape_guidance(reason, original_prompt.tool_choice)}#{field_guidance(reason)}
       ## 你的上一次 content（截取前 #{@max_failed_planner_output_chars} 字符）
       #{String.slice(to_string(failed_content), 0, @max_failed_planner_output_chars)}
@@ -871,6 +896,10 @@ defmodule NovelApplication.AgenticPlanDraftPlanner do
        when is_list(errors) and errors != [] do
     "\n- 上次被拒的具体字段问题（逐项修正）：\n" <>
       Enum.map_join(Enum.take(errors, 12), "\n", &"  - #{&1}")
+  end
+
+  defp field_guidance({:invalid_plan_tool_arguments, []}) do
+    "\n- 上次 arguments 未返回具体字段差异；请按上面的顶层四字段与 plan.steps 必填字段重新逐项自检。"
   end
 
   defp field_guidance(_reason), do: ""
