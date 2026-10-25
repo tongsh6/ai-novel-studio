@@ -183,7 +183,8 @@ defmodule NovelAgent.CreativeProvider.Real do
     case chapter_modification_scope(request) do
       :format_only -> format_only_guidance()
       :whole_chapter -> chapter_content_guidance("整章")
-      :target_segments -> chapter_content_guidance("指定片段/段落")
+      :target_segments -> target_segments_guidance()
+      "target_segments" -> target_segments_guidance()
       _ -> single_revision_guidance()
     end
   end
@@ -204,6 +205,19 @@ defmodule NovelAgent.CreativeProvider.Real do
       换行形式、文末空行）做字节等价校验，违反会被拒绝。
     - 不得写成续写或“继续往后写”，不得增加原文没有的内容；body 是覆盖范围内完整候选，
       修改依据放 rationale。
+    """
+    |> String.trim()
+  end
+
+  # B36 CP2/task-97：target_segments 与产品 writer 指令一致——只产目标段替换文本；
+  # 整章/format_only 仍走 chapter_content_guidance/format_only_guidance 原语义。
+  defp target_segments_guidance do
+    """
+    ## 指定片段/段落内容修订（target_segments）
+    - 只输出目标段落的完整替换文本（可含换行）；不要输出整章、不要复述其他段落、不要加解释/标题/摘要/fence。
+    - 前后段落只作为连贯上下文阅读，不得改写；未指定段落由系统逐字保留，你不需要也不得在输出里重复它们。
+    - 只对作者明确指定的目标段做真实修改；不得写成续写或“继续往后写”，不得新增未要求的内容。
+    - body 只放目标段的替换文本；修改依据放 rationale。
     """
     |> String.trim()
   end

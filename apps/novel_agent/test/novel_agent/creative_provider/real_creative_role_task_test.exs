@@ -235,7 +235,7 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
     refute prompt =~ ~r/(请|可以)继续往后写/
   end
 
-  test "B28: target_segments revision renders scoped content revision guidance" do
+  test "B28/B36: target_segments revision only asks for target replacement text (replacement-only)" do
     task =
       AuthoringTaskFixtures.task(:revision, %{
         scope: %{
@@ -249,8 +249,42 @@ defmodule NovelAgent.CreativeProvider.RealCreativeRoleTaskTest do
 
     prompt = captured_prompt(request("prose_writing", :prose_fragment, task))
 
-    assert prompt =~ "## 指定片段/段落内容修订"
-    assert prompt =~ "只改作者明确指定范围内的内容"
-    assert prompt =~ "不得合并、删除或重排未要求的片段"
+    assert prompt =~ "## 指定片段/段落内容修订（target_segments）"
+    assert prompt =~ "只输出目标段落的完整替换文本"
+    assert prompt =~ "不要输出整章"
+    assert prompt =~ "不要复述其他段落"
+    assert prompt =~ "未指定段落由系统逐字保留"
+    assert prompt =~ "body 只放目标段的替换文本"
+    refute prompt =~ "不得只返回修改片段"
+    refute prompt =~ "按任务给出的覆盖顺序输出指定片段/段落的完整替换稿"
+    # 整章/format_only 的旧语义不应出现在 target_segments guidance 中。
+    refute prompt =~ "## 整章内容修订"
+    refute prompt =~ "## 整章仅排版修订（format_only）"
+  end
+
+  test "B36 CP3 real wording: target_segments prompt carries 改第一段/其余段落别动 and replacement-only contract" do
+    cp3_wording =
+      "把第03章：黑市调频师的正文第一段改得更紧张，只改这一段，其他段落别动。"
+
+    task =
+      AuthoringTaskFixtures.task(:revision, %{
+        scope: %{
+          refs: ["draft:d1"],
+          coverage: :complete,
+          target_chapter_ref: "chapter:ch01",
+          object_kind: :chapter_prose,
+          modification_scope: :target_segments
+        }
+      })
+
+    base_request = request("prose_writing", :prose_fragment, task)
+    prompt = captured_prompt(%{base_request | creative_brief: cp3_wording})
+
+    assert prompt =~ cp3_wording
+    assert prompt =~ "只输出目标段落的完整替换文本"
+    assert prompt =~ "不要输出整章"
+    assert prompt =~ "不要复述其他段落"
+    refute prompt =~ "不得只返回修改片段"
+    refute prompt =~ "输出整章完整替换稿"
   end
 end
