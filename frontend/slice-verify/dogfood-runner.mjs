@@ -23,6 +23,7 @@
 //                           指定的维护拍（需同一 canonical DB/证据目录）
 //   DOGFOOD_MAINTENANCE_RETRY 逗号分隔的维护拍 id（design_character/content_revision/
 //                           character_role_revision/...）；补验时重置这些拍并强制触发
+//   DOGFOOD_ONLY_SEQ        scoped 写章只推进该 seq（B33 CP4 S1 单章 replay，如 8）；0=不限
 //
 // P1 CP0（2026-10-25）：B6 帧判定单源（classifyJourneyFrame+穷尽 switch）；
 // B9 needs_confirmation 显式确认/跳过计数 + 空章/重复段观察；B7 章节请求自然作者措辞；
@@ -49,6 +50,9 @@ const maintenanceRetryIds = (process.env.DOGFOOD_MAINTENANCE_RETRY ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
+// B33 CP4 S1：scoped 写章只允许指定 seq（如第08章空章），避免从第05章短章开始；
+// 0 = 不限制（canonical 行为）。
+const onlySeq = Number(process.env.DOGFOOD_ONLY_SEQ ?? "0");
 const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 // 正文采纳按钮的真实文案集合：无质量发现=「保存为章节正文」；带发现时草稿归类
@@ -242,11 +246,12 @@ function flatChapters(toc) {
   return (toc?.volumes ?? []).flatMap((volume) => volume.chapters ?? []);
 }
 
-function nextPendingChapter(toc, skippedTitles, maxPlanSeq = 0) {
+function nextPendingChapter(toc, skippedTitles, maxPlanSeq = 0, targetSeq = 0) {
   return (
     flatChapters(toc).find(
       (chapter) =>
         (maxPlanSeq <= 0 || Number(chapter.seq ?? 0) <= maxPlanSeq) &&
+        (targetSeq <= 0 || Number(chapter.seq ?? 0) === targetSeq) &&
         Number(chapter.word_count ?? 0) < minWords &&
         !skippedTitles.has(chapter.title),
     ) ?? null
@@ -1709,7 +1714,7 @@ try {
   let planFailures = 0;
 
   for (;;) {
-    const chapter = nextPendingChapter(toc, skippedTitles, planChapters);
+    const chapter = nextPendingChapter(toc, skippedTitles, planChapters, onlySeq);
 
     // 全部章达标但总字数未到目标 → 增量扩章（targetWords=0 时不扩，保持原行为）。
     if (!chapter && targetWords > 0 && Number(toc.total_word_count ?? 0) < targetWords) {
