@@ -759,12 +759,8 @@ async function adoptJourneyCandidate(page, classification, fromIndex, options = 
   } else {
     const acceptNames =
       options.acceptNames ?? /保存到作品|保存修订稿|保存为章节正文|保存原稿|保存到大纲/;
-    await page.waitForFunction(
-      (source) => new RegExp(source).test(document.body.innerText),
-      acceptNames.source,
-      { timeout: 30_000 },
-    );
     const button = page.getByRole("button", { name: acceptNames }).last();
+    await button.waitFor({ state: "visible", timeout: 30_000 });
     await button.click();
   }
 
