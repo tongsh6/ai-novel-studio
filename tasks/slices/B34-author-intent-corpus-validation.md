@@ -123,6 +123,14 @@
 - 未关闭：CP3 真实模型 scoped 验证（lifecycle 可用新增案例）；CP4 覆盖报告引用。
 
 
+## 6.1 CP3 预注册（2026-10-25，P1 canonical-2 后执行）
+
+- 范围：mined 意图中的高缺口类——progress_query（长上下文进度问询）、work_setup（空作品题材/起名）、discussion（讨论不误执行）、world_foreshadow 讨论 vs 采纳边界、delegation/chitchat_noise 负例；每类取真实语料原话 1 条（samples）。
+- 方法（scoped、单槽、模型用完卸载）：
+  - **模型级语义 replay**：用产品 judgment prompt 构造（不含产品写库），对 native `iq3_s` 发真实作者原话 + 必要最小上下文（章节统计/空作品事实/候选资料），断言 route：progress→reply/零候选；work_setup→ask/plan 不产 prose；discussion→reply 零候选；world 讨论→reply、明确保存→execute world_building；noise→reply/不执行。记录 request/response/action/capability/候选数。
+  - 非产品链验收：明确标注「模型级 scoped 验证」，不替代 Tauri 真实页面；确定性 fixture/app-chain 测试（CP1/CP2）提供产品链路证据；如需真实页面专项，另立场景任务。
+- 通过门槛：5 类 route 符合契约、零候选/零写入（模型级无写库）、无错误 execute；失败条目如实记录并归因（B33 gate/prompt/fixture）。
+- 预算：≤10 calls；不重跑换分；不加载 LM Studio（native iq3_s 常驻）；不覆盖 P1/canonical 证据。
 ## 7. CP1/CP2 实施记录（2026-10-25，`0f1eeee9`）
 
 - `slice_verify` 判断 fixture 按真实语料 wording 增补：progress_query 按章节统计回答零候选；work_setup 空作品 ask_author（题材/方向/书名）不产 prose；discussion 讨论 reply 零候选（B33 gate 负例）；world_foreshadow 讨论 reply / 明确保存才 execute world_building；delegation/chitchat_noise reply 不自动执行/采纳。
