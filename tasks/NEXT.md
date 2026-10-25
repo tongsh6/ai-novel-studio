@@ -12,6 +12,7 @@
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
+| B36-LOCALIZED-REVISION-ALGORITHM | **新增候选（用户 2026-10-25 裁决）**：局部修订不能只靠 prompt——确定性分段/anchor+编辑操作/服务端 apply/机械校验/diff receipt；CP1 全文候选+diff 越界校验兜底，CP2 锚点结构化编辑能力（prose_segment_patch/确定性 apply/预览），CP3 真实模型 scoped replay，CP4 P1 canonical-2 门禁。业界对照：Aider SEARCH/REPLACE、Dirac hash-anchored、apply-edit-block。 | [B36](slices/B36-localized-revision-algorithm.md) |
 | B35-REVISION-ADOPTION-SCOPE-INTEGRITY | **新增候选（B33 CP4 暴露）**：内容修订候选只含局部正文，采纳却按整章 replace_scope complete 覆盖 → 章节字数 1002→116、其他段落丢失；修复候选范围声明 + 采纳覆盖完整性校验/拒绝/回滚；真实模型 scoped replay 验证段落替换且其余逐字保留；通过后再做 P1 canonical-2。 | [B35](slices/B35-revision-adoption-scope-integrity.md) |
 | B34-AUTHOR-INTENT-CORPUS-VALIDATION | **新增候选（用户 2026-10-25 指令）**：从 2026-06 起 stage 运行日志抽取真实作者意图与系统结果，建意图分类/频次/覆盖率矩阵，沉淀为 test-support fixture + 验收场景 + 真实模型 scoped case，完善验证体系。CP0 语料挖掘（aux）→CP1 契约→CP2 fixture 覆盖→CP3 实模 scoped 验证。 | [B34](slices/B34-author-intent-corpus-validation.md) |
 | B33-AUTHORING-INTENT-JUDGMENT-RELIABILITY | **新增候选（P1 暴露）**：真实模型长上下文下判断误路由（24 wrong-route）——写正文/设计角色/内容修订被判 reply/creative_directions/await；CP0 假设 H1–H4（随机性/上下文膨胀/规则不可达/模型边界），冻结「动作意图→execute 绑定或 ask/gap，不得吞掉」+ 上下文预算 + 有界纠错；修复后 scoped 真实模型复验（不整批重跑）。 | [B33](slices/B33-authoring-intent-judgment-reliability.md) |
