@@ -449,6 +449,27 @@ function classifyJourneyFrame(frame, ctx = {}) {
       };
     }
     if (body.status === "accepted") return { kind: "action_accepted", body };
+    if (
+      ["failed", "rejected", "error"].includes(String(body.status ?? "")) ||
+      body.error ||
+      body.outcome_detail ||
+      (body.decision?.reason_codes ?? []).some((code) =>
+        ["adoption_persistence_failed", "incomplete_scope"].includes(code),
+      )
+    ) {
+      return {
+        kind: "action_failed",
+        body,
+        status: body.status ?? null,
+        message:
+          body.error?.message ??
+          body.error ??
+          body.outcome_detail ??
+          body.message ??
+          (body.decision?.reason_codes ?? []).join(",") ??
+          "action failed",
+      };
+    }
     return { kind: "ignore" };
   }
 
@@ -789,21 +810,60 @@ async function adoptJourneyCandidate(page, classification, fromIndex, options = 
     await button.click();
   }
 
-  const settled = await waitForJourneyKind(
-    (candidate) => {
-      if (candidate.kind === "adoption_settled") {
-        return (
-          !pending?.artifact_id ||
-          (candidate.resolved ?? []).some((entry) => entry.artifact_id === pending.artifact_id)
+  // 采纳失败快速路径（task：维护拍不能盲等 30min）：
+  // 1) 产品 action_result 明确 failed/rejected（如 adoption persistence :incomplete_scope）；
+  // 2) UI 明确显示「作品档案写入失败」等持久化失败文案。
+  // 两者任一立即抛错，由 maybeRunMaintenanceBeats 记录该拍失败并继续后续拍/章节。
+  const failureWait = page
+    .waitForFunction(
+      () => {
+        const text = document.body?.innerText ?? "";
+        return ["作品档案写入失败", "adoption persistence failed", "采纳失败，原候选仍待采纳"].some(
+          (marker) => text.includes(marker),
         );
-      }
-      if (candidate.kind === "action_accepted") return true;
-      return false;
-    },
-    `maintenance candidate ${pending?.artifact_type ?? "?"} was not adopted`,
-    timeoutMs,
-    fromIndex,
-  );
+      },
+      null,
+      { timeout: timeoutMs },
+    )
+    .then(() => {
+      throw new Error(
+        `maintenance candidate ${pending?.artifact_type ?? "?"} was not adopted: adoption persistence failed (UI: 作品档案写入失败)`,
+      );
+    });
+  let settled;
+  try {
+    settled = await Promise.race([
+      waitForJourneyKind(
+        (candidate) => {
+          if (candidate.kind === "action_failed") {
+            return true;
+          }
+          if (candidate.kind === "adoption_settled") {
+            return (
+              !pending?.artifact_id ||
+              (candidate.resolved ?? []).some((entry) => entry.artifact_id === pending.artifact_id)
+            );
+          }
+          if (candidate.kind === "action_accepted") return true;
+          return false;
+        },
+        `maintenance candidate ${pending?.artifact_type ?? "?"} was not adopted`,
+        timeoutMs,
+        fromIndex,
+      ),
+      failureWait,
+    ]);
+  } finally {
+    failureWait.catch(() => {});
+  }
+
+  if (settled.classification.kind === "action_failed") {
+    throw new Error(
+      `maintenance candidate ${pending?.artifact_type ?? "?"} adoption failed: ${String(
+        settled.classification.message,
+      ).slice(0, 300)}`,
+    );
+  }
 
   for (const frame of frames.slice(fromIndex)) {
     if (frame?.direction === "received" && frame?.event === "action_result") {
