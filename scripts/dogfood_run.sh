@@ -109,7 +109,7 @@ if [[ "$PROVIDER" == "strata" ]]; then
   STRATA_MODEL="${NOVEL_STRATA_MODEL:-iq3_s}"
   echo "[dogfood][strata] preflight models at ${STRATA_ENDPOINT%/}/models (expect $STRATA_MODEL)"
   if ! curl -sf --max-time 10 "${STRATA_ENDPOINT%/}/models" | grep -q "$STRATA_MODEL"; then
-    echo "[dogfood][strata] 预检失败：${STRATA_ENDPOINT%/}/models 未返回 $STRATA_MODEL；请先加载模型/确认 endpoint。" >&2
+    echo "[dogfood][strata] 预检失败：${STRATA_ENDPOINT%/}/models 未返回 ${STRATA_MODEL}；请先加载模型/确认 endpoint。" >&2
     exit 1
   fi
   echo "[dogfood][strata] 模型预检通过：$STRATA_MODEL"

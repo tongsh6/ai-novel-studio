@@ -6,33 +6,46 @@
 
 ## 0. 批次与预算（预注册冻结，禁止事后改口）
 - 一次 **canonical** 10 章级真实创作复验；真实模型 writer 调用预算 ≤40 次；单槽串行、不并发。
-- **模型 probe 结论（task-80，2026-10-25 11:42）**：候选 B `qwen3.8-27b-bf16`（非 thinking，
-  context 32768，`NOVEL_LMSTUDIO_TIMEOUT_MS=900000`）**有条件选定**；候选 A
-  `qwen3.8-flash-next@iq4_nl` 不选（同 bug 且单次 139–163s 明显更慢）。
-- **P1 GO 前置阻塞（task-81）**：A/B 两模型 100% 复现 `agent_plan_draft` 纠错死路——
-  首轮缺 `authoring_intent` 被拒，纠错请求把 tools 改成 `auto` 并要求调用 `auto`，模型照做后
-  产品期望 `agent_plan_draft` → `invalid_plan_tool_arguments`/`agent_plan_protocol_violation`
-  → 零正文。**模型可用性不是问题；正式 dogfood 需先修 plan 可达性**（prompt 骨架/纠错），
-  修复后 harness 单次受控单章验证（加载→验证→卸载）再发 P1 GO。
-- 10 章预计时长（probe 的 m10 基线 12 章 14224s ≈ 19.8min/章）：**约 2.5–4.5 小时**，不含加载/
-  启动；超预算/失败按预注册诚实收尾，不重跑换分。
-- probe 证据：`artifacts/novel-output/p1-model-probe-2026-10-25/`（`plan.md`、
-  candidate-a/b 的 app-log/llm-calls/progress）。
+- **作者裁决（2026-10-25，覆盖 task-80 probe 建议）**：canonical 主模型改用 **Strata
+  `iq3_s`**（不同模型；作者明确选择、接受速度优先）。依据：同模型对比受 Strata 缺
+  llama-server engine 阻塞；iq3_s 实测 plan 20.59 tok/s / prose 78.11 tok/s / judge
+  48.89 tok/s（机械质量合规），远快于 LM Studio 27b ~9 tok/s。
+  - 风险如实保留：iq3_s 与 probe B（27b-bf16）非同模型；B28 CP4 有长文 writer 退化史
+    （32k 失控低熵）→ **canonical 前必须先做单章受控验证**（plan 不再被拒、正文 >0 无失控、
+    pending 候选），通过才 P1 GO；若单章退化/失控，如实失败并回报，不重跑换分。
+- probe B 对照/历史（不作为 canonical 模型）：`qwen3.8-27b-bf16`（非 thinking，context
+  32768，`NOVEL_LMSTUDIO_TIMEOUT_MS=900000`）曾有条件选定；A `qwen3.8-flash-next@iq4_nl`
+  不选（更慢且同 bug）。probe 证据：`artifacts/novel-output/p1-model-probe-2026-10-25/`。
+- **P1 GO 前置阻塞（task-81，已修 `0897d776`）**：A/B 曾 100% 复现 `agent_plan_draft`
+  纠错死路（首轮缺 `authoring_intent`、纠错 tools 变 `auto` → `invalid_plan_tool_arguments`
+  → 零正文）。模型可用性不是问题；修复后由 harness 单章受控验证（load→verify→unload），
+  通过后再发 P1 GO。
+- 时间/预算：作者裁决后 iq3_s 预计明显快于 LM Studio 27b 的 2.5–4.5h 对照；**不设 2.5–4.5h
+  为硬预算，canonical 记录实测时长与 writer 调用数**（writer ≤40 仍为上限）；超限/失败按预注册
+  诚实收尾，不重跑换分。
+- **模型生命周期（用户硬约束）**：Strata 模型由 **harness 负责 load/unload（单实例）**；
+  canonical 结束由 harness `POST /api/models/unload` 并验证 `loaded=null`。runner/script
+  **不加载任何模型**（脚本仅保留 LM Studio teardown：任何 run 结束/失败/中断执行
+  `lms unload --all`，并记录 `lms ps` before/after；Strata 不由脚本卸载）。
 
-## 1. 启动/续跑命令（模型 probe 完成后补 provider/model/timeout）
+## 1. 启动/续跑命令（canonical = Strata iq3_s）
 ```bash
-# canonical（fresh）
+# canonical（fresh；Strata 模型由 harness 预先加载，runner/script 不加载）
 DOGFOOD_ARTIFACT_DIR=artifacts/novel-output/p1-authoring-dogfood-2026-10-25 \
 NOVEL_TEST_DB_DIR=tmp/dogfood-db-p1-canonical-20261025 \
-NOVEL_LMSTUDIO_MODEL=qwen3.8-27b-bf16 NOVEL_LMSTUDIO_TIMEOUT_MS=900000 \
-NOVEL_LMSTUDIO_REASONING_EFFORT=none \
-bash scripts/dogfood_run.sh --provider lmstudio --chapters 10 --plan-chapters 10 --min-words 1000
+NOVEL_STRATA_MODEL=iq3_s NOVEL_STRATA_ENDPOINT=http://127.0.0.1:47831/v1 \
+bash scripts/dogfood_run.sh --provider strata --chapters 10 --plan-chapters 10 --min-words 1000
 
 # 断点续跑演练（phase1 写满 5 个已推进章后优雅退出；phase2 复用同一 DB/证据目录）
-... bash scripts/dogfood_run.sh --provider lmstudio --chapters 10 --plan-chapters 10 \
+... bash scripts/dogfood_run.sh --provider strata --chapters 10 --plan-chapters 10 \
     --stop-after 5
-... bash scripts/dogfood_run.sh --provider lmstudio --chapters 10 --plan-chapters 10 --resume
+... bash scripts/dogfood_run.sh --provider strata --chapters 10 --plan-chapters 10 --resume
 ```
+- script `--provider strata` 预检：先请求 `${NOVEL_STRATA_ENDPOINT:-http://127.0.0.1:47831/v1}/models`
+  并检查 `iq3_s`；**未加载/endpoint 不可达时直接失败退出**（2026-10-25 实测
+  `http://127.0.0.1:9/v1` → 输出「预检失败：…/models 未返回 iq3_s」并 exit 1），不会带病启动 Tauri。
+- 结束/失败/中断由 harness 负责 Strata unload（`POST /api/models/unload`，验证 loaded=null）；
+  script teardown 只负责 LM Studio（用户硬约束：`lms unload --all` + `lms ps` before/after）。
 - `--plan-chapters 10`：seed 有 12 章计划，canonical 只推进前 10 章；`--chapters 10` 限制本轮
   最多推进的不同章数；`--stop-after` 只用于 resume 演练（不是验收旁路）。
   诚实口径：导出/TOC 仍含 seed 的 12 章计划（后 2 章为 planned 未写），`word-count.json` 与
@@ -58,14 +71,16 @@ bash scripts/dogfood_run.sh --provider slice_verify --chapters 10 --plan-chapter
 | 写作 5 | 第05章 | 首稿 | | 1–2 |
 | **resume 断点演练** | — | 停 runner（`--stop-after 5`）→ `--resume` 复用 DB/维护状态续跑 | maintenance-state 跳过已完成节拍 | 0 |
 | 写作 6 | 第06章 | 首稿/续写 | | 1–2 |
-| **B30 重编号** | 第03/04章 | 「把第03章和第04章的编号对调，内容不要动。」→ 保存到作品 | 回执 committed_mapping | 0 provider（维护能力） |
+| **B30 重编号** | 第03/04章 | 「把第一卷的第03章和第04章的编号对调，内容不要动。」→ 保存到作品 | 回执 committed_mapping | 0 provider（维护能力） |
 | 写作 7–8 | 第07–08章 | 首稿/续写 | | 2–4 |
 | **B29 角色身份** | 设计出的配角 | 「把<角色名>改为主角，其他角色不要动。」→ 保存到作品 | receipt committed_changes / 主档案字段 | 0 provider |
 | 写作 9–10 | 第09–10章 | 首稿/续写 | | 2–4 |
 | 审读/导出 | — | 档案角色/结构审读；阅读模式导出全书；截图 | — | 摘要维护异步另计 |
 
 预计真实模型调用：writer 约 14–20 次；judgment/评估/摘要约 15–20 次；总计 ≤40 writer 上限成立。
-预计时长：非 thinking 快模型约 35–60 分钟；27b thinking 约 2–3 小时（以 probe 实测标定）。
+预计时长：iq3_s（prose 78.11 tok/s、plan 20.59 tok/s、judge 48.89 tok/s）预计 **约 30–90 分钟纯生成**
++ 维护/重试/导出开销；以单章受控验证实测标定，canonical 记录实际总时长与调用数；
+不再用 LM Studio 27b 的 2.5–4.5h 作为 iq3_s 预算，若异常超 3h 如实记录为风险不重跑换分。
 
 ## 3. B6/B7/B9 消费（CP0 适配点）
 - **B6**：本旅程帧判定收口到 `classifyJourneyFrame(frame, ctx)`（分类一次返回判别联合），
@@ -119,8 +134,10 @@ bash scripts/dogfood_run.sh --provider slice_verify --chapters 10 --plan-chapter
 - I10 盲评：本 CP0 只准备可盲评样本包；需作者指定负责人/时机，AI 不代签。
 
 ## 5. 需 Lead/harness 确认
-1) probe 选定 provider/model、`NOVEL_LMSTUDIO_TIMEOUT_MS`/等价超时、并发=1 与单槽窗口。
-2) canonical 若出现诚实缺章/失败章（≤预算内重试）是否按预注册「里程碑或诚实记录失败章数」收尾。
-3) strata 被选中时的 endpoint/model 与 run 命令；`iq3_s` 长文退化风险接受口径。
+1) ~~probe 选定 provider/model~~ **已裁决**：canonical = Strata `iq3_s`（endpoint 47831；
+   harness 预加载/结束后 unload 并验证 loaded=null）；runner/script 不加载模型。
+2) **单章受控验证 GO/通过**：plan 不再被拒、正文 >0 无失控、pending 候选；通过后我执行
+   canonical 10 章；若退化/失控如实失败不重跑换分。
+3) canonical 若出现诚实缺章/失败章（≤预算内重试）按预注册「里程碑或诚实记录失败章数」收尾。
 4) I10 盲评负责人/时机（作者指定）；AI 只产样本包。
 5) resume 演练停在 5 章后二次启动是否按计划（证据记 `stopped_for_resume_breakpoint`/`resume` 轮）。
