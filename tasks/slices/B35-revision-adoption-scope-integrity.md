@@ -1,6 +1,6 @@
 # B35 修订采纳范围完整性（内容修订不得整章误替换）
 
-- 状态：**doing / CP0–CP2 完成（2026-10-25，`2392b104`）**：根因=target_segments 指令未强制整章完整稿 + 候选无条件 complete + 采纳只校验 covered refs 不校验正文内容；修复候选 scope 声明 + 采纳侧 `ensure_content_covers_scope`（complete 非 format_only → new_chars>=covered_base/2，否则 `incomplete_scope` 零写入）；CP3 scoped replay FAIL（判断 tool args 可达性缺口，候选未产出/零写入）→ task-94 修复中；P1 canonical-2 暂停。
+- 状态：**doing / CP0–CP3 完成（2026-10-25，`2392b104`/`59d94374`；CP3b PASS：判断可达+数据安全，但文本无变化→B36）**：根因=target_segments 指令未强制整章完整稿 + 候选无条件 complete + 采纳只校验 covered refs 不校验正文内容；修复候选 scope 声明 + 采纳侧 `ensure_content_covers_scope`（complete 非 format_only → new_chars>=covered_base/2，否则 `incomplete_scope` 零写入）；CP3 scoped replay FAIL（判断 tool args 可达性缺口，候选未产出/零写入）→ task-94 修复中；P1 canonical-2 暂停。
 - 类型：采纳/事务/内容完整性承重 slice（修复既有 B28 采纳范围语义；不新增能力）
 - 来源证据：`artifacts/novel-output/p1-b33-cp4-replay-2026-10-25/`（maintenance-replay content_revision；`content-integrity.json`/`comparison.json`）
 - 关联：B28 整章修订、B30 结构维护、B33 CP4、P1 canonical、ADR 采纳边界
@@ -45,6 +45,13 @@
 - 结论：B35 采纳保护未被行使；根因在判断 tool 可达性/纠错回退，task-94（prose）修复后做**一次** content_revision scoped replay；仍不重跑整批。
 - 证据：`artifacts/novel-output/p1-b35-cp3-replay-2026-10-25/`。
 
+## 6.1 CP3b 复验记录（2026-10-25，PASS with residual）
+
+- HEAD `59d94374`；canonical DB 新副本/新证据目录 `artifacts/novel-output/p1-b35-cp3b-replay-2026-10-25/`；native iq3_s 单次；3 provider calls/39.9s。
+- **判断可达 PASS**：judgment 首次 execute/revise_adopted_content + `adopted_content_ref=chapter:a9524ba9-…`（真实章级 ref），范围写 dialogue_goal；output_validation 错误 0、wrong_route 0、retry 0。
+- **数据完整性 PASS**：第03章 1002→1002 字（非 116）、总字数 10002；旧 1198 chars→新 1198 chars、22 段→22 段；除第一段外其余段落逐字节一致；receipt scope=target_segments/covered_refs/old_chars/new_chars=1198；canonical DB sha `86c655f7…` 未变、无未确认写入。
+- **Residual**：新旧 ACCEPTED 内容 sha256 相同（e4830487…）→ writer 交付稿与旧稿逐字节相同，第一段未实际改写。说明 B35 范围/安全保护成立、判断可达已修；实际局部改写能力交 **B36 算法/结构化编辑**（不依赖 prompt 唯一保证）。
+- P1 canonical-2：等 B36 CP1/CP3（真实局部改写+越界拒绝）后 GO。
 ## 6. 后续门禁
 
 - task-94 修复提交 → B35 CP3 单次复验（同 B35-CP3-REPLAY-PLAN，新 DB 副本/证据目录）；PASS 判据：target_segments 合法判断→整章完整稿候选→采纳后其余段落逐字节保留/字数不塌缩；或模型仍局部稿时 `incomplete_scope` 零写入（数据安全）。通过后 P1 canonical-2（post-fix 一次验收）。
