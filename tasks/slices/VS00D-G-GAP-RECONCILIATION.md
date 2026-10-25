@@ -171,6 +171,7 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 - **probe 发现**：真实模型（LM Studio `qwen3.8-flash-next@iq4_nl` / `qwen3.8-27b-bf16`）在 `agent_plan_draft` 只返回 `{"plan":{...}}` arguments；`AgentPlanToolContract` 要求顶层 `{plan, author_reasoning, reason_codes, confidence}` 且 `additionalProperties=false` → `plan_draft.output_validation rejected {:invalid_plan_tool_arguments, []}` → `agent_plan_protocol_violation`，每章 0 正文。**模型可用性不是问题，是 plan 协议/提示不可达**；不修则 canonical 10 章只会产出失败证据。
 - **裁决**：先做最小产品可达性修复（task-81：draft/revision 输出契约显式 JSON 骨架 + `invalid_plan_tool_arguments` 纠错回执携带字段级错误/骨架；**不放宽 schema、不服务端补字段**），修复提交后 harness 做**单次受控单章验证**（加载选定模型→验证→`lms unload --all` 卸载），通过后发 P1 GO 再跑 canonical 10 章。probe 的 A/B 失败证据保留，不重跑刷分。
 - **模型卸载**：probe 结束时 harness 必须卸载全部模型（`lms unload --all` + `lms ps` 验证为空），正式 dogfood 复用同一生命周期规则。
+- **单章受控验证 PASS（2026-10-25，HEAD `582a7ae8`）**：Strata `iq3_s` 单章一次通过——`plan_draft.output_validation` rejected=0（无 invalid_plan_tool_arguments）、plan 顶层四字段+steps=3+prose_writing 带 authoring_intent、正文 1405 words、无失控重复（8-gram 0.0157、max completion 1452）、pending 候选由外部 runner 作者确认采纳、0 run_failed/0 retry；wall 207.975s、12 calls/7728 completion tokens/聚合 36.61 tok/s；结束 `lms ps=[]`、Strata loaded=null。证据 `artifacts/novel-output/p1-model-validate-strata-2026-10-25/`。**canonical 10 章已 GO（fresh+stop-after 5+resume，单次不重跑换分）**。
 
 ## 8. 关联裁决与迁移记录
 
