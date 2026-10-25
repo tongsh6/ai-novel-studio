@@ -39,6 +39,8 @@ defmodule NovelApplication.DialoguePlanningService do
   @character_profile_ref CharacterDesignWithContext.profile_ref()
   @prose_allowed_tools ["prose_writing"]
   @prose_profile_ref ProseDraftingWithQuality.profile_ref()
+  # B33 CP1：写作判断裁剪选择器（只按真实路由 profile_ref；不含隐藏意图判断）。
+  @write_judgment_profiles [@prose_profile_ref]
   @plot_outline_allowed_tools ["plot_outline"]
   @judgment_plan_profile_ref JudgmentPlan.profile_ref()
   @plot_outline_profile_ref PlotOutlineWithContext.profile_ref()
@@ -1095,19 +1097,28 @@ defmodule NovelApplication.DialoguePlanningService do
     explore_open? = budget.open?
 
     author_text = effective_author_text(input, run)
+    write_judgment? = write_judgment_profile?(run)
 
-    %{
+    protocol_input = %{
       author_text: author_text,
       source_input_ref: TurnInteractionService.input_ref(run),
       supplied_context_refs: Enum.map(context.context_refs, & &1.context_ref),
       observations: explorations,
-      # B24 CP2（历史两段式时期修复，单调用后仍成立）：探索观察只在 context_block 渲染一次；
-      # 这里只剩消息处置上下文（pending/resolved/registered sources）。
-      author_content_context: TurnInteractionService.context_section(context.interaction_state),
+      # B33 CP1：消息处置段只保留一份。默认 profile 由 author_content_context 渲染（唯一一次）；
+      # 写作判断按 keep-list 裁剪后连该历史段一起省略，避免重复/无关历史稀释动作意图。
+      author_content_context:
+        if(write_judgment?,
+          do: "",
+          else: TurnInteractionService.context_section(context.interaction_state)
+        ),
       context_block:
-        judgment_context_block(context, author_text) <>
-          exploration_sections(explorations, budget) <>
-          adopted_content_targets_section(context),
+        if write_judgment? do
+          write_judgment_context_block(context, author_text)
+        else
+          judgment_context_block(context, author_text) <>
+            exploration_sections(explorations, budget) <>
+            adopted_content_targets_section(context)
+        end,
       options:
         [
           plan_run: %{run | profile_ref: "judgment_plan_v1"},
@@ -1130,7 +1141,82 @@ defmodule NovelApplication.DialoguePlanningService do
             else: []
           )
     }
+
+    emit_judgment_prompt_diagnostics(protocol_input, write_judgment?)
+    protocol_input
   end
+
+  @doc false
+  # 判断 profile 裁剪选择器（确定性；只按真实路由 profile_ref，不猜作者意图）。
+  @spec write_judgment_profile?(map()) :: boolean()
+  def write_judgment_profile?(run) when is_map(run) do
+    Map.get(run, :profile_ref) in @write_judgment_profiles
+  end
+
+  def write_judgment_profile?(_run), do: false
+
+  @doc false
+  # 写作判断 keep-list（B33 CP1）：作品事实 + 章节列表/目标章点名 + 作者输入 + 操作目录/契约。
+  # 不含完整 plan track、全量候选、会话摘要、无关历史观察（探索段）与消息处置历史。
+  @spec write_judgment_context_block(NovelDomain.DialogueContext.t(), String.t()) :: String.t()
+  def write_judgment_context_block(context, author_text) do
+    [
+      judgment_work_section(context),
+      judgment_work_facts_section(context),
+      judgment_stable_chapters_section(context),
+      judgment_named_chapters_section(context, author_text)
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  @doc false
+  def judgment_protocol_input_for_test(input, run, context, explorations),
+    do: judgment_protocol_input(input, run, context, explorations)
+
+  @doc false
+  def judgment_prompt_diagnostics_for_test(protocol_input, write_judgment?),
+    do: judgment_prompt_diagnostics(protocol_input, write_judgment?)
+
+  defp emit_judgment_prompt_diagnostics(protocol_input, write_judgment?) do
+    LogEmit.emit(
+      :judgment,
+      :prompt_diagnostics,
+      :done,
+      judgment_prompt_diagnostics(protocol_input, write_judgment?)
+    )
+  end
+
+  defp judgment_prompt_diagnostics(protocol_input, write_judgment?) do
+    prompt = JudgmentProtocol.prompt(protocol_input)
+    content = prompt.messages |> hd() |> Map.get(:content) || ""
+
+    %{
+      prompt_chars: String.length(content),
+      prompt_tokens: div(String.length(content), 4),
+      selected_sections: selected_context_sections(write_judgment?),
+      cropped: write_judgment?
+    }
+  end
+
+  defp selected_context_sections(true),
+    do: ["work", "work_facts", "chapters", "named_chapter", "operations", "contracts"]
+
+  defp selected_context_sections(false),
+    do: [
+      "work",
+      "work_facts",
+      "chapters",
+      "pending_candidates",
+      "named_chapter",
+      "conversation",
+      "interaction",
+      "behavior",
+      "explorations",
+      "adopted_targets",
+      "operations",
+      "contracts"
+    ]
 
   # B29 CP1：把已有角色索引（ref/name/aliases/narrative_role/summary）带入判断目录，
   # name/aliases 仅展示与消歧；读端口不可用时诚实为空（不猜/不新建）。
@@ -1699,7 +1785,6 @@ defmodule NovelApplication.DialoguePlanningService do
       judgment_pending_candidates_section(context),
       judgment_named_chapters_section(context, author_text),
       judgment_conversation_section(context),
-      TurnInteractionService.context_section(context.interaction_state),
       context.open_behavior_summary || ""
     ]
     |> Enum.reject(&(&1 == ""))

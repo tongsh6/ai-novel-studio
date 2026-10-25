@@ -69,17 +69,33 @@ defmodule NovelApplication.JudgmentProtocol do
   end
 
   defp validate_response(fun, prompt, input, profile, attempt, provider_result, previous_tools) do
-    case decode(provider_result, profile, input, previous_tools) do
+    case decode(provider_result, profile, input, previous_tools, attempt) do
       {:ok, judgment} ->
+        maybe_emit_action_intent_correction_outcome(judgment, input)
         {:ok, Map.put(judgment, :provider_call_count, attempt)}
 
+      {:error, {:action_intent_requires_execute, info}} ->
+        log_output_validation(attempt, {:action_intent_requires_execute, info})
+
+        if attempt >= @max_attempts do
+          emit_wrong_route(info, input, provider_result, "ask_author_after_correction")
+          fallback_action_intent_judgment(info, input, provider_result, attempt)
+        else
+          retry_input = put_action_intent_correction_info(input, info)
+
+          correct_or_reject(
+            fun,
+            prompt,
+            retry_input,
+            profile,
+            attempt,
+            {:action_intent_requires_execute, info},
+            tool_names(provider_result)
+          )
+        end
+
       {:error, reason} ->
-        LogEmit.emit(:judgment, :output_validation, :done, %{
-          outcome: if(attempt < @max_attempts, do: "retry", else: "rejected"),
-          reason_code: validation_reason_code(reason),
-          reason: inspect(reason),
-          attempt: attempt
-        })
+        log_output_validation(attempt, reason)
 
         if reason == :exploration_not_available and attempt >= @max_attempts + 1 do
           degrade_to_reply(provider_result, input, attempt)
@@ -97,6 +113,15 @@ defmodule NovelApplication.JudgmentProtocol do
           )
         end
     end
+  end
+
+  defp log_output_validation(attempt, reason) do
+    LogEmit.emit(:judgment, :output_validation, :done, %{
+      outcome: if(attempt < @max_attempts, do: "retry", else: "rejected"),
+      reason_code: validation_reason_code(reason),
+      reason: inspect(reason),
+      attempt: attempt
+    })
   end
 
   defp tool_names(result) do
@@ -243,10 +268,155 @@ defmodule NovelApplication.JudgmentProtocol do
   defp correction_content({:invalid_tool_combination, _detail}),
     do: correction_content(:invalid_tool_combination)
 
+  defp correction_content({:action_intent_requires_execute, info}) do
+    intent_label = AuthoringTaskPolicy.action_intent_label(info.intent)
+    capability = AuthoringTaskPolicy.action_intent_capability(info.intent)
+
+    "本次响应未通过契约校验：action_intent_requires_execute（作者明确动作被普通回复/方向候选/等待吞掉）。" <>
+      "作者这轮明确要求#{intent_label}；必须转到实际执行或具体澄清，不能以 reply/propose_creative_directions/await_author 结束。" <>
+      "若对象/范围明确：用 judgment_decision.execute，capability=#{capability}，并从上下文复制真实对象 ref（不得编造）；" <>
+      "若只是需要计划/正文事实：可先 explore，但取证后必须 execute；若缺对象/范围/段：用 ask_author 具体问清；" <>
+      "确有系统能力缺口才用 report_capability_gap。保留同一作者输入、目标、对象范围与权限，不扩大范围、不补字段。" <>
+      "（上一轮终局：#{info.action}#{if(info.capability, do: "/" <> to_string(info.capability), else: "")}）"
+  end
+
   defp correction_content(reason) do
     "本次响应未通过契约校验：#{inspect(reason) |> String.slice(0, @error_excerpt_chars)}。" <>
       "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
   end
+
+  # B33 CP2：作者明确动作意图但模型终局为 reply/creative/await（非 execute/ask/gap）→
+  # 一次有界纠错；不是关键词路由（不直接选能力），只在输出校验后纠偏。
+  defp validate_action_intent_route(operation, args, options) do
+    author_text = Keyword.get(options, :author_text, "")
+
+    with true <- Keyword.get(options, :profile) == :judgment,
+         false <- Keyword.get(options, :discussion_only, false),
+         intent when not is_nil(intent) <-
+           AuthoringTaskPolicy.explicit_action_intent(author_text),
+         true <- operation in ["reply", "creative_directions", "await_author"] do
+      {:error,
+       {:action_intent_requires_execute,
+        %{
+          intent: intent,
+          action: operation,
+          capability: field(args, :capability),
+          target_ref:
+            field(args, :adopted_content_ref) || field(args, :pending_artifact_ref) ||
+              field(args, :character_ref)
+        }}}
+    else
+      _ -> :ok
+    end
+  end
+
+  defp put_action_intent_correction_info(input, info) do
+    options =
+      input
+      |> Map.get(:options, [])
+      |> Keyword.put(:action_intent_correction_info, info)
+
+    Map.put(input, :options, options)
+  end
+
+  defp maybe_emit_action_intent_correction_outcome(judgment, input) do
+    info = input |> Map.get(:options, []) |> Keyword.get(:action_intent_correction_info)
+
+    if info do
+      emit_wrong_route(info, input, judgment.provider_result, "execute_after_correction",
+        correction_attempted: true
+      )
+    end
+  end
+
+  defp emit_wrong_route(info, input, provider_result, terminal_reason) do
+    emit_wrong_route(info, input, provider_result, terminal_reason, [])
+  end
+
+  defp emit_wrong_route(info, input, provider_result, terminal_reason, opts) do
+    LogEmit.emit(
+      :judgment,
+      :wrong_route,
+      :done,
+      wrong_route_event_payload(info, input, provider_result, terminal_reason, opts)
+    )
+  end
+
+  @doc false
+  def wrong_route_event_payload(info, input, provider_result, terminal_reason, opts \\ []) do
+    %{
+      author_intent: Atom.to_string(info.intent),
+      action: info.action,
+      capability: info.capability,
+      target_ref: info.target_ref,
+      prompt_tokens: prompt_tokens(provider_result),
+      correction_attempted: Keyword.get(opts, :correction_attempted, true),
+      terminal_reason: terminal_reason,
+      author_input_chars:
+        String.length(Keyword.get(input |> Map.get(:options, []), :author_text, ""))
+    }
+  end
+
+  defp prompt_tokens(provider_result) do
+    output = field(provider_result, :provider_output)
+    usage = field(output, :usage) || %{}
+
+    field(usage, :input_tokens) || field(usage, :prompt_tokens) ||
+      field(usage, :total_tokens)
+  end
+
+  defp fallback_action_intent_judgment(info, input, provider_result, attempt) do
+    question = action_intent_clarification(info.intent)
+    source = action_intent_fallback_source(provider_result, question)
+
+    args = %{
+      question: question,
+      reason: "action_intent_unresolved",
+      dialogue_goal: AuthoringTaskPolicy.action_intent_label(info.intent)
+    }
+
+    judgment =
+      normalized("await_author", args, nil, provider_result, question, source, input)
+      |> Map.put(:provider_call_count, attempt)
+      |> Map.put(:wrong_route, info)
+      |> Map.put(:wrong_route_correction_attempted, true)
+
+    {:ok, judgment}
+  end
+
+  defp action_intent_clarification(:write_chapter) do
+    "请指出要先写哪一章正文（章名或序号）以及本轮范围（首稿/续写/整章），我再继续生成待采纳候选；不会自行新建章节或猜测对象。"
+  end
+
+  defp action_intent_clarification(:design_character) do
+    "请确认要设计的角色定位（主角/反派/配角）和大致方向，我再生成待采纳角色候选；不会凭空新建角色。"
+  end
+
+  defp action_intent_clarification(:revise_content) do
+    "请指出要修订的具体章节与段落/句子，以及要改成的目标；我再继续生成修订候选，不会猜测或扩大修改范围。"
+  end
+
+  defp action_intent_clarification(_intent) do
+    "请确认这轮要执行的具体动作和对象范围，我再继续；不会猜测或写入作品事实。"
+  end
+
+  defp action_intent_fallback_source(provider_result, question) do
+    output = field(provider_result, :provider_output) || %{}
+    run_ref = field(output, :provider_run_ref) || "application_action_intent"
+    call_ref = field(output, :provider_call_ref) || "application_action_intent"
+
+    %{
+      source_type: "application_wrong_route_fallback",
+      provider_run_ref: run_ref,
+      provider_call_ref: call_ref,
+      provider_output_ref: run_ref,
+      source_hash: sha256(question),
+      source_byte_range: %{start: 0, length: byte_size(question)},
+      narrative_hash: sha256(question)
+    }
+  end
+
+  defp sha256(text), do: :sha256 |> :crypto.hash(text) |> Base.encode16(case: :lower)
 
   # 探索预算用尽/伪工具文本：多给一次有界重试，避免直接终局（M03/M17 key-set）。
   defp correct_or_reject(fun, prompt, input, profile, attempt, reason, previous_tools)
@@ -476,7 +646,7 @@ defmodule NovelApplication.JudgmentProtocol do
     end
   end
 
-  defp decode(result, profile, input, previous_tools) when is_map(result) do
+  defp decode(result, profile, input, previous_tools, attempt) when is_map(result) do
     calls = field(result, :tool_calls) || []
 
     options =
@@ -488,6 +658,8 @@ defmodule NovelApplication.JudgmentProtocol do
       )
       |> Keyword.put(:observation_count, length(Map.get(input, :observations) || []))
       |> Keyword.put(:previous_attempt_tools, previous_tools)
+      |> Keyword.put(:attempt, attempt)
+      |> Keyword.put(:profile, profile)
       |> Keyword.put(
         :discussion_only,
         TurnInteractionService.discussion_only?(Map.get(input, :author_text) || "")
@@ -499,13 +671,14 @@ defmodule NovelApplication.JudgmentProtocol do
          :ok <- validate_character_profile_route(operation, args, options),
          {:ok, args} <- {:ok, sanitize_operation_args(operation, args, options)},
          :ok <- validate_operation(operation, args, options),
+         :ok <- validate_action_intent_route(operation, args, options),
          {:ok, text, source} <- narrative(result, call, args) do
       judgment = normalized(operation, args, call, result, text, source, input)
       validate_inline_plan(judgment, input)
     end
   end
 
-  defp decode(_, _, _, _), do: {:error, :invalid_judgment_result}
+  defp decode(_, _, _, _, _), do: {:error, :invalid_judgment_result}
 
   defp validate_tools(calls, profile) do
     case JudgmentToolContract.validate(calls, profile) do
@@ -632,7 +805,12 @@ defmodule NovelApplication.JudgmentProtocol do
   defp validate_operation("execute", args, options) do
     capability = field(args, :capability)
 
-    if "ask_author" in Keyword.get(options, :previous_attempt_tools, []) and
+    # B33 CP2：动作意图 gate 主动纠错时明确要求「对象已知→execute」，此时不能沿用
+    # M06 的“上一轮 ask 未回答不得推进”否决；否则明确动作永远无法被纠错修复。
+    action_intent_retry? = Keyword.has_key?(options, :action_intent_correction_info)
+
+    if not action_intent_retry? and
+         "ask_author" in Keyword.get(options, :previous_attempt_tools, []) and
          capability in (@pending_target_capabilities ++ @adopted_target_capabilities) do
       {:error, :await_author_unanswered}
     else

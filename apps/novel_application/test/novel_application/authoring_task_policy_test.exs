@@ -44,4 +44,40 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     assert rendered =~ "work_archive_read"
     assert rendered =~ "创作结果先待采纳"
   end
+
+  test "B33 CP2：动作意图存在性检测（不做路由）覆盖写章/设计角色/修订，讨论与查询不触发" do
+    assert AuthoringTaskPolicy.explicit_action_intent("第02章：旧服务器里的残诀的正文还没写，帮我写出来吧。") ==
+             :write_chapter
+
+    assert AuthoringTaskPolicy.explicit_action_intent("接着第01章往下写一段正文") == :write_chapter
+
+    assert AuthoringTaskPolicy.explicit_action_intent("帮我设计一个配角，后面剧情里会用到。") ==
+             :design_character
+
+    assert AuthoringTaskPolicy.explicit_action_intent("把「第02章」的结尾改一下，改成雨夜。") ==
+             :revise_content
+
+    assert AuthoringTaskPolicy.explicit_action_intent("老沈适合当主角吗？只讨论，不要改作品设定。") ==
+             nil
+
+    assert AuthoringTaskPolicy.explicit_action_intent("第二章写完了吗？") == nil
+    assert AuthoringTaskPolicy.explicit_action_intent("帮我看看这章有什么建议") == nil
+    assert AuthoringTaskPolicy.explicit_action_intent("设计一个角色有哪些方向？先讨论。") == nil
+
+    assert AuthoringTaskPolicy.action_intent_capability(:write_chapter) == "prose_writing"
+    assert AuthoringTaskPolicy.action_intent_capability(:design_character) == "character_design"
+
+    assert AuthoringTaskPolicy.action_intent_capability(:revise_content) ==
+             "revise_adopted_content"
+  end
+
+  test "B33 CP2：判断规则包含动作意图必须 execute 或具体澄清、不得 reply/creative/await 终局" do
+    rules = AuthoringTaskPolicy.rules()
+
+    assert rules =~ "写/续写/重写某章正文时"
+    assert rules =~ "直接 execute prose_writing"
+    assert rules =~ "不能以 reply / propose_creative_directions / await_author 结束"
+    assert rules =~ "设计一个角色时用 execute character_design"
+    assert rules =~ "目标段/范围不明确时用 ask_author"
+  end
 end
