@@ -54,6 +54,39 @@ const maintenanceRetryIds = (process.env.DOGFOOD_MAINTENANCE_RETRY ?? "")
 // 0 = 不限制（canonical 行为）。
 const onlySeq = Number(process.env.DOGFOOD_ONLY_SEQ ?? "0");
 const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
+// B37 CP1：统一等待预算（env 可覆盖；禁止 600s 通用盲等）。kind 即产品旅程阶段。
+const WAIT_BUDGET_DEFAULTS = Object.freeze({
+  input: 30_000,
+  ack: 30_000,
+  turn: 120_000,
+  candidate: 120_000,
+  adoption: 90_000,
+  maintenance: 180_000,
+  export: 60_000,
+  toc: 30_000,
+});
+
+function waitBudget(kind) {
+  const envKey = `DOGFOOD_WAIT_${String(kind).toUpperCase()}_MS`;
+  const raw = process.env[envKey];
+  const value = raw == null || raw === "" ? WAIT_BUDGET_DEFAULTS[kind] : Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`invalid wait budget ${envKey}=${JSON.stringify(raw)} for kind=${kind}`);
+  }
+  return value;
+}
+
+const FAULT_SIM_KINDS = ["page_closed", "action_failed", "stall", "backend_down"];
+const faultSim = process.env.DOGFOOD_FAULT_SIM ?? "";
+if (faultSim && !FAULT_SIM_KINDS.includes(faultSim)) {
+  console.error(`DOGFOOD_FAULT_SIM must be one of ${FAULT_SIM_KINDS.join("|")}, got ${faultSim}`);
+  process.exit(2);
+}
+if (faultSim && provider !== "slice_verify") {
+  console.error("DOGFOOD_FAULT_SIM is only allowed with --provider slice_verify (dry-run harness)");
+  process.exit(2);
+}
+const dogfoodApiBaseUrl = process.env.DOGFOOD_API_BASE_URL ?? "http://127.0.0.1:4657";
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 // 正文采纳按钮的真实文案集合：无质量发现=「保存为章节正文」；带发现时草稿归类
 // 为「原稿」=「保存原稿」（VS-00E 质量主链语义）。两者都是产品正常行为。
@@ -100,7 +133,7 @@ function frameDigest(fromIndex, limit = 15) {
 
 // fromIndex：只匹配该下标之后到达的帧。长跑会话里历史帧大量累积（含旧轮的
 // needs_confirmation / pending），不限定起点会误匹配历史帧、走错分支。
-async function waitForFrame(predicate, message, timeoutMs = 60_000, fromIndex = 0) {
+async function waitForFrame(predicate, message, timeoutMs = waitBudget("turn"), fromIndex = 0) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     const match = frames.slice(fromIndex).find(predicate);
@@ -165,6 +198,171 @@ function appendProgress(entry) {
   );
 }
 
+// B37 CP1：等待/waitdog 证据。runner 内所有 journey 等待都必须经过 waitForJourneyKind；
+// 每次等待写 wait-events.jsonl（start/heartbeat/end），summary/failure 带 wait_stats。
+const WAIT_EVENTS_PATH = path.join(artifactDir, "wait-events.jsonl");
+const waitRecords = [];
+let activePage = null;
+let watchdogTimer = null;
+let watchdogStopped = false;
+let currentWait = null;
+
+class DogfoodWaitError extends Error {
+  constructor(code, message, details = {}) {
+    super(message);
+    this.name = "DogfoodWaitError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function isFatalWaitError(error) {
+  return (
+    error instanceof DogfoodWaitError &&
+    ["page_closed", "backend_down", "action_failed", "adoption_persistence_failed", "signal"].includes(
+      error.code,
+    )
+  );
+}
+
+function appendWaitEvent(entry) {
+  try {
+    fs.appendFileSync(
+      WAIT_EVENTS_PATH,
+      `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
+    );
+  } catch {
+    // 证据写失败不改变旅程语义；stderr 留痕。
+    console.error("wait-events write failed");
+  }
+}
+
+function waitStats() {
+  const completed = waitRecords.filter((record) => record.outcome !== "pending");
+  const totalElapsed = completed.reduce((sum, record) => sum + Number(record.elapsed_ms ?? 0), 0);
+  const timeouts = completed.filter((record) => record.outcome === "timeout").length;
+  const failures = completed.filter(
+    (record) => record.outcome === "error" || record.outcome === "fatal",
+  ).length;
+  const slowest = completed.reduce(
+    (best, record) =>
+      !best || Number(record.elapsed_ms ?? 0) > Number(best.elapsed_ms ?? 0) ? record : best,
+    null,
+  );
+  return {
+    total_waits: completed.length,
+    total_elapsed_ms: totalElapsed,
+    timeout_count: timeouts,
+    failure_count: failures,
+    slowest: slowest
+      ? {
+          kind: slowest.kind,
+          label: slowest.label,
+          elapsed_ms: slowest.elapsed_ms,
+          outcome: slowest.outcome,
+        }
+      : null,
+    records: completed.slice(-50),
+  };
+}
+
+function recordFailureFile(error, extra = {}) {
+  try {
+    fs.writeFileSync(
+      path.join(artifactDir, "failure.json"),
+      JSON.stringify(
+        {
+          at: new Date().toISOString(),
+          status: "failed",
+          code: error?.code ?? "error",
+          error: String(error?.message ?? error),
+          stack: String(error?.stack ?? "").slice(0, 4000),
+          current_wait: currentWait,
+          wait_stats: waitStats(),
+          ...extra,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (writeError) {
+    console.error(`failure.json write failed: ${writeError?.message ?? writeError}`);
+  }
+}
+
+async function backendHealthAlive(timeoutMs = 2_000) {
+  try {
+    const response = await fetch(`${dogfoodApiBaseUrl}/health`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function assertPageAlive(page, context) {
+  if (!page || page.isClosed()) {
+    throw new DogfoodWaitError("page_closed", `page/context closed while waiting: ${context}`, {
+      context,
+    });
+  }
+}
+
+function assertBackendAlive(context) {
+  // 等待心跳/看门狗共用的后端健康检查；/health 不返回即视为 SIGTERM/后端退出。
+  if (faultSim === "backend_down") {
+    throw new DogfoodWaitError("backend_down", `fault-sim backend_down: ${context}`, { context });
+  }
+}
+
+// B37 CP1 全局 watchdog（10s）：page closed / backend health down -> 写 failure.json 并非零退出。
+function startWatchdog(page) {
+  activePage = page;
+  watchdogStopped = false;
+  watchdogTimer = setInterval(async () => {
+    if (watchdogStopped) return;
+    try {
+      assertPageAlive(activePage, "global-watchdog");
+      assertBackendAlive("global-watchdog");
+      if (!(await backendHealthAlive())) {
+        throw new DogfoodWaitError(
+          "backend_down",
+          "backend /health unavailable during global watchdog",
+          { source: "watchdog" },
+        );
+      }
+    } catch (error) {
+      watchdogStopped = true;
+      if (watchdogTimer) clearInterval(watchdogTimer);
+      watchdogTimer = null;
+      recordFailureFile(error, { source: "watchdog" });
+      console.error(`[dogfood] watchdog fatal: ${error?.message ?? error}`);
+      process.exitCode = 1;
+      process.exit(1);
+    }
+  }, 10_000);
+  watchdogTimer.unref?.();
+}
+
+function stopWatchdog() {
+  watchdogStopped = true;
+  if (watchdogTimer) clearInterval(watchdogTimer);
+  watchdogTimer = null;
+}
+
+function exitOnSignal(signal, exitCode) {
+  recordFailureFile(new DogfoodWaitError("signal", `${signal} received`), {
+    source: "process-signal",
+    signal,
+  });
+  appendWaitEvent({ phase: "fatal", kind: "signal", label: signal, code: "signal" });
+  stopWatchdog();
+  process.exit(exitCode);
+}
+process.once("SIGTERM", () => exitOnSignal("SIGTERM", 143));
+process.once("SIGINT", () => exitOnSignal("SIGINT", 130));
+
 // B9：确认/跳过必须显式计数（不盲确认换绿灯）；summary 消费 confirmation_counts。
 function recordConfirmationDecision({ kind, decision, target, reason_codes = [], reason = null }) {
   confirmationDecisions.push({
@@ -213,10 +411,10 @@ async function readToc(page) {
   // B6：投影判定走 classifyJourneyFrame 的 toc_projection 分支（契约单源）。
   let resp;
   try {
-    const projection = await waitForJourneyKind(
+    const projection = await waitFor(
+      "toc",
       (classification) => classification.kind === "toc_projection",
       "No get_toc projection frame after entering reading mode",
-      240_000,
       before,
     );
     resp = projection.classification.toc;
@@ -238,7 +436,7 @@ async function readToc(page) {
     .catch(() => {});
   // 活跃 run 期间输入框可能被运行态占位（M0 实锤：改进步仍在跑时读目录），
   // 等待放宽到 60s——run 收束后输入框恢复。
-  await page.locator(chatInputSelector).waitFor({ timeout: 60_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: waitBudget("input") });
   return resp;
 }
 
@@ -269,8 +467,8 @@ async function sendAuthorMessage(page, instruction) {
   log(`waiting for chat input before: ${instruction.slice(0, 40)}`);
   try {
     await withTimeout(
-      page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 120_000 }),
-      140_000,
+      page.locator(chatInputSelector).waitFor({ state: "visible", timeout: waitBudget("input") }),
+      waitBudget("input") + 20_000,
       "chat input visible",
     );
   } catch (waitError) {
@@ -305,8 +503,8 @@ async function sendAuthorMessage(page, instruction) {
         () => {},
       );
       await withTimeout(
-        page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 30_000 }),
-        40_000,
+        page.locator(chatInputSelector).waitFor({ state: "visible", timeout: waitBudget("input") }),
+        waitBudget("input") + 10_000,
         "chat input visible after recovery",
       );
       log("chat input visible after leaving reading mode; retrying send");
@@ -327,8 +525,8 @@ async function sendAuthorMessage(page, instruction) {
         );
       }
       await withTimeout(
-        page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 60_000 }),
-        70_000,
+        page.locator(chatInputSelector).waitFor({ state: "visible", timeout: waitBudget("input") }),
+        waitBudget("input") + 10_000,
         "chat input visible after cancel",
       );
     } else {
@@ -336,7 +534,11 @@ async function sendAuthorMessage(page, instruction) {
     }
   }
   log("chat input visible; filling instruction");
-  await withTimeout(page.locator(chatInputSelector).fill(instruction), 45_000, "fill author input");
+  await withTimeout(
+    page.locator(chatInputSelector).fill(instruction),
+    waitBudget("input"),
+    "fill author input",
+  );
   log("instruction filled; clicking send");
   const inputValueBeforeSend = await withTimeout(
     page.locator(chatInputSelector).inputValue(),
@@ -357,7 +559,11 @@ async function sendAuthorMessage(page, instruction) {
       ).catch(() => -1),
     })}\n`,
   );
-  await withTimeout(page.getByRole("button", { name: /^发送$/ }).click(), 45_000, "send click");
+  await withTimeout(
+    page.getByRole("button", { name: /^发送$/ }).click(),
+    waitBudget("ack"),
+    "send click",
+  );
   log("sent; waiting for user_message ack");
 
   let ack;
@@ -369,10 +575,10 @@ async function sendAuthorMessage(page, instruction) {
           f.event === "phx_reply" &&
           f.body?.response?.received === true,
         "No user_message ack after sending instruction",
-        30_000,
+        waitBudget("ack"),
         fromIndex,
       ),
-      45_000,
+      waitBudget("ack") + 15_000,
       "user_message ack",
     );
   } catch (ackError) {
@@ -550,29 +756,165 @@ function assertNever(value, label) {
   throw new Error(`${label}: unhandled journey frame kind ${JSON.stringify(value)}`);
 }
 
-// 单源等待器：每 tick 只调用 classifyJourneyFrame 一次；谓词拿分类结果判断。
-async function waitForJourneyKind(predicate, message, timeoutMs = 60_000, fromIndex = 0) {
+// B37 CP1 单源等待器：每 tick 分类一次 + 预算/心跳/看门狗/fail-fast。
+// waitKind 必须来自 WAIT_BUDGET_DEFAULTS；调用方不传则默认 turn 预算。
+async function waitForJourneyKind(predicate, message, timeoutMs = waitBudget("turn"), fromIndex = 0, waitKind = "turn") {
   const started = Date.now();
-  let last = null;
-  while (Date.now() - started < timeoutMs) {
-    for (let index = fromIndex; index < frames.length; index += 1) {
-      const classification = classifyJourneyFrame(frames[index], { turnId: null });
-      last = classification;
-      if (classification.kind !== "ignore" && predicate(classification, frames[index])) {
-        return { frame: frames[index], classification };
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+  const startedIso = new Date(started).toISOString();
+  const record = {
+    kind: waitKind,
+    label: String(message).slice(0, 240),
+    budget_ms: timeoutMs,
+    started_at: startedIso,
+    elapsed_ms: 0,
+    outcome: "pending",
+    last_frame: null,
+  };
+  currentWait = { kind: waitKind, label: record.label, started_at: startedIso, budget_ms: timeoutMs };
+  appendWaitEvent({
+    phase: "start",
+    kind: waitKind,
+    label: record.label,
+    budget_ms: timeoutMs,
+    from_index: fromIndex,
+  });
+
+  // 故障注入（仅 slice_verify dry-run；默认 off）：在等待起点立即触发，验证 fail-fast 路径。
+  if (faultSim === "page_closed") {
+    record.outcome = "fatal";
+    record.elapsed_ms = Date.now() - started;
+    waitRecords.push(record);
+    appendWaitEvent({ phase: "fatal", kind: waitKind, label: record.label, code: "page_closed" });
+    throw new DogfoodWaitError("page_closed", `fault-sim page_closed during ${record.label}`);
   }
-  throw new Error(
-    `${message}\n  last classification: ${JSON.stringify(last)}\n  recent frames: ${frameDigest(fromIndex)}\n  turn_results: ${turnResultAutopsy(fromIndex)}`,
-  );
+  if (faultSim === "backend_down") {
+    record.outcome = "fatal";
+    record.elapsed_ms = Date.now() - started;
+    waitRecords.push(record);
+    appendWaitEvent({ phase: "fatal", kind: waitKind, label: record.label, code: "backend_down" });
+    throw new DogfoodWaitError("backend_down", `fault-sim backend_down during ${record.label}`);
+  }
+  if (
+    faultSim === "action_failed" &&
+    /adopt|adoption|maintenance candidate|采纳/i.test(String(message))
+  ) {
+    record.outcome = "fatal";
+    record.elapsed_ms = Date.now() - started;
+    waitRecords.push(record);
+    appendWaitEvent({ phase: "fatal", kind: waitKind, label: record.label, code: "action_failed" });
+    throw new DogfoodWaitError(
+      "action_failed",
+      `fault-sim action_failed during ${record.label}: adoption persistence failed: :incomplete_scope`,
+    );
+  }
+
+  let last = null;
+  let lastHeartbeat = started;
+  try {
+    for (;;) {
+      const elapsed = Date.now() - started;
+      record.elapsed_ms = elapsed;
+      if (activePage?.isClosed()) {
+        throw new DogfoodWaitError("page_closed", `page/context closed during ${record.label}`, {
+          kind: waitKind,
+          elapsed_ms: elapsed,
+        });
+      }
+      if (elapsed >= timeoutMs) {
+        record.outcome = "timeout";
+        throw new DogfoodWaitError(
+          "wait_timeout",
+          `${message} exceeded ${waitKind} budget ${timeoutMs}ms (elapsed ${elapsed}ms)\n  last classification: ${JSON.stringify(last)}\n  recent frames: ${frameDigest(fromIndex)}\n  turn_results: ${turnResultAutopsy(fromIndex)}`,
+          { kind: waitKind, budget_ms: timeoutMs, elapsed_ms: elapsed },
+        );
+      }
+
+      if (faultSim !== "stall") {
+        for (let index = fromIndex; index < frames.length; index += 1) {
+          const classification = classifyJourneyFrame(frames[index], { turnId: null });
+          last = classification;
+          if (classification.kind !== "ignore" && predicate(classification, frames[index])) {
+            record.outcome = "matched";
+            return { frame: frames[index], classification };
+          }
+        }
+      }
+
+      const now = Date.now();
+      if (now - lastHeartbeat >= 10_000) {
+        assertPageAlive(activePage, record.label);
+        assertBackendAlive(record.label);
+        if (!(await backendHealthAlive())) {
+          throw new DogfoodWaitError(
+            "backend_down",
+            `backend /health unavailable while waiting: ${record.label}`,
+            { kind: waitKind, elapsed_ms: now - started },
+          );
+        }
+        if (activePage) {
+          const visible = await activePage
+            .locator("body")
+            .innerText({ timeout: 1_500 })
+            .catch(() => "");
+          const failureMarker = ["作品档案写入失败", "采纳失败，原候选仍待采纳"].find((marker) =>
+            visible.includes(marker),
+          );
+          if (failureMarker) {
+            throw new DogfoodWaitError(
+              "adoption_persistence_failed",
+              `${message}: UI shows ${failureMarker}`,
+              { kind: waitKind, elapsed_ms: now - started },
+            );
+          }
+        }
+        record.last_frame = frameDigest(fromIndex, 5);
+        appendWaitEvent({
+          phase: "heartbeat",
+          kind: waitKind,
+          label: record.label,
+          elapsed_ms: now - started,
+          page_alive: Boolean(activePage && !activePage.isClosed()),
+          backend_health: "ok",
+          last_frame: record.last_frame,
+        });
+        lastHeartbeat = now;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  } catch (error) {
+    if (record.outcome === "pending") {
+      record.outcome =
+        error instanceof DogfoodWaitError && error.code === "wait_timeout"
+          ? "timeout"
+          : error instanceof DogfoodWaitError
+            ? "fatal"
+            : "error";
+    }
+    record.elapsed_ms = Date.now() - started;
+    throw error;
+  } finally {
+    record.elapsed_ms = Date.now() - started;
+    waitRecords.push(record);
+    appendWaitEvent({
+      phase: "end",
+      kind: waitKind,
+      label: record.label,
+      budget_ms: timeoutMs,
+      elapsed_ms: record.elapsed_ms,
+      outcome: record.outcome,
+      last_frame: record.last_frame,
+    });
+    currentWait = null;
+  }
+}
+
+function waitFor(kind, predicate, label, fromIndex = 0) {
+  return waitForJourneyKind(predicate, label, waitBudget(kind), fromIndex, kind);
 }
 
 // 作者采纳一条待采纳正文（首稿/续写）。B6：帧判定全部来自 classifyJourneyFrame，
 // 这里只对判别联合做穷尽 switch；B9：每个 needs_confirmation 显式记录 confirm/skip。
 async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, options = {}) {
-  const WAIT_TURN_MS = 1_800_000;
   const first = await waitForJourneyKind(
     (classification) =>
       [
@@ -584,8 +926,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
         "confirmation_required",
       ].includes(classification.kind),
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
-    WAIT_TURN_MS,
+    waitBudget("turn"),
     fromIndex,
+    "turn",
   );
 
   let classification = first.classification;
@@ -638,8 +981,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
         candidate.artifactId === pendingArtifactId) ||
       candidate.kind === "action_accepted",
     `No adoption or overwrite-confirmation result for ${chapterTitle}`,
-    600_000,
+    waitBudget("adoption"),
     fromIndex,
+    "adoption",
   );
 
   if (settle.classification.kind === "confirmation_required") {
@@ -684,8 +1028,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
           candidate.resolved?.some((entry) => entry.artifact_id === pendingArtifactId)) ||
         candidate.kind === "action_accepted",
       `No adoption turn_result after overwrite confirmation for ${chapterTitle}`,
-      120_000,
+      waitBudget("adoption"),
       fromIndex,
+      "adoption",
     );
   }
 
@@ -732,8 +1077,9 @@ async function planMoreChapters(page) {
       classification.artifactTypes.includes("outline_draft") &&
       Number(classification.pending?.payload?.chapter_count ?? 0) >= 1,
     "No incremental outline_draft candidate while expanding the plan",
-    1_800_000,
+    waitBudget("candidate"),
     fromIndex,
+    "candidate",
   );
   const pending = outline.classification.pending;
 
@@ -747,8 +1093,9 @@ async function planMoreChapters(page) {
       classification.kind === "adoption_settled" &&
       classification.resolved?.some((entry) => entry.artifact_id === pending.artifact_id),
     "No adoption turn_result while expanding the plan",
-    120_000,
+    waitBudget("adoption"),
     fromIndex,
+    "adoption",
   );
 
   return Number(pending.payload?.chapter_count ?? 0);
@@ -793,7 +1140,7 @@ function chapterBySeq(toc, seq) {
 
 async function adoptJourneyCandidate(page, classification, fromIndex, options = {}) {
   const pending = classification.pending;
-  const timeoutMs = options.adoptionTimeoutMs ?? 600_000;
+  const timeoutMs = options.adoptionTimeoutMs ?? waitBudget("adoption");
   const actionResults = [];
 
   if (options.characterCandidate) {
@@ -850,6 +1197,7 @@ async function adoptJourneyCandidate(page, classification, fromIndex, options = 
         `maintenance candidate ${pending?.artifact_type ?? "?"} was not adopted`,
         timeoutMs,
         fromIndex,
+        "adoption",
       ),
       failureWait,
     ]);
@@ -901,7 +1249,7 @@ function isProseCandidate(classification) {
 // （2026-10-25 dry-run 实锤：重编号被确定性 fixture 判成 clarify/casual_reply）。
 // `agent_awaiting_author` 单独返回给调用方：产品可能是在向作者澄清段/对象，author
 // 补一句消歧后继续（task-87）；其它拍若未配置消歧则显式失败，不静默等待。
-async function waitForMaintenanceOutcome(predicate, label, fromIndex, timeoutMs = 1_800_000) {
+async function waitForMaintenanceOutcome(predicate, label, fromIndex, timeoutMs = waitBudget("maintenance")) {
   const result = await waitForJourneyKind(
     (classification) =>
       predicate(classification) ||
@@ -917,6 +1265,7 @@ async function waitForMaintenanceOutcome(predicate, label, fromIndex, timeoutMs 
     label,
     timeoutMs,
     fromIndex,
+    "maintenance",
   );
   if (result.classification.kind === "wrong_route_reply" || result.classification.kind === "run_failed") {
     const detail = result.classification.assistantText ?? result.classification.kind;
@@ -1187,7 +1536,7 @@ async function maybeRunMaintenanceBeats(page, toc, state) {
     try {
       const result = await withTimeout(
         beat.run(page, state, currentToc),
-        15 * 60 * 1000,
+        waitBudget("maintenance"),
         `maintenance beat ${beat.id}`,
       );
       currentToc = result.toc ?? currentToc;
@@ -1196,6 +1545,7 @@ async function maybeRunMaintenanceBeats(page, toc, state) {
       appendProgress({ maintenance_beat: beat.id, result: result.detail });
       log(`maintenance beat ${beat.id} done`);
     } catch (error) {
+      if (isFatalWaitError(error)) throw error;
       state.attempts = state.attempts ?? {};
       state.details.push({
         beat: beat.id,
@@ -1252,7 +1602,7 @@ async function exportBook(page) {
   });
   await page.getByRole("button", { name: "导出全书" }).click();
   await page.waitForFunction(() => document.body.innerText.includes("已导出到"), null, {
-    timeout: 30_000,
+    timeout: waitBudget("export"),
   });
   const visibleText = await page.locator("body").innerText();
   const match = /已导出到\s+([^\n]+\.md)/.exec(visibleText);
@@ -1383,7 +1733,7 @@ async function runInventoryBeat(page) {
       f.body?.tool_result?.tool_name === "fact_inventory" &&
       (f.body?.adoption_state?.pending ?? []).length > 0,
     "fact inventory produced no proposals",
-    600_000,
+    waitBudget("candidate"),
     fromIndex,
   );
 
@@ -1704,6 +2054,8 @@ if (reasoningEffort && provider === "lmstudio") {
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 page.setDefaultTimeout(60_000);
+activePage = page;
+startWatchdog(page);
 const pageDiagnosticsPath = path.join(artifactDir, "page-diagnostics.jsonl");
 page.on("pageerror", (error) => {
   fs.appendFileSync(
@@ -1740,7 +2092,7 @@ const inventoryBeat = { attempted: false, attempts: 0, done: false, result: null
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: waitBudget("input") });
   await page.waitForFunction(() => document.body.innerText.includes("同步已连接"), null, {
     timeout: 30_000,
   });
@@ -1791,6 +2143,7 @@ try {
         );
         appendProgress({ plan_expanded_by: added, chapter_count: flatChapters(toc).length });
       } catch (error) {
+        if (isFatalWaitError(error)) throw error;
         planFailures += 1;
         appendProgress({ plan_expansion_error: String(error?.message ?? error) });
         log(`plan expansion error: ${error?.message ?? error}`);
@@ -1891,6 +2244,7 @@ try {
           appendProgress({ inventory_beat: inventoryBeat.result });
           log(`inventory beat done: ${JSON.stringify(inventoryBeat.result)}`);
         } catch (error) {
+          if (isFatalWaitError(error)) throw error;
           inventoryBeat.result = {
             error: String(error?.message ?? error),
             attempt: inventoryBeat.attempts,
@@ -1903,6 +2257,7 @@ try {
         }
       }
     } catch (error) {
+      if (isFatalWaitError(error)) throw error;
       failures.push({ title: chapter.title, error: String(error?.message ?? error) });
       appendProgress({ chapter: chapter.title, error: String(error?.message ?? error) });
       log(`retry ${chapter.title} after error: ${error?.message ?? error}`);
@@ -1950,6 +2305,8 @@ try {
     meta_leak_intercepted_chapters: metaLeakInterceptions,
     // VS-00G 盘点节拍结果（补全回路长跑表现）。
     inventory_beat: inventoryBeat,
+    wait_stats: waitStats(),
+    wait_events_path: WAIT_EVENTS_PATH,
     run_duration_ms: Date.now() - startedAt,
   });
 
@@ -1977,27 +2334,11 @@ try {
   } catch (screenshotError) {
     log(`failure screenshot skipped: ${screenshotError?.message ?? screenshotError}`);
   }
-  try {
-    fs.writeFileSync(
-      path.join(artifactDir, "failure.json"),
-      JSON.stringify(
-        {
-          at: new Date().toISOString(),
-          status: "failed",
-          error: String(error?.message ?? error),
-          stack: String(error?.stack ?? "").slice(0, 4000),
-          run_duration_ms: Date.now() - startedAt,
-        },
-        null,
-        2,
-      ),
-    );
-    log("failure.json written");
-  } catch (writeError) {
-    console.error(`failure.json write failed: ${writeError?.message ?? writeError}`);
-  }
+  recordFailureFile(error, { source: "runner", run_duration_ms: Date.now() - startedAt });
+  log("failure.json written");
   throw error;
 } finally {
+  stopWatchdog();
   await browser.close().catch((closeError) => {
     log(`browser close skipped: ${closeError?.message ?? closeError}`);
   });
