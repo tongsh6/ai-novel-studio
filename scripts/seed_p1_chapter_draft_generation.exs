@@ -147,7 +147,15 @@ chapter_lines = [
     "theme" => "个体在系统性垄断下的挣扎与互助",
     "main_goal" => "陆沉舟从欠费停灵的底层散修成长为打破灵气垄断的关键人物",
     "target_reader" => "关注长篇主链闭环的作者",
-    "tone_preference" => "克制、紧张、具象"
+    "tone_preference" => "克制、紧张、具象",
+    # P1 dogfood：真实作品立项会登记预计卷数；仅 dogfood launcher 打开该 env，
+    # 避免改变其它复用本 seed 的场景判断 prompt 口径。
+    "planned_volumes" =>
+      case System.get_env("P1_SEED_PLANNED_VOLUMES") do
+        nil -> nil
+        "" -> nil
+        value -> String.to_integer(value)
+      end
   })
 
 {:ok, snapshot} = WorkSessionService.resume(work.id)

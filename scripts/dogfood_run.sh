@@ -7,13 +7,17 @@
 # 产品代码无任何狗粮感知逻辑。
 #
 # 用法：
-#   bash scripts/dogfood_run.sh [--chapters N] [--min-words W] [--provider lmstudio|slice_verify] [--resume]
+#   bash scripts/dogfood_run.sh [--chapters N] [--plan-chapters N] [--stop-after N] [--min-words W] [--provider lmstudio|strata|slice_verify] [--resume]
 #
 #   --chapters N      本次最多推进 N 个不同的章（0 = 跑到全部达标；默认 0）
 #   --min-words W     每章有效字数下限（默认 1000）
 #   --target-words T  全书目标有效字数（0 = 不扩章；>0 时全部章达标而总字数未达
 #                     则自动增量规划扩章后继续，直到达标）
-#   --provider      默认 lmstudio（狗粮要真实产出）；slice_verify 仅用于调试 runner
+#   --provider      默认 lmstudio（狗粮要真实产出）；strata 走批量真实模型；slice_verify 仅调试
+#   --plan-chapters N 只推进章节计划的前 N 章（P1 canonical=10；0=不限，seed 有 12 章计划）
+#   --stop-after N   写满 N 个已推进章后优雅退出，用于断点续跑演练（配合 --resume 二次启动）
+#   --artifact-dir D 证据目录（默认 artifacts/novel-output/p1-100k-dogfood；P1 canonical 用
+#                   artifacts/novel-output/p1-authoring-dogfood-2026-10-25）
 #   --resume        断点续跑：不重置数据库、不重新 seed，从当前作品事实继续
 #                   （这也是 P1 Done「重启后能继续生成下一章」的真实演练）
 
@@ -60,15 +64,24 @@ API_URL="http://127.0.0.1:${PHOENIX_PORT}"
 VITE_WS_URL="ws://localhost:${VITE_PORT}/socket"
 
 CHAPTERS=0
+PLAN_CHAPTERS=0
+STOP_AFTER=0
 MIN_WORDS=1000
 TARGET_WORDS=0
 PROVIDER="lmstudio"
 RESUME=0
+ARTIFACT_DIR_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --chapters)
       CHAPTERS="$2"; shift 2 ;;
+    --plan-chapters)
+      PLAN_CHAPTERS="$2"; shift 2 ;;
+    --stop-after)
+      STOP_AFTER="$2"; shift 2 ;;
+    --artifact-dir)
+      ARTIFACT_DIR_OVERRIDE="$2"; shift 2 ;;
     --min-words)
       MIN_WORDS="$2"; shift 2 ;;
     --target-words)
@@ -82,7 +95,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$PROVIDER" != "slice_verify" && "$PROVIDER" != "lmstudio" ]]; then
+if [[ "$PROVIDER" != "slice_verify" && "$PROVIDER" != "lmstudio" && "$PROVIDER" != "strata" ]]; then
   echo "Unsupported provider: $PROVIDER" >&2
   exit 1
 fi
@@ -91,6 +104,18 @@ fi
 # prose）：lmstudio 长跑启动前机械检查已加载模型 contextLength ≥ 32768，不达标
 # 直接拒跑并给出重载指令，不允许带病起跑。
 MIN_CONTEXT_LENGTH=32768
+if [[ "$PROVIDER" == "strata" ]]; then
+  STRATA_ENDPOINT="${NOVEL_STRATA_ENDPOINT:-http://127.0.0.1:47831/v1}"
+  STRATA_MODEL="${NOVEL_STRATA_MODEL:-iq3_s}"
+  echo "[dogfood][strata] preflight models at ${STRATA_ENDPOINT%/}/models (expect $STRATA_MODEL)"
+  if ! curl -sf --max-time 10 "${STRATA_ENDPOINT%/}/models" | grep -q "$STRATA_MODEL"; then
+    echo "[dogfood][strata] 预检失败：${STRATA_ENDPOINT%/}/models 未返回 $STRATA_MODEL；请先加载模型/确认 endpoint。" >&2
+    exit 1
+  fi
+  echo "[dogfood][strata] 模型预检通过：$STRATA_MODEL"
+  export NOVEL_STRATA_MODEL="$STRATA_MODEL"
+fi
+
 if [[ "$PROVIDER" == "lmstudio" ]]; then
   if ! command -v lms >/dev/null 2>&1; then
     echo "[dogfood][B8] 未找到 lms CLI，无法预检模型上下文；请先安装/启动 LM Studio。" >&2
@@ -141,13 +166,41 @@ print("\n".join(m.get("identifier", "") for m in models if m.get("type") == "llm
   echo "[dogfood][B8b] 模型一致性预检通过：$CONFIGURED_MODEL"
 fi
 
-ARTIFACT_DIR="${DOGFOOD_ARTIFACT_DIR:-$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood}"
+ARTIFACT_DIR="${ARTIFACT_DIR_OVERRIDE:-${DOGFOOD_ARTIFACT_DIR:-$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood}}"
+if [[ "$ARTIFACT_DIR" != /* ]]; then
+  ARTIFACT_DIR="$PROJECT_ROOT/$ARTIFACT_DIR"
+fi
 APP_LOG_DIR="$ARTIFACT_DIR/app-log"
 LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"
 mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR"
 
 PHX_PID=""
 TAURI_PID=""
+CLEANED_UP=0
+LMS_BIN="${LMS_BIN:-$HOME/.lmstudio/bin/lms}"
+
+# 用户硬约束（2026-10-25）：任何 dogfood/模型验证 run 结束（成功/失败/中断）都必须卸载
+# LM Studio 模型，避免本机内存长期被大模型占用。这里不加载模型，只负责 teardown 与取证。
+record_lms_models() {
+  local output="$1"
+  if [[ -x "$LMS_BIN" ]]; then
+    "$LMS_BIN" ps > "$output" 2>&1 || true
+  else
+    echo "lms CLI not found at $LMS_BIN" > "$output" 2>/dev/null || true
+  fi
+}
+
+unload_lms_models() {
+  if [[ -x "$LMS_BIN" ]]; then
+    echo "[dogfood][lms] teardown: unload --all before=$(grep -c '^[a-zA-Z0-9]' "$ARTIFACT_DIR/lms-ps-start.txt" 2>/dev/null || echo unknown)"
+    "$LMS_BIN" unload --all >> "$ARTIFACT_DIR/lms-unload.log" 2>&1 || true
+  else
+    echo "[dogfood][lms] lms CLI not found at $LMS_BIN; skip unload" >> "$ARTIFACT_DIR/lms-unload.log"
+  fi
+  record_lms_models "$ARTIFACT_DIR/lms-ps-after.txt"
+  echo "[dogfood][lms] ps after unload:" >> "$ARTIFACT_DIR/lms-unload.log"
+  cat "$ARTIFACT_DIR/lms-ps-after.txt" >> "$ARTIFACT_DIR/lms-unload.log" 2>/dev/null || true
+}
 
 reset_test_db() {
   cd "$PROJECT_ROOT"
@@ -157,13 +210,24 @@ reset_test_db() {
 }
 
 cleanup() {
+  if [[ "$CLEANED_UP" == "1" ]]; then return 0; fi
+  CLEANED_UP=1
   # 不重置数据库：作品事实保留，供 --resume 断点续跑。
   kill_process_tree "$TAURI_PID"
   wait "$TAURI_PID" 2>/dev/null || true
   kill_process_tree "$PHX_PID"
   wait "$PHX_PID" 2>/dev/null || true
+  unload_lms_models
 }
 trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+
+record_lms_models "$ARTIFACT_DIR/lms-ps-start.txt"
+{
+  echo "[dogfood][lms] LM Studio models before run (see lms-ps-start.txt):"
+  cat "$ARTIFACT_DIR/lms-ps-start.txt" 2>/dev/null || true
+} > "$ARTIFACT_DIR/lms-unload.log"
 
 wait_for_url() {
   local url="$1"
@@ -204,7 +268,8 @@ cd "$PROJECT_ROOT"
 if [[ "$RESUME" -eq 0 ]]; then
   echo "[dogfood] fresh run: resetting test db and seeding work + adopted chapter plan"
   reset_test_db
-  MIX_ENV=test mix run scripts/seed_p1_chapter_draft_generation.exs >"$ARTIFACT_DIR/seed.log" 2>&1
+  P1_SEED_PLANNED_VOLUMES="${P1_SEED_PLANNED_VOLUMES:-1}" \
+    MIX_ENV=test mix run scripts/seed_p1_chapter_draft_generation.exs >"$ARTIFACT_DIR/seed.log" 2>&1
 else
   echo "[dogfood] resume run: keeping existing work facts"
 fi
@@ -235,6 +300,9 @@ echo "[dogfood] runner driving real workbench (provider=$PROVIDER chapters=$CHAP
 SLICE_VERIFY_BASE_URL="http://127.0.0.1:${VITE_PORT}" \
   DOGFOOD_ARTIFACT_DIR="$ARTIFACT_DIR" \
   DOGFOOD_MAX_CHAPTERS="$CHAPTERS" \
+  DOGFOOD_PLAN_CHAPTERS="$PLAN_CHAPTERS" \
+  DOGFOOD_STOP_AFTER_ADVANCED="$STOP_AFTER" \
+  DOGFOOD_MAINTENANCE="${DOGFOOD_MAINTENANCE:-1}" \
   DOGFOOD_MIN_WORDS="$MIN_WORDS" \
   DOGFOOD_TARGET_WORDS="$TARGET_WORDS" \
   DOGFOOD_PROVIDER="$PROVIDER" \

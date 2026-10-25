@@ -15,7 +15,14 @@
 //   DOGFOOD_MIN_WORDS       每章有效字数下限（默认 1000）
 //   DOGFOOD_TARGET_WORDS    全书目标有效字数（0 = 不扩章；>0 时全部章达标而总字数
 //                           未达标则自动发增量规划指令扩章，消费 p1-plan-incremental 链）
-//   DOGFOOD_PROVIDER        slice_verify | lmstudio（仅记录进 summary）
+//   DOGFOOD_PROVIDER        slice_verify | lmstudio | strata（仅记录进 summary）
+//   DOGFOOD_PLAN_CHAPTERS   只推进章节计划前 N 章（P1 canonical=10；0=不限）
+//   DOGFOOD_STOP_AFTER_ADVANCED 写满 N 个已推进章后优雅退出（resume 演练）
+//   DOGFOOD_MAINTENANCE     1=启用维护组合插入点（默认）；0=dry-run 关闭
+//
+// P1 CP0（2026-10-25）：B6 帧判定单源（classifyJourneyFrame+穷尽 switch）；
+// B9 needs_confirmation 显式确认/跳过计数 + 空章/重复段观察；B7 章节请求自然作者措辞；
+// 维护组合插入点（B28 排版/内容修订、B30 重编号、B29 角色身份）与 resume 状态。
 import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,6 +34,10 @@ const artifactDir =
 const maxChapters = Number(process.env.DOGFOOD_MAX_CHAPTERS ?? "0");
 const minWords = Number(process.env.DOGFOOD_MIN_WORDS ?? "1000");
 const targetWords = Number(process.env.DOGFOOD_TARGET_WORDS ?? "0");
+// P1 CP0 canonical 10 章：plan-chapters 限制本次推进的计划前 N 章；stop-after 用于断点续跑演练。
+const planChapters = Number(process.env.DOGFOOD_PLAN_CHAPTERS ?? "0");
+const stopAfterAdvanced = Number(process.env.DOGFOOD_STOP_AFTER_ADVANCED ?? "0");
+const maintenanceEnabled = (process.env.DOGFOOD_MAINTENANCE ?? "1") !== "0";
 const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 // 正文采纳按钮的真实文案集合：无质量发现=「保存为章节正文」；带发现时草稿归类
@@ -115,11 +126,54 @@ function log(message) {
   console.log(`[dogfood] ${new Date().toISOString()} ${message}`);
 }
 
+// P1 CP0：外部页面动作必须有界。Playwright 个别等待在异常 UI 状态下可能不返回
+// （2026-10-25 dry-run 实锤：维持节拍后输入框等待挂起）；用 race 超时把“无限等”
+// 变成可记录失败，现场截图/文案由调用方落证据。
+async function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function appendProgress(entry) {
   fs.appendFileSync(
     progressPath,
     `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
   );
+}
+
+// B9：确认/跳过必须显式计数（不盲确认换绿灯）；summary 消费 confirmation_counts。
+function recordConfirmationDecision({ kind, decision, target, reason_codes = [], reason = null }) {
+  confirmationDecisions.push({
+    at: new Date().toISOString(),
+    kind,
+    decision,
+    target,
+    reason_codes,
+    reason,
+  });
+}
+
+function confirmationCounts() {
+  const by_kind = {};
+  for (const item of confirmationDecisions) {
+    const key = `${item.kind}:${item.decision}`;
+    by_kind[key] = (by_kind[key] ?? 0) + 1;
+  }
+  return {
+    total: confirmationDecisions.length,
+    confirmed: confirmationDecisions.filter((item) => item.decision === "confirm").length,
+    skipped: confirmationDecisions.filter((item) => item.decision === "skip").length,
+    by_kind,
+  };
 }
 
 // 进入阅读模式触发 get_toc，取最新投影后返回工作台。
@@ -131,30 +185,25 @@ async function readToc(page) {
   });
 
   // M5 实锤（2026-08-25）：channel 串行——accept 同步摘要维护（3 分钟级）期间
-  // get_toc 排队，20s 拿不到投影；且此前失败路径直接 throw、不返回工作台，
-  // UI 从此困在阅读模式（输入框与「阅读」按钮都不存在），后续每章连环假失败。
-  const started = Date.now();
-  let resp = null;
-  while (Date.now() - started < 240_000) {
-    const match = frames
-      .slice(before)
-      .find(
-        (frame) =>
-          frame.direction === "received" &&
-          Array.isArray((frame.body?.response ?? frame.body)?.volumes),
-      );
-    if (match) {
-      resp = match.body?.response ?? match.body;
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  if (!resp) {
+  // get_toc 排队；失败路径也必须返回工作台，否则 UI 困在阅读模式。
+  // B6：投影判定走 classifyJourneyFrame 的 toc_projection 分支（契约单源）。
+  let resp;
+  try {
+    const projection = await waitForJourneyKind(
+      (classification) => classification.kind === "toc_projection",
+      "No get_toc projection frame after entering reading mode",
+      240_000,
+      before,
+    );
+    resp = projection.classification.toc;
+    recoveryDecisions.push({ kind: "toc_projection", decision: "accepted" });
+  } catch (error) {
+    recoveryDecisions.push({ kind: "reading_mode", decision: "leave_mode_after_toc_timeout" });
     await page
       .getByRole("button", { name: "返回工作台" })
       .click({ timeout: 10_000 })
       .catch(() => {});
-    throw new Error("No get_toc projection frame after entering reading mode");
+    throw error;
   }
 
   // 异常恢复路径下页面状态可能不在预期（残卡/弹层），点击失败不立即抛——
@@ -173,10 +222,13 @@ function flatChapters(toc) {
   return (toc?.volumes ?? []).flatMap((volume) => volume.chapters ?? []);
 }
 
-function nextPendingChapter(toc, skippedTitles) {
+function nextPendingChapter(toc, skippedTitles, maxPlanSeq = 0) {
   return (
     flatChapters(toc).find(
-      (chapter) => Number(chapter.word_count ?? 0) < minWords && !skippedTitles.has(chapter.title),
+      (chapter) =>
+        (maxPlanSeq <= 0 || Number(chapter.seq ?? 0) <= maxPlanSeq) &&
+        Number(chapter.word_count ?? 0) < minWords &&
+        !skippedTitles.has(chapter.title),
     ) ?? null
   );
 }
@@ -186,46 +238,142 @@ function nextPendingChapter(toc, skippedTitles) {
 // turn_result（僵尸草稿帧），不绑定 turn 会把上一轮的迟到帧误认成本轮产出。
 async function sendAuthorMessage(page, instruction) {
   const fromIndex = frames.length;
-  // M2 实锤：上一轮超时放弃的 run 可能仍在服务端执行并占用输入框——像真实作者
-  // 一样先等它完成（长等 10 分钟），等不到再点「取消」清场，绝不带病 fill。
+  // P1 CP0：等待输入可用改为有界（120s）+ 失败现场取证，不再盲等 10 分钟。
+  // 根因可能是阅读模式残留/活跃 run 占位/弹层遮罩；现场截图+可见文案落到 artifact dir，
+  // recovery 后仍失败则诚实抛错（上层节拍按失败记录，不静默）。
+  log(`waiting for chat input before: ${instruction.slice(0, 40)}`);
   try {
-    await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 600_000 });
+    await withTimeout(
+      page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 120_000 }),
+      140_000,
+      "chat input visible",
+    );
   } catch (waitError) {
+    await withTimeout(
+      page.screenshot({
+        path: path.join(artifactDir, "chat-input-unavailable.png"),
+        fullPage: true,
+      }),
+      20_000,
+      "chat-input-unavailable screenshot",
+    ).catch(() => {});
+    const visibleText = await withTimeout(page.locator("body").innerText(), 15_000, "body text").catch(
+      () => "",
+    );
+    fs.appendFileSync(
+      path.join(artifactDir, "recovery-diagnostics.jsonl"),
+      `${JSON.stringify({
+        at: new Date().toISOString(),
+        kind: "chat_input_unavailable",
+        instruction,
+        visible_text_tail: visibleText.slice(-2000),
+      })}\n`,
+    );
+    log("chat input hidden — captured diagnostics; attempting recovery");
     // M5 实锤：恢复路径可能把 UI 留在阅读模式（输入框 display 级隐藏）——
     // 先像真实作者一样点「返回工作台」逃逸，再考虑取消清场。
     const backButton = page.getByRole("button", { name: "返回工作台" });
     if ((await backButton.count()) > 0) {
       log("input hidden — leaving reading mode before retrying");
-      await backButton.click({ timeout: 10_000 }).catch(() => {});
-      await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 60_000 });
+      recoveryDecisions.push({ kind: "reading_mode_recovery", decision: "leave_mode_then_retry" });
+      await withTimeout(backButton.click({ timeout: 10_000 }), 20_000, "return to workspace click").catch(
+        () => {},
+      );
+      await withTimeout(
+        page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 30_000 }),
+        40_000,
+        "chat input visible after recovery",
+      );
+      log("chat input visible after leaving reading mode; retrying send");
       return await sendAuthorMessage(page, instruction);
     }
 
     const cancelButton = page.getByRole("button", { name: /终止任务|取消/ }).last();
     if ((await cancelButton.count()) > 0) {
       log("input blocked by an active run — cancelling it before sending");
-      await cancelButton.click({ timeout: 10_000 }).catch(() => {});
+      recoveryDecisions.push({ kind: "active_run_recovery", decision: "cancel_then_send" });
+      await withTimeout(cancelButton.click({ timeout: 10_000 }), 20_000, "cancel run click").catch(
+        () => {},
+      );
       const confirmButton = page.getByRole("button", { name: /^确认终止$/ });
       if ((await confirmButton.count()) > 0) {
-        await confirmButton.click({ timeout: 10_000 }).catch(() => {});
+        await withTimeout(confirmButton.click({ timeout: 10_000 }), 20_000, "confirm cancel click").catch(
+          () => {},
+        );
       }
-      await page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 60_000 });
+      await withTimeout(
+        page.locator(chatInputSelector).waitFor({ state: "visible", timeout: 60_000 }),
+        70_000,
+        "chat input visible after cancel",
+      );
     } else {
       throw waitError;
     }
   }
-  await page.locator(chatInputSelector).fill(instruction);
-  await page.getByRole("button", { name: /^发送$/ }).click();
-
-  const ack = await waitForFrame(
-    (f) =>
-      f.direction === "received" &&
-      f.event === "phx_reply" &&
-      f.body?.response?.received === true,
-    "No user_message ack after sending instruction",
-    30_000,
-    fromIndex,
+  log("chat input visible; filling instruction");
+  await withTimeout(page.locator(chatInputSelector).fill(instruction), 45_000, "fill author input");
+  log("instruction filled; clicking send");
+  const inputValueBeforeSend = await withTimeout(
+    page.locator(chatInputSelector).inputValue(),
+    10_000,
+    "read input value",
+  ).catch(() => "");
+  fs.appendFileSync(
+    pageDiagnosticsPath,
+    `${JSON.stringify({
+      at: new Date().toISOString(),
+      kind: "before_send",
+      instruction,
+      input_value: inputValueBeforeSend,
+      send_buttons: await withTimeout(
+        page.getByRole("button", { name: /^发送$/ }).count(),
+        10_000,
+        "count send buttons",
+      ).catch(() => -1),
+    })}\n`,
   );
+  await withTimeout(page.getByRole("button", { name: /^发送$/ }).click(), 45_000, "send click");
+  log("sent; waiting for user_message ack");
+
+  let ack;
+  try {
+    ack = await withTimeout(
+      waitForFrame(
+        (f) =>
+          f.direction === "received" &&
+          f.event === "phx_reply" &&
+          f.body?.response?.received === true,
+        "No user_message ack after sending instruction",
+        30_000,
+        fromIndex,
+      ),
+      45_000,
+      "user_message ack",
+    );
+  } catch (ackError) {
+    await withTimeout(
+      page.screenshot({ path: path.join(artifactDir, "ack-timeout.png"), fullPage: true }),
+      20_000,
+      "ack timeout screenshot",
+    ).catch(() => {});
+    fs.appendFileSync(
+      pageDiagnosticsPath,
+      `${JSON.stringify({
+        at: new Date().toISOString(),
+        kind: "ack_timeout",
+        instruction,
+        input_value_after_click: await withTimeout(
+          page.locator(chatInputSelector).inputValue(),
+          10_000,
+          "read input after ack timeout",
+        ).catch(() => ""),
+        body_tail: String(
+          await withTimeout(page.locator("body").innerText(), 15_000, "body").catch(() => ""),
+        ).slice(-1500),
+      })}\n`,
+    );
+    throw ackError;
+  }
   return { fromIndex, turnId: ack.body?.response?.turn_id ?? null };
 }
 
@@ -235,198 +383,272 @@ function frameBelongsToTurn(frame, turnId) {
   return frameTurn === turnId || frameTurn.startsWith(`${turnId}:`);
 }
 
-// 一次尝试写某一章能落到的结局——分类一次、穷尽分支一次（判别联合形状），
-// 不再是"定义一堆判定函数 → 等到帧 → 再挨个 if 重判一遍是哪种"。新增结局种类
-// 只需要在这一个函数里加一条 case，不必在 waitForFrame 的 OR 列表和下面的
-// if 链两处同步改。
+// ── B6：本真实旅程的帧判定契约单源（分类一次 + 穷尽分支）─────────────────────
 //
-// 各分支的帧形状真源（不是本文件发明的，凭实测抓帧反推正是上一版判错
-// awaiting_author 的教训）：
-// - prose_ready / wrong_route_reply / run_failed / needs_confirmation：走
-//   turn_result 帧，字段路径见 frontend/src/lib/socket.ts 的 TurnResult 相关类型。
-// - awaiting_author：走独立的 "agent_run_state" 广播（同文件 AgentRunStateData，
-//   status/phase 顶层字段，不嵌套、不带 turn_id）；"真的停了"（不是仍在处理中途）
-//   的判据抄自后端权威定义 apps/novel_application/.../agent_run_server.ex 的
-//   no_progress_stopped?/1 —— status == :awaiting_author 且 phase == :stopped
-//   两者同时成立。frontend/src/lib/agentRunInputRouting.ts 的
-//   STEERABLE_AGENT_RUN_STATUSES 只到 status 粒度（前端"能不能插话"的更宽语义），
-//   不是这里要的"已停止"判据。
-function classifyChapterAttemptFrame(f, turnId) {
-  if (f.direction !== "received") return null;
+// 契约真源（字段名/语义从这里引用，不在各调用点散写）：
+// - `frontend/src/lib/socket.ts`：AgentRunStateData（status/phase 顶层，不嵌 turn_id）、
+//   TurnResult（tool_result/adoption_state/truthfulness/available_actions）、
+//   AuthorActionResult（action_status/receipt_id/turn_id）。
+// - `apps/novel_application/lib/novel_application/agent_run_server.ex`
+//   `no_progress_stopped?/1`：真正停下 = status == :awaiting_author 且 phase == :stopped。
+// - 产品 action_result（overwrite/meta-leak 等确认）：status=needs_confirmation/accepted
+//   顶层，artifact_id/decision.reason_codes 平铺。
+//
+// 本函数只做一次分类，返回判别联合；调用方必须对 kind 做穷尽 switch，新增结局只在
+// 这里加一条分支，不在 waitForFrame 的 OR 列表与后续 if 链两处同步改。
+function classifyJourneyFrame(frame, ctx = {}) {
+  if (frame.direction !== "received") return { kind: "ignore" };
+  const body = frame.body ?? {};
 
-  if (f.event === "agent_run_state") {
-    if (f.body?.status === "awaiting_author" && f.body?.phase === "stopped") {
-      return { kind: "awaiting_author" };
+  if (frame.event === "phx_reply" && body.response?.received === true) {
+    return { kind: "task_ack", turnId: body.response?.turn_id ?? null };
+  }
+
+  if (frame.event === "agent_run_state") {
+    if (body.status === "awaiting_author" && body.phase === "stopped") {
+      return { kind: "agent_awaiting_author", runId: body.run_id ?? null };
     }
-    return null;
+    return { kind: "ignore" };
   }
 
-  if (f.event !== "turn_result" || !frameBelongsToTurn(f, turnId)) return null;
+  const toc = body.response ?? body;
+  if (Array.isArray(toc?.volumes)) return { kind: "toc_projection", toc };
+
+  if (frame.event === "action_result") {
+    if (body.status === "needs_confirmation") {
+      return {
+        kind: "confirmation_required",
+        confirmationKind: classifyConfirmationKind(body),
+        artifactId: body.artifact_id ?? null,
+        reasonCodes: body.decision?.reason_codes ?? [],
+      };
+    }
+    if (body.status === "accepted") return { kind: "action_accepted", body };
+    return { kind: "ignore" };
+  }
+
+  if (frame.event !== "turn_result") return { kind: "ignore" };
+  if (!frameBelongsToTurn(frame, ctx.turnId)) return { kind: "ignore" };
+
+  const pending = body.adoption_state?.pending ?? [];
+  const toolName = body.tool_result?.tool_name ?? null;
+
+  if (body.truthfulness?.artifact_adopted === true) {
+    return {
+      kind: "adoption_settled",
+      turnId: body.turn_id ?? null,
+      resolved: body.adoption_state?.resolved ?? [],
+      adoptedStateRef: body.truthfulness?.adopted_state_ref ?? null,
+    };
+  }
 
   if (
-    f.body?.tool_result?.tool_name === "prose_writing" &&
-    f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment"
-  ) {
-    return { kind: "prose_ready" };
-  }
-
-  // 误路由快速失败（M0 缺陷四）：本轮 turn 以"回复"收束（run completed 且无
-  // 待采纳正文）说明判断把创作请求判成了闲聊。
-  if (
-    f.body?.agent_run?.status === "completed" &&
-    !f.body?.tool_result &&
-    (f.body?.adoption_state?.pending ?? []).length === 0 &&
-    typeof f.body?.assistant_message?.text === "string"
-  ) {
-    return { kind: "wrong_route_reply" };
-  }
-
-  // run 失败终局（S7 诚实失败，如起草空计划）。
-  if (f.body?.agent_run?.status === "failed") {
-    return { kind: "run_failed" };
-  }
-
-  // 系统可能把指令判为高风险（如重写语义）并出确认卡（AU-04）。
-  if (
-    f.body?.status === "needs_confirmation" &&
-    (f.body?.available_actions ?? []).some(
+    body.status === "needs_confirmation" &&
+    (body.available_actions ?? []).some(
       (action) => action.action_type === "confirm_before_execute",
     )
   ) {
-    return { kind: "needs_confirmation" };
+    return {
+      kind: "confirmation_required",
+      confirmationKind: "confirm_before_execute",
+      artifactId: body.adoption_state?.pending?.[0]?.artifact_id ?? null,
+      reasonCodes: [],
+    };
   }
 
-  return null;
+  const prosePending = pending.find((entry) => entry.artifact_type === "prose_fragment");
+  if (
+    prosePending &&
+    (toolName === "prose_writing" ||
+      String(body.agent_run?.profile_ref ?? "").includes("prose"))
+  ) {
+    return { kind: "prose_ready", pending: prosePending, turnId: body.turn_id ?? null, toolName };
+  }
+
+  if (pending.length > 0) {
+    return {
+      kind: "candidate_ready",
+      pending: pending[0],
+      pendings: pending,
+      artifactTypes: pending.map((entry) => entry.artifact_type),
+      turnId: body.turn_id ?? null,
+      toolName,
+    };
+  }
+
+  if (body.agent_run?.status === "failed") {
+    return { kind: "run_failed", turnId: body.turn_id ?? null };
+  }
+
+  if (
+    body.agent_run?.status === "completed" &&
+    !body.tool_result &&
+    pending.length === 0 &&
+    typeof body.assistant_message?.text === "string"
+  ) {
+    return { kind: "wrong_route_reply", assistantText: body.assistant_message.text };
+  }
+
+  return { kind: "turn_result_other", turnId: body.turn_id ?? null };
 }
 
+function classifyConfirmationKind(body) {
+  const reasonCodes = body.decision?.reason_codes ?? [];
+  if (reasonCodes.includes("meta_leak_detected")) return "meta_leak";
+  const actionType = body.decision?.action_type ?? body.action_type;
+  if (actionType === "confirm_before_execute") return "confirm_before_execute";
+  return "overwrite_confirmation";
+}
+
+function assertNever(value, label) {
+  throw new Error(`${label}: unhandled journey frame kind ${JSON.stringify(value)}`);
+}
+
+// 单源等待器：每 tick 只调用 classifyJourneyFrame 一次；谓词拿分类结果判断。
+async function waitForJourneyKind(predicate, message, timeoutMs = 60_000, fromIndex = 0) {
+  const started = Date.now();
+  let last = null;
+  while (Date.now() - started < timeoutMs) {
+    for (let index = fromIndex; index < frames.length; index += 1) {
+      const classification = classifyJourneyFrame(frames[index], { turnId: null });
+      last = classification;
+      if (classification.kind !== "ignore" && predicate(classification, frames[index])) {
+        return { frame: frames[index], classification };
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `${message}\n  last classification: ${JSON.stringify(last)}\n  recent frames: ${frameDigest(fromIndex)}\n  turn_results: ${turnResultAutopsy(fromIndex)}`,
+  );
+}
+
+// 作者采纳一条待采纳正文（首稿/续写）。B6：帧判定全部来自 classifyJourneyFrame，
+// 这里只对判别联合做穷尽 switch；B9：每个 needs_confirmation 显式记录 confirm/skip。
 async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, options = {}) {
-  // 所有帧匹配从本轮发送之后开始（fromIndex），不与历史轮串。
-  // M5 重标定（2026-08-25 实锤）：qwen3.8-27b（思考型）单章全链（判断+计划起草+
-  // 写前推理+writer）实测 12-18 分钟，600s 窗口会把 3 分钟龄的健康 writer 连 run
-  // 一起终止（writer|cancelled 17:24-17:38 实证）。节拍级等待放宽到 30 分钟；
-  // 秒级快速失败路径（run_failed/awaiting_author/wrong_route）不受影响。
-  let draftFrame = await waitForFrame(
-    (f) => classifyChapterAttemptFrame(f, turnId) !== null,
+  const WAIT_TURN_MS = 1_800_000;
+  const first = await waitForJourneyKind(
+    (classification) =>
+      [
+        "prose_ready",
+        "candidate_ready",
+        "wrong_route_reply",
+        "run_failed",
+        "agent_awaiting_author",
+        "confirmation_required",
+      ].includes(classification.kind),
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
-    1_800_000,
+    WAIT_TURN_MS,
     fromIndex,
   );
 
-  const outcome = classifyChapterAttemptFrame(draftFrame, turnId);
-
-  switch (outcome.kind) {
+  let classification = first.classification;
+  switch (classification.kind) {
     case "wrong_route_reply":
       throw new Error(
-        `judgment routed the prose request to a chat reply for ${chapterTitle} (wrong-route, fail fast)`,
+        `judgment routed the prose request to a chat reply for ${chapterTitle} (wrong-route, fail fast): ${classification.assistantText?.slice(0, 200)}`,
       );
     case "run_failed":
       throw new Error(`agent run failed for ${chapterTitle} (fail fast)`);
-    case "awaiting_author":
-      // M2 实锤（2026-07-20）：prose_writing 工具失败时 AgentRun 会诚实判定
-      // "工具层错误、自己修不了"并主动收束到 awaiting_author，不是 failed。
-      // 此前没有识别这个终态，waitForFrame 只能傻等满 600s，再叠加 readToc
-      // 60s + sendAuthorMessage 10 分钟输入阻塞等待，每次工具失败实测约耗
-      // 20 分钟——与其它三类同款秒级快速失败，直接进已有重试/跳章路径。
+    case "agent_awaiting_author":
+      throw new Error(`agent run reached awaiting_author for ${chapterTitle} (tool failure, fail fast)`);
+    case "candidate_ready":
       throw new Error(
-        `agent run reached awaiting_author for ${chapterTitle} (tool failure, fail fast)`,
+        `prose request produced non-prose candidate(s) for ${chapterTitle}: ${classification.artifactTypes.join(",")} (misroute, fail fast)`,
       );
+    case "confirmation_required":
+      recordConfirmationDecision({
+        kind: classification.confirmationKind,
+        decision: "confirm",
+        target: chapterTitle,
+        reason_codes: classification.reasonCodes,
+      });
+      await confirmExecution(page, chapterTitle);
+      return adoptPendingDraft(page, chapterTitle, fromIndex, turnId, options);
     case "prose_ready":
-    case "needs_confirmation":
       break;
+    default:
+      assertNever(classification.kind, "adoptPendingDraft first");
   }
 
-  if (outcome.kind === "needs_confirmation") {
-    log(`${chapterTitle}: confirmation required — confirming execution`);
-    await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
-      timeout: 15_000,
-    });
-    // 失败重试可能在页面留下多张卡：永远点最新一张（消息流尾部）。
-    await page.getByRole("button", { name: "确认执行" }).last().click();
-    draftFrame = await waitForFrame(
-      (f) => classifyChapterAttemptFrame(f, turnId)?.kind === "prose_ready",
-      `No prose_fragment turn_result after confirmation for ${chapterTitle}`,
-      1_800_000,
-      fromIndex,
-    );
-  }
+  const pending = classification.pending;
+  const pendingArtifactId = pending.artifact_id;
 
-  const pending = draftFrame.body.adoption_state.pending[0];
-
-  // VS-00E 质量主链上线后（P1 正文质量证据化批）：带质量发现的草稿在前端归类为
-  // 「原稿」，采纳按钮文案变为「保存原稿」（无发现时仍是「保存为章节正文」）。
-  // runner 是外部作者视角，两种真实文案都要认——只认旧文案会把产品正常行为
-  // 误判成超时（M4 实锤：18 次超时全是带发现的章）。
   await page.waitForFunction(
     (labels) => labels.some((label) => document.body.innerText.includes(label)),
     PROSE_ACCEPT_LABELS,
     { timeout: 30_000 },
   );
-  // 同上：多卡堆积时 .first() 会点到旧 turn 的卡（其 accept 永远 needs_confirmation），
-  // 本轮 artifact 永远等不到 resolved —— 必须点最新卡。
   const acceptButton = page
     .getByRole("button", { name: new RegExp(`^(${PROSE_ACCEPT_LABELS.join("|")})$`) })
     .last();
   await acceptButton.click();
 
-  // accept 可能因目标章已有正文被采纳层判覆盖确认（needs_confirmation 的 action_result）；
-  // runner 像真实作者一样点「确认执行」完成覆盖替换（overwrite-confirm 链）。
-  const settle = await waitForFrame(
-    (f) =>
-      (f.direction === "received" &&
-        f.event === "turn_result" &&
-        f.body?.truthfulness?.artifact_adopted === true &&
-        f.body?.adoption_state?.resolved?.some(
-          (entry) => entry.artifact_id === pending.artifact_id,
-        )) ||
-      (f.direction === "received" &&
-        f.event === "action_result" &&
-        f.body?.status === "needs_confirmation" &&
-        f.body?.artifact_id === pending.artifact_id),
+  let settle = await waitForJourneyKind(
+    (candidate) =>
+      (candidate.kind === "adoption_settled" &&
+        candidate.resolved?.some((entry) => entry.artifact_id === pendingArtifactId)) ||
+      (candidate.kind === "confirmation_required" &&
+        candidate.artifactId === pendingArtifactId) ||
+      candidate.kind === "action_accepted",
     `No adoption or overwrite-confirmation result for ${chapterTitle}`,
-    // M5 重标定（2026-08-25 实锤）：accept 动作在服务端同步执行章摘要维护模型调用
-    // （思考型 27b 实测 197.8s）后才回 accepted——120s 窗把成功采纳误判为失败，
-    // 恢复路径随之把 UI 困进阅读模式。放宽到 10 分钟。
     600_000,
     fromIndex,
   );
 
-  if (settle.event === "action_result") {
-    const settleReasonCodes = settle.body?.decision?.reason_codes ?? [];
-    const metaLeakConfirmation = settleReasonCodes.includes("meta_leak_detected");
-
-    if (metaLeakConfirmation) {
-      // B9 元泄漏升采纳级：泄漏正文不再静默采纳。runner 模拟作者显式确认并计数
-      // （拦截数即 M4 审计靶：对照 M3 的 25 处静默存活）。续写/首稿同语义。
+  if (settle.classification.kind === "confirmation_required") {
+    const confirmationKind = settle.classification.confirmationKind;
+    const reasonCodes = settle.classification.reasonCodes;
+    if (confirmationKind === "meta_leak") {
       metaLeakInterceptions.push({ chapter: chapterTitle, at: new Date().toISOString() });
+      recordConfirmationDecision({
+        kind: "meta_leak",
+        decision: "confirm",
+        target: chapterTitle,
+        reason_codes: reasonCodes,
+      });
       log(
         `${chapterTitle}: meta-leak adoption intercepted (#${metaLeakInterceptions.length}) — confirming explicitly`,
       );
-    } else if (options.continuation) {
-      // M0 缺陷守卫（2026-07-19）：续写请求绝不该触发整章覆盖确认——出现即产品
-      // 坐标回归（authoring_intent 未判 continuation）。真实作者会取消而不是确认；
-      // runner 按失败上抛（进重试路径），不再盲确认吞掉字数倒退。
+    } else if (options.continuation && confirmationKind === "overwrite_confirmation") {
+      recordConfirmationDecision({
+        kind: "overwrite_confirmation",
+        decision: "skip",
+        target: chapterTitle,
+        reason_codes: reasonCodes,
+        reason: "unexpected overwrite confirmation for continuation (coordinate regression)",
+      });
       throw new Error(
         `continuation for ${chapterTitle} produced an overwrite confirmation (coordinate regression)`,
       );
+    } else {
+      recordConfirmationDecision({
+        kind: confirmationKind,
+        decision: "confirm",
+        target: chapterTitle,
+        reason_codes: reasonCodes,
+      });
+      log(`${chapterTitle}: ${confirmationKind} — confirming explicitly`);
     }
 
-    if (!metaLeakConfirmation) log(`${chapterTitle}: overwrite confirmation — confirming replace`);
-    await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
-      timeout: 15_000,
-    });
-    await page.getByRole("button", { name: "确认执行" }).last().click();
-    await waitForFrame(
-      (f) =>
-        f.direction === "received" &&
-        f.event === "turn_result" &&
-        f.body?.truthfulness?.artifact_adopted === true &&
-        f.body?.adoption_state?.resolved?.some(
-          (entry) => entry.artifact_id === pending.artifact_id,
-        ),
+    await confirmExecution(page, chapterTitle);
+    settle = await waitForJourneyKind(
+      (candidate) =>
+        (candidate.kind === "adoption_settled" &&
+          candidate.resolved?.some((entry) => entry.artifact_id === pendingArtifactId)) ||
+        candidate.kind === "action_accepted",
       `No adoption turn_result after overwrite confirmation for ${chapterTitle}`,
       120_000,
       fromIndex,
     );
+  }
+
+  switch (settle.classification.kind) {
+    case "adoption_settled":
+    case "action_accepted":
+      break;
+    default:
+      assertNever(settle.classification.kind, "adoptPendingDraft settle");
   }
 
   await page
@@ -438,49 +660,46 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
       PROSE_ACCEPT_LABELS,
       { timeout: 15_000 },
     )
-    .catch(() => {
-      // 历史失败轮残留的旧卡可能让按钮无法清零；以帧证据（上方 resolved）为准，不阻塞。
-    });
-  return draftFrame.body.turn_id;
+    .catch(() => {});
+  return first.frame.body.turn_id;
+}
+
+async function confirmExecution(page, chapterTitle) {
+  await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
+    timeout: 15_000,
+  });
+  await page.getByRole("button", { name: "确认执行" }).last().click();
+  log(`${chapterTitle}: confirmed execution via real UI`);
 }
 
 // 增量扩章：作者自然语言要求接续生成新一批章节计划并采纳（p1-plan-incremental 链）。
+// B7：自然作者语气，不再用旧的「剧情推进得不错…再生成一批」多子句。
 async function planMoreChapters(page) {
-  const { fromIndex, turnId } = await sendAuthorMessage(
+  const { fromIndex } = await sendAuthorMessage(
     page,
-    "已有章节剧情推进得不错，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。",
+    "后面的章节也写出来吧，接着现有章节往下规划一批新的章节计划。",
   );
 
-  const outlineFrame = await waitForFrame(
-    (f) =>
-      f.direction === "received" &&
-      f.event === "turn_result" &&
-      frameBelongsToTurn(f, turnId) &&
-      f.body?.tool_result?.tool_name === "plot_outline" &&
-      f.body?.tool_result?.output?.artifact_type === "outline_draft" &&
-      // M5 实锤（2026-08-25）：扩章规模由模型按字数缺口判断——差 2000 字时合理地只扩
-      // 2-3 章，历史硬编码 >=5 把后端两次成功产出的 outline 全部拒收（runner 不是用户
-      // 画像：不得替真实作者规定「一次必须扩几章」）。只要求至少 1 章。
-      Number(f.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 1,
-    "No incremental outline_draft turn_result while expanding the plan",
+  const outline = await waitForJourneyKind(
+    (classification) =>
+      classification.kind === "candidate_ready" &&
+      classification.artifactTypes.includes("outline_draft") &&
+      Number(classification.pending?.payload?.chapter_count ?? 0) >= 1,
+    "No incremental outline_draft candidate while expanding the plan",
     1_800_000,
     fromIndex,
   );
-  const pending = outlineFrame.body.adoption_state.pending[0];
+  const pending = outline.classification.pending;
 
   await page.waitForFunction(() => document.body.innerText.includes("保存到大纲"), null, {
     timeout: 15_000,
   });
   await page.getByRole("button", { name: "保存到大纲" }).last().click();
 
-  await waitForFrame(
-    (f) =>
-      f.direction === "received" &&
-      f.event === "turn_result" &&
-      f.body?.truthfulness?.artifact_adopted === true &&
-      (f.body?.adoption_state?.resolved ?? []).some(
-        (entry) => entry.artifact_id === pending.artifact_id,
-      ),
+  await waitForJourneyKind(
+    (classification) =>
+      classification.kind === "adoption_settled" &&
+      classification.resolved?.some((entry) => entry.artifact_id === pending.artifact_id),
     "No adoption turn_result while expanding the plan",
     120_000,
     fromIndex,
@@ -489,13 +708,391 @@ async function planMoreChapters(page) {
   return Number(pending.payload?.chapter_count ?? 0);
 }
 
+// ── P1 CP0：维护组合插入点（真实自然语言入口；不改产品）──────────────────────
+//
+// canonical 10 章会话要求至少各一次：整章仅排版修订（B28）、整章内容修订（B28）、
+// 章节重编号/结构维护（B30）、已有角色叙事身份修订（B29）。每类都像作者一样从
+// 主输入发自然语言、在真实候选卡上采纳/确认；不接受脚本直写库旁路。
+// 维护状态跨 resume 持久化，避免断点续跑重复改号/角色反转。
+const maintenanceStatePath = path.join(artifactDir, "maintenance-state.json");
+
+function loadMaintenanceState() {
+  try {
+    return JSON.parse(fs.readFileSync(maintenanceStatePath, "utf8"));
+  } catch {
+    return {
+      completed: [],
+      attempts: {},
+      designed_character: null,
+      designed_character_ref: null,
+      details: [],
+    };
+  }
+}
+
+function saveMaintenanceState(state) {
+  fs.writeFileSync(
+    maintenanceStatePath,
+    JSON.stringify({ ...state, updated_at: new Date().toISOString() }, null, 2),
+  );
+}
+
+function settledChapterCount(toc) {
+  return flatChapters(toc).filter((chapter) => Number(chapter.word_count ?? 0) >= minWords).length;
+}
+
+function chapterBySeq(toc, seq) {
+  return flatChapters(toc).find((chapter) => Number(chapter.seq) === Number(seq)) ?? null;
+}
+
+async function adoptJourneyCandidate(page, classification, fromIndex, options = {}) {
+  const pending = classification.pending;
+  const timeoutMs = options.adoptionTimeoutMs ?? 600_000;
+  const actionResults = [];
+
+  if (options.characterCandidate) {
+    await clickInventoryAccept(page, {
+      itemName: options.itemName,
+      optionLabel: options.optionLabel,
+      acceptFallback: "保存到作品档案",
+    });
+  } else {
+    const acceptNames =
+      options.acceptNames ?? /保存到作品|保存修订稿|保存为章节正文|保存原稿|保存到大纲/;
+    await page.waitForFunction(
+      (source) => new RegExp(source).test(document.body.innerText),
+      acceptNames.source,
+      { timeout: 30_000 },
+    );
+    const button = page.getByRole("button", { name: acceptNames }).last();
+    await button.click();
+  }
+
+  const settled = await waitForJourneyKind(
+    (candidate) => {
+      if (candidate.kind === "adoption_settled") {
+        return (
+          !pending?.artifact_id ||
+          (candidate.resolved ?? []).some((entry) => entry.artifact_id === pending.artifact_id)
+        );
+      }
+      if (candidate.kind === "action_accepted") return true;
+      return false;
+    },
+    `maintenance candidate ${pending?.artifact_type ?? "?"} was not adopted`,
+    timeoutMs,
+    fromIndex,
+  );
+
+  for (const frame of frames.slice(fromIndex)) {
+    if (frame?.direction === "received" && frame?.event === "action_result") {
+      actionResults.push(frame.body);
+    }
+  }
+  const receipt =
+    settled.classification.kind === "action_accepted"
+      ? settled.classification.body
+      : (actionResults.find((body) => body.status === "accepted") ?? null);
+
+  return {
+    artifact_type: pending?.artifact_type ?? null,
+    artifact_id: pending?.artifact_id ?? null,
+    resolved_turn_id: settled.frame?.body?.turn_id ?? null,
+    receipt,
+  };
+}
+
+async function sendMaintenanceMessage(page, instruction) {
+  return sendAuthorMessage(page, instruction);
+}
+
+// 正文候选在分类器里可能是 prose_ready（prose_writing 工具 + prose_fragment）或
+// candidate_ready（修订/其它流程的 prose_fragment）；维护节拍两者都认。
+function isProseCandidate(classification) {
+  return (
+    classification.kind === "prose_ready" ||
+    (classification.kind === "candidate_ready" &&
+      classification.artifactTypes.includes("prose_fragment"))
+  );
+}
+
+// 维护节拍等待候选时必须对“判成别的结局”快速失败（reply/run_failed/awaiting_author），
+// 否则错误路由会退化成 30 分钟盲等（2026-10-25 dry-run 实锤：重编号被确定性 fixture
+// 判成 clarify/casual_reply，runner 白等 30min）。候选/失败分支都从分类器单源来。
+async function waitForMaintenanceOutcome(predicate, label, fromIndex, timeoutMs = 1_800_000) {
+  const result = await waitForJourneyKind(
+    (classification) =>
+      predicate(classification) ||
+      ["wrong_route_reply", "run_failed", "agent_awaiting_author"].includes(classification.kind),
+    label,
+    timeoutMs,
+    fromIndex,
+  );
+  if (result.classification.kind !== "wrong_route_reply" && result.classification.kind !== "run_failed" && result.classification.kind !== "agent_awaiting_author") {
+    return result;
+  }
+  const detail =
+    result.classification.assistantText ??
+    result.classification.kind;
+  throw new Error(`${label}: maintenance misroute/failure (${result.classification.kind}): ${String(detail).slice(0, 300)}`);
+}
+
+// B28：整章仅排版修订（format_only）。
+async function runFormatRevisionBeat(page, state, toc) {
+  const seq = 3;
+  const chapter = chapterBySeq(toc, seq);
+  if (!chapter) throw new Error(`format revision target chapter seq=${seq} missing`);
+  const wordsBefore = Number(chapter.word_count ?? 0);
+  const title = chapter.title;
+  const { fromIndex, turnId } = await sendMaintenanceMessage(
+    page,
+    `把${title}的正文整理一下，只调整分段和排版，不要改字句。`,
+  );
+  const candidate = await waitForMaintenanceOutcome(
+    (classification) => isProseCandidate(classification),
+    `format revision produced no prose candidate for ${title}`,
+    fromIndex,
+  );
+  const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
+    acceptNames: /保存修订稿|保存为章节正文|保存原稿/,
+  });
+  const afterToc = await readToc(page);
+  const after = flatChapters(afterToc).find((item) => item.title === title);
+  const detail = {
+    beat: "format_revision",
+    chapter: title,
+    chapter_seq: seq,
+    turn_id: turnId,
+    words_before: wordsBefore,
+    words_after: Number(after?.word_count ?? 0),
+    candidate_payload_keys: Object.keys(candidate.classification.pending?.payload ?? {}),
+    adoption,
+  };
+  state.details.push(detail);
+  return { toc: afterToc, detail };
+}
+
+// B28：整章内容修订（目标片段仅一处）。
+async function runContentRevisionBeat(page, state, toc) {
+  const seq = 4;
+  const chapter = chapterBySeq(toc, seq);
+  if (!chapter) throw new Error(`content revision target chapter seq=${seq} missing`);
+  const wordsBefore = Number(chapter.word_count ?? 0);
+  const title = chapter.title;
+  const { fromIndex, turnId } = await sendMaintenanceMessage(
+    page,
+    `把${title}的正文里的一段改得更克制一些，只改这一处，其他不要动。`,
+  );
+  const candidate = await waitForMaintenanceOutcome(
+    (classification) => isProseCandidate(classification),
+    `content revision produced no prose candidate for ${title}`,
+    fromIndex,
+  );
+  const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
+    acceptNames: /保存修订稿|保存为章节正文|保存原稿/,
+  });
+  const afterToc = await readToc(page);
+  const after = flatChapters(afterToc).find((item) => item.title === title);
+  const detail = {
+    beat: "content_revision",
+    chapter: title,
+    chapter_seq: seq,
+    turn_id: turnId,
+    words_before: wordsBefore,
+    words_after: Number(after?.word_count ?? 0),
+    candidate_payload_keys: Object.keys(candidate.classification.pending?.payload ?? {}),
+    adoption,
+  };
+  state.details.push(detail);
+  return { toc: afterToc, detail };
+}
+
+// B30：章节重编号（点名对调；候选=chapter_structure_change_plan；保存到作品）。
+async function runRenumberBeat(page, state, toc) {
+  const seqA = 3;
+  const seqB = 4;
+  const titleA = chapterBySeq(toc, seqA)?.title;
+  const titleB = chapterBySeq(toc, seqB)?.title;
+  if (!titleA || !titleB) throw new Error(`renumber targets seq=${seqA}/${seqB} missing`);
+  const { fromIndex, turnId } = await sendMaintenanceMessage(
+    page,
+    `把第一卷的第${String(seqA).padStart(2, "0")}章和第${String(seqB).padStart(2, "0")}章的编号对调，内容不要动。`,
+  );
+  const candidate = await waitForMaintenanceOutcome(
+    (classification) =>
+      classification.kind === "candidate_ready" &&
+      classification.artifactTypes.includes("chapter_structure_change_plan"),
+    "renumber produced no chapter_structure_change_plan candidate",
+    fromIndex,
+  );
+  const payload = candidate.classification.pending?.payload ?? {};
+  const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
+    acceptNames: /保存到作品/,
+  });
+  const afterToc = await readToc(page);
+  const detail = {
+    beat: "chapter_renumber",
+    seq_pair: [seqA, seqB],
+    title_pair: [titleA, titleB],
+    turn_id: turnId,
+    mapping: payload.change_plan?.mapping ?? null,
+    object_count: payload.change_plan?.object_count ?? null,
+    adoption,
+  };
+  state.details.push(detail);
+  return { toc: afterToc, detail };
+}
+
+// 设计一个配角（供后续角色身份修订使用）。
+async function runDesignCharacterBeat(page, state) {
+  const { fromIndex, turnId } = await sendMaintenanceMessage(
+    page,
+    "帮我设计一个配角，后面剧情里会用到。",
+  );
+  const candidate = await waitForMaintenanceOutcome(
+    (classification) =>
+      classification.kind === "candidate_ready" &&
+      classification.artifactTypes.includes("character_seed"),
+    "character design produced no character_seed candidate",
+    fromIndex,
+  );
+  const pendings = candidate.classification.pendings ?? [candidate.classification.pending];
+  const target =
+    pendings.find((entry) => entry.artifact_type === "character_seed") ?? pendings[0];
+  const itemName = target.payload?.items?.[0]?.title ?? null;
+  const sameSet = pendings.filter(
+    (entry) =>
+      String(entry.artifact_id).split("::")[0] === String(target.artifact_id).split("::")[0],
+  );
+  const optionLabel =
+    sameSet.length > 1 ? `方案 ${String.fromCharCode(65 + sameSet.indexOf(target))}` : null;
+  const adoption = await adoptJourneyCandidate(
+    page,
+    { ...candidate.classification, pending: target, pendings },
+    fromIndex,
+    { characterCandidate: true, itemName, optionLabel },
+  );
+  const afterToc = await readToc(page);
+  state.designed_character = itemName;
+  state.designed_character_ref = target.payload?.items?.[0]?.character_ref ?? null;
+  const detail = {
+    beat: "design_supporting_character",
+    turn_id: turnId,
+    character_name: itemName,
+    character_ref: state.designed_character_ref,
+    candidate_count: sameSet.length,
+    adoption,
+  };
+  state.details.push(detail);
+  return { toc: afterToc, detail };
+}
+
+// B29：已有角色叙事身份修订（把设计出的配角改为主角；主档案字段，非演化记忆）。
+async function runRoleRevisionBeat(page, state) {
+  const characterName = state.designed_character;
+  if (!characterName) throw new Error("role revision beat requires a designed character first");
+  const { fromIndex, turnId } = await sendMaintenanceMessage(
+    page,
+    `把${characterName}改为主角，其他角色不要动。`,
+  );
+  const candidate = await waitForMaintenanceOutcome(
+    (classification) =>
+      classification.kind === "candidate_ready" &&
+      classification.artifactTypes.includes("character_profile_revision"),
+    `role revision produced no character_profile_revision candidate for ${characterName}`,
+    fromIndex,
+  );
+  const payload = candidate.classification.pending?.payload ?? {};
+  const adoption = await adoptJourneyCandidate(page, candidate.classification, fromIndex, {
+    acceptNames: /保存到作品/,
+  });
+  const afterToc = await readToc(page);
+  const detail = {
+    beat: "character_role_revision",
+    character_name: characterName,
+    turn_id: turnId,
+    changes: payload.changes ?? null,
+    character_ref: payload.character_ref ?? null,
+    adoption,
+  };
+  state.details.push(detail);
+  return { toc: afterToc, detail };
+}
+
+const MAINTENANCE_BEATS = [
+  { id: "design_character", after_settled: 2, run: runDesignCharacterBeat },
+  { id: "format_revision", after_settled: 3, run: runFormatRevisionBeat },
+  { id: "content_revision", after_settled: 4, run: runContentRevisionBeat },
+  { id: "chapter_renumber", after_settled: 6, run: runRenumberBeat },
+  { id: "character_role_revision", after_settled: 8, run: runRoleRevisionBeat },
+];
+
+async function maybeRunMaintenanceBeats(page, toc, state) {
+  if (!maintenanceEnabled) return toc;
+  let currentToc = toc;
+  const settled = settledChapterCount(currentToc);
+
+  for (const beat of MAINTENANCE_BEATS) {
+    if (state.completed.includes(beat.id)) continue;
+    if (settled < beat.after_settled) continue;
+    state.attempts[beat.id] = (state.attempts[beat.id] ?? 0) + 1;
+    if (state.attempts[beat.id] > 2) {
+      log(`maintenance beat ${beat.id} skipped after repeated failures`);
+      continue;
+    }
+
+    log(`maintenance beat ${beat.id} start (settled=${settled})`);
+    try {
+      const result = await withTimeout(
+        beat.run(page, state, currentToc),
+        15 * 60 * 1000,
+        `maintenance beat ${beat.id}`,
+      );
+      currentToc = result.toc ?? currentToc;
+      state.completed.push(beat.id);
+      saveMaintenanceState(state);
+      appendProgress({ maintenance_beat: beat.id, result: result.detail });
+      log(`maintenance beat ${beat.id} done`);
+    } catch (error) {
+      state.attempts = state.attempts ?? {};
+      state.details.push({
+        beat: beat.id,
+        error: String(error?.message ?? error),
+        attempt: state.attempts[beat.id],
+      });
+      saveMaintenanceState(state);
+      appendProgress({
+        maintenance_beat_error: { beat: beat.id, error: String(error?.message ?? error) },
+      });
+      log(`maintenance beat ${beat.id} failed (run continues): ${error?.message ?? error}`);
+      await withTimeout(
+        page.screenshot({
+          path: path.join(artifactDir, `maintenance-${beat.id}-failure.png`),
+          fullPage: true,
+        }),
+        20_000,
+        "maintenance failure screenshot",
+      ).catch(() => {});
+      await closeArchiveIfOpen(page).catch(() => {});
+      try {
+        currentToc = await readToc(page);
+      } catch (tocError) {
+        log(`readToc after maintenance failure also failed: ${tocError?.message ?? tocError}`);
+      }
+    }
+  }
+
+  return currentToc;
+}
+
 async function driveChapterTurn(page, chapter) {
   const words = Number(chapter.word_count ?? 0);
-  const summary = String(chapter.summary ?? "").trim();
   const continuation = words > 0;
+  // B7：自然作者短句——不再塞「根据已采纳章节计划…保持为待采纳草稿」四子句，
+  // 计划/上下文由产品主链注入，避免措辞助推判断 plan 判界方差。
   const instruction = continuation
-    ? `接着${chapter.title}往下写一段正文，自然衔接前文，推进本章情节。`
-    : `请根据已采纳章节计划生成${chapter.title}：${summary}正文草稿，保持为待采纳草稿。`;
+    ? `接着${chapter.title}往下写一段吧。`
+    : `${chapter.title}的正文还没写，帮我写出来吧。`;
 
   const { fromIndex, turnId } = await sendAuthorMessage(page, instruction);
   return adoptPendingDraft(page, chapter.title, fromIndex, turnId, { continuation });
@@ -730,10 +1327,110 @@ function retryThermometer(failures) {
   return { total_retries: failures.length, by_category };
 }
 
+// B9：空章/重复段观察器（确定性统计，接进章节质量/连续性报告与 summary）。
+// 以最终导出 Markdown 的 `## 章标题` 分节做观察；导出不可解析时退回 TOC 字数判断，
+// 并在报告里显式标注覆盖来源，不把“没检测到”说成“没有”。
+function observeChapterQuality(exportPath, toc) {
+  const chapters = flatChapters(toc);
+  let exportText = "";
+  try {
+    exportText =
+      exportPath && fs.existsSync(exportPath) ? fs.readFileSync(exportPath, "utf8") : "";
+  } catch {
+    exportText = "";
+  }
+
+  const sections = [];
+  if (exportText) {
+    const headingPattern = /^##\s+(.+?)\s*$/gm;
+    const matches = [...exportText.matchAll(headingPattern)];
+    matches.forEach((match, index) => {
+      const startIndex = match.index + match[0].length;
+      const endIndex =
+        index + 1 < matches.length ? matches[index + 1].index : exportText.length;
+      const body = exportText.slice(startIndex, endIndex);
+      const paragraphs = body
+        .split(/\n\s*\n/u)
+        .map((paragraph) => paragraph.replace(/\s+/gu, " ").trim())
+        .filter((paragraph) => paragraph.length > 0);
+      sections.push({
+        title: match[1].trim(),
+        effective_chars: body.replace(/[\s\p{P}]/gu, "").length,
+        paragraphs,
+      });
+    });
+  }
+
+  const emptyFromExport = sections
+    .filter((section) => section.effective_chars === 0)
+    .map((section) => section.title);
+  const emptyFromToc = chapters
+    .filter((chapter) => Number(chapter.word_count ?? 0) === 0)
+    .map((chapter) => chapter.title);
+  const emptyChapters = [...new Set([...emptyFromToc, ...emptyFromExport])];
+
+  const paragraphOccurrences = new Map();
+  for (const section of sections) {
+    for (const paragraph of section.paragraphs) {
+      if (paragraph.length < 80) continue;
+      const current = paragraphOccurrences.get(paragraph) ?? { count: 0, chapters: [] };
+      current.count += 1;
+      if (!current.chapters.includes(section.title)) current.chapters.push(section.title);
+      paragraphOccurrences.set(paragraph, current);
+    }
+  }
+  const duplicateParagraphs = [...paragraphOccurrences.entries()]
+    .filter(([, occurrence]) => occurrence.count > 1)
+    .map(([paragraph, occurrence]) => ({
+      excerpt: paragraph.slice(0, 120),
+      length: paragraph.length,
+      count: occurrence.count,
+      chapters: occurrence.chapters,
+    }));
+
+  return {
+    source: sections.length > 0 ? "export_markdown_sections" : "toc_word_count_only",
+    exported_section_count: sections.length,
+    chapter_count: chapters.length,
+    empty_chapters: emptyChapters,
+    empty_chapter_count: emptyChapters.length,
+    duplicate_paragraphs: duplicateParagraphs,
+    duplicate_paragraph_count: duplicateParagraphs.length,
+    duplicate_chapter_pairs: duplicateParagraphs
+      .filter((item) => item.chapters.length > 1)
+      .map((item) => item.chapters),
+  };
+}
+
+function maintenanceDetailLines() {
+  try {
+    const state = JSON.parse(fs.readFileSync(maintenanceStatePath, "utf8"));
+    const details = Array.isArray(state.details) ? state.details : [];
+    if (details.length === 0) return ["- （本轮无维护节拍记录）"];
+    return details.map((detail) => {
+      if (detail.error) return `- ${detail.beat}：失败（${detail.error}）`;
+      const summary = {
+        beat: detail.beat,
+        chapter: detail.chapter ?? detail.character_name ?? null,
+        words:
+          detail.words_before != null
+            ? `${detail.words_before} → ${detail.words_after}`
+            : null,
+        mapping: detail.mapping ?? detail.changes ?? null,
+        artifact: detail.adoption?.artifact_type ?? null,
+      };
+      return `- ${JSON.stringify(summary)}`;
+    });
+  } catch {
+    return ["- （本轮无维护节拍记录）"];
+  }
+}
+
 function writeArtifacts(toc, exportPath, runMeta) {
   const chapters = flatChapters(toc);
   const total = Number(toc?.total_word_count ?? 0);
   const belowMin = chapters.filter((c) => Number(c.word_count ?? 0) < minWords);
+  const qualityObservation = observeChapterQuality(exportPath, toc);
 
   fs.writeFileSync(
     path.join(artifactDir, "word-count.json"),
@@ -779,6 +1476,10 @@ function writeArtifacts(toc, exportPath, runMeta) {
         p1_target_word_count: 100_000,
         p1_word_target_met: total >= 100_000,
         export_path: exportPath,
+        quality_observation: qualityObservation,
+        confirmation_counts: confirmationCounts(),
+        confirmation_decisions: confirmationDecisions,
+        recovery_decisions: recoveryDecisions,
         ...runMeta,
       },
       null,
@@ -797,6 +1498,21 @@ function writeArtifacts(toc, exportPath, runMeta) {
     ...chapters.map((c) => `| ${c.title} | ${c.word_count} | ${c.audit_status ?? ""} |`),
     "",
     "> 正文抽样请直接查阅 export/ 下的导出文件（同一份已采纳作品事实）。",
+    "",
+    "## 空章与重复段观察（B9，确定性统计）",
+    "",
+    `- 观察来源：${qualityObservation.source}（导出分节 ${qualityObservation.exported_section_count} 个，TOC 章数 ${qualityObservation.chapter_count}）`,
+    `- 空章数：${qualityObservation.empty_chapter_count}${
+      qualityObservation.empty_chapters.length > 0 ? `（${qualityObservation.empty_chapters.join("、")}）` : ""
+    }`,
+    `- 重复段（≥80 字完全相同段落）：${qualityObservation.duplicate_paragraph_count}`,
+    ...qualityObservation.duplicate_paragraphs.map(
+      (item) => `  - ${item.count} 次｜${item.chapters.join("、")}｜「${item.excerpt}…」（${item.length} 字）`,
+    ),
+    "",
+    "## 维护动作（真实 UI/自然语言，非旁路）",
+    "",
+    ...maintenanceDetailLines(),
   ];
   fs.writeFileSync(path.join(artifactDir, "chapter-quality.md"), qualityLines.join("\n"));
 
@@ -808,6 +1524,16 @@ function writeArtifacts(toc, exportPath, runMeta) {
     "- 重复段落 / 缺章率的自动检测属 P1-word-count-audit checkpoint B/C（NEXT Order 19，",
     "  按「质量放后」延后），本报告不替代该门禁。",
     "- 人工抽样指引：从 export/ 导出文件抽 ≥10 章，检查无断裂、无系统泄漏、无空章、无重复章。",
+    `- 空章观察（B9）：${qualityObservation.empty_chapter_count} 个${
+      qualityObservation.empty_chapters.length > 0 ? `（${qualityObservation.empty_chapters.join("、")}）` : ""
+    }`,
+    `- 重复段观察（B9）：${qualityObservation.duplicate_paragraph_count} 段（≥80 字相同段落）`,
+    `- 确认路径（B9）：confirm ${confirmationCounts().confirmed} 次 / skip ${confirmationCounts().skipped} 次`,
+    `- 恢复路径：${recoveryDecisions.length} 次（${JSON.stringify(recoveryDecisions)}）`,
+    "",
+    "## 维护组合插入点",
+    "",
+    ...maintenanceDetailLines(),
   ];
   fs.writeFileSync(path.join(artifactDir, "continuity-report.md"), continuityLines.join("\n"));
 
@@ -835,6 +1561,21 @@ if (reasoningEffort && provider === "lmstudio") {
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+page.setDefaultTimeout(60_000);
+const pageDiagnosticsPath = path.join(artifactDir, "page-diagnostics.jsonl");
+page.on("pageerror", (error) => {
+  fs.appendFileSync(
+    pageDiagnosticsPath,
+    `${JSON.stringify({ at: new Date().toISOString(), kind: "pageerror", message: error?.message })}\n`,
+  );
+});
+page.on("console", (message) => {
+  if (message.type() !== "error" && message.type() !== "warning") return;
+  fs.appendFileSync(
+    pageDiagnosticsPath,
+    `${JSON.stringify({ at: new Date().toISOString(), kind: `console_${message.type()}`, text: message.text().slice(0, 500) })}\n`,
+  );
+});
 
 page.on("websocket", (ws) => {
   ws.on("framesent", (event) => recordFrame("sent", event.payload));
@@ -847,6 +1588,9 @@ const failures = [];
 // B9 体温计（M4）：元泄漏采纳拦截计数——M3 为 25 处静默入正文，本跑每次拦截
 // 都是「不再静默」的证据；runner 模拟作者显式确认后继续（主权语义）。
 const metaLeakInterceptions = [];
+// B9：needs_confirmation 显式确认/跳过计数 + 恢复路径判定计数，全部进 summary。
+const confirmationDecisions = [];
+const recoveryDecisions = [];
 // VS-00G 盘点节拍（M4）：R5 阈值后由 runner 模拟作者响应产品引导发起一次盘点。
 const inventoryBeat = { attempted: false, attempts: 0, done: false, result: null };
 
@@ -858,16 +1602,22 @@ try {
   });
 
   let toc = await readToc(page);
-  log(`start: ${flatChapters(toc).length} chapters, total ${toc.total_word_count} words`);
+  const maintenanceState = loadMaintenanceState();
+  log(
+    `start: ${flatChapters(toc).length} chapters, total ${toc.total_word_count} words; ` +
+      `provider=${provider} plan_chapters=${planChapters || "all"} min_words=${minWords} ` +
+      `maintenance=${maintenanceEnabled ? "on" : "off"} resume_completed_beats=${JSON.stringify(maintenanceState.completed)}`,
+  );
 
   // 逐章推进：每轮处理一个未达标章的一次产出（首稿或续写），失败重试一次后跳过。
   // maxChapters 限制的是“本次推进了多少个不同的章”，0 = 跑到全部达标。
   const advancedTitles = new Set();
   const skippedTitles = new Set();
   let planFailures = 0;
+  let stoppedForBreakpoint = false;
 
   for (;;) {
-    const chapter = nextPendingChapter(toc, skippedTitles);
+    const chapter = nextPendingChapter(toc, skippedTitles, planChapters);
 
     // 全部章达标但总字数未到目标 → 增量扩章（targetWords=0 时不扩，保持原行为）。
     if (!chapter && targetWords > 0 && Number(toc.total_word_count ?? 0) < targetWords) {
@@ -946,6 +1696,25 @@ try {
         );
       }
 
+      // P1 CP0：本章达标后按 settled 阈值触发维护组合（排版/内容修订、重编号、角色身份），
+      // 每个动作都走真实主输入/候选卡；失败记录重试但不阻断主链。
+      toc = await maybeRunMaintenanceBeats(page, toc, maintenanceState);
+
+      if (stopAfterAdvanced > 0 && advancedTitles.size >= stopAfterAdvanced) {
+        stoppedForBreakpoint = true;
+        appendProgress({
+          stopped_for_resume_breakpoint: true,
+          advanced: [...advancedTitles],
+          maintenance_completed: maintenanceState.completed,
+        });
+        log(
+          `stopped after ${advancedTitles.size} advanced chapters for resume rehearsal (maintenance=${JSON.stringify(
+            maintenanceState.completed,
+          )})`,
+        );
+        break;
+      }
+
       // VS-00G 盘点节拍：达标章数过 R5 阈值（10+2 缓冲）后模拟作者响应补全引导，
       // 一次性发起盘点并采纳主角/全书规划——之后收官守则、弧光账、R7/R8 全部上线。
       // 节拍阈值用固定下限，不绑当轮 --min-words：节拍语义是「书已经写够章数、
@@ -990,18 +1759,28 @@ try {
     }
   }
 
-  // 导出后页面停在阅读模式；最终 toc 用循环尾的最新投影（导出不改变字数事实）。
+  // 导出后页面停在阅读模式；最终 toc 用循环尾的最新投影。
+  // 断点续跑演练 phase1 不导出，phase2 resume 后照常导出。
   let exportPath = "";
-  try {
-    exportPath = await exportBook(page);
-    log(`exported to ${exportPath}`);
-  } catch (exportError) {
-    log(`export failed (continuing to write artifacts): ${exportError?.message ?? exportError}`);
-    appendProgress({ export_error: String(exportError?.message ?? exportError) });
+  if (stoppedForBreakpoint) {
+    log("resume rehearsal breakpoint: skip export in this partial run");
+  } else {
+    try {
+      exportPath = await exportBook(page);
+      log(`exported to ${exportPath}`);
+    } catch (exportError) {
+      log(`export failed (continuing to write artifacts): ${exportError?.message ?? exportError}`);
+      appendProgress({ export_error: String(exportError?.message ?? exportError) });
+    }
   }
 
   writeArtifacts(toc, exportPath, {
     chapters_advanced_this_run: chaptersAdvanced,
+    target_plan_chapters: planChapters,
+    maintenance_enabled: maintenanceEnabled,
+    maintenance_state: maintenanceState,
+    stopped_for_resume_breakpoint: stoppedForBreakpoint,
+    plan_version: "p1-cp0-10",
     retry_thermometer: retryThermometer(failures),
     failures,
     // B9 体温计（M4 审计靶）：对照 M3 的 25 处静默泄漏存活。
