@@ -50,6 +50,15 @@ defmodule NovelPersistence.LocalizedRevision do
 
   def segment(_text), do: []
 
+  @doc "拆出段落正文与其尾部分隔符（空白行/换行原样保留，供段替换重组）。"
+  @spec split_segment_raw(binary()) :: {binary(), binary()}
+  def split_segment_raw(raw) when is_binary(raw) do
+    case Regex.run(~r/(?:(?:\r\n|\n|\r)[ \t]*){2,}\z/u, raw, return: :index) do
+      [{pos, len}] -> {binary_part(raw, 0, pos), binary_part(raw, pos, len)}
+      _ -> {raw, ""}
+    end
+  end
+
   @doc "由 segment_id 列表取目标段；未知 id 保持原样（交给校验器拒绝）。"
   @spec normalize_target_ids([String.t()] | nil) :: [String.t()]
   def normalize_target_ids(nil), do: []

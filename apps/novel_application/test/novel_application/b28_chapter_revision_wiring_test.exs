@@ -349,8 +349,8 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
              )
 
     assert_received {:chapter_writer_prompt, prompt}
-    assert prompt =~ "整章完整替换稿"
-    assert prompt =~ "未改段落必须与当前已采纳正文逐字一致"
+    assert prompt =~ "只输出**目标段落的替换文本**"
+    assert prompt =~ "未改段落由系统逐字节保留"
 
     [pending] = result.turn_result.adoption_state.pending
     payload = pending.payload
@@ -360,6 +360,12 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert payload[:scope]["target_chapter_ref"] == c.chapter_ref
     assert payload[:scope]["covered"] != []
     assert payload[:scope]["preserve_unmentioned_verbatim"] == true
-    assert payload[:adoption_effect]["coverage"] == "complete"
+    assert payload[:scope]["target_segment_ids"] != []
+    assert is_list(payload[:scope]["expected_segment_hashes"])
+    assert payload[:scope]["base_draft_ref"] != nil
+    assert payload[:adoption_effect]["mode"] == "replace_segments"
+
+    assert payload[:adoption_effect]["target_segment_ids"] ==
+             payload[:scope]["target_segment_ids"]
   end
 end

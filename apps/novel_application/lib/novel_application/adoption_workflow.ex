@@ -638,9 +638,9 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   defp invalid_adoption_effect?(mode),
-    do: mode not in [nil, "replace_scope", "append", "new_chapter"]
+    do: mode not in [nil, "replace_scope", "append", "new_chapter", "replace_segments"]
 
-  defp effect_requires_target?(mode), do: mode in ["replace_scope", "append"]
+  defp effect_requires_target?(mode), do: mode in ["replace_scope", "append", "replace_segments"]
 
   defp b28_target_missing?(artifact, scope, effect_mode, modification) do
     b28_signal? = not is_nil(effect_mode) or not is_nil(modification)
@@ -1006,6 +1006,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       target_segment_ids: b36_scope_attr(artifact, :target_segment_ids),
       base_draft_ref: b36_scope_attr(artifact, :base_draft_ref),
       base_version: b36_scope_attr(artifact, :base_version),
+      expected_segment_hashes: b36_scope_attr(artifact, :expected_segment_hashes),
       # B30 CP3-A2：plot_outline item 级可选 chapter_ref（模型对已存在章复制），
       # 按章条目顺序透传给物化链；新章 nil/缺省。parser 也兼容正文标签行。
       chapter_refs: outline_chapter_refs(artifact),
@@ -1064,7 +1065,10 @@ defmodule NovelApplication.AdoptionWorkflow do
     :scope,
     :covered_refs,
     :old_chars,
-    :new_chars
+    :new_chars,
+    :target_segment_ids,
+    :segment_changes,
+    :diff_stats
   ]
 
   defp put_b28_result_fields(result, persisted) when is_map(persisted) do

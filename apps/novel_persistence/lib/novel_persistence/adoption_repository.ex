@@ -532,9 +532,236 @@ defmodule NovelPersistence.AdoptionRepository do
   #   阅读投影同一章显示最新正文，不堆重复章。
   # - :append（续写）—— 同章新建场景（seq+1）累积，不复用旧场景、不 supersede，字数累加。
   defp persist_reading_projection(repo, attrs, mutation_id) do
-    case replace_scope_effect(attrs) do
-      nil -> persist_single_projection(repo, attrs, mutation_id)
-      effect -> persist_replace_scope(repo, attrs, mutation_id, effect)
+    case replace_segments_effect(attrs) do
+      nil ->
+        case replace_scope_effect(attrs) do
+          nil -> persist_single_projection(repo, attrs, mutation_id)
+          effect -> persist_replace_scope(repo, attrs, mutation_id, effect)
+        end
+
+      effect ->
+        persist_replace_segments(repo, attrs, mutation_id, effect)
+    end
+  end
+
+  # B36 CP2：结构化段落替换（provider 只输出目标段替换文本）。
+  # 同一 Ecto.Multi 内：base draft 版本/指纹 + 逐段 expected hash 校验 → 按段替换
+  # （其余字节原样）→ LocalizedRevision 二次校验 → 新 draft accepted + 旧 draft superseded。
+  # 任一校验失败在写操作前返回（Multi 回滚零写入）。
+  defp persist_replace_segments(repo, attrs, mutation_id, effect) do
+    work_id = Map.fetch!(attrs, :work_id)
+    content = projection_content(attrs)
+
+    with {:ok, base_draft} <- load_replace_segments_base(repo, work_id, attrs, effect),
+         {:ok, chapter} <- chapter_for_segment_draft(repo, work_id, base_draft),
+         :ok <- ensure_single_accepted_draft(repo, work_id, chapter),
+         {:ok, base_segments} <- segment_base_text(base_draft),
+         {:ok, target_ids} <- target_segment_ids_for_segments(attrs, effect, base_segments),
+         :ok <- validate_expected_segment_hashes(attrs, effect, base_segments, target_ids),
+         {:ok, pieces} <- replacement_pieces(content, target_ids),
+         {:ok, new_text, info} <-
+           apply_segment_replacements(base_segments, target_ids, pieces, base_draft, attrs),
+         :ok <- mark_chapter_drafted(repo, chapter),
+         :ok <- supersede_segment_base_draft(repo, base_draft),
+         {:ok, draft} <- insert_segment_revision(repo, base_draft, new_text) do
+      {:ok,
+       %{
+         volume_id: chapter.volume_id,
+         chapter_id: chapter.id,
+         scene_id: base_draft.scene_id,
+         draft_id: draft.id,
+         source_revision_ref: "draft:#{draft.id}:#{draft.revision}",
+         mutation_id: mutation_id,
+         adoption_effect: "replace_segments",
+         superseded_draft_refs: ["draft:#{base_draft.id}:#{base_draft.revision}"],
+         scope: "target_segments",
+         covered_refs: ["draft:#{base_draft.id}:#{base_draft.revision}"],
+         target_segment_ids: target_ids,
+         segment_changes: info.segment_changes,
+         diff_stats: info.diff_stats,
+         old_chars: info.old_chars,
+         new_chars: info.new_chars
+       }}
+    end
+  end
+
+  defp load_replace_segments_base(repo, work_id, attrs, effect) do
+    ref =
+      Map.get(attrs, :base_draft_ref) || Map.get(attrs, "base_draft_ref") ||
+        Map.get(effect, "base_draft_ref") || Map.get(effect, :base_draft_ref)
+
+    version =
+      Map.get(attrs, :base_version) || Map.get(attrs, "base_version") ||
+        Map.get(effect, "base_version") || Map.get(effect, :base_version)
+
+    with "draft:" <> rest <- ref,
+         [uuid | _] <- String.split(rest, ":"),
+         {:ok, draft_id} <- Ecto.UUID.cast(uuid),
+         %Draft{} = draft <- repo.get(Draft, draft_id),
+         true <- draft.work_id == work_id,
+         true <- draft.status in [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()],
+         true <- is_nil(version) or to_string(draft.revision) == to_string(version) do
+      {:ok, draft}
+    else
+      _ -> {:error, :stale_base_version}
+    end
+  end
+
+  defp chapter_for_segment_draft(repo, _work_id, %Draft{scene_id: scene_id}) do
+    with %Scene{} = scene <- repo.get(Scene, scene_id),
+         %Chapter{} = chapter <- repo.get(Chapter, scene.chapter_id) do
+      {:ok, chapter}
+    else
+      _ -> {:error, :target_missing}
+    end
+  end
+
+  defp ensure_single_accepted_draft(repo, work_id, chapter) do
+    accepted =
+      Scene
+      |> where([s], s.chapter_id == ^chapter.id and s.work_id == ^work_id)
+      |> repo.all()
+      |> Enum.flat_map(fn scene ->
+        Draft
+        |> where(
+          [d],
+          d.scene_id == ^scene.id and d.work_id == ^work_id and
+            d.status in ^[AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
+        )
+        |> repo.all()
+      end)
+
+    if length(accepted) == 1, do: :ok, else: {:error, :incomplete_scope}
+  end
+
+  defp segment_base_text(%Draft{content: content}) do
+    {:ok, LocalizedRevision.segment(content || "")}
+  end
+
+  defp target_segment_ids_for_segments(attrs, effect, base_segments) do
+    ids = target_segment_ids(attrs, effect)
+    known = MapSet.new(Enum.map(base_segments, & &1.segment_id))
+
+    if ids != [] and Enum.all?(ids, &MapSet.member?(known, &1)),
+      do: {:ok, ids},
+      else: {:error, :segment_mismatch}
+  end
+
+  defp validate_expected_segment_hashes(attrs, effect, base_segments, target_ids) do
+    expected = expected_segment_hashes(attrs, effect)
+
+    case Enum.find(target_ids, fn id ->
+           not expected_hash_matches?(
+             Enum.find(base_segments, &(&1.segment_id == id)),
+             Map.get(expected, id)
+           )
+         end) do
+      nil -> :ok
+      _ -> {:error, :segment_mismatch}
+    end
+  end
+
+  defp expected_hash_matches?(nil, _expected), do: false
+  defp expected_hash_matches?(_seg, nil), do: false
+  defp expected_hash_matches?(seg, expected), do: to_string(expected) == seg.sha256
+
+  defp expected_segment_hashes(attrs, effect) do
+    raw =
+      Map.get(attrs, :expected_segment_hashes) || Map.get(attrs, "expected_segment_hashes") ||
+        Map.get(effect, "expected_segment_hashes") || Map.get(effect, :expected_segment_hashes) ||
+        []
+
+    raw
+    |> List.wrap()
+    |> Enum.reduce(%{}, &put_expected_hash/2)
+  end
+
+  defp put_expected_hash(%{} = item, acc) do
+    id = Map.get(item, "segment_id") || Map.get(item, :segment_id)
+    sha = Map.get(item, "sha256") || Map.get(item, :sha256) || Map.get(item, "sha")
+
+    if id, do: Map.put(acc, to_string(id), to_string(sha || "")), else: acc
+  end
+
+  defp put_expected_hash(_item, acc), do: acc
+
+  defp replacement_pieces(content, target_ids) do
+    text = to_string(content || "") |> String.trim_trailing()
+
+    cond do
+      text == "" ->
+        {:error, :incomplete_scope}
+
+      length(target_ids) == 1 ->
+        {:ok, [text]}
+
+      true ->
+        pieces = String.split(text, ~r/(?:\r\n|\n|\r){2,}/u)
+
+        if length(pieces) == length(target_ids),
+          do: {:ok, pieces},
+          else: {:error, :incomplete_scope}
+    end
+  end
+
+  defp apply_segment_replacements(base_segments, target_ids, pieces, base_draft, attrs) do
+    target = MapSet.new(target_ids)
+    by_id = Map.new(Enum.zip(target_ids, pieces))
+
+    new_text =
+      Enum.map_join(base_segments, fn seg ->
+        if MapSet.member?(target, seg.segment_id) do
+          {_old_content, separator} = LocalizedRevision.split_segment_raw(seg.raw)
+          Map.fetch!(by_id, seg.segment_id) <> separator
+        else
+          seg.raw
+        end
+      end)
+
+    validate_reassembled(base_draft, new_text, target_ids, attrs)
+  end
+
+  defp validate_reassembled(base_draft, new_text, target_ids, attrs) do
+    opts = [
+      scope: "target_segments",
+      target_segment_ids: target_ids,
+      base_version: Map.get(attrs, :base_version) || Map.get(attrs, "base_version"),
+      current_version: base_draft.revision
+    ]
+
+    with {:ok, info} <- LocalizedRevision.validate(base_draft.content || "", new_text, opts) do
+      {:ok, new_text, info}
+    end
+  end
+
+  defp supersede_segment_base_draft(repo, base_draft) do
+    update_with_transition_guard(repo, base_draft)
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp insert_segment_revision(repo, base_draft, content) do
+    insert_draft(repo, %{
+      work_id: base_draft.work_id,
+      scene_id: base_draft.scene_id,
+      content: content,
+      status: AdoptionStatus.accepted(),
+      revision: next_draft_revision(repo, base_draft.scene_id)
+    })
+  end
+
+  defp replace_segments_effect(attrs) do
+    case Map.get(attrs, :adoption_effect) || Map.get(attrs, "adoption_effect") do
+      %{} = effect ->
+        if effect_mode(effect) == "replace_segments", do: effect
+
+      "replace_segments" ->
+        %{"mode" => "replace_segments"}
+
+      _ ->
+        nil
     end
   end
 

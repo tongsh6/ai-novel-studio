@@ -761,10 +761,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   end
 
   defp chapter_revision_instruction(:target_segments) do
-    "本轮为指定片段修订，但采纳以整章替换范围落地：必须输出**整章完整替换稿**" <>
-      "（包含原文所有段落/场次，按覆盖顺序；只改写作者指定的目标段，其余段落逐字保留，不得改写/删减/合并），" <>
-      "不得只输出改动片段、摘要、局部候选或续写。未改段落必须与当前已采纳正文逐字一致；" <>
-      "若无法确定目标段，输出整章原文并说明需要作者澄清，不要用局部文本冒充整章。"
+    "本轮为指定片段修订：只输出**目标段落的替换文本**（provider 原样返回该段正文，不要输出整章、" <>
+      "不要重复未改段落、不要加解释/标题/摘要）。替换文本必须能直接替换目标段；" <>
+      "未改段落由系统逐字节保留，你不需要也不得输出它们。若无法确定目标段，只输出一句具体澄清请求（系统会转 ask_author）。"
   end
 
   defp chapter_revision_instruction(_scope) do
@@ -795,8 +794,13 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         :target_segments -> target_ids_from_author_text(segments, run.goal.text)
       end
 
+    hashes =
+      segments
+      |> Enum.filter(&(&1.segment_id in ids))
+      |> Enum.map(&%{"segment_id" => &1.segment_id, "sha256" => &1.sha256})
+
     first = List.first(facts.materials) || %{}
-    {ids, Map.get(first, :ref), Map.get(first, :version)}
+    {ids, Map.get(first, :ref), Map.get(first, :version), hashes}
   end
 
   defp target_ids_from_author_text(segments, text) when is_binary(text) do
@@ -855,16 +859,28 @@ defmodule NovelApplication.PendingArtifactWorkflow do
          modification_scope,
          chapter_ref,
          visible_title,
-         {target_segment_ids, base_draft_ref, base_version}
+         {target_segment_ids, base_draft_ref, base_version, expected_segment_hashes}
        ) do
-    effect = %{
-      "mode" => "replace_scope",
-      "covered" => Enum.map(facts.materials, &"#{&1.ref}:#{&1.version}"),
-      "expected_base_versions" => facts.expected_base_versions,
-      "coverage" => "complete"
-    }
-
     covered_refs = Enum.map(facts.materials, &"#{&1.ref}:#{&1.version}")
+
+    effect =
+      if modification_scope == :target_segments do
+        %{
+          "mode" => "replace_segments",
+          "covered" => covered_refs,
+          "target_segment_ids" => target_segment_ids,
+          "expected_segment_hashes" => expected_segment_hashes,
+          "base_draft_ref" => base_draft_ref,
+          "base_version" => base_version
+        }
+      else
+        %{
+          "mode" => "replace_scope",
+          "covered" => covered_refs,
+          "expected_base_versions" => facts.expected_base_versions,
+          "coverage" => "complete"
+        }
+      end
 
     payload = %{
       title: visible_title,
@@ -875,6 +891,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         "target_chapter_ref" => chapter_ref,
         "covered" => covered_refs,
         "target_segment_ids" => target_segment_ids,
+        "expected_segment_hashes" => expected_segment_hashes,
         "base_draft_ref" => base_draft_ref,
         "base_version" => base_version,
         "preserve_unmentioned_verbatim" => modification_scope != :format_only
