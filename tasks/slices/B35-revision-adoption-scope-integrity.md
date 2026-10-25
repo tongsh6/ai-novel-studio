@@ -1,6 +1,6 @@
 # B35 修订采纳范围完整性（内容修订不得整章误替换）
 
-- 状态：pending / CP0 设计登记（2026-10-25，B33 CP4 scoped 真实模型 replay 暴露）
+- 状态：**doing / CP0–CP2 完成（2026-10-25，`2392b104`）**：根因=target_segments 指令未强制整章完整稿 + 候选无条件 complete + 采纳只校验 covered refs 不校验正文内容；修复候选 scope 声明 + 采纳侧 `ensure_content_covers_scope`（complete 非 format_only → new_chars>=covered_base/2，否则 `incomplete_scope` 零写入）；CP3 scoped replay FAIL（判断 tool args 可达性缺口，候选未产出/零写入）→ task-94 修复中；P1 canonical-2 暂停。
 - 类型：采纳/事务/内容完整性承重 slice（修复既有 B28 采纳范围语义；不新增能力）
 - 来源证据：`artifacts/novel-output/p1-b33-cp4-replay-2026-10-25/`（maintenance-replay content_revision；`content-integrity.json`/`comparison.json`）
 - 关联：B28 整章修订、B30 结构维护、B33 CP4、P1 canonical、ADR 采纳边界
@@ -36,3 +36,15 @@
 - 不改 frontend/src/novel_common/验收 hook；不降 schema/不补字段；不重跑 canonical 换分。
 - 真实模型仅 scoped replay，单槽；模型生命周期用户硬约束。
 - 历史错误数据（replay DB 为副本）不写回 canonical；如需修 stage/canonical 数据另授权。
+
+## 5. CP3 记录（2026-10-25，FAIL：判断 tool args 不可达；数据安全 PASS）
+
+- 环境：canonical DB 新副本、`DOGFOOD_MAINTENANCE_ONLY=1 retry=content_revision`、native iq3_s；HEAD `2392b104`；单次未重跑。
+- 链路：首次 judgment 返回 `revise_adopted_content`+`target_chapter_ref`/`modification_scope` → `JudgmentToolContract` invalid_tool_arguments（候选 payload 字段不允许出现在 judgment_decision）→ B33 纠错后纯文本 reply → 终局 reply；runner 记 wrong-route，无候选/零写入。
+- **数据完整性 PASS**：第03章 ACCEPTED draft 561db… v5（1198 chars、sha e4830487…）与 canonical 完全一致，未 SUPERSEDED；章有效字数 1002、总字数 10002、导出正常；canonical DB sha `86c655f7…` 未变。
+- 结论：B35 采纳保护未被行使；根因在判断 tool 可达性/纠错回退，task-94（prose）修复后做**一次** content_revision scoped replay；仍不重跑整批。
+- 证据：`artifacts/novel-output/p1-b35-cp3-replay-2026-10-25/`。
+
+## 6. 后续门禁
+
+- task-94 修复提交 → B35 CP3 单次复验（同 B35-CP3-REPLAY-PLAN，新 DB 副本/证据目录）；PASS 判据：target_segments 合法判断→整章完整稿候选→采纳后其余段落逐字节保留/字数不塌缩；或模型仍局部稿时 `incomplete_scope` 零写入（数据安全）。通过后 P1 canonical-2（post-fix 一次验收）。
