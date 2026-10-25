@@ -1839,4 +1839,92 @@ defmodule NovelApplication.JudgmentProtocolTest do
     assert payload.terminal_reason == "ask_author_after_correction"
     assert payload.author_input_chars == String.length("第09章的正文还没写，帮我写出来吧。")
   end
+
+  test "B35 CP3/task-94：首答带候选 payload 字段 → 字段级纠错，二次合法 execute revise_adopted_content 通过" do
+    author = "把第03章：黑市调频师的正文第一段改得更紧张，只改这一段，其他段落别动。"
+
+    prompt_input =
+      input(
+        capabilities: ["prose_writing", "revise_adopted_content"],
+        adopted_content_targets: %{"as_chapter_three" => ["revise_adopted_content"]}
+      )
+      |> Map.put(:author_text, author)
+
+    bad =
+      call("judgment_decision", %{
+        "action" => "execute",
+        "capability" => "revise_adopted_content",
+        "dialogue_goal" => author,
+        "reason" => "章级修订",
+        "target_chapter_ref" => "chapter:real03",
+        "modification_scope" => "target_segments"
+      })
+
+    good =
+      call("judgment_decision", %{
+        "action" => "execute",
+        "capability" => "revise_adopted_content",
+        "adopted_content_ref" => "as_chapter_three",
+        "dialogue_goal" => author,
+        "reason" => "按作者指定的第一段范围修订"
+      })
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [bad]), response("", [good])]),
+               %{},
+               prompt_input
+             )
+
+    assert judgment.action == "execute"
+    assert judgment.capability == "revise_adopted_content"
+    assert judgment.adopted_content_ref == "as_chapter_three"
+
+    assert_receive {:provider_request, _first}
+    assert_receive {:provider_request, corrected}
+    correction = List.last(corrected.messages).content
+
+    assert correction =~ "未允许字段："
+    assert correction =~ "target_chapter_ref"
+    assert correction =~ "modification_scope"
+    assert correction =~ "内容修订的 execute 必须用 adopted_content_ref"
+    assert correction =~ "范围（第一段/整章/仅排版）写在 dialogue_goal"
+    assert correction =~ "不要在 judgment_decision 里填 target_chapter_ref/modification_scope"
+    assert correction =~ ~s("capability":"revise_adopted_content")
+    assert correction =~ ~s("adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>")
+  end
+
+  test "B35 CP3/task-94：纠错后仍回复纯文本 → 具体 ask_author + wrong_route，不得终局 reply" do
+    author = "把第03章：黑市调频师的正文第一段改得更紧张，只改这一段，其他段落别动。"
+
+    prompt_input =
+      input(
+        capabilities: ["prose_writing", "revise_adopted_content"],
+        adopted_content_targets: %{"as_chapter_three" => ["revise_adopted_content"]}
+      )
+      |> Map.put(:author_text, author)
+
+    bad =
+      call("judgment_decision", %{
+        "action" => "execute",
+        "capability" => "revise_adopted_content",
+        "dialogue_goal" => author,
+        "reason" => "章级修订",
+        "target_chapter_ref" => "chapter:real03",
+        "modification_scope" => "target_segments"
+      })
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([response("", [bad]), response("这段我按章级修订来说明一下。", [])]),
+               %{},
+               prompt_input
+             )
+
+    assert judgment.action == "await_author"
+    assert judgment.provider_call_count == 2
+    assert judgment.question =~ "具体章节与段落"
+    assert judgment.question =~ "要改成的目标"
+    assert judgment.wrong_route_correction_attempted == true
+  end
 end

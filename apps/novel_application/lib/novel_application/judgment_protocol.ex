@@ -280,6 +280,49 @@ defmodule NovelApplication.JudgmentProtocol do
       "（上一轮终局：#{info.action}#{if(info.capability, do: "/" <> to_string(info.capability), else: "")}）"
   end
 
+  # B35 CP3/task-94：字段级反馈（未允许字段/必填/内容修订用 adopted_content_ref）+ 合法最小示例。
+  defp correction_content({:invalid_tool_arguments, detail}) do
+    disallowed =
+      case Map.get(detail, :disallowed, []) do
+        [] -> "无"
+        fields -> Enum.join(fields, "、")
+      end
+
+    missing =
+      case Map.get(detail, :missing, []) do
+        [] -> "无"
+        fields -> Enum.join(fields, "、")
+      end
+
+    revision? =
+      Map.get(detail, :tool) == "judgment_decision" and
+        (Map.get(detail, :capability) == "revise_adopted_content" or
+           Enum.any?(
+             ["target_chapter_ref", "modification_scope"],
+             &(&1 in Map.get(detail, :disallowed, []))
+           ))
+
+    example =
+      if revision? do
+        ~s({"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","reason":"..."})
+      else
+        ~s({"action":"execute","capability":"<本轮可用能力>","dialogue_goal":"...","reason":"..."})
+      end
+
+    "本次响应的工具参数未通过 schema 校验：只填该工具契约声明的字段，不要添加 action/capability/body 等未声明字段。" <>
+      "上次未允许字段：#{disallowed}；缺少必填字段：#{missing}；judgment_decision 允许字段：#{Enum.join(Map.get(detail, :allowed, []), "、")}。" <>
+      if revision? do
+        "内容修订的 execute 必须用 adopted_content_ref（章级 ref 或 pending artifact ref，按本轮可选目标原样复制），" <>
+          "范围（第一段/整章/仅排版）写在 dialogue_goal；不要在 judgment_decision 里填 target_chapter_ref/modification_scope（候选 payload 字段由产品生成）。"
+      else
+        ""
+      end <>
+      "合法最小示例：#{example}。" <>
+      "report_capability_gap 只填 dialogue_goal、missing_effect、author_reasoning（optional alternative_operation_refs）；" <>
+      "ask_author 只填 question、options（optional reason_codes）；" <>
+      "judgment_decision 按 action 填对应字段。保留原任务、目标、来源与范围，只纠正工具参数结构。"
+  end
+
   defp correction_content(reason) do
     "本次响应未通过契约校验：#{inspect(reason) |> String.slice(0, @error_excerpt_chars)}。" <>
       "保留同一作者输入、来源、目标、范围与权限，只纠正不合法结构；不要扩大操作或复述失败响应。"
@@ -452,9 +495,13 @@ defmodule NovelApplication.JudgmentProtocol do
        when family in [:author_content_registration_invalid, :pending_artifact_invalid],
        do: {:error, reason}
 
+  defp correct_or_reject(_, _, _, _, _, {:invalid_tool_arguments, _detail}, _previous_tools),
+    do: {:error, {:judgment_protocol_violation, :invalid_tool_arguments}}
+
   defp correct_or_reject(_, _, _, _, _, reason, _previous_tools),
     do: {:error, {:judgment_protocol_violation, reason}}
 
+  defp validation_reason_code({:invalid_tool_arguments, _detail}), do: "invalid_tool_arguments"
   defp validation_reason_code({_, reason}) when is_atom(reason), do: Atom.to_string(reason)
   defp validation_reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp validation_reason_code(_), do: "invalid_response"
@@ -513,6 +560,9 @@ defmodule NovelApplication.JudgmentProtocol do
     只读探索当前允许：#{Keyword.get(options, :explore, false)}；目录：#{Jason.encode!(Keyword.get(options, :explore_tools, []))}。
     多个相互依赖的产物/阶段才用 judgment_decision.plan，且必须与 agent_plan_draft 同批返回。
     #{JudgmentToolContract.legal_combination_guidance()}
+    内容修订（execute capability=revise_adopted_content）最小示例：
+    {"action":"execute","capability":"revise_adopted_content","adopted_content_ref":"<本轮可选目标里的真实章级/pending ref>","dialogue_goal":"只改第一段，其余段落保持原样","reason":"..."}
+    范围写在 dialogue_goal；不要填 target_chapter_ref/modification_scope 等候选 payload 字段（judgment_decision schema 不允许）。
     模型工具调用不代表执行授权。
     用户可见动作必须有可见文本：纯文本回复必须给出非空 content（只输出思考/占位词不算回复）；
     使用工具时 content 可为空，但 question/reason/author_reasoning 必须提供作者可见原话。
@@ -682,21 +732,60 @@ defmodule NovelApplication.JudgmentProtocol do
 
   defp validate_tools(calls, profile) do
     case JudgmentToolContract.validate(calls, profile) do
-      {:error, :invalid_tool_arguments} -> registration_schema_error(calls)
+      {:error, :invalid_tool_arguments} -> registration_schema_error(calls, profile)
       result -> result
     end
   end
 
-  defp registration_schema_error([call]) do
+  defp registration_schema_error([call], profile) do
     args = field(call, :arguments)
 
     if field(call, :name) == "register_author_content" and is_map(args) and
-         field(args, :author_content_source_ref) in [nil, ""],
-       do: {:error, {:author_content_registration_invalid, :source_required}},
-       else: {:error, :invalid_tool_arguments}
+         field(args, :author_content_source_ref) in [nil, ""] do
+      {:error, {:author_content_registration_invalid, :source_required}}
+    else
+      invalid_tool_arguments_detail([call], profile)
+    end
   end
 
-  defp registration_schema_error(_), do: {:error, :invalid_tool_arguments}
+  defp registration_schema_error(calls, profile) when is_list(calls) do
+    invalid_tool_arguments_detail(calls, profile)
+  end
+
+  # B35 CP3/task-94：invalid_tool_arguments 的字段级可达反馈（只读 schema 解释，
+  # 不改变 schema 允许字段/additionalProperties）。
+  defp invalid_tool_arguments_detail(calls, profile) do
+    schemas = Map.new(JudgmentToolContract.tools(profile), &{&1.name, &1.input_schema})
+
+    call =
+      Enum.find(calls, &(field(&1, :name) == "judgment_decision")) ||
+        List.first(calls)
+
+    args = field(call, :arguments)
+
+    detail =
+      with name when is_binary(name) <- field(call, :name),
+           %{properties: properties, required: required} <- Map.get(schemas, name),
+           true <- is_map(args) do
+        allowed = properties |> Map.keys() |> Enum.map(&to_string/1)
+        required = Enum.map(required, &to_string/1)
+        present = args |> Map.keys() |> Enum.map(&to_string/1)
+
+        %{
+          tool: name,
+          allowed: allowed,
+          required: required,
+          disallowed: Enum.reject(present, &(&1 in allowed)),
+          missing: Enum.reject(required, &(&1 in present)),
+          action: field(args, :action),
+          capability: field(args, :capability)
+        }
+      else
+        _ -> %{tool: field(call, :name), allowed: [], required: [], disallowed: [], missing: []}
+      end
+
+    {:error, {:invalid_tool_arguments, detail}}
+  end
 
   defp validate_inline_plan(%{plan_result: result} = judgment, input) when is_map(result) do
     case get_in(input, [:options, :plan_run]) do

@@ -32,7 +32,10 @@ defmodule NovelApplication.AuthoringTaskPolicy do
     若已有章计划等事实足够则直接 execute prose_writing；需要计划事实时可先 explore，
     但取证后必须回到 execute，不能以 reply / propose_creative_directions / await_author 结束。
     设计一个角色时用 execute character_design（作者明确只要方向讨论/建议时除外，那走讨论回复）。
-    修订某章内容且目标明确时用 execute 对应修订能力；目标段/范围不明确时用 ask_author
+    修订某章内容且目标明确时用 execute capability=revise_adopted_content：章节级 ref 或候选 ref
+    只能原样复制到 adopted_content_ref / pending_artifact_ref，范围（第一段/整章/仅排版…）写在
+    dialogue_goal；judgment_decision 里不要填 target_chapter_ref、modification_scope 等候选 payload
+    字段（这些由产品在候选里生成，判断工具 schema 不允许）。目标段/范围不明确时用 ask_author
     具体问清缺的对象/段，不能空泛等待。作者只聊/只分析时保持讨论，不生成候选。
     选择实际效果匹配的操作，不能用记忆更新冒充角色主档案修改、用新增大纲冒充结构维护、
     用单段修订冒充整章修订。系统当前没有保证字句不变的独立排版能力：作者要求仅排版时，
@@ -138,7 +141,18 @@ defmodule NovelApplication.AuthoringTaskPolicy do
   end
 
   defp revise_content_action?(text) do
-    verb = String.contains?(text, ["修订", "修改", "改一下", "调整", "改成", "改为"])
+    verb =
+      String.contains?(text, [
+        "修订",
+        "修改",
+        "改一下",
+        "改一改",
+        "改改",
+        "改得",
+        "调整",
+        "改成",
+        "改为"
+      ])
 
     target =
       String.contains?(text, ["正文", "内容", "段落", "句子", "情节", "这一章", "本章"]) or
