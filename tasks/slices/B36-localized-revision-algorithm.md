@@ -1,6 +1,6 @@
 # B36 局部修订算法与结构化编辑能力（不只 prompt）
 
-- 状态：**doing / CP0 设计 + CP1/CP2 完成（2026-10-25，`bdc725c5`/`be189f0c`）**：确定性分段/diff 越界校验/采纳集成已提交（LocalizedRevision；target 段外逐字节一致、out_of_scope/incomplete/stale 零写入、receipt segment_changes）；CP2 结构化段落替换已提交（writer 只产目标段 replacement + replace_segments 确定性 apply/失败零写入）；CP2 residual=agent 侧静态修订 prompt 仍要求整章稿 → task-97 prose 对齐中；CP3 真实模型 scoped replay（第一段实际变化且其余逐字保留）、P1 canonical-2 待后。
+- 状态：**doing / CP0 设计 + CP1/CP2 完成（2026-10-25，`bdc725c5`/`be189f0c`）**：确定性分段/diff 越界校验/采纳集成已提交（LocalizedRevision；target 段外逐字节一致、out_of_scope/incomplete/stale 零写入、receipt segment_changes）；CP2 结构化段落替换已提交（writer 只产目标段 replacement + replace_segments 确定性 apply/失败零写入）；CP2 residual=agent 侧静态修订 prompt 仍要求整章稿 → task-97 prose 对齐中；CP3 真实模型 scoped replay **PASS（2026-10-25，HEAD `a014029b`）**：第一段实际变化（旧 sha→新 sha）、其余 21 段逐字节一致、字数 1002→1057、wrong_route/retry 0、receipt replace_segments/segment_changes；P1 canonical-2 待 GO。
 - 类型：文本编辑算法 + 采纳事务能力 + 候选/验收契约承重 slice
 - 来源：B35 CP3（局部 126 chars 被当整章 complete 覆盖，1002→116 字）、B33 CP4、用户 2026-10-25 裁决
 - 关联：B28 整章修订、B35 修订采纳范围完整性、B33 判断可达性、P1 canonical-2
@@ -64,3 +64,11 @@ target_segments 修订 writer 只产目标段 replacement（不要求整章）�
 - `persist_replace_segments`（Ecto.Multi）：base ref/version、章内唯一 accepted base、逐段 expected sha256（`segment_mismatch`）、空 replacement/多段不匹配→`incomplete_scope`、按段替换保留原尾分隔符其他字节原样、LocalizedRevision 二次校验（`out_of_scope_changes`）、新 draft accepted/旧 superseded/章角色不变/失败回滚零写入；receipt segment_changes/old_chars/new_chars/diff_stats。
 - 测试 b36_replace_segments_test 2/0；persistence 327/0、application 953/0、全后端 2237/0。
 - **residual**：`CreativeProvider.Real` 静态修订块仍写「输出完整替换稿/不得只返回修改片段」，与 target_segments replacement-only 冲突 → task-97 修复后 CP3。
+
+## 6. CP3 记录（2026-10-25，PASS）
+
+- HEAD `a014029b`；canonical DB 新副本/新证据目录 `artifacts/novel-output/p1-b36-cp3-replay-2026-10-25/`；native iq3_s 单次；3 provider calls/24.9s。
+- judgment 首次 execute revise_adopted_content + `adopted_content_ref=chapter:a9524ba9-…`；output_validation 错误 0、wrong_route 0、retry 0。
+- writer 只回目标段替换文本（207 tokens≈122 chars，非整章 1258 chars）；候选 prose_fragment，真实作者 accept；receipt scope=target_segments、target_segment_ids=[seg_0_7be82a6ded2e]、segment_changes modified(old_sha→new_sha)、old_chars=1198/new_chars=1258、diff_stats={segment_count:22,changed_segment_count:1}、adoption_effect=replace_segments。
+- 数据完整性：22 段→22 段，仅 segment0 变化，其余 21 段逐字节一致；章字数 1002→1057（合理增量，非塌缩）；第一段 62→122 chars 实际改写；总字数 10057；canonical DB sha `86c655f7…` 未变、无未确认写入。
+- 结论：B36 局部修订范围/prompt 对齐在真实 iq3_s 成立，数据安全与采纳边界满足；CP4 = P1 canonical-2 门禁（预注册已写 VS00D）。
