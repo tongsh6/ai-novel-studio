@@ -157,6 +157,7 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 - **批次/预算**：每轮一次 **canonical** 10 章级真实创作复验；总真实模型 writer 调用预算按 10 章 × 平均 2–3 轮估算（≤40 次），超预算以诚实失败/缺口记录收尾；不并发模型（单槽），不因结果不理想重跑换分；失败/重试次数全量计数。
 - **模型**：先做 ≤2 章模型 probe（LM Studio `qwen3.8-flash-next@iq4_nl` 优先，必要时 `qwen3.8-27b-bf16`/`strata/iq3_s`），按 probe 的延迟/可采纳性/失败模式选定 provider/model/timeout，并写入 `artifacts/novel-output/p1-model-probe-2026-10-25/plan.md`；probe 与正式 run 串行。
+- **模型/工具裁决（作者 2026-10-25，覆盖 probe 建议）**：P1 canonical 主模型 = **Strata `iq3_s`**（作者明确选择，速度优先）。依据：严格同模型对比受 Strata 缺 llama-server engine 阻塞（同一 27b-bf16 在 Strata 无法加载；LM Studio 同模型实测 plan 9.09/prose 9.20/judge 8.63 tok/s、机械质量合规，作为对照保留）；Strata iq3_s 同 prompt 实测 plan 20.59/prose 78.11/judge 48.89 tok/s、机械质量合规。**风险如实保留**：iq3_s 与 probe B 非同模型/量化，且 B28 CP4 有长文 writer 退化史（32k 失控低熵）→ **canonical 前必须先做单章受控验证（plan 不被拒、正文>0、无失控重复、pending 候选）**，通过才 P1 GO；失败则如实记录、不重跑换分。Strata llama-server engine 安装暂不进行（如需严格同模型对比再另行授权）。
 - **模型生命周期（用户硬约束，2026-10-25）**：真实模型加载属 harness 能力、非产品能力；**任何 probe/正式 run 结束（含失败/中断）必须 `~/.lmstudio/bin/lms unload --all` 并用 `lms ps` 验证无已加载大模型**；同一时刻只允许加载 1 个模型；加载前记录 `lms ps`/内存压力，发现 >1 大模型或非预期模型立即中止并报 Lead；不得让模型常驻导致本机负载过大/崩溃重启。
 - **范围（10 章级会话）**：真实 Tauri 工作台自然语言创作，含至少：新章/续写草稿多章（≥5 章达标）、**整章仅排版修订**（B28 format_only，≥1）、**整章内容修订**（≥1）、**章节重编号/结构维护**（B30，≥1）、**已有角色叙事身份修订**（B29，≥1）；每类均从真实自然语言入口出发并经真实采纳/确认；含 **重启后 resume 断点续跑** 演练、阅读模式/档案审读、导出完整作品；维护动作不得用脚本旁路代替（runner 只能像作者操作 UI）。
 - **度量**：错对象/错绑（回复或操作落到错误章/角色/run）、越权写入/未确认写入、虚报完成、走错能力/误路由、重试率、缺章/重复章/重复段、字数漂移/质量漂移、人工改稿负担（作者视角记录）；确定性统计用 word-count/quality/continuity 报告；模型语义与产品状态链分开。

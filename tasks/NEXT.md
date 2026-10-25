@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| P1-AUTHORING-DOGFOOD | **当前任务 / CP0 预注册完成（2026-10-25）**：10 章级真实创作复验（D15），检验 B26/B27/B28/B30/B29 组合体验。预注册已写入 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)（canonical 一次、≤40 writer 调用预算、单槽串行、维护组合插入点、度量/证据/B6-B7-B9/I10 盲评待作者）。**进行中**：模型 probe 已发现 `agent_plan_draft` 顶层字段不可达（真实模型只给 `{"plan":...}` 被拒），已派 task-81 最小修复（prompt 骨架/纠错，不放宽 schema）；harness 已停重试并卸载模型（用户硬约束：模型用完必须卸载）；lifecycle 做 runner 适配/slice_verify dry-run。修复 + 单次受控验证通过后我发 P1 GO 执行 canonical 10 章。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
+| P1-AUTHORING-DOGFOOD | **当前任务 / CP0 预注册完成（2026-10-25）**：10 章级真实创作复验（D15），检验 B26/B27/B28/B30/B29 组合体验。预注册已写入 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)（canonical 一次、≤40 writer 调用预算、单槽串行、维护组合插入点、度量/证据/B6-B7-B9/I10 盲评待作者）。**进行中**：作者已裁决 P1 主模型=Strata `iq3_s`（速度优先；同模型对比因缺 Strata llama-server engine 未完成，LM Studio 27b ~9 tok/s 作对照；风险=非同模型+B28 长文退化史）；probe 发现 `agent_plan_draft` 两缺口（骨架缺 authoring_intent、纠错 tools=auto 矛盾）由 task-82 修复中；runner/dry-run CP0 已 PASS（58947328/52d622c5）；模型用完强制卸载。修复提交后做 Strata 单章受控验证 → 通过发 P1 GO canonical 10 章。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 后续候选
 
