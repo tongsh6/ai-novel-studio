@@ -1,6 +1,6 @@
 # B37 验收等待与故障监督优化（消除空等）
 
-- 状态：**doing / CP0–CP2 完成（2026-10-25，`7130d3b8`）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动。
+- 状态：**doing / CP0–CP2 完成（2026-10-25，`7130d3b8`）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动后暴露**真实模型预算不匹配**（input30s×2 / turn120s 对续写不足→重复发送），已停止并记为 attempt2；**CP3** 按 provider 校准预算（strata/lmstudio: input120/turn360/candidate300/adoption180/maintenance300…）+ turn 超时不重发同指令；canonical-3c 待 CP3 后 fresh 跑。
 - 类型：验收 harness 可靠性（不新增产品能力；runner/launcher/监督与证据）
 - 来源：canonical-1/2/3 运行证据；B33 CP3/B35 CP3b/B36 CP3 scoped replay；用户 2026-10-25 指令
 - 关联：P1-AUTHORING-DOGFOOD、B36、`frontend/slice-verify/dogfood-runner.mjs`、`scripts/dogfood_run.sh`
@@ -42,3 +42,9 @@
 - `scripts/dogfood_run_detached.sh start/status/stop`：Python 独立 session（start_new_session）、pidfile/lock、4657/5769+strata 预检、detached.log/heartbeat.jsonl/meta（HEAD/命令/env）、trap INT/TERM/EXIT 写 termination.json、stop 定向 TERM 进程组。
 - 验证（slice_verify）：正常 10 章+维护 5/5、46 waits/5538ms/0 timeout；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 全部 exit1+typed failure；detached 父 shell kill -9 后 run 继续 exit0、主动 stop 1076ms TERM/143、重复 start exit1；node/eslint/bash-n 绿。
 - 证据 `artifacts/novel-output/p1-b37-wait-supervision-2026-10-25/`；canonical-3b 使用 detached launcher。
+
+### CP3 记录（2026-10-25，真实模型预算校准中）
+
+- canonical-3b attempt2（HEAD `7130d4b8`→`177422f5`，detached）暴露：input 30s 两次超时；turn 120s 对真实 iq3_s writer/续写不足（实测 writer 90–200s、续写 197s），08:15 runner 超时后**重复发送同一续写指令**（08:16:44 才收到并采纳）→ 批次污染，已停止（Lead 通过 detached stop，TERM/143；证据改名 `...canonical3b-attempt2-budget-contaminated/` 并写 failure-summary）。
+- 修复（task-100）：按 provider 预算（slice_verify 快；strata/lmstudio input120/ack60/turn360/candidate300/adoption180/maintenance300/export120/toc60，env 可覆盖）；turn 超时**不重发**同 instruction（in-flight guard + wait_timeout/failure）；wait_events/summary 记 provider/budget；slow_turn 故障注入测试；detached status/stop 支持显式 artifact dir。
+- canonical-3c：CP3 修复提交后 fresh DB/证据目录执行（attempt1 SIGTERM/attempt2 预算污染均保留，不重跑分数）。
