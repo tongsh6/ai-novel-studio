@@ -54,29 +54,81 @@ const maintenanceRetryIds = (process.env.DOGFOOD_MAINTENANCE_RETRY ?? "")
 // 0 = 不限制（canonical 行为）。
 const onlySeq = Number(process.env.DOGFOOD_ONLY_SEQ ?? "0");
 const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
-// B37 CP1：统一等待预算（env 可覆盖；禁止 600s 通用盲等）。kind 即产品旅程阶段。
-const WAIT_BUDGET_DEFAULTS = Object.freeze({
-  input: 30_000,
-  ack: 30_000,
-  turn: 120_000,
-  candidate: 120_000,
-  adoption: 90_000,
-  maintenance: 180_000,
-  export: 60_000,
-  toc: 30_000,
+// B37 CP3：按 provider 校准等待预算（slice_verify 快路径；strata/lmstudio 真实模型慢路径）。
+// 依据 canonical-1/2/3b 实测：writer 90–200s、续写 197s、plan/judgment 20–40s、采纳秒级。
+const WAIT_BUDGET_TABLES = Object.freeze({
+  slice_verify: Object.freeze({
+    input: 30_000,
+    ack: 30_000,
+    turn: 120_000,
+    candidate: 120_000,
+    adoption: 90_000,
+    maintenance: 180_000,
+    export: 60_000,
+    toc: 30_000,
+  }),
+  real: Object.freeze({
+    input: 120_000,
+    ack: 60_000,
+    turn: 360_000,
+    candidate: 300_000,
+    adoption: 180_000,
+    maintenance: 300_000,
+    export: 120_000,
+    toc: 60_000,
+  }),
 });
 
-function waitBudget(kind) {
+function budgetTable(providerOverride = provider) {
+  return providerOverride === "slice_verify" ? WAIT_BUDGET_TABLES.slice_verify : WAIT_BUDGET_TABLES.real;
+}
+
+function waitBudget(kind, providerOverride = provider) {
   const envKey = `DOGFOOD_WAIT_${String(kind).toUpperCase()}_MS`;
   const raw = process.env[envKey];
-  const value = raw == null || raw === "" ? WAIT_BUDGET_DEFAULTS[kind] : Number(raw);
+  const fallback = budgetTable(providerOverride)[kind];
+  const value = raw == null || raw === "" ? fallback : Number(raw);
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`invalid wait budget ${envKey}=${JSON.stringify(raw)} for kind=${kind}`);
   }
   return value;
 }
 
-const FAULT_SIM_KINDS = ["page_closed", "action_failed", "stall", "backend_down"];
+function lateGraceBudget(providerOverride = provider) {
+  const raw = process.env.DOGFOOD_LATE_RESULT_GRACE_MS;
+  const fallback = providerOverride === "slice_verify" ? 30_000 : 120_000;
+  const value = raw == null || raw === "" ? fallback : Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`invalid DOGFOOD_LATE_RESULT_GRACE_MS=${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+function resolvedWaitBudgets(providerOverride = provider) {
+  const out = {};
+  for (const kind of Object.keys(budgetTable(providerOverride))) {
+    out[kind] = waitBudget(kind, providerOverride);
+  }
+  return out;
+}
+
+if (process.env.DOGFOOD_PRINT_WAIT_BUDGETS === "1") {
+  // provider 预算表断言入口（不启动浏览器/不调用模型）。
+  console.log(
+    JSON.stringify(
+      {
+        provider,
+        budgets: resolvedWaitBudgets(),
+        late_result_grace_ms: lateGraceBudget(),
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(0);
+}
+
+const FAULT_SIM_KINDS = ["page_closed", "action_failed", "stall", "backend_down", "slow_turn"];
 const faultSim = process.env.DOGFOOD_FAULT_SIM ?? "";
 if (faultSim && !FAULT_SIM_KINDS.includes(faultSim)) {
   console.error(`DOGFOOD_FAULT_SIM must be one of ${FAULT_SIM_KINDS.join("|")}, got ${faultSim}`);
@@ -206,6 +258,8 @@ let activePage = null;
 let watchdogTimer = null;
 let watchdogStopped = false;
 let currentWait = null;
+// B37 CP3：in-flight guard；turn_result 超时后绝不重发同一 instruction。
+let inFlightInstruction = null;
 
 class DogfoodWaitError extends Error {
   constructor(code, message, details = {}) {
@@ -219,9 +273,23 @@ class DogfoodWaitError extends Error {
 function isFatalWaitError(error) {
   return (
     error instanceof DogfoodWaitError &&
-    ["page_closed", "backend_down", "action_failed", "adoption_persistence_failed", "signal"].includes(
-      error.code,
-    )
+    [
+      "page_closed",
+      "backend_down",
+      "action_failed",
+      "adoption_persistence_failed",
+      "signal",
+      "turn_timeout",
+      "in_flight_guard",
+    ].includes(error.code)
+  );
+}
+
+function isTurnTimeout(error) {
+  return (
+    error instanceof DogfoodWaitError &&
+    error.code === "wait_timeout" &&
+    error.details?.kind === "turn"
   );
 }
 
@@ -229,7 +297,7 @@ function appendWaitEvent(entry) {
   try {
     fs.appendFileSync(
       WAIT_EVENTS_PATH,
-      `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
+      `${JSON.stringify({ at: new Date().toISOString(), provider, ...entry })}\n`,
     );
   } catch {
     // 证据写失败不改变旅程语义；stderr 留痕。
@@ -250,6 +318,8 @@ function waitStats() {
     null,
   );
   return {
+    provider,
+    wait_budgets: resolvedWaitBudgets(),
     total_waits: completed.length,
     total_elapsed_ms: totalElapsed,
     timeout_count: timeouts,
@@ -274,6 +344,8 @@ function recordFailureFile(error, extra = {}) {
         {
           at: new Date().toISOString(),
           status: "failed",
+          provider,
+          wait_budgets: resolvedWaitBudgets(),
           code: error?.code ?? "error",
           error: String(error?.message ?? error),
           stack: String(error?.stack ?? "").slice(0, 4000),
@@ -762,6 +834,7 @@ async function waitForJourneyKind(predicate, message, timeoutMs = waitBudget("tu
   const started = Date.now();
   const startedIso = new Date(started).toISOString();
   const record = {
+    provider,
     kind: waitKind,
     label: String(message).slice(0, 240),
     budget_ms: timeoutMs,
@@ -770,7 +843,13 @@ async function waitForJourneyKind(predicate, message, timeoutMs = waitBudget("tu
     outcome: "pending",
     last_frame: null,
   };
-  currentWait = { kind: waitKind, label: record.label, started_at: startedIso, budget_ms: timeoutMs };
+  currentWait = {
+    provider,
+    kind: waitKind,
+    label: record.label,
+    started_at: startedIso,
+    budget_ms: timeoutMs,
+  };
   appendWaitEvent({
     phase: "start",
     kind: waitKind,
@@ -829,7 +908,10 @@ async function waitForJourneyKind(predicate, message, timeoutMs = waitBudget("tu
         );
       }
 
-      if (faultSim !== "stall") {
+      const faultFreezesFrames =
+        faultSim === "stall" ||
+        (faultSim === "slow_turn" && ["turn", "late_grace"].includes(waitKind));
+      if (!faultFreezesFrames) {
         for (let index = fromIndex; index < frames.length; index += 1) {
           const classification = classifyJourneyFrame(frames[index], { turnId: null });
           last = classification;
@@ -926,9 +1008,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null, o
         "confirmation_required",
       ].includes(classification.kind),
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
-    waitBudget("turn"),
+    options.turnBudgetMs ?? waitBudget("turn"),
     fromIndex,
-    "turn",
+    options.waitKind ?? "turn",
   );
 
   let classification = first.classification;
@@ -1578,6 +1660,14 @@ async function maybeRunMaintenanceBeats(page, toc, state) {
 }
 
 async function driveChapterTurn(page, chapter) {
+  if (inFlightInstruction) {
+    throw new DogfoodWaitError(
+      "in_flight_guard",
+      `refusing to send a chapter instruction while another turn is in flight: ${JSON.stringify(
+        inFlightInstruction,
+      )}`,
+    );
+  }
   const words = Number(chapter.word_count ?? 0);
   const continuation = words > 0;
   // B7：自然作者短句——不再塞「根据已采纳章节计划…保持为待采纳草稿」四子句，
@@ -1587,7 +1677,56 @@ async function driveChapterTurn(page, chapter) {
     : `${chapter.title}的正文还没写，帮我写出来吧。`;
 
   const { fromIndex, turnId } = await sendAuthorMessage(page, instruction);
-  return adoptPendingDraft(page, chapter.title, fromIndex, turnId, { continuation });
+  inFlightInstruction = {
+    chapter: chapter.title,
+    instruction,
+    turn_id: turnId,
+    started_at: new Date().toISOString(),
+  };
+  appendProgress({ instruction_sent: instruction, chapter: chapter.title, turn_id: turnId });
+
+  try {
+    const result = await adoptPendingDraft(page, chapter.title, fromIndex, turnId, {
+      continuation,
+    });
+    inFlightInstruction = null;
+    return result;
+  } catch (error) {
+    // B37 CP3：turn_result 超预算时**只允许等 late result grace，不重发同一 instruction**；
+    // 否则真实模型仍在跑时会重复提交，污染批次（canonical-3b attempt2 实锤）。
+    if (isTurnTimeout(error)) {
+      const grace = lateGraceBudget();
+      log(
+        `${chapter.title}: turn_result exceeded budget; waiting ${grace}ms late-result grace WITHOUT resend`,
+      );
+      try {
+        const late = await adoptPendingDraft(page, chapter.title, fromIndex, turnId, {
+          continuation,
+          turnBudgetMs: grace,
+          waitKind: "late_grace",
+        });
+        inFlightInstruction = null;
+        log(`${chapter.title}: late turn_result accepted during grace (no resend)`);
+        return late;
+      } catch (lateError) {
+        inFlightInstruction = null;
+        throw new DogfoodWaitError(
+          "turn_timeout",
+          `turn_result exceeded budget for ${chapter.title}; instruction NOT resent; late-result grace failed: ${String(
+            lateError?.message ?? lateError,
+          )}`,
+          {
+            kind: "turn",
+            chapter: chapter.title,
+            late_grace_ms: grace,
+            instruction,
+          },
+        );
+      }
+    }
+    inFlightInstruction = null;
+    throw error;
+  }
 }
 
 async function exportBook(page) {
@@ -2257,7 +2396,14 @@ try {
         }
       }
     } catch (error) {
-      if (isFatalWaitError(error)) throw error;
+      if (isFatalWaitError(error)) {
+        appendProgress({
+          chapter: chapter.title,
+          fatal_wait_error: String(error?.message ?? error),
+          code: error?.code ?? "error",
+        });
+        throw error;
+      }
       failures.push({ title: chapter.title, error: String(error?.message ?? error) });
       appendProgress({ chapter: chapter.title, error: String(error?.message ?? error) });
       log(`retry ${chapter.title} after error: ${error?.message ?? error}`);

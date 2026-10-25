@@ -179,6 +179,23 @@ scoped 维护补验，不整批重写 10 章：
    `artifacts/novel-output/p1-cp0-maintenance-replay-dryrun-2026-10-25/`。
    该结果只验证 runner 支架/措辞/回放链路，**不替代** B33 修复后的真实模型 scoped 回放。
 
+## 4.7 B37 等待预算/超时防重发与 detached 启动（task-100）
+- **provider 预算表**（env `DOGFOOD_WAIT_<KIND>_MS` 可覆盖）：
+  - `slice_verify`：input 30s / ack 30s / turn 120s / candidate 120s / adoption 90s /
+    maintenance 180s / export 60s / toc 30s；
+  - `strata`/`lmstudio`（真实模型）：input 120s / ack 60s / turn 360s / candidate 300s /
+    adoption 180s / maintenance 300s / export 120s / toc 60s（依据 canonical-1/2/3b 实测：
+    writer 90–200s、续写 197s、plan/judgment 20–40s、采纳秒级）。
+  - 预算表断言（不调用模型）：`DOGFOOD_PROVIDER=strata DOGFOOD_PRINT_WAIT_BUDGETS=1 node frontend/slice-verify/dogfood-runner.mjs`。
+- **turn 超时绝不重发**：等待 turn_result 超预算后只等 `DOGFOOD_LATE_RESULT_GRACE_MS`
+  的 late result grace（不重发同一 instruction）；grace 失败以 `turn_timeout` fatal 退出并写
+  `failure.json`；发送路径有 in-flight guard。
+- **detached launcher**：`DOGFOOD_ARTIFACT_DIR=... bash scripts/dogfood_run_detached.sh start ...`
+  （独立 session、pidfile/lock、preflight、heartbeat/termination）；status/stop 可不用 env，
+  使用 `--artifact-dir <dir>` 或 `DOGFOOD_ARTIFACT_DIR`；stop 仅在明确终止时按 pidfile 定向。
+- 验证：slice_verify `slow_turn` 故障注入只发 1 次 + `turn_timeout` fatal；page_closed/
+  backend_down/action_failed/stall 均非零退出；正常 10 章+维护 5/5 PASS。
+
 ## 5. 需 Lead/harness 确认
 1) ~~probe 选定 provider/model~~ **已裁决**：canonical = Strata `iq3_s`（endpoint 47831；
    harness 预加载/结束后 unload 并验证 loaded=null）；runner/script 不加载模型。

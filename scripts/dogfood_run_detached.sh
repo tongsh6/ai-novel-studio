@@ -7,14 +7,36 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ACTION="${1:-}"
 shift || true
 
-if [[ -z "${DOGFOOD_ARTIFACT_DIR:-}" ]]; then
-  echo "[detached] DOGFOOD_ARTIFACT_DIR is required" >&2
+ARTIFACT_ARG=""
+PASS_ARGS=()
+while (($#)); do
+  case "$1" in
+    --artifact-dir)
+      ARTIFACT_ARG="${2:-}"
+      shift 2 2>/dev/null || shift
+      ;;
+    --artifact-dir=*)
+      ARTIFACT_ARG="${1#*=}"
+      shift
+      ;;
+    *)
+      PASS_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${PASS_ARGS[@]}"
+
+ARTIFACT_DIR="${ARTIFACT_ARG:-${DOGFOOD_ARTIFACT_DIR:-}}"
+if [[ -z "$ARTIFACT_DIR" ]]; then
+  echo "[detached] artifact dir required: set DOGFOOD_ARTIFACT_DIR or pass --artifact-dir <dir>" >&2
+  echo "usage: $0 start|status|stop [--artifact-dir <dir>] [dogfood_run.sh args...]" >&2
   exit 2
 fi
-ARTIFACT_DIR="$DOGFOOD_ARTIFACT_DIR"
 if [[ "$ARTIFACT_DIR" != /* ]]; then
   ARTIFACT_DIR="$ROOT/$ARTIFACT_DIR"
 fi
+export DOGFOOD_ARTIFACT_DIR="$ARTIFACT_DIR"
 mkdir -p "$ARTIFACT_DIR"
 PIDFILE="$ARTIFACT_DIR/detached.pid"
 LOCKDIR="$ARTIFACT_DIR/detached.lock"
