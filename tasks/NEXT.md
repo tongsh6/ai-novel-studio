@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| P1-AUTHORING-DOGFOOD | **当前任务 / canonical 实跑完成但验收未过（2026-10-25）**：Strata iq3_s 单次 10 章复验（~43.3min）=10,002 字、7/10 章达标、维护 2/5；暴露真实模型判断误路由 24 次（写正文/设计角色/内容修订返 reply 等）+ P1 runner 维护措辞歧义。**P1 未关闭**；B33 CP0–CP2 已完成提交（`33077f0e`：上下文去重/裁剪 + 动作意图有界纠错 gate + wrong_route 事件），CP4 scoped 真实模型复验进行中（task-92，不重跑 10 章）；P1 runner 维护措辞已修（`d5e87d9a`）。复验通过后决定 P1 收口。**B34（作者意图语料/验证覆盖，用户 2026-10-25 指令）CP0 语料挖掘进行中**（aux task-90：2026-06 起 stage 日志→意图分类/结果/覆盖缺口矩阵），随后 CP1/CP2 扩展确定性验证（prose task-91）。证据见 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
+| P1-AUTHORING-DOGFOOD | **当前任务 / canonical 实跑完成但验收未过（2026-10-25）**：Strata iq3_s 单次 10 章复验（~43.3min）=10,002 字、7/10 章达标、维护 2/5；暴露真实模型判断误路由 24 次（写正文/设计角色/内容修订返 reply 等）+ P1 runner 维护措辞歧义。**P1 未关闭**；B33 CP0–CP2 已完成提交（`33077f0e`：上下文去重/裁剪 + 动作意图有界纠错 gate + wrong_route 事件），CP4 scoped 真实模型复验进行中（task-92，不重跑 10 章）；P1 runner 维护措辞已修（`d5e87d9a`）。复验通过后决定 P1 收口。**B34（作者意图语料/验证覆盖，用户 2026-10-25 指令）CP0 完成**（146 turn→98 条去重作者原话；Top 缺口 progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise；证据 `artifacts/model-contracts/b34-cp0/`），**CP1/CP2 进行中**（prose task-91：progress_query/work_setup/discussion/设定边界/负例 fixture + 2026-10 窗口重采）；随后 CP3 实模 scoped 验证。证据见 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 后续候选
 
