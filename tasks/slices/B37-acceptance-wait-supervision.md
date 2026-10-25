@@ -62,3 +62,9 @@
 - canonical-3c phase1 EXIT0/15.7min：5 章推进 01 1009/02 1064/03 1296/04 2192/05 0；总 5,561；B9 confirm2/skip0；B37 wait_stats **35 waits/0 timeouts/无重复 instruction**（预算/防重发生效）。
 - 维护：format PASS、content_revision PASS（第04章 1049→1136，第一段实际变化）；**design_character 4 次失败**（产品 ask_author 要具体方向；runner「方向由你定」后仍 await；随后非预期 prose_ready 候选 fail-fast）；renumber/role 未触发 → maintenance 5/5 不可能；未跑 phase2；证据改名 `...canonical3c-attempt3-design-beat-failed/`。
 - task-101：design beat 首指令具体化（方向/定位/用途+命名授权+直接生成保存）、澄清 bounded≤2、无关候选忽略只等 character_seed、有界失败、deterministic dry-run；之后 design-beat 真实模型 scoped replay → canonical-3d fresh。
+
+### CP4 实施记录（2026-10-25，`b62eb1ae`）
+
+- design beat：首指令按章节计划确定性推导方向（下一待写章/seq/用途）+ 命名授权 +「直接生成并保存到作品档案，不需要再问我」；产品仍 ask_author 时补 ≤2 条不同具体方向（避开演化/世界设定触发词）；等待只认 `character_seed`，无关 `prose_ready/candidate_ready` 忽略/不采纳，首个无关后 `DOGFOOD_DESIGN_UNRELATED_GRACE_MS`（slice5s/real30s）有界等待；只有无关候选→`design_unrelated_candidate_only` bounded 失败；detail 记 direction/clarifications/ignored_candidates。
+- dry-run（slice_verify）：normal_design/ask_then_seed/unrelated_then_seed PASS；unrelated_only bounded FAIL ~5.2s；正常 10 章+维护 5/5、wait_stats 46/0 timeouts；故障注入不回归。
+- 下一步：design-beat 真实模型 scoped replay（canonical DB 副本）→ PASS 后 canonical-3d fresh（attempt1/2/3 保留）。
