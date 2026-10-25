@@ -1,6 +1,6 @@
 # B29：已有角色叙事身份修订与主角事实一致性
 
-- 状态：**doing / CP0 完成（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）**：当前版本无「已有角色主档案字段修订」能力——自然原话被 reply 吞掉、显式措辞才诚实 capability_gap；character_evolution 只写演化记忆、character_design 只新建角色；Character.narrative_role 未变且未用 memory 冒充。CP0 冻结见 §6，CP1/CP2 进行中。
+- 状态：**done（2026-10-25，CP0–CP5；真实 Tauri 23/23 checks 注册 PASS，AU09/AU12 回归 PASS，实模 canonical PASS）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无「已有角色主档案字段修订」能力——自然原话被 reply 吞掉、显式措辞才诚实 capability_gap；character_evolution 只写演化记忆、character_design 只新建角色；Character.narrative_role 未变且未用 memory 冒充。CP0 冻结见 §6，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只写任务，不修改代码或业务数据。
 - 归属：[AU09 角色类型/主角策略 §7 CP2](AU09-character-role-taxonomy-protagonist-policy.md) 已登记的“把已有角色指定/改判为主角”；衔接 [AU12 身份归并](AU12-character-identity-merge.md)、[Q1c](Q1C-adopted-content-revision.md)、[B27 系统提示词整合](B27-systematic-prompt-and-intent-integration.md)。
 
@@ -40,7 +40,8 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 | CP1 | 应用可调用的已有角色修订候选与领域校验；模型看见真实操作和对象，旧能力缺口保持诚实 | **done（2026-10-25，`601518e9`）**：`revise_character_profile` 能力（provider none/write_scopes character_dossier）+ judgment character_ref 绑定/机械 gate（同名别名歧义 ask、设计新主角仍 character_design、设计/演化不冒充）+ CharacterProfile 零写库候选（object_kind/character_ref/base_fingerprint/changes old→new/effects/other_character_changes=[] + display-only suggestions） |
 | CP2 | 作者采纳→同一角色更新→审计/投影/记忆一致；幂等/并发/失败回滚 | **done（2026-10-25，`601518e9`）**：`character_profile_context/1,2`（同名分组/base_fingerprint）+ `revise_character_narrative_role/5` 原子更新（同 id 只改 narrative_role、角色数/其它角色/正文不变、失败回滚、幂等 duplicate）+ AdoptionWorkflow `character_field_update` effect（回执 committed_changes/old+new fingerprint；不调 writer/不新建角色/不写 memory）；persistence 318/0、application 921/0 |
 | CP3 | 档案、花名册、探索、后续判断/写作同批消费；真实 Tauri 自然输入、采纳、刷新、再问闭环 | **done（2026-10-25，`65ef9f8f`）**：判断/写作上下文事实优先级（主档案 narrative_role 为当前事实、旧 memory 不覆盖、多主角/无主角诚实）、roster/档案后端读主档案、`CharacterRosterNarration`「谁是主角」单/多/无主角/无索引确定性回答、memory 查询追加主档案为准注记（不清理历史）；application 924/0、agent 275/0；真实 Tauri 刷新/再问由 CP4 验证 |
-| CP4 | 实模改述/必要澄清对照、全门禁；同步 AU09 CP2/NEXT/journey/ledger | todo |
+| CP4 | 实模改述/必要澄清对照、全门禁；同步 AU09 CP2/NEXT/journey/ledger | **done（2026-10-25，`81fb7f0e`）**：`b29-existing-character-role-revision` 注册 nightly PASS 23/23 checks/5 trials；AU09/AU12 回归 PASS（AU09 契约按 CP3 后角色索引只读回答/异步 design run 更新、AU12 修 fact_inventory 动态 atom、AU09 fixture 三连）；实模 `iq3_s` original/paraphrase/discussion canonical + before 对照；失败批次全保留 |
+| CP5 | 全门禁、静态扫描、NEXT/journey/ledger 收口；未获授权的存量清理单列后续 | **done（2026-10-25，CP5 收口）**：后端 2194 tests/0、前端 603 tests、compile/format/credo 0/enum/xref/arch/adr、I1/I2/I3；静态扫描/task-done；journey D14 closed、slices README/NEXT/ledger 同步；stage 历史矛盾 memory/角色事实只读清单、清理需授权 |
 
 验收至少包含：已有角色从 ENSEMBLE_POV→PROTAGONIST（ID/数量不变）；已有多个主角只改目标；同名不同人/别名消歧；“只讨论是否合适”不改字段；放弃候选原值不变；stale/跨作品/失效目标/重复采纳拒绝或幂等；故障注入只在 test/support。
 
@@ -88,3 +89,18 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 - **「谁是主角」问答**：`slice_verify` 新增确定性回答（从判断 prompt 角色索引当前 narrative_role）：单主角姓名、多主角全列、无主角诚实、无索引不猜；正式产品走判断模型基于同一索引。
 - **memory_recall/摘要**：角色身份类记忆查询追加「当前角色主档案为准：主角=…；旧身份描述属历史」注记；不清理历史 memory（只读影响清单）。
 - 测试：application 924/0、agent 275/0；全后端 2184/0；compile/test -Werror/format/credo 0/enum/xref/arch、I1/I2/I3 全绿。CP4 真实 Tauri/实模（task-74）进行中。
+
+### 6.5 CP4 完成记录（2026-10-25，`81fb7f0e`）
+
+- **确定性真实 Tauri（注册）**：`b29-existing-character-role-revision` `quality_accept --surface tauri` PASS，**23/23 checks/5 trials**；实测：judgment `execute/revise_character_profile` + `character_ref`；候选「沈砚 · 叙事身份修订」`narrative_role: ENSEMBLE_POV→PROTAGONIST`；保存后同 `character_id`、角色数 4→4、ID 集合不变、其它角色（顾青 PROTAGONIST）/正文 hash/记忆不变；receipt `committed_changes[{field:narrative_role,old,new}]` + `character_ref` + base/current fingerprint；同名「指定沈砚为主角」→ await_author 列老沈/小沈零写入；讨论→reply 零候选；刷新/重开档案主角标签；追问「现在谁是主角？」→「当前作品有 2 位主角（群像）：沈砚、顾青（以角色主档案为准）」；放弃原值不变、重复采纳幂等、跨作品零写入。证据 `artifacts/slice-verify/b29-existing-character-role-revision-tauri/`（保护副本 `...-b29-cp4-det-pass-20261025T0740/`）。
+- **注册**：scenarios.yml（nightly/tauri）+ b29 manifest active + README + runner；`B29_CP4_PHRASING` strata model-only 证据分支（env 门控，不注册判据）；quality_manifest_check passed。
+- **回归**：AU12 PASS（`45ff2997` 修 `fact_inventory` 动态 atom badarg）；AU09 PASS（`0f02f1c9`/`11e96d8c`/`05e83706` fixture 三连 + `81fb7f0e` 契约更新：主角查询改为只读判断基于 Character.narrative_role 角色索引/主档案事实（允许无 tool）+ 零生产写入；design `character_design` 按 run 关联 turn_ids 匹配；保留 adoption/archive/character_count/新主角/no-write 断言）；B28/B30 不回归。
+- **实模**（`strata/iq3_s` 单槽，POST-FIX）：original「指定沈砚为主角」（同名）→ await_author 澄清零写入；paraphrase「让老沈当这部书的主角吧，别改动其他角色」→ judgment revise_character_profile + `character_profile_revision` 候选 + 零写入；discussion「老沈适合当主角吗？只讨论」→ reply 零候选；before 对照（trace bug 修复前）保留；未调提示词/未放宽守卫/未重跑换分。
+- **CP4 期间修复**：`deaad520` 角色修订候选 trace 完整构造（badkey frame_ref）；AU12 产品 atom bug；AU09 三处 test-support 缺口。
+
+### 6.6 CP5 收口记录（2026-10-25）
+
+- **门禁**：compile -Werror、**2194 tests/0**（common 96/domain 378/agent 285/persistence 318/application 928/web 133）、test -Werror、repo format、credo strict 0、enum/xref/arch/adr；前端 typecheck/lint/**603 tests**、frontend_audit、check_design_trace；quality_manifest_check；**I1/I2/I3 全 PASS**；静态扫描/task-done。
+- **真实页面**：B29 场景注册 nightly PASS 23/23；AU09/AU12 回归 PASS；B28/B30 不回归；证据/保护副本/失败批次保留。
+- **known limits（如实登记）**：① 首闭环仅 `narrative_role` 字段修订（role/summary/aliases 等后续）；② `other_character_changes` 首闭环在采纳侧拒绝（候选 display-only 建议），多角色同批/唯一主角替换需逐项确认另立任务；③ stale/并发竞争在真实页面无并行写入注入入口，由 CP2 单测/守卫覆盖；④ 历史 CHARACTER_PROFILE memory 不清理（只读影响清单），stage 矛盾记忆清理需作者单独授权；⑤ 实模只证判断绑定/候选或澄清（单轮），不证采纳后产品链（确定性场景覆盖）；model-only harness 非注册判据。
+- **完成判定**：CP0 复现→CP1 能力/绑定/候选→CP2 原子更新/采纳→CP3 消费者→CP4 场景/回归/实模→CP5 门禁/台账齐备；B29 done。后续字段扩展/唯一主角替换/历史数据清理另立任务。

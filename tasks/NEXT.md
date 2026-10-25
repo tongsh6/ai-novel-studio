@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B29-EXISTING-CHARACTER-ROLE-REVISION | **当前任务 / CP0 done（2026-10-25，`201b42cb`）**：真实 Tauri 复现「无已有角色主档案字段修订能力」（自然原话 reply 吞掉、显式措辞诚实 capability_gap、无 memory 冒充；多主角不清空/同名不新建/负例零写入）；冻结 Q01–Q08（`revise_character_profile` 能力、character_ref+base_fingerprint、old→new 候选、narrative_role 白名单/多主角不默认清空、同 id 原子更新+旧值回执、主档案为事实源禁止 memory-only、消费者刷新、场景+实模证据）。**CP1/CP2 完成并提交（`601518e9`）**：revise_character_profile 能力/判断绑定/候选 + 原子修订/采纳 effect，全后端 2179/0。**CP3 完成并提交（`65ef9f8f`）**：roster/档案/判断写作上下文/「谁是主角」以 Character.narrative_role 为当前事实、旧 memory 不冒充；全后端 2184/0。**CP4 进行中**（task-74）：真实 Tauri 场景注册 PASS（原话/别名/同名消歧/负例/刷新再问）+ 实模 `iq3_s` 原话/改述 + AU09/AU12 回归；CP5 收口随后。 | [B29](slices/B29-existing-character-role-revision.md) |
+| P1-AUTHORING-DOGFOOD | **当前任务**：每 3–5 周期插入 10 章级真实创作复验（journey D15）；检验 B26/B27/B28/B30/B29 能力组合后的真实创作体验（真实模型+页面，I10 盲评另定）。B29 已于 2026-10-25 done（角色叙事身份修订场景 nightly PASS；AU09/AU12 回归 PASS）。先读 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) 与 P1 登记，从复验 CP0 设计/预注册开始。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| P1-AUTHORING-DOGFOOD | 每 3–5 周期插入 10 章级真实创作复验；检验上述能力组合后的体验。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 阻塞
 
