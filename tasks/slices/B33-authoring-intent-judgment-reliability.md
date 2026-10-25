@@ -1,6 +1,6 @@
 # B33 真实模型下创作动作判断路由可靠性（P1 复验暴露）
 
-- 状态：pending / CP0 设计登记（2026-10-25，P1 canonical 暴露）
+- 状态：**doing / CP0 完成（2026-10-25，受控重放 15 calls，根因与契约冻结）**：H2 上下文膨胀/冗余强贡献（`## 消息处置与已有产物` 字节级重复 2 次；ch02 裁剪后恢复 execute）、H3 规则/目录不足以绑定 execute、H4 模型边界非唯一根因、design_character 另有能力映射缺口；冻结 CP1 上下文去重/裁剪 + CP2 动作意图有界纠错 gate/prompt 规则 + CP3 诊断事件 + CP4 scoped 复验。CP1/CP2 进行中。
 - 类型：判断/上下文可靠性承重 slice（不新增产品能力；修正既有判断链在真实模型长上下文下的路由）
 - 来源：P1-AUTHORING-DOGFOOD canonical（`artifacts/novel-output/p1-authoring-dogfood-2026-10-25/`，2026-10-25，Strata `iq3_s`）24 次 wrong-route + 维护 2/5
 - 关联：[VS00D 真实创作复验](VS00D-G-GAP-RECONCILIATION.md#真实创作复验)（P1）、B27 判断/上下文矩阵、B26 单调用判断协议、D15
@@ -42,3 +42,40 @@
 - 不改 frontend/src、novel_common、验收 hook；不做关键词路由器/模型分档；不降低 schema 校验；不服务端补字段。
 - 真实模型调用单槽、既有 native iq3_s 常驻（不新增加载）；LM Studio 不得加载。
 - 禁止用「重跑整批」替代根因修复；复验仅针对已登记失败类型。
+
+## 6. CP0 记录与契约冻结（2026-10-25）
+
+- **诊断证据**：`artifacts/model-contracts/b33-cp0/{diagnosis.md,cases/*.json,replay-summary.json,p1-input-stats.json}`；15 calls（P1 记录 request body、temp 0.2、单槽 iq3_s）。
+- **H1 纯随机：不成立（部分现象）**：同 prompt 2/2 不 execute；action 类型有漂移但「非 execute」稳定，不能靠重试解释/修复。
+- **H2 上下文膨胀/冗余：成立（强贡献非充分）**：`## 消息处置与已有产物` 精确重复 2 次（双份 7.6k–38.6k chars）；ch02 裁剪 prompt 11,825→6,849 tokens 后恢复 execute prose_writing；ch07/ch09 裁剪后仍 explore。
+- **H3 规则/目录不可达：成立（不足）**：极简版（~4.9k tokens：作者输入+能力目录+契约）3 写章全 explore、design ask_author，无 execute。
+- **H4 模型边界：部分成立（背景非唯一）**：同章成功/失败 prompt 长度相近（ch07 33.7k vs 32.0–33.4k）；极端裁剪仍不 execute。
+- **design_character 额外缺口**：original→creative_directions、trim→explore、minimal→ask_author；上下文裁剪不能修复，属能力/动作映射缺口。
+- **综合根因**：过长/重复判断上下文 + 模型在缺省事实下保守（explore/ask/reply）+ 产品无「动作意图必须 execute/ask/gap」机械约束；design 另有映射缺口。
+
+### 冻结契约（B33 v1，2026-10-25）
+
+1) 作者明确动作意图（写/续写/重写某章正文、设计角色、修订某章内容）时，judgment 终局只允许：`execute + 对应 capability + 真实对象 ref`；`ask_author`（缺对象/段/范围，问题含具体候选/缺口）；`report_capability_gap`（能力确实不支持）。**reply / propose_creative_directions / await_author 不得作为终局**。
+2) 违反时允许**一次**有界纠错（要求 execute/ask/gap + 契约骨架，原 task/输入/对象范围不变；不做关键词路由、不扩范围）；仍违反 → 转 ask_author 具体澄清或 capability_gap，并记录 `judgment.wrong_route`（字段 author_intent/action/capability/target_ref/prompt_tokens/correction_attempted/terminal_reason，可计数）。
+3) 上下文：判断 prompt 必须去重（同一 section 字节级重复=0）；按 profile/任务裁剪（写作判断保留作品事实+章节列表+作者输入+能力目录+契约，去掉完整 plan track/全量候选/会话摘要/无关观察）；记录 prompt_chars/prompt_tokens/selected_sections。
+4) 不增加服务端补字段、不降 schema 校验、不换模型/不提高温度/不以重跑整批替代根因；不新增验收钩子。
+5) 设计角色→execute character_design（作者明确要方向讨论除外）；内容修订缺目标段→ask_author 具体消歧；已有章计划足够时写正文直接 execute，需要计划事实可 explore 但随后必须 execute，不得以 reply/creative/await 结束。
+
+### CP 计划（更新）
+
+| CP | 工作 | 状态 |
+|---|---|---|
+| CP0 | 受控重放诊断 + 契约冻结 | done（2026-10-25，15 calls） |
+| CP1 | 判断上下文去重/按 profile 裁剪 + trace（消除 `## 消息处置与已有产物` 双份；记录 prompt tokens/sections） | 进行中 |
+| CP2 | 动作意图有界纠错 gate + prompt 规则补强 + `judgment.wrong_route` 事件；不降 schema | 进行中 |
+| CP3 | 诊断事件/计数 + P1 runner 对齐 + 确定性测试 | todo |
+| CP4 | scoped 真实模型复验（S1 写章长上下文/S2 design/S3 content revision/S4 负例/S5 回归；不整批重跑） | todo |
+| CP5 | 全门禁/台账/P1 收口判定 | todo |
+
+### CP4 通过门槛（预注册）
+
+- S1 写正文（长上下文）：execute prose_writing 或 explore 一次后 execute；wrong-route 终局=0。
+- S2 设计角色：execute character_design 候选，不得 creative_directions。
+- S3 指定目标内容修订：execute revise_adopted_content 或 ask_author 明确目标段，不得无目标 await。
+- S4 负例：ask_author 具体缺口、零写入。
+- S5 回归：B28/B29/B30 不回归；无新增错对象/越权/虚报；上下文 token 显著下降且重复 section=0；诊断事件可计数。
