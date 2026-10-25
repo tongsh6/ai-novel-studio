@@ -138,3 +138,12 @@
 - 场景清单：`quality/acceptance/scenarios/b34-author-intent-corpus-fixtures.yml`（deterministic draft，未注册 nightly；README 已索引）。
 - 覆盖前后矩阵：progress_query/work_setup/discussion/world_foreshadow 边界/delegation-noise 均从缺口→确定性覆盖；other_unclassified 按 CP0 建议不新增（短指代依赖上下文）；prose_write 等既有保持。
 - 2026-10 窗口频次（aux）：64 turn→39 条去重；meta_acceptance 7/plan_outline 6/world_foreshadow 5/prose_write 4/work_setup 3/chapter_rewrite 3/chapter_revision 2/progress_query 2；unknown 0（旧协议噪声消失）。
+
+## 8. CP3 记录（2026-10-25，模型级 scoped，8 calls）
+
+- 用 canonical-3e 真实 judgment prompt（完整能力目录 13,615 chars；world_building 存在），仅替换 `## 作者输入`；native iq3_s/temp0.2/同 tools；不写产品库、不加载 LM。
+- 有效结果：**5 PASS / 1 INCONCLUSIVE**：
+  - PASS：progress_query（按章节索引回答无候选）、work_setup（ask_author）、discussion（完整目录下无 tool/不产候选；原 explore FAIL 确认为 replay 裁剪限制）、world_foreshadow 讨论（无 tool 讨论）、chitchat_noise（询问/不执行）；
+  - INCONCLUSIVE：world_foreshadow_save（「保存为世界规则」）完整目录下仍无结构化 tool_calls，content 为畸形 `<tool_call><function=memory_recall>…` 文本；未执行 world_building、未写库。**单次调用未跑产品纠错 loop，不能据此定为产品缺口**；登记 **B38 候选**（世界规则保存的判断/协议，触发=真实产品链复现/作者真实请求）。
+- 证据：`artifacts/model-contracts/b34-cp3/{replay-summary.md,replay.json,replay-redo.json,calls/*}`；标注模型级不替代 Tauri 真实页面（产品链路由 CP1/CP2 确定性测试覆盖）。
+- 收尾：B34 done（CP3 残余/限制已登记；无模型加载，teardown 完成）。

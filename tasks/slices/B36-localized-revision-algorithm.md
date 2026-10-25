@@ -1,6 +1,6 @@
 # B36 局部修订算法与结构化编辑能力（不只 prompt）
 
-- 状态：**doing / CP0 设计 + CP1/CP2 完成（2026-10-25，`bdc725c5`/`be189f0c`）**：确定性分段/diff 越界校验/采纳集成已提交（LocalizedRevision；target 段外逐字节一致、out_of_scope/incomplete/stale 零写入、receipt segment_changes）；CP2 结构化段落替换已提交（writer 只产目标段 replacement + replace_segments 确定性 apply/失败零写入）；CP2 residual=agent 侧静态修订 prompt 仍要求整章稿 → task-97 prose 对齐中；CP3 真实模型 scoped replay **PASS（2026-10-25，HEAD `a014029b`，单 draft 章）**：第一段实际变化（旧 sha→新 sha）、其余 21 段逐字节一致、字数 1002→1057、wrong_route/retry 0、receipt replace_segments/segment_changes；P1 canonical-2 待 GO。
+- 状态：**done（2026-10-25，CP0–CP4；canonical-3e 验证）**：确定性分段/diff 越界校验/采纳集成已提交（LocalizedRevision；target 段外逐字节一致、out_of_scope/incomplete/stale 零写入、receipt segment_changes）；CP2 结构化段落替换已提交（writer 只产目标段 replacement + replace_segments 确定性 apply/失败零写入）；CP2 residual=agent 侧静态修订 prompt 仍要求整章稿 → task-97 prose 对齐中；CP3 真实模型 scoped replay **PASS（2026-10-25，HEAD `a014029b`，单 draft 章）**：第一段实际变化（旧 sha→新 sha）、其余 21 段逐字节一致、字数 1002→1057、wrong_route/retry 0、receipt replace_segments/segment_changes；P1 canonical-2 待 GO。
 - 类型：文本编辑算法 + 采纳事务能力 + 候选/验收契约承重 slice
 - 来源：B35 CP3（局部 126 chars 被当整章 complete 覆盖，1002→116 字）、B33 CP4、用户 2026-10-25 裁决
 - 关联：B28 整章修订、B35 修订采纳范围完整性、B33 判断可达性、P1 canonical-2
@@ -78,3 +78,9 @@ target_segments 修订 writer 只产目标段 replacement（不要求整章）�
 - canonical-2 phase1 content_revision 采纳失败：`adoption.persist :incomplete_scope`；第04章有 2 份 accepted prose drafts，而 CP2 `persist_replace_segments` 只接受单一 base draft（CP3 scoped 章仅 1 份所以 PASS）。
 - 修复（task-98）：候选 scope 增 `covered_refs`（本章全部 accepted prose drafts + base_version/fingerprint）；`persist_replace_segments` 校验 covered 集合/版本、按覆盖顺序拼 base、段 hash 替换、生成一份整章新 accepted draft、supersede 全部 covered、receipt 记 covered_refs/segment_changes；单 draft 路径保持；失败零写入/回滚。
 - 修复后 canonical-3（post-fix 一次；canonical-2 失败批次保留，不覆盖、不分数重跑）。
+
+## 7. CP4 完成记录（2026-10-25）
+
+- canonical-3e final：content_revision 维护拍 **PASS**（attempts 1）：第03/04章（按 renumber 后映射）`scope=target_segments`、segment_changes；DB 25 段仅 segment0 变化、其余 24 段 sha 逐字节相同；首段 46→184 chars；字数 1344→1470 不塌缩；receipt 完整；无未确认写入。
+- CP3 scoped replay（`a014029b`）：第一段实际变化/其余 21 段逐字节/1002→1057；CP4 由 P1 canonical-3e 覆盖（10 章+维护 5/5+wrong-route 0）。
+- 残余（如实）：target 段替换文本含空行（多段）仍会被分段数校验拒绝 → 未来 CP2b/结构化 ops 扩展；本 CP 单段替换最小闭环已满足 P1。

@@ -1,6 +1,6 @@
 # B37 验收等待与故障监督优化（消除空等）
 
-- 状态：**doing / CP0–CP2 完成（2026-10-25，`7130d3b8`）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动后暴露**真实模型预算不匹配**（input30s×2 / turn120s 对续写不足→重复发送），已停止并记为 attempt2；**CP3** 按 provider 校准预算（strata/lmstudio: input120/turn360/candidate300/adoption180/maintenance300…）+ turn 超时不重发同指令；canonical-3c 待 CP3 后 fresh 跑。
+- 状态：**done（2026-10-25，CP0–CP5；canonical-3e 使用）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动后暴露**真实模型预算不匹配**（input30s×2 / turn120s 对续写不足→重复发送），已停止并记为 attempt2；**CP3** 按 provider 校准预算（strata/lmstudio: input120/turn360/candidate300/adoption180/maintenance300…）+ turn 超时不重发同指令；canonical-3c 待 CP3 后 fresh 跑。
 - 类型：验收 harness 可靠性（不新增产品能力；runner/launcher/监督与证据）
 - 来源：canonical-1/2/3 运行证据；B33 CP3/B35 CP3b/B36 CP3 scoped replay；用户 2026-10-25 指令
 - 关联：P1-AUTHORING-DOGFOOD、B36、`frontend/slice-verify/dogfood-runner.mjs`、`scripts/dogfood_run.sh`
@@ -85,3 +85,9 @@
 - 识别 `turn_result.author_question`（question/options/recommended/actions）；`respondToAuthorQuestion` 章/续写/维护/扩章共用：options 选 recommended/第一个；无 options 按动作具体默认回复；≤2 条不同回复；记录 author_question_events；**不 cancel/readToc/不重发原 instruction**；无问题文本/重复问题/无 action → `author_question_unresolved` fatal；集成章 adopt/maintenance/plan expand。
 - test-support 最小分支：choice 回复「保留悬念」→ 第01章 prose 候选；slice_verify_test 51/0；dry-run free-text/options→prose 555 字（1 instruction/1 回复）；重复/无文本 bounded fatal；正常 10 章+维护 5/5、故障注入不回归；全后端 2241/0。
 - canonical-3e final：fresh DB/证据目录 detached 启动（attempt1–4 保留；运行中 author question 自动应答并入监控）。
+
+### CP5 完成与 canonical-3e 验证（2026-10-25）
+
+- CP5 提交 `0476f299`：通用 author_question 应答（options/free-text，bounded ≤2；不 cancel/readToc/重发；无问题文本/重复→`author_question_unresolved` fatal）；dry-run 全 PASS（free/options→prose 555 字；repeat/no-text bounded；正常 10 章+维护 5/5；故障注入不回归）。
+- canonical-3e final：detached 两阶段 EXIT0；wait **59 waits/1,433,314ms/0 timeouts**；无重复 instruction；author_question_events=0（本批未触发，机制武装）；failure/termination 证据齐。
+- 结论：B37 等待/预算/防重发/作者问答/进程隔离在真实长跑验证；后续长跑复用 detached launcher。

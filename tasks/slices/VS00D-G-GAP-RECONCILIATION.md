@@ -147,7 +147,7 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 ### 真实创作复验
 
-- 状态：**doing / canonical 实跑完成但验收未过（2026-10-25）**：10 章级真实创作复验已按预注册跑完（Strata `iq3_s`，phase1+phase2 约 43.3min，单次未重跑换分）：**10,002 有效字、7/10 章≥1000、维护 2/5**；暴露真实模型下判断误路由 24 次（写正文/设计角色/内容修订返 reply/creative_directions/await_author），计划上下文约 70k chars/输入 token 中位 23–32k；新开候选 **B33 判断路由/上下文可靠性** + **P1 runner 维护措辞修复**，修复后做 scoped 真实模型复验；P1 未关闭。
+- 状态：**done / PASS（2026-10-25，canonical-3e final；P1 收口）**：Strata `iq3_s` detached phase1+phase2 共约 28.3min，单次未重跑换分；**10/10 章≥1000、总 12,894 字**；维护 5/5（design/format/content/renumber/role，attempts 均 1）；content_revision 第03/04章 `target_segments`：25 段仅 segment0 变化、**其余 24 段 sha 逐字节相同**、首段 46→184 chars、字数 1344→1470 不塌缩；wrong-route 终局 0、failures/retries 0；B9 confirm 3/skip 0；author_question_events 0（机制武装）；导出 44KB；wait 59 waits/0 timeouts/无重复 instruction；writer 24（≤40）。canonical-1/2/3 各事故/失败批次（attempt1 SIGTERM/attempt2 预算污染/attempt3 design/attempt4 awaiting）全部保留只读；**I10 文学盲评仍待作者指定负责人/时机（AI 不代签）**，B38 世界规则保存判断候选 deferred（trigger 真实产品链复现/作者请求）。证据 `artifacts/novel-output/p1-authoring-dogfood-2026-10-25-canonical3e/`。
 - 任务：P1-AUTHORING-DOGFOOD；既有周期复验，不新增产品能力或平行 harness。
 - 范围：引用 `docs/product/novel-output-milestones.md` §4/§8；每 3–5 个周期插入，最迟本轮 B26/B27→B31→B28→B30→B29 后执行。
 - 剩余：复用真实工作台 runner 完成 10 章创作，包含修订/结构/角色维护、采纳、重开、审读、导出；确认路径/空章/重复观察消费 §6 B6/B7/B9。各操作尚未上线时不能用脚本旁路代替。

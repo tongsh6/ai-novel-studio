@@ -1,6 +1,6 @@
 # B33 真实模型下创作动作判断路由可靠性（P1 复验暴露）
 
-- 状态：**doing / CP0 完成（2026-10-25，受控重放 15 calls，根因与契约冻结）**：H2 上下文膨胀/冗余强贡献（`## 消息处置与已有产物` 字节级重复 2 次；ch02 裁剪后恢复 execute）、H3 规则/目录不足以绑定 execute、H4 模型边界非唯一根因、design_character 另有能力映射缺口；冻结 CP1 上下文去重/裁剪 + CP2 动作意图有界纠错 gate/prompt 规则 + CP3 诊断事件 + CP4 scoped 复验。CP1/CP2 进行中。
+- 状态：**done（2026-10-25，CP0–CP4；canonical-3e 验证路由修复）**：H2 上下文膨胀/冗余强贡献（`## 消息处置与已有产物` 字节级重复 2 次；ch02 裁剪后恢复 execute）、H3 规则/目录不足以绑定 execute、H4 模型边界非唯一根因、design_character 另有能力映射缺口；冻结 CP1 上下文去重/裁剪 + CP2 动作意图有界纠错 gate/prompt 规则 + CP3 诊断事件 + CP4 scoped 复验。CP1/CP2 进行中。
 - 类型：判断/上下文可靠性承重 slice（不新增产品能力；修正既有判断链在真实模型长上下文下的路由）
 - 来源：P1-AUTHORING-DOGFOOD canonical（`artifacts/novel-output/p1-authoring-dogfood-2026-10-25/`，2026-10-25，Strata `iq3_s`）24 次 wrong-route + 维护 2/5
 - 关联：[VS00D 真实创作复验](VS00D-G-GAP-RECONCILIATION.md#真实创作复验)（P1）、B27 判断/上下文矩阵、B26 单调用判断协议、D15
@@ -87,3 +87,8 @@
 - **内容修订数据完整性 FAIL**：content_revision 候选仅 126 chars，但采纳 `replace_scope complete` 覆盖整章旧 draft（1198 chars）→ 章节有效字数 1002→116，其他段落丢失；**B35** 修复候选范围声明+采纳覆盖完整性校验；P1 canonical-2 暂停至 B35 scoped replay PASS。
 - S4 歧义负例：runner 现有路径无法在不改产品下稳定构造；留确定性测试覆盖，不伪造。
 - 不重跑整批、不覆盖 P1 canonical 原证据。
+
+## 8. CP5/完成记录（2026-10-25）
+
+- CP1/CP2 提交 `33077f0e`；CP4 scoped replay：design/role/S1 写章/判断路由 PASS（wrong-route 24→0），content revision 数据完整性缺陷转 B35/B36；CP5 由 P1 canonical-3e final 覆盖：真实连续创作 10 章 wrong-route 终局 0、failures=0、retries=0（canonical 阶段），判断可达性/上下文裁剪/有界纠错成立。
+- 剩余限制：纯讨论 route drift 在 2 次模型级 replay 中出现（不影响写库/候选；B33 gate 不强制 discussion reply）；B34 CP3 记录。

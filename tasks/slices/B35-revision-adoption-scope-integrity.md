@@ -1,6 +1,6 @@
 # B35 修订采纳范围完整性（内容修订不得整章误替换）
 
-- 状态：**doing / CP0–CP3 完成（2026-10-25，`2392b104`/`59d94374`；CP3b PASS：判断可达+数据安全，但文本无变化→B36）**：根因=target_segments 指令未强制整章完整稿 + 候选无条件 complete + 采纳只校验 covered refs 不校验正文内容；修复候选 scope 声明 + 采纳侧 `ensure_content_covers_scope`（complete 非 format_only → new_chars>=covered_base/2，否则 `incomplete_scope` 零写入）；CP3 scoped replay FAIL（判断 tool args 可达性缺口，候选未产出/零写入）→ task-94 修复中；P1 canonical-2 暂停。
+- 状态：**done（2026-10-25，CP0–CP3；B36 局部修订算法/结构化替换最终由 canonical-3e 验证）**：根因=target_segments 指令未强制整章完整稿 + 候选无条件 complete + 采纳只校验 covered refs 不校验正文内容；修复候选 scope 声明 + 采纳侧 `ensure_content_covers_scope`（complete 非 format_only → new_chars>=covered_base/2，否则 `incomplete_scope` 零写入）；CP3 scoped replay FAIL（判断 tool args 可达性缺口，候选未产出/零写入）→ task-94 修复中；P1 canonical-2 暂停。
 - 类型：采纳/事务/内容完整性承重 slice（修复既有 B28 采纳范围语义；不新增能力）
 - 来源证据：`artifacts/novel-output/p1-b33-cp4-replay-2026-10-25/`（maintenance-replay content_revision；`content-integrity.json`/`comparison.json`）
 - 关联：B28 整章修订、B30 结构维护、B33 CP4、P1 canonical、ADR 采纳边界
