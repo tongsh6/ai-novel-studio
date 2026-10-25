@@ -147,11 +147,22 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 ### 真实创作复验
 
-- 状态：todo
+- 状态：**doing / CP0（2026-10-25 预注册完成）**：最后一轮 10 章级真实创作复验（B26/B27→B31→B28→B30→B29 后），模型 probe/选型与 dogfood runner 适配进行中；正式 canonical run 待 Lead「P1 GO」。
 - 任务：P1-AUTHORING-DOGFOOD；既有周期复验，不新增产品能力或平行 harness。
 - 范围：引用 `docs/product/novel-output-milestones.md` §4/§8；每 3–5 个周期插入，最迟本轮 B26/B27→B31→B28→B30→B29 后执行。
 - 剩余：复用真实工作台 runner 完成 10 章创作，包含修订/结构/角色维护、采纳、重开、审读、导出；确认路径/空章/重复观察消费 §6 B6/B7/B9。各操作尚未上线时不能用脚本旁路代替。
 - 验证：实模语义、真实 Tauri 产品链、文学质量盲评分开；记录错对象/错绑/越权/虚报、重试率、缺章/重复/漂移、人工改稿负担。ADR-0020 I10 仍需作者指定盲评负责人/时机；AI 不代替盲评签字。
+
+#### 2026-10-25 复验预注册（P1 cycle-2026-10-25，canonical run 前撰写，禁止事后改口）
+
+- **批次/预算**：每轮一次 **canonical** 10 章级真实创作复验；总真实模型 writer 调用预算按 10 章 × 平均 2–3 轮估算（≤40 次），超预算以诚实失败/缺口记录收尾；不并发模型（单槽），不因结果不理想重跑换分；失败/重试次数全量计数。
+- **模型**：先做 ≤2 章模型 probe（LM Studio `qwen3.8-flash-next@iq4_nl` 优先，必要时 `qwen3.8-27b-bf16`/`strata/iq3_s`），按 probe 的延迟/可采纳性/失败模式选定 provider/model/timeout，并写入 `artifacts/novel-output/p1-model-probe-2026-10-25/plan.md`；probe 与正式 run 串行。
+- **范围（10 章级会话）**：真实 Tauri 工作台自然语言创作，含至少：新章/续写草稿多章（≥5 章达标）、**整章仅排版修订**（B28 format_only，≥1）、**整章内容修订**（≥1）、**章节重编号/结构维护**（B30，≥1）、**已有角色叙事身份修订**（B29，≥1）；每类均从真实自然语言入口出发并经真实采纳/确认；含 **重启后 resume 断点续跑** 演练、阅读模式/档案审读、导出完整作品；维护动作不得用脚本旁路代替（runner 只能像作者操作 UI）。
+- **度量**：错对象/错绑（回复或操作落到错误章/角色/run）、越权写入/未确认写入、虚报完成、走错能力/误路由、重试率、缺章/重复章/重复段、字数漂移/质量漂移、人工改稿负担（作者视角记录）；确定性统计用 word-count/quality/continuity 报告；模型语义与产品状态链分开。
+- **证据（milestones §8）**：`artifacts/novel-output/p1-authoring-dogfood-2026-10-25/{summary.json,word-count.json,chapter-quality.md,continuity-report.md,export/,progress.jsonl,...}` + 真实 Tauri/WS/app JSONL/llm-calls/截图/DB 快照；失败/重试批次全保留。
+- **B6/B7/B9 消费**：runner 仅对本旅程用到的帧分类/确认/恢复判定迁移「分类一次+穷尽分支」契约单源；`needs_confirmation` 显式确认/跳过并计数；空章/重复段观察接入报告；章节请求按自然作者措辞。
+- **文学质量盲评（ADR-0020 I10）**：与产品状态链/自动化分开；**需作者指定盲评负责人/时机**，AI 不代签、不以自动化分数替代质量收益判定；本轮先输出可盲评样本包（chapters/quality/连续性），盲评结果待作者安排。
+- **退出/收尾**：10 章 canonical（或诚实记录失败章数）完成后输出证据与报告；未达标项/缺口/数据清理均如实登记，不把机制通过冒充文学收益；stage 数据修复另行授权。
 
 ## 8. 关联裁决与迁移记录
 

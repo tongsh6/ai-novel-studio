@@ -6,7 +6,7 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| P1-AUTHORING-DOGFOOD | **当前任务**：每 3–5 周期插入 10 章级真实创作复验（journey D15）；检验 B26/B27/B28/B30/B29 能力组合后的真实创作体验（真实模型+页面，I10 盲评另定）。B29 已于 2026-10-25 done（角色叙事身份修订场景 nightly PASS；AU09/AU12 回归 PASS）。先读 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) 与 P1 登记，从复验 CP0 设计/预注册开始。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
+| P1-AUTHORING-DOGFOOD | **当前任务 / CP0 预注册完成（2026-10-25）**：10 章级真实创作复验（D15），检验 B26/B27/B28/B30/B29 组合体验。预注册已写入 [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)（canonical 一次、≤40 writer 调用预算、单槽串行、维护组合插入点、度量/证据/B6-B7-B9/I10 盲评待作者）。**进行中**：模型 probe/选型（task-80 harness，串行先做）与 dogfood runner 适配（task-79 lifecycle，不占模型）→ 我发 P1 GO 后执行 canonical 10 章 → 证据/报告收口。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验) |
 
 ## 后续候选
 
