@@ -128,7 +128,16 @@ if (process.env.DOGFOOD_PRINT_WAIT_BUDGETS === "1") {
   process.exit(0);
 }
 
-const FAULT_SIM_KINDS = ["page_closed", "action_failed", "stall", "backend_down", "slow_turn"];
+const FAULT_SIM_KINDS = [
+  "page_closed",
+  "action_failed",
+  "stall",
+  "backend_down",
+  "slow_turn",
+  "design_ask_then_seed",
+  "design_unrelated_then_seed",
+  "design_unrelated_only",
+];
 const faultSim = process.env.DOGFOOD_FAULT_SIM ?? "";
 if (faultSim && !FAULT_SIM_KINDS.includes(faultSim)) {
   console.error(`DOGFOOD_FAULT_SIM must be one of ${FAULT_SIM_KINDS.join("|")}, got ${faultSim}`);
@@ -1499,34 +1508,216 @@ async function runRenumberBeat(page, state, toc) {
 }
 
 // 设计一个配角（供后续角色身份修订使用）。
-async function runDesignCharacterBeat(page, state) {
-  // task-87：真实作者口吻明确"设计并保存到作品档案"，期待 character_seed；若仍 reply
-  // 则记录 wrong-route 失败，不造假。产品若先澄清，作者消歧继续，不算失败。
-  const { fromIndex, turnId } = await sendMaintenanceMessage(
-    page,
-    "帮我设计并保存一个后面会用到、还没出场的配角到作品档案。",
-  );
-  let candidate = await waitForMaintenanceOutcome(
-    (classification) =>
-      classification.kind === "candidate_ready" &&
-      classification.artifactTypes.includes("character_seed"),
-    "character design produced no character_seed candidate",
-    fromIndex,
-  );
-  if (candidate.classification.kind === "agent_awaiting_author") {
-    const followUp = "方向由你定，设计一个后面会用到、还没出场的配角，并保存到作品档案。";
-    recordClarification({ beat: "design_character", follow_up: followUp });
-    log(`design_character: product asked for clarification — author disambiguates: ${followUp}`);
-    await sendMaintenanceMessage(page, followUp);
-    candidate = await waitForMaintenanceOutcome(
-      (classification) =>
-        classification.kind === "candidate_ready" &&
-        classification.artifactTypes.includes("character_seed"),
-      "character design produced no character_seed candidate after clarification",
-      fromIndex,
-    );
-    assertNotAwaitingWithoutClarification(candidate, "design character after clarification");
+// B37 CP4：design beat 真实作者口径 + 具体方向 + 无关候选忽略 + bounded 澄清。
+function designUnrelatedGraceMs() {
+  const raw = process.env.DOGFOOD_DESIGN_UNRELATED_GRACE_MS;
+  const fallback = provider === "slice_verify" ? 5_000 : 30_000;
+  const value = raw == null || raw === "" ? fallback : Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`invalid DOGFOOD_DESIGN_UNRELATED_GRACE_MS=${JSON.stringify(raw)}`);
   }
+  return value;
+}
+
+function isCharacterSeedClassification(classification) {
+  return (
+    classification.kind === "candidate_ready" &&
+    (classification.artifactTypes ?? []).includes("character_seed")
+  );
+}
+
+function isUnrelatedMaintenanceCandidate(classification) {
+  return (
+    ["candidate_ready", "prose_ready"].includes(classification.kind) &&
+    !isCharacterSeedClassification(classification)
+  );
+}
+
+function designDirectionFromToc(toc) {
+  const upcoming =
+    nextPendingChapter(toc, new Set(), planChapters) ??
+    chapterBySeq(toc, 3) ??
+    flatChapters(toc)[0] ??
+    null;
+  const title = upcoming?.title ?? "后续章节";
+  const seq = upcoming?.seq ?? 3;
+  return {
+    seq,
+    title,
+    text: `《${title}》这条线（第${String(seq).padStart(2, "0")}章）：定位是配角/执行者，用途是接住当前主线悬念、给后续章节一个可复用的执行者；名字和细节由你定`,
+  };
+}
+
+function injectSyntheticFrame(frame, atIndex = frames.length) {
+  if (faultSim === "") return;
+  frames.splice(Math.max(0, atIndex), 0, { direction: "received", ...frame, synthetic: true });
+}
+
+function injectSyntheticAwaitingAuthor(atIndex) {
+  injectSyntheticFrame(
+    {
+      event: "agent_run_state",
+      body: { status: "awaiting_author", phase: "stopped" },
+    },
+    atIndex,
+  );
+}
+
+function injectSyntheticUnrelatedProseCandidate(atIndex) {
+  injectSyntheticFrame(
+    {
+      event: "turn_result",
+      body: {
+        turn_id: `synthetic_prose_${Date.now()}`,
+        tool_result: { tool_name: "prose_writing" },
+        adoption_state: {
+          pending: [{ artifact_type: "prose_fragment", artifact_id: "synthetic_prose_fragment" }],
+          resolved: [],
+        },
+        truthfulness: { artifact_adopted: false },
+      },
+    },
+    atIndex,
+  );
+}
+
+async function waitForDesignOutcome({ label, fromIndex, timeoutMs }) {
+  const deadline = Date.now() + timeoutMs;
+  const ignored = [];
+  let cursor = fromIndex;
+  while (Date.now() < deadline) {
+    const remaining = Math.max(1, deadline - Date.now());
+    const grace = ignored.length > 0 ? Math.min(remaining, designUnrelatedGraceMs()) : remaining;
+    let result;
+    try {
+      result = await waitForJourneyKind(
+        (classification) =>
+          isCharacterSeedClassification(classification) ||
+          ["agent_awaiting_author", "wrong_route_reply", "run_failed"].includes(
+            classification.kind,
+          ) ||
+          isUnrelatedMaintenanceCandidate(classification),
+        label,
+        grace,
+        cursor,
+        "maintenance",
+      );
+    } catch (error) {
+      if (
+        error instanceof DogfoodWaitError &&
+        error.code === "wait_timeout" &&
+        ignored.length > 0
+      ) {
+        throw new DogfoodWaitError(
+          "design_unrelated_candidate_only",
+          `${label}: only unrelated maintenance candidate(s) observed within bounded grace; no character_seed`,
+          { ignored_candidates: ignored },
+        );
+      }
+      throw error;
+    }
+    const classification = result.classification;
+    if (isCharacterSeedClassification(classification)) {
+      return { candidate: result, ignored, fromIndex: cursor };
+    }
+    if (["agent_awaiting_author", "wrong_route_reply", "run_failed"].includes(classification.kind)) {
+      return { terminal: result, ignored, fromIndex: cursor };
+    }
+    if (isUnrelatedMaintenanceCandidate(classification)) {
+      ignored.push({
+        kind: classification.kind,
+        artifact_types: classification.artifactTypes ?? [],
+        at: new Date().toISOString(),
+      });
+      const index = frames.indexOf(result.frame);
+      cursor = index >= 0 ? index + 1 : frames.length;
+      log(
+        `design_character: ignored unrelated ${classification.kind} candidate(s) ${JSON.stringify(
+          classification.artifactTypes ?? [],
+        )}; continue waiting for character_seed`,
+      );
+      continue;
+    }
+  }
+  throw new DogfoodWaitError(
+    "design_unrelated_candidate_only",
+    `${label}: no character_seed before bounded deadline`,
+    { ignored_candidates: ignored },
+  );
+}
+
+async function runDesignCharacterBeat(page, state, toc) {
+  // B37 CP4：首指令具体到方向/定位/用途 + 命名授权 + 直接保存；只等 character_seed，
+  // 无关候选（prose_ready/prose_fragment）忽略不采纳，不误判整拍失败；产品仍 ask_author
+  // 时最多补 2 条不同具体方向，之后仍 ask 则记录失败，不造假。
+  const direction = designDirectionFromToc(toc);
+  const initialInstruction = `帮我设计并保存一个后面剧情里会用到、还没出场的配角：方向是${direction.text}。直接生成角色主档案候选并保存到作品档案，不需要再问我。`;
+  const clarificationInstructions = [
+    `请按这个方向设计并保存一个后面剧情会用到的配角：${direction.title}这条线，定位是配角/执行者，用途是承接下一场冲突、给后续章节提供可用人物线索；名字和细节由你定。直接生成角色主档案候选并保存到作品档案，不要再问我。`,
+    `就按${direction.title}这条线，设计并保存一个配角：服务于后续章节主线，定位是执行者，名字和细节由你定；请直接生成角色主档案候选并保存到作品档案，不要再问。`,
+  ];
+  const overallDeadline = Date.now() + waitBudget("maintenance");
+  const remaining = () => Math.max(1, overallDeadline - Date.now());
+
+  // fault-injection（仅 slice_verify）：只无关候选 -> bounded 失败（不发送真实指令）。
+  if (faultSim === "design_unrelated_only") {
+    injectSyntheticUnrelatedProseCandidate();
+    const syntheticFrom = frames.length - 1;
+    const result = await waitForDesignOutcome({
+      label: "character design produced no character_seed candidate (fault: unrelated only)",
+      fromIndex: syntheticFrom,
+      timeoutMs: Math.min(remaining(), designUnrelatedGraceMs() + 1_000),
+    });
+    if (result?.candidate) {
+      throw new Error("fault design_unrelated_only unexpectedly produced character_seed");
+    }
+  }
+
+  const { fromIndex, turnId } = await sendMaintenanceMessage(page, initialInstruction);
+  // fault-injection（仅 slice_verify）：模拟产品 ask_author / 先出现无关 prose 候选。
+  if (faultSim === "design_ask_then_seed") injectSyntheticAwaitingAuthor(fromIndex);
+  if (faultSim === "design_unrelated_then_seed") injectSyntheticUnrelatedProseCandidate(fromIndex);
+  let waitFrom = fromIndex;
+  let outcome = await waitForDesignOutcome({
+    label: "character design produced no character_seed candidate",
+    fromIndex: waitFrom,
+    timeoutMs: remaining(),
+  });
+
+  let clarifications = 0;
+  while (outcome.terminal?.classification.kind === "agent_awaiting_author" && clarifications < 2) {
+    const followUp = clarificationInstructions[clarifications];
+    recordClarification({ beat: "design_character", follow_up: followUp });
+    log(
+      `design_character: product asked for clarification — author disambiguates (#${clarifications + 1}): ${followUp}`,
+    );
+    const sent = await sendMaintenanceMessage(page, followUp);
+    waitFrom = sent.fromIndex;
+    clarifications += 1;
+    outcome = await waitForDesignOutcome({
+      label: `character design produced no character_seed candidate after clarification #${clarifications}`,
+      fromIndex: waitFrom,
+      timeoutMs: remaining(),
+    });
+  }
+
+  if (outcome.terminal?.classification.kind === "agent_awaiting_author") {
+    throw new Error(
+      `character design still awaiting author after ${clarifications} concrete clarifications (bounded); no character_seed`,
+    );
+  }
+  if (outcome.terminal?.classification.kind === "wrong_route_reply") {
+    throw new Error(
+      `character design routed to reply instead of character_design tool (wrong-route): ${String(
+        outcome.terminal.classification.assistantText ?? "",
+      ).slice(0, 300)}`,
+    );
+  }
+  if (outcome.terminal?.classification.kind === "run_failed") {
+    throw new Error("character design agent run failed before producing character_seed");
+  }
+
+  const candidate = outcome.candidate;
   const pendings = candidate.classification.pendings ?? [candidate.classification.pending];
   const target =
     pendings.find((entry) => entry.artifact_type === "character_seed") ?? pendings[0];
@@ -1540,7 +1731,7 @@ async function runDesignCharacterBeat(page, state) {
   const adoption = await adoptJourneyCandidate(
     page,
     { ...candidate.classification, pending: target, pendings },
-    fromIndex,
+    waitFrom,
     { characterCandidate: true, itemName, optionLabel },
   );
   const afterToc = await readToc(page);
@@ -1549,6 +1740,11 @@ async function runDesignCharacterBeat(page, state) {
   const detail = {
     beat: "design_supporting_character",
     turn_id: turnId,
+    direction,
+    clarifications,
+    ignored_candidates: outcome.ignored,
+    initial_instruction: initialInstruction,
+    clarification_instructions: clarificationInstructions.slice(0, clarifications),
     character_name: itemName,
     character_ref: state.designed_character_ref,
     candidate_count: sameSet.length,

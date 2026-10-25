@@ -196,6 +196,21 @@ scoped 维护补验，不整批重写 10 章：
 - 验证：slice_verify `slow_turn` 故障注入只发 1 次 + `turn_timeout` fatal；page_closed/
   backend_down/action_failed/stall 均非零退出；正常 10 章+维护 5/5 PASS。
 
+## 4.8 B37 CP4 design_character 真实作者方向/bounded 澄清（task-101）
+- 首指令具体化：从章节计划确定性推导方向（`designDirectionFromToc`：下一待写章标题/seq/用途），
+  写法含方向/定位/用途+命名授权+「直接生成角色主档案候选并保存到作品档案，不需要再问我」。
+- 产品仍 `ask_author`：最多补 2 条**不同**具体方向/定位（含明确「设计并保存一个配角」动词，避免被
+  误判为角色演化/世界设定），之后仍 ask 则 bounded 失败。
+- 等待只认 `character_seed`；无关候选（`prose_ready`/`candidate_ready` 非 character_seed）忽略不采纳、
+  不判整拍失败；首无关后另加 `DOGFOOD_DESIGN_UNRELATED_GRACE_MS`（slice 5s/real 30s）有界等待，
+  只有无关候选 → `design_unrelated_candidate_only` bounded 失败（不无限等/不误采纳）。
+- 确定性 dry-run（slice_verify）：
+  - 正常 design → character_seed 采纳；
+  - `DOGFOOD_FAULT_SIM=design_ask_then_seed` → 1 次具体澄清 → character_seed 采纳；
+  - `design_unrelated_then_seed` → 先无关 prose_ready 忽略 → character_seed 采纳；
+  - `design_unrelated_only` → bounded 失败（不采纳）；
+  - 既有 10 章+维护 5/5、page_closed/backend_down/action_failed/stall 无回归。
+
 ## 5. 需 Lead/harness 确认
 1) ~~probe 选定 provider/model~~ **已裁决**：canonical = Strata `iq3_s`（endpoint 47831；
    harness 预加载/结束后 unload 并验证 loaded=null）；runner/script 不加载模型。
