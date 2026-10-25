@@ -60,6 +60,15 @@
 5. **delegation/chitchat_noise/其他短指代**：不得自动创建/采纳；需具体动作或澄清（ask/reply），零写入。
 6. 已有覆盖（prose_write/meta_acceptance/world_foreshadow 采纳/plan_outline/chapter_revision 等）保持既有用例与优先级，不重复造。
 
+### 2026-10 新协议窗口重采（2026-10-20 起）
+
+- 命令：`node scripts/mine_author_intents.mjs --since 2026-10-20 --label 2026-10`；产物 `corpus-window-2026-10.jsonl`/`corpus-summary-window-2026-10.md`（不覆盖全量产物）。
+- 窗口：64 turn → **39 条去重语料**；解析失败 0；结果关联 39/39（100%）、unknown 0；作者文本来源 `## 作者输入` 38 + fallback 1。
+- 协议/模型：单调用 judgment+tools（10 月后段 Strata 流式 `event_stream`）；模型 iq3_s 24 / deepseek-flash 9 / qwen3.8-flash 9。
+- 意图频次：meta_acceptance 7、plan_outline 6、world_foreshadow 5、prose_write 4、work_setup 3、chapter_rewrite 3、chapter_revision 2、progress_query 2、delegation/query_status/export_review/structure_change/discussion/other/chitchat 各 1。
+- 结果分布：execute 18、reply 12、plan 3、await_author 2、explore 1、adopt accept 3。
+- 对比全量：旧协议噪声消失（unknown 17.3%→0）；prose_write 占比下降、meta_acceptance/plan_outline 上升（新协议下写作判断仍可能被 meta/plan 吞，CP1/B33 复验需关注，不在本窗口下结论）。
+
 ### CP1/CP2 fixture 清单（进入 task-91）
 
 - `author-progress-question-in-writing-context`（长上下文 3 章计划+部分已写；问“第几章写到哪/执行完了么/草稿在哪”→ 基于事实回答、零候选零写入）。

@@ -15,6 +15,33 @@ const LLM_DIR = path.join(ROOT, "log/llm-calls/stage");
 const APP_DIR = path.join(ROOT, "log/app/stage");
 const OUT = path.join(ROOT, "artifacts/model-contracts/b34-cp0");
 
+// 可选窗口过滤：--since YYYY-MM-DD / --until YYYY-MM-DD（UTC 日期，均含端点）。
+// 带窗口时产物改用 window 后缀，避免覆盖全量语料；--label 可指定后缀（默认从 since 的 YYYY-MM 推导）。
+const argv = process.argv.slice(2);
+function argValue(name) {
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : null;
+}
+const SINCE = argValue("--since");
+const UNTIL = argValue("--until");
+const LABEL_ARG = argValue("--label");
+const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+if ((SINCE && !dateRe.test(SINCE)) || (UNTIL && !dateRe.test(UNTIL))) {
+  console.error("usage: node scripts/mine_author_intents.mjs [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--label name]");
+  process.exit(2);
+}
+const SINCE_MS = SINCE ? Date.parse(`${SINCE}T00:00:00.000Z`) : null;
+const UNTIL_MS = UNTIL ? Date.parse(`${UNTIL}T23:59:59.999Z`) : null;
+const windowed = Boolean(SINCE || UNTIL);
+const LABEL = windowed ? (LABEL_ARG || (SINCE ? SINCE.slice(0, 7) : UNTIL.slice(0, 7))) : null;
+const suffix = windowed ? `-window-${LABEL}` : "";
+const inWindow = (ts) => {
+  if (!windowed) return true;
+  const ms = Date.parse(ts);
+  if (!Number.isFinite(ms)) return false;
+  return (SINCE_MS === null || ms >= SINCE_MS) && (UNTIL_MS === null || ms <= UNTIL_MS);
+};
+
 const readJsonl = (file) => {
   const lines = fs.readFileSync(file, "utf8").split("\n");
   const out = [];
@@ -80,6 +107,7 @@ for (const f of fs.readdirSync(LLM_DIR).filter((x) => x.endsWith(".jsonl")).sort
   llmStats.files++; llmStats.lines += out.length; llmStats.parseErrors += errors;
 
   for (const rec of out) {
+    if (!inWindow(rec.ts)) continue;
     const o = rec.obj;
     const body = o.request?.body || {};
     const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -158,6 +186,7 @@ for (const f of fs.readdirSync(APP_DIR).filter((x) => x.endsWith(".jsonl")).sort
   const { out, errors } = readJsonl(file);
   appStats.files++; appStats.lines += out.length; appStats.parseErrors += errors;
   for (const rec of out) {
+    if (!inWindow(rec.ts)) continue;
     const o = rec.obj; appStats.events++;
     const turn = o.turn_id || null;
     if (!turn) continue;
@@ -289,7 +318,7 @@ for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
 }
 
 // ── 组装语料 ─────────────────────────────────────────────────────────
-fs.mkdirSync(path.join(OUT, "samples"), { recursive: true });
+fs.mkdirSync(path.join(OUT, `samples${suffix}`), { recursive: true });
 const corpus = corpusTurns.map((t, i) => {
   const rawEvents = t.turn_id ? appByTurn.get(t.turn_id) : null;
   const authorMs = Date.parse(t.author_ts);
@@ -328,8 +357,8 @@ for (const c of corpus) {
   else { const u = uniq.get(key); u.occurrences++; u.occurrence_refs.push(c.refs.author); }
 }
 const uniqueCorpus = [...uniq.values()];
-fs.writeFileSync(path.join(OUT, "corpus.jsonl"), uniqueCorpus.map((c) => JSON.stringify(c)).join("\n") + "\n");
-fs.writeFileSync(path.join(OUT, "corpus-all-turns.jsonl"), corpus.map((c) => JSON.stringify(c)).join("\n") + "\n");
+fs.writeFileSync(path.join(OUT, `corpus${suffix}.jsonl`), uniqueCorpus.map((c) => JSON.stringify(c)).join("\n") + "\n");
+fs.writeFileSync(path.join(OUT, `corpus-all-turns${suffix}.jsonl`), corpus.map((c) => JSON.stringify(c)).join("\n") + "\n");
 
 const freq = {};
 for (const c of uniqueCorpus) freq[c.intent] = (freq[c.intent] || 0) + 1;
@@ -352,7 +381,7 @@ for (const intent of [...INTENTS.map((x) => x[0]), "other_unclassified"]) {
     const appRefs = (r.refs.app || []).length ? " ; " + r.refs.app.join(" , ") : "";
     return `- **${r.timestamp}** ${r.author_text.replace(/\|/g, "\\|")}\n  - result: action=${r.result.action} capability=${r.result.capability} decision=${r.result.decision_type}\n  - refs: ${r.refs.author}${appRefs}`;
   }).join("\n");
-  fs.writeFileSync(path.join(OUT, "samples", `${intent}.md`), `# B34 samples: ${intent}\n\n${md}\n`);
+  fs.writeFileSync(path.join(OUT, `samples${suffix}`, `${intent}.md`), `# B34 samples: ${intent}\n\n${md}\n`);
 }
 
 const matrixRows = Object.keys(freq).sort((a, b) => freq[b] - freq[a]).map((intent) => {
@@ -397,11 +426,15 @@ const fixtureSuggestions = [
   "6. **低频但近期切片相关**：`structure_renumber`/`character_role_revision` 在本语料为 0（历史窗口主要 2026-06/07，没有 B29/B30 维护指令），已由 `b30-chapter-renumber-roundtrip`/`b29-existing-character-role-revision` 覆盖；CP1 应把 2026-10 新协议单独切窗重采频次。",
   "7. **world_foreshadow（14 条）**：已有场景覆盖较广，但多为设定采纳；建议补一条“设定讨论 vs 设定采纳”边界（长会话，作者只问规则是否合理，不产 world_rule 候选）。",
 ];
-fs.writeFileSync(path.join(OUT, "coverage-matrix.md"), coverageMd + "\n" + fixtureSuggestions.join("\n") + "\n");
+if (!windowed) {
+  fs.writeFileSync(path.join(OUT, "coverage-matrix.md"), coverageMd + "\n" + fixtureSuggestions.join("\n") + "\n");
+}
 
 const summary = [
   "# B34 CP0 作者意图语料摘要",
   "",
+  windowed ? `- 窗口：${SINCE || "起始"} ~ ${UNTIL || "最新"}（UTC，含端点）` : "- 窗口：全量（2026-06-16 ~ 最新）",
+  windowed ? "- 协议提示：2026-10-20 起为 B26/B27 单调用 judgment + tools（10 月后段 Strata 流式）为主；窗口频次只代表该窗口。" : "",
   `- 生成时间：${new Date().toISOString()}`,
   `- llm-calls 日志：${llmStats.files} 文件 / ${llmStats.lines} 行（解析失败 ${llmStats.parseErrors}）`,
   `- app 日志：${appStats.files} 文件 / ${appStats.lines} 行（解析失败 ${appStats.parseErrors}）`,
@@ -431,6 +464,6 @@ const summary = [
   "- 新协议 stream 响应 body 可能不是 JSON（event_stream），结果依赖 app 日志 turn_id 关联。",
   "- 作者输入优先 prompt `## 作者输入`，其次 `## 用户输入`，最后短 user content（标 fallback）；缺省不猜。",
 ].join("\n");
-fs.writeFileSync(path.join(OUT, "corpus-summary.md"), summary + "\n");
+fs.writeFileSync(path.join(OUT, `corpus-summary${suffix}.md`), summary + "\n");
 console.log(summary);
 console.error(`wrote ${OUT}`);
