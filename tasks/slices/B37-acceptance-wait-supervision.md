@@ -56,3 +56,9 @@
 - wait_events/wait_stats/failure.json 记录 provider/budget/elapsed/outcome；detached status/stop 支持 `--artifact-dir`。
 - 测试（slice_verify）：预算表断言；slow_turn+小预算→exit1/turn_timeout/`instruction_sent` 恰好 1 次；page_closed/backend_down/action_failed/stall 回归；正常 10 章+维护 5/5、46 waits/5532ms/0 timeouts。
 - canonical-3c：fresh DB/证据目录（attempt1 SIGTERM、attempt2 预算污染保留）。
+
+### CP4 记录（2026-10-25，canonical-3c attempt3 design beat 修复中）
+
+- canonical-3c phase1 EXIT0/15.7min：5 章推进 01 1009/02 1064/03 1296/04 2192/05 0；总 5,561；B9 confirm2/skip0；B37 wait_stats **35 waits/0 timeouts/无重复 instruction**（预算/防重发生效）。
+- 维护：format PASS、content_revision PASS（第04章 1049→1136，第一段实际变化）；**design_character 4 次失败**（产品 ask_author 要具体方向；runner「方向由你定」后仍 await；随后非预期 prose_ready 候选 fail-fast）；renumber/role 未触发 → maintenance 5/5 不可能；未跑 phase2；证据改名 `...canonical3c-attempt3-design-beat-failed/`。
+- task-101：design beat 首指令具体化（方向/定位/用途+命名授权+直接生成保存）、澄清 bounded≤2、无关候选忽略只等 character_seed、有界失败、deterministic dry-run；之后 design-beat 真实模型 scoped replay → canonical-3d fresh。
