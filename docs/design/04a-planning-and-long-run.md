@@ -83,6 +83,23 @@ RUNNING/CHECKPOINT/RESUMING → COMPLETED | CANCELLED | FAILED | BRANCHED
 
 进度 = `length(completed_unit_refs) / 计划单元数`；这正是工作台任务条 RUNNING→CHECKPOINT 实时更新的依据（§6）。
 
+### 4.1 每单元的求证与恢复（2026-10-27，VS-00K Proposed）
+
+每个创作单元复用统一有界 AgentRun，而不是由 APP 为整本书一次性预装所谓完整上下文：
+
+```text
+单元任务 / 写作坐标 / 权限 / 预算的最小恢复底座
+→ 模型按单元判断信息需求并读取真实观察
+→ 准备就绪后生成 tentative artifact
+→ 必要时补充求证、降级或等待作者
+```
+
+前一单元 pending artifact 不自动成为下一单元 canon；作者采纳后才进入后续权威事实与可探索读模型。
+
+`checkpoint_data` 或等价 checkpoint 引用还需能重建：单元计划位置、实际观察 refs、来源版本与覆盖、未解信息缺口、预算和 stale 原因。恢复时重新核对权威来源与版本；过期观察必须重读或显式降级，不能只凭旧 prompt 字符串继续。预算耗尽走 checkpoint / 降级 / 确认，不用默认事实填平。
+
+LongRunTask plan、AgentPlan 与 MicroPlan 仍是不同层：LongRunTask 管跨单元生命周期，AgentRun 管单元内有界求证，MicroPlan 管单步执行建议。不得为求证合并三者或另建平行 runtime。§10 的真实实现缺口继续保留，本节不表示长跑求证已经落地。
+
 ---
 
 ## 5. Task 最小模型（24 字段）

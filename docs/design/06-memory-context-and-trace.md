@@ -52,21 +52,22 @@ AuthorInput
 → DecisionTrace / Memory update / Replay
 ```
 
-本文的目标不是“把所有信息都喂给 LLM”。
+本文的目标不是“把所有信息都喂给 LLM”，也不是让 Context Assembler 替模型穷举本轮相关知识。
 
 本文的目标是：
 
-1. 让 Planner 拿到足够但不过量的上下文。
-2. 让 Orchestrator 能审查 context provenance、权限、预算和状态快照。
-3. 让 ToolRequest / ToolResult 可追踪。
-4. 让 BehaviorState open / update / close 可回放。
-5. 让 TurnResult 说出的每个执行事实都有 trace 支撑。
-6. 让后续 UI 可以展示解释摘要，而不是暴露内部日志。
+1. 让 APP 提供可审查、可回放的最小可信底座，并执行权限、预算和版本边界。
+2. 让模型能在 run 中按需求证，让真实观察进入后续模型请求，而不是只留在工具日志。
+3. 让 Orchestrator 能审查 context provenance、权限、预算和状态快照。
+4. 让 ToolRequest / ToolResult / Observation 的来源、版本与后续消费可追踪。
+5. 让 BehaviorState open / update / close 可回放。
+6. 让 TurnResult 说出的每个执行事实都有 trace 支撑。
+7. 让后续 UI 可以展示解释摘要，而不是暴露内部日志。
 
 一句话：
 
 ```text
-Context 让 LLM 看见该看的；
+Context 提供可信底座与证据索引，模型按需求证；
 Trace 让系统解释已经做过的；
 Replay 让工程能复盘为什么这样做；
 Memory 让长期协作不会每轮失忆。
@@ -301,21 +302,20 @@ stateDiagram-v2
 
 ### 5.1 DialogueContext
 
-DialogueContext 是一次 turn 的上下文总包。
+DialogueContext 是一次 turn 的初始上下文或某次组装的证据快照，**不是“本轮全部作品知识”的同义词**。
 
 它面向本轮主链，回答：
 
 ```text
 Planner、Orchestrator 和 tools 在这一轮分别应该看见什么；
+哪些是 APP 主动提供的最小可信底座与契约必要材料；
 这些上下文来自哪里；
 哪些内容被省略了；
 省略是否会影响执行安全；
 这些上下文对应哪个版本和预算。
 ```
 
-DialogueContext 不是全量数据库快照。
-
-它是可审查、可回放、可裁剪的 context assembly 结果。
+DialogueContext 不是全量数据库快照，也不保证 APP 已预先选尽模型所需知识。它是可审查、可回放、可裁剪的 context assembly 结果。模型后续主动求证产生的观察不静默回写这份初始快照，而是由同一 run 的后续证据快照引用初始 Base 与实际观察。
 
 ### 5.2 ContextPacket
 
@@ -401,6 +401,43 @@ Context assembly 必须显式记录策略。
 | `stale` | 已过期或被 superseded |
 | `debug_only` | 只能用于 debug/replay |
 | `requires_confirmation` | 需要作者确认后才可纳入（**指普通材料**；与 VS-00G 工作假定切分：暂用态是显式【暂定】标注的系统判断，经专用可标注通道注入，非本条约束的"材料"）|
+
+---
+
+### 5.6 求证观察与逐请求证据快照（2026-10-27，VS-00K Proposed）
+
+`02` 的创意探索与作品求证是不同语义：前者共同展开方向，后者为既有事实取得证据。作品求证产生的 Observation 是已执行读取结果的运行视图，不自动成为长期 MemoryItem、candidate 或 canon。
+
+模型调用的知识来源分为：
+
+| 来源 | 责任 | 证据要求 |
+|---|---|---|
+| Base / APP 预选与派生 | 提供不可猜测的作者意图、坐标、权限、工具、预算、必要版本与契约材料 | 来源、版本、权限、omission 可解释，不声称知识完备 |
+| Requested Observation / 模型请求观察 | 模型在统一 AgentRun 中选择只读查询，runtime 返回真实结果 | 必须能关联查询、ToolResult、source/evidence refs、覆盖与可获得的版本/权威信息 |
+
+每次后续模型请求使用自己的证据快照，而不是改写首轮 DialogueContext：
+
+```text
+initial_base_ref
++ observation_refs（只含本 run 此前实际返回）
++ request_ref / consumer
++ work/source revision 与 freshness
++ omission / coverage / unknown
+```
+
+必须保留的因果链是：
+
+```text
+模型信息需求或计划
+→ ToolRequest / 只读执行
+→ ToolResult / Observation
+→ 后续真实模型请求中的观察或安全投影
+→ 输出中的 used_context_refs / 假设 / 风险
+```
+
+只有工具被调用、只有 trace 记录或只有 `supplied_context_refs`，都不能证明模型实际使用。未返回 used_context_refs 时记 unknown，不由 supplied refs 推导 used refs。越出 Base 公开 refs 与实际观察 refs 的既有事实引用不得获得证据信用；新创作 tentative 不要求旧来源。
+
+Orchestrator、Replay、纯 Reader、确定性 Maintenance / Validator 等非模型创作消费者仍使用各自最小输入，不为了形式统一而强行 agent 化。求证式创作的完整候选契约见 `contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`。
 
 ---
 
@@ -857,6 +894,9 @@ Replay 应能回答：
 |---|---|
 | context minimality test | Planner context 不包含无关或敏感对象 |
 | context provenance test | 每个 context ref 都能追到来源 |
+| observation consumption test | 非 Base 作品知识能沿同一 run 找到“真实观察 → 后续 provider 请求”的消费边，而非只有工具日志 |
+| evidence usage binding test | used_context_refs 不越出 Base 公开 refs 与实际观察 refs；未报告记 unknown，越界引用不修改 artifact 字节 |
+| generic evidence-seeking test | 至少两个未配置专用 packet 的要素复用同一求证链，且真实模型行为与 stub 接线证据分开 |
 | omission trace test | 被省略内容有 reason |
 | memory stability test | candidate memory 不能当成 canonical |
 | memory canonicalization test | project canon 必须来自 adoption / confirmation |

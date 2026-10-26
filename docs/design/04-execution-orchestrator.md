@@ -185,7 +185,8 @@ Execution Orchestrator 的输入称为 `OrchestratorInput`。
 | `author_session_ref` | 是 | 作者会话或工作区引用 |
 | `frame` | 是 | 已校验的 DialogueFrame |
 | `micro_plan` | 否 | Planner 生成的 MicroPlan；reply-only turn 可以没有 |
-| `dialogue_context_ref` | 是 | 本轮可用上下文引用，不应是全量 dump |
+| `dialogue_context_ref` | 是 | 初始 Base / 当前组装快照引用，不应是全量 dump，也不宣称知识完备 |
+| `observation_refs` | 否 | 本 run 已执行观察及其来源、版本、覆盖和后续消费 lineage；不等于全部 supplied refs |
 | `open_behavior_refs` | 是 | 当前打开的 clarification / confirmation / correction 等等待态 |
 | `toolbox_registry_ref` | 是 | 本轮使用的 Capability Toolbox registry 版本 |
 | `authority_context_ref` | 是 | 权限、写入范围、当前用户能力 |
@@ -201,6 +202,20 @@ Execution Orchestrator 的输入称为 `OrchestratorInput`。
 3. `toolbox_registry_ref` 必须能追溯版本，避免 replay 时工具含义漂移。
 4. `state_snapshot_ref` 是审查快照，不是允许 Planner 或 Toolbox 直接写状态。
 5. `idempotency_key` 必须覆盖 turn、plan、action 和目标对象，不能只覆盖 HTTP request。
+
+### 4.1 求证结果的集成边界（2026-10-27，VS-00K Proposed）
+
+只读取证返回后，Orchestrator 负责校验结果、权限、预算、版本和 trace，并把 Observation 交回同一 AgentRun；不能仅凭 ToolResult 成功就替模型决定 ready 或直接生成创作结论。模型在后续请求中选择继续求证、修订计划、准备就绪、降级或询问作者，每个新动作仍重新过门禁。
+
+Orchestrator 不得替模型选择作品知识、把 APP 的预选材料当作知识完备证明，或暗中改写求证目标。APP preflight 的 hard missing / 权限 / 版本阻断仍由系统裁决，模型不能解除；模型语义信息缺口则通过 plan revision 处理，不能由 Orchestrator 私自补一个目标。
+
+还需区分：
+
+- **可读取的既有作品事实缺失**：先给模型有界求证机会；
+- **只有作者能提供的意图、偏好或裁决**：才进入 clarification / confirmation；
+- **新创作的 tentative**：允许无旧来源，但不得冒充既有事实。
+
+Trace 应串联 Base、查询、观察、后续请求和 used_context_refs；未读取 ref 不得因存在 DB 或 registry 就被视为已见证据。
 
 ---
 

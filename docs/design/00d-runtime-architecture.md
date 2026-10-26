@@ -115,7 +115,8 @@ flowchart TB
         Ctx[Dialogue Context Assembler<br/>最小上下文包]
         Planner[Dialogue Planner<br/>自然理解 + 创作引导]
         Frame[DialogueFrame<br/>每 turn 必有]
-        Plan[MicroPlan<br/>按需]
+        Plan[MicroPlan / AgentPlan<br/>按需]
+        Run[AgentRun<br/>模型计划/修订 + 有界求证]
     end
 
     subgraph Execution["Execution Plane"]
@@ -135,6 +136,7 @@ flowchart TB
     subgraph Trace["Trace / Replay"]
         TraceWriter[DecisionTrace Writer]
         TraceStore[(Trace Store)]
+        Observation[Observation<br/>真实来源/版本/覆盖 + 后续消费]
     end
 
     Author --> WB
@@ -145,11 +147,14 @@ flowchart TB
     Planner --> Frame
     Frame -->|needs_tool=false| TurnOut
     Frame -->|needs_tool=true| Plan
-    Plan --> ExecOrch
+    Plan --> Run
+    Run --> ExecOrch
     ExecOrch --> Decision
     Decision -->|allow_next_action| Toolbox
     Decision -->|require_confirmation / clarification / reject / cancel| TurnOut
-    Toolbox -->|ToolResult| Planner
+    Toolbox -->|ToolResult| Observation
+    Observation --> Run
+    Run -->|后续计划 / 准备就绪 / 最终回应| Planner
     Planner -->|author_visible_message| TurnOut
     TurnOut --> WB
     TurnOut --> Cards
@@ -159,6 +164,7 @@ flowchart TB
     Plan -. record .-> TraceWriter
     Decision -. record .-> TraceWriter
     Toolbox -. ToolRequest / ToolResult .-> TraceWriter
+    Observation -. source / version / 后续请求 .-> TraceWriter
     TurnOut -. summary .-> TraceWriter
     TraceWriter --> TraceStore
 
@@ -178,12 +184,14 @@ flowchart TB
 控制面要点：
 
 1. **Dialogue Gateway 是入口标准化层**，不做 intent-first 路由，不直接调用能力。
-2. **Dialogue Planner 是作者可见体验层**，负责理解、引导、候选方向和作者可见回应。
-3. **DialogueFrame 是每 turn 必有认知帧**，用于替代 RouterResult 的入口地位。
-4. **MicroPlan 是行动建议**，不是执行授权。
-5. **Execution Orchestrator 是执行层硬边界**，负责状态、权限、预算、确认、ToolRequest 和 TurnResult。
-6. **Toolbox 只通过 Execution Orchestrator 被调用**，工具不直接从 UI 或 Planner 获得写权限。
-7. **DecisionTrace 覆盖每个关键对象**，用于解释和回放。
+2. **Dialogue Context Assembler 提供最小可信底座**，不宣称已预选全部相关知识。
+3. **Dialogue Planner 是作者可见体验层**，负责理解、引导、候选方向和作者可见回应。
+4. **DialogueFrame 是每 turn 必有认知帧**，用于替代 RouterResult 的入口地位。
+5. **MicroPlan 是单步行动建议**，AgentPlan 是模型可见、可修订计划；二者都不是执行授权。
+6. **AgentRun 承载有界求证循环**：模型判断信息缺口并修订计划，真实 Observation 回到后续模型请求；不新建平行 runtime。
+7. **Execution Orchestrator 是执行层硬边界**，负责状态、权限、预算、确认、ToolRequest 和 TurnResult；模型提出探索不等于批准执行。
+8. **Toolbox 只通过 Execution Orchestrator 被调用**，工具不直接从 UI 或 Planner 获得写权限。
+9. **DecisionTrace 覆盖每个关键对象与证据消费边**，用于解释和回放；只有 ToolResult、没有观察进入后续请求，不算求证闭环。
 
 ---
 
@@ -262,6 +270,8 @@ flowchart LR
 3. 写入仍走 tentative-first，production write 必须经过 Adoption Boundary 或等价写入门禁。
 4. Reading Projection 是 UI 读模型，不是能力调用入口。
 5. Trace 与 LLM call logs 分层：DecisionTrace 解释系统决策，LLM logs 解释 provider 调用。
+6. 读取数据面还须回到模型消费面：`Toolbox -. read .-> MemoryData` 的返回经 ToolResult / Observation 进入同一 run 的后续模型请求，并携带来源、权威性和版本/覆盖；不允许 Planner 绕过 Orchestrator 直读 Repo 充当求证。
+7. 求证观察不自动写 Memory 或 canon；作品写入仍只沿 tentative → adoption 进入 Production。
 
 ---
 
@@ -319,11 +329,12 @@ v3 的 replay 不是重放自然语言聊天记录，而是重放结构化决策
 
 ```text
 AuthorInput
-→ DialogueContext refs
-→ DialogueFrame
-→ MicroPlan
+→ DialogueContext / 初始 Base refs
+→ DialogueFrame / AgentPlan / MicroPlan
 → OrchestratorDecision
-→ ToolRequest / ToolResult
+→ ToolRequest / ToolResult / Observation
+→ 观察进入后续模型请求的引用、版本与覆盖
+→ used_context_refs / 未解信息缺口
 → TurnResult
 ```
 
@@ -334,7 +345,9 @@ Replay Console 至少应该能回答：
 | 这一轮系统如何理解作者 | DialogueFrame |
 | 为什么没有执行 | OrchestratorDecision / validation |
 | 为什么需要确认 | Authority / Budget / Policy trace |
-| 工具实际返回什么 | ToolResult / LLM logs |
+| 模型请求了哪些作品证据、实际读到什么 | AgentPlan / ToolResult / Observation / LLM logs |
+| 哪些观察进入了哪次后续模型请求 | Observation lineage / provider request refs |
+| 输出引用了哪些已见证据、是否有越界 ref | used_context_refs / unbound refs / Base 与观察集合 |
 | 哪些状态被更新 | BehaviorStore / SlotDraft / Artifact state |
 | UI 为什么展示这些卡片 | TurnResult / ui_cards / behavior_state |
 
@@ -348,10 +361,12 @@ v3 的 replay 不要求重新调用 LLM。默认重放应优先使用已记录�
 |---|---|---|
 | Workbench | 接收作者输入，展示 TurnResult、cards、trace 摘要 | 不直接调用 toolbox，不写 production |
 | Dialogue Gateway | 标准化 AuthorInput，绑定 workspace / behavior refs | 不做 intent-first routing |
-| Dialogue Context Assembler | 组装 Planner 最小上下文 | 不暴露全量数据库给 Planner |
-| Dialogue Planner | 生成 DialogueFrame、MicroPlan、作者可见回应 | 不批准执行，不直接写状态 |
-| Execution Orchestrator | 审查 MicroPlan、发 ToolRequest、推进状态、组装 TurnResult | 不替作者创作主内容 |
+| Dialogue Context Assembler | 组装最小可信底座、来源、权限与省略信息 | 不暴露全量数据库，不宣称替模型穷举知识 |
+| Dialogue Planner | 生成 DialogueFrame、MicroPlan、作者可见回应，判断信息缺口 | 不批准执行，不直接写状态，不伪造已见证据 |
+| AgentRun | 承载模型计划/修订、只读探索、观察回流与准备判断 | 不新建作者 turn，不绕过 MicroPlan gate，不直接写 canon |
+| Execution Orchestrator | 审查 MicroPlan、发 ToolRequest、推进状态、组装 TurnResult | 不替作者创作主内容，不替模型改写求证目标 |
 | Capability Toolbox | 提供认知、记忆、策略、创作、产物工具 | 不绕过 Orchestrator 获得写权限 |
+| Observation / Evidence View | 提供真实读取结果、来源、版本、覆盖及后续消费引用 | 不自动成为长期 Memory 或 canon，不只落日志而不回流 |
 | Contract Validator | 校验 frame / plan / result 结构和兼容性 | 不创作、不修业务内容 |
 | Authority / Budget | 控制高风险和高成本动作 | 不藏在具体工具内部 |
 | DecisionTrace Writer | 记录认知、计划、裁决、工具结果 | 不作为 UI 主渲染来源 |

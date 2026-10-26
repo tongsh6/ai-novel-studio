@@ -560,6 +560,8 @@ worldrule 变更通常更高风险，默认应比普通维护对象更严格。
 - active foreshadowings
 - latest snapshots
 
+warm / hot tier 是存储与检索层级，不表示这些对象每轮自动进入 prompt。对模型创作调用，它们先作为可探索、可引用的作品事实；初始 Base 是否携带以及模型后续实际观察什么，分别按最小供给与求证契约记录。
+
 ### 16.2 retrieval 优先级
 
 对于继续写作、总结状态、长跑 resume 来说，连续性对象通常比原始对话历史更重要。
@@ -575,14 +577,16 @@ worldrule 变更通常更高风险，默认应比普通维护对象更严格。
 
 long-run 直接依赖连续性对象。
 
-### 17.1 启动时读取
+### 17.1 启动时读取与可探索性
 
-至少读取：
+启动时先提供任务、写作坐标、权限、预算与必要版本的最小恢复底座；连续性对象按当前单元需要可探索、可引用：
 
 - relevant chapter summaries
 - latest state snapshots
 - active worldrules
 - active foreshadowings
+
+模型可沿这些来源继续读取、续读和核对版本；初始清单不再被解释为每轮必须全部固定注入。
 
 ### 17.2 checkpoint 时生成
 
@@ -594,11 +598,14 @@ checkpoint 常会触发：
 
 ### 17.3 resume 时依赖
 
-resume 不应依赖全量旧正文，而应优先依赖：
+resume 不应依赖全量旧正文，也不应只依赖旧 prompt。优先恢复：
 
-- accepted chapter summaries
-- current authoritative snapshots
-- unresolved foreshadowings
+- accepted chapter summaries 与当前权威读模型
+- current authoritative snapshots 及来源版本
+- unresolved foreshadowings / 未解信息缺口
+- 此前实际观察 refs 与覆盖
+
+恢复后重新核对版本并允许模型按单元继续求证；过期观察必须重读或显式降级。
 
 ---
 

@@ -59,11 +59,13 @@
 
 ## 3. 设计目标
 
-### 3.1 最小必要上下文
+### 3.1 最小必要上下文与按需求证
 
 默认原则仍是：
 
-**只给当前消费者完成当前任务所必需的上下文。**
+**只给当前消费者完成当前任务所必需的初始上下文，不让 APP 把“必需”扩张成替模型穷举全部相关知识。**
+
+对模型创作调用，初始上下文是最小可信底座：作者意图、坐标、权限、工具、预算和契约必要材料。模型可在统一 AgentRun 中继续发现缺口、读取和续读，真实观察再进入后续请求。对 Orchestrator、Replay、纯 Reader、确定性 Maintenance / Validator 等消费者，仍按各自任务提供最小输入，不强行引入模型求证循环。
 
 ### 3.2 结构优先于原文堆叠
 
@@ -229,7 +231,7 @@ quality gate 产生的结构化结果。
 
 ## 6. 组装层级原则
 
-上下文组装应遵循固定层级顺序。
+上下文组装应区分初始 Base 的固定结构、按需观察的检索顺序与降级规则。固定层级只负责组织供给和证据呈现，不代表模型相关知识已穷尽。
 
 ### 6.1 推荐顺序
 
@@ -332,14 +334,13 @@ Executor 是最典型的内容消费者。
 - 旧聊天记录
 - 无关章节原文
 
-### 8.4 style 层必须进入 Executor
+### 8.4 风格底座与按需求证
 
-尤其对：
+尤其对 drafting / revising：
 
-- drafting
-- revising
-
-否则风格模型等于白建。
+- 作者当前 brief、明确写作约束等不可猜测内容必须进入初始 Base，否则风格意图会被模型猜测；
+- writing_preferences、style_sample、历史 feedback 等作品知识必须可探索、可按需读取，并在实际观察进入后续请求后绑定使用依据；
+- 不再以“所有风格材料每轮固定进入 Executor”作为风格生效的唯一方式，也不因某次未预装就宣称风格模型白建。
 
 ### 8.5 Executor 的原文片段策略
 
@@ -351,20 +352,16 @@ Executor 是最典型的内容消费者。
 
 LongRunner 不是“更大的 Executor”，它需要不同的上下文。
 
-### 9.1 LongRunner 应读取的内容
+### 9.1 LongRunner 的恢复底座与逐单元求证
 
-至少包括：
+恢复底座至少包括：
 
-- task state
-- plan
-- latest checkpoint summary
-- target structure window
-- active continuity layer
-- active style layer
-- pending / accepted artifacts summary
-- relevant adopted experience rules
-- relevant strategy artifacts
-- recent quality finding summaries
+- task state / plan / 当前 unit 与写作坐标
+- latest checkpoint summary 与观察 refs
+- 权限、预算、来源版本和未解信息缺口
+- target structure window 与当前有效的作者 brief
+
+continuity、style samples、历史 experience rules、strategy artifacts 等作品知识按当前单元需要可探索、可续读；实际观察进入后续创作请求，不以全部固定预装为目标。pending / accepted artifacts 的权威性仍分开，pending 不自动成为后续 canon。
 
 ### 9.2 checkpoint summary 优先
 
@@ -763,16 +760,11 @@ long-run 需要最稳定的上下文策略。
 
 ### 21.1 create
 
-启动时应组装：
-
-- plan context
-- target structure window
-- active continuity layer
-- active style layer
+启动时组装最小恢复底座：plan context、target structure window、权限预算、当前作者 brief 与必要版本。continuity / style 等作品知识保留可探索入口，由模型按单元求证，不把启动清单当作全书知识预装完成。
 
 ### 21.2 checkpoint
 
-checkpoint 后应优先生成可复用 summary，而不是指望下一次再重组全量上下文。
+checkpoint 后应优先生成可复用 summary，并保留实际观察 refs、来源版本、覆盖和未解信息缺口，而不是指望下一次再重组全量上下文或只保留 prompt 文本。
 
 ### 21.3 resume
 
@@ -780,7 +772,9 @@ checkpoint 后应优先生成可复用 summary，而不是指望下一次再重�
 
 - checkpoint summary
 - authoritative deltas
-- unresolved refs
+- unresolved refs / 未解信息缺口
+
+同时重新核对观察与来源版本；过期内容重读或显式降级，不把旧观察直接当成当前事实。
 
 ---
 

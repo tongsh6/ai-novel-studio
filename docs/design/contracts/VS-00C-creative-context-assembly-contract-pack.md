@@ -345,6 +345,21 @@ per-consumer 的完整 ContextPacket 体系 defer（§9）；本期 planner 路�
 
 ---
 
+### 3.6 求证式上下文边界（2026-10-27，VS-00K Proposed）
+
+§3.0–§3.5 定义的是 APP 的**预选携带、派生材料、预算与省略规则**，不再被解释为“模型完成本轮创作所需的全部知识保障”。完整候选契约见 `VS-00K-evidence-seeking-authoring-contract-pack.md`。
+
+1. **Base / Observation 分账**：`CreativeDecisionPacket` 与 `context_text` 承载初始 Base 和确定性派生；模型在 AgentRun 中主动选择探索后产生的 Requested Observation 由观察与证据链进入后续请求。不得把后续观察回写成首轮已知，也不得把两条通道混为无来源的一段背景。
+2. **逐请求证据快照**：后续 writer / planner / evaluator 请求引用初始 Base 和本 run 此前实际观察，记录 consumer、provider call、来源、版本、覆盖与 freshness。只有 supplied refs 或工具日志不能证明模型使用。
+3. **两类缺口分离**：`MissingPolicyResult` 继续负责 provider 调用前的应用可判 hard missing / 权限 / 版本阻断，模型不能解除；模型语义上的信息缺口由准备判断与 plan revision 处理，APP 不能仅凭预选材料替模型宣布 ready，D7 不被悄然扩写为语义缺口。
+4. **CarryRegistry 边界**：登记表继续约束 APP 预选携带，模型请求观察不借探索之名绕过登记和 trace。新增作品知识不得默认新增固定携带行；现有行按 VS-00K 的真实证据逐块归类 Base / On-demand / Derived，I12 的逐行拍板与场景验收不变。
+5. **预算适用范围**：§3.1–§3.3 的层级和挤压规则用于 Base/派生材料；模型观察的分页、覆盖和续读按探索契约处理。不能因初始包符合 minimality 就宣称模型已知情，也不能因观察到站就忽略后续请求预算。
+6. **使用证据**：`used_context_refs` 只能指向本次请求实际可见的 Base refs 或本 run 此前观察 refs。未返回自报告时记 unknown，不从 supplied refs 推导 used refs；越界引用不得获得证据信用，也不得以修改 artifact 字节掩盖。
+
+本节不表示当前代码已经具备上述闭环。实现顺序、真实模型行为验收和旧携带迁移由 B39 / AU-15 承接；未闭环前，现有 CP0–CP5 证据只证明原上下文组装范围。
+
+---
+
 ## 4. 不变量（本契约保护的）
 
 | 编号 | 不变量 | 来源 |

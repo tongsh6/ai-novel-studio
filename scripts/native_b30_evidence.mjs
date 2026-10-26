@@ -490,8 +490,11 @@ function axDump(dir, name) {
   return fs.readFileSync(file, "utf8");
 }
 
-const countButtons = (axText_, label) =>
-  (axText_.match(new RegExp(`AXButton\\s+${label}`, "gu")) ?? []).length;
+const countButtons = (axText_, label) => {
+  // 静态扫描要求字面量匹配；AX 树行格式为 "<role>, <title>, ..."，按字面量计数。
+  const needle = `AXButton, ${label}`;
+  return axText_.split(needle).length - 1;
+};
 
 function chapterIdentity(facts) {
   return facts.chapters.map(({ id, seq, title, volume_id, content_sha256 }) => ({ id, seq, title, volume_id, content_sha256 }));

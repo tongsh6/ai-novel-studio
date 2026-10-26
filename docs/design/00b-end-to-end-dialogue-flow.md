@@ -70,6 +70,8 @@ flowchart TD
     Decision[OrchestratorDecision<br/>allow / reject / downgrade / confirm]
     Toolbox[Toolbox / Capabilities<br/>认知/记忆/策略/创作/产物工具]
     ToolResult[ToolResult]
+    Observation[Observation<br/>真实读取观察 + 来源/版本/覆盖]
+    Prepare{准备判断<br/>证据足够 / 继续求证 / 降级或问作者}
     Finalize[Finalize TurnResult<br/>assistant_message + ui_cards + behavior_state + trace]
     Trace[(DecisionTrace)]
 
@@ -83,8 +85,12 @@ flowchart TD
     Decision -->|allow| Toolbox
     Decision -->|reject / downgrade / confirm| Finalize
     Toolbox --> ToolResult
-    ToolResult --> Planner
-    Planner --> Finalize
+    ToolResult --> Observation
+    Observation --> Planner
+    Planner --> Prepare
+    Prepare -->|证据足够或按契约降级| Finalize
+    Prepare -->|仍需求证且预算内| MicroPlan
+    Prepare -->|需要作者裁决| Finalize
     Frame -. record .-> Trace
     MicroPlan -. record .-> Trace
     Decision -. record .-> Trace
@@ -94,6 +100,8 @@ flowchart TD
 ```
 
 这张图表达的是动态责任，不代表最终模块部署图。部署与组件边界后续由 `00d-runtime-architecture.md` 细化。
+
+`Prepare → MicroPlan` 是同一有界 AgentRun 内的求证回边：模型发现信息缺口并修订计划，Orchestrator 逐步重新放行只读动作，真实观察进入下一次模型请求；它不是 APP 自动补料、无限循环或重开一个已关闭计划。初始 DialogueContext 只承诺最小可信底座，不承诺预选知识充分。完整候选契约见 `contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`（Proposed）。
 
 ---
 
@@ -159,7 +167,7 @@ Dialogue Planner 不应面对全量数据库，也不应凭空聊天。它接收
 
 上下文组装必须可 trace。`06-memory-context-and-trace.md` 负责定义细节。
 
-在 AI 引导式创作链路中，`DialogueContext` 同时承担 `VS-00D` 的当前作品层投影：它只提供有来源的作品状态、会话状态和省略说明，不承载小说层原则本身，也不让 AI 从自由文本里静默猜当前作品事实。
+在 AI 引导式创作链路中，`DialogueContext` 同时承担 `VS-00D` 的当前作品层初始投影：它只提供有来源的最小可信底座、会话状态和省略说明，不承载小说层原则本身，也不让 AI 从自由文本里静默猜当前作品事实。**它不保证 APP 已选尽本轮知识。**需要进一步既有事实时，模型沿同一 AgentRun 发起作品求证；后续请求使用初始 Base 与实际观察的逐请求证据快照，而不是把首轮包当作完备世界。
 
 ### 4.3 Step 3：Dialogue Planner 生成 DialogueFrame
 
@@ -269,9 +277,11 @@ Planner 不批准自己的执行。
 
 工具返回 `ToolResult`，而不是直接拼 UI 消息。
 
-### 4.7 Step 7：Planner 基于 ToolResult 生成最终回应
+### 4.7 Step 7：Planner 基于 Observation 继续判断或生成最终回应
 
-工具返回后，Planner 可以生成下一版 `DialogueFrame` 或最终 `author_visible_message`。
+工具返回后形成带真实来源、结果分类、覆盖和可获得版本信息的 Observation。Planner 可以基于它生成下一版 `DialogueFrame`、修订后续计划或最终 `author_visible_message`；后续真实模型请求必须能关联到这些观察或其安全投影，不能只在日志里记录一次 ToolResult 就直接宣告完成。
+
+准备判断允许三种路径：证据足够后收尾；仍有信息缺口时在同一有界 AgentRun 内修订计划并继续求证；只有作者才能消歧或预算/权限不允许继续时，诚实降级或询问作者。每次新动作仍生成/修订 MicroPlan 并重新经过 Orchestrator，不重开已关闭计划。
 
 但此时仍有边界：
 
@@ -280,6 +290,7 @@ Planner 不批准自己的执行。
 - Planner 可以建议下一步。
 - Planner 不能把未批准的动作写成“已经执行”。
 - Planner 不能把 tentative 说成 production accepted。
+- Planner 不能把未实际读取的 ref 说成已核实依据，也不能把新创作 tentative 与旧事实混同。
 
 ### 4.8 Step 8：组装 TurnResult + DecisionTrace
 
@@ -302,11 +313,13 @@ TurnResult 至少承载：
 
 ```text
 AuthorInput
-DialogueContext 摘要引用
+DialogueContext / 初始 Base 摘要引用
 DialogueFrame
-MicroPlan（如有）
+AgentPlan / MicroPlan（如有）
 OrchestratorDecision（如有）
-ToolRequest / ToolResult（如有）
+求证 query / ToolRequest / ToolResult / Observation（如有）
+观察进入后续模型请求的引用、版本与覆盖
+used_context_refs / unbound refs / 未解信息缺口（如有）
 TurnResult 摘要
 ```
 
@@ -390,7 +403,9 @@ v3 中，clarification 是 durable behavior，不是缺字段的第一反应。
 
 - 已经有明确 execution candidate。
 - 缺失信息阻断安全或正确执行。
-- 无法通过探索、上下文、高置信默认继续推进。
+- 模型已在同一有界 AgentRun 中获得求证机会，仍无法通过探索、上下文或继续读取消歧，且该信息只能由作者提供或裁决。
+
+对既有作品事实，不得用“高置信默认”替代真实证据；允许的是明确标为 tentative 的新创作，不是伪造旧事实。创意方向探索与作品求证分开，前者不能替代后者的读取与证据闭环。
 
 链路：
 

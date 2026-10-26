@@ -88,6 +88,7 @@ Execution Orchestrator 保留执行硬门禁。
 | 10b | `contracts/VS-00D-ai-guided-authoring-contract-pack.md` | Proposed，已存在 | 设计 AI 引导式创作的三层 contract 与 AI message layer |
 | 10c | `contracts/VS-00C-creative-context-assembly-contract-pack.md` | Proposed，已存在 | 设计 prose_writing 等创作执行调用的 CreativeDecisionPacket 与上下文组装 |
 | 10d | `acceptance/author/AU-11-ai-guided-authoring.md` | Design-ready，已存在 | 从作者视角验收三层 message 和 AI 引导式创作闭环 |
+| 10e | `contracts/VS-00K-evidence-seeking-authoring-contract-pack.md` | **Proposed，2026-10-27** | 求证式创作：Base / 模型请求观察 / 准备判断 / 证据使用；配套 ADR-0030、B39、AU-15，未实现 |
 | 11 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 汇总状态、contract、ADR 和 slice 入口 |
 | 12 | `adr/README.md` | 草案，已存在 | 定义 v3 ADR 编号、状态、模板和首批顺序 |
 | 13 | `adr/ADR-0001-dialogue-frame-v3.md` | Accepted，已存在 | 冻结每 turn 必有的认知锚点决策 |

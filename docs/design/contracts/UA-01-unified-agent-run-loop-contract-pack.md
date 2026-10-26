@@ -483,6 +483,38 @@ confidence: 1.0
 
 Observation 必须有来源和 evidence refs；不得把完整 ToolResult 原文无限塞进后续 prompt。
 
+### 4.1 求证观察与证据因果（2026-10-27，VS-00K Proposed）
+
+Observation 继续是压缩、可引用的运行结果摘要，不自动成为作品事实。用于作品求证时，还需在 `structured_payload` 或等价既有载体中保留可获得的以下信息；无法提供的字段必须显式未知，不得补默认值：
+
+```yaml
+requested_by_provider_call_ref: 触发本次读取的模型请求（目标语义，字段名实施时冻结）
+work_ref / authority / source_revision
+coverage: 页码、offset、读取范围或明确覆盖缺口
+freshness: 当前有效 / stale / unknown
+outcome: observed / empty / ambiguous / failed / partial
+```
+
+每次求证必须能按同一 run 重建有序链，而不只是证明工具曾执行：
+
+```text
+model request / AgentPlan revision
+→ 只读 ToolRequest 或内联探索步
+→ ToolResult / Observation
+→ 后续真实模型请求中的观察或安全投影
+→ 输出 used_context_refs / 信息缺口 / 最终处置
+```
+
+对创作 run 的补充约束：
+
+1. 规划、正文和修订 profile 均可由模型按实际需要排入只读探索步；不强制每个 run 都探索，也不允许 APP 为“完备性”按领域关键字强插统一步。ADR-0025 的唯一 explore 入口不被第二套 native 工具取代。
+2. 模型的“知识/证据未就绪”与 `report_capability_gap`、D7 的应用可判确定性缺口分层。它进入 judgment 续行或 evaluate+replan，可选择继续求证、ready、诚实降级或 ask_author；预算耗尽不得伪装 goal_satisfied。具体新信号由 ADR-0030 承接，不直接改写 Accepted 的 D1–D7。
+3. Base 公开 refs 与本 run 实际观察 refs 构成可引用证据集合；`used_context_refs` 越界须留下 unbound 记录，未返回自报告时记 unknown。ref 只存在 registry/DB 但未进入实际请求，不算已见证据。
+4. 探索执行继续只读，act 步重新经过 MicroPlan / Orchestrator gate；观察与推理不直接写 canon。恢复优先重建观察与版本，不依赖旧 prompt 残留；replay 默认不重调模型。
+5. 验收除了步骤/provider 计数，还须断言 Base 内容、模型求因果、观察版本/覆盖、后续真实请求、used refs 与最终处置。真实模型自然输入下的自主求证与 stub 接线分证；Base 已足够时不强制探索。
+
+完整方案见 `VS-00K-evidence-seeking-authoring-contract-pack.md`、ADR-0030、B39、AU-15。本节不表示当前 profile 已全部开放求证。
+
 ## 5. AgentEvent
 
 `AgentEvent` 是 author-safe 活动流，不是 `TurnResult`。

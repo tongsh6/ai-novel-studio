@@ -77,6 +77,20 @@ v3 工具箱按职责分为五层。
 4. 创作工具可以生成内容，但不能直接 production write。
 5. 产物工具涉及写入时必须经过 Execution Orchestrator 的权限和 trace。
 
+### 2.1 读取工具的求证观察契约（2026-10-27，VS-00K Proposed）
+
+记忆与读取工具不仅服务作者问答，也作为规划、正文和修订 run 的共用作品求证能力。模型可按需选择工具与 query，但不能因此获得执行批准或写权限；每次读取仍由 Orchestrator 逐步放行。
+
+读取结果除了内容，还必须以 Observation / ToolResult / trace 的既有载体保留：
+
+- 真实 source/evidence refs、作品与对象身份；
+- 权威性、candidate / accepted / stale 等边界；
+- 可获得的来源版本、freshness、分页与覆盖缺口；
+- observed / empty / ambiguous / failed / partial 等结果分类；
+- 由哪次模型计划或请求触发，以及进入哪次后续模型请求。
+
+Observation 是读取结果的运行视图，不自动成为长期 Memory 或 canon。只有工具调用记录、没有观察或其安全投影进入后续模型请求，不算求证闭环。新作品维度优先进入通用 discover / read / continuation 与引用体系，不为每个要素默认新增专用工具或固定 packet；确实需要新读模型时，必须证明现有通用观察无法表达。
+
 ---
 
 ## 3. 工具注册表

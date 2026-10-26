@@ -129,6 +129,15 @@ TurnGuidanceMessage
 3. 如果当前代码尚无目标字段，承重 slice 可以先用 `evidence_summary` / `uncertainty` / trace 承载，不得在文档中假装已实现。
 4. `DialogueFrame` 的作者可见消息只是一份可审查草案；最终输出仍由 TurnResult 负责。
 
+### 2.2.2 作品求证与创意探索的边界（2026-10-27，VS-00K Proposed）
+
+`frame_type=exploration` / `guidance_mode=explore` 表示共同展开创意方向；作品求证是模型为既有事实发现缺口、读取观察并继续判断，两者是正交语义，不得互相代替。
+
+- `execution_readiness` 只表达是否进入执行候选，不是“作品知识已充分”的证明；信息缺口及其处置沿 evidence / uncertainty、AgentPlan、Observation 与 trace 承载，不扩写成另一套执行状态机。
+- 工具返回后的二次 Frame 可以扩展为同一有界 AgentRun 内的多次判断：模型继续求证、修订计划、准备就绪、降级或询问作者。每个新动作仍产生/修订 MicroPlan 并重新过门禁，不重开 Closed plan，也不放行长计划。
+- Frame 不保存私有推理，只记录结构化信息缺口、观察 refs、覆盖、版本与最终处置。未返回模型判断时保持 unknown，不从 tool success 推导“模型已理解”。
+- Trace 除“哪些 ToolResult 支撑 TurnResult”外，还需回答“哪些观察进入了哪次后续模型请求、哪些既有事实引用绑定到已见材料”。新创作 tentative 不要求旧来源。
+
 ### 2.3 frame_type 候选枚举
 
 | frame_type | 含义 | 常见下一步 |

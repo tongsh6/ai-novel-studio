@@ -178,6 +178,7 @@ flowchart TB
 | `ProjectionHint` | `07` | TurnResult Builder | UI read model refresh | refresh 不授权写入 | Projection Hint UI v3 |
 | `AgentRun` | `contracts/UA-01`, ADR-0021 | Application AgentRun runtime | AgentEvent / AgentRunState / UI / Trace | AgentRun 不是作者 turn；bounded run 不强制 LongRunTask | AgentRun and Turn Boundary v3 |
 | `AgentPlan` / `PlanStep` | `contracts/UA-01`, ADR-0022 | AgentRun loop / Workbench activity UI / Trace | AgentPlan 不是 MicroPlan；PlanStep 不是运行期 AgentStep | Agentic Loop Plan / Reasoning Authorship v3 |
+| `AgentObservation`（求证观察） | `contracts/UA-01` §4/§4.1, `contracts/VS-00K` | AgentRun runtime / ExplorationService | 后续模型请求 / 准备判断 / writer / evaluator / replay | 观察不自动成为 Memory 或 canon；非 Base 作品知识必须有真实观察及来源/版本/覆盖（候选 #20） | ADR-0030（Proposed） |
 | `AgentEvent.author_narrative` | `contracts/UA-01`, ADR-0022 | Workbench activity UI / Trace / Replay | 作者可见过程叙述必须来自模型输出字节 | Agentic Loop Plan / Reasoning Authorship v3 |
 | `LedgerEntry` | `contracts/VS-00F`, ADR-0026 | Ledger maintenance（采纳后 hook） | archive_read(ledgers) / progress_state_packet / 面板 / Trace | 账面=进度视图非事实本体；source_refs 非空（I-L1）；权威变更只经采纳 ∪ LOW 自动通过（I-L2） | ADR-0026（已落） |
 
@@ -335,6 +336,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | `AgentEvent.author_narrative_source` | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | Trace / replay / N-NARR driver | `author_narrative` 字节能反查同一 run 内 ProviderOutput 的 refs、hash 与 byte range |
 | `:author_reasoning` provider purpose | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | novel_agent provider execution / application projector | 承载作者安全叙事输出，不暴露 provider private reasoning / thinking / chain-of-thought |
 | 判断驱动交互循环（判断①/② + 计划按需 + 探索两翼） | `adr/ADR-0025-judgment-driven-interactive-loop-v3.md`, `notes/2026-07-15-judgment-driven-interactive-loop.md` | AgentRun runtime / Workbench 文档流 UI | 判断分布全程、S1-S7 为一等暂停出口；是否制定计划由模型判断；探索只读低门禁且外部搜索产物必须是带来源的 tentative 设定候选；judgment 事件命名与探索 contract 由 CP1/CP5/CP6 冻结 |
+| 求证式创作（Base / Requested Observation / Preparation / Evidence Usage） | `contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`, `adr/ADR-0030-evidence-seeking-authoring-v3.md`（均 Proposed） | 首个消费者为正文 writer 的后续真实 provider 请求；后续为规划/修订/evaluator/replay | 模型自主选择只读探索；观察进入后续请求；used refs 不越出 Base∪观察；缺口有界 replan/降级/问作者；两个未配置专用 packet 的要素复用同一链，实模与 stub 分证 |
 
 ---
 
@@ -361,6 +363,10 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | 17 | （ADR-0025 改写）当存在计划时，计划必须由模型制定并维护，app 不得预制计划轨道；是否制定计划由模型判断，app 不得强制起草也不得按场景预分类；无计划循环的轨道 = judgment 事件链，同样禁止 app 预制创作决策（机械准备步除外）（N-PLAN） | `adr/ADR-0025-judgment-driven-interactive-loop-v3.md`, `adr/ADR-0023-agentic-loop-plan-driven-execution-v3.md`, `notes/2026-07-15-judgment-driven-interactive-loop.md` | 有计划 run：plan 事件链 + native tool call 结构；无计划 run：judgment 链 + 无 app 预制轨道（driver 随 CP1 迁移） |
 | 18 | 作者决策只能通过决策面注册表登记的决策面进入主链；ui_cards 不携带可提交动作（N-SURF） | `adr/ADR-0024-decision-surface-registry-v3.md`, `07` §4, `notes/2026-07-15-dialogue-flow-decision-surface-review.md` | TurnResult 产出扫描 driver（动作语义只来自 available_actions / 入册决策面）＋契约漂移注入测试（CP1） |
 | 19 | 账面是进度视图非事实本体：LedgerEntry 断言必须有非空 source_refs（I-L1）；权威账面变更只经作者采纳 ∪ 系统发起的 LOW 风险 TENTATIVE→ACCEPTED（I-L2）；漂移规则确定性、模型不参与规则判定（I-L4）；账本落地与探索可达同批（I-L3） | `contracts/VS-00F` §5, `adr/ADR-0026-five-ledgers-three-state-reconciliation-v3.md` | 抽样回查 source_refs 存在性 + 对账运行前后权威层无 diff driver + archive_read(ledgers) 同批断言（VS-00F CP1） |
+| 20 | （Proposed）观察因果：后续模型请求中的非 Base 作品知识必须能关联到本 run 的真实观察及其来源、权威性和版本/覆盖；不得有隐式侧路或把后续观察回写成首轮已知 | `contracts/VS-00K` §3–§5, `contracts/UA-01` §4.1, `06` §5.6 | Base/observation/provider 请求集合与血缘对账；只有工具日志没有后续请求消费则失败 |
+| 21 | （Proposed）引用真实：`used_context_refs ⊆ Base 公开 refs ∪ 本 run 实际观察 refs`；未读取 ref 不得获得证据信用，未报告记 unknown；不得修改 artifact 字节掩盖，tentative 新创作不要求旧来源 | `contracts/VS-00K` §4.3, `contracts/VS-00D` §11.4.2, `contracts/VS-00E` §16.11 | 注入未观察/跨作品/旧版本 ref，断言 unbound、处置和原始字节不变；缺自报告不得伪报空集 |
+| 22 | （Proposed）求证有界：作品求证在统一 AgentRun 内只读执行，受权限、预算、no-progress、取消与恢复约束；act 重新过 gate，观察和推理不直接写 canon | `contracts/VS-00K` §3–§4, `contracts/UA-01` §4.1, `04` §4.1, `04a` §4.1 | 重复查询、预算耗尽、取消/恢复、production write 与 replay 测试；拒绝 Planner→Repo 旁路 |
+| 23 | （Proposed）通用求证与诚实缺口：不得以领域专用 packet 代替通用求证；未知、冲突、过期、未读取必须显式，Base 足够不强制探索，真实模型行为与 stub 分证 | `00` §2.4, `contracts/VS-00K` §5–§7, `acceptance/author/AU-15` | 两个不同要素复用同一产品链；Base 负控制、未知/冲突、实模独立重复与保留措辞 |
 
 这些不变量是后续 ADR 和垂直切面的主轴。任何实现计划如果不能指向其中至少一个不变量，就很可能不是承重垂直切面。
 
@@ -409,6 +415,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | ADR 候选 | 状态 | 来源 | 为什么优先 | 阻塞内容 |
 |---|---|---|---|---|
 | AI-Guided Authoring Three-Layer + Message Contract | Proposed：`contracts/VS-00D-ai-guided-authoring-contract-pack.md`；验收入口：`acceptance/author/AU-11-ai-guided-authoring.md`；slice 入口：`tasks/slices/v3/VS-00D-ai-guided-authoring-message-contract.md` | `00`, `01`, `02`, `06`, `08`, `VS-00C`, `AU-11` | 收束小说层 / 当前作品层 / 本轮引导层的分工，以及这些分层如何落到每次 AI 调用的 message envelope，防止 AI 引导能力只停留在 prompt 文案 | Planner 引导判断、AIMessageEnvelope、DialogueFrame schema 演进、DialogueContext 作品状态投影、CreativeProvider 输入契约、trace 重建 |
+| 求证式创作：最小供给、Run 级探索与证据闭环 | Proposed：`adr/ADR-0030-evidence-seeking-authoring-v3.md`、`contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`；验收：`acceptance/author/AU-15-evidence-seeking-authoring.md`；执行：`tasks/slices/B39-evidence-seeking-authoring.md` | `00` §2.4, `00b/00d/06/08`, `VS-00C/00D/00E`, `UA-01`, ADR-0023/0025 | 防止 APP 以固定 packet 无限追赶模型信息需求；明确 Base/观察分账、创作 run 求证、证据引用与通用实模验收 | B39 CP0 文档对账 → CP1 正文 run 求证；候选 #20–#23，未 Accepted/未实现 |
 
 ### 8.5 ADR 编号与状态建议
 
@@ -582,6 +589,22 @@ ADR 状态建议先使用：
 | Proof | 输入一个计划前提不成立的创作请求，真实页面展示 v1 计划、探索/评估、v2 重规划和完成态；所有作者可见叙述均能通过 `author_narrative_source` 反查同一 run 的 ProviderOutput 字节 |
 
 价值：证明 AgentRun 不只是 observation-led 单步选择器，而是有可检视计划、评估、重规划和模型作者权的创作协作 loop。
+
+---
+
+### 9.12 B39：求证式创作——最小供给、Run 级探索与证据闭环
+
+| 问题 | 回答 |
+|---|---|
+| Contract | `contracts/VS-00K-evidence-seeking-authoring-contract-pack.md` + Proposed `adr/ADR-0030-evidence-seeking-authoring-v3.md`；消费 00 §2.4、UA-01 §4.1、VS-00C §3.6、VS-00D §11.4.2、VS-00E §16.11 |
+| Invariant | 候选 #20–#23：观察因果、引用真实、求证有界、通用求证与诚实缺口；I1/I2/I3、N-NARR、adoption 与 Orchestrator 门禁不变 |
+| Boundary | 主要为 application AgentRun flows / 共享探索 / 准备与证据视图；domain 纯校验；agent 复用 ProviderExecution；persistence 优先复用观察与 trace；web/frontend 复用真实入口，不建第二 runtime 或旁路页面 |
+| Consumer | 首个为正文 writer 的后续真实 provider 请求；作者通过 WorkspaceChat 活动、候选、Why/Replay 看到依据；后续为规划、修订、evaluator |
+| Proof | 外部自动化真实 Tauri + AU-15：Base 足够负控制、人物承诺/关系细节、另一未定制要素、未知/冲突、越界 ref、预算/恢复；机制与真实模型行为分证，未注册/未运行不得标闭环 |
+| Acceptance Driver | `acceptance/author/AU-15-evidence-seeking-authoring.md` 登记场景；产品验收感知逻辑 no；实际 scenario/命令由 B39 CP1+ 注册 |
+| Exploration | 本 slice 主体即将既有探索提升为创作共同能力；新作品维度须同批可探索、可引用并回流，不只新增固定携带 |
+
+价值：把“模型会自己查证”从原则变成有真实消费者、有证据因果、有通用反例的承重主链，而不是为时间线等单一领域继续补 prompt。
 
 ---
 

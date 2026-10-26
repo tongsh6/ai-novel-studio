@@ -150,10 +150,10 @@ AI 应该探索、结构化、执行、质量诊断，还是先澄清/确认？
 | 角色 | 决定什么 | 不能决定什么 |
 |---|---|---|
 | 作者 | 创作偏好、最终取舍、是否确认/采纳 | 不需要手动选择每个小说要素或上下文切片 |
-| AI / Planner | 作者意图解释、创作问题诊断、guidance mode 建议、要素聚焦、候选方向、风险提示 | 不能声明对象真实存在、不能批准执行、不能写入权威状态 |
-| Agent / Application | 组装上下文、校验结构、检查对象存在、控制预算、省略留痕、执行门禁、trace/replay | 不能用硬编码规则替代全部创作语义判断 |
-| Orchestrator | 是否允许工具调用、是否需要确认/澄清/降级/拒绝 | 不能替作者发明创作目标 |
-| Provider | 根据已组装 packet 做推理和生成 | 不能决定自己本轮应该看到哪些真实作品状态 |
+| AI / Planner | 作者意图解释、创作问题诊断、guidance mode 建议、要素聚焦、信息缺口与只读取证请求、候选方向、风险提示 | 不能声明对象真实存在、不能批准执行、不能写入权威状态；不能以“求证”为由绕过 Orchestrator |
+| Agent / Application | 组装最小可信底座、执行真实读取、校验结构、检查对象存在、控制预算、省略留痕、执行门禁、trace/replay | 不能用硬编码规则替代全部创作语义判断，也不能替模型伪造信息需求或观察 |
+| Orchestrator | 是否允许工具调用、是否需要确认/澄清/降级/拒绝 | 不能替作者发明创作目标，也不能替模型选择作品知识或暗中改写求证计划 |
+| Provider | 根据初始 Base 与本 run 实际观察做推理和生成，可通过注册工具判断相关性并请求材料 | 不能直接读取 Repo、决定权限或把未实际返回的作品状态当成已知 |
 
 原则：
 
@@ -389,8 +389,8 @@ AuthorInput
 
 两个关键约束：
 
-1. 第一轮 Planner 判断可以由 AI 参与；但它只能基于 `ContextAssembler` 已提供的证据与小说层原则判断。
-2. 创作执行阶段不能重新让 provider 黑箱决定上下文；它必须消费已经结构化和校验过的 DialogueFrame / MicroPlan / DialogueContext / ToolRequest。
+1. 第一轮 Planner 判断可以由 AI 参与；它以初始 Base 与小说层原则为起点。需要既有作品证据而 Base 不足时，可以沿同一 AgentRun 发起只读取证，后续判断使用初始 Base 与实际观察，不能把首轮缺失直接当成作品事实不存在。
+2. 创作执行阶段不能让 provider 黑箱决定权限或任意读取数据源；它只能消费已经结构化和校验过的 DialogueFrame / MicroPlan / DialogueContext / ToolRequest，以及同一 run 后续真实观察。观察的来源、版本、覆盖与后续请求必须可追踪。
 
 ---
 
@@ -557,6 +557,18 @@ B26 管 schema/映射/分派/回传/重试计数/协议删除，B27 管本节输
 | 结果：ToolResult / adoption_state / projection refs / receipt | 后续判断消费已生成、待采纳、已采纳、投影状态的真实差别；任务完成须独立证据 | 普通文本、run completed、工具成功均不自动生成 goal_satisfied；M19/M20 验证刷新后的权威状态 |
 
 固定小说原则与协作策略归 L1，动态作品/任务材料按 VS-00I 放入对应层，L4 决策约束仍置尾。接受共同设计不等于全专业调用已经迁移；B27 CP1/CP3 必须逐调用点记录上述载体实际进入请求的位置、版本、缺失策略与真实消费者。
+
+### 11.4.2 求证式三层输入增补（2026-10-27，VS-00K Proposed）
+
+本节增补而不改写 §11.4 已接受的 supplied ≠ used、未知不得伪造及 primary frame 边界，也不要求复活已退役的 Envelope 实现。
+
+1. 三层逻辑输入按**初始 Base + 本 run 实际观察**组装。`WorkStateMessage` 可以来自初始 DialogueContext，也可以来自后续真实观察；每次消费请求须保留自己的来源、版本、覆盖和 observation refs，不能把 supplied 当成 used。
+2. 模型可通过 ADR-0025 的唯一探索入口及创作 AgentPlan 的只读探索步判断相关性，不为每类作品事实另开 provider-native 第二探索协议。权限、作品隔离和预算由应用与 Orchestrator 校验。
+3. `used_context_refs` 未结构输出时继续为 null/unknown；返回时只能指向本次请求实际可见的 Base refs 或本 run 此前观察 refs。普通文本不机械提取 used refs 或“已核对”结论。
+4. 取证观察的分页、覆盖、权威性和版本与观察一起传递；读取一部分不能改称全章，读取失败不能改称作品没有该事实。模型信息缺口与 APP hard missing 分层，不能由任一方伪造 ready。
+5. 证明必须沿 `model request → explore → observation → later model request → used refs` 核对真实顺序，并保留 VS-00D §11.4 的零额外抽取、零业务副作用和 B27 语义质量分轨。求证证据不自动等于文学判断正确或 I10 通过。
+
+完整求证契约与 CP 见 `VS-00K-evidence-seeking-authoring-contract-pack.md`、B39、AU-15；本节不声明当前实现已完成。
 
 ### 11.5 六项补口的职责与通过边界
 

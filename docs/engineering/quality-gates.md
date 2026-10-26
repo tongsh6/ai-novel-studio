@@ -276,6 +276,31 @@ v3 每条主链都必须能回答：
 - `docs/design/adr/ADR-0013-decision-trace-v3.md`
 - `docs/design/adr/ADR-0017-replay-report-v3.md`
 
+### 6.1 求证式创作的附加证据门（2026-10-27，VS-00K Proposed）
+
+涉及作品求证的 slice，除上述问题外还必须回答：
+
+1. 初始 Base 实际包含什么，模型何时发现信息缺口并提出查询；Base 已足够时是否允许不探索。
+2. 查询实际返回什么 Observation，其来源、权威性、版本、覆盖和结果分类是什么。
+3. 哪次后续 provider 请求真实包含了该观察或安全投影；只有工具日志不得判定证据闭环。
+4. `used_context_refs` 是否全部属于本次可见 Base refs ∪ 实际观察 refs；未返回是否记 unknown，越界 ref 如何处置。
+5. 缺口最终如何结束：继续求证、replan、降级、询问作者或预算耗尽；不得伪装 goal_satisfied。
+6. 恢复与 replay 是否从持久观察重建，而非依赖旧 prompt 或重调 provider。
+
+最低新增留痕（由对应 CP 逐步实现，未实现前不得宣称现有场景已覆盖）：
+
+| 对象 | 必须留痕 |
+|---|---|
+| Requested Observation | model request / query、source refs、work/authority/source revision、coverage、freshness、outcome |
+| Evidence Consumption | observation_ref → later provider_call_ref 的输入投影与版本 |
+| Evidence Usage | used_context_refs、unbound refs、unknown、对应 provider call 与处置 |
+| Preparation / Gap | ready / continue / replan / degrade / ask_author / budget_exhausted 的真实原因与结果 |
+
+来源增加：
+
+- `docs/design/contracts/VS-00K-evidence-seeking-authoring-contract-pack.md`
+- `docs/design/acceptance/author/AU-15-evidence-seeking-authoring.md`
+
 ---
 
 ## 7. 复用 v2 实现经验的验收要求

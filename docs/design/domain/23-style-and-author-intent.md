@@ -350,7 +350,7 @@ brief 通常由作者直接给出，可直接进入当前运行上下文。
 
 ## 11. 风格对象与 Memory 的关系
 
-风格对象是 memory 的重要输入，但使用方式不同。
+风格对象是 memory 的重要输入，但使用方式不同。cold / warm / hot tier 描述存储与检索策略，不表示自动注入；作者当前 brief 等不可猜测意图可进入 Base，风格样本与历史偏好由模型按任务需要读取并留下观察与使用依据。
 
 ### 11.1 `style_sample`
 
@@ -391,11 +391,7 @@ long-run 特别依赖风格层。
 
 ### 12.1 启动时
 
-至少读取：
-
-- active writing_preferences
-- relevant local brief
-- active feedback patches
+启动先提供当前任务、写作坐标、权限预算与必要版本，以及作者当前 local brief / 明确风格约束等不可猜测的 Base。active writing_preferences、feedback patches、style samples 等作品知识按当前单元需要可探索、可续读；是否进入后续模型请求必须由实际观察证明，不以全部固定预装为目标。
 
 ### 12.2 运行中
 
@@ -415,7 +411,7 @@ checkpoint 需要能呈现：
 
 ### 12.4 long-run 不应硬复制旧 style context
 
-resume 时应重新读取当前 authoritative style / intent layer，而不是盲目沿用旧 prompt。
+resume 时应重新读取当前 authoritative style / intent layer，而不是盲目沿用旧 prompt。当前作者 brief 与后续真实观察分别留痕；历史观察若版本已变化必须重读或标 stale，不得把旧风格结论当成当前有效。
 
 ---
 

@@ -390,9 +390,7 @@ I-M1（依据 ⊆ 材料，越界机器丢弃）/ I-M3（叙事 source-bound）/
 - **工具名 / 锚点**：`planning_mission` /「规划前推理器」（`ChapterMissionService`
   `kind: :planning`）；材料选取 `ChapterMissionInputs` `mode: :planning`——无目标章，
   新增「已规划待写的章」材料组（`plan:<seq>:summary`），保密清单不豁免任何章。
-- **运行形态**：`plot_outline_with_context_v1` 是 CP2b 机械步序（单候选 flow，非模型
-  计划）——机械计划加第三步 `context_assemble → planning_mission → plot_outline`；
-  无 plan_drafted / D1 事宜。消耗：+1 步 +1 调用（既有预算内）。
+- **运行形态**：以下为 WR02 当时的 CP2b 机械步序历史记录（`context_assemble → planning_mission → plot_outline`），不得据此复活 APP 预制轨道。现行规划沿 ADR-0023/0025 由模型制定和维护 AgentPlan，`planning_mission` 是可排入的模型步；求证缺口与补充探索按 §16.11 的候选契约处理。
 - **进 prompt**：`CreativeRequest.planning_mission`（默认 nil 向后兼容）——已渲染的
   「## 本轮规划使命（写前推理，按账面与进度）」段，紧跟账面摘要段之后（摘要是材料、
   使命是结论，决策点邻近）。降级/缺席时规划 prompt 逐字节不变。
@@ -433,3 +431,16 @@ I-M1（依据 ⊆ 材料，越界机器丢弃）/ I-M3（叙事 source-bound）/
   `archive_read` profile facet 增「当前规划使命」行（探索面同步律）。
 - 场景：`wr01c-planning-mission-decision`（规划 run 落暂定 → 档案块裁决 → 改写后再规划
   0 调用直取 → why 弹窗结构化区块）；`wr01-chapter-mission-before-prose` 复跑为行为回归。
+
+### 16.11 求证式准备与证据闭环（2026-10-27，VS-00K Proposed）
+
+WR01/WR02 已证明“模型能根据 APP 列出的材料推导并绑定依据”，但 `kind: explore`、使命步存在或 writer prompt 出现使命，都不能单独证明模型已按需求证。下一阶段的候选契约如下，未实现前不写入完成记录。
+
+1. **准备判断先于最终使命**：模型先根据初始 Base 与实际观察判断是否还存在影响本轮创作的通用信息缺口。缺口进入既有 plan revision / 续行；证据足够才生成最终 ChapterMission / PlanningMission。不得为时间、物品等单独特定要素增加专用缺口分支。
+2. **依据集合扩展而不放松**：I-M1 的机械半边从“本步机械预选材料 refs”扩展为“本次调用实际可见 Base refs ∪ 本 run 此前真实观察 refs”。越界依据仍 dropped，不允许因为来自模型自报就获得证据信用；未返回自报告时记 unknown，不从 supplied refs 推导 used refs。
+3. **同一证据视图供三端消费**：writer、evaluator、revision 使用同一 run 的观察与版本/覆盖信息。事实类 QualityFinding 还需能指出支撑或冲突的作品证据；文学判断不强行要求旧来源，也不因 refs 齐全自动通过。
+4. **写后缺口回到同一 run**：writer/evaluator/revision 返回证据不足时，只能在既有预算内补充探索、replan、诚实降级或等待作者，不得把它当成 quality passed，也不得以自动递归改稿替代作者裁决。
+5. **I-M4 的适用边界**：技术推理失败可按既有策略降级，但不能把“应当求证却未求证”伪装成普通失败继续，也不能用降级文案宣称证据齐全。APP hard missing 与模型信息缺口分开，Orchestrator 不替模型改写求证计划。
+6. **验收分轨**：确定性测试证明准备/观察/引用/预算与恢复；真实模型证明自然输入下会选择必要探索、观察进入后续 writer，并能处理 Base 已足够的对照（不强制每 run 探索）。I10 文学盲评独立，不与求证机制或实模行为互代。
+
+完整跨契约方案见 `VS-00K-evidence-seeking-authoring-contract-pack.md`、ADR-0030、B39、AU-15。

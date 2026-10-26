@@ -209,6 +209,7 @@ UI 实现必须严格遵循 `docs/design/ui/` 中的设计文档和 Pencil 原�
 - **KISS**：优先简单直接的方案，不引入不必要的间接层
 - **测试优先保护核心**：业务规则必须有测试，IO/边界层可适度放宽
 - **最小改动**：只改任务要求的范围，不做无关重构
+- **求证式创作**：遵循“最小供给 + 模型按需求证 + 证据闭环”；新增作品知识不得默认靠固定 prompt packet 补漏，须优先评估通用探索与证据绑定能力（[00 §2.4](docs/design/00-vision-and-engineering-roadmap.md#24-创作信息获取元原则最小供给按需求证证据闭环2026-10-27-用户拍板)）
 
 ---
 
@@ -226,9 +227,9 @@ UI 实现必须严格遵循 `docs/design/ui/` 中的设计文档和 Pencil 原�
 2. **Invariant**：本 slice 保护哪个系统不变量？
 3. **Boundary**：本 slice 切穿哪些真实 app 边界？哪些 app 明确不应修改？
 4. **Consumer**：第一个真实消费者是谁？Channel、Frontend、Application test、Projection builder 或其他？
-5. **Proof**：用什么测试或命令证明链路和不变量成立？
+5. **Proof**：用什么测试或命令证明链路和不变量成立？涉及作品知识进入模型时，如何区分 Base 与模型请求观察、证明观察进入后续真实请求及使用引用未越界？声称自主求证时，真实模型行为证据是什么（stub 只能证明接线）？
 6. **Acceptance Driver**：由哪个外部自动化脚本驱动真实页面完成场景化验收？产品代码是否新增任何验收感知逻辑（默认必须为 no；若不是 no，必须说明它为何是真实产品能力而非验收钩子）？
-7. **Exploration**：本 slice 物化的要素/数据，AI 经探索面（判断循环内部翼工具目录）如何同批可达（`docs/design/08-novel-element-model.md` §8 探索面同步律）？非要素物化 slice 可答"不适用"并说明理由。
+7. **Exploration**：本 slice 物化的要素/数据，AI 经探索面（判断循环内部翼工具目录）如何同批可达（`docs/design/08-novel-element-model.md` §8 探索面同步律）？最小 Base、信息缺口发现、观察回流与 used_context_refs 绑定如何成立？能否用未配置专用 packet 的要素复用？非要素物化或不涉及模型作品知识获取的 slice 可答"不适用"并说明理由。
 
 如果这 7 项答不上来，先补 slice 设计，不要编码。
 
