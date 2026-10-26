@@ -205,11 +205,23 @@ function containsAny(value: string, needles: string[]): boolean {
   return needles.some((needle) => value.includes(needle));
 }
 
-function pendingArtifactTab(artifact: ArtifactEntry): PendingTabType {
+// B28 A2 / B30 类型边界：正文与修订类候选的采纳入口在工作台候选卡
+// （candidate_set + available_actions，07 §4.1 S2 / VS-05 §4.1），不在作品档案的
+// 档案待采纳区。prose_fragment 同时承载正文草稿与按范围修订稿（target_segments /
+// whole_chapter 由 payload.modification_scope 区分），prose_formatting_plan 是分段方案
+// 修订——都属于章节正文类内容，不能以「大纲草稿 / 保存到大纲」出现。
+const CONTENT_ARTIFACT_TYPES: ReadonlySet<string> = new Set([
+  "prose_fragment",
+  "scene_draft",
+  "prose_formatting_plan",
+]);
+
+function pendingArtifactTab(artifact: ArtifactEntry): PendingTabType | null {
   const artifactType = artifact.artifact_type;
 
+  if (CONTENT_ARTIFACT_TYPES.has(artifactType)) return null;
+
   if (artifactType === "outline_draft" || artifactType === "plot_direction") return "outline";
-  if (artifactType === "prose_fragment" || artifactType === "scene_draft") return "outline";
   if (artifactType === "character_seed" || artifactType === "character_evolution_seed")
     return "character";
   if (artifactType === "foreshadowing_seed") return "foreshadowing";
@@ -318,7 +330,7 @@ export function StructurePanel({
     () =>
       pendingAdoptions
         .map((artifact) => pendingArtifactTab(artifact))
-        .find((tab) => tab !== "overview") ?? "overview",
+        .find((tab): tab is PendingTabType => tab !== null && tab !== "overview") ?? "overview",
   );
   const [toc, setToc] = useState<TocData | null>(null);
   const [characters, setCharacters] = useState<CharacterData[]>([]);
