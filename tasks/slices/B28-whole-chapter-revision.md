@@ -361,3 +361,17 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - 资源：运行前记录 `lms ps`/内存与 Strata `loaded=null`；单槽串行；结束（成功/失败/中断）卸载 Strata 并验证 `loaded=null`；不加载第二模型。
 - 证据目录 `artifacts/slice-verify/b28-missing-native-20261026-r11/`；外部驱动为外部系统 UI（AX/CGEvent，非产品钩子），失败批次只读保留。
 - 预注册时间：2026-10-26T16:2x+00:00（执行前写入）。
+
+#### T4 产品修复实现记录（2026-10-26，`028b6231`）
+
+- **观察分类**：`ExplorationService` 为每类探索观察增加结构化 `outcome`/`facts`；空结果/目标不存在/歧义/非法参数/空正文均为“已完成观察”并给事实文案（如“已检索章节「第一章」：作品当前还没有章节。”），只有真实工具错误用失败文案；`observation_metadata/1` 进入 developer 面，两条探索链（judgment loop / judgment_plan）同源传播。
+- **停等澄清**：新增 `NoProgressClarification`，由最后可用观察机械派生“缺什么/为何不能执行/可做什么”，无观察时退回既有诚实兜底句；`agent_run_server` no_progress 分支 emit 派生句并带 `reason_codes`（`no_progress_repeated_exploration`/`exploration_outcome_*`）与 `clarification_source`。不调 provider、不生成创作内容、状态/零写入/零候选/不路由写能力不变。
+- **测试**：先 red 后 green；新增/扩展 17 条（含空作品→判断两次重复 chapter_read→runtime 停等的全链路，断言具体澄清/零候选/零写入/profile 仍 judgment_loop_v1）。application 981/0、umbrella 2282/0；compile/format/credo/xref/arch/I1–I3/N-NARR 全绿；证据 `artifacts/t4-fix-20261027/`。
+- **边界**：不伪造模型 author_question（B31 来源绑定），系统机械澄清只用于 runtime 停等；模型自身是否提问仍由模型行为记录，不以产品兜底冒充模型能力。
+
+#### R11 结果（2026-10-26，真实 Strata/iq3_s 原生单次 scoped 复验）
+
+- 批次 `artifacts/slice-verify/b28-missing-native-20261026-r11/`：原生窗口由外部系统 UI 驱动（AX/CGEvent），启动即进入缺目标作品（隔离副本测试数据准备），只发送一次原请求。真实模型 4 次 HTTP 调用（judgment explore archive_read → explore chapter_read → output_validation retry → capability_gap reply），第一次检索后观察已含“已检索章节「第一章」：作品当前还没有章节。”，后续未再陷入重复检索停等，而由模型给出**能力缺口诚实答复**（说明章级仅排版能力存在但当前没有可作用对象，正文统计 0 章）——产品观察分类修复后模型不再复现 R10 的重复查询。
+- **scoped 核验**（`scripts/native_b28_t4_check.mjs`，沿用冻结 T4 意图/文本条件，不改验收判据）**13/13 PASS**：唯一输入、结果绑定、零候选、无隐式采纳、`production_write_performed=false`、DB 零写入（章/草稿/scene 与 before 完全一致）、作者可见澄清、无写执行（判断无 execute、reply coverage 不含写能力、无 ui_card）、无 author_action、真实模型调用 4 次 provider=strata、原生截图/AX 新鲜、打开缺目标作品。结果 `run/t4-scoped-check.json`、`run/r11-t4-proof.json`、`run/T4-missing.ax.txt`。
+- **判据边界（如实）**：T4 严格语义“真实模型回复必须澄清/拒绝”本轮由模型自身 capability_gap 答复满足；runtime 机械澄清作为不依赖模型配合的兜底（本批未触发停等路径，由确定性集成测试覆盖）。R11 批次末 runner 因缺 48 项全矩阵证据 `native_evidence_verification_failed`（scoped 批次预期，未删改），失败只读保留。资源：运行前后 `lms ps` 仅作者 embedding IDLE、Strata `loaded=null`/engine stopped，结束后显式 unload 仍为 null；无模型常驻。
+- **残余**：旧全矩阵 driver 的浏览器面 48 项迁移验证另行执行记录；原生全 48 项单批（A3）未重跑，依“产品修复后只做失败类型 scoped replay”规则以 R3/R4/R11 native scoped 证据 + 浏览器 deterministic 全矩阵证据分别归档，不冒充单批全量原生通过。
