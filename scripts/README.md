@@ -6,7 +6,7 @@
 
 | 路径 | 角色 |
 |---|---|
-| `lib/` | 被多个脚本复用的 shell helper。 |
+| `lib/` | 被多个脚本复用的 helper（shell + driver 模块）；原生 UI 驱动见 [`lib/native_ui/`](lib/native_ui/README.md)。 |
 | `scenario_invariants/` | I1/I2/I3、N-NARR 与 I-CACHE 前缀共享度量 driver。 |
 | `model_contracts/` | [模型契约索引](model_contracts/README.md)：计划/判断 MBC、VS-00I 真实单调用缓存与独立控制样本与原生 HTTP/SSE 证据，支持 Gateway 注册的真实 Provider；exit 65=凭据/环境阻塞。 |
 

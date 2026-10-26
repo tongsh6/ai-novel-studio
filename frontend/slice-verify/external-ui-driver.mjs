@@ -36385,7 +36385,21 @@ async function driveB28WholeChapterRevision(page) {
         event: record.event,
         excerpt: JSON.stringify(record).slice(0, 1200),
       }));
-    const promptFlags = (prompt) => ({
+    // 当前作品事实段（到“消息处置与已有产物”前）才是判断本轮消费的作品事实；
+    // 之后的会话/已有产物段允许合法包含历史旧文本（B27 上下文与采纳历史）。
+    const currentContextSlice = (prompt) => {
+      const startCandidates = ["## 当前作品与实际观察", "## 当前作品上下文"];
+      const start = startCandidates.reduce((acc, marker) => {
+        const idx = prompt.indexOf(marker);
+        return acc === -1 || (idx >= 0 && idx < acc) ? idx : acc;
+      }, -1);
+      if (start < 0) return "";
+      const end = prompt.indexOf("## 消息处置与已有产物", start);
+      return end > start ? prompt.slice(start, end) : prompt.slice(start);
+    };
+    const promptFlags = (prompt) => {
+      const contextSlice = currentContextSlice(prompt);
+      return {
       chars: prompt.length,
       contains_initial_anchor: prompt.includes(initialAnchor),
       contains_continuation_anchor: prompt.includes(continuationAnchor),
@@ -36404,7 +36418,13 @@ async function driveB28WholeChapterRevision(page) {
       contains_old_chapter_phrase: prompt.includes("点灯人第一次点灯时才二十五岁"),
       contains_search_observation:
         prompt.includes("正文检索") || prompt.includes("未检索到") || prompt.includes("探索观察"),
-    });
+      current_context_has_thirty_age: contextSlice.includes("三十岁"),
+      current_context_has_twentyfive_age: contextSlice.includes("二十五岁"),
+      current_context_has_old_chapter_phrase:
+        contextSlice.includes("点灯人第一次点灯时才二十五岁"),
+      current_context_chars: contextSlice.length,
+    };
+    };
     return {
       label,
       text,
@@ -36520,9 +36540,11 @@ async function driveB28WholeChapterRevision(page) {
   }
 
   async function adoptRevisionCandidate(candidateTurn, label) {
-    const pendingEntry = candidateTurn.pending.find(
-      (entry) => entry.artifact_type === "prose_fragment",
-    );
+    // ADR-0029：整章排版候选 artifact_type=prose_formatting_plan，内容修订候选仍为 prose_fragment；
+    // 采纳按钮文案按真实候选类型分派（此前迁移只改了文案三元，未放宽待采纳查找，导致 T1 找不到按钮）。
+    const pendingEntry =
+      candidateTurn.pending.find((entry) => entry.artifact_type === "prose_formatting_plan") ??
+      candidateTurn.pending.find((entry) => entry.artifact_type === "prose_fragment");
     const start = frames.length;
     const saveButton = page.getByRole("button", {
       name: pendingEntry?.artifact_type === "prose_formatting_plan" ? /^应用分段方案$/ : /保存修订稿|保存为章节正文|采纳修订|替代已保存版本/,
@@ -36647,6 +36669,16 @@ async function driveB28WholeChapterRevision(page) {
         () => document.body.innerText.includes("阅读模式") && document.body.innerText.includes("本章有效字数"),
         { timeout: 25_000 },
       );
+      // B28 阅读投影刷新（ADR-0016/44§3-4）：replace_scope 采纳后阅读会先显示既有投影并标注
+      // “投影状态：重建中/正在读取最新章节/投影已过期”，随后以新 canon 重读。旧 driver 在重建中
+      // 快照导致 3 项消费断言读旧值；这里等投影进入 FRESH（状态标记消失）后再采证，不放宽任何判据。
+      await page.waitForFunction(
+        () => {
+          const text = document.body.innerText;
+          return !/投影状态：重建中|正在读取最新章节|投影已过期|投影刷新失败/.test(text);
+        },
+        { timeout: 45_000 },
+      ).catch(() => {});
       const text = await page.locator("body").innerText();
       await page.screenshot({
         path: path.join(artifactDir, `${B28_SLICE_ID}-${label}.png`),
@@ -37416,11 +37448,13 @@ async function driveB28WholeChapterRevision(page) {
     prompts_with_old_chapter_phrase: newPromptFlags.filter(
       (prompt) => prompt.contains_old_chapter_phrase === true,
     ).length,
+    // 判据意图不变（下一轮判断上下文读新整章正文、不读旧值），但按 B27 上下文结构取
+    // “当前作品事实段”而非整条 prompt：会话/已有产物历史段允许保留旧文本。
     context_reads_new_chapter: newPromptFlags.some(
       (prompt) =>
-        prompt.contains_thirty_age === true &&
-        prompt.contains_continuation_unique_phrase === true &&
-        prompt.contains_old_chapter_phrase !== true,
+        prompt.current_context_has_thirty_age === true &&
+        prompt.current_context_has_old_chapter_phrase !== true &&
+        prompt.current_context_chars > 0,
     ),
     retrieval_hits_new_value:
       obsNewText.includes("三十岁") &&

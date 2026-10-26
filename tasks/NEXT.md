@@ -6,20 +6,19 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B28-WHOLE-CHAPTER-REVISION | 分段/采纳/阅读重开实模已验；补缺目标、旧验收driver与投影状态显示后收口。 | [B28](slices/B28-whole-chapter-revision.md) |
+| B30-CHAPTER-STRUCTURE-MAINTENANCE | 浏览器产品链与实模 POST-FIX 已验；补原生 Tauri 交互证据（两场景 + 档案类型边界）后收口。 | [B30](slices/B30-chapter-structure-maintenance.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B30-CHAPTER-STRUCTURE-MAINTENANCE | 以真实模型贯通原生重编号及卷章类型边界。 | [B30](slices/B30-chapter-structure-maintenance.md) |
-| B29-EXISTING-CHARACTER-ROLE-REVISION | 以真实模型贯通原生角色身份更新、采纳与后续消费。 | [B29](slices/B29-existing-character-role-revision.md) |
+| B29-EXISTING-CHARACTER-ROLE-REVISION | 补原生 Tauri 交互证据；实现/浏览器/实模证据保留，不重跑真实模型矩阵换分。 | [B29](slices/B29-existing-character-role-revision.md) |
 | P1-AUTHORING-DOGFOOD | 补原生创作/维护/恢复/导出证据；B37 承接实际驱动标识及监督，原 canonical-3e 作为浏览器实模证据保留。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)、[B37](slices/B37-acceptance-wait-supervision.md) |
 | B38-WORLD-RULE-SAVE-INTENT | deferred 候选；仅在真实产品链复现或作者请求时触发。 | [B38](slices/B38-world-rule-save-intent.md) |
 
 ## 阻塞
 
-- B28 R3单次scoped复验已结束；完整矩阵与显示缺口仍见 [B28](slices/B28-whole-chapter-revision.md)，不以局部通过结案。
+- B28 已完成（2026-10-27 原生补验收口）；stage 存量数据（ch1/ch17）保持只读清单，修复需作者单独授权，见 [B28](slices/B28-whole-chapter-revision.md)。
 
 - P1 原生实模复验前须闭环本批模型归属与两运行时清理，保留作者手动实例；见 [B37](slices/B37-acceptance-wait-supervision.md)。
 - **B27 CP4 known-gap（2026-10-25，作者裁决）**：最后一次全量 retest6 integrated 40/40 ok、unavailable 0、ZT 0、uq 0；key_set 仅 M01r2、overall 34/40=0.85 <0.90 → 不标 CP4 done，记录 known-gap（M01r2/M02/M08r2/M16r1/M18r1）并转入 B31；B27 不再全量 retest，后续 B28（format_only/整章）与产品硬化周期回归。证据见 [B27](slices/B27-systematic-prompt-and-intent-integration.md) retest6 记录；其中 M07 实际分段由 B28/ADR-0029 继续承接，机制与替身结果不代表真实模型闭环。

@@ -4,13 +4,13 @@ tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  active（2026-10-25 CP2 注册；作者已接受B36候选形态对齐）：外部 runner 驱动真实工作台；原生证明必须由系统UI操作Tauri窗口，
-  默认Chromium结果仅属浏览器产品链证据。复验 B28 整章修订闭环——章级目标/全章覆盖账、format_only 模型换行计划与非换行字节相等、
+  active（2026-10-25 CP2 注册；2026-10-27 driver 迁移到 ADR-0029 计划/预览并复验 PASS 48/48 checks/10 trials）：外部 runner 驱动真实工作台；
+  原生证明必须由系统UI操作Tauri窗口，默认Chromium结果仅属浏览器产品链证据。复验 B28 整章修订闭环——章级目标/全章覆盖账、format_only 模型换行计划与非换行字节相等、
   content_revision 按B36目标段候选/锚点/版本及确定性合并只改指定处；format_only的format_paragraphs同章替代（章身份/章数不变、旧稿 superseded 历史
-  可查、阅读/刷新消费新值）、同名章澄清阻断、缺 ref 零写入；CP3 追加 replace_scope 后
+  可查、阅读/刷新消费新值）、同名章澄清阻断、缺 ref 零写入（产品级诚实澄清）；CP3 追加 replace_scope 后
   阅读/投影 hash+有效字数、章摘要刷新来源、下一轮 prose_search/上下文读新值、历史可查。
   证据边界：provider 为
-  slice_verify 确定性替身（状态链/契约证据）；真实模型原话/改述与排版质量归 CP4。产品代码
+  slice_verify 确定性替身（状态链/契约证据）；真实模型原话/改述与排版质量归 CP4/R 系列原生实模 scoped 证据。产品代码
   消费已接受ADR-0029；替身只作机械回归，实模原生证据才支持业务闭环，不新增产品验收感知逻辑。
 entrypoint: bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri
 contract:
@@ -117,7 +117,8 @@ prerequisites:
   - B28 场景仅在上述真实链路可跑后注册 scenarios.yml；slice_verify 确定性 fixture 提供
     format_only/content_revision 输出语义（真实模型归 CP4）。
 known_not_closed:
-  - ADR-0029 driver已迁移到计划/独立预览与真实新增段落检查；旧原样输出不能证明排版完成。真实模型原话/改述与排版质量归 CP4；本场景为确定性 provider 状态链证据；检索/下一轮只证明上下文与检索读新正文，不评模型语义质量。
+  - ADR-0029 driver 已迁移到计划/独立预览与真实新增段落检查（2026-10-27 迁移后 PASS 48/48 checks/10 trials；驱动修复见 B28 §driver 迁移验证）；旧原样输出不能证明排版完成。真实模型原话/改述与排版质量归 CP4/R 系列原生实模 scoped 证据；本场景为确定性 provider 状态链证据；检索/下一轮只证明上下文与检索读新正文，不评模型语义质量。
+  - 本场景 runner 的 `surface=tauri` 仍是 Tauri dev 窗口 + Chromium DOM 驱动（证据 honest 标 surface=browser/headless-chromium）；原生窗口交互证明由 B28 的 R3/R3-resume/R4/R11 实模 scoped 证据承担，不以本场景冒充。
   - format_only_violation 的端到端负向本场景暂不做（避免与 T1 正例混跑）；以 CP1 单测 + CP4 实模覆盖。
   - 产品当前无作者可点的独立「搜索正文」页面入口：检索证据经真实主输入→模型工具 prose_search（真实 Channel/工具链）+ 隔离 DB/投影只读对账；如后续新增页面搜索入口，本场景需补 UI 路径。
   - 章摘要失败诚实标记机制由既有摘要场景（如 d3-summary-lazy-repair）覆盖；本场景只验证成功刷新路径与「当前摘要不冒充旧稿」的来源一致性。当前档案大纲不渲染章摘要正文，摘要证据用隔离 DB 当前 ACCEPTED 行（source/revision_base/updated_at）+ chapter_summary_maintenance app 事件；UI 摘要显示不作为断言。

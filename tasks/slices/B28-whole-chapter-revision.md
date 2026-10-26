@@ -1,6 +1,6 @@
 # B28：完整章节修订、排版范围与采纳身份闭环
 
-- 状态：**doing（2026-10-26，R3原生实模分段/采纳/阅读/重开已验；完整矩阵与投影提示仍未闭环）**。原T2已由真实Strata模型在原生入口完成判断、候选、采纳、阅读/恢复与新旧值检索，20项事实对账通过。新format_only采用模型换行计划；R3单次授权复验新增30处阅读段落并完成同章采纳、完整章摘要与原生阅读重开。R1/R2失败保留；缺目标实模、旧driver迁移与投影提示仍待闭环，完整B28未完成。
+- 状态：**done（2026-10-27，CP0–CP5 + 2026-10-25 完成审计后原生补验收口）**。原 CP2/CP3 浏览器产品链证据保留；完成审计要求补齐的**原生 Tauri 交互**已由 R3（真实模型排版计划新增分段→采纳→阅读/重开）、R3-resume（真实模型内容修订→采纳→阅读/检索）、R4（阅读投影刷新修复）、R11（T4 缺目标修复后真实模型单次 scoped 复验 13/13）与迁移后的确定性 48 项 driver 验证（见下）共同覆盖；T4 产品根因（观察分类/no_progress 具体澄清）已系统性修复并合入 `028b6231`。残余：原生 48 项单批全矩阵（A3）未重跑，按“产品修复后只做失败类型 scoped replay”分别归档，不冒充单批全量原生通过；stage 历史数据修复仍未授权。
 - 原收口记录：**done（2026-10-25，CP0–CP5；真实 Tauri 场景 PASS 48/48 checks，CP4 真实模型意图/材料覆盖 PASS，writer 生产端 known-gap 如实记录）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本已阻止 stage 式「单片段冒充整章」候选（honest failure），但整章只排版仍不可完成；内容修订采纳仍会因 target 空而新建章（stage 21:58 失败链可复现）。CP0 复现证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`、记录 `artifacts/model-contracts/b28-cp0/{ui-repro.md,code-chain.md,contract-proposal.md,stage-impact.md}`；CP1 契约与实现已按 §7 冻结。
 - 登记日期：2026-10-23；来源：stage“整理第1章正文”只处理初稿、采纳后新增第17章。
 - 上游：[Q1c](Q1C-adopted-content-revision.md)、[B24](B24-exploration-chapter-full-read.md)、[B25](B25-chapter-identity-unification.md)、[Q1Cb](Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md)。提示词统一归 [B27](B27-systematic-prompt-and-intent-integration.md)，不在此追加局部提示词补丁。
@@ -375,3 +375,10 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - **scoped 核验**（`scripts/native_b28_t4_check.mjs`，沿用冻结 T4 意图/文本条件，不改验收判据）**13/13 PASS**：唯一输入、结果绑定、零候选、无隐式采纳、`production_write_performed=false`、DB 零写入（章/草稿/scene 与 before 完全一致）、作者可见澄清、无写执行（判断无 execute、reply coverage 不含写能力、无 ui_card）、无 author_action、真实模型调用 4 次 provider=strata、原生截图/AX 新鲜、打开缺目标作品。结果 `run/t4-scoped-check.json`、`run/r11-t4-proof.json`、`run/T4-missing.ax.txt`。
 - **判据边界（如实）**：T4 严格语义“真实模型回复必须澄清/拒绝”本轮由模型自身 capability_gap 答复满足；runtime 机械澄清作为不依赖模型配合的兜底（本批未触发停等路径，由确定性集成测试覆盖）。R11 批次末 runner 因缺 48 项全矩阵证据 `native_evidence_verification_failed`（scoped 批次预期，未删改），失败只读保留。资源：运行前后 `lms ps` 仅作者 embedding IDLE、Strata `loaded=null`/engine stopped，结束后显式 unload 仍为 null；无模型常驻。
 - **残余**：旧全矩阵 driver 的浏览器面 48 项迁移验证另行执行记录；原生全 48 项单批（A3）未重跑，依“产品修复后只做失败类型 scoped replay”规则以 R3/R4/R11 native scoped 证据 + 浏览器 deterministic 全矩阵证据分别归档，不冒充单批全量原生通过。
+
+#### 旧全矩阵 driver 迁移验证（2026-10-27）
+
+- **迁移目标**：把原“format_only 全文候选/旧归一”断言迁移到 ADR-0029 的「prose_formatting_plan + 独立 formatting_preview + 实际新增分段」；T1 采纳改为“应用分段方案”按钮、非换行字节保真、阅读/摘要/检索消费新稿；T2 仍按 B36 目标段+确定性合并。判据条件不变，只改证据解析与驱动路径。
+- **验证批次**：`bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri`（确定性 slice_verify；Tauri dev 窗口 + Playwright 驱动真实工作台 DOM；证据 honest 标注 `surface=browser / driver=headless-chromium`，不冒充原生）。**PASS 48/48 checks、10 trials（T0a/T0b/T1/T2/T3/T4/T5/T6/T7/T8）、log noise ok**；证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`（保护副本 `...-cp6-driver-migration-pass-20261027/`）。
+- **迁移验证过程发现并修复的 2 个 driver 缺陷（非产品缺陷，均已留证并修复）**：① `adoptRevisionCandidate` 迁移只改了按钮文案三元，未把待采纳查找从 `prose_fragment` 放宽到 `prose_formatting_plan`，导致 T1 找不到“应用分段方案”→ 8 项下游断言假失败（失败批次 `...-failed-driver-pending-filter-20261027T0045/`）；② 阅读快照在投影“重建中”时采集，3 项消费断言读到旧投影（失败批次 `...-failed-consumption-timing-20261027T0105/`）——修复为等投影 FRESH（无“重建中/正在读取/已过期”标记）后再采证；③ 另将 T7“下一轮上下文读新章”从整条 prompt 收紧为“当前作品事实段”（B27 上下文结构中历史段合法含旧文本），判据意图不变且更精确。修复仅动 `frontend/slice-verify/external-ui-driver.mjs`，未改产品代码/未放宽任何产品断言；另一次批次失败为并发前端编辑导致的 HMR 干扰（`...-failed-concurrent-frontend-edit-20261027T0028/`），保留只读。
+- **边界**：本批次是确定性机制/契约回归证据；原生交互由 R3/R3-resume/R4/R11 的实模 scoped 证据承担；不声称单批原生 48 项通过。
