@@ -89,6 +89,9 @@
 | `native_b28_evidence.test.mjs` | B28 全章覆盖、源版本、同章身份、排版保真与越界拒绝的证据检查回归。 |
 | `native_b30_drive.mjs` | B30 原生外部系统 UI 驱动（AX/CGEvent）：两场景确定性矩阵 + strata scoped 真实模型流程；作品切换经真实重开+测试数据准备；模型生命周期记录/结束 unload 验证。 |
 | `native_b30_evidence.mjs` | B30 原生证据核验：场景1 30 项 + 类型边界 T8 6 项、场景2 12 项；strata scoped 模式 26 项（不冒充全矩阵）；只读 DB/transport/app-log/llm-calls/AX/生产指纹。 |
+| `native_b29_drive.mjs` | B29 原生外部系统 UI 驱动（AX/CGEvent）：确定性 T1–T5 + strata scoped T1/T2；关闭重开恢复、档案角色 roster、「谁是主角」追问；失败首因 JSON。 |
+| `native_b29_evidence.mjs` | B29 原生证据核验：确定性 23 checks 1:1 + strata scoped 21 checks（provider 来源/生命周期/author_question_events）；summary 明示 scope，不冒充全矩阵。 |
+| `native_p1_drive.mjs` / `native_p1_evidence.mjs` | P1 原生实模 scoped 创作旅程：创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出；模型生命周期 before/after-unload、导出文件 hash、wait-ledger 全分型。 |
 | `verify_stage_process_ownership.sh` | stage/Tauri 进程 ownership 验收脚本。 |
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
 

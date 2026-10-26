@@ -443,8 +443,8 @@ case "$SLICE_VERIFY_PROVIDER" in
 esac
 
 if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" ]]; then
-    echo "Native system driver is currently registered only for B26/B31/B28 roundtrips" >&2
+  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" && "$SLICE_ID" != "b30-chapter-renumber-roundtrip" && "$SLICE_ID" != "b30-volume-blueprint-kind-boundary" && "$SLICE_ID" != "b29-existing-character-role-revision" && "$SLICE_ID" != "p1-chapter-draft-generation" ]]; then
+    echo "Native system driver is currently registered only for B26/B28/B29/B30/B31/P1 roundtrips" >&2
     exit 64
   fi
   ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX}-native"
@@ -1508,6 +1508,12 @@ verify_native_slice() {
       node "$PROJECT_ROOT/scripts/native_b31_evidence.mjs" verify "$ARTIFACT_DIR"
     elif [[ "$SLICE_ID" == "b28-whole-chapter-revision" ]]; then
       node "$PROJECT_ROOT/scripts/native_b28_evidence.mjs" verify "$ARTIFACT_DIR"
+    elif [[ "$SLICE_ID" == "b30-chapter-renumber-roundtrip" || "$SLICE_ID" == "b30-volume-blueprint-kind-boundary" ]]; then
+      node "$PROJECT_ROOT/scripts/native_b30_evidence.mjs" verify "$ARTIFACT_DIR"
+    elif [[ "$SLICE_ID" == "b29-existing-character-role-revision" ]]; then
+      node "$PROJECT_ROOT/scripts/native_b29_evidence.mjs" verify "$ARTIFACT_DIR"
+    elif [[ "$SLICE_ID" == "p1-chapter-draft-generation" ]]; then
+      node "$PROJECT_ROOT/scripts/native_p1_evidence.mjs" verify "$ARTIFACT_DIR"
     else
       node "$PROJECT_ROOT/scripts/native_question_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR"
     fi
