@@ -146,3 +146,9 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 - **模型生命周期（硬规则）**：`model-lifecycle-before.json` 记录 lms ps/内存/Strata loaded=null//v1/models 含 iq3_s；`model-lifecycle-after.json` 记录 `POST /api/models/unload` 200 → 回读 loaded=null/unloaded=true（成功与失败路径都执行卸载，失败批次亦验证 loaded_after=null）。
 - **失败批次（只读，驱动缺陷非产品缺陷）**：`...-native-strata-failed-driver-assert-20261027T0121`、`...-native-strata-failed-question-settle-20261027T0124`。
 - **边界**：本批是 scoped 实模证据（T1/T2），不冒充确定性 36 项矩阵；全面板/全负例矩阵仍以原生确定性批次为准。
+
+#### 收口门禁修正（2026-10-27，最终门禁发现并修复）
+
+- **verifier 非字面量 RegExp / 断言空洞修正**：`scripts/native_b30_evidence.mjs` 的 `countButtons` 原用 `new RegExp("AXButton\\s+" + label)`，但 AX 树行格式为 `AXButton, <title>`（逗号），导致刷新后“采纳按钮=0”断言恒真（vacuous，且触发静态扫描 detect-non-literal-regexp blocking）。改为字面量 `AXButton, ${label}` 计数；用修正后 verifier 在 canonical 证据上重跑：**场景1 仍 36/36、场景2 仍 12/12 PASS**（旧 checks/summary 以 `*-pre-literal-fix.json` 只读保留，证明断言在修正后仍成立而非依赖空洞）。
+- **测试时序 flake**：`agent_run_judgment_plan_flow_test.exs` 的 `{:plan_event, :drafted}` 等待在两次最终门禁首跑（高负载）超时、隔离与全量重跑均绿；按“事件到达断言不变、只放宽等待时长 2s→5s”修正并注明原因，不放宽业务流程断言。
+- 最终门禁重跑证据见 `artifacts/gates/2026-10-27-final/`（gate-runner 首轮报告 + 本轮补充复跑）。
