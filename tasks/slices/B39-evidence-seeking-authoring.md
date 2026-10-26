@@ -125,3 +125,31 @@ git diff --check
 - 2026-10-27 — 作者明确当前重点不是时间线专用设计，而是把“最小供给 + 模型按需求证 + 证据闭环”深入落到各设计。CP0 因此先处理全部承重设计与验收，不以时间线 schema 开工。
 - 2026-10-27 — 采用统一 AgentRun 级求证作为 Proposed 方向；writer 内 native 工具循环 Deferred。ADR-0023/0025 保持 Accepted 历史，不由本任务直接改写。
 - 2026-10-27 — 按作者“先深化元原则而非时间线专用设计”的排序，NEXT 当前任务转为 B39；B29 初始保留为第一候选，随后其原生补验完成并按任务规则移出队列，既有证据不覆盖、不丢弃。
+
+#### 2026-10-27 CP1 开工前只读预研与验收预注册（AI，未实现；ADR-0030 仍 Proposed）
+
+- 目的：在作者评审 ADR-0030 / VS-00K / AU-15 期间完成 CP1 的只读接线审计与真实模型验收预注册；ADR Accepted 后可直接开工。本节不改变 CP 状态、不改设计/契约、不写产品代码，仅登记可复用事实、实施切口与开放决策。
+- 基线：HEAD `d1006713`，工作树干净；独立核对证据见 `artifacts/completion-audit/2026-10-27-b39-cp1-readiness/report.md`。
+
+**接线事实（当前代码）**
+
+1. 创作 run 计划目标白名单仍无探索：`apps/novel_application/lib/novel_application/agent_run_flows/prose_drafting_with_quality.ex:369`（仅 `context_assemble/chapter_mission/prose_writing`）→ CP1a 需加入探索目标并分支执行。
+2. 探索执行已有可复用实现但为私有：`agent_run_flows/judgment_plan.ex:36`（`@exploration_step_targets`）、`:473 execute_exploration_decision_step`、`:504 exploration_observed` 事件与 payload；CP1a 应提取 application 内共享模块，由判断循环与 prose flow 同源调用，不新增平行 agent loop。
+3. 观察已在 run 内保存/投影：`agent_run_server.ex:812-823`（add_observations / persist_step_result / emit_observations），continuation 已有 observation_block（prose flow `:226-234`）可作模板；持久化复用 AgentRun event/step，无新表前提。
+4. CP1b 观察进使命/writer：`chapter_mission` 输入（prose flow `:751-799`）与 writer 的 `AuthoringTask`（`authoring_task_builder.ex:155 for_prose_writing`、`:744 prose_materials`）需把本 run 观察摘要/refs 作为材料来源之一；`CarryRegistry`（`carry_registry.ex`）现有携带不变。
+5. CP1c 证据绑定：`self_report.used_context_refs` 目前只归一化（`tool_output_contract.ex:176`）与空报告判定（`:500-504`）；需新增 domain 纯校验 `used_context_refs ⊆ Base refs ∪ 实际观察 refs`，未绑定 ref 记录 trace、不修改 artifact 字节、不给证据信用。**Base refs 的统一暴露点当前不存在**（context 组装未输出统一 Base refs 集合），CP1 需 additive 暴露，不得新增固定 packet。
+6. Replay 从持久观察重建属 CP3：`replay_service` 当前无 observation 处理，CP1 不得声称完成。
+
+**CP1 验收预注册（ADR Accepted 后执行；执行前不改）**
+
+- 模型/资源：Strata `iq3_s`（作者既有实例），单槽串行；原生 Tauri 外部系统 UI 驱动 + 真实模型；加载前记录 `lms ps`/内存与 Strata `loaded=null`，结束（成功/失败/中断）`POST /api/models/unload` 并验证 `loaded=null`；不加载第二模型。
+- 场景（引用 `acceptance/author/AU-15`，不改判据）：**SC-AU15-A1** 两章已采纳正文分别含“过了三天/又过了两星期”，首轮 Base 不含完整累计答案；后续创作请求须证明模型自主选择只读探索→观察含两章真实时间表达与章 refs→后续 writer 真实 provider 请求包含该观察或保真投影→候选与累计关系相容→采纳前零 canon 写入。**SC-AU15-A2** 对未配置专用 packet 的要素复用同一探索/证据链，产品 diff 不得出现该要素专用分支。
+- 预算/等待：B37 分型预算（input120 / turn360 / candidate300 / adoption180 / maintenance300 / restore30 秒）+ 10s 心跳；原指令只发一次、超时不重发；模型提问按作者默认应答（options 推荐项；free-text 给具体默认方向）≤2 次并记录 `author_question_events`；同一失败类型≤2 次，超预算记录根因并升级。
+- 证据目录：`artifacts/slice-verify/b39-au15-a1-native/`、`artifacts/slice-verify/b39-au15-a2-native/`；含真实 Tauri AX/截图、native-transport、app-log、llm-calls（真实 provider 请求体，证明观察进入后续请求）、observations 与 `used_context_refs` 集合对账、只读 DB 快照、模型生命周期 before/after。失败批次只读保留。
+- 判据分层：确定性机制证据（探索目标被计划/执行、观察持久化、writer 请求包含、refs 校验命中）与真实模型行为证据（模型自主决定查询/使用观察/承认缺口）分别报告；确定性替身只证明接线，不得代替模型行为。
+
+**待作者/开工后首个 CP1 checkpoint 决策（不阻塞 ADR 评审）**
+
+1. Base refs 集合的字段形状与暴露点（context 组装输出 additive refs 列表 vs 既有 trace refs 聚合）。
+2. prose run 的探索预算（最大探索步数/重复查询预算）是否复用判断循环预算，或按 run 分账。
+3. CP1 的最小准备判断边界：仅“继续探索或进入写作”，`replan/degrade/ask_author` 留 CP2（避免 CP1 范围膨胀）。
