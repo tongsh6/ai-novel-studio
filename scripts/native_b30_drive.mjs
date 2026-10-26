@@ -4,6 +4,7 @@
 // 用法：node scripts/native_b30_drive.mjs <batch-run-dir> <slice-id>
 import fs from "node:fs";
 import path from "node:path";
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
@@ -24,6 +25,7 @@ import {
 import { flatText, writeUiComplete } from "./lib/native_ui/workbench.mjs";
 import { Step } from "./lib/native_ui/driver.mjs";
 import { cleanupNativeApp } from "./lib/native_app_ownership.mjs";
+import { unloadStrataModel } from "./native_b30_evidence.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dir = path.resolve(process.argv[2] ?? "");
@@ -35,6 +37,15 @@ if (!dir || !sliceId) {
 const ready = readJson(path.join(dir, "native-driver-ready.json"));
 const APP = ready.bundle_identifier;
 const EVIDENCE = path.join(ROOT, "scripts/native_b30_evidence.mjs");
+const STRATA = ready.provider === "strata";
+// B37 分型预算：确定性 provider 用默认；真实模型走 strata 预算
+// （input120 / turn360 / candidate300 / adoption180 / maintenance300 / restore30），
+// 轮询超时取略低于预算以让驱动先给出可读失败，而不是被监督误杀。
+const T = STRATA
+  ? { ack: 28_000, turn: 340_000, candidate: 280_000, visible: 200_000,
+      adoptSent: 15_000, adoptRetry: 20_000, adoptStrict: 60_000, adoptFallback: 80_000 }
+  : { ack: 25_000, turn: 110_000, candidate: 110_000, visible: 60_000,
+      adoptSent: 10_000, adoptRetry: 15_000, adoptStrict: 20_000, adoptFallback: 25_000 };
 const step = new Step(dir);
 const screenshots = [];
 const captures = [];
@@ -591,9 +602,9 @@ async function sendAuthorInput(text, label) {
   });
   const turnId = String(message.frame[4]?.turn_id ?? "");
   if (!turnId) throw new Error(`user_message_without_turn:${label}`);
-  await runStep("ack", `ack:${label}`, () => pollWire((wire) => ackFor(wire, message), 25_000, `${label}:ack`));
+  await runStep("ack", `ack:${label}`, () => pollWire((wire) => ackFor(wire, message), T.ack, `${label}:ack`));
   const resultRecord = await runStep("turn", `turn:${label}`, () =>
-    pollWire((wire) => turnResultFor(wire, turnId, startedAt), 110_000, `${label}:turn_result`),
+    pollWire((wire) => turnResultFor(wire, turnId, startedAt), T.turn, `${label}:turn_result`),
   );
   return { turnId, turnResult: resultRecord.frame[4], messageAt: message.at, startedAt };
 }
@@ -604,7 +615,7 @@ async function waitCandidateVisible({ textPattern, label, buttonLabel }) {
       (text) =>
         matchText(text, textPattern) &&
         (buttonLabel ? text.includes(buttonLabel) : true),
-      110_000,
+      T.candidate,
       `candidate:${label}`,
     ),
   );
@@ -645,12 +656,12 @@ async function adoptCandidate(artifactId, buttonLabel, label) {
           entry.frame[4]?.action?.target_ref === artifactId,
       ) ?? null;
     safeClick(target, `${label}:adopt`);
-    let send = await tryPollWire(findAdoptSend, 10_000);
+    let send = await tryPollWire(findAdoptSend, T.adoptSent);
     if (!send) {
       const retryNodes = dumpNodes();
       const retryButtons = retryNodes.filter((node) => node.role === "AXButton" && node.title === buttonLabel);
       if (retryButtons.length) safeClick(retryButtons.at(-1), `${label}:adopt-retry`);
-      send = await pollWire(findAdoptSend, 15_000, `${label}:author_action_sent`);
+      send = await pollWire(findAdoptSend, T.adoptRetry, `${label}:author_action_sent`);
     }
     const strictReceipt = await tryPollWire(
       (wire) =>
@@ -663,7 +674,7 @@ async function adoptCandidate(artifactId, buttonLabel, label) {
             entry.frame[4]?.status === "accepted" &&
             receiptMatchesArtifact(entry.frame[4], artifactId),
         ) ?? null,
-      20_000,
+      T.adoptStrict,
     );
     const receipt =
       strictReceipt ??
@@ -677,7 +688,7 @@ async function adoptCandidate(artifactId, buttonLabel, label) {
               entry.frame[3] === "action_result" &&
               entry.frame[4]?.status === "accepted",
           ) ?? null,
-        25_000,
+        T.adoptFallback,
         `${label}:action_result`,
       ));
     await sleep(600);
@@ -794,9 +805,9 @@ async function clickPlanVolumes(label) {
     return sent;
   });
   const turnId = String(message.frame[4]?.turn_id ?? "");
-  await runStep("ack", `ack:${label}`, () => pollWire((wire) => ackFor(wire, message), 25_000, `${label}:ack`));
+  await runStep("ack", `ack:${label}`, () => pollWire((wire) => ackFor(wire, message), T.ack, `${label}:ack`));
   const resultRecord = await runStep("turn", `turn:${label}`, () =>
-    pollWire((wire) => turnResultFor(wire, turnId, startedAt), 110_000, `${label}:turn_result`),
+    pollWire((wire) => turnResultFor(wire, turnId, startedAt), T.turn, `${label}:turn_result`),
   );
   return { turnId, turnResult: resultRecord.frame[4] };
 }
@@ -837,7 +848,7 @@ async function clickPlanNextVolume(label) {
             entry.frame[4]?.tool_result?.tool_name === "plot_outline" &&
             entry.frame[4]?.tool_result?.output?.artifact_type === "outline_draft",
         ) ?? null,
-      110_000,
+      T.turn,
       `${label}:turn_result`,
     ),
   );
@@ -1049,8 +1060,299 @@ async function runBlueprintScenario() {
   writeJson("b30-native-driver-log.json", { slice_id: sliceId, finished_at: nowIso(), captures: log });
 }
 
+// ── Strata 真实模型 scoped：T1 正例 + 第九卷澄清负例（不重跑确定性矩阵）──────────
+const AUTHOR_QUESTION_REPLY_DEFAULT = "按当前卷的章节顺序按真实 seq 理顺编号，内容与标题文本不动";
+const authorQuestionEvents = [];
+
+const AUTHOR_QUESTION_CONTROL = /^(回复此问题|自行补充|发送回复|取消|关闭|为什么)$/u;
+
+function findQuestionGroup(nodes) {
+  const group = nodes.find(
+    (node) => node.role === "AXGroup" && (node.title === "回复此问题" || String(node.value ?? "") === "回复此问题"),
+  );
+  if (group) return group;
+  return nodes.find((node) => node.role === "AXButton" && (node.title === "回复此问题" || String(node.value ?? "") === "回复此问题")) ?? null;
+}
+
+function groupDescendantButtons(nodes, group) {
+  if (!group) return [];
+  const index = nodes.indexOf(group);
+  if (index < 0) return [];
+  const buttons = [];
+  for (let i = index + 1; i < nodes.length && nodes[i].depth > group.depth; i += 1) {
+    if (nodes[i].role === "AXButton") buttons.push(nodes[i]);
+  }
+  return buttons;
+}
+
+function questionTextBefore(nodes, group) {
+  if (!group) return "";
+  const index = nodes.indexOf(group);
+  const texts = [];
+  for (let i = Math.max(0, index - 8); i < index; i += 1) {
+    const node = nodes[i];
+    if (node.role === "AXStaticText") {
+      const value = String(node.value ?? node.title ?? "").trim();
+      if (value && !/^(AI|你|回复此问题)$/u.test(value)) texts.push(value);
+    }
+  }
+  return texts.slice(-2).join(" / ");
+}
+
+// 作者问题仍在等待回复的可见信号（作者视角）。
+function questionAwaiting(nodes) {
+  return /仍待回复的问题|个?任务等待回复|请在问题中选择或回复/u.test(axText(nodes));
+}
+
+function findFreeTextReplyComposer(nodes) {
+  return (
+    nodes.find(
+      (node) =>
+        node.role === "AXTextField" &&
+        !/输入你的想法、问题或指令/u.test(String(node.desc ?? "")) &&
+        /补充|回复|问题/u.test(String(node.desc ?? "")),
+    ) ??
+    nodes.find((node) => node.role === "AXTextField" && !/输入你的想法、问题或指令/u.test(String(node.desc ?? ""))) ??
+    null
+  );
+}
+
+// 真实模型向作者提问时像作者一样应答：选项按钮取第一个（推荐项）；无选项时用作者默认
+// 决策在“回复此问题”输入框作答。每次作答后等待问题态清除；≤2 次；不 cancel、不重发原指令。
+async function settleAuthorQuestions(label) {
+  let answered = 0;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let nodes = dumpNodes();
+    if (!questionAwaiting(nodes)) return answered;
+    let group = findQuestionGroup(nodes);
+    if (!group) return answered;
+    const questionText = questionTextBefore(nodes, group);
+    const collapsed = group.role !== "AXGroup";
+    const event = await runStep("maintenance", `author_question:${label}:${attempt}`, async () => {
+      if (collapsed) {
+        safeClick(group, `${label}:expand-question:${attempt}`);
+        await sleep(900);
+        nodes = dumpNodes();
+        group = findQuestionGroup(nodes);
+        if (!group) throw new Error(`author_question_group_not_found:${label}`);
+      }
+      const startedAt = nowIso();
+      const buttons = groupDescendantButtons(nodes, group);
+      const option = buttons.find((node) => !AUTHOR_QUESTION_CONTROL.test(String(node.title ?? "")));
+      let optionLabel = null;
+      let replyText = AUTHOR_QUESTION_REPLY_DEFAULT;
+      if (option) {
+        optionLabel = String(option.title ?? "");
+        replyText = optionLabel;
+        safeClick(option, `${label}:option:${attempt}`);
+      } else {
+        const replyButton = buttons.find((node) => String(node.title ?? "") === "回复此问题") ?? group;
+        safeClick(replyButton, `${label}:reply-entry:${attempt}`);
+        await sleep(900);
+        let replyNodes = dumpNodes();
+        let composer = findFreeTextReplyComposer(replyNodes);
+        if (!composer) {
+          const supplement = replyNodes.find(
+            (node) => node.role === "AXButton" && String(node.title ?? "") === "自行补充",
+          );
+          if (supplement) {
+            safeClick(supplement, `${label}:supplement:${attempt}`);
+            await sleep(900);
+            replyNodes = dumpNodes();
+            composer = findFreeTextReplyComposer(replyNodes);
+          }
+        }
+        if (!composer) throw new Error(`author_question_free_text_ui_not_found:${label}`);
+        safeClick(composer, `${label}:question-composer:${attempt}`);
+        await sleep(250);
+        typeText(APP, AUTHOR_QUESTION_REPLY_DEFAULT);
+        await sleep(500);
+        const sendNodes = dumpNodes();
+        const sendReply = sendNodes.find(
+          (node) =>
+            node.role === "AXButton" &&
+            (String(node.title ?? "") === "发送回复" ||
+              String(node.value ?? "") === "发送回复" ||
+              /^发送/u.test(String(node.title ?? ""))),
+        );
+        if (sendReply) safeClick(sendReply, `${label}:send-reply:${attempt}`);
+        else pressKey(APP, "return");
+      }
+      const action = await pollWire(
+        (wire) =>
+          wire.find(
+            (record) =>
+              record.direction === "sent" &&
+              frameOf(record) &&
+              record.at >= startedAt &&
+              (record.frame[3] === "author_action" || record.frame[3] === "agent_command"),
+          ) ?? null,
+        60_000,
+        `${label}:author_question_action`,
+      );
+      const record = {
+        label,
+        attempt,
+        at: nowIso(),
+        question_text: questionText,
+        action_event: action.frame[3],
+        question_ref: action.frame[4]?.action?.payload?.question_ref ?? null,
+        source_turn_ref: action.frame[4]?.action?.source_turn_ref ?? action.frame[4]?.source_turn_ref ?? null,
+        option_label: optionLabel,
+        reply_text: replyText,
+        submission_id: action.frame[4]?.action?.payload?.submission_id ?? null,
+      };
+      authorQuestionEvents.push(record);
+      writeJson("author_question_events.json", authorQuestionEvents);
+      return record;
+    });
+    void event;
+    answered += 1;
+    // 作答后等待“问题等待回复”可见信号消失（run 继续并产出后续 turn_result）；
+    // 若模型又提出下一个问题，信号仍在 → 交给下一轮 attempt 继续作答（≤2）。
+    const cleared = await runStep("maintenance", `author_question_settle:${label}:${attempt}`, async () => {
+      const deadline = Date.now() + 150_000;
+      while (Date.now() < deadline) {
+        checkSupervisor();
+        let current = null;
+        try {
+          current = dumpNodes();
+        } catch {
+          await sleep(800);
+          continue;
+        }
+        if (!questionAwaiting(current)) return true;
+        await sleep(900);
+      }
+      return false;
+    });
+    if (cleared) return answered;
+  }
+  if (questionAwaiting(dumpNodes())) throw new Error(`author_question_not_resolved:${label}`);
+  return answered;
+}
+
+function pendingPlanSince(wire, sinceIso) {
+  const sinceMs = Date.parse(sinceIso) - 2_000;
+  const turns = wire
+    .filter(
+      (record) =>
+        record.direction === "received" &&
+        frameOf(record) &&
+        record.frame[3] === "turn_result" &&
+        Date.parse(record.at) >= sinceMs,
+    )
+    .map((record) => record.frame[4]);
+  const pending = turns.flatMap((turn) => turn?.adoption_state?.pending ?? []);
+  return pending.find((entry) => entry?.artifact_type === "chapter_structure_change_plan") ?? null;
+}
+
+function lastAssistantTextSince(wire, sinceIso) {
+  const sinceMs = Date.parse(sinceIso) - 2_000;
+  const turns = wire
+    .filter(
+      (record) =>
+        record.direction === "received" &&
+        frameOf(record) &&
+        record.frame[3] === "turn_result" &&
+        Date.parse(record.at) >= sinceMs,
+    )
+    .map((record) => record.frame[4]);
+  return String(turns.at(-1)?.assistant_message?.text ?? "");
+}
+
+async function waitStrataPlanCandidate(sinceIso, label) {
+  const pending = await runStep("candidate", `candidate:${label}`, () =>
+    pollWire((wire) => pendingPlanSince(wire, sinceIso), T.candidate, `${label}:pending`),
+  );
+  await runStep("candidate", `candidate_visible:${label}`, () =>
+    pollAx(
+      (text) => /章节重编号变更计划/u.test(text) && text.includes("保存到作品"),
+      T.candidate,
+      `${label}:visible`,
+    ),
+  );
+  return pending;
+}
+
+async function cleanupStrata(stage) {
+  if (!STRATA) return null;
+  try {
+    const record = unloadStrataModel(dir);
+    log.push({ op: "strata_unload", stage, loaded_after: record.loaded_after, unloaded: record.unloaded });
+    console.log(`[strata] unload stage=${stage} loaded_after=${String(record.loaded_after)}`);
+    return record;
+  } catch (error) {
+    log.push({ op: "strata_unload_failed", stage, error: error.message });
+    console.error(`[strata] unload failed stage=${stage}: ${error.message}`);
+    return null;
+  }
+}
+
+async function runStrataScopedScenario() {
+  assert.equal(sliceId, S1, "strata scoped 批次仅注册 B30 重编号场景");
+  evidence("prepare", sliceId);
+  await runStep("maintenance", "launch_app", launchEmbeddedApp);
+  await ensureWork(WORK_A_TITLE, "initial");
+  await capture("T0-workbench");
+
+  // T1：真实模型 original「把第2卷章节编号理顺，内容不要动」→ judgment maintain →
+  // 可审阅 old→new 候选 → 原生「保存到作品」→ seq 按映射更新、身份/正文/摘要不变。
+  evidence("capture", "t1-before");
+  const t1StartedAt = nowIso();
+  const t1 = await sendAuthorInput(TEXTS.t1, "T1-real");
+  log.push({ op: "t1_real_turn", at: nowIso(), turn_id: t1.turnId });
+  const t1Questions = await settleAuthorQuestions("T1");
+  const t1Pending = await waitStrataPlanCandidate(t1StartedAt, "T1-real");
+  log.push({ op: "t1_real_pending", artifact_id: t1Pending.artifact_id, mapping: t1Pending.payload?.change_plan?.mapping ?? null });
+  await capture("T1-candidate");
+  const adoption = await adoptCandidate(t1Pending.artifact_id, "保存到作品", "T1-real");
+  log.push({ op: "t1_real_adoption", artifact_id: t1Pending.artifact_id, receipt_status: adoption.receipt?.status ?? null });
+  await capture("T1-receipt");
+  await sleep(600);
+  evidence("capture", "t1-after");
+
+  // T2：真实模型负例「把第九卷章节编号理顺，内容不要动」→ 澄清/可解释拒绝、零写入。
+  evidence("capture", "t2-before");
+  const t2StartedAt = nowIso();
+  const t2 = await sendAuthorInput(TEXTS.t5.find((entry) => entry.id === "out_of_range_ninth_volume").text, "T2-real");
+  log.push({ op: "t2_real_turn", at: nowIso(), turn_id: t2.turnId });
+  const t2Questions = await settleAuthorQuestions("T2");
+  const t2AssistantText = String(t2.turnResult?.assistant_message?.text ?? "");
+  const t2Anchor = t2AssistantText.slice(0, Math.min(14, t2AssistantText.length));
+  await runStep("maintenance", "visible:T2-real:clarify", () =>
+    pollAx(
+      (text) =>
+        /没有找到|请指出|当前作品登记|无法确定|超出|请确认|没有可维护|无法/u.test(text) ||
+        (t2Anchor.length >= 4 && text.includes(t2Anchor)),
+      T.visible,
+      "T2-real:clarify",
+    ),
+  );
+  log.push({ op: "t2_real_assistant", assistant_text: lastAssistantTextSince(transport(), t2StartedAt) });
+  await capture("T2-clarify");
+  evidence("capture", "t2-after");
+
+  await capture("B30-strata-final");
+  evidence("capture", "final");
+  writeJson("author_question_events.json", authorQuestionEvents);
+  writeJson("b30-native-driver-log.json", {
+    slice_id: sliceId,
+    driver: "ax-native-system-ui",
+    provider: "strata",
+    model: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
+    scope: "scoped_real_model",
+    finished_at: nowIso(),
+    t1_questions: t1Questions,
+    t2_questions: t2Questions,
+    author_question_events: authorQuestionEvents,
+    captures: log,
+  });
+}
+
 async function main() {
-  if (sliceId === S1) await runRenumberScenario();
+  if (STRATA) await runStrataScopedScenario();
+  else if (sliceId === S1) await runRenumberScenario();
   else if (sliceId === S2) await runBlueprintScenario();
   else throw new Error(`unknown slice: ${sliceId}`);
   writeUiComplete(dir, {
@@ -1059,7 +1361,8 @@ async function main() {
     driver: "ax-native-system-ui",
     scope: sliceId,
   });
-  console.log(`B30 native driver completed: ${sliceId}, screenshots=${screenshots.length}`);
+  await cleanupStrata("completed");
+  console.log(`B30 native driver completed: ${sliceId} provider=${STRATA ? "strata" : "slice_verify"}, screenshots=${screenshots.length}`);
 }
 
 main().catch(async (error) => {
@@ -1093,6 +1396,11 @@ main().catch(async (error) => {
         2,
       ),
     );
+  }
+  try {
+    await cleanupStrata("failed");
+  } catch {
+    /* unload best-effort on failure */
   }
   console.error(error);
   process.exitCode = 1;

@@ -8,6 +8,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 
@@ -40,6 +41,7 @@ export const slices = Object.freeze({
       "final",
     ],
     initialWork: "work_a_id",
+    strataCheckpoints: ["seed", "t1-before", "t1-after", "t2-before", "t2-after", "final"],
   },
   "b30-volume-blueprint-kind-boundary": {
     title: "B30 卷蓝图/卷章类型边界（原生）",
@@ -208,6 +210,121 @@ function markWorkNewest(dir, workId) {
   ].join("\n"), dbPath(dir), workId], { stdio: "ignore" });
 }
 
+// ── Strata 真实模型资源前置/收尾证据（单槽串行；loaded=null 才可启动）────────────
+const strataEndpoint = () => process.env.NOVEL_STRATA_ENDPOINT ?? "http://127.0.0.1:47831/v1";
+const strataRoot = () => strataEndpoint().replace(/\/v1\/?$/, "");
+
+function lmsPs() {
+  const bin = process.env.LMS_BIN ?? path.join(os.homedir(), ".lmstudio", "bin", "lms");
+  try {
+    return { ok: true, output: execFileSync(bin, ["ps"], { encoding: "utf8", timeout: 15_000 }) };
+  } catch (error) {
+    return { ok: false, output: null, error: String(error.message ?? error).slice(0, 300) };
+  }
+}
+
+function memorySnapshot() {
+  try {
+    return execFileSync("sh", ["-c", "vm_stat | head -6; sysctl -n hw.memsize; sysctl -n vm.swapusage 2>/dev/null"], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+  } catch (error) {
+    return `memory_probe_failed:${String(error.message ?? error).slice(0, 200)}`;
+  }
+}
+
+function strataProcessSnapshot() {
+  try {
+    return execFileSync("sh", ["-c", "ps -axo pid,ppid,rss,command | grep -Ei 'strata|llama|mlx' | grep -v grep | head -20"], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+  } catch {
+    return "";
+  }
+}
+
+function probeStrata() {
+  const grab = (url) => {
+    try {
+      const body = execFileSync("curl", ["-s", "--max-time", "5", "-w", "\n%{http_code}", url], {
+        encoding: "utf8",
+        timeout: 8_000,
+      });
+      const index = body.lastIndexOf("\n");
+      const status = Number(body.slice(index + 1).trim());
+      const parsed = index >= 0 ? JSON.parse(body.slice(0, index)) : null;
+      return { status: Number.isFinite(status) ? status : null, body: parsed };
+    } catch (error) {
+      return { status: null, body: null, error: String(error.message ?? error).slice(0, 200) };
+    }
+  };
+  return { models: grab(`${strataRoot()}/api/models`), v1Models: grab(`${strataEndpoint()}/models`) };
+}
+
+function recordModelLifecycleBefore(dir, ready, model) {
+  assert.equal(ready.provider, "strata", `真实模型批次 provider 必须是 strata，实测: ${ready.provider}`);
+  const probe = probeStrata();
+  const v1Ids = (probe.v1Models.body?.data ?? []).map((row) => row.id);
+  const loaded = probe.models.body?.loaded ?? null;
+  const record = {
+    at: new Date().toISOString(),
+    provider: "strata",
+    endpoint: strataEndpoint(),
+    model,
+    lms_ps: lmsPs(),
+    strata_control: {
+      status: probe.models.status ?? null,
+      mode: probe.models.body?.mode ?? null,
+      loaded,
+      current: probe.models.body?.current ?? null,
+    },
+    strata_v1_models: { status: probe.v1Models.status ?? null, ids: v1Ids },
+    memory: memorySnapshot(),
+    processes: strataProcessSnapshot(),
+  };
+  write(dir, "model-lifecycle-before.json", record);
+  return record;
+}
+
+// 结束（成功/失败/中断都调用）：POST unload，再回读 loaded=null 作为单槽让出证据。
+export function unloadStrataModel(dir) {
+  const endpoint = `${strataRoot()}/api/models/unload`;
+  const before = probeStrata();
+  let unload = { ok: false, status: null, body: null };
+  try {
+    const body = execFileSync("curl", ["-s", "--max-time", "30", "-X", "POST", endpoint, "-H", "Content-Type: application/json", "-d", "{}", "-w", "\n%{http_code}"], {
+      encoding: "utf8",
+      timeout: 35_000,
+    });
+    const index = body.lastIndexOf("\n");
+    unload = { ok: true, status: Number(body.slice(index + 1).trim()), body: index >= 0 ? JSON.parse(body.slice(0, index) || "null") : null };
+  } catch (error) {
+    unload = { ok: false, error: String(error.message ?? error).slice(0, 300) };
+  }
+  const after = probeStrata();
+  const loadedAfter = after.models.body?.loaded ?? null;
+  const probeOk = after.models.status === 200;
+  const record = {
+    at: new Date().toISOString(),
+    provider: "strata",
+    endpoint,
+    loaded_before: before.models.body?.loaded ?? null,
+    unload,
+    loaded_after: loadedAfter,
+    probe_ok: probeOk,
+    unloaded: probeOk && loadedAfter === null,
+    strata_control: { status: after.models.status ?? null, mode: after.models.body?.mode ?? null, loaded: loadedAfter },
+    lms_ps: lmsPs(),
+    memory: memorySnapshot(),
+    processes: strataProcessSnapshot(),
+  };
+  const file = path.join(dir, "model-lifecycle-after.json");
+  fs.writeFileSync(file, JSON.stringify(record, null, 2));
+  return record;
+}
+
 export function prepare(dir, sliceId) {
   const slice = slices[sliceId];
   assert(slice, `未知 slice: ${sliceId}`);
@@ -216,14 +333,19 @@ export function prepare(dir, sliceId) {
   assert.equal(ready.browser_driver_started, false);
   const seed = seedFields(dir);
   assert(seed.work_a_id && seed.work_b_id && seed.work_c_id, "B30 seed 字段缺失");
+  const strata = ready.provider === "strata";
+  const model = process.env.NOVEL_STRATA_MODEL ?? "iq3_s";
   write(dir, "b30-native-config.json", {
     slice_id: sliceId,
     title: slice.title,
     provider: ready.provider,
+    scope: strata ? "scoped_real_model" : "full_deterministic_matrix",
+    model: strata ? model : "slice_verify",
     run_ref: ready.run_ref,
     ready_at: ready.ready_at,
     seed,
   });
+  if (strata) recordModelLifecycleBefore(dir, ready, model);
   write(dir, "production-sources-before.json", productionFingerprint());
   const initialWorkId = seed[slice.initialWork];
   assert(initialWorkId, `初始作品字段缺失: ${slice.initialWork}`);
@@ -235,7 +357,8 @@ export function prepare(dir, sliceId) {
 export function capture(dir, checkpoint) {
   const config = read(dir, "b30-native-config.json");
   const slice = slices[config.slice_id];
-  assert(slice.checkpoints.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
+  const allowed = config.provider === "strata" ? slice.strataCheckpoints : slice.checkpoints;
+  assert(allowed.includes(checkpoint), `未知 checkpoint: ${checkpoint}`);
   const facts = captureFacts(dir);
   write(dir, `${checkpoint}.json`, { at: new Date().toISOString(), checkpoint, ...facts });
 }
@@ -385,7 +508,7 @@ function assertRecordFresh(dir, name, readyAt) {
   assert(magic.startsWith("ffd8ff") || magic === "89504e470d0a1a0a", `截图格式非法: ${name}.jpg`);
 }
 
-function assertWaitLedger(dir, { requireRestore }) {
+function assertWaitLedger(dir, { requireRestore, minimum = 20 }) {
   const commandsFile = path.join(dir, "native-driver-commands.jsonl");
   assert(fs.existsSync(commandsFile), "缺少原生等待账");
   const commands = fs.readFileSync(commandsFile, "utf8").split("\n").filter(Boolean).map(JSON.parse);
@@ -405,8 +528,8 @@ function assertWaitLedger(dir, { requireRestore }) {
   const events = fs.readFileSync(eventsFile, "utf8").split("\n").filter(Boolean).map(JSON.parse);
   const started = events.filter((event) => event.event === "wait_start");
   const ended = events.filter((event) => event.event === "wait_end");
-  const minimum = requireRestore ? 20 : 8;
-  assert(started.length >= minimum, `等待账条目过少: ${started.length}`);
+  const waitMinimum = requireRestore ? Math.max(20, minimum) : minimum;
+  assert(started.length >= waitMinimum, `等待账条目过少: ${started.length}`);
   assert.equal(started.length, ended.length, "等待账 start/end 不平衡");
   const kinds = new Set(ended.map((event) => event.kind));
   const requiredKinds = requireRestore
@@ -417,7 +540,7 @@ function assertWaitLedger(dir, { requireRestore }) {
   }
   const stats = read(dir, "wait-stats.json");
   assert.equal(stats.active, null, "等待账结束时不得有活动等待");
-  assert(stats.completed >= minimum, "等待账完成数不足");
+  assert(stats.completed >= waitMinimum, "等待账完成数不足");
   assert(fs.existsSync(path.join(dir, "heartbeat.jsonl")), "缺少监督心跳 heartbeat.jsonl");
   const heartbeat = fs.readFileSync(path.join(dir, "heartbeat.jsonl"), "utf8").split("\n").filter(Boolean);
   assert(heartbeat.length >= 2, "监督心跳记录不足");
@@ -435,8 +558,10 @@ function assertCommonEvidence(dir, config) {
   assert.equal(ready.browser_driver_started, false, "原生批次不得启动 Chromium 浏览器驱动");
   assert(!fs.existsSync(path.join(dir, "ui-frames.json")), "原生批次不得存在浏览器 ui-frames 证据");
   assert(!fs.existsSync(path.join(dir, "failure.json")), "批次存在 failure.json，不得判 PASS");
+  const strata = config.provider === "strata";
   assert(Array.isArray(ui.screenshots), "native-ui-complete.screenshots 缺失");
-  assert(ui.screenshots.length >= 8, `截图不足: ${ui.screenshots.length}`);
+  const minimumScreenshots = strata ? 5 : 8;
+  assert(ui.screenshots.length >= minimumScreenshots, `截图不足: ${ui.screenshots.length}`);
   for (const name of ui.screenshots) {
     const file = path.resolve(dir, name);
     assert(file.startsWith(dir + path.sep), `截图越界: ${name}`);
@@ -445,25 +570,43 @@ function assertCommonEvidence(dir, config) {
     const magic = fs.readFileSync(file).subarray(0, 8).toString("hex");
     assert(magic.startsWith("ffd8ff") || magic === "89504e470d0a1a0a", `截图格式非法: ${name}`);
   }
-  const requireRestore = config.slice_id === "b30-chapter-renumber-roundtrip";
-  return { ready, ui, ledger: assertWaitLedger(dir, { requireRestore }) };
+  const requireRestore = config.slice_id === "b30-chapter-renumber-roundtrip" && !strata;
+  // 场景2 的短链路合计 19 条分型等待；场景1 requireRestore 会抬到 ≥20。
+  return { ready, ui, ledger: assertWaitLedger(dir, { requireRestore, minimum: 8 }) };
 }
 
 function assertProviderAndWire(dir, config) {
-  const minimums =
-    config.slice_id === "b30-chapter-renumber-roundtrip"
+  const strata = config.provider === "strata";
+  const minimums = strata
+    ? { userMessages: 2, turnResults: 2 }
+    : config.slice_id === "b30-chapter-renumber-roundtrip"
       ? { userMessages: 8, turnResults: 9 }
       : { userMessages: 1, turnResults: 2 };
   const appRecords = logs(path.join(dir, "app-log"));
   const llmRecords = logs(path.join(dir, "llm-calls"));
   const providerStarts = appRecords.filter((record) => record.event === "provider_gateway.complete.start");
   assert(providerStarts.length > 0, "缺少 provider_gateway.complete.start（判断/创作调用未走真实 provider 边界）");
+  const expectedProvider = strata ? "strata" : "slice_verify";
   const providers = [...new Set(providerStarts.map((record) => record.provider))];
-  assert(same(providers, ["slice_verify"]), `确定性批次 provider 必须是 slice_verify，实测: ${providers.join(",")}`);
+  assert(same(providers, [expectedProvider]), `批次 provider 必须是 ${expectedProvider}，实测: ${providers.join(",")}`);
+  assert(llmRecords.length > 0, "缺少 llm-calls 调用记录");
   assert(
-    llmRecords.length > 0 && llmRecords.every((record) => record.provider === "slice_verify"),
-    "llm-calls 必须全部来自 slice_verify 确定性替身",
+    llmRecords.every((record) => record.provider === expectedProvider),
+    `llm-calls 必须全部来自 ${expectedProvider}`,
   );
+  if (strata) {
+    const modelOf = (record) => record.request?.body?.model ?? record.model ?? null;
+    const models = [...new Set(llmRecords.map(modelOf))];
+    assert(same(models, [config.model]), `真实模型批次 llm-calls 模型必须是 ${config.model}，实测: ${models.join(",")}`);
+    const responses = llmRecords.map((record) => record.response ?? null).filter((response) => response !== null);
+    assert(responses.length > 0, "llm-calls 缺少 provider 响应");
+    assert(
+      responses.every((response) => Number(response.status) >= 200 && Number(response.status) < 300),
+      "真实模型 provider 响应必须全部 HTTP 2xx",
+    );
+    const urls = [...new Set(llmRecords.map((record) => String(record.request?.url ?? "")))];
+    assert(urls.some((url) => /\/chat\/completions/.test(url)), "真实模型请求必须走真实 /chat/completions");
+  }
   const wire = transport(dir);
   const userMessages = wire.filter((record) => record.direction === "sent" && isFrame(record) && record.frame[3] === "user_message");
   const turnResults = wire.filter((record) => record.direction === "received" && isFrame(record) && record.frame[3] === "turn_result");
@@ -1069,8 +1212,266 @@ function verifyBlueprint(dir, config) {
   console.log(`B30 卷蓝图原生场景通过: ${Object.values(checks).filter(Boolean).length}/${Object.keys(checks).length}`);
 }
 
+// ── B30 strata scoped 真实模型（T1 正例 + 第九卷澄清负例；不冒充 36 项确定性矩阵）──
+const STRATA_TEXTS = {
+  t1: T1_TEXT,
+  t2: "把第九卷章节编号理顺，内容不要动",
+};
+
+function turnResultsSince(wire, sinceIso) {
+  const sinceMs = Date.parse(sinceIso) - 2_000;
+  return wire
+    .filter(
+      (record) =>
+        record.direction === "received" &&
+        isFrame(record) &&
+        record.frame[3] === "turn_result" &&
+        Date.parse(record.at) >= sinceMs,
+    )
+    .map((record) => record.frame[4]);
+}
+
+function pendingSince(wire, sinceIso) {
+  return turnResultsSince(wire, sinceIso).flatMap((turn) => turn?.adoption_state?.pending ?? []);
+}
+
+function judgmentsSince(appRecords, sinceIso) {
+  const sinceMs = Date.parse(sinceIso) - 2_000;
+  return appRecords
+    .filter(
+      (record) =>
+        String(record.event ?? "").startsWith("judgment.decided") &&
+        record.timestamp &&
+        Date.parse(record.timestamp) >= sinceMs,
+    )
+    .map((record) => ({
+      event: record.event,
+      action: record.action ?? null,
+      capability: record.capability ?? null,
+      frame_type: record.frame_type ?? null,
+      reason_code: record.reason_code ?? null,
+    }));
+}
+
+function lastAssistantTextSince(wire, sinceIso) {
+  const turns = turnResultsSince(wire, sinceIso);
+  return String(turns.at(-1)?.assistant_message?.text ?? "");
+}
+
+function verifyStrataScoped(dir, config) {
+  assert.equal(config.slice_id, "b30-chapter-renumber-roundtrip", `strata 批次仅注册 B30 重编号场景`);
+  assert.equal(config.provider, "strata", `真实模型批次 provider 必须是 strata，实测: ${config.provider}`);
+  assert.equal(config.scope, "scoped_real_model");
+  const common = assertCommonEvidence(dir, config);
+  const { ready, ui } = common;
+  const { appRecords, llmRecords, wire } = assertProviderAndWire(dir, config);
+  const production = checkProductionFingerprint(dir);
+  for (const name of ["T0-workbench", "T1-candidate", "T1-receipt", "T2-clarify", "B30-strata-final"]) {
+    assertRecordFresh(dir, name, ready.ready_at);
+  }
+  const snap = (name) => read(dir, `${name}.json`).work_a;
+
+  const t1Messages = sentUserMessages(wire, STRATA_TEXTS.t1);
+  assert.equal(t1Messages.length, 1, `真实模型 T1 原话必须只发送一次: ${t1Messages.length}`);
+  const t1Turn = turnFacts(wire, t1Messages[0]);
+  const t1Judgments = judgmentsSince(appRecords, t1Messages[0].at);
+  const t1Pending = pendingSince(wire, t1Messages[0].at).find(
+    (entry) => entry.artifact_type === "chapter_structure_change_plan",
+  );
+  assert(t1Pending, `真实模型 T1 未产出 chapter_structure_change_plan 候选（pending=${pendingSince(wire, t1Messages[0].at).map((entry) => entry.artifact_type).join(",") || "none"}）`);
+  const t1Plan = t1Pending.payload?.change_plan ?? {};
+  const t1Mapping = Array.isArray(t1Plan.mapping) ? t1Plan.mapping : [];
+  const t1Adoption = adoptionFor(wire, t1Pending.artifact_id);
+  const t1Before = snap("t1-before");
+  const t1After = snap("t1-after");
+  const t1State = applyStateChecks(t1Before, t1After, t1Plan);
+  const t1PendingTypes = (t1Turn.result?.adoption_state?.pending ?? []).map((entry) => entry.artifact_type);
+  const t1CandidateText = axText(dir, "T1-candidate");
+  const candidateVisible =
+    /章节重编号变更计划/u.test(t1CandidateText) && /第\s*\d+\s*章\s*→\s*第\s*\d+\s*章/u.test(t1CandidateText);
+
+  const t2Messages = sentUserMessages(wire, STRATA_TEXTS.t2);
+  assert.equal(t2Messages.length, 1, `真实模型 T2 原话必须只发送一次: ${t2Messages.length}`);
+  const t2Turn = turnFacts(wire, t2Messages[0]);
+  const t2Judgments = judgmentsSince(appRecords, t2Messages[0].at);
+  const t2AssistantText = lastAssistantTextSince(wire, t2Messages[0].at);
+  const t2Before = snap("t2-before");
+  const t2After = snap("t2-after");
+  const t2IdentityUnchanged =
+    t2Before.chapters.length === t2After.chapters.length &&
+    t2Before.chapters.every((row) => {
+      const next = t2After.chapters.find((item) => item.id === row.id);
+      return next && next.seq === row.seq && next.title === row.title && next.volume_id === row.volume_id && next.content_sha256 === row.content_sha256;
+    }) &&
+    same(t2Before.summaries, t2After.summaries);
+  const t2Pending = pendingSince(wire, t2Messages[0].at);
+  const t2Clarified =
+    t2Judgments.some((record) => ["ask_author", "await_author", "capability_gap"].includes(String(record.action))) ||
+    /没有找到|没有可维护|请确认|超出|无法确定|当前作品登记|请指出|不存在|无法|不能|请提供|请说明|澄清/u.test(
+      t2AssistantText,
+    );
+
+  const questionEventsPath = path.join(dir, "author_question_events.json");
+  const questionEvents = fs.existsSync(questionEventsPath) ? read(dir, "author_question_events.json") : [];
+  const questionEventsBounded =
+    Array.isArray(questionEvents) &&
+    questionEvents.length <= 2 &&
+    questionEvents.every((event) => event && typeof event.reply_text === "string" && String(event.reply_text).length > 0);
+
+  const lifecycleBeforePath = path.join(dir, "model-lifecycle-before.json");
+  const lifecycleBefore = fs.existsSync(lifecycleBeforePath) ? read(dir, "model-lifecycle-before.json") : null;
+  const v1Ids = lifecycleBefore?.strata_v1_models?.ids ?? [];
+  const modelLoadedBeforeNull =
+    Boolean(lifecycleBefore) &&
+    lifecycleBefore?.strata_control?.status === 200 &&
+    lifecycleBefore?.strata_control?.loaded === null &&
+    lifecycleBefore?.strata_v1_models?.status === 200 &&
+    v1Ids.includes(config.model);
+
+  const providerStarts = appRecords.filter((record) => record.event === "provider_gateway.complete.start");
+  const modelOf = (record) => record.request?.body?.model ?? record.model ?? null;
+  const llmProvenance =
+    llmRecords.length > 0 &&
+    llmRecords.every((record) => record.provider === "strata" && modelOf(record) === config.model) &&
+    llmRecords.every((record) => Number(record.response?.status ?? 0) >= 200 && Number(record.response?.status ?? 0) < 300) &&
+    llmRecords.some((record) => /\/chat\/completions/.test(String(record.request?.url ?? "")));
+
+  const checks = {
+    real_provider_calls_strata: providerStarts.length > 0 && providerStarts.every((record) => record.provider === "strata"),
+    real_llm_records_provenance: llmProvenance,
+    model_loaded_before_null: modelLoadedBeforeNull,
+    judgment_bound_maintain_capability: t1Judgments.some(
+      (record) => record.action === "execute" && record.capability === "maintain_chapter_structure",
+    ),
+    candidate_from_model_run: Boolean(t1Pending) && t1Mapping.length > 0,
+    candidate_effects_display_number_only: same(t1Plan.effects ?? [], ["display_number_only"]),
+    candidate_object_count_matches_mapping: Number(t1Plan.object_count) === t1Mapping.length,
+    candidate_visible_mapping: candidateVisible,
+    adoption_applied_from_native_ui: Boolean(t1Adoption.receipt),
+    receipt_committed_mapping: (t1Adoption.receipt?.committed_mapping ?? []).length === t1Mapping.length,
+    receipt_object_count: Number(t1Adoption.receipt?.object_count) === Number(t1Plan.object_count),
+    receipt_warnings_is_list: Array.isArray(t1Adoption.receipt?.warnings),
+    seq_matches_committed_mapping: t1State.seq_matches_committed_mapping,
+    chapter_identity_content_volume_title_unchanged:
+      t1State.chapter_identity_content_volume_unchanged && t1State.title_text_unchanged,
+    chapter_count_unchanged: t1State.chapter_count_unchanged,
+    summaries_references_unchanged: t1State.summaries_references_unchanged,
+    seq_unique_after_renumber: t1State.seq_unique,
+    no_fallback_to_plot_outline_or_prose:
+      !t1Judgments.some(
+        (record) => record.action === "execute" && ["plot_outline", "prose_writing"].includes(String(record.capability ?? "")),
+      ) && !t1PendingTypes.some((type) => ["outline_draft", "prose_fragment", "prose_formatting_plan"].includes(type)),
+    negative_sent_once: t2Messages.length === 1,
+    negative_zero_write: t2IdentityUnchanged,
+    negative_no_new_chapters: t2Before.chapters.length === t2After.chapters.length,
+    negative_no_outline_or_prose_candidate: !t2Pending.some((entry) =>
+      ["outline_draft", "prose_fragment", "prose_formatting_plan"].includes(entry.artifact_type),
+    ),
+    negative_clarified_or_rejected: t2Clarified,
+    author_question_events_bounded: questionEventsBounded,
+    no_product_code_changed: production.unchanged,
+    no_acceptance_hooks_added: production.unchanged,
+  };
+  const failed = Object.keys(checks).filter((key) => !checks[key]);
+
+  const measured = {
+    scope: "scoped_real_model",
+    provider: "strata",
+    model: config.model,
+    t1: {
+      turn_id: t1Turn.turnId,
+      mapping: t1Mapping,
+      object_count: t1Plan.object_count ?? null,
+      effects: t1Plan.effects ?? null,
+      pending_types: t1PendingTypes,
+      judgments: t1Judgments,
+      receipt: {
+        committed_mapping: t1Adoption.receipt?.committed_mapping ?? null,
+        object_count: t1Adoption.receipt?.object_count ?? null,
+        warnings: t1Adoption.receipt?.warnings ?? null,
+      },
+      state_checks: t1State,
+      candidate_visible_mapping: candidateVisible,
+    },
+    t2: {
+      turn_id: t2Turn.turnId,
+      assistant_text: t2AssistantText,
+      judgments: t2Judgments,
+      pending_types: t2Pending.map((entry) => entry.artifact_type),
+      zero_write: t2IdentityUnchanged,
+      clarified_or_rejected: t2Clarified,
+    },
+    author_question_events: questionEvents,
+    model_lifecycle_before: lifecycleBefore
+      ? { loaded: lifecycleBefore.strata_control?.loaded ?? null, v1_ids: v1Ids, model: lifecycleBefore.model }
+      : null,
+    llm_call_count: llmRecords.length,
+    provider_calls: providerStarts.length,
+    production: { unchanged: production.unchanged, changed_files: production.changed_files, head: production.head },
+    wait_ledger: common.ledger,
+  };
+
+  write(dir, "b30-native-checks.json", {
+    slice_id: config.slice_id,
+    at: new Date().toISOString(),
+    driver: ui.driver,
+    scope: "scoped_real_model",
+    provider: "strata",
+    model: config.model,
+    checks,
+    failed,
+    measured,
+    evidence: {
+      boundary: "真实模型 scoped：T1 正例 + 第九卷负例；不重跑 36 项确定性矩阵，不换分。",
+      checks_passed: Object.values(checks).filter(Boolean).length,
+      checks_total: Object.keys(checks).length,
+      run_ref: ready.run_ref,
+      ready_at: ready.ready_at,
+    },
+  });
+  write(dir, "native-evidence.json", {
+    scenario: config.slice_id,
+    surface: "tauri",
+    driver: ui.driver,
+    provider: "strata",
+    model: config.model,
+    scope: "scoped_real_model",
+    evidence_boundary:
+      "原生 Tauri 窗口 + AX/CGEvent 外部驱动；真实 strata/iq3_s 经原生入口完成判断/候选/采纳/消费者；单槽串行，结束 unload 并验证 loaded=null（见 model-lifecycle-after.json）。",
+    trials: ["T1_real_model_renumber_roundtrip", "T2_real_model_ninth_volume_clarify"],
+    checks,
+    measured,
+    checks_passed: Object.values(checks).filter(Boolean).length,
+    checks_total: Object.keys(checks).length,
+    screenshots: ui.screenshots,
+  });
+  write(dir, "summary.json", {
+    slice_id: config.slice_id,
+    surface: "tauri",
+    driver: ui.driver,
+    provider: "strata",
+    model: config.model,
+    scope: "scoped_real_model",
+    verified_at: new Date().toISOString(),
+    checks_passed: Object.values(checks).filter(Boolean).length,
+    checks_total: Object.keys(checks).length,
+    all_checks_passed: failed.length === 0,
+    failed_checks: failed,
+    trials: ["T1", "T2"],
+    run_ref: ready.run_ref,
+    ready_at: ready.ready_at,
+    screenshots: ui.screenshots,
+  });
+  assert.equal(failed.length, 0, `B30 strata scoped 原生断言失败: ${failed.join(", ")}`);
+  console.log(
+    `B30 strata scoped 真实模型证据通过: checks ${Object.values(checks).filter(Boolean).length}/${Object.keys(checks).length}，` +
+      `trials T1+T2，llm_calls=${llmRecords.length}，provider=strata/model=${config.model}`,
+  );
+}
+
 export function verify(dir) {
   const config = read(dir, "b30-native-config.json");
+  if (config.provider === "strata") return verifyStrataScoped(dir, config);
   if (config.slice_id === "b30-chapter-renumber-roundtrip") return verifyRenumber(dir, config);
   if (config.slice_id === "b30-volume-blueprint-kind-boundary") return verifyBlueprint(dir, config);
   throw new Error(`未知 slice: ${config.slice_id}`);
