@@ -168,9 +168,10 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
                )
 
       on_exit(fn -> AgentRunService.cancel(run_id) end)
-      # 2s 在本机并行批次高负载下两次被证伪为时序 flake（事件链已推进，仅超时）；
-      # 放宽到 5s 保留同一语义断言（仍要求事件到达），不放宽业务流程断言。
-      assert_receive {:plan_event, :plan_drafted, event}, 5_000
+
+      # 等待时长在并行门禁高负载/冷编译尖峰下多次被证伪为时序 flake（事件链已推进，仅超时）；
+      # 放宽到 10s 保留同一语义断言（仍要求事件到达），不放宽业务流程断言。
+      assert_receive {:plan_event, :plan_drafted, event}, 10_000
       assert_receive {:plan_event, :run_completed, _}, 3_000
       assert {:ok, state} = AgentRunService.state(run_id)
       assert state.run.profile_ref == "judgment_plan_v1"
