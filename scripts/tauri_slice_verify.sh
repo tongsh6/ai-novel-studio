@@ -443,8 +443,8 @@ case "$SLICE_VERIFY_PROVIDER" in
 esac
 
 if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" ]]; then
-    echo "Native system driver is currently registered only for B26 question/business/plan roundtrips" >&2
+  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" ]]; then
+    echo "Native system driver is currently registered only for B26/B31/B28 roundtrips" >&2
     exit 64
   fi
   ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX}-native"
@@ -458,11 +458,20 @@ if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
   fi
 fi
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/slice-verify/${SLICE_ID}${ARTIFACT_SUFFIX}"
+if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
+  ARTIFACT_DIR="${TAURI_NATIVE_ARTIFACT_DIR:-$ARTIFACT_DIR}"
+  if [[ "$ARTIFACT_DIR" != "$PROJECT_ROOT/artifacts/"* || -e "$ARTIFACT_DIR" ]]; then
+    echo "Native evidence needs a new directory under project artifacts; prior batches are immutable" >&2
+    exit 64
+  fi
+  export NOVEL_TEST_DB_DIR="$ARTIFACT_DIR/database"
+fi
 APP_LOG_DIR="$ARTIFACT_DIR/app-log"
 LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"
 TAURI_SLICE_HOME="$ARTIFACT_DIR/tauri-home"
-rm -rf "$ARTIFACT_DIR"
+if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then rm -rf "$ARTIFACT_DIR"; fi
 mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR" "$TAURI_SLICE_HOME"
+if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then mkdir -p "$NOVEL_TEST_DB_DIR"; fi
 
 run_capability_command() {
   local label="$1"
@@ -656,10 +665,16 @@ setup_isolated_macos_keychain() {
 }
 
 cleanup() {
+  # EXIT清理必须完整执行；监督已失败后再次stop不能用TERM打断剩余资源回收。
+  trap '' TERM INT
   # 整棵进程树回收：pnpm tauri dev 之下的 vite node、cargo、target/debug/app
   # 与 mix 之下的 beam.smp 必须一并终止，否则会留下孤儿 Tauri 窗口/端口。
   kill_process_tree "$UI_DRIVER_PID" || true
   wait "$UI_DRIVER_PID" 2>/dev/null || true
+  if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
+    # macOS重开可能归launchd；独立包路径维持本批归属，不对同名作者实例发信号。
+    node "$PROJECT_ROOT/scripts/lib/native_app_ownership.mjs" "$ARTIFACT_DIR" >"$ARTIFACT_DIR/native-app-cleanup.log" 2>&1 || true
+  fi
   kill_process_tree "$NATIVE_PROXY_PID" || true
   wait "$NATIVE_PROXY_PID" 2>/dev/null || true
   kill_process_tree "$TAURI_PID" || true
@@ -669,7 +684,8 @@ cleanup() {
   if [[ -n "$TAURI_CONFIG_OVERRIDE" ]]; then
     rm -f "$TAURI_CONFIG_OVERRIDE" 2>/dev/null || true
   fi
-  reset_test_db >/dev/null 2>&1 || true
+  # 原生批次使用独立 DB；失败也保留完整数据，不在退出时抹掉证据。
+  if [[ "$NATIVE_SYSTEM_DRIVER" != "1" ]]; then reset_test_db >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
 trap 'exit 143' TERM
@@ -713,6 +729,29 @@ start_tauri_app() {
   local log_file="$1"
 
   cd "$PROJECT_ROOT/frontend"
+  if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
+    # 原生自动化只运行一个独立应用。嵌入当前前端资源，不让关窗退出tauri dev后连带杀Vite。
+    # 测试端点用标准部署env/config传入；产品identifier/窗口/业务代码保持原样。
+    node --input-type=module - "$TAURI_CONFIG_OVERRIDE" "$UI_PROXY_TARGET" <<'NATIVE_CONFIG'
+import fs from "node:fs";
+const [file, endpoint] = process.argv.slice(2);
+const config = JSON.parse(fs.readFileSync(file, "utf8"));
+config.app.security.csp = `default-src 'self'; connect-src 'self' ${endpoint} ${endpoint.replace(/^http/, "ws")}`;
+fs.writeFileSync(file, JSON.stringify(config, null, 2));
+NATIVE_CONFIG
+    HOME="$TAURI_SLICE_HOME" \
+      COREPACK_HOME="${COREPACK_HOME:-${ORIGINAL_HOME}/.cache/node/corepack}" \
+      CARGO_HOME="${CARGO_HOME:-${ORIGINAL_HOME}/.cargo}" \
+      RUSTUP_HOME="${RUSTUP_HOME:-${ORIGINAL_HOME}/.rustup}" \
+      VITE_API_ENDPOINT="$UI_PROXY_TARGET" \
+      VITE_WS_ENDPOINT="${UI_PROXY_TARGET/http:/ws:}/socket" \
+      pnpm tauri build --debug --bundles app --config "$TAURI_CONFIG_OVERRIDE" >"$log_file" 2>&1 &
+    TAURI_PID=$!
+    wait "$TAURI_PID"
+    TAURI_PID=""
+    echo "[tauri-slice-verify] Standalone native binary built with current embedded frontend."
+    return
+  fi
   HOME="$TAURI_SLICE_HOME" \
   COREPACK_HOME="${COREPACK_HOME:-${ORIGINAL_HOME}/.cache/node/corepack}" \
   AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
@@ -1047,7 +1086,7 @@ native_action_description() {
       echo "B30 CP4 volume blueprint/chapter type boundary on the real workbench: on the skeleton-only seed work use the real 规划卷章结构 action -> adopt the plan (volume blueprint lines must land in volumes.blueprint, Chapter rows only real chapters, no blueprint chapter/seq) -> close/reopen archive and use 规划下一卷 when visible -> adopt the scoped next-volume plan -> verify a further volume gets its own blueprint and still no Chapter row with 卷蓝图/蓝图 or blueprint-occupied seq -> read the seed harness result for an outline adoption whose chapter block title contains 卷蓝图: the persistence type guard must reject with type_mismatch and roll back with zero chapter/volume rows."
       ;;
     b28-whole-chapter-revision)
-      echo "B28 CP2 whole-chapter revision on the real workbench: seed an adopted two-chapter plan plus a same-title distractor -> build two accepted prose fragments in chapter 1 through real UI generate/edit_then_accept (2517-char initial + 1075-char zero-newline continuation) -> [T0] same-title edit_then_accept binds chapter_ref without ambiguous_chapter_title or cross-chapter write -> [T1] ask '把第一章正文整理一下，只调整分段和排版，不要改字句。' and verify judgment binds chapter_ref + full coverage, writer prompt contains both fragments in order, candidate carries target_chapter_ref/modification_scope=format_only/adoption_effect=replace_scope/covered refs/expected_base_versions/base_text, whitespace-normalized candidate equals full chapter source, adoption replaces the same chapter (chapter_id/seq/count unchanged, old drafts superseded, reading/refresh consume new version) -> [T2] ask to change only 二十五岁 to 三十岁 and verify whole-chapter candidate/only that spot changed/replace_scope same chapter -> [T3] refresh and duplicate-adoption idempotency -> [T4] missing accepted ref request clarifies or rejects with zero write and no new chapter."
+      echo "B28 CP2 whole-chapter revision on the real workbench: seed an adopted two-chapter plan plus a same-title distractor -> build two accepted prose fragments in chapter 1 through real UI generate/edit_then_accept (2517-char initial + 1075-char zero-newline continuation) -> [T0] same-title edit_then_accept binds chapter_ref without ambiguous_chapter_title or cross-chapter write -> [T1] ask '把第一章正文整理一下，只调整分段和排版，不要改字句。' and verify judgment binds chapter_ref + full coverage, writer prompt contains both fragments in order, candidate carries prose_formatting_plan + target_chapter_ref/modification_scope=format_only/adoption_effect=format_paragraphs/covered refs/expected_base_versions/source_hash and separate formatting_preview; preview adds a paragraph boundary while preserving every non-newline byte, adoption replaces the same chapter (chapter_id/seq/count unchanged, old drafts superseded, reading/refresh consume new version) -> [T2] ask to change only 二十五岁 to 三十岁 and verify whole-chapter candidate/only that spot changed/replace_scope same chapter -> [T3] refresh and duplicate-adoption idempotency -> [T4] missing accepted ref request clarifies or rejects with zero write and no new chapter."
       ;;
     b31-author-reply-run-binding)
       echo "B31 CP2 binding semantics on the real workbench: create two live awaiting_author runs in one work/session (B26 question run Q + structural plan-exhaust run S; creation/restore order and target-age permutations) -> with Q open, plain main input must become a new user_message run with a visible question notice (no wrong-run plain steer; Q stays open, S goal version untouched; repeated input same) -> explicit 回复此问题 still sends author_choice bound to Q (question_ref/expected_goal_version, goal +1, completed) -> two live-only runs are ambiguous: visible notice plus real task selector; after selecting a run, main input steers that run with expected_goal_version in the wire payload and the ack returns resolved_run_id/binding_source, other run untouched -> reload/reconnect three times keeps JoinRestore order stable and plain input still becomes a new request, never cross-run steer."
@@ -1361,39 +1400,44 @@ native_action_description() {
 drive_external_ui() {
   cd "$PROJECT_ROOT/frontend"
   if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" <<'READY'
+    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" "$SLICE_VERIFY_PROVIDER" <<'READY'
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-const [dir, api, home] = process.argv.slice(2);
+const [dir, api, home, provider] = process.argv.slice(2);
 // 开发 CLI 运行无 app 包元数据的二进制，macOS 应用发现无法按路径定位。
 // 仅为同一二进制补包装，供外部系统 UI 驱动；不改变产品代码。
+const runRef = randomUUID();
 const bundle = path.join(dir, "AI Novel Studio.app");
-const contents = path.join(bundle, "Contents");
-fs.mkdirSync(path.join(contents, "MacOS"), { recursive: true });
-fs.copyFileSync(path.resolve("src-tauri/target/debug/app"), path.join(contents, "MacOS", "native-app"));
-fs.writeFileSync(path.join(contents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.ai-novel-studio.app</string>
-<key>CFBundleName</key><string>AI Novel Studio</string><key>CFBundleExecutable</key><string>app</string>
-<key>CFBundlePackageType</key><string>APPL</string></dict></plist>`);
 const profile = `b26-native-${Date.now()}`;
-fs.writeFileSync(path.join(contents, "MacOS", "app"), `#!/bin/sh
-export AI_NOVEL_DESKTOP_PROFILE=${profile}
-exec "$(dirname "$0")/native-app"
-`, { mode: 0o755 });
-fs.chmodSync(path.join(contents, "MacOS", "native-app"), 0o755);
-fs.writeFileSync(path.join(dir, "native-driver-ready.json"), JSON.stringify({ run_ref: randomUUID(),
-  app_path: bundle, desktop_profile: profile,
+// 直接使用Tauri产出的原生bundle，保留原生CFBundleExecutable；不再用shell充当应用入口。
+fs.cpSync(path.resolve("src-tauri/target/debug/bundle/macos/AI Novel Studio.app"), bundle,
+  { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true });
+const { execFileSync } = await import("node:child_process");
+const plistPath = path.join(bundle, "Contents", "Info.plist");
+const plist = JSON.parse(execFileSync("plutil", ["-convert", "json", "-o", "-", plistPath], { encoding: "utf8" }));
+plist.LSEnvironment = { ...(plist.LSEnvironment ?? {}), AI_NOVEL_DESKTOP_PROFILE: profile };
+const plistJson = path.join(dir, "native-info.json");
+fs.writeFileSync(plistJson, JSON.stringify(plist));
+execFileSync("plutil", ["-convert", "xml1", "-o", plistPath, plistJson]);
+execFileSync("codesign", ["--force", "--deep", "--preserve-metadata=entitlements,requirements,flags", "--sign", "-", bundle]);
+const bundleIdentifier = plist.CFBundleIdentifier;
+const nativeExecutable = plist.CFBundleExecutable;
+if (nativeExecutable !== "app") throw new Error("unexpected native executable");
+fs.writeFileSync(path.join(dir, "native-driver-ready.json"), JSON.stringify({ run_ref: runRef, bundle_identifier: bundleIdentifier,
+  app_path: bundle, native_executable: nativeExecutable, app_mode: "embedded-native", desktop_profile: profile, provider,
   ready_at: new Date().toISOString(), api_url: api, tauri_home: home, driver: "external-system-ui",
   browser_driver_started: false }, null, 2));
 READY
     echo "[tauri-slice-verify] Native window ready for external system UI driver (no Chromium)."
-    for _ in $(seq 1 "$TAURI_WAIT_SECONDS"); do
-      if [[ -f "$ARTIFACT_DIR/native-ui-complete.json" ]]; then return 0; fi
-      sleep 1
-    done
-    echo "Native system UI evidence not supplied before timeout" >&2
-    return 1
+    # 与浏览器 driver 同样由 builtin wait 接住信号，避免 Bash 等前台 node 结束后才执行 TERM trap。
+    local native_watch_pids=("$PHX_PID")
+    if [[ -n "$NATIVE_PROXY_PID" ]]; then native_watch_pids+=("$NATIVE_PROXY_PID"); fi
+    node "$PROJECT_ROOT/scripts/native_ui_wait.mjs" wait "$ARTIFACT_DIR" "$API_URL" "${native_watch_pids[@]}" &
+    UI_DRIVER_PID=$!
+    wait "$UI_DRIVER_PID"
+    UI_DRIVER_PID=""
+    return
   fi
   if [[ "$SLICE_ID" == "su01-local-secret-file-roundtrip" ]]; then
     CLANG_MODULE_CACHE_PATH=/private/tmp/ans-local-secret-file-clang \
@@ -1460,6 +1504,10 @@ verify_native_slice() {
       node "$PROJECT_ROOT/scripts/native_business_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR"
     elif [[ "$SLICE_ID" == "judgment-plan-multi-step" ]]; then
       node "$PROJECT_ROOT/scripts/native_plan_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR" "$LLM_LOG_DIR"
+    elif [[ "$SLICE_ID" == "b31-author-reply-run-binding" ]]; then
+      node "$PROJECT_ROOT/scripts/native_b31_evidence.mjs" verify "$ARTIFACT_DIR"
+    elif [[ "$SLICE_ID" == "b28-whole-chapter-revision" ]]; then
+      node "$PROJECT_ROOT/scripts/native_b28_evidence.mjs" verify "$ARTIFACT_DIR"
     else
       node "$PROJECT_ROOT/scripts/native_question_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR"
     fi
@@ -1810,7 +1858,15 @@ if curl -s --max-time 1 "http://127.0.0.1:${VITE_PORT}" >/dev/null 2>&1; then
   echo "[tauri-slice-verify] Vite port is already occupied: $VITE_PORT" >&2
   exit 1
 fi
-reset_test_db
+if [[ -n "${TAURI_NATIVE_REPLAY_SOURCE_DIR:-}" ]]; then
+  if [[ "$NATIVE_SYSTEM_DRIVER" != "1" || "$SLICE_ID" != "b28-whole-chapter-revision" ]]; then
+    echo "Scoped source copy is registered only for B28 native verification" >&2
+    exit 64
+  fi
+  node "$PROJECT_ROOT/scripts/native_b28_evidence.mjs" copy-source "$ARTIFACT_DIR" "$TAURI_NATIVE_REPLAY_SOURCE_DIR"
+else
+  reset_test_db
+fi
 TAURI_CONFIG_OVERRIDE="$(mktemp -t ai-novel-tauri-slice-conf.XXXXXX.json)"
 write_tauri_dev_config \
   "$TAURI_CONFIG_OVERRIDE" \
@@ -2242,7 +2298,9 @@ case "$SLICE_ID" in
     ;;
 esac
 
-if [[ -n "$SEED_SCRIPT" ]]; then
+if [[ -n "${TAURI_NATIVE_REPLAY_SOURCE_DIR:-}" ]]; then
+  echo "[tauri-slice-verify] scoped replay uses copied test data; original source remains read-only"
+elif [[ -n "$SEED_SCRIPT" ]]; then
   # B21：只有「多场计划首次 append 场名」场景需要在共用种子上追加第01章的场次计划行；
   # 其它共用该种子的场景保持原计划字节，避免影响既有断言口径。
   MIX_ENV=test \
@@ -2315,10 +2373,19 @@ cat <<EOF
 [tauri-slice-verify] Native window is starting.
 [tauri-slice-verify] External UI driver is driving:
 [tauri-slice-verify]   $(native_action_description)
-[tauri-slice-verify] Polling up to ${TAURI_WAIT_SECONDS}s for correlated app JSONL evidence...
+[tauri-slice-verify] Waiting policy: $([[ "$NATIVE_SYSTEM_DRIVER" == "1" ]] && echo "external typed wait ledger with heartbeat and fail-fast" || echo "bounded ${TAURI_WAIT_SECONDS}s browser driver")
 EOF
 
 drive_external_ui
+
+if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
+  if verify_native_slice; then
+    echo "[tauri-slice-verify] passed: $SLICE_ID"
+    exit 0
+  fi
+  node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({at:new Date().toISOString(),reason:"native_evidence_verification_failed"}))' "$ARTIFACT_DIR/failure.json"
+  exit 1
+fi
 
 for _ in $(seq 1 "$TAURI_WAIT_SECONDS"); do
   if verify_native_slice; then

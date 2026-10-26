@@ -483,11 +483,14 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
           observation
 
         {:error, reason} ->
+          # 真实工具失败：失败类文案 + :failed 分类（只有这里算「检索未完成」）。
           %{
             tool: tool,
             query: query,
             summary: "检索步执行失败：#{inspect(reason)}",
             refs: [],
+            outcome: :failed,
+            facts: %{},
             activity_summary: NovelApplication.ExplorationService.activity_failure_summary(tool)
           }
       end
@@ -513,7 +516,11 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         observation_type: :custom,
         source_ref: "explore:#{tool}:#{sequence}",
         summary: observation_data.summary,
-        structured_payload: %{stage: :exploration_observed, tool: tool, query: query},
+        structured_payload:
+          Map.merge(
+            %{stage: :exploration_observed},
+            NovelApplication.ExplorationService.observation_metadata(observation_data)
+          ),
         evidence_refs: ["explore:#{tool}:#{sequence}"],
         confidence: 1.0
       })
@@ -531,14 +538,18 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
 
   # B24 §1.1(c)：观察元数据进 developer payload；nil 不写入（wire 的 author-safe
   # payload 会把 atom 含 nil 字符串化，null 语义会被误读成 "nil"）。
+  # B28 T4 R10：outcome/facts 结构化分类随观察进 payload，供 no_progress 终止
+  # 澄清机械派生（作者面不渲染本段）。
   defp exploration_event_payload(tool, query, observation) do
-    base = %{
-      stage: :exploration_observed,
-      tool: tool,
-      query: query,
-      refs: observation.refs,
-      summary: observation.summary
-    }
+    base =
+      %{
+        stage: :exploration_observed,
+        tool: tool,
+        query: query,
+        refs: observation.refs,
+        summary: observation.summary
+      }
+      |> Map.merge(NovelApplication.ExplorationService.observation_metadata(observation))
 
     [:chapter_ref, :chapter_seq, :next_offset, :prose_total_chars, :prose_range]
     |> Enum.reduce(base, fn key, acc ->

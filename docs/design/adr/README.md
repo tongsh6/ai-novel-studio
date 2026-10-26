@@ -395,3 +395,5 @@ VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-read
 - VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 具体 slice 文件已经创建，文档 blocker 已关闭。
 - `ADR-0027` 已于 2026-10-05 按用户确认修订 Accepted：统一消息处置、结果持久化和跨轮原文关联；原第六账提案未采纳。Q3D 已有真实页面闭环，实施与验证见该 slice。
 - 下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。
+
+- [ADR-0029：模型分段计划与确定性排版](ADR-0029-prose-formatting-plan-v3.md)：作者已接受的B28排版路线，实施/原生实模证据仍在B28原任务；不等同于功能已交付。

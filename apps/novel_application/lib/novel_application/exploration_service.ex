@@ -29,11 +29,30 @@ defmodule NovelApplication.ExplorationService do
 
   # 观察 v2（B24）：基础形状不变（tool/query/summary/refs），chapter_read 观察
   # additive 携带续读/身份元数据（I-EXPLORE-READ-3/7/9）。
+  #
+  # B28 T4 R10（观察分类）：`outcome` 区分「检索完成的观察」与「工具失败」——
+  # target_not_found / ambiguous_target / invalid_query / empty_content / empty_result
+  # 都是**已完成**的只读检索结果（informational），不得渲染为「检索未完成」；
+  # `:failed` 只由调用方在工具执行出错时标记。`facts` 是澄清派生用的机械事实
+  # （章数/命中数/字符数），只进 developer 面，作者面仍只用 activity_summary。
+  @type observation_outcome ::
+          :observed
+          | :empty_result
+          | :target_not_found
+          | :ambiguous_target
+          | :invalid_query
+          | :empty_content
+          | :out_of_range
+          | :end_of_content
+          | :failed
+
   @type observation :: %{
           required(:tool) => String.t(),
           required(:query) => String.t(),
           required(:summary) => String.t(),
           required(:refs) => [String.t()],
+          required(:outcome) => observation_outcome(),
+          required(:facts) => map(),
           optional(:activity_summary) => String.t(),
           optional(:chapter_ref) => String.t(),
           optional(:chapter_seq) => integer() | nil,
@@ -145,6 +164,11 @@ defmodule NovelApplication.ExplorationService do
          query: query || "",
          summary: Jason.encode!(summary),
          refs: Enum.map(page, & &1["artifact_id"]),
+         outcome: :observed,
+         facts: %{
+           matched_count: length(matches),
+           pending_count: length(state.pending_adoptions)
+         },
          activity_summary: activity_text("session_adoptions", query || "")
        }}
     else
@@ -212,7 +236,12 @@ defmodule NovelApplication.ExplorationService do
   defp prose_search(work_id, query) do
     case ProseSearchRepo.search(work_id, query) do
       {:ok, []} ->
-        {:ok, observation("prose_search", query, "正文中未检索到「#{query}」。", [])}
+        {:ok,
+         observation("prose_search", query, "正文中未检索到「#{query}」。", [],
+           outcome: :empty_result,
+           facts: %{hit_count: 0},
+           activity_summary: "已检索正文「#{query}」：没有命中任何章节。"
+         )}
 
       {:ok, hits} ->
         summary =
@@ -225,7 +254,8 @@ defmodule NovelApplication.ExplorationService do
            "prose_search",
            query,
            "正文检索「#{query}」命中 #{length(hits)} 章：\n" <> summary,
-           Enum.map(hits, &"chapter:#{&1.chapter_id}")
+           Enum.map(hits, &"chapter:#{&1.chapter_id}"),
+           facts: %{hit_count: length(hits)}
          )}
 
       {:error, reason} ->
@@ -252,7 +282,6 @@ defmodule NovelApplication.ExplorationService do
   defp chapter_read(work_id, query) do
     volumes = work_id |> ReadingProjectionService.toc() |> Map.get(:volumes, [])
     chapters = Enum.flat_map(volumes, &Map.get(&1, :chapters, []))
-    index = chapter_index_lines(chapters)
 
     case chapter_query(query) do
       {:ok, spec, offset} ->
@@ -265,11 +294,11 @@ defmodule NovelApplication.ExplorationService do
             {:ok, ambiguous_chapter_observation(query, spec, candidates)}
 
           {:error, :not_found} ->
-            {:ok, not_found_chapter_observation(query, spec, index)}
+            {:ok, not_found_chapter_observation(query, spec, chapters)}
         end
 
       :error ->
-        {:ok, invalid_chapter_query_observation(query, index)}
+        {:ok, invalid_chapter_query_observation(query, chapters)}
     end
   end
 
@@ -433,6 +462,9 @@ defmodule NovelApplication.ExplorationService do
     end)
   end
 
+  # 三种解析失败都是**已完成检索**的观察（informational）：检索确实执行完并得到
+  # 了「不存在/有歧义/参数不可识别」的事实，不是工具失败。失败类文案只由调用方在
+  # `{:error, _}` 时使用（activity_failure_summary/1）。
   defp ambiguous_chapter_observation(query, spec, candidates) do
     observation(
       "chapter_read",
@@ -440,30 +472,55 @@ defmodule NovelApplication.ExplorationService do
       "章节「#{chapter_query_label(spec)}」匹配到 #{length(candidates)} 章，存在歧义；" <>
         "请从章索引复制 chapter_ref 后重试：\n" <> chapter_index_lines(candidates),
       Enum.map(candidates, &chapter_ref/1),
-      activity_summary: activity_failure_summary("chapter_read")
+      outcome: :ambiguous_target,
+      facts: %{matched_count: length(candidates)},
+      activity_summary:
+        "已检索章节#{chapter_activity_target(spec)}：匹配到 #{length(candidates)} 章，需要先确定唯一章节。"
     )
   end
 
-  defp not_found_chapter_observation(query, spec, index) do
+  defp not_found_chapter_observation(query, spec, chapters) do
     observation(
       "chapter_read",
       query,
-      "没有找到「#{chapter_query_label(spec)}」。现有章索引：\n" <> index,
+      "没有找到「#{chapter_query_label(spec)}」。现有章索引：\n" <> chapter_index_lines(chapters),
       [],
-      activity_summary: activity_failure_summary("chapter_read")
+      outcome: :target_not_found,
+      facts: %{chapter_count: length(chapters)},
+      activity_summary: chapter_not_found_activity(spec, length(chapters))
     )
   end
 
-  defp invalid_chapter_query_observation(query, index) do
+  defp invalid_chapter_query_observation(query, chapters) do
     observation(
       "chapter_read",
       query,
       "章节检索参数无法识别：请优先复制章索引里的 chapter_ref（章节唯一标识）；" <>
         ~s(续读时用观察 footer 给出的 JSON {"chapter_ref":"chapter:<uuid>","offset":<下页起点>}；) <>
-        "标题/序号只是唯一命中时的别名。\n现有章索引：\n" <> index,
+        "标题/序号只是唯一命中时的别名。\n现有章索引：\n" <> chapter_index_lines(chapters),
       [],
-      activity_summary: activity_failure_summary("chapter_read")
+      outcome: :invalid_query,
+      facts: %{chapter_count: length(chapters)},
+      activity_summary: "已检索章节：检索参数无法识别，没能定位到章节。"
     )
+  end
+
+  # 作者面章节指代只用人话（章名/序号）；内部 ref 形态不进入 activity（B24
+  # I-EXPLORE-READ-8：作者面不含内部 id）。
+  defp chapter_activity_target({:title, title}), do: "「#{title}」"
+  defp chapter_activity_target({:seq, seq}), do: "「第 #{seq} 章」"
+  defp chapter_activity_target({:ref, _uuid}), do: ""
+
+  defp chapter_not_found_activity({:ref, _uuid}, 0), do: "已检索指定章节：作品当前还没有章节。"
+
+  defp chapter_not_found_activity({:ref, _uuid}, chapter_count),
+    do: "已检索指定章节：当前作品有 #{chapter_count} 章，但该章节标识没有匹配到章节。"
+
+  defp chapter_not_found_activity(spec, 0),
+    do: "已检索章节#{chapter_activity_target(spec)}：作品当前还没有章节。"
+
+  defp chapter_not_found_activity(spec, chapter_count) do
+    "已检索章节#{chapter_activity_target(spec)}：当前作品有 #{chapter_count} 章，但没有这个章名。"
   end
 
   defp chapter_query_label({:ref, uuid}), do: "chapter:#{uuid}"
@@ -518,8 +575,9 @@ defmodule NovelApplication.ExplorationService do
        query,
        chapter_title_line(chapter) <> "\n" <> Enum.join(sections, "\n"),
        [chapter_ref(chapter)],
-       activity_summary:
-         "已阅读章节正文「#{chapter_title(chapter)}」#{chapter_seq_text(chapter)}（本章尚无已采纳正文）。",
+       outcome: :empty_content,
+       facts: %{prose_chars: 0},
+       activity_summary: "已核查章节#{chapter_title_line(chapter)}：本章尚无已采纳正文。",
        extra: chapter_identity_keys(chapter)
      )}
   end
@@ -533,7 +591,9 @@ defmodule NovelApplication.ExplorationService do
          "\noffset 超出正文范围（共 #{total} 字符）；" <>
          ~s(从头读用 offset=0，或使用上一页给出的 next_offset。),
        [chapter_ref(chapter)],
-       activity_summary: "已尝试阅读章节正文「#{chapter_title(chapter)}」，但读取位置超出正文范围。",
+       outcome: :out_of_range,
+       facts: %{prose_chars: total},
+       activity_summary: "已核查章节#{chapter_title_line(chapter)}：读取位置超出正文范围（共 #{total} 字符）。",
        extra: chapter_identity_keys(chapter)
      )}
   end
@@ -548,6 +608,8 @@ defmodule NovelApplication.ExplorationService do
        chapter_title_line(chapter) <>
          "\noffset 到达正文末尾（共 #{total} 字符）#{range}，已无更多内容。",
        [chapter_ref(chapter)],
+       outcome: :end_of_content,
+       facts: %{prose_chars: total},
        activity_summary:
          "已阅读章节正文「#{chapter_title(chapter)}」#{chapter_seq_text(chapter)}（已到正文末尾，共 #{total} 字符）。",
        extra: chapter_identity_keys(chapter)
@@ -578,6 +640,7 @@ defmodule NovelApplication.ExplorationService do
        chapter_title_line(chapter) <> "\n" <> Enum.join(sections, "\n"),
        [chapter_ref(chapter)],
        clip: false,
+       facts: %{prose_chars: total},
        activity_summary: chapter_activity_summary(chapter, offset, page_end, total, word_count),
        extra:
          Map.merge(chapter_identity_keys(chapter), %{
@@ -999,11 +1062,17 @@ defmodule NovelApplication.ExplorationService do
            "memory_recall",
            query,
            "记忆检索「#{query}」命中 #{count} 条：\n#{text}#{note}",
-           ["memory:#{count}"]
+           ["memory:#{count}"],
+           facts: %{hit_count: count}
          )}
 
       {:ok, _empty} ->
-        {:ok, observation("memory_recall", query, "记忆中未检索到「#{query}」。#{note}", [])}
+        {:ok,
+         observation("memory_recall", query, "记忆中未检索到「#{query}」。#{note}", [],
+           outcome: :empty_result,
+           facts: %{hit_count: 0},
+           activity_summary: "已检索记忆「#{query}」：没有命中任何记忆条目。"
+         )}
 
       {:error, reason} ->
         {:error, reason}
@@ -1068,6 +1137,34 @@ defmodule NovelApplication.ExplorationService do
   def activity_failure_summary("chapter_read"), do: "章节检索未完成，可换个章名再试。"
   def activity_failure_summary(_tool), do: "作品检索未完成，可换个检索词再试。"
 
+  @doc """
+  探索观察的结构化分类元数据（developer face）。
+
+  进 `AgentObservation.structured_payload` 与 `exploration_observed` 事件 payload，
+  供 no_progress 终止澄清机械派生「缺什么/为何不能执行/可做什么」；作者面仍只用
+  activity_summary，不直接渲染本元数据（B24 I-EXPLORE-READ-8）。
+
+  `outcome` 的 `:failed` 只由调用方在工具执行出错时标记；其余取值都是已完成观察。
+  """
+  @spec observation_metadata(map()) :: map()
+  def observation_metadata(observation) when is_map(observation) do
+    %{
+      tool: observation |> Map.get(:tool) |> normalize_metadata_text(),
+      query: observation |> Map.get(:query) |> normalize_metadata_text(),
+      outcome: observation |> Map.get(:outcome) |> normalize_metadata_outcome(),
+      facts: Map.get(observation, :facts) || %{}
+    }
+  end
+
+  defp normalize_metadata_text(nil), do: ""
+  defp normalize_metadata_text(value) when is_binary(value), do: value
+  defp normalize_metadata_text(value), do: to_string(value)
+
+  defp normalize_metadata_outcome(nil), do: "observed"
+  defp normalize_metadata_outcome(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_metadata_outcome(value) when is_binary(value), do: value
+  defp normalize_metadata_outcome(_value), do: "observed"
+
   defp activity_text("chapter_read", query) do
     text = to_string(query)
 
@@ -1106,6 +1203,8 @@ defmodule NovelApplication.ExplorationService do
       query: query,
       summary: summary,
       refs: refs,
+      outcome: Keyword.get(opts, :outcome, :observed),
+      facts: Keyword.get(opts, :facts) || %{},
       activity_summary: observation_activity_value(tool, query, opts)
     }
 

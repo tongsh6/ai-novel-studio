@@ -263,4 +263,36 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
       refute Map.has_key?(item, :narrative_role)
     end
   end
+
+  test "分段计划保留因果字节，拒绝注入正文、非法行数和伴生产物" do
+    raw = %{
+      "item_id" => "plan-1",
+      "title" => " 分段 ",
+      "body" => "说明\n",
+      "rationale" => " 原因 ",
+      "line_break_changes" => [%{"boundary_id" => "break_1_hash", "lines" => 2}]
+    }
+
+    assert {:ok, [item]} = ToolOutputContract.validate_creative_items([raw])
+    for key <- [:title, :body, :rationale], do: assert(item[key] == raw[to_string(key)])
+    assert item.line_break_changes == [%{boundary_id: "break_1_hash", lines: 2}]
+    assert :ok = ToolOutputContract.validate_artifact_shape(:prose_formatting_plan, [item], [])
+
+    assert {:error, _} =
+             ToolOutputContract.validate_artifact_shape(:prose_formatting_plan, [item, item], [])
+
+    assert {:error, _} =
+             ToolOutputContract.validate_artifact_shape(:prose_formatting_plan, [item], [%{}])
+
+    for change <- [
+          %{boundary_id: "b", lines: 2, text: "改字"},
+          %{boundary_id: "b", lines: 2.0},
+          %{boundary_id: "b", lines: 3}
+        ] do
+      assert {:error, %{code: "invalid_formatting_plan"}} =
+               ToolOutputContract.validate_creative_items([
+                 Map.put(raw, "line_break_changes", [change])
+               ])
+    end
+  end
 end

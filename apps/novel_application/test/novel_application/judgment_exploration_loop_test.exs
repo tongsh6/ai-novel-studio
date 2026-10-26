@@ -3,7 +3,7 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
-  alias NovelApplication.{DialoguePlanningService, WorkService}
+  alias NovelApplication.{AgentRunService, DialoguePlanningService, WorkService}
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelDomain.AgentRun
   alias NovelFoundation.Enums.AdoptionStatus
@@ -403,6 +403,78 @@ defmodule NovelApplication.JudgmentExplorationLoopTest do
     # 续读页读到的正文是第二页（不是同一页重复）。
     assert List.last(result_b.stage_state.judgment_explorations).prose_range ==
              %{start: 6001, end: 7000}
+  end
+
+  # B28 T4 R10 全链路回归：空作品缺目标 → 判断两次重复同 query 的 chapter_read →
+  # runtime no_progress 停等。作者可见活动必须如实（检索完成但目标不存在，不是
+  # 「检索未完成」），终止澄清必须由最后检索事实派生（缺什么/为何不能执行/可做什么），
+  # 且零写入、无候选、不路由写能力。
+  test "空作品缺目标：重复 explore 在 runtime 停等，作者可见澄清由最后检索事实派生" do
+    :ok = Sandbox.mode(Repo, {:shared, self()})
+    {:ok, work} = WorkService.create(%{"title" => "空作品缺目标"})
+    test_pid = self()
+    {:ok, events} = Agent.start_link(fn -> [] end)
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。",
+                 workspace_id: work.id,
+                 work_id: work.id,
+                 session_id: "session-missing-target",
+                 turn_id: "turn-missing-target"
+               },
+               nil,
+               repeat_explore_execution("chapter_read", "第一章")
+             )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: fn event ->
+                 Agent.update(events, &[event | &1])
+                 send(test_pid, {:missing_target_event, event.event_type})
+               end
+             )
+
+    on_exit(fn -> AgentRunService.cancel(run_id) end)
+    assert_receive {:missing_target_event, :awaiting_author}, 4_000
+
+    all_events = Agent.get(events, &Enum.reverse/1)
+    awaiting = Enum.find(all_events, &(&1.event_type == :awaiting_author))
+
+    # 具体澄清：缺什么 / 为何不能执行 / 可做什么；不再是泛化句
+    assert awaiting.summary =~ "第一章"
+    assert awaiting.summary =~ "当前还没有任何章节或正文"
+    assert awaiting.summary =~ "没有可整理修订的目标"
+    assert awaiting.summary =~ "重复同一次检索不会得到新事实"
+    assert awaiting.summary =~ "下一步"
+    refute awaiting.summary =~ "换个章名再试"
+    assert "no_progress" in awaiting.reason_codes
+    assert awaiting.payload.clarification_source == "last_exploration_observation"
+
+    # 空结果观察是 informational activity，作者面不显示「检索未完成」
+    exploration_events =
+      Enum.filter(
+        all_events,
+        &(&1.event_type == :exploration_observed and &1.visibility == :author)
+      )
+
+    assert [first_exploration | _] = exploration_events
+    assert first_exploration.summary == "已检索章节「第一章」：作品当前还没有章节。"
+    refute first_exploration.summary =~ "检索未完成"
+    assert first_exploration.payload.outcome == "target_not_found"
+    assert first_exploration.payload.facts == %{chapter_count: 0}
+
+    # 零写入、无候选、不路由写能力（仍停在判断循环 profile）
+    assert {:ok, %{run: run, final_turn_result: nil}} = AgentRunService.state(run_id)
+    assert run.profile_ref == "judgment_loop_v1"
+    assert run.status == :awaiting_author
+    assert run.pending_artifact_refs == []
+    refute Enum.any?(all_events, &(&1.event_type == :artifact_created))
+    refute Enum.any?(all_events, &(&1.event_type == :run_completed))
+    assert Repo.aggregate(NovelPersistence.Schemas.Chapter, :count, :id) == 0
+    assert Repo.aggregate(NovelPersistence.Schemas.Draft, :count, :id) == 0
   end
 
   # 判断循环替身：首轮按作者 request 点名探索；观察页带【续读】footer 时**逐字抄

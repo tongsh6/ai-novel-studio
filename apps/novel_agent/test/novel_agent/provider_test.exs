@@ -32,6 +32,32 @@ defmodule NovelAgent.ProviderTest do
       assert Provider.degenerate_content?(String.duplicate("AB", 200))
     end
 
+    test "合法结构化长计划不因字段重复或输出长度被误判" do
+      changes =
+        for n <- 1..90,
+            do: %{boundary_id: "break_#{n}_#{Integer.to_string(n * 7919, 16)}", lines: 2}
+
+      plan =
+        Jason.encode!(%{
+          items: [
+            %{
+              item_id: "plan",
+              title: "分段",
+              body: "按阅读节奏分段。",
+              rationale: "保留原字句。",
+              line_break_changes: changes
+            }
+          ]
+        })
+
+      assert MapSet.size(MapSet.new(String.graphemes(plan))) / String.length(plan) < 0.05
+      refute Provider.degenerate_content?(plan)
+    end
+
+    test "正常开头不能掩盖后续单字符退化" do
+      assert Provider.degenerate_content?("开头提供真实信息，并说明后面将给出内容。" <> String.duplicate("@", 1000))
+    end
+
     test "does not flag ordinary Chinese prose" do
       prose =
         String.duplicate(

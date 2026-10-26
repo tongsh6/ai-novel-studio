@@ -180,6 +180,9 @@ export const CARD = {
     description: "AI 建议进行以下改动",
     acceptLabel: "保存到作品",
     acceptProseLabel: "保存为章节正文",
+    applyFormattingLabel: "应用分段方案",
+    discardFormattingLabel: "放弃分段方案",
+    applyFormattingHint: "应用预览中的分段，保留正文的所有文字、空格和标点。",
     acceptOutlineLabel: "保存到大纲",
     acceptArchiveLabel: "保存到作品档案",
     acceptWorkSkeletonLabel: "采纳为全书规划",
@@ -230,6 +233,10 @@ export const CARD = {
     candidateSelectedAcceptLabel: (optionLabel: string) => `保存${optionLabel} 到作品档案`,
   },
   artifactDraft: {
+    formattingTitle: "分段方案",
+    formattingDescription: "方案待采纳。预览仅改变换行，应用后保留原文和历史版本。",
+    formattingPreviewLabel: "排版预览",
+    formattingPreviewHint: "以下是按方案调整换行后的完整正文；需要调整方案时可以继续对话。",
     proseTitle: "章节正文草稿",
     proseDescription:
       "这是待保存章节草稿。保存后会写入章节正文并进入阅读模式；未保存前不会进入作品事实。",
@@ -1210,6 +1217,15 @@ export const STRUCTURE_PANEL = {
 // ============================================================
 
 export const READING = {
+  connectionRequired: "连接作品后才能读取正文。",
+  projectionStale: "投影状态：已过期",
+  projectionStaleDescription: "底层设定已有变更，当前阅读的可能不是最新版本。",
+  refreshProjection: "刷新投影",
+  projectionRebuilding: "投影状态：重建中",
+  projectionRebuildingDescription: "正在读取最新章节，请稍候。",
+  projectionFailed: "投影状态：重建失败",
+  projectionFailedDescription: "未能完整读取最新章节，请重试。正文没有被改动。",
+  retryProjection: "重试",
   totalWordsLabel: "全书有效字数",
   chapterWordsLabel: "本章有效字数",
   wordsUnit: "字",

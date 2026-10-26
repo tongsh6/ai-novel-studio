@@ -4,8 +4,8 @@ tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  active（2026-10-25 CP2 注册）：外部 Tauri runner 驱动真实工作台（原生窗口 + 真实
-  Phoenix/Vite 前端），复验 B31 CP1 冻结语义——确定性 active run 选择、主输入 steer
+  active（2026-10-25 CP2 注册，作者已接受多问题增补）：默认 runner 用 Chromium 驱动
+  真实 Phoenix/Vite 产品链；原生证据须由系统 UI 模式单独采集。复验确定性 active run 选择、主输入 steer
   条件、可见提示/目标、显式问题 author_choice 绑定，以及 JoinRestore 稳定序下的刷新/
   重连。证据边界：provider 为 slice_verify 确定性替身（绑定/生命周期与模型语义无关）；
   真实模型自然语言语义质量归 B27 §6.1 语义矩阵，本场景不声明语义通过。产品代码在
@@ -34,14 +34,14 @@ setup:
     用于确定性产生「结构调整 plan-exhaust awaiting_author」第二个 run；产品 runtime 不识别
     slice id，env 关闭时其它场景行为逐字节不变。
   trial_matrix:
-    - T1: 真实主输入先建 B26 问题 run Q（较旧）再建结构 run S（较新）→ Q open 时普通主输入（两次）+ 显式回复对照 + 回复后残留 steer 目标可见
-    - T2: 同 T1 创建顺序 → 刷新/重连 ×3：JoinRestore 广播序稳定；刷新后普通输入仍为新请求；Q 不被误答、S goal 不推进；显式回复正确
+    - T1: 真实主输入先建 Q（较旧）再建 S（较新）→ 两次普通输入各成新 run；回答 Q 后其他新问题仍开放且 S 不推进；逐个源卡片回复，所有问题关闭及新 run 完成后才验证只剩 S 的调整入口
+    - T2: 同 T1 创建顺序 → 刷新/重连 ×3稳定；普通输入仍为新请求，Q不被误答、S不推进；显式回复正确；若新请求产生问题则逐个源绑定回复，关闭后核对S入口
     - T3: 外部协议 seed（S 旧、Q 新）→ 刷新恢复 → 语义回答问题的普通输入按新请求处理 + 可见提示；显式回复绑定 Q
     - T4: 外部协议 seed（Q 旧、S 新）→ 刷新恢复 → 普通输入新请求；显式 author_choice target_ref=Q/question_ref/expected_goal_version=1、goal 1→2、completed
     - T5: 两个「无显式问题」live-only run → 歧义时普通输入新请求 + 可见提示与真实任务选择；点选任务后 steer 该 run，wire 带 expected_goal_version，ack 返回 resolved_run_id/binding_source；另一 run 不推进
   isolation: NOVEL_TEST_DB_DIR + MIX_TEST_PARTITION 独立目录；不启动第二个 Phoenix 端口实例。
 user_flow:
-  - open: 真实 Tauri runner（原生窗口 + 真实前端/后端）打开隔离 work。
+  - open: 通过已声明的实际 surface/driver 打开隔离 work；原生补验必须操作真实 Tauri 窗口。
   - create: 真实主输入发送带 UA01AWAITSTEER 的自然语言 → B26 显式问题 TurnResult + awaiting_author run。
   - create: 真实主输入/外部协议 seed 发送跨能力结构调整请求（UA01PLANEXHAUST）→ plan-exhaust awaiting_author run。
   - observe: 页面同时可见问题卡（回复此问题）与结构 run 停等坞；Q open 时输入区显示「有任务正在等待你的问题回复…下方输入会作为新请求发送」。
@@ -50,6 +50,9 @@ user_flow:
   - click: 点击任务选择中的真实 run（goal 摘要）→ 输入区切换为 steer 模式并显示「将发给：「…」」。
   - send: 主输入 → 断言 `agent_command steer` payload run_id=所选 run、含 expected_goal_version；ack 含 goal_version/resolved_run_id/binding_source，另一 run goal_version 不变。
   - click: 显式「回复此问题」→ author_action author_choice 绑定问题 run（target_ref/question_ref/expected_goal_version）；问题 run 恢复/收束，另一 run 不被推进。
+  - verify: T1/T2 普通新请求产生的额外问题各有独立来源；回答原Q后它们仍open，主输入仍为新请求。
+  - reply: 逐个额外问题的原生卡片应答；有选项选推荐项，无选项按当前结构前提给具体回复；每run至多两次不同回复，重复/空问题失败，不cancel或重发原指令。
+  - verify: 全部明确问题关闭、新请求run完成且仅S仍等待后，才检查发送调整和目标可见；任何剩余问题或失败run都不能算通过。
   - reload: 刷新/重连 ×3 → 断言 JoinRestore 广播顺序稳定；刷新后普通输入仍为新请求+提示，不串 run。
 evidence:
   required:
@@ -67,22 +70,26 @@ evidence:
     - b31-cp2-t5-live-only-ambiguous.png
     - b31-cp2-t5-focused-steer.png
     - b31-cp2-final.png
+    - author_question_events.json（全部原问题/额外问题的 source/run/version/action/submission/原话/回执）
+    - T1/T2-after-original-reply.json 与 T1/T2-after-questions-closed.json（原生中间持久快照，配同名AX）
   artifact_dir: artifacts/slice-verify/b31-author-reply-run-binding-tauri
 assertions:
   ui:
     - Q open 时输入区显示「有任务正在等待你的问题回复」提示；普通主输入不进入 steer 模式（按钮仍为发送）。
     - 两个 live-only run 歧义时显示「当前有多个任务在进行」提示与 2 个真实任务选择按钮；点击后输入区显示「将发给：「目标摘要」」且按钮变为发送调整。
-    - 显式问题卡「回复此问题」入口在普通输入后仍可用；回复后问题卡关闭，残留结构 run 的 steer 目标在输入区可见。
+    - 显式问题卡入口在普通输入后仍可用；答原Q只关闭原Q，其余问题仍开放时输入保持新请求；全部问题关闭且新请求run完成后，残留S的调整入口才可见。
     - 刷新后同一会话的问题卡、停等坞与提示恢复，且不出现旧问题可重复发送。
   network:
     - Q open 时普通主输入发送 user_message（新 turn_id/新 run_id），不发送 agent_command steer；重复输入仍为新 user_message。
     - 显式回复发送 author_action author_choice，target_ref=问题 run、question_ref 与 expected_goal_version 精确绑定；ack accepted、goal_version 恰好 +1。
     - 点选任务后的 steer 发送 agent_command steer，payload.run_id=所选 run 且包含 expected_goal_version；ack 返回 merged goal_version、resolved_run_id 与 binding_source=explicit_steer。
     - 任一输入都只推进目标 run 的 goal_version（1→2），另一 awaiting run 保持 1。
+    - 每次附加回复也逐字匹配源动作、question_ref、expected_goal_version和持久输入，不能改投；相同submission完整重传不重复计数。
     - JoinRestore 三次重连的 agent_run_reconnect 广播顺序稳定（CP1 Q04 稳定序）。
   data:
     - 普通输入的持久 Interaction 归属新 run（agent_run_id/ submission_id 唯一，原文一致），不是错误 run 的 steer 行。
     - 显式回复的 submission_id/question_ref 持久唯一，问题 run 终态 completed；另一 run 状态不被改写。
+    - 额外问题独立保存并关闭；answered本身不替代运行completed，S版本始终不被附加问答推进。
     - 刷新/重连后 transcript、open author_question 列表与 run goal_version 与刷新前一致。
 anti_hooks:
   product_acceptance_logic_added: false

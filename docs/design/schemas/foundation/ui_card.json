@@ -46,6 +46,10 @@
       "description": "candidate_set：候选条目。item 字段与 Provider 响应字节一致（I1 因果绑定），此处不收紧内部形状。",
       "items": { "type": "object" }
     },
+    "formatting_preview": {
+      "type": "string",
+      "description": "ADR-0029：原文与模型换行计划确定性计算的只读排版预览；不是模型 item.body，不覆盖因果字段。"
+    },
     "tentative": {
       "type": "boolean",
       "description": "candidate_set：是否待采纳（tentative-first）。"

@@ -7,7 +7,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
   alias NovelApplication.{AdoptionWorkflow, PendingArtifactWorkflow, WorkService}
   alias NovelDomain.DialogueContext
   alias NovelFoundation.Enums.AdoptionStatus
-  alias NovelPersistence.{Repo, WorkSessionRepo}
+  alias NovelPersistence.{AdoptionRepository, ReadingProjectionRepo, Repo, WorkSessionRepo}
   alias NovelPersistence.Schemas.{Chapter, Draft, Scene, Volume}
 
   setup do
@@ -99,7 +99,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     )
   end
 
-  defp provider(body, test_pid) do
+  defp provider(body, test_pid, changes \\ nil) do
     %Execution{
       result_fn: fn prompt ->
         send(test_pid, {:chapter_writer_prompt, prompt})
@@ -112,6 +112,9 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
               body: body,
               rationale: "按作者要求处理。"
             }
+            |> then(fn item ->
+              if changes, do: Map.put(item, :line_break_changes, changes), else: item
+            end)
           ])
 
         {:ok,
@@ -135,9 +138,10 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert targets[c.chapter_ref] == ["revise_adopted_content"]
   end
 
-  test "format_only 章级修订：writer 含两片段全文 + chapter task + 候选 payload/base_text", c do
-    # 保留源基线（行尾空白/CRLF 归一后等价），验证采纳守卫接受
-    body = "初稿：陈九斤二十五岁守灯楼，第七盏灯不点自亮。  \r\n\r\n续写：灯楼九层，每层九盏，他数到第九层时天边泛白。\r\n"
+  test "format_only：模型计划因果字段保真，完整章预览独立，采纳重算并刷新摘要", c do
+    view = NovelDomain.ProseFormatting.view(c.base_text)
+    changes = [%{boundary_id: hd(view.boundaries).boundary_id, lines: 1}]
+    explanation = "  让两段紧密衔接。\n"
 
     assert {:ok, result} =
              PendingArtifactWorkflow.run(
@@ -145,66 +149,194 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
                %{},
                c.run,
                c.context,
-               provider(body, self())
+               provider(explanation, self(), changes)
              )
 
     assert_received {:chapter_writer_prompt, prompt}
-
-    # 全章覆盖顺序正文（两片段都进 prompt，含顺序/片段说明）
-    assert prompt =~ "初稿：陈九斤二十五岁守灯楼，第七盏灯不点自亮。"
-    assert prompt =~ "续写：灯楼九层，每层九盏，他数到第九层时天边泛白。"
-    assert prompt =~ "覆盖顺序"
-    assert prompt =~ "2 个已采纳片段"
-    assert prompt =~ "仅排版"
+    assert prompt =~ "可选换行边界"
+    assert prompt =~ hd(view.boundaries).boundary_id
+    assert prompt =~ "artifact_type：prose_formatting_plan"
     assert prompt =~ "目标章 ref：#{c.chapter_ref}"
-    assert prompt =~ "修订范围：仅排版"
-    assert prompt =~ "## 必须保留"
+    assert prompt =~ "2 个已采纳片段"
+    assert prompt =~ "只提出换行计划"
+    refute prompt =~ "本次你承担小说正文写作助手"
 
     [pending] = result.turn_result.adoption_state.pending
     payload = pending.payload
-
+    assert pending.artifact_type == :prose_formatting_plan
     assert pending.target_chapter_ref == c.chapter_ref
-    assert Map.get(payload, :modification_scope) == "format_only"
-    assert Map.get(payload, :target_chapter_ref) == c.chapter_ref
-    assert Map.get(payload, :base_text) == c.base_text
-    assert Map.get(payload, :title) == "#{c.chapter_title}（整章排版修订稿）"
+    assert payload.base_text == c.base_text
+    assert hd(payload.items).body == explanation
+    assert hd(payload.items).line_break_changes == changes
+    assert payload.formatting_preview == String.replace(c.base_text, "\n\n", "\n")
+    assert payload.title == "#{c.chapter_title}（分段方案）"
+    [card] = Enum.filter(result.turn_result.ui_cards, &(&1.card_type == "candidate_set"))
+    assert card.formatting_preview == payload.formatting_preview
+    assert hd(card.items).body == explanation
 
-    # application 生成候选可见标题（candidate_set 卡片），不依赖模型 title
-    [candidate_card] =
-      Enum.filter(result.turn_result.ui_cards, &(&1.card_type == "candidate_set"))
+    actions =
+      Enum.filter(result.turn_result.available_actions, &(&1.target_ref == pending.artifact_id))
 
-    assert candidate_card.title == "#{c.chapter_title}（整章排版修订稿）"
+    assert Enum.map(actions, & &1.action_type) == ["accept", "discard"]
 
-    effect = Map.get(payload, :adoption_effect)
-    assert effect["mode"] == "replace_scope"
-    assert effect["coverage"] == "complete"
-    assert effect["covered"] == ["#{c.draft1_ref}:2", "#{c.draft2_ref}:1"]
-
-    assert effect["expected_base_versions"] == [
-             %{ref: c.draft1_ref, version: 2},
-             %{ref: c.draft2_ref, version: 1}
+    assert PendingArtifactWorkflow.operations(pending) == [
+             "revise_pending_artifact",
+             "discard_pending_artifact"
            ]
 
-    # 采纳守卫：format_only 归一化等价 → 接受；候选 payload 原样传给 AdoptionWorkflow
+    assert payload.adoption_effect["mode"] == "format_paragraphs"
+    assert payload.adoption_effect["covered"] == ["#{c.draft1_ref}:2", "#{c.draft2_ref}:1"]
     assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
-  end
 
-  test "format_only 章级修订：候选改字句时采纳守卫拒绝（format_only_violation）", c do
-    body = "初稿：陈九斤二十五岁守灯楼，第七盏灯不点自亮。\n\n续写：灯楼九层，每层九盏，他数到第九层时天光大亮。"
+    test_pid = self()
 
-    assert {:ok, result} =
-             PendingArtifactWorkflow.run(
-               judgment(c.chapter_ref),
-               %{},
-               c.run,
-               c.context,
-               provider(body, self())
+    assert {:ok, receipt, _} =
+             AdoptionWorkflow.handle_adopt(
+               result.turn_result,
+               %{"artifact_id" => pending.artifact_id, "work_id" => c.work.id},
+               &AdoptionRepository.persist/1,
+               nil,
+               fn material ->
+                 send(test_pid, {:summary_material, material})
+                 :ok
+               end
              )
 
-    [pending] = result.turn_result.adoption_state.pending
+    assert receipt.adoption_effect.mode == "format_paragraphs"
+    assert_received {:summary_material, summary}
+    assert summary.prose_text == payload.formatting_preview
+    assert summary.material_scope == :chapter
+    assert summary.revision_base =~ "draft:"
+    saved = ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref)
+    assert saved == payload.formatting_preview
+    refute saved =~ explanation
+  end
 
-    assert {:error, {:format_only_violation, %{offset: _, line: _}}} =
-             AdoptionWorkflow.validate_b28_contract(pending)
+  test "format_only：未知边界与原样计划在候选前拒绝且不改正文", c do
+    view = NovelDomain.ProseFormatting.view(c.base_text)
+
+    for {changes, reason} <- [
+          {[%{boundary_id: "invented", lines: 2}], :invalid_formatting_plan},
+          {[%{boundary_id: hd(view.boundaries).boundary_id, lines: 2}], :no_formatting_changes}
+        ] do
+      assert {:error, {:pending_artifact_invalid, ^reason}} =
+               PendingArtifactWorkflow.run(
+                 judgment(c.chapter_ref),
+                 %{},
+                 c.run,
+                 c.context,
+                 provider("模型方案", self(), changes)
+               )
+
+      saved = ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref)
+      assert saved == c.base_text
+    end
+  end
+
+  test "format_only：篡改计划或预览不能采纳", c do
+    view = NovelDomain.ProseFormatting.view(c.base_text)
+    changes = [%{boundary_id: hd(view.boundaries).boundary_id, lines: 1}]
+
+    {:ok, result} =
+      PendingArtifactWorkflow.run(
+        judgment(c.chapter_ref),
+        %{},
+        c.run,
+        c.context,
+        provider("方案说明", self(), changes)
+      )
+
+    [pending] = result.turn_result.adoption_state.pending
+    bad_preview = put_in(pending.payload.formatting_preview, "篡改正文")
+
+    assert {:error, :invalid_formatting_plan} =
+             AdoptionWorkflow.validate_b28_contract(bad_preview)
+
+    bad_plan =
+      put_in(pending.payload.adoption_effect["line_break_changes"], [
+        %{boundary_id: "other", lines: 2}
+      ])
+
+    assert {:error, :invalid_formatting_plan} = AdoptionWorkflow.validate_b28_contract(bad_plan)
+  end
+
+  test "对话调整分段：原预览不变不得生成新候选；真正变化仍保留原计划", c do
+    view = NovelDomain.ProseFormatting.view(c.base_text)
+    boundary = hd(view.boundaries).boundary_id
+    changes = [%{boundary_id: boundary, lines: 1}]
+
+    {:ok, first} =
+      PendingArtifactWorkflow.run(
+        judgment(c.chapter_ref),
+        %{},
+        c.run,
+        c.context,
+        provider("原方案说明", self(), changes)
+      )
+
+    source = first.turn_result
+
+    {:ok, _} =
+      NovelPersistence.MemoryLog.record(%{
+        workspace_id: c.work.id,
+        session_id: c.session.id,
+        turn_id: source.turn_id,
+        role: "assistant",
+        content: %{text: source.assistant_message.text, turn_result: source},
+        source_ref: source.turn_id,
+        scope_ref: c.work.id
+      })
+
+    [original] = source.adoption_state.pending
+
+    j =
+      judgment(c.chapter_ref, %{
+        capability: "revise_pending_artifact",
+        pending_artifact_ref: original.artifact_id
+      })
+
+    run = %{
+      c.run
+      | parent_turn_ref: "adjust-plan",
+        goal: %{text: "把这份方案调整为紧凑排版，别改字句。", version: 1}
+    }
+
+    assert {:error, {:pending_artifact_invalid, :no_formatting_changes}} =
+             PendingArtifactWorkflow.run(
+               j,
+               %{},
+               run,
+               c.context,
+               provider("只改说明", self(), changes)
+             )
+
+    assert {:ok, changed} =
+             PendingArtifactWorkflow.run(
+               j,
+               %{},
+               run,
+               c.context,
+               provider("取消该处换行", self(), [%{boundary_id: boundary, lines: 0}])
+             )
+
+    prompts =
+      for _ <- 1..3 do
+        assert_receive {:chapter_writer_prompt, prompt}
+        prompt
+      end
+
+    adjustment_prompt = List.last(prompts)
+    refute adjustment_prompt =~ "原方案说明"
+    assert adjustment_prompt =~ "仍以当前canon为源"
+    assert adjustment_prompt =~ run.goal.text
+    assert adjustment_prompt =~ boundary
+    [candidate] = changed.turn_result.adoption_state.pending
+    assert candidate.artifact_id != original.artifact_id
+    assert candidate.payload.formatting_preview != original.payload.formatting_preview
+    assert candidate.payload.formatting_preview == String.replace(c.base_text, "\n", "")
+    assert ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref) == c.base_text
+    {:ok, snapshot} = NovelApplication.WorkSessionService.show(c.work.id, c.session.id)
+    assert Enum.any?(snapshot.pending_adoptions, &(&1.artifact_id == original.artifact_id))
   end
 
   test "无 accepted 正文的章给出可解释错误（不猜、不新建）", c do
@@ -274,7 +406,7 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
   end
 
-  test "slice_verify fixture：format_only 返回覆盖顺序完整基线稿（守卫接受）", c do
+  test "slice_verify fixture：format_only 仅验证计划传递机制", c do
     provider = %Execution{
       result_fn: fn prompt ->
         SliceVerify.complete(nil, nil, prompt, %{})
@@ -293,8 +425,14 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
     [pending] = result.turn_result.adoption_state.pending
     [item] = pending.payload[:items]
 
-    assert item.body == c.base_text
-    assert pending.payload[:title] == "#{c.chapter_title}（整章排版修订稿）"
+    refute item.body == c.base_text
+    assert item.line_break_changes != []
+    assert pending.payload.formatting_preview != c.base_text
+
+    assert NovelDomain.ProseFormatting.non_newline_text(pending.payload.formatting_preview) ==
+             NovelDomain.ProseFormatting.non_newline_text(c.base_text)
+
+    assert pending.payload[:title] == "#{c.chapter_title}（分段方案）"
     assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
   end
 
@@ -323,12 +461,116 @@ defmodule NovelApplication.B28ChapterRevisionWiringTest do
 
     assert item.body =~ "三十岁"
     refute item.body =~ "二十五岁"
-    assert item.body =~ "灯楼九层，每层九盏"
-    assert pending.payload[:title] == "#{c.chapter_title}（整章内容修订稿）"
+    refute item.body =~ "灯楼九层，每层九盏"
+    assert pending.payload[:title] == "#{c.chapter_title}（指定段落修订稿）"
     assert :ok = AdoptionWorkflow.validate_b28_contract(pending)
+
+    effect = pending.payload.adoption_effect
+    assert [_target] = effect["target_segment_ids"]
+    assert [%{"sha256" => hash}] = effect["expected_segment_hashes"]
+    assert byte_size(hash) == 64
+
+    assert {:ok, persisted} =
+             AdoptionRepository.persist(%{
+               actor_ref: "author",
+               work_id: c.work.id,
+               source_turn_ref: "turn-b28-literal-revision",
+               artifact_id: pending.artifact_id,
+               artifact_type: :prose_fragment,
+               content: item.body,
+               summary: c.chapter_title,
+               target_chapter_ref: c.chapter_ref,
+               adoption_effect: effect,
+               modification_scope: "target_segments",
+               target_segment_ids: effect["target_segment_ids"],
+               expected_segment_hashes: effect["expected_segment_hashes"],
+               mode: :overwrite
+             })
+
+    assert persisted.reading_projection.adoption_effect == "replace_segments"
+    assert length(persisted.reading_projection.segment_changes) == 1
+
+    assert ReadingProjectionRepo.accepted_chapter_prose(c.work.id, c.chapter_ref) ==
+             String.replace(c.base_text, "二十五岁", "三十岁")
+
+    assert Enum.count(Repo.all(Draft), &(&1.status == "SUPERSEDED")) == 2
+    assert length(Repo.all(Chapter)) == 1
   end
 
-  test "B35 target_segments：prompt 要求整章完整替换稿，候选 payload 声明 scope/covered/preserve", c do
+  test "文字目标缺失、重复或与指定段冲突时，不调用writer、不生成候选", c do
+    inputs = [
+      "把第一章正文里的四十五岁改成三十岁，其他不变。",
+      "把第一章正文里的「灯楼」改成「灯塔」，其他不变。",
+      "只改第二段，把「二十五岁」改成「三十岁」，其他不变。",
+      "只改第0段，把「二十五岁」改成「三十岁」，其他不变。",
+      "只改第99段，把「二十五岁」改成「三十岁」，其他不变。"
+    ]
+
+    before = Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision})
+
+    for text <- inputs do
+      run = %{c.run | goal: %{text: text, version: 1}}
+
+      assert {:error, {:pending_artifact_invalid, reason}} =
+               PendingArtifactWorkflow.run(
+                 judgment(c.chapter_ref, %{dialogue_goal: text}),
+                 %{},
+                 run,
+                 c.context,
+                 %Execution{result_fn: fn _ -> flunk("范围不唯一不得调用writer") end}
+               )
+
+      assert reason in [:target_missing, :target_ambiguous, :incomplete_scope]
+    end
+
+    assert Repo.all(Draft) |> Enum.map(&{&1.id, &1.status, &1.content, &1.revision}) == before
+  end
+
+  for interpretation <- ["指定片段替换，非整章重写", "整章重写并给出完整替换稿"] do
+    test "模型说明#{interpretation}不能扩大作者的字词替换范围", c do
+      author = "把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。"
+      run = %{c.run | goal: %{text: author, version: 1}}
+      target_body = "初稿：陈九斤三十岁守灯楼，第七盏灯不点自亮。"
+
+      assert {:ok, result} =
+               PendingArtifactWorkflow.run(
+                 judgment(c.chapter_ref, %{dialogue_goal: unquote(interpretation)}),
+                 %{},
+                 run,
+                 c.context,
+                 provider(target_body, self())
+               )
+
+      assert_received {:chapter_writer_prompt, prompt}
+      assert prompt =~ "只输出**目标段落的替换文本**"
+      refute prompt =~ "本轮为整章正文修订"
+      [pending] = result.turn_result.adoption_state.pending
+      assert pending.payload.modification_scope == "target_segments"
+      assert pending.payload.adoption_effect["mode"] == "replace_segments"
+      assert [_] = pending.payload.adoption_effect["target_segment_ids"]
+      assert hd(pending.payload.items).body == target_body
+    end
+  end
+
+  test "作者明确整章修订时，模型说明不能擅自缩成单段", c do
+    run = %{c.run | goal: %{text: "请通读整章并修订第一章正文。", version: 1}}
+
+    assert {:ok, result} =
+             PendingArtifactWorkflow.run(
+               judgment(c.chapter_ref, %{dialogue_goal: "只改第一段"}),
+               %{},
+               run,
+               c.context,
+               provider(c.base_text, self())
+             )
+
+    [pending] = result.turn_result.adoption_state.pending
+    assert pending.payload.modification_scope == "whole_chapter"
+    assert pending.payload.adoption_effect["mode"] == "replace_scope"
+    assert pending.payload.adoption_effect["coverage"] == "complete"
+  end
+
+  test "B35 target_segments：prompt 要求目标段替换，候选声明 scope/covered/preserve", c do
     run = %{
       c.run
       | goal: %{text: "只把第一章开头一段改得更紧张，其他段落逐字保留。", version: 1}

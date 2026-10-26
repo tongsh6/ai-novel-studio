@@ -147,7 +147,8 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 ### 真实创作复验
 
-- 状态：**done / PASS（2026-10-25，canonical-3e final；P1 收口）**：Strata `iq3_s` detached phase1+phase2 共约 28.3min，单次未重跑换分；**10/10 章≥1000、总 12,894 字**；维护 5/5（design/format/content/renumber/role，attempts 均 1）；content_revision 第03/04章 `target_segments`：25 段仅 segment0 变化、**其余 24 段 sha 逐字节相同**、首段 46→184 chars、字数 1344→1470 不塌缩；wrong-route 终局 0、failures/retries 0；B9 confirm 3/skip 0；author_question_events 0（机制武装）；导出 44KB；wait 59 waits/0 timeouts/无重复 instruction；writer 24（≤40）。canonical-1/2/3 各事故/失败批次（attempt1 SIGTERM/attempt2 预算污染/attempt3 design/attempt4 awaiting）全部保留只读；**I10 文学盲评仍待作者指定负责人/时机（AI 不代签）**，B38 世界规则保存判断候选 deferred（trigger 真实产品链复现/作者请求）。证据 `artifacts/novel-output/p1-authoring-dogfood-2026-10-25-canonical3e/`。
+- 状态：**doing（2026-10-25 完成审计重开：原生补验）**。canonical-3e 为浏览器实模产品链 PASS；作者要求保留原生标准，待补原生交互/维护/恢复/导出证据。I10 文学盲评仍待作者安排；原批次只读保留。
+- 原收口记录：**done / PASS（2026-10-25，canonical-3e final；P1 收口）**：Strata `iq3_s` detached phase1+phase2 共约 28.3min，单次未重跑换分；**10/10 章≥1000、总 12,894 字**；维护 5/5（design/format/content/renumber/role，attempts 均 1）；content_revision 第03/04章 `target_segments`：25 段仅 segment0 变化、**其余 24 段 sha 逐字节相同**、首段 46→184 chars、字数 1344→1470 不塌缩；wrong-route 终局 0、failures/retries 0；B9 confirm 3/skip 0；author_question_events 0（机制武装）；导出 44KB；wait 59 waits/0 timeouts/无重复 instruction；writer 24（≤40）。canonical-1/2/3 各事故/失败批次（attempt1 SIGTERM/attempt2 预算污染/attempt3 design/attempt4 awaiting）全部保留只读；**I10 文学盲评仍待作者指定负责人/时机（AI 不代签）**，B38 世界规则保存判断候选 deferred（trigger 真实产品链复现/作者请求）。证据 `artifacts/novel-output/p1-authoring-dogfood-2026-10-25-canonical3e/`。
 - 任务：P1-AUTHORING-DOGFOOD；既有周期复验，不新增产品能力或平行 harness。
 - 范围：引用 `docs/product/novel-output-milestones.md` §4/§8；每 3–5 个周期插入，最迟本轮 B26/B27→B31→B28→B30→B29 后执行。
 - 剩余：复用真实工作台 runner 完成 10 章创作，包含修订/结构/角色维护、采纳、重开、审读、导出；确认路径/空章/重复观察消费 §6 B6/B7/B9。各操作尚未上线时不能用脚本旁路代替。
@@ -236,3 +237,23 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 - 迁移验证：旧 NEXT 548→25 行；83 行历史表格记录与原 Decision Log 完整迁入事实台账，11 行条件承接均在本文件可达；新链接检查通过。原 19 个开放差距 ID 全保留，新增 B9 余项后为 20 项（7 G / 6 NEM / 7 B），无虚假关闭。
 - 检查验证：`mix compile`、`node --test scripts/next_task_check.test.mjs`（22/22）、`node scripts/next_task_check.mjs`、`bash -n scripts/gap_ledger.sh`、`git diff --check` 通过；测试覆盖原状态变终态、锚点子任务、旅程双写、规模限制、源表/单行丢失及失败不覆盖快照。
 - 扫描闭环：首轮 `bash scripts/ai_static_scan.sh --top 10` 提示新动态 RegExp 与过期 task-done manifest；前者改为静态正则加标题层级比较，后者经 `bash scripts/task_done.sh --top 10` 正常刷新并触发完整复扫。最终结果消费 `artifacts/static-scan/top10.md` / `report.json` / `disposition.md`；既有 gitleaks 两项处置不改，本轮没有新增产品 UI 验收。
+
+### 2026-10-25 队列完成审计预注册（18:17，未宣告完成）
+
+- 触发：作者更新目标的成功定义；当前 NEXT 声明清空，HEAD `a60c9024`，需按完整 CP 与证据层级逐项核对。
+- 范围：只读检查 B26–B31、B33–B38 与 P1 canonical-3e 的任务/验收摘要、实际 driver、门禁、维护回执与资源生命周期；不挖掘额外 stage 作者原文，不改历史批次，不运行真实模型。
+- 预算：每份 canonical 摘要/声明对应 driver 读取一次，按差异定位必要片段；当前全门禁最多一批，出现新失败先登记根因，不改判据或重复刷分。资源检查各请求 5s，确认空闲后按作者授权卸载并验证；不杀未知任务。
+- 证据目录：`artifacts/completion-audit/20261025-1817/`。记录 HEAD/工作区、scope→requirement→evidence→verdict、模型前后状态、命令/退出码、团队任务视图。
+- 已确认矛盾：B28/B29/B30/B31 canonical summary 为 `surface=browser / driver=headless-chromium`；P1 dogfood-runner 实际 `chromium.launch({headless:true})`，summary 硬写 `surface=tauri`。不以启动了原生 app 代替原生交互证据。B27 CP4/CP5 known-gap 保留，文学盲评只由作者安排。
+- 升级边界：若需改变原生验收要求、known-gap 的完成口径或历史数据，按作者新规则提交具体选项；当前不将 goal 标 complete，不修改原始验收产物。
+
+#### 完成审计裁决与结果（2026-10-25）
+
+- 作者明确选择：**保留原生标准，补原生证据；B27 保留未完成 known-gap，不将整个 goal 标完成**。因此撤回 NEXT 的队列清空声明，仅按原顺序重开 B31→B28→B30→B29→P1 的原生证据，不回滚产品实现，不放宽判据，不重跑已失败的真实模型矩阵换分。
+- P1 canonical-3e 已证明浏览器上的实模连续创作/维护/导出（12,894字、10章、维护5/5），不是原生 Tauri 交互证明，也不是10万字里程碑或 I10 文学盲评完成。原报告保持只读，错误 surface 字段由此审计注记纠正；后续 producer 修正归 B37。
+- 当前 HEAD `a60c9024` 的确定性全门禁单批通过：后端 warnings-as-errors、前端 typecheck/lint/603 tests、sidecar release、离线 Tauri .app/.dmg/前端审计27项、xref/arch/静态扫描、I1/I2/I3、N-NARR/I-CACHE、task_done/next_task_check；命令、退出码和分步耗时见 `artifacts/completion-audit/20261025-1817/gate-results.json`，独立监督每10s心跳，termination success=true。本批不含真实模型调用。
+- 静态扫描19项通过、gitleaks原始检查1项失败，只有2条历史处置（Pencil元数据 false_positive、历史 ProjectGod凭据 accepted_risk），blocking=0。没有修改 baseline/dispositions 或豁免。
+- 收尾发现 Strata `/api/models.loaded=null` 不能代表原生引擎已卸载：`/api/native.instances` 仍有 iq3_s ready。确认无 queued/generating 请求后，按用户授权卸载原生实例并调用 models/unload；同时卸载 LM Studio embedding。核验 `lms ps=[]`、Strata `loaded=null` 且 `instances=[]`，原始状态/回执见同证据目录。未卸载工具/删除模型文件/修改全局设置。
+- 本线程协作树仅 root、无 pending/in_progress 子任务；不将此视为外部工具全部任务视图。工作区新增的 `tasks/next_excutor_prompt.md` 为已有外部内容，未编辑或纳入本次代码修改。
+
+- 作者澄清资源变化为手动装载；当前模型保留给作者使用。上面的空载快照只证明当时清理成功，最终环境现有作者实例不再计作 harness 遗漏。后续原生确定性验收零真实模型调用；模型长跑须先协调单槽，不能再次卸载作者手动保留的实例。

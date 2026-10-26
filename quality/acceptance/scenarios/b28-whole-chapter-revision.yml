@@ -4,27 +4,28 @@ tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  active（2026-10-25 CP2 注册）：外部 Tauri runner 驱动真实工作台（原生窗口 + 真实
-  Phoenix/Vite 前端）复验 B28 整章修订闭环——章级目标/全章覆盖账、format_only 归一等价、
-  content_revision 只改指定处、replace_scope 同章替代（章身份/章数不变、旧稿 superseded 历史
+  active（2026-10-25 CP2 注册；作者已接受B36候选形态对齐）：外部 runner 驱动真实工作台；原生证明必须由系统UI操作Tauri窗口，
+  默认Chromium结果仅属浏览器产品链证据。复验 B28 整章修订闭环——章级目标/全章覆盖账、format_only 模型换行计划与非换行字节相等、
+  content_revision 按B36目标段候选/锚点/版本及确定性合并只改指定处；format_only的format_paragraphs同章替代（章身份/章数不变、旧稿 superseded 历史
   可查、阅读/刷新消费新值）、同名章澄清阻断、缺 ref 零写入；CP3 追加 replace_scope 后
   阅读/投影 hash+有效字数、章摘要刷新来源、下一轮 prose_search/上下文读新值、历史可查。
   证据边界：provider 为
   slice_verify 确定性替身（状态链/契约证据）；真实模型原话/改述与排版质量归 CP4。产品代码
-  已提交（CP1/CP1.5），本场景不改产品代码、不新增验收感知逻辑。
+  消费已接受ADR-0029；替身只作机械回归，实模原生证据才支持业务闭环，不新增产品验收感知逻辑。
 entrypoint: bash scripts/quality_accept.sh b28-whole-chapter-revision --surface tauri
 contract:
   - tasks/slices/B28-whole-chapter-revision.md §3/§5/§7
   - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
   - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
   - docs/design/adr/ADR-0019-adoption-status-transition-v3.md
+  - docs/design/adr/ADR-0029-prose-formatting-plan-v3.md
   - tasks/slices/B27-systematic-prompt-and-intent-integration.md（M07 format_only known-gap）
 invariants:
   - I-B28-1 章级目标：整章修订必须绑定 chapter_ref + 该章全部当前 accepted 片段覆盖账；不得只绑单 artifact，不得退化为新正文写作。
-  - I-B28-2 覆盖完整：writer 材料与候选覆盖全部 covered 片段（按阅读投影顺序）；缺片段/截断必须显式 omission，不能宣称整章。
-  - I-B28-3 排版保真：format_only 候选按冻结归一（行尾空白/换行形式/文末空行）后与整章源字节相等；差异 → `format_only_violation` 拒绝。
-  - I-B28-4 同章替代：replace_scope 采纳只替换 covered scope 内旧 accepted（SUPERSEDED 历史保留），chapter_id/seq/章数不变；失败整体回滚。
-  - I-B28-5 内容修订范围：只落实作者指定改动，其余片段逐字保留，完整替换稿。
+  - I-B28-2 覆盖完整：writer基线材料覆盖全部covered片段；整章候选覆盖全文，局部候选覆盖明确目标段且合并后覆盖完整基线；缺片段/截断必须显式omission，不能宣称整章。
+  - I-B28-3 排版保真：ADR-0029计划实际改变至少一处换行，预览及采纳正文的非CR/LF字节与整章源完全相等；无变化、未知边界、过期源或预览不符均拒绝。旧全文候选保持旧规则。
+  - I-B28-4 同章替代：replace_scope/format_paragraphs 采纳只替换 covered scope 内旧 accepted（SUPERSEDED 历史保留），chapter_id/seq/章数不变；失败整体回滚。
+  - I-B28-5 内容修订范围：只落实作者指定改动，候选为绑定目标段的原始替换文本；确定性合并后的整章仅指定处变化，其余片段逐字保留。
   - I-B28-6 身份唯一：同标题两章按 chapter_ref 绑定；缺 ref/歧义时澄清或拒绝，禁止 title 回退新建章。
   - I-B28-7 幂等/消费：重复采纳/刷新不重复写；阅读投影与后续上下文只消费新 accepted 版本。
 setup:
@@ -37,11 +38,11 @@ setup:
   env_note: 隔离 test DB；确定性 provider 足够验证真实页面/状态链与契约；真实模型意图归 CP4。
   trial_matrix:
     - T0a 同标题两章 + 作者仅给标题：产品按 B28 Q01 澄清阻断（可见「多个标题/章节卡片/章序号」文案、零候选、零写入、不新建章、不跨章误绑）；T0b 唯一标题主作品候选生成期带 chapter:<uuid>，edit_then_accept 同章绑定成功。
-    - T1 整章只排版：真实输入「把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。」→ 候选覆盖两片段 + target_chapter_ref/modification_scope=format_only/adoption_effect=replace_scope/covered refs/expected_base_versions/base_text → 归一后与源字节等价 → 采纳同章替代、旧稿 superseded、阅读/刷新一致。
-    - T2 明确内容修订：「把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。」→ 候选仍覆盖全章、只改指定处、replace_scope 不新建章、其余逐字保留。
+    - T1 整章只排版：真实输入「把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。」→ 候选覆盖两片段 + target_chapter_ref/modification_scope=format_only/artifact_type=prose_formatting_plan/adoption_effect=format_paragraphs/covered refs/expected_base_versions/source_hash/line_break_changes/formatting_preview → 预览实际新增分段且所有非换行字节与源相等 → 采纳同章替代、旧稿 superseded、阅读/刷新一致。
+    - T2 明确内容修订：「把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。」→ 唯一文字目标定位到段，候选按segment_id/hash/base版本只给替换段；replace_segments确定性合并后的全文仅年龄改变，不新建章、其余逐字保留。
     - T3 刷新/重复采纳幂等：章数/章身份/正文 hash 不变，无重复采纳入口。
     - T4 缺 accepted ref：新作品发整章修订请求 → 澄清/拒绝（不猜、不新建章、不进入新正文写作），零写入。
-    - T5 阅读/投影消费：T1/T2 采纳后阅读模式章投影正文 hash == 新候选（冻结归一），有效字数 == 正文口径；刷新重进仍新值；UI 可见目标章。
+    - T5 阅读/投影消费：T1/T2采纳后阅读模式章投影正文hash==按作用域采纳后的完整正文（T1只改变换行且至少新增一个段落边界，T2精确字节），有效字数 == 正文口径；刷新重进仍新值；UI 可见目标章。
     - T6 摘要消费：采纳后章摘要刷新/重建（当前 ACCEPTED 摘要更新且不引用 superseded 旧 draft）；失败须诚实标记（本场景确定性器走成功路径，失败机制由现有摘要场景回归）。
     - T7 下一轮上下文/检索：真实主输入追问/检索（「三十岁」命中、「二十五岁」不作为当前结果），app/llm JSONL 证明判断上下文读新整章正文（新值在、旧值不在）。
     - T8 历史/UI 来源：旧 accepted drafts 全部 SUPERSEDED 且历史内容可查、不在当前投影；当前仅 1 条新整章 accepted；档案/阅读可见目标章与摘要来源，无隐藏 hook。
@@ -49,11 +50,11 @@ user_flow:
   - open: 真实 Tauri runner（原生窗口 + 真实前端/后端）打开 seed 作品。
   - create: 档案→大纲与结构→生成正文草稿→修改后采纳，写入初稿；主输入续写同章下一段→修改后采纳，写入零换行续写；确认同章 2 场景 / 2 accepted。
   - send: 「把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。」
-  - observe: 候选卡可见目标章 + 整章排版范围；wire 候选 target_chapter_ref/modification_scope(format_only)/adoption_effect(replace_scope+covered+expected_base_versions)/base_text；候选正文含两片段独有末句；冻结归一后与整章源字节等价。
-  - click: 「保存修订稿」（作者确认；无额外弹窗）。
+  - observe: 候选卡可见目标章 + 整章排版范围；wire 计划含target_chapter_ref/modification_scope(format_only)/adoption_effect(format_paragraphs+covered+expected_base_versions+source_hash+preview_hash)；独立排版预览含两片段独有末句，非换行字节与源完全相同，实际新增段落。
+  - click: 「应用分段方案」（作者确认；无额外弹窗）。
   - verify: 同章替代（chapter_id/seq/章数不变），旧 draft SUPERSEDED 历史可查，阅读投影/刷新消费新值。
   - send: 「把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。」
-  - verify: 候选覆盖全章、只改该处、target_chapter_ref 非空、采纳 replace_scope 不新建章、替换外逐字保留。
+  - verify: 候选只覆盖绑定目标段、target_chapter_ref 非空，采纳replace_segments确定性合并后整章只改指定处、不新建章。
   - refresh: 刷新页面，验证章事实/正文 hash 不变、无重复采纳入口。
   - observe: 阅读模式/章节投影正文 hash == 新候选，有效字数 == 正文口径；刷新重进一致。
   - observe: 章摘要刷新/重建（不把旧摘要冒充新稿）；历史旧 accepted 全部 superseded 可查、当前投影只含新整章稿。
@@ -81,18 +82,18 @@ evidence:
   artifact_dir: artifacts/slice-verify/b28-whole-chapter-revision-tauri
 assertions:
   ui:
-    - 候选卡可见目标章（第01章：夜潮）与整章排版/修订范围文案；采纳按钮为「保存修订稿」，无额外弹窗。
-    - 阅读模式显示替代后的整章正文（两片段内容在冻结归一后等价），刷新后一致。
+    - 候选卡可见目标章（第01章：夜潮）与整章排版/修订范围文案；排版按钮为「应用分段方案」、局部修订为「保存修订稿」，无额外弹窗。
+    - 阅读模式显示替代后的整章正文（两片段所有非换行字节不变），刷新后一致。
     - 同名干扰章不在目录中重复出现/不被合并。
   network:
-    - 候选 prose artifact 顶层 target_chapter_ref = 该章 chapter:<uuid>；payload 含 modification_scope=format_only|target_segments、adoption_effect{mode:replace_scope,coverage:complete,covered:[{draft_ref,version}],expected_base_versions}、base_text。
+    - 候选 prose artifact 顶层 target_chapter_ref = 该章 chapter:<uuid>；payload 含 modification_scope=format_only|target_segments；format_only artifact_type=prose_formatting_plan、effect=format_paragraphs/complete/covered/expected_base_versions/source_hash/line_break_changes/preview_hash及独立formatting_preview；target_segments effect=replace_segments/covered/base_versions/target_segment_ids/expected_segment_hashes。
     - 采纳 action 与 resolved adoption 帧可核对 target/effect；adoption 结果 additive 回显 superseded_draft_refs/adoption_effect。
     - 缺 ref 请求不出现生产写入帧；不出现 prose_writing 新创作执行。
   data:
     - chapter_count 与 chapter_id/seq 在 T1/T2 采纳前后不变；旧 accepted draft 变为 SUPERSEDED 且历史可查；当前 accepted 只一份整章稿。
-    - format_only：normalize(candidate) == normalize(全章当前正文)；content：仅指定替换（二十五岁→三十岁），其余逐字。
+    - format_only：预览与最终正文非换行字节等于全章源，且至少新增一个段落边界；模型说明字段原样保留；content：候选精确对应唯一源段、id/hash/base版本，采纳后整章仅指定替换（二十五岁→三十岁），其余逐字。
     - 刷新后正文 hash/章事实不变；重复采纳幂等。
-    - 阅读投影章正文 hash == 新候选，本章有效字数 == 正文有效字数；刷新重进一致。
+    - 阅读投影章正文 hash == 按采纳作用域得到的新全文，本章有效字数 == 正文有效字数；刷新重进一致。
     - 章摘要当前 ACCEPTED 版本刷新且不引用 superseded 旧 draft；旧 draft 历史保留、当前 accepted 仅 1 条新整章稿。
     - 下一轮判断/检索上下文含新值（三十岁）、不含旧值（二十五岁）；prose_search 命中新正文，旧文本不作为当前结果。
   llm:
@@ -116,7 +117,7 @@ prerequisites:
   - B28 场景仅在上述真实链路可跑后注册 scenarios.yml；slice_verify 确定性 fixture 提供
     format_only/content_revision 输出语义（真实模型归 CP4）。
 known_not_closed:
-  - 真实模型原话/改述与排版质量归 CP4；本场景为确定性 provider 状态链证据；检索/下一轮只证明上下文与检索读新正文，不评模型语义质量。
+  - ADR-0029 driver已迁移到计划/独立预览与真实新增段落检查；旧原样输出不能证明排版完成。真实模型原话/改述与排版质量归 CP4；本场景为确定性 provider 状态链证据；检索/下一轮只证明上下文与检索读新正文，不评模型语义质量。
   - format_only_violation 的端到端负向本场景暂不做（避免与 T1 正例混跑）；以 CP1 单测 + CP4 实模覆盖。
   - 产品当前无作者可点的独立「搜索正文」页面入口：检索证据经真实主输入→模型工具 prose_search（真实 Channel/工具链）+ 隔离 DB/投影只读对账；如后续新增页面搜索入口，本场景需补 UI 路径。
   - 章摘要失败诚实标记机制由既有摘要场景（如 d3-summary-lazy-repair）覆盖；本场景只验证成功刷新路径与「当前摘要不冒充旧稿」的来源一致性。当前档案大纲不渲染章摘要正文，摘要证据用隔离 DB 当前 ACCEPTED 行（source/revision_base/updated_at）+ chapter_summary_maintenance app 事件；UI 摘要显示不作为断言。

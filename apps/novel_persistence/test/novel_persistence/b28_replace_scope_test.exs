@@ -218,4 +218,89 @@ defmodule NovelPersistence.B28ReplaceScopeTest do
     refute Map.has_key?(legacy, :adoption_effect)
     refute Map.has_key?(legacy, :superseded_draft_refs)
   end
+
+  defp formatting_attrs(c) do
+    source = c.d1.content <> "\n\n" <> c.d2.content
+    view = NovelDomain.ProseFormatting.view(source)
+    changes = [%{boundary_id: hd(view.boundaries).boundary_id, lines: 1}]
+    {:ok, applied} = NovelDomain.ProseFormatting.apply_plan(source, view.source_hash, changes)
+
+    %{
+      actor_ref: "author",
+      work_id: c.work_id,
+      source_turn_ref: "turn-format",
+      artifact_id: "as-format",
+      artifact_type: :prose_formatting_plan,
+      content: "这只是模型的方案说明。",
+      summary: c.chapter.title,
+      target_chapter_ref: "chapter:#{c.chapter.id}",
+      modification_scope: "format_only",
+      adoption_effect: %{
+        "mode" => "format_paragraphs",
+        "coverage" => "complete",
+        "covered" => ["draft:#{c.d1.id}:1", "draft:#{c.d2.id}:1"],
+        "expected_base_versions" => [
+          %{ref: "draft:#{c.d1.id}", version: 1},
+          %{ref: "draft:#{c.d2.id}", version: 1}
+        ],
+        "source_hash" => view.source_hash,
+        "line_break_changes" => changes,
+        "preview_hash" => applied.result_hash
+      }
+    }
+  end
+
+  test "分段计划原子采纳：同章字节保真、保留历史、不把说明写进记忆、重复直写零副作用", c do
+    attrs = formatting_attrs(c)
+    memory_count = Repo.aggregate(NovelPersistence.Schemas.MemoryItem, :count)
+    assert {:ok, first} = AdoptionRepository.persist(attrs)
+
+    # Channel 的动作回执负责幂等返回；绕过它重复直写仍须拒绝过期基线、零新增。
+    assert {:error, :stale_base_version} = AdoptionRepository.persist(attrs)
+    assert Repo.aggregate(NovelPersistence.Schemas.Mutation, :count) == 1
+    assert Repo.aggregate(Draft, :count) == 3
+    assert Repo.aggregate(Chapter, :count) == 1
+    assert Repo.aggregate(NovelPersistence.Schemas.MemoryItem, :count) == memory_count
+    assert Repo.get!(Draft, c.d1.id).status == AdoptionStatus.superseded()
+    assert Repo.get!(Draft, c.d2.id).status == AdoptionStatus.superseded()
+
+    assert ReadingProjectionRepo.accepted_chapter_prose(c.work_id, "chapter:#{c.chapter.id}") ==
+             c.d1.content <> "\n" <> c.d2.content
+
+    projection = first.reading_projection
+    assert projection.adoption_effect == "format_paragraphs"
+    assert length(projection.changed_boundaries) == 1
+    assert length(projection.superseded_draft_refs) == 2
+
+    assert projection.non_newline_hash ==
+             NovelDomain.ProseFormatting.source_hash(c.d1.content <> c.d2.content)
+  end
+
+  test "分段计划拒绝 stale、缺覆盖、未知边界、预览篡改及错误类型，事务零写入", c do
+    attrs = formatting_attrs(c)
+
+    for {changes, reason} <- [
+          {%{"source_hash" => "stale"}, :stale_base_version},
+          {%{"expected_base_versions" => []}, :stale_base_version},
+          {%{
+             "covered" => ["draft:#{c.d1.id}:1"],
+             "expected_base_versions" => [%{ref: "draft:#{c.d1.id}", version: 1}]
+           }, :incomplete_scope},
+          {%{"line_break_changes" => [%{boundary_id: "invented", lines: 2}]},
+           :invalid_formatting_plan},
+          {%{"preview_hash" => "tampered"}, :invalid_formatting_plan},
+          {%{"mode" => "replace_scope"}, :invalid_formatting_plan}
+        ] do
+      assert {:error, ^reason} =
+               AdoptionRepository.persist(%{
+                 attrs
+                 | adoption_effect: Map.merge(attrs.adoption_effect, changes)
+               })
+
+      assert Repo.aggregate(Draft, :count) == 2
+      assert Repo.get!(Draft, c.d1.id).status == AdoptionStatus.accepted()
+      assert Repo.get!(Draft, c.d2.id).status == AdoptionStatus.accepted()
+      assert Repo.aggregate(NovelPersistence.Schemas.Mutation, :count) == 0
+    end
+  end
 end

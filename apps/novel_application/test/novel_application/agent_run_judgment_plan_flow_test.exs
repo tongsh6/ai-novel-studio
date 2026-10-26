@@ -8,11 +8,111 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
   """
   use ExUnit.Case, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Test.Provider.SliceVerify
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
   alias NovelCommon.Contracts.ProviderOutput
+  alias NovelPersistence.Repo
+
+  test "旧任务的计划耗尽标记不能改写当前问题回复的单产物目标" do
+    previous = System.get_env("SLICE_VERIFY_PLAN_EXHAUST")
+    System.put_env("SLICE_VERIFY_PLAN_EXHAUST", "1")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("SLICE_VERIFY_PLAN_EXHAUST", previous),
+        else: System.delete_env("SLICE_VERIFY_PLAN_EXHAUST")
+    end)
+
+    prompt = """
+    本次你承担创作判断器的角色。
+    ## 会话摘要
+    另一个任务仍在等待：先核对正文再调整大纲，UA01PLANEXHAUST-older-run。
+    ## 作者输入
+    确认第一卷；当前还没有章节，请先为第一卷生成12章的待采纳章节计划，供后续结构维护使用，暂不采纳。
+    """
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+    assert [%{"name" => "judgment_decision", "arguments" => args}] = result.tool_calls
+    assert args["action"] == "execute"
+    assert args["capability"] == "plot_outline"
+
+    assert {:ok, own} =
+             SliceVerify.complete(nil, nil, prompt <> "UA01PLANEXHAUST-current-run", %{})
+
+    assert [%{"arguments" => own_args}] = own.tool_calls
+    assert own_args["action"] == "plan"
+  end
+
+  test "B31 原生前提原话穿过判断守卫进入计划耗尽等待，而非角色身份纠错" do
+    :ok = Sandbox.checkout(Repo)
+    :ok = Sandbox.mode(Repo, {:shared, self()})
+    previous = System.get_env("SLICE_VERIFY_PLAN_EXHAUST")
+    System.put_env("SLICE_VERIFY_PLAN_EXHAUST", "1")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("SLICE_VERIFY_PLAN_EXHAUST", previous),
+        else: System.delete_env("SLICE_VERIFY_PLAN_EXHAUST")
+    end)
+
+    parent = self()
+    suffix = System.unique_integer([:positive])
+    work_id = Ecto.UUID.generate()
+
+    execution = %Execution{
+      result_fn: fn prompt ->
+        ref = "b31-plan-call-#{System.unique_integer([:positive])}"
+        assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %{})
+
+        output = %ProviderOutput{
+          provider_run_ref: ref,
+          provider_call_ref: ref,
+          status: :ok,
+          content: %{text: result.content, tool_calls: result.tool_calls}
+        }
+
+        {:ok, result |> Map.from_struct() |> Map.put(:provider_output, output)}
+      end
+    }
+
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "先读完第01章正文，再调整章节大纲，最后更新主角当前状态，UA01PLANEXHAUST-T3-1f6aa2bb",
+                 workspace_id: work_id,
+                 work_id: work_id,
+                 session_id: "session-b31-plan-#{suffix}",
+                 turn_id: "turn-b31-plan-#{suffix}",
+                 chapter_prose_reader: fn _, _ -> "" end,
+                 chapter_summary_reader: %{},
+                 character_reader: fn _ -> [] end
+               },
+               nil,
+               execution
+             )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: fn event ->
+                 send(parent, {:b31_plan_event, event.event_type, event})
+               end
+             )
+
+    on_exit(fn -> AgentRunService.cancel(run_id) end)
+    assert_receive {:b31_plan_event, :plan_drafted, _}, 2_000
+    assert_receive {:b31_plan_event, :awaiting_author, awaiting}, 3_000
+    assert "plan_exhausted_without_completion" in awaiting.reason_codes
+    assert {:ok, state} = AgentRunService.state(run_id)
+    assert state.run.profile_ref == "judgment_plan_v1"
+    assert state.run.status == :awaiting_author
+    assert state.run.goal.version == 1
+    assert state.run.pending_artifact_refs == []
+    refute_receive {:b31_plan_event, :run_failed, _}
+  end
 
   for {mode, draft_count, revision_count, total} <- [
         {"同批计划", 0, 0, 3},
@@ -296,6 +396,10 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
     assert explore_event.payload.tool == "archive_read"
     assert explore_event.payload.query == "stats"
     assert explore_event.payload.summary =~ "总字数"
+
+    # B28 T4 R10：计划内检索步同样携带结构化观察分类（no_progress 澄清派生同源）
+    assert explore_event.payload.outcome == "observed"
+    assert is_map(explore_event.payload.facts)
 
     assert_receive {:agent_event, :run_completed, _}, 3_000
 

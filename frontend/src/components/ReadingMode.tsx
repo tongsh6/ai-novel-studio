@@ -1,11 +1,12 @@
 // Design: docs/design/ui/44-reading-mode.md §3
 // Prototype: novel-studio.pen → 44§3-reading-mode-stale (hEGz0)
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { readingProjectionQuery } from "../lib/readingProjectionQuery";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useAppStore } from "../lib/store";
 import { isTauri } from "../lib/env";
-import { getToc, getChapterContent } from "../lib/socket";
-import type { TocData, ChapterContent, ExportResult, ExportProgress } from "../lib/socket";
+import type { ExportResult, ExportProgress } from "../lib/socket";
 import { exportBook, pickExportDirectory } from "../lib/export";
 import {
   formatWordCount,
@@ -21,13 +22,21 @@ import {
 import styles from "./ReadingMode.module.css";
 
 export function ReadingMode() {
-  const { setMode, context, projectionStatus, setPendingBuildAction, channel } = useAppStore();
-
-  const [toc, setToc] = useState<TocData | null>(null);
-  const [tocError, setTocError] = useState<string | null>(null);
-  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
-  const [chaptersContent, setChaptersContent] = useState<Record<string, ChapterContent>>({});
-  const [loadingContent, setLoadingContent] = useState(false);
+  const { setMode, context, channel } = useAppStore();
+  const projection = useQuery(readingProjectionQuery(channel, context.workId));
+  const toc = projection.data?.toc ?? null;
+  const chaptersContent = projection.data?.chaptersContent ?? {};
+  const tocError = projection.error?.message ?? null;
+  const projectionStatus = projection.isError
+    ? "FAILED"
+    : projection.isFetching
+      ? "REBUILDING"
+      : projection.isStale && projection.data
+        ? "STALE"
+        : projection.data
+          ? "FRESH"
+          : null;
+  const [selectedChapterId, setActiveChapterId] = useState<string | null>(null);
   const [isManualScrolling, setIsManualScrolling] = useState(false);
   const contentAreaRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +51,8 @@ export function ReadingMode() {
   const audit = tocView?.audit ?? null;
   const belowMinCount = audit ? audit.shortChapterCount + audit.emptyChapterCount : 0;
   const chapters = tocView?.volumes.flatMap((volume) => volume.chapters) ?? [];
+  const activeChapterId =
+    chapters.find((chapter) => chapter.id === selectedChapterId)?.id ?? chapters[0]?.id ?? null;
   const runtimeState = deriveWorkspaceRuntimeState({
     connection: { connected: Boolean(channel) },
     work: { id: context.workId, title: context.workTitle },
@@ -54,52 +65,7 @@ export function ReadingMode() {
   });
   const readingStatus = getReadingProjectionStatus(runtimeState);
   const hasContent = readingStatus === "ready" || readingStatus === "stale";
-  const contentLoading = loadingContent;
-
-  // Fetch TOC and chapter contents on mount when workId is set
-  useEffect(() => {
-    if (!channel || !context.workId) return;
-
-    // Set loading asynchronously to avoid react-hooks/set-state-in-effect lint error
-    void Promise.resolve().then(() => {
-      setLoadingContent(true);
-    });
-
-    getToc(channel, context.workId)
-      .then((data) => {
-        setTocError(null);
-        setToc(data);
-        // Auto-select first chapter of first volume
-        const firstChapter = data.volumes[0]?.chapters[0];
-        if (firstChapter) {
-          setActiveChapterId(firstChapter.id);
-        }
-
-        const chList = data.volumes.flatMap((v) => v.chapters);
-        const contentMap: Record<string, ChapterContent> = {};
-
-        // Fetch all chapter contents in parallel
-        return Promise.all(
-          chList.map(async (ch) => {
-            try {
-              const content = await getChapterContent(channel, ch.id);
-              contentMap[ch.id] = content;
-            } catch (err) {
-              console.error("Failed to load content for chapter", ch.id, err);
-            }
-          })
-        ).then(() => {
-          setChaptersContent(contentMap);
-        });
-      })
-      .catch((error) => {
-        setToc(null);
-        setTocError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        setLoadingContent(false);
-      });
-  }, [channel, context.workId]);
+  const contentLoading = projection.isPending && projection.isFetching;
 
   const handleChapterClick = (chapterId: string) => {
     setActiveChapterId(chapterId);
@@ -139,8 +105,7 @@ export function ReadingMode() {
   };
 
   const handleRefreshProjection = () => {
-    setPendingBuildAction("refresh_projection");
-    setMode("workbench");
+    void projection.refetch();
   };
 
   const resetExportDialog = () => {
@@ -185,8 +150,7 @@ export function ReadingMode() {
   };
 
   const handleRetryProjection = () => {
-    setPendingBuildAction("retry_projection");
-    setMode("workbench");
+    void projection.refetch();
   };
 
   return (
@@ -195,32 +159,30 @@ export function ReadingMode() {
       {projectionStatus === "STALE" && (
         <div className={styles.staleBanner}>
           <div className={styles.bannerLeft}>
-            <span className={styles.bannerStatus}>投影状态：已过期</span>
-            <span className={styles.bannerDesc}>
-              底层设定已有变更，当前阅读的可能不是最新版本。
-            </span>
+            <span className={styles.bannerStatus}>{READING.projectionStale}</span>
+            <span className={styles.bannerDesc}>{READING.projectionStaleDescription}</span>
           </div>
           <button className={styles.refreshBtn} onClick={handleRefreshProjection}>
-            刷新投影
+            {READING.refreshProjection}
           </button>
         </div>
       )}
       {projectionStatus === "REBUILDING" && (
         <div className={styles.staleBanner}>
           <div className={styles.bannerLeft}>
-            <span className={styles.bannerStatus}>投影状态：重建中</span>
-            <span className={styles.bannerDesc}>系统正在重新生成阅读视图，请稍候。</span>
+            <span className={styles.bannerStatus}>{READING.projectionRebuilding}</span>
+            <span className={styles.bannerDesc}>{READING.projectionRebuildingDescription}</span>
           </div>
         </div>
       )}
       {projectionStatus === "FAILED" && (
         <div className={styles.staleBanner}>
           <div className={styles.bannerLeft}>
-            <span className={styles.bannerStatus}>投影状态：重建失败</span>
-            <span className={styles.bannerDesc}>阅读视图重建失败，请返回工作台重试。</span>
+            <span className={styles.bannerStatus}>{READING.projectionFailed}</span>
+            <span className={styles.bannerDesc}>{READING.projectionFailedDescription}</span>
           </div>
           <button className={styles.refreshBtn} onClick={handleRetryProjection}>
-            重试
+            {READING.retryProjection}
           </button>
         </div>
       )}
@@ -279,9 +241,16 @@ export function ReadingMode() {
       >
         <Dialog.Portal>
           <Dialog.Overlay className={styles.dialogOverlay} />
-          <Dialog.Content className={styles.dialogContent} aria-describedby="export-dialog-description">
+          <Dialog.Content
+            className={styles.dialogContent}
+            aria-describedby="export-dialog-description"
+          >
             <Dialog.Title className={styles.dialogTitle}>
-              {exportError ? READING.exportErrorTitle : exportResult ? READING.exportSuccessTitle : READING.exportDialogTitle}
+              {exportError
+                ? READING.exportErrorTitle
+                : exportResult
+                  ? READING.exportSuccessTitle
+                  : READING.exportDialogTitle}
             </Dialog.Title>
             <p id="export-dialog-description" className={styles.dialogDescription}>
               {exportError
@@ -370,11 +339,7 @@ export function ReadingMode() {
         </div>
 
         {/* Reading content area */}
-        <div
-          className={styles.readingContentArea}
-          ref={contentAreaRef}
-          onScroll={handleScroll}
-        >
+        <div className={styles.readingContentArea} ref={contentAreaRef} onScroll={handleScroll}>
           {contentLoading ? (
             <div className={styles.contentBlock}>
               <p>加载中…</p>
@@ -387,9 +352,7 @@ export function ReadingMode() {
             <div className={styles.contentBlock}>
               {chapters.map((ch) => {
                 const content = chaptersContent[ch.id];
-                const readable = content
-                  ? normalizeChapterContentTitle(content, ch)
-                  : null;
+                const readable = content ? normalizeChapterContentTitle(content, ch) : null;
 
                 return (
                   <div

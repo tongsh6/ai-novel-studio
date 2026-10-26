@@ -20,10 +20,6 @@ export interface LongRunState {
   checkpointReason: string | null;
 }
 
-export type ProjectionRefreshStatus = "FRESH" | "STALE" | "REBUILDING" | "FAILED" | null;
-
-export type PendingBuildAction = "refresh_projection" | "retry_projection" | null;
-
 export interface AgentFeedback {
   severity: "none" | "info" | "warning" | "error";
   activeCount: number;
@@ -46,12 +42,6 @@ interface AppState {
   // Risk / Quality Findings
   feedback: AgentFeedback;
   setFeedback: (feedback: Partial<AgentFeedback>) => void;
-
-  // Projection (VS-005)
-  projectionStatus: ProjectionRefreshStatus;
-  setProjectionStatus: (status: ProjectionRefreshStatus) => void;
-  pendingBuildAction: PendingBuildAction;
-  setPendingBuildAction: (action: PendingBuildAction) => void;
 
   // Channel reference (set by WorkspaceChat on connect)
   channel: Channel | null;
@@ -91,11 +81,6 @@ export const useAppStore = create<AppState>((set) => ({
     message: null,
   },
   setFeedback: (fb) => set((state) => ({ feedback: { ...state.feedback, ...fb } })),
-
-  projectionStatus: null,
-  setProjectionStatus: (status) => set({ projectionStatus: status }),
-  pendingBuildAction: null,
-  setPendingBuildAction: (action) => set({ pendingBuildAction: action }),
 
   channel: null,
   setChannel: (ch) => set({ channel: ch }),

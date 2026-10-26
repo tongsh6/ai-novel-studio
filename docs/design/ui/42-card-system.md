@@ -152,3 +152,12 @@ UI 不得把 `next_action`、`action_type` 和按钮中文文案混成同一个�
 2. 绝对没有新增 VS-05 §4 之外的 card type，或 `07-workbench-ui-contract.md` §5 之外的 action type。
 3. 卡片状态（如是否完成、是否挂起）必须从 TurnResult、task state、artifact state、adoption state 或 projection state 中读取，不得自造 `card.status`。
 4. UI 无法映射的场景，必须先修改当前设计 contract / ADR，不允许在组件里临时命名。
+
+
+## 分段方案的预览（ADR-0029）
+
+沿用 §3 candidate_set 与 42§4-adoption-card-states（PZAVY）的待采纳布局。
+`artifact_type=prose_formatting_plan` 时，先显示模型方案说明/理由，再显示独立标注“排版预览”的
+完整正文，最后提供“应用分段方案 / 放弃分段方案”。预览为只读的 `formatting_preview`，
+不替代模型 item.body；不展示“编辑正文后保存”，调整方案通过对话进行。
+文案集中于 copy.ts，动作仍只来自 available_actions；没有新增卡型、隐藏标记或验收入口。

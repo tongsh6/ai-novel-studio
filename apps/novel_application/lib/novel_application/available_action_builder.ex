@@ -93,11 +93,16 @@ defmodule NovelApplication.AvailableActionBuilder do
     artifact_set
     |> TentativeArtifactSet.adoptable_units()
     |> Enum.flat_map(fn unit ->
-      [
+      actions = [
         artifact_action(artifact_set, unit, "accept", "artifact.accept"),
-        artifact_action(artifact_set, unit, "discard", "artifact.discard"),
-        artifact_action(artifact_set, unit, "edit_then_accept", "artifact.edit_then_accept")
+        artifact_action(artifact_set, unit, "discard", "artifact.discard")
       ]
+
+      if to_string(artifact_set.artifact_type) == "prose_formatting_plan",
+        do: actions,
+        else:
+          actions ++
+            [artifact_action(artifact_set, unit, "edit_then_accept", "artifact.edit_then_accept")]
     end)
   end
 

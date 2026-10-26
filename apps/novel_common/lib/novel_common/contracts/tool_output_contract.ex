@@ -12,6 +12,7 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     :outline_draft,
     :scene_draft,
     :prose_fragment,
+    :prose_formatting_plan,
     :world_setting,
     :foreshadowing_seed,
     :world_rule_seed,
@@ -83,6 +84,17 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     {:error,
      %{code: "invalid_items", message: "creative tool output items must be a non-empty list"}}
   end
+
+  @doc "ADR-0029：分段方案只有一项，必须携带换行计划，不产生伴生事实。"
+  def validate_artifact_shape(type, items, companions)
+      when type in [:prose_formatting_plan, "prose_formatting_plan"] do
+    case {items, companions} do
+      {[%{line_break_changes: [_ | _]}], []} -> :ok
+      _ -> invalid_formatting_plan()
+    end
+  end
+
+  def validate_artifact_shape(_type, _items, _companions), do: :ok
 
   @doc """
   Validate the optional seed items emitted alongside one prose fragment.
@@ -208,7 +220,8 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   defp normalize_item(raw) when is_map(raw) do
     with {:ok, item_id} <- fetch_string(raw, :item_id),
          {:ok, title} <- fetch_string(raw, :title),
-         {:ok, body} <- fetch_string(raw, :body) do
+         {:ok, body} <- fetch_string(raw, :body),
+         {:ok, changes} <- normalize_line_break_changes(map_get(raw, :line_break_changes)) do
       rationale = map_get(raw, :rationale)
 
       item = %{
@@ -218,12 +231,33 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
         rationale: if(is_binary(rationale), do: rationale, else: nil)
       }
 
+      item = if is_nil(changes), do: item, else: Map.put(item, :line_break_changes, changes)
       {:ok, item |> put_optional_fields(raw) |> put_skeleton_suggestion(raw)}
     end
   end
 
   defp normalize_item(_raw) do
     {:error, %{code: "invalid_item", message: "creative item must be a map"}}
+  end
+
+  defp normalize_line_break_changes(nil), do: {:ok, nil}
+
+  defp normalize_line_break_changes(changes) when is_list(changes) do
+    Enum.reduce_while(changes, {:ok, []}, fn change, {:ok, acc} ->
+      with true <- is_map(change) and map_size(change) == 2,
+           id when is_binary(id) and id != "" <- map_get(change, :boundary_id),
+           lines when is_integer(lines) and lines in [0, 1, 2] <- map_get(change, :lines) do
+        {:cont, {:ok, acc ++ [%{boundary_id: id, lines: lines}]}}
+      else
+        _ -> {:halt, invalid_formatting_plan()}
+      end
+    end)
+  end
+
+  defp normalize_line_break_changes(_), do: invalid_formatting_plan()
+
+  defp invalid_formatting_plan do
+    {:error, %{code: "invalid_formatting_plan", message: "分段方案须含一个条目及有效换行计划，不允许伴生产物"}}
   end
 
   # 可选结构化键统一走重建式白名单 opt-in（非 I1 约束字段，I1 只校验

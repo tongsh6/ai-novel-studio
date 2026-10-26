@@ -20,7 +20,15 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   }
 
   alias NovelCommon.Contracts.ToolRequest
-  alias NovelDomain.{AuthorActionInput, DialogueFrame, MicroPlan, OrchestratorDecision}
+
+  alias NovelDomain.{
+    AuthorActionInput,
+    DialogueFrame,
+    MicroPlan,
+    OrchestratorDecision,
+    ProseFormatting
+  }
+
   alias NovelFoundation.Enums.AdoptionStatus, as: Status
   require NovelCommon.LogEmit, as: LogEmit
 
@@ -35,6 +43,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   @adopted_revision_types ~w(world_setting world_rule_seed style_rule_seed constraint_seed prose_fragment)
   @revision_tools %{
     "prose_fragment" => "prose_writing",
+    "prose_formatting_plan" => "prose_writing",
     "outline_draft" => "plot_outline",
     "character_seed" => "character_design",
     "world_setting" => "world_building",
@@ -505,19 +514,20 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   # B28 CP1.5：章级修订（chapter-scoped）——从已采纳正文事实构造 chapter task，
   # writer 输入含覆盖顺序的整章正文；候选 payload 携带 adoption_effect/format_only base_text。
-  defp revise_chapter(judgment, input, run, context, provider) do
+  defp revise_chapter(judgment, input, run, context, provider, opts \\ []) do
     chapter_ref = field(judgment, :adopted_content_ref)
     work_id = run.work_id || run.workspace_id
     frame = frame(judgment, input, run, :execution_candidate, chapter_ref)
 
     chapter_title = chapter_revision_title(work_id, chapter_ref)
-    modification_scope = chapter_modification_scope(run, judgment)
+    modification_scope = Keyword.get(opts, :modification_scope, chapter_modification_scope(run))
 
     with {:ok, snapshot} <- WorkSessionService.show(work_id, run.session_id),
          false <- snapshot.read_only,
          :ok <- check_chapter_authority(run),
          :ok <- check_budget(run, "revise_adopted_content"),
          {:ok, facts} <- chapter_revision_facts(work_id, chapter_ref),
+         {:ok, revision_scope} <- b36_revision_scope(facts, modification_scope, run),
          {:ok, task} <-
            build_chapter_revision_task(facts, modification_scope, run, frame, judgment) do
       tool = "prose_writing"
@@ -532,10 +542,12 @@ defmodule NovelApplication.PendingArtifactWorkflow do
           tool: tool,
           task: task,
           facts: facts,
+          revision_scope: revision_scope,
           modification_scope: modification_scope,
           chapter_title: chapter_title,
           judgment: judgment,
-          run: run
+          run: run,
+          previous_plan: Keyword.get(opts, :previous_plan)
         })
 
       result = AuthorizedToolExecutor.execute(request, provider)
@@ -553,38 +565,44 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
       decision = %{decision | decision_trace_ref: trace.trace_id}
 
-      case ArtifactAssembler.assemble(result, frame.turn_id, %{
-             revision_base: chapter_ref,
-             revision_reason: run.goal.text,
-             target_chapter: chapter_title,
-             target_chapter_ref: chapter_ref
-           }) do
-        {:ok, artifact} ->
-          visible_title = chapter_candidate_title(chapter_title, modification_scope)
+      with {:ok, artifact} <-
+             ArtifactAssembler.assemble(result, frame.turn_id, %{
+               revision_base: chapter_ref,
+               revision_reason: run.goal.text,
+               target_chapter: chapter_title,
+               target_chapter_ref: chapter_ref
+             }),
+           {:ok, payload} <-
+             validated_chapter_payload(
+               facts,
+               modification_scope,
+               chapter_ref,
+               chapter_title,
+               revision_scope,
+               artifact
+             ),
+           :ok <- ensure_formatting_adjusted(payload, Keyword.get(opts, :previous_plan)) do
+        visible_title = chapter_candidate_title(chapter_title, modification_scope)
 
-          turn_result =
-            TurnResultBuilder.build(
-              frame,
-              summary,
-              [],
-              decision,
-              result,
-              artifact,
-              behavior,
-              %{
-                candidate_title: visible_title,
-                pending_payload:
-                  b28_candidate_payload(
-                    facts,
-                    modification_scope,
-                    chapter_ref,
-                    visible_title,
-                    b36_revision_scope(facts, modification_scope, run)
-                  )
-              }
-            )
+        turn_result =
+          TurnResultBuilder.build(
+            frame,
+            summary,
+            [],
+            decision,
+            result,
+            artifact,
+            behavior,
+            %{
+              candidate_title: visible_title,
+              pending_payload: payload
+            }
+          )
 
-          finish(turn_result, trace, context, input, run, "revise_chapter", chapter_ref, 1)
+        finish(turn_result, trace, context, input, run, "revise_chapter", chapter_ref, 1)
+      else
+        {:error, {:formatting_plan_invalid, reason}} ->
+          {:error, {:pending_artifact_invalid, reason}}
 
         {:error, _reason} ->
           failed_revision(trace, context, input, run, tool)
@@ -631,10 +649,9 @@ defmodule NovelApplication.PendingArtifactWorkflow do
 
   defp target_chapter_title(_target, _chapter_ref), do: nil
 
-  # 判断/计划只能选到章目标（chapter_ref，无 schema 字段）；范围由本轮作者原话 +
-  # 判断 dialogue_goal 的确定性措辞解析（不做模型关键词猜测的语义改写）。
-  defp chapter_modification_scope(run, judgment) do
-    text = to_string(run.goal.text || "") <> " " <> to_string(judgment.dialogue_goal || "")
+  # 修改范围属于作者授权。模型的dialogue_goal用于解释，不能因“非整章”等措辞扩大范围。
+  defp chapter_modification_scope(run) do
+    text = to_string(run.goal.text || "")
 
     cond do
       Regex.match?(
@@ -654,7 +671,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp build_chapter_revision_task(facts, modification_scope, run, frame, judgment) do
     preserve =
       if modification_scope == :format_only,
-        do: ["只调整标点/分段/排版，不改变字句"],
+        do: ["只提出换行计划，文字、空格、标点及其他非换行字节全部不变"],
         else: []
 
     attrs = %{
@@ -668,7 +685,8 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       author_words: run.goal.text,
       source: %{kind: :author_action, ref: run_ref(run, frame)},
       source_refs: [run_ref(run, frame), "turn:" <> frame.turn_id],
-      preserve: preserve
+      preserve: preserve,
+      output_contract: chapter_output_contract(modification_scope)
     }
 
     case AuthoringTaskBuilder.for_chapter_revision(attrs) do
@@ -676,6 +694,17 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       {:error, reason} -> {:error, {:authoring_task_invalid, reason}}
     end
   end
+
+  defp chapter_output_contract(:format_only) do
+    AuthoringTaskBuilder.output_contract(:json,
+      schema_ref: "prose_formatting_plan_v1",
+      artifact_type: :prose_formatting_plan,
+      required_keys: ["items", "item_id", "title", "body", "line_break_changes"],
+      allow_companions: false
+    )
+  end
+
+  defp chapter_output_contract(_), do: nil
 
   defp chapter_author_goal(judgment) do
     case judgment.dialogue_goal do
@@ -713,6 +742,7 @@ defmodule NovelApplication.PendingArtifactWorkflow do
       tool: tool,
       task: task,
       facts: facts,
+      revision_scope: revision_scope,
       modification_scope: modification_scope,
       chapter_title: chapter_title,
       judgment: judgment,
@@ -732,9 +762,15 @@ defmodule NovelApplication.PendingArtifactWorkflow do
         "context_text" =>
           "#{chapter_title}当前已采纳正文（覆盖顺序：scene seq 升序，片段之间以空行分隔）：
 " <>
-            facts.base_text,
+            facts.base_text <>
+            revision_target_context(facts, modification_scope, revision_scope) <>
+            previous_formatting_plan(Map.get(request_context, :previous_plan)),
         "revision" => chapter_revision_instruction(modification_scope),
-        "artifact_type" => "prose_fragment"
+        "artifact_type" =>
+          if(modification_scope == :format_only,
+            do: "prose_formatting_plan",
+            else: "prose_fragment"
+          )
       }
       |> Map.merge(AuthoringTaskBuilder.to_input(task))
 
@@ -755,9 +791,53 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     }
   end
 
+  defp revision_target_context(facts, :target_segments, {ids, _, _, _}) do
+    targets =
+      facts.base_text
+      |> NovelPersistence.LocalizedRevision.segment()
+      |> Enum.filter(&(&1.segment_id in ids))
+      |> Enum.map(fn segment ->
+        {text, _separator} = NovelPersistence.LocalizedRevision.split_segment_raw(segment.raw)
+        %{segment_id: segment.segment_id, sha256: segment.sha256, text: text}
+      end)
+
+    "\n\n## 本轮局部修订目标段\n" <> Jason.encode!(targets)
+  end
+
+  defp revision_target_context(facts, :format_only, _binding) do
+    view = ProseFormatting.view(facts.base_text)
+
+    "\n\n## 可选换行边界（绑定当前章版本）\n" <>
+      Jason.encode!(Map.take(view, [:source_hash, :boundaries]))
+  end
+
+  defp revision_target_context(_facts, _scope, _binding), do: ""
+
+  defp previous_formatting_plan(nil), do: ""
+
+  defp previous_formatting_plan(payload) do
+    # 调整的基线是实际换行选择。旧说明/理由（可能要求合段）不再混入新任务，
+    # 避免与作者当前拆段要求竞争；原始模型字段仍完整保留在原候选与trace中。
+    [item] = field(payload, :items)
+
+    "\n\n## 待调整的原分段方案：换行选择（历史材料，本轮作者调整要求优先）\n" <>
+      Jason.encode!(field(item, :line_break_changes)) <>
+      "\n这些是原方案相对canon的换行选择，不是本轮指令。结合作者当前要求重新选择，" <>
+      "输出最终完整计划（仍以当前canon为源，不能只输出相对旧计划的差量）。" <>
+      "本轮方案说明和理由须针对新的调整要求；复制原安排或只修改标题/说明，不算完成调整。"
+  end
+
+  defp ensure_formatting_adjusted(_payload, nil), do: :ok
+
+  defp ensure_formatting_adjusted(payload, previous) do
+    if field(payload, :formatting_preview) == field(previous, :formatting_preview),
+      do: {:error, {:formatting_plan_invalid, :no_formatting_changes}},
+      else: :ok
+  end
+
   defp chapter_revision_instruction(:format_only) do
-    "本轮为整章仅排版修订（format_only）：按覆盖顺序输出整章完整候选，覆盖全部片段；" <>
-      "只调整分段/标点/排版，不改变任何字句；应用会做空白归一后的字节等价校验；不得续写或只输出改动片段。"
+    "本轮为整章仅排版（format_only）：按完整章正文判断阅读节奏，只返回换行计划；" <>
+      "从可选边界复制ID，以lines指定换行数。至少实际改变一处，所有非换行字节由系统逐字保留。"
   end
 
   defp chapter_revision_instruction(:target_segments) do
@@ -776,42 +856,117 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp modification_scope_label(:target_segments), do: "指定片段修订"
 
   defp chapter_candidate_title(chapter_title, :format_only),
-    do: "#{chapter_title}（整章排版修订稿）"
+    do: "#{chapter_title}（分段方案）"
+
+  defp chapter_candidate_title(chapter_title, :target_segments),
+    do: "#{chapter_title}（指定段落修订稿）"
 
   defp chapter_candidate_title(chapter_title, _scope),
     do: "#{chapter_title}（整章内容修订稿）"
 
-  # B36 CP1：候选生成时确定 target segment ids（按作者范围：第一段/第N段/开头/结尾/整章）。
-  # 无法解析出目标段时返回 []，采纳侧会以 incomplete_scope 拒绝（不猜）。
+  # B28/B36：writer调用前绑定目标段；同一份id/hash用于输入与候选，不把空目标留到采纳才拒绝。
   defp b36_revision_scope(facts, modification_scope, run) do
     segments = NovelPersistence.LocalizedRevision.segment(facts.base_text)
     all_ids = Enum.map(segments, & &1.segment_id)
 
-    ids =
+    result =
       case modification_scope do
-        :whole_chapter -> all_ids
-        :format_only -> all_ids
+        :whole_chapter -> {:ok, all_ids}
+        :format_only -> {:ok, all_ids}
         :target_segments -> target_ids_from_author_text(segments, run.goal.text)
       end
 
-    hashes =
-      segments
-      |> Enum.filter(&(&1.segment_id in ids))
-      |> Enum.map(&%{"segment_id" => &1.segment_id, "sha256" => &1.sha256})
+    with {:ok, ids} <- result do
+      hashes =
+        segments
+        |> Enum.filter(&(&1.segment_id in ids))
+        |> Enum.map(&%{"segment_id" => &1.segment_id, "sha256" => &1.sha256})
 
-    first = List.first(facts.materials) || %{}
-    {ids, Map.get(first, :ref), Map.get(first, :version), hashes}
-  end
-
-  defp target_ids_from_author_text(segments, text) when is_binary(text) do
-    cond do
-      Regex.match?(~r/开头|第一段/u, text) -> first_id(segments)
-      Regex.match?(~r/最后一段|结尾/u, text) -> last_id(segments)
-      true -> ordinal_target_ids(segments, text)
+      first = List.first(facts.materials) || %{}
+      {:ok, {ids, Map.get(first, :ref), Map.get(first, :version), hashes}}
     end
   end
 
-  defp target_ids_from_author_text(_segments, _text), do: []
+  defp target_ids_from_author_text(segments, text) when is_binary(text) do
+    ordinal =
+      cond do
+        Regex.match?(~r/开头|第一段/u, text) -> first_id(segments)
+        Regex.match?(~r/最后一段|结尾/u, text) -> last_id(segments)
+        true -> ordinal_target_ids(segments, text)
+      end
+
+    if ordinal == [] and Regex.match?(~r/开头|结尾|第\s*([0-9]+|[一二三四五六七八九十]+)\s*段/u, text) do
+      {:error, :target_missing}
+    else
+      reconcile_revision_target(ordinal, literal_revision_target(segments, text))
+    end
+  end
+
+  defp target_ids_from_author_text(_segments, _text), do: {:error, :incomplete_scope}
+
+  defp reconcile_revision_target(ordinal, literal_target) do
+    case literal_target do
+      :none when ordinal != [] -> {:ok, ordinal}
+      :none -> {:error, :incomplete_scope}
+      {:ok, ids} when ordinal == [] or ordinal == ids -> {:ok, ids}
+      {:ok, _ids} -> {:error, :target_ambiguous}
+      {:error, _} = error -> error
+    end
+  end
+
+  # 精确字词替换只认一个明确源文本；不截取近似后缀、不在重复命中里猜第一处。
+  defp literal_revision_target(segments, text) do
+    case Regex.scan(~r/改成|改为|替换为|替换成/u, text) do
+      [] -> :none
+      [_] -> locate_revision_literal(segments, revision_literal(text))
+      _ -> {:error, :target_ambiguous}
+    end
+  end
+
+  defp revision_literal(text) do
+    case Regex.run(~r/[「“"『](.+?)[」”"』]\s*(?:改成|改为|替换为|替换成)/su, text) do
+      [_, literal] ->
+        literal
+
+      _ ->
+        text
+        |> String.split(~r/改成|改为|替换为|替换成/u, parts: 2)
+        |> hd()
+        |> String.split(~r/[，,；;。！？!?\n]/u)
+        |> List.last()
+        |> String.trim()
+        |> String.replace(~r/^(?:(?:把|将)\s*)?.*?(?:正文|文本)(?:里|中)的?/u, "")
+        |> String.replace(~r/^(?:把|将)\s*/u, "")
+        |> String.trim()
+    end
+  end
+
+  defp locate_revision_literal(_segments, ""), do: {:error, :target_missing}
+
+  defp locate_revision_literal(segments, literal) do
+    base = Enum.map_join(segments, & &1.raw)
+
+    case :binary.match(base, literal) do
+      :nomatch ->
+        {:error, :target_missing}
+
+      {offset, _length} ->
+        remaining = {offset + 1, byte_size(base) - offset - 1}
+
+        case :binary.match(base, literal, scope: remaining) do
+          :nomatch -> unique_literal_segment(segments, literal)
+          _ -> {:error, :target_ambiguous}
+        end
+    end
+  end
+
+  defp unique_literal_segment(segments, literal) do
+    case Enum.filter(segments, &String.contains?(&1.raw, literal)) do
+      [segment] -> {:ok, [segment.segment_id]}
+      [] -> {:error, :target_missing}
+      _ -> {:error, :target_ambiguous}
+    end
+  end
 
   defp first_id([%{segment_id: id} | _]), do: [id]
   defp first_id(_segments), do: []
@@ -826,15 +981,21 @@ defmodule NovelApplication.PendingArtifactWorkflow do
   defp ordinal_target_ids(segments, text) do
     case Regex.run(~r/第\s*([0-9]+|[一二三四五六七八九十]+)\s*段/u, text) do
       [_, raw] ->
-        case Enum.at(segments, ordinal_to_index(raw)) do
-          nil -> []
-          seg -> [seg.segment_id]
-        end
+        ordinal_id_at(segments, ordinal_to_index(raw))
 
       _ ->
         []
     end
   end
+
+  defp ordinal_id_at(segments, index) when index >= 0 do
+    case Enum.at(segments, index) do
+      nil -> []
+      segment -> [segment.segment_id]
+    end
+  end
+
+  defp ordinal_id_at(_segments, _index), do: []
 
   defp ordinal_to_index(raw) when raw in ["一", "1"], do: 0
   defp ordinal_to_index(raw) when raw in ["二", "2"], do: 1
@@ -851,6 +1012,35 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     case Integer.parse(raw) do
       {n, _} -> n - 1
       :error -> 0
+    end
+  end
+
+  defp validated_chapter_payload(facts, scope, ref, title, binding, artifact) do
+    payload =
+      b28_candidate_payload(facts, scope, ref, chapter_candidate_title(title, scope), binding)
+
+    if scope == :format_only do
+      [item] = artifact.items
+      changes = field(item, :line_break_changes)
+      source_hash = ProseFormatting.source_hash(facts.base_text)
+
+      case ProseFormatting.apply_plan(facts.base_text, source_hash, changes) do
+        {:ok, preview} ->
+          effect =
+            Map.merge(payload.adoption_effect, %{
+              "mode" => "format_paragraphs",
+              "source_hash" => source_hash,
+              "line_break_changes" => changes,
+              "preview_hash" => preview.result_hash
+            })
+
+          {:ok, Map.merge(payload, %{adoption_effect: effect, formatting_preview: preview.text})}
+
+        {:error, reason} ->
+          {:error, {:formatting_plan_invalid, reason}}
+      end
+    else
+      {:ok, payload}
     end
   end
 
@@ -1055,7 +1245,27 @@ defmodule NovelApplication.PendingArtifactWorkflow do
     end
   end
 
-  defp revise(judgment, _source, entry, input, run, context, provider) do
+  defp revise(judgment, source, entry, input, run, context, provider) do
+    if to_string(field(entry, :artifact_type)) == "prose_formatting_plan" do
+      payload = field(entry, :payload) || %{}
+      chapter_ref = field(entry, :target_chapter_ref) || field(payload, :target_chapter_ref)
+
+      judgment =
+        Map.merge(judgment, %{
+          capability: "revise_adopted_content",
+          adopted_content_ref: chapter_ref
+        })
+
+      revise_chapter(judgment, input, run, context, provider,
+        modification_scope: :format_only,
+        previous_plan: payload
+      )
+    else
+      revise_content(judgment, source, entry, input, run, context, provider)
+    end
+  end
+
+  defp revise_content(judgment, _source, entry, input, run, context, provider) do
     ref = field(entry, :artifact_id)
     tool = revision_tool(entry)
     frame = frame(judgment, input, run, :execution_candidate, ref)

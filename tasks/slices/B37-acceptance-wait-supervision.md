@@ -1,6 +1,7 @@
 # B37 验收等待与故障监督优化（消除空等）
 
-- 状态：**done（2026-10-25，CP0–CP5；canonical-3e 使用）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动后暴露**真实模型预算不匹配**（input30s×2 / turn120s 对续写不足→重复发送），已停止并记为 attempt2；**CP3** 按 provider 校准预算（strata/lmstudio: input120/turn360/candidate300/adoption180/maintenance300…）+ turn 超时不重发同指令；canonical-3c 待 CP3 后 fresh 跑。
+- 状态：**doing（2026-10-25，原生监督已验证，资源归属清理待P1闭环）**。TERM10.314秒、外部failure首因保留及B31原生A4正常EXIT/0已通过；真实模型的本批归属记录/两运行时清理仍待P1，作者手动实例保持。
+- 原收口记录：**done（2026-10-25，CP0–CP5；canonical-3e 使用）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动后暴露**真实模型预算不匹配**（input30s×2 / turn120s 对续写不足→重复发送），已停止并记为 attempt2；**CP3** 按 provider 校准预算（strata/lmstudio: input120/turn360/candidate300/adoption180/maintenance300…）+ turn 超时不重发同指令；canonical-3c 待 CP3 后 fresh 跑。
 - 类型：验收 harness 可靠性（不新增产品能力；runner/launcher/监督与证据）
 - 来源：canonical-1/2/3 运行证据；B33 CP3/B35 CP3b/B36 CP3 scoped replay；用户 2026-10-25 指令
 - 关联：P1-AUTHORING-DOGFOOD、B36、`frontend/slice-verify/dogfood-runner.mjs`、`scripts/dogfood_run.sh`
@@ -91,3 +92,72 @@
 - CP5 提交 `0476f299`：通用 author_question 应答（options/free-text，bounded ≤2；不 cancel/readToc/重发；无问题文本/重复→`author_question_unresolved` fatal）；dry-run 全 PASS（free/options→prose 555 字；repeat/no-text bounded；正常 10 章+维护 5/5；故障注入不回归）。
 - canonical-3e final：detached 两阶段 EXIT0；wait **59 waits/1,433,314ms/0 timeouts**；无重复 instruction；author_question_events=0（本批未触发，机制武装）；failure/termination 证据齐。
 - 结论：B37 等待/预算/防重发/作者问答/进程隔离在真实长跑验证；后续长跑复用 detached launcher。
+
+### 2026-10-25 完成审计：实际驱动与资源证据补口
+
+作者选择保留原生标准。当前 dogfood-runner 实际执行 `chromium.launch({headless:true})`，但 summary 写 `surface=tauri`；需在后续原生补验前修正 producer 为实际 driver，并保留原报告只读。canonical-3e 的监督/等待/产品链证据有效，不能当原生窗口证据。B31→B28→B30→B29→P1 补验复用原矩阵，不改断言；原生外部 driver 也须遵守独立进程监督、10s 心跳、分型预算与 failure/termination 记录。
+
+资源实际收尾证据在 `artifacts/completion-audit/20261025-1817/`：LM空，Strata loaded空及 native instances空。现有 detached脚本只卸载LM，不覆盖Strata native；下一实现步把两套状态检查纳入其退出路径。此为 harness 资源约束，不改产品加载/模型选择能力，不扩成全局模型管理系统。
+
+#### 原生补验 harness CP0 预注册（作者裁决后，2026-10-25）
+
+- Contract：沿用 AGENTS 场景红线、B26 实际 surface/driver 分类，以及 B37 分型等待/独立监督契约；不改变 B31 等场景的通过判据或 wire schema。
+- Invariant：浏览器与原生证据不能混标；没有真实源动作/持久结果不能完成；超时不重发原指令；失败批次不覆盖；长跑不依赖工具 job 生命周期；退出后两种模型运行时均为空。
+- Boundary/Consumer：仅 scripts、frontend/slice-verify 外部 harness、quality/任务证据；产品 apps/lib 与 frontend/src 不识别任何新验收开关。首消费者为 B31 原生五 trial，随后 B28/B30/B29/P1；复用既有 detached 监督能力，不另建平行任务/状态树。
+- Proof/Driver：CUA 真实原生窗口的可见控件操作，外部 WS 代理/公开只读 API/app日志对账；原有浏览器完整矩阵保留。B31 明确允许的 T3/T4/T5 协议 seed 仅用于构造前提，被测输入来自原生 UI。验收感知产品逻辑 no；非要素物化，Exploration 不适用。
+- 首批预算：确定性 slice_verify，真实模型调用=0；复用其 input/ack/turn/candidate/adoption/maintenance/export 分型预算（30/30/120/120/90/180/60秒），每10秒heartbeat。等待/进程异常写 failure.json 并结束该批，不把缺结果当作无事发生。同一失败类型两次后升级，不修断言换通过。
+- 每批新 artifact tag、独立 DB/profile，失败目录只读；首批进入前记录源码HEAD、模型为空、预算和所用矩阵版本。原生补验不是重新评语义分数，不运行 B27全量 retest 或未预注册的P1长跑。
+
+- 完成审计复核补记：首次卸载后已验证 LM=[]；门禁结束后的复核又见 idle embedding 驻留，尚未确认重新加载来源，不能归因于测试或某个用户应用。18:27 再执行一次 post-gate unload 并验证为空，保存 `lms-postgate-{unload.log,after.json}`。后续资源守卫应把“退出时仍驻留/复核重新出现”作为失败事实报告；不擅自关闭全局自动加载或停止未知消费者。
+
+- 作者随后澄清（2026-10-25 18:29）：当前模型由作者手动装载。该实例归作者使用，保留，不继续全局 unload；此前“未知重载”不再作为自动重载缺陷推断。后续 harness 记录加载前快照和自身创建/使用的实例身份，只清理本次拥有的模型；已有作者实例存在时，确定性 slice_verify 继续零真实调用，真实模型任务另待单槽资源协调。退出报告区分“harness 已清理”与“作者保留实例”，不得将后者隐瞒为全局空。
+
+- 原生 A1 揭露监督缺口：外部 failure.json 未被等待器立即消费，后来 idle timeout 覆盖了首因；显式 STOP 时父 shell 同步等子 shell 清理，30s后被KILL，缺termination。已修正等待器优先消费并保留首个 failure（测试5/0），监督用后台子进程+wait让信号 trap及时记录退出。A1 的实际失败经过与缺失termination如实保留，未补写伪造成功记录；停止工具输出为TERM后KILL。后续在A2复核退出记录。
+
+- 作者批准“先验监督退出，再 scoped 复验”后：外部 failure 注入探针通过（原原因保留、EXIT/1、端口释放）；TERM探针 `b37-native-term-probe-20261025/` 仍失败：父进程11:01:03已TERM/143，子watchdog直到11:02:08的idle timeout才退出（>30s）。新根因定位到 tauri_slice_verify 原生分支同步等待前台Node，Bash延后TERM trap。已改为UI_DRIVER_PID后台任务+builtin wait，语法/等待账本5测试通过；未宣称TERM路径已复验通过。子进程最终已清理，未动作者模型。预算耗尽，下一次TERM复验及产品批次待作者裁决；细节 `artifacts/slice-verify/b31-native-repair-20261025/term-probe-failure.json`。
+
+- 运行指纹：detached meta 现记录当前工作区实际runner/test-support源码sha，并在本批runner-source保存副本，避免只记录HEAD而遗漏未提交修复。原生已失败/已运行目录拒绝复用；preflight失败写failure。dogfood browser producer现如实写 surface=browser/driver=headless-chromium，原历史报告未改。当前新增代码仍受B31原生proof门禁阻断，未标完成。
+
+#### TERM修复复验预注册（2026-10-25 20:38）
+
+- 愿景依据：可审计与契约优先要求监督真实退出，不以父进程先退出代替资源清理。作者最新授权先据愿景判断工程事项；本次不更改验收标准。
+- 范围/预算：仅一次native-slice监督退出探针，slice_verify，真实模型调用0；服务ready后主动stop一次，以发出stop至所属进程及4657/5769/4661端口全部释放的实际耗时≤30秒为通过，termination必须TERM/143。无产品输入，不作B31场景通过。
+- 证据：`artifacts/slice-verify/b37-native-term-probe-20261025-final/`，独立DB与源码指纹；所有旧失败批次保持只读。仍失败则停止本批，不扩大预算。通过后才进入B31 A3已接受矩阵；作者手动加载模型保留。
+
+- TERM复验通过：`b37-native-term-probe-20261025-final/term-verification.json`，2026-10-25T12:39:16Z发出stop，TERM/143即时记录；4.038秒端口全部释放，10.314秒全部已归属进程消失，≤30秒。未输入产品请求、真实模型调用0，作者模型保留。此证据关闭原生TERM退出缺口，不代表B31页面矩阵完成。
+
+- B31 A4正常退出证据：五场景/7条绑定问答、47 waits/0超时，独立监督EXIT/0，端口及所属进程已清理。source snapshot含实际CharacterProfile修复；其余模型归属清理仍为P1前置，不能因确定性批次通过即销账。
+
+- B28实模执行修正：原生等待按实际provider复用已校准预算（input120/turn360/candidate300/adoption180/maintenance300）；等待器6项测试通过。CUA辅助闭包跨批保留旧路径的问题属于驱动调用：后续每条journal显式传dir/id，不复用捕获运行状态的闭包。原错误及R2首因覆盖已在B28记录并保留审计；不伪造零超时。UI测量结束后立即关闭本批服务，离线验算在服务停机后执行，避免分析阶段占用idle预算。
+
+
+## R3原生重开资源归属缺口（2026-10-26，CP0）
+
+B28格式R3的8个分型等待全部结束，最后UI动作后detached stop成功（TERM/143）且测试端口释放。
+但原生关闭/重开后，应用成为launchd子进程（PPID1），不在原detached进程树中：PID25701，
+完整可执行路径位于`b28-format-native-20261026-r3/run/AI Novel Studio.app/Contents/MacOS/native-app`。
+已核对该精确路径后只对该PID发送TERM，115ms退出，未动作者模型或其他应用。
+证据：同批`run/resources-after.json`、`run/reopened-app-cleanup.json`、`termination.json`。
+
+后续需让本批唯一可执行路径/实例身份随原生重开继续受监督，停止时覆盖归属已验证的重开进程；
+不得扩大为按应用名或模型全局清理。当前仅CP0与精确补清理，自动回收机制未修复，P1前必须闭环。
+
+
+- 修复契约：本批独立.app的精确可执行路径是跨重开的归属标识；清理前重新读取PID command核验，只对匹配PID发送TERM，3秒后仍匹配才KILL，总预算5秒；不按应用名或launchd进程组清理。入口仍是tauri_slice_verify的cleanup，产出native-app-cleanup.json；产品代码/模型生命周期不变。
+- 复验预注册：下一次B28原生修复复验中实际关闭/重开窗口，最后stop后核对精确路径匹配进程为空、端口释放、termination及清理日志；不额外调用模型测试监督。旧R3手工补清理证据保留。
+
+- R4首次真实回收：恢复计时超时后cleanup精确匹配重开进程PID35481（PPID1），自动TERM，142ms内remaining=[]；后端端口随监督退出。此证明跨launchd归属回收有效，R4产品读取修复已观测，但驱动漏finish导致全批EXIT1，不能冒充正常成功收尾。失败后getAXState重开出的本批窗口另行精确清理，审计在`b28-reading-repair-20261026/checks/r4-driver-audit.json`；原失败报告不覆盖。
+
+- R5独立故障：恢复计时682ms已正常结束；约122秒后被监督的pnpm Tauri开发进程38309消失。现有日志没有退出来源，不能断言是谁终止。外部wrapper与原开发窗口共用com.ai-novel-studio.app，无法保证系统自动化按app身份只绑定wrapper，是已确认的归属歧义。
+- 外部wrapper改为每批唯一CFBundleIdentifier（仍同一未修改产品二进制，生产tauri.conf.identifier不动）；ready元数据记录bundle_identifier。下一步仅一次0真实模型监督探针：实际关闭/重开wrapper，之后核对原开发进程与端口持续存活140秒（maintenance300预算、10秒心跳），再stop核对唯一可执行路径进程为空。目录`artifacts/slice-verify/b37-native-identity-20261026/`，不是产品验收或模型重试。
+
+- 单独改wrapper bundle id的探针未通过：系统自动化无法打开该改名身份（procNotFound），准备预算到期退出，真实模型0。证据保留，不再沿此方向重试；wrapper身份恢复产品原identifier。
+- 收敛启动方式：原生模式改为`pnpm tauri build --debug --no-bundle`嵌入当前前端资源，标准端点env/CSP overlay指向隔离后端/外部代理；只由CUA启动独立原生.app，不同时运行另一个tauri dev窗口/Vite树。监督保持后端/代理liveness，并按本批精确可执行路径观察原生进程；仅首次启动与显式restore允许短暂缺席。生产identifier、窗口和业务逻辑不变，无验收钩子。
+- 先做一次0真实模型独立原生启动/重开/停止验证（`b37-native-standalone-20261026`），再考虑T4剩余复验；原生打开调用设显式工具超时，避免再次长时间阻塞沟通。
+
+- 独立原生程序已正常加载tauri://localhost并重开；它存活到180秒维护预算结束。失败来自观察器迟于等待起点约120秒才开始又计满140秒，不能算程序自身退出。原生自动清理152ms成功；观察器在自动EXIT清理中再次stop，打断后续后端回收，留下已核对backend.log归属的两个进程，已单独清理并保留审计。
+- 清理改为进入EXIT后忽略重复TERM/INT，保证剩余资源回收跑完。下一次仅做0模型“清理期间再次stop”故障复验，范围不重跑已证的长时间窗口存活；预注册目录`b37-native-cleanup-final-20261026`，注入外部失败后立即stop，首因须保留，30秒内所有已归属PID与端口清空。该故障注入通过不冒充业务slice通过。
+
+- 重复stop故障复验通过：`b37-native-cleanup-final-20261026/run/cleanup-overlap-proof.json`，注入外部失败后在cleanup期间再次stop，首因保留，9个归属PID全部消失、端口全空，5.154秒≤30秒；原生launchd进程134ms退出，真实模型0。本批故障注入的failure.json是预期输入，不改为普通业务成功。
+
+- 桌面已由作者确认解锁；临时shell入口包装仍出现AX可读但点击无效/noWindowsAvailable。移除手工CFBundleExecutable=shell包装，直接复制Tauri官方`build --debug --bundles app`产物，仅在副本LSEnvironment设置产品既有独立profile并本地adhoc重签，生产标识不变。ready记录真实native_executable=app，监督/清理精确匹配它；旧批次native-app只兼容读取。不修改或替换/Applications里的应用。

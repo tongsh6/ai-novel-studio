@@ -8,9 +8,14 @@ ACTION="${1:-}"
 shift || true
 
 ARTIFACT_ARG=""
+RUNNER="${ACCEPTANCE_RUNNER:-dogfood}"
 PASS_ARGS=()
 while (($#)); do
   case "$1" in
+    --runner)
+      RUNNER="${2:-}"
+      shift 2
+      ;;
     --artifact-dir)
       ARTIFACT_ARG="${2:-}"
       shift 2 2>/dev/null || shift
@@ -26,6 +31,11 @@ while (($#)); do
   esac
 done
 set -- "${PASS_ARGS[@]}"
+if [[ "$RUNNER" != "dogfood" && "$RUNNER" != "native-slice" ]]; then
+  echo "[detached] runner must be dogfood or native-slice" >&2
+  exit 2
+fi
+export ACCEPTANCE_RUNNER="$RUNNER"
 
 ARTIFACT_DIR="${ARTIFACT_ARG:-${DOGFOOD_ARTIFACT_DIR:-}}"
 if [[ -z "$ARTIFACT_DIR" ]]; then
@@ -44,6 +54,7 @@ LOG="$ARTIFACT_DIR/detached.log"
 HEARTBEAT="$ARTIFACT_DIR/heartbeat.jsonl"
 TERMINATION="$ARTIFACT_DIR/termination.json"
 META="$ARTIFACT_DIR/detached-meta.json"
+PROGRESS_FILE="$ARTIFACT_DIR/progress.jsonl"
 
 json_write() {
   # json_write <path> <json-string>
@@ -120,11 +131,20 @@ PY
     done
   ) &
   local heartbeat_pid=$!
-  trap 'write_termination TERM 143; kill "$heartbeat_pid" 2>/dev/null || true; exit 143' TERM
-  trap 'write_termination INT 130; kill "$heartbeat_pid" 2>/dev/null || true; exit 130' INT
+  local runner_pid=""
+  trap 'write_termination TERM 143; kill "$heartbeat_pid" "$runner_pid" 2>/dev/null || true; exit 143' TERM
+  trap 'write_termination INT 130; kill "$heartbeat_pid" "$runner_pid" 2>/dev/null || true; exit 130' INT
   trap 'if [[ "${TERMINATION_WRITTEN:-0}" -eq 0 ]]; then write_termination EXIT "$?"; fi; kill "$heartbeat_pid" 2>/dev/null || true' EXIT
 
-  bash "$ROOT/scripts/dogfood_run.sh" "$@"
+  if [[ "$RUNNER" == "native-slice" ]]; then
+    TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 \
+      TAURI_NATIVE_ARTIFACT_DIR="$ARTIFACT_DIR/run" \
+      bash "$ROOT/scripts/tauri_slice_verify.sh" "$@" &
+  else
+    bash "$ROOT/scripts/dogfood_run.sh" "$@" &
+  fi
+  runner_pid=$!
+  wait "$runner_pid"
   local code=$?
   write_termination EXIT "$code"
   kill "$heartbeat_pid" 2>/dev/null || true
@@ -133,7 +153,13 @@ PY
 }
 
 preflight() {
-  for port in 4657 5769; do
+  local check_ports=("${PHOENIX_PORT:-4657}")
+  if [[ "$RUNNER" == "native-slice" ]]; then
+    check_ports+=("${TAURI_NATIVE_PROXY_PORT:-4661}")
+  else
+    check_ports+=("${VITE_DEV_PORT:-5769}")
+  fi
+  for port in "${check_ports[@]}"; do
     if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       echo "[detached] port $port already in use" >&2
       return 1
@@ -158,6 +184,10 @@ preflight() {
 
 case "$ACTION" in
   start)
+    if [[ "$RUNNER" == "native-slice" && ( -e "$ARTIFACT_DIR/run" || -e "$TERMINATION" || -e "$ARTIFACT_DIR/failure.json" ) ]]; then
+      echo "[detached] native batches are immutable; choose a new artifact directory" >&2
+      exit 1
+    fi
     if [[ -f "$PIDFILE" ]]; then
       old_pid="$(cat "$PIDFILE" 2>/dev/null || true)"
       if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
@@ -171,13 +201,26 @@ case "$ACTION" in
       exit 1
     fi
     trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT
-    preflight "$@" || exit 1
+    if ! preflight "$@"; then
+      json_write "$ARTIFACT_DIR/failure.json" "{\"phase\":\"preflight\",\"reason\":\"preflight_failed\",\"at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+      exit 1
+    fi
     : >"$LOG"
     : >"$HEARTBEAT"
     python3 - "$ROOT" "$ARTIFACT_DIR" "$PIDFILE" "$LOG" "$META" "$@" <<'PY'
-import json, os, subprocess, sys, datetime, pathlib
+import json, os, subprocess, sys, datetime, pathlib, hashlib
 root, artifact, pidfile, logpath, meta, *args = sys.argv[1:]
 head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+source_files = ["scripts/dogfood_run_detached.sh", "scripts/tauri_slice_verify.sh", "scripts/native_ui_wait.mjs", "scripts/lib/native_app_ownership.mjs", "scripts/native_b31_evidence.mjs", "scripts/native_b28_evidence.mjs", "scripts/lib/b28-chapter-fixture.mjs", "scripts/lib/b31-question-proof.mjs", "frontend/slice-verify/external-ui-driver.mjs", "frontend/slice-verify/dogfood-runner.mjs", "apps/novel_agent/test/support/provider/slice_verify.ex", "apps/novel_application/lib/novel_application/character_profile.ex", "apps/novel_application/lib/novel_application/pending_artifact_workflow.ex", "apps/novel_application/lib/novel_application/authoring_task_policy.ex"]
+source_hashes = {}
+for source in source_files:
+    file = pathlib.Path(root, source)
+    if file.is_file():
+        data = file.read_bytes()
+        source_hashes[source] = hashlib.sha256(data).hexdigest()
+        copy = pathlib.Path(artifact, "runner-source", source)
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_bytes(data)
 cmd = ["bash", os.path.join(root, "scripts", "dogfood_run_detached.sh"), "__child", *args]
 env = os.environ.copy()
 env["DOGFOOD_ARTIFACT_DIR"] = artifact
@@ -190,10 +233,11 @@ pathlib.Path(pidfile).write_text(str(proc.pid))
 meta_obj = {
     "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "head": head,
+    "source_hashes": source_hashes,
     "pid": proc.pid,
     "command": cmd,
     "args": args,
-    "env": {k: env.get(k) for k in ["DOGFOOD_ARTIFACT_DIR","DOGFOOD_PROVIDER","NOVEL_TEST_DB_DIR","NOVEL_STRATA_MODEL","NOVEL_STRATA_ENDPOINT","DOGFOOD_WAIT_INPUT_MS","DOGFOOD_FAULT_SIM"] if k in env},
+    "env": {k: env.get(k) for k in ["ACCEPTANCE_RUNNER","TAURI_NATIVE_REPLAY_SOURCE_DIR","DOGFOOD_ARTIFACT_DIR","DOGFOOD_PROVIDER","NOVEL_TEST_DB_DIR","NOVEL_STRATA_MODEL","NOVEL_STRATA_ENDPOINT","DOGFOOD_WAIT_INPUT_MS","DOGFOOD_FAULT_SIM"] if k in env},
 }
 pathlib.Path(meta).write_text(json.dumps(meta_obj, ensure_ascii=False, indent=2))
 PY
@@ -239,12 +283,12 @@ PY
       echo "[detached] refusing to signal pid=$pid (unexpected command: $cmd)" >&2
       exit 1
     fi
-    echo "[detached] stop pid=$pid (TERM process group)"
+    echo "[detached] stop pid=$pid (TERM supervisor; child owns cleanup)"
     python3 - "$pid" <<'PY'
 import os, signal, sys
 pid = int(sys.argv[1])
 try:
-    os.killpg(os.getpgid(pid), signal.SIGTERM)
+    os.kill(pid, signal.SIGTERM)
 except ProcessLookupError:
     pass
 PY

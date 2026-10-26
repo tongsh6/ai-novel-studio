@@ -268,17 +268,19 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp maybe_maintain_chapter_summary(maintainer, source_turn_result, artifact, params, persisted)
        when is_function(maintainer, 1) do
     with true <- prose_artifact?(artifact),
-         chapter_id when is_binary(chapter_id) <- chapter_id_from_persisted(persisted) do
+         chapter_id when is_binary(chapter_id) <- chapter_id_from_persisted(persisted),
+         work_id = Map.get(params, "work_id") || map_field(source_turn_result, :work_id),
+         {:ok, prose, scope} <- summary_material(artifact, work_id, chapter_id) do
       maintainer.(%{
-        work_id: Map.get(params, "work_id") || map_field(source_turn_result, :work_id),
+        work_id: work_id,
         chapter_id: chapter_id,
         chapter_title: adoption_chapter_title(artifact),
-        prose_text: artifact_content(artifact),
+        prose_text: prose,
         source_ref: turn_id(source_turn_result),
         revision_base: revision_base_from_persisted(persisted),
         # B27 CP3c/D4：主采纳路径只有本次采纳片段，不是整章已采纳正文；
         # 如实标注范围，摘要不得冒充整章。
-        material_scope: :fragment
+        material_scope: scope
       })
 
       :ok
@@ -289,10 +291,29 @@ defmodule NovelApplication.AdoptionWorkflow do
     _ -> :ok
   end
 
+  defp summary_material(artifact, work_id, chapter_id) do
+    if formatting_plan?(artifact) do
+      with {:ok, facts} <- chapter_revision_context(work_id, "chapter:" <> chapter_id) do
+        {:ok, facts.base_text, :chapter}
+      end
+    else
+      {:ok, artifact_content(artifact), :fragment}
+    end
+  end
+
+  defp formatting_plan?(artifact),
+    do:
+      artifact_field(artifact, :artifact_type) in [
+        :prose_formatting_plan,
+        "prose_formatting_plan"
+      ]
+
   defp prose_artifact?(artifact) do
     artifact_field(artifact, :artifact_type) in [
       :prose_fragment,
       "prose_fragment",
+      :prose_formatting_plan,
+      "prose_formatting_plan",
       :scene_draft,
       "scene_draft"
     ]
@@ -614,6 +635,9 @@ defmodule NovelApplication.AdoptionWorkflow do
     modification = b28_modification_scope(payload, scope, effect_mode)
 
     cond do
+      formatting_plan?(artifact) ->
+        validate_formatting_plan(artifact, payload, effect)
+
       invalid_adoption_effect?(effect_mode) ->
         {:error, :invalid_adoption_effect}
 
@@ -629,6 +653,27 @@ defmodule NovelApplication.AdoptionWorkflow do
 
       true ->
         :ok
+    end
+  end
+
+  defp validate_formatting_plan(artifact, payload, effect) do
+    with ref when is_binary(ref) <- adoption_chapter_ref(artifact),
+         "format_paragraphs" <- b28_value(effect, :mode),
+         [item] <- b28_value(payload, :items),
+         changes when is_list(changes) <- b28_value(item, :line_break_changes),
+         true <- changes == b28_value(effect, :line_break_changes),
+         {:ok, applied} <-
+           NovelDomain.ProseFormatting.apply_plan(
+             b28_value(payload, :base_text),
+             b28_value(effect, :source_hash),
+             changes
+           ),
+         true <- applied.text == b28_value(payload, :formatting_preview),
+         true <- applied.result_hash == b28_value(effect, :preview_hash) do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_formatting_plan}
     end
   end
 

@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-10-24（NEXT 职责精简；历史记录迁入 §10，任务状态只在原任务维护）
+> 最后更新：2026-10-26（登记作者提出的后续作品时间线管理需求；不改变当前排期）
 > 本文是历史事实与证据索引；下文“当前/队首”均为记录当时口径。实际排期见 `tasks/NEXT.md`，状态与更新规则见 `tasks/README.md`。本次只迁移文档与检查规则，没有新增产品功能验收。
 >
 > 2026-10-24 队列整合：以愿景 §2.1–§2.3 的自然语言创作伙伴、作者主权与作品事实为尺度，`tasks/NEXT.md` 队首由周期巡检转为 `B26-SINGLE-CALL-JUDGMENT` 联合主线（B26 协议/明确问题绑定 + B27 全调用点任务语义），首步仍为共同设计，修订待 Accepted。吸收 PLANNER-SEMANTIC-BOUNDARY、AU11 退役迁移、G3 schema owner 与 G2/CA01/B10 输入余项；期间二次读取外部会话更新的 F1–F6 与 B31 §2.1，明确 B26 自证空选项与问题恢复、B31 不作反向前置；后续 B31 一般输入绑定 → B28 全章修订 → B30 结构维护 → B29 角色主档案 → 既有 10 章级狗粮节拍。B11D 的多场正文/单场替换/逐场评审须由 B28 CP0 逐项承接，尚未完成。本轮源码核实：JudgmentProtocol 仍两段式；PendingArtifactWorkflow 已采纳修订只传选中 artifact 正文；AdoptionRepository.ensure_planned_chapter/4 仍 title+limit(1)，B25 正文 ref 验收不能证明大纲物化无身份缺口（纳入 B30，页面未复现）；旧 AU11 builder 未见生产外部调用，已知场景失效仍归 B27 重接。B31 当前 UI 根因仍待复现，不把代码线索当因果证明。本轮仅改队列、旅程、事实记录与差距扫描快照，本轮未触碰原有未提交设计，期间外部修改已重新核对；无代码/数据写入、无新功能验收、无实模或盲评结论。
@@ -467,6 +467,7 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 
 | 问题 | 归属 | 状态 | 证据 / 残留 |
 |------|------|------|-------------|
+| 作品时间线维度管理 | E31 连续性账 / `timeline_event`，首个消费者为创作模型 | 2026-10-26 作者提出并补充核心意图；具体范围待设计、尚未排期 | [需求记录](design/notes/2026-10-26-story-timeline-management.md)：前章“过了几天”、后章“又过了两星期”的时间推进须持久保留，并按当前写作位置进入后续模型输入，避免时间与人物状态矛盾；关联叙述顺序、三态对账与修订影响，本次仅文档登记 |
 | v2→v3 代码迁移策略（旁路 vs 重构） | 已解决 | **彻底重构完成（当前分支）** | `docs/engineering/architecture-guardrails.md` |
 | JSON Schema / 代码级 contract 如何生成 | 待定 | contract packs 手工维护中 | `docs/design/contracts/` 10 个 pack |
 | trace store / replay report 是否持久化 | 已解决 | SQLite3 decision_traces 表 + TraceRepository | `apps/novel_persistence/lib/novel_persistence/trace_repository.ex` |
@@ -1029,3 +1030,15 @@ B26 已移入 A 轨当前队列 `B26-SINGLE-CALL-JUDGMENT`，不再作为 B 轨�
 - 2026-10-21 — **AU10 收口（CP5 Tauri PASS）**：`tauri_slice_verify au10-workbench-render-stability` 通过，summary `surface=tauri`、two real turns、3 场景 0 blank/0 remount/0 scroll jump/0 region/rail delta、work_switch_atomic=true。CP2/CP3/CP4 conditional 未触发。AU10 行改 done；队首切 `MAINLINE-RESET`，等待作者从候选清单拍板下一项（无队列挂靠不开工）。
 - 2026-10-21 — **B17 收口（真实 Tauri PASS）**：`tauri_slice_verify b17-writer-timeout-steer` PASS，真实工作台 writer timeout×2 后显示 author-safe summary + reason codes，控制坞「先写第一场（500 字）」发送非空 steer，同一 run 恢复并生成 pending prose。首跑发现 scoped steer 因 replan 预算耗尽再次停等；修复为“仅 writer_timeout 的作者显式 steer 追加一次有界重试预算”，新增后端回归。队首恢复 `MAINLINE-RESET` 等待作者拍板。
 - 2026-10-21 — **GAP-LEDGER-RECONCILE**：作者同意先做台账对账再进主线。关闭 B12/B18/B19 的 gap ledger 残留（均已 done，但旧行无 done 标记被扫描器当开放）；B13 核验：27 份 ADR（26 Accepted / 1 Proposed），`adr_trace` 26 份缺 `enforced_by`（仅 ADR-0027 有），脚本软退出 0；B13 保持开放并拆 B13a/B13b。队首 `GAP-LEDGER-RECONCILE`，完成后回 `MAINLINE-RESET`。
+
+- 2026-10-25 — **完成审计纠正原生证据口径**：B28/B29/B30/B31 canonical摘要为 browser/headless-chromium；P1 canonical-3e 实际也由无头Chromium驱动，其 summary 的 tauri 标签不构成原生证明。作者裁决保留原生标准，按原队列补证；原浏览器/实模/维护结果保留，I10/B27 known-gap不代签或销账。当前代码全门禁通过；LM与Strata原生模型均已卸载核验。细节与唯一执行状态见 `tasks/slices/VS00D-G-GAP-RECONCILIATION.md` 完成审计段，证据 `artifacts/completion-audit/20261025-1817/`。
+
+- 2026-10-25 — **B31真实原生补验与监督退出闭环**：外部CUA驱动原生Tauri五场景、7条来源绑定问答、3次重开、16组截图/AX；独立网络/持久化对账通过，47 waits/0超时、EXIT/0，TERM专项10.314秒完成清理。发现并修复B29 CharacterProfile跨分句身份误判，红绿及真实计划运行/原生输入验证；后端2247、前端614、I1–I3、task_done与统一扫描闭环。扫描剩余2项既有处置（Pencil误报/ProjectGod历史接受风险），无新增pending。旧失败批次保留，作者手动模型不动，B27 known-gap未关闭；NEXT转B28。证据 `artifacts/slice-verify/b31-native-20261025-a4/`，细节见B31/B29/B37原任务。
+
+- 2026-10-25 — **B28原T2取得真实模型原生闭环证据，整章排版仍未完成**：Strata iq3_s真实判断/目标段生成、原生采纳、完整正文仅年龄变化、同章/历史/摘要/阅读重开/新旧值检索20项事实通过（10次真实HTTP调用）。真实失败揭露并修复能力目录滞后、模型解释“非整章”被应用误判为整章权限；范围现只取作者授权。驱动跨批闭包日志污染与收尾idle退出如实保留，不能宣称全监督无误；原始SSE字节未完整留痕，不扩大因果证据口径。整章仅排版的冻结规则实际禁止重新分段，待作者裁决换行计划/算法应用方案。证据 `artifacts/slice-verify/b28-real-native-20261025-r3-resume/run/real-model-proof.json`，唯一状态与剩余范围见B28原任务。
+
+
+- 2026-10-26 — **B28模型换行计划已接入，原生实模暴露未完成后果**：按作者接受的ADR-0029实现计划/独立预览/事务重算/同章版本保护，模型说明不作为正文。实模R1在全文unique/length守卫处失败，合法长JSON复现实证其长度误判并修为固定窗口；R2原话及对话调整得到保真预览，但两份实际预览相同、均未新增分段，未采纳、canon零变化。补充调整无变化拒绝并分离旧说明与本轮要求，尚未再实模验证。后端2264、前端615及Tauri构建通过；原生新增分段/采纳/恢复仍未闭环，B27 known-gap保留，队列不前移。证据`artifacts/slice-verify/b28-format-plan-20261026/checks/`；完整状态与预算决策见B28原任务。作者手动模型保留，测试端口清理。
+
+
+- 2026-10-26 — **B28 R3单次授权原生实模scope通过**：一次调整请求、3次真实Strata调用，新增30处单换行（实际阅读75→105段），所有非换行字节不变；原生采纳后同章唯一新稿v17、旧稿历史保留、完整章摘要来源正确，阅读与重开全文均等于预览。24项事实通过，8 waits/0超时；无额外模型重试。初查把分段误作空行的探针结果原样保留，按既有ReadingMode单换行消费者核对。显示仍有采纳后过期提示需重开消除；launchd重开进程归属清理缺口转B37，已精确清理本批PID。B28完整矩阵/T4/driver与B27 known-gap未关闭。证据`artifacts/slice-verify/b28-format-native-20261026-r3/run/real-model-proof.json`，唯一执行状态见B28/B37原任务。

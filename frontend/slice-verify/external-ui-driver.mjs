@@ -1,3 +1,4 @@
+import { b28BuildInitialFragment, b28BuildContinuationFragment, b28SegmentCandidateMatches, b28SourceFingerprint } from "../../scripts/lib/b28-chapter-fixture.mjs";
 import { chromium } from "playwright";
 import { randomUUID } from "node:crypto";
 import { Socket } from "phoenix";
@@ -6,6 +7,8 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import os from "node:os";
+import { b28FormattingPlanMatches, b28NonNewlineText } from "../../scripts/lib/b28-chapter-fixture.mjs";
+import { B31QuestionProof, B31_STRUCTURE_REPLIES, assertProtectedVersions } from "../../scripts/lib/b31-question-proof.mjs";
 
 const sliceId = process.argv[2];
 const baseUrl = process.env.SLICE_VERIFY_BASE_URL ?? "http://127.0.0.1:5769";
@@ -34940,7 +34943,7 @@ async function driveB31AuthorReplyRunBinding(page) {
 
   const evidence = {
     scenario: B31_SLICE_ID,
-    surface: "tauri",
+    surface: "browser",
     driver: "headless-chromium-real-frontend-backend",
     provider: "slice_verify",
     cp2_expectations: {
@@ -34951,6 +34954,7 @@ async function driveB31AuthorReplyRunBinding(page) {
       restore: "JoinRestore 稳定序且刷新后普通输入不串 run",
     },
     trials: [],
+    author_question_events: [],
     anti_hooks: {
       data_testid_used: false,
       hidden_dom_metadata_used: false,
@@ -35239,10 +35243,10 @@ async function driveB31AuthorReplyRunBinding(page) {
           frame.direction === "received" &&
           frame.event === "agent_run_state" &&
           frame.body?.run_id === targetRunId &&
-          frame.body?.status === "running",
-        `${label}: new request run did not start running`,
-        60_000,
-      ).catch(() => null);
+          ["completed", "awaiting_author", "failed", "cancelled"].includes(frame.body?.status),
+        `${label}: new request did not produce a result or question`,
+        120_000,
+      );
     }
     await sleep(1_200);
     const visibleAfter = await readVisibleInputState(page, `${label} after`);
@@ -35315,9 +35319,15 @@ async function driveB31AuthorReplyRunBinding(page) {
     return { goal_summary: goalSummary, clicked: true };
   }
 
-  async function probeExplicitReply(page, question, label, questionRunId, trackedRunIds) {
+  async function probeExplicitReply(page, question, label, questionRunId, trackedRunIds, workId, sessionId) {
     const start = frames.length;
     const logStart = readAppLogRecords().length;
+    const before = await fetchSessionSnapshotFromApi(workId, sessionId);
+    const questionRef = (question.author_question ?? question).question_ref;
+    const source = before.open_author_question_turn_results.find((result) => result.author_question.question_ref === questionRef);
+    assert(source, `${label}: 原问题没有可恢复的源动作`);
+    const protectedRunIds = [...new Set([...normalizeTrackedRunIds(trackedRunIds), ...before.open_author_question_turn_results.map((result) => result.author_question.run_id)])].filter((id) => id !== questionRunId);
+    const versionsBefore = await readGoalVersions(protectedRunIds);
     const visibleBefore = await readVisibleInputState(page, `${label} before`);
     const replyButtons = await page.getByRole("button", { name: "回复此问题", exact: true }).count();
     assert(replyButtons > 0, `${label}: explicit question card has no reply entry`);
@@ -35355,7 +35365,7 @@ async function driveB31AuthorReplyRunBinding(page) {
         ["plan_adjusted", "run_resumed", "run_completed"].includes(frame.body?.event_type),
       `${label}: question run did not resume after the explicit reply`,
       120_000,
-    ).catch(() => null);
+    );
     const terminalState = await waitForNewFrame(
       start,
       (frame) =>
@@ -35365,7 +35375,13 @@ async function driveB31AuthorReplyRunBinding(page) {
         ["completed", "failed", "cancelled"].includes(frame.body?.status),
       `${label}: question run did not reach a terminal state`,
       120_000,
-    ).catch(() => null);
+    );
+    assert(terminalState.body.status === "completed", `${label}: 原问题没有正常完成`);
+    const snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
+    const proofEvent = new B31QuestionProof().record({ source, action, receipt: ack.body.response, inputs: snapshot.transcript, at: new Date().toISOString() });
+    evidence.author_question_events.push({ label, ...proofEvent });
+    fs.writeFileSync(path.join(artifactDir, "author_question_events.json"), JSON.stringify(evidence.author_question_events, null, 2));
+    assertProtectedVersions(versionsBefore, await readGoalVersions(protectedRunIds), protectedRunIds);
     await sleep(800);
     const visibleAfter = await readVisibleInputState(page, `${label} after`);
     const afterStates = frameRunStates(start, [questionRunId, ...normalizeTrackedRunIds(trackedRunIds)]);
@@ -35396,8 +35412,55 @@ async function driveB31AuthorReplyRunBinding(page) {
       run_states_after: afterStates.states,
       binds_question_run: action.target_ref === questionRunId,
       reply_text: B31_EXPLICIT_REPLY_TEXT,
+      proof: proofEvent,
       log_start: logStart,
     };
+  }
+
+  async function settleAdditionalQuestions(trialId, workId, sessionId, newRunIds, protectedRunIds) {
+    const proof = new B31QuestionProof();
+    const versions = await readGoalVersions([...newRunIds, ...protectedRunIds]);
+    let snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
+    const initial = snapshot.open_author_question_turn_results ?? [];
+    assert(initial.every((result) => newRunIds.includes(result.author_question.run_id)), "原问题答复后出现未知来源问题");
+    if (initial.length) {
+      const visible = await readVisibleInputState(page, `${trialId} original answered; other questions open`);
+      assert(visible.question_notice_visible && !visible.steer_mode, "其他问题开放时不能自动 steer 结构任务");
+    }
+    while ((snapshot.open_author_question_turn_results ?? []).length > 0) {
+      const open = snapshot.open_author_question_turn_results;
+      assert(open.every((result) => newRunIds.includes(result.author_question.run_id)), "不回答当前测例之外的问题");
+      const source = open[0], question = source.author_question;
+      const attempt = proof.assertCanAnswer(source);
+      const beforeVersions = await readGoalVersions([...newRunIds, ...protectedRunIds]);
+      const option = question.options.find((item) => item.recommended) ?? question.options[0];
+      const start = frames.length;
+      if (option && option.kind !== "free_text") {
+        await page.getByRole("button", { name: option.label, exact: true }).first().click();
+      } else {
+        await page.getByRole("button", { name: option?.label ?? "回复此问题", exact: true }).first().click();
+        await page.getByRole("textbox", { name: "对此问题的补充", exact: true }).fill(B31_STRUCTURE_REPLIES[attempt]);
+        await page.getByRole("button", { name: "发送回复", exact: true }).click();
+      }
+      const sent = await waitForNewFrame(start, (frame) => frame.direction === "sent" && frame.event === "author_action", `${trialId}: 新问题回复未发送`, 30_000);
+      const action = sent.body.action;
+      assert(action.payload?.question_ref === question.question_ref, "可见问题卡与计划回答的来源不同");
+      const ack = await waitForNewFrame(start, (frame) => frame.event === "phx_reply" && frame.body?.status === "ok" && frame.body?.response?.submission_id === action.payload.submission_id, `${trialId}: 新问题回复未收到回执`, 30_000);
+      const next = await waitForNewFrame(start, (frame) => frame.event === "agent_run_state" && frame.body?.run_id === question.run_id && frame.body.goal?.version === question.goal_version + 1 && ["completed", "awaiting_author", "failed", "cancelled"].includes(frame.body.status), `${trialId}: 回答后没有结果或后续问题`, 120_000);
+      snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
+      const event = proof.record({ source, action, receipt: ack.body.response, inputs: snapshot.transcript, at: new Date().toISOString() });
+      evidence.author_question_events.push({ trial: trialId, ...event });
+      fs.writeFileSync(path.join(artifactDir, "author_question_events.json"), JSON.stringify(evidence.author_question_events, null, 2));
+      assertProtectedVersions(beforeVersions, await readGoalVersions([...newRunIds, ...protectedRunIds]), [...newRunIds, ...protectedRunIds].filter((runId) => runId !== question.run_id));
+      assert(["completed", "awaiting_author"].includes(next.body.status), "问题运行失败不能算关闭完成");
+      if (next.body.status === "awaiting_author") assert(snapshot.open_author_question_turn_results.some((result) => result.author_question.run_id === question.run_id), "author_question_unresolved: 等待任务没有问题文本");
+      assert(!frames.slice(start).some((frame) => frame.direction === "sent" && ["user_message", "agent_command"].includes(frame.event)), "额外问题回复不得重发原指令或走无绑定入口");
+    }
+    const states = frameRunStates(0, newRunIds).states;
+    assert(newRunIds.every((id) => states[id]?.status === "completed"), "普通请求尚未完成，不能假定只剩结构任务");
+    assertProtectedVersions(versions, await readGoalVersions(protectedRunIds), protectedRunIds);
+    return { initial_question_refs: initial.map((result) => result.author_question.question_ref), events: proof.events,
+      all_questions_closed: true, protected_versions: await readGoalVersions(protectedRunIds), visible_after: await readVisibleInputState(page, `${trialId} all questions closed`) };
   }
 
   async function createTrialWork(label, token) {
@@ -35544,6 +35607,8 @@ async function driveB31AuthorReplyRunBinding(page) {
     selector_steer_other_run_untouched: true,
     restore_order_stable: true,
     reload_plain_input_new_request: true,
+    additional_question_bindings_preserved: true,
+    all_questions_closed_before_steer: true,
     no_product_code_changed: true,
   };
 
@@ -35599,17 +35664,22 @@ async function driveB31AuthorReplyRunBinding(page) {
       "T1 explicit reply (control)",
       questionRun.run_id,
       [planRun.run_id],
+      work.id,
+      sessionId,
     );
     checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
     checks.explicit_reply_goal_version_advanced &&=
       explicit.ack.goal_version === questionRun.question.goal_version + 1 &&
       explicit.terminal_status === "completed";
-    // 回复后仅剩结构 run（单 live run）时，输入区恢复「调整当前任务/发送调整」；
-    // 「将发给：「…」」目标行只在多 live run 时渲染（Q05），单 run 由现有 hint 表达。
+    const additional = await settleAdditionalQuestions("T1", work.id, sessionId,
+      [plainFirst.new_run_id, plainRepeat.new_run_id], [questionRun.run_id, planRun.run_id]);
+    checks.additional_question_bindings_preserved &&= additional.all_questions_closed;
+    checks.all_questions_closed_before_steer &&= additional.all_questions_closed;
+    // 只有所有明确问题关闭、普通新请求终结后，才确实只剩结构 run。
     checks.post_reply_steer_target_visible &&=
-      explicit.visible_after.steer_mode === true &&
-      explicit.visible_after.send_adjust_button_count === 1 &&
-      !explicit.visible_after.question_notice_visible;
+      additional.visible_after.steer_mode === true &&
+      additional.visible_after.send_adjust_button_count === 1 &&
+      !additional.visible_after.question_notice_visible;
     evidence.trials.push({
       id: "T1_ui_question_then_structure_open_question_plain_input",
       purpose:
@@ -35632,7 +35702,8 @@ async function driveB31AuthorReplyRunBinding(page) {
       plain_input_first: plainFirst,
       plain_input_repeat: plainRepeat,
       explicit_reply: explicit,
-      post_reply_visible: explicit.visible_after,
+      additional_questions: additional,
+      post_reply_visible: additional.visible_after,
     });
   }
 
@@ -35701,8 +35772,14 @@ async function driveB31AuthorReplyRunBinding(page) {
       "T2 explicit reply after reload",
       questionRun.run_id,
       [planRun.run_id],
+      work.id,
+      sessionId,
     );
     checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
+    const additional = await settleAdditionalQuestions("T2", work.id, sessionId,
+      [plainAfterReload.new_run_id], [questionRun.run_id, planRun.run_id]);
+    checks.additional_question_bindings_preserved &&= additional.all_questions_closed;
+    checks.all_questions_closed_before_steer &&= additional.all_questions_closed;
     evidence.trials.push({
       id: "T2_restore_then_plain_input",
       purpose:
@@ -35718,6 +35795,7 @@ async function driveB31AuthorReplyRunBinding(page) {
       restore_frame_orders: restoreFrameOrders,
       plain_input_after_reload: plainAfterReload,
       explicit_reply_after_reload: explicit,
+      additional_questions: additional,
     });
   }
 
@@ -35763,6 +35841,8 @@ async function driveB31AuthorReplyRunBinding(page) {
         "T3 explicit reply after plain input",
         questionSeed.runId,
         [planSeed.runId],
+        work.id,
+        sessionId,
       );
       checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
       evidence.trials.push({
@@ -35827,6 +35907,8 @@ async function driveB31AuthorReplyRunBinding(page) {
         "T4 explicit reply (control)",
         questionSeed.runId,
         [planSeed.runId],
+        work.id,
+        sessionId,
       );
       checks.explicit_reply_bound_question_run &&= explicit.binds_question_run;
       checks.explicit_reply_goal_version_advanced &&=
@@ -35971,6 +36053,8 @@ async function driveB31AuthorReplyRunBinding(page) {
       explicit_reply_ack: evidence.trials
         .map((trial) => trial.explicit_reply?.ack)
         .filter(Boolean),
+      author_question_reply_count: evidence.author_question_events.length,
+      additional_question_reply_count: evidence.trials.reduce((sum, trial) => sum + (trial.additional_questions?.events.length ?? 0), 0),
       reconnect_log_orders: evidence.trials
         .filter((trial) => trial.reconnect_log_orders)
         .map((trial) => trial.reconnect_log_orders),
@@ -35995,6 +36079,7 @@ async function driveB31AuthorReplyRunBinding(page) {
       trial_ids: evidence.trials.map((trial) => trial.id),
       cp2_checks: checks,
       cp2_measured: evidence.cp2.measured,
+      author_question_events: evidence.author_question_events,
       passed_trial_ids: evidence.trials
         .filter((trial) => trial.id)
         .map((trial) => trial.id),
@@ -36021,51 +36106,8 @@ const B28_CP4_ORIGINAL_REQUEST =
 const B28_CP4_PARAPHRASE_REQUEST =
   "第一章正文帮我统一下排版和分段，文字别动。";
 
-// 冻结归一规则（B28 CP1）：行尾空白删除 → 换行归一 → 文末空行折叠；其余字节相等。
-function b28NormalizeFormatText(text) {
-  return String(text ?? "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/[ \t\u3000]+$/u, ""))
-    .join("\n")
-    .replace(/\n+$/, "");
-}
-
-function b28BuildInitialFragment() {
-  const paragraphs = [
-    "夜潮漫上雨港的石阶时，沈砚正在旧书铺里核对灯楼送来的第七本旧账。",
-    "账页被潮气泡得发软，指尖一按就留下浅浅的水痕。",
-    "他把三盏灯下的数字抄在草纸上，发现每一笔灯油都比账上多出半钱。",
-    "井底黑泉的运费从没有单独列过，却每月准时出现在「杂耗」一栏里。",
-    "沈砚记得很清楚，点灯人第一次点灯时才二十五岁，那一年灯楼还没有第七盏灯。",
-    "子时将近，楼下忽然传来灯焰爆响的声音，像有人在井口轻轻敲了三下。",
-    "他披上旧毡衣，把账本塞进怀里，顺着后巷的湿墙往灯楼走。",
-    "巷子尽头的灯楼只有一扇窗亮着，窗上蒙着潮气，看不清里面的人。",
-    "守夜的门房没有拦他，只指了指井口，说今晚的灯油已经烧到井底了。",
-    "沈砚俯身去看，井水里沉着一点蓝灰色的光，像一枚被水泡胀的火星。",
-    "他把手伸进井绳的旧扣里，听见自己在心里数：一、二、三。",
-    "第七次灯焰爆响的同时，井口浮起一枚灯芯，芯上缠着一小片写着名字的纸。",
-    "【初稿末句】井口浮起一枚灯芯，像谁留下的问号。",
-  ];
-  let body = paragraphs.join("\n\n");
-  const padUnit = "潮气顺着墙缝往里渗，他把呼吸放轻，听见灯楼深处传来灯油滴落的声音。";
-  while (body.length < 2517) body += "\n\n" + padUnit;
-  return body.slice(0, 2517);
-}
-
-function b28BuildContinuationFragment() {
-  const seedLine =
-    "沈砚把灯芯摊在掌心，纸片上只有半个名字；他沿井壁的旧梯继续往下，脚底的石阶被灯油浸得发黑，守夜人的灯在下面转蓝，他听见有人用很轻的声音说：点灯人不能回头看灯焰。他没有回头，只把账本翻到最后一页，上面记着第七盏灯的数量与井底黑泉的取油时辰，字迹和他自己的很像。";
-  const endingAnchor = "【续写末句】灯焰在子时之后转蓝，井底有人轻轻应了一声。";
-  let body = seedLine;
-  while (body.length + endingAnchor.length < 1075) {
-    body += "井底的风把灯焰吹得低下去，他数着台阶继续走，账页上的名字慢慢清晰。";
-  }
-  return body.slice(0, 1075 - endingAnchor.length) + endingAnchor;
-}
-
 async function driveB28WholeChapterRevision(page) {
+  const productionBefore = b28SourceFingerprint();
   await configureProviderRuntime({ provider: "slice_verify" });
   const { createHash } = await import("node:crypto");
   const sha256 = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
@@ -36092,7 +36134,7 @@ async function driveB28WholeChapterRevision(page) {
   const continuationAnchor = "【续写末句】";
   const evidence = {
     scenario: B28_SLICE_ID,
-    surface: "tauri",
+    surface: "browser",
     driver: "headless-chromium-real-frontend-backend",
     provider: "slice_verify",
     evidence_boundary:
@@ -36194,7 +36236,7 @@ async function driveB28WholeChapterRevision(page) {
     return {
       turnResult: turnFrame.body,
       pending: turnFrame.body.adoption_state.pending.find(
-        (entry) => entry.artifact_type === "prose_fragment",
+        (entry) => ["prose_fragment", "prose_formatting_plan"].includes(entry.artifact_type),
       ),
     };
   }
@@ -36406,6 +36448,7 @@ async function driveB28WholeChapterRevision(page) {
 
   function candidateBody(entry) {
     const payload = entry?.payload ?? {};
+    if (entry?.artifact_type === "prose_formatting_plan") return payload.formatting_preview ?? "";
     const content = payload.content ?? payload["content"];
     if (typeof content === "string" && content !== "") return content;
     return (payload.items ?? [])
@@ -36415,7 +36458,7 @@ async function driveB28WholeChapterRevision(page) {
   }
 
   function candidateFacts(turn) {
-    const candidate = turn.pending.find((entry) => entry.artifact_type === "prose_fragment");
+    const candidate = turn.pending.find((entry) => ["prose_fragment", "prose_formatting_plan"].includes(entry.artifact_type));
     const body = candidate ? candidateBody(candidate) : "";
     const payload = candidate?.payload ?? {};
     const effect = payload.adoption_effect ?? payload["adoption_effect"] ?? null;
@@ -36424,10 +36467,14 @@ async function driveB28WholeChapterRevision(page) {
     const contentValue = payload.content ?? payload["content"] ?? null;
     return {
       candidate_present: Boolean(candidate),
+      pending_entry: candidate,
+      model_items: payload.items ?? [],
+      formatting_preview: payload.formatting_preview ?? null,
+      candidate_text_source: candidate?.artifact_type === "prose_formatting_plan" ? "computed_formatting_preview" : "provider_body",
       candidate_id: candidate?.artifact_id ?? null,
-      candidate_body: body,
-      candidate_body_chars: body.length,
-      candidate_body_sha256: candidate ? sha256(body) : null,
+      candidate_text: body,
+      candidate_text_chars: body.length,
+      candidate_text_sha256: candidate ? sha256(body) : null,
       contains_initial_anchor: body.includes(initialAnchor),
       contains_continuation_anchor: body.includes(continuationAnchor),
       contains_thirty_age: body.includes("三十岁"),
@@ -36478,7 +36525,7 @@ async function driveB28WholeChapterRevision(page) {
     );
     const start = frames.length;
     const saveButton = page.getByRole("button", {
-      name: /保存修订稿|保存为章节正文|采纳修订|替代已保存版本/,
+      name: pendingEntry?.artifact_type === "prose_formatting_plan" ? /^应用分段方案$/ : /保存修订稿|保存为章节正文|采纳修订|替代已保存版本/,
     });
     const buttonCount = await saveButton.count();
     let confirmationClicked = false;
@@ -36778,7 +36825,7 @@ async function driveB28WholeChapterRevision(page) {
     const cp4Baseline = await factsFor(seedWorkId, chapterAId);
     const cp4Source = cp4Baseline.accepted_text;
     await configureProviderRuntime(await providerRuntimeAttrsForExternalRun("strata"));
-    const cp4Turn = await sendAuthorTurn(cp4Request, `B28 CP4 ${cp4Phrasing}`, 600_000);
+    const cp4Turn = await sendAuthorTurn(cp4Request, `B28 CP4 ${cp4Phrasing}`, 360_000);
     const cp4Candidate = candidateFacts(cp4Turn);
     const cp4Flags = cp4Turn.llm_prompts;
     const cp4VisibleText = cp4Candidate.candidate_present
@@ -36787,13 +36834,13 @@ async function driveB28WholeChapterRevision(page) {
     await page
       .screenshot({ path: path.join(artifactDir, `b28-cp4-${cp4Phrasing}-candidate.png`), fullPage: true })
       .catch(() => {});
-    const cp4NormalizedEqualsSource =
+    const cp4PlanMatchesSource =
       cp4Candidate.candidate_present &&
-      b28NormalizeFormatText(cp4Candidate.candidate_body) === b28NormalizeFormatText(cp4Source);
+      b28FormattingPlanMatches(cp4Candidate.pending_entry, cp4Source);
     let cp4Adoption = null;
     let cp4AdoptionError = null;
     let cp4FormatOnlyViolation = false;
-    if (cp4Candidate.candidate_present) {
+    if (cp4PlanMatchesSource) {
       try {
         cp4Adoption = await adoptRevisionCandidate(cp4Turn, `B28 CP4 ${cp4Phrasing} adoption`);
       } catch (error) {
@@ -36812,9 +36859,8 @@ async function driveB28WholeChapterRevision(page) {
       cp4After.drafts.filter((row) => row.draft_status === "SUPERSEDED").length >= 2;
     const cp4ReadingEqualsCandidate =
       cp4Candidate.candidate_present &&
-      b28NormalizeFormatText(cp4After.accepted_text) ===
-        b28NormalizeFormatText(cp4Candidate.candidate_body);
-    const cp4Positive = cp4NormalizedEqualsSource && cp4Adoption;
+      cp4After.accepted_text === cp4Candidate.candidate_text;
+    const cp4Positive = cp4PlanMatchesSource && cp4Adoption;
     const cp4Checks = {
       model_provider_strata: true,
       model_requested: process.env.NOVEL_STRATA_MODEL ?? "iq3_s",
@@ -36840,23 +36886,23 @@ async function driveB28WholeChapterRevision(page) {
       candidate_base_text_covers_both:
         cp4Candidate.base_text_contains_initial_anchor === true &&
         cp4Candidate.base_text_contains_continuation_anchor === true,
-      candidate_normalized_equals_source: cp4NormalizedEqualsSource,
+      format_plan_matches_source: cp4PlanMatchesSource,
       positive_adoption_applied: Boolean(cp4Adoption),
       positive_same_chapter_identity: cp4Positive ? cp4ChapterIdentityStable : null,
       positive_old_fragments_superseded: cp4Positive ? cp4OldSuperseded : null,
       positive_reading_consumes_new_value: cp4Positive ? cp4ReadingEqualsCandidate : null,
       format_only_violation_honest_rejection:
-        cp4Candidate.candidate_present && !cp4NormalizedEqualsSource
+        cp4Candidate.candidate_present && !cp4PlanMatchesSource
           ? cp4FormatOnlyViolation && !cp4Adoption && cp4ChapterIdentityStable
           : null,
       format_only_violation_no_write:
-        cp4Candidate.candidate_present && !cp4NormalizedEqualsSource
+        cp4Candidate.candidate_present && !cp4PlanMatchesSource
           ? !cp4Adoption && cp4After.accepted_text === cp4Source
           : null,
       model_behavior_recorded: true,
     };
     const cp4Outcome = cp4Candidate.candidate_present
-      ? cp4NormalizedEqualsSource
+      ? cp4PlanMatchesSource
         ? "positive"
         : "format_only_violation_or_unexpected"
       : "no_candidate_model_fallback";
@@ -36908,7 +36954,7 @@ async function driveB28WholeChapterRevision(page) {
         reading_excerpt: cp4Reading.excerpt,
       },
       format_only_result: {
-        normalized_equals_source: cp4NormalizedEqualsSource,
+        plan_matches_source: cp4PlanMatchesSource,
         honest_rejection: cp4FormatOnlyViolation,
         outcome: cp4Outcome,
       },
@@ -36965,7 +37011,7 @@ async function driveB28WholeChapterRevision(page) {
         summary: evidence.summary,
         trials: evidence.trials.length,
         trial_ids: evidence.trials.map((trial) => trial.id),
-        no_product_code_changed: true,
+        production_sources_unchanged_during_measurement: JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
         measured_inputs_all_from_real_workbench: true,
       },
     ];
@@ -36980,7 +37026,7 @@ async function driveB28WholeChapterRevision(page) {
     ? await page.locator("body").innerText()
     : "";
   const formatVisibleTargetChapter = /第01章[：:]夜潮/.test(formatVisibleText);
-  const formatVisibleModificationScope = /整章(排版|内容)修订稿|整章排版|只调整分段|只排版/.test(
+  const formatVisibleModificationScope = /分段方案|整章(排版|内容)修订稿|整章排版|只调整分段|只排版/.test(
     formatVisibleText,
   );
   await page
@@ -36989,6 +37035,9 @@ async function driveB28WholeChapterRevision(page) {
   const summaryBeforeT1 = await chapterSummaryFacts(seedWorkId, chapterAId);
   let formatAdoption = null;
   if (formatCandidate.candidate_present) {
+    if (!b28FormattingPlanMatches(formatCandidate.pending_entry, chapterAContent)) {
+      throw new Error("B28格式计划未新增分段或违反字节/来源约束，停止且不采纳");
+    }
     formatAdoption = await adoptRevisionCandidate(formatTurn, "B28 T1 format adoption");
   }
   const formatAfter = await factsFor(seedWorkId, chapterAId);
@@ -36999,14 +37048,13 @@ async function driveB28WholeChapterRevision(page) {
   const formatSuperseded =
     formatAfter.drafts.filter((row) => row.draft_status === "SUPERSEDED").length >
     formatBaseline.drafts.filter((row) => row.draft_status === "SUPERSEDED").length;
-  const formatCandidateNormalizedEqualsBase =
+  const formatPlanMatchesBase =
     formatCandidate.candidate_present &&
     typeof formatCandidate.base_text === "string" &&
-    b28NormalizeFormatText(formatCandidate.candidate_body) ===
-      b28NormalizeFormatText(formatCandidate.base_text);
-  const formatCandidateNormalizedEqualsSource =
+    b28FormattingPlanMatches(formatCandidate.pending_entry, formatCandidate.base_text);
+  const formatPlanMatchesSource =
     formatCandidate.candidate_present &&
-    b28NormalizeFormatText(formatCandidate.candidate_body) === b28NormalizeFormatText(chapterAContent);
+    b28FormattingPlanMatches(formatCandidate.pending_entry, chapterAContent);
   const formatEffect = formatCandidate.adoption_effect ?? {};
   const formatExpectedRefs = formatBaseline.accepted_refs.map((row) => row.draft_ref);
   const formatCoveredRefs = (formatCandidate.covered_refs ?? []).map((ref) =>
@@ -37015,7 +37063,7 @@ async function driveB28WholeChapterRevision(page) {
   evidence.trials.push({
     id: "T1_format_only_whole_chapter",
     purpose:
-      "作者要求整章只调整分段/排版：judgment 绑 chapter_ref + 覆盖账；writer 材料含两段；候选携带 target/effect/base_text 且归一后与整章源字节等价；采纳 replace_scope 同章替代、章身份/章数不变、旧稿 superseded 可查；阅读/刷新一致。",
+      "作者要求整章只调整分段/排版：judgment 绑 chapter_ref + 覆盖账；writer 材料含两段；候选携带 target/effect/base_text 且非换行字节完全相等且实际新增分段；采纳 format_paragraphs 同章替代、章身份/章数不变、旧稿 superseded 可查；阅读/刷新一致。",
     request_text: B28_FORMAT_ONLY_REQUEST,
     baseline: {
       chapter_count: formatBaseline.chapters.length,
@@ -37062,7 +37110,7 @@ async function driveB28WholeChapterRevision(page) {
       target_chapter_ref_matches:
         formatCandidate.target_chapter_ref === `chapter:${chapterAId}`,
       modification_scope_format_only: formatCandidate.modification_scope === "format_only",
-      adoption_effect_replace_scope: formatCandidate.adoption_effect_mode === "replace_scope",
+      adoption_effect_format_paragraphs: formatCandidate.adoption_effect_mode === "format_paragraphs",
       effect_coverage_complete: formatCandidate.coverage === "complete",
       covered_refs_match_accepted: JSON.stringify(formatCoveredRefs.sort()) ===
         JSON.stringify([...formatExpectedRefs].sort()),
@@ -37075,13 +37123,12 @@ async function driveB28WholeChapterRevision(page) {
         formatCandidate.base_text_contains_continuation_anchor === true,
       candidate_covers_both_fragments:
         formatCandidate.contains_initial_anchor && formatCandidate.contains_continuation_anchor,
-      normalized_equals_base_text: formatCandidateNormalizedEqualsBase,
-      normalized_equals_source: formatCandidateNormalizedEqualsSource,
+      plan_matches_base_text: formatPlanMatchesBase,
+      plan_matches_source: formatPlanMatchesSource,
       // 冻结归一规则：行尾空白/换行形式/文末空行之外字节必须相等。
-      strict_bytes_equal_after_normalize:
+      format_plan_preserves_bytes_and_adds_paragraph:
         formatCandidate.candidate_present &&
-        b28NormalizeFormatText(formatCandidate.candidate_body) ===
-          b28NormalizeFormatText(chapterAContent),
+        b28FormattingPlanMatches(formatCandidate.pending_entry, chapterAContent),
       effect_expected_base_versions_present:
         Array.isArray(formatCandidate.expected_base_versions) &&
         formatCandidate.expected_base_versions.length === formatBaseline.accepted_refs.length,
@@ -37104,12 +37151,11 @@ async function driveB28WholeChapterRevision(page) {
       chapter_a_content_changed: formatAfter.accepted_text !== chapterAContent,
       chapter_a_content_chars_after: formatAfter.accepted_text.length,
       chapter_a_content_sha256_after: sha256(formatAfter.accepted_text),
-      chapter_a_normalized_equals_candidate:
+      chapter_a_equals_preview:
         formatCandidate.candidate_present &&
-        b28NormalizeFormatText(formatAfter.accepted_text) ===
-          b28NormalizeFormatText(formatCandidate.candidate_body),
-      chapter_a_content_normalized_equals_source:
-        b28NormalizeFormatText(formatAfter.accepted_text) === b28NormalizeFormatText(chapterAContent),
+        formatAfter.accepted_text === formatCandidate.candidate_text,
+      chapter_a_non_newline_bytes_equal:
+        b28NonNewlineText(formatAfter.accepted_text) === b28NonNewlineText(chapterAContent),
       superseded_drafts_present: formatSuperseded,
       current_accepted_drafts_after: formatAfter.accepted_refs,
       old_fragments_superseded:
@@ -37121,7 +37167,7 @@ async function driveB28WholeChapterRevision(page) {
     format_effect: formatEffect,
   });
 
-  // ── T2：明确内容修订（只改一处，replace_scope 同章替代，其余逐字）──────────────
+  // ── T2：明确内容修订（目标段候选，replace_segments同章合并，其余逐字）──────────────
   const contentBaseline = await factsFor(seedWorkId, chapterAId);
   const contentSource = contentBaseline.accepted_text;
   const contentTurn = await sendAuthorTurn(B28_CONTENT_REQUEST, "B28 T2 explicit content revision");
@@ -37136,12 +37182,12 @@ async function driveB28WholeChapterRevision(page) {
   const expectedChangedSource = contentSource.replaceAll("二十五岁", "三十岁");
   const contentOnlySpotChanged =
     contentCandidate.candidate_present &&
-    b28NormalizeFormatText(contentCandidate.candidate_body) ===
-      b28NormalizeFormatText(expectedChangedSource);
+    b28SegmentCandidateMatches(contentCandidate.candidate_text, contentCandidate.adoption_effect,
+      contentSource, contentBaseline.accepted_refs) && contentAfter.accepted_text === expectedChangedSource;
   evidence.trials.push({
     id: "T2_explicit_content_revision",
     purpose:
-      "只改正文一处（二十五→三十）：候选仍覆盖全章、target_chapter_ref 非空、replace_scope 同章替代，替换范围外逐字保留，章数/章身份不变，阅读/刷新消费新值。",
+      "只改正文一处（二十五→三十）：目标段候选绑定segment/hash/base版本，replace_segments确定性合并；最终全文仅指定处改变，章数/章身份不变，阅读/刷新消费新值。",
     request_text: B28_CONTENT_REQUEST,
     baseline: {
       chapter_count: contentBaseline.chapters.length,
@@ -37161,9 +37207,12 @@ async function driveB28WholeChapterRevision(page) {
     candidate: contentCandidate,
     contract_checks: {
       target_chapter_ref_matches: contentCandidate.target_chapter_ref === `chapter:${chapterAId}`,
-      adoption_effect_replace_scope: contentCandidate.adoption_effect_mode === "replace_scope",
-      content_covers_both_fragments:
-        contentCandidate.contains_initial_anchor && contentCandidate.contains_continuation_anchor,
+      adoption_effect_replace_segments: contentCandidate.adoption_effect_mode === "replace_segments",
+      candidate_matches_bound_segment:
+        b28SegmentCandidateMatches(contentCandidate.candidate_text, contentCandidate.adoption_effect,
+          contentSource, contentBaseline.accepted_refs),
+      result_covers_both_fragments:
+        contentAfter.accepted_text.includes(initialAnchor) && contentAfter.accepted_text.includes(continuationAnchor),
       contains_thirty_age: contentCandidate.contains_thirty_age,
       only_specified_change_applied: contentOnlySpotChanged,
       expected_base_versions_count:
@@ -37181,9 +37230,8 @@ async function driveB28WholeChapterRevision(page) {
       chapter_a_content_chars_after: contentAfter.accepted_text.length,
       chapter_a_content_sha256_after: sha256(contentAfter.accepted_text),
       chapter_a_contains_thirty_age: contentAfter.accepted_text.includes("三十岁"),
-      chapter_a_normalized_equals_expected:
-        b28NormalizeFormatText(contentAfter.accepted_text) ===
-        b28NormalizeFormatText(expectedChangedSource),
+      chapter_a_equals_expected:
+        contentAfter.accepted_text === expectedChangedSource,
       superseded_drafts_present:
         contentAfter.drafts.filter((row) => row.draft_status === "SUPERSEDED").length >
         contentBaseline.drafts.filter((row) => row.draft_status === "SUPERSEDED").length,
@@ -37518,12 +37566,12 @@ async function driveB28WholeChapterRevision(page) {
     format_candidate_covers_both_fragments: t1?.contract_checks?.candidate_covers_both_fragments === true,
     format_base_text_covers_both_fragments:
       t1?.contract_checks?.base_text_covers_both_fragments === true,
-    format_effect_replace_scope: t1?.contract_checks?.adoption_effect_replace_scope === true,
+    format_effect_format_paragraphs: t1?.contract_checks?.adoption_effect_format_paragraphs === true,
     format_modification_scope: t1?.contract_checks?.modification_scope_format_only === true,
     format_covered_refs_match: t1?.contract_checks?.covered_refs_match_accepted === true,
     format_expected_base_versions_present:
       t1?.contract_checks?.effect_expected_base_versions_present === true,
-    format_normalized_equals_source: t1?.contract_checks?.strict_bytes_equal_after_normalize === true,
+    format_plan_preserves_bytes_and_adds_paragraph: t1?.contract_checks?.format_plan_preserves_bytes_and_adds_paragraph === true,
     format_adoption_applied: t1?.adoption?.adopted === true,
     format_adoption_receipt_echoes_effect:
       t1?.adoption?.receipt_additive?.echoes_adoption_effect === true &&
@@ -37534,11 +37582,12 @@ async function driveB28WholeChapterRevision(page) {
       t1?.consequence?.old_fragments_superseded === true ||
       (t1?.consequence?.draft_status_counts_after?.SUPERSEDED ?? 0) >= 2 ||
       (t1?.consequence?.superseded_draft_refs_from_receipt ?? "").split(",").filter(Boolean).length >= 2,
-    format_reading_after_normalized_equal:
-      t1?.consequence?.chapter_a_normalized_equals_candidate === true,
+    format_reading_equals_preview:
+      t1?.consequence?.chapter_a_equals_preview === true,
     content_target_chapter_ref_present: t2?.contract_checks?.target_chapter_ref_matches === true,
-    content_candidate_covers_both_fragments:
-      t2?.contract_checks?.content_covers_both_fragments === true,
+    content_candidate_matches_bound_segment:
+      t2?.contract_checks?.candidate_matches_bound_segment === true &&
+      t2?.contract_checks?.result_covers_both_fragments === true,
     content_only_specified_change_applied: t2?.contract_checks?.only_specified_change_applied === true,
     content_adoption_applied: t2?.adoption?.adopted === true,
     content_adoption_receipt_echoes_effect:
@@ -37557,7 +37606,7 @@ async function driveB28WholeChapterRevision(page) {
     missing_ref_no_new_writing_execution: t4?.no_writer_execution === true,
     reading_projection_after_t1_equals_new_candidate:
       t5?.facts?.reading_matches_format_candidate === true,
-    reading_projection_after_t2_equals_new_candidate:
+    reading_projection_after_t2_equals_applied_text:
       t5?.facts?.reading_matches_content_candidate === true,
     chapter_word_count_matches_new_content:
       t5?.facts?.chapter_word_count_matches_content === true,
@@ -37586,7 +37635,7 @@ async function driveB28WholeChapterRevision(page) {
       t8?.history_facts?.archive_visible_target_chapter === true &&
       formatVisibleTargetChapter === true &&
       formatVisibleModificationScope === true,
-    no_product_code_changed: true,
+    production_sources_unchanged_during_measurement: JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
     no_acceptance_hooks_added: true,
   };
   evidence.summary = {
@@ -37610,9 +37659,9 @@ async function driveB28WholeChapterRevision(page) {
       cp2_measured: {
         checks_passed: evidence.summary.checks_passed,
         checks_total: evidence.summary.checks_total,
-        format_candidate_chars: t1?.candidate?.candidate_body_chars ?? null,
+        format_candidate_chars: t1?.candidate?.candidate_text_chars ?? null,
         format_base_text_chars: t1?.candidate?.base_text_chars ?? null,
-        content_candidate_chars: t2?.candidate?.candidate_body_chars ?? null,
+        content_candidate_chars: t2?.candidate?.candidate_text_chars ?? null,
         covered_refs_count: (t1?.candidate?.covered_refs ?? []).length,
         expected_base_versions_count:
           (t1?.candidate?.expected_base_versions ?? []).length,
@@ -37660,7 +37709,7 @@ async function driveB28WholeChapterRevision(page) {
       },
       summary: evidence.summary,
       seed: evidence.seed,
-      no_product_code_changed: true,
+      production_sources_unchanged_during_measurement: JSON.stringify(productionBefore) === JSON.stringify(b28SourceFingerprint()),
       measured_inputs_all_from_real_workbench: true,
     },
   ];

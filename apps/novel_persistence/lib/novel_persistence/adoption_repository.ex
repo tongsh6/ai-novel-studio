@@ -138,9 +138,9 @@ defmodule NovelPersistence.AdoptionRepository do
   # B28 CP1.5：结果回显（additive）——replace_scope 的 superseded refs 与 effect；
   # append/new_chapter 仅回显 adoption_effect(mode)，无 superseded 列表。
   defp put_b28_effect(result, attrs, %{} = projection) do
-    if Map.get(projection, :adoption_effect) == "replace_scope" do
+    if Map.get(projection, :adoption_effect) in ["replace_scope", "format_paragraphs"] do
       result
-      |> Map.put(:adoption_effect, echo_effect(attrs, "replace_scope"))
+      |> Map.put(:adoption_effect, echo_effect(attrs, projection.adoption_effect))
       |> Map.put(:superseded_draft_refs, Map.get(projection, :superseded_draft_refs, []))
     else
       put_effect_only(result, attrs)
@@ -210,7 +210,8 @@ defmodule NovelPersistence.AdoptionRepository do
     artifact_type = Map.get(attrs, :artifact_type)
 
     if character_dossier_artifact?(artifact_type) or work_skeleton_artifact?(artifact_type) or
-         foreshadowing_resolution_artifact?(artifact_type) do
+         foreshadowing_resolution_artifact?(artifact_type) or
+         formatting_plan_artifact?(artifact_type) do
       # foreshadowing_resolution 采纳=账面状态收束，不产新记忆（伏笔本体记忆已在）。
       {:ok, nil}
     else
@@ -525,13 +526,89 @@ defmodule NovelPersistence.AdoptionRepository do
   defp reading_projection_artifact?("scene_draft"), do: true
   defp reading_projection_artifact?(:prose_fragment), do: true
   defp reading_projection_artifact?("prose_fragment"), do: true
+  defp reading_projection_artifact?(:prose_formatting_plan), do: true
+  defp reading_projection_artifact?("prose_formatting_plan"), do: true
   defp reading_projection_artifact?(_), do: false
+
+  defp formatting_plan_artifact?(type),
+    do: type in [:prose_formatting_plan, "prose_formatting_plan"]
 
   # 章含多场景（v2 21 §6.6 / ADR-0004）。正文采纳按 mode 分流：
   # - :overwrite（默认/重写）—— 同 title 落同一卷/章/场景，supersede 旧 accepted 再写新版，
   #   阅读投影同一章显示最新正文，不堆重复章。
   # - :append（续写）—— 同章新建场景（seq+1）累积，不复用旧场景、不 supersede，字数累加。
   defp persist_reading_projection(repo, attrs, mutation_id) do
+    if formatting_plan_artifact?(Map.get(attrs, :artifact_type)) do
+      persist_formatting_plan(repo, attrs, mutation_id, Map.get(attrs, :adoption_effect) || %{})
+    else
+      persist_prose_projection(repo, attrs, mutation_id)
+    end
+  end
+
+  # ADR-0029：采纳时从当前 canon 重算；模型说明绝不进入正文或记忆。
+  defp persist_formatting_plan(repo, attrs, mutation_id, effect) do
+    work_id = Map.fetch!(attrs, :work_id)
+    chapter_ref = normalize_chapter_ref(Map.get(attrs, :target_chapter_ref))
+
+    with "format_paragraphs" <- formatting_field(effect, :mode),
+         {:ok, chapter} <- require_scope_chapter(repo, work_id, chapter_ref),
+         {:ok, covered} <- covered_scope_drafts(repo, work_id, chapter.id, effect),
+         :ok <- validate_formatting_versions(covered, effect),
+         :ok <-
+           ensure_complete_cover(repo, work_id, chapter.id, covered, %{"coverage" => "complete"}),
+         covered = Enum.sort_by(covered, &{repo.get!(Scene, &1.scene_id).seq, &1.revision}),
+         base_text = Enum.map_join(covered, "\n\n", & &1.content),
+         {:ok, applied} <-
+           NovelDomain.ProseFormatting.apply_plan(
+             base_text,
+             formatting_field(effect, :source_hash),
+             formatting_field(effect, :line_break_changes)
+           ),
+         true <- applied.result_hash == formatting_field(effect, :preview_hash),
+         :ok <- mark_chapter_drafted(repo, chapter),
+         :ok <- supersede_covered_scenes(repo, work_id, covered),
+         {:ok, draft} <- insert_scope_draft(repo, work_id, applied.text, covered) do
+      refs = Enum.map(covered, &"draft:#{&1.id}:#{&1.revision}")
+
+      {:ok,
+       %{
+         volume_id: chapter.volume_id,
+         chapter_id: chapter.id,
+         scene_id: draft.scene_id,
+         draft_id: draft.id,
+         source_revision_ref: "draft:#{draft.id}:#{draft.revision}",
+         mutation_id: mutation_id,
+         adoption_effect: "format_paragraphs",
+         superseded_draft_refs: refs,
+         covered_refs: refs,
+         source_hash: applied.source_hash,
+         result_hash: applied.result_hash,
+         non_newline_hash: applied.non_newline_hash,
+         changed_boundaries: applied.changed_boundaries
+       }}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_formatting_plan}
+    end
+  end
+
+  defp validate_formatting_versions(covered, effect) do
+    expected = formatting_field(effect, :expected_base_versions)
+    actual = MapSet.new(covered, &{"draft:#{&1.id}", &1.revision})
+
+    if is_list(expected) and length(expected) == length(covered) and
+         MapSet.new(expected, &{formatting_field(&1, :ref), formatting_field(&1, :version)}) ==
+           actual,
+       do: :ok,
+       else: {:error, :stale_base_version}
+  end
+
+  defp formatting_field(map, key) when is_map(map),
+    do: Map.get(map, key, Map.get(map, to_string(key)))
+
+  defp formatting_field(_, _), do: nil
+
+  defp persist_prose_projection(repo, attrs, mutation_id) do
     case replace_segments_effect(attrs) do
       nil ->
         case replace_scope_effect(attrs) do

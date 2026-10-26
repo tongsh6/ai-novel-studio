@@ -13,12 +13,13 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     assert String.contains?(rules, AuthoringTaskPolicy.judgment_rules())
   end
 
-  test "judgment-specific rules remain judgment/plan scoped and do not re-promise formatting" do
+  test "judgment rules describe implemented revision guards without promising successful output" do
     rules = AuthoringTaskPolicy.rules()
 
     refute rules =~ "首稿、续写、重写、修订、仅排版互斥"
-    assert rules =~ "没有保证字句不变的独立排版能力"
-    assert rules =~ "B28"
+    assert rules =~ "所有非换行字节保持不变"
+    assert rules =~ "不能将拒绝或生成方案说成排版已完成"
+    refute rules =~ "B28 另有"
     # 判断专属语义仍在（取证/必要提问/自然表达）
     assert rules =~ "先取证"
     assert rules =~ "只有无法从材料消歧"
@@ -43,6 +44,13 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     assert rendered =~ "prose_writing"
     assert rendered =~ "work_archive_read"
     assert rendered =~ "创作结果先待采纳"
+    refute rendered =~ "精确匹配原文字词"
+
+    revision = AuthoringTaskPolicy.operations(capabilities: ["revise_adopted_content"])
+    assert revision =~ "精确匹配原文字词"
+    assert revision =~ "缺失或多处命中会拒绝"
+    assert revision =~ "确定性合并逐字保留"
+    assert revision =~ "须作者采纳"
   end
 
   test "B33 CP2：动作意图存在性检测（不做路由）覆盖写章/设计角色/修订，讨论与查询不触发" do
@@ -79,5 +87,15 @@ defmodule NovelApplication.AuthoringTaskPolicyTest do
     assert rules =~ "不能以 reply / propose_creative_directions / await_author 结束"
     assert rules =~ "设计一个角色时用 execute character_design"
     assert rules =~ "目标段/范围不明确时用 ask_author"
+  end
+
+  test "负向取证允许诚实收束，排版规则与ADR-0029计划契约一致" do
+    rules = NovelApplication.AuthoringTaskPolicy.rules()
+    assert rules =~ "目标不存在或没有已采纳原文"
+    assert rules =~ "核查已经完成"
+    assert rules =~ "必要材料齐备后必须回到execute"
+    assert rules =~ "模型提出换行计划"
+    refute rules =~ "取证后必须回到 execute，不能以 reply"
+    refute rules =~ "冻结空白归一后的"
   end
 end

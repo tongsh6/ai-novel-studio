@@ -8,6 +8,7 @@ import { AuthorQuestionReply } from "./AuthorQuestionReply";
 import { UserMessageSubmissionSchema } from "../generated/foundation/user_message_submission";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { readingProjectionQueryKey } from "../lib/readingProjectionQuery";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -1628,18 +1629,18 @@ export function WorkspaceChat() {
       setPendingAnswerBid(null);
     }
 
-    // VS-005: propagate projection_refs to global store for ReadingMode
-    const projRefs = result.projection_refs;
-    if (projRefs && projRefs.length > 0) {
-      const status = projRefs[0].refresh_status;
-      if (
-        status === "FRESH" ||
-        status === "STALE" ||
-        status === "REBUILDING" ||
-        status === "FAILED"
-      ) {
-        useAppStore.getState().setProjectionStatus(status);
-      }
+    // ADR-0016：采纳提示仅使对应作品的只读查询失效，不发起创作或写入。
+    if (
+      result.projection_refs?.some((ref) =>
+        [
+          "reading_projection_root",
+          "reading_projection_toc",
+          "reading_projection_chapter",
+          "reader_recap",
+        ].includes(ref.projection_type),
+      )
+    ) {
+      void queryClient.invalidateQueries({ queryKey: readingProjectionQueryKey(context.workId) });
     }
   }
 
@@ -1759,8 +1760,6 @@ export function WorkspaceChat() {
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
     setAssistantNameError(null);
-    useAppStore.getState().setProjectionStatus(null);
-    useAppStore.getState().setPendingBuildAction(null);
   }
 
   // B13b §4.1 #11：工作台头部当前卷以真实写作坐标为准（服务端优先 TurnResult
@@ -2443,29 +2442,6 @@ export function WorkspaceChat() {
     [activeSessionId, context.workId],
   );
 
-  // Handle pending build actions from ReadingMode (refresh/retry projection)
-  useEffect(() => {
-    const action = useAppStore.getState().pendingBuildAction;
-    if (!action || !channelRef.current) return;
-
-    let text: string;
-    if (action === "refresh_projection") {
-      text = "请刷新阅读投影";
-    } else {
-      text = "请重试投影重建";
-    }
-
-    // Clear pending action and send
-    useAppStore.getState().setPendingBuildAction(null);
-    setLoading(true);
-    void sendMessage(channelRef.current, text, context.workId, null, activeSessionId)
-      .then((response) => rememberAgentRunAck(response, text))
-      .catch(() => {
-        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
-        setLoading(false);
-      });
-  }, [activeSessionId, context.workId, rememberAgentRunAck]);
-
   // DS03：not_found 意味着 runtime 已失活——本地立即把该 run 降为 dead，
   // 历史状态不再授予命令权限，控制坞切换到「重新发起」。
   const demoteAgentRunToDead = useCallback((run: AgentRunStateData) => {
@@ -2532,7 +2508,9 @@ export function WorkspaceChat() {
       if (error instanceof MessageDeliveryError && error.kind === "transport") {
         setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendUnconfirmed }]);
       } else if (options.optimistic !== false) {
-        setMessages((prev) => prev.filter((message) => message.clientMessageId !== clientMessageId));
+        setMessages((prev) =>
+          prev.filter((message) => message.clientMessageId !== clientMessageId),
+        );
         setInputText(text);
       }
       setLoading(false);
@@ -2933,7 +2911,12 @@ export function WorkspaceChat() {
     const artifact = artifactForAction(turnResult, action);
     const revisionRole = qualityRevisionArtifactRole(turnResult, artifact);
     let base: string;
-    if (revisionRole === "original") {
+    if (artifact?.artifact_type === "prose_formatting_plan") {
+      if (action.action_type === "accept") base = CARD.tentativeArtifact.applyFormattingLabel;
+      else if (action.action_type === "discard")
+        base = CARD.tentativeArtifact.discardFormattingLabel;
+      else return action.action_type;
+    } else if (revisionRole === "original") {
       if (action.action_type === "accept") base = CARD.tentativeArtifact.saveOriginalLabel;
       else if (action.action_type === "discard") base = CARD.tentativeArtifact.discardOriginalLabel;
       else if (action.action_type === "edit_then_accept")
@@ -3100,6 +3083,9 @@ export function WorkspaceChat() {
   const actionTitle = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.disabled_reason) return action.disabled_reason;
     const artifact = artifactForAction(turnResult, action);
+    if (artifact?.artifact_type === "prose_formatting_plan" && action.action_type === "accept") {
+      return CARD.tentativeArtifact.applyFormattingHint;
+    }
     const revisionRole = qualityRevisionArtifactRole(turnResult, artifact);
 
     if (revisionRole === "original") {
@@ -5455,9 +5441,7 @@ export function WorkspaceChat() {
                             : WORKBENCH.agentRunMainInputSteerPlaceholder
                           : WORKBENCH.inputPlaceholder
                     }
-                    disabled={
-                      !socketConnected || isPanelOpen || isReadOnlySessionView
-                    }
+                    disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
                   />
                   {!hasActiveAgentRun && (
                     <button

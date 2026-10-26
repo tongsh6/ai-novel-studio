@@ -1,4 +1,6 @@
 // Design: docs/design/ui/42-card-system.md §3
+// Design: docs/design/adr/ADR-0029-prose-formatting-plan-v3.md §决策
+// Prototype: novel-studio.pen → 42§4-adoption-card-states (PZAVY)
 // Design: docs/design/ui/46-state-and-feedback.md §9.8
 // Prototype: novel-studio.pen → 42§4-adoption-card-exclusive-choice (IIPsi), 46§9.8-quality-revision-ready (AH4WW)
 import type { ReactNode } from "react";
@@ -23,6 +25,11 @@ function displayText(value: unknown): string | null {
 
 function artifactDraftCopy(card: UICardData): { title: string; body: string } {
   switch (card.artifact_type) {
+    case "prose_formatting_plan":
+      return {
+        title: CARD.artifactDraft.formattingTitle,
+        body: CARD.artifactDraft.formattingDescription,
+      };
     case "prose_fragment":
     case "scene_draft":
       return {
@@ -105,10 +112,7 @@ function findingId(finding: QualityFindingView, index: number): string {
 
 function findingLocation(finding: QualityFindingView): string {
   const first = finding.evidence_spans?.[0];
-  if (
-    typeof first?.sentence_start === "number" &&
-    typeof first?.sentence_end === "number"
-  ) {
+  if (typeof first?.sentence_start === "number" && typeof first?.sentence_end === "number") {
     return CARD.qualityReview.positionSentences(first.sentence_start, first.sentence_end);
   }
   return displayText(first?.location) || CARD.qualityReview.positionFallback;
@@ -128,10 +132,12 @@ function selectedRevisionScope(
   findings: QualityFindingView[],
   selectedFindingIds: string[],
 ): string {
-  return findings
-    .filter((finding, index) => selectedFindingIds.includes(findingId(finding, index)))
-    .map((finding) => finding.revision_scope)
-    .sort((left, right) => scopeRank(right) - scopeRank(left))[0] || "local";
+  return (
+    findings
+      .filter((finding, index) => selectedFindingIds.includes(findingId(finding, index)))
+      .map((finding) => finding.revision_scope)
+      .sort((left, right) => scopeRank(right) - scopeRank(left))[0] || "local"
+  );
 }
 
 // B11D（质量场粒度）：把服务端给的场归属与 brief_field_refs 展示为作者可读文本。
@@ -142,9 +148,7 @@ function briefFieldRefLabel(ref: string): string {
     ? CARD.qualityReview.scenePosition(Number(unit.replace("scene_", "")), null)
     : unit;
   const fieldLabel =
-    CARD.qualityReview.briefFieldLabels[field] ||
-    field ||
-    CARD.qualityReview.briefFieldRefsLabel;
+    CARD.qualityReview.briefFieldLabels[field] || field || CARD.qualityReview.briefFieldRefsLabel;
   return field ? `${unitLabel} · ${fieldLabel}` : unitLabel;
 }
 
@@ -513,6 +517,17 @@ export function CandidateSetCard({
                       {CARD.artifactDraft.rationalePrefix}
                       {rationale}
                     </div>
+                  )}
+                  {card.artifact_type === "prose_formatting_plan" && card.formatting_preview && (
+                    <section aria-label={CARD.artifactDraft.formattingPreviewLabel}>
+                      <div className={styles.candidateItemTitle}>
+                        {CARD.artifactDraft.formattingPreviewLabel}
+                      </div>
+                      <div className={styles.candidateItemRationale}>
+                        {CARD.artifactDraft.formattingPreviewHint}
+                      </div>
+                      <div className={styles.candidateItemBody}>{card.formatting_preview}</div>
+                    </section>
                   )}
                   {!selectionMode && actions ? (
                     <div className={styles.candidateItemActions}>{actions}</div>

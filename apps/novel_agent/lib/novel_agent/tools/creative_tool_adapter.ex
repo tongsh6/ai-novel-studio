@@ -119,7 +119,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
          now,
          artifact_type
        ) do
-    case validate_provider_output(req, items, companion_artifacts) do
+    case validate_provider_output(req, artifact_type, items, companion_artifacts) do
       {:ok, normalized_items, normalized_companions} ->
         succeeded_tool_result(
           req,
@@ -145,13 +145,19 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
        ),
        do: failed_tool_result(req, result_id, now, errors)
 
-  defp validate_provider_output(req, items, companion_artifacts) do
+  defp validate_provider_output(req, artifact_type, items, companion_artifacts) do
     with {:ok, normalized_items} <- ToolOutputContract.validate_creative_items(items),
          {:ok, normalized_items} <-
            attach_outline_chapter_refs(req.tool_name, items, normalized_items),
          {:ok, normalized_companions} <-
            ToolOutputContract.validate_prose_companion_artifacts(companion_artifacts),
          :ok <- validate_companion_scope(req.tool_name, normalized_companions),
+         :ok <-
+           ToolOutputContract.validate_artifact_shape(
+             artifact_type,
+             normalized_items,
+             normalized_companions
+           ),
          :ok <-
            ToolOutputContract.validate_unique_item_ids(normalized_items, normalized_companions) do
       {:ok, normalized_items, normalized_companions}

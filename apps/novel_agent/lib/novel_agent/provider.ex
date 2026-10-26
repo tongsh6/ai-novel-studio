@@ -168,27 +168,25 @@ defmodule NovelAgent.Provider do
   # 时长/预算问题，因此判定放在跨 adapter 共享层，和"内容为空"判定同一位置、
   # 同一优先级。
   @degenerate_min_length 40
+  @degenerate_window_length 256
   @degenerate_unique_ratio_threshold 0.05
 
   @spec degenerate_content?(String.t()) :: boolean()
   def degenerate_content?(content) when is_binary(content) do
-    length = String.length(content)
+    # 在固定窗口内识别单字符/极短循环。不能用全文unique/length：字符集有上限，
+    # 合法长英文、代码或JSON随长度增长必然被旧比例误拒绝（B28实模CP0）。
+    content
+    |> String.graphemes()
+    |> Enum.chunk_every(@degenerate_window_length, div(@degenerate_window_length, 2))
+    |> Enum.any?(fn window ->
+      size = length(window)
 
-    length >= @degenerate_min_length and
-      unique_char_ratio(content, length) < @degenerate_unique_ratio_threshold
+      size >= @degenerate_min_length and
+        MapSet.size(MapSet.new(window)) / size < @degenerate_unique_ratio_threshold
+    end)
   end
 
   def degenerate_content?(_content), do: false
-
-  defp unique_char_ratio(content, length) do
-    unique_count =
-      content
-      |> String.graphemes()
-      |> MapSet.new()
-      |> MapSet.size()
-
-    unique_count / length
-  end
 
   defp normalize_tool_specs(specs) when is_list(specs) do
     Enum.flat_map(specs, fn spec ->

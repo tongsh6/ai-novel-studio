@@ -201,3 +201,12 @@ ADR-0016 can enter Accepted because this pack provides the minimal ProjectionHin
 Acceptance does not authorize code. It only means VS-04 has stable design inputs for a later implementation plan after user approval.
 
 ---
+
+
+## 章级分段计划采纳（ADR-0029）
+
+`prose_formatting_plan` 使用 `adoption_effect.mode=format_paragraphs`，绑定 chapter_ref、完整
+covered/expected_base_versions、source_hash、模型 line_break_changes 及 preview_hash。
+事务重读当前 canon、核验全部覆盖版本/源hash、重新应用计划并核对预览hash，再同章替代旧稿；
+任一步失败零写入。说明不进入正文/MemoryItem，旧稿保持历史，摘要从新完整章读取。
+模型字段与机器预览分别保留来源；具体语义见 [ADR-0029](../adr/ADR-0029-prose-formatting-plan-v3.md)。

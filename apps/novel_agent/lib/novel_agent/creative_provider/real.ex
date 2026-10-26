@@ -62,6 +62,20 @@ defmodule NovelAgent.CreativeProvider.Real do
   end
 
   defp enforce_companion_scope(
+         %CreativeProviderResult{status: :ok} = result,
+         %CreativeRequest{artifact_type: :prose_formatting_plan}
+       ) do
+    case ToolOutputContract.validate_artifact_shape(
+           :prose_formatting_plan,
+           result.items,
+           result.companion_artifacts
+         ) do
+      :ok -> result
+      {:error, error} -> provider_error(error.code, error.message)
+    end
+  end
+
+  defp enforce_companion_scope(
          %CreativeProviderResult{status: :ok, companion_artifacts: companions} = result,
          %CreativeRequest{tool_name: "prose_writing"}
        )
@@ -150,6 +164,20 @@ defmodule NovelAgent.CreativeProvider.Real do
   @creative_tool_names ~w(plot_outline character_design character_evolution world_building)
 
   # ── B27 CP3d：creative 角色模板（task 必填，角色差异保留在域段）─────────────
+
+  defp build_prompt(
+         %CreativeRequest{tool_name: "prose_writing", artifact_type: :prose_formatting_plan} =
+           request
+       ) do
+    render_creative_prompt(request, "本次你承担小说分段编辑的角色。", """
+    只提出换行计划，不重写或抄录正文。应用会把计划确定性应用于绑定版本的原文，供作者预览采纳。
+    items 必须只有一项：item_id 为你生成的短标识；title 为方案标题；body 为简短方案说明；rationale 为分段依据。
+    同一项必须含 line_break_changes 数组，每个元素恰好是 {"boundary_id":"从上下文原样复制的边界ID","lines":2}。
+    lines 只能为整数 0（取消换行）、1（换行）、2（空行分段）。只列需要改变的边界；未列边界原样保留。
+    必须至少改变一处，不能把原样返回冒充完成。根据语义、对话和阅读节奏选择分段，不要逐句机械分段。
+    不得编造 boundary_id，不得输出正文替换字段，不得返回伴生产物。
+    """)
+  end
 
   defp build_prompt(%CreativeRequest{tool_name: "prose_writing"} = request),
     do: prose_prompt(request)

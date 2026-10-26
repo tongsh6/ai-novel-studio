@@ -84,6 +84,33 @@ defmodule NovelApplication.B29CharacterProfileTest do
     assert CharacterProfile.design_new_protagonist_intent?("设计一个新主角")
   end
 
+  test "身份守卫不把章节调整或角色状态更新误判为叙事身份变更" do
+    for separator <- ["，", "；", "\n"] do
+      refute CharacterProfile.revision_intent?(
+               "先读完第01章正文#{separator}再调整章节大纲#{separator}最后更新主角当前状态"
+             )
+    end
+
+    for text <- [
+          "调整主角当前状态",
+          "把主角状态改为警惕",
+          "指定主角下一步行动",
+          "先把章节编号改为连续，再更新主角状态"
+        ] do
+      refute CharacterProfile.revision_intent?(text), text
+    end
+
+    for text <- [
+          "指定老沈为主角",
+          "把已有角色的叙事身份从配角改为主角",
+          "把顾青调整为反派",
+          "确立沈砚的主角身份",
+          "先调整章节大纲，再把沈砚定为唯一主角"
+        ] do
+      assert CharacterProfile.revision_intent?(text), text
+    end
+  end
+
   test "候选 payload：目标旧→新 + 唯一主角时其它角色变化供裁决（不默认应用）" do
     shen = target(@shen_ref, "沈砚", ["老沈"], "ENSEMBLE_POV")
 

@@ -1,6 +1,7 @@
 # B31：作者补充输入与待回复任务的稳定绑定
 
-- 状态：**done（2026-10-25，CP0–CP3）**。CP0 真实 Tauri 复现「两个 awaiting run + 普通自由输入被 steer 到另一 run」并裁决根因（前端插入序选择 + 普通输入只按 selected run steer/不参与非 selected 的 open question + JoinRestore 顺序无契约；服务端绑定与 B26 显式路径经证据排除）；CP1 修复（确定性 active run/主输入条件/expected_goal_version/恢复稳定序/ack 绑定）；CP2 真实 Tauri 新语义 PASS + 场景注册；CP3 Q3D 口径对齐、deprecated 清理、UA-01/设计/copy 文档同步、全门禁与台账。known limits 见 §6.5。
+- 状态：**done（2026-10-25，原生补验收口）**。A4由外部CUA驱动真实Tauri入口，五场景/7条问题回复/三次恢复/16组截图及源绑定对账通过；后端2247、前端614、I1–I3与统一扫描闭环。既有浏览器证据和失败批次保留，真实模型语义质量/B27 known-gap不据此关闭。
+- 原收口记录：**done（2026-10-25，CP0–CP3）**。CP0 真实 Tauri 复现「两个 awaiting run + 普通自由输入被 steer 到另一 run」并裁决根因（前端插入序选择 + 普通输入只按 selected run steer/不参与非 selected 的 open question + JoinRestore 顺序无契约；服务端绑定与 B26 显式路径经证据排除）；CP1 修复（确定性 active run/主输入条件/expected_goal_version/恢复稳定序/ack 绑定）；CP2 真实 Tauri 新语义 PASS + 场景注册；CP3 Q3D 口径对齐、deprecated 清理、UA-01/设计/copy 文档同步、全门禁与台账。known limits 见 §6.5。
 - 登记日期：2026-10-23；本轮不改代码、不重发 stage 消息。
 - 关联：[Q3D](Q3D-message-outcome-roundtrip.md)、[DS03](DS03-awaiting-author-runtime-validity-and-recovery-surface.md)、[B23](B23-awaiting-author-reason-and-exit-surface.md)、[B26](B26-single-call-judgment-protocol.md)、[B27](B27-systematic-prompt-and-intent-integration.md)。
 
@@ -89,3 +90,67 @@ B26 独立负责所有由 ask_author 产生的明确问题：持久 author_quest
 - **门禁**：mix compile -Werror、2080 tests/0、test -Werror、repo-wide format、credo strict 0、enum、xref、arch、adr；frontend typecheck/lint/603 tests、frontend_audit、check_design_trace；quality_manifest_check；I1/I2/I3/N-NARR/I-CACHE 不适用（本 slice 未改 provider/创作主链），Tauri 证据为页面/持久化边界。
 - **完成判定**：CP0 真实页面复现、CP1 有测试与错误路径、CP2 覆盖真实页面入口与持久来源、CP3 回归/文档/台账齐备 → **B31 done**。B26 显式问题矩阵仍由 B26/agent-awaiting-author-* 独立承担，未混入本 slice 结论。
 - **known limits**：① 历史 run 卡片/消息点击未作为 focused 来源（避免新增隐式点击语义；当前聚焦来源=提交 steer/显式回复/停等坞点击/任务选择）；② 待投递重传路径不携带 expected_goal_version（generated schema 未扩，后端 nil 兼容；live steer 均携带）；③ 证据为 headless Chromium 驱动真实前后端（Tauri 窗口同时拉起），非原生 CUA；④ slice_verify 确定性 provider，不声明真实模型语义质量；⑤ T3/T4/T5 的 run 创建为外部协议 seed（证据已标注），T1/T2 覆盖真实用户创建形状。
+
+### 2026-10-25 完成审计与原生补验
+
+当前只重开原生交互证明，未回滚已验证的实现或浏览器结果。证据对账与作者裁决见 [既有对账任务](VS00D-G-GAP-RECONCILIATION.md) 的队列完成审计；机器证据 `artifacts/completion-audit/20261025-1817/surface-audit.json`。后续复用本 slice 原验收矩阵，以外部系统 UI 驱动真实窗口，保留源操作/WS/持久状态和截图；原批次只读，不修改判据。
+
+#### 原生补验首批 CP0（2026-10-25）
+
+- 批次 `artifacts/slice-verify/b31-native-20261025-a1/` 在被测输入开始前停止：T5 的两个 plan-exhaust 前提变成明确问题。原生 AX/截图、协议 seed、请求和独立 DB/profile 均保留。
+- 离线重放首条完全相同的合成请求确认替身根因：`character_profile_revision_intent?` 把不同分句的“调整章节大纲”和“主角当前状态”合并为角色身份改判。生产随后按当前动作校验发起纠错/澄清；未据此宣称生产模型缺陷。
+- 修复限于 test/support：角色改判动词与角色词必须属于同一分句，正常明确改判仍保持绑定。新增逗号/分号/换行反例与同分句正例；相关替身测试53/0。修复后同一请求输出 plan（`artifacts/slice-verify/b31-native-repair-20261025/exact-request-replay.log`）。原测量断言未改。
+- A2 预注册：fixture 修复后的 scoped 原生复验，先验证 T3–T5 前提确为 judgment_plan_v1/plan_exhausted_without_completion 且无 author_question，再从 T1 开始原矩阵；任何前提不符或产品状态违约立即停本批，禁止补字段/改断言。真实模型预算0，同因最多再失败一次即升级。独立目录 `artifacts/slice-verify/b31-native-20261025-a2/`，不覆盖A1。
+
+- 当前复验状态：A2 在端口预检被拦截，未开始任何产品测量；A1遗留进程已按日志/DB归属确认并清理（共享清理函数必须由Bash执行，默认zsh分词不兼容，不据此修改产品）。B37外部failure退出测试通过；TERM子等待仍超30s，已修正原生watchdog后台wait，第二次预算升级正在等待作者裁决。不得将此批或旧浏览器证据标为原生通过。
+- 本轮局部门禁：后端2243/0（warnings-as-errors）、前端603/0/typecheck/lint、等待账本5/0、compile/credo均通过。统一扫描 `TASK_DONE_MANIFEST=artifacts/slice-verify/b31-native-repair-20261025/manifest.json bash scripts/ai_static_scan.sh --top 10`：18通过/2失败，剩余Top10共3条——历史Pencil误报、历史凭据accepted_risk、当前UI证据未完成pending（1 blocker）。不使用旧摘要或修改处置台账绕过。修复与门禁证据在 `artifacts/slice-verify/b31-native-repair-20261025/`。
+
+#### 原生复验前的离线前提核查预注册（2026-10-25）
+
+预算裁决待回复期间，仅读取 A1 的一条合成判断请求和已冻结的 trial 输入，调用当前 SliceVerify.complete 做6类输入的离线响应检查（每类一次、零重试、零真实模型、无产品服务/数据库写入）。只确认替身响应形状与当前矩阵前提是否仍相容，不计页面通过或模型语义分数。输出 `artifacts/slice-verify/b31-native-repair-20261025/fixture-feasibility.json`；若原验收前提与新能力有冲突，先提交具体契约/样例调整方案，不直接改断言。
+
+离线准备检查的输入构造先被守卫中止（0次替身调用）：当前合成请求在 author_inputs 来源清单和“作者输入”两处携带同一原话。后续构造同步替换这两个已定位载体并保留数量=2的断言，避免新输入与旧来源互相矛盾；原失败日志保留，仍为每类一次调用，不改变验收判据。
+
+#### 离线前提核查结果与待裁决增补
+
+六类检查完成（6次纯替身、0重试/真实调用）：原问题→ask_author、计划→plan、结构类普通输入→ask_author、语义回答类普通输入→execute prose_writing、歧义保留计划输入→plain reply、显式补充→execute prose_writing。证据见 `fixture-feasibility.json`，不计原生/产品链验收通过。
+
+**当前矩阵前提冲突**：T1 在空作品中重复发送“处理重复第11章，只修正列表编号…”；B30 的现有测试替身诚实要求确认可维护结构，因此这两个新请求可产生各自的明确问题。T1 随后仅回答原 Q，却断言“只剩 S、恢复发送调整”，与“只要仍有明确问题未答，未绑定输入应成新请求”的既有 B31 契约不相容。该冲突目前由离线 fixture 和现有状态规则确认，尚未执行本批真实 T1 输入；不把推断当页面失败。
+
+已接受增补（2026-10-25，作者选择“接受增补，保留全部绑定断言”）：保留原输入及普通输入新 run 断言；若这些新请求产生问题，逐个记录其独立 question_ref/source/run，回答原 Q 后验证其余问题仍 open、S goal仍1、主输入仍新请求。随后从各自原生问题卡用符合其语义的具体回答关闭新问题（每问题≤2次不同回答），最后在确实仅剩 S 时检查发送调整/目标绑定。T2 若出现同类新问题采用相同规则；T3/T4/T5原范围不缩小。所有附加问答记入 author_question_events。该方案不改产品/ADR/schema，不压制B30澄清；改变测试执行条件已获作者授权；TERM复验预算是另一待决事项，未随本次接受自动解除。
+
+#### 已接受增补的实现（2026-10-25，原生运行预算仍待裁决）
+
+- 原输入、原问题绑定、恢复序、T3/T4/T5 与其他任务不推进断言均保留。T1/T2 增加“答原Q后其他问题仍open/主输入仍新请求”检查；只有全部问题关闭且新请求run完成，才检查剩余S的调整入口。
+- `b31-question-proof.mjs` 由浏览器驱动和原生验证器共用：逐项核对源动作、source_turn_ref/run/question_ref/expected_goal_version、回执、唯一持久原话；每run至多2次不同回答，重复/空问题拒绝，相同完整重传不重复计数。`author_question_events.json` 覆盖原问题和额外问题。
+- 额外结构问题的具体默认决策已预设：确认第一卷，缺章节时先生成12章待采纳章节计划；第二次说明12章调查/冲突范围，保持已有正文。推荐选项优先；不cancel、不重发原指令、不自动采纳。若问题重复、缺文本、运行失败或仍未完成，诚实失败，不强制把任务变成completed。
+- 原生需保存 T1/T2 的 `after-original-reply` / `after-questions-closed` 持久快照及同名AX；`native_b31_evidence.mjs capture <dir> T1 after-original-reply` 等命令只读公开API。原生验证重查每次动作/回执/其他run版本、分页历史和最后开放问题集合；不会只相信布尔结果。
+- 对新增回复做隔离上下文回归时，复现另一个任务的 UA01PLANEXHAUST 标记会把当前单产物请求变成plan。修复仅test/support：判断fixture的标记只检查当前作者输入；当前任务带标记的正例仍有效。失败/修复日志 `question-context-before-fix.log` / `question-context-after-fix.log` 保留；相关61项测试通过。产品判断逻辑未改。
+- 256项前端定向测试通过，包含新证明与验证器负例；原生/浏览器场景均未因本次授权而启动。旧报告缺少新增关闭条件或真实作者动作时将拒绝，证据层级仍分开。
+
+- 2026-10-25 20:38 续行判断：作者要求先据项目愿景裁定工程事项。此处仅验证已定位的监督退出修复，不改变产品语义、原生标准或30秒预算，故执行一次新的TERM探针；若通过，沿已接受的T1/T2增补执行A3。新探针再次超时则保留失败并停止，不自行扩大预算。此前“等待TERM预算”记录为当时状态。
+
+#### A3原生scoped复验预注册（2026-10-25 20:40）
+
+- 前提：B37 TERM修复复验10.314秒通过；作者已接受T1/T2增补。
+- 范围：一次T1–T5原生矩阵；T1/T2真实UI创建Q/S及所有测量动作，T3–T5仅前提协议seed。新问题逐源回复≤2次不同回复/run；保留原输入、run/source/question/version/持久化全部断言，不采纳、不cancel、不重发替代指令。
+- 预算：slice_verify，真实模型0；输入/ack30秒、turn/candidate120秒、adoption90秒、maintenance180秒、export60秒、restore30秒、idle120秒，10秒心跳。单批失败立即保留，禁止重复同批或改变判据。
+- 证据：`artifacts/slice-verify/b31-native-20261025-a3/`，独立DB/profile/源码指纹；保留全部旧批。失败或结束均回收本批所属进程，作者手动模型不动。
+
+- A3前提失败：T3计划被生产 `character_profile_capability_required` 守卫拒绝，未执行测量UI输入。failure首因保留，监督EXIT/1，端口已释放；原生截图/AX、独立DB/profile保留。具体CP0及修复归[B29](B29-existing-character-role-revision.md#b31原生补验发现的身份意图误判2026-10-25cp0修复)，不修改本矩阵。此为生产跨分句误判，与A1替身误路由分开记录。
+
+#### A4产品守卫修复后的scoped回归预注册（2026-10-25 20:48）
+
+- 前提：B29身份守卫CP0/红绿回归及原话AgentRun计划链通过；A3失败批保留。
+- 范围/预算：一次A3生产缺陷修复后的T1–T5原生回归，沿A3原矩阵、输入和所有绑定断言；T1/T2增补仍按作者批准执行。预算不变，真实模型0，不是语义换分。T3 seed失败现在自动写首因并退出，不等待整个turn预算。
+- 证据：`artifacts/slice-verify/b31-native-20261025-a4/`，独立DB/profile，运行指纹补入实际CharacterProfile源码。再次同因失败停止升级，不修改断言。
+
+### A4原生补验收口（2026-10-25 20:57）
+
+- **真实原生场景**：`artifacts/slice-verify/b31-native-20261025-a4/run/summary.json`；surface=tauri，driver=cua-native-system-ui，五trial全部通过。T1/T2原生创建Q/S；普通输入共6条各成独立run；7条问题回复均精确绑定source_turn/question/run/version/submission，其他任务版本不变；所有问题关闭及新run完成后才恢复仅S调整入口。T3/T4创建顺序互换；T5可见选择后steer只推进目标1→2。T2三次原生重开JoinRestore顺序一致。
+- **证据边界**：T3–T5仅前提协议seed，全部被测输入/回复/选择由原生UI完成；slice_verify确定性替身，真实模型调用0，不代表文学或B27语义质量。16组截图/AX、代理网络帧、app/provider日志、会话快照、独立DB及profile备份保留。未采纳候选、未改stage存量。A1/A2/A3及失败监督探针不覆写。
+- **监督/资源**：47个分型等待、0超时、10秒心跳；独立监督EXIT/0；窗口已关闭、4657/5769/4661端口释放、无本批所属进程。作者手动加载模型保留，不冒称全局空。TERM专项10.314秒通过见B37。
+- **生产修复归属**：A3发现的跨分句角色身份误判已在B29原任务登记CP0→红绿→真实计划链→原生回归；只改application CharacterProfile，不放宽B31断言。
+- **门禁**：`mix compile --warnings-as-errors`、`mix test --warnings-as-errors` 2247/0、xref无环、arch通过；前端typecheck/lint/614 tests、frontend_audit、design_trace；I3 3/3、I1 4/4、I2 3/3、N-NARR/I-CACHE、quality_manifest、next_task、task_done通过。证据在 `artifacts/slice-verify/b31-native-repair-20261025/{character-route,closeout}/`。
+- **静态闭环**：执行 `bash scripts/ai_static_scan.sh --top 10`；修复新增测试2处AliasUsage，复扫exit0：19 checks pass、gitleaks原始check fail；剩余Top 10仅2项历史发现（Pencil fileToken=false_positive；ProjectGod历史凭据=accepted_risk），touched findings=0、pending=0。未新增豁免或修改baseline。
+- **残余**：§6.5既有重传不带expected_goal_version/历史卡片不隐式聚焦等边界保留；B27未完成known-gap、其他slice原生证明不由本结果代替。NEXT按原顺序转B28。

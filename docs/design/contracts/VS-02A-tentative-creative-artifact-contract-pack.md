@@ -39,7 +39,7 @@ TentativeArtifactSet 表示 AI 生成的待采纳创作材料。
 | 字段 / 语义 | 要求 |
 |---|---|
 | `artifact_set_id` | 可被 TurnResult / trace 引用 |
-| `artifact_type` | `character_seed` / `plot_direction` / `outline_draft` / `scene_draft` / `prose_fragment` / `world_setting` / `foreshadowing_seed` / `world_rule_seed` / `style_rule_seed` / `constraint_seed` 之一；unknown 必须 validation failure |
+| `artifact_type` | `character_seed` / `plot_direction` / `outline_draft` / `scene_draft` / `prose_fragment` / `prose_formatting_plan` / `world_setting` / `foreshadowing_seed` / `world_rule_seed` / `style_rule_seed` / `constraint_seed` 之一；unknown 必须 validation failure |
 | `items` | 一个或多个草稿项 |
 | `source_turn_ref` | 引用当前 turn |
 | `source_tool_result_ref` | 引用生成它的 ToolResult |
@@ -83,6 +83,17 @@ TentativeArtifactSet 表示 AI 生成的待采纳创作材料。
 - `Toolbox` 只返回 `ToolResult`；`ArtifactAssembler` 是唯一 `ToolResult -> TentativeArtifactSet` 创建边界。
 - `ToolAdapter` 负责具体工具到 artifact_type 的 contract 映射：`character_design -> character_seed`、`plot_outline -> outline_draft`、`prose_writing -> prose_fragment`；`world_building` 保持工具能力名，但按作者意图输出 `world_setting` / `foreshadowing_seed` / `world_rule_seed` / `style_rule_seed` / `constraint_seed`，其中 `world_setting` 仅表示普通世界观/背景设定草稿，不承载伏笔或规则默认语义。
 - provider failure / invalid output 必须返回 failed `ToolResult`；不得生成 `TentativeArtifactSet`、candidate_set card 或采纳类 action。
+
+### 3.1.1 仅分段计划（ADR-0029）
+
+章级 `format_only` 由 application 选择 `prose_writing -> prose_formatting_plan`，输出契约为
+`prose_formatting_plan_v1`。只能有一个 item，保留模型的 `item_id/title/body/rationale` 字节，
+另含非空 `line_break_changes: [{boundary_id, lines}]`；lines 仅整数 0/1/2，不允许伴生产物。
+body 是方案说明，不是正文。Application 以完整当前章计算独立 `formatting_preview`，只改变
+CR/LF。预览不替代 item.body，未知/重复边界、过期源、无实际变化不得产生可采纳候选。
+采纳事务从当前 canon 重算；accept/discard 沿既有动作，方案调整走对话，不提供文本 edit_then_accept。
+具体边界、版本和失败语义见 [ADR-0029](../adr/ADR-0029-prose-formatting-plan-v3.md)。
+旧全文 format_only 候选继续适用原严格归一守卫。
 
 ### 3.2 正文创作的伴生产物（2026-08-11）
 

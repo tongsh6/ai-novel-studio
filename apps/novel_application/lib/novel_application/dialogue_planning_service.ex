@@ -725,11 +725,14 @@ defmodule NovelApplication.DialoguePlanningService do
         observation
 
       {:error, reason} ->
+        # 真实工具失败：失败类文案 + :failed 分类（只有这里算「检索未完成」）。
         %{
           tool: tool,
           query: query,
           summary: "探索工具执行失败：#{inspect(reason)}",
           refs: [],
+          outcome: :failed,
+          facts: %{},
           activity_summary: ExplorationService.activity_failure_summary(tool)
         }
     end
@@ -1560,11 +1563,10 @@ defmodule NovelApplication.DialoguePlanningService do
            sequence,
            observation.summary,
            "explore:#{tool}:#{sequence}",
-           %{
-             stage: :exploration_observed,
-             tool: tool,
-             query: query
-           }
+           Map.merge(
+             %{stage: :exploration_observed},
+             ExplorationService.observation_metadata(observation)
+           )
          )
        ],
        stage_state: %{judgment_explorations: explorations ++ [observation]},
@@ -1578,14 +1580,20 @@ defmodule NovelApplication.DialoguePlanningService do
   # B24 §1.1(c)：observation 元数据进 developer payload（chapter_ref 供验收独立核对
   # ref 寻址；作者可见文本只用 activity_summary）。nil 值不写入——wire 的
   # author-safe payload 会把 atom（含 nil）字符串化，保留 null 会被误读。
+  # B28 T4 R10：outcome/facts 结构化分类随观察进 payload，供 no_progress 终止
+  # 澄清机械派生（作者面不渲染本段）。
   defp exploration_event_payload(tool, query, observation) do
-    base = %{
-      stage: :exploration_observed,
-      tool: tool,
-      query: query,
-      refs: observation.refs,
-      summary: observation.summary
-    }
+    metadata = ExplorationService.observation_metadata(observation)
+
+    base =
+      %{
+        stage: :exploration_observed,
+        tool: tool,
+        query: query,
+        refs: observation.refs,
+        summary: observation.summary
+      }
+      |> Map.merge(metadata)
 
     [:chapter_ref, :chapter_seq, :next_offset, :prose_total_chars, :prose_range]
     |> Enum.reduce(base, fn key, acc ->

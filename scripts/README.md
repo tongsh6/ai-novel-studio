@@ -27,6 +27,7 @@
 | `chapter_identity_repair.exs` | **B25 CP3 章节身份历史数据显式修复**：默认只读报告重复 `(work_id,title)` / `(work_id,seq)` / 空 title；`--fix-dup-seq` 显式重排重复 seq（每 work 1..n、保持相对顺序、事务、永不合并/删除/改 title）。修复后再执行唯一索引迁移；回滚 `mix ecto.rollback`。 |
 | `dev.sh` | 本地开发启动入口。 |
 | `dogfood_run.sh` | 狗粮运行入口。 |
+| `dogfood_run_detached.sh` | B37 独立 session 监督入口；默认 dogfood，`--runner native-slice` 监督原生 slice，保留 pid/心跳/退出记录。 |
 | `probe_run.sh` | 模型契约探针统一入口（端口/构建隔离、原始日志 tee、并发预警——历史事故的机械化）。 |
 | `e2e_01_full_chain_check.sh` | E2E-01 聚合检查脚本。 |
 | `frontend_audit.sh` | 前端依赖、Tauri 配置和桌面约束审计。 |
@@ -81,6 +82,11 @@
 | `native_business_evidence_check.mjs` | B26 原生业务结果与续行问题验收；按实际用户操作、传输和持久事实核对来源、幂等、采纳边界与缺口收尾。 |
 | `native_plan_evidence_check.mjs` | B26 既有多步计划场景的额外原生矩阵：同响应计划、独立起草与耗尽修订，核对来源、实际调用、编排和待采纳持久结果。 |
 | `native_question_evidence_check.mjs` | B26 原生问题回复：本次启动 nonce、原生截图、源动作日志与持久输入字节对账；不驱动产品、不接受 Chromium 证据。 |
+| `native_ui_wait.mjs` | B37 原生外部驱动的 begin/finish/status/wait 账本，分型预算、10秒心跳、进程/后端异常快速失败；产品不读取。 |
+| `native_ui_wait.test.mjs` | 原生等待账本超时、重复身份、迟到完成及进程丢失的边界测试。 |
+| `native_b31_evidence.mjs` | B31 原生五 trial 前提与证据对账；prepare 仅创建隔离作品及 T3–T5 允许的协议 seed，verify 读取真实 UI/WS/持久结果。 |
+| `native_b28_evidence.mjs` | B28 原生前提、只读快照及矩阵对账；支持受限测试库副本scoped复验并逐项注明父批证据；T2按B36目标段与完整采纳结果校验。 |
+| `native_b28_evidence.test.mjs` | B28 全章覆盖、源版本、同章身份、排版保真与越界拒绝的证据检查回归。 |
 | `verify_stage_process_ownership.sh` | stage/Tauri 进程 ownership 验收脚本。 |
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
 

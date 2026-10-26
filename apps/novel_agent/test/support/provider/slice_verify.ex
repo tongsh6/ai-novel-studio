@@ -2175,6 +2175,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp creative_items_response(prompt) do
     {brief, context} = creative_prompt_parts(prompt)
 
+    if String.contains?(prompt, "artifact_type：prose_formatting_plan"),
+      do: formatting_plan_items(prompt, context),
+      else: creative_content_items(prompt, brief, context)
+  end
+
+  defp creative_content_items(prompt, brief, context) do
     cond do
       # B28 CP1.5：章级修订任务（chapter-scoped）确定性产出覆盖顺序完整稿。
       # format_only：返回整章基线原文（允许的空白归一后等价）；content_revision：
@@ -2248,6 +2254,35 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  # 仅供机械回归，真实创作判断以 real provider 场景验收。
+  defp formatting_plan_items(prompt, context) do
+    [_, encoded] = String.split(context, "## 可选换行边界（绑定当前章版本）\n", parts: 2)
+
+    view =
+      encoded
+      |> String.split("\n\n## 待调整的原分段方案", parts: 2)
+      |> hd()
+      |> String.trim()
+      |> Jason.decode!()
+
+    boundary = Enum.find(view["boundaries"], &(&1["lines"] == 0)) || hd(view["boundaries"])
+
+    [
+      %{
+        item_id: "formatting_#{:erlang.phash2(prompt)}",
+        title: "分段方案",
+        body: "调整一处换行。",
+        rationale: "确定性计划传递测试。",
+        line_break_changes: [
+          %{
+            boundary_id: boundary["boundary_id"],
+            lines: if(boundary["lines"] == 2, do: 1, else: 2)
+          }
+        ]
+      }
+    ]
+  end
+
   defp chapter_revision_prompt?(prompt) do
     String.contains?(prompt, "整章仅排版修订（format_only）") or
       String.contains?(prompt, "整章正文修订") or
@@ -2256,7 +2291,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp chapter_revision_items(prompt, brief, context) do
-    base = chapter_revision_base_text(context)
+    target = chapter_revision_target_text(context)
+    base = target || chapter_revision_base_text(context)
 
     body =
       if String.contains?(prompt, "整章仅排版修订（format_only）"),
@@ -2266,15 +2302,37 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     [
       %{
         item_id: "chapter_revision_#{:erlang.phash2(prompt)}",
-        title:
-          if(String.contains?(prompt, "整章仅排版修订（format_only）"),
-            do: "整章排版修订稿",
-            else: "整章内容修订稿"
-          ),
+        title: chapter_revision_fixture_title(prompt, target),
         body: body,
-        rationale: "确定性 fixture：按 task 覆盖范围与作者原话输出完整稿。"
+        rationale:
+          if(target,
+            do: "确定性 fixture：按已绑定目标段与作者原话输出替换文本。",
+            else: "确定性 fixture：按 task 覆盖范围与作者原话输出完整稿。"
+          )
       }
     ]
+  end
+
+  defp chapter_revision_fixture_title(_prompt, target) when is_binary(target),
+    do: "指定段落修订稿"
+
+  defp chapter_revision_fixture_title(prompt, _target) do
+    if String.contains?(prompt, "整章仅排版修订（format_only）"),
+      do: "整章排版修订稿",
+      else: "整章内容修订稿"
+  end
+
+  defp chapter_revision_target_text(context) do
+    case String.split(context, "## 本轮局部修订目标段\n", parts: 2) do
+      [_, encoded] ->
+        case Jason.decode(String.trim(encoded)) do
+          {:ok, targets} when is_list(targets) -> Enum.map_join(targets, "\n\n", & &1["text"])
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
   end
 
   defp chapter_revision_base_text(context) do
@@ -2841,7 +2899,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # B23 CP5 fixture：env 开启 + 作者请求带标记时判断①判 plan；env 关闭零行为变化。
   defp plan_exhaust_plan_verdict?(prompt) do
-    plan_exhaust_fixture?() and String.contains?(prompt, @plan_exhaust_marker)
+    plan_exhaust_fixture?() and
+      String.contains?(judgment_author_input(prompt), @plan_exhaust_marker)
   end
 
   # 多阶段判定：命中 ≥2 个不同创作能力域即视为多阶段复合请求。
@@ -3204,8 +3263,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       full_read_request?(prompt) ->
         full_read_decision_result(prompt)
 
-      # 单次判断响应内嵌引用回复叙事（依据如下）→ 回环收束 reply
-      String.contains?(prompt, "依据如下") ->
+      # 单调用协议按真实观察和当前只读请求收束，不依赖旧两调用的叙事回声。
+      readonly_observation_reply?(prompt) ->
         judgment_cited_reply_decision_result(prompt)
 
       # B30 CP4：章节结构维护（重编号）意图 → maintain_chapter_structure execute；
@@ -3219,6 +3278,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       true ->
         judgment_decision_verdict_result(prompt)
     end
+  end
+
+  defp readonly_observation_reply?(prompt) do
+    String.contains?(prompt, "## 探索观察") and
+      is_binary(explore_tool_for(judgment_author_input(prompt)))
   end
 
   @doc """
@@ -3458,13 +3522,25 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp character_profile_revision_intent?(text) do
-    role =
-      String.contains?(text, ["主角", "反派", "配角", "群像", "叙事身份", "角色定位", "次要角色"])
-
-    verb =
-      String.contains?(text, ["指定", "设为", "改为", "确立", "改判", "定为", "调整", "设成", "改成", "作为", "当作"])
-
-    role and verb
+    # 角色与改判动词必须属于同一分句；不能把“调整大纲，更新主角状态”拼成角色改判。
+    ~r/[，,；;。\n]/u
+    |> Regex.split(text)
+    |> Enum.any?(fn clause ->
+      String.contains?(clause, ["主角", "反派", "配角", "群像", "叙事身份", "角色定位", "次要角色"]) and
+        String.contains?(clause, [
+          "指定",
+          "设为",
+          "改为",
+          "确立",
+          "改判",
+          "定为",
+          "调整",
+          "设成",
+          "改成",
+          "作为",
+          "当作"
+        ])
+    end)
   end
 
   defp character_profile_design_intent?(text) do

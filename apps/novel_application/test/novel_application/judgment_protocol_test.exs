@@ -1513,6 +1513,31 @@ defmodule NovelApplication.JudgmentProtocolTest do
              )
   end
 
+  test "B29 守卫允许无身份变更的跨能力计划，不把主角状态误当叙事身份" do
+    author = "先读完第01章正文，再调整章节大纲，最后更新主角当前状态"
+    prompt_input = input() |> Map.put(:author_text, author)
+
+    assert {:ok, judgment} =
+             JudgmentProtocol.request_judgment(
+               execution([
+                 response("先制定计划，分别核对正文、调整大纲和更新状态。", [
+                   call("judgment_decision", %{
+                     "action" => "plan",
+                     "dialogue_goal" => author,
+                     "reason" => "跨能力请求"
+                   })
+                 ])
+               ]),
+               %{},
+               prompt_input
+             )
+
+    assert judgment.action == "plan"
+    assert judgment.provider_call_count == 1
+    assert_receive {:provider_request, _}
+    refute_receive {:provider_request, _}
+  end
+
   test "B29 CP1：同名歧义不猜 → 纠错为 ask_author；设计新主角仍走 character_design" do
     author = "把沈砚指定为主角"
 

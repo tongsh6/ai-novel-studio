@@ -8,6 +8,12 @@ defmodule NovelAgent.Tools.ProseWritingAdapter do
 
   @spec execute(ToolRequest.t(), Execution.dependency()) ::
           NovelCommon.Contracts.ToolResult.t()
-  def execute(%ToolRequest{} = req, provider_execution),
-    do: CreativeToolAdapter.execute(req, :prose_fragment, provider_execution, Real)
+  def execute(%ToolRequest{} = req, provider_execution) do
+    type =
+      if req.input["artifact_type"] == "prose_formatting_plan",
+        do: :prose_formatting_plan,
+        else: :prose_fragment
+
+    CreativeToolAdapter.execute(req, type, provider_execution, Real)
+  end
 end

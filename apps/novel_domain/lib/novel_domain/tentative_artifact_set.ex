@@ -14,6 +14,7 @@ defmodule NovelDomain.TentativeArtifactSet do
           | :outline_draft
           | :scene_draft
           | :prose_fragment
+          | :prose_formatting_plan
           | :world_setting
           | :foreshadowing_seed
           | :world_rule_seed
@@ -26,7 +27,8 @@ defmodule NovelDomain.TentativeArtifactSet do
           required(:title) => String.t(),
           required(:body) => String.t(),
           required(:rationale) => String.t() | nil,
-          optional(:provider_call_ref) => String.t() | nil
+          optional(:provider_call_ref) => String.t() | nil,
+          optional(:line_break_changes) => [map()]
         }
 
   # 生成意图 provenance（不是采纳决策）：这批草稿是作为续写还是重写某章生成的，

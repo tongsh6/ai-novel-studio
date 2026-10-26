@@ -1,6 +1,7 @@
 # B29：已有角色叙事身份修订与主角事实一致性
 
-- 状态：**done（2026-10-25，CP0–CP5；真实 Tauri 23/23 checks 注册 PASS，AU09/AU12 回归 PASS，实模 canonical PASS）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无「已有角色主档案字段修订」能力——自然原话被 reply 吞掉、显式措辞才诚实 capability_gap；character_evolution 只写演化记忆、character_design 只新建角色；Character.narrative_role 未变且未用 memory 冒充。CP0 冻结见 §6，CP1/CP2 进行中。
+- 状态：**doing（2026-10-25 完成审计重开，仅补原生证据）**。B29 原角色身份更新的实现、浏览器产品链和原门禁证据保留；原 canonical summary 明确为 `surface=browser / driver=headless-chromium`，尚不能证明原生 Tauri 交互。作者已选择保留原生标准，按原队列补验；不重跑真实模型矩阵换分。原收口结论以本条更正，历史过程记录保留。
+- 原收口记录：**done（2026-10-25，CP0–CP5；真实 Tauri 23/23 checks 注册 PASS，AU09/AU12 回归 PASS，实模 canonical PASS）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无「已有角色主档案字段修订」能力——自然原话被 reply 吞掉、显式措辞才诚实 capability_gap；character_evolution 只写演化记忆、character_design 只新建角色；Character.narrative_role 未变且未用 memory 冒充。CP0 冻结见 §6，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只写任务，不修改代码或业务数据。
 - 归属：[AU09 角色类型/主角策略 §7 CP2](AU09-character-role-taxonomy-protagonist-policy.md) 已登记的“把已有角色指定/改判为主角”；衔接 [AU12 身份归并](AU12-character-identity-merge.md)、[Q1c](Q1C-adopted-content-revision.md)、[B27 系统提示词整合](B27-systematic-prompt-and-intent-integration.md)。
 
@@ -104,3 +105,24 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 - **真实页面**：B29 场景注册 nightly PASS 23/23；AU09/AU12 回归 PASS；B28/B30 不回归；证据/保护副本/失败批次保留。
 - **known limits（如实登记）**：① 首闭环仅 `narrative_role` 字段修订（role/summary/aliases 等后续）；② `other_character_changes` 首闭环在采纳侧拒绝（候选 display-only 建议），多角色同批/唯一主角替换需逐项确认另立任务；③ stale/并发竞争在真实页面无并行写入注入入口，由 CP2 单测/守卫覆盖；④ 历史 CHARACTER_PROFILE memory 不清理（只读影响清单），stage 矛盾记忆清理需作者单独授权；⑤ 实模只证判断绑定/候选或澄清（单轮），不证采纳后产品链（确定性场景覆盖）；model-only harness 非注册判据。
 - **完成判定**：CP0 复现→CP1 能力/绑定/候选→CP2 原子更新/采纳→CP3 消费者→CP4 场景/回归/实模→CP5 门禁/台账齐备；B29 done。后续字段扩展/唯一主角替换/历史数据清理另立任务。
+
+### 2026-10-25 完成审计与原生补验
+
+当前只重开原生交互证明，未回滚已验证的实现或浏览器结果。证据对账与作者裁决见 [既有对账任务](VS00D-G-GAP-RECONCILIATION.md) 的队列完成审计；机器证据 `artifacts/completion-audit/20261025-1817/surface-audit.json`。后续复用本 slice 原验收矩阵，以外部系统 UI 驱动真实窗口，保留源操作/WS/持久状态和截图；原批次只读，不修改判据。
+
+### B31原生补验发现的身份意图误判（2026-10-25，CP0→修复）
+
+- CP0事实：A3的T3协议前提通过真实Channel进入生产判断，原生窗口显示失败；两次判断响应均为plan，生产拒绝原因为 `character_profile_capability_required`。原输入“先读完第01章正文，再调整章节大纲，最后更新主角当前状态”被 `CharacterProfile.revision_intent?` 的全句role AND verb误判为身份变更。证据 `artifacts/slice-verify/b31-native-20261025-a3/run/`（llm-calls、app-log、protocol-seed、CP0截图/AX、独立DB）。尚未进行被测UI输入，不把此证据当B31通过。
+- 愿景裁定：自然语言由模型判断，确定性守卫只约束已证实的身份变更，不凭跨分句词语组合改写作者意图；这属于既有B29契约实现缺陷，不改验收判据。
+- Contract：B29 §6.2 Q01/Q02及UA-01判断协议；区分叙事身份变更、状态演化和章节调整。Invariant：明确身份变更仍必须revise_character_profile+唯一ref；无身份变更不能误挡合法plan；不产生canon写入。
+- Boundary：只调整application的CharacterProfile判定及测试；agent/domain/persistence/web/frontend生产路径不改。Consumer：JudgmentProtocol原有角色路由守卫及候选编排。
+- Proof：先新增跨分句/同分句状态负例与身份正例，保留red；再跑生产JudgmentProtocol与真实AgentRun计划链回归、后端门禁/I1–I3/静态扫描。
+- Acceptance Driver：已有native B31外部CUA+传输代理，保留原输入和完整矩阵；修复后一次scoped复验，仍失败按原预算升级。产品验收感知逻辑=no。
+- Exploration：非要素物化，仅修正判定；既有角色探索与候选采纳边界保持。
+- 离线预算：新增确定性测试red→green各一次，失败据日志定位；真实模型0。证据 `artifacts/slice-verify/b31-native-repair-20261025/character-route/`。旧A3保持只读。
+
+- 修复/局部证据：新增两项回归先红（74 tests/2 failures，错误与A3一致），修复后角色/协议/计划82/0。新增真实AgentRun原话测试初次因测试DB沙箱归属失败，修正测试归属后9/0，原输入进入judgment_plan_v1、plan_exhausted_without_completion、goal v1、零候选；这条失败不归产品。实现限于同分句明确身份赋值关系，正向修订及歧义/错误能力纠正测试保留。
+
+- 该误判修复已由B31 A4真实原生T1/T2输入及T3–T5前提贯通验证，后端2247/0、I1–I3、xref/arch和扫描闭环通过。只关闭本项角色意图误判，不替代B29完整角色采纳/后续消费的原生矩阵；B29仍按NEXT排期补证。
+
+- 后续验收倾向按作者最新反馈同步：确定性替身仅作工程回归；主业务结案需要真实模型经原生入口完成判断/必要提问、候选、采纳和后续事实消费。沿原任务语义与数据断言，不以模型调用次数或脚本预设路线作为成功替代。

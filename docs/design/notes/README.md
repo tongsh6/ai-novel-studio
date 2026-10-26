@@ -8,6 +8,7 @@
 
 ## 文档
 
+- [2026-10-26-story-timeline-management.md](2026-10-26-story-timeline-management.md) — 作者提出的后续时间线管理需求：核心为创作模型持续掌握跨章时间推进及当前故事时点，实际进入写作上下文、避免连续性错误；关联故事时间与叙述顺序、人物状态及三态对账，尚未排期。
 - `2026-10-08-agentic-business-scenario-audit.md` — 作者资料、存档、待采纳、长会话与重传的 Agentic/App 审计；BIZ-01–05 已修并验收，新增 BIZ-06 引导风险待场景核查。
 
 - `2026-08-30-stage-session-archive-loop.md` — Stage 真实使用分析：「存档」意图五连击死循环（judgment 语义理解全对但能力表无写入承接→误选只读 work_archive_read→静默失败+引导复踏；D8a 能力真空/D8b 命名诱导/D8c 谎报族新例；历史 trace 撞号与 DeepSeek 400 两族确认已修）。修向 ①prompt 澄清+判例 ②诚实反馈带候选 ③采纳引导能力。**不授权实现**。

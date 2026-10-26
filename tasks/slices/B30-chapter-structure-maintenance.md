@@ -1,6 +1,7 @@
 # B30：已有章节重编号、结构修订与卷章类型边界
 
-- 状态：**done（2026-10-25，CP0–CP5；两真实 Tauri 场景注册 PASS 30/30 + 12/12，实模 POST-FIX PASS，回归全绿）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无结构维护能力（结构意图→reply/target_not_available/plot_outline 误路由），采纳物化按 title 新建章（无按 chapter_ref 改 seq 路径）；标准 B11A 规划路径蓝图类型安全但持久层无防护。CP0 冻结见 §7，CP1/CP2 进行中。
+- 状态：**doing（2026-10-25 完成审计重开，仅补原生证据）**。B30 重编号与卷章边界的实现、浏览器产品链和原门禁证据保留；原 canonical summary 明确为 `surface=browser / driver=headless-chromium`，尚不能证明原生 Tauri 交互。作者已选择保留原生标准，按原队列补验；不重跑真实模型矩阵换分。原收口结论以本条更正，历史过程记录保留。
+- 原收口记录：**done（2026-10-25，CP0–CP5；两真实 Tauri 场景注册 PASS 30/30 + 12/12，实模 POST-FIX PASS，回归全绿）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无结构维护能力（结构意图→reply/target_not_available/plot_outline 误路由），采纳物化按 title 新建章（无按 chapter_ref 改 seq 路径）；标准 B11A 规划路径蓝图类型安全但持久层无防护。CP0 冻结见 §7，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只授权写 slice / 登记 NEXT。
 - 归属：[AU08 卷结构规划](AU08-volume-structured-planning.md)、[B11A 卷蓝图](B11A-volume-blueprint.md)、[B25 章节身份](B25-chapter-identity-unification.md)、[VS-00J](../../docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md)；提示词统一消费 [B27](B27-systematic-prompt-and-intent-integration.md)。这是新增维护能力，不把 plot_outline 生成冒充重编号。
 
@@ -117,3 +118,12 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 - **实模**（`strata/iq3_s` 单槽，POST-FIX）：original/paraphrase model_behavior+product_state_chain PASS（judgment 绑 maintain、候选产生、零写入）；negative（第九卷）capability_gap 作者可见解释、零写入；修复前 original badkey 崩溃证据保留 before/after。model-only runner exit 1 因 verifier 不消费 model-only ui record（B28 同现象），证据 JSON/app-log/截图齐全，不影响确定性场景。
 - **known limits（如实登记）**：① `baseline stale/unsupported_effect` 在真实页面无自然语言注入入口，由 CP1/CP2 单测 + adoption 守卫覆盖（两 b30 yml known_not_closed 已登记）；② 结构维护首闭环只支持 `display_number_only`，reorder/move_volume/content_modify 未实现（契约已预留 effects 分离）；③ stage 历史存量（两份第11章/新增12·13章/「第2卷：卷蓝图」seq=11 Chapter）保持只读清单 `artifacts/model-contracts/b30-cp0/stage-impact.md`，不删除/不合并/不写数据，修复需作者单独授权；④ model-only harness 非注册入口、不作 CI 判据。
 - **完成判定**：CP0 真实复现→CP1/CP2 能力+事务→CP3 消费者迁移→CP4 两场景+回归+实模→CP5 门禁/台账，均齐备；B30 done。后续结构深化（reorder/move_volume）与 stage 清理另立任务。
+
+### 2026-10-25 完成审计与原生补验
+
+当前只重开原生交互证明，未回滚已验证的实现或浏览器结果。证据对账与作者裁决见 [既有对账任务](VS00D-G-GAP-RECONCILIATION.md) 的队列完成审计；机器证据 `artifacts/completion-audit/20261025-1817/surface-audit.json`。后续复用本 slice 原验收矩阵，以外部系统 UI 驱动真实窗口，保留源操作/WS/持久状态和截图；原批次只读，不修改判据。
+
+### B28原生复验转入的类型展示问题（2026-10-25）
+- B28 A2的真实档案“大纲与结构”页，将两份prose_fragment正文候选及一份target_segments修订候选显示为“大纲草稿/保存到大纲”；章节当前canon仍2章、3127字，未点这些误标按钮。证据 `artifacts/slice-verify/b28-native-20261025-a2/run/T8-archive.ax.txt` / `.jpg`。归本slice已有类型边界范围，接手先查真实DTO/投影/selector再修复；不在B28测量中途扩大修改。
+
+- 后续验收倾向按作者最新反馈同步：确定性替身仅作工程回归；主业务结案需要真实模型经原生入口完成判断/必要提问、候选、采纳和后续事实消费。沿原任务语义与数据断言，不以模型调用次数或脚本预设路线作为成功替代。

@@ -809,6 +809,45 @@ defmodule NovelAgent.Provider.SliceVerifyExplorationCitationSourceTest do
     refute content =~ "omitted_adoptions"
     refute content =~ ~s("text")
     refute content =~ "session_adoptions"
+    assert result.tool_calls == []
+  end
+
+  test "单调用判断在只读探索后以引用回复收束，不依赖旧叙事回声" do
+    for {term, observation} <- [
+          {"三十岁", "「第01章：夜潮」点灯人第一次点灯时才三十岁。"},
+          {"二十五岁", "正文中未检索到「二十五岁」。"}
+        ] do
+      initial = """
+      本次你承担创作判断器的角色。
+      ## 探索目录
+      - prose_search
+      ## 作者输入
+      查一下第01章正文里有没有出现「#{term}」，只按当前正文回答。
+      """
+
+      assert {:ok, first} = SliceVerify.complete(nil, nil, initial, %InferenceParams{})
+      assert [%{"arguments" => %{"action" => "explore"}}] = first.tool_calls
+
+      followup = initial <> "\n## 探索观察\n### 观察 1（prose_search）\n#{observation}\n"
+      assert {:ok, second} = SliceVerify.complete(nil, nil, followup, %InferenceParams{})
+      assert second.tool_calls == []
+      assert second.content =~ observation
+    end
+  end
+
+  test "明确要求取证后写作时，观察段不吞掉真实写作动作" do
+    prompt = """
+    本次你承担创作判断器的角色。
+    ## 作者输入
+    根据已查到的「灵气」线索续写第一章正文。
+    ## 探索观察
+    「第01章」灵气沿墙缝流动。
+    """
+
+    assert {:ok, result} = SliceVerify.complete(nil, nil, prompt, %InferenceParams{})
+
+    assert [%{"arguments" => %{"action" => "execute", "capability" => "prose_writing"}}] =
+             result.tool_calls
   end
 
   test "探索段缺失时回退不伪造（无观察不引用 JSON）" do
@@ -984,6 +1023,21 @@ defmodule NovelAgent.Provider.SliceVerifyCharacterProfileRevisionTest do
     name_args = args(prompt("把顾青改判为反派", index()))
     assert name_args["capability"] == "revise_character_profile"
     assert name_args["character_ref"] == @gu
+  end
+
+  test "跨分句的调整大纲与更新主角状态不合并成角色身份改判" do
+    for separator <- ["，", "；", "\n"] do
+      input = "先读完第01章正文#{separator}再调整章节大纲#{separator}最后更新主角当前状态"
+      full = prompt(input, index())
+      assert SliceVerify.character_profile_arguments(full) == nil
+      assert args(full)["action"] == "plan"
+    end
+  end
+
+  test "同一分句明确调整角色叙事身份仍绑定已有角色" do
+    result = args(prompt("调整顾青的叙事身份为主角", index()))
+    assert result["capability"] == "revise_character_profile"
+    assert result["character_ref"] == @gu
   end
 
   test "同名多候选 → 原生 ask_author 列候选 ref，不猜/不执行" do

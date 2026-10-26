@@ -365,7 +365,7 @@ defmodule NovelCommon.AuthoringSemantics do
   defp modification_scope_line(scope) do
     case Map.get(scope, :modification_scope) do
       nil -> nil
-      :format_only -> "- 修订范围：仅排版（不改变字句；应用会做空白归一后的字节等价校验）"
+      :format_only -> "- 修订范围：仅排版（不改变字句；具体换行输出及保真规则遵循本轮输出契约）"
       :target_segments -> "- 修订范围：指定片段/段落（其余正文逐字保留）"
       :whole_chapter -> "- 修订范围：整章（覆盖全部当前已采纳片段）"
       other -> "- 修订范围：#{other}"

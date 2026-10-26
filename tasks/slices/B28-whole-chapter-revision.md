@@ -1,9 +1,10 @@
 # B28：完整章节修订、排版范围与采纳身份闭环
 
-- 状态：**done（2026-10-25，CP0–CP5；真实 Tauri 场景 PASS 48/48 checks，CP4 真实模型意图/材料覆盖 PASS，writer 生产端 known-gap 如实记录）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本已阻止 stage 式「单片段冒充整章」候选（honest failure），但整章只排版仍不可完成；内容修订采纳仍会因 target 空而新建章（stage 21:58 失败链可复现）。CP0 复现证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`、记录 `artifacts/model-contracts/b28-cp0/{ui-repro.md,code-chain.md,contract-proposal.md,stage-impact.md}`；CP1 契约与实现已按 §7 冻结。
+- 状态：**doing（2026-10-26，R3原生实模分段/采纳/阅读/重开已验；完整矩阵与投影提示仍未闭环）**。原T2已由真实Strata模型在原生入口完成判断、候选、采纳、阅读/恢复与新旧值检索，20项事实对账通过。新format_only采用模型换行计划；R3单次授权复验新增30处阅读段落并完成同章采纳、完整章摘要与原生阅读重开。R1/R2失败保留；缺目标实模、旧driver迁移与投影提示仍待闭环，完整B28未完成。
+- 原收口记录：**done（2026-10-25，CP0–CP5；真实 Tauri 场景 PASS 48/48 checks，CP4 真实模型意图/材料覆盖 PASS，writer 生产端 known-gap 如实记录）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本已阻止 stage 式「单片段冒充整章」候选（honest failure），但整章只排版仍不可完成；内容修订采纳仍会因 target 空而新建章（stage 21:58 失败链可复现）。CP0 复现证据 `artifacts/slice-verify/b28-whole-chapter-revision-tauri/`、记录 `artifacts/model-contracts/b28-cp0/{ui-repro.md,code-chain.md,contract-proposal.md,stage-impact.md}`；CP1 契约与实现已按 §7 冻结。
 - 登记日期：2026-10-23；来源：stage“整理第1章正文”只处理初稿、采纳后新增第17章。
 - 上游：[Q1c](Q1C-adopted-content-revision.md)、[B24](B24-exploration-chapter-full-read.md)、[B25](B25-chapter-identity-unification.md)、[Q1Cb](Q1CB-ADOPTION-TRANSITION-ENFORCEMENT.md)。提示词统一归 [B27](B27-systematic-prompt-and-intent-integration.md)，不在此追加局部提示词补丁。
-- 本轮只授权任务登记，不修改代码或 stage 数据。
+- 初始登记阶段只授权文档；后续实施依各节作者裁决推进。stage历史数据未修改。
 
 ## 1. 问题与证据
 
@@ -89,7 +90,7 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 
 - **Q01 目标作用域（additive 到 `AuthoringTask.scope`，已落 `novel_common`）**：`modification_scope: :format_only | :target_segments | :whole_chapter`、`expected_base_versions: [%{ref, version}]`；复用 `refs/coverage/base_ref/base_hash/target_chapter_ref`。章级修订（`:whole_chapter`/`:format_only` + `target_chapter_ref`）以章身份+期望版本为基线，不强制单 artifact `base_ref`；`:whole_chapter` 要求 `coverage: :complete`。
 - **Q02 材料覆盖账**：整章/多片段修订必须组装全部当前 accepted 片段（阅读投影顺序）+ 每片段 version；`materials(kind/ref/version/complete?/omission_note)` 缺片段且未声明 omission → 拒绝 `incomplete_scope`；超预算分段保留覆盖账，不得截断称整章。
-- **Q03 format_only 归一规则（冻结）**：①逐行删除行尾空白；②换行形式归一（CRLF/CR→LF）；③文末连续空行折叠为单换行；④其余字节必须完全相等。判定在应用层机械执行，异常 `format_only_violation`（附首处差异 offset/行号），不自动降级 rewrite；B28 落地后 **B27 M07 known-gap 关闭**，B27 §6.1 不另造规则。
+- **Q03 旧全文 format_only 归一规则（兼容保留；新计划采用 ADR-0029）**：①逐行删除行尾空白；②换行形式归一（CRLF/CR→LF）；③文末连续空行折叠为单换行；④其余字节必须完全相等。判定在应用层机械执行，异常 `format_only_violation`（附首处差异 offset/行号），不自动降级 rewrite；旧机制证据不等于真实模型完成分段；新计划以 ADR-0029 实际改变换行且非换行字节完全不变为判据，真实闭环仍由本任务承接。
 - **Q04 采纳 effect 显式**：候选/采纳回执携带 `adoption_effect: replace_scope | append | new_chapter`；`replace_scope` 只替换覆盖范围内当前 accepted draft（旧的 supersede、历史保留、chapter_id/seq/章数不变）；target 缺失默认 `target_missing`，`new_chapter` 必须作者显式确认（禁止静默新建章）；edit_then_accept 必须贯通 `target_chapter_ref`。
 - **Q05 错误码（8 类，已落 `AuthoringSemantics.revision_error_codes/0`）**：`target_missing/target_ambiguous/stale_base_version/cross_work_scope/duplicate_apply/incomplete_scope/format_only_violation/partial_failure`；拒绝零写入、可解释。
 - **Q06 契约/持久化边界**：复用 B25 `chapter_ref`、Q1c `revision_base`/覆盖确认、VS-04 provenance、B27 `AuthoringTask` scope/materials；无 DB 表/列变更；`adoption_effect`/错误码落 TurnResult/adoption receipt payload（additive JSON），schema/codegen 若有增量在 CP2 前登记并同步 docs。
@@ -139,3 +140,224 @@ CP1/CP2 是执行检查点，不缩小完整闭环；CP3/CP4 未完成不能标 
 - **台账/排期**：本 slice CP0–CP5 记录、slices README、NEXT→B30、project-ledger 已更新；B27 M07 known-gap 按 B28 format_only 机制落地更新（机制+确定性场景关闭，真实模型语义受 strata known-gap 限制，不宣称模型已通过）。
 - **未授权项（如实单列）**：stage 存量数据（ch1 两份 accepted + ch17 新章）保持只读清单 `stage-impact.md`，不删除/不合并/不写数据；实际修复需作者单独授权（备份+sha256、replace_scope 目标 ch1、ch17 保留历史）。
 - **known limits**：① CP4 writer 生产端 known-gap（strata/iq3_s 长整章生成退化）→ 正例候选契约/format_only_violation 负例待修复后回归；② 无独立页面搜索入口（prose_search 工具链+DB 对账）；摘要失败机制归 d3；档案不渲染摘要；③ CP4 证据为非注册 harness 分支（env 门控），真实模型语义不进入 nightly 判定。
+
+### 2026-10-25 完成审计与原生补验
+
+当前只重开原生交互证明，未回滚已验证的实现或浏览器结果。证据对账与作者裁决见 [既有对账任务](VS00D-G-GAP-RECONCILIATION.md) 的队列完成审计；机器证据 `artifacts/completion-audit/20261025-1817/surface-audit.json`。后续复用本 slice 原验收矩阵，以外部系统 UI 驱动真实窗口，保留源操作/WS/持久状态和截图；原批次只读，不修改判据。
+
+### 原生补验CP0与首批预注册（2026-10-25 21:00）
+
+- 已核对项目愿景、原任务§7、quality B28矩阵及现有driver的48个checks/10个trial；此次补证不修改原接受范围，旧浏览器/实模结果与writer known-gap保留。
+- Contract/Invariant：消费原chapter_ref、覆盖账、replace_scope及冻结format_only归一；同章身份/章数不变，未采纳零写入，完整替换与旧稿历史保留。
+- Boundary/Consumer：新增外部原生证据适配，复用已有seed/原输入/合成正文；产品frontend/src与apps/lib默认不改。真实消费者仍为工作台、阅读投影、摘要及下一轮prose_search。
+- Proof：native脚本只读核验UI发送帧、候选与采纳回执、独立DB/投影/模型材料；48项原检查逐项有对应证据，不能仅输出成功标记。浏览器与原生共用原正文fixture和归一算法，避免复制成另一口径。
+- Acceptance Driver：CUA操作真实Tauri菜单/档案/生成草稿/修改后保存/修订采纳/阅读/重开/检索；确定性provider，真实模型0。只有章节计划与同名干扰章沿原seed，accepted正文必须真实UI编辑采纳。原生调用不新增产品验收钩子。
+- Exploration：采纳后chapter_ref下当前正文由阅读、摘要、prose_search及判断上下文同批消费；本次需要原生采纳后的实证，不凭旧结果外推。
+- 单批目录 `artifacts/slice-verify/b28-native-20261025-a1/`；开始前完成适配的语法/检查器验证。复用B37 detached、10秒心跳及input/ack30、turn/candidate120、adoption90、maintenance180、restore30、idle120秒；任一步异常即时保留首因并停止，不重复发送刷结果。同因两次失败按作者规则升级。
+- 负例中的同名/缺目标澄清是冻结验收终点，不自动回答改变其零写入前提。正常流程若另有问题，按原预算源绑定应答最多2次；重复/空问题立即失败。作者手动模型保持，不加载/卸载；不改stage历史数据。
+
+#### 启动前发现B36契约覆盖冲突（2026-10-25 21:08）
+
+- 首批尚未启动；48项适配未获得最终启用判定。源码核对发现：旧T2要求整章候选含两段且按replace_scope采纳；B36已冻结target_segments只产目标段replacement并确定性apply，现生产输出replace_segments。直接沿旧候选全文断言会与已接受设计冲突。
+- 另有真实能力疑点：`target_ids_from_author_text`仅解析开头/第一段/第N段/结尾，原T2“二十五岁改成三十岁”未提供段号，可能产生空target_segment_ids；现有wiring测试只验证候选及validate_b28_contract，没有采纳事务证明。此处尚属源码定位，下一步独立离线CP0验证，不称已复现页面失败。
+- 已按愿景先判断：保留作者原话和最终全文仅年龄变化/其余字节不变/同章/历史/消费断言，采用B36目标段+锚点/版本检查，补齐原话定位，不回退确定性保护。因涉及候选验收判据变化，依作者升级规则提请裁决；待决期间不启动A1、不改生产目标解析、不修改旧T2断言。
+
+- 离线CP0预注册：仅一次原T2输入→PendingArtifactWorkflow→AdoptionRepository链路，复用现有B28测试的合成双片段和Sandbox事务；slice_verify真实模型0。证据 `artifacts/slice-verify/b28-native-preflight-20261025/`；只检查候选effect/目标段及持久化结果，不改产品/断言，不作为原生证明。
+
+- 作者已接受（2026-10-25）：“按B36对齐候选检查，保留原话与全部最终断言”。T2仍用原输入，候选验目标段原始输出、segment_id/hash/base版本；采纳后完整正文精确等于原全文仅二十五岁→三十岁的结果，其余字节/章身份/历史/阅读摘要检索断言不减。旧全文候选判据仅保留为历史，不回退B36。
+- 离线CP0已证实：候选effect=replace_segments但target_segment_ids/hash均空；替身仍返回完整两段；validate_b28_contract返回ok，真实持久化返回 `segment_mismatch`，旧drafts逐字/状态/版本不变。probe退出1源于预期错误码写成incomplete_scope而实际为segment_mismatch；原report/log不修改、不重跑。此为应用/持久化局部证据，不是原生页面失败。
+- 实现设计：在writer调用前一次性解析目标；保留段序号定位，新增作者明确字词替换的精确源文本匹配。源文本必须仅出现一次且落在唯一段，缺失/重复或范围冲突有界拒绝、零候选/零写入；不根据近似后缀猜目标。将同一目标段id/hash/原文字节交给writer和候选payload；writer只产目标段，持久化继续由既有replace_segments确定性合并。test-support按同一真实目标材料生成替身输出；不放宽采纳校验、不服务端修补模型正文。
+- Boundary/Proof补充：生产只改application PendingArtifactWorkflow的范围解析与writer材料，复用persistence分段/事务（不改其守卫）；agent仅test/support适配。先原T2正例与缺失/重复负例red，再green与实际采纳全章字节/历史检查；最后一次scoped原生复验，预算沿前述注册。
+
+- 实现首轮回归：原T2与缺失/重复/冲突负例先red，修复后agent53+application9=62/0；原话目标唯一命中→目标段原样候选→真实replace_segments事务，最终全章仅指定年龄变化、旧两稿SUPERSEDED、章数不变。额外第0/99段不得被文字命中绕过，正在回归。B28外部矩阵保留48检查：content候选检查改为目标段绑定，阅读T2检查改为采纳后完整正文；其他48项意图/最终约束不减。
+
+- A1启动条件已满足：作者判据裁决已落实；后端2248/0、前端614/0、Credo0、xref/arch/I1–I3通过；证据校验器3组边界测试通过。保留48检查总数，T2按目标段锚点/版本+最终全文对账；原生批次只检验测量期间生产源码指纹不变，不再错误宣称本轮未修产品。首批预算/目录仍按21:00预注册，仅一次。
+
+#### A1原生部分证据与只读收束失败（2026-10-25 21:38）
+
+- A1已停止并保留：T0同名澄清零候选；原生编辑采纳2517+1075两段；T1排版采纳后旧两稿SUPERSEDED/current3594字符/章数2；T2原输入→目标段候选→replace_segments后current3593字符，全文精确等于仅二十五岁→三十岁，旧3稿历史保留；重开后阅读3127有效字一致，无重复采纳入口。
+- T7新旧查询均正确检索当前正文（新值命中/旧值未命中），但随后都额外execute/prose_writing，生成了未请求候选。两份额外候选未采纳；A1因同类异常两次保留failure并停止，EXIT/1；独立DB/profile/截图/网络日志保留，未运行T8档案及T4缺目标，未写summary通过。目录 `artifacts/slice-verify/b28-native-20261025-a1/`。
+- 另一观察：目标段候选标题仍显示整章内容修订稿，范围文案需对齐；阅读投影旧标记在重开后清除，内容hash与当前稿仍需最终独立对账，不能仅用UI字数判完成。
+- 只读定位：实际judge日志为explore→execute/prose_writing；替身regular_judgment_result同调用构造叙事和动作，但动作选择仍以prompt包含“依据如下”这个旧两调用回声作为reply条件，第二判只有“探索观察”，因此返回引用叙事同时误带写作动作。先做test/support红绿及原prompt重放，不据此修改生产策略/推断真实模型缺陷。
+- 后续范围：修复替身读取观察后的只读收束，保留明确写作请求正例；目标段标题按现有B36范围对齐。A1失败批只读；新的原生复验需明确scoped预算，不擅自整批重跑。
+
+- 2026-10-25 21:49修复：替身只读收束测试red复现execute/prose_writing，修复后55/0（包括明确要求取证后写作的正例）。另以A1两条原观察prompt做一次离线文本重放，真实模型0，证据 `b28-native-repair-20261025/readonly-actual-*`。
+- 标题修复设计依据：已读42-card-system §3/§4和47-ui-copy §2.3，已查看索引确认的Pencil静态导出 `exports/png/PZAVY.png`（42§4-adoption-card-states）；Pencil实时连接transport closed、编辑器空白，不虚称看到IIPsi最新画布。此次只修后端第3层系统事实标题，使target_segments显示“指定段落修订稿”；不改前端布局/按钮/交互/动作，模型原始正文不改字节。
+
+#### A2 scoped原生复验预注册（作者已授权）
+
+- 授权：“授权一次scoped原生复验”。仅一次，真实模型0，沿原分型预算与10秒心跳；任何同类失败立即保留并停止，不扩大预算。
+- 目录 `artifacts/slice-verify/b28-native-20261025-a2/`；源为A1的 `database-before-failure-close.sqlite3`，复制到新的独立DB，启动不reset/不重新seed。源/副本初始sha256一致，原库前后sha不变；没有对A1或stage存量写入。
+- 测量：T7两条原输入重放（必须explore→reply、无新候选/无写入）；T4原缺目标请求与T8真实档案入口补齐；范围标题用反向年龄请求只生成未采纳候选（验证指定段落标题），不采纳/不丢弃，当前canon保持三十岁全文不变。
+- 证据拼接边界：A1失败状态保留，继承T0/T1/T2数据/T3/T5/T6原生证据；A2只提供T2标题/T4/T7/T8。校验460个生产源码指纹，只允许相对A1新增系统标题分支，其他生产字节一致；每项来源在summary列明，不冒充A2重新执行全矩阵。
+- A1部分证据离线对账已通过：format/content共22项target/scope/effect/covered/version/base/完整性/字节变化/身份/历史/当前稿均真，两个采纳source_turn与候选一致，原阅读投影回执8条；见 `b28-native-repair-20261025/parent-data-audit.json`。
+
+预注册记录时间：2026-10-25T14:03:39.330216+00:00。
+
+#### 验收重心校正（2026-10-25，作者反馈）
+
+- 作者指出“验证场景不让模型真实参与没有意义”。已接受其对核心业务验收的判断：确定性替身只能证明绑定/版本/范围/事务等工程规则，不能替代创作伙伴的意图理解、能力选择、必要提问、生成及纠错能力。停止继续扩展替身主验收；下一步固定真实模型/输入/预算，以原生入口走完整任务，失败如实记录，沿既有B27不再全量retest的边界做B28 scoped案例。
+- A2实际进展：两条原T7输入已原生explore→引用答复，未新增候选；新范围标题已原生显示“指定段落修订稿”；T8档案显示同章3127有效字。T4尚未执行、独立汇总尚未完成，不能写整批PASS。讨论验收方向期间driver_idle_timeout到期，监督EXIT/1，窗口已关闭；此为交互中断，不算又一次产品失败或重试。原failure未覆盖。
+- 中止后只读快照/窗口/profile另存 `artifacts/slice-verify/b28-native-repair-20261025/post-A2-switch/`，不混作批次完成证据；A1/A2保留。下一真实模型验证沿原自然输入及数据完整性要求，不要求模型复制替身预设调用路线。
+- 工程节奏调整：已有授权内的定位/替身修复/限定复验由AI推进；同一批中多个样例暴露同一问题，不机械等同于多次失败重试。中途定向回归、稳定后统一全门禁；真正的契约取舍、作者创作裁决、破坏性数据变更与实际重试预算耗尽再升级。
+
+#### R1真实模型原生局部修订预注册
+
+- 范围：只验证本轮新修复的字词定位/目标段生成/真实采纳/阅读与后续查询；保留原T2“把已保存的第一章正文里的年龄改一下，二十五岁改成三十岁，其余逐字不变。”。整章format_only原实模失败未修，不重复刷该批，不据此标B28整项完成。
+- 前提：复制A1已由真实UI建立的测试库；目前canon为三十岁。先经真实模型+原生UI提出“三十岁改成二十五岁”并审阅采纳，恢复原T2前提；这是独立测试准备输入，不修改源库、不手工改canon。然后只发一次原T2请求。若准备无法完成，终止本批，不能绕过。
+- 后续：真实模型接受原T2→自行选能力/必要追问→目标段候选→原生采纳→全文精确仅年龄变化/其它字节不变→阅读及两条原查询（新值命中、旧值未命中且无多余写作）。不预设模型内部调用顺序，不改模型回答来过断言。
+- 模型与参数：使用作者现有Strata实例iq3_s（Qwen3.8-Flash-Next IQ3_S），endpoint=127.0.0.1:47831/v1，thinking disabled，max_tokens=4096；具体各purpose参数及实际HTTP请求以日志为证，不与旧format_only延迟作跨条件比较。真实初始输入至多4条（准备1、原T2 1、查询2），每run问题回复≤2条不同具体回复，单槽串行；本批失败不自动重跑。
+- 预算：复用B37实测input120/turn360/candidate300/adoption180/maintenance300秒，ack30/restore30/export60秒，10秒心跳；超时不重发。证据 `artifacts/slice-verify/b28-real-native-20261025-r1/`。本轮是有独立结论的real-model scoped证据，不调用确定性48项汇总来冒充实模结案。
+- 资源：加载前记录现有模型/内存；不新增模型加载，保留作者手动实例，结束仅回收本批进程。使用者所有权与早先全局清空要求的后续澄清一致，不谎称LM/Strata全局空。
+注册时间：2026-10-25T14:19:22.083460+00:00。
+
+#### R1真实失败与能力说明同步（2026-10-25）
+
+- R1：原生Strata iq3_s，真实HTTP两调用8.1s/7.3s，temperature0.2/max_tokens4096/reasoning_effort none/tool_choice auto。准备输入“三十岁改成二十五岁”进入prose_search；第二判已收到命中第一章的原文片段，仍重复同工具同query，触发no_progress。无明确作者问题、无候选、无采纳、draft行逐字段不变，原T2未开始。批次EXIT/1，进程端口已清理，作者实例idle/queued0保留。
+- 证据：`b28-real-native-20261025-r1/run/`保存原生AX/截图/完整请求响应；有界两请求分析与canon对照在 `b28-native-repair-20261025/real-r1-audit/`。R1失败不覆盖，不使用替身复演来替代真实失败。
+- 已确认的说明缺口：现operation目录仍只有“修订产候选”通用描述，未公开已实现的精确文字唯一匹配/目标段替换/原范围保护；判断规则还声称排版能力属于未来B28任务。模型重复查询是实测事实；补齐说明是否足以消除停滞仍须R2实测，不预断因果。
+- Contract/Invariant：B27统一任务输入消费B28/B36现有执行契约；能力说明必须与真实处理能力一致，作者原话/章ref/范围/采纳边界不变，不为该样例预定工具调用。Boundary：仅application AuthoringTaskPolicy及测试，不改runtime/Provider/采纳守卫/搜索结果。Consumer：JudgmentProtocol与计划的operation目录。Proof：策略渲染局部回归＋相同模型/参数/原输入原生复验。Acceptance Driver：既有CUA/代理/真实HTTP日志；产品验收感知逻辑no。Exploration：把已实现的文字定位能力同步到当前判断可见目录，chapter_read/prose_search仍由模型选择；不新增要素数据或工具schema。
+
+#### R2修复后真实模型scoped复验预注册
+
+- 仅一次R1同输入/同模型/同参数复验；修复内容仅把实际已实现的文字定位、目标段合并和排版守卫同步到当前能力说明，未改工具schema、runtime路由或通过判据。仍允许模型自主选取证/执行/具体追问。
+- 数据源仍是A1测试库备份副本，真实模型只借用其canon基线，不继承替身业务结论；先真实模型执行“三十岁→二十五岁”并原生采纳，再执行原T2“二十五岁→三十岁”，最后查询。所有新请求均从UI进入，不改返回内容。模型iq3_s/temperature0.2/max_tokens4096/reasoning_effort none保持；等待/作者回复预算沿R1。再次同因失败停止，保留R1/R2，不自动重跑。
+- 证据 `artifacts/slice-verify/b28-real-native-20261025-r2/`；原生代码指纹含AuthoringTaskPolicy。R2结束后按实际结果决定后续，不先声明修复成功。
+注册时间：2026-10-25T14:26:19.507456+00:00。
+
+#### R2发现范围授权来源缺陷（真实模型）
+
+- R2跨过R1停滞：模型自行prose_search→execute/revise_adopted_content（7.8s/8.3s），writer真实生成25.2s。模型dialogue_goal明确“指定片段替换，非整章重写”。应用把author_text与dialogue_goal拼接后按“整章”关键字判whole_chapter，导致请求writer全文重写，候选3421字符而预期3594字符（少173字符），未采纳，原正文保留。
+- CP0证据 `b28-real-native-20261025-r2/run/candidate-audit.json`、原HTTP请求响应、原生候选截图；结果为failed_application_scope_expansion，不能归结为模型不懂局部任务。R1能力目录修改已在本次被实际消费，scope错误是下一条独立失败类型。
+- 修复契约：修改范围属于作者授权；模型dialogue_goal是解释材料，不能扩大或缩小作者范围。以当前run的作者goal原话决定format_only/target_segments/whole_chapter，目标定位/版本/原文hash/采纳完整性沿既有守卫。无schema/ADR/通过标准变化。
+- Boundary/Consumer：仅application PendingArtifactWorkflow的范围来源；真实Judgment→writer→候选首先消费。Proof：用本次模型“非整章”原文和主动扩大范围反例做red→green，保留作者明确整章正例；后续一次同条件原生scoped复验。Acceptance Driver仍CUA，真实模型自行判断；无新增验收感知逻辑。Exploration不产生新元素，现有目录/事实源继续可达。
+记录时间：2026-10-25T14:32:46.191637+00:00。
+
+- 范围来源回归：真实“非整章”解释及主动扩大解释两项在修复前失败，移除模型说明对scope的决定权后通过；作者明确整章正例保持。后续writer材料仍包含模型解释供参考，但授权scope只消费作者goal原话。
+#### R3作者范围修复后原生scoped复验预注册
+- 一次R2范围来源缺陷修复后的同条件复验，目录 `artifacts/slice-verify/b28-real-native-20261025-r3/`；模型/参数/输入/等待预算/作者应答与R2相同。R1停滞已在R2跨过，R3只验证新的范围授权缺陷修复及其后果；保留全部失败，不做语义换分。真实模型继续自行取证/执行/提问。若该批失败，不自动再启下一批。
+注册时间：2026-10-25T14:34:18.643981+00:00。
+
+#### R3驱动日志误绑定与不重生成恢复
+- R3真实判断execute、writer生成指定段落候选，已在原生窗口可见正确年龄与范围，尚未采纳。随后发现CUA跨调用辅助闭包保留R1目录：R2/R3等待指令误追加到R1，R3监督仍处在prepare maintenance计时，因而到期退出。该错误属于驱动，不是模型失败。R2产品范围缺陷有独立HTTP/TurnResult证据，但其failure.json曾被稍后的产品诊断覆盖；wait-stats维护了原maintenance_timeout，不能声称其计时完全正常。
+- 完整污染审计在 `b28-native-repair-20261025/real-r3-driver-audit/journal-routing-audit.json`；不回填或伪造先前计时。原HTTP/网络帧和DB保持，canon逐字段未变。后续CUA等待函数使用显式目录/等待ID参数，不再复用捕获旧批次变量的闭包。
+- 恢复目录 `artifacts/slice-verify/b28-real-native-20261025-r3-resume/`，只读SQLite backup复制已终止R3库（保留WAL一致快照与已有模型候选），启动不reset/不重生成。继续已有候选审阅/采纳，再发原T2及查询。仍是R3当前复验的生命周期恢复，不增加一次模型重试；模型/参数/剩余输入预算不变。源库前后hash与canonical快照可核对，实际copy哈希单列（SQLite backup页头可能不同）。
+
+#### 真实模型局部修订与消费已取得证据（R3＋恢复批）
+
+- `b28-real-native-20261025-r3-resume/run/real-model-proof.json`：20项事实对账全部通过，10次新增HTTP调用全部Strata/iq3_s。R3真实模型先生成三十→二十五目标段，恢复其既有候选后原生采纳；再由真实模型执行**原始T2输入**二十五→三十，原生采纳后全文精确只变该处，其他字节/章ID/章数不变；当前1份ACCEPTED，旧版本保留，摘要revision_base指向当前稿。
+- 后续两条原查询均真实prose_search→reply：新值命中、旧值未命中，零新候选/零canon写入；重开后阅读仍3127有效字、投影全文等于当前canon。无作者追问，author_question_events=[]。没有回填模型正文、没有为通过改用替身。
+- 证据边界：HTTP streaming日志只记录event_stream标记，另有真实ProviderRun/用量/候选/采纳/DB/原生截图；不声称可从该HTTP日志离线重建全部SSE字节。文学质量、所有自然表达和整章format_only均不由此代签。
+- 监督实态：恢复批UI测量的13个等待均已完成，模型/采纳/恢复均未触发对应等待超时；随后离线分析期间driver_idle_timeout自动清理，实际EXIT/1而非原计划stop。源failure与退出记录保留；`scoped-case-finished.json`是稍后的测量结论，不能替换实际退出原因。测试端口已释放。后续在最后一个UI动作后立即停止本批服务，再离线分析，不增加新的等待层。
+
+#### 整章排版的契约差异与待裁决方案
+
+**当前事实**：任务目标包含“只调整分段和排版，不要改字句”，但§7.2 Q03冻结归一只忽略行尾空白、换行形式和文末空行。纯函数实证：原文“第一句。第二句。”保持原样通过；仅插入段落换行“第一句。\n\n第二句。”返回format_only_violation。证据 `b28-native-repair-20261025/real-closeout/format-contract-probe.log`。因此旧确定性T1把全文原样返回能过，却不能证明真正完成重新分段；整章排版不能按旧结论关闭。
+
+**推荐方案：模型提出换行计划，算法应用到原文。**
+1. 原文以chapter_ref、完整基线版本及source_hash绑定；提供机器生成的合法换行边界标识和对应原文片段，模型选择在哪些边界分段，不让模型重新复制整章。
+2. 允许的效果仅为插入/移除段落换行、统一换行形式；所有非换行字节（含标点、空格、文字）必须逐字保留。未知边界/过期基线/非换行修改均零写入拒绝。
+3. 模型原始计划和理由保留因果来源；预览明确标为从原文与计划计算的排版结果。作者审阅并采纳后才应用，章身份不变、旧稿历史保留、阅读/摘要/检索同批更新。
+4. 沿现有B36的“模型提议＋确定性apply＋receipt”边界落地；不放宽或豁免I1/I2/I3。设计阶段明确模型计划与机器投影的契约/来源，再按既有schema/ADR流程实现；不把机器计算文本伪装成模型原文。
+5. 真模型验收必须实际改变至少一处分段，同时所有非换行字节严格相同；仅原样返回不算成功。使用原B28自然输入，不给模型预设分段答案。
+
+**较小改动方案**：仍要求模型返回整章候选，仅把格式守卫改为允许换行差异、保留全部非换行字节。优点是沿用当前输出形态；缺点是仍依赖模型逐字复制长正文，R2已实测出现漏字，难以稳定完成长章排版。
+
+以上是待裁决提案，尚未修改Q03、schema、排版守卫或排版验收判据。推荐首方案，理由是满足真实作者的分段目标，同时把字句保真交给算法，避免继续把“没损坏”当成“排版已完成”。
+记录时间：2026-10-25T15:23:04.461304+00:00。
+
+#### 格式计划实施契约（作者已接受）
+- 作者选择“模型换行计划＋确定性应用”，冻结决策落[ADR-0029](../../docs/design/adr/ADR-0029-prose-formatting-plan-v3.md)。新artifact_type=prose_formatting_plan，模型item原文与line_break_changes保留；formatting_preview为机器投影，不能改写item.body。ui_card仍candidate_set。
+- Contract：VS-02A/VS-04及ADR-0029；Invariant：所有非换行字节一致、源hash/全部版本/同章、tentative-first与原始模型字段因果绑定。Boundary：domain纯算法、common/agent输出契约、application源材料/预览、persistence原子apply、frontend既有卡片消费；不新增生产验收开关/新Channel事件/依赖。
+- Consumer：原生“只调整分段和排版”→真实判断/格式计划→作者预览采纳→阅读/摘要/检索。Proof：算法属性/非法操作/stale/回滚、模型字段保真、真实模型实际新增分段的原生链、全门禁/I1–I3。Driver：现有detached＋CUA实际入口，真实模型自主选边界，不预设答案。Exploration：当前正文与版本沿chapter_read/prose_search/摘要继续可达，源边界视图与模型计划同批提供给格式执行者。
+- 先完成完整链路再结案；当前域算法只是实现checkpoint，不替代计划/预览/采纳/实模验收。旧Q03仅保留对旧全文候选的兼容约束，新计划按ADR-0029保真规则验收。
+
+
+#### ADR-0029实现与原生实模预注册（2026-10-26）
+- 完成计划类型/Provider字段保真、合法边界视图、独立预览、accept/discard、对话调整计划、同章事务重算与摘要完整章来源。后端2261项、前端615项、typecheck/lint通过；全扫描与真实原生链待验证。证据目录 `artifacts/slice-verify/b28-format-plan-20261026/checks/`。
+- 计划R1：使用已终止R3-resume隔离库的一致备份，只继承数据，不继承其验收结论。真实Strata iq3_s、max_tokens4096/thinking disabled，单槽串行，保留作者手动实例；不加载/卸载模型，不用替身产业务结果。
+- 原输入一次：把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。模型自行选择边界；没有候选不得重发，最多2次来源明确的作者问题回复。同因失败总预算2，失败记录保留。
+- 判据：真实Tauri输入/候选/采纳/阅读/重开；模型说明字段不被计算正文覆盖；至少新增一个段落边界；预览与采纳全文所有非CR/LF字节逐字相等；章身份/章数、历史、当前唯一稿、摘要revision_base、读取投影一致。另补真实新会话/空作品缺目标请求，最多1次原输入，零canon写入。T2既有实模结果不重复跑。
+- 等待沿现native_ui_wait：input120/turn360/candidate300/adoption180/maintenance300/restore30秒，10秒心跳；最后UI动作后立即停止测试服务再离线对账。原生运行目录 `artifacts/slice-verify/b28-format-native-20261026-r1/`，不写旧失败批次。
+
+- R1实模失败：原输入只提交一次，判断正确绑定chapter/format_only，writer HTTP200/3655tokens/8660字符后被Provider全局低多样性守卫拒绝（38.8s），无候选；DB全量draft行与R3-resume源一致。监督读取external failure及时清理，EXIT1；原首因与截图保留。
+- CP0产品缺陷：Provider.degenerate_content?使用全文unique/length；合法90边界JSON的旧判定值0.0141486 < 0.05，旧算法拒绝、新算法接受（entropy-comparison.log；最初测试的长度断言错误记录保留，不作为误判证据）。修复为固定256字符窗口检测短周期重复，保留原单字符/AB重复拒绝，不对JSON、供应商或slice开豁免。原始SSE未留全文，R1不能断言其余字段有效。格式/版本/原子采纳不变量保持。
+- R2 scoped复验：针对上述产品修复，用R1已终止库副本（canon未变），原输入和分型预算不变；本失败类型剩余一次实模复验，若仍失败保留已查根因与原始失败后升级，不以替身顶替。
+
+- R2原话已产有效实模方案：守卫修复后计划进入真实预览，所有非换行字节不变，实际取消了部分重复段之间的换行；没有新增段落边界。因此“实际调整”成立，但本次预注册的新增分段子判据未过，不能删去该事实或算全部通过。保留原候选不采纳。
+- 按CP4改述与ADR-0029对话调整计划继续一个子场景（只一次、无重试）：输入“调整这份分段方案：把后半章连在一起的正文按情节节奏分成几段，只调整分段和排版，别改字句。”模型仍自主选边界；检查生成新独立计划、原计划保留、至少新增边界、字节保真后再采纳。此处验证作者调整能力，不把原话结果改写为成功新增分段。
+
+- R2结果：原话与追加调整均真实Strata调用，得到两个独立计划但预览完全相同；均非换行字节保真、零canon写入，新增分段未通过。结果见 `b28-format-plan-20261026/checks/native-preview-proof.json`，原生截图/网络/模型记录在R2/run。没有采纳不符合拆分目标的方案，未将预览成功算成完整B28。
+- 产品修复：调整原计划时，把旧计划明确标为历史材料；在新候选生成前比较计算后的实际预览，仅标题/说明变化或预览完全相同返回no_formatting_changes。14项章级接线测试通过，包含真实不同计划可生成、原计划保留、canon不变；该补充修复尚无实模验证。
+- 资源：两批监督均按首因failure退出；失败目录不改写，测试实例停止，作者手动模型保留。后续原生复验需要新增预算：聚焦一次自然对话调整→真实新增分段→采纳/读取/重开；成功后补缺目标。不得重跑原T2或B27全量换分。
+- 剩余工程项：旧全矩阵driver的format_only全文候选断言尚需迁移到计划/预览；实模新增分段、排版采纳后的阅读/摘要/检索/恢复、T4缺目标仍不能结案。新的门禁清单只证明代码与已测原生预览，不代表队列清空。
+
+- 调整材料同时纠正：实模复制了旧方案的说明、理由与全部92条换行选择。调整任务只传旧方案的结构化换行选择，不再把旧“合段”说明/理由混入新的“拆段”任务；明确最终计划仍基于canon，不是差量。原模型字段继续保留于原候选与trace。本轮不宣称此语义整理已经解决模型执行能力，仍需获预算后的真实验证。
+
+- 本批检查点：后端2264/0、前端615/0、typecheck/lint通过；`CARGO_NET_OFFLINE=true pnpm tauri build`生成.app与.dmg（保留既有identifier/chunk-size/未公证提示，不改冻结配置）。统一扫描命令`bash scripts/ai_static_scan.sh --top 10`已修复本次fixture复杂度与过期manifest，剩余Top项仅Pencil fileToken误报、ProjectGod历史凭据接受风险；compile/xref/arch/I1–I3/N-NARR/I-CACHE/前端audit/design trace/task_done/NEXT均验证。最终证据目录 `artifacts/slice-verify/b28-format-plan-20261026/checks/`，清单明确native_business_complete=false/slice_complete=false。未提交或推送。
+
+
+#### R3授权后的单次scoped原生复验（2026-10-26）
+- 作者明确授权一次scoped原生复验。来源为已终止R2隔离库，旧库只读保留；目录 `artifacts/slice-verify/b28-format-native-20261026-r3/`。
+- 只提交一次调整原话：“调整这份分段方案：把后半章连在一起的正文按情节节奏分成几段，只调整分段和排版，别改字句。”若模型明确询问目标，回复最近那份“按情节节奏分段”方案；最多2次来源明确的作者问题回答，不重发原请求。
+- 模型自主选择合法边界；至少新增一处段落边界、与R2旧预览不同，且非CR/LF字节完整相等，才点击对应新方案采纳。之后核对同章/唯一当前稿/旧稿历史、摘要revision_base、阅读和重开。任一失败保留首因、停止，不再调用模型重试；不推进B28完成、不销B27 known-gap。
+- Strata现有iq3_s，max_tokens4096/thinking disabled，单槽串行；原等待预算不变（input120/turn360/candidate300/adoption180/maintenance300/restore30秒）。本次不装载/卸载作者实例；最后UI动作后立即停止本批服务。
+
+
+#### R3单次授权复验结果（2026-10-26）
+- **本次scope通过，B28整体仍doing。** 外部CUA原生入口只发送一次调整请求，真实Strata iq3_s调用3次（judgment 12.491s、格式writer 42.785s、完整章summary 6.477s），没有重试或作者追问。模型绑定最近R2计划，生成新候选`as_mvo26rab_2q3`，24项对账通过；证据 `artifacts/slice-verify/b28-format-native-20261026-r3/run/real-model-proof.json`。
+- 实际新增30处单换行，阅读消费者75→105段；所有非CR/LF字节严格相同，预览与R2不同。初次只读probe误将“新增段落”写成“必须新增空行”；`ReadingMode.tsx:419`原有实现按单换行渲染独立段落，故以实际消费者验证。原`r3-candidate-check.json`（新增空行0）及`r3-reading-boundary-check.json`均保留，不改模型输出、不改产品或既有换行契约。
+- 原生仅采纳这份新计划一次：同chapter_id/章数/seq，唯一新ACCEPTED draft版本17，原v14内容原样保留为SUPERSEDED。canon精确等于预览；摘要收到完整排版后正文，revision_base指向v17。所有阅读响应全文等于canon，有效字3127不变；原生关闭/重开后再读仍105段，未产生重复写入。模型item说明与计算预览保持分离。
+- 观察到的未闭环显示问题：采纳后阅读提示“投影已过期”，点击刷新后仍保留，重开后消失；实际读取始终为新稿。阅读还显示仅剩历史稿的空scene提示。登记为本任务后续CP0展示/投影状态核对，不把数据正确外推界面全部正确。
+- 本批8个分型等待全部结束、0超时，无failure.json；最后UI动作后stop，TERM/143。重开产生的launchd归属原生PID未随原detached树退出，核对完整本批可执行路径后单独TERM，115ms退出；该监督缺口已转B37，不能宣称自动清理完全通过。作者Strata与LM embedding实例保留空闲，测试端口清空。
+- 本轮只验证与归档，生产源码hash与启动快照完全一致；沿用上一检查点后端2264/前端615/I1–I3/全静态扫描/Tauri构建结果，不重复全套刷验。未执行T4缺目标、排版后额外检索或旧全矩阵driver，未推进B30或标整个goal完成。
+
+
+#### 阅读刷新CP0与实施边界（2026-10-26）
+- R3真实点击刷新后没有刷新请求；源码证实App保留隐藏WorkspaceChat常驻，ReadingMode只写pendingBuildAction，消费effect未订阅该值且不以其为依赖。读取目录/章节成功也未清除global STALE；局部章节读取失败被catch吞掉。
+- 消费既有ADR-0016/44§3–4：hint只刷新read model，不调用模型或production write。用已锁定TanStack Query统一目录+当前正文读取；hint失效对应work查询，整组成功/失败决定FRESH/FAILED，刷新/重试只重读。删除pendingBuildAction自然语言转发，不增加后端事件/schema/能力。
+- 首消费者ReadingMode；不物化创作要素，探索面不变。查询刷新/整组失败与真实原生采纳→阅读取证，产品验收感知no。空历史scene不进入成品阅读，未成章仍提示待补足。
+
+- driver迁移：原生/浏览器证据消费者按prose_formatting_plan取独立preview，保留模型items；验证source/preview hash、计划绑定、非换行字节等价及实际新段落。仅原样返回、只增首尾空行、改字、错类型/计划均不通过。采纳入口改为可见“应用分段方案”；内容修订仍精确目标段＋最终全文逐字。旧归一函数仅供legacy兼容测试。尚未将局部测试当作全矩阵运行。
+
+#### 阅读/缺目标与监督收尾复验预注册
+- 范围：一次R4 scoped原生运行，复用已终止R2真实模型候选的隔离副本。采纳其最近待采纳计划仅验证读取刷新（不重跑创作生成、不替代R3新增分段证明）；阅读应自动读取新canon并显示FRESH，不出现空历史scene提示。关闭/重开后读数与canon不变；测试结束自动清理重开的本批.app进程。
+- T4：切换到既有空作品，原请求“把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。”只提交一次。真实模型回复必须澄清/拒绝，无正文候选与写入；若有来源明确的作者问题，最多2次回答，按当前事实明确“目前没有正文，暂不创作新正文”。不得取消或重发原请求。
+- 真实模型沿既有Strata iq3_s、单槽串行、max4096/thinking disabled；最多1次采纳后摘要与T4一个输入的判断链，不重试。input120/turn360/candidate300/adoption180/maintenance300/restore30秒及10秒心跳不变。新证据目录 `artifacts/slice-verify/b28-reading-native-20261026-r4/`；失败保留只读，不回写R2/R3。模型仍为作者手动实例，保留并核验idle。
+
+- R4局部已证：真实采纳后不需重启，阅读直接读取新canon；原生AX无STALE/FAILED提示，空历史scene提示消失，模型只调用采纳摘要。恢复阶段工具已返回工作台，但驱动没有及时写finish，30秒restore_timeout触发清理；T4尚未输入。保留R4 failure/termination，不能算全批成功。
+- R5恢复预注册：复制已终止R4库，不重做采纳/生成；只核对既有阅读结果，实际关闭/重开时在同一次CUA调用中getApp→getAXState→写finish，避免模型思考间隙占恢复预算。然后首次执行T4原输入一次、至多2次来源明确的作者回复；不重试模型。旧预算不扩大。证据 `artifacts/slice-verify/b28-reading-native-20261026-r5/`。
+
+- R5 T4首次实模：原输入一次，真实judgment两调用；第一次chapter_read已返回“没有找到第一章；当前作品还没有章节”，第二次仍相同查询，run转awaiting_author且无明确问题/候选。原Tauri开发进程随后失活，监督以owned_process_exited停止，不能把此次视为T4通过。没有重发输入或用替身覆盖结果。
+- CP0提示词契约冲突：AuthoringTaskPolicy同时要求材料不足诚实说明，却无条件写“取证后必须回到execute，不能reply/await_author”；判断共享段还保留“排版完整稿＋冻结空白归一”的旧协议。按既有B27语义和ADR-0029统一修正：只有目标/必要材料齐备才执行；明确不存在是已完成的核查，可据实reply或提出具体材料问题，禁止重复同查询与新建冒充修订；排版统一为模型计划＋确定性预览。无schema/验收标准变更。
+
+
+#### T4规则修复后的单次复验预注册
+- 范围：原生R6，源为已终止R4隔离库（T4从未输入，避免继承R5失败对话）；使用独立嵌入前端资源的Tauri程序，生产入口与代码不改成旁路。证据`artifacts/slice-verify/b28-missing-native-20261026-r6/`。
+- 只切换既有空作品并发送原排版请求一次；真实Strata iq3_s、max4096/thinking disabled，原分型预算不变。需要明确问题时至多2次来源绑定回答“当前没有已保存正文，暂不新写”，不取消、不重发、不创建正文。核查应结束为具体缺目标澄清/拒绝，零候选、零正文/章节写入。若仍相同查询停滞，保留known-gap，不再追加重试。
+- 不重跑已通过的R3分段与R4阅读修复；最后UI完成即停止服务，自动清理本批原生进程并核验作者模型仍idle。B37退出故障验证已先通过。
+
+- R6尚未执行任何UI或模型调用即因driver_idle_timeout退出（准备调度未及时接入）。保留失败批；产品缺目标复验预算未使用。R7沿同一源与原判据执行，启动脚本在ready出现后立即登记准备等待，原生UI操作连续执行，避免后台已启动却等待调度。目录`b28-missing-native-20261026-r7`。
+
+- R7未发送用户输入：原生应用已显示，但工具的菜单控制未生效，准备预算到期退出，模型调用0。重置仅自动化工具的JS会话（不改应用/数据/模型），R8沿相同源和同一业务预算继续首次T4修复复验，菜单控制先依据当前可见状态确认；不修改验收判据。
+
+- 作者已确认桌面解锁且可操作。R8同样未提交业务输入/模型调用；保留控制异常记录。R9继续原已授权的单次T4修复复验，源仍R4，原输入/零写入判据/分型预算不变；不重跑分段或采纳。
+
+- R9未进入业务输入，仍停在原生控制层。R10使用Tauri生成的完整.app（保留产品入口/identifier），继续同一未使用的T4修复复验预算；证据目录`b28-missing-native-20261026-r10`。所有旧批次保留。
+
+#### R4/R10结果与T4产品根因记录（2026-10-26 夜间，承接 R6–R9 驱动故障）
+
+- **R4（阅读/投影刷新）局部已证**：真实采纳后无需重启，阅读直接读取新 canon；原生 AX 无 STALE/FAILED 提示，历史空 scene 提示消失。恢复阶段 restore 等待到期（30s）而未能写 finish，T4 未输入；R4 failure/termination 保留，不冒充全批成功。后续 R5 用复制库恢复并首次执行 T4。
+- **R10（T4 缺目标，产品修复前最后一次）实模结果**：源为 R4 隔离库副本，只发送一次原请求。真实 Strata iq3_s 两次 judgment 均 `explore/chapter_read("第一章")`，第二次观察已含“当前作品还没有章节”，但仍重复同一查询；产品 no_progress 停止，作者可见文案为“章节检索未完成，可换个章名再试。”+“AgentRun 未取得新进展，已停止等待作者回复。”+通用输入提示。零写入、无候选、不新建章（无 failure 之外的副作用）。证据 `artifacts/slice-verify/b28-missing-native-20261026-r10/run/`（failure.json、real-model-proof.json、t4-no-progress.ax.txt/.jpg、native-transport.jsonl、llm-calls）。
+- **CP0 产品根因（两处，非单句补丁）**：① 探索观察分类把“检索完成且目标不存在”当成 activity 失败，显示“检索未完成”，与观察事实相反；② no_progress 终止只给泛化提示，不把最后一次观察的事实转成具体作者澄清，导致作者不知道缺少什么、下一步能做什么。模型重复查询是模型行为，但产品必须在不依赖模型配合时仍诚实可解释。
+- **修复边界**：仅在既有 ADR-0025/B27/VS-00 语义内修正观察分类与 no_progress 终止的作者可见澄清（由最后观察派生），保持零写入、无候选、不路由 prose_write、无 schema/ADR/验收判据变更；不新增验收感知逻辑。
+
+#### R11 T4 产品修复后单次 scoped 原生复验预注册（2026-10-26）
+
+- 范围：只复验 T4 缺目标失败类型；源为已终止 R4 隔离库副本（canon 未变），真实 Strata iq3_s（thinking disabled、max_tokens 4096、单槽串行），一次原请求：“把已保存的第一章正文整理修订一下，只调整分段和排版，不要改字句。”不重跑 R3 分段/采纳、R4 阅读、R2 内容修订或 B27 全量矩阵换分。
+- 初始状态：隔离副本中把缺目标作品标为最近打开（测试数据准备，等价于经作品菜单切换），应用启动即进入该作品；源库只读、不改 stage 数据。
+- 判据（沿用 native_b28_evidence 冻结断言同一文本/条件，不改判据）：唯一一次输入；T4 作者可见澄清含缺失事实与可行后续（命中冻结正则 `/裁决|澄清|无法|需要你|多个标题|确认目标/`）；零章/零草稿/零 scene 写入；无候选、无 prose_writing 新创作执行、`production_write_performed != true`；真实模型调用与来源记录齐全。
+- 预算：真实模型最多 1 次原输入 + ≤2 次来源明确的作者问题回复；等待沿用 B37 分型预算（input 120s / turn 360s / candidate 300s / adoption 180s / maintenance 300s / restore 30s，10s 心跳）；超时不重发；若同因失败，保留首因、记录 known-gap 并升级，不自动再启下一批。
+- 资源：运行前记录 `lms ps`/内存与 Strata `loaded=null`；单槽串行；结束（成功/失败/中断）卸载 Strata 并验证 `loaded=null`；不加载第二模型。
+- 证据目录 `artifacts/slice-verify/b28-missing-native-20261026-r11/`；外部驱动为外部系统 UI（AX/CGEvent，非产品钩子），失败批次只读保留。
+- 预注册时间：2026-10-26T16:2x+00:00（执行前写入）。

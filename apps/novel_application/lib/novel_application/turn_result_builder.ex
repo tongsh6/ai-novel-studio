@@ -293,6 +293,7 @@ defmodule NovelApplication.TurnResultBuilder do
         tentative: true
       }
       |> maybe_put_revision_provenance(as)
+      |> Map.merge(Map.take(extra_payload, [:formatting_preview]))
 
     r
     |> Map.put(:adoption_state, adoption_state)
@@ -449,6 +450,10 @@ defmodule NovelApplication.TurnResultBuilder do
 
     "#{artifact_save_hint(as)}#{preview}"
   end
+
+  defp artifact_save_hint(%{artifact_type: type})
+       when type in [:prose_formatting_plan, "prose_formatting_plan"],
+       do: "分段方案待采纳。预览仅改变换行；应用后保留原文全部非换行字节和历史版本。"
 
   defp artifact_save_hint(%{artifact_type: type})
        when type in [:prose_fragment, "prose_fragment"],

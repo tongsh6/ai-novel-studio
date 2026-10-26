@@ -760,7 +760,10 @@ defmodule NovelApplication.AgentRunServer do
       |> merge_stage_state(Map.get(result, :stage_state))
       |> sync_execution_steps()
       |> apply_superseded_artifacts(result)
-      |> apply_progress_signature(Map.get(result, :progress_signature))
+      |> apply_progress_signature(
+        Map.get(result, :progress_signature),
+        Map.get(result, :observations, [])
+      )
 
     no_progress_stopped? = no_progress_stopped?(state)
 
@@ -1283,21 +1286,45 @@ defmodule NovelApplication.AgentRunServer do
   defp non_negative_count(value) when is_integer(value) and value > 0, do: value
   defp non_negative_count(_), do: 0
 
-  defp apply_progress_signature(state, signature) when is_binary(signature) and signature != "" do
+  # B28 T4 R10：no_progress 停等不能只留泛化句。作者可见 summary 由最后可用观察
+  # 机械派生（缺什么/为何不能执行/可做什么）；无可用观察时退化为既有诚实兜底句。
+  # 只替换终止文案，不改变 no_progress 语义（状态/零写入/零候选均不变）。
+  defp apply_progress_signature(state, signature, observations)
+       when is_binary(signature) and signature != "" do
     if MapSet.member?(state.progress_signatures, signature) do
+      clarification =
+        NovelApplication.NoProgressClarification.derive(observations, state.events)
+
       state
       |> put_run_status(:awaiting_author)
       |> put_run_phase(:stopped)
-      |> emit(:awaiting_author, "AgentRun 未取得新进展，已停止等待作者回复。", [
-        "no_progress"
-      ])
+      |> emit(
+        :awaiting_author,
+        clarification.summary,
+        Enum.uniq(["no_progress" | clarification.reason_codes]),
+        [],
+        no_progress_event_payload(clarification)
+      )
       |> persist_run_state()
     else
       %{state | progress_signatures: MapSet.put(state.progress_signatures, signature)}
     end
   end
 
-  defp apply_progress_signature(state, _signature), do: state
+  defp apply_progress_signature(state, _signature, _observations), do: state
+
+  defp no_progress_event_payload(%{source: :observation, observation: observation}) do
+    %{
+      stage: :no_progress_stopped,
+      clarification_source: "last_exploration_observation",
+      observation_tool: observation.tool,
+      observation_outcome: observation.outcome
+    }
+  end
+
+  defp no_progress_event_payload(_clarification) do
+    %{stage: :no_progress_stopped, clarification_source: "generic"}
+  end
 
   defp no_progress_stopped?(state) do
     state.run.status == :awaiting_author and state.run.phase == :stopped

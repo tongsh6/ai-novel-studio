@@ -619,6 +619,112 @@ defmodule NovelApplication.ExplorationServiceTest do
     assert ExplorationService.activity_summary(%{}) == "已完成一次作品检索。"
   end
 
+  # B28 T4 R10 根因回归：检索完成但目标不存在/为空属于**已完成观察**（informational），
+  # 不是「检索未完成」失败。失败类文案只保留给工具执行错误。
+  test "空作品缺目标：chapter_read 空结果是已完成观察（informational），不说检索未完成" do
+    {:ok, work} = WorkService.create(%{"title" => "空作品缺目标"})
+
+    assert {:ok, missing} = ExplorationService.run(work.id, "chapter_read", "第一章")
+    assert missing.outcome == :target_not_found
+    assert missing.facts == %{chapter_count: 0}
+    refute missing.activity_summary =~ "检索未完成"
+    assert missing.activity_summary == "已检索章节「第一章」：作品当前还没有章节。"
+    # 模型面摘要仍是检索事实，不是失败叙述
+    assert missing.summary =~ "没有找到「第一章」"
+    assert missing.summary =~ "（当前作品还没有章节）"
+  end
+
+  test "已有章节但章名不存在：已完成观察按实际章数说明，不说检索未完成" do
+    {work_id, _chapter_id} = seed_work_with_chapter(@long_title, long_prose(200))
+
+    assert {:ok, miss} = ExplorationService.run(work_id, "chapter_read", "第99章")
+    assert miss.outcome == :target_not_found
+    assert miss.facts == %{chapter_count: 1}
+    refute miss.activity_summary =~ "检索未完成"
+    assert miss.activity_summary == "已检索章节「第99章」：当前作品有 1 章，但没有这个章名。"
+  end
+
+  test "歧义/非法检索参数同属已完成检索：给出可解释分类而非失败类文案" do
+    {work_id, _chapter_id} = seed_work_with_chapter("同名章", long_prose(100))
+    _ = seed_work_with_chapter("同名章", long_prose(120), work_id: work_id, seq: 2)
+
+    assert {:ok, ambiguous} = ExplorationService.run(work_id, "chapter_read", "同名章")
+    assert ambiguous.outcome == :ambiguous_target
+    assert ambiguous.facts == %{matched_count: 2}
+    assert ambiguous.activity_summary == "已检索章节「同名章」：匹配到 2 章，需要先确定唯一章节。"
+    refute ambiguous.activity_summary =~ "检索未完成"
+
+    assert {:ok, invalid} = ExplorationService.run(work_id, "chapter_read", ~s({"offset":5}))
+    assert invalid.outcome == :invalid_query
+    assert invalid.activity_summary == "已检索章节：检索参数无法识别，没能定位到章节。"
+    refute invalid.activity_summary =~ "检索未完成"
+  end
+
+  test "空正文章观察分类为空内容（informational），不冒充检索失败" do
+    {:ok, work} = WorkService.create(%{"title" => "空正文作品"})
+
+    volume =
+      %Volume{}
+      |> Volume.changeset(%{work_id: work.id, title: "卷一", seq: 1})
+      |> Repo.insert!()
+
+    %Chapter{}
+    |> Chapter.changeset(%{work_id: work.id, volume_id: volume.id, title: "空章", seq: 1})
+    |> Repo.insert!()
+
+    assert {:ok, empty} = ExplorationService.run(work.id, "chapter_read", "空章")
+    assert empty.outcome == :empty_content
+    assert empty.facts == %{prose_chars: 0}
+    assert empty.activity_summary == "已核查章节「空章」（第 1 章）：本章尚无已采纳正文。"
+    refute empty.activity_summary =~ "检索未完成"
+  end
+
+  test "空命中（正文/记忆检索）是 empty_result，不是工具失败" do
+    work_id = seed_work_with_prose()
+
+    assert {:ok, miss} = ExplorationService.run(work_id, "prose_search", "剑冢秘藏")
+    assert miss.outcome == :empty_result
+    assert miss.facts == %{hit_count: 0}
+    assert miss.activity_summary == "已检索正文「剑冢秘藏」：没有命中任何章节。"
+    refute miss.activity_summary =~ "检索未完成"
+
+    assert {:ok, none} = ExplorationService.run(work_id, "memory_recall", "不存在的设定")
+    assert none.outcome == :empty_result
+    assert none.facts == %{hit_count: 0}
+    assert none.activity_summary == "已检索记忆「不存在的设定」：没有命中任何记忆条目。"
+    refute none.activity_summary =~ "检索未完成"
+  end
+
+  test "正常观察仍分类为 observed，结构元数据可被 no_progress 澄清机械消费" do
+    work_id = seed_work_with_prose()
+
+    assert {:ok, hit} = ExplorationService.run(work_id, "prose_search", "灵气账单")
+    assert hit.outcome == :observed
+    assert hit.facts == %{hit_count: length(hit.refs)}
+
+    assert ExplorationService.observation_metadata(hit) == %{
+             tool: "prose_search",
+             query: "灵气账单",
+             outcome: "observed",
+             facts: %{hit_count: length(hit.refs)}
+           }
+
+    assert {:ok, chapter} = ExplorationService.run(work_id, "chapter_read", "第01章")
+    assert chapter.outcome == :observed
+    assert chapter.activity_summary =~ "已阅读章节正文"
+
+    # 工具失败仍保留失败类文案（失败只留给真实失败）
+    assert ExplorationService.observation_metadata(%{
+             tool: "chapter_read",
+             query: "第一章",
+             outcome: :failed,
+             facts: %{}
+           }) == %{tool: "chapter_read", query: "第一章", outcome: "failed", facts: %{}}
+
+    assert ExplorationService.observation_metadata(%{tool: "prose_search", query: "x"}) ==
+             %{tool: "prose_search", query: "x", outcome: "observed", facts: %{}}
+  end
+
   test "章索引（模型面）带 chapter_ref 与 seq/title 双面身份；找不到时列出索引" do
     prose = long_prose(200)
     {work_id, chapter_id} = seed_work_with_chapter(@long_title, prose)

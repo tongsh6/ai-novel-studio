@@ -2172,6 +2172,8 @@ function findB31AuthorReplyRunBindingEvidence(records) {
     "selector_steer_other_run_untouched",
     "restore_order_stable",
     "reload_plain_input_new_request",
+    "additional_question_bindings_preserved",
+    "all_questions_closed_before_steer",
     "no_product_code_changed",
   ];
   if (!required.every((key) => checks[key] === true)) return null;
@@ -2179,6 +2181,10 @@ function findB31AuthorReplyRunBindingEvidence(records) {
   if (ui.protocol_seed_used_for_trial_setup !== true) return null;
   if (ui.no_product_code_changed !== true) return null;
   const measured = ui.cp2_measured ?? {};
+  const replies = ui.author_question_events;
+  if (!Array.isArray(replies) || replies.length < 4 || measured.author_question_reply_count !== replies.length) return null;
+  if (new Set(replies.map((reply) => reply.submission_id)).size !== replies.length) return null;
+  if (!replies.every((reply) => reply.question_ref && reply.source_turn_ref && reply.run_id && reply.action_id && reply.submission_id && Number.isInteger(reply.expected_goal_version) && reply.receipt_goal_version === reply.expected_goal_version + 1 && records.some((record) => record.event === "channel.author_action.done" && record.action_status === "accepted" && record.action_id === reply.action_id && record.target_ref === reply.run_id && record.turn_id === reply.source_turn_ref))) return null;
   if (Number(measured.plain_input_new_run_count ?? 0) < 5) return null;
   if (Number(measured.plain_input_steer_count ?? 0) !== 1) {
     // 唯一允许的 plain steer 是「点选任务后显式继续该任务」（T5）。
@@ -2247,10 +2253,13 @@ function findB28WholeChapterRevisionEvidence(records) {
   const measured = ui.cp2_measured ?? {};
   if (!Array.isArray(ui.trial_ids) || ui.trial_ids.length < 10) return null;
   if (Object.keys(checks).length < 45) return null;
+  if (checks.content_candidate_matches_bound_segment !== true) return null;
+  if (checks.content_only_specified_change_applied !== true) return null;
+  if (checks.reading_projection_after_t2_equals_applied_text !== true) return null;
   if (!Object.values(checks).every((value) => value === true)) return null;
   if (ui.outcome !== "done") return null;
   if (ui.summary?.all_checks_passed !== true) return null;
-  if (ui.no_product_code_changed !== true) return null;
+  if (ui.production_sources_unchanged_during_measurement !== true) return null;
   if (ui.measured_inputs_all_from_real_workbench !== true) return null;
   if (measured.chapter_count_before !== measured.chapter_count_after) return null;
   if (measured.same_title_ambiguous_blocked !== true) return null;
@@ -2305,22 +2314,22 @@ function b28WholeChapterRevisionBehavior(records, evidence, _options) {
       "format_only_adoption_replace_scope_keeps_chapter_identity_and_count",
       "format_only_old_fragments_superseded_and_history_retained",
       "format_only_reading_projection_consumes_replaced_scope",
-      "content_revision_candidate_covers_whole_chapter_and_changes_only_specified_spot",
-      "content_revision_adoption_replace_scope_keeps_chapter_identity_and_count",
+      "content_revision_candidate_matches_bound_segment_hash_and_base_version",
+      "content_revision_replace_segments_preserves_other_bytes_and_chapter_identity",
       "same_title_ambiguous_target_blocked_with_visible_clarification",
       "same_title_blocked_path_zero_write_and_no_new_chapter",
       "unique_title_candidate_carries_chapter_ref_and_edit_then_accept_binds_that_chapter",
       "refresh_and_duplicate_adoption_idempotent",
       "missing_accepted_ref_blocked_with_visible_clarification_zero_write_no_new_chapter",
       "candidate_visible_text_shows_target_chapter_and_modification_scope",
-      "reading_projection_after_replace_scope_equals_new_candidate_with_matching_word_count",
+      "reading_projection_equals_applied_full_text_with_matching_word_count",
       "reading_after_refresh_consumes_same_new_value_and_visible_target_chapter",
       "chapter_summary_refreshed_after_replace_scope_not_pointing_to_superseded_source",
       "next_round_judgment_context_reads_new_chapter_value_not_old",
       "prose_search_retrieval_hits_new_value_and_old_value_not_current",
       "old_accepted_drafts_all_superseded_with_history_retained_current_projection_only_new",
       "archive_and_reading_show_target_chapter_and_summary_source_without_hidden_hooks",
-      "no_product_code_or_acceptance_hook_changed",
+      "production_sources_unchanged_during_measurement_and_no_acceptance_hooks_added",
     ],
     note:
       "Deterministic slice_verify provider validates the real workbench/state-chain contract; real-model intent and formatting quality belong to CP4.",

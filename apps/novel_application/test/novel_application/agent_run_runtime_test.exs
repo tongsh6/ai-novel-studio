@@ -1483,6 +1483,71 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.completed_step_refs == ["step_1", "step_2"]
   end
 
+  # B28 T4 R10：no_progress 停等不能只留泛化句——必须由最后可用观察派生出
+  # 「缺什么 / 为何不能执行 / 可做什么」的作者可见具体澄清；零候选、零写入不变。
+  test "no-progress stop derives specific author clarification from the last exploration" do
+    parent = self()
+    run_id = unique_run_id()
+
+    step = fn _run, sequence ->
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [
+           exploration_observation(run_id, "第一章", "target_not_found", %{chapter_count: 0})
+         ],
+         progress_signature: "same-exploration:chapter_read:第一章"
+       }}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: sequential_steps([step, step]),
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:agent_event_full, :awaiting_author, event}, 800
+
+    refute event.summary == "AgentRun 未取得新进展，已停止等待作者回复。"
+    assert event.summary =~ "第一章"
+    assert event.summary =~ "当前还没有任何章节或正文"
+    assert event.summary =~ "下一步"
+    assert "no_progress" in event.reason_codes
+    assert "no_progress_repeated_exploration" in event.reason_codes
+    assert event.payload.clarification_source == "last_exploration_observation"
+    assert event.payload.observation_tool == "chapter_read"
+    assert event.payload.observation_outcome == "target_not_found"
+
+    assert {:ok, %{run: run, final_turn_result: nil}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+    assert run.pending_artifact_refs == []
+    refute_receive {:agent_event, :artifact_created, _}, 80
+  end
+
+  test "no-progress stop with a non-exploration observation keeps the honest generic summary" do
+    parent = self()
+    run_id = unique_run_id()
+
+    step = fn _run, sequence ->
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [observation(run_id, sequence)],
+         progress_signature: "same-tool:same-input"
+       }}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: sequential_steps([step, step]),
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者回复。"}, 800
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.status == :awaiting_author
+  end
+
   test "steer resumes an awaiting-author run without creating a second run" do
     parent = self()
     run_id = unique_run_id()
@@ -2049,6 +2114,30 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         source_ref: "tr_#{sequence}",
         summary: "第 #{sequence} 步观察。",
         evidence_refs: ["tool_result:tr_#{sequence}"]
+      })
+
+    observation
+  end
+
+  # 探索观察的 production 形状（DialoguePlanningService.judgment_explore_result /
+  # JudgmentPlan.execute_exploration_decision_step 同源结构化载荷）。
+  defp exploration_observation(run_id, query, outcome, facts) do
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: "obs_explore_#{System.unique_integer([:positive])}",
+        run_ref: run_id,
+        step_ref: "step_explore",
+        observation_type: :custom,
+        source_ref: "explore:chapter_read:2",
+        summary: "没有找到「#{query}」。现有章索引：（当前作品还没有章节）",
+        structured_payload: %{
+          stage: :exploration_observed,
+          tool: "chapter_read",
+          query: query,
+          outcome: outcome,
+          facts: facts
+        },
+        evidence_refs: ["explore:chapter_read:2"]
       })
 
     observation
