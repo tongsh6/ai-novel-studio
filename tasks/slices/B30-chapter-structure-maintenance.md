@@ -1,6 +1,6 @@
 # B30：已有章节重编号、结构修订与卷章类型边界
 
-- 状态：**doing（2026-10-27，原生确定性矩阵已 PASS；等真实模型 scoped 原生证据后收口）**。作者要求保留原生标准补验：两个场景的原生确定性矩阵已完成（场景1 30/30 + 类型边界 T8 6/6、场景2 12/12，驱动 `ax-native-system-ui`，生产源码指纹测量期间不变）；档案类型边界缺陷（B28 A2 转入）已修（`e83c06c5`）并用原生 T8 证据复验。剩余：真实模型经原生入口的 scoped 证据（判断→候选→采纳→消费者）、全门禁与文档收口。
+- 状态：**done（2026-10-27，原生补验收口：确定性矩阵 + 真实模型 scoped 原生）**。作者要求保留原生标准补验：场景1 原生确定性 30/30 + 类型边界 T8 6/6、场景2 原生 12/12；真实模型经原生入口 scoped 批次 26/26（T1 重编号判断/候选/采纳/消费者 + T2 越界澄清零写入，provider=strata/iq3_s，模型生命周期 before loaded=null/after unload=loaded=null）。档案类型边界缺陷（B28 A2 转入）已修（`e83c06c5`）并原生 T8 复验。全门禁与文档收口在最终批次统一记录。
 - 原收口记录：**done（2026-10-25，CP0–CP5；两真实 Tauri 场景注册 PASS 30/30 + 12/12，实模 POST-FIX PASS，回归全绿）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无结构维护能力（结构意图→reply/target_not_available/plot_outline 误路由），采纳物化按 title 新建章（无按 chapter_ref 改 seq 路径）；标准 B11A 规划路径蓝图类型安全但持久层无防护。CP0 冻结见 §7，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只授权写 slice / 登记 NEXT。
 - 归属：[AU08 卷结构规划](AU08-volume-structured-planning.md)、[B11A 卷蓝图](B11A-volume-blueprint.md)、[B25 章节身份](B25-chapter-identity-unification.md)、[VS-00J](../../docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md)；提示词统一消费 [B27](B27-systematic-prompt-and-intent-integration.md)。这是新增维护能力，不把 plot_outline 生成冒充重编号。
@@ -137,3 +137,12 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
   - 证据含 25 组AX+截图+text、native-transport.jsonl、app-log、llm-calls、只读 DB、wait-events（场景1 64 条分型等待 begin/finish）；测量期间生产源码指纹未变（HEAD `7858faf0`）。全部失败批次（驱动自身缺陷/环境干扰：waitready/nested-wait/archive-return-typing/receipt-attribution/config-before-prepare/work-menu×2/verify-dedupe-t8/screenshot-flake/composer-interference/composer-readback）只读保留，不冒充通过。
 - **档案类型边界修复（B28 A2 转入，`e83c06c5`）**：真实“大纲与结构→待保存大纲”曾把 prose_fragment/target_segments 修订候选显示为“大纲草稿/保存到大纲/提出修改”。根因为 `StructurePanel.pendingArtifactTab` 把 prose_fragment/scene_draft 映射到 outline tab；修复为内容类 artifact 不进入档案待采纳 section/计数（不改工作台候选卡/available_actions/schema/ADR/后端），前端测试 617→621（red→green）。**原生 T8 证据**：真实修订候选在工作台显示“保存修订稿”；档案“大纲与结构→待保存大纲”中 待保存大纲/大纲草稿/保存到大纲/提出修改 均为 0，已采纳章节计划=1 正常；真实 outline 候选仍显示 待保存大纲+大纲草稿+保存到大纲（6/6 checks）。
 - **剩余（未闭环，不在本记录冒充）**：真实模型经原生入口的 scoped 证据（判断绑定/必要询问/候选/采纳/消费者）待补；全门禁与 NEXT/journey/ledger 收口待做。
+
+#### 2026-10-27 原生真实模型 scoped 批次（strata/iq3_s）
+
+- **范围**（不重跑全矩阵、不换分）：T1「把第2卷章节编号理顺，内容不要动」→ 真实模型判断/候选 → 原生「保存到作品」→ DB/消费者；T2「把第九卷章节编号理顺，内容不要动」→ 越界澄清零写入。
+- **批次**：`artifacts/slice-verify/b30-chapter-renumber-roundtrip-native-strata/run/`；provider=strata、model=iq3_s、driver=`ax-native-system-ui`（原生窗口，非 Chromium）、`scope=scoped_real_model`、trials=T1/T2。
+- **结果**：scoped checks **26/26 PASS**（`summary.json` + `b30-native-checks.json`）：真实调用 5 次全部 `POST /v1/chat/completions` 2xx 且 app-log `provider_gateway.complete.start` 全 strata；T1 真实 judgment `explore→execute capability=maintain_chapter_structure`，候选映射 3→2/4→3/5→4（display_number_only）原生可见，采纳回执 committed_mapping 3/object_count 3/warnings 3 条 title_number_mismatch，DB seq 按映射更新、章数/ID/归卷/正文 hash/title 文本/摘要引用不变、seq 唯一；T2 越界→await_author 作者可见澄清、零写入、无新章/无 outline/prose 候选；`author_question_events=[]`（本批模型未发交互式问题卡；失败批次中曾发选项问题，只读保留用于驱动修复回放）。
+- **模型生命周期（硬规则）**：`model-lifecycle-before.json` 记录 lms ps/内存/Strata loaded=null//v1/models 含 iq3_s；`model-lifecycle-after.json` 记录 `POST /api/models/unload` 200 → 回读 loaded=null/unloaded=true（成功与失败路径都执行卸载，失败批次亦验证 loaded_after=null）。
+- **失败批次（只读，驱动缺陷非产品缺陷）**：`...-native-strata-failed-driver-assert-20261027T0121`、`...-native-strata-failed-question-settle-20261027T0124`。
+- **边界**：本批是 scoped 实模证据（T1/T2），不冒充确定性 36 项矩阵；全面板/全负例矩阵仍以原生确定性批次为准。

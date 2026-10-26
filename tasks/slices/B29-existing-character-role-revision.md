@@ -1,6 +1,6 @@
 # B29：已有角色叙事身份修订与主角事实一致性
 
-- 状态：**doing（2026-10-25 完成审计重开，仅补原生证据）**。B29 原角色身份更新的实现、浏览器产品链和原门禁证据保留；原 canonical summary 明确为 `surface=browser / driver=headless-chromium`，尚不能证明原生 Tauri 交互。作者已选择保留原生标准，按原队列补验；不重跑真实模型矩阵换分。原收口结论以本条更正，历史过程记录保留。
+- 状态：**done（2026-10-27，原生确定性矩阵 23/23 PASS + 真实模型 scoped T1 全链 PASS）**。作者保留原生标准补验：确定性原生批次 23/23 checks/5 trials PASS（驱动 ax-native-system-ui）；strata/iq3_s scoped 原生批次 T1 真实判断→候选→原生采纳→receipt/DB 不变式 PASS（19 项），T2 同名澄清未复现（真实模型跨轮上下文消歧→no-op 候选，DB 零写入）如实登记为模型行为 known-gap，不冒充通过、未放弃守卫。新发现 no-op 角色修订候选与同名澄清硬化点列残余待裁决。全门禁与台账收口在最终批次统一记录。
 - 原收口记录：**done（2026-10-25，CP0–CP5；真实 Tauri 23/23 checks 注册 PASS，AU09/AU12 回归 PASS，实模 canonical PASS）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无「已有角色主档案字段修订」能力——自然原话被 reply 吞掉、显式措辞才诚实 capability_gap；character_evolution 只写演化记忆、character_design 只新建角色；Character.narrative_role 未变且未用 memory 冒充。CP0 冻结见 §6，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只写任务，不修改代码或业务数据。
 - 归属：[AU09 角色类型/主角策略 §7 CP2](AU09-character-role-taxonomy-protagonist-policy.md) 已登记的“把已有角色指定/改判为主角”；衔接 [AU12 身份归并](AU12-character-identity-merge.md)、[Q1c](Q1C-adopted-content-revision.md)、[B27 系统提示词整合](B27-systematic-prompt-and-intent-integration.md)。
@@ -126,3 +126,18 @@ stage session 5d618f06-f41c-46bc-aa55-5056a2fa5612，2026-10-23 01:41 作者说�
 - 该误判修复已由B31 A4真实原生T1/T2输入及T3–T5前提贯通验证，后端2247/0、I1–I3、xref/arch和扫描闭环通过。只关闭本项角色意图误判，不替代B29完整角色采纳/后续消费的原生矩阵；B29仍按NEXT排期补证。
 
 - 后续验收倾向按作者最新反馈同步：确定性替身仅作工程回归；主业务结案需要真实模型经原生入口完成判断/必要提问、候选、采纳和后续事实消费。沿原任务语义与数据断言，不以模型调用次数或脚本预设路线作为成功替代。
+
+#### 2026-10-27 完成审计后的原生补验（确定性矩阵 + 真实模型 scoped）
+
+- **背景**：完成审计指出原 canonical summary 为 `surface=browser / driver=headless-chromium`；作者保留原生标准补验、不重跑真实模型矩阵换分。新增 `scripts/native_b29_drive.mjs` / `scripts/native_b29_evidence.mjs`（外部 AX/CGEvent 操作真实窗口）与 runner 的 b29 native allowlist/verify 分支。
+- **确定性原生批次**（`artifacts/slice-verify/b29-existing-character-role-revision-native/`，provider=slice_verify，scope=full_deterministic_matrix，canonical_registered=true）：**23/23 checks / 5 trials PASS**，check 键与浏览器 `driveB29ExistingCharacterRoleRevision` 同名同义。实测：judgment `execute + revise_character_profile`；候选 沈砚 `character:9e09a0d2…` ENSEMBLE_POV→PROTAGONIST、effects=["character_field_update"]、other_character_changes=[]；原生「保存到作品」receipt committed_changes/character_ref/base+current_fingerprint/state_trace 齐全；同 id 更新、角色数 4→4、ID 集合不变、顾青仍 PROTAGONIST、正文 hash/记忆不变；T2 同名 await_author 零写入；T3 讨论零候选零写入；T4 关闭重开+档案角色 tab+「现在谁是主角？」→ 2 位主角（沈砚、顾青，以主档案为准）；T5 放弃 receipt status=discarded 原值不变、重复采纳零写入、跨作品零写入；生产指纹测量期间不变。13 组原生截图/AX、transport/app-log/llm-calls、只读 DB checkpoint、45 条分型等待（0 timeout）。
+- **驱动缺陷修复（如实登记，不改产品断言）**：① discard 的 `action_result.status` 实为 `discarded`（accept 才 accepted）——等待匹配改为 `accepted|discarded` 并保留 artifact_id/action_id 归属；② 关闭重开后前端通道会以**同一 turn_id 重放**本地待发 user_message（浏览器 canonical 亦有 8 frames vs 7 逻辑输入）——判据改为按不同 turn_id 计逻辑输入，重放帧记入 measured。失败批次（`...-failed-discard-receipt-status-20261027T0121`、`...-failed-verifier-logical-input-count-20261027T0131`）只读保留。
+- **真实模型 scoped 批次**：待执行（T1 正例 + T2 同名零写入；strata/iq3_s，模型生命周期卸载验证；不冒充 23/23 矩阵）。
+
+#### B29 strata scoped 真实模型结果（2026-10-27，三次尝试后收口）
+
+- **批次**：`artifacts/slice-verify/b29-existing-character-role-revision-native-strata/run/`；provider=strata/iq3_s、driver=ax-native-system-ui、`scope=scoped_real_model`、`canonical_registered=false`、trials=T1/T2；明确不冒充 23 项确定性矩阵。
+- **T1 正例 PASS（19 项相关 checks 全 true）**：真实调用（llm-calls provider=strata、usage.model=iq3_s、HTTP 200；Strata `/api/serving` 3 条真实推理）；judgment `execute + revise_character_profile`；候选 沈砚（老沈）`character:12e9d3df…` ENSEMBLE_POV→PROTAGONIST，原生卡面可见 old→new 与「保存到作品」；原生采纳 receipt committed_changes/character_ref/base+current fingerprint 齐全；DB 同 id、角色数 4→4、ID 集合不变、顾青仍 PROTAGONIST、正文 hash/记忆不变。
+- **T2 同名澄清未复现（2 项冻结判据 false，按预算不重跑）**：输入「指定沈砚为主角」（存在两个同名「沈砚」）时，真实模型本轮**未走 await_author**，而是 `action=execute revise_character_profile`，沿用上一轮「老沈」上下文把 ref 绑到 `character:12e9d3df…`（已是 PROTAGONIST），产出 **old=PROTAGONIST → new=PROTAGONIST 的 no-op 候选** `as_mvpjqleg_15`。模型原文理由：“上一轮「老沈」已唯一指向…本轮「沈砚」沿用同一对象语境…不猜另一个同名角色”。`same_name_asks_author=false`、`same_name_zero_write=false`（判据要求 pending 为空；本条 pending 1 个 no-op 候选）；**DB 零写入仍成立**（t2-before==t2-after 角色/记忆/正文 hash 全同），未采纳/未 steer/未自动作答（author_question_events=[]）。
+- **未改判据/未放宽守卫**。三次尝试（1st 作者问答误分类、2nd AXHelpTag 抖动、3rd 本结果）均只读保留；模型生命周期：跑前 loaded=null 记录、结束 POST unload 200 → GET loaded=null/current=null，lms ps 仅作者 embedding IDLE。
+- **新发现（需作者/后续裁决，不在本 slice 擅自改产品）**：① 产品允许 `old==new` 的角色修订 no-op 候选（本轮真模触发）——是否在候选/采纳侧拒绝 no-op 属产品契约硬化项（候选 B41 类）；② 真实模型在多轮上下文中按前文实体绑定消歧，与 T2 冻结判据「同名必须澄清」存在行为差异（模型行为 known-gap，非 harness 失败）。B29 主业务闭环以确定性原生 23/23 + T1 真实模型全链证据承载；T2 真实模型行为差异如实登记，不冒充通过。

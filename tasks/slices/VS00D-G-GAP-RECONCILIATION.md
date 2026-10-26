@@ -147,12 +147,26 @@ C 轨定义（NEXT §4）：被 A 轨拉动才做——explore 方向质量 live
 
 ### 真实创作复验
 
-- 状态：**doing（2026-10-25 完成审计重开：原生补验）**。canonical-3e 为浏览器实模产品链 PASS；作者要求保留原生标准，待补原生交互/维护/恢复/导出证据。I10 文学盲评仍待作者安排；原批次只读保留。
+- 状态：**done（2026-10-27，canonical-3e 浏览器实模 + 原生实模 scoped 四项能力）**。canonical-3e 保留为浏览器实模产品链 PASS；完成审计要求的原生证据已由 P1 原生 scoped 批次补齐（创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出，真实 Strata iq3_s，checks 103/103，见下）。I10 文学盲评仍待作者安排；原批次与失败批次只读保留。
 - 原收口记录：**done / PASS（2026-10-25，canonical-3e final；P1 收口）**：Strata `iq3_s` detached phase1+phase2 共约 28.3min，单次未重跑换分；**10/10 章≥1000、总 12,894 字**；维护 5/5（design/format/content/renumber/role，attempts 均 1）；content_revision 第03/04章 `target_segments`：25 段仅 segment0 变化、**其余 24 段 sha 逐字节相同**、首段 46→184 chars、字数 1344→1470 不塌缩；wrong-route 终局 0、failures/retries 0；B9 confirm 3/skip 0；author_question_events 0（机制武装）；导出 44KB；wait 59 waits/0 timeouts/无重复 instruction；writer 24（≤40）。canonical-1/2/3 各事故/失败批次（attempt1 SIGTERM/attempt2 预算污染/attempt3 design/attempt4 awaiting）全部保留只读；**I10 文学盲评仍待作者指定负责人/时机（AI 不代签）**，B38 世界规则保存判断候选 deferred（trigger 真实产品链复现/作者请求）。证据 `artifacts/novel-output/p1-authoring-dogfood-2026-10-25-canonical3e/`。
 - 任务：P1-AUTHORING-DOGFOOD；既有周期复验，不新增产品能力或平行 harness。
 - 范围：引用 `docs/product/novel-output-milestones.md` §4/§8；每 3–5 个周期插入，最迟本轮 B26/B27→B31→B28→B30→B29 后执行。
 - 剩余：复用真实工作台 runner 完成 10 章创作，包含修订/结构/角色维护、采纳、重开、审读、导出；确认路径/空章/重复观察消费 §6 B6/B7/B9。各操作尚未上线时不能用脚本旁路代替。
 - 验证：实模语义、真实 Tauri 产品链、文学质量盲评分开；记录错对象/错绑/越权/虚报、重试率、缺章/重复/漂移、人工改稿负担。ADR-0020 I10 仍需作者指定盲评负责人/时机；AI 不代替盲评签字。
+
+#### 2026-10-27 P1 原生实模 scoped 补验（创作/维护/恢复/导出）
+
+- **背景**：完成审计指出 canonical-3e summary 为 `surface=browser / driver=headless-chromium`；作者保留原生标准、不重跑 10 章矩阵换分。新增 `scripts/native_p1_drive.mjs` / `native_p1_evidence.mjs`（外部 AX/CGEvent 操作真实 Tauri 窗口）与 runner 的 `p1-chapter-draft-generation` native allowlist/verify 分支。
+- **批次**：`artifacts/slice-verify/p1-chapter-draft-generation-native/`（provider=strata/iq3_s、driver=ax-native-system-ui、scope=scoped_native_creation_maintenance_restore_export、REPORT.md）；**checks 103/103 PASS、detached EXIT/0**。
+- **四项能力实测**：
+  - **创作 T1**：真实主输入「第01章：底层灵气账单的正文还没写，帮我写出来吧。」→ judgment explore→execute(prose_writing) → 候选 1290 字符（provider_call_ref 命中 writer run、provider usage.model=iq3_s）→ 真实点击采纳 → DB accepted 与候选逐字节一致 → 阅读可见；章数 12/章身份不变。
+  - **维护 T2**：真实主输入「把第01章正文整理一下，只调整分段和排版，不要改字句。」→ judgment execute(revise_adopted_content) → `prose_formatting_plan`/format_only → 真实点击「应用分段方案」→ preview 1321 字符/73 换行 vs base 1290/42，**非换行字节完全相同**；receipt `adoption_effect=format_paragraphs`、non_newline_hash/result_hash 与本地计算一致；同章身份/章数不变、旧 draft SUPERSEDED 保留。
+  - **恢复 T3**：真实关闭重开（cleanup 164ms remaining=[]，old pid 15548→new 22846）→ DB 章节/草稿/摘要事实一致、active session/transcript/阅读恢复一致；续写「接着第01章：底层灵气账单往下写一段吧。」→ 采纳 → 同章追加（scenes 1→2、1321→1886 字符、旧正文为前缀保留）。
+  - **导出 T4**：阅读模式「导出全书」→ 真实 macOS 目录选择面板（AXSheet + Cmd+Shift+G 导航 + 目录可见校验）→ 导出 `export-dir/P1 单章正文草稿验证作品.md` 6763 bytes、sha256 `0d9a36d3…e529`，内容含当前第01章已采纳正文与章标题；导出后回工作台会话可继续。
+- **真实模型**：provider=strata、provider_outputs.usage.model=iq3_s（15 run）；18 次 provider 调用（planner 10/writer 2/evaluator 2/narration 3/revision 1，全部 HTTP 2xx，累计 186,860ms）；三条主输入各发 1 次、无 cancel/重发、作者提问 0（author_question_events=[]）；wait-ledger 35 waits/0 timeout（含 input/ack/turn/candidate/adoption/maintenance/restore/export 全分型）；生产源码指纹批次前后一致（HEAD `f75a2bb0`）。
+- **模型生命周期**：跑前 Strata loaded=null/lms ps/内存记录；结束 `POST /api/models/unload` 200 → `GET loaded=null/current=null`，model-lifecycle-before/after 落盘；端口/进程释放。
+- **失败批次（只读，驱动缺陷已修）**：`...-failed-screenshot-flake-20261027T014834`（窗口截图 flake→重试+整屏兜底）、`...-failed-candidate-ledger-and-export-navigation-20261027T0154`（candidate 等待账+导出面板导航→目录可见校验/取消守卫）；后者在 workspace 外误导出的 9715B 文件已由 Lead 核实并清理。
+- **边界**：scoped 四项能力证据，不重跑 canonical 10 章矩阵/不换分；I10 文学盲评仍待作者指定负责人/时机（AI 不代签）；真实模型流式响应未落库导致 I1 字节级对照诚实降级为「provider_call_ref→provider_runs/usage + 采纳链逐字节一致 + 已采纳正文进入后续 provider 请求」三重证据。
 
 #### 2026-10-25 复验预注册（P1 cycle-2026-10-25，canonical run 前撰写，禁止事后改口）
 

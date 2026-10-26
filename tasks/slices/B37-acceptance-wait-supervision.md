@@ -1,6 +1,6 @@
 # B37 验收等待与故障监督优化（消除空等）
 
-- 状态：**doing（2026-10-25，原生监督已验证，资源归属清理待P1闭环）**。TERM10.314秒、外部failure首因保留及B31原生A4正常EXIT/0已通过；真实模型的本批归属记录/两运行时清理仍待P1，作者手动实例保持。
+- 状态：**done（2026-10-27，P1 原生实模 scoped 批次使用本监督闭环）**。TERM10.314秒、外部failure首因保留、B31原生A4正常EXIT/0 已通过；真实模型本批归属记录/两运行时清理已由 P1 原生批次证据闭环：detached EXIT/0、35 waits/0 timeout、模型 loading-before/after-unload 落盘（Strata loaded=null 验证）、原生重开 cleanup 164ms remaining=[]、端口/进程释放；作者手动实例（LM embedding IDLE）保持未动。
 - 原收口记录：**done（2026-10-25，CP0–CP5；canonical-3e 使用）**：统一 wait 预算/watchdog/fail-fast/wait-events（无 600s 盲等；故障注入 page_closed/backend_down 1ms、action_failed 252ms、stall 1256ms 退出）+ detached launcher（父 shell kill -9 后 run 继续、stop 1076ms TERM/143、lock）；canonical-3b 使用 detached 启动后暴露**真实模型预算不匹配**（input30s×2 / turn120s 对续写不足→重复发送），已停止并记为 attempt2；**CP3** 按 provider 校准预算（strata/lmstudio: input120/turn360/candidate300/adoption180/maintenance300…）+ turn 超时不重发同指令；canonical-3c 待 CP3 后 fresh 跑。
 - 类型：验收 harness 可靠性（不新增产品能力；runner/launcher/监督与证据）
 - 来源：canonical-1/2/3 运行证据；B33 CP3/B35 CP3b/B36 CP3 scoped replay；用户 2026-10-25 指令

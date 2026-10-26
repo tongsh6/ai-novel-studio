@@ -6,19 +6,19 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B30-CHAPTER-STRUCTURE-MAINTENANCE | 浏览器产品链与实模 POST-FIX 已验；补原生 Tauri 交互证据（两场景 + 档案类型边界）后收口。 | [B30](slices/B30-chapter-structure-maintenance.md) |
+| B39-EVIDENCE-SEEKING-AUTHORING | 元原则已对账到主链/Context/AgentRun/契约与验收；下一步评审 ADR-0030、VS-00K 和 AU-15，Accepted 后开放正文 run 求证，不先做时间线 schema。 | [B39](slices/B39-evidence-seeking-authoring.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B29-EXISTING-CHARACTER-ROLE-REVISION | 补原生 Tauri 交互证据；实现/浏览器/实模证据保留，不重跑真实模型矩阵换分。 | [B29](slices/B29-existing-character-role-revision.md) |
-| P1-AUTHORING-DOGFOOD | 补原生创作/维护/恢复/导出证据；B37 承接实际驱动标识及监督，原 canonical-3e 作为浏览器实模证据保留。 | [真实创作复验](slices/VS00D-G-GAP-RECONCILIATION.md#真实创作复验)、[B37](slices/B37-acceptance-wait-supervision.md) |
 | B38-WORLD-RULE-SAVE-INTENT | deferred 候选；仅在真实产品链复现或作者请求时触发。 | [B38](slices/B38-world-rule-save-intent.md) |
 
 ## 阻塞
 
-- B28 已完成（2026-10-27 原生补验收口）；stage 存量数据（ch1/ch17）保持只读清单，修复需作者单独授权，见 [B28](slices/B28-whole-chapter-revision.md)。
+- B28/B30/B29/P1 均已完成（2026-10-27，完成审计后的原生补验收口与真实模型 scoped 证据）；B37 随 P1 闭环 done；stage 存量数据（ch1/ch17）保持只读清单，修复需作者单独授权，见 [B28](slices/B28-whole-chapter-revision.md)。
+- **B29 known-gap（待作者裁决）**：真实模型在「指定沈砚为主角」（存在两个同名沈砚）时未走 await_author，而按跨轮上下文绑定并产出 old==new 的 no-op 角色修订候选（未采纳、DB 零写入）。待裁决：是否登记 no-op 候选拒绝/同名澄清硬化的产品 slice；B29 确定性 23/23 + T1 真实模型全链已 PASS，T2 不冒充通过。
+- **B39（作者 2026-10-27 新登记）**：CP0 设计/契约/验收落地由作者推进（ADR-0030 Proposed、VS-00K、AU-15）；AI 侧在 ADR-0030 Accepted 前不进入产品实现，等待作者裁决。
 
 - P1 原生实模复验前须闭环本批模型归属与两运行时清理，保留作者手动实例；见 [B37](slices/B37-acceptance-wait-supervision.md)。
 - **B27 CP4 known-gap（2026-10-25，作者裁决）**：最后一次全量 retest6 integrated 40/40 ok、unavailable 0、ZT 0、uq 0；key_set 仅 M01r2、overall 34/40=0.85 <0.90 → 不标 CP4 done，记录 known-gap（M01r2/M02/M08r2/M16r1/M18r1）并转入 B31；B27 不再全量 retest，后续 B28（format_only/整章）与产品硬化周期回归。证据见 [B27](slices/B27-systematic-prompt-and-intent-integration.md) retest6 记录；其中 M07 实际分段由 B28/ADR-0029 继续承接，机制与替身结果不代表真实模型闭环。
