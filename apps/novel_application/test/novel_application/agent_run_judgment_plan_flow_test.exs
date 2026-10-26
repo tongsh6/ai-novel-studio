@@ -120,6 +120,10 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
         {"先核对再补齐计划", 1, 1, 5}
       ] do
     test "#{mode} 从真实判断入口进入同一计划运行，按实际调用计数并保留待采纳边界" do
+      # step task 在独立进程执行仓储读写，需要共享 sandbox 所有权（同文件 B31 用例同一做法）；
+      # 缺失时 cold test-env 首跑会 OwnershipError → step_task_down → run_failed（非超时问题）。
+      :ok = Sandbox.checkout(Repo)
+      :ok = Sandbox.mode(Repo, {:shared, self()})
       parent = self()
       suffix = System.unique_integer([:positive])
 
@@ -169,9 +173,9 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
 
       on_exit(fn -> AgentRunService.cancel(run_id) end)
 
-      # 等待时长在并行门禁高负载/冷编译尖峰下多次被证伪为时序 flake（事件链已推进，仅超时）；
-      # 放宽到 10s 保留同一语义断言（仍要求事件到达），不放宽业务流程断言。
-      assert_receive {:plan_event, :plan_drafted, event}, 10_000
+      # 根因是 cold test-env 首跑缺 sandbox 共享所有权（见上），已修；等待保留 5s 防御高负载，
+      # 断言语义不变（仍要求 plan_drafted 到达）。
+      assert_receive {:plan_event, :plan_drafted, event}, 5_000
       assert_receive {:plan_event, :run_completed, _}, 3_000
       assert {:ok, state} = AgentRunService.state(run_id)
       assert state.run.profile_ref == "judgment_plan_v1"
