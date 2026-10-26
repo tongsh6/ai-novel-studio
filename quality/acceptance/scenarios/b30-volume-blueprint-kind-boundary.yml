@@ -4,7 +4,7 @@ tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  active（2026-10-25 CP4 注册）：外部 Tauri runner 在真实工作台规划卷章/规划下一卷并
+  active（2026-10-25 CP4 注册；2026-10-27 补原生外部系统 UI 证据）：外部 Tauri runner 在真实工作台规划卷章/规划下一卷并
   采纳后，验证卷蓝图只存 `volumes.blueprint`（设计态）、Chapter 行只含真实章节、蓝图
   不占 seq；seed harness 构造「章块标题含卷蓝图」的非法混排 outline 采纳 → 持久层
   type_mismatch 拒绝且整体回滚零章/零卷。证据边界：确定性 slice_verify provider 驱动
@@ -67,5 +67,6 @@ anti_hooks_verification: >-
 prerequisites:
   - B11A 卷蓝图/ AU08 分卷规划 / VS-00J、ADR-0028 已交付；B30 CP2 type_mismatch 防护已提交。
 known_not_closed:
+  - 2026-10-27 原生补验：`artifacts/slice-verify/b30-volume-blueprint-kind-boundary-native/` 由外部系统 UI（AX/CGEvent）操作真实窗口完成同一批 12 项 checks PASS 12/12；与 canonical 浏览器批次分开归档。
   - 非法混排的真实入口在标准规划链路上被 parser 正常剥离，故 harness 只补持久层类型边界证据（seed 直接 outline 采纳）；真实模型意图归 CP4 单槽证据。
   - stage 历史存量「第2卷：卷蓝图」误建章只做只读清单，不在本场景清理/迁移。

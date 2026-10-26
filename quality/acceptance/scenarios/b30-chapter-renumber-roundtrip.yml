@@ -4,7 +4,7 @@ tier: nightly
 surface: tauri
 default_provider: slice_verify
 status_note: >-
-  active（2026-10-25 CP4 注册）：外部 Tauri runner 驱动真实工作台（原生窗口 + 真实
+  active（2026-10-25 CP4 注册；2026-10-27 补原生外部系统 UI 证据）：外部 Tauri runner 驱动真实工作台（原生窗口 + 真实
   Phoenix/Vite 前端）复验 B30 结构维护闭环——真实输入→judgment
   `maintain_chapter_structure`→可审阅 old→new 变更计划（候选卡可见映射）→「保存到作品」
   →两阶段原子 seq 重编号（回执 committed_mapping/object_count/warnings）→刷新/TOC/
@@ -85,6 +85,7 @@ prerequisites:
   - B30 CP1/CP2/CP3（能力/原子重编号/消费者迁移）与 VS-00J/ADR-0028/B25 已提交。
   - 真实模型正反例（strata/iq3_s 单槽）证据与确定性 product_state_chain 分开归档；不替代本场景 PASS。
 known_not_closed:
+  - 2026-10-27 原生补验：`artifacts/slice-verify/b30-chapter-renumber-roundtrip-native/` 由外部系统 UI（AX/CGEvent，driver=ax-native-system-ui）操作真实窗口完成同一批 30 项 checks + 档案类型边界 T8 6 项，PASS 36/36；本 yml 的 canonical 批次（Tauri dev 窗口+Chromium DOM）仍为机制回归，两者分开归档、不互相冒充。
   - 真实模型原话/改述由 CP4 单槽证据验证维护意图绑定；本场景为确定性 provider 产品链证据。
   - baseline 过期负例在真实页面无并行写入注入入口（由 CP1/CP2 单测与 adoption 守卫覆盖），本场景不做并行竞争注入；`unsupported_effect` 无自然语言表达入口，由单测覆盖。
   - stage 历史存量（两份第11章/卷蓝图误建章）未在本 seed 伪造；只读影响清单与清理需单独授权，不在本场景。

@@ -1,6 +1,6 @@
 # B30：已有章节重编号、结构修订与卷章类型边界
 
-- 状态：**doing（2026-10-25 完成审计重开，仅补原生证据）**。B30 重编号与卷章边界的实现、浏览器产品链和原门禁证据保留；原 canonical summary 明确为 `surface=browser / driver=headless-chromium`，尚不能证明原生 Tauri 交互。作者已选择保留原生标准，按原队列补验；不重跑真实模型矩阵换分。原收口结论以本条更正，历史过程记录保留。
+- 状态：**doing（2026-10-27，原生确定性矩阵已 PASS；等真实模型 scoped 原生证据后收口）**。作者要求保留原生标准补验：两个场景的原生确定性矩阵已完成（场景1 30/30 + 类型边界 T8 6/6、场景2 12/12，驱动 `ax-native-system-ui`，生产源码指纹测量期间不变）；档案类型边界缺陷（B28 A2 转入）已修（`e83c06c5`）并用原生 T8 证据复验。剩余：真实模型经原生入口的 scoped 证据（判断→候选→采纳→消费者）、全门禁与文档收口。
 - 原收口记录：**done（2026-10-25，CP0–CP5；两真实 Tauri 场景注册 PASS 30/30 + 12/12，实模 POST-FIX PASS，回归全绿）** / CP0（2026-10-25，真实 Tauri 隔离复现 + 契约冻结）：当前版本无结构维护能力（结构意图→reply/target_not_available/plot_outline 误路由），采纳物化按 title 新建章（无按 chapter_ref 改 seq 路径）；标准 B11A 规划路径蓝图类型安全但持久层无防护。CP0 冻结见 §7，CP1/CP2 进行中。
 - 登记日期：2026-10-23；本轮只授权写 slice / 登记 NEXT。
 - 归属：[AU08 卷结构规划](AU08-volume-structured-planning.md)、[B11A 卷蓝图](B11A-volume-blueprint.md)、[B25 章节身份](B25-chapter-identity-unification.md)、[VS-00J](../../docs/design/contracts/VS-00J-volume-structure-and-blueprint-contract-pack.md)；提示词统一消费 [B27](B27-systematic-prompt-and-intent-integration.md)。这是新增维护能力，不把 plot_outline 生成冒充重编号。
@@ -127,3 +127,13 @@ CP3 的引用与投影后果属于完整范围，不能在 CP1/CP2 后改写为�
 - B28 A2的真实档案“大纲与结构”页，将两份prose_fragment正文候选及一份target_segments修订候选显示为“大纲草稿/保存到大纲”；章节当前canon仍2章、3127字，未点这些误标按钮。证据 `artifacts/slice-verify/b28-native-20261025-a2/run/T8-archive.ax.txt` / `.jpg`。归本slice已有类型边界范围，接手先查真实DTO/投影/selector再修复；不在B28测量中途扩大修改。
 
 - 后续验收倾向按作者最新反馈同步：确定性替身仅作工程回归；主业务结案需要真实模型经原生入口完成判断/必要提问、候选、采纳和后续事实消费。沿原任务语义与数据断言，不以模型调用次数或脚本预设路线作为成功替代。
+
+#### 2026-10-27 完成审计后的原生补验（确定性矩阵）
+
+- **背景**：完成审计指出原 canonical summary 为 `surface=browser / driver=headless-chromium`，不能证明原生 Tauri 交互；作者选择保留原生标准，按原队列补验、不重跑真实模型矩阵换分。本地新增 `scripts/lib/native_ui/`（macOS AX/CGEvent 外部驱动）与 `scripts/native_b30_drive.mjs`、`scripts/native_b30_evidence.mjs`，由外部系统 UI 操作真实窗口。
+- **批次**（provider=slice_verify 确定性，driver=`ax-native-system-ui`，`browser_driver_started=false`）：
+  - `artifacts/slice-verify/b30-chapter-renumber-roundtrip-native/`：**原生 36/36 checks PASS**（浏览器 30 项 checks 1:1 + 档案类型边界 T8 6 项）。实测：T1 映射 3→2/4→3/5→4、committed_mapping 3/object_count 3/warnings 3 条 title_number_mismatch，章数/ID/归卷/正文 hash/title 文本/摘要引用不变、seq 唯一；T2 对调两阶段生效；T3 幂等无移动；T4 关闭重开刷新稳定、采纳按钮 0、TOC 顺序=seq、按章阅读可见对应正文；T5 三负例零写入+作者可见澄清/拒绝+无 outline/prose 候选；T6 work B 规划卷章→2 卷/12 章/2 条 `volumes.blueprint`、0 蓝图章；规划下一卷→3 卷/3 蓝图/0 蓝图章；harness type_mismatch 0 章 0 卷。
+  - `artifacts/slice-verify/b30-volume-blueprint-kind-boundary-native/`：**原生 12/12 checks PASS**（与浏览器 canonical 逐项同名同语义）。
+  - 证据含 25 组AX+截图+text、native-transport.jsonl、app-log、llm-calls、只读 DB、wait-events（场景1 64 条分型等待 begin/finish）；测量期间生产源码指纹未变（HEAD `7858faf0`）。全部失败批次（驱动自身缺陷/环境干扰：waitready/nested-wait/archive-return-typing/receipt-attribution/config-before-prepare/work-menu×2/verify-dedupe-t8/screenshot-flake/composer-interference/composer-readback）只读保留，不冒充通过。
+- **档案类型边界修复（B28 A2 转入，`e83c06c5`）**：真实“大纲与结构→待保存大纲”曾把 prose_fragment/target_segments 修订候选显示为“大纲草稿/保存到大纲/提出修改”。根因为 `StructurePanel.pendingArtifactTab` 把 prose_fragment/scene_draft 映射到 outline tab；修复为内容类 artifact 不进入档案待采纳 section/计数（不改工作台候选卡/available_actions/schema/ADR/后端），前端测试 617→621（red→green）。**原生 T8 证据**：真实修订候选在工作台显示“保存修订稿”；档案“大纲与结构→待保存大纲”中 待保存大纲/大纲草稿/保存到大纲/提出修改 均为 0，已采纳章节计划=1 正常；真实 outline 候选仍显示 待保存大纲+大纲草稿+保存到大纲（6/6 checks）。
+- **剩余（未闭环，不在本记录冒充）**：真实模型经原生入口的 scoped 证据（判断绑定/必要询问/候选/采纳/消费者）待补；全门禁与 NEXT/journey/ledger 收口待做。
