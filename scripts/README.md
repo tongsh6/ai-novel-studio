@@ -92,6 +92,8 @@
 | `native_b29_drive.mjs` | B29 原生外部系统 UI 驱动（AX/CGEvent）：确定性 T1–T5 + strata scoped T1/T2；关闭重开恢复、档案角色 roster、「谁是主角」追问；失败首因 JSON。 |
 | `native_b29_evidence.mjs` | B29 原生证据核验：确定性 23 checks 1:1 + strata scoped 21 checks（provider 来源/生命周期/author_question_events）；summary 明示 scope，不冒充全矩阵。 |
 | `native_p1_drive.mjs` / `native_p1_evidence.mjs` | P1 原生实模 scoped 创作旅程：创作/排版维护/真实关闭重开恢复+续写/真实目录面板导出；模型生命周期 before/after-unload、导出文件 hash、wait-ledger 全分型。 |
+| `native_au11_drive.mjs` / `native_au11_evidence.mjs` | B61 AU11×2 原生验收（AX/CGEvent 真实 Tauri 窗口）：打开工作台→发送质量诊断/缺 WorkState 用户话术→等回复可见→点「为什么」；核验 frame_type/decision_type/reply_record 覆盖/prompt 作品事实/回复字节/provider-free why/无工具无采纳无写入。 |
+| `native_au07_drive.mjs` / `native_au07_evidence.mjs` | B61 AU07×3 原生验收：发送角色阵容请求→等 AgentRun 内部只读 character_roster 步与最终回复→按 step turn_id 回查产品持久 trace（TraceRepository.list_by_turn）+ no-provider ReplayReport 六问；核验 registry snapshot/合同 refs/grant summary/redacted I/O/无生产写入。 |
 | `verify_stage_process_ownership.sh` | stage/Tauri 进程 ownership 验收脚本。 |
 | `walkthrough_template.ts` | 产品体验走查脚本模板。 |
 

@@ -811,8 +811,6 @@ scenarios:
     title: "ToolTrace registry snapshot 与 redacted I/O"
     tier: nightly
     surface: tauri
-    status: blocked
-    blocked_reason: "B59 修复后剩余唯一阻塞（2026-10-27）：native 系统级驱动未实现（TAURI_NATIVE_SYSTEM_DRIVER allowlist 不含本场景），browser-surface 证据不足以把本场景记 active。产品侧 step DecisionTrace 已由 B59 接线持久化（scoped 复验 trace-query count=1，registry snapshot/合同 refs/grant summary/redacted IO/no-provider ReplayReport 均回查通过）；解除依赖=native AU07 driver + evidence checker + allowlist 注册。"
     manifest: quality/acceptance/scenarios/au07-tooltrace-registry-redacted-io.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au07-tooltrace-registry-redacted-io --surface tauri
@@ -1037,8 +1035,6 @@ scenarios:
     title: "AI 引导式创作质量诊断（判断纪元普通回复来源/覆盖）"
     tier: nightly
     surface: tauri
-    status: blocked
-    blocked_reason: "B40 CP1 surface 诚实性裁决（2026-10-27 Lead）：旧 envelope 生产链已退役，场景已按判断纪元普通回复来源/覆盖重锚，并通过 browser-surface 机制预验（tauri_slice_verify 默认 Playwright→Vite；summary 如实 surface=browser/driver=headless-chromium；verdict 仅 mechanism=pass/model_behavior=not_applicable）。但 native 系统级驱动（AX/CGEvent）未实现，TAURI_NATIVE_SYSTEM_DRIVER allowlist 不含本场景，native PASS 未闭环；按 Lead 标准不得用 browser 证据改 active。触发条件=实现 native AU11 driver + evidence checker + allowlist 注册后原生复跑。"
     manifest: quality/acceptance/scenarios/au11-quality-diagnosis-message-envelope.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --surface tauri
@@ -1046,8 +1042,6 @@ scenarios:
     title: "AI 引导式创作缺 WorkState 不编造（判断纪元覆盖如实）"
     tier: nightly
     surface: tauri
-    status: blocked
-    blocked_reason: "B40 CP1 surface 诚实性裁决（2026-10-27 Lead）：旧 envelope 生产链已退役，场景已按判断纪元普通回复来源/覆盖重锚，并通过 browser-surface 机制预验（tauri_slice_verify 默认 Playwright→Vite；summary 如实 surface=browser/driver=headless-chromium；verdict 仅 mechanism=pass/model_behavior=not_applicable）。但 native 系统级驱动（AX/CGEvent）未实现，TAURI_NATIVE_SYSTEM_DRIVER allowlist 不含本场景，native PASS 未闭环；按 Lead 标准不得用 browser 证据改 active。触发条件=实现 native AU11 driver + evidence checker + allowlist 注册后原生复跑。"
     manifest: quality/acceptance/scenarios/au11-missing-workstate-policy.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri
@@ -1239,8 +1233,6 @@ scenarios:
     title: "E2E-01 只读工具调度与 trace 回查"
     tier: nightly
     surface: tauri
-    status: blocked
-    blocked_reason: "B59 修复后剩余唯一阻塞（2026-10-27）：native 系统级驱动未实现（browser-surface 不足以记 active）；产品侧 step DecisionTrace 已由 B59 接线持久化，scoped 复验 `TraceRepository.list_by_turn(step_turn_id)`/ReplayReport no-provider 已通过。解除依赖=native driver。"
     manifest: quality/acceptance/scenarios/e2e-01-readonly-tool-trace.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri
@@ -1248,8 +1240,6 @@ scenarios:
     title: "E2E-01 ReplayReport 六问结构化回放"
     tier: nightly
     surface: tauri
-    status: blocked
-    blocked_reason: "B59 修复后剩余唯一阻塞（2026-10-27）：native 系统级驱动未实现（browser-surface 不足以记 active）；产品侧 step DecisionTrace 已由 B59 接线持久化，scoped 复验 `TraceRepository.list_by_turn(step_turn_id)`/ReplayReport no-provider 已通过。解除依赖=native driver。"
     manifest: quality/acceptance/scenarios/e2e-01-replay-report.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh e2e-01-replay-report --surface tauri

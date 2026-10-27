@@ -77,6 +77,8 @@
 | `dialogue_planning_service.ex` | 5 个 profile 的 planner spec 补 `trace_persister: map_get(input, :trace_persister)`（此前仅 prose_drafting spec 有；其余 flow 的 blocked-decision trace 也因缺该键而不落库，同批修复）。 |
 | 测试 | 新增 `agent_run_flows/step_trace_persistence_test.exs`（attrs 作用域/tool_trace_refs/nil no-op）；5 个既有 flow 测试注入同形 persister，断言每个内部工具步产出 `workspace_id/session_id/turn_id(:agent:N)/tool_trace_refs` 的持久化 attrs。 |
 
+> **2026-10-28 B61 追记**：三个场景的 native 系统级证据已由 [B61](B61-native-acceptance-driver-coverage.md) 补齐（真实 Tauri 窗口 AX/CGEvent，29/29 checks、trace count=1、ReplayReport 六问/no-provider），registry 已 active；下方 browser-surface scoped 复验保留为过程证据。
+
 ### 8.2 CP2 scoped 复验（current HEAD + 工作树；browser-surface，如实标注）
 
 三个 B40 重锚后场景此前因「step trace 未持久化 + native driver 未实现」blocked；本轮 B59 修复后逐一 scoped 复跑：

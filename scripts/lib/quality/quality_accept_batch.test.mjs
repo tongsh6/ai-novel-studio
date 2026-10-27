@@ -71,6 +71,11 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 case "$id" in
   *-fail) echo "[fixture-runner] forced failure for $id" >&2; exit 1 ;;
   *-missing) echo "[fixture-runner] success without evidence for $id"; exit 0 ;;
+  *-native)
+    mkdir -p "$root/artifacts/slice-verify/$id"
+    printf '{"slice_id":"%s","status":"passed","surface":"tauri","driver":"ax-native-system-ui"}\\n' "$id" > "$root/artifacts/slice-verify/$id/summary.json"
+    echo "[fixture-runner] pass $id"
+    ;;
   *)
     mkdir -p "$root/artifacts/slice-verify/$id"
     printf '{"slice_id":"%s","status":"passed"}\\n' "$id" > "$root/artifacts/slice-verify/$id/summary.json"
@@ -161,6 +166,19 @@ test("单场景：blocked 返回专用退出码 65 且给出 reason", () => {
   assert.equal(result.status, 65);
   assert.match(result.stderr, /blocked scenario: alpha-blocked/);
   assert.match(result.stderr, /because blocked/);
+});
+
+test("单场景：verdict.surface/driver 取证据 summary 的实际驱动面（native 不写回 browser）", () => {
+  const root = buildFixture([{ id: "alpha-native" }]);
+  const result = runBatch(root, ["alpha-native"]);
+  assert.equal(result.status, 0, result.stderr);
+  const verdictPath = path.join(root, "artifacts/slice-verify/alpha-native/verdict.json");
+  assert.ok(fs.existsSync(verdictPath), "verdict.json missing");
+  const verdict = JSON.parse(fs.readFileSync(verdictPath, "utf8"));
+  // fixture scenario 的 registry surface=browser，但本次证据 summary 声明 tauri + 原生驱动：
+  // verdict 必须如实记录证据驱动面，而不是照抄 registry 字段。
+  assert.equal(verdict.surface, "tauri");
+  assert.equal(verdict.driver, "ax-native-system-ui");
 });
 
 test("空 tier 返回 65 并说明无场景", () => {

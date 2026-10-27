@@ -1,6 +1,6 @@
 # AU07 File-Level Closure
 
-- 状态：file-level deliverable（P0 replay producers closed；old-turn scoped query / partial replay UI / scope negative matrix closed；**2026-10-27 B40 CP2 复核**：`au07-gate-reason-why` 正式退役、`au07-tooltrace-registry-redacted-io` 保持 blocked（判断纪元 AgentRun step trace 未持久化 + native driver 未实现）；ToolTrace 实现仍在，证据待重锚；P1 follow-up registered）
+- 状态：file-level deliverable（P0 replay producers closed；old-turn scoped query / partial replay UI / scope negative matrix closed；`au07-gate-reason-why` 退役；**2026-10-28 B61 关闭**：`au07-tooltrace-registry-redacted-io`、`e2e-01-readonly-tool-trace`、`e2e-01-replay-report` 经 B59（step trace 持久化）+ B61（native AX/CGEvent driver）取得原生 PASS 并改 active；P1 follow-up registered）
 - 类型：Acceptance / Trace Replay / Tauri Slice
 - 启动日期：2026-06-21
 - 来源：`docs/design/acceptance/author/AU-07-trace-and-replay.md`、`docs/design/acceptance/SCENARIO-BLUEPRINT.md`、`tasks/slices/AU07-trace-replay-integrity.md`、`tasks/slices/AU07-state-trace-adoption-replay.md`、`tasks/slices/AU07-behavior-trace-terminal-replay.md`
@@ -141,4 +141,5 @@
 - **已保留的可复用重锚**：driver 已改为「先看角色阵容 → 设计反派」真实请求 + AgentRun 内部只读 `character_roster` 步；manifest/verifier 断言按「只读工具步 + registry/redaction/no-provider/no production write」重写；失败证据只读保留在 `artifacts/slice-verify/au07-tooltrace-registry-redacted-io-tauri/`（`trace-query.json` count=0）。
 - **退役**：`au07-gate-reason-why` 正式退役（action_scope 降级在判断纪元无生产者；why 持久 summary 无 gate-blocking 文本来源），替代证据=`agent-step-regate`（12 门 allow lineage + author-safe why/无模型召回，挂在该 driver/verifier 上）+ `gate_order_closure_test`（blocked 路径单测）。
 - **不重建 ReplayService / 不恢复旧对象**：本任务未改 ReplayService/ToolTrace 生产代码。
+- **B61 native 关闭追记（2026-10-28）**：三场景在真实 Tauri 窗口以 AX/CGEvent 驱动取得原生 PASS（29/29 checks、trace count=1、ReplayReport 六问/no-provider），registry active；证据 `artifacts/slice-verify/{au07-tooltrace-registry-redacted-io,e2e-01-readonly-tool-trace,e2e-01-replay-report}-tauri/summary.json`。
 - **B59 修复追记（2026-10-27）**：`StepTracePersistence` 把 5 个 AgentRun flow 的 step DecisionTrace 交给既有 persister；scoped 复验三个场景（au07-tooltrace / e2e-readonly / e2e-replay）均 PASS（browser-surface），`trace-query.json` count=1 且 registry snapshot/合同 refs/grant summary/redacted IO/no-provider ReplayReport 齐备。场景 registry 仍 blocked（native driver 未实现），不得读作原生 PASS。

@@ -1,6 +1,6 @@
 # AU11 Quality Diagnosis Message Envelope / 质量诊断引导 Message 契约
 
-- 状态：**blocked（B40 CP1 重锚完成，native PASS 未闭环；2026-10-27 Lead surface 裁决）**：旧 Envelope 路线已退役，断言已按判断纪元普通回复来源/覆盖重锚，browser-surface 机制预验通过；但 native 系统级驱动未实现，不得用 browser 证据改 active（见 B40 §8.4）。
+- 状态：**done（2026-10-28，B61 native PASS；registry active）**：旧 Envelope 路线已退役，断言已按判断纪元普通回复来源/覆盖重锚，browser-surface 机制预验通过；但 native 系统级驱动未实现，不得用 browser 证据改 active（见 B40 §8.4）。
 
 > 本文件后续契约、场景和证明保留为历史设计与证据，不作为当前实现指南。当前判断与任务语义以 B27 `AuthoringTask` / `AuthoringSemantics`、VS-00D §11.4/§11.4.2 和 B40 的当前重锚为准，不得按旧 envelope 重新实现。
 - 类型：AI-Guided Authoring Slice + Trace Contract Slice
@@ -70,3 +70,9 @@
 - 证据：`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json`（`surface=browser / driver=headless-chromium`，browser-surface 机制预验）；机制预验时 verdict 曾 pass，随后按 Lead surface 裁决改写为 `status=skipped / reason=native_system_driver_missing`（旧 pass 归档 `verdict-history/`，不以 browser 证据改 active）；registry 保持 blocked。
 - 真实模型语义（模型是否真的给出质量取舍）归 B42 release-real-llm；本场景不声明模型行为 PASS。
 - seed 追加第 1 章已采纳正文，使判断 prompt 有真实「已写 1 章」事实（旧 envelope 的 chapter_lines 读取路径已退役）。
+
+
+## 8. B61 native 关闭（2026-10-28）
+
+- 真实 Tauri 窗口 AX/CGEvent 外部驱动取得原生 PASS（`driver=ax-native-system-ui / surface=tauri`，checks 42/42），证据 `artifacts/slice-verify/<scenario>-tauri/summary.json`；registry 已由 Lead 按证据改 `active`。
+- 原 browser-surface 预验证据保留为 `*-tauri-browser-surface-preserved-*`；native 驱动/证据实现见 [B61](B61-native-acceptance-driver-coverage.md)。

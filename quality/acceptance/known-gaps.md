@@ -8,10 +8,6 @@
 
 | 场景 | 类型 | blocked 原因 | 触发 re-anchor |
 |---|---|---|---|
-| `au11-quality-diagnosis-message-envelope` | `reanchor_pending`（native driver 缺失） | 旧 envelope 生产链已退役；已按判断纪元普通回复来源/覆盖重锚并通过 browser-surface 机制预验，但 native 系统级驱动（AX/CGEvent）未实现、allowlist 不含本场景，native PASS 未闭环——不得用 browser 证据改 active。 | 实现 native AU11 driver + evidence checker + allowlist 注册后原生复跑（B40 §8.4） |
-| `au11-missing-workstate-policy` | `reanchor_pending`（native driver 缺失） | 同上；覆盖如实（空 context_refs）、判断 prompt 0 章事实不编造、要求补材料的断言已重锚可复用。 | 同上 |
-| `au07-tooltrace-registry-redacted-io` | `reanchor_pending`（native driver） | **产品缺口已由 B59 修复（2026-10-27）**：5 个 AgentRun flow 的 step DecisionTrace 已接线落库，scoped 复验 `trace-query.json` count=1（registry snapshot/合同 refs/grant summary/redacted IO/no-provider ReplayReport 均通过，browser-surface 如实标注）。剩余唯一阻塞=native 系统级驱动未实现。 | native AU07 driver + evidence checker + allowlist 注册；实现前不得用 browser-surface 证据记 active |
-| `e2e-01-readonly-tool-trace` / `e2e-01-replay-report` | `reanchor_pending`（native driver） | **产品缺口已由 B59 修复（2026-10-27）**：step trace 持久化后 scoped 复验 `TraceRepository.list_by_turn(step_turn_id)` 与 ReplayReport 六问/no-provider 均通过（browser-surface）；剩余唯一阻塞=native driver。 | native driver + allowlist；不得用 browser-surface 证据记 active |
 | `au02-candidate-fallback-ui` | `implementation_missing` / 契约演进 | 判断纪元候选帧只能由 `propose_creative_directions` 产生；坏/空候选在协议校验层安全失败或落 `casual_reply`（候选丢弃），到不了应用 `Planner.fallback_candidates`（无当前可达生产者）。 | 协议/产品裁决允许空候选进入应用兜底，或真实模型产出该路径；不得用旧帧纪元证据代签 |
 | `judgment-explore-internal` | `evidence_missing` | 最近真实页面记录（2026-07-20）只有失败截图、无 `summary.json`。 | judgment explore driver 迁移后 current-HEAD 复跑 PASS 改 active |
 | `e2e-01-full-chain` E10 持久化闭环 | `evidence_missing` | 无独立真实页面 artifact，只有局部 mix 证据；聚合器按 evidence_missing 处理。 | AU-07 cross-reference 补真实页面证据；补前 aggregate 不 PASS |
@@ -43,6 +39,8 @@
 
 ### 2026-10-27 B40 CP1 重锚结果（AU11）
 
+> **2026-10-28 B61 已关闭**：两条场景已补齐 native AX/CGEvent driver/evidence 并取得原生 PASS，registry 已 active；下方 browser-surface 预验记录只作过程历史。
+
 | 场景 | 结果 | 证据 | 备注 |
 |---|---|---|---|
 | `au11-quality-diagnosis-message-envelope` | **blocked（B40 CP1 重锚完成，native PASS 未闭环）** | `artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json`（**browser-surface 机制预验**：surface=browser/driver=headless-chromium；verdict 已改写 status=skipped，reason=native_system_driver_missing，旧 pass 归档 `verdict-history/`） | native 系统级驱动未实现（TAURI_NATIVE_SYSTEM_DRIVER allowlist 不含）；不得用 browser 证据改 active。触发=实现 native AU11 driver + evidence checker + allowlist 注册后原生复跑 |
@@ -50,6 +48,8 @@
 
 
 ### 2026-10-27 B40 CP2 / native surface 结论（blocked 与 retired）
+
+> **2026-10-28 B61 已关闭 AU07 三场景的 native 缺口**（原生 PASS，见下「B61 native 关闭」节）；下方 blocked 结论保留为历史。
 
 | 对象 | 类型 | 原因 | 触发/替代 |
 |---|---|---|---|
@@ -77,7 +77,7 @@
 | `agent-step-regate` | pass | d6bc69a4 | E4 替代证据；12 门 allow lineage + author-safe why/gate 断言 |
 | `pr-smoke-core-reply` | pass | d6bc69a4（F14 新增） | pr-smoke 当前可执行最小真实路径 |
 
-**原生系统级未覆盖 known-gap（B40 汇总）**：`tauri_slice_verify` 默认 driver 仍是外部 Playwright→Vite（browser-surface，summary `surface=browser/driver=headless-chromium`），Tauri 窗口仅启动；`TAURI_NATIVE_SYSTEM_DRIVER=1` allowlist 目前只含 B26/B28/B29/B30/B31/P1。B40 的 CP1/CP2 目标场景与 CP3 家族证据均不得读作「原生系统级交互通过」；native 闭环统一由后续「native acceptance driver 覆盖」批次承接（触发：为 AU11/AU07/CP3 家族补 AX/CGEvent driver + native evidence checker + allowlist）。
+**原生系统级覆盖现状（2026-10-28 B61 后）**：AU11×2 与 AU07×3 已由 [B61](../../tasks/slices/B61-native-acceptance-driver-coverage.md) 补齐 native AX/CGEvent 驱动 + evidence checker + allowlist，5/5 取得 `driver=ax-native-system-ui / surface=tauri` 原生 PASS，registry 已 active。`tauri_slice_verify` 默认 driver 仍是外部 Playwright→Vite（browser-surface，summary `surface=browser/driver=headless-chromium`），Tauri 窗口仅启动；**B40 CP3 家族（au01/au02/vs10 等）与其余 nightly 场景的 PASS 仍不得读作原生交互通过**，native 覆盖按需逐场景批次补齐（同一 B61 harness）。
 
 ### 2026-10-27 B42 证据分层发现（known-gap 候选登记）
 
@@ -87,6 +87,20 @@
 | 历史原生/实模证据缺 B42 CP1 模型行为判据元数据（`retention_wording{text,ref,tuned:false}`、独立 `attempts.json`、`params/actual_model` 来源） | `evidence_missing` | `artifacts/quality-accept/b42-cp1-cp3/`、p1 native artifact：无法从旧日志反推 | 新预注册批次补齐；在此之前 release-real-llm 只能 evidence_missing(67) |
 | `release` / `release-real-llm` registry 为空、gate 未启用 | 有意未闭环 | `quality/acceptance/tiers.md`：不注册占位/blocked 假场景；`release` 首批候选待 B40 重锚 + release gate 启用；`release-real-llm` 首场景=AU-15（B42 CP4，依赖 ADR-0030 Accepted） | 作者接受 ADR-0030 后 CP4 预注册；否则保持空与 not_run |
 | 真实 provider PASS 的模型行为判据 | `evidence_missing` | B41 CP4 + B42 CP1/K5：真实 provider runner 成功但缺 `model_behavior` 证据一律 evidence_missing(67)，不得写 PASS | B42 CP2/CP4 + 新预注册批次 |
+
+### 2026-10-28 B61 native 关闭（5/5 原生 PASS，driver=ax-native-system-ui）
+
+由 [B61](../../tasks/slices/B61-native-acceptance-driver-coverage.md) 在真实 Tauri 窗口上以 AX/CGEvent 外部驱动取得原生系统级 PASS；证据目录为既有期望路径（原 browser-surface 证据已只读保留为 `*-tauri-browser-surface-preserved-*`，调试失败批次 `*-native-dev*` 只读保留）：
+
+| 场景 | native summary | 结果 |
+|---|---|---|
+| `au11-quality-diagnosis-message-envelope` | `artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json` | native PASS 42/42 checks |
+| `au11-missing-workstate-policy` | `artifacts/slice-verify/au11-missing-workstate-policy-tauri/summary.json` | native PASS 41/41 checks |
+| `au07-tooltrace-registry-redacted-io` | `artifacts/slice-verify/au07-tooltrace-registry-redacted-io-tauri/summary.json` | native PASS 29/29 checks · trace count=1 |
+| `e2e-01-readonly-tool-trace` | `artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri/summary.json` | native PASS 29/29 checks · trace count=1 |
+| `e2e-01-replay-report` | `artifacts/slice-verify/e2e-01-replay-report-tauri/summary.json` | native PASS 29/29 checks · trace count=1 |
+
+判据未削弱：AU11 覆盖 frame_type/decision_type/reply_record/回复字节=provider 输出/判断 prompt 真实作品事实（1 章/0 章）/author-safe why/无工具无采纳无写入；AU07 覆盖 orchestrator allow_tool + context.characters + toolbox roster 成功 + 持久 trace registry snapshot/合同 refs/grant summary/redacted IO/no-provider ReplayReport 六问/无生产写入。5 场景 registry 已由 Lead 按证据改 `active`；最终 HEAD 新鲜度复跑记录见各场景提交后批次。
 
 ### 2026-10-27 B59 修复复核（scoped PASS，browser-surface）
 

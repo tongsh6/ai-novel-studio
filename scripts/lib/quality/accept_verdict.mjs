@@ -191,6 +191,27 @@ function main() {
     return 2;
   }
 
+  // B61：verdict 的 surface/driver 以「证据自身」为准（summary.json 是 runner 对本次
+  // 实际驱动面的如实声明），manifest/registry 字段只在证据缺省时回退。这样
+  // TAURI_NATIVE_SYSTEM_DRIVER=1 的原生批次不会被写回 driver=外部 Chromium，
+  // browser-surface 也不会被冒充为原生；B41 CP4 冻结的 verdict schema 不变。
+  let actualSurface = scenario.surface;
+  let actualDriver = scenario.driver ?? null;
+  try {
+    const summaryPath = path.join(artifactDirAbsolute, "summary.json");
+    if (fs.existsSync(summaryPath)) {
+      const summary = JSON.parse(fs.readFileSync(summaryPath, "utf8"));
+      if (typeof summary.surface === "string" && summary.surface.trim()) {
+        actualSurface = summary.surface.trim();
+      }
+      if (typeof summary.driver === "string" && summary.driver.trim()) {
+        actualDriver = summary.driver.trim();
+      }
+    }
+  } catch {
+    // summary 不可读时保持 registry 回退；读取方仍以 status/reason 为准。
+  }
+
   const detectedEvidence = detectEvidence(artifactDirAbsolute, evidenceRequired);
   let effectiveStatus = status;
   let effectiveReason = reason;
@@ -251,11 +272,11 @@ function main() {
     verdict = buildVerdict({
       scenario_id: scenario.id,
       tier: scenario.tier,
-      surface: scenario.surface,
+      surface: actualSurface,
       status: effectiveStatus,
       reason: effectiveReason,
       reason_codes: codes,
-      driver: scenario.driver ?? null,
+      driver: actualDriver,
       provider,
       model: isDeterministic ? "deterministic" : null,
       actual_model: null,

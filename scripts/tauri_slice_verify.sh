@@ -440,8 +440,8 @@ case "$SLICE_VERIFY_PROVIDER" in
 esac
 
 if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" && "$SLICE_ID" != "b30-chapter-renumber-roundtrip" && "$SLICE_ID" != "b30-volume-blueprint-kind-boundary" && "$SLICE_ID" != "b29-existing-character-role-revision" && "$SLICE_ID" != "p1-chapter-draft-generation" ]]; then
-    echo "Native system driver is currently registered only for B26/B28/B29/B30/B31/P1 roundtrips" >&2
+  if [[ "$SLICE_ID" != "b26-author-question-roundtrip" && "$SLICE_ID" != "b26-business-output-roundtrip" && "$SLICE_ID" != "judgment-plan-multi-step" && "$SLICE_ID" != "b31-author-reply-run-binding" && "$SLICE_ID" != "b28-whole-chapter-revision" && "$SLICE_ID" != "b30-chapter-renumber-roundtrip" && "$SLICE_ID" != "b30-volume-blueprint-kind-boundary" && "$SLICE_ID" != "b29-existing-character-role-revision" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au07-tooltrace-registry-redacted-io" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" ]]; then
+    echo "Native system driver is currently registered only for B26/B28/B29/B30/B31/P1/AU11/AU07 roundtrips" >&2
     exit 64
   fi
   ARTIFACT_SUFFIX="${ARTIFACT_SUFFIX}-native"
@@ -1397,11 +1397,11 @@ native_action_description() {
 drive_external_ui() {
   cd "$PROJECT_ROOT/frontend"
   if [[ "$NATIVE_SYSTEM_DRIVER" == "1" ]]; then
-    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" "$SLICE_VERIFY_PROVIDER" <<'READY'
+    node --input-type=module - "$ARTIFACT_DIR" "$API_URL" "$TAURI_SLICE_HOME" "$SLICE_VERIFY_PROVIDER" "$SLICE_ID" <<'READY'
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-const [dir, api, home, provider] = process.argv.slice(2);
+const [dir, api, home, provider, sliceId] = process.argv.slice(2);
 // 开发 CLI 运行无 app 包元数据的二进制，macOS 应用发现无法按路径定位。
 // 仅为同一二进制补包装，供外部系统 UI 驱动；不改变产品代码。
 const runRef = randomUUID();
@@ -1423,7 +1423,7 @@ const nativeExecutable = plist.CFBundleExecutable;
 if (nativeExecutable !== "app") throw new Error("unexpected native executable");
 fs.writeFileSync(path.join(dir, "native-driver-ready.json"), JSON.stringify({ run_ref: runRef, bundle_identifier: bundleIdentifier,
   app_path: bundle, native_executable: nativeExecutable, app_mode: "embedded-native", desktop_profile: profile, provider,
-  ready_at: new Date().toISOString(), api_url: api, tauri_home: home, driver: "external-system-ui",
+  slice_id: sliceId, ready_at: new Date().toISOString(), api_url: api, tauri_home: home, driver: "external-system-ui",
   browser_driver_started: false }, null, 2));
 READY
     echo "[tauri-slice-verify] Native window ready for external system UI driver (no Chromium)."
@@ -1511,6 +1511,10 @@ verify_native_slice() {
       node "$PROJECT_ROOT/scripts/native_b29_evidence.mjs" verify "$ARTIFACT_DIR"
     elif [[ "$SLICE_ID" == "p1-chapter-draft-generation" ]]; then
       node "$PROJECT_ROOT/scripts/native_p1_evidence.mjs" verify "$ARTIFACT_DIR"
+    elif [[ "$SLICE_ID" == "au11-quality-diagnosis-message-envelope" || "$SLICE_ID" == "au11-missing-workstate-policy" ]]; then
+      node "$PROJECT_ROOT/scripts/native_au11_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
+    elif [[ "$SLICE_ID" == "au07-tooltrace-registry-redacted-io" || "$SLICE_ID" == "e2e-01-readonly-tool-trace" || "$SLICE_ID" == "e2e-01-replay-report" ]]; then
+      node "$PROJECT_ROOT/scripts/native_au07_evidence.mjs" verify "$ARTIFACT_DIR" "$SLICE_ID"
     else
       node "$PROJECT_ROOT/scripts/native_question_evidence_check.mjs" "$ARTIFACT_DIR" "$APP_LOG_DIR"
     fi

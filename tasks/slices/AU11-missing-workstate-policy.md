@@ -1,6 +1,6 @@
 # AU11 Missing WorkState Policy / 缺当前作品上下文不编造
 
-- 状态：**blocked（B40 CP1 重锚完成，native PASS 未闭环；2026-10-27 Lead surface 裁决）**：旧 envelope 断言退役，按判断纪元覆盖如实 + prompt 不编造重锚；browser-surface 机制预验通过，native 系统级驱动未实现（见 B40 §8.4）。
+- 状态：**done（2026-10-28，B61 native PASS；registry active）**：旧 envelope 断言退役，按判断纪元覆盖如实 + prompt 不编造重锚；browser-surface 机制预验通过，native 系统级驱动未实现（见 B40 §8.4）。
 - 类型：AI-Guided Authoring Slice + Trace Contract Slice
 - 启动日期：2026-06-21
 - 所属验收：`docs/design/acceptance/author/AU-11-ai-guided-authoring.md` SC-AU11-02。
@@ -59,3 +59,9 @@
 - 当前契约断言：空白作品 `context.assemble.done has_snapshot=true` 且 `context_refs=[]`/`reply_record.supplied_context_refs=[]`（覆盖如实）；判断 prompt 如实「正文统计：0 章中已写 0 章」且无 `## 章节列表`/无虚构章节；assistant 要求补材料、不宣称已读、不编造林烬等种子事实；reply bytes=provider 输出；no tool/adoption/write；author-safe why。
 - 证据：`artifacts/slice-verify/au11-missing-workstate-policy-tauri/summary.json`（`surface=browser / driver=headless-chromium`，browser-surface 机制预验）；机制预验时 verdict 曾 pass，随后按 Lead surface 裁决改写为 `status=skipped / reason=native_system_driver_missing`（旧 pass 归档 `verdict-history/`，不以 browser 证据改 active）。入口 `bash scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri` 在预验时 exit 0；registry 保持 blocked。
 - 确定性替身缺失分支改为只读真实判断 prompt 的「正文统计：N 章中已写 M 章」事实（test/support，经 Lead 批准）；真实模型语义（真实模型是否主动索要材料）归 B42。
+
+
+## 8. B61 native 关闭（2026-10-28）
+
+- 真实 Tauri 窗口 AX/CGEvent 外部驱动取得原生 PASS（`driver=ax-native-system-ui / surface=tauri`，checks 41/41），证据 `artifacts/slice-verify/<scenario>-tauri/summary.json`；registry 已由 Lead 按证据改 `active`。
+- 原 browser-surface 预验证据保留为 `*-tauri-browser-surface-preserved-*`；native 驱动/证据实现见 [B61](B61-native-acceptance-driver-coverage.md)。

@@ -1,6 +1,6 @@
 # B40：判断纪元验收重锚与证据收口
 
-- 状态：**done（2026-10-27，CP0–CP4；含两个必须如实登记的未闭环后果）**：CP0 映射与退役裁决 §7；CP1 AU11 重锚完成但 native 未闭环（§8，保持 blocked）；CP2 AU07 ToolTrace 复核（§9，blocked 并新登记 B59 产品缺口）；CP3 家族重锚/退役/真跑（§10）；CP4 收口与最终门禁（§11）。**未闭环**：①native 系统级驱动覆盖缺口（known-gaps 汇总）；②AU-07 三场景仅剩 native driver 依赖（B59 产品缺口已于 2026-10-27 修复，见 §9.1 追记）；③同族未复跑场景保留历史语义（§10.2）。不把 browser-surface 证据读作原生 PASS，不把机制 PASS 读作模型语义 PASS。
+- 状态：**done（2026-10-27，CP0–CP4；含两个必须如实登记的未闭环后果）**：CP0 映射与退役裁决 §7；CP1 AU11 重锚完成但 native 未闭环（§8，保持 blocked）；CP2 AU07 ToolTrace 复核（§9，blocked 并新登记 B59 产品缺口）；CP3 家族重锚/退役/真跑（§10）；CP4 收口与最终门禁（§11）。**未闭环**：①B40 CP3 家族仍为 browser-surface（native 覆盖按需逐场景批次，B61 已完成 AU11×2+AU07×3）；②AU-07 三场景 native 缺口已由 B61 关闭（2026-10-28，5/5 原生 PASS，见 §9.1b）；③同族未复跑场景保留历史语义（§10.2）。不把 browser-surface 证据读作原生 PASS，不把机制 PASS 读作模型语义 PASS。
 - 登记日期：2026-10-27；来源：v3 全量对账发现“实现已演进，但旧验收/台账仍停在退役链路”。
 - 上游：[B27 CP5](B27-systematic-prompt-and-intent-integration.md)、[B13B §6](B13B-adr-enforcement-reconciliation.md)、[VS00D-G 对账](VS00D-G-GAP-RECONCILIATION.md)、[known-gaps](../../quality/acceptance/known-gaps.md)、[AU07](AU07-file-level-closure.md)。
 - 本任务只承接明确的验收重锚、证据重跑和状态修正；若发现真实产品缺口，另立 CP0 和产品 slice，不在验收脚本里掩盖。
@@ -216,6 +216,10 @@
 | `au07-tooltrace-registry-redacted-io` | **blocked** | ① native 系统级驱动未实现（allowlist 不含）；② 判断纪元 AgentRun 内部只读步 `DecisionTrace` 未持久化：`do_execute_tool_step` 丢弃 `TurnExecutionService.execute` 返回的 trace（`character_design_with_context.ex:300-345`），本轮真实 run 按 step turn_id (`message_…:agent:3`) 查询 `TraceRepository.list_by_turn` 返回 **0 条**，因此 ToolTrace registry snapshot/redacted I/O 无当前可达的持久回查路径。ToolTrace 实现（TraceWriter.record_with_tool → registry_snapshot/contract_refs/grant_summary/redacted summaries）仍存在，缺的是 AgentRun step trace persistence + native driver。 |
 | `e2e-01-readonly-tool-trace` / `e2e-01-replay-report` | **blocked** | 同一持久化缺口（纯只读 turn + 持久 ToolTrace 回查无当前生产者）+ native driver 未实现；不以旧 lmstudio summary / browser 机制预验代签。 |
 
+### 9.1b B61 native 关闭（2026-10-28）
+
+B40 的 native 缺口已由 [B61](B61-native-acceptance-driver-coverage.md) 关闭：AU11×2、AU07×3 在真实 Tauri 窗口以 AX/CGEvent 外部驱动取得原生 PASS（`driver=ax-native-system-ui / surface=tauri`），AU11 42/41 checks、AU07 29/29 checks、trace count=1；五条场景 registry 已按证据改 `active`。B40 CP1/CP2 的 browser-surface 结论保留为历史，不再作为 active 的依据。
+
 ### 9.1a B59 修复追记（2026-10-27，B59 done）
 
 B40 登记的 AgentRun step DecisionTrace 持久化缺口已由 [B59](B59-agent-run-step-trace-persistence.md) 完成（5 flow 接线 + planner spec trace_persister 注入 + 单测/flow 级断言）。修复后三个场景 scoped 复验全部通过（browser-surface，如实标注）：au07-tooltrace（`trace-query.json` count=1，含 registry snapshot/合同 refs/grant summary/redacted IO/no-provider ReplayReport）、e2e-01-readonly-tool-trace、e2e-01-replay-report。三个场景 registry 仍保持 blocked，**唯一剩余原因=native 系统级驱动未实现**；B40 记录的历史失败证据路径已被修复后 scoped PASS 覆盖（同一 artifact 目录），历史结论保留在 §9.1 文本与提交历史。
@@ -313,7 +317,7 @@ git diff --check                                # clean
 | 后果 | 承接/触发 |
 |---|---|
 | native 系统级驱动覆盖（AU11×2 + AU07×3 + CP3 家族） | 「native acceptance driver 覆盖」批次：AX/CGEvent driver + native evidence checker + allowlist；实现前不得把 browser-surface 记 active（AU11/AU07 保持 blocked） |
-| AU-07 三场景（au07-tooltrace、e2e-readonly、e2e-replay） | 产品侧 step trace 持久化已由 [B59](B59-agent-run-step-trace-persistence.md) 修复（2026-10-27）；剩余唯一依赖=native driver（见 §9.1a） |
+| AU-07 三场景（au07-tooltrace、e2e-readonly、e2e-replay） | 产品侧 step trace 持久化由 [B59](B59-agent-run-step-trace-persistence.md) 修复；native 驱动由 [B61](B61-native-acceptance-driver-coverage.md) 关闭（5/5 原生 PASS，registry active） |
 | au02-candidate-fallback-ui | 协议/产品裁决：creative_exploration 空候选是否进入应用兜底；不得用旧证据代签 |
 | 同族未复跑场景（§10.2） | nightly 重锚批次：verifier/manifest 旧事件迁移 + current-HEAD 复跑；历史 PASS 只作历史 |
 | E10 持久化闭环 | AU-07 cross-reference 补独立真实页面 artifact |
