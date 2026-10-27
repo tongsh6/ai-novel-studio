@@ -521,3 +521,13 @@
 - D7（11 份退役事件 manifest）、D11（VS-10 过期）以及与其同族的 AU11/AU07/E4 等证据问题，统一由 [B40-judgment-era-acceptance-reanchor](B40-judgment-era-acceptance-reanchor.md) 承接：按当前生产链重跑或正式 blocked/退役，不将旧 event 名简单替换当作语义等价。
 - [B41-quality-evidence-foundation](B41-quality-evidence-foundation.md) 先修 YAML/parser、blocked 分层、E2E 聚合假绿和 verdict 契约；[B42-model-behavior-evidence-tier](B42-model-behavior-evidence-tier.md) 再补实模/机制/native/browser 分层。无 summary 的场景先记 evidence_missing，不直接写成实现缺失或 PASS。
 - 本文件 done 仅指 47/47 对账与裁决完成，不表示 47 个实现全部完成；D7/D9/D11 等历史快照不能替代当前复跑。
+
+## 2026-10-27 B40 CP0–CP3 承接结果（D7/D11 与同族退役/重锚）
+
+> 本节只更新 D7/D11 与同族旧事件的**处置结果**；ADR 文本与本文件 47 条裁决不变。证据与逐场景表见 [B40](B40-judgment-era-acceptance-reanchor.md) §7–§10。
+
+| ID | 原问题 | B40 处置 |
+|---|---|---|
+| D7（11 份 manifest 引用退役 `planner.form_frame/form_micro_plan`） | 系统性质量文档债 | **已逐份处置**：au01×3（empty-message-guard / frame-validation / ordinary-chat-two-turn）+ au02-natural-exploration 按当前判断纪元事件（`judgment.decided.done` 等）重锚并 current-HEAD 真跑 PASS（browser-surface）；au02-candidate-fallback-ui → blocked（候选帧契约无当前可达 fallback 生产者）；`e2e-01-readonly-tool-trace` / `e2e-01-replay-report` / `au07-tooltrace-registry-redacted-io` → **blocked**（判断纪元 AgentRun step trace 未持久化 + native driver 未实现）；`e2e-01-downgrade-real-page` / `au07-gate-reason-why` → **retired**（multi-step MicroPlan 生产者不存在，替代证据=`agent-step-regate` + `gate_order_closure_test`）；`au01-garbage-json-recovery` → **retired**（判断纪元 provider 契约不再要求可解析 JSON 结构，等价协议损坏路径由 frame-validation/provider-error 承接）。 |
+| D11（`vs10-observability-spine` 过期） | driver 仍等待帧纪元 key events | **已重锚并 PASS**（`planner.form_frame/form_micro_plan` → `judgment.decided.done` + `orchestrator.decide.done`/`toolbox.execute.done`；并修正 agent-run 父 turn/`<parent>:agent:N` 关联）；`verdict pass`，summary 如实 `surface=browser/driver=headless-chromium`（非原生）。证据见 B40 §10。 |
+| 同族旧事件场景（29 个 KEY_EVENTS 含退役事件的场景） | 见 B40 §7.2/§7.4 | 本轮完成映射与分类；其中 D7 基线相关项已处置，其余按 §7.4 保留 blocked/pending（不得静默 active-red）。 |

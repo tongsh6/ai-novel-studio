@@ -40,7 +40,9 @@ assertions:
     - user_message sent
     - turn_result received
   data:
-    - app log and websocket evidence are correlated
+    - app log and websocket evidence are correlated through current judgment-era events
+    - judgment.decided.done marks the frame decision for the correlated turn
+    - orchestrator.decide.done and toolbox.execute.done record execution telemetry
 
 anti_hooks:
   product_acceptance_logic_added: false

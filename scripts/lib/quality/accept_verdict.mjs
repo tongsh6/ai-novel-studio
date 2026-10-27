@@ -56,9 +56,11 @@ function parseArgs(argv) {
   return options;
 }
 
+// B40/B41 hotfix：verdict 记录完整 commit hash，与 e2e 聚合器的当前 HEAD（完整 hash）
+// 可比；此前用 --short 导致所有新 verdict 被聚合器判 stale（B40 CP3 实跑发现）。
 function gitHead(projectRoot) {
   try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: projectRoot,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],

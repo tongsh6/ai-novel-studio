@@ -45,13 +45,13 @@ assertions:
     - candidate cards are not shown as adopted
   network:
     - source user_message uses generate_micro_plan false
-    - planner.form_frame.done has frame_type creative_exploration
-    - planner.form_frame.done reports fallback candidate_count >= 2
+    - judgment.decided.done records frame_type creative_exploration after malformed candidate fallback
+    - judgment.decided.done reports final candidate_count >= 2
     - author_action is not sent
     - action_result is not received
   data:
-    - malformed provider candidate payload is replaced
-    - fallback candidates have nonempty title and pitch
+    - empty/unusable provider candidate payload is replaced by the application resilience fallback
+    - fallback candidates have nonempty title and pitch and not_adopted status
     - fallback candidates have adoption_status not_adopted
     - no tool_result is emitted
     - no adoption decision is emitted

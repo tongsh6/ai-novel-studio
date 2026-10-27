@@ -4,7 +4,6 @@
 #
 # Usage:
 #   bash scripts/slice_verify.sh --list
-#   bash scripts/slice_verify.sh au10-micro-plan-entry
 #
 # The script starts a deterministic test backend and Vite frontend, runs the
 # selected Playwright scenario from the real workbench, and writes artifacts to
@@ -29,7 +28,6 @@ Usage:
 
 Available slice ids:
   au02-candidate-continuation
-  au10-micro-plan-entry
   au10-workbench-render-stability
   vs10-observability-spine
 EOF

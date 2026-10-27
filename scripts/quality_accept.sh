@@ -332,7 +332,7 @@ run_tier_batch() {
   local pass_count=0 fail_count=0 skip_count=0 missing_count=0 not_run_count=0
   local started_at finished_at git_head
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  git_head="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  git_head="$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 
   local row id status blocked_reason
   for row in "${tier_rows[@]}"; do

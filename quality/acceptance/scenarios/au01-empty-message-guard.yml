@@ -39,7 +39,7 @@ evidence:
 
 assertions:
   ui:
-    - blank input does not append a visible user message
+    - blank input cannot be submitted (send unavailable) and does not append a visible user message
     - blank input does not append an assistant message
     - thinking indicator stays hidden after blank submit
     - input remains enabled after blank submit
@@ -49,8 +49,9 @@ assertions:
     - following normal chat sends user_message with generate_micro_plan=false
     - following normal chat receives turn_result
   data:
-    - following normal chat completes DialogueGateway handling
-    - no planner.form_micro_plan event is recorded for the recovery turn
+    - following normal chat completes the judgment-era reply chain
+    - judgment.decided.done is recorded for the recovery turn
+    - no retired planner.form_micro_plan or planner.form_frame event is recorded
 
 anti_hooks:
   product_acceptance_logic_added: false

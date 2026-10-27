@@ -8,18 +8,17 @@ const artifactDir =
   path.resolve("..", "artifacts", "slice-verify", "vs10-observability-spine");
 const appLogDir = process.env.SLICE_VERIFY_APP_LOG_DIR ?? path.join(artifactDir, "app-log");
 
+// B40 CP3（判断纪元重锚）：帧纪元的 planner.form_frame/form_micro_plan 已退役，
+// 当前生产链的可观测关键事件是 judgment.decided.done（frame 语义并入判断①）+
+// orchestrator.decide.done / toolbox.execute.done（执行门禁与工具链）。
 const turnKeyEvents = [
   "channel.user_message.start",
   "context.assemble.done",
-  "planner.form_frame.done",
+  "judgment.decided.done",
   "channel.user_message.done",
 ];
 
-const globalKeyEvents = [
-  "planner.form_micro_plan.done",
-  "orchestrator.decide.done",
-  "toolbox.execute.done",
-];
+const globalKeyEvents = ["orchestrator.decide.done", "toolbox.execute.done"];
 
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 
@@ -132,14 +131,32 @@ try {
   assert(turnResultFrame.body?.turn_id, "turn_result did not include turn_id");
 
   const turnId = turnResultFrame.body.turn_id;
-  const records = await eventuallyReadKeyRecords(turnId);
+  // B40 CP3：判断纪元 agent-run 的最终 turn_result 广播用内部步 turn
+  // （`<parent>:agent:N`）；user/context/judgment 事件记录在父 turn。先按父/子关系
+  // 解析 parent turn，再校验 key events，避免把两者混在一个 turn 上。
+  const allRecords = readAppLogRecords();
+  const parentTurnId =
+    allRecords
+      .filter((record) => record.event === "channel.user_message.start")
+      .map((record) => String(record.turn_id ?? ""))
+      .find((candidate) => candidate && (turnId === candidate || turnId.startsWith(`${candidate}:`))) ??
+    turnId;
+  const records = await eventuallyReadKeyRecords(parentTurnId);
+
+  assert(
+    turnId === parentTurnId || turnId.startsWith(`${parentTurnId}:agent:`),
+    `turn_result turn ${turnId} was not correlated to parent turn ${parentTurnId}`,
+  );
 
   for (const event of turnKeyEvents) {
     const record = records.find(
-      (candidate) => candidate.event === event && candidate.turn_id === turnId,
+      (candidate) => candidate.event === event && candidate.turn_id === parentTurnId,
     );
     assert(record, `Missing app log event ${event}`);
-    assert(record.turn_id === turnId, `${event} has wrong turn_id: ${record.turn_id}`);
+    assert(
+      record.turn_id === parentTurnId,
+      `${event} has wrong turn_id: ${record.turn_id} (expected parent ${parentTurnId})`,
+    );
     if (event.startsWith("channel.") || event.startsWith("context.")) {
       assert(record.workspace_id, `${event} is missing workspace_id`);
       assert(record.work_id, `${event} is missing work_id`);

@@ -1,5 +1,5 @@
 id: au11-missing-workstate-policy
-title: AI 引导式创作缺 WorkState 不编造
+title: AI 引导式创作缺 WorkState 不编造（判断纪元覆盖如实）
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri
@@ -7,11 +7,14 @@ entrypoint: scripts/quality_accept.sh au11-missing-workstate-policy --surface ta
 contract:
   - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md
   - docs/design/acceptance/author/AU-11-ai-guided-authoring.md
-  - tasks/slices/AU11-missing-workstate-policy.md
+  - docs/design/01-user-llm-workbench-interaction-model.md
+
+execution_source:
+  - tasks/slices/B40-judgment-era-acceptance-reanchor.md
 
 invariants:
-  - work-state-evidence-or-explicit-missing
-  - missing-workstate-does-not-fabricate-current-chapter
+  - missing-workstate-prompt-stays-honest-without-fabricated-chapters
+  - missing-workstate-reply-is-provider-output-bound
   - missing-workstate-diagnosis-does-not-write-production-state
 
 setup:
@@ -26,7 +29,7 @@ user_flow:
   - click: 发送
   - wait_for: turn result visible
   - click: 为什么
-  - wait_for: missing WorkState trace details visible
+  - wait_for: persisted trace replay visible
 
 evidence:
   required:
@@ -41,14 +44,17 @@ assertions:
   ui:
     - assistant asks for target chapter material or prose before specific diagnosis
     - assistant does not claim it has read the missing chapter
-    - why panel shows quality diagnosis, missing WorkState, and missing prose limitation
+    - why panel shows the reply decision and states replay does not call the model again
     - why panel does not expose raw prompt, provider debug, trace id, or context id
   network:
-    - user_message sent from real workbench
-    - turn_result includes ai_message_envelope trace summary
+    - user_message sent from real workbench to the selected blank work
+    - turn_result frame_type is casual_reply and decision_type is reply_only
+    - turn_result trace records reply_record response_kind plain_text with task policy and protocol versions
+    - turn_result trace records current_work context source and no memory source
   data:
-    - WorkStateLayer snapshot references the selected current work and marks chapter summary, prose excerpt, and character state missing
-    - TurnGuidanceLayer records missing target chapter/prose questions
+    - context.assemble.done records selected work snapshot without chapter material
+    - judgment prompt carries zero written chapter fact and no fabricated chapter list
+    - assistant reply bytes equal the provider output bytes recorded in reply_record
     - no tool_result, no adoption_state, no production write
 
 anti_hooks:

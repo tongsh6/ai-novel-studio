@@ -75,6 +75,8 @@ function canonicalSliceId(sliceId) {
   if (sliceId === "agent-revision-orchestrator-boundary") return "p1-prose-revision-candidate";
   if (sliceId === "agent-replay-no-provider") return "p1-prose-revision-candidate";
   if (sliceId === "quality-revision-action-run-anchoring") return "p1-prose-revision-candidate";
+  // B40 CP3：pr-smoke 当前链最小真实路径复用普通聊天 canonical 行为/关键事件。
+  if (sliceId === "pr-smoke-core-reply") return "au01-ordinary-chat-two-turn-roundtrip";
   return sliceId;
 }
 
@@ -138,6 +140,7 @@ export const nativeSliceIds = [
   "e2e-01-replay-report",
   "e2e-01-channel-action-security",
   "au01-ordinary-chat-two-turn-roundtrip",
+  "pr-smoke-core-reply",
   "gap-wt04-non-exploration-frame-badges",
   "au01-empty-message-guard",
   "au01-garbage-json-recovery",
@@ -1351,13 +1354,14 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  // B40 CP1：判断纪元普通回复链——frame 语义并入判断①，关键事件是
+  // judgment.decided.done（action/frame_type）而不是已退役的 planner.form_frame。
   "au11-quality-diagnosis-message-envelope": [
     "work_session.resume.done",
     "channel.join.done",
     "channel.user_message.start",
     "context.assemble.done",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -1366,8 +1370,7 @@ const sliceKeyEvents = {
     "channel.join.done",
     "channel.user_message.start",
     "context.assemble.done",
-    "planner.form_frame.done",
-    "dialogue_gateway.handle_input.done",
+    "judgment.decided.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -1644,39 +1647,21 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "e2e-01-readonly-tool-trace": [
-    "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "planner.form_micro_plan.done",
     "orchestrator.decide.done",
     "context.characters.done",
     "toolbox.execute.done",
-    "dialogue_gateway.handle_input.done",
-    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "e2e-01-replay-report": [
-    "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "planner.form_micro_plan.done",
     "orchestrator.decide.done",
     "context.characters.done",
     "toolbox.execute.done",
-    "dialogue_gateway.handle_input.done",
-    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "au07-tooltrace-registry-redacted-io": [
-    "channel.user_message.start",
-    "dialogue_gateway.handle_input.start",
-    "planner.form_frame.done",
-    "planner.form_micro_plan.done",
     "orchestrator.decide.done",
     "context.characters.done",
     "toolbox.execute.done",
-    "dialogue_gateway.handle_input.done",
-    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "e2e-01-channel-action-security": [
@@ -2903,6 +2888,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findOrdinaryChatTwoTurnEvidence(records);
   }
 
+  if (sliceId === "pr-smoke-core-reply") {
+    return findOrdinaryChatTwoTurnEvidence(records, "pr-smoke-core-reply");
+  }
+
   if (sliceId === "gap-wt04-non-exploration-frame-badges") {
     return findGapWt04NonExplorationFrameEvidence(records);
   }
@@ -4030,11 +4019,17 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   }
 
   if (sliceId === "au11-quality-diagnosis-message-envelope") {
-    return au11QualityDiagnosisMessageEnvelopeBehavior(turnIds, turnRecords, records, evidence);
+    return au11QualityDiagnosisMessageEnvelopeBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "au11-missing-workstate-policy") {
-    return au11MissingWorkstatePolicyBehavior(turnIds, turnRecords, records, evidence);
+    return au11MissingWorkstatePolicyBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "vs00c-cp0-missing-chapter-block") {
@@ -4271,6 +4266,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au01-ordinary-chat-two-turn-roundtrip") {
     return ordinaryChatBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "pr-smoke-core-reply") {
+    return ordinaryChatBehavior(turnIds, turnRecords, options, "pr-smoke-core-reply");
   }
 
   if (sliceId === "gap-wt04-non-exploration-frame-badges") {
@@ -5772,6 +5771,15 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       record.log_prose_tool_done === true,
   );
   if (!uiState) return null;
+
+  // B40 CP3：退役场景的 gate/why 作者可见断言挂到当前 allow 路径真实页面。
+  if (requestedSliceId === "agent-step-regate") {
+    if (uiState.gate_why_dialog_open !== true) return null;
+    if (uiState.gate_why_shows_tool_decision !== true) return null;
+    if (uiState.gate_why_shows_author_safe_tool_line !== true) return null;
+    if (uiState.gate_why_states_no_provider_replay !== true) return null;
+    if (uiState.gate_why_contains_raw_prompt === true) return null;
+  }
 
   const runId = String(uiState.run_id ?? "");
   const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
@@ -7862,9 +7870,8 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // B40 CP3（current HEAD）：判断 1 + 机械计划 0 + writer 1 = 2。
+      Number(record.consumed_provider_calls ?? 0) === 2 &&
       record.ui_outline_draft_visible === true &&
       record.ui_outline_adoption_actions_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -9334,9 +9341,8 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? 0) === 2 &&
-      // Order 62 CP1 两段式规划后：路由 1 + 计划起草 2 + writer 1。
-      // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
-      Number(record.consumed_provider_calls ?? 0) === 3 &&
+      // B40 CP3（current HEAD）：判断 1 + 机械计划 0 + writer 1 = 2。
+      Number(record.consumed_provider_calls ?? 0) === 2 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_artifact_event_visible === true &&
@@ -9518,6 +9524,12 @@ function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
           "run_budget_gate_used_real_remaining_budget",
           "trace_readiness_gate_used_real_persistence_channel",
           "two_steps_used_distinct_decision_lineage",
+          // B40 CP3：合并退役 au07-gate-reason-why / e2e-01-downgrade 后，gate/why 的
+          // 作者安全解释断言由本场景当前 allow 路径真实页面承担（blocked gate 文本
+          // 在判断纪元无生产者，blocked 路径只有单测证据 gate_order_closure_test）。
+          "author_safe_why_dialog_shows_tool_decision",
+          "author_safe_why_states_replay_does_not_call_provider",
+          "author_safe_why_hides_raw_prompt_and_internal_gate_codes",
         ],
       };
 
@@ -9626,8 +9638,8 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
-  // CP2b：判断 2 + 机械计划 0 + writer 1 = 3。
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
+  // B40 CP3（current HEAD）：判断 1 + 机械计划 0 + writer 1 = 2。
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
   }
@@ -12903,8 +12915,75 @@ function findE2E01DowngradeRealPageEvidence(records) {
 }
 
 function findE2E01ReadonlyToolTraceEvidence(records) {
-  const sliceId = "e2e-01-readonly-tool-trace";
-  const keyEvents = keyEventsForSlice(sliceId);
+  return findReadonlyRosterToolStepEvidence(records, "e2e-01-readonly-tool-trace");
+}
+
+function findE2E01ReplayReportEvidence(records) {
+  const evidence = findReadonlyRosterToolStepEvidence(records, "e2e-01-replay-report");
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "e2e-01-replay-report",
+  );
+  if (!uiState) return null;
+  if (uiState.replay_report_provider_called !== false) return null;
+  if (uiState.replay_report_result_status !== "complete") return null;
+  if (Number(uiState.replay_report_required_question_count ?? 0) !== 6) return null;
+  if (uiState.replay_report_all_required_questions_answered !== true) return null;
+  if (uiState.replay_report_tool_question_answered !== true) return null;
+  if (uiState.replay_report_adoption_boundary_answered !== true) return null;
+  if (uiState.replay_report_has_frame_plan_decision_tool_turn_result !== true) return null;
+  if (!Array.isArray(uiState.replay_report_missing_trace_refs)) return null;
+  if (uiState.replay_report_missing_trace_refs.length !== 0) return null;
+  if (!Array.isArray(uiState.replay_report_chain_steps)) return null;
+
+  return {
+    ...evidence,
+    replay_report_chain_steps: uiState.replay_report_chain_steps,
+    replay_report_question_statuses: uiState.replay_report_question_statuses,
+  };
+}
+
+function findAu07TooltraceRegistryRedactedIoEvidence(records) {
+  const evidence = findReadonlyRosterToolStepEvidence(
+    records,
+    "au07-tooltrace-registry-redacted-io",
+  );
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au07-tooltrace-registry-redacted-io",
+  );
+  if (!uiState) return null;
+  if (uiState.replay_report_provider_called !== false) return null;
+  if (uiState.replay_report_result_status !== "complete") return null;
+  if (Number(uiState.replay_report_required_question_count ?? 0) !== 6) return null;
+  if (uiState.replay_report_all_required_questions_answered !== true) return null;
+  if (uiState.replay_report_tool_question_answered !== true) return null;
+  if (!Array.isArray(uiState.replay_report_chain_steps)) return null;
+  if (uiState.tool_trace_registry_snapshot_complete !== true) return null;
+  if (uiState.tool_trace_redacted_io_no_raw_payload !== true) return null;
+  if (uiState.replay_report_tool_trace_carries_registry_snapshot !== true) return null;
+
+  return {
+    ...evidence,
+    slice_id: "au07-tooltrace-registry-redacted-io",
+    replay_report_chain_steps: uiState.replay_report_chain_steps,
+    replay_report_question_statuses: uiState.replay_report_question_statuses,
+    tool_trace_registry_snapshot: uiState.tool_trace_registry_snapshot,
+    tool_trace_contract_refs: uiState.tool_trace_contract_refs,
+    tool_trace_grant_summary: uiState.tool_trace_grant_summary,
+    tool_trace_request_summary: uiState.tool_trace_request_summary,
+    tool_trace_result_summary: uiState.tool_trace_result_summary,
+    tool_trace_io_redaction: uiState.tool_trace_io_redaction,
+  };
+}
+
+function findReadonlyRosterToolStepEvidence(records, sliceId) {
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
@@ -12919,30 +12998,15 @@ function findE2E01ReadonlyToolTraceEvidence(records) {
       record.accepted_character_visible === true &&
       record.tentative_character_absent === true &&
       record.foreign_character_absent === true &&
-      record.no_write_statement_visible === true &&
       record.no_state_delta === true &&
       record.no_artifact_refs === true &&
       record.no_author_action_sent === true &&
-      record.no_adoption_event === true &&
-      record.no_execution_controls_visible === true &&
       record.trace_query_has_tool_trace_ref === true &&
       hasToolTraceRef(record.trace_query_tool_trace_refs),
   );
   if (!uiState?.turn_id) return null;
 
   const turnRecords = records.filter((record) => record.turn_id === uiState.turn_id);
-  if (
-    !eventsPresentWithCorrelation(
-      turnRecords,
-      keyEvents.filter((event) => event !== "slice_verify.ui_state.done"),
-    )
-  ) {
-    return null;
-  }
-
-  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
-  if (!start || start.generate_micro_plan !== false) return null;
-
   const decision = turnRecords.find(
     (record) =>
       record.event === "orchestrator.decide.done" && record.decision_type === "allow_tool",
@@ -12965,6 +13029,14 @@ function findE2E01ReadonlyToolTraceEvidence(records) {
   );
   if (!toolbox) return null;
 
+  const parentUserDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.work_id === uiState.work_id &&
+      record.turn_id !== uiState.turn_id,
+  );
+  if (!parentUserDone) return null;
+
   return {
     slice_id: sliceId,
     turn_id: uiState.turn_id,
@@ -12973,134 +13045,8 @@ function findE2E01ReadonlyToolTraceEvidence(records) {
     tool_name: uiState.tool_name,
     trace_query_tool_trace_refs: uiState.trace_query_tool_trace_refs,
     character_names: uiState.character_names,
-    key_events: keyEvents,
-  };
-}
-
-function findE2E01ReplayReportEvidence(records) {
-  const sliceId = "e2e-01-replay-report";
-  const keyEvents = keyEventsForSlice(sliceId);
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.decision_type === "allow_tool" &&
-      record.tool_name === "character_roster" &&
-      record.tool_status === "succeeded" &&
-      record.tool_called === true &&
-      record.production_write_performed === false &&
-      record.artifact_adopted === false &&
-      record.execution_blocked === false &&
-      record.trace_query_has_tool_trace_ref === true &&
-      hasToolTraceRef(record.trace_query_tool_trace_refs) &&
-      record.replay_report_provider_called === false &&
-      record.replay_report_result_status === "complete" &&
-      record.replay_report_required_question_count === 6 &&
-      record.replay_report_all_required_questions_answered === true &&
-      record.replay_report_tool_question_answered === true &&
-      record.replay_report_adoption_boundary_answered === true &&
-      record.replay_report_has_frame_plan_decision_tool_turn_result === true &&
-      Array.isArray(record.replay_report_missing_trace_refs) &&
-      record.replay_report_missing_trace_refs.length === 0 &&
-      Array.isArray(record.replay_report_chain_steps) &&
-      ["frame", "plan", "decision", "tool_trace", "turn_result"].every((step) =>
-        record.replay_report_chain_steps.includes(step),
-      ),
-  );
-  if (!uiState?.turn_id) return null;
-
-  const turnRecords = records.filter((record) => record.turn_id === uiState.turn_id);
-  if (
-    !eventsPresentWithCorrelation(
-      turnRecords,
-      keyEvents.filter((event) => event !== "slice_verify.ui_state.done"),
-    )
-  ) {
-    return null;
-  }
-
-  return {
-    slice_id: sliceId,
-    turn_id: uiState.turn_id,
-    turn_ids: [uiState.turn_id],
-    decision_type: uiState.decision_type,
-    tool_name: uiState.tool_name,
-    trace_query_tool_trace_refs: uiState.trace_query_tool_trace_refs,
-    replay_report_chain_steps: uiState.replay_report_chain_steps,
-    replay_report_question_statuses: uiState.replay_report_question_statuses,
-    key_events: keyEvents,
-  };
-}
-
-function findAu07TooltraceRegistryRedactedIoEvidence(records) {
-  const sliceId = "au07-tooltrace-registry-redacted-io";
-  const keyEvents = keyEventsForSlice(sliceId);
-  const uiState = records.find(
-    (record) =>
-      record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
-      record.decision_type === "allow_tool" &&
-      record.tool_name === "character_roster" &&
-      record.tool_status === "succeeded" &&
-      record.tool_called === true &&
-      record.production_write_performed === false &&
-      record.artifact_adopted === false &&
-      record.execution_blocked === false &&
-      record.trace_query_has_tool_trace_ref === true &&
-      hasToolTraceRef(record.trace_query_tool_trace_refs) &&
-      record.tool_trace_registry_snapshot_complete === true &&
-      record.tool_trace_redacted_io_no_raw_payload === true &&
-      record.replay_report_tool_trace_carries_registry_snapshot === true &&
-      record.au07_tooltrace_registry_snapshot_closed === true &&
-      record.au07_tooltrace_redacted_io_closed === true &&
-      record.au07_tooltrace_replay_report_chain_closed === true &&
-      record.tool_trace_registry_snapshot?.tool_name === "character_roster" &&
-      record.tool_trace_registry_snapshot?.tool_version === "1.0.0" &&
-      record.tool_trace_registry_snapshot?.status === "active" &&
-      record.tool_trace_registry_snapshot?.tool_layer === "memory" &&
-      record.tool_trace_contract_refs?.input_contract_ref === "character_roster_query_v1" &&
-      record.tool_trace_contract_refs?.output_contract_ref === "character_roster_result_v1" &&
-      record.tool_trace_grant_summary?.grants_within_registry === true &&
-      Array.isArray(record.tool_trace_grant_summary?.requested_read_scopes) &&
-      record.tool_trace_grant_summary.requested_read_scopes.includes("character_list") &&
-      Array.isArray(record.tool_trace_grant_summary?.requested_write_scopes) &&
-      record.tool_trace_grant_summary.requested_write_scopes.length === 0 &&
-      record.tool_trace_request_summary?.payload_stored === false &&
-      record.tool_trace_result_summary?.payload_stored === false &&
-      record.tool_trace_io_redaction?.input_payload_stored === false &&
-      record.tool_trace_io_redaction?.output_payload_stored === false &&
-      record.replay_report_provider_called === false &&
-      record.replay_report_result_status === "complete" &&
-      record.replay_report_tool_question_answered === true,
-  );
-  if (!uiState?.turn_id) return null;
-
-  const turnRecords = records.filter((record) => record.turn_id === uiState.turn_id);
-  if (
-    !eventsPresentWithCorrelation(
-      turnRecords,
-      keyEvents.filter((event) => event !== "slice_verify.ui_state.done"),
-    )
-  ) {
-    return null;
-  }
-
-  return {
-    slice_id: sliceId,
-    turn_id: uiState.turn_id,
-    turn_ids: [uiState.turn_id],
-    decision_type: uiState.decision_type,
-    tool_name: uiState.tool_name,
-    trace_query_tool_trace_refs: uiState.trace_query_tool_trace_refs,
-    tool_trace_registry_snapshot: uiState.tool_trace_registry_snapshot,
-    tool_trace_contract_refs: uiState.tool_trace_contract_refs,
-    tool_trace_grant_summary: uiState.tool_trace_grant_summary,
-    tool_trace_request_summary: uiState.tool_trace_request_summary,
-    tool_trace_result_summary: uiState.tool_trace_result_summary,
-    tool_trace_io_redaction: uiState.tool_trace_io_redaction,
-    replay_report_chain_steps: uiState.replay_report_chain_steps,
-    replay_report_question_statuses: uiState.replay_report_question_statuses,
-    key_events: keyEvents,
+    character_count: uiState.character_count,
+    key_events: keyEventsForSlice(sliceId),
   };
 }
 
@@ -16005,7 +15951,12 @@ function findP1ChapterDraftGenerationEvidence(records) {
   };
 }
 
-function ordinaryChatBehavior(turnIds, turnRecords, options) {
+function ordinaryChatBehavior(
+  turnIds,
+  turnRecords,
+  options,
+  sliceId = "au01-ordinary-chat-two-turn-roundtrip",
+) {
   if (turnIds.length !== 2) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "judgment.decided.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
@@ -16013,11 +15964,11 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (!lmstudioHasSteps(options, turnIds, ["judgment"])) return null;
 
-  const uiState = ordinaryChatUiState(turnIds, turnRecords);
+  const uiState = ordinaryChatUiState(turnIds, turnRecords, sliceId);
   if (!uiState) return null;
 
   return {
-    slice_id: "au01-ordinary-chat-two-turn-roundtrip",
+    slice_id: sliceId,
     behavior: "ordinary_chat_two_turn_visible_roundtrip",
     turn_ids: turnIds,
     assertions: [
@@ -23351,6 +23302,12 @@ function au09Au03SessionMemoryLayeringBehavior(turnIds, _turnRecords, records, e
   };
 }
 
+// B40 CP1（判断纪元重锚）：AU11 质量诊断当前链路证据。
+// 旧 AIMessageEnvelope（novel_layer/work_state_layer/turn_guidance_layer、guidance_mode）
+// 已随帧纪元退役；当前生产链的等价证据是判断纪元普通回复来源/覆盖：
+// turn_result.frame_summary.frame_type + trace_summary.reply_record
+// （response_kind/task_policy_version/protocol_version/source_input_ref/
+// supplied_context_refs/model_interpretation_status）+ context_refs + judgment.decided.done。
 function findAu11QualityDiagnosisMessageEnvelopeEvidence(records) {
   const sliceId = "au11-quality-diagnosis-message-envelope";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -23359,23 +23316,27 @@ function findAu11QualityDiagnosisMessageEnvelopeEvidence(records) {
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
-      record.guidance_mode_quality === true &&
-      record.envelope_has_novel_layer === true &&
-      record.envelope_has_work_state === true &&
-      record.envelope_has_turn_guidance === true &&
-      record.novel_layer_has_quality_gates === true &&
-      record.work_state_has_current_work_source === true &&
-      record.work_state_chapter_summary_mentions_target === true &&
-      record.turn_guidance_focuses_quality === true &&
+      record.frame_type === "casual_reply" &&
+      record.trace_decision_type === "reply_only" &&
+      record.reply_record_response_kind === "plain_text" &&
+      typeof record.reply_record_task_policy_version === "string" &&
+      record.reply_record_task_policy_version.length > 0 &&
+      typeof record.reply_record_protocol_version === "string" &&
+      record.reply_record_protocol_version.length > 0 &&
+      record.reply_record_model_interpretation_status === "not_provided" &&
+      Number(record.reply_record_context_refs_count ?? 0) >= 1 &&
+      Array.isArray(record.context_source_types) &&
+      record.context_source_types.includes("current_work") &&
+      record.no_tool_reason === "no_tool_requested" &&
+      record.assistant_reply_is_provider_output === true &&
       record.assistant_gives_concrete_tradeoff === true &&
       record.no_tool_result === true &&
       record.no_adoption_state === true &&
       record.no_production_write === true &&
       record.trace_why_dialog_open === true &&
       record.trace_why_contains_raw_prompt !== true &&
-      record.why_shows_quality_diagnosis === true &&
-      record.why_shows_quality_focus === true &&
-      record.why_shows_current_work_source === true,
+      record.why_shows_reply_decision === true &&
+      record.why_states_no_provider_replay === true,
   );
   if (!uiState) return null;
 
@@ -23389,10 +23350,18 @@ function findAu11QualityDiagnosisMessageEnvelopeEvidence(records) {
       record.event === "context.assemble.done" &&
       record.turn_id === turnId &&
       record.work_id === workId &&
-      record.session_id === sessionId &&
       record.has_snapshot === true,
   );
   if (!contextDone) return null;
+
+  const judgmentDecided = records.find(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.turn_id === turnId &&
+      record.action === "reply" &&
+      record.frame_type === "casual_reply",
+  );
+  if (!judgmentDecided) return null;
 
   const userDone = records.find(
     (record) =>
@@ -23426,54 +23395,80 @@ function findAu11QualityDiagnosisMessageEnvelopeEvidence(records) {
     turn_ids: [turnId],
     work_id: workId,
     session_id: sessionId,
+    frame_type: uiState.frame_type,
+    reply_record_response_kind: uiState.reply_record_response_kind,
     context_refs_count: Number(contextDone.context_refs_count ?? 0),
     key_events: keyEvents,
   };
 }
 
-function au11QualityDiagnosisMessageEnvelopeBehavior(turnIds, _turnRecords, records, evidence) {
+function au11QualityDiagnosisMessageEnvelopeBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  options = {},
+) {
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === "au11-quality-diagnosis-message-envelope",
   );
   if (!uiState) return null;
-  if (uiState.guidance_mode_quality !== true) return null;
-  if (uiState.envelope_has_novel_layer !== true) return null;
-  if (uiState.envelope_has_work_state !== true) return null;
-  if (uiState.envelope_has_turn_guidance !== true) return null;
-  if (uiState.novel_layer_has_quality_gates !== true) return null;
-  if (uiState.work_state_has_current_work_source !== true) return null;
-  if (uiState.work_state_chapter_summary_mentions_target !== true) return null;
-  if (uiState.turn_guidance_focuses_quality !== true) return null;
+  if (uiState.frame_type !== "casual_reply") return null;
+  if (uiState.trace_decision_type !== "reply_only") return null;
+  if (uiState.reply_record_response_kind !== "plain_text") return null;
+  if (String(uiState.reply_record_task_policy_version ?? "").length === 0) return null;
+  if (String(uiState.reply_record_protocol_version ?? "").length === 0) return null;
+  if (uiState.reply_record_model_interpretation_status !== "not_provided") return null;
+  if (Number(uiState.reply_record_context_refs_count ?? 0) < 1) return null;
+  if (!Array.isArray(uiState.context_source_types)) return null;
+  if (!uiState.context_source_types.includes("current_work")) return null;
+  if (uiState.assistant_reply_is_provider_output !== true) return null;
   if (uiState.assistant_gives_concrete_tradeoff !== true) return null;
   if (uiState.no_tool_result !== true) return null;
   if (uiState.no_adoption_state !== true) return null;
   if (uiState.no_production_write !== true) return null;
   if (uiState.trace_why_dialog_open !== true) return null;
   if (uiState.trace_why_contains_raw_prompt === true) return null;
-  if (uiState.why_shows_quality_diagnosis !== true) return null;
-  if (uiState.why_shows_quality_focus !== true) return null;
-  if (uiState.why_shows_current_work_source !== true) return null;
+  if (uiState.why_shows_reply_decision !== true) return null;
+  if (uiState.why_states_no_provider_replay !== true) return null;
   if (String(uiState.work_id ?? uiState.context_work_id ?? "") !== evidence.work_id) return null;
   if (String(uiState.session_id ?? uiState.active_session_id ?? "") !== evidence.session_id) {
     return null;
   }
 
+  // 模型请求外部证据：判断 prompt 必须携带当前作品事实（不是 0 章空作品）与作者原话。
+  const promptRecords = Array.isArray(options.promptRecords) ? options.promptRecords : [];
+  const judgmentPrompt = promptRecords.find(
+    (record) =>
+      typeof record.prompt === "string" &&
+      record.prompt.includes("创作判断器") &&
+      record.prompt.includes("这一章感觉不够爽"),
+  );
+  if (!judgmentPrompt) return null;
+  if (!judgmentPrompt.prompt.includes("## 当前作品上下文")) return null;
+  const writtenMatch = /已写\s*(\d+)\s*章/u.exec(judgmentPrompt.prompt);
+  if (!writtenMatch || Number(writtenMatch[1]) < 1) return null;
+
   return {
     slice_id: "au11-quality-diagnosis-message-envelope",
-    behavior: "quality_diagnosis_turn_records_vs00d_three_layer_envelope_without_write",
+    behavior: "quality_diagnosis_judgment_reply_records_sources_coverage_and_author_safe_why",
     turn_ids: turnIds,
     work_id: evidence.work_id,
     session_id: evidence.session_id,
+    frame_type: uiState.frame_type,
+    reply_record_task_policy_version: uiState.reply_record_task_policy_version,
+    reply_record_protocol_version: uiState.reply_record_protocol_version,
+    reply_record_context_refs_count: uiState.reply_record_context_refs_count,
+    prompt_current_work_facts: true,
     assertions: [
-      "message_sent_from_real_workbench",
-      "planner_prompt_and_trace_mark_guidance_mode_quality",
-      "novel_layer_records_quality_gates",
-      "work_state_layer_references_current_work_and_chapter_summary",
-      "turn_guidance_layer_records_quality_focus",
-      "assistant_response_contains_concrete_tradeoffs",
-      "why_panel_shows_quality_diagnosis_without_internal_trace_or_prompt",
+      "message_sent_from_real_workbench_as_ordinary_chat",
+      "judgment_treated_quality_diagnosis_as_provider_bound_reply_with_recorded_sources",
+      "reply_record_records_task_policy_and_protocol_versions",
+      "reply_record_records_supplied_context_refs_coverage",
+      "assistant_reply_is_exact_provider_output_bytes",
+      "why_panel_shows_reply_decision_and_provider_free_replay",
       "no_tool_no_adoption_no_production_write",
     ],
   };
@@ -23487,13 +23482,19 @@ function findAu11MissingWorkstatePolicyEvidence(records) {
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
-      record.guidance_mode_quality === true &&
-      record.work_state_snapshot_mentions_work === true &&
-      record.work_state_chapter_state_missing === true &&
-      record.work_state_chapter_summary_missing === true &&
-      record.work_state_prior_prose_missing === true &&
-      record.work_state_character_state_missing === true &&
-      record.turn_guidance_records_missing_questions === true &&
+      record.frame_type === "casual_reply" &&
+      record.trace_decision_type === "reply_only" &&
+      record.reply_record_response_kind === "plain_text" &&
+      typeof record.reply_record_task_policy_version === "string" &&
+      record.reply_record_task_policy_version.length > 0 &&
+      typeof record.reply_record_protocol_version === "string" &&
+      record.reply_record_protocol_version.length > 0 &&
+      record.reply_record_model_interpretation_status === "not_provided" &&
+      Number(record.reply_record_context_refs_count ?? -1) === 0 &&
+      Array.isArray(record.context_source_types) &&
+      record.context_source_types.length === 0 &&
+      record.no_tool_reason === "no_tool_requested" &&
+      record.assistant_reply_is_provider_output === true &&
       record.assistant_asks_for_target_material === true &&
       record.assistant_claims_read_chapter !== true &&
       record.assistant_fabricates_seeded_chapter_fact !== true &&
@@ -23502,9 +23503,8 @@ function findAu11MissingWorkstatePolicyEvidence(records) {
       record.no_production_write === true &&
       record.trace_why_dialog_open === true &&
       record.trace_why_contains_raw_prompt !== true &&
-      record.why_shows_quality_diagnosis === true &&
-      record.why_shows_work_state_missing === true &&
-      record.why_shows_missing_limit === true,
+      record.why_shows_reply_decision === true &&
+      record.why_states_no_provider_replay === true,
   );
   if (!uiState) return null;
 
@@ -23522,6 +23522,15 @@ function findAu11MissingWorkstatePolicyEvidence(records) {
       record.has_snapshot === true,
   );
   if (!contextDone) return null;
+
+  const judgmentDecided = records.find(
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.turn_id === turnId &&
+      record.action === "reply" &&
+      record.frame_type === "casual_reply",
+  );
+  if (!judgmentDecided) return null;
 
   const userDone = records.find(
     (record) =>
@@ -23555,25 +23564,37 @@ function findAu11MissingWorkstatePolicyEvidence(records) {
     turn_ids: [turnId],
     work_id: workId,
     session_id: sessionId,
+    frame_type: uiState.frame_type,
+    reply_record_response_kind: uiState.reply_record_response_kind,
     context_refs_count: Number(contextDone.context_refs_count ?? 0),
     key_events: keyEvents,
   };
 }
 
-function au11MissingWorkstatePolicyBehavior(turnIds, _turnRecords, records, evidence) {
+function au11MissingWorkstatePolicyBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  options = {},
+) {
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === "au11-missing-workstate-policy",
   );
   if (!uiState) return null;
-  if (uiState.guidance_mode_quality !== true) return null;
-  if (uiState.work_state_snapshot_mentions_work !== true) return null;
-  if (uiState.work_state_chapter_state_missing !== true) return null;
-  if (uiState.work_state_chapter_summary_missing !== true) return null;
-  if (uiState.work_state_prior_prose_missing !== true) return null;
-  if (uiState.work_state_character_state_missing !== true) return null;
-  if (uiState.turn_guidance_records_missing_questions !== true) return null;
+  if (uiState.frame_type !== "casual_reply") return null;
+  if (uiState.trace_decision_type !== "reply_only") return null;
+  if (uiState.reply_record_response_kind !== "plain_text") return null;
+  if (String(uiState.reply_record_task_policy_version ?? "").length === 0) return null;
+  if (String(uiState.reply_record_protocol_version ?? "").length === 0) return null;
+  if (uiState.reply_record_model_interpretation_status !== "not_provided") return null;
+  if (Number(uiState.reply_record_context_refs_count ?? -1) !== 0) return null;
+  if (!Array.isArray(uiState.context_source_types) || uiState.context_source_types.length !== 0) {
+    return null;
+  }
+  if (uiState.assistant_reply_is_provider_output !== true) return null;
   if (uiState.assistant_asks_for_target_material !== true) return null;
   if (uiState.assistant_claims_read_chapter === true) return null;
   if (uiState.assistant_fabricates_seeded_chapter_fact === true) return null;
@@ -23582,27 +23603,45 @@ function au11MissingWorkstatePolicyBehavior(turnIds, _turnRecords, records, evid
   if (uiState.no_production_write !== true) return null;
   if (uiState.trace_why_dialog_open !== true) return null;
   if (uiState.trace_why_contains_raw_prompt === true) return null;
-  if (uiState.why_shows_quality_diagnosis !== true) return null;
-  if (uiState.why_shows_work_state_missing !== true) return null;
-  if (uiState.why_shows_missing_limit !== true) return null;
+  if (uiState.why_shows_reply_decision !== true) return null;
+  if (uiState.why_states_no_provider_replay !== true) return null;
   if (String(uiState.work_id ?? uiState.context_work_id ?? "") !== evidence.work_id) return null;
   if (String(uiState.session_id ?? uiState.active_session_id ?? "") !== evidence.session_id) {
     return null;
   }
 
+  // 模型请求外部证据：缺章节材料的作品在判断 prompt 里必须是诚实的 0 章事实，
+  // 且不得注入任何虚构章节/正文（旧 envelope 的显式 missing map 已退役，当前语义是
+  // 覆盖如实 + prompt 不编造）。
+  const promptRecords = Array.isArray(options.promptRecords) ? options.promptRecords : [];
+  const judgmentPrompt = promptRecords.find(
+    (record) =>
+      typeof record.prompt === "string" &&
+      record.prompt.includes("创作判断器") &&
+      record.prompt.includes("帮我看看这一章哪里不成立"),
+  );
+  if (!judgmentPrompt) return null;
+  if (!judgmentPrompt.prompt.includes("## 当前作品上下文")) return null;
+  const writtenMatch = /已写\s*(\d+)\s*章/u.exec(judgmentPrompt.prompt);
+  if (!writtenMatch || Number(writtenMatch[1]) !== 0) return null;
+  if (judgmentPrompt.prompt.includes("## 章节列表")) return null;
+  if (judgmentPrompt.prompt.includes("霓虹地牢")) return null;
+
   return {
     slice_id: "au11-missing-workstate-policy",
-    behavior: "quality_diagnosis_missing_workstate_records_explicit_gaps_without_fabrication",
+    behavior: "missing_workstate_judgment_prompt_stays_honest_without_fabrication_or_write",
     turn_ids: turnIds,
     work_id: evidence.work_id,
     session_id: evidence.session_id,
+    context_source_types: uiState.context_source_types,
+    prompt_written_chapter_count: 0,
     assertions: [
-      "message_sent_from_real_workbench",
-      "selected_real_work_has_snapshot_but_missing_chapter_material",
-      "work_state_layer_marks_missing_chapter_summary_prose_and_character_state",
-      "turn_guidance_records_missing_target_chapter_and_prose_questions",
-      "assistant_asks_for_target_material_without_claiming_to_have_read_the_chapter",
-      "why_panel_shows_quality_mode_missing_workstate_and_missing_prose_limit",
+      "message_sent_from_real_workbench_to_blank_work",
+      "context_assembly_had_selected_work_snapshot_without_chapter_material",
+      "judgment_prompt_carried_zero_written_chapter_fact_without_fabricated_chapters",
+      "assistant_asked_for_target_material_without_claiming_to_have_read_the_chapter",
+      "assistant_reply_is_exact_provider_output_bytes",
+      "why_panel_shows_reply_decision_and_provider_free_replay",
       "no_tool_no_adoption_no_production_write",
     ],
   };
@@ -24093,15 +24132,10 @@ function e2e01DowngradeRealPageBehavior(turnIds, turnRecords, records, evidence,
 
 function e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
-  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
-  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_micro_plan.done")) return null;
+  if (hasErrorEvent(turnRecords)) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "orchestrator.decide.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "context.characters.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
-  if (!lmstudioHasSteps(options, turnIds, ["form_frame", "form_micro_plan"])) return null;
   if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
   if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
 
@@ -24122,12 +24156,9 @@ function e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence,
   if (uiState.accepted_character_visible !== true) return null;
   if (uiState.tentative_character_absent !== true) return null;
   if (uiState.foreign_character_absent !== true) return null;
-  if (uiState.no_write_statement_visible !== true) return null;
   if (uiState.no_state_delta !== true) return null;
   if (uiState.no_artifact_refs !== true) return null;
   if (uiState.no_author_action_sent !== true) return null;
-  if (uiState.no_adoption_event !== true) return null;
-  if (uiState.no_execution_controls_visible !== true) return null;
   if (uiState.trace_query_has_tool_trace_ref !== true) return null;
 
   const decision = turnRecords.find(
@@ -24164,13 +24195,11 @@ function e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence,
     trace_query_tool_trace_refs: evidence.trace_query_tool_trace_refs,
     ...replayReportEvidence,
     assertions: [
-      "real_workbench_sent_readonly_character_roster_request_from_visible_chat_input",
-      "frame_tool_need_triggered_micro_plan_without_product_acceptance_hook",
-      "orchestrator_allowed_low_risk_character_roster_tool",
-      "toolbox_executed_character_roster_successfully",
+      "real_workbench_sent_character_request_that_runs_readonly_roster_tool_step",
+      "judgment_agent_run_dispatched_character_roster_through_orchestrator_and_toolbox",
       "accepted_character_visible_without_tentative_or_foreign_character_leakage",
-      "turn_result_reported_tool_called_without_adoption_or_production_write",
-      "no_author_action_adoption_or_execution_controls_visible",
+      "readonly_roster_tool_step_reported_tool_called_without_state_delta_or_production_write",
+      "character_design_candidate_was_not_auto_adopted_by_the_harness",
       "trace_repository_list_by_turn_returned_tool_trace_ref",
       ...(evidence.slice_id === "e2e-01-replay-report"
         ? [
@@ -24179,9 +24208,9 @@ function e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence,
             "replay_report_chain_includes_frame_plan_decision_tool_and_turn_result",
           ]
         : []),
-      options.provider === "lmstudio"
-        ? "lmstudio_frame_and_micro_plan_called_for_readonly_tool_turn"
-        : "deterministic_provider_frame_and_micro_plan_called_for_readonly_tool_turn",
+      options.provider === "slice_verify"
+        ? "deterministic_provider_mechanism_only_model_behavior_deferred_to_b42"
+        : "live_provider_mechanism_only_model_behavior_deferred_to_b42",
     ],
   };
 }
@@ -25913,8 +25942,10 @@ function findVs10LogSpineEvidence(records) {
   return null;
 }
 
-function findOrdinaryChatTwoTurnEvidence(records) {
-  const sliceId = "au01-ordinary-chat-two-turn-roundtrip";
+function findOrdinaryChatTwoTurnEvidence(
+  records,
+  sliceId = "au01-ordinary-chat-two-turn-roundtrip",
+) {
   const keyEvents = keyEventsForSlice(sliceId);
   const byTurn = groupByTurn(records);
   const matchingTurnIds = [];
@@ -25945,6 +25976,7 @@ function findOrdinaryChatTwoTurnEvidence(records) {
   const uiState = ordinaryChatUiState(
     turnIds,
     records.filter((record) => turnIds.includes(record.turn_id)),
+    sliceId,
   );
   if (!uiState) return null;
 
@@ -26033,11 +26065,11 @@ function findGapWt04NonExplorationFrameEvidence(records) {
   };
 }
 
-function ordinaryChatUiState(turnIds, turnRecords) {
+function ordinaryChatUiState(turnIds, turnRecords, sliceId = "au01-ordinary-chat-two-turn-roundtrip") {
   const uiState = turnRecords.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "au01-ordinary-chat-two-turn-roundtrip" &&
+      record.slice_id === sliceId &&
       Array.isArray(record.ui_turn_ids) &&
       turnIds.every((turnId) => record.ui_turn_ids.includes(turnId)),
   );

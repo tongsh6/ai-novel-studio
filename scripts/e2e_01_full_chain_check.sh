@@ -164,61 +164,50 @@ function readCommands(tsvPath) {
 // 状态一律由 e2e_status.mjs 按真实证据计算；这里不出现任何「已验收/已测试」。
 const artifactSpecs = [
   {
-    key: "au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio",
+    key: "au01-ordinary-chat-two-turn-roundtrip-tauri",
     rel_path:
-      "artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio/summary.json",
+      "artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri/summary.json",
     expectations: {
       slice_ids: ["au01-ordinary-chat-two-turn-roundtrip"],
-      provider: "lmstudio",
+      provider: "slice_verify",
       surface: "tauri",
-      assertions: ["lmstudio_form_frame_called_per_turn"],
+      assertions: ["two_user_turns_completed", "real_workbench_rendered_two_user_and_two_assistant_turns_in_order", "micro_plan_not_requested", "deterministic_provider_judgment_called_per_turn"],
     },
   },
   {
-    key: "au02-natural-exploration-no-slot-form-tauri-lmstudio",
+    key: "au02-natural-exploration-no-slot-form-tauri",
     rel_path:
-      "artifacts/slice-verify/au02-natural-exploration-no-slot-form-tauri-lmstudio/summary.json",
+      "artifacts/slice-verify/au02-natural-exploration-no-slot-form-tauri/summary.json",
     expectations: {
       slice_ids: ["au02-natural-exploration-no-slot-form"],
-      provider: "lmstudio",
+      provider: "slice_verify",
       surface: "tauri",
-      assertions: [
-        "natural_assistant_reply_visible",
-        "candidate_panel_rendered_from_turn_result",
-        "lmstudio_form_frame_called_for_source_candidate_turn",
-      ],
+      assertions: ["natural_assistant_reply_visible", "candidate_panel_rendered_from_turn_result", "mechanical_slot_form_not_rendered", "deterministic_provider_form_frame_called_for_source_candidate_turn"],
     },
   },
+  // B40 CP3：au03 未在本轮 current-HEAD 复跑；保留 deterministic 证据位（不存在时聚合
+  // 如实记 evidence_missing，不以 2026-06 lmstudio 历史 summary 冒充 current）。
   {
-    key: "au03-current-work-context-ssot-tauri-lmstudio",
-    rel_path:
-      "artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json",
+    key: "au03-current-work-context-ssot-tauri",
+    rel_path: "artifacts/slice-verify/au03-current-work-context-ssot-tauri/summary.json",
     expectations: {
       slice_ids: ["au03-current-work-context-ssot"],
-      provider: "lmstudio",
+      provider: "slice_verify",
       surface: "tauri",
-      assertions: [
-        "context_assembler_attached_current_work_snapshot",
-        "historical_session_transcript_did_not_replace_current_work_facts",
-      ],
+      assertions: ["context_assembler_attached_current_work_snapshot", "historical_session_transcript_did_not_replace_current_work_facts"],
     },
   },
+  // B40 CP3：e2e-01-downgrade-real-page（多步 MicroPlan 降级）在判断纪元静态不可达，
+  // 已正式退役；E4 的替代证据是当前可达的 12 门 allow 路径真实页面 agent-step-regate
+  // （含 author-safe why / 无模型召回断言）。blocked 路径只有 gate_order_closure_test 单测。
   {
-    key: "e2e-01-downgrade-real-page-tauri-lmstudio",
-    rel_path:
-      "artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json",
+    key: "agent-step-regate-tauri",
+    rel_path: "artifacts/slice-verify/agent-step-regate-tauri/summary.json",
     expectations: {
-      slice_ids: ["e2e-01-downgrade-real-page"],
-      provider: "lmstudio",
+      slice_ids: ["agent-step-regate"],
+      provider: "slice_verify",
       surface: "tauri",
-      assertions: [
-        "orchestrator_downgraded_multi_step_plan_at_action_scope",
-        "turn_result_reported_execution_blocked",
-        "no_toolbox_execute_event",
-        "no_author_action_sent",
-        "downgrade_badge_visible_without_generation_badge",
-        "lmstudio_frame_and_micro_plan_called_for_downgrade_turn",
-      ],
+      assertions: ["each_internal_step_recorded_ordered_twelve_gate_results", "author_safe_why_states_replay_does_not_call_provider", "author_safe_why_hides_raw_prompt_and_internal_gate_codes"],
     },
   },
   {
@@ -236,36 +225,23 @@ const artifactSpecs = [
     },
   },
   {
-    key: "e2e-01-readonly-tool-trace-tauri-lmstudio",
-    rel_path:
-      "artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json",
+    key: "e2e-01-readonly-tool-trace-tauri",
+    rel_path: "artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri/summary.json",
     expectations: {
       slice_ids: ["e2e-01-readonly-tool-trace"],
-      provider: "lmstudio",
+      provider: "slice_verify",
       surface: "tauri",
-      assertions: [
-        "orchestrator_allowed_low_risk_character_roster_tool",
-        "toolbox_executed_character_roster_successfully",
-        "turn_result_reported_tool_called_without_adoption_or_production_write",
-        "trace_repository_list_by_turn_returned_tool_trace_ref",
-        "lmstudio_frame_and_micro_plan_called_for_readonly_tool_turn",
-      ],
+      assertions: ["orchestrator_allowed_low_risk_character_roster_tool", "trace_repository_list_by_turn_returned_tool_trace_ref"],
     },
   },
   {
-    key: "e2e-01-replay-report-tauri-lmstudio",
-    rel_path:
-      "artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json",
+    key: "e2e-01-replay-report-tauri",
+    rel_path: "artifacts/slice-verify/e2e-01-replay-report-tauri/summary.json",
     expectations: {
       slice_ids: ["e2e-01-replay-report"],
-      provider: "lmstudio",
+      provider: "slice_verify",
       surface: "tauri",
-      assertions: [
-        "replay_report_built_from_persisted_trace_without_provider_call",
-        "replay_report_answered_vs06_six_required_questions",
-        "replay_report_chain_includes_frame_plan_decision_tool_and_turn_result",
-        "lmstudio_frame_and_micro_plan_called_for_readonly_tool_turn",
-      ],
+      assertions: ["replay_report_answered_vs06_six_required_questions", "replay_report_built_from_persisted_trace_without_provider_call"],
     },
   },
   {
@@ -314,16 +290,13 @@ const artifactSpecs = [
     },
   },
   {
-    key: "au01-garbage-json-recovery-tauri",
-    rel_path: "artifacts/slice-verify/au01-garbage-json-recovery-tauri/summary.json",
+    key: "au01-frame-validation-friendly-error-tauri",
+    rel_path: "artifacts/slice-verify/au01-frame-validation-friendly-error-tauri/summary.json",
     expectations: {
-      slice_ids: ["au01-garbage-json-recovery"],
+      slice_ids: ["au01-frame-validation-friendly-error"],
       provider: "slice_verify",
       surface: "tauri",
-      assertions: [
-        "malformed_provider_json_rendered_friendly_fallback",
-        "channel_remained_connected_after_malformed_json",
-      ],
+      assertions: ["invalid_judgment_action_settled_as_safe_failure", "author_visible_fallback_is_friendly", "internal_validation_reason_not_visible", "following_valid_chat_completed_without_micro_plan"],
     },
   },
   {
@@ -347,7 +320,7 @@ const scenarios = [
     id: "E1",
     name: "普通聊天全链路",
     slices: ["au01-ordinary-chat-two-turn-roundtrip"],
-    artifacts: ["au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio"],
+    artifacts: ["au01-ordinary-chat-two-turn-roundtrip-tauri"],
     surface: "tauri",
     commands: ["mix-e2e-integration"],
   },
@@ -355,7 +328,7 @@ const scenarios = [
     id: "E2",
     name: "探索式创作全链路",
     slices: ["au02-natural-exploration-no-slot-form"],
-    artifacts: ["au02-natural-exploration-no-slot-form-tauri-lmstudio"],
+    artifacts: ["au02-natural-exploration-no-slot-form-tauri"],
     surface: "tauri",
     commands: ["mix-e2e-integration"],
   },
@@ -363,15 +336,15 @@ const scenarios = [
     id: "E3",
     name: "上下文组装",
     slices: ["au03-current-work-context-ssot"],
-    artifacts: ["au03-current-work-context-ssot-tauri-lmstudio"],
+    artifacts: ["au03-current-work-context-ssot-tauri"],
     surface: "tauri",
     commands: ["mix-application-real-loop"],
   },
   {
     id: "E4",
-    name: "Provider 策略降级",
-    slices: ["e2e-01-downgrade-real-page"],
-    artifacts: ["e2e-01-downgrade-real-page-tauri-lmstudio"],
+    name: "Provider/Gate 策略（判断纪元 allow 路径；旧降级场景已退役）",
+    slices: ["agent-step-regate"],
+    artifacts: ["agent-step-regate-tauri"],
     surface: "tauri",
     commands: ["mix-e2e-integration"],
   },
@@ -387,7 +360,7 @@ const scenarios = [
     id: "E6",
     name: "Tool dispatch 与 Trace",
     slices: ["e2e-01-readonly-tool-trace"],
-    artifacts: ["e2e-01-readonly-tool-trace-tauri-lmstudio"],
+    artifacts: ["e2e-01-readonly-tool-trace-tauri"],
     surface: "tauri",
     commands: ["mix-channel-replay-trace", "mix-application-real-loop"],
   },
@@ -414,7 +387,7 @@ const scenarios = [
     id: "E9",
     name: "ReplayReport",
     slices: ["e2e-01-replay-report"],
-    artifacts: ["e2e-01-replay-report-tauri-lmstudio"],
+    artifacts: ["e2e-01-replay-report-tauri"],
     surface: "tauri",
     commands: ["mix-channel-replay-trace"],
   },
@@ -429,9 +402,9 @@ const scenarios = [
   {
     id: "E11",
     name: "异常恢复",
-    slices: ["au01-garbage-json-recovery", "au10-workbench-recovery-provider-timeout"],
+    slices: ["au01-frame-validation-friendly-error", "au10-workbench-recovery-provider-timeout"],
     artifacts: [
-      "au01-garbage-json-recovery-tauri",
+      "au01-frame-validation-friendly-error-tauri",
       "au10-workbench-recovery-provider-timeout-tauri",
     ],
     surface: "tauri",
@@ -442,8 +415,8 @@ const scenarios = [
     name: "真实两轮回路",
     slices: ["au01-ordinary-chat-two-turn-roundtrip", "au03-current-work-context-ssot"],
     artifacts: [
-      "au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio",
-      "au03-current-work-context-ssot-tauri-lmstudio",
+      "au01-ordinary-chat-two-turn-roundtrip-tauri",
+      "au03-current-work-context-ssot-tauri",
     ],
     surface: "tauri",
     commands: [],

@@ -83,6 +83,27 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// B40/B41 hotfix：`git rev-parse --short HEAD` 写出的短哈希（≥7 位）是同一 commit 的
+// 合法缩写；此前只做字符串全等导致短哈希证据一律 stale。完整 hash 仍优先，短哈希仅在
+// 是当前 HEAD 前缀时视为同一 commit（与 git 自身缩写规则一致，不做模糊猜测）。
+const MIN_ABBREV_HEAD_LENGTH = 7;
+
+/**
+ * 判断证据记录的 commit 标识是否与当前 HEAD 指向同一 commit。
+ * @param {string|null} recordHead
+ * @param {string|null} head
+ * @returns {boolean}
+ */
+export function commitMatches(recordHead, head) {
+  if (!recordHead || !head) return false;
+  if (recordHead === head) return true;
+  return (
+    recordHead.length >= MIN_ABBREV_HEAD_LENGTH &&
+    recordHead.length < head.length &&
+    head.startsWith(recordHead)
+  );
+}
+
 /**
  * freshness 判定：只依赖证据记录自身携带的版本标记与当前 HEAD。
  * @returns {{fresh: boolean, reason: string, git_head: string|null, source: string|null}}
@@ -101,7 +122,7 @@ export function checkFreshness(record, currentHead) {
     (isObject(record.freshness) && record.freshness.status === "current");
 
   if (currentMarker) {
-    if (recordHead && head && recordHead !== head) {
+    if (recordHead && head && !commitMatches(recordHead, head)) {
       return {
         fresh: false,
         reason: `证据 current 标记与 git_head 矛盾（${recordHead} != 当前 HEAD ${head}）`,
@@ -135,7 +156,7 @@ export function checkFreshness(record, currentHead) {
       source: "git_head",
     };
   }
-  if (recordHead !== head) {
+  if (!commitMatches(recordHead, head)) {
     return {
       fresh: false,
       reason: `证据 git_head ${recordHead} 与当前 HEAD ${head} 不一致（历史证据）`,
@@ -145,7 +166,10 @@ export function checkFreshness(record, currentHead) {
   }
   return {
     fresh: true,
-    reason: "证据 git_head 与当前 HEAD 一致",
+    reason:
+      recordHead === head
+        ? "证据 git_head 与当前 HEAD 一致"
+        : `证据 git_head ${recordHead} 是当前 HEAD 的短哈希（同一 commit）`,
     git_head: recordHead,
     source: "git_head",
   };

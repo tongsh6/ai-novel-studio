@@ -1,6 +1,6 @@
 # AU07 File-Level Closure
 
-- 状态：file-level deliverable（P0 replay producers closed；old-turn scoped query / partial replay UI / gate reason why / scope negative matrix closed；P1 follow-up registered）
+- 状态：file-level deliverable（P0 replay producers closed；old-turn scoped query / partial replay UI / scope negative matrix closed；**2026-10-27 B40 CP2 复核**：`au07-gate-reason-why` 正式退役、`au07-tooltrace-registry-redacted-io` 保持 blocked（判断纪元 AgentRun step trace 未持久化 + native driver 未实现）；ToolTrace 实现仍在，证据待重锚；P1 follow-up registered）
 - 类型：Acceptance / Trace Replay / Tauri Slice
 - 启动日期：2026-06-21
 - 来源：`docs/design/acceptance/author/AU-07-trace-and-replay.md`、`docs/design/acceptance/SCENARIO-BLUEPRINT.md`、`tasks/slices/AU07-trace-replay-integrity.md`、`tasks/slices/AU07-state-trace-adoption-replay.md`、`tasks/slices/AU07-behavior-trace-terminal-replay.md`
@@ -131,3 +131,13 @@
 - 2026-06-22 — 继续按依赖关系提前处理 `au07-partial-replay-ui`，关闭 SC-AU07-C2 不完整 trace 诚实 partial 作者提示。外部 harness 只在测试环境写入同 scope 不完整 trace，真实工作台 reload 后从旧 turn “为什么”入口触发产品 API，UI 显示 partial warning、missing refs 和 no-provider 文案，且 no-provider/no-tool/no-write/no raw leak。AU-07 计数调整为 11/16 已验收、0/16 已测试、5/16 部分实现；developer/multi-type、ToolTrace registry、负向权限矩阵和 reason catalog 继续登记为 P1 follow-up。
 - 2026-06-22 — 按依赖关系继续处理 `au07-gate-reason-why`，关闭 SC-AU07-A2 `action_scope` 降级为什么解释。首次真实验收暴露 persisted replay summary 丢失 `first_blocking_gate`，已在 `TraceReplayService` 中从白名单 no-write reason 恢复 gate 字段，再由 `traceSummaryView` 映射为作者安全中文。`quality_accept au07-gate-reason-why --surface tauri --provider lmstudio` 通过，AU-07 计数调整为 12/16 已验收、0/16 已测试、4/16 部分实现；完整 reason catalog、developer 双视图、多类型 UI 和 ToolTrace registry 继续登记为 P1 follow-up。
 - 2026-06-22 — 继续按依赖关系处理 `au07-trace-query-scope-negative-matrix`，关闭 SC-AU07-E3 scoped negative matrix。真实 Tauri 工作台建立普通 turn 并 reload 恢复旧消息后，外部 harness 验证原 scope replay 200，foreign work/source session、source work/foreign session、same-work other session/source turn、missing turn 均 404，且负向响应不含 `trace_summary` / `replay_report`、错误不进 UI、no-provider/no-tool/no-write。AU-07 计数调整为 13/16 已验收、0/16 已测试、3/16 部分实现；developer 双视图、多类型 UI、ToolTrace registry 和 reason catalog 继续登记为 P1 follow-up，旧 workspace_id 迁移细化登记为 P2。
+
+## 8. B40 CP2 复核记录（2026-10-27）
+
+- **实现存在**：`TraceWriter.record_with_tool/7` 仍写 registry snapshot/contract refs/grant summary/redacted request/result summaries；`ReplayService.build_report/1` 仍 no-provider。
+- **证据重锚结论**：`au07-tooltrace-registry-redacted-io` **blocked**，两个独立原因：
+  1. 判断纪元 AgentRun 内部只读步（如 `character_design_with_context_v1` 的 `character_roster` 步）会广播中间步 `turn_result` 并产生 ToolTrace（`TurnExecutionService.execute`），但 flow 的 `do_execute_tool_step` 丢弃返回的 trace（`character_design_with_context.ex:300-345`），**step DecisionTrace 未持久化到 TraceRepository**；本轮真实 run 按 step turn_id 查询 `TraceRepository.list_by_turn` 返回 0 条。因此「ToolTrace 持久回查 + ReplayReport」无当前可达路径（旧 `au07-tooltrace-*-lmstudio` 证据为帧纪元，不可复用）。
+  2. native 系统级驱动未实现（`TAURI_NATIVE_SYSTEM_DRIVER` allowlist 只含 B26/B28/B29/B30/B31/P1），browser-surface 不足以记 active（Lead 2026-10-27 surface 裁决）。
+- **已保留的可复用重锚**：driver 已改为「先看角色阵容 → 设计反派」真实请求 + AgentRun 内部只读 `character_roster` 步；manifest/verifier 断言按「只读工具步 + registry/redaction/no-provider/no production write」重写；失败证据只读保留在 `artifacts/slice-verify/au07-tooltrace-registry-redacted-io-tauri/`（`trace-query.json` count=0）。
+- **退役**：`au07-gate-reason-why` 正式退役（action_scope 降级在判断纪元无生产者；why 持久 summary 无 gate-blocking 文本来源），替代证据=`agent-step-regate`（12 门 allow lineage + author-safe why/无模型召回，挂在该 driver/verifier 上）+ `gate_order_closure_test`（blocked 路径单测）。
+- **不重建 ReplayService / 不恢复旧对象**：本任务未改 ReplayService/ToolTrace 生产代码。

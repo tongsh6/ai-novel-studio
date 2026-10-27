@@ -17,10 +17,8 @@
 | `b29-existing-character-role-revision.yml` | B29 已有角色叙事身份修订（**active/nightly**：真实输入唯一别名指定主角→revise_character_profile+character_ref→候选 ENSEMBLE_POV→PROTAGONIST→保存→同 character_id 原子更新/角色数不变/其它主角保留/正文 hash 不变/receipt committed_changes；同名 ask 零写入；讨论零候选；刷新 roster/「谁是主角」多主角全列；放弃/跨作品/重复采纳负例） |
 | `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-frame-validation-friendly-error.yml` | frame 校验失败时作者友好提示 |
-| `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
 | `au01-ordinary-chat-two-turn-roundtrip.yml` | 普通聊天两轮真实工作台闭环 |
 | `au01-turnresult-recorder-ui-consistency.yml` | TurnResult、recorder 与恢复 UI 一致 |
-| `gap-wt04-non-exploration-frame-badges.yml` | `question_answer` / `meta_discussion` 的作者可见语义徽标真实页面复验 |
 | `ua01-agent-bounded-roster-to-character-design.yml` | 复合角色任务启动 bounded AgentRun 并产出待采纳角色草稿 |
 | `agent-bounded-roster-to-character-design.yml` | AgentRun 角色阵容 Observation 传递到角色设计 |
 | `agent-step-regate.yml` | 每个 AgentStep 重新经过 Orchestrator gate |
@@ -50,7 +48,6 @@
 | `agent-provider-execution-activity-restored.yml` | ProviderExecution activity 在 session 恢复时保持 AgentRun summary-only，作者展开同一 assistant 工作详情后通过 scoped AgentRun activity API 异步恢复 developer telemetry 与 ProviderRun usage/event/output summary；断言 ProviderRun 事件序列、输出摘要和 no-provider-recall 边界在展开后可见（CP6，active/nightly） |
 | `agent-session-transcript-lazy-page.yml` | 长 session 恢复时 transcript 首屏只取最新页，作者点击“加载更早对话”后按 cursor 异步取回旧消息；旧 assistant 的“工作详情”仍通过 scoped AgentRun activity API 原地展开 ProviderRun replay，且加载旧页/展开详情都不重新调用 provider（CP6，active/nightly） |
 | `agent-provider-execution-error-author-safe.yml` | 普通对话 ProviderExecution error facts 投影为 developer telemetry（CP6，nightly active） |
-| `agent-provider-streaming-progress.yml` | Provider execution progress 进入 AgentRun author-safe 事件流（CP6 历史场景名；**blocked**：依赖的 `provider_progress_v1` profile 已退役，待 re-anchor；事件类型 developer telemetry 由 `agent-provider-execution-stream-unified` / `-error-author-safe` 覆盖） |
 | `agent-provider-cancel-honest-boundary.yml` | Provider cancel 通过统一 ProviderExecution 取消（CP6，nightly active） |
 | `agent-readonly-batch-profile.yml` | AgentRun 只读 batch profile 可并行读取且不写作品事实（CP6，nightly active） |
 | `agent-prose-drafting-with-quality.yml` | AgentRun 正文草稿 Profile 复用正文质量复核链路 |
@@ -80,7 +77,7 @@
 | `agent-character-evolution-with-context.yml` | AgentRun 角色演化 Profile 生成待采纳角色记忆草稿 |
 | `au02-candidate-adoption-bridge.yml` | 候选方向选择与采纳边界 |
 | `au02-candidate-continuation.yml` | 候选方向继续讨论 |
-| `au02-candidate-fallback-ui.yml` | 候选坏格式 fallback 仍渲染可用候选卡 |
+| `au02-candidate-fallback-ui.yml` | 候选坏格式 fallback 仍渲染可用候选卡（**blocked 2026-10-27**：判断纪元候选帧只能由 propose_creative_directions 产生；坏/空候选在协议层安全失败或落为 casual_reply，到不了应用 fallback；见 `../known-gaps.md`） |
 | `au02-candidate-multiturn-context.yml` | 候选方向继续讨论后的多轮上下文保持 |
 | `au02-freeform-followup-after-candidate.yml` | 候选卡出现后仍可自由追问 |
 | `au02-natural-exploration-no-slot-form.yml` | 模糊想法自然探索且不弹机械表单 |
@@ -93,7 +90,6 @@
 | `au03-session-history-readonly.yml` | 历史会话只读回看 |
 | `au03-session-new-active.yml` | 新建会话成为当前 ACTIVE，原 ACTIVE 转为只读历史 |
 | `au07-behavior-trace-terminal-replay.yml` | Behavior terminal close/resolution refs 可回放 |
-| `au07-gate-reason-why.yml` | action_scope 降级为什么解释 |
 | `au07-partial-replay-ui.yml` | 旧 turn partial replay 诚实提示 |
 | `au07-persisted-trace-query.yml` | 旧 turn 为什么入口通过持久 trace scoped replay 回查 |
 | `au07-trace-query-scope-negative-matrix.yml` | trace 查询跨作品/会话负向矩阵 |
@@ -128,15 +124,14 @@
 | `au05-conflict-cross-work-recovery.yml` | 跨作品冲突恢复 |
 | `au05-discard-author-action.yml` | 放弃待采纳草稿不写入作品事实 |
 | `au05-stale-conflict-cross-work-freshness.yml` | 过期候选跨作品新鲜度拒绝 |
-| `au10-micro-plan-entry.yml` | 微计划入口 |
 | `au10-workbench-matrix-layout.yml` | 工作台 1280x800 基线矩阵 |
 | `au10-workbench-recovery-cancel-waiting.yml` | 取消确认等待后工作台可继续 |
 | `au10-workbench-recovery-disconnect-timeout.yml` | Provider 不可达后工作台可恢复 |
 | `au10-workbench-recovery-provider-timeout.yml` | Provider 超时后工作台可恢复 |
 | `au10-workbench-recovery-reconnect.yml` | WebSocket 断线重连后工作台可继续 |
 | `au10-workbench-recovery-taskstate.yml` | 工作台 task_state 生命周期可见 |
-| `au11-quality-diagnosis-message-envelope.yml` | AI 引导式创作质量诊断 message envelope（**blocked**：旧 envelope 生产链已退役，re-anchor 触发 = B27/G7 统一语义落地后按新 trace 字段重写） |
-| `au11-missing-workstate-policy.yml` | AI 引导式创作缺 WorkState 不编造（**blocked**：同上，旧 envelope 生产链已退役） |
+| `au11-quality-diagnosis-message-envelope.yml` | AI 引导式创作质量诊断（**blocked：B40 CP1 重锚完成但 native 系统级 PASS 未闭环**；browser-surface 机制预验通过，真实模型语义归 B42，见 known-gaps） |
+| `au11-missing-workstate-policy.yml` | AI 引导式创作缺 WorkState 不编造（**blocked：B40 CP1 重锚完成但 native PASS 未闭环**；browser-surface 机制预验通过，真实模型语义归 B42） |
 | `au12-work-profile-overview.yml` | 作品档案立项概览只读视图 |
 | `au12-profile-read-failure-degrade.yml` | 作品档案读取失败诚实降级与重试恢复 |
 | `au12-correction-intent-roundtrip.yml` | 作品档案立项修订意图回到对话与采纳边界 |
@@ -146,7 +141,6 @@
 | `au14-assumption-confirm-roundtrip.yml` | 盘点激活暂定主角，作者确认就地转正为唯一已确认角色 |
 | `au14-assumption-provisional-injection.yml` | 激活假定计入主角在场判定并带【暂定】标注，否决后缺席守则回归 |
 | `dogfood-runner.yml` | P1 长篇狗粮运行器 |
-| `e2e-01-downgrade-real-page.yml` | E2E-01 真实页面多步 MicroPlan 降级（**blocked 2026-10-23**：判断纪元后无 multi-step plan 生产者 + 退役事件；见 scenarios.yml blocked_reason） |
 | `e2e-01-full-chain.yml` | E2E-01 端到端全链路聚合验收 |
 | `e2e-01-readonly-tool-trace.yml` | E2E-01 只读工具调度与 trace 回查 |
 | `e2e-01-replay-report.yml` | E2E-01 ReplayReport 六问结构化回放 |
@@ -246,3 +240,16 @@
 ## B29 页面场景
 
 - [b29-existing-character-role-revision.yml](b29-existing-character-role-revision.yml)（**已注册 active/nightly**）：真实 Tauri 页面验证已有角色 narrative_role 修订闭环——seed 沈砚 ENSEMBLE_POV/别名老沈、顾青 PROTAGONIST、同名沈砚 MINOR/别名小沈、阿鸢 SUPPORTING + accepted 正文 → 「指定老沈为主角」→ judgment `revise_character_profile` + character_ref → 候选卡对象与 old→new（ENSEMBLE_POV→PROTAGONIST）→「保存到作品」→ 同 character_id 原子更新（receipt committed_changes/character_ref/old value/base+current fingerprint；角色数/ID/其它角色/正文 hash/记忆不变；顾青 PROTAGONIST 保留）→ 同名「指定沈砚为主角」ask_author 列候选零写入 → 讨论 reply 零候选 → 刷新/重开档案 roster 与「现在谁是主角？」返回「当前作品有 2 位主角（群像）：沈砚、顾青（以角色主档案为准）」→ 放弃候选原值不变、重复采纳幂等、跨作品零写入。driver `driveB29ExistingCharacterRoleRevision`，证据 `artifacts/slice-verify/b29-existing-character-role-revision-tauri/`（23 checks）。**边界**：确定性 provider 产品链；真实模型原话/改述与同名/讨论澄清由 CP4 `strata/iq3_s` 单槽 model_behavior 证据分开报告，不替代本 PASS。
+
+## Retired（B40 判断纪元验收重锚，2026-10-27）
+
+以下对象经 CP0 裁决正式退役（manifest 与 registry 条目已移除；历史失败证据只读保留在 `artifacts/`）：
+
+| 退役对象 | 退役依据 | 替代证据 |
+|---|---|---|
+| `e2e-01-downgrade-real-page` | 判断纪元无 multi-step `%MicroPlan{}` 生产者，`action_scope` 降级静态不可达 | `agent-step-regate`（12 门 allow lineage + author-safe why，真实 Tauri）+ `gate_order_closure_test`（blocked 路径单测）；见 `../known-gaps.md` |
+| `au07-gate-reason-why` | 同上；持久 replay summary 无 gate-blocking why 文本来源 | 同上 |
+| `gap-wt04-non-exploration-frame-badges` | B26 起 `JudgmentProtocol.frame_type` 只产 3 值，`question_answer`/`meta_discussion` 无生产者 | `au01-ordinary-chat-two-turn-roundtrip` + `au01-turnresult-recorder-ui-consistency`（current-HEAD 复跑） |
+| `agent-provider-streaming-progress` | `provider_progress_v1` profile/计划目录/预算已退役（B27 CP3c/F10） | `agent-provider-execution-stream-unified`、`agent-provider-execution-error-author-safe` |
+| `au10-micro-plan-entry` | F14 legacy MicroPlan 入口语义已退役 | `pr-smoke-core-reply`（新增 pr-smoke 当前链）+ `p1-chapter-plan-minimum` / `judgment-plan-multi-step` 当前判断链计划证据 |
+| `au01-garbage-json-recovery` | 判断纪元 provider 契约是「自然语言 content + 可选原生工具调用」，不再要求可解析的 JSON 结构；「乱码 JSON 降级」无当前生产者。协议损坏路径由 `au01-frame-validation-friendly-error`（非法 judgment action → 有界纠正 → S7 友好 fallback）与 `agent-provider-execution-error-author-safe` 覆盖 | `au01-frame-validation-friendly-error`（browser-surface 当前链复跑） |

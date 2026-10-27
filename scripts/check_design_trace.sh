@@ -65,7 +65,7 @@ if [[ ! -d "$COMPONENT_DIR" ]]; then
 fi
 
 if [[ ! -f "$PEN_FILE" ]]; then
-  warn "找不到 $PEN_FILE（原型文件），跳 frame 验证"
+  warn "找不到 ${PEN_FILE}（原型文件），跳 frame 验证"
   PEN_AVAILABLE=false
 else
   PEN_AVAILABLE=true

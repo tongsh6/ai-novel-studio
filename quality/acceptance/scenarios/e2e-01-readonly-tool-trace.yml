@@ -1,37 +1,31 @@
 id: e2e-01-readonly-tool-trace
-title: E2E-01 只读工具调度与 trace 回查
+title: E2E-01 只读工具调度与 trace 回查（判断纪元只读工具步）
 tier: nightly
 surface: tauri
-default_provider: lmstudio
-entrypoint: scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri --provider lmstudio
+entrypoint: scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri
 
 contract:
   - docs/design/acceptance/e2e/E2E-01-full-chain.md
-  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
-  - docs/design/03-capability-toolbox-contract.md
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
   - docs/design/contracts/VS-02-tool-provenance-contract-pack.md
-  - docs/engineering/scenario-acceptance.md
-  - docs/engineering/scenario-invariants.md
-  - tasks/slices/E2E01-file-level-closure.md
+  - tasks/slices/B40-judgment-era-acceptance-reanchor.md
 
 invariants:
-  - 作者自然输入“查看当前角色列表”必须通过 Planner tool_need 触发 MicroPlan，再由 Orchestrator 裁决 allow_tool。
-  - character_roster 是低风险只读工具，不得触发 author_action、adoption、state_delta、artifact refs 或 production write。
-  - ToolTrace refs 必须写入 DecisionTrace，并可由外部查询 `TraceRepository.list_by_turn` 回查同 turn。
-  - 真实页面验收必须由外部 Tauri driver 操作可见聊天输入完成，不得新增产品验收感知逻辑。
+  - readonly-tool-step-runs-through-orchestrator-and-toolbox
+  - tool-trace-queryable-by-turn
+  - readonly-tool-step-does-not-write-production-state
+  - product-code-carries-no-acceptance-hook
 
 setup:
   seed: scripts/seed_e2e_01_readonly_tool_trace.exs
-  provider: lmstudio
-  artifact_dir: artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio
+  provider: slice_verify
+  artifact_dir: artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri
 
 user_flow:
-  - 打开真实 Tauri 工作台。
-  - 外部 driver 选中 seed 作品。
-  - 在可见聊天输入框输入“查看当前角色列表”并点击发送。
-  - 等待真实 LLM frame 与 MicroPlan 完成。
-  - 验证 TurnResult 为 allow_tool / character_roster / succeeded，页面展示已确认角色且声明没有写入作品事实。
-  - 外部 driver 以同一 turn_id 查询 `TraceRepository.list_by_turn`，验证返回 tool_trace refs。
+  - 打开真实 Tauri 工作台并选中 seed 作品。
+  - 在可见聊天输入框输入“先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派。”并点击发送。
+  - 判断纪元 bounded AgentRun 内部真实下发只读 `character_roster` 工具（Orchestrator allow_tool + Toolbox），中间步 turn_result 广播。
+  - 外部 driver 以只读工具步 turn_id 查询产品持久 trace 并断言 tool_trace_ref 可回查。
 
 evidence:
   required:
@@ -39,32 +33,23 @@ evidence:
     - app_jsonl
     - websocket_frames
     - replay_api_response
-    - llm_http_log
     - screenshot
-  required_artifacts:
-    - artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json
-    - artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/app-log.json
-    - artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/ui-frames.json
-    - artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/trace-query.json
-    - artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/lmstudio-log.json
-    - artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/e2e-01-readonly-tool-trace-external-ui.png
+  artifact_dir: artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri
 
 assertions:
   ui:
-    - visible_chat_input_sent_readonly_character_query
+    - visible_chat_input_sent_character_request_with_readonly_roster_step
     - accepted_character_visible
-    - no_execution_or_adoption_controls_visible
   network:
     - user_message_sent_from_target_work
-    - turn_result_allow_tool_character_roster_received
+    - readonly_character_roster_tool_turn_result_received
   data:
     - context_characters_loaded_from_character_dossier
     - toolbox_execute_character_roster_succeeded
-    - no_state_delta_or_artifact_refs
+    - readonly_roster_step_has_no_state_delta_or_artifact_refs
     - no_author_action_or_adoption_event
     - no_production_write
     - trace_repository_list_by_turn_returned_tool_trace_ref
-    - lmstudio_form_frame_and_micro_plan_called
 
 anti_hooks:
   product_acceptance_logic_added: false

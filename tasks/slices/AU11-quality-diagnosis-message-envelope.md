@@ -1,6 +1,6 @@
 # AU11 Quality Diagnosis Message Envelope / 质量诊断引导 Message 契约
 
-- 状态：历史 checkpoint closed；当前为旧 Envelope 路线退役，重锚归 [B40-judgment-era-acceptance-reanchor](B40-judgment-era-acceptance-reanchor.md)
+- 状态：**blocked（B40 CP1 重锚完成，native PASS 未闭环；2026-10-27 Lead surface 裁决）**：旧 Envelope 路线已退役，断言已按判断纪元普通回复来源/覆盖重锚，browser-surface 机制预验通过；但 native 系统级驱动未实现，不得用 browser 证据改 active（见 B40 §8.4）。
 
 > 本文件后续契约、场景和证明保留为历史设计与证据，不作为当前实现指南。当前判断与任务语义以 B27 `AuthoringTask` / `AuthoringSemantics`、VS-00D §11.4/§11.4.2 和 B40 的当前重锚为准，不得按旧 envelope 重新实现。
 - 类型：AI-Guided Authoring Slice + Trace Contract Slice
@@ -63,3 +63,10 @@
 
 - 2026-06-18 — `AU09-AU03-session-memory-layering` checkpoint closed 后，按 `SCENARIO-BLUEPRINT.md` §4 / §7 转向 P0 `AI 引导式创作 message 闭环`；首个 checkpoint 选 SC-AU11-01 质量诊断，因为它能最小证明 VS-00D 三层 message contract 从文档进入真实工作台 trace。
 - 2026-06-18 — `AU11-quality-diagnosis-message-envelope` checkpoint closed。实现 `NovelApplication.AIMessageEnvelope` 过渡 builder，Planner prompt 与 `DialogueFrame.evidence_summary` 共用同一三层 envelope，TraceWriter 投影到 `trace_summary.ai_message_envelope`；前端 why 面板展示质量诊断、质量门、作品层来源/缺失摘要。外部 Tauri 证据：`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json`；质量入口 `quality_accept` 通过。此结论只覆盖 SC-AU11-01，不声明 AU11 complete。
+
+## 7. B40 CP1 重锚记录（2026-10-27）
+
+- 旧 `AIMessageEnvelope`/`guidance_mode`/`planner.form_frame` 断言已全部退役；当前契约断言：`frame_type=casual_reply`、`decision_type=reply_only`、`no_tool_reason=no_tool_requested`、`trace_summary.reply_record`（response_kind/task_policy_version=b27-task-v2/protocol_version=b26-tools-v1/supplied_context_refs/raw_content 字节=assistant 文本）、`context_refs`（memory+current_work）、判断 prompt 真实作品事实（已写 1 章）、author-safe why（决定+不会重新调用模型+无 raw）。
+- 证据：`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json`（`surface=browser / driver=headless-chromium`，browser-surface 机制预验）；机制预验时 verdict 曾 pass，随后按 Lead surface 裁决改写为 `status=skipped / reason=native_system_driver_missing`（旧 pass 归档 `verdict-history/`，不以 browser 证据改 active）；registry 保持 blocked。
+- 真实模型语义（模型是否真的给出质量取舍）归 B42 release-real-llm；本场景不声明模型行为 PASS。
+- seed 追加第 1 章已采纳正文，使判断 prompt 有真实「已写 1 章」事实（旧 envelope 的 chapter_lines 读取路径已退役）。

@@ -2058,10 +2058,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  # B40 CP1（判断纪元重锚）：旧 envelope 的「缺章节摘要」标记已随帧纪元退役。
+  # 质量诊断是否缺当前章材料，只按真实判断 prompt 的作品事实口径判定：
+  # 「作品事实」段由生产 judgment_work_facts_section/1 渲染，已写正文为 0 时
+  # 明确写「正文统计：N 章中已写 0 章」。此处只读真实 prompt 事实，不识别
+  # slice id / 环境变量 / 验收开关；这是确定性替身对当前 prompt 语义的对齐。
   defp quality_context_missing_prompt?(prompt) do
-    prompt
-    |> prompt_text()
-    |> String.contains?("缺章节摘要")
+    text = prompt_text(prompt)
+
+    String.contains?(text, "## 当前作品上下文") and
+      (String.contains?(text, "正文统计：0 章中已写 0 章") or
+         (String.contains?(text, "正文统计：") and String.contains?(text, "已写 0 章")))
   end
 
   defp context_provided?(prompt) do

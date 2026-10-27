@@ -55,7 +55,7 @@ assertions:
     - execution or confirmation card is not visible
   network:
     - source user_message uses generate_micro_plan false
-    - planner.form_frame.done has frame_type creative_exploration
+    - judgment.decided.done records frame_type creative_exploration
     - author_action is not sent
     - action_result is not received
   data:
@@ -65,7 +65,7 @@ assertions:
     - candidate_selected remains false
     - candidate_adopted remains false
     - production_write_performed remains false
-    - real LM Studio mode records a form_frame request for the source turn
+    - deterministic provider runs the judgment reply chain (real-model semantics belong to B42 release-real-llm)
     - real LM Studio mode verifies Chinese natural reply, no JSON/code-shaped user-visible text, and semantically relevant candidate directions
 
 anti_hooks:

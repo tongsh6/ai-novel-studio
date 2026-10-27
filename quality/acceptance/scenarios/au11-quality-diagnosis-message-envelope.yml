@@ -1,5 +1,5 @@
 id: au11-quality-diagnosis-message-envelope
-title: AI 引导式创作质量诊断 Message Envelope
+title: AI 引导式创作质量诊断（判断纪元普通回复来源/覆盖）
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --surface tauri
@@ -7,11 +7,15 @@ entrypoint: scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --
 contract:
   - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md
   - docs/design/acceptance/author/AU-11-ai-guided-authoring.md
-  - tasks/slices/AU11-quality-diagnosis-message-envelope.md
+  - docs/design/01-user-llm-workbench-interaction-model.md
+
+execution_source:
+  - tasks/slices/B40-judgment-era-acceptance-reanchor.md
 
 invariants:
-  - vs00d-three-message-layers-reconstructable
-  - work-state-evidence-or-explicit-missing
+  - quality-diagnosis-reply-is-provider-output-bound
+  - quality-diagnosis-records-authoring-task-policy-and-protocol-versions
+  - quality-diagnosis-records-context-coverage-current-work
   - quality-diagnosis-does-not-write-production-state
 
 setup:
@@ -24,7 +28,7 @@ user_flow:
   - click: 发送
   - wait_for: turn result visible
   - click: 为什么
-  - wait_for: quality diagnosis trace details visible
+  - wait_for: persisted trace replay visible
 
 evidence:
   required:
@@ -37,21 +41,22 @@ evidence:
 
 assertions:
   ui:
-    - assistant gives concrete tradeoffs about conflict, cost, reader payoff, and agency
-    - why panel shows quality diagnosis and quality focus
+    - assistant gives concrete tradeoffs about cost and reader payoff
+    - why panel shows the reply decision and states replay does not call the model again
     - why panel does not expose raw prompt, provider debug, trace id, or context id
   network:
-    - user_message sent from real workbench
-    - turn_result includes ai_message_envelope trace summary
+    - user_message sent from real workbench as ordinary chat without plan request
+    - turn_result frame_type is casual_reply and decision_type is reply_only
+    - turn_result trace records reply_record response_kind plain_text with task policy and protocol versions
+    - turn_result trace records supplied context refs and current_work context source
   data:
-    - NovelLayer records quality gates
-    - WorkStateLayer references current work and chapter summary or explicit missing
-    - TurnGuidanceLayer records guidance_mode=quality
+    - judgment.decided.done records action reply and frame_type question_answer
+    - assistant reply bytes equal the provider output bytes recorded in reply_record
     - no tool_result, no adoption_state, no production write
+    - judgment prompt carries the current work facts with at least one written chapter
 
 anti_hooks:
   product_acceptance_logic_added: false
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
-

@@ -1,0 +1,58 @@
+id: pr-smoke-core-reply
+title: PR smoke 核心回复链（判断纪元普通聊天两轮）
+tier: pr-smoke
+surface: tauri
+entrypoint: scripts/quality_accept.sh pr-smoke-core-reply --surface tauri
+
+contract:
+  - docs/design/01-user-llm-workbench-interaction-model.md
+  - docs/design/acceptance/author/AU-01-chat.md
+  - tasks/slices/B40-judgment-era-acceptance-reanchor.md
+
+invariants:
+  - ordinary-chat-two-turn-visible-roundtrip
+  - no-micro-plan-request-or-execution
+  - no-action-candidate-or-adoption-cards
+
+execution_source:
+  - tasks/slices/B40-judgment-era-acceptance-reanchor.md
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 我想写一个雨夜开场的悬疑故事，先聊聊气质。
+  - click: 发送
+  - wait_for: assistant reply visible
+  - input: 这种雨夜气质会让读者产生什么第一印象？
+  - click: 发送
+  - wait_for: second assistant reply visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/pr-smoke-core-reply-tauri
+
+assertions:
+  ui:
+    - two user messages and two assistant replies are visible in order
+    - input remains usable for the second turn
+    - no action, candidate, adoption, or confirmation card appears
+  network:
+    - each user_message is sent from the real workbench with generate_micro_plan=false
+    - each turn receives a turn_result
+  data:
+    - each turn records judgment.decided.done and completes the judgment-era reply chain
+    - no retired planner plan event and no action/adoption event is recorded
+    - deterministic provider drives the reply chain (real-model semantics belong to B42 release-real-llm)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

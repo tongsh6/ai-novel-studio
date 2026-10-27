@@ -2128,7 +2128,13 @@ async function driveAu01EmptyMessageGuard(page) {
   ).length;
 
   await page.locator(chatInputSelector).fill(blankMessage);
-  await page.getByRole("button", { name: /^发送$/ }).click();
+  // B40 CP3：当前真实产品对空输入禁用发送按钮（作者可见语义），driver 按真实
+  // 可提交性尝试，不把「按钮不可点」当作产品缺陷；无论如何断言没有发出 user_message。
+  const blankSendButton = page.getByRole("button", { name: /^发送$/ });
+  const blankSendButtonDisabled = await blankSendButton.isDisabled();
+  if (!blankSendButtonDisabled) {
+    await blankSendButton.click();
+  }
   await sleep(700);
 
   const userMessageCountAfterBlank = await page.locator('[class*="userMsg"]').count();
@@ -2176,6 +2182,7 @@ async function driveAu01EmptyMessageGuard(page) {
       turn_ids: [recoveryTurn.turnResult.turn_id],
       recovery_turn_id: recoveryTurn.turnResult.turn_id,
       blank_attempted: true,
+      blank_send_button_disabled: blankSendButtonDisabled,
       blank_input_value_after_click: blankInputValueAfterClick,
       blank_user_message_frame_count: blankUserMessageFrameCount,
       message_count_unchanged_after_blank:
@@ -2279,7 +2286,7 @@ async function driveAu01GarbageJsonRecovery(page) {
       ),
       recovery_assistant_is_fallback: String(
         recoveryTurn.turnResult.assistant_message?.text ?? "",
-      ).includes("格式不符合"),
+      ).includes("没有通过校验"),
     },
   ];
 }
@@ -2309,9 +2316,15 @@ async function driveAu01FrameValidationFriendlyError(page) {
   const fallbackText = invalidTurn.turnResult.assistant_message?.text ?? "";
   // 判断纪元（ADR-0025）：结构完整但 action 非法 → 单调用有界纠正仍坏 → S7 安全失败终局，
   // 作者可见文案为格式契约违约口径（与 garbage 场景同收口，坏法不同、终局一致）。
+  // B40 CP3：判断纪元 S7 安全终局文案为「模型返回的操作或来源没有通过校验，纠正后仍
+  // 不符合约束…可以调整请求后重试」；断言保留产品意图（友好可读、可重试、不泄露内部
+  // 原因/原始 payload），不锁死具体文案版本。
   assert(
-    fallbackText.includes("格式不符合") && fallbackText.includes("请重试"),
-    `Frame validation failure did not render the generic friendly fallback: ${fallbackText}`,
+    fallbackText.trim().length > 0 &&
+      fallbackText.includes("重试") &&
+      !fallbackText.includes("not valid json") &&
+      !fallbackText.includes("{{{"),
+    `Frame validation failure did not render a friendly retryable fallback: ${fallbackText}`,
   );
 
   const serializedTurnResult = JSON.stringify(invalidTurn.turnResult);
@@ -2396,7 +2409,7 @@ async function driveAu01FrameValidationFriendlyError(page) {
       ),
       recovery_assistant_is_fallback: String(
         recoveryTurn.turnResult.assistant_message?.text ?? "",
-      ).includes("格式不符合"),
+      ).includes("没有通过校验"),
     },
   ];
 }
@@ -4237,109 +4250,183 @@ async function driveContextSourceUi(page) {
 
 async function driveAu11QualityDiagnosisMessageEnvelope(page) {
   const message = "这一章感觉不够爽，主角赢得太轻了。";
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
 
-  const turnFrame = await waitForFrame(
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "AU11 quality diagnosis message was not sent from the real workbench",
+    30_000,
+  );
+  assert(
+    sentFrame.body?.generate_micro_plan === false,
+    "AU11 quality diagnosis ordinary chat unexpectedly requested a plan",
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      frame.body?.trace_summary?.ai_message_envelope != null,
-    "No AU11 turn_result with AIMessageEnvelope trace summary",
+      String(frame.body?.turn_id ?? "").length > 0 &&
+      frame.body?.trace_summary != null,
+    "No AU11 quality diagnosis turn_result with current trace summary",
     90_000,
   );
-
   const turnResult = turnFrame.body;
-  const sentMessage = latestSentUserMessage();
-  assert(sentMessage, "No AU11 user_message websocket frame was sent");
+  const turnId = String(turnResult.turn_id ?? "");
 
-  await waitForAppLogRecord(
+  const contextDone = await waitForNewAppLogRecord(
+    logStart,
     (record) =>
       record.event === "context.assemble.done" &&
-      record.turn_id === turnResult.turn_id &&
+      record.turn_id === turnId &&
       record.has_snapshot === true,
-    "No AU11 context.assemble.done with current work snapshot",
+    "No AU11 quality diagnosis context.assemble.done with current work snapshot",
+    30_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.turn_id === turnId &&
+      record.action === "reply" &&
+      record.frame_type === "casual_reply",
+    "No AU11 quality diagnosis judgment.decided.done with reply/casual_reply",
+    30_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) => record.event === "channel.user_message.done" && record.turn_id === turnId,
+    "No AU11 quality diagnosis channel.user_message.done was recorded",
     30_000,
   );
 
   const traceSummary = turnResult.trace_summary ?? {};
-  const envelope = traceSummary.ai_message_envelope ?? {};
-  const novelLayer = envelope.novel_layer ?? {};
-  const workState = envelope.work_state_layer ?? {};
-  const guidance = envelope.turn_guidance_layer ?? {};
-  const qualityGates = Array.isArray(novelLayer.quality_gates) ? novelLayer.quality_gates : [];
-  const focus = Array.isArray(guidance.element_focus) ? guidance.element_focus : [];
-  const chapterSummary = Array.isArray(workState.chapter_summary)
-    ? workState.chapter_summary.join("\n")
-    : "";
-  const contextRefs = Array.isArray(workState.context_refs) ? workState.context_refs : [];
+  const replyRecord = traceSummary.reply_record ?? {};
+  const frameSummary = turnResult.frame_summary ?? {};
+  const contextRefs = Array.isArray(traceSummary.context_refs) ? traceSummary.context_refs : [];
   const contextSourceTypes = contextRefs.map((ref) => String(ref.source_type ?? ""));
+  const suppliedContextRefs = Array.isArray(replyRecord.supplied_context_refs)
+    ? replyRecord.supplied_context_refs.map(String)
+    : [];
   const assistantText = String(turnResult.assistant_message?.text ?? "");
+  const reasonText = String(traceSummary.no_tool_reason ?? "");
 
   assert(
-    traceSummary.guidance_mode === "quality",
-    "AU11 trace summary did not mark guidance_mode=quality",
+    frameSummary.frame_type === "casual_reply",
+    `AU11 quality diagnosis frame_type was not casual_reply: ${frameSummary.frame_type}`,
   );
-  assert(guidance.guidance_mode === "quality", "AU11 TurnGuidance layer did not mark quality mode");
-  assert(qualityGates.includes("conflict_pressure"), "AU11 novel layer missed conflict pressure");
-  assert(qualityGates.includes("cost_visibility"), "AU11 novel layer missed cost visibility");
-  assert(qualityGates.includes("reader_payoff"), "AU11 novel layer missed reader payoff");
-  assert(qualityGates.includes("protagonist_agency"), "AU11 novel layer missed protagonist agency");
-  assert(focus.includes("conflict_pressure"), "AU11 guidance layer missed conflict focus");
-  assert(chapterSummary.includes("霓虹地牢"), "AU11 work state layer missed chapter summary");
+  assert(
+    traceSummary.decision_type === "reply_only",
+    `AU11 quality diagnosis decision_type was not reply_only: ${traceSummary.decision_type}`,
+  );
+  assert(
+    String(traceSummary.dialogue_goal ?? "").trim().length > 0,
+    "AU11 quality diagnosis trace summary did not record the dialogue goal",
+  );
+  assert(
+    reasonText === "no_tool_requested",
+    `AU11 quality diagnosis no_tool_reason was not no_tool_requested: ${reasonText}`,
+  );
+  assert(
+    replyRecord.response_kind === "plain_text",
+    `AU11 reply_record.response_kind was not plain_text: ${replyRecord.response_kind}`,
+  );
+  assert(
+    typeof replyRecord.task_policy_version === "string" && replyRecord.task_policy_version.length > 0,
+    "AU11 reply_record did not record the AuthoringTask policy version",
+  );
+  assert(
+    typeof replyRecord.protocol_version === "string" && replyRecord.protocol_version.length > 0,
+    "AU11 reply_record did not record the judgment protocol version",
+  );
+  assert(
+    typeof replyRecord.source_input_ref === "string" && replyRecord.source_input_ref.length > 0,
+    "AU11 reply_record did not record the author input source ref",
+  );
+  assert(
+    replyRecord.model_interpretation_status === "not_provided",
+    "AU11 plain reply unexpectedly claimed model interpretation",
+  );
+  assert(
+    suppliedContextRefs.length >= 1,
+    "AU11 reply_record supplied_context_refs was empty (context coverage not recorded)",
+  );
   assert(
     contextSourceTypes.includes("current_work"),
-    "AU11 work state layer missed current work source",
+    "AU11 trace context refs did not include the current work source",
   );
   assert(
-    assistantText.includes("代价") && assistantText.includes("读者回报"),
-    "AU11 assistant response did not include concrete quality tradeoffs",
+    String(replyRecord.raw_content ?? "") === assistantText,
+    "AU11 assistant reply was not the exact provider output bytes (N-NARR binding)",
+  );
+  assert(
+    assistantText.includes("阻力") &&
+      assistantText.includes("代价") &&
+      assistantText.includes("读者回报"),
+    "AU11 assistant reply did not include concrete quality tradeoffs (conflict/cost/reader payoff)",
   );
   assert(turnResult.tool_result == null, "AU11 quality diagnosis unexpectedly called a tool");
   assert(turnResult.adoption_state == null, "AU11 quality diagnosis unexpectedly opened adoption");
+  assert(
+    turnResult.truthfulness?.tool_called !== true,
+    "AU11 quality diagnosis truthfulness claimed a tool call",
+  );
   assert(
     turnResult.truthfulness?.production_write_performed === false,
     "AU11 quality diagnosis reported production write",
   );
 
   const whyText = await openLatestWhyDialog(page);
-  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const uiState = await commonUiState(page, turnResult, sentFrame);
   const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
 
-  assert(whyText.includes("质量诊断"), "AU11 why dialog did not show quality diagnosis");
-  assert(whyText.includes("冲突压力"), "AU11 why dialog did not show conflict pressure");
-  assert(whyText.includes("代价可见"), "AU11 why dialog did not show visible cost");
-  assert(whyText.includes("当前作品背景"), "AU11 why dialog did not show current work source");
+  assert(whyText.includes("AI 回应"), "AU11 why dialog did not show the reply decision label");
+  assert(
+    whyText.includes("不会重新调用模型"),
+    "AU11 why dialog did not state that replay is provider-free",
+  );
   assert(!unsafePattern.test(whyText), "AU11 why dialog exposed unsafe trace or prompt text");
 
   return [
     {
       ...uiState,
-      turn_id: turnResult.turn_id,
+      slice_id: "au11-quality-diagnosis-message-envelope",
+      turn_id: turnId,
+      context_work_id: String(contextDone.work_id ?? uiState.work_id ?? ""),
       message_text: message,
-      guidance_mode_quality: traceSummary.guidance_mode === "quality",
-      envelope_has_novel_layer: qualityGates.length >= 4,
-      envelope_has_work_state: chapterSummary.includes("霓虹地牢"),
-      envelope_has_turn_guidance: guidance.guidance_mode === "quality",
-      novel_layer_has_quality_gates:
-        qualityGates.includes("conflict_pressure") &&
-        qualityGates.includes("cost_visibility") &&
-        qualityGates.includes("reader_payoff") &&
-        qualityGates.includes("protagonist_agency"),
-      work_state_has_current_work_source: contextSourceTypes.includes("current_work"),
-      work_state_chapter_summary_mentions_target: chapterSummary.includes("霓虹地牢"),
-      turn_guidance_focuses_quality: focus.includes("conflict_pressure"),
+      frame_type: frameSummary.frame_type,
+      trace_decision_type: traceSummary.decision_type,
+      no_tool_reason: String(traceSummary.no_tool_reason ?? ""),
+      dialogue_goal: String(traceSummary.dialogue_goal ?? ""),
+      reply_record_response_kind: replyRecord.response_kind,
+      reply_record_task_policy_version: replyRecord.task_policy_version,
+      reply_record_protocol_version: replyRecord.protocol_version,
+      reply_record_source_input_ref: replyRecord.source_input_ref,
+      reply_record_model_interpretation_status: replyRecord.model_interpretation_status,
+      reply_record_context_refs_count: suppliedContextRefs.length,
+      context_source_types: contextSourceTypes,
+      assistant_reply_is_provider_output: String(replyRecord.raw_content ?? "") === assistantText,
       assistant_gives_concrete_tradeoff:
-        assistantText.includes("代价") && assistantText.includes("读者回报"),
+        assistantText.includes("阻力") &&
+        assistantText.includes("代价") &&
+        assistantText.includes("读者回报"),
       no_tool_result: turnResult.tool_result == null,
       no_adoption_state: turnResult.adoption_state == null,
       no_production_write: turnResult.truthfulness?.production_write_performed === false,
       trace_why_dialog_open: true,
       trace_why_text: whyText,
       trace_why_contains_raw_prompt: unsafePattern.test(whyText),
-      why_shows_quality_diagnosis: whyText.includes("质量诊断"),
-      why_shows_quality_focus: whyText.includes("冲突压力") && whyText.includes("代价可见"),
-      why_shows_current_work_source: whyText.includes("当前作品背景"),
+      why_shows_reply_decision: whyText.includes("AI 回应"),
+      why_states_no_provider_replay: whyText.includes("不会重新调用模型"),
     },
   ];
 }
@@ -4356,144 +4443,188 @@ async function driveAu11MissingWorkstatePolicy(page) {
       record.event === "channel.join.done" &&
       record.work_id === work.id &&
       String(record.session_id ?? "").trim().length > 0,
-    "Selecting AU11 missing WorkState work did not join its workspace channel",
+    "Selecting the AU11 missing WorkState work did not join its workspace channel",
     30_000,
   );
   await waitForVisibleWorkTitle(page, work.title);
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
 
   const message = "帮我看看这一章哪里不成立。";
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
 
-  const turnFrame = await waitForFrame(
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === work.id &&
+      String(frame.body?.text ?? "") === message,
+    "AU11 missing WorkState message was not sent from the selected work",
+    30_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      frame.body?.trace_summary?.ai_message_envelope != null,
-    "No AU11 missing WorkState turn_result with AIMessageEnvelope trace summary",
+      frame.body?.work_id === work.id &&
+      String(frame.body?.turn_id ?? "").length > 0 &&
+      frame.body?.trace_summary != null,
+    "No AU11 missing WorkState turn_result with current trace summary",
     90_000,
   );
-
   const turnResult = turnFrame.body;
-  const sentMessage = latestSentUserMessage();
-  assert(sentMessage, "No AU11 missing WorkState user_message websocket frame was sent");
-  assert(sentMessage.body?.work_id === work.id, "AU11 missing WorkState message used wrong work");
+  const turnId = String(turnResult.turn_id ?? "");
 
-  await waitForAppLogRecord(
+  const contextDone = await waitForNewAppLogRecord(
+    logStart,
     (record) =>
       record.event === "context.assemble.done" &&
-      record.turn_id === turnResult.turn_id &&
+      record.turn_id === turnId &&
       record.work_id === work.id &&
       record.session_id === joinRecord.session_id &&
       record.has_snapshot === true,
     "No AU11 missing WorkState context.assemble.done with selected work snapshot",
     30_000,
   );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "judgment.decided.done" &&
+      record.turn_id === turnId &&
+      record.action === "reply" &&
+      record.frame_type === "casual_reply",
+    "No AU11 missing WorkState judgment.decided.done with reply/casual_reply",
+    30_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) => record.event === "channel.user_message.done" && record.turn_id === turnId,
+    "No AU11 missing WorkState channel.user_message.done was recorded",
+    30_000,
+  );
 
   const traceSummary = turnResult.trace_summary ?? {};
-  const envelope = traceSummary.ai_message_envelope ?? {};
-  const workState = envelope.work_state_layer ?? {};
-  const guidance = envelope.turn_guidance_layer ?? {};
-  const contextRefs = Array.isArray(workState.context_refs) ? workState.context_refs : [];
+  const replyRecord = traceSummary.reply_record ?? {};
+  const frameSummary = turnResult.frame_summary ?? {};
+  const contextRefs = Array.isArray(traceSummary.context_refs) ? traceSummary.context_refs : [];
   const contextSourceTypes = contextRefs.map((ref) => String(ref.source_type ?? ""));
-  const missingQuestions = Array.isArray(guidance.missing_questions)
-    ? guidance.missing_questions.map(String)
+  const suppliedContextRefs = Array.isArray(replyRecord.supplied_context_refs)
+    ? replyRecord.supplied_context_refs.map(String)
     : [];
   const assistantText = String(turnResult.assistant_message?.text ?? "");
-  const missingStatus = (value, reason) =>
-    value?.status === "missing" && (!reason || value?.reason === reason);
+  const reasonText = String(traceSummary.no_tool_reason ?? "");
 
   assert(
-    traceSummary.guidance_mode === "quality",
-    "AU11 missing WorkState trace summary did not mark guidance_mode=quality",
+    frameSummary.frame_type === "casual_reply",
+    `AU11 missing WorkState frame_type was not casual_reply: ${frameSummary.frame_type}`,
   );
   assert(
-    guidance.guidance_mode === "quality",
-    "AU11 missing WorkState TurnGuidance did not mark quality mode",
+    traceSummary.decision_type === "reply_only",
+    `AU11 missing WorkState decision_type was not reply_only: ${traceSummary.decision_type}`,
   );
   assert(
-    String(workState.snapshot_summary ?? "").includes(work.title),
-    "AU11 missing WorkState snapshot summary did not reference the selected work",
+    String(traceSummary.dialogue_goal ?? "").trim().length > 0,
+    "AU11 missing WorkState trace summary did not record the dialogue goal",
   );
   assert(
-    missingStatus(workState.chapter_state, "no_chapter_state"),
-    "AU11 missing WorkState did not mark missing chapter state",
+    reasonText === "no_tool_requested",
+    `AU11 missing WorkState no_tool_reason was not no_tool_requested: ${reasonText}`,
   );
   assert(
-    missingStatus(workState.chapter_summary, "no_chapter_summary"),
-    "AU11 missing WorkState did not mark missing chapter summary",
+    replyRecord.response_kind === "plain_text",
+    `AU11 missing WorkState reply_record.response_kind was not plain_text: ${replyRecord.response_kind}`,
   );
   assert(
-    missingStatus(workState.prior_prose_excerpt, "no_prior_prose_excerpt_in_dialogue_context"),
-    "AU11 missing WorkState did not mark missing prose excerpt",
+    typeof replyRecord.task_policy_version === "string" && replyRecord.task_policy_version.length > 0,
+    "AU11 missing WorkState reply_record did not record the AuthoringTask policy version",
   );
   assert(
-    missingStatus(workState.character_state),
-    "AU11 missing WorkState did not mark missing character state",
+    typeof replyRecord.protocol_version === "string" && replyRecord.protocol_version.length > 0,
+    "AU11 missing WorkState reply_record did not record the judgment protocol version",
   );
   assert(
-    missingQuestions.some((question) => question.includes("缺目标章节摘要")) &&
-      missingQuestions.some((question) => question.includes("正文片段")),
-    "AU11 missing WorkState guidance did not record missing target chapter/prose questions",
+    replyRecord.model_interpretation_status === "not_provided",
+    "AU11 missing WorkState plain reply unexpectedly claimed model interpretation",
+  );
+  assert(
+    suppliedContextRefs.length === 0,
+    `AU11 missing WorkState blank work unexpectedly supplied context sources: ${JSON.stringify(
+      suppliedContextRefs,
+    )}`,
+  );
+  assert(
+    contextSourceTypes.length === 0,
+    `AU11 missing WorkState trace context refs were not empty for a blank work: ${JSON.stringify(
+      contextSourceTypes,
+    )}`,
+  );
+  assert(
+    String(replyRecord.raw_content ?? "") === assistantText,
+    "AU11 missing WorkState assistant reply was not the exact provider output bytes (N-NARR binding)",
   );
   assert(
     assistantText.includes("缺少当前章节摘要或正文") &&
       assistantText.includes("不会改写正文或写入作品事实"),
-    "AU11 missing WorkState assistant response did not ask for target material honestly",
+    "AU11 missing WorkState assistant reply did not ask for target material honestly",
   );
-  assert(!assistantText.includes("已经读过"), "AU11 missing WorkState claimed it read the chapter");
-  assert(!assistantText.includes("林烬"), "AU11 missing WorkState fabricated seeded chapter facts");
+  assert(
+    !assistantText.includes("已经读过"),
+    "AU11 missing WorkState assistant claimed it had read the chapter",
+  );
+  assert(
+    !assistantText.includes("林烬"),
+    "AU11 missing WorkState assistant fabricated seeded chapter facts",
+  );
   assert(turnResult.tool_result == null, "AU11 missing WorkState unexpectedly called a tool");
   assert(turnResult.adoption_state == null, "AU11 missing WorkState unexpectedly opened adoption");
+  assert(
+    turnResult.truthfulness?.tool_called !== true,
+    "AU11 missing WorkState truthfulness claimed a tool call",
+  );
   assert(
     turnResult.truthfulness?.production_write_performed === false,
     "AU11 missing WorkState reported production write",
   );
 
   const whyText = await openLatestWhyDialog(page);
-  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const uiState = await commonUiState(page, turnResult, sentFrame);
   const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
 
-  assert(whyText.includes("质量诊断"), "AU11 missing WorkState why did not show quality mode");
+  assert(whyText.includes("AI 回应"), "AU11 missing WorkState why did not show the reply decision");
   assert(
-    whyText.includes("作品层依据缺失或不足"),
-    "AU11 missing WorkState why did not show missing WorkState",
-  );
-  assert(
-    whyText.includes("缺少正文片段"),
-    "AU11 missing WorkState why did not show missing prose limitation",
+    whyText.includes("不会重新调用模型"),
+    "AU11 missing WorkState why did not state replay is provider-free",
   );
   assert(!unsafePattern.test(whyText), "AU11 missing WorkState why exposed unsafe trace text");
 
   return [
     {
       ...uiState,
-      turn_id: turnResult.turn_id,
+      slice_id: "au11-missing-workstate-policy",
+      turn_id: turnId,
       work_id: work.id,
       workspace_id: work.id,
       session_id: joinRecord.session_id,
-      context_work_id: work.id,
+      context_work_id: String(contextDone.work_id ?? work.id),
       active_session_id: joinRecord.session_id,
       work_title: work.title,
       message_text: message,
-      guidance_mode_quality: traceSummary.guidance_mode === "quality",
-      work_state_has_current_work_source: contextSourceTypes.includes("current_work"),
-      work_state_snapshot_mentions_work: String(workState.snapshot_summary ?? "").includes(
-        work.title,
-      ),
-      work_state_chapter_state_missing: missingStatus(workState.chapter_state, "no_chapter_state"),
-      work_state_chapter_summary_missing: missingStatus(
-        workState.chapter_summary,
-        "no_chapter_summary",
-      ),
-      work_state_prior_prose_missing: missingStatus(
-        workState.prior_prose_excerpt,
-        "no_prior_prose_excerpt_in_dialogue_context",
-      ),
-      work_state_character_state_missing: missingStatus(workState.character_state),
-      turn_guidance_records_missing_questions:
-        missingQuestions.some((question) => question.includes("缺目标章节摘要")) &&
-        missingQuestions.some((question) => question.includes("正文片段")),
+      frame_type: frameSummary.frame_type,
+      trace_decision_type: traceSummary.decision_type,
+      no_tool_reason: String(traceSummary.no_tool_reason ?? ""),
+      reply_record_response_kind: replyRecord.response_kind,
+      reply_record_task_policy_version: replyRecord.task_policy_version,
+      reply_record_protocol_version: replyRecord.protocol_version,
+      reply_record_model_interpretation_status: replyRecord.model_interpretation_status,
+      reply_record_context_refs_count: suppliedContextRefs.length,
+      context_source_types: contextSourceTypes,
+      assistant_reply_is_provider_output: String(replyRecord.raw_content ?? "") === assistantText,
       assistant_asks_for_target_material:
         assistantText.includes("缺少当前章节摘要或正文") &&
         assistantText.includes("不会改写正文或写入作品事实"),
@@ -4505,9 +4636,8 @@ async function driveAu11MissingWorkstatePolicy(page) {
       trace_why_dialog_open: true,
       trace_why_text: whyText,
       trace_why_contains_raw_prompt: unsafePattern.test(whyText),
-      why_shows_quality_diagnosis: whyText.includes("质量诊断"),
-      why_shows_work_state_missing: whyText.includes("作品层依据缺失或不足"),
-      why_shows_missing_limit: whyText.includes("缺少正文片段"),
+      why_shows_reply_decision: whyText.includes("AI 回应"),
+      why_states_no_provider_replay: whyText.includes("不会重新调用模型"),
     },
   ];
 }
@@ -22645,7 +22775,17 @@ async function driveE2E01DowngradeRealPage(page) {
   ];
 }
 
+// B40 CP2（判断纪元重锚）：E2E-01 只读 ToolTrace 场景的当前链路。
+//
+// 帧纪元被验收的「纯只读 character_roster turn」在判断纪元由 judgment execute
+// character_design → bounded AgentRun 承担：run 内部第一步仍真实下发 character_roster
+// 只读工具（Orchestrator 12 门 + Toolbox + ToolTrace + 中间步 turn_result 广播），
+// 第二步才产出 TENTATIVE 角色候选。因此本 driver 用「先看角色阵容，再设计反派」的
+// 真实作者请求取得只读工具链，再从产品持久 trace 回查 ToolTrace 与 ReplayReport；
+// 不伪造纯只读 turn，不把后续候选步骤伪装成只读。
 async function driveE2E01ReadonlyToolTrace(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
   const workId = readSeedField("work_id");
   const workTitleValue = readSeedField("work_title");
   assert(workId, "E2E readonly tool seed did not provide work_id");
@@ -22655,185 +22795,138 @@ async function driveE2E01ReadonlyToolTrace(page) {
   await waitForVisibleWorkTitle(page, workTitleValue);
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
 
-  const requestText = "查看当前角色列表";
-  const frameCount = frames.length;
-  const logCount = readAppLogRecords().length;
+  const requestText = "先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派。";
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
 
   await page.locator(chatInputSelector).fill(requestText);
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const sentFrame = await waitForNewFrame(
-    frameCount,
+    frameStart,
     (frame) =>
       frame.direction === "sent" &&
       frame.event === "user_message" &&
       frame.body?.work_id === workId &&
-      String(frame.body?.text ?? "").includes(requestText),
-    "Readonly character roster request was not sent from the target work channel",
-    10_000,
+      String(frame.body?.text ?? "").includes("当前已有角色阵容"),
+    "Readonly roster tool request was not sent from the target work channel",
+    30_000,
   );
 
-  const turnFrame = await waitForNewFrame(
-    frameCount,
+  const rosterTurnFrame = await waitForNewFrame(
+    frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.work_id === workId &&
-      frame.body?.orchestrator_decision?.decision_type === "allow_tool" &&
       frame.body?.tool_result?.tool_name === "character_roster" &&
-      String(frame.body?.tool_result?.status ?? "") === "succeeded",
-    "No allow_tool character_roster turn_result was received",
-    200_000,
+      frame.body?.tool_result?.status === "succeeded" &&
+      frame.body?.truthfulness?.production_write_performed === false,
+    "No readonly character_roster tool turn_result was broadcast for the character design run",
+    240_000,
   );
-  const turnResult = turnFrame.body;
+  const rosterTurnResult = rosterTurnFrame.body;
+  const turnId = String(rosterTurnResult.turn_id ?? "");
+  assert(turnId, "Readonly roster tool turn_result did not include turn_id");
 
   const decisionRecord = await waitForNewAppLogRecord(
-    logCount,
+    logStart,
     (record) =>
       record.event === "orchestrator.decide.done" &&
-      record.turn_id === turnResult.turn_id &&
+      record.turn_id === turnId &&
       record.decision_type === "allow_tool",
-    "No orchestrator.decide.done allow_tool log was recorded",
-    30_000,
-  );
-
-  const charactersRecord = await waitForNewAppLogRecord(
-    logCount,
-    (record) =>
-      record.event === "context.characters.done" &&
-      record.turn_id === turnResult.turn_id &&
-      record.source_type === "character_dossier" &&
-      Number(record.character_count ?? 0) >= 1,
-    "No context.characters.done log proved accepted characters entered the tool request",
+    "No orchestrator.decide.done allow_tool log was recorded for the roster step",
     30_000,
   );
 
   const toolboxRecord = await waitForNewAppLogRecord(
-    logCount,
+    logStart,
     (record) =>
       record.event === "toolbox.execute.done" &&
-      record.turn_id === turnResult.turn_id &&
+      record.turn_id === turnId &&
       record.tool_name === "character_roster" &&
       record.tool_outcome === "succeeded",
-    "No toolbox.execute.done character_roster success log was recorded",
+    "No toolbox.execute.done character_roster success log was recorded for the roster step",
     30_000,
   );
 
   await waitForNewAppLogRecord(
-    logCount,
+    logStart,
     (record) =>
-      record.event === "channel.user_message.done" && record.turn_id === turnResult.turn_id,
-    "No channel.user_message.done log was recorded for readonly tool turn",
+      record.event === "channel.user_message.done" &&
+      record.turn_id !== turnId &&
+      record.work_id === workId,
+    "No parent user_message completion log was recorded for the character design run",
     30_000,
   );
 
-  await page.waitForFunction(
-    (payload) =>
-      document.body.innerText.includes(payload.requestText) &&
-      document.body.innerText.includes("林澈") &&
-      document.body.innerText.includes("没有写入作品事实") &&
-      !document.body.innerText.includes("思考中"),
-    { requestText },
-    { timeout: 30_000 },
+  // 从产品持久 trace 按 turn 回查：ToolTrace refs + ReplayReport 均由产品 API/仓储生成。
+  const traceQuery = await queryTraceByTurn(turnId);
+  const traces = Array.isArray(traceQuery.traces) ? traceQuery.traces : [];
+  const traceRecord = traces.find(
+    (trace) => Array.isArray(trace.tool_trace_refs) && trace.tool_trace_refs.length > 0,
+  );
+  assert(traceRecord, "Persisted trace for the roster step did not carry tool_trace_refs");
+  assert(
+    String(traceRecord.decision_type ?? "") === "tool_dispatched",
+    `Persisted roster trace decision_type was not tool_dispatched: ${traceRecord.decision_type}`,
   );
 
-  const traceQuery = await queryTraceByTurn(turnResult.turn_id);
-  const traceRecord = traceQuery.traces.find(
-    (trace) =>
-      trace.turn_id === turnResult.turn_id &&
-      Array.isArray(trace.tool_trace_refs) &&
-      trace.tool_trace_refs.some(isToolTraceRef),
-  );
-  assert(traceRecord, "TraceRepository.list_by_turn did not return a tool trace ref");
-  const replayReport = traceRecord.replay_report ?? {};
   const toolTraceAudit = assertToolTraceRegistryRedactedIo(traceRecord);
+  const replayReport = traceRecord.replay_report ?? {};
+  assert(
+    replayReport.provider_called === false,
+    "ReplayReport for the roster trace called or claimed provider recall",
+  );
+
+  const toolOutput = rosterTurnResult.tool_result?.output ?? {};
+  const toolCharacters = Array.isArray(toolOutput.characters) ? toolOutput.characters : [];
+  const characterNames = toolCharacters.map((character) => String(character?.name ?? ""));
+
+  assert(
+    characterNames.includes("林澈"),
+    `Readonly roster tool output did not include the accepted character: ${JSON.stringify(characterNames)}`,
+  );
+  assert(
+    !characterNames.includes("未确认影子"),
+    "Readonly roster tool output leaked a tentative character",
+  );
+  assert(
+    !characterNames.includes("外部角色"),
+    "Readonly roster tool output leaked a foreign work character",
+  );
 
   const visibleText = await page.locator("body").innerText();
-  const sameTurnRecords = readAppLogRecords().filter(
-    (record) => record.turn_id === turnResult.turn_id,
+  const noAuthorActionForTurn = !frames.some(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.turn_id === turnId,
   );
-  const toolOutput = turnResult.tool_result?.output ?? {};
-  const toolCharacters = Array.isArray(toolOutput.characters) ? toolOutput.characters : [];
-  const uiState = await commonUiState(page, turnResult, sentFrame);
+  assert(noAuthorActionForTurn, "Author action was sent for the readonly roster turn");
 
-  assert(
-    turnResult.truthfulness?.tool_called === true,
-    "Readonly tool turn did not mark tool_called",
-  );
-  assert(
-    turnResult.truthfulness?.production_write_performed === false,
-    "Readonly tool turn claimed a production write",
-  );
-  assert(
-    turnResult.truthfulness?.artifact_adopted === false,
-    "Readonly tool turn claimed artifact adoption",
-  );
-  assert(
-    (turnResult.tool_result?.state_delta ?? []).length === 0,
-    "Readonly character_roster returned state_delta",
-  );
-  assert(
-    (turnResult.tool_result?.artifact_refs ?? []).length === 0,
-    "Readonly character_roster returned artifact refs",
-  );
-  assert(
-    toolCharacters.some((character) => character.name === "林澈"),
-    "Readonly character roster output did not include accepted character 林澈",
-  );
-  assert(
-    !JSON.stringify(toolCharacters).includes("未确认影子"),
-    "Readonly character roster leaked a tentative character",
-  );
-  assert(
-    !JSON.stringify(toolCharacters).includes("外部角色"),
-    "Readonly character roster leaked a foreign-work character",
-  );
-  assert(
-    !frames.some(
-      (frame) =>
-        frame.direction === "sent" &&
-        frame.event === "author_action" &&
-        frame.body?.turn_id === turnResult.turn_id,
-    ),
-    "Readonly character roster sent an author_action",
-  );
-  assert(
-    !sameTurnRecords.some((record) => record.event?.startsWith("adoption.evaluate.")),
-    "Readonly character roster triggered adoption evaluation",
-  );
-  assert(
-    !/待确认的创作材料|保存到作品|确认执行/.test(visibleText),
-    "Readonly character roster rendered execution/adoption controls",
-  );
-
+  const uiState = await commonUiState(page, rosterTurnResult, sentFrame);
   return [
     {
       ...uiState,
-      turn_id: turnResult.turn_id,
-      work_id: workId,
-      context_work_id: workId,
-      user_message_text: sentFrame.body?.text,
-      generate_micro_plan: sentFrame.body?.generate_micro_plan === true,
-      decision_type: turnResult.orchestrator_decision?.decision_type,
-      first_blocking_gate: turnResult.orchestrator_decision?.first_blocking_gate ?? null,
-      tool_name: turnResult.tool_result?.tool_name,
-      tool_status: String(turnResult.tool_result?.status ?? ""),
-      tool_called: turnResult.truthfulness?.tool_called === true,
-      production_write_performed: turnResult.truthfulness?.production_write_performed === true,
-      artifact_adopted: turnResult.truthfulness?.artifact_adopted === true,
-      execution_blocked: turnResult.truthfulness?.execution_blocked === true,
-      character_count: Number(toolOutput.character_count ?? 0),
-      character_names: toolCharacters.map((character) => character.name),
+      slice_id: sliceId,
+      turn_id: turnId,
+      tool_name: String(rosterTurnResult.tool_result?.tool_name ?? ""),
+      tool_status: String(rosterTurnResult.tool_result?.status ?? ""),
+      tool_called: rosterTurnResult.truthfulness?.tool_called === true,
+      production_write_performed:
+        rosterTurnResult.truthfulness?.production_write_performed === true,
+      artifact_adopted: rosterTurnResult.truthfulness?.artifact_adopted === true,
+      execution_blocked: rosterTurnResult.truthfulness?.execution_blocked === true,
+      character_count: Number(toolOutput.character_count ?? toolCharacters.length),
+      character_names: characterNames,
       accepted_character_visible: visibleText.includes("林澈"),
       tentative_character_absent: !visibleText.includes("未确认影子"),
       foreign_character_absent: !visibleText.includes("外部角色"),
-      no_write_statement_visible: visibleText.includes("没有写入作品事实"),
-      no_state_delta: (turnResult.tool_result?.state_delta ?? []).length === 0,
-      no_artifact_refs: (turnResult.tool_result?.artifact_refs ?? []).length === 0,
-      no_author_action_sent: true,
-      no_adoption_event: true,
-      no_execution_controls_visible: true,
-      context_character_count: Number(charactersRecord.character_count ?? 0),
+      no_state_delta: (rosterTurnResult.tool_result?.state_delta ?? []).length === 0,
+      no_artifact_refs: (rosterTurnResult.tool_result?.artifact_refs ?? []).length === 0,
+      no_author_action_sent: noAuthorActionForTurn,
+      decision_record_outcome: decisionRecord.outcome,
       toolbox_tool_name: toolboxRecord.tool_name,
       toolbox_tool_outcome: toolboxRecord.tool_outcome,
       trace_query_count: Number(traceQuery.count ?? 0),
@@ -22842,6 +22935,7 @@ async function driveE2E01ReadonlyToolTrace(page) {
       trace_query_decision_type: traceRecord.decision_type,
       trace_query_tool_trace_refs: traceRecord.tool_trace_refs,
       trace_query_has_tool_trace_ref: true,
+      decision_type: String(decisionRecord.decision_type ?? ""),
       trace_query_tool_trace_ref: toolTraceAudit.toolRef,
       tool_trace_registry_snapshot: toolTraceAudit.registrySnapshot,
       tool_trace_contract_refs: toolTraceAudit.contractRefs,
@@ -22859,7 +22953,6 @@ async function driveE2E01ReadonlyToolTrace(page) {
       replay_report_required_question_count: Array.isArray(replayReport.required_questions)
         ? replayReport.required_questions.length
         : 0,
-      decision_record_outcome: decisionRecord.outcome,
     },
   ];
 }
@@ -24800,9 +24893,9 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 2 &&
-      // ADR-0025 CP2b：判断入场 2 步 2 调用 + 机械计划 0 调用 + writer 1 =
-      // 单候选创作恰 3 次调用（付费伪计划的起草 2 调用已消灭）。
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+      // B40 CP3（current HEAD）：单候选创作 = 判断 1 调用 + 机械计划 0 + writer 1
+      // = 2 次 provider 调用（B26+ 单调用判断协议后判断调用降为 1）。
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 2,
     "UA-01 AgentRun state did not finish with the expected bounded budget counters",
     60_000,
   );
@@ -24869,6 +24962,27 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
 
   const visibleText = await page.locator("body").innerText();
   const uiState = await commonUiState(page, turnResult, sentFrame);
+
+  // B40 CP3：e2e-01-downgrade-real-page / au07-gate-reason-why 合并退役后，gate/why 的
+  // 作者可见断言挂到当前可达的 12 门 allow 路径（本场景）上：作者安全 why 必须给出
+  // 工具决定、无模型召回，且不暴露内部 gate/trace/prompt 文本。gate 序列的逐门证据
+  // 由 verifier 的 step gate lineage 断言承担。
+  let gateWhyEvidence = null;
+  if (sliceId === "agent-step-regate") {
+    const whyText = await openLatestWhyDialog(page);
+    const unsafeWhyPattern =
+      /raw prompt|provider raw|hidden policy|debug|trace_|ctx_|downgrade_to_dialogue|action_scope|multi-step plan requires downgrade/i;
+    gateWhyEvidence = {
+      gate_why_dialog_open: true,
+      gate_why_text: whyText,
+      gate_why_shows_tool_decision:
+        whyText.includes("已调用工具") || whyText.includes("AI 回应"),
+      gate_why_shows_author_safe_tool_line: whyText.includes("本轮使用了工具"),
+      gate_why_states_no_provider_replay: whyText.includes("不会重新调用模型"),
+      gate_why_contains_raw_prompt: unsafeWhyPattern.test(whyText),
+    };
+  }
+
   await page.evaluate(() => {
     const target = document.querySelector('[class*="agenticLoopPhaseStrip"]');
     if (!target) return;
@@ -25041,6 +25155,7 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
   return [
     {
       ...uiState,
+      ...(gateWhyEvidence ?? {}),
       slice_id: "ua01-agent-bounded-roster-to-character-design",
       work_id: workId,
       workspace_id: workId,
@@ -39803,7 +39918,6 @@ const drivers = {
   "agent-world-building-style-rule-with-context": driveAgentWorldBuildingStyleRuleWithContext,
   "agent-character-evolution-with-context": driveAgentCharacterEvolutionWithContext,
   "agent-durable-resume-long-run-task": driveAgentDurableResumeLongRunTask,
-  "agent-provider-streaming-progress": driveAgentProviderStreamingProgress,
   "agent-provider-cancel-honest-boundary": driveAgentProviderCancelHonestBoundary,
   "agent-readonly-batch-profile": driveAgentReadonlyBatchProfile,
   "agent-steer-replan": driveAgentSteerReplan,
@@ -39840,9 +39954,8 @@ const drivers = {
   "su02-work-restart-recovery": driveSu02WorkRestartRecovery,
   "su03-assistant-display-name": driveSu03AssistantDisplayName,
   "au01-ordinary-chat-two-turn-roundtrip": driveAu01OrdinaryChatTwoTurnRoundtrip,
-  "gap-wt04-non-exploration-frame-badges": driveGapWt04NonExplorationFrameBadges,
+  "pr-smoke-core-reply": driveAu01OrdinaryChatTwoTurnRoundtrip,
   "au01-empty-message-guard": driveAu01EmptyMessageGuard,
-  "au01-garbage-json-recovery": driveAu01GarbageJsonRecovery,
   "au01-frame-validation-friendly-error": driveAu01FrameValidationFriendlyError,
   "au01-turnresult-recorder-ui-consistency": driveAu01TurnresultRecorderUiConsistency,
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
@@ -39950,12 +40063,10 @@ const drivers = {
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
   "au07-trace-why-entry": driveAu07TraceWhyEntry,
-  "au07-gate-reason-why": driveAu07GateReasonWhy,
   "au07-persisted-trace-query": driveAu07PersistedTraceQuery,
   "au07-partial-replay-ui": driveAu07PartialReplayUi,
   "au07-trace-query-scope-negative-matrix": driveAu07TraceQueryScopeNegativeMatrix,
   "au07-tooltrace-registry-redacted-io": driveAu07TooltraceRegistryRedactedIo,
-  "e2e-01-downgrade-real-page": driveE2E01DowngradeRealPage,
   "e2e-01-readonly-tool-trace": driveE2E01ReadonlyToolTrace,
   "e2e-01-replay-report": driveE2E01ReplayReport,
   "e2e-01-channel-action-security": driveE2E01ChannelActionSecurity,

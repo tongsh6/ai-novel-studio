@@ -49,9 +49,9 @@ assertions:
     - websocket turn_result does not expose internal validation reason
     - following normal chat sends user_message with generate_micro_plan=false
   data:
-    - invalid frame is blocked by DialogueGateway validation
-    - following recovery turn completes DialogueGateway handling
-    - no planner.form_micro_plan event is recorded for either turn
+    - invalid judgment structure settles as a safe failure without a judgment.decided.done record
+    - following recovery turn completes the judgment-era reply chain with judgment.decided.done
+    - no retired planner.form_micro_plan or planner.form_frame event is recorded for either turn
 
 anti_hooks:
   product_acceptance_logic_added: false

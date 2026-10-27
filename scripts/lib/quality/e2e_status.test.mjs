@@ -1,8 +1,10 @@
 // B41 CP3：E2E 聚合器状态判定纯函数回归（node --test）。
 //
 // 全部用内存 fixture，不依赖真实 artifacts、不跑 Tauri/模型。
-// 重点负例：旧 summary 存在但无 git_head → stale；registry blocked（E4）即使
+// 重点负例：旧 summary 存在但无 git_head → stale；registry blocked（历史 E4 降级场景）即使
 // 新 verdict/summary 判 pass 也必须 blocked；fail 优先于 blocked/evidence_missing。
+// B40 CP3：e2e-01-downgrade-real-page 已退役，E4 聚合矩阵改指 agent-step-regate；
+// 新增回归用例验证 replacement 只有在 current fresh verdict 下才 pass。
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -19,6 +21,7 @@ import {
   buildAggregateVerdict,
   checkArtifactContent,
   checkFreshness,
+  commitMatches,
   classifyArtifact,
   classifyCommand,
   classifyRegistryEntry,
@@ -228,6 +231,23 @@ test("freshness：git_head 与当前 HEAD 不一致 → stale", () => {
   assert.equal(result.fresh, false);
   assert.match(result.reason, /不一致/);
   assert.equal(result.git_head, OLD_HEAD);
+});
+
+test("freshness：git_head 为当前 HEAD 的合法短哈希（≥7 位）→ fresh（B40/B41 hotfix）", () => {
+  const shortHead = HEAD.slice(0, 7);
+  const result = checkFreshness({ git_head: shortHead }, HEAD);
+  assert.equal(result.fresh, true);
+  assert.match(result.reason, /短哈希/);
+  assert.equal(commitMatches(shortHead, HEAD), true);
+  assert.equal(commitMatches(HEAD.slice(0, 12), HEAD), true);
+});
+
+test("freshness：短哈希不是当前 HEAD 前缀或短于 7 位 → stale", () => {
+  assert.equal(checkFreshness({ git_head: OLD_HEAD.slice(0, 7) }, HEAD).fresh, false);
+  assert.equal(commitMatches("ad6b7ae", HEAD), true);
+  assert.equal(commitMatches("ad6b7a", HEAD), false);
+  assert.equal(commitMatches("deadbee", HEAD), false);
+  assert.equal(checkFreshness({ current: true, git_head: HEAD.slice(0, 7) }, HEAD).fresh, true);
 });
 
 test("freshness：当前 HEAD 不可用或 current 标记与 git_head 矛盾 → 不 fresh", () => {
@@ -1013,4 +1033,51 @@ test("runner：不得残留硬编码「已验收/已测试」场景矩阵，状�
   assert.ok(runnerSource.includes("verdict_cli.mjs"));
   assert.ok(runnerSource.includes("registry-status"));
   assert.ok(runnerSource.includes("summary.exit_code"));
+});
+
+// ---------------------------------------------------------------- B40 CP3：E4 retired→replacement
+
+test("E4 replacement agent-step-regate passes only with a current fresh verdict", () => {
+  const scenario = evaluateScenario({
+    id: "E4",
+    name: "Provider/Gate 策略（判断纪元 allow 路径；旧降级场景已退役）",
+    registry_entries: [
+      {
+        scenario_id: "agent-step-regate",
+        entry: {
+          id: "agent-step-regate",
+          status: "active",
+          blocked_reason: null,
+          tier: "nightly",
+          surface: "tauri",
+        },
+      },
+    ],
+    artifacts: [
+      {
+        rel_path: "artifacts/slice-verify/agent-step-regate-tauri/summary.json",
+        found: true,
+        verdict: freeVerdict({
+          scenario_id: "agent-step-regate",
+          provider: "slice_verify",
+          model: "deterministic",
+          actual_model: null,
+          model_behavior: { status: "not_applicable", evidence_refs: [] },
+          artifact_dir: "artifacts/slice-verify/agent-step-regate-tauri",
+        }),
+        expectations: {
+          slice_ids: ["agent-step-regate"],
+          provider: "slice_verify",
+          surface: "tauri",
+        },
+      },
+    ],
+    commands: [],
+    current_head: HEAD,
+    expected_surface: "tauri",
+  });
+
+  assert.equal(scenario.status, "pass");
+  assert.equal(scenario.registry_checks[0].status, "active");
+  assert.equal(scenario.artifact_checks[0].status, "pass");
 });
