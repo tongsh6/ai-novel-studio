@@ -1360,8 +1360,6 @@ scenarios:
     title: "判断循环内部探索翼：已采纳正文事实检索与出处引用"
     tier: nightly
     surface: tauri
-    status: blocked
-    blocked_reason: "最近一次真实页面记录（2026-07-20）只有失败截图、无 summary.json；登记为 blocked，待真实 Tauri 复跑取得 PASS 证据后再改 active。"
     manifest: quality/acceptance/scenarios/judgment-explore-internal.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh judgment-explore-internal --surface tauri

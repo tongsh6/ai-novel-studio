@@ -234,6 +234,25 @@ const artifactSpecs = [
       assertions: ["orchestrator_allowed_low_risk_character_roster_tool", "trace_repository_list_by_turn_returned_tool_trace_ref"],
     },
   },
+  // B63 CP2（2026-10-28，Lead 批准）：E10 持久化闭环映射到独立真实页面 native 证据。
+  // 与 E6 共用同一次 native 场景证据，但用独立 spec 明确 E10 自身判据：turn 完成后
+  // 外部查询 TraceRepository.list_by_turn 非空、trace 字段可用（turn_id/frame_ref/
+  // decision_type 见同目录 trace-query.json；event_order 非空由
+  // replay_report_result_complete 的 ReplayService 判定承载）。不改既有 E6/E9 spec。
+  {
+    key: "e10-persistence-roundtrip-tauri",
+    rel_path: "artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri/summary.json",
+    expectations: {
+      slice_ids: ["e2e-01-readonly-tool-trace"],
+      provider: "slice_verify",
+      surface: "tauri",
+      assertions: [
+        "tool_trace_queryable_by_step_turn_id",
+        "trace_repository_list_by_turn_returned_tool_trace_ref",
+        "replay_report_result_complete",
+      ],
+    },
+  },
   {
     key: "e2e-01-replay-report-tauri",
     rel_path: "artifacts/slice-verify/e2e-01-replay-report-tauri/summary.json",
@@ -394,9 +413,13 @@ const scenarios = [
   {
     id: "E10",
     name: "Persistence roundtrip",
-    slices: [],
-    artifacts: [],
-    surface: null,
+    // B63 CP2（2026-10-28）：E10 的独立真实页面证据 = e2e-01-readonly-tool-trace 的 native
+    // 场景（真实 Tauri workbench 驱动 → turn 完成后外部查询 TraceRepository.list_by_turn
+    // → trace-query.json + ReplayReport）；本行只解决 E10 自身 evidence_missing，聚合整体
+    // 仍受其他 stale 行影响（B40 §10.2 未复跑债务）。
+    slices: ["e2e-01-readonly-tool-trace"],
+    artifacts: ["e10-persistence-roundtrip-tauri"],
+    surface: "tauri",
     commands: ["mix-e2e-integration", "mix-application-real-loop"],
   },
   {
