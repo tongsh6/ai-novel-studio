@@ -1,89 +1,96 @@
 {
-  "arch-check|arch-check|||Umbrella architecture boundary check failed": {
-    "status": "deferred",
-    "planned_fix": "VS-012",
-    "reason": "Pre-existing: provider_controller.ex 直接引用 NovelAgent.Provider.LMStudio，非 VS-010 引入。计划在 VS-012 通过 Application 层封装修复。"
-  },
-  "credo|Credo.Check.Refactor.Nesting|apps/novel_agent/lib/novel_agent/intent_registry.ex|431|Nesting": {
-    "status": "deferred",
-    "planned_fix": "VS-012",
-    "reason": "VS-007 引入。需将 slot 行格式化逻辑抽取为私有函数。VS-012 修改 Router 时一并处理。"
-  },
-  "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_agent/test/novel_agent/router_test.exs|24|CyclomaticComplexity": {
-    "status": "deferred",
-    "planned_fix": "VS-012",
-    "reason": "VS-007 引入。测试函数需拆分为多个 describe + test。VS-012 扩展路由测试时一并重构。"
-  },
-  "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_agent/test/novel_agent/router_test.exs|39|CyclomaticComplexity": {
-    "status": "deferred",
-    "planned_fix": "VS-012",
-    "reason": "同 #3，VS-012 一并处理。"
-  },
-  "credo|Credo.Check.Refactor.Nesting|apps/novel_application/lib/novel_application/adoption_boundary.ex|101|Nesting": {
-    "status": "deferred",
-    "planned_fix": "VS-012",
-    "reason": "VS-004 引入。需将 discard mutation 组装逻辑抽取为私有函数。VS-012 消费 AdoptionBoundary 时一并处理。"
-  },
-  "gitleaks|generic-api-key|tools/company-console/server/config.mjs|4|generic-api-key": {
-    "status": "accepted_risk",
-    "owner": "tongshuanglong",
-    "updated_at": "2026-06-01",
-    "handling": "该 generic-api-key 位于 ProjectGod 线历史 commit 0234860（作者 jasperyang，2026-05-27），不在当前 idea/dialogue-based-novel-workbench/v3 分支历史，也不在工作树（tools/ 仅余 .gitkeep）。v3 开发分支内不重写历史，确认接受现状。",
-    "recommendation": "凭证作废由 token 所有者在 MiniMax 控制台轮换/吊销；如需从仓库历史彻底清除该文件，由用户在 ProjectGod 线用 git filter-repo 重写并 force-push（属 ProjectGod 维护范围，不在 v3 dev scope，见 dev-branch-scope 约束）。"
-  },
-  "gitleaks|generic-api-key|docs/design/ui/novel-studio.pen|5739|generic-api-key": {
-    "status": "false_positive",
-    "owner": "codex",
-    "updated_at": "2026-07-01",
-    "handling": "gitleaks generic-api-key 命中 Pencil .pen 文件内部 fileToken 元数据。扫描报告为 redacted match，未指向产品 provider/API 配置、运行密钥或用户可用凭证；.pen 文件按项目规则只能通过 Pencil MCP 编辑，不做 shell 文本改写。",
-    "recommendation": "继续保留 gitleaks 扫描。若 Pencil 后续生成新的 token 字段或位置导致新 fingerprint，需要重新按 .pen/Pencil MCP 语义复核；若确认是外部可用凭证，再由凭证所有者轮换并通过 Pencil 源文件流程清除。"
-  },
-  "credo|Credo.Check.Refactor.Nesting|apps/novel_domain/lib/novel_domain/chapter_summary.ex|113|Nesting": {
-    "status": "fixed",
-    "owner": "lead",
-    "updated_at": "2026-10-22",
-    "planned_fix": "B13b/baseline-gates-cleanup",
-    "handling": "2026-10-22 工程基线清账：chapter_summary.ex 的 parse_sections 抽 parse_chunk/3 helper 降嵌套（行为不变，parse/渲染往返单测覆盖）；mix credo --strict 全仓 0 issue。B13b 对账：该 finding 源于历史 P2，不属于任何 ADR enforcement gap。",
-    "recommendation": "保留 credo strict 门禁；若同类 Nesting 再次命中，按「先测后拆 helper」处理，不新增 deferred。"
-  },
-  "mix-audit|mix-audit|||Hex dependency vulnerability scan failed": {
-    "status": "fixed",
-    "owner": "codex",
-    "updated_at": "2026-10-05",
-    "planned_fix": "NEXT-B16",
-    "handling": "2026-10-05 用户授权后将后端 Phoenix 精确更新到 1.8.9；其余 Hex 依赖保持原锁定版本。mix deps.get --check-locked 与 mix deps.audit 通过，1,492 个后端测试通过。",
-    "recommendation": "继续保留依赖审计；今后同一指纹再次命中时仍应阻断，不能沿用 fixed 放行。"
-  },
-  "frontend-typecheck|frontend-typecheck|||Frontend TypeScript typecheck failed": {
-    "status": "fixed",
-    "owner": "codex",
-    "updated_at": "2026-10-05",
-    "planned_fix": "NEXT-B16",
-    "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
-    "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
-  },
-  "frontend-lint|frontend-lint|||Frontend ESLint failed": {
-    "status": "fixed",
-    "owner": "codex",
-    "updated_at": "2026-10-05",
-    "planned_fix": "NEXT-B16",
-    "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
-    "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
-  },
-  "frontend-test|frontend-test|||Frontend unit tests failed": {
-    "status": "fixed",
-    "owner": "codex",
-    "updated_at": "2026-10-05",
-    "planned_fix": "NEXT-B16",
-    "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
-    "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
-  },
-  "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_domain/lib/novel_domain/work_skeleton.ex|166|CyclomaticComplexity": {
-    "status": "deferred",
-    "owner": "B11A-owner-session",
-    "updated_at": "2026-10-22",
-    "planned_fix": "B11A-CP4/CP5-owner",
-    "handling": "2026-10-22 B22 集成批扫描命中该 finding。work_skeleton.ex 的 +79 行改动与 B22 无关，是并发 B11A 会话的在途未提交工作（tasks/NEXT B11A row / working tree）。B22 集成批不接管他人在途代码，避免与并发会话互相覆盖。",
-    "recommendation": "由 B11A owner 在提交前拆分该函数的卷蓝图段落构造（或显式登记 deferred），提交后复跑扫描；若同一指纹在 B11A 提交后仍出现，则由当前 slice owner 处理。"
-  }
+ "arch-check|arch-check|||Umbrella architecture boundary check failed": {
+  "status": "deferred",
+  "planned_fix": "VS-012",
+  "reason": "Pre-existing: provider_controller.ex 直接引用 NovelAgent.Provider.LMStudio，非 VS-010 引入。计划在 VS-012 通过 Application 层封装修复。"
+ },
+ "credo|Credo.Check.Refactor.Nesting|apps/novel_agent/lib/novel_agent/intent_registry.ex|431|Nesting": {
+  "status": "deferred",
+  "planned_fix": "VS-012",
+  "reason": "VS-007 引入。需将 slot 行格式化逻辑抽取为私有函数。VS-012 修改 Router 时一并处理。"
+ },
+ "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_agent/test/novel_agent/router_test.exs|24|CyclomaticComplexity": {
+  "status": "deferred",
+  "planned_fix": "VS-012",
+  "reason": "VS-007 引入。测试函数需拆分为多个 describe + test。VS-012 扩展路由测试时一并重构。"
+ },
+ "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_agent/test/novel_agent/router_test.exs|39|CyclomaticComplexity": {
+  "status": "deferred",
+  "planned_fix": "VS-012",
+  "reason": "同 #3，VS-012 一并处理。"
+ },
+ "credo|Credo.Check.Refactor.Nesting|apps/novel_application/lib/novel_application/adoption_boundary.ex|101|Nesting": {
+  "status": "deferred",
+  "planned_fix": "VS-012",
+  "reason": "VS-004 引入。需将 discard mutation 组装逻辑抽取为私有函数。VS-012 消费 AdoptionBoundary 时一并处理。"
+ },
+ "gitleaks|generic-api-key|tools/company-console/server/config.mjs|4|generic-api-key": {
+  "status": "accepted_risk",
+  "owner": "tongshuanglong",
+  "updated_at": "2026-06-01",
+  "handling": "该 generic-api-key 位于 ProjectGod 线历史 commit 0234860（作者 jasperyang，2026-05-27），不在当前 idea/dialogue-based-novel-workbench/v3 分支历史，也不在工作树（tools/ 仅余 .gitkeep）。v3 开发分支内不重写历史，确认接受现状。",
+  "recommendation": "凭证作废由 token 所有者在 MiniMax 控制台轮换/吊销；如需从仓库历史彻底清除该文件，由用户在 ProjectGod 线用 git filter-repo 重写并 force-push（属 ProjectGod 维护范围，不在 v3 dev scope，见 dev-branch-scope 约束）。"
+ },
+ "gitleaks|generic-api-key|docs/design/ui/novel-studio.pen|5739|generic-api-key": {
+  "status": "false_positive",
+  "owner": "codex",
+  "updated_at": "2026-07-01",
+  "handling": "gitleaks generic-api-key 命中 Pencil .pen 文件内部 fileToken 元数据。扫描报告为 redacted match，未指向产品 provider/API 配置、运行密钥或用户可用凭证；.pen 文件按项目规则只能通过 Pencil MCP 编辑，不做 shell 文本改写。",
+  "recommendation": "继续保留 gitleaks 扫描。若 Pencil 后续生成新的 token 字段或位置导致新 fingerprint，需要重新按 .pen/Pencil MCP 语义复核；若确认是外部可用凭证，再由凭证所有者轮换并通过 Pencil 源文件流程清除。"
+ },
+ "credo|Credo.Check.Refactor.Nesting|apps/novel_domain/lib/novel_domain/chapter_summary.ex|113|Nesting": {
+  "status": "fixed",
+  "owner": "lead",
+  "updated_at": "2026-10-22",
+  "planned_fix": "B13b/baseline-gates-cleanup",
+  "handling": "2026-10-22 工程基线清账：chapter_summary.ex 的 parse_sections 抽 parse_chunk/3 helper 降嵌套（行为不变，parse/渲染往返单测覆盖）；mix credo --strict 全仓 0 issue。B13b 对账：该 finding 源于历史 P2，不属于任何 ADR enforcement gap。",
+  "recommendation": "保留 credo strict 门禁；若同类 Nesting 再次命中，按「先测后拆 helper」处理，不新增 deferred。"
+ },
+ "mix-audit|mix-audit|||Hex dependency vulnerability scan failed": {
+  "status": "fixed",
+  "owner": "codex",
+  "updated_at": "2026-10-05",
+  "planned_fix": "NEXT-B16",
+  "handling": "2026-10-05 用户授权后将后端 Phoenix 精确更新到 1.8.9；其余 Hex 依赖保持原锁定版本。mix deps.get --check-locked 与 mix deps.audit 通过，1,492 个后端测试通过。",
+  "recommendation": "继续保留依赖审计；今后同一指纹再次命中时仍应阻断，不能沿用 fixed 放行。"
+ },
+ "frontend-typecheck|frontend-typecheck|||Frontend TypeScript typecheck failed": {
+  "status": "fixed",
+  "owner": "codex",
+  "updated_at": "2026-10-05",
+  "planned_fix": "NEXT-B16",
+  "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
+  "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
+ },
+ "frontend-lint|frontend-lint|||Frontend ESLint failed": {
+  "status": "fixed",
+  "owner": "codex",
+  "updated_at": "2026-10-05",
+  "planned_fix": "NEXT-B16",
+  "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
+  "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
+ },
+ "frontend-test|frontend-test|||Frontend unit tests failed": {
+  "status": "fixed",
+  "owner": "codex",
+  "updated_at": "2026-10-05",
+  "planned_fix": "NEXT-B16",
+  "handling": "2026-10-05 用户授权后复用已安装 pnpm 10.33.0，以 install --frozen-lockfile 恢复项目依赖；frontend/package.json 与 pnpm-lock.yaml 均未变化。typecheck、lint 和 450 个前端测试通过。",
+  "recommendation": "依赖缺失继续由扫描前置检查报错；使用与 CI 同代的 pnpm，避免隐式补装或更换全局工具。"
+ },
+ "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_domain/lib/novel_domain/work_skeleton.ex|166|CyclomaticComplexity": {
+  "status": "deferred",
+  "owner": "B11A-owner-session",
+  "updated_at": "2026-10-22",
+  "planned_fix": "B11A-CP4/CP5-owner",
+  "handling": "2026-10-22 B22 集成批扫描命中该 finding。work_skeleton.ex 的 +79 行改动与 B22 无关，是并发 B11A 会话的在途未提交工作（tasks/NEXT B11A row / working tree）。B22 集成批不接管他人在途代码，避免与并发会话互相覆盖。",
+  "recommendation": "由 B11A owner 在提交前拆分该函数的卷蓝图段落构造（或显式登记 deferred），提交后复跑扫描；若同一指纹在 B11A 提交后仍出现，则由当前 slice owner 处理。"
+ },
+ "gitleaks|generic-api-key|scripts/e2e_01_full_chain_check.sh|243|generic-api-key": {
+  "status": "false_positive",
+  "owner": "lead",
+  "updated_at": "2026-10-28",
+  "handling": "B63/E10 聚合 spec 的内部标识符 `key: \"e10-persistence-roundtrip-tauri\"`（artifactSpecs 字段名，非凭证）；gitleaks generic-api-key 规则按 `key:` + 高熵字符串误报，文件中同类 key 字段均为场景/spec id。随行号变化可能产生新 fingerprint，届时按同一语义重新 disposition。",
+  "recommendation": "保持 gitleaks 扫描；若后续该文件 key 命中再次变化，按「artifact spec 标识符非凭证」复核并登记；不建议为规避扫描器改写代码语义/变量名。"
+ }
 }

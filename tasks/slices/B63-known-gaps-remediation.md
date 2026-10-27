@@ -115,4 +115,5 @@ E2E-01 §E10 判据逐项证据：
 2. **known-gaps**：`judgment-explore-internal` 与 E10 两行移出 blocked/evidence_missing 表；新增 B62/B63 关闭记录；native 覆盖现状更新。
 3. **E2E**：E10 映射已落地（`e10-persistence-roundtrip-tauri`），聚合计数 `pass:2→3 / evidence_missing:1→0`（HEAD 7fcab48）；整条 E2E-01 仍 exit 67（E1/E2/E3/E4/E5/E7/E8/E11/E12/E13 stale，B40 §10.2 债务），不冒充 PASS。
 4. **R2**：保持 open（作者裁决项，推荐 A）；**R4**：保持登记，不引入不可达分支/新 dialyzer 债。
+5. **静态扫描闭环**：E10 映射新增的 `artifactSpecs.key: "e10-persistence-roundtrip-tauri"` 被 gitleaks generic-api-key 规则误报（内部 spec 标识符非凭证）；已按既有处置台账在 `reports/static-scan/dispositions.json` 登记 `false_positive` 并写明理由与重报处理，而非改写代码语义规避扫描器。
 5. **提交后 freshness**：judgment-explore-internal 在最终 HEAD 用 `quality_accept` 复跑一次写 verdict（Lead 排期）；E10 证据 freshness 依赖 B61 native 批次在最终 HEAD 的复跑。
