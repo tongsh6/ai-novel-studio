@@ -23,7 +23,7 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - click: "本次只做一步" 作者步数约束（结构化 author_limits，非自然语言口令）
+  - click: '"本次只做一步" 作者步数约束（结构化 author_limits，非自然语言口令）'
   - send: plain conversation input "设计角色、大纲和正文改写计划，测试预算余量不足"
   - wait_for: bounded AgentRun fast ack
   - wait_for: plan_drafted with more than one plan step
@@ -33,7 +33,7 @@ user_flow:
   - click: "执行选中的 2 步"
   - wait_for: budget_expanded with mode selected_steps, step_count 2, same run status running
   - wait_for: restored remaining-plan checkpoint TurnResult after selected steps complete
-  - click: "保存到大纲" on the checkpoint artifact
+  - click: '"保存到大纲" on the checkpoint artifact'
   - wait_for: accept action result accepted
   - verify: no plan_revised and no completed TurnResult before the author action
 

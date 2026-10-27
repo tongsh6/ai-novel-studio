@@ -39,8 +39,8 @@ user_flow:
   - observe: 全书审读完成：发现 8 处偏离
   - open: 作品档案脉络
   - observe: four 自第1章后未再出场 findings plus one 终局/收官定位 finding stating 全书进度约 N% and 第 4 章
-  - observe: one 卷规划不一致 finding stating 立项计划 4 卷 and 实际已建 3 卷 with work:/volumes: source refs
-  - observe: two 多卷缺蓝图 findings for 第二卷：暗流 and 第三卷：收束 with volume: source refs
+  - observe: 'one 卷规划不一致 finding stating 立项计划 4 卷 and 实际已建 3 卷 with work:/volumes: source refs'
+  - observe: 'two 多卷缺蓝图 findings for 第二卷：暗流 and 第三卷：收束 with volume: source refs'
   - click: 接受走向 on 凌渊
   - click: 标记误报 on 沈墨
   - click: 修订设定 on 韩晟

@@ -42,23 +42,26 @@ user_flow:
   # 该顺序只为机制批次可重复；真实模型语义顺序（M01→M05→M19→M20）归 B27 §6.1 矩阵。
   - open: 启动真实 Tauri runner（原生窗口 + 真实前端/后端），工作台打开种子作品，会话已连接。
   - send: 「写下一章」（主输入 placeholder「输入你的想法、问题或指令...」）。
-  - observe: 判断.execute(prose_writing) → AgentRun 起草计划（context_assemble + chapter_mission +
-    prose_writing）→ writer 产出正文草稿 → 独立 evaluator 完成质量复核；候选停 TENTATIVE 待采纳，
-    零自动采纳、零 production write，运行完成不等于已采纳。
+  - observe: >-
+      判断.execute(prose_writing) → AgentRun 起草计划（context_assemble + chapter_mission +
+      prose_writing）→ writer 产出正文草稿 → 独立 evaluator 完成质量复核；候选停 TENTATIVE 待采纳，
+      零自动采纳、零 production write，运行完成不等于已采纳。
   - reload: 刷新工作台并从 /sessions/resume 恢复；待采纳候选与作者原话仍在，候选字节不变、无重复。
   - send: 「资料处理进度」（候选未采纳状态追问）。
   - observe: 按持久事实回答待采纳 1 份 / TENTATIVE，并引用候选真实字节；不把 run completed 说成已保存。
   - click: 作者在真实候选卡片上显式采纳（保存为章节正文/保存原稿）。
-  - observe: 唯一 author_action accept 绑定该 artifact；resolved=ACCEPTED；trace_summary.trace_ref 与
-    state/projection trace refs 落库；章四栏摘要维护事件落 app JSONL。
+  - observe: >-
+      唯一 author_action accept 绑定该 artifact；resolved=ACCEPTED；trace_summary.trace_ref 与
+      state/projection trace refs 落库；章四栏摘要维护事件落 app JSONL。
   - reload: 再次刷新；已采纳候选恢复为 ACCEPTED 且不再待采纳，正文候选字节与采纳结果一致。
   - send: 「资料处理进度」。
   - observe: 同一问题在采纳后按新持久事实回答：待采纳 0 份 / 已处置 1 份 / ACCEPTED。
   - open: 阅读模式。
   - observe: 已采纳正文进入阅读投影（本章有效字数 > 0，无待补足空态）。
   - send: 「「第02章」按计划要写什么？」（最后一轮判断/取证）。
-  - observe: 判断先 explore：真实 chapter_read 观察「第02章」计划内容；回复引用计划事实，
-    本轮零候选/零写入；分析不把已采纳正文或历史回复当计划事实。
+  - observe: >-
+      判断先 explore：真实 chapter_read 观察「第02章」计划内容；回复引用计划事实，
+      本轮零候选/零写入；分析不把已采纳正文或历史回复当计划事实。
 evidence:
   required:
     - screenshot
