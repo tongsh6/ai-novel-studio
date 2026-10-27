@@ -444,9 +444,11 @@ v3 不继承 v2 Router-first 执行拓扑，也不把 v2 handler 结果直接升
 - apps/novel_application/lib/novel_application/turn_result_builder.ex
 - apps/novel_domain/test/novel_domain/orchestrator_decision_test.exs
 - apps/novel_application/test/novel_application/execution_authority_test.exs
-- quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml
+- quality/acceptance/scenarios/agent-step-regate.yml
 
 ## enforcement_gaps
+
+- **2026-10-27 B40 enforced_by 更新（证据映射，不改决策段）**：原 `e2e-01-downgrade-real-page.yml`（多步 MicroPlan→action_scope 降级）在判断纪元静态不可达，已正式退役；替代证据为 `agent-step-regate`（12 门 allow 路径真实页面 PASS + author-safe why/gate 断言）+ `gate_order_closure_test`（blocked 路径单测）。见 `tasks/slices/B40-judgment-era-acceptance-reanchor.md` §7.3/§10。
 
 - B13b 裁决（2026-10-22，降级为文档化偏差）：reply-only 主链不构造 `OrchestratorDecision`（`dialogue_planning_service.ex:804-830`），由 `DecisionTrace`（`decision_type=:reply_only` + `no_tool/no_behavior/no_write_reason`，`trace_writer.ex:20-50,368-370`）承担决策解释；ADR-0004 决策 #1/#2「每个 turn 有 decision」与实现不一致，应新增 ADR 收窄（不得直接改写历史决策）。
 - B13b 裁决（2026-10-22，降级为文档化偏差）：`OrchestratorDecision` 只保留 `approved_actions/rejected_actions/downgraded_actions` 等字段（`orchestrator_decision.ex:49-64`），`tool_requests`/`state_transitions` 的事实载体是 `approved_actions` + TurnResult `tool_result`/`state_delta`；同步裁决架构下 `decision_status` 只有 `:decided`；`reply_only` 由 trace 承载、`allow_bounded_read_batch` 由 AgentRunPolicy 承载、`cancel_or_close` 由行为关闭 slice（`BEHAVIOR-LIFECYCLE-DECISION-AUTHORITY`）落地。建议新增 ADR 收窄枚举，勿扩无用字段。

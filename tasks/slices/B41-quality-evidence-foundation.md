@@ -177,6 +177,10 @@ bash scripts/quality_accept.sh --tier pr-smoke
 - **B42**：真实 provider 的 PASS 需 `model_behavior` 层证据与 `release-real-llm` 结果层；在此前真实 provider 运行不得写 PASS（读方 evidence_missing 是预期行为）。
 - **B41 自身不含产品能力验收**：本轮未运行产品 Tauri/真实模型（证据基建不需要）；不得以本 slice done 代签 B40/B42 的场景通过。
 
+### CP5 追记（2026-10-27，B40 重锚后）
+
+B40 将 registry 从 212/2/214 变更为 **207 scenarios / 2 drafts / 209 manifests**（退役 6：e2e-01-downgrade-real-page、au07-gate-reason-why、gap-wt04-non-exploration-frame-badges、agent-provider-streaming-progress、au10-micro-plan-entry、au01-garbage-json-recovery；新增 pr-smoke-core-reply）。因此 `scripts/lib/quality/manifest.test.mjs` 的真实仓库计数断言由 B41 CP5 的 212/2/214 更新为 207/2/209（防漂移用途），CP5 记录中的 212/2/214 保持为当时快照不改。另：B40 实跑发现并已由 Lead 修复 `accept_verdict.mjs` 短 git_head 与聚合器完整 hash 不一致（改为记录完整 hash；`e2e_status` 增加 `commitMatches` 兼容 ≥7 位短哈希并补测试）。
+
 ## 12. CP5 残余（交接后不阻塞 B41 done）
 
 - legacy `summary.json` 只作历史 artifact：其存在不构成 PASS；重锚后由 B40 重新生成绩效 verdict。

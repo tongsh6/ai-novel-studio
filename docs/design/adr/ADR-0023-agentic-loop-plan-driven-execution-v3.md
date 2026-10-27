@@ -247,6 +247,8 @@ AgentPlan + mechanical cursor。计划起草器先产出 `context_assemble` / `w
 `consumed_tool_calls=1` / `consumed_provider_calls=3`，并分别保持
 `pending_artifact_type=foreshadowing_seed` / `style_rule_seed`。
 
+> **2026-10-27 历史注记**：本段 `provider_progress_v1` profile 已于 B27 CP3c（D1）退役；场景 `agent-provider-streaming-progress` 由 B40 正式退役（替代=`agent-provider-execution-stream-unified`/`agent-provider-execution-error-author-safe`），下方 summary 只作历史证据，不是 current-HEAD 证据。
+
 实现检查点（2026-07-04，CP3 provider progress + readonly batch 真实 Tauri）：
 `provider_progress_v1` 与 `readonly_batch_context_v1` 已从 observation-led next-step planner
 迁到 model-drafted AgentPlan + mechanical cursor。provider progress 计划起草器产出

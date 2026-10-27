@@ -334,9 +334,11 @@ v3 不继承 v2 Router-first 拓扑。
 - apps/novel_domain/test/novel_domain/dialogue_frame_test.exs
 - apps/novel_application/test/novel_application/dialogue_gateway_test.exs
 - quality/acceptance/scenarios/au01-ordinary-chat-two-turn-roundtrip.yml
-- quality/acceptance/scenarios/gap-wt04-non-exploration-frame-badges.yml
+- quality/acceptance/scenarios/au01-turnresult-recorder-ui-consistency.yml
 
 ## enforcement_gaps
+
+- **2026-10-27 B40 enforced_by 更新（证据映射，不改决策段）**：原 `quality/acceptance/scenarios/gap-wt04-non-exploration-frame-badges.yml` 已退役（B26 `5ce6261d` 起 `JudgmentProtocol.frame_type/1` 只产 `creative_exploration/capability_gap/casual_reply`，`question_answer/meta_discussion` 无生产者），替代场景为 `au01-turnresult-recorder-ui-consistency.yml` 与 `au01-ordinary-chat-two-turn-roundtrip.yml`（current-HEAD browser-surface 复跑）。退役理由见 `quality/acceptance/known-gaps.md` retired 表与 `tasks/slices/B40-judgment-era-acceptance-reanchor.md` §7。
 
 - B13b 裁决（2026-10-22，修复-独立 slice `PLANNER-SEMANTIC-BOUNDARY`）：`DialogueFrame.validate/1` 未在主链调用，主链（`dialogue_planning_service.judgment_frame/4`、agent-run step frame）由构造已知合法结构代替 envelope 校验；judgment narrative/reason 无 forbidden 语义扫描即进 `author_visible_draft`，`author_visible_draft` 仅按 ADR-0001 #5 三项扫描；完整语义族拦截与真实页面断言由该 slice 统一收敛（与 ADR-0003 gaps 同根）。
 

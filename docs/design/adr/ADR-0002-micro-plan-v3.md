@@ -385,9 +385,12 @@ v3 不继承 v2 Router-first 拓扑，也不把 v2 intent routing 结果直接�
 - apps/novel_application/lib/novel_application/trace_writer.ex
 - apps/novel_domain/test/novel_domain/micro_plan_test.exs
 - apps/novel_application/test/novel_application/execution_authority_test.exs
-- quality/acceptance/scenarios/au10-micro-plan-entry.yml
+- quality/acceptance/scenarios/judgment-plan-multi-step.yml
+- quality/acceptance/scenarios/p1-chapter-plan-minimum.yml
 
 ## enforcement_gaps
+
+- **2026-10-27 B40 enforced_by 更新（证据映射，不改决策段）**：原 `quality/acceptance/scenarios/au10-micro-plan-entry.yml`（legacy MicroPlan 入口，05 月旧证据）已退役；判断纪元规划链替代证据为 `judgment-plan-multi-step`（多步计划真实页面）与 `p1-chapter-plan-minimum`（judgment→orchestrator→toolbox 规划链）。pr-smoke 由新增 `pr-smoke-core-reply` 承接。见 `tasks/slices/B40-judgment-era-acceptance-reanchor.md` §7/§10。
 
 - B13b 裁决（2026-10-22，伪缺口修正）：ADR-0002 #3 要求 `MicroPlan.frame_ref` 引用 primary `DialogueFrame`，但 agent-run step plan 实际引用 `primary: false` 的 step frame（`judgment_plan.ex:428,575-594`），`primary` 字段全仓无消费者；「一个 primary frame 至多一个 primary MicroPlan」规则因 step frame 非 primary 而无执行载体（step plan 按 `mp_<run>_<seq>` 逐 step 新建并各自 re-gate）。待作者裁决 primary 语义（见 B13b 汇总「需要作者裁决的问题」）后按 slice 收敛。
 
