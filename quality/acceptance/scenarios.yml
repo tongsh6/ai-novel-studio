@@ -812,7 +812,7 @@ scenarios:
     tier: nightly
     surface: tauri
     status: blocked
-    blocked_reason: "B40 CP2（2026-10-27）：① native 系统级驱动未实现（allowlist 不含），browser-surface 不足以记 active；② 判断纪元 AgentRun 内部只读步 DecisionTrace 未持久化（do_execute_tool_step 丢弃 trace；真实 run 按 step turn_id 查询 TraceRepository=0 条），ToolTrace registry snapshot/redacted I/O 无当前可达的持久回查路径（ToolTrace 实现仍在）。触发条件=step trace persistence + native driver；不得用历史 lmstudio summary/browser 机制预验代签。"
+    blocked_reason: "B59 修复后剩余唯一阻塞（2026-10-27）：native 系统级驱动未实现（TAURI_NATIVE_SYSTEM_DRIVER allowlist 不含本场景），browser-surface 证据不足以把本场景记 active。产品侧 step DecisionTrace 已由 B59 接线持久化（scoped 复验 trace-query count=1，registry snapshot/合同 refs/grant summary/redacted IO/no-provider ReplayReport 均回查通过）；解除依赖=native AU07 driver + evidence checker + allowlist 注册。"
     manifest: quality/acceptance/scenarios/au07-tooltrace-registry-redacted-io.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au07-tooltrace-registry-redacted-io --surface tauri
@@ -1240,7 +1240,7 @@ scenarios:
     tier: nightly
     surface: tauri
     status: blocked
-    blocked_reason: "B40 CP2/CP3（2026-10-27）：判断纪元 AgentRun 内部只读步 DecisionTrace 未持久化（step trace 查询 0 条），原「纯只读 turn + 持久 ToolTrace 回查」链路无当前生产者；native 系统级驱动亦未实现。触发条件=step trace persistence + native driver。"
+    blocked_reason: "B59 修复后剩余唯一阻塞（2026-10-27）：native 系统级驱动未实现（browser-surface 不足以记 active）；产品侧 step DecisionTrace 已由 B59 接线持久化，scoped 复验 `TraceRepository.list_by_turn(step_turn_id)`/ReplayReport no-provider 已通过。解除依赖=native driver。"
     manifest: quality/acceptance/scenarios/e2e-01-readonly-tool-trace.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri
@@ -1249,7 +1249,7 @@ scenarios:
     tier: nightly
     surface: tauri
     status: blocked
-    blocked_reason: "B40 CP2/CP3（2026-10-27）：判断纪元 AgentRun 内部只读步 DecisionTrace 未持久化（step trace 查询 0 条），原「纯只读 turn + 持久 ToolTrace 回查」链路无当前生产者；native 系统级驱动亦未实现。触发条件=step trace persistence + native driver。"
+    blocked_reason: "B59 修复后剩余唯一阻塞（2026-10-27）：native 系统级驱动未实现（browser-surface 不足以记 active）；产品侧 step DecisionTrace 已由 B59 接线持久化，scoped 复验 `TraceRepository.list_by_turn(step_turn_id)`/ReplayReport no-provider 已通过。解除依赖=native driver。"
     manifest: quality/acceptance/scenarios/e2e-01-replay-report.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh e2e-01-replay-report --surface tauri

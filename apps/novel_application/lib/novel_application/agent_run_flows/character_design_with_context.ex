@@ -9,6 +9,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.StepTracePersistence
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.ProviderActivityProjector
@@ -305,7 +306,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations, snapshot) do
     tool_name = tool_name(plan)
 
-    {turn_result, _trace} =
+    {turn_result, trace} =
       TurnExecutionService.execute(%{
         frame: frame,
         plan: plan,
@@ -323,6 +324,8 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
         character_reader:
           Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader()
       })
+
+    StepTracePersistence.persist(run, turn_result, trace, Map.get(spec, :context), spec)
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
 

@@ -15,6 +15,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgenticPlanDraftPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.StepTracePersistence
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
@@ -659,7 +660,7 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
       }
     )
 
-    {turn_result, _trace} =
+    {turn_result, trace} =
       TurnExecutionService.execute(%{
         frame: frame,
         plan: plan,
@@ -687,6 +688,8 @@ defmodule NovelApplication.AgentRunFlows.JudgmentPlan do
         # B11A CP3：开新卷动作的机械规划范围（无 scope 时 nil，prompt 逐字节不变）。
         volume_scope: Map.get(spec, :volume_scope)
       })
+
+    StepTracePersistence.persist(run, turn_result, trace, execution_context, spec)
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
 

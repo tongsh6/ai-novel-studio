@@ -6,14 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-
-> 当前无 AI 可推进项：B41/B40 已 done、B42 CP0–CP3 done（CP4 待 ADR-0030）、B49 评审材料 done（R1–R7 待作者裁决）、B39 CP0 done（CP1+ 待 ADR-0030）；剩余为作者裁决/授权或新任务排期，见「阻塞」与「后续候选」。
+| B60-BACKEND-DIALYZER-BASELINE | 清理收口复跑发现的既有 dialyzer 门禁债（HEAD 39 warnings，B28/B36 前序批次、非本会话引入）：逐条分类真实缺陷/类型过窄/显式 ignore 理由，清零后 CI backend dialyzer step 恢复绿。 | [B60](slices/B60-backend-dialyzer-baseline.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B59-AGENT-RUN-STEP-TRACE-PERSISTENCE | B40 CP2 发现的产品缺口：AgentRun 内部步 `DecisionTrace` 未持久化（5 flow 丢弃 `_trace`；真实 run step turn_id 查 TraceRepository=0 条），AU-07 ToolTrace/replay 无持久回查路径。只做既有 persister 接线，不重建 ReplayService；解除 au07-tooltrace/e2e-readonly/e2e-replay 三个 blocked 场景。触发=作者排期，或需要 step 级 ToolTrace 证据。 | [B59](slices/B59-agent-run-step-trace-persistence.md) |
 | B38-WORLD-RULE-SAVE-INTENT | deferred 候选；仅在真实产品链复现或作者请求时触发。 | [B38](slices/B38-world-rule-save-intent.md) |
 
 ## 阻塞
@@ -26,7 +24,7 @@
 - **作者裁决｜B29 T2 known-gap**：「指定沈砚为主角」（两个同名沈砚）时真实模型未走 await_author、产出 old==new no-op 角色修订候选（未采纳、DB 零写入）；确定性 23/23 与 T1 全链 PASS，T2 不冒充通过。是否登记 no-op 拒绝/同名澄清硬化产品 slice 待裁决。
 - **门禁债｜后端 dialyzer 预存红项**：`mix dialyzer` 在收口 HEAD 报 39 warnings（B28/B36 前序批次、OTP 28/Elixir 1.19 下的既有债，非本轮引入；AGENTS 必需后端门禁 compile/format/test/credo/xref/arch 均绿）。逐条分类与清零计划见 [B60](slices/B60-backend-dialyzer-baseline.md)；触发=作者排期/CI 需 backend dialyzer step 绿。
 - **验收基建缺口｜native 系统级覆盖**：`tauri_slice_verify` 默认 driver 是外部 Playwright→Vite（browser-surface，`isTauri=false`），`TAURI_NATIVE_SYSTEM_DRIVER=1` allowlist 仅 B26/B28/B29/B30/B31/P1。AU11×2 与 AU07×3 因此保持 blocked；全部 B40 PASS 证据不得读作原生交互。见 [B40 §11.3](slices/B40-judgment-era-acceptance-reanchor.md)。
-- **依赖链｜AU-07 三场景**：`au07-tooltrace-registry-redacted-io`、`e2e-01-readonly-tool-trace`、`e2e-01-replay-report` 解除需 [B59](slices/B59-agent-run-step-trace-persistence.md) + native driver；不得用历史 lmstudio summary/browser 机制预验代签。
+- **依赖链｜AU-07 三场景（B59 修复后）**：`au07-tooltrace-registry-redacted-io`、`e2e-01-readonly-tool-trace`、`e2e-01-replay-report` 的 step trace 持久化已由 [B59](slices/B59-agent-run-step-trace-persistence.md) 修复（scoped PASS，browser-surface）；**唯一剩余阻塞=native 系统级驱动未实现**，不得用 browser-surface 证据记 active。
 - **产品/契约裁决候选｜`au02-candidate-fallback-ui`**：判断纪元候选帧只能由 `propose_creative_directions` 产生，坏/空候选到不了应用 fallback；应用兜底代码仍在但无当前可达生产者。触发=协议/产品裁决或真实模型产出该路径。
 - **下一批验收重锚｜B40 §10.2 同族未复跑**：`p1-chapter-draft-generation`、`p1-prose-execution-brief`、`au01-turnresult-recorder-ui-consistency`、`au02-candidate-*`、`au03-*`、`au05-adoption-safety-freshness`、`au07-trace-why-entry`、`au09-au03-*`、`au12-correction-intent-roundtrip`、`vs00c-*` 的 verifier/manifest 旧事件未全部迁移；历史 PASS 只作历史，nightly 复跑前不得 pass。见 [B40 §10.2](slices/B40-judgment-era-acceptance-reanchor.md)。
 - **已知未闭环｜`release` / `release-real-llm` registry 为空**：B42 结果层已落地并接线 `quality_accept.sh`，但不以占位/blocked 假场景充数；首个真实场景 AU-15 归 B42 CP4。见 [B42](slices/B42-model-behavior-evidence-tier.md)。

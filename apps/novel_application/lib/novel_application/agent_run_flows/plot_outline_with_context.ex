@@ -9,6 +9,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.StepTracePersistence
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ChapterMissionService
   alias NovelApplication.ContextAssembler
@@ -699,7 +700,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       }
     )
 
-    {turn_result, _trace} =
+    {turn_result, trace} =
       %{
         frame: frame,
         plan: plan,
@@ -718,6 +719,8 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
       }
       |> Map.merge(reader_deps(spec))
       |> TurnExecutionService.execute()
+
+    StepTracePersistence.persist(run, turn_result, trace, execution_context, spec)
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
 

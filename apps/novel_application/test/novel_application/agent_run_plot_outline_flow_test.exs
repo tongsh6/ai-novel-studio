@@ -96,6 +96,11 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
       planning_mission_writer: fn work_id, mission_map ->
         send(parent, {:planning_mission_persisted, work_id, mission_map})
         {:ok, :stored, mission_map}
+      end,
+      # B59 CP1：注入同形 trace persister，证明内部工具步 trace 落既有持久化通道。
+      trace_persister: fn work, attrs ->
+        send(parent, {:step_trace, work, attrs})
+        :ok
       end
     }
 
@@ -171,6 +176,12 @@ defmodule NovelApplication.AgentRunPlotOutlineFlowTest do
     assert_receive {:agent_event, :evaluation_made, outline_decision}, 500
     assert outline_decision.payload.loop_decision_type == :goal_satisfied
     assert_receive {:agent_event, :run_completed, _}, 500
+
+    # B59 CP1：plot_outline 工具步 trace 落库（step turn_id + tool_trace_refs）。
+    assert_receive {:step_trace, @work, trace_attrs}, 500
+    assert trace_attrs.turn_id =~ ":agent:"
+    assert trace_attrs.session_id == "session-agent-outline-flow"
+    assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed

@@ -17,7 +17,12 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
       workspace_id: "work-agent-flow",
       work_id: "work-agent-flow",
       session_id: "session-agent-flow",
-      turn_id: "turn-agent-flow"
+      turn_id: "turn-agent-flow",
+      # B59 CP1：注入同形 trace persister，证明 AgentRun 内部步 trace 走既有持久化通道。
+      trace_persister: fn work, attrs ->
+        send(parent, {:step_trace, work, attrs})
+        :ok
+      end
     }
 
     planned =
@@ -51,6 +56,14 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     assert provider_prompt =~ "林烬"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
     assert_receive {:agent_event, :run_completed, _}, 500
+
+    # B59 CP1：两个内部工具步各持久化一条 DecisionTrace（step turn_id + tool_trace_refs）。
+    assert_receive {:step_trace, "work-agent-flow", trace_attrs}, 500
+    assert trace_attrs.turn_id =~ ":agent:"
+    assert trace_attrs.workspace_id == "work-agent-flow"
+    assert trace_attrs.session_id == "session-agent-flow"
+    assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
+    assert_receive {:step_trace, "work-agent-flow", _}, 500
 
     # CP2b：机械步序不发 plan_drafted（无计划 run 的轨道 = judgment 事件链）。
     refute_receive {:agent_event, :plan_drafted, _}, 10

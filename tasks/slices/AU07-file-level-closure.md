@@ -135,9 +135,10 @@
 ## 8. B40 CP2 复核记录（2026-10-27）
 
 - **实现存在**：`TraceWriter.record_with_tool/7` 仍写 registry snapshot/contract refs/grant summary/redacted request/result summaries；`ReplayService.build_report/1` 仍 no-provider。
-- **证据重锚结论**：`au07-tooltrace-registry-redacted-io` **blocked**，两个独立原因：
+- **证据重锚结论（B59 修复后更新）**：`au07-tooltrace-registry-redacted-io` **仍 blocked（唯一原因=native driver 未实现）**；产品侧 step trace 持久化已由 B59 修复，scoped 复验 `trace-query count=1` 且 ToolTrace/ReplayReport 断言通过（browser-surface）。B40 时的两个原因记录保留如下（历史）：
   1. 判断纪元 AgentRun 内部只读步（如 `character_design_with_context_v1` 的 `character_roster` 步）会广播中间步 `turn_result` 并产生 ToolTrace（`TurnExecutionService.execute`），但 flow 的 `do_execute_tool_step` 丢弃返回的 trace（`character_design_with_context.ex:300-345`），**step DecisionTrace 未持久化到 TraceRepository**；本轮真实 run 按 step turn_id 查询 `TraceRepository.list_by_turn` 返回 0 条。因此「ToolTrace 持久回查 + ReplayReport」无当前可达路径（旧 `au07-tooltrace-*-lmstudio` 证据为帧纪元，不可复用）。
   2. native 系统级驱动未实现（`TAURI_NATIVE_SYSTEM_DRIVER` allowlist 只含 B26/B28/B29/B30/B31/P1），browser-surface 不足以记 active（Lead 2026-10-27 surface 裁决）。
 - **已保留的可复用重锚**：driver 已改为「先看角色阵容 → 设计反派」真实请求 + AgentRun 内部只读 `character_roster` 步；manifest/verifier 断言按「只读工具步 + registry/redaction/no-provider/no production write」重写；失败证据只读保留在 `artifacts/slice-verify/au07-tooltrace-registry-redacted-io-tauri/`（`trace-query.json` count=0）。
 - **退役**：`au07-gate-reason-why` 正式退役（action_scope 降级在判断纪元无生产者；why 持久 summary 无 gate-blocking 文本来源），替代证据=`agent-step-regate`（12 门 allow lineage + author-safe why/无模型召回，挂在该 driver/verifier 上）+ `gate_order_closure_test`（blocked 路径单测）。
 - **不重建 ReplayService / 不恢复旧对象**：本任务未改 ReplayService/ToolTrace 生产代码。
+- **B59 修复追记（2026-10-27）**：`StepTracePersistence` 把 5 个 AgentRun flow 的 step DecisionTrace 交给既有 persister；scoped 复验三个场景（au07-tooltrace / e2e-readonly / e2e-replay）均 PASS（browser-surface），`trace-query.json` count=1 且 registry snapshot/合同 refs/grant summary/redacted IO/no-provider ReplayReport 齐备。场景 registry 仍 blocked（native driver 未实现），不得读作原生 PASS。

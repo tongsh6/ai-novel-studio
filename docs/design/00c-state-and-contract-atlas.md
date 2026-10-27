@@ -632,7 +632,7 @@ ADR 状态建议先使用：
 | [B56](../../tasks/slices/B56-quality-maintenance-gates.md) | 建立/规划/维护期质量门与读模型 | deferred，按阶段拆；B54 时间项依赖其后 |
 | [B57](../../tasks/slices/B57-sec-injection-boundary.md) | 不可信作者输入/观察/外部资料的安全边界 | todo，先对抗补验，失败才做最小防线 |
 | [B58](../../tasks/slices/B58-human-approval-policy-unification.md) | 高风险作者批准与审计：复用或最小增量 | todo，先对账 receipt/trace，不直接建 approval_record |
-| [B59](../../tasks/slices/B59-agent-run-step-trace-persistence.md) | AU-07 ToolTrace/replay：AgentRun 内部步 DecisionTrace 持久化 | todo（B40 CP2 发现，未开工）；解除 AU-07 三 blocked 场景，依赖既有 persister 接线 |
+| [B59](../../tasks/slices/B59-agent-run-step-trace-persistence.md) | AU-07 ToolTrace/replay：AgentRun 内部步 DecisionTrace 持久化 | **done（2026-10-27，CP0–CP3）**：`StepTracePersistence` 接线 5 flow + scoped 复验三场景 PASS（browser-surface）；场景仍 blocked（仅 native driver） |
 
 这些任务与既有 B27、VS-00F/G、AU07、AU09、UA01、CA、Q1C/DS/SU/P1 等原任务共享承接关系，完整去重、条件触发和待裁决项以总账为准。
 

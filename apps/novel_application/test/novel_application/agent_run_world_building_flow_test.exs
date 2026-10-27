@@ -50,7 +50,12 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
       workspace_id: @work,
       work_id: @work,
       session_id: "session-agent-world-flow",
-      turn_id: "turn-agent-world-flow"
+      turn_id: "turn-agent-world-flow",
+      # B59 CP1：注入同形 trace persister，证明内部工具步 trace 落既有持久化通道。
+      trace_persister: fn work, attrs ->
+        send(parent, {:step_trace, work, attrs})
+        :ok
+      end
     }
 
     planned =
@@ -101,6 +106,13 @@ defmodule NovelApplication.AgentRunWorldBuildingFlowTest do
     assert_receive {:agent_event, :evaluation_made, world_decision}, 500
     assert world_decision.payload.loop_decision_type == :goal_satisfied
     assert_receive {:agent_event, :run_completed, _}, 500
+
+    # B59 CP1：world_building 工具步 trace 落库（step turn_id + tool_trace_refs）。
+    assert_receive {:step_trace, @work, trace_attrs}, 500
+    assert trace_attrs.turn_id =~ ":agent:"
+    assert trace_attrs.workspace_id == @work
+    assert trace_attrs.session_id == "session-agent-world-flow"
+    assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed

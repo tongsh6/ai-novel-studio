@@ -2171,6 +2171,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     CharacterDesignWithContext.next_step_planner(%{
+      trace_persister: map_get(input, :trace_persister),
       context: context,
       provider_execution: provider_execution,
       planner_provider_execution: map_get(input, :planner_provider_execution),
@@ -2199,6 +2200,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     JudgmentPlan.next_step_planner(%{
+      trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
         context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
@@ -2222,6 +2224,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     PlotOutlineWithContext.next_step_planner(%{
+      trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
         context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
@@ -2253,6 +2256,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     CharacterEvolutionWithContext.next_step_planner(%{
+      trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
         context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
@@ -2274,6 +2278,7 @@ defmodule NovelApplication.DialoguePlanningService do
          input
        ) do
     WorldBuildingWithContext.next_step_planner(%{
+      trace_persister: map_get(input, :trace_persister),
       context: context,
       context_fetcher:
         context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),

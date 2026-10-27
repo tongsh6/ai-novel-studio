@@ -271,7 +271,12 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
           turn_id: "turn-jp",
           chapter_prose_reader: fn _work_id, _chapter -> "" end,
           chapter_summary_reader: %{},
-          character_reader: fn _work_id -> [] end
+          character_reader: fn _work_id -> [] end,
+          # B59 CP1：注入同形 trace persister，证明 judgment_plan 工具步 trace 落库。
+          trace_persister: fn work, attrs ->
+            send(parent, {:step_trace, work, attrs})
+            :ok
+          end
         },
         nil,
         %Execution{result_fn: result_fn}
@@ -297,6 +302,14 @@ defmodule NovelApplication.AgentRunJudgmentPlanFlowTest do
            ] = plan_event.payload.plan_steps
 
     assert_receive {:agent_event, :run_completed, _}, 3_000
+
+    # B59 CP1：两个 act 步的 trace 各落库（step turn_id + tool_trace_refs）。
+    assert_receive {:step_trace, "ws-jp", first_trace}, 1_000
+    assert first_trace.turn_id =~ ":agent:"
+    assert first_trace.workspace_id == "ws-jp"
+    assert first_trace.session_id == "session-jp"
+    assert is_list(first_trace.tool_trace_refs) and first_trace.tool_trace_refs != []
+    assert_receive {:step_trace, "ws-jp", _second_trace}, 1_000
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed

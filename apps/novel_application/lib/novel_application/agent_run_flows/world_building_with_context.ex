@@ -9,6 +9,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
+  alias NovelApplication.AgentRunFlows.StepTracePersistence
   alias NovelApplication.AgentRunFlows.TurnBinding
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
@@ -337,7 +338,7 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
       }
     )
 
-    {turn_result, _trace} =
+    {turn_result, trace} =
       TurnExecutionService.execute(%{
         frame: frame,
         plan: plan,
@@ -359,6 +360,8 @@ defmodule NovelApplication.AgentRunFlows.WorldBuildingWithContext do
         character_reader:
           Map.get(spec, :character_reader) || NovelApplication.persistence_character_reader()
       })
+
+    StepTracePersistence.persist(run, turn_result, trace, execution_context, spec)
 
     tool_result = Map.get(turn_result, :tool_result) || %{}
 

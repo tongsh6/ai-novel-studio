@@ -55,7 +55,12 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
       workspace_id: @work,
       work_id: @work,
       session_id: "session-agent-character-evolution-flow",
-      turn_id: "turn-agent-character-evolution-flow"
+      turn_id: "turn-agent-character-evolution-flow",
+      # B59 CP1：注入同形 trace persister，证明内部工具步 trace 落既有持久化通道。
+      trace_persister: fn work, attrs ->
+        send(parent, {:step_trace, work, attrs})
+        :ok
+      end
     }
 
     planned =
@@ -107,6 +112,12 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert_receive {:agent_event, :evaluation_made, evolution_decision}, 500
     assert evolution_decision.payload.loop_decision_type == :goal_satisfied
     assert_receive {:agent_event, :run_completed, _}, 500
+
+    # B59 CP1：character_evolution 工具步 trace 落库。
+    assert_receive {:step_trace, @work, trace_attrs}, 500
+    assert trace_attrs.turn_id =~ ":agent:"
+    assert trace_attrs.session_id == "session-agent-character-evolution-flow"
+    assert is_list(trace_attrs.tool_trace_refs) and trace_attrs.tool_trace_refs != []
 
     assert {:ok, state} = AgentRunService.state(run_id)
     assert state.run.status == :completed
