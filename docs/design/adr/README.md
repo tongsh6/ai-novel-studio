@@ -18,6 +18,8 @@
 > 3. 「修复-本批」不等于已修复：需要产品行为/契约/验收场景的项转独立 slice 或 B 轨并诚实挂账，不得把裁决当实现。
 > 4. 后续同类对账以 B13b 台账为入口；B13 已销账（剩余工作全部转显式 slice/B 轨，不以 ADR gap 台账形态挂账）。
 
+> **2026-10-27 B49 评审材料（Proposed，待作者裁决）**：`ADR-0031-core-chain-semantics-narrowing-v3.md` 已起草，承接主链语义收窄（primary / reply-only / `OrchestratorDecision` / 动作集 / 只读 output 校验分层）与 ADR-0022 现行语义。它**不是** Accepted：接受前不改变任何 Accepted ADR 的决策段与实现边界；评审证据矩阵、A/B/C 选项与作者裁决包见 [`tasks/slices/B49-core-semantics-and-adr-review.md`](../../../tasks/slices/B49-core-semantics-and-adr-review.md)。ADR-0022 的状态处置（Superseded / Deferred / 重写）由作者拍板，AI 不代签。
+
 ## 1. 定位
 
 v3 ADR 记录会影响系统长期演化的架构决策。
@@ -306,6 +308,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0024 | `ADR-0024-decision-surface-registry-v3.md` | Accepted | 决策面注册表（S1-S7）与 ui_cards 信息通告边界：UI 决策契约中心从 card_type 集合改为决策面注册表、卡片命名与处置定案（10 卡→3 卡 + 废弃/Deferred）、S4 clarification / S7 awaiting_author 缺口填补方向、决策面 schema 进 codegen 闸门（N-SURF） | `notes/2026-07-15-dialogue-flow-decision-surface-review.md`, `07` §4, `contracts/VS-05` §4, ADR-0007/0008/0015 | `decision-surface` CP1（schema 闸门）→ CP2（clarification surface）→ CP3（awaiting_author TurnResult）；不变量 N-SURF |
 | ADR-0028 | `ADR-0028-volume-structure-and-open-volume-action-v3.md` | Accepted（2026-10-22，CP0–CP5 全落 + 真实 Tauri au08 三轮扩展 PASS；长尾缺口经 B13b 逐项裁决并诚实登记 enforcement_gaps） | 卷结构与开新卷动作：卷是 canonical middle-structure unit（arc 仍无对象）/ 卷级蓝图 E14-E17 存 `volumes.blueprint` map 列 / 卷身份 `(work_id,seq)` 与改名不重复建卷 / plot_outline 卷蓝图块 + 既有采纳管道 / 开新卷动作形态 A / 卷级收束优先级 / 意图与事实分离 | `contracts/VS-00J`（Frozen）、`08` §8 序位 6、`21`/`34`、NEM-GAP-07 | `tasks/slices/B11A-volume-blueprint.md` CP1-CP5；Accepted 前不授权代码 |
 | ADR-0030 | `ADR-0030-evidence-seeking-authoring-v3.md` | **Proposed（2026-10-27；未授权实现）** | 求证式创作：最小可信底座 + 统一 AgentRun 只读探索与 plan revision + 观察/引用证据闭环；比较固定投喂、纯自由查询、Run 级求证与 writer 内循环，补充而不直改 ADR-0023/0025 | `00` §2.4、`00c` §4/§6.7/§7/§8.4/§9.12、`contracts/VS-00K`、ADR-0021/0022/0023/0025 | `tasks/slices/B39-evidence-seeking-authoring.md` CP0 → Accepted 后 CP1；AU-15 真实模型与机制分证 |
+| ADR-0031 | `ADR-0031-core-chain-semantics-narrowing-v3.md` | **Proposed（2026-10-27；B49 评审材料，待作者裁决，未授权实现）** | 主链语义收窄：Form R（单 primary frame / 无 plan / 无 OrchestratorDecision）与 Form E（per-step frame + 单动作 MicroPlan + per-step gate）的真实边界；reply-only 解释权威归 DecisionTrace；`decision_type`/`decision_status` 子集；ADR-0007 动作集退役项；只读 output 校验四分层；承接 ADR-0022 决策 1 现行边界与决策 3（N-NARR），决策 2 已由 ADR-0023/0025 改写 | `00c` §4/§5.3/§6/§7/§8、ADR-0001/0002/0004/0007/0012/0013/0015/0022/0023/0025、B13b 裁决、`tasks/slices/B49-...` | B49 评审结论 → 作者裁决 → 实施承接 B01（Planner/frame lineage）、B43（Gate/blocked/词表）、B45（schema legacy/opaque/字段退役）、B12（S7）；ADR-0022 状态待作者拍板 |
 
 ---
 

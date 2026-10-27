@@ -385,6 +385,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | Planner Authority Boundary | Accepted：`adr/ADR-0003-planner-authority-boundary.md`；VS-01 contract pack：`contracts/VS-01-execution-authority-contract-pack.md` | `02`, `04` | 防止 Planner 批准自己的执行 | 所有执行 slice |
 | OrchestratorDecision v3 | Accepted：`adr/ADR-0004-orchestrator-decision-v3.md`；VS-01 contract pack：`contracts/VS-01-execution-authority-contract-pack.md` | `04` | 执行裁决要能解释和测试 | ToolRequest / TurnResult / trace slice |
 | Execution Gate Order v3 | Accepted：`adr/ADR-0005-execution-gate-order-v3.md`；VS-01 contract pack：`contracts/VS-01-execution-authority-contract-pack.md` | `04` | 权限、预算、policy 顺序必须稳定 | 高风险动作和 adoption slice |
+| 主链语义收窄（primary / reply-only / 裁决 / 只读 output 边界） | **Proposed（2026-10-27，B49 评审材料，待作者裁决，未授权实现）**：`adr/ADR-0031-core-chain-semantics-narrowing-v3.md`；评审矩阵：`tasks/slices/B49-core-semantics-and-adr-review.md` | ADR-0001/0002/0003/0004/0007/0012/0013/0015/0022/0023/0025、B13b 裁决 | Form R / Form E 的真实对象边界、reply-only 的 DecisionTrace 解释权威、动作集退役与只读 output 校验分层必须一次写清，否则后续 schema/代码会按旧字面造无消费者对象 | B01 Planner 语义、B43 Gate/blocked、B45 schema legacy、B12 S7；ADR-0022 状态处置 |
 
 ### 8.2 Batch B：状态、行为与写入边界
 
