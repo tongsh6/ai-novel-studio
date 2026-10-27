@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "quality-verdict/v2",
+  "title": "AI Novel Studio Quality Evidence Verdict (quality-verdict/v2)",
+  "description": "场景化验收运行后的唯一结果契约（B41 CP4；CP0 §6.2 item 7 冻结）。写入位置：artifacts/slice-verify/<scenario-id>/verdict.json；schema_version 固定为 quality-verdict/v2。读取规则（硬约束）：缺少 verdict.json、缺少 status 或整体结构无效时一律视为 evidence_missing（CLI 退出码 67），绝不默认 PASS；旧 summary.json 只是 artifact，不能自动转成 PASS（读取时 legacy_summary=true 且 status=evidence_missing）。生成与读取同源：scripts/lib/quality/verdict.mjs 是唯一实现（buildVerdict/writeVerdict/readVerdict/validateVerdict），本 schema 的常量、必填字段与条件约束由 scripts/lib/quality/verdict.test.mjs 交叉校验；CLI 入口 scripts/lib/quality/verdict_cli.mjs。read 退出码映射：pass=0、fail=1、skipped/blocked=65、evidence_missing=67、not_run=69。批次执行用 batch 标识同一个 batch id 下的第 index 个（0-based）场景；批次内 blocked 场景记 status=skipped + reason（blocked 是 manifest 状态，不是执行结果）。跨数组一致性（JSON Schema 无法表达数据相关子集，由同一 validateVerdict 强制）：evidence_missing 必须是 evidence_required 的子集；status=pass 时 evidence_required 的每一项必须出现在 evidence_present（显式传空 evidence_missing 也不能绕过）。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "tier",
+    "surface",
+    "status",
+    "artifact_dir",
+    "generated_at",
+    "git_head"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "quality-verdict/v2",
+      "description": "契约版本。只允许 quality-verdict/v2；升级必须走 additive 迁移并在 quality/acceptance/README 登记。"
+    },
+    "scenario_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "场景唯一 ID，必须与 quality/acceptance/scenarios.yml 注册项一致（本 schema 不限定字符集，由 CP1 registry 校验）。"
+    },
+    "tier": {
+      "type": "string",
+      "minLength": 1,
+      "description": "验收层级（pr-smoke / nightly / release / release-real-llm 等），取自 manifest，不在此硬编码，避免层级演进时 schema 漂移。"
+    },
+    "surface": {
+      "enum": ["browser", "tauri"],
+      "description": "运行表面。browser 由 Playwright/Chromium 驱动，tauri 由原生窗口外部驱动；两种证据不得互相冒充。"
+    },
+    "status": {
+      "enum": ["pass", "fail", "skipped", "not_run", "evidence_missing"],
+      "description": "执行结果：pass=证据完整且断言通过；fail=断言失败或 provider/来源不匹配；skipped=批次中因 manifest blocked 或前置条件不满足而跳过（等同 blocked 语义，携带 reason，不计 PASS，read 退出码 65）；not_run=未执行（含批次全 skipped，read 退出码 69）；evidence_missing=应有证据/verdict 缺失或无效。blocked 不是执行结果。"
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "description": "人类可读原因。status=fail/skipped/evidence_missing 时必须为非空字符串；不得用空 reason 冒充无异常。"
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "机器可读原因码（如 verdict_missing / legacy_summary / manifest_blocked / provider_mismatch / freshness_stale）。同一原因只出现一次，供聚合器与审计筛选。"
+    },
+    "driver": {
+      "type": ["string", "null"],
+      "description": "本次驱动标识（如 playwright / external-system-ui / ax-native-system-ui / cua-native-system-ui / bash）。聚合器按 driver + surface 区分原生与浏览器、真实与定位替身，不得混用。"
+    },
+    "provider": {
+      "type": ["string", "null"],
+      "description": "本次 provider 标识（如 lmstudio / strata / slice_verify / fake）。验收替身必须显式记录，不能伪装成真实模型批次。"
+    },
+    "model": {
+      "type": ["string", "null"],
+      "description": "声明的模型/preset（如 iq3_s）。未涉及模型时为 null。"
+    },
+    "actual_model": {
+      "type": ["string", "null"],
+      "description": "provider 实际上报的模型。与 model 不一致时必须如实记录，不能互相冒名。"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "第几次尝试（1-based）。重试不覆盖既有失败证据；旧批次保留并在 failure_refs 记录。"
+    },
+    "timeouts": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "本次运行等待超时计数。timeouts>0 而仍判 pass 时，必须在 reason/reason_codes 说明为何不构成失败。"
+    },
+    "started_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "开始时间（ISO 8601）。"
+    },
+    "finished_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "结束时间（ISO 8601）。"
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "运行耗时（毫秒）。未提供时由 started_at/finished_at 推导。"
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1,
+      "format": "date-time",
+      "description": "verdict 生成时间（ISO 8601）。必填，供 freshness/审计判断证据生产时机。"
+    },
+    "git_head": {
+      "type": ["string", "null"],
+      "description": "证据所属 commit（如 git rev-parse HEAD）。必填字段；无法取得时写 null，读取方按 stale 处理，不得据此判 PASS。freshness 规则：git_head 与当前 HEAD 一致（或显式 current 标记）才可判 current。"
+    },
+    "artifact_dir": {
+      "type": "string",
+      "minLength": 1,
+      "description": "证据目录（repo 相对或绝对路径，与 verdict.json 所在目录一致）。"
+    },
+    "artifact_links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "path", "role"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "description": "证据种类，取自 B41 CP0 §6.2 item 6 证据词表 v2 的 canonical kind（如 screenshot / websocket_frames / app_jsonl / ui_state / llm_http_log / summary_json）或 evidence.required_artifacts 路径 token；闭集由 CP1 证据词表维护，不在本 schema 重复枚举以防漂移。"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "证据路径（相对 artifact_dir 或 repo 相对）。消费者必须可定位；path 不存在即 evidence_missing。"
+          },
+          "role": {
+            "enum": ["required", "optional", "failure", "scoped"],
+            "description": "required=场景必需证据；optional=补充证据；failure=失败证据（只增不删）；scoped=局部/降级/历史重锚范围证据（不得混入 final 冒充全量 PASS）。"
+          }
+        }
+      },
+      "description": "证据索引：本次运行实际产出的证据清单与角色。"
+    },
+    "evidence_required": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "manifest 要求的证据 kind/token。status=pass 时其中每一项都必须出现在 evidence_present（validator 强制），缺证据不得默认 PASS。"
+    },
+    "evidence_present": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "实际存在且校验通过的证据 kind/token。status=pass 时必须覆盖 evidence_required 的全部项；可选证据可额外出现。"
+    },
+    "evidence_missing": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "缺失的证据 kind/token；必须是 evidence_required 的子集。status=pass 时该数组必须为空（缺证据不得默认 PASS）。"
+    },
+    "mechanism": {
+      "type": "object",
+      "required": ["status", "evidence_refs"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": ["pass", "fail", "unknown", "not_applicable"],
+          "description": "机制层结论：产品内部机制/主链是否按契约工作（命令退出、断言、状态推进、持久化）。unknown 表示未测量，不能用于 PASS；不涉及机制时用 not_applicable。"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "机制层证据引用（artifact_links 的 path 或最终证据引用）。"
+        }
+      },
+      "description": "机制-模型分层之一：机制证据。status=pass 的 verdict 必须显式提供本对象且 status ∈ {pass, not_applicable}。"
+    },
+    "model_behavior": {
+      "type": "object",
+      "required": ["status", "evidence_refs"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": ["pass", "fail", "unknown", "not_applicable"],
+          "description": "模型行为层结论：真实模型输出/行为是否满足场景。stub/确定性替身批次只能显式 not_applicable，不得写 pass 冒充真实模型行为；unknown 不能用于 PASS。"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "模型行为层证据引用（llm_http_log、真实响应快照等）。"
+        }
+      },
+      "description": "机制-模型分层之二：模型行为证据。status=pass 的 verdict 必须显式提供本对象且 status ∈ {pass, not_applicable}；不得与机制层合并成单一 PASS。"
+    },
+    "final_refs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "final 索引：本次判定采信的最终证据引用。"
+    },
+    "failure_refs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "failure 索引：失败/异常证据引用，保留不删，不得被重跑覆盖。"
+    },
+    "scoped_refs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "scoped 索引：局部/降级/历史重锚范围证据引用；不得与 final 混为同一 PASS。"
+    },
+    "batch": {
+      "type": "object",
+      "required": ["id", "index", "total"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "批次标识。"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "本 verdict 在批次中的 0-based 序号（必须满足 index < total）。"
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "批次场景总数。"
+        }
+      },
+      "description": "可选：批量执行时标识同批次位置。blocked 场景在批次内必须是 skipped + reason，不能中止整批。"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["status"],
+        "properties": { "status": { "const": "fail" } }
+      },
+      "then": {
+        "required": ["reason"],
+        "properties": { "reason": { "type": "string", "minLength": 1 } }
+      }
+    },
+    {
+      "if": {
+        "required": ["status"],
+        "properties": { "status": { "const": "skipped" } }
+      },
+      "then": {
+        "required": ["reason"],
+        "properties": { "reason": { "type": "string", "minLength": 1 } }
+      }
+    },
+    {
+      "if": {
+        "required": ["status"],
+        "properties": { "status": { "const": "evidence_missing" } }
+      },
+      "then": {
+        "required": ["reason"],
+        "properties": { "reason": { "type": "string", "minLength": 1 } }
+      }
+    },
+    {
+      "if": {
+        "required": ["status"],
+        "properties": { "status": { "const": "pass" } }
+      },
+      "then": {
+        "required": ["mechanism", "model_behavior"],
+        "properties": {
+          "mechanism": {
+            "properties": { "status": { "enum": ["pass", "not_applicable"] } }
+          },
+          "model_behavior": {
+            "properties": { "status": { "enum": ["pass", "not_applicable"] } }
+          },
+          "evidence_missing": { "maxItems": 0 }
+        }
+      }
+    }
+  ]
+}

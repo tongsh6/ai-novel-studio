@@ -115,3 +115,20 @@ B26 扩展故障/分页模式额外设置 `TAURI_NATIVE_TRANSPORT_PROXY=1`：外
 原生验收可加 `TAURI_NATIVE_ARTIFACT_TAG=scope` 等目录标签（仅小写字母/数字/连字符，最多32字符），保留不同矩阵批次；标签只用于脚本证据路径，不进入产品。B26 作用域变体先完成两种问题答复，再创建未答问题、开启新会话并从历史入口只读查看，切换到新作品后用外部代理构造跨作品 target 负例；保存历史只读快照及完整帧，`scope_switch` 对账原问题版本/状态与两个作品输入均未改变。
 
 B26 业务回环命令：`TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 bash scripts/quality_accept.sh b26-business-output-roundtrip --surface tauri`。由 CUA 在独立 app_path 完成其 manifest 用户流；`drop_next_committed_result` 在真实结果已落盘后丢掉首次 TurnResult 并断线，重传/恢复必须复用原产物。关闭窗口前备份完整 session、待采纳 payload 和独立 profile，避免丢失任何测试草稿；不采纳草稿来换取关闭许可。
+
+## B41 质量证据 verdict（CP4）
+
+- 契约：`quality/acceptance/verdict-schema.json`（quality-verdict/v2，draft 2020-12，additionalProperties=false）。
+- `scripts/lib/quality/verdict.mjs`：verdict 生成/读取/校验唯一实现（无外部依赖），被 runner 与聚合器共用；缺 verdict/缺 status 一律 evidence_missing，绝不默认 PASS。
+- `scripts/lib/quality/verdict_cli.mjs`：bash runner 调用入口。`read <artifact_dir>` 输出 JSON 并按 status 映射退出码：0 pass / 1 fail / 65 skipped（批次内 blocked）/ 67 evidence_missing（缺 verdict.json、缺 status、结构无效）/ 69 not_run；`write <artifact_dir> <verdict.json>` 与 `validate <verdict.json>` 无效输入 exit 1，用法错误 exit 64。
+- `scripts/lib/quality/verdict.test.mjs`：负例矩阵与 schema/实现同源回归；运行 `node --test scripts/lib/quality/verdict.test.mjs`。
+
+## B41 CP3 E2E 聚合器语义（blocked/freshness/来源）
+
+`scripts/e2e_01_full_chain_check.sh` 不再把「旧 summary.json 存在」或硬编码「已验收/已测试」当作通过：E1–E13 状态全部由 `scripts/lib/quality/e2e_status.mjs` 按真实证据计算（CP1 `manifest_cli.mjs registry-status` + CP4 `verdict_cli.mjs read` 及 legacy summary 回落 + `git_head`/`current` freshness + provider/surface/断言来源匹配），旧字段保留但不得与内嵌 verdict 矛盾。
+
+- 场景状态词表：`pass|fail|blocked|stale|evidence_missing|not_run`；`blocked` 只来自 registry（E4 `e2e-01-downgrade-real-page` 在 B40 重锚/退役前恒为 blocked，旧 summary 存在也不写已验收）。
+- 聚合 summary 内嵌 `verdict` 使用聚合专有 `schema_version: "quality-aggregate/v1"`（不是 CP4 `quality-verdict/v2`；blocked 批内记 skipped），并显式列出 `blocked_scenarios`/`stale_scenarios`/`evidence_missing_scenarios`/`not_run_scenarios` 与 reason。
+- freshness：证据记录 `git_head` 与当前 HEAD 一致或显式 `current` 标记才可 pass；旧证据无 `git_head` → stale，存在不等于 PASS。
+- 退出码（批量语义）：0 pass / 1 fail（命令失败或内容断言、provider 错配，优先）/ 67 evidence_missing（stale/缺失）/ 65 整批场景全 blocked、无任何验收执行 / 69 全 skipped/not_run / 66 registry/verdict CLI 缺失或查询失败。
+- 测试：`node --test scripts/lib/quality/e2e_status.test.mjs`（纯 fixture，不依赖真实 artifacts、不跑 Tauri/模型）。
