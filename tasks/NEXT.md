@@ -6,13 +6,12 @@
 
 | 任务 | 下一步与用户结果 | 状态来源 |
 |---|---|---|
-| B41-QUALITY-EVIDENCE-FOUNDATION | 先修 YAML/parser、blocked 分层、E2E 假绿和 verdict 契约，让后续验收不再把非法/缺证据当 PASS。 | [B41](slices/B41-quality-evidence-foundation.md) |
+| B42-MODEL-BEHAVIOR-EVIDENCE-TIER | 在 B41 verdict 上区分机制/实模/native/browser，建立 release-real-llm 结果层，补齐 AU-15 观察与 used refs 证据和原生 run 索引。 | [B42](slices/B42-model-behavior-evidence-tier.md) |
 
 ## 后续候选
 
 | 任务 | 承接结果 / 依赖 | 状态来源 |
 |---|---|---|
-| B42-MODEL-BEHAVIOR-EVIDENCE-TIER | 在 B41 verdict 上区分机制/实模/native/browser，补齐 AU-15 观察与 used refs 证据和原生 run 索引。 | [B42](slices/B42-model-behavior-evidence-tier.md) |
 | B40-JUDGMENT-ERA-ACCEPTANCE-REANCHOR | 按当前生产链重锚或退役 AU11/AU07/旧 manifest，重跑当前证据并修 known-gaps，不恢复旧对象。 | [B40](slices/B40-judgment-era-acceptance-reanchor.md) |
 | B39-EVIDENCE-SEEKING-AUTHORING | 先评审 ADR-0030/VS-00K/AU-15，Accepted 后开放正文 run 求证并复用 B41/B42 证据，不先做时间线 schema。 | [B39](slices/B39-evidence-seeking-authoring.md) |
 | B49-CORE-SEMANTICS-AND-ADR-REVIEW | 评审主链 Accepted 与实现偏差及 ADR-0022，明确保留/收窄/退役后再改 schema/代码。 | [B49](slices/B49-core-semantics-and-adr-review.md) |

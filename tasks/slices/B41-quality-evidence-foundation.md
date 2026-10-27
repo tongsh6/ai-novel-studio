@@ -1,6 +1,6 @@
 # B41：质量证据地基——YAML、blocked 分层与 verdict 契约
 
-- 状态：**doing（2026-10-27，CP0 复现与契约冻结 done；CP1 解析/校验实现中）**。3 个非法 YAML 已修复并通过标准解析器（215 文件全可解析）；CP0 冻结：PyYAML 标准解析 + 单一 manifest 模块、draft 注册表、证据词表 v2+迁移映射、verdict v2 契约与退出码、负例矩阵；ADR 判定为不适用（quality 运营契约，非 00c C1 设计对象）。
+- 状态：**done（2026-10-27，CP0–CP5 完成）**。CP0 冻结契约（PyYAML 标准解析 + 单一 manifest 模块、draft 注册表、证据词表 v2+迁移映射、verdict v2/退出码/负例矩阵；ADR 判定不适用，属 quality 运营契约）；CP1–CP4 分别落地解析/校验、批次状态分层、E2E 可信聚合、verdict v2 生成/读取同源与真实消费者；CP5 完成全量回归、known-gaps 类型词表与 B40/B42 交接。**诚实边界**：B41 是证据地基，不含产品功能验收；真实模型 PASS 判定与场景重锚分别由 B42/B40 承接。
 - 登记日期：2026-10-27；来源：3 个 manifest 语法损坏、`ids-by-tier` 未排除 blocked、E2E 聚合器硬写已验收、evidence schema 不能表达真实结果。
 - 上游：[全量对账](../2026-10-27-design-to-execution-reconciliation.md)、[known-gaps](../../quality/acceptance/known-gaps.md)、[evidence-schema](../../quality/acceptance/evidence-schema.json)、[B40](B40-judgment-era-acceptance-reanchor.md)。
 
@@ -34,7 +34,7 @@
 | CP2 | tier 与状态分层：active-only 执行；blocked=skipped+reason；失败=fail；无证据=evidence_missing；未运行=not_run；整批不得因 skipped 变 PASS。单独调用 blocked 必须返回专用非零/not_run 退出码，批量执行只在汇总中记 skipped+reason，不能把跳过当成功，也不能让夜间批次在首个 blocked 处意外中止 | **done（2026-10-27）**：`quality_accept.sh` 批次 rewrite（active-only/blocked skip 不中止/pass-fail-skipped-not_run-evidence_missing 分层/batch.json+logs/退出码 0-1-64-65-66-67-69）；5 条 fixture 集成测试；真实 pr-smoke 批次实跑（pass=1 fail=1，暴露 vs10 过期 driver 属 B40 已知项） |
 | CP3 | E2E 聚合器增加 blocked/freshness/来源检查；E4 blocked 时不能写已验收；当前/历史/局部/缺失证据分开 | **done（2026-10-27）**：删除硬编码已验收/已测试；E1–E13 由 registry+verdict/legacy+git_head freshness+来源匹配计算；aggregate verdict=quality-aggregate/v1；E4 blocked 不写已验收；56 条纯函数测试；真实 `--provider slice_verify` 实跑 exit 67（blocked=1/stale=11/evidence_missing=1） |
 | CP4 | evidence verdict schema 与真实消费者：status、reason、artifact links、surface/driver/provider/model/attempts/timeouts/git_head、mechanism/model_behavior、final/failure/scoped 索引；生成与读取同源，旧字段有迁移 | **done（2026-10-27）**：`verdict-schema.json` v2 + `verdict.mjs`（build/write/read/validate，缺 verdict/缺 status 一律 evidence_missing，PASS 反假绿）+ CLI；`accept_verdict.mjs` 接入 quality_accept（确定性 provider 写 pass，真实 provider pass 留 B42；证据缺失降级 exit 67）；20 条 verdict 测试 |
-| CP5 | 全量 manifest/schema/CLI 回归与 B40/B42 交接；known-gaps 增加 retired/driver_stale/evidence_missing/implementation_missing 等可区分类型 | 未开工 |
+| CP5 | 全量 manifest/schema/CLI 回归与 B40/B42 交接；known-gaps 增加 retired/driver_stale/evidence_missing/implementation_missing 等可区分类型 | **done（2026-10-27）**：212 场景/2 drafts/214 manifests 标准解析与语义校验通过；96 条 quality 库测试全过；`--list`/tier-rows/ids-by-tier/负例矩阵回归；pr-smoke 真实批次 pass=1/fail=1（vs10 driver_stale 已分类登记）；known-gaps 类型词表 + 2026-10-27 发现登记；CI 文档补 `node --test` 入口；B40/B42 交接写明 |
 
 ## 4. 非目标
 
@@ -150,6 +150,35 @@ bash scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri  # exi
 - 测试：`verdict.test.mjs` 20/20；接线后真实运行：au10 pass verdict（read exit 0）、vs10 fail verdict（read exit 1，failure_refs 指向 failure.png/backend.log 等）。
 - 残余：R5 本机无 draft-2020-12 独立校验器（用 draft-07 兼容子集 + 单测交叉验证）；R6 `git_head` 由调用方显式获取，缺失即 null（消费方按 stale，不 PASS）。
 
-## 11. CP5 待做
+## 11. CP5 完成记录（2026-10-27，AI）
 
-- 全量 manifest/schema/CLI 回归（含 `--list`/`--tier`/fixture 负例）与 B40/B42 交接说明；`known-gaps.md` 增加 `retired/driver_stale/evidence_missing/implementation_missing` 等可区分类型；把 vs10 过期 driver、E10 无 artifact 等发现按类型登记（不恢复旧对象）。
+**全量回归（真实命令与结果）**
+
+```bash
+bash scripts/quality_manifest_check.sh
+# [quality-manifest-check] passed（212 scenarios / 2 drafts / 214 manifests；yaml=6.0.3）
+node --test scripts/lib/quality/*.test.mjs
+# 96/96 pass（manifest 15 + verdict 20 + e2e_status 56 + accept 批次 5）
+node scripts/lib/quality/manifest_cli.mjs list --root .            # 212 行，字段含 status/surface/runner/driver/entrypoint
+node scripts/lib/quality/manifest_cli.mjs ids-by-tier nightly --root .  # 205（= nightly 210 − blocked 5，active-only）
+node scripts/lib/quality/manifest_cli.mjs tier-rows <tier> --root .
+# pr-smoke 2/2 active；nightly 210 = 205 active + 5 blocked；known-gap/release/release-real-llm 均 0
+bash scripts/quality_accept.sh --tier pr-smoke
+# exit 1（pass=1 fail=1；fail=vs10-observability-spine，driver_stale 已在 known-gaps 分类，属 B40 重锚范围）
+```
+
+**schema/CLI 回归**：verdict v2 生成/读写/校验同源测试覆盖（schema 常量与实现同源、缺 status→evidence_missing、PASS 反假绿、退出码闭集、legacy summary 不 PASS）；`quality_accept.sh` 先经 manifest 校验（非法 YAML exit 66），负例矩阵由 `manifest.test.mjs`/`quality_accept_batch.test.mjs` 全量覆盖；`quality/gates/ci.md` 增加 `node --test scripts/lib/quality/*.test.mjs` 为 CI 回归入口。
+
+**known-gaps 类型词表**：新增 `implementation_missing / driver_stale / evidence_missing / retired / reanchor_pending / credential_blocked` 六类，并登记 2026-10-27 发现：`vs10-observability-spine`（driver_stale+reanchor_pending）、E4 `e2e-01-downgrade-real-page`（implementation_missing+reanchor_pending）、E10 持久化闭环（evidence_missing）、`b27-natural-author-intent`/`b34-author-intent-corpus-fixtures`（draft）、真实 provider pass verdict（B42 前 evidence_missing）。**未改任何 registry active/blocked 状态**（B41 非目标）。
+
+**交接**
+
+- **B40**：按 known-gaps 分类逐项重锚或退役（vs10、E4、au07-gate、B13B D7/D11 等），重锚后必须 current-HEAD 真实页面复跑并在 verdict 写 `git_head` 才能 pass；不得只改文本或做旧事件名机械替换。
+- **B42**：真实 provider 的 PASS 需 `model_behavior` 层证据与 `release-real-llm` 结果层；在此前真实 provider 运行不得写 PASS（读方 evidence_missing 是预期行为）。
+- **B41 自身不含产品能力验收**：本轮未运行产品 Tauri/真实模型（证据基建不需要）；不得以本 slice done 代签 B40/B42 的场景通过。
+
+## 12. CP5 残余（交接后不阻塞 B41 done）
+
+- legacy `summary.json` 只作历史 artifact：其存在不构成 PASS；重锚后由 B40 重新生成绩效 verdict。
+- R5（无 draft-2020-12 独立校验器，使用 draft-07 兼容子集 + 单测交叉验证）与 R6（`git_head` 由调用方显式获取，缺失按 stale）保持登记。
+- 真实 provider 的 `accept_verdict` 分支在 B42 落地前保持不写 PASS（预期 evidence_missing），不得为让报告变绿而放宽。
