@@ -92,5 +92,12 @@
   "updated_at": "2026-10-28",
   "handling": "B63/E10 聚合 spec 的内部标识符 `key: \"e10-persistence-roundtrip-tauri\"`（artifactSpecs 字段名，非凭证）；gitleaks generic-api-key 规则按 `key:` + 高熵字符串误报，文件中同类 key 字段均为场景/spec id。随行号变化可能产生新 fingerprint，届时按同一语义重新 disposition。",
   "recommendation": "保持 gitleaks 扫描；若后续该文件 key 命中再次变化，按「artifact spec 标识符非凭证」复核并登记；不建议为规避扫描器改写代码语义/变量名。"
+ },
+ "gitleaks|generic-api-key|tasks/slices/B63-known-gaps-remediation.md|118|generic-api-key": {
+  "status": "false_positive",
+  "owner": "lead",
+  "updated_at": "2026-10-28",
+  "handling": "该命中来自 B63 收口记录中引用 E10 聚合 spec 标识符的说明文字（历史 commit 89885449 内的文档行），非凭证；后续文档已改写避免写出该字面量，但 git 历史仍保留旧行，故按既有处置台账登记 false_positive，不重写历史。",
+  "recommendation": "保持 gitleaks 扫描；后续文档引用 artifact spec 标识符时避免 `key:` + 引号字面量写法，避免同一启发式规则重复命中。"
  }
 }
