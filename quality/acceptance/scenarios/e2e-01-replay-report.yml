@@ -37,6 +37,13 @@ user_flow:
 
 evidence:
   required:
+    - summary_json
+    - app_jsonl
+    - websocket_frames
+    - replay_api_response
+    - llm_http_log
+    - screenshot
+  required_artifacts:
     - artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json
     - artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/app-log.json
     - artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/ui-frames.json

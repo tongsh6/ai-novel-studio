@@ -29,6 +29,9 @@ user_flow:
   - runner 在 artifacts/slice-verify/e2e-01-full-chain/summary.json 输出 E1-E13 对账状态。
 evidence:
   required:
+    - summary_json
+    - backend_log
+  required_artifacts:
     - artifacts/slice-verify/e2e-01-full-chain/summary.json
     - artifacts/slice-verify/e2e-01-full-chain/mix-e2e-integration.log
     - artifacts/slice-verify/e2e-01-full-chain/mix-application-real-loop.log

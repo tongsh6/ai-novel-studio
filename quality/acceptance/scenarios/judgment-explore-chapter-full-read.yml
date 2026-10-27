@@ -39,7 +39,7 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - llm_calls
+    - llm_http_log
     - turn_result
     - summary_json
   artifact_dir: artifacts/slice-verify/judgment-explore-chapter-full-read-tauri

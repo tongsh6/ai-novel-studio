@@ -41,7 +41,7 @@
 | `next_task_check.test.mjs` | 排期/源状态/链接/体积与差距扫描迁移、快照保护反例；运行 `node --test scripts/next_task_check.test.mjs`，无需前端依赖。 |
 | `gap_ledger.sh` | 从既有差距表生成开放清单及跨次快照，落点见 `reports/gap-ledger/README.md`。 |
 | `quality_accept.sh` | quality acceptance 统一入口。 |
-| `quality_manifest_check.sh` | quality manifest 一致性检查。 |
+| `quality_manifest_check.sh` | quality manifest 门禁：PyYAML 标准解析 + `scripts/lib/quality/manifest.mjs` 语义校验（非法 YAML/重复键/词表/未注册/draft 硬失败；B41 CP1）。 |
 | `seed_au03_context_source_ui.exs` | AU-03 context source UI 验收 seed。 |
 | `seed_au03_current_work_context_ssot.exs` | AU-03 当前作品上下文 SSOT seed。 |
 | `seed_au03_long_session_compression.exs` | AU-03 长会话压缩 seed。 |

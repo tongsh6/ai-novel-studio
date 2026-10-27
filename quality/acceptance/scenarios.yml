@@ -1529,3 +1529,17 @@ scenarios:
     manifest: quality/acceptance/scenarios/b26-business-output-roundtrip.yml
     driver: scripts/native_business_evidence_check.mjs
     entrypoint: TAURI_NATIVE_SYSTEM_DRIVER=1 TAURI_NATIVE_TRANSPORT_PROXY=1 bash scripts/quality_accept.sh b26-business-output-roundtrip --surface tauri
+
+# B41 CP1：非执行 manifest 的受控登记。draft 永不执行、永不计 PASS；
+# scenarios/ 下每个 yml 必须出现在 scenarios 或 drafts 中，否则门禁硬失败。
+drafts:
+  - id: b27-natural-author-intent
+    manifest: quality/acceptance/scenarios/b27-natural-author-intent.yml
+    reason: >-
+      draft（driver 未实现）：B27 自然语言意图→创作效果的 Tauri 场景草案；
+      driver 实现并取得真实 Tauri PASS 后，按 B40 判断纪元重锚口径评估转 active。
+  - id: b34-author-intent-corpus-fixtures
+    manifest: quality/acceptance/scenarios/b34-author-intent-corpus-fixtures.yml
+    reason: >-
+      draft（无外部 driver）：B34 确定性 fixture manifest，映射 CP1 契约到 slice_verify
+      判断 fixture + application/agent 确定性测试；CP3 真实模型 scoped 验证另行登记。

@@ -17,7 +17,7 @@ bash scripts/ai_static_scan.sh --top 10 --quick
 bash scripts/quality_manifest_check.sh
 ```
 
-当前 CI 已覆盖 backend compile/test/arch/ADR/I1/I2/I3、frontend lint/test/build/audit/design trace、static scan。`quality_manifest_check.sh` 是本次质量体系新增的 manifest 门禁。
+当前 CI 已覆盖 backend compile/test/arch/ADR/I1/I2/I3、frontend lint/test/build/audit/design trace、static scan。`quality_manifest_check.sh` 是质量体系的 manifest 门禁（B41 CP1 起使用 PyYAML 标准解析器 + 单一 `scripts/lib/quality/manifest.mjs` 语义校验）；CI 的 `Quality manifest` job 会固定安装 `pyyaml==6.0.3` 并先跑 `node --test scripts/lib/quality/*.test.mjs` 负例测试。
 
 ## Historical Secret Removal
 

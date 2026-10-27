@@ -95,3 +95,6 @@ playwright/
 /tmp/
 .claude/
 .pnpm-store
+
+# B41 CI：quality-manifest job 的标准 YAML 解析器 venv（本地不提交）
+.quality-venv/

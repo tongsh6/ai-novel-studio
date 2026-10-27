@@ -39,7 +39,7 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - replay_api_response_matrix
+    - replay_api_response
     - summary_json
   artifact_dir: artifacts/slice-verify/au07-trace-query-scope-negative-matrix-tauri
 

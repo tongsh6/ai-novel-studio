@@ -37,7 +37,7 @@ evidence:
     - websocket_frames
     - progress_jsonl
     - word_count_json
-    - exported_manuscript
+    - export_artifact
   artifact_dir: artifacts/novel-output/p1-100k-dogfood
 
 assertions:

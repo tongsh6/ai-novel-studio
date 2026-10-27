@@ -30,8 +30,8 @@
 | CP | 范围与完成标准 | 状态 |
 |---|---|---|
 | CP0 | 固定三个 YAML；登记受控解析方案、现有依赖、兼容迁移与负例矩阵；若 verdict/schema 的新字段或枚举属于 C1 contract，先完成对应 ADR，再进入实现 | **done（2026-10-27）**：3 YAML 已语法修复（语义保持），215 文件标准解析全过；契约见 §6：PyYAML+单 manifest 模块、draft 注册表、证据词表 v2/migration、verdict v2/退出码/负例矩阵；ADR 判定不适用（quality 运营契约，记录待作者复核） |
-| CP1 | 真正 YAML parse 总表/单表、id/tier/surface/entrypoint/必需键/重复项/anti-hooks/证据词表校验；非法文件和未注册场景失败 | **doing（CP0 后开工）** |
-| CP2 | tier 与状态分层：active-only 执行；blocked=skipped+reason；失败=fail；无证据=evidence_missing；未运行=not_run；整批不得因 skipped 变 PASS。单独调用 blocked 必须返回专用非零/not_run 退出码，批量执行只在汇总中记 skipped+reason，不能把跳过当成功，也不能让夜间批次在首个 blocked 处意外中止 | 未开工 |
+| CP1 | 真正 YAML parse 总表/单表、id/tier/surface/entrypoint/必需键/重复项/anti-hooks/证据词表校验；非法文件和未注册场景失败 | **done（2026-10-27）**：PyYAML 解析桥 + `manifest.mjs` 单一校验实现 + CLI；非法 YAML/重复键/stray/draft 规则/证据词表 v2 迁移（20 manifest）/2 份 draft 受控登记；15 条负例测试全过；CI 固定 PyYAML venv 并跑测试 |
+| CP2 | tier 与状态分层：active-only 执行；blocked=skipped+reason；失败=fail；无证据=evidence_missing；未运行=not_run；整批不得因 skipped 变 PASS。单独调用 blocked 必须返回专用非零/not_run 退出码，批量执行只在汇总中记 skipped+reason，不能把跳过当成功，也不能让夜间批次在首个 blocked 处意外中止 | **doing（2026-10-27，CP1 后开工）** |
 | CP3 | E2E 聚合器增加 blocked/freshness/来源检查；E4 blocked 时不能写已验收；当前/历史/局部/缺失证据分开 | 未开工 |
 | CP4 | evidence verdict schema 与真实消费者：status、reason、artifact links、surface/driver/provider/model/attempts/timeouts/git_head、mechanism/model_behavior、final/failure/scoped 索引；生成与读取同源，旧字段有迁移 | 未开工 |
 | CP5 | 全量 manifest/schema/CLI 回归与 B40/B42 交接；known-gaps 增加 retired/driver_stale/evidence_missing/implementation_missing 等可区分类型 | 未开工 |
@@ -93,3 +93,33 @@
 - 70 个 manifest 证据词表迁移是机械但量大的改动；CP1 必须逐文件留 diff 并保证 `evidence.required` 语义不回退（只做 token 规范化/路径搬移）。
 - 批量执行语义改变（原先首个 blocked 中止）会影响 nightly 脚本行为；CP2 同步更新 `quality/gates/ci.md`/`local.md` 的调用说明与退出码表。
 - 现有 E2E 聚合结果与 blocked 状态矛盾：CP3 改为 honest blocked/freshness 后，nightly 的 e2e-01-full-chain 可能在 B40 重锚前显示 blocked（预期，不伪装 PASS）。
+
+## 7. CP1 实现记录（2026-10-27，AI）
+
+**交付物**
+
+| 文件 | 作用 |
+|---|---|
+| `scripts/lib/quality/yaml_bridge.py` | 标准 YAML 解析桥（PyYAML SafeLoader + 重复键/多文档/非 UTF-8 拒绝；输出 JSON bundle）。唯一 YAML 语法入口。 |
+| `scripts/lib/quality/manifest.mjs` | registry/manifest 语义校验唯一实现：id/tier/surface/runner/status/blocked_reason、必需键、anti_hooks、id/tier/surface/runner/entrypoint 一致性、evidence 词表 v2 + required_artifacts + conditional_required、draft 注册规则、stray manifest、driver/frontend driver/tauri list/ci.md 外部检查；查询函数 `idsByTier`（active-only）/`scenarioById`/`registryStatus`。 |
+| `scripts/lib/quality/manifest_cli.mjs` | `validate/list/ids-by-tier/field/registry-status`；`quality_manifest_check.sh` 与 `quality_accept.sh` 共用。 |
+| `scripts/lib/quality/manifest.test.mjs` | 15 条测试（真实仓库正例、非法 YAML、重复键、词表漂移、required_artifacts 形状、缺键/anti_hooks、blocked 缺 reason、重复 id、stray/draft、idsByTier active-only、registry 解析错误、CP0 三 YAML 回归）。 |
+| `scripts/quality_manifest_check.sh` | 重写为环境预检（python3+PyYAML 缺失硬失败）+ `manifest_cli validate`。 |
+| `scripts/quality_accept.sh` | 删除内嵌正则 `parseScenarioIndex`，`query_scenarios` 统一走 CLI；执行前先跑一次 manifest 校验（失败 exit 66，非法 manifest 不进入运行）。 |
+| `quality/acceptance/scenarios.yml` | 新增顶层 `drafts:`（2 份 draft 受控登记）+ 20 个 manifest 证据词表迁移。 |
+| `quality/acceptance/scenarios/*.yml` | 证据词表 v2 迁移：alias→canonical、repo 路径→`required_artifacts`（7 个路径清单场景，并按其文件类型补 summary_json/app_jsonl/websocket_frames/llm_http_log/screenshot/backend_log/replay_api_response）、provider 条件证据→`conditional_required`；语义等价由迁移校验脚本逐文件核对（non-evidence keys 不变，required/paths 与期望映射一致）。 |
+| `quality/acceptance/README.md`、`quality/gates/local.md`、`quality/gates/ci.md`、`scripts/README.md`、`scripts/lib/README.md`、`scripts/lib/quality/README.md`、`.gitignore`、`.github/workflows/ci.yml` | 解析器依赖/校验入口/draft/词表文档；目录索引；CI 固定 PyYAML venv + `node --test scripts/lib/quality/*.test.mjs`。 |
+
+**验证（CP1）**
+
+```bash
+bash scripts/quality_manifest_check.sh
+# [quality-manifest-check] passed（212 scenarios / 2 drafts / 214 manifests；yaml=6.0.3）
+node --test scripts/lib/quality/manifest.test.mjs   # 15/15 pass
+bash scripts/quality_accept.sh --list               # 正常列出（active/blocked 均可见）
+bash scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri  # exit 65 blocked + reason
+```
+
+负例已覆盖：非法 YAML/重复键/重复 id/缺必需键/anti_hooks 非 false/blocked 缺 reason/词表漂移/required_artifacts 绝对路径/未注册 stray/draft 缺 status_note/draft 与 scenarios 重复。CP1 未运行产品 Tauri/实模（证据基建，不需要）。
+
+**残余（转 CP2/CP4）**：`quality_accept.sh` 批量执行尚未写 batch summary/verdict（CP2/CP4）；E2E 聚合器仍硬编码状态（CP3，队友并行）；verdict schema/模块（CP4，队友并行）。

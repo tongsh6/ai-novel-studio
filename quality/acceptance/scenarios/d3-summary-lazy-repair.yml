@@ -33,7 +33,7 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - llm_calls
+    - llm_http_log
     - summary_json
   artifact_dir: artifacts/slice-verify/d3-summary-lazy-repair-tauri
 

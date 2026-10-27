@@ -70,7 +70,7 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - llm_call_jsonl
+    - llm_http_log
     - summary_json
   extra_artifacts:
     - b28-cp2-evidence.json

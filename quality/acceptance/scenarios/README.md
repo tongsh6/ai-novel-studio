@@ -1,5 +1,6 @@
 # quality/acceptance/scenarios/
 
+> B41 CP1 起：本目录每个 yml 必须被 `../scenarios.yml` 的 `scenarios` 或 `drafts` 引用；标 **draft** 的文件只登记不执行、永不计 PASS（`drafts:` 为唯一受控注册表）。
 单场景验收 manifest 目录。总表入口是 `../scenarios.yml`；本目录文件只描述验收标准、证据要求和 anti-hook 边界，不替代外部 driver。
 
 ## Files

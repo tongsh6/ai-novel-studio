@@ -33,7 +33,7 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - exported_markdown
+    - export_artifact
     - summary_json
   artifact_dir: artifacts/slice-verify/p1-export-minimum-tauri
 

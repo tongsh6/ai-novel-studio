@@ -16,8 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
+      # B41 CP1：manifest 门禁使用标准 YAML 解析器（PyYAML），不用正则重实现 YAML。
+      # 依赖固定在 venv 中，避免系统 Python 的 externally-managed 限制。
+      - name: Setup standard YAML parser (PyYAML 6.0.3)
+        run: |
+          python3 -m venv .quality-venv
+          .quality-venv/bin/pip install --upgrade pip >/dev/null
+          .quality-venv/bin/pip install 'pyyaml==6.0.3'
+
+      - name: Quality manifest parser tests
+        run: PATH="$PWD/.quality-venv/bin:$PATH" node --test scripts/lib/quality/*.test.mjs
+
       - name: Quality manifest check
-        run: bash scripts/quality_manifest_check.sh
+        run: PATH="$PWD/.quality-venv/bin:$PATH" bash scripts/quality_manifest_check.sh
 
   backend:
     name: Elixir (mix test)

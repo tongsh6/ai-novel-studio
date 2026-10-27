@@ -70,7 +70,7 @@ evidence:
     - app_jsonl
     - summary_json
   optional:
-    - llm_call_jsonl（仅 live provider 批次存在；机制批次由 slice_verify 替身提供，不伪造）
+    - llm_http_log  # 仅 live provider 批次存在；机制批次由 slice_verify 替身提供，不伪造
   artifact_dir: artifacts/slice-verify/b27-prompt-lifecycle-consistency-tauri
   extra_artifacts:
     - b27-lifecycle-evidence.json（driver 汇总：作者输入/每阶段实测值/持久快照）

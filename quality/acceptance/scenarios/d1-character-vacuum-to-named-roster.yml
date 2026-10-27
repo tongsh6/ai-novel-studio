@@ -32,7 +32,7 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - llm_calls
+    - llm_http_log
     - summary_json
   artifact_dir: artifacts/slice-verify/d1-character-vacuum-to-named-roster-tauri
 

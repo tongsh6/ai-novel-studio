@@ -2,7 +2,6 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SCENARIO_INDEX="$PROJECT_ROOT/quality/acceptance/scenarios.yml"
 
 SCENARIO_ID=""
 SURFACE=""
@@ -30,88 +29,8 @@ EOF
 }
 
 query_scenarios() {
-  node --input-type=module - "$SCENARIO_INDEX" "$@" <<'NODE'
-import fs from "node:fs";
-
-const [indexPath, command, ...args] = process.argv.slice(2);
-
-function clean(value) {
-  return String(value ?? "")
-    .trim()
-    .replace(/^["']|["']$/g, "");
-}
-
-function parseIndex(text) {
-  const scenarios = [];
-  let current = null;
-
-  for (const line of text.split("\n")) {
-    const idMatch = line.match(/^\s*-\s+id:\s*(.+)$/);
-    if (idMatch) {
-      current = { id: clean(idMatch[1]) };
-      scenarios.push(current);
-      continue;
-    }
-
-    const fieldMatch = line.match(/^\s{4}([A-Za-z_]+):\s*(.*)$/);
-    if (current && fieldMatch) {
-      current[fieldMatch[1]] = clean(fieldMatch[2]);
-    }
-  }
-
-  return scenarios;
-}
-
-if (!fs.existsSync(indexPath)) {
-  console.error(`Missing scenario index: ${indexPath}`);
-  process.exit(66);
-}
-
-const scenarios = parseIndex(fs.readFileSync(indexPath, "utf8"));
-
-if (command === "list") {
-  console.log("id\ttier\tstatus\tsurface\trunner\tdriver\tentrypoint");
-  for (const scenario of scenarios) {
-    const runner = scenario.runner || (
-      scenario.surface === "tauri" ? "tauri_slice_verify" : "slice_verify"
-    );
-    console.log([
-      scenario.id,
-      scenario.tier,
-      scenario.status || "active",
-      scenario.surface,
-      runner,
-      scenario.driver,
-      scenario.entrypoint,
-    ].join("\t"));
-  }
-  process.exit(0);
-}
-
-if (command === "ids-by-tier") {
-  const [tier, surface] = args;
-  for (const scenario of scenarios) {
-    if (scenario.tier === tier && (!surface || scenario.surface === surface)) {
-      console.log(scenario.id);
-    }
-  }
-  process.exit(0);
-}
-
-if (command === "field") {
-  const [id, field] = args;
-  const scenario = scenarios.find((item) => item.id === id);
-  if (!scenario) {
-    console.error(`Unknown scenario id: ${id}`);
-    process.exit(64);
-  }
-  console.log(scenario[field] ?? "");
-  process.exit(0);
-}
-
-console.error(`Unknown query command: ${command}`);
-process.exit(64);
-NODE
+  # B41 CP1：统一经 manifest CLI 读取 registry（单一解析源，不做正则 YAML 解析）。
+  node "$PROJECT_ROOT/scripts/lib/quality/manifest_cli.mjs" "$@" --root "$PROJECT_ROOT"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -149,6 +68,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# B41 CP1：非法 manifest 不得进入运行。执行/查询前统一做一次 manifest 门禁校验；
+# 校验失败返回 66（配置错误），与 runner 失败的 1 区分。
+if ! node "$PROJECT_ROOT/scripts/lib/quality/manifest_cli.mjs" validate --root "$PROJECT_ROOT" >/dev/null 2>&1; then
+  echo "[quality-accept] manifest 校验失败，拒绝执行；运行 bash scripts/quality_manifest_check.sh 查看详情" >&2
+  exit 66
+fi
 
 if [[ "$LIST" == true ]]; then
   query_scenarios list

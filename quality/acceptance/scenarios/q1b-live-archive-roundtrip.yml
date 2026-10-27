@@ -22,7 +22,7 @@ user_flow:
   - reload: 已采纳候选不重入待采纳，真实事实为 CONFIRMED
   - input: 再次追问是否保存，保存模型原话供语义核查
 evidence:
-  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json, llm_http]
+  required: [screenshot, websocket_frames, turn_result, app_jsonl, summary_json, llm_http_log]
   artifact_dir: artifacts/slice-verify/q1b-live-archive-roundtrip-tauri-lmstudio
 assertions:
   network:

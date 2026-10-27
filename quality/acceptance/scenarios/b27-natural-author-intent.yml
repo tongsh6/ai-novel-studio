@@ -44,7 +44,7 @@ evidence:
     - websocket_frames
     - turn_result
     - app_jsonl
-    - llm_call_jsonl
+    - llm_http_log
     - summary_json
   artifact_dir: artifacts/slice-verify/b27-natural-author-intent-tauri-strata
 assertions:

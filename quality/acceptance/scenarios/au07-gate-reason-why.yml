@@ -34,6 +34,12 @@ user_flow:
 
 evidence:
   required:
+    - summary_json
+    - app_jsonl
+    - websocket_frames
+    - llm_http_log
+    - screenshot
+  required_artifacts:
     - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/summary.json
     - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/app-log.json
     - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/ui-frames.json

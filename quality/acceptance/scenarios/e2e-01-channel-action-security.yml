@@ -26,6 +26,10 @@ user_flow:
   - 外部协议 socket 发送旧 source_turn_ref 的 forged author_action。
 evidence:
   required:
+    - summary_json
+    - app_jsonl
+    - ui_state
+  required_artifacts:
     - artifacts/slice-verify/e2e-01-channel-action-security-tauri/summary.json
     - artifacts/slice-verify/e2e-01-channel-action-security-tauri/app-log
     - artifacts/slice-verify/e2e-01-channel-action-security-tauri/ui-state.json

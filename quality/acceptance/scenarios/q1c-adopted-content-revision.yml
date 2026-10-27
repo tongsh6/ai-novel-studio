@@ -46,8 +46,8 @@ evidence:
     - screenshot
     - websocket_frames
     - app_jsonl
-    - audit-report.json
-    - summary.json
+    - audit_report
+    - summary_json
   artifact_dir: artifacts/slice-verify/q1c-adopted-content-revision
 
 assertions:

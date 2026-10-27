@@ -36,3 +36,15 @@ bash scripts/quality_accept.sh --list
 bash scripts/quality_accept.sh --tier pr-smoke
 bash scripts/quality_accept.sh au03-context-source-ui --surface tauri
 ```
+
+## Quality Manifests
+
+`quality/acceptance/**` 的 manifest 门禁使用标准 YAML 解析器（PyYAML），不使用正则解析。
+
+```bash
+python3 -m pip install 'pyyaml==6.0.3'   # 一次性本地依赖（缺失时门禁硬失败）
+bash scripts/quality_manifest_check.sh
+node --test scripts/lib/quality/*.test.mjs
+```
+
+`quality_accept.sh` 执行前会先做同一校验；非法 manifest 不会进入运行（退出 66）。

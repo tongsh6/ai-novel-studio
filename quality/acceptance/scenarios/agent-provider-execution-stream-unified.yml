@@ -42,7 +42,10 @@ evidence:
     - websocket_frames
     - app_jsonl
     - summary_json
-    - live_provider_http_jsonl_when_provider_variant
+  conditional_required:
+    - kind: llm_http_log
+      when:
+        default_provider: lmstudio
   artifact_dir: artifacts/slice-verify/agent-provider-execution-stream-unified-tauri
   provider_variant_artifact_dirs:
     lmstudio: artifacts/slice-verify/agent-provider-execution-stream-unified-tauri-lmstudio
