@@ -2,13 +2,31 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "quality/acceptance/evidence-schema.json",
   "title": "AI Novel Studio Scenario Acceptance Evidence",
+  "description": "场景证据的描述性 schema。B41 起真正的执行结果契约是 verdict-schema.json（quality-verdict/v2）；本文件顶层的旧字段仅为历史兼容。B42 CP0 §6.4 冻结的 additive 扩展放在 $defs：quality-evidence-chain/v1（CP2 求证证据链，sidecar evidence-chain.json）、quality-native-run/v1（CP3 原生 run manifest，sidecar native-run-manifest.json）、quality-release-layer/v1（CP1 release/release-real-llm 分层结果，sidecar release-layer.json）。这些 sidecar 不改变 quality-verdict/v2 的读取语义：缺 sidecar 或字段缺失一律 unknown/evidence_missing，不得默认 PASS；未知可选字段不得让旧证据读取失败。",
   "type": "object",
-  "required": ["scenario_id", "surface", "tier", "artifact_dir", "required"],
+  "required": [
+    "scenario_id",
+    "surface",
+    "tier",
+    "artifact_dir",
+    "required"
+  ],
   "properties": {
-    "scenario_id": { "type": "string" },
-    "surface": { "enum": ["browser", "tauri"] },
-    "tier": { "type": "string" },
-    "artifact_dir": { "type": "string" },
+    "scenario_id": {
+      "type": "string"
+    },
+    "surface": {
+      "enum": [
+        "browser",
+        "tauri"
+      ]
+    },
+    "tier": {
+      "type": "string"
+    },
+    "artifact_dir": {
+      "type": "string"
+    },
     "required": {
       "type": "array",
       "items": {
@@ -18,13 +36,1309 @@
           "app_jsonl",
           "turn_result",
           "action_result",
+          "ui_state",
+          "backend_log",
+          "llm_http_log",
+          "provider_secrets_metadata",
           "persistence_snapshot",
           "summary_json",
-          "llm_http_log"
+          "replay_api_response",
+          "seed_log",
+          "export_artifact",
+          "progress_jsonl",
+          "word_count_json",
+          "native_screenshots",
+          "native_transport_jsonl",
+          "persisted_session",
+          "memory_facts",
+          "audit_report"
         ]
       }
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$defs": {
+    "layers": {
+      "title": "机制证据 / 模型行为证据分层（B42 CP0）",
+      "description": "两类结果不得互相代签。确定性 provider 批次只能 mechanism=pass + model_behavior=not_applicable；真实模型 PASS 必须有独立 model_behavior 证据。",
+      "type": "object",
+      "required": [
+        "mechanism",
+        "model_behavior"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mechanism": {
+          "type": "object",
+          "required": [
+            "status",
+            "evidence_refs"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "pass",
+                "fail",
+                "unknown",
+                "not_applicable"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "model_behavior": {
+          "type": "object",
+          "required": [
+            "status",
+            "evidence_refs"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "enum": [
+                "pass",
+                "fail",
+                "unknown",
+                "not_applicable"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          }
+        }
+      }
+    },
+    "evidence_chain": {
+      "title": "quality-evidence-chain/v1",
+      "description": "B42 CP2：Base → Observation → 后续真实 provider 请求 → self_report used refs 的证据链。集合关系由 scripts/lib/quality/evidence_chain.mjs 强制：used_context_refs ⊆ Base refs ∪ 实际观察 refs；未读取/stale ref 不得获得证据信用；supplied≠used；未返回自报告=unknown；观察必须先于后续 provider 请求。缺 base_refs/used_context_refs 只记 unknown，不得反推。",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "run_ref",
+        "scenario_id",
+        "base_refs",
+        "base_refs_status",
+        "observations",
+        "provider_calls",
+        "observation_to_provider_call",
+        "used_context_refs",
+        "used_context_refs_status",
+        "used_context_refs_source",
+        "unbound_refs",
+        "unresolved_refs",
+        "preparation_outcome",
+        "stale_on_restore",
+        "replay_provider_called",
+        "blockers",
+        "violations",
+        "binding",
+        "generated_at"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "quality-evidence-chain/v1"
+        },
+        "run_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scenario_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "base_refs_status": {
+          "enum": [
+            "recorded",
+            "unknown"
+          ]
+        },
+        "base_ref_entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "ref",
+              "source",
+              "version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "observation_ref",
+              "query",
+              "tool",
+              "outcome",
+              "source_refs",
+              "source_revision",
+              "coverage",
+              "observed_at",
+              "run_ref",
+              "turn_ref",
+              "observed_in_calls",
+              "stale",
+              "metadata_missing"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "observation_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "query": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tool": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "observed",
+                  "empty",
+                  "ambiguous",
+                  "conflict",
+                  "stale",
+                  "error",
+                  "unknown"
+                ]
+              },
+              "source_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "source_revision": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coverage": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "detail"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "detail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "observed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "run_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "turn_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "observed_in_calls": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "stale": {
+                "type": "boolean"
+              },
+              "metadata_missing": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "observation_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "provider_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "provider_call_ref",
+              "at",
+              "turn_ref",
+              "run_ref",
+              "step",
+              "provider",
+              "provider_class",
+              "model",
+              "actual_model",
+              "real",
+              "request_observation_refs"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "provider_call_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "turn_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "run_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "step": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "provider": {
+                "type": "string",
+                "minLength": 1
+              },
+              "provider_class": {
+                "enum": [
+                  "real_model",
+                  "deterministic",
+                  "unknown"
+                ]
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "actual_model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "real": {
+                "type": "boolean"
+              },
+              "request_observation_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "observation_to_provider_call": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "observation_ref",
+              "provider_call_ref",
+              "ordered",
+              "linked_by",
+              "provider_real"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "observation_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "provider_call_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ordered": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "linked_by": {
+                "enum": [
+                  "request_observation_ref",
+                  "explicit",
+                  "time_order",
+                  "none"
+                ]
+              },
+              "provider_real": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "used_context_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "used_context_refs_status": {
+          "enum": [
+            "reported",
+            "unknown"
+          ]
+        },
+        "used_context_refs_source": {
+          "enum": [
+            "self_report",
+            "inferred_supplied",
+            "missing"
+          ]
+        },
+        "supplied_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "unbound_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "unresolved_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "preparation_outcome": {
+          "enum": [
+            "ready",
+            "continue_seeking",
+            "degraded",
+            "awaiting_author",
+            "blocked",
+            "unknown"
+          ]
+        },
+        "stale_on_restore": {
+          "enum": [
+            "none",
+            "stale_detected",
+            "unknown"
+          ]
+        },
+        "replay_provider_called": {
+          "type": "boolean"
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "code": {
+                "enum": [
+                  "unbound_ref",
+                  "unread_ref_credited",
+                  "stale_observation_credited",
+                  "observation_after_provider_call",
+                  "used_refs_inferred_from_supplied",
+                  "replay_provider_called",
+                  "observation_source_missing"
+                ]
+              }
+            }
+          }
+        },
+        "binding": {
+          "type": "object",
+          "required": [
+            "binding_status",
+            "reason_codes",
+            "observation_link_count",
+            "real_observation_link_count",
+            "used_bound_count",
+            "used_unbound_count"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "binding_status": {
+              "enum": [
+                "verified",
+                "partial",
+                "unknown",
+                "violated"
+              ]
+            },
+            "reason_codes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "observations_link_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "real_observation_link_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "used_bound_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "used_unbound_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "native_run_manifest": {
+      "title": "quality-native-run/v1",
+      "description": "B42 CP3：原生 artifact 目录的统一 run manifest。failure 存在即 fail；termination 非 0/非 EXIT 即 fail；final 与 failure 并存只看 final 判 PASS 被禁止；scoped 结果 full_matrix_established=false，不得外推全矩阵。",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "artifact_dir",
+        "layout",
+        "scanned_at",
+        "run",
+        "final",
+        "failure",
+        "scoped",
+        "checks",
+        "termination",
+        "native_transport",
+        "ax",
+        "db_snapshot",
+        "production_fingerprint",
+        "run_evidence",
+        "status",
+        "reason_codes",
+        "pass_scope",
+        "full_matrix_established"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "quality-native-run/v1"
+        },
+        "artifact_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "enum": [
+            "nested-run",
+            "flat"
+          ]
+        },
+        "scanned_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "evidence_missing"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "pass_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "full_scope",
+            "scoped_scope_only",
+            "unknown_scope",
+            null
+          ]
+        },
+        "full_matrix_established": {
+          "type": "boolean"
+        },
+        "run": {
+          "type": "object",
+          "required": [
+            "found",
+            "summary_path",
+            "slice_id",
+            "surface",
+            "driver",
+            "driver_is_native",
+            "provider",
+            "provider_class",
+            "model",
+            "scope",
+            "identity_conflicts"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "summary_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "slice_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "surface": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "driver": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "driver_is_native": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "provider": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "provider_class": {
+              "enum": [
+                "real_model",
+                "deterministic",
+                "unknown"
+              ]
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "scope": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "identity_conflicts": {
+              "type": "array"
+            }
+          }
+        },
+        "final": {
+          "type": "object",
+          "required": [
+            "found",
+            "path",
+            "at"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "failure": {
+          "type": "object",
+          "required": [
+            "found",
+            "path",
+            "at",
+            "reason"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "scoped": {
+          "type": "object",
+          "required": [
+            "scope_class",
+            "scope_text",
+            "limitations",
+            "full_matrix_established"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "scope_class": {
+              "enum": [
+                "full",
+                "scoped",
+                "unknown"
+              ]
+            },
+            "scope_text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "limitations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "full_matrix_established": {
+              "type": "boolean"
+            }
+          }
+        },
+        "checks": {
+          "type": "object",
+          "required": [
+            "total",
+            "passed",
+            "failed",
+            "summary"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "passed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "termination": {
+          "type": "object",
+          "required": [
+            "found",
+            "signal",
+            "exit_code",
+            "at"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "signal": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "exit_code": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "native_transport": {
+          "type": "object",
+          "required": [
+            "found",
+            "total_rows",
+            "frames",
+            "http_requests",
+            "http_2xx"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "total_rows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "frames": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "http_requests": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "http_2xx": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "ax": {
+          "type": "object",
+          "required": [
+            "ax_dumps",
+            "text_dumps",
+            "screenshots"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "ax_dumps": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "text_dumps": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "screenshots": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "db_snapshot": {
+          "type": "object",
+          "required": [
+            "found",
+            "count"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "found": {
+              "type": "boolean"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "production_fingerprint": {
+          "type": "object",
+          "required": [
+            "head",
+            "production_sources_snapshot",
+            "model_lifecycle"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "head": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "production_sources_snapshot": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "model_lifecycle": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "release_layer_summary": {
+      "title": "quality-release-layer/v1",
+      "description": "B42 CP1：release（确定性 provider）/ release-real-llm（真实模型 provider）分层结果。两类结果不得合并成单一 PASS；空 tier = not_run + empty_tier（exit 65），不得当 PASS 或全部通过；真实模型 PASS 需要重复/保留措辞/身份/证据链/原生 run 判据全部满足。",
+      "type": "object",
+      "required": [
+        "schema_version",
+        "generated_at",
+        "tier",
+        "tier_class",
+        "surface",
+        "provider",
+        "batch_id",
+        "git_head",
+        "status",
+        "exit_code",
+        "reason",
+        "reason_codes",
+        "known_fact",
+        "registered_scenarios",
+        "counts",
+        "layers",
+        "separation",
+        "replay",
+        "retention",
+        "failure_denominator",
+        "blocked_scenarios",
+        "not_run_scenarios",
+        "evidence_missing_scenarios",
+        "failure_refs",
+        "scenarios",
+        "open_gaps"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": {
+          "const": "quality-release-layer/v1"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tier": {
+          "enum": [
+            "release",
+            "release-real-llm"
+          ]
+        },
+        "tier_class": {
+          "enum": [
+            "deterministic",
+            "real_model"
+          ]
+        },
+        "surface": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "skipped",
+            "not_run",
+            "evidence_missing"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "known_fact": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "registered_scenarios": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "counts": {
+          "type": "object",
+          "required": [
+            "planned",
+            "executed",
+            "pass",
+            "fail",
+            "skipped",
+            "not_run",
+            "evidence_missing"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "planned": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "executed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "pass": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fail": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "skipped": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "not_run": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "evidence_missing": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "layers": {
+          "type": "object",
+          "required": [
+            "mechanism",
+            "model_behavior"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "mechanism": {
+              "type": "object",
+              "required": [
+                "pass",
+                "fail",
+                "unknown",
+                "not_applicable"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "pass": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "fail": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "unknown": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "not_applicable": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "model_behavior": {
+              "type": "object",
+              "required": [
+                "pass",
+                "fail",
+                "unknown",
+                "not_applicable"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "pass": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "fail": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "unknown": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "not_applicable": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "separation": {
+          "type": "object",
+          "required": [
+            "tier_class",
+            "providers",
+            "provider_classes",
+            "mixed_provider_classes",
+            "deterministic_results_mixed_with_real",
+            "single_verdict_allowed"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "tier_class": {
+              "enum": [
+                "deterministic",
+                "real_model"
+              ]
+            },
+            "providers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "provider_classes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "mixed_provider_classes": {
+              "type": "boolean"
+            },
+            "deterministic_results_mixed_with_real": {
+              "type": "boolean"
+            },
+            "single_verdict_allowed": {
+              "const": false
+            }
+          }
+        },
+        "replay": {
+          "type": "object",
+          "required": [
+            "required_fields",
+            "scenes"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "required_fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scenes": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "retention": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "failure_denominator": {
+          "type": "object"
+        },
+        "blocked_scenarios": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "not_run_scenarios": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_missing_scenarios": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "failure_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "open_gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
 }
-

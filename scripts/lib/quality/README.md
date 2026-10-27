@@ -15,3 +15,12 @@
 | `quality_accept_batch.test.mjs` | B41 CP2：批次状态分层/退出码 fixture 集成测试（pass/fail/skipped/evidence_missing/not_run）。 |
 | `e2e_status.mjs` | B41 CP3：E2E 聚合器状态/来源/freshness 纯函数。 |
 | `e2e_status.test.mjs` | B41 CP3：blocked/stale/evidence_missing/provider mismatch 等 fixture 测试。 |
+| `evidence_chain.mjs` | B42 CP2：`quality-evidence-chain/v1` 求证证据链（Base refs / observations / observation→provider call 顺序 / used-unbound-unknown / preparation/stale/replay）归一化、集合校验与历史 artifact 只读读取；被 `release_layer.mjs`、`native_run_manifest.mjs`、`release_layer_cli.mjs` 与测试消费，无独立 CLI。 |
+| `evidence_chain.test.mjs` | B42 CP2：集合关系正反例、顺序违规、supplied≠used、历史 ws frames / p1 原生实模 artifact 只读验证；`node --test scripts/lib/quality/evidence_chain.test.mjs`。 |
+| `native_run_manifest.mjs` | B42 CP3：`quality-native-run/v1` 原生 artifact 目录统一 run manifest（run/final/failure/scoped/checks/termination/native-transport/AX/DB snapshot/生产指纹/identity），final+failure 并存不得只看 final；被 `release_layer_cli.mjs` 消费。 |
+| `native_run_manifest.test.mjs` | B42 CP3：合成 fixture 判定语义 + 真实历史原生目录（p1/b28/b29，缺失跳过）只读验证。 |
+| `release_layer.mjs` | B42 CP1：`quality-release-layer/v1` release/release-real-llm 分层结果层（机制/模型行为分离、真实 provider PASS 反假绿、重复/保留措辞/失败分母、空 tier 已知事实、blocked 不得 PASS）。 |
+| `release_layer_cli.mjs` | B42 CP1：读 registry + B41 batch + verdict + CP2 证据链 + CP3 原生 run，输出分层结果；空 tier exit 65、跨 tier 合并 exit 66。 |
+| `release_layer.test.mjs` | B42 CP1：分层/反假绿/空 tier/CLI 真实历史证据只读测试（31 条）。 |
+| `quality_accept_shell_safety.test.mjs` | K4 静态回归（Lead 批准）：扫描 `scripts/quality_accept.sh` 双引号内 `$var` 紧跟非 ASCII 的写法（`set -u` 下会 unbound/退出码异常），要求 `${var}`；含扫描器自检与 4 处已修复写法防回退。 |
+| `release_layer_accept.test.mjs` | B42 CP1 接线（含 K5 真实 provider passthrough → evidence_missing）：`scripts/quality_accept.sh --tier release\|release-real-llm` 批次后写 batch 目录内 release-layer.json 的 fixture 集成测试；既有退出码/既有 tier 行为不变（6 条）。 |

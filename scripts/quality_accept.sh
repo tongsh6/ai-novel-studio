@@ -269,7 +269,7 @@ EOF
       local e2e_rc=0
       bash "$PROJECT_ROOT/scripts/e2e_01_full_chain_check.sh" --provider "$scenario_provider" || e2e_rc=$?
       if [[ "$e2e_rc" -ne 0 ]]; then
-        echo "[quality-accept] failed: $scenario_id（aggregate exit=$e2e_rc）" >&2
+        echo "[quality-accept] failed: ${scenario_id}（aggregate exit=${e2e_rc}）" >&2
         # B41 CP3/CP4：聚合器的 blocked/evidence_missing/not_run 不得压成 fail，透传退出码。
         case "$e2e_rc" in
           65) record_verdict skipped "aggregate_all_blocked" quality_accept_aggregate_blocked || true ;;
@@ -298,9 +298,13 @@ EOF
     echo "[quality-accept] evidence_missing（verdict 降级：必需证据缺失）：$scenario_id" >&2
     exit 67
   elif [[ "$verdict_rc" -eq 2 ]]; then
-    echo "[quality-accept] $scenario_id：真实 provider pass 的模型行为证据归 B42；本次不写 PASS verdict（读方为 evidence_missing）" >&2
+    # K5（Lead 裁决，B42 CP1）：真实 provider runner 成功但缺 B42 模型行为证据时按
+    # evidence_missing 处理——不得继续 passed、不得计入 batch PASS。单场景 exit 67；
+    # 批量由父进程记 evidence_missing（B41 CP4 已冻结「真实 provider PASS 需模型行为证据」）。
+    echo "[quality-accept] evidence_missing（真实 provider pass 缺 B42 模型行为证据，不写 PASS verdict）：${scenario_id}" >&2
+    exit 67
   elif [[ "$verdict_rc" -ne 0 ]]; then
-    echo "[quality-accept] verdict 写入失败（rc=$verdict_rc），不记 PASS：$scenario_id" >&2
+    echo "[quality-accept] verdict 写入失败（rc=${verdict_rc}），不记 PASS：$scenario_id" >&2
     exit 67
   fi
 
@@ -441,6 +445,25 @@ for (const row of rows) {
 }
 console.log("[quality-accept] batch summary: " + path.join(env.BATCH_DIR, "batch.json"));
 NODE
+
+  # B42 CP1：release / release-real-llm 结果层接线——批次结束后读本批 batch.json（及其
+  # 各场景 verdict / 证据链 / 原生 run manifest），写 batch 目录内 release-layer.json。
+  # 约束：不改变既有批次退出码、既有 tier 行为与非 release tier 行为；release 层错误只
+  # 告警，不得把「空 tier / 证据缺失 / 实模判据不满足」伪装成 PASS。
+  if [[ "$tier" == "release" || "$tier" == "release-real-llm" ]]; then
+    local release_rc=0
+    node "$PROJECT_ROOT/scripts/lib/quality/release_layer_cli.mjs" summarize \
+      --root "$PROJECT_ROOT" \
+      --tier "$tier" \
+      --batch "$PROJECT_ROOT/$batch_dir/batch.json" \
+      --out "$PROJECT_ROOT/$batch_dir" \
+      >"$PROJECT_ROOT/$batch_dir/release-layer.log" 2>&1 || release_rc=$?
+    if [[ "$release_rc" -ne 0 ]]; then
+      echo "[quality-accept] release-layer: status=${release_rc}（不改变批次退出码；详见 ${batch_dir}/release-layer.log）" >&2
+    else
+      echo "[quality-accept] release-layer: ${batch_dir}/release-layer.json" >&2
+    fi
+  fi
 
   if [[ "$batch_exit" -ne 0 ]]; then
     echo "[quality-accept] batch failed: tier=$tier surface=${surface:-any} exit=$batch_exit" >&2

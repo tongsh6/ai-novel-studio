@@ -76,3 +76,41 @@ bash scripts/quality_accept.sh --tier <tier> [--surface browser|tauri] [--provid
 - **PASS 反假绿**：`status=pass` 时 `evidence_required` 每项必须出现在 `evidence_present`（显式空 `evidence_missing` 不能绕过）、`evidence_missing` 为空、`mechanism`/`model_behavior` 必须显式且 ∈ `pass|not_applicable`（unknown/fail 不能 PASS）。
 - **B41 入口接线**：`scripts/quality_accept.sh` 在每次运行后经 `scripts/lib/quality/accept_verdict.mjs` 写 verdict：确定性 provider（`slice_verify`）的 pass 记 `mechanism=pass` + `model_behavior=not_applicable`；真实 provider 的 pass 需 B42 的模型行为证据，B41 不写 PASS verdict（读方为 evidence_missing，不冒充）。runner 成功但必需证据缺失时 verdict 降级 `evidence_missing` 且入口 exit 67。
 - **生成/读取同源**：唯一实现 `scripts/lib/quality/verdict.mjs`；CLI `node scripts/lib/quality/verdict_cli.mjs read <artifact_dir> | write <artifact_dir> <json> | validate <file>`。`read` 退出码：0 pass / 1 fail / 65 skipped / 67 evidence_missing / 69 not_run；`validate` 有效 0、无效 1；用法错误 64。测试 `node --test scripts/lib/quality/verdict.test.mjs`。
+
+## B42 CP0：机制证据 / 模型行为证据冻结（2026-10-27）
+
+- **两类结果不得互相代签**：机制证据由确定性 provider/runner 证明计划、工具、观察、状态、持久化、恢复、页面操作与采纳边界；模型行为证据只由真实 provider 的自然输入运行证明模型自主求证/使用观察/承认未知。确定性/stub 批次的 `model_behavior` 只能是 `not_applicable`；HTTP 200、局部证据、单次运行、supplied refs、工具日志不得写成模型语义 PASS。
+- **冻结参数**：自然输入措辞、provider/model/参数/actual_model、独立重复（关键缺事实场景 ≥2 次且全过）、未参与调词的保留措辞、失败分母（timeout/格式失败入分母）、禁答集、凭据 blocked（永不 PASS）、失败证据只读保留。完整契约见 [B42](../../tasks/slices/B42-model-behavior-evidence-tier.md) §6。
+- **additive 版本策略**：B41 `quality-verdict/v2` 冻结不改；B42 新增三份 sidecar：`quality-evidence-chain/v1`、`quality-native-run/v1`、`quality-release-layer/v1`，以 `evidence-schema.json` 的 `$defs` additive 描述（缺 sidecar/字段 = unknown/evidence_missing，不得默认 PASS）。
+
+## B42 CP1：release / release-real-llm 分层结果
+
+```bash
+node scripts/lib/quality/release_layer_cli.mjs summarize --tier release [--batch <batch.json>] [--json]
+node scripts/lib/quality/release_layer_cli.mjs summarize --tier release-real-llm [--out <dir>]
+```
+
+- **接线（B42 CP1，Lead 批准）**：`bash scripts/quality_accept.sh --tier release|release-real-llm` 在写完 `batch.json` 后自动调用 `release_layer_cli summarize`，写 `artifacts/quality-accept/batches/<batch>/release-layer.json`（+ `release-layer.log`）；**不改变既有批次退出码与既有 tier 行为**，release 层错误只告警。fixture 集成测试：`scripts/lib/quality/release_layer_accept.test.mjs`。
+- 读 registry + B41 `batch.json` + 每场景 verdict + CP2 证据链 + CP3 原生 run，输出 `quality-release-layer/v1`：counts / layers{mechanism, model_behavior} / separation（`single_verdict_allowed=false`）/ replay 身份 / failure_denominator / blocked·not_run·evidence_missing 列表 / 空 tier 已知事实。
+- 退出码：pass `0`、fail `1`、blocked/skipped `65`、evidence_missing `67`、not_run `69`、usage `64`、config（非法 tier/跨 tier batch）`66`。
+- **真实 provider passthrough（K5，Lead 裁决）**：runner 成功但 `record_verdict pass` 返回 2（无 B42 模型行为证据）时，单场景 exit `67`、批量记 `evidence_missing`，不写 `passed`、不计 batch PASS（B41 CP4「真实 provider PASS 需模型行为证据」的入口一致化）。
+- **当前两个 tier 均 0 场景**（已知事实）：空 tier = `not_run` + `empty_tier` + exit 65，不是 PASS；tier 非空归 B42 CP4（blocked，ADR-0030 Proposed）。
+- 真实模型 PASS 判据：真实 provider 响应正文（非 HTTP 200）、≥2 独立重复全过、未调词保留措辞、model/actual_model/params/driver 可回放、CP2 观察链接无违规、CP3 原生 run 非 fail；缺凭据只能 blocked。
+
+## B42 CP2：求证证据链（quality-evidence-chain/v1）
+
+- 模块：`scripts/lib/quality/evidence_chain.mjs`；sidecar：`evidence-chain.json`（写入拒绝覆盖）。
+- **集合关系**：`used_context_refs ⊆ Base refs ∪ 实际观察 refs`（`observed/empty/ambiguous/conflict` 可获信用；`error`=未读取、`stale`=过期、缺 outcome=unknown 均不获信用）；Base 未记录时非法 ref 记 `unresolved`（unknown）而非越界；Base 已记录时越界 → `unbound_ref` 违规。
+- **顺序**：`observation_to_provider_call` 支持 `request_observation_ref`/`time_order` 链接；观察晚于后续 provider 请求 → 违规；观察未被任何真实请求引用 → blocker。
+- **诚实未知**：未返回 used refs → `used_context_refs=null` + `status=unknown`，不得由 supplied/Base 推导；`preparation_outcome`/`stale_on_restore`/`replay_provider_called` 显式记录，replay 重调 provider 不得作为 replay 信用。
+- 历史 artifact（ws frames / native-transport / app-log / llm-calls）可只读读取作验证资产；历史证据缺 Base/outcome/coverage → binding 只能是 unknown/partial（不得冒充 evidence-bound PASS）。测试：`node --test scripts/lib/quality/evidence_chain.test.mjs`。
+
+## B42 CP3：原生 run manifest（quality-native-run/v1）
+
+- 模块：`scripts/lib/quality/native_run_manifest.mjs`；sidecar：`native-run-manifest.json`。
+- 扫描一个原生 artifact 目录（兼容 `run/` 嵌套与扁平历史布局），统一输出 run/final/failure/scoped checks/termination/native-transport/AX/DB snapshot/生产指纹/driver/provider/model/scope 与判定：
+  - `failure.json` 存在 → fail（即使 final 也存在：`final_failure_coexist`，不得只看 final 写 PASS）；
+  - termination 非 0/非 EXIT → fail；checks 失败 → fail；跨来源 identity 冲突 → fail；
+  - 无 final 且无 failure（旧 summary 存在）→ evidence_missing；
+  - `scope_class=scoped` 可 pass 但 `pass_scope=scoped_scope_only`、`full_matrix_established=false`。
+- 测试：`node --test scripts/lib/quality/native_run_manifest.test.mjs`（真实历史目录在 artifacts 缺失时自动跳过）。

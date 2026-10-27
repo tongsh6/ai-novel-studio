@@ -25,3 +25,13 @@
 | `quality/verdict.test.mjs` | verdict 负例矩阵、legacy 读取、PASS 覆盖保护与 schema/实现同源回归；运行 `node --test scripts/lib/quality/verdict.test.mjs`，无前端/npm 依赖。 |
 | `quality/e2e_status.mjs` | B41 CP3 E2E 聚合器判定纯函数：场景状态 `pass/fail/blocked/stale/evidence_missing/not_run`、freshness（`git_head`/`current`）、聚合 verdict `quality-aggregate/v1` 与批量退出码；被 `scripts/e2e_01_full_chain_check.sh` 消费。 |
 | `quality/e2e_status.test.mjs` | B41 CP3 负例 fixture：E4 blocked、旧 summary 无 git_head→stale、缺失/provider 不匹配、fresh pass 与退出码映射；运行 `node --test scripts/lib/quality/e2e_status.test.mjs`。 |
+## quality/（B42 模型行为与求证证据分层，2026-10-27）
+
+| 文件 | 角色 |
+|---|---|
+| `quality/evidence_chain.mjs` | B42 CP2：`quality-evidence-chain/v1`——Base refs、observations（outcome/source_revision/coverage）、observation→后续 provider call 顺序、used/unbound/unknown、preparation_outcome/stale_on_restore/replay_provider_called 的归一化与集合校验；被 `release_layer.mjs`/`native_run_manifest.mjs`/CLI 消费。 |
+| `quality/native_run_manifest.mjs` + `quality/native_run_manifest_cli.mjs` | B42 CP3：`quality-native-run/v1`——原生 artifact 目录统一 run manifest（run/final/failure/scoped/checks/termination/native-transport/AX/DB snapshot/生产指纹）；final+failure 并存必须 fail，scoped 不外推全矩阵；CLI `scan <artifact-dir>`。 |
+| `quality/release_layer.mjs` + `quality/release_layer_cli.mjs` | B42 CP1：`quality-release-layer/v1`——release/release-real-llm 分层结果层（机制/模型行为分离、真实 provider PASS 反假绿、重复/保留措辞/失败分母、空 tier=not_run）；被 `scripts/quality_accept.sh` 的 release tier 批次消费。 |
+| `quality/release_layer_accept.test.mjs` | B42 CP1 接线 + K5（真实 provider passthrough→evidence_missing）fixture 集成测试。 |
+| `quality/quality_accept_shell_safety.test.mjs` | K4 静态回归：扫描 `quality_accept.sh` 双引号内 `$var` 紧跟非 ASCII 的写法，避免 `set -u` 下变量名被全角字符吞并。 |
+
